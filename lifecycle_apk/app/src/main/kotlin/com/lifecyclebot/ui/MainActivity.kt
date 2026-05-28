@@ -514,6 +514,8 @@ class MainActivity : AppCompatActivity() {
     private var lastTreasuryCachedPnlSol: Double = 0.0
     private var lastCryptoAltsRenderMs: Long = 0L  // V5.9.730 ANR debounce
     private var lastBlueChipHash: Int = -1
+    private var lastBlueChipRenderMs: Long = 0L
+    private var lastBlueChipCachedPnlSol: Double = 0.0
     private var lastQualityHash: Int = -1
     private var lastShitCoinHash: Int = -1
     private var lastAiStatusRenderMs: Long = 0L
@@ -3201,7 +3203,17 @@ for legal compliance.
             if (blueChipPositions.isNotEmpty()) {
                 val blueChipExposure = blueChipPositions.sumOf { it.entrySol }
                 tvBlueChipExposure.text = "%.3f◎".format(blueChipExposure)
-                val blueChipUnrealized = renderBlueChipPositions(blueChipPositions)  // V5.9.420
+                val nowBlueMs = System.currentTimeMillis()
+                val runtimeActiveBlue = try { com.lifecyclebot.engine.BotService.isRuntimeActive() } catch (_: Throwable) { false }
+                val blueStructHash = blueChipPositions.map { "${it.mint}|${it.entrySol}|${it.isPaper}" }.hashCode()
+                val firstRuntimeBluePass = runtimeActiveBlue && lastBlueChipRenderMs <= 0L
+                if (firstRuntimeBluePass) lastBlueChipRenderMs = nowBlueMs
+                val blueRenderDue = !firstRuntimeBluePass && (!runtimeActiveBlue || blueStructHash != lastBlueChipHash || (nowBlueMs - lastBlueChipRenderMs) >= 60_000L)
+                val blueChipUnrealized = if (blueRenderDue) {
+                    renderBlueChipPositions(blueChipPositions).also { lastBlueChipCachedPnlSol = it }
+                } else {
+                    lastBlueChipCachedPnlSol
+                }
                 tvBlueChipPnl.text = "%+.4f◎".format(blueChipUnrealized)
                 tvBlueChipPnl.setTextColor(if (blueChipUnrealized >= 0) green else red)
             }
@@ -4443,8 +4455,9 @@ for legal compliance.
     private fun renderBlueChipPositions(positions: List<com.lifecyclebot.v3.scoring.BlueChipTraderAI.BlueChipPosition>): Double {
         // V5.9.709 — skip re-render if blue chip list unchanged
         val bcHash = positions.map { "${it.mint}|${it.entrySol}|${it.isPaper}" }.hashCode()
-        if (bcHash == lastBlueChipHash) return 0.0
+        if (bcHash == lastBlueChipHash) return lastBlueChipCachedPnlSol
         lastBlueChipHash = bcHash
+        lastBlueChipRenderMs = System.currentTimeMillis()
         llBlueChipPositions.removeAllViews()
         val sdf = blueChipTimeSdf  // V5.9.1070 — class-field, no ICU init
         // V5.9.420 — accumulate children unrealized PnL for header parity.
@@ -4547,6 +4560,7 @@ for legal compliance.
             llBlueChipPositions.addView(row)
             llBlueChipPositions.addView(div)
         }
+        lastBlueChipCachedPnlSol = childrenUnrealizedSum
         return childrenUnrealizedSum
     }
     

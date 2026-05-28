@@ -624,6 +624,61 @@ class ExecutionAuthorityInvariantTest {
     }
 
     @Test
+    fun paper_missing_rug_context_is_learnable_unknown() {
+        resetAuthorities(paper = true)
+        val mint = "MintMissingRcPaper11111111111111111"
+        ExecutableOpenGate.recordFdg(
+            mint = mint,
+            symbol = "MRCP",
+            lane = "TREASURY",
+            canExecute = true,
+            reason = null,
+            signal = "BUY",
+            rugScore = -1,
+            safetyTier = "SAFE",
+            liquidityUsd = 2500.0,
+        )
+        val v = ExecutableOpenGate.canOpenExecutablePosition(
+            mint = mint,
+            symbol = "MRCP",
+            rugScore = -1,
+            mode = "PAPER",
+            lane = "TREASURY",
+            source = "test",
+        )
+        assertTrue("paper missing RC context should be learnable unknown", v.allowed)
+        assertEquals("EXEC_OPEN_ALLOWED", v.logName)
+    }
+
+    @Test
+    fun live_missing_rug_context_remains_blocked() {
+        resetAuthorities(paper = false)
+        val mint = "MintMissingRcLive111111111111111111"
+        ExecutableOpenGate.recordFdg(
+            mint = mint,
+            symbol = "MRCL",
+            lane = "TREASURY",
+            canExecute = true,
+            reason = null,
+            signal = "BUY",
+            rugScore = -1,
+            safetyTier = "SAFE",
+            liquidityUsd = 2500.0,
+        )
+        val v = ExecutableOpenGate.canOpenExecutablePosition(
+            mint = mint,
+            symbol = "MRCL",
+            rugScore = -1,
+            mode = "LIVE",
+            lane = "TREASURY",
+            source = "test",
+        )
+        assertFalse(v.allowed)
+        assertEquals("EXEC_OPEN_DROPPED_PRE_FDG_NOT_BUY", v.logName)
+        assertEquals("HARD_NO_BUY", v.reason)
+    }
+
+    @Test
     fun paper_rc_pending_score_one_stays_executable_finality() {
         resetAuthorities(paper = true)
         val mint = "MintRcPendingPaper111111111111111111"

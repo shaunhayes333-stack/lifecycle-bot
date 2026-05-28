@@ -1674,6 +1674,10 @@ object FinalDecisionGate {
             // so FDG was treating it as a confirmed low score and hard-blocking.
             // Paper mode: pass with RC_PENDING tag (same as ShitCoin TradeAuth bypass).
             // Live mode: block score=1 same as score=0..2 (unknown = risky with real SOL).
+            config.paperMode && rugcheckScore < 0 -> {
+                tags.add("missing_rc_paper_learn")
+                false
+            }
             rugcheckStatus == "CONFIRMED" && config.paperMode && rugcheckScore == 0 -> true
             rugcheckStatus == "CONFIRMED" && config.paperMode && rugcheckScore in 1..10 -> {
                 tags.add("low_rc_paper_learn")

@@ -208,7 +208,10 @@ object ExecutableOpenGate {
         val finalHardNo = hardNoReasons.toMutableList().apply {
             if (liquidityUsd <= 0.0) add("ZERO_LIQUIDITY")
             if (safetyTier.equals("UNKNOWN", true)) add("PRE_FDG_SAFETY_CONTEXT_MISSING")
-            if (rugScore < 0) add("PRE_FDG_RUG_CONTEXT_MISSING")
+            // V5.9.1216 — PAPER treats missing RC context as learnable unknown,
+            // same philosophy as RC_PENDING / low-RC sampling. LIVE keeps strict
+            // pre-FDG rug context finality.
+            if (rugScore < 0 && !paperRuntime) add("PRE_FDG_RUG_CONTEXT_MISSING")
             // V5.9.1214 — in PAPER only confirmed rug score 0 is fatal.
             // Scores 1..10 are learnable low-RC samples with soft penalties
             // upstream; LIVE still treats 1..10 as hard no-buy finality.
@@ -412,8 +415,8 @@ object ExecutableOpenGate {
         if (safetyTier.equals("UNKNOWN", true)) {
             return blocked("EXEC_OPEN_BLOCKED_SAFETY_CONTEXT_MISSING", "PRE_FDG_SAFETY_CONTEXT_MISSING", shadow = mode == "PAPER")
         }
-        if (rug < 0) {
-            return blocked("EXEC_OPEN_BLOCKED_RUG_CONTEXT_MISSING", "PRE_FDG_RUG_CONTEXT_MISSING", shadow = mode == "PAPER")
+        if (rug < 0 && modeUpper == "LIVE") {
+            return blocked("EXEC_OPEN_BLOCKED_RUG_CONTEXT_MISSING", "PRE_FDG_RUG_CONTEXT_MISSING", shadow = false)
         }
         if (liquidityUsd <= 0.0) {
             return blocked("EXEC_OPEN_BLOCKED_ZERO_LIQUIDITY", "ZERO_LIQUIDITY", shadow = mode == "PAPER")
