@@ -651,6 +651,61 @@ class ExecutionAuthorityInvariantTest {
     }
 
     @Test
+    fun paper_low_rc_score_six_stays_executable_for_learning() {
+        resetAuthorities(paper = true)
+        val mint = "MintRcSixPaper111111111111111111111"
+        ExecutableOpenGate.recordFdg(
+            mint = mint,
+            symbol = "RC6P",
+            lane = "SHITCOIN",
+            canExecute = true,
+            reason = null,
+            signal = "BUY",
+            rugScore = 6,
+            safetyTier = "SAFE",
+            liquidityUsd = 2500.0,
+        )
+        val v = ExecutableOpenGate.canOpenExecutablePosition(
+            mint = mint,
+            symbol = "RC6P",
+            rugScore = 6,
+            mode = "PAPER",
+            lane = "SHITCOIN",
+            source = "test",
+        )
+        assertTrue("paper low RC score=6 must remain learnable", v.allowed)
+        assertEquals("EXEC_OPEN_ALLOWED", v.logName)
+    }
+
+    @Test
+    fun live_low_rc_score_six_remains_finality_blocked() {
+        resetAuthorities(paper = false)
+        val mint = "MintRcSixLive1111111111111111111111"
+        ExecutableOpenGate.recordFdg(
+            mint = mint,
+            symbol = "RC6L",
+            lane = "SHITCOIN",
+            canExecute = true,
+            reason = null,
+            signal = "BUY",
+            rugScore = 6,
+            safetyTier = "SAFE",
+            liquidityUsd = 2500.0,
+        )
+        val v = ExecutableOpenGate.canOpenExecutablePosition(
+            mint = mint,
+            symbol = "RC6L",
+            rugScore = 6,
+            mode = "LIVE",
+            lane = "SHITCOIN",
+            source = "test",
+        )
+        assertFalse(v.allowed)
+        assertEquals("EXEC_OPEN_DROPPED_PRE_FDG_NOT_BUY", v.logName)
+        assertEquals("HARD_NO_BUY", v.reason)
+    }
+
+    @Test
     fun live_rc_score_one_remains_finality_blocked() {
         resetAuthorities(paper = false)
         val mint = "MintRcPendingLive1111111111111111111"

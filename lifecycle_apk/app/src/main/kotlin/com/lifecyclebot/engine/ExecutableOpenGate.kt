@@ -209,12 +209,10 @@ object ExecutableOpenGate {
             if (liquidityUsd <= 0.0) add("ZERO_LIQUIDITY")
             if (safetyTier.equals("UNKNOWN", true)) add("PRE_FDG_SAFETY_CONTEXT_MISSING")
             if (rugScore < 0) add("PRE_FDG_RUG_CONTEXT_MISSING")
-            // V5.9.1212 — RC score 1 is the RC_PENDING sentinel in paper.
-            // FinalDecisionGate and TokenSafetyChecker both allow it with a
-            // penalty for paper learning, but this finality mirror was still
-            // converting it back into HARD_NO_BUY. Keep confirmed rug score 0
-            // hard-blocked in all modes; keep score 1 hard-blocked in LIVE.
-            if (rugScore == 0 || (rugScore == 1 && !paperRuntime)) add("RC_SCORE_$rugScore")
+            // V5.9.1214 — in PAPER only confirmed rug score 0 is fatal.
+            // Scores 1..10 are learnable low-RC samples with soft penalties
+            // upstream; LIVE still treats 1..10 as hard no-buy finality.
+            if (rugScore == 0 || (rugScore in 1..10 && !paperRuntime)) add("RC_SCORE_$rugScore")
         }.distinct()
         val finalVerdict = when {
             finalHardNo.isNotEmpty() -> "HARD_NO_BUY"
@@ -429,12 +427,10 @@ object ExecutableOpenGate {
         if (signal.isNotBlank() && !signal.equals("UNKNOWN", true) && !signal.equals("BUY", true) && !signal.equals("EXECUTE", true)) {
             return blocked("EXEC_OPEN_BLOCKED_SIGNAL_NOT_BUY", signal, shadow = mode == "PAPER")
         }
-        // V5.9.1213 — mirror the paper RC_PENDING policy at final open.
-        // recordFdg() no longer converts rugScore=1 into HARD_NO_BUY in paper,
-        // but this later raw rug-score guard was still blocking it as
-        // EXEC_OPEN_BLOCKED_RUG_SCORE. Score 0 remains a confirmed-rug hard
-        // block everywhere; score 1 remains blocked in LIVE.
-        if (rug == 0 || (rug == 1 && modeUpper == "LIVE") || rug in 2..10) {
+        // V5.9.1214 — mirror PAPER low-RC learning policy at final open.
+        // Paper blocks only confirmed rug score 0; scores 1..10 are allowed
+        // to produce labelled samples. LIVE keeps 1..10 hard-blocked.
+        if (rug == 0 || (rug in 1..10 && modeUpper == "LIVE")) {
             return blocked("EXEC_OPEN_BLOCKED_RUG_SCORE", "RC_SCORE_$rug", shadow = mode == "PAPER")
         }
         if (fdgCan == false) {

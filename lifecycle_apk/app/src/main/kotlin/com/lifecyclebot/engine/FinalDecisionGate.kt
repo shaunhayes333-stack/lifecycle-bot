@@ -1603,12 +1603,12 @@ object FinalDecisionGate {
         val lenient = ModeLeniency.useLenientGates(config.paperMode)
 
         val rugcheckThreshold = if (lenient) {
-            // V5.6.8 FIX: Paper mode MUST learn with rugcheck enabled!
-            // Using threshold 0 means bot never learns which tokens are dangerous.
-            // When switching to live, it has no idea what to avoid.
-            // Use SAME threshold as live (or slightly lower for more learning data)
-            val baseThreshold = (brain?.learnedRugcheckThreshold ?: 3).coerceIn(2, 10)
-            (baseThreshold * modeMultipliers.rugcheckMultiplier * 0.8).toInt().coerceIn(2, 10)  // 20% looser for more data
+            // V5.9.1214 — paper must learn the ugly low-RC moonshots too.
+            // Operator example: SANDBOX rode 15k → 4M with RC score 6. If paper
+            // hard-blocks 2..10, it never sees that edge and cannot transition
+            // intelligently to live. TokenSafetyChecker already applies soft
+            // penalties for low RC; in PAPER only confirmed score 0 is fatal.
+            0
         } else {
             // V5.9.495n — operator: "live gate needs to come down to rc 1
             // and $2000". Lower bound dropped from 3 → 0 so the FDG
@@ -1674,8 +1674,9 @@ object FinalDecisionGate {
             // so FDG was treating it as a confirmed low score and hard-blocking.
             // Paper mode: pass with RC_PENDING tag (same as ShitCoin TradeAuth bypass).
             // Live mode: block score=1 same as score=0..2 (unknown = risky with real SOL).
-            rugcheckStatus == "CONFIRMED" && rugcheckScore == 1 && config.paperMode -> {
-                tags.add("rc_pending_paper_pass")
+            rugcheckStatus == "CONFIRMED" && config.paperMode && rugcheckScore == 0 -> true
+            rugcheckStatus == "CONFIRMED" && config.paperMode && rugcheckScore in 1..10 -> {
+                tags.add("low_rc_paper_learn")
                 false
             }
             rugcheckStatus == "CONFIRMED" && rugcheckScore == 1 && !config.paperMode -> true
