@@ -429,7 +429,12 @@ object ExecutableOpenGate {
         if (signal.isNotBlank() && !signal.equals("UNKNOWN", true) && !signal.equals("BUY", true) && !signal.equals("EXECUTE", true)) {
             return blocked("EXEC_OPEN_BLOCKED_SIGNAL_NOT_BUY", signal, shadow = mode == "PAPER")
         }
-        if (rug <= 10 && rug >= 0) {
+        // V5.9.1213 — mirror the paper RC_PENDING policy at final open.
+        // recordFdg() no longer converts rugScore=1 into HARD_NO_BUY in paper,
+        // but this later raw rug-score guard was still blocking it as
+        // EXEC_OPEN_BLOCKED_RUG_SCORE. Score 0 remains a confirmed-rug hard
+        // block everywhere; score 1 remains blocked in LIVE.
+        if (rug == 0 || (rug == 1 && modeUpper == "LIVE") || rug in 2..10) {
             return blocked("EXEC_OPEN_BLOCKED_RUG_SCORE", "RC_SCORE_$rug", shadow = mode == "PAPER")
         }
         if (fdgCan == false) {
