@@ -892,6 +892,19 @@ class AnimatedBrainView @JvmOverloads constructor(
     // V4.0: Track if we're in "live" mode (receiving continuous data)
     private var isLiveMode = false
     private var lastUpdateTime = 0L
+    // V5.9.1215 — continuous ValueAnimator invalidation was visible in
+    // watchdog samples while the bot was under load. Throttle animation
+    // paints and cancel animators when detached; this is UI-only.
+    private var lastAnimInvalidateMs = 0L
+    private val ANIM_INVALIDATE_MIN_MS = 500L
+
+    private fun invalidateAnimationFrame() {
+        val now = System.currentTimeMillis()
+        if (now - lastAnimInvalidateMs >= ANIM_INVALIDATE_MIN_MS) {
+            lastAnimInvalidateMs = now
+            invalidate()
+        }
+    }
     
     // Paints
     private val bgPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
@@ -958,7 +971,7 @@ class AnimatedBrainView @JvmOverloads constructor(
             interpolator = AccelerateDecelerateInterpolator()
             addUpdateListener { animator ->
                 breatheScale = animator.animatedValue as Float
-                invalidate()
+                invalidateAnimationFrame()
             }
             start()
         }
@@ -1006,12 +1019,20 @@ class AnimatedBrainView @JvmOverloads constructor(
             interpolator = AccelerateDecelerateInterpolator()
             addUpdateListener { animator ->
                 pulseScale = animator.animatedValue as Float
-                invalidate()
+                invalidateAnimationFrame()
             }
             start()
         }
     }
     
+    override fun onDetachedFromWindow() {
+        try { breatheAnimator?.cancel() } catch (_: Throwable) {}
+        try { pulseAnimator?.cancel() } catch (_: Throwable) {}
+        breatheAnimator = null
+        pulseAnimator = null
+        super.onDetachedFromWindow()
+    }
+
     override fun onDraw(canvas: Canvas) {
         super.onDraw(canvas)
         

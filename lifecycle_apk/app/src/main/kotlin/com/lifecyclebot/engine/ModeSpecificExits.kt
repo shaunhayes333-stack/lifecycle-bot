@@ -25,6 +25,29 @@ import com.lifecyclebot.v3.scoring.HoldTimeOptimizerAI
 object ModeSpecificExits {
     
     private const val TAG = "ModeExit"
+    // V5.9.1215 — telemetry throttle only. Runtime 5.0.3182 showed
+    // FRESH_TIMEOUT_CHECK=751 and FRESH_TIMEOUT_EXIT_BLOCKED_TOO_EARLY=746
+    // in 228s. These logs do not affect exit decisions but they hammer the
+    // forensic ring/string dump and supervisor workers. Keep confirmed exits
+    // immediate; rate-limit no-op/too-early telemetry per mint.
+    private const val FRESH_TIMEOUT_TELEMETRY_MS = 30_000L
+    private val freshTimeoutCheckLogMs = java.util.concurrent.ConcurrentHashMap<String, Long>()
+    private val freshTimeoutTooEarlyLogMs = java.util.concurrent.ConcurrentHashMap<String, Long>()
+
+    private fun shouldEmitFreshTimeoutTelemetry(
+        map: java.util.concurrent.ConcurrentHashMap<String, Long>,
+        mint: String,
+        now: Long,
+    ): Boolean {
+        val prev = map[mint]
+        if (prev != null && now - prev < FRESH_TIMEOUT_TELEMETRY_MS) return false
+        map[mint] = now
+        if (map.size > 2048) {
+            val cutoff = now - FRESH_TIMEOUT_TELEMETRY_MS
+            try { map.entries.removeIf { it.value < cutoff } } catch (_: Throwable) {}
+        }
+        return true
+    }
     
     // ═══════════════════════════════════════════════════════════════════
     // V5.2: AI-POWERED TIMEOUT CONFIGURATION
@@ -149,12 +172,15 @@ object ModeSpecificExits {
         val aiOver = try { isAIOverheld(mint, holdTimeMins) } catch (_: Throwable) { false }
         val hardFloorMet = holdTimeMins >= aiTimeoutD
         val shouldExit = hardFloorMet && (holdTimeMins > aiTimeoutD || aiOver)
-        try {
-            com.lifecyclebot.engine.ForensicLogger.lifecycle(
-                "FRESH_TIMEOUT_CHECK",
-                "mint=${mint.take(10)} ageMin=${"%.2f".format(holdTimeMins)} thresholdMin=$aiTimeout aiOverheld=$aiOver hardFloorMet=$hardFloorMet shouldExit=$shouldExit"
-            )
-        } catch (_: Throwable) {}
+        val now = System.currentTimeMillis()
+        if (shouldExit || shouldEmitFreshTimeoutTelemetry(freshTimeoutCheckLogMs, mint, now)) {
+            try {
+                com.lifecyclebot.engine.ForensicLogger.lifecycle(
+                    "FRESH_TIMEOUT_CHECK",
+                    "mint=${mint.take(10)} ageMin=${"%.2f".format(holdTimeMins)} thresholdMin=$aiTimeout aiOverheld=$aiOver hardFloorMet=$hardFloorMet shouldExit=$shouldExit"
+                )
+            } catch (_: Throwable) {}
+        }
         if (shouldExit) {
             try {
                 com.lifecyclebot.engine.ForensicLogger.lifecycle(
@@ -162,7 +188,7 @@ object ModeSpecificExits {
                     "mint=${mint.take(10)} ageMin=${"%.2f".format(holdTimeMins)} thresholdMin=$aiTimeout"
                 )
             } catch (_: Throwable) {}
-        } else if (aiOver && !hardFloorMet) {
+        } else if (aiOver && !hardFloorMet && shouldEmitFreshTimeoutTelemetry(freshTimeoutTooEarlyLogMs, mint, now)) {
             try {
                 com.lifecyclebot.engine.ForensicLogger.lifecycle(
                     "FRESH_TIMEOUT_EXIT_BLOCKED_TOO_EARLY",
