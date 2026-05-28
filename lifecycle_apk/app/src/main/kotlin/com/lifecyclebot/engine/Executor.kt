@@ -8763,6 +8763,19 @@ class Executor(
     }
     
     fun requestSell(ts: TokenState, reason: String, wallet: SolanaWallet?, walletSol: Double): SellResult {
+        if (ts.position.isPaperPosition) {
+            val reasonUpper = reason.uppercase()
+            val hardFloorOrEmergency = reasonUpper.contains("HARD_FLOOR") ||
+                reasonUpper.contains("RAPID_HARD_FLOOR") ||
+                reasonUpper.contains("STARTUP_SWEEP_HARD_FLOOR") ||
+                reasonUpper.contains("RUG_SAFETY") ||
+                reasonUpper.contains("MANUAL")
+            val closedAgoMs = System.currentTimeMillis() - (BotService.recentlyClosedMs[ts.mint] ?: 0L)
+            if (!hardFloorOrEmergency && closedAgoMs in 0L..60_000L) {
+                try { ForensicLogger.lifecycle("PAPER_SELL_DUPLICATE_SUPPRESSED", "mint=${ts.mint.take(10)} symbol=${ts.symbol} reason=$reason closedAgoMs=$closedAgoMs") } catch (_: Throwable) {}
+                return SellResult.ALREADY_CLOSED
+            }
+        }
         if (shouldDelayPaperSoftLossExit(ts, reason)) return SellResult.FAILED_RETRYABLE
         if (!ts.position.isPaperPosition && blockIfSellInFlight(ts, reason)) return SellResult.FAILED_RETRYABLE
         // V5.9.495z28 (operator spec items 1+3): mark the lifecycle record
@@ -9753,8 +9766,8 @@ class Executor(
         ts.lastExitPrice = price
         ts.lastExitPnlPct = pnlP
         ts.lastExitWasWin = pnlP >= 1.0
-        try { PositionPersistence.savePosition(ts) } catch (_: Exception) {}
-        try { ForensicLogger.lifecycle("PAPER_SELL_POSITION_CLOSED", "mint=${ts.mint.take(10)} symbol=${ts.symbol} pnlPct=${pnlP.toInt()} reason=$reason stage=early_close") } catch (_: Throwable) {}
+        try { PositionPersistence.removePosition(ts.mint) } catch (_: Exception) {}
+        try { ForensicLogger.lifecycle("PAPER_SELL_POSITION_CLOSED", "mint=${ts.mint.take(10)} symbol=${ts.symbol} pnlPct=${pnlP.toInt()} reason=$reason stage=early_close persisted=removed") } catch (_: Throwable) {}
         try { BotService.recentlyClosedMs[ts.mint] = System.currentTimeMillis() } catch (_: Throwable) {}
         try { GlobalTradeRegistry.closePosition(tradeId.mint) } catch (_: Exception) {}
         try { EmergentGuardrails.unregisterPosition(tradeId.mint) } catch (_: Exception) {}
@@ -9793,7 +9806,7 @@ class Executor(
             ts.lastExitPrice = price
             ts.lastExitPnlPct = pnlP
             ts.lastExitWasWin = pnlP >= 1.0
-            try { PositionPersistence.savePosition(ts) } catch (_: Exception) {}
+            try { PositionPersistence.removePosition(ts.mint) } catch (_: Exception) {}
             try { WalletPositionLock.recordClose("Meme", shutdownCostSol) } catch (_: Exception) {}
             try { TradeAuthorizer.releasePosition(ts.mint, "SELL_$reason", TradeAuthorizer.ExecutionBook.CORE) } catch (_: Exception) {}
             onLog("🛑 SHUTDOWN CLOSE: ${ts.symbol} @ ${pnlP.toInt()}% (learning skipped)", tradeId.mint)
