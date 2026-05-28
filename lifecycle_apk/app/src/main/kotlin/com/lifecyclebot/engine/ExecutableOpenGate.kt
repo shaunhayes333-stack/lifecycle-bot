@@ -204,11 +204,17 @@ object ExecutableOpenGate {
         preFdgVerdict: String = if (canExecute) "BUY" else "NO_BUY",
         candidateVersion: Long = LaneExecutionCoordinator.candidateVersionFor(mint),
     ) {
+        val paperRuntime = try { RuntimeModeAuthority.isPaper() } catch (_: Throwable) { false }
         val finalHardNo = hardNoReasons.toMutableList().apply {
             if (liquidityUsd <= 0.0) add("ZERO_LIQUIDITY")
             if (safetyTier.equals("UNKNOWN", true)) add("PRE_FDG_SAFETY_CONTEXT_MISSING")
             if (rugScore < 0) add("PRE_FDG_RUG_CONTEXT_MISSING")
-            if (rugScore in 0..1) add("RC_SCORE_$rugScore")
+            // V5.9.1212 — RC score 1 is the RC_PENDING sentinel in paper.
+            // FinalDecisionGate and TokenSafetyChecker both allow it with a
+            // penalty for paper learning, but this finality mirror was still
+            // converting it back into HARD_NO_BUY. Keep confirmed rug score 0
+            // hard-blocked in all modes; keep score 1 hard-blocked in LIVE.
+            if (rugScore == 0 || (rugScore == 1 && !paperRuntime)) add("RC_SCORE_$rugScore")
         }.distinct()
         val finalVerdict = when {
             finalHardNo.isNotEmpty() -> "HARD_NO_BUY"

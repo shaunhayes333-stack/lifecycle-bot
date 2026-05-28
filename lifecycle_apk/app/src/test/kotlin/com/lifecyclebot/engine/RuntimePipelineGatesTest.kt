@@ -624,6 +624,94 @@ class ExecutionAuthorityInvariantTest {
     }
 
     @Test
+    fun paper_rc_pending_score_one_stays_executable_finality() {
+        resetAuthorities(paper = true)
+        val mint = "MintRcPendingPaper111111111111111111"
+        ExecutableOpenGate.recordFdg(
+            mint = mint,
+            symbol = "RCP",
+            lane = "SHITCOIN",
+            canExecute = true,
+            reason = null,
+            signal = "BUY",
+            rugScore = 1,
+            safetyTier = "SAFE",
+            liquidityUsd = 2500.0,
+        )
+        val v = ExecutableOpenGate.canOpenExecutablePosition(
+            mint = mint,
+            symbol = "RCP",
+            rugScore = 1,
+            mode = "PAPER",
+            lane = "SHITCOIN",
+            source = "test",
+        )
+        assertTrue("paper RC_PENDING score=1 must be learnable", v.allowed)
+        assertEquals("EXEC_OPEN_ALLOWED", v.logName)
+    }
+
+    @Test
+    fun live_rc_score_one_remains_finality_blocked() {
+        resetAuthorities(paper = false)
+        val mint = "MintRcPendingLive1111111111111111111"
+        ExecutableOpenGate.recordFdg(
+            mint = mint,
+            symbol = "RCL",
+            lane = "SHITCOIN",
+            canExecute = true,
+            reason = null,
+            signal = "BUY",
+            rugScore = 1,
+            safetyTier = "SAFE",
+            liquidityUsd = 2500.0,
+        )
+        val v = ExecutableOpenGate.canOpenExecutablePosition(
+            mint = mint,
+            symbol = "RCL",
+            rugScore = 1,
+            mode = "LIVE",
+            lane = "SHITCOIN",
+            source = "test",
+        )
+        assertFalse(v.allowed)
+        assertEquals("EXEC_OPEN_DROPPED_PRE_FDG_NOT_BUY", v.logName)
+        assertEquals("HARD_NO_BUY", v.reason)
+    }
+
+    @Test
+    fun cyclic_can_prime_treasury_election_for_same_tick_authorization() {
+        resetAuthorities(paper = true)
+        TradeAuthorizer.reset()
+        LaneExecutionCoordinator.resetForTests()
+        val mint = "MintCyclicTreasury1111111111111111"
+        ExecutableOpenGate.recordFdg(
+            mint = mint,
+            symbol = "CYCT",
+            lane = "TREASURY",
+            canExecute = true,
+            reason = null,
+            signal = "BUY",
+            rugScore = 90,
+            safetyTier = "SAFE",
+            liquidityUsd = 2500.0,
+        )
+        assertFalse(LaneExecutionCoordinator.canRequestExecution(mint, "TREASURY").allowed)
+        val auth = TradeAuthorizer.authorize(
+            mint = mint,
+            symbol = "CYCT",
+            score = 70,
+            confidence = 70.0,
+            quality = "B",
+            isPaperMode = true,
+            requestedBook = TradeAuthorizer.ExecutionBook.TREASURY,
+            rugcheckScore = 90,
+            liquidity = 2500.0,
+        )
+        assertTrue("cyclic's primed Treasury election should authorize on same tick", auth.isExecutable())
+        assertEquals("AUTHORIZED", auth.reason)
+    }
+
+    @Test
     fun trade_authorizer_returns_finality_attempt_contract() {
         resetAuthorities(paper = true)
         TradeAuthorizer.reset()

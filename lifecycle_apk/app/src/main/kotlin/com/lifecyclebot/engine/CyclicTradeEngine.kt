@@ -421,6 +421,14 @@ object CyclicTradeEngine {
                 hardNoReasons = best.safety.hardBlockReasons,
             )
         } catch (_: Throwable) {}
+        // V5.9.1212 — cyclic is itself the specialist/owner of this ring
+        // attempt. The generic Treasury first-touch defer is designed for the
+        // BotService lane order (Treasury runs before Moonshot/Shitcoin/etc),
+        // but CyclicTradeEngine is not competing with those lane evaluators in
+        // this call path. Prime the Treasury election once so TradeAuthorizer's
+        // canonical finality pass can proceed on this same tick instead of
+        // returning PREAUTH_TREASURY_DEFER_SPECIALIST_FIRST forever.
+        try { LaneExecutionCoordinator.canRequestExecution(best.mint, "TREASURY") } catch (_: Throwable) {}
         val cyclicAuth = TradeAuthorizer.authorize(
             mint = best.mint,
             symbol = best.symbol,
