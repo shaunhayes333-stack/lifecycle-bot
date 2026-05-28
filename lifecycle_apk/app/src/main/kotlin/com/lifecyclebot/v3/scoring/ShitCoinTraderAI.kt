@@ -1093,20 +1093,24 @@ object ShitCoinTraderAI {
         }
 
         // V5.9.1189 — empirical S0-10 bleed guard.
-        // Live 5.0.3152 showed SHITCOIN|S0-10 at 366L/16W with mean -15.65%.
-        // This is no longer exploratory noise; it is a proven death bucket.
-        // Keep the lane alive, but do not let the lowest score band execute
-        // while LosingPatternMemory says that exact lane×band is dangerous.
-        if (shitScore <= 10 && com.lifecyclebot.engine.LosingPatternMemory.isDangerZone("SHITCOIN", shitScore)) {
-            val danger = com.lifecyclebot.engine.LosingPatternMemory.stats("SHITCOIN", shitScore)
-            ErrorLogger.info(TAG, "💩🧯 S0_10_BLEED_GUARD: $symbol | score=$shitScore losses=${danger.losses} wins=${danger.wins} mean=${"%+.1f".format(danger.meanPnl)}% — skipping")
+        // V5.9.1206 — widen from S0-10 only to ANY proven ShitCoin danger
+        // band. Runtime 5.0.3173 is now volume-correct (923/day) but WR is
+        // still 7.7%; LosingPatternMemory reports SHITCOIN|S61+ and
+        // SHITCOIN|S26-40 as 100% loss-rate death buckets too. Keeping only
+        // S0-10 blocked lets the lane keep bleeding through higher-score
+        // false positives. This is not a scanner choke; it only suppresses
+        // lane×score bands with ≥8 losses, ≥20 decisive samples, ≥75% loss rate.
+        val shitDanger = com.lifecyclebot.engine.LosingPatternMemory.stats("SHITCOIN", shitScore)
+        if (shitDanger.isDangerous) {
+            val band = com.lifecyclebot.engine.LosingPatternMemory.scoreBand(shitScore)
+            ErrorLogger.info(TAG, "💩🧯 SHITCOIN_DANGER_BUCKET_GUARD: $symbol | band=$band score=$shitScore losses=${shitDanger.losses} wins=${shitDanger.wins} mean=${"%+.1f".format(shitDanger.meanPnl)}% — skipping")
             return ShitCoinSignal(
                 shouldEnter = false,
                 positionSizeSol = 0.0,
                 takeProfitPct = 0.0,
                 stopLossPct = 0.0,
                 confidence = shitConfidence,
-                reason = "S0_10_BLEED_GUARD: score=$shitScore losses=${danger.losses} wins=${danger.wins} mean=${"%+.1f".format(danger.meanPnl)}%",
+                reason = "SHITCOIN_DANGER_BUCKET_GUARD: band=$band score=$shitScore losses=${shitDanger.losses} wins=${shitDanger.wins} mean=${"%+.1f".format(shitDanger.meanPnl)}%",
                 mode = mode,
                 isPaperMode = isPaperMode,
                 launchPlatform = launchPlatform,

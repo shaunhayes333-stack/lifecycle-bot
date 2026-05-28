@@ -46,16 +46,17 @@ object LosingPatternMemory {
     @Volatile private var cacheBuiltAtMs: Long = 0L
     private const val CACHE_TTL_MS = 60_000L
 
+    fun scoreBand(score: Int): String = when {
+        score <= 10  -> "S0-10"
+        score <= 25  -> "S11-25"
+        score <= 40  -> "S26-40"
+        score <= 60  -> "S41-60"
+        else         -> "S61+"
+    }
+
     fun bucketKey(tradingMode: String, score: Int): String {
         val modeKey = tradingMode.ifBlank { "UNKNOWN" }.take(14)
-        val scoreBand = when {
-            score <= 10  -> "S0-10"
-            score <= 25  -> "S11-25"
-            score <= 40  -> "S26-40"
-            score <= 60  -> "S41-60"
-            else         -> "S61+"
-        }
-        return "$modeKey|$scoreBand"
+        return "$modeKey|${scoreBand(score)}"
     }
 
     private fun refreshIfStale() {

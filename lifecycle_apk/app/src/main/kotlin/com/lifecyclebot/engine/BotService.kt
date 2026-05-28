@@ -14906,6 +14906,7 @@ if (postSupervisorOpenCount > 0 && !postSupervisorBackupDue) {
                         val shitRejectReasonUpper = shitCoinSignal.reason.uppercase()
                         val forceBootstrapAllowed = forceBootstrapEntry &&
                             !shitRejectReasonUpper.contains("S0_10_BLEED_GUARD") &&
+                            !shitRejectReasonUpper.contains("SHITCOIN_DANGER_BUCKET_GUARD") &&
                             !shitRejectReasonUpper.contains("EXPECTANCY_REJECT") &&
                             !shitRejectReasonUpper.contains("WR_RECOVERY_SCORE_FLOOR")
                         if (forceBootstrapEntry && !forceBootstrapAllowed) {
