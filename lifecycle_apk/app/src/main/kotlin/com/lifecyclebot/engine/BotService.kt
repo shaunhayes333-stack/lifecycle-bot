@@ -1093,12 +1093,15 @@ class BotService : Service() {
                 enabledSet += com.lifecyclebot.engine.EnabledTraderAuthority.Trader.PERPS
             if (com.lifecyclebot.v3.scoring.ProjectSniperAI.isEnabled())
                 enabledSet += com.lifecyclebot.engine.EnabledTraderAuthority.Trader.PROJECT_SNIPER
-            if (cfg.cyclicTradeLiveEnabled)
+            if (cfg.cyclicTradeEnabled)
                 enabledSet += com.lifecyclebot.engine.EnabledTraderAuthority.Trader.CYCLIC
-            // V5.9.792 — operator audit Item 3: 'Do not auto-enable CYCLIC just
-            // because cfg.paperMode == true.' Removed the (|| cfg.paperMode)
-            // clause so paper-mode no longer secretly turns CYCLIC on alongside
-            // MEME. CYCLIC must be an EXPLICIT opt-in via cfg.cyclicTradeLiveEnabled.
+            // V5.9.1207 — restore paper cyclic authority. V5.9.792 accidentally
+            // used cyclicTradeLiveEnabled as the only CYCLIC enable flag, which
+            // disabled paper cyclic even though BotConfig.cyclicTradeEnabled
+            // defaults true and is the operator-facing paper ring toggle.
+            // Live execution remains protected inside maybeTickCyclicTradeEngine()
+            // and CyclicTradeEngine.tick() by cyclicTradeLiveEnabled / wallet
+            // threshold checks; this publish only lets the engine tick in paper.
             if (cfg.shadowPaperEnabled)
                 enabledSet += com.lifecyclebot.engine.EnabledTraderAuthority.Trader.SHADOW_PAPER
             com.lifecyclebot.engine.EnabledTraderAuthority.publish(enabledSet)
@@ -5062,13 +5065,14 @@ class BotService : Service() {
             val solPrice = com.lifecyclebot.engine.WalletManager.lastKnownSolPrice
             val walletSolNow = walletManager.state.value.solBalance
             val walletUsdNow = walletSolNow * solPrice.coerceAtLeast(0.0)
-            val cyclicEnabled = com.lifecyclebot.engine.EnabledTraderAuthority.isEnabled(
+            val cfgNow = cfg()
+            val cyclicEnabled = cfgNow.cyclicTradeEnabled && com.lifecyclebot.engine.EnabledTraderAuthority.isEnabled(
                 com.lifecyclebot.engine.EnabledTraderAuthority.Trader.CYCLIC
             )
             val liveThreshold = 1500.0
             val allowTick = when {
                 isPaperRuntime -> cyclicEnabled
-                else -> cyclicEnabled && walletUsdNow >= liveThreshold
+                else -> cyclicEnabled && (cfgNow.cyclicTradeLiveEnabled || walletUsdNow >= liveThreshold)
             }
             if (allowTick) {
                 val cyclicTokens = synchronized(status.tokens) { status.tokens.toMap() }
@@ -5083,7 +5087,7 @@ class BotService : Service() {
                 try {
                     ForensicLogger.lifecycle(
                         "CYCLIC_TICK_SKIPPED",
-                        "mode=${if (isPaperRuntime) "PAPER" else "LIVE"} cyclicEnabled=$cyclicEnabled walletUsd=${"%.2f".format(walletUsdNow)} threshold=$liveThreshold",
+                        "mode=${if (isPaperRuntime) "PAPER" else "LIVE"} cyclicEnabled=$cyclicEnabled cfgEnabled=${cfgNow.cyclicTradeEnabled} liveOptIn=${cfgNow.cyclicTradeLiveEnabled} walletUsd=${"%.2f".format(walletUsdNow)} threshold=$liveThreshold",
                     )
                 } catch (_: Throwable) {}
             }
