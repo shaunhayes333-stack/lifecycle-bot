@@ -8240,8 +8240,47 @@ class BotService : Service() {
         val fresh = mutableListOf<String>()
         val unseen = mutableListOf<String>()
         val cold = mutableListOf<Pair<String, Long>>()
+        val probationDemoted = mutableListOf<String>()
         otherMints.forEach { mint ->
             val entry = entriesByMint[mint]
+            // V5.9.1226 — hot-watchlist probation demotion. This does not
+            // shrink the protected scanner/intake universe; it moves repeatedly
+            // processed dead weight to the slower probation lane so hot supervisor
+            // bandwidth is spent on moving/executable candidates.
+            if (entry != null && mint !in forcedOpenMints) {
+                val tsForProbation = try { status.tokens[mint] } catch (_: Throwable) { null }
+                val liqNow = tsForProbation?.lastLiquidityUsd ?: 0.0
+                val volH1 = try { tsForProbation?.history?.lastOrNull()?.volumeH1 ?: 0.0 } catch (_: Throwable) { 0.0 }
+                val priceNow = tsForProbation?.lastPrice ?: 0.0
+                val priceAgeMs = tsForProbation?.lastPriceUpdate?.takeIf { it > 0L }?.let { nowMs - it } ?: Long.MAX_VALUE
+                val ageMs = nowMs - entry.addedAt
+                val coldEnough = entry.processCount >= 3 && ageMs > 120_000L
+                val lowExecutableLiq = liqNow > 0.0 && liqNow < 2_000.0
+                val noVolume = volH1 <= 0.0 && entry.processCount >= 5 && ageMs > 180_000L
+                val staleNoMove = priceAgeMs > 180_000L && entry.processCount >= 5
+                if (coldEnough && (lowExecutableLiq || noVolume || staleNoMove)) {
+                    val why = when {
+                        lowExecutableLiq -> "LOW_EXEC_LIQ_${liqNow.toInt()}"
+                        noVolume -> "NO_H1_VOLUME"
+                        else -> "STALE_NO_MOVE"
+                    }
+                    val demoted = try {
+                        com.lifecyclebot.engine.GlobalTradeRegistry.demoteWatchlistToProbation(
+                            mint = mint,
+                            reason = why,
+                            liquidityUsd = liqNow,
+                            confidence = 0,
+                            price = priceNow,
+                            isEstimatedLiquidity = liqNow <= 0.0,
+                        )
+                    } catch (_: Throwable) { false }
+                    if (demoted) {
+                        probationDemoted.add(mint)
+                        try { com.lifecyclebot.engine.ForensicLogger.lifecycle("WATCHLIST_PROBATION_DEMOTE", "mint=${mint.take(10)} symbol=${entry.symbol} reason=$why pc=${entry.processCount} liq=${liqNow.toInt()} vol1h=${volH1.toInt()} priceAgeMs=$priceAgeMs") } catch (_: Throwable) {}
+                        return@forEach
+                    }
+                }
+            }
             when {
                 entry == null -> unseen.add(mint)
                 (nowMs - entry.addedAt) < FRESH_WINDOW_MS -> fresh.add(mint)
@@ -8365,7 +8404,7 @@ class BotService : Service() {
             emitWatchlistCapTrace(PER_CYCLE_CAP, orderedMintsRaw.size, forcedOpenMints.size)
             com.lifecyclebot.engine.ForensicLogger.lifecycle(
                 "WATCHLIST_RR",
-                "cap=$PER_CYCLE_CAP picked=${picked.size} fresh=${fresh.size} unseen=${unseen.size} cold=${cold.size} forcedOpen=${forcedOpenMints.size} total=${orderedMintsRaw.size}"
+                "cap=$PER_CYCLE_CAP picked=${picked.size} fresh=${fresh.size} unseen=${unseen.size} cold=${cold.size} probationDemoted=${probationDemoted.size} forcedOpen=${forcedOpenMints.size} total=${orderedMintsRaw.size}"
             )
         } catch (_: Throwable) {}
 

@@ -521,6 +521,50 @@ object GlobalTradeRegistry {
     }
 
     /**
+     * V5.9.1226 — demote existing hot-watchlist dead weight into probation.
+     *
+     * This is NOT scanner pruning. The token remains observable and can be
+     * promoted by future scanner/source confirmation or price action, but it no
+     * longer burns the main supervisor processTokenCycle budget every loop.
+     */
+    fun demoteWatchlistToProbation(
+        mint: String,
+        reason: String,
+        liquidityUsd: Double = 0.0,
+        confidence: Int = 0,
+        price: Double = 0.0,
+        isEstimatedLiquidity: Boolean = false,
+    ): Boolean {
+        if (mint.isBlank()) return false
+        if (activePositions.containsKey(mint)) {
+            ErrorLogger.debug(TAG, "🛡️ probation demote BLOCKED for $mint — active position open (reason=$reason)")
+            return false
+        }
+        val entry = watchlist.remove(mint) ?: return false
+        totalTokensRemoved.incrementAndGet()
+        try {
+            addToProbation(
+                mint = entry.mint,
+                symbol = entry.symbol,
+                addedBy = "DEMOTED_${entry.addedBy}",
+                source = "PROBATION_DEMOTE:$reason|${entry.source}",
+                initialMcap = entry.initialMcap,
+                liquidityUsd = liquidityUsd,
+                confidence = confidence,
+                isEstimatedLiquidity = isEstimatedLiquidity,
+                isSingleSource = true,
+                price = price,
+                laneAffinity = entry.laneAffinity,
+                toolAffinity = entry.toolAffinity,
+            )
+        } catch (t: Throwable) {
+            ErrorLogger.debug(TAG, "probation demote add failed for ${entry.symbol}: ${t.message}")
+        }
+        ErrorLogger.info(TAG, "⏳ WATCHLIST→PROBATION: ${entry.symbol} | reason=$reason | processed=${entry.processCount} liq=$${liquidityUsd.toInt()}")
+        return true
+    }
+
+    /**
      * V5.0: Promote a token from probation to watchlist.
      */
     fun promoteFromProbation(mint: String, reason: String): AddResult {
