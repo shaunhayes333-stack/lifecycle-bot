@@ -156,7 +156,9 @@ object WrRecoveryPartial {
         // V5.9.1221 — rolling collapse guard. Operator screenshot at 1139
         // trades showed lifetime WR 24% masking roll50=4%. That is not
         // acceptable bootstrap noise; it means the CURRENT policy is broken.
-        // Treat roll50 <= min(10%, target*0.35) as emergency quality mode.
+        // Treat roll50 <= min(10%, target*0.35) as emergency probe mode.
+        // It must NOT disable learning lanes; it only tells FDG/sub-traders
+        // to shrink size and tighten exit protection.
         val rollingCollapse = rollingWr in 0.0..minOf(10.0, targetWR * 0.35)
 
         val lifetimeBand = when {
@@ -374,7 +376,7 @@ object WrRecoveryPartial {
     fun minScoreFloor(): Int {
         val s = stateNow()
         val base = when {
-            s.rollingCollapse -> 60
+            s.rollingCollapse -> 35
             s.band == Band.AGGRESSIVE -> 45
             s.band == Band.MODERATE   -> 30
             else            -> 0
@@ -386,12 +388,10 @@ object WrRecoveryPartial {
         //   THIN-  (median<25) → -12  (half-tier drop)
         //   NORMAL                 0
         //   RICH   (median>50) → +10  (tighten to keep only top setups)
-        // V5.9.1221: in rolling-collapse mode DO NOT thin-regime relax.
-        // roll50=4% at 1k+ trades means the bot needs better samples, not
-        // easier entries. Only rich-regime tightening can add to the floor.
-        val delta = if (s.rollingCollapse) {
-            if (median > 50) +10 else 0
-        } else when {
+        // V5.9.1223: collapse is probe mode, not disable mode. Keep
+        // thin-regime auto-fit so the bot continues learning in bad markets,
+        // just at tiny size and under FDG shaping.
+        val delta = when {
             median < 15 -> -25
             median < 25 -> -12
             median > 50 -> +10
