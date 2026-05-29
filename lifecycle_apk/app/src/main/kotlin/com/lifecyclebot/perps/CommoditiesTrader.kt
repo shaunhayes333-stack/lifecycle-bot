@@ -120,8 +120,18 @@ object CommoditiesTrader {
         }
         
         fun shouldStopLoss(): Boolean {
+            val pnl = getPnlPercent()
             val sl = if (isSpot) SL_PERCENT_SPOT else SL_PERCENT_LEVERAGE
-            return getPnlPercent() <= -sl
+            val floor = try {
+                com.lifecyclebot.v3.scoring.FluidLearningAI.getDynamicFluidStop(
+                    modeDefaultStop = sl,
+                    currentPnlPct = pnl,
+                    peakPnlPct = peakPnlPct.coerceAtLeast(pnl),
+                    holdTimeSeconds = ((System.currentTimeMillis() - openTime) / 1000.0),
+                    volatility = 45.0,
+                )
+            } catch (_: Throwable) { -sl }
+            return pnl <= floor
         }
     }
     
@@ -789,7 +799,8 @@ object CommoditiesTrader {
                     com.lifecyclebot.engine.SymbolicExitReasoner.Action.PARTIAL ->
                         closePosition(position, positionMap, "AI_PARTIAL: ${assessment.primarySignal}")
                     else -> {
-                        if (position.shouldTakeProfit()) closePosition(position, positionMap, "TP_SAFETY")
+                        if (position.shouldStopLoss()) closePosition(position, positionMap, "FLUID_SL_SAFETY")
+                        else if (position.shouldTakeProfit()) closePosition(position, positionMap, "TP_SAFETY")
                     }
                 }
             }

@@ -93,8 +93,23 @@ data class ArbPosition(
     val shouldTakeProfit: Boolean
         get() = currentPnlPct >= targetProfitPct
     
+    // V5.9.1224 — Arb positions also consume the shared fluid dynamic stop.
+    // Arb is short-hold by design, so static targetProfit remains, but stop /
+    // profit-floor follows FluidLearningAI instead of a fixed model scalar.
     val shouldStopLoss: Boolean
-        get() = currentPnlPct <= -stopLossPct
+        get() {
+            val peak = if (entryPrice > 0.0 && highWaterMark > 0.0) ((highWaterMark - entryPrice) / entryPrice) * 100.0 else currentPnlPct
+            val floor = try {
+                com.lifecyclebot.v3.scoring.FluidLearningAI.getDynamicFluidStop(
+                    modeDefaultStop = stopLossPct,
+                    currentPnlPct = currentPnlPct,
+                    peakPnlPct = peak.coerceAtLeast(currentPnlPct),
+                    holdTimeSeconds = holdTimeSeconds.toDouble(),
+                    volatility = 50.0,
+                )
+            } catch (_: Throwable) { -stopLossPct }
+            return currentPnlPct <= floor
+        }
     
     fun updatePrice(newPrice: Double) {
         currentPrice = newPrice

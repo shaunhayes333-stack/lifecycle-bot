@@ -2777,7 +2777,13 @@ for legal compliance.
         val chartTokenChanged = ts != null && ts.mint != lastChartTokenMint
         val chartPriceChangedEnough = ts?.lastPrice?.let { lastChartRenderedPrice <= 0.0 || kotlin.math.abs(it - lastChartRenderedPrice) / lastChartRenderedPrice.coerceAtLeast(1e-12) >= 0.01 } ?: false
         val chartSuppressedForRuntime = runtimeActiveForUi && nowChartMs < runtimeChartSuppressedUntilMs
-        val allowChartPaint = !chartSuppressedForRuntime && (!runtimeActiveForUi || (!chartTokenChanged && nowChartMs - lastChartRenderMs >= RUNTIME_CHART_RENDER_MS && chartPriceChangedEnough))
+        val chartColdStart = priceChart.data == null || chartEntries.isEmpty() || lastChartTokenMint == null
+        // V5.9.1224 — chart data must still appear. 1218/1220 suppressed
+        // runtime chart paints so aggressively that a foreground open/new token
+        // could leave the chart blank even though ts.history had candles. Allow
+        // the first paint and token-change paint; throttle only repeat appends.
+        val allowChartPaint = (ts != null && (chartColdStart || chartTokenChanged)) ||
+            (!chartSuppressedForRuntime && (!runtimeActiveForUi || (nowChartMs - lastChartRenderMs >= RUNTIME_CHART_RENDER_MS && chartPriceChangedEnough)))
         if (!allowChartPaint) {
             // skip heavy MPAndroidChart dataset rebuild this UI tick
         } else if (ts != null && ts.mint != lastChartTokenMint) {
@@ -2815,6 +2821,7 @@ for legal compliance.
             }
             
             // V5.6: Update DexScreener-style chart metrics
+            updateCandleChart(ts)
             updateChartMetrics(ts)
         } else if (ts?.lastPrice != null && ts.lastPrice > 0) {
             // Append new price point

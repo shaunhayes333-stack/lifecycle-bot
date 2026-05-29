@@ -1228,26 +1228,52 @@ object PerpsTraderAI {
             return PerpsExitSignal.LIQUIDATION_RISK
         }
         
-        // 2. STOP LOSS
+        // 2. FLUID PROFIT FLOOR / DYNAMIC STOP — shared AATE exit brain.
+        // V5.9.1224: Perps was still using static TP/SL + static trailing.
+        // Route it through FluidLearningAI so profit recovery and dynamic stops
+        // work on Markets/Perps too, not only Meme Executor positions.
+        val peakPrice = when (position.direction) {
+            PerpsDirection.LONG -> position.highestPrice.coerceAtLeast(position.entryPrice)
+            PerpsDirection.SHORT -> if (position.lowestPrice > 0.0 && position.lowestPrice < Double.MAX_VALUE) position.lowestPrice.coerceAtMost(position.entryPrice) else position.entryPrice
+        }
+        val peakPnlPct = (((peakPrice - position.entryPrice) / position.entryPrice) * 100.0 * position.direction.multiplier * position.leverage).coerceAtLeast(pnlPct)
+        val holdSeconds = (System.currentTimeMillis() - position.entryTime) / 1000.0
+        val rawStopPct = position.stopLossPrice?.let { sl -> kotlin.math.abs((sl - position.entryPrice) / position.entryPrice * 100.0 * position.leverage) } ?: 8.0
+        val fluidStop = try {
+            com.lifecyclebot.v3.scoring.FluidLearningAI.getDynamicFluidStop(
+                modeDefaultStop = rawStopPct,
+                currentPnlPct = pnlPct,
+                peakPnlPct = peakPnlPct,
+                holdTimeSeconds = holdSeconds,
+                volatility = 50.0,
+            )
+        } catch (_: Throwable) { -rawStopPct }
+        if (pnlPct <= fluidStop) {
+            ErrorLogger.info(TAG, "🌊 PERPS_FLUID_EXIT: ${position.market.symbol} pnl=${pnlPct.fmt(1)}% peak=${peakPnlPct.fmt(1)}% floor=${fluidStop.fmt(1)}%")
+            return if (peakPnlPct > 3.0) PerpsExitSignal.TRAILING_STOP else PerpsExitSignal.STOP_LOSS
+        }
+
+        // 3. STATIC STOP LOSS fallback
         if (position.shouldStopLoss()) {
             return PerpsExitSignal.STOP_LOSS
         }
         
-        // 3. TAKE PROFIT
+        // 4. TAKE PROFIT fallback. Fluid floor above lets runners continue while
+        // protecting give-back; this static TP remains a strategy ceiling.
         if (position.shouldTakeProfit()) {
             return PerpsExitSignal.TAKE_PROFIT
         }
         
-        // 4. TRAILING STOP - Dynamic trailing for profits
+        // 5. TRAILING STOP fallback - Dynamic trailing for profits
         if (pnlPct > 10.0) {
-            val trailPct = position.trailingStopPct ?: 10.0
+            val trailPct = try { com.lifecyclebot.v3.scoring.FluidLearningAI.fluidTrailPct(pnlPct) } catch (_: Throwable) { position.trailingStopPct ?: 10.0 }
             val trailFromPeak = when (position.direction) {
                 PerpsDirection.LONG -> (position.highestPrice - currentPrice) / position.highestPrice * 100
                 PerpsDirection.SHORT -> (currentPrice - position.lowestPrice) / position.lowestPrice * 100
             }
             
             if (trailFromPeak >= trailPct) {
-                ErrorLogger.info(TAG, "📉 TRAILING STOP: ${position.market.symbol} | trail=${trailFromPeak.fmt(1)}%")
+                ErrorLogger.info(TAG, "📉 PERPS_FLUID_TRAIL: ${position.market.symbol} | trail=${trailFromPeak.fmt(1)}% >= ${trailPct.fmt(1)}%")
                 return PerpsExitSignal.TRAILING_STOP
             }
         }

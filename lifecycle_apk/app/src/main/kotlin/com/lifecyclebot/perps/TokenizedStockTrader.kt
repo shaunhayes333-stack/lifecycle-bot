@@ -297,13 +297,18 @@ object TokenizedStockTrader {
         }
         
         fun shouldStopLoss(): Boolean {
-            stopLossPrice?.let { sl ->
-                return when (direction) {
-                    PerpsDirection.LONG -> currentPrice <= sl
-                    PerpsDirection.SHORT -> currentPrice >= sl
-                }
-            }
-            return false
+            val pnl = getUnrealizedPnlPct()
+            val rawStop = stopLossPrice?.let { sl -> kotlin.math.abs((sl - entryPrice) / entryPrice * 100.0 * leverage) } ?: 6.0
+            val floor = try {
+                com.lifecyclebot.v3.scoring.FluidLearningAI.getDynamicFluidStop(
+                    modeDefaultStop = rawStop,
+                    currentPnlPct = pnl,
+                    peakPnlPct = peakPnlPct.coerceAtLeast(pnl),
+                    holdTimeSeconds = ((System.currentTimeMillis() - entryTime) / 1000.0),
+                    volatility = 40.0,
+                )
+            } catch (_: Throwable) { -rawStop }
+            return pnl <= floor
         }
     }
     

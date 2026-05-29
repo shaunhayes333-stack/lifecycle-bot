@@ -101,8 +101,21 @@ object LlmLabTrader {
         }
 
         // Exit rules (in priority order) — exits fire on the real tick.
+        // V5.9.1224: Lab was still static TP/SL. Route through the shared
+        // FluidLearningAI dynamic stop/profit-floor so lab strategies learn
+        // under the same recovery/profit-lock behavior as the main bot.
+        val holdSeconds = (System.currentTimeMillis() - pos.entryTime) / 1000.0
+        val fluidStop = try {
+            com.lifecyclebot.v3.scoring.FluidLearningAI.getDynamicFluidStop(
+                modeDefaultStop = kotlin.math.abs(strategy.stopLossPct).coerceAtLeast(1.0),
+                currentPnlPct = pnlPct,
+                peakPnlPct = peak,
+                holdTimeSeconds = holdSeconds,
+                volatility = 50.0,
+            )
+        } catch (_: Throwable) { strategy.stopLossPct }
         when {
-            pnlPct <= strategy.stopLossPct      -> closePosition(pos, currentPrice, "STOP_LOSS")
+            pnlPct <= fluidStop                 -> closePosition(pos, currentPrice, if (peak > 3.0) "LAB_FLUID_PROFIT_FLOOR" else "LAB_FLUID_STOP_LOSS")
             pnlPct >= strategy.takeProfitPct    -> closePosition(pos, currentPrice, "TAKE_PROFIT")
             holdMin >= strategy.maxHoldMins     -> closePosition(pos, currentPrice, "TIMEOUT")
         }

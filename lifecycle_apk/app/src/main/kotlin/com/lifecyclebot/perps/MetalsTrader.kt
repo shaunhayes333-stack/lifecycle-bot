@@ -101,7 +101,19 @@ object MetalsTrader {
         fun getPnlSol(): Double = size * (getPnlPercent() / 100.0)
         
         fun shouldTakeProfit(): Boolean = getPnlPercent() >= com.lifecyclebot.v3.scoring.FluidLearningAI.getMarketsSpotTpPct()
-        fun shouldStopLoss(): Boolean = getPnlPercent() <= -SL_PERCENT
+        fun shouldStopLoss(): Boolean {
+            val pnl = getPnlPercent()
+            val floor = try {
+                com.lifecyclebot.v3.scoring.FluidLearningAI.getDynamicFluidStop(
+                    modeDefaultStop = SL_PERCENT,
+                    currentPnlPct = pnl,
+                    peakPnlPct = peakPnlPct.coerceAtLeast(pnl),
+                    holdTimeSeconds = ((System.currentTimeMillis() - openTime) / 1000.0),
+                    volatility = 35.0,
+                )
+            } catch (_: Throwable) { -SL_PERCENT }
+            return pnl <= floor
+        }
     }
     
     data class MetalSignal(
@@ -784,7 +796,8 @@ object MetalsTrader {
                     com.lifecyclebot.engine.SymbolicExitReasoner.Action.PARTIAL ->
                         closePosition(position, positionMap, "AI_PARTIAL: ${assessment.primarySignal}")
                     else -> {
-                        if (position.shouldTakeProfit()) closePosition(position, positionMap, "TP_SAFETY")
+                        if (position.shouldStopLoss()) closePosition(position, positionMap, "FLUID_SL_SAFETY")
+                        else if (position.shouldTakeProfit()) closePosition(position, positionMap, "TP_SAFETY")
                     }
                 }
             }
