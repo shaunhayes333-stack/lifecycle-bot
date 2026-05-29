@@ -25,14 +25,18 @@ object CyclicTradeEngine {
     private const val RING_SIZE_USD = 500.0
     // V5.9.451 — TP/SL now adapt (see adaptiveTpSl()). Constants are the
     // default mature-phase levels; bootstrap and loss-streak modes override.
-    private const val DEFAULT_TP_PCT = 15.0
-    private const val DEFAULT_SL_PCT = 5.0
-    private const val MIN_SCORE_TO_ENTER = 55.0
+    // V5.9.1227 — this is the $500→$1M compounding lane, not a scalp lane.
+    // 500→1,000,000 = 2000×. Over 15-20 successful cycles that requires
+    // roughly +47% to +66% per winner. TP is therefore the RUNNER activation
+    // line, not a full-exit ceiling.
+    private const val DEFAULT_TP_PCT = 65.0
+    private const val DEFAULT_SL_PCT = 8.0
+    private const val MIN_SCORE_TO_ENTER = 62.0
     // V5.9.240: During bootstrap (<40% learning) lower the score floor so the
     // ring engine actually trades while FluidLearningAI is still calibrating.
     // Tokens don't have a reliable lastV3Score yet at that stage — entryScore
     // (raw signal) is used as the proxy. 30 is still a real signal, not noise.
-    private const val MIN_SCORE_TO_ENTER_BOOTSTRAP = 30.0
+    private const val MIN_SCORE_TO_ENTER_BOOTSTRAP = 48.0
     private const val COOLDOWN_MS = 30_000L    // 30s between cycles
     private const val MAX_HOLD_MS = 90 * 60 * 1000L  // 90 min max hold
 
@@ -411,7 +415,7 @@ object CyclicTradeEngine {
             ExecutableOpenGate.recordFdg(
                 mint = best.mint,
                 symbol = best.symbol,
-                lane = "TREASURY",
+                lane = "CYCLIC",
                 canExecute = cyclicFdg?.canExecute() ?: true,
                 reason = cyclicFdg?.blockReason,
                 signal = "BUY",
@@ -421,14 +425,11 @@ object CyclicTradeEngine {
                 hardNoReasons = best.safety.hardBlockReasons,
             )
         } catch (_: Throwable) {}
-        // V5.9.1212 — cyclic is itself the specialist/owner of this ring
-        // attempt. The generic Treasury first-touch defer is designed for the
-        // BotService lane order (Treasury runs before Moonshot/Shitcoin/etc),
-        // but CyclicTradeEngine is not competing with those lane evaluators in
-        // this call path. Prime the Treasury election once so TradeAuthorizer's
-        // canonical finality pass can proceed on this same tick instead of
-        // returning PREAUTH_TREASURY_DEFER_SPECIALIST_FIRST forever.
-        try { LaneExecutionCoordinator.canRequestExecution(best.mint, "TREASURY") } catch (_: Throwable) {}
+        // V5.9.1227 — cyclic owns its own execution book/lane. Borrowing
+        // TREASURY made the ring inherit treasury cooldown/fatality baggage and
+        // UI showed FINALITY_EXEC_OPEN_BLOCKED_COOLDOWN_* instead of behaving
+        // like an independent compounding lane.
+        try { LaneExecutionCoordinator.canRequestExecution(best.mint, "CYCLIC") } catch (_: Throwable) {}
         val cyclicAuth = TradeAuthorizer.authorize(
             mint = best.mint,
             symbol = best.symbol,
@@ -436,7 +437,7 @@ object CyclicTradeEngine {
             confidence = cyclicScore.toDouble().coerceAtLeast(effectiveMinScore),
             quality = "B",
             isPaperMode = !isLiveMode,
-            requestedBook = TradeAuthorizer.ExecutionBook.TREASURY,
+            requestedBook = TradeAuthorizer.ExecutionBook.CYCLIC,
             rugcheckScore = best.safety.rugcheckScore.takeIf { it >= 0 } ?: 100,
             liquidity = best.lastLiquidityUsd,
             isBanned = BannedTokens.isBanned(best.mint),
@@ -446,7 +447,7 @@ object CyclicTradeEngine {
             ErrorLogger.info(TAG, "CYCLIC_FINALITY_BLOCKED ${best.symbol} | ${cyclicAuth.reason}")
             return
         }
-        val cyclicAttemptId = ExecutableOpenGate.recentAllowedAttemptId(best.mint, "TREASURY") ?: cyclicAuth.attemptId
+        val cyclicAttemptId = ExecutableOpenGate.recentAllowedAttemptId(best.mint, "CYCLIC") ?: cyclicAuth.attemptId
         val entered = executor.treasuryBuy(
             ts          = best,
             sizeSol     = sizeSol,
@@ -460,6 +461,17 @@ object CyclicTradeEngine {
         )
 
         if (entered) {
+            // V5.9.1227 — treasuryBuy is reused only as the low-level spot buy
+            // wrapper. Re-stamp the opened position as CYCLIC so exits, UI,
+            // journal attribution, and TradeAuthorizer release don't treat the
+            // ring as Treasury.
+            try {
+                best.position.tradingMode = "CYCLIC"
+                best.position.tradingModeEmoji = "🔁"
+                best.position.isTreasuryPosition = false
+                best.position.treasuryTakeProfit = tpPctEntry
+                best.position.treasuryStopLoss = slPctEntry
+            } catch (_: Throwable) {}
             isInPosition  = true
             currentMint   = best.mint
             currentSymbol = best.symbol
@@ -498,8 +510,15 @@ object CyclicTradeEngine {
         val lp = try {
             com.lifecyclebot.v3.scoring.FluidLearningAI.getLearningProgress()
         } catch (_: Throwable) { 1.0 }
-        val (baseTp, baseSl) = if (lp < 0.40) Pair(12.0, 6.0) else Pair(DEFAULT_TP_PCT, DEFAULT_SL_PCT)
-        return if (consecutiveLosses >= 2) Pair(20.0, 3.0) else Pair(baseTp, baseSl)
+        // Compounding profile: bootstrap still needs runners. Use TP as runner
+        // activation, not scalp exit. Loss streak tightens SL and demands even
+        // fatter continuation before the ring declares victory.
+        val (baseTp, baseSl) = if (lp < 0.40) Pair(50.0, 10.0) else Pair(DEFAULT_TP_PCT, DEFAULT_SL_PCT)
+        return when {
+            consecutiveLosses >= 2 -> Pair(80.0, 6.0)
+            consecutiveLosses == 1 -> Pair(maxOf(baseTp, 65.0), minOf(baseSl, 8.0))
+            else -> Pair(baseTp, baseSl)
+        }
     }
 
     // ── Close a cycle ─────────────────────────────────────────────────────────
@@ -556,6 +575,9 @@ object CyclicTradeEngine {
                 holdMinutes = holdMins,
             )
         } catch (_: Throwable) {}
+
+        try { TradeAuthorizer.releasePosition(ts.mint, "CYCLIC_$reason", TradeAuthorizer.ExecutionBook.CYCLIC) } catch (_: Throwable) {}
+        try { LaneExecutionCoordinator.releaseIfPrimary(ts.mint, "CYCLIC", "CYCLIC_$reason") } catch (_: Throwable) {}
 
         lastCycleEndMs = System.currentTimeMillis()
         isInPosition   = false
@@ -624,6 +646,8 @@ object CyclicTradeEngine {
         "in_position"  to isInPosition,
         "live_mode"    to isLiveMode,
         "status"       to statusMessage,
+        "target_cycles" to "15-20",
+        "target_win_pct" to "47-66",
     )
 
     private fun prefs(context: Context): SharedPreferences =
