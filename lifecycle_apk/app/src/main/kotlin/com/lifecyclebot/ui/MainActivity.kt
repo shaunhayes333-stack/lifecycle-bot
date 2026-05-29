@@ -2716,7 +2716,13 @@ for legal compliance.
         
         // V3.2: Show ACTUAL trading mode from MarketStructureRouter instead of simple age label
         val modeLabel = if (ts != null) {
-            try {
+            if (runtimeActiveForUi) {
+                when {
+                    ageMins < 0  -> ""
+                    ageMins <= 15 -> " · 🚀 Fresh"
+                    else         -> " · 📊 Range"
+                }
+            } else try {
                 val classification = com.lifecyclebot.v3.modes.MarketStructureRouter.classify(ts)
                 " · ${classification.mode.emoji} ${classification.mode.label}"
             } catch (_: Exception) {
@@ -3908,15 +3914,21 @@ for legal compliance.
         // full card rebuild — that was the dominant ANR blocker (92.8%
         // stall per pipeline snapshot). Structural rebuild only fires
         // when a position is added/removed/resized or flips paper↔live.
+        val runtimeActive = try { com.lifecyclebot.engine.BotService.isRuntimeActive() } catch (_: Throwable) { false }
         val openHash = positions.map {
             "${it.mint}|${it.position.costSol}|${it.position.qtyToken}|${it.position.isPaperPosition}|${it.position.pendingVerify}"
         }.hashCode()
         if (openHash == lastOpenPosHash) return
+        if (runtimeActive && lastOpenPosHash == -1) {
+            lastOpenPosHash = openHash
+            lastOpenPosRenderMs = System.currentTimeMillis()
+            try { com.lifecyclebot.engine.ForensicLogger.lifecycle("MAIN_OPEN_POS_RENDER_SKIPPED_RUNTIME_FIRST_PASS", "count=${positions.size}") } catch (_: Throwable) {}
+            return
+        }
         // V5.9.749 — 2s minimum interval between full rebuilds even when
         // structure changed. Bursts of new tokens during a hot scanner
         // cycle can't ANR the UI; the next interval will pick them up.
         val nowMs = System.currentTimeMillis()
-        val runtimeActive = try { com.lifecyclebot.engine.BotService.isRuntimeActive() } catch (_: Throwable) { false }
         val minRenderIntervalMs = if (runtimeActive) 60_000L else OPEN_POS_MIN_RENDER_INTERVAL_MS
         if (nowMs - lastOpenPosRenderMs < minRenderIntervalMs && lastOpenPosRenderMs > 0L) {
             return
@@ -4053,11 +4065,15 @@ for legal compliance.
                 layoutParams = LinearLayout.LayoutParams(40, 40).also { it.marginEnd = 10 }
                 scaleType = android.widget.ImageView.ScaleType.CENTER_CROP
                 try { background = androidx.core.content.ContextCompat.getDrawable(this@MainActivity, R.drawable.token_logo_bg) } catch (_: Exception) {}
-                val cachedLogo = try { ts.logoUrl.ifBlank { null } } catch (_: Exception) { null }
-                load(cachedLogo ?: "https://cdn.dexscreener.com/tokens/solana/${ts.mint}") {
-                    crossfade(true); placeholder(R.drawable.ic_token_placeholder)
-                    error(R.drawable.ic_token_placeholder); allowHardware(false)
-                    transformations(coil.transform.CircleCropTransformation())
+                if (runtimeActive) {
+                    setImageResource(R.drawable.ic_token_placeholder)
+                } else {
+                    val cachedLogo = try { ts.logoUrl.ifBlank { null } } catch (_: Exception) { null }
+                    load(cachedLogo ?: "https://cdn.dexscreener.com/tokens/solana/${ts.mint}") {
+                        crossfade(true); placeholder(R.drawable.ic_token_placeholder)
+                        error(R.drawable.ic_token_placeholder); allowHardware(false)
+                        transformations(coil.transform.CircleCropTransformation())
+                    }
                 }
             }
             row.addView(logoImg)

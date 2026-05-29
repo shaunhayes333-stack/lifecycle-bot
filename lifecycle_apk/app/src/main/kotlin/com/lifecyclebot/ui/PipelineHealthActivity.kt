@@ -160,7 +160,7 @@ class PipelineHealthActivity : AppCompatActivity() {
                 }
             }
 
-            renderSnapshotAsync(forceFull = false, manualRefresh = true)
+            mainHandler.postDelayed({ renderSnapshotAsync(forceFull = false, manualRefresh = true) }, 750L)
         }
     }
 
@@ -294,8 +294,8 @@ class PipelineHealthActivity : AppCompatActivity() {
         val rawSection = sections[idx]
         // V5.9.1174 — hard UI preview cap. The full 70k+ dump is copy-only;
         // TextView/StaticLayout must never measure more than 5k chars.
-        val section = if (rawSection.length > 5_000) {
-            rawSection.take(5_000) + "\n\n… section truncated for UI render (${rawSection.length} chars). Use Copy for the full dump."
+        val section = if (rawSection.length > 2_000) {
+            rawSection.take(2_000) + "\n\n… section truncated for UI render (${rawSection.length} chars). Use Copy for the full dump."
         } else rawSection
         val title = rawSection.lineSequence().firstOrNull()?.removePrefix("=====")?.removeSuffix("=====")?.trim()
             ?.takeIf { it.isNotBlank() } ?: "Pipeline section"

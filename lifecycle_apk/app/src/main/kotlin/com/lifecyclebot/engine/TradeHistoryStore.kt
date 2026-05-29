@@ -99,6 +99,10 @@ object TradeHistoryStore {
     @Volatile private var cachedStatsSnapshotMs: Long = 0L
     @Volatile private var statsRefreshInFlight: Boolean = false
     private const val STATS_SNAPSHOT_CACHE_MS = 3_000L
+    @Volatile private var rollingSliceCache: Map<String, Double> = emptyMap()
+    @Volatile private var rollingSliceCacheMs: Long = 0L
+    @Volatile private var rollingSliceRefreshInFlight: Boolean = false
+    private const val ROLLING_SLICE_CACHE_MS = 30_000L
 
     fun getStatsCached(): StatsSnapshot {
         val now = System.currentTimeMillis()
@@ -774,6 +778,18 @@ object TradeHistoryStore {
      * Returns -1.0 when the window is too sparse to be meaningful.
      */
     fun rollingWinRatePctSlice(offset: Int, width: Int): Double {
+        val key = "$offset:$width"
+        val now = System.currentTimeMillis()
+        val onMain = try { Looper.myLooper() == Looper.getMainLooper() } catch (_: Throwable) { false }
+        if (onMain) {
+            rollingSliceCache[key]?.let { if (now - rollingSliceCacheMs < ROLLING_SLICE_CACHE_MS) return it }
+            scheduleRollingSliceRefresh(width)
+            return rollingSliceCache[key] ?: -1.0
+        }
+        return computeRollingWinRatePctSlice(offset, width)
+    }
+
+    private fun computeRollingWinRatePctSlice(offset: Int, width: Int): Double {
         val sample = synchronized(lock) {
             trades.asReversed().asSequence()
                 .filter { it.side == "SELL" }
@@ -786,6 +802,28 @@ object TradeHistoryStore {
         val decisive = wins + losses
         if (decisive < width / 2) return -1.0
         return if (decisive > 0) (wins.toDouble() * 100.0) / decisive else 0.0
+    }
+
+    private fun scheduleRollingSliceRefresh(width: Int) {
+        if (rollingSliceRefreshInFlight) return
+        rollingSliceRefreshInFlight = true
+        val r = Runnable {
+            try {
+                val fresh = HashMap<String, Double>(8)
+                for (i in 0 until 5) {
+                    val off = i * width
+                    fresh["$off:$width"] = computeRollingWinRatePctSlice(off, width)
+                }
+                rollingSliceCache = fresh
+                rollingSliceCacheMs = System.currentTimeMillis()
+            } catch (_: Throwable) {
+            } finally {
+                rollingSliceRefreshInFlight = false
+            }
+        }
+        try { ioHandler?.post(r) ?: Thread(r, "TradeRollingSliceRefresh").start() } catch (_: Throwable) {
+            try { Thread(r, "TradeRollingSliceRefresh").start() } catch (_: Throwable) { rollingSliceRefreshInFlight = false }
+        }
     }
 
     fun getTradeCount24h(): Int = getTrades24h().size
