@@ -3919,12 +3919,10 @@ for legal compliance.
             "${it.mint}|${it.position.costSol}|${it.position.qtyToken}|${it.position.isPaperPosition}|${it.position.pendingVerify}"
         }.hashCode()
         if (openHash == lastOpenPosHash) return
-        if (runtimeActive && lastOpenPosHash == -1) {
-            lastOpenPosHash = openHash
-            lastOpenPosRenderMs = System.currentTimeMillis()
-            try { com.lifecyclebot.engine.ForensicLogger.lifecycle("MAIN_OPEN_POS_RENDER_SKIPPED_RUNTIME_FIRST_PASS", "count=${positions.size}") } catch (_: Throwable) {}
-            return
-        }
+        // V5.9.1222 — never hide Open Positions. 1220 skipped the first
+        // runtime render to reduce ANR pressure, but that removed exactly
+        // the operator-critical position rows. Keep throttling/hash guards,
+        // but always render the visible capped rows at least once.
         // V5.9.749 — 2s minimum interval between full rebuilds even when
         // structure changed. Bursts of new tokens during a hot scanner
         // cycle can't ANR the UI; the next interval will pick them up.
@@ -4026,7 +4024,7 @@ for legal compliance.
         // Cap rendered rows at 25 (newest-by-entry first) so a
         // saturated FDG/Executor never re-introduces the 30 s frame
         // freeze. Hidden positions are still managed by the engine.
-        val RENDER_CAP = if (runtimeActive) 2 else 8
+        val RENDER_CAP = if (runtimeActive) 6 else 8
         // V5.9.810 — sort by current unrealized gain % descending. When
         // we have to cap, the strongest movers always stay visible and
         // the deepest losers fall off the bottom (they're managed by
