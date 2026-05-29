@@ -87,6 +87,7 @@ object WrRecoveryPartial {
         val totalSettled: Int,
         val rollingWr: Double,        // last 50 settled
         val predictive: Boolean,      // rolling-50 below target × 0.90
+        val rollingCollapse: Boolean = false, // rolling-50 is catastrophically below target
     ) {
         val active: Boolean get() = band != Band.OFF
     }
@@ -152,6 +153,11 @@ object WrRecoveryPartial {
             com.lifecyclebot.engine.TradeHistoryStore.rollingWinRatePct(50)
         } catch (_: Throwable) { -1.0 }
         val predictive = rollingWr in 0.0..(targetWR * PREDICTIVE_THRESHOLD)
+        // V5.9.1221 — rolling collapse guard. Operator screenshot at 1139
+        // trades showed lifetime WR 24% masking roll50=4%. That is not
+        // acceptable bootstrap noise; it means the CURRENT policy is broken.
+        // Treat roll50 <= min(10%, target*0.35) as emergency quality mode.
+        val rollingCollapse = rollingWr in 0.0..minOf(10.0, targetWR * 0.35)
 
         val lifetimeBand = when {
             currentWR < targetWR * DEEP_THRESHOLD     -> Band.AGGRESSIVE
@@ -160,8 +166,14 @@ object WrRecoveryPartial {
             else -> Band.OFF
         }
         // Predictive escalation: when rolling-50 is bleeding, tighten by one band.
-        val band = if (predictive) escalate(lifetimeBand) else lifetimeBand
-        return State(band, currentWR, targetWR, total.toInt(), rollingWr, predictive)
+        // Collapse escalation: roll50 catastrophically low forces AGGRESSIVE
+        // regardless of lifetime WR so the bot doesn't hide behind old wins.
+        val band = when {
+            rollingCollapse -> Band.AGGRESSIVE
+            predictive -> escalate(lifetimeBand)
+            else -> lifetimeBand
+        }
+        return State(band, currentWR, targetWR, total.toInt(), rollingWr, predictive, rollingCollapse)
     }
 
     private fun escalate(b: Band): Band = when (b) {
@@ -361,9 +373,10 @@ object WrRecoveryPartial {
 
     fun minScoreFloor(): Int {
         val s = stateNow()
-        val base = when (s.band) {
-            Band.AGGRESSIVE -> 45
-            Band.MODERATE   -> 30
+        val base = when {
+            s.rollingCollapse -> 60
+            s.band == Band.AGGRESSIVE -> 45
+            s.band == Band.MODERATE   -> 30
             else            -> 0
         }
         if (base == 0) return 0
@@ -373,7 +386,12 @@ object WrRecoveryPartial {
         //   THIN-  (median<25) → -12  (half-tier drop)
         //   NORMAL                 0
         //   RICH   (median>50) → +10  (tighten to keep only top setups)
-        val delta = when {
+        // V5.9.1221: in rolling-collapse mode DO NOT thin-regime relax.
+        // roll50=4% at 1k+ trades means the bot needs better samples, not
+        // easier entries. Only rich-regime tightening can add to the floor.
+        val delta = if (s.rollingCollapse) {
+            if (median > 50) +10 else 0
+        } else when {
             median < 15 -> -25
             median < 25 -> -12
             median > 50 -> +10
@@ -387,7 +405,11 @@ object WrRecoveryPartial {
         val s = stateNow()
         if (!s.active) return "WR_RECOVERY:off"
         val (r1, r2, r3) = rungsFor(s.band)
-        val predicate = if (s.predictive) "*PREDICTIVE" else ""
+        val predicate = when {
+            s.rollingCollapse -> "*COLLAPSE"
+            s.predictive -> "*PREDICTIVE"
+            else -> ""
+        }
         // V5.9.799 — bootstrap label so it's clear the band is from
         // the under-50-trades training-wheels policy, not a lifetime-WR
         // deficit. Stops the operator wondering 'why is recovery firing
@@ -401,7 +423,11 @@ object WrRecoveryPartial {
         val s = stateNow()
         if (!s.active) return "off"
         val (r1, _, _) = rungsFor(s.band)
-        val pre = if (s.predictive) "⚡" else ""
+        val pre = when {
+            s.rollingCollapse -> "🛑"
+            s.predictive -> "⚡"
+            else -> ""
+        }
         // V5.9.799 — boot prefix so the operator sees 'boot M@25%' rather
         // than just 'M@25%' during the first 50 trades.
         val boot = if (s.totalSettled < 50) "boot " else ""

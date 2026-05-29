@@ -1180,7 +1180,21 @@ object FinalDecisionGate {
             val isHighRecovery = wrState.band == com.lifecyclebot.engine.WrRecoveryPartial.Band.MODERATE ||
                                  wrState.band == com.lifecyclebot.engine.WrRecoveryPartial.Band.AGGRESSIVE
             val isAGrade = candidate.setupQuality == "A" || candidate.setupQuality == "A+"
-            if (isHighRecovery && !isAGrade) {
+            // V5.9.1221 — roll50 collapse is not a soft condition. At 1139
+            // trades the UI showed roll50=4% against a 31% target while the
+            // bot kept entering B/C/D paper trades. During collapse, only A/A+
+            // setups may proceed; this protects quality without touching scanner
+            // intake or exits.
+            if (wrState.rollingCollapse && !isAGrade) {
+                blockReason = "WR_ROLL50_COLLAPSE_A_GRADE_REQUIRED roll=${"%.1f".format(wrState.rollingWr)} target=${wrState.targetWr.toInt()} quality=${candidate.setupQuality}"
+                blockLevel = BlockLevel.CONFIDENCE
+                tags.add("wr_roll50_collapse")
+                checks.add(GateCheck("wr_roll50_collapse", false, "roll50=${"%.1f".format(wrState.rollingWr)}% target=${wrState.targetWr.toInt()}% requires A/A+ setup"))
+                ErrorLogger.info(
+                    "FDG",
+                    "🛑 WR_ROLL50_COLLAPSE_BLOCK: ${ts.symbol} | roll50=${"%.1f".format(wrState.rollingWr)}% target=${wrState.targetWr.toInt()}% quality=${candidate.setupQuality}"
+                )
+            } else if (isHighRecovery && !isAGrade) {
                 // Soft penalty graduated by quality + band severity. Same
                 // shape as the old hard-block: more punishment in
                 // AGGRESSIVE band and for lower-grade setups.
@@ -1196,7 +1210,7 @@ object FinalDecisionGate {
                 tags.add("band_${wrState.band.name.lowercase()}")
                 ErrorLogger.info(
                     "FDG",
-                    "🚑 WR_RECOVERY_SOFT_PENALTY: ${ts.symbol} | band=${wrState.band.name} wr=${"%.1f".format(wrState.currentWr)}% < target=${wrState.targetWr.toInt()}% | quality=${candidate.setupQuality} | conf×size = ${"%.2f".format(wrRecoveryQualityPenaltyMult)}"
+                    "🚑 WR_RECOVERY_SOFT_PENALTY: ${ts.symbol} | band=${wrState.band.name} wr=${"%.1f".format(wrState.currentWr)}% roll=${"%.1f".format(wrState.rollingWr)}% target=${wrState.targetWr.toInt()}% | quality=${candidate.setupQuality} | conf×size = ${"%.2f".format(wrRecoveryQualityPenaltyMult)}"
                 )
             }
         } catch (_: Throwable) { /* recovery gate is best-effort; never block on internal error */ }
