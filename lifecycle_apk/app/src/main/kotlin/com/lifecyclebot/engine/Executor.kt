@@ -9433,6 +9433,11 @@ class Executor(
         // through unclamped to stale/raw prices. These are soft stop labels, not
         // rug/catastrophe labels; train the brain on the intended trigger band.
         if (r.contains("TREASURY_STOP_LOSS") || r.contains("TREASURY_SL")) return Pair(-17.0, -15.0)
+        // V5.9.1225 — SELL_OPT stop labels were falling through unclamped.
+        // Runtime 5.0.3192 journaled [SELL_OPT] Stop Loss exits at -53/-61/-79%,
+        // training the brain on stale/raw paper prices even though SellOptimizationAI
+        // triggers its soft SL around -6..-10%. Clamp to the intended soft-stop band.
+        if (r.contains("SELL_OPT") && (r.contains("STOP_LOSS") || r.contains("STOP LOSS"))) return Pair(-12.0, -6.0)
         if (r.contains("CASHGEN_STOP_LOSS") || r.contains("SHITCOIN_STOP_LOSS") || r.contains("QUALITY_STOP_LOSS") || r.contains("BLUECHIP_STOP_LOSS") || r.contains("MOONSHOT_STOP_LOSS")) return Pair(-12.0, -6.0)
         // V5.9.1086 — align paper hard-floor accounting with the operator's
         // unconditional -15% floor. Old [-20,-9] made hard-floor exits look

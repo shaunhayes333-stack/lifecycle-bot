@@ -13437,6 +13437,16 @@ if (postSupervisorOpenCount > 0 && !postSupervisorBackupDue) {
                         result.reason.contains("TOO_OLD", ignoreCase = true) ||
                         result.reason.contains("NO_PAIR", ignoreCase = true)
                     if (terminalRejected && !ts.position.isOpen) {
+                        // V5.9.1225 — terminal factual rejects must leave the hot
+                        // supervisor pool. 3192 showed 409 terminal early returns
+                        // plus 132 supervisor worker timeouts while ZERO_LIQUIDITY
+                        // mints kept re-entering WATCHLIST_RR. This does not prune
+                        // the protected scanner pool; it quarantines factual poison
+                        // already proven terminal by V3 eligibility.
+                        if (result.reason.contains("ZERO_LIQUIDITY", ignoreCase = true)) {
+                            try { com.lifecyclebot.engine.QuarantineStore.quarantine(ts.mint, ts.symbol, "V3_ZERO_LIQUIDITY_TERMINAL") } catch (_: Throwable) {}
+                            try { com.lifecyclebot.engine.GlobalTradeRegistry.removeFromWatchlist(ts.mint, "V3_ZERO_LIQUIDITY_TERMINAL") } catch (_: Throwable) {}
+                        }
                         try { ForensicLogger.lifecycle("V3_REJECTED_TERMINAL_EARLY_RETURN", "mint=${ts.mint.take(10)} symbol=${ts.symbol} reason=${result.reason}") } catch (_: Throwable) {}
                         ErrorLogger.debug("BotService", "🧯 V3_REJECTED_TERMINAL_EARLY_RETURN: ${ts.symbol} | ${result.reason}")
                         return
