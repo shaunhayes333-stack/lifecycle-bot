@@ -534,10 +534,12 @@ class BotService : Service() {
     @Volatile private var lastRescueMs: Long = 0L
     @Volatile private var lastRescuePhase: String = ""
     @Volatile private var consecutiveSamePhaseRescues: Int = 0
-    // V5.9.1218 — rescue debounce. Runtime 5.0.3185 showed
+    // V5.9.1218/1219 — rescue debounce. Runtime 5.0.3185 showed
     // RESCUE_RELAUNCHED_SERVICE_SCOPE=104 while BOT_LOOP_TICK was still
-    // advancing. Rescue must not become a cadence killer.
+    // advancing. Debounce only when progress is recently healthy; a stale
+    // active coroutine must still be rescued.
     private val LOOP_RESCUE_MIN_INTERVAL_MS = 5L * 60_000L
+    private val LOOP_RESCUE_FORCE_STALE_MS = 120_000L
     @Volatile private var lastKeepAliveAlarmScheduledMs: Long = 0L
 
     /** Current pipeline phase (BOT_LOOP_TICK, PRE_SUPERVISOR, SUPERVISOR,
@@ -554,7 +556,7 @@ class BotService : Service() {
     private val activePhaseSet = setOf(
         "PRE_SUPERVISOR", "SUPERVISOR", "POST_SUPERVISOR",
         "SCAN_CB", "INTAKE", "SAFETY", "EXIT_SWEEP", "WALLET_SWEEP",
-        "RESCUE_LAUNCHING", "BOTLOOP_BOOT",
+        "BOTLOOP_BOOT",
     )
     /** Heartbeat tolerance — only rescue if no progress for this long.
      *  Each cycle is ~15s avg, slowest observed ~99s; 3 * 60s alarm =
@@ -1887,7 +1889,7 @@ class BotService : Service() {
                                 "HEARTBEAT_RESCUE_IDLE_PHASE_TIMEOUT",
                                 "progressGapSec=${progressGapMs / 1000} phase=$phase ceilingMs=300000"
                             )
-                            if (now - lastRescueMs < LOOP_RESCUE_MIN_INTERVAL_MS && active) {
+                            if (now - lastRescueMs < LOOP_RESCUE_MIN_INTERVAL_MS && active && progressGapMs < LOOP_RESCUE_FORCE_STALE_MS) {
                                 ForensicLogger.lifecycle(
                                     "HEARTBEAT_RESCUE_DEBOUNCED_ACTIVE_JOB",
                                     "progressGapSec=${progressGapMs / 1000} phase=$phase sinceLastRescueSec=${(now - lastRescueMs) / 1000}"
@@ -8123,7 +8125,7 @@ class BotService : Service() {
      */
     private fun performServiceScopeRescue(observedDeadJob: Job?, phase: String, progressGapMs: Long) {
         val rescueNow = System.currentTimeMillis()
-        if (observedDeadJob?.isActive == true && rescueNow - lastRescueMs < LOOP_RESCUE_MIN_INTERVAL_MS) {
+        if (observedDeadJob?.isActive == true && rescueNow - lastRescueMs < LOOP_RESCUE_MIN_INTERVAL_MS && progressGapMs < LOOP_RESCUE_FORCE_STALE_MS) {
             try {
                 ForensicLogger.lifecycle(
                     "RESCUE_DEBOUNCED_ACTIVE_JOB",
