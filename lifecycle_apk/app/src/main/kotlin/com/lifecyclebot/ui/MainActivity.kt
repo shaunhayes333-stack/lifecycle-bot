@@ -469,7 +469,8 @@ class MainActivity : AppCompatActivity() {
     // UI emission.
     private var lastChartRenderMs: Long = 0L
     private var lastChartRenderedPrice: Double = 0.0
-    private val RUNTIME_CHART_RENDER_MS: Long = 15_000L
+    private val RUNTIME_CHART_RENDER_MS: Long = 60_000L
+    private var runtimeChartSuppressedUntilMs: Long = 0L
     private var advancedExpanded = false
     private var settingsPopulated = false
 
@@ -2259,7 +2260,8 @@ for legal compliance.
                 lastTradesRenderHash = -1
                 lastWatchlistRenderHash = -1
             } else {
-                try { com.lifecyclebot.engine.ForensicLogger.lifecycle("MAIN_HEAVY_RENDER_PRESERVED_RUNTIME_ACTIVE", "source=foreground_repaint") } catch (_: Throwable) {}
+                runtimeChartSuppressedUntilMs = System.currentTimeMillis() + 60_000L
+                try { com.lifecyclebot.engine.ForensicLogger.lifecycle("MAIN_HEAVY_RENDER_PRESERVED_RUNTIME_ACTIVE", "source=foreground_repaint chartSuppressedMs=60000") } catch (_: Throwable) {}
             }
         }
         val cfg = state.config
@@ -2768,7 +2770,8 @@ for legal compliance.
         val nowChartMs = System.currentTimeMillis()
         val chartTokenChanged = ts != null && ts.mint != lastChartTokenMint
         val chartPriceChangedEnough = ts?.lastPrice?.let { lastChartRenderedPrice <= 0.0 || kotlin.math.abs(it - lastChartRenderedPrice) / lastChartRenderedPrice.coerceAtLeast(1e-12) >= 0.01 } ?: false
-        val allowChartPaint = !runtimeActiveForUi || chartTokenChanged || (nowChartMs - lastChartRenderMs >= RUNTIME_CHART_RENDER_MS && chartPriceChangedEnough)
+        val chartSuppressedForRuntime = runtimeActiveForUi && nowChartMs < runtimeChartSuppressedUntilMs
+        val allowChartPaint = !chartSuppressedForRuntime && (!runtimeActiveForUi || (!chartTokenChanged && nowChartMs - lastChartRenderMs >= RUNTIME_CHART_RENDER_MS && chartPriceChangedEnough))
         if (!allowChartPaint) {
             // skip heavy MPAndroidChart dataset rebuild this UI tick
         } else if (ts != null && ts.mint != lastChartTokenMint) {
@@ -2817,10 +2820,13 @@ for legal compliance.
             // V5.6: Update metrics on each tick
             updateChartMetrics(ts)
         } else if (state.running || runtimeActiveForUi) {
-            // V5.9.1172 — bot-wide truth fallback. A running scanner with no
-            // selected/priced token should not present the chart as "dead".
-            priceChart.setNoDataText("Scanning $uiTokenCount tokens — chart auto-fills when the next priced token is evaluated")
-            candleChart.setNoDataText("Scanning $uiTokenCount tokens — no selected token candle stream yet")
+            // V5.9.1218 — avoid repeated TextView/StaticLayout churn from chart
+            // no-data text while runtime is active. The runtime bar already proves
+            // the bot is alive; chart copy can stay stale until the next safe paint.
+            if (!runtimeActiveForUi && !chartSuppressedForRuntime) {
+                priceChart.setNoDataText("Scanning $uiTokenCount tokens — chart auto-fills when the next priced token is evaluated")
+                candleChart.setNoDataText("Scanning $uiTokenCount tokens — no selected token candle stream yet")
+            }
         }
 
         // ── Quick Stats Bar ─────────────────────────────────────────

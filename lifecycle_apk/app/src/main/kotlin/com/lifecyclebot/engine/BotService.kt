@@ -534,6 +534,11 @@ class BotService : Service() {
     @Volatile private var lastRescueMs: Long = 0L
     @Volatile private var lastRescuePhase: String = ""
     @Volatile private var consecutiveSamePhaseRescues: Int = 0
+    // V5.9.1218 — rescue debounce. Runtime 5.0.3185 showed
+    // RESCUE_RELAUNCHED_SERVICE_SCOPE=104 while BOT_LOOP_TICK was still
+    // advancing. Rescue must not become a cadence killer.
+    private val LOOP_RESCUE_MIN_INTERVAL_MS = 5L * 60_000L
+    @Volatile private var lastKeepAliveAlarmScheduledMs: Long = 0L
 
     /** Current pipeline phase (BOT_LOOP_TICK, PRE_SUPERVISOR, SUPERVISOR,
      *  POST_SUPERVISOR, EXIT_SWEEP, CYCLE_EXIT, IDLE). Read by the heartbeat
@@ -549,6 +554,7 @@ class BotService : Service() {
     private val activePhaseSet = setOf(
         "PRE_SUPERVISOR", "SUPERVISOR", "POST_SUPERVISOR",
         "SCAN_CB", "INTAKE", "SAFETY", "EXIT_SWEEP", "WALLET_SWEEP",
+        "RESCUE_LAUNCHING", "BOTLOOP_BOOT",
     )
     /** Heartbeat tolerance — only rescue if no progress for this long.
      *  Each cycle is ~15s avg, slowest observed ~99s; 3 * 60s alarm =
@@ -1557,17 +1563,23 @@ class BotService : Service() {
                             .putBoolean(KEY_MANUAL_STOP_REQUESTED, false)
                             .apply()
                     } catch (_: Throwable) {}
-                    val cfgForRepair = try { ConfigStore.load(applicationContext) } catch (_: Throwable) { null }
+                    // V5.9.1218 — this branch is hit by keep-alive ACTION_START
+                    // while the bot is already running. Do not decrypt ConfigStore on
+                    // the service/main path; use the already-published runtime authority.
                     val repairGen = BotRuntimeController.beginStart(
-                        paperMode = cfgForRepair?.paperMode ?: true,
+                        paperMode = try { RuntimeModeAuthority.isPaper() } catch (_: Throwable) { true },
                         enabledTraders = try { EnabledTraderAuthority.snapshotStr() } catch (_: Throwable) { "" }
                     )
                     BotRuntimeController.registerJob(repairGen, "botLoop", loopJob)
                     BotRuntimeController.publishRunning(repairGen)
                     try { ForensicLogger.lifecycle("LIFECYCLE_RUNTIME_JOB_ALREADY_EXISTS", "userRequested=$userRequested loopActive=true statusRunning=${status.running} repaired=true gen=$repairGen") } catch (_: Throwable) {}
                     try { ForensicLogger.lifecycle("LIFECYCLE_START_REBOUND_ALREADY_RUNNING", "userRequested=$userRequested repaired=true") } catch (_: Throwable) {}
-                    scheduleKeepAliveAlarm()
-                    try { ServiceWatchdog.scheduleAlarm(applicationContext) } catch (_: Exception) {}
+                    // AlarmManager / ServiceWatchdog binder work showed up in 3185
+                    // ANR samples. Re-arm asynchronously for idempotent keep-alive starts.
+                    scope.launch {
+                        try { scheduleKeepAliveAlarm() } catch (_: Throwable) {}
+                        try { ServiceWatchdog.scheduleAlarm(applicationContext) } catch (_: Throwable) {}
+                    }
                     return START_STICKY
                 }
 
@@ -1875,7 +1887,14 @@ class BotService : Service() {
                                 "HEARTBEAT_RESCUE_IDLE_PHASE_TIMEOUT",
                                 "progressGapSec=${progressGapMs / 1000} phase=$phase ceilingMs=300000"
                             )
-                            performServiceScopeRescue(lj, phase, progressGapMs)
+                            if (now - lastRescueMs < LOOP_RESCUE_MIN_INTERVAL_MS && active) {
+                                ForensicLogger.lifecycle(
+                                    "HEARTBEAT_RESCUE_DEBOUNCED_ACTIVE_JOB",
+                                    "progressGapSec=${progressGapMs / 1000} phase=$phase sinceLastRescueSec=${(now - lastRescueMs) / 1000}"
+                                )
+                            } else {
+                                performServiceScopeRescue(lj, phase, progressGapMs)
+                            }
                         }
                         // Job alive, progress stalled, NOT in a known
                         // active phase, but under the 5-min ceiling.
@@ -5908,6 +5927,12 @@ class BotService : Service() {
     
     // Keep-alive alarm to ensure service restarts if killed
     private fun scheduleKeepAliveAlarm() {
+        val scheduleNowMs = System.currentTimeMillis()
+        if (scheduleNowMs - lastKeepAliveAlarmScheduledMs < 45_000L) {
+            try { ForensicLogger.lifecycle("KEEPALIVE_ALARM_THROTTLED", "ageMs=${scheduleNowMs - lastKeepAliveAlarmScheduledMs}") } catch (_: Throwable) {}
+            return
+        }
+        lastKeepAliveAlarmScheduledMs = scheduleNowMs
         // V5.9.714 — Keep-alive alarm redesign.
         //
         // Previous design used setAlarmClock() as the primary, which:
@@ -8097,6 +8122,16 @@ class BotService : Service() {
      *  intent — per EMERGENT V5.9.762 spec.
      */
     private fun performServiceScopeRescue(observedDeadJob: Job?, phase: String, progressGapMs: Long) {
+        val rescueNow = System.currentTimeMillis()
+        if (observedDeadJob?.isActive == true && rescueNow - lastRescueMs < LOOP_RESCUE_MIN_INTERVAL_MS) {
+            try {
+                ForensicLogger.lifecycle(
+                    "RESCUE_DEBOUNCED_ACTIVE_JOB",
+                    "phase=$phase progressGapSec=${progressGapMs / 1000} sinceLastRescueSec=${(rescueNow - lastRescueMs) / 1000}"
+                )
+            } catch (_: Throwable) {}
+            return
+        }
         synchronized(loopJobLock) {
             // CAS: ensure the job we observed is the same one still on the
             // class field. If something else has already replaced it (user
@@ -8121,6 +8156,7 @@ class BotService : Service() {
             // the new loop takes a few seconds to enter botLoop body, the
             // next 60s alarm sees a fresh budget.
             val nowMs = System.currentTimeMillis()
+            lastRescueMs = nowMs
             lastBotLoopTickMs = nowMs
             lastProgressAtMs = nowMs
             currentPhase = "RESCUE_LAUNCHING"
