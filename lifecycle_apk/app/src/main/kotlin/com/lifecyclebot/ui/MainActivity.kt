@@ -7462,10 +7462,22 @@ This cannot be undone!
             tvProbationHeader.visibility = android.view.View.VISIBLE
             llProbationList.visibility = android.view.View.VISIBLE
             tvProbationHeader.text = "Probation (${probationEntries.size})"
-            
-            for (entry in probationEntries) {
+            // V5.9.1228 — probation lane is now real infrastructure. Rendering
+            // every probation row/Coil logo turned the offload win into a UI ANR
+            // (3195: buildProbationCard=169 samples). Show a tiny hot slice only.
+            val maxProbationRows = if (columnCount >= 3) 3 else 4
+            val probationVisible = probationEntries
+                .sortedWith(compareByDescending<com.lifecyclebot.engine.GlobalTradeRegistry.ProbationEntry> { it.additionalScanners.size }
+                    .thenByDescending { it.currentPrice > it.priceAtAdd && it.priceAtAdd > 0.0 }
+                    .thenByDescending { it.initialLiquidity }
+                    .thenByDescending { it.addedAt })
+                .take(maxProbationRows)
+            for (entry in probationVisible) {
                 val probationCard = buildProbationCard(entry, scaleFactor)
                 llProbationList.addView(probationCard)
+            }
+            if (probationEntries.size > probationVisible.size) {
+                llProbationList.addView(buildListFooter("showing ${probationVisible.size}/${probationEntries.size} probation — slow lane active"))
             }
         } else {
             tvProbationHeader.visibility = android.view.View.GONE
@@ -7593,23 +7605,17 @@ This cannot be undone!
             gravity = android.view.Gravity.CENTER_VERTICAL
         }
         
-        // Logo
-        val logoSize = (28 * scale).toInt()
-        val logoView = android.widget.ImageView(this).apply {
-            layoutParams = LinearLayout.LayoutParams(logoSize, logoSize).also {
-                it.marginEnd = (6 * scale).toInt()
+        // V5.9.1228 — no Coil/image load in probation rows. Probation can hold
+        // hundreds of slow-lane mints; decoding logos here was a direct ANR source.
+        row1.addView(TextView(this).apply {
+            text = "⏳"
+            textSize = 13f * scale
+            setTextColor(0xFFFF9500.toInt())
+            layoutParams = LinearLayout.LayoutParams((24 * scale).toInt(), LinearLayout.LayoutParams.WRAP_CONTENT).also {
+                it.marginEnd = (4 * scale).toInt()
             }
-            scaleType = android.widget.ImageView.ScaleType.CENTER_CROP
-            background = ContextCompat.getDrawable(this@MainActivity, R.drawable.token_logo_bg)
-            val logoUrl = "https://cdn.dexscreener.com/tokens/solana/${entry.mint}.png"
-            load(logoUrl) {
-                crossfade(true)
-                placeholder(R.drawable.ic_token_placeholder)
-                error(R.drawable.ic_token_placeholder)
-                transformations(coil.transform.CircleCropTransformation())
-            }
-        }
-        row1.addView(logoView)
+            gravity = android.view.Gravity.CENTER
+        })
         
         row1.addView(TextView(this).apply {
             text = entry.symbol

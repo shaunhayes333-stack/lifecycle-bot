@@ -7363,6 +7363,47 @@ class BotService : Service() {
             }
         }
 
+        // V5.9.1228 — PumpPortal cold-flow goes to probation-only, not hot
+        // watchlist. 3195 had PUMP_PORTAL_WS=7404 intake hits, vol1h=0 on the
+        // repeated rows, WATCHLIST_PROBATION_DEMOTE=626, and projected execs
+        // collapsed to 112/day. The scanner pool remains protected: these mints
+        // are retained/promotable in probation, but they stop burning main
+        // supervisor/render bandwidth until another source/price action confirms.
+        run {
+            val tags = (source + "|" + allSources.joinToString("|")).uppercase()
+            val isPumpPortalWs = tags.contains("PUMP_PORTAL_WS") || tags.contains("PUMPPORTAL")
+            val isUserAdded = source == "USER" || source.contains("USER_ADDED")
+            val isRestoredVetted = source == "MEME_REGISTRY_RESTORE" || source == "PROBATION"
+            val coldPump = isPumpPortalWs && !isUserAdded && !isRestoredVetted && volumeH1 <= 0.0 && liquidityUsd < 5_000.0
+            if (coldPump) {
+                val laneAffinity = inferIntakeLaneAffinity(source, allSources, marketCapUsd, liquidityUsd)
+                val toolAffinity = inferIntakeToolAffinity(source, allSources, marketCapUsd, liquidityUsd)
+                val added = try {
+                    GlobalTradeRegistry.addToProbationOnly(
+                        mint = mint,
+                        symbol = symbol.ifBlank { mint.take(6) },
+                        addedBy = source,
+                        source = allSources.joinToString("+").ifBlank { source },
+                        initialMcap = marketCapUsd,
+                        liquidityUsd = liquidityUsd,
+                        confidence = confidence,
+                        isEstimatedLiquidity = liquidityUsd <= 0.0,
+                        price = 0.0,
+                        laneAffinity = laneAffinity,
+                        toolAffinity = toolAffinity,
+                    )
+                } catch (_: Throwable) { null }
+                try {
+                    val probationResult = added?.reason ?: "err"
+                    ForensicLogger.lifecycle(
+                        "INTAKE_PROBATION_ONLY",
+                        "symbol=${symbol.ifBlank { mint.take(6) }} mint=${mint.take(10)} src=$source liq=${liquidityUsd.toInt()} mcap=${marketCapUsd.toInt()} vol1h=${volumeH1.toInt()} result=$probationResult"
+                    )
+                } catch (_: Throwable) {}
+                return added?.probation == true || added?.reason?.contains("PROBATION", ignoreCase = true) == true
+            }
+        }
+
         // V5.9.1035 — PART 2 (C): SYMBOL-BURST HARD REJECT.
         // Pump.fun spam clone-storms (5+ different mints with the same
         // symbol in <60s) are guaranteed rugs — bot-name patterns being

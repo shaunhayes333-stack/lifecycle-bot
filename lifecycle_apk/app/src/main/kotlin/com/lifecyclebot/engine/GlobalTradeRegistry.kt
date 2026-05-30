@@ -565,6 +565,48 @@ object GlobalTradeRegistry {
     }
 
     /**
+     * V5.9.1228 — probation-only admission for cold/no-volume firehose intake.
+     * Keeps the token observable/promotable without putting it in the hot
+     * watchlist/supervisor lane immediately.
+     */
+    fun addToProbationOnly(
+        mint: String,
+        symbol: String,
+        addedBy: String,
+        source: String = addedBy,
+        initialMcap: Double = 0.0,
+        liquidityUsd: Double = 0.0,
+        confidence: Int = 0,
+        isEstimatedLiquidity: Boolean = false,
+        price: Double = 0.0,
+        laneAffinity: Set<String> = emptySet(),
+        toolAffinity: Set<String> = emptySet(),
+    ): AddResult {
+        if (mint.isBlank() || mint.length < 30) return AddResult(false, "INVALID_MINT")
+        if (watchlist.containsKey(mint)) return AddResult(false, "DUPLICATE: already in watchlist")
+        probation[mint]?.let { existing ->
+            existing.additionalScanners.add(addedBy)
+            existing.laneAffinity.addAll(laneAffinity.map { it.uppercase() })
+            existing.toolAffinity.addAll(toolAffinity.map { it.uppercase() })
+            return AddResult(false, "ALREADY_IN_PROBATION", probation = true)
+        }
+        return addToProbation(
+            mint = mint,
+            symbol = symbol,
+            addedBy = addedBy,
+            source = source,
+            initialMcap = initialMcap,
+            liquidityUsd = liquidityUsd,
+            confidence = confidence,
+            isEstimatedLiquidity = isEstimatedLiquidity,
+            isSingleSource = true,
+            price = price,
+            laneAffinity = laneAffinity,
+            toolAffinity = toolAffinity,
+        )
+    }
+
+    /**
      * V5.0: Promote a token from probation to watchlist.
      */
     fun promoteFromProbation(mint: String, reason: String): AddResult {
