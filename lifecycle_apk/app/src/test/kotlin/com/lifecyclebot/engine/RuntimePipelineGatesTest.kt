@@ -491,7 +491,7 @@ class RuntimeDoctorSmokeTest {
 
 class RuntimeEnforcementSmokeTest {
     @Test
-    fun exec_open_request_not_emitted_for_block_fatal() {
+    fun exec_open_request_not_emitted_for_confirmed_block_fatal() {
         RuntimeConfigOverlay.resetForTests()
         ExecutableOpenGate.resetForTests()
         ToxicModeCircuitBreaker.resetForTests()
@@ -500,10 +500,40 @@ class RuntimeEnforcementSmokeTest {
         RuntimeModeAuthority.publishUiMode(true)
         RuntimeModeAuthority.publishExecutorMode(true)
         RuntimeModeAuthority.publishPipelineMode(true)
-        ExecutableOpenGate.recordV3("MintFatal111111111111111111111111111", "FATAL", "BLOCK_FATAL", "EXTREME_RUG_RISK_100", "BLOCK_FATAL", 1)
-        val v = ExecutableOpenGate.canOpenExecutablePosition("MintFatal111111111111111111111111111", "FATAL", 1, "PAPER", "SHITCOIN", "test")
+        // V5.9.1230 — confirmed RC=0 remains fatal even in paper. RC=1 is
+        // the learnable/pending sentinel and is covered by the next test.
+        ExecutableOpenGate.recordV3("MintFatal111111111111111111111111111", "FATAL", "BLOCK_FATAL", "EXTREME_RUG_CRITICAL_score=0_CONFIRMED_RUG", "BLOCK_FATAL", 0)
+        val v = ExecutableOpenGate.canOpenExecutablePosition("MintFatal111111111111111111111111111", "FATAL", 0, "PAPER", "SHITCOIN", "test")
         assertFalse(v.allowed)
         assertEquals("EXEC_OPEN_BLOCKED_FATAL_V3", v.logName)
+    }
+
+    @Test
+    fun paper_rc_pending_v3_rug_fatal_is_learnable_at_finality() {
+        RuntimeConfigOverlay.resetForTests()
+        ExecutableOpenGate.resetForTests()
+        ToxicModeCircuitBreaker.resetForTests()
+        BirdeyeBudgetGate.resetForTests()
+        RuntimeModeAuthority.publishConfig(paperMode = true, autoTrade = true)
+        RuntimeModeAuthority.publishUiMode(true)
+        RuntimeModeAuthority.publishExecutorMode(true)
+        RuntimeModeAuthority.publishPipelineMode(true)
+        val mint = "MintFatalRcPending111111111111111111"
+        ExecutableOpenGate.recordV3(mint, "RCP", "BLOCK_FATAL", "EXTREME_RUG_RISK_100", "BLOCK_FATAL", 1)
+        ExecutableOpenGate.recordFdg(
+            mint = mint,
+            symbol = "RCP",
+            lane = "SHITCOIN",
+            canExecute = true,
+            reason = null,
+            signal = "BUY",
+            rugScore = 1,
+            safetyTier = "SAFE",
+            liquidityUsd = 2500.0,
+        )
+        val v = ExecutableOpenGate.canOpenExecutablePosition(mint, "RCP", 1, "PAPER", "SHITCOIN", "test")
+        assertTrue("paper RC_PENDING score=1 should bypass rug-score V3 fatal", v.allowed)
+        assertEquals("EXEC_OPEN_ALLOWED", v.logName)
     }
 
     @Test
