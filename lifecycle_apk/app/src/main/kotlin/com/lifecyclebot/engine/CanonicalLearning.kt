@@ -820,6 +820,29 @@ object CanonicalOutcomeBus {
         return cand to false
     }
 
+    /**
+     * V5.9.1236 — canonical inverse of inferAssetClassAndSource. Producers that
+     * only know their TradeSource (e.g. CanonicalPublishHelper specialist-lane
+     * exits) must resolve a real TradeMode so the outcome is trainable. Without
+     * this, source-only publishers stamped mode=UNKNOWN → UNKNOWN_LANE reject →
+     * the trade was silently dropped from learning despite being a real close.
+     */
+    fun modeFromSource(source: TradeSource): TradeMode = when (source) {
+        TradeSource.SHITCOIN -> TradeMode.SHITCOIN
+        TradeSource.BLUECHIP -> TradeMode.BLUECHIP
+        TradeSource.EXPRESS -> TradeMode.EXPRESS
+        TradeSource.MOONSHOT -> TradeMode.MOONSHOT
+        TradeSource.MANIP -> TradeMode.MANIP
+        TradeSource.TREASURY -> TradeMode.TREASURY
+        TradeSource.MARKETS -> TradeMode.ALTTRADER
+        TradeSource.CYCLIC -> TradeMode.CYCLIC
+        TradeSource.COPYTRADE -> TradeMode.COPY_TRADE
+        // V3 is the generic meme router → STANDARD (trainable, routes to MEME/V3).
+        TradeSource.V3 -> TradeMode.STANDARD
+        // MANUAL / UNKNOWN have no strategy lane to learn.
+        TradeSource.MANUAL, TradeSource.UNKNOWN -> TradeMode.UNKNOWN
+    }
+
     private fun inferAssetClassAndSource(mode: TradeMode): Pair<AssetClass, TradeSource> = when (mode) {
         TradeMode.SHITCOIN -> AssetClass.MEME to TradeSource.SHITCOIN
         TradeMode.BLUECHIP -> AssetClass.BLUECHIP to TradeSource.BLUECHIP

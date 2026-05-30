@@ -92,7 +92,12 @@ object CanonicalPublishHelper {
             }
             val executionEnum = ExecutionResult.EXECUTED
             val envEnum = if (isPaper) TradeEnvironment.PAPER else TradeEnvironment.LIVE
-            val modeEnum = TradeMode.UNKNOWN
+            // V5.9.1236 — derive the strategy lane from the source the caller
+            // already passed. Hardcoding UNKNOWN here made every specialist-lane
+            // close (ShitCoin/Moonshot/BlueChip/Manip/CryptoAlt) normalise to
+            // UNKNOWN_LANE and get rejected from learning — the dominant cause of
+            // canonicalRaw≫settled-trainable. trader field also reflects it.
+            val modeEnum = CanonicalOutcomeBus.modeFromSource(source)
             val holdSec = if (entryTimeMs > 0) (exitTimeMs - entryTimeMs) / 1000 else null
 
             val features = mapOf(
@@ -113,7 +118,7 @@ object CanonicalPublishHelper {
                 CandidateFeatures(
                     assetClass = assetClass.name,
                     runtimeMode = envEnum.name,
-                    trader = source.name,
+                    trader = modeEnum.name,
                     venue = venue,
                     entryPattern = entryPattern,
                     liqBucket = liqBucket,
