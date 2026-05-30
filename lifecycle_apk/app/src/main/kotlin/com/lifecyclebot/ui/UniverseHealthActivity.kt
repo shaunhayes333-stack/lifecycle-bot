@@ -27,6 +27,8 @@ import android.os.Looper
 import android.view.Gravity
 import android.view.ViewGroup.LayoutParams.MATCH_PARENT
 import android.view.ViewGroup.LayoutParams.WRAP_CONTENT
+import android.content.Intent
+import android.widget.Button
 import android.widget.LinearLayout
 import android.widget.ScrollView
 import android.widget.TextView
@@ -78,6 +80,12 @@ class UniverseHealthActivity : Activity() {
 
     private fun renderAll() {
         rootColumn.removeAllViews()
+
+        // V5.9.1240 — single Brain-hub nav. This screen is the 6-pillar
+        // superset; the buttons jump to the deeper single-purpose views
+        // (Pipeline funnel / Learning canonical / Tuning console) so the
+        // operator has ONE entry tile instead of four scattered ones.
+        renderNavBar()
 
         // ── 1. RUNTIME ────────────────────────────────────────────────
         addHeader("🚦 1. Runtime")
@@ -272,6 +280,34 @@ class UniverseHealthActivity : Activity() {
             Color.parseColor("#94A3B8"),
             small = true,
         )
+    }
+
+    private fun renderNavBar() {
+        val bar = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            val pad = (4 * resources.displayMetrics.density).toInt()
+            setPadding(0, pad, 0, pad * 2)
+        }
+        fun navBtn(label: String, hex: String, target: Class<*>) {
+            bar.addView(Button(this).apply {
+                text = label
+                isAllCaps = false
+                textSize = 12f
+                setTextColor(Color.WHITE)
+                setBackgroundColor(Color.parseColor(hex))
+                val lp = LinearLayout.LayoutParams(0, WRAP_CONTENT, 1f)
+                val m = (3 * resources.displayMetrics.density).toInt()
+                lp.setMargins(m, 0, m, 0)
+                layoutParams = lp
+                setOnClickListener {
+                    try { startActivity(Intent(this@UniverseHealthActivity, target)) } catch (_: Throwable) {}
+                }
+            })
+        }
+        navBtn("🩺 Pipeline", "#10B981", PipelineHealthActivity::class.java)
+        navBtn("🧠 Learning", "#3B82F6", LearningCounterActivity::class.java)
+        navBtn("🎚 Tuning", "#F59E0B", TuningActivity::class.java)
+        rootColumn.addView(bar)
     }
 
     // ── Helpers ───────────────────────────────────────────────────────

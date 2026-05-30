@@ -161,6 +161,51 @@ class TuningActivity : Activity() {
         } catch (t: Throwable) {
             addText("(losing-pattern memory unavailable)", Color.GRAY)
         }
+        // ── 5. MFE CAPTURE RATIO ───────────────────────────────────────
+        addHeader("📈 5. MFE Capture Ratio (realized ÷ peak)")
+        addText(
+            "How much of each lane's peak gain it actually banks. <40% = exiting too late " +
+                "(round-tripping winners); near 100% = exits well-timed. Only counts closed " +
+                "outcomes that carried a recorded peak.",
+            Color.GRAY, small = true,
+        )
+        try {
+            val outcomes = com.lifecyclebot.engine.CanonicalOutcomeBus.recentSnapshot()
+            // Group by lane (mode); only winners with a positive recorded peak are
+            // meaningful for capture ratio (losers never had a peak to capture).
+            data class Acc(var realizedSum: Double = 0.0, var peakSum: Double = 0.0, var n: Int = 0)
+            val byLane = HashMap<String, Acc>()
+            for (o in outcomes) {
+                val peak = o.maxGainPct ?: continue          // skip null-peak (legacy bridge) rows
+                if (peak <= 0.0) continue                     // no upside to capture
+                val realized = o.realizedPnlPct ?: continue
+                val lane = o.mode.name
+                val a = byLane.getOrPut(lane) { Acc() }
+                a.realizedSum += realized
+                a.peakSum += peak
+                a.n += 1
+            }
+            if (byLane.isEmpty()) {
+                addText("(no closed outcomes with a recorded peak yet)", Color.GRAY)
+            } else {
+                byLane.entries.sortedByDescending { it.value.n }.forEach { (lane, a) ->
+                    val ratio = if (a.peakSum > 0.0) (a.realizedSum / a.peakSum) * 100.0 else 0.0
+                    val color = when {
+                        ratio >= 70.0 -> "#10B981"
+                        ratio >= 40.0 -> "#F59E0B"
+                        else -> "#EF4444"
+                    }
+                    addKv(
+                        "$lane: capture=${"%.0f".format(ratio)}% " +
+                            "(avgPeak=${"%+.0f".format(a.peakSum / a.n)}% " +
+                            "avgRealized=${"%+.0f".format(a.realizedSum / a.n)}% n=${a.n})",
+                        color,
+                    )
+                }
+            }
+        } catch (t: Throwable) {
+            addText("(MFE data unavailable: ${t.message?.take(60)})", Color.GRAY)
+        }
     }
 
     /**
