@@ -256,12 +256,22 @@ object CanonicalSubscribers {
             // This populates LayerReadinessRegistry so the new UI screen
             // shows non-DISCONNECTED states for layers that participate.
             CanonicalOutcomeBus.subscribe { outcome ->
+                // V5.9.1235 — readiness must track learner-eligible settled
+                // samples, not every diagnostic event on the canonical bus.
+                // 3200/3202 screenshots showed canonicalRaw≈2043 but true
+                // settled learner baseline=221, while LayerReadiness displayed
+                // n≈1900 because UNKNOWN_LANE / bad-label execution events still
+                // flowed here. Keep those outcomes visible in counters/recent log,
+                // but do NOT educate readiness from them.
+                if (!outcome.isTrainable) return@subscribe
+                if (outcome.bcSimOnly) return@subscribe
                 val isStrategySettlement = outcome.result == TradeResult.WIN ||
                                            outcome.result == TradeResult.LOSS
+                if (!isStrategySettlement) return@subscribe
                 val isExecOutcome = outcome.executionResult != ExecutionResult.UNKNOWN
 
                 val toUpdate = mutableListOf<String>()
-                if (isStrategySettlement) toUpdate += LayerEducationRouter.STRATEGY_LAYERS
+                toUpdate += LayerEducationRouter.STRATEGY_LAYERS
                 if (isExecOutcome) toUpdate += LayerEducationRouter.EXECUTION_LAYERS
 
                 val isWin = outcome.result == TradeResult.WIN

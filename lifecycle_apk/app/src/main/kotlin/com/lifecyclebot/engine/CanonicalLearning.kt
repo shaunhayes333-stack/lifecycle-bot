@@ -943,8 +943,38 @@ object LayerReadinessRegistry {
         if (isRichSample) s.richEducationCount += 1L else s.incompleteEducationCount += 1L
     }
 
+    private fun learnerSettledBaseline(): Long {
+        return try {
+            (CanonicalLearningCounters.settledWins.get() + CanonicalLearningCounters.settledLosses.get()).coerceAtLeast(0L)
+        } catch (_: Throwable) { 0L }
+    }
+
+    private fun effectiveCounters(s: State): State {
+        val baseline = learnerSettledBaseline()
+        if (baseline <= 0L || s.settledOutcomes <= baseline) return s
+        // V5.9.1235 — older persisted readiness state was polluted by
+        // bad-label / execution-only outcomes. Clamp the visible/readiness
+        // view to the canonical learner-settled baseline so n never exceeds
+        // the real trainable W+L count. Raw diagnostic counters remain in
+        // CanonicalLearningCounters where rejectedBadLabels/executionOnly are
+        // already surfaced separately.
+        val winsCap = try { CanonicalLearningCounters.settledWins.get().coerceAtLeast(0L) } catch (_: Throwable) { baseline }
+        val n = baseline
+        val wins = s.positiveEvSamples.coerceIn(0L, winsCap.coerceAtMost(n))
+        val rich = s.richEducationCount.coerceIn(0L, n)
+        val incomplete = s.incompleteEducationCount.coerceIn(0L, (n - rich).coerceAtLeast(0L))
+        return State(
+            settledOutcomes = n,
+            positiveEvSamples = wins,
+            lastEducationMs = s.lastEducationMs,
+            richEducationCount = rich,
+            incompleteEducationCount = incomplete,
+        )
+    }
+
     fun readinessOf(layer: String): LayerReadiness {
-        val s = states[layer] ?: return LayerReadiness.DISCONNECTED
+        val raw = states[layer] ?: return LayerReadiness.DISCONNECTED
+        val s = effectiveCounters(raw)
         val n = s.settledOutcomes
         val wins = s.positiveEvSamples
         val losses = n - wins
@@ -1011,6 +1041,12 @@ object LayerReadinessRegistry {
      * starvation). Returns Triple(settled, richEducation, incompleteEducation).
      */
     fun countersOf(layer: String): Triple<Long, Long, Long> {
+        val raw = states[layer] ?: return Triple(0L, 0L, 0L)
+        val s = effectiveCounters(raw)
+        return Triple(s.settledOutcomes, s.richEducationCount, s.incompleteEducationCount)
+    }
+
+    fun countersOfRawForDiagnostics(layer: String): Triple<Long, Long, Long> {
         val s = states[layer] ?: return Triple(0L, 0L, 0L)
         return Triple(s.settledOutcomes, s.richEducationCount, s.incompleteEducationCount)
     }
