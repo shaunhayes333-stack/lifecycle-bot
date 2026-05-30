@@ -5096,14 +5096,48 @@ class BotService : Service() {
                 else -> cyclicEnabled && (cfgNow.cyclicTradeLiveEnabled || walletUsdNow >= liveThreshold)
             }
             if (allowTick) {
+                // V5.9.1238 — snapshot cheap state on the loop thread, then run the
+                // (potentially blocking) tick OFF the bot-loop coroutine. Single-flight:
+                // if a prior tick is still running, skip this one rather than queueing —
+                // cyclic is a low-frequency lane and a backed-up tick means the executor
+                // is busy, not that we lost a signal.
+                if (!cyclicTickInFlight.compareAndSet(false, true)) {
+                    try {
+                        ForensicLogger.lifecycle(
+                            "CYCLIC_TICK_SKIPPED",
+                            "reason=in_flight (previous cyclic tick still running off-loop)",
+                        )
+                    } catch (_: Throwable) {}
+                    return
+                }
                 val cyclicTokens = synchronized(status.tokens) { status.tokens.toMap() }
-                CyclicTradeEngine.tick(
-                    context   = applicationContext,
-                    tokens    = cyclicTokens,
-                    executor  = executor,
-                    wallet    = wallet,
-                    walletSol = walletSolNow,
-                )
+                val walletSnap = wallet
+                scope.launch(kotlinx.coroutines.Dispatchers.IO) {
+                    try {
+                        val completed = kotlinx.coroutines.withTimeoutOrNull(CYCLIC_TICK_TIMEOUT_MS) {
+                            CyclicTradeEngine.tick(
+                                context   = applicationContext,
+                                tokens    = cyclicTokens,
+                                executor  = executor,
+                                wallet    = walletSnap,
+                                walletSol = walletSolNow,
+                            )
+                            true
+                        }
+                        if (completed == null) {
+                            try {
+                                ForensicLogger.lifecycle(
+                                    "CYCLIC_TICK_TIMEOUT",
+                                    "budgetMs=$CYCLIC_TICK_TIMEOUT_MS — tick exceeded watchdog; loop unaffected",
+                                )
+                            } catch (_: Throwable) {}
+                        }
+                    } catch (e: Throwable) {
+                        ErrorLogger.error("BotService", "CyclicTradeEngine async tick error: ${e.message}", e)
+                    } finally {
+                        cyclicTickInFlight.set(false)
+                    }
+                }
             } else {
                 try {
                     ForensicLogger.lifecycle(
@@ -8099,6 +8133,17 @@ class BotService : Service() {
     // V5.9.1087 — same owner-token guard as exitSweepGeneration.
     private val slSafetyNetGeneration = java.util.concurrent.atomic.AtomicLong(0L)
     private val slSafetyNetPending = AtomicBoolean(false)
+
+    // V5.9.1238 — REGRESSION FIX (bot-loop stall at POST_SUPERVISOR/PERSIST_DISPATCHED).
+    // V5.9.1227 made cyclic "a real compounding lane" and ran CyclicTradeEngine.tick()
+    // INLINE on the bot-loop coroutine. tick() synchronously calls FinalDecisionGate +
+    // executor.treasuryBuy/paperSell, which drag in the full learning/persistence fanout —
+    // the exact 30-50s-per-cycle blocking the V5.9.1019 SL-sweep fix had already cured by
+    // moving off-loop. Operator log: 193s frozen at PERSIST_DISPATCHED → forced rescue,
+    // discarding the whole cycle. Cyclic now runs on the IO scope with single-flight +
+    // timeout watchdog so a slow execution can never wedge the loop again.
+    private val cyclicTickInFlight = AtomicBoolean(false)
+    private val CYCLIC_TICK_TIMEOUT_MS = 20_000L
     private val UNIVERSAL_SL_HARD_MS: Long = 15_000L
     // V5.9.1082 — UNIVERSAL_SL_SWEEP_FORCE_RESET=52 in operator's 1081b
     // snapshot. Same root cause: 4s budget too tight for
