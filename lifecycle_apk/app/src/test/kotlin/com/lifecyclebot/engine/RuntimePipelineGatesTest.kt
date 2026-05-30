@@ -539,6 +539,10 @@ class RuntimeEnforcementSmokeTest {
     @Test
     fun runtime_overlay_can_still_disable_specific_lane_when_explicitly_commanded() {
         RuntimeConfigOverlay.resetForTests()
+        RuntimeModeAuthority.publishConfig(paperMode = false, autoTrade = true)
+        RuntimeModeAuthority.publishUiMode(false)
+        RuntimeModeAuthority.publishExecutorMode(false)
+        RuntimeModeAuthority.publishPipelineMode(false)
         val fault = InvariantGuardian.Fault(InvariantGuardian.FaultCode.LANE_FANOUT_EXPLOSION, "HIGH", "laneEval/intake=49")
         RuntimeMitigationBus.publish(RuntimeMitigationBus.Command.DisableLane("MOONSHOT", fault.detail, 30_000L))
         assertTrue(RuntimeConfigOverlay.isLaneDisabled("MOONSHOT"))
@@ -550,6 +554,10 @@ class RuntimeQualityOnlyOverlaySmokeTest {
     @Test
     fun force_quality_only_disables_non_quality_lanes() {
         RuntimeConfigOverlay.resetForTests()
+        RuntimeModeAuthority.publishConfig(paperMode = false, autoTrade = true)
+        RuntimeModeAuthority.publishUiMode(false)
+        RuntimeModeAuthority.publishExecutorMode(false)
+        RuntimeModeAuthority.publishPipelineMode(false)
         RuntimeMitigationBus.publish(RuntimeMitigationBus.Command.ForceQualityOnly("fanout", 30_000L))
         assertTrue(RuntimeConfigOverlay.isLaneDisabled("SHITCOIN"))
         assertTrue(RuntimeConfigOverlay.isLaneDisabled("PROJECT_SNIPER"))
