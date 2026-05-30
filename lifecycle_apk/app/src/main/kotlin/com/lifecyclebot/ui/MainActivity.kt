@@ -521,6 +521,14 @@ class MainActivity : AppCompatActivity() {
     private var lastShitCoinHash: Int = -1
     private var lastAiStatusRenderMs: Long = 0L
     private var lastTradesRenderMs: Long = 0L
+    // V5.9.1229 — dashboard hot-panel throttles. Runtime 3196 showed the
+    // scanner/probation fix worked, but MainActivity was still starving the bot
+    // via fmtRef/render30DayMeme/updateCyclicPanel/renderOpenPositions.
+    private var lastCyclicPanelRenderMs: Long = 0L
+    private var lastCyclicPanelHash: Int = -1
+    private var last30DayRenderMs: Long = 0L
+    private var lastTileStatsRenderMs: Long = 0L
+    private var lastDecisionLogRenderMs: Long = 0L
     private data class TrustUiSnapshot(
         val updatedAtMs: Long = 0L,
         val distrustPauses: Int = 0,
@@ -877,13 +885,11 @@ class MainActivity : AppCompatActivity() {
                 repeatOnLifecycle(androidx.lifecycle.Lifecycle.State.STARTED) {
                     vm.ui.collect { state ->
                         updateUi(state)
-                        // V5.9.925 — was 500ms (2 Hz). updateUi is a 1007-line method that
-                        // setTexts ~50 TextViews + rebuilds card chrome every call. At 2 Hz
-                        // that was a sustained main-thread cost ≈40-60ms per tick → ANR storm
-                        // when concurrent with renderOpenPositions / pipelineTileRefresh.
-                        // V5.9.1017 — 1 Hz was still saturating main with large card rebuilds.
-                        // Runtime trade management is independent of this dashboard paint loop.
-                        kotlinx.coroutines.delay(2_500)
+                        // V5.9.1229 — runtime paint must never compete with the
+                        // trading loop. When active, dashboard refresh is observability
+                        // only; Start/Stop truth is still updated inside updateUi.
+                        val runtimeActive = try { com.lifecyclebot.engine.BotService.isRuntimeActive() } catch (_: Throwable) { false }
+                        kotlinx.coroutines.delay(if (runtimeActive) 5_000L else 2_500L)
                     }
                 }
             }
@@ -2256,6 +2262,10 @@ for legal compliance.
                 lastCryptoAltsRenderMs = 0L
                 lastAiStatusRenderMs = 0L
                 lastNetworkSigRenderMs = 0L
+                lastCyclicPanelRenderMs = 0L
+                last30DayRenderMs = 0L
+                lastTileStatsRenderMs = 0L
+                lastDecisionLogRenderMs = 0L
                 lastOpenPosHash = -1
                 lastTradesRenderHash = -1
                 lastWatchlistRenderHash = -1
@@ -3152,10 +3162,11 @@ for legal compliance.
                 val pos = ts.position
                 if (pos.entryPrice > 0 && ref > 0) pos.costSol * (ref - pos.entryPrice) / pos.entryPrice else 0.0
             }
-            tvTotalExposure.text = "%.3f◎ at risk".format(totalExposure)
-            tvTotalUnrealisedPnl.text = "%+.4f◎".format(totalUpnl)
+            tvTotalExposure.text = totalExposure.fastFixed(3) + "◎ at risk"
+            tvTotalUnrealisedPnl.text = totalUpnl.fastSigned(4) + "◎"
             tvTotalUnrealisedPnl.setTextColor(if (totalUpnl >= 0) green else red)
-            renderOpenPositions(openPos)
+            val openRenderAllowed = !runtimeActiveForUi || lastOpenPosRenderMs > 0L || (System.currentTimeMillis() - activityCreatedAtMs) > 60_000L
+            if (openRenderAllowed) renderOpenPositions(openPos)
         }
         
         // ── V4.0: Treasury positions panel ─────────────────────────────────
@@ -3345,6 +3356,17 @@ for legal compliance.
                 cardCyclicPanel?.visibility = android.view.View.GONE
                 return
             }
+            val cyclicHash = listOf(
+                engine.ringBalanceUsd.toInt(), engine.cycleCount, engine.winCount,
+                engine.lossCount, engine.isInPosition, engine.currentMint, engine.statusMessage
+            ).hashCode()
+            val nowCyclic = System.currentTimeMillis()
+            val runtimeActive = try { com.lifecyclebot.engine.BotService.isRuntimeActive() } catch (_: Throwable) { false }
+            val minCyclicMs = if (runtimeActive) 60_000L else 10_000L
+            if (cardCyclicPanel != null && cyclicHash == lastCyclicPanelHash && nowCyclic - lastCyclicPanelRenderMs < minCyclicMs) return
+            if (runtimeActive && lastCyclicPanelRenderMs > 0L && nowCyclic - lastCyclicPanelRenderMs < minCyclicMs) return
+            lastCyclicPanelHash = cyclicHash
+            lastCyclicPanelRenderMs = nowCyclic
 
             // Build panel on first run
             if (cardCyclicPanel == null) {
@@ -3417,7 +3439,7 @@ for legal compliance.
                 ).apply { setMargins(0, 0, 0, (4 * resources.displayMetrics.density).toInt()) }
 
                 addView(TextView(this@MainActivity).apply {
-                    text = "Ring: \$${"%,.0f".format(ringUsd)}"
+                    text = "Ring: \$${ringUsd.fastWhole()}"
                     setTextColor(if (ringUsd >= 500.0) green else red)
                     textSize = 14f
                     typeface = android.graphics.Typeface.DEFAULT_BOLD
@@ -3425,7 +3447,7 @@ for legal compliance.
                 })
                 val growthColor = if (growthPct >= 0) green else red
                 addView(TextView(this@MainActivity).apply {
-                    text = "${if (growthPct >= 0) "+" else ""}${"%,.1f".format(growthPct)}% growth"
+                    text = growthPct.fastSigned(1) + "% growth"
                     setTextColor(growthColor)
                     textSize = 12f
                 })
@@ -3447,7 +3469,7 @@ for legal compliance.
                 addView(stat("Cycles:", "$cycles", white))
                 addView(stat("W/L:", "$wins/$losses", if (wins >= losses) green else red))
                 addView(stat("WR:", "$winRate%", if (winRate >= 50) green else if (winRate >= 35) amber else red))
-                addView(stat("PnL:", "${if (totalPnlSol >= 0) "+" else ""}${"%,.4f".format(totalPnlSol)} SOL",
+                addView(stat("PnL:", totalPnlSol.fastSigned(4) + " SOL",
                     if (totalPnlSol >= 0) green else red))
             })
 
@@ -3591,12 +3613,22 @@ for legal compliance.
         
         // ── V5.2: Tile Stats ─────────────────────────────────
         try {
-            updateTileStats()
+            val nowTile = System.currentTimeMillis()
+            val minTileMs = if (runtimeActiveForUi) 60_000L else 10_000L
+            if (nowTile - lastTileStatsRenderMs >= minTileMs || lastTileStatsRenderMs <= 0L) {
+                lastTileStatsRenderMs = nowTile
+                updateTileStats()
+            }
         } catch (_: Exception) {}
         
         // ── V5.2.8: 30-Day Run Stats ─────────────────────────────────
         try {
-            update30DayRunStats()
+            val now30 = System.currentTimeMillis()
+            val min30Ms = if (runtimeActiveForUi) 120_000L else 15_000L
+            if (now30 - last30DayRenderMs >= min30Ms || last30DayRenderMs <= 0L) {
+                last30DayRenderMs = now30
+                update30DayRunStats()
+            }
         } catch (_: Exception) {}
         
         // ── V5.6.9: Live Readiness Indicator ─────────────────────────
@@ -3671,7 +3703,12 @@ for legal compliance.
         }
 
         // ── decision log ──────────────────────────────────────────────
-        if (ts != null) updateDecisionLog(ts) else updateGlobalDecisionLog(state)
+        val nowDecision = System.currentTimeMillis()
+        val minDecisionMs = if (runtimeActiveForUi) 30_000L else 5_000L
+        if (nowDecision - lastDecisionLogRenderMs >= minDecisionMs || lastDecisionLogRenderMs <= 0L) {
+            lastDecisionLogRenderMs = nowDecision
+            if (ts != null) updateDecisionLog(ts) else updateGlobalDecisionLog(state)
+        }
 
         // ── top-up status in bot status text ─────────────────────────
         // Show top-up count on active position
@@ -3934,7 +3971,7 @@ for legal compliance.
         // structure changed. Bursts of new tokens during a hot scanner
         // cycle can't ANR the UI; the next interval will pick them up.
         val nowMs = System.currentTimeMillis()
-        val minRenderIntervalMs = if (runtimeActive) 60_000L else OPEN_POS_MIN_RENDER_INTERVAL_MS
+        val minRenderIntervalMs = if (runtimeActive) 120_000L else OPEN_POS_MIN_RENDER_INTERVAL_MS
         if (nowMs - lastOpenPosRenderMs < minRenderIntervalMs && lastOpenPosRenderMs > 0L) {
             return
         }
@@ -4031,7 +4068,7 @@ for legal compliance.
         // Cap rendered rows at 25 (newest-by-entry first) so a
         // saturated FDG/Executor never re-introduces the 30 s frame
         // freeze. Hidden positions are still managed by the engine.
-        val RENDER_CAP = if (runtimeActive) 6 else 8
+        val RENDER_CAP = if (runtimeActive) 2 else 8
         // V5.9.810 — sort by current unrealized gain % descending. When
         // we have to cap, the strongest movers always stay visible and
         // the deepest losers fall off the bottom (they're managed by
@@ -4065,14 +4102,21 @@ for legal compliance.
                 gravity = android.view.Gravity.CENTER_VERTICAL
             }
 
-            // V5.8.0: Token logo
-            val logoImg = android.widget.ImageView(this).apply {
-                layoutParams = LinearLayout.LayoutParams(40, 40).also { it.marginEnd = 10 }
-                scaleType = android.widget.ImageView.ScaleType.CENTER_CROP
-                try { background = androidx.core.content.ContextCompat.getDrawable(this@MainActivity, R.drawable.token_logo_bg) } catch (_: Exception) {}
-                if (runtimeActive) {
-                    setImageResource(R.drawable.ic_token_placeholder)
-                } else {
+            // V5.9.1229 — no ImageView/logo work while runtime is active.
+            // 3196 ANRs still showed renderOpenPositions/TextView allocation on Main.
+            if (runtimeActive) {
+                row.addView(TextView(this).apply {
+                    text = "●"
+                    textSize = 18f
+                    setTextColor(gainCol)
+                    gravity = android.view.Gravity.CENTER
+                    layoutParams = LinearLayout.LayoutParams(40, 40).also { it.marginEnd = 10 }
+                })
+            } else {
+                val logoImg = android.widget.ImageView(this).apply {
+                    layoutParams = LinearLayout.LayoutParams(40, 40).also { it.marginEnd = 10 }
+                    scaleType = android.widget.ImageView.ScaleType.CENTER_CROP
+                    try { background = androidx.core.content.ContextCompat.getDrawable(this@MainActivity, R.drawable.token_logo_bg) } catch (_: Exception) {}
                     val cachedLogo = try { ts.logoUrl.ifBlank { null } } catch (_: Exception) { null }
                     load(cachedLogo ?: "https://cdn.dexscreener.com/tokens/solana/${ts.mint}") {
                         crossfade(true); placeholder(R.drawable.ic_token_placeholder)
@@ -4080,8 +4124,8 @@ for legal compliance.
                         transformations(coil.transform.CircleCropTransformation())
                     }
                 }
+                row.addView(logoImg)
             }
-            row.addView(logoImg)
 
             // Colour bar on left
             val bar = View(this).apply {
@@ -11273,7 +11317,19 @@ $preTweetText
 
 // ── extensions ────────────────────────────────────────────────────────────────
 
-private fun Double.fmtRef(): String = "%.4f".format(this)
+private fun Double.fastFixed(decimals: Int): String {
+    if (!this.isFinite()) return "0" + if (decimals > 0) "." + "0".repeat(decimals) else ""
+    val neg = this < 0.0
+    val scale = when (decimals) { 0 -> 1.0; 1 -> 10.0; 2 -> 100.0; 3 -> 1000.0; else -> 10000.0 }
+    val rounded = kotlin.math.round(kotlin.math.abs(this) * scale).toLong()
+    val whole = rounded / scale.toLong()
+    val frac = rounded % scale.toLong()
+    val body = if (decimals <= 0) whole.toString() else whole.toString() + "." + frac.toString().padStart(decimals, '0')
+    return if (neg) "-$body" else body
+}
+private fun Double.fastSigned(decimals: Int): String = (if (this >= 0.0) "+" else "") + this.fastFixed(decimals)
+private fun Double.fastWhole(): String = kotlin.math.round(this).toLong().toString()
+private fun Double.fmtRef(): String = this.fastFixed(4)
 
 private fun Double.fmtPrice(): String = when {
     this <= 0       -> "—"
