@@ -32,6 +32,11 @@ object CyclicTradeEngine {
     private const val DEFAULT_TP_PCT = 65.0
     private const val DEFAULT_SL_PCT = 8.0
     private const val MIN_SCORE_TO_ENTER = 62.0
+    // V5.9.1234 — Cyclic was deploying the full ring while cold (e.g. 1W/4L,
+    // ring $3, -99% growth). Keep sampling, but stop full-ring gambling until
+    // its own curve has proven profitable.
+    private const val COLD_MIN_SCORE_TO_ENTER = 72.0
+    private const val COLD_RING_SIZE_MULT = 0.20
     // V5.9.240: During bootstrap (<40% learning) lower the score floor so the
     // ring engine actually trades while FluidLearningAI is still calibrating.
     // Tokens don't have a reliable lastV3Score yet at that stage — entryScore
@@ -70,6 +75,7 @@ object CyclicTradeEngine {
         private set
     @Volatile var entryPriceSol: Double = 0.0
         private set
+    @Volatile private var entrySizeSol: Double = 0.0
     @Volatile var entryTimeMs: Long = 0L
         private set
     @Volatile var lastCycleEndMs: Long = 0L
@@ -293,7 +299,13 @@ object CyclicTradeEngine {
         val isBootstrapPhase = try {
             com.lifecyclebot.v3.scoring.FluidLearningAI.getLearningProgress() < 0.40
         } catch (_: Exception) { false }
-        var effectiveMinScore = if (isBootstrapPhase) MIN_SCORE_TO_ENTER_BOOTSTRAP else MIN_SCORE_TO_ENTER
+        val cyclicWrPct = if (cycleCount > 0) (winCount * 100.0 / cycleCount.toDouble()) else 0.0
+        val cyclicCold = cycleCount >= 3 && (cyclicWrPct < 35.0 || ringBalanceUsd < RING_SIZE_USD * 0.80)
+        var effectiveMinScore = when {
+            cyclicCold -> COLD_MIN_SCORE_TO_ENTER
+            isBootstrapPhase -> MIN_SCORE_TO_ENTER_BOOTSTRAP
+            else -> MIN_SCORE_TO_ENTER
+        }
         if (consecutiveLosses > 0) {
             // Each recent loss raises the bar +5 (caps at +15). Loop-learning
             // the ring's own outcomes into entry quality.
@@ -337,7 +349,7 @@ object CyclicTradeEngine {
             }
             .maxByOrNull { (it.lastV3Score ?: 0) + it.entryScore.toInt() }
             ?: run {
-                statusMessage = "Scanning… (need score ≥${effectiveMinScore.toInt()}${if (isBootstrapPhase) " [BOOT]" else ""}${if (consecutiveLosses > 0) " +${consecutiveLosses}L" else ""})"
+                statusMessage = "Scanning… (need score ≥${effectiveMinScore.toInt()}${if (cyclicCold) " [COLD]" else if (isBootstrapPhase) " [BOOT]" else ""}${if (consecutiveLosses > 0) " +${consecutiveLosses}L" else ""})"
                 return
             }
 
@@ -357,7 +369,7 @@ object CyclicTradeEngine {
         } catch (_: Throwable) {}
 
         // ── 4. Enter cycle ─────────────────────────────────────────────────────
-        val sizeSol = ringBalanceSol
+        val sizeSol = if (cyclicCold) (ringBalanceSol * COLD_RING_SIZE_MULT).coerceAtLeast(0.001) else ringBalanceSol
 
         if (isLiveMode) {
             if (walletSol < sizeSol) {
@@ -476,6 +488,7 @@ object CyclicTradeEngine {
             currentMint   = best.mint
             currentSymbol = best.symbol
             entryPriceSol = best.lastPrice
+            entrySizeSol  = sizeSol
             entryTimeMs   = System.currentTimeMillis()
             isRunning     = true
             statusMessage = "⏳ ${best.symbol} | Size: ${sizeSol.fmt(3)} SOL | TP${tpPctEntry.toInt()}/SL${slPctEntry.toInt()} | ${if (isLiveMode) "🔴 LIVE" else "📄 PAPER"}"
@@ -532,7 +545,8 @@ object CyclicTradeEngine {
         reason: String,
         solPrice: Double
     ) {
-        val pnlSol = ringBalanceSol * (pnlPct / 100.0)
+        val deployedSizeSol = entrySizeSol.takeIf { it > 0.0 } ?: ringBalanceSol
+        val pnlSol = deployedSizeSol * (pnlPct / 100.0)
 
         // Execute sell
         if (isLiveMode) {
@@ -568,7 +582,7 @@ object CyclicTradeEngine {
             V3JournalRecorder.recordClose(
                 symbol = ts.symbol, mint = ts.mint,
                 entryPrice = entryPriceSol, exitPrice = ts.lastPrice,
-                sizeSol = ringBalanceSol, pnlPct = pnlPct, pnlSol = pnlSol,
+                sizeSol = deployedSizeSol, pnlPct = pnlPct, pnlSol = pnlSol,
                 isPaper = !isLiveMode, layer = "CYCLIC",
                 exitReason = reason,
                 entryScore = ts.lastV3Score ?: ts.entryScore.toInt(),
@@ -584,6 +598,7 @@ object CyclicTradeEngine {
         currentMint    = ""
         currentSymbol  = ""
         entryPriceSol  = 0.0
+        entrySizeSol   = 0.0
         entryTimeMs    = 0L
 
         val winRate = if (cycleCount > 0) (winCount.toDouble() / cycleCount * 100).toInt() else 0
@@ -597,6 +612,7 @@ object CyclicTradeEngine {
         currentMint   = ""
         currentSymbol = ""
         entryPriceSol = 0.0
+        entrySizeSol  = 0.0
         entryTimeMs   = 0L
         lastCycleEndMs = System.currentTimeMillis()
         statusMessage = "⚠️ Abandoned: $reason"
@@ -628,6 +644,7 @@ object CyclicTradeEngine {
         currentMint   = ""
         currentSymbol = ""
         entryPriceSol = 0.0
+        entrySizeSol  = 0.0
         entryTimeMs   = 0L
         lastCycleEndMs = 0L
         statusMessage = "Reset"

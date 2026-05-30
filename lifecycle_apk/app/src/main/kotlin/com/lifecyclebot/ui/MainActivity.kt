@@ -3165,7 +3165,7 @@ for legal compliance.
             tvTotalExposure.text = totalExposure.fastFixed(3) + "◎ at risk"
             tvTotalUnrealisedPnl.text = totalUpnl.fastSigned(4) + "◎"
             tvTotalUnrealisedPnl.setTextColor(if (totalUpnl >= 0) green else red)
-            val openRenderAllowed = !runtimeActiveForUi || lastOpenPosRenderMs > 0L || (System.currentTimeMillis() - activityCreatedAtMs) > 60_000L
+            val openRenderAllowed = !runtimeActiveForUi || lastOpenPosRenderMs > 0L || (System.currentTimeMillis() - activityCreatedAtMs) > 20_000L
             if (openRenderAllowed) renderOpenPositions(openPos)
         }
         
@@ -3960,7 +3960,10 @@ for legal compliance.
         // when a position is added/removed/resized or flips paper↔live.
         val runtimeActive = try { com.lifecyclebot.engine.BotService.isRuntimeActive() } catch (_: Throwable) { false }
         val openHash = positions.map {
-            "${it.mint}|${it.position.costSol}|${it.position.qtyToken}|${it.position.isPaperPosition}|${it.position.pendingVerify}"
+            val p = it.position
+            val r = it.ref
+            val gainBucket = if (p.entryPrice > 0.0 && r > 0.0) kotlin.math.round((r - p.entryPrice) / p.entryPrice * 1000.0).toInt() else 0
+            "${it.mint}|${p.costSol}|${p.qtyToken}|${p.isPaperPosition}|${p.pendingVerify}|$gainBucket"
         }.hashCode()
         if (openHash == lastOpenPosHash) return
         // V5.9.1222 — never hide Open Positions. 1220 skipped the first
@@ -3971,7 +3974,7 @@ for legal compliance.
         // structure changed. Bursts of new tokens during a hot scanner
         // cycle can't ANR the UI; the next interval will pick them up.
         val nowMs = System.currentTimeMillis()
-        val minRenderIntervalMs = if (runtimeActive) 120_000L else OPEN_POS_MIN_RENDER_INTERVAL_MS
+        val minRenderIntervalMs = if (runtimeActive) 20_000L else OPEN_POS_MIN_RENDER_INTERVAL_MS
         if (nowMs - lastOpenPosRenderMs < minRenderIntervalMs && lastOpenPosRenderMs > 0L) {
             return
         }
@@ -4065,10 +4068,11 @@ for legal compliance.
         // [16] buildTokenCard + [15] renderOpenPositions. The
         // V5.9.749 hash-+-2s-interval dedupe stopped most cardless
         // tick rebuilds but did NOT cap the per-rebuild card count.
-        // Cap rendered rows at 25 (newest-by-entry first) so a
-        // saturated FDG/Executor never re-introduces the 30 s frame
-        // freeze. Hidden positions are still managed by the engine.
-        val RENDER_CAP = if (runtimeActive) 2 else 8
+        // V5.9.1234 — operator requirement: Open Positions must show the
+        // top ten currently held movers, highest-to-lowest. Keep the cap at
+        // 10 during runtime so the panel remains useful without returning to
+        // the old unbounded ANR-causing rebuilds.
+        val RENDER_CAP = 10
         // V5.9.810 — sort by current unrealized gain % descending. When
         // we have to cap, the strongest movers always stay visible and
         // the deepest losers fall off the bottom (they're managed by
@@ -4336,7 +4340,7 @@ for legal compliance.
         // by the engine). Cap kicks in only when positions.size > 25.
         if (hiddenCount > 0) {
             llOpenPositions.addView(TextView(this).apply {
-                text = "+ $hiddenCount more position${if (hiddenCount == 1) "" else "s"} (cap = $RENDER_CAP, still managed)"
+                text = "+ $hiddenCount more position${if (hiddenCount == 1) "" else "s"} hidden — showing top $RENDER_CAP movers high→low, all still managed"
                 textSize = 11f
                 setTextColor(0xFFFBBF24.toInt())  // amber so it stands out
                 setPadding(0, 12, 0, 4)
