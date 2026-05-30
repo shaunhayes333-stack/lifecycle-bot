@@ -509,7 +509,7 @@ class RuntimeEnforcementSmokeTest {
     }
 
     @Test
-    fun paper_rc_pending_v3_rug_fatal_is_learnable_at_finality() {
+    fun cyclic_paper_rc_pending_v3_rug_fatal_is_learnable_at_finality() {
         RuntimeConfigOverlay.resetForTests()
         ExecutableOpenGate.resetForTests()
         ToxicModeCircuitBreaker.resetForTests()
@@ -523,6 +523,34 @@ class RuntimeEnforcementSmokeTest {
         ExecutableOpenGate.recordFdg(
             mint = mint,
             symbol = "RCP",
+            lane = "CYCLIC",
+            canExecute = true,
+            reason = null,
+            signal = "BUY",
+            rugScore = 1,
+            safetyTier = "SAFE",
+            liquidityUsd = 2500.0,
+        )
+        val v = ExecutableOpenGate.canOpenExecutablePosition(mint, "RCP", 1, "PAPER", "CYCLIC", "test")
+        assertTrue("CYCLIC paper RC_PENDING score=1 should bypass rug-score V3 fatal", v.allowed)
+        assertEquals("EXEC_OPEN_ALLOWED", v.logName)
+    }
+
+    @Test
+    fun non_cyclic_paper_rc_pending_v3_rug_fatal_remains_blocked() {
+        RuntimeConfigOverlay.resetForTests()
+        ExecutableOpenGate.resetForTests()
+        ToxicModeCircuitBreaker.resetForTests()
+        BirdeyeBudgetGate.resetForTests()
+        RuntimeModeAuthority.publishConfig(paperMode = true, autoTrade = true)
+        RuntimeModeAuthority.publishUiMode(true)
+        RuntimeModeAuthority.publishExecutorMode(true)
+        RuntimeModeAuthority.publishPipelineMode(true)
+        val mint = "MintFatalRcPendingNonCyclic111111111"
+        ExecutableOpenGate.recordV3(mint, "RCP", "BLOCK_FATAL", "EXTREME_RUG_RISK_100", "BLOCK_FATAL", 1)
+        ExecutableOpenGate.recordFdg(
+            mint = mint,
+            symbol = "RCP",
             lane = "SHITCOIN",
             canExecute = true,
             reason = null,
@@ -532,8 +560,8 @@ class RuntimeEnforcementSmokeTest {
             liquidityUsd = 2500.0,
         )
         val v = ExecutableOpenGate.canOpenExecutablePosition(mint, "RCP", 1, "PAPER", "SHITCOIN", "test")
-        assertTrue("paper RC_PENDING score=1 should bypass rug-score V3 fatal", v.allowed)
-        assertEquals("EXEC_OPEN_ALLOWED", v.logName)
+        assertFalse("non-CYCLIC paper RC_PENDING V3 fatal should preserve volume discipline", v.allowed)
+        assertEquals("EXEC_OPEN_BLOCKED_FATAL_V3", v.logName)
     }
 
     @Test

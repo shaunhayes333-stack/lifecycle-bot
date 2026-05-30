@@ -393,11 +393,12 @@ object ExecutableOpenGate {
         // confirmed rug. Upstream paper policy already allows RC=1 so learning
         // can collect labelled outcomes; however V3 may still stamp the state
         // BLOCK_FATAL as EXTREME_RUG_* before the pending RC resolves. In PAPER
-        // only, when the executable-open rug score is exactly 1 and the fatal
-        // reason is rug-score based, treat that V3 fatal as learnable pending.
+        // CYCLIC only (the original failing lane), when the executable-open rug
+        // score is exactly 1 and the fatal reason is rug-score based, treat that
+        // V3 fatal as learnable pending.
         // Live remains strict, and confirmed RC=0 / other fatal categories still
         // hard-block unconditionally.
-        val paperRcPendingV3Fatal = modeUpper == "PAPER" && rug == 1 && (
+        val paperRcPendingV3Fatal = modeUpper == "PAPER" && requestedLane == "CYCLIC" && rug == 1 && (
             fatalReason.contains("EXTREME_RUG_CRITICAL_score=1", ignoreCase = true) ||
                 fatalReason.contains("EXTREME_RUG_RISK_100", ignoreCase = true)
         )
