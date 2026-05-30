@@ -1514,8 +1514,21 @@ object ShitCoinTraderAI {
         }
         
         // 2. HIT STOP LOSS
+        // V5.9.1242 — EARLY-HOLD BREATHING. Tuning Console (5.0.3208): SHITCOIN
+        // stops out 92:1 vs take-profit (STOP_LOSS n=92 μ=-15.4% vs TAKE_PROFIT
+        // n=1 μ=+1405%), while the lane's winner band S40-49 means +76%. The
+        // lane stop is only -6%(mature)/-8%(bootstrap) — far too tight for a
+        // lane whose payoff is fat-tailed; it cut survivable dips before they
+        // ran. Every REAL rug path is checked ABOVE this gate and stays active:
+        // <60s early-death, peak-drawdown lock, ultra-fast rug, the
+        // UNCONDITIONAL -15% hard floor, and the <5min/-50% rug check. So in
+        // the first 8 minutes we let a tight (>-10%) fluid stop breathe and
+        // rely on those rug/hard-floor backstops; after 8min the normal lane
+        // stop resumes. Only WIDENS within the early window — -15% hard floor
+        // (checked above, unconditional) is untouched.
         val effectiveStop = pos.stopLossPct
-        if (pnlPct <= effectiveStop) {
+        val shitBreather = holdMinutes <= 8 && effectiveStop > -10.0
+        if (!shitBreather && pnlPct <= effectiveStop) {
             ErrorLogger.info(TAG, "💩🛑 SL HIT: ${pos.symbol} | ${pnlPct.fmt(1)}%")
             return ExitSignal.STOP_LOSS
         }

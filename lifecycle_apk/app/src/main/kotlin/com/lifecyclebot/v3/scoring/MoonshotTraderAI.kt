@@ -1386,7 +1386,20 @@ object MoonshotTraderAI {
         }
 
         // 2. STOP LOSS HIT
-        if (pnlPct <= pos.stopLossPct) {
+        // V5.9.1242 — EARLY-HOLD BREATHING. Tuning Console (5.0.3208) showed
+        // MOONSHOT stops out 13:2 vs take-profit while MOONSHOT[40-49] entries
+        // mean +464% and a single TP banked +2012%. Root cause: FluidLearning
+        // routinely hands back a TIGHT stop (clampedSl ≈ -4..-6%), so this gate
+        // cut genuine pre-launch dips before they fired — exactly the dips the
+        // early-death gate above already tolerates to -10%/12min. During that
+        // same early window, do NOT let a fluid stop tighter than the
+        // early-death threshold pre-empt the breather; the early-death gate
+        // (≤12min & <-10%) and the UNCONDITIONAL hard floor (checked first,
+        // above) remain the active risk backstops. After 12min, normal fluid
+        // stop resumes unchanged. This only ever WIDENS the leash within the
+        // already-permitted early window — the -15% hard floor is untouched.
+        val inBreatherWindow = holdMinutes <= 12 && pos.stopLossPct > -10.0
+        if (!inBreatherWindow && pnlPct <= pos.stopLossPct) {
             ErrorLogger.info(TAG, "🛑 SL HIT: ${pos.symbol} | ${pnlPct.fmt(1)}%")
             return ExitSignal.STOP_LOSS
         }
