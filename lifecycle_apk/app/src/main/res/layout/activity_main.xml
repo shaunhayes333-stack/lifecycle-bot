@@ -805,6 +805,31 @@
                             android:textColor="#10B981" android:textSize="8sp"
                             android:fontFamily="monospace"/>
                     </LinearLayout>
+
+                    <!-- V5.9.1239: Tuning Console Tile (per-lane expectancy, score-band
+                         calibration, exit-reason P&L, danger buckets) -->
+                    <LinearLayout
+                        android:id="@+id/btnQuickTuning"
+                        android:layout_width="0dp"
+                        android:layout_height="wrap_content"
+                        android:layout_weight="1"
+                        android:orientation="vertical"
+                        android:gravity="center"
+                        android:padding="10dp"
+                        android:background="@drawable/section_card_bg"
+                        android:clickable="true"
+                        android:focusable="true">
+                        <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
+                            android:text="🎚" android:textSize="20sp"/>
+                        <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
+                            android:text="Tuning" android:textColor="#F59E0B" android:textSize="10sp"
+                            android:layout_marginTop="2dp"/>
+                        <TextView android:id="@+id/tvTuningTileStats"
+                            android:layout_width="wrap_content" android:layout_height="wrap_content"
+                            android:text="lanes"
+                            android:textColor="#F59E0B" android:textSize="8sp"
+                            android:fontFamily="monospace"/>
+                    </LinearLayout>
                 </LinearLayout>
 
             </LinearLayout>

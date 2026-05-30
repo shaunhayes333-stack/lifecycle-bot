@@ -8145,6 +8145,14 @@ This cannot be undone!
             startActivity(Intent(this, PipelineHealthActivity::class.java))
             performHaptic()
         }
+
+        // V5.9.1239 — Tuning Console tile. Surfaces decision-quality signals the
+        // brains already compute (per-lane expectancy, score-band calibration,
+        // exit-reason P&L, danger buckets) so the operator can tune WR/profit.
+        findViewById<View>(R.id.btnQuickTuning)?.setOnClickListener {
+            startActivity(Intent(this, TuningActivity::class.java))
+            performHaptic()
+        }
         // V5.9.790 — operator audit Critical Fix 9: long-press the Pipeline
         // tile opens the new AATE Universe Health screen (6-pillar status:
         // Runtime / Scoring / Learning / Execution / Authority / Wallet) so
