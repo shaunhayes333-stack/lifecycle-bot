@@ -37,8 +37,24 @@ object ScoreExpectancyTracker {
     // forever. Reality check: a bucket with 25 samples at -2% mean could
     // easily be unlucky. We need MORE samples AND deeper loss before we
     // stop exploring a score range.
-    private const val MIN_SAMPLES_FOR_REJECT = 100
-    private const val REJECT_MEAN_PNL_PCT = -5.0
+    //
+    // V5.9.1241 — RE-CALIBRATE for the actual sample regime. Tuning Console
+    // (5.0.3208) exposed that n=100 NEVER fires at real bucket sizes: live
+    // SHITCOIN buckets were n=20..31 yet bleeding hard —
+    //   S0-9   n=30  μ=-10.7%
+    //   S20-29 n=7   μ=-21.3%
+    //   S30-39 n=31  μ=-26.9%
+    //   S50-59 n=4   μ=-57.1%
+    // while S40-49 (n=20, μ=+76.4%) is the predictive winner. The n=100 gate
+    // meant the ONLY active bleed-stop was the coarse 5-band danger-bucket
+    // guard (75% loss-rate), which let the 10pt-granular bleeders through.
+    // Lower the sample floor to 40 (statistically meaningful, not noise) and
+    // deepen the reject mean to -8% so ONLY decisively-bleeding buckets are
+    // skipped — the +76% winner band and any marginal bucket stay open for
+    // exploration. This is a SOFT shape on the existing whitelist gate
+    // (entry #86), not a new veto; it fires per-lane across all 6 consumers.
+    private const val MIN_SAMPLES_FOR_REJECT = 40
+    private const val REJECT_MEAN_PNL_PCT = -8.0
 
     /** Rolling pnlPct windows keyed by "LAYER:bucket". */
     private val windows = ConcurrentHashMap<String, ArrayDeque<Double>>()
