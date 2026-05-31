@@ -13834,7 +13834,16 @@ if (postSupervisorOpenCount > 0 && !postSupervisorBackupDue) {
                             val _trsIsDanger = try {
                                 com.lifecyclebot.engine.LosingPatternMemory.isDangerZone("TREASURY", _trsScore)
                             } catch (_: Throwable) { false }
-                            val dangerSizeMult = if (_trsIsDanger) 0.35 else 1.0
+                            // V5.9.1247 — tiered danger sizing. Flat ×0.35 (1246)
+                            // did not stop the bleed: TREASURY|S61+ kept firing 40+
+                            // entries and grew to -3.08 SOL / n=49 (snapshot 3214).
+                            // Use the loss-count-scaled multiplier so deeper, more
+                            // proven death buckets shrink harder (>=30 losses → ×0.10),
+                            // while still letting every bucket record outcomes (no veto,
+                            // no starvation). Bootstrap candidates (sample<20) get ×1.0.
+                            val dangerSizeMult = try {
+                                com.lifecyclebot.engine.LosingPatternMemory.recommendedSizeMult("TREASURY", _trsScore)
+                            } catch (_: Throwable) { if (_trsIsDanger) 0.35 else 1.0 }
                             val adjustedSize = (treasurySignal.positionSizeSol * bootstrapMultiplier * dangerSizeMult).coerceAtLeast(0.01)
                             
                             // V5.2.8 FIX: If bootstrap override forced entry, use default TP/SL values
@@ -13862,7 +13871,7 @@ if (postSupervisorOpenCount > 0 && !postSupervisorBackupDue) {
                             // (not a veto) is the self-adjust.
                             if (_trsIsDanger) {
                                 ErrorLogger.info("BotService",
-                                    "🏷️ [TREASURY] ${ts.symbol} | DANGER_ZONE_SOFTSHAPE (size×0.35, not blocked) | score=$_trsScore | LosingPatternMemory flagged (TREASURY|S${(_trsScore/10)*10}-${(_trsScore/10)*10+10})")
+                                    "🏷️ [TREASURY] ${ts.symbol} | DANGER_ZONE_SOFTSHAPE (size×${dangerSizeMult}, not blocked) | score=$_trsScore | LosingPatternMemory flagged (TREASURY|S${(_trsScore/10)*10}-${(_trsScore/10)*10+10})")
                             }
                             // V5.9.1068 — no else wrapper; execution proceeds.
                             run {

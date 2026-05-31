@@ -129,6 +129,29 @@ object LosingPatternMemory {
         }
     }
 
+    /**
+     * V5.9.1247 — Recommended ENTRY SIZE multiplier for a matured danger
+     * bucket. Doctrine: soft-shape > veto (never starve a lane outright —
+     * the bucket must keep recording outcomes so the scorer can self-correct),
+     * but a bucket that has matured AND keeps bleeding deserves a deeper cut
+     * than a flat ×0.35. Scales with loss count, mirroring recommendedSlPct's
+     * tiers. Returns 1.0 (no cut) when the bucket isn't a matured danger zone,
+     * so bootstrap-band candidates (sample<20) are never shrunk.
+     *
+     *   losses >= 30  → ×0.10  (proven, deep death bucket — near-zero learning probe)
+     *   losses >= 20  → ×0.20
+     *   losses >=  8  → ×0.35  (entry-level danger — original 1246 behaviour)
+     */
+    fun recommendedSizeMult(tradingMode: String, v3Score: Int): Double {
+        val s = stats(tradingMode, v3Score)
+        if (!s.isDangerous) return 1.0
+        return when {
+            s.losses >= 30 -> 0.10
+            s.losses >= 20 -> 0.20
+            else           -> 0.35
+        }
+    }
+
     /** Pipeline-health summary block. */
     fun formatForPipelineDump(): String {
         refreshIfStale()
