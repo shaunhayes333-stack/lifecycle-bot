@@ -10,6 +10,7 @@ import java.nio.ByteOrder
 import kotlin.math.abs
 import kotlin.math.ln
 import kotlin.math.exp
+import kotlin.math.tanh
 
 /**
  * ═══════════════════════════════════════════════════════════════════════════════
@@ -107,6 +108,81 @@ object OnDeviceMLEngine {
             w[i] -= LOGIT_LR * grad
         }
         w[NUM_FEATURES] -= LOGIT_LR * err   // bias (no decay)
+    }
+
+    // ═══════════════════════════════════════════════════════════════════
+    // V5.9.1254 — NONLINEAR HEAD (one hidden layer MLP).
+    // The logit above is LINEAR — it cannot represent feature INTERACTIONS
+    // (e.g. "high volume is bullish ONLY when buy-pressure is also high"; or
+    // "low liquidity is fine for a fresh mint but lethal for an aged one").
+    // This adds a shared hidden layer (HIDDEN tanh units) over the 32 features
+    // feeding three linear output heads (entry / rug / exit). Trained by
+    // backprop on the same per-trade SGD step. The FINAL prediction BLENDS the
+    // linear logit (stable base) with the MLP (interaction capture), gated so
+    // the net only contributes once it has real evidence — the linear model
+    // prevents the net from destabilising the predictor during cold start.
+    // Still pure Kotlin, still <1ms (32x16 + 16x3 matmul).
+    // ═══════════════════════════════════════════════════════════════════
+    private const val HIDDEN = 16
+    private const val MLP_LR = 0.02f
+    private const val MLP_L2 = 1e-4f
+    private const val MLP_MIN_SAMPLES = 120     // net needs more data than the linear head
+    private const val MLP_BLEND = 0.45f         // weight of MLP vs linear once trained
+    // W1: [HIDDEN][NUM_FEATURES+1]  (hidden weights + bias)
+    private var mlpW1 = Array(HIDDEN) { FloatArray(NUM_FEATURES + 1) { (Math.random().toFloat() - 0.5f) * 0.1f } }
+    // W2: per head [HIDDEN+1] (output weights + bias) — entry/rug/exit
+    private var mlpW2Entry = FloatArray(HIDDEN + 1) { (Math.random().toFloat() - 0.5f) * 0.1f }
+    private var mlpW2Rug   = FloatArray(HIDDEN + 1) { (Math.random().toFloat() - 0.5f) * 0.1f }
+    private var mlpW2Exit  = FloatArray(HIDDEN + 1) { (Math.random().toFloat() - 0.5f) * 0.1f }
+
+    /** Forward through hidden layer; returns tanh activations (size HIDDEN). */
+    private fun mlpHidden(x: FloatArray): FloatArray {
+        val n = minOf(x.size, NUM_FEATURES)
+        return FloatArray(HIDDEN) { j ->
+            var z = mlpW1[j][NUM_FEATURES]  // bias
+            for (i in 0 until n) z += mlpW1[j][i] * x[i]
+            tanh(z.toDouble()).toFloat()
+        }
+    }
+
+    /** Output head forward: sigmoid(w2 · h + bias). */
+    private fun mlpHead(w2: FloatArray, h: FloatArray): Float {
+        var z = w2[HIDDEN]
+        for (j in 0 until HIDDEN) z += w2[j] * h[j]
+        return sigmoid(z)
+    }
+
+    /**
+     * One backprop step for a single head sharing the hidden layer.
+     * Updates that head's W2 and the shared W1. label in {0,1}.
+     */
+    private fun mlpTrain(w2: FloatArray, x: FloatArray, label: Float) {
+        val n = minOf(x.size, NUM_FEATURES)
+        val h = mlpHidden(x)
+        val pred = mlpHead(w2, h)
+        val dOut = pred - label                       // dLoss/dz_out (BCE+sigmoid)
+        // grad for output weights + accumulate hidden deltas
+        val dHidden = FloatArray(HIDDEN)
+        for (j in 0 until HIDDEN) {
+            dHidden[j] = dOut * w2[j] * (1f - h[j] * h[j])   // * tanh'
+            w2[j] -= MLP_LR * (dOut * h[j] + MLP_L2 * w2[j])
+        }
+        w2[HIDDEN] -= MLP_LR * dOut                   // output bias
+        // grad for hidden weights (shared W1)
+        for (j in 0 until HIDDEN) {
+            val dj = dHidden[j]
+            val row = mlpW1[j]
+            for (i in 0 until n) row[i] -= MLP_LR * (dj * x[i] + MLP_L2 * row[i])
+            row[NUM_FEATURES] -= MLP_LR * dj          // hidden bias
+        }
+    }
+
+    /** Blended prediction: linear logit + (if trained) the nonlinear MLP head. */
+    private fun blendedPredict(w: FloatArray, w2: FloatArray, x: FloatArray, samples: Int): Float {
+        val lin = logitPredict(w, x)
+        if (samples < MLP_MIN_SAMPLES) return lin
+        val nl = mlpHead(w2, mlpHidden(x))
+        return (lin * (1f - MLP_BLEND) + nl * MLP_BLEND).coerceIn(0f, 1f)
     }
     
     /**
@@ -268,6 +344,10 @@ object OnDeviceMLEngine {
                 // exit head = "should have exited": trade lost OR rugged.
                 val exitLabel = if (features.wasWin < 0.5f || features.wasRug >= 0.5f) 1f else 0f
                 logitTrain(exitW,  x, exitLabel);                       exitSamples++
+                // V5.9.1254 — also train the shared-hidden-layer nonlinear heads.
+                mlpTrain(mlpW2Entry, x, features.wasWin)
+                mlpTrain(mlpW2Rug,   x, features.wasRug)
+                mlpTrain(mlpW2Exit,  x, exitLabel)
                 // Persist periodically (every 10 trades) — cheap, keeps the
                 // model durable across the frequent service restarts.
                 if (trainingData.size % 10 == 0) {
@@ -529,7 +609,7 @@ object OnDeviceMLEngine {
     private fun predictRug(features: FloatArray): Float {
         // V5.9.1253 — real logistic head once it has enough labelled samples.
         if (rugSamples >= LOGIT_MIN_SAMPLES) {
-            return logitPredict(rugW, features).coerceIn(0f, 0.99f)
+            return blendedPredict(rugW, mlpW2Rug, features, rugSamples).coerceIn(0f, 0.99f)
         }
         // Cold-start heuristic fallback (used only until the head has trained).
         val rugIndicators = mutableListOf<Float>()
@@ -557,7 +637,7 @@ object OnDeviceMLEngine {
     private fun predictEntry(features: FloatArray): Float {
         // V5.9.1253 — real logistic head: P(win) given the feature vector.
         if (entrySamples >= LOGIT_MIN_SAMPLES) {
-            return logitPredict(entryW, features).coerceIn(0f, 1f)
+            return blendedPredict(entryW, mlpW2Entry, features, entrySamples).coerceIn(0f, 1f)
         }
         // Cold-start heuristic fallback.
         var score = 0.5f
@@ -585,7 +665,7 @@ object OnDeviceMLEngine {
     private fun predictExit(features: FloatArray): Float {
         // V5.9.1253 — real logistic head: P(this trade should be exited).
         if (exitSamples >= LOGIT_MIN_SAMPLES) {
-            return logitPredict(exitW, features).coerceIn(0f, 1f)
+            return blendedPredict(exitW, mlpW2Exit, features, exitSamples).coerceIn(0f, 1f)
         }
         // Cold-start heuristic fallback.
         var urgency = 0.3f
@@ -658,6 +738,15 @@ object OnDeviceMLEngine {
         prefs.putInt("n_entry", entrySamples)
         prefs.putInt("n_rug",   rugSamples)
         prefs.putInt("n_exit",  exitSamples)
+        // V5.9.1254 — persist the nonlinear MLP too (shared W1 + 3 output heads).
+        for (j in 0 until HIDDEN) {
+            for (i in 0..NUM_FEATURES) prefs.putFloat("w1_${j}_$i", mlpW1[j][i])
+        }
+        for (j in 0..HIDDEN) {
+            prefs.putFloat("w2e_$j", mlpW2Entry[j])
+            prefs.putFloat("w2r_$j", mlpW2Rug[j])
+            prefs.putFloat("w2x_$j", mlpW2Exit[j])
+        }
         prefs.apply()
     }
 
@@ -670,6 +759,14 @@ object OnDeviceMLEngine {
             entrySamples = prefs.getInt("n_entry", 0)
             rugSamples   = prefs.getInt("n_rug",   0)
             exitSamples  = prefs.getInt("n_exit",  0)
+            // V5.9.1254 — restore MLP weights if present (default to current
+            // random init when absent, so a fresh install just trains fresh).
+            if (prefs.contains("w1_0_0")) {
+                mlpW1 = Array(HIDDEN) { j -> FloatArray(NUM_FEATURES + 1) { i -> prefs.getFloat("w1_${j}_$i", mlpW1[j][i]) } }
+                mlpW2Entry = FloatArray(HIDDEN + 1) { j -> prefs.getFloat("w2e_$j", mlpW2Entry[j]) }
+                mlpW2Rug   = FloatArray(HIDDEN + 1) { j -> prefs.getFloat("w2r_$j", mlpW2Rug[j]) }
+                mlpW2Exit  = FloatArray(HIDDEN + 1) { j -> prefs.getFloat("w2x_$j", mlpW2Exit[j]) }
+            }
             if (entrySamples + rugSamples + exitSamples > 0) {
                 ErrorLogger.info(TAG, "Loaded logistic weights | n(e/r/x)=$entrySamples/$rugSamples/$exitSamples")
             }

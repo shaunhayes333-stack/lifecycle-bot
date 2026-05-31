@@ -37,6 +37,92 @@ import com.lifecyclebot.v4.meta.TradeLessonRecorder
  */
 object SymbolicExitReasoner {
 
+    // ═══════════════════════════════════════════════════════════════════
+    // V5.9.1254 — SELF-REVISING SYMBOLIC RULES.
+    // The R1..R7 rules below are no longer static hand-authored constants:
+    // each rule earns a TRUST score from its own track record. When a rule
+    // fires on a mint we stash the PnL at fire time; on the next assess() for
+    // that mint we grade it — did the position improve after we escalated
+    // (rule was RIGHT, the danger was real) or did it keep rising (rule was a
+    // false alarm that would have cut a winner)? Trust = helpful / (helpful +
+    // harmful), Laplace-smoothed. Rules below MIN_TRUST stop HARD-escalating
+    // and become advisory-only (still logged, still counted toward convergent
+    // danger, but they no longer force an action). This is the jump from an
+    // expert system to a symbolic LEARNER that prunes its own bad rules.
+    //
+    // Self-contained: no Context, no external feedback hook, no cross-file
+    // plumbing. Grades itself purely from the assess() call stream it already
+    // sees. Bounded memory (pending map capped, LRU-evicted).
+    // ═══════════════════════════════════════════════════════════════════
+    private object RuleLearning {
+        private const val MIN_TRUST = 0.40          // below this → advisory only
+        private const val MIN_SAMPLES_TO_GATE = 8   // don't gate a rule until it has evidence
+        private const val IMPROVE_EPS = 0.3         // pnl must move >0.3% to count as a verdict
+        private const val MAX_PENDING = 400
+
+        // ruleId -> [helpful, harmful]
+        private val helpful = java.util.concurrent.ConcurrentHashMap<String, Int>()
+        private val harmful = java.util.concurrent.ConcurrentHashMap<String, Int>()
+        // mint -> list of (ruleId, pnlAtFire) awaiting a grade
+        private val pending = java.util.concurrent.ConcurrentHashMap<String, MutableList<Pair<String, Double>>>()
+
+        /** Trust for a rule: Laplace-smoothed helpful rate. New rules start trusted (1.0). */
+        fun trust(ruleId: String): Double {
+            val h = helpful[ruleId] ?: 0
+            val b = harmful[ruleId] ?: 0
+            if (h + b < MIN_SAMPLES_TO_GATE) return 1.0   // ungated until enough evidence
+            return (h + 1.0) / (h + b + 2.0)
+        }
+
+        /** A rule with enough evidence and trust below floor may only advise, not force. */
+        fun canHardEscalate(ruleId: String): Boolean = trust(ruleId) >= MIN_TRUST
+
+        /** Record that ruleId fired on this mint at the given pnl (to be graded later). */
+        fun noteFire(mint: String, ruleId: String, pnlNow: Double) {
+            if (mint.isBlank()) return
+            val list = pending.getOrPut(mint) { java.util.Collections.synchronizedList(mutableListOf()) }
+            synchronized(list) {
+                // keep only the most recent fire per ruleId for this mint
+                list.removeAll { it.first == ruleId }
+                list.add(ruleId to pnlNow)
+            }
+            if (pending.size > MAX_PENDING) {
+                // crude LRU: drop an arbitrary oldest-ish key
+                pending.keys.firstOrNull()?.let { pending.remove(it) }
+            }
+        }
+
+        /**
+         * Grade every rule that previously fired on this mint, using the pnl
+         * delta since it fired. An EXIT/PARTIAL/TIGHTEN rule is "helpful" if the
+         * position FELL after it fired (the danger was real) and "harmful" if it
+         * ROSE materially (we'd have cut a winner). Clears graded entries.
+         */
+        fun gradeOnUpdate(mint: String, pnlNow: Double) {
+            if (mint.isBlank()) return
+            val list = pending.remove(mint) ?: return
+            synchronized(list) {
+                for ((ruleId, pnlAtFire) in list) {
+                    val delta = pnlNow - pnlAtFire
+                    if (delta < -IMPROVE_EPS) {
+                        helpful.merge(ruleId, 1, Int::plus)        // dropped after we warned → right call
+                    } else if (delta > IMPROVE_EPS) {
+                        harmful.merge(ruleId, 1, Int::plus)        // rose after we warned → false alarm
+                    } // else: flat, no verdict
+                }
+            }
+        }
+
+        fun snapshot(): Map<String, Double> {
+            val out = LinkedHashMap<String, Double>()
+            (helpful.keys + harmful.keys).toSet().forEach { out[it] = trust(it) }
+            return out
+        }
+    }
+
+    /** Public read for UI/telemetry: current learned trust per rule. */
+    fun ruleTrustSnapshot(): Map<String, Double> = try { RuleLearning.snapshot() } catch (_: Throwable) { emptyMap() }
+
     private const val TAG = "SymExit"
 
     data class ExitAssessment(
@@ -447,51 +533,63 @@ object SymbolicExitReasoner {
         val firedRules = mutableListOf<String>()
         fun sig(k: String): Double = signals[k] ?: 0.0
         val rank = mapOf(Action.HOLD to 0, Action.TIGHTEN to 1, Action.PARTIAL to 2, Action.EXIT to 3)
-        fun escalate(to: Action, why: String) {
-            if ((rank[to] ?: 0) > (rank[suggestedAction] ?: 0)) {
+
+        // V5.9.1254 — first, GRADE any rules that fired on this mint last time:
+        // did the position deteriorate (rule was right) or rise (false alarm)?
+        try { RuleLearning.gradeOnUpdate(mint, currentPnlPct) } catch (_: Throwable) {}
+
+        // escalate(): a rule fires. If the rule has EARNED trust (or is still
+        // ungated) it HARD-escalates the action. If its track record is poor it
+        // degrades to ADVISORY — logged + counted, but it no longer forces a
+        // decision. Every fire is noted for later self-grading.
+        fun escalate(ruleId: String, to: Action, why: String) {
+            val trusted = try { RuleLearning.canHardEscalate(ruleId) } catch (_: Throwable) { true }
+            if (trusted && (rank[to] ?: 0) > (rank[suggestedAction] ?: 0)) {
                 suggestedAction = to
-                primarySignal = "RULE:$why"
+                primarySignal = "RULE:$ruleId"
             }
-            firedRules.add(why)
+            val trustTag = if (trusted) "" else " [advisory:lowTrust]"
+            firedRules.add("$why$trustTag")
+            try { RuleLearning.noteFire(mint, ruleId, currentPnlPct) } catch (_: Throwable) {}
         }
 
         // R1 — LIQUIDITY DEATH: fragility high ∧ losing ⟹ EXIT NOW.
         // A collapsing pool while underwater is unrecoverable; do not average it away.
         if (sig("v4_fragility") >= 0.8 && currentPnlPct < 0.0) {
-            escalate(Action.EXIT, "fragility>=0.8 ∧ pnl<0 ⟹ EXIT (liquidity death)")
+            escalate("R1", Action.EXIT, "fragility>=0.8 ∧ pnl<0 ⟹ EXIT (liquidity death)")
         }
 
         // R2 — REGIME ROUT: global RISK_OFF/CHAOTIC ∧ lead asset rotating away ⟹ EXIT.
         if (sig("v4_regime") >= 0.7 && sig("v4_leadLag") >= 0.7) {
-            escalate(Action.EXIT, "regime_risk_off ∧ leadLag_warning ⟹ EXIT (correlated rout)")
+            escalate("R2", Action.EXIT, "regime_risk_off ∧ leadLag_warning ⟹ EXIT (correlated rout)")
         }
 
         // R3 — PROFIT EVAPORATION: large peak gain given back hard ⟹ at least PARTIAL,
         // and EXIT if momentum has also rolled over (lock the win before it's gone).
         if (sig("sym_gainErosion") >= 0.7) {
             if (sig("sym_momentum") >= 0.6) {
-                escalate(Action.EXIT, "gainErosion>=0.7 ∧ momentum_down ⟹ EXIT (lock the runner)")
+                escalate("R3a", Action.EXIT, "gainErosion>=0.7 ∧ momentum_down ⟹ EXIT (lock the runner)")
             } else {
-                escalate(Action.PARTIAL, "gainErosion>=0.7 ⟹ PARTIAL (bank the spike)")
+                escalate("R3b", Action.PARTIAL, "gainErosion>=0.7 ⟹ PARTIAL (bank the spike)")
             }
         }
 
         // R4 — BLEED ACCELERATION: fast loss velocity ∧ weak strategy trust ⟹ EXIT.
         // A position bleeding fast in a mode the bot no longer trusts is a cut, not a hold.
         if (sig("sym_lossVelocity") >= 0.6 && sig("v4_trust") >= 0.5) {
-            escalate(Action.EXIT, "lossVelocity>=0.6 ∧ low_trust ⟹ EXIT (untrusted bleed)")
+            escalate("R4", Action.EXIT, "lossVelocity>=0.6 ∧ low_trust ⟹ EXIT (untrusted bleed)")
         }
 
         // R5 — EXECUTION DEGRADED ∧ FRAGILE: if exits may not fill AND pool is thin,
         // start exiting early while a fill is still possible.
         if (sig("v4_execution") >= 0.6 && sig("v4_fragility") >= 0.5) {
-            escalate(Action.PARTIAL, "exec_degraded ∧ fragility_rising ⟹ PARTIAL (exit while fillable)")
+            escalate("R5", Action.PARTIAL, "exec_degraded ∧ fragility_rising ⟹ PARTIAL (exit while fillable)")
         }
 
         // R6 — META-DOUBT: many layers overconfident/low-trust ∧ already losing ⟹ TIGHTEN.
         // The system distrusts its own read; reduce risk rather than ride conviction.
         if (sig("v3_metacognition") >= 0.5 && currentPnlPct < -0.5) {
-            escalate(Action.TIGHTEN, "meta_doubt ∧ pnl<-0.5 ⟹ TIGHTEN (distrust own signal)")
+            escalate("R6", Action.TIGHTEN, "meta_doubt ∧ pnl<-0.5 ⟹ TIGHTEN (distrust own signal)")
         }
 
         // R7 — CONVERGENT DANGER: 3+ independent danger signals firing strong, even if
@@ -500,10 +598,12 @@ object SymbolicExitReasoner {
         // averaging structurally underweights.
         val strongDangerCount = signals.values.count { it >= 0.6 }
         if (strongDangerCount >= 3 && suggestedAction != Action.EXIT) {
-            escalate(Action.PARTIAL, "$strongDangerCount danger signals>=0.6 ⟹ PARTIAL (convergent tail risk)")
+            escalate("R7", Action.PARTIAL, "$strongDangerCount danger signals>=0.6 ⟹ PARTIAL (convergent tail risk)")
         }
 
-        val symbolicOverride = firedRules.any { it.contains("⟹ EXIT") || it.contains("⟹ PARTIAL") }
+        val symbolicOverride = firedRules.any {
+            (it.contains("⟹ EXIT") || it.contains("⟹ PARTIAL")) && !it.contains("[advisory:lowTrust]")
+        }
 
         val shouldExit = suggestedAction == Action.EXIT
 
