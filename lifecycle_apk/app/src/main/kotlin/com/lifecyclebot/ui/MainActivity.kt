@@ -2414,19 +2414,30 @@ for legal compliance.
             }
         }
 
-        val pnl    = ws.totalPnlSol
-        val pnlPct = ws.totalPnlPct
+        // V5.9.1248 — UNIFY DASHBOARD P&L WITH THE JOURNAL (source-of-truth).
+        // Operator reported three different totals for the same P&L:
+        //   dashboard +$10,627  ·  Journal +$10,394  ·  All-Traders +129.80 SOL.
+        // Root cause: this header read pnl from WalletState.totalPnlSol — its
+        // OWN counter, which drifted from the journal exactly like WalletState
+        // .winRate did before V5.9.810 migrated the win% here. Now the big $
+        // number reads TradeHistoryStore.getStatsCached().totalPnlSol
+        // (= lifetimeRealizedPnlSol — the SAME value the Journal header sums),
+        // so $ and win% trace to ONE source. The % return is derived FROM that
+        // same journal SOL P&L over starting capital (currentBal - journalPnl),
+        // so the % can never disagree with the $. Fail-open to WalletState if
+        // the journal stats read throws.
+        val journalStats = try {
+            com.lifecyclebot.engine.TradeHistoryStore.getStatsCached()
+        } catch (_: Throwable) { null }
+        val pnl    = journalStats?.totalPnlSol ?: ws.totalPnlSol
+        val startCapitalSol = (balSol - pnl)
+        val pnlPct = if (startCapitalSol > 0.0001) (pnl / startCapitalSol) * 100.0 else ws.totalPnlPct
         if (ws.totalTrades > 0) {
             tvPnlChange.text = currency.format(pnl, showPlus = true)
             tvPnlChange.setTextColor(if (pnl >= 0) green else red)
-            // V5.9.810 — operator mandate: 'journal is source of truth for all
-            // meme counters and displays'. The 'X% wins' sub-banner used to
-            // pull from WalletState.winRate (own counter, drifted from the
-            // journal). Now reads TradeHistoryStore.winRate (same source the
-            // Journal screen displays). One source, one number, everywhere.
-            val journalWinRate = try {
-                com.lifecyclebot.engine.TradeHistoryStore.getStatsCached().winRate.toInt()
-            } catch (_: Throwable) { ws.winRate }
+            // V5.9.810 — journal is source of truth for win%. V5.9.1248 — same
+            // source now drives the $ and % too. One source, one number, everywhere.
+            val journalWinRate = journalStats?.winRate?.toInt() ?: ws.winRate
             tvPnlChangePct.text = "%+.1f%%  •  $journalWinRate%% wins".format(pnlPct)
         } else {
             tvPnlChange.text    = ""
