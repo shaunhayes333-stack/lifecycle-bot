@@ -1888,6 +1888,38 @@ for legal compliance.
 
     // ── chart ─────────────────────────────────────────────────────────
 
+    // V5.9.1245 — CHEAP Y-AXIS FORMATTER. Forensic 5.0.3212 showed a 1463ms
+    // main-thread stall at java.text.NumberFormat.format ← MPAndroidChart
+    // YAxisRenderer.drawYLabels on every chart invalidate(). MPAndroidChart's
+    // DefaultAxisValueFormatter builds a DecimalFormat and calls
+    // NumberFormat.format per label, per frame — pure allocation churn on the
+    // UI thread. Replace it with a tiny branch-formatter (no NumberFormat, no
+    // DecimalFormat) and cap label count so each redraw draws far fewer, far
+    // cheaper labels. UI-only; no trade/scanner/FDG/exit path touched.
+    private val cheapPriceAxisFormatter by lazy {
+        object : com.github.mikephil.charting.formatter.ValueFormatter() {
+            override fun getFormattedValue(value: Float): String {
+                val v = value
+                return when {
+                    v <= 0f      -> "0"
+                    v >= 1f      -> {
+                        // 2 decimals max, no grouping NumberFormat
+                        val cents = (v * 100f + 0.5f).toLong()
+                        "${cents / 100}.${(cents % 100).toString().padStart(2, '0')}"
+                    }
+                    v >= 0.0001f -> {
+                        val scaled = (v * 1_000_000f + 0.5f).toLong()
+                        "0.${scaled.toString().padStart(6, '0').trimEnd('0').ifEmpty { "0" }}"
+                    }
+                    else         -> {
+                        // sub-0.0001: compact scientific-ish, cheap
+                        "%.2e".format(v)
+                    }
+                }
+            }
+        }
+    }
+
     private fun setupChart() {
         priceChart.apply {
             setBackgroundColor(Color.TRANSPARENT)
@@ -1906,6 +1938,8 @@ for legal compliance.
                 textSize     = 9f
                 axisLineColor = Color.TRANSPARENT
                 setDrawAxisLine(false)
+                valueFormatter = cheapPriceAxisFormatter   // V5.9.1245
+                setLabelCount(4, false)                     // V5.9.1245 — fewer labels per frame
             }
             axisRight.isEnabled = false
         }
@@ -1929,6 +1963,8 @@ for legal compliance.
                 textSize     = 9f
                 axisLineColor = Color.TRANSPARENT
                 setDrawAxisLine(false)
+                valueFormatter = cheapPriceAxisFormatter   // V5.9.1245
+                setLabelCount(4, false)                     // V5.9.1245
             }
             axisRight.isEnabled = false
         }
