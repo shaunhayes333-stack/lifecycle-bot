@@ -519,7 +519,7 @@ object BehaviorAI {
 
         // Compute target aggression band from current tilt / streak state.
         // Operator default = 5. Deescalation drifts DOWN. Recovery drifts UP.
-        val target = when {
+        var target = when {
             tilt >= 85 || losses >= 8 -> 1
             tilt >= 70 || losses >= 6 -> 2
             tilt >= 50 || losses >= 4 -> 3
@@ -527,6 +527,40 @@ object BehaviorAI {
             wins   >= 10              -> 5  // full recovery
             wins   >= 5               -> minOf(current + 2, 5)  // partial recovery toward 5
             else                       -> current  // no change
+        }
+
+        // ═══════════════════════════════════════════════════════════════════
+        // V5.9.1251 — BOOTSTRAP-AWARE DEESCALATION FLOOR (doctrine fix).
+        // PERFORMANCE_DOCTRINE: 20-35% WR is the NORMAL bootstrap floor. At
+        // 25% WR, loss streaks of 4-8 are statistically GUARANTEED, not tilt.
+        // The unbounded ladder above pinned the bot to aggression 1-2 during
+        // bootstrap → BehaviorAI.getMinQualityGrade() returned A/B → that grade
+        // gate (consulted by all 10 lanes incl. ProjectSniperAI:410,
+        // DipHunterAI via confidence, CashGen, Moonshot, etc.) locked every
+        // disciplined lane out. Only the loosest C/D shitcoin entries survived,
+        // which is exactly the "only learning from shitcoin" mono-lane collapse.
+        // FIX: during bootstrap (learning <40% OR <5000 lifetime trades), floor
+        // the auto-deescalation at aggression 4 (= grade C). Expected variance
+        // no longer starves Sniper/Dip/Quality. NOT a veto, NOT a lane re-enable,
+        // NOT a scorer change — it only stops the behaviour knob from
+        // over-tightening on doctrine-expected bootstrap loss clusters. Manual
+        // setAggressionLevel(force=true) and the existing tilt>=85 catastrophe
+        // band still work; this floor only applies to the AUTO path. Mature
+        // phase (>=5000 trades) keeps the full ladder so real tilt still bites.
+        run {
+            val learning = try {
+                com.lifecyclebot.v3.scoring.FluidLearningAI.getLearningProgress()
+            } catch (_: Throwable) { 1.0 }
+            val lifetime = try {
+                com.lifecyclebot.engine.TradeHistoryStore.getLifetimeStats().totalSells
+            } catch (_: Throwable) { 0 }
+            val bootstrap = learning < 0.40 || lifetime < 5000
+            // Hard catastrophe override: a 85+ tilt or 8+ loss cluster is a real
+            // emergency even in bootstrap, so leave the floor off in that case.
+            val catastrophe = tilt >= 85 || losses >= 8
+            if (bootstrap && !catastrophe && target < 4) {
+                target = 4  // grade C floor — keeps all lanes eligible while learning
+            }
         }
 
         if (target == current) return
