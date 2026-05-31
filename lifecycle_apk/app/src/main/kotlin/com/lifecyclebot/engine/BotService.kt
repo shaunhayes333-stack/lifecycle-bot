@@ -15962,9 +15962,46 @@ if (postSupervisorOpenCount > 0 && !postSupervisorBackupDue) {
                     // Dip Hunter for tokens $50K-$5M mcap that have been around
                     if (ts.lastMcap in 50_000.0..5_000_000.0 && tokenAgeHours >= 2.0) {
                         
-                        // Calculate high from recent history or estimate
-                        val historyHigh = ts.history.maxOfOrNull { it.priceUsd } ?: 0.0
-                        val recentHigh = if (historyHigh > 0) historyHigh else (ts.ref * 1.3)
+                        // ═══════════════════════════════════════════════════════════
+                        // V5.9.1252 — REAL DIP DETECTION (was structurally starved).
+                        // BUG: previous code used ts.history.maxOf { it.priceUsd }
+                        // (candle CLOSE only) for the "recent high", then fell back to
+                        // ts.ref * 1.3 — a FABRICATED 30% high — when history was thin.
+                        // Result: every fresh token either showed ~0% dip (close≈current
+                        // on the way up) → NOT_A_DIP, or a PHANTOM 30% dip from the fake
+                        // fallback → false GOLDEN_DIP signals. DipHunter evaluated 200x/
+                        // snapshot and never opened a real trade.
+                        // FIX: use the true candle HIGH (highUsd, fallback priceUsd) and
+                        // prefer the deeper 15m history (covers ~15h) over the noisy 1m
+                        // window so a genuine pullback from a real peak is detected. If
+                        // there is NO peak above current price, it is honestly NOT a dip
+                        // (recentHigh stays at current) — no fabricated 1.3× high, so the
+                        // lane stops emitting false signals on tokens that only went up.
+                        // Also wire a REAL volumeVsAvg (current vs trailing avg) instead
+                        // of the hardcoded 1.0 that disabled the volume-collapse guard.
+                        // ═══════════════════════════════════════════════════════════
+                        val dipHist = synchronized(ts.history) {
+                            if (ts.history15m.isNotEmpty()) ts.history15m.toList()
+                            else ts.history.toList()
+                        }
+                        val candleHigh = dipHist.maxOfOrNull {
+                            if (it.highUsd > 0.0) it.highUsd else it.priceUsd
+                        } ?: 0.0
+                        // Honest high: real peak from history, never below current price,
+                        // never a fabricated multiple. If nothing higher exists it equals
+                        // current → DipHunterAI computes 0% dip → clean NOT_A_DIP reject.
+                        val recentHigh = maxOf(candleHigh, ts.ref)
+                        // Real volume ratio: latest candle volume vs trailing average.
+                        val dipVolVsAvg = run {
+                            val vols = dipHist.mapNotNull { c ->
+                                val v = if (c.volumeH1 > 0.0) c.volumeH1 else c.volume24h
+                                v.takeIf { it > 0.0 }
+                            }
+                            if (vols.size >= 3) {
+                                val avg = vols.average()
+                                if (avg > 0.0) (vols.last() / avg).coerceIn(0.0, 10.0) else 1.0
+                            } else 1.0  // not enough samples → neutral (don't false-trip the guard)
+                        }
                         
                         val dipSignal = com.lifecyclebot.v3.scoring.DipHunterAI.evaluate(
                             mint = ts.mint,
@@ -15974,9 +16011,9 @@ if (postSupervisorOpenCount > 0 && !postSupervisorBackupDue) {
                             marketCapUsd = ts.lastMcap,
                             liquidityUsd = ts.lastLiquidityUsd,
                             buyPressurePct = ts.lastBuyPressurePct,
-                            volumeVsAvg = 1.0,
+                            volumeVsAvg = dipVolVsAvg,
                             tokenAgeHours = tokenAgeHours,
-                            holderCount = 100,  // Default holder count estimate
+                            holderCount = ts.peakHolderCount.takeIf { it > 0 } ?: 100,
                             holderChange24h = 0,
                             isDevSelling = ts.safety.bundleRisk == "HIGH",
                         )
