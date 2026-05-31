@@ -44,7 +44,12 @@ object SymbolicExitReasoner {
         val primarySignal: String,
         val shouldExit: Boolean,
         val suggestedAction: Action,
-        val signals: Map<String, Double>
+        val signals: Map<String, Double>,
+        // V5.9.1253 — symbolic reasoning trace. firedRules holds the human-readable
+        // inference chain ("fragility>0.8 ∧ pnl<0 ⟹ EXIT"). symbolicOverride is true
+        // when a hard rule escalated the action above what weighted-sum produced.
+        val firedRules: List<String> = emptyList(),
+        val symbolicOverride: Boolean = false
     )
 
     enum class Action { HOLD, TIGHTEN, PARTIAL, EXIT }
@@ -402,7 +407,7 @@ object SymbolicExitReasoner {
         totalConviction += timePressure * 0.04
 
         // ════════════════════════════════════════════════════════
-        // DECISION
+        // DECISION — weighted-evidence baseline
         // ════════════════════════════════════════════════════════
 
         val entryBar = (entryConfidence / 100.0).coerceIn(0.3, 0.9)
@@ -410,14 +415,95 @@ object SymbolicExitReasoner {
 
         // Find the loudest signal
         val loudestSignal = signals.maxByOrNull { it.value }
-        val primarySignal = loudestSignal?.key ?: "unknown"
+        var primarySignal = loudestSignal?.key ?: "unknown"
 
-        val suggestedAction = when {
+        var suggestedAction = when {
             totalConviction >= exitBar + 0.25 -> Action.EXIT
             totalConviction >= exitBar + 0.10 -> Action.PARTIAL
             totalConviction >= exitBar - 0.05 -> Action.TIGHTEN
             else                              -> Action.HOLD
         }
+
+        // ════════════════════════════════════════════════════════
+        // V5.9.1253 — SYMBOLIC FORWARD-CHAINING INFERENCE LAYER
+        //
+        // The weighted-sum above is FUZZY: a single decisive danger signal
+        // (e.g. v4_fragility=0.9 = liquidity collapse imminent) only adds
+        // 0.9*0.07=0.063 to conviction and gets averaged into silence. That
+        // is the structural gap between "weighted scorer" and "symbolic
+        // reasoner": no single premise can force a conclusion.
+        //
+        // This layer fixes that. Each rule is an explicit logical implication
+        // over the already-computed signal map + raw trade state. When a rule's
+        // premises hold, it ESCALATES the action (never relaxes it — a rule can
+        // only push toward safety, never override a stronger exit into a hold)
+        // and records a human-readable inference chain. This is genuine forward
+        // chaining: premises → fire → conclusion, with explanation.
+        //
+        // SAFETY: rules can only escalate (HOLD<TIGHTEN<PARTIAL<EXIT). They
+        // never downgrade. They never touch the -15% hard floor (that lives in
+        // the executor and fires unconditionally regardless of this layer).
+        // ════════════════════════════════════════════════════════
+        val firedRules = mutableListOf<String>()
+        fun sig(k: String): Double = signals[k] ?: 0.0
+        val rank = mapOf(Action.HOLD to 0, Action.TIGHTEN to 1, Action.PARTIAL to 2, Action.EXIT to 3)
+        fun escalate(to: Action, why: String) {
+            if ((rank[to] ?: 0) > (rank[suggestedAction] ?: 0)) {
+                suggestedAction = to
+                primarySignal = "RULE:$why"
+            }
+            firedRules.add(why)
+        }
+
+        // R1 — LIQUIDITY DEATH: fragility high ∧ losing ⟹ EXIT NOW.
+        // A collapsing pool while underwater is unrecoverable; do not average it away.
+        if (sig("v4_fragility") >= 0.8 && currentPnlPct < 0.0) {
+            escalate(Action.EXIT, "fragility>=0.8 ∧ pnl<0 ⟹ EXIT (liquidity death)")
+        }
+
+        // R2 — REGIME ROUT: global RISK_OFF/CHAOTIC ∧ lead asset rotating away ⟹ EXIT.
+        if (sig("v4_regime") >= 0.7 && sig("v4_leadLag") >= 0.7) {
+            escalate(Action.EXIT, "regime_risk_off ∧ leadLag_warning ⟹ EXIT (correlated rout)")
+        }
+
+        // R3 — PROFIT EVAPORATION: large peak gain given back hard ⟹ at least PARTIAL,
+        // and EXIT if momentum has also rolled over (lock the win before it's gone).
+        if (sig("sym_gainErosion") >= 0.7) {
+            if (sig("sym_momentum") >= 0.6) {
+                escalate(Action.EXIT, "gainErosion>=0.7 ∧ momentum_down ⟹ EXIT (lock the runner)")
+            } else {
+                escalate(Action.PARTIAL, "gainErosion>=0.7 ⟹ PARTIAL (bank the spike)")
+            }
+        }
+
+        // R4 — BLEED ACCELERATION: fast loss velocity ∧ weak strategy trust ⟹ EXIT.
+        // A position bleeding fast in a mode the bot no longer trusts is a cut, not a hold.
+        if (sig("sym_lossVelocity") >= 0.6 && sig("v4_trust") >= 0.5) {
+            escalate(Action.EXIT, "lossVelocity>=0.6 ∧ low_trust ⟹ EXIT (untrusted bleed)")
+        }
+
+        // R5 — EXECUTION DEGRADED ∧ FRAGILE: if exits may not fill AND pool is thin,
+        // start exiting early while a fill is still possible.
+        if (sig("v4_execution") >= 0.6 && sig("v4_fragility") >= 0.5) {
+            escalate(Action.PARTIAL, "exec_degraded ∧ fragility_rising ⟹ PARTIAL (exit while fillable)")
+        }
+
+        // R6 — META-DOUBT: many layers overconfident/low-trust ∧ already losing ⟹ TIGHTEN.
+        // The system distrusts its own read; reduce risk rather than ride conviction.
+        if (sig("v3_metacognition") >= 0.5 && currentPnlPct < -0.5) {
+            escalate(Action.TIGHTEN, "meta_doubt ∧ pnl<-0.5 ⟹ TIGHTEN (distrust own signal)")
+        }
+
+        // R7 — CONVERGENT DANGER: 3+ independent danger signals firing strong, even if
+        // each is individually small — the AND of many weak warnings is a strong one.
+        // This is the explicit symbolic capture of correlated tail risk that pure
+        // averaging structurally underweights.
+        val strongDangerCount = signals.values.count { it >= 0.6 }
+        if (strongDangerCount >= 3 && suggestedAction != Action.EXIT) {
+            escalate(Action.PARTIAL, "$strongDangerCount danger signals>=0.6 ⟹ PARTIAL (convergent tail risk)")
+        }
+
+        val symbolicOverride = firedRules.any { it.contains("⟹ EXIT") || it.contains("⟹ PARTIAL") }
 
         val shouldExit = suggestedAction == Action.EXIT
 
@@ -426,7 +512,9 @@ object SymbolicExitReasoner {
             primarySignal = primarySignal,
             shouldExit = shouldExit,
             suggestedAction = suggestedAction,
-            signals = signals
+            signals = signals,
+            firedRules = firedRules,
+            symbolicOverride = symbolicOverride
         )
     }
 

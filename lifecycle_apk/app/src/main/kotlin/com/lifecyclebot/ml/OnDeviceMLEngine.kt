@@ -9,6 +9,7 @@ import java.nio.ByteBuffer
 import java.nio.ByteOrder
 import kotlin.math.abs
 import kotlin.math.ln
+import kotlin.math.exp
 
 /**
  * ═══════════════════════════════════════════════════════════════════════════════
@@ -60,6 +61,53 @@ object OnDeviceMLEngine {
     private var featureMeans = FloatArray(NUM_FEATURES) { 0f }
     private var featureStds = FloatArray(NUM_FEATURES) { 1f }
     private var isNormalized = false
+
+    // ═══════════════════════════════════════════════════════════════════
+    // V5.9.1253 — REAL ON-DEVICE LOGISTIC REGRESSION CORE.
+    // Replaces the "TensorFlow Lite" shells (which had NO Interpreter.run()
+    // anywhere — pure heuristic fallback) with genuine online-trained logistic
+    // models. Three heads over the 32 normalized features:
+    //   entryW → P(win)        trained on wasWin label
+    //   rugW   → P(rug)         trained on wasRug label
+    //   exitW  → P(should-exit) trained on (loss OR rug) label
+    // Trained incrementally via SGD on every recorded trade (no batch, no
+    // external lib, <1ms). Weights persist via SharedPreferences so the model
+    // is NOT amnesiac across restarts (closes the same bug class as the
+    // learning-persistence doctrine). Heuristics remain as cold-start fallback
+    // until each head has seen >= LOGIT_MIN_SAMPLES labelled trades.
+    // ═══════════════════════════════════════════════════════════════════
+    private const val LOGIT_LR = 0.03f          // SGD learning rate
+    private const val LOGIT_L2 = 1e-4f          // L2 regularization (weight decay)
+    private const val LOGIT_MIN_SAMPLES = 40    // per-head sample floor before trusting logit
+    private var entryW = FloatArray(NUM_FEATURES + 1) { 0f }  // +1 = bias term
+    private var rugW   = FloatArray(NUM_FEATURES + 1) { 0f }
+    private var exitW  = FloatArray(NUM_FEATURES + 1) { 0f }
+    private var entrySamples = 0
+    private var rugSamples = 0
+    private var exitSamples = 0
+    private var appContext: Context? = null
+
+    private fun sigmoid(z: Float): Float = (1f / (1f + exp(-z.toDouble()))).toFloat()
+
+    /** Forward pass: w·x + bias, squashed. x is the normalized feature array. */
+    private fun logitPredict(w: FloatArray, x: FloatArray): Float {
+        var z = w[NUM_FEATURES]  // bias
+        val n = minOf(x.size, NUM_FEATURES)
+        for (i in 0 until n) z += w[i] * x[i]
+        return sigmoid(z)
+    }
+
+    /** One SGD step of binary cross-entropy with L2. Returns nothing; mutates w. */
+    private fun logitTrain(w: FloatArray, x: FloatArray, label: Float) {
+        val pred = logitPredict(w, x)
+        val err = pred - label              // dLoss/dz for logistic + BCE
+        val n = minOf(x.size, NUM_FEATURES)
+        for (i in 0 until n) {
+            val grad = err * x[i] + LOGIT_L2 * w[i]
+            w[i] -= LOGIT_LR * grad
+        }
+        w[NUM_FEATURES] -= LOGIT_LR * err   // bias (no decay)
+    }
     
     /**
      * Feature vector extracted from a trade for training/inference.
@@ -155,7 +203,9 @@ object OnDeviceMLEngine {
             }
             
             // Load training data stats
+            appContext = context.applicationContext
             loadNormalizationStats(context)
+            loadModelWeights(context)
             
             ErrorLogger.info(TAG, "ML Engine initialized | ${trainingData.size} training samples")
         } catch (e: Exception) {
@@ -206,8 +256,26 @@ object OnDeviceMLEngine {
             
             // Update normalization statistics
             updateNormalizationStats(features)
+
+            // ─── V5.9.1253: online SGD train of the real logistic heads ───
+            // Train on the NORMALIZED feature vector so weights live in the
+            // same space the predictor sees. Labels come straight from the
+            // settled outcome (honest supervised signal).
+            try {
+                val x = normalizeFeatures(features)
+                logitTrain(entryW, x, features.wasWin);                 entrySamples++
+                logitTrain(rugW,   x, features.wasRug);                 rugSamples++
+                // exit head = "should have exited": trade lost OR rugged.
+                val exitLabel = if (features.wasWin < 0.5f || features.wasRug >= 0.5f) 1f else 0f
+                logitTrain(exitW,  x, exitLabel);                       exitSamples++
+                // Persist periodically (every 10 trades) — cheap, keeps the
+                // model durable across the frequent service restarts.
+                if (trainingData.size % 10 == 0) {
+                    appContext?.let { saveModelWeights(it); saveNormalizationStats(it) }
+                }
+            } catch (_: Throwable) { /* training is best-effort, never blocks recording */ }
             
-            ErrorLogger.debug(TAG, "Recorded trade | total=${trainingData.size} | pnl=${trade.pnlPct.toInt()}%")
+            ErrorLogger.debug(TAG, "Recorded trade | total=${trainingData.size} | pnl=${trade.pnlPct.toInt()}% | logitN(e/r/x)=$entrySamples/$rugSamples/$exitSamples")
         } catch (e: Exception) {
             ErrorLogger.debug(TAG, "Record trade error: ${e.message}")
         }
@@ -459,12 +527,11 @@ object OnDeviceMLEngine {
     // ═══════════════════════════════════════════════════════════════════
     
     private fun predictRug(features: FloatArray): Float {
-        // Use trained model if available
-        rugModel?.let { model ->
-            return model.predict(features)[0].coerceIn(0f, 1f)
+        // V5.9.1253 — real logistic head once it has enough labelled samples.
+        if (rugSamples >= LOGIT_MIN_SAMPLES) {
+            return logitPredict(rugW, features).coerceIn(0f, 0.99f)
         }
-        
-        // Heuristic fallback based on learned patterns
+        // Cold-start heuristic fallback (used only until the head has trained).
         val rugIndicators = mutableListOf<Float>()
         
         // High top holder concentration is risky
@@ -488,12 +555,11 @@ object OnDeviceMLEngine {
     }
     
     private fun predictEntry(features: FloatArray): Float {
-        // Use trained model if available
-        entryModel?.let { model ->
-            return model.predict(features)[0].coerceIn(0f, 1f)
+        // V5.9.1253 — real logistic head: P(win) given the feature vector.
+        if (entrySamples >= LOGIT_MIN_SAMPLES) {
+            return logitPredict(entryW, features).coerceIn(0f, 1f)
         }
-        
-        // Heuristic based on historical win patterns
+        // Cold-start heuristic fallback.
         var score = 0.5f
         
         // Positive momentum is good
@@ -517,12 +583,11 @@ object OnDeviceMLEngine {
     }
     
     private fun predictExit(features: FloatArray): Float {
-        // Use trained model if available
-        exitModel?.let { model ->
-            return model.predict(features)[0].coerceIn(0f, 1f)
+        // V5.9.1253 — real logistic head: P(this trade should be exited).
+        if (exitSamples >= LOGIT_MIN_SAMPLES) {
+            return logitPredict(exitW, features).coerceIn(0f, 1f)
         }
-        
-        // Heuristic exit urgency
+        // Cold-start heuristic fallback.
         var urgency = 0.3f
         
         // Negative momentum = exit
@@ -581,6 +646,36 @@ object OnDeviceMLEngine {
         featureStds.forEachIndexed  { i, v -> prefs.putFloat("std_$i",  v) }
         prefs.putBoolean("is_normalized", isNormalized)
         prefs.apply()
+    }
+
+    // V5.9.1253 — persist the logistic weights + per-head sample counts so the
+    // trained predictive core survives service restarts (anti-amnesia).
+    private fun saveModelWeights(context: Context) {
+        val prefs = context.getSharedPreferences("ml_logit_weights", android.content.Context.MODE_PRIVATE).edit()
+        entryW.forEachIndexed { i, v -> prefs.putFloat("e_$i", v) }
+        rugW.forEachIndexed   { i, v -> prefs.putFloat("r_$i", v) }
+        exitW.forEachIndexed  { i, v -> prefs.putFloat("x_$i", v) }
+        prefs.putInt("n_entry", entrySamples)
+        prefs.putInt("n_rug",   rugSamples)
+        prefs.putInt("n_exit",  exitSamples)
+        prefs.apply()
+    }
+
+    private fun loadModelWeights(context: Context) {
+        try {
+            val prefs = context.getSharedPreferences("ml_logit_weights", android.content.Context.MODE_PRIVATE)
+            entryW = FloatArray(NUM_FEATURES + 1) { i -> prefs.getFloat("e_$i", 0f) }
+            rugW   = FloatArray(NUM_FEATURES + 1) { i -> prefs.getFloat("r_$i", 0f) }
+            exitW  = FloatArray(NUM_FEATURES + 1) { i -> prefs.getFloat("x_$i", 0f) }
+            entrySamples = prefs.getInt("n_entry", 0)
+            rugSamples   = prefs.getInt("n_rug",   0)
+            exitSamples  = prefs.getInt("n_exit",  0)
+            if (entrySamples + rugSamples + exitSamples > 0) {
+                ErrorLogger.info(TAG, "Loaded logistic weights | n(e/r/x)=$entrySamples/$rugSamples/$exitSamples")
+            }
+        } catch (e: Exception) {
+            ErrorLogger.debug(TAG, "loadModelWeights error: ${e.message}")
+        }
     }
     
     /**
