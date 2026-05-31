@@ -53,7 +53,21 @@ object ScoreExpectancyTracker {
     // skipped — the +76% winner band and any marginal bucket stay open for
     // exploration. This is a SOFT shape on the existing whitelist gate
     // (entry #86), not a new veto; it fires per-lane across all 6 consumers.
-    private const val MIN_SAMPLES_FOR_REJECT = 40
+    // V5.9.1250 — SCORER-INVERSION FIX. Tuning Console (5.0.3217) confirmed the
+    // scorer is inverted: SHITCOIN[40-49] μ+126.6% / MOONSHOT[40-49] μ+1198.3%
+    // (mid bands win big) while SHITCOIN[50-59] μ-77.6% / MOONSHOT[50-59] μ-13.1%
+    // (high bands bleed). The empirical feedback gate that is SUPPOSED to skip
+    // net-losing score bands could never fire because the bleeders are tiny
+    // (SHITCOIN[50-59] n=3, MOONSHOT[50-59] n=8) — all far below the n=40 floor.
+    // So the inverted high-score losers entered unchecked and WR sat at 11.5%.
+    // Lower the sample floor to 15: statistically meaningful for THIS bucket
+    // regime (the comment above already shows real bleeders live at n=7..31),
+    // not noise. Combined with the unchanged -8% reject mean, ONLY bands that
+    // decisively bleed (worse than -8% over >=15 closes) get skipped — the +126%
+    // / +1198% winner bands stay wide open. Pure soft-shape on the existing
+    // entry #86 whitelist gate; no new veto, no scorer reweight, no lane starve.
+    // Self-targeting: a healthy band averages positive and is never touched.
+    private const val MIN_SAMPLES_FOR_REJECT = 15
     private const val REJECT_MEAN_PNL_PCT = -8.0
 
     /** Rolling pnlPct windows keyed by "LAYER:bucket". */

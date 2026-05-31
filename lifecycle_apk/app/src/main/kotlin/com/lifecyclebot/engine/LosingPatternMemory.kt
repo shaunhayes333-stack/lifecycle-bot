@@ -138,6 +138,7 @@ object LosingPatternMemory {
      * tiers. Returns 1.0 (no cut) when the bucket isn't a matured danger zone,
      * so bootstrap-band candidates (sample<20) are never shrunk.
      *
+     *   losses >= 40  → ×0.05  (V5.9.1250 — deepest proven death bucket)
      *   losses >= 30  → ×0.10  (proven, deep death bucket — near-zero learning probe)
      *   losses >= 20  → ×0.20
      *   losses >=  8  → ×0.35  (entry-level danger — original 1246 behaviour)
@@ -146,6 +147,13 @@ object LosingPatternMemory {
         val s = stats(tradingMode, v3Score)
         if (!s.isDangerous) return 1.0
         return when {
+            // V5.9.1250 — add the deepest tier. TREASURY|S61+ kept net-bleeding
+            // (-1.0 SOL / n=23) even at ×0.10 because it keeps entering a proven
+            // ~-21%-mean bucket at scale. Halve the deepest probe again so each
+            // bleeder costs ~1/20th while still recording an outcome (no veto,
+            // no starvation — doctrine soft-shape). Only the most-proven death
+            // buckets reach >=40 losses; all shallower tiers unchanged.
+            s.losses >= 40 -> 0.05
             s.losses >= 30 -> 0.10
             s.losses >= 20 -> 0.20
             else           -> 0.35
