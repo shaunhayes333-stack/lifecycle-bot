@@ -554,6 +554,47 @@ object TradeHistoryStore {
     }
 
     /**
+     * V5.9.1249 — Bounded meme-WR snapshot for MemeWREmergencyBrake.
+     * The brake previously called getAllTrades() (copies up to
+     * MAX_IN_MEMORY_TRADES=10000 Trade objects) and then sequence-filtered on
+     * the caller side — and that caller is MainActivity.updateUi on the MAIN
+     * thread. As history grew that copy blew out to a 2+ second ArrayList.grow/
+     * copyOf stall (snapshot 3215: MemeWREmergencyBrake.compute = 2182ms ANR,
+     * cycles 18.5s — the "freeze at 149 trades"). This does the whole job inside
+     * the lock in ONE pass with NO full-list materialisation: returns the
+     * lifetime decisive meme-close count (for the >=5000 engage gate) and the
+     * win-rate over the last [window] decisive meme closes (newest-first scan,
+     * stops as soon as the window is full). isMemeMode is supplied by the brake
+     * so mode-set ownership stays there.
+     *
+     * @return Pair(lifetimeDecisiveMemeCloses, windowWinRatePct).
+     *         windowWinRatePct is 0.0 when the window is empty.
+     */
+    fun memeWrSnapshot(window: Int, isMemeMode: (String?) -> Boolean): Pair<Int, Double> {
+        ensureInitialized()
+        return synchronized(lock) {
+            var lifetime = 0
+            var winWins = 0
+            var winCount = 0
+            val cap = window.coerceAtLeast(1)
+            // Newest-first: the window fills from the most recent decisive meme
+            // closes; lifetime keeps counting through the whole in-memory list.
+            for (t in trades.asReversed()) {
+                if (!t.side.equals("SELL", ignoreCase = true)) continue
+                if (t.pnlPct == 0.0) continue          // scratches excluded from WR
+                if (!isMemeMode(t.tradingMode)) continue
+                lifetime++
+                if (winCount < cap) {
+                    winCount++
+                    if (t.pnlPct > 0.0) winWins++
+                }
+            }
+            val wrPct = if (winCount > 0) winWins.toDouble() / winCount * 100.0 else 0.0
+            Pair(lifetime, wrPct)
+        }
+    }
+
+    /**
      * V5.9.1062 — Read trades DIRECTLY from SQLite, bypassing the in-memory list.
      * Use this from the Journal when the async init may not have populated the
      * in-memory list yet. Always returns the full persisted history (no in-memory cap).

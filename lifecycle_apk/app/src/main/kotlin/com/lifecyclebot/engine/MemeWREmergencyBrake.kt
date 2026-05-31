@@ -94,21 +94,22 @@ object MemeWREmergencyBrake {
     }
 
     private fun compute(now: Long): Status {
-        val all = try { TradeHistoryStore.getAllTrades() } catch (_: Exception) { emptyList() }
-        val memeClosed = all.asSequence()
-            .filter { it.side.equals("SELL", ignoreCase = true) }
-            .filter { it.pnlPct != 0.0 }           // scratches don't count toward WR
-            .filter { isMemeMode(it.tradingMode) }
-            .toList()
+        // V5.9.1249 — single bounded, lock-internal pass. Was: getAllTrades()
+        // copied up to 10k Trade objects then sequence-filtered ON THE MAIN
+        // THREAD (via MainActivity.updateUi → ShitCoinTraderAI.getStats →
+        // scoreBoost), producing a 2.1s ArrayList.copyOf ANR that stalled the
+        // bot-loop to 18.5s/cycle and looked like a freeze. memeWrSnapshot does
+        // the lifetime count + last-WINDOW_SIZE WR inside the store's lock with
+        // no full-list materialisation. Brake semantics unchanged.
+        val (lifetime, wrPct) = try {
+            TradeHistoryStore.memeWrSnapshot(WINDOW_SIZE) { isMemeMode(it) }
+        } catch (_: Exception) { Pair(0, 0.0) }
 
-        val lifetime = memeClosed.size
         if (lifetime < MIN_LIFETIME_TRADES) {
             return Status(false, 0.0, lifetime, now)
         }
 
-        val window = memeClosed.takeLast(WINDOW_SIZE)
-        val wins = window.count { it.pnlPct > 0 }
-        val wrPct = wins.toDouble() / window.size * 100.0
+        val windowCount = if (lifetime < WINDOW_SIZE) lifetime else WINDOW_SIZE
 
         // Hysteresis: once engaged, require RELEASE_WR_PCT to release.
         val prev = cachedStatus
@@ -117,14 +118,14 @@ object MemeWREmergencyBrake {
         if (engaged != prev.engaged) {
             if (engaged) {
                 ErrorLogger.warn(TAG,
-                    "🚨 ENGAGED | meme WR=${"%.1f".format(wrPct)}% (last ${window.size}) lifetime=$lifetime " +
+                    "🚨 ENGAGED | meme WR=${"%.1f".format(wrPct)}% (last $windowCount) lifetime=$lifetime " +
                     "— raising score bar +$SCORE_BOOST, halving sizing until WR ≥ ${RELEASE_WR_PCT.toInt()}%")
             } else {
                 ErrorLogger.info(TAG,
                     "✅ RELEASED | meme WR recovered to ${"%.1f".format(wrPct)}% — full entry gate restored")
             }
         }
-        return Status(engaged, wrPct, window.size, now)
+        return Status(engaged, wrPct, windowCount, now)
     }
 
     /** Is the brake currently active? Hot-path safe.
