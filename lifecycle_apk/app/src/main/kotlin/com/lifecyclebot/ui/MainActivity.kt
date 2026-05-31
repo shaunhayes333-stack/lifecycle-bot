@@ -559,6 +559,23 @@ class MainActivity : AppCompatActivity() {
     private val white   = 0xFFFFFFFF.toInt()
 
     override fun onCreate(savedInstanceState: Bundle?) {
+        // V5.9.1244 — KILL COLD-START ANR. Forensic 5.0.3211 showed onCreate
+        // blocking the main thread up to 3.8s with the stack rooted at
+        // setContentView → loadXmlDrawable → LayerDrawable.inflate /
+        // GradientDrawable.ensureValidRect / Path.op. activity_main carries
+        // dozens of <layer-list>/<gradient> backgrounds (section_card_bg,
+        // stats_pill_bg, pill_bg, logo_bg…) that all inflate synchronously on
+        // the first setContentView. The theme windowBackground is also the
+        // LIGHT #F5F5F7 while the app is dark #0A0A0F → a white flash + an
+        // extra window-bg draw. Paint a cheap SOLID dark window background
+        // FIRST so the window has an instant first frame and Android stops
+        // attributing the heavy inflate to a frozen frame. This is pure
+        // cold-start UI; no trading / scanner / FDG / exit path is touched.
+        try {
+            window.setBackgroundDrawable(
+                android.graphics.drawable.ColorDrawable(0xFF0A0A0F.toInt())
+            )
+        } catch (_: Throwable) {}
         super.onCreate(savedInstanceState)
         activityCreatedAtMs = System.currentTimeMillis()
         lastNetworkSigRenderMs = activityCreatedAtMs
