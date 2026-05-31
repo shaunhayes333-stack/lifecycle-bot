@@ -838,6 +838,9 @@ class BotService : Service() {
         // V5.6: Initialize On-Device ML Engine for trade predictions
         try {
             com.lifecyclebot.ml.OnDeviceMLEngine.initialize(applicationContext)
+            // V5.9.1255 — wire symbolic rule-trust persistence (self-revising rules
+            // must survive restarts or they never mature).
+            com.lifecyclebot.engine.SymbolicExitReasoner.attachContext(applicationContext)
             ErrorLogger.info("BotService", "🧠 ML Engine initialized | ${com.lifecyclebot.ml.OnDeviceMLEngine.getStatus()}")
         } catch (e: Exception) {
             ErrorLogger.debug("BotService", "ML Engine init error: ${e.message}")

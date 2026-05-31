@@ -751,6 +751,10 @@ object TradeHistoryStore {
                 emaAlignment       = emaAlignment,
                 wasRug             = wasRug,
             )
+            // V5.9.1255 — authoritative grading of any symbolic rules that fired on
+            // this mint, against the TRUE final P&L (the verdict that can't be fooled
+            // by intra-trade noise; also guarantees fires never leak ungraded).
+            try { com.lifecyclebot.engine.SymbolicExitReasoner.gradeRulesOnClose(trade.mint, trade.pnlPct) } catch (_: Throwable) {}
             ErrorLogger.debug("TradeHistoryStore",
                 "🧠 ML TRAINING: Recorded trade for ${trade.mint.take(8)}... | pnl=${trade.pnlPct.toInt()}%")
         } catch (e: Exception) {

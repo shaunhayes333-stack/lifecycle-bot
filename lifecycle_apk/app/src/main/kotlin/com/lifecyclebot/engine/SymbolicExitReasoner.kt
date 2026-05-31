@@ -55,70 +55,175 @@ object SymbolicExitReasoner {
     // sees. Bounded memory (pending map capped, LRU-evicted).
     // ═══════════════════════════════════════════════════════════════════
     private object RuleLearning {
-        private const val MIN_TRUST = 0.40          // below this → advisory only
-        private const val MIN_SAMPLES_TO_GATE = 8   // don't gate a rule until it has evidence
-        private const val IMPROVE_EPS = 0.3         // pnl must move >0.3% to count as a verdict
-        private const val MAX_PENDING = 400
+        private const val MIN_TRUST = 0.40           // below this (with evidence) → advisory only
+        private const val MIN_SAMPLES_TO_GATE = 8    // don't gate a rule until it has evidence
+        private const val IMPROVE_EPS = 0.5          // pnl must move > this to count as a verdict
+        private const val TIGHTEN_TOLERANCE = 4.0    // TIGHTEN only "harmful" if price ran away > this
+        private const val GRADE_MIN_HOLD_MS = 20_000L // a fire must age this long before tick-grading
+        private const val MAX_PENDING = 600
+        private const val WEIGHT_CAP = 5000          // cap counts so trust stays adaptive, not frozen
 
-        // ruleId -> [helpful, harmful]
-        private val helpful = java.util.concurrent.ConcurrentHashMap<String, Int>()
-        private val harmful = java.util.concurrent.ConcurrentHashMap<String, Int>()
-        // mint -> list of (ruleId, pnlAtFire) awaiting a grade
-        private val pending = java.util.concurrent.ConcurrentHashMap<String, MutableList<Pair<String, Double>>>()
+        // A pending fire: which rule, the pnl + time when it fired, and what action
+        // it recommended (so grading can be action-aware).
+        private data class Fire(val ruleId: String, val pnlAtFire: Double, val tsMs: Long, val sev: Int)
 
-        /** Trust for a rule: Laplace-smoothed helpful rate. New rules start trusted (1.0). */
+        // ruleId -> helpful / harmful counts (fractional: a final-close verdict
+        // counts double a noisy mid-flight tick verdict).
+        private val helpful = java.util.concurrent.ConcurrentHashMap<String, Double>()
+        private val harmful = java.util.concurrent.ConcurrentHashMap<String, Double>()
+        private val pending = java.util.concurrent.ConcurrentHashMap<String, MutableList<Fire>>()
+
+        // Persistence (mirrors OnDeviceMLEngine self-contained prefs pattern).
+        @Volatile private var ctx: android.content.Context? = null
+        @Volatile private var dirty = false
+        private const val PREFS = "symbolic_rule_trust"
+
+        fun attach(context: android.content.Context) {
+            if (ctx != null) return
+            ctx = context.applicationContext
+            load()
+        }
+
+        /** Severity rank of the recommended action — used for action-aware grading. */
+        private fun sevOf(action: Action): Int = when (action) {
+            Action.EXIT -> 3; Action.PARTIAL -> 2; Action.TIGHTEN -> 1; Action.HOLD -> 0
+        }
+
+        /** Trust: Laplace-smoothed helpful rate. New/under-sampled rules start trusted (1.0). */
         fun trust(ruleId: String): Double {
-            val h = helpful[ruleId] ?: 0
-            val b = harmful[ruleId] ?: 0
-            if (h + b < MIN_SAMPLES_TO_GATE) return 1.0   // ungated until enough evidence
+            val h = helpful[ruleId] ?: 0.0
+            val b = harmful[ruleId] ?: 0.0
+            if (h + b < MIN_SAMPLES_TO_GATE) return 1.0
             return (h + 1.0) / (h + b + 2.0)
         }
 
-        /** A rule with enough evidence and trust below floor may only advise, not force. */
         fun canHardEscalate(ruleId: String): Boolean = trust(ruleId) >= MIN_TRUST
 
-        /** Record that ruleId fired on this mint at the given pnl (to be graded later). */
-        fun noteFire(mint: String, ruleId: String, pnlNow: Double) {
+        /** Record that ruleId fired on this mint, with the action it recommended. */
+        fun noteFire(mint: String, ruleId: String, pnlNow: Double, action: Action) {
             if (mint.isBlank()) return
+            val now = System.currentTimeMillis()
             val list = pending.getOrPut(mint) { java.util.Collections.synchronizedList(mutableListOf()) }
             synchronized(list) {
-                // keep only the most recent fire per ruleId for this mint
-                list.removeAll { it.first == ruleId }
-                list.add(ruleId to pnlNow)
+                list.removeAll { it.ruleId == ruleId }      // keep only the latest fire per rule per mint
+                list.add(Fire(ruleId, pnlNow, now, sevOf(action)))
             }
-            if (pending.size > MAX_PENDING) {
-                // crude LRU: drop an arbitrary oldest-ish key
-                pending.keys.firstOrNull()?.let { pending.remove(it) }
-            }
+            if (pending.size > MAX_PENDING) pending.keys.firstOrNull()?.let { pending.remove(it) }
+        }
+
+        /** Award a verdict to a rule. weight 1.0 = mid-flight tick, 2.0 = authoritative close. */
+        private fun award(ruleId: String, helped: Boolean, weight: Double) {
+            val map = if (helped) helpful else harmful
+            val v = (map[ruleId] ?: 0.0) + weight
+            map[ruleId] = v.coerceAtMost(WEIGHT_CAP.toDouble())
+            // decay the opposite side slightly so trust tracks recent behaviour, not all-time
+            val other = if (helped) harmful else helpful
+            other[ruleId]?.let { if (it > 0) other[ruleId] = (it * 0.999) }
+            dirty = true
         }
 
         /**
-         * Grade every rule that previously fired on this mint, using the pnl
-         * delta since it fired. An EXIT/PARTIAL/TIGHTEN rule is "helpful" if the
-         * position FELL after it fired (the danger was real) and "harmful" if it
-         * ROSE materially (we'd have cut a winner). Clears graded entries.
+         * Core verdict for one fire given the pnl now and whether this is the
+         * final (authoritative) outcome. Action-aware:
+         *  - EXIT/PARTIAL (sev>=2): helpful if price FELL after we warned, harmful
+         *    if it ROSE materially (we'd have cut a winner).
+         *  - TIGHTEN (sev 1): protective only — harmful ONLY if price ran away hard
+         *    (tightening a strong winner is the real cost); a small rise is fine.
          */
-        fun gradeOnUpdate(mint: String, pnlNow: Double) {
-            if (mint.isBlank()) return
-            val list = pending.remove(mint) ?: return
-            synchronized(list) {
-                for ((ruleId, pnlAtFire) in list) {
-                    val delta = pnlNow - pnlAtFire
-                    if (delta < -IMPROVE_EPS) {
-                        helpful.merge(ruleId, 1, Int::plus)        // dropped after we warned → right call
-                    } else if (delta > IMPROVE_EPS) {
-                        harmful.merge(ruleId, 1, Int::plus)        // rose after we warned → false alarm
-                    } // else: flat, no verdict
+        private fun verdict(f: Fire, pnlNow: Double, weight: Double) {
+            val delta = pnlNow - f.pnlAtFire
+            when {
+                f.sev >= 2 -> {
+                    if (delta < -IMPROVE_EPS) award(f.ruleId, true, weight)
+                    else if (delta > IMPROVE_EPS) award(f.ruleId, false, weight)
+                }
+                f.sev == 1 -> {
+                    if (delta < -IMPROVE_EPS) award(f.ruleId, true, weight)
+                    else if (delta > TIGHTEN_TOLERANCE) award(f.ruleId, false, weight)
                 }
             }
         }
 
+        /**
+         * Mid-flight grading on a subsequent assess() for the same mint. Only
+         * grades fires that have AGED past GRADE_MIN_HOLD_MS (so a single noisy
+         * next-tick can't wrongly condemn an EXIT rule). Graded fires are removed;
+         * not-yet-aged fires are KEPT for a later, more meaningful verdict.
+         */
+        fun gradeOnUpdate(mint: String, pnlNow: Double) {
+            if (mint.isBlank()) return
+            val list = pending[mint] ?: return
+            val now = System.currentTimeMillis()
+            synchronized(list) {
+                val it = list.iterator()
+                while (it.hasNext()) {
+                    val f = it.next()
+                    if (now - f.tsMs >= GRADE_MIN_HOLD_MS) {
+                        verdict(f, pnlNow, weight = 1.0)    // mid-flight = single weight
+                        it.remove()
+                    }
+                }
+                if (list.isEmpty()) pending.remove(mint)
+            }
+            maybeSave()
+        }
+
+        /**
+         * AUTHORITATIVE grading at position close. Grades EVERY remaining pending
+         * fire for this mint against the TRUE final pnl (double weight), then
+         * clears the mint. This is the verdict that matters — it can't be fooled
+         * by intra-trade noise and guarantees fires never leak ungraded.
+         */
+        fun gradeOnClose(mint: String, finalPnlPct: Double) {
+            if (mint.isBlank()) return
+            val list = pending.remove(mint) ?: return
+            synchronized(list) {
+                for (f in list) verdict(f, finalPnlPct, weight = 2.0)
+            }
+            maybeSave()
+        }
+
         fun snapshot(): Map<String, Double> {
             val out = LinkedHashMap<String, Double>()
-            (helpful.keys + harmful.keys).toSet().forEach { out[it] = trust(it) }
+            (helpful.keys + harmful.keys).toSet().sorted().forEach { out[it] = trust(it) }
             return out
         }
+
+        // ── persistence ──
+        private fun maybeSave() { if (dirty) save() }
+
+        private fun save() {
+            val c = ctx ?: return
+            try {
+                val e = c.getSharedPreferences(PREFS, android.content.Context.MODE_PRIVATE).edit()
+                e.clear()
+                helpful.forEach { (k, v) -> e.putFloat("h_$k", v.toFloat()) }
+                harmful.forEach { (k, v) -> e.putFloat("b_$k", v.toFloat()) }
+                e.apply()
+                dirty = false
+            } catch (_: Throwable) {}
+        }
+
+        private fun load() {
+            val c = ctx ?: return
+            try {
+                val pr = c.getSharedPreferences(PREFS, android.content.Context.MODE_PRIVATE)
+                for ((k, v) in pr.all) {
+                    val f = (v as? Float) ?: continue
+                    when {
+                        k.startsWith("h_") -> helpful[k.substring(2)] = f.toDouble()
+                        k.startsWith("b_") -> harmful[k.substring(2)] = f.toDouble()
+                    }
+                }
+            } catch (_: Throwable) {}
+        }
     }
+
+    /** Wire persistence — call once at startup (BotService init). Safe to call repeatedly. */
+    fun attachContext(context: android.content.Context) = try { RuleLearning.attach(context) } catch (_: Throwable) {}
+
+    /** Authoritative rule grading at position close — call from the trade-close path. */
+    fun gradeRulesOnClose(mint: String, finalPnlPct: Double) = try { RuleLearning.gradeOnClose(mint, finalPnlPct) } catch (_: Throwable) {}
 
     /** Public read for UI/telemetry: current learned trust per rule. */
     fun ruleTrustSnapshot(): Map<String, Double> = try { RuleLearning.snapshot() } catch (_: Throwable) { emptyMap() }
@@ -550,7 +655,7 @@ object SymbolicExitReasoner {
             }
             val trustTag = if (trusted) "" else " [advisory:lowTrust]"
             firedRules.add("$why$trustTag")
-            try { RuleLearning.noteFire(mint, ruleId, currentPnlPct) } catch (_: Throwable) {}
+            try { RuleLearning.noteFire(mint, ruleId, currentPnlPct, to) } catch (_: Throwable) {}
         }
 
         // R1 — LIQUIDITY DEATH: fragility high ∧ losing ⟹ EXIT NOW.
