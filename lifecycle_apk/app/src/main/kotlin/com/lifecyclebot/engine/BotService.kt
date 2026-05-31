@@ -13811,7 +13811,31 @@ if (postSupervisorOpenCount > 0 && !postSupervisorBackupDue) {
                         if (shouldEnter) {
                             // V4.1: Apply bootstrap size multiplier for micro-positions
                             val bootstrapMultiplier = com.lifecyclebot.v3.scoring.FluidLearningAI.getBootstrapSizeMultiplier()
-                            val adjustedSize = (treasurySignal.positionSizeSol * bootstrapMultiplier).coerceAtLeast(0.01)
+                            // V5.9.1246 — SOFT-SHAPE matured TREASURY death buckets.
+                            // V5.9.1068 downgraded the danger-zone HARD BLOCK to
+                            // telemetry-only and claimed "SmartSizer/SL tightening
+                            // already handling size + risk reduction downstream" —
+                            // but that wire never existed: the danger flag was only
+                            // LOGGED, and adjustedSize entered at full size. Result
+                            // (snapshot 5.0.3213): TREASURY bled to -1.85 SOL / n=25,
+                            // driven by TREASURY|S61+ (losses=20, wins=4, mean -21%),
+                            // a MATURED bucket (LosingPatternMemory.isDangerous needs
+                            // losses>=8 AND sample>=20 AND lossRate>=0.75 — real
+                            // statistical weight, not a bootstrap false-positive).
+                            // Doctrine = soft-shape, not veto: keep the trade (volume +
+                            // learning preserved, no starvation, FDG still the only
+                            // hard gate) but shrink matured-danger entries to a third
+                            // so each bleeder costs ~1/3 while the outcome is still
+                            // recorded. Bootstrap-band danger never qualifies (sample<20).
+                            // Computed here (depends only on rawSignalScore +
+                            // treasurySignal.confidence, both in scope); the later
+                            // telemetry block reuses these same vals.
+                            val _trsScore = rawSignalScore.coerceAtLeast(treasurySignal.confidence).coerceIn(0, 100)
+                            val _trsIsDanger = try {
+                                com.lifecyclebot.engine.LosingPatternMemory.isDangerZone("TREASURY", _trsScore)
+                            } catch (_: Throwable) { false }
+                            val dangerSizeMult = if (_trsIsDanger) 0.35 else 1.0
+                            val adjustedSize = (treasurySignal.positionSizeSol * bootstrapMultiplier * dangerSizeMult).coerceAtLeast(0.01)
                             
                             // V5.2.8 FIX: If bootstrap override forced entry, use default TP/SL values
                             // When Treasury rejects, it returns 0% TP which causes immediate exits!
@@ -13827,27 +13851,18 @@ if (postSupervisorOpenCount > 0 && !postSupervisorBackupDue) {
                             // V3 rejects treasury candidates with low scores (20-30)
                             // Treasury has its own scoring criteria - use those instead
                             // ═══════════════════════════════════════════════════════════════════
-                            val treasuryScore = rawSignalScore.coerceAtLeast(treasurySignal.confidence)  // Use better of two
+                            val treasuryScore = _trsScore  // V5.9.1246 — reuse the hoisted danger-score
 
-                            // V5.9.1068 — DOWNGRADED FROM HARD BLOCK TO TELEMETRY.
-                            // The V5.9.1061 hard-block was choking the bot:
-                            // 40 TREASURY danger-zone blocks meant every entry
-                            // in that score band was silently killed, starving
-                            // the lane and contributing to the 6+ min trade
-                            // stalls. Operator mandate: "never fucking pause
-                            // or disable. everything has to have a chance to
-                            // learn then self adjust." Replace block with
-                            // structured telemetry so the learning fan-out
-                            // still records the danger label, but the trade
-                            // proceeds (with SmartSizer/SL tightening already
-                            // handling size + risk reduction downstream).
-                            val _trsScore = treasuryScore.coerceIn(0, 100)
-                            val _trsIsDanger = try {
-                                com.lifecyclebot.engine.LosingPatternMemory.isDangerZone("TREASURY", _trsScore)
-                            } catch (_: Throwable) { false }
+                            // V5.9.1068 — DANGER ZONE IS TELEMETRY, NOT A BLOCK.
+                            // V5.9.1246 hoisted _trsScore/_trsIsDanger above the size
+                            // calc so matured danger buckets are soft-shaped (×0.35
+                            // size) instead of entering full-size. Trade still proceeds
+                            // — operator mandate: "never pause or disable; everything
+                            // gets a chance to learn then self-adjust." Size reduction
+                            // (not a veto) is the self-adjust.
                             if (_trsIsDanger) {
                                 ErrorLogger.info("BotService",
-                                    "🏷️ [TREASURY] ${ts.symbol} | DANGER_ZONE_TELEMETRY (not blocked) | score=$_trsScore | LosingPatternMemory flagged (TREASURY|S${(_trsScore/10)*10}-${(_trsScore/10)*10+10})")
+                                    "🏷️ [TREASURY] ${ts.symbol} | DANGER_ZONE_SOFTSHAPE (size×0.35, not blocked) | score=$_trsScore | LosingPatternMemory flagged (TREASURY|S${(_trsScore/10)*10}-${(_trsScore/10)*10+10})")
                             }
                             // V5.9.1068 — no else wrapper; execution proceeds.
                             run {
