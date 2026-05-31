@@ -7408,7 +7408,27 @@ class BotService : Service() {
             val isPumpPortalWs = tags.contains("PUMP_PORTAL_WS") || tags.contains("PUMPPORTAL")
             val isUserAdded = source == "USER" || source.contains("USER_ADDED")
             val isRestoredVetted = source == "MEME_REGISTRY_RESTORE" || source == "PROBATION"
-            val coldPump = isPumpPortalWs && !isUserAdded && !isRestoredVetted && volumeH1 <= 0.0 && liquidityUsd < 5_000.0
+            // V5.9.1243 — PAPER MUST NOT COLD-QUARANTINE PUMP.FUN INTAKE.
+            // 1228 sent every cold Pump.fun WS graduate (vol1h=0, liq<$5k) to
+            // probation-only to protect LIVE supervisor/render bandwidth. But
+            // probation only promotes on price-up≥5% / multi-scanner / RC≥2 —
+            // none of which a fresh single-source graduate gets — so in PAPER
+            // they all aged out at PROBATION_MAX_TIME (5min) → "PROBATION
+            // REJECTED | TIMEOUT". Forensic 65525e7f: every intake (ORGY, Lilo,
+            // STINKEYE, zzz, UpCookie, pickle, GOONABLE...) hit SINGLE_SOURCE,
+            // WATCHLIST_RR fresh=0 EVERY cycle, positions pinned at 17 stale
+            // bags — total entry starvation. The registry's own contract
+            // (PROBATION ROUTING, line 400) is "paper mode is MUCH more lenient
+            // for maximum learning exposure". Restore it: the cold-quarantine
+            // applies in LIVE only (where bandwidth/risk justify it). In paper
+            // or proven-edge, fresh graduates flow straight to the watchlist so
+            // the lanes can actually evaluate + trade them. Scanner pool stays
+            // protected; this UN-chokes intake, it does not prune it.
+            val lenientIntake = try {
+                com.lifecyclebot.engine.RuntimeModeAuthority.isPaper() ||
+                    com.lifecyclebot.engine.TradeHistoryStore.getProvenEdgeCached().hasProvenEdge
+            } catch (_: Throwable) { true }   // fail-open to lenient = trade, never starve
+            val coldPump = !lenientIntake && isPumpPortalWs && !isUserAdded && !isRestoredVetted && volumeH1 <= 0.0 && liquidityUsd < 5_000.0
             if (coldPump) {
                 val laneAffinity = inferIntakeLaneAffinity(source, allSources, marketCapUsd, liquidityUsd)
                 val toolAffinity = inferIntakeToolAffinity(source, allSources, marketCapUsd, liquidityUsd)
