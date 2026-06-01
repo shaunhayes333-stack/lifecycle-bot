@@ -64,6 +64,16 @@ object LayerVoteSampler {
             safeVote("ShitCoinExpress", ::voteShitCoinExpress, ts, votes)
             safeVote("BlueChipTraderAI", ::voteBlueChip, ts, votes)
             safeVote("ProjectSniperAI", ::voteProjectSniper, ts, votes)
+            // V5.9.1266 — CROSS-TALK: plug the autonomous organs (1260-1263) into
+            // the education/vote-grading chain. Before this they learned in
+            // isolation — consuming committee signals but never broadcasting a
+            // gradeable opinion back, so the network's trust/reflection systems
+            // were blind to the four smartest layers. Now they vote like every
+            // other layer → LayerVoteStore grades their accuracy, Sentience
+            // Orchestrator can reflect on them, and their knowledge flows into
+            // the shared network instead of dead-ending. Abstain-safe.
+            safeVote("ForwardOutcomeModel", ::voteForwardModel, ts, votes)
+            safeVote("AutonomousMetaPolicy", ::voteMetaPolicy, ts, votes)
             LayerVoteStore.recordVotes(ts.mint, votes)
         } catch (e: Exception) {
             ErrorLogger.debug(TAG, "captureAllMemeVotes error on ${ts.symbol}: ${e.message}")
@@ -72,6 +82,42 @@ object LayerVoteSampler {
 
     // ── Per-layer vote predicates ────────────────────────────────────────────
     // Each returns null to abstain, or Pair(bullish, conviction 0..1).
+
+    // V5.9.1266 — ForwardOutcomeModel as a graded voter. Reads its own
+    // counterfactual forecast for this token's signature; pWin>0.5 = bullish,
+    // conviction scaled by distance from coin-flip AND expectancy sign. Abstains
+    // while the signature is still in bootstrap (forecast src="bootstrap").
+    private fun voteForwardModel(ts: TokenState): Pair<Boolean, Double>? {
+        return try {
+            val lane = ts.laneAffinity.firstOrNull() ?: "MEME_GENERIC"
+            val score = ts.entryScore.toInt()
+            val regime = try { com.lifecyclebot.engine.MarketRegimeAI.getCurrentRegime().label } catch (_: Throwable) { "CHOP" }
+            val f = com.lifecyclebot.engine.ForwardOutcomeModel.forecast(lane, score, "C", regime, "UNKNOWN")
+            if (f.source == "bootstrap" || f.samples < 8) return null
+            val bullish = f.pWin >= 0.5
+            // conviction: edge from 0.5 + expectancy reinforcement
+            val edge = kotlin.math.abs(f.pWin - 0.5) * 2.0
+            val expReinforce = if ((f.expectedPnl > 0) == bullish) 0.2 else -0.1
+            Pair(bullish, (edge + expReinforce).coerceIn(0.1, 1.0))
+        } catch (_: Throwable) { null }
+    }
+
+    // V5.9.1266 — AutonomousMetaPolicy as a graded voter. Its learned conviction
+    // multiplier (>1.0 = lean in, <1.0 = damp) maps directly to a directional
+    // vote. Neutral conviction (≈1.0, still bootstrapping) → abstain.
+    private fun voteMetaPolicy(ts: TokenState): Pair<Boolean, Double>? {
+        return try {
+            val lane = ts.laneAffinity.firstOrNull() ?: "MEME_GENERIC"
+            val score = ts.entryScore.toInt()
+            val regime = try { com.lifecyclebot.engine.MarketRegimeAI.getCurrentRegime().label } catch (_: Throwable) { "CHOP" }
+            val conv = com.lifecyclebot.engine.AutonomousMetaPolicy.conviction(lane, score, regime)
+            if (kotlin.math.abs(conv - 1.0) < 0.04) return null   // bootstrap-neutral → abstain
+            val bullish = conv > 1.0
+            // conviction strength: distance from neutral, normalised over the [0.55,1.45] band
+            val strength = (kotlin.math.abs(conv - 1.0) / 0.45).coerceIn(0.1, 1.0)
+            Pair(bullish, strength)
+        } catch (_: Throwable) { null }
+    }
 
     private fun voteBehavior(ts: TokenState): Pair<Boolean, Double>? {
         // BehaviorAI: discipline-driven. Votes bullish when entry score is
