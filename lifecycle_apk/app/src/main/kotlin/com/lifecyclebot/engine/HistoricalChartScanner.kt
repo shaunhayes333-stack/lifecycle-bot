@@ -915,7 +915,7 @@ object HistoricalChartScanner {
             it.tradingMode == tradingMode && it.pnlPct > 0 
         }
         
-        return if (modeResults.isNotEmpty()) {
+        return if (modeResults.size >= 8) {
             val avgTP = modeResults.map { it.pnlPct }.average()
             val avgHold = modeResults.map { it.holdMins }.average()
             ExitParams(
@@ -923,9 +923,13 @@ object HistoricalChartScanner {
                 stopLossPct = -15.0,  // Conservative default
                 trailingStopPct = avgTP * 0.3,  // Trail 30% of avg gain
                 maxHoldMins = avgHold.toInt().coerceIn(5, 120),
+                hasData = true,
+                sampleSize = modeResults.size,
             )
         } else {
-            ExitParams(30.0, -15.0, 10.0, 30)
+            // V5.9.1287 — not enough backtested winners to advise; flag it so live
+            // exits DON'T blend a meaningless default.
+            ExitParams(30.0, -15.0, 10.0, 30, hasData = false, sampleSize = modeResults.size)
         }
     }
     
@@ -934,6 +938,8 @@ object HistoricalChartScanner {
         val stopLossPct: Double,
         val trailingStopPct: Double,
         val maxHoldMins: Int,
+        val hasData: Boolean = true,   // V5.9.1287 — false = fell back to default (don't blend)
+        val sampleSize: Int = 0,       // how many winning backtests informed this
     )
     
     /**

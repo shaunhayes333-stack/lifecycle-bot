@@ -874,6 +874,35 @@ object CollectiveIntelligenceAI {
     /**
      * V4.0: Check if a mint has a positive network signal.
      */
+    /**
+     * V5.9.1287 — SYNC hive boost for the live scorer. Reads the already-populated
+     * networkSignalsCache (refreshed periodically off-thread) so unifiedScore can
+     * fold in cross-instance conviction WITHOUT a suspend call. Bounded, signed:
+     * MEGA_WINNER/HOT from peer bots boost; AVOID damps. 0 when the hive is silent
+     * or disabled. This is the consume side of the hive — the download path already
+     * works; nothing was reading it at meme-scoring time.
+     */
+    fun networkBoostForMint(mint: String): Int {
+        return try {
+            if (mint.isBlank()) return 0
+            val sig = networkSignalsCache[mint] ?: return 0
+            if (System.currentTimeMillis() > sig.expiresAt) return 0
+            val ackBonus = (sig.ackCount).coerceIn(0, 5)
+            when (sig.signalType) {
+                "MEGA_WINNER" -> 18 + ackBonus
+                "HOT_TOKEN"   -> 10 + ackBonus
+                "AVOID"       -> -15
+                else -> when {
+                    sig.pnlPct > 30.0 -> 12
+                    sig.pnlPct > 15.0 -> 8
+                    sig.pnlPct > 5.0  -> 4
+                    sig.pnlPct < -10.0 -> -8
+                    else -> 0
+                }
+            }.coerceIn(-15, 25)
+        } catch (_: Throwable) { 0 }
+    }
+
     fun hasPositiveNetworkSignal(mint: String): Boolean {
         val signal = networkSignalsCache[mint] ?: return false
         return signal.signalType in listOf("MEGA_WINNER", "HOT_TOKEN")

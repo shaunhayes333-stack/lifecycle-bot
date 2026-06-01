@@ -1020,7 +1020,19 @@ object BlueChipTraderAI {
     }
     
     fun getFluidMinLiquidity(): Double = lerp(BC_LIQ_BOOTSTRAP, BC_LIQ_MATURE)
-    fun getFluidTakeProfit(): Double = lerp(TAKE_PROFIT_BOOTSTRAP, TAKE_PROFIT_MATURE)
+    fun getFluidTakeProfit(): Double {
+        val base = lerp(TAKE_PROFIT_BOOTSTRAP, TAKE_PROFIT_MATURE)
+        // V5.9.1287 — blend in the BACKTESTED optimal TP for this lane when the
+        // HistoricalChartScanner has real winning-pattern data. Previously the
+        // scanner ran at startup and computed getOptimalExitParams but NOTHING
+        // consumed it — pure dormant edge. 70/30 blend keeps the fluid base in
+        // charge while letting replay evidence pull the target toward what
+        // actually banked. Fail-open: no data → base unchanged.
+        return try {
+            val opt = com.lifecyclebot.engine.HistoricalChartScanner.getOptimalExitParams("BLUECHIP")
+            if (opt.hasData) (base * 0.7 + opt.takeProfitPct * 0.3) else base
+        } catch (_: Throwable) { base }
+    }
     fun getFluidStopLoss(): Double = lerp(STOP_LOSS_BOOTSTRAP, STOP_LOSS_MATURE)
     
     // ═══════════════════════════════════════════════════════════════════════════

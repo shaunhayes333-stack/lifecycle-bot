@@ -795,7 +795,50 @@ class UnifiedScorer(
                 }
             } catch (_: Exception) { null }  // fail-open: arb never blocks or penalises
 
+            // ─── PHASE 14: HIVE-MIND NETWORK SIGNAL — SOFT SIGNAL (V5.9.1287) ──
+            // The collective-learning download path populates a per-mint signal
+            // cache from OTHER instances (MEGA_WINNER / HOT_TOKEN / AVOID), but
+            // nothing read it at meme-scoring time — the hive was upload-only here.
+            // Fold the peer conviction in as a bounded signed nudge. Fail-open.
+            val hiveComponent: ScoreComponent? = try {
+                val boost = com.lifecyclebot.v3.scoring.CollectiveIntelligenceAI
+                    .networkBoostForMint(candidate.mint)
+                if (boost == 0) null
+                else ScoreComponent(
+                    name = "hive_signal",
+                    value = boost,
+                    reason = "HIVE peer-instance conviction ($boost)"
+                )
+            } catch (_: Exception) { null }
+
+            // ─── PHASE 15: COMMUNITY PATTERN WEIGHT — SOFT SIGNAL (V5.9.1287) ──
+            // CloudLearningSync downloads community pattern multipliers (opt-in,
+            // on by default) but getCommunityPatternMultiplier had ZERO consumers.
+            // Apply it as a small signed nudge keyed on this candidate's lane
+            // pattern, so crowd-validated patterns lift and crowd-flagged ones
+            // fade. Multiplier ~1.0 = neutral. Bounded ±6, fail-open.
+            val communityComponent: ScoreComponent? = try {
+                val laneKey = candidate.extraString("tradingMode").ifBlank { "STANDARD" }
+                val mult = com.lifecyclebot.engine.CloudLearningSync
+                    .getCommunityPatternMultiplier(laneKey)
+                val nudge = ((mult - 1.0) * 12.0).toInt().coerceIn(-6, 6)
+                if (nudge == 0) null
+                else ScoreComponent(
+                    name = "community_weight",
+                    value = nudge,
+                    reason = "COMMUNITY $laneKey ×${"%.2f".format(mult)} ($nudge)"
+                )
+            } catch (_: Exception) { null }
+
             var extras = gatedComponents
+            if (communityComponent != null) {
+                extras = extras + communityComponent
+                Log.i("UnifiedScorer", "🌐 COMMUNITY[SOFT] ${candidate.symbol} ${if (communityComponent.value>0) "+" else ""}${communityComponent.value} ${communityComponent.reason}")
+            }
+            if (hiveComponent != null) {
+                extras = extras + hiveComponent
+                Log.i("UnifiedScorer", "🐝 HIVE[SOFT] ${candidate.symbol} ${if (hiveComponent.value>0) "+" else ""}${hiveComponent.value} ${hiveComponent.reason}")
+            }
             if (bandComponent != null) {
                 extras = extras + bandComponent
                 Log.i("UnifiedScorer", "🎯 BAND[SOFT] ${candidate.symbol} ${if (bandComponent.value>0) "+" else ""}${bandComponent.value} ${bandComponent.reason}")
