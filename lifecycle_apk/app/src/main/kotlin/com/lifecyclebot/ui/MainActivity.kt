@@ -558,6 +558,14 @@ class MainActivity : AppCompatActivity() {
     private val muted   = 0xFF6B7280.toInt()
     private val white   = 0xFFFFFFFF.toInt()
 
+    // V5.9.1278 — set TextView text only when it actually changes. A redundant
+    // `.text =` assignment still flags the view dirty and schedules a measure/
+    // layout/draw pass; on the 5s updateUi loop that is pure main-thread waste
+    // and showed up as the top app frame in repeated ANR watchdog captures.
+    private fun android.widget.TextView.setTextIfChanged(value: CharSequence) {
+        if (this.text?.toString() != value.toString()) this.text = value
+    }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         // V5.9.1244 — KILL COLD-START ANR. Forensic 5.0.3211 showed onCreate
         // blocking the main thread up to 3.8s with the stack rooted at
@@ -810,12 +818,21 @@ class MainActivity : AppCompatActivity() {
                 // the render surface/backgrounding the app.
                 val handler = android.os.Handler(android.os.Looper.getMainLooper())
                 val updater = object : Runnable {
+                    // V5.9.1278 — only mutate the TextView when the value actually
+                    // changes. A no-op `.text =` still invalidates + schedules a
+                    // layout/measure/draw pass; the watchdog repeatedly caught this
+                    // updater Runnable as the top app frame during main-thread stalls.
+                    private var lastUniverseText: String = ""
                     override fun run() {
                         if (!mainUiActive || isFinishing || isDestroyed) return
                         try {
                             val total = com.lifecyclebot.perps.DynamicAltTokenRegistry.getTokenCount()
                             val memeTotal = com.lifecyclebot.engine.MemeMintRegistry.count()
-                            universeTile.text = "🪙 ${total + memeTotal} mints"
+                            val next = "🪙 ${total + memeTotal} mints"
+                            if (next != lastUniverseText) {
+                                lastUniverseText = next
+                                universeTile.text = next
+                            }
                         } catch (_: Throwable) {}
                         if (mainUiActive && !isFinishing && !isDestroyed) handler.postDelayed(this, 30_000L)
                     }
@@ -2414,7 +2431,7 @@ for legal compliance.
         }
 
         if (balSol > 0.001) {
-            tvBalanceLarge.text = currency.format(balSol)  // currency.format() converts SOL→display currency internally
+            tvBalanceLarge.setTextIfChanged(currency.format(balSol))  // V5.9.1278 change-guarded; converts SOL→display currency internally
             // V5.9.773 — BIG explicit mode chip so the operator can never
             // confuse "🟢 APIs READY" (Jupiter/Pyth health) with actual
             // trade mode. Per troubleshoot RCA: user saw "LIVE READY"
@@ -2422,11 +2439,11 @@ for legal compliance.
             tvBalanceUsd.text   = if (config.paperMode) "📝 PAPER MODE  ◎ ${"%.4f".format(balSol)}"
                                   else "🔴 LIVE MODE  ◎ ${"%.4f".format(balSol)}"
         } else if (ws.isConnected && ws.solBalance > 0) {
-            tvBalanceLarge.text = currency.format(ws.solBalance)
+            tvBalanceLarge.setTextIfChanged(currency.format(ws.solBalance))
             tvBalanceUsd.text   = if (config.paperMode) "📝 PAPER MODE  ◎ ${"%.4f".format(ws.solBalance)}"
                                   else "🔴 LIVE MODE  ◎ ${"%.4f".format(ws.solBalance)}"
         } else {
-            tvBalanceLarge.text = "—"
+            tvBalanceLarge.setTextIfChanged("—")
             tvBalanceUsd.text   = if (config.paperMode) "📝 PAPER MODE" else "🔴 LIVE MODE"
         }
 

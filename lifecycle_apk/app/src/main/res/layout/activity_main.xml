@@ -255,13 +255,10 @@
                         android:layout_height="wrap_content"
                         android:text="—"
                         android:textColor="#FFFFFF"
-                        android:textSize="@dimen/balance_text_size"
+                        android:textSize="24sp"
                         android:textStyle="bold"
                         android:maxLines="1"
-                        android:autoSizeTextType="uniform"
-                        android:autoSizeMinTextSize="14sp"
-                        android:autoSizeMaxTextSize="30sp"
-                        android:autoSizeStepGranularity="1sp"/>
+                        android:ellipsize="end"/>
 
                     <TextView
                         android:id="@+id/tvBalanceUsd"
