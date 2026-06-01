@@ -4089,9 +4089,26 @@ class Executor(
                     (nowMs - ts.position.entryTime) / 60_000.0 else 0.0
                 val feedAgeMs = if (ts.lastPriceUpdate > 0L)
                     nowMs - maxOf(ts.lastPriceUpdate, ts.position.entryTime) else Long.MAX_VALUE
+                // V5.9.1264 — FAST-EVICT TIER for genuinely-dead paper micros.
+                // Runtime evidence (build 3228, 21:52): 20/20 slots pinned by
+                // pump.fun micros with vol1h=$0 that NEVER tick → PnL stuck at
+                // exactly 0% → forcedOpen=20 every cycle, fresh=0, EXEC stalled at
+                // 33. The conservative 10min/20min tier below is correct for LIVE
+                // and for positions that have at least moved, but a PAPER token
+                // whose feed has been dead for minutes AND has never moved off 0%
+                // is a zombie squatting a slot — recycle it far sooner so the
+                // firehose of candidates can enter. Tighter, paper-only, flat-PnL-
+                // gated, runner-bypass still applies. Directly serves volume.
+                val nowPnlFast = if (ts.position.entryPrice > 0.0 && currentPrice > 0.0)
+                    ((currentPrice - ts.position.entryPrice) / ts.position.entryPrice) * 100.0 else 0.0
+                val fastDeadFeed = isPaperRT() &&
+                    feedAgeMs >= 3L * 60_000L &&      // feed silent ≥3min
+                    heldMin >= 4.0 &&                 // held ≥4min (well past 90s settle-in)
+                    kotlin.math.abs(nowPnlFast) < 2.0 && // never moved off entry (dead, not a runner)
+                    ts.position.peakGainPct < 20.0      // never ran
                 val FEED_DEAD_MS = 10L * 60_000L
                 val MIN_HELD_MIN = 20.0
-                if (feedAgeMs >= FEED_DEAD_MS && heldMin >= MIN_HELD_MIN) {
+                if (fastDeadFeed || (feedAgeMs >= FEED_DEAD_MS && heldMin >= MIN_HELD_MIN)) {
                     // RUNNER BYPASS — don't evict a position that ran and is
                     // still near its peak (mirrors maybeAct runner-bypass).
                     val curPnl = if (ts.position.entryPrice > 0.0 && currentPrice > 0.0)
