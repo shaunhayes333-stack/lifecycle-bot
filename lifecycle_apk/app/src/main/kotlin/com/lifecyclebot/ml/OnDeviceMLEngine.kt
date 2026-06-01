@@ -234,6 +234,13 @@ object OnDeviceMLEngine {
         val exhaustionSignal: Float,   // 1.0 if exhaustion detected
         val breakdownSignal: Float,    // 1.0 if breakdown detected
         val spikeSignal: Float,        // 1.0 if spike detected
+        // V5.9.1268 — fill the two dead padding slots with predictive orderflow.
+        // These were `0f, 0f` since inception: the ML heads trained on 30 real
+        // features + 2 permanent zeros. Now they carry sustained orderflow
+        // imbalance and txn-acceleration — "smart money positioning" signals
+        // that front-run price, computed from candle data already in scope.
+        val flowImbalance: Float = 0.5f,   // windowed buy/sell skew [0,1], 0.5=neutral
+        val txnAccel: Float = 0.5f,        // recent txn-velocity vs baseline [0,1]
         
         // Labels (for training)
         val wasWin: Float = 0f,        // 1.0 if profitable trade
@@ -490,6 +497,27 @@ object OnDeviceMLEngine {
             else -> 0.5f
         }
         
+        // V5.9.1268 — windowed orderflow imbalance: buys vs sells over the recent
+        // window (not just the last candle like buyPressure). Sustained accumulation
+        // is far more predictive than a single bar.
+        val flowImbalance = run {
+            val w = candles.takeLast(12)
+            val b = w.sumOf { it.buysH1.toLong() }
+            val se = w.sumOf { it.sellsH1.toLong() }
+            val tot = (b + se)
+            if (tot > 0) (b.toFloat() / tot).coerceIn(0f, 1f) else 0.5f
+        }
+        // V5.9.1268 — txn acceleration: recent txn count vs baseline. A surge in
+        // transaction velocity front-runs price moves.
+        val txnAccel = run {
+            val w = candles.takeLast(16)
+            if (w.size < 6) 0.5f else {
+                val recent = w.takeLast(3).map { (it.buysH1 + it.sellsH1).toDouble() }.average()
+                val base = w.dropLast(3).map { (it.buysH1 + it.sellsH1).toDouble() }.average().coerceAtLeast(1.0)
+                (0.5f + (((recent / base) - 1.0).coerceIn(-1.0, 1.0) * 0.5).toFloat()).coerceIn(0f, 1f)
+            }
+        }
+
         return TradeFeatures(
             priceChange5m = priceChange5m,
             priceChange15m = priceChange15m,
@@ -529,6 +557,8 @@ object OnDeviceMLEngine {
             exhaustionSignal = 0f,
             breakdownSignal = 0f,
             spikeSignal = volumeSpike,
+            flowImbalance = flowImbalance,
+            txnAccel = txnAccel,
         )
     }
     
@@ -571,7 +601,7 @@ object OnDeviceMLEngine {
             features.hourOfDay, features.dayOfWeek, features.rsi, features.emaAlignment,
             features.supportDistance, features.resistanceDistance, features.patternScore,
             features.exhaustionSignal, features.breakdownSignal, features.spikeSignal,
-            0f, 0f  // Padding to NUM_FEATURES
+            features.flowImbalance, features.txnAccel  // V5.9.1268 — was 0f,0f padding
         )
         
         return FloatArray(NUM_FEATURES) { i ->
@@ -592,7 +622,7 @@ object OnDeviceMLEngine {
             features.holdDuration, features.hourOfDay, features.dayOfWeek, features.rsi,
             features.emaAlignment, features.supportDistance, features.resistanceDistance,
             features.patternScore, features.exhaustionSignal, features.breakdownSignal,
-            features.spikeSignal, 0f, 0f
+            features.spikeSignal, features.flowImbalance, features.txnAccel  // V5.9.1268
         )
         
         for (i in 0 until NUM_FEATURES) {
