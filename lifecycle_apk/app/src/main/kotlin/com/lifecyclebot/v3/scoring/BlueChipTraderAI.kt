@@ -941,7 +941,15 @@ object BlueChipTraderAI {
         val takeProfitPct = getFluidTakeProfit()
         
         // Get fluid exits
-        val stopLossPct = getFluidStopLoss()
+        // V5.9.1286 — EVOLVED STOP WIDTH. BLUECHIP is the worst net bleeder
+        // (WR 18% / net -0.630 SOL) precisely because its -4/-7% stop cuts
+        // would-be runners on a lottery asset. StrategyHypothesisEngine A/B-tests
+        // a stop-width multiplier on real settled PnL and promotes the winner.
+        // Soft, bounded, fail-open — if the engine has no opinion the mult is 1.0.
+        val _stopBias = try {
+            com.lifecyclebot.engine.StrategyHypothesisEngine.getStopBias("BLUECHIP", blueChipScore, "ALL", mint)
+        } catch (_: Throwable) { 1.0 }
+        val stopLossPct = getFluidStopLoss() * _stopBias
         
         ErrorLogger.info(TAG, "🔵 BLUE CHIP QUALIFIED: $symbol | " +
             "score=$blueChipScore conf=$blueChipConfidence% | " +

@@ -46,6 +46,16 @@ object StrategyHypothesisEngine {
     private const val MUTATION_STEP = 0.10    // size-bias delta a hypothesis tests
     private const val PROMOTE_T     = 1.3     // V5.9.1265: slightly looser so clear winners promote, still noise-safe
 
+    // V5.9.1286 — EXIT-PROFILE EVOLUTION. The engine now tests a second dimension:
+    // a stop-WIDTH multiplier. The tuning console proved tight stops (BLUECHIP -4/-7%)
+    // bleed on a lottery asset by cutting would-be runners. ×>1.0 = wider stop (let
+    // the trade breathe toward its peak); ×<1.0 = tighter. The lane trader multiplies
+    // its base stop by the promoted value, so a lane can EVOLVE from tight→wide if
+    // wider demonstrably earns more on real settled PnL. Soft, bounded, A/B-proven.
+    private const val STOP_MULT_MIN  = 0.6
+    private const val STOP_MULT_MAX  = 2.2
+    private const val STOP_MUT_STEP  = 0.25
+
     private data class Arm(
         @Volatile var n: Long = 0L,
         @Volatile var mean: Double = 0.0,
@@ -88,7 +98,15 @@ object StrategyHypothesisEngine {
         val down = (base - MUTATION_STEP).coerceIn(SIZE_BIAS_MIN, SIZE_BIAS_MAX)
         // alternate direction by promotion parity so it explores both sides over time
         val variant = if ((promotions + retirements) % 2L == 0L) up else down
-        return Hypothesis(context, variant)
+        // Alternate the explored dimension: even cycles test SIZE, odd cycles test
+        // STOP WIDTH (so both evolve without a combinatorial arm explosion).
+        val baseStop = stopBaseline[context] ?: 1.0
+        val stopUp = (baseStop + STOP_MUT_STEP).coerceIn(STOP_MULT_MIN, STOP_MULT_MAX)
+        val stopDown = (baseStop - STOP_MUT_STEP).coerceIn(STOP_MULT_MIN, STOP_MULT_MAX)
+        val exploreStop = (promotions + retirements) % 2L == 1L
+        val stopVariant = if (exploreStop) (if ((promotions + retirements) % 4L == 1L) stopUp else stopDown) else baseStop
+        val sizeVariant = if (exploreStop) (baseline[context] ?: 1.0) else variant
+        return Hypothesis(context, sizeVariant, stopVariant)
     }
     private fun mint(d: Double) = d  // tiny helper to keep coerce readable
 
@@ -104,6 +122,26 @@ object StrategyHypothesisEngine {
             pending[mint] = ctx to variant
             val bias = if (variant) h.variantSizeBias else (baseline[ctx] ?: 1.0)
             bias.coerceIn(SIZE_BIAS_MIN, SIZE_BIAS_MAX)
+        } catch (_: Throwable) { 1.0 }
+    }
+
+    /**
+     * V5.9.1286 — stop-width multiplier for this mint/context. A lane multiplies
+     * its base stop-loss pct by this. Returns the variant's tested mult when the
+     * mint is in the variant arm, else the promoted baseline (default 1.0 = no
+     * change). Never mutates pending (getSizeBias owns the arm stamp); read-only.
+     */
+    fun getStopBias(lane: String, score: Int, regime: String, mint: String): Double {
+        return try {
+            val ctx = ctxKey(lane, score, regime)
+            // Self-activating: spawn the arm if absent so the stop dimension evolves
+            // independently of whether the FDG happened to stamp the same ctx via
+            // getSizeBias. Stamp the arm assignment so the settled PnL credits it.
+            val h = active.getOrPut(ctx) { spawn(ctx) }
+            val variant = isVariant(mint)
+            pending[mint] = ctx to variant
+            val m = if (variant) h.variantStopMult else (stopBaseline[ctx] ?: 1.0)
+            m.coerceIn(STOP_MULT_MIN, STOP_MULT_MAX)
         } catch (_: Throwable) { 1.0 }
     }
 
@@ -146,6 +184,7 @@ object StrategyHypothesisEngine {
         JSONObject().apply {
             put("promotions", promotions); put("retirements", retirements)
             val b = JSONObject(); baseline.forEach { (k,v) -> b.put(k, v) }; put("baseline", b)
+            val sb = JSONObject(); stopBaseline.forEach { (k,v) -> sb.put(k, v) }; put("stopBaseline", sb)
         }.toString()
     } catch (_: Throwable) { "{}" }
 
@@ -155,6 +194,7 @@ object StrategyHypothesisEngine {
             val o = JSONObject(json)
             promotions = o.optLong("promotions", 0L); retirements = o.optLong("retirements", 0L)
             o.optJSONObject("baseline")?.let { b -> val ks = b.keys(); while (ks.hasNext()) { val k = ks.next(); baseline[k] = b.optDouble(k, 1.0) } }
+            o.optJSONObject("stopBaseline")?.let { b -> val ks = b.keys(); while (ks.hasNext()) { val k = ks.next(); stopBaseline[k] = b.optDouble(k, 1.0) } }
         } catch (_: Throwable) {}
     }
 
@@ -169,7 +209,7 @@ object StrategyHypothesisEngine {
             val sb = StringBuilder("\n===== Strategy Hypothesis Engine (V5.9.1263) — self-directed A/B =====\n")
             sb.append("  active=${active.size}  promotions=$promotions  retirements=$retirements\n")
             active.entries.sortedByDescending { it.value.variant.n }.take(5).forEach { (k, h) ->
-                sb.append("  ⚗ $k  variantBias=${"%.2f".format(h.variantSizeBias)}  ctrl[n=${h.control.n} μ=${"%+.1f".format(h.control.mean)}%]  var[n=${h.variant.n} μ=${"%+.1f".format(h.variant.mean)}%]\n")
+                sb.append("  ⚗ $k  vBias=${"%.2f".format(h.variantSizeBias)} vStop×${"%.2f".format(h.variantStopMult)}  ctrl[n=${h.control.n} μ=${"%+.1f".format(h.control.mean)}%]  var[n=${h.variant.n} μ=${"%+.1f".format(h.variant.mean)}%]\n")
             }
             baseline.entries.filter { abs(it.value - 1.0) > 0.001 }.take(4).forEach { (k, v) ->
                 sb.append("  ✓ promoted $k → sizeBias ${"%.2f".format(v)}\n")
