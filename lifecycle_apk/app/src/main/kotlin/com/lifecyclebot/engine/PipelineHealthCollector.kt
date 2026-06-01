@@ -1111,8 +1111,14 @@ object PipelineHealthCollector {
         try {
             val bcg = BrainConsensusGate.formatForPipelineDump()
             val metaPolicyDump = try { com.lifecyclebot.engine.AutonomousMetaPolicy.formatForPipelineDump() } catch (_: Throwable) { "" }
+            val fwdDump = try { com.lifecyclebot.engine.ForwardOutcomeModel.formatForPipelineDump() } catch (_: Throwable) { "" }
+            val uphDump = try { com.lifecyclebot.engine.UnifiedPolicyHead.formatForPipelineDump() } catch (_: Throwable) { "" }
+            val hypoDump = try { com.lifecyclebot.engine.StrategyHypothesisEngine.formatForPipelineDump() } catch (_: Throwable) { "" }
             if (bcg.isNotEmpty()) sb.append(bcg)
             if (metaPolicyDump.isNotEmpty()) sb.append(metaPolicyDump)
+            if (fwdDump.isNotEmpty()) sb.append(fwdDump)
+            if (uphDump.isNotEmpty()) sb.append(uphDump)
+            if (hypoDump.isNotEmpty()) sb.append(hypoDump)
         } catch (_: Throwable) {}
 
         // ── PerformanceAnalytics block ─────────────────────────────

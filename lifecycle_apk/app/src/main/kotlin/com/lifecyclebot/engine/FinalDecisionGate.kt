@@ -3632,6 +3632,57 @@ object FinalDecisionGate {
                             tags.add("metapolicy:${"%.2f".format(conv)}")
                             checks.add(GateCheck("autonomous_meta_policy", true, "conviction=${"%.2f".format(conv)} size ${before.format(3)}→${finalSize.format(3)} ctx=$mpLane/S${candidate.entryScore.toInt()}/$mpRegime"))
                         }
+
+                        // V5.9.1261 — FORWARD OUTCOME MODEL (counterfactual planning).
+                        // Predict the outcome distribution for this exact setup BEFORE
+                        // entry (pWin / E[pnl] / pRug / dispersion), learned online from
+                        // settled trades keyed by lane×band×quality×regime×edgePhase.
+                        // The nudge plans against the predicted distribution. Soft-shape,
+                        // stamped for closed-loop credit. Fail-open.
+                        val fwd = ForwardOutcomeModel.forecast(mpLane, candidate.entryScore.toInt(), candidate.setupQuality, mpRegime, candidate.edgePhase)
+                        ForwardOutcomeModel.stamp(ts.mint, mpLane, candidate.entryScore.toInt(), candidate.setupQuality, mpRegime, candidate.edgePhase)
+                        if (fwd.convictionNudge != 1.0 && fwd.source != "bootstrap") {
+                            val before = finalSize
+                            finalSize = (finalSize * fwd.convictionNudge).coerceAtLeast(0.01)
+                            tags.add("fwdsim:${"%.2f".format(fwd.convictionNudge)}")
+                            checks.add(GateCheck("forward_outcome_model", true, "pWin=${(fwd.pWin*100).toInt()}% E[pnl]=${"%+.1f".format(fwd.expectedPnl)}% pRug=${(fwd.pRug*100).toInt()}% ±${fwd.dispersion.toInt()} n=${fwd.samples}(${fwd.source}) size ${before.format(3)}→${finalSize.format(3)}"))
+                        }
+
+                        // V5.9.1262 — UNIFIED POLICY HEAD (one learned decider).
+                        // A single online-logistic head over ALL committee signals
+                        // (ML conf, symbolic green-light, EV, meta conviction, fwd pWin,
+                        // candidate confidence). Learns from real outcomes how to weigh
+                        // its own sub-brains into one coherent win-probability → soft
+                        // size multiplier. Stamped for closed-loop training. Fail-open.
+                        val uphSignals = UnifiedPolicyHead.Signals(
+                            mlEntryConf  = try { mlPrediction?.entryConfidence ?: 0.5 } catch (_: Throwable) { 0.5 },
+                            symGreenLight = symGreenLight,
+                            evRatio      = try { (((evResult?.expectedValue ?: 1.0) - 0.8) / 0.8).coerceIn(0.0, 1.0) } catch (_: Throwable) { 0.5 },
+                            metaConviction = ((conv - 0.55) / 0.9).coerceIn(0.0, 1.0),
+                            fwdPWin      = fwd.pWin,
+                            candConf     = (adjustedConfidence / 100.0).coerceIn(0.0, 1.0),
+                        )
+                        val uph = UnifiedPolicyHead.conviction(uphSignals)
+                        UnifiedPolicyHead.stamp(ts.mint, uphSignals)
+                        if (uph != 1.0) {
+                            val before = finalSize
+                            finalSize = (finalSize * uph).coerceAtLeast(0.01)
+                            tags.add("policyhead:${"%.2f".format(uph)}")
+                            checks.add(GateCheck("unified_policy_head", true, "pWin=${(UnifiedPolicyHead.predictWinProb(uphSignals)*100).toInt()}% mult=${"%.2f".format(uph)} size ${before.format(3)}→${finalSize.format(3)}"))
+                        }
+
+                        // V5.9.1263 — STRATEGY HYPOTHESIS ENGINE (self-directed A/B).
+                        // The bot proposes its OWN size-bias mutations per context, splits
+                        // trades control vs variant by mint, measures real PnL per arm, and
+                        // promotes winners / retires losers with a Welch t-stat. Bounded
+                        // soft nudge [0.85,1.20]; never touches the -15% hard floor. Stamped.
+                        val hypoBias = StrategyHypothesisEngine.getSizeBias(mpLane, candidate.entryScore.toInt(), mpRegime, ts.mint)
+                        if (hypoBias != 1.0) {
+                            val before = finalSize
+                            finalSize = (finalSize * hypoBias).coerceAtLeast(0.01)
+                            tags.add("hypo:${"%.2f".format(hypoBias)}")
+                            checks.add(GateCheck("strategy_hypothesis", true, "sizeBias=${"%.2f".format(hypoBias)} size ${before.format(3)}→${finalSize.format(3)}"))
+                        }
                     } catch (_: Throwable) { /* meta-policy must never break entry */ }
                 }
             }

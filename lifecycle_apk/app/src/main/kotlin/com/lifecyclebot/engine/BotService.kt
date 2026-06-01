@@ -842,6 +842,9 @@ class BotService : Service() {
             // must survive restarts or they never mature).
             com.lifecyclebot.engine.SymbolicExitReasoner.attachContext(applicationContext)
             try { com.lifecyclebot.engine.AutonomousMetaPolicy.attachContext(applicationContext) } catch (_: Throwable) {}  // V5.9.1260
+            try { com.lifecyclebot.engine.ForwardOutcomeModel.attachContext(applicationContext) } catch (_: Throwable) {}  // V5.9.1261
+            try { com.lifecyclebot.engine.UnifiedPolicyHead.attachContext(applicationContext) } catch (_: Throwable) {}  // V5.9.1262
+            try { com.lifecyclebot.engine.StrategyHypothesisEngine.attachContext(applicationContext) } catch (_: Throwable) {}  // V5.9.1263
             ErrorLogger.info("BotService", "🧠 ML Engine initialized | ${com.lifecyclebot.ml.OnDeviceMLEngine.getStatus()}")
         } catch (e: Exception) {
             ErrorLogger.debug("BotService", "ML Engine init error: ${e.message}")
