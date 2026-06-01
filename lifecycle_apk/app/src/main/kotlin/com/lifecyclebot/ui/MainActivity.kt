@@ -1092,6 +1092,40 @@ class MainActivity : AppCompatActivity() {
 
     companion object {
         private const val BATTERY_OPT_BANNER_VIEW_ID = 0x7F990001
+
+        // V5.9.1265 — ANR KILL: drawable XML-inflation cache.
+        // Build 3231 ANR forensics: renderMemeReadiness + token-card renders
+        // called ContextCompat.getDrawable / setBackgroundResource 37× per
+        // updateUi emit, each one parsing R.drawable.* XML off the AssetManager
+        // ON THE MAIN THREAD (stack: loadXmlDrawable → LayerDrawable.inflate).
+        // At ~5s cycle cadence this produced 6-8s main-thread freezes (stall
+        // 5.6% of uptime, maxFrameGap 6814ms) that choked the bot loop.
+        // FIX: inflate each drawable resource ONCE, cache the ConstantState,
+        // and hand out cheap newDrawable() copies forever after. Same pixels,
+        // zero re-parse. Process-static so it survives Activity recreation
+        // (the ANR log showed repeated onCreate inflations). Fail-open: any
+        // miss falls back to the normal loader.
+        private val drawableStateCache =
+            java.util.concurrent.ConcurrentHashMap<Int, android.graphics.drawable.Drawable.ConstantState>()
+
+        fun cachedDrawable(ctx: android.content.Context, resId: Int): android.graphics.drawable.Drawable? {
+            return try {
+                drawableStateCache[resId]?.newDrawable(ctx.resources)?.mutate()
+                    ?: androidx.core.content.ContextCompat.getDrawable(ctx, resId)?.also { d ->
+                        d.constantState?.let { drawableStateCache[resId] = it }
+                    }
+            } catch (_: Throwable) {
+                try { androidx.core.content.ContextCompat.getDrawable(ctx, resId) } catch (_: Throwable) { null }
+            }
+        }
+    }
+
+    // V5.9.1265 — cached background setter; replaces the per-render
+    // setBackgroundResource()/getDrawable() XML re-parse on the UI hot path.
+    private fun android.view.View.setCachedBackground(resId: Int) {
+        try { this.background = cachedDrawable(this@MainActivity, resId) } catch (_: Throwable) {
+            try { this.setBackgroundResource(resId) } catch (_: Throwable) {}
+        }
     }
 
     // V5.9.666 — Pipeline tile badge live updater. Reads
@@ -2186,7 +2220,7 @@ for legal compliance.
         }
         btnToggle.isEnabled = true
 
-        statusDot.background = ContextCompat.getDrawable(this, when {
+        statusDot.background = cachedDrawable(this, when {
             isHalted  -> R.drawable.dot_red
             isPaused  -> R.drawable.dot_bg
             isRunning -> R.drawable.dot_green
@@ -2353,17 +2387,17 @@ for legal compliance.
         // ── wallet top bar ────────────────────────────────────────────
         when (ws.connectionState) {
             WalletConnectionState.CONNECTED -> {
-                tvWalletDot.background   = ContextCompat.getDrawable(this, R.drawable.dot_green)
+                tvWalletDot.background   = cachedDrawable(this, R.drawable.dot_green)
                 tvWalletShort.text       = ws.shortKey
                 tvWalletShort.setTextColor(white)
             }
             WalletConnectionState.ERROR -> {
-                tvWalletDot.background   = ContextCompat.getDrawable(this, R.drawable.dot_red)
+                tvWalletDot.background   = cachedDrawable(this, R.drawable.dot_red)
                 tvWalletShort.text       = "Error"
                 tvWalletShort.setTextColor(red)
             }
             else -> {
-                tvWalletDot.background   = ContextCompat.getDrawable(this, R.drawable.dot_bg)
+                tvWalletDot.background   = cachedDrawable(this, R.drawable.dot_bg)
                 tvWalletShort.text       = "Connect wallet"
                 tvWalletShort.setTextColor(muted)
             }
@@ -2821,7 +2855,7 @@ for legal compliance.
             else ->
                 R.drawable.chip_neutral_bg to muted
         }
-        tvSignalChip.background = ContextCompat.getDrawable(this, sigBg)
+        tvSignalChip.background = cachedDrawable(this, sigBg)
         tvSignalChip.setTextColor(sigColor)
 
         tvPrice.text    = if (ts?.lastPrice != null && ts.lastPrice > 0) currency.formatPrice(ts.lastPrice) else "—"
@@ -4184,7 +4218,7 @@ for legal compliance.
                 val logoImg = android.widget.ImageView(this).apply {
                     layoutParams = LinearLayout.LayoutParams(40, 40).also { it.marginEnd = 10 }
                     scaleType = android.widget.ImageView.ScaleType.CENTER_CROP
-                    try { background = androidx.core.content.ContextCompat.getDrawable(this@MainActivity, R.drawable.token_logo_bg) } catch (_: Exception) {}
+                    try { background = cachedDrawable(this@MainActivity, R.drawable.token_logo_bg) } catch (_: Exception) {}
                     val cachedLogo = try { ts.logoUrl.ifBlank { null } } catch (_: Exception) { null }
                     load(cachedLogo ?: "https://cdn.dexscreener.com/tokens/solana/${ts.mint}") {
                         crossfade(true); placeholder(R.drawable.ic_token_placeholder)
@@ -4624,7 +4658,7 @@ for legal compliance.
             val logoImg = android.widget.ImageView(this).apply {
                 layoutParams = LinearLayout.LayoutParams(40, 40).also { it.marginEnd = 10 }
                 scaleType = android.widget.ImageView.ScaleType.CENTER_CROP
-                try { background = androidx.core.content.ContextCompat.getDrawable(this@MainActivity, R.drawable.token_logo_bg) } catch (_: Exception) {}
+                try { background = cachedDrawable(this@MainActivity, R.drawable.token_logo_bg) } catch (_: Exception) {}
                 load("https://cdn.dexscreener.com/tokens/solana/${pos.mint}") {
                     crossfade(true); placeholder(R.drawable.ic_token_placeholder)
                     error(R.drawable.ic_token_placeholder); allowHardware(false)
@@ -4755,7 +4789,7 @@ for legal compliance.
             val logoImg = android.widget.ImageView(this).apply {
                 layoutParams = LinearLayout.LayoutParams(40, 40).also { it.marginEnd = 10 }
                 scaleType = android.widget.ImageView.ScaleType.CENTER_CROP
-                try { background = androidx.core.content.ContextCompat.getDrawable(this@MainActivity, R.drawable.token_logo_bg) } catch (_: Exception) {}
+                try { background = cachedDrawable(this@MainActivity, R.drawable.token_logo_bg) } catch (_: Exception) {}
                 load("https://cdn.dexscreener.com/tokens/solana/${pos.mint}") {
                     crossfade(true); placeholder(R.drawable.ic_token_placeholder)
                     error(R.drawable.ic_token_placeholder); allowHardware(false)
@@ -4866,7 +4900,7 @@ for legal compliance.
                 val lp = LinearLayout.LayoutParams(40, 40).also { it.marginEnd = 10 }
                 layoutParams = lp
                 scaleType = android.widget.ImageView.ScaleType.CENTER_CROP
-                try { background = androidx.core.content.ContextCompat.getDrawable(this@MainActivity, R.drawable.token_logo_bg) } catch (_: Exception) {}
+                try { background = cachedDrawable(this@MainActivity, R.drawable.token_logo_bg) } catch (_: Exception) {}
                 val cachedLogoUrl = try { com.lifecyclebot.engine.BotService.status.tokens[pos.mint]?.logoUrl } catch (_: Exception) { null }
                 val logoUrl = if (!cachedLogoUrl.isNullOrBlank()) cachedLogoUrl
                               else "https://cdn.dexscreener.com/tokens/solana/${pos.mint}.png"
@@ -4995,7 +5029,7 @@ for legal compliance.
                 val lp = LinearLayout.LayoutParams(40, 40).also { it.marginEnd = 10 }
                 layoutParams = lp
                 scaleType = android.widget.ImageView.ScaleType.CENTER_CROP
-                try { background = androidx.core.content.ContextCompat.getDrawable(this@MainActivity, R.drawable.token_logo_bg) } catch (_: Exception) {}
+                try { background = cachedDrawable(this@MainActivity, R.drawable.token_logo_bg) } catch (_: Exception) {}
                 val cachedLogoUrlEx = try { com.lifecyclebot.engine.BotService.status.tokens[ride.mint]?.logoUrl } catch (_: Exception) { null }
                 val logoUrl = if (!cachedLogoUrlEx.isNullOrBlank()) cachedLogoUrlEx
                               else "https://cdn.dexscreener.com/tokens/solana/${ride.mint}.png"
@@ -5103,7 +5137,7 @@ for legal compliance.
             val logoImg = android.widget.ImageView(this).apply {
                 layoutParams = LinearLayout.LayoutParams(40, 40).also { it.marginEnd = 10 }
                 scaleType = android.widget.ImageView.ScaleType.CENTER_CROP
-                try { background = androidx.core.content.ContextCompat.getDrawable(this@MainActivity, R.drawable.token_logo_bg) } catch (_: Exception) {}
+                try { background = cachedDrawable(this@MainActivity, R.drawable.token_logo_bg) } catch (_: Exception) {}
                 load("https://cdn.dexscreener.com/tokens/solana/${pos.mint}") {
                     crossfade(true); placeholder(R.drawable.ic_token_placeholder)
                     error(R.drawable.ic_token_placeholder); allowHardware(false)
@@ -5234,7 +5268,7 @@ for legal compliance.
             val logoImgMs = android.widget.ImageView(this).apply {
                 layoutParams = LinearLayout.LayoutParams(40, 40).also { it.marginEnd = 10 }
                 scaleType = android.widget.ImageView.ScaleType.CENTER_CROP
-                try { background = androidx.core.content.ContextCompat.getDrawable(this@MainActivity, R.drawable.token_logo_bg) } catch (_: Exception) {}
+                try { background = cachedDrawable(this@MainActivity, R.drawable.token_logo_bg) } catch (_: Exception) {}
                 load("https://cdn.dexscreener.com/tokens/solana/${pos.mint}") {
                     crossfade(true); placeholder(R.drawable.ic_token_placeholder)
                     error(R.drawable.ic_token_placeholder); allowHardware(false)
@@ -6664,14 +6698,14 @@ This cannot be undone!
                 isReady -> {
                     tvLiveReadinessBadge.text = "READY"
                     tvLiveReadinessBadge.setTextColor(Color.BLACK)
-                    tvLiveReadinessBadge.setBackgroundResource(R.drawable.pill_bg_green)
+                    tvLiveReadinessBadge.setCachedBackground(R.drawable.pill_bg_green)
                     tvReadinessRecommendation.text = "✅ Bot is profitable in paper mode. Safe to switch to live."
                     tvReadinessRecommendation.setTextColor(green)
                 }
                 isAlmostReady -> {
                     tvLiveReadinessBadge.text = "ALMOST"
                     tvLiveReadinessBadge.setTextColor(Color.BLACK)
-                    tvLiveReadinessBadge.setBackgroundResource(R.drawable.pill_bg_yellow)
+                    tvLiveReadinessBadge.setCachedBackground(R.drawable.pill_bg_yellow)
                     val needed = mutableListOf<String>()
                     if (meaningfulTrades < TRADES_READY)  needed.add("${TRADES_READY - meaningfulTrades} more trades")
                     if (winRate < WR_READY)               needed.add("${String.format("%.1f", WR_READY - winRate)}% more WR (need $WR_READY%)")
@@ -6683,7 +6717,7 @@ This cannot be undone!
                 else -> {
                     tvLiveReadinessBadge.text = "NOT READY"
                     tvLiveReadinessBadge.setTextColor(Color.WHITE)
-                    tvLiveReadinessBadge.setBackgroundResource(R.drawable.pill_bg_red)
+                    tvLiveReadinessBadge.setCachedBackground(R.drawable.pill_bg_red)
                     val needed = mutableListOf<String>()
                     if (meaningfulTrades < TRADES_READY)  needed.add("${TRADES_READY - meaningfulTrades} more trades")
                     if (winRate < WR_READY)               needed.add("WR ${winRate.toInt()}% → need $WR_READY%")
@@ -6757,14 +6791,14 @@ This cannot be undone!
             isReady -> {
                 tvLiveReadinessBadge.text = "READY"
                 tvLiveReadinessBadge.setTextColor(Color.BLACK)
-                tvLiveReadinessBadge.setBackgroundResource(R.drawable.pill_bg_green)
+                tvLiveReadinessBadge.setCachedBackground(R.drawable.pill_bg_green)
                 tvReadinessRecommendation.text = "✅ Crypto profitable in paper. Safe for live."
                 tvReadinessRecommendation.setTextColor(green)
             }
             isAlmostReady -> {
                 tvLiveReadinessBadge.text = "ALMOST"
                 tvLiveReadinessBadge.setTextColor(Color.BLACK)
-                tvLiveReadinessBadge.setBackgroundResource(R.drawable.pill_bg_yellow)
+                tvLiveReadinessBadge.setCachedBackground(R.drawable.pill_bg_yellow)
                 val needed = mutableListOf<String>()
                 if (gatingTrades < TRADES_READY) needed.add("${TRADES_READY - gatingTrades} more trades")
                 if (winRate < WR_READY)              needed.add("WR ${winRate.toInt()}% → need ${WR_READY.toInt()}%")
@@ -6775,7 +6809,7 @@ This cannot be undone!
             else -> {
                 tvLiveReadinessBadge.text = "NOT READY"
                 tvLiveReadinessBadge.setTextColor(Color.WHITE)
-                tvLiveReadinessBadge.setBackgroundResource(R.drawable.pill_bg_red)
+                tvLiveReadinessBadge.setCachedBackground(R.drawable.pill_bg_red)
                 val needed = mutableListOf<String>()
                 if (gatingTrades < TRADES_READY) needed.add("${TRADES_READY - gatingTrades} more trades")
                 if (winRate < WR_READY)              needed.add("WR ${winRate.toInt()}% → need ${WR_READY.toInt()}%")
@@ -6946,14 +6980,14 @@ This cannot be undone!
             isReady -> {
                 tvLiveReadinessBadge.text = "READY"
                 tvLiveReadinessBadge.setTextColor(Color.BLACK)
-                tvLiveReadinessBadge.setBackgroundResource(R.drawable.pill_bg_green)
+                tvLiveReadinessBadge.setCachedBackground(R.drawable.pill_bg_green)
                 tvReadinessRecommendation.text = "✅ AATE markets profitable in paper. Safe for live.\n$breakdown"
                 tvReadinessRecommendation.setTextColor(green)
             }
             isAlmostReady -> {
                 tvLiveReadinessBadge.text = "ALMOST"
                 tvLiveReadinessBadge.setTextColor(Color.BLACK)
-                tvLiveReadinessBadge.setBackgroundResource(R.drawable.pill_bg_yellow)
+                tvLiveReadinessBadge.setCachedBackground(R.drawable.pill_bg_yellow)
                 val needed = mutableListOf<String>()
                 if (totalTrades < TRADES_READY)    needed.add("${TRADES_READY - totalTrades} more trades")
                 if (unifiedWinRate < WR_READY)     needed.add("WR ${unifiedWinRate.toInt()}% → need ${WR_READY.toInt()}%")
@@ -6964,7 +6998,7 @@ This cannot be undone!
             else -> {
                 tvLiveReadinessBadge.text = "NOT READY"
                 tvLiveReadinessBadge.setTextColor(Color.WHITE)
-                tvLiveReadinessBadge.setBackgroundResource(R.drawable.pill_bg_red)
+                tvLiveReadinessBadge.setCachedBackground(R.drawable.pill_bg_red)
                 val needed = mutableListOf<String>()
                 if (totalTrades < TRADES_READY)    needed.add("${TRADES_READY - totalTrades} more trades")
                 if (unifiedWinRate < WR_READY)     needed.add("WR ${unifiedWinRate.toInt()}% → need ${WR_READY.toInt()}%")

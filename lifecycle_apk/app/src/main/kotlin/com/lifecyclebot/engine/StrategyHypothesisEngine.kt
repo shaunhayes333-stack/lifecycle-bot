@@ -40,11 +40,11 @@ import kotlin.math.abs
  */
 object StrategyHypothesisEngine {
 
-    private const val MIN_ARM       = 15      // samples per arm before a verdict
+    private const val MIN_ARM       = 12      // V5.9.1265: promote proven-better variants sooner (snapshot vars already beating control at n=10)
     private const val SIZE_BIAS_MIN = 0.85
     private const val SIZE_BIAS_MAX = 1.20
     private const val MUTATION_STEP = 0.10    // size-bias delta a hypothesis tests
-    private const val PROMOTE_T     = 1.5     // Welch t-stat threshold to promote
+    private const val PROMOTE_T     = 1.3     // V5.9.1265: slightly looser so clear winners promote, still noise-safe
 
     private data class Arm(
         @Volatile var n: Long = 0L,

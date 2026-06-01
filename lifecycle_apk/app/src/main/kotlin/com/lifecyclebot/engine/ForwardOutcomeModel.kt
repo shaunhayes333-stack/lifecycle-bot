@@ -34,7 +34,7 @@ object ForwardOutcomeModel {
 
     private const val MIN_SAMPLES   = 10
     private const val RUG_PNL       = -50.0   // pnl <= this counts as a rug-class outcome
-    private const val NUDGE_FLOOR   = 0.60
+    private const val NUDGE_FLOOR   = 0.45   // V5.9.1265: deeper cut on proven negative-EV/high-rug signatures (snapshot: AGGRESSIVE|S00 pWin=0% E=-19.5%)
     private const val NUDGE_CAP     = 1.40
     private const val DECAY_EVERY   = 500
     private const val DECAY_FACTOR  = 0.98
@@ -97,7 +97,10 @@ object ForwardOutcomeModel {
             // rug-risk or negative expectancy. Penalise high dispersion (uncertain).
             val edge = (cell.pWin - 0.5) * 2.0                  // [-1,1]
             val rugPenalty = cell.pRug * 0.8
-            val expSign = if (cell.mean > 0) 0.15 else -0.20
+            // V5.9.1265 — magnitude-aware expectancy term (was a flat ±0.15/0.20).
+            // A signature averaging -19.5% should bite far harder than one at -2%.
+            val expSign = if (cell.mean > 0) (cell.mean / 100.0).coerceAtMost(0.18)
+                          else (cell.mean / 60.0).coerceAtLeast(-0.40)
             val dispPenalty = (cell.stdev / 100.0).coerceAtMost(0.25)  // wide outcomes → trim
             val nudge = (1.0 + edge * 0.35 + expSign - rugPenalty - dispPenalty)
                 .coerceIn(NUDGE_FLOOR, NUDGE_CAP)
