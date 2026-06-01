@@ -126,6 +126,29 @@ class BrainNetworkView @JvmOverloads constructor(
     private val pulsePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
         style = Paint.Style.FILL
     }
+
+    // V5.9.1282 — STATIC-LAYER BITMAP CACHE. The circuit background, the
+    // connection lines, and the AI-layer nodes are geometrically FIXED for a
+    // given view size; only their activity-driven glow colour changes. Re-running
+    // drawCircuitBackground + drawConnections + drawNodes on EVERY frame (each with
+    // ANTI_ALIAS strokes and per-node blur) is what pushed onDraw to 200-1278ms and
+    // forced the animator down to 1 frame / 2.5s — which is why the once-smooth
+    // signal flow now looks stuttery. We rasterise those layers ONCE into an
+    // offscreen bitmap and only rebuild it when the size or the layer-activity
+    // signature actually changes. onDraw then blits the cache (cheap) and draws
+    // only the genuinely-moving pulses + brain on top, so we can run smoothly again.
+    private var staticCache: android.graphics.Bitmap? = null
+    private val staticCacheCanvas = Canvas()
+    private var staticCacheSig: String = ""
+
+    // V5.9.1282 — reuse BlurMaskFilters by radius bucket instead of allocating a
+    // new one per pulse per frame (drawPulses was doing `new BlurMaskFilter` inside
+    // a forEach — a per-frame allocation storm feeding the GC and the main thread).
+    private val pulseBlurCache = HashMap<Int, BlurMaskFilter>()
+    private fun pulseBlur(radius: Float): BlurMaskFilter {
+        val key = radius.toInt().coerceIn(1, 64)
+        return pulseBlurCache.getOrPut(key) { BlurMaskFilter(key.toFloat(), BlurMaskFilter.Blur.NORMAL) }
+    }
     
     private val textPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
         color = 0xFFFFFFFF.toInt()
@@ -159,7 +182,11 @@ class BrainNetworkView @JvmOverloads constructor(
     // Render is visual-only; throttle invalidations so bot runtime doesn't pay
     // for decorative neural pulses while trading is hot.
     private var lastRenderInvalidateMs = 0L
-    private val RENDER_INVALIDATE_MIN_MS = 2_500L
+    // V5.9.1282 — restored to ~30fps now that the static layers are cached and the
+    // per-frame path is just a bitmap blit + the moving pulses. The 2.5s throttle
+    // was an emergency cap added when every frame cost 200-1278ms; with that cost
+    // gone the smooth signal-flow animation can run again without main-thread ANR.
+    private val RENDER_INVALIDATE_MIN_MS = 33L
 
     private fun requestThrottledRender(force: Boolean = false) {
         val now = System.currentTimeMillis()
@@ -178,7 +205,7 @@ class BrainNetworkView @JvmOverloads constructor(
         // animation is still perceptible (subtle pulse) but Main CPU
         // load drops 5×. Combined with hardware layer below, this
         // should shave ~10% off total stall.
-        duration = 2500
+        duration = 1000  // V5.9.1282 — smooth cadence; per-frame cost now trivial
         repeatCount = ValueAnimator.INFINITE
         interpolator = LinearInterpolator()
         addUpdateListener {
@@ -198,8 +225,13 @@ class BrainNetworkView @JvmOverloads constructor(
         // is cached as a GPU texture between invalidate() calls. Pure
         // Main-thread draw work still happens once per invalidate, but
         // the framework no longer re-rasterises on every vsync.
-        try { setLayerType(LAYER_TYPE_HARDWARE, null) } catch (_: Throwable) {}
-        setLayerType(LAYER_TYPE_SOFTWARE, null)  // Required for blur effects
+        // V5.9.1282 — BlurMaskFilter is NOT supported on hardware layers, so this
+        // view must stay software-rendered. The old code set HARDWARE then
+        // immediately overrode it with SOFTWARE on the next line — the hardware
+        // call was dead and misleading. Keep software (correct), and rely on the
+        // static-layer bitmap cache (added this build) to avoid re-rasterising the
+        // fixed background/connections every frame, which is the real win.
+        setLayerType(LAYER_TYPE_SOFTWARE, null)
         initializeLayers()
     }
     
@@ -310,6 +342,10 @@ class BrainNetworkView @JvmOverloads constructor(
     
     override fun onDetachedFromWindow() {
         animator.cancel()
+        // V5.9.1282 — release the static-layer cache bitmap so it doesn't linger.
+        staticCache?.recycle()
+        staticCache = null
+        staticCacheSig = ""
         super.onDetachedFromWindow()
     }
 
@@ -502,35 +538,68 @@ class BrainNetworkView @JvmOverloads constructor(
     
     override fun onDraw(canvas: Canvas) {
         super.onDraw(canvas)
-        
+        if (width <= 0 || height <= 0) return
+
         val centerX = width / 2f
         val centerY = height / 2f
         val minDim = min(width, height)
-        
+
         // Ring radii — V5.9.123: 3-ring layout to fit 40+ AI layers
         val brainRadius = minDim * 0.12f
         val innerRingRadius = minDim * 0.26f
         val middleRingRadius = minDim * 0.36f
         val outerRingRadius = minDim * 0.46f
         val nodeRadius = minDim * 0.022f
-        
-        // Draw background grid/circuit pattern (subtle)
-        drawCircuitBackground(canvas, centerX, centerY, minDim)
-        
-        // Draw connection lines (dim)
-        drawConnections(canvas, centerX, centerY, innerRingRadius, middleRingRadius, outerRingRadius, nodeRadius)
-        
+
+        // V5.9.1282 — blit the cached static layers (circuit background +
+        // connection lines). Rebuilt only when size/layout changes; see
+        // buildStaticCacheIfNeeded. This removes the largest fixed cost from the
+        // per-frame path — restoring the smooth signal-flow animation.
+        buildStaticCacheIfNeeded(minDim, centerX, centerY, innerRingRadius, middleRingRadius, outerRingRadius, nodeRadius)
+        staticCache?.let { canvas.drawBitmap(it, 0f, 0f, null) }
+
+        // Genuinely-moving layers, drawn fresh each frame (cheap):
+        // Draw AI layer nodes (positions fixed, but active-node glow pulses)
+        drawNodes(canvas, centerX, centerY, innerRingRadius, middleRingRadius, outerRingRadius, nodeRadius)
+
         // Draw neural pulses
         drawPulses(canvas, centerX, centerY, brainRadius, innerRingRadius, middleRingRadius, outerRingRadius)
-        
-        // Draw AI layer nodes
-        drawNodes(canvas, centerX, centerY, innerRingRadius, middleRingRadius, outerRingRadius, nodeRadius)
-        
-        // Draw central brain
+
+        // Draw central brain (pulses in scale every frame)
         drawBrain(canvas, centerX, centerY, brainRadius)
-        
-        // Draw stats overlay
+
+        // Draw stats overlay (cheap text)
         drawStats(canvas, centerX, centerY, brainRadius)
+    }
+
+    // V5.9.1282 — rebuild the static-layer bitmap only when geometry or activity
+    // signature changes. Signature folds in each layer's active flag + colour so a
+    // node lighting up/dimming triggers exactly one re-rasterise, not one per frame.
+    private fun buildStaticCacheIfNeeded(
+        minDim: Int, centerX: Float, centerY: Float,
+        innerRingRadius: Float, middleRingRadius: Float, outerRingRadius: Float, nodeRadius: Float
+    ) {
+        // Cache holds only background + connections now → depends on size + layout
+        // mode + the set of layers present (their fixed ring/angle), NOT activity.
+        val sb = StringBuilder(width.toString()).append('x').append(height)
+            .append('|').append(perEngineMode).append('|').append(aiLayers.size)
+        val sig = sb.toString()
+        val cache = staticCache
+        if (cache != null && sig == staticCacheSig && cache.width == width && cache.height == height) return
+
+        if (cache == null || cache.width != width || cache.height != height) {
+            cache?.recycle()
+            staticCache = android.graphics.Bitmap.createBitmap(width, height, android.graphics.Bitmap.Config.ARGB_8888)
+        }
+        staticCacheSig = sig
+        val c = staticCacheCanvas
+        c.setBitmap(staticCache)
+        c.drawColor(0, android.graphics.PorterDuff.Mode.CLEAR)
+        drawCircuitBackground(c, centerX, centerY, minDim)
+        drawConnections(c, centerX, centerY, innerRingRadius, middleRingRadius, outerRingRadius, nodeRadius)
+        // NOTE: drawNodes is intentionally NOT cached — each active node's glow
+        // pulses every frame via animationPhase (see drawNodes). It is drawn fresh
+        // in onDraw so the pulsing-node feature is fully preserved.
     }
     
     private fun drawCircuitBackground(canvas: Canvas, cx: Float, cy: Float, size: Int) {
@@ -602,7 +671,7 @@ class BrainNetworkView @JvmOverloads constructor(
             // Pulse glow
             val glowRadius = 12f * (1f - t * 0.5f)
             pulsePaint.color = (pulse.color and 0x00FFFFFF) or 0x60000000
-            pulsePaint.maskFilter = BlurMaskFilter(glowRadius, BlurMaskFilter.Blur.NORMAL)
+            pulsePaint.maskFilter = pulseBlur(glowRadius)  // V5.9.1282 cached, no per-frame alloc
             canvas.drawCircle(pulseX, pulseY, glowRadius, pulsePaint)
             
             // Pulse core
