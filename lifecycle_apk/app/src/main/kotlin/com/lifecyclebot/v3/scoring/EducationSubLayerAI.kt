@@ -477,6 +477,22 @@ object EducationSubLayerAI {
             pendingEntryScores.entries.removeIf { it.value.timestamp < cutoff }
         }
         val map = components.associate { normalizeLayerName(it.name) to it.value }
+        // V5.9.1272 — ENTRY-SNAPSHOT FREEZE (the silent learning-killer fix).
+        // Tokens are re-scored every cycle while they sit in the watchlist AND
+        // while a position is open. A bare overwrite here meant the snapshot
+        // graded on close was the LAST re-score (different price/momentum/regime),
+        // not the entry-time score — so every layer learned from corrupted labels
+        // and converged to ~0.5 accuracy, collapsing the 52-layer scorer into an
+        // unweighted noise-sum. Freeze the snapshot once a position is live:
+        // grade the score that actually drove the BUY. Fail-open — if the registry
+        // isn't reachable we keep the old overwrite behaviour (never break scoring).
+        val positionOpen = try {
+            com.lifecyclebot.engine.GlobalTradeRegistry.hasOpenPosition(mint)
+        } catch (_: Throwable) { false }
+        if (positionOpen && pendingEntryScores.containsKey(mint)) {
+            // A live position already has its entry snapshot frozen — do not clobber it.
+            return
+        }
         pendingEntryScores[mint] = EntryScoreSnapshot(map, candidate = candidate)
     }
 
