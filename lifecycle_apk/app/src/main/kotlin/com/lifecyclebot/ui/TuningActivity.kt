@@ -206,6 +206,43 @@ class TuningActivity : Activity() {
         } catch (t: Throwable) {
             addText("(MFE data unavailable: ${t.message?.take(60)})", Color.GRAY)
         }
+
+        // ── 6. LANE STRATEGY REPLAY (V5.9.1285) ────────────────────────
+        addHeader("🧪 6. Lane Strategy Replay (honest backtest)")
+        addText(
+            "Replays each lane's REAL trades under candidate exit shapes using the " +
+                "actual peak/drawdown each trade hit — no fabricated upside. If a lane's " +
+                "best shape can't beat NO_TRADE, the data says it should stop trading.",
+            Color.GRAY, small = true,
+        )
+        try {
+            val best = com.lifecyclebot.engine.LaneStrategyEvaluator.bestPerLane()
+            if (best.isEmpty()) {
+                addText("(not enough closed outcomes with peak data yet)", Color.GRAY)
+            } else {
+                val all = com.lifecyclebot.engine.LaneStrategyEvaluator.evaluateAll()
+                val byLane = all.groupBy { it.lane }
+                for ((lane, rs) in byLane) {
+                    val b = rs.maxByOrNull { it.netSol }!!
+                    val noTrade = rs.find { it.profile == "NO_TRADE" }
+                    val verdict = when {
+                        b.profile == "NO_TRADE" -> "⛔ STOP TRADING"
+                        noTrade != null && b.netSol <= noTrade.netSol -> "⛔ STOP TRADING"
+                        b.profile == "CURRENT_ACTUAL" -> "✅ KEEP CURRENT"
+                        else -> "🔧 SWITCH → ${b.profile}"
+                    }
+                    val vColor = if (verdict.startsWith("⛔")) "#EF4444"
+                        else if (verdict.startsWith("🔧")) "#F59E0B" else "#10B981"
+                    addKv("$lane — $verdict", vColor)
+                    rs.sortedByDescending { it.netSol }.forEach { r ->
+                        val rc = if (r.netSol > 0) "#10B981" else if (r.netSol < 0) "#EF4444" else "#9CA3AF"
+                        addText("   ${r.oneLine()}", Color.parseColor(rc), small = true)
+                    }
+                }
+            }
+        } catch (t: Throwable) {
+            addText("(lane replay unavailable: ${t.message?.take(80)})", Color.GRAY)
+        }
     }
 
     /**
