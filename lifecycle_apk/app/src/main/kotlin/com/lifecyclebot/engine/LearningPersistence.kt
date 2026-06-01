@@ -136,6 +136,7 @@ object LearningPersistence {
             try { putBlob("CANONICAL_COUNTERS", com.lifecyclebot.engine.CanonicalLearningCounters.exportState()) } catch (_: Throwable) {}
             try { putBlob("CREATOR_HISTORY", com.lifecyclebot.network.HeliusCreatorHistory.exportState()) } catch (_: Throwable) {}
             try { putBlob("META_COGNITION",  com.lifecyclebot.v3.scoring.MetaCognitionAI.exportState()) } catch (_: Throwable) {}
+            try { putBlob("AUTONOMOUS_META_POLICY", com.lifecyclebot.engine.AutonomousMetaPolicy.exportState()) } catch (_: Throwable) {}  // V5.9.1260
             // V5.9.984 — persist CollectiveIntelligenceAI counters + thresholds.
             try { putBlob("COLLECTIVE_INTEL", com.lifecyclebot.v3.scoring.CollectiveIntelligenceAI.exportState()) } catch (_: Throwable) {}
             // V5.9.985 — close DipHunterAI + SolanaArbAI amnesia.
@@ -183,6 +184,7 @@ object LearningPersistence {
         // V5.9.439 — restore every brain-state blob.
         getBlob("FLUID_LEARNING")?.let { com.lifecyclebot.v3.scoring.FluidLearningAI.importState(it) }
         getBlob("SENTIENCE")?.let      { com.lifecyclebot.engine.SentienceOrchestrator.importState(it) }
+        try { getBlob("AUTONOMOUS_META_POLICY")?.let { com.lifecyclebot.engine.AutonomousMetaPolicy.importState(it) } } catch (_: Throwable) {}  // V5.9.1260
         // V5.9.949 — restore the rest of the brain.
         try { getBlob("BEHAVIOR_LEARNING")?.let { com.lifecyclebot.engine.BehaviorLearning.importState(it) } } catch (_: Throwable) {}
         try { getBlob("LAYER_READINESS")?.let { com.lifecyclebot.engine.LayerReadinessRegistry.importState(it) } } catch (_: Throwable) {}

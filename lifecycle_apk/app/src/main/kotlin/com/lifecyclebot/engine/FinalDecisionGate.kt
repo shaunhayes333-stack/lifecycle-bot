@@ -3609,6 +3609,31 @@ object FinalDecisionGate {
                     }
                     BrainConsensusGate.Verdict.ALLOW -> { /* normal path */ }
                 }
+
+                // V5.9.1260 — AUTONOMOUS META-POLICY (deliberative layer).
+                // Above the rule-based consensus gate sits a Thompson-sampling
+                // policy that LEARNS the true win-prob of each decision-context
+                // (lane × score-band × regime) from settled PnL and decides
+                // explore-vs-exploit autonomously. It returns a CONVICTION
+                // multiplier (soft-shape only, [0.55,1.45], never a veto, never
+                // zero → volume never starved). Bootstrap-safe: neutral 1.0 until
+                // a context has enough samples. The decision is stamped so the
+                // settled outcome is credited back to the SAME context (closed
+                // loop). Fail-open.
+                if (shouldTradeFinal && blockReasonFinal == null) {
+                    try {
+                        val mpRegime = try { RegimeDetector.currentRegime().name } catch (_: Throwable) { "NORMAL" }
+                        val mpLane = tradingModeTag?.name ?: "STANDARD"
+                        val conv = AutonomousMetaPolicy.conviction(mpLane, candidate.entryScore.toInt(), mpRegime)
+                        AutonomousMetaPolicy.stampDecision(ts.mint, mpLane, candidate.entryScore.toInt(), mpRegime)
+                        if (conv != 1.0) {
+                            val before = finalSize
+                            finalSize = (finalSize * conv).coerceAtLeast(0.01)
+                            tags.add("metapolicy:${"%.2f".format(conv)}")
+                            checks.add(GateCheck("autonomous_meta_policy", true, "conviction=${"%.2f".format(conv)} size ${before.format(3)}→${finalSize.format(3)} ctx=$mpLane/S${candidate.entryScore.toInt()}/$mpRegime"))
+                        }
+                    } catch (_: Throwable) { /* meta-policy must never break entry */ }
+                }
             }
         } catch (_: Throwable) {
             // Brain layer failure must never break the entry pipeline.

@@ -10683,6 +10683,7 @@ class Executor(
             )
             
             com.lifecyclebot.v3.scoring.EducationSubLayerAI.recordTradeOutcomeAcrossAllLayers(outcomeData)
+            try { com.lifecyclebot.engine.AutonomousMetaPolicy.recordOutcome(ts.mint, pnlP) } catch (_: Throwable) {}
             ErrorLogger.info("Executor", "🎓 HARVARD BRAIN: Recorded outcome for ${ts.symbol} | PnL=${pnlP.toInt()}% | Active layers will increase")
         } catch (e: Exception) {
             ErrorLogger.warn("Executor", "🎓 Harvard Brain recording failed: ${e.message}")
@@ -12852,6 +12853,7 @@ class Executor(
             )
             
             com.lifecyclebot.v3.scoring.EducationSubLayerAI.recordTradeOutcomeAcrossAllLayers(outcomeData)
+            try { com.lifecyclebot.engine.AutonomousMetaPolicy.recordOutcome(ts.mint, pnlP) } catch (_: Throwable) {}
             ErrorLogger.info("Executor", "🎓 HARVARD BRAIN (LIVE): Recorded outcome for ${ts.symbol} | PnL=${pnlP.toInt()}%")
         } catch (e: Exception) {
             ErrorLogger.warn("Executor", "🎓 Harvard Brain recording failed: ${e.message}")

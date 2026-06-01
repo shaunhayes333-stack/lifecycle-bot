@@ -1110,7 +1110,9 @@ object PipelineHealthCollector {
         } catch (_: Throwable) {}
         try {
             val bcg = BrainConsensusGate.formatForPipelineDump()
+            val metaPolicyDump = try { com.lifecyclebot.engine.AutonomousMetaPolicy.formatForPipelineDump() } catch (_: Throwable) { "" }
             if (bcg.isNotEmpty()) sb.append(bcg)
+            if (metaPolicyDump.isNotEmpty()) sb.append(metaPolicyDump)
         } catch (_: Throwable) {}
 
         // ── PerformanceAnalytics block ─────────────────────────────

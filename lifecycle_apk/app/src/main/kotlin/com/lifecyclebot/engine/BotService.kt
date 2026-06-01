@@ -841,6 +841,7 @@ class BotService : Service() {
             // V5.9.1255 — wire symbolic rule-trust persistence (self-revising rules
             // must survive restarts or they never mature).
             com.lifecyclebot.engine.SymbolicExitReasoner.attachContext(applicationContext)
+            try { com.lifecyclebot.engine.AutonomousMetaPolicy.attachContext(applicationContext) } catch (_: Throwable) {}  // V5.9.1260
             ErrorLogger.info("BotService", "🧠 ML Engine initialized | ${com.lifecyclebot.ml.OnDeviceMLEngine.getStatus()}")
         } catch (e: Exception) {
             ErrorLogger.debug("BotService", "ML Engine init error: ${e.message}")
