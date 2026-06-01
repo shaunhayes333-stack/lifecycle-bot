@@ -3633,6 +3633,21 @@ object FinalDecisionGate {
                             checks.add(GateCheck("autonomous_meta_policy", true, "conviction=${"%.2f".format(conv)} size ${before.format(3)}→${finalSize.format(3)} ctx=$mpLane/S${candidate.entryScore.toInt()}/$mpRegime"))
                         }
 
+                        // V5.9.1289 — CATASTROPHIC-CONTEXT STARVE. conviction()'s
+                        // 0.55 floor deliberately never starves volume — right for
+                        // exploration, wrong for a MATURE proven-dead pocket (e.g.
+                        // SHITCOIN|S00|NORMAL learned at winP=0% / -28% avg). When a
+                        // context is statistically dead (n>=20, winP<12%, avg<-18%),
+                        // starve size to dust so a known grave can't drain the wallet.
+                        // NOT a veto — candidate still flows; pool & FDG fail-open intact.
+                        val starve = AutonomousMetaPolicy.starveFactor(mpLane, candidate.entryScore.toInt(), mpRegime)
+                        if (starve < 1.0) {
+                            val beforeS = finalSize
+                            finalSize = (finalSize * starve).coerceAtLeast(0.001)
+                            tags.add("starve:${"%.2f".format(starve)}")
+                            checks.add(GateCheck("catastrophic_starve", true, "proven-dead ctx ×${"%.2f".format(starve)} size ${beforeS.format(3)}→${finalSize.format(3)} ctx=$mpLane/S${candidate.entryScore.toInt()}/$mpRegime"))
+                        }
+
                         // V5.9.1261 — FORWARD OUTCOME MODEL (counterfactual planning).
                         // Predict the outcome distribution for this exact setup BEFORE
                         // entry (pWin / E[pnl] / pRug / dispersion), learned online from

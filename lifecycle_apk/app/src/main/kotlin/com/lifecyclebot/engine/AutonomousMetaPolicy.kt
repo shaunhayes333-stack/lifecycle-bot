@@ -47,6 +47,11 @@ object AutonomousMetaPolicy {
     private const val CONVICTION_CAP     = 1.45    // best lean-in
     private const val PRIOR_ALPHA        = 1.0     // Beta(1,1) uniform prior
     private const val PRIOR_BETA         = 1.0
+    // V5.9.1289 — catastrophic-context starve thresholds (separate from conviction floor)
+    private const val PROVEN_DEAD_N      = 20L      // need real maturity before starving
+    private const val PROVEN_DEAD_WINP   = 0.12     // posterior win-prob below this
+    private const val PROVEN_DEAD_AVGPNL = -18.0    // AND average realized pnl below this
+    private const val STARVE_FLOOR       = 0.08     // never fully zero (keeps a probe alive)
     private const val DECAY_EVERY        = 400     // soft-forget so the policy tracks regime drift
     private const val DECAY_FACTOR       = 0.97
 
@@ -95,6 +100,39 @@ object AutonomousMetaPolicy {
             // sample 0.5 → 1.0 ; sample 0.8 → lean in ; sample 0.2 → damp.
             val raw = 1.0 + (sample - 0.5) * 1.8
             raw.coerceIn(CONVICTION_FLOOR, CONVICTION_CAP)
+        } catch (_: Throwable) { 1.0 }
+    }
+
+    /**
+     * V5.9.1289 — CATASTROPHIC-CONTEXT STARVE (separate from conviction()).
+     *
+     * conviction() deliberately floors at CONVICTION_FLOOR (0.55) so it never
+     * starves volume during exploration — correct for the throughput doctrine.
+     * But once a context is MATURE and STATISTICALLY PROVEN DEAD, sizing 0.55×
+     * into a 0%-win / -28%-avg pocket is just slower bleeding, not exploration.
+     *
+     * This returns a DEEP size multiplier (down to 0.08×) ONLY when ALL hold:
+     *   • samples >= PROVEN_DEAD_N (well past bootstrap)
+     *   • posterior mean win-prob < PROVEN_DEAD_WINP
+     *   • average realized pnl < PROVEN_DEAD_AVGPNL
+     * Otherwise 1.0 (no-op). It does NOT veto and does NOT touch the scanner
+     * pool — the candidate still flows through FDG fail-open; it just gets
+     * sized to dust so a known grave can't drain the wallet. Soft-shape > veto.
+     */
+    fun starveFactor(lane: String, score: Int, regime: String): Double {
+        return try {
+            val key = contextKey(lane, score, regime)
+            val arm = arms[key] ?: return 1.0
+            if (arm.samples < PROVEN_DEAD_N) return 1.0
+            val winP = arm.alpha / (arm.alpha + arm.beta)          // posterior mean
+            val avgPnl = if (arm.samples > 0) arm.pnlSum / arm.samples else 0.0
+            if (winP < PROVEN_DEAD_WINP && avgPnl < PROVEN_DEAD_AVGPNL) {
+                // Scale the cut by how dead it is: worse winP → deeper starve.
+                val deadness = ((PROVEN_DEAD_WINP - winP) / PROVEN_DEAD_WINP).coerceIn(0.0, 1.0)
+                val mult = (0.35 - deadness * 0.27).coerceIn(STARVE_FLOOR, 0.35)
+                ErrorLogger.info(TAG, "💀 STARVE $key winP=${"%.0f".format(winP*100)}% avgPnl=${"%.1f".format(avgPnl)}% n=${arm.samples} → size×${"%.2f".format(mult)}")
+                mult
+            } else 1.0
         } catch (_: Throwable) { 1.0 }
     }
 
