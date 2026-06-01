@@ -13847,7 +13847,26 @@ if (postSupervisorOpenCount > 0 && !postSupervisorBackupDue) {
                             val dangerSizeMult = try {
                                 com.lifecyclebot.engine.LosingPatternMemory.recommendedSizeMult("TREASURY", _trsScore)
                             } catch (_: Throwable) { if (_trsIsDanger) 0.35 else 1.0 }
-                            val adjustedSize = (treasurySignal.positionSizeSol * bootstrapMultiplier * dangerSizeMult).coerceAtLeast(0.01)
+                            // V5.9.1256 — TREASURY was the ONE lane missing the
+                            // score-expectancy soft-gate the other 6 lanes have
+                            // (BLUECHIP/CASHGEN/SHITCOIN/MOONSHOT/MANIPULATED/QUALITY
+                            // all call ScoreExpectancyTracker.shouldReject; TREASURY
+                            // never did → TREASURY|S61+ bled to -1.44 SOL unpruned).
+                            // Doctrine = soft-shape not veto: when this score bucket
+                            // is net-losing over its rolling window (n>=15, mean<-8%),
+                            // stack an extra ×0.25 shrink on top of the danger mult.
+                            // The trade still fires (volume + learning preserved, FDG
+                            // still the only hard gate) but a proven-negative score
+                            // bucket enters at a fraction of size.
+                            val _trsExpectancyReject = try {
+                                com.lifecyclebot.engine.ScoreExpectancyTracker.shouldReject("TREASURY", _trsScore)
+                            } catch (_: Throwable) { false }
+                            val _trsExpectancyMult = if (_trsExpectancyReject) 0.25 else 1.0
+                            if (_trsExpectancyReject) {
+                                ErrorLogger.info("BotService",
+                                    "🏷️ [TREASURY] ${ts.symbol} | EXPECTANCY_SOFTSHAPE (size×0.25, not blocked) | score=$_trsScore | μ=${"%+.1f".format(com.lifecyclebot.engine.ScoreExpectancyTracker.bucketMean("TREASURY", _trsScore) ?: 0.0)}% n=${com.lifecyclebot.engine.ScoreExpectancyTracker.bucketSamples("TREASURY", _trsScore)}")
+                            }
+                            val adjustedSize = (treasurySignal.positionSizeSol * bootstrapMultiplier * dangerSizeMult * _trsExpectancyMult).coerceAtLeast(0.01)
                             
                             // V5.2.8 FIX: If bootstrap override forced entry, use default TP/SL values
                             // When Treasury rejects, it returns 0% TP which causes immediate exits!

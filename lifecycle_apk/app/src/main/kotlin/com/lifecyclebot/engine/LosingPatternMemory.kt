@@ -153,6 +153,13 @@ object LosingPatternMemory {
             // bleeder costs ~1/20th while still recording an outcome (no veto,
             // no starvation — doctrine soft-shape). Only the most-proven death
             // buckets reach >=40 losses; all shallower tiers unchanged.
+            // V5.9.1256 — deepest probe tier. TREASURY|S61+ (42L/7W) + CASHGEN|
+            // S0-10 (28L/2W) kept net-bleeding even at ×0.05 because a proven
+            // ~-20%-mean bucket still loses every fire; at >=50 losses the
+            // learning value is exhausted, so shrink to ×0.02 (a ~1/50th probe,
+            // not a position). Still no veto, still records an outcome — doctrine
+            // soft-shape. Shallower tiers unchanged.
+            s.losses >= 50 -> 0.02
             s.losses >= 40 -> 0.05
             s.losses >= 30 -> 0.10
             s.losses >= 20 -> 0.20
