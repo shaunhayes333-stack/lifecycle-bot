@@ -18,6 +18,7 @@ object AdaptiveLearningEngine {
     private const val KEY_BAD_PATTERNS = "bad_patterns"
     private const val KEY_TRADE_COUNT = "trade_count"
     private const val KEY_LEARNING_RATE = "learning_rate"
+    private const val KEY_WEIGHT_FIX_VERSION = "weight_fix_version"  // V5.9.1275 one-shot recenter
     private const val KEY_LAST_RETRAIN = "last_retrain_ts"
     // V5.9.301: Persisted rolling feature buffer — fuel for pattern extraction.
     // Without this, every trade's features were discarded after weight adjustment.
@@ -474,6 +475,33 @@ object AdaptiveLearningEngine {
             featureWeights = FeatureWeights()
         }
 
+        // V5.9.1275 — ONE-SHOT WEIGHT RECENTER. The pre-1275 sign bug ratcheted
+        // age/holderGrowth/volLiq/holdTime weights to the 2.5 ceiling (losses were
+        // inflating them). Now that the update is sign-correct, pull saturated weights
+        // HALFWAY back toward their neutral defaults exactly once, so they re-learn
+        // from a sane base instead of crawling down from the ceiling over weeks.
+        try {
+            val fixV = p.getInt(KEY_WEIGHT_FIX_VERSION, 0)
+            if (fixV < 1275) {
+                val d = FeatureWeights()   // defaults
+                fun mid(cur: Double, def: Double) = (cur + def) / 2.0
+                featureWeights.mcapWeight        = mid(featureWeights.mcapWeight,        d.mcapWeight)
+                featureWeights.ageWeight         = mid(featureWeights.ageWeight,         d.ageWeight)
+                featureWeights.buyRatioWeight    = mid(featureWeights.buyRatioWeight,    d.buyRatioWeight)
+                featureWeights.holderConcWeight  = mid(featureWeights.holderConcWeight,  d.holderConcWeight)
+                featureWeights.holderGrowthWeight= mid(featureWeights.holderGrowthWeight,d.holderGrowthWeight)
+                featureWeights.emaFanWeight      = mid(featureWeights.emaFanWeight,      d.emaFanWeight)
+                featureWeights.volLiqRatioWeight = mid(featureWeights.volLiqRatioWeight, d.volLiqRatioWeight)
+                featureWeights.holdTimeWeight    = mid(featureWeights.holdTimeWeight,    d.holdTimeWeight)
+                featureWeights.maxGainFollowWeight = mid(featureWeights.maxGainFollowWeight, d.maxGainFollowWeight)
+                featureWeights.exitQualityWeight = mid(featureWeights.exitQualityWeight, d.exitQualityWeight)
+                p.edit().putInt(KEY_WEIGHT_FIX_VERSION, 1275).apply()
+                ErrorLogger.info("AdaptiveLearning", "🩹 V5.9.1275 one-shot weight recenter applied (de-saturated ceiling-pinned weights)")
+            }
+        } catch (e: Exception) {
+            ErrorLogger.error("AdaptiveLearning", "weight recenter failed: ${e.message}")
+        }
+
         try {
             val json = p.getString(KEY_GOOD_PATTERNS, "[]") ?: "[]"
             val arr = JSONArray(json)
@@ -642,12 +670,20 @@ object AdaptiveLearningEngine {
     }
 
     private fun adjustWeights(features: TradeFeatures) {
+        // V5.9.1275 — SIGN-BUG FIX. adjustmentFactor previously carried the SIGN of
+        // the outcome (negative for losses). But every per-feature *Signal below ALSO
+        // encodes direction (e.g. ageSignal=-1.5 means "young token that LOST"). A
+        // negative signal times a negative factor = a POSITIVE push → losses were
+        // INFLATING the very feature weights they should have suppressed, ratcheting
+        // age/holderGrowth/volLiq/holdTime straight to the 2.5 ceiling (seen pinned in
+        // the 3240 runtime board). adjustmentFactor must be MAGNITUDE-ONLY (>=0); the
+        // signal alone decides up/down. Bigger-magnitude outcomes still learn faster.
         val adjustmentFactor = when (features.outcomeScore) {
-            2 -> learningRate * 1.5
-            1 -> learningRate * 0.8
-            0 -> learningRate * 0.3
-            -1 -> learningRate * -1.2
-            -2 -> learningRate * -3.0
+            2 -> learningRate * 1.5    // decisive win — learn fast
+            1 -> learningRate * 0.8    // win
+            0 -> learningRate * 0.3    // scratch — gentle
+            -1 -> learningRate * 1.2   // loss — same magnitude, direction from signal
+            -2 -> learningRate * 3.0   // decisive loss — learn fast (was the inverted one)
             else -> 0.0
         }
 
