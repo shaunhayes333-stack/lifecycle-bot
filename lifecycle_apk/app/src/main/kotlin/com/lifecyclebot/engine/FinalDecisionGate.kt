@@ -3658,6 +3658,22 @@ object FinalDecisionGate {
                         ForwardOutcomeModel.stamp(ts.mint, mpLane, candidate.entryScore.toInt(), candidate.setupQuality, mpRegime, candidate.edgePhase)
                         // V5.9.1271 — grade the predictor: stamp pWin+E[pnl] so the close can score accuracy.
                         try { com.lifecyclebot.engine.SignalQualityTracker.stamp(ts.mint, mpLane, fwd.pWin, fwd.expectedPnl) } catch (_: Throwable) {}
+
+                        // V5.9.1290 — HARD VETO (dual-brain consensus). Now that we are
+                        // mature on the proven-dead pockets, refuse them outright instead
+                        // of dusting them — sizing 0.08× into a guaranteed loser still
+                        // pays fees+slippage. Meta-Policy AND Forward Model must BOTH
+                        // condemn the context with real, well-sampled evidence; a 1-in-25
+                        // probe always escapes so the context keeps learning and can heal.
+                        // Fail-open by construction (returns false on any doubt/error).
+                        // The 500-token pool, FDG fail-open path, and -15% floor are all
+                        // untouched — this only refuses the single candidate in a grave.
+                        if (AutonomousMetaPolicy.shouldVeto(mpLane, candidate.entryScore.toInt(), mpRegime, fwd.pWin, fwd.expectedPnl, fwd.samples)) {
+                            shouldTradeFinal = false
+                            blockReasonFinal = "PROVEN_DEAD_CONTEXT_VETO:$mpLane|S${candidate.entryScore.toInt()}|$mpRegime"
+                            tags.add("veto:proven_dead")
+                            checks.add(GateCheck("proven_dead_veto", false, "dual-brain consensus refused ctx=$mpLane/S${candidate.entryScore.toInt()}/$mpRegime fwd[pWin=${(fwd.pWin*100).toInt()}% E=${"%+.1f".format(fwd.expectedPnl)}% n=${fwd.samples}]"))
+                        }
                         if (fwd.convictionNudge != 1.0 && fwd.source != "bootstrap") {
                             val before = finalSize
                             finalSize = (finalSize * fwd.convictionNudge).coerceAtLeast(0.01)

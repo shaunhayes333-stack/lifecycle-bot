@@ -1,6 +1,7 @@
 package com.lifecyclebot.engine
 
 import android.content.Context
+import android.util.Log
 import org.json.JSONObject
 import java.util.concurrent.ConcurrentHashMap
 import kotlin.math.ln
@@ -42,6 +43,7 @@ import kotlin.math.exp
 object AutonomousMetaPolicy {
 
     // ── Tunables ─────────────────────────────────────────────────────────
+    private const val TAG = "MetaPolicy"
     private const val MIN_SAMPLES        = 12      // below this, stay neutral (bootstrap-safe)
     private const val CONVICTION_FLOOR   = 0.55    // worst damp — never starve volume
     private const val CONVICTION_CAP     = 1.45    // best lean-in
@@ -52,6 +54,14 @@ object AutonomousMetaPolicy {
     private const val PROVEN_DEAD_WINP   = 0.12     // posterior win-prob below this
     private const val PROVEN_DEAD_AVGPNL = -18.0    // AND average realized pnl below this
     private const val STARVE_FLOOR       = 0.08     // never fully zero (keeps a probe alive)
+    // V5.9.1290 — HARD VETO (one tier stricter than starve). Only fires on the
+    // MOST statistically certain graves, AND only when the Forward Outcome Model
+    // independently agrees (dual-brain consensus). A probabilistic bypass keeps
+    // a trickle of fresh evidence flowing so a vetoed context can self-heal.
+    private const val VETO_N             = 40L      // far past maturity (2× starve)
+    private const val VETO_WINP          = 0.08     // posterior win-prob below this
+    private const val VETO_AVGPNL        = -22.0    // AND avg realized pnl below this
+    private const val VETO_BYPASS_EVERY  = 25L      // 1-in-25 fresh probe escapes the veto
     private const val DECAY_EVERY        = 400     // soft-forget so the policy tracks regime drift
     private const val DECAY_FACTOR       = 0.97
 
@@ -130,14 +140,50 @@ object AutonomousMetaPolicy {
                 // Scale the cut by how dead it is: worse winP → deeper starve.
                 val deadness = ((PROVEN_DEAD_WINP - winP) / PROVEN_DEAD_WINP).coerceIn(0.0, 1.0)
                 val mult = (0.35 - deadness * 0.27).coerceIn(STARVE_FLOOR, 0.35)
-                ErrorLogger.info(TAG, "💀 STARVE $key winP=${"%.0f".format(winP*100)}% avgPnl=${"%.1f".format(avgPnl)}% n=${arm.samples} → size×${"%.2f".format(mult)}")
+                Log.i(TAG, "💀 STARVE $key winP=${"%.0f".format(winP*100)}% avgPnl=${"%.1f".format(avgPnl)}% n=${arm.samples} → size×${"%.2f".format(mult)}")
                 mult
             } else 1.0
         } catch (_: Throwable) { 1.0 }
     }
 
+    /**
+     * V5.9.1290 — HARD VETO. Returns true to REFUSE the trade outright (caller
+     * blocks it), but ONLY for the most statistically certain graves:
+     *   • Meta-Policy posterior: n>=VETO_N, winP<VETO_WINP, avgPnl<VETO_AVGPNL
+     *   • Forward Outcome Model INDEPENDENTLY agrees: real (non-bootstrap) data
+     *     with pWin<0.10 and E[pnl]<-18 — dual-brain consensus, no single point.
+     * A 1-in-VETO_BYPASS_EVERY probe is ALWAYS let through so the context keeps
+     * receiving fresh outcomes and can self-heal if the regime flips. This is the
+     * mature-phase upgrade to starveFactor: once a pocket is THIS proven-dead,
+     * dusting it still pays fees + slippage on a guaranteed loser; skipping is
+     * strictly better. Returns false (allow) on any doubt or error — fail-open.
+     */
+    fun shouldVeto(lane: String, score: Int, regime: String, fwdPWin: Double, fwdEPnl: Double, fwdSamples: Long): Boolean {
+        return try {
+            val key = contextKey(lane, score, regime)
+            val arm = arms[key] ?: return false
+            if (arm.samples < VETO_N) return false
+            val winP = arm.alpha / (arm.alpha + arm.beta)
+            val avgPnl = if (arm.samples > 0) arm.pnlSum / arm.samples else 0.0
+            val metaDead = winP < VETO_WINP && avgPnl < VETO_AVGPNL
+            // Forward model must ALSO condemn it, with real (non-bootstrap) evidence.
+            val fwdDead = fwdSamples >= 25L && fwdPWin < 0.10 && fwdEPnl < -18.0
+            if (!(metaDead && fwdDead)) return false
+            // Probabilistic escape valve: let 1-in-N through to keep evidence fresh.
+            val n = vetoProbeCounter.incrementAndGet()
+            if (n % VETO_BYPASS_EVERY == 0L) {
+                Log.i(TAG, "🩺 VETO-PROBE $key — letting 1 fresh probe through (n=$n) to keep $key learnable")
+                return false
+            }
+            Log.i(TAG, "⛔ VETO $key meta[winP=${"%.0f".format(winP*100)}% avg=${"%.1f".format(avgPnl)}% n=${arm.samples}] fwd[pWin=${"%.0f".format(fwdPWin*100)}% E=${"%.1f".format(fwdEPnl)}% n=$fwdSamples]")
+            true
+        } catch (_: Throwable) { false }
+    }
+
     /** Pending decision contexts keyed by mint, set at decision time. */
     private val pending = ConcurrentHashMap<String, String>()
+    // V5.9.1290 — monotonic probe counter for the veto bypass valve
+    private val vetoProbeCounter = java.util.concurrent.atomic.AtomicLong(0L)
 
     /** Stamp the context chosen for a mint at decision time (for credit). */
     fun stampDecision(mint: String, lane: String, score: Int, regime: String) {
