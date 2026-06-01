@@ -4060,6 +4060,60 @@ class Executor(
                 ts.position.lowestPrice = currentPrice
         }
 
+        // V5.9.1259 — UNIVERSAL STALE-FEED EVICTION (volume unblock).
+        // ════════════════════════════════════════════════════════════════
+        // Runtime evidence (session 9612dbdf, 19:44): 10 open SHITCOIN/MOONSHOT/
+        // MANIPULATED pump.fun micros (vol1h=$0) pinned all slots for 13.7min
+        // (execAge=822s) while a firehose of 100s of candidates/min starved →
+        // forcedOpen=10 every cycle, ZERO new entries, volume collapsed.
+        // ROOT CAUSE: a no-trade pump.fun token stops ticking → lastPrice never
+        // refreshes → getActualPrice() returns the stale entry price → PnL sits
+        // at exactly 0% → neither TP nor SL (both price-based) can EVER fire in
+        // this 2s hot path. The slot only frees when the SLOW maxHold timer
+        // (15-180min, in maybeAct) finally fires. There IS a stale-feed exit but
+        // it was scoped to QUALITY only (BotService:18226). Specialist lanes had
+        // no equivalent → zombie slot-squatters.
+        // FIX: lane-AGNOSTIC dead-feed eviction in the universal hot path. Same
+        // thresholds as the proven QUALITY path (feed dead ≥10min AND held
+        // ≥20min). A token with no price movement for 10min is not a runner and
+        // not a learning signal — it's a dead slot. Evict to recycle it.
+        // SAFETY: (1) paper settle-in respected (entry slippage needs time to
+        // mean-revert); (2) RUNNER BYPASS — never evict a live runner
+        // (peakGain≥20% with trend intact); (3) only fires when feed is GENUINELY
+        // dead (lastPriceUpdate age), never on a moving position. Frees slots →
+        // directly serves the 500-1000/day volume target. Fail-open.
+        run {
+            try {
+                val nowMs = System.currentTimeMillis()
+                val heldMin = if (ts.position.entryTime > 0L)
+                    (nowMs - ts.position.entryTime) / 60_000.0 else 0.0
+                val feedAgeMs = if (ts.lastPriceUpdate > 0L)
+                    nowMs - maxOf(ts.lastPriceUpdate, ts.position.entryTime) else Long.MAX_VALUE
+                val FEED_DEAD_MS = 10L * 60_000L
+                val MIN_HELD_MIN = 20.0
+                if (feedAgeMs >= FEED_DEAD_MS && heldMin >= MIN_HELD_MIN) {
+                    // RUNNER BYPASS — don't evict a position that ran and is
+                    // still near its peak (mirrors maybeAct runner-bypass).
+                    val curPnl = if (ts.position.entryPrice > 0.0 && currentPrice > 0.0)
+                        ((currentPrice - ts.position.entryPrice) / ts.position.entryPrice) * 100.0 else 0.0
+                    val peak = ts.position.peakGainPct
+                    val runnerIntact = peak >= 20.0 && curPnl >= peak * 0.70
+                    // Paper settle-in: brand-new paper entries are born at the
+                    // slippage-band PnL; never evict before they've settled.
+                    val settleIn = run {
+                        if (!isPaperRT()) return@run false
+                        val ageMs = nowMs - ts.position.entryTime
+                        ageMs < 90_000L  // 90s hard floor; heldMin>=20 already exceeds this
+                    }
+                    if (!runnerIntact && !settleIn) {
+                        onLog("💀 STALE_FEED_EVICT: ${ts.symbol} feedAge=${feedAgeMs/60_000}min held=${heldMin.toInt()}min pnl=${"%+.0f".format(curPnl)}% — dead feed, recycling slot", ts.mint)
+                        doSell(ts, "stale_feed_evict_feedAge${feedAgeMs/60_000}m_held${heldMin.toInt()}m", wallet, walletSol)
+                        return
+                    }
+                }
+            } catch (_: Throwable) { /* fail-open: eviction must never break exit management */ }
+        }
+
         // V5.9.495z5 — STRICT PER-TRADER SL FIRES UNIVERSALLY (no settle-in
         // grace). Operator (06 May 2026, COMPANY -16.5% with SL -5% never
         // firing): "stop losses on treasury trades are meant to be tight
