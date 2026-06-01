@@ -737,7 +737,42 @@ class UnifiedScorer(
                     "boosted=${boostedNames.joinToString(",")}")
             }
 
-            val finalCard = ScoreCard(gatedComponents)
+            // ─── PHASE 13: ARB SUBSYSTEM — SOFT SIGNAL (V5.9.1283) ─────────
+            // ArbScannerAI (FlowImbalance / PanicReversion / VenueLag) was wired
+            // ONLY through scoreWithArb(), which had ZERO callers — so this whole
+            // edge was dormant. Route it into the LIVE score as a SOFT, positive-
+            // only nudge per doctrine #86 ("help, don't hinder"): it can add
+            // conviction when a genuine arb setup is present, but NEVER vetoes and
+            // NEVER subtracts. Fully fail-open — any error yields no component.
+            val arbComponent: ScoreComponent? = try {
+                ArbScannerAI.recordSourceSeen(candidate)
+                val arbEval = ArbScannerAI.evaluate(candidate, ctx)
+                if (arbEval == null) null else {
+                    // Band → bounded positive nudge. Confidence scales within band.
+                    val confFrac = (arbEval.confidence.coerceIn(0, 100)) / 100.0
+                    val baseNudge = when (arbEval.band) {
+                        com.lifecyclebot.v3.arb.ArbDecisionBand.ARB_STANDARD      -> 8.0
+                        com.lifecyclebot.v3.arb.ArbDecisionBand.ARB_MICRO         -> 5.0
+                        com.lifecyclebot.v3.arb.ArbDecisionBand.ARB_FAST_EXIT_ONLY-> 4.0
+                        com.lifecyclebot.v3.arb.ArbDecisionBand.ARB_WATCH         -> 1.0
+                        com.lifecyclebot.v3.arb.ArbDecisionBand.ARB_REJECT        -> 0.0
+                    }
+                    val nudge = (baseNudge * (0.5 + 0.5 * confFrac)).toInt().coerceIn(0, 8)
+                    if (nudge <= 0) null
+                    else ScoreComponent(
+                        name = "arb_signal",
+                        value = nudge,   // positive-only, capped +8 — soft conviction nudge
+                        reason = "ARB ${arbEval.arbType} ${arbEval.band} conf=${arbEval.confidence} exp=${"%.1f".format(arbEval.expectedMovePct)}% | ${arbEval.reason}"
+                    )
+                }
+            } catch (_: Exception) { null }  // fail-open: arb never blocks or penalises
+
+            val withArb = if (arbComponent != null) gatedComponents + arbComponent else gatedComponents
+            if (arbComponent != null) {
+                Log.i("UnifiedScorer", "⚡ ARB[SOFT] ${candidate.symbol} +${arbComponent.value} ${arbComponent.reason}")
+            }
+
+            val finalCard = ScoreCard(withArb)
             try { EducationSubLayerAI.recordEntryScores(candidate.mint, finalCard.components, candidate) } catch (_: Exception) {}
 
             try {
