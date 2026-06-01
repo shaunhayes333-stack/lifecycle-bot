@@ -562,6 +562,11 @@ class MainActivity : AppCompatActivity() {
     // `.text =` assignment still flags the view dirty and schedules a measure/
     // layout/draw pass; on the 5s updateUi loop that is pure main-thread waste
     // and showed up as the top app frame in repeated ANR watchdog captures.
+    // V5.9.1281 — skip-guard for the candle chart. updateCandleChart runs every
+    // 5s; without this it rebuilds the full CandleEntry list and re-renders the
+    // entire MPAndroidChart (main-thread draw) even when no new candle arrived.
+    private var lastCandleChartSig: String = ""
+
     private fun android.widget.TextView.setTextIfChanged(value: CharSequence) {
         if (this.text?.toString() != value.toString()) this.text = value
     }
@@ -2069,9 +2074,19 @@ for legal compliance.
         
         if (sourceHistory.isEmpty()) {
             candleChart.clear()
+            lastCandleChartSig = ""
             return
         }
-        
+
+        // V5.9.1281 — cheap signature: only rebuild + redraw when the candle set
+        // actually changed (token, range, count, or newest candle moved). A no-op
+        // updateUi tick on an unchanged chart now costs one string compare instead
+        // of a full ArrayList rebuild + CandleData re-render on the main thread.
+        val newestCandle = sourceHistory.last()
+        val chartSig = "${ts.mint}|$chartTimeRange|${sourceHistory.size}|${newestCandle.priceUsd}|${newestCandle.ts}"
+        if (chartSig == lastCandleChartSig) return
+        lastCandleChartSig = chartSig
+
         val entries = ArrayList<com.github.mikephil.charting.data.CandleEntry>()
         sourceHistory.forEachIndexed { idx, candle ->
             val close = candle.priceUsd.toFloat()
