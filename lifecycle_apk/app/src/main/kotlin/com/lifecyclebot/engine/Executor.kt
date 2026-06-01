@@ -6362,7 +6362,16 @@ class Executor(
             return
         }
         val labMult = labNudge?.sizeMultiplier ?: 1.0
-        val effSol = (sol * sizeMult * labMult).coerceIn(sol * 0.5, sol * 1.75)
+        // V5.9.1273 — LaneExpectancyDamper: shrink size on PROVEN bleeder lanes
+        // (size-only, never a veto; self-heals as the lane's live EV recovers).
+        // Lane key resolved the same way finalityLane is (layerTag→identity.source),
+        // so the haircut targets the same bin StrategyTelemetry reports.
+        val laneEvMult = try {
+            com.lifecyclebot.engine.LaneExpectancyDamper.sizeMultiplier(
+                identity?.source ?: ts.source
+            )
+        } catch (_: Throwable) { 1.0 }
+        val effSol = (sol * sizeMult * labMult * laneEvMult).coerceIn(sol * 0.4, sol * 1.75)
 
         // V5.9.642: spine log uses a separate val so the compiler keeps
         // its smart cast on `wallet` inside the else branch (non-null guaranteed).

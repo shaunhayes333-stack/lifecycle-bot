@@ -1099,6 +1099,8 @@ object PipelineHealthCollector {
         try {
             val strategyBlock = StrategyTelemetry.formatForPipelineDump()
             if (strategyBlock.isNotEmpty()) sb.append(strategyBlock)
+            // V5.9.1273 — show the live lane-size damper state next to expectancy.
+            try { sb.append("  " + LaneExpectancyDamper.statusLine() + "\n") } catch (_: Throwable) {}
         } catch (_: Throwable) {
             // telemetry is non-essential; never let it break the dump
         }
