@@ -167,6 +167,43 @@ object LosingPatternMemory {
         }
     }
 
+    /**
+     * V5.9.1284 — EVIDENCE-BASED BAND NUDGE (the offensive twin of
+     * recommendedSizeMult). The danger-bucket machinery only ever SHRINKS proven
+     * losers; it never leaned into proven WINNERS. The tuning console exposed the
+     * cost of that asymmetry: SHITCOIN|S40-49 is +679.6% mean over n=21 — a matured,
+     * proven-positive bucket — yet the scorer's own high bands (S50+) are deeply
+     * negative (inverted polarity that the WR-gated self-heal refuses to flip while
+     * lane WR < 30%). So the raw score points AWAY from the money and nothing
+     * corrects it.
+     *
+     * This returns a small SIGNED scorer nudge keyed on a bucket's REALISED mean
+     * PnL (not WR — a 6%-WR lottery lane can still be the best earner), gated at a
+     * real sample size so bootstrap noise never moves it:
+     *   - matured (n>=20) AND meanPnl strongly positive  → boost  (+, capped)
+     *   - matured (n>=20) AND meanPnl strongly negative   → damp   (-, capped)
+     *   - everything else                                 → 0 (neutral, keep learning)
+     *
+     * Doctrine #86: soft-shape, bounded, never a veto. The boost can only ADD
+     * conviction to a proven-profitable band; the damp is bounded and never zeroes
+     * a candidate (LosingPatternMemory.recommendedSizeMult already owns hard size
+     * shrink — this is a scorer-polarity correction, not a second size cut).
+     */
+    fun recommendedBandNudge(tradingMode: String, v3Score: Int): Int {
+        val s = stats(tradingMode, v3Score)
+        val n = s.losses + s.wins
+        if (n < 20) return 0                 // not matured — let it keep recording
+        val m = s.meanPnl                    // realised mean PnL % for this bucket
+        return when {
+            m >= 200.0 -> 10                 // moonshot bucket (e.g. SHITCOIN S40-49) — lean in
+            m >= 50.0  -> 6
+            m >= 15.0  -> 3
+            m <= -20.0 -> -8                 // proven deep bleeder band — polarity damp
+            m <= -8.0  -> -4
+            else       -> 0                  // marginal — neutral
+        }
+    }
+
     /** Pipeline-health summary block. */
     fun formatForPipelineDump(): String {
         refreshIfStale()

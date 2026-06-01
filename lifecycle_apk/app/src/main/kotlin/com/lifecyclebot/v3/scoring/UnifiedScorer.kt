@@ -737,6 +737,34 @@ class UnifiedScorer(
                     "boosted=${boostedNames.joinToString(",")}")
             }
 
+            // ─── PHASE 12.5: BAND-EXPECTANCY RESHAPER — SOFT SIGNAL (V5.9.1284) ─
+            // The tuning console proved the scorer's polarity is INVERTED on some
+            // lanes: SHITCOIN's high bands (S50+) are deep-negative while its mid
+            // band (S40-49) is +679.6% over n=21. The WR-gated polarity self-heal
+            // (Phase 4) is switched OFF below 30% system WR, so it can't correct
+            // this. LosingPatternMemory already SHRINKS proven-loss buckets via
+            // recommendedSizeMult but never LEANS INTO proven winners. This folds
+            // the bucket's REALISED mean-PnL back into the score as a small signed,
+            // bounded nudge: boost matured proven-positive bands, damp matured
+            // proven-negative bands. Evidence-gated (n>=20), soft, never a veto.
+            val bandComponent: ScoreComponent? = try {
+                val tradingMode = candidate.extraString("tradingMode")
+                if (tradingMode.isBlank()) null else {
+                    val preTotal = gatedComponents.sumOf { it.value }
+                    val nudge = com.lifecyclebot.engine.LosingPatternMemory
+                        .recommendedBandNudge(tradingMode, preTotal)
+                    if (nudge == 0) null
+                    else {
+                        val band = com.lifecyclebot.engine.LosingPatternMemory.scoreBand(preTotal)
+                        ScoreComponent(
+                            name = "band_expectancy",
+                            value = nudge,
+                            reason = "BAND $tradingMode|$band realised-PnL reshaper ${if (nudge > 0) "boost" else "damp"} ($nudge)"
+                        )
+                    }
+                }
+            } catch (_: Exception) { null }  // fail-open: never blocks
+
             // ─── PHASE 13: ARB SUBSYSTEM — SOFT SIGNAL (V5.9.1283) ─────────
             // ArbScannerAI (FlowImbalance / PanicReversion / VenueLag) was wired
             // ONLY through scoreWithArb(), which had ZERO callers — so this whole
@@ -767,12 +795,17 @@ class UnifiedScorer(
                 }
             } catch (_: Exception) { null }  // fail-open: arb never blocks or penalises
 
-            val withArb = if (arbComponent != null) gatedComponents + arbComponent else gatedComponents
+            var extras = gatedComponents
+            if (bandComponent != null) {
+                extras = extras + bandComponent
+                Log.i("UnifiedScorer", "🎯 BAND[SOFT] ${candidate.symbol} ${if (bandComponent.value>0) "+" else ""}${bandComponent.value} ${bandComponent.reason}")
+            }
             if (arbComponent != null) {
+                extras = extras + arbComponent
                 Log.i("UnifiedScorer", "⚡ ARB[SOFT] ${candidate.symbol} +${arbComponent.value} ${arbComponent.reason}")
             }
 
-            val finalCard = ScoreCard(withArb)
+            val finalCard = ScoreCard(extras)
             try { EducationSubLayerAI.recordEntryScores(candidate.mint, finalCard.components, candidate) } catch (_: Exception) {}
 
             try {
