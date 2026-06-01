@@ -10702,6 +10702,7 @@ class Executor(
             com.lifecyclebot.v3.scoring.EducationSubLayerAI.recordTradeOutcomeAcrossAllLayers(outcomeData)
             try { com.lifecyclebot.engine.AutonomousMetaPolicy.recordOutcome(ts.mint, pnlP) } catch (_: Throwable) {}
             try { com.lifecyclebot.engine.ForwardOutcomeModel.recordOutcome(ts.mint, pnlP) } catch (_: Throwable) {}
+            try { com.lifecyclebot.engine.SignalQualityTracker.recordOutcome(ts.mint, pnlP) } catch (_: Throwable) {}
             try { com.lifecyclebot.engine.UnifiedPolicyHead.recordOutcome(ts.mint, pnlP) } catch (_: Throwable) {}
             try { com.lifecyclebot.engine.StrategyHypothesisEngine.recordOutcome(ts.mint, pnlP) } catch (_: Throwable) {}
             ErrorLogger.info("Executor", "🎓 HARVARD BRAIN: Recorded outcome for ${ts.symbol} | PnL=${pnlP.toInt()}% | Active layers will increase")
@@ -12875,6 +12876,7 @@ class Executor(
             com.lifecyclebot.v3.scoring.EducationSubLayerAI.recordTradeOutcomeAcrossAllLayers(outcomeData)
             try { com.lifecyclebot.engine.AutonomousMetaPolicy.recordOutcome(ts.mint, pnlP) } catch (_: Throwable) {}
             try { com.lifecyclebot.engine.ForwardOutcomeModel.recordOutcome(ts.mint, pnlP) } catch (_: Throwable) {}
+            try { com.lifecyclebot.engine.SignalQualityTracker.recordOutcome(ts.mint, pnlP) } catch (_: Throwable) {}
             try { com.lifecyclebot.engine.UnifiedPolicyHead.recordOutcome(ts.mint, pnlP) } catch (_: Throwable) {}
             try { com.lifecyclebot.engine.StrategyHypothesisEngine.recordOutcome(ts.mint, pnlP) } catch (_: Throwable) {}
             ErrorLogger.info("Executor", "🎓 HARVARD BRAIN (LIVE): Recorded outcome for ${ts.symbol} | PnL=${pnlP.toInt()}%")

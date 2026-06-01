@@ -10922,6 +10922,8 @@ Recent inner monologues:
 $reflections
 
 ${com.lifecyclebot.engine.WiringHealth.detailBlock()}
+
+${com.lifecyclebot.engine.SignalQualityTracker.detailBlock()}
             """.trimIndent()
 
             AlertDialog.Builder(this, R.style.Theme_AATE_Dialog)

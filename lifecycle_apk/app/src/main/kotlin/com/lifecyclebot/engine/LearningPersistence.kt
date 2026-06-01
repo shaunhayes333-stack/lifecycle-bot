@@ -138,6 +138,7 @@ object LearningPersistence {
             try { putBlob("META_COGNITION",  com.lifecyclebot.v3.scoring.MetaCognitionAI.exportState()) } catch (_: Throwable) {}
             try { putBlob("AUTONOMOUS_META_POLICY", com.lifecyclebot.engine.AutonomousMetaPolicy.exportState()) } catch (_: Throwable) {}  // V5.9.1260
             try { putBlob("FORWARD_OUTCOME_MODEL", com.lifecyclebot.engine.ForwardOutcomeModel.exportState()) } catch (_: Throwable) {}  // V5.9.1261
+            try { putBlob("SIGNAL_QUALITY", com.lifecyclebot.engine.SignalQualityTracker.exportState()) } catch (_: Throwable) {}  // V5.9.1271
             try { putBlob("UNIFIED_POLICY_HEAD", com.lifecyclebot.engine.UnifiedPolicyHead.exportState()) } catch (_: Throwable) {}  // V5.9.1262
             try { putBlob("STRATEGY_HYPOTHESIS", com.lifecyclebot.engine.StrategyHypothesisEngine.exportState()) } catch (_: Throwable) {}  // V5.9.1263
             // V5.9.984 — persist CollectiveIntelligenceAI counters + thresholds.
@@ -189,6 +190,7 @@ object LearningPersistence {
         getBlob("SENTIENCE")?.let      { com.lifecyclebot.engine.SentienceOrchestrator.importState(it) }
         try { getBlob("AUTONOMOUS_META_POLICY")?.let { com.lifecyclebot.engine.AutonomousMetaPolicy.importState(it) } } catch (_: Throwable) {}  // V5.9.1260
         try { getBlob("FORWARD_OUTCOME_MODEL")?.let { com.lifecyclebot.engine.ForwardOutcomeModel.importState(it) } } catch (_: Throwable) {}  // V5.9.1261
+        try { getBlob("SIGNAL_QUALITY")?.let { com.lifecyclebot.engine.SignalQualityTracker.importState(it) } } catch (_: Throwable) {}  // V5.9.1271
         try { getBlob("UNIFIED_POLICY_HEAD")?.let { com.lifecyclebot.engine.UnifiedPolicyHead.importState(it) } } catch (_: Throwable) {}  // V5.9.1262
         try { getBlob("STRATEGY_HYPOTHESIS")?.let { com.lifecyclebot.engine.StrategyHypothesisEngine.importState(it) } } catch (_: Throwable) {}  // V5.9.1263
         // V5.9.949 — restore the rest of the brain.

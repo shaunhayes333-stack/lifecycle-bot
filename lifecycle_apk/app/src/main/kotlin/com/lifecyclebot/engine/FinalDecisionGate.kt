@@ -3641,6 +3641,8 @@ object FinalDecisionGate {
                         // stamped for closed-loop credit. Fail-open.
                         val fwd = ForwardOutcomeModel.forecast(mpLane, candidate.entryScore.toInt(), candidate.setupQuality, mpRegime, candidate.edgePhase)
                         ForwardOutcomeModel.stamp(ts.mint, mpLane, candidate.entryScore.toInt(), candidate.setupQuality, mpRegime, candidate.edgePhase)
+                        // V5.9.1271 — grade the predictor: stamp pWin+E[pnl] so the close can score accuracy.
+                        try { com.lifecyclebot.engine.SignalQualityTracker.stamp(ts.mint, mpLane, fwd.pWin, fwd.expectedPnl) } catch (_: Throwable) {}
                         if (fwd.convictionNudge != 1.0 && fwd.source != "bootstrap") {
                             val before = finalSize
                             finalSize = (finalSize * fwd.convictionNudge).coerceAtLeast(0.01)
