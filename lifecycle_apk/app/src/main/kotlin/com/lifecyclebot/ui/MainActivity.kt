@@ -2436,12 +2436,12 @@ for legal compliance.
             // confuse "🟢 APIs READY" (Jupiter/Pyth health) with actual
             // trade mode. Per troubleshoot RCA: user saw "LIVE READY"
             // banner and thought bot was live, but cfg.paperMode=true.
-            tvBalanceUsd.setTextIfChanged(if (config.paperMode) "📝 PAPER MODE  ◎ ${"%.4f".format(balSol)}")
-                                  else "🔴 LIVE MODE  ◎ ${"%.4f".format(balSol)}"
+            tvBalanceUsd.setTextIfChanged(if (config.paperMode) "📝 PAPER MODE  ◎ ${"%.4f".format(balSol)}"
+                                  else "🔴 LIVE MODE  ◎ ${"%.4f".format(balSol)}")
         } else if (ws.isConnected && ws.solBalance > 0) {
             tvBalanceLarge.setTextIfChanged(currency.format(ws.solBalance))
-            tvBalanceUsd.setTextIfChanged(if (config.paperMode) "📝 PAPER MODE  ◎ ${"%.4f".format(ws.solBalance)}")
-                                  else "🔴 LIVE MODE  ◎ ${"%.4f".format(ws.solBalance)}"
+            tvBalanceUsd.setTextIfChanged(if (config.paperMode) "📝 PAPER MODE  ◎ ${"%.4f".format(ws.solBalance)}"
+                                  else "🔴 LIVE MODE  ◎ ${"%.4f".format(ws.solBalance)}")
         } else {
             tvBalanceLarge.setTextIfChanged("—")
             tvBalanceUsd.setTextIfChanged(if (config.paperMode) "📝 PAPER MODE" else "🔴 LIVE MODE")
@@ -2818,8 +2818,8 @@ for legal compliance.
         } catch (_: Exception) {}
 
         // ── bot status card ───────────────────────────────────────────
-        tvTokenName.setTextIfChanged(ts?.symbol?.ifBlank { "Scanning $uiTokenCount tokens" })
-            ?: if (state.running || runtimeActiveForUi) "Scanning $uiTokenCount tokens" else "No token selected"
+        tvTokenName.setTextIfChanged(ts?.symbol?.ifBlank { "Scanning $uiTokenCount tokens" }
+            ?: if (state.running || runtimeActiveForUi) "Scanning $uiTokenCount tokens" else "No token selected")
         
         // Load token logo from DexScreener
         if (ts != null) {
