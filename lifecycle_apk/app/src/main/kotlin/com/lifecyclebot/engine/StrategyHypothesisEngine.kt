@@ -67,7 +67,8 @@ object StrategyHypothesisEngine {
 
     private data class Hypothesis(
         val context: String,
-        @Volatile var variantSizeBias: Double,   // what the variant arm tests
+        @Volatile var variantSizeBias: Double,   // what the variant arm tests (size dim)
+        @Volatile var variantStopMult: Double = 1.0,   // V5.9.1286 — stop-width dim
         val control: Arm = Arm(),
         val variant: Arm = Arm(),
         @Volatile var spawnedAt: Long = System.currentTimeMillis(),
@@ -75,6 +76,8 @@ object StrategyHypothesisEngine {
 
     // promoted baseline size bias per context (starts 1.0)
     private val baseline = ConcurrentHashMap<String, Double>()
+    // V5.9.1286 — promoted stop-width multiplier per context (starts 1.0)
+    private val stopBaseline = ConcurrentHashMap<String, Double>()
     private val active = ConcurrentHashMap<String, Hypothesis>()
     private val pending = ConcurrentHashMap<String, Pair<String, Boolean>>()  // mint -> (context, isVariant)
     @Volatile private var promotions = 0L
@@ -165,8 +168,9 @@ object StrategyHypothesisEngine {
         val se = sqrt(vv.variance / vv.n + vc.variance / vc.n).coerceAtLeast(1e-6)
         val t = (vv.mean - vc.mean) / se
         if (t >= PROMOTE_T) {
-            // variant wins → promote its bias to the new baseline, spawn next
+            // variant wins → promote BOTH dimensions to the new baseline, spawn next
             baseline[ctx] = h.variantSizeBias
+            stopBaseline[ctx] = h.variantStopMult   // V5.9.1286 — persist proven stop width
             promotions += 1
             active[ctx] = spawn(ctx)
         } else if (t <= -PROMOTE_T) {
