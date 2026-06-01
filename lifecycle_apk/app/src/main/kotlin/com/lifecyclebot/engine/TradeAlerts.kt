@@ -186,6 +186,30 @@ object TradeAlerts {
     }
 
     /**
+     * V5.9.1258 — Main-thread stall (ANR) alert. The PipelineHealthCollector
+     * watchdog captures the EXACT top blocking call-site while the main thread
+     * is hung, but until now that data only lived inside the forensic dump — the
+     * operator saw an "ANR N" count badge and had to manually open + scroll the
+     * dump to learn WHAT was blocking. This surfaces the actual culprit frame
+     * automatically. Throttled upstream (one fire per unique frame per 5s via the
+     * watchdog's emit gate) so it can't spam. Main-thread stalls choke the trade
+     * loop → this directly serves the volume target by ending the blind-guess
+     * cycle on which method to de-main.
+     */
+    fun onMainThreadStall(cfg: BotConfig, topFrame: String, gapMs: Long) {
+        if (!shouldNotify(cfg)) return
+        val msg = "⚠️ MAIN-THREAD STALL ${gapMs}ms\nTop blocking call: ${topFrame.take(140)}"
+        GlobalScope.launch(Dispatchers.IO) {
+            if (cfg.telegramTradeAlerts && cfg.telegramBotToken.isNotBlank()) {
+                TelegramNotifier.send(cfg, msg)
+            }
+            if (cfg.discordTradeAlerts && cfg.discordWebhookUrl.isNotBlank()) {
+                DiscordNotifier.send(cfg, msg, DiscordNotifier.RED)
+            }
+        }
+    }
+
+    /**
      * Notify on dev sell detected.
      */
     fun onDevSell(cfg: BotConfig, symbol: String, pct: Int) {

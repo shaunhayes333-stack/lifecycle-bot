@@ -601,6 +601,22 @@ object PipelineHealthCollector {
                                 "",
                                 "main thread blocked for ${gap}ms — top frame: $topFrame\n$trace$preRingSb",
                             ))
+
+                            // V5.9.1258 — auto-surface the blocking call-site to
+                            // the operator (Telegram/Discord) instead of burying it
+                            // in the forensic dump. Only on SEVERE stalls (>3s) so
+                            // minor blips don't alert; already throttled to one fire
+                            // per unique top-frame per 5s by the emitNow gate above.
+                            // Fail-open: never let alerting break the watchdog.
+                            if (gap > 3_000L) {
+                                try {
+                                    val ctx = BotService.instance?.applicationContext
+                                    if (ctx != null) {
+                                        val cfgNow = com.lifecyclebot.data.ConfigStore.load(ctx)
+                                        TradeAlerts.onMainThreadStall(cfgNow, topFrame, gap)
+                                    }
+                                } catch (_: Throwable) { /* alerting must never crash the watchdog */ }
+                            }
                         }
                     } else {
                         // Main has been responsive — ping for the next round.
