@@ -917,6 +917,17 @@ object CashGenerationAI {
         val takeProfitPct = FluidLearningAI.getFluidTakeProfit(baseTakeProfitPct)
         val stopLossPct = -FluidLearningAI.getFluidStopLoss(baseStopLossPct)
 
+        // V5.9.1257 — calibration-aware shrink: trim entry size when THIS score
+        // band has proven net-negative (scorer-inversion). Soft-shape, never veto.
+        // (positionSol is already a `var`, declared above — just mutate it.)
+        try {
+            val calMult = com.lifecyclebot.engine.ScoreExpectancyTracker.calibrationSizeMult("CASHGEN", treasuryScore)
+            if (calMult < 1.0) {
+                positionSol *= calMult
+                ErrorLogger.info(TAG, "💰 CASHGEN CALIBRATION_SHRINK $symbol | band=S$treasuryScore size×$calMult (net-negative band)")
+            }
+        } catch (_: Throwable) { /* fail-open */ }
+
         ErrorLogger.info(
             TAG,
             // V5.9.90: renamed from "TREASURY ENTRY" — this log fires when

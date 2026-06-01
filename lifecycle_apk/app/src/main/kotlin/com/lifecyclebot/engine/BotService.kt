@@ -13862,11 +13862,15 @@ if (postSupervisorOpenCount > 0 && !postSupervisorBackupDue) {
                                 com.lifecyclebot.engine.ScoreExpectancyTracker.shouldReject("TREASURY", _trsScore)
                             } catch (_: Throwable) { false }
                             val _trsExpectancyMult = if (_trsExpectancyReject) 0.25 else 1.0
+                            // V5.9.1257 — calibration-aware shrink (net-negative band).
+                            val _trsCalMult = try {
+                                com.lifecyclebot.engine.ScoreExpectancyTracker.calibrationSizeMult("TREASURY", _trsScore)
+                            } catch (_: Throwable) { 1.0 }
                             if (_trsExpectancyReject) {
                                 ErrorLogger.info("BotService",
                                     "🏷️ [TREASURY] ${ts.symbol} | EXPECTANCY_SOFTSHAPE (size×0.25, not blocked) | score=$_trsScore | μ=${"%+.1f".format(com.lifecyclebot.engine.ScoreExpectancyTracker.bucketMean("TREASURY", _trsScore) ?: 0.0)}% n=${com.lifecyclebot.engine.ScoreExpectancyTracker.bucketSamples("TREASURY", _trsScore)}")
                             }
-                            val adjustedSize = (treasurySignal.positionSizeSol * bootstrapMultiplier * dangerSizeMult * _trsExpectancyMult).coerceAtLeast(0.01)
+                            val adjustedSize = (treasurySignal.positionSizeSol * bootstrapMultiplier * dangerSizeMult * _trsExpectancyMult * _trsCalMult).coerceAtLeast(0.01)
                             
                             // V5.2.8 FIX: If bootstrap override forced entry, use default TP/SL values
                             // When Treasury rejects, it returns 0% TP which causes immediate exits!
@@ -14711,9 +14715,12 @@ if (postSupervisorOpenCount > 0 && !postSupervisorBackupDue) {
                                     val moonshotAttemptId = ExecutableOpenGate.recentAllowedAttemptId(ts.mint, "MOONSHOT") ?: authResult.attemptId
                                     // Acquire final execution permit
                                     // V5.9.691 — apply FDG probe reduction if FDG disagreed
-                                    val msEffectiveSize = if (fdgReducedSize)
+                                    val _msCalMult = try {
+                                        com.lifecyclebot.engine.ScoreExpectancyTracker.calibrationSizeMult("MOONSHOT", moonshotScore.score)
+                                    } catch (_: Throwable) { 1.0 }
+                                    val msEffectiveSize = (if (fdgReducedSize)
                                         (moonshotScore.suggestedSizeSol * 0.5).coerceAtLeast(cfg.smallBuySol)
-                                    else moonshotScore.suggestedSizeSol
+                                    else moonshotScore.suggestedSizeSol) * _msCalMult
                                     if (FinalExecutionPermit.tryAcquireExecution(
                                         mint = ts.mint,
                                         symbol = ts.symbol,
@@ -15194,7 +15201,11 @@ if (postSupervisorOpenCount > 0 && !postSupervisorBackupDue) {
                             val bootstrapMultiplier = com.lifecyclebot.v3.scoring.FluidLearningAI.getBootstrapSizeMultiplier()
                             // V5.9.619 — apply MemeEdgeAI size multiplier (bounded 0.70..1.40).
                             val edgeSizeMult = shitCoinEdge.sizeMultiplier
-                            val adjustedSize = (shitCoinSignal.positionSizeSol * bootstrapMultiplier * edgeSizeMult).coerceAtLeast(0.01)
+                            // V5.9.1257 — calibration-aware shrink (net-negative band).
+                            val _shitCalMult = try {
+                                com.lifecyclebot.engine.ScoreExpectancyTracker.calibrationSizeMult("SHITCOIN", shitCoinSignal.entryScore)
+                            } catch (_: Throwable) { 1.0 }
+                            val adjustedSize = (shitCoinSignal.positionSizeSol * bootstrapMultiplier * edgeSizeMult * _shitCalMult).coerceAtLeast(0.01)
                             
                             // V5.2.8 FIX: If bootstrap override forced entry, use default TP/SL values
                             val shitcoinEffectiveTpPct = if (shitCoinSignal.takeProfitPct <= 0.0) 5.0 else shitCoinSignal.takeProfitPct

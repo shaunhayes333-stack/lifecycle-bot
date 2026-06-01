@@ -368,6 +368,16 @@ object ManipulatedTraderAI {
             }
         } catch (_: Throwable) { /* fail-open per FDG doctrine */ }
 
+        // V5.9.1257 — calibration-aware shrink: if THIS score band has proven
+        // net-negative (scorer-inversion), trim size. Soft-shape, never veto.
+        try {
+            val calMult = com.lifecyclebot.engine.ScoreExpectancyTracker.calibrationSizeMult("MANIPULATED", score)
+            if (calMult < 1.0) {
+                positionSizeSol *= calMult
+                ErrorLogger.info(TAG, "☠️ MANIP CALIBRATION_SHRINK $symbol | band=S$score size×$calMult (net-negative band)")
+            }
+        } catch (_: Throwable) { /* fail-open */ }
+
         val learningPct = (FluidLearningAI.getLearningProgress() * 100).toInt()
 
         ErrorLogger.info(TAG, "☠️ MANIP SIGNAL: $symbol | score=$score (min=$minScore) | " +

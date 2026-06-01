@@ -121,6 +121,34 @@ object ScoreExpectancyTracker {
         return mean < REJECT_MEAN_PNL_PCT
     }
 
+    /**
+     * V5.9.1257 — CALIBRATION-AWARE SIZE MULTIPLIER.
+     * The Score-Band Calibration screen showed the scorer is INVERTED in several
+     * lanes: high "confidence" bands (S40-60+) were net-NEGATIVE while some low
+     * bands were net-positive. A high score therefore must NOT mean a big
+     * position in a band that has proven to lose. This returns a graduated
+     * soft-shape multiplier (NEVER a veto) based on this exact band's rolling
+     * mean PnL:
+     *   mean >= 0%            → 1.00  (healthy / positive band — untouched)
+     *   -8% <= mean < 0%      → 0.70  (mild negative — trim)
+     *   -15% <= mean < -8%    → 0.45  (clearly negative — already shouldReject territory)
+     *   mean < -15%           → 0.25  (deeply negative band — heavy trim)
+     * Returns 1.0 when the band has < MIN_SAMPLES_FOR_REJECT closes (don't shape
+     * on noise) — so young/bootstrap bands are never shrunk. Independent of the
+     * LosingPatternMemory danger path (that keys on loss COUNT; this keys on the
+     * band's mean RETURN), so the two compose: a band can be trimmed for being
+     * net-negative before it ever matures into a danger bucket.
+     */
+    fun calibrationSizeMult(layer: String, score: Int): Double {
+        val mean = bucketMean(layer, score) ?: return 1.0   // null = too few samples → no shaping
+        return when {
+            mean >= 0.0    -> 1.0
+            mean >= -8.0   -> 0.70
+            mean >= -15.0  -> 0.45
+            else           -> 0.25
+        }
+    }
+
     /** One-line snapshot for [layer], or all layers if null. */
     fun snapshot(layer: String? = null): String {
         val parts = mutableListOf<String>()

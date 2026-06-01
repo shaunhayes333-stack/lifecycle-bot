@@ -494,6 +494,15 @@ object QualityTraderAI {
             }
         } catch (_: Throwable) { /* fail-open per FDG doctrine */ }
 
+        // V5.9.1257 — calibration-aware shrink for net-negative score bands.
+        try {
+            val calMult = com.lifecyclebot.engine.ScoreExpectancyTracker.calibrationSizeMult("QUALITY", qualityScore)
+            if (calMult < 1.0) {
+                positionSize *= calMult
+                ErrorLogger.info(TAG, "✨ QUALITY CALIBRATION_SHRINK $symbol | band=S$qualityScore size×$calMult (net-negative band)")
+            }
+        } catch (_: Throwable) { /* fail-open */ }
+
         // Get fluid TP/SL
         val tp = getFluidTakeProfit()
         val sl = getFluidStopLoss()
