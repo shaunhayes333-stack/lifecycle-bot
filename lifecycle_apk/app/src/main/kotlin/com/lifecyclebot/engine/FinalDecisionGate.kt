@@ -3655,7 +3655,7 @@ object FinalDecisionGate {
                         // its own sub-brains into one coherent win-probability → soft
                         // size multiplier. Stamped for closed-loop training. Fail-open.
                         val uphSignals = UnifiedPolicyHead.Signals(
-                            mlEntryConf  = try { mlPrediction?.entryConfidence ?: 0.5 } catch (_: Throwable) { 0.5 },
+                            mlEntryConf  = try { (mlPrediction?.entryConfidence?.toDouble()) ?: 0.5 } catch (_: Throwable) { 0.5 },
                             symGreenLight = symGreenLight,
                             evRatio      = try { (((evResult?.expectedValue ?: 1.0) - 0.8) / 0.8).coerceIn(0.0, 1.0) } catch (_: Throwable) { 0.5 },
                             metaConviction = ((conv - 0.55) / 0.9).coerceIn(0.0, 1.0),
