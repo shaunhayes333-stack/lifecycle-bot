@@ -6320,6 +6320,30 @@ class BotService : Service() {
      * Runs every 500ms to check ALL open positions against hard floor stop loss.
      * This catches catastrophic losses that the main loop (5-10sec cycle) might miss.
      */
+    // V5.9.1277 — fallback-price oracle chain for stale-feed positions. The full
+    // 4-oracle stack (Switchboard/Jupiter/Birdeye/DexScreener) lived in perps/ and
+    // was ONLY used by the perps trader; the meme trader force-dumped on a dead WS.
+    // Free sources first (DexScreener, no key, multi-DEX), then the budget-gated
+    // Birdeye boost. Throttled per-mint so a genuinely-dead token can't spam the APIs.
+    private val staleFallbackLastTryMs = java.util.concurrent.ConcurrentHashMap<String, Long>()
+    private suspend fun resolveStaleFallbackPrice(mint: String): Double? {
+        val now = System.currentTimeMillis()
+        val last = staleFallbackLastTryMs[mint] ?: 0L
+        if (now - last < 8_000L) return null   // at most one oracle sweep per 8s per mint
+        staleFallbackLastTryMs[mint] = now
+        // 1) DexScreener — free, no key, aggregates all DEX pools.
+        try {
+            val p = com.lifecyclebot.perps.DexScreenerOracle.getPriceByAddress(mint)
+            if (p != null && p > 0.0) return p
+        } catch (_: Exception) {}
+        // 2) Birdeye — the "boost" (keyed, budget-gated inside the oracle itself).
+        try {
+            val p = com.lifecyclebot.perps.BirdeyeOracle.getPriceByAddress(mint)
+            if (p != null && p > 0.0) return p
+        } catch (_: Exception) {}
+        return null
+    }
+
     private suspend fun rapidStopLossMonitor() {
         ErrorLogger.info("BotService", "🛡️ Rapid Stop-Loss Monitor STARTED (adaptive 500ms / 5s cycle)")
         
@@ -6372,9 +6396,27 @@ class BotService : Service() {
                             val lastPriceAgeMs = System.currentTimeMillis() - priceRefMs
                             val staleThresholdMs = if (posAgeMs > 60_000L) 90_000L else 120_000L
                             if (lastPriceAgeMs > staleThresholdMs && ts.position.isOpen && ts.position.entryPrice > 0) {
+                                // V5.9.1277 — FALLBACK-PRICE BEFORE FORCED DUMP. The WS feed
+                                // dying does NOT mean the token rugged — it usually means our
+                                // primary feed (Helius/PumpPortal) flaked. Before we assume rug
+                                // and eat a forced loss, ask the FREE off-chain oracles that are
+                                // already built but were only wired into the perps trader:
+                                // DexScreener (free, multi-DEX) → Birdeye (budget-gated). If ANY
+                                // returns a live price, treat the position as healthy, refresh
+                                // ts.lastPrice, and let normal PnL/exit logic run this cycle.
+                                val fbPrice = resolveStaleFallbackPrice(ts.mint)
+                                if (fbPrice != null && fbPrice > 0.0) {
+                                    ts.lastPrice = fbPrice
+                                    ts.lastPriceUpdate = System.currentTimeMillis()
+                                    ts.lastPriceSource = "ORACLE_FALLBACK"
+                                    ErrorLogger.info("BotService",
+                                        "🛟 STALE_FALLBACK_RECOVERED: ${ts.symbol} primary feed dark ${lastPriceAgeMs/1000}s → oracle price \$$fbPrice (NO forced dump)")
+                                    addLog("🛟 PRICE RECOVERED via oracle: ${ts.symbol} = \$$fbPrice — skipping rug-escape", ts.mint)
+                                    continue  // re-evaluate with real price next monitor pass
+                                }
                                 ErrorLogger.warn("BotService",
-                                    "💀 STALE_PRICE_RUG_ESCAPE: ${ts.symbol} — no price for ${lastPriceAgeMs/1000}s (pos age ${posAgeMs/1000}s), force-exit")
-                                addLog("💀 STALE PRICE EXIT: ${ts.symbol} | no price ${lastPriceAgeMs/1000}s — assume rug", ts.mint)
+                                    "💀 STALE_PRICE_RUG_ESCAPE: ${ts.symbol} — no price for ${lastPriceAgeMs/1000}s (pos age ${posAgeMs/1000}s), all oracles dark, force-exit")
+                                addLog("💀 STALE PRICE EXIT: ${ts.symbol} | no price ${lastPriceAgeMs/1000}s — oracles dark, assume rug", ts.mint)
                                 executor.requestSell(ts = ts, reason = "STALE_PRICE_RUG_ESCAPE",
                                     wallet = wallet, walletSol = effectiveBalance)
                                 // V5.9.715-FIX: stale-price exits in paper mode are price-feed
@@ -6469,9 +6511,24 @@ class BotService : Service() {
                                     } catch (_: Throwable) {}
                                     continue
                                 }
+                                // V5.9.1277 — one real-price check before dumping a
+                                // corroborated-stale position. A live oracle price either
+                                // confirms the rug (refresh → normal floor logic dumps it at
+                                // the true price, not a guess) or proves it's a feed glitch.
+                                val fbLivePrice = resolveStaleFallbackPrice(ts.mint)
+                                if (fbLivePrice != null && fbLivePrice > 0.0) {
+                                    ts.lastPrice = fbLivePrice
+                                    ts.lastPriceUpdate = System.currentTimeMillis()
+                                    ts.lastPriceSource = "ORACLE_FALLBACK"
+                                    val fbPnl = ((fbLivePrice - ts.position.entryPrice) / ts.position.entryPrice) * 100.0
+                                    ErrorLogger.info("BotService",
+                                        "🛟 STALE_LIVE_FALLBACK: ${ts.symbol} feed frozen ${livePriceAgeMs/1000}s → oracle \$$fbLivePrice (pnl ${"%.1f".format(fbPnl)}%) — defer to floor logic")
+                                    addLog("🛟 LIVE PRICE RECOVERED via oracle: ${ts.symbol} @ ${"%.1f".format(fbPnl)}% — no blind dump", ts.mint)
+                                    continue  // real price now set; hard-floor/exit logic handles it correctly
+                                }
                                 ErrorLogger.warn("BotService",
-                                    "💀 STALE_LIVE_PRICE_RUG_ESCAPE: ${ts.symbol} — lastPrice stale ${livePriceAgeMs/1000}s (since max(priceUpd,entry)), lastPnl=${"%.1f".format(lastKnownPnlPct)}%, force-exit")
-                                addLog("💀 STALE LIVE PRICE EXIT: ${ts.symbol} | price frozen ${livePriceAgeMs/1000}s @ ${"%.1f".format(lastKnownPnlPct)}% — assume rug", ts.mint)
+                                    "💀 STALE_LIVE_PRICE_RUG_ESCAPE: ${ts.symbol} — lastPrice stale ${livePriceAgeMs/1000}s (since max(priceUpd,entry)), lastPnl=${"%.1f".format(lastKnownPnlPct)}%, oracles dark, force-exit")
+                                addLog("💀 STALE LIVE PRICE EXIT: ${ts.symbol} | price frozen ${livePriceAgeMs/1000}s @ ${"%.1f".format(lastKnownPnlPct)}% — oracles dark, assume rug", ts.mint)
                                 executor.requestSell(ts = ts, reason = "STALE_LIVE_PRICE_RUG_ESCAPE",
                                     wallet = wallet, walletSol = effectiveBalance)
                                 // V5.9.715-FIX: same as STALE_PRICE_RUG_ESCAPE — paper mode
