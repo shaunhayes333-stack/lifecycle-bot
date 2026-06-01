@@ -162,13 +162,6 @@ class UnifiedScorer(
 
         val allComponents = baseComponents + collectiveComponent
 
-        // V5.9.1267 — UNIVERSAL GRADING: stamp every layer's component opinion
-        // into the education ledger so the ~24 previously-silent scoring layers
-        // get graded on the same closeout path as the 28 sampler voters. Merges
-        // (does not clobber) the sampler's votes. Untraded mints are purged by
-        // LayerVoteStore.purgeStale(12h), so non-trades cost nothing. Fail-open.
-        try { com.lifecyclebot.learning.LayerVoteStore.recordComponentVotes(candidate.mint, allComponents) } catch (_: Exception) {}
-
         // ═══════════════════════════════════════════════════════════════════
         // V5.9.351 — RESTORE V5.9.344 TWO-SIDED ACCURACY-WEIGHTED SCORING
         // (build 2209 behaviour — user directive "make current build match
