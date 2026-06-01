@@ -12993,6 +12993,36 @@ if (postSupervisorOpenCount > 0 && !postSupervisorBackupDue) {
     // In PAUSED mode: no new entries (existing positions still managed)
     if (modeConf?.mode == AutoModeEngine.BotMode.PAUSED && !ts.position.isOpen) return
 
+    // ═══════════════════════════════════════════════════════════════════
+    // V5.9.1270 — REVIVE RegimeTransitionAI (dead-intelligence fix).
+    // AUDIT FINDING: analyzeTransition() — the ONLY method that populates
+    // transitionCache — had ZERO callers anywhere in the codebase. So
+    // getActiveTransitions() filtered a permanently-empty map and always
+    // returned []. Consequence: SymbolicExitReasoner rule #18 "Transition
+    // Pressure" (weight 0.04) + the AGI snapshot's RegimeTransitionPressure
+    // read dead air and NEVER fired. An entire exit-reasoning signal —
+    // meant to de-risk on rug-forming / graduation / breakout regime shifts
+    // — ran inert. Producer existed, consumer existed, wire was missing.
+    // Feed it once per cycle for OPEN positions (where transition pressure
+    // matters for exits). analyzeTransition has its own CACHE_TTL_MS guard
+    // so per-cycle calls are cheap. Fail-open. holderCount/volume24h are not
+    // on the runtime TokenState; the detection keys on regime/liq/vol/
+    // momentum deltas which ARE real here.
+    if (ts.position.isOpen) {
+        try {
+            com.lifecyclebot.v3.scoring.RegimeTransitionAI.analyzeTransition(
+                mint = ts.mint,
+                symbol = ts.symbol,
+                currentRegime = modeConf?.mode?.name ?: "NEUTRAL",
+                liquidity = ts.lastLiquidityUsd,
+                volatility = ts.volatility ?: 0.0,
+                momentum = ts.momentum ?: 0.0,
+                holderCount = 0,
+                volume24h = 0.0,
+            )
+        } catch (_: Exception) {}
+    }
+
     // Trade on ALL watchlist tokens simultaneously
     val cbState = securityGuard.getCircuitBreakerState()
     val effectiveBalance = status.getEffectiveBalance(cfg.paperMode)
