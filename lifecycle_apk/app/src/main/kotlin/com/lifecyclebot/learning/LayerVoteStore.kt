@@ -50,6 +50,29 @@ object LayerVoteStore {
         layerVotes.forEach { (layer, vote) -> bucket[layer] = vote }
     }
 
+    // V5.9.1267 — UNIVERSAL LAYER GRADING. The vote sampler only graded ~28 of
+    // the 52 meme scoring layers; the other ~24 (InsiderTracker, OperatorFinger
+    // print, MEVDetection, CultMomentum, DrawdownCircuit, LiquidityExitPath,
+    // OrderbookImbalancePulse, StablecoinFlow, NewsShock, SessionEdge, TokenDNA
+    // Clustering, MemeEdge, etc.) computed opinions that fed the scorer but were
+    // NEVER graded for accuracy — half the brain ran with zero accountability.
+    // UnifiedScorer already collects every layer's ScoreComponent into one list
+    // per token; this bridges that list straight into the education ledger so
+    // EVERY layer is graded on the same closeout path. A component value>0 =
+    // bullish, <0 = bearish, |value| → conviction. Merges (does NOT clobber) the
+    // sampler's votes — same layer name from both sources keeps the latest.
+    // Skips fatal/neutral/zero components (an abstain, accuracy preserved).
+    fun recordComponentVotes(mint: String, components: List<com.lifecyclebot.v3.scoring.ScoreComponent>) {
+        if (components.isEmpty()) return
+        val bucket = votes.getOrPut(mint) { ConcurrentHashMap() }
+        for (c in components) {
+            if (c.value == 0) continue                       // neutral → abstain
+            val layerName = "SC_" + c.name                   // SC_ = score-component origin, avoids name collisions
+            val conviction = (kotlin.math.abs(c.value) / 10.0).coerceIn(0.1, 1.0)
+            bucket[layerName] = Vote(bullish = c.value > 0, conviction = conviction)
+        }
+    }
+
     /** Called on trade close. Returns the vote map so caller can replay. */
     fun drainVotes(mint: String): Map<String, Vote> {
         val bucket = votes.remove(mint) ?: return emptyMap()
