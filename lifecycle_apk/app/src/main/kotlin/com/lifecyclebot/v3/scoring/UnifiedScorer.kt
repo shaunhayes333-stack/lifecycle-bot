@@ -184,7 +184,11 @@ class UnifiedScorer(
         // ═══════════════════════════════════════════════════════════════════
         val weightedComponents = allComponents.map { comp ->
             val layerName = try { EducationSubLayerAI.componentNameToLayer(comp.name) } catch (_: Exception) { comp.name }
-            val accuracy  = try { EducationSubLayerAI.getLayerAccuracy(layerName) } catch (_: Exception) { 0.5 }
+            // V5.9.1274 — read the ASSET-CLASS-SCOPED accuracy so each universe
+            // (MEME / ALT / STOCK / ...) weights layers by its own learned edge,
+            // not a global blend. Falls back to global until the scoped bucket warms.
+            val assetClass = try { EducationSubLayerAI.assetClassOf(null, candidate.mint) } catch (_: Exception) { null }
+            val accuracy  = try { EducationSubLayerAI.getLayerAccuracy(layerName, assetClass) } catch (_: Exception) { 0.5 }
             val educationWeight = (0.7 + accuracy * 0.8).coerceIn(0.7, 1.5)
 
             // V5.9.820 — MetaCog trust-weighted layer blend (AGI campaign push 9).

@@ -381,6 +381,52 @@ object EducationSubLayerAI {
     
     private val layerPerformance = ConcurrentHashMap<String, LayerPerformanceMetrics>()
 
+    // ─────────────────────────────────────────────────────────────────────────
+    // V5.9.1274 — ASSET-CLASS-SCOPED LEARNING (the multi-asset keystone).
+    //
+    // The bot's own SENTIENT MIND diagnosed this: "zero lifetime trades on this
+    // crypto(alt) brain, yet burdened by the ghosts of a thousand bad decisions
+    // from my other, flailing parts." layerPerformance was keyed by bare
+    // layerName, so a layer's accuracy was ONE global number blended across
+    // memes / stocks / forex / crypto-alt. When the crypto universe switches on
+    // it inherits the meme bootstrap poison instead of starting neutral.
+    //
+    // LayerLaneRegistry ALREADY specifies the "$layerName#$assetClass" key format
+    // (e.g. "BehaviorAI#MEME") and a per-asset trust intent — the accuracy store
+    // just never honoured it. We do now.
+    //
+    // Backward-compat & safety:
+    //   • markLayerOutcome writes BOTH the scoped key AND the bare global key, so
+    //     every existing reader keeps working and the global stays meaningful.
+    //   • getLayerAccuracy(name, asset) reads the scoped bucket once it has enough
+    //     samples, else falls back to the bare global (cold-start safe).
+    //   • Persisted pre-1274 state lives under bare keys → still read as global
+    //     fallback. No migration, no data loss.
+    // ─────────────────────────────────────────────────────────────────────────
+
+    /** Minimum scoped samples before we trust the per-asset bucket over global. */
+    private const val SCOPED_MIN_SAMPLES = 8
+
+    /** Classify an outcome into a coarse asset class for learning isolation. */
+    fun assetClassOf(tradingMode: String?, mint: String?): String {
+        val mode = (tradingMode ?: "").uppercase()
+        val m = mint ?: ""
+        return when {
+            "FOREX" in mode || "FX" in mode -> "FOREX"
+            "METAL" in mode -> "METAL"
+            "COMM" in mode -> "COMMODITY"
+            "PERP" in mode || "LEVERAGE" in mode -> "PERPS"
+            "STOCK" in mode -> "STOCK"
+            "ALT" in mode || "CRYPTO" in mode -> "ALT"
+            m.length >= 32 -> "MEME"           // Solana mint address = meme
+            else -> "MEME"                       // default universe today
+        }
+    }
+
+    private fun scopedKey(layerName: String, assetClass: String): String =
+        "$layerName#$assetClass"
+
+
     // V5.9.1152 — one-shot close-outcome guard.
     // Runtime 3118 showed the same settled trade being re-taught repeatedly
     // (AdaptiveLearning "Trade #209" + EducationAI update every tick) because
@@ -613,7 +659,9 @@ object EducationSubLayerAI {
                     val predictedBullish = score > 0
                     val wasCorrect = (predictedBullish && outcome.isWin) ||
                                      (!predictedBullish && !outcome.isWin)
-                    markLayerOutcome(layerName, wasSuccess = wasCorrect, pnlPct = outcome.pnlPct, isShadowTrade = outcome.isShadowTrade)
+                    markLayerOutcome(layerName, wasSuccess = wasCorrect, pnlPct = outcome.pnlPct,
+                        isShadowTrade = outcome.isShadowTrade,
+                        assetClass = assetClassOf(outcome.tradingMode, outcome.mint))
                     updated++
                 } else {
                     // Layer was neutral, OR outcome was a scratch — keep alive without poisoning expectancy.
@@ -815,7 +863,7 @@ object EducationSubLayerAI {
                 pnlPct = outcome.pnlPct,
                 setupQuality = outcome.setupQuality
             )
-            markLayerOutcome("HoldTimeOptimizerAI", outcome.isWin, outcome.pnlPct)
+            markLayerOutcome("HoldTimeOptimizerAI", outcome.isWin, outcome.pnlPct, isShadowTrade = false, assetClass = assetClassOf(outcome.tradingMode, outcome.mint))
             layersUpdated++
         } catch (e: Exception) { errors.add("HoldTimeAI: ${e.message}") }
         
@@ -828,7 +876,7 @@ object EducationSubLayerAI {
                 holdTimeMs = outcome.holdTimeMinutes.toLong() * 60_000,
                 exitReason = outcome.exitReason
             )
-            markLayerOutcome("MetaCognitionAI", outcome.isWin, outcome.pnlPct)
+            markLayerOutcome("MetaCognitionAI", outcome.isWin, outcome.pnlPct, isShadowTrade = false, assetClass = assetClassOf(outcome.tradingMode, outcome.mint))
             layersUpdated++
         } catch (e: Exception) { errors.add("MetaCognitionAI: ${e.message}") }
         
@@ -840,7 +888,7 @@ object EducationSubLayerAI {
         // trade count 2x and corrupting the learning phase/maturity signal.
         // We still track Education's own layer record for FluidLearning accuracy.
         try {
-            markLayerOutcome("FluidLearningAI", outcome.isWin, outcome.pnlPct)
+            markLayerOutcome("FluidLearningAI", outcome.isWin, outcome.pnlPct, isShadowTrade = false, assetClass = assetClassOf(outcome.tradingMode, outcome.mint))
             layersUpdated++
         } catch (e: Exception) { errors.add("FluidLearningAI: ${e.message}") }
         
@@ -871,7 +919,7 @@ object EducationSubLayerAI {
                 stableTradeKey = outcomeDedupKey(outcome),
             )
             AdaptiveLearningEngine.learnFromTrade(features)
-            markLayerOutcome("AdaptiveLearningEngine", outcome.isWin, outcome.pnlPct)
+            markLayerOutcome("AdaptiveLearningEngine", outcome.isWin, outcome.pnlPct, isShadowTrade = false, assetClass = assetClassOf(outcome.tradingMode, outcome.mint))
             layersUpdated++
         } catch (e: Exception) { errors.add("AdaptiveLearning: ${e.message}") }
         
@@ -882,42 +930,42 @@ object EducationSubLayerAI {
         // MomentumPredictorAI
         try {
             MomentumPredictorAI.recordOutcome(outcome.mint, outcome.pnlPct, outcome.maxGainPct)
-            markLayerOutcome("MomentumPredictorAI", outcome.isWin, outcome.pnlPct)
+            markLayerOutcome("MomentumPredictorAI", outcome.isWin, outcome.pnlPct, isShadowTrade = false, assetClass = assetClassOf(outcome.tradingMode, outcome.mint))
             layersUpdated++
         } catch (e: Exception) { errors.add("MomentumAI: ${e.message}") }
         
         // NarrativeDetectorAI
         try {
             NarrativeDetectorAI.recordOutcome(outcome.symbol, outcome.tokenName, outcome.pnlPct)
-            markLayerOutcome("NarrativeDetectorAI", outcome.isWin, outcome.pnlPct)
+            markLayerOutcome("NarrativeDetectorAI", outcome.isWin, outcome.pnlPct, isShadowTrade = false, assetClass = assetClassOf(outcome.tradingMode, outcome.mint))
             layersUpdated++
         } catch (e: Exception) { errors.add("NarrativeAI: ${e.message}") }
         
         // TimeOptimizationAI
         try {
             TimeOptimizationAI.recordOutcome(outcome.pnlPct)
-            markLayerOutcome("TimeOptimizationAI", outcome.isWin, outcome.pnlPct)
+            markLayerOutcome("TimeOptimizationAI", outcome.isWin, outcome.pnlPct, isShadowTrade = false, assetClass = assetClassOf(outcome.tradingMode, outcome.mint))
             layersUpdated++
         } catch (e: Exception) { errors.add("TimeOptAI: ${e.message}") }
         
         // LiquidityDepthAI
         try {
             LiquidityDepthAI.recordOutcome(outcome.mint, outcome.pnlPct, outcome.isWin)
-            markLayerOutcome("LiquidityDepthAI", outcome.isWin, outcome.pnlPct)
+            markLayerOutcome("LiquidityDepthAI", outcome.isWin, outcome.pnlPct, isShadowTrade = false, assetClass = assetClassOf(outcome.tradingMode, outcome.mint))
             layersUpdated++
         } catch (e: Exception) { errors.add("LiquidityAI: ${e.message}") }
         
         // WhaleTrackerAI
         try {
             WhaleTrackerAI.recordSignalOutcome(outcome.mint, outcome.isWin, outcome.pnlPct)
-            markLayerOutcome("WhaleTrackerAI", outcome.isWin, outcome.pnlPct)
+            markLayerOutcome("WhaleTrackerAI", outcome.isWin, outcome.pnlPct, isShadowTrade = false, assetClass = assetClassOf(outcome.tradingMode, outcome.mint))
             layersUpdated++
         } catch (e: Exception) { errors.add("WhaleAI: ${e.message}") }
         
         // MarketRegimeAI
         try {
             MarketRegimeAI.recordTradeOutcome(outcome.pnlPct)
-            markLayerOutcome("MarketRegimeAI", outcome.isWin, outcome.pnlPct)
+            markLayerOutcome("MarketRegimeAI", outcome.isWin, outcome.pnlPct, isShadowTrade = false, assetClass = assetClassOf(outcome.tradingMode, outcome.mint))
             layersUpdated++
         } catch (e: Exception) { errors.add("RegimeAI: ${e.message}") }
         
@@ -941,7 +989,7 @@ object EducationSubLayerAI {
                 source = outcome.discoverySource,
                 phase = outcome.entryPhase,
             )
-            markLayerOutcome("TokenWinMemory", outcome.isWin, outcome.pnlPct)
+            markLayerOutcome("TokenWinMemory", outcome.isWin, outcome.pnlPct, isShadowTrade = false, assetClass = assetClassOf(outcome.tradingMode, outcome.mint))
             layersUpdated++
         } catch (e: Exception) { errors.add("TokenMemory: ${e.message}") }
         
@@ -949,7 +997,7 @@ object EducationSubLayerAI {
         try {
             // EdgeLearning uses learnFromOutcome with a snapshot
             // For now, skip direct integration - it learns via different pathway
-            markLayerOutcome("EdgeLearning", outcome.isWin, outcome.pnlPct)
+            markLayerOutcome("EdgeLearning", outcome.isWin, outcome.pnlPct, isShadowTrade = false, assetClass = assetClassOf(outcome.tradingMode, outcome.mint))
             layersUpdated++
         } catch (e: Exception) { errors.add("EdgeLearning: ${e.message}") }
         
@@ -957,7 +1005,7 @@ object EducationSubLayerAI {
         try {
             // BehaviorLearning uses recordTrade with a pattern
             // For now, skip direct integration - it learns via different pathway
-            markLayerOutcome("BehaviorLearning", outcome.isWin, outcome.pnlPct)
+            markLayerOutcome("BehaviorLearning", outcome.isWin, outcome.pnlPct, isShadowTrade = false, assetClass = assetClassOf(outcome.tradingMode, outcome.mint))
             layersUpdated++
         } catch (e: Exception) { errors.add("BehaviorAI: ${e.message}") }
         
@@ -968,25 +1016,25 @@ object EducationSubLayerAI {
         // MoonshotTraderAI
         try {
             // MoonshotTraderAI tracks via its own position management
-            markLayerOutcome("MoonshotTraderAI", outcome.isWin, outcome.pnlPct)
+            markLayerOutcome("MoonshotTraderAI", outcome.isWin, outcome.pnlPct, isShadowTrade = false, assetClass = assetClassOf(outcome.tradingMode, outcome.mint))
             layersUpdated++
         } catch (e: Exception) { errors.add("MoonshotAI: ${e.message}") }
         
         // ShitCoinTraderAI
         try {
-            markLayerOutcome("ShitCoinTraderAI", outcome.isWin, outcome.pnlPct)
+            markLayerOutcome("ShitCoinTraderAI", outcome.isWin, outcome.pnlPct, isShadowTrade = false, assetClass = assetClassOf(outcome.tradingMode, outcome.mint))
             layersUpdated++
         } catch (e: Exception) { errors.add("ShitCoinAI: ${e.message}") }
         
         // CashGenerationAI (Treasury)
         try {
-            markLayerOutcome("CashGenerationAI", outcome.isWin, outcome.pnlPct)
+            markLayerOutcome("CashGenerationAI", outcome.isWin, outcome.pnlPct, isShadowTrade = false, assetClass = assetClassOf(outcome.tradingMode, outcome.mint))
             layersUpdated++
         } catch (e: Exception) { errors.add("CashGenAI: ${e.message}") }
         
         // BlueChipTraderAI
         try {
-            markLayerOutcome("BlueChipTraderAI", outcome.isWin, outcome.pnlPct)
+            markLayerOutcome("BlueChipTraderAI", outcome.isWin, outcome.pnlPct, isShadowTrade = false, assetClass = assetClassOf(outcome.tradingMode, outcome.mint))
             layersUpdated++
         } catch (e: Exception) { errors.add("BlueChipAI: ${e.message}") }
         
@@ -996,49 +1044,49 @@ object EducationSubLayerAI {
         
         // VolatilityRegimeAI
         try {
-            markLayerOutcome("VolatilityRegimeAI", outcome.isWin, outcome.pnlPct)
+            markLayerOutcome("VolatilityRegimeAI", outcome.isWin, outcome.pnlPct, isShadowTrade = false, assetClass = assetClassOf(outcome.tradingMode, outcome.mint))
             layersUpdated++
         } catch (e: Exception) { errors.add("VolatilityAI: ${e.message}") }
         
         // OrderFlowImbalanceAI
         try {
-            markLayerOutcome("OrderFlowImbalanceAI", outcome.isWin, outcome.pnlPct)
+            markLayerOutcome("OrderFlowImbalanceAI", outcome.isWin, outcome.pnlPct, isShadowTrade = false, assetClass = assetClassOf(outcome.tradingMode, outcome.mint))
             layersUpdated++
         } catch (e: Exception) { errors.add("OrderFlowAI: ${e.message}") }
         
         // SmartMoneyDivergenceAI
         try {
-            markLayerOutcome("SmartMoneyDivergenceAI", outcome.isWin, outcome.pnlPct)
+            markLayerOutcome("SmartMoneyDivergenceAI", outcome.isWin, outcome.pnlPct, isShadowTrade = false, assetClass = assetClassOf(outcome.tradingMode, outcome.mint))
             layersUpdated++
         } catch (e: Exception) { errors.add("SmartMoneyAI: ${e.message}") }
         
         // LiquidityCycleAI
         try {
-            markLayerOutcome("LiquidityCycleAI", outcome.isWin, outcome.pnlPct)
+            markLayerOutcome("LiquidityCycleAI", outcome.isWin, outcome.pnlPct, isShadowTrade = false, assetClass = assetClassOf(outcome.tradingMode, outcome.mint))
             layersUpdated++
         } catch (e: Exception) { errors.add("LiqCycleAI: ${e.message}") }
         
         // FearGreedAI
         try {
-            markLayerOutcome("FearGreedAI", outcome.isWin, outcome.pnlPct)
+            markLayerOutcome("FearGreedAI", outcome.isWin, outcome.pnlPct, isShadowTrade = false, assetClass = assetClassOf(outcome.tradingMode, outcome.mint))
             layersUpdated++
         } catch (e: Exception) { errors.add("FearGreedAI: ${e.message}") }
         
         // DipHunterAI
         try {
-            markLayerOutcome("DipHunterAI", outcome.isWin, outcome.pnlPct)
+            markLayerOutcome("DipHunterAI", outcome.isWin, outcome.pnlPct, isShadowTrade = false, assetClass = assetClassOf(outcome.tradingMode, outcome.mint))
             layersUpdated++
         } catch (e: Exception) { errors.add("DipHunterAI: ${e.message}") }
         
         // SellOptimizationAI
         try {
-            markLayerOutcome("SellOptimizationAI", outcome.isWin, outcome.pnlPct)
+            markLayerOutcome("SellOptimizationAI", outcome.isWin, outcome.pnlPct, isShadowTrade = false, assetClass = assetClassOf(outcome.tradingMode, outcome.mint))
             layersUpdated++
         } catch (e: Exception) { errors.add("SellOptAI: ${e.message}") }
         
         // CollectiveIntelligenceAI
         try {
-            markLayerOutcome("CollectiveIntelligenceAI", outcome.isWin, outcome.pnlPct)
+            markLayerOutcome("CollectiveIntelligenceAI", outcome.isWin, outcome.pnlPct, isShadowTrade = false, assetClass = assetClassOf(outcome.tradingMode, outcome.mint))
             layersUpdated++
         } catch (e: Exception) { errors.add("CollectiveAI: ${e.message}") }
 
@@ -1299,7 +1347,23 @@ object EducationSubLayerAI {
     // V5.9.224: isShadowTrade flag — shadow/rejected trade outcomes get 0.4x weight
     // vs real executed trades (1.0x). Fixes "rejection data more weight" where large
     // negative shadow PnL (weight 1.8-3.0) was drowning out smaller real wins (weight 1.2).
-    fun markLayerOutcome(layerName: String, wasSuccess: Boolean, pnlPct: Double, isShadowTrade: Boolean = false) {
+    fun markLayerOutcome(layerName: String, wasSuccess: Boolean, pnlPct: Double, isShadowTrade: Boolean = false) =
+        markLayerOutcome(layerName, wasSuccess, pnlPct, isShadowTrade, assetClass = null)
+
+    /**
+     * V5.9.1274 — asset-class-aware overload. When assetClass is non-null we ALSO
+     * accumulate the outcome into the scoped bucket "$layerName#$assetClass" so each
+     * universe (MEME / ALT / STOCK / ...) learns its OWN edge in isolation, while the
+     * bare-key global stays updated for backward-compat readers and cold-start fallback.
+     */
+    fun markLayerOutcome(layerName: String, wasSuccess: Boolean, pnlPct: Double, isShadowTrade: Boolean, assetClass: String?) {
+        applyOutcomeToKey(layerName, wasSuccess, pnlPct, isShadowTrade)            // global (bare) key
+        if (!assetClass.isNullOrBlank()) {
+            applyOutcomeToKey(scopedKey(layerName, assetClass), wasSuccess, pnlPct, isShadowTrade) // scoped key
+        }
+    }
+
+    private fun applyOutcomeToKey(layerName: String, wasSuccess: Boolean, pnlPct: Double, isShadowTrade: Boolean) {
         val metrics = layerPerformance.getOrPut(layerName) {
             LayerPerformanceMetrics(layerName)
         }
@@ -1693,6 +1757,29 @@ object EducationSubLayerAI {
     /** V5.9.138 — mean pnlPct per trade for this layer, or 0 if no history. */
     fun getLayerExpectancyPct(layerName: String): Double =
         layerPerformance[layerName]?.expectancyPct ?: 0.0
+
+    /**
+     * V5.9.1274 — asset-class-scoped accuracy. Reads the "$layerName#$assetClass"
+     * bucket once it has >= SCOPED_MIN_SAMPLES outcomes; otherwise falls back to the
+     * bare global accuracy. This is what lets the crypto-alt universe start neutral
+     * (0.5) and learn its OWN edge instead of inheriting meme bootstrap poison.
+     */
+    fun getLayerAccuracy(layerName: String, assetClass: String?): Double {
+        if (!assetClass.isNullOrBlank()) {
+            val m = layerPerformance[scopedKey(layerName, assetClass)]
+            if (m != null && m.totalOutcomesRecorded >= SCOPED_MIN_SAMPLES) {
+                val alpha = 5.0
+                return if (m.weightSum > 0.0) {
+                    ((m.weightedHits + alpha * 0.5) / (m.weightSum + alpha)).coerceIn(0.0, 1.0)
+                } else {
+                    val n = m.totalOutcomesRecorded
+                    val wins = m.successfulPredictions.toDouble()
+                    ((wins + alpha) / (n + 2.0 * alpha)).coerceIn(0.0, 1.0)
+                }
+            }
+        }
+        return getLayerAccuracy(layerName)   // global fallback (cold scoped bucket)
+    }
 
     /** V5.9.138 — rough per-trade Sharpe (mean / std of pnlPct). */
     fun getLayerSharpe(layerName: String): Double =
