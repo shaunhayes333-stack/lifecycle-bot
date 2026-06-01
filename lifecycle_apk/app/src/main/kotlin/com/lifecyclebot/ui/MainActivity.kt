@@ -2405,17 +2405,17 @@ for legal compliance.
         when (ws.connectionState) {
             WalletConnectionState.CONNECTED -> {
                 tvWalletDot.background   = cachedDrawable(this, R.drawable.dot_green)
-                tvWalletShort.text       = ws.shortKey
+                tvWalletShort.setTextIfChanged(ws.shortKey)
                 tvWalletShort.setTextColor(white)
             }
             WalletConnectionState.ERROR -> {
                 tvWalletDot.background   = cachedDrawable(this, R.drawable.dot_red)
-                tvWalletShort.text       = "Error"
+                tvWalletShort.setTextIfChanged("Error")
                 tvWalletShort.setTextColor(red)
             }
             else -> {
                 tvWalletDot.background   = cachedDrawable(this, R.drawable.dot_bg)
-                tvWalletShort.text       = "Connect wallet"
+                tvWalletShort.setTextIfChanged("Connect wallet")
                 tvWalletShort.setTextColor(muted)
             }
         }
@@ -2436,29 +2436,29 @@ for legal compliance.
             // confuse "🟢 APIs READY" (Jupiter/Pyth health) with actual
             // trade mode. Per troubleshoot RCA: user saw "LIVE READY"
             // banner and thought bot was live, but cfg.paperMode=true.
-            tvBalanceUsd.text   = if (config.paperMode) "📝 PAPER MODE  ◎ ${"%.4f".format(balSol)}"
+            tvBalanceUsd.setTextIfChanged(if (config.paperMode) "📝 PAPER MODE  ◎ ${"%.4f".format(balSol)}")
                                   else "🔴 LIVE MODE  ◎ ${"%.4f".format(balSol)}"
         } else if (ws.isConnected && ws.solBalance > 0) {
             tvBalanceLarge.setTextIfChanged(currency.format(ws.solBalance))
-            tvBalanceUsd.text   = if (config.paperMode) "📝 PAPER MODE  ◎ ${"%.4f".format(ws.solBalance)}"
+            tvBalanceUsd.setTextIfChanged(if (config.paperMode) "📝 PAPER MODE  ◎ ${"%.4f".format(ws.solBalance)}")
                                   else "🔴 LIVE MODE  ◎ ${"%.4f".format(ws.solBalance)}"
         } else {
             tvBalanceLarge.setTextIfChanged("—")
-            tvBalanceUsd.text   = if (config.paperMode) "📝 PAPER MODE" else "🔴 LIVE MODE"
+            tvBalanceUsd.setTextIfChanged(if (config.paperMode) "📝 PAPER MODE" else "🔴 LIVE MODE")
         }
 
         // ── Live SOL Price ──────────────────────────────────────────────
         val solPrice = com.lifecyclebot.engine.WalletManager.lastKnownSolPrice.takeIf { it in 50.0..1000.0 } ?: 85.0
         if (solPrice >= 10) {
-            tvSolPrice.text = "$${solPrice.toInt()}"
+            tvSolPrice.setTextIfChanged("$${solPrice.toInt()}")
         } else {
-            tvSolPrice.text = "$—"
+            tvSolPrice.setTextIfChanged("$—")
             kotlinx.coroutines.MainScope().launch(kotlinx.coroutines.Dispatchers.IO) {
                 try {
                     val freshPrice = com.lifecyclebot.engine.WalletManager.getInstance(applicationContext).fetchSolPrice()
                     if (freshPrice >= 10) {
                         kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Main) {
-                            tvSolPrice.text = "$${"%.0f".format(freshPrice)}"
+                            tvSolPrice.setTextIfChanged("$${"%.0f".format(freshPrice)}")
                         }
                     }
                 } catch (_: Exception) {}
@@ -2484,15 +2484,15 @@ for legal compliance.
         val startCapitalSol = (balSol - pnl)
         val pnlPct = if (startCapitalSol > 0.0001) (pnl / startCapitalSol) * 100.0 else ws.totalPnlPct
         if (ws.totalTrades > 0) {
-            tvPnlChange.text = currency.format(pnl, showPlus = true)
+            tvPnlChange.setTextIfChanged(currency.format(pnl, showPlus = true))
             tvPnlChange.setTextColor(if (pnl >= 0) green else red)
             // V5.9.810 — journal is source of truth for win%. V5.9.1248 — same
             // source now drives the $ and % too. One source, one number, everywhere.
             val journalWinRate = journalStats?.winRate?.toInt() ?: ws.winRate
-            tvPnlChangePct.text = "%+.1f%%  •  $journalWinRate%% wins".format(pnlPct)
+            tvPnlChangePct.setTextIfChanged("%+.1f%%  •  $journalWinRate%% wins".format(pnlPct))
         } else {
-            tvPnlChange.text    = ""
-            tvPnlChangePct.text = ""
+            tvPnlChange.setTextIfChanged("")
+            tvPnlChangePct.setTextIfChanged("")
         }
 
         // V5.9.14: Symbolic Telemetry row — live mood/edge/risk/health
@@ -2547,7 +2547,7 @@ for legal compliance.
                             (if (count > 0) "🧑‍🏫 COACHING ($count)" else "🧑‍🏫 COACHING") to 0xFF8B5CF6.toInt()
                         }
                     }
-                    pill.text = label
+                    pill.setTextIfChanged(label)
                     pill.setTextColor(color)
                     pill.visibility = android.view.View.VISIBLE
                 } else {
@@ -2666,7 +2666,7 @@ for legal compliance.
 
                 if (streakBlocks == 0 && distrustPauses == 0 && coachingCount == 0 &&
                     recoveryLocks == 0 && amountViolations == 0 && wrRecoveryTag.isEmpty()) {
-                    gs.text = "🛡 Guards: clear" + appendDeferTile()
+                    gs.setTextIfChanged("🛡 Guards: clear" + appendDeferTile())
                     gs.setTextColor(0xFF6B7280.toInt())
                 } else {
                     val parts = mutableListOf<String>()
@@ -2676,7 +2676,7 @@ for legal compliance.
                     if (recoveryLocks > 0) parts += "🔒 $recoveryLocks recovery-lock${if (recoveryLocks == 1) "" else "s"}"
                     if (amountViolations > 0) parts += "🚨 $amountViolations amount-violation${if (amountViolations == 1) "" else "s"}"
                     if (wrRecoveryTag.isNotEmpty()) parts += wrRecoveryTag
-                    gs.text = "🛡 Guards: " + parts.joinToString(" · ") + appendDeferTile()
+                    gs.setTextIfChanged("🛡 Guards: " + parts.joinToString(" · ") + appendDeferTile())
                     gs.setTextColor(if (distrustPauses > 0 || streakBlocks > 0 || amountViolations > 0) 0xFFFFAA00.toInt() else 0xFF9CA3AF.toInt())
                 }
                 gs.visibility = android.view.View.VISIBLE
@@ -2713,7 +2713,7 @@ for legal compliance.
                 if (txt.isBlank()) {
                     lb.visibility = android.view.View.GONE
                 } else {
-                    lb.text = "🏆 Top-3: $txt"
+                    lb.setTextIfChanged("🏆 Top-3: $txt")
                     lb.visibility = android.view.View.VISIBLE
                 }
                 }
@@ -2747,7 +2747,7 @@ for legal compliance.
                         else -> 0xFF3730A3.toInt() // indigo
                     }
                     ribbon.setBackgroundColor(moodColor)
-                    ribbon.text = "$moodIcon Copilot · ${d.mood.name.replace('_', ' ')} · ${d.regime} · ${d.advice}"
+                    ribbon.setTextIfChanged("$moodIcon Copilot · ${d.mood.name.replace('_', ' ')} · ${d.regime} · ${d.advice}")
                     ribbon.visibility = android.view.View.VISIBLE
                 } else {
                     ribbon.visibility = android.view.View.GONE
@@ -2818,7 +2818,7 @@ for legal compliance.
         } catch (_: Exception) {}
 
         // ── bot status card ───────────────────────────────────────────
-        tvTokenName.text  = ts?.symbol?.ifBlank { "Scanning $uiTokenCount tokens" }
+        tvTokenName.setTextIfChanged(ts?.symbol?.ifBlank { "Scanning $uiTokenCount tokens" })
             ?: if (state.running || runtimeActiveForUi) "Scanning $uiTokenCount tokens" else "No token selected"
         
         // Load token logo from DexScreener
@@ -2858,10 +2858,10 @@ for legal compliance.
                 }
             }
         } else ""
-        tvTokenPhase.text = "${ts?.phase ?: "—"}$modeLabel"
+        tvTokenPhase.setTextIfChanged("${ts?.phase ?: "—"}$modeLabel")
 
         val sig = ts?.signal ?: "WAIT"
-        tvSignalChip.text = sig
+        tvSignalChip.setTextIfChanged(sig)
         val (sigBg, sigColor) = when {
             sig == "BUY" ->
                 R.drawable.chip_green_bg to green
@@ -2875,10 +2875,10 @@ for legal compliance.
         tvSignalChip.background = cachedDrawable(this, sigBg)
         tvSignalChip.setTextColor(sigColor)
 
-        tvPrice.text    = if (ts?.lastPrice != null && ts.lastPrice > 0) currency.formatPrice(ts.lastPrice) else "—"
+        tvPrice.setTextIfChanged(if (ts?.lastPrice != null && ts.lastPrice > 0) currency.formatPrice(ts.lastPrice) else "—")
         // Show market cap with FDV fallback
         val mcapValue = ts?.lastMcap?.takeIf { it > 0 } ?: ts?.lastFdv?.takeIf { it > 0 } ?: 0.0
-        tvMcap.text     = mcapValue.fmtMcap()
+        tvMcap.setTextIfChanged(mcapValue.fmtMcap())
         tvPosition.text = when {
             ts?.position?.isOpen == true -> "● OPEN"
             else                         -> "FLAT"
@@ -2890,10 +2890,10 @@ for legal compliance.
         animateProgress(pbExit, ts?.exitScore?.toInt() ?: 0)
         animateProgress(pbVol, ts?.meta?.volScore?.toInt() ?: 0)
         animateProgress(pbPress, ts?.meta?.pressScore?.toInt() ?: 0)
-        tvEntryVal.text   = "${ts?.entryScore?.toInt() ?: 0}"
-        tvExitVal.text    = "${ts?.exitScore?.toInt()  ?: 0}"
-        tvVolVal.text     = "${ts?.meta?.volScore?.toInt()   ?: 0}"
-        tvPressVal.text   = "${ts?.meta?.pressScore?.toInt() ?: 0}"
+        tvEntryVal.setTextIfChanged("${ts?.entryScore?.toInt() ?: 0}")
+        tvExitVal.setTextIfChanged("${ts?.exitScore?.toInt()  ?: 0}")
+        tvVolVal.setTextIfChanged("${ts?.meta?.volScore?.toInt()   ?: 0}")
+        tvPressVal.setTextIfChanged("${ts?.meta?.pressScore?.toInt() ?: 0}")
 
         // ── chart ─────────────────────────────────────────────────────
         // V5.9.1199 — chart paint is UI-only and expensive. While runtime is
@@ -3009,7 +3009,7 @@ for legal compliance.
             // shown when you open the Trade Journal screen.
             val trades24h = persistedStats.trades24h
             val topBarTradeCount = persistedStats.totalStoredTrades
-            tvStats24hTrades.text = "$topBarTradeCount"
+            tvStats24hTrades.setTextIfChanged("$topBarTradeCount")
             
             // Win rate: Use RunTracker30D meme-trader-specific WR.
             // V5.9.649 — fix data pollution where MEME tab showed e.g. "20%"
@@ -3034,7 +3034,7 @@ for legal compliance.
             val journalWr = persistedStats.winRate.toInt()
             val winRate = if (persistedStats.totalTrades >= 1) journalWr else 0
             
-            tvStatsWinRate.text = "$winRate%"
+            tvStatsWinRate.setTextIfChanged("$winRate%")
             tvStatsWinRate.setTextColor(when {
                 winRate >= 60 -> green
                 winRate >= 40 -> amber
@@ -3070,7 +3070,7 @@ for legal compliance.
                     val rawWr = if (totalNonScratch > 0) w * 100.0 / totalNonScratch else 0.0
                     val totalAll = w + l + s
                     val effectiveWr = if (totalAll > 0) w * 100.0 / totalAll else 0.0
-                    sub.text = "${w}W ${l}L ${s}S"
+                    sub.setTextIfChanged("${w}W ${l}L ${s}S")
                     sub.setTextColor(when {
                         // Scratch share warning — paint the sub-line amber when
                         // > 40% of trades are scratches (fee bleed dominant).
@@ -3108,7 +3108,7 @@ for legal compliance.
                         // Solve for delta wins x such that (w+x)/(w+l+x) >= 0.50.
                         // → x >= l - w  (when l > w). When w >= l, gap is 0.
                         val winsNeeded = (l - w).coerceAtLeast(0)
-                        gapSub.text = if (winsNeeded > 0) "need +${winsNeeded}W → 50%" else "AT TARGET"
+                        gapSub.setTextIfChanged(if (winsNeeded > 0) "need +${winsNeeded}W → 50%" else "AT TARGET")
                         gapSub.setTextColor(muted)
                         gapSub.visibility = android.view.View.VISIBLE
                     } else {
@@ -3136,7 +3136,7 @@ for legal compliance.
                         val pLoss = 1.0 - pWin
                         val evPct = pWin * aw + pLoss * al
                         val sign = if (evPct >= 0) "+" else ""
-                        evSub.text = "EV ${sign}${"%.2f".format(evPct)}% / trade"
+                        evSub.setTextIfChanged("EV ${sign}${"%.2f".format(evPct)}% / trade")
                         evSub.setTextColor(when {
                             evPct >= 5.0  -> green
                             evPct >= 0.0  -> amber
@@ -3205,7 +3205,7 @@ for legal compliance.
             when {
                 // If we have an active token being evaluated, show its entry score
                 activeEntryScore > 0 -> {
-                    tvStatsAiConf.text = "$activeEntryScore"
+                    tvStatsAiConf.setTextIfChanged("$activeEntryScore")
                     tvStatsAiConf.setTextColor(when {
                         activeEntryScore >= 70 -> green
                         activeEntryScore >= 50 -> amber
@@ -3214,7 +3214,7 @@ for legal compliance.
                 }
                 // Otherwise show dashboard mode info
                 dashboardData != null -> {
-                    tvStatsAiConf.text = "${dashboardData.modeEmoji} ${dashboardData.activeMode}"
+                    tvStatsAiConf.setTextIfChanged("${dashboardData.modeEmoji} ${dashboardData.activeMode}")
                     tvStatsAiConf.setTextColor(when (dashboardData.sentiment) {
                         "STRONG_BULL", "BULL" -> green
                         "NEUTRAL" -> amber
@@ -3223,7 +3223,7 @@ for legal compliance.
                 }
                 // Fallback: show dash
                 else -> {
-                    tvStatsAiConf.text = "—"
+                    tvStatsAiConf.setTextIfChanged("—")
                     tvStatsAiConf.setTextColor(muted)
                 }
             }
@@ -3277,8 +3277,8 @@ for legal compliance.
                 val pos = ts.position
                 if (pos.entryPrice > 0 && ref > 0) pos.costSol * (ref - pos.entryPrice) / pos.entryPrice else 0.0
             }
-            tvTotalExposure.text = totalExposure.fastFixed(3) + "◎ at risk"
-            tvTotalUnrealisedPnl.text = totalUpnl.fastSigned(4) + "◎"
+            tvTotalExposure.setTextIfChanged(totalExposure.fastFixed(3) + "◎ at risk")
+            tvTotalUnrealisedPnl.setTextIfChanged(totalUpnl.fastSigned(4) + "◎")
             tvTotalUnrealisedPnl.setTextColor(if (totalUpnl >= 0) green else red)
             val openRenderAllowed = !runtimeActiveForUi || lastOpenPosRenderMs > 0L || (System.currentTimeMillis() - activityCreatedAtMs) > 20_000L
             if (openRenderAllowed) renderOpenPositions(openPos)
@@ -3304,7 +3304,7 @@ for legal compliance.
             cardTreasuryPositions.visibility = if (treasuryPositions.isNotEmpty()) android.view.View.VISIBLE else android.view.View.GONE
             if (treasuryPositions.isNotEmpty()) {
                 val treasuryExposure = treasuryPositions.sumOf { it.entrySol }
-                tvTreasuryExposure.text = "%.3f◎".format(treasuryExposure)
+                tvTreasuryExposure.setTextIfChanged("%.3f◎".format(treasuryExposure))
                 // V5.9.420 — header PnL was showing realized day-PnL while child
                 // rows showed open unrealized → parent and children disagreed
                 // (e.g. header -0.1700◎ while all 3 rows said +0.0000◎). Now we
@@ -3331,7 +3331,7 @@ for legal compliance.
                     } else {
                         lastTreasuryCachedPnlSol = computeTreasuryUnrealizedPnl(treasuryPositions)
                     }
-                    tvTreasuryPnl.text = "%+.4f◎".format(lastTreasuryCachedPnlSol)
+                    tvTreasuryPnl.setTextIfChanged("%+.4f◎".format(lastTreasuryCachedPnlSol))
                     tvTreasuryPnl.setTextColor(if (lastTreasuryCachedPnlSol >= 0) green else red)
                 }
             }
@@ -3347,7 +3347,7 @@ for legal compliance.
             cardBlueChipPositions.visibility = if (blueChipPositions.isNotEmpty()) android.view.View.VISIBLE else android.view.View.GONE
             if (blueChipPositions.isNotEmpty()) {
                 val blueChipExposure = blueChipPositions.sumOf { it.entrySol }
-                tvBlueChipExposure.text = "%.3f◎".format(blueChipExposure)
+                tvBlueChipExposure.setTextIfChanged("%.3f◎".format(blueChipExposure))
                 val nowBlueMs = System.currentTimeMillis()
                 val runtimeActiveBlue = try { com.lifecyclebot.engine.BotService.isRuntimeActive() } catch (_: Throwable) { false }
                 val blueStructHash = blueChipPositions.map { "${it.mint}|${it.entrySol}|${it.isPaper}" }.hashCode()
@@ -3359,7 +3359,7 @@ for legal compliance.
                 } else {
                     lastBlueChipCachedPnlSol
                 }
-                tvBlueChipPnl.text = "%+.4f◎".format(blueChipUnrealized)
+                tvBlueChipPnl.setTextIfChanged("%+.4f◎".format(blueChipUnrealized))
                 tvBlueChipPnl.setTextColor(if (blueChipUnrealized >= 0) green else red)
             }
         } catch (_: Exception) {}
@@ -3373,9 +3373,9 @@ for legal compliance.
             )
             cardQualityPositions.visibility = if (qualityPositions.isNotEmpty()) android.view.View.VISIBLE else android.view.View.GONE
             if (qualityPositions.isNotEmpty()) {
-                tvQualityExposure.text = "%.3f◎".format(qualityPositions.sumOf { it.entrySol })
+                tvQualityExposure.setTextIfChanged("%.3f◎".format(qualityPositions.sumOf { it.entrySol }))
                 val qualityUnrealized = renderQualityPositions(qualityPositions)  // V5.9.420
-                tvQualityPnl.text = "%+.4f◎".format(qualityUnrealized)
+                tvQualityPnl.setTextIfChanged("%+.4f◎".format(qualityUnrealized))
                 tvQualityPnl.setTextColor(if (qualityUnrealized >= 0) green else red)
             }
         } catch (_: Exception) {}
@@ -3391,12 +3391,12 @@ for legal compliance.
             val showShitCoin = shitCoinPositions.isNotEmpty() || shitCoinStats.dailyTradeCount > 0
             cardShitCoinPositions.visibility = if (showShitCoin) android.view.View.VISIBLE else android.view.View.GONE
             if (showShitCoin) {
-                tvShitCoinExposure.text = "%.3f◎".format(shitCoinPositions.sumOf { it.entrySol })
+                tvShitCoinExposure.setTextIfChanged("%.3f◎".format(shitCoinPositions.sumOf { it.entrySol }))
                 val shitCoinDailyPnl = shitCoinStats.dailyPnlSol
                 // V5.9.420 — header now shows OPEN unrealized PnL (matches child rows).
                 // The "Day:" sub-label below still shows daily realized PnL.
                 val shitCoinUnrealized = renderShitCoinPositions(shitCoinPositions)
-                tvShitCoinPnl.text = "%+.4f◎".format(shitCoinUnrealized)
+                tvShitCoinPnl.setTextIfChanged("%+.4f◎".format(shitCoinUnrealized))
                 tvShitCoinPnl.setTextColor(if (shitCoinUnrealized >= 0) green else red)
                 val modeEmoji = when (shitCoinStats.mode) {
                     com.lifecyclebot.v3.scoring.ShitCoinTraderAI.ShitCoinMode.HUNTING -> "🎯"
@@ -3405,9 +3405,9 @@ for legal compliance.
                     com.lifecyclebot.v3.scoring.ShitCoinTraderAI.ShitCoinMode.PAUSED -> "⏸️"
                     com.lifecyclebot.v3.scoring.ShitCoinTraderAI.ShitCoinMode.GRADUATION -> "🎓"
                 }
-                tvShitCoinMode.text = "$modeEmoji ${shitCoinStats.mode.name}"
-                tvShitCoinWinRate.text = "${shitCoinStats.dailyWins}W/${shitCoinStats.dailyLosses}L"
-                tvShitCoinDailyPnl.text = "Day: %+.3f◎".format(shitCoinDailyPnl)
+                tvShitCoinMode.setTextIfChanged("$modeEmoji ${shitCoinStats.mode.name}")
+                tvShitCoinWinRate.setTextIfChanged("${shitCoinStats.dailyWins}W/${shitCoinStats.dailyLosses}L")
+                tvShitCoinDailyPnl.setTextIfChanged("Day: %+.3f◎".format(shitCoinDailyPnl))
                 tvShitCoinDailyPnl.setTextColor(if (shitCoinDailyPnl >= 0) green else red)
                 // V5.9.420 — renderShitCoinPositions() already invoked above to
                 // compute the unrealized sum; second call removed.
@@ -3421,14 +3421,14 @@ for legal compliance.
             val showExpress = expressRides.isNotEmpty() || expressStats.dailyRides > 0
             cardExpressPositions.visibility = if (showExpress) android.view.View.VISIBLE else android.view.View.GONE
             if (showExpress) {
-                tvExpressExposure.text = "%.3f◎".format(expressRides.sumOf { it.entrySol })
+                tvExpressExposure.setTextIfChanged("%.3f◎".format(expressRides.sumOf { it.entrySol }))
                 val expressDailyPnl = expressStats.dailyPnlSol
                 // V5.9.420 — header now shows OPEN unrealized PnL (matches child rows).
                 val expressUnrealized = renderExpressRides(expressRides)
-                tvExpressPnl.text = "%+.4f◎".format(expressUnrealized)
+                tvExpressPnl.setTextIfChanged("%+.4f◎".format(expressUnrealized))
                 tvExpressPnl.setTextColor(if (expressUnrealized >= 0) green else red)
-                tvExpressWinRate.text = "${expressStats.dailyWins}W/${expressStats.dailyLosses}L"
-                tvExpressDailyPnl.text = "Day: %+.3f◎".format(expressDailyPnl)
+                tvExpressWinRate.setTextIfChanged("${expressStats.dailyWins}W/${expressStats.dailyLosses}L")
+                tvExpressDailyPnl.setTextIfChanged("Day: %+.3f◎".format(expressDailyPnl))
                 tvExpressDailyPnl.setTextColor(if (expressDailyPnl >= 0) green else red)
             }
         } catch (_: Exception) {}
@@ -3440,16 +3440,16 @@ for legal compliance.
             val showManip = manipPositions.isNotEmpty() || manipStats.dailyWins > 0 || manipStats.dailyLosses > 0
             cardManipulatedPositions.visibility = if (showManip) android.view.View.VISIBLE else android.view.View.GONE
             if (showManip) {
-                tvManipExposure.text = "%.3f◎".format(manipPositions.sumOf { it.entrySol })
+                tvManipExposure.setTextIfChanged("%.3f◎".format(manipPositions.sumOf { it.entrySol }))
                 val manipDailyPnl = manipStats.dailyPnlSol
                 // V5.9.420 — header now shows OPEN unrealized PnL (matches child rows).
                 val manipUnrealized = renderManipPositions(manipPositions)
-                tvManipPnl.text = "%+.4f◎".format(manipUnrealized)
+                tvManipPnl.setTextIfChanged("%+.4f◎".format(manipUnrealized))
                 tvManipPnl.setTextColor(if (manipUnrealized >= 0) green else red)
-                tvManipWinRate.text = "${manipStats.dailyWins}W/${manipStats.dailyLosses}L"
-                tvManipDailyPnl.text = "Day: %+.3f◎".format(manipDailyPnl)
+                tvManipWinRate.setTextIfChanged("${manipStats.dailyWins}W/${manipStats.dailyLosses}L")
+                tvManipDailyPnl.setTextIfChanged("Day: %+.3f◎".format(manipDailyPnl))
                 tvManipDailyPnl.setTextColor(if (manipDailyPnl >= 0) green else red)
-                tvManipCaught.text = "Caught: ${manipStats.totalManipCaught}"
+                tvManipCaught.setTextIfChanged("Caught: ${manipStats.totalManipCaught}")
             }
         } catch (_: Exception) {}
 
@@ -3652,7 +3652,7 @@ for legal compliance.
             
             if (showMoonshot) {
                 val moonshotExposure = moonshotPositions.sumOf { it.entrySol }
-                tvMoonshotExposure.text = "${String.format("%.3f", moonshotExposure)} SOL"
+                tvMoonshotExposure.setTextIfChanged("${String.format("%.3f", moonshotExposure)} SOL")
                 
                 // Calculate total P&L
                 var totalPnl = 0.0
@@ -3667,7 +3667,7 @@ for legal compliance.
                 }
                 
                 val pnlColor = if (totalPnl >= 0) green else red
-                tvMoonshotPnl.text = "${if (totalPnl >= 0) "+" else ""}${String.format("%.4f", totalPnl)} SOL"
+                tvMoonshotPnl.setTextIfChanged("${if (totalPnl >= 0) "+" else ""}${String.format("%.4f", totalPnl)} SOL")
                 tvMoonshotPnl.setTextColor(pnlColor)
                 
                 // Stats
@@ -3675,11 +3675,11 @@ for legal compliance.
                 val dailyPnl = com.lifecyclebot.v3.scoring.MoonshotTraderAI.getDailyPnlSol()
                 val learning = (com.lifecyclebot.v3.scoring.MoonshotTraderAI.getLearningProgress() * 100).toInt()
                 
-                tvMoonshotMode.text = if (moonshotPositions.size >= 3) "RIDING" else "HUNTING"
-                tvMoonshotWinRate.text = "${com.lifecyclebot.v3.scoring.MoonshotTraderAI.getDailyWins()}W/${com.lifecyclebot.v3.scoring.MoonshotTraderAI.getDailyLosses()}L"
-                tvMoonshotDailyPnl.text = "Day: ${if (dailyPnl >= 0) "+" else ""}${String.format("%.3f", dailyPnl)}"
+                tvMoonshotMode.setTextIfChanged(if (moonshotPositions.size >= 3) "RIDING" else "HUNTING")
+                tvMoonshotWinRate.setTextIfChanged("${com.lifecyclebot.v3.scoring.MoonshotTraderAI.getDailyWins()}W/${com.lifecyclebot.v3.scoring.MoonshotTraderAI.getDailyLosses()}L")
+                tvMoonshotDailyPnl.setTextIfChanged("Day: ${if (dailyPnl >= 0) "+" else ""}${String.format("%.3f", dailyPnl)}")
                 tvMoonshotDailyPnl.setTextColor(if (dailyPnl >= 0) green else red)
-                tvMoonshotLearning.text = "Learn: $learning%"
+                tvMoonshotLearning.setTextIfChanged("Learn: $learning%")
                 
                 renderMoonshotPositions(moonshotPositions)
             }
@@ -3699,12 +3699,12 @@ for legal compliance.
                 
                 // Treasury mini P&L
                 val treasuryPnl = com.lifecyclebot.v3.scoring.CashGenerationAI.getDailyPnlSol()
-                tvTreasuryMiniPnl.text = "${if (treasuryPnl >= 0) "+" else ""}${String.format("%.3f", treasuryPnl)}"
+                tvTreasuryMiniPnl.setTextIfChanged("${if (treasuryPnl >= 0) "+" else ""}${String.format("%.3f", treasuryPnl)}")
                 tvTreasuryMiniPnl.setTextColor(if (treasuryPnl >= 0) green else red)
                 
                 // Moonshot mini P&L
                 val moonshotDailyPnl = com.lifecyclebot.v3.scoring.MoonshotTraderAI.getDailyPnlSol()
-                tvMoonshotMiniPnl.text = "${if (moonshotDailyPnl >= 0) "+" else ""}${String.format("%.3f", moonshotDailyPnl)}"
+                tvMoonshotMiniPnl.setTextIfChanged("${if (moonshotDailyPnl >= 0) "+" else ""}${String.format("%.3f", moonshotDailyPnl)}")
                 tvMoonshotMiniPnl.setTextColor(if (moonshotDailyPnl >= 0) green else red)
             } else {
                 rowTreasuryMoonshot.visibility = android.view.View.GONE
@@ -3754,21 +3754,21 @@ for legal compliance.
         // ── safety ────────────────────────────────────────────────────
         val safety = ts?.safety
         if (safety != null && safety.checkedAt > 0) {
-            tvSafety.text = safety.summary
+            tvSafety.setTextIfChanged(safety.summary)
             tvSafety.setTextColor(when (safety.tier) {
                 SafetyTier.HARD_BLOCK -> red
                 SafetyTier.CAUTION    -> amber
                 else                  -> green
             })
             val rc = safety.rugcheckScore
-            tvRugcheck.text = if (rc >= 0) "RC $rc" else "RC —"
+            tvRugcheck.setTextIfChanged(if (rc >= 0) "RC $rc" else "RC —")
             tvRugcheck.setTextColor(when {
                 rc < 0   -> muted
                 rc < 70  -> red
                 rc < 80  -> amber
                 else     -> green
             })
-            tvSafetyChip.text = safety.summary.take(30)
+            tvSafetyChip.setTextIfChanged(safety.summary.take(30))
             tvSafetyChip.setTextColor(when (safety.tier) {
                 SafetyTier.HARD_BLOCK -> red
                 SafetyTier.CAUTION    -> amber
@@ -3780,13 +3780,13 @@ for legal compliance.
         if (ts != null) {
             val curveState = com.lifecyclebot.engine.BondingCurveTracker.evaluate(ts)
             pbBondingCurve.progress = curveState.progressPct.toInt()
-            tvCurveStage.text       = curveState.stageLabel
+            tvCurveStage.setTextIfChanged(curveState.stageLabel)
 
             // Show graduation mcap dynamically (moves with SOL price)
             val gradMcap = curveState.graduationMcapUsd
             val gradStr  = if (gradMcap > 0) " (grad ≈ \$${"%,.0f".format(gradMcap)})" else ""
 
-            tvCurveStage.text = "${curveState.stageLabel}$gradStr"
+            tvCurveStage.setTextIfChanged("${curveState.stageLabel}$gradStr")
             tvCurveStage.setTextColor(when (curveState.stage) {
                 com.lifecyclebot.engine.BondingCurveTracker.CurveStage.GRADUATING -> green
                 com.lifecyclebot.engine.BondingCurveTracker.CurveStage.PRE_GRAD   -> amber
@@ -3795,7 +3795,7 @@ for legal compliance.
             })
         } else {
             pbBondingCurve.progress = 0
-            tvCurveStage.text       = "—"
+            tvCurveStage.setTextIfChanged("—")
         }
 
         // ── whale indicator ───────────────────────────────────────
@@ -3803,7 +3803,7 @@ for legal compliance.
             com.lifecyclebot.engine.WhaleDetector.evaluate(ts.mint, ts)
         } else null
         pbWhale.progress     = whaleMeta?.velocityScore?.toInt() ?: 0
-        tvWhaleSummary.text  = whaleMeta?.summary?.ifBlank { "—" } ?: "—"
+        tvWhaleSummary.setTextIfChanged(whaleMeta?.summary?.ifBlank { "—" } ?: "—")
         tvWhaleSummary.setTextColor(when {
             whaleMeta?.hasWhaleActivity == true -> amber
             else                                -> muted
@@ -3811,7 +3811,7 @@ for legal compliance.
 
         // ── trades ────────────────────────────────────────────────────
         val trades = ts?.trades ?: emptyList()
-        tvTradeCount.text = if (trades.isNotEmpty()) "${trades.size} trades" else ""
+        tvTradeCount.setTextIfChanged(if (trades.isNotEmpty()) "${trades.size} trades" else "")
         tvNoTrades.visibility = if (trades.isEmpty()) View.VISIBLE else View.GONE
         if (trades.isNotEmpty()) {
             renderTrades(trades)
@@ -3831,7 +3831,7 @@ for legal compliance.
             val gainPct = if (ts.position.entryPrice > 0)
                 (ts.ref - ts.position.entryPrice) / ts.position.entryPrice * 100.0 else 0.0
             val topUpBadge = "🔺×${ts.position.topUpCount}  avg entry ${ts.position.entryPrice.fmtRef()}"
-            tvBotStatus.text = "${tvBotStatus.text}  $topUpBadge"
+            tvBotStatus.setTextIfChanged("${tvBotStatus.text}  $topUpBadge")
         }
 
         // ── watchlist ─────────────────────────────────────────────────
