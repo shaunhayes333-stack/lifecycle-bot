@@ -5248,6 +5248,24 @@ class BotService : Service() {
         try {
             com.lifecyclebot.network.SharedHttpClient.cancelAllRequests()
         } catch (_: Throwable) {}
+        // V5.9.1310 — DISCONNECT INTAKE FIRST (unconditional, before the long
+        // shutdown body). Previously orchestrator.stop() sat at the TAIL of
+        // stopBot(), after position liquidation / watchlist clear / persistence
+        // clear. If any of those threw, or the shutdown coroutine was cancelled
+        // mid-body, the PumpPortal/Helius/Dex WebSockets were NEVER disconnected
+        // and kept streaming new tokens into intake post-stop. Tear the data feeds
+        // down immediately and unconditionally so no scanner/WS message can reach
+        // intake during the rest of shutdown. The tail orchestrator=null cleanup
+        // remains (idempotent: disconnect() is safe to call twice).
+        try {
+            marketScanner?.stop()
+        } catch (_: Throwable) {}
+        try {
+            orchestrator?.stop()
+            try { ForensicLogger.lifecycle("STOP_DATAFEEDS_DISCONNECTED", "gen=$stopGeneration source=$source early=true") } catch (_: Throwable) {}
+        } catch (e: Throwable) {
+            try { ForensicLogger.lifecycle("STOP_DATAFEEDS_DISCONNECT_ERR", "err=${e.message?.take(60)}") } catch (_: Throwable) {}
+        }
         try {
             try {
                 getSharedPreferences(RUNTIME_PREFS, android.content.Context.MODE_PRIVATE)
@@ -7406,6 +7424,43 @@ class BotService : Service() {
             return false
         }
 
+        // ═══════════════════════════════════════════════════════════════════
+        // V5.9.1310 — HARD STOP-STATE GUARD (single canonical authority).
+        // OPERATOR REGRESSION: pressed Stop, ACTION_STOP/LIFECYCLE_STOP_ACCEPTED
+        // fired, restart alarms + watchdog cancelled — yet PumpPortal WS intake
+        // (VEXLN, QTD, PokeBurn, Cheese, PEG, Henry…) kept flowing into protected
+        // intake + WATCHLIST_AFFINITY. Root cause: orchestrator.stop() (which
+        // disconnects the WS) sits at the TAIL of a long, cancellable stopBot()
+        // body; if the shutdown coroutine is cancelled or an earlier step throws,
+        // the WS never disconnects, and even a clean disconnect races against an
+        // in-flight onMessage that already called onNewToken. The bot also had NO
+        // gate rejecting intake while stopping — every WS message admitted.
+        //
+        // FIX: gate ALL intake on the ONE runtime authority (BotRuntimeController).
+        // admitProtectedMemeIntake is the canonical single-source intake funnel
+        // (every path — PumpPortal WS, DataOrchestrator, TokenMergeQueue, all 8
+        // scanners, MEME_REGISTRY_RESTORE — flows through here), so one guard here
+        // hard-blocks intake the instant the runtime leaves RUNNING. Fail-SAFE:
+        // anything other than RUNNING rejects (STOPPING/STOPPED/STARTING). This is
+        // independent of WS teardown timing, so even a stray post-stop WS message
+        // or an auto-reconnect can no longer pollute the watchlist.
+        run {
+            val rt = try { BotRuntimeController.snapshot().state } catch (_: Throwable) { null }
+            val isRunningAuthority = rt == BotRuntimeController.RuntimeState.RUNNING ||
+                                     rt == BotRuntimeController.RuntimeState.STARTING
+            // USER adds are always allowed (explicit operator intent), even pre-start.
+            val isUserAdd = source.contains("USER", ignoreCase = true)
+            if (!isUserAdd && (isShuttingDown || stopInProgress || !isRunningAuthority)) {
+                try {
+                    ForensicLogger.lifecycle(
+                        "INTAKE_BLOCKED_RUNTIME_STOPPED",
+                        "symbol=${symbol.ifBlank { mint.take(6) }} mint=${mint.take(10)} src=$source rtState=$rt shuttingDown=$isShuttingDown stopInProgress=$stopInProgress",
+                    )
+                } catch (_: Throwable) {}
+                return false
+            }
+        }
+
         val quarantine = QuarantineStore.evaluate(
             mint = mint,
             symbol = symbol,
@@ -8251,11 +8306,19 @@ class BotService : Service() {
             lastBotLoopTickMs = now
             // V5.9.762 — also touch the progress timestamp for the heartbeat.
             markProgress("BOT_LOOP_TICK")
+            // V5.9.1310 — surface BOTH watchlist counters so the operator can see
+            // they measure different things (was read as a "counters disagree" bug):
+            //   localTokens = status.tokens   (BotService's in-memory token map; superset,
+            //                                   includes recently-seen not-yet-pruned)
+            //   regTokens   = GlobalTradeRegistry.size()  (the canonical pruned watchlist —
+            //                                   THIS is the authority the loop actually polls)
+            // The per-cycle WATCHLIST_CAP total= is the capped slice processed this tick.
             val watchSize = try { status.tokens.size } catch (_: Throwable) { -1 }
+            val regSize = try { GlobalTradeRegistry.size() } catch (_: Throwable) { -1 }
             ForensicLogger.phase(
                 ForensicLogger.PHASE.SCAN_CB,
                 "_loop",
-                "🧬[BOT_LOOP_TICK] n=$loopCount watch=$watchSize prevCycleMs=$prevCycleMs",
+                "🧬[BOT_LOOP_TICK] n=$loopCount watch=$regSize localTokens=$watchSize prevCycleMs=$prevCycleMs",
             )
 
             // V5.9.864 — every 10 loop ticks, run AutoEndpointMigrator

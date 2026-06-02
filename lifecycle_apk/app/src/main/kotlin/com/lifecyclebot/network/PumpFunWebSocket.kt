@@ -177,6 +177,14 @@ class PumpFunWebSocket(
         if (!running) return
         Thread.sleep(reconnectDelayMs)
         reconnectDelayMs = (reconnectDelayMs * 2).coerceAtMost(60_000L)
+        // V5.9.1310 — RE-CHECK running AFTER the backoff sleep. disconnect() can
+        // flip running=false during the 2-60s sleep; without this re-check the WS
+        // would reconnect AFTER the bot was stopped, re-streaming new tokens into
+        // intake (operator regression: intake continued post-stop). Bail if stopped.
+        if (!running) {
+            onLog("Pump.fun WS reconnect aborted — bot stopped during backoff")
+            return
+        }
         doConnect()
     }
 }
