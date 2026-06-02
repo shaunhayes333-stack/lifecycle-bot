@@ -400,7 +400,13 @@ object TradeHistoryStore {
         return when {
             upper.isBlank() -> ""
             upper.contains("BLUECHIP") -> "BLUECHIP"
-            upper.contains("CASHGEN") -> "CASHGEN"
+            // V5.9.1300 — CASHGEN and TREASURY are the SAME trader (CashGenerationAI
+            // = "Treasury mode"). They were normalized to two separate buckets, so
+            // treasury outcomes split across TREASURY (BotService close path) and
+            // CASHGEN (CashGen's own exit path) — and the lane's expectancy self-gate
+            // queried CASHGEN (the smaller half) while most losses piled up under
+            // TREASURY. Fold both into TREASURY so the trader sees its FULL record.
+            upper.contains("CASHGEN") || upper.contains("CASHGENERATION") -> "TREASURY"
             upper.contains("SHITCOIN") -> "SHITCOIN"
             upper.contains("MOONSHOT") -> "MOONSHOT"
             upper.contains("TREASURY") -> "TREASURY"

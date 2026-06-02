@@ -647,7 +647,8 @@ object CanonicalOutcomeBus {
             when {
                 r.contains("MOONSHOT") -> "MOONSHOT"
                 r.contains("SHITCOIN") -> "SHITCOIN"
-                r.contains("CASHGEN") -> "CASHGEN"
+                // V5.9.1300 — CASHGEN == TREASURY (same trader); fold to one bin.
+                r.contains("CASHGEN") -> "TREASURY"
                 r.contains("TREASURY") -> "TREASURY"
                 r.contains("BLUECHIP") -> "BLUECHIP"
                 r.contains("BLUE_CHIP") -> "BLUECHIP"

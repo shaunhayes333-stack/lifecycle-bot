@@ -731,9 +731,9 @@ object CashGenerationAI {
         // V5.9.436 — SCORE-EXPECTANCY SOFT GATE (per-layer).
         // Even if all hard gates pass, skip when this score bucket has
         // been net-losing over the last 25+ closed treasury trades.
-        if (com.lifecyclebot.engine.ScoreExpectancyTracker.shouldReject("CASHGEN", treasuryScore)) {
-            val mean = com.lifecyclebot.engine.ScoreExpectancyTracker.bucketMean("CASHGEN", treasuryScore)
-            val n = com.lifecyclebot.engine.ScoreExpectancyTracker.bucketSamples("CASHGEN", treasuryScore)
+        if (com.lifecyclebot.engine.ScoreExpectancyTracker.shouldReject("TREASURY", treasuryScore)) {
+            val mean = com.lifecyclebot.engine.ScoreExpectancyTracker.bucketMean("TREASURY", treasuryScore)
+            val n = com.lifecyclebot.engine.ScoreExpectancyTracker.bucketSamples("TREASURY", treasuryScore)
             rejectionReasons.add("expectancy_reject_score_${treasuryScore}_μ_${"%+.1f".format(mean ?: 0.0)}%_n_${n}")
         }
 
@@ -921,7 +921,7 @@ object CashGenerationAI {
         // band has proven net-negative (scorer-inversion). Soft-shape, never veto.
         // (positionSol is already a `var`, declared above — just mutate it.)
         try {
-            val calMult = com.lifecyclebot.engine.ScoreExpectancyTracker.calibrationSizeMult("CASHGEN", treasuryScore)
+            val calMult = com.lifecyclebot.engine.ScoreExpectancyTracker.calibrationSizeMult("TREASURY", treasuryScore)
             if (calMult < 1.0) {
                 positionSol *= calMult
                 ErrorLogger.info(TAG, "💰 CASHGEN CALIBRATION_SHRINK $symbol | band=S$treasuryScore size×$calMult (net-negative band)")
@@ -1129,14 +1129,14 @@ object CashGenerationAI {
 
         // V5.9.437 — LIVE HOLD-BUCKET GATE (paper).
         if (com.lifecyclebot.engine.OutcomeGates.earlyExitByHoldBucket(
-                layer = "CASHGEN", holdMinutes = holdMinutes, pnlPct = pnlPct)) {
+                layer = "TREASURY", holdMinutes = holdMinutes, pnlPct = pnlPct)) {
             return ExitSignal.TIME_EXIT
         }
 
         // V5.9.204: was pnlPct < 0 — flat 0% positions held FOREVER. Now exit if below TP floor too.
         // V5.9.437 — extend for winners when TIME_EXIT historically bleeds this lane.
         val cgTimeExt = com.lifecyclebot.engine.OutcomeGates.timeExitExtensionMult(
-            layer = "CASHGEN", exitReason = "TIME_EXIT", pnlPct = pnlPct)
+            layer = "TREASURY", exitReason = "TIME_EXIT", pnlPct = pnlPct)
         if (holdMinutes >= (MAX_HOLD_MINUTES * cgTimeExt).toLong() && pnlPct < TAKE_PROFIT_PCT_PAPER) {
             return ExitSignal.TIME_EXIT
         }
@@ -1258,7 +1258,7 @@ object CashGenerationAI {
 
         // V5.9.437 — LIVE HOLD-BUCKET GATE (live).
         if (com.lifecyclebot.engine.OutcomeGates.earlyExitByHoldBucket(
-                layer = "CASHGEN", holdMinutes = holdMinutes, pnlPct = pnlPct)) {
+                layer = "TREASURY", holdMinutes = holdMinutes, pnlPct = pnlPct)) {
             ErrorLogger.info(TAG, "💰🧠 HOLD-BUCKET EARLY EXIT: ${pos.symbol} | ${pnlPct.fmt(1)}% after ${holdMinutes}min — bucket bleeds")
             return ExitSignal.TIME_EXIT
         }
@@ -1266,7 +1266,7 @@ object CashGenerationAI {
         // V5.9.204: was pnlPct < 0 — flat 0% positions held FOREVER. Exit if below TP floor.
         // V5.9.437 — extend for winners when TIME_EXIT historically bleeds this lane.
         val cgTimeExtLive = com.lifecyclebot.engine.OutcomeGates.timeExitExtensionMult(
-            layer = "CASHGEN", exitReason = "TIME_EXIT", pnlPct = pnlPct)
+            layer = "TREASURY", exitReason = "TIME_EXIT", pnlPct = pnlPct)
         if (holdMinutes >= (MAX_HOLD_MINUTES * cgTimeExtLive).toLong() && pnlPct < TAKE_PROFIT_PCT_LIVE) {
             ErrorLogger.info(TAG, "💰 TREASURY TIME EXIT: ${pos.symbol} | ${pnlPct.fmt(1)}% after ${holdMinutes}min")
             return ExitSignal.TIME_EXIT
@@ -1372,7 +1372,7 @@ object CashGenerationAI {
                 symbol = pos.symbol, mint = pos.mint,
                 entryPrice = pos.entryPrice, exitPrice = exitPrice,
                 sizeSol = pos.entrySol, pnlPct = pnlPct, pnlSol = pnlSol,
-                isPaper = pos.isPaper, layer = "CASHGEN",
+                isPaper = pos.isPaper, layer = "TREASURY",
                 exitReason = exitReason.name,
                 entryScore = pos.entryScore,
                 holdMinutes = holdMinutesLong,
