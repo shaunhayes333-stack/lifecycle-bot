@@ -346,6 +346,25 @@ object CyclicTradeEngine {
                     // can't bleed the ring.
                     && !TokenBlacklist.isBlocked(ts.mint)
                     && !MemeLossStreakGuard.isBlocked(ts.mint)
+                    // V5.9.1301 — self-awareness: CYCLIC fed ScoreExpectancyTracker
+                    // and LosingPatternMemory under "CYCLIC" but never READ them at
+                    // entry (unlike the other 7 lanes). So it re-entered score bands
+                    // that had already proven to bleed. Now it consults its OWN
+                    // per-score record keyed on the SAME "CYCLIC" bucket it stores
+                    // under. Fail-open (errors → eligible); soft (only a matured,
+                    // net-losing danger bucket suppresses); throughput preserved
+                    // because empty/young buckets never reject.
+                    && run {
+                        val sc = (ts.lastV3Score ?: ts.entryScore.toInt())
+                        val expReject = try {
+                            com.lifecyclebot.engine.ScoreExpectancyTracker.shouldReject("CYCLIC", sc)
+                        } catch (_: Throwable) { false }
+                        val danger = try {
+                            val d = com.lifecyclebot.engine.LosingPatternMemory.stats("CYCLIC", sc)
+                            d.isDangerous && d.meanPnl < 0.0
+                        } catch (_: Throwable) { false }
+                        !(expReject || danger)
+                    }
             }
             .maxByOrNull { (it.lastV3Score ?: 0) + it.entryScore.toInt() }
             ?: run {
