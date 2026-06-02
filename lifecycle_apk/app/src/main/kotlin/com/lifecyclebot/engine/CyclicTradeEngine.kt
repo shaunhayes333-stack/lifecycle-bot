@@ -388,7 +388,19 @@ object CyclicTradeEngine {
         } catch (_: Throwable) {}
 
         // ── 4. Enter cycle ─────────────────────────────────────────────────────
-        val ringDesiredSol = if (cyclicCold) (ringBalanceSol * COLD_RING_SIZE_MULT).coerceAtLeast(0.001) else ringBalanceSol
+        var ringDesiredSol = if (cyclicCold) (ringBalanceSol * COLD_RING_SIZE_MULT).coerceAtLeast(0.001) else ringBalanceSol
+        // V5.9.1305 — calibration-aware shrink on the ring deployment for proven
+        // net-negative CYCLIC score bands (composes with the 1301 self-reject and
+        // the 1304 wallet cap below). Keyed on the SAME "CYCLIC" bucket CYCLIC
+        // records under. Soft-shape, fail-open.
+        try {
+            val cycScore = (best.lastV3Score ?: best.entryScore.toInt())
+            val calMult = com.lifecyclebot.engine.ScoreExpectancyTracker.calibrationSizeMult("CYCLIC", cycScore)
+            if (calMult < 1.0) {
+                ringDesiredSol *= calMult
+                ErrorLogger.info(TAG, "🪙✨ CYCLIC CALIBRATION_SHRINK ${best.symbol} | band=S$cycScore ring×$calMult (net-negative band)")
+            }
+        } catch (_: Throwable) { /* fail-open */ }
         // V5.9.1304 — CYCLIC must not vacuum the shared wallet. The ring grows by accrued PnL
         // and was sizing to its FULL balance (6.5 SOL on a streak — half the wallet — in one
         // position), starving the other 7 lanes and pinning concurrent opens at ~25. Cap per

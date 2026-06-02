@@ -453,7 +453,19 @@ object DipHunterAI {
         
         // Scale by dip quality
         positionSol *= dipQuality.sizeMult
-        
+
+        // V5.9.1305 — calibration-aware shrink for net-negative bands.
+        // DIP_HUNTER sized purely on confidence+dipQuality, never consulting
+        // its own per-band realized PnL. Wire the same 1257 soft-shaper the
+        // mature lanes use, keyed on DIP_HUNTER/confidence. Soft, fail-open.
+        try {
+            val calMult = com.lifecyclebot.engine.ScoreExpectancyTracker.calibrationSizeMult("DIP_HUNTER", confidence)
+            if (calMult < 1.0) {
+                positionSol *= calMult
+                ErrorLogger.info(TAG, "📉✨ DIP CALIBRATION_SHRINK $symbol | band=S$confidence size×$calMult (net-negative band)")
+            }
+        } catch (_: Throwable) { /* fail-open */ }
+
         // Cap
         positionSol = positionSol.coerceIn(0.03, MAX_POSITION_SOL)
         

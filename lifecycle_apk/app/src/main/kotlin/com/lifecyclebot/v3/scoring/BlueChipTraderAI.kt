@@ -934,6 +934,21 @@ object BlueChipTraderAI {
             }
         } catch (_: Throwable) { /* fail-open per FDG doctrine */ }
 
+        // V5.9.1305 — calibration-aware shrink for net-negative score bands.
+        // BLUECHIP is a -0.23 SOL bleeder. It already hard-rejects via
+        // shouldReject() but never SOFT-SHAPED on its own band-level mean PnL.
+        // Wire the same 1257 calibration shrink the other lanes use so a band
+        // proven net-negative (but not yet reject-territory) gets a smaller
+        // position instead of a full-size one. Soft-shape, never a veto,
+        // keyed on BLUECHIP's own learnt outcomes. Fail-open.
+        try {
+            val calMult = com.lifecyclebot.engine.ScoreExpectancyTracker.calibrationSizeMult("BLUECHIP", blueChipScore)
+            if (calMult < 1.0) {
+                positionSol *= calMult
+                ErrorLogger.info(TAG, "🔵✨ BLUECHIP CALIBRATION_SHRINK $symbol | band=S$blueChipScore size×$calMult (net-negative band)")
+            }
+        } catch (_: Throwable) { /* fail-open */ }
+
         // Cap at max
         positionSol = positionSol.coerceIn(0.05, MAX_POSITION_SOL)
         

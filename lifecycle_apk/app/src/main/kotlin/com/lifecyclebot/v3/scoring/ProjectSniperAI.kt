@@ -452,6 +452,17 @@ object ProjectSniperAI {
                 positionSol = positionSol.coerceAtMost(MAX_POSITION_SOL * 1.5)
             }
         } catch (_: Throwable) { /* fail-open per FDG doctrine */ }
+
+        // V5.9.1305 — calibration-aware shrink (composes with the 1302 self-damp).
+        // 1302 damps on loss-COUNT danger buckets + reject flag; this trims on the
+        // band's mean RETURN. Keyed on the SAME PRESALE_SNIPE bucket. Soft, fail-open.
+        try {
+            val calMult = com.lifecyclebot.engine.ScoreExpectancyTracker.calibrationSizeMult("PRESALE_SNIPE", confidence)
+            if (calMult < 1.0) {
+                positionSol *= calMult
+                ErrorLogger.info(TAG, "🎯✨ SNIPER CALIBRATION_SHRINK ${ts.symbol} | band=S$confidence size×$calMult (net-negative band)")
+            }
+        } catch (_: Throwable) { /* fail-open */ }
         
         val threatLevel = when {
             confidence >= 70 -> ThreatLevel.GREEN

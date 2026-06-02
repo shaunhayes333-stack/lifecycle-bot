@@ -566,6 +566,19 @@ object ShitCoinExpress {
         } catch (_: Throwable) { 1.0 } // fail-open per FDG doctrine
         positionSol *= autoCompoundMult
 
+        // V5.9.1305 — calibration-aware shrink for net-negative bands.
+        // EXPRESS sized on confidence+rideType+behavior but never on its own
+        // realized per-band PnL. Wire the 1257 soft-shaper keyed on the SAME
+        // "EXPRESS" bucket it records trades under (V3JournalRecorder layer).
+        // Soft-shape, never veto, fail-open.
+        try {
+            val calMult = com.lifecyclebot.engine.ScoreExpectancyTracker.calibrationSizeMult("EXPRESS", expressScore)
+            if (calMult < 1.0) {
+                positionSol *= calMult
+                ErrorLogger.info(TAG, "💩🚂✨ EXPRESS CALIBRATION_SHRINK $symbol | band=S$expressScore size×$calMult (net-negative band)")
+            }
+        } catch (_: Throwable) { /* fail-open */ }
+
         // Cap at max
         positionSol = positionSol.coerceIn(0.02, MAX_POSITION_SOL)
         
