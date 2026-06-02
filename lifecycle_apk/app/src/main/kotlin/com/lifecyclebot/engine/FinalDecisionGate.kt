@@ -692,6 +692,13 @@ object FinalDecisionGate {
 
         val mode = if (config.paperMode) TradeMode.PAPER else TradeMode.LIVE
         val laneName = tradingModeTag?.name ?: "STANDARD"
+        // V5.9.1299 — single source of truth for the LEARNING-CONTEXT score.
+        // laneScore is the lane's REAL 0-100 signal (1296/1297); candidate.entryScore
+        // is the shared base V3 score (~7 for memes). All learning lookups
+        // (LosingPatternMemory danger buckets, AutonomousMetaPolicy, ForwardOutcomeModel)
+        // must key on the lane score so contexts bucket by true quality instead of
+        // collapsing into S00. Entry GATES still use candidate.entryScore (unchanged).
+        val laneScoreBanded = laneScore.coerceIn(0.0, 100.0).toInt()
         val canonicalLearning = try { TradeHistoryStore.getStatsCached() } catch (_: Throwable) { null }
         val canonicalDecisive = (canonicalLearning?.totalWins ?: 0) + (canonicalLearning?.totalLosses ?: 0)
         val canonicalWr = if (canonicalDecisive > 0)
@@ -2780,7 +2787,7 @@ object FinalDecisionGate {
         // When canonical WR is under phase target, learned losing buckets reduce size;
         // only deep-deficit + weak evidence in a proven danger bucket blocks execution.
         try {
-            val bucket = LosingPatternMemory.stats(laneName, candidate.entryScore.toInt())
+            val bucket = LosingPatternMemory.stats(laneName, laneScoreBanded)  // V5.9.1299 lane score
             if (bucket.sample > 0) {
                 val lossRate = bucket.lossRatePct
                 val learnedPressure = when {
@@ -2794,13 +2801,13 @@ object FinalDecisionGate {
                     val originalSize = finalSize
                     finalSize = (finalSize * learnedPressure).coerceAtLeast(0.01)
                     tags.add("learning_recovery_shaped")
-                    tags.add("danger_bucket:${LosingPatternMemory.bucketKey(laneName, candidate.entryScore.toInt())}")
+                    tags.add("danger_bucket:${LosingPatternMemory.bucketKey(laneName, laneScoreBanded)}")
                     checks.add(GateCheck("learned_bucket", true, "bucket n=${bucket.sample} loss=${lossRate.toInt()}% mean=${bucket.meanPnl.format(1)}% wr=${canonicalWr.format(1)} target=${canonicalTargetWr.format(1)} size ${originalSize.format(3)}→${finalSize.format(3)}"))
-                    ErrorLogger.info("FDG", "🧠 LEARNING_RECOVERY_SHAPED ${ts.symbol} lane=$laneName bucket=${LosingPatternMemory.bucketKey(laneName, candidate.entryScore.toInt())} n=${bucket.sample} loss=${lossRate.toInt()}% wr=${canonicalWr.format(1)}/${canonicalTargetWr.format(1)} size×${learnedPressure.format(2)}")
+                    ErrorLogger.info("FDG", "🧠 LEARNING_RECOVERY_SHAPED ${ts.symbol} lane=$laneName bucket=${LosingPatternMemory.bucketKey(laneName, laneScoreBanded)} n=${bucket.sample} loss=${lossRate.toInt()}% wr=${canonicalWr.format(1)}/${canonicalTargetWr.format(1)} size×${learnedPressure.format(2)}")
                 }
                 val weakEvidence = candidate.setupQuality !in listOf("A+", "A", "B") && candidate.aiConfidence < 35.0 && candidate.entryScore < 25.0
                 if (blockReason == null && bucket.isDangerous && deepLearningDeficit && weakEvidence) {
-                    blockReason = "LEARNING_DANGER_BUCKET_EVIDENCE_REQUIRED_${LosingPatternMemory.bucketKey(laneName, candidate.entryScore.toInt())}"
+                    blockReason = "LEARNING_DANGER_BUCKET_EVIDENCE_REQUIRED_${LosingPatternMemory.bucketKey(laneName, laneScoreBanded)}"
                     blockLevel = BlockLevel.CONFIDENCE
                     tags.add("learning_evidence_required")
                     checks.add(GateCheck("learned_bucket_evidence", false, "deep WR deficit + weak evidence in danger bucket n=${bucket.sample} loss=${lossRate.toInt()}%"))
@@ -3634,14 +3641,14 @@ object FinalDecisionGate {
                         // not the shared base V3 score (~7 for memes) that collapsed every
                         // context into S00. laneScore defaults to candidate.entryScore so
                         // non-lane callers are identical.
-                        val mpScore = laneScore.coerceIn(0.0, 100.0).toInt()  // V5.9.1297 defensive clamp
+                        val mpScore = laneScoreBanded  // V5.9.1299 reuse hoisted banded lane score
                         val conv = AutonomousMetaPolicy.conviction(mpLane, mpScore, mpRegime)
                         AutonomousMetaPolicy.stampDecision(ts.mint, mpLane, mpScore, mpRegime)
                         if (conv != 1.0) {
                             val before = finalSize
                             finalSize = (finalSize * conv).coerceAtLeast(0.01)
                             tags.add("metapolicy:${"%.2f".format(conv)}")
-                            checks.add(GateCheck("autonomous_meta_policy", true, "conviction=${"%.2f".format(conv)} size ${before.format(3)}→${finalSize.format(3)} ctx=$mpLane/S${candidate.entryScore.toInt()}/$mpRegime"))
+                            checks.add(GateCheck("autonomous_meta_policy", true, "conviction=${"%.2f".format(conv)} size ${before.format(3)}→${finalSize.format(3)} ctx=$mpLane/S$mpScore/$mpRegime"))
                         }
 
                         // V5.9.1289 — CATASTROPHIC-CONTEXT STARVE. conviction()'s
