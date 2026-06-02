@@ -513,7 +513,7 @@ object CashGenerationAI {
         // selecting its OWN proper pond, not an external veto or a scanner choke —
         // the meme lanes still take these tokens. Fail-open if liquidity unknown (0).
         val treasuryMinLiq = if (isPaperMode) 12_000.0 else 25_000.0
-        if (liquidityUsd in 0.01 until treasuryMinLiq) {
+        if (liquidityUsd > 0.0 && liquidityUsd < treasuryMinLiq) {
             return TreasurySignal(
                 shouldEnter = false,
                 positionSizeSol = 0.0,
