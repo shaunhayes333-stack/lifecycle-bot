@@ -388,7 +388,18 @@ object CyclicTradeEngine {
         } catch (_: Throwable) {}
 
         // ── 4. Enter cycle ─────────────────────────────────────────────────────
-        val sizeSol = if (cyclicCold) (ringBalanceSol * COLD_RING_SIZE_MULT).coerceAtLeast(0.001) else ringBalanceSol
+        val ringDesiredSol = if (cyclicCold) (ringBalanceSol * COLD_RING_SIZE_MULT).coerceAtLeast(0.001) else ringBalanceSol
+        // V5.9.1304 — CYCLIC must not vacuum the shared wallet. The ring grows by accrued PnL
+        // and was sizing to its FULL balance (6.5 SOL on a streak — half the wallet — in one
+        // position), starving the other 7 lanes and pinning concurrent opens at ~25. Cap per
+        // entry at 20% of the live shared wallet (same ceiling SmartSizer enforces on every
+        // other lane). Ring strategy intact; it just can't hog capital. Fail-open: if walletSol
+        // is unknown (<=0) fall back to the ring-desired size so we never block on a bad read.
+        val walletCapSol = if (walletSol > 0.0) walletSol * 0.20 else ringDesiredSol
+        val sizeSol = minOf(ringDesiredSol, walletCapSol).coerceAtLeast(0.001)
+        if (sizeSol < ringDesiredSol) {
+            try { ErrorLogger.info(TAG, "🪙 CYCLIC wallet-cap: ring wanted ${ringDesiredSol.fmt(3)} → capped ${sizeSol.fmt(3)} SOL (20% of ${walletSol.fmt(3)} wallet) — protecting other lanes") } catch (_: Throwable) {}
+        }
 
         if (isLiveMode) {
             if (walletSol < sizeSol) {
