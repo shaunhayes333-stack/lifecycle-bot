@@ -3261,6 +3261,9 @@ class CryptoAltActivity : AppCompatActivity() {
         try {
             val chart = com.github.mikephil.charting.charts.LineChart(this).apply {
                 layoutParams = llp(match, (140 * resources.displayMetrics.density).toInt())
+                // V5.9.1292 — same drawFilledPath→nDrawColor ANR class as MainActivity
+                // (filled CUBIC_BEZIER). Hardware-layer so the fill is GPU-composited.
+                try { setHardwareAccelerationEnabled(true) } catch (_: Throwable) {}
                 setBackgroundColor(0xFF111827.toInt())
                 setDrawGridBackground(false)
                 description.isEnabled = false
