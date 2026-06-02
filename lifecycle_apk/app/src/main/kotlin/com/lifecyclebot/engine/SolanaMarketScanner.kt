@@ -746,6 +746,49 @@ class SolanaMarketScanner(
     private val dex = DexscreenerApi()
     private val coingecko = CoinGeckoTrending()
 
+    // ═══════════════════════════════════════════════════════════════════════
+    // V5.9.1307 — GECKOTERMINAL RATE GOVERNOR (broad-network feed revival).
+    // ROOT CAUSE of the pump-centric feed: GeckoTerminal is the ONLY source
+    // that surfaces established Raydium/Orca/Meteora mid-caps (the liquid
+    // universe TREASURY/QUALITY/BLUECHIP need). Its free tier is 30 calls/min,
+    // but the loop fired ~6 GT calls every ~10s = ~36/min → constant 429s →
+    // 40% success rate (snapshot 3274). So the broad feed died and pump.fun
+    // (unlimited websocket) flooded unopposed. Add a strict client-side token
+    // bucket (28/min, headroom under 30) + a 429 cooldown so GT requests pace
+    // themselves and actually succeed. When GT is cooling down, callers skip
+    // cleanly (return null) instead of burning the budget on guaranteed-429s.
+    private val geckoCallTimestamps = java.util.ArrayDeque<Long>()
+    @Volatile private var geckoCooldownUntilMs = 0L
+    private val geckoLock = Any()
+    private fun geckoBudgetAvailable(): Boolean {
+        synchronized(geckoLock) {
+            val now = System.currentTimeMillis()
+            if (now < geckoCooldownUntilMs) return false
+            while (geckoCallTimestamps.isNotEmpty() && now - geckoCallTimestamps.peekFirst() > 60_000L) {
+                geckoCallTimestamps.pollFirst()
+            }
+            if (geckoCallTimestamps.size >= 28) return false   // 28/min, headroom under the 30 cap
+            geckoCallTimestamps.addLast(now)
+            return true
+        }
+    }
+    private fun geckoNote429() {
+        synchronized(geckoLock) {
+            // Back off for 20s on a 429 so the minute-window can fully drain.
+            geckoCooldownUntilMs = System.currentTimeMillis() + 20_000L
+        }
+    }
+    /** Gecko-aware fetch: respects the token bucket + 429 cooldown. Returns null when budget-blocked. */
+    private fun getGecko(url: String): String? {
+        if (!geckoBudgetAvailable()) {
+            ErrorLogger.debug("Scanner", "[GECKO_BUDGET] skip (bucket full or cooling) ${url.take(50)}")
+            return null
+        }
+        val body = getWithRetry(url, maxRetries = 1)
+        if (body == null) geckoNote429()  // null is usually a 429/timeout at this host
+        return body
+    }
+
     private val rcScoreCache = ConcurrentHashMap<String, Int>()
 
     private var scope: CoroutineScope? = null
@@ -2100,7 +2143,7 @@ class SolanaMarketScanner(
         // GeckoTerminal trending Solana pools — completely free, no API key required
         try {
             val url = "https://api.geckoterminal.com/api/v2/networks/solana/trending_pools?page=1"
-            val body = getWithRetry(url) ?: run {
+            val body = getGecko(url) ?: run {
                 ErrorLogger.debug("Scanner", "scanCoinGeckoTrending: no response")
                 return
             }
@@ -2729,7 +2772,7 @@ class SolanaMarketScanner(
         // GeckoTerminal NEW Solana pools — free, no API key, catches launches before they trend
         try {
             val url = "https://api.geckoterminal.com/api/v2/networks/solana/new_pools?page=1"
-            val body = getWithRetry(url) ?: return
+            val body = getGecko(url) ?: return
             val pools = JSONObject(body).optJSONArray("data") ?: return
             var found = 0
             for (i in 0 until minOf(pools.length(), 60)) {
@@ -2796,7 +2839,7 @@ class SolanaMarketScanner(
     private suspend fun scanGeckoTrendingPools() {
         try {
             val url = "https://api.geckoterminal.com/api/v2/networks/solana/trending_pools?page=1"
-            val body = getWithRetry(url) ?: return
+            val body = getGecko(url) ?: return
             val pools = JSONObject(body).optJSONArray("data") ?: return
             var found = 0
             for (i in 0 until minOf(pools.length(), 40)) {
@@ -2861,7 +2904,7 @@ class SolanaMarketScanner(
         for (page in 1..3) {
             try {
                 val url = "https://api.geckoterminal.com/api/v2/networks/solana/pools?page=$page"
-                val body = getWithRetry(url) ?: continue
+                val body = getGecko(url) ?: continue
                 val pools = JSONObject(body).optJSONArray("data") ?: continue
                 var found = 0
                 for (i in 0 until minOf(pools.length(), 30)) {
@@ -2927,7 +2970,7 @@ class SolanaMarketScanner(
         // the watchlist.
         try {
             val url = "https://api.geckoterminal.com/api/v2/networks/solana/dexes/meteora/pools?page=1"
-            val body = getWithRetry(url) ?: return
+            val body = getGecko(url) ?: return
             val pools = JSONObject(body).optJSONArray("data") ?: return
             var found = 0
             for (i in 0 until minOf(pools.length(), 40)) {
@@ -3654,6 +3697,7 @@ class SolanaMarketScanner(
         url.contains("jup.ag")             -> "jupiter"
         url.contains("helius")             -> "helius"
         url.contains("birdeye")            -> "birdeye"
+        url.contains("geckoterminal")      -> "geckoterminal"
         url.contains("coingecko")          -> "coingecko"
         url.contains("solana.com")         -> "solana_rpc"
         url.contains("pyth")               -> "pyth"

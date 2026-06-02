@@ -501,12 +501,36 @@ object CashGenerationAI {
         var treasuryScore = 0
         val scoreReasons = mutableListOf<String>()
 
+        // V5.9.1307 — TREASURY LIQUIDITY REALITY FLOOR (fish in the right pond).
+        // TREASURY is a CONSERVATIVE SCALPER by design: many small 5-10% wins on
+        // LIQUID setups, "feed the treasury never drain it", 70% WR target. But the
+        // pump.fun firehose was feeding it $2-3K-liquidity brand-new rugs (snapshot
+        // 3274), which gap -30% and dumped it into its TREASURY|S61+ -31% death band
+        // (the single worst bleeder by EV, -20.9%/trade). The fix is at the SOURCE:
+        // a scalper must not scalp illiquid rugs. Require a real liquidity base before
+        // TREASURY will consider a token. Paper keeps a lower floor so it still learns
+        // the boundary; live demands depth. Doctrine-clean: this is the lane self-
+        // selecting its OWN proper pond, not an external veto or a scanner choke —
+        // the meme lanes still take these tokens. Fail-open if liquidity unknown (0).
+        val treasuryMinLiq = if (isPaperMode) 12_000.0 else 25_000.0
+        if (liquidityUsd in 0.01 until treasuryMinLiq) {
+            return TreasurySignal(
+                shouldEnter = false,
+                positionSizeSol = 0.0,
+                takeProfitPct = 0.0,
+                stopLossPct = 0.0,
+                confidence = 0,
+                reason = "treasury_liq_floor_${liquidityUsd.toInt()}_below_${treasuryMinLiq.toInt()}_(wrong_pond_scalper_needs_depth)",
+                mode = mode,
+                isPaperMode = isPaperMode,
+            )
+        }
+
         val liqScore = when {
             liquidityUsd >= 50_000 -> 25
             liquidityUsd >= 20_000 -> 20
             liquidityUsd >= 10_000 -> 15
             liquidityUsd >= 5_000 -> 10
-            liquidityUsd >= 2_000 -> 5
             else -> 0
         }
         treasuryScore += liqScore

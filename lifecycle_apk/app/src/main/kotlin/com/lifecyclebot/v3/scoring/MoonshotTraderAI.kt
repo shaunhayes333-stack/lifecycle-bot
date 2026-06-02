@@ -67,7 +67,13 @@ object MoonshotTraderAI {
     // Any token from any layer can promote to Moonshot when gains hit threshold
     // Market cap boundaries are wide to accept promotions from all layers
     private const val MIN_MARKET_CAP_USD = 10_000.0      // $10K minimum (can come from ShitCoin)
-    private const val MAX_MARKET_CAP_USD = 100_000_000.0 // $100M maximum (allow Jupiter plays)
+    // V5.9.1307 — was $100M ("allow Jupiter plays"). But a $50M token cannot 10x-1000x;
+    // letting MOONSHOT bid mature caps diluted its edge into a generalist and contributed
+    // to its -0.41 SOL / 8.5% WR bleed. A real moonshot hunts $5K-$5M gems BEFORE liftoff.
+    // Pull the ceiling back to $5M so the lane targets the asymmetric-upside zone it was
+    // built for. COLLECTIVE winners (proven 10x network plays) keep a higher implicit
+    // ceiling via the JUPITER mode bonus path; this only stops cold bids on mature caps.
+    private const val MAX_MARKET_CAP_USD = 5_000_000.0   // $5M — moonshot upside zone
     
     // Liquidity requirements - flexible since these are promoted positions
     // V5.9.159 — bootstrap liquidity floor lowered. At 1% learning a $5K floor
@@ -491,20 +497,28 @@ object MoonshotTraderAI {
         // Market cap bonus - sweet spots by mode
         val mode = detectSpaceMode(marketCapUsd, isCollective)
         val mcapScore = when (mode) {
-            SpaceMode.ORBITAL -> if (marketCapUsd in 150_000.0..400_000.0) 25 else 18
+            SpaceMode.ORBITAL -> if (marketCapUsd in 10_000.0..400_000.0) 25 else 18  // V5.9.1307: extend sweet spot DOWN to $10K (earliest gems = most upside)
             SpaceMode.LUNAR -> if (marketCapUsd in 700_000.0..1_500_000.0) 22 else 15
             SpaceMode.MARS -> if (marketCapUsd in 2_500_000.0..4_000_000.0) 20 else 12
             SpaceMode.JUPITER -> 25  // Always good if collective
         }
         score += mcapScore
         
-        // Liquidity bonus - higher is better for moonshots
+        // V5.9.1307 — LIQUIDITY SCORING RE-AIMED AT THE MOONSHOT THESIS.
+        // The old curve rewarded DEEP pools (+20 for >$200K) and gave early gems
+        // only +5. But a pre-liftoff 100x candidate HAS thin liquidity — that is
+        // the whole point of catching it early. The old curve scored MOONSHOT
+        // HIGHEST on already-pumped tokens that can no longer moon (scorer
+        // inversion). Re-aim it: reward the "real-but-early" sweet spot ($8K-$80K)
+        // where asymmetric upside lives, while still giving a small floor to the
+        // thinnest (rug-risk) and the deepest (late) ends. Rug protection stays
+        // with the dedicated holder/RC gates — this is upside targeting, not safety.
         val liqScore = when {
-            liquidityUsd > 200_000 -> 20
-            liquidityUsd > 100_000 -> 16
-            liquidityUsd > 50_000 -> 12
-            liquidityUsd > 25_000 -> 8
-            else -> 5
+            liquidityUsd in 8_000.0..80_000.0  -> 20   // early-gem sweet spot — pre-liftoff
+            liquidityUsd in 80_000.0..200_000.0 -> 14  // building momentum
+            liquidityUsd in 3_000.0..8_000.0   -> 12   // very early (higher risk, real upside)
+            liquidityUsd > 200_000             -> 8    // already liquid = less moonshot left
+            else -> 3                                   // sub-$3K = mostly noise
         }
         score += liqScore
         
