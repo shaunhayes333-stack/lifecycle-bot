@@ -70,8 +70,11 @@ object ForwardOutcomeModel {
     )
 
     private fun band(score: Int) = when {
+        // V5.9.1294 — finer low-end banding (mirror AutonomousMetaPolicy) so the
+        // counterfactual model can separate dead vs survivor micro-contexts in the
+        // high-volume <20 score range instead of merging them all into S00.
         score >= 80 -> "S80"; score >= 60 -> "S60"; score >= 40 -> "S40"
-        score >= 20 -> "S20"; else -> "S00"
+        score >= 20 -> "S20"; score >= 10 -> "S10"; score >= 5 -> "S05"; else -> "S00"
     }
     private fun fineKey(lane: String, score: Int, quality: String, regime: String, edgePhase: String): String =
         "${lane.uppercase().take(14)}|${band(score)}|${quality.take(3)}|${regime.uppercase().take(10)}|${edgePhase.uppercase().take(10)}"

@@ -82,11 +82,23 @@ object AutonomousMetaPolicy {
 
     // ── Context key ──────────────────────────────────────────────────────
     fun contextKey(lane: String, score: Int, regime: String): String {
+        // V5.9.1294 — FINER LOW-END BANDING. The 3259 snapshot showed EVERY
+        // learned context collapsed into "S00" because the vast majority of meme
+        // entries score <20 (regime v3Median=7). With all volume in one bucket the
+        // policy could not separate a score-3 rug from a score-15 survivor, so the
+        // soft-shapers damped the whole blob uniformly and the bleed persisted.
+        // Split the high-volume <20 range to match LosingPatternMemory's proven-
+        // useful granularity (it already isolates e.g. SHITCOIN|S41-60 = +573% vs
+        // S0-10 = -18%). Now meta-policy + forward-model can target the truly dead
+        // micro-contexts and lean into the rare good ones. Doctrine: soft-shape,
+        // finer signal — NOT a new veto.
         val band = when {
             score >= 80 -> "S80"
             score >= 60 -> "S60"
             score >= 40 -> "S40"
             score >= 20 -> "S20"
+            score >= 10 -> "S10"   // was folded into S00
+            score >= 5  -> "S05"   // was folded into S00
             else        -> "S00"
         }
         val l = lane.uppercase().take(16).ifBlank { "MEME" }
