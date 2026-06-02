@@ -4990,6 +4990,18 @@ class Executor(
             TradeStateMachine.startCooldown(ts.mint)
             return reason
         }
+        // V5.9.1293 — CATASTROPHIC GAP GUARD. Pre-empts the -82% gap-through
+        // class: fires on the liquidity-drain rug signature BEFORE price gaps
+        // past the -15% floor. Runs here (before the hard floor) so a rugging
+        // token is exited on the drain signal rather than after the price has
+        // already collapsed. Bypasses min-hold by design (true rug emergency).
+        // Does NOT touch the unconditional -15% floor below — additive only.
+        ProfitabilityLayer.checkCatastrophicGapGuard(ts)?.let { reason ->
+            onLog("🛟 GAP GUARD: ${ts.symbol} | $reason — pre-emptive rug exit", ts.mint)
+            markForRecoveryScan(ts, gainPct, "gap_guard")
+            TradeStateMachine.startCooldown(ts.mint)
+            return reason
+        }
 
         if (gainPct <= -effectiveHardFloorPct) {
             val tag = if (predictiveTightened) "predictive_hard_floor" else "hard_floor"

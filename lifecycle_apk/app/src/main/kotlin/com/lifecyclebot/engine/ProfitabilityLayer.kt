@@ -102,6 +102,74 @@ object ProfitabilityLayer {
     }
 
     // ════════════════════════════════════════════════════════════════════
+    // 3b. CATASTROPHIC GAP GUARD (V5.9.1293)
+    //     Closes the -82% gap-through class. The unconditional -15% hard
+    //     floor (Executor.riskCheck) only fires AFTER a tick observes price
+    //     past the floor — but a rugging token gaps 0%→-80% in ONE poll
+    //     interval, so no intermediate tick ever sees -15%. By the time the
+    //     floor fires the damage is done. This guard fires PRE-EMPTIVELY on
+    //     the liquidity-drain rug signature BEFORE price gaps, using the
+    //     operator's standing drain heuristic:
+    //         ≥2 hits + ( ≥40% liquidity drop over ≤60s  OR  <$800 total liq )
+    //     It bypasses min-hold (a draining-liquidity rug is a true emergency)
+    //     and does NOT touch the -15% floor — it is an ADDITIONAL early exit,
+    //     never a loosening. Pure profit-factor recovery, zero volume cost:
+    //     it only fires on tokens that are actively rugging.
+    private val drainHitCounts = java.util.concurrent.ConcurrentHashMap<String, Int>()
+    private val drainHitLastMs = java.util.concurrent.ConcurrentHashMap<String, Long>()
+
+    fun checkCatastrophicGapGuard(ts: TokenState): String? {
+        return try {
+            val pos = ts.position
+            if (!pos.isOpen) return null
+            val mint = ts.mint
+            val now = System.currentTimeMillis()
+
+            // Reset the per-mint hit counter if hits stopped arriving (>90s
+            // gap) so an old, recovered token doesn't carry stale hits.
+            val last = drainHitLastMs[mint] ?: 0L
+            if (now - last > 90_000L) drainHitCounts.remove(mint)
+
+            // ---- Heuristic inputs ----
+            val liqNow = ts.lastLiquidityUsd
+            // (a) absolute thin-liquidity floor: <$800 total liquidity.
+            val thinLiq = liqNow > 0.0 && liqNow < 800.0
+            // (b) ≥40% liquidity drop over ≤60s window. Use LiquidityDepthAI's
+            //     windowed changePercent (negative = drop) and confirm the
+            //     window is recent (velocity is per-minute so a 60s window
+            //     change ≈ velocity). changePercent <= -40 = ≥40% drop.
+            var fastDrop = false
+            try {
+                val sig = LiquidityDepthAI.getSignal(mint, ts.symbol, isOpenPosition = true)
+                val changePct = sig.trend.changePercent      // % over window (neg=drop)
+                val collapsing = sig.signal == LiquidityDepthAI.SignalType.LIQUIDITY_COLLAPSE
+                // ≥40% drop over the window, or an outright COLLAPSE classification.
+                if (changePct <= -40.0 || collapsing) fastDrop = true
+            } catch (_: Throwable) { /* signal unavailable — rely on thinLiq */ }
+
+            if (!thinLiq && !fastDrop) {
+                return null
+            }
+
+            // ---- Hit accumulation: require ≥2 confirming hits ----
+            val hits = (drainHitCounts[mint] ?: 0) + 1
+            drainHitCounts[mint] = hits
+            drainHitLastMs[mint] = now
+            if (hits < 2) return null
+
+            // Confirmed rug-in-progress: fire pre-emptively.
+            drainHitCounts.remove(mint)
+            drainHitLastMs.remove(mint)
+            val why = when {
+                thinLiq && fastDrop -> "thin<\$800+drop"
+                thinLiq             -> "thin<\$800"
+                else                -> "drop>=40%/60s"
+            }
+            "catastrophic_gap_guard_$why"
+        } catch (_: Throwable) { null }
+    }
+
+    // ════════════════════════════════════════════════════════════════════
     // 4. FEE-AWARE MIN-PROFIT BAND
     //    Prevents scratches (-0.8% … +0.8%) from being exited by weak
     //    signals. If unrealized PnL is in the band AND position is
