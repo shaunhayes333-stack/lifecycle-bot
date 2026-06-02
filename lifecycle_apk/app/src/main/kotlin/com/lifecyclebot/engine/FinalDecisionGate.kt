@@ -678,6 +678,12 @@ object FinalDecisionGate {
         proposedSizeSol: Double,
         brain: BotBrain? = null,
         tradingModeTag: ModeSpecificGates.TradingModeTag? = null,
+        // V5.9.1296 — the lane's REAL signal score (0-100) for LEARNING-CONTEXT
+        // bucketing only. Defaults to candidate.entryScore so non-lane callers are
+        // unchanged. Lane callers pass their true score (qualityScore/manipScore/
+        // confidence×100) so meta-policy / forward-model stop collapsing every
+        // specialist context into S00. Does NOT touch any entry gate.
+        laneScore: Double = candidate.entryScore,
     ): FinalDecision {
         val checks = mutableListOf<GateCheck>()
         var blockReason: String? = null
@@ -3624,8 +3630,13 @@ object FinalDecisionGate {
                     try {
                         val mpRegime = try { RegimeDetector.currentRegime().name } catch (_: Throwable) { "NORMAL" }
                         val mpLane = tradingModeTag?.name ?: "STANDARD"
-                        val conv = AutonomousMetaPolicy.conviction(mpLane, candidate.entryScore.toInt(), mpRegime)
-                        AutonomousMetaPolicy.stampDecision(ts.mint, mpLane, candidate.entryScore.toInt(), mpRegime)
+                        // V5.9.1296 — bucket the learning context by the lane's REAL score,
+                        // not the shared base V3 score (~7 for memes) that collapsed every
+                        // context into S00. laneScore defaults to candidate.entryScore so
+                        // non-lane callers are identical.
+                        val mpScore = laneScore.toInt()
+                        val conv = AutonomousMetaPolicy.conviction(mpLane, mpScore, mpRegime)
+                        AutonomousMetaPolicy.stampDecision(ts.mint, mpLane, mpScore, mpRegime)
                         if (conv != 1.0) {
                             val before = finalSize
                             finalSize = (finalSize * conv).coerceAtLeast(0.01)
@@ -3640,7 +3651,7 @@ object FinalDecisionGate {
                         // context is statistically dead (n>=20, winP<12%, avg<-18%),
                         // starve size to dust so a known grave can't drain the wallet.
                         // NOT a veto — candidate still flows; pool & FDG fail-open intact.
-                        val starve = AutonomousMetaPolicy.starveFactor(mpLane, candidate.entryScore.toInt(), mpRegime)
+                        val starve = AutonomousMetaPolicy.starveFactor(mpLane, mpScore, mpRegime)
                         if (starve < 1.0) {
                             val beforeS = finalSize
                             finalSize = (finalSize * starve).coerceAtLeast(0.001)
@@ -3654,8 +3665,8 @@ object FinalDecisionGate {
                         // settled trades keyed by lane×band×quality×regime×edgePhase.
                         // The nudge plans against the predicted distribution. Soft-shape,
                         // stamped for closed-loop credit. Fail-open.
-                        val fwd = ForwardOutcomeModel.forecast(mpLane, candidate.entryScore.toInt(), candidate.setupQuality, mpRegime, candidate.edgePhase)
-                        ForwardOutcomeModel.stamp(ts.mint, mpLane, candidate.entryScore.toInt(), candidate.setupQuality, mpRegime, candidate.edgePhase)
+                        val fwd = ForwardOutcomeModel.forecast(mpLane, mpScore, candidate.setupQuality, mpRegime, candidate.edgePhase)
+                        ForwardOutcomeModel.stamp(ts.mint, mpLane, mpScore, candidate.setupQuality, mpRegime, candidate.edgePhase)
                         // V5.9.1271 — grade the predictor: stamp pWin+E[pnl] so the close can score accuracy.
                         try { com.lifecyclebot.engine.SignalQualityTracker.stamp(ts.mint, mpLane, fwd.pWin, fwd.expectedPnl) } catch (_: Throwable) {}
 
@@ -3668,7 +3679,7 @@ object FinalDecisionGate {
                         // Fail-open by construction (returns false on any doubt/error).
                         // The 500-token pool, FDG fail-open path, and -15% floor are all
                         // untouched — this only refuses the single candidate in a grave.
-                        if (AutonomousMetaPolicy.shouldVeto(mpLane, candidate.entryScore.toInt(), mpRegime, fwd.pWin, fwd.expectedPnl, fwd.samples)) {
+                        if (AutonomousMetaPolicy.shouldVeto(mpLane, mpScore, mpRegime, fwd.pWin, fwd.expectedPnl, fwd.samples)) {
                             shouldTradeFinal = false
                             blockReasonFinal = "PROVEN_DEAD_CONTEXT_VETO:$mpLane|S${candidate.entryScore.toInt()}|$mpRegime"
                             tags.add("veto:proven_dead")

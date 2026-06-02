@@ -7337,6 +7337,14 @@ class BotService : Service() {
             base.setupQuality.isNotBlank() && base.setupQuality != "SKIP" -> base.setupQuality
             else -> "C"
         }
+        // V5.9.1296 — NOTE: we deliberately do NOT overwrite entryScore here.
+        // entryScore feeds two FDG entry gates (unknown-phase conviction @ ~2331
+        // and the LIVE edge override @ ~2394); inflating it would loosen entry and
+        // push volume even further above the 1000/day ceiling. The lane's real score
+        // is instead threaded into the LEARNING CONTEXT only, via the laneScore arg
+        // on FDG.evaluate (see V5.9.1296 call-site wiring), so AutonomousMetaPolicy /
+        // ForwardOutcomeModel can finally bucket by true lane quality WITHOUT
+        // changing which candidates pass the gates.
         return base.copy(
             signal = "BUY",
             finalSignal = "BUY",
@@ -13999,6 +14007,7 @@ if (postSupervisorOpenCount > 0 && !postSupervisorBackupDue) {
                                 FinalDecisionGate.evaluate(
                                     ts = ts,
                                     candidate = laneQualifiedBuyDecision(decision, "TREASURY", confidenceFloor = treasurySignal.confidence.toDouble()),
+                                    laneScore = treasurySignal.confidence.toDouble(),
                                     config = cfg,
                                     proposedSizeSol = treasurySignal.positionSizeSol,
                                     brain = executor.brain,
@@ -14280,6 +14289,7 @@ if (postSupervisorOpenCount > 0 && !postSupervisorBackupDue) {
                                 FinalDecisionGate.evaluate(
                                     ts = ts,
                                     candidate = laneQualifiedBuyDecision(decision, "QUALITY", confidenceFloor = qualitySignal.qualityScore.toDouble()),
+                                    laneScore = qualitySignal.qualityScore.toDouble(),
                                     config = cfg,
                                     proposedSizeSol = qualitySignal.positionSizeSol,
                                     brain = executor.brain,
@@ -14459,6 +14469,7 @@ if (postSupervisorOpenCount > 0 && !postSupervisorBackupDue) {
                                 FinalDecisionGate.evaluate(
                                     ts = ts,
                                     candidate = laneQualifiedBuyDecision(decision, "BLUE_CHIP", confidenceFloor = blueChipSignal.confidence.toDouble()),
+                                    laneScore = blueChipSignal.confidence.toDouble(),
                                     config = cfg,
                                     proposedSizeSol = blueChipSignal.positionSizeSol,
                                     brain = executor.brain,
@@ -14755,6 +14766,7 @@ if (postSupervisorOpenCount > 0 && !postSupervisorBackupDue) {
                                     FinalDecisionGate.evaluate(
                                         ts = ts,
                                         candidate = laneQualifiedBuyDecision(decision, "MOONSHOT", confidenceFloor = moonshotScore.confidence * 100.0),
+                                        laneScore = moonshotScore.confidence * 100.0,
                                         config = cfg,
                                         proposedSizeSol = moonshotScore.suggestedSizeSol,
                                         brain = executor.brain,
@@ -15312,6 +15324,7 @@ if (postSupervisorOpenCount > 0 && !postSupervisorBackupDue) {
                                 FinalDecisionGate.evaluate(
                                     ts = ts,
                                     candidate = laneQualifiedBuyDecision(decision, "SHITCOIN", confidenceFloor = shitCoinSignal.confidence * 100.0),
+                                    laneScore = shitCoinSignal.confidence * 100.0,
                                     config = cfg,
                                     proposedSizeSol = shitCoinSignal.positionSizeSol,
                                     brain = executor.brain,
@@ -15605,6 +15618,7 @@ if (postSupervisorOpenCount > 0 && !postSupervisorBackupDue) {
                             FinalDecisionGate.evaluate(
                                 ts = ts,
                                 candidate = laneQualifiedBuyDecision(decision, "MANIPULATED", confidenceFloor = manipSignal.manipScore.toDouble()),
+                                laneScore = manipSignal.manipScore.toDouble(),
                                 config = cfg,
                                 proposedSizeSol = manipSignal.positionSizeSol,
                                 brain = executor.brain,
@@ -15828,6 +15842,7 @@ if (postSupervisorOpenCount > 0 && !postSupervisorBackupDue) {
                                 FinalDecisionGate.evaluate(
                                     ts = ts,
                                     candidate = laneQualifiedBuyDecision(decision, "EXPRESS", confidenceFloor = expressSignal.confidence * 100.0),
+                                    laneScore = expressSignal.confidence * 100.0,
                                     config = cfg,
                                     proposedSizeSol = expressSignal.positionSizeSol,
                                     brain = executor.brain,
@@ -16149,6 +16164,7 @@ if (postSupervisorOpenCount > 0 && !postSupervisorBackupDue) {
                                 FinalDecisionGate.evaluate(
                                     ts = ts,
                                     candidate = laneQualifiedBuyDecision(decision, "DIP_HUNTER", confidenceFloor = dipSignal.confidence * 100.0),
+                                    laneScore = dipSignal.confidence * 100.0,
                                     config = cfg,
                                     proposedSizeSol = dipSignal.positionSizeSol,
                                     brain = executor.brain,
