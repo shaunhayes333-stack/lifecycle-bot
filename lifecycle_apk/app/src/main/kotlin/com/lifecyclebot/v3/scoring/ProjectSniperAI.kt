@@ -424,8 +424,25 @@ object ProjectSniperAI {
         // Quality lane minimum), keep MAX cap. With BehaviorAI band 0 (0.5×)
         // composing on a sub-60 confidence (0.8×), composed product is 0.4×,
         // which the new floor preserves instead of clamping back to 1.0×.
-        val composed = BASE_POSITION_SOL * sizeMultiplier * behaviorSizeMult * behaviorGradeMult
-        var positionSol = composed.coerceIn(BASE_POSITION_SOL * 0.5, MAX_POSITION_SOL)
+        // ── V5.9.1302 — SNIPER self-awareness: damp size in its OWN proven
+        // danger buckets. ProjectSniperAI previously sized blind to its per-score
+        // record (the BotService danger check was telemetry-only and never reduced
+        // size). Now it consults the SAME "PRESALE_SNIPE" bucket it is tracked under
+        // and self-throttles size — soft, fail-open, no veto. A matured net-losing
+        // bucket halves size; an expectancy-reject flag applies a deeper 0.4x probe.
+        // Empty/young buckets (which return false) leave size untouched, so bootstrap
+        // throughput is preserved. This is the fluid self-adjustment the doctrine wants.
+        var sniperSelfDamp = 1.0
+        try {
+            val danger = com.lifecyclebot.engine.LosingPatternMemory.stats("PRESALE_SNIPE", confidence)
+            if (danger.isDangerous && danger.meanPnl < 0.0) sniperSelfDamp = 0.5
+            if (com.lifecyclebot.engine.ScoreExpectancyTracker.shouldReject("PRESALE_SNIPE", confidence)) {
+                sniperSelfDamp = minOf(sniperSelfDamp, 0.4)
+            }
+        } catch (_: Throwable) { /* fail-open per FDG doctrine */ }
+
+        val composed = BASE_POSITION_SOL * sizeMultiplier * behaviorSizeMult * behaviorGradeMult * sniperSelfDamp
+        var positionSol = composed.coerceIn(BASE_POSITION_SOL * 0.35, MAX_POSITION_SOL)
 
         // V5.9.926 — GLOBAL COMPOUND MULTIPLIER (Pass A fix).
         try {
