@@ -3760,9 +3760,22 @@ for legal compliance.
         try {
             val nowTile = System.currentTimeMillis()
             val minTileMs = if (runtimeActiveForUi) 60_000L else 10_000L
-            if (nowTile - lastTileStatsRenderMs >= minTileMs || lastTileStatsRenderMs <= 0L) {
+            val isColdFirst = lastTileStatsRenderMs <= 0L
+            if (nowTile - lastTileStatsRenderMs >= minTileMs || isColdFirst) {
                 lastTileStatsRenderMs = nowTile
-                updateTileStats()
+                if (isColdFirst) {
+                    // V5.9.1303 — the FIRST tile render after onCreate previously ran inline
+                    // and collided with cold layout inflation + lane-lock contention, producing
+                    // the 2.7s MoonshotTraderAI.getActivePositions main-thread ANR seen in the
+                    // 5.0.3269 snapshot. Defer it one frame so onCreate finishes inflating first;
+                    // the per-lane getActivePositions() calls then run without competing for the
+                    // same locks the bot loop is hammering during startup. Doctrine: keep heavy
+                    // render work off the onCreate critical path. Cheap (just a posted runnable),
+                    // fail-open, tiles populate a beat later instead of freezing the screen.
+                    tvV3Stats.post { try { updateTileStats() } catch (_: Throwable) {} }
+                } else {
+                    updateTileStats()
+                }
             }
         } catch (_: Exception) {}
         
