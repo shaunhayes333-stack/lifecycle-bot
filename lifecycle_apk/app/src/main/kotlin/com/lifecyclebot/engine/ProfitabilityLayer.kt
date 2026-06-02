@@ -140,9 +140,12 @@ object ProfitabilityLayer {
             //     change ≈ velocity). changePercent <= -40 = ≥40% drop.
             var fastDrop = false
             try {
-                val sig = LiquidityDepthAI.getSignal(mint, ts.symbol, isOpenPosition = true)
-                val changePct = sig.trend.changePercent      // % over window (neg=drop)
-                val collapsing = sig.signal == LiquidityDepthAI.SignalType.LIQUIDITY_COLLAPSE
+                // analyzeTrend() carries the windowed % change (changePercent) and the
+                // COLLAPSE classification. getSignal() only exposes the Trend enum, so we
+                // read the trend directly for the real drop magnitude.
+                val lt = LiquidityDepthAI.analyzeTrend(mint)
+                val changePct = lt.changePercent            // % over window (neg=drop)
+                val collapsing = lt.trend == LiquidityDepthAI.Trend.COLLAPSE
                 // ≥40% drop over the window, or an outright COLLAPSE classification.
                 if (changePct <= -40.0 || collapsing) fastDrop = true
             } catch (_: Throwable) { /* signal unavailable — rely on thinLiq */ }
