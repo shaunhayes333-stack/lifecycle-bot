@@ -36,7 +36,7 @@ object CyclicTradeEngine {
     // ring $3, -99% growth). Keep sampling, but stop full-ring gambling until
     // its own curve has proven profitable.
     private const val COLD_MIN_SCORE_TO_ENTER = 72.0
-    private const val COLD_RING_SIZE_MULT = 0.20
+    private const val COLD_RING_SIZE_MULT = 0.40   // V5.9.1309: was 0.20 — too starved to recover; 40% still de-risks while allowing the ring to climb back
     // V5.9.240: During bootstrap (<40% learning) lower the score floor so the
     // ring engine actually trades while FluidLearningAI is still calibrating.
     // Tokens don't have a reliable lastV3Score yet at that stage — entryScore
@@ -62,6 +62,16 @@ object CyclicTradeEngine {
     @Volatile var ringBalanceUsd: Double = RING_SIZE_USD
         private set
     @Volatile var cycleCount: Int = 0
+        private set
+    // V5.9.1309 — COMPOUND MILESTONE LADDER. Operator design: $500→$1000→reinvest
+    // →$2000→… each DOUBLING is a banked compound tier whose principal is then
+    // protected. lockedFloorUsd is the highest doubling milestone the ring has
+    // crossed; the ring is never allowed to be re-seeded below it, and cold-mode
+    // measures dips RELATIVE TO the locked floor, not the original $500. This gives
+    // the engine the discrete $500→$1M staircase instead of an unprotected drift.
+    @Volatile var lockedFloorUsd: Double = RING_SIZE_USD
+        private set
+    @Volatile var milestoneTier: Int = 0   // 0 = $500 base, 1 = crossed $1000, 2 = $2000, ...
         private set
     @Volatile var totalPnlSol: Double = 0.0
         private set
@@ -96,6 +106,8 @@ object CyclicTradeEngine {
         val prefs = prefs(context)
         ringBalanceSol = prefs.getFloat("ring_balance_sol", 0f).toDouble()
         ringBalanceUsd = prefs.getFloat("ring_balance_usd", RING_SIZE_USD.toFloat()).toDouble()
+        lockedFloorUsd = prefs.getFloat("locked_floor_usd", RING_SIZE_USD.toFloat()).toDouble()
+        milestoneTier  = prefs.getInt("milestone_tier", 0)
         cycleCount     = prefs.getInt("cycle_count", 0)
         totalPnlSol    = prefs.getFloat("total_pnl_sol", 0f).toDouble()
         winCount       = prefs.getInt("win_count", 0)
@@ -300,7 +312,12 @@ object CyclicTradeEngine {
             com.lifecyclebot.v3.scoring.FluidLearningAI.getLearningProgress() < 0.40
         } catch (_: Exception) { false }
         val cyclicWrPct = if (cycleCount > 0) (winCount * 100.0 / cycleCount.toDouble()) else 0.0
-        val cyclicCold = cycleCount >= 3 && (cyclicWrPct < 35.0 || ringBalanceUsd < RING_SIZE_USD * 0.80)
+        // V5.9.1309 — cold-mode now measures the dip RELATIVE TO the locked compound
+        // floor, not the original $500. A ring that banked the $1000 tier and dipped
+        // to $850 is NOT "cold" — it's a normal pullback above a protected milestone.
+        // This stops the doom-loop where a ring at $386 was permanently cold (deploy
+        // 20% + score≥72), too starved to ever recover.
+        val cyclicCold = cycleCount >= 3 && (cyclicWrPct < 35.0 || ringBalanceUsd < lockedFloorUsd * 0.80)
         var effectiveMinScore = when {
             cyclicCold -> COLD_MIN_SCORE_TO_ENTER
             isBootstrapPhase -> MIN_SCORE_TO_ENTER_BOOTSTRAP
@@ -401,16 +418,27 @@ object CyclicTradeEngine {
                 ErrorLogger.info(TAG, "🪙✨ CYCLIC CALIBRATION_SHRINK ${best.symbol} | band=S$cycScore ring×$calMult (net-negative band)")
             }
         } catch (_: Throwable) { /* fail-open */ }
-        // V5.9.1304 — CYCLIC must not vacuum the shared wallet. The ring grows by accrued PnL
-        // and was sizing to its FULL balance (6.5 SOL on a streak — half the wallet — in one
-        // position), starving the other 7 lanes and pinning concurrent opens at ~25. Cap per
-        // entry at 20% of the live shared wallet (same ceiling SmartSizer enforces on every
-        // other lane). Ring strategy intact; it just can't hog capital. Fail-open: if walletSol
-        // is unknown (<=0) fall back to the ring-desired size so we never block on a bad read.
-        val walletCapSol = if (walletSol > 0.0) walletSol * 0.20 else ringDesiredSol
-        val sizeSol = minOf(ringDesiredSol, walletCapSol).coerceAtLeast(0.001)
-        if (sizeSol < ringDesiredSol) {
-            try { ErrorLogger.info(TAG, "🪙 CYCLIC wallet-cap: ring wanted ${ringDesiredSol.fmt(3)} → capped ${sizeSol.fmt(3)} SOL (20% of ${walletSol.fmt(3)} wallet) — protecting other lanes") } catch (_: Throwable) {}
+        // V5.9.1309 — WALLET CAP IS LIVE-ONLY (CRITICAL COMPOUNDING FIX).
+        // 1304 capped every CYCLIC entry at 20% of the shared wallet to stop the
+        // ring hogging LIVE capital from the other 7 lanes. But in PAPER mode the
+        // ring is a SELF-CONTAINED VIRTUAL $500→$1M sandbox: paperBuy debits NO
+        // shared balance (verified — paper positions are virtual, P&L per-token).
+        // So in paper the cap did pure harm: ring wanted to deploy its full $386
+        // but got throttled to 20% of the tiny $76 paper wallet (~$15/cycle),
+        // making compounding MATHEMATICALLY IMPOSSIBLE — the worst bleeder on the
+        // board (-22.8% growth, WR 0%). The ring MUST deploy its full balance each
+        // cycle; that IS compounding. Apply the shared-wallet cap ONLY in LIVE mode
+        // where capital is genuinely shared. Paper deploys the full ring.
+        val sizeSol = if (isLiveMode && walletSol > 0.0) {
+            val walletCapSol = walletSol * 0.20
+            val capped = minOf(ringDesiredSol, walletCapSol).coerceAtLeast(0.001)
+            if (capped < ringDesiredSol) {
+                try { ErrorLogger.info(TAG, "🪙 CYCLIC live wallet-cap: ring wanted ${ringDesiredSol.fmt(3)} → capped ${capped.fmt(3)} SOL (20% of ${walletSol.fmt(3)} wallet) — protecting other live lanes") } catch (_: Throwable) {}
+            }
+            capped
+        } else {
+            // PAPER (or unknown wallet): deploy the full virtual ring — this is the compound engine.
+            ringDesiredSol.coerceAtLeast(0.001)
         }
 
         if (isLiveMode) {
@@ -602,6 +630,21 @@ object CyclicTradeEngine {
         ringBalanceUsd = ringBalanceSol * solPrice
         totalPnlSol   += pnlSol
         cycleCount++
+
+        // V5.9.1309 — COMPOUND MILESTONE LOCK (the $500→$1000→$2000→… staircase).
+        // Whenever the ring crosses the next doubling of its locked floor, BANK it:
+        // raise the protected floor to that milestone so a later drawdown can't give
+        // the compounded principal back. This is what makes it a compound ENGINE and
+        // not a drifting balance. Tiers: $500(base)→$1000→$2000→$4000→… → $1M.
+        run {
+            val nextMilestone = lockedFloorUsd * 2.0
+            if (ringBalanceUsd >= nextMilestone) {
+                lockedFloorUsd = nextMilestone
+                milestoneTier++
+                ErrorLogger.info(TAG, "🏆 CYCLIC COMPOUND MILESTONE #$milestoneTier reached: ring=\$${ringBalanceUsd.toInt()} ≥ \$${nextMilestone.toInt()} — floor LOCKED at \$${lockedFloorUsd.toInt()} (compounded principal now protected)")
+                statusMessage = "🏆 COMPOUND TIER $milestoneTier: \$${lockedFloorUsd.toInt()} banked!"
+            }
+        }
         val won = pnlPct > 0
         if (won) {
             winCount++
@@ -667,6 +710,8 @@ object CyclicTradeEngine {
         prefs(context).edit()
             .putFloat("ring_balance_sol", ringBalanceSol.toFloat())
             .putFloat("ring_balance_usd", ringBalanceUsd.toFloat())
+            .putFloat("locked_floor_usd", lockedFloorUsd.toFloat())
+            .putInt("milestone_tier", milestoneTier)
             .putInt("cycle_count", cycleCount)
             .putFloat("total_pnl_sol", totalPnlSol.toFloat())
             .putInt("win_count", winCount)
@@ -678,6 +723,8 @@ object CyclicTradeEngine {
         val solPrice = WalletManager.lastKnownSolPrice.takeIf { it > 0.0 } ?: 150.0
         ringBalanceSol = RING_SIZE_USD / solPrice
         ringBalanceUsd = RING_SIZE_USD
+        lockedFloorUsd = RING_SIZE_USD
+        milestoneTier  = 0
         cycleCount    = 0
         totalPnlSol   = 0.0
         winCount      = 0
@@ -707,6 +754,9 @@ object CyclicTradeEngine {
         "status"       to statusMessage,
         "target_cycles" to "15-20",
         "target_win_pct" to "47-66",
+        "locked_floor_usd" to lockedFloorUsd,        // V5.9.1309 — protected compound principal
+        "milestone_tier" to milestoneTier,            // V5.9.1309 — doublings banked ($500→$1000→…)
+        "next_milestone_usd" to lockedFloorUsd * 2.0, // next doubling target
     )
 
     private fun prefs(context: Context): SharedPreferences =
