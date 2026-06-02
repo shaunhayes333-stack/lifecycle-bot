@@ -1977,6 +1977,20 @@ for legal compliance.
     }
 
     private fun setupChart() {
+        // V5.9.1291 — HARDWARE-LAYER the charts. ANR snapshot 5.0.3258 pinned
+        // LineChartRenderer.drawCubicFill → LineRadarRenderer.drawFilledPath →
+        // Canvas.drawColor (nDrawColor) at 1299ms on the main thread. With a
+        // filled CUBIC_BEZIER set, MPAndroidChart fills a bezier Path region; on
+        // a software layer that drawColor runs on the CPU per frame. Promoting the
+        // chart View to a hardware layer makes the fill GPU-composited instead —
+        // the fill, the cubic line, and the live updates are ALL preserved, they
+        // just stop blocking the main thread. This is the canonical MPAndroidChart
+        // ANR fix and removes no behaviour.
+        // MPAndroidChart v3.1.0 exposes setHardwareAccelerationEnabled on Chart —
+        // it promotes the chart to a hardware layer so drawFilledPath is GPU-
+        // composited rather than CPU drawColor. Use the library API (not raw
+        // setLayerType) so the lib manages the layer lifecycle correctly.
+        try { priceChart.setHardwareAccelerationEnabled(true) } catch (_: Throwable) {}
         priceChart.apply {
             setBackgroundColor(Color.TRANSPARENT)
             setDrawGridBackground(false)
@@ -2000,6 +2014,7 @@ for legal compliance.
             axisRight.isEnabled = false
         }
         // V5.8.0: Setup CandleStick chart styling
+        try { candleChart.setHardwareAccelerationEnabled(true) } catch (_: Throwable) {}
         candleChart.apply {
             setBackgroundColor(Color.TRANSPARENT)
             setDrawGridBackground(false)
