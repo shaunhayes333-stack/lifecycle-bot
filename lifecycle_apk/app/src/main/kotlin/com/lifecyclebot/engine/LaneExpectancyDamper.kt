@@ -33,9 +33,23 @@ object LaneExpectancyDamper {
     // hard-floor magnitude is deep red; -12% is a confirmed structural loss).
     private const val BLEEDER_MEAN_PCT = -12.0
 
-    // Damper never sizes below this (keep a probe alive so the lane can recover
-    // and the learning loop keeps getting samples — throughput-before-cleverness).
+    // Damper never sizes below this for a NORMAL bleeder (keep a probe alive so
+    // the lane can recover and the learning loop keeps getting samples —
+    // throughput-before-cleverness).
     private const val MIN_MULT = 0.50
+
+    // V5.9.1298 — CATASTROPHIC tier. A lane that is BOTH deep-negative EV AND
+    // near-zero WR with a solid sample size is not "a bit weak", it's a confirmed
+    // capital incinerator (3264 snapshot: TREASURY n=83 WR 3.6% EV -23.5% PnL
+    // -1.01 SOL; Stocks n=55 WR 9.1% EV -12.7% -0.53 SOL). The 0.50 floor still
+    // lets these print at half size and keep bleeding. For PROVEN catastrophes we
+    // allow a deeper haircut floor — still a PROBE (never 0, never a veto), still
+    // self-healing the instant EV/WR recover. Doctrine: soft-shape > veto; this
+    // only shrinks size on statistically-overwhelming evidence.
+    private const val CATASTROPHIC_MEAN_PCT = -20.0   // mean PnL% this deep …
+    private const val CATASTROPHIC_WR_PCT   = 8.0     // … AND WR below this …
+    private const val CATASTROPHIC_MIN_TRADES = 40    // … AND this many closes.
+    private const val CATASTROPHIC_MIN_MULT = 0.20    // deeper probe floor
 
     // Worst-case mean PnL% that maps to MIN_MULT. Between BLEEDER_MEAN_PCT and
     // this, the haircut scales linearly.
@@ -93,11 +107,17 @@ object LaneExpectancyDamper {
         for (m in board) {
             if (m.trades < MIN_TRADES) continue
             if (m.meanPnlPct >= BLEEDER_MEAN_PCT) continue
-            // Linear haircut: BLEEDER_MEAN_PCT → 1.0, FLOOR_MEAN_PCT → MIN_MULT.
+            // Is this a PROVEN catastrophe (deep -EV + near-zero WR + big sample)?
+            val catastrophic = m.trades >= CATASTROPHIC_MIN_TRADES &&
+                m.meanPnlPct <= CATASTROPHIC_MEAN_PCT &&
+                m.winRatePct <= CATASTROPHIC_WR_PCT
+            // Floor depends on tier: catastrophic lanes may be cut deeper (still a probe).
+            val floorMult = if (catastrophic) CATASTROPHIC_MIN_MULT else MIN_MULT
+            // Linear haircut: BLEEDER_MEAN_PCT → 1.0, FLOOR_MEAN_PCT → floorMult.
             val span = (BLEEDER_MEAN_PCT - FLOOR_MEAN_PCT).coerceAtLeast(1.0)
             val depth = (BLEEDER_MEAN_PCT - m.meanPnlPct).coerceIn(0.0, span)
             val frac = depth / span                      // 0..1
-            val mult = (1.0 - frac * (1.0 - MIN_MULT)).coerceIn(MIN_MULT, 1.0)
+            val mult = (1.0 - frac * (1.0 - floorMult)).coerceIn(floorMult, 1.0)
             out[m.strategy.trim().uppercase()] = mult
         }
         return out
