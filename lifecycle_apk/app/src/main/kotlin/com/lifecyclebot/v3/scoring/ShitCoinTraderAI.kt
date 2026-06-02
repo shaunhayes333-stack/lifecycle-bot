@@ -1101,7 +1101,15 @@ object ShitCoinTraderAI {
         // false positives. This is not a scanner choke; it only suppresses
         // lane×score bands with ≥8 losses, ≥20 decisive samples, ≥75% loss rate.
         val shitDanger = com.lifecyclebot.engine.LosingPatternMemory.stats("SHITCOIN", shitScore)
-        if (shitDanger.isDangerous) {
+        // V5.9.1306 — only veto NET-NEGATIVE danger buckets. isDangerous is a pure
+        // loss-RATE flag; a low-WR / huge-avg-win band is a WINNER, not a bleeder.
+        // SHITCOIN|S26-40 ran 24L/7W (77% loss) yet +232% mean PnL — the 7 wins are
+        // enormous. The old hard veto (shouldEnter=false) was KILLING that profitable
+        // band purely for its loss rate, violating the doctrine's avg_win*WR >
+        // avg_loss*(1-WR) test and 'soft-shape > veto'. A positive-mean danger bucket
+        // is now allowed through (it keeps firing and the big wins carry it); only
+        // proven net-negative danger buckets are still blocked here.
+        if (shitDanger.isDangerous && shitDanger.meanPnl < 0.0) {
             val band = com.lifecyclebot.engine.LosingPatternMemory.scoreBand(shitScore)
             ErrorLogger.info(TAG, "💩🧯 SHITCOIN_DANGER_BUCKET_GUARD: $symbol | band=$band score=$shitScore losses=${shitDanger.losses} wins=${shitDanger.wins} mean=${"%+.1f".format(shitDanger.meanPnl)}% — skipping")
             return ShitCoinSignal(

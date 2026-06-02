@@ -122,6 +122,9 @@ object LosingPatternMemory {
     fun recommendedSlPct(tradingMode: String, v3Score: Int): Double? {
         val s = stats(tradingMode, v3Score)
         if (!s.isDangerous) return null
+        // V5.9.1306 — positive-expectancy bands keep their own SL (don't impose a
+        // danger-bucket tighter stop on a band whose big wins make it net-positive).
+        if (s.meanPnl > 0.0) return null
         return when {
             s.losses >= 20 -> -3.0   // very high-loss bucket — tight stop
             s.losses >= 10 -> -5.0
@@ -146,6 +149,16 @@ object LosingPatternMemory {
     fun recommendedSizeMult(tradingMode: String, v3Score: Int): Double {
         val s = stats(tradingMode, v3Score)
         if (!s.isDangerous) return 1.0
+        // V5.9.1306 — DO NOT damp a positive-expectancy band. isDangerous is a
+        // pure LOSS-RATE flag (losses>=8, n>=20, lossRate>=75%) — it ignores
+        // mean PnL entirely. But a low-WR / huge-avg-win band is a WINNER, not a
+        // bleeder: e.g. SHITCOIN|S26-40 ran 24L/7W (77% loss) yet +232% mean PnL
+        // because the 7 wins are enormous. Damping that to ×0.20 throttles a
+        // profitable strategy and violates the doctrine's avg_win*WR > avg_loss*
+        // (1-WR) test. If the bucket's matured mean PnL is net-positive, leave
+        // size untouched — let the winners run. Only proven NET-NEGATIVE danger
+        // buckets get the shrink ladder below.
+        if (s.meanPnl > 0.0) return 1.0
         return when {
             // V5.9.1250 — add the deepest tier. TREASURY|S61+ kept net-bleeding
             // (-1.0 SOL / n=23) even at ×0.10 because it keeps entering a proven
