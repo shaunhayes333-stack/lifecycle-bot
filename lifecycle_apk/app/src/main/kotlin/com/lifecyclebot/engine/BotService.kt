@@ -14766,7 +14766,7 @@ if (postSupervisorOpenCount > 0 && !postSupervisorBackupDue) {
                                     FinalDecisionGate.evaluate(
                                         ts = ts,
                                         candidate = laneQualifiedBuyDecision(decision, "MOONSHOT", confidenceFloor = moonshotScore.confidence * 100.0),
-                                        laneScore = moonshotScore.confidence * 100.0,
+                                        laneScore = moonshotScore.confidence,            // already 0-100
                                         config = cfg,
                                         proposedSizeSol = moonshotScore.suggestedSizeSol,
                                         brain = executor.brain,
@@ -15324,7 +15324,7 @@ if (postSupervisorOpenCount > 0 && !postSupervisorBackupDue) {
                                 FinalDecisionGate.evaluate(
                                     ts = ts,
                                     candidate = laneQualifiedBuyDecision(decision, "SHITCOIN", confidenceFloor = shitCoinSignal.confidence * 100.0),
-                                    laneScore = shitCoinSignal.confidence * 100.0,
+                                    laneScore = shitCoinSignal.confidence.toDouble(),  // Int 0-100
                                     config = cfg,
                                     proposedSizeSol = shitCoinSignal.positionSizeSol,
                                     brain = executor.brain,
@@ -15842,7 +15842,7 @@ if (postSupervisorOpenCount > 0 && !postSupervisorBackupDue) {
                                 FinalDecisionGate.evaluate(
                                     ts = ts,
                                     candidate = laneQualifiedBuyDecision(decision, "EXPRESS", confidenceFloor = expressSignal.confidence * 100.0),
-                                    laneScore = expressSignal.confidence * 100.0,
+                                    laneScore = expressSignal.confidence.toDouble(),   // Int 0-100
                                     config = cfg,
                                     proposedSizeSol = expressSignal.positionSizeSol,
                                     brain = executor.brain,
@@ -16164,7 +16164,7 @@ if (postSupervisorOpenCount > 0 && !postSupervisorBackupDue) {
                                 FinalDecisionGate.evaluate(
                                     ts = ts,
                                     candidate = laneQualifiedBuyDecision(decision, "DIP_HUNTER", confidenceFloor = dipSignal.confidence * 100.0),
-                                    laneScore = dipSignal.confidence * 100.0,
+                                    laneScore = dipSignal.confidence.toDouble(),       // Int 0-100
                                     config = cfg,
                                     proposedSizeSol = dipSignal.positionSizeSol,
                                     brain = executor.brain,

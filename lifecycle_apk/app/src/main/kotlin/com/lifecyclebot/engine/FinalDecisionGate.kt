@@ -3634,7 +3634,7 @@ object FinalDecisionGate {
                         // not the shared base V3 score (~7 for memes) that collapsed every
                         // context into S00. laneScore defaults to candidate.entryScore so
                         // non-lane callers are identical.
-                        val mpScore = laneScore.toInt()
+                        val mpScore = laneScore.coerceIn(0.0, 100.0).toInt()  // V5.9.1297 defensive clamp
                         val conv = AutonomousMetaPolicy.conviction(mpLane, mpScore, mpRegime)
                         AutonomousMetaPolicy.stampDecision(ts.mint, mpLane, mpScore, mpRegime)
                         if (conv != 1.0) {
