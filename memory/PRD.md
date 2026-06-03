@@ -6,6 +6,98 @@ NO local compiler. Multi-lane architecture (Memes [9 sub-lanes], Crypto/Alts,
 Stocks, Markets, Tokenized Stocks, Forex, Metals, Commodities). Foreground
 Service with a 50+ AI-module pipeline gated through processTokenCycle.
 
+## Latest Build Series — V5.9.1321 → V5.9.1324 (Feb 2026, CI ✅ green)
+
+### V5.9.1324 — Phase 3 surgical: P1-6 + P1-7 + P1-8 + P2-12
+Operator Build 5.0.3289 mandate continuation. Surgical additive observability only.
+- **P1-6 supervisor timeouts**: every SUPERVISOR_WORKER_TIMEOUT now emits a
+  structured reason label (BUDGET_EXCEEDED) + per-mint counter + a
+  NoTradeObservation row so the timed-out candidate stays trainable.
+- **P1-7 ExitCoordinator**: stale-reset first-in-episode now emits
+  EXIT_COORDINATOR_STALE_RESET_REASON_<lockAgeBucket> (>=10s / >=20s / >=30s /
+  >=60s / NEVER_RAN) + open-positions-at-stale label.
+- **P1-8 ExecutableOpenGate**: every dropped() call writes a
+  NoTradeObservation row so EXEC_OPEN_DROPPED_CANON_LANE_UNRESOLVED /
+  _NO_FINAL_CANDIDATE / _PRE_FDG_NOT_BUY / _STALE_CANDIDATE /
+  _SELECTED_LANE_MISMATCH all train the model instead of vanishing.
+- **P2-12 Root-cause-likely banner** added at top of PipelineHealthCollector
+  dump: detects UI_MAIN_THREAD / WORKER_TIMEOUT / V3_ACCOUNTING_GAP /
+  LEARNING_ACCOUNTING_GAP and surfaces the dominant pattern.
+
+### V5.9.1323 — Build 5.0.3289 surgical: P0-1 + P0-2 + P0-3 + P0-4 + P1-5 + P1-9 + P1-10
+Operator Build 5.0.3289 snapshot showed ANR_HINTS=54, stall=8.1%, EXEC funnel
+contradicting cheat-sheet (8 vs 70), V3 entries=1425 but allow=122/block=0 with
+493 fatal early returns + 214 rejected terminal early returns, false LEAK label
+on multi-lane mode. Surgical fixes (additive modules + tiny call-site bumps):
+- **UiRefreshGate (engine/runtime/)**: 1 Hz per-surface render throttle with 5s
+  hard ceiling. Wired into `CryptoAltActivity.renderTokenList` (kills
+  buildDynTokenRow ANR loop) and `MainActivity.renderNetworkSignals`. Band-aid
+  before Phase 2 RecyclerView conversion.
+- **ExecutionCounterContract (engine/runtime/)**: 11 named counters per
+  operator §3 (executor_invocations, open_attempts, open_success,
+  close_attempts, close_success, journal_buy_records, journal_sell_records,
+  paper_buy_success, paper_sell_success, live_buy_success, live_sell_success).
+- **V3VerdictContract (engine/runtime/)**: 4 terminal verdicts (ALLOW / BLOCK /
+  SKIP / ERROR) + V3_ENTRIES_TOTAL denominator. Wired into BotService at every
+  V3Decision branch (Execute / Watch / Rejected / Fatal early return / Blocked
+  early return). V3 funnel and gate tally now reconcile.
+- **ColdStreakDamper (engine/runtime/)**: per-(lane, paper/live) loss streak
+  with damper curve 1.00→0.75→0.50→0.35→0.25 — operator §9 'damp not block'.
+- **ProviderHealthGate (engine/runtime/)**: shouldCall/recordCall circuit
+  breaker with 0/15s/60s/300s/900s cooldown progression — operator §10 ready
+  for Helius/X/Groq wiring next push.
+- **LEAK label gating**: PipelineHealthCollector dump now shows
+  'MULTI_LANE_ACTIVE' when hardQualityOnly=false instead of false 'LEAK'.
+
+### V5.9.1322 — Train-First Learning Policy Builds B + C + D + E
+Operator Base44/Emergent directive: TRAINABILITY ≠ EXECUTABILITY. Bad lanes
+must be demoted/downsized/sandboxed/paper-only, NOT deleted from learning.
+- **NoTradeObservationStore (engine/learning/)**: every FDG block / shadow
+  route / train-only route writes a learning row with forward-outcome samples
+  at 30s / 60s / 180s / 300s / 900s. peakMovePct, maxDrawdownPct,
+  liquidityChange, wouldHaveHitStop/TP/Rugged/Migrated/BeenUntradable.
+- **ExplorationBudget (engine/learning/)**: per-lane hourly budgets per
+  operator §4 (SHITCOIN paper-micro 10% / UNKNOWN shadow 5% / MANIPULATED
+  paper-micro 10% / MOONSHOT reduced-size 20% / QUALITY+BLUECHIP normal 30% /
+  TREASURY tight 20%).
+- **RetrainingDecay**: 0.97/loss decay with 0.15 floor, 1.05/win recovery to
+  1.00 ceiling. No lane permanently dead.
+- **StrategyVariantStore (engine/learning/)**: 6-state machine (ACTIVE /
+  RETRAINING / MUTATED / PROMOTED / RETIRED / SHADOW_ONLY) with struct policy
+  (slPct/tpPct/trailMode/entryAfterBurstAllowed/postBondingOnly/
+  minHolderVelocity/minLiqUsd/migrationOnly/symbolFamilySuppressed). Seeded
+  per-lane per operator §11: MANIP TIGHT_STOP_-5 / MOONSHOT FLOOR_-15_LETRUN /
+  SHITCOIN BREAK_EVEN+postBondingOnly / UNKNOWN BREAK_EVEN+postBondingOnly /
+  QUALITY+BLUECHIP LET_RUN / TREASURY BREAK_EVEN. Auto-mutates losing variants
+  via 8 mutation recipes; promotes children only when expectancy > parent.
+- **TradeRowSanityCheck (engine/learning/)**: 11 quarantine reasons (operator
+  §8 verbatim list). Quarantined rows stay in journal but don't enter
+  aggregations. Losing-but-valid trades still train.
+- **PaperLiveConfidenceWeights**: paper bootstrap 0.40 → 0.85 after ≥25 live
+  samples on same bucket.
+
+### V5.9.1321 — Train-First Learning Policy Build A (foundation)
+- **LanePolicy (engine/learning/)**: 9-state per-lane / per-bucket state
+  machine (INVALID_UNTRADEABLE → NORMAL_EXECUTION). Defaults per operator §4.
+- **FdgRouteVerdict (engine/learning/)**: 10 routing verdicts
+  (ALLOW_NORMAL / ALLOW_REDUCED_SIZE / ALLOW_PAPER_MICRO / ROUTE_SHADOW_TRACK
+  / ROUTE_TRAIN_ONLY / BLOCK_INVALID_DATA / BLOCK_HARD_SAFETY /
+  BLOCK_MODE_AUTHORITY / BLOCK_DUPLICATE / BLOCK_OPERATOR_DISABLED).
+- FinalDecisionGate: replaced LEARNING_DANGER_BUCKET_EVIDENCE_REQUIRED_* and
+  BRAIN_LEARNED_DANGER_EVIDENCE_REQUIRED hard blocks with
+  FdgRouteVerdict.routeLearnedDangerBucket() — damaged buckets now route
+  through training states, not dead blocks.
+- LearningPersistence: public save/load KV API.
+- PipelineHealthCollector.labelInc(): public helper for downstream telemetry.
+
+## Pre-V5.9.1321 Build — V5.9.1320 (Feb 2026, fork sync point)
+Local was V5.9.1082b; remote had advanced to V5.9.1320 (73 commits). Audit
+docs added:
+- `/app/lifecycle_apk/docs/BUILD_BREAKDOWN_1047_to_1160.md` — 113-build
+  forensic breakdown across 7 phases.
+- `/app/lifecycle_apk/docs/CRYPTO_UNIVERSE_AUDIT_V5_9_1160.md` — full audit
+  of Crypto Universe with 24 drifts from Meme Trader (5 P0 / 9 P1 / 10 P2).
+
 ## Latest Build — V5.9.1081b (Feb 2026)
 - **FORENSIC LIFECYCLE HARDENING (V5.9.1081 + 1081b compile fix)** — operator forensic-debug pass (A+B+C+D+E, no new features, no rewrites):
   - **A**: Removed `userRequested && loopActive → FORCE CANCEL + RESTART` branch from normal ACTION_START. Added `startInProgress` @Volatile latch + three idempotent early-exit checks. 10 rapid START taps = 1 runtime job. Force-restart still possible but ONLY via explicit `EXTRA_FORCE_RESTART_CONFIRMED=true` extra, which UI START button never sets.
