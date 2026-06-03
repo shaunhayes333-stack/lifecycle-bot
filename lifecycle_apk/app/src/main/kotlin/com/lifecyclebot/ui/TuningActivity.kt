@@ -39,9 +39,37 @@ class TuningActivity : Activity() {
     private val handler = Handler(Looper.getMainLooper())
     private var refreshing = false
 
+    // V5.9.1332 — ANR STRUCTURAL FIX. LaneStrategyEvaluator.evaluateAll() replays
+    // EVERY closed trade under multiple exit shapes — an O(trades × profiles) sweep
+    // that was running on the MAIN thread inside renderAll() every 4s. The forensic
+    // ANR trace flagged LaneStrategyEvaluator.evaluateAll + TuningActivity.addText as
+    // top blocking sites. Pre-compute the replay OFF-main and cache it; renderAll just
+    // reads the cached result. Recompute at most every 12s (the backtest over history
+    // barely moves in 4s). Not a render throttle — the UI still repaints every 4s; we
+    // only move the heavy compute off the main thread (operator doctrine).
+    @Volatile private var cachedLaneReplay: Map<String, List<com.lifecyclebot.engine.LaneStrategyEvaluator.LaneResult>>? = null
+    @Volatile private var cachedLaneReplayAtMs: Long = 0L
+    private val laneReplayInFlight = java.util.concurrent.atomic.AtomicBoolean(false)
+    private fun refreshLaneReplayAsync() {
+        val now = System.currentTimeMillis()
+        if (now - cachedLaneReplayAtMs < 12_000L && cachedLaneReplay != null) return
+        if (!laneReplayInFlight.compareAndSet(false, true)) return
+        kotlinx.coroutines.GlobalScope.launch(kotlinx.coroutines.Dispatchers.Default) {
+            val grouped = try {
+                val best = com.lifecyclebot.engine.LaneStrategyEvaluator.bestPerLane()
+                if (best.isEmpty()) emptyMap()
+                else com.lifecyclebot.engine.LaneStrategyEvaluator.evaluateAll().groupBy { it.lane }
+            } catch (_: Throwable) { cachedLaneReplay ?: emptyMap() }
+            cachedLaneReplay = grouped
+            cachedLaneReplayAtMs = System.currentTimeMillis()
+            laneReplayInFlight.set(false)
+        }
+    }
+
     private val refreshRunnable = object : Runnable {
         override fun run() {
             if (refreshing) {
+                refreshLaneReplayAsync()   // kick off-main compute; renderAll reads cache
                 renderAll()
                 handler.postDelayed(this, 4_000L)
             }
@@ -216,12 +244,14 @@ class TuningActivity : Activity() {
             Color.GRAY, small = true,
         )
         try {
-            val best = com.lifecyclebot.engine.LaneStrategyEvaluator.bestPerLane()
-            if (best.isEmpty()) {
+            // V5.9.1332 — read the OFF-MAIN cached replay (refreshLaneReplayAsync),
+            // never run the O(trades×profiles) backtest on the main thread here.
+            val byLane = cachedLaneReplay
+            if (byLane == null) {
+                addText("(computing lane replay… refresh in a moment)", Color.GRAY)
+            } else if (byLane.isEmpty()) {
                 addText("(not enough closed outcomes with peak data yet)", Color.GRAY)
             } else {
-                val all = com.lifecyclebot.engine.LaneStrategyEvaluator.evaluateAll()
-                val byLane = all.groupBy { it.lane }
                 for ((lane, rs) in byLane) {
                     val b = rs.maxByOrNull { it.netSol }!!
                     val noTrade = rs.find { it.profile == "NO_TRADE" }

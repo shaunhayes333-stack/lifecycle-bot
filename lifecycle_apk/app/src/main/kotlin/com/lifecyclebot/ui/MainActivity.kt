@@ -573,6 +573,43 @@ class MainActivity : AppCompatActivity() {
         if (this.text?.toString() != value.toString()) this.text = value
     }
 
+    // V5.9.1332 — ANR STRUCTURAL FIX (not a throttle): re-applying an IDENTICAL
+    // text color / tint / drawable still triggers a full TextView invalidate →
+    // StaticLayout + SpanColors rebuild on the main thread. The forensic ANR
+    // trace shows SpanColors.<init> (1224ms) and renderRuntimeBar (1188ms)
+    // stalling every always-render tick because the runtime bar re-sets the
+    // same emoji/colored text + colors ~2.5s unconditionally. Guarding on the
+    // *value* eliminates the redundant relayout while still painting on every
+    // real change (operator doctrine: always-render, fix at the structural
+    // source, never throttle the loop).
+    private var _lastTextColors: HashMap<Int, Int> = HashMap()
+    private fun android.widget.TextView.setTextColorIfChanged(color: Int) {
+        if (this.id == android.view.View.NO_ID) { this.setTextColor(color); return }
+        val prev = _lastTextColors[this.id]
+        if (prev == null || prev != color) {
+            _lastTextColors[this.id] = color
+            this.setTextColor(color)
+        }
+    }
+    private var _lastTintColors: HashMap<Int, Int> = HashMap()
+    private fun android.view.View.setBackgroundTintIfChanged(color: Int) {
+        if (this.id == android.view.View.NO_ID) { this.backgroundTintList = android.content.res.ColorStateList.valueOf(color); return }
+        val prev = _lastTintColors[this.id]
+        if (prev == null || prev != color) {
+            _lastTintColors[this.id] = color
+            this.backgroundTintList = android.content.res.ColorStateList.valueOf(color)
+        }
+    }
+    private var _lastBgRes: HashMap<Int, Int> = HashMap()
+    private fun android.view.View.setBackgroundDrawableIfChanged(key: Int, drawable: android.graphics.drawable.Drawable?) {
+        if (this.id == android.view.View.NO_ID) { this.background = drawable; return }
+        val prev = _lastBgRes[this.id]
+        if (prev == null || prev != key) {
+            _lastBgRes[this.id] = key
+            this.background = drawable
+        }
+    }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         // V5.9.1244 — KILL COLD-START ANR. Forensic 5.0.3211 showed onCreate
         // blocking the main thread up to 3.8s with the stack rooted at
@@ -2242,17 +2279,17 @@ for legal compliance.
         val isPaused  = cb.isPaused && running
         val isRunning = running && !isHalted && !isPaused
 
-        btnToggle.text = when {
+        btnToggle.setTextIfChanged(when {
             isHalted -> "Halted — Tap to Reset"
             running  -> "Stop Bot"
             else     -> "Start Bot"
-        }
-        btnToggle.backgroundTintList = android.content.res.ColorStateList.valueOf(when {
+        })
+        btnToggle.setBackgroundTintIfChanged(when {
             isHalted -> 0xFFEF4444.toInt()
             running  -> 0xFF374151.toInt()
             else     -> purple
         })
-        btnToggle.setTextColor(white)
+        btnToggle.setTextColorIfChanged(white)
 
         // V5.9.1316 — STOP must ALWAYS work and not be lost to per-render churn.
         // Previously the click listener was REASSIGNED every render tick inside a
@@ -2302,37 +2339,38 @@ for legal compliance.
         }
         btnToggle.isEnabled = true
 
-        statusDot.background = cachedDrawable(this, when {
+        val dotKey = when {
             isHalted  -> R.drawable.dot_red
             isPaused  -> R.drawable.dot_bg
             isRunning -> R.drawable.dot_green
             else      -> R.drawable.dot_bg
-        })
+        }
+        statusDot.setBackgroundDrawableIfChanged(dotKey, cachedDrawable(this, dotKey))
 
-        tvBotStatus.text = when {
+        tvBotStatus.setTextIfChanged(when {
             isHalted  -> "🛑 ${cb.haltReason.take(40)}"
             isPaused  -> "⏸ Paused ${cb.pauseRemainingSecs}s  •  ${cb.consecutiveLosses} losses"
             running && activeToken?.signal in listOf("BUY","EXIT","SELL") ->
                 "Signal: ${activeToken?.signal}  •  ${activeToken?.symbol ?: ""}"
             running   -> "Scanning  ${activeToken?.symbol ?: ""}  •  ${cb.consecutiveLosses} consec losses"
             else      -> "Bot stopped"
-        }
-        tvBotStatus.setTextColor(when {
+        })
+        tvBotStatus.setTextColorIfChanged(when {
             isHalted -> 0xFFEF4444.toInt()
             isPaused -> amber
             else     -> 0xFF9CA3AF.toInt()
         })
 
-        tvMode.text = when {
+        tvMode.setTextIfChanged(when {
             cfg.paperMode        -> "PAPER"
             cb.dailyLossSol > 0  -> "LIVE -${"%.3f".format(cb.dailyLossSol)}◎"
             else                 -> "LIVE"
-        }
-        tvMode.setTextColor(if (cfg.paperMode) amber else red)
+        })
+        tvMode.setTextColorIfChanged(if (cfg.paperMode) amber else red)
 
         val mode = state.currentMode
-        tvAutoMode.text = mode.label
-        tvAutoMode.setTextColor(mode.colour)
+        tvAutoMode.setTextIfChanged(mode.label)
+        tvAutoMode.setTextColorIfChanged(mode.colour)
 
         if (state.blacklistedCount > 0) {
             tvBotStatus.text = tvBotStatus.text.toString() + "  🚫${state.blacklistedCount}"
