@@ -173,6 +173,46 @@ object FreeRangeMode {
         return (1.0 - reduction).coerceIn(LANE_SIZE_FLOOR, 1.0)
     }
 
+    // ── EXPLORATION-PHASE SIZE RAMP (V5.9.1334) ──────────────────────
+    /**
+     * THE BLACK-HOLE FIX.
+     *
+     * Operator insight: "wide-open early creates an unrecoverable black hole of
+     * losses we cannot win our way back out of." Correct, and the cause was
+     * structural: during Phase 0 (wide-open, <500 trades) the bot DELIBERATELY
+     * buys unfiltered noise — yet laneSizeMultiplier() returned 1.0 in Phase 0,
+     * so it bet those random trades at FULL SIZE. Biggest bets placed exactly
+     * when the bot knows the LEAST. A mature 55-65% WR on normal-sized bets then
+     * can't out-earn a pile of full-sized exploration losses → unrecoverable P&L
+     * hole. (The learned expectancy memory self-heals via its 200-trade rolling
+     * window, but spent balance does not come back.)
+     *
+     * FIX: bet SMALLEST when we know least, ramping up as we earn samples — basic
+     * low-edge bankroll discipline (fractional-Kelly-flavoured). This is a SOFT
+     * SHAPE (never a veto), preserves throughput (same number of trades, just
+     * smaller), and does NOT touch the scanner/intake pool. It only caps how much
+     * capital the learning phase can burn.
+     *
+     * Curve over lifetime sells (0 → PHASE1_START=500):
+     *   trade   0  → EXPLORE_SIZE_FLOOR (0.20×)  — minimum conviction, minimum stake
+     *   trade 250  → ~0.60×
+     *   trade 500  → 1.00×  (exploration earned out; guards take over from here)
+     * Past 500 → 1.0 (this scalar disengages; laneSizeMultiplier's WR-sift owns it).
+     *
+     * Fail-open: any error → 1.0 (never starve sizing).
+     */
+    const val EXPLORE_SIZE_FLOOR = 0.20
+    fun explorationSizeMultiplier(): Double = try {
+        if (operatorForceOn) 1.0 else {
+            val trades = TradeHistoryStore.getLifetimeStats().totalSells
+            if (trades >= PHASE1_START) 1.0
+            else {
+                val frac = (trades.toDouble() / PHASE1_START).coerceIn(0.0, 1.0)
+                (EXPLORE_SIZE_FLOOR + (1.0 - EXPLORE_SIZE_FLOOR) * frac).coerceIn(EXPLORE_SIZE_FLOOR, 1.0)
+            }
+        }
+    } catch (_: Throwable) { 1.0 }
+
     /**
      * Phase-specific WR target used by laneSizeMultiplier and QualityLadder.
      */

@@ -707,6 +707,21 @@ object SmartSizer {
             ErrorLogger.info("SmartSizer", "📉 Lane phase mult: $laneMode → ${lanePhaseMult.fmt1}x (size now ${size.fmt(4)} SOL)")
         }
 
+        // ── V5.9.1334 EXPLORATION-PHASE SIZE RAMP (black-hole fix) ───────
+        // Bet SMALLEST when we know least. During wide-open exploration (<500
+        // lifetime trades) the bot buys deliberately-unfiltered noise; sizing it
+        // full-size is what created the unrecoverable P&L hole. This soft-shapes
+        // exploration stakes down (floor 0.20×) and ramps to 1.0× by trade 500,
+        // then disengages. Throughput unchanged (same trades, smaller); never a
+        // veto; scanner pool untouched. Fail-open → 1.0.
+        val exploreMult = try { FreeRangeMode.explorationSizeMultiplier() } catch (_: Throwable) { 1.0 }
+        if (exploreMult < 1.0) {
+            size *= exploreMult
+            val dustFloor3 = if (isPaperMode) 0.001 else 0.01
+            if (size < dustFloor3) size = dustFloor3
+            ErrorLogger.info("SmartSizer", "🔬 Exploration size ramp: ${exploreMult.fmt1}x (learning phase, size now ${size.fmt(4)} SOL)")
+        }
+
         val explanation = buildString {
             append("AI conf=${aiConfidence.toInt()} ")
             append("base=${(basePct*100).toInt()}% ")
