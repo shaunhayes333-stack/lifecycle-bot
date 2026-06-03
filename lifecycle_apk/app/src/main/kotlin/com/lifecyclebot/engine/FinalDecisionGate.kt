@@ -3813,6 +3813,44 @@ object FinalDecisionGate {
             // Brain layer failure must never break the entry pipeline.
         }
 
+        // V5.9.1330 — LANE-POLICY EXECUTION WEIGHT (the dead-wiring bug, backtest-proven).
+        // LanePolicy already encodes the EXACT verdicts the honest backtest replay reached:
+        //   UNKNOWN     -> SHADOW_TRACK_ONLY  (execWeight 0.00)  == backtest "STOP TRADING"
+        //   SHITCOIN    -> PAPER_MICRO        (execWeight 0.10)  (87 trades, sharpe -4.7 at full size)
+        //   MANIPULATED -> PAPER_MICRO        (execWeight 0.10)
+        //   MOONSHOT    -> REDUCED_SIZE       (execWeight 0.60)
+        //   BLUECHIP/QUALITY/TREASURY -> NORMAL (1.00)  -- the proven winners stay full size.
+        // But effectiveExecutionWeight() was only consulted inside the narrow
+        // danger-bucket+deepDeficit+weakEvidence branch — a plain UNKNOWN/unclassified
+        // token that wasn't in a "dangerous bucket" skipped the router entirely and
+        // executed at FULL size. That is why the live log shows UNKNOWN entries (the
+        // single biggest proven bleeder, n=87) still trading. Apply the lane-policy
+        // weight to EVERY entry here as the final authoritative size word.
+        // TRAIN-FIRST COMPLIANT: this SHAPES size (and routes SHADOW/TRAIN to ~0); it does
+        // NOT hard-veto. Only State.INVALID_UNTRADEABLE zeroes size (unsafe data), which is
+        // already in the original veto whitelist. Winners (NORMAL=1.00) are untouched.
+        try {
+            val lpScoreBand = com.lifecyclebot.engine.LosingPatternMemory.scoreBand(candidate.entryScore.toInt())
+            val lpState = com.lifecyclebot.engine.learning.LanePolicy.effectiveState(laneName, lpScoreBand)
+            val lpWeight = com.lifecyclebot.engine.learning.LanePolicy.effectiveExecutionWeight(laneName, lpScoreBand)
+            // NORMAL_EXECUTION (weight 1.0) is a no-op; only damp when policy says so.
+            if (lpState != com.lifecyclebot.engine.learning.LanePolicy.State.NORMAL_EXECUTION && lpWeight < 1.0) {
+                val beforeLp = finalSize
+                finalSize = (finalSize * lpWeight).coerceAtLeast(0.0)
+                tags.add("lane_policy:${lpState.name}×${"%.2f".format(lpWeight)}")
+                checks.add(GateCheck("lane_policy_weight", true,
+                    "lane=$laneName band=$lpScoreBand state=${lpState.name} execW=${"%.2f".format(lpWeight)} size ${beforeLp.format(3)}→${finalSize.format(3)}"))
+                ErrorLogger.info("FDG", "🛞 LANE_POLICY_EXEC_WEIGHT ${ts.symbol} lane=$laneName band=$lpScoreBand ${lpState.name} ×${"%.2f".format(lpWeight)} size ${beforeLp.format(3)}→${finalSize.format(3)}")
+                // If policy zeroes execution (SHADOW_TRACK_ONLY / TRAIN_ONLY / INVALID), the
+                // candidate is routed to learning only — do not open. Train-First: still recorded.
+                if (lpWeight <= 0.0) {
+                    com.lifecyclebot.engine.learning.LanePolicy.noteRetrainingSample(laneName, lpScoreBand)
+                    blockReasonFinal = blockReasonFinal ?: "LANE_POLICY_${lpState.name}"
+                    shouldTradeFinal = false
+                }
+            }
+        } catch (_: Throwable) { /* lane policy must never break the entry pipeline */ }
+
         // V5.9.810 — SymbolicVerdict capture (the missing Push 6 wiring).
         // CandidateSymbolicContextBuilder.buildFor() has existed since V5.9.784
         // but had ZERO callers — CandidateFeatures.symbolicVerdict has stayed
