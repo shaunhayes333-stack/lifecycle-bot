@@ -824,9 +824,27 @@ object BlueChipTraderAI {
         val learningProgress = FluidLearningAI.getLearningProgress()
         
         // Blue Chip thresholds - stricter than Treasury
-        val minScore = getFluidScoreThreshold()
+        val baseMinScore = getFluidScoreThreshold()
         val minConf = getFluidConfidenceThreshold()
-        
+
+        // V5.9.1328 — BLUECHIP REGIME GUARD (operator strategy tune; biggest absolute
+        // bleeder in the snapshot: -0.5712 SOL, WR 6.7% n=30). BLUECHIP had NO regime
+        // awareness and kept buying large/slow positions straight through a market-wide
+        // DUMP (RegimeDetector reported regime=DUMP, market WR 3.9%). A bluechip-style
+        // lane should stand down when the whole market is bleeding — not average down into
+        // it. Soft-shape, not a veto: in DUMP we RAISE the entry bar (+18 to the score floor)
+        // and shrink size hard; CHOP raises it modestly. The lane still trades the rare
+        // strong setup, but stops paying for low-quality entries in a hostile tape.
+        val regimeScorePenalty = try {
+            when (com.lifecyclebot.engine.RegimeDetector.currentRegime()) {
+                com.lifecyclebot.engine.RegimeDetector.Regime.DUMP -> 18
+                com.lifecyclebot.engine.RegimeDetector.Regime.DEAD -> 18
+                com.lifecyclebot.engine.RegimeDetector.Regime.CHOP -> 8
+                else -> 0
+            }
+        } catch (_: Throwable) { 0 }
+        val minScore = baseMinScore + regimeScorePenalty
+
         // Check thresholds
         val passesScore = blueChipScore >= minScore
         val passesConf = blueChipConfidence >= minConf
@@ -868,6 +886,20 @@ object BlueChipTraderAI {
         // ═══════════════════════════════════════════════════════════════════
         
         var positionSol = BASE_POSITION_SOL
+        // V5.9.1328 — shrink BLUECHIP size in a hostile regime (pairs with the score-floor
+        // raise above). DUMP/DEAD → x0.4, CHOP → x0.7. Normal/Bull untouched.
+        try {
+            val regimeSizeMult = when (com.lifecyclebot.engine.RegimeDetector.currentRegime()) {
+                com.lifecyclebot.engine.RegimeDetector.Regime.DUMP,
+                com.lifecyclebot.engine.RegimeDetector.Regime.DEAD -> 0.40
+                com.lifecyclebot.engine.RegimeDetector.Regime.CHOP -> 0.70
+                else -> 1.0
+            }
+            if (regimeSizeMult < 1.0) {
+                positionSol *= regimeSizeMult
+                ErrorLogger.info(TAG, "🔵🌧️ BLUECHIP REGIME_SIZE_DAMP $symbol | size×$regimeSizeMult (hostile regime)")
+            }
+        } catch (_: Throwable) { /* fail-open */ }
         
         // Scale by confidence
         val confScale = blueChipConfidence / 100.0
