@@ -123,15 +123,44 @@ object FdgRouteVerdict {
             scoreBand = scoreBand,
             operatorDisabled = operatorDisabled,
         )
-        record(v, lane)
-        val mult = sizeMultiplier(v, lane, scoreBand)
-        val proceed = v.executable && mult > 0.0
-        val log = "LEARNED_DANGER_BUCKET_${routeTagFor(v)}:${evidenceLabel.take(80)}"
+        // V5.9.1325 — REGRESSION FIX (Base44/Emergent regression that collapsed WR to 10.3%, -8.43 SOL).
+        // Train-First (1321/1322) replaced the danger-bucket HARD VETO with routing that still
+        // OPENS at PAPER_MICRO/REDUCED_SIZE. In a DUMP regime that turned proven dead buckets
+        // (SHITCOIN|S61+ 39L/0W, MANIPULATED|S61+ 20L/1W, TREASURY|S61+) back into live bleeders.
+        // DOCTRINE: soft-shape > veto, BUT proven NET-NEGATIVE bleeders must not keep OPENING in a
+        // hostile regime. We DOWNGRADE a proceeding verdict to SHADOW_TRACK (non-opening): the
+        // candidate STILL trains (the caller's !proceedToOpen branch writes the NoTradeObservation
+        // row), so Train-First's learning universe is 100% preserved — we just stop paying tuition
+        // with live/paper capital on buckets we already know are dead.
+        var effectiveV = v
+        if (v.executable) {
+            val regimeDump = try {
+                com.lifecyclebot.engine.RegimeDetector.currentRegime() == com.lifecyclebot.engine.RegimeDetector.Regime.DUMP
+            } catch (_: Throwable) { false }
+            val provenDead = try {
+                val band = scoreBand.substringAfterLast('|').ifBlank { scoreBand }
+                val midScore = when {
+                    band.contains("61") -> 70; band.contains("41") -> 50
+                    band.contains("26") -> 33; band.contains("11") -> 18; else -> 5
+                }
+                val b = com.lifecyclebot.engine.LosingPatternMemory.stats(lane, midScore)
+                b.isDangerous && b.meanPnl < 0.0 && b.losses >= 20 && b.wins <= 1
+            } catch (_: Throwable) { false }
+            if (provenDead || regimeDump) {
+                effectiveV = Verdict.ROUTE_SHADOW_TRACK
+                try { ErrorLogger.info("FDG", "🛑 DANGER_BUCKET_REGIME_GUARD lane=$lane bucket=$scoreBand regimeDump=$regimeDump provenDead=$provenDead → SHADOW_TRACK (was ${v.tag})") } catch (_: Throwable) {}
+            }
+        }
+        val vFinal = effectiveV
+        record(vFinal, lane)
+        val mult = sizeMultiplier(vFinal, lane, scoreBand)
+        val proceed = vFinal.executable && mult > 0.0
+        val log = "LEARNED_DANGER_BUCKET_${routeTagFor(vFinal)}:${evidenceLabel.take(80)}"
         try {
             ErrorLogger.info("FDG", "🧭 $log lane=$lane bucket=$scoreBand size×${"%.2f".format(mult)}")
         } catch (_: Throwable) {}
         return RoutedDecision(
-            verdict = v,
+            verdict = vFinal,
             proceedToOpen = proceed,
             sizeMultiplier = mult,
             routeReasonForLog = log,
