@@ -600,6 +600,40 @@ class BotService : Service() {
     private var hotExitJob: Job? = null
 
 
+
+    // V5.9.1313 — HOT-EXIT HEAL HELPER (extracted out of botLoop).
+    // Returns true if the hot path was stale and this call handled the exit
+    // sweep (resurrected hotExit + forced the inline backup sweep); false if
+    // hotExit looks healthy and the caller should run its normal defer logic.
+    // Kept as a plain (non-suspend) member fun so botLoop's coroutine state
+    // machine stays small — inlining this logic overflowed the JVM back-end's
+    // method transformer ("Couldn't transform method node: botLoop").
+    private fun maybeHealHotExit(loopCount: Int, openCount: Int, nowMs: Long): Boolean {
+        if (openCount <= 0) return false
+        val staleMs = nowMs - lastTickExitSweepMs
+        val stale = lastTickExitSweepMs > 0L && staleMs >= 12_000L
+        val neverRan = lastTickExitSweepMs == 0L && (nowMs - botLoopStartedAtMs) >= 12_000L
+        if (!stale && !neverRan) return false
+        try {
+            ForensicLogger.lifecycle(
+                "HOT_EXIT_STALE_FORCING_INLINE_SWEEP",
+                "loop=$loopCount open=$openCount hotExitStaleMs=$staleMs neverRan=$neverRan — resurrecting hotExit + forcing backup sweep",
+            )
+        } catch (_: Throwable) {}
+        try { ensureHotExitAlive() } catch (_: Throwable) {}
+        // Force the inline single-flight sweep NOW (do not defer to the dead path).
+        if (!exitSweepInFlight.get()) {
+            lastPostSupervisorExitBackupMs = nowMs
+            try { launchExitSweepAsync("HOT_EXIT_STALE_FORCED") } catch (_: Throwable) {}
+        }
+        try {
+            val curWalletStale = WalletManager.getWallet()
+            val cfgStale = com.lifecyclebot.data.ConfigStore.load(applicationContext)
+            if (!slSafetyNetInFlight.get()) launchUniversalSlSweepAsync(cfgStale, curWalletStale)
+        } catch (_: Throwable) {}
+        return true
+    }
+
     // V5.9.1313 — RESTARTABLE / SELF-HEALING HOT-EXIT MANAGER.
     // ROOT CAUSE (operator log session a6f08d82): bot stuck holding open=10
     // pump.fun micros (vol1h=$0) with position age climbing 7s→58s, ZERO sells,
@@ -10935,35 +10969,17 @@ val postSupervisorOpenCount = try {
 val postSupervisorNowMs = System.currentTimeMillis()
 val postSupervisorBackupDue = (postSupervisorNowMs - lastPostSupervisorExitBackupMs) >= POST_SUPERVISOR_EXIT_BACKUP_MS
 val tickExitSweepFresh = postSupervisorOpenCount > 0
-// ═══════════════════════════════════════════════════════════════════════
 // V5.9.1313 — HOT-EXIT LIVENESS GUARD (the real "it doesn't keep trading" fix).
-// The loop defers exits to hotExit (the 2s manager that owns runManageOnly →
+// Detect a dead/stale hotExit (the 2s manager that owns runManageOnly →
 // STRICT_SL / partials / profit lock / STALE_FEED_EVICT). lastTickExitSweepMs
-// is bumped ONLY by a live hotExit each tick. If it goes stale, hotExit is
-// dead/starved and deferring to it strands every open position (operator log
-// a6f08d82: open=10 pinned, age 7s→58s, zero sells, zero entries). Detect
-// staleness, RESURRECT hotExit immediately, and FORCE the inline backup sweep
-// this cycle instead of deferring into the void. 12s = 6 missed 2s ticks.
-val hotExitStaleMs = postSupervisorNowMs - lastTickExitSweepMs
-val hotExitStale = postSupervisorOpenCount > 0 && lastTickExitSweepMs > 0L && hotExitStaleMs >= 12_000L
-val hotExitNeverRan = postSupervisorOpenCount > 0 && lastTickExitSweepMs == 0L && (postSupervisorNowMs - botLoopStartedAtMs) >= 12_000L
-if (hotExitStale || hotExitNeverRan) {
-    try {
-        ForensicLogger.lifecycle(
-            "HOT_EXIT_STALE_FORCING_INLINE_SWEEP",
-            "loop=$loopCount open=$postSupervisorOpenCount hotExitStaleMs=$hotExitStaleMs neverRan=$hotExitNeverRan — resurrecting hotExit + forcing backup sweep",
-        )
-    } catch (_: Throwable) {}
-    try { ensureHotExitAlive() } catch (_: Throwable) {}
-    // Force the inline single-flight sweep NOW (do not defer to the dead path).
-    if (!exitSweepInFlight.get()) {
-        lastPostSupervisorExitBackupMs = postSupervisorNowMs
-        try { launchExitSweepAsync("HOT_EXIT_STALE_FORCED") } catch (_: Throwable) {}
-    }
-    try {
-        val curWalletStale = WalletManager.getWallet()
-        if (!slSafetyNetInFlight.get()) launchUniversalSlSweepAsync(cfg, curWalletStale)
-    } catch (_: Throwable) {}
+// is bumped ONLY by a live hotExit. Operator log a6f08d82: open=10 pinned, age
+// 7s→58s, zero sells/entries because exits were deferred to a dead manager.
+// The heavy resurrect+force-sweep logic lives in maybeHealHotExit() (a plain
+// member fun) so botLoop's coroutine state-machine stays small enough for the
+// JVM back-end to transform (1313a: inlining it overflowed botLoop's method).
+val hotExitHandledSweep = maybeHealHotExit(loopCount, postSupervisorOpenCount, postSupervisorNowMs)
+if (hotExitHandledSweep) {
+    // hotExit was stale — maybeHealHotExit resurrected it and forced the sweep.
 } else if (postSupervisorOpenCount > 0 && !postSupervisorBackupDue) {
     try {
         ForensicLogger.lifecycle(
