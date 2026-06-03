@@ -122,7 +122,11 @@ object ExecutableOpenGate {
         if (state == null) return "EXEC_OPEN_DROPPED_NO_FINAL_CANDIDATE" to "NO_FINAL_BUY_CANDIDATE"
         val selected = canonicalLane(selectedLane)
         val requested = canonicalLane(requestedLane)
-        if (!isRealExecutionLane(selected)) return "EXEC_OPEN_DROPPED_SELECTED_LANE_UNKNOWN" to "SELECTED_LANE_${selected}_REQUEST_${requested}"
+        // V5.9.1320 (Item 6) — lane is resolved upstream (real selected → real requested →
+        // UNKNOWN). Reaching here UNKNOWN means NEITHER lane was real: a genuinely unresolved
+        // candidate. Surfaced as CANON_LANE_UNRESOLVED, the canonical terminal reason — NOT a
+        // post-allow surprise. (Lane defaulting to STANDARD is intentionally NOT done.)
+        if (!isRealExecutionLane(selected)) return "EXEC_OPEN_DROPPED_CANON_LANE_UNRESOLVED" to "CANON_LANE_UNRESOLVED_SELECTED_${selected}_REQUEST_${requested}"
         if (preFdgVerdict != "BUY") return "EXEC_OPEN_DROPPED_PRE_FDG_NOT_BUY" to preFdgVerdict
         if (hardNoReasons.isNotEmpty()) return "EXEC_OPEN_DROPPED_HARD_NO_BUY" to hardNoReasons.joinToString("+")
         if (candidateVersion != currentVersion) return "EXEC_OPEN_DROPPED_STALE_CANDIDATE" to "STALE_CANDIDATE_VERSION_$candidateVersion"
@@ -243,6 +247,13 @@ object ExecutableOpenGate {
         try {
             val hard = finalHardNo.joinToString(prefix = "[", postfix = "]")
             val msg = "symbol=$symbol lane=${lane.uppercase()} preFdg=$finalVerdict hardNo=$hard safety=$safetyTier rug=$rugScore liq=${liquidityUsd.toInt()} duplicate=false circuit=${ToxicModeCircuitBreaker.currentEntryPause().active} sellPressure=${reason ?: "OK"} version=$candidateVersion"
+            // V5.9.1320 (Item 6) — emit a canonical FDG DECISION so the health snapshot's
+            // "verdicts produced" counter increments whenever FDG produces an allow/block
+            // verdict. ForensicLogger.decision() had ZERO callers, which is why the funnel
+            // always showed verdicts produced=0 despite FDG running. phase() bumps phaseCounts;
+            // decision() bumps verdictCounts — both are needed.
+            val verdictLabel = if (canExecute && finalVerdict == "BUY" && finalHardNo.isEmpty()) "BUY" else "BLOCK"
+            try { ForensicLogger.decision(ForensicLogger.PHASE.FDG, symbol, verdictLabel, 0, 0, reason ?: finalHardNo.firstOrNull() ?: verdictLabel) } catch (_: Throwable) {}
             if (canExecute && finalVerdict == "BUY" && finalHardNo.isEmpty()) {
                 ErrorLogger.info("FDG", "FDG_ALLOW $symbol lane=${lane.uppercase()} preFdg=BUY hardNo=[] safety=$safetyTier rug=$rugScore liq=${liquidityUsd.toInt()} duplicate=false circuit=${ToxicModeCircuitBreaker.currentEntryPause().active} sellPressure=OK version=$candidateVersion")
                 ForensicLogger.phase(ForensicLogger.PHASE.FDG, symbol, "FDG_ALLOW $msg")
@@ -323,8 +334,20 @@ object ExecutableOpenGate {
         val fatalReason = state?.v3FatalReason ?: fdgReason
         val safetyTier = state?.safetyTier ?: "UNKNOWN"
         val liquidityUsd = state?.liquidityUsd ?: 0.0
-        val selectedLane = state?.selectedLane ?: "UNKNOWN"
+        val rawSelectedLane = state?.selectedLane ?: "UNKNOWN"
         val requestedLane = canonicalLane(lane)
+        // V5.9.1320 (Item 6) — RESOLVE THE LANE BEFORE the FDG/EXEC finality checks.
+        // The 89 EXEC_OPEN_DROPPED_SELECTED_LANE_UNKNOWN came from candidates whose state
+        // carried selectedLane=UNKNOWN (state created by a non-FDG path, or recordFdg lagged
+        // the EXEC request) even though a REAL specialist lane was actively requesting the
+        // open. Resolution order: a real state.selectedLane wins; otherwise fall back to the
+        // real REQUESTING lane (it is the lane trying to execute). Only truly UNKNOWN when
+        // NEITHER is a real execution lane → then we block with CANON_LANE_UNRESOLVED.
+        val selectedLane = when {
+            isRealExecutionLane(rawSelectedLane) -> canonicalLane(rawSelectedLane)
+            isRealExecutionLane(lane) -> requestedLane
+            else -> "UNKNOWN"
+        }
         val canonicalSelectedLane = canonicalLane(selectedLane)
         val preFdgVerdict = state?.preFdgVerdict ?: "WATCH"
         val hardNoReasons = state?.hardNoReasons ?: emptyList()
