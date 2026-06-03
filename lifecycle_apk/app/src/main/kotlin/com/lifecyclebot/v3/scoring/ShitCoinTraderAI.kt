@@ -1672,8 +1672,16 @@ object ShitCoinTraderAI {
     // Mature: score >= 40, conf >= 50%
     // V5.9.300: V5.9.198 ARCHITECTURE — per-trader floors HIGH (global FluidLearningAI is now LOW).
     // Strict gating happens HERE so meme garbage gets filtered while the global scanner stays open.
-    private const val SC_SCORE_BOOTSTRAP = 10         // V5.9.343: walk-back to V5.9.335 — open the gate
-    private const val SC_SCORE_MATURE = 35            // V5.9.343: walk-back to V5.9.335
+    // V5.9.1327 — SHITCOIN ENTRY-QUALITY FIX (operator: "chip trading", live WR=0% n=54).
+    // SHITCOIN's EXITS are good (82% MFE capture in the snapshot) — the bleed is ENTRY
+    // QUALITY: a bootstrap floor of 10 let near-zero-signal trash in (W=0/L=51). The lane
+    // is a SCALPER ("chip trading") — it needs a real signal, not just "scored above 10".
+    // Raise the bootstrap floor 10→18 (still well inside the 500-1000/day volume band given
+    // the 500-token pool + fan-out; the danger-bucket + expectancy gates below already cull
+    // the rest). Mature floor nudged 35→38. The good exits are untouched. This is the lane
+    // self-selecting a real-signal entry, NOT a scanner choke (the 500-pool is protected).
+    private const val SC_SCORE_BOOTSTRAP = 18
+    private const val SC_SCORE_MATURE = 38
     
     // V5.2 FIX: Lower confidence required in bootstrap
     private const val SC_CONF_BOOTSTRAP = 10          // V5.9.343: walk-back to V5.9.335

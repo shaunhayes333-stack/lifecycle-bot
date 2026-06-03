@@ -832,8 +832,25 @@ object CashGenerationAI {
             }
         }
 
+        // V5.9.1327 — TREASURY ANTI-PREDICTIVE SIZE FIX (operator: "treasury consistently").
+        // OLD: score>=50 & conf>=75 → scale UP. But the live data proves TREASURY's high
+        // score-bands are its WORST (TREASURY[50-59]=-94%, TREASURY|S61+ 19L/6W mean -14%):
+        // the V3 scorer is ANTI-PREDICTIVE for this lane (high buy-pressure on a memecoin =
+        // pump TOP, not a stable scalp). So scaling up on high score bet BIGGER on the losers.
+        // TREASURY's real edge is CONSISTENT small base-hits on LIQUID setups, not big bets on
+        // high scores. New rule: only amplify a high-score band if its OWN realized expectancy
+        // is net-POSITIVE (calibration-verified); on a proven net-negative band, do NOT scale up
+        // (the existing calibrationSizeMult below already shrinks it further). Doctrine: soft-
+        // shape, never veto — the band still trades at base size and keeps learning.
         if (treasuryConfidence >= 75 && treasuryScore >= 50) {
-            positionSol *= POSITION_SCALE_FACTOR
+            val bandMean = try { com.lifecyclebot.engine.ScoreExpectancyTracker.bucketMean("TREASURY", treasuryScore) ?: 0.0 } catch (_: Throwable) { 0.0 }
+            val bandN = try { com.lifecyclebot.engine.ScoreExpectancyTracker.bucketSamples("TREASURY", treasuryScore) } catch (_: Throwable) { 0 }
+            // amplify only when the band is unproven (bootstrap) OR proven net-positive
+            if (bandN < 12 || bandMean > 0.0) {
+                positionSol *= POSITION_SCALE_FACTOR
+            } else {
+                ErrorLogger.info(TAG, "💰 TREASURY NO_SCALE band=S$treasuryScore mean=${bandMean.fmt(1)}% n=$bandN (anti-predictive high band — base size only)")
+            }
         }
 
         // V5.6.6: More aggressive mode multipliers
