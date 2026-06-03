@@ -643,7 +643,11 @@ object CryptoAltTrader {
                                 tokenAgeMinutes   = 9999.0,  // established token
                                 launchPlatform    = ShitCoinTraderAI.LaunchPlatform.UNKNOWN,
                                 isDexBoosted      = tok.isBoosted,
-                                dexTrendingRank   = if (tok.isTrending) tok.trendingRank else -1
+                                dexTrendingRank   = if (tok.isTrending) tok.trendingRank else -1,
+                                // V5.9.1317 — Crypto DynScan SCORES only; never write
+                                // crypto-derived garbage into the shared Education layer
+                                // that the Meme Trader reads. Keeps Meme learning clean.
+                                recordEducationScores = false
                             )
                             if (sig.shouldEnter) {
                                 signals++
@@ -1711,6 +1715,10 @@ object CryptoAltTrader {
         val authResult = authorizeCryptoFinalCandidate(candidate)
         if (authResult == null) {
             ErrorLogger.info(TAG, "🪙 CRYPTO EXEC BLOCKED: ${signal.market.symbol} | preFdg=${candidate.preFdgVerdict} hardNo=${candidate.hardNoReasons} route=${candidate.routeQuality}")
+            // V5.9.1317 (P0-5) — release the primary-lane lease on the CRYPTO book so a
+            // blocked candidate does not suppress follow-up CRYPTO attempts for the same
+            // asset until TTL. CRYPTO lane is isolated; this never touches Meme lanes.
+            try { com.lifecyclebot.engine.LaneExecutionCoordinator.releaseIfPrimary(candidate.assetKey, "CRYPTO", "CRYPTO_EXEC_BLOCKED") } catch (_: Throwable) {}
             return
         }
 
@@ -1754,6 +1762,7 @@ object CryptoAltTrader {
             if (!liveOk) {
                 ErrorLogger.warn(TAG, "🔴 LIVE alt trade failed: ${signal.market.symbol} — position not recorded")
                 try { TradeAuthorizer.releasePosition(candidate.assetKey, "CRYPTO_LIVE_BUY_NOT_OPENED", TradeAuthorizer.ExecutionBook.CRYPTO) } catch (_: Throwable) {}
+                try { com.lifecyclebot.engine.LaneExecutionCoordinator.releaseIfPrimary(candidate.assetKey, "CRYPTO", "CRYPTO_LIVE_BUY_NOT_OPENED") } catch (_: Throwable) {}
                 return
             }
             ErrorLogger.info(TAG, "🪙 LIVE trade success: ${signal.market.symbol} (paper-sized ${finalSize.fmt(4)}◎)")
@@ -2549,7 +2558,7 @@ object CryptoAltTrader {
         try { PortfolioHeatAI.removePosition("ALT_${pos.market.symbol}") } catch (_: Exception) {}
 
         // ── BehaviorAI ────────────────────────────────────────────────────────
-        try { BehaviorAI.recordTradeForAsset(pnlPct = pnlPct, reason = reason, mint = pos.market.symbol, isPaperMode = paper, assetClass = "ALTS") } catch (_: Exception) {}
+        try { BehaviorAI.recordTradeForAsset(pnlPct = pnlPct, reason = reason, mint = pos.market.symbol, isPaperMode = paper, assetClass = "CRYPTO_ALT_SPOT") } catch (_: Exception) {}
 
         // V5.9.852 — non-meme close → CanonicalOutcomeBus (Layer Readiness fix).
         com.lifecyclebot.engine.CanonicalPublishHelper.publishExit(
@@ -2568,7 +2577,7 @@ object CryptoAltTrader {
             realizedPnlPct = pnlPct,
             maxGainPct    = pos.highestPnlPct.takeIf { it > 0.0 },
             closeReason   = "CRYPTOALT_$reason",
-            assetClass    = com.lifecyclebot.engine.AssetClass.MEME,  // closest enum — no CRYPTO yet
+            assetClass    = com.lifecyclebot.engine.AssetClass.CRYPTO_ALT_SPOT,  // V5.9.1317 — canonical; was mislabeled MEME
             entryScore    = pos.aiScore.toDouble(),
             // V5.9.896 — promote lite→rich for BehaviorLearning.
             entryPattern  = "CRYPTOALT_ENTRY",

@@ -779,6 +779,15 @@ object ShitCoinTraderAI {
         dexTrendingRank: Int = 0,
         isCopyCat: Boolean = false,
         graduationProgress: Double = 0.0,  // 0-100% for pump.fun
+        // V5.9.1317 — when false, suppress the EducationSubLayerAI.recordEntryScores
+        // write below. The Crypto Universe DynScan calls this specialist on
+        // non-Solana symbols with zeroed meme-risk signals (bundlePct=0,
+        // launchPlatform=UNKNOWN, tokenAgeMinutes=9999) purely to SCORE them.
+        // Letting that path WRITE garbage harvardComponents into the SHARED
+        // EducationSubLayerAI (which the Meme Trader reads) was the one and only
+        // way Crypto polluted Meme learning. Default true = Meme Trader behaviour
+        // is unchanged; Crypto passes false to score without contaminating.
+        recordEducationScores: Boolean = true,
     ): ShitCoinSignal {
         
         // Check current mode
@@ -1276,7 +1285,9 @@ object ShitCoinTraderAI {
             val harvardComponents = harvardSig.map { (k, v) ->
                 ScoreComponent(name = k, value = v, reason = "shitcoin_harvard")
             }
-            com.lifecyclebot.v3.scoring.EducationSubLayerAI.recordEntryScores(mint, harvardComponents)
+            if (recordEducationScores) {
+                com.lifecyclebot.v3.scoring.EducationSubLayerAI.recordEntryScores(mint, harvardComponents)
+            }
         } catch (_: Throwable) { /* fail-open per FDG doctrine */ }
 
         // POSITION SIZING - V5.6: DYNAMIC scaling with wallet balance
