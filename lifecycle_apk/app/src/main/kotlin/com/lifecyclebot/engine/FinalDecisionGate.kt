@@ -2829,6 +2829,24 @@ object FinalDecisionGate {
                         checks.add(GateCheck("learned_bucket_evidence", false, routed.routeReasonForLog))
                         blockReason = routed.routeReasonForLog
                         blockLevel = BlockLevel.CONFIDENCE
+                        // V5.9.1322 — Build B: record this as a NoTradeObservation
+                        // so SHADOW_TRACK / TRAIN_ONLY routes still feed the model.
+                        try {
+                            com.lifecyclebot.engine.learning.NoTradeObservationStore.recordBlock(
+                                mint = ts.mint,
+                                symbol = ts.symbol,
+                                lane = laneName,
+                                scoreBand = scoreBand,
+                                score = candidate.entryScore.toInt(),
+                                confidence = candidate.aiConfidence.toInt(),
+                                entryLiqUsd = ts.lastLiquidityUsd,
+                                entryMcapUsd = ts.lastMcap,
+                                entryPrice = ts.lastPrice,
+                                source = ts.source.ifEmpty { "UNKNOWN" },
+                                blockReason = routed.routeReasonForLog,
+                                verdictTag = routed.verdict.tag,
+                            )
+                        } catch (_: Throwable) {}
                     }
                 }
             }
@@ -3654,6 +3672,23 @@ object FinalDecisionGate {
                                 shouldTradeFinal = false
                                 blockReasonFinal = routed2.routeReasonForLog
                                 blockLevelFinal = BlockLevel.CONFIDENCE
+                                // V5.9.1322 — Build B: record as NoTradeObservation.
+                                try {
+                                    com.lifecyclebot.engine.learning.NoTradeObservationStore.recordBlock(
+                                        mint = ts.mint,
+                                        symbol = ts.symbol,
+                                        lane = laneForRouting2,
+                                        scoreBand = scoreBand2,
+                                        score = candidate.entryScore.toInt(),
+                                        confidence = adjustedConfidence.toInt(),
+                                        entryLiqUsd = ts.lastLiquidityUsd,
+                                        entryMcapUsd = ts.lastMcap,
+                                        entryPrice = ts.lastPrice,
+                                        source = ts.source.ifEmpty { "UNKNOWN" },
+                                        blockReason = routed2.routeReasonForLog,
+                                        verdictTag = routed2.verdict.tag,
+                                    )
+                                } catch (_: Throwable) {}
                             }
                         }
                     }
