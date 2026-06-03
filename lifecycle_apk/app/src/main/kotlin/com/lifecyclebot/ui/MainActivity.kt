@@ -2525,6 +2525,39 @@ for legal compliance.
             tvPnlChangePct.setTextIfChanged("")
         }
 
+        // ═══════════════════════════════════════════════════════════════════
+        // V5.9.1312 — BACKGROUND HEAVY-RENDER GATE (ANR fix).
+        // OPERATOR: Android "AATE isn't responding" dialog fired while the
+        // user was in Messenger (app backgrounded) with the bot running.
+        // Snapshot 3279: open=28 positions, localTokens=187. ANR top sites are
+        // ALL MainActivity heavy renders — renderShitCoinPositions,
+        // renderManipPositions, buildTokenCard, renderWatchlist sort,
+        // renderTrades. Each updateUi pass rebuilds up to 24 watchlist cards +
+        // 5 position panels (removeAllViews + Coil load() per card). At 28 open
+        // positions that single pass is heavy enough to trip the ANR watchdog.
+        //
+        // Per V5.9.1164, mainUiActive is DELIBERATELY kept true on backgrounding
+        // (so runtime telemetry stays accurate), which means the heavy dashboard
+        // kept rebuilding even with the window unfocused. The Start/Stop runtime
+        // bar + hero balance above this point already rendered (cheap,
+        // setTextIfChanged-guarded). Below this point is the EXPENSIVE dashboard
+        // (chart, AI panels, all position panels, watchlist, trades).
+        //
+        // FIX: when the bot runtime is ACTIVE and the window does NOT have focus
+        // (backgrounded / system dialog / notification shade), skip the heavy
+        // dashboard this pass. hasWindowFocus()==true for any foregrounded user,
+        // so interactive users are completely unaffected. The collector resumes
+        // full rendering the moment focus returns. This does NOT flip
+        // mainUiActive (telemetry/diagnostics unchanged) and does NOT touch the
+        // runtime bar (Start/Stop truth always live).
+        run {
+            val runtimeActiveHeavyGate = try { com.lifecyclebot.engine.BotService.isRuntimeActive() } catch (_: Throwable) { false }
+            if (runtimeActiveHeavyGate && !hasWindowFocus()) {
+                try { com.lifecyclebot.engine.ForensicLogger.lifecycle("MAIN_HEAVY_RENDER_SKIPPED_UNFOCUSED", "runtimeActive=true windowFocus=false open render deferred until focus returns") } catch (_: Throwable) {}
+                return
+            }
+        }
+
         // V5.9.14: Symbolic Telemetry row — live mood/edge/risk/health
         try {
             val sc = com.lifecyclebot.engine.SymbolicContext
