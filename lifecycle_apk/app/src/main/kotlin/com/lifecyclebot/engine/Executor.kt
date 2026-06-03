@@ -2135,9 +2135,32 @@ class Executor(
         // (sweepUniversalExits, rapid-monitor closes) construct Trade objects
         // without populating tradingMode, leaving downstream learners with
         // source=UNKNOWN. Inherit pos.tradingMode whenever Trade's is blank.
+        // V5.9.1331 — UNKNOWN DATA-CAPTURE FIX (operator: "we need all data captured
+        // correctly. what is the unknown"). UNKNOWN is NOT a lane — it is the bucket the
+        // telemetry assigns when a trade's tradingMode is blank at journal time. The honest
+        // backtest then reads that phantom bucket (n=87, sharpe -4.7) as "this lane loses,
+        // STOP TRADING" — but those trades DID have a real lane; the mode field was simply
+        // never stamped. Root cause: the main V3 buy route (doBuy → paperBuy at the spine
+        // call site) does NOT pass layerTag, and position.tradingMode is set AFTER the buy
+        // journals for lane-routed opens — so the BUY records blank and every downstream
+        // SELL inherits blank too. Resolve the lane here through the best available signal,
+        // in priority order, and fall back to "STANDARD" (the convention used everywhere
+        // else in this file) instead of letting it reach the UNKNOWN bin. This makes the
+        // expectancy/backtest bins reflect the lane that actually decided the trade.
+        // Lane signals only, in priority order. trade.tradingMode and
+        // ts.position.tradingMode are the REAL lane (BLUECHIP/SHITCOIN/TREASURY/...).
+        // We deliberately do NOT fall back to the discovery source (PUMP_FUN_NEW,
+        // DEX_TRENDING) — that is not a lane and would just create new phantom bins.
+        // "STANDARD" is the established convention for a genuinely unclassified lane
+        // (see ts.position.tradingMode.ifBlank{"STANDARD"} at the exit-side bin sites).
+        val resolvedTradingMode = when {
+            trade.tradingMode.isNotBlank()       -> trade.tradingMode
+            ts.position.tradingMode.isNotBlank() -> ts.position.tradingMode
+            else                                 -> "STANDARD"
+        }
         val tradeWithMint = trade.copy(
             mint = if (trade.mint.isBlank()) ts.mint else trade.mint,
-            tradingMode = if (trade.tradingMode.isBlank()) ts.position.tradingMode else trade.tradingMode,
+            tradingMode = resolvedTradingMode,
         )
 
         // V5.9.1100 — canonical execution/outcome idempotency.
@@ -6658,7 +6681,9 @@ class Executor(
         val routeIsShadow = routeVerdict.route == ExecutionRouteGuard.Route.SHADOW
 
         if (!finalityPrechecked) {
-            val finalityLane = layerTag.ifBlank { identity?.source ?: "UNKNOWN" }
+            // V5.9.1331 — prefer the real lane (layerTag → position.tradingMode) and fall
+            // back to "STANDARD" not "UNKNOWN" so finality/journal lane attribution is correct.
+            val finalityLane = layerTag.ifBlank { ts.position.tradingMode.ifBlank { identity?.source?.takeIf { it.isNotBlank() } ?: "STANDARD" } }
             val executableOpen = ExecutableOpenGate.canOpenExecutablePosition(
                 ts = ts,
                 mode = if (routeIsShadow) "SHADOW" else "PAPER",
@@ -7717,7 +7742,7 @@ class Executor(
             val executableOpen = ExecutableOpenGate.canOpenExecutablePosition(
                 ts = ts,
                 mode = "LIVE",
-                lane = layerTag.ifBlank { identity?.source ?: "UNKNOWN" },
+                lane = layerTag.ifBlank { ts.position.tradingMode.ifBlank { identity?.source?.takeIf { it.isNotBlank() } ?: "STANDARD" } },  // V5.9.1331 lane attribution
                 source = "Executor.liveBuy",
                 attemptId = attemptId.ifBlank { ExecutableOpenGate.nextAttemptId(ts.mint, layerTag.ifBlank { "UNKNOWN" }) },
             )

@@ -55,7 +55,10 @@ object TradeOutcomeLedger {
             ts.position.isPaperPosition -> "paper"
             else -> "live"
         }
-        val lane = (ts.position.tradingMode.ifBlank { trade?.tradingMode ?: "UNKNOWN" }).uppercase()
+        // V5.9.1331 — blank lane → "STANDARD" (unclassified), never "UNKNOWN". This ledger
+        // feeds CanonicalOutcomeBus, which the honest backtest replays; "UNKNOWN" here is
+        // exactly what created the phantom n=87 "STOP TRADING" bucket. Lane is knowable.
+        val lane = (ts.position.tradingMode.ifBlank { trade?.tradingMode?.takeIf { it.isNotBlank() } ?: "STANDARD" }).uppercase()
         val openedAt = ts.position.entryTime.takeIf { it > 0L } ?: trade?.ts ?: 0L
         return positionId(BotRuntimeController.currentGeneration(), mode, ts.mint, openedAt, lane)
     }
@@ -69,7 +72,7 @@ object TradeOutcomeLedger {
             mode = trade.mode.ifBlank { if (ts.position.isPaperPosition) "paper" else "live" },
             mint = ts.mint,
             openedAtMs = ts.position.entryTime.takeIf { it > 0L } ?: trade.ts,
-            primaryLane = ts.position.tradingMode.ifBlank { trade.tradingMode.ifBlank { "UNKNOWN" } },
+            primaryLane = ts.position.tradingMode.ifBlank { trade.tradingMode.ifBlank { "STANDARD" } },  // V5.9.1331 unclassified, not UNKNOWN
         )
         val old = opens.putIfAbsent(id, rec)
         if (old != null) {

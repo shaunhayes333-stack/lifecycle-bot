@@ -58,9 +58,13 @@ object StrategyTelemetry {
             // current names (BLUECHIP). Without this, the leaderboard
             // still shows ghost duplicate bins from old persisted data.
             .groupBy {
-                val raw = it.tradingMode.ifBlank { "UNKNOWN" }
+                // V5.9.1331 — a blank tradingMode is an unclassified-lane trade, not a
+                // distinct "UNKNOWN" strategy. Bin it as STANDARD (the convention used at
+                // every other lane-name site) so historical blank-mode rows stop forming a
+                // phantom bucket the honest backtest misreads as a losing lane to retire.
+                val raw = it.tradingMode.ifBlank { "STANDARD" }
                 val norm = try { TradeHistoryStore.normalizeTradeModeName(raw) } catch (_: Throwable) { raw }
-                if (norm.isBlank()) "UNKNOWN" else norm
+                if (norm.isBlank()) "STANDARD" else norm
             }
 
         return sellsByStrategy.map { (strategy, trades) ->
