@@ -414,6 +414,17 @@ object CryptoAltTrader {
 
     private fun runtimeDisabledReason(): String? {
         if (com.lifecyclebot.engine.BotService.isShuttingDown) return "runtime_stopping"
+        // V5.9.1318 (Item 5) — EnabledTraderAuthority is the SINGLE ATOMIC source of truth
+        // for which traders are enabled. Consult it FIRST so a mode switch is obeyed
+        // immediately and atomically, closing the ConfigStore-load lag window that let
+        // CryptoAlt DynScan keep firing DynSig logs during a Meme-only session.
+        try {
+            val authority = com.lifecyclebot.engine.EnabledTraderAuthority.snapshot()
+            if (authority.isNotEmpty() &&
+                com.lifecyclebot.engine.EnabledTraderAuthority.Trader.CRYPTO_ALT !in authority) {
+                return "SUB_TRADER_SUPPRESSED_MEME_ONLY"
+            }
+        } catch (_: Throwable) { /* fall through to config check */ }
         val c = ctx
         if (c != null) {
             val cfg = try { com.lifecyclebot.data.ConfigStore.load(c) } catch (_: Throwable) { null }

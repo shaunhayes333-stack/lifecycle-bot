@@ -609,28 +609,45 @@ class BotService : Service() {
     // machine stays small — inlining this logic overflowed the JVM back-end's
     // method transformer ("Couldn't transform method node: botLoop").
     private fun maybeHealHotExit(loopCount: Int, openCount: Int, nowMs: Long): Boolean {
-        if (openCount <= 0) return false
-        val staleMs = nowMs - lastTickExitSweepMs
-        val stale = lastTickExitSweepMs > 0L && staleMs >= 12_000L
-        val neverRan = lastTickExitSweepMs == 0L && (nowMs - botLoopStartedAtMs) >= 12_000L
-        if (!stale && !neverRan) return false
-        try {
-            ForensicLogger.lifecycle(
-                "HOT_EXIT_STALE_FORCING_INLINE_SWEEP",
-                "loop=$loopCount open=$openCount hotExitStaleMs=$staleMs neverRan=$neverRan — resurrecting hotExit + forcing backup sweep",
-            )
-        } catch (_: Throwable) {}
-        try { ensureHotExitAlive() } catch (_: Throwable) {}
-        // Force the inline single-flight sweep NOW (do not defer to the dead path).
-        if (!exitSweepInFlight.get()) {
-            lastPostSupervisorExitBackupMs = nowMs
-            try { launchExitSweepAsync("HOT_EXIT_STALE_FORCED") } catch (_: Throwable) {}
+        if (openCount <= 0) {
+            // No open positions → nothing to protect. Clear any stale episode so the NEXT
+            // real stall logs cleanly (once).
+            hotExitStaleEpisodeActive = false
+            return false
         }
-        try {
-            val curWalletStale = WalletManager.getWallet()
-            val cfgStale = com.lifecyclebot.data.ConfigStore.load(applicationContext)
-            if (!slSafetyNetInFlight.get()) launchUniversalSlSweepAsync(cfgStale, curWalletStale)
-        } catch (_: Throwable) {}
+        val staleMs = nowMs - lastTickExitSweepMs
+        // V5.9.1318 (Item 1) — operator doctrine: if hot exit is stale > 10s, force-reset
+        // and run the universal-SL backup INDEPENDENTLY. Threshold lowered 12s → 10s.
+        val stale = lastTickExitSweepMs > 0L && staleMs >= 10_000L
+        val neverRan = lastTickExitSweepMs == 0L && (nowMs - botLoopStartedAtMs) >= 10_000L
+        if (!stale && !neverRan) {
+            // Hot exit is healthy again → end the stale episode so the next stall re-latches.
+            if (hotExitStaleEpisodeActive) {
+                hotExitStaleEpisodeActive = false
+                try { ForensicLogger.lifecycle("HOT_EXIT_RECOVERED", "loop=$loopCount staleMs=$staleMs") } catch (_: Throwable) {}
+            }
+            return false
+        }
+        // We are in a stale episode. Recovery work runs EVERY loop (positions must stay
+        // protected), but the loud STALE_RESET log + counter fires ONCE per episode only.
+        val firstInEpisode = !hotExitStaleEpisodeActive
+        if (firstInEpisode) {
+            hotExitStaleEpisodeActive = true
+            hotExitStaleResetCount += 1
+            try {
+                ForensicLogger.lifecycle(
+                    "EXIT_COORDINATOR_STALE_RESET",
+                    "loop=$loopCount open=$openCount hotExitLockAgeMs=$staleMs neverRan=$neverRan resets=$hotExitStaleResetCount — force-reset hot-exit lease + independent universal-SL backup",
+                )
+            } catch (_: Throwable) {}
+        }
+        // Force-reset the hot-exit lease/lock and resurrect the manager.
+        try { ensureHotExitAlive() } catch (_: Throwable) {}
+        // V5.9.1318 — route through the SINGLE-OWNER coordinator (do NOT spawn ad-hoc inline
+        // work from the bot loop). The coordinator drains pendingFull/pendingUniversal on its
+        // own IO dispatcher and clears them in its loop. Universal SL is requested
+        // INDEPENDENTLY so it can NEVER be indefinitely deferred to a stale hot exit.
+        try { requestExitSweepCoordinator(reason = "HOT_EXIT_STALE_RESET", full = true, universal = true) } catch (_: Throwable) {}
         return true
     }
 
@@ -651,6 +668,11 @@ class BotService : Service() {
     // freshly-loaded cfg. The botLoop deferral guard calls this whenever the hot
     // path looks stale, so a dead manager is resurrected within one loop cycle.
     @Volatile private var hotExitLastResurrectMs: Long = 0L
+    // V5.9.1318 (Item 1) — stale-episode latch. HOT_EXIT_STALE_FORCING_INLINE_SWEEP was
+    // firing EVERY loop while stale; the operator wants it ONCE per episode. We latch when
+    // we enter a stale episode and only re-arm after a healthy sweep is observed.
+    @Volatile private var hotExitStaleEpisodeActive: Boolean = false
+    @Volatile private var hotExitStaleResetCount: Long = 0L
     private fun ensureHotExitAlive() {
         try {
             if (hotExitJob?.isActive == true) return
@@ -10981,12 +11003,10 @@ val hotExitHandledSweep = maybeHealHotExit(loopCount, postSupervisorOpenCount, p
 if (hotExitHandledSweep) {
     // hotExit was stale — maybeHealHotExit resurrected it and forced the sweep.
 } else if (postSupervisorOpenCount > 0 && !postSupervisorBackupDue) {
-    try {
-        ForensicLogger.lifecycle(
-            "POST_SUPERVISOR/EXIT_SWEEP_DEFERRED_TO_HOT_EXIT",
-            "loop=$loopCount open=$postSupervisorOpenCount ageMs=${postSupervisorNowMs - lastPostSupervisorExitBackupMs} backupMs=$POST_SUPERVISOR_EXIT_BACKUP_MS"
-        )
-    } catch (_: Throwable) {}
+    // V5.9.1318 (Item 1) — normal deferral to the live hot-exit manager (NOT a stall;
+    // maybeHealHotExit ran just above and force-resets if hot exit was actually stale).
+    // Demoted from a per-loop lifecycle log to debug to stop the snapshot spam.
+    ErrorLogger.debug("BotService", "exit deferred to live hotExit loop=$loopCount open=$postSupervisorOpenCount")
 } else if (exitSweepInFlight.get()) {
     try {
         ForensicLogger.lifecycle(
@@ -11163,12 +11183,12 @@ if (hotExitHandledSweep) {
             // gate or the loop again.
             markProgress("EXIT_SWEEP")
             if (postSupervisorOpenCount > 0 && !postSupervisorBackupDue) {
-                try {
-                    ForensicLogger.lifecycle(
-                        "UNIVERSAL_SL_SWEEP_DEFERRED_TO_HOT_EXIT",
-                        "loop=$loopCount open=$postSupervisorOpenCount ageMs=${System.currentTimeMillis() - lastPostSupervisorExitBackupMs} backupMs=$POST_SUPERVISOR_EXIT_BACKUP_MS"
-                    )
-                } catch (_: Throwable) {}
+                // V5.9.1318 (Item 1) — universal SL must NEVER be indefinitely deferred to a
+                // stale hot exit. maybeHealHotExit (above) already routes an INDEPENDENT
+                // universal sweep through the single-owner coordinator the moment hot exit is
+                // stale >10s. So this branch is just the normal short backup-window deferral
+                // while hot exit is healthy — demoted to debug to stop per-loop spam.
+                ErrorLogger.debug("BotService", "universalSL deferred (hotExit live) loop=$loopCount open=$postSupervisorOpenCount")
             } else if (slSafetyNetInFlight.get()) {
                 try {
                     ForensicLogger.lifecycle(

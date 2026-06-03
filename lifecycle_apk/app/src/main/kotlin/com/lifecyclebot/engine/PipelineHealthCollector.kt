@@ -840,18 +840,29 @@ object PipelineHealthCollector {
         // can bury the relationship between START/DONE/SKIP/TIMEOUT. This
         // compact section renders the ratios explicitly.
         fun lc(name: String): Long = s.labelCounts["LIFECYCLE/$name"] ?: 0L
-        val exStart = lc("EXIT_SWEEP_ASYNC_START")
-        val exDone = lc("EXIT_SWEEP_ASYNC_DONE")
+        // V5.9.1318 (Item 2) — UNIFY exit sentinels with the canonical single-owner
+        // ExitCoordinator (V5.9.1198). The legacy EXIT_SWEEP_ASYNC_* / UNIVERSAL_SL_SWEEP_*
+        // counters were orphaned when the coordinator actor took over, which is why the
+        // panel showed 0/0 while EXIT_COORDINATOR_FULL_START/DONE showed 20/20. Read the
+        // coordinator counters first; fall back to legacy names only if the coordinator
+        // has not emitted yet (older builds / pre-coordinator path).
+        fun lcAny(vararg names: String): Long { for (n in names) { val v = lc(n); if (v > 0L) return v }; return 0L }
+        val exStart = lcAny("EXIT_COORDINATOR_FULL_START", "EXIT_SWEEP_ASYNC_START")
+        val exDone = lcAny("EXIT_COORDINATOR_FULL_DONE", "EXIT_SWEEP_ASYNC_DONE")
         val exLate = lc("EXIT_SWEEP_LATE_DONE")
-        val exSkip = lc("EXIT_SWEEP_SKIPPED")
+        val exSkip = lcAny("EXIT_COORDINATOR_FULL_SKIPPED", "EXIT_COORDINATOR_FULL_RATE_LIMITED", "EXIT_SWEEP_SKIPPED")
         val exTimeout = lc("EXIT_SWEEP_TIMEOUT")
-        val exReset = lc("EXIT_SWEEP_FORCE_RESET")
-        val slStart = lc("UNIVERSAL_SL_SWEEP_START")
-        val slDone = lc("UNIVERSAL_SL_SWEEP_DONE")
+        val exReset = lcAny("EXIT_COORDINATOR_STALE_RESET", "EXIT_SWEEP_FORCE_RESET")
+        val slStart = lcAny("EXIT_COORDINATOR_UNIVERSAL_START", "UNIVERSAL_SL_SWEEP_START")
+        val slDone = lcAny("EXIT_COORDINATOR_UNIVERSAL_DONE", "UNIVERSAL_SL_SWEEP_DONE")
         val slLate = lc("UNIVERSAL_SL_SWEEP_LATE_DONE")
-        val slSkip = lc("UNIVERSAL_SL_SWEEP_SKIPPED")
+        val slSkip = lcAny("EXIT_COORDINATOR_UNIVERSAL_SKIPPED", "EXIT_COORDINATOR_UNIVERSAL_RATE_LIMITED", "UNIVERSAL_SL_SWEEP_SKIPPED")
         val slTimeout = lc("UNIVERSAL_SL_SWEEP_TIMEOUT")
-        val slReset = lc("UNIVERSAL_SL_SWEEP_FORCE_RESET")
+        val slReset = lcAny("EXIT_COORDINATOR_STALE_RESET", "UNIVERSAL_SL_SWEEP_FORCE_RESET")
+        // V5.9.1318 (Item 2) — explicit stale-reset telemetry the operator requested.
+        // (Lock-age is emitted in the EXIT_COORDINATOR_STALE_RESET event fields itself;
+        // labelCounts is a counter store, not a gauge store, so we surface the count here.)
+        val exitStaleReset = lc("EXIT_COORDINATOR_STALE_RESET")
         val supCap = lc("SUPERVISOR_INFLIGHT_CAP")
         val supSat = lc("SUPERVISOR_POOL_SATURATED_NO_RESET")
         val supExpired = lc("SUPERVISOR_LEASE_EXPIRED")
@@ -862,6 +873,7 @@ object PipelineHealthCollector {
             sb.append("===== Runtime stall sentinels =====\n")
             sb.append(line("Exit sweep start/done:", "$exStart / $exDone", "late=$exLate skip=$exSkip timeout=$exTimeout reset=$exReset")).append('\n')
             sb.append(line("Universal SL start/done:", "$slStart / $slDone", "late=$slLate skip=$slSkip timeout=$slTimeout reset=$slReset")).append('\n')
+            sb.append(line("ExitCoordinator stale resets:", exitStaleReset, "EXIT_COORDINATOR_STALE_RESET (should be ~0 in steady state; see event fields for lock age)")).append('\n')
             sb.append(line("Supervisor cap/sat:", "$supCap / $supSat", "expiredLeases=$supExpired workerTimeout=$supTimeout")).append('\n')
             sb.append(line("Paper soft-loss holds:", paperSoftHold, "1086 gate delaying fake instant paper losses")).append('\n')
             sb.append(line("UI inactive skips:", uiInactiveSkip, "should be near zero while Main is visible")).append('\n')
