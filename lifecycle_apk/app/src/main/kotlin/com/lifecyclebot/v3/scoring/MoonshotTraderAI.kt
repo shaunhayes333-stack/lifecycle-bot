@@ -1363,12 +1363,19 @@ object MoonshotTraderAI {
             pos.highWaterMark = currentPrice
 
             // V5.9.169 — continuous fluid trail (smooth log curve).
-            val dynamicTrailPct = FluidLearningAI.fluidTrailPct(pnlPct).coerceAtLeast(when (pos.spaceMode) {
-                SpaceMode.ORBITAL -> 2.5
-                SpaceMode.LUNAR -> 2.5
-                SpaceMode.MARS -> 2.5
-                SpaceMode.JUPITER -> 2.5
-            })
+            // V5.9.1326 — RUNNER-CAPTURE FIX. The old 2.5% floor on EVERY space mode
+            // crushed runners: the inverted fluid curve already floored at 2.5%, then this
+            // re-asserted 2.5% — so a JUPITER mega-play trailed at 2.5% and got wicked out
+            // (4% MFE capture). Use the per-mode TRAILING_STOP_* constants (already defined,
+            // previously dead) as the FLOOR so bigger plays keep a wider leash, and let the
+            // (now corrected) fluidTrailPct widen further on extreme gains.
+            val modeTrailFloor = when (pos.spaceMode) {
+                SpaceMode.ORBITAL -> TRAILING_STOP_ORBITAL   // 15%
+                SpaceMode.LUNAR   -> TRAILING_STOP_LUNAR     // 12%
+                SpaceMode.MARS    -> TRAILING_STOP_MARS      // 10%
+                SpaceMode.JUPITER -> TRAILING_STOP_JUPITER   // 8%
+            }
+            val dynamicTrailPct = maxOf(FluidLearningAI.fluidTrailPct(pnlPct), modeTrailFloor)
             pos.trailingStop = currentPrice * (1 - dynamicTrailPct / 100)
         }
         

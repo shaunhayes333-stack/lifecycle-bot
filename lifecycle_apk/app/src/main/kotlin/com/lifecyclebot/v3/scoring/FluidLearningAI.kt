@@ -1509,11 +1509,29 @@ object FluidLearningAI {
      *   pnl=+10000% → trail ≈ 2.5%
      */
     fun fluidTrailPct(pnlPct: Double): Double {
+        // V5.9.1326 — RUNNER-CAPTURE FIX (operator: "moonshit buying extreme runners").
+        // OLD curve INVERTED the leash: it TIGHTENED the trail as PnL grew, flooring at
+        // 2.5% past ~+300%. A +1483% peak trailing at 2.5% gets knocked out on a single
+        // wick → realized only +60% (4% MFE capture in the live snapshot). That is the
+        // exact opposite of "let winners ride" and the single biggest edge leak in the book
+        // (proven edge: FLOOR_-15_LETRUN n=90 net +9.145 SOL sharpe 1.55).
+        // NEW curve: tight at small gains (lock base hits), then WIDEN as the runner scales
+        // so normal memecoin volatility (which is enormous on 10x+ plays) can't shake it out.
+        //   pnl <= 0      → 15% (entry breathing)
+        //   ~+20%         → ~8%  (lock a small scalp tightish)
+        //   ~+100%        → ~14% (let it work)
+        //   ~+300%        → ~20%
+        //   ~+1000%       → ~28%
+        //   >=+3000%      → 32% cap (mega-runner: huge room, hard floor + peak-lock still cap risk)
         if (pnlPct <= 0.0) return 15.0
-        val logPnl = kotlin.math.log10(1.0 + pnlPct / 10.0)
-        val logMax = kotlin.math.log10(1001.0)
-        val trail = 15.0 - 12.5 * (logPnl / logMax)
-        return trail.coerceIn(2.5, 15.0)
+        val trail = when {
+            pnlPct < 20.0   -> 8.0 + (20.0 - pnlPct) / 20.0 * 4.0   // +0%→12%, +20%→8%
+            pnlPct < 100.0  -> 8.0 + (pnlPct - 20.0) / 80.0 * 6.0   // +20%→8%, +100%→14%
+            pnlPct < 300.0  -> 14.0 + (pnlPct - 100.0) / 200.0 * 6.0 // +100%→14%, +300%→20%
+            pnlPct < 1000.0 -> 20.0 + (pnlPct - 300.0) / 700.0 * 8.0 // +300%→20%, +1000%→28%
+            else            -> (28.0 + (pnlPct - 1000.0) / 2000.0 * 4.0).coerceAtMost(32.0)
+        }
+        return trail.coerceIn(8.0, 32.0)
     }
 
     fun getDynamicFluidStop(

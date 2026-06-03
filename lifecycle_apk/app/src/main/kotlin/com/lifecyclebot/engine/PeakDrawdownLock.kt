@@ -46,10 +46,32 @@ object PeakDrawdownLock {
         if (peakPnlPct < ARM_THRESHOLD_PCT) return false
         if (currentPnlPct >= peakPnlPct) return false  // currently at/above peak
         val drawdownFrac = (peakPnlPct - currentPnlPct) / peakPnlPct
-        return drawdownFrac >= DRAWDOWN_TRIGGER_FRAC
+        return drawdownFrac >= triggerFracForPeak(peakPnlPct)
+    }
+
+    /**
+     * V5.9.1326 — RUNNER-CAPTURE FIX. A flat 40% give-back lock cut extreme
+     * runners far too early: a +1000% memecoin routinely swings 40%+ off peak
+     * as normal breathing, so the lock fired and realized a fraction of the move
+     * (live snapshot: avgPeak +1483% → realized +60%, 4% MFE capture). Scale the
+     * allowed give-back with peak size — small peaks stay tight to protect base
+     * hits; mega-runners get a wide band so volatility can't shake them out.
+     * The unconditional -15% hard floor (Executor) remains the real risk backstop.
+     *   peak <  +50%   → 0.40  (protect scalps/base hits)
+     *   peak ~ +100%   → 0.45
+     *   peak ~ +300%   → 0.55
+     *   peak ~ +1000%  → 0.65
+     *   peak >= +3000% → 0.70 cap
+     */
+    fun triggerFracForPeak(peakPnlPct: Double): Double = when {
+        peakPnlPct < 50.0    -> 0.40
+        peakPnlPct < 100.0   -> 0.40 + (peakPnlPct - 50.0) / 50.0 * 0.05
+        peakPnlPct < 300.0   -> 0.45 + (peakPnlPct - 100.0) / 200.0 * 0.10
+        peakPnlPct < 1000.0  -> 0.55 + (peakPnlPct - 300.0) / 700.0 * 0.10
+        else                 -> (0.65 + (peakPnlPct - 1000.0) / 2000.0 * 0.05).coerceAtMost(0.70)
     }
 
     /** Exact pnl% at which shouldLock() would fire for a given peak. */
     fun lockPrice(peakPnlPct: Double): Double =
-        peakPnlPct * (1.0 - DRAWDOWN_TRIGGER_FRAC)
+        peakPnlPct * (1.0 - triggerFracForPeak(peakPnlPct))
 }
