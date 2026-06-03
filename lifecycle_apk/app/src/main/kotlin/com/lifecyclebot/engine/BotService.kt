@@ -8581,6 +8581,61 @@ class BotService : Service() {
     // into its own method costs ONE JVM method dispatch per cycle (~50ns)
     // and frees ~5KB inside botLoop. Same selection logic — fresh + unseen
     // + cold rotation with stale eviction.
+    // V5.9.1319 (Item 7) — SYMBOL-FAMILY DEDUPE + BURST SUPPRESSION.
+    // The watchlist showed repeated same-symbol bursts (Leland/Lee, HITLER/CHUD/WORK/RK...).
+    // Each distinct mint of the same meme name burns a full processTokenCycle. This collapses
+    // a family to ONE representative mint per cycle and suppresses families that spawn >=5
+    // distinct mints in 60s for 60s. It runs on the PER-CYCLE slice only — it NEVER prunes the
+    // protected 500-token intake pool (that pool still holds every mint; we just stop spending
+    // expensive supervisor work on near-duplicate names each tick).
+    private val symbolFamilyMintsSeen = java.util.concurrent.ConcurrentHashMap<String, MutableSet<String>>()
+    private val symbolFamilyWindowStart = java.util.concurrent.ConcurrentHashMap<String, Long>()
+    private val symbolFamilySuppressedUntil = java.util.concurrent.ConcurrentHashMap<String, Long>()
+    private fun normalizeSymbolFamily(symbol: String): String {
+        // Lowercase, strip non-letters (digits/punct/emoji), collapse — "LEE2"/"lee_"/"LEE🚀" → "lee".
+        val base = symbol.lowercase().filter { it in 'a'..'z' }
+        return if (base.length >= 2) base else symbol.lowercase().trim()
+    }
+    private fun dedupeWatchlistByFamily(mints: List<String>): List<String> {
+        if (mints.isEmpty()) return mints
+        val now = System.currentTimeMillis()
+        val symbolByMint: Map<String, String> = try {
+            com.lifecyclebot.engine.GlobalTradeRegistry.getWatchlistEntries().associate { it.mint to it.symbol }
+        } catch (_: Throwable) { emptyMap() }
+        val out = ArrayList<String>(mints.size)
+        val familyTakenThisCycle = HashSet<String>()
+        var collapsed = 0
+        var burstSuppressed = 0
+        for (mint in mints) {
+            val sym = symbolByMint[mint] ?: ""
+            if (sym.isBlank()) { out.add(mint); continue }  // unknown symbol → never suppress
+            val fam = normalizeSymbolFamily(sym)
+            // window bookkeeping for >=5-in-60s burst
+            val wStart = symbolFamilyWindowStart[fam] ?: 0L
+            if (now - wStart >= 60_000L) {
+                symbolFamilyWindowStart[fam] = now
+                symbolFamilyMintsSeen[fam] = java.util.concurrent.ConcurrentHashMap.newKeySet()
+            }
+            symbolFamilyMintsSeen.getOrPut(fam) { java.util.concurrent.ConcurrentHashMap.newKeySet() }.add(mint)
+            val distinct = symbolFamilyMintsSeen[fam]?.size ?: 1
+            if (distinct >= 5) symbolFamilySuppressedUntil[fam] = now + 60_000L
+            // suppression: drop families currently under burst-suppression (unless already taken)
+            val suppressedUntil = symbolFamilySuppressedUntil[fam] ?: 0L
+            if (now < suppressedUntil && fam !in familyTakenThisCycle) {
+                // allow exactly ONE representative through even while suppressed (so the family
+                // is never fully starved), drop the rest of the burst.
+                if (familyTakenThisCycle.add(fam)) out.add(mint) else burstSuppressed++
+                continue
+            }
+            // normal per-cycle dedupe: one mint per family per cycle
+            if (familyTakenThisCycle.add(fam)) out.add(mint) else collapsed++
+        }
+        if (collapsed + burstSuppressed > 0) {
+            try { ForensicLogger.lifecycle("WATCHLIST_FAMILY_DEDUPE", "in=${mints.size} out=${out.size} collapsed=$collapsed burstSuppressed=$burstSuppressed") } catch (_: Throwable) {}
+        }
+        return out
+    }
+
     private fun selectOrderedMintsForCycle(
         forcedOpenMints: List<String>,
         otherMints: List<String>,
@@ -10776,7 +10831,10 @@ val otherMints = prioritizedWatchlist.filterNot { mint ->
 // stopped the bot from trading and didn't help ANR. Operator: 'remove
 // the last change. let's lower the watchlist size to 250.'
 // Watchlist cap dropped from 300 → 250 in the next block.
-val orderedMintsRaw = (forcedOpenMints + otherMints).distinct()
+// V5.9.1319 (Item 7) — collapse same-symbol families on the per-cycle slice BEFORE the
+// expensive supervisor/V3/lane work. Protected 500-token intake pool is untouched.
+val otherMintsDeduped = dedupeWatchlistByFamily(otherMints)
+val orderedMintsRaw = (forcedOpenMints + otherMintsDeduped).distinct()
 
 // V5.9.960 — SMART WATCHLIST ROUND-ROBIN.
 //
@@ -10800,7 +10858,7 @@ val orderedMintsRaw = (forcedOpenMints + otherMints).distinct()
 //
 // Result: ~5-8s round-trip cycle, fresh mints every tick, full
 // watchlist covered every 2-3 ticks.
-val orderedMints: List<String> = selectOrderedMintsForCycle(forcedOpenMints, otherMints, orderedMintsRaw)
+val orderedMints: List<String> = selectOrderedMintsForCycle(forcedOpenMints, otherMintsDeduped, orderedMintsRaw)
 
 val maxBatchMillis = if (cfg.paperMode) 15_000L else 25_000L
 val perTokenTimeoutMs = if (cfg.paperMode) 1_200L else 2_500L
@@ -11149,6 +11207,7 @@ if (hotExitHandledSweep) {
             // suspended (Doze or scope cancellation).
             try {
               val _cycleElapsedMs = System.currentTimeMillis() - _cycleStartMs
+              try { supervisorNoteCycleElapsedForThrottle(_cycleElapsedMs) } catch (_: Throwable) {}
               markProgress("CYCLE_EXIT")
               ForensicLogger.lifecycle(
                 "CYCLE_PHASE",
@@ -11694,7 +11753,52 @@ if (hotExitHandledSweep) {
     // Back-pressure: if the underlying IO is wedged, don't launch another full
     // 100 workers every 5s forever. This still preserves throughput while avoiding
     // runaway thread/network pressure.
-    private val SUPERVISOR_MAX_LIVE_WORKERS: Int = 140
+    // V5.9.1319 (Item 3) — bounded supervisor worker pool. The old 140 firehose
+    // admitted far more work than the IO layer could drain (operator: workerTimeout=351,
+    // expiredLeases=24, maxCycleMs=57807). Base cap lowered to 32 (bounded but still well
+    // above the spec's 16 floor, so the 500-1000/day doctrine is preserved on a ~300 watchlist).
+    private val SUPERVISOR_BASE_MAX_WORKERS: Int = 32
+    // Emergency throttle target — effective cap drops to this on sustained overload.
+    private val SUPERVISOR_EMERGENCY_MAX_WORKERS: Int = 16
+    @Volatile private var supervisorEmergencyThrottleUntilMs: Long = 0L
+    private fun supervisorEffectiveCap(): Int =
+        if (System.currentTimeMillis() < supervisorEmergencyThrottleUntilMs)
+            SUPERVISOR_EMERGENCY_MAX_WORKERS else SUPERVISOR_BASE_MAX_WORKERS
+    // V5.9.1319 (Item 3) — emergency-throttle arming. When sustained overload is detected
+    // (a cycle exceeding 30s, OR >20 worker timeouts inside a 10-minute window) we clamp the
+    // effective worker cap to 16 and shorten cycle pressure for the next 5 minutes. Exit
+    // protection (ExitCoordinator) is unaffected — it runs on its own dispatcher.
+    @Volatile private var supervisorTimeoutWindowStartMs: Long = 0L
+    @Volatile private var supervisorTimeoutWindowCount: Int = 0
+    private fun supervisorArmEmergencyThrottle(reason: String, detail: String) {
+        val now = System.currentTimeMillis()
+        // Re-arm/extend the 5-minute throttle window.
+        val already = now < supervisorEmergencyThrottleUntilMs
+        supervisorEmergencyThrottleUntilMs = now + 300_000L
+        if (!already) {
+            try {
+                ForensicLogger.lifecycle(
+                    "SUPERVISOR_EMERGENCY_THROTTLE",
+                    "reason=$reason $detail effectiveCap=$SUPERVISOR_EMERGENCY_MAX_WORKERS untilMs=$supervisorEmergencyThrottleUntilMs",
+                )
+            } catch (_: Throwable) {}
+        }
+    }
+    private fun supervisorNoteWorkerTimeoutForThrottle() {
+        val now = System.currentTimeMillis()
+        if (now - supervisorTimeoutWindowStartMs >= 600_000L) {
+            supervisorTimeoutWindowStartMs = now
+            supervisorTimeoutWindowCount = 0
+        }
+        supervisorTimeoutWindowCount += 1
+        if (supervisorTimeoutWindowCount > 20) {
+            supervisorArmEmergencyThrottle("worker_timeouts", "count=$supervisorTimeoutWindowCount/10min")
+        }
+    }
+    fun supervisorNoteCycleElapsedForThrottle(cycleMs: Long) {
+        if (cycleMs > 30_000L) supervisorArmEmergencyThrottle("max_cycle_ms", "cycleMs=$cycleMs")
+    }
+    @Suppress("unused") private val SUPERVISOR_MAX_LIVE_WORKERS: Int = 32
 
     // V5.9.1073 — SUPERVISOR ACCOUNTING REWRITE.
     // Operator directive: give supervisor a range of 100 and stop the repeated
@@ -11718,7 +11822,7 @@ if (hotExitHandledSweep) {
     private val supervisorLastSpawnAt = java.util.concurrent.atomic.AtomicLong(System.currentTimeMillis())
     private val supervisorLifetimeSaturationEvents = java.util.concurrent.atomic.AtomicLong(0) // saturation telemetry counter
     private val SUPERVISOR_POOL_STALL_MS: Long = 8_000L  // telemetry threshold only; no destructive counter reset
-    private val SUPERVISOR_MAX_INFLIGHT: Int = 140
+    @Suppress("unused") private val SUPERVISOR_MAX_INFLIGHT: Int = 32
     // Worker slot budget is one bot-loop cadence: long enough for normal
     // processTokenCycle, short enough that stuck IO cannot hold a supervisor
     // slot across multiple 5s cycles.
@@ -11794,7 +11898,9 @@ if (hotExitHandledSweep) {
         val live = supervisorLeases.size
         // Lease cap controls cycle coverage; live-worker cap prevents runaway
         // non-cooperative processTokenCycle calls if APIs wedge.
-        if (live >= SUPERVISOR_MAX_INFLIGHT || live >= SUPERVISOR_MAX_LIVE_WORKERS) return -1L
+        // V5.9.1319 (Item 3) — admit against the EFFECTIVE adaptive cap (base 32, or 16
+        // during an emergency-throttle window). Replaces the old fixed 140 firehose.
+        if (live >= supervisorEffectiveCap()) return -1L
         val id = supervisorLeaseSeq.incrementAndGet()
         supervisorLeases[id] = SupervisorLease(mint = mint, startedMs = System.currentTimeMillis())
         supervisorActive.set(supervisorLeases.size)
@@ -11854,7 +11960,7 @@ if (hotExitHandledSweep) {
             val now = System.currentTimeMillis()
             supervisorClampIfNegative("pre_cycle")
             val currentActive = supervisorLeases.size
-            if (currentActive >= SUPERVISOR_MAX_INFLIGHT) {
+            if (currentActive >= supervisorEffectiveCap()) {
                 val stallMs = now - supervisorLastSpawnAt.get()
                 if (stallMs >= SUPERVISOR_POOL_STALL_MS) {
                     supervisorLifetimeSaturationEvents.incrementAndGet()
@@ -11968,6 +12074,7 @@ if (hotExitHandledSweep) {
                     } else {
                         supervisorLifetimeWorkerTimeouts.incrementAndGet()
                         supervisorArmTimeoutCooldown(mint)
+                        try { supervisorNoteWorkerTimeoutForThrottle() } catch (_: Throwable) {}
                         try {
                             ForensicLogger.lifecycle(
                                 "SUPERVISOR_WORKER_TIMEOUT",
