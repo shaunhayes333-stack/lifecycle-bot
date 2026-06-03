@@ -95,11 +95,29 @@ object FreeRangeMode {
     fun guardLevel(): Int {
         if (operatorForceOn)  return 0
         if (operatorForceOff) return 5
-        if (AntiChokeManager.isSoftening()) return 0
         return try {
             val snap   = TradeHistoryStore.getLifetimeStats()
             val trades = snap.totalSells
             val wr     = snap.winRate
+            // V5.9.1333 — FROZEN-WR FIX. Previously AntiChokeManager.isSoftening()
+            // short-circuited the WHOLE maturity ladder back to guardLevel 0
+            // (wide-open: every entry gate bypassed, SKIP verdicts ignored, conf
+            // floor ignored). AntiChoke softens whenever 24h throughput is under the
+            // 500/day target — which is ~always in low-volume sessions — so the bot
+            // got PINNED in pure-exploration forever and WR could never climb past
+            // bootstrap regardless of how many trades accumulated. That is exactly
+            // the "WR stuck, figures won't move" symptom.
+            //
+            // FIX: AntiChoke may only collapse the ladder to wide-open DURING the
+            // genuine exploration phase (<500 lifetime trades). Past 500 the quality
+            // ladder HOLDS even when throughput is soft. AntiChoke still does its real
+            // job upstream (relaxing scanner/intake gates to keep the pipeline fed) —
+            // it just no longer forces the bot to buy unfiltered noise once it has
+            // enough samples to start filtering. Below 500 we're wide-open anyway, so
+            // the softener is a no-op there. Net: volume protection preserved, but the
+            // maturity curve can finally progress (Doctrine: WR must climb; throughput
+            // before cleverness — but NOT throughput INSTEAD of ever learning).
+            if (trades < PHASE1_START && AntiChokeManager.isSoftening()) return 0
             when {
                 trades < PHASE1_START  -> 0  // pure exploration
                 trades < PHASE2_START  -> 1  // soft: loss-streak brakes only
