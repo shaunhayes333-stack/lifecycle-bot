@@ -540,6 +540,8 @@ class MainActivity : AppCompatActivity() {
     private val TRUST_UI_REFRESH_MS: Long = 60_000L
     @Volatile private var forceNextForegroundRender: Boolean = false
     @Volatile private var mainUiActive: Boolean = false
+    // V5.9.1316 — bind the start/stop listener exactly once (not per render).
+    private var toggleListenerBound: Boolean = false
     private val mainInactiveHandler = android.os.Handler(android.os.Looper.getMainLooper())
     private val markMainInactiveRunnable = Runnable {
         // V5.9.1164 — navigation/background is render-only. Do NOT flip
@@ -2252,35 +2254,51 @@ for legal compliance.
         })
         btnToggle.setTextColor(white)
 
-        when {
-            isHalted -> btnToggle.setOnClickListener {
-                try {
+        // V5.9.1316 — STOP must ALWAYS work and not be lost to per-render churn.
+        // Previously the click listener was REASSIGNED every render tick inside a
+        // when{} block (isHalted/running/else). With always-render (1314) that
+        // reassigns every ~2.5s, and the tap could not be processed while the main
+        // thread was busy rebuilding position rows — operator hit STOP and it was
+        // "completely unresponsive". FIX: keep the 1081 gate (only wire after the
+        // first state-bound render, button stays enabled here), but bind the
+        // listener ONCE via toggleListenerBound and have it read LIVE state at
+        // tap-time so it is correct regardless of which render last ran.
+        if (!toggleListenerBound) {
+            toggleListenerBound = true
+            btnToggle.setOnClickListener {
+                val haltedNow = try {
                     val svc = com.lifecyclebot.engine.BotService.instance
                     val f   = svc?.javaClass?.getDeclaredField("securityGuard")
                     f?.isAccessible = true
-                    (f?.get(svc) as? com.lifecyclebot.engine.SecurityGuard)?.clearHalt()
-                } catch (_: Exception) {}
-                vm.stopBot(source = "halt_reset", uiStopConfirmed = true)
-            }
-            running -> btnToggle.setOnClickListener {
-                // V5.9.1315 — STOP is destructive (kills all trading). The log
-                // (session 5a69892e) showed TWO ui_stop_button dispatches 10s
-                // apart with no user intent — a single accidental/double tap on a
-                // render-rebound listener silently killed the bot. Require an
-                // explicit confirm so a stray tap can never stop trading.
-                try {
-                    AlertDialog.Builder(this)
-                        .setTitle("Stop the bot?")
-                        .setMessage("This halts all scanning and trading. Open positions stay managed but no new trades will be taken until you start again.")
-                        .setPositiveButton("Stop bot") { d, _ -> d.dismiss(); vm.stopBotFromStopButton() }
-                        .setNegativeButton("Keep running", null)
-                        .show()
-                } catch (_: Throwable) {
-                    // If the dialog can't show for any reason, fall back to direct stop
-                    vm.stopBotFromStopButton()
+                    (f?.get(svc) as? com.lifecyclebot.engine.SecurityGuard)?.getCircuitBreakerState()?.isHalted ?: false
+                } catch (_: Throwable) { false }
+                val runningNow = try {
+                    com.lifecyclebot.engine.BotService.isRuntimeActive() ||
+                    com.lifecyclebot.engine.BotRuntimeController.snapshot().runtimeActive
+                } catch (_: Throwable) { false }
+                when {
+                    haltedNow -> {
+                        try {
+                            val svc = com.lifecyclebot.engine.BotService.instance
+                            val f   = svc?.javaClass?.getDeclaredField("securityGuard")
+                            f?.isAccessible = true
+                            (f?.get(svc) as? com.lifecyclebot.engine.SecurityGuard)?.clearHalt()
+                        } catch (_: Exception) {}
+                        vm.stopBot(source = "halt_reset", uiStopConfirmed = true)
+                    }
+                    runningNow -> {
+                        try {
+                            AlertDialog.Builder(this)
+                                .setTitle("Stop the bot?")
+                                .setMessage("This halts all scanning and trading. Open positions stay managed but no new trades will be taken until you start again.")
+                                .setPositiveButton("Stop bot") { d, _ -> d.dismiss(); vm.stopBotFromStopButton() }
+                                .setNegativeButton("Keep running", null)
+                                .show()
+                        } catch (_: Throwable) { vm.stopBotFromStopButton() }
+                    }
+                    else -> vm.startBot()
                 }
             }
-            else    -> btnToggle.setOnClickListener { vm.startBot() }
         }
         btnToggle.isEnabled = true
 
