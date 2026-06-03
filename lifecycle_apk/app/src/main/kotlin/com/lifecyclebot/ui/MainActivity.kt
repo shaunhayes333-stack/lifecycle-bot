@@ -2404,8 +2404,8 @@ for legal compliance.
                 lastTradesRenderHash = -1
                 lastWatchlistRenderHash = -1
             } else {
-                runtimeChartSuppressedUntilMs = System.currentTimeMillis() + 60_000L
-                try { com.lifecyclebot.engine.ForensicLogger.lifecycle("MAIN_HEAVY_RENDER_PRESERVED_RUNTIME_ACTIVE", "source=foreground_repaint chartSuppressedMs=60000") } catch (_: Throwable) {}
+                // V5.9.1314 — no chart suppression. Always paint (era-1000 behavior).
+                runtimeChartSuppressedUntilMs = 0L
             }
         }
         val cfg = state.config
@@ -2536,27 +2536,13 @@ for legal compliance.
         // 5 position panels (removeAllViews + Coil load() per card). At 28 open
         // positions that single pass is heavy enough to trip the ANR watchdog.
         //
-        // Per V5.9.1164, mainUiActive is DELIBERATELY kept true on backgrounding
-        // (so runtime telemetry stays accurate), which means the heavy dashboard
-        // kept rebuilding even with the window unfocused. The Start/Stop runtime
-        // bar + hero balance above this point already rendered (cheap,
-        // setTextIfChanged-guarded). Below this point is the EXPENSIVE dashboard
-        // (chart, AI panels, all position panels, watchlist, trades).
-        //
-        // FIX: when the bot runtime is ACTIVE and the window does NOT have focus
-        // (backgrounded / system dialog / notification shade), skip the heavy
-        // dashboard this pass. hasWindowFocus()==true for any foregrounded user,
-        // so interactive users are completely unaffected. The collector resumes
-        // full rendering the moment focus returns. This does NOT flip
-        // mainUiActive (telemetry/diagnostics unchanged) and does NOT touch the
-        // runtime bar (Start/Stop truth always live).
-        run {
-            val runtimeActiveHeavyGate = try { com.lifecyclebot.engine.BotService.isRuntimeActive() } catch (_: Throwable) { false }
-            if (runtimeActiveHeavyGate && !hasWindowFocus()) {
-                try { com.lifecyclebot.engine.ForensicLogger.lifecycle("MAIN_HEAVY_RENDER_SKIPPED_UNFOCUSED", "runtimeActive=true windowFocus=false open render deferred until focus returns") } catch (_: Throwable) {}
-                return
-            }
-        }
+        // V5.9.1314 — RESTORED era-1000/2000 always-render behavior. The 1199-1312
+        // throttle stack (focus-skip, 60s chart suppression, low-cadence chart
+        // cadence) made the dashboard feel frozen / "not trading". Those builds
+        // never needed throttling because the bot loop is already decoupled and
+        // these renders are setTextIfChanged-guarded. We always render the full
+        // dashboard now; the only guard is the isFinishing/isDestroyed crash check
+        // already applied at the top of this function.
 
         // V5.9.14: Symbolic Telemetry row — live mood/edge/risk/health
         try {
@@ -2961,20 +2947,11 @@ for legal compliance.
         // ── chart ─────────────────────────────────────────────────────
         // V5.9.1199 — chart paint is UI-only and expensive. While runtime is
         // active, rebuild/append at low cadence unless the selected token changed.
+        // V5.9.1314 — RESTORED era-1000 chart behavior: token changed → rebuild,
+        // else price moved → append. No suppression / cadence throttle (that stack
+        // made the chart look frozen). MPAndroidChart appends are cheap.
         val nowChartMs = System.currentTimeMillis()
-        val chartTokenChanged = ts != null && ts.mint != lastChartTokenMint
-        val chartPriceChangedEnough = ts?.lastPrice?.let { lastChartRenderedPrice <= 0.0 || kotlin.math.abs(it - lastChartRenderedPrice) / lastChartRenderedPrice.coerceAtLeast(1e-12) >= 0.01 } ?: false
-        val chartSuppressedForRuntime = runtimeActiveForUi && nowChartMs < runtimeChartSuppressedUntilMs
-        val chartColdStart = priceChart.data == null || chartEntries.isEmpty() || lastChartTokenMint == null
-        // V5.9.1224 — chart data must still appear. 1218/1220 suppressed
-        // runtime chart paints so aggressively that a foreground open/new token
-        // could leave the chart blank even though ts.history had candles. Allow
-        // the first paint and token-change paint; throttle only repeat appends.
-        val allowChartPaint = (ts != null && (chartColdStart || chartTokenChanged)) ||
-            (!chartSuppressedForRuntime && (!runtimeActiveForUi || (nowChartMs - lastChartRenderMs >= RUNTIME_CHART_RENDER_MS && chartPriceChangedEnough)))
-        if (!allowChartPaint) {
-            // skip heavy MPAndroidChart dataset rebuild this UI tick
-        } else if (ts != null && ts.mint != lastChartTokenMint) {
+        if (ts != null && ts.mint != lastChartTokenMint) {
             // Clear and rebuild chart from history for new token
             chartEntries.clear()
             chartIdx = 0f
@@ -3021,13 +2998,9 @@ for legal compliance.
             // V5.6: Update metrics on each tick
             updateChartMetrics(ts)
         } else if (state.running || runtimeActiveForUi) {
-            // V5.9.1218 — avoid repeated TextView/StaticLayout churn from chart
-            // no-data text while runtime is active. The runtime bar already proves
-            // the bot is alive; chart copy can stay stale until the next safe paint.
-            if (!runtimeActiveForUi && !chartSuppressedForRuntime) {
-                priceChart.setNoDataText("Scanning $uiTokenCount tokens — chart auto-fills when the next priced token is evaluated")
-                candleChart.setNoDataText("Scanning $uiTokenCount tokens — no selected token candle stream yet")
-            }
+            // V5.9.1314 — always show the scanning placeholder (era-1000 behavior).
+            priceChart.setNoDataText("Scanning $uiTokenCount tokens — chart auto-fills when the next priced token is evaluated")
+            candleChart.setNoDataText("Scanning $uiTokenCount tokens — no selected token candle stream yet")
         }
 
         // ── Quick Stats Bar ─────────────────────────────────────────
