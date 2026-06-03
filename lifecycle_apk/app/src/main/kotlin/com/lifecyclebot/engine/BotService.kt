@@ -599,6 +599,150 @@ class BotService : Service() {
      */
     private var hotExitJob: Job? = null
 
+
+    // V5.9.1313 — RESTARTABLE / SELF-HEALING HOT-EXIT MANAGER.
+    // ROOT CAUSE (operator log session a6f08d82): bot stuck holding open=10
+    // pump.fun micros (vol1h=$0) with position age climbing 7s→58s, ZERO sells,
+    // ZERO new entries — "it doesn't keep trading". The hotExit 2s manager (the
+    // ONLY path that calls executor.runManageOnly → STRICT_SL / partials / profit
+    // lock / STALE_FEED_EVICT) had gone silent: not a single "_hotExit tick="
+    // heartbeat in 90s of logs. The job had died/been cancelled, and because it
+    // was launched INLINE in startBot with NO watchdog, nothing restarted it.
+    // Meanwhile the botLoop kept blindly deferring every cycle's exits to the
+    // dead hot path (EXIT_SWEEP_DEFERRED_TO_HOT_EXIT), so positions could never
+    // exit and the 10 slots stayed pinned → forcedOpen=10 forever → no volume.
+    //
+    // FIX: own the launch in a restartable function. Idempotent — if the job is
+    // still alive it's a no-op. If dead/null, relaunch the identical body with a
+    // freshly-loaded cfg. The botLoop deferral guard calls this whenever the hot
+    // path looks stale, so a dead manager is resurrected within one loop cycle.
+    @Volatile private var hotExitLastResurrectMs: Long = 0L
+    private fun ensureHotExitAlive() {
+        try {
+            if (hotExitJob?.isActive == true) return
+        } catch (_: Throwable) {}
+        // Debounce resurrections so a transient race can't spawn a storm.
+        val nowMs = System.currentTimeMillis()
+        if (nowMs - hotExitLastResurrectMs < 3_000L) return
+        hotExitLastResurrectMs = nowMs
+        val cfg = try { com.lifecyclebot.data.ConfigStore.load(applicationContext) } catch (_: Throwable) { return }
+        val runtimeGeneration = try { BotRuntimeController.currentGeneration() } catch (_: Throwable) { 0L }
+        try {
+            ForensicLogger.lifecycle(
+                "HOT_EXIT_RESURRECTED",
+                "prevActive=${hotExitJob?.isActive} running=${status.running} gen=$runtimeGeneration — relaunching 2s exit manager",
+            )
+        } catch (_: Throwable) {}
+        try { hotExitJob?.cancel() } catch (_: Throwable) {}
+        hotExitJob = scope.launch(kotlinx.coroutines.Dispatchers.IO) {
+            try { kotlinx.coroutines.delay(2_000L) } catch (_: Throwable) {}
+            var tick = 0L
+            while (status.running) {
+                tick++
+                try {
+                    val curWallet = WalletManager.getWallet()
+                    val curSol = status.getEffectiveBalance(cfg.paperMode)
+                    val openTokens = synchronized(status.tokens) {
+                        status.tokens.values.filter { it.position.isOpen }.toList()
+                    }
+                    if (openTokens.isNotEmpty()) {
+                        // V5.9.1196 — make hotExit the authoritative active
+                        // exit-maintenance heartbeat. 3163 showed POST_SUPERVISOR
+                        // and openPositionTick still launching duplicate sweeps
+                        // while this 2s manager was already walking open positions,
+                        // causing EXIT_SWEEP/UNIVERSAL_SL coalesced + reset storms.
+                        // Updating this timestamp lets botLoop/openPositionTick defer
+                        // to the hot path without weakening hard-floor management.
+                        lastTickExitSweepMs = System.currentTimeMillis()
+                        openTokens.forEach { ts ->
+                            try {
+                                executor.runManageOnly(ts, curWallet, curSol)
+                            } catch (e: Exception) {
+                                ErrorLogger.debug(
+                                    "BotService",
+                                    "hotExit(${ts.symbol}): ${e.message}",
+                                )
+                            }
+                        }
+
+                        // V5.9.1196 — low-cadence orphan/treasury sweep backup.
+                        // runManageOnly covers strict SL / partials / profit locks
+                        // every 2s. The heavier full/universal sweeps are retained
+                        // as a 30s backup only when their single-flight gate is free.
+                        // This preserves orphan rescue without spawning reset storms.
+                        if (tick % 15L == 0L) {
+                            try {
+                                if (!exitSweepInFlight.get()) {
+                                    launchExitSweepAsync("HOT_EXIT_PERIODIC")
+                                } else {
+                                    ForensicLogger.lifecycle("HOT_EXIT_FULL_SWEEP_SKIPPED", "reason=already_in_flight tick=$tick open=${openTokens.size}")
+                                }
+                            } catch (_: Throwable) {}
+                            try {
+                                if (!slSafetyNetInFlight.get()) {
+                                    launchUniversalSlSweepAsync(cfg, curWallet)
+                                } else {
+                                    ForensicLogger.lifecycle("HOT_EXIT_UNIVERSAL_SL_SKIPPED", "reason=already_in_flight tick=$tick open=${openTokens.size}")
+                                }
+                            } catch (_: Throwable) {}
+                        }
+
+                        // V5.9.940 — STEALTH MINT-BURN MONITOR producer side.
+                        // Every 45 ticks (~90s) poll BirdeyeMintBurnMonitor for
+                        // each open position. registerOpen is idempotent so we
+                        // just call it every cycle (cheap put on existing key).
+                        // check() is suspend → launch on the same IO scope so
+                        // it never blocks the runManageOnly path.
+                        // Unregister mints whose positions have closed (sync diff).
+                        if (tick % 45L == 0L) {
+                            try {
+                                val cfgSnap = cfg
+                                val mintBurnKey = cfgSnap.birdeyeApiKey
+                                if (mintBurnKey.isNotBlank()) {
+                                    val openMintIds = openTokens.map { it.mint }.toSet()
+                                    val registered = com.lifecyclebot.engine.BirdeyeMintBurnMonitor.openMintIds()
+                                    // Drop mints whose positions have closed
+                                    (registered - openMintIds).forEach {
+                                        com.lifecyclebot.engine.BirdeyeMintBurnMonitor.unregisterClose(it)
+                                    }
+                                    // Register + poll each open position
+                                    openTokens.forEach { ts ->
+                                        val supply = if (ts.position.entryPrice > 0.0 && ts.position.entryMcap > 0.0)
+                                            ts.position.entryMcap / ts.position.entryPrice
+                                        else 1_000_000_000.0  // pump.fun default
+                                        if (!com.lifecyclebot.engine.BirdeyeMintBurnMonitor.isRegistered(ts.mint)) {
+                                            com.lifecyclebot.engine.BirdeyeMintBurnMonitor.registerOpen(ts.mint, supply)
+                                        }
+                                        scope.launch(kotlinx.coroutines.Dispatchers.IO) {
+                                            try {
+                                                com.lifecyclebot.engine.BirdeyeMintBurnMonitor.check(ts.mint, mintBurnKey)
+                                            } catch (_: Throwable) { /* fail-open */ }
+                                        }
+                                    }
+                                }
+                            } catch (_: Throwable) { /* fail-open */ }
+                        }
+
+                        if (tick % 30L == 0L) {
+                            try {
+                                ForensicLogger.phase(
+                                    ForensicLogger.PHASE.EXIT_GATE,
+                                    "_hotExit",
+                                    "tick=$tick managed=${openTokens.size} openMints",
+                                )
+                            } catch (_: Throwable) {}
+                        }
+                    }
+                } catch (e: Exception) {
+                    ErrorLogger.debug("BotService", "hotExit tick error: ${e.message}")
+                }
+                try { kotlinx.coroutines.delay(2_000L) } catch (_: Throwable) { break }
+            }
+            ErrorLogger.info("BotService", "hotExitJob loop exited (status.running=${status.running})")
+        }
+        try { BotRuntimeController.registerJob(runtimeGeneration, "hotExit", hotExitJob) } catch (_: Throwable) {}
+    }
+
     private var notifIdCounter = 100
 
     override fun onCreate() {
@@ -3486,114 +3630,10 @@ class BotService : Service() {
         // floor, partial sell ladder, profit lock, peak drawdown).
         // Doctrine: exit safety must NOT depend on scanner cycle time.
         // See hotExitJob field doc for full root-cause analysis.
-        try { hotExitJob?.cancel() } catch (_: Throwable) {}
-        hotExitJob = scope.launch(kotlinx.coroutines.Dispatchers.IO) {
-            try { kotlinx.coroutines.delay(2_000L) } catch (_: Throwable) {}
-            var tick = 0L
-            while (status.running) {
-                tick++
-                try {
-                    val curWallet = WalletManager.getWallet()
-                    val curSol = status.getEffectiveBalance(cfg.paperMode)
-                    val openTokens = synchronized(status.tokens) {
-                        status.tokens.values.filter { it.position.isOpen }.toList()
-                    }
-                    if (openTokens.isNotEmpty()) {
-                        // V5.9.1196 — make hotExit the authoritative active
-                        // exit-maintenance heartbeat. 3163 showed POST_SUPERVISOR
-                        // and openPositionTick still launching duplicate sweeps
-                        // while this 2s manager was already walking open positions,
-                        // causing EXIT_SWEEP/UNIVERSAL_SL coalesced + reset storms.
-                        // Updating this timestamp lets botLoop/openPositionTick defer
-                        // to the hot path without weakening hard-floor management.
-                        lastTickExitSweepMs = System.currentTimeMillis()
-                        openTokens.forEach { ts ->
-                            try {
-                                executor.runManageOnly(ts, curWallet, curSol)
-                            } catch (e: Exception) {
-                                ErrorLogger.debug(
-                                    "BotService",
-                                    "hotExit(${ts.symbol}): ${e.message}",
-                                )
-                            }
-                        }
-
-                        // V5.9.1196 — low-cadence orphan/treasury sweep backup.
-                        // runManageOnly covers strict SL / partials / profit locks
-                        // every 2s. The heavier full/universal sweeps are retained
-                        // as a 30s backup only when their single-flight gate is free.
-                        // This preserves orphan rescue without spawning reset storms.
-                        if (tick % 15L == 0L) {
-                            try {
-                                if (!exitSweepInFlight.get()) {
-                                    launchExitSweepAsync("HOT_EXIT_PERIODIC")
-                                } else {
-                                    ForensicLogger.lifecycle("HOT_EXIT_FULL_SWEEP_SKIPPED", "reason=already_in_flight tick=$tick open=${openTokens.size}")
-                                }
-                            } catch (_: Throwable) {}
-                            try {
-                                if (!slSafetyNetInFlight.get()) {
-                                    launchUniversalSlSweepAsync(cfg, curWallet)
-                                } else {
-                                    ForensicLogger.lifecycle("HOT_EXIT_UNIVERSAL_SL_SKIPPED", "reason=already_in_flight tick=$tick open=${openTokens.size}")
-                                }
-                            } catch (_: Throwable) {}
-                        }
-
-                        // V5.9.940 — STEALTH MINT-BURN MONITOR producer side.
-                        // Every 45 ticks (~90s) poll BirdeyeMintBurnMonitor for
-                        // each open position. registerOpen is idempotent so we
-                        // just call it every cycle (cheap put on existing key).
-                        // check() is suspend → launch on the same IO scope so
-                        // it never blocks the runManageOnly path.
-                        // Unregister mints whose positions have closed (sync diff).
-                        if (tick % 45L == 0L) {
-                            try {
-                                val cfgSnap = cfg
-                                val mintBurnKey = cfgSnap.birdeyeApiKey
-                                if (mintBurnKey.isNotBlank()) {
-                                    val openMintIds = openTokens.map { it.mint }.toSet()
-                                    val registered = com.lifecyclebot.engine.BirdeyeMintBurnMonitor.openMintIds()
-                                    // Drop mints whose positions have closed
-                                    (registered - openMintIds).forEach {
-                                        com.lifecyclebot.engine.BirdeyeMintBurnMonitor.unregisterClose(it)
-                                    }
-                                    // Register + poll each open position
-                                    openTokens.forEach { ts ->
-                                        val supply = if (ts.position.entryPrice > 0.0 && ts.position.entryMcap > 0.0)
-                                            ts.position.entryMcap / ts.position.entryPrice
-                                        else 1_000_000_000.0  // pump.fun default
-                                        if (!com.lifecyclebot.engine.BirdeyeMintBurnMonitor.isRegistered(ts.mint)) {
-                                            com.lifecyclebot.engine.BirdeyeMintBurnMonitor.registerOpen(ts.mint, supply)
-                                        }
-                                        scope.launch(kotlinx.coroutines.Dispatchers.IO) {
-                                            try {
-                                                com.lifecyclebot.engine.BirdeyeMintBurnMonitor.check(ts.mint, mintBurnKey)
-                                            } catch (_: Throwable) { /* fail-open */ }
-                                        }
-                                    }
-                                }
-                            } catch (_: Throwable) { /* fail-open */ }
-                        }
-
-                        if (tick % 30L == 0L) {
-                            try {
-                                ForensicLogger.phase(
-                                    ForensicLogger.PHASE.EXIT_GATE,
-                                    "_hotExit",
-                                    "tick=$tick managed=${openTokens.size} openMints",
-                                )
-                            } catch (_: Throwable) {}
-                        }
-                    }
-                } catch (e: Exception) {
-                    ErrorLogger.debug("BotService", "hotExit tick error: ${e.message}")
-                }
-                try { kotlinx.coroutines.delay(2_000L) } catch (_: Throwable) { break }
-            }
-            ErrorLogger.info("BotService", "hotExitJob loop exited (status.running=${status.running})")
-        }
-        BotRuntimeController.registerJob(runtimeGeneration, "hotExit", hotExitJob)
+        // V5.9.1313 — hotExit is now a restartable, self-healing manager.
+        // The launch body moved into ensureHotExitAlive() so the botLoop can
+        // resurrect it if it ever dies (see deferral guard). Start it here.
+        ensureHotExitAlive()
         // V5.9.764 — EMERGENT CRITICAL item C: start the SellReconciler
         // watchdog. Runs every 10s in LIVE mode only; scans the host
         // wallet's open tracked positions, force-releases stale sell
@@ -5297,6 +5337,10 @@ class BotService : Service() {
         // V5.9.905 — stop the high-frequency exit manager loop.
         try { hotExitJob?.cancel() } catch (_: Throwable) {}
         hotExitJob = null
+        // V5.9.1313 — reset hotExit liveness trackers so the next start has a
+        // clean grace window and the loop doesn't false-trigger a resurrection.
+        botLoopStartedAtMs = 0L
+        lastTickExitSweepMs = 0L
         try { exitSweepCoordinatorJob?.cancel(kotlinx.coroutines.CancellationException("stopBot:$source")) } catch (_: Throwable) {}
         exitSweepCoordinatorJob = null
         fullExitSweepPending.set(false)
@@ -8198,6 +8242,8 @@ class BotService : Service() {
      * size, open position count, paper/live mode, V3 toggle, etc.
      */
     private var lastBotLoopTickMs: Long = System.currentTimeMillis()
+    // V5.9.1313 — when the botLoop coroutine actually began (for hotExit never-ran grace window).
+    @Volatile private var botLoopStartedAtMs: Long = 0L
 
     // V5.9.955 — TICK-LOOP EXIT SWEEP throttle. Exits now fire from the
     // fast 1Hz open-position tick loop (not the slow 8s+ bot loop), so
@@ -9181,6 +9227,7 @@ class BotService : Service() {
 
 
     private suspend fun botLoop() {
+        if (botLoopStartedAtMs == 0L) botLoopStartedAtMs = System.currentTimeMillis()
         // V5.9.919 — FIRST ACTION on botLoop entry: clear RESCUE_LAUNCHING
         // phase by stamping progress. Operator V5.9.916 freeze showed phase
         // stuck at RESCUE_LAUNCHING for 4+ minutes because the 78 lines of
@@ -10888,7 +10935,36 @@ val postSupervisorOpenCount = try {
 val postSupervisorNowMs = System.currentTimeMillis()
 val postSupervisorBackupDue = (postSupervisorNowMs - lastPostSupervisorExitBackupMs) >= POST_SUPERVISOR_EXIT_BACKUP_MS
 val tickExitSweepFresh = postSupervisorOpenCount > 0
-if (postSupervisorOpenCount > 0 && !postSupervisorBackupDue) {
+// ═══════════════════════════════════════════════════════════════════════
+// V5.9.1313 — HOT-EXIT LIVENESS GUARD (the real "it doesn't keep trading" fix).
+// The loop defers exits to hotExit (the 2s manager that owns runManageOnly →
+// STRICT_SL / partials / profit lock / STALE_FEED_EVICT). lastTickExitSweepMs
+// is bumped ONLY by a live hotExit each tick. If it goes stale, hotExit is
+// dead/starved and deferring to it strands every open position (operator log
+// a6f08d82: open=10 pinned, age 7s→58s, zero sells, zero entries). Detect
+// staleness, RESURRECT hotExit immediately, and FORCE the inline backup sweep
+// this cycle instead of deferring into the void. 12s = 6 missed 2s ticks.
+val hotExitStaleMs = postSupervisorNowMs - lastTickExitSweepMs
+val hotExitStale = postSupervisorOpenCount > 0 && lastTickExitSweepMs > 0L && hotExitStaleMs >= 12_000L
+val hotExitNeverRan = postSupervisorOpenCount > 0 && lastTickExitSweepMs == 0L && (postSupervisorNowMs - botLoopStartedAtMs) >= 12_000L
+if (hotExitStale || hotExitNeverRan) {
+    try {
+        ForensicLogger.lifecycle(
+            "HOT_EXIT_STALE_FORCING_INLINE_SWEEP",
+            "loop=$loopCount open=$postSupervisorOpenCount hotExitStaleMs=$hotExitStaleMs neverRan=$hotExitNeverRan — resurrecting hotExit + forcing backup sweep",
+        )
+    } catch (_: Throwable) {}
+    try { ensureHotExitAlive() } catch (_: Throwable) {}
+    // Force the inline single-flight sweep NOW (do not defer to the dead path).
+    if (!exitSweepInFlight.get()) {
+        lastPostSupervisorExitBackupMs = postSupervisorNowMs
+        try { launchExitSweepAsync("HOT_EXIT_STALE_FORCED") } catch (_: Throwable) {}
+    }
+    try {
+        val curWalletStale = WalletManager.getWallet()
+        if (!slSafetyNetInFlight.get()) launchUniversalSlSweepAsync(cfg, curWalletStale)
+    } catch (_: Throwable) {}
+} else if (postSupervisorOpenCount > 0 && !postSupervisorBackupDue) {
     try {
         ForensicLogger.lifecycle(
             "POST_SUPERVISOR/EXIT_SWEEP_DEFERRED_TO_HOT_EXIT",
