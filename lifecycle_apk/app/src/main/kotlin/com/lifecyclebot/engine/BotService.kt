@@ -13965,6 +13965,14 @@ if (hotExitHandledSweep) {
                     // ShitCoin/Moonshot/FDG fanout.
                     if (!ts.position.isOpen) {
                         try { ForensicLogger.lifecycle("V3_FATAL_EARLY_RETURN", "mint=${ts.mint.take(10)} symbol=${ts.symbol} reason=${result.reason}") } catch (_: Throwable) {}
+                        // V5.9.1323 — V3 Verdict Reconciliation (P0-4 surgical).
+                        try {
+                            com.lifecyclebot.engine.runtime.V3VerdictContract.recordEntry()
+                            com.lifecyclebot.engine.runtime.V3VerdictContract.recordVerdict(
+                                com.lifecyclebot.engine.runtime.V3VerdictContract.Verdict.BLOCK,
+                                "FATAL_${result.reason}"
+                            )
+                        } catch (_: Throwable) {}
                         ErrorLogger.debug("BotService", "🧯 V3_FATAL_EARLY_RETURN: ${ts.symbol} | ${result.reason}")
                         return
                     }
@@ -13982,6 +13990,14 @@ if (hotExitHandledSweep) {
                     )
                     if (!ts.position.isOpen) {
                         try { ForensicLogger.lifecycle("V3_BLOCKED_EARLY_RETURN", "mint=${ts.mint.take(10)} symbol=${ts.symbol} reason=${result.reason}") } catch (_: Throwable) {}
+                        // V5.9.1323 — V3 Verdict Reconciliation (P0-4 surgical).
+                        try {
+                            com.lifecyclebot.engine.runtime.V3VerdictContract.recordEntry()
+                            com.lifecyclebot.engine.runtime.V3VerdictContract.recordVerdict(
+                                com.lifecyclebot.engine.runtime.V3VerdictContract.Verdict.BLOCK,
+                                "BLOCKED_${result.reason}"
+                            )
+                        } catch (_: Throwable) {}
                         ErrorLogger.debug("BotService", "🧯 V3_BLOCKED_EARLY_RETURN: ${ts.symbol} | ${result.reason}")
                         return
                     }
@@ -13996,6 +14012,13 @@ if (hotExitHandledSweep) {
                         v3Score = result.score,
                         v3Confidence = result.confidence.toInt()
                     )
+                    // V5.9.1323 — V3 Verdict Reconciliation (P0-4 surgical).
+                    try {
+                        com.lifecyclebot.engine.runtime.V3VerdictContract.recordEntry()
+                        com.lifecyclebot.engine.runtime.V3VerdictContract.recordVerdict(
+                            com.lifecyclebot.engine.runtime.V3VerdictContract.Verdict.ALLOW
+                        )
+                    } catch (_: Throwable) {}
                 }
                 // V4.0 FIX: These are SOFT decisions - DON'T block other layers!
                 // - Rejected: V3 doesn't want it, but Treasury/ShitCoin might
@@ -14003,9 +14026,24 @@ if (hotExitHandledSweep) {
                 // - Watch: Monitoring, other layers can trade
                 is com.lifecyclebot.v3.V3Decision.Watch -> {
                     ExecutableOpenGate.recordV3(ts.mint, ts.symbol, "WATCH", "DECISION_WATCH", "WATCH", ts.safety.rugcheckScore)
+                    // V5.9.1323 — V3 Verdict Reconciliation (P0-4 surgical).
+                    try {
+                        com.lifecyclebot.engine.runtime.V3VerdictContract.recordEntry()
+                        com.lifecyclebot.engine.runtime.V3VerdictContract.recordVerdict(
+                            com.lifecyclebot.engine.runtime.V3VerdictContract.Verdict.SKIP, "WATCH"
+                        )
+                    } catch (_: Throwable) {}
                 }
                 is com.lifecyclebot.v3.V3Decision.Rejected -> {
                     ExecutableOpenGate.recordV3(ts.mint, ts.symbol, "REJECTED", result.reason, "REJECT", ts.safety.rugcheckScore)
+                    // V5.9.1323 — V3 Verdict Reconciliation (P0-4 surgical).
+                    try {
+                        com.lifecyclebot.engine.runtime.V3VerdictContract.recordEntry()
+                        com.lifecyclebot.engine.runtime.V3VerdictContract.recordVerdict(
+                            com.lifecyclebot.engine.runtime.V3VerdictContract.Verdict.BLOCK,
+                            "REJECTED_${result.reason}"
+                        )
+                    } catch (_: Throwable) {}
                     // V5.9.1122 — only terminal eligibility rejects return early.
                     // 3088 still showed ZERO_LIQUIDITY/LOW_LIQUIDITY walking all
                     // lanes after V3 rejected them, creating supervisor timeouts

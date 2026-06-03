@@ -950,8 +950,14 @@ object PipelineHealthCollector {
         val activeQualityFdg = s.fdgPathCounts["QUALITY"] ?: 0L
         val activeNonQualityFdg = s.fdgPathCounts.filterKeys { RuntimeConfigOverlay.normalizeLane(it) != "QUALITY" }.values.sum()
         val suppressedNonQualityFdg = s.fdgSuppressedPathCounts.values.sum()
-        val evalLeakLabel = if (activeNonQualityEval > 0) "LEAK" else "OK"
-        val fdgLeakLabel = if (activeNonQualityFdg > 0) "LEAK" else "OK"
+        // V5.9.1323 — LEAK label gating (P1-5 surgical). Operator §5:
+        // non-QUALITY activity is only a LEAK when quality-only is actually on.
+        // Otherwise it's intentional multi-lane operation.
+        val hardQualityOnly = try { com.lifecyclebot.engine.RuntimeConfigOverlay.isHardQualityOnlyActive() } catch (_: Throwable) { false }
+        val forcedPrimary = try { com.lifecyclebot.engine.RuntimeConfigOverlay.forcedPrimaryLane() } catch (_: Throwable) { null }
+        val qualityOnlyEnforced = hardQualityOnly || forcedPrimary == "QUALITY"
+        val evalLeakLabel = if (qualityOnlyEnforced && activeNonQualityEval > 0) "LEAK" else if (activeNonQualityEval > 0) "MULTI_LANE_ACTIVE" else "OK"
+        val fdgLeakLabel = if (qualityOnlyEnforced && activeNonQualityFdg > 0) "LEAK" else if (activeNonQualityFdg > 0) "MULTI_LANE_ACTIVE" else "OK"
         sb.append("  Active QUALITY eval:      $activeQualityEval\n")
         sb.append("  Active non-QUALITY eval:  $activeNonQualityEval $evalLeakLabel\n")
         sb.append("  Suppressed non-QUALITY eval: $suppressedNonQualityEval\n")

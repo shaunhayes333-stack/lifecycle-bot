@@ -1747,6 +1747,14 @@ class CryptoAltActivity : AppCompatActivity() {
     private var tokenListStartIdx = -1
 
     private fun renderTokenList() {
+        // V5.9.1323 — UI Refresh Throttle Gate (P0-1 surgical).
+        // Operator §1: full token list rebuilds were hammering the main thread
+        // (buildDynTokenRow + TextView.maybeUpdateHighlightPaths top ANR sites).
+        // The gate enforces 1Hz max while bot is active; user taps bypass via
+        // force=true elsewhere (search/sort/sector handlers).
+        if (!com.lifecyclebot.engine.runtime.UiRefreshGate.shouldRender("CryptoAlt.tokenList")) {
+            return
+        }
         // Remove everything after the controls (search+sort+sector = 4 views added by buildScannerTab)
         // Find the anchor and remove from there
         if (tokenListStartIdx >= 0) {

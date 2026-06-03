@@ -5436,6 +5436,12 @@ for legal compliance.
         val now = System.currentTimeMillis()
         if (now - activityCreatedAtMs < 12_000L) return
         if (now - lastNetworkSigRenderMs < 12_000L) return
+        // V5.9.1323 — UI Refresh Throttle Gate (P0-2 surgical). Defence-in-depth
+        // on top of the existing 12s gate above; ensures even forced refresh
+        // paths don't fan out within 1s.
+        if (!com.lifecyclebot.engine.runtime.UiRefreshGate.shouldRender("Main.networkSignals", minIntervalMs = 1500L)) {
+            return
+        }
         lastNetworkSigRenderMs = now
         try {
             val rawSignals = com.lifecyclebot.v3.scoring.CollectiveIntelligenceAI.getActiveNetworkSignals()
