@@ -2262,7 +2262,24 @@ for legal compliance.
                 } catch (_: Exception) {}
                 vm.stopBot(source = "halt_reset", uiStopConfirmed = true)
             }
-            running -> btnToggle.setOnClickListener { vm.stopBotFromStopButton() }
+            running -> btnToggle.setOnClickListener {
+                // V5.9.1315 — STOP is destructive (kills all trading). The log
+                // (session 5a69892e) showed TWO ui_stop_button dispatches 10s
+                // apart with no user intent — a single accidental/double tap on a
+                // render-rebound listener silently killed the bot. Require an
+                // explicit confirm so a stray tap can never stop trading.
+                try {
+                    AlertDialog.Builder(this)
+                        .setTitle("Stop the bot?")
+                        .setMessage("This halts all scanning and trading. Open positions stay managed but no new trades will be taken until you start again.")
+                        .setPositiveButton("Stop bot") { d, _ -> d.dismiss(); vm.stopBotFromStopButton() }
+                        .setNegativeButton("Keep running", null)
+                        .show()
+                } catch (_: Throwable) {
+                    // If the dialog can't show for any reason, fall back to direct stop
+                    vm.stopBotFromStopButton()
+                }
+            }
             else    -> btnToggle.setOnClickListener { vm.startBot() }
         }
         btnToggle.isEnabled = true
