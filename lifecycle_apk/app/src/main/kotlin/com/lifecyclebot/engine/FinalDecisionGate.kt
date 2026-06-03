@@ -2807,10 +2807,29 @@ object FinalDecisionGate {
                 }
                 val weakEvidence = candidate.setupQuality !in listOf("A+", "A", "B") && candidate.aiConfidence < 35.0 && candidate.entryScore < 25.0
                 if (blockReason == null && bucket.isDangerous && deepLearningDeficit && weakEvidence) {
-                    blockReason = "LEARNING_DANGER_BUCKET_EVIDENCE_REQUIRED_${LosingPatternMemory.bucketKey(laneName, laneScoreBanded)}"
-                    blockLevel = BlockLevel.CONFIDENCE
-                    tags.add("learning_evidence_required")
-                    checks.add(GateCheck("learned_bucket_evidence", false, "deep WR deficit + weak evidence in danger bucket n=${bucket.sample} loss=${lossRate.toInt()}%"))
+                    // V5.9.1321 — Train-First Learning Policy correction (Base44 directive).
+                    // TRAINABILITY ≠ EXECUTABILITY. Danger buckets ROUTE to training;
+                    // they do not hard-block. Only invalid/unsafe data hard-blocks.
+                    val scoreBand = com.lifecyclebot.engine.LosingPatternMemory.bucketKey(laneName, laneScoreBanded).substringAfter('|', "")
+                    val routed = com.lifecyclebot.engine.learning.FdgRouteVerdict.routeLearnedDangerBucket(
+                        lane = laneName,
+                        scoreBand = scoreBand,
+                        evidenceLabel = "n=${bucket.sample} loss=${lossRate.toInt()}% wr=${canonicalWr.format(1)}/${canonicalTargetWr.format(1)}",
+                    )
+                    com.lifecyclebot.engine.learning.LanePolicy.noteRetrainingSample(laneName, scoreBand)
+                    if (routed.proceedToOpen) {
+                        val originalSize2 = finalSize
+                        finalSize = (finalSize * routed.sizeMultiplier).coerceAtLeast(0.01)
+                        tags.add("learning_evidence_required")
+                        tags.add("route:${routed.verdict.tag}")
+                        checks.add(GateCheck("learned_bucket_evidence", true, "${routed.routeReasonForLog} | size ${originalSize2.format(3)}→${finalSize.format(3)}"))
+                    } else {
+                        tags.add("learning_evidence_required")
+                        tags.add("route:${routed.verdict.tag}")
+                        checks.add(GateCheck("learned_bucket_evidence", false, routed.routeReasonForLog))
+                        blockReason = routed.routeReasonForLog
+                        blockLevel = BlockLevel.CONFIDENCE
+                    }
                 }
             }
         } catch (_: Throwable) { /* fail-open: learned shaping must not starve execution */ }
@@ -3615,9 +3634,27 @@ object FinalDecisionGate {
                         }
                         val weakEvidence = candidate.setupQuality !in listOf("A+", "A", "B") && adjustedConfidence < 35.0 && candidate.entryScore < 25.0
                         if (hasDanger && deepLearningDeficit && weakEvidence) {
-                            shouldTradeFinal = false
-                            blockReasonFinal = "BRAIN_LEARNED_DANGER_EVIDENCE_REQUIRED:${report.objections.joinToString("+").take(120)}"
-                            blockLevelFinal = BlockLevel.CONFIDENCE
+                            // V5.9.1321 — Train-First Learning Policy correction (Base44 directive).
+                            // BrainConsensusGate "learned danger" is statistical evidence,
+                            // not a hard safety failure. Route through FdgRouteVerdict.
+                            val laneForRouting2 = (ts.position.tradingMode.ifBlank { "STANDARD" })
+                            val scoreBand2 = try {
+                                com.lifecyclebot.engine.LosingPatternMemory.bucketKey(
+                                    laneForRouting2,
+                                    candidate.entryScore.toInt()
+                                ).substringAfter('|', "")
+                            } catch (_: Throwable) { "" }
+                            val routed2 = com.lifecyclebot.engine.learning.FdgRouteVerdict.routeLearnedDangerBucket(
+                                lane = laneForRouting2,
+                                scoreBand = scoreBand2,
+                                evidenceLabel = "brain: ${report.objections.joinToString("+").take(80)}",
+                            )
+                            com.lifecyclebot.engine.learning.LanePolicy.noteRetrainingSample(laneForRouting2, scoreBand2)
+                            if (!routed2.proceedToOpen) {
+                                shouldTradeFinal = false
+                                blockReasonFinal = routed2.routeReasonForLog
+                                blockLevelFinal = BlockLevel.CONFIDENCE
+                            }
                         }
                     }
                     BrainConsensusGate.Verdict.ALLOW -> { /* normal path */ }

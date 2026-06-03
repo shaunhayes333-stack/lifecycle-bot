@@ -1595,6 +1595,13 @@ object PipelineHealthCollector {
         c.incrementAndGet()
     }
 
+    /** V5.9.1321 — public label-bump helper for FdgRouteVerdict + future modules.
+     *  Routes through `labelCounts` so the snapshot dump picks it up automatically. */
+    fun labelInc(key: String) {
+        if (!attached) return
+        bump(labelCounts, key)
+    }
+
     private fun appendEvent(ev: Event) {
         ring.addLast(ev)
         if (ringSize.incrementAndGet() > RING_CAP) {

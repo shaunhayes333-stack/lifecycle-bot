@@ -224,6 +224,12 @@ object LearningPersistence {
     //   reflection log so the full brain survives reboots.
     // ═════════════════════════════════════════════════════════════════
 
+    /** V5.9.1321 — public KV save (delegates to internal blob put). */
+    fun save(key: String, json: String) = putBlob(key, json)
+
+    /** V5.9.1321 — public KV load (delegates to internal blob get). */
+    fun load(key: String): String? = getBlob(key)
+
     private fun putBlob(name: String, json: String) {
         val d = db ?: return
         try {
