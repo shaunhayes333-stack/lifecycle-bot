@@ -8306,6 +8306,56 @@ class BotService : Service() {
             lastBotLoopTickMs = now
             // V5.9.762 — also touch the progress timestamp for the heartbeat.
             markProgress("BOT_LOOP_TICK")
+
+            // ═══════════════════════════════════════════════════════════════
+            // V5.9.1311 — DOZE DORMANCY DETECTOR + SELF-HEAL.
+            // OPERATOR: "it stalled all night." Forensic: last trade 05:12,
+            // snapshot 12:33 — 7h21m of ZERO trades, only 126 loop ticks across
+            // 26839s (~3.6min/tick vs the 5.4s the loop actually takes), and only
+            // 13 LOOP_HEARTBEAT_ALARM fires (should be ~450 at 60s). Classic deep
+            // Doze: the process was SUSPENDED — coroutine delay() froze, alarms
+            // were throttled to ~34min spacing. The wakelock + dual-alarm machinery
+            // is correctly built but Android Doze overrides ALL of it unless the
+            // app is battery-optimisation WHITELISTED. The bot looked ACTIVE
+            // (coroutine object alive, suspended in delay()) so nothing rescued it.
+            //
+            // A normal cycle is <12s. If prevCycleMs is large, the device was
+            // suspended between ticks — i.e. we just woke from Doze. On wake:
+            //   1. Re-arm the heartbeat alarm IMMEDIATELY (don't wait for the
+            //      next scheduled fire that Doze just throttled).
+            //   2. Re-check battery-opt whitelist and re-prompt if NOT granted —
+            //      this is the ONLY real cure for overnight dormancy.
+            //   3. Emit a loud forensic marker so the dormancy is visible in the
+            //      snapshot instead of looking like a slow loop.
+            if (prevCycleMs > 90_000L && loopCount > 1) {
+                try {
+                    ForensicLogger.lifecycle(
+                        "DOZE_DORMANCY_RECOVERED",
+                        "gapSec=${prevCycleMs / 1000} loop=$loopCount — device was suspended (deep Doze); waking + re-arming heartbeat",
+                    )
+                } catch (_: Throwable) {}
+                try { addLog("⏰ Woke from ${prevCycleMs / 60000}min Doze suspension — resuming. Whitelist battery for 24/7.") } catch (_: Throwable) {}
+                // Re-arm the heartbeat right now so the next gap is bounded.
+                try { scheduleLoopHeartbeatAlarm() } catch (_: Throwable) {}
+                // The real fix: ensure the OS exemption is in place. Re-prompt if
+                // the device keeps Doze-suspending us (whitelisted check is cheap;
+                // checkAndPromptBatteryOptimisation self-limits the dialog to once
+                // per process via battery_opt_prompted_session).
+                try {
+                    val pmChk = getSystemService(Context.POWER_SERVICE) as? PowerManager
+                    val whitelisted = pmChk?.isIgnoringBatteryOptimizations(packageName) ?: true
+                    if (!whitelisted) {
+                        try { ForensicLogger.lifecycle("DOZE_DORMANCY_NOT_WHITELISTED", "gapSec=${prevCycleMs/1000} reprompting=true") } catch (_: Throwable) {}
+                        // Clear the once-per-session latch so the dialog can re-fire
+                        // after a genuine overnight dormancy event (not just on boot).
+                        try {
+                            getSharedPreferences(RUNTIME_PREFS, Context.MODE_PRIVATE)
+                                .edit().putBoolean("battery_opt_prompted_session", false).apply()
+                        } catch (_: Throwable) {}
+                        try { checkAndPromptBatteryOptimisation() } catch (_: Throwable) {}
+                    }
+                } catch (_: Throwable) {}
+            }
             // V5.9.1310 — surface BOTH watchlist counters so the operator can see
             // they measure different things (was read as a "counters disagree" bug):
             //   localTokens = status.tokens   (BotService's in-memory token map; superset,
