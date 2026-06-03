@@ -54,7 +54,9 @@ class TuningActivity : Activity() {
         val now = System.currentTimeMillis()
         if (now - cachedLaneReplayAtMs < 12_000L && cachedLaneReplay != null) return
         if (!laneReplayInFlight.compareAndSet(false, true)) return
-        kotlinx.coroutines.GlobalScope.launch(kotlinx.coroutines.Dispatchers.Default) {
+        // Plain daemon thread — no coroutine deps in this Activity. Fire-and-forget;
+        // result is read by renderAll on the next main-thread refresh tick.
+        Thread {
             val grouped = try {
                 val best = com.lifecyclebot.engine.LaneStrategyEvaluator.bestPerLane()
                 if (best.isEmpty()) emptyMap()
@@ -63,7 +65,7 @@ class TuningActivity : Activity() {
             cachedLaneReplay = grouped
             cachedLaneReplayAtMs = System.currentTimeMillis()
             laneReplayInFlight.set(false)
-        }
+        }.apply { isDaemon = true; name = "lane-replay-bg" }.start()
     }
 
     private val refreshRunnable = object : Runnable {
