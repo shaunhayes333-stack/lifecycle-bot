@@ -640,6 +640,18 @@ class BotService : Service() {
                     "loop=$loopCount open=$openCount hotExitLockAgeMs=$staleMs neverRan=$neverRan resets=$hotExitStaleResetCount — force-reset hot-exit lease + independent universal-SL backup",
                 )
             } catch (_: Throwable) {}
+            // V5.9.1324 — P1-7 surgical: structured stale-reset reason for snapshot.
+            try {
+                val structuredReason = when {
+                    neverRan -> "NEVER_RAN_AFTER_BOT_START"
+                    staleMs >= 60_000L -> "LOCK_AGE_>=60s"
+                    staleMs >= 30_000L -> "LOCK_AGE_>=30s"
+                    staleMs >= 20_000L -> "LOCK_AGE_>=20s"
+                    else -> "LOCK_AGE_>=10s"
+                }
+                com.lifecyclebot.engine.PipelineHealthCollector.labelInc("EXIT_COORDINATOR_STALE_RESET_REASON_$structuredReason")
+                com.lifecyclebot.engine.PipelineHealthCollector.labelInc("EXIT_COORDINATOR_OPEN_POSITIONS_AT_STALE_${minOf(openCount, 50)}")
+            } catch (_: Throwable) {}
         }
         // Force-reset the hot-exit lease/lock and resurrect the manager.
         try { ensureHotExitAlive() } catch (_: Throwable) {}
@@ -12080,6 +12092,29 @@ if (hotExitHandledSweep) {
                                 "SUPERVISOR_WORKER_TIMEOUT",
                                 "mint=${mint.take(10)} budgetMs=$SUPERVISOR_WORKER_TIMEOUT_MS cooldownMs=$SUPERVISOR_TIMEOUT_COOLDOWN_MS open=${supervisorMintIsOpen(mint)}",
                             )
+                        } catch (_: Throwable) {}
+                        // V5.9.1324 — P1-6 surgical: structured timeout reason +
+                        // NoTradeObservation row so timed-out candidates remain trainable.
+                        try {
+                            com.lifecyclebot.engine.PipelineHealthCollector.labelInc("SUPERVISOR_WORKER_TIMEOUT_REASON_BUDGET_EXCEEDED")
+                            com.lifecyclebot.engine.PipelineHealthCollector.labelInc("SUPERVISOR_TIMEOUT_PER_MINT|${mint.take(10)}")
+                            val ts2 = synchronized(status.tokens) { status.tokens[mint] }
+                            if (ts2 != null && ts2.lastPrice > 0.0) {
+                                com.lifecyclebot.engine.learning.NoTradeObservationStore.recordBlock(
+                                    mint = mint,
+                                    symbol = ts2.symbol,
+                                    lane = "SUPERVISOR",
+                                    scoreBand = "",
+                                    score = 0,
+                                    confidence = 0,
+                                    entryLiqUsd = ts2.lastLiquidityUsd,
+                                    entryMcapUsd = ts2.lastMcap,
+                                    entryPrice = ts2.lastPrice,
+                                    source = ts2.source.ifEmpty { "SUPERVISOR" },
+                                    blockReason = "SUPERVISOR_WORKER_TIMEOUT_BUDGET_EXCEEDED",
+                                    verdictTag = "BLOCK_SUPERVISOR_TIMEOUT",
+                                )
+                            }
                         } catch (_: Throwable) {}
                     }
                 } catch (_: kotlinx.coroutines.CancellationException) {

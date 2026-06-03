@@ -795,6 +795,25 @@ object PipelineHealthCollector {
         try {
             sb.append("  ${com.lifecyclebot.engine.LiveLayerGateRelaxer.summaryLine()}\n")
         } catch (_: Throwable) {}
+        // V5.9.1324 — P2-12 surgical: Root-cause-likely banner at the top.
+        // Operator §12: one section says where to look first based on the
+        // dominant counter pattern.
+        try {
+            val anrCount = s.anrHints
+            val supTimeout = s.labelCounts["SUPERVISOR_WORKER_TIMEOUT"] ?: 0L
+            val v3 = com.lifecyclebot.engine.runtime.V3VerdictContract.snapshot()
+            val exec = com.lifecyclebot.engine.runtime.ExecutionCounterContract.snapshot()
+            val v3Unaccounted = v3.unaccounted
+            val rootCauses = mutableListOf<String>()
+            if (anrCount > 20) rootCauses.add("UI_MAIN_THREAD (ANR_HINTS=$anrCount)")
+            if (supTimeout > 50) rootCauses.add("WORKER_TIMEOUT (supervisor workerTimeouts=$supTimeout)")
+            if (v3.entries > 0 && v3Unaccounted > 0) rootCauses.add("V3_ACCOUNTING_GAP (entries=${v3.entries} unaccounted=$v3Unaccounted)")
+            val txCount = (exec["paper_sell_success"] ?: 0L) + (exec["live_sell_success"] ?: 0L)
+            val journalSell = exec["journal_sell_records"] ?: 0L
+            if (txCount > 0 && journalSell > txCount * 2) rootCauses.add("LEARNING_ACCOUNTING_GAP (journal_sell=$journalSell > 2x close_success=$txCount)")
+            if (rootCauses.isEmpty()) rootCauses.add("NONE — pipeline appears healthy")
+            sb.append("  Root cause likely:    ${rootCauses.joinToString(" | ").take(160)}\n")
+        } catch (_: Throwable) {}
         sb.append("\n")
 
         // ── Funnel ──────────────────────────────────────────────────

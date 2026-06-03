@@ -376,6 +376,29 @@ object ExecutableOpenGate {
                 ForensicLogger.lifecycle(log, detail)
                 ForensicLogger.phase(ForensicLogger.PHASE.EXEC_GATE, symbol, "EXEC_GATE_DROPPED $detail")
             } catch (_: Throwable) {}
+            // V5.9.1324 — P1-8 surgical: every executable-open drop emits a
+            // NoTradeObservation row so dropped candidates remain trainable.
+            try {
+                val priceForObs = if (liquidityUsd > 0.0) 0.000001 else 0.0  // sentinel non-zero so the obs is admitted
+                com.lifecyclebot.engine.PipelineHealthCollector.labelInc("EXEC_OPEN_DROPPED_ALL")
+                com.lifecyclebot.engine.PipelineHealthCollector.labelInc("EXEC_OPEN_DROPPED_LANE|${(selectedLane.ifBlank { lane }).uppercase().take(24)}")
+                if (priceForObs > 0.0) {
+                    com.lifecyclebot.engine.learning.NoTradeObservationStore.recordBlock(
+                        mint = mint,
+                        symbol = symbol,
+                        lane = selectedLane.ifBlank { lane },
+                        scoreBand = "",
+                        score = 0,
+                        confidence = 0,
+                        entryLiqUsd = liquidityUsd,
+                        entryMcapUsd = 0.0,
+                        entryPrice = priceForObs,
+                        source = mode,
+                        blockReason = "${log}_${reason.take(40)}",
+                        verdictTag = "BLOCK_EXEC_OPEN_DROPPED",
+                    )
+                }
+            } catch (_: Throwable) {}
             return OpenVerdict(false, reason, shadowOnly = true, logName = log, attemptId = attemptId)
         }
 
