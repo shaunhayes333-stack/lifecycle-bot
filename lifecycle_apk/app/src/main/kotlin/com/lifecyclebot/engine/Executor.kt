@@ -6383,7 +6383,20 @@ class Executor(
                 identity?.source ?: ts.source
             )
         } catch (_: Throwable) { 1.0 }
-        val effSol = (sol * sizeMult * labMult * laneEvMult).coerceIn(sol * 0.4, sol * 1.75)
+        // V5.9.1329 — GLOBAL REGIME SIZE BRAKE (live snapshot 5.0.3297 fix).
+        // RegimeDetector.sizeMultiplier() was COMPUTED and shown in the health snapshot
+        // (regime=DUMP → sizeMult=0.50) but had ZERO callers — pure dead telemetry. The
+        // bot ran 3944 execs/day straight through a DUMP (regime WR 11.6%, meanPnl -9.96%)
+        // because the global brake was never wired. The 1328 BLUECHIP guard proved the
+        // pattern works (BLUECHIP stood down: 72 evals vs ~590 on every other lane) — this
+        // extends the SAME regime awareness to EVERY lane at the one global choke point all
+        // trades funnel through. Size-only, fail-open, never a veto. Meme lanes included by
+        // design (operator: regime-aware sizing is the doctrine, not a per-lane hack); the
+        // protected 500-token scanner pool and FDG veto whitelist are untouched.
+        val regimeMult = try { com.lifecyclebot.engine.RegimeDetector.sizeMultiplier() } catch (_: Throwable) { 1.0 }
+        // Floor widened 0.4→0.30 so a DUMP (0.50) can actually bite alongside the other
+        // soft-shapers instead of being clamped away.
+        val effSol = (sol * sizeMult * labMult * laneEvMult * regimeMult).coerceIn(sol * 0.30, sol * 1.75)
 
         // V5.9.642: spine log uses a separate val so the compiler keeps
         // its smart cast on `wallet` inside the else branch (non-null guaranteed).
@@ -10397,6 +10410,16 @@ class Executor(
             reasonLower.contains("stop_loss") -> {
                 ReentryGuard.onStopLossHit(tradeId.mint, pnlP)
                 onLog("🔒 REENTRY BLOCKED: ${ts.symbol} - stop loss hit (2min)", tradeId.mint)
+            }
+            // V5.9.1329 — RE-ENTRY LEAK FIX (live snapshot 5.0.3297). The v8 exit family
+            // labels severe losses as "v8_catastrophic_loss" / "v8_severe_loss", which
+            // matched NONE of the cases above — so a catastrophic loss armed NO lockout and
+            // the bot instantly re-bought the same dead mint (996jC6/AVmhjr/HTHXV5 each
+            // re-entered within 7-17s and died again). These ARE stop-loss-class exits; arm
+            // the same lockout so we stop paying repeated tuition on a corpse.
+            reasonLower.contains("catastrophic") || reasonLower.contains("severe") -> {
+                ReentryGuard.onStopLossHit(tradeId.mint, pnlP)
+                onLog("🔒 REENTRY BLOCKED: ${ts.symbol} - catastrophic/severe loss (2min)", tradeId.mint)
             }
         }
         
