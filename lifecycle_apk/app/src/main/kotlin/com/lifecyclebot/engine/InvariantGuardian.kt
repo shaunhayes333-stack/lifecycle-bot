@@ -43,8 +43,21 @@ object InvariantGuardian {
         if (actualBuys > 0 && execRatio > 5.0) out += Fault(FaultCode.EXEC_REQUEST_INFLATION, "HIGH", "execOpenRequest/actualBuys=${"%.2f".format(execRatio)}")
         if (s.learningTrades != s.uniqueClosedPositionIds) out += Fault(FaultCode.LEARNING_LEDGER_DUPLICATION, "CRITICAL", "learning=${s.learningTrades} uniqueClosed=${s.uniqueClosedPositionIds}")
         if (s.mode == "LIVE" && ExecutionRouteGuard.paperBlockedInLiveCount() > 0) out += Fault(FaultCode.PAPER_LIVE_CONTAMINATION, "CRITICAL", "paper route attempted in live=${ExecutionRouteGuard.paperBlockedInLiveCount()}")
-        val quarantine = QuarantineStore.suppressedCount()
-        if (s.intake > 0 && quarantine > s.intake) out += Fault(FaultCode.SCANNER_RESTORE_POISONING, "HIGH", "quarantine=$quarantine intake=${s.intake}")
+        // V5.9.1339 — POISONING CHECK FIXED: compare WINDOWED quarantine rate vs
+        // WINDOWED intake, not lifetime-cumulative vs window. The old check used
+        // QuarantineStore.suppressedCount() (a lifetime AtomicLong) against the
+        // windowed phaseCounts["INTAKE"], so as a session aged the cumulative total
+        // ALWAYS overtook intake and tripped a false SCANNER_RESTORE_POISONING fault
+        // every tick. That fault drove RuntimeDoctor to force scanner concurrency=2
+        // and quarantine MEME_REGISTRY_RESTORE on a perfectly healthy pipeline —
+        // i.e. it strangled intake and stalled new trades ("parked, not trading").
+        // Now: use the 60s windowed suppressed count, require a real margin (1.5x)
+        // AND a minimum intake sample so early-session noise can't trip it.
+        val quarantineWindowed = QuarantineStore.suppressedCountWindowed()
+        val quarantineLifetime = QuarantineStore.suppressedCount() // telemetry only
+        if (s.intake >= 30 && quarantineWindowed > s.intake * 3L / 2L) {
+            out += Fault(FaultCode.SCANNER_RESTORE_POISONING, "HIGH", "quarantineWindowed=$quarantineWindowed intake=${s.intake} lifetime=$quarantineLifetime")
+        }
         val mainStall = s.topBlockReasons.keys.any { it.contains("MainActivity", true) || it.contains("renderOpenPositions", true) || it.contains("onCreate", true) }
         if (s.anrHints > 0 && mainStall) out += Fault(FaultCode.MAIN_THREAD_STALL, "HIGH", "anrHints=${s.anrHints} top=${s.topBlockReasons.keys.take(3)}")
         val badApis = s.apiHealth.filterValues { it.successRatePct < 70 && it.failures >= 5 }

@@ -31,6 +31,16 @@ object QuarantineStore {
     private const val TELEMETRY_TTL_MS = 60_000L
     private val entries = ConcurrentHashMap<String, Entry>()
     private val suppressedTotal = AtomicLong(0L)
+    // V5.9.1339 — WINDOWED suppressed counter. The lifetime suppressedTotal grows
+    // forever within a session; comparing it against the WINDOWED pipeline INTAKE
+    // counter (phaseCounts) in InvariantGuardian's SCANNER_RESTORE_POISONING check
+    // guaranteed a false-positive once the session aged — cumulative will always
+    // overtake a window. That false fault throttled a HEALTHY scanner (concurrency
+    // forced to 2 + MEME_REGISTRY_RESTORE quarantined), which is the "parked, not
+    // trading" stall the operator hit. We keep a 60s ring of suppress timestamps so
+    // the guardian can compare like-for-like (recent quarantines vs recent intake).
+    private val suppressWindow = java.util.concurrent.ConcurrentLinkedDeque<Long>()
+    private const val SUPPRESS_WINDOW_MS = 60_000L
 
     fun quarantine(mint: String, symbol: String = "", reason: String): Verdict {
         if (mint.isBlank()) return Verdict(false)
@@ -45,6 +55,16 @@ object QuarantineStore {
             }
         }!!
         suppressedTotal.incrementAndGet()
+        // V5.9.1339 — feed the windowed ring and prune anything older than the window.
+        run {
+            val nowW = now
+            suppressWindow.addLast(nowW)
+            val cutoff = nowW - SUPPRESS_WINDOW_MS
+            while (true) {
+                val head = suppressWindow.peekFirst() ?: break
+                if (head < cutoff) suppressWindow.pollFirst() else break
+            }
+        }
         val due = now - e.lastTelemetryMs >= TELEMETRY_TTL_MS
         if (due) e.lastTelemetryMs = now
         return Verdict(true, e.reason, due)
@@ -91,6 +111,17 @@ object QuarantineStore {
     fun isQuarantined(mint: String): Boolean = entries.containsKey(mint)
     fun reason(mint: String): String? = entries[mint]?.reason
     fun suppressedCount(): Long = suppressedTotal.get()
+    /** V5.9.1339 — suppressions in the trailing SUPPRESS_WINDOW_MS, pruned lazily.
+     *  Use THIS (not the lifetime total) for any rate comparison against windowed
+     *  pipeline counters such as INTAKE. */
+    fun suppressedCountWindowed(): Long {
+        val cutoff = System.currentTimeMillis() - SUPPRESS_WINDOW_MS
+        while (true) {
+            val head = suppressWindow.peekFirst() ?: break
+            if (head < cutoff) suppressWindow.pollFirst() else break
+        }
+        return suppressWindow.size.toLong()
+    }
     fun snapshot(): List<Entry> = entries.values.toList()
-    fun resetForTests() { entries.clear(); suppressedTotal.set(0L) }
+    fun resetForTests() { entries.clear(); suppressedTotal.set(0L); suppressWindow.clear() }
 }
