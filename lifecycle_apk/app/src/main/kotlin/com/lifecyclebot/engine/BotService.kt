@@ -3836,13 +3836,23 @@ class BotService : Service() {
                         // If the bot is running and Meme intake is logically active, admit.
                         val shouldAdmit = c.memeTraderEnabled || c.tradingMode == 0 || c.tradingMode == 2 || c.autoAddNewTokens || c.v3EngineEnabled || c.autoTrade || status.running
                         if (shouldAdmit) {
+                            // V5.9.1329 — ROOT FIX: DATA_ORCHESTRATOR re-emits
+                            // existing mints with 0.0 liquidity/mcap defaults,
+                            // which then trip QuarantineStore ZERO_LIQUIDITY
+                            // for tokens we already have real data on (e.g.
+                            // PumpPortal already admitted them at $1968 liq).
+                            // Merge from the existing TokenState so the
+                            // re-intake doesn't quarantine an active mint.
+                            val existingTs = status.tokens[mint]
+                            val mergedLiq = existingTs?.lastLiquidityUsd?.takeIf { it > 0.0 } ?: 0.0
+                            val mergedMcap = existingTs?.lastMcap?.takeIf { it > 0.0 } ?: 0.0
                             admitProtectedMemeIntake(
                                 mint = mint,
                                 symbol = symbol,
                                 name = name,
                                 source = "DATA_ORCHESTRATOR",
-                                marketCapUsd = 0.0,
-                                liquidityUsd = 0.0,
+                                marketCapUsd = mergedMcap,
+                                liquidityUsd = mergedLiq,
                                 volumeH1 = 0.0,
                                 confidence = 55,
                                 allSources = setOf("DATA_ORCHESTRATOR", "PUMP_FUN_NEW"),

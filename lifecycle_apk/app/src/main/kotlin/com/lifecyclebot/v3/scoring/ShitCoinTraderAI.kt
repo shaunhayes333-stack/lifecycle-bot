@@ -1118,25 +1118,19 @@ object ShitCoinTraderAI {
         // avg_loss*(1-WR) test and 'soft-shape > veto'. A positive-mean danger bucket
         // is now allowed through (it keeps firing and the big wins carry it); only
         // proven net-negative danger buckets are still blocked here.
+        // V5.9.1329 — ROOT FIX: statistical signal (danger bucket) must NOT
+        // veto the candidate before FDG. Train-First doctrine: V3/FDG is
+        // final authority. A negative-mean bucket with 2/20 wins is a SOFT
+        // signal (-2.1% over 20 samples is noise + tiny edge), not a safety
+        // failure. Set a flag for the size compute below to apply a 70%
+        // reduction, log the soft-route, but let the function continue so
+        // FDG sees the candidate.
+        var dangerBucketSoftSize = 1.0
         if (shitDanger.isDangerous && shitDanger.meanPnl < 0.0) {
             val band = com.lifecyclebot.engine.LosingPatternMemory.scoreBand(shitScore)
-            ErrorLogger.info(TAG, "💩🧯 SHITCOIN_DANGER_BUCKET_GUARD: $symbol | band=$band score=$shitScore losses=${shitDanger.losses} wins=${shitDanger.wins} mean=${"%+.1f".format(shitDanger.meanPnl)}% — skipping")
-            return ShitCoinSignal(
-                shouldEnter = false,
-                positionSizeSol = 0.0,
-                takeProfitPct = 0.0,
-                stopLossPct = 0.0,
-                confidence = shitConfidence,
-                reason = "SHITCOIN_DANGER_BUCKET_GUARD: band=$band score=$shitScore losses=${shitDanger.losses} wins=${shitDanger.wins} mean=${"%+.1f".format(shitDanger.meanPnl)}%",
-                mode = mode,
-                isPaperMode = isPaperMode,
-                launchPlatform = launchPlatform,
-                riskLevel = riskLevel,
-                socialScore = socialBonus,
-                bundleWarning = bundleWarning,
-                graduationImminent = graduationImminent,
-                entryScore = shitScore,
-            )
+            ErrorLogger.info(TAG, "💩🧯 SHITCOIN_DANGER_BUCKET_SOFT: $symbol | band=$band score=$shitScore losses=${shitDanger.losses} wins=${shitDanger.wins} mean=${"%+.1f".format(shitDanger.meanPnl)}% — reducing size 70%, routing via FDG")
+            dangerBucketSoftSize = 0.3
+            shitConfidence = (shitConfidence * 0.7).toInt().coerceAtLeast(10)
         }
 
         // V5.9.435 — SCORE-EXPECTANCY SOFT GATE
@@ -1303,6 +1297,8 @@ object ShitCoinTraderAI {
         val currentBalance = getCurrentBalance()
         val walletBasedSize = currentBalance * WALLET_SCALE_FACTOR
         var positionSol = maxOf(BASE_POSITION_SOL, walletBasedSize)
+        // V5.9.1329 — apply danger-bucket soft-size multiplier
+        positionSol = (positionSol * dangerBucketSoftSize).coerceAtLeast(0.01)
         
         // Scale by confidence
         val confScale = shitConfidence / 100.0

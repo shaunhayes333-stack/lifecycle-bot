@@ -116,9 +116,18 @@ class FatalRiskChecker(
         if (rawRugcheckScore == 1 && !isPaperLearningRC) {
             return FatalRiskResult(true, "EXTREME_RUG_CRITICAL_score=1_RC_PENDING_LIVE")
         }
-        // score=1 + paper: fall through to 3..5 band check below
+        // V5.9.1329 — ROOT FIX: score=1 is RC_PENDING, not a confirmed rug.
+        // The carve-out at line 116 lets score=1 PASS in paper, but the
+        // generic 0..5 band check below was re-trapping score=1 because the
+        // (isPaperLearningRC && rugFlagsCleanRC) bypass requires ALL rug
+        // flags clean. PumpPortal fresh launches commonly arrive before
+        // holders-API resolves so zeroHolders=true → bypass false → score=1
+        // gets blocked as "EXTREME_RUG_CRITICAL_score=1". Train-First
+        // doctrine: pending RC must reach FDG (paper-micro). Restrict the
+        // band check to 2..5 (genuine low scores) so score=1 always falls
+        // through in paper mode.
         if (!wideOpen && !(isPaperLearningRC && rugFlagsCleanRC) &&
-            rawRugcheckScore in 0..5) {
+            rawRugcheckScore in 2..5) {
             return FatalRiskResult(true, "EXTREME_RUG_CRITICAL_score=$rawRugcheckScore")
         }
         
