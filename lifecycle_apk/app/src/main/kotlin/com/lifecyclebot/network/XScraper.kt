@@ -79,6 +79,14 @@ class XScraper {
      * Parses the HTML response to extract tweet text.
      */
     private fun searchNitter(query: String): List<MentionEvent> {
+        // V5.9.1340 — STOP hammering dead nitter hosts. Public nitter instances
+        // have nearly all shut down; privacydev.net (dead/000) and 1d4.us (dead)
+        // are unreachable and poast.org 403s scrapers. Every call here generated
+        // an 'x' API failure that (pre-1340) fed API_LAYER_DEGRADED and throttled
+        // the scanner. Gate off KeyValidator: once 'x' is marked dead it stays
+        // skipped for DEAD_TTL, so we periodically retry (in case an instance
+        // recovers) without spamming failures every scan.
+        if (!com.lifecyclebot.engine.KeyValidator.isLive("x")) return emptyList()
         for (host in nitterHosts) {
             try {
                 val url  = "$host/search?q=${encode(query)}&f=tweets"

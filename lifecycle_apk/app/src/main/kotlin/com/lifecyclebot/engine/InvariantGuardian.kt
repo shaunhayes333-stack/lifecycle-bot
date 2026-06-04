@@ -63,7 +63,21 @@ object InvariantGuardian {
         val badApis = s.apiHealth.filterValues { it.successRatePct < 70 && it.failures >= 5 }
         // Birdeye may be intentionally locked down by conservation mode. That
         // must not generate RuntimeDoctor fanout mitigations every tick.
-        if (badApis.isNotEmpty()) out += Fault(FaultCode.API_LAYER_DEGRADED, "MEDIUM", "badApis=${badApis.keys.joinToString(",")}")
+        //
+        // V5.9.1340 — only SCANNER-CRITICAL APIs may raise API_LAYER_DEGRADED,
+        // because that fault throttles scanner concurrency to 2 (RuntimeDoctor).
+        // Previously ANY degraded API tripped it, so chronically-dead peripheral
+        // services (groq=LLM, x=twitter sentiment, helius=backup RPC,
+        // geckoterminal=secondary price) kept the meme scanner permanently choked
+        // at concurrency 2 even though the LIVE intake feed (PumpPortal WS) and
+        // dexscreener were 100% healthy and pumping 500 tokens. The live feed is
+        // what actually drives meme intake/volume — peripheral API outages must
+        // not strangle it. Non-critical degradation is logged but does NOT throttle.
+        val scannerCriticalApis = setOf("pumpfun", "pumpportal", "dexscreener")
+        val criticalBad = badApis.filterKeys { it.lowercase() in scannerCriticalApis }
+        if (criticalBad.isNotEmpty()) {
+            out += Fault(FaultCode.API_LAYER_DEGRADED, "MEDIUM", "badApis=${criticalBad.keys.joinToString(",")} (scanner-critical)")
+        }
         return out
     }
 }

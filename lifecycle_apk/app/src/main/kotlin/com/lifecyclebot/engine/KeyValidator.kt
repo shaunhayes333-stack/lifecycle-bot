@@ -54,6 +54,16 @@ object KeyValidator {
         "",                                  // empty key
     )
 
+    /** V5.9.1340 — true only for a Helius key that can actually hit the paid
+     *  Enhanced API (api.helius.xyz/v0). The free placeholder "hive-pattern-learn"
+     *  works for plain RPC getHealth but 401s on every Enhanced endpoint, which is
+     *  the source of the chronic helius 4xx storm in ApiHealthMonitor. Enhanced-API
+     *  callers (BundleDetector, InsiderTrackerAI, HeliusCreatorHistory) must gate on
+     *  this so they don't fire guaranteed-401 requests. Plain-RPC callers are
+     *  unaffected — they keep using the free key. */
+    fun isUsableEnhancedHeliusKey(key: String?): Boolean =
+        !key.isNullOrBlank() && key !in knownDeadDefaults
+
     /** Bootstrap: pre-flag known dead defaults so consumers gate off immediately. */
     fun preflightConfig(
         geminiKey: String?,

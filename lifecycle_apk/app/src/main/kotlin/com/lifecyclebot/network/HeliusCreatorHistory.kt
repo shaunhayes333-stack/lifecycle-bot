@@ -113,7 +113,7 @@ class HeliusCreatorHistory(private val apiKey: String) {
     // ── Helius DAS: fetch all tokens minted by this wallet ────────────
 
     private fun fetchCreatedTokens(wallet: String): List<Pair<String, String>> {
-        if (apiKey.isBlank()) return emptyList()
+        if (!com.lifecyclebot.engine.KeyValidator.isUsableEnhancedHeliusKey(apiKey)) return emptyList()  // V5.9.1340
         val payload = JSONObject().apply {
             put("jsonrpc", "2.0")
             put("id", "creator-check")
@@ -173,7 +173,7 @@ class HeliusCreatorHistory(private val apiKey: String) {
     private fun post(url: String, body: JSONObject): String? {
         // V5.9.866 — KeyValidator gate. Converted from expression body — early
         // returns aren't legal there.
-        if (apiKey.isBlank()) return null
+        if (!com.lifecyclebot.engine.KeyValidator.isUsableEnhancedHeliusKey(apiKey)) return null  // V5.9.1340
         if (!com.lifecyclebot.engine.KeyValidator.isLive("helius")) return null
 
         return try {

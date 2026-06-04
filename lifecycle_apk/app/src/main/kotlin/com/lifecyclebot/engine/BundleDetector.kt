@@ -121,6 +121,11 @@ object BundleDetector {
         symbol: String,
         heliusApiKey: String,
     ): BundleAnalysis {
+        // V5.9.1340 — skip the Enhanced API entirely on a placeholder/blank key
+        // (guaranteed 401). Return UNKNOWN rather than spamming helius 4xx.
+        if (!com.lifecyclebot.engine.KeyValidator.isUsableEnhancedHeliusKey(heliusApiKey)) {
+            return createUnknownAnalysis(mint, symbol, "Helius Enhanced API key not configured")
+        }
         val transactions = fetchTokenTransactions(mint, heliusApiKey, limit = 80)
 
         if (transactions.isEmpty()) {

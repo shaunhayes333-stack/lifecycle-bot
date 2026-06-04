@@ -517,7 +517,10 @@ object InsiderTrackerAI {
      * V5.9: real implementation replacing random stub.
      */
     private suspend fun fetchWalletActivity(wallet: TrackedWallet): WalletActivity = withContext(Dispatchers.IO) {
-        val key = heliusApiKey.ifBlank { return@withContext emptyActivity(wallet) }
+        // V5.9.1340 — gate off the placeholder too, not just blank. The free
+        // "hive-pattern-learn" key 401s on the Enhanced txns API every call.
+        val key = heliusApiKey
+        if (!com.lifecyclebot.engine.KeyValidator.isUsableEnhancedHeliusKey(key)) return@withContext emptyActivity(wallet)
 
         return@withContext try {
             val url = "${HELIUS_TXN_URL.format(wallet.address)}?api-key=$key&limit=$HELIUS_LIMIT"

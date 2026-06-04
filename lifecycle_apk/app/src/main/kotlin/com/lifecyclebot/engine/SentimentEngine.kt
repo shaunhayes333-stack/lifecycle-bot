@@ -66,10 +66,15 @@ class SentimentEngine(private val cfg: () -> BotConfig) {
         val events    = mutableListOf<MentionEvent>()
         val c         = cfg()
 
-        // ── 1. X scraping ─────────────────────────────────────────────
+        // ── 1. Social signal — DexScreener (V5.9.1340) ───────────────
+        // Replaces the dead Twitter/Nitter scraper (all public nitter instances
+        // are gone; X official API is paywalled at ~$42k/yr). DexScreener's free
+        // no-key boosts/profiles/community-takeover endpoints give real on-chain
+        // social proof for the exact tokens we trade. The old XScraper remains in
+        // the tree but is gated off (KeyValidator) and no longer queried here.
         try {
-            val xEvents = xScraper.searchBySymbol(symbol, mint)
-            events.addAll(xEvents)
+            val socialEvents = com.lifecyclebot.network.DexScreenerSocialSource.searchBySymbol(symbol, mint)
+            events.addAll(socialEvents)
         } catch (_: Exception) {}
 
         // ── 2. Telegram default Solana channels ───────────────────────
