@@ -709,6 +709,15 @@ class MainActivity : AppCompatActivity() {
                 try { setupApiKeyHelpLinks() } catch (e: Throwable) {
                     com.lifecyclebot.engine.ErrorLogger.warn("MainActivity", "deferred setupApiKeyHelpLinks failed: ${e.message}")
                 }
+                // V5.9.1327 — defer the quick-action button wiring past first
+                // frame. setupQuickActionButtons() chains 30+ findViewById +
+                // setOnClickListener calls. Operator snapshot showed lambda$461
+                // (one of the click closures) costing 250ms on the main thread
+                // during cold start. The buttons are invisible until paint;
+                // the user cannot tap them in the first 16ms anyway.
+                try { setupQuickActionButtons() } catch (e: Throwable) {
+                    com.lifecyclebot.engine.ErrorLogger.warn("MainActivity", "deferred setupQuickActionButtons failed: ${e.message}")
+                }
             }
             // V5.9.1071 — defer permission/battery checks past first frame.
             // Snapshot showed requestNotifPermission blocking Main for 2730ms in
@@ -1845,7 +1854,12 @@ for legal compliance.
         setupTestToastButton()
 
         // Quick action buttons
-        setupQuickActionButtons()
+        // V5.9.1327 — moved to window.decorView.post {} block in onCreate so
+        // the 30+ findViewById + setOnClickListener chain doesn't burn 250ms
+        // on the main thread before first frame. setupQuickActionButtons()
+        // is now invoked from the same post-block that defers setupChart /
+        // setupChartControls / setupSettings.
+        // setupQuickActionButtons()
         
         // V5.7.3: Setup perps and stocks card click handlers
         setupPerpsPositionClickHandlers()
