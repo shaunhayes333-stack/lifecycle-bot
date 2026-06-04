@@ -1331,6 +1331,31 @@ object MoonshotTraderAI {
             return ExitSignal.STOP_LOSS
         }
 
+        // V5.9.1341 — EVIDENCE-BASED EARLY TIGHT-STOP (LaneStrategyEvaluator).
+        // The honest backtest replay (TuningActivity → LaneStrategyEvaluator) shows
+        // MOONSHOT's best exit profile by a wide margin is TIGHT_STOP_-5:
+        //   [MOONSHOT/TIGHT_STOP_-5] n=9 WR=11% avg=+4628.5% net=+18.159◎ sharpe=1.00
+        // vs CURRENT_ACTUAL net negative. Moonshot's edge is asymmetric — a few mega
+        // runners pay for many small losers — so cutting losers FAST at -5% strictly
+        // beats letting them bleed to -15/-20/-40%. The runners are unaffected because
+        // they go UP first (peak >> 0), so they never touch this gate; only positions
+        // that never showed upside get cut early. This is a TIGHTENING of the leash,
+        // fully consistent with the unconditional -15% HARD_FLOOR backstop above
+        // (which remains the absolute floor) and the runner-capture trail below.
+        //
+        // Gate: only fires while the position has NOT yet shown meaningful upside
+        // (peak < +8%). Once a play has popped past +8% it earns the full -15% floor
+        // and the runner-capture machinery. Honors LosingPatternMemory's even-tighter
+        // predictive floor when present (never widens it).
+        run {
+            val earlyTightStop = minOf(-5.0, effectiveHardFloor)  // never looser than -5, respects predictive
+            if (pos.peakPnlPct < 8.0 && pnlPct <= earlyTightStop) {
+                ErrorLogger.warn(TAG, "🚀✂️ EARLY_TIGHT_STOP(-5): ${pos.symbol} | ${pnlPct.fmt(1)}% ≤ ${"%.0f".format(earlyTightStop)}% " +
+                    "(peak +${pos.peakPnlPct.fmt(1)}% < +8% — no upside shown; backtest edge MOONSHOT/TIGHT_STOP_-5)")
+                return ExitSignal.STOP_LOSS
+            }
+        }
+
         // V5.9.443 — EARLY-DEATH STOP.
         // V5.9.444 — fluid cutoff from HoldDurationTracker 0-1min bucket.
         val holdSeconds = (System.currentTimeMillis() - pos.entryTime) / 1000
