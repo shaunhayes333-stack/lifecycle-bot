@@ -2824,11 +2824,18 @@ object FinalDecisionGate {
                         tags.add("route:${routed.verdict.tag}")
                         checks.add(GateCheck("learned_bucket_evidence", true, "${routed.routeReasonForLog} | size ${originalSize2.format(3)}→${finalSize.format(3)}"))
                     } else {
+                        // V5.9.1325 — TRAIN-FIRST INVARIANT.
+                        // Operator: "FDG is final authority. never stop trading.
+                        // 1000+ quality trades/day. learn the right way."
+                        // Even when the verdict says non-executable, demote to
+                        // a micro paper probe (size 0.01) instead of blocking.
+                        // Hard-safety failures are blocked by other gates above.
+                        val originalSize2 = finalSize
+                        finalSize = 0.01
                         tags.add("learning_evidence_required")
                         tags.add("route:${routed.verdict.tag}")
-                        checks.add(GateCheck("learned_bucket_evidence", false, routed.routeReasonForLog))
-                        blockReason = routed.routeReasonForLog
-                        blockLevel = BlockLevel.CONFIDENCE
+                        tags.add("train_first_micro_probe")
+                        checks.add(GateCheck("learned_bucket_evidence", true, "${routed.routeReasonForLog} | TRAIN_FIRST_MICRO ${originalSize2.format(3)}→${finalSize.format(3)}"))
                         // V5.9.1322 — Build B: record this as a NoTradeObservation
                         // so SHADOW_TRACK / TRAIN_ONLY routes still feed the model.
                         try {
@@ -3669,9 +3676,16 @@ object FinalDecisionGate {
                             )
                             com.lifecyclebot.engine.learning.LanePolicy.noteRetrainingSample(laneForRouting2, scoreBand2)
                             if (!routed2.proceedToOpen) {
-                                shouldTradeFinal = false
-                                blockReasonFinal = routed2.routeReasonForLog
-                                blockLevelFinal = BlockLevel.CONFIDENCE
+                                // V5.9.1325 — TRAIN-FIRST INVARIANT (BCG path).
+                                // Operator: V3/FDG is final authority; never stop
+                                // trading. BCG SOFT_BLOCK with learned danger is
+                                // statistical, not safety — demote to micro paper
+                                // probe (size 0.01) instead of vetoing the trade.
+                                val originalSize3 = finalSize
+                                finalSize = 0.01
+                                tags.add("bcg_train_first_micro_probe")
+                                tags.add("route:${routed2.verdict.tag}")
+                                checks.add(GateCheck("brain_consensus_micro", true, "${routed2.routeReasonForLog} | TRAIN_FIRST_MICRO ${originalSize3.format(3)}→${finalSize.format(3)}"))
                                 // V5.9.1322 — Build B: record as NoTradeObservation.
                                 try {
                                     com.lifecyclebot.engine.learning.NoTradeObservationStore.recordBlock(

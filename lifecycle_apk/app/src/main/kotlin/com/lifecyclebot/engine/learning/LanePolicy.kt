@@ -81,7 +81,7 @@ object LanePolicy {
     private fun defaultPolicyFor(lane: String): State {
         val key = lane.uppercase()
         return when {
-            key.startsWith("UNKNOWN")     -> State.SHADOW_TRACK_ONLY
+            key.startsWith("UNKNOWN")     -> State.PAPER_MICRO_EXECUTION  // V5.9.1325: never stop trading — micro-probe unknown lanes
             key.contains("SHITCOIN")      -> State.PAPER_MICRO_EXECUTION
             key.contains("MANIPULATED")   -> State.PAPER_MICRO_EXECUTION
             key.contains("MOONSHOT")      -> State.REDUCED_SIZE_EXECUTION
