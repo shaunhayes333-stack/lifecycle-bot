@@ -75,6 +75,60 @@ object LaneExecutionCoordinator {
         return priority(laneUpper) + boost
     }
 
+    // ── FAIR LANE ROTATION (V5.9.1335) ───────────────────────────────
+    // ROOT CAUSE of "half the meme trader isn't working": every pump.fun
+    // candidate is blanket-tagged SHITCOIN+MOONSHOT+MANIPULATED+PROJECT_SNIPER
+    // (BotService.inferIntakeLaneAffinity / TokenMergeQueue), so the per-mint
+    // election was decided purely by STATIC priority — and MOONSHOT (100) wins
+    // every single time. SHITCOIN / MANIPULATED / PROJECT_SNIPER got
+    // LANE_TELEMETRY_ONLY on ~everything → they never opened a trade → they
+    // never learned. The lanes were alive but starved.
+    //
+    // FIX: weight the election by FAIRNESS. Each lane keeps a decaying count of
+    // recent primary wins; a lane that has been hogging primary gets a penalty
+    // subtracted from its effective priority, so a starved peer can take the next
+    // qualifying candidate. Static priority remains the baseline and the final
+    // tiebreaker, so the order is deterministic and Treasury still can't steal the
+    // book from specialists. This is load-balancing, NOT a veto — every lane still
+    // trades AND learns, and one-lane-per-mint (no double-buy) is preserved.
+    //
+    // FAIRNESS_WEIGHT scales how hard recent wins push a lane down. With weight 8
+    // and base gaps of ~5 between specialists, a lane that is ~3-4 wins ahead of a
+    // peer yields the next candidate to that peer — fast enough to keep all four
+    // specialists fed on the pump.fun firehose, slow enough not to thrash.
+    private const val FAIRNESS_WEIGHT = 8.0
+    private const val FAIRNESS_DECAY_MS = 90_000L     // a win's fairness penalty fully decays in ~90s
+    private val laneWinTimestamps = ConcurrentHashMap<String, ArrayDeque<Long>>()
+
+    private fun recordPrimaryWin(lane: String) {
+        val l = lane.uppercase()
+        val now = System.currentTimeMillis()
+        val dq = laneWinTimestamps.computeIfAbsent(l) { ArrayDeque() }
+        synchronized(dq) {
+            dq.addLast(now)
+            while (dq.isNotEmpty() && now - dq.first() > FAIRNESS_DECAY_MS) dq.removeFirst()
+        }
+    }
+
+    /** Recent (decaying) primary-win count for a lane. */
+    private fun recentWins(lane: String): Int {
+        val dq = laneWinTimestamps[lane.uppercase()] ?: return 0
+        val now = System.currentTimeMillis()
+        synchronized(dq) {
+            while (dq.isNotEmpty() && now - dq.first() > FAIRNESS_DECAY_MS) dq.removeFirst()
+            return dq.size
+        }
+    }
+
+    /**
+     * Effective priority adjusted for fairness: static/affinity priority MINUS a
+     * penalty proportional to how many candidates this lane has recently won.
+     * Higher = stronger claim on the book. Fail-open to raw priority on error.
+     */
+    private fun fairPriority(mint: String, lane: String): Int = try {
+        effectivePriority(mint, lane) - (recentWins(lane) * FAIRNESS_WEIGHT).toInt()
+    } catch (_: Throwable) { effectivePriority(mint, lane) }
+
     fun candidateVersionFor(mint: String): Long {
         // 15-30s window bucket + monotonic suffix avoids same-second duplicate opens
         // while still letting genuinely new candidate data re-elect shortly after.
@@ -130,8 +184,16 @@ object LaneExecutionCoordinator {
             )
         }
         val e = when {
-            existing == null -> elect(mint, listOf(laneUpper), laneUpper, candidateVersion, runtimeGeneration)
-            effectivePriority(mint, laneUpper) > effectivePriority(mint, existing.primaryLane) -> {
+            existing == null -> {
+                val fresh = elect(mint, listOf(laneUpper), laneUpper, candidateVersion, runtimeGeneration)
+                recordPrimaryWin(fresh.primaryLane)
+                fresh
+            }
+            // V5.9.1335 — FAIRNESS-WEIGHTED upgrade. A later lane only steals the
+            // book if its FAIR priority (static minus recent-win penalty) beats the
+            // incumbent's. This lets starved specialists win candidates that
+            // MOONSHOT would otherwise monopolise on raw static priority.
+            fairPriority(mint, laneUpper) > fairPriority(mint, existing.primaryLane) -> {
                 val upgraded = Election(
                     key = existing.key,
                     primaryLane = laneUpper,
@@ -139,10 +201,13 @@ object LaneExecutionCoordinator {
                     createdAtMs = existing.createdAtMs,
                 )
                 elections[mapKey] = upgraded
+                recordPrimaryWin(laneUpper)
                 try {
                     ForensicLogger.lifecycle(
                         "LANE_PRIMARY_UPGRADED",
-                        "mint=${mint.take(10)} from=${existing.primaryLane} to=$laneUpper candidateVersion=${existing.key.candidateVersion}"
+                        "mint=${mint.take(10)} from=${existing.primaryLane} to=$laneUpper " +
+                        "fair=${fairPriority(mint, laneUpper)}>${fairPriority(mint, existing.primaryLane)} " +
+                        "wins=${recentWins(laneUpper)} candidateVersion=${existing.key.candidateVersion}"
                     )
                 } catch (_: Throwable) {}
                 upgraded
