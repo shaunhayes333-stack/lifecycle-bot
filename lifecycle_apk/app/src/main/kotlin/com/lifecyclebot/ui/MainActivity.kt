@@ -4202,18 +4202,34 @@ for legal compliance.
             val gainBucket = if (p.entryPrice > 0.0 && r > 0.0) kotlin.math.round((r - p.entryPrice) / p.entryPrice * 1000.0).toInt() else 0
             "${it.mint}|${p.costSol}|${p.qtyToken}|${p.isPaperPosition}|${p.pendingVerify}|$gainBucket"
         }.hashCode()
-        if (openHash == lastOpenPosHash) return
-        // V5.9.1222 — never hide Open Positions. 1220 skipped the first
-        // runtime render to reduce ANR pressure, but that removed exactly
-        // the operator-critical position rows. Keep throttling/hash guards,
-        // but always render the visible capped rows at least once.
-        // V5.9.749 — 2s minimum interval between full rebuilds even when
-        // structure changed. Bursts of new tokens during a hot scanner
-        // cycle can't ANR the UI; the next interval will pick them up.
+        // V5.9.1337 — STRUCTURAL CHANGES RENDER IMMEDIATELY; only redundant
+        // price-tick repaints are throttled. The previous 20s blanket throttle
+        // (while runtimeActive) blacked out the Open Positions LIST for up to
+        // 20 seconds after a position opened/closed/resized — the operator
+        // screenshot showed "0.332◎ at risk" in the header while the row list
+        // below was empty, because the header text and the row rebuild ran on
+        // different cadences. Unacceptable: open positions are the single most
+        // important thing on screen.
+        //
+        // The fix preserves the ANR protection that motivated the throttle:
+        // openHash is a STRUCTURAL hash (mint/size/qty/paper/gainBucket) that
+        // deliberately excludes live price drift, so 1Hz price ticks do NOT
+        // change it. Therefore:
+        //   - hash UNCHANGED  → nothing structural happened → keep the throttle
+        //                       (this is the pure-repaint ANR path we must damp).
+        //   - hash CHANGED    → a position was added/removed/resized/flipped
+        //                       → render NOW, no time gate. These events are
+        //                       rare relative to scan ticks, so they cannot
+        //                       ANR the UI, and the user must see them instantly.
         val nowMs = System.currentTimeMillis()
-        val minRenderIntervalMs = if (runtimeActive) 20_000L else OPEN_POS_MIN_RENDER_INTERVAL_MS
-        if (nowMs - lastOpenPosRenderMs < minRenderIntervalMs && lastOpenPosRenderMs > 0L) {
-            return
+        val structuralChange = openHash != lastOpenPosHash
+        if (!structuralChange) {
+            // No structural change. Allow an occasional refresh (badges/footer)
+            // but never more often than the min interval, and never block forever.
+            val minRenderIntervalMs = if (runtimeActive) 8_000L else OPEN_POS_MIN_RENDER_INTERVAL_MS
+            if (nowMs - lastOpenPosRenderMs < minRenderIntervalMs && lastOpenPosRenderMs > 0L) {
+                return
+            }
         }
         lastOpenPosHash = openHash
         lastOpenPosRenderMs = nowMs
