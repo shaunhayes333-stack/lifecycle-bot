@@ -6,6 +6,53 @@ NO local compiler. Multi-lane architecture (Memes [9 sub-lanes], Crypto/Alts,
 Stocks, Markets, Tokenized Stocks, Forex, Metals, Commodities). Foreground
 Service with a 50+ AI-module pipeline gated through processTokenCycle.
 
+## V5.9.1325–1326 (Feb 2026) — TRAIN-FIRST INVARIANT + PHASE 2 ANR FIX
+
+### V5.9.1325 — TRAIN-FIRST INVARIANT: never stop trading (CI ✅ green)
+Operator mandate: "V3/FDG is the FINAL authority. 1000+ quality trades/day.
+NEVER stop trading — just learn the right way. No WR/function/volume regression."
+
+The V5.9.1321 Train-First Learning Policy correctly routed bad lanes to
+training states, but SHADOW_TRACK_ONLY and TRAIN_ONLY_NO_OPEN still produced
+non-executable verdicts. FDG callers then set blockReason → executions
+choked to 6 at trade #722.
+
+Surgical fixes (3 files, no API changes, no hard-safety gate touched):
+- `FdgRouteVerdict.decide()` — non-hard-safety states (SHADOW_TRACK_ONLY,
+  TRAIN_ONLY_NO_OPEN) collapse to ALLOW_PAPER_MICRO. Hard-safety verdicts
+  (BLOCK_INVALID_DATA / BLOCK_HARD_SAFETY / BLOCK_MODE_AUTHORITY /
+  BLOCK_DUPLICATE / BLOCK_OPERATOR_DISABLED) unchanged.
+- `LanePolicy.defaultPolicyFor` — UNKNOWN lane defaults to
+  PAPER_MICRO_EXECUTION (was SHADOW_TRACK_ONLY).
+- `FinalDecisionGate.evaluate()` — both routeLearnedDangerBucket
+  callers (LosingPatternMemory + BrainConsensusGate SOFT_BLOCK paths)
+  demote !proceedToOpen branches to a 0.01-SOL micro probe instead of
+  setting blockReason. Train-first invariant enforced.
+
+### V5.9.1326 — Phase 2 ANR fix: BrainNetworkView + BehaviorActivity (CI in retry)
+Operator snapshot: BehaviorActivity 2.5s ANR + BrainNetworkView >1000ms
+in onDraw. Per-frame / per-tick allocations:
+
+BrainNetworkView (zero-alloc per onDraw):
+- Hoisted gridPaint / outline / texturePaint Paints out of draw methods.
+- Reused brainTexturePath via path.rewind() instead of new Path() per frame.
+- Cached RadialGradient by quantised animRadius (rebuild only when the
+  pulsing brain radius crosses an integer-pixel bucket).
+
+BehaviorActivity (zero-rebuild per 2s refresh tick):
+- renderFluidDashboard now builds the LinearLayout tree ONCE (sentinel
+  flag fluidDashboardBuilt). Subsequent refreshes mutate value TextViews
+  in place via updateFluidRow(label, value). Was: removeAllViews() +
+  ~20 addFluidRow() → ~100 new View allocations every 2 seconds.
+
+### Pending follow-ups (de-prioritised by operator):
+- Phase 4 API Circuit Breakers — ApiBackoff.kt already exists with per-host
+  exponential backoff (5s→300s), 429/403 escalation, fail-open, wired
+  through HealthAwareHttp + NarrativeDetector + LlmSentimentEngine. Done.
+- Phase 5 TokenMetaCache polish — already mint-only PRIMARY KEY,
+  warmStart on first get(), ConcurrentHashMap hot path. Done.
+
+
 ## Latest Build Series — V5.9.1321 → V5.9.1324 (Feb 2026, CI ✅ green)
 
 ### V5.9.1324 — Phase 3 surgical: P1-6 + P1-7 + P1-8 + P2-12

@@ -171,6 +171,28 @@ class BrainNetworkView @JvmOverloads constructor(
         typeface = Typeface.create(Typeface.MONOSPACE, Typeface.BOLD)
     }
 
+    // V5.9.1325/1326 — Phase 2 ANR fix: hoist per-frame Paint/Path/Gradient
+    // allocations out of onDraw so the 30fps draw loop is allocation-free.
+    private val gridPaintCached = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        color = 0x15FFFFFF
+        style = Paint.Style.STROKE
+        strokeWidth = 1f
+    }
+    private val outlinePaintCached = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        color = 0x66888888.toInt()
+        style = Paint.Style.STROKE
+        strokeWidth = 1.5f
+    }
+    private val texturePaintCached = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        color = 0x40FFFFFF
+        style = Paint.Style.STROKE
+        strokeWidth = 2f
+    }
+    private val brainTexturePath = Path()
+    private var cachedBrainRadialRadius = 0f
+    private var cachedBrainRadialIsMega = false
+    private var cachedBrainRadial: RadialGradient? = null
+
     // ═══════════════════════════════════════════════════════════════════
     // ANIMATION
     // ═══════════════════════════════════════════════════════════════════
