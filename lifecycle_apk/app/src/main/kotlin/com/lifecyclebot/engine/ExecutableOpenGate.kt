@@ -486,7 +486,19 @@ object ExecutableOpenGate {
             return blocked("EXEC_OPEN_BLOCKED_RUG_CONTEXT_MISSING", "PRE_FDG_RUG_CONTEXT_MISSING", shadow = false)
         }
         if (liquidityUsd <= 0.0) {
-            return blocked("EXEC_OPEN_BLOCKED_ZERO_LIQUIDITY", "ZERO_LIQUIDITY", shadow = mode == "PAPER")
+            // V5.9.1336 — ZERO LIQUIDITY IS UNCONDITIONAL, EVEN IN PAPER.
+            // Previously shadow=PAPER let liq=$0 tokens execute in paper "to learn".
+            // But a $0-liquidity mint is STRUCTURALLY UNTRADEABLE: no buyer exists,
+            // so any paper fill is fictional and every modelled stop-loss is a max
+            // loss that could never fill at that price in live. The live snapshot
+            // showed BODEN/RUGS (liq=$0) walking through V3 vol_gate soft-shaping
+            // straight into EXEC, then dying on SHITCOIN_STOP_LOSS — the dominant
+            // source of the 12.9% WR / 45-loss cold streak. This is INVALID DATA,
+            // not a -EV judgement, so the Train-First policy (1321) explicitly
+            // permits hard-blocking it. Upstream learning surfaces still SEE the
+            // token (intake/V3/danger-bucket training are untouched); we just stop
+            // manufacturing impossible fills that poison the WR signal.
+            return blocked("EXEC_OPEN_BLOCKED_ZERO_LIQUIDITY", "ZERO_LIQUIDITY", shadow = false)
         }
         if (!signal.equals("BUY", true) && !signal.equals("EXECUTE", true)) {
             return blocked("EXEC_OPEN_BLOCKED_SIGNAL_NOT_BUY", signal.ifBlank { "UNKNOWN" }, shadow = mode == "PAPER")
