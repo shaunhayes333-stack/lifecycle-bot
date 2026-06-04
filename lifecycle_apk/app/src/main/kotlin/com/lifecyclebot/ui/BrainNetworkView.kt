@@ -603,16 +603,12 @@ class BrainNetworkView @JvmOverloads constructor(
     }
     
     private fun drawCircuitBackground(canvas: Canvas, cx: Float, cy: Float, size: Int) {
-        val gridPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-            color = 0x15FFFFFF
-            style = Paint.Style.STROKE
-            strokeWidth = 1f
-        }
-        
+        // V5.9.1325 — Phase 2 ANR fix: use cached gridPaintCached instead of
+        // allocating a new Paint per onDraw call.
         // Concentric circles
         for (r in 1..5) {
             val radius = size * 0.1f * r
-            canvas.drawCircle(cx, cy, radius, gridPaint)
+            canvas.drawCircle(cx, cy, radius, gridPaintCached)
         }
     }
     
@@ -760,13 +756,9 @@ class BrainNetworkView @JvmOverloads constructor(
         signals: Int, accuracy: Double, phase: Float,
     ) {
         if (signals <= 0) {
-            // Dim outline — engine has no data for this layer yet
-            val outline = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-                color = 0x66888888.toInt()
-                style = Paint.Style.STROKE
-                strokeWidth = 1.5f
-            }
-            canvas.drawCircle(x, y, r, outline)
+            // V5.9.1325 — Phase 2 ANR fix: use cached outlinePaintCached
+            // instead of allocating a new Paint per dot per frame.
+            canvas.drawCircle(x, y, r, outlinePaintCached)
             return
         }
         val color = when {
@@ -807,23 +799,31 @@ class BrainNetworkView @JvmOverloads constructor(
         brainGlowPaint.color = if (isMegaBrain) 0x80FFD700.toInt() else 0x6000FF88.toInt()
         canvas.drawCircle(cx, cy, animRadius * 1.4f, brainGlowPaint)
         
-        // Brain gradient - gold for mega brain, green otherwise
-        val gradient = if (isMegaBrain) {
-            RadialGradient(
-                cx, cy, animRadius,
-                intArrayOf(0xFFFFD700.toInt(), 0xFFFF8800.toInt(), 0xFFAA5500.toInt()),
-                floatArrayOf(0f, 0.6f, 1f),
-                Shader.TileMode.CLAMP
-            )
-        } else {
-            RadialGradient(
-                cx, cy, animRadius,
-                intArrayOf(0xFF00FF88.toInt(), 0xFF00AA55.toInt(), 0xFF006633.toInt()),
-                floatArrayOf(0f, 0.6f, 1f),
-                Shader.TileMode.CLAMP
-            )
+        // V5.9.1325 — Phase 2 ANR fix: cache the RadialGradient by quantised
+        // radius. animRadius changes ~15% per frame; quantise to integer
+        // pixel buckets so we rebuild the gradient only when it would
+        // actually look different, not 60 times a second.
+        val quantised = (animRadius + 0.5f).toInt().toFloat()
+        if (cachedBrainRadial == null || quantised != cachedBrainRadialRadius || isMegaBrain != cachedBrainRadialIsMega) {
+            cachedBrainRadialRadius = quantised
+            cachedBrainRadialIsMega = isMegaBrain
+            cachedBrainRadial = if (isMegaBrain) {
+                RadialGradient(
+                    cx, cy, quantised,
+                    intArrayOf(0xFFFFD700.toInt(), 0xFFFF8800.toInt(), 0xFFAA5500.toInt()),
+                    floatArrayOf(0f, 0.6f, 1f),
+                    Shader.TileMode.CLAMP
+                )
+            } else {
+                RadialGradient(
+                    cx, cy, quantised,
+                    intArrayOf(0xFF00FF88.toInt(), 0xFF00AA55.toInt(), 0xFF006633.toInt()),
+                    floatArrayOf(0f, 0.6f, 1f),
+                    Shader.TileMode.CLAMP
+                )
+            }
         }
-        brainPaint.shader = gradient
+        brainPaint.shader = cachedBrainRadial
         canvas.drawCircle(cx, cy, animRadius, brainPaint)
         brainPaint.shader = null
         
@@ -832,14 +832,10 @@ class BrainNetworkView @JvmOverloads constructor(
     }
     
     private fun drawBrainTexture(canvas: Canvas, cx: Float, cy: Float, radius: Float) {
-        val texturePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-            color = 0x40FFFFFF
-            style = Paint.Style.STROKE
-            strokeWidth = 2f
-        }
-        
-        // Draw stylized brain folds (gyri)
-        val path = Path()
+        // V5.9.1325 — Phase 2 ANR fix: reuse cached Path + Paint instead
+        // of allocating new instances per frame.
+        val path = brainTexturePath
+        path.rewind()
         
         // Left hemisphere curves
         path.moveTo(cx - radius * 0.1f, cy - radius * 0.6f)
@@ -855,7 +851,7 @@ class BrainNetworkView @JvmOverloads constructor(
         path.moveTo(cx, cy - radius * 0.7f)
         path.lineTo(cx, cy + radius * 0.6f)
         
-        canvas.drawPath(path, texturePaint)
+        canvas.drawPath(path, texturePaintCached)
     }
     
     private fun drawStats(canvas: Canvas, cx: Float, cy: Float, brainRadius: Float) {

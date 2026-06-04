@@ -855,7 +855,6 @@ class BehaviorActivity : AppCompatActivity() {
         val container = findViewById<LinearLayout>(R.id.llFluidDashboard) ?: return
         val tvProgress = findViewById<TextView>(R.id.tvFluidProgress)
         val tvFooter = findViewById<TextView>(R.id.tvFluidFooter)
-        container.removeAllViews()
 
         val fla = com.lifecyclebot.v3.scoring.FluidLearningAI
         val progress = safe { fla.getLearningProgress() } ?: 0.0
@@ -874,74 +873,81 @@ class BehaviorActivity : AppCompatActivity() {
             else -> 0xFF00FF88.toInt()
         })
 
-        addFluidSection(container, "🎯 ENTRY GATES")
-        addFluidRow(container, "Paper conf floor",
-            safe { fla.getPaperConfidenceFloor() }?.let { "${it.toInt()}" } ?: "—",
-            "Bot's own conviction threshold (bootstrap→mature: 15→45)")
-        addFluidRow(container, "Live conf floor",
-            safe { fla.getLiveConfidenceFloor() }?.let { "${it.toInt()}" } ?: "—",
-            "Higher bar for real-money signals")
-        addFluidRow(container, "Min V3 score",
-            safe { fla.getMinScoreThreshold() }?.toString() ?: "—",
-            "Score cutoff for trade promotion")
-        addFluidRow(container, "Scanner liq floor",
-            safe { fla.getScannerLiqFloor() }?.let { "\$${it.toInt()}" } ?: "—",
-            "Min DEX liquidity to scan ($1.5k→$8k)")
-        addFluidRow(container, "ShitCoin score floor",
-            safe { com.lifecyclebot.v3.scoring.ShitCoinTraderAI.getFluidScoreThreshold() }?.toString() ?: "—",
-            "ShitCoin layer entry bar")
-        addFluidRow(container, "ShitCoin min liq",
-            safe { com.lifecyclebot.v3.scoring.ShitCoinTraderAI.getFluidMinLiquidity() }?.let { "\$${it.toInt()}" } ?: "—",
-            "ShitCoin liquidity bar")
+        // V5.9.1325 — Phase 2 ANR fix: layout built ONCE; subsequent ticks
+        // only mutate the value TextView text — zero View allocations,
+        // zero removeAllViews(). Was rebuilding ~100 Views every 2s.
+        if (!fluidDashboardBuilt) {
+            container.removeAllViews()
+            fluidRowValueViews.clear()
 
-        addFluidSection(container, "💰 PROFIT TARGETS")
-        addFluidRow(container, "Markets spot TP",
-            safe { fla.getMarketsSpotTpPct() }?.let { "${"%.1f".format(it)}%" } ?: "—",
-            "Take-profit % for spot markets")
-        addFluidRow(container, "Markets leverage TP",
-            safe { fla.getMarketsLevTpPct() }?.let { "${"%.1f".format(it)}%" } ?: "—",
-            "Take-profit % for leverage markets")
-        addFluidRow(container, "ShitCoin TP",
-            safe { com.lifecyclebot.v3.scoring.ShitCoinTraderAI.getFluidTakeProfit() }?.let { "${"%.1f".format(it)}%" } ?: "—",
-            "ShitCoin layer TP")
-        addFluidRow(container, "Quality TP",
-            safe { com.lifecyclebot.v3.scoring.QualityTraderAI.getFluidTakeProfit() }?.let { "${"%.1f".format(it)}%" } ?: "—",
-            "Quality layer TP")
+            addFluidSection(container, "🎯 ENTRY GATES")
+            addFluidRow(container, "Paper conf floor", "—", "Bot's own conviction threshold (bootstrap→mature: 15→45)")
+            addFluidRow(container, "Live conf floor", "—", "Higher bar for real-money signals")
+            addFluidRow(container, "Min V3 score", "—", "Score cutoff for trade promotion")
+            addFluidRow(container, "Scanner liq floor", "—", "Min DEX liquidity to scan ($1.5k→$8k)")
+            addFluidRow(container, "ShitCoin score floor", "—", "ShitCoin layer entry bar")
+            addFluidRow(container, "ShitCoin min liq", "—", "ShitCoin liquidity bar")
 
-        addFluidSection(container, "🛑 STOP LOSSES")
-        addFluidRow(container, "Markets SL",
-            safe { fla.getMarketsStopLossPct() }?.let { "${"%.1f".format(it)}%" } ?: "—",
-            "Spot/leverage stop-loss")
-        addFluidRow(container, "ShitCoin SL",
-            safe { com.lifecyclebot.v3.scoring.ShitCoinTraderAI.getFluidStopLoss() }?.let { "${"%.1f".format(it)}%" } ?: "—",
-            "ShitCoin layer SL")
-        addFluidRow(container, "Quality SL",
-            safe { com.lifecyclebot.v3.scoring.QualityTraderAI.getFluidStopLoss() }?.let { "${"%.1f".format(it)}%" } ?: "—",
-            "Quality layer SL")
+            addFluidSection(container, "💰 PROFIT TARGETS")
+            addFluidRow(container, "Markets spot TP", "—", "Take-profit % for spot markets")
+            addFluidRow(container, "Markets leverage TP", "—", "Take-profit % for leverage markets")
+            addFluidRow(container, "ShitCoin TP", "—", "ShitCoin layer TP")
+            addFluidRow(container, "Quality TP", "—", "Quality layer TP")
 
-        addFluidSection(container, "⏱ HOLD WINDOW")
-        addFluidRow(container, "Flat-trade tolerance",
-            safe { fla.getFlatTradeToleranceMin() }?.let { "${"%.1f".format(it)}min" } ?: "—",
-            "Patience window before cap applies (10→3 min)")
-        addFluidRow(container, "Flat-trade band",
-            safe { fla.getFlatTradeBandPct() }?.let { "±${"%.2f".format(it)}%" } ?: "—",
-            "|PnL| range that counts as 'flat'")
-        addFluidRow(container, "Flat-trade cap",
-            safe { fla.getFlatTradeMaxHoldMin() }?.let { "${it.toInt()}min" } ?: "—",
-            "Max hold for flat trades (30→15 min)")
+            addFluidSection(container, "🛑 STOP LOSSES")
+            addFluidRow(container, "Markets SL", "—", "Spot/leverage stop-loss")
+            addFluidRow(container, "ShitCoin SL", "—", "ShitCoin layer SL")
+            addFluidRow(container, "Quality SL", "—", "Quality layer SL")
 
-        addFluidSection(container, "📊 POSITION SIZING")
-        addFluidRow(container, "Markets size %",
-            safe { fla.getMarketsPositionSizePct() }?.let { "${"%.1f".format(it * 100)}%" } ?: "—",
-            "Position size as % of wallet")
-        addFluidRow(container, "Behavior adjustment",
-            safe { com.lifecyclebot.v3.scoring.BehaviorAI.getFluidAdjustment() }?.let { "${"%+.2f".format(it)}" } ?: "—",
-            "BehaviorAI's current override signal")
+            addFluidSection(container, "⏱ HOLD WINDOW")
+            addFluidRow(container, "Flat-trade tolerance", "—", "Patience window before cap applies (10→3 min)")
+            addFluidRow(container, "Flat-trade band", "—", "|PnL| range that counts as 'flat'")
+            addFluidRow(container, "Flat-trade cap", "—", "Max hold for flat trades (30→15 min)")
+
+            addFluidSection(container, "📊 POSITION SIZING")
+            addFluidRow(container, "Markets size %", "—", "Position size as % of wallet")
+            addFluidRow(container, "Behavior adjustment", "—", "BehaviorAI's current override signal")
+
+            fluidDashboardBuilt = true
+        }
+
+        // Pure text mutation — no allocations, no addView calls.
+        updateFluidRow("Paper conf floor",   safe { fla.getPaperConfidenceFloor() }?.let { "${it.toInt()}" } ?: "—")
+        updateFluidRow("Live conf floor",    safe { fla.getLiveConfidenceFloor() }?.let { "${it.toInt()}" } ?: "—")
+        updateFluidRow("Min V3 score",       safe { fla.getMinScoreThreshold() }?.toString() ?: "—")
+        updateFluidRow("Scanner liq floor",  safe { fla.getScannerLiqFloor() }?.let { "\$${it.toInt()}" } ?: "—")
+        updateFluidRow("ShitCoin score floor", safe { com.lifecyclebot.v3.scoring.ShitCoinTraderAI.getFluidScoreThreshold() }?.toString() ?: "—")
+        updateFluidRow("ShitCoin min liq",   safe { com.lifecyclebot.v3.scoring.ShitCoinTraderAI.getFluidMinLiquidity() }?.let { "\$${it.toInt()}" } ?: "—")
+        updateFluidRow("Markets spot TP",    safe { fla.getMarketsSpotTpPct() }?.let { "${"%.1f".format(it)}%" } ?: "—")
+        updateFluidRow("Markets leverage TP", safe { fla.getMarketsLevTpPct() }?.let { "${"%.1f".format(it)}%" } ?: "—")
+        updateFluidRow("ShitCoin TP",        safe { com.lifecyclebot.v3.scoring.ShitCoinTraderAI.getFluidTakeProfit() }?.let { "${"%.1f".format(it)}%" } ?: "—")
+        updateFluidRow("Quality TP",         safe { com.lifecyclebot.v3.scoring.QualityTraderAI.getFluidTakeProfit() }?.let { "${"%.1f".format(it)}%" } ?: "—")
+        updateFluidRow("Markets SL",         safe { fla.getMarketsStopLossPct() }?.let { "${"%.1f".format(it)}%" } ?: "—")
+        updateFluidRow("ShitCoin SL",        safe { com.lifecyclebot.v3.scoring.ShitCoinTraderAI.getFluidStopLoss() }?.let { "${"%.1f".format(it)}%" } ?: "—")
+        updateFluidRow("Quality SL",         safe { com.lifecyclebot.v3.scoring.QualityTraderAI.getFluidStopLoss() }?.let { "${"%.1f".format(it)}%" } ?: "—")
+        updateFluidRow("Flat-trade tolerance", safe { fla.getFlatTradeToleranceMin() }?.let { "${"%.1f".format(it)}min" } ?: "—")
+        updateFluidRow("Flat-trade band",    safe { fla.getFlatTradeBandPct() }?.let { "±${"%.2f".format(it)}%" } ?: "—")
+        updateFluidRow("Flat-trade cap",     safe { fla.getFlatTradeMaxHoldMin() }?.let { "${it.toInt()}min" } ?: "—")
+        updateFluidRow("Markets size %",     safe { fla.getMarketsPositionSizePct() }?.let { "${"%.1f".format(it * 100)}%" } ?: "—")
+        updateFluidRow("Behavior adjustment", safe { com.lifecyclebot.v3.scoring.BehaviorAI.getFluidAdjustment() }?.let { "${"%+.2f".format(it)}" } ?: "—")
 
         tvFooter.text = "All values learned · overall ${(progress*100).toInt()}% · markets ${(mktProgress*100).toInt()}% · updates on every trade close"
     }
 
+    private fun updateFluidRow(label: String, value: String) {
+        fluidRowValueViews[label]?.let { tv ->
+            if (tv.text?.toString() != value) tv.text = value
+        }
+    }
+
     private fun <T> safe(block: () -> T): T? = try { block() } catch (_: Throwable) { null }
+
+    // V5.9.1325 — Phase 2 ANR fix: cache TextView refs so refresh only mutates
+    // text instead of rebuilding the whole LinearLayout tree on every 2s tick.
+    // Pre-V5.9.1325 we did removeAllViews() + ~25 addFluidRow() calls per cycle,
+    // allocating ~100 Views/cycle on the main thread (BehaviorActivity ANR ~2.5s).
+    private var fluidDashboardBuilt = false
+    private val fluidRowValueViews = HashMap<String, TextView>()
 
     private fun addFluidSection(container: LinearLayout, title: String) {
         container.addView(TextView(this).apply {
@@ -968,12 +974,16 @@ class BehaviorActivity : AppCompatActivity() {
             typeface = android.graphics.Typeface.MONOSPACE
             layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
         })
-        topRow.addView(TextView(this).apply {
+        // V5.9.1325 — Phase 2 ANR fix: cache the value TextView reference
+        // so the 2s refresh tick can mutate text in place (no removeAllViews).
+        val valueTv = TextView(this).apply {
             text = value
             textSize = 12f
             setTextColor(0xFF14F195.toInt())
             typeface = android.graphics.Typeface.create(android.graphics.Typeface.MONOSPACE, android.graphics.Typeface.BOLD)
-        })
+        }
+        fluidRowValueViews[label] = valueTv
+        topRow.addView(valueTv)
         wrap.addView(topRow)
         wrap.addView(TextView(this).apply {
             text = hint
