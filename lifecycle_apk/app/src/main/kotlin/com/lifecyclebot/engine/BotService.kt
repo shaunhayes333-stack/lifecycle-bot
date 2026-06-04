@@ -8006,6 +8006,25 @@ class BotService : Service() {
                     // and rescales entryPrice once so PnL stays honest.
                     ts.lastPriceSource = "PUMP_FUN_BC_SYNTHETIC"
                     ts.lastPriceDex = "PUMP_FUN"
+                } else if (marketCapUsd > 0.0 && ts.lastPriceSource == "PUMP_FUN_BC_SYNTHETIC") {
+                    // V5.9.1328 — ROOT FIX F: Synthetic price refresh.
+                    // The initial seed above only fires once (lastPrice <= 0
+                    // guard). As pump-portal WS keeps streaming updated mcaps
+                    // for the same fresh-launch mint, the synthetic price was
+                    // frozen at the FIRST sighting forever, so the
+                    // priceAgeMs check used by AntiChoke's unpriced-fresh
+                    // counter saw 498/500 tokens as "stale unpriced" even
+                    // though pump-portal was actively feeding mcap updates.
+                    // Refresh the synthetic price + price-update timestamp
+                    // every WS tick so the freshness sentinel reads honest
+                    // staleness. The 1B-supply formula is still exact for
+                    // pump.fun BC tokens. After graduation to Raydium,
+                    // lastPriceSource flips and this branch stops firing.
+                    val newPrice = marketCapUsd / 1_000_000_000.0
+                    if (newPrice != ts.lastPrice) {
+                        ts.lastPrice = newPrice
+                        ts.lastPriceUpdate = System.currentTimeMillis()
+                    }
                 }
                 if (confidence > 0 && ts.entryScore <= 0.0) {
                     ts.entryScore = confidence.toDouble()

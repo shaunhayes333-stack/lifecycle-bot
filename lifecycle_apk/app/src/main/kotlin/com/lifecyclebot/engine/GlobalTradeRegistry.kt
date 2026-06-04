@@ -145,7 +145,7 @@ object GlobalTradeRegistry {
     data class WatchlistEntry(
         val mint: String,
         val symbol: String,
-        val addedAt: Long,
+        var addedAt: Long,  // V5.9.1328 — mutable: refreshed on duplicate intake so WATCHLIST_RR fresh-window stays honest
         val addedBy: String,  // "SCANNER", "USER", "DEX_BOOSTED", "PUMP_FUN", etc.
         val source: String,   // More specific: "pump.fun", "raydium", "moonshot"
         val initialMcap: Double,
@@ -264,6 +264,16 @@ object GlobalTradeRegistry {
         if (existing != null) {
             existing.laneAffinity.addAll(laneAffinity.map { it.uppercase() })
             existing.toolAffinity.addAll(toolAffinity.map { it.uppercase() })
+            // V5.9.1328 — ROOT FIX B: Refresh addedAt on duplicate intake.
+            // Without this, brand-new pump-portal tokens (which keep re-arriving
+            // from the WS feed every few seconds) carry an addedAt timestamp
+            // from their FIRST sighting, instantly aging out of the
+            // FRESH_WINDOW_MS=120s classification used by WATCHLIST_RR. Result:
+            // every cycle reports fresh=0 even when 30+ truly-fresh memes
+            // arrived in the last minute, so the round-robin starves the
+            // execution path of fresh candidates. Refreshing addedAt restores
+            // the "fresh" classification semantics the round-robin assumes.
+            existing.addedAt = now
             duplicatesBlocked.incrementAndGet()
             return AddResult(false, "DUPLICATE: already watching since ${(now - existing.addedAt)/1000}s ago")
         }
@@ -699,10 +709,22 @@ object GlobalTradeRegistry {
         for ((mint, entry) in probation) {
             val elapsed = now - entry.addedAt
 
-            // Check timeout - reject if too long in probation
+            // V5.9.1328 — ROOT FIX E: TIMEOUT must not auto-reject.
+            // Under Train-First doctrine, cold mints with no oracle price
+            // action (vol1h=$0 for new pump-portal pools) hit
+            // PROBATION_MAX_TIME_MS=5min without firing any promotion
+            // signal (price-up needs >5%, multi-scanner needs a 2nd hit,
+            // RC needs a rugcheck >= 2 callback). Auto-rejecting them
+            // here removed their addedAt timestamp from the lifecycle
+            // and they re-arrive seconds later from PumpPortal as
+            // "duplicates", recursing forever in the "PROBATION REJECTED
+            // ... TIMEOUT" log spam. Operator: V3/FDG is final authority;
+            // tokens that timed out should be promoted to the watchlist
+            // so V3/FDG can re-evaluate with full pipeline data instead
+            // of being silently culled by an opaque 5-min cutoff.
             if (elapsed >= PROBATION_MAX_TIME_MS) {
-                rejectFromProbation(mint, "TIMEOUT")
-                results.add(ProbationResult(mint, entry.symbol, "REJECTED", "TIMEOUT"))
+                promoteFromProbation(mint, "TIMEOUT_AUTO_PROMOTE")
+                results.add(ProbationResult(mint, entry.symbol, "PROMOTED", "TIMEOUT_AUTO_PROMOTE"))
                 continue
             }
 

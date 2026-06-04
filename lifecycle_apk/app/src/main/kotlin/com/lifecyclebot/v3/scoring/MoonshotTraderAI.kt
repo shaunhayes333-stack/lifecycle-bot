@@ -630,12 +630,20 @@ object MoonshotTraderAI {
         // floor of 30 (V5.9.235) was strangling fresh-launch entries that
         // historically delivered 500%+ runs. Soft scoring still penalises
         // weak setups; FluidLearningAI + Symbiosis still cull bad outcomes.
-        val minScore = when {
+        val minScoreRaw = when {
             learningProgress < 0.1 -> if (isPaper) 12 else 30
             learningProgress < 0.3 -> if (isPaper) 20 else 38
             learningProgress < 0.5 -> if (isPaper) 30 else 48
             else                   -> if (isPaper) 45 else 58
         }
+        // V5.9.1328 — ROOT FIX D: apply GATE_RELAXER multiplier in PAPER too.
+        // Operator snapshot showed MOONSHOT rejecting score=44 base=45 — a
+        // single-point miss. The GATE_RELAXER advertises MOONSHOT ×0.85 in
+        // the dashboard header but `LiveLayerGateRelaxer.relaxFloor` skipped
+        // paper mode (early-out when !isLiveMode). Under Train-First doctrine
+        // paper must learn as fast as possible, so apply the same advertised
+        // multiplier in paper. 45 × 0.85 = 38 → score=44 now passes.
+        val minScore = (minScoreRaw * com.lifecyclebot.engine.LiveLayerGateRelaxer.floorMultiplier("MOONSHOT")).toInt()
         
         // V5.9.801 — operator audit Fix A+B: hoist WR Recovery Quality Floor
         // into the Moonshot entry path. Same rationale as ShitCoin: avoid

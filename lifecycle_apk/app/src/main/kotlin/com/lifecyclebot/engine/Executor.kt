@@ -8982,11 +8982,34 @@ class Executor(
 
             // Update position state to reflect the partial sell so that subsequent
             // exits operate on the correct remaining size, not the full original.
-            ts.position = pos.copy(
-                qtyToken       = pos.qtyToken * (1.0 - pct),
-                costSol        = pos.costSol * (1.0 - pct),
-                partialSoldPct = newSoldPct,
-            )
+            // V5.9.1328 — ROOT FIX A: Ghost-hold leak.
+            // When cumulative partials cross 99% (rounding) or the residual qty
+            // is below dust, finalize the position the same way paperSell does:
+            // ts.position = Position() + remove from PositionPersistence +
+            // close in GlobalTradeRegistry. Otherwise the entry stays in the
+            // internal token map with qtyToken > 0 forever and AntiChoke has
+            // to ghost-clear it every cycle.
+            val cumulativeSoldPct = newSoldPct
+            val residualQty = pos.qtyToken * (1.0 - pct)
+            val residualSol = pos.costSol * (1.0 - pct)
+            val fullyExited = cumulativeSoldPct >= 99.0 || residualQty <= 1e-9 || residualSol <= 0.000_001
+            if (fullyExited) {
+                ts.position = Position()
+                ts.lastExitTs = System.currentTimeMillis()
+                ts.lastExitPrice = currentPrice
+                ts.lastExitPnlPct = pnlPct
+                ts.lastExitWasWin = pnlPct >= 1.0
+                try { PositionPersistence.removePosition(ts.mint) } catch (_: Exception) {}
+                try { GlobalTradeRegistry.closePosition(ts.mint) } catch (_: Exception) {}
+                try { BotService.recentlyClosedMs[ts.mint] = System.currentTimeMillis() } catch (_: Throwable) {}
+                try { ForensicLogger.lifecycle("PAPER_SELL_POSITION_CLOSED", "mint=${ts.mint.take(10)} symbol=${ts.symbol} pnlPct=${pnlPct.toInt()} reason=partial_finalize_${cumulativeSoldPct.toInt()}pct stage=partial_cumulative persisted=removed") } catch (_: Throwable) {}
+            } else {
+                ts.position = pos.copy(
+                    qtyToken       = residualQty,
+                    costSol        = residualSol,
+                    partialSoldPct = newSoldPct,
+                )
+            }
 
             // Record the partial sell as a proper Trade entry in the journal
             val trade = Trade(

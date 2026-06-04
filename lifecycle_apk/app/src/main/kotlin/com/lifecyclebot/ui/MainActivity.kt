@@ -2437,7 +2437,16 @@ for legal compliance.
     }
 
     private fun liveRuntimeTokenCountForUi(): Int = try {
-        com.lifecyclebot.engine.BotService.status.tokens.size
+        // V5.9.1328 — ROOT FIX C: UI Watchlist (0) mismatch.
+        // BotService.status.tokens is the in-memory TokenState map keyed by
+        // tokens that have been *fully processed* this session. The real
+        // watchlist (PumpPortal intakes, scanner-fed mints awaiting processing)
+        // lives in GlobalTradeRegistry. Read from there so the dashboard
+        // "Watchlist (N)" pill matches the bot's actual tracking footprint
+        // (operator snapshot showed WL 0 while bot had watch=500).
+        val registrySize = com.lifecyclebot.engine.GlobalTradeRegistry.size()
+        val tokenMapSize = com.lifecyclebot.engine.BotService.status.tokens.size
+        maxOf(registrySize, tokenMapSize)
     } catch (_: Throwable) { 0 }
 
     private fun liveFallbackActiveTokenForUi(cfg: BotConfig): TokenState? = try {
