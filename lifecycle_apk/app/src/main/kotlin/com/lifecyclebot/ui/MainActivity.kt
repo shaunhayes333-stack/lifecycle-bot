@@ -4136,17 +4136,42 @@ for legal compliance.
                 )
             }
         } catch (_: Exception) {}
-        // V5.9.471 — DO NOT pull TREASURY or BLUE_CHIP positions into the
-        // unified Open Positions list. Operator-reported double-count:
-        // MINDFAK appeared in BOTH 'Open Positions' (with 💰 icon) AND
-        // 'Treasury Scalps' card with identical entry / size — same mint
-        // rendered twice in the same view. Same risk for BlueChip if it
-        // had positions. Both layers already have their own dedicated
-        // cards (cardTreasuryPositions, cardBlueChipPositions) further
-        // down the screen, so listing them here as well was pure
-        // duplication. The unified Open Positions card now shows ONLY
-        // sub-traders that don't have a dedicated card: ShitCoin /
-        // Quality / Moonshot.
+        // V5.9.1338 — OPERATOR REQUEST: the main Open Positions panel must
+        // show the TOP TEN highest movers across ALL lanes, including
+        // BlueChip and Treasury. Previously (V5.9.471) these two were
+        // excluded to avoid a mint appearing in BOTH this card and their
+        // dedicated lane card. The operator has explicitly chosen to accept
+        // that lane-card overlap in exchange for a single unified "top 10
+        // movers, all lanes" view. The upsert() above dedupes by mint, so a
+        // token still never appears twice *within* this list; the only
+        // overlap is unified-card vs dedicated lane-card, which is the
+        // intended behaviour now. Dedicated cards remain untouched.
+        try {
+            val blueChipAll = (
+                com.lifecyclebot.v3.scoring.BlueChipTraderAI.getActivePositionsForMode(true) +
+                com.lifecyclebot.v3.scoring.BlueChipTraderAI.getActivePositionsForMode(false)
+            )
+            blueChipAll.forEach {
+                upsert(it.mint, it.symbol, "BLUE_CHIP", "\uD83D\uDD37",
+                    entryPrice = it.entryPrice, entrySol = it.entrySol,
+                    entryTime = it.entryTime, peakPct = it.peakPnlPct,
+                    currentPrice = it.lastSeenPrice, isPaper = it.isPaper)
+            }
+        } catch (_: Exception) {}
+        try {
+            val treasuryAll = (
+                com.lifecyclebot.v3.scoring.CashGenerationAI.getActivePositionsForMode(true) +
+                com.lifecyclebot.v3.scoring.CashGenerationAI.getActivePositionsForMode(false)
+            )
+            treasuryAll.forEach {
+                val derivedPeak = if (it.entryPrice > 0.0 && it.highWaterMark > 0.0)
+                    ((it.highWaterMark - it.entryPrice) / it.entryPrice * 100.0) else 0.0
+                upsert(it.mint, it.symbol, "TREASURY", "\uD83D\uDCB0",
+                    entryPrice = it.entryPrice, entrySol = it.entrySol,
+                    entryTime = it.entryTime, peakPct = derivedPeak,
+                    currentPrice = it.currentPrice, isPaper = it.isPaper)
+            }
+        } catch (_: Exception) {}
 
         // V5.9.810 — sort by current unrealized gain % descending so the
         // strongest movers stay at the top of the Open Positions card.
