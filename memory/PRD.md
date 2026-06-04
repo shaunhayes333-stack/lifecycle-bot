@@ -6,6 +6,45 @@ NO local compiler. Multi-lane architecture (Memes [9 sub-lanes], Crypto/Alts,
 Stocks, Markets, Tokenized Stocks, Forex, Metals, Commodities). Foreground
 Service with a 50+ AI-module pipeline gated through processTokenCycle.
 
+## V5.9.1328 (Feb 2026) — MEME-TRADER ROOT-CAUSE FIXES (CI ✅ green)
+
+Operator mandate: "fix the issue at the source, do not stack patch
+rotation". Six independent source-level bugs identified by triage agent
+and patched at the original site. MEME TRADER PATHS ONLY — CryptoAlt /
+Markets / Perps / Stocks lanes intentionally untouched.
+
+A. **Ghost-hold leak (Executor.kt paperPartialSell)** — cumulative
+   partials crossing 99% never finalized; residual qty kept ts.position
+   "open". Now zeroes ts.position + closes PositionPersistence +
+   GlobalTradeRegistry when residual is dust.
+
+B. **fresh=0 always (GlobalTradeRegistry.kt addToWatchlist)** —
+   WatchlistEntry.addedAt was a val set once. Duplicate intakes (which
+   happen constantly on PumpPortal WS) no longer refreshed it. Now
+   addedAt is var and refreshed on duplicate hit.
+
+C. **UI Watchlist (0) mismatch (MainActivity liveRuntimeTokenCountForUi)** —
+   UI read BotService.status.tokens.size; should read max(that,
+   GlobalTradeRegistry.size()) so the dashboard pill matches actual
+   tracking footprint.
+
+D. **MOONSHOT off-by-1 (MoonshotTraderAI.kt minScore)** — GATE_RELAXER
+   ×0.85 advertised but applied only in live mode. Now applied in paper
+   too: 45 × 0.85 = 38; score=44 candidates pass.
+
+E. **Probation TIMEOUT loop (GlobalTradeRegistry.kt processProbation)** —
+   5-min cutoff auto-rejected cold pump-portal mints (no price-up, no
+   multi-source). They re-arrived as "duplicates" and looped forever.
+   Now TIMEOUT promotes to watchlist so V3/FDG (final authority) gets
+   to evaluate.
+
+F. **unpricedFresh=498 / synthetic-price freeze (BotService.kt
+   pump-portal intake)** — V5.9.655 seed only fired on lastPrice<=0.
+   PumpPortal keeps streaming new mcaps; price + lastPriceUpdate froze
+   at first sighting. Now refreshes on every WS tick where mcap moved
+   and source is still PUMP_FUN_BC_SYNTHETIC.
+
+
 ## V5.9.1325–1326 (Feb 2026) — TRAIN-FIRST INVARIANT + PHASE 2 ANR FIX
 
 ### V5.9.1325 — TRAIN-FIRST INVARIANT: never stop trading (CI ✅ green)
