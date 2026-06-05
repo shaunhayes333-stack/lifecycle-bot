@@ -141,26 +141,18 @@ object FdgRouteVerdict {
         // candidate STILL trains (the caller's !proceedToOpen branch writes the NoTradeObservation
         // row), so Train-First's learning universe is 100% preserved — we just stop paying tuition
         // with live/paper capital on buckets we already know are dead.
-        var effectiveV = v
-        if (v.executable) {
-            val regimeDump = try {
-                com.lifecyclebot.engine.RegimeDetector.currentRegime() == com.lifecyclebot.engine.RegimeDetector.Regime.DUMP
-            } catch (_: Throwable) { false }
-            val provenDead = try {
-                val band = scoreBand.substringAfterLast('|').ifBlank { scoreBand }
-                val midScore = when {
-                    band.contains("61") -> 70; band.contains("41") -> 50
-                    band.contains("26") -> 33; band.contains("11") -> 18; else -> 5
-                }
-                val b = com.lifecyclebot.engine.LosingPatternMemory.stats(lane, midScore)
-                b.isDangerous && b.meanPnl < 0.0 && b.losses >= 20 && b.wins <= 1
-            } catch (_: Throwable) { false }
-            if (provenDead || regimeDump) {
-                effectiveV = Verdict.ROUTE_SHADOW_TRACK
-                try { ErrorLogger.info("FDG", "🛑 DANGER_BUCKET_REGIME_GUARD lane=$lane bucket=$scoreBand regimeDump=$regimeDump provenDead=$provenDead → SHADOW_TRACK (was ${v.tag})") } catch (_: Throwable) {}
-            }
-        }
-        val vFinal = effectiveV
+        // V5.9.1358 — DANGER-BUCKET SHADOW-TRACK REMOVED (operator mandate).
+        // The old guard downgraded "proven-dead" buckets and ALL DUMP-regime
+        // candidates to ROUTE_SHADOW_TRACK → proceedToOpen=false, i.e. it
+        // STOPPED TRADING those buckets entirely (a static blacklist you can
+        // never trade back through). That is the exact opposite of the mandate:
+        // the brain must trade every bucket from trade one, sized by what it has
+        // LEARNED, to discover where the sweet spot in that bucket actually is.
+        // A weak bucket gets small size from the learned head (fwdPWin/meta
+        // conviction) and the LANE size-multiplier below — never zero, never
+        // shadow-only. We keep the verdict executable; size shaping (not
+        // route-killing) expresses the danger.
+        val vFinal = v
         record(vFinal, lane)
         val mult = sizeMultiplier(vFinal, lane, scoreBand)
         val proceed = vFinal.executable && mult > 0.0

@@ -2859,30 +2859,21 @@ object FinalDecisionGate {
             }
         } catch (_: Throwable) { /* fail-open: learned shaping must not starve execution */ }
 
-        // V5.9.1355 P0.6 — GLOBAL DAMAGE-CONTROL ENTRY GATE. When the last-100
-        // meme trades collapse (WR<20% OR PF<0.5), cap normal executions:
-        // off-cadence normal entries demote to a micro probe; a 1-in-25 cadence
-        // tick is allowed at probe size so learning continues. Never blocks
-        // outright — soft-shape per doctrine.
+        // V5.9.1358 — DAMAGE-CONTROL REMOVED (operator mandate: never throttle,
+        // never cap-to-dust, never disable a lane). The old P0.6 gate slammed
+        // size to a flat 0.02 micro on a 24-of-25 cadence whenever the meme
+        // window was red — that is stealth-disabling a lane and stomping on the
+        // brain's own predictive sizing. The correct mechanism is already live
+        // below: UnifiedPolicyHead.conviction() scales size by the LEARNED
+        // win-probability for THIS exact context, so capital concentrates on the
+        // sweet spots and stays small (but never zero) in weak pockets — every
+        // lane keeps trading and learning from trade one. We only OBSERVE the
+        // window now (telemetry), shaping is the brain's job.
         try {
             if (com.lifecyclebot.engine.runtime.DamageControlGate.isActive()) {
-                val dcKey = "${laneName}|${com.lifecyclebot.engine.LosingPatternMemory.scoreBand(candidate.entryScore.toInt())}"
-                when (com.lifecyclebot.engine.runtime.DamageControlGate.gateNormalEntry(dcKey)) {
-                    com.lifecyclebot.engine.runtime.DamageControlGate.Decision.BLOCK_NORMAL -> {
-                        val beforeDc = finalSize
-                        finalSize = minOf(finalSize, 0.02)
-                        tags.add("damage_control_normal_blocked")
-                        checks.add(GateCheck("damage_control", true, "DAMAGE_CONTROL normal-entry capped → micro ${beforeDc.format(3)}→${finalSize.format(3)}"))
-                    }
-                    com.lifecyclebot.engine.runtime.DamageControlGate.Decision.PROBE_ONLY -> {
-                        finalSize = minOf(finalSize, 0.02)
-                        tags.add("damage_control_probe")
-                        checks.add(GateCheck("damage_control", true, "DAMAGE_CONTROL 1-in-25 learning probe @ ${finalSize.format(3)}"))
-                    }
-                    com.lifecyclebot.engine.runtime.DamageControlGate.Decision.ALLOW -> { }
-                }
+                tags.add("dc_window_red_observed")
             }
-        } catch (_: Throwable) { /* fail-open */ }
+        } catch (_: Throwable) { /* observe-only, never shapes */ }
 
         val winMemoryMultiplier = try {
             val latestBuyPct = ts.history.lastOrNull()?.buyRatio?.times(100) ?: 50.0
@@ -3687,17 +3678,16 @@ object FinalDecisionGate {
                         // never permanently disables: off-cadence ticks shrink to a
                         // micro probe (0.02); the 1-in-25 cadence tick is allowed
                         // through at probe size so the bucket keeps learning.
+                        // V5.9.1358 — PROVEN-DEAD no longer caps to dust on a
+                        // cadence (operator mandate: never throttle/disable). The
+                        // bucket being statistically weak is exactly what
+                        // UnifiedPolicyHead already encodes via fwdPWin/meta
+                        // conviction → it sizes this context DOWN on its own,
+                        // smoothly, while still trading every tick so the bucket
+                        // keeps learning where its sweet spot is. We only tag it
+                        // for telemetry; the learned head owns the size.
                         if (report.provenDead) {
-                            val beforeP = finalSize
-                            if (report.normalEntryBlocked) {
-                                finalSize = minOf(finalSize, 0.02)
-                                tags.add("bcg_proven_dead_normal_veto")
-                                checks.add(GateCheck("brain_consensus_proven_dead", true, "PROVEN_DEAD normal-entry vetoed → micro ${beforeP.format(3)}→${finalSize.format(3)}"))
-                            } else if (report.probeAllowed) {
-                                finalSize = minOf(finalSize, 0.02)
-                                tags.add("bcg_proven_dead_probe")
-                                checks.add(GateCheck("brain_consensus_proven_dead", true, "PROVEN_DEAD 1-in-25 learning probe @ ${finalSize.format(3)}"))
-                            }
+                            tags.add("bcg_proven_dead_observed")
                         }
                         val weakEvidence = candidate.setupQuality !in listOf("A+", "A", "B") && adjustedConfidence < 35.0 && candidate.entryScore < 25.0
                         if (hasDanger && deepLearningDeficit && weakEvidence) {
@@ -3805,20 +3795,20 @@ object FinalDecisionGate {
                         // V5.9.1271 — grade the predictor: stamp pWin+E[pnl] so the close can score accuracy.
                         try { com.lifecyclebot.engine.SignalQualityTracker.stamp(ts.mint, mpLane, fwd.pWin, fwd.expectedPnl) } catch (_: Throwable) {}
 
-                        // V5.9.1290 — HARD VETO (dual-brain consensus). Now that we are
-                        // mature on the proven-dead pockets, refuse them outright instead
-                        // of dusting them — sizing 0.08× into a guaranteed loser still
-                        // pays fees+slippage. Meta-Policy AND Forward Model must BOTH
-                        // condemn the context with real, well-sampled evidence; a 1-in-25
-                        // probe always escapes so the context keeps learning and can heal.
-                        // Fail-open by construction (returns false on any doubt/error).
-                        // The 500-token pool, FDG fail-open path, and -15% floor are all
-                        // untouched — this only refuses the single candidate in a grave.
+                        // V5.9.1358 — DUAL-BRAIN VETO → SIZE-SHAPE (operator mandate:
+                        // never refuse/disable a context, learn the right way to trade it
+                        // from trade one). When Meta-Policy AND Forward Model both condemn
+                        // a context with real evidence, we no longer STOP the trade — we
+                        // shrink it hard (the learned heads already do this, this is the
+                        // floor-deepener for the gravest pockets) so the bot keeps getting
+                        // real outcomes there and can find the sweet spot / heal. Never
+                        // zero: a small live position is how the brain learns the bucket.
+                        // -15% hard SL + 500-token pool + FDG fail-open all untouched.
                         if (AutonomousMetaPolicy.shouldVeto(mpLane, mpScore, mpRegime, fwd.pWin, fwd.expectedPnl, fwd.samples)) {
-                            shouldTradeFinal = false
-                            blockReasonFinal = "PROVEN_DEAD_CONTEXT_VETO:$mpLane|S${candidate.entryScore.toInt()}|$mpRegime"
-                            tags.add("veto:proven_dead")
-                            checks.add(GateCheck("proven_dead_veto", false, "dual-brain consensus refused ctx=$mpLane/S${candidate.entryScore.toInt()}/$mpRegime fwd[pWin=${(fwd.pWin*100).toInt()}% E=${"%+.1f".format(fwd.expectedPnl)}% n=${fwd.samples}]"))
+                            val beforePd = finalSize
+                            finalSize = (finalSize * 0.15).coerceAtLeast(0.01)
+                            tags.add("proven_dead_size_shaped")
+                            checks.add(GateCheck("proven_dead_shape", true, "dual-brain weak ctx=$mpLane/S${candidate.entryScore.toInt()}/$mpRegime → small learn-size ${beforePd.format(3)}→${finalSize.format(3)} fwd[pWin=${(fwd.pWin*100).toInt()}% E=${"%+.1f".format(fwd.expectedPnl)}% n=${fwd.samples}]"))
                         }
                         if (fwd.convictionNudge != 1.0 && fwd.source != "bootstrap") {
                             val before = finalSize
@@ -3892,16 +3882,25 @@ object FinalDecisionGate {
             // NORMAL_EXECUTION (weight 1.0) is a no-op; only damp when policy says so.
             if (lpState != com.lifecyclebot.engine.learning.LanePolicy.State.NORMAL_EXECUTION && lpWeight < 1.0) {
                 val beforeLp = finalSize
-                finalSize = (finalSize * lpWeight).coerceAtLeast(0.0)
-                tags.add("lane_policy:${lpState.name}×${"%.2f".format(lpWeight)}")
+                // V5.9.1358 — NEVER ZERO A LANE ON STRATEGY GROUNDS (operator mandate:
+                // never disable, never shadow-only; learn the correct way to trade every
+                // bucket from trade one). A weak/“dead” bucket trades SMALL, not never —
+                // so the brain keeps getting real outcomes and can find the sweet spot
+                // and trade back through it. Only genuine INVALID_UNTRADEABLE (unsafe /
+                // unsellable data — already in the original veto whitelist) may zero out.
+                val isTrueUntradeable = lpState == com.lifecyclebot.engine.learning.LanePolicy.State.INVALID_UNTRADEABLE
+                val shapeW = if (isTrueUntradeable) lpWeight else lpWeight.coerceAtLeast(0.05)
+                finalSize = (finalSize * shapeW).coerceAtLeast(if (isTrueUntradeable) 0.0 else 0.01)
+                tags.add("lane_policy:${lpState.name}×${"%.2f".format(shapeW)}")
                 checks.add(GateCheck("lane_policy_weight", true,
-                    "lane=$laneName band=$lpScoreBand state=${lpState.name} execW=${"%.2f".format(lpWeight)} size ${beforeLp.format(3)}→${finalSize.format(3)}"))
-                ErrorLogger.info("FDG", "🛞 LANE_POLICY_EXEC_WEIGHT ${ts.symbol} lane=$laneName band=$lpScoreBand ${lpState.name} ×${"%.2f".format(lpWeight)} size ${beforeLp.format(3)}→${finalSize.format(3)}")
-                // If policy zeroes execution (SHADOW_TRACK_ONLY / TRAIN_ONLY / INVALID), the
-                // candidate is routed to learning only — do not open. Train-First: still recorded.
-                if (lpWeight <= 0.0) {
-                    com.lifecyclebot.engine.learning.LanePolicy.noteRetrainingSample(laneName, lpScoreBand)
-                    blockReasonFinal = blockReasonFinal ?: "LANE_POLICY_${lpState.name}"
+                    "lane=$laneName band=$lpScoreBand state=${lpState.name} execW=${"%.2f".format(shapeW)} size ${beforeLp.format(3)}→${finalSize.format(3)}"))
+                ErrorLogger.info("FDG", "🛞 LANE_POLICY_EXEC_WEIGHT ${ts.symbol} lane=$laneName band=$lpScoreBand ${lpState.name} ×${"%.2f".format(shapeW)} size ${beforeLp.format(3)}→${finalSize.format(3)}")
+                // Train-First telemetry note for weak buckets — but we DO open the trade.
+                com.lifecyclebot.engine.learning.LanePolicy.noteRetrainingSample(laneName, lpScoreBand)
+                // ONLY genuinely untradeable (unsafe data) is routed no-open. Strategy
+                // weakness NEVER stops the trade — the small size is the expression.
+                if (isTrueUntradeable && shapeW <= 0.0) {
+                    blockReasonFinal = blockReasonFinal ?: "LANE_POLICY_INVALID_UNTRADEABLE"
                     shouldTradeFinal = false
                 }
             }
