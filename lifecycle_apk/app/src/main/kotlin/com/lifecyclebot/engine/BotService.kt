@@ -11803,8 +11803,14 @@ if (hotExitHandledSweep) {
     private val SUPERVISOR_EMERGENCY_MAX_WORKERS: Int = 16
     @Volatile private var supervisorEmergencyThrottleUntilMs: Long = 0L
     private fun supervisorEffectiveCap(): Int =
-        if (System.currentTimeMillis() < supervisorEmergencyThrottleUntilMs)
-            SUPERVISOR_EMERGENCY_MAX_WORKERS else SUPERVISOR_BASE_MAX_WORKERS
+        // V5.9.1332 — REMOVED emergency-throttle clamp. Operator snapshot (build 5.0.3321,
+        // uptime 996s) showed SUPERVISOR_EMERGENCY_THROTTLE firing 2× in 16min and
+        // pinning effective cap at 16 for 5min windows — directly producing the
+        // "trades then virtually stops" pattern: active=16 cap=32 spawned=16 skipped=16
+        // on 123/129 cycles. Lease TTL (4.75s) already drains stuck workers naturally;
+        // the throttle was double-defense that became the choke. Train-First doctrine:
+        // never clamp the pool, observe and recover.
+        SUPERVISOR_BASE_MAX_WORKERS
     // V5.9.1319 (Item 3) — emergency-throttle arming. When sustained overload is detected
     // (a cycle exceeding 30s, OR >20 worker timeouts inside a 10-minute window) we clamp the
     // effective worker cap to 16 and shorten cycle pressure for the next 5 minutes. Exit
@@ -11812,18 +11818,16 @@ if (hotExitHandledSweep) {
     @Volatile private var supervisorTimeoutWindowStartMs: Long = 0L
     @Volatile private var supervisorTimeoutWindowCount: Int = 0
     private fun supervisorArmEmergencyThrottle(reason: String, detail: String) {
-        val now = System.currentTimeMillis()
-        // Re-arm/extend the 5-minute throttle window.
-        val already = now < supervisorEmergencyThrottleUntilMs
-        supervisorEmergencyThrottleUntilMs = now + 300_000L
-        if (!already) {
-            try {
-                ForensicLogger.lifecycle(
-                    "SUPERVISOR_EMERGENCY_THROTTLE",
-                    "reason=$reason $detail effectiveCap=$SUPERVISOR_EMERGENCY_MAX_WORKERS untilMs=$supervisorEmergencyThrottleUntilMs",
-                )
-            } catch (_: Throwable) {}
-        }
+        // V5.9.1332 — disarmed. supervisorEffectiveCap() no longer reads
+        // supervisorEmergencyThrottleUntilMs; keeping the function as a no-op
+        // observation log so we can still see when the OLD trip would have
+        // fired (useful telemetry without the destructive cap clamp).
+        try {
+            ForensicLogger.lifecycle(
+                "SUPERVISOR_EMERGENCY_THROTTLE_OBSERVED_DISARMED",
+                "reason=$reason $detail (V5.9.1332: clamp removed; observation-only)",
+            )
+        } catch (_: Throwable) {}
     }
     private fun supervisorNoteWorkerTimeoutForThrottle() {
         val now = System.currentTimeMillis()

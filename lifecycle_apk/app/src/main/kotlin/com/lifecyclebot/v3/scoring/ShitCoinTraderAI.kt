@@ -893,19 +893,38 @@ object ShitCoinTraderAI {
         shitScore += buyScore
         scoreReasons.add("buy+$buyScore")
         
-        // 3. MOMENTUM SCORE (-15 to +20 pts)
+        // 3. MOMENTUM SCORE (-15 to +10 pts)
         // V5.9.218: flat momentum (0%) no longer contributes to score — must show real price move
+        // V5.9.1332 — STRATEGY CLEANUP ROOT CAUSE FIX. LosingPatternMemory snapshot
+        // (build 5.0.3321) showed SHITCOIN|S61+ as the WORST bucket: 190L / 12W
+        // (mean -13.8%). High-score Shitcoin tokens are losing the most — meaning
+        // the scoring function is buying the TOP of parabolic pumps. Parabolic
+        // memecoins almost always dump within minutes of peak momentum.
+        // Cap the momentum reward at +10 (was +20 for momentum>=20). The lane still
+        // rewards real upward movement, but doesn't double-pay for "already pumped".
         val momentumScore = when {
-            momentum >= 20 -> 20   // Parabolic!
-            momentum >= 10 -> 15
-            momentum >= 5 -> 10
-            momentum >= 2 -> 7
+            momentum >= 20 -> 10   // V5.9.1332: was 20 — don't over-reward parabolic (top-of-pump trap)
+            momentum >= 10 -> 8    // V5.9.1332: was 15
+            momentum >= 5 -> 7     // V5.9.1332: was 10
+            momentum >= 2 -> 5     // V5.9.1332: was 7
             momentum >= 0 -> 3     // V5.9.316: REVERT V5.9.218 — flat=3 (build #1941)
             momentum >= -5 -> 0    // V5.9.316: REVERT V5.9.218 — slight fade=0 (build #1941)
             else -> -15
         }
         shitScore += momentumScore
         if (momentumScore != 0) scoreReasons.add("mom${if(momentumScore>0)"+" else ""}$momentumScore")
+
+        // V5.9.1332 — OVERHEATED penalty. When a memecoin is up >40% in the
+        // momentum window (typically 5-15min on PumpPortal), entering at that
+        // point is statistically a top-buy. This is independent of buyPressure
+        // — even strong buy pressure on a +50% candle is "FOMO chasing". -10pts.
+        // Train-First: not a hard veto; if the token has stellar liquidity +
+        // social + age, it can still pass the floor.
+        if (momentum > 40.0) {
+            shitScore = (shitScore - 10).coerceAtLeast(0)
+            scoreReasons.add("overheat-10")
+            ErrorLogger.debug(TAG, "💩 OVERHEATED: ${symbol} | momentum=${"%.1f".format(momentum)}% (>40%) → -10pts → score=$shitScore")
+        }
         
         // 4. TOKEN AGE SCORE (0-15 pts) - Sweet spot is 30 mins - 2 hours
         val ageScore = when {

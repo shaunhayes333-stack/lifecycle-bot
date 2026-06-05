@@ -2805,7 +2805,10 @@ for legal compliance.
                     // V5.9.797 — operator audit: pull the active-band badge (e.g. F@30%,
                     // M@25%, A@18%, with ⚡ prefix when predictive escalated) instead of
                     // the stale hardcoded "@9%". When recovery is off the badge is empty.
-                    val short = com.lifecyclebot.engine.WrRecoveryPartial.shortBadge()
+                    // V5.9.1332 — main-thread ANR fix: route through UiSnapshotCache
+                    // (2.5s TTL). Raw shortBadge() scans TradeHistoryStore on every
+                    // updateUi() and was producing 1004ms freezes.
+                    val short = com.lifecyclebot.ui.UiSnapshotCache.wrShortBadge()
                     if (short == "off") "" else "🚑 WR recovery $short"
                 } catch (_: Throwable) { "" }
 
@@ -6017,8 +6020,11 @@ for legal compliance.
             
             // Active AI Layers - concise list with ML
             // V5.9.230: Live Education layer health — top performing + muted
+            // V5.9.1332 — main-thread ANR fix: getAllLayerMaturity() iterates all
+            // layer histories and was producing 1259ms freezes via
+            // getLayerLevelProgress(). Route through UiSnapshotCache (2.5s TTL).
             val eduHealthStr = try {
-                val maturity = com.lifecyclebot.v3.scoring.EducationSubLayerAI.getAllLayerMaturity()
+                val maturity = com.lifecyclebot.ui.UiSnapshotCache.eduAllLayerMaturity()
                 val top = maturity.entries
                     .filter { it.value.trades >= 10 }
                     .sortedByDescending { it.value.smoothedAccuracy }
@@ -11054,7 +11060,8 @@ Quick trade or open detailed dialog?
                 com.lifecyclebot.v3.scoring.EducationSubLayerAI.getLearningHealthReport()
             } catch (_: Exception) { "N/A" }
             val eduTop = try {
-                val maturity = com.lifecyclebot.v3.scoring.EducationSubLayerAI.getAllLayerMaturity()
+                // V5.9.1332 — main-thread relief via UiSnapshotCache (2.5s TTL).
+                val maturity = com.lifecyclebot.ui.UiSnapshotCache.eduAllLayerMaturity()
                 maturity.entries.filter { it.value.trades >= 5 }
                     .sortedByDescending { it.value.smoothedAccuracy }.take(5)
                     .joinToString("\n") { "  • ${it.key.padEnd(22)} WR=${(it.value.smoothedAccuracy*100).toInt()}% (${it.value.trades}t)${if (!it.value.isActive) " ⛔MUTED" else ""}" }
