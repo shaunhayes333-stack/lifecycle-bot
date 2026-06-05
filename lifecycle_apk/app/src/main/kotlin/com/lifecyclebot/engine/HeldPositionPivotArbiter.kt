@@ -1,7 +1,6 @@
 package com.lifecyclebot.engine
 
 import com.lifecyclebot.data.TokenState
-import com.lifecyclebot.v3.scoring.MomentumPredictorAI
 import com.lifecyclebot.v3.scoring.CollectiveIntelligenceAI
 import java.util.concurrent.ConcurrentHashMap
 
