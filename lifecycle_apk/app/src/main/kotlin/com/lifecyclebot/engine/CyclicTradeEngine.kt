@@ -192,10 +192,43 @@ object CyclicTradeEngine {
                 abandonCycle(context, "token_lost", solPrice)
                 return
             }
-            val currentPrice = ts.lastPrice.takeIf { it > 0.0 } ?: return
+            // V5.9.1359 — STALE-FEED & HARD-FLOOR PROTECTION (root cause of the
+            // cyclic -98% bleed). PRE-FIX: `lastPrice.takeIf { it > 0 } ?: return`
+            // bailed the WHOLE tick whenever the held token's price feed went
+            // quiet — so the SL/TP/-15% checks never ran. Thin meme tokens drop
+            // off the active scanner fast; the position then rode BLIND until a
+            // late tick finally landed showing the token had already rugged
+            // (-98%). A frozen feed on a held meme is itself a danger signal, not
+            // a reason to wait. Now: if price is missing OR stale (>90s since last
+            // update), FORCE-CLOSE at last-known pnl instead of riding blind.
+            val nowTickMs = System.currentTimeMillis()
+            val priceAgeMs = if (ts.lastPriceUpdate > 0L) nowTickMs - ts.lastPriceUpdate else Long.MAX_VALUE
+            val STALE_FEED_MS = 90_000L
+            val rawPrice = ts.lastPrice
+            if (rawPrice <= 0.0 || priceAgeMs > STALE_FEED_MS) {
+                val lastKnownPnl = if (entryPriceSol > 0.0 && rawPrice > 0.0)
+                    ((rawPrice - entryPriceSol) / entryPriceSol) * 100.0 else 0.0
+                try { ErrorLogger.warn(TAG, "🧊 STALE_FEED_EXIT $currentSymbol price=${rawPrice} age=${priceAgeMs}ms → force-close @ ${"%+.1f".format(lastKnownPnl)}% (no blind riding)") } catch (_: Throwable) {}
+                try { com.lifecyclebot.engine.PipelineHealthCollector.labelInc("CYCLIC_STALE_FEED_EXIT") } catch (_: Throwable) {}
+                closeCycle(context, ts, executor, wallet, walletSol, lastKnownPnl, "STALE_FEED", solPrice)
+                return
+            }
+            val currentPrice = rawPrice
             val pnlPct = if (entryPriceSol > 0.0) {
                 ((currentPrice - entryPriceSol) / entryPriceSol) * 100.0
             } else 0.0
+
+            // V5.9.1359 — UNCONDITIONAL HARD FLOOR (standing operator rule:
+            // -15% hard SL on ALL open positions, no exceptions). The mode SL
+            // (adaptiveTpSl, 8-12%) normally fires first, but loss-streak
+            // overlays and runner trails could let an edge case slip; this is the
+            // absolute backstop. Fires before any other exit decision.
+            if (pnlPct <= -15.0) {
+                try { ErrorLogger.warn(TAG, "🛑 HARD_FLOOR_15 $currentSymbol @ ${"%+.1f".format(pnlPct)}% → force-close") } catch (_: Throwable) {}
+                try { com.lifecyclebot.engine.PipelineHealthCollector.labelInc("CYCLIC_HARD_FLOOR_15") } catch (_: Throwable) {}
+                closeCycle(context, ts, executor, wallet, walletSol, pnlPct, "HARD_FLOOR_-15", solPrice)
+                return
+            }
 
             val (tpPct, slPct) = adaptiveTpSl(currentMode)
             val holdMs = System.currentTimeMillis() - entryTimeMs
@@ -539,6 +572,21 @@ object CyclicTradeEngine {
         // UI showed FINALITY_EXEC_OPEN_BLOCKED_COOLDOWN_* instead of behaving
         // like an independent compounding lane.
         try { LaneExecutionCoordinator.canRequestExecution(best.mint, "CYCLIC") } catch (_: Throwable) {}
+        // V5.9.1359 — ENTRY-PRICE SANITY. A near-zero or stale lastPrice at entry
+        // makes every downstream pnl calc garbage (the fake -98% / +1.3M%
+        // artifacts). Refuse to open on a bad/stale entry anchor — skip the
+        // candidate, don't enter blind. (Genuine micro-priced memes still have a
+        // positive, fresh price; this only rejects 0/negative/frozen feeds.)
+        run {
+            val entryAge = if (best.lastPriceUpdate > 0L) System.currentTimeMillis() - best.lastPriceUpdate else Long.MAX_VALUE
+            if (best.lastPrice <= 0.0 || entryAge > 90_000L) {
+                statusMessage = "⏸️ Cyclic skip ${best.symbol}: bad/stale entry price (p=${best.lastPrice} age=${entryAge}ms)"
+                try { com.lifecyclebot.engine.PipelineHealthCollector.labelInc("CYCLIC_ENTRY_PRICE_REJECTED") } catch (_: Throwable) {}
+                try { ErrorLogger.warn(TAG, "CYCLIC_ENTRY_PRICE_REJECTED ${best.symbol} p=${best.lastPrice} age=${entryAge}ms") } catch (_: Throwable) {}
+                return
+            }
+        }
+
         val cyclicAuth = TradeAuthorizer.authorize(
             mint = best.mint,
             symbol = best.symbol,
