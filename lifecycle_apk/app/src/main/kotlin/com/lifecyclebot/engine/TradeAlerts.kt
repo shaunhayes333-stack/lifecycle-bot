@@ -1,5 +1,6 @@
 package com.lifecyclebot.engine
 
+import com.lifecyclebot.util.AppDispatchers
 import com.lifecyclebot.data.BotConfig
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.GlobalScope
@@ -34,7 +35,7 @@ object TradeAlerts {
         
         val modeTag = if (isPaper) "[PAPER]" else "[LIVE]"
         
-        GlobalScope.launch(Dispatchers.IO) {
+        GlobalScope.launch(AppDispatchers.sideEffect) {
             // Telegram
             if (cfg.telegramTradeAlerts && cfg.telegramBotToken.isNotBlank()) {
                 TelegramNotifier.send(cfg, 
@@ -72,7 +73,7 @@ object TradeAlerts {
         val modeTag = if (isPaper) "[PAPER]" else "[LIVE]"
         val color = if (pnlSol >= 0) DiscordNotifier.GREEN else DiscordNotifier.RED
         
-        GlobalScope.launch(Dispatchers.IO) {
+        GlobalScope.launch(AppDispatchers.sideEffect) {
             // Telegram
             if (cfg.telegramTradeAlerts && cfg.telegramBotToken.isNotBlank()) {
                 TelegramNotifier.send(cfg, 
@@ -111,7 +112,7 @@ object TradeAlerts {
         val modeTag = if (isPaper) "[PAPER]" else "[LIVE]"
         val isMega = pnlPct >= 50
         
-        GlobalScope.launch(Dispatchers.IO) {
+        GlobalScope.launch(AppDispatchers.sideEffect) {
             // Telegram
             if (cfg.telegramTradeAlerts && cfg.telegramBotToken.isNotBlank()) {
                 val emoji = if (isMega) "🚀🚀🚀" else "🚀"
@@ -146,7 +147,7 @@ object TradeAlerts {
     ) {
         if (!shouldNotify(cfg)) return
         
-        GlobalScope.launch(Dispatchers.IO) {
+        GlobalScope.launch(AppDispatchers.sideEffect) {
             // Telegram
             if (cfg.telegramTradeAlerts && cfg.telegramBotToken.isNotBlank()) {
                 TelegramNotifier.send(cfg, TelegramNotifier.treasuryMsg(milestoneName, treasurySol))
@@ -172,7 +173,7 @@ object TradeAlerts {
     fun onCircuitBreaker(cfg: BotConfig, reason: String) {
         if (!shouldNotify(cfg)) return
         
-        GlobalScope.launch(Dispatchers.IO) {
+        GlobalScope.launch(AppDispatchers.sideEffect) {
             // Telegram
             if (cfg.telegramTradeAlerts && cfg.telegramBotToken.isNotBlank()) {
                 TelegramNotifier.send(cfg, TelegramNotifier.circuitBreakerMsg(reason))
@@ -199,7 +200,7 @@ object TradeAlerts {
     fun onMainThreadStall(cfg: BotConfig, topFrame: String, gapMs: Long) {
         if (!shouldNotify(cfg)) return
         val msg = "⚠️ MAIN-THREAD STALL ${gapMs}ms\nTop blocking call: ${topFrame.take(140)}"
-        GlobalScope.launch(Dispatchers.IO) {
+        GlobalScope.launch(AppDispatchers.sideEffect) {
             if (cfg.telegramTradeAlerts && cfg.telegramBotToken.isNotBlank()) {
                 TelegramNotifier.send(cfg, msg)
             }
@@ -215,7 +216,7 @@ object TradeAlerts {
     fun onDevSell(cfg: BotConfig, symbol: String, pct: Int) {
         if (!shouldNotify(cfg)) return
         
-        GlobalScope.launch(Dispatchers.IO) {
+        GlobalScope.launch(AppDispatchers.sideEffect) {
             // Telegram
             if (cfg.telegramTradeAlerts && cfg.telegramBotToken.isNotBlank()) {
                 TelegramNotifier.send(cfg, TelegramNotifier.devSellMsg(symbol, pct))
@@ -236,7 +237,7 @@ object TradeAlerts {
     fun custom(cfg: BotConfig, title: String, message: String) {
         if (!shouldNotify(cfg)) return
         
-        GlobalScope.launch(Dispatchers.IO) {
+        GlobalScope.launch(AppDispatchers.sideEffect) {
             // Telegram
             if (cfg.telegramTradeAlerts && cfg.telegramBotToken.isNotBlank()) {
                 TelegramNotifier.send(cfg, "<b>$title</b>\n$message")

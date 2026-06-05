@@ -1,5 +1,6 @@
 package com.lifecyclebot.engine
 
+import com.lifecyclebot.util.AppDispatchers
 import android.content.Context
 import com.lifecyclebot.engine.NotificationHistory
 import com.lifecyclebot.engine.quant.QuantMetrics
@@ -458,7 +459,7 @@ object RuggedContracts {
         
         // Report to Collective Learning hive mind (async)
         if (com.lifecyclebot.collective.CollectiveLearning.isEnabled()) {
-            GlobalScope.launch(Dispatchers.IO) {
+            GlobalScope.launch(AppDispatchers.sideEffect) {
                 try {
                     val reason = when {
                         lossPct <= -50 -> "RUG_PULL"
@@ -2269,7 +2270,7 @@ class Executor(
                 val topHold  = ts.safety.topHolderPct.takeIf { it >= 0 } ?: (ts.topHolderPct ?: 0.0)
                 val rsiSnap  = ts.meta.rsi
                 val emaSnap  = ts.meta.emafanAlignment
-                GlobalScope.launch(Dispatchers.IO) {
+                GlobalScope.launch(AppDispatchers.sideEffect) {
                     try {
                         TradeHistoryStore.recordTradeForML(
                             trade              = tradeSnap,
@@ -2318,7 +2319,7 @@ class Executor(
                 } catch (_: Throwable) { 0.0 }
                 if (appCtx != null && currentSol > 0.0) {
                     val pnlSnap = tradeWithMint.pnlPct
-                    GlobalScope.launch(Dispatchers.IO) {
+                    GlobalScope.launch(AppDispatchers.sideEffect) {
                         try {
                             com.lifecyclebot.engine.KillSwitch.recordTrade(
                                 context        = appCtx,
@@ -2416,7 +2417,7 @@ class Executor(
             val _fanoutIsRun      = try { RunTracker30D.isRunActive() } catch (_: Throwable) { false }
             val _fanoutRunScore   = ts.trades.lastOrNull { it.side == "BUY" }?.score?.coerceIn(0.0, 100.0)?.toInt() ?: 50
             val _fanoutConfidence = ts.entryScore.toInt().coerceIn(0, 100)
-            GlobalScope.launch(kotlinx.coroutines.Dispatchers.IO) {
+            GlobalScope.launch(AppDispatchers.sideEffect) {
                 try {
                     // ── ToxicModeCircuitBreaker ───────────────────────────────
                     if (_fanoutSide == "SELL" && _fanoutPnlPct < 0) {
@@ -3988,7 +3989,7 @@ class Executor(
             // lifecycle tracker keeps the position in PARTIAL_SELL /
             // RESIDUAL_HELD so subsequent sweeps can finish the job.
             try {
-                kotlinx.coroutines.GlobalScope.launch(kotlinx.coroutines.Dispatchers.IO) {
+                kotlinx.coroutines.GlobalScope.launch(AppDispatchers.sideEffect) {
                     val reading = TokenLifecycleTracker.reconcileWalletBalance(wallet, ts.mint)
                     val walletAfter = when (reading) {
                         is TokenLifecycleTracker.Reading.Confirmed -> reading.uiAmount
@@ -7189,7 +7190,7 @@ class Executor(
         
         try {
             ErrorLogger.info("Executor", "🌐 [COLLECTIVE] Launching upload for BUY ${ts.symbol}...")
-            kotlinx.coroutines.GlobalScope.launch(kotlinx.coroutines.Dispatchers.IO) {
+            kotlinx.coroutines.GlobalScope.launch(AppDispatchers.sideEffect) {
                 try {
                     // V5.6.21: Log coroutine start to verify it executes
                     ErrorLogger.info("Executor", "🌐 [COLLECTIVE] Coroutine STARTED for BUY ${ts.symbol}")
@@ -7405,7 +7406,7 @@ class Executor(
         
         try {
             ErrorLogger.info("Executor", "🌐 [COLLECTIVE] Launching upload for TREASURY BUY ${ts.symbol}...")
-            kotlinx.coroutines.GlobalScope.launch(kotlinx.coroutines.Dispatchers.IO) {
+            kotlinx.coroutines.GlobalScope.launch(AppDispatchers.sideEffect) {
                 try {
                     val marketSentiment = ts.meta.emafanAlignment.ifBlank { "NEUTRAL" }
                     com.lifecyclebot.collective.CollectiveLearning.uploadTrade(
@@ -7510,7 +7511,7 @@ class Executor(
         ts.position.blueChipStopLoss = stopLossPct
         
         try {
-            kotlinx.coroutines.GlobalScope.launch(kotlinx.coroutines.Dispatchers.IO) {
+            kotlinx.coroutines.GlobalScope.launch(AppDispatchers.sideEffect) {
                 val marketSentiment = ts.meta.emafanAlignment.ifBlank { "NEUTRAL" }
                 com.lifecyclebot.collective.CollectiveLearning.uploadTrade(
                     side = "BUY",
@@ -7614,7 +7615,7 @@ class Executor(
         ts.position.shitCoinStopLoss = stopLossPct
         
         try {
-            kotlinx.coroutines.GlobalScope.launch(kotlinx.coroutines.Dispatchers.IO) {
+            kotlinx.coroutines.GlobalScope.launch(AppDispatchers.sideEffect) {
                 val marketSentiment = ts.meta.emafanAlignment.ifBlank { "NEUTRAL" }
                 com.lifecyclebot.collective.CollectiveLearning.uploadTrade(
                     side = "BUY",
@@ -8310,7 +8311,7 @@ class Executor(
             
             onToast("✅ LIVE BUY: ${tradeId.symbol}\n${sol.fmt(4)} SOL @ ${price.fmt()}")
             
-            GlobalScope.launch(Dispatchers.IO) {
+            GlobalScope.launch(AppDispatchers.sideEffect) {
                 try {
                     val aiLayers = mapOf(
                         "Entry Score" to "${score.toInt()}/100",
@@ -8353,7 +8354,7 @@ class Executor(
             val verifyTradeSymbol = tradeId.symbol
             val verifyTradeKey = tradeKey
             val verifySig = sig  // V5.9.265: capture sig for authoritative tx-based verification
-            GlobalScope.launch(Dispatchers.IO) {
+            GlobalScope.launch(AppDispatchers.sideEffect) {
                 var verifiedQty = 0.0
                 var anyRpcError = false
                 var sigParseConfirmedZero = false  // V5.9.265: only TRUE phantom if tx parse explicitly says 0
@@ -9768,7 +9769,7 @@ class Executor(
             )
         } catch (_: Throwable) { ts }
         try { ts.trades.add(tradeSnap) } catch (_: Throwable) {}
-        kotlinx.coroutines.GlobalScope.launch(kotlinx.coroutines.Dispatchers.IO) {
+        kotlinx.coroutines.GlobalScope.launch(AppDispatchers.sideEffect) {
             try {
                 recordTrade(tsLearningSnap, tradeSnap)
                 try { security.recordTrade(tradeSnap) } catch (_: Throwable) {}
@@ -10108,7 +10109,7 @@ class Executor(
             onLog("🤖 AI LEARNED: Loss on ${ts.symbol} | phase=$ph ema=$fanName | Pattern recorded", ts.mint)
             
             if (pnlP <= -15.0) {
-                kotlinx.coroutines.GlobalScope.launch(kotlinx.coroutines.Dispatchers.IO) {
+                kotlinx.coroutines.GlobalScope.launch(AppDispatchers.sideEffect) {
                     try {
                         com.lifecyclebot.collective.CollectiveLearning.broadcastHotToken(
                             mint = ts.mint,
@@ -10165,7 +10166,7 @@ class Executor(
             onLog("🤖 AI LEARNED: Win on ${ts.symbol} +${pnlP.toInt()}% | Pattern reinforced", ts.mint)
             
             if (pnlP >= 20.0) {
-                kotlinx.coroutines.GlobalScope.launch(kotlinx.coroutines.Dispatchers.IO) {
+                kotlinx.coroutines.GlobalScope.launch(AppDispatchers.sideEffect) {
                     try {
                         com.lifecyclebot.collective.CollectiveLearning.broadcastHotToken(
                             mint = ts.mint,
@@ -10340,7 +10341,7 @@ class Executor(
             
             if (com.lifecyclebot.collective.CollectiveLearning.isEnabled()) {
                 ErrorLogger.info("Executor", "🌐 [COLLECTIVE] SELL: isEnabled=true, launching upload for ${ts.symbol}")
-                GlobalScope.launch(Dispatchers.IO) {
+                GlobalScope.launch(AppDispatchers.sideEffect) {
                     try {
                         ErrorLogger.info("Executor", "🌐 [COLLECTIVE] SELL coroutine STARTED for ${ts.symbol}")
                         val liquidityBucket = when {
@@ -13875,7 +13876,7 @@ class Executor(
             // instead of a silent inference. Failure to verify within
             // ~45s emits a SELL_STUCK warning that the operator will see.
             try {
-                kotlinx.coroutines.GlobalScope.launch(kotlinx.coroutines.Dispatchers.IO) {
+                kotlinx.coroutines.GlobalScope.launch(AppDispatchers.sideEffect) {
                     var seenTokenGone = false
                     var seenSolReturned = false
                     val solBumpThreshold = 0.001  // ignore noise from rent/fees fluctuations
@@ -14146,7 +14147,7 @@ class Executor(
             // BUY_PHANTOM if the chain never indexes the buy (catastrophic
             // RPC fail or tx revert post-broadcast).
             try {
-                kotlinx.coroutines.GlobalScope.launch(kotlinx.coroutines.Dispatchers.IO) {
+                kotlinx.coroutines.GlobalScope.launch(AppDispatchers.sideEffect) {
                     val deadlineMs = System.currentTimeMillis() + 45_000L
                     var poll = 0
                     var landed = false

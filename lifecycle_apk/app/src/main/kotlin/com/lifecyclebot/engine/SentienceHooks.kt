@@ -1,5 +1,6 @@
 package com.lifecyclebot.engine
 
+import com.lifecyclebot.util.AppDispatchers
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.GlobalScope
@@ -139,7 +140,7 @@ object SentienceHooks {
         if (cached != null && now - cached.ts < CACHE_TTL_MS) return cached.allow
 
         if (llmReady()) {
-            GlobalScope.launch(Dispatchers.IO) {
+            GlobalScope.launch(AppDispatchers.sideEffect) {
                 runCatching {
                     val q = "Trade entry sanity check. Symbol=$symbol score=$score conf=$conf. " +
                             "Reasons: ${reasons.take(140)}. Reply VETO if obvious rug/avoid, else OK."
@@ -169,7 +170,7 @@ object SentienceHooks {
         if (cached != null && now - cached.ts < CACHE_TTL_MS) return cached.exit
 
         if (llmReady()) {
-            GlobalScope.launch(Dispatchers.IO) {
+            GlobalScope.launch(AppDispatchers.sideEffect) {
                 runCatching {
                     val q = "Position exit check. Symbol=$symbol pnl=${"%.1f".format(pnlPct)}% " +
                             "peak=${"%.1f".format(peakPct)}% held=${holdMinutes}min. " +
@@ -271,7 +272,7 @@ object SentienceHooks {
             recentLosers.clear()
         }
         if (!llmReady()) return
-        GlobalScope.launch(Dispatchers.IO) {
+        GlobalScope.launch(AppDispatchers.sideEffect) {
             runCatching {
                 val payload = snapshot.joinToString("\n") {
                     "- ${it.engine}/${it.symbol} pnl=${"%.1f".format(it.pnlPct)} reasons=${it.reasons.take(3)}"
@@ -324,7 +325,7 @@ object SentienceHooks {
         val llmMult = if (cached != null && now - cached.ts < CACHE_TTL_MS) cached.mult else 1.0
 
         if ((cached == null || now - cached.ts >= CACHE_TTL_MS) && llmReady()) {
-            GlobalScope.launch(Dispatchers.IO) {
+            GlobalScope.launch(AppDispatchers.sideEffect) {
                 runCatching {
                     val advice = ask(
                         "Sizing call. engine=$engine symbol=$symbol regime=$regime. " +
@@ -356,7 +357,7 @@ object SentienceHooks {
         val now = System.currentTimeMillis()
         if (now - lastDistrustNominateMs.get() < DISTRUST_INTERVAL_MS) return
         lastDistrustNominateMs.set(now)
-        GlobalScope.launch(Dispatchers.IO) {
+        GlobalScope.launch(AppDispatchers.sideEffect) {
             runCatching {
                 val q = "These strategies are flagged distrusted: ${distrusted.joinToString()}. " +
                         "Which should we pause for 2h instead of permanently distrust? " +
@@ -381,7 +382,7 @@ object SentienceHooks {
         if (now - lastAutoTuneMs.get() < AUTOTUNE_INTERVAL_MS) return
         if (!llmReady()) return
         lastAutoTuneMs.set(now)
-        GlobalScope.launch(Dispatchers.IO) {
+        GlobalScope.launch(AppDispatchers.sideEffect) {
             runCatching {
                 val q = "Self-review: based on the last 6 hours, suggest exactly ONE parameter nudge " +
                         "to improve win rate. Format: 'set <param>=<value>' on a single line."

@@ -30,7 +30,7 @@ class TursoClient(
 ) {
     companion object {
         private const val TAG = "TursoClient"
-        private const val TIMEOUT_MS = 30_000
+        private const val TIMEOUT_MS = 8_000   // V5.9.1349 — was 30_000; telemetry upload must not hold a thread 30s (stall fix)
         private const val PIPELINE_PATH = "/v2/pipeline"
     }
 
