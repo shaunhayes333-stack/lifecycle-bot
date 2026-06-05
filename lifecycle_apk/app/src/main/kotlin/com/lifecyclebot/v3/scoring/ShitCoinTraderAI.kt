@@ -1060,10 +1060,29 @@ object ShitCoinTraderAI {
         // Tokens with neutral momentum AND weak buy pressure get -15 pts subtracted
         // from their score before threshold check. Tokens with any real signal pass fine.
         // This preserves fan-out for 500%+ memes while blocking the zero-signal trash.
-        val hasWeakSignal = momentum < -5.0 && buyPressurePct < 40.0  // V5.9.335: loosened (was <=0 && <45)
+        // V5.9.1331 — strategy cleanup: 11.5% WR / 440L means weak-signal entries are
+        // still dominating. Widen trigger from "momentum<-5 AND bp<40" to "momentum<0
+        // OR bp<45" and harshen penalty 8→12. Any of {fading price, weak demand}
+        // now subtracts 12pts. Combined with the +10 floor bump above, only setups
+        // with real buy pressure AND positive momentum pass. Train-First preserved —
+        // not a hard block, just a tighter quality bar.
+        val hasWeakSignal = momentum < 0.0 || buyPressurePct < 45.0
         if (hasWeakSignal) {
-            shitScore = (shitScore - 8).coerceAtLeast(0)   // V5.9.335: -15→-8 — softer penalty
-            ErrorLogger.debug(TAG, "💩 QUALITY_SOFT_GATE: ${symbol} | momentum=${"%.1f".format(momentum)} bp=${buyPressurePct.toInt()}% → -8pts → score=$shitScore")
+            shitScore = (shitScore - 12).coerceAtLeast(0)
+            ErrorLogger.debug(TAG, "💩 QUALITY_SOFT_GATE: ${symbol} | momentum=${"%.1f".format(momentum)} bp=${buyPressurePct.toInt()}% → -12pts → score=$shitScore")
+        }
+
+        // V5.9.1331 — DUMP_GUARD: independent penalty for confirmed dump patterns.
+        // Buy pressure < 30% means more sells than buys at point of entry — these
+        // are the S0-30 score-band dumps that LosingPatternMemory already flagged
+        // as 75%+ loss-rate (see line 1112). Pre-empt them here so they fall below
+        // the score floor instead of reaching the post-threshold danger-bucket
+        // soft-size path (which still lets micro-trades through). Train-First: still
+        // not a veto — the score just drops. If a token still passes after -20pts
+        // (e.g., it has stellar liq+social+platform), it deserves the shot.
+        if (buyPressurePct < 30.0) {
+            shitScore = (shitScore - 10).coerceAtLeast(0)
+            ErrorLogger.debug(TAG, "💩 DUMP_GUARD: ${symbol} | bp=${buyPressurePct.toInt()}% (<30%) → -10pts → score=$shitScore")
         }
 
         // Check thresholds
@@ -1676,8 +1695,16 @@ object ShitCoinTraderAI {
     // the 500-token pool + fan-out; the danger-bucket + expectancy gates below already cull
     // the rest). Mature floor nudged 35→38. The good exits are untouched. This is the lane
     // self-selecting a real-signal entry, NOT a scanner choke (the 500-pool is protected).
-    private const val SC_SCORE_BOOTSTRAP = 18
-    private const val SC_SCORE_MATURE = 38
+    // V5.9.1331 — STRATEGY CLEANUP (operator: 11.5% WR, 57W/440L, 45-loss streak).
+    // V3 was unchoked (V5.9.1325-1330) and throughput surged to ~2800/day, but a
+    // bootstrap floor of 18 means a token only needs liq(10)+buy(7)+age(10) = 27pts
+    // (with weakSig -8 dropping it to 19) to pass — i.e., almost every fresh memepool
+    // entry. That's the bleed source. Raise floor 18→28 (bootstrap) and 38→48 (mature).
+    // Lane policy already routes SHITCOIN to PAPER_MICRO (0.10× exec weight) so the
+    // dollar bleed is contained but the WR is still toxic. Tightening the entry bar
+    // teaches FluidLearning to prefer real-signal setups. DOES NOT disable the lane.
+    private const val SC_SCORE_BOOTSTRAP = 28
+    private const val SC_SCORE_MATURE = 48
     
     // V5.2 FIX: Lower confidence required in bootstrap
     private const val SC_CONF_BOOTSTRAP = 10          // V5.9.343: walk-back to V5.9.335

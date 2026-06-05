@@ -630,11 +630,17 @@ object MoonshotTraderAI {
         // floor of 30 (V5.9.235) was strangling fresh-launch entries that
         // historically delivered 500%+ runs. Soft scoring still penalises
         // weak setups; FluidLearningAI + Symbiosis still cull bad outcomes.
+        // V5.9.1331 — STRATEGY CLEANUP (operator: 11.5% WR, 57W/440L bleed).
+        // Moonshot paper floors were tuned for max throughput (12 / 20 / 30 / 45)
+        // and that's now drowning the WR. Raise each tier by +8 (still well below
+        // live-mode floors and the lane is REDUCED_SIZE_EXECUTION 0.60× anyway,
+        // so size is already contained). The bar a Moonshot must clear is now
+        // "marginally selective" instead of "anything that looks alive".
         val minScoreRaw = when {
-            learningProgress < 0.1 -> if (isPaper) 12 else 30
-            learningProgress < 0.3 -> if (isPaper) 20 else 38
-            learningProgress < 0.5 -> if (isPaper) 30 else 48
-            else                   -> if (isPaper) 45 else 58
+            learningProgress < 0.1 -> if (isPaper) 20 else 30
+            learningProgress < 0.3 -> if (isPaper) 28 else 38
+            learningProgress < 0.5 -> if (isPaper) 38 else 48
+            else                   -> if (isPaper) 52 else 60
         }
         // V5.9.1328 — ROOT FIX D: apply GATE_RELAXER multiplier in PAPER too.
         // Operator snapshot showed MOONSHOT rejecting score=44 base=45 — a

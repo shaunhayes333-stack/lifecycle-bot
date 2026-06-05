@@ -909,6 +909,25 @@ object PipelineHealthCollector {
             sb.append('\n')
         }
 
+        // ── V5.9.1331 — Per-lane open positions (slot-cap diagnostic) ──
+        // Operator: "Add memeOpen cap so a slot stall vs an exposure stall is
+        // immediately identifiable in the dump." When a lane reports stalls,
+        // this section tells us whether the lane is HOLDING positions (slot
+        // ceiling) or simply not finding setups (intake/score floor).
+        try {
+            val scOpen = try { com.lifecyclebot.v3.scoring.ShitCoinTraderAI.getActivePositions().size } catch (_: Throwable) { -1 }
+            val msOpen = try { com.lifecyclebot.v3.scoring.MoonshotTraderAI.getActivePositions().size } catch (_: Throwable) { -1 }
+            val hostOpen = try { com.lifecyclebot.engine.HostWalletTokenTracker.getOpenCount() } catch (_: Throwable) { -1 }
+            val memeOpen = (if (scOpen >= 0) scOpen else 0) + (if (msOpen >= 0) msOpen else 0)
+            sb.append("===== Per-lane open positions (slot-cap diagnostic) =====\n")
+            sb.append(line("ShitCoin open:", scOpen, "active ShitCoin paper+live positions")).append('\n')
+            sb.append(line("Moonshot open:", msOpen, "active Moonshot paper+live positions")).append('\n')
+            sb.append(line("Meme open (SC+MS):", memeOpen, "combined meme-lane slot consumption")).append('\n')
+            sb.append(line("Host wallet open:", hostOpen, "cross-lane wallet tracker count")).append('\n')
+            sb.append("  Read: high memeOpen + zero EXEC ⇒ slot stall (waiting on exits). Low memeOpen + zero EXEC ⇒ intake/score-floor stall.\n")
+            sb.append('\n')
+        } catch (_: Throwable) {}
+
         // ── Gate tally ──────────────────────────────────────────────
         if (s.phaseAllow.isNotEmpty() || s.phaseBlock.isNotEmpty()) {
             sb.append("===== Gate allow / block tally =====\n")

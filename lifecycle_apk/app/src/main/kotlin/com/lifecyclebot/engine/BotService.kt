@@ -11832,7 +11832,14 @@ if (hotExitHandledSweep) {
             supervisorTimeoutWindowCount = 0
         }
         supervisorTimeoutWindowCount += 1
-        if (supervisorTimeoutWindowCount > 20) {
+        // V5.9.1331 — STALL FIX (operator: "still trade stalls. it should never not be intake tokens").
+        // The 20-timeout-in-10min trip was over-firing under the new ~2800/day throughput
+        // (each cycle touches 32 tokens × 6/min = 192/min; even a 1% slow-API rate yields
+        // ~2 timeouts/min = 120/10min — way above 20). Result: emergency throttle cap=16
+        // pins for 5min repeatedly, cutting effective throughput in half during the
+        // exact window when intake should be highest. Raise threshold 20→60 so the
+        // throttle only kicks in on REAL pool exhaustion, not normal API tail latency.
+        if (supervisorTimeoutWindowCount > 60) {
             supervisorArmEmergencyThrottle("worker_timeouts", "count=$supervisorTimeoutWindowCount/10min")
         }
     }
