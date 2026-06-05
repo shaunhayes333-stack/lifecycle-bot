@@ -429,7 +429,7 @@ class BehaviorActivity : AppCompatActivity() {
      */
     private fun applyAggressionLevel(level: Int) {
         // Apply to BehaviorAI
-        BehaviorAI.setAggressionLevel(level)
+        BehaviorAI.setAggressionLevel(level, force = true)  // V5.9.1350 — manual dial = operator override, must stick
         
         Toast.makeText(this, "Aggression: ${getModeName(level)}", Toast.LENGTH_SHORT).show()
     }
@@ -504,7 +504,14 @@ class BehaviorActivity : AppCompatActivity() {
             tvSessionBigWins.text = "${state.sessionBigWins}"
             
             // Fluid adjustment
-            val adj = state.fluidAdjustment
+            // V5.9.1350 — include the MANUAL instinct-dial contribution so the panel
+            // gives honest feedback that the dial does something. fluidAdjustment is the
+            // learned win/loss drift; aggressionModifier is the operator dial. Both pull
+            // the same thresholds, so show their combined effect.
+            val aggrMod = try {
+                com.lifecyclebot.v3.scoring.FluidLearningAI.getAggressionModifier()
+            } catch (_: Throwable) { 0.0 }
+            val adj = state.fluidAdjustment + aggrMod
             tvFluidAdjustment.text = String.format("%+.2f", adj)
             tvFluidAdjustment.setTextColor(when {
                 adj > 0.2 -> 0xFF00FF88.toInt()

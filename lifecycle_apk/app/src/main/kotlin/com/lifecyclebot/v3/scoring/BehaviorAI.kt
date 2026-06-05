@@ -517,6 +517,15 @@ object BehaviorAI {
         val wins   = consecutiveWins.get()
         val current = aggressionLevel.get()
 
+        // V5.9.1350 — respect a manual dial override. While the operator's manual
+        // setting is active, the auto-stepper stands down so the dial actually sticks.
+        // A genuine catastrophe (tilt>=85 or losses>=8) still overrides the override
+        // so capital protection is never disabled.
+        run {
+            val catastrophe = tilt >= 85 || losses >= 8
+            if (!catastrophe && System.currentTimeMillis() < manualOverrideUntilMs) return
+        }
+
         // Compute target aggression band from current tilt / streak state.
         // Operator default = 5. Deescalation drifts DOWN. Recovery drifts UP.
         var target = when {
@@ -991,6 +1000,16 @@ object BehaviorAI {
     private val aggressionLevel = AtomicInteger(5)
     private var lastAggressionChangeMs = 0L
     private const val AGGRESSION_CHANGE_COOLDOWN_MS = 5000L  // 5 second minimum between changes
+
+    // V5.9.1350 — MANUAL INSTINCT-DIAL OVERRIDE WINDOW.
+    // Before this fix the user could move the Behavior dial but autoDeescalateAggression()
+    // (called after every MEME trade) re-stamped aggression toward its auto target within
+    // one trade — so the manual setting "didn't register or react". Now a manual set
+    // (force=true, from the UI) holds for this window; auto-deescalation is suppressed
+    // during it EXCEPT for a real catastrophe (tilt>=85 or losses>=8), which must always
+    // be free to protect capital. 0 = no active override.
+    @Volatile private var manualOverrideUntilMs = 0L
+    private const val MANUAL_OVERRIDE_WINDOW_MS = 30 * 60 * 1000L  // 30 minutes
     
     /**
      * Set the aggression level (0-11).
@@ -1022,6 +1041,8 @@ object BehaviorAI {
         
         aggressionLevel.set(clamped)
         lastAggressionChangeMs = now
+        // V5.9.1350 — a forced set is a manual operator action from the dial; hold it.
+        if (force) manualOverrideUntilMs = now + MANUAL_OVERRIDE_WINDOW_MS
         
         // Apply fluid strangles based on aggression
         val fluidMod = when (clamped) {

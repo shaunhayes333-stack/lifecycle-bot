@@ -1072,7 +1072,23 @@ object FluidLearningAI {
             val behaviorEffect = -behaviorModifier * 0.15  // Max 15% adjustment
             progress = (progress + behaviorEffect).coerceIn(0.0, 1.0)
         }
-        
+
+        // V5.9.1350 — WIRE THE MANUAL INSTINCT DIAL into the live thresholds.
+        // Before this fix aggressionModifier (set by the Behavior screen dial via
+        // setAggressionModifier) was written, persisted, and NEVER read — the dial
+        // was dead UI: getAggressionModifier() had zero consumers and the
+        // "FLUID LEARNING IMPACT" panel always showed +0.00 because the value
+        // never reached lerp(). Now it shifts progress the SAME way behaviorModifier
+        // does: positive (aggressive) → LOWER progress → looser floors → more trades;
+        // negative (defensive) → HIGHER progress → tighter floors → fewer, higher-
+        // quality trades. Range is already clamped to [-0.5, 0.5]; ×0.30 gives the
+        // dial up to a 15% pull on the bootstrap↔mature curve — meaningful but never
+        // enough to override learning entirely. Soft-shape only: no veto, no gate.
+        if (aggressionModifier != 0.0) {
+            val aggrEffect = -aggressionModifier * 0.30
+            progress = (progress + aggrEffect).coerceIn(0.0, 1.0)
+        }
+
         return bootstrap + (mature - bootstrap) * progress
     }
     
