@@ -47,7 +47,19 @@ object BrainConsensusGate {
         val regime: String,
         val v3Score: Int,
         val secondScore: Int,
+        // V5.9.1355 P1 — proven-dead trainable veto fields.
+        val provenDead: Boolean = false,
+        val normalEntryBlocked: Boolean = false,
+        val probeAllowed: Boolean = false,
     )
+
+    // V5.9.1355 P1 — 1-in-25 probe cadence per proven-dead context.
+    private const val PROBE_EVERY = 25
+    private val deadContextCounter = java.util.concurrent.ConcurrentHashMap<String, java.util.concurrent.atomic.AtomicLong>()
+    private fun isProvenDead(tradingMode: String, v3: Int): Boolean = try {
+        val b = LosingPatternMemory.stats(tradingMode, v3)
+        b.isDangerous && b.meanPnl < 0.0 && b.losses >= 20 && b.wins <= 1
+    } catch (_: Throwable) { false }
 
     fun evaluate(
         ts: TokenState,
@@ -115,13 +127,41 @@ object BrainConsensusGate {
             else                    -> Verdict.ALLOW
         }
 
+        // V5.9.1355 P1 — PROVEN-DEAD TRAINABLE VETO. A statistically dead context
+        // (losses>=20, wins<=1, mean<0) must stop taking NORMAL-size entries but
+        // must NEVER be permanently disabled. Allow a 1-in-25 dust-probe so the
+        // bucket keeps learning and can recover when metrics improve.
+        var provenDead = false
+        var normalEntryBlocked = false
+        var probeAllowed = false
+        if (isProvenDead(tradingMode, v3)) {
+            provenDead = true
+            val pdKey = "${tradingMode}|${LosingPatternMemory.scoreBand(v3)}"
+            val n = deadContextCounter.computeIfAbsent(pdKey) { java.util.concurrent.atomic.AtomicLong(0) }.incrementAndGet()
+            if (n % PROBE_EVERY == 0L) {
+                probeAllowed = true
+                objections += "PROVEN_DEAD_PROBE=$pdKey"
+                try {
+                    com.lifecyclebot.engine.PipelineHealthCollector.labelInc("BRAIN_CONSENSUS_PROBE_ALLOWED")
+                    com.lifecyclebot.engine.PipelineHealthCollector.labelInc("PROVEN_DEAD_CONTEXT_PROBE_ONLY")
+                } catch (_: Throwable) {}
+            } else {
+                normalEntryBlocked = true
+                objections += "PROVEN_DEAD_NORMAL_VETO=$pdKey"
+                try { com.lifecyclebot.engine.PipelineHealthCollector.labelInc("BRAIN_CONSENSUS_NORMAL_ENTRY_VETO") } catch (_: Throwable) {}
+            }
+        }
+
         return ConsensusReport(
-            verdict     = verdict,
+            verdict     = if (provenDead && verdict == Verdict.ALLOW) Verdict.SOFT_BLOCK else verdict,
             objections  = objections,
             mood        = mood,
             regime      = regime.name,
             v3Score     = v3,
             secondScore = secondScore,
+            provenDead  = provenDead,
+            normalEntryBlocked = normalEntryBlocked,
+            probeAllowed = probeAllowed,
         )
     }
 

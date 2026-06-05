@@ -116,6 +116,11 @@ object PipelineHealthCollector {
     private val execLiveAttempt  = AtomicLong(0L)
     private val execLiveBuyOk    = AtomicLong(0L)
     private val execLiveBuyFail  = AtomicLong(0L)
+
+    // V5.9.1355 P0.5 — public getters for LIVE_MODE_TRANSFER_AUDIT.
+    fun fdgLiveAllowCount(): Long = fdgLiveAllow.get()
+    fun fdgLiveBlockCount(): Long = fdgLiveBlock.get()
+    fun execLiveAttemptCount(): Long = execLiveAttempt.get()
     private val execLiveSellOk   = AtomicLong(0L)
     private val execLiveSellFail = AtomicLong(0L)
     private val execPaperBuyOk   = AtomicLong(0L)

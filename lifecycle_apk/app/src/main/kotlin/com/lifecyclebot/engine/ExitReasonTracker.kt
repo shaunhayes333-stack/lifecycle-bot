@@ -30,6 +30,18 @@ object ExitReasonTracker {
 
     fun record(layer: String, exitReason: String, pnlPct: Double) {
         try {
+            // V5.9.1355 P1 — EXIT-REASON SANITY. A STOP_LOSS bucket showing big
+            // positive PnL (or TAKE_PROFIT showing big negative) means the exit
+            // label and realized PnL disagree — corrupt attribution. Exclude the
+            // mismatched sample from exit-reason learning (trade record preserved
+            // elsewhere; only the corrupted label is dropped here).
+            val r = exitReason.uppercase()
+            val looksStop = r.contains("STOP") || r.contains("SL") || r.contains("FLOOR")
+            val looksTp   = r.contains("TAKE_PROFIT") || r.contains("TP") || r.contains("TARGET")
+            if ((looksStop && pnlPct > 5.0) || (looksTp && pnlPct < -5.0)) {
+                try { com.lifecyclebot.engine.PipelineHealthCollector.labelInc("EXIT_REASON_MISMATCH_NOT_TRAINED") } catch (_: Throwable) {}
+                return
+            }
             val key = keyOf(layer, exitReason)
             val w = windows.computeIfAbsent(key) { ArrayDeque(WINDOW + 1) }
             synchronized(w) {

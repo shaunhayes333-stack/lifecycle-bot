@@ -88,6 +88,77 @@ object ColdStreakDamper {
 }
 
 /**
+ * V5.9.1355 — Damage-Control Learning Gate (P0.6 surgical).
+ *
+ * Operator P0.6: when projected execs/day is >2000 while WR < 10%, the bot is
+ * spraying full-size entries into broken contexts. Enter DAMAGE_CONTROL when the
+ * last-100 settled meme trades show WR < 20% OR profit-factor < 0.5. In that
+ * state: cap NORMAL executions (toxic buckets become dust-probe only) but NEVER
+ * disable learning — allow a 1-in-25 controlled probe per context so the buckets
+ * keep learning and recovery is always possible. Soft-shape only; honours the
+ * performance doctrine (no hard veto outside the original whitelist).
+ */
+object DamageControlGate {
+
+    private const val WINDOW = 100
+    private const val WR_FLOOR_PCT = 20.0
+    private const val PF_FLOOR = 0.5
+    private const val PROBE_EVERY = 25
+    const val DAMAGE_MAX_EXECS_PER_DAY = 250.0
+
+    private val window = java.util.ArrayDeque<Double>(WINDOW + 1)
+    private val lock = Any()
+    @Volatile private var active = false
+    private val probeCounter = ConcurrentHashMap<String, AtomicLong>()
+
+    /** Feed every settled MEME close (pnlPct). Recomputes the damage state. */
+    fun noteOutcome(pnlPct: Double) {
+        synchronized(lock) {
+            window.addLast(pnlPct)
+            while (window.size > WINDOW) window.removeFirst()
+            if (window.size >= 30) recompute()
+        }
+    }
+
+    private fun recompute() {
+        val list = window.toList()
+        val decisive = list.filter { kotlin.math.abs(it) > 0.5 }
+        if (decisive.size < 20) { active = false; return }
+        val wins = decisive.count { it > 0.5 }
+        val wrPct = wins.toDouble() * 100.0 / decisive.size.toDouble()
+        val grossWin = decisive.filter { it > 0.0 }.sum()
+        val grossLoss = kotlin.math.abs(decisive.filter { it < 0.0 }.sum())
+        val pf = if (grossLoss > 1e-6) grossWin / grossLoss else 2.0
+        val wasActive = active
+        active = wrPct < WR_FLOOR_PCT || pf < PF_FLOOR
+        if (active && !wasActive) {
+            try { PipelineHealthCollector.labelInc("DAMAGE_CONTROL_LEARNING_ON") } catch (_: Throwable) {}
+        }
+    }
+
+    fun isActive(): Boolean = active
+
+    enum class Decision { ALLOW, PROBE_ONLY, BLOCK_NORMAL }
+
+    /** Gate a normal entry while damaged: 1-in-25 cadence probe, else block-normal. */
+    fun gateNormalEntry(contextKey: String): Decision {
+        if (!active) return Decision.ALLOW
+        val n = probeCounter.computeIfAbsent(contextKey) { AtomicLong(0) }.incrementAndGet()
+        return if (n % PROBE_EVERY == 0L) {
+            try { PipelineHealthCollector.labelInc("DAMAGE_CONTROL_PROBE_ALLOWED") } catch (_: Throwable) {}
+            Decision.PROBE_ONLY
+        } else {
+            try { PipelineHealthCollector.labelInc("DAMAGE_CONTROL_NORMAL_ENTRY_BLOCKED") } catch (_: Throwable) {}
+            Decision.BLOCK_NORMAL
+        }
+    }
+
+    fun statusLine(): String = if (active)
+        "DAMAGE_CONTROL ON — normal execs capped, dead buckets probe-only (1/$PROBE_EVERY)"
+    else ""
+}
+
+/**
  * V5.9.1323 — Provider Health Gate (P1-10 surgical).
  *
  * Operator §10: Groq rate-limited (sr=22%, 4xx=7), Helius (sr=0%, 4xx=170),

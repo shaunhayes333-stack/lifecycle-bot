@@ -44,6 +44,7 @@ object UnifiedPolicyHead {
     private val w = DoubleArray(NF) { 0.0 }
     @Volatile private var bias = 0.0
     @Volatile private var trained = 0L
+    fun trainedCount(): Long = trained  // V5.9.1355 P0.5 audit
     @Volatile private var appContext: Context? = null
     // running feature means for centring (stabilises SGD)
     private val featMean = DoubleArray(NF) { 0.5 }

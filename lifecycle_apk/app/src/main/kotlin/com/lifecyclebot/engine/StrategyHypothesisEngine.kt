@@ -170,11 +170,30 @@ object StrategyHypothesisEngine {
         val vc = h.control; val vv = h.variant
         val se = sqrt(vv.variance / vv.n + vc.variance / vc.n).coerceAtLeast(1e-6)
         val t = (vv.mean - vc.mean) / se
-        if (t >= PROMOTE_T) {
+        // V5.9.1355 P0.4 — PROMOTION INTEGRITY GUARD. Previously promotion fired
+        // on the t-stat alone, so a variant whose mean was merely "less negative"
+        // than a negative control got promoted and its sizeBias increased —
+        // scaling a LOSING strategy. Promote ONLY when the variant is genuinely
+        // better AND profitable in absolute terms.
+        val variantBetter = vv.mean > vc.mean
+        val variantProfitable = vv.mean > 0.0
+        val variantNetPos = (vv.mean * vv.n) > 0.0
+        val variantPfBetter = (vv.mean / (sqrt(vv.variance) + 1e-6)) > (vc.mean / (sqrt(vc.variance) + 1e-6))
+        val sampleOk = vv.n >= MIN_ARM && vc.n >= MIN_ARM
+        val ddAcceptable = (vv.mean - sqrt(vv.variance)) > -25.0
+        val promoteOk = t >= PROMOTE_T && variantBetter && variantProfitable &&
+            variantNetPos && variantPfBetter && sampleOk && ddAcceptable
+        if (promoteOk) {
             // variant wins → promote BOTH dimensions to the new baseline, spawn next
             baseline[ctx] = h.variantSizeBias
             stopBaseline[ctx] = h.variantStopMult   // V5.9.1286 — persist proven stop width
             promotions += 1
+            active[ctx] = spawn(ctx)
+        } else if (t >= PROMOTE_T && !promoteOk) {
+            // statistically distinguishable but NOT genuinely better/profitable
+            // (e.g. both arms negative, variant only "less bad") — reject promotion.
+            try { com.lifecyclebot.engine.PipelineHealthCollector.labelInc("HYPOTHESIS_PROMOTION_REJECTED|reason=NEGATIVE_OR_WORSE_VARIANT") } catch (_: Throwable) {}
+            retirements += 1
             active[ctx] = spawn(ctx)
         } else if (t <= -PROMOTE_T) {
             // variant clearly worse → retire, keep baseline, spawn a different probe

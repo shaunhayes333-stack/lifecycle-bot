@@ -2859,6 +2859,31 @@ object FinalDecisionGate {
             }
         } catch (_: Throwable) { /* fail-open: learned shaping must not starve execution */ }
 
+        // V5.9.1355 P0.6 — GLOBAL DAMAGE-CONTROL ENTRY GATE. When the last-100
+        // meme trades collapse (WR<20% OR PF<0.5), cap normal executions:
+        // off-cadence normal entries demote to a micro probe; a 1-in-25 cadence
+        // tick is allowed at probe size so learning continues. Never blocks
+        // outright — soft-shape per doctrine.
+        try {
+            if (com.lifecyclebot.engine.runtime.DamageControlGate.isActive()) {
+                val dcKey = "${laneName}|${com.lifecyclebot.engine.LosingPatternMemory.scoreBand(candidate.entryScore.toInt())}"
+                when (com.lifecyclebot.engine.runtime.DamageControlGate.gateNormalEntry(dcKey)) {
+                    com.lifecyclebot.engine.runtime.DamageControlGate.Decision.BLOCK_NORMAL -> {
+                        val beforeDc = finalSize
+                        finalSize = minOf(finalSize, 0.02)
+                        tags.add("damage_control_normal_blocked")
+                        checks.add(GateCheck("damage_control", true, "DAMAGE_CONTROL normal-entry capped → micro ${beforeDc.format(3)}→${finalSize.format(3)}"))
+                    }
+                    com.lifecyclebot.engine.runtime.DamageControlGate.Decision.PROBE_ONLY -> {
+                        finalSize = minOf(finalSize, 0.02)
+                        tags.add("damage_control_probe")
+                        checks.add(GateCheck("damage_control", true, "DAMAGE_CONTROL 1-in-25 learning probe @ ${finalSize.format(3)}"))
+                    }
+                    com.lifecyclebot.engine.runtime.DamageControlGate.Decision.ALLOW -> { }
+                }
+            }
+        } catch (_: Throwable) { /* fail-open */ }
+
         val winMemoryMultiplier = try {
             val latestBuyPct = ts.history.lastOrNull()?.buyRatio?.times(100) ?: 50.0
             TokenWinMemory.getConfidenceMultiplier(
@@ -3656,6 +3681,23 @@ object FinalDecisionGate {
                             finalSize = (finalSize * damp).coerceAtLeast(0.01)
                             tags.add("bcg_size_damped")
                             checks.add(GateCheck("brain_consensus", true, "SOFT objections=${report.objections.size}; size ${originalSize.format(3)}→${finalSize.format(3)}"))
+                        }
+                        // V5.9.1355 P1 — PROVEN-DEAD TRAINABLE VETO binding. A
+                        // statistically dead context blocks NORMAL-size entry but
+                        // never permanently disables: off-cadence ticks shrink to a
+                        // micro probe (0.02); the 1-in-25 cadence tick is allowed
+                        // through at probe size so the bucket keeps learning.
+                        if (report.provenDead) {
+                            val beforeP = finalSize
+                            if (report.normalEntryBlocked) {
+                                finalSize = minOf(finalSize, 0.02)
+                                tags.add("bcg_proven_dead_normal_veto")
+                                checks.add(GateCheck("brain_consensus_proven_dead", true, "PROVEN_DEAD normal-entry vetoed → micro ${beforeP.format(3)}→${finalSize.format(3)}"))
+                            } else if (report.probeAllowed) {
+                                finalSize = minOf(finalSize, 0.02)
+                                tags.add("bcg_proven_dead_probe")
+                                checks.add(GateCheck("brain_consensus_proven_dead", true, "PROVEN_DEAD 1-in-25 learning probe @ ${finalSize.format(3)}"))
+                            }
                         }
                         val weakEvidence = candidate.setupQuality !in listOf("A+", "A", "B") && adjustedConfidence < 35.0 && candidate.entryScore < 25.0
                         if (hasDanger && deepLearningDeficit && weakEvidence) {

@@ -55,6 +55,7 @@ object ForwardOutcomeModel {
 
     private val fine   = ConcurrentHashMap<String, Cell>()   // full signature
     private val coarse = ConcurrentHashMap<String, Cell>()   // lane×band×regime parent
+    fun signatureCount(): Int = fine.size  // V5.9.1355 P0.5 audit
     @Volatile private var totalUpdates = 0L
     @Volatile private var appContext: Context? = null
 

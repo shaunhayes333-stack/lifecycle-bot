@@ -208,6 +208,14 @@ object V3JournalRecorder {
                 val band = com.lifecyclebot.engine.LosingPatternMemory.scoreBand(entryScore)
                 com.lifecyclebot.engine.learning.TacticSwitcher.onTradeClosed(layer, band, pnlPct)
             } catch (_: Exception) {}
+            // V5.9.1355 P0.6 — feed the global damage-control window + per-lane
+            // cold-streak damper. recordClose is the MEME close fanout so these
+            // windows stay meme-domain clean.
+            try {
+                val isWinC = pnlPct > 0.5; val isLossC = pnlPct < -0.5
+                com.lifecyclebot.engine.runtime.ColdStreakDamper.noteOutcome(layer, isPaper, isWinC, isLossC)
+                com.lifecyclebot.engine.runtime.DamageControlGate.noteOutcome(pnlPct)
+            } catch (_: Exception) {}
         }
     }
 }
