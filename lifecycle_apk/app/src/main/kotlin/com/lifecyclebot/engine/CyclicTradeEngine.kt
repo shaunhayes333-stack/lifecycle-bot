@@ -472,7 +472,11 @@ object CyclicTradeEngine {
             }
         }
 
-        val (tpPctEntry, slPctEntry) = adaptiveTpSl(best.tradingMode.ifBlank { "STANDARD" })
+        // V5.9.1347 — capture the V3-chosen lane mode NOW, before the buy re-stamps
+        // the position's tradingMode to "CYCLIC" (line ~574). This is the mode the
+        // toolkit picked for the token, and it's what drives the mode-aware exit style.
+        val chosenLaneMode = best.position.tradingMode.ifBlank { "STANDARD" }
+        val (tpPctEntry, slPctEntry) = adaptiveTpSl(chosenLaneMode)
 
         // V5.9.1210 — CYCLIC must use the same executable-open finality
         // contract as the other lanes. Restoring paper cyclic in 1207 exposed
@@ -579,7 +583,7 @@ object CyclicTradeEngine {
             } catch (_: Throwable) {}
             isInPosition  = true
             currentMint   = best.mint
-            currentMode   = best.tradingMode.ifBlank { "STANDARD" }   // V5.9.1347 — adopt the V3-chosen lane style for exits
+            currentMode   = chosenLaneMode   // V5.9.1347 — V3-chosen style captured before CYCLIC re-stamp
             currentSymbol = best.symbol
             entryPriceSol = best.lastPrice
             entrySizeSol  = sizeSol
