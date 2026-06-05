@@ -131,6 +131,7 @@ object LearningPersistence {
             // V5.9.439 — generic brain-state blobs.
             putBlob("FLUID_LEARNING", com.lifecyclebot.v3.scoring.FluidLearningAI.exportState())
             putBlob("SENTIENCE",      com.lifecyclebot.engine.SentienceOrchestrator.exportState())
+            try { putBlob("DAMAGE_CONTROL_WINDOW", com.lifecyclebot.engine.runtime.DamageControlGate.exportState()) } catch (_: Throwable) {}  // V5.9.1357
             // V5.9.949 — persist the rest of the brain. Each was previously
             // wiped on every restart, forcing the bot to relearn from zero.
             try { putBlob("BEHAVIOR_LEARNING", com.lifecyclebot.engine.BehaviorLearning.exportState()) } catch (_: Throwable) {}
@@ -190,6 +191,7 @@ object LearningPersistence {
         // V5.9.439 — restore every brain-state blob.
         getBlob("FLUID_LEARNING")?.let { com.lifecyclebot.v3.scoring.FluidLearningAI.importState(it) }
         getBlob("SENTIENCE")?.let      { com.lifecyclebot.engine.SentienceOrchestrator.importState(it) }
+        try { getBlob("DAMAGE_CONTROL_WINDOW")?.let { com.lifecyclebot.engine.runtime.DamageControlGate.importState(it) } } catch (_: Throwable) {}  // V5.9.1357
         try { getBlob("AUTONOMOUS_META_POLICY")?.let { com.lifecyclebot.engine.AutonomousMetaPolicy.importState(it) } } catch (_: Throwable) {}  // V5.9.1260
         try { getBlob("FORWARD_OUTCOME_MODEL")?.let { com.lifecyclebot.engine.ForwardOutcomeModel.importState(it) } } catch (_: Throwable) {}  // V5.9.1261
         try { getBlob("SIGNAL_QUALITY")?.let { com.lifecyclebot.engine.SignalQualityTracker.importState(it) } } catch (_: Throwable) {}  // V5.9.1271

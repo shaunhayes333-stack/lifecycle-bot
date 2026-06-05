@@ -71,7 +71,18 @@ object StrategyTelemetry {
             val wins = trades.count { it.pnlPct > 1.0 }
             val losses = trades.count { it.pnlPct < -1.0 }
             val scratches = trades.size - wins - losses
-            val sumPnl = trades.sumOf { it.pnlPct }
+            // V5.9.1357 — clamp per-trade pnl% for the EV/mean view so a single
+            // feed-artifact outlier (e.g. +1,340,125% from a glitched price tick)
+            // can't make a bleeding lane read as a megawinner (the "lie of
+            // averages"). totalSolPnl below stays RAW so real SOL accounting is
+            // untouched — this only sanitizes the percentage expectancy display.
+            fun sanePct(p: Double): Double = when {
+                p.isNaN() || p.isInfinite() -> 0.0
+                p > 5000.0 -> 5000.0
+                p < -100.0 -> -100.0
+                else -> p
+            }
+            val sumPnl = trades.sumOf { sanePct(it.pnlPct) }
             val mean = if (trades.isNotEmpty()) sumPnl / trades.size else 0.0
             val wlDenom = wins + losses
             val wr = if (wlDenom > 0) (wins.toDouble() / wlDenom) * 100.0 else 0.0

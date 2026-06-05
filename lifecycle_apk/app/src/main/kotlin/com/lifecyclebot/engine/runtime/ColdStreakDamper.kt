@@ -156,6 +156,27 @@ object DamageControlGate {
     fun statusLine(): String = if (active)
         "DAMAGE_CONTROL ON — normal execs capped, dead buckets probe-only (1/$PROBE_EVERY)"
     else ""
+
+    // V5.9.1357 — PERSISTENCE (doctrine rule #2: any learnt state ships
+    // export/import). The rolling-100 window is session-local in-memory, so on
+    // every restart the gate went blind for the first 30 closes — spraying
+    // full-size into a known-bleeding model until the window refilled. Persist
+    // it so damage-control protection survives restarts.
+    fun exportState(): String = synchronized(lock) {
+        window.joinToString(",") { it.toString() }
+    }
+
+    fun importState(blob: String?) {
+        if (blob.isNullOrBlank()) return
+        synchronized(lock) {
+            window.clear()
+            blob.split(",").forEach { tok ->
+                tok.trim().toDoubleOrNull()?.let { window.addLast(it) }
+            }
+            while (window.size > WINDOW) window.removeFirst()
+            if (window.size >= 30) recompute()
+        }
+    }
 }
 
 /**

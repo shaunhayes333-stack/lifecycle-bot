@@ -156,6 +156,39 @@ object V3JournalRecorder {
         }
         recentCloseDedup[mint] = _dedupNow
 
+        // V5.9.1357 — LEARNING-PNL SANITIZER (expectancy poison firewall).
+        // A glitched price feed (near-zero entryPrice, bad mcap-derived tick)
+        // can yield physically-impossible closes like +1,340,125% that poison
+        // an entire lane's expectancy bin (the "lie of averages" disease — one
+        // absurd outlier makes a bleeding lane look like a megawinner, e.g.
+        // TREASURY EV=+670059%/trade). The on-disk journal keeps the RAW pnl so
+        // the user UI and accounting stay truthful, but EVERY learning tracker
+        // (expectancy, hold-duration, exit-reason, tactic switcher, damage
+        // control) is fed a clamped value. A genuine meme moonshot can do +900%
+        // even +2000% on a real fill, so the cap is generous; anything past it
+        // is a feed artifact, not a realized exit.
+        val pnlPctLearn: Double = run {
+            val LO = -100.0          // can't lose more than the stake
+            val HI = 5000.0          // +50x — generous real-fill ceiling
+            when {
+                pnlPct.isNaN() || pnlPct.isInfinite() -> {
+                    try { com.lifecyclebot.engine.PipelineHealthCollector.labelInc("LEARNING_PNL_ARTIFACT_DROPPED|reason=NAN_INF") } catch (_: Throwable) {}
+                    0.0
+                }
+                pnlPct > HI -> {
+                    try { com.lifecyclebot.engine.PipelineHealthCollector.labelInc("LEARNING_PNL_CLAMPED|reason=OUTLIER_HIGH") } catch (_: Throwable) {}
+                    com.lifecyclebot.engine.ErrorLogger.warn("V3JournalRecorder",
+                        "🧯 PNL_OUTLIER_CLAMPED $symbol ($layer): raw=${"%.0f".format(pnlPct)}% → ${HI}% (feed artifact; journal keeps raw)")
+                    HI
+                }
+                pnlPct < LO -> {
+                    try { com.lifecyclebot.engine.PipelineHealthCollector.labelInc("LEARNING_PNL_CLAMPED|reason=OUTLIER_LOW") } catch (_: Throwable) {}
+                    LO
+                }
+                else -> pnlPct
+            }
+        }
+
         // 1. Persist to the on-device SQLite Journal so the user UI sees it.
         var wrote = false
         try {
@@ -198,23 +231,23 @@ object V3JournalRecorder {
         //    journal write actually landed so trackers don't diverge from
         //    the on-disk truth.
         if (wrote) {
-            try { ScoreExpectancyTracker.record(layer, entryScore, pnlPct) } catch (_: Exception) {}
-            try { HoldDurationTracker.record(layer, holdMinutes, pnlPct) } catch (_: Exception) {}
-            try { ExitReasonTracker.record(layer, exitReason, pnlPct) } catch (_: Exception) {}
+            try { ScoreExpectancyTracker.record(layer, entryScore, pnlPctLearn) } catch (_: Exception) {}
+            try { HoldDurationTracker.record(layer, holdMinutes, pnlPctLearn) } catch (_: Exception) {}
+            try { ExitReasonTracker.record(layer, exitReason, pnlPctLearn) } catch (_: Exception) {}
             // V5.9.1333 — Tactic switcher observes per-(lane, scoreBand) outcome.
             // When a bucket bleeds past threshold, rotates its entry tactic
             // (MOMENTUM → PULLBACK → REACCUMULATION → BREAKOUT). Never disables.
             try {
                 val band = com.lifecyclebot.engine.LosingPatternMemory.scoreBand(entryScore)
-                com.lifecyclebot.engine.learning.TacticSwitcher.onTradeClosed(layer, band, pnlPct)
+                com.lifecyclebot.engine.learning.TacticSwitcher.onTradeClosed(layer, band, pnlPctLearn)
             } catch (_: Exception) {}
             // V5.9.1355 P0.6 — feed the global damage-control window + per-lane
             // cold-streak damper. recordClose is the MEME close fanout so these
             // windows stay meme-domain clean.
             try {
-                val isWinC = pnlPct > 0.5; val isLossC = pnlPct < -0.5
+                val isWinC = pnlPctLearn > 0.5; val isLossC = pnlPctLearn < -0.5
                 com.lifecyclebot.engine.runtime.ColdStreakDamper.noteOutcome(layer, isPaper, isWinC, isLossC)
-                com.lifecyclebot.engine.runtime.DamageControlGate.noteOutcome(pnlPct)
+                com.lifecyclebot.engine.runtime.DamageControlGate.noteOutcome(pnlPctLearn)
             } catch (_: Exception) {}
         }
     }
