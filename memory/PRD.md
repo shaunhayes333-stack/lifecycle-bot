@@ -6,6 +6,45 @@ NO local compiler. Multi-lane architecture (Memes [9 sub-lanes], Crypto/Alts,
 Stocks, Markets, Tokenized Stocks, Forex, Metals, Commodities). Foreground
 Service with a 50+ AI-module pipeline gated through processTokenCycle.
 
+## V5.9.1331 (Feb 2026) — STRATEGY CLEANUP + STALL FIX + memeOpen TELEMETRY (CI ✅ green)
+
+Operator mandate: *"11.5% WR, 57W/440L, 45-loss streak. Still trade stalls.
+Strategy cleanup, NOT disabling lanes."* Train-First doctrine fully respected
+— no lanes disabled, no hard vetoes added, all changes soft-shape (doctrine #86).
+
+A. **STRATEGY CLEANUP — ShitCoin entry quality**
+   - `SC_SCORE_BOOTSTRAP` 18 → 28, `SC_SCORE_MATURE` 38 → 48.
+     With LanePolicy.PAPER_MICRO (0.10× exec weight) already routing the lane,
+     dollar bleed is contained — but the 18-floor let liq(10)+buy(7)+age(10)=27pt
+     trash pass with weakSig -8 dropping to 19. Raising the floor teaches
+     FluidLearning to prefer real-signal setups.
+   - `QUALITY_SOFT_GATE` widened: `momentum<-5 AND bp<40` → `momentum<0 OR bp<45`,
+     penalty 8 → 12.
+   - New `DUMP_GUARD`: bp<30% subtracts -10pts independently (pre-empts the
+     LosingPatternMemory S0-30 dump-band that runs 75%+ loss-rate).
+
+B. **STRATEGY CLEANUP — Moonshot paper floors raised +8 across all tiers**
+   - `learningProgress<0.1`: paper 12 → 20
+   - `learningProgress<0.3`: paper 20 → 28
+   - `learningProgress<0.5`: paper 30 → 38
+   - `learningProgress>=0.5`: paper 45 → 52
+   - Lane remains REDUCED_SIZE_EXECUTION 0.60× — bar is now selective not blocking.
+
+C. **SUPERVISOR STALL FIX (BotService.supervisorNoteWorkerTimeoutForThrottle)**
+   - Emergency-throttle trip raised 20 → 60 timeouts/10min. Under V5.9.1330's
+     ~2800/day throughput, normal API tail latency was producing ~120
+     timeouts/10min — repeatedly clamping cap 32→16 for 5min windows. Intake
+     stalled exactly when it should be highest. Now throttle only kicks in on
+     REAL pool exhaustion.
+
+D. **memeOpen TELEMETRY (PipelineHealthCollector.dumpText)**
+   - New `Per-lane open positions (slot-cap diagnostic)` section in dumps:
+     ShitCoin open / Moonshot open / Meme open (SC+MS) / Host wallet open.
+   - Operator can now instantly tell: high memeOpen + zero EXEC ⇒ slot stall;
+     low memeOpen + zero EXEC ⇒ intake/score-floor stall.
+
+
+
 ## V5.9.1328 (Feb 2026) — MEME-TRADER ROOT-CAUSE FIXES (CI ✅ green)
 
 Operator mandate: "fix the issue at the source, do not stack patch
