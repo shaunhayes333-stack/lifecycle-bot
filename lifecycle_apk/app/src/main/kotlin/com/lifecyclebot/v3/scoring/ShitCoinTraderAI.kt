@@ -1130,6 +1130,24 @@ object ShitCoinTraderAI {
                     if (momentum >= 8.0 && buyPressurePct >= 60.0) 6
                     else if (momentum < 2.0) -6 else 0
                 }
+                com.lifecyclebot.engine.learning.TacticSwitcher.Tactic.LAB_PROPOSED -> {
+                    // V5.9.1334 — Lab-invented tactic. Pulls the bucket's best
+                    // paper-proven strategy from LlmLabStore (or null if the lab
+                    // has nothing ready). When a shape is found, gate the entry
+                    // against the lab's entryScoreMin and reward a clean fit (+8);
+                    // when the lab has nothing yet, fall through to MOMENTUM-shape
+                    // semantics so the bucket continues to trade (Train-First).
+                    val band = try { com.lifecyclebot.engine.LosingPatternMemory.scoreBand(shitScore) } catch (_: Throwable) { "" }
+                    val labShape = try {
+                        com.lifecyclebot.engine.learning.TacticSwitcher.labShapeFor("SHITCOIN", band)
+                    } catch (_: Throwable) { null }
+                    if (labShape != null) {
+                        if (shitScore >= labShape.entryScoreMin) {
+                            scoreReasons.add("lab:${labShape.strategyName.take(10)}")
+                            8
+                        } else 0
+                    } else 0
+                }
             }
             if (tacticDelta != 0) {
                 shitScore = (shitScore + tacticDelta).coerceAtLeast(0)

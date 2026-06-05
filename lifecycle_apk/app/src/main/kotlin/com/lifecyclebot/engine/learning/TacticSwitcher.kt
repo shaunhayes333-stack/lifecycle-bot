@@ -40,7 +40,7 @@ object TacticSwitcher {
 
     private const val TAG = "TacticSwitcher"
 
-    enum class Tactic { MOMENTUM, PULLBACK, REACCUMULATION, BREAKOUT }
+    enum class Tactic { MOMENTUM, PULLBACK, REACCUMULATION, BREAKOUT, LAB_PROPOSED }
 
     /** Fresh trades required before a rotated tactic is judged. */
     private const val TRIAL_WINDOW = 25
@@ -235,5 +235,76 @@ object TacticSwitcher {
         "S41-60" -> 50
         "S61+" -> 70
         else -> 30
+    }
+
+    // ────────────────────────────────────────────────────────────────────────
+    // V5.9.1334 — LAB-PROPOSED TACTICS
+    //
+    // When a bucket rotates to Tactic.LAB_PROPOSED, the switcher asks the
+    // LLM Lab for its best paper-proven strategy matching the current lane
+    // + score band. If the lab has nothing proven yet, LAB_PROPOSED falls
+    // back to MOMENTUM-shape (graceful degrade — never disable).
+    //
+    // Promotion bar (a lab strategy is "tactic-ready"):
+    //   • status = PROMOTED  (already user-promoted in the lab)  OR
+    //   • status = ACTIVE AND paperTrades >= 30 AND winRate% >= 45%
+    //
+    // The switcher reads this purely via LlmLabStore — no writes — so the
+    // lab remains the sole author of strategy state.
+    // ────────────────────────────────────────────────────────────────────────
+
+    data class LabTacticShape(
+        val strategyId: String,
+        val strategyName: String,
+        val entryScoreMin: Int,
+        val takeProfitPct: Double,
+        val stopLossPct: Double,
+        val maxHoldMins: Int,
+        val rationale: String,
+    )
+
+    /** Best lab-proven shape for the given (lane, scoreBand), or null. */
+    fun labShapeFor(lane: String, scoreBand: String): LabTacticShape? {
+        return try {
+            val midScore = scoreBandToMidScore(scoreBand)
+            val asset = laneToLabAsset(lane)
+            val all = com.lifecyclebot.engine.lab.LlmLabStore.allStrategies()
+            val ready = all.filter { s ->
+                val statusOk = s.status == com.lifecyclebot.engine.lab.LabStrategyStatus.PROMOTED ||
+                    (s.status == com.lifecyclebot.engine.lab.LabStrategyStatus.ACTIVE &&
+                        s.paperTrades >= 30 && s.winRatePct() >= 45.0)
+                val assetOk = s.asset == com.lifecyclebot.engine.lab.LabAssetClass.ANY || s.asset == asset
+                val scoreOk = midScore >= (s.entryScoreMin - 8)   // small overlap tolerance
+                statusOk && assetOk && scoreOk
+            }
+            if (ready.isEmpty()) return null
+            val best = ready.maxByOrNull { it.paperPnlSol / it.paperTrades.coerceAtLeast(1).toDouble() } ?: return null
+            LabTacticShape(
+                strategyId = best.id,
+                strategyName = best.name,
+                entryScoreMin = best.entryScoreMin,
+                takeProfitPct = best.takeProfitPct,
+                stopLossPct = best.stopLossPct,
+                maxHoldMins = best.maxHoldMins,
+                rationale = best.rationale.take(120),
+            )
+        } catch (_: Throwable) { null }
+    }
+
+    private fun laneToLabAsset(lane: String): com.lifecyclebot.engine.lab.LabAssetClass {
+        val L = lane.uppercase()
+        return when {
+            L.contains("SHIT") || L.contains("MEME") || L.contains("MOONSHOT") ->
+                com.lifecyclebot.engine.lab.LabAssetClass.MEME
+            L.contains("BLUECHIP") || L.contains("CRYPTO") || L.contains("ALT") ->
+                com.lifecyclebot.engine.lab.LabAssetClass.ALT
+            L.contains("STOCK") || L.contains("EQUITY") ->
+                com.lifecyclebot.engine.lab.LabAssetClass.STOCK
+            L.contains("FOREX") -> com.lifecyclebot.engine.lab.LabAssetClass.FOREX
+            L.contains("METAL") -> com.lifecyclebot.engine.lab.LabAssetClass.METAL
+            L.contains("COMMOD") -> com.lifecyclebot.engine.lab.LabAssetClass.COMMODITY
+            L.contains("MARKET") -> com.lifecyclebot.engine.lab.LabAssetClass.MARKETS
+            else -> com.lifecyclebot.engine.lab.LabAssetClass.ANY
+        }
     }
 }

@@ -938,9 +938,22 @@ object PipelineHealthCollector {
                 sb.append("===== Tactic Switcher (V5.9.1333) — fluid tactic rotation =====\n")
                 tacticSnaps.take(15).forEach { snap ->
                     val ageMin = snap.ageMs / 60_000L
-                    sb.append("  ${snap.key.padEnd(24)} ${snap.tactic.name.padEnd(15)} n=${snap.tradesSinceRotation} W/L=${snap.winsSinceRotation}/${snap.lossesSinceRotation} μ=${"%+.1f".format(snap.meanPnlPct)}% age=${ageMin}m\n")
+                    val laneAndBand = snap.key.split("|", limit = 2)
+                    val lane = laneAndBand.getOrNull(0) ?: ""
+                    val band = laneAndBand.getOrNull(1) ?: ""
+                    // V5.9.1334 — if LAB_PROPOSED, append the live lab-shape so
+                    // the operator can see which lab strategy is steering this
+                    // bucket right now.
+                    val labTag = if (snap.tactic == com.lifecyclebot.engine.learning.TacticSwitcher.Tactic.LAB_PROPOSED) {
+                        try {
+                            val shape = com.lifecyclebot.engine.learning.TacticSwitcher.labShapeFor(lane, band)
+                            if (shape != null) " 🧪 ${shape.strategyName.take(18)} (floor=${shape.entryScoreMin} tp=${"%.0f".format(shape.takeProfitPct)}%)"
+                            else " 🧪 (lab pending — falling back to MOMENTUM shape)"
+                        } catch (_: Throwable) { "" }
+                    } else ""
+                    sb.append("  ${snap.key.padEnd(24)} ${snap.tactic.name.padEnd(15)} n=${snap.tradesSinceRotation} W/L=${snap.winsSinceRotation}/${snap.lossesSinceRotation} μ=${"%+.1f".format(snap.meanPnlPct)}% age=${ageMin}m$labTag\n")
                 }
-                sb.append("  (Rotates MOMENTUM → PULLBACK → REACCUMULATION → BREAKOUT when bucket bleeds 75%+ loss for 25+ trades. NEVER disables.)\n\n")
+                sb.append("  (Rotates MOMENTUM → PULLBACK → REACCUMULATION → BREAKOUT → LAB_PROPOSED when bucket bleeds 75%+ loss for 25+ trades. NEVER disables.)\n\n")
             }
             sb.append("  ${com.lifecyclebot.engine.PersonalityTraitMultipliers.summaryLine()}\n\n")
         } catch (_: Throwable) {}
