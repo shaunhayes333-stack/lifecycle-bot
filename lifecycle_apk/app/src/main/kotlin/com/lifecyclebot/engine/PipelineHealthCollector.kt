@@ -1501,8 +1501,19 @@ object PipelineHealthCollector {
             sb.append("  intake → lane eval:   ${"%.1f".format(intakeToEval)}%  (target >40%)\n")
         }
         if (totalLaneEval > 0L) {
-            val evalToV3 = ((v3Allow + v3Skipped).toDouble() / totalLaneEval * 100.0)
-            sb.append("  lane eval → V3:       ${"%.1f".format(evalToV3)}%  (target >20%)\n")
+            // V5.9.1343 — HONEST PER-TOKEN RATIO. LANE_EVAL is counted PER LANE (each
+            // token fans out to ~4 meme lanes), V3 is counted PER TOKEN. The old ratio
+            // divided per-token V3 by per-lane evals (~4x fan-out), reporting a falsely
+            // alarming ~8% when the real per-token rate is ~30-40%. Normalise by observed
+            // fan-out so it means "of tokens lane-evaluated, what % reached a V3 decision".
+            val distinctLanes = s.laneEvalCounts.size.coerceAtLeast(1)
+            val avgFanout = (totalLaneEval.toDouble() / distinctLanes).coerceAtLeast(1.0)
+            val approxTokensEvaluated = (totalLaneEval.toDouble() / avgFanout).coerceAtLeast(1.0)
+            val v3Total2 = (v3Allow + v3Skipped).toDouble()
+            val evalToV3PerToken = (v3Total2 / approxTokensEvaluated * 100.0).coerceAtMost(100.0)
+            val rawEvalToV3 = (v3Total2 / totalLaneEval * 100.0)
+            sb.append("  lane eval → V3:       ${"%.1f".format(evalToV3PerToken)}% per-token  (target >20%)\n")
+            sb.append("    └─ raw per-lane:    ${"%.1f".format(rawEvalToV3)}%  ($totalLaneEval evals / $distinctLanes lanes ≈ ${approxTokensEvaluated.toLong()} tokens, fan-out≈${"%.1f".format(avgFanout)})\n")
         }
         val v3Total = v3Allow + v3Skipped
         if (v3Total > 0L) {

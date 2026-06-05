@@ -65,6 +65,8 @@ enum class TradeMode {
     CYCLIC,
     TREASURY,
     STANDARD,
+    QUALITY,        // V5.9.1343 — top live winner (n=152 WR36%); was collapsing to UNKNOWN
+    LAB,            // V5.9.1343 — LLM Lab lane (n=36 WR75%); was collapsing to UNKNOWN
     UNKNOWN,
 }
 
@@ -260,6 +262,8 @@ object CanonicalOutcomeNormalizer {
             k.contains("COMMUNITY") -> TradeMode.COMMUNITY
             k.contains("CYCLIC") -> TradeMode.CYCLIC
             k.contains("TREASURY") || k.contains("CASH") -> TradeMode.TREASURY
+            k.contains("QUALITY") || k == "QUAL" -> TradeMode.QUALITY
+            k.contains("LAB") || k.contains("LLM") -> TradeMode.LAB
             k.contains("STANDARD") -> TradeMode.STANDARD
             else -> TradeMode.UNKNOWN
         }
@@ -864,6 +868,8 @@ object CanonicalOutcomeBus {
         TradeMode.STANDARD,
         TradeMode.PROJECT_SNIPER,
         TradeMode.DIP_HUNTER,
+        TradeMode.QUALITY,        // V5.9.1343 — Quality lane is a meme-lane V3 strategy
+        TradeMode.LAB,            // V5.9.1343 — LLM Lab trades meme tokens
         TradeMode.COMMUNITY -> AssetClass.MEME to TradeSource.V3
         else -> AssetClass.UNKNOWN to TradeSource.UNKNOWN
     }
