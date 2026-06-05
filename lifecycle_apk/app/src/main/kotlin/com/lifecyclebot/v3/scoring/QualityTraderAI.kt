@@ -431,6 +431,21 @@ object QualityTraderAI {
                 qualityScore = qualityScore,
             )
         }
+
+        // ── V5.9.1348 — LOSING-PATTERN-MEMORY SOFT-SHAPE (shared-layer parity) ──
+        // Quality fed LosingPatternMemory via the journal but never read it back.
+        // Same soft-shape as ShitCoin/Moonshot: net-negative danger bucket → size
+        // ×0.3 + route via FDG (no veto; FDG is final authority). Positive-mean
+        // danger buckets stay full-size (doctrine: avg_win*WR > avg_loss*(1-WR)).
+        var dangerSoftSize = 1.0
+        run {
+            val d = try { com.lifecyclebot.engine.LosingPatternMemory.stats("QUALITY", qualityScore) } catch (_: Throwable) { null }
+            if (d != null && d.isDangerous && d.meanPnl < 0.0) {
+                val band = try { com.lifecyclebot.engine.LosingPatternMemory.scoreBand(qualityScore) } catch (_: Throwable) { "" }
+                ErrorLogger.info(TAG, "⭐🧯 QUALITY_DANGER_BUCKET_SOFT: $symbol | band=$band score=$qualityScore losses=${d.losses} wins=${d.wins} mean=${"%+.1f".format(d.meanPnl)}% — size×0.3, routing via FDG")
+                dangerSoftSize = 0.3
+            }
+        }
         
         // Calculate position size based on quality
         val sizeMultiplier = when {
@@ -512,7 +527,7 @@ object QualityTraderAI {
         
         return QualitySignal(
             shouldEnter = true,
-            positionSizeSol = positionSize,
+            positionSizeSol = positionSize * dangerSoftSize,  // V5.9.1348 danger soft-shape
             takeProfitPct = tp,
             stopLossPct = sl,
             reason = "Quality setup: score=$qualityScore",

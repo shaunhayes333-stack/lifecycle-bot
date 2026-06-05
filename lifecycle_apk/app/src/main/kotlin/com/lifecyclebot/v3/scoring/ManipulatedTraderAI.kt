@@ -346,6 +346,25 @@ object ManipulatedTraderAI {
             return noEnter("EXPECTANCY_REJECT_score_${score}_μ_${"%+.1f".format(mean ?: 0.0)}%_n_${n}")
         }
 
+        // ── V5.9.1348 — LOSING-PATTERN-MEMORY SOFT-SHAPE (shared-layer parity) ──
+        // Manipulated was the only meme lane FEEDING LosingPatternMemory (via the
+        // journal) but never READING it back — so it kept re-entering proven
+        // net-negative score bands it had already lost money on. Wire the SAME
+        // soft-shape ShitCoin/Moonshot use: a danger bucket is NOT a veto (FDG is
+        // final authority, doctrine 'soft-shape > veto'); a proven net-negative
+        // bucket just reduces size 70% + trims confidence and routes via FDG.
+        // Positive-mean danger buckets (low WR but big wins) are left full-size —
+        // killing them would violate avg_win*WR > avg_loss*(1-WR).
+        var dangerSoftSize = 1.0
+        run {
+            val d = try { com.lifecyclebot.engine.LosingPatternMemory.stats("MANIPULATED", score) } catch (_: Throwable) { null }
+            if (d != null && d.isDangerous && d.meanPnl < 0.0) {
+                val band = try { com.lifecyclebot.engine.LosingPatternMemory.scoreBand(score) } catch (_: Throwable) { "" }
+                ErrorLogger.info(TAG, "☠️🧯 MANIP_DANGER_BUCKET_SOFT: $symbol | band=$band score=$score losses=${d.losses} wins=${d.wins} mean=${"%+.1f".format(d.meanPnl)}% — size×0.3, routing via FDG")
+                dangerSoftSize = 0.3
+            }
+        }
+
         val baseSize = lerp(POSITION_SOL_BOOTSTRAP, POSITION_SOL_MATURE)
 
         // ── V5.9.881 — BehaviorAI sizing wire-up for MANIPULATED lane ──
@@ -380,7 +399,7 @@ object ManipulatedTraderAI {
             }
         } catch (_: Throwable) { /* fail-open per FDG doctrine */ }
 
-        var positionSizeSol = baseSize * behaviorSizeMult * behaviorGradeMult
+        var positionSizeSol = baseSize * behaviorSizeMult * behaviorGradeMult * dangerSoftSize  // V5.9.1348 danger soft-shape
 
         // V5.9.926 — GLOBAL COMPOUND MULTIPLIER (Pass A fix).
         try {

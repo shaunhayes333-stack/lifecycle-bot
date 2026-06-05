@@ -466,6 +466,20 @@ object DipHunterAI {
             }
         } catch (_: Throwable) { /* fail-open */ }
 
+        // ── V5.9.1348 — LOSING-PATTERN-MEMORY SOFT-SHAPE (shared-layer parity) ──
+        // DipHunter had FDG + calibration soft-shape but never consulted the
+        // danger-bucket memory the meme lanes use. Net-negative danger bucket →
+        // size ×0.3 (no veto; FDG downstream is final authority). Positive-mean
+        // danger buckets stay full-size (doctrine: avg_win*WR > avg_loss*(1-WR)).
+        try {
+            val d = com.lifecyclebot.engine.LosingPatternMemory.stats("DIP_HUNTER", confidence)
+            if (d.isDangerous && d.meanPnl < 0.0) {
+                val band = com.lifecyclebot.engine.LosingPatternMemory.scoreBand(confidence)
+                ErrorLogger.info(TAG, "📉🧯 DIP_DANGER_BUCKET_SOFT: $symbol | band=$band conf=$confidence losses=${d.losses} wins=${d.wins} mean=${"%+.1f".format(d.meanPnl)}% — size×0.3, routing via FDG")
+                positionSol *= 0.3
+            }
+        } catch (_: Throwable) { /* fail-open */ }
+
         // Cap
         positionSol = positionSol.coerceIn(0.03, MAX_POSITION_SOL)
         

@@ -880,6 +880,21 @@ object BlueChipTraderAI {
                 entryScore = blueChipScore,
             )
         }
+
+        // ── V5.9.1348 — LOSING-PATTERN-MEMORY SOFT-SHAPE (shared-layer parity) ──
+        // BlueChip fed LosingPatternMemory via the journal but never read it back.
+        // Same soft-shape as ShitCoin/Moonshot/Quality: net-negative danger bucket
+        // → size ×0.3 (no veto; FDG is final authority). Positive-mean danger
+        // buckets stay full-size (doctrine: avg_win*WR > avg_loss*(1-WR)).
+        var dangerSoftSize = 1.0
+        run {
+            val d = try { com.lifecyclebot.engine.LosingPatternMemory.stats("BLUECHIP", blueChipScore) } catch (_: Throwable) { null }
+            if (d != null && d.isDangerous && d.meanPnl < 0.0) {
+                val band = try { com.lifecyclebot.engine.LosingPatternMemory.scoreBand(blueChipScore) } catch (_: Throwable) { "" }
+                ErrorLogger.info(TAG, "🔵🧯 BLUECHIP_DANGER_BUCKET_SOFT: $symbol | band=$band score=$blueChipScore losses=${d.losses} wins=${d.wins} mean=${"%+.1f".format(d.meanPnl)}% — size×0.3, routing via FDG")
+                dangerSoftSize = 0.3
+            }
+        }
         
         // ═══════════════════════════════════════════════════════════════════
         // POSITION SIZING
@@ -982,6 +997,7 @@ object BlueChipTraderAI {
         } catch (_: Throwable) { /* fail-open */ }
 
         // Cap at max
+        positionSol *= dangerSoftSize  // V5.9.1348 danger soft-shape
         positionSol = positionSol.coerceIn(0.05, MAX_POSITION_SOL)
         
         // Get fluid take profit
