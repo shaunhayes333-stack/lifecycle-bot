@@ -6643,13 +6643,38 @@ class BotService : Service() {
                                 val stalePnlFloor = if (cfg.paperMode) -HARD_FLOOR_STOP_PCT else 0.0
                                 val pnlCorroborates = lastKnownPnlPct <= stalePnlFloor
                                 if (!pnlCorroborates) {
-                                    try {
-                                        ForensicLogger.lifecycle(
-                                            if (cfg.paperMode) "STALE_LIVE_PRICE_HOLD_PAPER_NOT_HARDFLOOR" else "STALE_LIVE_PRICE_HOLD_WINNER",
-                                            "symbol=${ts.symbol} lastPnlPct=${"%.1f".format(lastKnownPnlPct)} floor=${"%.1f".format(stalePnlFloor)} ageS=${livePriceAgeMs/1000} — feed dark but stale-exit not corroborated"
-                                        )
-                                    } catch (_: Throwable) {}
-                                    continue
+                                    // V5.9.1352 troubleshoot — ZOMBIE FIX. Previously this
+                                    // branch logged and `continue`d, freezing the position
+                                    // at its last mark for the entire dark-feed window
+                                    // (9304 STALE_HOLD events/session, positions stuck
+                                    // 400-650s = undead capital + poisoned WR average).
+                                    // Before giving up, try the oracle for a REAL mark so
+                                    // the position resolves through normal exit logic
+                                    // instead of zombie-ing. Still NEVER fake-rugs: if the
+                                    // oracle is also dark we hold (unchanged behaviour).
+                                    val zombieFb = try { resolveStaleFallbackPrice(ts.mint) } catch (_: Throwable) { null }
+                                    if (zombieFb != null && zombieFb > 0.0) {
+                                        ts.lastPrice = zombieFb
+                                        ts.lastPriceUpdate = System.currentTimeMillis()
+                                        ts.lastPriceSource = "ORACLE_ZOMBIE_REFRESH"
+                                        val zPnl = ((zombieFb - ts.position.entryPrice) / ts.position.entryPrice) * 100.0
+                                        try {
+                                            ForensicLogger.lifecycle(
+                                                "STALE_ZOMBIE_REFRESHED_ORACLE",
+                                                "symbol=${ts.symbol} oraclePnl=${"%.1f".format(zPnl)}% wasStale=${livePriceAgeMs/1000}s — real mark restored, defer to exit logic"
+                                            )
+                                        } catch (_: Throwable) {}
+                                        // real price set; do NOT continue — let this tick's
+                                        // hard-floor / exit / pivot logic act on the true mark.
+                                    } else {
+                                        try {
+                                            ForensicLogger.lifecycle(
+                                                if (cfg.paperMode) "STALE_LIVE_PRICE_HOLD_PAPER_NOT_HARDFLOOR" else "STALE_LIVE_PRICE_HOLD_WINNER",
+                                                "symbol=${ts.symbol} lastPnlPct=${"%.1f".format(lastKnownPnlPct)} floor=${"%.1f".format(stalePnlFloor)} ageS=${livePriceAgeMs/1000} — feed+oracle dark, hold (no blind dump)"
+                                            )
+                                        } catch (_: Throwable) {}
+                                        continue
+                                    }
                                 }
                                 // V5.9.1277 — one real-price check before dumping a
                                 // corroborated-stale position. A live oracle price either

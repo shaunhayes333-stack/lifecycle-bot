@@ -121,9 +121,13 @@ object RegimeDetector {
     fun sizeMultiplier(): Double = when (currentRegime()) {
         Regime.BULL_RIPPING -> 1.0
         Regime.NORMAL       -> 1.0
-        Regime.CHOP         -> 0.85
-        Regime.DUMP         -> 0.5
-        Regime.DEAD         -> 0.85
+        // V5.9.1352 troubleshoot — CHOP is where the bulk of the bleed happens
+        // (regime=CHOP wr=16.7% and most trades land here). 0.85 was too soft;
+        // tighten to 0.65 so we keep sampling (doctrine: throughput) but stop
+        // overbetting a regime the detector ALREADY knows is unprofitable.
+        Regime.CHOP         -> 0.65   // was 0.85
+        Regime.DUMP         -> 0.40   // was 0.50 — bleeding hard, near-minimum bets
+        Regime.DEAD         -> 0.70   // was 0.85 — no signal, stay tiny
     }
 
     fun formatForPipelineDump(): String {

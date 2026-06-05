@@ -243,16 +243,55 @@ object SmartSizer {
         val basePct = minOf(aiBasePct, tierMaxPct)
         var size = tradeable * basePct
 
-        // ── AI Entry Score Multiplier (replaces conviction) ───────────
-        val aiScoreMult = when {
-            entryScore >= 80 -> 1.50  // High entry score = bigger position
-            entryScore >= 65 -> 1.30
-            entryScore >= 50 -> 1.15
+        // ── Entry Score Multiplier — V5.9.1352 EXPECTANCY-GATED ───────
+        // ROOT-CAUSE FIX (troubleshoot agent): the score→size curve used to
+        // bet 1.50× on entryScore>=80. But Score-Band Calibration proved the
+        // scorer is ANTI-PREDICTIVE — higher bands LOSE more (SHITCOIN S61+
+        // = -15%/-54%, MOONSHOT S70-79 = -32%). So the old curve poured the
+        // MOST capital into the WORST band — the mechanism behind the 100% DD.
+        //
+        // Fix: (1) flatten the raw-score curve so a high score no longer auto-
+        // earns a big bet, and (2) gate the conviction boost on PROVEN forward
+        // expectancy (ForwardOutcomeModel pWin × E for this lane×band×regime).
+        // Capital now follows what HAS won, not what the broken scorer predicts.
+        // Soft-shape: never zeroes a trade (doctrine — throughput before
+        // cleverness; only the veto whitelist may kill a candidate).
+        val rawScoreMult = when {
+            entryScore >= 80 -> 1.20   // was 1.50 — flattened: high score is NOT proven edge
+            entryScore >= 65 -> 1.12   // was 1.30
+            entryScore >= 50 -> 1.05   // was 1.15
             entryScore >= 35 -> 1.00
-            entryScore >= 20 -> 0.85
-            else             -> 0.70
+            entryScore >= 20 -> 0.92   // was 0.85 — less penalty; low band isn't proven-worse
+            else             -> 0.85   // was 0.70
+        }
+        // Proven-expectancy gate: ask the learned outcome surface whether THIS
+        // signature has actually been winning. If proven-negative, cancel the
+        // conviction boost down toward a floor; if proven-positive, restore it.
+        val expectancyGate: Double = try {
+            val regimeLbl = try { com.lifecyclebot.engine.RegimeDetector.currentRegime().name } catch (_: Throwable) { "NORMAL" }
+            val fc = com.lifecyclebot.engine.ForwardOutcomeModel.forecast(
+                laneMode.ifBlank { "STANDARD" }, entryScore.toInt().coerceIn(0, 100),
+                setupQuality.take(1).uppercase(), regimeLbl, "UNKNOWN",
+            )
+            if (fc.samples >= 10L) {
+                // pWin 0.5 + E≈0 → neutral 1.0; proven-bad → toward 0.80; proven-good → toward 1.15
+                val edge = (fc.pWin - 0.5) + (fc.expectedPnl / 200.0).coerceIn(-0.25, 0.15)
+                (1.0 + edge).coerceIn(0.80, 1.15)
+            } else 1.0  // bootstrap: don't penalise unproven signatures (need sample size)
+        } catch (_: Throwable) { 1.0 }
+
+        // Apply flattened raw curve, then bend it by proven expectancy. When the
+        // signature is proven-bad, expectancyGate (<1) pulls the boost back out.
+        val aiScoreMult = if (rawScoreMult > 1.0) {
+            1.0 + (rawScoreMult - 1.0) * expectancyGate   // only the BOOST portion is gated
+        } else {
+            rawScoreMult * (0.5 + 0.5 * expectancyGate)   // penalty portion eased if proven-good
         }
         size *= aiScoreMult
+        try {
+            ErrorLogger.info("SmartSizer",
+                "📐 EXPECTANCY-GATED size: rawMult=${"%.2f".format(rawScoreMult)} gate=${"%.2f".format(expectancyGate)} → mult=${"%.2f".format(aiScoreMult)} lane=$laneMode score=${entryScore.toInt()}")
+        } catch (_: Throwable) {}
 
         // ── BotBrain Source/Phase Adjustment ─────────────────────────
         var brainMult = 1.0
