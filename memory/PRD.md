@@ -6,6 +6,51 @@ NO local compiler. Multi-lane architecture (Memes [9 sub-lanes], Crypto/Alts,
 Stocks, Markets, Tokenized Stocks, Forex, Metals, Commodities). Foreground
 Service with a 50+ AI-module pipeline gated through processTokenCycle.
 
+## V5.9.1333 (Feb 2026) — FLUID TACTIC SWITCHER + PERSONALITY TUNE WIRING (CI ✅ green)
+
+Operator mandate: *"I don't want lanes or traders disabled. If they aren't
+successful they need to change tactics in a fluid constantly learnt state."*
+This commit literally implements that meta-rule.
+
+A. **TacticSwitcher** (`engine/learning/TacticSwitcher.kt` — NEW)
+   Per-(lane, scoreBand) state machine. NEVER disables; ROTATES entry tactic.
+   - 4-stage cycle: **MOMENTUM → PULLBACK → REACCUMULATION → BREAKOUT**
+   - Rotation trigger: `lossRate ≥ 75% AND meanPnl ≤ -5% over ≥ 25 trades`
+   - Each rotation gets a fresh 25-trade trial window
+   - Persisted via `LearningPersistence` (`tactic_LANE|BAND` JSON blobs)
+   - Hooked into `V3JournalRecorder.recordClose()` for outcome-feed
+   - Hooked into `ShitCoinTraderAI.evaluate()` for signal-shaping at entry
+     (PULLBACK rewards -3 to -8% retracement, REACCUMULATION rewards
+     sideways+strong-bp, BREAKOUT rewards confirmed structure breaks)
+
+B. **PersonalityTraitMultipliers** (`engine/PersonalityTraitMultipliers.kt`
+   — NEW) — wires the 6-trait personality vector to bounded trading
+   multipliers (±15% max, fail-open):
+   - paranoia ↑ → +3 score floor, 0.95× sizing
+   - euphoria ↑ → 0.85× sizing (fade FOMO)
+   - discipline ↑ → 1.05× sizing
+   - aggression ↑ → 1.05× sizing, +3% TP bias
+   - patience ↑ → +2 score floor
+   - loyalty ↑ → 1.05× trail slack on winners
+   - Sizing multiplier applied in `FinalDecisionGate` after lane policy
+   - Score-floor bias applied additively in ShitCoin + Moonshot evaluators
+
+C. **Telemetry** (`engine/PipelineHealthCollector.kt`)
+   New "Tactic Switcher — fluid tactic rotation" section in dump showing
+   per-bucket current tactic, W/L since rotation, mean PnL, age. Plus
+   "Personality tune" summary line.
+
+D. **Instrument coverage audit** — confirmed already broad. `PerpsMarket`
+   enum has 406 entries; MetalsTrader/ForexTrader/CommoditiesTrader/
+   TokenizedStockTrader all iterate full `PerpsMarket.values()` and take
+   top-25 spot + top-10 leverage per cycle. The actual fluid-learning
+   activation layer for dormant patterns is (A)+(B), not adding more
+   enum entries.
+
+NO lanes or traders disabled. All changes are soft-shape per doctrine #86.
+
+
+
 ## V5.9.1332 (Feb 2026) — DISARM EMERGENCY THROTTLE + PARABOLIC MOMENTUM CAP + UI ANR CACHE (CI ✅ green)
 
 Operator: *"it trades and then virtually stops"* — snapshot (build 5.0.3321,
