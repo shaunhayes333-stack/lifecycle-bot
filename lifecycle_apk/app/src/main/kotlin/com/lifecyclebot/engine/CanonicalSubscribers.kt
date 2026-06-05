@@ -79,9 +79,41 @@ object CanonicalSubscribers {
             // FluidLearningAI mirror — simplest signature.
             CanonicalOutcomeBus.subscribe { outcome ->
                 if (!recordOnce(outcome.tradeId, "FluidLearningAI")) return@subscribe
-                if (!outcome.isTrainable) return@subscribe
+                if (!outcome.isTrainable) {
+                    try { com.lifecyclebot.engine.PipelineHealthCollector.labelInc("INVALID_ACCOUNTING_NOT_TRAINED") } catch (_: Throwable) {}
+                    return@subscribe
+                }
                 // Only educate on settled outcomes, not OPEN / INCONCLUSIVE.
                 if (outcome.result != TradeResult.WIN && outcome.result != TradeResult.LOSS) return@subscribe
+                // V5.9.1355 P0.1 — HARD DOMAIN GATE (always on, not just memeOnly).
+                // Meme brains may ONLY train on meme-domain outcomes. A Stocks/
+                // Forex/Perps/Metals/Commodities/CryptoAlt close must never reach
+                // FluidLearningAI regardless of which traders are enabled.
+                if (outcome.assetClass != AssetClass.MEME) {
+                    try {
+                        com.lifecyclebot.engine.PipelineHealthCollector.labelInc("LEARNING_DOMAIN_REJECTED|src=${outcome.assetClass.name}|targetBrain=MEME|reason=CROSS_DOMAIN")
+                    } catch (_: Throwable) {}
+                    return@subscribe
+                }
+                // V5.9.1355 P0.2 — LABEL INTEGRITY. The bridge must never train a
+                // negative-PnL close as WIN (or positive as LOSS). Validate the
+                // declared result against the realized pnlPct sign; on mismatch,
+                // REJECT (do not silently correct — a mismatch means upstream
+                // accounting is corrupt and the sample is untrustworthy).
+                run {
+                    val p = outcome.realizedPnlPct
+                    if (p != null) {
+                        val declaredWin = outcome.result == TradeResult.WIN
+                        val mismatch = (declaredWin && p < 0.0) || (!declaredWin && p > 0.0)
+                        if (mismatch) {
+                            try {
+                                com.lifecyclebot.engine.PipelineHealthCollector.labelInc("LEARNING_LABEL_MISMATCH_REJECTED|pnlPct=${"%.2f".format(p)}|requested=${if (declaredWin) "WIN" else "LOSS"}|corrected=${if (p < 0.0) "LOSS" else "WIN"}")
+                                ForensicLogger.lifecycle("LEARNING_LABEL_MISMATCH_REJECTED", "mint=${outcome.mint} pnlPct=${"%.2f".format(p)} declared=${outcome.result.name}")
+                            } catch (_: Throwable) {}
+                            return@subscribe
+                        }
+                    }
+                }
                 // V5.9.495z21 — skip if the target token never actually landed.
                 // Prevents phantom partial-bridge outcomes from moving the
                 // learning-progress needle or biasing the trust layer.
@@ -171,8 +203,34 @@ object CanonicalSubscribers {
             )) {
                 CanonicalOutcomeBus.subscribe { outcome ->
                     if (!recordOnce(outcome.tradeId, layer)) return@subscribe
-                    if (!outcome.isTrainable) return@subscribe
+                    if (!outcome.isTrainable) {
+                        try { com.lifecyclebot.engine.PipelineHealthCollector.labelInc("INVALID_ACCOUNTING_NOT_TRAINED") } catch (_: Throwable) {}
+                        return@subscribe
+                    }
                     if (outcome.result != TradeResult.WIN && outcome.result != TradeResult.LOSS) return@subscribe
+                    // V5.9.1355 P0.1 — HARD DOMAIN GATE for the rich-feature meme
+                    // strategy learners (BehaviorLearning / MetaCognitionAI /
+                    // AdaptiveLearningEngine). Same fire-wall as the Fluid mirror:
+                    // foreign-domain outcomes must never train meme pattern memory.
+                    if (outcome.assetClass != AssetClass.MEME) {
+                        try {
+                            com.lifecyclebot.engine.PipelineHealthCollector.labelInc("LEARNING_DOMAIN_REJECTED|src=${outcome.assetClass.name}|targetBrain=${layer}|reason=CROSS_DOMAIN")
+                        } catch (_: Throwable) {}
+                        return@subscribe
+                    }
+                    // V5.9.1355 P0.2 — LABEL INTEGRITY for strategy learners.
+                    run {
+                        val p = outcome.realizedPnlPct
+                        if (p != null) {
+                            val declaredWin = outcome.result == TradeResult.WIN
+                            if ((declaredWin && p < 0.0) || (!declaredWin && p > 0.0)) {
+                                try {
+                                    com.lifecyclebot.engine.PipelineHealthCollector.labelInc("LEARNING_LABEL_MISMATCH_REJECTED|pnlPct=${"%.2f".format(p)}|requested=${if (declaredWin) "WIN" else "LOSS"}|corrected=${if (p < 0.0) "LOSS" else "WIN"}")
+                                } catch (_: Throwable) {}
+                                return@subscribe
+                            }
+                        }
+                    }
                     val isWin = outcome.result == TradeResult.WIN
                     LayerReadinessRegistry.recordEducationDetailed(
                         layer = layer,

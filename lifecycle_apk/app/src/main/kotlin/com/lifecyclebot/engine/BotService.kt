@@ -29,6 +29,14 @@ import java.util.concurrent.atomic.AtomicBoolean
 class BotService : Service() {
 
     companion object {
+        // V5.9.1355 P0.3 — WAIT-override dust-probe controls.
+        // Below this liquidity a weak-WAIT candidate is hard-rejected from EXEC
+        // (no probe) because there isn't enough depth to even exit a dust probe.
+        private const val LANE_PROBE_MIN_LIQ_USD = 800.0
+        // Dust-probe size multiplier (applied via qualityPenalty) — tiny, so a
+        // weak/blind context can still generate a labelled learning sample
+        // without spraying full-size capital into it.
+        private const val LANE_DUST_PROBE_SIZE_MULT = 0.04
         @Volatile private var _instance: java.lang.ref.WeakReference<BotService>? = null
         // V5.9.384 — one-shot flag so BacktestEngine.logAssetClassBaseline
         // doesn't rerun on every service restart within the same process
@@ -7496,6 +7504,7 @@ class BotService : Service() {
         base: com.lifecyclebot.data.CandidateDecision,
         lane: String,
         confidenceFloor: Double = 60.0,
+        liquidityUsd: Double = -1.0,   // V5.9.1355 P0.3 — -1 = unknown (don't liq-gate; still zero-score-gate)
     ): com.lifecyclebot.data.CandidateDecision {
         val cleanQuality = when {
             base.finalQuality.isNotBlank() && base.finalQuality != "SKIP" -> base.finalQuality
@@ -7510,6 +7519,54 @@ class BotService : Service() {
         // on FDG.evaluate (see V5.9.1296 call-site wiring), so AutonomousMetaPolicy /
         // ForwardOutcomeModel can finally bucket by true lane quality WITHOUT
         // changing which candidates pass the gates.
+        //
+        // V5.9.1355 P0.3 — WAIT-OVERRIDE GUARD. Previously this method flipped ANY
+        // base decision to normal BUY even when baseFinal=WAIT with score=0/conf=0/
+        // "Insufficient data". That sprayed full-size entries into provably-blind
+        // contexts and corrupted learning. Now: when the base is a weak WAIT we do
+        // NOT promote to a normal buy — at most we allow a labelled dust-probe
+        // (tiny size via qualityPenalty) so the bucket can still learn, and only
+        // when liquidity clears the execution floor.
+        val baseBlock = base.blockReason
+        val weakWait = base.finalSignal.equals("WAIT", ignoreCase = true) ||
+            base.entryScore <= 0.0 ||
+            base.aiConfidence <= 10.0 ||
+            baseBlock.contains("Insufficient data", ignoreCase = true) ||
+            baseBlock.contains("thin", ignoreCase = true) ||
+            baseBlock.contains("unknown h1", ignoreCase = true) ||
+            baseBlock.contains("RC pending", ignoreCase = true)
+        // -1 liquidity = unknown → treat as "not a liquidity reject" (zero-score gate still applies)
+        val liqOk = liquidityUsd < 0.0 || liquidityUsd >= LANE_PROBE_MIN_LIQ_USD
+        if (weakWait) {
+            // Hard reject zero-signal candidates from NORMAL exec entirely.
+            if ((base.entryScore <= 0.0 && base.aiConfidence <= 10.0) || !liqOk) {
+                try {
+                    PipelineHealthCollector.labelInc("LANE_WAIT_OVERRIDE_BLOCKED")
+                    PipelineHealthCollector.labelInc("FDG_ZERO_SCORE_BUY_REJECTED")
+                    ForensicLogger.lifecycle("LANE_WAIT_OVERRIDE_BLOCKED",
+                        "lane=$lane score=${"%.0f".format(base.entryScore)} conf=${"%.0f".format(base.aiConfidence)} liqUsd=${"%.0f".format(liquidityUsd)} block=${baseBlock.take(60)}")
+                } catch (_: Throwable) {}
+                return base.copy(
+                    signal = "WAIT", finalSignal = "WAIT", shouldTrade = false,
+                    blockReason = if (baseBlock.isBlank()) "WAIT_OVERRIDE_BLOCKED_WEAK_ENTRY" else baseBlock,
+                )
+            }
+            // Liquidity OK but still weak → DUST-PROBE only (explicit + tiny size).
+            try {
+                PipelineHealthCollector.labelInc("LANE_WAIT_OVERRIDE_DUST_PROBE")
+                ForensicLogger.lifecycle("LANE_WAIT_OVERRIDE_DUST_PROBE",
+                    "lane=$lane score=${"%.0f".format(base.entryScore)} conf=${"%.0f".format(base.aiConfidence)} liqUsd=${"%.0f".format(liquidityUsd)}")
+            } catch (_: Throwable) {}
+            return base.copy(
+                signal = "BUY", finalSignal = "BUY", shouldTrade = true,
+                blockReason = "PROBE_ONLY",
+                edgeVeto = false,
+                edgeQuality = if (base.edgeQuality == "SKIP") "C" else base.edgeQuality,
+                finalQuality = "C",
+                qualityPenalty = LANE_DUST_PROBE_SIZE_MULT,
+                aiConfidence = base.aiConfidence.coerceAtLeast(confidenceFloor),
+            )
+        }
         return base.copy(
             signal = "BUY",
             finalSignal = "BUY",
@@ -14476,7 +14533,7 @@ if (hotExitHandledSweep) {
                             val treasuryFdg = try {
                                 FinalDecisionGate.evaluate(
                                     ts = ts,
-                                    candidate = laneQualifiedBuyDecision(decision, "TREASURY", confidenceFloor = treasurySignal.confidence.toDouble()),
+                                    candidate = laneQualifiedBuyDecision(decision, "TREASURY", confidenceFloor = treasurySignal.confidence.toDouble(), liquidityUsd = ts.lastLiquidityUsd),
                                     laneScore = treasurySignal.confidence.toDouble(),
                                     config = cfg,
                                     proposedSizeSol = treasurySignal.positionSizeSol,
@@ -14758,7 +14815,7 @@ if (hotExitHandledSweep) {
                             val qualityFdg = try {
                                 FinalDecisionGate.evaluate(
                                     ts = ts,
-                                    candidate = laneQualifiedBuyDecision(decision, "QUALITY", confidenceFloor = qualitySignal.qualityScore.toDouble()),
+                                    candidate = laneQualifiedBuyDecision(decision, "QUALITY", confidenceFloor = qualitySignal.qualityScore.toDouble(), liquidityUsd = ts.lastLiquidityUsd),
                                     laneScore = qualitySignal.qualityScore.toDouble(),
                                     config = cfg,
                                     proposedSizeSol = qualitySignal.positionSizeSol,
@@ -14938,7 +14995,7 @@ if (hotExitHandledSweep) {
                             val blueChipFdg = try {
                                 FinalDecisionGate.evaluate(
                                     ts = ts,
-                                    candidate = laneQualifiedBuyDecision(decision, "BLUE_CHIP", confidenceFloor = blueChipSignal.confidence.toDouble()),
+                                    candidate = laneQualifiedBuyDecision(decision, "BLUE_CHIP", confidenceFloor = blueChipSignal.confidence.toDouble(), liquidityUsd = ts.lastLiquidityUsd),
                                     laneScore = blueChipSignal.confidence.toDouble(),
                                     config = cfg,
                                     proposedSizeSol = blueChipSignal.positionSizeSol,
@@ -15235,7 +15292,7 @@ if (hotExitHandledSweep) {
                                     } catch (_: Exception) { null }
                                     FinalDecisionGate.evaluate(
                                         ts = ts,
-                                        candidate = laneQualifiedBuyDecision(decision, "MOONSHOT", confidenceFloor = moonshotScore.confidence * 100.0),
+                                        candidate = laneQualifiedBuyDecision(decision, "MOONSHOT", confidenceFloor = moonshotScore.confidence * 100.0, liquidityUsd = ts.lastLiquidityUsd),
                                         laneScore = moonshotScore.confidence,            // already 0-100
                                         config = cfg,
                                         proposedSizeSol = moonshotScore.suggestedSizeSol,
@@ -15793,7 +15850,7 @@ if (hotExitHandledSweep) {
                             val shitCoinFdg = try {
                                 FinalDecisionGate.evaluate(
                                     ts = ts,
-                                    candidate = laneQualifiedBuyDecision(decision, "SHITCOIN", confidenceFloor = shitCoinSignal.confidence * 100.0),
+                                    candidate = laneQualifiedBuyDecision(decision, "SHITCOIN", confidenceFloor = shitCoinSignal.confidence * 100.0, liquidityUsd = ts.lastLiquidityUsd),
                                     laneScore = shitCoinSignal.confidence.toDouble(),  // Int 0-100
                                     config = cfg,
                                     proposedSizeSol = shitCoinSignal.positionSizeSol,
@@ -16087,7 +16144,7 @@ if (hotExitHandledSweep) {
                         val manipFdg = try {
                             FinalDecisionGate.evaluate(
                                 ts = ts,
-                                candidate = laneQualifiedBuyDecision(decision, "MANIPULATED", confidenceFloor = manipSignal.manipScore.toDouble()),
+                                candidate = laneQualifiedBuyDecision(decision, "MANIPULATED", confidenceFloor = manipSignal.manipScore.toDouble(), liquidityUsd = ts.lastLiquidityUsd),
                                 laneScore = manipSignal.manipScore.toDouble(),
                                 config = cfg,
                                 proposedSizeSol = manipSignal.positionSizeSol,
@@ -16311,7 +16368,7 @@ if (hotExitHandledSweep) {
                             val expressFdg = try {
                                 FinalDecisionGate.evaluate(
                                     ts = ts,
-                                    candidate = laneQualifiedBuyDecision(decision, "EXPRESS", confidenceFloor = expressSignal.confidence * 100.0),
+                                    candidate = laneQualifiedBuyDecision(decision, "EXPRESS", confidenceFloor = expressSignal.confidence * 100.0, liquidityUsd = ts.lastLiquidityUsd),
                                     laneScore = expressSignal.confidence.toDouble(),   // Int 0-100
                                     config = cfg,
                                     proposedSizeSol = expressSignal.positionSizeSol,
@@ -16633,7 +16690,7 @@ if (hotExitHandledSweep) {
                             val dipFdg = try {
                                 FinalDecisionGate.evaluate(
                                     ts = ts,
-                                    candidate = laneQualifiedBuyDecision(decision, "DIP_HUNTER", confidenceFloor = dipSignal.confidence * 100.0),
+                                    candidate = laneQualifiedBuyDecision(decision, "DIP_HUNTER", confidenceFloor = dipSignal.confidence * 100.0, liquidityUsd = ts.lastLiquidityUsd),
                                     laneScore = dipSignal.confidence.toDouble(),       // Int 0-100
                                     config = cfg,
                                     proposedSizeSol = dipSignal.positionSizeSol,

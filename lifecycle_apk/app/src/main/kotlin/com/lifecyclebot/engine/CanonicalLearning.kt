@@ -705,7 +705,25 @@ object CanonicalOutcomeBus {
         // real accounting is a trainable STANDARD/V3 outcome — STANDARD routes to
         // MEME/V3 in inferAssetClassAndSource and is NOT rejected by the
         // normalizer. Only true non-executed / phantom rows stay UNKNOWN.
+        // V5.9.1355 P0.1 — CROSS-DOMAIN CONTAMINATION FIRE-WALL.
+        // BEFORE the meme-default below can fire, check whether the raw
+        // tradingMode actually belongs to a FOREIGN asset domain (Stocks /
+        // Forex / Perps / Metals / Commodities / CryptoAlt). Those traders set
+        // tradingMode="Stocks"/"Forex"/"Perps_5x"/"Metals"/"Commodities"/
+        // "CryptoAlt_SPOT" — none of which match a meme keyword, so they were
+        // normalising to UNKNOWN and then getting force-defaulted to STANDARD,
+        // which inferAssetClassAndSource maps to AssetClass.MEME. Result: an
+        // AVGO/QCOM/GBPJPY close trained every meme brain. Resolve the foreign
+        // domain explicitly so it is published with its TRUE assetClass and the
+        // meme-brain subscribers reject it (they hard-gate on assetClass==MEME).
+        var foreignAsset: AssetClass? = null
         if (mode == TradeMode.UNKNOWN) {
+            val rawAsset = normalizeAssetClass(trade.tradingMode)
+            if (rawAsset != AssetClass.UNKNOWN && rawAsset != AssetClass.MEME) {
+                foreignAsset = rawAsset
+            }
+        }
+        if (mode == TradeMode.UNKNOWN && foreignAsset == null) {
             val isExitLike = isPartialSide || trade.side.equals("SELL", ignoreCase = true)
             val executed = trade.sig.isNotBlank() || env == TradeEnvironment.PAPER
             val hasRealPrice = trade.price > 0.0
@@ -719,7 +737,16 @@ object CanonicalOutcomeBus {
                 } catch (_: Throwable) {}
             }
         }
-        val (assetClass, source) = inferAssetClassAndSource(mode)
+        // If a foreign domain was detected, publish it with the correct
+        // assetClass + a non-meme source so meme learning never sees it.
+        val (assetClass, source) = if (foreignAsset != null) {
+            try {
+                com.lifecyclebot.engine.PipelineHealthCollector.labelInc("LEARNING_DOMAIN_REJECTED|src=${foreignAsset.name}|targetBrain=MEME|reason=CROSS_DOMAIN")
+            } catch (_: Throwable) {}
+            foreignAsset to TradeSource.MARKETS
+        } else {
+            inferAssetClassAndSource(mode)
+        }
         val result = when {
             pnlPct > 0.5 -> TradeResult.WIN
             pnlPct < -0.5 -> TradeResult.LOSS
