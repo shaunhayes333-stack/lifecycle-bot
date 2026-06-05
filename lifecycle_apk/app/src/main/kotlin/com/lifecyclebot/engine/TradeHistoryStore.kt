@@ -784,10 +784,12 @@ object TradeHistoryStore {
             acc.trades += 1
             val pnl = if (t.netPnlSol != 0.0) t.netPnlSol else t.pnlSol
             acc.pnlSol += pnl
-            when (t.isWin) {
-                true  -> acc.wins += 1
-                false -> acc.losses += 1
-                null  -> { /* scratch — counted in trades, not W/L */ }
+            // Use the journal's canonical scratch-aware classifiers (pnlPct vs
+            // WIN/LOSS thresholds) so W/L here matches every other WR readout.
+            when {
+                isWin(t)  -> acc.wins += 1
+                isLoss(t) -> acc.losses += 1
+                else      -> { /* scratch (break-even band) — counted in trades, not W/L */ }
             }
         }
         return out
