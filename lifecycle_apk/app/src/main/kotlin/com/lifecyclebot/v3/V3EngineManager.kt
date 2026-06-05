@@ -169,7 +169,17 @@ object V3EngineManager {
                     // plenty of concurrent room (50 slots) and let it run
                     // up to 95% of total equity. Live mode stays conservative.
                     // V5.9.100: user raised live slot ceiling 10 -> 100.
-                    maxOpenPositions = if (botCfg.paperMode) 100 else botCfg.maxConcurrentPositions.coerceAtMost(100),
+                    // V5.9.1330 — ROOT FIX: operator mandate is "never stop
+                    // trading, all 9 lanes learning with quality entries".
+                    // The hardcoded 100-slot ceiling in paper was the
+                    // EXACT cap visible in operator's snapshot
+                    // (🪪 caps: meme=1/100 + LANE_BUY_INTENT_OVERRIDES_BASE_WAIT
+                    // hitting exactly 100 then silent stall for 22min).
+                    // Paper is free money for learning — uncap entirely;
+                    // wallet-% exposure (95%) is the only meaningful guard.
+                    // Live still bounded by user's configured cap.
+                    maxOpenPositions = if (botCfg.paperMode) Int.MAX_VALUE
+                                       else botCfg.maxConcurrentPositions.coerceAtMost(100),
                     maxExposurePct = if (botCfg.paperMode) 0.95
                                      else (botCfg.v3MaxExposurePct / 100.0).coerceIn(0.0, 1.0)
                 )
@@ -254,7 +264,10 @@ object V3EngineManager {
 
             // Resize exposure guard slot limit for new mode
             exposureGuard = ExposureGuard(
-                maxOpenPositions = if (newBotConfig.paperMode) 100 else newBotConfig.maxConcurrentPositions.coerceAtMost(100),
+                // V5.9.1330 — same uncap as init path. Paper = unlimited
+                // slots; only wallet-% exposure caps the open book.
+                maxOpenPositions = if (newBotConfig.paperMode) Int.MAX_VALUE
+                                   else newBotConfig.maxConcurrentPositions.coerceAtMost(100),
                 maxExposurePct = if (newBotConfig.paperMode) 0.95
                                  else (newBotConfig.v3MaxExposurePct / 100.0).coerceIn(0.0, 1.0)
             )

@@ -572,7 +572,10 @@ object ConfigStore {
             },
             autoAddNewTokens            = p.getBoolean("auto_add_new_tokens", true),
             geminiEnabled               = p.getBoolean("gemini_enabled", true),
-            maxConcurrentPositions      = p.getInt("max_concurrent_positions", 100),
+            // V5.9.1330 — default was 100; that capped paper learning at 100 slots.
+            // Operator: "all 9 lanes learning with quality entries, never stop trading".
+            // Default uncapped — wallet-% is the real guard.
+            maxConcurrentPositions      = p.getInt("max_concurrent_positions", Int.MAX_VALUE),
             maxTotalExposureSol         = p.getFloat("max_total_exposure_sol", 0.30f).toDouble(),
             minHoldMins                 = p.getFloat("min_hold_mins", 3.0f).toDouble(),
             maxHoldMinsHard             = p.getFloat("max_hold_mins_hard", 120.0f).toDouble(),
