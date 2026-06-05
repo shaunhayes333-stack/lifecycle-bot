@@ -19017,7 +19017,7 @@ if (hotExitHandledSweep) {
         //   - Reversal: Take first target quicker, breakeven early
         //   - Trend Pullback: Widest patience, tightest stop
         // ═══════════════════════════════════════════════════════════════════
-        val positionTradeType = try {
+        var positionTradeType = try {
             // Try to get the trade type from position's trading mode
             // PRIORITY 5: Each mode should have ISOLATED exit logic
             when (ts.position.tradingMode.uppercase()) {
@@ -19044,6 +19044,36 @@ if (hotExitHandledSweep) {
         } else 0.0
         val holdTimeMs = System.currentTimeMillis() - ts.position.entryTime
         val holdTimeMinutes = (holdTimeMs / 60_000).toInt()
+
+        // ═══════════════════════════════════════════════════════════════════
+        // V5.9.1351 — HELD-POSITION STRATEGY PIVOT (autonomous, predictive).
+        // A position's exit technique was welded to its ENTRY lane. Here the
+        // shared predictive brains (ForwardOutcomeModel + MomentumPredictorAI +
+        // CollectiveIntelligence) decide which exit technique best fits the
+        // token's LIVE signature and pivot ts.position.tradingMode toward it —
+        // letting a confirmed runner run / cutting a staller. Soft-shape only:
+        // conviction-gated + cooldown'd, no veto, hard -15% floor untouched,
+        // fail-open. On pivot it mutates ts.position.tradingMode, so we re-derive
+        // positionTradeType below so ModeSpecificExits routes the NEW style.
+        try {
+            val pv = com.lifecyclebot.engine.HeldPositionPivotArbiter.evaluate(
+                ts = ts, pnlPct = pnlPct, peakPnlPct = ts.position.peakGainPct, holdTimeMs = holdTimeMs,
+            )
+            if (pv.pivoted) {
+                positionTradeType = when (ts.position.tradingMode.uppercase()) {
+                    "PRESALE_SNIPE", "MICRO_CAP" -> ModeRouter.TradeType.FRESH_LAUNCH
+                    "MOMENTUM_SWING" -> ModeRouter.TradeType.BREAKOUT_CONTINUATION
+                    "REVIVAL" -> ModeRouter.TradeType.REVERSAL_RECLAIM
+                    "WHALE_FOLLOW" -> ModeRouter.TradeType.WHALE_ACCUMULATION
+                    "COPY_TRADE" -> ModeRouter.TradeType.COPY_TRADE
+                    "MOONSHOT" -> ModeRouter.TradeType.GRADUATION
+                    "PUMP_SNIPER" -> ModeRouter.TradeType.SENTIMENT_IGNITION
+                    "STANDARD", "CYCLIC", "BLUE_CHIP" -> ModeRouter.TradeType.TREND_PULLBACK
+                    else -> positionTradeType
+                }
+                addLog("\uD83D\uDD00 PIVOT ${ts.symbol}: ${pv.fromMode}\u2192${pv.toMode} (fit ${"%.2f".format(pv.score)} vs ${"%.2f".format(pv.incumbentScore)})", ts.mint)
+            }
+        } catch (_: Throwable) { /* fail-open: keep entry style */ }
         
         // ═══════════════════════════════════════════════════════════════════
         // SELL OPTIMIZATION AI (Layer 24)

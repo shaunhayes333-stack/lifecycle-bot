@@ -762,6 +762,8 @@ object V3EngineManager {
      */
     fun onPositionClosed(mint: String) {
         exposureGuard?.closePosition(mint)
+        // V5.9.1351 — release held-pivot per-position state on close.
+        try { com.lifecyclebot.engine.HeldPositionPivotArbiter.onClosed(mint) } catch (_: Throwable) {}
     }
 
     /**
