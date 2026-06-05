@@ -7283,32 +7283,45 @@ This cannot be undone!
                 perpsPnl    = com.lifecyclebot.perps.PerpsTraderAI.getLifetimePnlSol()
             } catch (_: Exception) { }
 
-            val totalTrades = memeTrades + altsTrades + perpsTrades
-            val totalWins   = memeWins + altsWins + perpsWins
-            val totalLoss   = memeLosses + altsLosses + perpsLosses
+            // V5.9.1354 — CANONICAL TOTALS from the journal (single source of truth).
+            // Was summing memeTrades+altsTrades+perpsTrades from THREE independent
+            // per-trader counters that drift from the journal (worker timeouts,
+            // async drops) and survive a reset — root cause of "All Traders 82"
+            // disagreeing with "24h Trades 94". Now derived from journal rows so
+            // the scoreboard can never diverge or carry stale post-reset counts.
+            // Per-trader vars above are kept ONLY as a fallback if the journal
+            // read throws (defensive); canonical path is authoritative.
+            val canon = try { com.lifecyclebot.engine.TradeHistoryStore.getCanonicalTotals() } catch (_: Throwable) { null }
+            val totalTrades = canon?.trades ?: (memeTrades + altsTrades + perpsTrades)
+            val totalWins   = canon?.wins   ?: (memeWins + altsWins + perpsWins)
+            val totalLoss   = canon?.losses ?: (memeLosses + altsLosses + perpsLosses)
             val totalDecisive = totalWins + totalLoss
             val blendedWR = if (totalDecisive > 0) totalWins * 100.0 / totalDecisive else 0.0
-            val totalPnl  = memePnl + altsPnl + perpsPnl
+            val totalPnl  = canon?.pnlSol ?: (memePnl + altsPnl + perpsPnl)
 
             val wrLabel = if (totalDecisive > 0) "${blendedWR.toInt()}% WR" else "--% WR"
             val pnlSign = if (totalPnl >= 0) "+" else ""
             // V5.9.370 — per-asset breakdown line. Pulls from the V5.9.369
             // RunTracker30D.AssetBucket so MEME/ALT/PERP/STOCK/FOREX/METAL/COMMOD
             // each show their own clean WR and trade count.
+            // V5.9.1354 — per-asset line from the SAME canonical journal breakdown
+            // as the total above, so the breakdown always sums to the headline
+            // count (was RunTracker30D buckets, a separate counter that drifts).
             val perAssetLine = try {
-                val rt = com.lifecyclebot.engine.RunTracker30D
-                fun fmt(label: String, b: com.lifecyclebot.engine.RunTracker30D.AssetBucket): String {
-                    val dec = b.wins + b.losses
-                    return if (dec == 0) "$label —" else "$label ${dec}t/${b.winRate().toInt()}%"
+                val bd = com.lifecyclebot.engine.TradeHistoryStore.getAssetBreakdown()
+                fun fmt(label: String, key: String): String {
+                    val a = bd[key]
+                    val dec = (a?.wins ?: 0) + (a?.losses ?: 0)
+                    return if (dec == 0) "$label —" else "$label ${dec}t/${a!!.winRate.toInt()}%"
                 }
                 listOf(
-                    fmt("M",  rt.memeBucket),
-                    fmt("A",  rt.altsBucket),
-                    fmt("P",  rt.perpsBucket),
-                    fmt("S",  rt.stocksBucket),
-                    fmt("FX", rt.forexBucket),
-                    fmt("MT", rt.metalsBucket),
-                    fmt("CD", rt.commodBucket),
+                    fmt("M",  "MEME"),
+                    fmt("A",  "ALT"),
+                    fmt("P",  "PERP"),
+                    fmt("S",  "STOCK"),
+                    fmt("FX", "FOREX"),
+                    fmt("MT", "METAL"),
+                    fmt("CD", "COMMODITY"),
                 ).joinToString(" · ")
             } catch (_: Exception) { "" }
             tv.text = if (perAssetLine.isNotEmpty()) {

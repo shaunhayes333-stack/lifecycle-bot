@@ -738,6 +738,70 @@ object TradeHistoryStore {
 
     fun getTotalTradeCount(): Int = synchronized(lock) { trades.size }
 
+    /**
+     * V5.9.1354 — CANONICAL ASSET BREAKDOWN (single source of truth).
+     *
+     * ROOT-CAUSE FIX (operator: "All Traders 82" ≠ "24h Trades 94", 4th time):
+     * the dashboard summed THREE independent counters — TradeHistoryStore meme
+     * stats + CryptoAltTrader.getStats() + PerpsTraderAI.getLifetimeTrades().
+     * Those per-trader counters increment on a DIFFERENT path than the journal
+     * write, so any trade that journals but whose counter misses (worker
+     * timeout, async drop, IO-wedge) makes the sums drift — AND they are not
+     * cleared by the learning reset, so stale lifetime values survive a reset
+     * while the journal is fresh.
+     *
+     * This derives every asset-class count DIRECTLY from the journal rows (the
+     * one canonical record that reset DOES wipe), grouped via the same
+     * inferAssetClassFromMode logic. Counts can no longer diverge or survive a
+     * reset. SELL-like rows only; respects accounting validity.
+     */
+    data class AssetCounts(var trades: Int = 0, var wins: Int = 0, var losses: Int = 0, var pnlSol: Double = 0.0) {
+        val winRate: Double get() = if (wins + losses > 0) wins * 100.0 / (wins + losses) else 0.0
+    }
+
+    private fun inferAssetClassFromMode(mode: String): String {
+        val m = normalizeTradeModeName(mode).uppercase()
+        return when {
+            m.startsWith("STOCK")  || m.contains("STOCKS_")      -> "STOCK"
+            m.startsWith("FOREX")  || m.contains("FOREX_")       -> "FOREX"
+            m.startsWith("METAL")  || m.contains("METALS_")      -> "METAL"
+            m.startsWith("COMMOD") || m.contains("COMMODITIES_") -> "COMMODITY"
+            m.startsWith("PERP")   || m.contains("PERPS_")       -> "PERP"
+            m.startsWith("ALT")    || m.contains("ALTSPOT") || m.contains("CRYPTO_ALT") || m == "ALTTRADER" -> "ALT"
+            else                                                  -> "MEME"
+        }
+    }
+
+    /** Canonical per-asset breakdown derived from journal SELL rows. */
+    fun getAssetBreakdown(): Map<String, AssetCounts> {
+        val out = LinkedHashMap<String, AssetCounts>()
+        val snapshot = synchronized(lock) { trades.toList() }
+        for (t in snapshot) {
+            if (!isJournalSellLike(t.side)) continue
+            if (!isValidAccountingTrade(t)) continue
+            val asset = inferAssetClassFromMode(t.tradingMode)
+            val acc = out.getOrPut(asset) { AssetCounts() }
+            acc.trades += 1
+            val pnl = if (t.netPnlSol != 0.0) t.netPnlSol else t.pnlSol
+            acc.pnlSol += pnl
+            when (t.isWin) {
+                true  -> acc.wins += 1
+                false -> acc.losses += 1
+                null  -> { /* scratch — counted in trades, not W/L */ }
+            }
+        }
+        return out
+    }
+
+    /** Canonical grand total across ALL assets (drift-proof "All Traders" line). */
+    fun getCanonicalTotals(): AssetCounts {
+        val tot = AssetCounts()
+        for (a in getAssetBreakdown().values) {
+            tot.trades += a.trades; tot.wins += a.wins; tot.losses += a.losses; tot.pnlSol += a.pnlSol
+        }
+        return tot
+    }
+
     fun recordPartialProfit(mint: String, profitSol: Double, pnlPct: Double) {
         // V5.9.1161 — legacy corruption path disabled permanently.
         // The caller has no exit price, proceeds, parent position, fee or lane
