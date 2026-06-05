@@ -718,7 +718,7 @@ object CanonicalOutcomeBus {
         // meme-brain subscribers reject it (they hard-gate on assetClass==MEME).
         var foreignAsset: AssetClass? = null
         if (mode == TradeMode.UNKNOWN) {
-            val rawAsset = normalizeAssetClass(trade.tradingMode)
+            val rawAsset = CanonicalOutcomeNormalizer.normalizeAssetClass(trade.tradingMode)
             if (rawAsset != AssetClass.UNKNOWN && rawAsset != AssetClass.MEME) {
                 foreignAsset = rawAsset
             }
