@@ -80,6 +80,14 @@ object CyclicTradeEngine {
     @Volatile var lossCount: Int = 0
         private set
     @Volatile var currentMint: String = ""
+    // V5.9.1347 — CYCLIC is the OPPORTUNISTIC COMPOUNDER: it has NO single trade
+    // style. It deploys the ring into whatever opportunity the full app toolkit
+    // (the V3 spine: ShitCoin/Moonshot/Manipulated/Quality/etc. scorers) rates best
+    // for each token RIGHT NOW, and then rides it with THAT lane's exit style. We
+    // capture the V3-chosen mode of the held token so the in-position exit logic
+    // applies the correct style (a moonshot runs; a scalp scalps) instead of one
+    // fixed profile for every token.
+    @Volatile var currentMode: String = "STANDARD"
         private set
     @Volatile var currentSymbol: String = ""
         private set
@@ -114,6 +122,7 @@ object CyclicTradeEngine {
         lossCount      = prefs.getInt("loss_count", 0)
         isInPosition   = false  // Always start fresh — don't resume mid-position after kill
         currentMint    = ""
+        currentMode    = "STANDARD"
         isRunning      = false
         ErrorLogger.info(TAG, "CyclicTradeEngine initialised | ring=\$${ringBalanceUsd.toInt()} | cycles=$cycleCount")
     }
@@ -188,7 +197,7 @@ object CyclicTradeEngine {
                 ((currentPrice - entryPriceSol) / entryPriceSol) * 100.0
             } else 0.0
 
-            val (tpPct, slPct) = adaptiveTpSl()
+            val (tpPct, slPct) = adaptiveTpSl(currentMode)
             val holdMs = System.currentTimeMillis() - entryTimeMs
 
             // V5.9.696 — Dynamic profit lock (ratchet).
@@ -383,7 +392,21 @@ object CyclicTradeEngine {
                         !(expReject || danger)
                     }
             }
-            .maxByOrNull { (it.lastV3Score ?: 0) + it.entryScore.toInt() }
+            // ── V5.9.1347 — RANK BY TOOL-VALIDATED CONVICTION, not raw momentum ──
+            // The old ranking was maxByOrNull { lastV3Score + entryScore } — pure
+            // momentum, which just picks the most-pumped token. But every token on
+            // the watchlist already carries the FULL V3 verdict from the app toolkit:
+            // lastV3Score (the blended lane scorer's score) AND lastV3Confidence (how
+            // sure the chosen lane is). As the opportunistic compounder, CYCLIC should
+            // deploy into the highest-CONVICTION opportunity — score weighted by the
+            // chosen lane's confidence — so a 70-score the toolkit is sure about beats
+            // an 80-score it's shaky on. Falls back to raw score when confidence is
+            // absent (older/bootstrap tokens) so the ring is never starved.
+            .maxByOrNull { ts ->
+                val score = ((ts.lastV3Score ?: ts.entryScore.toInt())).toDouble()
+                val conf = (ts.lastV3Confidence ?: 50).coerceIn(1, 100).toDouble()
+                score * (conf / 100.0)
+            }
             ?: run {
                 statusMessage = "Scanning… (need score ≥${effectiveMinScore.toInt()}${if (cyclicCold) " [COLD]" else if (isBootstrapPhase) " [BOOT]" else ""}${if (consecutiveLosses > 0) " +${consecutiveLosses}L" else ""})"
                 return
@@ -449,7 +472,7 @@ object CyclicTradeEngine {
             }
         }
 
-        val (tpPctEntry, slPctEntry) = adaptiveTpSl()
+        val (tpPctEntry, slPctEntry) = adaptiveTpSl(best.tradingMode.ifBlank { "STANDARD" })
 
         // V5.9.1210 — CYCLIC must use the same executable-open finality
         // contract as the other lanes. Restoring paper cyclic in 1207 exposed
@@ -556,6 +579,7 @@ object CyclicTradeEngine {
             } catch (_: Throwable) {}
             isInPosition  = true
             currentMint   = best.mint
+            currentMode   = best.tradingMode.ifBlank { "STANDARD" }   // V5.9.1347 — adopt the V3-chosen lane style for exits
             currentSymbol = best.symbol
             entryPriceSol = best.lastPrice
             entrySizeSol  = sizeSol
@@ -589,16 +613,35 @@ object CyclicTradeEngine {
      * On loss streak (≥2 consecutive losses): widen TP to 20, tighten SL
      *   to 3 — hunt fatter moves, exit mediocre setups faster.
      */
-    private fun adaptiveTpSl(): Pair<Double, Double> {
+    private fun adaptiveTpSl(mode: String = currentMode): Pair<Double, Double> {
         val lp = try {
             com.lifecyclebot.v3.scoring.FluidLearningAI.getLearningProgress()
         } catch (_: Throwable) { 1.0 }
-        // Compounding profile: bootstrap still needs runners. Use TP as runner
-        // activation, not scalp exit. Loss streak tightens SL and demands even
-        // fatter continuation before the ring declares victory.
-        val (baseTp, baseSl) = if (lp < 0.40) Pair(50.0, 10.0) else Pair(DEFAULT_TP_PCT, DEFAULT_SL_PCT)
+        // ── V5.9.1347 — MODE-AWARE EXIT STYLE ──
+        // CYCLIC has no single trade style; it inherits the style of whichever lane
+        // the V3 spine chose for this token. A token V3 routed as MOONSHOT must be
+        // ridden as a runner (fat TP, room to breathe); one routed as a SHITCOIN /
+        // TREASURY scalp must be banked fast; a MANIPULATED pump must be exited
+        // before the dump. Applying one fixed +50-65% TP to all of them is what made
+        // the ring buy moonshot-style targets on tokens that were really quick
+        // scalps (and vice-versa). Pick the base profile from the chosen mode, THEN
+        // overlay the existing learning (bootstrap) + loss-streak discipline.
+        val m = mode.uppercase()
+        val (modeTp, modeSl) = when {
+            m.contains("MOONSHOT")                          -> Pair(120.0, 12.0)  // runner: big TP, room
+            m.contains("MANIPUL")                           -> Pair(14.0, 11.0)   // ride pump, bank before dump
+            m.contains("SHITCOIN") || m.contains("EXPRESS") -> Pair(35.0, 9.0)    // fast scalp
+            m.contains("TREASURY") || m.contains("CASH")    -> Pair(30.0, 8.0)    // cash-gen scalp
+            m.contains("SNIPER")                            -> Pair(45.0, 10.0)   // early entry, medium ride
+            m.contains("QUALITY") || m.contains("BLUE")     -> Pair(60.0, 10.0)   // quality hold
+            else                                            -> Pair(DEFAULT_TP_PCT, DEFAULT_SL_PCT) // STANDARD
+        }
+        // Bootstrap still wants slightly fatter continuation while learning.
+        val (baseTp, baseSl) = if (lp < 0.40) Pair(maxOf(modeTp, 50.0), maxOf(modeSl, 10.0))
+                               else Pair(modeTp, modeSl)
+        // Loss-streak discipline overlays on top regardless of mode.
         return when {
-            consecutiveLosses >= 2 -> Pair(80.0, 6.0)
+            consecutiveLosses >= 2 -> Pair(maxOf(baseTp, 80.0), minOf(baseSl, 6.0))
             consecutiveLosses == 1 -> Pair(maxOf(baseTp, 65.0), minOf(baseSl, 8.0))
             else -> Pair(baseTp, baseSl)
         }
@@ -681,6 +724,7 @@ object CyclicTradeEngine {
         lastCycleEndMs = System.currentTimeMillis()
         isInPosition   = false
         currentMint    = ""
+        currentMode    = "STANDARD"
         currentSymbol  = ""
         entryPriceSol  = 0.0
         entrySizeSol   = 0.0
@@ -695,6 +739,7 @@ object CyclicTradeEngine {
     private fun abandonCycle(context: Context, reason: String, solPrice: Double) {
         isInPosition  = false
         currentMint   = ""
+        currentMode   = "STANDARD"
         currentSymbol = ""
         entryPriceSol = 0.0
         entrySizeSol  = 0.0
@@ -731,6 +776,7 @@ object CyclicTradeEngine {
         lossCount     = 0
         isInPosition  = false
         currentMint   = ""
+        currentMode   = "STANDARD"
         currentSymbol = ""
         entryPriceSol = 0.0
         entrySizeSol  = 0.0

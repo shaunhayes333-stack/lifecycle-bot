@@ -72,11 +72,20 @@ object ManipulatedTraderAI {
     private const val POSITION_SOL_MATURE = 0.05
 
     // Take profit / Stop loss (fixed — no fluid adaption on risk for this layer)
-    private const val TAKE_PROFIT_PCT = 25.0                   // Fast pump target
-    private const val STOP_LOSS_PCT = -5.0                     // Tight — dumps are fast
+    // V5.9.1347 — TP/SL GEOMETRY FIX (the other half of the 3W/21L root cause).
+    // Old: TP +25% / SL -5%. On a token deliberately selected for >=15% momentum
+    // and >=70-80% buy pressure, intra-candle swings of 5%+ are NORMAL noise — so the
+    // -5% stop fired on routine wiggle long before +25% could resolve. That asymmetry
+    // (stop inside the noise band, target outside the reachable band) is a structural
+    // coin-flip the lane loses ~4/5 of the time. Fix the geometry to the asset's
+    // reality: give the stop room to survive normal manipulation volatility, and pull
+    // the target IN so a winner banks before the fast reversal these tokens always do.
+    // Net reward:risk stays favourable (+14 / -11 ≈ 1.27:1) but is now ACHIEVABLE.
+    private const val TAKE_PROFIT_PCT = 14.0                   // bank the bounce before the dump (was 25 — unreachable)
+    private const val STOP_LOSS_PCT = -11.0                    // survive normal pump noise (was -5 — noise-tight)
     private const val FORCE_EXIT_MINUTES = 4.0                 // Hard 4-minute time exit
-    private const val TRAILING_STOP_ACTIVATION_PCT = 10.0      // Activate trailing at +10%
-    private const val TRAILING_STOP_FROM_HWM_PCT = 15.0        // 15% trail from high-water mark
+    private const val TRAILING_STOP_ACTIVATION_PCT = 7.0       // activate trail earlier — lock the bounce (was 10)
+    private const val TRAILING_STOP_FROM_HWM_PCT = 10.0        // tighter trail — these reverse hard (was 15)
 
     // ═══════════════════════════════════════════════════════════════════════════
     // DATA CLASSES
@@ -222,6 +231,21 @@ object ManipulatedTraderAI {
 
         // Known rug penalty
         if (rugcheckScore < 1) score -= 20
+
+        // ── V5.9.1347 — OVER-EXTENSION PENALTY (the 3W/21L root cause) ──
+        // The old scoring rewarded momentum>=15 (+20) AND buyPressure>=80 (+20)
+        // simultaneously, so it scored HIGHEST exactly at the blow-off top — the
+        // instant before coordinated manipulators dump on late retail. That is the
+        // worst possible entry: we became the exit liquidity. A manipulator ride is
+        // only good while pressure is BUILDING; once it's exhausted (extreme momentum
+        // AND extreme one-sided buying at once) the next move is the dump. Penalize
+        // that exhaustion signature so the lane stops buying tops and prefers the
+        // earlier, still-building part of the pump where +25% is actually reachable.
+        if (momentum >= 15.0 && buyPressurePct >= 85.0) {
+            score -= 25        // both maxed = blow-off top → heavy demerit
+        } else if (momentum >= 20.0 || buyPressurePct >= 92.0) {
+            score -= 12        // one extreme = late, getting dangerous
+        }
 
         return score.coerceIn(0, 100)
     }
