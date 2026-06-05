@@ -48,6 +48,9 @@ object SignalQualityTracker {
     private val byLane = ConcurrentHashMap<String, Q>()
     private val all = Q()
     private val pending = ConcurrentHashMap<String, Triple<String, Double, Double>>()
+
+    /** V5.9.1353 — TRUE RESET: drop per-lane signal-quality + pending. */
+    fun reset() { byLane.clear(); pending.clear() }
     @Volatile private var appContext: Context? = null
 
     fun stamp(mint: String, lane: String, predictedPWin: Double, expectedPnl: Double) {

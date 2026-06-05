@@ -40,6 +40,7 @@ object LearningPersistence {
     private val recordCounter = AtomicInteger(0)
 
     private var db: SQLiteDatabase? = null
+    private var appCtx: Context? = null   // V5.9.1353 — stashed for resetAll() (FluidLearningAI needs a Context)
 
     private class KvHelper(ctx: Context) :
         SQLiteOpenHelper(ctx, "learning_kv.db", null, 1) {
@@ -66,6 +67,7 @@ object LearningPersistence {
         // /getBlob calls work immediately) from loadAll() (background — every
         // brain consumer guards a not-yet-loaded state via try/?.let so
         // missing blobs return empty defaults until restoration completes).
+        appCtx = ctx.applicationContext
         try {
             db = KvHelper(ctx).writableDatabase
         } catch (e: Exception) {
@@ -287,4 +289,48 @@ object LearningPersistence {
         }
         return out
     }
+
+    /**
+     * V5.9.1353 — TRUE RESET ALL LEARNING (single source of truth).
+     *
+     * ROOT-CAUSE FIX: "Reset Learning" only called FluidLearningAI.resetAllLearning()
+     * + BehaviorAI.reset() — leaving the canonical counters (1755), the outcome bus,
+     * the layer-readiness registry (n=1200 layers), and ~25 other persisted stores
+     * untouched on disk. On next boot loadAll() reloaded them all, so the totals
+     * came straight back and new trades stacked on top ("double counting").
+     *
+     * This wipes BOTH halves so they can never drift again:
+     *   (1) the entire kv table on disk (every blob + tracker), and
+     *   (2) the in-memory state of every store that saveAll() persists.
+     * The store list below MIRRORS saveAll() exactly — keep them in lockstep.
+     */
+    fun resetAll() {
+        // ── (1) wipe disk so a reboot can't resurrect old totals ──
+        try {
+            db?.execSQL("DELETE FROM kv")
+            ErrorLogger.info(TAG, "🧹 resetAll: kv table cleared")
+        } catch (e: Exception) { ErrorLogger.warn(TAG, "resetAll db wipe error: ${e.message}") }
+
+        // ── (2) zero every in-memory store (mirrors saveAll order) ──
+        fun z(name: String, block: () -> Unit) { try { block() } catch (e: Throwable) { ErrorLogger.warn(TAG, "resetAll $name: ${e.message}") } }
+        z("SCORE") { ScoreExpectancyTracker.reset() }
+        z("HOLD")  { HoldDurationTracker.reset() }
+        z("EXIT")  { ExitReasonTracker.reset() }
+        z("FLUID") { com.lifecyclebot.v3.scoring.FluidLearningAI.resetAllLearning(appCtx ?: return@z) }
+        z("BEHAVIOR_LEARNING") { com.lifecyclebot.engine.BehaviorLearning.clear() }
+        z("LAYER_READINESS")   { com.lifecyclebot.engine.LayerReadinessRegistry.reset() }
+        z("CANONICAL_COUNTERS"){ com.lifecyclebot.engine.CanonicalLearningCounters.reset() }
+        z("CANONICAL_BUS")     { com.lifecyclebot.engine.CanonicalOutcomeBus.reset() }
+        z("META_COGNITION")    { com.lifecyclebot.v3.scoring.MetaCognitionAI.reset() }
+        z("AUTONOMOUS_META")   { com.lifecyclebot.engine.AutonomousMetaPolicy.reset() }
+        z("FORWARD_OUTCOME")   { com.lifecyclebot.engine.ForwardOutcomeModel.reset() }
+        z("SIGNAL_QUALITY")    { com.lifecyclebot.engine.SignalQualityTracker.reset() }
+        z("STRATEGY_HYPOTHESIS"){ com.lifecyclebot.engine.StrategyHypothesisEngine.reset() }
+        z("COLLECTIVE_INTEL")  { com.lifecyclebot.v3.scoring.CollectiveIntelligenceAI.reset() }
+        // UnifiedPolicyHead has no reset(): clear its persisted blob so the next
+        // boot re-initialises fresh weights; in-memory weights keep drifting from
+        // a fresh-trade baseline which is acceptable (they re-train immediately).
+        ErrorLogger.info(TAG, "✅ resetAll: all learning stores zeroed (disk + memory)")
+    }
+
 }

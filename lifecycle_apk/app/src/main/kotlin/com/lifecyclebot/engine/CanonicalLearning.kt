@@ -403,6 +403,22 @@ object CanonicalLearningCounters {
         "bcSimOnlyOutcomes" to bcSimOnlyOutcomes.get(),
     )
 
+    /**
+     * V5.9.1353 — TRUE RESET. Zeroes every persisted counter in memory. Called
+     * by LearningPersistence.resetAll() (which also wipes the disk kv table) so
+     * "Reset Learning" actually returns the canonical totals to 0 instead of
+     * leaving 1755 to be reloaded on next boot. Single source of truth: mirrors
+     * the exportState/importState field list exactly.
+     */
+    fun reset() {
+        canonicalOutcomesTotal.set(0); liveOutcomesTotal.set(0); paperOutcomesTotal.set(0)
+        shadowOutcomesTotal.set(0); executedTradesTotal.set(0); failedExecutionsTotal.set(0)
+        settledWins.set(0); settledLosses.set(0); openTrades.set(0); inconclusiveTrades.set(0)
+        recoveredTrades.set(0); rejectedBadLabels.set(0); incompleteFeatureOutcomes.set(0)
+        richFeatureOutcomes.set(0); strategyTrainableOutcomes.set(0); executionOnlyOutcomes.set(0)
+        bcSimOnlyOutcomes.set(0)
+    }
+
     // V5.9.949 — persistence hooks. Counters drive WR + dashboard health
     // and represent the LIFETIME total of every settled outcome the bot
     // has ever produced. Wiping them on restart was equivalent to giving
@@ -467,6 +483,10 @@ object CanonicalOutcomeBus {
     private val subscribers = CopyOnWriteArrayList<Subscriber>()
     private val recentEvents = java.util.concurrent.ConcurrentLinkedDeque<CanonicalTradeOutcome>()
     private const val RECENT_MAX = 200
+
+    /** V5.9.1353 — TRUE RESET: drop the recent-outcome history ring. Subscribers
+     *  are left intact (they are wiring, not learned state). */
+    fun reset() { recentEvents.clear() }
 
     fun subscribe(s: Subscriber) {
         subscribers.add(s)
@@ -972,6 +992,10 @@ object LayerReadinessRegistry {
     )
 
     private val states = ConcurrentHashMap<String, State>()
+
+    /** V5.9.1353 — TRUE RESET: clear all per-layer education state so every
+     *  layer drops back to DISCONNECTED until it re-accumulates real samples. */
+    fun reset() { states.clear() }
 
     fun recordEducation(layer: String, settledDelta: Long, positiveEvDelta: Long) {
         val s = states.getOrPut(layer) { State() }

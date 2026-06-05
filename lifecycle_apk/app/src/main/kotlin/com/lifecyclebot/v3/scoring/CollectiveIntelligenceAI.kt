@@ -89,6 +89,13 @@ object CollectiveIntelligenceAI {
     private val patternsAnalyzed = AtomicInteger(0)
     private val patternsPruned = AtomicInteger(0)
     private val anomaliesDetected = AtomicInteger(0)
+
+    /** V5.9.1353 — TRUE RESET: drop all learned caches + counters. */
+    fun reset() {
+        patternQualityCache.clear(); modePerformanceCache.clear(); tokenPredictionCache.clear()
+        consensusCache.clear(); networkSignalsCache.clear()
+        patternsAnalyzed.set(0); patternsPruned.set(0); anomaliesDetected.set(0)
+    }
     private val lastMaintenanceMs = AtomicLong(0)
     private val lastRefreshMs = AtomicLong(0)
     

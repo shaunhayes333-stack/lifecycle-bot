@@ -80,6 +80,9 @@ object StrategyHypothesisEngine {
     private val stopBaseline = ConcurrentHashMap<String, Double>()
     private val active = ConcurrentHashMap<String, Hypothesis>()
     private val pending = ConcurrentHashMap<String, Pair<String, Boolean>>()  // mint -> (context, isVariant)
+
+    /** V5.9.1353 — TRUE RESET: drop baselines, active hypotheses + pending. */
+    fun reset() { baseline.clear(); stopBaseline.clear(); active.clear(); pending.clear() }
     @Volatile private var promotions = 0L
     @Volatile private var retirements = 0L
     @Volatile private var appContext: Context? = null

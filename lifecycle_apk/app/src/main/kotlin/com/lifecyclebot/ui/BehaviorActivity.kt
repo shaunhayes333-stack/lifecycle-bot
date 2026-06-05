@@ -836,9 +836,13 @@ class BehaviorActivity : AppCompatActivity() {
                     .setMessage("Last chance! Delete all learning data?")
                     .setPositiveButton("Yes, Reset") { _, _ ->
                         try {
+                            // V5.9.1353 — TRUE RESET: one orchestrated path that wipes
+                            // disk + every in-memory store (was only clearing 2 of ~28,
+                            // leaving canonical 1755 / layer n=1200 to reload on boot).
+                            com.lifecyclebot.engine.LearningPersistence.resetAll()
                             com.lifecyclebot.v3.scoring.FluidLearningAI.resetAllLearning(this)
                             BehaviorAI.reset()
-                            Toast.makeText(this, "All learning has been reset", Toast.LENGTH_LONG).show()
+                            Toast.makeText(this, "All learning reset (disk + memory)", Toast.LENGTH_LONG).show()
                             refreshStats()
                         } catch (e: Exception) {
                             Toast.makeText(this, "Reset failed: ${e.message}", Toast.LENGTH_SHORT).show()

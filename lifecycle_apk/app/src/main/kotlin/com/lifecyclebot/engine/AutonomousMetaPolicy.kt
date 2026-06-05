@@ -194,6 +194,9 @@ object AutonomousMetaPolicy {
 
     /** Pending decision contexts keyed by mint, set at decision time. */
     private val pending = ConcurrentHashMap<String, String>()
+
+    /** V5.9.1353 — TRUE RESET: drop all learned arms + pending. */
+    fun reset() { arms.clear(); pending.clear() }
     // V5.9.1290 — monotonic probe counter for the veto bypass valve
     private val vetoProbeCounter = java.util.concurrent.atomic.AtomicLong(0L)
 

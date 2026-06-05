@@ -113,6 +113,9 @@ object ForwardOutcomeModel {
 
     /** Stamp the signature chosen at decision time so the settled outcome credits it. */
     private val pending = ConcurrentHashMap<String, Pair<String, String>>()  // mint -> (fineKey, coarseKey)
+
+    /** V5.9.1353 — TRUE RESET: drop the learned edge map + pending. */
+    fun reset() { fine.clear(); coarse.clear(); pending.clear() }
     fun stamp(mint: String, lane: String, score: Int, quality: String, regime: String, edgePhase: String) {
         try { pending[mint] = fineKey(lane, score, quality, regime, edgePhase) to coarseKey(lane, score, regime) } catch (_: Throwable) {}
     }
