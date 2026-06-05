@@ -6,6 +6,41 @@ NO local compiler. Multi-lane architecture (Memes [9 sub-lanes], Crypto/Alts,
 Stocks, Markets, Tokenized Stocks, Forex, Metals, Commodities). Foreground
 Service with a 50+ AI-module pipeline gated through processTokenCycle.
 
+## V5.9.1332 (Feb 2026) — DISARM EMERGENCY THROTTLE + PARABOLIC MOMENTUM CAP + UI ANR CACHE (CI ✅ green)
+
+Operator: *"it trades and then virtually stops"* — snapshot (build 5.0.3321,
+uptime 996s) showed last trade 17:09:02 → snapshot 17:14:22 = 5+min zero execs,
+WR 11.8% bleeding, 42 ANR hints. Three root causes diagnosed:
+
+A. **DISARM SUPERVISOR_EMERGENCY_THROTTLE (BotService.kt)**
+   Threshold-clamp fired 2× in 16min and pinned `effectiveCap 32→16` for
+   5min windows. With 154 worker timeouts (degraded APIs: groq 20%sr,
+   geckoterminal 55%, helius WS reconnects), the throttle pinned
+   `spawned=16 skipped=16` on 123/129 cycles.
+   - `supervisorEffectiveCap()` now returns `SUPERVISOR_BASE_MAX_WORKERS`
+     unconditionally. Lease TTL (4.75s) drains stuck workers naturally.
+   - `supervisorArmEmergencyThrottle()` becomes a no-op observation log
+     (`SUPERVISOR_EMERGENCY_THROTTLE_OBSERVED_DISARMED`).
+
+B. **CAP PARABOLIC MOMENTUM (ShitCoinTraderAI.kt)**
+   LosingPatternMemory showed `SHITCOIN|S61+` as the WORST bucket:
+   190L/12W (-13.8% mean). High-score Shitcoins were the biggest bleeder —
+   the scoring function was over-rewarding parabolic momentum (was +20pts
+   for `momentum >= 20%`).
+   - Momentum ladder rescaled 20→10 / 15→8 / 10→7 / 7→5.
+   - New OVERHEATED penalty: `momentum > 40%` subtracts -10pts (FOMO chase =
+     top-of-pump trap). Train-First: not a hard veto.
+
+C. **UI ANR CACHE (ui/UiSnapshotCache.kt + MainActivity.kt)**
+   - `EducationSubLayerAI.getAllLayerMaturity` (1259ms) and
+     `WrRecoveryPartial.shortBadge` (1004ms) were freezing main thread
+     in `updateUi()`.
+   - New `UiSnapshotCache` object with 2.5s TTL caches both calls.
+   - Both call sites (updateUi + AI tab snapshot) routed through cache.
+   - No trading decision affected — UI badges only.
+
+
+
 ## V5.9.1331 (Feb 2026) — STRATEGY CLEANUP + STALL FIX + memeOpen TELEMETRY (CI ✅ green)
 
 Operator mandate: *"11.5% WR, 57W/440L, 45-loss streak. Still trade stalls.
