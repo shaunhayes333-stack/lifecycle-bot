@@ -36,31 +36,28 @@ object ModeLeniency {
     @JvmStatic
     fun useLenientGates(isPaperMode: Boolean): Boolean {
         if (isPaperMode) return true
-        // V5.9.612: if the bot is choking, soften live gates immediately so
-        // it can regain trade flow and gather data. This never bypasses hard
-        // anti-rug / anti-drain safety checks; it only selects paper-like soft
-        // thresholds for score/phase/cooldown style gates.
-        if (AntiChokeManager.isSoftening()) return true
-        // V5.9.58: Check BOTH the local TradeHistoryStore AND the 30-Day
-        // Proof Run. Users with a running proof (e.g. 1549 trades at 59%
-        // WR) were seeing their "live-proven" flag stay off forever
-        // because TradeHistoryStore is fed by the meme bot only and the
-        // Markets/Alts traders feed RunTracker30D via FluidLearningAI.
-        // Either proof-of-edge counts.
-        return try {
-            if (TradeHistoryStore.getProvenEdgeCached().hasProvenEdge) return true
-            val totalTrades = RunTracker30D.totalTrades
-            val start = RunTracker30D.startBalance
-            val cur = RunTracker30D.currentBalance
-            // Use positive return as a proven-edge proxy when the run has
-            // enough volume — we don't have a cached lifetime win rate on
-            // RunTracker30D, but a ≥300-trade run in positive territory is
-            // plenty of evidence the bot's edge is real.
-            if (totalTrades >= 300 && start > 0 && cur >= start) return true
-            false
-        } catch (_: Throwable) {
-            false
-        }
+        // V5.9.1346 — OPERATOR DIRECTIVE: the paper→live switch must be a DIRECT
+        // handoff. Live runs the SAME learning brain and the SAME soft entry gates
+        // as paper; the ONLY things that change in live are (a) real-wallet routing
+        // and (b) the unconditional HARD RULES, which live in entirely separate code
+        // paths and are NOT controlled by this flag:
+        //   • -15% hard-floor stop-loss (ExitManager, unconditional)
+        //   • zero-liquidity HARD_FAIL (HardRugPreFilter — still fires when lenient)
+        //   • liquidity-drain heuristic (≥2 hits + ≥40% drop/60s OR <$800)
+        //   • FDG hard veto whitelist + real on-chain wallet reconciliation
+        //
+        // The previous logic only made live lenient once the bot had a "proven edge"
+        // (≥300 trades at ≥50% WR). During the bootstrap/learning phase WR sits in the
+        // 20-35% band BY DESIGN (see PERFORMANCE_DOCTRINE), so that bar could never be
+        // met and flipping to live silently dropped the bot into LIVE-STRICT — higher
+        // confidence floors, stricter score/phase/cooldown gates, a $3k (vs $1.5k)
+        // toxic-breaker liquidity floor — so it "did nothing". That defeated the whole
+        // point of the switch. Live now mirrors paper's soft gates unconditionally.
+        //
+        // NOTE: this only selects paper-like SOFT thresholds (score/phase/cooldown/
+        // conf-floor/liquidity-floor-for-bonding-curve). It never bypasses the hard
+        // anti-rug / anti-drain / stop-loss safety above.
+        return true
     }
 
     /** Convenience for code paths that already have a BotConfig. */
@@ -73,7 +70,7 @@ object ModeLeniency {
     fun label(isPaperMode: Boolean): String = when {
         isPaperMode -> "PAPER"
         AntiChokeManager.isSoftening() -> "LIVE-ANTI-CHOKE"
-        useLenientGates(false) -> "LIVE-PROVEN"
-        else -> "LIVE-STRICT"
+        // V5.9.1346 — live now always mirrors paper's soft gates (direct handoff).
+        else -> "LIVE-DIRECT"
     }
 }

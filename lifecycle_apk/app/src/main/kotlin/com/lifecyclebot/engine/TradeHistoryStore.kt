@@ -606,8 +606,14 @@ object TradeHistoryStore {
             while (i >= 0) {
                 val t = list[i]
                 i--
-                if (!t.side.equals("SELL", ignoreCase = true)) continue
-                if (t.pnlPct == 0.0) continue          // scratches excluded from WR
+                // V5.9.1346 — WR must count PARTIAL_SELL closes, not just full SELLs.
+                // A green position scaled out in partial chunks (side=PARTIAL_SELL,
+                // pnlPct>0) is a WIN; the old hardcoded == "SELL" silently dropped
+                // every partial from the displayed/brake win-rate. Use the canonical
+                // isJournalSellLike predicate (SELL || PARTIAL_SELL), same rule the
+                // lifetime backfill already uses, so window WR == lifetime WR basis.
+                if (!isJournalSellLike(t.side)) continue
+                if (t.pnlPct == 0.0) continue          // scratches (break-even) excluded from WR
                 if (!isMemeMode(t.tradingMode)) continue
                 lifetime++
                 if (winCount < cap) {
@@ -835,7 +841,8 @@ object TradeHistoryStore {
     fun rollingWinRatePct(n: Int): Double {
         val sample = synchronized(lock) {
             // Newest-first window of the most recent N sells.
-            trades.asReversed().asSequence().filter { it.side == "SELL" }.take(n).toList()
+            // V5.9.1346 — include PARTIAL_SELL closes (was == "SELL", dropped partials).
+            trades.asReversed().asSequence().filter { isJournalSellLike(it.side) }.take(n).toList()
         }
         val wins   = sample.count { isWin(it) }
         val losses = sample.count { isLoss(it) }
@@ -866,7 +873,8 @@ object TradeHistoryStore {
     private fun computeRollingWinRatePctSlice(offset: Int, width: Int): Double {
         val sample = synchronized(lock) {
             trades.asReversed().asSequence()
-                .filter { it.side == "SELL" }
+                // V5.9.1346 — include PARTIAL_SELL closes (was == "SELL").
+                .filter { isJournalSellLike(it.side) }
                 .drop(offset)
                 .take(width)
                 .toList()
