@@ -1104,6 +1104,43 @@ object ShitCoinTraderAI {
             ErrorLogger.debug(TAG, "💩 DUMP_GUARD: ${symbol} | bp=${buyPressurePct.toInt()}% (<30%) → -10pts → score=$shitScore")
         }
 
+        // V5.9.1333 — TACTIC SWITCHER + PERSONALITY TUNE
+        // The bucket's currently-chosen tactic shapes WHICH signal pattern
+        // qualifies. If MOMENTUM is bleeding, the switcher rotates to
+        // PULLBACK / REACCUMULATION / BREAKOUT — each applies a different
+        // signal filter. NEVER disables the bucket, just changes the entry
+        // criterion. Personality traits add a small bounded score-floor bias.
+        run {
+            val band = try { com.lifecyclebot.engine.LosingPatternMemory.scoreBand(shitScore) } catch (_: Throwable) { "" }
+            val tactic = try { com.lifecyclebot.engine.learning.TacticSwitcher.currentTactic("SHITCOIN", band) }
+                catch (_: Throwable) { com.lifecyclebot.engine.learning.TacticSwitcher.Tactic.MOMENTUM }
+            val tacticDelta = when (tactic) {
+                com.lifecyclebot.engine.learning.TacticSwitcher.Tactic.MOMENTUM -> 0
+                com.lifecyclebot.engine.learning.TacticSwitcher.Tactic.PULLBACK -> {
+                    // Reward modest pullback entries (-3 to -8% from a recent high), penalize chase.
+                    if (momentum in -8.0..-1.0) 8 else if (momentum > 5.0) -6 else 0
+                }
+                com.lifecyclebot.engine.learning.TacticSwitcher.Tactic.REACCUMULATION -> {
+                    // Reward sideways + buy pressure: |momentum|<3 and bp>=55.
+                    if (kotlin.math.abs(momentum) < 3.0 && buyPressurePct >= 55.0) 8
+                    else if (momentum > 10.0) -4 else 0
+                }
+                com.lifecyclebot.engine.learning.TacticSwitcher.Tactic.BREAKOUT -> {
+                    // Reward strong confirmed breakouts (mom>=8 AND bp>=60), penalize weak.
+                    if (momentum >= 8.0 && buyPressurePct >= 60.0) 6
+                    else if (momentum < 2.0) -6 else 0
+                }
+            }
+            if (tacticDelta != 0) {
+                shitScore = (shitScore + tacticDelta).coerceAtLeast(0)
+                scoreReasons.add("tac:${tactic.name.take(4)}${if(tacticDelta>0)"+" else ""}$tacticDelta")
+            }
+        }
+        // Personality score-floor bias (-2..+6 pts subtracted, never blocks):
+        val personalityFloorBias = try {
+            com.lifecyclebot.engine.PersonalityTraitMultipliers.scoreFloorBias()
+        } catch (_: Throwable) { 0 }
+
         // Check thresholds
         // V5.9.801 — operator audit Fix A+B: hoist WR Recovery Quality Floor
         // into the sub-trader entry path. The Smart Entry Gate in
@@ -1116,7 +1153,7 @@ object ShitCoinTraderAI {
         // of its FluidLearningAI threshold. FLUID/OFF bands return 0 and
         // change nothing for healthy WR.
         val wrFloor = try { com.lifecyclebot.engine.WrRecoveryPartial.minScoreFloor() } catch (_: Throwable) { 0 }
-        val effectiveMinScore = maxOf(minScore, wrFloor)
+        val effectiveMinScore = maxOf(minScore, wrFloor) + personalityFloorBias
         val passesScore = shitScore >= effectiveMinScore
         val passesConf = shitConfidence >= minConf
         

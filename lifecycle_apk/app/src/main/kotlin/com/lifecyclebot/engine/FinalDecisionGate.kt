@@ -3865,6 +3865,21 @@ object FinalDecisionGate {
             }
         } catch (_: Throwable) { /* lane policy must never break the entry pipeline */ }
 
+        // V5.9.1333 — PERSONALITY TUNE → sizing multiplier (bounded ±15%).
+        // Six-trait personality vector (paranoia/euphoria/discipline/aggression
+        // /patience/loyalty) now shapes entry size. Fade FOMO when bot is
+        // euphoric, size up when disciplined/aggressive. All bounded, fail-open.
+        try {
+            val personalityMult = com.lifecyclebot.engine.PersonalityTraitMultipliers.sizingMultiplier()
+            if (kotlin.math.abs(personalityMult - 1.0) > 0.005) {
+                val beforeP = finalSize
+                finalSize = (finalSize * personalityMult).coerceAtLeast(0.0)
+                tags.add("personality:×${"%.2f".format(personalityMult)}")
+                checks.add(GateCheck("personality_tune", true,
+                    "sizeMult=${"%.2f".format(personalityMult)} size ${beforeP.format(3)}→${finalSize.format(3)}"))
+            }
+        } catch (_: Throwable) { /* personality tune must never break entry */ }
+
         // V5.9.810 — SymbolicVerdict capture (the missing Push 6 wiring).
         // CandidateSymbolicContextBuilder.buildFor() has existed since V5.9.784
         // but had ZERO callers — CandidateFeatures.symbolicVerdict has stayed

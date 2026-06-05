@@ -657,7 +657,13 @@ object MoonshotTraderAI {
         // promotion fires its own signal. AGGRESSIVE → 45, MODERATE → 30,
         // FLUID/OFF → 0 (no floor).
         val wrFloor = try { com.lifecyclebot.engine.WrRecoveryPartial.minScoreFloor() } catch (_: Throwable) { 0 }
-        val effectiveMinScore = maxOf(minScore, wrFloor)
+        // V5.9.1333 — Personality floor bias (-2..+6 pts, bounded). The
+        // PersonalityMemoryStore traits steer the bot's caution. This is
+        // additive on top of WR floors — never veto, only nudge.
+        val personalityFloorBias = try {
+            com.lifecyclebot.engine.PersonalityTraitMultipliers.scoreFloorBias()
+        } catch (_: Throwable) { 0 }
+        val effectiveMinScore = maxOf(minScore, wrFloor) + personalityFloorBias
         if (score < effectiveMinScore) {
             val tag = if (wrFloor > 0 && score < wrFloor) "wr_recovery_score_floor" else "score"
             return MoonshotScore(false, score, 0.0, "${tag}_${score}_below_${effectiveMinScore}_(base=${minScore}_wr=${wrFloor})")

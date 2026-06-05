@@ -201,6 +201,13 @@ object V3JournalRecorder {
             try { ScoreExpectancyTracker.record(layer, entryScore, pnlPct) } catch (_: Exception) {}
             try { HoldDurationTracker.record(layer, holdMinutes, pnlPct) } catch (_: Exception) {}
             try { ExitReasonTracker.record(layer, exitReason, pnlPct) } catch (_: Exception) {}
+            // V5.9.1333 — Tactic switcher observes per-(lane, scoreBand) outcome.
+            // When a bucket bleeds past threshold, rotates its entry tactic
+            // (MOMENTUM → PULLBACK → REACCUMULATION → BREAKOUT). Never disables.
+            try {
+                val band = com.lifecyclebot.engine.LosingPatternMemory.scoreBand(entryScore)
+                com.lifecyclebot.engine.learning.TacticSwitcher.onTradeClosed(layer, band, pnlPct)
+            } catch (_: Exception) {}
         }
     }
 }

@@ -928,6 +928,23 @@ object PipelineHealthCollector {
             sb.append('\n')
         } catch (_: Throwable) {}
 
+        // ── V5.9.1333 — Tactic switcher + personality tune state ──
+        // Per-(lane, scoreBand) current tactic + bot personality multipliers.
+        try {
+            val tacticSnaps = try {
+                com.lifecyclebot.engine.learning.TacticSwitcher.snapshotAll()
+            } catch (_: Throwable) { emptyList() }
+            if (tacticSnaps.isNotEmpty()) {
+                sb.append("===== Tactic Switcher (V5.9.1333) — fluid tactic rotation =====\n")
+                tacticSnaps.take(15).forEach { snap ->
+                    val ageMin = snap.ageMs / 60_000L
+                    sb.append("  ${snap.key.padEnd(24)} ${snap.tactic.name.padEnd(15)} n=${snap.tradesSinceRotation} W/L=${snap.winsSinceRotation}/${snap.lossesSinceRotation} μ=${"%+.1f".format(snap.meanPnlPct)}% age=${ageMin}m\n")
+                }
+                sb.append("  (Rotates MOMENTUM → PULLBACK → REACCUMULATION → BREAKOUT when bucket bleeds 75%+ loss for 25+ trades. NEVER disables.)\n\n")
+            }
+            sb.append("  ${com.lifecyclebot.engine.PersonalityTraitMultipliers.summaryLine()}\n\n")
+        } catch (_: Throwable) {}
+
         // ── Gate tally ──────────────────────────────────────────────
         if (s.phaseAllow.isNotEmpty() || s.phaseBlock.isNotEmpty()) {
             sb.append("===== Gate allow / block tally =====\n")
