@@ -67,6 +67,10 @@ object MemeWREmergencyBrake {
     )
 
     @Volatile private var cachedStatus: Status = Status(false, 0.0, 0, 0L)
+    // V5.9.1342 — async-refresh guard. The hot path NEVER blocks; a single
+    // background thread recomputes the snapshot when the cache goes stale.
+    private val refreshing = java.util.concurrent.atomic.AtomicBoolean(false)
+    @Volatile private var primed = false
 
     private const val REFRESH_MS = 30_000L
 
@@ -83,14 +87,44 @@ object MemeWREmergencyBrake {
         return MEME_MODES.any { it.equals(m, ignoreCase = true) }
     }
 
-    /** Recomputes status at most every REFRESH_MS. Safe to call hot-path. */
+    /**
+     * V5.9.1342 — STALE-WHILE-REVALIDATE. The hot path ALWAYS returns the last
+     * cached value instantly (O(1)) and NEVER touches the trade store on the
+     * calling thread. When the cache is older than REFRESH_MS, a single
+     * background thread recomputes it. This is the structural fix for the
+     * recurring ~2s main-thread ANR: memeWrSnapshot() (a locked linear scan of
+     * the whole trade list) was running synchronously inside compute() on the
+     * UI thread via MainActivity.updateUi → ShitCoinTraderAI.getStats →
+     * scoreBoost() every time the 30s cache expired, producing 9s frame gaps
+     * and Android ANR kills that looked like "trading stopped".
+     * Operator doctrine: fix ANR at the structural source; heavy DB work off
+     * the main thread; never throttle the render loop.
+     */
     private fun status(): Status {
         val now = System.currentTimeMillis()
         val cur = cachedStatus
-        if (now - cur.refreshedAtMs < REFRESH_MS) return cur
-        val fresh = compute(now)
-        cachedStatus = fresh
-        return fresh
+        if (now - cur.refreshedAtMs >= REFRESH_MS) {
+            // Cache is stale — kick off ONE background recompute. Callers keep
+            // using the slightly-stale value until it lands (next tick).
+            if (refreshing.compareAndSet(false, true)) {
+                try {
+                    Thread {
+                        try {
+                            val fresh = compute(System.currentTimeMillis())
+                            cachedStatus = fresh
+                            primed = true
+                        } catch (_: Throwable) {
+                        } finally {
+                            refreshing.set(false)
+                        }
+                    }.apply { isDaemon = true; name = "meme-wr-brake-refresh" }.start()
+                } catch (_: Throwable) {
+                    // If we somehow can't spawn a thread, never strand the guard.
+                    refreshing.set(false)
+                }
+            }
+        }
+        return cur
     }
 
     private fun compute(now: Long): Status {
