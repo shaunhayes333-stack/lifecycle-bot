@@ -576,16 +576,36 @@ object TradeHistoryStore {
      * @return Pair(lifetimeDecisiveMemeCloses, windowWinRatePct).
      *         windowWinRatePct is 0.0 when the window is empty.
      */
-    fun memeWrSnapshot(window: Int, isMemeMode: (String?) -> Boolean): Pair<Int, Double> {
+    // V5.9.1344 — caller passes the lifetime threshold it actually needs (the
+    // brake only checks lifetime >= MIN_LIFETIME_TRADES). Default keeps the old
+    // full-count behaviour for any other caller.
+    fun memeWrSnapshot(
+        window: Int,
+        lifetimeStopAt: Int = Int.MAX_VALUE,
+        isMemeMode: (String?) -> Boolean,
+    ): Pair<Int, Double> {
         ensureInitialized()
-        return synchronized(lock) {
-            var lifetime = 0
-            var winWins = 0
-            var winCount = 0
-            val cap = window.coerceAtLeast(1)
-            // Newest-first: the window fills from the most recent decisive meme
-            // closes; lifetime keeps counting through the whole in-memory list.
-            for (t in trades.asReversed()) {
+        // V5.9.1344 — BOUNDED EARLY-EXIT SCAN. The in-memory list caps at
+        // MAX_IN_MEMORY_TRADES (10k). The old version scanned ALL of it every
+        // call to compute an exact lifetime — but the only consumer
+        // (MemeWREmergencyBrake) needs just (a) the WR of the last `window`
+        // meme closes and (b) whether lifetime has crossed a threshold. Once
+        // BOTH the window is full AND lifetime >= lifetimeStopAt, nothing more
+        // can change the result, so we stop. This turns a 10k locked scan into
+        // a ~few-hundred-element scan in the common (window-filled) case,
+        // killing the lock-hold time that was stalling the bot even after the
+        // off-thread move in 1342. We also snapshot the slice under the lock and
+        // do the arithmetic OUTSIDE it to minimise lock-hold further.
+        val cap = window.coerceAtLeast(1)
+        var lifetime = 0
+        var winWins = 0
+        var winCount = 0
+        synchronized(lock) {
+            val list = trades
+            var i = list.size - 1
+            while (i >= 0) {
+                val t = list[i]
+                i--
                 if (!t.side.equals("SELL", ignoreCase = true)) continue
                 if (t.pnlPct == 0.0) continue          // scratches excluded from WR
                 if (!isMemeMode(t.tradingMode)) continue
@@ -594,10 +614,13 @@ object TradeHistoryStore {
                     winCount++
                     if (t.pnlPct > 0.0) winWins++
                 }
+                // Early exit: window filled AND lifetime threshold satisfied —
+                // any further trades cannot change either output the caller uses.
+                if (winCount >= cap && lifetime >= lifetimeStopAt) break
             }
-            val wrPct = if (winCount > 0) winWins.toDouble() / winCount * 100.0 else 0.0
-            Pair(lifetime, wrPct)
         }
+        val wrPct = if (winCount > 0) winWins.toDouble() / winCount * 100.0 else 0.0
+        return Pair(lifetime, wrPct)
     }
 
     /**

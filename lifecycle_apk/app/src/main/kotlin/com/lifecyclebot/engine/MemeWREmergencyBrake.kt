@@ -136,7 +136,7 @@ object MemeWREmergencyBrake {
         // the lifetime count + last-WINDOW_SIZE WR inside the store's lock with
         // no full-list materialisation. Brake semantics unchanged.
         val (lifetime, wrPct) = try {
-            TradeHistoryStore.memeWrSnapshot(WINDOW_SIZE) { isMemeMode(it) }
+            TradeHistoryStore.memeWrSnapshot(WINDOW_SIZE, MIN_LIFETIME_TRADES) { isMemeMode(it) }
         } catch (_: Exception) { Pair(0, 0.0) }
 
         if (lifetime < MIN_LIFETIME_TRADES) {
