@@ -860,6 +860,12 @@ class BotService : Service() {
             // mirror + LayerReadinessRegistry samples to the canonical bus.
             CanonicalSubscribers.registerAll()
 
+            // V5.9.1382 — ExternalAlphaFeeds: ADDITIVE smart-money + token-safety
+            // feeders into CrossTalkFusionEngine. Signal-only, fail-open, off the
+            // trade-critical path (own IO coroutine, 90s cadence). Never vetoes,
+            // never touches scanner intake. Idempotent start.
+            try { com.lifecyclebot.v4.meta.ExternalAlphaFeeds.start(scope) } catch (_: Throwable) {}
+
             // V5.9.948 — TokenMetaCache warm boot. Hydrates persisted token
             // metadata (symbol/pair/logo/pool/dex/last-snapshot) from disk
             // so the bot doesn't re-pay CU + latency to rediscover tokens
