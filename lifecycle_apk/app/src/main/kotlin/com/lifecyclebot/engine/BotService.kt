@@ -8386,7 +8386,7 @@ class BotService : Service() {
         // bucket — only rotates its entry tactic (MOMENTUM→PULLBACK→...).
         if (loopCount % 30 == 0) {
             try {
-                kotlinx.coroutines.GlobalScope.launch(AppDispatchers.sideEffect) {
+                kotlinx.coroutines.GlobalScope.launch(com.lifecyclebot.util.AppDispatchers.sideEffect) {
                     try { com.lifecyclebot.engine.learning.TacticSwitcher.sweepAllBuckets() } catch (_: Throwable) {}
                 }
             } catch (_: Throwable) {}
