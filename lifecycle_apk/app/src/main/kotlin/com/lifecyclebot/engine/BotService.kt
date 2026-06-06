@@ -7515,6 +7515,42 @@ class BotService : Service() {
         return if (root.length >= 3) root else alnum
     }
 
+    // V5.9.1364 — BOOTSTRAP DATA-STARVATION PROBE WHITELIST (SHITCOIN volume fix).
+    // Operator: WR climbed to 51% (good) but VOLUME cratered everywhere (~50/day vs
+    // doctrine floor 500-1000). Root cause: SHITCOIN was the ONLY meme lane whose
+    // FDG path was a blanket "!canExecute() -> return" hard veto with no
+    // structural/probe split (MOONSHOT & MANIPULATED already split structural-block
+    // vs soft-probe). 44% of ALL rejects were SHITCOIN_FDG_HARD_VETO for
+    // insufficient_data_thin_market / thin_data_hist_N / signal_is_wait — pure
+    // DATA-STARVATION on fresh pump.fun tokens (1-2 candles, no learned bucket).
+    // FDG WAITs -> lane hard-vetoes -> no trade -> no data -> WAITs forever. The
+    // very trades that would teach the lane its sweet spot were the ones being
+    // killed. This whitelist marks the SOFT reasons that bootstrap may probe
+    // through (tiny size); every genuine safety/integrity reason stays a hard veto.
+    private fun isBootstrapProbeableFdgBlock(reason: String?): Boolean {
+        if (reason.isNullOrBlank()) return false
+        val r = reason.lowercase()
+        // Hard safety / integrity — NEVER probe through these (FDG stays hard veto).
+        val hardKill = listOf(
+            "rug", "freeze", "zero_liquidity", "scam", "toxic", "reentry",
+            "circuit", "sell_pressure", "top_holder", "negative_ev", "high_rug",
+            "ml_rug", "narrative", "banned", "blacklist", "danger_zone",
+            "memory_negative", "behavior_block", "distribution", "symbolic_universe",
+            "liquidity_below", "gemini", "kris_rule", "lane_disabled",
+            "emergency_stop", "copy_trade"
+        )
+        if (hardKill.any { r.contains(it) }) return false
+        // Soft data-starvation / low-conviction reasons bootstrap should probe.
+        val softProbeable = listOf(
+            "thin_market", "thin_data", "insufficient_data", "insufficient data",
+            "signal_is_wait", "signal is wait", "not buy", "not_buy",
+            "bootstrap", "unknown_phase", "low_conviction", "low_confidence",
+            "confidence_floor", "c_grade_confidence", "edge_veto", "edge_distribution",
+            "fdg_block", "fdg_caution"
+        )
+        return softProbeable.any { r.contains(it) }
+    }
+
     private fun laneQualifiedBuyDecision(
         base: com.lifecyclebot.data.CandidateDecision,
         lane: String,
@@ -15916,7 +15952,7 @@ if (hotExitHandledSweep) {
                             val _shitCalMult = try {
                                 com.lifecyclebot.engine.ScoreExpectancyTracker.calibrationSizeMult("SHITCOIN", shitCoinSignal.entryScore)
                             } catch (_: Throwable) { 1.0 }
-                            val adjustedSize = (shitCoinSignal.positionSizeSol * bootstrapMultiplier * edgeSizeMult * _shitCalMult).coerceAtLeast(0.01)
+                            var adjustedSize = (shitCoinSignal.positionSizeSol * bootstrapMultiplier * edgeSizeMult * _shitCalMult).coerceAtLeast(0.01)
                             
                             // V5.2.8 FIX: If bootstrap override forced entry, use default TP/SL values
                             val shitcoinEffectiveTpPct = if (shitCoinSignal.takeProfitPct <= 0.0) 5.0 else shitCoinSignal.takeProfitPct
@@ -15961,16 +15997,37 @@ if (hotExitHandledSweep) {
                             // is preserved only for FDG exceptions/null result.
                             if (shitCoinFdg != null && !shitCoinFdg.canExecute()) {
                                 val scBlock = shitCoinFdg.blockReason ?: "FDG_BLOCK"
-                                ErrorLogger.info("BotService", "🚫 FDG HARD VETO on SHITCOIN: ${ts.symbol} | $scBlock")
+                                // V5.9.1364 — align SHITCOIN with MOONSHOT/MANIPULATED: split
+                                // genuine safety blocks (hard veto, unchanged) from soft
+                                // data-starvation blocks that bootstrap should PROBE through at
+                                // tiny size so the lane can finally gather data and learn its
+                                // sweet spot. FDG remains a hard veto for every real risk; we
+                                // only stop "we have no data yet" from killing the trades that
+                                // would generate the data. Probe is wide-open-phase only.
+                                val wideOpenBootstrap = try { com.lifecyclebot.engine.FreeRangeMode.isWideOpen() } catch (_: Throwable) { false }
+                                val scProbeable = wideOpenBootstrap && isBootstrapProbeableFdgBlock(scBlock)
+                                if (!scProbeable) {
+                                    ErrorLogger.info("BotService", "🚫 FDG HARD VETO on SHITCOIN: ${ts.symbol} | $scBlock")
+                                    try {
+                                        ForensicLogger.lifecycle(
+                                            "SHITCOIN_FDG_HARD_VETO",
+                                            "symbol=${ts.symbol} mint=${ts.mint.take(10)} reason=$scBlock liq=${ts.lastLiquidityUsd.toInt()} rug=${ts.safety.rugcheckScore}"
+                                        )
+                                    } catch (_: Throwable) {}
+                                    RejectionTelemetry.record("SHITCOIN_FDG_HARD_VETO", scBlock)
+                                    try { LaneExecutionCoordinator.releaseIfPrimary(ts.mint, "SHITCOIN", "FDG_HARD_VETO") } catch (_: Throwable) {}
+                                    return
+                                }
+                                // Soft block in wide-open bootstrap → tiny learning probe.
+                                adjustedSize = (adjustedSize * 0.25).coerceAtLeast(0.01)
+                                ErrorLogger.info("BotService", "🧪 FDG BOOTSTRAP PROBE on SHITCOIN: ${ts.symbol} | $scBlock | probeSize=${adjustedSize.fmt(3)} SOL")
                                 try {
                                     ForensicLogger.lifecycle(
-                                        "SHITCOIN_FDG_HARD_VETO",
-                                        "symbol=${ts.symbol} mint=${ts.mint.take(10)} reason=$scBlock liq=${ts.lastLiquidityUsd.toInt()} rug=${ts.safety.rugcheckScore}"
+                                        "SHITCOIN_FDG_BOOTSTRAP_PROBE",
+                                        "symbol=${ts.symbol} mint=${ts.mint.take(10)} reason=$scBlock liq=${ts.lastLiquidityUsd.toInt()} probeSol=${adjustedSize.fmt(3)}"
                                     )
                                 } catch (_: Throwable) {}
-                                RejectionTelemetry.record("SHITCOIN_FDG_HARD_VETO", scBlock)
-                                try { LaneExecutionCoordinator.releaseIfPrimary(ts.mint, "SHITCOIN", "FDG_HARD_VETO") } catch (_: Throwable) {}
-                                return
+                                RejectionTelemetry.record("SHITCOIN_FDG_BOOTSTRAP_PROBE", scBlock)
                             }
 
                             val authResult = TradeAuthorizer.authorize(
