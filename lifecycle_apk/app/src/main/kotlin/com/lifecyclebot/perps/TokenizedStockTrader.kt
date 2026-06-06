@@ -534,7 +534,46 @@ fun isLiveReady(): Boolean = totalTrades.get() >= 5000 && getWinRate() >= 50.0
         }
     }
     
+    /**
+     * V5.9.1374 (P0 #4) — TRADER SWITCH ISOLATION. EnabledTraderAuthority is the
+     * SINGLE ATOMIC source of truth for which traders the operator enabled in the
+     * UI. Mirror of CryptoAltTrader.runtimeDisabledReason(): consult the authority
+     * FIRST so a MEME-only run can never have the stock trader scanning AAPL/TSLA/
+     * NVDA via stale config (the exact leak in snapshot 5.0.3362). Falls back to the
+     * config check only when the authority is empty (pre-publish boot window).
+     */
+    private fun runtimeDisabledReason(): String? {
+        try {
+            if (com.lifecyclebot.engine.BotService.isShuttingDown) return "runtime_stopping"
+        } catch (_: Throwable) {}
+        try {
+            val authority = com.lifecyclebot.engine.EnabledTraderAuthority.snapshot()
+            if (authority.isNotEmpty() &&
+                com.lifecyclebot.engine.EnabledTraderAuthority.Trader.MARKETS_STOCKS !in authority) {
+                return "TRADER_SWITCH_SUPPRESSED_MEME_ONLY"
+            }
+        } catch (_: Throwable) { /* fall through to config check */ }
+        val c = try { com.lifecyclebot.engine.BotService.instance?.applicationContext } catch (_: Throwable) { null }
+        if (c != null) {
+            val cfg = try { com.lifecyclebot.data.ConfigStore.load(c) } catch (_: Throwable) { null }
+            if (cfg != null && (cfg.tradingMode == 0 || !cfg.marketsTraderEnabled || !cfg.stocksEnabled)) {
+                return "MEME_ONLY_MODE"
+            }
+        }
+        if (!isEnabled.get()) return "disabled"
+        return null
+    }
+
     fun start() {
+        // V5.9.1374 — hard authority gate at entry: never start the engine when
+        // the operator's UI authority excludes MARKETS_STOCKS.
+        runtimeDisabledReason()?.let { reason ->
+            isEnabled.set(false)
+            isRunning.set(false)
+            try { com.lifecyclebot.engine.ForensicLogger.lifecycle("TRADER_SWITCH_SUPPRESSED", "trader=MARKETS_STOCKS reason=$reason stage=start") } catch (_: Throwable) {}
+            ErrorLogger.info(TAG, "MARKETS_RUNTIME_DISABLED reason=$reason")
+            return
+        }
         if (isRunning.get()) {
             // Detect silent loop death — check if jobs are actually alive
             val engineAlive  = engineJob?.isActive == true
@@ -562,7 +601,7 @@ fun isLiveReady(): Boolean = totalTrades.get() >= 5000 && getWinRate() >= 50.0
             // when its UI toggle was OFF. Root cause: the INITIAL scan
             // ran unconditionally, ignoring isEnabled. Now gated.
             try {
-                if (isEnabled.get()) {
+                if (isEnabled.get() && runtimeDisabledReason() == null) {
                     ErrorLogger.info(TAG, "📈📈📈 Running INITIAL stock scan NOW... 📈📈📈")
                     runScanCycle()
                 } else {
@@ -579,6 +618,14 @@ fun isLiveReady(): Boolean = totalTrades.get() >= 5000 && getWinRate() >= 50.0
                 try {
                     delay(SCAN_INTERVAL_MS)
 
+                    // V5.9.1374 — re-check UI authority every cycle so a mid-run
+                    // mode switch to MEME-only stops the stock scanner immediately.
+                    runtimeDisabledReason()?.let { reason ->
+                        try { com.lifecyclebot.engine.ForensicLogger.lifecycle("TRADER_SWITCH_SUPPRESSED", "trader=MARKETS_STOCKS reason=$reason stage=loop") } catch (_: Throwable) {}
+                        ErrorLogger.info(TAG, "MARKETS_RUNTIME_DISABLED reason=$reason loop=scan")
+                        stop()
+                        return@launch
+                    }
                     if (isEnabled.get()) {
                         runScanCycle()
                     } else {
