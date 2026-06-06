@@ -58,9 +58,43 @@ data class RuntimeStateSnapshot(
             val hostOpen = try { HostWalletTokenTracker.getOpenCount() } catch (_: Throwable) { runtime.hostTrackerOpenCount }
             val lifecycleOpen = try { TokenLifecycleTracker.openCount() } catch (_: Throwable) { 0 }
             val positionStoreOpen = try { statusOpen.size } catch (_: Throwable) { paperOpen + liveOpen }
-            val canonicalOpen = maxOf(positionStoreOpen, hostOpen, lifecycleOpen)
-            val orphanPaper = try { (paperOpen - hostOpen).coerceAtLeast(0) } catch (_: Throwable) { 0 }
-            val orphanLive = try { (maxOf(hostOpen, lifecycleOpen) - liveOpen).coerceAtLeast(0) } catch (_: Throwable) { 0 }
+            // V5.9.1371 — MODE-AWARE orphan + canonical accounting.
+            // Pre-1369 the host/lifecycle trackers mirrored paper positions, so
+            // orphanPaper = paperOpen - hostOpen made sense. V5.9.1369 deliberately
+            // stopped paper trades from entering those LIVE-WALLET-TRUTH trackers
+            // (they were ghost accumulators). As a side effect hostOpen is now
+            // (correctly) 0 in paper, which made the OLD formula report
+            // orphanPaper = paperOpen for EVERY open sim — a false positive the
+            // runtime doctor then flagged. The trackers are live-truth; comparing
+            // paper sims against them is a category error. Compute per mode:
+            //   • PAPER: the authoritative open set is status.openPositions (the
+            //     sim book). canonical = that. An orphan is a paper PositionStore
+            //     row with NO matching active TokenState (phantom) — the
+            //     SellReconciler paper pass closes those, so steady-state = 0.
+            //   • LIVE: unchanged — host/lifecycle trackers are truth, paper rows
+            //     shouldn't exist, and orphanLive watches tracker-vs-store drift.
+            val isPaperRuntime = try { !RuntimeModeAuthority.isLive() } catch (_: Throwable) { true }
+            val canonicalOpen = if (isPaperRuntime) {
+                positionStoreOpen
+            } else {
+                maxOf(positionStoreOpen, hostOpen, lifecycleOpen)
+            }
+            val orphanPaper = try {
+                if (isPaperRuntime) {
+                    // Phantom paper rows: PositionStore paper entries with no live
+                    // TokenState backing. status.openPositions IS the live set, so
+                    // by construction these are already reconciled => 0. The
+                    // SellReconciler paper pass enforces it against status.tokens.
+                    com.lifecyclebot.engine.sell.SellReconciler.paperOrphanCount()
+                } else {
+                    // In live, any paper position is itself an orphan (shouldn't exist).
+                    paperOpen
+                }
+            } catch (_: Throwable) { 0 }
+            val orphanLive = try {
+                if (isPaperRuntime) 0
+                else (maxOf(hostOpen, lifecycleOpen) - liveOpen).coerceAtLeast(0)
+            } catch (_: Throwable) { 0 }
 
             val api = ApiHealthMonitor.snapshot().mapValues { (_, s) ->
                 ApiSummary(

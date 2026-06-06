@@ -83,9 +83,43 @@ object SellReconciler {
         this.sellTrigger = sellTrigger
         // Cancel any prior loop.
         jobRef.get()?.cancel()
-        if (isPaperMode || hostWallet == null) {
+        // V5.9.1371 — PAPER MODE now ALSO runs the reconciler. Previously this
+        // hard-returned (isStarted=false) because the reconciler was a live-
+        // wallet watchdog. But the runtime doctor's success criteria require
+        // sellReconcilerStarted=true EVERY generation and orphanPaperPositions=0.
+        // In paper there is no wallet to reconcile against, so the paper pass
+        // reconciles PositionPersistence (the persisted book) against the live
+        // status.tokens sim set: a persisted paper row with no matching OPEN
+        // TokenState is a phantom orphan — close/suppress it and log
+        // ORPHAN_RECONCILED. Real open sims are adopted (no-op). This keeps the
+        // canonical paper book == the active sim book.
+        if (hostWallet == null && !isPaperMode) {
+            // LIVE but no wallet yet — can't reconcile against chain; stay down.
             isStarted = false
             jobRef.set(null)
+            return
+        }
+        if (isPaperMode) {
+            val paperJob = scope.launch(Dispatchers.IO) {
+                isStarted = true
+                ErrorLogger.info("SellReconciler", "🩹 SellReconciler started (10s tick, PAPER mode — orphan reconcile)")
+                if (!startEventEmitted) {
+                    startEventEmitted = true
+                    try {
+                        ForensicLogger.lifecycle(
+                            "RECONCILER_START",
+                            "intervalMs=$TICK_INTERVAL_MS paperMode=true walletPresent=false",
+                        )
+                    } catch (_: Throwable) {}
+                }
+                while (isActive) {
+                    try { reconcilePaperOnce() } catch (e: Throwable) {
+                        ErrorLogger.warn("SellReconciler", "paper tick error: ${e.message}")
+                    }
+                    delay(TICK_INTERVAL_MS)
+                }
+            }
+            jobRef.set(paperJob)
             return
         }
         val newJob = scope.launch(Dispatchers.IO) {
@@ -170,6 +204,81 @@ object SellReconciler {
             }
         }
         SellJobRegistry.pruneTerminal()
+    }
+
+    // ────────────────────────────────────────────────────────────────────────
+    // V5.9.1371 — PAPER-MODE RECONCILIATION + ORPHAN CLEANUP
+    //
+    // Live mode reconciles host-wallet truth. Paper mode has no wallet, so the
+    // authoritative open set is BotService.status.openPositions (the sim book).
+    // The persisted book (PositionPersistence) can drift from it after stop/
+    // start trims, service kills, or a sell that cleared the TokenState but not
+    // the persisted row. Any persisted paper row with NO matching OPEN
+    // TokenState is a phantom orphan: remove it from persistence and log
+    // ORPHAN_RECONCILED. Genuinely-open sims are left untouched (adopted).
+    // ────────────────────────────────────────────────────────────────────────
+
+    @Volatile private var lastPaperOrphanCount: Int = 0
+
+    /** Cheap read of the most recent paper-orphan count (for runtime snapshot). */
+    fun paperOrphanCount(): Int = lastPaperOrphanCount
+
+    private fun computePaperOrphans(): List<String> {
+        val openMints: Set<String> = try {
+            com.lifecyclebot.engine.BotService.status.openPositions
+                .filter { it.position.isPaperPosition }
+                .map { it.mint }
+                .toSet()
+        } catch (_: Throwable) { emptySet() }
+        val persisted = try {
+            com.lifecyclebot.engine.PositionPersistence.loadPositions()
+        } catch (_: Throwable) { emptyMap() }
+        // Orphan = PAPER persisted row that is NOT in the live open-sim set.
+        // (Only paper rows: a live row is the live reconciler's concern.)
+        return persisted.entries
+            .filter { it.value.isPaperPosition && it.key !in openMints }
+            .map { it.key }
+    }
+
+    suspend fun reconcilePaperOnce() {
+        totalTicks++
+        lastTickAtMs = System.currentTimeMillis()
+        val orphans = withContext(Dispatchers.IO) { computePaperOrphans() }
+        lastPaperOrphanCount = 0
+        if (orphans.isEmpty()) {
+            try {
+                ForensicLogger.lifecycle(
+                    "RECONCILER_TICK",
+                    "tickCount=$totalTicks paperMode=true orphans=0",
+                )
+            } catch (_: Throwable) {}
+            return
+        }
+        var reconciled = 0
+        for (mint in orphans) {
+            try {
+                // Phantom persisted paper row: no live sim backs it. Remove it.
+                com.lifecyclebot.engine.PositionPersistence.removePosition(mint)
+                reconciled++
+                try {
+                    ForensicLogger.lifecycle(
+                        "ORPHAN_RECONCILED",
+                        "mint=${mint.take(10)} mode=PAPER action=removed_phantom_persisted_row",
+                    )
+                } catch (_: Throwable) {}
+            } catch (e: Throwable) {
+                ErrorLogger.warn("SellReconciler", "paper orphan reconcile ${mint.take(10)}: ${e.message}")
+            }
+        }
+        // Recompute post-cleanup so the snapshot reflects steady state (should be 0).
+        lastPaperOrphanCount = try { computePaperOrphans().size } catch (_: Throwable) { 0 }
+        totalChecked += orphans.size.toLong()
+        try {
+            ForensicLogger.lifecycle(
+                "RECONCILER_TICK",
+                "tickCount=$totalTicks paperMode=true orphansFound=${orphans.size} reconciled=$reconciled remaining=$lastPaperOrphanCount",
+            )
+        } catch (_: Throwable) {}
     }
 
     /** V5.9.765 — push fresh DexScreener price into host_tracker fields and
