@@ -313,6 +313,16 @@ object ExecutableOpenGate {
             lane = lane,
             source = source,
             attemptId = attemptId,
+            // V5.9.1367 — DATA INTEGRITY: feed the LIVE token context straight from
+            // the TokenState the caller is holding. The gate previously read liq/tier
+            // ONLY from the shared per-mint EntryState (populated by recordFdg). If that
+            // record lagged, ran with stale context, or belonged to a different lane,
+            // the gate saw liquidityUsd=0 / safetyTier=UNKNOWN for a token that demonstrably
+            // had real liquidity (e.g. SantaHat $13,928) and wrongly blocked it. The live
+            // ts numbers are the ground truth at decision time — pass them so the gate
+            // never trusts a stale zero over a known-good live value.
+            liveLiquidityUsd = ts.lastLiquidityUsd,
+            liveSafetyTier = ts.safety.tier.name,
         )
     }
 
@@ -324,6 +334,8 @@ object ExecutableOpenGate {
         lane: String,
         source: String,
         attemptId: String,
+        liveLiquidityUsd: Double = -1.0,
+        liveSafetyTier: String = "",
     ): OpenVerdict {
         val state = states[mint]
         val v3Decision = state?.v3Decision ?: "UNKNOWN"
@@ -332,8 +344,16 @@ object ExecutableOpenGate {
         val signal = state?.signal ?: "UNKNOWN"
         val band = state?.decisionBand ?: v3Decision
         val fatalReason = state?.v3FatalReason ?: fdgReason
-        val safetyTier = state?.safetyTier ?: "UNKNOWN"
-        val liquidityUsd = state?.liquidityUsd ?: 0.0
+        // V5.9.1367 — prefer LIVE context (ground truth at decision time) over a stale
+        // state value. A positive live liq always wins over a state zero; a known live
+        // tier always wins over a state UNKNOWN. Falls back to state, then defaults.
+        val stateTier = state?.safetyTier ?: "UNKNOWN"
+        val safetyTier = when {
+            liveSafetyTier.isNotBlank() && !liveSafetyTier.equals("UNKNOWN", true) -> liveSafetyTier
+            else -> stateTier
+        }
+        val stateLiq = state?.liquidityUsd ?: 0.0
+        val liquidityUsd = if (liveLiquidityUsd > 0.0) liveLiquidityUsd else stateLiq
         val rawSelectedLane = state?.selectedLane ?: "UNKNOWN"
         val requestedLane = canonicalLane(lane)
         // V5.9.1320 (Item 6) — RESOLVE THE LANE BEFORE the FDG/EXEC finality checks.
