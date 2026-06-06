@@ -659,6 +659,11 @@ class BotService : Service() {
                 }
                 com.lifecyclebot.engine.PipelineHealthCollector.labelInc("EXIT_COORDINATOR_STALE_RESET_REASON_$structuredReason")
                 com.lifecyclebot.engine.PipelineHealthCollector.labelInc("EXIT_COORDINATOR_OPEN_POSITIONS_AT_STALE_${minOf(openCount, 50)}")
+                // V5.9.1361 P0.6 — deterministic stale release telemetry. The lease
+                // is force-reset below (ensureHotExitAlive + independent universal-SL
+                // backup request), so the stale hold IS being released every episode;
+                // this counter makes that release visible/trendable toward zero.
+                com.lifecyclebot.engine.PipelineHealthCollector.labelInc("EXIT_COORD_STALE_RELEASED")
             } catch (_: Throwable) {}
         }
         // Force-reset the hot-exit lease/lock and resurrect the manager.
@@ -11598,6 +11603,15 @@ if (hotExitHandledSweep) {
 
     private fun requestExitSweepCoordinator(reason: String, full: Boolean, universal: Boolean) {
         try {
+            // V5.9.1361 P0.6 — count requests that collapse into an already-pending
+            // bit (no new work admitted) so the operator can see how much of the old
+            // "skip pressure" was just benign request coalescing, not choked exits.
+            if (full && fullExitSweepPending.get()) {
+                try { com.lifecyclebot.engine.PipelineHealthCollector.labelInc("EXIT_COORD_BACKUP_DEDUPE") } catch (_: Throwable) {}
+            }
+            if (universal && universalSlSweepPending.get()) {
+                try { com.lifecyclebot.engine.PipelineHealthCollector.labelInc("EXIT_COORD_BACKUP_DEDUPE") } catch (_: Throwable) {}
+            }
             if (full) fullExitSweepPending.set(true)
             if (universal) universalSlSweepPending.set(true)
             ForensicLogger.lifecycle(
@@ -11619,14 +11633,27 @@ if (hotExitHandledSweep) {
                 while (status.running) {
                     try {
                         val now = System.currentTimeMillis()
-                        val wantsFull = fullExitSweepPending.getAndSet(false)
-                        val wantsUniversal = universalSlSweepPending.getAndSet(false)
+                        // V5.9.1361 P0.6 — DEDUPE-PRESERVING DRAIN. The old code did
+                        // getAndSet(false) on the pending flag BEFORE the rate-limit
+                        // check, so a request arriving inside the 30s window cleared the
+                        // pending bit and was silently DROPPED — a genuinely-needed sweep
+                        // could be lost until the next unrelated request happened to land.
+                        // Now we PEEK the pending flag; we only consume (clear) it when we
+                        // actually service the sweep. If rate-limited, the pending bit
+                        // stays set so the sweep fires the instant the window opens —
+                        // deterministic, no lost requests. Repeated requests while one is
+                        // already pending collapse into the single pending bit
+                        // (EXIT_COORD_BACKUP_DEDUPE) instead of spamming skips.
+                        val wantsFull = fullExitSweepPending.get()
+                        val wantsUniversal = universalSlSweepPending.get()
                         var didWork = false
 
                         if (wantsFull) {
                             val age = now - exitCoordinatorLastFullMs.get()
                             if (age >= EXIT_COORDINATOR_FULL_MIN_MS) {
+                                fullExitSweepPending.set(false)  // consume only on service
                                 exitCoordinatorLastFullMs.set(now)
+                                try { com.lifecyclebot.engine.PipelineHealthCollector.labelInc("EXIT_COORD_LOCK_HELD_MS_FULL_${minOf(age/1000L,99L)}s") } catch (_: Throwable) {}
                                 val snap = buildExitSweepSnapshot()
                                 if (snap.cfg != null) {
                                     didWork = true
@@ -11638,14 +11665,20 @@ if (hotExitHandledSweep) {
                                     try { ForensicLogger.lifecycle("EXIT_COORDINATOR_FULL_SKIPPED", "reason=cfg_null") } catch (_: Throwable) {}
                                 }
                             } else {
-                                try { ForensicLogger.lifecycle("EXIT_COORDINATOR_FULL_RATE_LIMITED", "ageMs=$age minMs=$EXIT_COORDINATOR_FULL_MIN_MS") } catch (_: Throwable) {}
+                                // V5.9.1361 P0.6 — rate-limited: pending bit STAYS set (the
+                                // sweep will fire the instant the 30s window opens). Replace
+                                // the per-tick lifecycle spam with a single skip-reason
+                                // counter so the dump stays readable.
+                                try { com.lifecyclebot.engine.PipelineHealthCollector.labelInc("EXIT_COORD_SKIP_REASON_FULL_RATE_LIMITED") } catch (_: Throwable) {}
                             }
                         }
 
                         if (wantsUniversal) {
                             val age = now - exitCoordinatorLastUniversalMs.get()
                             if (age >= EXIT_COORDINATOR_UNIVERSAL_MIN_MS) {
+                                universalSlSweepPending.set(false)  // consume only on service
                                 exitCoordinatorLastUniversalMs.set(now)
+                                try { com.lifecyclebot.engine.PipelineHealthCollector.labelInc("EXIT_COORD_LOCK_HELD_MS_UNIVERSAL_${minOf(age/1000L,99L)}s") } catch (_: Throwable) {}
                                 val snap = buildExitSweepSnapshot()
                                 if (snap.cfg != null) {
                                     didWork = true
@@ -11657,7 +11690,7 @@ if (hotExitHandledSweep) {
                                     try { ForensicLogger.lifecycle("EXIT_COORDINATOR_UNIVERSAL_SKIPPED", "reason=cfg_null") } catch (_: Throwable) {}
                                 }
                             } else {
-                                try { ForensicLogger.lifecycle("EXIT_COORDINATOR_UNIVERSAL_RATE_LIMITED", "ageMs=$age minMs=$EXIT_COORDINATOR_UNIVERSAL_MIN_MS") } catch (_: Throwable) {}
+                                try { com.lifecyclebot.engine.PipelineHealthCollector.labelInc("EXIT_COORD_SKIP_REASON_UNIVERSAL_RATE_LIMITED") } catch (_: Throwable) {}
                             }
                         }
 
