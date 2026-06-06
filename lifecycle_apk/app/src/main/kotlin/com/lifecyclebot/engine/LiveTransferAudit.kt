@@ -31,7 +31,7 @@ object LiveTransferAudit {
             val auth = RuntimeModeAuthority.current()
             val runtimeLive = auth.authority == RuntimeModeAuthority.Mode.LIVE
 
-            val readiness = try { LiveReadinessChecker.current() } catch (_: Throwable) { null }
+            val readiness = try { com.lifecyclebot.network.LiveReadinessChecker.current() } catch (_: Throwable) { null }
             val readinessState = try { readiness?.state?.name ?: "UNKNOWN" } catch (_: Throwable) { "UNKNOWN" }
             val readinessSummary = try { readiness?.summary ?: "-" } catch (_: Throwable) { "-" }
 
@@ -62,7 +62,7 @@ object LiveTransferAudit {
                 append(" runtimeAuthority=${auth.authority}")
                 append(" walletConnected=$walletConnected")
                 append(" liveReadiness=$readinessState")
-                append(" readinessBlocker=${if (readinessState == "READY") "-" else readinessSummary}")
+                append(" readinessBlocker=${if (readinessState == "GREEN") "-" else readinessSummary}")
                 append(" paperLearningLoaded=$paperLearningLoaded")
                 append(" metaContexts=$metaContexts")
                 append(" forwardSignatures=$fwdSignatures")
