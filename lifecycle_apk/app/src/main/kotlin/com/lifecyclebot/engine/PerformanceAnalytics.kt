@@ -73,7 +73,32 @@ object PerformanceAnalytics {
     fun analyze(trades: List<TradeRecord>): AnalyticsSnapshot {
         if (trades.isEmpty()) return AnalyticsSnapshot()
 
-        val closedTrades = trades.filter { sanitizeDouble(it.exitPrice) > 0.0 && it.tsExit > 0L }
+        val closedTradesRaw = trades.filter { sanitizeDouble(it.exitPrice) > 0.0 && it.tsExit > 0L }
+        if (closedTradesRaw.isEmpty()) {
+            return AnalyticsSnapshot(totalTrades = 0)
+        }
+
+        // V5.9.1365 — ACCOUNTING POISON GUARD. The CYCLIC lane is a separate
+        // $500→$1M compounding ring that deploys its FULL virtual balance each
+        // cycle (by design — see CyclicTradeEngine). In paper that ring balloons
+        // to thousands of SOL (e.g. 7950 SOL notional). Summing those giant
+        // notional swings into the same P&L pool as 0.01-0.5 SOL meme trades
+        // produced the snapshot contradiction: dashboard shows +53% WR / healthy,
+        // while this analytics block reported -7937 SOL / 5.4% WR / 28-loss
+        // streak — pure artifact. The cyclic ring tracks its OWN balance
+        // (ringBalanceUsd); it must NOT pollute the meme/lane aggregate. We also
+        // defensively drop any trade whose |pnlSol| exceeds 50× its own notional
+        // (solIn) — that is a sizing/accounting artifact, never a real outcome
+        // (mirrors the StrategyTelemetry guard, memory #58). Per-lane expectancy
+        // telemetry elsewhere is untouched; this only de-contaminates the
+        // aggregate P&L / streak / profit-factor.
+        val closedTrades = closedTradesRaw.filter { t ->
+            val m = t.mode.uppercase()
+            if (m.contains("CYCLIC")) return@filter false
+            val notional = abs(sanitizeDouble(t.solIn)).coerceAtLeast(0.0001)
+            val pnl = abs(sanitizeDouble(t.pnlSol))
+            pnl <= notional * 50.0
+        }
         if (closedTrades.isEmpty()) {
             return AnalyticsSnapshot(totalTrades = 0)
         }
