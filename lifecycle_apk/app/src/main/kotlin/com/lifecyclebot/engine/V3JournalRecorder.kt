@@ -267,6 +267,13 @@ object V3JournalRecorder {
                     }
                 }
             } catch (_: Throwable) {}
+            // V5.9.1379 — feed the closed-loop lane exit tuner. peakGainPct may be
+            // 0.0 from callers that don't pass it yet (tuner just treats peak as 0).
+            try {
+                com.lifecyclebot.engine.learning.LaneExitTuner.recordClose(
+                    lane = layer, pnlPct = pnlPctLearn, peakPct = peakGainPct, exitReason = exitReason
+                )
+            } catch (_: Throwable) {}
             // V5.9.1333 — Tactic switcher observes per-(lane, scoreBand) outcome.
             // When a bucket bleeds past threshold, rotates its entry tactic
             // (MOMENTUM → PULLBACK → REACCUMULATION → BREAKOUT). Never disables.

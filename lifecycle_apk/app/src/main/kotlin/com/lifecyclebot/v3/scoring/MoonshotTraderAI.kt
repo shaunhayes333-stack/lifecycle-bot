@@ -753,10 +753,17 @@ object MoonshotTraderAI {
         } catch (_: Throwable) { /* fail-open per FDG doctrine */ }
 
         // V5.2: Apply FluidLearningAI adjustments to SL/TP
-        val fluidTp = FluidLearningAI.getFluidTakeProfit(mode.baseTP, "MOONSHOT_${mode.name}")
-        val fluidSl = FluidLearningAI.getFluidStopLoss(kotlin.math.abs(mode.baseSL))
+        val fluidTp0 = FluidLearningAI.getFluidTakeProfit(mode.baseTP, "MOONSHOT_${mode.name}")
+        val fluidSl0 = FluidLearningAI.getFluidStopLoss(kotlin.math.abs(mode.baseSL))
+        // V5.9.1379 — closed-loop lane exit tuner: nudge TP/SL by the lane's learnt,
+        // bounded multipliers (tpMult 0.60-1.40, slMult 0.70-1.30 on magnitude). The
+        // -15% hard floor below is applied AFTER, so the tuner can never breach it.
+        val tpMult = com.lifecyclebot.engine.learning.LaneExitTuner.getTpMult("MOONSHOT")
+        val slMult = com.lifecyclebot.engine.learning.LaneExitTuner.getSlMult("MOONSHOT")
+        val fluidTp = fluidTp0 * tpMult
+        val fluidSl = fluidSl0 * slMult
         
-        // V5.9.235: Absolute SL floor — FluidLearningAI can widen stops on paper;
+        // V5.9.235: Absolute SL floor — FluidLearningAI/tuner can widen stops on paper;
         // cap at HARD_FLOOR_STOP so a thin ORBITAL token can't bleed to -20%+
         val clampedSl = maxOf(-fluidSl, HARD_FLOOR_STOP)  // e.g. max(-4, -15) = -4; max(-22, -15) = -15
 
@@ -1431,8 +1438,10 @@ object MoonshotTraderAI {
             ErrorLogger.info(TAG, "🚀⬆️ MODE UPGRADE: ${pos.symbol} | " +
                 "${pos.spaceMode.emoji} → ${newMode.emoji} | +${pnlPct.toInt()}%")
             pos.spaceMode = newMode
-            pos.takeProfitPct = newMode.baseTP
-            pos.stopLossPct = newMode.baseSL
+            // V5.9.1379 — apply lane exit tuner multipliers on mode upgrade too,
+            // with the -15% hard floor preserved on the stop.
+            pos.takeProfitPct = newMode.baseTP * com.lifecyclebot.engine.learning.LaneExitTuner.getTpMult("MOONSHOT")
+            pos.stopLossPct = maxOf(newMode.baseSL * com.lifecyclebot.engine.learning.LaneExitTuner.getSlMult("MOONSHOT"), HARD_FLOOR_STOP)
         }
         
         // ─── EXIT CONDITIONS ───

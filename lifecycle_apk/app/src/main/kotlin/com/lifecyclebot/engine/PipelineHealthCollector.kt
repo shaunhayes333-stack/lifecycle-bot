@@ -1247,6 +1247,8 @@ object PipelineHealthCollector {
             if (fwdDump.isNotEmpty()) sb.append(fwdDump)
             if (uphDump.isNotEmpty()) sb.append(uphDump)
             if (hypoDump.isNotEmpty()) sb.append(hypoDump)
+            val laneTunerDump = try { com.lifecyclebot.engine.learning.LaneExitTuner.formatForPipelineDump() } catch (_: Throwable) { "" }
+            if (laneTunerDump.isNotEmpty()) sb.append(laneTunerDump)
         } catch (_: Throwable) {}
 
         // ── PerformanceAnalytics block ─────────────────────────────
