@@ -301,6 +301,25 @@ object HostWalletTokenTracker {
     fun recordBuyConfirmed(ts: TokenState, sig: String? = null) {
         if (ts.mint.isBlank() || ts.mint == SOL_MINT) return
         if (!ts.position.isOpen) return
+        // V5.9.1369 — GHOST POSITION FIX. This tracker is LIVE-WALLET TRUTH ONLY
+        // (recordSellConfirmed already early-returns on PAPER exits, line ~393). But
+        // recordBuyConfirmed had NO paper guard, so paper BUYS entered the tracker as
+        // OPEN_TRACKING while paper SELLS were forbidden from closing them — a monotonic
+        // ghost accumulator. getOpenCount() climbed forever (operator saw 7 real opens
+        // but UI showed 24 via maxOf(host, lifecycle, ui, cashgen) in MainActivity).
+        // A paper position has no on-chain balance, so applyWalletSnapshot can never
+        // collapse it to CLOSED either. Fix: paper positions NEVER enter the live-wallet
+        // tracker. Symmetric with the paper-exit block — keeps this ledger pure live
+        // truth (open_count = real on-chain holdings only).
+        val isPaper = ts.position.isPaperPosition ||
+            (try { RuntimeModeAuthority.isPaper() } catch (_: Throwable) { false })
+        if (isPaper) {
+            try {
+                emitForensic(LiveTradeLogStore.Phase.WARNING, ts.mint, ts.symbol, sig,
+                    "PAPER_BUY_NOT_TRACKED_IN_HOST_WALLET ${ts.symbol} — live tracker is on-chain truth only")
+            } catch (_: Throwable) {}
+            return
+        }
         val now = System.currentTimeMillis()
         val pos = ts.position
         val existing = positions[ts.mint]

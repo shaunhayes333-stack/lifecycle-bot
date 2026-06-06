@@ -9985,6 +9985,21 @@ class Executor(
         ts.lastExitWasWin = pnlP >= 1.0
         try { PositionPersistence.removePosition(ts.mint) } catch (_: Exception) {}
         try { ForensicLogger.lifecycle("PAPER_SELL_POSITION_CLOSED", "mint=${ts.mint.take(10)} symbol=${ts.symbol} pnlPct=${pnlP.toInt()} reason=$reason stage=early_close persisted=removed") } catch (_: Throwable) {}
+        // V5.9.1369 — GHOST FIX (lifecycle tracker). The lifecycle ledger only reaches
+        // a TERMINAL state (CLEARED) when onSellSettled sees walletTokenAfter<=dust. In
+        // PAPER mode there is NO live wallet to reconcile, so the old live-wallet-driven
+        // settle returned null -> RESIDUAL_HELD (non-terminal) and openCount() kept the
+        // sold paper position forever. UI showed inflated "24 open" vs 7 real. A paper
+        // sell IS the truth (the sim fully exits), so settle deterministically with
+        // walletTokenAfter=0.0 -> CLEARED. Closes the lifecycle-tracker ghost class.
+        try {
+            TokenLifecycleTracker.onSellSettled(
+                mint = ts.mint,
+                sig = "PAPER:${reason}",
+                solReceived = pos.costSol.coerceAtLeast(0.0),
+                walletTokenAfter = 0.0,
+            )
+        } catch (_: Throwable) {}
         try { BotService.recentlyClosedMs[ts.mint] = System.currentTimeMillis() } catch (_: Throwable) {}
         try { GlobalTradeRegistry.closePosition(tradeId.mint) } catch (_: Exception) {}
         try { EmergentGuardrails.unregisterPosition(tradeId.mint) } catch (_: Exception) {}
@@ -10024,6 +10039,13 @@ class Executor(
             ts.lastExitPnlPct = pnlP
             ts.lastExitWasWin = pnlP >= 1.0
             try { PositionPersistence.removePosition(ts.mint) } catch (_: Exception) {}
+            // V5.9.1369 — same deterministic paper lifecycle settle on the shutdown fast path.
+            try {
+                TokenLifecycleTracker.onSellSettled(
+                    mint = ts.mint, sig = "PAPER:bot_shutdown",
+                    solReceived = shutdownCostSol.coerceAtLeast(0.0), walletTokenAfter = 0.0,
+                )
+            } catch (_: Throwable) {}
             try { WalletPositionLock.recordClose("Meme", shutdownCostSol) } catch (_: Exception) {}
             try { TradeAuthorizer.releasePosition(ts.mint, "SELL_$reason", TradeAuthorizer.ExecutionBook.CORE) } catch (_: Exception) {}
             onLog("🛑 SHUTDOWN CLOSE: ${ts.symbol} @ ${pnlP.toInt()}% (learning skipped)", tradeId.mint)
