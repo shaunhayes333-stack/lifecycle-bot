@@ -17686,7 +17686,7 @@ if (hotExitHandledSweep) {
         // an executable candidate). This does NOT loosen any gate: the cached
         // verdict is the SAME verdict the gate just produced, only reused briefly
         // to avoid redundant compute. Throughput-positive, doctrine rule #3.
-        val fdgScoreNow = try { decision.entryScore } catch (_: Throwable) { 0 }
+        val fdgScoreNow: Int = try { decision.entryScore.toInt() } catch (_: Throwable) { 0 }
         val cachedFdg = FdgReEvalThrottle.get(identity.mint, fdgScoreNow)
         val fdgDecision = if (cachedFdg != null) {
             try { ForensicLogger.lifecycle("FDG_REEVAL_THROTTLED", "mint=${identity.mint.take(10)} reusedVerdict can=${cachedFdg.canExecute()} score=$fdgScoreNow") } catch (_: Throwable) {}
