@@ -17673,15 +17673,38 @@ if (hotExitHandledSweep) {
             null
         }
         
-        // Run through Final Decision Gate
-        val fdgDecision = FinalDecisionGate.evaluate(
-            ts = ts,
-            candidate = decision,
-            config = cfg,
-            proposedSizeSol = proposedSize,
-            brain = executor.brain,
-            tradingModeTag = tradingModeTag,
-        )
+        // V5.9.1372 — FDG RE-EVAL THROTTLE (doctor spec #1/#6: kill FDG_FANOUT_EXPLOSION).
+        // Root cause of FDG/intake=11.6 (>3.0 trips the invariant): the SAME
+        // watchlisted mint re-runs the full FinalDecisionGate.evaluate() on
+        // EVERY tick it re-proposes, even though (a) V3 — not FDG — is the
+        // execution authority here (FDG is comparison-logging only when
+        // v3ControlsExecution), and (b) the inputs barely move tick-to-tick.
+        // We cache the last FDG verdict per mint for a short window and reuse it
+        // instead of recomputing, UNLESS the proposed entry score moved
+        // materially (>=5 pts) — a real signal change deserves a fresh verdict.
+        // BUY-capable verdicts are NEVER cached (we always want a live re-eval on
+        // an executable candidate). This does NOT loosen any gate: the cached
+        // verdict is the SAME verdict the gate just produced, only reused briefly
+        // to avoid redundant compute. Throughput-positive, doctrine rule #3.
+        val fdgScoreNow = try { decision.entryScore } catch (_: Throwable) { 0 }
+        val cachedFdg = FdgReEvalThrottle.get(identity.mint, fdgScoreNow)
+        val fdgDecision = if (cachedFdg != null) {
+            try { ForensicLogger.lifecycle("FDG_REEVAL_THROTTLED", "mint=${identity.mint.take(10)} reusedVerdict can=${cachedFdg.canExecute()} score=$fdgScoreNow") } catch (_: Throwable) {}
+            cachedFdg
+        } else {
+            val fresh = FinalDecisionGate.evaluate(
+                ts = ts,
+                candidate = decision,
+                config = cfg,
+                proposedSizeSol = proposedSize,
+                brain = executor.brain,
+                tradingModeTag = tradingModeTag,
+            )
+            // Only cache NON-executable verdicts; executable ones must always
+            // re-evaluate live so we never sit on a stale BUY.
+            if (!fresh.canExecute()) FdgReEvalThrottle.put(identity.mint, fdgScoreNow, fresh)
+            fresh
+        }
         ErrorLogger.info("BotService", "🧬 MEME_SPINE FDG ${identity.symbol} | can=${fdgDecision.canExecute()} | qual=${fdgDecision.quality} | conf=${fdgDecision.confidence.toInt()} | size=${fdgDecision.sizeSol.fmt(4)} | reason=${fdgDecision.blockReason ?: "none"}")
         // V5.9.669 — operator pipeline-health visibility. FDG previously
         // wasn't wired into the in-app funnel counter (counter stuck at 0
