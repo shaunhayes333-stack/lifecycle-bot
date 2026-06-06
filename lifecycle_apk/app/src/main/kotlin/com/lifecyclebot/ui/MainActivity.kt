@@ -4247,11 +4247,25 @@ for legal compliance.
         // stall per pipeline snapshot). Structural rebuild only fires
         // when a position is added/removed/resized or flips paper↔live.
         val runtimeActive = try { com.lifecyclebot.engine.BotService.isRuntimeActive() } catch (_: Throwable) { false }
+        // V5.9.1363 P0.5 — ANR ROOT CAUSE. The previous gainBucket = round(gain%
+        // * 1000) is 0.1% resolution — i.e. it IS live price drift, despite the
+        // comment claiming to exclude it. Every 1Hz tick moves a live meme
+        // position's PnL by >0.1%, flipping this hash, forcing structuralChange=
+        // true → a full llOpenPositions.removeAllViews() + 10-card rebuild EVERY
+        // TICK. That is the dominant main-thread ANR (snapshot: buildTokenCard 62%
+        // stall, frame gaps to 57s). The throttle below never engaged because the
+        // hash never matched. Fix: coarsen to a 5% structural band so 1Hz jitter
+        // no longer triggers a teardown, while genuine moves (add/remove/resize/
+        // paper-flip/big P&L regime shift) still flip the hash and render NOW.
+        // Per-row live numbers continue to repaint in-place via the throttled
+        // refresh path without a full rebuild. (operator doctrine: fix at the
+        // structural source, never throttle the loop.)
         val openHash = positions.map {
             val p = it.position
             val r = it.ref
-            val gainBucket = if (p.entryPrice > 0.0 && r > 0.0) kotlin.math.round((r - p.entryPrice) / p.entryPrice * 1000.0).toInt() else 0
-            "${it.mint}|${p.costSol}|${p.qtyToken}|${p.isPaperPosition}|${p.pendingVerify}|$gainBucket"
+            val gainBand = if (p.entryPrice > 0.0 && r > 0.0)
+                kotlin.math.floor((r - p.entryPrice) / p.entryPrice * 100.0 / 5.0).toInt() else 0
+            "${it.mint}|${p.costSol}|${p.qtyToken}|${p.isPaperPosition}|${p.pendingVerify}|$gainBand"
         }.hashCode()
         // V5.9.1337 — STRUCTURAL CHANGES RENDER IMMEDIATELY; only redundant
         // price-tick repaints are throttled. The previous 20s blanket throttle
