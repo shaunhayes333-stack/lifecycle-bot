@@ -7139,6 +7139,34 @@ class Executor(
             ErrorLogger.warn("Executor", "📊 HIGH_EXPOSURE_AT_ENTRY ${ts.symbol} | exposure=${exposurePctOfBank.toInt()}% of bank | openPos=$openPositionCount")
         }
         
+        // V5.9.1366 — STANDARD-LANE GATE VERDICT. ROOT CAUSE of "parked / 0 open
+        // despite V3 EXECUTE": the ExecutableOpenGate EntryState is keyed by MINT and
+        // SHARED across every lane. When a meme lane (e.g. SHITCOIN) evaluates a token
+        // and records a non-BUY verdict (EXPECTANCY_REJECT / DANGER_BUCKET → WATCH),
+        // that WATCH is stamped into the shared state. The V3 spine then reaches a
+        // genuine EXECUTE_STANDARD + FDG✓ decision for the SAME mint and calls v3Buy —
+        // but it never recorded its OWN pre-FDG BUY verdict for the STANDARD/V3 lane.
+        // canOpenExecutablePosition() reads state.preFdgVerdict (=WATCH from the meme
+        // lane) → EXEC_OPEN_DROPPED_PRE_FDG_NOT_BUY → every V3 trade silently dropped,
+        // book parks at 0 open. Reaching v3Buy means V3 already cleared its own FDG
+        // hard-veto upstream (see BotService V3-EXECUTE: FDG is a hard veto there), so
+        // stamping a STANDARD BUY here is correct and safe — it does NOT bypass FDG,
+        // it records the verdict the V3 path already earned. Real safety context
+        // (rug/liq/tier) is passed so genuine hard-no's still convert to HARD_NO_BUY
+        // inside recordFdg. This is the missing sibling of the 8 lane recordFdg calls.
+        try {
+            ExecutableOpenGate.recordFdg(
+                ts.mint, ts.symbol, "STANDARD",
+                canExecute = true,
+                reason = null,
+                signal = "BUY",
+                rugScore = ts.safety.rugcheckScore,
+                safetyTier = ts.safety.tier.name,
+                liquidityUsd = ts.lastLiquidityUsd,
+                hardNoReasons = ts.safety.hardBlockReasons,
+            )
+        } catch (_: Throwable) {}
+
         if (isPaper) {
             paperBuy(
                 ts = ts,
