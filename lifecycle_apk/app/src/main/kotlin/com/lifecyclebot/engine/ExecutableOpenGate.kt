@@ -27,6 +27,7 @@ object ExecutableOpenGate {
         val selectedLane: String = "UNKNOWN",
         val preFdgVerdict: String = "WATCH",
         val hardNoReasons: List<String> = emptyList(),
+        val entryScore: Int = -1,  // V5.9.1373 — for SHADOW_TRAIN_ONLY bucket lookup
         val candidateVersion: Long = 0L,
         val updatedAtMs: Long = System.currentTimeMillis(),
     )
@@ -207,6 +208,7 @@ object ExecutableOpenGate {
         hardNoReasons: List<String> = emptyList(),
         preFdgVerdict: String = if (canExecute) "BUY" else "NO_BUY",
         candidateVersion: Long = LaneExecutionCoordinator.candidateVersionFor(mint),
+        entryScore: Int = -1,  // V5.9.1373 — drives SHADOW_TRAIN_ONLY gate
     ) {
         val paperRuntime = try { RuntimeModeAuthority.isPaper() } catch (_: Throwable) { false }
         val finalHardNo = hardNoReasons.toMutableList().apply {
@@ -238,6 +240,7 @@ object ExecutableOpenGate {
                 preFdgVerdict = finalVerdict,
                 hardNoReasons = finalHardNo,
                 candidateVersion = candidateVersion,
+                entryScore = if (entryScore >= 0) entryScore else old?.entryScore ?: -1,
                 liquidityUsd = liquidityUsd,
                 rugScore = if (rugScore >= 0) rugScore else old?.rugScore ?: -1,
                 safetyTier = safetyTier,
@@ -437,6 +440,30 @@ object ExecutableOpenGate {
         }
         if (modeUpper == "PAPER" && RuntimeModeAuthority.isLive()) {
             return blocked("EXEC_OPEN_BLOCKED_MODE_AUTHORITY", "PAPER_REQUEST_WHILE_RUNTIME_LIVE")
+        }
+
+        // ──────────────────────────────────────────────────────────────────
+        // V5.9.1373 — SHADOW_TRAIN_ONLY EXECUTION GATE (P0 spec #1).
+        // Provably-toxic buckets (matured: n>=20, lossRate>=75% OR mean<=-10%)
+        // must remain TRAINABLE but must NOT create an executable BUY. All
+        // learning (counterfactual, MFE/MAE, hypothesis, forward model, memory)
+        // already ran UPSTREAM of this gate, and the blocked() path emits a
+        // NoTradeObservation row, so the bucket keeps learning — it just stops
+        // bleeding real (paper/live) capital and contaminating headline WR.
+        // Gate by the canonical execution lane + the recorded entry score.
+        // Fail-open: unknown score (-1) or any error => execute (BucketExecutionState
+        // is itself fail-open). Does NOT touch SL/TP, scanner, or tuning.
+        run {
+            val gateScore = state?.entryScore ?: -1
+            if (gateScore >= 0 && isRealExecutionLane(canonicalSelectedLane)) {
+                if (BucketExecutionState.isShadowTrainOnly(canonicalSelectedLane, gateScore)) {
+                    return blocked(
+                        "EXEC_OPEN_BLOCKED_SHADOW_TRAIN_ONLY",
+                        "SHADOW_TRAIN_ONLY:${BucketExecutionState.describe(canonicalSelectedLane, gateScore)}",
+                        shadow = true,
+                    )
+                }
+            }
         }
 
 
