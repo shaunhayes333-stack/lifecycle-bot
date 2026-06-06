@@ -1091,12 +1091,18 @@ object BlueChipTraderAI {
         // consumed it — pure dormant edge. 70/30 blend keeps the fluid base in
         // charge while letting replay evidence pull the target toward what
         // actually banked. Fail-open: no data → base unchanged.
-        return try {
+        val blended = try {
             val opt = com.lifecyclebot.engine.HistoricalChartScanner.getOptimalExitParams("BLUECHIP")
             if (opt.hasData) (base * 0.7 + opt.takeProfitPct * 0.3) else base
         } catch (_: Throwable) { base }
+        // V5.9.1380 — closed-loop tuner overlay
+        return blended * com.lifecyclebot.engine.learning.LaneExitTuner.getTpMult("BLUECHIP")
     }
-    fun getFluidStopLoss(): Double = lerp(STOP_LOSS_BOOTSTRAP, STOP_LOSS_MATURE)
+    fun getFluidStopLoss(): Double {
+        val base = lerp(STOP_LOSS_BOOTSTRAP, STOP_LOSS_MATURE)  // negative
+        val tuned = base * com.lifecyclebot.engine.learning.LaneExitTuner.getSlMult("BLUECHIP")
+        return maxOf(tuned, -15.0)  // hard floor sacred
+    }
     
     // ═══════════════════════════════════════════════════════════════════════════
     // MODE MANAGEMENT

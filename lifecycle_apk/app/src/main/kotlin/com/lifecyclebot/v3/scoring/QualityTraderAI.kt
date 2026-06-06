@@ -834,12 +834,16 @@ object QualityTraderAI {
     
     fun getFluidTakeProfit(): Double {
         val progress = FluidLearningAI.getLearningProgress()
-        return TAKE_PROFIT_BOOTSTRAP + (TAKE_PROFIT_MATURE - TAKE_PROFIT_BOOTSTRAP) * progress
+        val base = TAKE_PROFIT_BOOTSTRAP + (TAKE_PROFIT_MATURE - TAKE_PROFIT_BOOTSTRAP) * progress
+        // V5.9.1380 — closed-loop tuner overlay
+        return base * com.lifecyclebot.engine.learning.LaneExitTuner.getTpMult("QUALITY")
     }
     
     fun getFluidStopLoss(): Double {
         val progress = FluidLearningAI.getLearningProgress()
-        return STOP_LOSS_BOOTSTRAP + (STOP_LOSS_MATURE - STOP_LOSS_BOOTSTRAP) * progress
+        val base = STOP_LOSS_BOOTSTRAP + (STOP_LOSS_MATURE - STOP_LOSS_BOOTSTRAP) * progress  // negative
+        val tuned = base * com.lifecyclebot.engine.learning.LaneExitTuner.getSlMult("QUALITY")
+        return maxOf(tuned, -15.0)  // hard floor sacred
     }
     
     // ═══════════════════════════════════════════════════════════════════════════

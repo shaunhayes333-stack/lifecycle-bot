@@ -83,13 +83,19 @@ object DipHunterAI {
     /** Get fluid take profit for dip recovery */
     fun getFluidRecoveryTarget(): Double {
         val progress = FluidLearningAI.getLearningProgress()
-        return TARGET_RECOVERY_BOOTSTRAP + (TARGET_RECOVERY_MATURE - TARGET_RECOVERY_BOOTSTRAP) * progress
+        val base = TARGET_RECOVERY_BOOTSTRAP + (TARGET_RECOVERY_MATURE - TARGET_RECOVERY_BOOTSTRAP) * progress
+        // V5.9.1380 — closed-loop tuner overlay
+        return base * com.lifecyclebot.engine.learning.LaneExitTuner.getTpMult("DIP_HUNTER")
     }
     
     /** Get fluid stop loss for dips */
     fun getFluidStopLoss(): Double {
         val progress = FluidLearningAI.getLearningProgress()
-        return STOP_LOSS_BOOTSTRAP + (STOP_LOSS_MATURE - STOP_LOSS_BOOTSTRAP) * progress
+        val base = STOP_LOSS_BOOTSTRAP + (STOP_LOSS_MATURE - STOP_LOSS_BOOTSTRAP) * progress  // negative
+        val tuned = base * com.lifecyclebot.engine.learning.LaneExitTuner.getSlMult("DIP_HUNTER")
+        // V5.9.1380 — MATURE stop was -18% (past the -15 floor); tuner clamp now also
+        // enforces the unconditional hard floor here.
+        return maxOf(tuned, -15.0)
     }
     
     // Daily limits - CRITICAL for bootstrap protection

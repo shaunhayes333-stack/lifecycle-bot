@@ -598,18 +598,24 @@ object ProjectSniperAI {
             return ExitSignal(true, 33, "MOONSHOT: +${pnlPct.fmt(0)}%! Extracting 33%", SniperRank.GENERAL)
         }
         
-        // TP3 - 75%
-        if (pnlPct >= TAKE_PROFIT_3_PCT && mission.extractedPct < 66) {
+        // V5.9.1380 — closed-loop tuner scales the whole sniper TP ladder by the
+        // learnt SNIPER multiplier (banks sooner / lets run based on realized edge).
+        val _snipTpMult = com.lifecyclebot.engine.learning.LaneExitTuner.getTpMult("SNIPER")
+        val tp3 = TAKE_PROFIT_3_PCT * _snipTpMult
+        val tp2 = TAKE_PROFIT_2_PCT * _snipTpMult
+        val tp1 = TAKE_PROFIT_1_PCT * _snipTpMult
+        // TP3 - ~75%
+        if (pnlPct >= tp3 && mission.extractedPct < 66) {
             return ExitSignal(true, 33, "TP3: +${pnlPct.fmt(0)}%", SniperRank.COLONEL)
         }
         
-        // TP2 - 35%
-        if (pnlPct >= TAKE_PROFIT_2_PCT && mission.extractedPct < 33) {
+        // TP2 - ~35%
+        if (pnlPct >= tp2 && mission.extractedPct < 33) {
             return ExitSignal(true, 33, "TP2: +${pnlPct.fmt(0)}%", SniperRank.MAJOR)
         }
         
-        // TP1 - 15%
-        if (pnlPct >= TAKE_PROFIT_1_PCT && mission.extractedPct == 0) {
+        // TP1 - ~15%
+        if (pnlPct >= tp1 && mission.extractedPct == 0) {
             return ExitSignal(true, 33, "TP1: +${pnlPct.fmt(0)}%", SniperRank.CAPTAIN)
         }
         

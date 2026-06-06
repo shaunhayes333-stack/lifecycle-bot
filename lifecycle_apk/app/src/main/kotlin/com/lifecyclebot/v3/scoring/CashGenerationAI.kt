@@ -955,8 +955,14 @@ object CashGenerationAI {
         }
         val baseStopLossPct = kotlin.math.abs(STOP_LOSS_PCT)
 
-        val takeProfitPct = FluidLearningAI.getFluidTakeProfit(baseTakeProfitPct)
-        val stopLossPct = -FluidLearningAI.getFluidStopLoss(baseStopLossPct)
+        // V5.9.1380 — closed-loop lane exit tuner overlay on TREASURY exits.
+        val takeProfitPct = FluidLearningAI.getFluidTakeProfit(baseTakeProfitPct) *
+            com.lifecyclebot.engine.learning.LaneExitTuner.getTpMult("TREASURY")
+        val stopLossPct = maxOf(
+            -FluidLearningAI.getFluidStopLoss(baseStopLossPct) *
+                com.lifecyclebot.engine.learning.LaneExitTuner.getSlMult("TREASURY"),
+            -15.0  // hard floor sacred
+        )
 
         // V5.9.1257 — calibration-aware shrink: trim entry size when THIS score
         // band has proven net-negative (scorer-inversion). Soft-shape, never veto.

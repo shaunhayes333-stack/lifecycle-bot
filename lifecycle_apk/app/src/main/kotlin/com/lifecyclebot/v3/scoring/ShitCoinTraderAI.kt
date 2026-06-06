@@ -1826,8 +1826,17 @@ object ShitCoinTraderAI {
         } catch (_: Throwable) { raw }
     }
     fun getFluidMinLiquidity(): Double = lerp(MIN_LIQUIDITY_USD_BOOTSTRAP, MIN_LIQUIDITY_USD_MATURE)
-    fun getFluidTakeProfit(): Double = lerp(TAKE_PROFIT_BOOTSTRAP, TAKE_PROFIT_MATURE)
-    fun getFluidStopLoss(): Double = lerp(STOP_LOSS_BOOTSTRAP, STOP_LOSS_MATURE)
+    // V5.9.1380 — closed-loop lane exit tuner overlays the fluid base. tpMult/slMult
+    // are bounded learnt nudges from realized SHITCOIN outcomes; -15% floor preserved.
+    fun getFluidTakeProfit(): Double {
+        val base = lerp(TAKE_PROFIT_BOOTSTRAP, TAKE_PROFIT_MATURE)
+        return base * com.lifecyclebot.engine.learning.LaneExitTuner.getTpMult("SHITCOIN")
+    }
+    fun getFluidStopLoss(): Double {
+        val base = lerp(STOP_LOSS_BOOTSTRAP, STOP_LOSS_MATURE)  // negative
+        val tuned = base * com.lifecyclebot.engine.learning.LaneExitTuner.getSlMult("SHITCOIN")
+        return maxOf(tuned, -15.0)  // hard floor sacred
+    }
     
     // ═══════════════════════════════════════════════════════════════════════════
     // MODE MANAGEMENT
