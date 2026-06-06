@@ -30,7 +30,18 @@ object FinalDecisionGate {
         val approvalReason: String,
         val gateChecks: List<GateCheck>,
     ) {
-        fun canExecute(): Boolean = shouldTrade && blockReason == null
+        // V5.9.1368 — PROBE_ONLY is an APPROVED dust-size buy, NOT a veto. The lane
+        // wait-override path (BotService ~7616/7640) deliberately returns
+        // shouldTrade=true with blockReason="PROBE_ONLY" + qualityPenalty=DUST size to
+        // execute a tiny learning probe on liq-OK-but-weak tokens. The old
+        // `blockReason == null` rule treated that tag as a hard veto, so canExecute()
+        // returned false and the probe NEVER fired — 14,096 probe-buys killed in one
+        // session (top FDG block reason), collapsing execs/day to 139 vs the 500-1000
+        // floor. PROBE_ONLY is the single biggest volume choke. Treat it (and only it)
+        // as executable; every other blockReason still vetoes. Size is already dusted
+        // upstream via qualityPenalty=LANE_DUST_PROBE_SIZE_MULT, so this respects the
+        // P0.7 "no normal-size zero-signal buy" rule — it only frees the TINY probe.
+        fun canExecute(): Boolean = shouldTrade && (blockReason == null || blockReason == "PROBE_ONLY")
         fun isBenchmarkQuality(): Boolean = approvalClass in listOf(ApprovalClass.LIVE, ApprovalClass.PAPER_BENCHMARK)
         fun isExploration(): Boolean = approvalClass == ApprovalClass.PAPER_EXPLORATION
 
