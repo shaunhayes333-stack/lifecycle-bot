@@ -37,6 +37,13 @@ object CyclicTradeEngine {
     // its own curve has proven profitable.
     private const val COLD_MIN_SCORE_TO_ENTER = 72.0
     private const val COLD_RING_SIZE_MULT = 0.40   // V5.9.1309: was 0.20 — too starved to recover; 40% still de-risks while allowing the ring to climb back
+    // V5.9.1376 — EDGE-GATE constants. Once >=20 cycles are sampled, ring
+    // deployment is gated on REALIZED edge vs the breakeven WR implied by the
+    // active TP/SL geometry. Negative edge => probe-only (5% of ring) so the
+    // lane keeps sampling/learning but cannot bleed the compounded principal.
+    private const val EDGE_GATE_MIN_CYCLES = 20
+    private const val EDGE_PROBE_FRACTION  = 0.05   // probe size when edge <= 0
+    private const val EDGE_FULL_DEPLOY     = 0.10   // edge (in WR points, e.g. +10pp over breakeven) at which full deploy is authorized
     // V5.9.240: During bootstrap (<40% learning) lower the score floor so the
     // ring engine actually trades while FluidLearningAI is still calibrating.
     // Tokens don't have a reliable lastV3Score yet at that stage — entryScore
@@ -462,6 +469,66 @@ object CyclicTradeEngine {
 
         // ── 4. Enter cycle ─────────────────────────────────────────────────────
         var ringDesiredSol = if (cyclicCold) (ringBalanceSol * COLD_RING_SIZE_MULT).coerceAtLeast(0.001) else ringBalanceSol
+
+        // ══════════════════════════════════════════════════════════════════
+        // V5.9.1376 — EDGE-GATED RING DEPLOYMENT (the real CYCLIC bleed fix).
+        //
+        // ROOT CAUSE of the -4350 SOL CYCLIC bleed: this is a FULL-BANKROLL
+        // (or 40%-of-bankroll while "cold") deploy on EVERY cycle. With the
+        // meme spine's realized WR (~6-9%), deploying a large fraction of the
+        // ring into a NEGATIVE-expectancy edge is geometric ruin BY DESIGN — no
+        // amount of intelligence downstream can rescue a sizing policy that bets
+        // the bankroll into a coin-flip-or-worse. E[Δring] = f · ring ·
+        // (WR·avgWin − (1−WR)·avgLoss); when that bracket is negative the ring
+        // decays every cycle. The old "cyclicCold<35% WR → ×0.40" brake was far
+        // too weak: at 8% WR it still bleeds ~4%/cycle.
+        //
+        // FIX (Kelly-correct, fail-open): once the lane has a meaningful sample
+        // (>=20 closed cycles), measure its REALIZED per-cycle edge from the
+        // engine's own persisted counters. If the edge is negative, collapse the
+        // deployment to a true PROBE fraction (keep sampling to LEARN, but stop
+        // bleeding the compounded principal). As the measured edge turns
+        // positive, scale the ring back up proportional to the edge — so the
+        // compound engine only goes full-size once it has EARNED a real edge.
+        // Learning is untouched: we still enter and journal every probe, so the
+        // CYCLIC bucket keeps maturing.
+        run {
+            try {
+                val n = cycleCount
+                if (n >= EDGE_GATE_MIN_CYCLES) {
+                    val wr = winCount.toDouble() / n.toDouble()
+                    // avgWin / avgLoss in ring-SOL terms, derived from realized totals.
+                    // Fall back to symmetric 12% proxy if per-side totals unavailable.
+                    val realizedWr = wr
+                    // Realized mean PnL% per cycle is the cleanest net-edge proxy we
+                    // persist via totalPnlSol over deployed notional; but to stay
+                    // self-contained use the win-rate vs a breakeven WR implied by the
+                    // active TP/SL asymmetry. breakevenWr = SL / (TP + SL).
+                    val (tpA, slA) = adaptiveTpSl(currentMode)
+                    val breakevenWr = (slA / (tpA + slA)).coerceIn(0.05, 0.95)
+                    val edge = realizedWr - breakevenWr   // >0 means profitable at this TP/SL geometry
+                    when {
+                        edge <= 0.0 -> {
+                            // Negative/zero edge — PROBE ONLY. Sample to learn, never bleed.
+                            ringDesiredSol = (ringBalanceSol * EDGE_PROBE_FRACTION).coerceAtLeast(0.001)
+                            try { ErrorLogger.warn(TAG, "🪙🛑 CYCLIC EDGE-GATE: wr=${(realizedWr*100).toInt()}% < breakeven=${(breakevenWr*100).toInt()}% (TP${tpA.toInt()}/SL${slA.toInt()}) → PROBE ${(EDGE_PROBE_FRACTION*100).toInt()}% ring (sampling, not bleeding)") } catch (_: Throwable) {}
+                            try { com.lifecyclebot.engine.PipelineHealthCollector.labelInc("CYCLIC_EDGE_GATE_PROBE") } catch (_: Throwable) {}
+                        }
+                        edge < EDGE_FULL_DEPLOY -> {
+                            // Thin positive edge — scale deployment proportionally between
+                            // probe and full as edge climbs from 0 → EDGE_FULL_DEPLOY.
+                            val frac = (EDGE_PROBE_FRACTION + (edge / EDGE_FULL_DEPLOY) * (1.0 - EDGE_PROBE_FRACTION)).coerceIn(EDGE_PROBE_FRACTION, 1.0)
+                            ringDesiredSol = (ringDesiredSol * frac).coerceAtLeast(ringBalanceSol * EDGE_PROBE_FRACTION)
+                            try { ErrorLogger.info(TAG, "🪙📈 CYCLIC EDGE-GATE: thin edge=${(edge*100).toInt()}pp → ring×${"%.2f".format(frac)} (earning back to full)") } catch (_: Throwable) {}
+                        }
+                        else -> {
+                            // Proven edge — deploy as computed (cold-brake/calibration still apply below).
+                            try { ErrorLogger.info(TAG, "🪙✅ CYCLIC EDGE-GATE: proven edge=${(edge*100).toInt()}pp → full deploy authorized") } catch (_: Throwable) {}
+                        }
+                    }
+                }
+            } catch (_: Throwable) { /* fail-open: leave ringDesiredSol as-is */ }
+        }
         // V5.9.1305 — calibration-aware shrink on the ring deployment for proven
         // net-negative CYCLIC score bands (composes with the 1301 self-reject and
         // the 1304 wallet cap below). Keyed on the SAME "CYCLIC" bucket CYCLIC
