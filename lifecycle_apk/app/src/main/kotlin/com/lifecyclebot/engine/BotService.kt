@@ -32,7 +32,17 @@ class BotService : Service() {
         // V5.9.1355 P0.3 — WAIT-override dust-probe controls.
         // Below this liquidity a weak-WAIT candidate is hard-rejected from EXEC
         // (no probe) because there isn't enough depth to even exit a dust probe.
-        private const val LANE_PROBE_MIN_LIQ_USD = 800.0
+        // V5.9.1361 P0.6/volume — was 800.0, which blanket-blocked the large
+        // fraction of fresh meme intake sitting under $800 liquidity (operator:
+        // LANE_WAIT_OVERRIDE_BLOCKED=8984, projected exec/day collapsed to 107 vs
+        // the 500-1000 doctrine floor). A 0.04x DUST probe is ~0.01-0.02 SOL
+        // (~$2-4 notional) and exits cleanly against far less than $800 of depth,
+        // so the old floor was killing learning volume, not protecting exitability.
+        // Lower to $250: still enough to round-trip a dust position, but lets the
+        // brain keep getting real outcomes on thin pockets (never-disable mandate:
+        // weak pockets trade SMALL, never zero). This does NOT loosen normal-size
+        // entry — zero-score normal buys stay hard-blocked below.
+        private const val LANE_PROBE_MIN_LIQ_USD = 250.0
         // Dust-probe size multiplier (applied via qualityPenalty) — tiny, so a
         // weak/blind context can still generate a labelled learning sample
         // without spraying full-size capital into it.
@@ -7543,17 +7553,44 @@ class BotService : Service() {
         // -1 liquidity = unknown → treat as "not a liquidity reject" (zero-score gate still applies)
         val liqOk = liquidityUsd < 0.0 || liquidityUsd >= LANE_PROBE_MIN_LIQ_USD
         if (weakWait) {
-            // Hard reject zero-signal candidates from NORMAL exec entirely.
-            if ((base.entryScore <= 0.0 && base.aiConfidence <= 10.0) || !liqOk) {
+            // V5.9.1361 P0.7/mandate — TWO distinct rejects, carefully separated:
+            //  (a) liquidity too thin to even exit a dust probe  → HARD BLOCK (we
+            //      could not sell it; blocking is genuine safety, not a strategy kill).
+            //  (b) zero-signal (score<=0 && conf<=10) but liquidity OK → route to a
+            //      labelled DUST PROBE, NOT a hard block. P0.7 forbids a NORMAL-size
+            //      buy from score=0/conf=0 — a tiny PROBE_ONLY trade is not a normal
+            //      buy, and the never-disable mandate requires these blind pockets to
+            //      keep getting real outcomes (trade SMALL, never zero) so the brain
+            //      can learn where/whether they are ever tradeable. This is the lever
+            //      that lifts projected exec/day back toward the 500-1000 floor
+            //      without spraying full-size capital.
+            if (!liqOk) {
                 try {
                     PipelineHealthCollector.labelInc("LANE_WAIT_OVERRIDE_BLOCKED")
-                    PipelineHealthCollector.labelInc("FDG_ZERO_SCORE_BUY_REJECTED")
+                    PipelineHealthCollector.labelInc("FDG_THIN_LIQ_BUY_REJECTED")
                     ForensicLogger.lifecycle("LANE_WAIT_OVERRIDE_BLOCKED",
-                        "lane=$lane score=${"%.0f".format(base.entryScore)} conf=${"%.0f".format(base.aiConfidence)} liqUsd=${"%.0f".format(liquidityUsd)} block=${baseBlock.take(60)}")
+                        "lane=$lane score=${"%.0f".format(base.entryScore)} conf=${"%.0f".format(base.aiConfidence)} liqUsd=${"%.0f".format(liquidityUsd)} reason=thin_liq block=${baseBlock.take(50)}")
                 } catch (_: Throwable) {}
                 return base.copy(
                     signal = "WAIT", finalSignal = "WAIT", shouldTrade = false,
-                    blockReason = if (baseBlock.isBlank()) "WAIT_OVERRIDE_BLOCKED_WEAK_ENTRY" else baseBlock,
+                    blockReason = if (baseBlock.isBlank()) "WAIT_OVERRIDE_BLOCKED_THIN_LIQ" else baseBlock,
+                )
+            }
+            val zeroSignal = base.entryScore <= 0.0 && base.aiConfidence <= 10.0
+            if (zeroSignal) {
+                // liquidity OK but zero signal → dust learning probe (never a normal buy)
+                try {
+                    PipelineHealthCollector.labelInc("LANE_WAIT_OVERRIDE_ZERO_SIGNAL_PROBE")
+                    PipelineHealthCollector.labelInc("FDG_ZERO_SCORE_BUY_REJECTED")
+                } catch (_: Throwable) {}
+                return base.copy(
+                    signal = "BUY", finalSignal = "BUY", shouldTrade = true,
+                    blockReason = "PROBE_ONLY",
+                    edgeVeto = false,
+                    edgeQuality = if (base.edgeQuality == "SKIP") "C" else base.edgeQuality,
+                    finalQuality = "C",
+                    qualityPenalty = LANE_DUST_PROBE_SIZE_MULT,
+                    aiConfidence = base.aiConfidence.coerceAtLeast(confidenceFloor),
                 )
             }
             // Liquidity OK but still weak → DUST-PROBE only (explicit + tiny size).
