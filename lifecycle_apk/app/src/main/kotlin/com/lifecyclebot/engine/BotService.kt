@@ -8377,6 +8377,20 @@ class BotService : Service() {
         if (loopCount % 30 == 0 && GlobalTradeRegistry.probationSize() > 0) {
             addLog("⏳ ${GlobalTradeRegistry.getProbationStats()}")
         }
+        // V5.9.1370 — periodic tactic safety sweep. maybeRotateFromMemory() was
+        // dead code (defined, never called), so quiet/low-frequency bleeding
+        // buckets (e.g. SHITCOIN bands at 90%+ loss but trickling closes) never
+        // rotated their tactic. Run the memory-driven sweep every ~30 ticks
+        // (~2.5min) off the hot path; it iterates in-memory cell keys and the
+        // heavy stats read is bounded inside LosingPatternMemory. NEVER disables a
+        // bucket — only rotates its entry tactic (MOMENTUM→PULLBACK→...).
+        if (loopCount % 30 == 0) {
+            try {
+                kotlinx.coroutines.GlobalScope.launch(AppDispatchers.sideEffect) {
+                    try { com.lifecyclebot.engine.learning.TacticSwitcher.sweepAllBuckets() } catch (_: Throwable) {}
+                }
+            } catch (_: Throwable) {}
+        }
     }
 
     // V5.9.1000 — runRegimePulse() extracted to BotServiceLifecycleExt.kt

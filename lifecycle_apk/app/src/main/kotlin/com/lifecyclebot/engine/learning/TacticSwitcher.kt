@@ -54,6 +54,12 @@ object TacticSwitcher {
     /** Mean PnL threshold (-5%+ net-negative) to trigger rotation. */
     private const val MEAN_PNL_TRIGGER = -5.0
 
+    // V5.9.1370 — persistent-bleed (second) rotation condition. Catches buckets
+    // that sit just under the hard trigger and used to reset every TRIAL_WINDOW.
+    private const val PERSIST_WINDOW       = 40     // longer accumulation window
+    private const val PERSIST_LOSS_RATE    = 0.70   // 70%+ losses
+    private const val PERSIST_MEAN_PNL     = -3.0   // mildly-but-consistently negative
+
     private data class Cell(
         val tactic: AtomicInteger,
         val trialStartedAt: AtomicLong,          // ms
@@ -120,16 +126,35 @@ object TacticSwitcher {
         val lossRate = losses.toDouble() / tradesIn
         val meanPnl = (cell.pnlSumSinceRotation.get().toDouble() / 100.0) / tradesIn
 
-        if (lossRate >= LOSS_RATE_TRIGGER && meanPnl <= MEAN_PNL_TRIGGER) {
-            rotate(lane, scoreBand, cell, "lossRate=${"%.0f".format(lossRate * 100)}% mean=${"%+.1f".format(meanPnl)}% n=$tradesIn")
-        } else {
-            // Decent or improving — reset window so we keep watching forward.
-            // (Don't rotate; do reset counters so we evaluate next window cleanly.)
+        // V5.9.1370 — BLEEDER FIX. Two rotation conditions now (OR), and the
+        // non-trigger branch no longer fully wipes the window.
+        //  (1) original: hard bleed — lossRate>=75% AND mean<=-5% in this window.
+        //  (2) NEW: persistent bleed — a bucket sitting JUST UNDER the hard trigger
+        //      (e.g. 70% loss / -4% mean) used to reset to zero every 25 trades and
+        //      bleed forever. Now if the bucket is clearly net-negative
+        //      (mean<=-3% AND lossRate>=PERSIST_LOSS_RATE) over a LONGER accumulated
+        //      window (>=PERSIST_WINDOW), rotate. The window only resets on a
+        //      genuinely healthy read; a still-bleeding-but-sub-trigger bucket keeps
+        //      its counters so the persistent-bleed math can mature. NEVER disables —
+        //      only rotates the tactic (doctrine entry #18 / rule: rotate, don't kill).
+        val hardBleed = lossRate >= LOSS_RATE_TRIGGER && meanPnl <= MEAN_PNL_TRIGGER
+        val persistBleed = tradesIn >= PERSIST_WINDOW &&
+            lossRate >= PERSIST_LOSS_RATE && meanPnl <= PERSIST_MEAN_PNL
+        if (hardBleed || persistBleed) {
+            val tag = if (hardBleed) "hard" else "persist"
+            rotate(lane, scoreBand, cell, "$tag lossRate=${"%.0f".format(lossRate * 100)}% mean=${"%+.1f".format(meanPnl)}% n=$tradesIn")
+        } else if (meanPnl > 0.0 && lossRate < 0.60) {
+            // Genuinely healthy window — reset and watch forward cleanly.
             cell.tradesSinceRotation.set(0)
             cell.pnlSumSinceRotation.set(0L)
             cell.winsSinceRotation.set(0)
             cell.lossesSinceRotation.set(0)
             cell.trialStartedAt.set(System.currentTimeMillis())
+            persist(key(lane, scoreBand), cell)
+        } else {
+            // Mediocre / still bleeding but under the hard trigger: KEEP counters so
+            // the persistent-bleed window (2) can accumulate toward a rotation
+            // instead of being wiped every TRIAL_WINDOW. Just persist and continue.
             persist(key(lane, scoreBand), cell)
         }
     }
@@ -142,15 +167,39 @@ object TacticSwitcher {
      */
     fun maybeRotateFromMemory(lane: String, scoreBand: String) {
         val cell = getOrCreate(lane, scoreBand)
-        val tradesIn = cell.tradesSinceRotation.get()
-        if (tradesIn < MIN_SAMPLES) return
-
+        // V5.9.1370 — was gated on cell.tradesSinceRotation>=MIN_SAMPLES, which
+        // blocked exactly the QUIET buckets this memory-driven path exists to
+        // catch (a bucket can be net-poison in accumulated history while its
+        // since-rotation counter is tiny). The correct sample guard is the
+        // MEMORY's own totalSamples below — that's what we're judging on.
         val st = try { LosingPatternMemory.stats(lane, scoreBandToMidScore(scoreBand)) } catch (_: Throwable) { return }
         val totalSamples = st.wins + st.losses
         if (totalSamples < MIN_SAMPLES) return
         val lossRate = if (totalSamples > 0) st.losses.toDouble() / totalSamples else 0.0
-        if (lossRate >= LOSS_RATE_TRIGGER && st.meanPnl <= MEAN_PNL_TRIGGER) {
-            rotate(lane, scoreBand, cell, "memory:lossRate=${"%.0f".format(lossRate * 100)}% μ=${"%+.1f".format(st.meanPnl)}% n=$totalSamples")
+        // Same OR semantics as the inline path: hard bleed OR persistent bleed.
+        val hardBleed = lossRate >= LOSS_RATE_TRIGGER && st.meanPnl <= MEAN_PNL_TRIGGER
+        val persistBleed = totalSamples >= PERSIST_WINDOW &&
+            lossRate >= PERSIST_LOSS_RATE && st.meanPnl <= PERSIST_MEAN_PNL
+        if (hardBleed || persistBleed) {
+            val tag = if (hardBleed) "mem-hard" else "mem-persist"
+            rotate(lane, scoreBand, cell, "$tag:lossRate=${"%.0f".format(lossRate * 100)}% μ=${"%+.1f".format(st.meanPnl)}% n=$totalSamples")
+        }
+    }
+
+    /**
+     * V5.9.1370 — periodic safety sweep. Re-evaluates EVERY known (lane, band)
+     * bucket against accumulated LosingPatternMemory, so quiet/low-frequency
+     * bleeders get rotated even when they aren't generating fresh closes fast
+     * enough to trip the inline onTradeClosed window. Call from the bot loop on
+     * a slow cadence (e.g. every ~30 ticks). Cheap: iterates the in-memory cell
+     * keys; the heavy stats read is bounded inside LosingPatternMemory.
+     */
+    fun sweepAllBuckets() {
+        val keys = cells.keys().toList()
+        for (k in keys) {
+            val parts = k.split("|")
+            if (parts.size != 2) continue
+            try { maybeRotateFromMemory(parts[0], parts[1]) } catch (_: Throwable) {}
         }
     }
 
