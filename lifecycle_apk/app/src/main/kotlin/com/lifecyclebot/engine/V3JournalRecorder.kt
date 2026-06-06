@@ -146,6 +146,14 @@ object V3JournalRecorder {
         entryScore: Int = 0,
         holdMinutes: Long = 0L,
     ) {
+        // V5.9.1375 (P0 #6) — arm RE-ENTRY LOCKOUT for stop-loss-type exits BEFORE
+        // the dedup early-return, so a BUY->STOP_LOSS->BUY loop keeps the lock fresh
+        // even when later close waves are deduped. Fail-open; only arms on real losses.
+        try {
+            val _fam = symbol.uppercase().trim().filter { it.isLetterOrDigit() }.take(8)
+            com.lifecyclebot.engine.ReEntryLockout.onClose(mint, _fam, exitReason, pnlPct)
+        } catch (_: Throwable) {}
+
         // V5.9.1203 — dedup: drop duplicate journal entry for same mint within 60s
         val _dedupNow = System.currentTimeMillis()
         val _lastClose = recentCloseDedup[mint]

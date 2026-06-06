@@ -466,6 +466,18 @@ object ExecutableOpenGate {
             }
         }
 
+        // V5.9.1375 — RE-ENTRY LOCKOUT (P0 #6). After a stop-loss on this mint /
+        // symbol-family, refuse to re-open for >=10 min (or until cleared by a new
+        // ATH). Kills the BUY->STOP_LOSS->BUY bleed loop. Fail-open. Learning paths
+        // are upstream and unaffected; a blocked re-entry still emits a NoTradeObs.
+        run {
+            val fam = symbol.uppercase().trim().filter { it.isLetterOrDigit() }.take(8)
+            val lockReason = ReEntryLockout.lockReason(mint, fam)
+            if (lockReason != null) {
+                return blocked("EXEC_OPEN_BLOCKED_REENTRY_LOCKOUT", lockReason, shadow = true)
+            }
+        }
+
 
 
         val pause = ToxicModeCircuitBreaker.currentEntryPause()
