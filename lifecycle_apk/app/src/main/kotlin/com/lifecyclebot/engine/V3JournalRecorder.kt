@@ -145,6 +145,11 @@ object V3JournalRecorder {
         // still compile; pass real values to feed the learning trackers.
         entryScore: Int = 0,
         holdMinutes: Long = 0L,
+        // V5.9.1378 (P0 #9) — peak gain % reached during the hold (MFE / max
+        // favorable excursion). Default 0.0 keeps older callers compiling; pass the
+        // real Position.peakGainPct so give-back (MFE - realized) is measurable and
+        // the exit ladder can be tuned against "runners getting cut" telemetry.
+        peakGainPct: Double = 0.0,
     ) {
         // V5.9.1375 (P0 #6) — arm RE-ENTRY LOCKOUT for stop-loss-type exits BEFORE
         // the dedup early-return, so a BUY->STOP_LOSS->BUY loop keeps the lock fresh
@@ -242,6 +247,26 @@ object V3JournalRecorder {
             try { ScoreExpectancyTracker.record(layer, entryScore, pnlPctLearn) } catch (_: Exception) {}
             try { HoldDurationTracker.record(layer, holdMinutes, pnlPctLearn) } catch (_: Exception) {}
             try { ExitReasonTracker.record(layer, exitReason, pnlPctLearn) } catch (_: Exception) {}
+            // V5.9.1378 (P0 #9) — MFE give-back: how much of the peak did we keep?
+            // giveBack = peak - realized. A large give-back on a winner-turned-loser
+            // means the trail/exit cut a runner or held a fader too long. Emit as
+            // labelled telemetry (sanitized peak) so the snapshot exposes the leak.
+            try {
+                val peakSane = when {
+                    peakGainPct.isNaN() || peakGainPct.isInfinite() -> 0.0
+                    peakGainPct > 5000.0 -> 5000.0
+                    peakGainPct < 0.0 -> 0.0
+                    else -> peakGainPct
+                }
+                if (peakSane > 0.0) {
+                    val giveBack = peakSane - pnlPctLearn
+                    com.lifecyclebot.engine.PipelineHealthCollector.recordMfe(layer, peakSane, pnlPctLearn)
+                    // A runner that ran >=20% but closed >=25pp off its peak = cut runner.
+                    if (peakSane >= 20.0 && giveBack >= 25.0) {
+                        com.lifecyclebot.engine.PipelineHealthCollector.labelInc("MFE_RUNNER_GIVEBACK|lane=$layer")
+                    }
+                }
+            } catch (_: Throwable) {}
             // V5.9.1333 — Tactic switcher observes per-(lane, scoreBand) outcome.
             // When a bucket bleeds past threshold, rotates its entry tactic
             // (MOMENTUM → PULLBACK → REACCUMULATION → BREAKOUT). Never disables.

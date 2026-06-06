@@ -3106,6 +3106,37 @@ object FinalDecisionGate {
         } catch (_: Throwable) { /* fail-open — startup coordinator is soft-shape only */ }
 
         // ═══════════════════════════════════════════════════════════════════
+        // V5.9.1378 (P0 #7) — DATA_DEGRADED SOFT-SHAPE.
+        // Entry scores are only as trustworthy as the price/liquidity feeds.
+        // When PRICE-CRITICAL providers (dexscreener/geckoterminal/birdeye) are
+        // degraded, mcap/liq/score can be stale → entry is a blind bet. Per
+        // doctrine #86 SOFT-SHAPE not hard veto; per #87.1 PAPER full-size so
+        // learning never stops. LIVE size dampened ∝ #feeds down. Floor 0.01.
+        // ═══════════════════════════════════════════════════════════════════
+        try {
+            if (mode == TradeMode.LIVE) {
+                val snap = com.lifecyclebot.engine.ApiHealthMonitor.snapshot()
+                val priceCritical = listOf("dexscreener", "geckoterminal", "birdeye")
+                var degraded = 0
+                val degradedNames = mutableListOf<String>()
+                for (host in priceCritical) {
+                    val hs = snap[host] ?: continue
+                    val samples = hs.successes.get() + hs.failures4xx.get() + hs.failures5xx.get() + hs.networkErrors.get()
+                    if (samples >= 8 && hs.successRate() < 0.50) { degraded++; degradedNames.add(host) }
+                }
+                if (degraded > 0) {
+                    val dataMult = when (degraded) { 1 -> 0.75; 2 -> 0.50; else -> 0.35 }
+                    val originalSize = finalSize
+                    finalSize = (finalSize * dataMult).coerceAtLeast(0.01)
+                    tags.add("size_reduced_data_degraded_${degraded}")
+                    try { com.lifecyclebot.engine.PipelineHealthCollector.labelInc("FDG_DATA_DEGRADED_SOFTSHAPE|feeds=${degraded}") } catch (_: Throwable) {}
+                    checks.add(GateCheck("data_degraded", true,
+                        "Price feeds degraded (${degradedNames.joinToString(",")}) — size ${originalSize.format(3)} → ${finalSize.format(3)} (×$dataMult)"))
+                }
+            }
+        } catch (_: Throwable) { /* fail-open — data-health is soft-shape only */ }
+
+        // ═══════════════════════════════════════════════════════════════════
         // V5.9.939 — TIER-MODULATED SOFT-SHAPE HELPER.
         //
         // The 5 Birdeye soft-shapes (V5.9.937-938) below all use a baseMult

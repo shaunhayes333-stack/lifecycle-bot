@@ -20,6 +20,16 @@ object PerformanceAnalytics {
     private const val LOSS_THRESHOLD_PCT = -2.0
     private val UTC: TimeZone = TimeZone.getTimeZone("UTC")
 
+    // V5.9.1378 (P0 #8/#10) — cache the most recent analyze() result + a lifetime
+    // closed-trade count so the health-diagnosis (PipelineHealthCollector) can read
+    // realized performance truth without re-running analyze() on the main thread.
+    @Volatile private var lastSnapshot: AnalyticsSnapshot? = null
+    @Volatile private var lifetimeClosed: Int = 0
+    /** Most recent analyze() snapshot, or null if analyze() hasn't run yet. */
+    fun lastSnapshotOrNull(): AnalyticsSnapshot? = lastSnapshot
+    /** Lifetime count of closed (decisive) trades observed by the last analyze() pass. */
+    fun lifetimeClosedCount(): Int = lifetimeClosed
+
     data class AnalyticsSnapshot(
         val totalTrades: Int = 0,
         val winCount: Int = 0,
@@ -210,7 +220,11 @@ object PerformanceAnalytics {
 
             insights = insights,
             warnings = warnings
-        )
+        ).also {
+            // V5.9.1378 — publish the snapshot + lifetime sample for health-truth diagnosis.
+            lastSnapshot = it
+            lifetimeClosed = it.totalTrades
+        }
     }
 
     private fun calculateStreaks(trades: List<TradeRecord>): Triple<Int, Int, Int> {

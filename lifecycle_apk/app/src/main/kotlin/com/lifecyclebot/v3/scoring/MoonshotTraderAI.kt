@@ -1064,6 +1064,7 @@ object MoonshotTraderAI {
                 exitReason = exitReason.name,
                 entryScore = pos.entryScore.toInt(),
                 holdMinutes = holdMinutesLong,
+                peakGainPct = pos.peakPnlPct,   // V5.9.1378 (#9) — feed MFE give-back telemetry
             )
         } catch (_: Exception) {}
         

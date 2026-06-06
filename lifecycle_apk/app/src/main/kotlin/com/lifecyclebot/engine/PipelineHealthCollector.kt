@@ -64,6 +64,10 @@ object PipelineHealthCollector {
 
     /** Custom labelled counters (e.g. lane name, error class). */
     private val labelCounts = ConcurrentHashMap<String, AtomicLong>()
+    // V5.9.1378 (P0 #9) — per-lane MFE aggregation: [peakSumX100, realizedSumX100, n].
+    // Lets the snapshot show avg peak vs avg realized give-back per lane so the exit
+    // ladder can be tuned against "runners getting cut".
+    private val mfeByLane = ConcurrentHashMap<String, LongArray>()
 
     // V5.9.1082 — last-seen EXECUTION_STATE_BLOCKED for the snapshot
     // top-bar EXECUTION_STATE field. Operator must SEE buying is paused.
@@ -816,7 +820,38 @@ object PipelineHealthCollector {
             val txCount = (exec["paper_sell_success"] ?: 0L) + (exec["live_sell_success"] ?: 0L)
             val journalSell = exec["journal_sell_records"] ?: 0L
             if (txCount > 0 && journalSell > txCount * 2) rootCauses.add("LEARNING_ACCOUNTING_GAP (journal_sell=$journalSell > 2x close_success=$txCount)")
-            if (rootCauses.isEmpty()) rootCauses.add("NONE — pipeline appears healthy")
+
+            // V5.9.1378 (P0 #8) — HEALTH-DIAGNOSIS TRUTH. The pipeline can be
+            // mechanically "healthy" (no ANR, no accounting gap) while the STRATEGY
+            // is bleeding — the snapshot used to print "appears healthy" with a 12% WR
+            // and negative P&L, which is a lying diagnosis. Add the real disease as a
+            // root cause when the realized performance is sub-floor. Phase-aware: WR
+            // floors differ for bootstrap (<5000 lifetime closes) vs mature.
+            try {
+                val perf = com.lifecyclebot.engine.PerformanceAnalytics.lastSnapshotOrNull()
+                if (perf != null && perf.totalTrades >= 20) {
+                    // True persisted lifetime close count (survives the 1000-row analyze cap).
+                    val lifetime = try { com.lifecyclebot.engine.TradeHistoryStore.getLifetimeStats().totalSells } catch (_: Throwable) { com.lifecyclebot.engine.PerformanceAnalytics.lifetimeClosedCount() }
+                    val mature = lifetime >= 5000
+                    val wrFloor = if (mature) 50.0 else 20.0
+                    val phaseTag = if (mature) "MATURE" else "BOOTSTRAP"
+                    if (perf.winRate < wrFloor) {
+                        rootCauses.add("WR_BELOW_FLOOR ($phaseTag wr=${"%.1f".format(perf.winRate)}% < floor=${wrFloor.toInt()}% n=${perf.totalTrades} lifetime=$lifetime)")
+                    }
+                    // Negative P&L is only a "broken strategy" verdict in the mature
+                    // phase; bootstrap is expected to pay tuition.
+                    if (mature && perf.totalPnlSol < 0.0) {
+                        rootCauses.add("NEGATIVE_PNL_MATURE (pnl=${"%.4f".format(perf.totalPnlSol)} SOL pf=${"%.2f".format(perf.profitFactor)})")
+                    }
+                    // A profit factor < 1 with a meaningful sample means avg_win*WR is
+                    // losing to avg_loss*(1-WR) — the bleed-curve the doctrine warns about.
+                    if (perf.totalTrades >= 50 && perf.profitFactor in 0.0001..0.99) {
+                        rootCauses.add("PROFIT_FACTOR_SUB1 (pf=${"%.2f".format(perf.profitFactor)} — avg_win*WR < avg_loss*(1-WR))")
+                    }
+                }
+            } catch (_: Throwable) {}
+
+            if (rootCauses.isEmpty()) rootCauses.add("NONE — mechanics AND performance within band")
             sb.append("  Root cause likely:    ${rootCauses.joinToString(" | ").take(160)}\n")
         } catch (_: Throwable) {}
         sb.append("\n")
@@ -1245,6 +1280,36 @@ object PipelineHealthCollector {
                             append("\n===== Performance analytics (last 1000 closed) =====\n")
                             append(com.lifecyclebot.engine.PerformanceAnalytics.formatSummary(stats))
                             append('\n')
+                            // V5.9.1378 (P0 #10) — SEPARATED WR METRICS. A single blended
+                            // "12% WR" hides which lane is bleeding and conflates the
+                            // bootstrap learning phase with the mature phase (different
+                            // floors per the performance doctrine). Break it out.
+                            try {
+                                val lifetime = try { com.lifecyclebot.engine.TradeHistoryStore.getLifetimeStats().totalSells } catch (_: Throwable) { stats.totalTrades }
+                                val mature = lifetime >= 5000
+                                val phaseTag = if (mature) "MATURE" else "BOOTSTRAP"
+                                val floor = if (mature) "50-89%" else "20-35%"
+                                append("===== Separated WR metrics (V5.9.1378) =====\n")
+                                append("  Phase:        $phaseTag  (lifetime closes=$lifetime; doctrine floor=$floor)\n")
+                                append("  Blended WR:   ${"%.1f".format(stats.winRate)}%  (n=${stats.totalTrades} in window)\n")
+                                val onFloor = if (mature) stats.winRate >= 50.0 else stats.winRate >= 20.0
+                                append("  Floor status: ${if (onFloor) "✅ within band" else "🔴 BELOW $phaseTag floor"}\n")
+                                // Per-phase (lane) WR with sample size — exposes the bleeder.
+                                val byPhase = stats.winRateByPhase
+                                val cntByPhase = stats.tradeCountByPhase
+                                if (byPhase.isNotEmpty()) {
+                                    append("  By lane (WR | n):\n")
+                                    byPhase.entries
+                                        .filter { (cntByPhase[it.key] ?: 0) >= 5 }
+                                        .sortedBy { it.value }
+                                        .forEach { (lane, wr) ->
+                                            val n = cntByPhase[lane] ?: 0
+                                            val flag = if (wr < 20.0) " 🔴bleeder" else if (wr >= 50.0) " ✅" else ""
+                                            append("    ${lane.padEnd(14)} ${"%.1f".format(wr)}%  n=$n$flag\n")
+                                        }
+                                }
+                                append('\n')
+                            } catch (_: Throwable) { /* diagnostic only */ }
                         }
                         perfAnalyticsCache   = block
                         perfAnalyticsCacheAt = now
@@ -1631,6 +1696,25 @@ object PipelineHealthCollector {
         } catch (_: Throwable) {}
 
         try {
+            if (mfeByLane.isNotEmpty()) {
+                sb.append("\n===== MFE give-back (V5.9.1378 — peak vs realized per lane) =====\n")
+                mfeByLane.entries.sortedBy { it.key }.forEach { (lane, arr) ->
+                    val n = arr[2]
+                    if (n > 0) {
+                        val avgPeak = arr[0] / 100.0 / n
+                        val avgReal = arr[1] / 100.0 / n
+                        val giveBack = avgPeak - avgReal
+                        val flag = if (avgPeak >= 20.0 && giveBack >= 25.0) "  🔴 cutting runners" else ""
+                        sb.append(String.format("  %-14s n=%-4d avgPeak=%+.1f%%  avgRealized=%+.1f%%  giveBack=%.1fpp%s\n",
+                            lane, n, avgPeak, avgReal, giveBack, flag))
+                    }
+                }
+                sb.append("  Read: large giveBack on a +peak lane ⇒ trail too tight / exit too early (cut runners);\n")
+                sb.append("        avgRealized << avgPeak with low WR ⇒ winners fading to losses (hold too long).\n\n")
+            }
+        } catch (_: Throwable) {}
+
+        try {
             val migSnap = AutoEndpointMigrator.snapshot()
             if (migSnap.isNotEmpty()) {
                 sb.append("\n===== Endpoint migrations (V5.9.915 AutoEndpointMigrator) =====\n")
@@ -1690,6 +1774,20 @@ object PipelineHealthCollector {
     fun labelInc(key: String) {
         if (!attached) return
         bump(labelCounts, key)
+    }
+
+    // V5.9.1378 (P0 #9) — record an MFE observation for [lane]: the peak gain reached
+    // and the realized close pnl (both %). Accumulated as fixed-point x100 sums.
+    fun recordMfe(lane: String, peakPct: Double, realizedPct: Double) {
+        if (!attached) return
+        try {
+            val arr = mfeByLane.getOrPut(lane) { LongArray(3) }
+            synchronized(arr) {
+                arr[0] += (peakPct * 100.0).toLong()
+                arr[1] += (realizedPct * 100.0).toLong()
+                arr[2] += 1L
+            }
+        } catch (_: Throwable) {}
     }
 
     private fun appendEvent(ev: Event) {
