@@ -11241,6 +11241,16 @@ if (hotExitHandledSweep) {
             try { markProgress("POST_SUPERVISOR/CONFIG_RELOAD") } catch (_: Throwable) {}
             val loopCfg = ConfigStore.load(applicationContext)
             RuntimeModeAuthority.publishConfig(loopCfg.paperMode, loopCfg.autoTrade)
+            // V5.9.1360 — P0.1 LIVE-MODE TRANSFER AUDIT. One diagnostic line per
+            // loop tick whenever the UI has selected LIVE, so the live handoff is
+            // never invisible: it prints the exact firstLiveBlocker (or NONE).
+            // Observe-only; reads existing authorities/counters. Never throws.
+            try {
+                val wConn = try { walletManager.state.value.connectionState == WalletConnectionState.CONNECTED } catch (_: Throwable) { false }
+                val wSol  = try { walletManager.state.value.solBalance } catch (_: Throwable) { 0.0 }
+                val liveEnabled = loopCfg.autoTrade || loopCfg.cyclicTradeLiveEnabled
+                LiveTransferAudit.emit(applicationContext, loopCfg.paperMode, wConn, wSol, liveEnabled)
+            } catch (_: Throwable) {}
             val loopIsPaper = loopCfg.paperMode
             if (GlobalTradeRegistry.isPaperMode != loopIsPaper) {
                 ErrorLogger.info("BotService", "🔄 HOT MODE SWITCH DETECTED: paper=${GlobalTradeRegistry.isPaperMode} → $loopIsPaper")

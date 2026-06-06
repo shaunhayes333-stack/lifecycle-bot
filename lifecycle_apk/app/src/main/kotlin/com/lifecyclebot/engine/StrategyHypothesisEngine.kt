@@ -102,8 +102,21 @@ object StrategyHypothesisEngine {
         val base = baseline[context] ?: 1.0
         val up = (mint(base) + MUTATION_STEP).coerceIn(SIZE_BIAS_MIN, SIZE_BIAS_MAX)
         val down = (base - MUTATION_STEP).coerceIn(SIZE_BIAS_MIN, SIZE_BIAS_MAX)
-        // alternate direction by promotion parity so it explores both sides over time
-        val variant = if ((promotions + retirements) % 2L == 0L) up else down
+        // V5.9.1360 P0.2 — DIRECTION GUARD. Never propose a LARGER size bet in a
+        // context whose control arm is currently NEGATIVE. The old logic
+        // alternated up/down on parity regardless of context health, so half the
+        // size variants in a losing pocket tested a BIGGER bet — that is exactly
+        // the "promoting/sizing-up a losing variant" the operator flagged (the
+        // promotion guard blocks it becoming baseline, but the variant arm still
+        // traded at 1.10× while losing). When the context's control mean is
+        // negative, explore size DOWN only; up-exploration is allowed solely once
+        // the context is at/above breakeven.
+        val ctrlMean = try { active[context]?.control?.let { if (it.n >= MIN_ARM) it.mean else null } } catch (_: Throwable) { null }
+        val contextNegative = ctrlMean != null && ctrlMean < 0.0
+        val variant = if (contextNegative) {
+            try { com.lifecyclebot.engine.PipelineHealthCollector.labelInc("HYPOTHESIS_SIZE_UP_BLOCKED_NEG_CONTEXT") } catch (_: Throwable) {}
+            down  // losing context → only ever test SMALLER size
+        } else if ((promotions + retirements) % 2L == 0L) up else down
         // Alternate the explored dimension: even cycles test SIZE, odd cycles test
         // STOP WIDTH (so both evolve without a combinatorial arm explosion).
         val baseStop = stopBaseline[context] ?: 1.0

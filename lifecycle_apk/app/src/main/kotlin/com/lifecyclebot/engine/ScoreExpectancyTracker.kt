@@ -83,10 +83,24 @@ object ScoreExpectancyTracker {
      */
     fun record(layer: String, score: Int, pnlPct: Double) {
         try {
+            // V5.9.1360 P0.4 — INTAKE SANITY (defense-in-depth, single source of
+            // truth). Even though V3JournalRecorder already clamps before calling,
+            // guard here so NO caller can ever poison a bucket window with a feed
+            // artifact (the +1,340,125% glitch that produced μ=+1,005,094%). NaN/Inf
+            // dropped; finite values clamped to the same [-100%,+5000%] learning band.
+            val sane = when {
+                pnlPct.isNaN() || pnlPct.isInfinite() -> {
+                    try { com.lifecyclebot.engine.PipelineHealthCollector.labelInc("ACCOUNTING_OUTLIER_NOT_TRAINED") } catch (_: Throwable) {}
+                    return
+                }
+                pnlPct > 5000.0 -> { try { com.lifecyclebot.engine.PipelineHealthCollector.labelInc("ACCOUNTING_OUTLIER_NOT_TRAINED") } catch (_: Throwable) {}; 5000.0 }
+                pnlPct < -100.0 -> -100.0
+                else -> pnlPct
+            }
             val key = keyOf(layer, score)
             val w = windows.computeIfAbsent(key) { ArrayDeque(WINDOW + 1) }
             synchronized(w) {
-                w.addLast(pnlPct)
+                w.addLast(sane)
                 while (w.size > WINDOW) w.removeFirst()
             }
             LearningPersistence.onRecord()  // V5.9.438 — durable save
@@ -100,7 +114,16 @@ object ScoreExpectancyTracker {
         val w = windows[keyOf(layer, score)] ?: return null
         synchronized(w) {
             if (w.size < MIN_SAMPLES_FOR_REJECT) return null
-            return w.sum() / w.size
+            // V5.9.1360 P0.4 — read-side clamp so any pre-1357 persisted poison in
+            // the window (recorded before the intake guard existed) can never
+            // surface an impossible mean into tuning/readiness/live-gating.
+            val sane = w.map { when {
+                it.isNaN() || it.isInfinite() -> 0.0
+                it > 5000.0 -> 5000.0
+                it < -100.0 -> -100.0
+                else -> it
+            } }
+            return if (sane.isEmpty()) null else sane.sum() / sane.size
         }
     }
 

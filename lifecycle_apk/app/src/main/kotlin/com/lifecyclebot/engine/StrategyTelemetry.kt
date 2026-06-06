@@ -86,7 +86,29 @@ object StrategyTelemetry {
             val mean = if (trades.isNotEmpty()) sumPnl / trades.size else 0.0
             val wlDenom = wins + losses
             val wr = if (wlDenom > 0) (wins.toDouble() / wlDenom) * 100.0 else 0.0
-            val totalSol = trades.sumOf { it.pnlSol }
+            // V5.9.1360 P0.4 — SOL ACCOUNTING SANITY. totalSolPnl was a RAW sum, so
+            // a single feed-artifact close (glitched near-zero price → astronomical
+            // pnl) produced impossible values like +62,218 SOL that then poisoned
+            // tuning/readiness/live-gating. A real meme close cannot net more than
+            // ~50x its own deployed size (that is already a +5000% move). Any trade
+            // whose |pnlSol| exceeds 50x its position size — or whose size is
+            // missing while pnlSol is huge — is excluded from the SOL total used for
+            // learning. Counters surface how often this fires.
+            fun saneSol(t: com.lifecyclebot.data.Trade): Double? {
+                val p = t.pnlSol
+                if (p.isNaN() || p.isInfinite()) {
+                    try { com.lifecyclebot.engine.PipelineHealthCollector.labelInc("PNL_UNIT_MISMATCH_REJECTED") } catch (_: Throwable) {}
+                    return null
+                }
+                val size = t.sol.takeIf { it > 0.0 } ?: 0.0
+                val cap = if (size > 0.0) size * 50.0 else 5.0  // no-size fallback: 5 SOL hard ceiling
+                if (kotlin.math.abs(p) > cap) {
+                    try { com.lifecyclebot.engine.PipelineHealthCollector.labelInc("ACCOUNTING_OUTLIER_NOT_TRAINED") } catch (_: Throwable) {}
+                    return null
+                }
+                return p
+            }
+            val totalSol = trades.mapNotNull { saneSol(it) }.sum()
             StrategyMetric(
                 strategy   = strategy,
                 trades     = trades.size,

@@ -3686,8 +3686,28 @@ object FinalDecisionGate {
                         // smoothly, while still trading every tick so the bucket
                         // keeps learning where its sweet spot is. We only tag it
                         // for telemetry; the learned head owns the size.
+                        // V5.9.1360 P0.3 — PROVEN-DEAD = NORMAL-SIZE VETO (operator
+                        // directive, reconciled with the never-disable mandate). A
+                        // statistically dead context (losses>=20, wins<=1, mean<0)
+                        // must STOP causing normal-size damage — but it is NEVER
+                        // disabled: it keeps trading at probe size so the bucket
+                        // keeps learning and can heal. normalEntryBlocked → shrink
+                        // to <=0.02; the 1-in-25 probeAllowed tick also rides at
+                        // 0.02. Size-shape only — minimum 0.01, never zero. This is
+                        // shaping, not a route-kill: the trade still opens.
                         if (report.provenDead) {
-                            tags.add("bcg_proven_dead_observed")
+                            val beforeP = finalSize
+                            if (report.normalEntryBlocked) {
+                                finalSize = minOf(finalSize, 0.02).coerceAtLeast(0.01)
+                                tags.add("bcg_proven_dead_normal_veto")
+                                checks.add(GateCheck("brain_consensus_proven_dead", true, "PROVEN_DEAD normal-size vetoed → probe ${beforeP.format(3)}→${finalSize.format(3)} (learning stays open)"))
+                            } else if (report.probeAllowed) {
+                                finalSize = minOf(finalSize, 0.02).coerceAtLeast(0.01)
+                                tags.add("bcg_proven_dead_probe")
+                                checks.add(GateCheck("brain_consensus_proven_dead", true, "PROVEN_DEAD 1-in-25 learning probe @ ${finalSize.format(3)}"))
+                            } else {
+                                tags.add("bcg_proven_dead_observed")
+                            }
                         }
                         val weakEvidence = candidate.setupQuality !in listOf("A+", "A", "B") && adjustedConfidence < 35.0 && candidate.entryScore < 25.0
                         if (hasDanger && deepLearningDeficit && weakEvidence) {
