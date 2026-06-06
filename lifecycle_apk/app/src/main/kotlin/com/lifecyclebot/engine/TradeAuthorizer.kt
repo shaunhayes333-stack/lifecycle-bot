@@ -310,10 +310,49 @@ object TradeAuthorizer {
                 state == TokenState.PAPER_OPEN || state == TokenState.LIVE_OPEN
             }
 
+        // ══════════════════════════════════════════════════════════════════
+        // V5.9.1377 — ONE-MINT-ONE-POSITION (P0 #5). Previously this block only
+        // LOGGED "Multi-book authorization" and let the open proceed, so the SAME
+        // mint could be opened simultaneously in MOONSHOT + SHITCOIN + TREASURY +…
+        // A single rugging token then bought 3-4× across lanes and stop-lossed 3-4×,
+        // multiplying the bleed and inflating the loss count / streak (snapshot showed
+        // the same mints re-bought repeatedly). One physical token = one position.
+        //
+        // RULE: if the mint is already OPEN in any OTHER real execution book, REJECT.
+        // EXCEPTIONS (kept intentionally):
+        //   • SHADOW is already excluded above (shadow→real upgrade handled at GATE 4).
+        //   • CYCLIC and CRYPTO are SEPARATE UNIVERSES from the meme spine; a cross
+        //     between {CYCLIC,CRYPTO} and a meme book is allowed because they model
+        //     different strategies on what is, in practice, never the same mint — but
+        //     two MEME books (or two of the SAME universe) double-opening one mint is
+        //     the bleed bug and is blocked.
         if (otherBooks.isNotEmpty()) {
+            val memeBooks = setOf(
+                ExecutionBook.CORE, ExecutionBook.TREASURY, ExecutionBook.QUALITY,
+                ExecutionBook.SHITCOIN, ExecutionBook.BLUECHIP, ExecutionBook.MOONSHOT,
+                ExecutionBook.DIP_HUNTER, ExecutionBook.MANIPULATED,
+            )
+            val requestedIsMeme = requestedBook in memeBooks
+            val conflictingBook = otherBooks.firstOrNull { existing ->
+                // Block when BOTH are meme-universe books (the real duplicate-open bug),
+                // OR when the existing open is in the SAME universe class as the request.
+                (requestedIsMeme && existing in memeBooks) ||
+                    existing == requestedBook
+            }
+            if (conflictingBook != null) {
+                ErrorLogger.info(TAG, "❌ REJECT $symbol: ALREADY_OPEN_IN_${conflictingBook.name} (one-mint-one-position; requested=${requestedBook.name})")
+                try { com.lifecyclebot.engine.ForensicLogger.lifecycle("DUPLICATE_OPEN_SUPPRESSED", "mint=${mint.take(10)} symbol=$symbol requested=${requestedBook.name} existing=${conflictingBook.name}") } catch (_: Throwable) {}
+                releasePrimaryAfterAuthFailure("ALREADY_OPEN_CROSS_BOOK")
+                return AuthorizationResult(
+                    verdict = ExecutionVerdict.REJECT,
+                    reason = "ALREADY_OPEN_CROSS_BOOK",
+                    blockLevel = BlockLevel.SOFT,
+                    canRetry = false,
+                )
+            }
             ErrorLogger.debug(
                 TAG,
-                "✅ $symbol: Multi-book authorization | existing=${otherBooks.joinToString { it.name }}"
+                "✅ $symbol: Cross-universe authorization | existing=${otherBooks.joinToString { it.name }} requested=${requestedBook.name}"
             )
         }
 
