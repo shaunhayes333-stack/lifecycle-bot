@@ -761,6 +761,25 @@ object SmartSizer {
             ErrorLogger.info("SmartSizer", "🔬 Exploration size ramp: ${exploreMult.fmt1}x (learning phase, size now ${size.fmt(4)} SOL)")
         }
 
+        // ── V5.9.1381 COLD-STREAK DAMPER (audit fix: dead-edge revival) ──
+        // ColdStreakDamper has tracked per-lane consecutive-loss streaks for many
+        // builds and exposed sizeMultiplier() (>=3 losses → 0.75×, 6 → 0.50×,
+        // 10 → 0.35×, 20 → 0.25×) — but NOTHING ever consumed it. A lane on a cold
+        // streak kept betting full size straight into the losing run. Wiring it here
+        // (single composition point, after exploration ramp) makes the bot bet less
+        // when a specific lane is actively bleeding, then auto-restore as it recovers.
+        // Soft-shape, per-lane, fail-open → 1.0; throughput unchanged (same trades,
+        // smaller stake); -15% SL and scanner pool untouched.
+        val coldMult = try {
+            com.lifecyclebot.engine.runtime.ColdStreakDamper.sizeMultiplier(laneMode, isPaperMode)
+        } catch (_: Throwable) { 1.0 }
+        if (coldMult < 1.0) {
+            size *= coldMult
+            val dustFloor4 = if (isPaperMode) 0.001 else 0.01
+            if (size < dustFloor4) size = dustFloor4
+            ErrorLogger.info("SmartSizer", "🥶 Cold-streak damp: ${coldMult.fmt1}x [$laneMode] (size now ${size.fmt(4)} SOL)")
+        }
+
         val explanation = buildString {
             append("AI conf=${aiConfidence.toInt()} ")
             append("base=${(basePct*100).toInt()}% ")

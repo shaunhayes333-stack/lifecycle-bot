@@ -85,6 +85,38 @@ object ColdStreakDamper {
             "winStreak"  to it.value.winStreak.get(),
         )
     }
+
+    // ── V5.9.1381 — persistence (sacred-persistence rule). Without this a restart
+    // mid-cold-streak reset the brake to full size — the exact amnesia class the
+    // doctrine forbids. Persist per-lane streak depth so the damp survives reboots.
+    fun exportState(): String = try {
+        val root = org.json.JSONObject()
+        streaks.forEach { (k, v) ->
+            root.put(k, org.json.JSONObject().apply {
+                put("l", v.lossStreak.get())
+                put("w", v.winStreak.get())
+                put("t", v.lastTradeMs.get())
+            })
+        }
+        root.toString()
+    } catch (_: Throwable) { "{}" }
+
+    fun importState(blob: String?) {
+        try {
+            if (blob.isNullOrBlank()) return
+            val root = org.json.JSONObject(blob)
+            val keys = root.keys()
+            while (keys.hasNext()) {
+                val k = keys.next()
+                val o = root.optJSONObject(k) ?: continue
+                streaks[k] = Streak(
+                    AtomicInteger(o.optInt("l", 0)),
+                    AtomicInteger(o.optInt("w", 0)),
+                    AtomicLong(o.optLong("t", 0L)),
+                )
+            }
+        } catch (_: Throwable) { }
+    }
 }
 
 /**
