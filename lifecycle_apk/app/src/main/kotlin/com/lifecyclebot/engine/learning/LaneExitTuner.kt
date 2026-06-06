@@ -140,7 +140,8 @@ object LaneExitTuner {
         lanes[canon(lane)]?.slMult ?: 1.0
     } catch (_: Throwable) { 1.0 }
 
-    fun formatForPipelineDump(): String = try {
+    fun formatForPipelineDump(): String {
+      return try {
         if (lanes.isEmpty()) return ""
         buildString {
             append("\n===== Lane Exit Tuner (V5.9.1379 - closed-loop TP/SL) =====\n")
@@ -155,7 +156,8 @@ object LaneExitTuner {
             append("  Read: tpMult>1 => lane lets winners run further; <1 => banks sooner.\n")
             append("        slMult>1 => wider stop (still clamped to -15%); <1 => tighter.\n")
         }
-    } catch (_: Throwable) { "" }
+      } catch (_: Throwable) { "" }
+    }
 
     fun exportState(): String = try {
         val root = JSONObject()
