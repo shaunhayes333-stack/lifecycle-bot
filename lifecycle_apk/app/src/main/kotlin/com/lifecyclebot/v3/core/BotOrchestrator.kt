@@ -561,14 +561,24 @@ class BotOrchestrator(
             )
         } catch (_: Throwable) { null }
         if (gateVerdict != null && !gateVerdict.allowed) {
-            lifecycle.mark(candidate.mint, LifecycleState.REJECTED)
-            shadowTracker.track(candidate, scoreCard, confidenceEffective, "EXEC_GATE_BLOCKED:${gateVerdict.logName}")
-            lifecycle.mark(candidate.mint, LifecycleState.SHADOW_TRACKED)
-            com.lifecyclebot.engine.MemePipelineTracer.blocked(
-                candidate.mint, candidate.symbol, reason = "EXEC_GATE_BLOCKED",
-                detail = "${gateVerdict.logName} | ${gateVerdict.reason?.take(60) ?: ""}",
-            )
-            return ProcessResult.Rejected("EXEC_GATE_BLOCKED:${gateVerdict.logName}")
+            // V5.9.1390a — never block on NO_FINAL_CANDIDATE. Some V3
+            // ingress paths reach handleExecute without going through the
+            // per-lane recordFdg sites in BotService (CryptoAlt, perps,
+            // some sub-traders). In those cases the gate has no state to
+            // consult yet, which is a path-coverage issue not a safety
+            // violation — let the trade proceed, the executor's own
+            // FinalExecutionPermit chain will still gate it.
+            val skipBlock = gateVerdict.logName == "EXEC_OPEN_DROPPED_NO_FINAL_CANDIDATE"
+            if (!skipBlock) {
+                lifecycle.mark(candidate.mint, LifecycleState.REJECTED)
+                shadowTracker.track(candidate, scoreCard, confidenceEffective, "EXEC_GATE_BLOCKED:${gateVerdict.logName}")
+                lifecycle.mark(candidate.mint, LifecycleState.SHADOW_TRACKED)
+                com.lifecyclebot.engine.MemePipelineTracer.blocked(
+                    candidate.mint, candidate.symbol, reason = "EXEC_GATE_BLOCKED",
+                    detail = "${gateVerdict.logName} | ${gateVerdict.reason?.take(60) ?: ""}",
+                )
+                return ProcessResult.Rejected("EXEC_GATE_BLOCKED:${gateVerdict.logName}")
+            }
         }
 
         val execResult = tradeExecutor.execute(candidate, size, decision, scoreCard)
