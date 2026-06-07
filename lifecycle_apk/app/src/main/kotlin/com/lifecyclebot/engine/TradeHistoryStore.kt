@@ -195,7 +195,11 @@ object TradeHistoryStore {
         SQLiteOpenHelper(ctx, "trade_history.db", null, DB_VERSION) {
 
         companion object {
-            const val DB_VERSION = 1
+            // V5.9.1408 — Fix "Can't downgrade database from version 3 to 1" crash.
+            // The DB on device is at v3 from a previous experiment, so returning
+            // the codebase to v1 throws SQLiteException on startup and breaks
+            // the entire learning pipeline. Bump to v4 to force an upgrade instead.
+            const val DB_VERSION = 4
             const val TABLE = "trades"
         }
 

@@ -503,6 +503,26 @@ object ShitCoinTraderAI {
             }
         }
         if (pos == null) return
+
+        // V5.9.1408 — direct sub-trader settle-in guard. ShitCoin can close and
+        // journal directly without going through Executor.requestSell(), which is
+        // why EGOD still closed at -10.7% after RAPID_ENTRY_WARMUP_HOLD. In paper,
+        // delay all non-hard-floor red closes for the first 30s so price/spread
+        // discovery can settle. The unconditional -15% floor remains immediate.
+        val nowForSettle = System.currentTimeMillis()
+        val pnlPctForSettle = if (pos.entryPrice > 0.0) (exitPrice - pos.entryPrice) / pos.entryPrice * 100.0 else 0.0
+        val ageMsForSettle = nowForSettle - pos.entryTime
+        if (pos.isPaper && ageMsForSettle in 0L until 30_000L && pnlPctForSettle <= 0.0 && pnlPctForSettle > -15.0) {
+            synchronized(activePositions) { activePositions[mint] = pos }
+            try {
+                ErrorLogger.info(TAG, "💩⏳ SETTLE-IN HOLD: ${pos.symbol} | ${pnlPctForSettle.fmt(1)}% age=${ageMsForSettle}ms reason=${exitReason.name} (floor=-15%)")
+                com.lifecyclebot.engine.ForensicLogger.lifecycle(
+                    "SHITCOIN_SETTLE_IN_EXIT_DELAYED",
+                    "mint=${mint.take(10)} symbol=${pos.symbol} pnl=${"%.1f".format(pnlPctForSettle)} ageMs=$ageMsForSettle reason=${exitReason.name}"
+                )
+            } catch (_: Throwable) {}
+            return
+        }
         
         // V4.1.3: Stop rug monitoring
         UltraFastRugDetectorAI.stopMonitoring(mint)

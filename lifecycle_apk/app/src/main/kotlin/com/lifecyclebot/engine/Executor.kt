@@ -8895,20 +8895,13 @@ class Executor(
         }
         if (r.contains("PROFIT") && !isPaperFullProfitExit) return false
 
-        val softLoss = r.contains("STOP_LOSS") ||
-            r.contains("STOP LOSS") ||
-            r.contains("STRICT_SL") ||
-            r.contains("CASHGEN_STOP_LOSS") ||
-            r.contains("SELL_OPT")
-        if (!softLoss) return false
-
-        // Unconditional hard floor must remain unconditional. Use current raw
-        // price before paper exit slippage/clamps so the floor reflects market
-        // movement, not simulated round-trip friction.
-        if (pnlPct <= -15.0) return false
-
-        // Only delay losing/flat soft stops. Anything already profitable is
-        // allowed to exit/lock as usual.
+        // V5.9.1408 — FULL SETTLE-IN CHOKE. Pre-1408 this guard only
+        // matched a small set of soft stop labels, so v8_exit_score,
+        // BLUECHIP/MOONSHOT stops, fallback sub-trader stops, and other red
+        // full-exit routes could still close paper positions inside 5-10s.
+        // In paper, any red/flat non-emergency full exit before settle-in is
+        // fake churn unless the raw market mark has breached the -15% hard
+        // floor above. Delay all such exits, regardless of label.
         if (pnlPct > 0.0) return false
         val lane = pos.tradingMode.ifBlank {
             when {
@@ -8929,14 +8922,14 @@ class Executor(
 
         try {
             ForensicLogger.lifecycle(
-                "PAPER_SOFT_LOSS_MIN_HOLD",
-                "mint=${ts.mint.take(10)} symbol=${ts.symbol} reason=${reason.take(80)} pnl=${"%.1f".format(pnlPct)} ageMs=$ageMs minHoldMs=$minHoldMs lane=$lane action=delay"
+                "PAPER_SETTLE_IN_EXIT_DELAYED",
+                "mint=${ts.mint.take(10)} symbol=${ts.symbol} reason=${reason.take(80)} pnl=${"%.1f".format(pnlPct)} ageMs=$ageMs minHoldMs=$minHoldMs lane=$lane floor=-15 action=delay"
             )
         } catch (_: Throwable) {}
         try {
             ErrorLogger.info(
                 "Executor",
-                "⏳ PAPER_SOFT_LOSS_MIN_HOLD: ${ts.symbol} pnl=${pnlPct.toInt()}% age=${ageMs/1000}s/${minHoldMs/1000}s reason=$reason"
+                "⏳ PAPER_SETTLE_IN_EXIT_DELAYED: ${ts.symbol} pnl=${pnlPct.toInt()}% age=${ageMs/1000}s/${minHoldMs/1000}s reason=$reason"
             )
         } catch (_: Throwable) {}
         return true
