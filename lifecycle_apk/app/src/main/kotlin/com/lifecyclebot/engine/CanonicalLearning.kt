@@ -382,15 +382,6 @@ object CanonicalLearningCounters {
     // are EXCLUDED from production WR but counted here so the operator
     // can verify the BC-sim path is being correctly isolated.
     val bcSimOnlyOutcomes = AtomicLong(0)
-    // V5.9.1392 — P0-3 Outcome Reconciliation: explicit bucket for any
-    // outcome that does not fit settled/inconclusive/recovered/rejected/
-    // executionOnly/bcSimOnly/open. Spec mandate: NO unnamed gaps in
-    // canonicalTotal accounting. Anything routed here MUST be examined
-    // — it represents an outcome that the pipeline produced but the
-    // taxonomy did not classify, which is a coverage bug not a normal
-    // path. Reconcile() emits OUTCOME_RECONCILE_GAP if even after this
-    // bucket the sum still drifts from canonicalOutcomesTotal.
-    val otherExplicitBucket = AtomicLong(0)
 
     fun snapshot(): Map<String, Long> = mapOf(
         "canonicalOutcomesTotal" to canonicalOutcomesTotal.get(),
@@ -410,84 +401,7 @@ object CanonicalLearningCounters {
         "strategyTrainableOutcomes" to strategyTrainableOutcomes.get(),
         "executionOnlyOutcomes" to executionOnlyOutcomes.get(),
         "bcSimOnlyOutcomes" to bcSimOnlyOutcomes.get(),
-        "otherExplicitBucket" to otherExplicitBucket.get(),
     )
-
-    /**
-     * V5.9.1392 — P0-3 Outcome Reconciliation invariant.
-     *
-     * Spec mandate (V5.9.1386 P0-3):
-     *   canonicalTotal == settledWins + settledLosses + openTrades +
-     *                     inconclusiveTrades + otherExplicitBucket
-     *   (final-state buckets are mutually exclusive; every outcome lands
-     *    in EXACTLY ONE of them.)
-     *
-     * Orthogonal diagnostic counters (rejectedBadLabels, executionOnly,
-     * recovered, bcSimOnly) are reported alongside the exclusive sum but
-     * do NOT participate in the invariant — they classify the SAME
-     * outcomes along the trainability / execution-result / sim-only
-     * dimensions and would double-count if added to the exclusion sum.
-     *
-     * If the exclusive sum does not equal canonicalOutcomesTotal, there
-     * is an unaccounted-for outcome path somewhere in the pipeline.
-     * Returns a [Reconciliation] which the dump emits and a forensic
-     * event if a gap is detected. Telemetry-only — never throws.
-     */
-    data class Reconciliation(
-        val canonical: Long,
-        val bucketSum: Long,
-        val gap: Long,
-        val balanced: Boolean,
-        val breakdown: Map<String, Long>,
-        val diagnostic: Map<String, Long>,
-    )
-
-    fun reconcile(): Reconciliation {
-        val sw = settledWins.get()
-        val sl = settledLosses.get()
-        val ic = inconclusiveTrades.get()
-        val op = openTrades.get()
-        val ot = otherExplicitBucket.get()
-        // diagnostic (orthogonal — NOT in the exclusion sum)
-        val rb = rejectedBadLabels.get()
-        val eo = executionOnlyOutcomes.get()
-        val rc = recoveredTrades.get()
-        val bc = bcSimOnlyOutcomes.get()
-        val canon = canonicalOutcomesTotal.get()
-        val sum = sw + sl + ic + op + ot
-        val gap = canon - sum
-        val balanced = gap == 0L
-        if (!balanced) {
-            try {
-                com.lifecyclebot.engine.ForensicLogger.lifecycle(
-                    "OUTCOME_RECONCILE_GAP",
-                    "canonical=$canon bucketSum=$sum gap=$gap " +
-                        "settledWins=$sw settledLosses=$sl inconclusive=$ic " +
-                        "open=$op other=$ot | diagnostic rejected=$rb " +
-                        "executionOnly=$eo recovered=$rc bcSimOnly=$bc"
-                )
-            } catch (_: Throwable) {}
-        }
-        return Reconciliation(
-            canonical = canon,
-            bucketSum = sum,
-            gap = gap,
-            balanced = balanced,
-            breakdown = mapOf(
-                "settledWins" to sw,
-                "settledLosses" to sl,
-                "inconclusive" to ic,
-                "open" to op,
-                "other" to ot,
-            ),
-            diagnostic = mapOf(
-                "rejectedBadLabels" to rb,
-                "executionOnly" to eo,
-                "recovered" to rc,
-                "bcSimOnly" to bc,
-            ),
-        )
-    }
 
     /**
      * V5.9.1353 — TRUE RESET. Zeroes every persisted counter in memory. Called
@@ -502,7 +416,7 @@ object CanonicalLearningCounters {
         settledWins.set(0); settledLosses.set(0); openTrades.set(0); inconclusiveTrades.set(0)
         recoveredTrades.set(0); rejectedBadLabels.set(0); incompleteFeatureOutcomes.set(0)
         richFeatureOutcomes.set(0); strategyTrainableOutcomes.set(0); executionOnlyOutcomes.set(0)
-        bcSimOnlyOutcomes.set(0); otherExplicitBucket.set(0)
+        bcSimOnlyOutcomes.set(0)
     }
 
     // V5.9.949 — persistence hooks. Counters drive WR + dashboard health
@@ -528,7 +442,6 @@ object CanonicalLearningCounters {
             put("strategyTrainableOutcomes", strategyTrainableOutcomes.get())
             put("executionOnlyOutcomes", executionOnlyOutcomes.get())
             put("bcSimOnlyOutcomes", bcSimOnlyOutcomes.get())
-            put("otherExplicitBucket", otherExplicitBucket.get())
         }.toString()
     }
 
@@ -552,7 +465,6 @@ object CanonicalLearningCounters {
             strategyTrainableOutcomes.set(o.optLong("strategyTrainableOutcomes", 0L))
             executionOnlyOutcomes.set(o.optLong("executionOnlyOutcomes", 0L))
             bcSimOnlyOutcomes.set(o.optLong("bcSimOnlyOutcomes", 0L))
-            otherExplicitBucket.set(o.optLong("otherExplicitBucket", 0L))
         } catch (_: Throwable) { /* fail-open */ }
     }
 }
@@ -725,33 +637,11 @@ object CanonicalOutcomeBus {
             ExecutionResult.UNKNOWN -> {}
         }
         when (o.result) {
-            TradeResult.WIN -> {
-                if (o.isTrainable) {
-                    CanonicalLearningCounters.settledWins.incrementAndGet()
-                } else {
-                    // V5.9.1392 — P0-3: non-trainable WIN had no result bucket
-                    // before (canonicalTotal++ with no settled++). Route to
-                    // otherExplicitBucket so the reconciliation invariant holds.
-                    CanonicalLearningCounters.otherExplicitBucket.incrementAndGet()
-                }
-            }
-            TradeResult.LOSS -> {
-                if (o.isTrainable) {
-                    CanonicalLearningCounters.settledLosses.incrementAndGet()
-                } else {
-                    CanonicalLearningCounters.otherExplicitBucket.incrementAndGet()
-                }
-            }
+            TradeResult.WIN -> if (o.isTrainable) CanonicalLearningCounters.settledWins.incrementAndGet()
+            TradeResult.LOSS -> if (o.isTrainable) CanonicalLearningCounters.settledLosses.incrementAndGet()
             TradeResult.OPEN -> CanonicalLearningCounters.openTrades.incrementAndGet()
             TradeResult.INCONCLUSIVE_PENDING -> CanonicalLearningCounters.inconclusiveTrades.incrementAndGet()
-            TradeResult.BREAKEVEN, TradeResult.CANCELLED, TradeResult.UNKNOWN -> {
-                // V5.9.1392 — P0-3: BREAKEVEN/CANCELLED/UNKNOWN previously
-                // dropped on the floor (canonical++ but no bucket++). Route
-                // to otherExplicitBucket so every canonical outcome lands in
-                // exactly one final-state bucket and the reconciliation
-                // invariant canonicalTotal == sum(buckets) holds.
-                CanonicalLearningCounters.otherExplicitBucket.incrementAndGet()
-            }
+            TradeResult.BREAKEVEN, TradeResult.CANCELLED, TradeResult.UNKNOWN -> {}
         }
     }
 
@@ -776,34 +666,30 @@ object CanonicalOutcomeBus {
         // build the rich CandidateFeatures. Infer the mode from the close
         // reason as a fallback so these trades still resolve to a real
         // strategy bin instead of UNKNOWN.
-        fun laneFromText(raw: String?): String {
-            val r = raw?.uppercase().orEmpty()
-            return when {
+        val effectiveModeName: String = if (trade.tradingMode.isBlank() && trade.reason.isNotBlank()) {
+            val r = trade.reason.uppercase()
+            when {
                 r.contains("MOONSHOT") -> "MOONSHOT"
                 r.contains("SHITCOIN") -> "SHITCOIN"
                 // V5.9.1300 — CASHGEN == TREASURY (same trader); fold to one bin.
                 r.contains("CASHGEN") -> "TREASURY"
                 r.contains("TREASURY") -> "TREASURY"
-                r.contains("BLUECHIP") || r.contains("BLUE_CHIP") -> "BLUECHIP"
+                r.contains("BLUECHIP") -> "BLUECHIP"
+                r.contains("BLUE_CHIP") -> "BLUECHIP"
                 r.contains("QUALITY") -> "QUALITY"
                 r.contains("MANIP") -> "MANIPULATED"
                 r.contains("EXPRESS") -> "EXPRESS"
                 r.contains("CYCLIC") -> "CYCLIC"
-                r.contains("LAB") || r.contains("LLM") -> "LAB"
                 r.contains("COPY") -> "COPYTRADE"
                 r.contains("SNIPER") || r.contains("PROJECT_SNIPER") -> "PROJECT_SNIPER"
                 r.contains("DIP_HUNTER") || r.contains("DIP") -> "DIP_HUNTER"
-                r.contains("STANDARD") || r.contains("RAPID_") || r.contains("FLUID") || r.contains("V8_") -> "STANDARD"
-                else -> ""
+                r.contains("LONG_HOLD") -> "LONG_HOLD"
+                r.contains("MOMENTUM") -> "MOMENTUM_SWING"
+                r.contains("PRESALE") -> "PRESALE_SNIPE"
+                r.contains("RAPID_") || r.contains("FLUID") -> "STANDARD"
+                else -> trade.tradingMode
             }
-        }
-        val effectiveModeName: String = listOf(
-            trade.canonicalLane,
-            trade.selectedLane,
-            trade.primaryLane,
-            trade.tradingMode.takeUnless { it.equals("UNKNOWN", true) },
-            laneFromText(trade.reason),
-        ).firstOrNull { !it.isNullOrBlank() && !it.equals("UNKNOWN", true) } ?: trade.tradingMode
+        } else trade.tradingMode
         var mode = CanonicalOutcomeNormalizer.normalizeMode(effectiveModeName)
         val env = if (trade.mode.equals("paper", true)) TradeEnvironment.PAPER else TradeEnvironment.LIVE
         val pnlPct = trade.pnlPct
@@ -846,7 +732,7 @@ object CanonicalOutcomeBus {
                 try {
                     ForensicLogger.lifecycle(
                         "CANON_UNRESOLVED_LANE_DEFAULTED_STANDARD",
-                        "mint=${trade.mint.take(10)} reason=${trade.reason.take(40)} canonical=${trade.canonicalLane} selected=${trade.selectedLane} primary=${trade.primaryLane} env=${env.name} pnlPct=${"%.2f".format(pnlPct)}",
+                        "mint=${trade.mint.take(10)} reason=${trade.reason.take(40)} env=${env.name} pnlPct=${"%.2f".format(pnlPct)}",
                     )
                 } catch (_: Throwable) {}
             }
@@ -1224,25 +1110,6 @@ object LayerReadinessRegistry {
 
     fun snapshot(): Map<String, LayerReadiness> =
         states.keys.associateWith { readinessOf(it) }
-
-    /**
-     * V5.9.1388 — Phase 5 (P1) wire LayerReadiness into scoring.
-     * Spec mandate: "DEGR_BAD_EV layers cannot contribute positive score.
-     * Either cap at 0, negative-only, or shadow-only until recovered."
-     *
-     * Returns the maximum POSITIVE score this layer is allowed to add to
-     * any candidate's composite score. Negative contributions remain
-     * unrestricted (a degraded layer can still flag risk).
-     *
-     * Healthy / unknown layers → Double.MAX_VALUE (no cap).
-     * DEGRADED_BAD_EV          → 0.0 (negative-only — penalties still apply).
-     * DEGRADED_FEATURE_STARVED → 5.0 (small positive contribution allowed).
-     */
-    fun scorePositiveCap(layer: String): Double = when (readinessOf(layer)) {
-        LayerReadiness.DEGRADED_BAD_EV -> 0.0
-        LayerReadiness.DEGRADED_FEATURE_STARVED -> 5.0
-        else -> Double.MAX_VALUE
-    }
 
     /**
      * V5.9.790 — operator audit Critical Fix 2: per-layer counters so the

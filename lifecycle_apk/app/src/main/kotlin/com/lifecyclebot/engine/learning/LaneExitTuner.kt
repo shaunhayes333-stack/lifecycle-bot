@@ -38,7 +38,6 @@ object LaneExitTuner {
 
     private data class Outcome(
         val pnlPct: Double,
-        val pnlSol: Double = 0.0,
         val peakPct: Double,
         val win: Boolean,
         val stopHit: Boolean,
@@ -74,7 +73,7 @@ object LaneExitTuner {
         "RAPID_ENTRY_PROTECT_STOP", "SWEEP_FLUID_FLOOR", "PROTECT_STOP"
     )
 
-    fun recordClose(lane: String, pnlPct: Double, peakPct: Double, exitReason: String, pnlSol: Double = 0.0) {
+    fun recordClose(lane: String, pnlPct: Double, peakPct: Double, exitReason: String) {
         try {
             val key = canon(lane)
             val st = lanes.getOrPut(key) { LaneState() }
@@ -85,10 +84,8 @@ object LaneExitTuner {
                 peakPct > 5000.0 -> 5000.0
                 else -> peakPct
             }
-            val solSane = if (pnlSol.isNaN() || pnlSol.isInfinite()) 0.0 else pnlSol
             val o = Outcome(
                 pnlPct = if (pnlPct.isNaN() || pnlPct.isInfinite()) 0.0 else pnlPct,
-                pnlSol = solSane,
                 peakPct = peakSane,
                 win = pnlPct > 0.0,
                 stopHit = stopHit,
@@ -119,46 +116,20 @@ object LaneExitTuner {
         val losers = w.filter { !it.win }
         val avgLoss = if (losers.isEmpty()) 0.0 else losers.map { it.pnlPct }.average()
 
-        // V5.9.1384 — BLEEDER LANES MUST NOT GET MORE ROPE.
-        // Operator P0: if lane WR <20% OR EV < -10% over n>=20, do NOT widen
-        // stops, increase hold, or increase sizing.
-        // V5.9.1388 — Phase 5 (P1) SOL-weighted EV. Spec: "use SOL-weighted
-        // expectancy, profit factor, net SOL. Do NOT widen stops on any lane
-        // with net SOL <= 0 or PF < 1.2." Percent averages mislead because
-        // tiny wins + huge losses can show positive mean% but negative net SOL.
-        val netSol = w.sumOf { it.pnlSol }
-        val grossWinSol = w.filter { it.pnlSol > 0.0 }.sumOf { it.pnlSol }
-        val grossLossSol = -w.filter { it.pnlSol < 0.0 }.sumOf { it.pnlSol }
-        val profitFactor = if (grossLossSol > 0.0) grossWinSol / grossLossSol else Double.POSITIVE_INFINITY
-        val bleeder = n >= MIN_SAMPLE && (
-            wr < 0.20 ||
-            avgReal < -10.0 ||
-            netSol <= 0.0 ||           // SOL-weighted gate (V5.9.1388)
-            profitFactor < 1.2         // SOL-weighted gate (V5.9.1388)
-        )
-
         var tp = st.tpMult
-        if (bleeder) {
-            tp = minOf(tp, 1.0) - STEP
-        } else {
-            when {
-                wr >= 0.45 && avgPeak >= 25.0 && giveBack >= 15.0 -> tp += STEP
-                wr < 0.30 && avgPeak >= 20.0 && avgReal <= 5.0 -> tp -= STEP
-                wr >= 0.50 && giveBack < 8.0 && tp < 1.0 -> tp += STEP * 0.5
-            }
+        when {
+            wr >= 0.45 && avgPeak >= 25.0 && giveBack >= 15.0 -> tp += STEP
+            wr < 0.30 && avgPeak >= 20.0 && avgReal <= 5.0 -> tp -= STEP
+            wr >= 0.50 && giveBack < 8.0 && tp < 1.0 -> tp += STEP * 0.5
         }
         st.tpMult = tp.coerceIn(TP_MIN, TP_MAX)
 
         var sl = st.slMult
-        if (bleeder) {
-            sl = minOf(sl, 1.0) - STEP // tighter/neutral only; never slMult>1 on bleeders
-        } else {
-            when {
-                slHitRate >= 0.50 && avgPeak < 8.0 -> sl += STEP
-                slHitRate < 0.25 && avgLoss <= -10.0 -> sl -= STEP
-            }
+        when {
+            slHitRate >= 0.50 && avgPeak < 8.0 -> sl += STEP
+            slHitRate < 0.25 && avgLoss <= -10.0 -> sl -= STEP
         }
-        st.slMult = sl.coerceIn(SL_MIN, if (bleeder) 1.0 else SL_MAX)
+        st.slMult = sl.coerceIn(SL_MIN, SL_MAX)
     }
 
     fun getTpMult(lane: String): Double = try {
@@ -177,17 +148,13 @@ object LaneExitTuner {
             lanes.entries.sortedBy { it.key }.forEach { (lane, st) ->
                 val n = st.window.size
                 val matured = n >= MIN_SAMPLE
-                val recent = st.window.toList()
-                val wr = if (recent.isNotEmpty()) recent.count { it.win }.toDouble() / recent.size * 100.0 else 0.0
-                val ev = if (recent.isNotEmpty()) recent.map { it.pnlPct }.average() else 0.0
-                val bleeder = matured && (wr < 20.0 || ev < -10.0)
-                val tag = if (bleeder) "  (BLEEDER: no wider stops/TP expansion)" else if (matured) "" else "  (bootstrap n=$n - neutral)"
+                val tag = if (matured) "" else "  (bootstrap n=$n - neutral)"
                 append(String.format(
                     "  %-12s tpMult=%.2f  slMult=%.2f  lifetime=%d%s\n",
                     lane, st.tpMult, st.slMult, st.lifetimeCloses, tag))
             }
             append("  Read: tpMult>1 => lane lets winners run further; <1 => banks sooner.\n")
-            append("        slMult>1 => wider stop ONLY on non-bleeders; bleeder lanes clamp slMult≤1.0 and never widen.\n")
+            append("        slMult>1 => wider stop (still clamped to -15%); <1 => tighter.\n")
         }
       } catch (_: Throwable) { "" }
     }

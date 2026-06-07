@@ -109,25 +109,9 @@ object SentienceHooks {
     // the LLM reasoned every entry.
     fun llmStatus(): String =
         try {
-            // V5.9.1387 — Groq rate-limit must show as DEGRADED, not READY.
-            // Operator dump showed Groq sr=20% with `Rate limit reached` 4xx
-            // errors while the UI continued showing READY. ApiHealthMonitor
-            // tracks 4xx/5xx counts per provider; Groq below 50% success
-            // rate with 5+ samples is the same DEGRADED bar used by
-            // ExecutableOpenGate.apiLayerDegraded() (single source of truth).
-            val groqDegraded = try {
-                val snap = ApiHealthMonitor.snapshot()
-                val st = snap["groq"]
-                if (st == null) false
-                else {
-                    val total = st.successes.get() + st.failures4xx.get() + st.failures5xx.get() + st.networkErrors.get()
-                    total >= 5 && st.successRate() < 0.50
-                }
-            } catch (_: Throwable) { false }
             when {
                 !GeminiCopilot.isConfigured() -> "UNAVAILABLE"
                 GeminiCopilot.isAIDegraded() -> "DEGRADED"
-                groqDegraded -> "DEGRADED"
                 else -> "READY"
             }
         } catch (_: Throwable) { "UNAVAILABLE" }

@@ -53,6 +53,12 @@ class BotOrchestrator(
         opsMetrics: OpsMetrics
     ): ProcessResult {
         lifecycle.mark(candidate.mint, LifecycleState.DISCOVERED)
+        logger.stage(
+            "DISCOVERY",
+            candidate.symbol,
+            "FOUND",
+            "src=${candidate.source} liq=${candidate.liquidityUsd} age=${candidate.ageMinutes}m"
+        )
 
         val eligibility = eligibilityGate.evaluate(candidate)
         if (!eligibility.passed) {
@@ -61,34 +67,12 @@ class BotOrchestrator(
             return ProcessResult.Rejected(eligibility.reason)
         }
 
-        // V5.9.1399 — canonical finality order. Do not emit FOUND / V3_ELIGIBLE
-        // before fatal safety completes. The 23:00 regression log showed mɔ logged
-        // FOUND + V3_ELIGIBLE, then one second later BLOCK_FATAL EXTREME_RUG_RISK_97.
-        // Fatal check only depends on hydrated candidate fields, so run it before
-        // positive discovery/eligibility/scoring telemetry. Fatal tokens still flow
-        // to the existing BLOCK_FATAL decision path below for counters/training.
-        val fatal = fatalRiskChecker.check(candidate, ctx)
-        logger.stage(
-            "FATAL",
-            candidate.symbol,
-            if (fatal.blocked) "BLOCK" else "PASS",
-            fatal.reason ?: "none"
+        lifecycle.mark(candidate.mint, LifecycleState.ELIGIBLE)
+        logger.stage("ELIGIBILITY", candidate.symbol, "PASS", "candidate eligible")
+        com.lifecyclebot.engine.MemePipelineTracer.stage(
+            "V3_ELIGIBLE", candidate.mint, candidate.symbol,
+            "src=${candidate.source} liq=${candidate.liquidityUsd} age=${candidate.ageMinutes}m",
         )
-
-        if (!fatal.blocked) {
-            logger.stage(
-                "DISCOVERY",
-                candidate.symbol,
-                "FOUND",
-                "src=${candidate.source} liq=${candidate.liquidityUsd} age=${candidate.ageMinutes}m"
-            )
-            lifecycle.mark(candidate.mint, LifecycleState.ELIGIBLE)
-            logger.stage("ELIGIBILITY", candidate.symbol, "PASS", "candidate eligible")
-            com.lifecyclebot.engine.MemePipelineTracer.stage(
-                "V3_ELIGIBLE", candidate.mint, candidate.symbol,
-                "src=${candidate.source} liq=${candidate.liquidityUsd} age=${candidate.ageMinutes}m",
-            )
-        }
 
         val preScoreMemoryKill = checkPreScoreMemoryKill(candidate)
         if (preScoreMemoryKill != null) {
@@ -132,6 +116,14 @@ class BotOrchestrator(
                     }
                 }
             }"
+        )
+
+        val fatal = fatalRiskChecker.check(candidate, ctx)
+        logger.stage(
+            "FATAL",
+            candidate.symbol,
+            if (fatal.blocked) "BLOCK" else "PASS",
+            fatal.reason ?: "none"
         )
 
         val confidence = confidenceEngine.compute(scoreCard, learningMetrics, opsMetrics)
@@ -536,89 +528,10 @@ class BotOrchestrator(
             return ProcessResult.Rejected("SIZE_ZERO")
         }
 
-        // V5.9.1395 — P1-7 telemetry consistency: separate the
-        // "candidate considered for execution" stage from the
-        // "executor was actually invoked" stage. Previously EXECUTOR_START
-        // fired BEFORE the EXEC_GATE check, so a blocked candidate still
-        // appeared in the executor-invocation funnel. Spec mandate
-        // (V5.9.1386 P1): EXEC_GATE blocks must NOT be logged as
-        // executor invocations. New tag EXECUTOR_CONSIDER fires here
-        // (pre-gate) and EXECUTOR_START fires only AFTER the gate
-        // allowed the trade. Funnel readers can now compute
-        //   executor_invocations = MEME_EXECUTOR_START count
-        //   gate_block_rate      = ENTRY_BLOCKED(EXEC_GATE_BLOCKED) /
-        //                          MEME_EXECUTOR_CONSIDER
-        // without conflating blocked candidates with real invocations.
-        com.lifecyclebot.engine.MemePipelineTracer.stage(
-            "EXECUTOR_CONSIDER", candidate.mint, candidate.symbol,
-            "size=${"%.4f".format(size.sizeSol)} SOL",
-        )
-
-        // V5.9.1390 — Phase 2 (P0-1) ordering enforcement.
-        // Spec: 'No code path may emit V3_EXEC / EXECUTOR_START / V3TradeExecutor
-        // execution / paper-or-stub sig until EXEC_GATE has allowed the candidate.'
-        // The orchestrator was previously calling tradeExecutor.execute() and
-        // then EXECUTOR_DONE for stub/paper paths WITHOUT consulting
-        // ExecutableOpenGate.canOpenExecutablePosition() first. That bypassed
-        // every downstream finality check (terminal-no-trade, hard-no-buy,
-        // data-degraded). Now: gate first; if blocked, return REJECTED and
-        // do NOT call tradeExecutor.execute(), do NOT log EXECUTOR_DONE.
-        val gateVerdict = try {
-            val modeStr = when (ctx.mode) {
-                com.lifecyclebot.v3.core.V3BotMode.LIVE -> "LIVE"
-                else -> "PAPER"
-            }
-            val rugForGate = try {
-                val v = candidate.extraInt("rugScore")
-                if (v > 0) v else -1
-            } catch (_: Throwable) { -1 }
-            // V5.9.1396 — use an execution LANE, not the decision BAND.
-            // decision.band.name is EXECUTE_SMALL/STANDARD/AGGRESSIVE, which is
-            // not a real execution lane and keys allowedAttempts under the wrong
-            // identity. Generic V3 execution is the CORE book unless an adapter
-            // explicitly supplies a lane extra in the future.
-            val execLane = candidate.extraString("lane").ifBlank { "CORE" }
-            com.lifecyclebot.engine.ExecutableOpenGate.canOpenExecutablePosition(
-                mint = candidate.mint,
-                symbol = candidate.symbol,
-                rugScore = rugForGate,
-                mode = modeStr,
-                lane = execLane,
-                source = "V3Orchestrator",
-            )
-        } catch (_: Throwable) { null }
-        if (gateVerdict != null && !gateVerdict.allowed) {
-            // V5.9.1397 — this orchestrator pass is pre-BotService lane FDG.
-            // Snapshot 5.0.3397 showed lane=CORE preFdg=NO_BUY selectedLane=MOONSHOT
-            // blocked as API_LAYER_DEGRADED, then MOONSHOT/QUALITY FDG allowed the
-            // same token milliseconds later. Do not let this early advisory gate
-            // reject the V3 decision for missing/no-final/pre-FDG/data-degraded
-            // state. The real BotService TradeAuthorizer/FinalExecutionPermit path
-            // still performs definitive finality before paper/live side effects.
-            val skipBlock = gateVerdict.logName in setOf(
-                "EXEC_OPEN_DROPPED_NO_FINAL_CANDIDATE",
-                "EXEC_OPEN_DROPPED_PRE_FDG_NOT_BUY",
-                "EXEC_OPEN_DROPPED_CANON_LANE_UNRESOLVED",
-                "EXEC_OPEN_BLOCKED_API_LAYER_DEGRADED",
-            )
-            if (!skipBlock) {
-                lifecycle.mark(candidate.mint, LifecycleState.REJECTED)
-                shadowTracker.track(candidate, scoreCard, confidenceEffective, "EXEC_GATE_BLOCKED:${gateVerdict.logName}")
-                lifecycle.mark(candidate.mint, LifecycleState.SHADOW_TRACKED)
-                com.lifecyclebot.engine.MemePipelineTracer.blocked(
-                    candidate.mint, candidate.symbol, reason = "EXEC_GATE_BLOCKED",
-                    detail = "${gateVerdict.logName} | ${gateVerdict.reason?.take(60) ?: ""}",
-                )
-                return ProcessResult.Rejected("EXEC_GATE_BLOCKED:${gateVerdict.logName}")
-            }
-        }
-
-        // V5.9.1395 — fires only AFTER the EXEC_GATE allowed the trade.
         com.lifecyclebot.engine.MemePipelineTracer.stage(
             "EXECUTOR_START", candidate.mint, candidate.symbol,
             "size=${"%.4f".format(size.sizeSol)} SOL",
         )
-
         val execResult = tradeExecutor.execute(candidate, size, decision, scoreCard)
         lifecycle.mark(candidate.mint, LifecycleState.EXECUTED)
 

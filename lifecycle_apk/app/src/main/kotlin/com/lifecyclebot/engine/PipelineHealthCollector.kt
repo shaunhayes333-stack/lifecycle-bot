@@ -295,18 +295,6 @@ object PipelineHealthCollector {
             }
         }
         if (phaseTag == "FDG") {
-            if (reason.contains("PROBE_ONLY", ignoreCase = true)) {
-                bump(phaseCounts, phaseTag)
-                bump(labelCounts, "FDG_PROBE_ONLY")
-                appendEvent(Event(System.currentTimeMillis(), "GATE_PROBE_ONLY/FDG", symbol, reason.take(220)))
-                return
-            }
-            if (!allow && reason.contains("SHADOW_ONLY", ignoreCase = true)) {
-                bump(phaseCounts, phaseTag)
-                bump(labelCounts, "FDG_SHADOW_ONLY")
-                appendEvent(Event(System.currentTimeMillis(), "GATE_SHADOW_ONLY/FDG", symbol, reason.take(220)))
-                return
-            }
             if (RuntimeConfigOverlay.isTradingPaused()) {
                 bump(labelCounts, "FDG_SUPPRESSED_RUNTIME_PAUSED")
                 return
@@ -458,14 +446,7 @@ object PipelineHealthCollector {
      */
     fun recordExec(side: String, mode: String, symbol: String, sizeSol: Double, pnlSol: Double, reason: String) {
         if (!attached) return
-        val sideUpper = side.uppercase()
-        val modeUpper = mode.uppercase()
-        bump(labelCounts, "EXEC_$sideUpper")
-        // V5.9.1398 — completed journal writes are the definitive execution
-        // signal in paper mode. PipelineTracer does not call onExec(), so the
-        // per-mode counters stayed at zero while EXEC_BUY was non-zero.
-        if (sideUpper == "BUY" && modeUpper.contains("PAPER")) execPaperBuyOk.incrementAndGet()
-        if (sideUpper == "SELL" && modeUpper.contains("PAPER")) execPaperSellOk.incrementAndGet()
+        bump(labelCounts, "EXEC_${side.uppercase()}")
         recentExecs.addLast(ExecRecord(System.currentTimeMillis(), side, mode, symbol, sizeSol, pnlSol, reason))
         if (recentExecsSize.incrementAndGet() > EXEC_RING_CAP) {
             recentExecs.pollFirst()
@@ -829,15 +810,12 @@ object PipelineHealthCollector {
         try {
             val anrCount = s.anrHints
             val supTimeout = s.labelCounts["SUPERVISOR_WORKER_TIMEOUT"] ?: 0L
-            val supCap = s.labelCounts["SUPERVISOR_INFLIGHT_CAP"] ?: (s.labelCounts["LIFECYCLE/SUPERVISOR_INFLIGHT_CAP"] ?: 0L)
-            val supExpired = s.labelCounts["SUPERVISOR_LEASE_EXPIRED"] ?: (s.labelCounts["LIFECYCLE/SUPERVISOR_LEASE_EXPIRED"] ?: 0L)
             val v3 = com.lifecyclebot.engine.runtime.V3VerdictContract.snapshot()
             val exec = com.lifecyclebot.engine.runtime.ExecutionCounterContract.snapshot()
             val v3Unaccounted = v3.unaccounted
             val rootCauses = mutableListOf<String>()
             if (anrCount > 20) rootCauses.add("UI_MAIN_THREAD (ANR_HINTS=$anrCount)")
             if (supTimeout > 50) rootCauses.add("WORKER_TIMEOUT (supervisor workerTimeouts=$supTimeout)")
-            if (supCap > 0 && supTimeout > 0 && supExpired < (supCap / 4).coerceAtLeast(1L)) rootCauses.add("SUPERVISOR_LEASE_LEAK (cap=$supCap expiredLeases=$supExpired workerTimeout=$supTimeout)")
             if (v3.entries > 0 && v3Unaccounted > 0) rootCauses.add("V3_ACCOUNTING_GAP (entries=${v3.entries} unaccounted=$v3Unaccounted)")
             val txCount = (exec["paper_sell_success"] ?: 0L) + (exec["live_sell_success"] ?: 0L)
             val journalSell = exec["journal_sell_records"] ?: 0L
@@ -858,7 +836,6 @@ object PipelineHealthCollector {
                     val wrFloor = if (mature) 50.0 else 20.0
                     val phaseTag = if (mature) "MATURE" else "BOOTSTRAP"
                     if (perf.winRate < wrFloor) {
-                        rootCauses.add("POLICY_REGRESSION")
                         rootCauses.add("WR_BELOW_FLOOR ($phaseTag wr=${"%.1f".format(perf.winRate)}% < floor=${wrFloor.toInt()}% n=${perf.totalTrades} lifetime=$lifetime)")
                     }
                     // Negative P&L is only a "broken strategy" verdict in the mature
@@ -874,27 +851,8 @@ object PipelineHealthCollector {
                 }
             } catch (_: Throwable) {}
 
-            try {
-                val bsnap = com.lifecyclebot.engine.BirdeyeBudgetGate.snapshot()
-                val apiSnap = ApiHealthMonitor.snapshot()
-                val apiDegraded = bsnap.providerConservation || bsnap.lockedDown || bsnap.providerLockedDown ||
-                    apiSnap.values.any { st ->
-                        val total = st.successes.get() + st.failures4xx.get() + st.failures5xx.get() + st.networkErrors.get()
-                        total >= 5 && st.successRate() < 0.50
-                    }
-                if (apiDegraded) rootCauses.add("API_LAYER_DEGRADED")
-            } catch (_: Throwable) {}
-            try {
-                if ((s.labelCounts["EXECUTION_AUTHORITY_ASSERT_BLOCK"] ?: 0L) > 0L ||
-                    ((s.labelCounts["TERMINAL_NO_TRADE_STAMPED"] ?: 0L) + (s.labelCounts["LIFECYCLE/TERMINAL_NO_TRADE_STAMPED"] ?: 0L)) > 0L ||
-                    ((s.labelCounts["EXEC_OPEN_DROPPED_TERMINAL_NO_TRADE"] ?: 0L) + (s.labelCounts["LIFECYCLE/EXEC_OPEN_DROPPED_TERMINAL_NO_TRADE"] ?: 0L)) > 0L) {
-                    rootCauses.add("EXECUTION_AUTHORITY_LEAK")
-                    rootCauses.add("SHADOW_ONLY_BYPASS")
-                    rootCauses.add("WATCH_ONLY_BYPASS")
-                }
-            } catch (_: Throwable) {}
             if (rootCauses.isEmpty()) rootCauses.add("NONE — mechanics AND performance within band")
-            sb.append("  Root cause likely:    ${rootCauses.distinct().joinToString(" | ").take(220)}\n")
+            sb.append("  Root cause likely:    ${rootCauses.joinToString(" | ").take(160)}\n")
         } catch (_: Throwable) {}
         sb.append("\n")
 
@@ -984,8 +942,8 @@ object PipelineHealthCollector {
                 sb.append("  ⚠ EXIT sweep skip pressure exceeds done/timeout/reset — alreadyRunning still choking exits.\n")
             if (slSkip > slDone + slTimeout + slReset + 3)
                 sb.append("  ⚠ Universal SL skip pressure exceeds done/timeout/reset — hard-floor sweep may still be choked.\n")
-            if (supCap > 0 && supTimeout > 0 && supExpired < (supCap / 4).coerceAtLeast(1L))
-                sb.append("  ⚠ Supervisor cap/timeout pressure with too few lease expiries — terminal/no-trade workers may be consuming capacity.\n")
+            if (supCap > 0 && supExpired == 0L)
+                sb.append("  ⚠ Supervisor cap hit but no lease expiry — lease pruning may not be freeing capacity.\n")
             if (uiInactiveSkip > 0)
                 sb.append("  ⚠ Main update skipped while inactive — if visible, V5.9.1085 did not fully close the UI gate regression.\n")
             sb.append('\n')
@@ -1050,42 +1008,6 @@ object PipelineHealthCollector {
                 sb.append("  $k:  allow=$a  block=$b\n")
             }
             sb.append('\n')
-        }
-
-        // ── V5.9.1392 — P0-3 Outcome Reconciliation ─────────────────
-        // Spec mandate: canonicalTotal == sum(named final-state buckets).
-        // No unnamed gaps. Forensic OUTCOME_RECONCILE_GAP fires when the
-        // sum drifts from canonical.
-        run {
-            val recon = try { CanonicalLearningCounters.reconcile() } catch (_: Throwable) { null }
-            if (recon != null) {
-                sb.append("===== Outcome reconciliation (V5.9.1392 P0-3) =====\n")
-                val mark = if (recon.balanced) "✅ BALANCED" else "🚨 GAP=${recon.gap}"
-                sb.append("  canonical=${recon.canonical}  bucketSum=${recon.bucketSum}  $mark\n")
-                sb.append("  Final-state (exclusive): ")
-                sb.append(recon.breakdown.entries.joinToString("  ") { "${it.key}=${it.value}" })
-                sb.append('\n')
-                sb.append("  Diagnostic (orthogonal): ")
-                sb.append(recon.diagnostic.entries.joinToString("  ") { "${it.key}=${it.value}" })
-                sb.append('\n')
-                if (!recon.balanced) {
-                    sb.append("    Fix: an outcome path is incrementing canonicalOutcomesTotal\n")
-                    sb.append("    without routing into a final-state bucket. Check CanonicalLearning.bumpCounters.\n")
-                }
-                sb.append('\n')
-            }
-        }
-
-        // ── V5.9.1395 — P1-5 Scanner cycle budget + circuit breakers ───
-        // Spec: per-provider timeout budget, hard circuit-break on
-        // repeated 4xx, stop unlimited retries. Target avg <12s.
-        run {
-            val summary = try { ApiHealthMonitor.cycleBudgetSummary() } catch (_: Throwable) { null }
-            if (!summary.isNullOrBlank()) {
-                sb.append("===== Scanner cycle budget (V5.9.1395 P1-5) =====\n")
-                sb.append("  ").append(summary).append('\n')
-                sb.append('\n')
-            }
         }
 
         // ── Block reason histogram ──────────────────────────────────
@@ -1615,8 +1537,6 @@ object PipelineHealthCollector {
 
         // ── V3 / skip rate ──────────────────────────────────────────────
         val v3Skipped = s.phaseBlock["V3"] ?: 0L
-        val v3FatalEarly = (s.labelCounts["V3_FATAL_EARLY_RETURN"] ?: 0L) + (s.labelCounts["LIFECYCLE/V3_FATAL_EARLY_RETURN"] ?: 0L)
-        val v3TerminalEarly = (s.labelCounts["V3_REJECTED_TERMINAL_EARLY_RETURN"] ?: 0L) + (s.labelCounts["LIFECYCLE/V3_REJECTED_TERMINAL_EARLY_RETURN"] ?: 0L)
         if (v3Skipped > 0)
             sb.append("\n  V3_SKIPPED=$v3Skipped — V3 engine skipping tokens (expected during bootstrap/learning phase).\n")
 
@@ -1633,12 +1553,7 @@ object PipelineHealthCollector {
         val totalIntake = s.intakeBySource.values.sum()
         val totalLaneEval = s.laneEvalCounts.values.sum()
         val totalVerdicts = s.verdictCounts.values.sum()
-        val v3AllowRaw = s.phaseAllow["V3"] ?: 0L
-        val v3ExecutableAllow = listOf(
-            "V3_EXECUTE_STANDARD", "V3_EXECUTE_SMALL", "V3_EXECUTE_AGGRESSIVE",
-            "V3_DECISION_EXECUTE", "V3_ALLOW_EXECUTABLE"
-        ).sumOf { (s.labelCounts[it] ?: 0L) + (s.labelCounts["LIFECYCLE/$it"] ?: 0L) }
-        val v3Allow = if (v3ExecutableAllow > 0L) v3ExecutableAllow else v3AllowRaw
+        val v3Allow = s.phaseAllow["V3"] ?: 0L
         val execGateAllow = s.phaseAllow["EXEC_GATE"] ?: 0L
         val execGateBlock = s.phaseBlock["EXEC_GATE"] ?: 0L
         val recentExecCount = s.recentExecs.size.toLong()
@@ -1648,7 +1563,6 @@ object PipelineHealthCollector {
         sb.append("  FDG active/suppressed:${s.phaseCounts["FDG"] ?: 0L} / ${s.fdgSuppressedPathCounts.values.sum()}\n")
         sb.append("    ├─ V3 allow:        $v3Allow\n")
         sb.append("    └─ V3 skip:         $v3Skipped\n")
-            if (v3FatalEarly + v3TerminalEarly > 0L) sb.append("       terminal/fatal early returns: fatal=$v3FatalEarly terminal=$v3TerminalEarly (excluded from allow)\n")
         sb.append("  verdicts produced:    $totalVerdicts\n")
         sb.append("  EXEC_GATE allow:      $execGateAllow\n")
         sb.append("  EXEC_GATE block:      $execGateBlock\n")
@@ -1673,11 +1587,10 @@ object PipelineHealthCollector {
             sb.append("  lane eval → V3:       ${"%.1f".format(evalToV3PerToken)}% per-token  (target >20%)\n")
             sb.append("    └─ raw per-lane:    ${"%.1f".format(rawEvalToV3)}%  ($totalLaneEval evals / $distinctLanes lanes ≈ ${approxTokensEvaluated.toLong()} tokens, fan-out≈${"%.1f".format(avgFanout)})\n")
         }
-        val v3RejectedNonExec = (v3Skipped - v3FatalEarly - v3TerminalEarly).coerceAtLeast(0L)
-        val v3Total = v3Allow + v3RejectedNonExec
+        val v3Total = v3Allow + v3Skipped
         if (v3Total > 0L) {
             val v3AllowPct = (v3Allow.toDouble() / v3Total * 100.0)
-            sb.append("  V3 executable allow:  ${"%.1f".format(v3AllowPct)}%  (BUY/EXECUTE only; fatal/watch/terminal excluded)\n")
+            sb.append("  V3 allow rate:        ${"%.1f".format(v3AllowPct)}%  (target >30%; <15% = audit V3_SKIPPED reasons below)\n")
         }
         // Top 5 block reasons — usually one or two dominate.
         val topBlocks = s.blockReasonCounts.entries.sortedByDescending { it.value }.take(5)

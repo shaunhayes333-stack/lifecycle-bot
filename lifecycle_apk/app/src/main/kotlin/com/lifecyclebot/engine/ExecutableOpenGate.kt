@@ -27,13 +27,6 @@ object ExecutableOpenGate {
         val selectedLane: String = "UNKNOWN",
         val preFdgVerdict: String = "WATCH",
         val hardNoReasons: List<String> = emptyList(),
-        // V5.9.1384 — immutable terminal no-trade authority. Once a terminal
-        // no-trade state is stamped for this mint/candidateVersion, no fallback
-        // lane may re-authorize execution. Observations/shadow learning may
-        // continue, but EXEC_OPEN_REQUEST / EXEC_GATE_ALLOW / BUY are forbidden.
-        val anyTerminalNoTrade: Boolean = false,
-        val terminalNoTradeReason: String? = null,
-        val terminalNoTradeRank: Int = 0,
         val entryScore: Int = -1,  // V5.9.1373 — for SHADOW_TRAIN_ONLY bucket lookup
         val candidateVersion: Long = 0L,
         val updatedAtMs: Long = System.currentTimeMillis(),
@@ -128,7 +121,6 @@ object ExecutableOpenGate {
         currentVersion: Long,
     ): Pair<String, String>? {
         if (state == null) return "EXEC_OPEN_DROPPED_NO_FINAL_CANDIDATE" to "NO_FINAL_BUY_CANDIDATE"
-        if (state.anyTerminalNoTrade) return "EXEC_OPEN_DROPPED_TERMINAL_NO_TRADE" to (state.terminalNoTradeReason ?: "TERMINAL_NO_TRADE")
         val selected = canonicalLane(selectedLane)
         val requested = canonicalLane(requestedLane)
         // V5.9.1320 (Item 6) — lane is resolved upstream (real selected → real requested →
@@ -144,37 +136,6 @@ object ExecutableOpenGate {
 
     private fun laneKey(mint: String, lane: String): String = mint + ":" + canonicalLane(lane).filter { it.isLetterOrDigit() }
     private const val ALLOWED_ATTEMPT_TTL_MS = 60_000L
-
-    private fun apiLayerDegraded(): Boolean = try {
-        val b = BirdeyeBudgetGate.snapshot()
-        val api = ApiHealthMonitor.snapshot()
-        // V5.9.1386 — providerConservation is a BUDGET POSTURE (Birdeye usage
-        // throttling under monthly cap), NOT a health-degradation signal.
-        // EMERGENCY_CONSERVATION_MODE is a compile-time `const val = true`
-        // in BirdeyeBudgetGate, which made apiLayerDegraded() return TRUE
-        // unconditionally — and that in turn made canOpenExecutablePosition
-        // mark every rug=-1 paper candidate as TERMINAL_NO_TRADE, breaking
-        // the V5.9.1216 "PAPER treats missing RC context as learnable" rule.
-        // This is the ACTUAL root cause of the 9-build red streak — the 9
-        // V5.9.1385a-i attempts all targeted STALE_CANDIDATE (wrong mode).
-        // Conservation alone is no longer treated as degradation.
-        if (b.lockedDown || b.providerLockedDown) {
-            true
-        } else {
-            // V5.9.1397 — scope global execution degradation to entry-critical
-            // market-data providers. Groq is LLM narrative, Helius creator-history
-            // and GeckoTerminal are enrichment/duplicate feeds; if any one of them
-            // is rate-limited it must downgrade the missing feature, not poison every
-            // candidate's EXEC_GATE while Birdeye/Dex/PumpPortal are healthy.
-            val entryCritical = setOf("birdeye", "dexscreener", "pumpfun")
-            api.entries.any { (host, st) ->
-                host.lowercase() in entryCritical && run {
-                    val total = st.successes.get() + st.failures4xx.get() + st.failures5xx.get() + st.networkErrors.get()
-                    total >= 5 && st.successRate() < 0.50
-                }
-            }
-        }
-    } catch (_: Throwable) { false }
 
     fun resetForTests() {
         states.clear()
@@ -205,91 +166,6 @@ object ExecutableOpenGate {
 
     private fun staleCutoff() = System.currentTimeMillis() - TTL_MS
 
-    private fun terminalRank(reason: String): Int {
-        val r = reason.uppercase()
-        return when {
-            r.contains("FATAL_BLOCK") || r.contains("BLOCK_FATAL") || r.contains("EXTREME_RUG") -> 100
-            r.contains("BLACKLIST_SHADOW") || r.contains("BLACKLIST") || r.contains("BANNED") -> 90
-            r.contains("SHADOW_ONLY") || r.contains("SHADOW_TRAIN_ONLY") -> 80
-            r.contains("WATCH_ONLY") || r.contains("LIQUIDITY_BELOW_EXECUTION_FLOOR") -> 70
-            r.contains("EXPECTANCY_REJECT") -> 60
-            r.contains("DATA_DEGRADED") || r.contains("API_DEGRADED") -> 50
-            r.contains("REENTRY_LOCKOUT") -> 40
-            r.contains("PROBE_ONLY") -> 30
-            r.contains("FDG_BLOCK") || r.contains("FDG_FINAL") -> 20
-            else -> 10
-        }
-    }
-
-    private fun terminalLabel(reason: String): String {
-        val r = reason.uppercase()
-        return when {
-            r.contains("FATAL_BLOCK") || r.contains("BLOCK_FATAL") || r.contains("EXTREME_RUG") -> "FATAL_BLOCK"
-            r.contains("BLACKLIST_SHADOW") || r.contains("BLACKLIST") || r.contains("BANNED") -> "BLACKLIST_SHADOW"
-            r.contains("SHADOW_TRAIN_ONLY") -> "SHADOW_ONLY"
-            r.contains("SHADOW_ONLY") -> "SHADOW_ONLY"
-            r.contains("LIQUIDITY_BELOW_EXECUTION_FLOOR") || r.contains("WATCH_ONLY") -> "WATCH_ONLY"
-            r.contains("EXPECTANCY_REJECT") -> "EXPECTANCY_REJECT"
-            r.contains("DATA_DEGRADED") || r.contains("API_DEGRADED") -> "DATA_DEGRADED"
-            r.contains("REENTRY_LOCKOUT") -> "REENTRY_LOCKOUT"
-            r.contains("PROBE_ONLY") -> "PROBE_ONLY"
-            r.contains("FDG_BLOCK") || r.contains("FDG_FINAL") -> "FDG_BLOCK"
-            else -> r.take(64)
-        }
-    }
-
-    fun markTerminalNoTrade(
-        mint: String,
-        symbol: String,
-        reason: String,
-        lane: String = "UNKNOWN",
-        candidateVersion: Long = LaneExecutionCoordinator.candidateVersionFor(mint),
-    ) {
-        val label = terminalLabel(reason)
-        val rank = terminalRank(reason)
-        // V5.9.1387 — idempotency guard. Operator snapshot showed
-        // TERMINAL_NO_TRADE_STAMPED and SUPERVISOR_TERMINAL_NO_TRADE_SKIPPED
-        // storming the counters (thousands of repeats per cycle) because the
-        // same mint+version was being stamped every loop. Stamp once per
-        // (mint, candidateVersion, reason) — no-op on duplicate.
-        val existing = states[mint]
-        if (existing != null &&
-            existing.anyTerminalNoTrade &&
-            existing.candidateVersion == candidateVersion &&
-            existing.terminalNoTradeReason == label &&
-            existing.terminalNoTradeRank >= rank) {
-            return  // idempotent: already stamped with this reason at this version
-        }
-        put(mint) { old ->
-            val oldRank = old?.terminalNoTradeRank ?: 0
-            val keepOld = (old?.anyTerminalNoTrade == true) && oldRank >= rank && old.candidateVersion == candidateVersion
-            val finalReason = if (keepOld) old?.terminalNoTradeReason ?: label else label
-            (old ?: EntryState(mint = mint, symbol = symbol)).copy(
-                symbol = symbol,
-                selectedLane = if (isRealExecutionLane(lane)) canonicalLane(lane) else old?.selectedLane ?: lane.uppercase(),
-                preFdgVerdict = "NO_BUY",
-                signal = "WATCH",
-                decisionBand = "WATCH",
-                anyTerminalNoTrade = true,
-                terminalNoTradeReason = finalReason,
-                terminalNoTradeRank = maxOf(oldRank, rank),
-                candidateVersion = candidateVersion,
-                updatedAtMs = System.currentTimeMillis(),
-            )
-        }
-        try {
-            ForensicLogger.lifecycle("TERMINAL_NO_TRADE_STAMPED", "mint=${mint.take(10)} symbol=$symbol lane=$lane reason=$label rank=$rank candidateVersion=$candidateVersion")
-        } catch (_: Throwable) {}
-    }
-
-    fun terminalNoTradeReason(mint: String): String? {
-        val state = states[mint] ?: return null
-        val currentVersion = LaneExecutionCoordinator.candidateVersionFor(mint)
-        return state.terminalNoTradeReason?.takeIf { state.anyTerminalNoTrade && state.candidateVersion == currentVersion }
-    }
-
-    fun hasTerminalNoTrade(mint: String): Boolean = terminalNoTradeReason(mint) != null
-
     private fun put(mint: String, update: (EntryState?) -> EntryState) {
         try {
             states.entries.removeIf { it.value.updatedAtMs < staleCutoff() }
@@ -306,26 +182,14 @@ object ExecutableOpenGate {
         rugScore: Int = -1,
         safetyTier: String = "UNKNOWN",
     ) {
-        val terminalSeed = listOf(decision, fatalReason ?: "", decisionBand).joinToString("|")
-        val terminal = when {
-            terminalSeed.contains("SHADOW_ONLY", ignoreCase = true) -> "SHADOW_ONLY:${fatalReason ?: decision}"
-            terminalSeed.contains("LIQUIDITY_BELOW_EXECUTION_FLOOR", ignoreCase = true) || terminalSeed.contains("WATCH_ONLY", ignoreCase = true) -> "WATCH_ONLY:${fatalReason ?: decision}"
-            terminalSeed.contains("EXPECTANCY_REJECT", ignoreCase = true) -> "EXPECTANCY_REJECT:${fatalReason ?: decision}"
-            terminalSeed.contains("BLOCK_FATAL", ignoreCase = true) || terminalSeed.contains("FATAL_BLOCK", ignoreCase = true) -> "FATAL_BLOCK:${fatalReason ?: decision}"
-            else -> null
-        }
-        if (terminal != null) markTerminalNoTrade(mint, symbol, terminal, lane = "V3")
         put(mint) { old ->
-            val keepTerminal = old?.anyTerminalNoTrade == true
             (old ?: EntryState(mint = mint, symbol = symbol)).copy(
                 symbol = symbol,
                 v3Decision = decision,
                 v3FatalReason = fatalReason,
-                decisionBand = if (keepTerminal) "WATCH" else decisionBand,
+                decisionBand = decisionBand,
                 rugScore = if (rugScore >= 0) rugScore else old?.rugScore ?: -1,
                 safetyTier = safetyTier,
-                preFdgVerdict = if (keepTerminal) "NO_BUY" else old?.preFdgVerdict ?: "WATCH",
-                signal = if (keepTerminal) "WATCH" else old?.signal ?: "UNKNOWN",
                 updatedAtMs = System.currentTimeMillis(),
             )
         }
@@ -365,28 +229,16 @@ object ExecutableOpenGate {
             signal.equals("BUY", true) || signal.equals("EXECUTE", true) -> "BUY"
             else -> "WATCH"
         }
-        val terminalSeed = listOf(reason ?: "", signal, preFdgVerdict, finalVerdict, finalHardNo.joinToString("|")).joinToString("|")
-        val terminal = when {
-            terminalSeed.contains("EXPECTANCY_REJECT", ignoreCase = true) -> "EXPECTANCY_REJECT:${reason ?: finalVerdict}"
-            terminalSeed.contains("LIQUIDITY_BELOW_EXECUTION_FLOOR", ignoreCase = true) -> "WATCH_ONLY:LIQUIDITY_BELOW_EXECUTION_FLOOR"
-            terminalSeed.contains("SHADOW_ONLY", ignoreCase = true) || terminalSeed.contains("SHADOW_TRAIN_ONLY", ignoreCase = true) -> "SHADOW_ONLY:${reason ?: finalVerdict}"
-            terminalSeed.contains("DATA_DEGRADED", ignoreCase = true) || terminalSeed.contains("API_DEGRADED", ignoreCase = true) -> "DATA_DEGRADED:${reason ?: finalVerdict}"
-            terminalSeed.contains("REENTRY_LOCKOUT", ignoreCase = true) -> "REENTRY_LOCKOUT:${reason ?: finalVerdict}"
-            finalVerdict == "HARD_NO_BUY" -> "FATAL_BLOCK:${reason ?: finalHardNo.firstOrNull() ?: finalVerdict}"
-            else -> null
-        }
-        if (terminal != null) markTerminalNoTrade(mint, symbol, terminal, lane = lane, candidateVersion = candidateVersion)
         put(mint) { old ->
-            val keepTerminal = old?.anyTerminalNoTrade == true && old.candidateVersion == candidateVersion
             (old ?: EntryState(mint = mint, symbol = symbol)).copy(
                 symbol = symbol,
                 fdgCan = canExecute,
                 fdgReason = reason,
-                signal = if (keepTerminal) "WATCH" else signal.ifBlank { "UNKNOWN" },
-                decisionBand = if (keepTerminal) "WATCH" else if (finalVerdict == "BUY") "BUY" else (old?.decisionBand ?: finalVerdict),
+                signal = signal.ifBlank { "UNKNOWN" },
+                decisionBand = if (finalVerdict == "BUY") "BUY" else (old?.decisionBand ?: finalVerdict),
                 selectedLane = lane.uppercase(),
-                preFdgVerdict = if (keepTerminal) "NO_BUY" else finalVerdict,
-                hardNoReasons = if (keepTerminal) (finalHardNo + (old?.terminalNoTradeReason ?: "TERMINAL_NO_TRADE")).distinct() else finalHardNo,
+                preFdgVerdict = finalVerdict,
+                hardNoReasons = finalHardNo,
                 candidateVersion = candidateVersion,
                 entryScore = if (entryScore >= 0) entryScore else old?.entryScore ?: -1,
                 liquidityUsd = liquidityUsd,
@@ -524,10 +376,6 @@ object ExecutableOpenGate {
         val hardNoReasons = state?.hardNoReasons ?: emptyList()
         val candidateVersion = state?.candidateVersion ?: 0L
 
-        if (state?.anyTerminalNoTrade == true && candidateVersion == LaneExecutionCoordinator.candidateVersionFor(mint)) {
-            return OpenVerdict(false, state.terminalNoTradeReason ?: "TERMINAL_NO_TRADE", shadowOnly = true, logName = "EXEC_OPEN_DROPPED_TERMINAL_NO_TRADE", attemptId = attemptId)
-        }
-
         fun blocked(log: String, reason: String, shadow: Boolean = false): OpenVerdict {
             try {
                 val coolMs = cooldownMsFor(log, reason)
@@ -645,34 +493,6 @@ object ExecutableOpenGate {
         }
         if (BirdeyeBudgetGate.isEntryBudgetLockedDown()) {
             return blocked("EXEC_OPEN_BLOCKED_API_BUDGET_LOCKDOWN", "BIRDEYE_LOCKDOWN")
-        }
-        // V5.9.1384 — API degraded is EXECUTION-AUTHORITY, not a warning.
-        // During Helius/Groq/Gecko/Pumpfun/Birdeye degradation, allow only
-        // watch/shadow/counterfactual learning unless the minimum concrete fields
-        // required for an executable fill are fresh enough to be represented here:
-        // liquidity, rug/safety, real selected lane, BUY signal, and FDG final allow.
-        if (apiLayerDegraded()) {
-            val concreteFresh = liquidityUsd > 0.0 && rug >= 0 &&
-                !safetyTier.equals("UNKNOWN", true) &&
-                isRealExecutionLane(canonicalSelectedLane) &&
-                (signal.equals("BUY", true) || signal.equals("EXECUTE", true)) &&
-                fdgCan == true
-            if (!concreteFresh) {
-                // V5.9.1397 — V3Orchestrator runs before BotService's canonical
-                // lane FDG/finality pass. It may see selectedLane/preFdg from a
-                // previous/secondary lane and would terminal-stamp DATA_DEGRADED
-                // before the actual primary lane finishes FDG. For that source,
-                // return a block verdict for telemetry only; BotService's real
-                // TradeAuthorizer/FinalExecutionPermit path remains the authority.
-                if (!source.equals("V3Orchestrator", true)) {
-                    markTerminalNoTrade(mint, symbol, "DATA_DEGRADED:minimum_fresh_fields_missing", lane, candidateVersion)
-                }
-                return blocked(
-                    "EXEC_OPEN_BLOCKED_API_LAYER_DEGRADED",
-                    "DATA_DEGRADED_MIN_FRESH_MISSING priceFresh=false liquidityFresh=${liquidityUsd > 0.0} routeFresh=${isRealExecutionLane(canonicalSelectedLane)} rugSafetyFresh=${rug >= 0 && !safetyTier.equals("UNKNOWN", true)} slippageFresh=false",
-                    shadow = true,
-                )
-            }
         }
         // V5.9.1230 — RC=1 is the RugCheck PENDING/UNKNOWN sentinel, not a
         // confirmed rug. Upstream paper policy already allows RC=1 so learning

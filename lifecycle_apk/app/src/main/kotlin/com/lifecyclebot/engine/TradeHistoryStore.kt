@@ -195,7 +195,7 @@ object TradeHistoryStore {
         SQLiteOpenHelper(ctx, "trade_history.db", null, DB_VERSION) {
 
         companion object {
-            const val DB_VERSION = 3
+            const val DB_VERSION = 1
             const val TABLE = "trades"
         }
 
@@ -215,28 +215,6 @@ object TradeHistoryStore {
                     mint          TEXT    NOT NULL DEFAULT '',
                     trading_mode  TEXT    NOT NULL DEFAULT '',
                     trading_emoji TEXT    NOT NULL DEFAULT '',
-                    canonical_lane TEXT   NOT NULL DEFAULT '',
-                    selected_lane  TEXT   NOT NULL DEFAULT '',
-                    source_lane_votes TEXT NOT NULL DEFAULT '',
-                    strategy_bucket TEXT  NOT NULL DEFAULT '',
-                    score_band      TEXT  NOT NULL DEFAULT '',
-                    runtime_mode    TEXT  NOT NULL DEFAULT '',
-                    candidate_version INTEGER NOT NULL DEFAULT 0,
-                    execution_authority_reason TEXT NOT NULL DEFAULT '',
-                    attempt_id TEXT NOT NULL DEFAULT '',
-                    primary_lane TEXT NOT NULL DEFAULT '',
-                    tactic TEXT NOT NULL DEFAULT '',
-                    regime TEXT NOT NULL DEFAULT '',
-                    market_phase TEXT NOT NULL DEFAULT '',
-                    candidate_quality TEXT NOT NULL DEFAULT '',
-                    entry_score_at_buy REAL NOT NULL DEFAULT 0,
-                    v3_score_at_buy INTEGER NOT NULL DEFAULT 0,
-                    fdg_decision_at_buy TEXT NOT NULL DEFAULT '',
-                    safety_tier_at_buy TEXT NOT NULL DEFAULT '',
-                    rug_score_at_buy INTEGER NOT NULL DEFAULT -1,
-                    source_at_buy TEXT NOT NULL DEFAULT '',
-                    source_confidence_at_buy INTEGER NOT NULL DEFAULT 0,
-                    entry_ts_ms INTEGER NOT NULL DEFAULT 0,
                     fee_sol       REAL    NOT NULL DEFAULT 0,
                     net_pnl_sol   REAL    NOT NULL DEFAULT 0,
                     dedup_key     TEXT    UNIQUE
@@ -247,42 +225,7 @@ object TradeHistoryStore {
         }
 
         override fun onUpgrade(db: SQLiteDatabase, oldVersion: Int, newVersion: Int) {
-            if (oldVersion < 2) {
-                val cols = listOf(
-                    "canonical_lane TEXT NOT NULL DEFAULT ''",
-                    "selected_lane TEXT NOT NULL DEFAULT ''",
-                    "source_lane_votes TEXT NOT NULL DEFAULT ''",
-                    "strategy_bucket TEXT NOT NULL DEFAULT ''",
-                    "score_band TEXT NOT NULL DEFAULT ''",
-                    "runtime_mode TEXT NOT NULL DEFAULT ''",
-                    "candidate_version INTEGER NOT NULL DEFAULT 0",
-                    "execution_authority_reason TEXT NOT NULL DEFAULT ''",
-                )
-                cols.forEach { col ->
-                    try { db.execSQL("ALTER TABLE $TABLE ADD COLUMN $col") } catch (_: Throwable) {}
-                }
-            }
-            if (oldVersion < 3) {
-                val cols = listOf(
-                    "attempt_id TEXT NOT NULL DEFAULT ''",
-                    "primary_lane TEXT NOT NULL DEFAULT ''",
-                    "tactic TEXT NOT NULL DEFAULT ''",
-                    "regime TEXT NOT NULL DEFAULT ''",
-                    "market_phase TEXT NOT NULL DEFAULT ''",
-                    "candidate_quality TEXT NOT NULL DEFAULT ''",
-                    "entry_score_at_buy REAL NOT NULL DEFAULT 0",
-                    "v3_score_at_buy INTEGER NOT NULL DEFAULT 0",
-                    "fdg_decision_at_buy TEXT NOT NULL DEFAULT ''",
-                    "safety_tier_at_buy TEXT NOT NULL DEFAULT ''",
-                    "rug_score_at_buy INTEGER NOT NULL DEFAULT -1",
-                    "source_at_buy TEXT NOT NULL DEFAULT ''",
-                    "source_confidence_at_buy INTEGER NOT NULL DEFAULT 0",
-                    "entry_ts_ms INTEGER NOT NULL DEFAULT 0",
-                )
-                cols.forEach { col ->
-                    try { db.execSQL("ALTER TABLE $TABLE ADD COLUMN $col") } catch (_: Throwable) {}
-                }
-            }
+            // Future migrations go here
         }
     }
 
@@ -483,57 +426,6 @@ object TradeHistoryStore {
         }
     }
 
-    private fun scoreBand(score: Double): String = when {
-        score >= 61.0 -> "S61+"
-        score >= 41.0 -> "S41-60"
-        score >= 26.0 -> "S26-40"
-        score >= 11.0 -> "S11-25"
-        else -> "S0-10"
-    }
-
-    private fun inheritEntryAttribution(mint: String): Trade? = try {
-        synchronized(lock) {
-            trades.asReversed().firstOrNull { prev ->
-                prev.side.equals("BUY", ignoreCase = true) && prev.mint == mint
-            }
-        }
-    } catch (_: Throwable) { null }
-
-    private fun withCanonicalAttribution(trade: Trade, normalizedMode: String): Trade {
-        val entry = if (isJournalSellLike(trade.side) && trade.mint.isNotBlank()) inheritEntryAttribution(trade.mint) else null
-        val canonical = normalizeTradeModeName(
-            trade.canonicalLane.ifBlank { entry?.canonicalLane ?: normalizedMode.ifBlank { trade.tradingMode } }
-        ).ifBlank { "STANDARD" }
-        val selected = trade.selectedLane.ifBlank { entry?.selectedLane ?: canonical }
-        val band = trade.scoreBand.ifBlank { entry?.scoreBand ?: scoreBand(trade.score) }
-        val runtime = trade.runtimeMode.ifBlank { entry?.runtimeMode ?: trade.mode.uppercase() }
-        return trade.copy(
-            tradingMode = normalizedMode.ifBlank { canonical },
-            canonicalLane = canonical,
-            selectedLane = selected,
-            sourceLaneVotes = trade.sourceLaneVotes.ifBlank { entry?.sourceLaneVotes ?: canonical },
-            strategyBucket = trade.strategyBucket.ifBlank { entry?.strategyBucket ?: "$canonical|$band" },
-            scoreBand = band,
-            runtimeMode = runtime,
-            candidateVersion = if (trade.candidateVersion > 0L) trade.candidateVersion else entry?.candidateVersion ?: 0L,
-            executionAuthorityReason = trade.executionAuthorityReason.ifBlank { entry?.executionAuthorityReason ?: trade.reason.ifBlank { "AUTHORIZED:$canonical" } },
-            attemptId = trade.attemptId.ifBlank { entry?.attemptId ?: "${trade.mint}_${trade.ts}" },
-            primaryLane = trade.primaryLane.ifBlank { entry?.primaryLane ?: selected },
-            tactic = trade.tactic.ifBlank { entry?.tactic ?: "MOMENTUM" },
-            regime = trade.regime.ifBlank { entry?.regime ?: "UNKNOWN" },
-            marketPhase = trade.marketPhase.ifBlank { entry?.marketPhase ?: "UNKNOWN" },
-            candidateQuality = trade.candidateQuality.ifBlank { entry?.candidateQuality ?: "C" },
-            entryScoreAtBuy = if (trade.entryScoreAtBuy > 0.0) trade.entryScoreAtBuy else entry?.entryScoreAtBuy ?: trade.score,
-            v3ScoreAtBuy = if (trade.v3ScoreAtBuy > 0) trade.v3ScoreAtBuy else entry?.v3ScoreAtBuy ?: trade.score.toInt(),
-            fdgDecisionAtBuy = trade.fdgDecisionAtBuy.ifBlank { entry?.fdgDecisionAtBuy ?: trade.executionAuthorityReason.ifBlank { "UNKNOWN" } },
-            safetyTierAtBuy = trade.safetyTierAtBuy.ifBlank { entry?.safetyTierAtBuy ?: "UNKNOWN" },
-            rugScoreAtBuy = if (trade.rugScoreAtBuy >= 0) trade.rugScoreAtBuy else entry?.rugScoreAtBuy ?: -1,
-            sourceAtBuy = trade.sourceAtBuy.ifBlank { entry?.sourceAtBuy ?: "UNKNOWN" },
-            sourceConfidenceAtBuy = if (trade.sourceConfidenceAtBuy > 0) trade.sourceConfidenceAtBuy else entry?.sourceConfidenceAtBuy ?: 0,
-            entryTimestampMs = if (trade.entryTimestampMs > 0L) trade.entryTimestampMs else entry?.entryTimestampMs ?: trade.ts,
-        )
-    }
-
     fun recordTrade(trade: Trade) {
         ensureInitialized()
         // V5.9.1038 — choke-point dedupe gate. SELL-only (BUY tradeIds are
@@ -569,7 +461,6 @@ object TradeHistoryStore {
         // strategy expectancy bins double-counting because Executor and
         // V3JournalRecorder set inconsistent casing on the same trade.
         var normalizedMode = normalizeTradeModeName(trade.tradingMode)
-        val rawModeUnresolved = normalizedMode.isBlank() || normalizedMode.equals("UNKNOWN", true)
 
         // V5.9.1066 — analytics-vs-expectancy gap fix. When a SELL arrives
         // with a blank tradingMode (FALLBACK_ORPHAN_HARD_FLOOR, fluid_stop_loss,
@@ -579,36 +470,22 @@ object TradeHistoryStore {
         // totaling +19 SOL across 618 binned trades while PerformanceAnalytics
         // totaled -13.7 SOL across 912 closed trades — a 294-trade / -33 SOL
         // gap that was entirely unbinned fallback exits.
-        if (rawModeUnresolved && isJournalSellLike(trade.side) && trade.mint.isNotBlank()) {
-            val inherited = try {
+        if (normalizedMode.isBlank() && isJournalSellLike(trade.side) && trade.mint.isNotBlank()) {
+            val inheritedMode = try {
                 synchronized(lock) {
                     trades.asReversed().firstOrNull { prev ->
-                        prev.side.equals("BUY", ignoreCase = true) && prev.mint == trade.mint &&
-                            listOf(prev.canonicalLane, prev.selectedLane, prev.primaryLane, prev.tradingMode, prev.sourceLaneVotes)
-                                .any { it.isNotBlank() && !it.equals("UNKNOWN", true) }
-                    }
+                        prev.side.equals("BUY", ignoreCase = true) &&
+                            prev.mint == trade.mint &&
+                            prev.tradingMode.isNotBlank()
+                    }?.tradingMode
                 }
             } catch (_: Throwable) { null }
-            val inheritedMode = listOf(
-                trade.canonicalLane, trade.selectedLane, trade.primaryLane,
-                inherited?.canonicalLane, inherited?.selectedLane, inherited?.primaryLane,
-                inherited?.tradingMode, inherited?.sourceLaneVotes,
-                trade.reason,
-            ).firstOrNull { !it.isNullOrBlank() && !it.equals("UNKNOWN", true) }
             if (!inheritedMode.isNullOrBlank()) {
                 normalizedMode = normalizeTradeModeName(inheritedMode)
             }
         }
 
-        val tradeToStore = withCanonicalAttribution(trade, normalizedMode)
-        if (isJournalSellLike(trade.side) && trade.mint.isNotBlank() && inheritEntryAttribution(trade.mint) == null && trade.canonicalLane.isBlank() && (trade.tradingMode.isBlank() || trade.tradingMode.equals("UNKNOWN", true))) {
-            try {
-                ErrorLogger.warn("TradeHistoryStore", "JOURNAL_CONTEXT_MISSING mint=${trade.mint.take(8)} side=${trade.side} reason=${trade.reason.take(60)} — learning update blocked")
-                ForensicLogger.lifecycle("JOURNAL_CONTEXT_MISSING", "mint=${trade.mint.take(10)} side=${trade.side} reason=${trade.reason.take(80)}")
-                com.lifecyclebot.engine.PipelineHealthCollector.labelInc("JOURNAL_CONTEXT_MISSING")
-            } catch (_: Throwable) {}
-            return
-        }
+        val tradeToStore = if (normalizedMode != trade.tradingMode) trade.copy(tradingMode = normalizedMode) else trade
         if (!isValidAccountingTrade(tradeToStore)) {
             try { ErrorLogger.warn("TradeHistoryStore", "PARTIAL_SELL_INVALID_ACCOUNTING mint=${tradeToStore.mint.take(8)} side=${tradeToStore.side} price=${tradeToStore.price} sol=${tradeToStore.sol} pnl=${tradeToStore.pnlSol} mode=${tradeToStore.tradingMode}") } catch (_: Throwable) {}
         }
@@ -758,26 +635,6 @@ object TradeHistoryStore {
      * in-memory list yet. Always returns the full persisted history (no in-memory cap).
      * Returns empty list and logs if db is null (init not yet called).
      */
-    private fun android.database.Cursor.optStringCol(name: String, default: String = ""): String {
-        val idx = getColumnIndex(name)
-        return if (idx >= 0 && !isNull(idx)) getString(idx) ?: default else default
-    }
-
-    private fun android.database.Cursor.optLongCol(name: String, default: Long = 0L): Long {
-        val idx = getColumnIndex(name)
-        return if (idx >= 0 && !isNull(idx)) getLong(idx) else default
-    }
-
-    private fun android.database.Cursor.optIntCol(name: String, default: Int = 0): Int {
-        val idx = getColumnIndex(name)
-        return if (idx >= 0 && !isNull(idx)) getInt(idx) else default
-    }
-
-    private fun android.database.Cursor.optDoubleCol(name: String, default: Double = 0.0): Double {
-        val idx = getColumnIndex(name)
-        return if (idx >= 0 && !isNull(idx)) getDouble(idx) else default
-    }
-
     fun getAllTradesFromDb(): List<Trade> {
         val database = db
         if (database == null) {
@@ -808,28 +665,6 @@ object TradeHistoryStore {
                         tradingModeEmoji = c.getString(c.getColumnIndexOrThrow("trading_emoji")),
                         feeSol         = c.getDouble(c.getColumnIndexOrThrow("fee_sol")),
                         netPnlSol      = c.getDouble(c.getColumnIndexOrThrow("net_pnl_sol")),
-                        canonicalLane  = c.optStringCol("canonical_lane", c.getString(c.getColumnIndexOrThrow("trading_mode"))),
-                        selectedLane   = c.optStringCol("selected_lane", c.optStringCol("canonical_lane", c.getString(c.getColumnIndexOrThrow("trading_mode")))),
-                        sourceLaneVotes = c.optStringCol("source_lane_votes", ""),
-                        strategyBucket = c.optStringCol("strategy_bucket", ""),
-                        scoreBand      = c.optStringCol("score_band", ""),
-                        runtimeMode    = c.optStringCol("runtime_mode", c.getString(c.getColumnIndexOrThrow("mode")).uppercase()),
-                        candidateVersion = c.optLongCol("candidate_version", 0L),
-                        executionAuthorityReason = c.optStringCol("execution_authority_reason", ""),
-                        attemptId = c.optStringCol("attempt_id", ""),
-                        primaryLane = c.optStringCol("primary_lane", c.optStringCol("selected_lane", "")),
-                        tactic = c.optStringCol("tactic", ""),
-                        regime = c.optStringCol("regime", ""),
-                        marketPhase = c.optStringCol("market_phase", ""),
-                        candidateQuality = c.optStringCol("candidate_quality", ""),
-                        entryScoreAtBuy = c.optDoubleCol("entry_score_at_buy", 0.0),
-                        v3ScoreAtBuy = c.optIntCol("v3_score_at_buy", 0),
-                        fdgDecisionAtBuy = c.optStringCol("fdg_decision_at_buy", ""),
-                        safetyTierAtBuy = c.optStringCol("safety_tier_at_buy", ""),
-                        rugScoreAtBuy = c.optIntCol("rug_score_at_buy", -1),
-                        sourceAtBuy = c.optStringCol("source_at_buy", ""),
-                        sourceConfidenceAtBuy = c.optIntCol("source_confidence_at_buy", 0),
-                        entryTimestampMs = c.optLongCol("entry_ts_ms", 0L),
                     ))
                 }
             }
@@ -1306,28 +1141,6 @@ object TradeHistoryStore {
         put("mint",          t.mint)
         put("trading_mode",  t.tradingMode)
         put("trading_emoji", t.tradingModeEmoji)
-        put("canonical_lane", t.canonicalLane)
-        put("selected_lane", t.selectedLane)
-        put("source_lane_votes", t.sourceLaneVotes)
-        put("strategy_bucket", t.strategyBucket)
-        put("score_band", t.scoreBand)
-        put("runtime_mode", t.runtimeMode)
-        put("candidate_version", t.candidateVersion)
-        put("execution_authority_reason", t.executionAuthorityReason)
-        put("attempt_id", t.attemptId)
-        put("primary_lane", t.primaryLane)
-        put("tactic", t.tactic)
-        put("regime", t.regime)
-        put("market_phase", t.marketPhase)
-        put("candidate_quality", t.candidateQuality)
-        put("entry_score_at_buy", t.entryScoreAtBuy)
-        put("v3_score_at_buy", t.v3ScoreAtBuy)
-        put("fdg_decision_at_buy", t.fdgDecisionAtBuy)
-        put("safety_tier_at_buy", t.safetyTierAtBuy)
-        put("rug_score_at_buy", t.rugScoreAtBuy)
-        put("source_at_buy", t.sourceAtBuy)
-        put("source_confidence_at_buy", t.sourceConfidenceAtBuy)
-        put("entry_ts_ms", t.entryTimestampMs)
         put("fee_sol",       t.feeSol)
         put("net_pnl_sol",   t.netPnlSol)
         put("dedup_key",     "${t.ts}_${t.mint}_${t.side}_${tradeSeq.incrementAndGet()}")
@@ -1358,28 +1171,6 @@ object TradeHistoryStore {
                         tradingModeEmoji = c.getString(c.getColumnIndexOrThrow("trading_emoji")),
                         feeSol         = c.getDouble(c.getColumnIndexOrThrow("fee_sol")),
                         netPnlSol      = c.getDouble(c.getColumnIndexOrThrow("net_pnl_sol")),
-                        canonicalLane  = c.optStringCol("canonical_lane", c.getString(c.getColumnIndexOrThrow("trading_mode"))),
-                        selectedLane   = c.optStringCol("selected_lane", c.optStringCol("canonical_lane", c.getString(c.getColumnIndexOrThrow("trading_mode")))),
-                        sourceLaneVotes = c.optStringCol("source_lane_votes", ""),
-                        strategyBucket = c.optStringCol("strategy_bucket", ""),
-                        scoreBand      = c.optStringCol("score_band", ""),
-                        runtimeMode    = c.optStringCol("runtime_mode", c.getString(c.getColumnIndexOrThrow("mode")).uppercase()),
-                        candidateVersion = c.optLongCol("candidate_version", 0L),
-                        executionAuthorityReason = c.optStringCol("execution_authority_reason", ""),
-                        attemptId = c.optStringCol("attempt_id", ""),
-                        primaryLane = c.optStringCol("primary_lane", c.optStringCol("selected_lane", "")),
-                        tactic = c.optStringCol("tactic", ""),
-                        regime = c.optStringCol("regime", ""),
-                        marketPhase = c.optStringCol("market_phase", ""),
-                        candidateQuality = c.optStringCol("candidate_quality", ""),
-                        entryScoreAtBuy = c.optDoubleCol("entry_score_at_buy", 0.0),
-                        v3ScoreAtBuy = c.optIntCol("v3_score_at_buy", 0),
-                        fdgDecisionAtBuy = c.optStringCol("fdg_decision_at_buy", ""),
-                        safetyTierAtBuy = c.optStringCol("safety_tier_at_buy", ""),
-                        rugScoreAtBuy = c.optIntCol("rug_score_at_buy", -1),
-                        sourceAtBuy = c.optStringCol("source_at_buy", ""),
-                        sourceConfidenceAtBuy = c.optIntCol("source_confidence_at_buy", 0),
-                        entryTimestampMs = c.optLongCol("entry_ts_ms", 0L),
                     ))
                 }
             }
@@ -1430,14 +1221,6 @@ object TradeHistoryStore {
                         tradingModeEmoji = obj.optString("tradingModeEmoji", ""),
                         feeSol         = obj.optDouble("feeSol", 0.0),
                         netPnlSol      = obj.optDouble("netPnlSol", 0.0),
-                        canonicalLane  = obj.optString("canonicalLane", obj.optString("tradingMode", "")),
-                        selectedLane   = obj.optString("selectedLane", obj.optString("canonicalLane", obj.optString("tradingMode", ""))),
-                        sourceLaneVotes = obj.optString("sourceLaneVotes", ""),
-                        strategyBucket = obj.optString("strategyBucket", ""),
-                        scoreBand      = obj.optString("scoreBand", ""),
-                        runtimeMode    = obj.optString("runtimeMode", obj.optString("mode", "paper").uppercase()),
-                        candidateVersion = obj.optLong("candidateVersion", 0L),
-                        executionAuthorityReason = obj.optString("executionAuthorityReason", ""),
                     )
                     database.insertWithOnConflict(
                         TradeDbHelper.TABLE, null,

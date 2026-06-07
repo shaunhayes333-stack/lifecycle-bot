@@ -160,36 +160,12 @@ object LaneExecutionCoordinator {
         return if (all.isEmpty()) contesting.map { it.uppercase() } else all.toList()
     }
 
-    // V5.9.1386 — TEST-ONLY VERSION PIN. The 30-second bucket from
-    // System.currentTimeMillis() / TTL_MS is correct for production (lets a
-    // stale candidate be detected) but causes a STRUCTURAL RACE in unit tests:
-    // a test that calls candidateVersionFor() twice (once at recordFdg time,
-    // once during the EXEC finality check) can land on opposite sides of a
-    // 30s wall-clock boundary, producing a STALE_CANDIDATE false-positive
-    // that all 9 V5.9.1385a-i fix attempts tried — and failed — to de-flake.
-    // The retry loop in the test itself can hit the same race twice.
-    //
-    // Root cause: time-based versioning called multiple times across the
-    // SAME logical decision should return the SAME value. In production
-    // that is true within a 30s window; in tests, pinning makes it true
-    // unconditionally for the test's lifetime.
-    @Volatile private var testVersionPin: Long? = null
-
     fun candidateVersionFor(mint: String): Long {
-        testVersionPin?.let { return it }
         // 15-30s window bucket + monotonic suffix avoids same-second duplicate opens
         // while still letting genuinely new candidate data re-elect shortly after.
         val bucket = System.currentTimeMillis() / TTL_MS
         return bucket
     }
-
-    /**
-     * V5.9.1386 — pin the candidate-version to a stable value for the lifetime
-     * of a unit test. Pass `null` to unpin. resetForTests() unpins automatically.
-     * Production code never calls this — it's only used by RuntimePipelineGatesTest
-     * and other tests that exercise multi-step gate flows.
-     */
-    fun pinVersionForTests(version: Long?) { testVersionPin = version }
 
     fun elect(
         mint: String,
@@ -199,7 +175,7 @@ object LaneExecutionCoordinator {
         runtimeGeneration: Long = BotRuntimeController.currentGeneration(),
     ): Election {
         val clean = lanes.map { it.uppercase() }.filter { it.isNotBlank() }
-        val primary = (preferred?.uppercase()?.takeIf { it in clean } ?: pickFreshPrimary(mint, clean) ?: clean.firstOrNull() ?: "CORE")
+        val primary = (preferred?.uppercase()?.takeIf { it in clean } ?: clean.firstOrNull() ?: "CORE")
         val secondary = clean.firstOrNull { it != primary }
         val key = CandidateKey(runtimeGeneration, mint, candidateVersion)
         val mapKey = mapKey(key)
@@ -238,17 +214,47 @@ object LaneExecutionCoordinator {
                 candidateVersion = deferred.key.candidateVersion,
             )
         }
-        // V5.9.1385 — canonical candidate finality order: primaryLane is
-        // immutable for the attempt. Secondary lanes may produce shadow telemetry,
-        // but no challenger can upgrade/steal the executable lane after the first
-        // election for this mint+candidateVersion.
-        val e = if (existing == null) {
-            val qualified = qualifiedLanesFor(mint, laneUpper)
-            val freshPrimary = pickFreshPrimary(mint, qualified) ?: laneUpper
-            val fresh = elect(mint, qualified, freshPrimary, candidateVersion, runtimeGeneration)
-            recordPrimaryWin(fresh.primaryLane)
-            fresh
-        } else existing
+        // V5.9.1335 — FAIRNESS-WEIGHTED upgrade decision, hoisted for a clean smart-cast.
+        // The incumbent keeps the book by DEFAULT (pure static priority order). A
+        // challenger only takes it when its claimPriority beats the incumbent's — and
+        // claimPriority only docks a lane once it is winning DISPROPORTIONATELY (leading
+        // the qualified field by more than FAIRNESS_LEAD_GRACE recent wins). So MOONSHOT
+        // still wins normally and only yields to a starved specialist once it is
+        // genuinely hogging the book. No single-win thrash; static priority is never
+        // lost unless a lane is winning over everything else.
+        val challengerUpgrades: Boolean = if (existing == null) false else {
+            val qualified = qualifiedLanesFor(mint, laneUpper, existing.primaryLane)
+            claimPriority(mint, laneUpper, qualified) > claimPriority(mint, existing.primaryLane, qualified)
+        }
+        val e = when {
+            existing == null -> {
+                val fresh = elect(mint, listOf(laneUpper), laneUpper, candidateVersion, runtimeGeneration)
+                recordPrimaryWin(fresh.primaryLane)
+                fresh
+            }
+            challengerUpgrades -> {
+                val upgraded = Election(
+                    key = existing.key,
+                    primaryLane = laneUpper,
+                    secondaryTelemetryLane = existing.primaryLane,
+                    createdAtMs = existing.createdAtMs,
+                )
+                elections[mapKey] = upgraded
+                recordPrimaryWin(laneUpper)
+                try {
+                    val q = qualifiedLanesFor(mint, laneUpper, existing.primaryLane)
+                    ForensicLogger.lifecycle(
+                        "LANE_PRIMARY_UPGRADED",
+                        "mint=${mint.take(10)} from=${existing.primaryLane} to=$laneUpper " +
+                        "claim=${claimPriority(mint, laneUpper, q)}>${claimPriority(mint, existing.primaryLane, q)} " +
+                        "wins=$laneUpper:${recentWins(laneUpper)}/${existing.primaryLane}:${recentWins(existing.primaryLane)} " +
+                        "candidateVersion=${existing.key.candidateVersion}"
+                    )
+                } catch (_: Throwable) {}
+                upgraded
+            }
+            else -> existing
+        }
         val allowed = e.primaryLane == laneUpper
         if (!allowed) duplicateOpenSuppressed.incrementAndGet()
         return Verdict(
@@ -281,51 +287,16 @@ object LaneExecutionCoordinator {
         val mapKey = mapKey(key)
         val current = elections[mapKey] ?: return false
         if (current.primaryLane != laneUpper) return false
-        val r = reason.uppercase()
-        val safePreOpenRelease = listOf(
-            "BUY_NOT_OPENED",
-            "PERMIT_BLOCKED",
-            "SIZE_ZERO",
-            "NO_WALLET",
-            "NO_VALID_PRICE",
-            "DUPLICATE_EXECUTION_KEY_SUPPRESSED",
-            "EXEC_OPEN_DROPPED_NO_FINAL_CANDIDATE",
-        ).any { r.contains(it) }
-        val terminalOrSafety = listOf(
-            "FDG_HARD_VETO",
-            "HARD_NO",
-            "FATAL",
-            "TERMINAL",
-            "DATA_DEGRADED",
-            "SHADOW_TRAIN_ONLY",
-            "REENTRY_LOCKOUT",
-            "RUNTIME_PAUSED",
-            "BANNED",
-        ).any { r.contains(it) }
-
-        // V5.9.1396 — immutable primary must not become permanent starvation.
-        // If the primary failed BEFORE opening a position for a non-terminal
-        // mechanical reason, release the election so another lane can attempt
-        // the same mint inside the current 30s candidate window. Terminal / FDG
-        // / safety reasons stay immutable and must not be bypassed by another lane.
-        if (safePreOpenRelease && !terminalOrSafety) {
-            elections.remove(mapKey, current)
+        val removed = elections.remove(mapKey, current)
+        if (removed) {
             try {
                 ForensicLogger.lifecycle(
                     "LANE_PRIMARY_RELEASED",
                     "mint=${mint.take(10)} lane=$laneUpper candidateVersion=${current.key.candidateVersion} reason=$reason"
                 )
             } catch (_: Throwable) {}
-            return true
         }
-
-        try {
-            ForensicLogger.lifecycle(
-                "LANE_PRIMARY_RELEASE_SUPPRESSED_IMMUTABLE",
-                "mint=${mint.take(10)} lane=$laneUpper candidateVersion=${current.key.candidateVersion} reason=$reason"
-            )
-        } catch (_: Throwable) {}
-        return false
+        return removed
     }
 
     fun resetForTests() {
@@ -334,7 +305,6 @@ object LaneExecutionCoordinator {
         duplicateOpenSuppressed.set(0L)
         versionSeq.set(0L)
         laneWinTimestamps.clear()   // V5.9.1335a — fairness state must reset per test
-        testVersionPin = null       // V5.9.1386 — unpin so per-test pin doesn't leak
     }
 
     private fun mapKey(key: CandidateKey): String = "${key.runtimeGeneration}:${key.mint}:${key.candidateVersion}"

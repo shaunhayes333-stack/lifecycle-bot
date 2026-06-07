@@ -723,22 +723,6 @@ object GlobalTradeRegistry {
             // so V3/FDG can re-evaluate with full pipeline data instead
             // of being silently culled by an opaque 5-min cutoff.
             if (elapsed >= PROBATION_MAX_TIME_MS) {
-                // V5.9.1388 — Phase 4 hygiene: timeout-promote must NOT push
-                // zero-liquidity or unfinalised tokens onto the active
-                // execution watchlist. Spec mandate P1: probation hygiene.
-                // Required: fresh liquidity AND non-zero liquidity. If the
-                // mint failed to enrich, expire it from probation cleanly
-                // (no promote) so it can be re-discovered later instead of
-                // sitting in the executable rotation as a zombie.
-                val liqOk = try {
-                    val liq = entry.initialLiquidity
-                    liq.isFinite() && liq > 0.0
-                } catch (_: Throwable) { false }
-                if (!liqOk) {
-                    probation.remove(mint)
-                    results.add(ProbationResult(mint, entry.symbol, "REJECTED", "TIMEOUT_ZERO_LIQUIDITY"))
-                    continue
-                }
                 promoteFromProbation(mint, "TIMEOUT_AUTO_PROMOTE")
                 results.add(ProbationResult(mint, entry.symbol, "PROMOTED", "TIMEOUT_AUTO_PROMOTE"))
                 continue

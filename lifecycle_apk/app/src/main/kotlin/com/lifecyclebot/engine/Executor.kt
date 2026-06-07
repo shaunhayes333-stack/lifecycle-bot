@@ -2063,30 +2063,6 @@ class Executor(
         )
     }
     
-    private fun canonicalTradeLane(raw: String): String {
-        val u = raw.uppercase().trim().replace('-', '_').replace(' ', '_')
-        return when (u) {
-            "BLUE_CHIP" -> "BLUECHIP"
-            "SHIT_COIN" -> "SHITCOIN"
-            "CASHGEN", "CASH_GENERATION" -> "TREASURY"
-            "MANIP" -> "MANIPULATED"
-            "DIP" -> "DIP_HUNTER"
-            "SNIPER", "PROJECT_SNIPER" -> "PROJECT_SNIPER"
-            "" -> "STANDARD"
-            else -> u
-        }
-    }
-
-    private fun canonicalTradeLaneOrBlank(raw: String?): String {
-        val trimmed = raw?.trim().orEmpty()
-        if (trimmed.isBlank()) return ""
-        val c = canonicalTradeLane(trimmed)
-        return when (c.uppercase()) {
-            "UNKNOWN", "NULL", "NONE", "UNSET", "N_A", "NA" -> ""
-            else -> c
-        }
-    }
-
     /**
      * Record a trade to both TokenState and persistent TradeHistoryStore
      */
@@ -2178,68 +2154,18 @@ class Executor(
         // DEX_TRENDING) — that is not a lane and would just create new phantom bins.
         // "STANDARD" is the established convention for a genuinely unclassified lane
         // (see ts.position.tradingMode.ifBlank{"STANDARD"} at the exit-side bin sites).
-        // V5.9.1401 — SOURCE FIX, not downstream patching. A literal
-        // "UNKNOWN" is not a lane; treating it as nonblank let trade.tradingMode
-        // override the real ts.position.tradingMode and poisoned canonical BUY/SELL
-        // rows before TradeHistoryStore or CanonicalOutcomeBus ever saw them.
-        // Resolve identity at the journal source from authoritative lane fields;
-        // only fall back to STANDARD when no real execution lane exists.
-        val resolvedTradingMode = listOf(
-            trade.canonicalLane,
-            trade.selectedLane,
-            trade.primaryLane,
-            trade.tradingMode,
-            ts.position.tradingMode,
-            ts.primaryExecutableLane,
-        ).map { canonicalTradeLaneOrBlank(it) }
-            .firstOrNull { it.isNotBlank() } ?: "STANDARD"
-        fun _scoreBand(v: Double): String = when {
-            v >= 61.0 -> "S61+"
-            v >= 41.0 -> "S41-60"
-            v >= 26.0 -> "S26-40"
-            v >= 11.0 -> "S11-25"
-            else -> "S0-10"
+        fun isMeaningfulLaneName(raw: String?): Boolean {
+            val u = raw?.trim()?.uppercase().orEmpty()
+            return u.isNotBlank() && u !in setOf("UNKNOWN", "NULL", "NONE", "UNSET", "N/A", "NA")
         }
-        val canonicalLane = canonicalTradeLaneOrBlank(trade.canonicalLane).ifBlank { resolvedTradingMode }
-        val band = trade.scoreBand.ifBlank { _scoreBand(trade.score.takeIf { it > 0.0 } ?: ts.entryScore) }
-        val runtimeMode = trade.runtimeMode.ifBlank { if (ts.position.isPaperPosition || trade.mode.equals("paper", true)) "PAPER" else "LIVE" }
-        val candidateVersion = if (trade.candidateVersion > 0L) trade.candidateVersion else try { LaneExecutionCoordinator.candidateVersionFor(ts.mint) } catch (_: Throwable) { 0L }
-        val realizedPct = trade.pnlPct
-        val reasonUpper = trade.reason.uppercase()
-        val finalTrainingReason = when {
-            reasonUpper.contains("STALE_FEED") && (ts.lastPrice <= 0.0 || System.currentTimeMillis() - ts.lastPriceUpdate > 120_000L) -> "STALE_FEED_UNTRAINABLE"
-            realizedPct > 0.0 && reasonUpper.contains("STOP_LOSS") -> "PROTECTIVE_EXIT_GREEN"
-            realizedPct < 0.0 && (reasonUpper.contains("TAKE_PROFIT") || reasonUpper.contains("TP")) -> "REALIZED_LOSS_NOT_TAKE_PROFIT"
-            else -> trade.reason
+        val resolvedTradingMode = when {
+            isMeaningfulLaneName(trade.tradingMode)       -> trade.tradingMode
+            isMeaningfulLaneName(ts.position.tradingMode) -> ts.position.tradingMode
+            else                                          -> "STANDARD"
         }
         val tradeWithMint = trade.copy(
             mint = if (trade.mint.isBlank()) ts.mint else trade.mint,
-            reason = finalTrainingReason,
             tradingMode = resolvedTradingMode,
-            canonicalLane = canonicalLane,
-            selectedLane = canonicalTradeLaneOrBlank(trade.selectedLane).ifBlank { canonicalLane },
-            sourceLaneVotes = canonicalTradeLaneOrBlank(trade.sourceLaneVotes).ifBlank { canonicalLane },
-            strategyBucket = trade.strategyBucket.ifBlank { "$canonicalLane|$band" },
-            scoreBand = band,
-            runtimeMode = runtimeMode,
-            candidateVersion = candidateVersion,
-            executionAuthorityReason = trade.executionAuthorityReason.ifBlank { trade.reason.ifBlank { "AUTHORIZED:$canonicalLane" } },
-            attemptId = trade.attemptId.ifBlank { "${ts.mint}_${candidateVersion}_${canonicalLane}_${trade.ts}" },
-            primaryLane = canonicalTradeLaneOrBlank(trade.primaryLane)
-                .ifBlank { canonicalTradeLaneOrBlank(ts.primaryExecutableLane) }
-                .ifBlank { canonicalLane },
-            tactic = trade.tactic.ifBlank { "MOMENTUM" },
-            regime = trade.regime.ifBlank { "UNKNOWN" },
-            marketPhase = trade.marketPhase.ifBlank { ts.phase.ifBlank { "UNKNOWN" } },
-            candidateQuality = trade.candidateQuality.ifBlank { ts.meta.setupQuality.ifBlank { "C" } },
-            entryScoreAtBuy = if (trade.entryScoreAtBuy > 0.0) trade.entryScoreAtBuy else ts.position.entryScore.takeIf { it > 0.0 } ?: ts.entryScore,
-            v3ScoreAtBuy = if (trade.v3ScoreAtBuy > 0) trade.v3ScoreAtBuy else ts.lastV3Score ?: ts.entryScore.toInt(),
-            fdgDecisionAtBuy = trade.fdgDecisionAtBuy.ifBlank { trade.executionAuthorityReason.ifBlank { "AUTHORIZED:$canonicalLane" } },
-            safetyTierAtBuy = trade.safetyTierAtBuy.ifBlank { ts.safety.tier.name },
-            rugScoreAtBuy = if (trade.rugScoreAtBuy >= 0) trade.rugScoreAtBuy else ts.safety.rugcheckScore,
-            sourceAtBuy = trade.sourceAtBuy.ifBlank { ts.source.ifBlank { ts.sourceFamilies.ifBlank { "UNKNOWN" } } },
-            sourceConfidenceAtBuy = if (trade.sourceConfidenceAtBuy > 0) trade.sourceConfidenceAtBuy else ts.sourceConfidence,
-            entryTimestampMs = if (trade.entryTimestampMs > 0L) trade.entryTimestampMs else ts.position.entryTime.takeIf { it > 0L } ?: trade.ts,
         )
 
         // V5.9.1100 — canonical execution/outcome idempotency.
@@ -5317,22 +5243,12 @@ class Executor(
 
         // V5.9.212: Update highestPrice/lowestPrice UNCONDITIONALLY before any exit path
         // (Audit #4 fix: was only updated inside riskCheck — missed when checkProfitLock returned early)
-        // V5.9.1392 — P1 MFE/MAE: also update peakGainPct + minPnlPct here so
-        // EVERY open trade carries Maximum Favorable / Adverse Excursion. Spec:
-        // "ensure every open trade records entryPrice, maxPriceSeen, maxPnlPct,
-        // minPriceSeen, minPnlPct, lastPrice, realizedPnlPct/Sol (at close)".
         if (ts.position.isOpen) {
             val _unconditionalPrice = getActualPrice(ts)
             if (_unconditionalPrice > 0.0) {
                 ts.position.highestPrice = maxOf(ts.position.highestPrice, _unconditionalPrice)
                 if (ts.position.lowestPrice == 0.0 || _unconditionalPrice < ts.position.lowestPrice)
                     ts.position.lowestPrice = _unconditionalPrice
-                val _entry = ts.position.entryPrice
-                if (_entry > 0.0) {
-                    val _pnlPct = ((_unconditionalPrice - _entry) / _entry) * 100.0
-                    if (_pnlPct > ts.position.peakGainPct) ts.position.peakGainPct = _pnlPct
-                    if (_pnlPct < ts.position.minPnlPct) ts.position.minPnlPct = _pnlPct
-                }
             }
         }
 
@@ -6849,17 +6765,6 @@ class Executor(
         // (atomic, no 2 s cache race) — same single source of truth used
         // by the LIVE buy paths. isPaperRT() is config INPUT only.
         if (routeIsShadow) {
-            // V5.9.1391 — P0-2: assert SHADOW never escalates to on-chain
-            // swap. paperBuy() only writes paper-position mutations so
-            // isOnChainSwap is always false here, but the explicit
-            // assertion makes the invariant testable and emits a
-            // forensic event if any future refactor leaks an on-chain
-            // path through this branch.
-            AuthorityService.assertNoShadowExecutableLeak(
-                lane = layerTag.ifBlank { "MEME" },
-                source = "Executor.paperBuy",
-                isOnChainSwap = false,
-            )
             try {
                 ForensicLogger.lifecycle(
                     "SHADOW_PAPER_BUY",
@@ -7249,14 +7154,13 @@ class Executor(
         // lane) → EXEC_OPEN_DROPPED_PRE_FDG_NOT_BUY → every V3 trade silently dropped,
         // book parks at 0 open. Reaching v3Buy means V3 already cleared its own FDG
         // hard-veto upstream (see BotService V3-EXECUTE: FDG is a hard veto there), so
-        // stamping a CORE BUY here is correct and safe — it does NOT bypass FDG,
-        // it records the verdict the V3 path already earned under the same execution
-        // lane used by TradeAuthorizer / LaneExecutionCoordinator. Real safety context
+        // stamping a STANDARD BUY here is correct and safe — it does NOT bypass FDG,
+        // it records the verdict the V3 path already earned. Real safety context
         // (rug/liq/tier) is passed so genuine hard-no's still convert to HARD_NO_BUY
         // inside recordFdg. This is the missing sibling of the 8 lane recordFdg calls.
         try {
             ExecutableOpenGate.recordFdg(
-                ts.mint, ts.symbol, "CORE",
+                ts.mint, ts.symbol, "STANDARD",
                 canExecute = true,
                 reason = null,
                 signal = "BUY",
@@ -7277,8 +7181,6 @@ class Executor(
                 skipGraduated = true,
                 wallet = wallet,
                 walletSol = walletSol,
-                layerTag = "CORE",
-                layerTagEmoji = "⚡",
                 finalityPrechecked = finalityPrechecked,
                 attemptId = attemptId,
             )
@@ -7296,8 +7198,6 @@ class Executor(
                 identity = identity,
                 quality = v3Band,
                 skipGraduated = true,
-                layerTag = "CORE",
-                layerTagEmoji = "⚡",
                 finalityPrechecked = finalityPrechecked,
                 attemptId = attemptId,
             )
@@ -7830,51 +7730,6 @@ class Executor(
                         layerTagEmoji: String = "",
                         finalityPrechecked: Boolean = false,
                         attemptId: String = "") {    // V5.9.386 — matching emoji
-
-        // V5.9.1391 — P0-2 AuthorityService: hard refusal at the live-mission
-        // entry. If global authority is not LIVE we MUST NOT proceed; live
-        // mission code is physically unreachable from PAPER authority.
-        if (!AuthorityService.assertLiveExecutionAllowed(
-                lane = layerTag.ifBlank { "MEME" },
-                source = "Executor.liveBuy",
-        )) {
-            return
-        }
-
-        // V5.9.1394 — P1-7 Danger Bucket SHADOW_TRAIN_ONLY downgrade.
-        // Spec: 'Danger buckets (e.g. SHITCOIN|S0-10, SHITCOIN|S61+)
-        // default to SHADOW_TRAIN_ONLY. Stop executable trading but allow
-        // learning.' Soft-shape, never veto. We don't block the trade —
-        // we route it through paperBuy so the bucket keeps recording
-        // outcomes (paper book) while the scorer's polarity self-corrects
-        // and the live wallet is protected from the deepest bleeders.
-        // Doctrine: lane is NEVER disabled; only the route is downgraded.
-        run {
-            val mode = ts.position.tradingMode.ifBlank { layerTag.ifBlank { "STANDARD" } }
-            val shadowOnly = try {
-                com.lifecyclebot.engine.LosingPatternMemory.recommendedShadowOnly(mode, score.toInt())
-            } catch (_: Throwable) { false }
-            if (shadowOnly) {
-                try {
-                    ForensicLogger.lifecycle(
-                        "DANGER_BUCKET_SHADOW_DOWNGRADE",
-                        "symbol=${ts.symbol} mint=${ts.mint.take(10)} mode=$mode score=${score.toInt()} layer=$layerTag — routing LIVE → SHADOW_TRAIN_ONLY (paper book)"
-                    )
-                } catch (_: Throwable) {}
-                ErrorLogger.info(
-                    "Executor",
-                    "🔒 DANGER_BUCKET_SHADOW_DOWNGRADE: ${ts.symbol} | mode=$mode score=${score.toInt()} — paper-routing this entry to protect live wallet while bucket keeps learning",
-                )
-                paperBuy(
-                    ts = ts, sol = sol, score = score,
-                    identity = identity, quality = quality,
-                    skipGraduated = skipGraduated, layerTag = layerTag,
-                    layerTagEmoji = layerTagEmoji,
-                    finalityPrechecked = finalityPrechecked, attemptId = attemptId,
-                )
-                return
-            }
-        }
 
         // V5.9.778 — EMERGENT MEME-ONLY: MEME_LIVE_BUY_MUTEX.
         // Operator forensics 5.0.2709: 15 live buys attempted ~0.097 SOL
@@ -10404,13 +10259,12 @@ class Executor(
             else -> false
         }
         
-        val dbLanePaper = canonicalTradeLane(ts.position.tradingMode.ifBlank { "STANDARD" })
         tradeDb?.insertTrade(TradeRecord(
             tsEntry=ts.position.entryTime, tsExit=System.currentTimeMillis(),
             symbol=ts.symbol, mint=ts.mint,
-            mode=dbLanePaper,
+            mode=if(ts.position.entryPhase.contains("pump")) "LAUNCH" else "RANGE",
             entryPrice=ts.position.entryPrice, entryScore=ts.position.entryScore,
-            entryPhase=dbLanePaper, emaFan=ts.meta.emafanAlignment,
+            entryPhase=ts.position.entryPhase, emaFan=ts.meta.emafanAlignment,
             volScore=ts.meta.volScore, pressScore=ts.meta.pressScore, momScore=ts.meta.momScore,
             holderCount=ts.history.lastOrNull()?.holderCount?:0,
             holderGrowth=ts.holderGrowthRate, liquidityUsd=ts.lastLiquidityUsd, mcapUsd=ts.lastMcap,
@@ -12731,13 +12585,12 @@ class Executor(
             else -> false
         }
         
-        val dbLaneLive = canonicalTradeLane(pos.tradingMode.ifBlank { "STANDARD" })
         tradeDb?.insertTrade(TradeRecord(
             tsEntry=pos.entryTime, tsExit=System.currentTimeMillis(),
             symbol=ts.symbol, mint=ts.mint,
-            mode=dbLaneLive,
+            mode=if(pos.entryPhase.contains("pump")) "LAUNCH" else "RANGE",
             entryPrice=pos.entryPrice, entryScore=pos.entryScore,
-            entryPhase=dbLaneLive, emaFan=ts.meta.emafanAlignment,
+            entryPhase=pos.entryPhase, emaFan=ts.meta.emafanAlignment,
             volScore=ts.meta.volScore, pressScore=ts.meta.pressScore, momScore=ts.meta.momScore,
             holderCount=ts.history.lastOrNull()?.holderCount?:0,
             holderGrowth=ts.holderGrowthRate, liquidityUsd=ts.lastLiquidityUsd, mcapUsd=ts.lastMcap,

@@ -52,11 +52,6 @@ data class Position(
     var highestPrice: Double = 0.0,
     var lowestPrice: Double = 0.0,     // Track lowest price since entry for Exit AI
     var peakGainPct: Double = 0.0,     // Track highest % gain for trailing stop
-    // V5.9.1392 — P1 MFE/MAE: mirror peakGainPct on the downside so the
-    // exit tuner / journal can see Maximum Adverse Excursion alongside
-    // Maximum Favorable Excursion. Updated unconditionally by the price-
-    // tick path in Executor so every open trade has minPnlPct accounting.
-    var minPnlPct: Double = 0.0,
     val entryPhase: String = "",
     val entryScore: Double = 0.0,
     val entryLiquidityUsd: Double = 0.0,  // liquidity at entry for collapse detection
@@ -187,32 +182,6 @@ data class Trade(
     val tradingMode: String = "STANDARD",    // ExtendedMode name
     val tradingModeEmoji: String = "📈",     // Emoji for display
     val mint: String = "",                    // Token mint address
-    // V5.9.1384 — immutable execution-attribution fields. Defaults keep all
-    // existing constructors/legacy rows backward-compatible, but new BUY rows
-    // must stamp them and SELL rows must inherit from entry — never infer lane
-    // from exit reason.
-    val canonicalLane: String = "",
-    val selectedLane: String = "",
-    val sourceLaneVotes: String = "",
-    val strategyBucket: String = "",
-    val scoreBand: String = "",
-    val runtimeMode: String = "",
-    val candidateVersion: Long = 0L,
-    val executionAuthorityReason: String = "",
-    val attemptId: String = "",
-    val primaryLane: String = "",
-    val tactic: String = "",
-    val regime: String = "",
-    val marketPhase: String = "",
-    val candidateQuality: String = "",
-    val entryScoreAtBuy: Double = 0.0,
-    val v3ScoreAtBuy: Int = 0,
-    val fdgDecisionAtBuy: String = "",
-    val safetyTierAtBuy: String = "",
-    val rugScoreAtBuy: Int = -1,
-    val sourceAtBuy: String = "",
-    val sourceConfidenceAtBuy: Int = 0,
-    val entryTimestampMs: Long = 0L,
 )
 
 data class StrategyMeta(
@@ -292,19 +261,6 @@ data class TokenState(
     var wsTickRejectStreak: Int = 0,
     var lastMcap: Double = 0.0,
     var lastLiquidityUsd: Double = 0.0,    // USD liquidity from Dexscreener — key for exit risk
-    // V5.9.1395 — P1-6 Canonical liquidity model.
-    // Spec: 'one canonical liquidity model (normalized liquidity USD,
-    // freshness timestamp, confidence) used universally by scanner,
-    // intake, safety, V3, FDG, EXEC_GATE.' These two fields turn
-    // lastLiquidityUsd into a full canonical reading: when it was last
-    // updated (for freshness) and how strong our source for it was
-    // (HIGH = real on-chain pool quote, MEDIUM = DEX aggregator,
-    // LOW = synthetic/derived). Default-safe — when a writer doesn't
-    // set them, CanonicalLiquidity.read() falls back to lastLiquidityUsd
-    // with LOW confidence and "stale" freshness so the consumer never
-    // gets a false-high signal.
-    var lastLiquidityUsdMs: Long = 0L,
-    var lastLiquidityUsdConfidence: String = "",   // "HIGH" | "MEDIUM" | "LOW" | "" (unset)
     var lastFdv: Double = 0.0,             // fully diluted valuation
     var holderGrowthRate: Double = 0.0,    // % change in holders over last N candles (positive = growing)
     var peakHolderCount: Int = 0,          // highest holder count ever seen for this token
@@ -343,16 +299,6 @@ data class TokenState(
     // them as a priority boost so every lane still gets learning chances.
     val laneAffinity: MutableSet<String> = java.util.concurrent.ConcurrentHashMap.newKeySet<String>(),
     val toolAffinity: MutableSet<String> = java.util.concurrent.ConcurrentHashMap.newKeySet<String>(),
-    // V5.9.1385 — canonical candidate finality/source identity. These fields
-    // preserve intake hydration state so V3/lane/FDG cannot execute before
-    // fatal safety + volume finality are known.
-    var sourceConfidence: Int = 0,
-    var sourceFamilies: String = "",
-    var volumeH1Known: Boolean = false,
-    var volumeH1LastUpdatedMs: Long = 0L,
-    var candidateExecutionMode: String = "UNKNOWN", // EXECUTABLE | SHADOW_TRAIN_ONLY | PROBE_ONLY | WATCH
-    var candidateFinalityReason: String = "",
-    var primaryExecutableLane: String = "",
     // V5.9.618 — bridge advisory flag. Set per-pass by BotService when the
     // MemeUnifiedScorerBridge agrees an entry is good. Read by ShitCoin/Moonshot
     // evaluators as a small additive confidence bonus. Pure advisory — never blocks.

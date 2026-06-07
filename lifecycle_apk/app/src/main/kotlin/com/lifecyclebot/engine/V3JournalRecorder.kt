@@ -151,19 +151,6 @@ object V3JournalRecorder {
         // the exit ladder can be tuned against "runners getting cut" telemetry.
         peakGainPct: Double = 0.0,
     ) {
-        // V5.9.1388 — Phase 3 (P0-5) canonical lane identity enforcement.
-        // Spec: "if lane is missing, reject the learning update and log
-        // JOURNAL_CONTEXT_MISSING". A blank/unknown lane poisons every
-        // downstream tracker (expectancy ends up bucketed as 'UNKNOWN',
-        // RunTracker30D loses attribution, separated-WR shows lane=unknown
-        // n=267). Fail loud — never silently drop the lane.
-        val laneCanonical = layer.uppercase().trim()
-        if (laneCanonical.isBlank() || laneCanonical == "UNKNOWN" || laneCanonical == "NULL" || laneCanonical == "NONE") {
-            try { com.lifecyclebot.engine.PipelineHealthCollector.labelInc("JOURNAL_CONTEXT_MISSING|reason=lane_missing|symbol=${symbol.take(16)}") } catch (_: Throwable) {}
-            ErrorLogger.error("V3JournalRecorder",
-                "⚠️ JOURNAL_CONTEXT_MISSING: $symbol mint=${mint.take(10)} layer=\"$layer\" — outcome NOT recorded. Caller must pass a canonical lane.")
-            return
-        }
         // V5.9.1375 (P0 #6) — arm RE-ENTRY LOCKOUT for stop-loss-type exits BEFORE
         // the dedup early-return, so a BUY->STOP_LOSS->BUY loop keeps the lock fresh
         // even when later close waves are deduped. Fail-open; only arms on real losses.
@@ -282,12 +269,9 @@ object V3JournalRecorder {
             } catch (_: Throwable) {}
             // V5.9.1379 — feed the closed-loop lane exit tuner. peakGainPct may be
             // 0.0 from callers that don't pass it yet (tuner just treats peak as 0).
-            // V5.9.1388 — also pass pnlSol so the SOL-weighted bleeder gate
-            // can compute net SOL + profit factor (not just mean pct).
             try {
                 com.lifecyclebot.engine.learning.LaneExitTuner.recordClose(
-                    lane = layer, pnlPct = pnlPctLearn, peakPct = peakGainPct,
-                    exitReason = exitReason, pnlSol = pnlSol,
+                    lane = layer, pnlPct = pnlPctLearn, peakPct = peakGainPct, exitReason = exitReason
                 )
             } catch (_: Throwable) {}
             // V5.9.1333 — Tactic switcher observes per-(lane, scoreBand) outcome.

@@ -60,62 +60,6 @@ object ApiHealthMonitor {
 
     private val hosts = ConcurrentHashMap<String, HostStats>()
 
-    // V5.9.1395 — P1-5 Scanner cycle budget + per-provider circuit break.
-    // Spec: 'per-provider timeout budget, hard circuit-break repeated 4xx
-    // providers, stop unlimited retries in scanner cycle. Target avg <12s.'
-    //
-    // Per-host 4xx circuit-break delegates to [ApiBackoff.isLockedOut]
-    // (V5.9.1024 — same exponential schedule, same forensic events). We
-    // don't maintain a parallel counter; we just expose a uniform API for
-    // scanners to call. Cycle-level budget is the new bit: scanner code
-    // calls [cycleStart] when a scanner cycle begins and [shouldAbortCycle]
-    // periodically to bail out before the 12s soft cap is exceeded.
-    private const val CYCLE_BUDGET_DEFAULT_MS = 12_000L
-    @Volatile private var cycleStartMs: Long = 0L
-    private val cyclesAborted = AtomicLong(0L)
-    private val cyclesCompleted = AtomicLong(0L)
-
-    /** True when ApiBackoff has the host in lockout — caller should skip. */
-    fun isCircuitOpen(host: String): Boolean = try {
-        ApiBackoff.isLockedOut(host)
-    } catch (_: Throwable) { false }
-
-    fun cycleStart() {
-        cycleStartMs = System.currentTimeMillis()
-    }
-
-    fun cycleElapsedMs(): Long {
-        val s = cycleStartMs
-        return if (s == 0L) 0L else System.currentTimeMillis() - s
-    }
-
-    /**
-     * Returns true once the cycle has exceeded [budgetMs]. Scanner loops
-     * should check this between provider calls and bail out cleanly to
-     * keep avg cycle <12s under provider degradation.
-     */
-    fun shouldAbortCycle(budgetMs: Long = CYCLE_BUDGET_DEFAULT_MS): Boolean {
-        if (cycleStartMs == 0L) return false
-        val elapsed = System.currentTimeMillis() - cycleStartMs
-        return elapsed > budgetMs
-    }
-
-    fun cycleComplete(aborted: Boolean = false) {
-        if (aborted) cyclesAborted.incrementAndGet() else cyclesCompleted.incrementAndGet()
-        cycleStartMs = 0L
-    }
-
-    fun cycleBudgetSummary(): String {
-        val a = cyclesAborted.get()
-        val c = cyclesCompleted.get()
-        val total = a + c
-        val openHosts = ApiBackoff.snapshot()
-            .filter { it.value.second > 0L }
-            .keys
-            .sorted()
-        return "cycles total=$total completed=$c aborted=$a | circuits open=${openHosts.joinToString(",").ifBlank { "none" }}"
-    }
-
     private fun stats(host: String): HostStats =
         hosts.getOrPut(host.lowercase()) { HostStats() }
 
@@ -169,10 +113,5 @@ object ApiHealthMonitor {
     }
 
     /** Reset — exposed so QA can clear state between test runs. */
-    fun reset() {
-        hosts.clear()
-        cycleStartMs = 0L
-        cyclesAborted.set(0L)
-        cyclesCompleted.set(0L)
-    }
+    fun reset() = hosts.clear()
 }

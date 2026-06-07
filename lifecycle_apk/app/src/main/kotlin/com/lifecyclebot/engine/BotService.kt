@@ -7488,7 +7488,6 @@ class BotService : Service() {
     // GlobalTradeRegistry.addToWatchlist + status.tokens.getOrPut are
     // already fail-open, so the dedupe gate is purely a noise filter.
     private val intakeLastAcceptMs = java.util.concurrent.ConcurrentHashMap<String, Long>()
-    private val intakeCanonicalLastAcceptMs = java.util.concurrent.ConcurrentHashMap<String, Long>()
     private val intakeDedupCount = java.util.concurrent.ConcurrentHashMap<String, Int>()
     private val intakeDedupTtlMs: Long = 30_000L
 
@@ -7669,29 +7668,6 @@ class BotService : Service() {
                 )
             } catch (_: Throwable) {}
         }
-    }
-
-    private fun normalizedIntakeSymbol(symbol: String): String = symbol
-        .uppercase()
-        .filter { it.isLetterOrDigit() }
-        .take(32)
-        .ifBlank { "NOSYMBOL" }
-
-    private fun sourceFamily(source: String, allSources: Set<String>): String {
-        val tags = (allSources + source).joinToString("|").uppercase()
-        return when {
-            tags.contains("PUMP_PORTAL") || tags.contains("PUMP_FUN") || tags.contains("PUMP") -> "PUMP"
-            tags.contains("RAYDIUM") || tags.contains("NEW_POOL") -> "RAYDIUM"
-            tags.contains("DEX") -> "DEX"
-            tags.contains("GECKO") -> "GECKO"
-            tags.contains("BIRDEYE") -> "BIRDEYE"
-            else -> source.uppercase().substringBefore('_').take(24).ifBlank { "UNKNOWN" }
-        }
-    }
-
-    private fun canonicalIntakeKey(mint: String, symbol: String, source: String, allSources: Set<String>, nowMs: Long): String {
-        val launchWindow = nowMs / 30_000L
-        return "${mint.trim()}:${normalizedIntakeSymbol(symbol)}:${sourceFamily(source, allSources)}:$launchWindow"
     }
 
     private fun inferIntakeLaneAffinity(source: String, allSources: Set<String>, marketCapUsd: Double, liquidityUsd: Double): Set<String> {
@@ -7952,77 +7928,52 @@ class BotService : Service() {
         // (which sat just below the $2,100 SHITCOIN floor). Max-take
         // semantics: never overwrite a higher value with a lower one.
         val nowMs = System.currentTimeMillis()
-        val canonicalKey = canonicalIntakeKey(mint, symbol, source, allSources, nowMs)
         val prevAt = intakeLastAcceptMs[mint]
-        val prevCanonicalAt = intakeCanonicalLastAcceptMs[canonicalKey]
-        val duplicateAge = listOfNotNull(
-            prevAt?.takeIf { (nowMs - it) < intakeDedupTtlMs },
-            prevCanonicalAt?.takeIf { (nowMs - it) < intakeDedupTtlMs },
-        ).maxOrNull()
-        if (duplicateAge != null) {
-            // V5.9.1385 — dedupe BEFORE watchlist/safety/V3/lane. Hydrate the
-            // existing canonical row only; do not admit a second candidate.
-            try {
-                synchronized(status.tokens) {
-                    val tsExisting = status.tokens[mint]
-                    if (tsExisting != null) {
-                        if (liquidityUsd > tsExisting.lastLiquidityUsd) tsExisting.lastLiquidityUsd = liquidityUsd
-                        if (marketCapUsd > tsExisting.lastMcap) tsExisting.lastMcap = marketCapUsd
-                        if (confidence > tsExisting.sourceConfidence) tsExisting.sourceConfidence = confidence
-                        tsExisting.sourceFamilies = ((tsExisting.sourceFamilies.split(',').filter { it.isNotBlank() } + sourceFamily(source, allSources)).toSet()).joinToString(",")
-                        if (volumeH1 > 0.0) {
-                            tsExisting.volumeH1Known = true
-                            tsExisting.volumeH1LastUpdatedMs = nowMs
-                            if (tsExisting.history.isEmpty()) {
-                                val seedPrice = if (tsExisting.lastPrice > 0) tsExisting.lastPrice else 0.0
-                                synchronized(tsExisting.history) {
-                                    tsExisting.history.addLast(com.lifecyclebot.data.Candle(
-                                        ts = nowMs,
-                                        priceUsd = seedPrice,
-                                        marketCap = marketCapUsd,
-                                        volumeH1 = volumeH1,
-                                        volume24h = 0.0,
-                                        buysH1 = 0,
-                                        sellsH1 = 0,
-                                        highUsd = seedPrice,
-                                        lowUsd = seedPrice,
-                                        openUsd = seedPrice,
-                                    ))
-                                }
+        if (prevAt != null && (nowMs - prevAt) < intakeDedupTtlMs) {
+            // V5.9.769 — freshness max-take even on dedupe hits.
+            if (liquidityUsd > 0.0 || marketCapUsd > 0.0) {
+                try {
+                    synchronized(status.tokens) {
+                        val tsExisting = status.tokens[mint]
+                        if (tsExisting != null) {
+                            if (liquidityUsd > tsExisting.lastLiquidityUsd) {
+                                tsExisting.lastLiquidityUsd = liquidityUsd
+                            }
+                            if (marketCapUsd > tsExisting.lastMcap) {
+                                tsExisting.lastMcap = marketCapUsd
                             }
                         }
                     }
-                }
-            } catch (_: Throwable) {}
-            val cnt = (intakeDedupCount[canonicalKey] ?: 0) + 1
-            intakeDedupCount[canonicalKey] = cnt
+                } catch (_: Throwable) {}
+            }
+            val cnt = (intakeDedupCount[mint] ?: 0) + 1
+            intakeDedupCount[mint] = cnt
+            // Emit ONE dedupe forensic per mint per TTL window so the dump
+            // proves the drop happened without re-flooding (dedupe spam
+            // would defeat the point). Subsequent drops within the same
+            // window are silent — the counter is exposed via the
+            // ConcurrentHashMap for any future "top dedupe offenders" UI.
             if (cnt == 1) {
                 try {
                     ForensicLogger.lifecycle(
                         "INTAKE_DEDUPE_DROP",
-                        "key=${canonicalKey.take(80)} mint=${mint.take(10)} symbol=${symbol.ifBlank { mint.take(6) }} src=$source ageMs=${nowMs - duplicateAge}",
+                        "mint=${mint.take(10)} symbol=${symbol.ifBlank { mint.take(6) }} src=$source ageMs=${nowMs - prevAt}",
                     )
                 } catch (_: Throwable) {}
             }
-            return false
+            return true   // semantically still admitted (already in registry)
         }
         intakeLastAcceptMs[mint] = nowMs
-        intakeCanonicalLastAcceptMs[canonicalKey] = nowMs
-        intakeDedupCount[canonicalKey] = 0
+        intakeDedupCount[mint] = 0
         // Opportunistic prune so the maps cannot grow unbounded across
         // long sessions. Cheap O(n) only when we cross the cap.
-        if (intakeLastAcceptMs.size > 1024 || intakeCanonicalLastAcceptMs.size > 4096) {
+        if (intakeLastAcceptMs.size > 1024) {
             val cutoff = nowMs - intakeDedupTtlMs
             val it = intakeLastAcceptMs.entries.iterator()
             while (it.hasNext()) {
                 val e = it.next()
-                if (e.value < cutoff) it.remove()
-            }
-            val it2 = intakeCanonicalLastAcceptMs.entries.iterator()
-            while (it2.hasNext()) {
-                val e = it2.next()
                 if (e.value < cutoff) {
-                    it2.remove()
+                    it.remove()
                     intakeDedupCount.remove(e.key)
                 }
             }
@@ -8250,12 +8201,6 @@ class BotService : Service() {
                         ts.lastPrice = newPrice
                         ts.lastPriceUpdate = System.currentTimeMillis()
                     }
-                }
-                ts.sourceConfidence = maxOf(ts.sourceConfidence, confidence)
-                ts.sourceFamilies = ((ts.sourceFamilies.split(',').filter { it.isNotBlank() } + sourceFamily(source, allSources)).toSet()).joinToString(",")
-                if (volumeH1 > 0.0) {
-                    ts.volumeH1Known = true
-                    ts.volumeH1LastUpdatedMs = System.currentTimeMillis()
                 }
                 if (confidence > 0 && ts.entryScore <= 0.0) {
                     ts.entryScore = confidence.toDouble()
@@ -9012,38 +8957,6 @@ class BotService : Service() {
                 entry.processCount == 0 -> unseen.add(mint)
                 else -> cold.add(mint to entry.lastProcessedAt)
             }
-        }
-
-        // V5.9.1385 — watchlist cap hygiene BEFORE cap eviction. This does
-        // not prune the protected scanner pool; it removes already-classified
-        // poison/dead-weight from the active hot watchlist.
-        val hygieneEvict = mutableListOf<Pair<String, String>>()
-        val seenFamilies = HashSet<String>()
-        entriesByMint.forEach { (mint, entry) ->
-            if (mint in forcedOpenMints) return@forEach
-            val tsH = try { status.tokens[mint] } catch (_: Throwable) { null }
-            val ageMs = nowMs - entry.addedAt
-            val family = entry.symbol.uppercase().filter { it.isLetterOrDigit() }.take(16)
-            val duplicateFamily = family.isNotBlank() && !seenFamilies.add(family)
-            val fatal = tsH?.safety?.tier == SafetyTier.HARD_BLOCK || (tsH?.safety?.hardBlockReasons?.isNotEmpty() == true)
-            val zeroLiqReject = (tsH?.lastLiquidityUsd ?: 0.0) <= 0.0 && entry.processCount >= 1
-            val staleShadow = (tsH?.candidateExecutionMode == "SHADOW_TRAIN_ONLY" || tsH?.candidateExecutionMode == "WATCH") && ageMs > 10 * 60_000L
-            val scoreZeroNoImprove = (tsH?.entryScore ?: 0.0) <= 0.0 && (tsH?.lastLiquidityUsd ?: 0.0) <= 0.0 && entry.processCount >= 2 && ageMs > 120_000L
-            val reason = when {
-                fatal -> "FATAL_TOKEN"
-                zeroLiqReject -> "ZERO_LIQ_REJECT"
-                staleShadow -> "STALE_SHADOW_ONLY"
-                duplicateFamily -> "DUPLICATE_FAMILY"
-                scoreZeroNoImprove -> "SCORE0_NO_IMPROVING_FIELDS"
-                else -> null
-            }
-            if (reason != null) hygieneEvict += mint to reason
-        }
-        hygieneEvict.take(100).forEach { (mint, reason) ->
-            try { com.lifecyclebot.engine.GlobalTradeRegistry.removeFromWatchlist(mint, "HYGIENE_$reason") } catch (_: Throwable) {}
-        }
-        if (hygieneEvict.isNotEmpty()) {
-            try { com.lifecyclebot.engine.ForensicLogger.lifecycle("WATCHLIST_HYGIENE_EVICT", "evicted=${hygieneEvict.size} reasons=${hygieneEvict.groupingBy { it.second }.eachCount()}") } catch (_: Throwable) {}
         }
 
         // V5.9.961 stale eviction
@@ -12178,10 +12091,6 @@ if (hotExitHandledSweep) {
     // the next 5s loop cadence.
     private val supervisorLastSpawnAt = java.util.concurrent.atomic.AtomicLong(System.currentTimeMillis())
     private val supervisorLifetimeSaturationEvents = java.util.concurrent.atomic.AtomicLong(0) // saturation telemetry counter
-    // V5.9.1387 — dedupe set for terminal-no-trade skip logs. Keys are
-    // "mint:candidateVersion". Bounded to 2000 entries (cleared and re-seeded
-    // when the bound is hit). Stops the SKIPPED log from flooding the journal.
-    private val supervisorTerminalLoggedKeys: MutableSet<String> = java.util.concurrent.ConcurrentHashMap.newKeySet()
     private val SUPERVISOR_POOL_STALL_MS: Long = 8_000L  // telemetry threshold only; no destructive counter reset
     @Suppress("unused") private val SUPERVISOR_MAX_INFLIGHT: Int = 32
     // Worker slot budget is one bot-loop cadence: long enough for normal
@@ -12356,32 +12265,6 @@ if (hotExitHandledSweep) {
                 shouldPollSkipped++
                 continue
             }
-            // V5.9.1384 — do not burn supervisor leases on globally-terminal
-            // no-trade candidates. These mints may continue shadow/counterfactual
-            // learning upstream, but a terminal SHADOW_ONLY / WATCH_ONLY /
-            // EXPECTANCY_REJECT / DATA_DEGRADED state must not spawn worker loops
-            // that can only end in EXEC_OPEN_DROPPED_* and cap saturation.
-            // V5.9.1387 — dedupe the SKIPPED log per (mint, candidateVersion).
-            // Operator dump showed the counter and lifecycle log storming
-            // thousands of times per cycle. Skip-action stays; log is now once.
-            try {
-                val terminal = ExecutableOpenGate.terminalNoTradeReason(mint)
-                if (terminal != null && !supervisorMintIsOpen(mint)) {
-                    skipped++
-                    com.lifecyclebot.engine.PipelineHealthCollector.labelInc("SUPERVISOR_TERMINAL_NO_TRADE_SKIPPED")
-                    val version = com.lifecyclebot.engine.LaneExecutionCoordinator.candidateVersionFor(mint)
-                    val logKey = "$mint:$version"
-                    if (supervisorTerminalLoggedKeys.add(logKey)) {
-                        // Cap memory: keep the set bounded so it doesn't grow without limit.
-                        if (supervisorTerminalLoggedKeys.size > 2000) {
-                            supervisorTerminalLoggedKeys.clear()
-                            supervisorTerminalLoggedKeys.add(logKey)
-                        }
-                        try { ForensicLogger.lifecycle("SUPERVISOR_TERMINAL_NO_TRADE_SKIPPED", "mint=${mint.take(10)} reason=$terminal") } catch (_: Throwable) {}
-                    }
-                    continue
-                }
-            } catch (_: Throwable) {}
             val leaseId = supervisorTryAcquireSlot(mint)
             if (leaseId <= 0L) {
                 skipped++
@@ -12407,22 +12290,14 @@ if (hotExitHandledSweep) {
             // guaranteed to free within timeout+0.5s regardless of whether
             // the inner thread ever returns.
             val released = java.util.concurrent.atomic.AtomicBoolean(false)
-            val releaseSlot = { releaseReason: String ->
-                if (released.compareAndSet(false, true)) {
-                    supervisorReleaseSlot(leaseId)
-                    if (releaseReason == "TIMEOUT") {
-                        try {
-                            com.lifecyclebot.engine.PipelineHealthCollector.labelInc("SUPERVISOR_LEASE_RELEASED_TIMEOUT")
-                            ForensicLogger.lifecycle("SUPERVISOR_LEASE_RELEASED_TIMEOUT", "mint=${mint.take(10)} leaseId=$leaseId ttlMs=$SUPERVISOR_LEASE_TTL_MS")
-                        } catch (_: Throwable) {}
-                    }
-                }
+            val releaseSlot = {
+                if (released.compareAndSet(false, true)) supervisorReleaseSlot(leaseId)
                 Unit
             }
             kotlinx.coroutines.GlobalScope.launch(kotlinx.coroutines.Dispatchers.Default) {
                 try {
                     kotlinx.coroutines.delay(SUPERVISOR_LEASE_TTL_MS)
-                    releaseSlot("TIMEOUT")
+                    releaseSlot()
                 } catch (_: Throwable) {}
             }
             kotlinx.coroutines.GlobalScope.launch(kotlinx.coroutines.Dispatchers.IO) {
@@ -12508,7 +12383,7 @@ if (hotExitHandledSweep) {
                         "Silent supervisor worker failed ${mint.take(8)}: ${t.message}",
                     )
                 } finally {
-                    releaseSlot("FINALLY")
+                    releaseSlot()
                 }
             }
             spawned++
@@ -13424,40 +13299,6 @@ if (hotExitHandledSweep) {
             }
         }
 
-        // V5.9.1385 — canonical candidate finality order. Fatal safety/rug/
-        // symbol/liquidity blocks are terminal BEFORE V3_SCORE, lane eval, FDG,
-        // EXEC_GATE, or EXEC_OPEN_REQUEST. Previously SAFETY BLOCK logged but
-        // the flat-token pipeline continued into V3/lane fanout.
-        if (!ts.position.isOpen) {
-            val safety = ts.safety
-            val safetyReady = ts.lastSafetyCheck > 0L && safety.checkedAt > 0L
-            val fatalSafety = safety.tier == SafetyTier.HARD_BLOCK || safety.hardBlockReasons.isNotEmpty() || safety.rugcheckScore == 0
-            if (!safetyReady) {
-                try {
-                    ts.candidateExecutionMode = "WATCH"
-                    ts.candidateFinalityReason = "FATAL_SAFETY_PENDING"
-                    ExecutableOpenGate.markTerminalNoTrade(ts.mint, ts.symbol, "WATCH_ONLY:FATAL_SAFETY_PENDING", "V3")
-                    ForensicLogger.gate(ForensicLogger.PHASE.V3, ts.symbol, allow = false, reason = "V3_BLOCK_REASON=FATAL_SAFETY_PENDING")
-                    com.lifecyclebot.engine.PipelineHealthCollector.labelInc("V3_BLOCK_REASON_FATAL_SAFETY_PENDING")
-                } catch (_: Throwable) {}
-                return
-            }
-            if (fatalSafety) {
-                val reason = safety.hardBlockReasons.firstOrNull() ?: "EXTREME_RUG_RISK_${safety.rugcheckScore}"
-                try {
-                    ts.candidateExecutionMode = "SHADOW_TRAIN_ONLY"
-                    ts.candidateFinalityReason = "FATAL_SAFETY:$reason"
-                    ExecutableOpenGate.markTerminalNoTrade(ts.mint, ts.symbol, "SHADOW_ONLY:FATAL_SAFETY:$reason", "V3")
-                    ExecutableOpenGate.recordV3(ts.mint, ts.symbol, "BLOCK_FATAL", reason, "BLOCK_FATAL", safety.rugcheckScore)
-                    ForensicLogger.gate(ForensicLogger.PHASE.V3, ts.symbol, allow = false, reason = "V3_BLOCK_REASON=FATAL_SAFETY_${reason.take(80)}")
-                    ForensicLogger.lifecycle("V3_FATAL_EARLY_RETURN", "mint=${ts.mint.take(10)} symbol=${ts.symbol} reason=FATAL_SAFETY:$reason")
-                    com.lifecyclebot.engine.PipelineHealthCollector.labelInc("V3_FATAL_EARLY_RETURN")
-                    com.lifecyclebot.engine.PipelineHealthCollector.labelInc("V3_BLOCK_REASON_FATAL_SAFETY")
-                } catch (_: Throwable) {}
-                return
-            }
-        }
-
     // Note: lastSuccessfulPollMs update is handled in botLoop
 
     // ═══════════════════════════════════════════════════════════════════
@@ -14057,63 +13898,42 @@ if (hotExitHandledSweep) {
             guardLvl == 2       -> 500.0
             else                -> 750.0
         }
-        val volumeKnownFresh = ts.volumeH1Known && lastVolumeH1 > 0.0 && (System.currentTimeMillis() - ts.volumeH1LastUpdatedMs) <= 10 * 60_000L
-        val ageMinForVolume = (System.currentTimeMillis() - ts.addedToWatchlistAt) / 60_000.0
-        val trustedSourceFamily = ts.sourceFamilies.contains("PUMP") || ts.sourceFamilies.contains("RAYDIUM") || ts.sourceFamilies.contains("DEX")
-        val safetyHydratedEnough = !ts.safety.isBlocked && ts.safety.hardBlockReasons.isEmpty() && ts.safety.tier.name != "UNKNOWN"
-        // V5.9.1398 — source-hydrated volume proxy. h1 volume is often null on
-        // fresh Pump/Raydium launches even when the source itself is live and
-        // liquidity/orderflow are present. Unknown h1vol still cannot execute by
-        // default, but a fresh launch may proceed when trusted source hydration,
-        // liquidity, mcap, and safety are all concrete. This preserves the
-        // operator rule: low-liq $1500-$2000 unknown-volume tokens remain shadow.
-        val strictFreshLaunch = !volumeKnownFresh &&
-            ageMinForVolume <= 10.0 &&
-            ts.lastLiquidityUsd >= 5_000.0 &&
-            ts.lastMcap >= 10_000.0 &&
-            ts.sourceConfidence >= 60 &&
-            trustedSourceFamily &&
-            safetyHydratedEnough
-        if (!volumeKnownFresh && !strictFreshLaunch) {
-            try {
-                ts.candidateExecutionMode = "SHADOW_TRAIN_ONLY"
-                ts.candidateFinalityReason = "VOLUME_UNKNOWN_NOT_EXECUTABLE"
-                // Do NOT terminal-stamp the mint here. Volume can hydrate a few
-                // seconds later; terminal SHADOW_ONLY was poisoning the whole
-                // candidateVersion and starving subsequent lane finality. This
-                // branch returns before lane FDG/EXEC, so unknown volume remains
-                // non-executable for the current pass without blocking recheck.
-                ExecutableOpenGate.recordV3(ts.mint, ts.symbol, "WATCH", "VOLUME_UNKNOWN_NOT_EXECUTABLE", "WATCH", ts.safety.rugcheckScore)
-                ForensicLogger.gate(ForensicLogger.PHASE.V3, ts.symbol, allow = false, reason = "V3_BLOCK_REASON=VOLUME_UNKNOWN_NOT_EXECUTABLE liq=${ts.lastLiquidityUsd.toInt()} conf=${ts.sourceConfidence} source=${ts.sourceFamilies}")
-                ForensicLogger.lifecycle("VOLUME_UNKNOWN_NOT_EXECUTABLE", "symbol=${ts.symbol} mint=${ts.mint.take(10)} liq=${ts.lastLiquidityUsd.toInt()} mcap=${ts.lastMcap.toInt()} conf=${ts.sourceConfidence} ageMin=${"%.1f".format(ageMinForVolume)}")
-                com.lifecyclebot.engine.PipelineHealthCollector.labelInc("V3_BLOCK_REASON_VOLUME_UNKNOWN_NOT_EXECUTABLE")
-                com.lifecyclebot.engine.learning.NoTradeObservationStore.recordBlock(
-                    mint = ts.mint,
-                    symbol = ts.symbol,
-                    lane = "V3",
-                    scoreBand = "",
-                    score = ts.entryScore.toInt(),
-                    confidence = ts.sourceConfidence,
-                    entryLiqUsd = ts.lastLiquidityUsd,
-                    entryMcapUsd = ts.lastMcap,
-                    entryPrice = ts.lastPrice,
-                    source = ts.source.ifBlank { ts.sourceFamilies.ifBlank { "UNKNOWN" } },
-                    blockReason = "VOLUME_UNKNOWN_NOT_EXECUTABLE",
-                    verdictTag = "BLOCK_VOLUME_UNKNOWN",
-                )
-            } catch (_: Throwable) {}
-            return
-        } else if (strictFreshLaunch) {
-            try { ForensicLogger.lifecycle("VOLUME_UNKNOWN_STRICT_FRESH_EXECUTABLE", "symbol=${ts.symbol} mint=${ts.mint.take(10)} liq=${ts.lastLiquidityUsd.toInt()} mcap=${ts.lastMcap.toInt()} conf=${ts.sourceConfidence}") } catch (_: Throwable) {}
-        } else if (lastVolumeH1 < minVolumeH1) {
-            ErrorLogger.debug("BotService", "🟡 [VOL_GATE_SOFT] ${identity.symbol} | \$${lastVolumeH1.toInt()} h1vol < \$${minVolumeH1.toInt()} — known volume, FDG still evaluates")
-            try {
-                ForensicLogger.gate(
-                    ForensicLogger.PHASE.V3, ts.symbol,
-                    allow = true,
-                    reason = "VOLUME_FINALITY_KNOWN_SOFT h1vol=\$${lastVolumeH1.toInt()} < \$${minVolumeH1.toInt()} | liq=\$${ts.lastLiquidityUsd.toInt()}"
-                )
-            } catch (_: Throwable) {}
+        if (lastVolumeH1 < minVolumeH1) {
+            // V5.9.672 — restore LIVE-mode VOL_GATE bypass. V5.9.606 only
+            // granted the unknown-volume-but-tradable pass in paper mode,
+            // which silently dropped every fresh PumpPortal/Dex hydration
+            // in live mode (vol1h=0 but liq=$2.3k is the normal state for
+            // a newly-listed meme). Operator confirmed live buys worked
+            // end-to-end 4 days ago — this was the regression. Drop the
+            // paperMode-only guard; downstream V3 + scoring still decide
+            // whether the token is buy-worthy.
+            // unknownVolumeButTradable: bypass vol gate for fresh listings (vol=0 but liq/mcap ok).
+            // Keep this bypass for all guard levels — a token with no vol history but
+            // solid liquidity is a legitimate fresh launch, not a dead token.
+            // V5.9.954 — relax bypass thresholds. Fresh Pump.fun launches average
+            // $500-$1500 liq and $3k-$15k mcap. The old $2k/$10k thresholds dropped
+            // the early-pump phase where 10x runners are caught. Per doctrine #86,
+            // shrink the veto cone; downstream V3 + FDG soft-shapers still decide
+            // if the token is worth real size. A $600-liq fresh meme is a learning
+            // sample either way (W or L).
+            val unknownVolumeButTradable = lastVolumeH1 <= 0.0 &&
+                (ts.lastLiquidityUsd >= 500.0 || ts.lastMcap >= 3_000.0)
+            if (!unknownVolumeButTradable) {
+                // V5.9.1005 — PERFORMANCE_DOCTRINE: volume floor is a soft
+                // quality signal, not an execution veto. Hard-returning here
+                // starved FDG entirely (snapshot: SAFETY=28, LANE_EVAL=49,
+                // FDG=0). Let FDG/lane scorers size or reject downstream.
+                ErrorLogger.debug("BotService", "🟡 [VOL_GATE_SOFT] ${identity.symbol} | \$${lastVolumeH1.toInt()} h1vol < \$${minVolumeH1.toInt()} — FDG still evaluates")
+                try {
+                    ForensicLogger.gate(
+                        ForensicLogger.PHASE.V3, ts.symbol,
+                        allow = true,
+                        reason = "V3_SOFT_SHAPED vol_gate | h1vol=\$${lastVolumeH1.toInt()} < \$${minVolumeH1.toInt()} | liq=\$${ts.lastLiquidityUsd.toInt()}"
+                    )
+                } catch (_: Throwable) {}
+            } else {
+                ErrorLogger.info("BotService", "🔓 [VOL_GATE_BYPASS] ${identity.symbol} | free-range unknown h1vol but liq=\$${ts.lastLiquidityUsd.toInt()} mcap=\$${ts.lastMcap.toInt()} paper=${cfg.paperMode}")
+            }
         }
     }
 
@@ -14421,10 +14241,6 @@ if (hotExitHandledSweep) {
             when (val result = v3Decision) {
                 is com.lifecyclebot.v3.V3Decision.BlockFatal -> {
                     ExecutableOpenGate.recordV3(ts.mint, ts.symbol, "BLOCK_FATAL", result.reason, "BLOCK_FATAL", ts.safety.rugcheckScore)
-                    try {
-                        ForensicLogger.gate(ForensicLogger.PHASE.V3, ts.symbol, allow = false, reason = "V3_BLOCK_REASON=FATAL_${result.reason.take(100)}")
-                        com.lifecyclebot.engine.PipelineHealthCollector.labelInc("V3_BLOCK_REASON_FATAL")
-                    } catch (_: Throwable) {}
                     // HARD BLOCK: Safety issue - block ALL layers
                     FinalExecutionPermit.registerRejection(
                         mint = ts.mint,
@@ -14456,10 +14272,6 @@ if (hotExitHandledSweep) {
                 }
                 is com.lifecyclebot.v3.V3Decision.Blocked -> {
                     ExecutableOpenGate.recordV3(ts.mint, ts.symbol, "BLOCKED", result.reason, "BLOCK_FATAL", ts.safety.rugcheckScore)
-                    try {
-                        ForensicLogger.gate(ForensicLogger.PHASE.V3, ts.symbol, allow = false, reason = "V3_BLOCK_REASON=BLOCKED_${result.reason.take(100)}")
-                        com.lifecyclebot.engine.PipelineHealthCollector.labelInc("V3_BLOCK_REASON_BLOCKED")
-                    } catch (_: Throwable) {}
                     // HARD BLOCK: Safety/exposure issue - block ALL layers
                     FinalExecutionPermit.registerRejection(
                         mint = ts.mint,
@@ -14560,37 +14372,6 @@ if (hotExitHandledSweep) {
             }
             
             // ═══════════════════════════════════════════════════════════════════
-            // V5.9.1385 — PRIMARY_LANE_SELECT before FDG/EXEC. Exactly one
-            // immutable executable lane is elected for this mint+candidateVersion.
-            // Secondary lanes below may still write LANE_EVAL/shadow telemetry, but
-            // TradeAuthorizer/FinalExecutionPermit/ExecutableOpenGate reject them.
-            // ═══════════════════════════════════════════════════════════════════
-            if (!ts.position.isOpen) {
-                try {
-                    val candidateVersion = LaneExecutionCoordinator.candidateVersionFor(ts.mint)
-                    val affinity = (ts.laneAffinity + try { GlobalTradeRegistry.getLaneAffinity(ts.mint) } catch (_: Throwable) { emptySet<String>() })
-                        .map { it.uppercase() }
-                        .filter { it.isNotBlank() }
-                        .toMutableList()
-                    if (affinity.isEmpty()) affinity.addAll(listOf("SHITCOIN", "MOONSHOT"))
-                    val specialistPresent = affinity.any { it != "CORE" }
-                    if (v3Decision is com.lifecyclebot.v3.V3Decision.Execute) affinity.add("CORE")
-                    // V5.9.1398 — V3 Execute is not allowed to monopolize CORE
-                    // when a specialist lane already has affinity. CORE has been
-                    // the bleeder in snapshots; let lane routing pick the specialist
-                    // primary and use CORE only for genuinely unclassified V3 setups.
-                    val preferred = if (v3Decision is com.lifecyclebot.v3.V3Decision.Execute && !specialistPresent) "CORE" else null
-                    val election = LaneExecutionCoordinator.elect(ts.mint, affinity.distinct(), preferred, candidateVersion)
-                    ts.primaryExecutableLane = election.primaryLane
-                    ts.candidateExecutionMode = if (ts.candidateExecutionMode == "UNKNOWN") "EXECUTABLE" else ts.candidateExecutionMode
-                    ForensicLogger.lifecycle(
-                        "PRIMARY_LANE_SELECT",
-                        "mint=${ts.mint.take(10)} symbol=${ts.symbol} primary=${election.primaryLane} lanes=${affinity.distinct().joinToString("+")} candidateVersion=$candidateVersion mode=${ts.candidateExecutionMode}"
-                    )
-                } catch (_: Throwable) {}
-            }
-
-            // ═══════════════════════════════════════════════════════════════════
             // V3.3 FIX: Run Treasury Mode IMMEDIATELY after V3 decision
             // BEFORE any return statements, so Treasury can evaluate ALL tokens!
             // 
@@ -14607,10 +14388,7 @@ if (hotExitHandledSweep) {
             // same mint on the same tick (double-buy, conflicting TP/SL
             // ladders). Treasury will re-evaluate on later ticks once
             // the CORE position is open/closed.
-            val v3WillExecuteCore = v3Decision is com.lifecyclebot.v3.V3Decision.Execute && ts.primaryExecutableLane == "CORE"
-            if (v3Decision is com.lifecyclebot.v3.V3Decision.Execute && !v3WillExecuteCore) {
-                try { ForensicLogger.lifecycle("V3_CORE_DEFERRED_TO_PRIMARY_LANE", "mint=${ts.mint.take(10)} symbol=${ts.symbol} primary=${ts.primaryExecutableLane}") } catch (_: Throwable) {}
-            }
+            val v3WillExecuteCore = v3Decision is com.lifecyclebot.v3.V3Decision.Execute
             if (v3WillExecuteCore) {
                 ErrorLogger.info(
                     "BotService",
@@ -16247,10 +16025,7 @@ if (hotExitHandledSweep) {
                                 // only stop "we have no data yet" from killing the trades that
                                 // would generate the data. Probe is wide-open-phase only.
                                 val wideOpenBootstrap = try { com.lifecyclebot.engine.FreeRangeMode.isWideOpen() } catch (_: Throwable) { false }
-                                // V5.9.1399 — PROBE_ONLY is its own telemetry/training
-                                // route, not a hard veto. Do not require wide-open mode for
-                                // the exact PROBE_ONLY tag; structural risk remains blocked.
-                                val scProbeable = scBlock.equals("PROBE_ONLY", true) || (wideOpenBootstrap && isBootstrapProbeableFdgBlock(scBlock))
+                                val scProbeable = wideOpenBootstrap && isBootstrapProbeableFdgBlock(scBlock)
                                 if (!scProbeable) {
                                     ErrorLogger.info("BotService", "🚫 FDG HARD VETO on SHITCOIN: ${ts.symbol} | $scBlock")
                                     try {
@@ -17201,14 +16976,6 @@ if (hotExitHandledSweep) {
                         com.lifecyclebot.v4.meta.StrategyTrustAI.isStrategyAllowed(memeMode)
                     if (!trustAllowed) {
                         ErrorLogger.warn("BotService", "🚫 [TRUST GATE] ${identity.symbol} | mode=$memeMode DISTRUSTED — skipping execute")
-                    } else if (ts.primaryExecutableLane.isNotBlank() && ts.primaryExecutableLane != "CORE") {
-                        // V5.9.1398 — a specialist lane was elected as the canonical
-                        // executable route. Do not also run CORE/V3 execution after the
-                        // specialist pass; that reintroduces CORE bleed and one-mint
-                        // authority contention. The specialist lane already had first
-                        // right to open above this block.
-                        try { ForensicLogger.lifecycle("V3_CORE_EXECUTION_DEFERRED", "mint=${ts.mint.take(10)} symbol=${identity.symbol} primary=${ts.primaryExecutableLane}") } catch (_: Throwable) {}
-                        return
                     } else {
                     // Cache V3 scores on TokenState for Treasury Mode to use
                     ts.lastV3Score = result.score
@@ -17960,24 +17727,6 @@ if (hotExitHandledSweep) {
                 reason = fdgDecision.blockReason ?: "ok"
             )
         } catch (_: Throwable) {}
-        // V5.9.1384 — terminal no-trade semantic stamp from FDG comparison.
-        // FDG is still comparison-only in V3 mode, but terminal states are NOT
-        // advisory: WATCH_ONLY liquidity floor / EXPECTANCY_REJECT / SHADOW_ONLY
-        // must poison execution authority before V3 can promote to EXECUTE_STANDARD.
-        run {
-            val br = fdgDecision.blockReason ?: ""
-            val terminalLane = tradingModeTag?.name ?: "UNKNOWN"
-            when {
-                br.contains("LIQUIDITY_BELOW_EXECUTION_FLOOR", ignoreCase = true) ->
-                    try { ExecutableOpenGate.markTerminalNoTrade(identity.mint, identity.symbol, "WATCH_ONLY:LIQUIDITY_BELOW_EXECUTION_FLOOR", terminalLane) } catch (_: Throwable) {}
-                br.contains("EXPECTANCY_REJECT", ignoreCase = true) ->
-                    try { ExecutableOpenGate.markTerminalNoTrade(identity.mint, identity.symbol, "EXPECTANCY_REJECT:$br", terminalLane) } catch (_: Throwable) {}
-                br.contains("SHADOW_ONLY", ignoreCase = true) || br.contains("SHADOW_TRAIN_ONLY", ignoreCase = true) ->
-                    try { ExecutableOpenGate.markTerminalNoTrade(identity.mint, identity.symbol, "SHADOW_ONLY:$br", terminalLane) } catch (_: Throwable) {}
-                br.contains("DATA_DEGRADED", ignoreCase = true) || br.contains("API_DEGRADED", ignoreCase = true) ->
-                    try { ExecutableOpenGate.markTerminalNoTrade(identity.mint, identity.symbol, "DATA_DEGRADED:$br", terminalLane) } catch (_: Throwable) {}
-            }
-        }
         
         // ═══════════════════════════════════════════════════════════════════
         // V3 ENGINE: PRIMARY DECISION AUTHORITY
@@ -18040,16 +17789,15 @@ if (hotExitHandledSweep) {
                         // Now: V3 EXECUTE only proceeds when FDG also approves.
                         // V3 WATCH / REJECT still block regardless (V3 owns downside).
                         if (v3ControlsExecution) {
-                            val terminalNoTrade = try { ExecutableOpenGate.terminalNoTradeReason(identity.mint) } catch (_: Throwable) { null }
-                            if (terminalNoTrade != null || !fdgDecision.canExecute()) {
-                                // FDG / terminal veto — log clearly so operator can see it
-                                ErrorLogger.info("BotService", "🚫 FDG/TERMINAL VETO on V3-EXECUTE: ${identity.symbol} | ${terminalNoTrade ?: fdgDecision.blockReason ?: "no reason"} | conf=${fdgDecision.confidence.toInt()}%")
+                            if (!fdgDecision.canExecute()) {
+                                // FDG veto — log clearly so operator can see it
+                                ErrorLogger.info("BotService", "🚫 FDG VETO on V3-EXECUTE: ${identity.symbol} | ${fdgDecision.blockReason ?: "no reason"} | conf=${fdgDecision.confidence.toInt()}%")
                                 addLog("🚫 FDG VETO: ${identity.symbol} | ${fdgDecision.blockReason ?: "fdg_block"}", mint)
                                 try {
                                     ForensicLogger.gate(
                                         ForensicLogger.PHASE.FDG, identity.symbol,
                                         allow = false,
-                                        reason = "FDG_VETO_V3_EXECUTE: ${terminalNoTrade ?: fdgDecision.blockReason ?: "no reason"}"
+                                        reason = "FDG_VETO_V3_EXECUTE: ${fdgDecision.blockReason ?: "no reason"}"
                                     )
                                 } catch (_: Throwable) {}
                                 // useV3Decision stays false — no trade
@@ -18283,13 +18031,6 @@ if (hotExitHandledSweep) {
         val shouldExecute = useV3Decision || fdgDecision.canExecute()
         
         if (shouldExecute) {
-            try {
-                ExecutableOpenGate.terminalNoTradeReason(identity.mint)?.let { terminalReason ->
-                    ErrorLogger.warn("BotService", "🚫 TERMINAL AUTH ASSERT: ${identity.symbol} cannot execute | reason=$terminalReason | useV3=$useV3Decision fdgCan=${fdgDecision.canExecute()}")
-                    ForensicLogger.lifecycle("EXECUTION_AUTHORITY_ASSERT_BLOCK", "mint=${identity.mint.take(10)} symbol=${identity.symbol} reason=$terminalReason useV3=$useV3Decision fdgCan=${fdgDecision.canExecute()}")
-                    return
-                }
-            } catch (_: Throwable) {}
             // ═══════════════════════════════════════════════════════════════════
             // RECORD PROPOSAL: Track that we proposed (for dedupe)
             // Moved here from before FDG to prevent self-blocking

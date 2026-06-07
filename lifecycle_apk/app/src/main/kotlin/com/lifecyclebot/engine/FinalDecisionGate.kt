@@ -3629,21 +3629,7 @@ object FinalDecisionGate {
             tags.add("bootstrap_penalized")
         }
 
-        // V5.9.1399 — PROBE_ONLY is a telemetry/training execution state,
-        // not an FDG hard block. Earlier code documented that in canExecute(),
-        // but final `shouldTrade` still required blockReason == null, so FDG
-        // returned shouldTrade=false + blockReason=PROBE_ONLY. Downstream
-        // recordFdg then stamped preFdg=NO_BUY and every lane preauth dropped
-        // EXEC_OPEN_DROPPED_PRE_FDG_NOT_BUY. Normalize the exact probe tag here:
-        // keep the reason for counters, force dust size, and allow the open.
-        val probeOnlyDecision = blockReason == "PROBE_ONLY"
-        if (probeOnlyDecision) {
-            val beforeProbeSize = finalSize
-            finalSize = finalSize.coerceAtMost(0.01).coerceAtLeast(0.01)
-            tags.add("fdg_probe_only_exec")
-            checks.add(GateCheck("probe_only", true, "PROBE_ONLY telemetry/training state; dust ${beforeProbeSize.format(3)}→${finalSize.format(3)}"))
-        }
-        val shouldTrade = (blockReason == null && (candidate.shouldTrade || baseSignalMismatchIgnoredForLane)) || probeOnlyDecision
+        val shouldTrade = blockReason == null && (candidate.shouldTrade || baseSignalMismatchIgnoredForLane)
 
         if (!shouldTrade && blockReason != null) {
             recordBlock(blockReason)
