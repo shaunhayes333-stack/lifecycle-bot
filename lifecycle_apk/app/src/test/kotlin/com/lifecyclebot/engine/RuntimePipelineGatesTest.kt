@@ -565,7 +565,7 @@ class RuntimeEnforcementSmokeTest {
     }
 
     @Test
-    fun runtime_overlay_can_still_disable_specific_lane_when_explicitly_commanded() {
+    fun runtime_overlay_cannot_disable_agenic_execution_lanes() {
         RuntimeConfigOverlay.resetForTests()
         RuntimeModeAuthority.publishConfig(paperMode = false, autoTrade = true)
         RuntimeModeAuthority.publishUiMode(false)
@@ -573,22 +573,26 @@ class RuntimeEnforcementSmokeTest {
         RuntimeModeAuthority.publishPipelineMode(false)
         val fault = InvariantGuardian.Fault(InvariantGuardian.FaultCode.LANE_FANOUT_EXPLOSION, "HIGH", "laneEval/intake=49")
         RuntimeMitigationBus.publish(RuntimeMitigationBus.Command.DisableLane("MOONSHOT", fault.detail, 30_000L))
-        assertTrue(RuntimeConfigOverlay.isLaneDisabled("MOONSHOT"))
+        // V5.9.1405: mitigation commands may remain telemetry, but may not
+        // amputate execution lanes. The lane must keep trading/learning/pivoting.
+        assertFalse(RuntimeConfigOverlay.isLaneDisabled("MOONSHOT"))
     }
 }
 
 
 class RuntimeQualityOnlyOverlaySmokeTest {
     @Test
-    fun force_quality_only_disables_non_quality_lanes() {
+    fun force_quality_only_no_longer_disables_non_quality_lanes() {
         RuntimeConfigOverlay.resetForTests()
         RuntimeModeAuthority.publishConfig(paperMode = false, autoTrade = true)
         RuntimeModeAuthority.publishUiMode(false)
         RuntimeModeAuthority.publishExecutorMode(false)
         RuntimeModeAuthority.publishPipelineMode(false)
         RuntimeMitigationBus.publish(RuntimeMitigationBus.Command.ForceQualityOnly("fanout", 30_000L))
-        assertTrue(RuntimeConfigOverlay.isLaneDisabled("SHITCOIN"))
-        assertTrue(RuntimeConfigOverlay.isLaneDisabled("PROJECT_SNIPER"))
+        // V5.9.1405: quality-only/forced-primary overlays must not disable
+        // other specialists. Shape route quality, don't starve learning.
+        assertFalse(RuntimeConfigOverlay.isLaneDisabled("SHITCOIN"))
+        assertFalse(RuntimeConfigOverlay.isLaneDisabled("PROJECT_SNIPER"))
         assertFalse(RuntimeConfigOverlay.isLaneDisabled("QUALITY"))
     }
 }
