@@ -14859,10 +14859,8 @@ if (hotExitHandledSweep) {
                             
                             // V5.2.8 FIX: If bootstrap override forced entry, use default TP/SL values
                             // When Treasury rejects, it returns 0% TP which causes immediate exits!
-                            val treasuryBaseTpPct = if (treasurySignal.takeProfitPct <= 0.0) 4.0 else treasurySignal.takeProfitPct
-                            val treasuryBaseSlPct = if (treasurySignal.stopLossPct >= 0.0) -4.0 else treasurySignal.stopLossPct
-                            val effectiveTpPct = (treasuryBaseTpPct * com.lifecyclebot.engine.learning.LaneExitTuner.getTpMult("TREASURY")).coerceAtLeast(1.0)
-                            val effectiveSlPct = (treasuryBaseSlPct * com.lifecyclebot.engine.learning.LaneExitTuner.getSlMult("TREASURY")).coerceAtLeast(-15.0)
+                            val effectiveTpPct = if (treasurySignal.takeProfitPct <= 0.0) 4.0 else treasurySignal.takeProfitPct
+                            val effectiveSlPct = if (treasurySignal.stopLossPct >= 0.0) -4.0 else treasurySignal.stopLossPct
                             
                             // ═══════════════════════════════════════════════════════════════════
                             // V5.0: TRADE AUTHORIZER - MUST pass before ANY execution
@@ -15225,10 +15223,8 @@ if (hotExitHandledSweep) {
                                 // V5.9.189: Use QualityTraderAI's own fluid TP (15-50%)
                                 // NOT 4-8% overrides — those make losses > wins structurally
                                 // Risk:reward must be at least 2:1 (TP >= 2x SL)
-                                val qualityBaseSl = qualitySignal.stopLossPct
-                                val qualitySl = (qualityBaseSl * com.lifecyclebot.engine.learning.LaneExitTuner.getSlMult("QUALITY")).coerceAtLeast(-15.0)
-                                val qualityTp = (qualitySignal.takeProfitPct * com.lifecyclebot.engine.learning.LaneExitTuner.getTpMult("QUALITY")).coerceAtLeast(
-                                    kotlin.math.abs(qualitySl) * 2.0  // Always >= 2x the stop magnitude
+                                val qualityTp = qualitySignal.takeProfitPct.coerceAtLeast(
+                                    qualitySignal.stopLossPct * 2.0  // Always >= 2x the stop
                                 )
 
                                 // Execute Quality buy (reuse BlueChip executor pattern)
@@ -15237,7 +15233,7 @@ if (hotExitHandledSweep) {
                                     sizeSol = qualitySignal.positionSizeSol,
                                     walletSol = effectiveBalance,
                                     takeProfitPct = qualityTp,
-                                    stopLossPct = qualitySl,
+                                    stopLossPct = qualitySignal.stopLossPct,
                                     wallet = wallet,
                                     isPaper = cfg.paperMode,
                                     // V5.9.386 — tag the BUY trade as QUALITY in the
@@ -15637,11 +15633,9 @@ if (hotExitHandledSweep) {
                             }
                             if (moonshotScore.eligible) {
                                 // V5.2.8 FIX: Ensure Moonshot never uses 0% TP/SL
-                                val moonshotBaseTpPct = if (moonshotScore.takeProfitPct <= 0.0) 50.0 else moonshotScore.takeProfitPct
+                                val moonshotEffectiveTpPct = if (moonshotScore.takeProfitPct <= 0.0) 50.0 else moonshotScore.takeProfitPct
                                 // V5.9.235: fallback floor raised to -15% (matches HARD_FLOOR_STOP); clamp also applied
-                                val moonshotBaseSlPct = (if (moonshotScore.stopLossPct >= 0.0) -15.0 else moonshotScore.stopLossPct).coerceAtLeast(-15.0)
-                                val moonshotEffectiveTpPct = (moonshotBaseTpPct * com.lifecyclebot.engine.learning.LaneExitTuner.getTpMult("MOONSHOT")).coerceAtLeast(5.0)
-                                val moonshotEffectiveSlPct = (moonshotBaseSlPct * com.lifecyclebot.engine.learning.LaneExitTuner.getSlMult("MOONSHOT")).coerceAtLeast(-15.0)
+                                val moonshotEffectiveSlPct = (if (moonshotScore.stopLossPct >= 0.0) -15.0 else moonshotScore.stopLossPct).coerceAtLeast(-15.0)
                                 
                                 // V5.9.687 — Run FDG BEFORE TradeAuthorizer on Moonshot.
                                 // Moonshot was skipping FDG entirely, entering on tokens
@@ -16203,10 +16197,8 @@ if (hotExitHandledSweep) {
                             var adjustedSize = (shitCoinSignal.positionSizeSol * bootstrapMultiplier * edgeSizeMult * _shitCalMult).coerceAtLeast(0.01)
                             
                             // V5.2.8 FIX: If bootstrap override forced entry, use default TP/SL values
-                            val shitcoinBaseTpPct = if (shitCoinSignal.takeProfitPct <= 0.0) 5.0 else shitCoinSignal.takeProfitPct
-                            val shitcoinBaseSlPct = if (shitCoinSignal.stopLossPct >= 0.0) -8.0 else shitCoinSignal.stopLossPct
-                            val shitcoinEffectiveTpPct = (shitcoinBaseTpPct * com.lifecyclebot.engine.learning.LaneExitTuner.getTpMult("SHITCOIN")).coerceAtLeast(1.0)
-                            val shitcoinEffectiveSlPct = (shitcoinBaseSlPct * com.lifecyclebot.engine.learning.LaneExitTuner.getSlMult("SHITCOIN")).coerceAtLeast(-15.0)
+                            val shitcoinEffectiveTpPct = if (shitCoinSignal.takeProfitPct <= 0.0) 5.0 else shitCoinSignal.takeProfitPct
+                            val shitcoinEffectiveSlPct = if (shitCoinSignal.stopLossPct >= 0.0) -8.0 else shitCoinSignal.stopLossPct
                             
                             // ═══════════════════════════════════════════════════════════════════
                             // V5.0: TRADE AUTHORIZER - MUST pass before ANY execution
@@ -16596,8 +16588,8 @@ if (hotExitHandledSweep) {
                                 ts = ts,
                                 sizeSol = manipSignal.positionSizeSol,
                                 walletSol = effectiveBalance,
-                                takeProfitPct = (25.0 * com.lifecyclebot.engine.learning.LaneExitTuner.getTpMult("MANIPULATED")).coerceAtLeast(5.0),
-                                stopLossPct = (-5.0 * com.lifecyclebot.engine.learning.LaneExitTuner.getSlMult("MANIPULATED")).coerceAtLeast(-15.0),
+                                takeProfitPct = 25.0,
+                                stopLossPct = -5.0,
                                 wallet = wallet,
                                 isPaper = cfg.paperMode,
                                 launchPlatform = com.lifecyclebot.v3.scoring.ShitCoinTraderAI.detectPlatform(ts.source),
