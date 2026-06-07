@@ -8861,13 +8861,10 @@ class Executor(
             r.contains("TAKE_PROFIT") ||
             r.contains("FULL_PROFIT")
 
-        val immediate = listOf(
-            "HARD_FLOOR",
-            "CATASTROPHE",
+        val immediateStructural = listOf(
             "RUG_ESCAPE",
             "STALE_PRICE",
             "STALE_LIVE_PRICE",
-            "DEEP_CATASTROPHE",
             "LIQUIDITY_DRAIN",
             "RUG_PULL",
             "BOT_SHUTDOWN",
@@ -8876,7 +8873,23 @@ class Executor(
             "PARTIAL_TAKE",
             "TRAIL",
         )
-        if (immediate.any { r.contains(it) }) return false
+        val immediatePriceBased = listOf(
+            "HARD_FLOOR",
+            "CATASTROPHE",
+            "DEEP_CATASTROPHE"
+        )
+        if (immediateStructural.any { r.contains(it) }) return false
+        if (immediatePriceBased.any { r.contains(it) }) {
+            val rawCurrent = ts.lastPrice
+            val rawPnlPct = if (entry > 0.0) ((rawCurrent - entry) / entry) * 100.0 else 0.0
+            // V5.9.1410 — prevent simulated paper slippage from triggering "CATASTROPHE" bypasses.
+            // In paper mode, simulated slippage makes the PnL appear as -27% immediately. This causes
+            // PrecisionExitLogic to emit "v8_catastrophic_loss" within the first 5 seconds. If we just
+            // bypass on the word "CATASTROPHE", the position closes instantly for a fake -27% loss.
+            // We must verify the RAW market price has actually crashed before allowing a price-based emergency exit.
+            if (rawPnlPct <= -9.0) return false 
+            // Otherwise, it's a fake catastrophe caused by the paper tax. Fall through and delay.
+        }
 
         // V5.9.1097 — prevent instant full-close paper churn. Prior code put
         // TAKE_PROFIT/PROFIT in the unconditional immediate whitelist, so a
@@ -8894,6 +8907,12 @@ class Executor(
             return true
         }
         if (r.contains("PROFIT") && !isPaperFullProfitExit) return false
+
+        // V5.9.1410 — Unconditional raw market hard floor check.
+        // If the RAW market price has dropped by 15%, we exit immediately, regardless of label.
+        val rawCurrentFloor = ts.lastPrice
+        val rawPnlPctFloor = if (entry > 0.0) ((rawCurrentFloor - entry) / entry) * 100.0 else 0.0
+        if (rawPnlPctFloor <= -15.0) return false
 
         // V5.9.1408 — FULL SETTLE-IN CHOKE. Pre-1408 this guard only
         // matched a small set of soft stop labels, so v8_exit_score,
