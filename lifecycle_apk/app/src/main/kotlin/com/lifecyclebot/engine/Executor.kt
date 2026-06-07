@@ -2077,6 +2077,16 @@ class Executor(
         }
     }
 
+    private fun canonicalTradeLaneOrBlank(raw: String?): String {
+        val trimmed = raw?.trim().orEmpty()
+        if (trimmed.isBlank()) return ""
+        val c = canonicalTradeLane(trimmed)
+        return when (c.uppercase()) {
+            "UNKNOWN", "NULL", "NONE", "UNSET", "N_A", "NA" -> ""
+            else -> c
+        }
+    }
+
     /**
      * Record a trade to both TokenState and persistent TradeHistoryStore
      */
@@ -2168,11 +2178,21 @@ class Executor(
         // DEX_TRENDING) — that is not a lane and would just create new phantom bins.
         // "STANDARD" is the established convention for a genuinely unclassified lane
         // (see ts.position.tradingMode.ifBlank{"STANDARD"} at the exit-side bin sites).
-        val resolvedTradingMode = when {
-            trade.tradingMode.isNotBlank()       -> trade.tradingMode
-            ts.position.tradingMode.isNotBlank() -> ts.position.tradingMode
-            else                                 -> "STANDARD"
-        }
+        // V5.9.1401 — SOURCE FIX, not downstream patching. A literal
+        // "UNKNOWN" is not a lane; treating it as nonblank let trade.tradingMode
+        // override the real ts.position.tradingMode and poisoned canonical BUY/SELL
+        // rows before TradeHistoryStore or CanonicalOutcomeBus ever saw them.
+        // Resolve identity at the journal source from authoritative lane fields;
+        // only fall back to STANDARD when no real execution lane exists.
+        val resolvedTradingMode = listOf(
+            trade.canonicalLane,
+            trade.selectedLane,
+            trade.primaryLane,
+            trade.tradingMode,
+            ts.position.tradingMode,
+            ts.primaryExecutableLane,
+        ).map { canonicalTradeLaneOrBlank(it) }
+            .firstOrNull { it.isNotBlank() } ?: "STANDARD"
         fun _scoreBand(v: Double): String = when {
             v >= 61.0 -> "S61+"
             v >= 41.0 -> "S41-60"
@@ -2180,7 +2200,7 @@ class Executor(
             v >= 11.0 -> "S11-25"
             else -> "S0-10"
         }
-        val canonicalLane = canonicalTradeLane(trade.canonicalLane.ifBlank { resolvedTradingMode })
+        val canonicalLane = canonicalTradeLaneOrBlank(trade.canonicalLane).ifBlank { resolvedTradingMode }
         val band = trade.scoreBand.ifBlank { _scoreBand(trade.score.takeIf { it > 0.0 } ?: ts.entryScore) }
         val runtimeMode = trade.runtimeMode.ifBlank { if (ts.position.isPaperPosition || trade.mode.equals("paper", true)) "PAPER" else "LIVE" }
         val candidateVersion = if (trade.candidateVersion > 0L) trade.candidateVersion else try { LaneExecutionCoordinator.candidateVersionFor(ts.mint) } catch (_: Throwable) { 0L }
@@ -2197,15 +2217,17 @@ class Executor(
             reason = finalTrainingReason,
             tradingMode = resolvedTradingMode,
             canonicalLane = canonicalLane,
-            selectedLane = trade.selectedLane.ifBlank { canonicalLane },
-            sourceLaneVotes = trade.sourceLaneVotes.ifBlank { canonicalLane },
+            selectedLane = canonicalTradeLaneOrBlank(trade.selectedLane).ifBlank { canonicalLane },
+            sourceLaneVotes = canonicalTradeLaneOrBlank(trade.sourceLaneVotes).ifBlank { canonicalLane },
             strategyBucket = trade.strategyBucket.ifBlank { "$canonicalLane|$band" },
             scoreBand = band,
             runtimeMode = runtimeMode,
             candidateVersion = candidateVersion,
             executionAuthorityReason = trade.executionAuthorityReason.ifBlank { trade.reason.ifBlank { "AUTHORIZED:$canonicalLane" } },
             attemptId = trade.attemptId.ifBlank { "${ts.mint}_${candidateVersion}_${canonicalLane}_${trade.ts}" },
-            primaryLane = trade.primaryLane.ifBlank { ts.primaryExecutableLane.ifBlank { canonicalLane } },
+            primaryLane = canonicalTradeLaneOrBlank(trade.primaryLane)
+                .ifBlank { canonicalTradeLaneOrBlank(ts.primaryExecutableLane) }
+                .ifBlank { canonicalLane },
             tactic = trade.tactic.ifBlank { "MOMENTUM" },
             regime = trade.regime.ifBlank { "UNKNOWN" },
             marketPhase = trade.marketPhase.ifBlank { ts.phase.ifBlank { "UNKNOWN" } },
