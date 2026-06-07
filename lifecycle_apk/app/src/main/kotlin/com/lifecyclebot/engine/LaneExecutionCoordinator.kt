@@ -281,10 +281,44 @@ object LaneExecutionCoordinator {
         val mapKey = mapKey(key)
         val current = elections[mapKey] ?: return false
         if (current.primaryLane != laneUpper) return false
-        // V5.9.1385 — primaryLane is immutable for the attempt. A failed
-        // primary may not release the book to another lane inside the same
-        // mint+candidateVersion window; the next fresh candidateVersion can
-        // elect again naturally.
+        val r = reason.uppercase()
+        val safePreOpenRelease = listOf(
+            "BUY_NOT_OPENED",
+            "PERMIT_BLOCKED",
+            "SIZE_ZERO",
+            "NO_WALLET",
+            "NO_VALID_PRICE",
+            "DUPLICATE_EXECUTION_KEY_SUPPRESSED",
+            "EXEC_OPEN_DROPPED_NO_FINAL_CANDIDATE",
+        ).any { r.contains(it) }
+        val terminalOrSafety = listOf(
+            "FDG_HARD_VETO",
+            "HARD_NO",
+            "FATAL",
+            "TERMINAL",
+            "DATA_DEGRADED",
+            "SHADOW_TRAIN_ONLY",
+            "REENTRY_LOCKOUT",
+            "RUNTIME_PAUSED",
+            "BANNED",
+        ).any { r.contains(it) }
+
+        // V5.9.1396 — immutable primary must not become permanent starvation.
+        // If the primary failed BEFORE opening a position for a non-terminal
+        // mechanical reason, release the election so another lane can attempt
+        // the same mint inside the current 30s candidate window. Terminal / FDG
+        // / safety reasons stay immutable and must not be bypassed by another lane.
+        if (safePreOpenRelease && !terminalOrSafety) {
+            elections.remove(mapKey, current)
+            try {
+                ForensicLogger.lifecycle(
+                    "LANE_PRIMARY_RELEASED",
+                    "mint=${mint.take(10)} lane=$laneUpper candidateVersion=${current.key.candidateVersion} reason=$reason"
+                )
+            } catch (_: Throwable) {}
+            return true
+        }
+
         try {
             ForensicLogger.lifecycle(
                 "LANE_PRIMARY_RELEASE_SUPPRESSED_IMMUTABLE",

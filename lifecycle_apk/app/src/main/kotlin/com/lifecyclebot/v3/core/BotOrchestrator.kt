@@ -564,12 +564,18 @@ class BotOrchestrator(
                 val v = candidate.extraInt("rugScore")
                 if (v > 0) v else -1
             } catch (_: Throwable) { -1 }
+            // V5.9.1396 — use an execution LANE, not the decision BAND.
+            // decision.band.name is EXECUTE_SMALL/STANDARD/AGGRESSIVE, which is
+            // not a real execution lane and keys allowedAttempts under the wrong
+            // identity. Generic V3 execution is the CORE book unless an adapter
+            // explicitly supplies a lane extra in the future.
+            val execLane = candidate.extraString("lane").ifBlank { "CORE" }
             com.lifecyclebot.engine.ExecutableOpenGate.canOpenExecutablePosition(
                 mint = candidate.mint,
                 symbol = candidate.symbol,
                 rugScore = rugForGate,
                 mode = modeStr,
-                lane = decision.band.name,
+                lane = execLane,
                 source = "V3Orchestrator",
             )
         } catch (_: Throwable) { null }

@@ -7227,13 +7227,14 @@ class Executor(
         // lane) → EXEC_OPEN_DROPPED_PRE_FDG_NOT_BUY → every V3 trade silently dropped,
         // book parks at 0 open. Reaching v3Buy means V3 already cleared its own FDG
         // hard-veto upstream (see BotService V3-EXECUTE: FDG is a hard veto there), so
-        // stamping a STANDARD BUY here is correct and safe — it does NOT bypass FDG,
-        // it records the verdict the V3 path already earned. Real safety context
+        // stamping a CORE BUY here is correct and safe — it does NOT bypass FDG,
+        // it records the verdict the V3 path already earned under the same execution
+        // lane used by TradeAuthorizer / LaneExecutionCoordinator. Real safety context
         // (rug/liq/tier) is passed so genuine hard-no's still convert to HARD_NO_BUY
         // inside recordFdg. This is the missing sibling of the 8 lane recordFdg calls.
         try {
             ExecutableOpenGate.recordFdg(
-                ts.mint, ts.symbol, "STANDARD",
+                ts.mint, ts.symbol, "CORE",
                 canExecute = true,
                 reason = null,
                 signal = "BUY",
@@ -7254,6 +7255,8 @@ class Executor(
                 skipGraduated = true,
                 wallet = wallet,
                 walletSol = walletSol,
+                layerTag = "CORE",
+                layerTagEmoji = "⚡",
                 finalityPrechecked = finalityPrechecked,
                 attemptId = attemptId,
             )
@@ -7271,6 +7274,8 @@ class Executor(
                 identity = identity,
                 quality = v3Band,
                 skipGraduated = true,
+                layerTag = "CORE",
+                layerTagEmoji = "⚡",
                 finalityPrechecked = finalityPrechecked,
                 attemptId = attemptId,
             )
