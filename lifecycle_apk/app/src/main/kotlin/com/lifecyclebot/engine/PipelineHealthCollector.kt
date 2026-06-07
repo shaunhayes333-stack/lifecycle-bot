@@ -1045,6 +1045,30 @@ object PipelineHealthCollector {
             sb.append('\n')
         }
 
+        // ── V5.9.1392 — P0-3 Outcome Reconciliation ─────────────────
+        // Spec mandate: canonicalTotal == sum(named final-state buckets).
+        // No unnamed gaps. Forensic OUTCOME_RECONCILE_GAP fires when the
+        // sum drifts from canonical.
+        run {
+            val recon = try { CanonicalLearningCounters.reconcile() } catch (_: Throwable) { null }
+            if (recon != null) {
+                sb.append("===== Outcome reconciliation (V5.9.1392 P0-3) =====\n")
+                val mark = if (recon.balanced) "✅ BALANCED" else "🚨 GAP=${recon.gap}"
+                sb.append("  canonical=${recon.canonical}  bucketSum=${recon.bucketSum}  $mark\n")
+                sb.append("  Final-state (exclusive): ")
+                sb.append(recon.breakdown.entries.joinToString("  ") { "${it.key}=${it.value}" })
+                sb.append('\n')
+                sb.append("  Diagnostic (orthogonal): ")
+                sb.append(recon.diagnostic.entries.joinToString("  ") { "${it.key}=${it.value}" })
+                sb.append('\n')
+                if (!recon.balanced) {
+                    sb.append("    Fix: an outcome path is incrementing canonicalOutcomesTotal\n")
+                    sb.append("    without routing into a final-state bucket. Check CanonicalLearning.bumpCounters.\n")
+                }
+                sb.append('\n')
+            }
+        }
+
         // ── Block reason histogram ──────────────────────────────────
         if (s.blockReasonCounts.isNotEmpty()) {
             sb.append("===== Top block reasons (gate -> reason) =====\n")
