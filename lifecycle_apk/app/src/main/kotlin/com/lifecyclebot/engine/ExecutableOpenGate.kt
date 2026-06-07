@@ -148,7 +148,17 @@ object ExecutableOpenGate {
     private fun apiLayerDegraded(): Boolean = try {
         val b = BirdeyeBudgetGate.snapshot()
         val api = ApiHealthMonitor.snapshot()
-        b.lockedDown || b.providerLockedDown || b.providerConservation || api.values.any { st ->
+        // V5.9.1386 — providerConservation is a BUDGET POSTURE (Birdeye usage
+        // throttling under monthly cap), NOT a health-degradation signal.
+        // EMERGENCY_CONSERVATION_MODE is a compile-time `const val = true`
+        // in BirdeyeBudgetGate, which made apiLayerDegraded() return TRUE
+        // unconditionally — and that in turn made canOpenExecutablePosition
+        // mark every rug=-1 paper candidate as TERMINAL_NO_TRADE, breaking
+        // the V5.9.1216 "PAPER treats missing RC context as learnable" rule.
+        // This is the ACTUAL root cause of the 9-build red streak — the 9
+        // V5.9.1385a-i attempts all targeted STALE_CANDIDATE (wrong mode).
+        // Conservation alone is no longer treated as degradation.
+        b.lockedDown || b.providerLockedDown || api.values.any { st ->
             val total = st.successes.get() + st.failures4xx.get() + st.failures5xx.get() + st.networkErrors.get()
             total >= 5 && st.successRate() < 0.50
         }
