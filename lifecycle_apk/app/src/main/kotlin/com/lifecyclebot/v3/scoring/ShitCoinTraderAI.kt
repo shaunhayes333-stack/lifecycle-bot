@@ -1707,7 +1707,19 @@ object ShitCoinTraderAI {
         // V5.5: Activate from entry (not after 15% profit) — stop trails from open price.
         // Prevents giving back gains that were never locked. Fires any time price
         // falls below the trailing level, which starts at the SL and rises with HWM.
-        if (currentPrice <= pos.trailingStop) {
+        // V5.9.1413 — TRAIL-STOP EARLY BREATHER (parity with shitBreather SL gate).
+        // The trailing stop initialises at entryPrice*(1-|SL|/100); paper entry
+        // slippage can open price BELOW that level, tripping an instant ~-10.7%
+        // TRAILING_STOP before the position settles. The recent-outcomes screen
+        // (5.0.3412) was flooded with SHITCOIN -10.7%/-10.2% trail exits in the
+        // first minutes. Mirror the SL breather: in the first 8min, while we
+        // have never recorded a real peak (HWM ~= entry, no winner to protect),
+        // suppress the trailing-stop exit and rely on the rug/hard-floor/-50%
+        // backstops checked above. Once a real peak exists OR after 8min, the
+        // trailing stop resumes immediately so genuine give-back is still cut.
+        val trailHasRealPeak = pos.highWaterMark > pos.entryPrice * 1.03  // +3% peak banked
+        val trailBreather = holdMinutes <= 8 && !trailHasRealPeak
+        if (!trailBreather && currentPrice <= pos.trailingStop) {
             val fromPeak = ((pos.highWaterMark - currentPrice) / pos.highWaterMark * 100)
             val totalGain = pnlPct
             ErrorLogger.info(TAG, "💩🚀 TRAIL EXIT: ${pos.symbol} | +${totalGain.fmt(1)}% (peak was +${((pos.highWaterMark - pos.entryPrice) / pos.entryPrice * 100).fmt(1)}%)")
