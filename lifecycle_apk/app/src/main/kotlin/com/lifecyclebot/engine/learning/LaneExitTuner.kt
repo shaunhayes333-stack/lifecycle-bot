@@ -38,7 +38,7 @@ object LaneExitTuner {
 
     private data class Outcome(
         val pnlPct: Double,
-        val pnlSol: Double,
+        val pnlSol: Double = 0.0,
         val peakPct: Double,
         val win: Boolean,
         val stopHit: Boolean,
