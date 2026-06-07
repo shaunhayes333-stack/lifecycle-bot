@@ -519,6 +519,23 @@ class MainActivity : AppCompatActivity() {
     private var lastBlueChipCachedPnlSol: Double = 0.0
     private var lastQualityHash: Int = -1
     private var lastShitCoinHash: Int = -1
+    private var lastShitCoinCachedPnlSol: Double = 0.0
+    // V5.9.1416 — PER-TICK HEAVY-RENDER BUDGET. Each panel already hash/throttle
+    // guards itself, but when several panels' structures change on the SAME tick
+    // (a burst of opens/closes across lanes) they all removeAllViews()+re-inflate
+    // synchronously in one frame — the 53s frame-gap stack the operator reported.
+    // This caps the number of heavy panel REBUILDS allowed per updateUi pass.
+    // Panels beyond the budget skip their rebuild this tick and request another
+    // render shortly after, spreading the work across frames. Cheap header/text
+    // updates (setTextIfChanged) are never gated — only full row re-inflation.
+    private val HEAVY_RENDER_BUDGET_PER_TICK: Int = 2
+    private var heavyRenderBudgetRemaining: Int = 2
+    private var deferredHeavyRenderPending: Boolean = false
+    // Returns true and consumes one unit if budget remains; else false (defer).
+    private fun consumeHeavyRenderBudget(): Boolean {
+        return if (heavyRenderBudgetRemaining > 0) { heavyRenderBudgetRemaining--; true }
+        else { deferredHeavyRenderPending = true; false }
+    }
     private var lastAiStatusRenderMs: Long = 0L
     private var lastTradesRenderMs: Long = 0L
     // V5.9.1229 — dashboard hot-panel throttles. Runtime 3196 showed the
@@ -2514,6 +2531,11 @@ for legal compliance.
         }
         refreshTrustUiSnapshotAsync(force = false)
 
+        // V5.9.1416 — reset the per-tick heavy-render budget at the start of each
+        // pass. Caps synchronous panel re-inflation per frame; overflow defers.
+        heavyRenderBudgetRemaining = HEAVY_RENDER_BUDGET_PER_TICK
+        deferredHeavyRenderPending = false
+
         // V5.9.1168 — render runtime controls FIRST. The bot can be healthy
         // while heavy dashboard panels below are slow/stale; the Start/Stop
         // bar must never be left at XML default "Bot stopped".
@@ -3509,9 +3531,16 @@ for legal compliance.
             cardQualityPositions.visibility = if (qualityPositions.isNotEmpty()) android.view.View.VISIBLE else android.view.View.GONE
             if (qualityPositions.isNotEmpty()) {
                 tvQualityExposure.setTextIfChanged("%.3f◎".format(qualityPositions.sumOf { it.entrySol }))
-                val qualityUnrealized = renderQualityPositions(qualityPositions)  // V5.9.420
-                tvQualityPnl.setTextIfChanged("%+.4f◎".format(qualityUnrealized))
-                tvQualityPnl.setTextColor(if (qualityUnrealized >= 0) green else red)
+                // V5.9.1416 — gate the heavy row rebuild through the per-tick budget.
+                // renderQualityPositions self-guards on a structure hash, so when
+                // nothing changed this is a cheap no-op and we don't spend budget on
+                // it; we only consume budget when a rebuild is actually pending.
+                val qHash = qualityPositions.map { "${it.mint}|${it.entrySol}|${it.isPaper}" }.hashCode()
+                if (qHash == lastQualityHash || consumeHeavyRenderBudget()) {
+                    val qualityUnrealized = renderQualityPositions(qualityPositions)  // V5.9.420
+                    tvQualityPnl.setTextIfChanged("%+.4f◎".format(qualityUnrealized))
+                    tvQualityPnl.setTextColor(if (qualityUnrealized >= 0) green else red)
+                }
             }
         } catch (_: Exception) {}
 
@@ -3530,9 +3559,16 @@ for legal compliance.
                 val shitCoinDailyPnl = shitCoinStats.dailyPnlSol
                 // V5.9.420 — header now shows OPEN unrealized PnL (matches child rows).
                 // The "Day:" sub-label below still shows daily realized PnL.
-                val shitCoinUnrealized = renderShitCoinPositions(shitCoinPositions)
-                tvShitCoinPnl.setTextIfChanged("%+.4f◎".format(shitCoinUnrealized))
-                tvShitCoinPnl.setTextColor(if (shitCoinUnrealized >= 0) green else red)
+                // V5.9.1416 — gate the heavy row rebuild through the per-tick budget.
+                // renderShitCoinPositions self-guards on a structure hash (cheap
+                // no-op when unchanged); only consume budget when a rebuild is due.
+                val scHashUi = shitCoinPositions.map { "${it.mint}|${it.entrySol}|${it.isPaper}" }.hashCode()
+                if (scHashUi == lastShitCoinHash || consumeHeavyRenderBudget()) {
+                    val shitCoinUnrealized = renderShitCoinPositions(shitCoinPositions)
+                    lastShitCoinCachedPnlSol = shitCoinUnrealized
+                    tvShitCoinPnl.setTextIfChanged("%+.4f◎".format(shitCoinUnrealized))
+                    tvShitCoinPnl.setTextColor(if (shitCoinUnrealized >= 0) green else red)
+                }
                 val modeEmoji = when (shitCoinStats.mode) {
                     com.lifecyclebot.v3.scoring.ShitCoinTraderAI.ShitCoinMode.HUNTING -> "🎯"
                     com.lifecyclebot.v3.scoring.ShitCoinTraderAI.ShitCoinMode.POSITIONED -> "📊"
@@ -4020,6 +4056,25 @@ for legal compliance.
             
             // Apply theme on startup
             applyTheme(c.darkModeEnabled)
+        }
+
+        // V5.9.1416 — if any heavy panel was deferred this tick (budget hit),
+        // schedule one more render shortly so the skipped panel rebuilds on the
+        // next frame instead of waiting for the next data emission. Single-flight
+        // via the flag; the post yields to the main looper so we never recurse
+        // synchronously. This spreads burst rebuilds across frames, killing the
+        // multi-panel single-frame stack without losing any visual update.
+        if (deferredHeavyRenderPending && mainUiActive && !isFinishing && !isDestroyed) {
+            deferredHeavyRenderPending = false
+            try {
+                window.decorView.postDelayed({
+                    try {
+                        if (mainUiActive && !isFinishing && !isDestroyed) {
+                            updateUi(vm.ui.value)
+                        }
+                    } catch (_: Throwable) {}
+                }, 120L)
+            } catch (_: Throwable) {}
         }
     }
 
