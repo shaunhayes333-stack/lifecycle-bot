@@ -532,6 +532,45 @@ class BotOrchestrator(
             "EXECUTOR_START", candidate.mint, candidate.symbol,
             "size=${"%.4f".format(size.sizeSol)} SOL",
         )
+
+        // V5.9.1390 — Phase 2 (P0-1) ordering enforcement.
+        // Spec: 'No code path may emit V3_EXEC / EXECUTOR_START / V3TradeExecutor
+        // execution / paper-or-stub sig until EXEC_GATE has allowed the candidate.'
+        // The orchestrator was previously calling tradeExecutor.execute() and
+        // then EXECUTOR_DONE for stub/paper paths WITHOUT consulting
+        // ExecutableOpenGate.canOpenExecutablePosition() first. That bypassed
+        // every downstream finality check (terminal-no-trade, hard-no-buy,
+        // data-degraded). Now: gate first; if blocked, return REJECTED and
+        // do NOT call tradeExecutor.execute(), do NOT log EXECUTOR_DONE.
+        val gateVerdict = try {
+            val modeStr = when (ctx.mode) {
+                com.lifecyclebot.v3.core.V3BotMode.LIVE -> "LIVE"
+                else -> "PAPER"
+            }
+            val rugForGate = try {
+                val v = candidate.extraInt("rugScore")
+                if (v > 0) v else -1
+            } catch (_: Throwable) { -1 }
+            com.lifecyclebot.engine.ExecutableOpenGate.canOpenExecutablePosition(
+                mint = candidate.mint,
+                symbol = candidate.symbol,
+                rugScore = rugForGate,
+                mode = modeStr,
+                lane = decision.band.name,
+                source = "V3Orchestrator",
+            )
+        } catch (_: Throwable) { null }
+        if (gateVerdict != null && !gateVerdict.allowed) {
+            lifecycle.mark(candidate.mint, LifecycleState.REJECTED)
+            shadowTracker.track(candidate, scoreCard, confidenceEffective, "EXEC_GATE_BLOCKED:${gateVerdict.logName}")
+            lifecycle.mark(candidate.mint, LifecycleState.SHADOW_TRACKED)
+            com.lifecyclebot.engine.MemePipelineTracer.blocked(
+                candidate.mint, candidate.symbol, reason = "EXEC_GATE_BLOCKED",
+                detail = "${gateVerdict.logName} | ${gateVerdict.reason?.take(60) ?: ""}",
+            )
+            return ProcessResult.Rejected("EXEC_GATE_BLOCKED:${gateVerdict.logName}")
+        }
+
         val execResult = tradeExecutor.execute(candidate, size, decision, scoreCard)
         lifecycle.mark(candidate.mint, LifecycleState.EXECUTED)
 
