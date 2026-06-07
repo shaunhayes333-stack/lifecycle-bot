@@ -1112,6 +1112,25 @@ object LayerReadinessRegistry {
         states.keys.associateWith { readinessOf(it) }
 
     /**
+     * V5.9.1388 — Phase 5 (P1) wire LayerReadiness into scoring.
+     * Spec mandate: "DEGR_BAD_EV layers cannot contribute positive score.
+     * Either cap at 0, negative-only, or shadow-only until recovered."
+     *
+     * Returns the maximum POSITIVE score this layer is allowed to add to
+     * any candidate's composite score. Negative contributions remain
+     * unrestricted (a degraded layer can still flag risk).
+     *
+     * Healthy / unknown layers → Double.MAX_VALUE (no cap).
+     * DEGRADED_BAD_EV          → 0.0 (negative-only — penalties still apply).
+     * DEGRADED_FEATURE_STARVED → 5.0 (small positive contribution allowed).
+     */
+    fun scorePositiveCap(layer: String): Double = when (readinessOf(layer)) {
+        LayerReadiness.DEGRADED_BAD_EV -> 0.0
+        LayerReadiness.DEGRADED_FEATURE_STARVED -> 5.0
+        else -> Double.MAX_VALUE
+    }
+
+    /**
      * V5.9.790 — operator audit Critical Fix 2: per-layer counters so the
      * dashboard can render exactly why a layer is DEGRADED (bad EV vs feature
      * starvation). Returns Triple(settled, richEducation, incompleteEducation).

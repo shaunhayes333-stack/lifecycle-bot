@@ -1171,6 +1171,23 @@ object ShitCoinTraderAI {
         // of its FluidLearningAI threshold. FLUID/OFF bands return 0 and
         // change nothing for healthy WR.
         val wrFloor = try { com.lifecyclebot.engine.WrRecoveryPartial.minScoreFloor() } catch (_: Throwable) { 0 }
+        // V5.9.1388 — Phase 5 (P1) LayerReadiness → scoring feedback.
+        // Spec: 'DEGR_BAD_EV layers cannot contribute positive score'.
+        // When SHITCOIN layer is in DEGRADED_BAD_EV, clamp the LANE's
+        // positive score contribution to the registry-supplied cap (0
+        // for BAD_EV, 5 for FEATURE_STARVED). Negative contributions
+        // (overheat, dump_guard, weak_signal) remain — degraded layers
+        // can still flag risk. Train-First: lane is NEVER disabled, only
+        // its enthusiasm is capped while it recovers.
+        run {
+            val cap = try { com.lifecyclebot.engine.LayerReadinessRegistry.scorePositiveCap("SHITCOIN") } catch (_: Throwable) { Double.MAX_VALUE }
+            if (shitScore > 0 && cap.isFinite() && shitScore.toDouble() > cap) {
+                val before = shitScore
+                shitScore = cap.toInt().coerceAtLeast(0)
+                scoreReasons.add("layerCap${before}→${shitScore}")
+                ErrorLogger.debug(TAG, "💩 LAYER_READINESS_CAP: SHITCOIN | ${before} → ${shitScore} (cap=${cap.toInt()}, layer DEGRADED)")
+            }
+        }
         val effectiveMinScore = maxOf(minScore, wrFloor) + personalityFloorBias
         val passesScore = shitScore >= effectiveMinScore
         val passesConf = shitConfidence >= minConf
