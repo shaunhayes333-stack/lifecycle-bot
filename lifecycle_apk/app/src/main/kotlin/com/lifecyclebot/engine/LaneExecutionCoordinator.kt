@@ -160,12 +160,36 @@ object LaneExecutionCoordinator {
         return if (all.isEmpty()) contesting.map { it.uppercase() } else all.toList()
     }
 
+    // V5.9.1386 — TEST-ONLY VERSION PIN. The 30-second bucket from
+    // System.currentTimeMillis() / TTL_MS is correct for production (lets a
+    // stale candidate be detected) but causes a STRUCTURAL RACE in unit tests:
+    // a test that calls candidateVersionFor() twice (once at recordFdg time,
+    // once during the EXEC finality check) can land on opposite sides of a
+    // 30s wall-clock boundary, producing a STALE_CANDIDATE false-positive
+    // that all 9 V5.9.1385a-i fix attempts tried — and failed — to de-flake.
+    // The retry loop in the test itself can hit the same race twice.
+    //
+    // Root cause: time-based versioning called multiple times across the
+    // SAME logical decision should return the SAME value. In production
+    // that is true within a 30s window; in tests, pinning makes it true
+    // unconditionally for the test's lifetime.
+    @Volatile private var testVersionPin: Long? = null
+
     fun candidateVersionFor(mint: String): Long {
+        testVersionPin?.let { return it }
         // 15-30s window bucket + monotonic suffix avoids same-second duplicate opens
         // while still letting genuinely new candidate data re-elect shortly after.
         val bucket = System.currentTimeMillis() / TTL_MS
         return bucket
     }
+
+    /**
+     * V5.9.1386 — pin the candidate-version to a stable value for the lifetime
+     * of a unit test. Pass `null` to unpin. resetForTests() unpins automatically.
+     * Production code never calls this — it's only used by RuntimePipelineGatesTest
+     * and other tests that exercise multi-step gate flows.
+     */
+    fun pinVersionForTests(version: Long?) { testVersionPin = version }
 
     fun elect(
         mint: String,
@@ -276,6 +300,7 @@ object LaneExecutionCoordinator {
         duplicateOpenSuppressed.set(0L)
         versionSeq.set(0L)
         laneWinTimestamps.clear()   // V5.9.1335a — fairness state must reset per test
+        testVersionPin = null       // V5.9.1386 — unpin so per-test pin doesn't leak
     }
 
     private fun mapKey(key: CandidateKey): String = "${key.runtimeGeneration}:${key.mint}:${key.candidateVersion}"

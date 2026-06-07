@@ -599,6 +599,13 @@ class ExecutionAuthorityInvariantTest {
         RuntimeConfigOverlay.resetForTests()
         ExecutableOpenGate.resetForTests()
         LaneExecutionCoordinator.resetForTests()
+        // V5.9.1386 — pin the candidate-version for this test. The production
+        // 30s wall-clock bucket caused STALE_CANDIDATE false-positives whenever
+        // a test's recordFdg / canOpenExecutablePosition pair straddled a 30s
+        // boundary. The 9 V5.9.1385a-i fix attempts all attacked symptoms
+        // (de-flake, isolate, retry) without addressing the structural race.
+        // A stable pin makes the multi-call decision deterministic.
+        LaneExecutionCoordinator.pinVersionForTests(1L)
         ReEntryLockout.resetForTests()
         ToxicModeCircuitBreaker.resetForTests()
         BirdeyeBudgetGate.resetForTests()
