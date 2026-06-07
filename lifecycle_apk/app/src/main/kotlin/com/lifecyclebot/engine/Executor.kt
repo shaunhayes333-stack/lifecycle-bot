@@ -8964,21 +8964,9 @@ class Executor(
     }
     
     fun requestSell(ts: TokenState, reason: String, wallet: SolanaWallet?, walletSol: Double): SellResult {
-        if (ts.position.isPaperPosition) {
-            val reasonUpper = reason.uppercase()
-            val hardFloorOrEmergency = reasonUpper.contains("HARD_FLOOR") ||
-                reasonUpper.contains("RAPID_HARD_FLOOR") ||
-                reasonUpper.contains("STARTUP_SWEEP_HARD_FLOOR") ||
-                reasonUpper.contains("RUG_SAFETY") ||
-                reasonUpper.contains("MANUAL")
-            val closedAgoMs = System.currentTimeMillis() - (BotService.recentlyClosedMs[ts.mint] ?: 0L)
-            if (!hardFloorOrEmergency && closedAgoMs in 0L..60_000L) {
-                try { ForensicLogger.lifecycle("PAPER_SELL_DUPLICATE_SUPPRESSED", "mint=${ts.mint.take(10)} symbol=${ts.symbol} reason=$reason closedAgoMs=$closedAgoMs") } catch (_: Throwable) {}
-                return SellResult.ALREADY_CLOSED
-            }
-        }
-        if (shouldDelayPaperSoftLossExit(ts, reason)) return SellResult.FAILED_RETRYABLE
-        if (!ts.position.isPaperPosition && blockIfSellInFlight(ts, reason)) return SellResult.FAILED_RETRYABLE
+        // V5.9.1411 — Settle-in and duplicate-suppress guards moved into doSell()
+        // so that direct doSell() calls from riskCheck/UltraFastRugDetector are caught too.
+        
         // V5.9.495z28 (operator spec items 1+3): mark the lifecycle record
         // as SELL_PENDING the moment any sell is requested. The downstream
         // SOL+token verification path (post-broadcast) flips it to CLEARED
@@ -9472,6 +9460,26 @@ class Executor(
     internal fun doSell(ts: TokenState, reason: String,
                        wallet: SolanaWallet?, walletSol: Double,
                        identity: TradeIdentity? = null): SellResult {
+        // V5.9.1411 — Move paper settle-in delay guard directly into doSell.
+        // This ensures exits originating from riskCheck (like v8_catastrophic_loss)
+        // or UltraFastRugDetector are caught by the settle-in delay if they are fake soft losses.
+        if (ts.position.isPaperPosition) {
+            val reasonUpper = reason.uppercase()
+            val hardFloorOrEmergency = reasonUpper.contains("HARD_FLOOR") ||
+                reasonUpper.contains("RAPID_HARD_FLOOR") ||
+                reasonUpper.contains("STARTUP_SWEEP_HARD_FLOOR") ||
+                reasonUpper.contains("RUG_SAFETY") ||
+                reasonUpper.contains("MANUAL")
+            val closedAgoMs = System.currentTimeMillis() - (BotService.recentlyClosedMs[ts.mint] ?: 0L)
+            if (!hardFloorOrEmergency && closedAgoMs in 0L..60_000L) {
+                try { ForensicLogger.lifecycle("PAPER_SELL_DUPLICATE_SUPPRESSED", "mint=${ts.mint.take(10)} symbol=${ts.symbol} reason=$reason closedAgoMs=$closedAgoMs") } catch (_: Throwable) {}
+                return SellResult.ALREADY_CLOSED
+            }
+            if (shouldDelayPaperSoftLossExit(ts, reason)) return SellResult.FAILED_RETRYABLE
+        } else {
+            if (blockIfSellInFlight(ts, reason)) return SellResult.FAILED_RETRYABLE
+        }
+
         val tradeId = identity ?: TradeIdentityManager.getOrCreate(ts.mint, ts.symbol, ts.source)
 
         // Atomic guard: only ONE sell can proceed per mint at a time.
