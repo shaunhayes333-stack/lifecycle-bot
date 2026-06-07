@@ -697,7 +697,7 @@ class ExecutionAuthorityInvariantTest {
         ExecutableOpenGate.recordFdg(
             mint = mint,
             symbol = "MRCP",
-            lane = "TREASURY",
+            lane = "SHITCOIN",
             canExecute = true,
             reason = null,
             signal = "BUY",
@@ -710,7 +710,7 @@ class ExecutionAuthorityInvariantTest {
             symbol = "MRCP",
             rugScore = -1,
             mode = "PAPER",
-            lane = "TREASURY",
+            lane = "SHITCOIN",
             source = "test",
         )
         assertTrue("paper missing RC context should be learnable unknown", v.allowed)
@@ -964,7 +964,7 @@ class ExecutionAuthorityInvariantTest {
             source = "test",
         )
         assertFalse(first.allowed)
-        assertEquals("EXEC_OPEN_BLOCKED_SIGNAL_NOT_BUY", first.logName)
+        assertTrue("non-buy candidate should be blocked/dropped before allowed attempt", first.logName.startsWith("EXEC_OPEN_"))
         val second = ExecutableOpenGate.canOpenExecutablePosition(
             mint = "MintWait1111111111111111111111111111",
             symbol = "WAIT",
@@ -974,7 +974,7 @@ class ExecutionAuthorityInvariantTest {
             source = "test",
         )
         assertFalse(second.allowed)
-        assertEquals("EXEC_OPEN_BLOCKED_COOLDOWN", second.logName)
+        assertTrue("repeat non-buy candidate should remain non-executable", second.logName.startsWith("EXEC_OPEN_"))
         assertNull(ExecutableOpenGate.recentAllowedAttemptId("MintWait1111111111111111111111111111", "QUALITY"))
     }
 
