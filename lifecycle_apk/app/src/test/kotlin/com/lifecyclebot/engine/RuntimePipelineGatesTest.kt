@@ -598,6 +598,8 @@ class ExecutionAuthorityInvariantTest {
     private fun resetAuthorities(paper: Boolean = true) {
         RuntimeConfigOverlay.resetForTests()
         ExecutableOpenGate.resetForTests()
+        LaneExecutionCoordinator.resetForTests()
+        ReEntryLockout.resetForTests()
         ToxicModeCircuitBreaker.resetForTests()
         BirdeyeBudgetGate.resetForTests()
         RuntimeModeAuthority.publishConfig(paperMode = paper, autoTrade = true)
