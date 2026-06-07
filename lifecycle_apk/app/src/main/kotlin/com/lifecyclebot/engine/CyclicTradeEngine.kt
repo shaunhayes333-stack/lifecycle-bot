@@ -168,22 +168,11 @@ object CyclicTradeEngine {
         //                    the cycle rather than firing a paper trade
         //                    that bleeds into the live UI/risk.
         val globalLive = !cfg.paperMode
-        val cyclicLiveOptedIn = (cfg.cyclicTradeEnabled && cfg.cyclicTradeLiveEnabled) ||
-                                (cfg.cyclicTradeEnabled && treasuryUsd >= 5_000.0)
-        if (globalLive && !cyclicLiveOptedIn) {
-            // Live mode but the operator hasn't opted into live cyclic
-            // (or treasury below threshold) → DO NOT fire a paper cycle.
-            // Skip the tick entirely so we never produce a paper position
-            // while the rest of the bot is live.
-            try {
-                com.lifecyclebot.engine.ForensicLogger.lifecycle(
-                    "TREASURY_LIVE_NOT_OPTED_IN",
-                    "globalLive=true cyclicLiveEnabled=${cfg.cyclicTradeLiveEnabled} treasuryUsd=${treasuryUsd.toInt()} → cycle skipped (no paper bleed)",
-                )
-            } catch (_: Throwable) {}
-            statusMessage = "🚫 Live mode active — cyclic live not opted in (treasury \$${treasuryUsd.toInt()})"
-            return
-        }
+        // V5.9.1405 — CYCLIC is an autonomous participant, not an optional bolt-on.
+        // Do not skip the cycle just because cyclic-specific live toggles/treasury
+        // thresholds are off. In global LIVE it participates as live; in PAPER it
+        // participates as paper. Wallet/balance/FDG/TradeAuthorizer/hard-floor are
+        // the safety rails. The lane must trade to learn and pivot.
         isLiveMode = globalLive   // mirror global; paper-mode → paper cycle
 
         // Compute ring size in SOL
@@ -335,8 +324,9 @@ object CyclicTradeEngine {
         val now = System.currentTimeMillis()
         if (now < pauseUntilMs) {
             val remainingSec = (pauseUntilMs - now) / 1000
-            statusMessage = "🧠 WR brake: ${consecutiveLosses} losses → pausing ${remainingSec}s (relearning)"
-            return
+            statusMessage = "🧠 WR brake active ${remainingSec}s — continuing at shaped size/score (no lane pause)"
+            // V5.9.1405 — no lane pause. The loss-streak state may shape score/size
+            // below, but CYCLIC must keep sampling so it can recover and learn.
         }
         val sinceLastCycle = now - lastCycleEndMs
         if (sinceLastCycle < COOLDOWN_MS) return

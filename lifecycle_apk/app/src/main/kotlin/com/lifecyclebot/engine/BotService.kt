@@ -220,29 +220,13 @@ class BotService : Service() {
         private val strategyPauseUntilMs = java.util.concurrent.ConcurrentHashMap<String, Long>()
 
         fun isStrategyPausedByTrust(strategy: String): Pair<Boolean, String> {
-            // V5.9.408 — free-range mode: let every strategy keep shooting
-            // even if trust is poisoned. The whole point of wide-open is to
-            // give bleeding strategies a path to recover via sample size.
-            if (com.lifecyclebot.engine.FreeRangeMode.isWideOpen()) return false to "free-range"
-            try {
-                val trust = com.lifecyclebot.v4.meta.StrategyTrustAI.getTrustRecord(strategy) ?: return false to ""
-                val now = System.currentTimeMillis()
-                val until = strategyPauseUntilMs[strategy] ?: 0L
-                if (until > now) {
-                    return true to "paused ${(until - now) / 60_000}m more (WR=${(trust.recentWinRate * 100).toInt()}% fp=${(trust.falsePositiveRate * 100).toInt()}%)"
-                }
-                val severelyDistrusted = trust.trustLevel == com.lifecyclebot.v4.meta.TrustLevel.DISTRUSTED &&
-                    trust.recentWinRate < 0.10 &&
-                    trust.falsePositiveRate > 0.70
-                if (severelyDistrusted) {
-                    strategyPauseUntilMs[strategy] = now + STRATEGY_DISTRUST_PAUSE_MS
-                    return true to "freshly paused 10m (WR=${(trust.recentWinRate * 100).toInt()}% fp=${(trust.falsePositiveRate * 100).toInt()}%)"
-                }
-                return false to ""
-            } catch (_: Exception) {
-                return false to ""
-            }
+            // V5.9.1405 — autonomous agenic doctrine. Trust/distrust may shape
+            // score, size, routing, or symbolic reflection, but it must never
+            // pause/amputate a trading layer. Every strategy has to keep taking
+            // samples so it can learn, pivot, and recover from trade #1.
+            return false to "agenic_no_pause"
         }
+
 
         // ═══════════════════════════════════════════════════════════════
         // V5.9.352: Meme Bridge override guardrails
@@ -1336,31 +1320,17 @@ class BotService : Service() {
             ErrorLogger.info("BotService", "CRYPTO_RUNTIME_DISABLED reason=MEME_ONLY_MODE_OR_MARKETS_OFF startup marketsLaneOn=$marketsLaneOn cryptoToggle=${marketsStartCfg.cryptoAltsEnabled}")
         }
 
-        // V5.9.779 — EMERGENT MEME-ONLY: publish the canonical enabled-trader
-        // set so every paper/sniper/cyclic/shadow path can short-circuit at
-        // its top via EnabledTraderAuthority.isMemeLiveOnly(). MEME is always
-        // enabled when the bot runs; the others reflect the user's UI toggles.
+        // V5.9.1405 — AUTONOMOUS AGENIC MEME-TRADER DOCTRINE.
+        // Internal lanes/tools must not be disabled by UI/config toggles. The bot
+        // is designed to trade, learn, pivot, and experiment from trade #1 across
+        // the full specialist stack. A bad lane must size-shape / learn / pivot —
+        // not disappear. Live wallet safety still lives in RuntimeModeAuthority,
+        // TradeAuthorizer, FDG, hard-rug gates, and executor balance checks; this
+        // authority only prevents accidental starvation of learning/execution
+        // participants such as CYCLIC, TREASURY/CashGen, ProjectSniper, shadow lab,
+        // and the broader toolkit.
         run {
-            val enabledSet = mutableSetOf(com.lifecyclebot.engine.EnabledTraderAuthority.Trader.MEME)
-            if (cryptoUniverseOnAtStart)
-                enabledSet += com.lifecyclebot.engine.EnabledTraderAuthority.Trader.CRYPTO_ALT
-            if (marketsLaneOn && marketsStartCfg.stocksEnabled)
-                enabledSet += com.lifecyclebot.engine.EnabledTraderAuthority.Trader.MARKETS_STOCKS
-            if (marketsLaneOn && marketsStartCfg.perpsEnabled)
-                enabledSet += com.lifecyclebot.engine.EnabledTraderAuthority.Trader.PERPS
-            if (com.lifecyclebot.v3.scoring.ProjectSniperAI.isEnabled())
-                enabledSet += com.lifecyclebot.engine.EnabledTraderAuthority.Trader.PROJECT_SNIPER
-            if (cfg.cyclicTradeEnabled)
-                enabledSet += com.lifecyclebot.engine.EnabledTraderAuthority.Trader.CYCLIC
-            // V5.9.1207 — restore paper cyclic authority. V5.9.792 accidentally
-            // used cyclicTradeLiveEnabled as the only CYCLIC enable flag, which
-            // disabled paper cyclic even though BotConfig.cyclicTradeEnabled
-            // defaults true and is the operator-facing paper ring toggle.
-            // Live execution remains protected inside maybeTickCyclicTradeEngine()
-            // and CyclicTradeEngine.tick() by cyclicTradeLiveEnabled / wallet
-            // threshold checks; this publish only lets the engine tick in paper.
-            if (cfg.shadowPaperEnabled)
-                enabledSet += com.lifecyclebot.engine.EnabledTraderAuthority.Trader.SHADOW_PAPER
+            val enabledSet = com.lifecyclebot.engine.EnabledTraderAuthority.Trader.values().toMutableSet()
             com.lifecyclebot.engine.EnabledTraderAuthority.publish(enabledSet)
             // V5.9.789 — operator audit Critical Fix 3: comprehensive startup
             // authority dump. The previous publish() call only logged the
@@ -5242,13 +5212,17 @@ class BotService : Service() {
             val walletSolNow = walletManager.state.value.solBalance
             val walletUsdNow = walletSolNow * solPrice.coerceAtLeast(0.0)
             val cfgNow = ConfigStore.load(applicationContext)
-            val cyclicEnabled = cfgNow.cyclicTradeEnabled && com.lifecyclebot.engine.EnabledTraderAuthority.isEnabled(
+            val cyclicEnabled = com.lifecyclebot.engine.EnabledTraderAuthority.isEnabled(
                 com.lifecyclebot.engine.EnabledTraderAuthority.Trader.CYCLIC
             )
             val liveThreshold = 1500.0
             val allowTick = when {
                 isPaperRuntime -> cyclicEnabled
-                else -> cyclicEnabled && (cfgNow.cyclicTradeLiveEnabled || walletUsdNow >= liveThreshold)
+                // V5.9.1405 — never starve CYCLIC. In LIVE runtime it should still
+                // tick as a live participant; wallet/balance/FDG/TradeAuthorizer are
+                // the safety rails, not a config-disable path. If wallet is too small
+                // the executor rejects size; the lane still observes and learns.
+                else -> cyclicEnabled
             }
             if (allowTick) {
                 // V5.9.1238 — snapshot cheap state on the loop thread, then run the
@@ -5297,7 +5271,7 @@ class BotService : Service() {
                 try {
                     ForensicLogger.lifecycle(
                         "CYCLIC_TICK_SKIPPED",
-                        "mode=${if (isPaperRuntime) "PAPER" else "LIVE"} cyclicEnabled=$cyclicEnabled cfgEnabled=${cfgNow.cyclicTradeEnabled} liveOptIn=${cfgNow.cyclicTradeLiveEnabled} walletUsd=${"%.2f".format(walletUsdNow)} threshold=$liveThreshold",
+                        "mode=${if (isPaperRuntime) "PAPER" else "LIVE"} cyclicEnabled=$cyclicEnabled agenicAlwaysOn=true cfgEnabled=${cfgNow.cyclicTradeEnabled} liveOptIn=${cfgNow.cyclicTradeLiveEnabled} walletUsd=${"%.2f".format(walletUsdNow)} threshold=$liveThreshold",
                     )
                 } catch (_: Throwable) {}
             }
@@ -16659,7 +16633,7 @@ if (hotExitHandledSweep) {
             )
             // V5.9.920 — PROJECT_SNIPER LANE_EVAL emit (before sniperAllowed gate
             // so brain sees skips due to mode/permit too).
-            if (!ts.position.isOpen && com.lifecyclebot.v3.scoring.ProjectSniperAI.isEnabled() && !RuntimeConfigOverlay.isLaneDisabled("PROJECT_SNIPER")) {
+            if (!ts.position.isOpen && !RuntimeConfigOverlay.isLaneDisabled("PROJECT_SNIPER")) {
                 try {
                     ForensicLogger.phase(
                         ForensicLogger.PHASE.LANE_EVAL,
@@ -16668,7 +16642,7 @@ if (hotExitHandledSweep) {
                     )
                 } catch (_: Throwable) {}
             }
-            if (!ts.position.isOpen && sniperAllowed && com.lifecyclebot.v3.scoring.ProjectSniperAI.isEnabled() && !RuntimeConfigOverlay.isLaneDisabled("PROJECT_SNIPER")) {
+            if (!ts.position.isOpen && sniperAllowed && !RuntimeConfigOverlay.isLaneDisabled("PROJECT_SNIPER")) {
                 // Check if we already have a sniper mission on this token
                 if (com.lifecyclebot.v3.scoring.ProjectSniperAI.hasMission(ts.mint)) {
                     // Check exit conditions

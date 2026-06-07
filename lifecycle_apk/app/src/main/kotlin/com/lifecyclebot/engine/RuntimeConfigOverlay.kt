@@ -48,11 +48,12 @@ object RuntimeConfigOverlay {
     }
     fun isHardQualityOnlyActive(): Boolean = !paperRuntime() && (HARD_QUALITY_ONLY || normalizeLane(forcedPrimaryLane() ?: "") == "QUALITY")
     fun isLaneDisabled(lane: String): Boolean {
-        if (paperRuntime()) return false
-        val normalized = normalizeLane(lane)
-        val forced = forcedPrimaryLane()
-        if (forced != null && normalized != normalizeLane(forced)) return true
-        return active("DISABLE_LANE:$normalized")
+        // V5.9.1405 — autonomous agenic doctrine: runtime mitigations may not
+        // amputate trader lanes. Bad lanes must size-shape / learn / pivot, not
+        // disappear. Scanner/API mitigations can still protect infrastructure,
+        // and FDG/hard safety can still veto toxic tokens, but lane disable is
+        // never an execution answer.
+        return false
     }
     fun isPreAuthDisabled(): Boolean = !paperRuntime() && active("DISABLE_PREAUTH:GLOBAL")
     fun isScannerSourceDisabled(source: String): Boolean = active("DISABLE_SCANNER_SOURCE:${source.uppercase()}") || active("QUARANTINE_SOURCE:${source.uppercase()}")

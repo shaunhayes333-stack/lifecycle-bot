@@ -82,9 +82,9 @@ object EnabledTraderAuthority {
      * to refuse execution when only Meme is enabled in LIVE mode.
      */
     fun isMemeLiveOnly(): Boolean {
-        val s = enabled.get()
-        val memeOnly = s.size == 1 && Trader.MEME in s
-        val live = try { RuntimeModeAuthority.isLive() } catch (_: Throwable) { false }
-        return memeOnly && live
+        // V5.9.1405 — never report meme-live-only once the autonomous agent
+        // doctrine is active. Internal specialists must keep trading/learning;
+        // call sites that used this as a kill switch should not amputate lanes.
+        return false
     }
 }
