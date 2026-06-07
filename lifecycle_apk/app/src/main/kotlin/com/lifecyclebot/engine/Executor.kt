@@ -5295,12 +5295,22 @@ class Executor(
 
         // V5.9.212: Update highestPrice/lowestPrice UNCONDITIONALLY before any exit path
         // (Audit #4 fix: was only updated inside riskCheck — missed when checkProfitLock returned early)
+        // V5.9.1392 — P1 MFE/MAE: also update peakGainPct + minPnlPct here so
+        // EVERY open trade carries Maximum Favorable / Adverse Excursion. Spec:
+        // "ensure every open trade records entryPrice, maxPriceSeen, maxPnlPct,
+        // minPriceSeen, minPnlPct, lastPrice, realizedPnlPct/Sol (at close)".
         if (ts.position.isOpen) {
             val _unconditionalPrice = getActualPrice(ts)
             if (_unconditionalPrice > 0.0) {
                 ts.position.highestPrice = maxOf(ts.position.highestPrice, _unconditionalPrice)
                 if (ts.position.lowestPrice == 0.0 || _unconditionalPrice < ts.position.lowestPrice)
                     ts.position.lowestPrice = _unconditionalPrice
+                val _entry = ts.position.entryPrice
+                if (_entry > 0.0) {
+                    val _pnlPct = ((_unconditionalPrice - _entry) / _entry) * 100.0
+                    if (_pnlPct > ts.position.peakGainPct) ts.position.peakGainPct = _pnlPct
+                    if (_pnlPct < ts.position.minPnlPct) ts.position.minPnlPct = _pnlPct
+                }
             }
         }
 

@@ -52,6 +52,11 @@ data class Position(
     var highestPrice: Double = 0.0,
     var lowestPrice: Double = 0.0,     // Track lowest price since entry for Exit AI
     var peakGainPct: Double = 0.0,     // Track highest % gain for trailing stop
+    // V5.9.1392 — P1 MFE/MAE: mirror peakGainPct on the downside so the
+    // exit tuner / journal can see Maximum Adverse Excursion alongside
+    // Maximum Favorable Excursion. Updated unconditionally by the price-
+    // tick path in Executor so every open trade has minPnlPct accounting.
+    var minPnlPct: Double = 0.0,
     val entryPhase: String = "",
     val entryScore: Double = 0.0,
     val entryLiquidityUsd: Double = 0.0,  // liquidity at entry for collapse detection
