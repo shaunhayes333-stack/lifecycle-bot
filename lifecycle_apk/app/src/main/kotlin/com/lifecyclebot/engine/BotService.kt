@@ -16247,7 +16247,10 @@ if (hotExitHandledSweep) {
                                 // only stop "we have no data yet" from killing the trades that
                                 // would generate the data. Probe is wide-open-phase only.
                                 val wideOpenBootstrap = try { com.lifecyclebot.engine.FreeRangeMode.isWideOpen() } catch (_: Throwable) { false }
-                                val scProbeable = wideOpenBootstrap && isBootstrapProbeableFdgBlock(scBlock)
+                                // V5.9.1399 — PROBE_ONLY is its own telemetry/training
+                                // route, not a hard veto. Do not require wide-open mode for
+                                // the exact PROBE_ONLY tag; structural risk remains blocked.
+                                val scProbeable = scBlock.equals("PROBE_ONLY", true) || (wideOpenBootstrap && isBootstrapProbeableFdgBlock(scBlock))
                                 if (!scProbeable) {
                                     ErrorLogger.info("BotService", "🚫 FDG HARD VETO on SHITCOIN: ${ts.symbol} | $scBlock")
                                     try {

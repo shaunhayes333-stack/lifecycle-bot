@@ -295,7 +295,7 @@ object PipelineHealthCollector {
             }
         }
         if (phaseTag == "FDG") {
-            if (!allow && reason.contains("PROBE_ONLY", ignoreCase = true)) {
+            if (reason.contains("PROBE_ONLY", ignoreCase = true)) {
                 bump(phaseCounts, phaseTag)
                 bump(labelCounts, "FDG_PROBE_ONLY")
                 appendEvent(Event(System.currentTimeMillis(), "GATE_PROBE_ONLY/FDG", symbol, reason.take(220)))

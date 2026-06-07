@@ -53,12 +53,6 @@ class BotOrchestrator(
         opsMetrics: OpsMetrics
     ): ProcessResult {
         lifecycle.mark(candidate.mint, LifecycleState.DISCOVERED)
-        logger.stage(
-            "DISCOVERY",
-            candidate.symbol,
-            "FOUND",
-            "src=${candidate.source} liq=${candidate.liquidityUsd} age=${candidate.ageMinutes}m"
-        )
 
         val eligibility = eligibilityGate.evaluate(candidate)
         if (!eligibility.passed) {
@@ -67,12 +61,34 @@ class BotOrchestrator(
             return ProcessResult.Rejected(eligibility.reason)
         }
 
-        lifecycle.mark(candidate.mint, LifecycleState.ELIGIBLE)
-        logger.stage("ELIGIBILITY", candidate.symbol, "PASS", "candidate eligible")
-        com.lifecyclebot.engine.MemePipelineTracer.stage(
-            "V3_ELIGIBLE", candidate.mint, candidate.symbol,
-            "src=${candidate.source} liq=${candidate.liquidityUsd} age=${candidate.ageMinutes}m",
+        // V5.9.1399 — canonical finality order. Do not emit FOUND / V3_ELIGIBLE
+        // before fatal safety completes. The 23:00 regression log showed mɔ logged
+        // FOUND + V3_ELIGIBLE, then one second later BLOCK_FATAL EXTREME_RUG_RISK_97.
+        // Fatal check only depends on hydrated candidate fields, so run it before
+        // positive discovery/eligibility/scoring telemetry. Fatal tokens still flow
+        // to the existing BLOCK_FATAL decision path below for counters/training.
+        val fatal = fatalRiskChecker.check(candidate, ctx)
+        logger.stage(
+            "FATAL",
+            candidate.symbol,
+            if (fatal.blocked) "BLOCK" else "PASS",
+            fatal.reason ?: "none"
         )
+
+        if (!fatal.blocked) {
+            logger.stage(
+                "DISCOVERY",
+                candidate.symbol,
+                "FOUND",
+                "src=${candidate.source} liq=${candidate.liquidityUsd} age=${candidate.ageMinutes}m"
+            )
+            lifecycle.mark(candidate.mint, LifecycleState.ELIGIBLE)
+            logger.stage("ELIGIBILITY", candidate.symbol, "PASS", "candidate eligible")
+            com.lifecyclebot.engine.MemePipelineTracer.stage(
+                "V3_ELIGIBLE", candidate.mint, candidate.symbol,
+                "src=${candidate.source} liq=${candidate.liquidityUsd} age=${candidate.ageMinutes}m",
+            )
+        }
 
         val preScoreMemoryKill = checkPreScoreMemoryKill(candidate)
         if (preScoreMemoryKill != null) {
@@ -116,14 +132,6 @@ class BotOrchestrator(
                     }
                 }
             }"
-        )
-
-        val fatal = fatalRiskChecker.check(candidate, ctx)
-        logger.stage(
-            "FATAL",
-            candidate.symbol,
-            if (fatal.blocked) "BLOCK" else "PASS",
-            fatal.reason ?: "none"
         )
 
         val confidence = confidenceEngine.compute(scoreCard, learningMetrics, opsMetrics)
