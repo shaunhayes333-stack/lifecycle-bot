@@ -697,27 +697,39 @@ class ExecutionAuthorityInvariantTest {
     fun paper_missing_rug_context_is_learnable_unknown() {
         resetAuthorities(paper = true)
         val mint = "MintMissingRcPaper11111111111111111"
-        ExecutableOpenGate.recordFdg(
-            mint = mint,
-            symbol = "MRCP",
-            lane = "SHITCOIN",
-            canExecute = true,
-            reason = null,
-            signal = "BUY",
-            rugScore = -1,
-            safetyTier = "SAFE",
-            liquidityUsd = 2500.0,
-        )
-        val v = ExecutableOpenGate.canOpenExecutablePosition(
-            mint = mint,
-            symbol = "MRCP",
-            rugScore = -1,
-            mode = "PAPER",
-            lane = "SHITCOIN",
-            source = "test",
-        )
-        assertTrue("paper missing RC context should be learnable unknown", v.allowed)
-        assertTrue("allowed paper missing-RC sample must return a canonical executable attempt", v.attemptId.isNotBlank())
+
+        fun stampAndCheck(): ExecutableOpenGate.OpenVerdict {
+            ExecutableOpenGate.recordFdg(
+                mint = mint,
+                symbol = "MRCP",
+                lane = "SHITCOIN",
+                canExecute = true,
+                reason = null,
+                signal = "BUY",
+                rugScore = -1,
+                safetyTier = "SAFE",
+                liquidityUsd = 2500.0,
+                candidateVersion = LaneExecutionCoordinator.candidateVersionFor(mint),
+            )
+            return ExecutableOpenGate.canOpenExecutablePosition(
+                mint = mint,
+                symbol = "MRCP",
+                rugScore = -1,
+                mode = "PAPER",
+                lane = "SHITCOIN",
+                source = "test",
+            )
+        }
+
+        var v = stampAndCheck()
+        if (!v.allowed && v.logName == "EXEC_OPEN_DROPPED_STALE_CANDIDATE") {
+            // candidateVersionFor() is a 30s wall-clock bucket. If CI crosses a
+            // bucket edge between recordFdg and finality, restamp once; this test
+            // is about PAPER missing-RC learnability, not stale-candidate timing.
+            v = stampAndCheck()
+        }
+        assertTrue("paper missing RC context should be learnable unknown; verdict=$v", v.allowed)
+        assertTrue("allowed paper missing-RC sample must return a canonical executable attempt; verdict=$v", v.attemptId.isNotBlank())
     }
 
     @Test
