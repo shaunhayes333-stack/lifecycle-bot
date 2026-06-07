@@ -292,6 +292,19 @@ data class TokenState(
     var wsTickRejectStreak: Int = 0,
     var lastMcap: Double = 0.0,
     var lastLiquidityUsd: Double = 0.0,    // USD liquidity from Dexscreener — key for exit risk
+    // V5.9.1395 — P1-6 Canonical liquidity model.
+    // Spec: 'one canonical liquidity model (normalized liquidity USD,
+    // freshness timestamp, confidence) used universally by scanner,
+    // intake, safety, V3, FDG, EXEC_GATE.' These two fields turn
+    // lastLiquidityUsd into a full canonical reading: when it was last
+    // updated (for freshness) and how strong our source for it was
+    // (HIGH = real on-chain pool quote, MEDIUM = DEX aggregator,
+    // LOW = synthetic/derived). Default-safe — when a writer doesn't
+    // set them, CanonicalLiquidity.read() falls back to lastLiquidityUsd
+    // with LOW confidence and "stale" freshness so the consumer never
+    // gets a false-high signal.
+    var lastLiquidityUsdMs: Long = 0L,
+    var lastLiquidityUsdConfidence: String = "",   // "HIGH" | "MEDIUM" | "LOW" | "" (unset)
     var lastFdv: Double = 0.0,             // fully diluted valuation
     var holderGrowthRate: Double = 0.0,    // % change in holders over last N candles (positive = growing)
     var peakHolderCount: Int = 0,          // highest holder count ever seen for this token

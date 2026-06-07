@@ -528,8 +528,21 @@ class BotOrchestrator(
             return ProcessResult.Rejected("SIZE_ZERO")
         }
 
+        // V5.9.1395 — P1-7 telemetry consistency: separate the
+        // "candidate considered for execution" stage from the
+        // "executor was actually invoked" stage. Previously EXECUTOR_START
+        // fired BEFORE the EXEC_GATE check, so a blocked candidate still
+        // appeared in the executor-invocation funnel. Spec mandate
+        // (V5.9.1386 P1): EXEC_GATE blocks must NOT be logged as
+        // executor invocations. New tag EXECUTOR_CONSIDER fires here
+        // (pre-gate) and EXECUTOR_START fires only AFTER the gate
+        // allowed the trade. Funnel readers can now compute
+        //   executor_invocations = MEME_EXECUTOR_START count
+        //   gate_block_rate      = ENTRY_BLOCKED(EXEC_GATE_BLOCKED) /
+        //                          MEME_EXECUTOR_CONSIDER
+        // without conflating blocked candidates with real invocations.
         com.lifecyclebot.engine.MemePipelineTracer.stage(
-            "EXECUTOR_START", candidate.mint, candidate.symbol,
+            "EXECUTOR_CONSIDER", candidate.mint, candidate.symbol,
             "size=${"%.4f".format(size.sizeSol)} SOL",
         )
 
@@ -580,6 +593,12 @@ class BotOrchestrator(
                 return ProcessResult.Rejected("EXEC_GATE_BLOCKED:${gateVerdict.logName}")
             }
         }
+
+        // V5.9.1395 — fires only AFTER the EXEC_GATE allowed the trade.
+        com.lifecyclebot.engine.MemePipelineTracer.stage(
+            "EXECUTOR_START", candidate.mint, candidate.symbol,
+            "size=${"%.4f".format(size.sizeSol)} SOL",
+        )
 
         val execResult = tradeExecutor.execute(candidate, size, decision, scoreCard)
         lifecycle.mark(candidate.mint, LifecycleState.EXECUTED)

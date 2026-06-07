@@ -1069,6 +1069,18 @@ object PipelineHealthCollector {
             }
         }
 
+        // ── V5.9.1395 — P1-5 Scanner cycle budget + circuit breakers ───
+        // Spec: per-provider timeout budget, hard circuit-break on
+        // repeated 4xx, stop unlimited retries. Target avg <12s.
+        run {
+            val summary = try { ApiHealthMonitor.cycleBudgetSummary() } catch (_: Throwable) { null }
+            if (!summary.isNullOrBlank()) {
+                sb.append("===== Scanner cycle budget (V5.9.1395 P1-5) =====\n")
+                sb.append("  ").append(summary).append('\n')
+                sb.append('\n')
+            }
+        }
+
         // ── Block reason histogram ──────────────────────────────────
         if (s.blockReasonCounts.isNotEmpty()) {
             sb.append("===== Top block reasons (gate -> reason) =====\n")
