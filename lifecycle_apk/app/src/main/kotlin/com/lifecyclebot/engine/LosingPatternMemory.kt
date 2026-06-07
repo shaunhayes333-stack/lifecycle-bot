@@ -230,8 +230,42 @@ object LosingPatternMemory {
         val sb = StringBuilder("\n===== Losing-pattern memory (V5.9.806) =====\n")
         sb.append("  Danger buckets (≥8 losses, ≥20 samples, ≥75% loss rate). TradingMode × ScoreBand:\n")
         dangerous.take(10).forEach { (k, v) ->
-            sb.append("    %-26s  losses=%-3d  wins=%-3d  meanPnl=%+.2f%%\n".format(k, v.losses, v.wins, v.meanPnl))
+            val shadow = if (recommendedShadowOnlyForBucket(v)) "  🔒 SHADOW_TRAIN_ONLY" else ""
+            sb.append("    %-26s  losses=%-3d  wins=%-3d  meanPnl=%+.2f%%%s\n".format(k, v.losses, v.wins, v.meanPnl, shadow))
         }
         return sb.toString()
+    }
+
+    /**
+     * V5.9.1394 — P1 Danger Bucket SHADOW_TRAIN_ONLY recommendation.
+     * Spec mandate (V5.9.1386 P1-7):
+     *   "Danger buckets (e.g., SHITCOIN|S0-10, SHITCOIN|S61+) default to
+     *    SHADOW_TRAIN_ONLY. Stop executable trading but allow learning."
+     *
+     * Returns true when the bucket is so deeply matured-bleeder that
+     * LIVE execution should be paused while paper learning continues.
+     * Doctrine: never disable a lane outright — route LIVE to SHADOW so
+     * the bucket keeps recording outcomes via the paper book and the
+     * scorer can self-correct once the bleeder pattern reverses.
+     *
+     * Conditions (all must hold):
+     *   - bucket is matured (n ≥ 20)
+     *   - loss rate ≥ 75% (already the danger threshold)
+     *   - mean PnL ≤ -15% (deep bleed, not a low-WR/big-win lottery)
+     *   - losses ≥ 20 (extra confidence the pattern is real, not bootstrap)
+     *
+     * The function is ADVISORY. Callers consult it via
+     * [recommendedShadowOnly] and choose whether to downgrade the
+     * route — the doctrine forbids automatic disablement.
+     */
+    private fun recommendedShadowOnlyForBucket(s: BucketStats): Boolean {
+        if (!s.isDangerous) return false
+        if (s.meanPnl > -15.0) return false
+        if (s.losses < 20) return false
+        return true
+    }
+
+    fun recommendedShadowOnly(tradingMode: String, v3Score: Int): Boolean {
+        return recommendedShadowOnlyForBucket(stats(tradingMode, v3Score))
     }
 }

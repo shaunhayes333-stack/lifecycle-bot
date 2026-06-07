@@ -7814,6 +7814,41 @@ class Executor(
             return
         }
 
+        // V5.9.1394 — P1-7 Danger Bucket SHADOW_TRAIN_ONLY downgrade.
+        // Spec: 'Danger buckets (e.g. SHITCOIN|S0-10, SHITCOIN|S61+)
+        // default to SHADOW_TRAIN_ONLY. Stop executable trading but allow
+        // learning.' Soft-shape, never veto. We don't block the trade —
+        // we route it through paperBuy so the bucket keeps recording
+        // outcomes (paper book) while the scorer's polarity self-corrects
+        // and the live wallet is protected from the deepest bleeders.
+        // Doctrine: lane is NEVER disabled; only the route is downgraded.
+        run {
+            val mode = ts.position.tradingMode.ifBlank { layerTag.ifBlank { "STANDARD" } }
+            val shadowOnly = try {
+                com.lifecyclebot.engine.LosingPatternMemory.recommendedShadowOnly(mode, score.toInt())
+            } catch (_: Throwable) { false }
+            if (shadowOnly) {
+                try {
+                    ForensicLogger.lifecycle(
+                        "DANGER_BUCKET_SHADOW_DOWNGRADE",
+                        "symbol=${ts.symbol} mint=${ts.mint.take(10)} mode=$mode score=${score.toInt()} layer=$layerTag — routing LIVE → SHADOW_TRAIN_ONLY (paper book)"
+                    )
+                } catch (_: Throwable) {}
+                ErrorLogger.info(
+                    "Executor",
+                    "🔒 DANGER_BUCKET_SHADOW_DOWNGRADE: ${ts.symbol} | mode=$mode score=${score.toInt()} — paper-routing this entry to protect live wallet while bucket keeps learning",
+                )
+                paperBuy(
+                    ts = ts, sol = sol, score = score,
+                    identity = identity, quality = quality,
+                    skipGraduated = skipGraduated, layerTag = layerTag,
+                    layerTagEmoji = layerTagEmoji,
+                    finalityPrechecked = finalityPrechecked, attemptId = attemptId,
+                )
+                return
+            }
+        }
+
         // V5.9.778 — EMERGENT MEME-ONLY: MEME_LIVE_BUY_MUTEX.
         // Operator forensics 5.0.2709: 15 live buys attempted ~0.097 SOL
         // each against a 0.107 SOL wallet → Jupiter "Insufficient funds"
