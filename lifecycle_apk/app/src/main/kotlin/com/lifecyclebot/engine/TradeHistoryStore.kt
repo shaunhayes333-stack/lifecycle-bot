@@ -569,6 +569,7 @@ object TradeHistoryStore {
         // strategy expectancy bins double-counting because Executor and
         // V3JournalRecorder set inconsistent casing on the same trade.
         var normalizedMode = normalizeTradeModeName(trade.tradingMode)
+        val rawModeUnresolved = normalizedMode.isBlank() || normalizedMode.equals("UNKNOWN", true)
 
         // V5.9.1066 — analytics-vs-expectancy gap fix. When a SELL arrives
         // with a blank tradingMode (FALLBACK_ORPHAN_HARD_FLOOR, fluid_stop_loss,
@@ -578,23 +579,29 @@ object TradeHistoryStore {
         // totaling +19 SOL across 618 binned trades while PerformanceAnalytics
         // totaled -13.7 SOL across 912 closed trades — a 294-trade / -33 SOL
         // gap that was entirely unbinned fallback exits.
-        if (normalizedMode.isBlank() && isJournalSellLike(trade.side) && trade.mint.isNotBlank()) {
-            val inheritedMode = try {
+        if (rawModeUnresolved && isJournalSellLike(trade.side) && trade.mint.isNotBlank()) {
+            val inherited = try {
                 synchronized(lock) {
                     trades.asReversed().firstOrNull { prev ->
-                        prev.side.equals("BUY", ignoreCase = true) &&
-                            prev.mint == trade.mint &&
-                            prev.tradingMode.isNotBlank()
-                    }?.tradingMode
+                        prev.side.equals("BUY", ignoreCase = true) && prev.mint == trade.mint &&
+                            listOf(prev.canonicalLane, prev.selectedLane, prev.primaryLane, prev.tradingMode, prev.sourceLaneVotes)
+                                .any { it.isNotBlank() && !it.equals("UNKNOWN", true) }
+                    }
                 }
             } catch (_: Throwable) { null }
+            val inheritedMode = listOf(
+                trade.canonicalLane, trade.selectedLane, trade.primaryLane,
+                inherited?.canonicalLane, inherited?.selectedLane, inherited?.primaryLane,
+                inherited?.tradingMode, inherited?.sourceLaneVotes,
+                trade.reason,
+            ).firstOrNull { !it.isNullOrBlank() && !it.equals("UNKNOWN", true) }
             if (!inheritedMode.isNullOrBlank()) {
                 normalizedMode = normalizeTradeModeName(inheritedMode)
             }
         }
 
         val tradeToStore = withCanonicalAttribution(trade, normalizedMode)
-        if (isJournalSellLike(trade.side) && trade.mint.isNotBlank() && inheritEntryAttribution(trade.mint) == null && trade.canonicalLane.isBlank() && trade.tradingMode.isBlank()) {
+        if (isJournalSellLike(trade.side) && trade.mint.isNotBlank() && inheritEntryAttribution(trade.mint) == null && trade.canonicalLane.isBlank() && (trade.tradingMode.isBlank() || trade.tradingMode.equals("UNKNOWN", true))) {
             try {
                 ErrorLogger.warn("TradeHistoryStore", "JOURNAL_CONTEXT_MISSING mint=${trade.mint.take(8)} side=${trade.side} reason=${trade.reason.take(60)} — learning update blocked")
                 ForensicLogger.lifecycle("JOURNAL_CONTEXT_MISSING", "mint=${trade.mint.take(10)} side=${trade.side} reason=${trade.reason.take(80)}")

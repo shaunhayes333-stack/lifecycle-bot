@@ -776,30 +776,34 @@ object CanonicalOutcomeBus {
         // build the rich CandidateFeatures. Infer the mode from the close
         // reason as a fallback so these trades still resolve to a real
         // strategy bin instead of UNKNOWN.
-        val effectiveModeName: String = if (trade.tradingMode.isBlank() && trade.reason.isNotBlank()) {
-            val r = trade.reason.uppercase()
-            when {
+        fun laneFromText(raw: String?): String {
+            val r = raw?.uppercase().orEmpty()
+            return when {
                 r.contains("MOONSHOT") -> "MOONSHOT"
                 r.contains("SHITCOIN") -> "SHITCOIN"
                 // V5.9.1300 — CASHGEN == TREASURY (same trader); fold to one bin.
                 r.contains("CASHGEN") -> "TREASURY"
                 r.contains("TREASURY") -> "TREASURY"
-                r.contains("BLUECHIP") -> "BLUECHIP"
-                r.contains("BLUE_CHIP") -> "BLUECHIP"
+                r.contains("BLUECHIP") || r.contains("BLUE_CHIP") -> "BLUECHIP"
                 r.contains("QUALITY") -> "QUALITY"
                 r.contains("MANIP") -> "MANIPULATED"
                 r.contains("EXPRESS") -> "EXPRESS"
                 r.contains("CYCLIC") -> "CYCLIC"
+                r.contains("LAB") || r.contains("LLM") -> "LAB"
                 r.contains("COPY") -> "COPYTRADE"
                 r.contains("SNIPER") || r.contains("PROJECT_SNIPER") -> "PROJECT_SNIPER"
                 r.contains("DIP_HUNTER") || r.contains("DIP") -> "DIP_HUNTER"
-                r.contains("LONG_HOLD") -> "LONG_HOLD"
-                r.contains("MOMENTUM") -> "MOMENTUM_SWING"
-                r.contains("PRESALE") -> "PRESALE_SNIPE"
-                r.contains("RAPID_") || r.contains("FLUID") -> "STANDARD"
-                else -> trade.tradingMode
+                r.contains("STANDARD") || r.contains("RAPID_") || r.contains("FLUID") || r.contains("V8_") -> "STANDARD"
+                else -> ""
             }
-        } else trade.tradingMode
+        }
+        val effectiveModeName: String = listOf(
+            trade.canonicalLane,
+            trade.selectedLane,
+            trade.primaryLane,
+            trade.tradingMode.takeUnless { it.equals("UNKNOWN", true) },
+            laneFromText(trade.reason),
+        ).firstOrNull { !it.isNullOrBlank() && !it.equals("UNKNOWN", true) } ?: trade.tradingMode
         var mode = CanonicalOutcomeNormalizer.normalizeMode(effectiveModeName)
         val env = if (trade.mode.equals("paper", true)) TradeEnvironment.PAPER else TradeEnvironment.LIVE
         val pnlPct = trade.pnlPct
@@ -842,7 +846,7 @@ object CanonicalOutcomeBus {
                 try {
                     ForensicLogger.lifecycle(
                         "CANON_UNRESOLVED_LANE_DEFAULTED_STANDARD",
-                        "mint=${trade.mint.take(10)} reason=${trade.reason.take(40)} env=${env.name} pnlPct=${"%.2f".format(pnlPct)}",
+                        "mint=${trade.mint.take(10)} reason=${trade.reason.take(40)} canonical=${trade.canonicalLane} selected=${trade.selectedLane} primary=${trade.primaryLane} env=${env.name} pnlPct=${"%.2f".format(pnlPct)}",
                     )
                 } catch (_: Throwable) {}
             }
