@@ -14059,18 +14059,31 @@ if (hotExitHandledSweep) {
         }
         val volumeKnownFresh = ts.volumeH1Known && lastVolumeH1 > 0.0 && (System.currentTimeMillis() - ts.volumeH1LastUpdatedMs) <= 10 * 60_000L
         val ageMinForVolume = (System.currentTimeMillis() - ts.addedToWatchlistAt) / 60_000.0
+        val trustedSourceFamily = ts.sourceFamilies.contains("PUMP") || ts.sourceFamilies.contains("RAYDIUM") || ts.sourceFamilies.contains("DEX")
+        val safetyHydratedEnough = !ts.safety.isBlocked && ts.safety.hardBlockReasons.isEmpty() && ts.safety.tier.name != "UNKNOWN"
+        // V5.9.1398 — source-hydrated volume proxy. h1 volume is often null on
+        // fresh Pump/Raydium launches even when the source itself is live and
+        // liquidity/orderflow are present. Unknown h1vol still cannot execute by
+        // default, but a fresh launch may proceed when trusted source hydration,
+        // liquidity, mcap, and safety are all concrete. This preserves the
+        // operator rule: low-liq $1500-$2000 unknown-volume tokens remain shadow.
         val strictFreshLaunch = !volumeKnownFresh &&
             ageMinForVolume <= 10.0 &&
             ts.lastLiquidityUsd >= 5_000.0 &&
             ts.lastMcap >= 10_000.0 &&
-            ts.sourceConfidence >= 85 &&
-            (ts.sourceFamilies.contains("PUMP") || ts.sourceFamilies.contains("RAYDIUM") || ts.sourceFamilies.contains("DEX"))
+            ts.sourceConfidence >= 60 &&
+            trustedSourceFamily &&
+            safetyHydratedEnough
         if (!volumeKnownFresh && !strictFreshLaunch) {
             try {
                 ts.candidateExecutionMode = "SHADOW_TRAIN_ONLY"
                 ts.candidateFinalityReason = "VOLUME_UNKNOWN_NOT_EXECUTABLE"
-                ExecutableOpenGate.markTerminalNoTrade(ts.mint, ts.symbol, "SHADOW_ONLY:VOLUME_UNKNOWN_NOT_EXECUTABLE", "V3")
-                ExecutableOpenGate.recordV3(ts.mint, ts.symbol, "SHADOW_ONLY", "VOLUME_UNKNOWN_NOT_EXECUTABLE", "WATCH", ts.safety.rugcheckScore)
+                // Do NOT terminal-stamp the mint here. Volume can hydrate a few
+                // seconds later; terminal SHADOW_ONLY was poisoning the whole
+                // candidateVersion and starving subsequent lane finality. This
+                // branch returns before lane FDG/EXEC, so unknown volume remains
+                // non-executable for the current pass without blocking recheck.
+                ExecutableOpenGate.recordV3(ts.mint, ts.symbol, "WATCH", "VOLUME_UNKNOWN_NOT_EXECUTABLE", "WATCH", ts.safety.rugcheckScore)
                 ForensicLogger.gate(ForensicLogger.PHASE.V3, ts.symbol, allow = false, reason = "V3_BLOCK_REASON=VOLUME_UNKNOWN_NOT_EXECUTABLE liq=${ts.lastLiquidityUsd.toInt()} conf=${ts.sourceConfidence} source=${ts.sourceFamilies}")
                 ForensicLogger.lifecycle("VOLUME_UNKNOWN_NOT_EXECUTABLE", "symbol=${ts.symbol} mint=${ts.mint.take(10)} liq=${ts.lastLiquidityUsd.toInt()} mcap=${ts.lastMcap.toInt()} conf=${ts.sourceConfidence} ageMin=${"%.1f".format(ageMinForVolume)}")
                 com.lifecyclebot.engine.PipelineHealthCollector.labelInc("V3_BLOCK_REASON_VOLUME_UNKNOWN_NOT_EXECUTABLE")
@@ -14559,9 +14572,14 @@ if (hotExitHandledSweep) {
                         .map { it.uppercase() }
                         .filter { it.isNotBlank() }
                         .toMutableList()
-                    if (v3Decision is com.lifecyclebot.v3.V3Decision.Execute) affinity.add("CORE")
                     if (affinity.isEmpty()) affinity.addAll(listOf("SHITCOIN", "MOONSHOT"))
-                    val preferred = if (v3Decision is com.lifecyclebot.v3.V3Decision.Execute) "CORE" else null
+                    val specialistPresent = affinity.any { it != "CORE" }
+                    if (v3Decision is com.lifecyclebot.v3.V3Decision.Execute) affinity.add("CORE")
+                    // V5.9.1398 — V3 Execute is not allowed to monopolize CORE
+                    // when a specialist lane already has affinity. CORE has been
+                    // the bleeder in snapshots; let lane routing pick the specialist
+                    // primary and use CORE only for genuinely unclassified V3 setups.
+                    val preferred = if (v3Decision is com.lifecyclebot.v3.V3Decision.Execute && !specialistPresent) "CORE" else null
                     val election = LaneExecutionCoordinator.elect(ts.mint, affinity.distinct(), preferred, candidateVersion)
                     ts.primaryExecutableLane = election.primaryLane
                     ts.candidateExecutionMode = if (ts.candidateExecutionMode == "UNKNOWN") "EXECUTABLE" else ts.candidateExecutionMode
@@ -14589,7 +14607,10 @@ if (hotExitHandledSweep) {
             // same mint on the same tick (double-buy, conflicting TP/SL
             // ladders). Treasury will re-evaluate on later ticks once
             // the CORE position is open/closed.
-            val v3WillExecuteCore = v3Decision is com.lifecyclebot.v3.V3Decision.Execute
+            val v3WillExecuteCore = v3Decision is com.lifecyclebot.v3.V3Decision.Execute && ts.primaryExecutableLane == "CORE"
+            if (v3Decision is com.lifecyclebot.v3.V3Decision.Execute && !v3WillExecuteCore) {
+                try { ForensicLogger.lifecycle("V3_CORE_DEFERRED_TO_PRIMARY_LANE", "mint=${ts.mint.take(10)} symbol=${ts.symbol} primary=${ts.primaryExecutableLane}") } catch (_: Throwable) {}
+            }
             if (v3WillExecuteCore) {
                 ErrorLogger.info(
                     "BotService",
@@ -17177,6 +17198,14 @@ if (hotExitHandledSweep) {
                         com.lifecyclebot.v4.meta.StrategyTrustAI.isStrategyAllowed(memeMode)
                     if (!trustAllowed) {
                         ErrorLogger.warn("BotService", "🚫 [TRUST GATE] ${identity.symbol} | mode=$memeMode DISTRUSTED — skipping execute")
+                    } else if (ts.primaryExecutableLane.isNotBlank() && ts.primaryExecutableLane != "CORE") {
+                        // V5.9.1398 — a specialist lane was elected as the canonical
+                        // executable route. Do not also run CORE/V3 execution after the
+                        // specialist pass; that reintroduces CORE bleed and one-mint
+                        // authority contention. The specialist lane already had first
+                        // right to open above this block.
+                        try { ForensicLogger.lifecycle("V3_CORE_EXECUTION_DEFERRED", "mint=${ts.mint.take(10)} symbol=${identity.symbol} primary=${ts.primaryExecutableLane}") } catch (_: Throwable) {}
+                        return
                     } else {
                     // Cache V3 scores on TokenState for Treasury Mode to use
                     ts.lastV3Score = result.score

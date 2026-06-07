@@ -458,7 +458,14 @@ object PipelineHealthCollector {
      */
     fun recordExec(side: String, mode: String, symbol: String, sizeSol: Double, pnlSol: Double, reason: String) {
         if (!attached) return
-        bump(labelCounts, "EXEC_${side.uppercase()}")
+        val sideUpper = side.uppercase()
+        val modeUpper = mode.uppercase()
+        bump(labelCounts, "EXEC_$sideUpper")
+        // V5.9.1398 — completed journal writes are the definitive execution
+        // signal in paper mode. PipelineTracer does not call onExec(), so the
+        // per-mode counters stayed at zero while EXEC_BUY was non-zero.
+        if (sideUpper == "BUY" && modeUpper.contains("PAPER")) execPaperBuyOk.incrementAndGet()
+        if (sideUpper == "SELL" && modeUpper.contains("PAPER")) execPaperSellOk.incrementAndGet()
         recentExecs.addLast(ExecRecord(System.currentTimeMillis(), side, mode, symbol, sizeSol, pnlSol, reason))
         if (recentExecsSize.incrementAndGet() > EXEC_RING_CAP) {
             recentExecs.pollFirst()
