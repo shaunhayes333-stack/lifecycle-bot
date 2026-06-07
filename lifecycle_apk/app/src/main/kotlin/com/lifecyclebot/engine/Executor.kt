@@ -6817,6 +6817,17 @@ class Executor(
         // (atomic, no 2 s cache race) — same single source of truth used
         // by the LIVE buy paths. isPaperRT() is config INPUT only.
         if (routeIsShadow) {
+            // V5.9.1391 — P0-2: assert SHADOW never escalates to on-chain
+            // swap. paperBuy() only writes paper-position mutations so
+            // isOnChainSwap is always false here, but the explicit
+            // assertion makes the invariant testable and emits a
+            // forensic event if any future refactor leaks an on-chain
+            // path through this branch.
+            AuthorityService.assertNoShadowExecutableLeak(
+                lane = layerTag.ifBlank { "MEME" },
+                source = "Executor.paperBuy",
+                isOnChainSwap = false,
+            )
             try {
                 ForensicLogger.lifecycle(
                     "SHADOW_PAPER_BUY",
@@ -7782,6 +7793,16 @@ class Executor(
                         layerTagEmoji: String = "",
                         finalityPrechecked: Boolean = false,
                         attemptId: String = "") {    // V5.9.386 — matching emoji
+
+        // V5.9.1391 — P0-2 AuthorityService: hard refusal at the live-mission
+        // entry. If global authority is not LIVE we MUST NOT proceed; live
+        // mission code is physically unreachable from PAPER authority.
+        if (!AuthorityService.assertLiveExecutionAllowed(
+                lane = layerTag.ifBlank { "MEME" },
+                source = "Executor.liveBuy",
+        )) {
+            return
+        }
 
         // V5.9.778 — EMERGENT MEME-ONLY: MEME_LIVE_BUY_MUTEX.
         // Operator forensics 5.0.2709: 15 live buys attempted ~0.097 SOL
