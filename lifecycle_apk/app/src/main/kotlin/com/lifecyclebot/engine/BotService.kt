@@ -12178,6 +12178,10 @@ if (hotExitHandledSweep) {
     // the next 5s loop cadence.
     private val supervisorLastSpawnAt = java.util.concurrent.atomic.AtomicLong(System.currentTimeMillis())
     private val supervisorLifetimeSaturationEvents = java.util.concurrent.atomic.AtomicLong(0) // saturation telemetry counter
+    // V5.9.1387 — dedupe set for terminal-no-trade skip logs. Keys are
+    // "mint:candidateVersion". Bounded to 2000 entries (cleared and re-seeded
+    // when the bound is hit). Stops the SKIPPED log from flooding the journal.
+    private val supervisorTerminalLoggedKeys: MutableSet<String> = java.util.concurrent.ConcurrentHashMap.newKeySet()
     private val SUPERVISOR_POOL_STALL_MS: Long = 8_000L  // telemetry threshold only; no destructive counter reset
     @Suppress("unused") private val SUPERVISOR_MAX_INFLIGHT: Int = 32
     // Worker slot budget is one bot-loop cadence: long enough for normal
@@ -12357,12 +12361,24 @@ if (hotExitHandledSweep) {
             // learning upstream, but a terminal SHADOW_ONLY / WATCH_ONLY /
             // EXPECTANCY_REJECT / DATA_DEGRADED state must not spawn worker loops
             // that can only end in EXEC_OPEN_DROPPED_* and cap saturation.
+            // V5.9.1387 — dedupe the SKIPPED log per (mint, candidateVersion).
+            // Operator dump showed the counter and lifecycle log storming
+            // thousands of times per cycle. Skip-action stays; log is now once.
             try {
                 val terminal = ExecutableOpenGate.terminalNoTradeReason(mint)
                 if (terminal != null && !supervisorMintIsOpen(mint)) {
                     skipped++
                     com.lifecyclebot.engine.PipelineHealthCollector.labelInc("SUPERVISOR_TERMINAL_NO_TRADE_SKIPPED")
-                    try { ForensicLogger.lifecycle("SUPERVISOR_TERMINAL_NO_TRADE_SKIPPED", "mint=${mint.take(10)} reason=$terminal") } catch (_: Throwable) {}
+                    val version = com.lifecyclebot.engine.LaneExecutionCoordinator.candidateVersionFor(mint)
+                    val logKey = "$mint:$version"
+                    if (supervisorTerminalLoggedKeys.add(logKey)) {
+                        // Cap memory: keep the set bounded so it doesn't grow without limit.
+                        if (supervisorTerminalLoggedKeys.size > 2000) {
+                            supervisorTerminalLoggedKeys.clear()
+                            supervisorTerminalLoggedKeys.add(logKey)
+                        }
+                        try { ForensicLogger.lifecycle("SUPERVISOR_TERMINAL_NO_TRADE_SKIPPED", "mint=${mint.take(10)} reason=$terminal") } catch (_: Throwable) {}
+                    }
                     continue
                 }
             } catch (_: Throwable) {}

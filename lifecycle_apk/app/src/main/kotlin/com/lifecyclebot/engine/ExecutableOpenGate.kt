@@ -235,6 +235,19 @@ object ExecutableOpenGate {
     ) {
         val label = terminalLabel(reason)
         val rank = terminalRank(reason)
+        // V5.9.1387 — idempotency guard. Operator snapshot showed
+        // TERMINAL_NO_TRADE_STAMPED and SUPERVISOR_TERMINAL_NO_TRADE_SKIPPED
+        // storming the counters (thousands of repeats per cycle) because the
+        // same mint+version was being stamped every loop. Stamp once per
+        // (mint, candidateVersion, reason) — no-op on duplicate.
+        val existing = states[mint]
+        if (existing != null &&
+            existing.anyTerminalNoTrade &&
+            existing.candidateVersion == candidateVersion &&
+            existing.terminalNoTradeReason == label &&
+            existing.terminalNoTradeRank >= rank) {
+            return  // idempotent: already stamped with this reason at this version
+        }
         put(mint) { old ->
             val oldRank = old?.terminalNoTradeRank ?: 0
             val keepOld = (old?.anyTerminalNoTrade == true) && oldRank >= rank && old.candidateVersion == candidateVersion
