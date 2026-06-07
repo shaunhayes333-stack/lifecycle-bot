@@ -6842,6 +6842,27 @@ class BotService : Service() {
                         val holdTimeSecs = holdTimeMs / 1000.0
                         val peakPnlPct = ts.position.peakGainPct
                         val volatility = ts.volatility ?: 50.0
+
+                        // V5.9.1404 — RAPID ENTRY CHURN SOURCE FIX.
+                        // evaluateRapidMonitorExit() already applies hard-floor /
+                        // catastrophe protection first. If it returns false during the
+                        // first seconds of a PAPER position, the trade is still in price
+                        // settlement / spread-discovery. Pre-1404 we immediately fell
+                        // through into the dynamic-stop block below and sold as
+                        // RAPID_ENTRY_PROTECT_STOP within ~5s, turning scanner volume
+                        // into buy→sell churn and making those micro-holds dominate the
+                        // loss book. Do not let adaptive/fluid ENTRY_PROTECT act during
+                        // the initial warmup; the unconditional -15% hard floor and true
+                        // catastrophe exits above remain active.
+                        if (cfg.paperMode && holdTimeMs in 0L until 15_000L && pnlPct > -HARD_FLOOR_STOP_PCT) {
+                            try {
+                                ForensicLogger.lifecycle(
+                                    "RAPID_ENTRY_WARMUP_HOLD",
+                                    "symbol=${ts.symbol} pnl=${"%.1f".format(pnlPct)}% ageMs=$holdTimeMs floor=-${HARD_FLOOR_STOP_PCT.toInt()}"
+                                )
+                            } catch (_: Throwable) {}
+                            continue
+                        }
                         
                         val dynamicStopPct = try {
                             val modeDefault = cfg.stopLossPct

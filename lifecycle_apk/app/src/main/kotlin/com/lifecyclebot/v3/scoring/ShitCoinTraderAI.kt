@@ -1529,6 +1529,16 @@ object ShitCoinTraderAI {
         // accumulates. Falls back to -1.5% with no samples.
         val holdSeconds = (System.currentTimeMillis() - pos.entryTime) / 1000
         if (holdSeconds < 60) {
+            // V5.9.1404 — SHITCOIN first-tick warmup. The 0-60s early-death
+            // cutoff can be as tight as ~-1.5%, which is useful after the entry
+            // has real post-buy price evidence but destructive in the first few
+            // seconds: paper spread/slippage or a stale pre-entry tick creates
+            // instant SHITCOIN_STOP_LOSS rows. For the first 15s, only the
+            // unconditional hard floor may close the position; normal early-death
+            // resumes after warmup. This does not loosen the -15% floor.
+            if (holdSeconds < 15 && pnlPct > -15.0) {
+                return ExitSignal.HOLD
+            }
             val cutoff = com.lifecyclebot.engine.ChopFilter.earlyDeathCutoffPct("SHITCOIN")
             if (pnlPct < cutoff) {
                 ErrorLogger.info(TAG, "💩⚡ EARLY-DEATH STOP: ${pos.symbol} | ${pnlPct.fmt(1)}% in ${holdSeconds}s (cutoff=${"%.1f".format(cutoff)}%)")
