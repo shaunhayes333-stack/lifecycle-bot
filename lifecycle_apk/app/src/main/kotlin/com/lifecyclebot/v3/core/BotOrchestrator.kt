@@ -580,14 +580,19 @@ class BotOrchestrator(
             )
         } catch (_: Throwable) { null }
         if (gateVerdict != null && !gateVerdict.allowed) {
-            // V5.9.1390a — never block on NO_FINAL_CANDIDATE. Some V3
-            // ingress paths reach handleExecute without going through the
-            // per-lane recordFdg sites in BotService (CryptoAlt, perps,
-            // some sub-traders). In those cases the gate has no state to
-            // consult yet, which is a path-coverage issue not a safety
-            // violation — let the trade proceed, the executor's own
-            // FinalExecutionPermit chain will still gate it.
-            val skipBlock = gateVerdict.logName == "EXEC_OPEN_DROPPED_NO_FINAL_CANDIDATE"
+            // V5.9.1397 — this orchestrator pass is pre-BotService lane FDG.
+            // Snapshot 5.0.3397 showed lane=CORE preFdg=NO_BUY selectedLane=MOONSHOT
+            // blocked as API_LAYER_DEGRADED, then MOONSHOT/QUALITY FDG allowed the
+            // same token milliseconds later. Do not let this early advisory gate
+            // reject the V3 decision for missing/no-final/pre-FDG/data-degraded
+            // state. The real BotService TradeAuthorizer/FinalExecutionPermit path
+            // still performs definitive finality before paper/live side effects.
+            val skipBlock = gateVerdict.logName in setOf(
+                "EXEC_OPEN_DROPPED_NO_FINAL_CANDIDATE",
+                "EXEC_OPEN_DROPPED_PRE_FDG_NOT_BUY",
+                "EXEC_OPEN_DROPPED_CANON_LANE_UNRESOLVED",
+                "EXEC_OPEN_BLOCKED_API_LAYER_DEGRADED",
+            )
             if (!skipBlock) {
                 lifecycle.mark(candidate.mint, LifecycleState.REJECTED)
                 shadowTracker.track(candidate, scoreCard, confidenceEffective, "EXEC_GATE_BLOCKED:${gateVerdict.logName}")

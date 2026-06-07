@@ -158,9 +158,21 @@ object ExecutableOpenGate {
         // This is the ACTUAL root cause of the 9-build red streak — the 9
         // V5.9.1385a-i attempts all targeted STALE_CANDIDATE (wrong mode).
         // Conservation alone is no longer treated as degradation.
-        b.lockedDown || b.providerLockedDown || api.values.any { st ->
-            val total = st.successes.get() + st.failures4xx.get() + st.failures5xx.get() + st.networkErrors.get()
-            total >= 5 && st.successRate() < 0.50
+        if (b.lockedDown || b.providerLockedDown) {
+            true
+        } else {
+            // V5.9.1397 — scope global execution degradation to entry-critical
+            // market-data providers. Groq is LLM narrative, Helius creator-history
+            // and GeckoTerminal are enrichment/duplicate feeds; if any one of them
+            // is rate-limited it must downgrade the missing feature, not poison every
+            // candidate's EXEC_GATE while Birdeye/Dex/PumpPortal are healthy.
+            val entryCritical = setOf("birdeye", "dexscreener", "pumpfun")
+            api.entries.any { (host, st) ->
+                host.lowercase() in entryCritical && run {
+                    val total = st.successes.get() + st.failures4xx.get() + st.failures5xx.get() + st.networkErrors.get()
+                    total >= 5 && st.successRate() < 0.50
+                }
+            }
         }
     } catch (_: Throwable) { false }
 
@@ -646,7 +658,15 @@ object ExecutableOpenGate {
                 (signal.equals("BUY", true) || signal.equals("EXECUTE", true)) &&
                 fdgCan == true
             if (!concreteFresh) {
-                markTerminalNoTrade(mint, symbol, "DATA_DEGRADED:minimum_fresh_fields_missing", lane, candidateVersion)
+                // V5.9.1397 — V3Orchestrator runs before BotService's canonical
+                // lane FDG/finality pass. It may see selectedLane/preFdg from a
+                // previous/secondary lane and would terminal-stamp DATA_DEGRADED
+                // before the actual primary lane finishes FDG. For that source,
+                // return a block verdict for telemetry only; BotService's real
+                // TradeAuthorizer/FinalExecutionPermit path remains the authority.
+                if (!source.equals("V3Orchestrator", true)) {
+                    markTerminalNoTrade(mint, symbol, "DATA_DEGRADED:minimum_fresh_fields_missing", lane, candidateVersion)
+                }
                 return blocked(
                     "EXEC_OPEN_BLOCKED_API_LAYER_DEGRADED",
                     "DATA_DEGRADED_MIN_FRESH_MISSING priceFresh=false liquidityFresh=${liquidityUsd > 0.0} routeFresh=${isRealExecutionLane(canonicalSelectedLane)} rugSafetyFresh=${rug >= 0 && !safetyTier.equals("UNKNOWN", true)} slippageFresh=false",
