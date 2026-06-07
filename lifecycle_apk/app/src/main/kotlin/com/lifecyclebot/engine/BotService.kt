@@ -17918,15 +17918,16 @@ if (hotExitHandledSweep) {
         // must poison execution authority before V3 can promote to EXECUTE_STANDARD.
         run {
             val br = fdgDecision.blockReason ?: ""
+            val terminalLane = tradingModeTag?.name ?: "UNKNOWN"
             when {
                 br.contains("LIQUIDITY_BELOW_EXECUTION_FLOOR", ignoreCase = true) ->
-                    try { ExecutableOpenGate.markTerminalNoTrade(identity.mint, identity.symbol, "WATCH_ONLY:LIQUIDITY_BELOW_EXECUTION_FLOOR", tradingModeTag) } catch (_: Throwable) {}
+                    try { ExecutableOpenGate.markTerminalNoTrade(identity.mint, identity.symbol, "WATCH_ONLY:LIQUIDITY_BELOW_EXECUTION_FLOOR", terminalLane) } catch (_: Throwable) {}
                 br.contains("EXPECTANCY_REJECT", ignoreCase = true) ->
-                    try { ExecutableOpenGate.markTerminalNoTrade(identity.mint, identity.symbol, "EXPECTANCY_REJECT:$br", tradingModeTag) } catch (_: Throwable) {}
+                    try { ExecutableOpenGate.markTerminalNoTrade(identity.mint, identity.symbol, "EXPECTANCY_REJECT:$br", terminalLane) } catch (_: Throwable) {}
                 br.contains("SHADOW_ONLY", ignoreCase = true) || br.contains("SHADOW_TRAIN_ONLY", ignoreCase = true) ->
-                    try { ExecutableOpenGate.markTerminalNoTrade(identity.mint, identity.symbol, "SHADOW_ONLY:$br", tradingModeTag) } catch (_: Throwable) {}
+                    try { ExecutableOpenGate.markTerminalNoTrade(identity.mint, identity.symbol, "SHADOW_ONLY:$br", terminalLane) } catch (_: Throwable) {}
                 br.contains("DATA_DEGRADED", ignoreCase = true) || br.contains("API_DEGRADED", ignoreCase = true) ->
-                    try { ExecutableOpenGate.markTerminalNoTrade(identity.mint, identity.symbol, "DATA_DEGRADED:$br", tradingModeTag) } catch (_: Throwable) {}
+                    try { ExecutableOpenGate.markTerminalNoTrade(identity.mint, identity.symbol, "DATA_DEGRADED:$br", terminalLane) } catch (_: Throwable) {}
             }
         }
         
