@@ -7665,6 +7665,29 @@ class BotService : Service() {
         }
     }
 
+    // ═══════════════════════════════════════════════════════════════════
+    // V5.9.1414 — CHARACTER-DRIVEN LANE ROUTING.
+    // Root cause of the SHITCOIN monopoly: inferIntakeLaneAffinity tagged lanes
+    // from the raw SOURCE string at birth, before ModeRouter classified the
+    // token's CHARACTER. The rich 7-archetype classification (FRESH_LAUNCH,
+    // BREAKOUT_CONTINUATION, REVERSAL_RECLAIM, WHALE_ACCUMULATION, GRADUATION,
+    // TREND_PULLBACK, SENTIMENT_IGNITION) was computed every tick then ignored
+    // for routing. This maps the classifier verdict to the lane that OWNS that
+    // trade archetype, so winners/runners/snipes/diamond-hands are fed to the
+    // appropriate trader. Source-agnostic — works for every feed (PumpPortal,
+    // Birdeye, Dex, CoinGecko, Raydium, Solana scanner, smart-money). Additive:
+    // merged onto existing affinity, never amputates a lane (doctrine #105).
+    private fun laneAffinityForTradeType(tt: ModeRouter.TradeType): Set<String> = when (tt) {
+        ModeRouter.TradeType.FRESH_LAUNCH        -> setOf("SHITCOIN", "PROJECT_SNIPER")   // quick snipe
+        ModeRouter.TradeType.BREAKOUT_CONTINUATION -> setOf("MOONSHOT")                    // runner
+        ModeRouter.TradeType.GRADUATION          -> setOf("MOONSHOT")                      // runner (chaos→structure)
+        ModeRouter.TradeType.WHALE_ACCUMULATION  -> setOf("QUALITY", "BLUECHIP")           // diamond hand / smart money
+        ModeRouter.TradeType.REVERSAL_RECLAIM    -> setOf("DIP_HUNTER")                    // dip reclaim
+        ModeRouter.TradeType.TREND_PULLBACK      -> setOf("QUALITY", "TREASURY")           // orderly uptrend
+        ModeRouter.TradeType.SENTIMENT_IGNITION  -> setOf("MANIPULATED", "SHITCOIN")       // narrative burst
+        else                                     -> emptySet()
+    }
+
     private fun inferIntakeLaneAffinity(source: String, allSources: Set<String>, marketCapUsd: Double, liquidityUsd: Double): Set<String> {
         val tags = (allSources + source).joinToString("|").uppercase()
         val out = linkedSetOf<String>()
@@ -13468,6 +13491,33 @@ if (hotExitHandledSweep) {
         )
     }
     
+    // V5.9.1414 — FLUID CHARACTER RE-ROUTE. Merge the classifier's lane
+    // affinity onto this mint every tick. At birth this seeds the right lane;
+    // as character emerges (thin token graduates into a runner, accumulation
+    // pattern firms up) the newly-appropriate lane is added and can claim the
+    // book on the next election. Gated on a confident, non-UNKNOWN verdict so
+    // noise doesn't thrash routing. Additive only — existing lanes are kept.
+    try {
+        if (modeClassification.tradeType != ModeRouter.TradeType.UNKNOWN &&
+            modeClassification.confidence >= 50.0) {
+            val charLanes = laneAffinityForTradeType(modeClassification.tradeType)
+            if (charLanes.isNotEmpty()) {
+                val newLanes = charLanes - (GlobalTradeRegistry.getLaneAffinity(ts.mint))
+                if (newLanes.isNotEmpty()) {
+                    ts.laneAffinity.addAll(charLanes)
+                    GlobalTradeRegistry.mergeAffinity(ts.mint, charLanes, emptySet())
+                    try {
+                        ForensicLogger.lifecycle(
+                            "CHARACTER_ROUTE",
+                            "symbol=${ts.symbol} mint=${ts.mint.take(10)} type=${modeClassification.tradeType} " +
+                            "conf=${modeClassification.confidence.toInt()} +lanes=${newLanes.joinToString("+")}"
+                        )
+                    } catch (_: Throwable) {}
+                }
+            }
+        }
+    } catch (_: Throwable) {}
+
     // Apply distribution penalty to mode classification confidence
     val adjustedModeConfidence = modeClassification.confidence * distributionCheck.scoreMultiplier
     
