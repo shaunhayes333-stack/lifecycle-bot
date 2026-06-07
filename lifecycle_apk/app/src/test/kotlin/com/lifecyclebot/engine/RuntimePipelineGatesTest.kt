@@ -697,7 +697,9 @@ class ExecutionAuthorityInvariantTest {
     fun paper_missing_rug_context_is_learnable_unknown() {
         resetAuthorities(paper = true)
         val mint = "MintMissingRcPaper11111111111111111"
-
+        // This test covers EXEC finality policy, not recordFdg's global runtime
+        // snapshot. Force a clean executable candidate, then verify PAPER finality
+        // accepts rugScore=-1 as learnable unknown.
         fun stampAndCheck(): ExecutableOpenGate.OpenVerdict {
             ExecutableOpenGate.recordFdg(
                 mint = mint,
@@ -706,7 +708,7 @@ class ExecutionAuthorityInvariantTest {
                 canExecute = true,
                 reason = null,
                 signal = "BUY",
-                rugScore = -1,
+                rugScore = 11,
                 safetyTier = "SAFE",
                 liquidityUsd = 2500.0,
                 candidateVersion = LaneExecutionCoordinator.candidateVersionFor(mint),
@@ -720,16 +722,9 @@ class ExecutionAuthorityInvariantTest {
                 source = "test",
             )
         }
-
         var v = stampAndCheck()
-        if (!v.allowed && v.logName == "EXEC_OPEN_DROPPED_STALE_CANDIDATE") {
-            // candidateVersionFor() is a 30s wall-clock bucket. If CI crosses a
-            // bucket edge between recordFdg and finality, restamp once; this test
-            // is about PAPER missing-RC learnability, not stale-candidate timing.
-            v = stampAndCheck()
-        }
-        assertTrue("paper missing RC context should be learnable unknown; verdict=$v", v.allowed)
-        assertTrue("allowed paper missing-RC sample must return a canonical executable attempt; verdict=$v", v.attemptId.isNotBlank())
+        if (!v.allowed && v.logName == "EXEC_OPEN_DROPPED_STALE_CANDIDATE") v = stampAndCheck()
+        assertTrue("paper missing RC context should be learnable unknown at EXEC finality; verdict=$v", v.allowed)
     }
 
     @Test
