@@ -38,6 +38,7 @@ object LaneExitTuner {
 
     private data class Outcome(
         val pnlPct: Double,
+        val pnlSol: Double,
         val peakPct: Double,
         val win: Boolean,
         val stopHit: Boolean,
@@ -73,7 +74,7 @@ object LaneExitTuner {
         "RAPID_ENTRY_PROTECT_STOP", "SWEEP_FLUID_FLOOR", "PROTECT_STOP"
     )
 
-    fun recordClose(lane: String, pnlPct: Double, peakPct: Double, exitReason: String) {
+    fun recordClose(lane: String, pnlPct: Double, peakPct: Double, exitReason: String, pnlSol: Double = 0.0) {
         try {
             val key = canon(lane)
             val st = lanes.getOrPut(key) { LaneState() }
@@ -84,8 +85,10 @@ object LaneExitTuner {
                 peakPct > 5000.0 -> 5000.0
                 else -> peakPct
             }
+            val solSane = if (pnlSol.isNaN() || pnlSol.isInfinite()) 0.0 else pnlSol
             val o = Outcome(
                 pnlPct = if (pnlPct.isNaN() || pnlPct.isInfinite()) 0.0 else pnlPct,
+                pnlSol = solSane,
                 peakPct = peakSane,
                 win = pnlPct > 0.0,
                 stopHit = stopHit,
@@ -118,10 +121,21 @@ object LaneExitTuner {
 
         // V5.9.1384 — BLEEDER LANES MUST NOT GET MORE ROPE.
         // Operator P0: if lane WR <20% OR EV < -10% over n>=20, do NOT widen
-        // stops, increase hold, or increase sizing. This tuner only controls
-        // TP/SL, so clamp both to non-expansive values here. ExecutableOpenGate /
-        // BucketExecutionState handles shadow-train-only at entry-score level.
-        val bleeder = n >= MIN_SAMPLE && (wr < 0.20 || avgReal < -10.0)
+        // stops, increase hold, or increase sizing.
+        // V5.9.1388 — Phase 5 (P1) SOL-weighted EV. Spec: "use SOL-weighted
+        // expectancy, profit factor, net SOL. Do NOT widen stops on any lane
+        // with net SOL <= 0 or PF < 1.2." Percent averages mislead because
+        // tiny wins + huge losses can show positive mean% but negative net SOL.
+        val netSol = w.sumOf { it.pnlSol }
+        val grossWinSol = w.filter { it.pnlSol > 0.0 }.sumOf { it.pnlSol }
+        val grossLossSol = -w.filter { it.pnlSol < 0.0 }.sumOf { it.pnlSol }
+        val profitFactor = if (grossLossSol > 0.0) grossWinSol / grossLossSol else Double.POSITIVE_INFINITY
+        val bleeder = n >= MIN_SAMPLE && (
+            wr < 0.20 ||
+            avgReal < -10.0 ||
+            netSol <= 0.0 ||           // SOL-weighted gate (V5.9.1388)
+            profitFactor < 1.2         // SOL-weighted gate (V5.9.1388)
+        )
 
         var tp = st.tpMult
         if (bleeder) {
