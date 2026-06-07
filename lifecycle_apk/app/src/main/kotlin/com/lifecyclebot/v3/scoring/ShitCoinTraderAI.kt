@@ -513,11 +513,8 @@ object ShitCoinTraderAI {
         val pnlPctForSettle = if (pos.entryPrice > 0.0) (exitPrice - pos.entryPrice) / pos.entryPrice * 100.0 else 0.0
         val ageMsForSettle = nowForSettle - pos.entryTime
         
-        // V5.9.1410 — FIX: use RAW market price for the -15% floor check so paper slippage (-27%) doesn't instantly bypass.
-        val rawPriceForSettle = try { com.lifecyclebot.engine.TradeAuthorizer.getTokenState(mint)?.lastPrice ?: exitPrice } catch (_: Throwable) { exitPrice }
-        val rawPnlPctForSettle = if (pos.entryPrice > 0.0) ((rawPriceForSettle - pos.entryPrice) / pos.entryPrice) * 100.0 else 0.0
-
-        if (pos.isPaper && ageMsForSettle in 0L until 30_000L && pnlPctForSettle <= 0.0 && rawPnlPctForSettle > -15.0) {
+        // V5.9.1412 — FIX: use paper-adjusted threshold (-45%) for the 30s settle-in so paper slippage (-27%) doesn't instantly bypass the choke.
+        if (pos.isPaper && ageMsForSettle in 0L until 30_000L && pnlPctForSettle <= 0.0 && pnlPctForSettle > -45.0) {
             synchronized(activePositions) { activePositions[mint] = pos }
             try {
                 ErrorLogger.info(TAG, "💩⏳ SETTLE-IN HOLD: ${pos.symbol} | ${pnlPctForSettle.fmt(1)}% age=${ageMsForSettle}ms reason=${exitReason.name} (floor=-15%)")
