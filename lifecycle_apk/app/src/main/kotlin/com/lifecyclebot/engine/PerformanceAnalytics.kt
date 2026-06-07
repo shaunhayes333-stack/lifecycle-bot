@@ -293,7 +293,10 @@ object PerformanceAnalytics {
     private fun analyzeByPhase(
         trades: List<TradeRecord>
     ): Triple<Map<String, Double>, Map<String, Double>, Map<String, Int>> {
-        val byPhase = trades.groupBy { it.entryPhase.ifBlank { "unknown" } }
+        // V5.9.1409 — FIX: The Pipeline Health and Dashboard use "PhaseStats" to
+        // show "By lane" performance, but it was mistakenly grouping by entryPhase
+        // (which is usually empty/unknown) instead of tradingMode (mapped to `mode`).
+        val byPhase = trades.groupBy { it.mode.ifBlank { "unknown" } }
 
         val winRates = byPhase.mapValues { (_, list) ->
             percentage(list.count { isWin(it) }, list.count { isDecisive(it) })
