@@ -175,7 +175,7 @@ object LaneExecutionCoordinator {
         runtimeGeneration: Long = BotRuntimeController.currentGeneration(),
     ): Election {
         val clean = lanes.map { it.uppercase() }.filter { it.isNotBlank() }
-        val primary = (preferred?.uppercase()?.takeIf { it in clean } ?: clean.firstOrNull() ?: "CORE")
+        val primary = (preferred?.uppercase()?.takeIf { it in clean } ?: pickFreshPrimary(mint, clean) ?: clean.firstOrNull() ?: "CORE")
         val secondary = clean.firstOrNull { it != primary }
         val key = CandidateKey(runtimeGeneration, mint, candidateVersion)
         val mapKey = mapKey(key)
@@ -214,47 +214,17 @@ object LaneExecutionCoordinator {
                 candidateVersion = deferred.key.candidateVersion,
             )
         }
-        // V5.9.1335 — FAIRNESS-WEIGHTED upgrade decision, hoisted for a clean smart-cast.
-        // The incumbent keeps the book by DEFAULT (pure static priority order). A
-        // challenger only takes it when its claimPriority beats the incumbent's — and
-        // claimPriority only docks a lane once it is winning DISPROPORTIONATELY (leading
-        // the qualified field by more than FAIRNESS_LEAD_GRACE recent wins). So MOONSHOT
-        // still wins normally and only yields to a starved specialist once it is
-        // genuinely hogging the book. No single-win thrash; static priority is never
-        // lost unless a lane is winning over everything else.
-        val challengerUpgrades: Boolean = if (existing == null) false else {
-            val qualified = qualifiedLanesFor(mint, laneUpper, existing.primaryLane)
-            claimPriority(mint, laneUpper, qualified) > claimPriority(mint, existing.primaryLane, qualified)
-        }
-        val e = when {
-            existing == null -> {
-                val fresh = elect(mint, listOf(laneUpper), laneUpper, candidateVersion, runtimeGeneration)
-                recordPrimaryWin(fresh.primaryLane)
-                fresh
-            }
-            challengerUpgrades -> {
-                val upgraded = Election(
-                    key = existing.key,
-                    primaryLane = laneUpper,
-                    secondaryTelemetryLane = existing.primaryLane,
-                    createdAtMs = existing.createdAtMs,
-                )
-                elections[mapKey] = upgraded
-                recordPrimaryWin(laneUpper)
-                try {
-                    val q = qualifiedLanesFor(mint, laneUpper, existing.primaryLane)
-                    ForensicLogger.lifecycle(
-                        "LANE_PRIMARY_UPGRADED",
-                        "mint=${mint.take(10)} from=${existing.primaryLane} to=$laneUpper " +
-                        "claim=${claimPriority(mint, laneUpper, q)}>${claimPriority(mint, existing.primaryLane, q)} " +
-                        "wins=$laneUpper:${recentWins(laneUpper)}/${existing.primaryLane}:${recentWins(existing.primaryLane)} " +
-                        "candidateVersion=${existing.key.candidateVersion}"
-                    )
-                } catch (_: Throwable) {}
-                upgraded
-            }
-            else -> existing
-        }
+        // V5.9.1385 — canonical candidate finality order: primaryLane is
+        // immutable for the attempt. Secondary lanes may produce shadow telemetry,
+        // but no challenger can upgrade/steal the executable lane after the first
+        // election for this mint+candidateVersion.
+        val e = if (existing == null) {
+            val qualified = qualifiedLanesFor(mint, laneUpper)
+            val freshPrimary = pickFreshPrimary(mint, qualified) ?: laneUpper
+            val fresh = elect(mint, qualified, freshPrimary, candidateVersion, runtimeGeneration)
+            recordPrimaryWin(fresh.primaryLane)
+            fresh
+        } else existing
         val allowed = e.primaryLane == laneUpper
         if (!allowed) duplicateOpenSuppressed.incrementAndGet()
         return Verdict(
@@ -287,16 +257,17 @@ object LaneExecutionCoordinator {
         val mapKey = mapKey(key)
         val current = elections[mapKey] ?: return false
         if (current.primaryLane != laneUpper) return false
-        val removed = elections.remove(mapKey, current)
-        if (removed) {
-            try {
-                ForensicLogger.lifecycle(
-                    "LANE_PRIMARY_RELEASED",
-                    "mint=${mint.take(10)} lane=$laneUpper candidateVersion=${current.key.candidateVersion} reason=$reason"
-                )
-            } catch (_: Throwable) {}
-        }
-        return removed
+        // V5.9.1385 — primaryLane is immutable for the attempt. A failed
+        // primary may not release the book to another lane inside the same
+        // mint+candidateVersion window; the next fresh candidateVersion can
+        // elect again naturally.
+        try {
+            ForensicLogger.lifecycle(
+                "LANE_PRIMARY_RELEASE_SUPPRESSED_IMMUTABLE",
+                "mint=${mint.take(10)} lane=$laneUpper candidateVersion=${current.key.candidateVersion} reason=$reason"
+            )
+        } catch (_: Throwable) {}
+        return false
     }
 
     fun resetForTests() {

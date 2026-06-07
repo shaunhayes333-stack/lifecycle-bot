@@ -2063,6 +2063,20 @@ class Executor(
         )
     }
     
+    private fun canonicalTradeLane(raw: String): String {
+        val u = raw.uppercase().trim().replace('-', '_').replace(' ', '_')
+        return when (u) {
+            "BLUE_CHIP" -> "BLUECHIP"
+            "SHIT_COIN" -> "SHITCOIN"
+            "CASHGEN", "CASH_GENERATION" -> "TREASURY"
+            "MANIP" -> "MANIPULATED"
+            "DIP" -> "DIP_HUNTER"
+            "SNIPER", "PROJECT_SNIPER" -> "PROJECT_SNIPER"
+            "" -> "STANDARD"
+            else -> u
+        }
+    }
+
     /**
      * Record a trade to both TokenState and persistent TradeHistoryStore
      */
@@ -2159,9 +2173,51 @@ class Executor(
             ts.position.tradingMode.isNotBlank() -> ts.position.tradingMode
             else                                 -> "STANDARD"
         }
+        fun _scoreBand(v: Double): String = when {
+            v >= 61.0 -> "S61+"
+            v >= 41.0 -> "S41-60"
+            v >= 26.0 -> "S26-40"
+            v >= 11.0 -> "S11-25"
+            else -> "S0-10"
+        }
+        val canonicalLane = canonicalTradeLane(trade.canonicalLane.ifBlank { resolvedTradingMode })
+        val band = trade.scoreBand.ifBlank { _scoreBand(trade.score.takeIf { it > 0.0 } ?: ts.entryScore) }
+        val runtimeMode = trade.runtimeMode.ifBlank { if (ts.position.isPaperPosition || trade.mode.equals("paper", true)) "PAPER" else "LIVE" }
+        val candidateVersion = if (trade.candidateVersion > 0L) trade.candidateVersion else try { LaneExecutionCoordinator.candidateVersionFor(ts.mint) } catch (_: Throwable) { 0L }
+        val realizedPct = trade.pnlPct
+        val reasonUpper = trade.reason.uppercase()
+        val finalTrainingReason = when {
+            reasonUpper.contains("STALE_FEED") && (ts.lastPrice <= 0.0 || System.currentTimeMillis() - ts.lastPriceUpdate > 120_000L) -> "STALE_FEED_UNTRAINABLE"
+            realizedPct > 0.0 && reasonUpper.contains("STOP_LOSS") -> "PROTECTIVE_EXIT_GREEN"
+            realizedPct < 0.0 && (reasonUpper.contains("TAKE_PROFIT") || reasonUpper.contains("TP")) -> "REALIZED_LOSS_NOT_TAKE_PROFIT"
+            else -> trade.reason
+        }
         val tradeWithMint = trade.copy(
             mint = if (trade.mint.isBlank()) ts.mint else trade.mint,
+            reason = finalTrainingReason,
             tradingMode = resolvedTradingMode,
+            canonicalLane = canonicalLane,
+            selectedLane = trade.selectedLane.ifBlank { canonicalLane },
+            sourceLaneVotes = trade.sourceLaneVotes.ifBlank { canonicalLane },
+            strategyBucket = trade.strategyBucket.ifBlank { "$canonicalLane|$band" },
+            scoreBand = band,
+            runtimeMode = runtimeMode,
+            candidateVersion = candidateVersion,
+            executionAuthorityReason = trade.executionAuthorityReason.ifBlank { trade.reason.ifBlank { "AUTHORIZED:$canonicalLane" } },
+            attemptId = trade.attemptId.ifBlank { "${ts.mint}_${candidateVersion}_${canonicalLane}_${trade.ts}" },
+            primaryLane = trade.primaryLane.ifBlank { ts.primaryExecutableLane.ifBlank { canonicalLane } },
+            tactic = trade.tactic.ifBlank { "MOMENTUM" },
+            regime = trade.regime.ifBlank { "UNKNOWN" },
+            marketPhase = trade.marketPhase.ifBlank { ts.phase.ifBlank { "UNKNOWN" } },
+            candidateQuality = trade.candidateQuality.ifBlank { ts.meta.setupQuality.ifBlank { "C" } },
+            entryScoreAtBuy = if (trade.entryScoreAtBuy > 0.0) trade.entryScoreAtBuy else ts.position.entryScore.takeIf { it > 0.0 } ?: ts.entryScore,
+            v3ScoreAtBuy = if (trade.v3ScoreAtBuy > 0) trade.v3ScoreAtBuy else ts.lastV3Score ?: ts.entryScore.toInt(),
+            fdgDecisionAtBuy = trade.fdgDecisionAtBuy.ifBlank { trade.executionAuthorityReason.ifBlank { "AUTHORIZED:$canonicalLane" } },
+            safetyTierAtBuy = trade.safetyTierAtBuy.ifBlank { ts.safety.tier.name },
+            rugScoreAtBuy = if (trade.rugScoreAtBuy >= 0) trade.rugScoreAtBuy else ts.safety.rugcheckScore,
+            sourceAtBuy = trade.sourceAtBuy.ifBlank { ts.source.ifBlank { ts.sourceFamilies.ifBlank { "UNKNOWN" } } },
+            sourceConfidenceAtBuy = if (trade.sourceConfidenceAtBuy > 0) trade.sourceConfidenceAtBuy else ts.sourceConfidence,
+            entryTimestampMs = if (trade.entryTimestampMs > 0L) trade.entryTimestampMs else ts.position.entryTime.takeIf { it > 0L } ?: trade.ts,
         )
 
         // V5.9.1100 — canonical execution/outcome idempotency.
@@ -10255,12 +10311,13 @@ class Executor(
             else -> false
         }
         
+        val dbLanePaper = canonicalTradeLane(ts.position.tradingMode.ifBlank { "STANDARD" })
         tradeDb?.insertTrade(TradeRecord(
             tsEntry=ts.position.entryTime, tsExit=System.currentTimeMillis(),
             symbol=ts.symbol, mint=ts.mint,
-            mode=if(ts.position.entryPhase.contains("pump")) "LAUNCH" else "RANGE",
+            mode=dbLanePaper,
             entryPrice=ts.position.entryPrice, entryScore=ts.position.entryScore,
-            entryPhase=ts.position.entryPhase, emaFan=ts.meta.emafanAlignment,
+            entryPhase=dbLanePaper, emaFan=ts.meta.emafanAlignment,
             volScore=ts.meta.volScore, pressScore=ts.meta.pressScore, momScore=ts.meta.momScore,
             holderCount=ts.history.lastOrNull()?.holderCount?:0,
             holderGrowth=ts.holderGrowthRate, liquidityUsd=ts.lastLiquidityUsd, mcapUsd=ts.lastMcap,
@@ -12581,12 +12638,13 @@ class Executor(
             else -> false
         }
         
+        val dbLaneLive = canonicalTradeLane(pos.tradingMode.ifBlank { "STANDARD" })
         tradeDb?.insertTrade(TradeRecord(
             tsEntry=pos.entryTime, tsExit=System.currentTimeMillis(),
             symbol=ts.symbol, mint=ts.mint,
-            mode=if(pos.entryPhase.contains("pump")) "LAUNCH" else "RANGE",
+            mode=dbLaneLive,
             entryPrice=pos.entryPrice, entryScore=pos.entryScore,
-            entryPhase=pos.entryPhase, emaFan=ts.meta.emafanAlignment,
+            entryPhase=dbLaneLive, emaFan=ts.meta.emafanAlignment,
             volScore=ts.meta.volScore, pressScore=ts.meta.pressScore, momScore=ts.meta.momScore,
             holderCount=ts.history.lastOrNull()?.holderCount?:0,
             holderGrowth=ts.holderGrowthRate, liquidityUsd=ts.lastLiquidityUsd, mcapUsd=ts.lastMcap,

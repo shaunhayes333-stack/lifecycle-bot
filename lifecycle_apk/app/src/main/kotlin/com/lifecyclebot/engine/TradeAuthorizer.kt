@@ -146,6 +146,23 @@ object TradeAuthorizer {
             try { LaneExecutionCoordinator.releaseIfPrimary(mint, requestedBook.name, reason) } catch (_: Throwable) {}
         }
 
+        // V5.9.1384 — GLOBAL TERMINAL NO-TRADE AUTHORITY.
+        // SHADOW_ONLY / WATCH_ONLY / EXPECTANCY_REJECT / DATA_DEGRADED are
+        // terminal for the mint+candidateVersion. Check BEFORE lane election,
+        // finality, token locks, and AUTHORIZED logging so fallback books (CORE,
+        // STANDARD, MOONSHOT, etc.) cannot execute a candidate another lane has
+        // already terminal-vetoed. Fallback lanes may observe/train upstream only.
+        ExecutableOpenGate.terminalNoTradeReason(mint)?.let { terminalReason ->
+            ErrorLogger.info(TAG, "❌ REJECT $symbol: TERMINAL_NO_TRADE_${terminalReason} requested=${requestedBook.name}")
+            releasePrimaryAfterAuthFailure("TERMINAL_NO_TRADE_${terminalReason}")
+            return AuthorizationResult(
+                verdict = ExecutionVerdict.REJECT,
+                reason = "TERMINAL_NO_TRADE:$terminalReason",
+                blockLevel = BlockLevel.HARD,
+                canRetry = false,
+            )
+        }
+
         // V5.9.1120 — lane election BEFORE finality/open-request side effects.
         // 3086 showed EXEC_OPEN_REQUEST=538 but EXEC_OPEN_BLOCKED_DUPLICATE_KEY=3423:
         // secondary lanes were reaching ExecutableOpenGate just to be rejected
@@ -375,6 +392,7 @@ object TradeAuthorizer {
             // is a clean REJECT — no position record, no lock, no shadow.
             if (isPaperMode) {
                 ErrorLogger.info(TAG, "👁️ SHADOW_ONLY $symbol: ${promotion.reason}")
+                try { ExecutableOpenGate.markTerminalNoTrade(mint, symbol, "SHADOW_ONLY:${promotion.reason}", requestedBook.name) } catch (_: Throwable) {}
                 releasePrimaryAfterAuthFailure("SHADOW_ONLY")
                 tokenLocks[lockKey(mint, ExecutionBook.SHADOW)] = TokenLock(
                     mint = mint,

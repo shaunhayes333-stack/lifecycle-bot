@@ -182,6 +182,32 @@ data class Trade(
     val tradingMode: String = "STANDARD",    // ExtendedMode name
     val tradingModeEmoji: String = "📈",     // Emoji for display
     val mint: String = "",                    // Token mint address
+    // V5.9.1384 — immutable execution-attribution fields. Defaults keep all
+    // existing constructors/legacy rows backward-compatible, but new BUY rows
+    // must stamp them and SELL rows must inherit from entry — never infer lane
+    // from exit reason.
+    val canonicalLane: String = "",
+    val selectedLane: String = "",
+    val sourceLaneVotes: String = "",
+    val strategyBucket: String = "",
+    val scoreBand: String = "",
+    val runtimeMode: String = "",
+    val candidateVersion: Long = 0L,
+    val executionAuthorityReason: String = "",
+    val attemptId: String = "",
+    val primaryLane: String = "",
+    val tactic: String = "",
+    val regime: String = "",
+    val marketPhase: String = "",
+    val candidateQuality: String = "",
+    val entryScoreAtBuy: Double = 0.0,
+    val v3ScoreAtBuy: Int = 0,
+    val fdgDecisionAtBuy: String = "",
+    val safetyTierAtBuy: String = "",
+    val rugScoreAtBuy: Int = -1,
+    val sourceAtBuy: String = "",
+    val sourceConfidenceAtBuy: Int = 0,
+    val entryTimestampMs: Long = 0L,
 )
 
 data class StrategyMeta(
@@ -299,6 +325,16 @@ data class TokenState(
     // them as a priority boost so every lane still gets learning chances.
     val laneAffinity: MutableSet<String> = java.util.concurrent.ConcurrentHashMap.newKeySet<String>(),
     val toolAffinity: MutableSet<String> = java.util.concurrent.ConcurrentHashMap.newKeySet<String>(),
+    // V5.9.1385 — canonical candidate finality/source identity. These fields
+    // preserve intake hydration state so V3/lane/FDG cannot execute before
+    // fatal safety + volume finality are known.
+    var sourceConfidence: Int = 0,
+    var sourceFamilies: String = "",
+    var volumeH1Known: Boolean = false,
+    var volumeH1LastUpdatedMs: Long = 0L,
+    var candidateExecutionMode: String = "UNKNOWN", // EXECUTABLE | SHADOW_TRAIN_ONLY | PROBE_ONLY | WATCH
+    var candidateFinalityReason: String = "",
+    var primaryExecutableLane: String = "",
     // V5.9.618 — bridge advisory flag. Set per-pass by BotService when the
     // MemeUnifiedScorerBridge agrees an entry is good. Read by ShitCoin/Moonshot
     // evaluators as a small additive confidence bonus. Pure advisory — never blocks.
