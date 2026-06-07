@@ -12026,7 +12026,16 @@ if (hotExitHandledSweep) {
     // Must be < 5s bot cadence so the next cycle is never fully starved by the
     // prior cycle's timed workers. processTokenCycle may continue in background,
     // but its supervisor slot lease has expired and capacity is returned.
-    private val SUPERVISOR_LEASE_TTL_MS: Long = 4_750L
+    // V5.9.1415 — TTL must be a BACKSTOP above the worker timeout, not a racer
+    // below it. The old 4750ms TTL fired before the 5000ms worker budget, so the
+    // acquire-time prune released slots whose workers were still legitimately
+    // running inside budget — re-creating the over-admission the watchdog fix
+    // closes. Set TTL = worker timeout + grace so a lease is only TTL-pruned if
+    // its worker has genuinely overrun (and the safety-net watchdog will have
+    // cancelled it). Slots still free within ~5.75s worst case; the bot loop
+    // (5s cadence) is never starved because admission is per-cycle and the cap
+    // is 32 of a ~300 universe.
+    private val SUPERVISOR_LEASE_TTL_MS: Long = 6_000L
     // Back-pressure: if the underlying IO is wedged, don't launch another full
     // 100 workers every 5s forever. This still preserves throughput while avoiding
     // runaway thread/network pressure.
@@ -12307,18 +12316,26 @@ if (hotExitHandledSweep) {
             // only one of them actually decrements. Bound: slot is now
             // guaranteed to free within timeout+0.5s regardless of whether
             // the inner thread ever returns.
+            // V5.9.1415 — LEASE/WORKER ACCOUNTING FIX. The old watchdog released
+            // the slot at SUPERVISOR_LEASE_TTL_MS (4750ms) — BEFORE the worker's
+            // own 5000ms timeout could fire — while the worker coroutine kept
+            // running. That freed the lease (active=leases.size shrank) while real
+            // in-flight work exceeded the lease count, so new workers were admitted
+            // over the real cap, IO saturated, workerTimeout climbed, and because
+            // the timer (not the TTL prune) did the release, expiredLeases stayed 0:
+            // the operator's exact "cap hit without lease expiry" signature.
+            // FIX: hold a reference to the worker job; the safety-net watchdog now
+            // fires AFTER the worker timeout + 750ms grace and CANCELS the job
+            // before releasing the slot, so a lease is freed only when its worker
+            // is genuinely done (normal finally) or has been force-killed. The
+            // AtomicBoolean still guarantees exactly one decrement.
             val released = java.util.concurrent.atomic.AtomicBoolean(false)
+            val workerJobRef = java.util.concurrent.atomic.AtomicReference<kotlinx.coroutines.Job?>(null)
             val releaseSlot = {
                 if (released.compareAndSet(false, true)) supervisorReleaseSlot(leaseId)
                 Unit
             }
-            kotlinx.coroutines.GlobalScope.launch(kotlinx.coroutines.Dispatchers.Default) {
-                try {
-                    kotlinx.coroutines.delay(SUPERVISOR_LEASE_TTL_MS)
-                    releaseSlot()
-                } catch (_: Throwable) {}
-            }
-            kotlinx.coroutines.GlobalScope.launch(kotlinx.coroutines.Dispatchers.IO) {
+            val workerJob = kotlinx.coroutines.GlobalScope.launch(kotlinx.coroutines.Dispatchers.IO) {
                 try {
                     if (!status.running) return@launch
                     // V5.9.1180 — orchestrator.shouldPoll was moved before lease
@@ -12403,6 +12420,26 @@ if (hotExitHandledSweep) {
                 } finally {
                     releaseSlot()
                 }
+            }
+            workerJobRef.set(workerJob)
+            // Safety-net watchdog: fires only AFTER the worker timeout + grace.
+            // If the worker is still alive (non-cooperative blocking IO that
+            // ignored the withTimeoutOrNull interrupt), cancel it and free the
+            // slot. Never races ahead of the worker's own timeout/finally.
+            kotlinx.coroutines.GlobalScope.launch(kotlinx.coroutines.Dispatchers.Default) {
+                try {
+                    kotlinx.coroutines.delay(SUPERVISOR_WORKER_TIMEOUT_MS + 750L)
+                    if (!released.get()) {
+                        try { workerJobRef.get()?.cancel() } catch (_: Throwable) {}
+                        try {
+                            ForensicLogger.lifecycle(
+                                "SUPERVISOR_LEASE_FORCE_RELEASED",
+                                "mint=${mint.take(10)} afterMs=${SUPERVISOR_WORKER_TIMEOUT_MS + 750L} active=${supervisorLeases.size}",
+                            )
+                        } catch (_: Throwable) {}
+                        releaseSlot()
+                    }
+                } catch (_: Throwable) {}
             }
             spawned++
         }
