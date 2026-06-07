@@ -602,6 +602,7 @@ class ExecutionAuthorityInvariantTest {
         ReEntryLockout.resetForTests()
         ToxicModeCircuitBreaker.resetForTests()
         BirdeyeBudgetGate.resetForTests()
+        ApiHealthMonitor.reset()
         RuntimeModeAuthority.publishConfig(paperMode = paper, autoTrade = true)
         RuntimeModeAuthority.publishUiMode(paper)
         RuntimeModeAuthority.publishExecutorMode(paper)
