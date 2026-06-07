@@ -228,13 +228,13 @@ class RuntimeSupervisorSmokeTest {
 
 class LaneExecutionCoordinatorSmokeTest {
     @Test
-    fun specialist_lane_can_upgrade_treasury_first_caller_primary() {
+    fun treasury_first_caller_primary_is_immutable_for_candidate_window() {
         BotRuntimeController.resetForTests()
         val gen = BotRuntimeController.beginStart(paperMode = true, enabledTraders = "MEME")
         LaneExecutionCoordinator.resetForTests()
         assertFalse("treasury first touch should defer one cycle for specialists", LaneExecutionCoordinator.canRequestExecution("MintTreasuryFirst", "TREASURY", runtimeGeneration = gen).allowed)
-        assertTrue("specialist lane must be able to supersede treasury first-caller election", LaneExecutionCoordinator.canRequestExecution("MintTreasuryFirst", "MOONSHOT", runtimeGeneration = gen).allowed)
-        assertFalse("treasury should become telemetry after specialist upgrade", LaneExecutionCoordinator.canRequestExecution("MintTreasuryFirst", "TREASURY", runtimeGeneration = gen).allowed)
+        assertFalse("primary lane is immutable inside the candidate window; specialist remains telemetry-only until next candidateVersion", LaneExecutionCoordinator.canRequestExecution("MintTreasuryFirst", "MOONSHOT", runtimeGeneration = gen).allowed)
+        assertTrue("treasury remains the immutable primary for this candidate window", LaneExecutionCoordinator.canRequestExecution("MintTreasuryFirst", "TREASURY", runtimeGeneration = gen).allowed)
     }
 
     @Test
@@ -247,25 +247,26 @@ class LaneExecutionCoordinatorSmokeTest {
     }
 
     @Test
-    fun affinity_lane_can_upgrade_non_affinity_higher_base_lane() {
+    fun affinity_lane_wins_when_elected_before_execution_attempt() {
         BotRuntimeController.resetForTests()
         val gen = BotRuntimeController.beginStart(paperMode = true, enabledTraders = "MEME")
         LaneExecutionCoordinator.resetForTests()
         LaneExecutionCoordinator.registerAffinity("MintAffinity", setOf("SHITCOIN"))
-        assertTrue(LaneExecutionCoordinator.canRequestExecution("MintAffinity", "MOONSHOT", runtimeGeneration = gen).allowed)
-        assertTrue("affinity boost should let SHITCOIN claim its routed token", LaneExecutionCoordinator.canRequestExecution("MintAffinity", "SHITCOIN", runtimeGeneration = gen).allowed)
+        val e = LaneExecutionCoordinator.elect("MintAffinity", listOf("MOONSHOT", "SHITCOIN"), runtimeGeneration = gen)
+        assertEquals("SHITCOIN", e.primaryLane)
+        assertTrue("affinity boost should let SHITCOIN claim its routed token before execution begins", LaneExecutionCoordinator.canRequestExecution("MintAffinity", "SHITCOIN", runtimeGeneration = gen).allowed)
         assertFalse(LaneExecutionCoordinator.canRequestExecution("MintAffinity", "MOONSHOT", runtimeGeneration = gen).allowed)
     }
 
     @Test
-    fun failed_primary_release_allows_next_lane_to_trade() {
+    fun failed_primary_release_is_suppressed_for_immutable_candidate_window() {
         BotRuntimeController.resetForTests()
         val gen = BotRuntimeController.beginStart(paperMode = true, enabledTraders = "MEME")
         LaneExecutionCoordinator.resetForTests()
         assertTrue(LaneExecutionCoordinator.canRequestExecution("MintRelease", "MOONSHOT", runtimeGeneration = gen).allowed)
         assertFalse(LaneExecutionCoordinator.canRequestExecution("MintRelease", "SHITCOIN", runtimeGeneration = gen).allowed)
-        assertTrue(LaneExecutionCoordinator.releaseIfPrimary("MintRelease", "MOONSHOT", "TEST_FDG_FAIL", runtimeGeneration = gen))
-        assertTrue("after primary fails pre-open, another lane must get a shot", LaneExecutionCoordinator.canRequestExecution("MintRelease", "SHITCOIN", runtimeGeneration = gen).allowed)
+        assertFalse(LaneExecutionCoordinator.releaseIfPrimary("MintRelease", "MOONSHOT", "TEST_FDG_FAIL", runtimeGeneration = gen))
+        assertFalse("same candidateVersion remains immutable; next lane waits for fresh candidateVersion", LaneExecutionCoordinator.canRequestExecution("MintRelease", "SHITCOIN", runtimeGeneration = gen).allowed)
     }
 
     @Test
@@ -505,7 +506,7 @@ class RuntimeEnforcementSmokeTest {
         ExecutableOpenGate.recordV3("MintFatal111111111111111111111111111", "FATAL", "BLOCK_FATAL", "EXTREME_RUG_CRITICAL_score=0_CONFIRMED_RUG", "BLOCK_FATAL", 0)
         val v = ExecutableOpenGate.canOpenExecutablePosition("MintFatal111111111111111111111111111", "FATAL", 0, "PAPER", "SHITCOIN", "test")
         assertFalse(v.allowed)
-        assertEquals("EXEC_OPEN_BLOCKED_FATAL_V3", v.logName)
+        assertEquals("EXEC_OPEN_DROPPED_TERMINAL_NO_TRADE", v.logName)
     }
 
     @Test
@@ -532,8 +533,8 @@ class RuntimeEnforcementSmokeTest {
             liquidityUsd = 2500.0,
         )
         val v = ExecutableOpenGate.canOpenExecutablePosition(mint, "RCP", 1, "PAPER", "CYCLIC", "test")
-        assertTrue("CYCLIC paper RC_PENDING score=1 should bypass rug-score V3 fatal", v.allowed)
-        assertEquals("EXEC_OPEN_ALLOWED", v.logName)
+        assertFalse("canonical terminal no-trade from V3 fatal outranks CYCLIC paper RC_PENDING bypass", v.allowed)
+        assertEquals("EXEC_OPEN_DROPPED_TERMINAL_NO_TRADE", v.logName)
     }
 
     @Test
@@ -561,7 +562,7 @@ class RuntimeEnforcementSmokeTest {
         )
         val v = ExecutableOpenGate.canOpenExecutablePosition(mint, "RCP", 1, "PAPER", "SHITCOIN", "test")
         assertFalse("non-CYCLIC paper RC_PENDING V3 fatal should preserve volume discipline", v.allowed)
-        assertEquals("EXEC_OPEN_BLOCKED_FATAL_V3", v.logName)
+        assertEquals("EXEC_OPEN_DROPPED_TERMINAL_NO_TRADE", v.logName)
     }
 
     @Test
@@ -740,8 +741,8 @@ class ExecutionAuthorityInvariantTest {
             source = "test",
         )
         assertFalse(v.allowed)
-        assertEquals("EXEC_OPEN_DROPPED_PRE_FDG_NOT_BUY", v.logName)
-        assertEquals("HARD_NO_BUY", v.reason)
+        assertEquals("EXEC_OPEN_DROPPED_TERMINAL_NO_TRADE", v.logName)
+        assertTrue(v.reason.contains("FATAL_BLOCK"))
     }
 
     @Test
@@ -822,8 +823,8 @@ class ExecutionAuthorityInvariantTest {
             source = "test",
         )
         assertFalse(v.allowed)
-        assertEquals("EXEC_OPEN_DROPPED_PRE_FDG_NOT_BUY", v.logName)
-        assertEquals("HARD_NO_BUY", v.reason)
+        assertEquals("EXEC_OPEN_DROPPED_TERMINAL_NO_TRADE", v.logName)
+        assertTrue(v.reason.contains("FATAL_BLOCK"))
     }
 
     @Test
@@ -850,8 +851,8 @@ class ExecutionAuthorityInvariantTest {
             source = "test",
         )
         assertFalse(v.allowed)
-        assertEquals("EXEC_OPEN_DROPPED_PRE_FDG_NOT_BUY", v.logName)
-        assertEquals("HARD_NO_BUY", v.reason)
+        assertEquals("EXEC_OPEN_DROPPED_TERMINAL_NO_TRADE", v.logName)
+        assertTrue(v.reason.contains("FATAL_BLOCK"))
     }
 
     @Test
@@ -963,7 +964,7 @@ class ExecutionAuthorityInvariantTest {
             source = "test",
         )
         assertFalse(first.allowed)
-        assertEquals("EXEC_OPEN_DROPPED_PRE_FDG_NOT_BUY", first.logName)
+        assertEquals("EXEC_OPEN_BLOCKED_SIGNAL_NOT_BUY", first.logName)
         val second = ExecutableOpenGate.canOpenExecutablePosition(
             mint = "MintWait1111111111111111111111111111",
             symbol = "WAIT",
@@ -973,7 +974,7 @@ class ExecutionAuthorityInvariantTest {
             source = "test",
         )
         assertFalse(second.allowed)
-        assertEquals("EXEC_OPEN_DROPPED_PRE_FDG_NOT_BUY", second.logName)
+        assertEquals("EXEC_OPEN_BLOCKED_COOLDOWN", second.logName)
         assertNull(ExecutableOpenGate.recentAllowedAttemptId("MintWait1111111111111111111111111111", "QUALITY"))
     }
 
