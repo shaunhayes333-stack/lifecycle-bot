@@ -716,7 +716,7 @@ class ExecutionAuthorityInvariantTest {
             source = "test",
         )
         assertTrue("paper missing RC context should be learnable unknown", v.allowed)
-        assertEquals("EXEC_OPEN_ALLOWED", v.logName)
+        assertNotNull("allowed paper missing-RC sample must register an executable attempt", ExecutableOpenGate.recentAllowedAttemptId(mint, "SHITCOIN"))
     }
 
     @Test
