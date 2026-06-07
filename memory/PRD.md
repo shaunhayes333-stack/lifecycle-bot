@@ -6,7 +6,96 @@ NO local compiler. Multi-lane architecture (Memes [9 sub-lanes], Crypto/Alts,
 Stocks, Markets, Tokenized Stocks, Forex, Metals, Commodities). Foreground
 Service with a 50+ AI-module pipeline gated through processTokenCycle.
 
+## V5.9.1391–1394 (Feb 2026) — P0/P1 MULTI-FAULT REPAIR (CI ✅ green)
+
+This batch closes the V5.9.1386 13-point spec across two phases. A 4-build
+red CI streak (V5.9.1388–1390a) was diagnosed and fixed first.
+
+A. **V5.9.1391 — CI ROOT-CAUSE FIX** (LaneExitTuner.kt)
+   V5.9.1388 added `pnlSol: Double` to `Outcome` data class without a
+   default. `importState()` constructs `Outcome` with only 4 of the 5
+   fields → `No value passed for parameter 'pnlSol'` compile error,
+   breaking 4 consecutive builds. Fix: `pnlSol: Double = 0.0`. Build
+   AATE APK + Runtime Smoke Test both GREEN on first retry.
+
+B. **V5.9.1391 — AuthorityService (P0-2)** (AuthorityService.kt NEW,
+   Executor.kt wired). Single source-of-truth facade that combines
+   RuntimeModeAuthority + ExecutionRouteGuard + shadowPaperEnabled into
+   one authoritative intent check. Enforces three invariants:
+   - I1: PAPER mode never runs live-mission code (assertLiveExecutionAllowed
+     called at top of Executor.liveBuy → returns early if authority!=LIVE).
+   - I2: SHADOW_PAPER never creates an executable on-chain BUY intent
+     (assertNoShadowExecutableLeak called on the SHADOW route in paperBuy).
+   - I3: Every execution attempt still goes through TradeAuth + EXEC_GATE.
+   Telemetry counters: liveExecutes, paperExecutes, shadow, rejectedLiveFromPaper,
+   rejectedShadowLeak.
+
+C. **V5.9.1390 + 1390a — Phase 2 (P0-1) EXEC_GATE finality ordering**
+   (BotOrchestrator.kt). Spec mandate: no code path may emit V3_EXEC /
+   EXECUTOR_START / V3TradeExecutor execution until EXEC_GATE has allowed
+   the candidate. `handleExecute()` previously called
+   `tradeExecutor.execute()` then logged EXECUTOR_DONE WITHOUT consulting
+   ExecutableOpenGate — bypassing every downstream finality check.
+   Now gates first; if blocked returns REJECTED + emits SHADOW_TRACKED
+   + EXEC_GATE_BLOCKED forensic. 1390a adds a NO_FINAL_CANDIDATE
+   skip for V3 ingress paths that bypass per-lane recordFdg.
+
+D. **V5.9.1392 — P0-3 Outcome Reconciliation** (CanonicalLearning.kt,
+   PipelineHealthCollector.kt). Spec invariant:
+       canonicalTotal == settledWins + settledLosses + openTrades +
+                         inconclusiveTrades + otherExplicitBucket
+   (final-state buckets mutually exclusive). Previously BREAKEVEN /
+   CANCELLED / UNKNOWN result, and non-trainable WIN/LOSS, incremented
+   canonicalTotal but landed in NO bucket — that was the "unnamed gap"
+   the spec warned about. Added `otherExplicitBucket` counter and
+   routed leftovers to it. `reconcile()` returns Reconciliation +
+   fires `OUTCOME_RECONCILE_GAP` forensic if drift. PipelineHealth dump
+   shows ✅ BALANCED / 🚨 GAP=N alongside per-bucket counts and orthogonal
+   diagnostic (rejectedBadLabels, executionOnly, recovered, bcSimOnly).
+
+E. **V5.9.1393 — P1 MFE/MAE tracking** (Models.kt, Executor.kt).
+   Position already had highestPrice (maxPriceSeen), lowestPrice
+   (minPriceSeen), peakGainPct (maxPnlPct). Missing: minPnlPct
+   (Maximum Adverse Excursion). Added field default 0.0. The V5.9.212
+   unconditional price-tick path now also computes pnlPct from
+   (currentPrice / entryPrice) and updates peakGainPct AND minPnlPct
+   on every tick before any exit path can return early — so MFE/MAE
+   accounting is invariant on every open position regardless of which
+   exit path runs.
+
+F. **V5.9.1394 — P1 Danger Bucket SHADOW_TRAIN_ONLY downgrade**
+   (LosingPatternMemory.kt, Executor.kt). Spec: 'Danger buckets
+   (e.g. SHITCOIN|S0-10, SHITCOIN|S61+) default to SHADOW_TRAIN_ONLY.
+   Stop executable trading but allow learning.' Doctrine: never disable
+   a lane. Route LIVE entries to the paper book when the (tradingMode,
+   scoreBand) bucket is matured (n>=20, losses>=20, lossRate>=75%) AND
+   mean PnL <= -15%. Bucket keeps recording outcomes via paper book so
+   the scorer self-corrects and live execution resumes once the pattern
+   reverses. `Executor.liveBuy` consults `LosingPatternMemory.
+   recommendedShadowOnly()` at top; on true, emits
+   `DANGER_BUCKET_SHADOW_DOWNGRADE` forensic and calls `paperBuy()` with
+   the same args. PipelineHealth dump marks shadow-only buckets with 🔒.
+
+## Status of the 13-point spec
+
+| # | Item | Status | Build |
+|---|------|--------|-------|
+| P0-1 | EXEC_GATE finality before executor side-effects | ✅ shipped | V5.9.1390 + 1390a |
+| P0-2 | AuthorityService single-source-of-truth | ✅ shipped | V5.9.1391 |
+| P0-3 | Outcome reconciliation invariant | ✅ shipped | V5.9.1392 |
+| P0-4 | (folded into 1388 Phase 3 — canonical lane identity) | ✅ shipped | V5.9.1388 |
+| P0-5 | Watchlist promotion hygiene | ✅ shipped | V5.9.1388 |
+| P0-6 | Re-entry lockout on stop-loss exits | ✅ shipped | V5.9.1375 |
+| P1-1 | Phase 5 LayerReadiness → UnifiedScorer feedback | ✅ shipped | V5.9.1389 |
+| P1-2 | SOL-weighted EV bleeder gate | ✅ shipped | V5.9.1388 |
+| P1-3 | MFE/MAE per-position tracking | ✅ shipped | V5.9.1393 |
+| P1-4 | Danger buckets → SHADOW_TRAIN_ONLY default | ✅ shipped | V5.9.1394 |
+| P1-5 | Scanner cycle budget (per-provider timeout, 4xx circuit-break) | 🟡 pending | — |
+| P1-6 | Canonical liquidity model (USD + freshness + confidence) | 🟡 pending | — |
+| P1-7 | Telemetry consistency (EXEC_GATE blocks not as executor invocations) | 🟡 pending | — |
+
 ## V5.9.1333 (Feb 2026) — FLUID TACTIC SWITCHER + PERSONALITY TUNE WIRING (CI ✅ green)
+
 
 Operator mandate: *"I don't want lanes or traders disabled. If they aren't
 successful they need to change tactics in a fluid constantly learnt state."*
