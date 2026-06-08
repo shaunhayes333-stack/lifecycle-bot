@@ -5930,13 +5930,15 @@ for legal compliance.
         }
         
         // 5m Volume (use recent history to calculate)
+        // V5.9.1424 — ANR FIX: do not hold ts.history's lock on the MAIN thread
+        // while filtering/summing. The trade loop also writes that list under the
+        // same lock, so a UI refresh that lands mid-write blocked the main thread
+        // (LineBreaker/render then stalled behind it). Take a fast shallow snapshot
+        // under lock, then filter+sum lock-free off the critical section.
         val vol5m = try {
-            synchronized(ts.history) {
-                val now = System.currentTimeMillis()
-                val fiveMinAgo = now - (5 * 60 * 1000L)
-                ts.history.filter { candle -> candle.ts > fiveMinAgo }
-                    .sumOf { candle -> candle.volumeH1 }
-            }
+            val snap = synchronized(ts.history) { ts.history.toList() }
+            val fiveMinAgo = System.currentTimeMillis() - (5 * 60 * 1000L)
+            snap.asSequence().filter { it.ts > fiveMinAgo }.sumOf { it.volumeH1 }
         } catch (_: Exception) { 0.0 }
         
         tvChart5mVol?.text = when {

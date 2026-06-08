@@ -12144,7 +12144,19 @@ if (hotExitHandledSweep) {
     private val supervisorLastSpawnAt = java.util.concurrent.atomic.AtomicLong(System.currentTimeMillis())
     private val supervisorLifetimeSaturationEvents = java.util.concurrent.atomic.AtomicLong(0) // saturation telemetry counter
     private val SUPERVISOR_POOL_STALL_MS: Long = 8_000L  // telemetry threshold only; no destructive counter reset
-    @Suppress("unused") private val SUPERVISOR_MAX_INFLIGHT: Int = 32
+    // V5.9.1424 — DOUBLE SUPERVISOR CONCURRENCY 32 → 64 (operator: "its really
+    // only trading 1 token at a time ... it'll take months just to bootstrap").
+    // Root cause of low concurrent opens: only 32 mints/cycle reached a worker, and
+    // a large share of those were blocked (FDG/PROBE_ONLY, REENTRY_LOCKOUT) or
+    // open-then-die, so distinct survivable opens per tick were a trickle. Doubling
+    // the per-cycle worker pool widens the funnel so more NON-locked, FDG-passing
+    // candidates reach EXEC each cycle and can coexist as concurrent positions —
+    // the sample-size lever the bootstrap maturity curve needs (doctrine: throughput
+    // before cleverness). Does NOT touch the protected 500-token intake pool, the
+    // 10-min re-entry lockout, or any safety floor; it only processes more of the
+    // already-admitted watchlist per tick. Workers remain bounded + leased, so this
+    // cannot leak capacity (hard-expiry cleanup still applies).
+    @Suppress("unused") private val SUPERVISOR_MAX_INFLIGHT: Int = 64
     // Worker slot budget is one bot-loop cadence: long enough for normal
     // processTokenCycle, short enough that stuck IO cannot hold a supervisor
     // slot across multiple 5s cycles.
