@@ -175,6 +175,12 @@ class HeliusCreatorHistory(private val apiKey: String) {
         // returns aren't legal there.
         if (!com.lifecyclebot.engine.KeyValidator.isUsableEnhancedHeliusKey(apiKey)) return null  // V5.9.1340
         if (!com.lifecyclebot.engine.KeyValidator.isLive("helius")) return null
+        // V5.9.1443 — API BACKOFF GATE (reuse the existing breaker that groq +
+        // HeliusEnhancedWS already use). 5.0.3444 logged helius 83×4xx / 0 success;
+        // each blocking call ate the 5s supervisor-worker budget → workers force-
+        // released before any trade decision ("parked at 140"). Fail fast while
+        // locked out; ApiBackoff escalates 5s→120s and auto-recovers on success.
+        if (com.lifecyclebot.engine.ApiBackoff.isLockedOut("helius")) return null
 
         return try {
             val effectiveUrl = try { com.lifecyclebot.engine.AutoEndpointMigrator.rewrite(url) } catch (_: Throwable) { url }
@@ -187,9 +193,11 @@ class HeliusCreatorHistory(private val apiKey: String) {
                 http.newCall(req).execute()
             } catch (e: Exception) {
                 try { com.lifecyclebot.engine.ApiHealthMonitor.recordNetworkError("helius", e.message) } catch (_: Throwable) {}
+                try { com.lifecyclebot.engine.ApiBackoff.markFailure("helius", 0) } catch (_: Throwable) {}
                 throw e
             }
             try { com.lifecyclebot.engine.ApiHealthMonitor.record("helius", resp.code, System.currentTimeMillis() - helStart) } catch (_: Throwable) {}
+            try { if (resp.code in 400..599) com.lifecyclebot.engine.ApiBackoff.markFailure("helius", resp.code) else if (resp.code in 200..299) com.lifecyclebot.engine.ApiBackoff.markSuccess("helius") } catch (_: Throwable) {}
             when {
                 resp.code in listOf(401, 403) -> {
                     try { com.lifecyclebot.engine.KeyValidator.recordResult("helius", success = false, httpStatus = resp.code) } catch (_: Throwable) {}
