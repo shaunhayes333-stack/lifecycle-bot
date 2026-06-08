@@ -581,6 +581,18 @@ object QualityTraderAI {
             return ExitSignal.TRAILING_STOP
         }
 
+        // V5.9.1435 — MFE-RATCHETED ABSOLUTE PROFIT FLOOR (parity with
+        // MOONSHOT/SHITCOIN 1433). Once a Quality bag has banked a real MFE it
+        // can never round-trip below the ratcheted positive floor (MFE>=+75% →
+        // never red). Tightening-only; give-back lock + fluidProfitFloor + the
+        // partial ladder all remain.
+        if (com.lifecyclebot.engine.PeakDrawdownLock.shouldFloorLock(pos.peakPnlPct, pnlPct)) {
+            ErrorLogger.warn(TAG, "💎🔒 MFE_PROFIT_FLOOR: ${pos.symbol} | " +
+                "peak +${pos.peakPnlPct.toInt()}% → now +${pnlPct.fmt(1)}% " +
+                "(floor +${com.lifecyclebot.engine.PeakDrawdownLock.mfeProfitFloorPct(pos.peakPnlPct)?.toInt() ?: 0}% — locking banked gain)")
+            return ExitSignal.TRAILING_STOP
+        }
+
         val rungs = doubleArrayOf(20.0, 50.0, 100.0, 300.0, 1000.0, 3000.0, 10000.0)
         if (pos.partialRungsTaken < rungs.size && pnlPct >= rungs[pos.partialRungsTaken]) {
             val hitRung = rungs[pos.partialRungsTaken]

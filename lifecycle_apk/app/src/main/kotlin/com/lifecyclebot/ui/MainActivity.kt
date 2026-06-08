@@ -3437,8 +3437,18 @@ for legal compliance.
             tvTotalExposure.setTextIfChanged(totalExposure.fastFixed(3) + "◎ at risk")
             tvTotalUnrealisedPnl.setTextIfChanged(totalUpnl.fastSigned(4) + "◎")
             tvTotalUnrealisedPnl.setTextColor(if (totalUpnl >= 0) green else red)
-            val openRenderAllowed = !runtimeActiveForUi || lastOpenPosRenderMs > 0L || (System.currentTimeMillis() - activityCreatedAtMs) > 20_000L
-            if (openRenderAllowed) renderOpenPositions(openPos)
+            // V5.9.1435 — REMOVE the redundant outer 20s render gate. The header
+            // totals above are set unconditionally, but this gate could block the
+            // ROW render for up to 20s after app-open while the bot is running
+            // (runtimeActiveForUi && lastOpenPosRenderMs==0 && elapsed<20s →
+            // openRenderAllowed=false). Result = "X◎ at risk" header with an EMPTY
+            // list below (operator screenshots 00:22). renderOpenPositions() already
+            // owns full ANR protection via its STRUCTURAL-hash throttle (mint/size/
+            // qty/paper/gainBand), which excludes 1Hz price drift, so calling it
+            // every tick is safe and is the single source of truth. Always render so
+            // header and list can never diverge. (doctrine: fix at structural source,
+            // never gate the most important card on a timer.)
+            renderOpenPositions(openPos)
         }
         
         // ── V4.0: Treasury positions panel ─────────────────────────────────
