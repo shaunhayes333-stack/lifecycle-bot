@@ -485,6 +485,23 @@ object CyclicTradeEngine {
         run {
             try {
                 val n = cycleCount
+                // V5.9.1420 — CLOSE THE 0-20 CYCLE SIZING BLIND SPOT (operator:
+                // "cyclic ... shouldn't bleed ... fix it at the source").
+                // ROOT CAUSE of the live -15% floor hits on 2-6 SOL CYCLIC entries:
+                // the edge-gate below only engaged at n>=20, and the cyclicCold brake
+                // only at n>=3 && wr<35%. In the 3-20 cycle window an unproven ring
+                // could deploy the FULL balance into a negative-EV meme entry and eat
+                // a hard-floor stop — geometric ruin before the lane ever earned the
+                // right to size up. FIX: until the lane has EARNED >=20 closed cycles
+                // of edge data, it is UNPROVEN and must deploy at probe size only.
+                // Full-ring deployment is the REWARD for proven edge, never the
+                // default. Learning is untouched — we still enter and journal every
+                // probe, so the CYCLIC bucket keeps maturing toward the edge-gate.
+                if (n < EDGE_GATE_MIN_CYCLES) {
+                    ringDesiredSol = (ringBalanceSol * EDGE_PROBE_FRACTION).coerceAtLeast(0.001)
+                    try { ErrorLogger.info(TAG, "🪙🌱 CYCLIC UNPROVEN: cycle $n/$EDGE_GATE_MIN_CYCLES → PROBE ${(EDGE_PROBE_FRACTION*100).toInt()}% ring (sampling to earn edge; no full deploy until proven)") } catch (_: Throwable) {}
+                    try { com.lifecyclebot.engine.PipelineHealthCollector.labelInc("CYCLIC_UNPROVEN_PROBE") } catch (_: Throwable) {}
+                }
                 if (n >= EDGE_GATE_MIN_CYCLES) {
                     val wr = winCount.toDouble() / n.toDouble()
                     // avgWin / avgLoss in ring-SOL terms, derived from realized totals.
