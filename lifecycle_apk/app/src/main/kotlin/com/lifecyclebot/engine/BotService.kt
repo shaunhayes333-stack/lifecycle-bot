@@ -6828,11 +6828,27 @@ class BotService : Service() {
                         // loss book. Do not let adaptive/fluid ENTRY_PROTECT act during
                         // the initial warmup; the unconditional -15% hard floor and true
                         // catastrophe exits above remain active.
-                        if (cfg.paperMode && holdTimeMs in 0L until 15_000L && pnlPct > -HARD_FLOOR_STOP_PCT) {
+                        // V5.9.1418 — EXTEND PAPER WARMUP HOLD 15s → 60s.
+                        // Operator forensics (build 5.0.3417): canonical outcomes
+                        // dominated by RAPID_ENTRY_PROTECT_STOP at a near-constant
+                        // -8.5% (paper clamp band -13..-8 in Executor.parsePaperExitClamp).
+                        // Root cause: the warmup only suppressed the adaptive ENTRY_PROTECT
+                        // stop for the first 15s, but FluidLearningAI.getDynamicFluidStop's
+                        // OWN entry-protection phase runs to 60s (returns -12%..-15%). So a
+                        // fresh meme token that wicked -8..-13% on entry spread/slippage
+                        // between 15s and 60s got stopped as RAPID_ENTRY_PROTECT_STOP before
+                        // it could settle — buy→noise-dump→stop→re-buy churn, the exact
+                        // "buys then instantly loses" the operator reported. An 8-13% wick is
+                        // NOISE for a just-launched token, not signal. Hold the adaptive stop
+                        // for the full 60s entry-protection window so settlement can happen.
+                        // The unconditional -15% hard floor (pnlPct > -HARD_FLOOR_STOP_PCT)
+                        // and the true catastrophe exits handled ABOVE this block remain
+                        // active — a token genuinely crashing past -15% still exits now.
+                        if (cfg.paperMode && holdTimeMs in 0L until 60_000L && pnlPct > -HARD_FLOOR_STOP_PCT) {
                             try {
                                 ForensicLogger.lifecycle(
                                     "RAPID_ENTRY_WARMUP_HOLD",
-                                    "symbol=${ts.symbol} pnl=${"%.1f".format(pnlPct)}% ageMs=$holdTimeMs floor=-${HARD_FLOOR_STOP_PCT.toInt()}"
+                                    "symbol=${ts.symbol} pnl=${"%.1f".format(pnlPct)}% ageMs=$holdTimeMs floor=-${HARD_FLOOR_STOP_PCT.toInt()} window=60s"
                                 )
                             } catch (_: Throwable) {}
                             continue

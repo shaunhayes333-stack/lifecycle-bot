@@ -513,8 +513,13 @@ object ShitCoinTraderAI {
         val pnlPctForSettle = if (pos.entryPrice > 0.0) (exitPrice - pos.entryPrice) / pos.entryPrice * 100.0 else 0.0
         val ageMsForSettle = nowForSettle - pos.entryTime
         
-        // V5.9.1412 — FIX: use paper-adjusted threshold (-45%) for the 30s settle-in so paper slippage (-27%) doesn't instantly bypass the choke.
-        if (pos.isPaper && ageMsForSettle in 0L until 30_000L && pnlPctForSettle <= 0.0 && pnlPctForSettle > -45.0) {
+        // V5.9.1412 — FIX: use paper-adjusted threshold (-45%) for the settle-in so paper slippage (-27%) doesn't instantly bypass the choke.
+        // V5.9.1418 — align sub-trader settle-in (was 30s) with the central
+        // BotService 60s entry-protection window. A 30s window let ShitCoin
+        // close as a rapid stop at 31-60s — exactly the churn band the central
+        // monitor now holds. Match 60s so no lane shakes a fresh paper token out
+        // on entry noise. -15% hard floor stays immediate (pnl > -45 paper-adj guard).
+        if (pos.isPaper && ageMsForSettle in 0L until 60_000L && pnlPctForSettle <= 0.0 && pnlPctForSettle > -45.0) {
             synchronized(activePositions) { activePositions[mint] = pos }
             try {
                 ErrorLogger.info(TAG, "💩⏳ SETTLE-IN HOLD: ${pos.symbol} | ${pnlPctForSettle.fmt(1)}% age=${ageMsForSettle}ms reason=${exitReason.name} (floor=-15%)")
