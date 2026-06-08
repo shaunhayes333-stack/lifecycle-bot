@@ -315,11 +315,28 @@ object CanonicalOutcomeNormalizer {
                 val ep = raw0.entryPrice ?: 0.0
                 val cost = raw0.costBasisSol ?: raw0.entrySol ?: 0.0
                 val proceeds = raw0.proceedsSol ?: raw0.exitSol
-                val reconstructed: Double? = when {
-                    ep > 0.0 && raw0.realizedPnlPct != null ->
-                        ep * (1.0 + (raw0.realizedPnlPct / 100.0))
+                // CONSISTENCY GUARD — only reconstruct when the SOL accounting
+                // is INTERNALLY COHERENT. A row that claims a non-zero realized
+                // P&L while proceedsSol is explicitly 0 is CONTRADICTORY (you
+                // cannot realize +0.05 SOL with 0 proceeds). Such rows are bad
+                // accounting, not propagation races — they must fall through to
+                // the PARTIAL_SELL_INVALID_ACCOUNTING / MISSING_EXIT_PRICE
+                // rejection, NOT be reconstructed (reconstructing would train on
+                // a fabricated price for a trade whose proceeds say it never
+                // settled). Guards the ExecutionAuthorityInvariant.
+                val claimsRealizedPnl = kotlin.math.abs(raw0.realizedPnlSol ?: 0.0) > 0.0000001 ||
+                    kotlin.math.abs(raw0.realizedPnlPct ?: 0.0) > 0.0000001
+                val proceedsExplicitlyZero = (raw0.proceedsSol != null && raw0.proceedsSol <= 0.0) ||
+                    (raw0.proceedsSol == null && (raw0.exitSol ?: 0.0) <= 0.0)
+                val accountingContradicts = claimsRealizedPnl && proceedsExplicitlyZero
+                val reconstructed: Double? = if (accountingContradicts) null else when {
+                    // Accounting-derived FIRST (it is the source of truth and
+                    // proves the trade actually settled). Only when proceeds AND
+                    // cost are real do we trust the pct path.
                     ep > 0.0 && cost > 0.0 && proceeds != null && proceeds > 0.0 ->
                         ep * (proceeds / cost)
+                    ep > 0.0 && raw0.realizedPnlPct != null && cost > 0.0 && proceeds != null && proceeds > 0.0 ->
+                        ep * (1.0 + (raw0.realizedPnlPct / 100.0))
                     else -> null
                 }?.takeIf { it.isFinite() && it > 0.0 }
                 if (reconstructed != null) {
