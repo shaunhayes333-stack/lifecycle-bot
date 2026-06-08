@@ -503,22 +503,38 @@ object CyclicTradeEngine {
                     try { com.lifecyclebot.engine.PipelineHealthCollector.labelInc("CYCLIC_UNPROVEN_PROBE") } catch (_: Throwable) {}
                 }
                 if (n >= EDGE_GATE_MIN_CYCLES) {
+                    // V5.9.1423 — REALIZED-PnL EDGE GATE (operator: "cyclic ...
+                    // should be pivoting learning if its losing ... shouldn't bleed").
+                    // ROOT CAUSE of the persistent CYCLIC bleed even after the 1420
+                    // unproven-probe guard: the old edge formula compared WR against a
+                    // breakevenWr implied by adaptiveTpSl()'s ASPIRATIONAL geometry. On
+                    // a loss streak adaptiveTpSl returns TP>=80/SL<=6 (fantasy targets
+                    // the trades almost never hit), so breakevenWr collapsed to ~7%.
+                    // An 8% realized WR then read as a POSITIVE edge and authorized a
+                    // near-full ring deploy into a lane that was empirically bleeding
+                    // (n=15, 1W/11L, -15% floor hits on 1.2 SOL). The model lied because
+                    // its TP was a fantasy. FIX: gate on REALIZED net P&L, the only
+                    // honest signal. If the ring's persisted totalPnlSol is negative over
+                    // its lifetime cycles, it is bleeding by definition — collapse to a
+                    // probe and keep sampling until realized edge actually turns positive.
                     val wr = winCount.toDouble() / n.toDouble()
-                    // avgWin / avgLoss in ring-SOL terms, derived from realized totals.
-                    // Fall back to symmetric 12% proxy if per-side totals unavailable.
-                    val realizedWr = wr
-                    // Realized mean PnL% per cycle is the cleanest net-edge proxy we
-                    // persist via totalPnlSol over deployed notional; but to stay
-                    // self-contained use the win-rate vs a breakeven WR implied by the
-                    // active TP/SL asymmetry. breakevenWr = SL / (TP + SL).
+                    val realizedPnlPerCycle = totalPnlSol / n.toDouble()
+                    // Net edge proxy: realized SOL P&L per cycle, normalized by the ring
+                    // notional so it reads as a per-cycle return fraction.
+                    val ringNotional = ringBalanceSol.coerceAtLeast(0.001)
+                    val realizedEdge = realizedPnlPerCycle / ringNotional   // >0 ⇒ the ring is actually growing
                     val (tpA, slA) = adaptiveTpSl(currentMode)
                     val breakevenWr = (slA / (tpA + slA)).coerceIn(0.05, 0.95)
-                    val edge = realizedWr - breakevenWr   // >0 means profitable at this TP/SL geometry
+                    val wrEdge = wr - breakevenWr
+                    // AND-gate: deploy full only when BOTH realized P&L is positive AND
+                    // WR clears its (optimistic) breakeven. Either one negative ⇒ throttle.
+                    val edge = if (totalPnlSol <= 0.0) minOf(realizedEdge, wrEdge) else wrEdge
                     when {
-                        edge <= 0.0 -> {
-                            // Negative/zero edge — PROBE ONLY. Sample to learn, never bleed.
+                        totalPnlSol <= 0.0 || edge <= 0.0 -> {
+                            // Empirically bleeding (negative realized P&L) or negative WR
+                            // edge — PROBE ONLY. Sample to learn/pivot, never bleed.
                             ringDesiredSol = (ringBalanceSol * EDGE_PROBE_FRACTION).coerceAtLeast(0.001)
-                            try { ErrorLogger.warn(TAG, "🪙🛑 CYCLIC EDGE-GATE: wr=${(realizedWr*100).toInt()}% < breakeven=${(breakevenWr*100).toInt()}% (TP${tpA.toInt()}/SL${slA.toInt()}) → PROBE ${(EDGE_PROBE_FRACTION*100).toInt()}% ring (sampling, not bleeding)") } catch (_: Throwable) {}
+                            try { ErrorLogger.warn(TAG, "🪙🛑 CYCLIC EDGE-GATE: realizedPnL=${"%.3f".format(totalPnlSol)} SOL over $n cycles (wr=${(wr*100).toInt()}% vs breakeven=${(breakevenWr*100).toInt()}%) → PROBE ${(EDGE_PROBE_FRACTION*100).toInt()}% ring (bleeding — sampling to pivot, not betting principal)") } catch (_: Throwable) {}
                             try { com.lifecyclebot.engine.PipelineHealthCollector.labelInc("CYCLIC_EDGE_GATE_PROBE") } catch (_: Throwable) {}
                         }
                         edge < EDGE_FULL_DEPLOY -> {
