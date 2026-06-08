@@ -267,6 +267,8 @@ object BehaviorAI {
                     disciplineScore.addAndGet(5)
                     updateFluidBonus(0.05)
                 }
+                // V5.9.1434 — revive the paper learning loop on ordinary wins.
+                fluidDriftFromOutcome(pnlPct, isPaperMode)
             }
             
             // ═══════════════════════════════════════════════════════════════
@@ -378,6 +380,10 @@ object BehaviorAI {
                         // V5.2: NO updateFluidPenalty here - let sentient learning handle it
                     }
                 }
+                // V5.9.1434 — revive the paper learning loop on ordinary losses.
+                // Sample-scaled + floor-aware; replaces the unreachable -30% live-only
+                // penalty as the real paper-mode tightening signal. Soft-shape only.
+                fluidDriftFromOutcome(pnlPct, isPaperMode)
             }
         }
         
@@ -613,6 +619,41 @@ object BehaviorAI {
     // Positive = loosen thresholds (good behavior)
     private val fluidAdjustment = AtomicReference(0.0)
     
+    // V5.9.1434 — PAPER-AWARE FLUID DRIFT (revive the dead learning loop).
+    // ROOT CAUSE: fluidAdjustment only moved on +50%/10x/100x wins or a ≤-30%
+    // LIVE-mode loss. Under the -15% paper hard floor a loss can NEVER reach
+    // -30%, and the -30% trigger is live-only anyway, so in paper mode the
+    // penalty path was UNREACHABLE and the bonus path almost never fired —
+    // pinning "FLUID LEARNING IMPACT" at +0.00 for the entire 0-5000 bootstrap,
+    // exactly when behavioural self-adjustment should help. This adds a small,
+    // sample-size-scaled drift on EVERY ordinary win/loss so the loop actually
+    // breathes. Soft-shape only (never a veto), and gentle pre-5000 via the SAME
+    // maturity ramp the disc/tilt deltas already use (V5.9.662 "not that
+    // strictly"). Floor-aware: keyed off the real clamped pnl, not an impossible
+    // -30%. Wins drift +, losses drift -, both ×maturity×magnitude.
+    private fun fluidDriftFromOutcome(pnlPct: Double, isPaperMode: Boolean) {
+        val totalTrades = try {
+            com.lifecyclebot.engine.TradeHistoryStore.getLifetimeStats().totalSells
+        } catch (_: Throwable) { 0 }
+        // Same ramp shape as the paper disc/tilt deltas: ~5% pre-3000, linear to
+        // 100% at 5000. Keeps the loop barely-on early (need sample size) and
+        // fully expressive once mature.
+        val maturityScale = when {
+            totalTrades >= 5000 -> 1.0
+            totalTrades >= 3000 -> 0.05 + 0.95 * (totalTrades - 3000) / 2000.0
+            else                -> 0.05
+        }
+        // Per-trade step is tiny; it accumulates with the run of outcomes and is
+        // clamped to [-1,1] inside updateFluid*. A clean win nudges loosen, a
+        // floor-stop loss nudges tighten, magnitude-weighted but bounded so a
+        // single -15% can't swing the dial.
+        val mag = (kotlin.math.abs(pnlPct) / 15.0).coerceIn(0.2, 1.0)
+        val step = 0.02 * maturityScale * mag
+        if (step <= 0.0) return
+        if (pnlPct >= 1.0) updateFluidBonus(step)
+        else if (pnlPct <= -2.0) updateFluidPenalty(step)
+    }
+
     private fun updateFluidBonus(bonus: Double) {
         val current = fluidAdjustment.get()
         val newValue = (current + bonus).coerceIn(-1.0, 1.0)
