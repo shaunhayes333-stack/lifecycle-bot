@@ -5060,7 +5060,28 @@ class Executor(
             }
         }
         
-        if (gainPct <= dynamicStopPct) {
+        // V5.9.1419 — HARD 30s ENTRY-PROTECT TIME-LOCK (operator directive).
+        // This Executor dynamic-stop path had NO settle-in guard, so it kept
+        // firing RAPID_ENTRY_PROTECT_STOP on tokens only seconds old even after
+        // the BotService warmup was widened — it is a SECOND, independent
+        // producer of the entry_protect exit. Operator: "it needs a 30 second
+        // time lock where it can't fire on a newly acquired token." Enforce it
+        // unconditionally here: no position younger than 30s may be closed by
+        // the adaptive/fluid entry-protect or fluid stop. The unconditional
+        // -15% hard floor (checked ABOVE at gainPct <= -effectiveHardFloorPct)
+        // and the trailing/drain/gap-guard rug exits (also ABOVE) remain fully
+        // active inside the lock — only the noise-driven dynamic stop is held.
+        // A genuine in-profit trailing exit is unaffected (peak>5% trailing fires
+        // through its own ProfitabilityLayer path above, not here).
+        val entryLockActive = heldSecs < 30.0
+        if (entryLockActive && gainPct <= dynamicStopPct && gainPct > -effectiveHardFloorPct) {
+            try {
+                com.lifecyclebot.engine.ForensicLogger.lifecycle(
+                    "ENTRY_PROTECT_TIMELOCK_HOLD",
+                    "symbol=${ts.symbol} pnl=${"%.1f".format(gainPct)}% heldSecs=${"%.1f".format(heldSecs)} dynLimit=${dynamicStopPct.toInt()} floor=-${effectiveHardFloorPct.toInt()} lock=30s"
+                )
+            } catch (_: Throwable) {}
+        } else if (gainPct <= dynamicStopPct) {
             val stopType = when {
                 peakPnlPct > 5.0 -> "trailing_fluid"
                 heldSecs < 60 -> "entry_protect"
