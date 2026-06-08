@@ -1655,6 +1655,28 @@ object ShitCoinTraderAI {
         // Ensures every downstream lock/floor reads an up-to-date peak.
         if (pnlPct > pos.peakPnlPct) pos.peakPnlPct = pnlPct
 
+        // V5.9.1439 — EARLY-WEAKNESS EXIT (operator strategy spec + honest backtest).
+        // The Lane Strategy Replay says SHITCOIN's CURRENT_ACTUAL is net-negative
+        // (Sharpe ~-1) while TIGHT_STOP_-5 is net-positive (Sharpe ~1.7). Root cause
+        // in the live data: SHITCOIN:STOP_LOSS n=200 μ=-19.4% with -78/-87/-98%
+        // gap-through prints — far past the -6/-8% configured stop. Those are
+        // dead-on-arrival tokens (no liquidity, stale/rugging feed) that the 8-min
+        // "breather" keeps holding until they free-fall through the -15% floor.
+        // Spec: "if no positive MFE within first 30-45s, tighten exit thesis."
+        // A token that has NEVER been green by 45s is not a survivable dip — it is
+        // dead. Exit it at the lane stop NOW instead of letting the breather widen
+        // it into a -90% bag. This ONLY touches never-green positions past 45s;
+        // any position that printed even +0.1% MFE keeps full breather protection.
+        // All rug checks + the unconditional -15% hard floor remain above/below.
+        run {
+            val ageSec = holdSeconds
+            if (ageSec >= 45L && pos.peakPnlPct <= 0.0 && pnlPct < -5.0) {
+                ErrorLogger.info(TAG, "💩⏱️ EARLY-WEAKNESS EXIT: ${pos.symbol} | " +
+                    "never green by ${ageSec}s (peak ${pos.peakPnlPct.fmt(1)}%, now ${pnlPct.fmt(1)}%) — cutting dead entry")
+                return ExitSignal.STOP_LOSS
+            }
+        }
+
         // V5.9.438 — HARD PEAK-DRAWDOWN LOCK. Runs BEFORE every other
         // gate so nothing below can keep a catastrophic bag open.
         // Reported: Kenny moonshot peaked +326%, lock computed at +314%,
