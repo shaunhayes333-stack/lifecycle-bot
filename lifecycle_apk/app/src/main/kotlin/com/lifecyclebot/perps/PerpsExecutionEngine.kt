@@ -65,6 +65,7 @@ object PerpsExecutionEngine {
     
     // Job references
     private var scanJob: Job? = null
+    @Volatile private var runtimeGenAtStart: Long = 0L  // V5.9.1441 stop-leak guard
     private var positionMonitorJob: Job? = null
     private var engineScope: CoroutineScope? = null
 
@@ -106,6 +107,9 @@ object PerpsExecutionEngine {
         
         isRunning.set(true)
         isPaused.set(false)
+        // V5.9.1441 — bind this engine lifetime to the runtime generation so a
+        // stale loop self-terminates if stop() is missed or a new Start bumps gen.
+        runtimeGenAtStart = com.lifecyclebot.engine.BotRuntimeController.currentGeneration()
 
         val scope = CoroutineScope(Dispatchers.Default + SupervisorJob())
         engineScope = scope
@@ -170,7 +174,7 @@ object PerpsExecutionEngine {
         val scanIntervalMs = if (PerpsTraderAI.isPaperMode) SCAN_INTERVAL_MS_PAPER else SCAN_INTERVAL_MS_LIVE
         ErrorLogger.info(TAG, "⚡ PERPS SCAN LOOP STARTED - Running every ${scanIntervalMs/1000}s (paper=${PerpsTraderAI.isPaperMode})")
         
-        while (isRunning.get()) {
+        while (isRunning.get() && com.lifecyclebot.engine.BotRuntimeController.isLiveGeneration(runtimeGenAtStart)) {
             try {
                 // V5.7.5: Always log heartbeat so we know the loop is alive
                 val scanNum = scanCount.get()

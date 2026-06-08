@@ -43,6 +43,23 @@ object BotRuntimeController {
 
     fun currentGeneration(): Long = _state.value.runtimeGeneration
 
+    /**
+     * V5.9.1441 — P0 STOP-LIFECYCLE LEAK GUARD. A background loop/emitter is only
+     * permitted to run/emit while BOTH (a) its captured generation matches the
+     * live runtime generation AND (b) the runtime is actually RUNNING. The instant
+     * Stop is pressed (state leaves RUNNING) or a new Start bumps the generation,
+     * any stale loop that captured an old generation self-terminates on its next
+     * tick — even if its own stop() was never called or raced. This is the
+     * structural backstop for the confirmed leak where PerpsScanner / InsiderTracker
+     * kept emitting after running=false / button=Start Bot.
+     */
+    fun isLiveGeneration(generation: Long): Boolean {
+        val cur = _state.value
+        return generation != 0L &&
+            generation == cur.runtimeGeneration &&
+            cur.state == RuntimeState.RUNNING
+    }
+
     fun beginStart(paperMode: Boolean, enabledTraders: String): Long = synchronized(this) {
         val cur = refreshDerived(_state.value)
         if (cur.runtimeActive) {

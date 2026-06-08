@@ -361,6 +361,7 @@ object InsiderTrackerAI {
     
     private val isRunning = AtomicBoolean(false)
     private var scanJob: Job? = null
+    @Volatile private var runtimeGenAtStart: Long = 0L  // V5.9.1441 stop-leak guard
     
     // Signal cache
     private val recentSignals = ConcurrentHashMap<Long, InsiderSignal>()
@@ -392,11 +393,17 @@ object InsiderTrackerAI {
         
         onSignalCallback = onSignal
         isRunning.set(true)
+        // V5.9.1441 — bind to runtime generation; stale loop self-terminates if
+        // stop() is missed/raced or a new Start bumps the generation (P0 leak fix:
+        // InsiderTracker kept scanning wallets after running=false/Start Bot).
+        val genAtStart = com.lifecyclebot.engine.BotRuntimeController.currentGeneration()
+        runtimeGenAtStart = genAtStart
         
         scanJob = CoroutineScope(Dispatchers.Default + SupervisorJob()).launch {
             ErrorLogger.info(TAG, "🔍 Insider Tracker STARTED | Watching ${getAllWallets().size} wallets")
             
-            while (isRunning.get() && isActive) {
+            while (isRunning.get() && isActive &&
+                   com.lifecyclebot.engine.BotRuntimeController.isLiveGeneration(genAtStart)) {
                 try {
                     scanAllWallets()
                     cleanupOldSignals()
@@ -405,6 +412,13 @@ object InsiderTrackerAI {
                 }
                 
                 delay(SCAN_INTERVAL_MS)
+            }
+            // V5.9.1441 — loop exited; if it was due to generation change (not an
+            // explicit stop), null the callback so no late emission escapes.
+            if (!com.lifecyclebot.engine.BotRuntimeController.isLiveGeneration(genAtStart)) {
+                isRunning.set(false)
+                onSignalCallback = null
+                ErrorLogger.info(TAG, "🔍 Insider Tracker self-terminated (stale generation $genAtStart)")
             }
         }
     }
@@ -496,8 +510,11 @@ object InsiderTrackerAI {
                         preTweetSignals++
                     }
                     
-                    // Callback for real-time alerts
-                    onSignalCallback?.invoke(signal)
+                    // Callback for real-time alerts — V5.9.1441: never emit after
+                    // the runtime generation moved on (stop pressed / restart).
+                    if (com.lifecyclebot.engine.BotRuntimeController.isLiveGeneration(runtimeGenAtStart)) {
+                        onSignalCallback?.invoke(signal)
+                    }
                     
                     logSignal(signal)
                 }
