@@ -5082,11 +5082,14 @@ class Executor(
                 )
             } catch (_: Throwable) {}
         } else if (gainPct <= dynamicStopPct) {
-            val stopType = when {
-                peakPnlPct > 5.0 -> "trailing_fluid"
-                heldSecs < 50 -> "entry_protect"  // V5.9.1430 narrowed 60->50 so post-40s-lock exits read as fluid_stop, not phantom entry_protect
-                else -> "fluid_stop"
-            }
+            // V5.9.1431 — RAPID ENTRY PROTECT REMOVED (operator directive).
+            // The "entry_protect" stop label/concept is gone entirely. A fresh
+            // position can no longer be stopped by the dynamic stop during the
+            // 40s entry-lock above (only the unconditional -15% hard floor and
+            // the rug/gap guards may exit it). Post-lock, every dynamic exit is
+            // a normal trailing or fluid stop — there is no early-life special
+            // case anymore.
+            val stopType = if (peakPnlPct > 5.0) "trailing_fluid" else "fluid_stop"
             onLog("🛑 DYNAMIC STOP ($stopType): ${ts.symbol} at ${gainPct.toInt()}% (dynamic limit=${dynamicStopPct.toInt()}%)", ts.mint)
             markForRecoveryScan(ts, gainPct, stopType)
             return "${stopType}_loss"

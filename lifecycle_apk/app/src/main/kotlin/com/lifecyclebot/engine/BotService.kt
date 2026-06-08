@@ -6869,7 +6869,7 @@ class BotService : Service() {
                             try {
                                 ForensicLogger.lifecycle(
                                     "RAPID_ENTRY_WARMUP_HOLD",
-                                    "symbol=${ts.symbol} pnl=${"%.1f".format(pnlPct)}% ageMs=$holdTimeMs floor=-${HARD_FLOOR_STOP_PCT.toInt()} window=60s"
+                                    "symbol=${ts.symbol} pnl=${"%.1f".format(pnlPct)}% ageMs=$holdTimeMs floor=-${HARD_FLOOR_STOP_PCT.toInt()} window=40s"
                                 )
                             } catch (_: Throwable) {}
                             continue
@@ -6902,11 +6902,13 @@ class BotService : Service() {
                         // path only matters for non-catastrophe / non-floor
                         // exits driven by FluidLearningAI's adaptive stop.
                         if (pnlPct <= dynamicStopPct) {
-                            val stopType = when {
-                                peakPnlPct > 5.0 -> "TRAILING"
-                                holdTimeSecs < 60 -> "ENTRY_PROTECT"
-                                else -> "FLUID"
-                            }
+                            // V5.9.1431 — RAPID ENTRY PROTECT REMOVED (operator
+                            // directive). No more ENTRY_PROTECT stop label/behaviour.
+                            // The 40s warmup HOLD above already prevents the dynamic
+                            // stop from firing on a fresh token; everything that
+                            // reaches here post-warmup is a normal trailing/fluid
+                            // stop. Hard -15% floor (handled above) is untouched.
+                            val stopType = if (peakPnlPct > 5.0) "TRAILING" else "FLUID"
                             ErrorLogger.warn("BotService", "⚠️ RAPID $stopType STOP: ${ts.symbol} at ${pnlPct.toInt()}% (limit=${dynamicStopPct.toInt()}%)")
                             addLog("🛑 RAPID $stopType STOP: ${ts.symbol} ${pnlPct.toInt()}%")
                             
