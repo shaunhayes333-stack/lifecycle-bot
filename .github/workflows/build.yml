@@ -24,6 +24,14 @@ jobs:
         with:
           accept-android-sdk-licenses: true
 
+      # CI infra hardening: cache the Gradle distribution + deps so a transient
+      # outage on the gradle-distributions CDN (observed: repeated HTTP 504 /
+      # download timeout on gradle-8.7-bin.zip) cannot fail an otherwise-green
+      # build. Once cached, later runs skip the network fetch entirely.
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          cache-read-only: false
+
       - name: Accept SDK Licenses
         run: |
           yes | $ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager --licenses || true
@@ -33,6 +41,16 @@ jobs:
           chmod +x gradlew || true
           mkdir -p gradle/wrapper
           curl -sL -o gradle/wrapper/gradle-wrapper.jar "https://raw.githubusercontent.com/gradle/gradle/v8.7.0/gradle/wrapper/gradle-wrapper.jar"
+          # CI infra hardening: the gradle-distributions CDN intermittently
+          # returns 504 / times out. Retry the wrapper's distribution download
+          # up to 5 times with backoff before giving up, so a transient outage
+          # no longer fails the build (the code itself never reached compile in
+          # the failed runs — the wrapper died fetching gradle-8.7-bin.zip).
+          for i in 1 2 3 4 5; do
+            ./gradlew --version --no-daemon && break
+            echo "Gradle distribution download attempt $i failed (CDN flaky); retrying in $((i*15))s..."
+            sleep $((i*15))
+          done
           echo "========================================"
           echo "Building AATE v5.0.${{ github.run_number }}"
           echo "versionCode = $((500 + ${{ github.run_number }}))"
