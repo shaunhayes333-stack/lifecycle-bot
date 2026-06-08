@@ -3535,7 +3535,7 @@ for legal compliance.
                 // renderQualityPositions self-guards on a structure hash, so when
                 // nothing changed this is a cheap no-op and we don't spend budget on
                 // it; we only consume budget when a rebuild is actually pending.
-                val qHash = qualityPositions.map { "${it.mint}|${it.entrySol}|${it.isPaper}" }.hashCode()
+                val qHash = qualityPositions.map { "${it.mint}|${it.entrySol}|${it.entryScore}" }.hashCode()
                 if (qHash == lastQualityHash || consumeHeavyRenderBudget()) {
                     val qualityUnrealized = renderQualityPositions(qualityPositions)  // V5.9.420
                     tvQualityPnl.setTextIfChanged("%+.4f◎".format(qualityUnrealized))
@@ -3562,7 +3562,7 @@ for legal compliance.
                 // V5.9.1416 — gate the heavy row rebuild through the per-tick budget.
                 // renderShitCoinPositions self-guards on a structure hash (cheap
                 // no-op when unchanged); only consume budget when a rebuild is due.
-                val scHashUi = shitCoinPositions.map { "${it.mint}|${it.entrySol}|${it.isPaper}" }.hashCode()
+                val scHashUi = shitCoinPositions.map { "${it.mint}|${it.entrySol}|${it.launchPlatform}" }.hashCode()
                 if (scHashUi == lastShitCoinHash || consumeHeavyRenderBudget()) {
                     val shitCoinUnrealized = renderShitCoinPositions(shitCoinPositions)
                     lastShitCoinCachedPnlSol = shitCoinUnrealized
