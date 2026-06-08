@@ -5073,18 +5073,18 @@ class Executor(
         // active inside the lock — only the noise-driven dynamic stop is held.
         // A genuine in-profit trailing exit is unaffected (peak>5% trailing fires
         // through its own ProfitabilityLayer path above, not here).
-        val entryLockActive = heldSecs < 30.0
+        val entryLockActive = heldSecs < 40.0  // V5.9.1430 30s->40s: align Executor entry-lock with 1429 BotService settle-in; closes the 30-60s window that booked entry_protect losses at -10..-13%
         if (entryLockActive && gainPct <= dynamicStopPct && gainPct > -effectiveHardFloorPct) {
             try {
                 com.lifecyclebot.engine.ForensicLogger.lifecycle(
                     "ENTRY_PROTECT_TIMELOCK_HOLD",
-                    "symbol=${ts.symbol} pnl=${"%.1f".format(gainPct)}% heldSecs=${"%.1f".format(heldSecs)} dynLimit=${dynamicStopPct.toInt()} floor=-${effectiveHardFloorPct.toInt()} lock=30s"
+                    "symbol=${ts.symbol} pnl=${"%.1f".format(gainPct)}% heldSecs=${"%.1f".format(heldSecs)} dynLimit=${dynamicStopPct.toInt()} floor=-${effectiveHardFloorPct.toInt()} lock=40s"
                 )
             } catch (_: Throwable) {}
         } else if (gainPct <= dynamicStopPct) {
             val stopType = when {
                 peakPnlPct > 5.0 -> "trailing_fluid"
-                heldSecs < 60 -> "entry_protect"
+                heldSecs < 50 -> "entry_protect"  // V5.9.1430 narrowed 60->50 so post-40s-lock exits read as fluid_stop, not phantom entry_protect
                 else -> "fluid_stop"
             }
             onLog("🛑 DYNAMIC STOP ($stopType): ${ts.symbol} at ${gainPct.toInt()}% (dynamic limit=${dynamicStopPct.toInt()}%)", ts.mint)
@@ -9758,6 +9758,10 @@ class Executor(
         // (2) EXIT PRICE CLAMP — derive the strategy's intended exit band
         // from the reason label. We honour the label rather than letting
         // a stale price take us 100x past it.
+        // V5.9.1430 — realized-pct band bounds used only when entryPrice is
+        // missing (set by the no-entry branch below). null = no override.
+        var paperBandFloorPct: Double? = null
+        var paperBandCeilPct: Double? = null
         val (clampLowPct, clampHighPct) = parsePaperExitClamp(reason)
         if (pos.entryPrice > 0.0 && clampLowPct != null && clampHighPct != null) {
             val low  = pos.entryPrice * (1.0 + clampLowPct / 100.0)
@@ -9772,11 +9776,42 @@ class Executor(
                 } catch (_: Throwable) {}
                 effectivePrice = clamped
             }
+        } else if (pos.entryPrice <= 0.0 && clampLowPct != null && clampHighPct != null) {
+            // V5.9.1430 — ENTRY-PRICE-MISSING GAP-THROUGH GUARD. When entryPrice
+            // is 0/missing the price-band clamp above is SKIPPED, so a stale paper
+            // quote books the raw gap (this is how FINDER SHITCOIN_STOP_LOSS booked
+            // -50.7% even though the SHITCOIN stop band is [-12%,-6%], and how a
+            // hard-floor exit could book past the unconditional -15% floor).
+            // Synthesise a valid entry from the current price + the band so the
+            // clamp can still apply: pin effectivePrice to the band's worst edge,
+            // honouring the strategy's stated trigger instead of the phantom gap.
+            // Hard-floor/HARD bands are [-17,-15] so this also re-enforces the
+            // operator's unconditional -15% floor on the gap-through case.
+            val worstPct = minOf(clampLowPct, clampHighPct)
+            val bestPct  = maxOf(clampLowPct, clampHighPct)
+            // Mark so the realized-pct clamp below knows to bound to [worst,best].
+            paperBandFloorPct = worstPct
+            paperBandCeilPct  = bestPct
+            try {
+                ForensicLogger.lifecycle(
+                    "PAPER_EXIT_BAND_NO_ENTRY",
+                    "mint=${ts.mint.take(10)} symbol=${ts.symbol} reason=$reason band=[${worstPct}%,${bestPct}%] — entryPrice missing, clamping realized pct to band",
+                )
+            } catch (_: Throwable) {}
         }
 
         val simulatedFeePct = 0.5
 
-        val priceDerivedPnlPct = pct(pos.entryPrice, effectivePrice).coerceIn(-100.0, 1000.0)
+        val priceDerivedPnlPct = run {
+            val base = pct(pos.entryPrice, effectivePrice).coerceIn(-100.0, 1000.0)
+            // V5.9.1430 — when entryPrice was missing, pct() is meaningless
+            // (division by ~0). Bound the realized pct to the strategy's stated
+            // band so a gap-through cannot book -50% on a [-12,-6] stop, nor
+            // breach the unconditional -15% floor on a hard-floor label.
+            if (paperBandFloorPct != null && paperBandCeilPct != null) {
+                base.coerceIn(paperBandFloorPct!!, paperBandCeilPct!!)
+            } else base
+        }
         val rawValue = pos.costSol * (1.0 + priceDerivedPnlPct / 100.0) * (1.0 - simulatedFeePct / 100.0)
         // (3) Cost-basis paper proceeds — paper has no real token balance. Do
         // NOT book proceeds from qtyToken * price; a stale qty or source-basis
