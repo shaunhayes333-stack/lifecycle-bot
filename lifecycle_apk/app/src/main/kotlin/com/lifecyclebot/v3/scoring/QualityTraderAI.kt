@@ -745,6 +745,12 @@ object QualityTraderAI {
 
         // V5.9.318: Feed outcome into TradingCopilot for life-coach state.
         try { com.lifecyclebot.engine.TradingCopilot.recordTradeForAsset(pnlPct, isPaperMode, assetClass = "QUALITY") } catch (e: Exception) { com.lifecyclebot.engine.ErrorLogger.debug("QualityTraderAI", "copilot skip: ${e.message}") }
+        // V5.9.1437 — ROUTE LANE CLOSES INTO BehaviorAI. V3 sub-traders
+        // bypass Executor.recordTrade (V5.9.434), so the BehaviorAI fanout
+        // at Executor:2465 NEVER fired for lane trades → Neural Personality
+        // panel (Streak/Tilt/Discipline/Session Stats/FLUID LEARNING IMPACT)
+        // sat dead at 0 across hundreds of trades. Feed it directly here.
+        try { com.lifecyclebot.v3.scoring.BehaviorAI.recordTradeForAsset(pnlPct = pnlPct, reason = exitSignal.name, mint = pos.mint, isPaperMode = isPaperMode, assetClass = "QUALITY") } catch (_: Exception) {}
 
         // V5.9.401 — Sentience hook #4: cross-engine telegraph (MEME).
         try { com.lifecyclebot.engine.SentienceHooks.recordEngineOutcome("MEME", pnlSol, isWin) } catch (e: Exception) { com.lifecyclebot.engine.ErrorLogger.debug("QualityTraderAI", "sentience skip: ${e.message}") }

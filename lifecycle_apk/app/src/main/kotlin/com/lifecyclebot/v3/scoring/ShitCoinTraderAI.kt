@@ -571,6 +571,12 @@ object ShitCoinTraderAI {
 
         // V5.9.318: Feed outcome into TradingCopilot for life-coach state.
         try { com.lifecyclebot.engine.TradingCopilot.recordTradeForAsset(pnlPct, pos.isPaper, assetClass = "SHITCOIN") } catch (_: Exception) {}
+        // V5.9.1437 — ROUTE LANE CLOSES INTO BehaviorAI. V3 sub-traders
+        // bypass Executor.recordTrade (V5.9.434), so the BehaviorAI fanout
+        // at Executor:2465 NEVER fired for lane trades → Neural Personality
+        // panel (Streak/Tilt/Discipline/Session Stats/FLUID LEARNING IMPACT)
+        // sat dead at 0 across hundreds of trades. Feed it directly here.
+        try { com.lifecyclebot.v3.scoring.BehaviorAI.recordTradeForAsset(pnlPct = pnlPct, reason = exitReason.name, mint = pos.mint, isPaperMode = pos.isPaper, assetClass = "SHITCOIN") } catch (_: Exception) {}
 
         // V5.9.852 — non-meme close → CanonicalOutcomeBus (Layer Readiness fix).
         val shitcoinExitTs = System.currentTimeMillis()
