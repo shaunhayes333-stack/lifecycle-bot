@@ -834,7 +834,7 @@ class SolanaMarketScanner(
     @Volatile private var lastSourceAttemptMs = 0L
     private var lastTelemetryLogMs = 0L
 
-    private val semaphore = Semaphore(6)
+    private val semaphore = Semaphore(8)  // V5.9.1432 6->8: more concurrent sources, full-parallel batch (was serial chunked groups)
 
     private val SOURCE_SCAN_TIMEOUT_MS = 12_000L
 
@@ -1008,14 +1008,25 @@ class SolanaMarketScanner(
     }
 
     private suspend fun runScanBatch(vararg scans: Pair<String, suspend () -> Unit>) = coroutineScope {
+        // V5.9.1432 — FULL-PARALLEL SCAN BATCH (root-cause fix for 27s cycle).
+        // OLD: chunked(cap) ran sources in SERIAL GROUPS — each group blocked on
+        // awaitAll() of its slowest source (12s timeout) before the next group
+        // even started. With ~16 sources / cap 6 = 3 serial groups ≈ 3×9s ≈ 27s,
+        // which is exactly the observed avg-cycle 27038ms (target 12000ms).
+        // NEW: fire ALL sources at once, bounded only by a global permit count,
+        // so the whole cycle is gated by the single slowest source (~12s), not the
+        // SUM of the groups. A permit semaphore still caps concurrent in-flight
+        // calls to protect API rate limits; the protected PumpPortal WS firehose
+        // is a separate path and untouched.
         val overlayCap = try { RuntimeConfigOverlay.scannerConcurrencyCap() } catch (_: Throwable) { 0 }
-        val cap = if (overlayCap > 6) overlayCap else 6
-        val groups = scans.toList().chunked(cap.coerceIn(6, 12))
-        for (group in groups) {
-            group.map { (name, block) ->
-                async(Dispatchers.IO) { runScan(name, block) }
-            }.awaitAll()
-        }
+        val permits = (if (overlayCap > 8) overlayCap else 8).coerceIn(8, 12)
+        val gate = kotlinx.coroutines.sync.Semaphore(permits)
+        scans.toList().map { (name, block) ->
+            async(Dispatchers.IO) {
+                gate.acquire()
+                try { runScan(name, block) } finally { gate.release() }
+            }
+        }.awaitAll()
     }
 
     fun start() {

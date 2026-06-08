@@ -9669,6 +9669,11 @@ class Executor(
         // triggers its soft SL around -6..-10%. Clamp to the intended soft-stop band.
         if (r.contains("SELL_OPT") && (r.contains("STOP_LOSS") || r.contains("STOP LOSS"))) return Pair(-12.0, -6.0)
         if (r.contains("CASHGEN_STOP_LOSS") || r.contains("SHITCOIN_STOP_LOSS") || r.contains("QUALITY_STOP_LOSS") || r.contains("BLUECHIP_STOP_LOSS") || r.contains("MOONSHOT_STOP_LOSS")) return Pair(-12.0, -6.0)
+        // V5.9.1432 — MANIPULATED_STOP_LOSS was MISSING from the matcher, so every
+        // MANIP soft-stop fell through to Pair(null,null) = NO CLAMP = raw gap-through.
+        // Recent-Outcomes was full of MANIPULATED LOSS -84.5%/-92.0% — impossible under
+        // the -15% floor — crushing MANIP WR/net to 9%/-0.114 and poisoning learning.
+        if (r.contains("MANIPULATED_STOP_LOSS") || r.contains("MANIP_STOP_LOSS") || r.contains("DIP_HUNTER_STOP_LOSS") || r.contains("PROJECT_SNIPER_STOP_LOSS") || r.contains("CYCLIC_STOP_LOSS") || r.contains("CYCLIC_SL")) return Pair(-12.0, -6.0)
         // V5.9.1086 — align paper hard-floor accounting with the operator's
         // unconditional -15% floor. Old [-20,-9] made hard-floor exits look
         // materially better/worse than the actual trigger band.
@@ -9689,6 +9694,12 @@ class Executor(
         if (r.contains("TREASURY_TAKE_PROFIT")) return Pair(+5.0, +15.0)
         if (r.contains("FLAT_EXIT") || r.contains("SCRATCH")) return Pair(-3.0, +3.0)
         if (r.contains("TRAILING_STOP") || r.contains("TRAIL_STOP")) return Pair(-10.0, +5.0)
+        // V5.9.1432 — GENERIC SOFT-STOP FALLBACK. Any *_STOP_LOSS / *_SL label not
+        // matched above must NOT fall through unclamped (the structural hole that let
+        // -90% gap-throughs into the journal). A soft stop can never realistically book
+        // worse than the -15% hard floor; bound any remaining stop label to the floor
+        // band. Rug/catastrophe/gap-guard labels are matched explicitly above.
+        if (r.endsWith("_STOP_LOSS") || r.endsWith("_SL") || r.contains("STOP_LOSS")) return Pair(-15.0, -6.0)
         return Pair(null, null)
     }
 
