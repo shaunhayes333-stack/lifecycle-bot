@@ -1209,16 +1209,20 @@ class SolanaMarketScanner(
                     ErrorLogger.info("Scanner", "REGISTRY_SIZE: watchlist=$watchlistNow (no action — backpressure gate removed)")
                 }
 
-                onLog("🚀 Scanning: Pump.fun tokens (PRIORITY fanout)...")
-                runScanBatch(
-                    "scanPumpFunDirect" to { scanPumpFunDirect() },
-                    "scanPumpFunActive" to { scanPumpFunActive() },
-                )
-
-                if (!backpressure) {
-                    onLog("🔍 Scanning ALL sources (PARALLEL DEEP SCAN)...")
+                // V5.9.1421 — DE-PRIVILEGE PUMP.FUN (operator: "this isnt a pumpfun
+                // bot ... its the full sol network"). Pump.fun was running FIRST as
+                // a dedicated PRIORITY fanout every cycle, which — on top of the
+                // always-on PumpPortal WS firehose — made pump.fun ~68% of intake and
+                // skewed the whole trader toward fresh-launch rugs. Demote pump.fun to
+                // a PEER inside the parallel deep-scan batch so Raydium new pools, DEX
+                // trending/boosted, Gecko and Birdeye sources compete on equal footing
+                // and the watchlist reflects the FULL Solana network, not just pump.fun.
+                onLog("🔍 Scanning ALL Solana sources (EQUAL-WEIGHT PARALLEL DEEP SCAN)...")
+                if (!backpressure || true) {
                     val birdeyeOk = com.lifecyclebot.engine.BirdeyeBudgetGate.canAffordScannerLane()
                     val deepScans = mutableListOf<Pair<String, suspend () -> Unit>>(
+                        "scanPumpFunDirect" to { scanPumpFunDirect() },
+                        "scanPumpFunActive" to { scanPumpFunActive() },
                         "scanPumpGraduates" to { scanPumpGraduates() },
                         "scanDexBoosted" to { scanDexBoosted() },
                         "scanFreshLaunches" to { scanFreshLaunches() },

@@ -42,7 +42,16 @@ class BotService : Service() {
         // brain keep getting real outcomes on thin pockets (never-disable mandate:
         // weak pockets trade SMALL, never zero). This does NOT loosen normal-size
         // entry — zero-score normal buys stay hard-blocked below.
-        private const val LANE_PROBE_MIN_LIQ_USD = 250.0
+        // V5.9.1421 — QUALITY FLOOR (operator: "I want better and more quality
+        // tokens. this isnt a pumpfun bot ... its the full sol network on the
+        // memetrader"). Was 250.0 — which let $156-300 brand-new pump.fun rugs
+        // buy a dust probe. On the FULL Solana network a token under ~$5K
+        // liquidity is dust/rug, not a tradeable meme candidate. Raise the
+        // buy-side floor so the meme lanes will not open ANY position (not even
+        // a dust probe) below it. Discovery stays wide open (scanner unchanged);
+        // this is purely the BUY decision self-selecting depth. -1 (unknown
+        // liquidity) still passes — the zero-score gate handles those.
+        private const val LANE_PROBE_MIN_LIQ_USD = 5_000.0
         // Dust-probe size multiplier (applied via qualityPenalty) — tiny, so a
         // weak/blind context can still generate a labelled learning sample
         // without spraying full-size capital into it.
