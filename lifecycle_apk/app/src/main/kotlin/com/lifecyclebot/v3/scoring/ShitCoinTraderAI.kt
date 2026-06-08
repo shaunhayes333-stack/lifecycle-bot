@@ -1097,14 +1097,58 @@ object ShitCoinTraderAI {
             }
         } catch (_: Throwable) { /* fail-open */ }
 
-        // Calculate overall confidence
-        shitConfidence = (
-            (if (liquidityUsd > 5_000) 20 else 10) +
-            (if (buyPressurePct > 50) 20 else 10) +
-            (if (momentum > 0) 20 else 10) +
-            (if (topHolderPct < 30) 20 else 10) +
-            (if (socialBonus > 5) 20 else 10)
-        ).coerceIn(0, 100)
+        // V5.9.1438 — HONEST CONFIDENCE: missing data CAPS confidence, it does
+        // NOT score neutral (operator strategy spec). The old formula gave every
+        // signal a +10 floor on absent data AND read topHolderPct==0 (NO holder
+        // data) as "<30 → well distributed, +20". Net result: a PUMP_PORTAL_WS
+        // token with vol1h=0 / no orderflow / no holders / $1k liq still minted
+        // conf=60 from nothing — the exact false-confidence driver behind the
+        // S40/S60 over-promotion, churn, and loss streaks. Now each signal must
+        // be genuinely PRESENT (positive) to earn points; absent/dead data earns
+        // 0, and a missing-data penalty is applied. This NEVER rejects a trade —
+        // it only lowers confidence, so it cannot throttle the lane.
+        run {
+            var conf = 0
+            var missing = 0
+            // Liquidity confidence (present = real pool depth)
+            conf += when {
+                liquidityUsd >= 10_000 -> 20
+                liquidityUsd >= 5_000  -> 15
+                liquidityUsd >= 2_500  -> 8
+                else                   -> 0      // dust = no liq confidence
+            }
+            // Orderflow confidence — buyPressurePct==0 means NO orderflow data,
+            // not "balanced". Must be a real positive imbalance to count.
+            conf += when {
+                buyPressurePct >= 60.0 -> 20
+                buyPressurePct >= 50.0 -> 12
+                buyPressurePct > 0.0   -> 5
+                else                   -> { missing++; 0 }   // no orderflow
+            }
+            // Movement confidence — momentum<=0 (flat/dead/missing) earns nothing.
+            conf += when {
+                momentum >= 10.0 -> 20
+                momentum > 0.0   -> 10
+                else             -> { missing++; 0 }
+            }
+            // Distribution confidence — topHolderPct==0 means NO holder data,
+            // which must NOT read as perfect distribution. Only a real, populated,
+            // healthy spread earns points.
+            conf += when {
+                topHolderPct in 0.01..15.0 -> 20   // genuinely well-distributed
+                topHolderPct in 0.01..30.0 -> 10
+                topHolderPct > 30.0        -> 0    // whale-heavy
+                else                       -> { missing++; 0 }  // ==0 → unknown
+            }
+            // Social/narrative confidence (already a real bonus when present)
+            conf += if (socialBonus > 5) 15 else 0
+
+            // Missing-data penalty: each absent core signal (orderflow, movement,
+            // holders) drags confidence down rather than leaving it neutral.
+            conf -= missing * 8
+
+            shitConfidence = conf.coerceIn(0, 100)
+        }
         
         // Adjust risk level based on total score
         if (riskLevel == RiskLevel.MEDIUM) {
