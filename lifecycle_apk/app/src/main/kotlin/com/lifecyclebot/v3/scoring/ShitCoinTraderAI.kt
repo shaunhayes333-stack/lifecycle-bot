@@ -1617,6 +1617,17 @@ object ShitCoinTraderAI {
             return ExitSignal.TRAILING_STOP
         }
 
+        // V5.9.1433 — ABSOLUTE MFE PROFIT-FLOOR BACKSTOP (runner protection).
+        // Once this position has banked a real MFE, never let it round-trip below
+        // the ratcheted positive floor (e.g. MFE>=+75% can never realize red).
+        // Tightening-only; the -15% hard floor and give-back lock remain.
+        if (com.lifecyclebot.engine.PeakDrawdownLock.shouldFloorLock(pos.peakPnlPct, pnlPct)) {
+            ErrorLogger.warn(TAG, "💩🔒 MFE_PROFIT_FLOOR: ${pos.symbol} | " +
+                "peak +${pos.peakPnlPct.toInt()}% → now +${pnlPct.fmt(1)}% " +
+                "(floor +${com.lifecyclebot.engine.PeakDrawdownLock.mfeProfitFloorPct(pos.peakPnlPct)?.toInt() ?: 0}% — locking banked gain)")
+            return ExitSignal.TRAILING_STOP
+        }
+
         // Update high water mark and trailing stop
         if (currentPrice > pos.highWaterMark) {
             pos.highWaterMark = currentPrice

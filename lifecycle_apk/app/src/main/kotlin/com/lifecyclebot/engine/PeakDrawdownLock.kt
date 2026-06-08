@@ -74,4 +74,36 @@ object PeakDrawdownLock {
     /** Exact pnl% at which shouldLock() would fire for a given peak. */
     fun lockPrice(peakPnlPct: Double): Double =
         peakPnlPct * (1.0 - triggerFracForPeak(peakPnlPct))
+
+    // ──────────────────────────────────────────────────────────────────────
+    // V5.9.1433 — ABSOLUTE MFE-RATCHETED PROFIT FLOOR (runner protection).
+    // Operator: "stop wasting MOONSHOT runners ... never realize red after
+    // MFE > +75%." The give-back lock above scales with peak size but has NO
+    // absolute positive floor, so a play that popped to +80% then bled could
+    // still be realized near breakeven / red (esp. with paper slippage). This
+    // adds a hard, milestone-ratcheted MINIMUM realized PnL once a position has
+    // earned it. It NEVER widens risk (it only forces an EARLIER profit-taking
+    // exit) and is fully consistent with the -15% hard floor. Pure function,
+    // no state.
+    //   MFE >= +250%  → floor +60%  (lock most of a mega-runner, trail the rest)
+    //   MFE >= +150%  → floor +60%
+    //   MFE >=  +75%  → floor +25%  (operator: never red after +75%)
+    //   MFE >=  +35%  → floor   0%  (never give back a +35% pop into red)
+    //   below +35%    → no floor (let base hits breathe; give-back lock handles it)
+    fun mfeProfitFloorPct(peakPnlPct: Double): Double? = when {
+        peakPnlPct >= 150.0 -> 60.0
+        peakPnlPct >= 75.0  -> 25.0
+        peakPnlPct >= 35.0  -> 0.0
+        else                -> null
+    }
+
+    /**
+     * @return true when current PnL has fallen to/under the MFE-ratcheted
+     *         absolute profit floor — caller should realize now to protect
+     *         the banked gain. Only arms once MFE >= +35%.
+     */
+    fun shouldFloorLock(peakPnlPct: Double, currentPnlPct: Double): Boolean {
+        val floor = mfeProfitFloorPct(peakPnlPct) ?: return false
+        return currentPnlPct <= floor
+    }
 }
