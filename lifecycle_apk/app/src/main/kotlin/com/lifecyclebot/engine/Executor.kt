@@ -6833,12 +6833,22 @@ class Executor(
         // Same correction as paperSell — live Jupiter slippage on meme
         // dust is 5–15% on the entry side. Old curve was 0.4–3% which
         // gave paper buys an artificial edge that live can't reproduce.
+        // V5.9.1436 — REALISTIC PAPER SLIPPAGE (entry side). Operator:
+        // "shitcoin stops all seem the same % — data issue with sim slippage.
+        // I don't use more than 1% in the real world; cap paper at max 5%."
+        // The old 12%/6%/3.5% curve baked a +12% entry tax on every <$5k
+        // pump.fun fill, which combined with the -18% exit tax = ~-27%
+        // round-trip BEFORE any price move — so every SHITCOIN_STOP_LOSS
+        // clustered at the same synthetic values (-10.7/-12.4%) and produced
+        // phantom -88/-93% prints. Retuned to the operator's real fill
+        // profile: ~1% typical, hard-capped at 5% on the dustiest pools.
+        // Tier shape preserved (deeper pool = tighter fill). Live untouched.
         val simulatedSlippagePct = when {
-            ts.lastLiquidityUsd < 5_000.0   -> 12.0  // dust pump.fun bonding curve
-            ts.lastLiquidityUsd < 20_000.0  -> 6.0
-            ts.lastLiquidityUsd < 50_000.0  -> 3.5
-            ts.lastLiquidityUsd < 250_000.0 -> 1.5
-            else -> 0.8
+            ts.lastLiquidityUsd < 5_000.0   -> 5.0   // dust pump.fun bonding curve (was 12)
+            ts.lastLiquidityUsd < 20_000.0  -> 3.0   // (was 6)
+            ts.lastLiquidityUsd < 50_000.0  -> 2.0   // (was 3.5)
+            ts.lastLiquidityUsd < 250_000.0 -> 1.0   // (was 1.5)
+            else -> 0.5                               // (was 0.8)
         }
         val slippageMultiplier = 1.0 + (simulatedSlippagePct / 100.0)
         val effectivePrice = price * slippageMultiplier
@@ -9759,12 +9769,18 @@ class Executor(
         //  (5) SCRATCH/FLAT exits flagged so RunTracker30D can exclude
         //      them from learning counts (zero-information trades were
         //      inflating the bootstrap milestone).
+        // V5.9.1436 — REALISTIC PAPER SLIPPAGE (exit side). See entry-side
+        // note: the old 18%/10%/6% exit tax was the dominant driver of the
+        // identical SHITCOIN_STOP_LOSS loss clusters and phantom catastrophe
+        // prints in the journal. Capped at the operator's real 5% worst-case
+        // (typical ~1%). Tier shape preserved. Live execution untouched —
+        // real Jupiter slippage IS the real cost there.
         val simulatedSlippagePct = when {
-            ts.lastLiquidityUsd < 5_000.0   -> 18.0  // dust pump.fun bonding curve
-            ts.lastLiquidityUsd < 20_000.0  -> 10.0  // small post-grad pool
-            ts.lastLiquidityUsd < 50_000.0  -> 6.0
-            ts.lastLiquidityUsd < 250_000.0 -> 3.0
-            else -> 1.5
+            ts.lastLiquidityUsd < 5_000.0   -> 5.0   // dust pump.fun bonding curve (was 18)
+            ts.lastLiquidityUsd < 20_000.0  -> 3.0   // small post-grad pool (was 10)
+            ts.lastLiquidityUsd < 50_000.0  -> 2.0   // (was 6)
+            ts.lastLiquidityUsd < 250_000.0 -> 1.0   // (was 3)
+            else -> 0.5                               // (was 1.5)
         }
         val slippageMultiplier = 1.0 - (simulatedSlippagePct / 100.0)
         var effectivePrice = price * slippageMultiplier
