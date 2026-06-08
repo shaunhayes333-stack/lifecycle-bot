@@ -6823,6 +6823,18 @@ class BotService : Service() {
                         // V3.3: DYNAMIC FLUID STOP CHECK (moves with position)
                         val holdTimeMs = System.currentTimeMillis() - ts.position.entryTime
                         val holdTimeSecs = holdTimeMs / 1000.0
+                        // V5.9.1427 — RATCHET THE HIGH-WATER MARK IN THE FAST LOOP.
+                        // ROOT CAUSE of "fluid stops / sliding profit-locks not working":
+                        // this 500ms rapid monitor is the ONLY loop fast enough to catch
+                        // pumps the 10s main loop misses — yet it READ peakGainPct without
+                        // ever UPDATING it. The high-water mark was only ratcheted by the
+                        // slower MainActivity UI tick / lifecycle loop, so a token that
+                        // pumped +60% and gave back to +20% BETWEEN slow ticks never had
+                        // its peak recorded here. getDynamicFluidStop's profit-trail branch
+                        // (peakPnlPct > 3.0) therefore never engaged in the fast path, and
+                        // the sliding lock silently did nothing. Ratchet from the freshly
+                        // computed pnlPct (HWM only ever climbs) BEFORE reading it.
+                        if (pnlPct > ts.position.peakGainPct) ts.position.peakGainPct = pnlPct
                         val peakPnlPct = ts.position.peakGainPct
                         val volatility = ts.volatility ?: 50.0
 
