@@ -90,11 +90,18 @@ object AdvancedExitManager {
             progressiveTrailing = true,
             liquidityCollapseThreshold = 0.5,
         ),
+        // V5.9.1426 — FLOOR_-15_LETRUN. Honest backtest (5.0.3427 panel 6) proved
+        // the V3-main/UNKNOWN lane is the BOOK'S winner under let-run exits:
+        // n=21 WR 43% avgPeak=+4402% net=+46.30 SOL — but ONLY when winners run.
+        // The old +35% TP / 8% trail CAPPED that 44x runner at +35%, amputating
+        // the single rare moonshot that pays for the whole lane. New shape: let it
+        // run to the -15% floor or a far TP, wide trail, long hold. The runner is
+        // the edge; the floor (clamped elsewhere) is the protection.
         V3_STANDARD(
-            baseTakeProfitPct = 35.0,
-            baseStopLossPct = 12.0,
-            baseTrailingPct = 8.0,
-            maxHoldMinutes = 60,
+            baseTakeProfitPct = 300.0,   // far TP — don't cap the 44x runner (was 35)
+            baseStopLossPct = 15.0,      // align to the canonical -15% floor (was 12)
+            baseTrailingPct = 30.0,      // wide trail — give runners room (was 8)
+            maxHoldMinutes = 720,        // let it run for hours, not 60min (was 60)
             chunkSellEnabled = true,
             progressiveTrailing = true,
             liquidityCollapseThreshold = 0.5,

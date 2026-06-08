@@ -909,16 +909,25 @@ object ShitCoinTraderAI {
         scoreReasons.add("liq+$liqScore")
         
         // 2. BUY PRESSURE SCORE (0-20 pts) - Critical for memecoins
+        // V5.9.1426 — ANTI-TOP-BUY buy-pressure curve. ROOT CAUSE of the
+        // anti-predictive score band (backtest 5.0.3427: SHITCOIN[40-49] μ=-40.6%,
+        // higher score = bigger loss). On a sub-graduation pump.fun firehose,
+        // buyPressure>=75% is NOT conviction — it is a one-sided blow-off candle,
+        // i.e. the LOCAL TOP. The old curve paid the most (+20) for exactly the
+        // worst entries. New curve rewards the ACCUMULATION zone (55-70%: real
+        // demand, two-sided book, room left to run) and DOCKS the >78% FOMO peak.
         val buyScore = when {
-            buyPressurePct >= 75 -> 20
-            buyPressurePct >= 65 -> 17
-            buyPressurePct >= 55 -> 13
-            buyPressurePct >= 50 -> 10
-            buyPressurePct >= 45 -> 7
-            else -> 3
+            buyPressurePct >= 85 -> -8    // parabolic one-sided blow-off = buying the top
+            buyPressurePct >= 78 -> -3    // overheated tilt
+            buyPressurePct >= 70 -> 12    // strong but not blow-off
+            buyPressurePct >= 60 -> 18    // ACCUMULATION sweet spot — best forward edge
+            buyPressurePct >= 55 -> 16
+            buyPressurePct >= 50 -> 11
+            buyPressurePct >= 45 -> 6
+            else -> 0
         }
         shitScore += buyScore
-        scoreReasons.add("buy+$buyScore")
+        scoreReasons.add("buy${if(buyScore>=0)"+" else ""}$buyScore")
         
         // 3. MOMENTUM SCORE (-15 to +10 pts)
         // V5.9.218: flat momentum (0%) no longer contributes to score — must show real price move
@@ -947,10 +956,19 @@ object ShitCoinTraderAI {
         // — even strong buy pressure on a +50% candle is "FOMO chasing". -10pts.
         // Train-First: not a hard veto; if the token has stellar liquidity +
         // social + age, it can still pass the floor.
-        if (momentum > 40.0) {
-            shitScore = (shitScore - 10).coerceAtLeast(0)
-            scoreReasons.add("overheat-10")
-            ErrorLogger.debug(TAG, "💩 OVERHEATED: ${symbol} | momentum=${"%.1f".format(momentum)}% (>40%) → -10pts → score=$shitScore")
+        // V5.9.1426 — OVERHEATED dump-trap. The post-peak dump is the dominant
+        // SHITCOIN loss path; a -10 dock was too weak to move a top-buy below the
+        // floor. Tiered, sharper penalty so blow-off candles fail the gate.
+        val overheatPenalty = when {
+            momentum > 80.0 -> 30   // parabolic — almost always round-trips to zero
+            momentum > 55.0 -> 22
+            momentum > 40.0 -> 14
+            else -> 0
+        }
+        if (overheatPenalty > 0) {
+            shitScore = (shitScore - overheatPenalty).coerceAtLeast(0)
+            scoreReasons.add("overheat-$overheatPenalty")
+            ErrorLogger.debug(TAG, "💩 OVERHEATED: ${symbol} | momentum=${"%.1f".format(momentum)}% → -${overheatPenalty}pts → score=$shitScore")
         }
         
         // 4. TOKEN AGE SCORE (0-15 pts) - Sweet spot is 30 mins - 2 hours
@@ -996,18 +1014,23 @@ object ShitCoinTraderAI {
         
         // 8. GRADUATION BONUS (pump.fun specific) (0-15 pts)
         if (launchPlatform == LaunchPlatform.PUMP_FUN && graduationProgress > 0) {
+            // V5.9.1426 — graduation is SELL-THE-NEWS, not buy-the-rumor. Snipers
+            // and the bonding-curve early buyers EXIT into the Raydium migration,
+            // so entering at >=90% grad = buying straight into the distribution.
+            // Reward the EARLY accumulation window (30-65%: still on the curve,
+            // room before the event) and dock the imminent-graduation top.
             val gradScore = when {
                 graduationProgress >= 90 -> {
                     graduationImminent = true
-                    15  // About to graduate = big pump incoming
+                    -8   // imminent migration = sell-the-news top, not a pump entry
                 }
-                graduationProgress >= 70 -> 12
-                graduationProgress >= 50 -> 8
-                graduationProgress >= 30 -> 5
-                else -> 2
+                graduationProgress >= 75 -> -3
+                graduationProgress >= 50 -> 8    // mid-curve accumulation
+                graduationProgress >= 30 -> 10   // early-curve sweet spot
+                else -> 4
             }
             shitScore += gradScore
-            scoreReasons.add("grad+$gradScore")
+            scoreReasons.add("grad${if(gradScore>=0)"+" else ""}$gradScore")
         }
         
         // 9. HOLDER CONCENTRATION PENALTY/BONUS (-20 to +10 pts)
