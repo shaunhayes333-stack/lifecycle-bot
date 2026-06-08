@@ -294,7 +294,46 @@ object CanonicalOutcomeNormalizer {
         return raw.copy(isTrainable = false, invalidReason = reason)
     }
 
-    fun normalizeOutcomeBeforeLearning(raw: CanonicalTradeOutcome): CanonicalTradeOutcome? {
+    fun normalizeOutcomeBeforeLearning(raw0: CanonicalTradeOutcome): CanonicalTradeOutcome? {
+        // V5.9.1428 — RECONSTRUCT-BEFORE-REJECT. Operator: "fix it correctly".
+        // A genuinely EXECUTED close must NEVER be dropped from learning just
+        // because one redundant field (exitPrice) failed to propagate from the
+        // exit path. exitPrice is recoverable from accounting we already hold:
+        //     exitPrice = entryPrice * (1 + realizedPnlPct/100)        [exact]
+        //  or exitPrice = entryPrice * (proceedsSol / costBasisSol)    [accounting]
+        // We only reject a row that is TRULY unverifiable (not executed, or no
+        // entryPrice AND no pct AND no proceeds/cost to derive from). This closes
+        // the MISSING_EXIT_PRICE + EXTREME_OUTCOME_UNVERIFIED leaks that were
+        // silently eating real paper closes and (now that let-run is live) would
+        // eat genuine >500% runners whose exitPrice raced.
+        val raw = run {
+            val isExecuted = raw0.executionResult == ExecutionResult.EXECUTED ||
+                raw0.executionResult == ExecutionResult.CLOSED_BY_TX_PARSE ||
+                raw0.executionResult == ExecutionResult.CLOSED_BY_WALLET_RECONCILE ||
+                raw0.environment == TradeEnvironment.PAPER
+            if ((raw0.exitPrice ?: 0.0) <= 0.0 && isExecuted) {
+                val ep = raw0.entryPrice ?: 0.0
+                val cost = raw0.costBasisSol ?: raw0.entrySol ?: 0.0
+                val proceeds = raw0.proceedsSol ?: raw0.exitSol
+                val reconstructed: Double? = when {
+                    ep > 0.0 && raw0.realizedPnlPct != null ->
+                        ep * (1.0 + (raw0.realizedPnlPct / 100.0))
+                    ep > 0.0 && cost > 0.0 && proceeds != null && proceeds > 0.0 ->
+                        ep * (proceeds / cost)
+                    else -> null
+                }?.takeIf { it.isFinite() && it > 0.0 }
+                if (reconstructed != null) {
+                    try {
+                        ForensicLogger.lifecycle(
+                            "CANON_EXIT_PRICE_RECONSTRUCTED",
+                            "mint=${raw0.mint.take(10)} mode=${raw0.mode} pct=${"%.1f".format(raw0.realizedPnlPct ?: 0.0)} px=${"%.8f".format(reconstructed)}"
+                        )
+                    } catch (_: Throwable) {}
+                    raw0.copy(exitPrice = reconstructed)
+                } else raw0
+            } else raw0
+        }
+
         // Rule: UNKNOWN strategy labels remain audit-visible but cannot train.
         if (raw.mode == TradeMode.UNKNOWN || raw.source == TradeSource.UNKNOWN) {
             return invalid(raw, "UNKNOWN_LANE")
@@ -303,14 +342,20 @@ object CanonicalOutcomeNormalizer {
         // only if they have real exit price/proceeds/cost basis.
         val isExitLike = raw.result == TradeResult.WIN || raw.result == TradeResult.LOSS || raw.result == TradeResult.BREAKEVEN
         if (isExitLike) {
-            if ((raw.exitPrice ?: 0.0) <= 0.0) return invalid(raw, "MISSING_EXIT_PRICE")
             val cost = raw.costBasisSol ?: raw.entrySol ?: 0.0
             val proceeds = raw.proceedsSol ?: ((raw.exitSol ?: 0.0) + (raw.realizedPnlSol ?: 0.0))
+            // exitPrice may still be missing if it was genuinely unrecoverable
+            // above (no entryPrice AND no pct AND no proceeds/cost). In that
+            // case the trade is unverifiable and must not train.
+            if ((raw.exitPrice ?: 0.0) <= 0.0) return invalid(raw, "MISSING_EXIT_PRICE")
             if (cost <= 0.0) return invalid(raw, "MISSING_COST_BASIS")
             if (proceeds < -0.0000001) return invalid(raw, "NEGATIVE_PROCEEDS")
             if (raw.isPartial && proceeds <= 0.0 && kotlin.math.abs(raw.realizedPnlSol ?: 0.0) > 0.0000001) {
                 return invalid(raw, "PARTIAL_SELL_INVALID_ACCOUNTING")
             }
+            // EXTREME_OUTCOME check: now that exitPrice is reconstructed/verified
+            // above, an extreme pct backed by a real exitPrice + cost is a REAL
+            // runner and trains. Only reject if STILL unverifiable.
             val pct = raw.realizedPnlPct ?: 0.0
             if ((pct > 500.0 || pct < -80.0) && ((raw.exitPrice ?: 0.0) <= 0.0 || cost <= 0.0)) {
                 return invalid(raw, "EXTREME_OUTCOME_UNVERIFIED")
@@ -783,7 +828,15 @@ object CanonicalOutcomeBus {
             environment = env,
             entryTimeMs = trade.ts - 1L,
             exitTimeMs = trade.ts,
-            entryPrice = null,
+            // V5.9.1428 — derive entryPrice from the exit/pct relationship so the
+            // normalizer's reconstruct-before-reject and the WIN/EXTREME checks
+            // always have a price anchor. Legacy Trade carries no entry price;
+            // entry = exit / (1 + pct/100) is exact when exit price is real.
+            entryPrice = run {
+                val ex = trade.price
+                val p = pnlPct
+                if (ex > 0.0) (ex / (1.0 + p / 100.0)).takeIf { it.isFinite() && it > 0.0 } else null
+            },
             exitPrice = trade.price,
             entrySol = null,
             exitSol = trade.sol,
