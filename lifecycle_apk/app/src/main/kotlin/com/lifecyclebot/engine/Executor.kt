@@ -538,6 +538,10 @@ class Executor(
     private val sounds: SoundManager? = null,
 ) {
     companion object {
+        // V5.9.1442 — physically-impossible single-tick gain multiple. Any exit-tick
+        // multiple above this is a stale/glitched price quote (e.g. failed pump.fun→
+        // Raydium rebase), NOT a real move. Real graduations rebase far below this.
+        private const val PHANTOM_MULTIPLE_CEILING = 1000.0
         // V5.9.719: Paper sell lock — prevents double-exit race condition where
         // CASHGEN_STOP_LOSS and STALE_LIVE_PRICE_RUG_ESCAPE fire simultaneously
         // for the same paper position. Both see isOpen=true before either closes it.

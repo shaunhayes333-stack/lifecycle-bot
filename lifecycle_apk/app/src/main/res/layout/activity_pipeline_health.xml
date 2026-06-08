@@ -20,6 +20,7 @@
 
         <ImageButton
             android:id="@+id/backButton"
+            android:stateListAnimator="@null"
             android:layout_width="40dp"
             android:layout_height="40dp"
             android:src="@drawable/ic_arrow_back"
@@ -66,6 +67,7 @@
 
         <Button
             android:id="@+id/copyButton"
+            android:stateListAnimator="@null"
             android:layout_width="0dp"
             android:layout_height="wrap_content"
             android:layout_weight="1"
@@ -77,6 +79,7 @@
 
         <Button
             android:id="@+id/refreshButton"
+            android:stateListAnimator="@null"
             android:layout_width="0dp"
             android:layout_height="wrap_content"
             android:layout_weight="1"
@@ -88,6 +91,7 @@
 
         <Button
             android:id="@+id/resetButton"
+            android:stateListAnimator="@null"
             android:layout_width="0dp"
             android:layout_height="wrap_content"
             android:layout_weight="1"
@@ -216,6 +220,7 @@
 
         <Button
             android:id="@+id/prevSectionButton"
+            android:stateListAnimator="@null"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
             android:text="◀"
@@ -237,6 +242,7 @@
 
         <Button
             android:id="@+id/nextSectionButton"
+            android:stateListAnimator="@null"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
             android:text="▶"

@@ -3951,6 +3951,7 @@
 
                         <Button
                             android:id="@+id/btnManualBuy"
+                            android:stateListAnimator="@null"
                             android:layout_width="0dp"
                             android:layout_height="36dp"
                             android:layout_weight="1"
@@ -3966,6 +3967,7 @@
 
                         <Button
                             android:id="@+id/btnManualSell"
+                            android:stateListAnimator="@null"
                             android:layout_width="0dp"
                             android:layout_height="36dp"
                             android:layout_weight="1"
@@ -5247,6 +5249,7 @@
                         android:paddingEnd="@dimen/input_padding_h"
                         android:inputType="text" android:maxLines="1"/>
                     <Button android:id="@+id/btnAddToken"
+                        android:stateListAnimator="@null"
                         android:layout_width="@dimen/input_height"
                         android:layout_height="@dimen/input_height"
                         android:text="+" android:textSize="18sp" android:textColor="#FFFFFF"
@@ -5296,6 +5299,7 @@
 
                     <Button
                         android:id="@+id/btnOpenSettingsSheet"
+                        android:stateListAnimator="@null"
                         android:layout_width="wrap_content"
                         android:layout_height="40dp"
                         android:text="Open"
@@ -5771,6 +5775,7 @@
                 </LinearLayout>
 
                 <Button android:id="@+id/btnSave"
+                    android:stateListAnimator="@null"
                     android:layout_width="match_parent"
                     android:layout_height="@dimen/input_height"
                     android:layout_marginTop="8dp"
@@ -5787,6 +5792,7 @@
                     android:layout_marginTop="12dp">
                     
                     <Button android:id="@+id/btnExportData"
+                        android:stateListAnimator="@null"
                         android:layout_width="0dp"
                         android:layout_weight="1"
                         android:layout_height="@dimen/input_height"
@@ -5797,6 +5803,7 @@
                         android:backgroundTint="#1F2937"/>
                         
                     <Button android:id="@+id/btnImportData"
+                        android:stateListAnimator="@null"
                         android:layout_width="0dp"
                         android:layout_weight="1"
                         android:layout_height="@dimen/input_height"
@@ -5817,6 +5824,7 @@
                     android:gravity="center"/>
 
                 <Button android:id="@+id/btnClearSettings"
+                    android:stateListAnimator="@null"
                     android:layout_width="match_parent"
                     android:layout_height="@dimen/input_height"
                     android:layout_marginTop="8dp"
@@ -5826,6 +5834,7 @@
                     android:backgroundTint="#1F2937"/>
                     
                 <Button android:id="@+id/btnTestToast"
+                    android:stateListAnimator="@null"
                     android:layout_width="match_parent"
                     android:layout_height="@dimen/input_height"
                     android:layout_marginTop="8dp"
