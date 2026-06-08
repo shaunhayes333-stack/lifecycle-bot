@@ -7330,6 +7330,26 @@ This cannot be undone!
     private fun updateTradersSummary() {
         try {
             val tv = tvTradersSummary ?: return
+            // V5.9.1425 — ANR FIX: this method read the ENTIRE trade journal on the
+            // MAIN thread. getCanonicalTotals() calls getAssetBreakdown(), which
+            // iterates every journal row under lock — and the per-asset line calls
+            // getAssetBreakdown() AGAIN, so the full journal (hundreds–thousands of
+            // rows) was scanned TWICE per render on Main. Snapshot blockers:
+            // TradeHistoryStore.getAssetBreakdown / normalizeTradeModeName on the UI
+            // thread. FIX: compute everything on the shared bg executor, then post
+            // only the finished string + color to the TextView on Main. Structural
+            // source fix, no throttle (operator doctrine). Reuses pipelineTileBgExecutor.
+            pipelineTileBgExecutor.execute {
+              try {
+                computeAndPostTradersSummary(tv)
+              } catch (_: Throwable) { /* never crash the render thread */ }
+            }
+        } catch (_: Exception) { }
+    }
+
+    /** V5.9.1425 — heavy journal aggregation, runs OFF the main thread. */
+    private fun computeAndPostTradersSummary(tv: android.widget.TextView) {
+        try {
             // Meme
             val memeStats = com.lifecyclebot.engine.TradeHistoryStore.getStatsCached() // V5.9.706
             val memeWins   = memeStats.totalWins
@@ -7395,17 +7415,22 @@ This cannot be undone!
                     fmt("CD", "COMMODITY"),
                 ).joinToString(" · ")
             } catch (_: Exception) { "" }
-            tv.text = if (perAssetLine.isNotEmpty()) {
+            val finalText = if (perAssetLine.isNotEmpty()) {
                 "🧠 All Traders: $totalTrades trades · $wrLabel · $pnlSign${String.format("%.4f", totalPnl)} SOL\n📊 $perAssetLine"
             } else {
                 "🧠 All Traders: $totalTrades trades · $wrLabel · $pnlSign${String.format("%.4f", totalPnl)} SOL"
             }
-            tv.setTextColor(when {
+            val finalColor = when {
                 blendedWR >= 50.0 -> green
                 blendedWR >= 45.0 -> amber
                 totalDecisive == 0 -> Color.parseColor("#9CA3AF")
                 else              -> red
-            })
+            }
+            // Post the finished string + color to the TextView on the MAIN thread.
+            pipelineTileHandler.post {
+                if (isFinishing || isDestroyed) return@post
+                try { tv.text = finalText; tv.setTextColor(finalColor) } catch (_: Throwable) {}
+            }
         } catch (_: Exception) { }
     }
 

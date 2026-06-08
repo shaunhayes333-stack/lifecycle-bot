@@ -1556,21 +1556,26 @@ object ShitCoinTraderAI {
         // accumulates. Falls back to -1.5% with no samples.
         val holdSeconds = (System.currentTimeMillis() - pos.entryTime) / 1000
         if (holdSeconds < 60) {
-            // V5.9.1404 — SHITCOIN first-tick warmup. The 0-60s early-death
-            // cutoff can be as tight as ~-1.5%, which is useful after the entry
-            // has real post-buy price evidence but destructive in the first few
-            // seconds: paper spread/slippage or a stale pre-entry tick creates
-            // instant SHITCOIN_STOP_LOSS rows. For the first 15s, only the
-            // unconditional hard floor may close the position; normal early-death
-            // resumes after warmup. This does not loosen the -15% floor.
-            if (holdSeconds < 15 && pnlPct > -15.0) {
+            // V5.9.1425 — SHITCOIN CHURN KILL (operator: "still very slow trading
+            // ... only 2 tokens held"). Root cause of the 3.7% WR death-spiral and
+            // why positions never stack: the first-tick warmup only held for 15s,
+            // then earlyDeathCutoffPct("SHITCOIN") — as TIGHT as ~-1.5% — fired an
+            // instant SHITCOIN_STOP_LOSS on any token merely wiggling -2% between
+            // 15s and 60s. For a just-launched meme a -2% wiggle in the first minute
+            // is NOISE, not signal; cutting there turns scanner volume into
+            // buy→stop→buy churn (snapshot: 447 buys, ~all SHITCOIN_STOP_LOSS at
+            // pnl≈0/-0.025, positions dead in seconds so memeOpen stuck at 2-3).
+            // FIX: hold the early-death stop for the FULL 60s settlement window so
+            // entries get the same breathing room the settle-in path (line ~522)
+            // already grants. The UNCONDITIONAL -15% hard floor still closes any
+            // genuine crash immediately — this only suppresses the sub-floor
+            // early-death micro-cut during settlement. Aligns the two exit paths.
+            if (pnlPct > -15.0) {
                 return ExitSignal.HOLD
             }
-            val cutoff = com.lifecyclebot.engine.ChopFilter.earlyDeathCutoffPct("SHITCOIN")
-            if (pnlPct < cutoff) {
-                ErrorLogger.info(TAG, "💩⚡ EARLY-DEATH STOP: ${pos.symbol} | ${pnlPct.fmt(1)}% in ${holdSeconds}s (cutoff=${"%.1f".format(cutoff)}%)")
-                return ExitSignal.STOP_LOSS
-            }
+            // Past the hard floor inside the warmup window ⇒ genuine crash, stop now.
+            ErrorLogger.info(TAG, "💩⚡ EARLY-DEATH HARD-FLOOR: ${pos.symbol} | ${pnlPct.fmt(1)}% in ${holdSeconds}s (past -15% floor)")
+            return ExitSignal.STOP_LOSS
         }
 
         // V5.9.438 — Update peak FIRST (was buried below ladder block).
