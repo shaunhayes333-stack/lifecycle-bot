@@ -519,7 +519,7 @@ object ShitCoinTraderAI {
         // close as a rapid stop at 31-60s — exactly the churn band the central
         // monitor now holds. Match 60s so no lane shakes a fresh paper token out
         // on entry noise. -15% hard floor stays immediate (pnl > -45 paper-adj guard).
-        if (pos.isPaper && ageMsForSettle in 0L until 60_000L && pnlPctForSettle <= 0.0 && pnlPctForSettle > -45.0) {
+        if (pos.isPaper && ageMsForSettle in 0L until 40_000L && pnlPctForSettle <= 0.0 && pnlPctForSettle > -45.0) {  // V5.9.1429 60s->40s, kept aligned with BotService central settle-in
             synchronized(activePositions) { activePositions[mint] = pos }
             try {
                 ErrorLogger.info(TAG, "💩⏳ SETTLE-IN HOLD: ${pos.symbol} | ${pnlPctForSettle.fmt(1)}% age=${ageMsForSettle}ms reason=${exitReason.name} (floor=-15%)")

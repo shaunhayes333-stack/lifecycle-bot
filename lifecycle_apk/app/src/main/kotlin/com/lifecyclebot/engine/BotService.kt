@@ -51,7 +51,7 @@ class BotService : Service() {
         // a dust probe) below it. Discovery stays wide open (scanner unchanged);
         // this is purely the BUY decision self-selecting depth. -1 (unknown
         // liquidity) still passes — the zero-score gate handles those.
-        private const val LANE_PROBE_MIN_LIQ_USD = 2_500.0
+        private const val LANE_PROBE_MIN_LIQ_USD = 1_500.0  // V5.9.1429 2500->1500: re-admit legit $1.5-2.5K tokens (3424 sweet spot), still rejects sub-$1K rug spam
         // Dust-probe size multiplier (applied via qualityPenalty) — tiny, so a
         // weak/blind context can still generate a labelled learning sample
         // without spraying full-size capital into it.
@@ -6865,7 +6865,7 @@ class BotService : Service() {
                         // The unconditional -15% hard floor (pnlPct > -HARD_FLOOR_STOP_PCT)
                         // and the true catastrophe exits handled ABOVE this block remain
                         // active — a token genuinely crashing past -15% still exits now.
-                        if (cfg.paperMode && holdTimeMs in 0L until 60_000L && pnlPct > -HARD_FLOOR_STOP_PCT) {
+                        if (cfg.paperMode && holdTimeMs in 0L until 40_000L && pnlPct > -HARD_FLOOR_STOP_PCT) {  // V5.9.1429 60s->40s warmup: settle price but free slots ~40% faster
                             try {
                                 ForensicLogger.lifecycle(
                                     "RAPID_ENTRY_WARMUP_HOLD",
@@ -12168,7 +12168,7 @@ if (hotExitHandledSweep) {
     // 10-min re-entry lockout, or any safety floor; it only processes more of the
     // already-admitted watchlist per tick. Workers remain bounded + leased, so this
     // cannot leak capacity (hard-expiry cleanup still applies).
-    @Suppress("unused") private val SUPERVISOR_MAX_INFLIGHT: Int = 64
+    @Suppress("unused") private val SUPERVISOR_MAX_INFLIGHT: Int = 96  // V5.9.1429 64->96: more candidates reach a worker/cycle (pure throughput, no quality cost)
     // Worker slot budget is one bot-loop cadence: long enough for normal
     // processTokenCycle, short enough that stuck IO cannot hold a supervisor
     // slot across multiple 5s cycles.
