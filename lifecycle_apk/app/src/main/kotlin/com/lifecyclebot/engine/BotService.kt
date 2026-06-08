@@ -7769,6 +7769,20 @@ class BotService : Service() {
             return false
         }
 
+        // V5.9.1440 — P0 BASE/QUOTE/STABLE MINT QUARANTINE (data-integrity).
+        // The USDC mint EPjFWdd5… reached SHITCOIN as a TARGET and fabricated a
+        // +8722 SOL / +$587k row that poisoned expectancy, the lane tuner, the
+        // policy head and tax/PnL. The scanners only filtered by SYMBOL, which
+        // leaked. This is the canonical single-source intake funnel, so one
+        // address-keyed guard here blocks every scanner / WS / orchestrator path.
+        // Reject EARLY — no learning, no expectancy, no journal write occurs.
+        if (com.lifecyclebot.engine.guard.BaseQuoteMintGuard.shouldQuarantine(mint, symbol)) {
+            ForensicLogger.gate(ForensicLogger.PHASE.INTAKE, symbol.ifBlank { mint.take(6) },
+                allow=false, reason="${com.lifecyclebot.engine.guard.BaseQuoteMintGuard.REJECT_REASON} mint=${mint.take(8)} src=$source")
+            ErrorLogger.warn("BotService", "🛑 BASE_QUOTE_QUARANTINE: ${symbol.ifBlank{mint.take(8)}} mint=${mint.take(12)} src=$source — rejected pre-intake (no learn/journal/PnL)")
+            return false
+        }
+
         // ═══════════════════════════════════════════════════════════════════
         // V5.9.1310 — HARD STOP-STATE GUARD (single canonical authority).
         // OPERATOR REGRESSION: pressed Stop, ACTION_STOP/LIFECYCLE_STOP_ACCEPTED

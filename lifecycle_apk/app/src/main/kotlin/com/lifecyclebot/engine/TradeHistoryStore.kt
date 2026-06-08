@@ -386,6 +386,26 @@ object TradeHistoryStore {
         if (t.price <= 0.0 && kotlin.math.abs(t.pnlSol) > 0.0000001) return false
         val proceeds = t.sol + (t.netPnlSol.takeIf { it != 0.0 } ?: t.pnlSol)
         if (proceeds < -0.0000001) return false
+        // V5.9.1440 — JOURNAL SANITY GUARD (P0). This predicate is the canonical
+        // filter behind every realized-total / expectancy / tax-export / lane-tuner
+        // read, so a row that fails here is kept as a forensic journal entry but is
+        // excluded from ALL realized math + learning. Quarantine the corruption
+        // classes the operator confirmed (USDC EPjFWdd5 → SHITCOIN → +8722 SOL):
+        //   1) base/quote/stable/LST mint as TARGET (address-keyed),
+        //   2) impossible PnL% (a real meme exit cannot exceed +100000% / -100%),
+        //   3) proceeds beyond a realistic notional cap (fabricated +$587k rows),
+        //   4) stale/inverted price with non-zero PnL (already partly above).
+        // Bounds are deliberately astronomically loose so NO legitimate runner is
+        // ever excluded — these only catch physically-impossible fabricated rows.
+        if (com.lifecyclebot.engine.guard.BaseQuoteMintGuard.shouldQuarantine(t.mint)) return false
+        // pnlPct sanity: -100% is total loss (floor); a genuine moonshot is bounded
+        // far below +100000%. Anything outside is an accounting fabrication.
+        if (t.pnlPct < -100.0001 || t.pnlPct > 100_000.0) return false
+        // Notional cap: a single paper/live meme exit's proceeds cannot exceed a
+        // sane SOL notional. The corrupt USDC row booked ~+8722 SOL on a position
+        // that never cost that. Cap at 5000 SOL proceeds (orders of magnitude above
+        // any real position this bot sizes) — pure fabrication catcher.
+        if (kotlin.math.abs(proceeds) > 5_000.0) return false
         return true
     }
 
