@@ -345,6 +345,10 @@ object CryptoAltTrader {
         } catch (_: Exception) {}
         scope.launch { loadPersistedState() }
         try { BehaviorAI.init(context.applicationContext) }        catch (e: Exception) { ErrorLogger.debug(TAG, "BehaviorAI: ${e.message}") }
+        // V5.9.1442 — Crypto isolated brain. Initialised AFTER the legacy meme
+        // AIs so the eager-load path under CryptoBrainState can complete with
+        // a warm prefs cache, but BEFORE any scan cycle uses the brain.
+        try { com.lifecyclebot.perps.crypto.brain.CryptoBrain.init(context.applicationContext) } catch (e: Exception) { ErrorLogger.debug(TAG, "CryptoBrain: ${e.message}") }
         try { StrategyTrustAI.init() }                             catch (e: Exception) { ErrorLogger.debug(TAG, "StrategyTrustAI: ${e.message}") }
         try { NarrativeFlowAI.init() }                             catch (e: Exception) { ErrorLogger.debug(TAG, "NarrativeFlowAI: ${e.message}") }
         try { RunTracker30D.init(context.applicationContext) }     catch (e: Exception) { ErrorLogger.debug(TAG, "RunTracker30D: ${e.message}") }
@@ -663,7 +667,7 @@ object CryptoAltTrader {
                             if (sig.shouldEnter) {
                                 signals++
                                 ErrorLogger.info(TAG, "🪙💩 DynSig ShitCoin: ${tok.symbol} conf=${sig.confidence}")
-                                try { FluidLearningAI.recordAltsTradeStart() } catch (_: Exception) {}
+                                try { com.lifecyclebot.perps.crypto.brain.CryptoBrain.onTradeStart() } catch (_: Exception) {}
                                 // V5.9.2: Convert to tradeable AltSignal
                                 val dynMarket = PerpsMarket.values().find { it.symbol == tok.symbol }
                                 if (dynMarket != null) {
@@ -707,7 +711,7 @@ object CryptoAltTrader {
                             if (sig.shouldEnter) {
                                 signals++
                                 ErrorLogger.info(TAG, "🪙🔵 DynSig BlueChip: ${tok.symbol} conf=${sig.confidence}")
-                                try { FluidLearningAI.recordAltsTradeStart() } catch (_: Exception) {}
+                                try { com.lifecyclebot.perps.crypto.brain.CryptoBrain.onTradeStart() } catch (_: Exception) {}
                                 val dynMarket = PerpsMarket.values().find { it.symbol == tok.symbol }
                                 if (dynMarket != null) {
                                     val bcDir = when {
@@ -748,7 +752,7 @@ object CryptoAltTrader {
                             if (sig.shouldRide) {
                                 signals++
                                 ErrorLogger.info(TAG, "🪙⚡ DynSig Express: ${tok.symbol}")
-                                try { FluidLearningAI.recordAltsTradeStart() } catch (_: Exception) {}
+                                try { com.lifecyclebot.perps.crypto.brain.CryptoBrain.onTradeStart() } catch (_: Exception) {}
                             }
                         } catch (_: Exception) {}
                     }
@@ -774,7 +778,7 @@ object CryptoAltTrader {
                             if (sig.eligible) {
                                 signals++
                                 ErrorLogger.info(TAG, "🪙🌙 DynSig Moonshot: ${tok.symbol}")
-                                try { FluidLearningAI.recordAltsTradeStart() } catch (_: Exception) {}
+                                try { com.lifecyclebot.perps.crypto.brain.CryptoBrain.onTradeStart() } catch (_: Exception) {}
                                 val dynMarket = PerpsMarket.values().find { it.symbol == tok.symbol }
                                 if (dynMarket != null) dynExecutableSignals.add(AltSignal(
                                     // V5.9.230: Moonshot is always LONG (looking for explosive upside)
@@ -808,7 +812,7 @@ object CryptoAltTrader {
                         if (sig.shouldEnter) {
                             signals++
                             ErrorLogger.info(TAG, "🪙🎭 DynSig Manip: ${tok.symbol}")
-                            try { FluidLearningAI.recordAltsTradeStart() } catch (_: Exception) {}
+                            try { com.lifecyclebot.perps.crypto.brain.CryptoBrain.onTradeStart() } catch (_: Exception) {}
                         }
                     } catch (_: Exception) {}
                 }
@@ -820,8 +824,9 @@ object CryptoAltTrader {
         // V5.9.2: Execute top DynScan signals — previously these were logged but never acted on
         // Now we convert high-confidence DynToken signals into real AltSignal trades
         if (dynExecutableSignals.isNotEmpty() && positions.size < MAX_POSITIONS) {
-            val scoreThresh = try { FluidLearningAI.getAltsSpotScoreThreshold() } catch (_: Exception) { 60 }
-            val confThresh  = try { FluidLearningAI.getAltsSpotConfThreshold() }  catch (_: Exception) { 55 }
+            // V5.9.1442 — Crypto isolated brain thresholds (was FluidLearningAI.getAltsXxx).
+            val scoreThresh = try { com.lifecyclebot.perps.crypto.brain.CryptoBrain.getSpotScoreFloor() } catch (_: Exception) { 60 }
+            val confThresh  = try { com.lifecyclebot.perps.crypto.brain.CryptoBrain.getSpotConfFloor() }  catch (_: Exception) { 55 }
             val topDyn = dynExecutableSignals
                 .filter { it.score >= scoreThresh && it.confidence >= confThresh }
                 .sortedByDescending { it.score }
@@ -880,9 +885,26 @@ object CryptoAltTrader {
         ErrorLogger.info(TAG, "🪙 positions=${positions.size} ($cpsLine) | balance=${"%.2f".format(getBalance())} SOL")
         ErrorLogger.info(TAG, "🪙 ═══════════════════════════════════════════════════")
 
-        // All crypto markets that are NOT covered by the SOL perps engine
+        // All crypto markets that are NOT covered by the SOL perps engine.
+        // V5.9.1442 — Solana isolation: CryptoUniverseFilter blocks any
+        // Solana-native long-tail/meme token from the crypto universe via
+        // an explicit denylist (BONK, WIF, PEPE, …). Multi-chain majors
+        // (BTC/ETH/BNB/XRP/ADA/…) are always admitted; SOL ecosystem
+        // majors (SOL/JTO/JUP/RAY/ORCA/PYTH/W) are admitted; everything
+        // else with a Solana-only venue stays with the memetrader.
         val altMarkets = PerpsMarket.values().filter { m ->
-            m.isCrypto && !SOL_PERPS_SYMBOLS.contains(m.symbol)
+            if (!m.isCrypto || SOL_PERPS_SYMBOLS.contains(m.symbol)) return@filter false
+            // Conservative: treat all enum entries as non-Solana-native
+            // (PerpsMarket holds multi-chain majors). The denylist alone
+            // covers any meme-symbol that slipped into the enum.
+            val admitted = com.lifecyclebot.perps.crypto.CryptoUniverseFilter
+                .isAdmittedToCryptoUniverse(m.symbol, isSolanaNative = false)
+            if (!admitted) {
+                val reason = com.lifecyclebot.perps.crypto.CryptoUniverseFilter
+                    .rejectionReason(m.symbol, isSolanaNative = false)
+                try { ErrorLogger.debug(TAG, "🪙 universe-filter skip ${m.symbol} ($reason)") } catch (_: Throwable) {}
+            }
+            admitted
         }
 
         val signals      = mutableListOf<AltSignal>()
@@ -951,8 +973,9 @@ object CryptoAltTrader {
 
                 val signal = analyzeAlt(market, data)
                 if (signal != null) {
-                    val scoreThresh = FluidLearningAI.getAltsSpotScoreThreshold()
-                    val confThresh  = FluidLearningAI.getAltsSpotConfThreshold()
+                    // V5.9.1442 — Crypto isolated brain thresholds.
+                    val scoreThresh = com.lifecyclebot.perps.crypto.brain.CryptoBrain.getSpotScoreFloor()
+                    val confThresh  = com.lifecyclebot.perps.crypto.brain.CryptoBrain.getSpotConfFloor()
 
                     // V5.9.132: V3 IS THE GATE. Fluid score/conf gate is now
                     // only a preliminary sanity check — any signal with score≥45
@@ -1313,11 +1336,11 @@ object CryptoAltTrader {
             if (sr.nearResistance && direction == PerpsDirection.SHORT) { score += 10; reasons.add("📍 Near resistance") }
         } catch (_: Exception) {}
 
-        // ── Layer 7: Fluid Learning ───────────────────────────────────────────
+        // ── Layer 7: Fluid Learning (V5.9.1442 — isolated crypto brain) ──────
         try {
-            val progress = FluidLearningAI.getLearningProgress()
-            if (progress > 50) { confidence += 5; reasons.add("📚 Learning: ${progress.toInt()}%") }
-            val crossBoost = FluidLearningAI.getCrossLearnedConfidence(confidence.toDouble()) - confidence
+            val progress = com.lifecyclebot.perps.crypto.brain.CryptoBrain.progressPct()
+            if (progress > 50) { confidence += 5; reasons.add("📚 Crypto Learning: $progress%") }
+            val crossBoost = com.lifecyclebot.perps.crypto.brain.CryptoBrain.crossLearnedConfidence(confidence.toDouble()) - confidence
             if (crossBoost > 0) { confidence += crossBoost.toInt(); reasons.add("🔗 Cross-boost: +${crossBoost.toInt()}") }
         } catch (_: Exception) {}
 
@@ -1356,13 +1379,13 @@ object CryptoAltTrader {
             }
         } catch (_: Exception) {}
 
-        // ── Layer 11: BehaviorAI — session sentiment ────────────────────────
+        // ── Layer 11: BehaviorAI — session sentiment (V5.9.1442 — isolated) ──
         try {
-            val bAdj    = BehaviorAI.getScoreAdjustment()
-            val confMod = BehaviorAI.getConfidenceModifier()
+            val bAdj    = com.lifecyclebot.perps.crypto.brain.CryptoBrain.scoreAdjustment()
+            val confMod = com.lifecyclebot.perps.crypto.brain.CryptoBrain.confidenceModifier()
             if (bAdj != 0 || confMod != 0) {
                 score += bAdj; confidence += confMod
-                reasons.add("🧠 BehaviorAI: ${BehaviorAI.getSentimentClassification()} (${if (bAdj >= 0) "+" else ""}$bAdj)")
+                reasons.add("🧠 CryptoBrain: ${com.lifecyclebot.perps.crypto.brain.CryptoBrain.sentimentClassification()} (${if (bAdj >= 0) "+" else ""}$bAdj)")
             }
         } catch (_: Exception) {}
 
@@ -1694,9 +1717,7 @@ object CryptoAltTrader {
             }
         }
 
-        val tpPct = if (isSpot)
-            com.lifecyclebot.v3.scoring.FluidLearningAI.getAltsSpotTpPct()
-        else com.lifecyclebot.v3.scoring.FluidLearningAI.getAltsLevTpPct()
+        val tpPct = com.lifecyclebot.perps.crypto.brain.CryptoBrain.getTpPct(isSpot)
         val slPctBase  = if (isSpot) DEFAULT_SL_SPOT else DEFAULT_SL_LEV
         val lev    = if (isSpot) 1.0 else signal.leverage
 
@@ -1843,15 +1864,15 @@ object CryptoAltTrader {
             )
         } catch (_: Exception) {}
 
-        // ── BehaviorAI tilt protection ──────────────────────────────────────
+        // ── BehaviorAI tilt protection (V5.9.1442 — isolated crypto brain) ──
         try {
-            if (BehaviorAI.isTiltProtectionActive()) {
-                ErrorLogger.warn(TAG, "🪙 BehaviorAI tilt — skip ${signal.market.symbol}")
+            if (com.lifecyclebot.perps.crypto.brain.CryptoBrain.isTiltProtectionActive()) {
+                ErrorLogger.warn(TAG, "🪙 CryptoBrain tilt — skip ${signal.market.symbol}")
                 return
             }
         } catch (_: Exception) {}
 
-        try { FluidLearningAI.recordAltsTradeStart() } catch (_: Exception) {}
+        try { com.lifecyclebot.perps.crypto.brain.CryptoBrain.onTradeStart() } catch (_: Exception) {}
         com.lifecyclebot.engine.WalletPositionLock.recordOpen("CryptoAlt", sizeSol)
 
         // ── MetaCognitionAI — entry prediction ───────────────────────────────
@@ -2244,9 +2265,7 @@ object CryptoAltTrader {
                     spotPositions.remove(id)
                 }
 
-                val tpPct = if (updated.isSpot)
-                    com.lifecyclebot.v3.scoring.FluidLearningAI.getAltsSpotTpPct()
-                else com.lifecyclebot.v3.scoring.FluidLearningAI.getAltsLevTpPct()
+                val tpPct = com.lifecyclebot.perps.crypto.brain.CryptoBrain.getTpPct(updated.isSpot)
 
                 // V5.9.9: FULLY AGENTIC EXIT — SymbolicExitReasoner evaluates every cycle
                 val holdSec = (System.currentTimeMillis() - updated.openTime) / 1000
@@ -2568,8 +2587,25 @@ object CryptoAltTrader {
 
         try { PortfolioHeatAI.removePosition("ALT_${pos.market.symbol}") } catch (_: Exception) {}
 
-        // ── BehaviorAI ────────────────────────────────────────────────────────
-        try { BehaviorAI.recordTradeForAsset(pnlPct = pnlPct, reason = reason, mint = pos.market.symbol, isPaperMode = paper, assetClass = "CRYPTO_ALT_SPOT") } catch (_: Exception) {}
+        // ── BehaviorAI (V5.9.1442 — isolated crypto brain) ───────────────────
+        try {
+            // Determine tier from symbol for the crypto-brain bucket key.
+            val symU = pos.market.symbol.uppercase()
+            val tier = when {
+                symU in tier1 -> "TIER1"
+                symU in tier2 -> "TIER2"
+                else          -> "TIER3"
+            }
+            com.lifecyclebot.perps.crypto.brain.CryptoBrain.onTradeClose(
+                tier   = tier,
+                score  = pos.aiScore,
+                pnlPct = pnlPct,
+                pnlSol = pnlSol,
+                isPaper = paper,
+                reason  = reason,
+                symbol  = pos.market.symbol,
+            )
+        } catch (_: Exception) {}
 
         // V5.9.852 — non-meme close → CanonicalOutcomeBus (Layer Readiness fix).
         com.lifecyclebot.engine.CanonicalPublishHelper.publishExit(
@@ -2745,7 +2781,8 @@ object CryptoAltTrader {
 
     private fun hiveEntryModifier(symbol: String): Triple<Boolean, Double, Double> {
         val sizeMult = try {
-            (BehaviorAI.getSizingMultiplier().coerceIn(0.5, 2.0) *
+            // V5.9.1442 — isolated crypto behaviour (was BehaviorAI).
+            (com.lifecyclebot.perps.crypto.brain.CryptoBehavior.getSizingMultiplier().coerceIn(0.5, 2.0) *
              NarrativeFlowAI.getNarrativeMultiplier(symbol).coerceIn(0.8, 1.5)).coerceIn(0.5, 2.0)
         } catch (_: Exception) { 1.0 }
         val tpAdj = try { if (StrategyTrustAI.getTrustMultiplier("CryptoAltAI") > 1.1) 1.5 else 0.0 } catch (_: Exception) { 0.0 }
@@ -3199,20 +3236,22 @@ object CryptoAltTrader {
     }
 
     private fun getPhaseLabel(): String {
-        val trades = FluidLearningAI.getAltsTradeCount()
+        // V5.9.1442 — isolated crypto brain maturity.
+        val trades = com.lifecyclebot.perps.crypto.brain.CryptoBrain.tradeCount()
         val wr     = getWinRate()
         return when {
-            trades < 500  -> "📚 BOOTSTRAP"
-            trades < 1500 -> "🧠 LEARNING"
-            trades < 3000 -> "🔬 VALIDATING"
-            trades < 5000 -> "⚡ MATURING"
+            trades < 250  -> "📚 BOOTSTRAP"
+            trades < 1000 -> "🧠 LEARNING"
+            trades < 2500 -> "🔬 VALIDATING"
+            trades < 4500 -> "⚡ MATURING"
             wr >= 52.0    -> "✅ READY"
             else          -> "⚡ MATURING"
         }
     }
 
     /** Whether this trader has met all requirements to go live */
-    fun isLiveReady(): Boolean = FluidLearningAI.getAltsTradeCount() >= 5000 && getWinRate() >= 52.0
+    fun isLiveReady(): Boolean =
+        com.lifecyclebot.perps.crypto.brain.CryptoBrain.tradeCount() >= 4500 && getWinRate() >= 52.0
 
     /** V5.9.3: Called from MAA when user taps SPOT/LEVERAGE toggle */
     fun setPreferLeverage(lev: Boolean) {
