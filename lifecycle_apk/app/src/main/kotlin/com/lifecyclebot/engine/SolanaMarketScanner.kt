@@ -3673,6 +3673,19 @@ class SolanaMarketScanner(
     }
 
     private fun getWithRetry(url: String, apiKey: String = "", maxRetries: Int = 2, extraHeaders: Map<String, String> = emptyMap()): String? {
+        // V5.9.1469 — SCANNER BACKOFF SHORT-CIRCUIT. The scanner path never consulted
+        // ApiBackoff, so a failing host (snapshot: geckoterminal sr=56%, helius/groq
+        // sr=0%) kept getting hit + retried INSIDE supervisor workers — each dead call
+        // blocking the worker until the 8s lease timeout, producing the
+        // SUPERVISOR_LEASE_FORCE_RELEASED:460 churn that chokes real candidates. Skip
+        // the wire entirely while the host is in its backoff window. Fail-open.
+        try {
+            val host = hostLabel(try { com.lifecyclebot.engine.AutoEndpointMigrator.rewrite(url) } catch (_: Throwable) { url })
+            if (com.lifecyclebot.engine.ApiBackoff.isLockedOut(host)) {
+                ErrorLogger.debug("Scanner", "[BACKOFF] skip $host (lockout ${com.lifecyclebot.engine.ApiBackoff.lockoutRemainingMs(host)}ms) ${url.take(40)}")
+                return null
+            }
+        } catch (_: Throwable) { /* fail-open */ }
         var lastError: Exception? = null
 
         repeat(maxRetries.coerceAtLeast(1)) { attempt ->
@@ -3729,18 +3742,6 @@ class SolanaMarketScanner(
         // hosts get swapped transparently (e.g. frontend-api.pump.fun → V3).
         val effectiveUrl = try { com.lifecyclebot.engine.AutoEndpointMigrator.rewrite(url) } catch (_: Throwable) { url }
         val host = hostLabel(effectiveUrl)
-        // V5.9.1469 — SCANNER BACKOFF SHORT-CIRCUIT. The scanner's raw get() never
-        // consulted ApiBackoff, so a failing host (snapshot: geckoterminal sr=56%,
-        // helius/groq sr=0%) kept getting hit + retried inside supervisor workers —
-        // each call blocking the worker until the 8s lease timeout, producing the
-        // SUPERVISOR_LEASE_FORCE_RELEASED:460 churn that chokes real candidates. Skip
-        // the wire entirely while a host is in its backoff window (fail-open on any bug).
-        try {
-            if (com.lifecyclebot.engine.ApiBackoff.isLockedOut(host)) {
-                ErrorLogger.debug("Scanner", "[BACKOFF] skip $host (lockout ${com.lifecyclebot.engine.ApiBackoff.lockoutRemainingMs(host)}ms) ${effectiveUrl.take(40)}")
-                return null
-            }
-        } catch (_: Throwable) { /* fail-open */ }
         val builder = Request.Builder().url(effectiveUrl)
             .header(
                 "User-Agent",
