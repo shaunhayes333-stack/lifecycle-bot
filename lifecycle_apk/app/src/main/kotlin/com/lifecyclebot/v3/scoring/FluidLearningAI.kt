@@ -2002,7 +2002,7 @@ object FluidLearningAI {
     // Fee constants (mirrored from SlippageGuard for consistency)
     private const val SOLANA_TX_FEE_SOL = 0.000005          // Per transaction
     private const val JUPITER_FEE_PCT = 0.003               // 0.3% per swap
-    private const val ROUND_TRIP_FEE_PCT = 0.006            // 0.6% total (buy + sell)
+    private const val ROUND_TRIP_FEE_PCT = 0.026            // V5.9.1450 — 0.6% Jupiter + 2% bot (1% buy + 1% sell). Keeps breakeven/min-profitable-exit honest now that the bot fee applies to both sides.
     
     /**
      * Calculate net P&L after deducting estimated fees.
@@ -2029,7 +2029,7 @@ object FluidLearningAI {
      */
     fun getMinProfitableExitPct(positionSizeSol: Double, liquidityUsd: Double): Double {
         // Base fee cost as percentage
-        var minPct = ROUND_TRIP_FEE_PCT * 100  // 0.6%
+        var minPct = ROUND_TRIP_FEE_PCT * 100  // V5.9.1450: 2.6%
         
         // Add estimated price impact based on liquidity
         val solPrice = try { kotlinx.coroutines.runBlocking { PriceAggregator.getPrice("SOL")?.price } ?: 150.0 } catch (_: Exception) { 150.0 } // V5.9: live price
