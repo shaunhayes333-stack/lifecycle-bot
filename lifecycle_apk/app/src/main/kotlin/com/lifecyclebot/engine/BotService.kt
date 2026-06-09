@@ -6348,6 +6348,25 @@ class BotService : Service() {
                             val mcapUsd = mcapSol * solUsd
                             // pump.fun bonding-curve liquidity ≈ mcap pre-graduation.
                             val estLiq = (mcapUsd * 0.85).coerceAtLeast(0.0)
+                            // V5.9.1463 — DERIVED intake confidence (was hardcoded 80 for
+                            // EVERY WS token). That constant lie was the root of the 6.3% WR:
+                            // a brand-new bonding-curve launch with vol1h=$0 and ~$1.5k liq is
+                            // NOT an 80-confidence candidate — it's a discovery-tier probe. The
+                            // downstream score-band gates read this confidence; stamping 80 made
+                            // them treat every dead-on-arrival pump.fun mint as high-conviction,
+                            // so the bot kept buying zero-volume rugs into -15% stops. We only
+                            // truly know liquidity at WS time (volume is unmeasured = 0), so
+                            // derive a HONEST discovery-band confidence from the liquidity tier.
+                            // Real conviction must be EARNED later when live volume/microstructure
+                            // confirms (the additive-confidence model upgrades from here). This
+                            // keeps throughput (still admits, protected-pool intact) but stops
+                            // feeding fake high-confidence into the entry gates.
+                            val wsConfidence = when {
+                                estLiq >= 8000.0 -> 45   // deepest fresh pool we see — still only "investigate"
+                                estLiq >= 4000.0 -> 38
+                                estLiq >= 2000.0 -> 30
+                                else             -> 22   // sub-$2k fresh rug-zone — discovery probe only
+                            }
                             admitProtectedMemeIntake(
                                 mint = mint,
                                 symbol = symbol,
@@ -6356,7 +6375,7 @@ class BotService : Service() {
                                 marketCapUsd = mcapUsd,
                                 liquidityUsd = estLiq,
                                 volumeH1 = 0.0,
-                                confidence = 80,
+                                confidence = wsConfidence,
                                 allSources = setOf("PUMP_PORTAL_WS", "PUMP_PORTAL"),
                                 playSound = true,
                                 operatorLog = true,
