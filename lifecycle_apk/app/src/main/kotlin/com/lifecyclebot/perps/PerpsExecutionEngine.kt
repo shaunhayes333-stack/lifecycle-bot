@@ -246,10 +246,11 @@ object PerpsExecutionEngine {
                             scanResults.filter { r ->
                                 val m = r.signal?.market ?: return@filter true
                                 when {
-                                    m.isStock     -> cfg.stocksEnabled
+                                    // V5.9.1446 — hard quarantine overrides the persisted pref.
+                                    m.isStock     -> cfg.stocksEnabled && !com.lifecyclebot.engine.EnabledTraderAuthority.MARKET_LANES_QUARANTINED
+                                    m.isForex     -> cfg.forexEnabled && !com.lifecyclebot.engine.EnabledTraderAuthority.MARKET_LANES_QUARANTINED
                                     m.isCommodity -> cfg.commoditiesEnabled
                                     m.isMetal     -> cfg.metalsEnabled
-                                    m.isForex     -> cfg.forexEnabled
                                     m.isCrypto    -> cfg.perpsEnabled
                                     else          -> true
                                 }

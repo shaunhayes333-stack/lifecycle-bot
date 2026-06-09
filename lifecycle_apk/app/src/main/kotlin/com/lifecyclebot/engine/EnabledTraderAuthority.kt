@@ -36,6 +36,16 @@ object EnabledTraderAuthority {
 
     enum class Trader { MEME, CRYPTO_ALT, MARKETS_STOCKS, PERPS, PROJECT_SNIPER, CYCLIC, SHADOW_PAPER }
 
+    // V5.9.1446 — STOCKS/FOREX QUARANTINE (operator directive 2026-06-09).
+    // 5.0.3448 expectancy: Stocks n=82 WR=0% PnL=-12,381 SOL, Forex n=6 WR=0%.
+    // These non-meme market lanes bleed on TIME_CAP_2H exits and distort the
+    // whole P&L view by 4 orders of magnitude vs the meme spine. Hard-quarantine
+    // their BUY path in code (overrides the persisted stocks_enabled/forex_enabled
+    // prefs so it takes effect on the live device without a UI toggle). Open
+    // positions still exit and still record outcomes to the learner — this only
+    // stops NEW market entries. Flip to false to lift the quarantine.
+    @JvmStatic val MARKET_LANES_QUARANTINED: Boolean = true
+
     /**
      * The published, atomic enabled set. Default empty so any path that
      * runs before BotService.startBot() publishes (e.g. cold-start

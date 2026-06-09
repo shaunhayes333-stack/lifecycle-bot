@@ -556,6 +556,10 @@ fun isLiveReady(): Boolean = totalTrades.get() >= 5000 && getWinRate() >= 50.0
         val c = try { com.lifecyclebot.engine.BotService.instance?.applicationContext } catch (_: Throwable) { null }
         if (c != null) {
             val cfg = try { com.lifecyclebot.data.ConfigStore.load(c) } catch (_: Throwable) { null }
+            // V5.9.1446 — hard stocks quarantine (overrides persisted pref).
+            if (com.lifecyclebot.engine.EnabledTraderAuthority.MARKET_LANES_QUARANTINED) {
+                return "STOCKS_QUARANTINED_V5_9_1446"
+            }
             if (cfg != null && (cfg.tradingMode == 0 || !cfg.marketsTraderEnabled || !cfg.stocksEnabled)) {
                 return "MEME_ONLY_MODE"
             }
