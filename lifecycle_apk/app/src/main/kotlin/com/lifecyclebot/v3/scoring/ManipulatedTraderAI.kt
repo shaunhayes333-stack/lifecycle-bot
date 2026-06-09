@@ -484,10 +484,34 @@ object ManipulatedTraderAI {
         } else 0.0
 
         val holdMinutes = (System.currentTimeMillis() - pos.entryTime) / 60_000.0
+        val holdSeconds = (System.currentTimeMillis() - pos.entryTime) / 1000L
 
         // Update peak + HWM
         if (pnlPct > pos.peakPnlPct) pos.peakPnlPct = pnlPct
         if (currentPrice > pos.highWaterMark) pos.highWaterMark = currentPrice
+
+        // V5.9.1464 — BIRTH-GRACE SETTLE-IN (operator: "still firing exits on entry
+        // like slippage"). MANIPULATED was the ONLY meme lane with NO settle-in
+        // window — ShitCoin (line ~1679) and Moonshot (line ~1409) both hold the
+        // price-stop for the first 60s, but MANIPULATED fired STOP_LOSS / fluid
+        // TRAILING_STOP on the VERY FIRST tick. A fresh entry filled ~5-11% high
+        // from paper/live slippage instantly read <= stopLossPct (-11%) and booked
+        // a synthetic loss before any price move — directly poisoning the 3.6% WR /
+        // -37% EV. FIX: for the first 60s, suppress the price-based stop UNLESS the
+        // unconditional -15% hard floor is breached (genuine crash still exits now).
+        // Slippage noise gets the same breathing room the other lanes already grant.
+        if (holdSeconds < 60L && pnlPct > -15.0) {
+            return ManipExitSignal.HOLD
+        }
+        // V5.9.1464 — MFE-CONFIRMATION EARLY CUT (spec item 3: "no MFE > +1.0%
+        // within 45-60s ⇒ exit early / tighten"). A MANIPULATED entry that has
+        // NEVER printed +1% MFE by 60s is unconfirmed manipulation flow — cut the
+        // dead entry at the lane stop instead of letting it bleed to the -15% floor.
+        // Any entry that showed real MFE keeps full runner protection below.
+        if (holdSeconds in 60L..600L && pos.peakPnlPct < 1.0 && pnlPct < -3.0) {
+            ErrorLogger.info(TAG, "☠️⏱️ MANIP EARLY-WEAKNESS: ${pos.symbol} | never +1% by ${holdSeconds}s (peak ${"%.1f".format(pos.peakPnlPct)}%, now ${"%.1f".format(pnlPct)}%) — cutting unconfirmed entry")
+            return ManipExitSignal.STOP_LOSS
+        }
 
         // V5.9.168 — SHARED LADDERED PROFIT-LOCK
         val rungs = doubleArrayOf(20.0, 50.0, 100.0, 300.0, 1000.0, 3000.0, 10000.0)

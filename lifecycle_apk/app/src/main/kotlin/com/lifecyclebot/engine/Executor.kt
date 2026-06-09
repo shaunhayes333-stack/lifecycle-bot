@@ -6450,9 +6450,26 @@ class Executor(
         // design (operator: regime-aware sizing is the doctrine, not a per-lane hack); the
         // protected 500-token scanner pool and FDG veto whitelist are untouched.
         val regimeMult = try { com.lifecyclebot.engine.RegimeDetector.sizeMultiplier() } catch (_: Throwable) { 1.0 }
-        // Floor widened 0.4→0.30 so a DUMP (0.50) can actually bite alongside the other
-        // soft-shapers instead of being clamped away.
-        val effSol = (sol * sizeMult * labMult * laneEvMult * regimeMult).coerceIn(sol * 0.30, sol * 1.75)
+        // V5.9.1464 — LANE EXECUTABLE-SIZE CAP (operator strategy spec items 3/4/5).
+        // Per-lane size ceiling on the PROVEN bleeders until their rolling WR recovers.
+        // Soft-shape only — NEVER a veto, the lane stays fully executable + trainable,
+        // every rejected/probe candidate still journals. This is the "convert weak flow
+        // to smaller executable size" lever the spec asks for, on top of the 1460/1461
+        // learning weight. As LanePolicy.rollingWr climbs past the recovery threshold the
+        // cap lifts back to 1.0 automatically (fluid recovery, consistent with doctrine).
+        val laneTag = (identity?.source ?: ts.source).uppercase()
+        val laneSizeCap = try {
+            val wr = com.lifecyclebot.engine.learning.LanePolicy.rollingWr(laneTag)  // null until enough samples
+            when {
+                laneTag.contains("MANIPULATED") -> if ((wr ?: 0.0) > 0.18) 1.0 else 0.30   // spec 3: 0.25-0.35 until WR>18%
+                laneTag.contains("MOONSHOT")    -> if ((wr ?: 0.0) > 0.0)  0.55 else 0.55   // spec 4: 0.50-0.65 until EV+ (size-capped regardless until recovery)
+                laneTag.contains("SHITCOIN")    -> 0.65                                       // spec 5: smaller initial probe (lifetime EV+ so least restrictive)
+                else                            -> 1.0
+            }
+        } catch (_: Throwable) { 1.0 }
+        // Floor widened 0.4→0.30→0.22 so MANIPULATED's 0.30 cap can actually bite
+        // alongside the DUMP brake (0.40) without being clamped away.
+        val effSol = (sol * sizeMult * labMult * laneEvMult * regimeMult * laneSizeCap).coerceIn(sol * 0.18, sol * 1.75)
 
         // V5.9.642: spine log uses a separate val so the compiler keeps
         // its smart cast on `wallet` inside the else branch (non-null guaranteed).

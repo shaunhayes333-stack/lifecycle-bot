@@ -245,6 +245,17 @@ object LanePolicy {
     private const val DEMOTE_WR = 0.18                  // < 18% WR over the window = bleeding
     private const val PROMOTE_WR = 0.42                 // > 42% WR over the window = recovering
 
+    // V5.9.1464 — public rolling-WR reader for lane-level executable size shaping.
+    // Returns the lane window WR in [0,1], or null until enough samples exist
+    // (caller treats null as "no opinion yet — use the spec's default cap").
+    fun rollingWr(lane: String): Double? {
+        if (lane.isBlank()) return null
+        val cell = getOrCreateLaneCell(lane)
+        val w = cell.winWindow.get(); val l = cell.lossWindow.get(); val n = w + l
+        if (n < OUTCOME_WINDOW_MIN_SAMPLES) return null
+        return w.toDouble() / n
+    }
+
     fun recordOutcome(lane: String, scoreBand: String, isWin: Boolean, isLoss: Boolean) {
         if (lane.isBlank()) return
         if (!isWin && !isLoss) return  // scratch/breakeven — neutral, doesn't move policy
