@@ -9960,54 +9960,10 @@ class BotService : Service() {
             val liveTickEligible = !cfg.paperMode
             if ((liveTickEligible || paperRescueEligible) && intervalElapsed) {
                 lastReconcileAt = nowMs
-                val rescueOnly = paperRescueEligible
-                kotlinx.coroutines.GlobalScope.launch(kotlinx.coroutines.Dispatchers.IO) {
-                    try {
-                        val w = if (rescueOnly) singletonWallet else wallet
-                        if (w != null && w.publicKeyB58.isNotEmpty()) {
-                            if (rescueOnly) {
-                                addLog("🛟 PAPER-MODE PENDING-VERIFY RESCUE — running reconcile against live wallet to promote stuck positions")
-                            }
-                            val r = com.lifecyclebot.engine.StartupReconciler(
-                                wallet = w,
-                                status = status,
-                                onLog = { msg -> addLog("[reconcile] $msg") },
-                                onAlert = { title, body ->
-                                    ErrorLogger.info("BotService", "⚠️ $title — $body")
-                                },
-                                executor = executor,
-                                autoSellOrphans = false,
-                            )
-                            r.reconcile()
-                            // V5.9.493 — PHANTOM SWEEP for sub-trader stores.
-                            // StartupReconciler clears ghosts in status.tokens
-                            // (the V3 lane), but Treasury / ShitCoin /
-                            // Quality / BlueChip / Moonshot keep positions
-                            // in their OWN private maps. If a Treasury
-                            // position got sold off-band (V5.9.488 PUMP
-                            // DIRECT, manual Phantom sell, external bot,
-                            // etc.) the close-out callback never fires and
-                            // the position UI shows a phantom 'open' tile.
-                            // Sweep against the live wallet balance and
-                            // remove anything no-longer-owned.
-                            try {
-                                val accounts = w.getTokenAccountsWithDecimalsBounded()
-                                val walletMints = accounts
-                                    .filter { (_, v) -> v.first > 0.0 }
-                                    .keys
-                                val cleared = com.lifecyclebot.v3.scoring.CashGenerationAI
-                                    .sweepPhantoms(walletMints)
-                                if (cleared > 0) {
-                                    addLog("🧹 Treasury phantom sweep: cleared $cleared stale position(s)")
-                                }
-                            } catch (e: Exception) {
-                                ErrorLogger.warn("BotService", "Phantom sweep error: ${e.message}")
-                            }
-                        }
-                    } catch (e: Exception) {
-                        ErrorLogger.warn("BotService", "Periodic reconcile error: ${e.message}")
-                    }
-                }
+                // V5.9.1470d — extracted to keep botLoop under the JVM 64KB method limit
+                // (CI run#3473-3475 hit "Couldn't transform method node: botLoop"). The
+                // already-2000-line botLoop was at the bytecode ceiling; this frees room.
+                launchPeriodicReconcile(rescueOnly = paperRescueEligible, wallet = wallet)
             }
 
             // V5.9.631 — Meme lane must not silently disappear while the bot is running.
@@ -12276,6 +12232,53 @@ if (hotExitHandledSweep) {
     // Reaps mints the close ledger marks CLOSED from forcedOpen BEFORE PRE_SUPERVISOR so
     // closed positions stop holding slots/priority, and releases their sell/supervisor
     // locks. Held positions are never in the close ledger, so they are never reaped.
+    // V5.9.1470d — extracted periodic-reconcile + phantom-sweep from botLoop to free
+    // bytecode (botLoop was at the JVM 64KB per-method ceiling). Behaviour unchanged:
+    // rescueOnly uses the live singleton wallet for paper-mode pending-verify rescue;
+    // otherwise the live-session wallet. Runs off-loop on Dispatchers.IO. Never mutates
+    // balances/positions here beyond what StartupReconciler/phantom-sweep already did.
+    private fun launchPeriodicReconcile(rescueOnly: Boolean, wallet: SolanaWallet?) {
+        val singletonWallet = try { WalletManager.getWallet() } catch (_: Throwable) { null }
+        kotlinx.coroutines.GlobalScope.launch(kotlinx.coroutines.Dispatchers.IO) {
+            try {
+                val w = if (rescueOnly) singletonWallet else wallet
+                if (w != null && w.publicKeyB58.isNotEmpty()) {
+                    if (rescueOnly) {
+                        addLog("🛟 PAPER-MODE PENDING-VERIFY RESCUE — running reconcile against live wallet to promote stuck positions")
+                    }
+                    val r = com.lifecyclebot.engine.StartupReconciler(
+                        wallet = w,
+                        status = status,
+                        onLog = { msg -> addLog("[reconcile] $msg") },
+                        onAlert = { title, body ->
+                            ErrorLogger.info("BotService", "⚠️ $title — $body")
+                        },
+                        executor = executor,
+                        autoSellOrphans = false,
+                    )
+                    r.reconcile()
+                    // V5.9.493 — PHANTOM SWEEP for sub-trader stores (Treasury/ShitCoin/
+                    // Quality/BlueChip/Moonshot keep positions in their own maps).
+                    try {
+                        val accounts = w.getTokenAccountsWithDecimalsBounded()
+                        val walletMints = accounts
+                            .filter { (_, v) -> v.first > 0.0 }
+                            .keys
+                        val cleared = com.lifecyclebot.v3.scoring.CashGenerationAI
+                            .sweepPhantoms(walletMints)
+                        if (cleared > 0) {
+                            addLog("🧹 Treasury phantom sweep: cleared $cleared stale position(s)")
+                        }
+                    } catch (e: Exception) {
+                        ErrorLogger.warn("BotService", "Phantom sweep error: ${e.message}")
+                    }
+                }
+            } catch (e: Exception) {
+                ErrorLogger.warn("BotService", "Periodic reconcile error: ${e.message}")
+            }
+        }
+    }
+
     private fun reapGhostForcedOpen(forcedOpenRaw: List<String>): List<String> {
         try { com.lifecyclebot.engine.PositionCloseLedger.prune() } catch (_: Throwable) {}
         val reaped = forcedOpenRaw.filter { com.lifecyclebot.engine.PositionCloseLedger.isClosed(it) }
