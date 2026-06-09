@@ -159,23 +159,15 @@ object RetrainingDecay {
      *
      * Uses LearningPersistence so the value survives reboots.
      */
+    // V5.9.1460 — write the LIVE LanePolicy cell (which IS persisted inside
+    // LanePolicy.persist) instead of a dead key LanePolicy never read back. This
+    // is what makes the per-loss decay actually reduce the lane's execution weight
+    // that FdgRouteVerdict consumes at entry.
     private fun setExecutionWeightLane(lane: String, weight: Double) {
-        val clamped = weight.coerceIn(0.0, 1.0)
-        try {
-            LearningPersistence.save(
-                "lane_policy_execweight_${lane.uppercase().take(32)}",
-                """{"ew":${(clamped * 1000).toLong()},"t":${System.currentTimeMillis()}}"""
-            )
-        } catch (_: Throwable) {}
+        try { LanePolicy.setExecutionWeightLaneCell(lane, weight.coerceIn(0.0, 1.0)) } catch (_: Throwable) {}
     }
 
     private fun setExecutionWeightBucket(lane: String, scoreBand: String, weight: Double) {
-        val clamped = weight.coerceIn(0.0, 1.0)
-        try {
-            LearningPersistence.save(
-                "bucket_policy_execweight_${lane.uppercase().take(24)}|${scoreBand.uppercase().take(12)}",
-                """{"ew":${(clamped * 1000).toLong()},"t":${System.currentTimeMillis()}}"""
-            )
-        } catch (_: Throwable) {}
+        try { LanePolicy.setExecutionWeightBucketCell(lane, scoreBand, weight.coerceIn(0.0, 1.0)) } catch (_: Throwable) {}
     }
 }

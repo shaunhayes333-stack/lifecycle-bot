@@ -289,6 +289,22 @@ object V3JournalRecorder {
                 com.lifecyclebot.engine.runtime.ColdStreakDamper.noteOutcome(layer, isPaper, isWinC, isLossC)
                 com.lifecyclebot.engine.runtime.DamageControlGate.noteOutcome(pnlPctLearn)
             } catch (_: Exception) {}
+            // V5.9.1460 — CLOSE THE LEARNING LOOP. Before this, the two levers that
+            // actually decide how much capital a lane gets (LanePolicy policy-State,
+            // read by FdgRouteVerdict at entry; and RetrainingDecay executionWeight)
+            // were NEVER driven by outcomes — RetrainingDecay.noteOutcome had ZERO
+            // callers and no code ever auto-demoted a LanePolicy bucket. A bleeding
+            // lane kept full size forever, so WR could not climb 25%→50% over any
+            // number of trades (operator: "statistically impossible"). Wire BOTH here,
+            // in the proven MEME close fanout, with lane/band/pnl already computed:
+            try {
+                val isWinL = pnlPctLearn > 0.5; val isLossL = pnlPctLearn < -0.5
+                val bandL = com.lifecyclebot.engine.LosingPatternMemory.scoreBand(entryScore)
+                // (a) rolling-WR auto demote/promote of the entry-gate policy State
+                com.lifecyclebot.engine.learning.LanePolicy.recordOutcome(layer, bandL, isWinL, isLossL)
+                // (b) smooth per-loss execution-weight decay / per-win recovery
+                com.lifecyclebot.engine.learning.RetrainingDecay.noteOutcome(layer, bandL, isWinL, isLossL)
+            } catch (_: Exception) {}
         }
     }
 }

@@ -62,6 +62,13 @@ object LanePolicy {
         val lastImprovedAt: AtomicLong,
         val retrainingSampleCount: AtomicInteger,
         val recoveryCandidate: AtomicLong,
+        // V5.9.1460 — rolling outcome window that DRIVES auto demote/promote.
+        // This is the missing learning edge: before 1460 no outcome ever moved
+        // a lane's policy State, so the entry gate (FdgRouteVerdict) read a state
+        // that could only ratchet UP. A bleeding lane kept full execution weight
+        // forever → WR could never climb 25%→50% no matter how many trades.
+        val winWindow: AtomicInteger = AtomicInteger(0),
+        val lossWindow: AtomicInteger = AtomicInteger(0),
     )
 
     private val lanes = ConcurrentHashMap<String, Cell>()
@@ -159,6 +166,21 @@ object LanePolicy {
     fun executionWeightForLane(lane: String): Double = getOrCreateLaneCell(lane).executionWeight.get() / WEIGHT_SCALE
     fun executionWeightForBucket(lane: String, scoreBand: String): Double = getOrCreateBucketCell(lane, scoreBand).executionWeight.get() / WEIGHT_SCALE
 
+    // V5.9.1460 — public setters so RetrainingDecay's per-loss decay actually
+    // lands on the LIVE cell the entry gate reads. Before this, RetrainingDecay
+    // wrote only to a LearningPersistence key that LanePolicy never read back, so
+    // the decay was a no-op (write-only loop). Now it mutates the cell + persists.
+    fun setExecutionWeightLaneCell(lane: String, weight: Double) {
+        val cell = getOrCreateLaneCell(lane)
+        cell.executionWeight.set((weight.coerceIn(0.0, 1.0) * WEIGHT_SCALE).toLong())
+        persist("lane", laneKey(lane), cell)
+    }
+    fun setExecutionWeightBucketCell(lane: String, scoreBand: String, weight: Double) {
+        val cell = getOrCreateBucketCell(lane, scoreBand)
+        cell.executionWeight.set((weight.coerceIn(0.0, 1.0) * WEIGHT_SCALE).toLong())
+        persist("bucket", bucketKey(lane, scoreBand), cell)
+    }
+
     fun effectiveExecutionWeight(lane: String, scoreBand: String): Double {
         val laneW = executionWeightForLane(lane)
         val bucketW = executionWeightForBucket(lane, scoreBand)
@@ -190,6 +212,73 @@ object LanePolicy {
     fun noteRetrainingSample(lane: String, scoreBand: String) {
         getOrCreateLaneCell(lane).retrainingSampleCount.incrementAndGet()
         getOrCreateBucketCell(lane, scoreBand).retrainingSampleCount.incrementAndGet()
+    }
+
+    // V5.9.1460 — THE CLOSED LEARNING LOOP. Called from the MEME close fanout
+    // (V3JournalRecorder.recordClose) for every settled trade. Accumulates a
+    // rolling win/loss window per lane AND per (lane,band) bucket, then moves the
+    // policy State so the entry gate actually responds to results:
+    //   • bleeding bucket  → step DOWN one executable rung (e.g. NORMAL →
+    //     REDUCED_SIZE → DEMOTION_CANDIDATE → PAPER_MICRO). Never below
+    //     PAPER_MICRO_EXECUTION — Train-First doctrine: keep sampling, never
+    //     hard-block a valid lane, never zero a lane out.
+    //   • recovering bucket → step UP one rung toward NORMAL_EXECUTION.
+    // Window resets after each transition so the next regime is judged fresh.
+    private const val OUTCOME_WINDOW_MIN_SAMPLES = 12   // need a real sample before moving
+    private const val DEMOTE_WR = 0.18                  // < 18% WR over the window = bleeding
+    private const val PROMOTE_WR = 0.42                 // > 42% WR over the window = recovering
+
+    fun recordOutcome(lane: String, scoreBand: String, isWin: Boolean, isLoss: Boolean) {
+        if (lane.isBlank()) return
+        if (!isWin && !isLoss) return  // scratch/breakeven — neutral, doesn't move policy
+        // Drive both the lane-level and the bucket-level windows.
+        evalCellOutcome(getOrCreateLaneCell(lane), isWin, "lane", laneKey(lane), lane, scoreBand)
+        evalCellOutcome(getOrCreateBucketCell(lane, scoreBand), isWin, "bucket", bucketKey(lane, scoreBand), lane, scoreBand)
+    }
+
+    private fun evalCellOutcome(cell: Cell, isWin: Boolean, kind: String, key: String, lane: String, scoreBand: String) {
+        if (isWin) cell.winWindow.incrementAndGet() else cell.lossWindow.incrementAndGet()
+        val w = cell.winWindow.get(); val l = cell.lossWindow.get(); val n = w + l
+        if (n < OUTCOME_WINDOW_MIN_SAMPLES) return
+        val wr = w.toDouble() / n
+        val cur = State.values()[cell.policy.get()]
+        val next = when {
+            wr < DEMOTE_WR  -> demoteOneRung(cur)
+            wr > PROMOTE_WR -> promoteOneRung(cur)
+            else            -> cur
+        }
+        if (next != cur) {
+            cell.policy.set(next.ordinal)
+            cell.executionWeight.set((defaultExecutionWeight(next) * WEIGHT_SCALE).toLong())
+            cell.learningWeight.set((defaultLearningWeight(next) * WEIGHT_SCALE).toLong())
+            persist(kind, key, cell)
+            if (next.ordinal > cur.ordinal) noteImprovement(lane, scoreBand)
+            ErrorLogger.info("LanePolicy",
+                "🧭 ${kind.uppercase()} $key $cur → $next (wr=${"%.0f".format(wr*100)}% n=$n) [AUTO-${if (next.ordinal<cur.ordinal) "DEMOTE" else "PROMOTE"}]")
+        }
+        // reset the window after enough samples so the next regime is judged fresh
+        if (n >= OUTCOME_WINDOW_MIN_SAMPLES * 2) { cell.winWindow.set(0); cell.lossWindow.set(0) }
+    }
+
+    // Step DOWN exactly one executable rung. FLOOR at PAPER_MICRO_EXECUTION so a
+    // valid lane is never hard-blocked / zeroed (Train-First). INVALID_UNTRADEABLE
+    // is reserved for explicit invalid-data states, never reached by WR decay.
+    private fun demoteOneRung(s: State): State = when (s) {
+        State.NORMAL_EXECUTION       -> State.REDUCED_SIZE_EXECUTION
+        State.PROMOTION_CANDIDATE    -> State.REDUCED_SIZE_EXECUTION
+        State.REDUCED_SIZE_EXECUTION -> State.DEMOTION_CANDIDATE
+        State.DEMOTION_CANDIDATE     -> State.PAPER_MICRO_EXECUTION
+        else                         -> s   // already at/below paper-micro → hold (keep sampling)
+    }
+
+    // Step UP exactly one rung toward NORMAL_EXECUTION.
+    private fun promoteOneRung(s: State): State = when (s) {
+        State.PAPER_MICRO_EXECUTION  -> State.DEMOTION_CANDIDATE
+        State.RETRAINING             -> State.DEMOTION_CANDIDATE
+        State.DEMOTION_CANDIDATE     -> State.REDUCED_SIZE_EXECUTION
+        State.REDUCED_SIZE_EXECUTION -> State.PROMOTION_CANDIDATE
+        State.PROMOTION_CANDIDATE    -> State.NORMAL_EXECUTION
+        else                         -> s
     }
 
     fun noteImprovement(lane: String, scoreBand: String) {
