@@ -12512,10 +12512,28 @@ if (hotExitHandledSweep) {
                     kotlinx.coroutines.delay(SUPERVISOR_WORKER_TIMEOUT_MS + 750L)
                     if (!released.get()) {
                         try { workerJobRef.get()?.cancel() } catch (_: Throwable) {}
+                        // V5.9.1453 — THE LEASE-CHURN LEAK. A worker that had to be
+                        // FORCE-released here was wedged in non-interruptible blocking
+                        // IO (slow/429'd provider — Helius/Birdeye/pumpfun). The clean
+                        // withTimeoutOrNull-null path arms the per-mint timeout cooldown
+                        // so WATCHLIST_RR stops re-selecting it; the watchdog path did
+                        // NOT — so the SAME wedged mint got re-picked every cycle, wedged
+                        // again, and force-released again forever (snapshot 81e428fb:
+                        // dozens of FORCE_RELEASED @ afterMs=8750 every loop while
+                        // spawned=0/deferred=120 — full pool, zero real throughput).
+                        // Arm the cooldown on the force path too so wedged mints rotate
+                        // OUT and free their slot for fresh candidates. Open positions
+                        // are exempt inside supervisorArmTimeoutCooldown (exits/-15%
+                        // floor stay unconditional). Also count it as a real worker
+                        // timeout so PipelineHealthCollector reflects the true stuck-IO
+                        // rate instead of hiding it behind force-releases.
+                        try { supervisorArmTimeoutCooldown(mint) } catch (_: Throwable) {}
+                        try { supervisorLifetimeWorkerTimeouts.incrementAndGet() } catch (_: Throwable) {}
+                        try { supervisorNoteWorkerTimeoutForThrottle() } catch (_: Throwable) {}
                         try {
                             ForensicLogger.lifecycle(
                                 "SUPERVISOR_LEASE_FORCE_RELEASED",
-                                "mint=${mint.take(10)} afterMs=${SUPERVISOR_WORKER_TIMEOUT_MS + 750L} active=${supervisorLeases.size}",
+                                "mint=${mint.take(10)} afterMs=${SUPERVISOR_WORKER_TIMEOUT_MS + 750L} active=${supervisorLeases.size} cooled=true",
                             )
                         } catch (_: Throwable) {}
                         releaseSlot()
