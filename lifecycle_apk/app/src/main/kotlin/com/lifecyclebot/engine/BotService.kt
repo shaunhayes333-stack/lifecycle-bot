@@ -56,6 +56,14 @@ class BotService : Service() {
         // weak/blind context can still generate a labelled learning sample
         // without spraying full-size capital into it.
         private const val LANE_DUST_PROBE_SIZE_MULT = 0.04
+        // V5.9.1466 — PROBE GRADUATION (spec item 8). A probe that shows a real
+        // confirmation tick (liquidity materially rising vs first-seen baseline) is
+        // no longer dead-end dust — it graduates to a larger (still capped) size so
+        // confirmed flow finally gets meaningful exposure. ~5× the dust floor but
+        // still a fraction of a normal buy; the additive-confidence model + lane
+        // caps keep full size gated on real conviction.
+        private const val LANE_CONFIRMED_PROBE_SIZE_MULT = 0.20
+        private const val PROBE_GRADUATION_LIQ_RISE_FRAC = 0.40  // +40% liq vs first-seen = a confirmation tick
         @Volatile private var _instance: java.lang.ref.WeakReference<BotService>? = null
         // V5.9.384 — one-shot flag so BacktestEngine.logAssetClassBaseline
         // doesn't rerun on every service restart within the same process
@@ -7552,6 +7560,28 @@ class BotService : Service() {
     private val familyFirstAdmitMs = java.util.concurrent.ConcurrentHashMap<String, Long>()
     private val familyAdmitCount = java.util.concurrent.ConcurrentHashMap<String, Int>()
     private val familyIntakeTtlMs: Long = 180_000L  // 3-min window for symbol-family floods
+    // V5.9.1466 — first-seen liquidity baseline per mint, for PROBE GRADUATION.
+    // Lets laneQualifiedBuyDecision detect a "liquidity rising" confirmation tick
+    // (a spec-listed promotion signal) without adding a TokenState field.
+    private val firstSeenLiqUsd = java.util.concurrent.ConcurrentHashMap<String, Double>()
+    // V5.9.1466 — probe size resolver: dust by default, graduated once confirmed.
+    private fun resolveProbeSizeMult(mint: String, currentLiqUsd: Double): Double {
+        return try {
+            if (mint.isBlank() || currentLiqUsd <= 0.0) return LANE_DUST_PROBE_SIZE_MULT
+            val baseline = firstSeenLiqUsd.putIfAbsent(mint, currentLiqUsd) ?: currentLiqUsd
+            // never let the baseline drift UP (so a later-rising read still graduates);
+            // take-min keeps the earliest/lowest observed liquidity as the reference.
+            if (currentLiqUsd < baseline) firstSeenLiqUsd[mint] = currentLiqUsd
+            val ref = firstSeenLiqUsd[mint] ?: currentLiqUsd
+            val rise = if (ref > 0.0) (currentLiqUsd - ref) / ref else 0.0
+            if (rise >= PROBE_GRADUATION_LIQ_RISE_FRAC) {
+                try { ForensicLogger.lifecycle("PROBE_GRADUATED", "mint=${mint.take(10)} liq=\$${currentLiqUsd.toInt()} baseline=\$${ref.toInt()} rise=${(rise*100).toInt()}% → confirmed-probe size") } catch (_: Throwable) {}
+                LANE_CONFIRMED_PROBE_SIZE_MULT
+            } else {
+                LANE_DUST_PROBE_SIZE_MULT
+            }
+        } catch (_: Throwable) { LANE_DUST_PROBE_SIZE_MULT }
+    }
 
     // V5.9.1035 — Part 2 (C): symbol-burst spam tracker. Per-symbol
     // sliding window of recent (mint, timestamp) admits; if >5 distinct
@@ -7624,6 +7654,7 @@ class BotService : Service() {
         lane: String,
         confidenceFloor: Double = 60.0,
         liquidityUsd: Double = -1.0,   // V5.9.1355 P0.3 — -1 = unknown (don't liq-gate; still zero-score-gate)
+        mintForProbe: String = "",     // V5.9.1466 — for PROBE GRADUATION (CandidateDecision has no mint field)
     ): com.lifecyclebot.data.CandidateDecision {
         val cleanQuality = when {
             base.finalQuality.isNotBlank() && base.finalQuality != "SKIP" -> base.finalQuality
@@ -7693,7 +7724,7 @@ class BotService : Service() {
                     edgeVeto = false,
                     edgeQuality = if (base.edgeQuality == "SKIP") "C" else base.edgeQuality,
                     finalQuality = "C",
-                    qualityPenalty = LANE_DUST_PROBE_SIZE_MULT,
+                    qualityPenalty = resolveProbeSizeMult(mintForProbe, liquidityUsd),
                     aiConfidence = base.aiConfidence.coerceAtLeast(confidenceFloor),
                 )
             }
@@ -7709,7 +7740,7 @@ class BotService : Service() {
                 edgeVeto = false,
                 edgeQuality = if (base.edgeQuality == "SKIP") "C" else base.edgeQuality,
                 finalQuality = "C",
-                qualityPenalty = LANE_DUST_PROBE_SIZE_MULT,
+                qualityPenalty = resolveProbeSizeMult(mintForProbe, liquidityUsd),
                 aiConfidence = base.aiConfidence.coerceAtLeast(confidenceFloor),
             )
         }
@@ -14928,7 +14959,7 @@ if (hotExitHandledSweep) {
                             val treasuryFdg = try {
                                 FinalDecisionGate.evaluate(
                                     ts = ts,
-                                    candidate = laneQualifiedBuyDecision(decision, "TREASURY", confidenceFloor = treasurySignal.confidence.toDouble(), liquidityUsd = ts.lastLiquidityUsd),
+                                    candidate = laneQualifiedBuyDecision(decision, "TREASURY", confidenceFloor = treasurySignal.confidence.toDouble(), liquidityUsd = ts.lastLiquidityUsd, mintForProbe = ts.mint),
                                     laneScore = treasurySignal.confidence.toDouble(),
                                     config = cfg,
                                     proposedSizeSol = treasurySignal.positionSizeSol,
@@ -15210,7 +15241,7 @@ if (hotExitHandledSweep) {
                             val qualityFdg = try {
                                 FinalDecisionGate.evaluate(
                                     ts = ts,
-                                    candidate = laneQualifiedBuyDecision(decision, "QUALITY", confidenceFloor = qualitySignal.qualityScore.toDouble(), liquidityUsd = ts.lastLiquidityUsd),
+                                    candidate = laneQualifiedBuyDecision(decision, "QUALITY", confidenceFloor = qualitySignal.qualityScore.toDouble(), liquidityUsd = ts.lastLiquidityUsd, mintForProbe = ts.mint),
                                     laneScore = qualitySignal.qualityScore.toDouble(),
                                     config = cfg,
                                     proposedSizeSol = qualitySignal.positionSizeSol,
@@ -15390,7 +15421,7 @@ if (hotExitHandledSweep) {
                             val blueChipFdg = try {
                                 FinalDecisionGate.evaluate(
                                     ts = ts,
-                                    candidate = laneQualifiedBuyDecision(decision, "BLUE_CHIP", confidenceFloor = blueChipSignal.confidence.toDouble(), liquidityUsd = ts.lastLiquidityUsd),
+                                    candidate = laneQualifiedBuyDecision(decision, "BLUE_CHIP", confidenceFloor = blueChipSignal.confidence.toDouble(), liquidityUsd = ts.lastLiquidityUsd, mintForProbe = ts.mint),
                                     laneScore = blueChipSignal.confidence.toDouble(),
                                     config = cfg,
                                     proposedSizeSol = blueChipSignal.positionSizeSol,
@@ -15687,7 +15718,7 @@ if (hotExitHandledSweep) {
                                     } catch (_: Exception) { null }
                                     FinalDecisionGate.evaluate(
                                         ts = ts,
-                                        candidate = laneQualifiedBuyDecision(decision, "MOONSHOT", confidenceFloor = moonshotScore.confidence * 100.0, liquidityUsd = ts.lastLiquidityUsd),
+                                        candidate = laneQualifiedBuyDecision(decision, "MOONSHOT", confidenceFloor = moonshotScore.confidence * 100.0, liquidityUsd = ts.lastLiquidityUsd, mintForProbe = ts.mint),
                                         laneScore = moonshotScore.confidence,            // already 0-100
                                         config = cfg,
                                         proposedSizeSol = moonshotScore.suggestedSizeSol,
@@ -16245,7 +16276,7 @@ if (hotExitHandledSweep) {
                             val shitCoinFdg = try {
                                 FinalDecisionGate.evaluate(
                                     ts = ts,
-                                    candidate = laneQualifiedBuyDecision(decision, "SHITCOIN", confidenceFloor = shitCoinSignal.confidence * 100.0, liquidityUsd = ts.lastLiquidityUsd),
+                                    candidate = laneQualifiedBuyDecision(decision, "SHITCOIN", confidenceFloor = shitCoinSignal.confidence * 100.0, liquidityUsd = ts.lastLiquidityUsd, mintForProbe = ts.mint),
                                     laneScore = shitCoinSignal.confidence.toDouble(),  // Int 0-100
                                     config = cfg,
                                     proposedSizeSol = shitCoinSignal.positionSizeSol,
@@ -16560,7 +16591,7 @@ if (hotExitHandledSweep) {
                         val manipFdg = try {
                             FinalDecisionGate.evaluate(
                                 ts = ts,
-                                candidate = laneQualifiedBuyDecision(decision, "MANIPULATED", confidenceFloor = manipSignal.manipScore.toDouble(), liquidityUsd = ts.lastLiquidityUsd),
+                                candidate = laneQualifiedBuyDecision(decision, "MANIPULATED", confidenceFloor = manipSignal.manipScore.toDouble(), liquidityUsd = ts.lastLiquidityUsd, mintForProbe = ts.mint),
                                 laneScore = manipSignal.manipScore.toDouble(),
                                 config = cfg,
                                 proposedSizeSol = manipSignal.positionSizeSol,
@@ -16784,7 +16815,7 @@ if (hotExitHandledSweep) {
                             val expressFdg = try {
                                 FinalDecisionGate.evaluate(
                                     ts = ts,
-                                    candidate = laneQualifiedBuyDecision(decision, "EXPRESS", confidenceFloor = expressSignal.confidence * 100.0, liquidityUsd = ts.lastLiquidityUsd),
+                                    candidate = laneQualifiedBuyDecision(decision, "EXPRESS", confidenceFloor = expressSignal.confidence * 100.0, liquidityUsd = ts.lastLiquidityUsd, mintForProbe = ts.mint),
                                     laneScore = expressSignal.confidence.toDouble(),   // Int 0-100
                                     config = cfg,
                                     proposedSizeSol = expressSignal.positionSizeSol,
@@ -17106,7 +17137,7 @@ if (hotExitHandledSweep) {
                             val dipFdg = try {
                                 FinalDecisionGate.evaluate(
                                     ts = ts,
-                                    candidate = laneQualifiedBuyDecision(decision, "DIP_HUNTER", confidenceFloor = dipSignal.confidence * 100.0, liquidityUsd = ts.lastLiquidityUsd),
+                                    candidate = laneQualifiedBuyDecision(decision, "DIP_HUNTER", confidenceFloor = dipSignal.confidence * 100.0, liquidityUsd = ts.lastLiquidityUsd, mintForProbe = ts.mint),
                                     laneScore = dipSignal.confidence.toDouble(),       // Int 0-100
                                     config = cfg,
                                     proposedSizeSol = dipSignal.positionSizeSol,
