@@ -710,7 +710,16 @@ object BlueChipTraderAI {
         scoreReasons.add("v3+$v3Contribution")
         
         // 2. MARKET CAP SCORE (0-20 pts) - Prefer larger caps
-        val mcapScore = when {
+        // V5.9.1467 — MCAP SANITY GUARD (spec item 6). A meme-sized fake pool can
+        // masquerade as bluechip when a noisy feed reports a huge mcap on near-zero
+        // liquidity (e.g. $10M mcap / $2k liq = a 5000:1 ratio that no real bluechip
+        // ever has). Real large-caps carry liquidity roughly proportional to mcap.
+        // If the claimed mcap is implausible for the observed liquidity, the mcap
+        // signal is untrusted → ZERO the mcap points so bad metadata can't inflate a
+        // token into the bluechip lane. Liquidity/V3 still score it on real data.
+        val mcapLiqRatio = if (liquidityUsd > 0.0) marketCapUsd / liquidityUsd else Double.MAX_VALUE
+        val mcapTrusted = liquidityUsd >= 25_000.0 && mcapLiqRatio <= 250.0
+        val rawMcapScore = when {
             marketCapUsd >= 10_000_000 -> 20   // >$10M
             marketCapUsd >= 5_000_000 -> 18    // >$5M
             marketCapUsd >= 3_000_000 -> 15    // >$3M
@@ -718,8 +727,13 @@ object BlueChipTraderAI {
             marketCapUsd >= 1_000_000 -> 10    // >$1M (minimum)
             else -> 0
         }
+        val mcapScore = if (mcapTrusted) rawMcapScore else 0
         blueChipScore += mcapScore
-        scoreReasons.add("mcap+$mcapScore")
+        if (!mcapTrusted && rawMcapScore > 0) {
+            scoreReasons.add("mcap+0(UNTRUSTED:ratio=${mcapLiqRatio.toInt()}:1,liq=\$${liquidityUsd.toInt()})")
+        } else {
+            scoreReasons.add("mcap+$mcapScore")
+        }
         
         // 3. LIQUIDITY SCORE (0-20 pts)
         val liqScore = when {
