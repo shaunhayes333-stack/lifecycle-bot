@@ -5167,15 +5167,43 @@ for legal compliance.
 
     // V4.0: Render ShitCoin Positions with platform icons
     private fun renderShitCoinPositions(positions: List<com.lifecyclebot.v3.scoring.ShitCoinTraderAI.ShitCoinPosition>): Double {
-        val scHash = positions.map { "${it.mint}|${it.entrySol}|${it.launchPlatform}" }.hashCode()
-        if (scHash == lastShitCoinHash) return 0.0
+        // V5.9.1457 — VIEW RECYCLING. The STRUCTURAL hash (which rows exist) is now
+        // separate from the LIVE data (price / % / pnl) that changes ~every tick.
+        //   • structure unchanged (95% of ticks) → DO NOT tear down. Walk the existing
+        //     rows by mint tag and setText ONLY the moving %/◎ values. ~2 cheap setText
+        //     per row, zero re-inflation, zero LineBreaker storm.
+        //   • structure changed (open/close) → full rebuild, once.
+        val visible = positions.take(4).filter { it.entryPrice > 0 && it.entrySol > 0 && it.mint.isNotBlank() }
+        val scHash = visible.map { "${it.mint}|${it.entrySol}|${it.launchPlatform}" }.hashCode()
+        val sdf = shitCoinTimeSdf  // V5.9.1070 — class-field
+
+        // ---- FAST PATH: structure identical → update live numbers in place ----
+        if (scHash == lastShitCoinHash && llShitCoinPositions.childCount > 0) {
+            var liveSum = 0.0
+            visible.forEach { pos ->
+                val currentPrice = try {
+                    com.lifecyclebot.engine.BotService.status.tokens[pos.mint]?.ref?.takeIf { it > 0 }
+                        ?: pos.highWaterMark.takeIf { it > pos.entryPrice } ?: pos.entryPrice
+                } catch (_: Exception) { pos.entryPrice }
+                val gainPct = if (pos.entryPrice > 0) (currentPrice - pos.entryPrice) / pos.entryPrice * 100 else 0.0
+                val pnlSol = pos.entrySol * gainPct / 100.0
+                liveSum += pnlSol
+                val pctTv = llShitCoinPositions.findViewWithTag<android.widget.TextView>("scpct_${pos.mint}")
+                val solTv = llShitCoinPositions.findViewWithTag<android.widget.TextView>("scsol_${pos.mint}")
+                val col = if (gainPct >= 0) green else red
+                pctTv?.let { it.setTextIfChanged("%+.1f%%".format(gainPct)); it.setTextColor(col) }
+                solTv?.let { it.setTextIfChanged("%+.4f◎".format(pnlSol)); it.setTextColor(col) }
+            }
+            return liveSum
+        }
+
+        // ---- SLOW PATH: structure changed → rebuild once ----
         lastShitCoinHash = scHash
         llShitCoinPositions.removeAllViews()
-        val sdf = shitCoinTimeSdf  // V5.9.1070 — class-field
         // V5.9.420 — accumulate children unrealized PnL for header parity.
         var childrenUnrealizedSum = 0.0
         
-        positions.take(4).forEach { pos ->
+        visible.forEach { pos ->
             if (pos.entryPrice <= 0 || pos.entrySol <= 0 || pos.mint.isBlank()) return@forEach
             val currentPrice = try {
                 com.lifecyclebot.engine.BotService.status.tokens[pos.mint]?.ref
@@ -5192,6 +5220,7 @@ for legal compliance.
                 orientation = LinearLayout.HORIZONTAL
                 setPadding(0, 12, 0, 12)
                 gravity = android.view.Gravity.CENTER_VERTICAL
+                tag = "scrow_${pos.mint}"   // V5.9.1457 — row identity for recycle path
             }
 
             // Token logo
@@ -5265,6 +5294,7 @@ for legal compliance.
                 gravity = android.view.Gravity.END
             }
             right.addView(TextView(this).apply {
+                tag = "scpct_${pos.mint}"   // V5.9.1457 — live % view (recycle target)
                 text = "%+.1f%%".format(gainPct)
                 textSize = resources.getDimension(R.dimen.token_name_size) / resources.displayMetrics.scaledDensity
                 setTextColor(gainCol)
@@ -5272,6 +5302,7 @@ for legal compliance.
                 gravity = android.view.Gravity.END
             })
             right.addView(TextView(this).apply {
+                tag = "scsol_${pos.mint}"   // V5.9.1457 — live ◎ pnl view (recycle target)
                 text = "%+.4f◎".format(pnlSol)
                 textSize = resources.getDimension(R.dimen.trade_sub_text) / resources.displayMetrics.scaledDensity
                 setTextColor(gainCol)
