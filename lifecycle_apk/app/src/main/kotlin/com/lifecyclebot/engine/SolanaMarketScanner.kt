@@ -3729,6 +3729,18 @@ class SolanaMarketScanner(
         // hosts get swapped transparently (e.g. frontend-api.pump.fun → V3).
         val effectiveUrl = try { com.lifecyclebot.engine.AutoEndpointMigrator.rewrite(url) } catch (_: Throwable) { url }
         val host = hostLabel(effectiveUrl)
+        // V5.9.1469 — SCANNER BACKOFF SHORT-CIRCUIT. The scanner's raw get() never
+        // consulted ApiBackoff, so a failing host (snapshot: geckoterminal sr=56%,
+        // helius/groq sr=0%) kept getting hit + retried inside supervisor workers —
+        // each call blocking the worker until the 8s lease timeout, producing the
+        // SUPERVISOR_LEASE_FORCE_RELEASED:460 churn that chokes real candidates. Skip
+        // the wire entirely while a host is in its backoff window (fail-open on any bug).
+        try {
+            if (com.lifecyclebot.engine.ApiBackoff.isLockedOut(host)) {
+                ErrorLogger.debug("Scanner", "[BACKOFF] skip $host (lockout ${com.lifecyclebot.engine.ApiBackoff.lockoutRemainingMs(host)}ms) ${effectiveUrl.take(40)}")
+                return null
+            }
+        } catch (_: Throwable) { /* fail-open */ }
         val builder = Request.Builder().url(effectiveUrl)
             .header(
                 "User-Agent",
@@ -3749,6 +3761,10 @@ class SolanaMarketScanner(
         val resp = http.newCall(builder.build()).execute()
         val httpLatency = System.currentTimeMillis() - httpStart
         try { com.lifecyclebot.engine.ApiHealthMonitor.record(host, resp.code, httpLatency) } catch (_: Throwable) {}
+        try {
+            if (resp.code in 200..299) com.lifecyclebot.engine.ApiBackoff.markSuccess(host)
+            else if (resp.code in 400..599) com.lifecyclebot.engine.ApiBackoff.markFailure(host, resp.code)
+        } catch (_: Throwable) {}
 
         if (resp.isSuccessful) {
             val body = resp.body?.string()
@@ -3771,6 +3787,7 @@ class SolanaMarketScanner(
     } catch (e: java.net.SocketTimeoutException) {
         ErrorLogger.debug("Scanner", "[NETWORK/TIMEOUT] ${url.take(50)}")
         try { com.lifecyclebot.engine.ApiHealthMonitor.recordNetworkError(hostLabel(url), "timeout") } catch (_: Throwable) {}
+        try { com.lifecyclebot.engine.ApiBackoff.markFailure(hostLabel(url), 0) } catch (_: Throwable) {}
         null
     } catch (e: java.net.UnknownHostException) {
         ErrorLogger.warn("Scanner", "[NETWORK/DNS_FAIL] Cannot resolve ${url.take(50)}")
