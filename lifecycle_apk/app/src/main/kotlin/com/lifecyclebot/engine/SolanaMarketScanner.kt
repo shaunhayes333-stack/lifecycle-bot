@@ -836,7 +836,15 @@ class SolanaMarketScanner(
 
     private val semaphore = Semaphore(8)  // V5.9.1432 6->8: more concurrent sources, full-parallel batch (was serial chunked groups)
 
-    private val SOURCE_SCAN_TIMEOUT_MS = 12_000L
+    // V5.9.1471 — 12_000 -> 6_000. Throughput root-cause: the scan cycle is
+    // FULL-PARALLEL (V5.9.1432) and gated by the single slowest source. With dead
+    // endpoints (geckoterminal sr=56%, helius sr=0%, groq sr=0%) each burned the
+    // full 12s timeout, pinning avg cycle at ~12.5s (target <=12s) -> "buys then
+    // idles" because exit sweeps + new-buy decisions only get a fresh window every
+    // 12.5s. Healthy sources respond in 300-1000ms (birdeye 466 / dex 379 / cg 344),
+    // so a 6s ceiling never truncates a live source but halves the cycle when one is
+    // dead. Doctrine: serves volume (more cycles/min) with zero quality cost.
+    private val SOURCE_SCAN_TIMEOUT_MS = 6_000L
 
     @Volatile private var memorySafeMode = false
     @Volatile private var oomCount = 0
