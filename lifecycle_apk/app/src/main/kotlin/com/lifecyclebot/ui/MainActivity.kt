@@ -559,6 +559,39 @@ class MainActivity : AppCompatActivity() {
     @Volatile private var cachedTrustUiSnapshot: TrustUiSnapshot = TrustUiSnapshot()
     private val trustUiRefreshInFlight = java.util.concurrent.atomic.AtomicBoolean(false)
     private val TRUST_UI_REFRESH_MS: Long = 60_000L
+
+    // ─────────────────────────────────────────────────────────────────────
+    // V5.9.1474 — P0 MAIN-THREAD OFFLOAD. Operator ANR snapshot: ANR_HINTS=32,
+    // max frame gap=5163ms, renderWatchlist TimSort + partition + renderOpenPositions
+    // sort all running synchronously on Dispatchers.Main. The UI thread must only
+    // CONSUME a precomputed immutable model — never sort/partition/diff 500 tokens.
+    //
+    // These snapshots hold the ALREADY-partitioned, ALREADY-sorted, ALREADY-capped
+    // row lists. The expensive work (the shadowPhase partition + 5-key sortedWith +
+    // cap) is done on Dispatchers.Default in precomputeMainRenderModelAsync(); the
+    // main thread renderWatchlist/renderOpenPositions just bind the capped rows.
+    private data class WatchlistModel(
+        val updatedAtMs: Long = 0L,
+        // capped, sorted lists ready to bind (immutable copies — safe across threads)
+        val activeVisible: List<com.lifecyclebot.data.TokenState> = emptyList(),
+        val idleVisible: List<com.lifecyclebot.data.TokenState> = emptyList(),
+        val activeTotal: Int = 0,
+        val idleTotal: Int = 0,
+        val structuralHash: Int = 0,
+    )
+    @Volatile private var cachedWatchlistModel: WatchlistModel = WatchlistModel()
+    private val mainModelRefreshInFlight = java.util.concurrent.atomic.AtomicBoolean(false)
+
+    // V5.9.1474 — hard global repaint gate. While the bot is running, the live
+    // dashboard repaint is observability-only and must never exceed ~1Hz, no
+    // matter how many code paths call updateUi(). Start/Stop truth + runtime bar
+    // still render every call (they are cheap and gated separately below).
+    @Volatile private var lastHeavyRepaintMs: Long = 0L
+    private val HEAVY_REPAINT_MIN_INTERVAL_MS: Long = 1_000L
+    // Row caps live here as single source of truth (was inline magic numbers).
+    private val WATCHLIST_ROW_CAP: Int = 10
+    private val IDLE_ROW_CAP: Int = 6
+    private val OPENPOS_ROW_CAP: Int = 10
     @Volatile private var forceNextForegroundRender: Boolean = false
     @Volatile private var mainUiActive: Boolean = false
     // V5.9.1316 — bind the start/stop listener exactly once (not per render).
@@ -2457,6 +2490,64 @@ for legal compliance.
         }
     }
 
+    // V5.9.1474 — P0 main-thread offload. Compute the watchlist partition/sort/cap
+    // AND the open-positions sort/cap on Dispatchers.Default, then publish immutable
+    // capped row lists for the binders to consume. This removes the TimSort + 500-item
+    // partition (the dominant renderWatchlist/renderOpenPositions ANR) from Main.
+    // Non-blocking: the binders read whatever snapshot is currently cached (instant),
+    // this recompute publishes the next frame in the background. Always coherent,
+    // never half-sorted, never stalls the loop.
+    private fun precomputeMainRenderModelAsync(state: UiState) {
+        if (!mainModelRefreshInFlight.compareAndSet(false, true)) return
+        // Snapshot token refs NOW on the calling thread (cheap shallow copy) so the
+        // Default worker never iterates the live mutable map.
+        val tokensSnapshot: List<com.lifecyclebot.data.TokenState> =
+            try { state.tokens.values.toList() } catch (_: Throwable) { emptyList() }
+        val active = state.config.activeToken
+        lifecycleScope.launch(kotlinx.coroutines.Dispatchers.Default) {
+            val wlResult: WatchlistModel = try {
+                // ── Watchlist partition (was inline on Main) ──
+                val shadowPhases = setOf(
+                    "blocked", "dead", "dying", "rug_likely", "distribution", "distributing",
+                    "safety_shadow", "blacklist_shadow", "idle_shadow", "stale_shadow",
+                    "timeout_shadow", "wait_shadow", "flat_shadow", "low_liq_shadow",
+                    "fresh_zero_liq_shadow", "phase_shadow", "shadow"
+                )
+                val activeTokens = ArrayList<com.lifecyclebot.data.TokenState>()
+                val idleTokens = ArrayList<com.lifecyclebot.data.TokenState>()
+                for (ts in tokensSnapshot) {
+                    val phase = ts.phase.lowercase()
+                    if (phase in shadowPhases || ts.safety.isBlocked) idleTokens.add(ts) else activeTokens.add(ts)
+                }
+                val activeVisible = activeTokens
+                    .sortedWith(compareByDescending<com.lifecyclebot.data.TokenState> { it.mint == active }
+                        .thenByDescending { it.position.isOpen }
+                        .thenByDescending { it.entryScore }
+                        .thenByDescending { it.lastV3Score ?: 0 }
+                        .thenByDescending { it.lastLiquidityUsd })
+                    .take(WATCHLIST_ROW_CAP)
+                val idleVisible = idleTokens
+                    .sortedWith(compareByDescending<com.lifecyclebot.data.TokenState> { it.lastLiquidityUsd })
+                    .take(IDLE_ROW_CAP)
+                val wlHash = (activeVisible.joinToString(",") { it.mint } + "|" +
+                              idleVisible.joinToString(",") { it.mint } + "|" +
+                              activeTokens.size + "|" + idleTokens.size).hashCode()
+                WatchlistModel(
+                    updatedAtMs = System.currentTimeMillis(),
+                    activeVisible = activeVisible, idleVisible = idleVisible,
+                    activeTotal = activeTokens.size, idleTotal = idleTokens.size,
+                    structuralHash = wlHash,
+                )
+            } catch (_: Throwable) {
+                cachedWatchlistModel
+            }
+            withContext(kotlinx.coroutines.Dispatchers.Main) {
+                cachedWatchlistModel = wlResult
+                mainModelRefreshInFlight.set(false)
+            }
+        }
+    }
+
     private fun liveRuntimeTokenCountForUi(): Int = try {
         // V5.9.1328 — ROOT FIX C: UI Watchlist (0) mismatch.
         // BotService.status.tokens is the in-memory TokenState map keyed by
@@ -2534,6 +2625,10 @@ for legal compliance.
             try { com.lifecyclebot.engine.ForensicLogger.lifecycle("MAIN_UI_LIVE_TOKEN_FALLBACK", "stateTokens=0 liveTokens=$liveTokenCountForUi active=${ts?.symbol ?: "none"}") } catch (_: Throwable) {}
         }
         refreshTrustUiSnapshotAsync(force = false)
+        // V5.9.1474 — kick the off-thread partition/sort/cap. Non-blocking: the
+        // binders below consume the previously-published immutable model. This is
+        // the single point that feeds renderWatchlist + renderOpenPositions.
+        precomputeMainRenderModelAsync(state)
 
         // V5.9.1416 — reset the per-tick heavy-render budget at the start of each
         // pass. Caps synchronous panel re-inflation per frame; overflow defers.
@@ -4478,12 +4573,17 @@ for legal compliance.
         // top ten currently held movers, highest-to-lowest. Keep the cap at
         // 10 during runtime so the panel remains useful without returning to
         // the old unbounded ANR-causing rebuilds.
-        val RENDER_CAP = 10
+        val RENDER_CAP = OPENPOS_ROW_CAP
         // V5.9.810 — sort by current unrealized gain % descending. When
         // we have to cap, the strongest movers always stay visible and
         // the deepest losers fall off the bottom (they're managed by
         // the engine regardless of whether they're painted). Tie-break
         // on entryTime so a fresh 0%/0% open beats a stale 0%/0% open.
+        // V5.9.1474 — open-positions sort stays on Main BY DESIGN: it runs over the
+        // mode-filtered + synthesized open list (buildUnifiedOpenPositions), which is
+        // small (<=~40), NOT the 500-token map. The watchlist 500-item TimSort is the
+        // offloaded one. Per-tick rebuild is already prevented by the structural-band
+        // hash above; this sort is cheap and must match the exact passed source.
         val sortedByGain = positions.sortedWith(
             compareByDescending<com.lifecyclebot.data.TokenState> { ts ->
                 val p = ts.position
@@ -8030,7 +8130,7 @@ This cannot be undone!
 
     private fun renderWatchlist(state: UiState) {
         // V5.9.709 — skip watchlist re-render if content unchanged
-        val tokens = state.tokens.values.toList()
+        // V5.9.1474 — no Main-thread map copy; partition/sort consumed from model.
         // V5.9.1345 — ANR FIX: decouple the EXPENSIVE card rebuild from price ticks.
         // The old hash mixed in lastPrice.toInt(), which changes on nearly every tick,
         // so during active trading wlHash differed almost every 12s render →
@@ -8045,11 +8145,12 @@ This cannot be undone!
         // scaled price) — so meaningful moves still refresh the cards, but the
         // thousands of sub-percent micro-ticks no longer trigger a full teardown.
         // This cuts rebuild frequency by ~10x while keeping prices visually current.
-        val priceBucket = tokens.take(8).joinToString(",") { t ->
-            val p = t.lastPrice
-            if (p > 0.0) (kotlin.math.ln(p) * 50.0).toInt().toString() else "0"
-        }
-        val wlHash = (tokens.joinToString(",") { it.mint } + "|" + priceBucket).hashCode()
+        // V5.9.1474 — consume the off-thread model. The expensive partition/sort/cap
+        // now runs on Dispatchers.Default (precomputeMainRenderModelAsync); this binder
+        // only rebuilds views when the model's STRUCTURAL hash changes. No Main-thread
+        // sort/partition of the 500-token map happens here anymore.
+        val wlModel = cachedWatchlistModel
+        val wlHash = wlModel.structuralHash
         if (wlHash == lastWatchlistRenderHash) return
         lastWatchlistRenderHash = wlHash
         llTokenList.removeAllViews()
@@ -8067,23 +8168,13 @@ This cannot be undone!
         // Fresh protected-intake tokens default to phase="idle" until the first
         // scoring pass touches them, but they are STILL watchlist candidates.
         // Only true non-qualifying/shadow states belong in the side column.
-        val activeTokens = mutableListOf<com.lifecyclebot.data.TokenState>()
-        val idleTokens = mutableListOf<com.lifecyclebot.data.TokenState>()
-        val shadowPhases = setOf(
-            "blocked", "dead", "dying", "rug_likely", "distribution", "distributing",
-            "safety_shadow", "blacklist_shadow", "idle_shadow", "stale_shadow",
-            "timeout_shadow", "wait_shadow", "flat_shadow", "low_liq_shadow",
-            "fresh_zero_liq_shadow", "phase_shadow", "shadow"
-        )
-        
-        state.tokens.values.forEach { ts ->
-            val phase = ts.phase.lowercase()
-            if (phase in shadowPhases || ts.safety.isBlocked) {
-                idleTokens.add(ts)
-            } else {
-                activeTokens.add(ts)
-            }
-        }
+        // V5.9.1474 — partition done off-thread; read capped lists + true totals
+        // from the published model. activeTokensSize/idleTokensSize preserve the
+        // header full-count semantics without re-iterating the map on Main.
+        val activeVisibleModel = wlModel.activeVisible
+        val idleVisibleModel = wlModel.idleVisible
+        val activeTokensSize = wlModel.activeTotal
+        val idleTokensSize = wlModel.idleTotal
         
         val probationEntries = com.lifecyclebot.engine.GlobalTradeRegistry.getProbationEntries()
         
@@ -8091,7 +8182,7 @@ This cannot be undone!
         val visibleColumns = listOfNotNull(
             if (probationEntries.isNotEmpty()) "probation" else null,
             "watchlist",  // Always show
-            if (idleTokens.isNotEmpty()) "idle" else null
+            if (idleTokensSize > 0) "idle" else null
         )
         val columnCount = visibleColumns.size
         // Scale text/logos based on how many columns are showing AND screen density
@@ -8158,15 +8249,15 @@ This cannot be undone!
             } else {
                 "RAW ${tele.raw} → ENQ ${tele.enq}"
             }
-            "$scannerPulse → MQ $mqSize → WL ${activeTokens.size}  ·  Prob $probSize · LIQ-rej ${tele.liqRej} · SAT ${tele.sat}" +
+            "$scannerPulse → MQ $mqSize → WL ${activeTokensSize}  ·  Prob $probSize · LIQ-rej ${tele.liqRej} · SAT ${tele.sat}" +
                 (if (!tele.alive && tele.ageSec > 90) " · ⚠scan stale ${tele.ageSec}s" else "") +
                 (if (bypassCount > 0) " · 🟢Bypass $bypassCount" else "") +
                 insiderSuffix
         } catch (_: Exception) { "" }
         tvWatchlistHeader.text = if (funnelLine.isNotEmpty()) {
-            "Watchlist (${activeTokens.size})\n$funnelLine"
+            "Watchlist (${activeTokensSize})\n$funnelLine"
         } else {
-            "Watchlist (${activeTokens.size})"
+            "Watchlist (${activeTokensSize})"
         }
         
         // V5.9.613 — watchlist UI must be lightweight. The scanner can hold
@@ -8182,40 +8273,34 @@ This cannot be undone!
             2 -> 8
             else -> 10
         }
-        val activeVisible = activeTokens
-            .sortedWith(compareByDescending<com.lifecyclebot.data.TokenState> { it.mint == active }
-                .thenByDescending { it.position.isOpen }
-                .thenByDescending { it.entryScore }
-                .thenByDescending { it.lastV3Score ?: 0 }
-                .thenByDescending { it.lastLiquidityUsd })
-            .take(maxWatchlistRows)
+        // V5.9.1474 — already sorted off-thread; just apply the column cap (cheap
+        // .take on a <=10 list) and bind. No Main-thread sort.
+        val activeVisible = activeVisibleModel.take(maxWatchlistRows)
         activeVisible.forEach { ts ->
             val card = buildTokenCard(ts, active, solPrice, scaleFactor, state)
             llTokenList.addView(card)
         }
-        if (activeTokens.size > activeVisible.size) {
-            llTokenList.addView(buildListFooter("showing ${activeVisible.size}/${activeTokens.size} — scanner still tracking all"))
+        if (activeTokensSize > activeVisible.size) {
+            llTokenList.addView(buildListFooter("showing ${activeVisible.size}/${activeTokensSize} — scanner still tracking all"))
         }
         
         // ═══════════════════════════════════════════════════════════════════════
         // IDLE COLUMN (right) - Idle/blocked/dead tokens
         // ═══════════════════════════════════════════════════════════════════════
-        if (idleTokens.isNotEmpty()) {
+        if (idleTokensSize > 0) {
             tvIdleHeader.visibility = android.view.View.VISIBLE
             llIdleList.visibility = android.view.View.VISIBLE
-            tvIdleHeader.text = "Idle (${idleTokens.size})"
+            tvIdleHeader.text = "Idle (${idleTokensSize})"
             
             val maxIdleRows = 4
-            val idleVisible = idleTokens
-                .sortedWith(compareByDescending<com.lifecyclebot.data.TokenState> { it.lastLiquidityUsd }
-                    .thenByDescending { it.entryScore })
-                .take(maxIdleRows)
+            // V5.9.1474 — already sorted off-thread; just cap + bind.
+            val idleVisible = idleVisibleModel.take(maxIdleRows)
             idleVisible.forEach { ts ->
                 val card = buildTokenCard(ts, active, solPrice, scaleFactor, state, isIdle = true)
                 llIdleList.addView(card)
             }
-            if (idleTokens.size > idleVisible.size) {
-                llIdleList.addView(buildListFooter("showing ${idleVisible.size}/${idleTokens.size} idle"))
+            if (idleTokensSize > idleVisible.size) {
+                llIdleList.addView(buildListFooter("showing ${idleVisible.size}/${idleTokensSize} idle"))
             }
         } else {
             tvIdleHeader.visibility = android.view.View.GONE
