@@ -56,6 +56,8 @@ object ExecutableOpenGate {
     private val allowedAttempts = ConcurrentHashMap<String, Pair<String, Long>>()
     private val openRequests = ConcurrentHashMap<String, Long>()
     private val blockedCooldowns = ConcurrentHashMap<String, Pair<String, Long>>()
+    // V5.9.1476 (spec item 4) — per-(mint,log) last-emit ms for PRE_FDG_NOT_BUY drop throttle.
+    private val preFdgDropDedupe = ConcurrentHashMap<String, Long>()
 
     private fun canonicalLane(lane: String): String {
         val raw = lane.uppercase().trim().replace('-', '_').replace(' ', '_')
@@ -394,10 +396,27 @@ object ExecutableOpenGate {
         }
 
         fun dropped(log: String, reason: String): OpenVerdict {
+            // V5.9.1476 (spec item 4) — PRE_FDG_NOT_BUY is a benign observation
+            // (the candidate's last FDG verdict was WATCH/PROBE/NO_BUY, i.e. it was
+            // never a real executable BUY intent). It was emitting a full forensic
+            // lifecycle line EVERY loop for EVERY such candidate (590+/snapshot),
+            // self-DOSing the log and inflating the EXEC funnel with non-buy noise.
+            // Throttle the noisy emit to at most once per (mint,reason) per 60s while
+            // STILL returning the block verdict + counters below. This does not change
+            // any execution decision — purely log-volume / observability hygiene.
+            val quietDrop = log == "EXEC_OPEN_DROPPED_PRE_FDG_NOT_BUY"
+            val emitForensic = if (quietDrop) {
+                val k = "${mint}_${log}"
+                val now = System.currentTimeMillis()
+                val last = preFdgDropDedupe[k] ?: 0L
+                if (now - last >= 60_000L) { preFdgDropDedupe[k] = now; true } else false
+            } else true
             try {
-                val detail = "attemptId=$attemptId symbol=${symbol} mint=${mint.take(10)} mode=$mode lane=$lane preFdg=$preFdgVerdict selectedLane=$selectedLane hardNo=${hardNoReasons.joinToString(prefix="[", postfix="]")} safetyTier=$safetyTier rugScore=$rug liquidityUsd=${liquidityUsd.toInt()} candidateVersion=$candidateVersion reason=$reason"
-                ForensicLogger.lifecycle(log, detail)
-                ForensicLogger.phase(ForensicLogger.PHASE.EXEC_GATE, symbol, "EXEC_GATE_DROPPED $detail")
+                if (emitForensic) {
+                    val detail = "attemptId=$attemptId symbol=${symbol} mint=${mint.take(10)} mode=$mode lane=$lane preFdg=$preFdgVerdict selectedLane=$selectedLane hardNo=${hardNoReasons.joinToString(prefix="[", postfix="]")} safetyTier=$safetyTier rugScore=$rug liquidityUsd=${liquidityUsd.toInt()} candidateVersion=$candidateVersion reason=$reason"
+                    ForensicLogger.lifecycle(log, detail)
+                    ForensicLogger.phase(ForensicLogger.PHASE.EXEC_GATE, symbol, "EXEC_GATE_DROPPED $detail")
+                }
             } catch (_: Throwable) {}
             // V5.9.1324 — P1-8 surgical: every executable-open drop emits a
             // NoTradeObservation row so dropped candidates remain trainable.

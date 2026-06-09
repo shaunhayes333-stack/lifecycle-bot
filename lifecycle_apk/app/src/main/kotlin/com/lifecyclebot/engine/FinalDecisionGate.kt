@@ -1613,7 +1613,20 @@ object FinalDecisionGate {
             0
         }
 
-        val effectiveTradeCount = maxOf(brainTrades, fluidTrades, canonicalDecisive)
+        // V5.9.1476 (spec item 6) — canonical learning must be sourced from CLOSED
+        // trade outcomes only, never from raw executed/attempted counts. learning_uses
+        // (effectiveTradeCount) drives the learning-phase ladder; if it is allowed to
+        // exceed the number of CLOSED canonical outcomes, the phase advances on trades
+        // that have not actually produced a labelled win/loss yet (blocked/deferred/
+        // probe/observation events were inflating brain/fluid). Cap learning_uses at
+        // the canonical closed count whenever canonical data exists, so the ladder can
+        // never run ahead of real settled outcomes. Before any canonical settles we
+        // fall back to the learner counters so the bootstrap phase still progresses.
+        val rawLearnerMax = maxOf(brainTrades, fluidTrades, canonicalDecisive)
+        val effectiveTradeCount = if (canonicalDecisive > 0)
+            minOf(rawLearnerMax, canonicalDecisive)
+        else
+            rawLearnerMax
         val rawExecutedCount = sessionTrades
         // V5.9.1136 — use canonical settled WR for FDG learning pressure.
         // BotBrain/Fluid counters can lag or represent only one learner; the journal
@@ -1626,10 +1639,24 @@ object FinalDecisionGate {
         val isPhaseTransition = effectiveTradeCount == 0 || effectiveTradeCount == 10 || effectiveTradeCount == 30 || effectiveTradeCount == 51
 
         if (isPhaseTransition || !countersMatch || executionMismatch) {
-            val counterDetail = "executed=$rawExecutedCount | classified=$brainTrades | fluid=$fluidTrades | canonical=$canonicalDecisive | learning_uses=$effectiveTradeCount"
+            // V5.9.1476 (spec item 6) — counters measure DISTINCT stages; a numeric
+            // difference is EXPECTED, not a bug. Annotate each so the difference is
+            // self-explaining instead of a bare LEARNING_MISMATCH alarm:
+            //   executed   = raw buy attempts this session (incl. ones later closed)
+            //   classified = BotBrain labelled outcomes (lags executed until close)
+            //   fluid      = FluidLearning trade count (its own close cadence)
+            //   canonical  = CLOSED journal decisive trades (the ground truth)
+            //   learning_uses = phase-ladder input, now CAPPED at canonical closed
+            // Only flag when learning_uses would EXCEED canonical closed outcomes —
+            // that is the one combination that actually corrupts the ladder. With the
+            // cap above that can no longer happen, so this becomes an explanatory
+            // breakdown rather than a recurring warning.
+            val counterDetail = "executed=$rawExecutedCount(attempts) | classified=$brainTrades(brain) | fluid=$fluidTrades(fluid) | canonical=$canonicalDecisive(closed) | learning_uses=$effectiveTradeCount(<=closed)"
+            val learningOverrun = effectiveTradeCount > canonicalDecisive && canonicalDecisive > 0
             val mismatchNote = when {
-                executionMismatch -> " ⚠️ EXECUTION_AHEAD (trades executing faster than learning)"
-                !countersMatch -> " ⚠️ LEARNING_MISMATCH ($counterDetail)"
+                learningOverrun -> " ⚠️ LEARNING_OVERRUN ($counterDetail)"  // should be unreachable post-cap
+                executionMismatch -> " ℹ️ EXECUTION_AHEAD: attempts outpace settled closes — normal in bootstrap ($counterDetail)"
+                !countersMatch -> " ℹ️ COUNTER_BREAKDOWN ($counterDetail)"
                 else -> ""
             }
             ErrorLogger.info(
