@@ -101,8 +101,19 @@ object StrategyTelemetry {
                     return null
                 }
                 val size = t.sol.takeIf { it > 0.0 } ?: 0.0
-                val cap = if (size > 0.0) size * 50.0 else 5.0  // no-size fallback: 5 SOL hard ceiling
-                if (kotlin.math.abs(p) > cap) {
+                // V5.9.1454 — DUAL-CEILING. The relative size*50 cap is defeated when
+                // the SIZE field itself is poisoned (e.g. foreign-domain rows like
+                // tokenized Stocks book a USD notional into t.sol, so cap=notional*50
+                // is astronomical and a glitched per-trade pnl slips through — that is
+                // how Stocks accumulated -12,381 SOL across 82 closes while each row
+                // individually passed the relative cap). Add an ABSOLUTE per-close SOL
+                // ceiling that does NOT depend on the size field: no single paper/live
+                // close in this app deploys more than ~5 SOL, so a >25 SOL single-close
+                // swing is physically impossible and must be a feed/unit artifact.
+                // A row must pass BOTH ceilings to enter the SOL total.
+                val relCap = if (size > 0.0) size * 50.0 else 5.0
+                val ABS_CAP_SOL = 25.0
+                if (kotlin.math.abs(p) > relCap || kotlin.math.abs(p) > ABS_CAP_SOL) {
                     try { com.lifecyclebot.engine.PipelineHealthCollector.labelInc("ACCOUNTING_OUTLIER_NOT_TRAINED") } catch (_: Throwable) {}
                     return null
                 }

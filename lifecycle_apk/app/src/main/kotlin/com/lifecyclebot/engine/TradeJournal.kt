@@ -38,8 +38,22 @@ class TradeJournal(private val ctx: Context) {
     private fun isSellLike(side: String): Boolean =
         side.equals("SELL", ignoreCase = true) || side.equals("PARTIAL_SELL", ignoreCase = true)
 
-    private fun isInvalidAccounting(e: JournalEntry): Boolean =
-        isSellLike(e.side) && e.entryPrice <= 0.0 && kotlin.math.abs(e.pnlSol) > 0.0000001
+    private fun isInvalidAccounting(e: JournalEntry): Boolean {
+        if (!isSellLike(e.side)) return false
+        // Original guard: a sell with no entry price but non-zero pnl is impossible.
+        if (e.entryPrice <= 0.0 && kotlin.math.abs(e.pnlSol) > 0.0000001) return true
+        // V5.9.1454 — ABSOLUTE-SOL OUTLIER FIREWALL for the tax/PnL export totals.
+        // Foreign-domain rows (tokenized Stocks book a USD notional, not SOL) and
+        // feed glitches produced single closes like -151 SOL that summed to the
+        // -12,381 SOL Stocks total polluting the realized-PnL export & analytics
+        // header. No single close in this app moves more than ~5 SOL of real size;
+        // treat any |pnlSol| > 25 SOL as an accounting artifact and exclude it from
+        // the journal sums. NaN/Inf also excluded. Display/export only — does not
+        // touch the per-domain learning path (already firewalled in CanonicalLearning).
+        if (e.pnlSol.isNaN() || e.pnlSol.isInfinite()) return true
+        if (kotlin.math.abs(e.pnlSol) > 25.0) return true
+        return false
+    }
 
     data class JournalEntry(
         val ts: Long,
