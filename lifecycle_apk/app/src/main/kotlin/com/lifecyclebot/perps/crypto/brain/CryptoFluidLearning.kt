@@ -82,35 +82,39 @@ object CryptoFluidLearning {
     fun paperPnlEma(): Double = paperPnlEma
 
     // ── Threshold ladder (matures upward as samples accrue) ───────────────────
+    // V5.9.1452 — operator wants the crypto universe scanning AND buying
+    // the FULL universe out of the gate. Bootstrap floors dropped so a
+    // 50-score signal admits at BOOTSTRAP (was 55) and matures up to 72
+    // at READY. Conf floor dropped 50→42 at BOOTSTRAP.
     fun getSpotScoreThreshold(): Int = when (maturity()) {
-        Maturity.BOOTSTRAP -> 55
-        Maturity.LEARNING -> 60
-        Maturity.VALIDATING -> 65
+        Maturity.BOOTSTRAP -> 48
+        Maturity.LEARNING -> 55
+        Maturity.VALIDATING -> 62
         Maturity.MATURING -> 68
         Maturity.READY -> 72
     }
 
     fun getSpotConfThreshold(): Int = when (maturity()) {
-        Maturity.BOOTSTRAP -> 50
-        Maturity.LEARNING -> 55
-        Maturity.VALIDATING -> 60
+        Maturity.BOOTSTRAP -> 42
+        Maturity.LEARNING -> 50
+        Maturity.VALIDATING -> 58
         Maturity.MATURING -> 64
         Maturity.READY -> 68
     }
 
     fun getLevScoreThreshold(): Int = when (maturity()) {
-        Maturity.BOOTSTRAP -> 60
-        Maturity.LEARNING -> 64
-        Maturity.VALIDATING -> 68
-        Maturity.MATURING -> 72
+        Maturity.BOOTSTRAP -> 55
+        Maturity.LEARNING -> 60
+        Maturity.VALIDATING -> 65
+        Maturity.MATURING -> 70
         Maturity.READY -> 76
     }
 
     fun getLevConfThreshold(): Int = when (maturity()) {
-        Maturity.BOOTSTRAP -> 55
-        Maturity.LEARNING -> 60
-        Maturity.VALIDATING -> 64
-        Maturity.MATURING -> 68
+        Maturity.BOOTSTRAP -> 48
+        Maturity.LEARNING -> 55
+        Maturity.VALIDATING -> 60
+        Maturity.MATURING -> 66
         Maturity.READY -> 72
     }
 

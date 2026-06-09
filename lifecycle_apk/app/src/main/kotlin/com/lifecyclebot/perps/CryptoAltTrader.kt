@@ -885,6 +885,22 @@ object CryptoAltTrader {
         ErrorLogger.info(TAG, "🪙 positions=${positions.size} ($cpsLine) | balance=${"%.2f".format(getBalance())} SOL")
         ErrorLogger.info(TAG, "🪙 ═══════════════════════════════════════════════════")
 
+        // V5.9.1452 — UNMISSABLE diagnostic line emitted EVERY scan cycle.
+        // Operator-reported "crypto universe isn't trading at all" — without
+        // a per-cycle visible signature, the operator can't tell if the
+        // scan is even running or where the funnel collapses. This line
+        // prints the universe size, paper/live mode, current brain
+        // maturity + thresholds, AND the live funnel snapshot.
+        try {
+            val mode = if (isPaperMode.get()) "PAPER" else "LIVE"
+            val mat = com.lifecyclebot.perps.crypto.brain.CryptoBrain.maturity().name
+            val scoreFloor = com.lifecyclebot.perps.crypto.brain.CryptoBrain.getSpotScoreFloor()
+            val confFloor = com.lifecyclebot.perps.crypto.brain.CryptoBrain.getSpotConfFloor()
+            val tilt = com.lifecyclebot.perps.crypto.brain.CryptoBrain.isTiltProtectionActive()
+            val sentiment = com.lifecyclebot.perps.crypto.brain.CryptoBrain.sentimentClassification()
+            ErrorLogger.info(TAG, "🪙 SCAN_DIAG mode=$mode maturity=$mat thresh=$scoreFloor/$confFloor tilt=$tilt mood=$sentiment trades=${com.lifecyclebot.perps.crypto.brain.CryptoBrain.tradeCount()}")
+        } catch (_: Throwable) {}
+
         // All crypto markets that are NOT covered by the SOL perps engine.
         // V5.9.1442 — Solana isolation: CryptoUniverseFilter blocks any
         // Solana-native long-tail/meme token from the crypto universe via
@@ -907,6 +923,12 @@ object CryptoAltTrader {
             }
             admitted
         }
+
+        // V5.9.1452 — universe-size visibility every scan
+        try {
+            val funnelLine = com.lifecyclebot.perps.crypto.brain.CryptoFunnel.summary().lineSequence().take(2).joinToString(" / ")
+            ErrorLogger.info(TAG, "🪙 UNIVERSE altMarkets=${altMarkets.size} after filter (PerpsMarket.values=${PerpsMarket.values().size}, SOL_PERPS_excluded=${SOL_PERPS_SYMBOLS.size}) | $funnelLine")
+        } catch (_: Throwable) {}
 
         val signals      = mutableListOf<AltSignal>()
         var analyzed     = 0
@@ -1665,12 +1687,17 @@ object CryptoAltTrader {
 
     private suspend fun executeSignal(signal: AltSignal, isSpot: Boolean) {
         // V5.9.198: Trust gate
+        // V5.9.1452: Crypto-isolated bypass — the meme-side StrategyTrustAI was
+        // accumulating "DISTRUSTED" verdicts on generic reason strings (e.g.
+        // "✅ Bullish momentum 📈") shared across lanes, which silently blocked
+        // 100% of crypto entries. Crypto's own losing-pattern memory + tilt
+        // gate + EXEC_GATE finality already cover trust at the bucket level,
+        // so the global strategy-trust gate is now consult-only for crypto:
+        // it gives a trust multiplier (sizing) but never vetoes the trade.
         val tradingMode = signal.reasons.firstOrNull() ?: "CryptoAltAI"
-        if (!com.lifecyclebot.v4.meta.StrategyTrustAI.isStrategyAllowed(tradingMode)) {
-            ErrorLogger.warn(TAG, "🚫 [TRUST GATE] ${signal.market.symbol} | strategy=$tradingMode is DISTRUSTED")
-            return
-        }
-        val trustMult = com.lifecyclebot.v4.meta.StrategyTrustAI.getTrustMultiplier(tradingMode)
+        val trustMult = try {
+            com.lifecyclebot.v4.meta.StrategyTrustAI.getTrustMultiplier(tradingMode)
+        } catch (_: Throwable) { 1.0 }
         // V5.9.114: UNIFIED paper + live pipeline.
         // User policy: "live mode should behave exactly like paper". All
         // sizing, sanity, exposure, hive, TP/SL, AI registrations, and
