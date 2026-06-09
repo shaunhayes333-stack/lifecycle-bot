@@ -1204,6 +1204,37 @@ object ShitCoinTraderAI {
             ErrorLogger.debug(TAG, "💩 DUMP_GUARD: ${symbol} | bp=${buyPressurePct.toInt()}% (<30%) → -10pts → score=$shitScore")
         }
 
+        // V5.9.1448 — S61+ LIVENESS CAP. ROOT CAUSE of the SHITCOIN|S61+ danger
+        // bucket (5.0.3449: 19L/1W, mean -34%). The SCORE (which sets the S-band)
+        // was built from COSMETIC components that need NO real trading: liq-floor
+        // (+3), token age (+15), platform=pump.fun (+10), social links (+15),
+        // plus a buyPressure read off the mint snapshot. A dead token (vol1h=0, no
+        // orderflow, flat momentum, no holder data) could stack 60+ pts from
+        // cosmetics alone and land in S61+ "high confidence" — exactly the
+        // false-promotion that fed the bleed. Confidence was already hardened
+        // (missing-data penalty above) but the BAND is set by score, so a
+        // no-liveness token still claimed S61+. Fix: a token with NO confirmed live
+        // trading (no real orderflow AND no real movement — the same dead-data
+        // signals the confidence block flags as "missing") is HARD-CAPPED to 60,
+        // keeping it out of the S61+ high-conviction band. It can still trade in
+        // S41-60 and below (Train-First: not a veto), it just cannot masquerade as
+        // a top-tier setup on cosmetics. Any ONE real liveness signal lifts the cap.
+        run {
+            val hasRealOrderflow = buyPressurePct > 0.0
+            val hasRealMovement  = momentum > 0.0
+            val hasRealHolders   = topHolderPct > 0.0
+            val liveSignals = (if (hasRealOrderflow) 1 else 0) +
+                              (if (hasRealMovement) 1 else 0) +
+                              (if (hasRealHolders) 1 else 0)
+            // Zero confirmed live signals = pure cosmetics → cannot be S61+.
+            if (liveSignals == 0 && shitScore > 60) {
+                val before = shitScore
+                shitScore = 60
+                scoreReasons.add("livenesscap-${before - 60}")
+                ErrorLogger.debug(TAG, "💩 S61_LIVENESS_CAP: ${symbol} | no orderflow/movement/holders → score $before→60 (kept out of S61+)")
+            }
+        }
+
         // V5.9.1333 — TACTIC SWITCHER + PERSONALITY TUNE
         // The bucket's currently-chosen tactic shapes WHICH signal pattern
         // qualifies. If MOMENTUM is bleeding, the switcher rotates to

@@ -54,6 +54,16 @@ object TacticSwitcher {
     /** Mean PnL threshold (-5%+ net-negative) to trigger rotation. */
     private const val MEAN_PNL_TRIGGER = -5.0
 
+    // V5.9.1448 — FAST ROTATION (operator: "lanes need to self pivot sooner").
+    // The 25-trade TRIAL_WINDOW meant a catastrophic bucket (e.g. SHITCOIN|S41-60
+    // at 1W/22L = 96% loss) bled for ~650 minutes before rotating. Catch obvious
+    // disasters EARLY: as few as FAST_MIN_SAMPLES closes at FAST_LOSS_RATE wipeout
+    // with a clearly-negative mean rotates immediately — no need to wait for 25.
+    // Still sample-gated enough that 2-3 unlucky losses cannot trip it.
+    private const val FAST_MIN_SAMPLES   = 10     // evaluate as early as 10 closes
+    private const val FAST_LOSS_RATE     = 0.85   // 85%+ losses = clearly broken, not noise
+    private const val FAST_MEAN_PNL      = -4.0   // and net-negative
+
     // V5.9.1370 — persistent-bleed (second) rotation condition. Catches buckets
     // that sit just under the hard trigger and used to reset every TRIAL_WINDOW.
     private const val PERSIST_WINDOW       = 40     // longer accumulation window
@@ -115,16 +125,28 @@ object TacticSwitcher {
         cell.pnlSumSinceRotation.addAndGet((pnlPct * 100).toLong())
         if (pnlPct > 0.0) cell.winsSinceRotation.incrementAndGet() else cell.lossesSinceRotation.incrementAndGet()
 
-        // Evaluate rotation only after a full trial window has accumulated.
         val tradesIn = cell.tradesSinceRotation.get()
+        val losses = cell.lossesSinceRotation.get()
+        val lossRate = if (tradesIn > 0) losses.toDouble() / tradesIn else 0.0
+        val meanPnl = if (tradesIn > 0) (cell.pnlSumSinceRotation.get().toDouble() / 100.0) / tradesIn else 0.0
+
+        // V5.9.1448 — FAST-ROTATION early path. Before the full TRIAL_WINDOW, a
+        // bucket that is ALREADY catastrophically bad (>=FAST_MIN_SAMPLES closes,
+        // >=FAST_LOSS_RATE loss, net-negative) rotates NOW instead of bleeding to 25.
+        // This is what makes lanes self-pivot sooner; the normal thresholds below
+        // remain for slower/borderline bleeds.
+        if (tradesIn in FAST_MIN_SAMPLES until TRIAL_WINDOW) {
+            if (lossRate >= FAST_LOSS_RATE && meanPnl <= FAST_MEAN_PNL) {
+                rotate(lane, scoreBand, cell, "fast lossRate=${"%.0f".format(lossRate * 100)}% mean=${"%+.1f".format(meanPnl)}% n=$tradesIn")
+                return
+            }
+        }
+
+        // Below the trial window (and not a fast-rotation case): keep accumulating.
         if (tradesIn < TRIAL_WINDOW) {
             persist(key(lane, scoreBand), cell)
             return
         }
-
-        val losses = cell.lossesSinceRotation.get()
-        val lossRate = losses.toDouble() / tradesIn
-        val meanPnl = (cell.pnlSumSinceRotation.get().toDouble() / 100.0) / tradesIn
 
         // V5.9.1370 — BLEEDER FIX. Two rotation conditions now (OR), and the
         // non-trigger branch no longer fully wipes the window.
