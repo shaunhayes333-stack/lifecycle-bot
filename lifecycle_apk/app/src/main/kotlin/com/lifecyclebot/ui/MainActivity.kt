@@ -486,6 +486,9 @@ class MainActivity : AppCompatActivity() {
     // If the hash is unchanged, the render is skipped entirely.
     // ═══════════════════════════════════════════════════════════════
     private var lastOpenPosHash: Int = -1
+    // V5.9.1447 — structural guard for the Manipulated card (mirrors Open Positions).
+    private var lastManipPosHash: Int = -1
+    private var lastManipRenderMs: Long = 0L
     // V5.9.749 — split the open-positions render into structural-vs-price.
     // The 92.8% main-thread stall was caused by ref-only price ticks (1Hz
     // V5.9.730 loop) blowing the structural hash and forcing a full
@@ -5397,6 +5400,42 @@ for legal compliance.
 
     // ☠️ Render Manipulated positions into the Manip card
     private fun renderManipPositions(positions: List<com.lifecyclebot.v3.scoring.ManipulatedTraderAI.ManipulatedPosition>): Double {
+        // V5.9.1447 — ANR ROOT-CAUSE FIX. This card had NO structural guard (unlike
+        // renderOpenPositions): it ran llManipPositions.removeAllViews() + a full
+        // per-row rebuild (each row firing a Coil network image load + CircleCrop)
+        // on EVERY updateUi tick. With positions stacking, that was the dominant
+        // main-thread blocker (snapshot 5.0.3449: maxFrameGap=48946ms, renderManip
+        // on the ANR stack). Fix at the structural source — mirror the Open Positions
+        // pattern exactly: compute the unrealized PnL sum cheaply every tick (no
+        // views), but only tear down + rebuild rows when the STRUCTURAL hash changes
+        // (mint/size/5%-gain-band) or the repaint floor elapses. Per-row live numbers
+        // continue to update on the next structural change; 1Hz price jitter no
+        // longer triggers a teardown. NOT a loop throttle — the heavy view work is
+        // gated, the data loop is untouched.
+        val manipUnrealizedSum = positions.sumOf { pos ->
+            val ref = try { com.lifecyclebot.engine.BotService.status.tokens[pos.mint]?.ref ?: 0.0 } catch (_: Throwable) { 0.0 }
+            val px = if (ref > 0.0) ref else pos.entryPrice
+            val g = if (pos.entryPrice > 0) (px - pos.entryPrice) / pos.entryPrice * 100.0 else 0.0
+            pos.entrySol * g / 100.0
+        }
+        val manipHash = positions.map { pos ->
+            val ref = try { com.lifecyclebot.engine.BotService.status.tokens[pos.mint]?.ref ?: 0.0 } catch (_: Throwable) { 0.0 }
+            val gainBand = if (pos.entryPrice > 0.0 && ref > 0.0)
+                kotlin.math.floor((ref - pos.entryPrice) / pos.entryPrice * 100.0 / 5.0).toInt() else 0
+            "${pos.mint}|${pos.entrySol}|$gainBand"
+        }.hashCode()
+        val manipNowMs = System.currentTimeMillis()
+        val manipStructuralChange = manipHash != lastManipPosHash
+        if (!manipStructuralChange) {
+            val floorMs = OPEN_POS_MIN_RENDER_INTERVAL_MS
+            if (manipNowMs - lastManipRenderMs < floorMs && lastManipRenderMs > 0L) {
+                // No structural change and within repaint floor — skip the expensive
+                // teardown/rebuild, but keep the header P&L fresh via the returned sum.
+                return manipUnrealizedSum
+            }
+        }
+        lastManipPosHash = manipHash
+        lastManipRenderMs = manipNowMs
         llManipPositions.removeAllViews()
         val sdf = manipTimeSdf  // V5.9.1070 — class-field
         // V5.9.420 — accumulate children unrealized PnL for header parity.
@@ -8849,6 +8888,17 @@ This cannot be undone!
      * Apply dark or light theme to the UI
      */
     private fun applyTheme(isDarkMode: Boolean) {
+        // V5.9.1447 — no-op guard. setDefaultNightMode with a CHANGED value forces a
+        // full Activity recreate (onCreate re-runs, re-inflating all the heavy layer
+        // drawables in setContentView — a multi-second stall). 5.0.3449 ANR stack
+        // showed MainActivity.onCreate firing 23× (maxFrameGap=48946ms): the Activity
+        // was being recreated repeatedly. Only call setDefaultNightMode when the mode
+        // actually differs from the current effective mode, so a redundant apply can
+        // never trigger a recreate. Paired with uiMode added to configChanges so even
+        // a genuine system night-mode toggle no longer tears down the Activity.
+        val desired = if (isDarkMode) androidx.appcompat.app.AppCompatDelegate.MODE_NIGHT_YES
+                      else androidx.appcompat.app.AppCompatDelegate.MODE_NIGHT_NO
+        if (androidx.appcompat.app.AppCompatDelegate.getDefaultNightMode() == desired) return
         if (isDarkMode) {
             // Dark mode - default colors (already set in XML)
             androidx.appcompat.app.AppCompatDelegate.setDefaultNightMode(

@@ -63,7 +63,7 @@
         <activity
             android:name=".ui.MainActivity"
             android:exported="false"
-            android:configChanges="orientation|screenSize|screenLayout|smallestScreenSize|fontScale"
+            android:configChanges="orientation|screenSize|screenLayout|smallestScreenSize|fontScale|uiMode"
             android:windowSoftInputMode="adjustResize|stateHidden"
             android:screenOrientation="portrait">
         </activity>
