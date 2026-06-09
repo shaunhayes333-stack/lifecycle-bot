@@ -6365,6 +6365,21 @@ class Executor(
 
     // ── buy ───────────────────────────────────────────────────────────
 
+    /**
+     * V5.9.1475 (spec item 1/2) — CANONICAL OPEN PREDICATE.
+     * doBuy/paperBuy/liveBuy return Unit and have many bail points (LLM veto,
+     * PAPER_BUY_BLOCKED_FINALITY, route blocks). Callers historically assumed
+     * success after the call returned, which let a BLOCKED/DEFERRED finality
+     * still report success=true → stub MEME_EXECUTOR_DONE, fake OPENED hooks,
+     * and canonical-learning poisoning. This is the single source of truth a
+     * caller checks AFTER doBuy to know whether a real open was actually
+     * committed. Mirrors the existing sub-trader predicate (qty>0 || pendingVerify
+     * || isOpen): paper open sets qtyToken>0/isOpen; live open sets pendingVerify.
+     * A blocked-finality paper buy sets none → returns false.
+     */
+    fun positionDidOpen(ts: TokenState): Boolean =
+        ts.position.qtyToken > 0.0 || ts.position.pendingVerify || ts.position.isOpen
+
     internal fun doBuy(ts: TokenState, sol: Double, score: Double,
                       wallet: SolanaWallet?, walletSol: Double,
                       identity: TradeIdentity? = null,

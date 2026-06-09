@@ -2743,6 +2743,14 @@ class BotService : Service() {
         return try {
             ErrorLogger.info("BotService",
                 "⚡ V3_EXEC ${ts.symbol} | ${"%.4f".format(req.sizeSol)} SOL | mode=${if (isPaper) "PAPER" else "LIVE"}")
+            // V5.9.1475 (spec item 1/2) — capture open-state BEFORE the buy so we
+            // can detect whether doBuy actually committed an open or bailed at a
+            // finality/veto gate. doBuy returns Unit and bails silently on
+            // PAPER_BUY_BLOCKED_FINALITY / LLM veto / route block, so the previous
+            // unconditional success=true produced a stub MEME_EXECUTOR_DONE, fake
+            // OPENED hooks, and canonical-learning poisoning. Now success is sourced
+            // from the canonical open predicate — the single source of truth.
+            val wasOpenBefore = executor.positionDidOpen(ts)
             executor.doBuy(
                 ts = ts,
                 sol = req.sizeSol,
@@ -2753,13 +2761,31 @@ class BotService : Service() {
                 quality = "V3",
                 skipGraduated = false,
             )
-            val lastPrice = ts.lastPrice
-            com.lifecyclebot.v3.ExecuteResult(
-                success = true,
-                txSignature = null,
-                executedSol = req.sizeSol,
-                executedPrice = if (lastPrice > 0.0) lastPrice else null,
-            )
+            val didOpen = executor.positionDidOpen(ts)
+            if (!didOpen || wasOpenBefore) {
+                // Buy did not create a NEW open (blocked finality / veto / dup).
+                // Emit a single gate-dropped trace; do NOT report success, so the
+                // orchestrator never emits EXECUTOR_DONE, never calls opened hooks,
+                // never increments EXEC_BUY, never feeds canonical learning.
+                try {
+                    com.lifecyclebot.engine.ForensicLogger.lifecycle(
+                        "EXEC_GATE_DROPPED",
+                        "mint=${ts.mint.take(10)} symbol=${ts.symbol} lane=V3 reason=${if (wasOpenBefore) "ALREADY_OPEN" else "NO_OPEN_COMMITTED"} mode=${if (isPaper) "PAPER" else "LIVE"}"
+                    )
+                } catch (_: Throwable) {}
+                com.lifecyclebot.v3.ExecuteResult(
+                    success = false,
+                    error = if (wasOpenBefore) "already_open" else "no_open_committed_blocked_finality",
+                )
+            } else {
+                val lastPrice = ts.lastPrice
+                com.lifecyclebot.v3.ExecuteResult(
+                    success = true,
+                    txSignature = null,
+                    executedSol = req.sizeSol,
+                    executedPrice = if (lastPrice > 0.0) lastPrice else null,
+                )
+            }
         } catch (e: Exception) {
             ErrorLogger.error("BotService", "runV3Execution error for ${ts.symbol}", e)
             com.lifecyclebot.v3.ExecuteResult(success = false, error = "exec exception: ${e.message ?: e.javaClass.simpleName}")
@@ -11216,7 +11242,7 @@ val forcedOpenMints = reapGhostForcedOpen(forcedOpenRaw)
 
 // V5.9.1470b (spec item 7) — publish slot-health via helper (keeps botLoop bytecode
 // under the JVM method-size limit; CI run#3474 hit 'Couldn't transform method node').
-try { publishSlotHealth(forcedOpenRaw, forcedOpenMints.size) } catch (_: Throwable) {}
+try { publishSlotHealth(forcedOpenMints, forcedOpenMints.size) } catch (_: Throwable) {}
 
 val otherMints = prioritizedWatchlist.filterNot { mint ->
     mint in openPositionMints || mint in subTraderOpenMints || mint in v3OpenMints
@@ -12293,9 +12319,40 @@ if (hotExitHandledSweep) {
         }
     }
 
+    /**
+     * V5.9.1475 (spec item 3) — CANONICAL GHOST PREDICATE. A mint in the
+     * forcedOpen set is a GHOST (not a real open slot) when ANY of:
+     *   - close ledger marks it CLOSED, OR
+     *   - no live TokenState position is open AND it is not held in any
+     *     sub-trader store (i.e. the open record has vanished but the slot
+     *     is still pinned).
+     * This is stricter than the old isClosed-only check, which let
+     * sell-completed / sell-lock-released / vanished-open mints keep
+     * counting as ghosts forever (ghost=11 while forced=4). Held positions
+     * (real open in a store) are NEVER ghosts.
+     */
+    private fun isGhostMint(mint: String, liveOpenSet: Set<String>): Boolean {
+        if (com.lifecyclebot.engine.PositionCloseLedger.isClosed(mint)) return true
+        // If nothing anywhere reports this mint as a live open, the slot is stale.
+        if (mint !in liveOpenSet) return true
+        return false
+    }
+
     private fun reapGhostForcedOpen(forcedOpenRaw: List<String>): List<String> {
         try { com.lifecyclebot.engine.PositionCloseLedger.prune() } catch (_: Throwable) {}
-        val reaped = forcedOpenRaw.filter { com.lifecyclebot.engine.PositionCloseLedger.isClosed(it) }
+        // Build the authoritative live-open set ONCE (close ledger + live TokenState
+        // + sub-trader stores were already unioned into forcedOpenRaw, but a mint can
+        // be in forcedOpenRaw yet no longer report open anywhere — that's a ghost).
+        val liveOpenSet: Set<String> = try {
+            val out = HashSet<String>()
+            synchronized(status.tokens) {
+                status.tokens.values.forEach { if (it.position.isOpen) out.add(it.mint) }
+            }
+            forcedOpenRaw.forEach { m -> if (com.lifecyclebot.engine.GlobalTradeRegistry.hasOpenPosition(m)) out.add(m) }
+            out
+        } catch (_: Throwable) { forcedOpenRaw.toSet() }
+
+        val reaped = forcedOpenRaw.filter { isGhostMint(it, liveOpenSet) }
         if (reaped.isNotEmpty()) {
             try {
                 ForensicLogger.lifecycle("GHOST_POSITION_REAPED", "count=${reaped.size} mints=${reaped.take(8).joinToString(",") { it.take(8) }}")
@@ -12306,11 +12363,21 @@ if (hotExitHandledSweep) {
                 try { supervisorForceReleaseLeaseAndCancel(m, "GHOST_REAP") } catch (_: Throwable) {}
             }
         }
-        return forcedOpenRaw.filterNot { com.lifecyclebot.engine.PositionCloseLedger.isClosed(it) }
+        // Stash the clean list + live set so publishSlotHealth counts the SAME truth.
+        lastReapLiveOpenSet = liveOpenSet
+        return forcedOpenRaw.filterNot { isGhostMint(it, liveOpenSet) }
     }
 
-    private fun publishSlotHealth(forcedOpenRaw: Collection<String>, forcedOpenCount: Int) {
-        val ghostOpenNow = forcedOpenRaw.count { com.lifecyclebot.engine.PositionCloseLedger.isClosed(it) }
+    @Volatile private var lastReapLiveOpenSet: Set<String> = emptySet()
+
+    private fun publishSlotHealth(forcedOpenClean: Collection<String>, forcedOpenCount: Int) {
+        // V5.9.1475 (spec item 3) — count ghosts from the CLEANED forcedOpen list
+        // using the SAME canonical predicate the reaper used. Previously this was
+        // passed the RAW (pre-reap) list and re-counted just-reaped mints as ghosts,
+        // so ghost never fell to 0 even though reaping happened. After reaping, a
+        // healthy steady state has ghost=0.
+        val live = lastReapLiveOpenSet
+        val ghostOpenNow = forcedOpenClean.count { isGhostMint(it, live) }
         val exitInFlight = try { fullExitSweepPending.get() || universalSlSweepPending.get() } catch (_: Throwable) { false }
         com.lifecyclebot.engine.SlotHealthGate.publish(
             ghostOpen = ghostOpenNow,
