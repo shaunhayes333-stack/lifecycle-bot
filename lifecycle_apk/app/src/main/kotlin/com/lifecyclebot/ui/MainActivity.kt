@@ -4926,8 +4926,30 @@ for legal compliance.
     // V4.0: Render Blue Chip positions
     private fun renderBlueChipPositions(positions: List<com.lifecyclebot.v3.scoring.BlueChipTraderAI.BlueChipPosition>): Double {
         // V5.9.709 — skip re-render if blue chip list unchanged
-        val bcHash = positions.map { "${it.mint}|${it.entrySol}|${it.isPaper}" }.hashCode()
-        if (bcHash == lastBlueChipHash) return lastBlueChipCachedPnlSol
+        // V5.9.1458 — VIEW RECYCLING (same pattern as ShitCoin V5.9.1457). Structure
+        // unchanged → update live %/◎ in place via mint tag instead of teardown.
+        val bcVisible = positions.take(4)
+        val bcHash = bcVisible.map { "${it.mint}|${it.entrySol}|${it.isPaper}" }.hashCode()
+        if (bcHash == lastBlueChipHash && llBlueChipPositions.childCount > 0) {
+            var liveSum = 0.0
+            bcVisible.forEach { pos ->
+                val cp = try {
+                    val ref = com.lifecyclebot.engine.BotService.status.tokens[pos.mint]?.ref ?: 0.0
+                    if (ref > 0.0) ref else pos.entryPrice
+                } catch (_: Exception) { pos.entryPrice }
+                val g = if (pos.entryPrice > 0) (cp - pos.entryPrice) / pos.entryPrice * 100 else 0.0
+                val ps = pos.entrySol * g / 100.0
+                val hm = (System.currentTimeMillis() - pos.entryTime) / 60_000
+                liveSum += ps
+                val col = if (g >= 0) green else red
+                llBlueChipPositions.findViewWithTag<android.widget.TextView>("bcpct_${pos.mint}")
+                    ?.let { it.setTextIfChanged("%+.1f%%".format(g)); it.setTextColor(col) }
+                llBlueChipPositions.findViewWithTag<android.widget.TextView>("bcsol_${pos.mint}")
+                    ?.let { it.setTextIfChanged("%+.4f◎  ${hm}m".format(ps)); it.setTextColor(col) }
+            }
+            lastBlueChipCachedPnlSol = liveSum
+            return liveSum
+        }
         lastBlueChipHash = bcHash
         lastBlueChipRenderMs = System.currentTimeMillis()
         llBlueChipPositions.removeAllViews()
@@ -4951,6 +4973,7 @@ for legal compliance.
                 orientation = LinearLayout.HORIZONTAL
                 setPadding(0, 12, 0, 12)
                 gravity = android.view.Gravity.CENTER_VERTICAL
+                tag = "bcrow_${pos.mint}"   // V5.9.1458 recycle row identity
             }
 
             // V5.8.0: Token logo
@@ -5009,6 +5032,7 @@ for legal compliance.
                 gravity = android.view.Gravity.END
             }
             right.addView(TextView(this).apply {
+                tag = "bcpct_${pos.mint}"   // V5.9.1458 recycle target
                 text = "%+.1f%%".format(gainPct)
                 textSize = resources.getDimension(R.dimen.token_name_size) / resources.displayMetrics.scaledDensity
                 setTextColor(gainCol)
@@ -5016,6 +5040,7 @@ for legal compliance.
                 gravity = android.view.Gravity.END
             })
             right.addView(TextView(this).apply {
+                tag = "bcsol_${pos.mint}"   // V5.9.1458 recycle target
                 text = "%+.4f◎  ${holdMins}m".format(pnlSol)
                 textSize = resources.getDimension(R.dimen.trade_sub_text) / resources.displayMetrics.scaledDensity
                 setTextColor(gainCol)
@@ -5582,8 +5607,32 @@ for legal compliance.
     // V5.2: Render Moonshot positions
     private fun renderMoonshotPositions(positions: List<com.lifecyclebot.v3.scoring.MoonshotTraderAI.MoonshotPosition>) {
         // V5.9.709 — skip render if moonshot positions unchanged
-        val moonHash = positions.map { "${it.mint}|${it.entrySol}|${it.isPaperMode}" }.hashCode()
-        if (moonHash == lastMoonshotHash) return
+        // V5.9.1458 — VIEW RECYCLING (same pattern as ShitCoin V5.9.1457).
+        // STRUCTURAL hash = which rows exist (mint|size|mode). When unchanged,
+        // do NOT tear down — walk existing rows by mint tag and setText only the
+        // live entry→current price, %, and hold-time. Live P&L now updates every
+        // tick at the cost of a few setText calls instead of a full re-inflate
+        // (renderMoonshotPositions was a 509ms ANR blocker).
+        val moonVisible = positions.take(4)
+        val moonHash = moonVisible.map { "${it.mint}|${it.entrySol}|${it.isPaperMode}" }.hashCode()
+        if (moonHash == lastMoonshotHash && llMoonshotPositions.childCount > 0) {
+            moonVisible.forEach { pos ->
+                val cp = try {
+                    val ref = com.lifecyclebot.engine.BotService.status.tokens[pos.mint]?.ref ?: 0.0
+                    if (ref > 0.0) ref else pos.entryPrice
+                } catch (_: Exception) { pos.entryPrice }
+                val p = if (pos.entryPrice > 0) ((cp - pos.entryPrice) / pos.entryPrice * 100) else 0.0
+                val hm = (System.currentTimeMillis() - pos.entryTime) / 60000
+                val col = if (p >= 0) 0xFF10B981.toInt() else 0xFFEF4444.toInt()
+                llMoonshotPositions.findViewWithTag<android.widget.TextView>("msentry_${pos.mint}")
+                    ?.setTextIfChanged("${String.format("%.6f", pos.entryPrice)} → ${String.format("%.6f", cp)}")
+                llMoonshotPositions.findViewWithTag<android.widget.TextView>("mspnl_${pos.mint}")
+                    ?.let { it.setTextIfChanged("${if (p >= 0) "+" else ""}${String.format("%.1f", p)}%"); it.setTextColor(col) }
+                llMoonshotPositions.findViewWithTag<android.widget.TextView>("mshold_${pos.mint}")
+                    ?.setTextIfChanged("${hm}m")
+            }
+            return
+        }
         // V5.9.1048 — also throttle by time. Operator V5.9.1047 dump
         // showed renderMoonshotPositions 509ms ANR. The structural hash
         // skips a no-change rebuild, but when a moonshot position OPENS
@@ -5654,6 +5703,7 @@ for legal compliance.
             
             // Entry / Current
             val tvEntry = TextView(this).apply {
+                tag = "msentry_${pos.mint}"   // V5.9.1458 recycle target
                 text = "${String.format("%.6f", pos.entryPrice)} → ${String.format("%.6f", currentPrice)}"
                 setTextColor(0xFF6B7280.toInt())
                 textSize = resources.getDimension(R.dimen.trade_sub_text) / resources.displayMetrics.scaledDensity
@@ -5663,6 +5713,7 @@ for legal compliance.
             
             // P&L
             val tvPnl = TextView(this).apply {
+                tag = "mspnl_${pos.mint}"   // V5.9.1458 recycle target
                 text = "${if (pnlPct >= 0) "+" else ""}${String.format("%.1f", pnlPct)}%"
                 setTextColor(if (pnlPct >= 0) 0xFF10B981.toInt() else 0xFFEF4444.toInt())
                 textSize = resources.getDimension(R.dimen.trade_row_text) / resources.displayMetrics.scaledDensity
@@ -5672,6 +5723,7 @@ for legal compliance.
             
             // Hold time
             val tvHold = TextView(this).apply {
+                tag = "mshold_${pos.mint}"   // V5.9.1458 recycle target
                 text = "${holdMins}m"
                 setTextColor(0xFF6B7280.toInt())
                 textSize = resources.getDimension(R.dimen.trade_sub_text) / resources.displayMetrics.scaledDensity
