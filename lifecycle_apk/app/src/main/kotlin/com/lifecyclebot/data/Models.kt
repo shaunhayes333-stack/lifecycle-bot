@@ -264,6 +264,11 @@ data class TokenState(
     var lastFdv: Double = 0.0,             // fully diluted valuation
     var holderGrowthRate: Double = 0.0,    // % change in holders over last N candles (positive = growing)
     var peakHolderCount: Int = 0,          // highest holder count ever seen for this token
+    // V5.9.1453 — separate "holder data pending" from "confirmed zero holders".
+    // Set to true the FIRST time a holder-count API call returns successfully
+    // (even if the count is 0). Until then, peakHolderCount=0 should NOT be
+    // treated as a rug signal — it's just data that hasn't loaded yet.
+    var holderDataResolved: Boolean = false,
     // history — 1m candles (primary strategy timeframe)
     val history: ArrayDeque<Candle> = ArrayDeque(300),
     // Multi-timeframe candles — seeded from Birdeye, used for trend confirmation

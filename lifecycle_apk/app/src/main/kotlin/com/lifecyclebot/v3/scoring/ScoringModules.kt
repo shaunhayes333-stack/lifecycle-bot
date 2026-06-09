@@ -108,10 +108,19 @@ class LiquidityAI : ScoringModule {
         val volumeExpanding = candidate.extraBoolean("volumeExpanding")
 
         // Liquidity level scoring
+        // V5.9.1453 — age-scaled thin-liquidity penalty. Fresh pump.fun
+        // graduates start at $1500–$3000 by design; the -8 penalty was
+        // killing the exact universe the meme trader is built for. Under
+        // 5 minutes old → no thin-liq penalty (structural, not a defect).
+        // 5–30 min old → softer -4 penalty (still learning if it's a real
+        // launch). 30+ min old AND <$3k → full -8 (it's stalled, real risk).
+        val ageMin = candidate.ageMinutes
         when {
             candidate.liquidityUsd >= 40_000 -> { score += 8; reasons += "Strong liquidity base" }
             candidate.liquidityUsd >= 15_000 -> { score += 5; reasons += "Good liquidity" }
-            candidate.liquidityUsd < 3_000 -> { score -= 8; reasons += "Thin liquidity" }
+            candidate.liquidityUsd < 3_000 && ageMin >= 30.0 -> { score -= 8; reasons += "Thin liquidity (stalled)" }
+            candidate.liquidityUsd < 3_000 && ageMin >= 5.0  -> { score -= 4; reasons += "Thin liquidity (warming)" }
+            candidate.liquidityUsd < 3_000                   -> { /* fresh-launch exempt */ reasons += "Thin liquidity (fresh, exempt)" }
         }
 
         // Draining penalty (contextual)

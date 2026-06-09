@@ -386,7 +386,13 @@ object V3Adapter {
             }
         } catch (_: Exception) { }
 
-        extras["zeroHolders"] = ts.peakHolderCount <= 0
+        // V5.9.1453 — separate "data pending" from "confirmed zero holders".
+        // Setting zeroHolders=true defeats the FATAL paper-learning bypass
+        // (rugScore>=95 && rugFlagsClean). On a sub-2-minute pump.fun
+        // launch the holder API hasn't returned yet so peakHolderCount=0
+        // is "pending", NOT "zero". Only assert zeroHolders once
+        // holderDataResolved=true AND the resolved count is 0.
+        extras["zeroHolders"] = ts.holderDataResolved && ts.peakHolderCount <= 0
         extras["pureSellPressure"] = meta.pressScore < 20.0
         extras["unsellableSignal"] = safety.isBlocked
 

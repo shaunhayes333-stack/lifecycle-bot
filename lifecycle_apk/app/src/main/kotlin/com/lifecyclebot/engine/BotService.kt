@@ -13448,6 +13448,15 @@ if (hotExitHandledSweep) {
             // Update peak holder count and growth rate
             val latestHolders = pair.candle.holderCount
             if (latestHolders > ts.peakHolderCount) ts.peakHolderCount = latestHolders
+            // V5.9.1453 — flip resolved=true the FIRST time we receive a
+            // candle's holder count from Birdeye/Helius, even if it's 0
+            // (which legitimately means zero holders after data resolved).
+            // Distinguishes "data pending" from "confirmed zero holders"
+            // so the FATAL rug gate doesn't kill fresh launches whose
+            // holder API hasn't responded yet.
+            if (!ts.holderDataResolved && latestHolders >= 0 && pair.candle.timestamp > 0L) {
+                ts.holderDataResolved = true
+            }
             if (ts.history.size >= 12) {
                 val recentH = ts.history.takeLast(3).map { it.holderCount }.filter { it > 0 }
                 val earlierH = ts.history.takeLast(12).take(6).map { it.holderCount }.filter { it > 0 }
