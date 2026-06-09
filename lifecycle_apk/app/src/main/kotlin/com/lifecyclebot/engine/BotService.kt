@@ -13454,7 +13454,7 @@ if (hotExitHandledSweep) {
             // Distinguishes "data pending" from "confirmed zero holders"
             // so the FATAL rug gate doesn't kill fresh launches whose
             // holder API hasn't responded yet.
-            if (!ts.holderDataResolved && latestHolders >= 0 && pair.candle.timestamp > 0L) {
+            if (!ts.holderDataResolved && pair.candle.ts > 0L) {
                 ts.holderDataResolved = true
             }
             if (ts.history.size >= 12) {
