@@ -500,6 +500,7 @@ class MainActivity : AppCompatActivity() {
     private var lastMoonshotHash: Int = -1
     private var lastMoonshotRenderMs: Long = 0L  // V5.9.1048
     private var lastNetworkSigRenderMs: Long = 0L
+    private var lastNetworkSigHash: Int = 0   // V5.9.1456 — structure-hash skip for the network-signals rebuild
     // V5.9.1013 — first-frame/navigation guard. Optional heavy panels and
     // disk/network warmups wait until MainActivity has had a chance to draw.
     private var activityCreatedAtMs: Long = 0L
@@ -3655,9 +3656,19 @@ for legal compliance.
                 cardCyclicPanel?.visibility = android.view.View.GONE
                 return
             }
+            // V5.9.1456 — STRUCTURAL HASH ONLY. statusMessage embeds live PnL%/HW%
+            // that mutate every tick (CyclicTradeEngine line 315), so including it
+            // defeated the hash-skip: the panel did a full removeAllViews()+rebuild
+            // of every row on nearly every render while in a position — a top ANR
+            // blocker (updateCyclicPanel 1026ms/764ms in 5.0.3458). Hash on
+            // STRUCTURAL identity (what makes the row-set change), not on churning
+            // numeric content. Ring balance bucketed to whole-$100 so cent-level
+            // drift can't churn the hash either. Live numbers still repaint via the
+            // 60s timed path; structural changes (open/close, cycle count, win/loss,
+            // mint, mode) rebuild immediately.
             val cyclicHash = listOf(
-                engine.ringBalanceUsd.toInt(), engine.cycleCount, engine.winCount,
-                engine.lossCount, engine.isInPosition, engine.currentMint, engine.statusMessage
+                (engine.ringBalanceUsd / 100.0).toInt(), engine.cycleCount, engine.winCount,
+                engine.lossCount, engine.isInPosition, engine.currentMint, engine.isLiveMode
             ).hashCode()
             val nowCyclic = System.currentTimeMillis()
             val runtimeActive = try { com.lifecyclebot.engine.BotService.isRuntimeActive() } catch (_: Throwable) { false }
@@ -5700,14 +5711,25 @@ for legal compliance.
             val syncAgoSecs = (System.currentTimeMillis() - lastRefresh) / 1000
             tvNetworkLastSync.text = if (syncAgoSecs < 60) "Sync: ${syncAgoSecs}s" else "Sync: ${syncAgoSecs/60}m"
             
-            // Clear and repopulate list
-            llNetworkSignals.removeAllViews()
-            
-            // Sort: MEGA_WINNER first, then HOT_TOKEN, then AVOID. Within each, by pnl desc
+            // V5.9.1456 — STRUCTURE-HASH SKIP. This was the ONE heavy render with no
+            // structural guard: it did an unconditional removeAllViews()+rebuild of
+            // the signal rows every 12s (renderNetworkSignals 1277ms in 5.0.3458).
+            // Sort + cap FIRST, then hash the visible row-set (symbol + type + bucketed
+            // pnl). If the visible rows are identical to last paint, skip the teardown
+            // entirely — the badge setText calls above already ran (cheap). Bucketing
+            // pnl to whole-% stops sub-% drift from forcing a needless rebuild.
             val sortedSignals = signals.sortedWith(compareBy(
                 { when (it.signalType) { "MEGA_WINNER" -> 0; "HOT_TOKEN" -> 1; "AVOID" -> 2; else -> 3 } },
                 { -it.pnlPct }
             )).take(4)  // V5.9.1013: cap rows to reduce transition/layout work
+            val sigHash = sortedSignals.joinToString("|") {
+                "${it.signalType}:${it.symbol}:${it.pnlPct.toInt()}"
+            }.hashCode()
+            if (sigHash == lastNetworkSigHash && llNetworkSignals.childCount > 0) return
+            lastNetworkSigHash = sigHash
+
+            // Clear and repopulate list
+            llNetworkSignals.removeAllViews()
             
             for (signal in sortedSignals) {
                 val row = LinearLayout(this).apply {
