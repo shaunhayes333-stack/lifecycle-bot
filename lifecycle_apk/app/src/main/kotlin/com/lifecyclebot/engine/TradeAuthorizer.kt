@@ -142,6 +142,26 @@ object TradeAuthorizer {
             return AuthorizationResult(ExecutionVerdict.REJECT, "PREAUTH_BLOCK_QUALITY_ONLY_${requestedBook.name}", BlockLevel.SOFT, canRetry = true)
         }
 
+        // V5.9.1470 (spec item 7) — SLOT-HEALTH ADMISSION. Defer (NOT block) a new
+        // executable buy for one cycle while slots are dirty (ghost opens, forcedOpen>20,
+        // supervisor over cap, or an exit sweep is pending). This is a SOFT, retryable
+        // reject — the candidate is re-evaluated next cycle once cleanup catches up. A
+        // confirmed high-edge candidate (score>=70 AND conf>=70) bypasses the
+        // exit-pending defer so genuine alpha is never starved. Exits never reach here
+        // (they run on their own dispatcher), so the -15% floor / exit sweeps are
+        // completely unaffected. Fail-open if BotService isn't publishing.
+        run {
+            val highEdge = score >= 70 && safeConfidence >= 70.0
+            val sh = SlotHealthGate.shouldDeferBuy(highEdge)
+            if (sh.defer) {
+                try {
+                    ForensicLogger.lifecycle("EXEC_DEFERRED_SLOT_HEALTH", "mint=${mint.take(10)} symbol=$symbol lane=${requestedBook.name} reason=${sh.reason} highEdge=$highEdge slots=${SlotHealthGate.snapshotLine()}")
+                    com.lifecyclebot.engine.PipelineHealthCollector.labelInc("EXEC_DEFERRED_SLOT_HEALTH")
+                } catch (_: Throwable) {}
+                return AuthorizationResult(ExecutionVerdict.REJECT, "DEFER_SLOT_HEALTH_${sh.reason}", BlockLevel.SOFT, canRetry = true)
+            }
+        }
+
         fun releasePrimaryAfterAuthFailure(reason: String) {
             try { LaneExecutionCoordinator.releaseIfPrimary(mint, requestedBook.name, reason) } catch (_: Throwable) {}
         }

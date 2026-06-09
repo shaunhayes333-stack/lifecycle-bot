@@ -278,6 +278,40 @@ class TokenMetaCache private constructor(ctx: Context) :
         return removed
     }
 
+    /**
+     * V5.9.1470 (spec item 10) — SOFT COLD EVICTION. The hard 50k cap rarely fires;
+     * the operator wants cold rows evicted sooner once the live set grows past a soft
+     * threshold so the cache stays warm-and-relevant rather than bloated. Evicts the
+     * coldest (oldest lastSeen) low-hit rows down toward softMax. NEVER touches the
+     * protected 500-token scanner intake pool (that is GlobalTradeRegistry, a different
+     * store) and never drops high-hit (frequently-reused) rows. Best-effort, memory-only
+     * plus a cheap DB delete; safe to call on the 60s flush tick.
+     */
+    fun evictColdSoft(softMax: Int = 2500, minHitsToKeep: Long = 3L): Int {
+        if (live.size <= softMax) return 0
+        val excess = live.size - softMax
+        // Candidates: low-hit rows only, coldest first. High-hit rows are sticky.
+        val victims = live.values.asSequence()
+            .filter { it.hitCount < minHitsToKeep }
+            .sortedBy { it.lastSeenMs }
+            .take(excess)
+            .map { it.mint }
+            .toList()
+        if (victims.isEmpty()) return 0
+        for (m in victims) { live.remove(m); dirty.remove(m) }
+        synchronized(writeLock) {
+            try {
+                val db = writableDatabase
+                val chunk = victims.joinToString(",") { "'" + it.replace("'", "") + "'" }
+                if (chunk.isNotBlank()) db.execSQL("DELETE FROM token_meta WHERE mint IN ($chunk)")
+            } catch (t: Throwable) {
+                ErrorLogger.warn(TAG, "evictColdSoft db delete failed: ${t.message}")
+            }
+        }
+        ErrorLogger.info(TAG, "evictColdSoft removed ${victims.size} cold rows (live=${live.size} softMax=$softMax)")
+        return victims.size
+    }
+
     data class Snapshot(
         val liveRows: Int,
         val dirtyRows: Int,

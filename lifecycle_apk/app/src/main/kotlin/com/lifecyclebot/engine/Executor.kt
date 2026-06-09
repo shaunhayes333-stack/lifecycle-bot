@@ -7035,6 +7035,11 @@ class Executor(
                 sizeSol = actualSol,
             )
         } catch (_: Exception) { /* non-critical */ }
+        // V5.9.1470 (spec item 2 corollary) — REOPEN clears any prior close stamp so a
+        // legitimately re-bought mint trades again cleanly (the duplicate-suppress guard
+        // in paperSell only blocks a SELL while a live close stamp exists; a real new BUY
+        // is the signal to clear it).
+        try { com.lifecyclebot.engine.PositionCloseLedger.reopen(tradeId.mint) } catch (_: Throwable) {}
         
         try {
             PositionPersistence.savePosition(ts)
@@ -9753,6 +9758,17 @@ class Executor(
         val pos   = ts.position
         val price = getActualPrice(ts)
         if (!pos.isOpen || price == 0.0) return SellResult.ALREADY_CLOSED
+        // V5.9.1470 (spec item 2) — CLOSE IDEMPOTENCY. If this mint already has a live
+        // close stamp, a previous paperSell already finalized it. Suppress the duplicate
+        // SELL: do NOT journal, train, or re-occupy the slot. Fixes the same-mint
+        // multi-sell storm (Fsnx8Y / 7AUvsp) the operator observed.
+        run {
+            val existingCloseId = com.lifecyclebot.engine.PositionCloseLedger.closeIdOf(ts.mint)
+            if (existingCloseId != null) {
+                try { ForensicLogger.lifecycle("PAPER_SELL_DUPLICATE_SUPPRESSED", "mint=${ts.mint.take(10)} symbol=${ts.symbol} originalCloseId=$existingCloseId reason=$reason") } catch (_: Throwable) {}
+                return SellResult.ALREADY_CLOSED
+            }
+        }
         // V5.9.719: acquire paper sell lock to prevent double-exit race.
         // If another sell request is already in-flight for this mint, reject this one.
         if (!acquirePaperSellLock(ts.mint)) {
@@ -9948,6 +9964,16 @@ class Executor(
         try {
             com.lifecyclebot.engine.GlobalTradeRegistry.closePosition(tradeId.mint)
         } catch (_: Exception) { /* non-critical */ }
+        // V5.9.1470 (spec item 1) — ATOMIC CLOSE STAMP. Record the canonical close
+        // identity so every later exit pass / slot tracker / forcedOpen scan sees this
+        // mint as CLOSED and cannot re-sell it or hold its slot. Stamped here, inside
+        // the sell-lock try-block, the instant the registry close fires. Metadata only —
+        // never touches qtyToken, balances, or P&L.
+        try {
+            val pnlPctForLedger = try { ((price - pos.entryPrice) / pos.entryPrice * 100.0).toInt() } catch (_: Throwable) { 0 }
+            val cid = com.lifecyclebot.engine.PositionCloseLedger.markClosed(tradeId.mint, reason, pnlPctForLedger)
+            ForensicLogger.lifecycle("POSITION_CLOSE_LEDGER_STAMPED", "mint=${tradeId.mint.take(10)} closeId=$cid reason=$reason")
+        } catch (_: Throwable) {}
 
         // V5.9.428 — treasury split BEFORE wallet credit (was double-counting).
         // Previously: wallet got `value` (principal + 100% profit) AND treasury

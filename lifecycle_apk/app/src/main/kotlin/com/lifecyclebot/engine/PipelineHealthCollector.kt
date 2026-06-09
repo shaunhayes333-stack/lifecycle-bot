@@ -1640,6 +1640,19 @@ object PipelineHealthCollector {
             }
         } catch (_: Throwable) { /* best-effort telemetry */ }
 
+        // V5.9.1470 — Slot-health / close-ledger surfacing (IDLE/STUCK fix).
+        try {
+            sb.append("
+===== Slot health / close ledger (V5.9.1470) =====
+")
+            sb.append("  close ledger:    ${com.lifecyclebot.engine.PositionCloseLedger.size()} mints stamped CLOSED
+")
+            sb.append("  slot health:     ${com.lifecyclebot.engine.SlotHealthGate.snapshotLine()}
+")
+            sb.append("  Read: ghost>0 or forced>20 ⇒ buys defer (EXEC_DEFERRED_SLOT_HEALTH) until cleanup; never a permanent block.
+")
+        } catch (_: Throwable) { /* best-effort telemetry */ }
+
         // V5.9.952 — Birdeye budget surfacing. Operator burned 5M Starter cap
         // in 19 days because 5 of 7 call sites bypassed the gate. This section
         // makes the burn rate visible so it never happens silently again.

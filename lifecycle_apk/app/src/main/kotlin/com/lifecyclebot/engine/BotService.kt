@@ -679,11 +679,17 @@ class BotService : Service() {
         }
         // Force-reset the hot-exit lease/lock and resurrect the manager.
         try { ensureHotExitAlive() } catch (_: Throwable) {}
-        // V5.9.1318 — route through the SINGLE-OWNER coordinator (do NOT spawn ad-hoc inline
-        // work from the bot loop). The coordinator drains pendingFull/pendingUniversal on its
-        // own IO dispatcher and clears them in its loop. Universal SL is requested
-        // INDEPENDENTLY so it can NEVER be indefinitely deferred to a stale hot exit.
-        try { requestExitSweepCoordinator(reason = "HOT_EXIT_STALE_RESET", full = true, universal = true) } catch (_: Throwable) {}
+        // V5.9.1470 (spec item 4) — SINGLE-FLIGHT COALESCE. The old code re-requested the
+        // coordinator EVERY loop while stale, even though full+universal were already
+        // pending/running — producing the HOT_EXIT_STALE_RESET storm (pendingFull=true,
+        // pendingUniversal=true re-enqueued endlessly). Only (re)request the sweep when
+        // there is NOT already a pending one; an in-flight coordinator will drain it.
+        val alreadyPending = try { fullExitSweepPending.get() && universalSlSweepPending.get() } catch (_: Throwable) { false }
+        if (!alreadyPending) {
+            try { requestExitSweepCoordinator(reason = "HOT_EXIT_STALE_RESET", full = true, universal = true) } catch (_: Throwable) {}
+        } else {
+            try { com.lifecyclebot.engine.PipelineHealthCollector.labelInc("HOT_EXIT_STALE_COALESCED") } catch (_: Throwable) {}
+        }
         return true
     }
 
@@ -886,6 +892,11 @@ class BotService : Service() {
                             while (true) {
                                 try { Thread.sleep(60_000L) } catch (_: InterruptedException) { return@Thread }
                                 try { cache.flushNow() } catch (_: Throwable) {}
+                                // V5.9.1470 (spec item 10) — evict cold low-hit rows once
+                                // the live set grows past 2500 so the cache stays warm and
+                                // relevant. Protected 500-token scanner pool is a separate
+                                // store and is never touched.
+                                try { cache.evictColdSoft(2500) } catch (_: Throwable) {}
                             }
                         }.apply { name = "TokenMetaCache-flush"; isDaemon = true }.start()
                     } catch (t: Throwable) {
@@ -11222,7 +11233,48 @@ val v3OpenMints: List<String> = synchronized(status.tokens) {
     status.tokens.values.filter { it.position.isOpen }.map { it.mint }
 }
 
-val forcedOpenMints = (openPositionMints + subTraderOpenMints + v3OpenMints).distinct()
+// V5.9.1470 (spec items 8+9) — GHOST REAPER + forcedOpen sanitization.
+// Before the supervisor runs, drop any mint that the close ledger marks CLOSED from
+// the forcedOpen set. This guarantees forcedOpen only ever contains GENUINELY open
+// positions, so closed/closing mints stop consuming watchlist selection priority and
+// holding slots (operator: "forcedOpen=28 keeps consuming watchlist selection",
+// "forcedOpen must not exceed actual open position count"). Reaping here = before
+// PRE_SUPERVISOR, exactly as the spec requires. Metadata-only filter; held positions
+// are never in the close ledger so they are never reaped.
+val forcedOpenRaw = (openPositionMints + subTraderOpenMints + v3OpenMints).distinct()
+val forcedOpenMints = run {
+    try { com.lifecyclebot.engine.PositionCloseLedger.prune() } catch (_: Throwable) {}
+    val reaped = forcedOpenRaw.filter { com.lifecyclebot.engine.PositionCloseLedger.isClosed(it) }
+    if (reaped.isNotEmpty()) {
+        try {
+            ForensicLogger.lifecycle("GHOST_POSITION_REAPED", "count=${reaped.size} mints=${reaped.take(8).joinToString(",") { it.take(8) }}")
+            com.lifecyclebot.engine.PipelineHealthCollector.labelInc("GHOST_POSITION_REAPED")
+        } catch (_: Throwable) {}
+        // Release any lingering sell/supervisor locks for reaped mints so their slots free.
+        for (m in reaped) {
+            try { com.lifecyclebot.engine.Executor.releasePaperSellLock(m) } catch (_: Throwable) {}
+            try { supervisorForceReleaseLeaseAndCancel(m, "GHOST_REAP") } catch (_: Throwable) {}
+        }
+    }
+    forcedOpenRaw.filterNot { com.lifecyclebot.engine.PositionCloseLedger.isClosed(it) }
+}
+
+// V5.9.1470 (spec item 7) — publish live slot-health for the entry-admission gate.
+// ghostOpen = mints still in forcedOpenRaw that the close ledger marks closed (i.e.
+// not yet fully drained). exitPending reflects an in-flight exit sweep. Pure telemetry
+// publish — does not gate anything here; TradeAuthorizer reads it per-buy.
+try {
+    val ghostOpenNow = forcedOpenRaw.count { com.lifecyclebot.engine.PositionCloseLedger.isClosed(it) }
+    val exitInFlight = try { fullExitSweepPending.get() || universalSlSweepPending.get() } catch (_: Throwable) { false }
+    com.lifecyclebot.engine.SlotHealthGate.publish(
+        ghostOpen = ghostOpenNow,
+        forcedOpen = forcedOpenMints.size,
+        openPositions = forcedOpenMints.size,
+        supActive = supervisorActive.get(),
+        supCap = supervisorEffectiveCap(),
+        exitInFlight = exitInFlight,
+    )
+} catch (_: Throwable) {}
 
 val otherMints = prioritizedWatchlist.filterNot { mint ->
     mint in openPositionMints || mint in subTraderOpenMints || mint in v3OpenMints
@@ -11934,6 +11986,11 @@ if (hotExitHandledSweep) {
                                     try { sweepUniversalExits(snap.cfg, snap.wallet, snap.balance) }
                                     catch (t: Throwable) { ErrorLogger.warn("BotService", "exit coordinator full sweep error: ${t.message}") }
                                     try { ForensicLogger.lifecycle("EXIT_COORDINATOR_FULL_DONE", "ageMs=$age") } catch (_: Throwable) {}
+                                    // V5.9.1470 (spec item 4) — a successful coordinator sweep
+                                    // IS exit protection running. Advance the hot-exit heartbeat
+                                    // so maybeHealHotExit stops re-firing STALE_RESET when the
+                                    // 2s hot manager is the wedged component (root of resets=10).
+                                    lastTickExitSweepMs = System.currentTimeMillis()
                                 } else {
                                     try { ForensicLogger.lifecycle("EXIT_COORDINATOR_FULL_SKIPPED", "reason=cfg_null") } catch (_: Throwable) {}
                                 }
@@ -11959,6 +12016,9 @@ if (hotExitHandledSweep) {
                                     try { runUniversalSlSafetyNetSweep(snap.cfg, snap.wallet) }
                                     catch (t: Throwable) { ErrorLogger.warn("BotService", "exit coordinator universal sweep error: ${t.message}") }
                                     try { ForensicLogger.lifecycle("EXIT_COORDINATOR_UNIVERSAL_DONE", "ageMs=$age") } catch (_: Throwable) {}
+                                    // V5.9.1470 (spec item 4) — universal SL sweep also counts as
+                                    // exit protection; advance the heartbeat (see FULL_DONE note).
+                                    lastTickExitSweepMs = System.currentTimeMillis()
                                 } else {
                                     try { ForensicLogger.lifecycle("EXIT_COORDINATOR_UNIVERSAL_SKIPPED", "reason=cfg_null") } catch (_: Throwable) {}
                                 }
@@ -12181,7 +12241,16 @@ if (hotExitHandledSweep) {
     // or the next 5s loop arrived before the 5.5s release, the whole next cycle
     // saw cap-full and processed zero tokens. Leases expire by wall-clock before
     // acquire, so stale/dead workers cannot monopolize capacity.
-    private data class SupervisorLease(val mint: String, val startedMs: Long)
+    // V5.9.1470 (spec item 6) — leases now carry a ref to their worker job so a
+    // force-release can CANCEL the underlying coroutine, not just drop the lease
+    // record. A worker that keeps running after force-release can re-add stale state
+    // and cause ghost opens — exactly the storm the operator observed.
+    private data class SupervisorLease(
+        val mint: String,
+        val startedMs: Long,
+        val jobRef: java.util.concurrent.atomic.AtomicReference<kotlinx.coroutines.Job?> =
+            java.util.concurrent.atomic.AtomicReference(null),
+    )
     private val supervisorLeaseSeq = java.util.concurrent.atomic.AtomicLong(0)
     private val supervisorLeases = java.util.concurrent.ConcurrentHashMap<Long, SupervisorLease>()
     private val supervisorLifetimeExpiredLeases = java.util.concurrent.atomic.AtomicLong(0)
@@ -12218,15 +12287,32 @@ if (hotExitHandledSweep) {
     // Emergency throttle target — effective cap drops to this on sustained overload.
     private val SUPERVISOR_EMERGENCY_MAX_WORKERS: Int = 16
     @Volatile private var supervisorEmergencyThrottleUntilMs: Long = 0L
-    private fun supervisorEffectiveCap(): Int =
-        // V5.9.1332 — REMOVED emergency-throttle clamp. Operator snapshot (build 5.0.3321,
-        // uptime 996s) showed SUPERVISOR_EMERGENCY_THROTTLE firing 2× in 16min and
-        // pinning effective cap at 16 for 5min windows — directly producing the
-        // "trades then virtually stops" pattern: active=16 cap=32 spawned=16 skipped=16
-        // on 123/129 cycles. Lease TTL (4.75s) already drains stuck workers naturally;
-        // the throttle was double-defense that became the choke. Train-First doctrine:
-        // never clamp the pool, observe and recover.
-        SUPERVISOR_BASE_MAX_WORKERS
+    // V5.9.1470 (spec item 5) — BOUNDED BACKPRESSURE + COOLING (replaces observation-only).
+    // The operator snapshot shows worker_timeout >2000/10min while the throttle was pure
+    // observation, so a lease-storm could run unbounded (FORCE_RELEASED=5620). The 1332
+    // removal was right to kill the BLUNT cap=16 pin, but the correct answer is GRADUATED
+    // backpressure that scales with the actual timeout rate and self-heals fast — NOT a
+    // 5-minute hard pin. COOLING never disables lanes/learning/probing; it only trims the
+    // CONCURRENT worker cap so wedged IO stops compounding, and exits run on their own
+    // dispatcher (unaffected). Floor is 8 so the pool never fully stalls.
+    @Volatile private var supervisorCoolingUntilMs: Long = 0L
+    private fun supervisorEffectiveCap(): Int {
+        val base = SUPERVISOR_BASE_MAX_WORKERS
+        val now = System.currentTimeMillis()
+        // Count timeouts in the current 10-min window (maintained by the throttle note fn).
+        val windowFresh = (now - supervisorTimeoutWindowStartMs) < 600_000L
+        val timeouts = if (windowFresh) supervisorTimeoutWindowCount else 0
+        // COOLING latch: >500/10min trips a 60s cooling window (concurrent cap halved, min 8).
+        if (timeouts > 500) supervisorCoolingUntilMs = now + 60_000L
+        val cooling = now < supervisorCoolingUntilMs
+        val cap = when {
+            cooling          -> maxOf(8, base / 2)   // 60s cooling floor
+            timeouts > 150   -> maxOf(8, base / 2)   // heavy: halve, floor 8
+            timeouts > 50    -> maxOf(12, base / 2)  // moderate: halve, floor 12
+            else             -> base                 // healthy: full pool
+        }
+        return cap
+    }
     // V5.9.1319 (Item 3) — emergency-throttle arming. When sustained overload is detected
     // (a cycle exceeding 30s, OR >20 worker timeouts inside a 10-minute window) we clamp the
     // effective worker cap to 16 and shorten cycle pressure for the next 5 minutes. Exit
@@ -12399,6 +12485,34 @@ if (hotExitHandledSweep) {
         val active = supervisorLeases.size.coerceAtLeast(0)
         supervisorActive.set(active)
         return active
+    }
+
+    /**
+     * V5.9.1470 (spec item 6) — force-release every lease for a mint AND cancel its
+     * worker coroutine. Used by the ghost reaper so reaped/closed mints cannot leave a
+     * wedged worker running that re-adds stale state. Idempotent + fail-open. NEVER
+     * touches positions/balances — it only cancels a stuck IO coroutine and frees slots.
+     */
+    private fun supervisorForceReleaseLeaseAndCancel(mint: String, reason: String) {
+        if (mint.isBlank()) return
+        var cancelled = 0
+        try {
+            val it = supervisorLeases.entries.iterator()
+            while (it.hasNext()) {
+                val e = it.next()
+                if (e.value.mint == mint) {
+                    try { e.value.jobRef.get()?.cancel() } catch (_: Throwable) {}
+                    if (supervisorLeases.remove(e.key, e.value)) cancelled++
+                }
+            }
+        } catch (_: Throwable) {}
+        if (cancelled > 0) {
+            supervisorActive.set(supervisorLeases.size.coerceAtLeast(0))
+            try {
+                ForensicLogger.lifecycle("SUPERVISOR_LEASE_FORCE_RELEASED", "mint=${mint.take(10)} reason=$reason cancelledJobs=$cancelled active=${supervisorLeases.size} cooled=true")
+                com.lifecyclebot.engine.PipelineHealthCollector.labelInc("SUPERVISOR_LEASE_FORCE_RELEASED")
+            } catch (_: Throwable) {}
+        }
     }
 
     private fun supervisorClampIfNegative(reason: String) {
@@ -12612,6 +12726,9 @@ if (hotExitHandledSweep) {
                 }
             }
             workerJobRef.set(workerJob)
+            // V5.9.1470 (spec item 6) — register the worker job on its lease so a
+            // by-mint force-release (ghost reaper / dirty-slot cleanup) can cancel it.
+            try { supervisorLeases[leaseId]?.jobRef?.set(workerJob) } catch (_: Throwable) {}
             // Safety-net watchdog: fires only AFTER the worker timeout + grace.
             // If the worker is still alive (non-cooperative blocking IO that
             // ignored the withTimeoutOrNull interrupt), cancel it and free the
