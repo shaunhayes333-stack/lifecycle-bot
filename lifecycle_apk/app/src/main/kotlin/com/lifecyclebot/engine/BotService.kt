@@ -11242,39 +11242,11 @@ val v3OpenMints: List<String> = synchronized(status.tokens) {
 // PRE_SUPERVISOR, exactly as the spec requires. Metadata-only filter; held positions
 // are never in the close ledger so they are never reaped.
 val forcedOpenRaw = (openPositionMints + subTraderOpenMints + v3OpenMints).distinct()
-val forcedOpenMints = run {
-    try { com.lifecyclebot.engine.PositionCloseLedger.prune() } catch (_: Throwable) {}
-    val reaped = forcedOpenRaw.filter { com.lifecyclebot.engine.PositionCloseLedger.isClosed(it) }
-    if (reaped.isNotEmpty()) {
-        try {
-            ForensicLogger.lifecycle("GHOST_POSITION_REAPED", "count=${reaped.size} mints=${reaped.take(8).joinToString(",") { it.take(8) }}")
-            com.lifecyclebot.engine.PipelineHealthCollector.labelInc("GHOST_POSITION_REAPED")
-        } catch (_: Throwable) {}
-        // Release any lingering sell/supervisor locks for reaped mints so their slots free.
-        for (m in reaped) {
-            try { com.lifecyclebot.engine.Executor.releasePaperSellLock(m) } catch (_: Throwable) {}
-            try { supervisorForceReleaseLeaseAndCancel(m, "GHOST_REAP") } catch (_: Throwable) {}
-        }
-    }
-    forcedOpenRaw.filterNot { com.lifecyclebot.engine.PositionCloseLedger.isClosed(it) }
-}
+val forcedOpenMints = reapGhostForcedOpen(forcedOpenRaw)
 
-// V5.9.1470 (spec item 7) — publish live slot-health for the entry-admission gate.
-// ghostOpen = mints still in forcedOpenRaw that the close ledger marks closed (i.e.
-// not yet fully drained). exitPending reflects an in-flight exit sweep. Pure telemetry
-// publish — does not gate anything here; TradeAuthorizer reads it per-buy.
-try {
-    val ghostOpenNow = forcedOpenRaw.count { com.lifecyclebot.engine.PositionCloseLedger.isClosed(it) }
-    val exitInFlight = try { fullExitSweepPending.get() || universalSlSweepPending.get() } catch (_: Throwable) { false }
-    com.lifecyclebot.engine.SlotHealthGate.publish(
-        ghostOpen = ghostOpenNow,
-        forcedOpen = forcedOpenMints.size,
-        openPositions = forcedOpenMints.size,
-        supActive = supervisorActive.get(),
-        supCap = supervisorEffectiveCap(),
-        exitInFlight = exitInFlight,
-    )
-} catch (_: Throwable) {}
+// V5.9.1470b (spec item 7) — publish slot-health via helper (keeps botLoop bytecode
+// under the JVM method-size limit; CI run#3474 hit 'Couldn't transform method node').
+try { publishSlotHealth(forcedOpenRaw, forcedOpenMints.size) } catch (_: Throwable) {}
 
 val otherMints = prioritizedWatchlist.filterNot { mint ->
     mint in openPositionMints || mint in subTraderOpenMints || mint in v3OpenMints
@@ -12296,6 +12268,43 @@ if (hotExitHandledSweep) {
     // CONCURRENT worker cap so wedged IO stops compounding, and exits run on their own
     // dispatcher (unaffected). Floor is 8 so the pool never fully stalls.
     @Volatile private var supervisorCoolingUntilMs: Long = 0L
+    // V5.9.1470b (spec item 7) — extracted from botLoop to keep that coroutine method
+    // under the JVM bytecode size limit. Publishes live slot-health for SlotHealthGate
+    // so TradeAuthorizer can defer (not block) new buys while slots are dirty. Pure
+    // telemetry: never gates here, never touches positions/balances/exits.
+    // V5.9.1470b — extracted ghost reaper (keeps botLoop under JVM method-size limit).
+    // Reaps mints the close ledger marks CLOSED from forcedOpen BEFORE PRE_SUPERVISOR so
+    // closed positions stop holding slots/priority, and releases their sell/supervisor
+    // locks. Held positions are never in the close ledger, so they are never reaped.
+    private fun reapGhostForcedOpen(forcedOpenRaw: List<String>): List<String> {
+        try { com.lifecyclebot.engine.PositionCloseLedger.prune() } catch (_: Throwable) {}
+        val reaped = forcedOpenRaw.filter { com.lifecyclebot.engine.PositionCloseLedger.isClosed(it) }
+        if (reaped.isNotEmpty()) {
+            try {
+                ForensicLogger.lifecycle("GHOST_POSITION_REAPED", "count=${reaped.size} mints=${reaped.take(8).joinToString(",") { it.take(8) }}")
+                com.lifecyclebot.engine.PipelineHealthCollector.labelInc("GHOST_POSITION_REAPED")
+            } catch (_: Throwable) {}
+            for (m in reaped) {
+                try { com.lifecyclebot.engine.Executor.releasePaperSellLock(m) } catch (_: Throwable) {}
+                try { supervisorForceReleaseLeaseAndCancel(m, "GHOST_REAP") } catch (_: Throwable) {}
+            }
+        }
+        return forcedOpenRaw.filterNot { com.lifecyclebot.engine.PositionCloseLedger.isClosed(it) }
+    }
+
+    private fun publishSlotHealth(forcedOpenRaw: Collection<String>, forcedOpenCount: Int) {
+        val ghostOpenNow = forcedOpenRaw.count { com.lifecyclebot.engine.PositionCloseLedger.isClosed(it) }
+        val exitInFlight = try { fullExitSweepPending.get() || universalSlSweepPending.get() } catch (_: Throwable) { false }
+        com.lifecyclebot.engine.SlotHealthGate.publish(
+            ghostOpen = ghostOpenNow,
+            forcedOpen = forcedOpenCount,
+            openPositions = forcedOpenCount,
+            supActive = supervisorActive.get(),
+            supCap = supervisorEffectiveCap(),
+            exitInFlight = exitInFlight,
+        )
+    }
+
     private fun supervisorEffectiveCap(): Int {
         val base = SUPERVISOR_BASE_MAX_WORKERS
         val now = System.currentTimeMillis()
