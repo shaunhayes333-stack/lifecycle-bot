@@ -7543,6 +7543,15 @@ class BotService : Service() {
     private val intakeLastAcceptMs = java.util.concurrent.ConcurrentHashMap<String, Long>()
     private val intakeDedupCount = java.util.concurrent.ConcurrentHashMap<String, Int>()
     private val intakeDedupTtlMs: Long = 30_000L
+    // V5.9.1464 — FAMILY-LEVEL intake burst gate (spec item 7). The per-mint
+    // dedupe above stops the SAME mint re-flooding, but pump.fun spam ships the
+    // SAME narrative/family under MANY fresh mints (PIÑA/José/JOTCHUA bursts).
+    // Track the first admit time per normalized family; within the window, extra
+    // DISTINCT mints of that family are still journaled/trained but flagged so the
+    // watchlist keeps ONE canonical family row instead of N near-identical rows.
+    private val familyFirstAdmitMs = java.util.concurrent.ConcurrentHashMap<String, Long>()
+    private val familyAdmitCount = java.util.concurrent.ConcurrentHashMap<String, Int>()
+    private val familyIntakeTtlMs: Long = 180_000L  // 3-min window for symbol-family floods
 
     // V5.9.1035 — Part 2 (C): symbol-burst spam tracker. Per-symbol
     // sliding window of recent (mint, timestamp) admits; if >5 distinct
@@ -8055,6 +8064,56 @@ class BotService : Service() {
         }
         intakeLastAcceptMs[mint] = nowMs
         intakeDedupCount[mint] = 0
+
+        // V5.9.1464 — FAMILY-LEVEL burst gate (spec item 7). Collapse same-family
+        // mint floods so the watchlist/UI isn't inflated by PIÑA/José/JOTCHUA-style
+        // bursts. The FIRST mint of a family in the 3-min window passes normally; a
+        // DIFFERENT mint of the SAME family inside the window is still admitted
+        // (so it journals + trains — never silently dropped) but marked as a family
+        // duplicate so downstream watchlist render attaches it to the canonical
+        // family record rather than spawning a fresh row. We do NOT suppress when
+        // the symbol is blank (unknown family) or when liquidity materially differs
+        // (a genuinely different, deeper pool deserves its own evaluation).
+        try {
+            val famSym = symbol.ifBlank { "" }
+            if (famSym.isNotBlank()) {
+                val fam = normalizeSymbolFamily(famSym)
+                val firstAt = familyFirstAdmitMs[fam]
+                if (firstAt == null || (nowMs - firstAt) >= familyIntakeTtlMs) {
+                    // new/expired window → this mint is the canonical family rep
+                    familyFirstAdmitMs[fam] = nowMs
+                    familyAdmitCount[fam] = 1
+                } else {
+                    val c = (familyAdmitCount[fam] ?: 0) + 1
+                    familyAdmitCount[fam] = c
+                    // materially-different pool (>3x the typical dust band) bypasses
+                    // the collapse so a real graduate isn't hidden behind spam.
+                    val materiallyDifferent = liquidityUsd >= 7500.0
+                    if (!materiallyDifferent && c >= 2) {
+                        try {
+                            ForensicLogger.lifecycle(
+                                "INTAKE_FAMILY_DEDUPE",
+                                "family=$fam mint=${mint.take(10)} symbol=$famSym src=$source count=$c liq=\$${liquidityUsd.toInt()} (canonical kept, dup trained)"
+                            )
+                        } catch (_: Throwable) {}
+                        // NOTE: we deliberately do NOT mutate the TokenState.phase here.
+                        // The existing dedupeWatchlistByFamily() render pass already
+                        // collapses same-family rows to one canonical entry, and the
+                        // family burst-suppression maps it shares are unaffected. Mutating
+                        // phase risks routing the token into a shadow lane / idle column
+                        // and could suppress training — which would violate the spec's
+                        // "weak candidates must still journal/train" rule. The forensic
+                        // counter above is the dedupe signal; trading/learning untouched.
+                    }
+                }
+                // opportunistic prune
+                if (familyFirstAdmitMs.size > 512) {
+                    val cutoff = nowMs - familyIntakeTtlMs
+                    val it = familyFirstAdmitMs.entries.iterator()
+                    while (it.hasNext()) { val e = it.next(); if (e.value < cutoff) { it.remove(); familyAdmitCount.remove(e.key) } }
+                }
+            }
+        } catch (_: Throwable) {}
         // Opportunistic prune so the maps cannot grow unbounded across
         // long sessions. Cheap O(n) only when we cross the cap.
         if (intakeLastAcceptMs.size > 1024) {
