@@ -4054,7 +4054,16 @@ for legal compliance.
         val structuralChange = openCountWl != lastWatchlistOpenCount ||
             activeMintWl != lastWatchlistActiveMint
         val timeElapsed = (nowWl - lastWatchlistRenderMs) >= 12_000L  // V5.9.726 — was 6s, doubled to halve buildTokenCard burden
-        if (nowWl - activityCreatedAtMs >= 20_000L && (structuralChange || timeElapsed || lastWatchlistRenderMs == 0L)) {
+        // V5.9.1462 — the 20s startup defer (1017) was an ANR guard, but if the
+        // Activity ever recreates (resets activityCreatedAtMs) the watchlist can stay
+        // EMPTY indefinitely → manual buy/sell impossible (operator: "watchlist is
+        // gone, manual trading impossible"). A watchlist that never paints is worse
+        // than a one-time startup cost. So: ALWAYS do the FIRST paint immediately
+        // (lastWatchlistRenderMs == 0L bypasses the 20s defer); keep the 20s defer
+        // only for the throttled subsequent re-renders.
+        val firstPaint = lastWatchlistRenderMs == 0L
+        val pastStartupDefer = nowWl - activityCreatedAtMs >= 20_000L
+        if (firstPaint || (pastStartupDefer && (structuralChange || timeElapsed))) {
             renderWatchlist(state)
             lastWatchlistRenderMs = nowWl
             lastWatchlistOpenCount = openCountWl

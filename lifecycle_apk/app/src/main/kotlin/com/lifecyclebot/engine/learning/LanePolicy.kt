@@ -5,6 +5,10 @@ import com.lifecyclebot.engine.LearningPersistence
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.atomic.AtomicInteger
 import java.util.concurrent.atomic.AtomicLong
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.launch
 
 /**
  * V5.9.1321 — Train-First Learning Policy (Base44/Emergent operator directive).
@@ -339,10 +343,49 @@ object LanePolicy {
         if (parts.size >= 2) snapshotForBucket(parts[0], parts[1]) else snapshotForBucket(k, "")
     }
 
+    // V5.9.1462 — ASYNC + COALESCED persistence. Was synchronous: LearningPersistence
+    // .save() does two execSQL writes on the CALLER thread, and 1460 calls persist()
+    // up to 6× per trade close (lane+bucket × recordOutcome/RetrainingDecay/setWeight).
+    // At 500-1000 closes/day in bursts that serialized SQLite I/O on the exit pipeline
+    // → "parked again" + ANR. Now: stage the newest JSON per key (only latest matters,
+    // idempotent) and flush on Dispatchers.IO. Durable, but zero pipeline blocking.
+    private val persistScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+    private val pendingWrites = ConcurrentHashMap<String, String>()
+
+    private val drainInFlight = ConcurrentHashMap<String, Boolean>()
+
     private fun persist(kind: String, key: String, cell: Cell) {
         try {
+            val storeKey = "${kind}_policy_${key}"
             val json = """{"policy":${cell.policy.get()},"lw":${cell.learningWeight.get()},"ew":${cell.executionWeight.get()},"last":${cell.lastImprovedAt.get()},"rsc":${cell.retrainingSampleCount.get()},"rc":${cell.recoveryCandidate.get()}}"""
-            LearningPersistence.save("${kind}_policy_${key}", json)
+            // Always stage the newest value (coalesces repeat writes; only latest matters).
+            pendingWrites[storeKey] = json
+            // Ensure exactly ONE drain coroutine per key. The drain loops until the
+            // staged value is fully flushed, so no final state is ever dropped even
+            // if more writes arrive mid-flush (reliable persistence, never blocks caller).
+            if (drainInFlight.putIfAbsent(storeKey, true) == null) {
+                persistScope.launch {
+                    try {
+                        while (true) {
+                            val latest = pendingWrites.remove(storeKey) ?: break
+                            try { LearningPersistence.save(storeKey, latest) } catch (_: Throwable) {}
+                        }
+                    } finally {
+                        drainInFlight.remove(storeKey)
+                        // A write may have staged between the last remove() and the flag clear.
+                        if (pendingWrites.containsKey(storeKey) && drainInFlight.putIfAbsent(storeKey, true) == null) {
+                            persistScope.launch {
+                                try {
+                                    while (true) {
+                                        val latest2 = pendingWrites.remove(storeKey) ?: break
+                                        try { LearningPersistence.save(storeKey, latest2) } catch (_: Throwable) {}
+                                    }
+                                } finally { drainInFlight.remove(storeKey) }
+                            }
+                        }
+                    }
+                }
+            }
         } catch (_: Throwable) {}
     }
 
