@@ -739,6 +739,19 @@ object MoonshotTraderAI {
 
         var sizeSol = min(baseSizeAdj * behaviorSizeMult * behaviorGradeMult, MAX_POSITION_SOL)
 
+        // V5.9.1455 — CALIBRATION SIZE SHAPE (parity with Quality/BlueChip/Manip/etc).
+        // Moonshot had shouldReject but NOT the graduated calibrationSizeMult, so
+        // mildly-negative-but-not-skip-worthy bands ran full size — part of the
+        // MOONSHOT EV=-6.42%/trade give-back in 5.0.3456. Trim (never veto; FDG
+        // final) by this band's rolling mean PnL. Positive / under-sampled bands
+        // return 1.0 and are untouched, so genuine moonshot runners keep full size.
+        try {
+            val calMult = com.lifecyclebot.engine.ScoreExpectancyTracker.calibrationSizeMult("MOONSHOT", score)
+            if (calMult.isFinite() && calMult < 1.0) {
+                sizeSol = (sizeSol * calMult).coerceAtLeast(0.01)
+            }
+        } catch (_: Throwable) { /* fail-open per FDG doctrine */ }
+
         // V5.9.926 — GLOBAL COMPOUND MULTIPLIER (Pass A fix).
         // Operator: 5 of 9 lanes were not consuming AutoCompoundEngine.
         // Same upside-only pattern as CashGen / ShitCoin: only boosts on

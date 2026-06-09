@@ -1571,6 +1571,23 @@ object ShitCoinTraderAI {
         positionSol *= (shitBehaviorSizeMult * shitBehaviorGradeMult)
         positionSol = positionSol.coerceIn(0.02, MAX_POSITION_SOL)
 
+        // V5.9.1455 — CALIBRATION SIZE SHAPE (parity with Quality/BlueChip/Manip/etc).
+        // ShitCoin had shouldReject (binary skip below the reject-mean floor) but NOT
+        // the graduated calibrationSizeMult. So a band that was net-negative yet not
+        // bad enough to skip (e.g. -5%..-12% mean) still deployed FULL size — the
+        // exact leak behind SHITCOIN EV=-17.42%/trade in 5.0.3456. This trims (never
+        // vetoes; FDG stays final) by this band's rolling mean PnL: -8%..0%→×0.70,
+        // -15%..-8%→×0.45, <-15%→×0.25. Healthy/positive bands and bands under
+        // MIN_SAMPLES are untouched (returns 1.0), so the winning S26-40 band keeps
+        // full size while the anti-predictive S61+ band gets heavily trimmed.
+        try {
+            val calMult = com.lifecyclebot.engine.ScoreExpectancyTracker.calibrationSizeMult("SHITCOIN", shitScore)
+            if (calMult.isFinite() && calMult < 1.0) {
+                positionSol *= calMult
+                positionSol = positionSol.coerceAtLeast(0.02)
+            }
+        } catch (_: Throwable) { /* fail-open per FDG doctrine */ }
+
         // V4.20: Apply AutoCompoundEngine global size multiplier
         // This multiplier grows as the compound pool accumulates from winning trades
         val globalMultiplier = AutoCompoundEngine.getSizeMultiplier()
