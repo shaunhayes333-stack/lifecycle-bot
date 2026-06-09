@@ -182,9 +182,22 @@ object LanePolicy {
     }
 
     fun effectiveExecutionWeight(lane: String, scoreBand: String): Double {
+        // V5.9.1461 — FLUID, NON-DOUBLE-COUNTED blend (operator: "keep good
+        // throughput, adjust in a fluid live state, consistent improvement").
+        // The bucket (lane × score-band) is the PRIMARY, most-specific signal —
+        // it's what actually predicts this trade's edge. The lane-level weight is
+        // a softer, slower-moving CEILING (a whole lane bleeding pulls everything
+        // down a bit). The previous raw product (laneW * bucketW) squared the
+        // decay — both fall to the 0.15 floor on a loss streak → 0.15×0.15 ≈ 2%
+        // size, over-suppressing a RECOVERING bucket and starving the samples it
+        // needs to climb back. Instead: bucket is the signal, lane is a gentle
+        // 70/30 ceiling blend. Worst case floors at ~0.15 (not 0.02), so a
+        // demoted lane keeps enough size to generate a real recovery signal while
+        // still risking far less capital. This is the fluid-progression knob.
         val laneW = executionWeightForLane(lane)
         val bucketW = executionWeightForBucket(lane, scoreBand)
-        return (laneW * bucketW).coerceIn(0.0, 1.0)
+        val blended = (0.70 * bucketW) + (0.30 * (bucketW * laneW))
+        return blended.coerceIn(0.0, 1.0)
     }
 
     fun setLaneState(lane: String, state: State, reason: String = "") {
