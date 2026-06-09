@@ -82,6 +82,52 @@ object ReEntryLockout {
         } catch (_: Throwable) { null }  // fail-open
     }
 
+    // V5.9.1466 — ADAPTIVE FAMILY LOCKOUT (spec item 9). The flat 10-min family
+    // lock treats every mint of a stopped-out family identically. The spec wants:
+    //   • SAME mint that stopped out  → keep the FULL lockout (no fast re-buy loop).
+    //   • DIFFERENT mint, same family → allow a SHORTER lock when the new candidate
+    //     shows materially STRONGER confirmation (it is not the same rug retrying).
+    // Reentry quality control belongs to FDG/promotion (operator note), so this only
+    // RELAXES the family lock for genuinely stronger different-mint candidates; the
+    // same-mint lock and all FDG/-15% protections are untouched. Fail-open.
+    private const val ADAPTIVE_FAMILY_FLOOR_MS = 3 * 60_000L   // shorter floor for a stronger different-mint
+    private const val ADAPTIVE_STRONG_CONF = 45.0              // candidate conf >= this = "stronger confirmation"
+
+    /**
+     * Adaptive lock check used by the executable-open gate.
+     * @param candidateConf the new candidate's entry confidence (0-100).
+     * Returns the active lock reason, or null if the candidate may proceed.
+     */
+    fun lockReasonAdaptive(mint: String, symbolFamily: String, candidateConf: Double): String? {
+        return try {
+            val now = System.currentTimeMillis()
+            byMint.entries.removeIf { it.value.untilMs <= now }
+            byFamily.entries.removeIf { it.value.untilMs <= now }
+            val m = byMint[mint.trim()]?.takeIf { it.untilMs > now }
+            // Same mint that stopped out → ALWAYS the full lock (no fast re-buy loop).
+            if (m != null) {
+                val remSec = ((m.untilMs - now) / 1000L).coerceAtLeast(0)
+                return "REENTRY_LOCKOUT_${m.reason}_${remSec}s"
+            }
+            val f = byFamily[symbolFamily.trim().uppercase()]?.takeIf { it.untilMs > now } ?: return null
+            // Different mint of a locked family. If it shows materially stronger
+            // confirmation, only enforce the SHORTER adaptive floor measured from when
+            // the family lock was armed; otherwise hold the full family lock.
+            if (candidateConf >= ADAPTIVE_STRONG_CONF) {
+                val adaptiveUntil = f.armedAtMs + ADAPTIVE_FAMILY_FLOOR_MS
+                if (now >= adaptiveUntil) {
+                    try { ForensicLogger.lifecycle("REENTRY_LOCKOUT_ADAPTIVE_RELEASE", "mint=${mint.take(10)} family=${symbolFamily.take(16)} conf=${"%.0f".format(candidateConf)} (stronger different-mint past ${ADAPTIVE_FAMILY_FLOOR_MS/60000}m floor)") } catch (_: Throwable) {}
+                    return null  // stronger different-mint past the short floor → allow
+                }
+                val remSec = ((adaptiveUntil - now) / 1000L).coerceAtLeast(0)
+                return "REENTRY_LOCKOUT_${f.reason}_ADAPTIVE_${remSec}s"
+            }
+            // weak different-mint → full family lock
+            val remSec = ((f.untilMs - now) / 1000L).coerceAtLeast(0)
+            "REENTRY_LOCKOUT_${f.reason}_${remSec}s"
+        } catch (_: Throwable) { null }  // fail-open
+    }
+
     /**
      * Early release: an upstream breakout/peak detector calls this when the mint
      * confirms a NEW ATH after the loss, satisfying the operator's "until new

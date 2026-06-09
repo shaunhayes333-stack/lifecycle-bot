@@ -472,7 +472,11 @@ object ExecutableOpenGate {
         // are upstream and unaffected; a blocked re-entry still emits a NoTradeObs.
         run {
             val fam = symbol.uppercase().trim().filter { it.isLetterOrDigit() }.take(8)
-            val lockReason = ReEntryLockout.lockReason(mint, fam)
+            // V5.9.1466 — ADAPTIVE lockout (spec item 9): same mint that stopped out
+            // keeps the full lock; a DIFFERENT mint of the same family with materially
+            // stronger confirmation (entryScore as the proxy here) gets a shorter floor.
+            val candidateConf = (state?.entryScore ?: 0).toDouble()
+            val lockReason = ReEntryLockout.lockReasonAdaptive(mint, fam, candidateConf)
             if (lockReason != null) {
                 return blocked("EXEC_OPEN_BLOCKED_REENTRY_LOCKOUT", lockReason, shadow = true)
             }
