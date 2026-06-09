@@ -44,13 +44,20 @@ object CryptoUniverseFilter {
      * the crypto universe. Non-exhaustive — the canonical check is
      * isSolanaNative + admit-list, but listing the most-seen offenders
      * gives the operator a clear audit trail in the Live Forensics dump.
+     *
+     * V5.9.1447 — kept ONLY the symbols that are *unambiguously* SOL-native
+     * memes. Removed symbols that overlap with legitimate multi-chain
+     * tickers in PerpsMarket and were being false-positive quarantined
+     * (FLOKI = ETH/BSC, NEIRO = exchange-listed multi-chain, TURBO = ETH,
+     * DEGEN = multi-chain, SC = Siacoin L1, POPCAT = on Solana but also
+     * exchange-listed major). The remaining list is SOL-launch memes
+     * whose primary venue is a Solana DEX (pump.fun graduates etc.).
      */
     val SOL_MEMES_QUARANTINED: Set<String> = setOf(
-        "BONK", "WIF", "PEPE", "MEME", "POPCAT", "MEW", "MYRO", "FLOKI",
-        "BOME", "SLERF", "PONKE", "WEN", "AURA", "GIGA", "NEIRO", "TRUMP",
-        "MOTHER", "FWOG", "CHILLGUY", "TURBO", "BOOK", "DADDY", "DEGEN",
-        "PNUT", "GOAT", "ACT", "LUCE", "CHUD", "SHOG", "RETARDIO", "MICHI",
-        "MUMU", "BAN", "MOODENG", "FARTCOIN", "SC", "BOBO",
+        "BONK", "WIF", "MEW", "MYRO", "BOME", "SLERF", "PONKE", "WEN",
+        "AURA", "GIGA", "MOTHER", "FWOG", "CHILLGUY", "BOOK", "DADDY",
+        "PNUT", "LUCE", "CHUD", "SHOG", "RETARDIO", "MICHI", "MUMU",
+        "BAN", "MOODENG", "FARTCOIN", "BOBO", "GOAT", "ACT",
     )
 
     /**

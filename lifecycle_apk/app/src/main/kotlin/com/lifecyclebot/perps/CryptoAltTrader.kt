@@ -899,6 +899,7 @@ object CryptoAltTrader {
             // covers any meme-symbol that slipped into the enum.
             val admitted = com.lifecyclebot.perps.crypto.CryptoUniverseFilter
                 .isAdmittedToCryptoUniverse(m.symbol, isSolanaNative = false)
+            com.lifecyclebot.perps.crypto.brain.CryptoFunnel.universe(admitted)
             if (!admitted) {
                 val reason = com.lifecyclebot.perps.crypto.CryptoUniverseFilter
                     .rejectionReason(m.symbol, isSolanaNative = false)
@@ -972,6 +973,7 @@ object CryptoAltTrader {
                 analyzed++
 
                 val signal = analyzeAlt(market, data)
+                com.lifecyclebot.perps.crypto.brain.CryptoFunnel.analyze(signal != null)
                 if (signal != null) {
                     // V5.9.1442 — Crypto isolated brain thresholds.
                     val scoreThresh = com.lifecyclebot.perps.crypto.brain.CryptoBrain.getSpotScoreFloor()
@@ -984,6 +986,7 @@ object CryptoAltTrader {
                     // have blocked. 50/50 signals no longer get silently dropped.
                     val fluidPass = signal.score >= scoreThresh && signal.confidence >= confThresh
                     val prefilterOk = signal.score >= 45
+                    com.lifecyclebot.perps.crypto.brain.CryptoFunnel.threshold(fluidPass)
 
                     if (fluidPass) {
                         signals.add(signal)
@@ -1007,6 +1010,7 @@ object CryptoAltTrader {
                                 true
                             } else false
                         } catch (_: Exception) { false }
+                        com.lifecyclebot.perps.crypto.brain.CryptoFunnel.v3(v3Approves)
 
                         if (v3Approves) signals.add(signal)
                         else ErrorLogger.warn(TAG, "🪙 ${market.symbol}: BELOW FLUID + V3 VETO (${signal.score}<$scoreThresh or ${signal.confidence}<$confThresh)")
@@ -1744,7 +1748,9 @@ object CryptoAltTrader {
         }
 
         val candidate = buildCryptoFinalBuyCandidate(signal, isSpot, finalSize)
+        com.lifecyclebot.perps.crypto.brain.CryptoFunnel.preFdg(candidate.canEnterFdg)
         val authResult = authorizeCryptoFinalCandidate(candidate)
+        com.lifecyclebot.perps.crypto.brain.CryptoFunnel.execGate(authResult != null)
         if (authResult == null) {
             ErrorLogger.info(TAG, "🪙 CRYPTO EXEC BLOCKED: ${signal.market.symbol} | preFdg=${candidate.preFdgVerdict} hardNo=${candidate.hardNoReasons} route=${candidate.routeQuality}")
             // V5.9.1317 (P0-5) — release the primary-lane lease on the CRYPTO book so a
@@ -1803,6 +1809,7 @@ object CryptoAltTrader {
         positions[position.id]         = position
         if (isSpot) spotPositions[position.id]     = position
         else        leveragePositions[position.id]  = position
+        com.lifecyclebot.perps.crypto.brain.CryptoFunnel.open(true)
 
         // V5.9.320: After a successful LIVE leveraged open, look up the Flash.trade
         // position key so we can close it properly via the Flash close-position endpoint.

@@ -148,6 +148,7 @@ object CryptoBrain {
         appendLine(CryptoLosingPatternMemory.summary())
         appendLine(CryptoTacticSwitcher.summary())
         appendLine(CryptoLaneExitTuner.summary())
-        append(CryptoCanonicalLearning.summary())
+        appendLine(CryptoCanonicalLearning.summary())
+        append(CryptoFunnel.summary())
     }
 }

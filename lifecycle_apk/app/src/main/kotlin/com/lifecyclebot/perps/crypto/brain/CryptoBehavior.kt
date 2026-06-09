@@ -110,19 +110,28 @@ object CryptoBehavior {
         val cur = netPnl()
         setNetPnl(cur * 0.90 + pnlPct * 0.10)
 
+        // V5.9.1447 — clean streak math.
+        // result = +1 win, -1 loss, 0 scratch.
+        // streak holds the signed run length: +N consecutive wins or -N
+        // consecutive losses. A scratch (|pnl|<=1%) does NOT break the
+        // streak — it's noise. The previous code had a double-negation
+        // path that could leave `streak` at 0 when it should have been
+        // negative, masking real bleed runs from the tilt gate.
         val result = when {
             pnlPct > 1.0  -> 1
             pnlPct < -1.0 -> -1
             else          -> 0
         }
-        val lr = lastResult.get()
-        if (result == lr && result != 0) {
-            streak.incrementAndGet().let { if (result < 0) streak.set(-(abs(streak.get()))) }
-            if (result < 0) streak.set(-(abs(streak.get())))
-        } else {
-            streak.set(result)
+        if (result != 0) {
+            val prev = streak.get()
+            val newStreak = when {
+                prev > 0 && result > 0 -> prev + 1   // win extends win streak
+                prev < 0 && result < 0 -> prev - 1   // loss extends loss streak
+                else                   -> result    // direction flip → reset
+            }
+            streak.set(newStreak)
+            lastResult.set(result)
         }
-        lastResult.set(result)
 
         // Arm tilt protection on 5-loss streak (or single -15% impulse).
         if (streak.get() <= -5 || pnlPct < -15.0) {
