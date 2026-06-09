@@ -39,6 +39,16 @@ class DexscreenerApi {
         // budget. Cache TTL of 45s + stale-tolerance of 135s mean any
         // dropped fetch is recovered on the next cycle.
         .readTimeout(4, TimeUnit.SECONDS)
+        // V5.9.1459 — HARD CALL CEILING on the per-token hot path. getBestPair() is
+        // the FIRST network hit inside processTokenCycle (BotService:~12995) and runs
+        // under the 8s supervisor worker budget. Without callTimeout, dispatcher
+        // queue-wait (48 workers vs maxRequestsPerHost) + connect + read could pin a
+        // worker past 8s → it times out but the wedged socket keeps its IO thread →
+        // IO-pool starvation cascade (session 9551671c: 526 worker_timeouts/10min,
+        // processed=0). callTimeout bounds the WHOLE call (incl. queue wait); 6s < 8s
+        // guarantees the worker is freed inside its lease. Cache TTL 45s + stale
+        // tolerance recovers any dropped fetch next cycle — no quality loss.
+        .callTimeout(6, TimeUnit.SECONDS)
         .build()
     
     // Simple cache for getBestPair results - avoids repeated API calls

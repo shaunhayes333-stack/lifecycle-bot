@@ -50,8 +50,15 @@ object SharedHttpClient {
         // supervisor stays un-choked, but half the per-minute burden on
         // Birdeye's free-tier cap (100 RPM @ ~400ms avg latency).
         // maxRequests scaled proportionally.
-        maxRequests = 64
-        maxRequestsPerHost = 16
+        // V5.9.1459 — align per-host concurrency with the 48-worker supervisor pool.
+        // 16 was tuned (V5.9.1032) to protect Birdeye's free-tier RPM, but it queued
+        // 32 of 48 supervisor workers behind active DexScreener sockets → the stall.
+        // 24 relieves the queue (only ~24 workers can wait, not 32) while staying
+        // well under the burst that crashed Birdeye SR to 56% at 32. The new 7s
+        // callTimeout is the real safety net; this just reduces how often it trips.
+        // maxRequests scaled so the global pool isn't the new bottleneck.
+        maxRequests = 96
+        maxRequestsPerHost = 24
     }
 
     val base: OkHttpClient = OkHttpClient.Builder()
@@ -59,6 +66,10 @@ object SharedHttpClient {
         .connectTimeout(10, TimeUnit.SECONDS)
         .readTimeout(15, TimeUnit.SECONDS)
         .writeTimeout(15, TimeUnit.SECONDS)
+        // NOTE: deliberately NO callTimeout on the BASE client — ~36 callers
+        // inherit this builder and several legitimately need long calls (LLM 30-60s,
+        // Jito/Markets live execution 30s). callTimeout is applied PER-CALLER on the
+        // per-token hot path only (DexscreenerApi) where the 8s worker budget binds.
         .build()
 
     /**
