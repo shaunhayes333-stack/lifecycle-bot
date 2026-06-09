@@ -219,6 +219,11 @@ object CryptoAltTrader {
     data class AltPosition(
         val id            : String,
         val market        : PerpsMarket,
+        // V5.9.1472 — DYNAMIC CRYPTO identity (set when market == PerpsMarket.DYN).
+        val dynSymbol     : String? = null,
+        val dynName       : String? = null,
+        val dynEmoji      : String  = "🪙",
+        val dynMint       : String? = null,
         val direction     : PerpsDirection,
         val isSpot        : Boolean,
         val entryPrice    : Double,
@@ -239,6 +244,10 @@ object CryptoAltTrader {
         // Set after open for leveraged crypto positions. Null = SPOT or USDC-parked.
         var flashPositionKey: String? = null,
     ) {
+        // V5.9.1472 — real coin symbol/name for dynamic crypto positions.
+        val marketSymbol: String get() = dynSymbol ?: market.symbol
+        val marketName: String get() = dynName ?: market.displayName
+        val isDynamic: Boolean get() = market == PerpsMarket.DYN || dynSymbol != null
         val leverageLabel: String get() = if (isSpot) "SPOT" else "${leverage.toInt()}x"
 
         fun getPnlPct(): Double {
@@ -276,6 +285,14 @@ object CryptoAltTrader {
             .put("reasons",         org.json.JSONArray(p.reasons))
             .put("openTime",         p.openTime)
             .put("highestPnlPct",    p.highestPnlPct)
+            // V5.9.1472 — persist dynamic-crypto identity so DYN positions
+            // restore as the real coin, not the bare sentinel.
+            .apply {
+                if (p.dynSymbol != null) put("dynSymbol", p.dynSymbol)
+                if (p.dynName   != null) put("dynName",   p.dynName)
+                if (p.dynMint   != null) put("dynMint",   p.dynMint)
+                put("dynEmoji", p.dynEmoji)
+            }
             .apply { if (p.flashPositionKey != null) put("flashPositionKey", p.flashPositionKey) }
     }
     private fun altPositionFromJson(j: org.json.JSONObject): AltPosition {
@@ -285,7 +302,11 @@ object CryptoAltTrader {
         } else emptyList()
         return AltPosition(
             id              = j.getString("id"),
-            market          = PerpsMarket.valueOf(j.getString("market")),
+            market          = try { PerpsMarket.valueOf(j.getString("market")) } catch (_: Exception) { PerpsMarket.DYN },
+            dynSymbol       = j.optString("dynSymbol", "").ifBlank { null },
+            dynName         = j.optString("dynName", "").ifBlank { null },
+            dynEmoji        = j.optString("dynEmoji", "🪙"),
+            dynMint         = j.optString("dynMint", "").ifBlank { null },
             direction       = PerpsDirection.valueOf(j.getString("direction")),
             isSpot          = j.optBoolean("isSpot", true),
             entryPrice      = j.getDouble("entryPrice"),
@@ -321,8 +342,20 @@ object CryptoAltTrader {
         val priceChange24h: Double,
         val reasons     : List<String>,
         val layerVotes  : Map<String, PerpsDirection>,
-        val leverage    : Double = DEFAULT_LEVERAGE
-    )
+        val leverage    : Double = DEFAULT_LEVERAGE,
+        // V5.9.1472 — DYNAMIC CRYPTO. When `market == PerpsMarket.DYN`, this
+        // signal is for an arbitrary non-Solana coin discovered by
+        // DynamicAltTokenRegistry that has no hardcoded enum entry. The real
+        // identity lives here. mint = the registry key (cg:id / real address).
+        val dynSymbol   : String? = null,
+        val dynName     : String? = null,
+        val dynEmoji    : String  = "🪙",
+        val dynMint     : String? = null
+    ) {
+        /** Real coin symbol — dynamic value when present, else the enum symbol. */
+        val marketSymbol: String get() = dynSymbol ?: market.symbol
+        val isDynamic: Boolean get() = market == PerpsMarket.DYN || dynSymbol != null
+    }
 
     // ═══════════════════════════════════════════════════════════════════════════
     // LIFECYCLE
@@ -669,8 +702,12 @@ object CryptoAltTrader {
                                 ErrorLogger.info(TAG, "🪙💩 DynSig ShitCoin: ${tok.symbol} conf=${sig.confidence}")
                                 try { com.lifecyclebot.perps.crypto.brain.CryptoBrain.onTradeStart() } catch (_: Exception) {}
                                 // V5.9.2: Convert to tradeable AltSignal
-                                val dynMarket = PerpsMarket.values().find { it.symbol == tok.symbol }
-                                if (dynMarket != null) {
+                                // V5.9.1472 — DYNAMIC CRYPTO: open ANY non-Solana coin.
+                                // Prefer a hardcoded enum entry when one exists (keeps
+                                // its metadata); otherwise carry the real identity on the
+                                // DYN sentinel so the coin is no longer silently dropped.
+                                val enumMkt = PerpsMarket.values().find { it.symbol == tok.symbol }
+                                run {
                                     // V5.9.230: direction from buyPressure + momentum, not just price sign
                                     val scDir = when {
                                         buyPct >= 60 && momentum > 0 -> PerpsDirection.LONG
@@ -680,10 +717,13 @@ object CryptoAltTrader {
                                         else -> if (change >= 0) PerpsDirection.LONG else PerpsDirection.SHORT
                                     }
                                     dynExecutableSignals.add(AltSignal(
-                                        market = dynMarket, direction = scDir,
+                                        market = enumMkt ?: PerpsMarket.DYN, direction = scDir,
                                         score = sig.confidence, confidence = sig.confidence, price = price,
                                         priceChange24h = change, reasons = listOf("DynScan ShitCoin score=${sig.confidence} ${scDir.name}"),
-                                        layerVotes = emptyMap()
+                                        layerVotes = emptyMap(),
+                                        dynSymbol = if (enumMkt == null) tok.symbol else null,
+                                        dynName   = if (enumMkt == null) tok.name else null,
+                                        dynMint   = tok.mint
                                     ))
                                 }
                             }
@@ -712,18 +752,21 @@ object CryptoAltTrader {
                                 signals++
                                 ErrorLogger.info(TAG, "🪙🔵 DynSig BlueChip: ${tok.symbol} conf=${sig.confidence}")
                                 try { com.lifecyclebot.perps.crypto.brain.CryptoBrain.onTradeStart() } catch (_: Exception) {}
-                                val dynMarket = PerpsMarket.values().find { it.symbol == tok.symbol }
-                                if (dynMarket != null) {
+                                val enumMkt = PerpsMarket.values().find { it.symbol == tok.symbol }
+                                run {
                                     val bcDir = when {
                                         buyPct >= 55 && momentum > 1.0 -> PerpsDirection.LONG
                                         buyPct < 45 && momentum < -1.0 -> PerpsDirection.SHORT
                                         else -> if (change >= 0) PerpsDirection.LONG else PerpsDirection.SHORT
                                     }
                                     dynExecutableSignals.add(AltSignal(
-                                        market = dynMarket, direction = bcDir,
+                                        market = enumMkt ?: PerpsMarket.DYN, direction = bcDir,
                                         score = sig.confidence + 5, confidence = sig.confidence, price = price,
                                         priceChange24h = change, reasons = listOf("DynScan BlueChip mcap=\$${(mcap/1_000_000).toInt()}M ${bcDir.name}"),
-                                        layerVotes = emptyMap()
+                                        layerVotes = emptyMap(),
+                                        dynSymbol = if (enumMkt == null) tok.symbol else null,
+                                        dynName   = if (enumMkt == null) tok.name else null,
+                                        dynMint   = tok.mint
                                     ))
                                 }
                             }
@@ -779,13 +822,16 @@ object CryptoAltTrader {
                                 signals++
                                 ErrorLogger.info(TAG, "🪙🌙 DynSig Moonshot: ${tok.symbol}")
                                 try { com.lifecyclebot.perps.crypto.brain.CryptoBrain.onTradeStart() } catch (_: Exception) {}
-                                val dynMarket = PerpsMarket.values().find { it.symbol == tok.symbol }
-                                if (dynMarket != null) dynExecutableSignals.add(AltSignal(
+                                val enumMkt = PerpsMarket.values().find { it.symbol == tok.symbol }
+                                dynExecutableSignals.add(AltSignal(
                                     // V5.9.230: Moonshot is always LONG (looking for explosive upside)
-                                    market = dynMarket, direction = PerpsDirection.LONG,
+                                    market = enumMkt ?: PerpsMarket.DYN, direction = PerpsDirection.LONG,
                                     score = sig.score.coerceAtMost(95), confidence = sig.score.coerceAtMost(95), price = price,
                                     priceChange24h = change, reasons = listOf("DynScan Moonshot trending=${tok.isTrending}"),
-                                    layerVotes = emptyMap()
+                                    layerVotes = emptyMap(),
+                                    dynSymbol = if (enumMkt == null) tok.symbol else null,
+                                    dynName   = if (enumMkt == null) tok.name else null,
+                                    dynMint   = tok.mint
                                 ))
                             }
                         } catch (_: Exception) {}
@@ -833,11 +879,12 @@ object CryptoAltTrader {
                 .take(25) // V5.9.128: raised from 3 → 25 to use full 449-token universe
             for (sig in topDyn) {
                 if (positions.size >= MAX_POSITIONS) break
-                if (hasPosition(sig.market)) continue
+                // V5.9.1472 — dedupe by real symbol so DYN coins aren't collapsed.
+                if (hasPositionSymbol(sig.marketSymbol)) continue
                 // V5.9.3: respect UI toggle for DynScan signals too
                 val dynSpot = !preferLeverage.get()
                 val dynLev  = if (dynSpot) 1.0 else DEFAULT_LEVERAGE
-                ErrorLogger.info(TAG, "🪙⚡ DynScan EXECUTE: ${sig.market.symbol} score=${sig.score} conf=${sig.confidence} ${if (dynSpot) "SPOT" else "${dynLev.toInt()}x"}")
+                ErrorLogger.info(TAG, "🪙⚡ DynScan EXECUTE: ${sig.marketSymbol} score=${sig.score} conf=${sig.confidence} ${if (dynSpot) "SPOT" else "${dynLev.toInt()}x"}")
                 executeSignal(sig.copy(leverage = dynLev), isSpot = dynSpot)
             }
         }
@@ -1558,7 +1605,7 @@ object CryptoAltTrader {
     private fun cryptoAssetKey(signal: AltSignal, isSpot: Boolean): String {
         val assetType = if (isSpot) "SPOT" else "PERP"
         val venue = if (isSpot) "UNIVERSE" else "PERP"
-        return "CRYPTO:$venue:${signal.market.symbol.uppercase()}:$assetType"
+        return "CRYPTO:$venue:${signal.marketSymbol.uppercase()}:$assetType"
     }
 
     private fun buildCryptoFinalBuyCandidate(
@@ -1566,7 +1613,7 @@ object CryptoAltTrader {
         isSpot: Boolean,
         finalSize: Double,
     ): CryptoFinalBuyCandidate {
-        val symbol = signal.market.symbol.uppercase()
+        val symbol = signal.marketSymbol.uppercase()
         val lane = cryptoMarketCapLane(symbol)
         val assetType = if (isSpot) CryptoFinalBuyCandidate.AssetType.SPOT else CryptoFinalBuyCandidate.AssetType.PERP
         val walletSol = try { WalletManager.getWallet()?.getSolBalance() ?: getEffectiveBalance() } catch (_: Throwable) { getEffectiveBalance() }
@@ -1686,6 +1733,11 @@ object CryptoAltTrader {
     // ═══════════════════════════════════════════════════════════════════════════
 
     private suspend fun executeSignal(signal: AltSignal, isSpot: Boolean) {
+        // V5.9.1472 — DYNAMIC CRYPTO: resolve the REAL coin symbol once. For DYN
+        // sentinel signals (arbitrary non-Solana coin) this is dynSymbol; for
+        // hardcoded enum coins it's market.symbol. ALL learning/record/log calls
+        // below MUST use mktSym so per-coin learning isn't collapsed into "DYN".
+        val mktSym = signal.marketSymbol
         // V5.9.198: Trust gate
         // V5.9.1452: Crypto-isolated bypass — the meme-side StrategyTrustAI was
         // accumulating "DISTRUSTED" verdicts on generic reason strings (e.g.
@@ -1714,7 +1766,7 @@ object CryptoAltTrader {
         val sizeSol  = balance * (DEFAULT_SIZE_PCT / 100) * sizeMult * trustMult  // V5.9.198: trust-weighted sizing
 
         if (sizeSol < 0.01) {
-            ErrorLogger.warn(TAG, "Insufficient balance for ${signal.market.symbol} (${sizeSol} SOL)")
+            ErrorLogger.warn(TAG, "Insufficient balance for ${mktSym} (${sizeSol} SOL)")
             return
         }
 
@@ -1727,7 +1779,7 @@ object CryptoAltTrader {
         val totalRisk = positions.values.sumOf { it.sizeSol }
         val maxRisk   = balance * 0.80
         if (totalRisk + sizeSol > maxRisk) {
-            ErrorLogger.info(TAG, "🛑 Exposure cap: ${"%.2f".format(totalRisk)}◎ at risk / ${"%.2f".format(maxRisk)}◎ max — skipping ${signal.market.symbol}")
+            ErrorLogger.info(TAG, "🛑 Exposure cap: ${"%.2f".format(totalRisk)}◎ at risk / ${"%.2f".format(maxRisk)}◎ max — skipping ${mktSym}")
             return
         }
         // V5.9.9: Cross-trader wallet exposure check
@@ -1737,13 +1789,13 @@ object CryptoAltTrader {
         }
         val cachedPriceData = PerpsMarketDataFetcher.getCachedPrice(signal.market)
         if (signal.price <= 0.0) {
-            ErrorLogger.warn(TAG, "🪙 PRICE ZERO: ${signal.market.symbol} — REJECTING trade")
+            ErrorLogger.warn(TAG, "🪙 PRICE ZERO: ${mktSym} — REJECTING trade")
             return
         }
         if (cachedPriceData != null && cachedPriceData.price > 0) {
             val priceDiffPct = kotlin.math.abs(signal.price - cachedPriceData.price) / cachedPriceData.price * 100.0
             if (priceDiffPct > 90.0) {
-                ErrorLogger.warn(TAG, "🪙 PRICE SANITY FAIL: ${signal.market.symbol} signal=\$${signal.price} cached=\$${cachedPriceData.price} diff=${priceDiffPct.toInt()}% — REJECTING")
+                ErrorLogger.warn(TAG, "🪙 PRICE SANITY FAIL: ${mktSym} signal=\$${signal.price} cached=\$${cachedPriceData.price} diff=${priceDiffPct.toInt()}% — REJECTING")
                 return
             }
         }
@@ -1758,7 +1810,7 @@ object CryptoAltTrader {
         val (tpMult, slMult) = fluidTpSlMultiplier(signal.score, signal.confidence)
 
         // Hivemind size / TP modifier
-        val (_, hiveSizeMult, hiveTpAdj) = hiveEntryModifier(signal.market.symbol)
+        val (_, hiveSizeMult, hiveTpAdj) = hiveEntryModifier(mktSym)
         val finalSize = (sizeSol * hiveSizeMult).coerceIn(0.01, balance * 0.25)
         val finalTp   = ((tpPct * tpMult) + hiveTpAdj).coerceAtLeast(1.5)
         // V5.9.432 — SL floor raised from 1.5% → 4% for SPOT, 3% → 6% for
@@ -1779,7 +1831,7 @@ object CryptoAltTrader {
         val authResult = authorizeCryptoFinalCandidate(candidate)
         com.lifecyclebot.perps.crypto.brain.CryptoFunnel.execGate(authResult != null)
         if (authResult == null) {
-            ErrorLogger.info(TAG, "🪙 CRYPTO EXEC BLOCKED: ${signal.market.symbol} | preFdg=${candidate.preFdgVerdict} hardNo=${candidate.hardNoReasons} route=${candidate.routeQuality}")
+            ErrorLogger.info(TAG, "🪙 CRYPTO EXEC BLOCKED: ${mktSym} | preFdg=${candidate.preFdgVerdict} hardNo=${candidate.hardNoReasons} route=${candidate.routeQuality}")
             // V5.9.1317 (P0-5) — release the primary-lane lease on the CRYPTO book so a
             // blocked candidate does not suppress follow-up CRYPTO attempts for the same
             // asset until TTL. CRYPTO lane is isolated; this never touches Meme lanes.
@@ -1790,6 +1842,10 @@ object CryptoAltTrader {
         val position = AltPosition(
             id             = "ALT_${positionCounter.incrementAndGet()}",
             market         = signal.market,
+            dynSymbol      = signal.dynSymbol,
+            dynName        = signal.dynName,
+            dynEmoji       = signal.dynEmoji,
+            dynMint        = signal.dynMint,
             direction      = signal.direction,
             isSpot         = isSpot,
             entryPrice     = signal.price,
@@ -1811,11 +1867,11 @@ object CryptoAltTrader {
         // we roll back: the position is not created and we return.
         if (isPaperMode.get()) {
             // V5.9.5: Deduct from shared FluidLearning pool
-            try { com.lifecyclebot.engine.FluidLearning.recordPaperBuy(signal.market.symbol, finalSize) } catch (_: Exception) {}
+            try { com.lifecyclebot.engine.FluidLearning.recordPaperBuy(mktSym, finalSize) } catch (_: Exception) {}
             // V5.9.48: Unified paper wallet — debit deployed capital from main.
             com.lifecyclebot.engine.BotService.creditUnifiedPaperSol(
                 delta = -finalSize,
-                source = "CryptoAlt.open[${signal.market.symbol}]"
+                source = "CryptoAlt.open[${mktSym}]"
             )
         } else {
             // LIVE mode — execute Jupiter swap at the exact paper-sized
@@ -1825,12 +1881,12 @@ object CryptoAltTrader {
             // target mint actually arrived on-chain).
             val liveOk = executeLiveTradeAtSize(signal, isSpot, finalSize)
             if (!liveOk) {
-                ErrorLogger.warn(TAG, "🔴 LIVE alt trade failed: ${signal.market.symbol} — position not recorded")
+                ErrorLogger.warn(TAG, "🔴 LIVE alt trade failed: ${mktSym} — position not recorded")
                 try { TradeAuthorizer.releasePosition(candidate.assetKey, "CRYPTO_LIVE_BUY_NOT_OPENED", TradeAuthorizer.ExecutionBook.CRYPTO) } catch (_: Throwable) {}
                 try { com.lifecyclebot.engine.LaneExecutionCoordinator.releaseIfPrimary(candidate.assetKey, "CRYPTO", "CRYPTO_LIVE_BUY_NOT_OPENED") } catch (_: Throwable) {}
                 return
             }
-            ErrorLogger.info(TAG, "🪙 LIVE trade success: ${signal.market.symbol} (paper-sized ${finalSize.fmt(4)}◎)")
+            ErrorLogger.info(TAG, "🪙 LIVE trade success: ${mktSym} (paper-sized ${finalSize.fmt(4)}◎)")
         }
 
         positions[position.id]         = position
@@ -1841,7 +1897,7 @@ object CryptoAltTrader {
         // V5.9.320: After a successful LIVE leveraged open, look up the Flash.trade
         // position key so we can close it properly via the Flash close-position endpoint.
         // SPOT positions close via Jupiter swap (no Flash key needed).
-        if (!isPaperMode.get() && !isSpot && signal.market.symbol in MarketsLiveExecutor.FLASH_SUPPORTED_PUBLIC) {
+        if (!isPaperMode.get() && !isSpot && mktSym in MarketsLiveExecutor.FLASH_SUPPORTED_PUBLIC) {
             scope.launch(kotlinx.coroutines.Dispatchers.IO) {
                 try {
                     kotlinx.coroutines.delay(3_000L) // brief delay for tx to settle on-chain
@@ -1850,16 +1906,16 @@ object CryptoAltTrader {
                     if (!walletAddress.isNullOrBlank()) {
                         val key = MarketsLiveExecutor.findFlashPositionKey(
                             walletAddress = walletAddress,
-                            symbol        = signal.market.symbol,
+                            symbol        = mktSym,
                             direction     = signal.direction,
                         )
                         if (key != null) {
                             positions[position.id]?.flashPositionKey = key
                             if (!isSpot) leveragePositions[position.id]?.flashPositionKey = key
                             persistAltPositions()
-                            ErrorLogger.info("CryptoAlt", "⚡ Flash posKey stored for ${signal.market.symbol}: ${key.take(12)}...")
+                            ErrorLogger.info("CryptoAlt", "⚡ Flash posKey stored for ${mktSym}: ${key.take(12)}...")
                         } else {
-                            ErrorLogger.warn("CryptoAlt", "⚠️ Flash posKey not found for ${signal.market.symbol} — close will use wallet-scan fallback")
+                            ErrorLogger.warn("CryptoAlt", "⚠️ Flash posKey not found for ${mktSym} — close will use wallet-scan fallback")
                         }
                     }
                 } catch (_: Exception) {}
@@ -1877,7 +1933,7 @@ object CryptoAltTrader {
                     trader = "CryptoAlt",
                     posId = position.id,
                     sizeSol = finalSize,
-                    symbol = signal.market.symbol,
+                    symbol = mktSym,
                 )
             } catch (_: Exception) {}
         }
@@ -1887,7 +1943,7 @@ object CryptoAltTrader {
         // it learns why CryptoAltTrader opened, not just that it opened.
         try {
             PerpsUnifiedScorerBridge.registerEntry(
-                symbol = signal.market.symbol,
+                symbol = mktSym,
                 assetClass = "ALT",
                 direction = signal.direction.name,
                 entryPrice = signal.price,
@@ -1901,7 +1957,7 @@ object CryptoAltTrader {
         // ── BehaviorAI tilt protection (V5.9.1442 — isolated crypto brain) ──
         try {
             if (com.lifecyclebot.perps.crypto.brain.CryptoBrain.isTiltProtectionActive()) {
-                ErrorLogger.warn(TAG, "🪙 CryptoBrain tilt — skip ${signal.market.symbol}")
+                ErrorLogger.warn(TAG, "🪙 CryptoBrain tilt — skip ${mktSym}")
                 return
             }
         } catch (_: Exception) {}
@@ -1914,8 +1970,8 @@ object CryptoAltTrader {
             val metaSig = if (signal.direction == PerpsDirection.LONG)
                 MetaCognitionAI.SignalType.BULLISH else MetaCognitionAI.SignalType.BEARISH
             MetaCognitionAI.recordEntryPredictions(
-                mint        = signal.market.symbol,
-                symbol      = signal.market.symbol,
+                mint        = mktSym,
+                symbol      = mktSym,
                 predictions = mapOf(
                     MetaCognitionAI.AILayer.AI_CROSSTALK       to Pair(metaSig, signal.confidence.toDouble()),
                     MetaCognitionAI.AILayer.MOMENTUM_PREDICTOR to Pair(metaSig, signal.score.toDouble())
@@ -1926,8 +1982,8 @@ object CryptoAltTrader {
         // ── ShadowLearningEngine — track opportunity ─────────────────────────
         try {
             ShadowLearningEngine.onTradeOpportunity(
-                mint               = signal.market.symbol,
-                symbol             = signal.market.symbol,
+                mint               = mktSym,
+                symbol             = mktSym,
                 currentPrice       = signal.price,
                 liveEntryScore     = signal.score,
                 liveEntryThreshold = 55,
@@ -1939,13 +1995,13 @@ object CryptoAltTrader {
         // ── NarrativeFlowAI — record activity ────────────────────────────────
         try {
             NarrativeFlowAI.recordActivity(
-                symbol       = signal.market.symbol,
+                symbol       = mktSym,
                 volumeSpike  = signal.score > 75,
                 priceMovePct = signal.priceChange24h
             )
         } catch (_: Exception) {}
 
-        ErrorLogger.info(TAG, "🪙 OPENED: ${signal.direction.emoji} ${signal.market.symbol} @ ${"%.4f".format(signal.price)} | " +
+        ErrorLogger.info(TAG, "🪙 OPENED: ${signal.direction.emoji} ${mktSym} @ ${"%.4f".format(signal.price)} | " +
             "${position.leverageLabel} | size=${finalSize.fmt(3)}◎ | score=${signal.score} | TP=${"%.4f".format(tp)} SL=${"%.4f".format(sl)}")
 
         signal.reasons.take(3).forEach { ErrorLogger.debug(TAG, "   → $it") }
@@ -2376,6 +2432,8 @@ object CryptoAltTrader {
 
     private fun closePosition(positionId: String, reason: String) {
         val pos = positions.remove(positionId) ?: return
+        // V5.9.1472 — DYNAMIC CRYPTO: record outcomes under the REAL coin symbol.
+        val mktSym = pos.marketSymbol
         spotPositions.remove(positionId)
         leveragePositions.remove(positionId)
         // V5.9.424 — drop momentum snapshot so the map stays bounded.
@@ -2394,7 +2452,7 @@ object CryptoAltTrader {
                 com.lifecyclebot.engine.CryptoPositionState.Bucket.PAPER
             else
                 com.lifecyclebot.engine.CryptoPositionState.Bucket.LIVE
-            com.lifecyclebot.engine.CryptoPositionState.release(pos.market.symbol, bucket)
+            com.lifecyclebot.engine.CryptoPositionState.release(mktSym, bucket)
         } catch (_: Throwable) { /* best-effort */ }
         // V5.9.178 — persist the map without this position.
         persistAltPositions()
@@ -2412,18 +2470,18 @@ object CryptoAltTrader {
             val pnlSolFast = pos.getPnlSol()
             totalPnlSol += pnlSolFast
             if (isPaperMode.get()) {
-                try { com.lifecyclebot.engine.FluidLearning.recordPaperSell(pos.market.symbol, pos.sizeSol, pnlSolFast) } catch (_: Exception) {}
+                try { com.lifecyclebot.engine.FluidLearning.recordPaperSell(mktSym, pos.sizeSol, pnlSolFast) } catch (_: Exception) {}
                 paperBalance = com.lifecyclebot.engine.FluidLearning.getSimulatedBalance()
                 com.lifecyclebot.engine.BotService.creditUnifiedPaperSol(
                     delta = pos.sizeSol + pnlSolFast,
-                    source = "CryptoAlt.close.fast[${pos.market.symbol}]"
+                    source = "CryptoAlt.close.fast[${mktSym}]"
                 )
             }
             // Async Turso orphan delete (non-blocking)
             scope.launch {
                 try { com.lifecyclebot.collective.CollectiveLearning.getClient()?.deleteMarketsPosition(pos.id) } catch (_: Exception) {}
             }
-            ErrorLogger.info(TAG, "🪙 FAST_CLOSE [${pos.market.symbol}] pnl=${"%.4f".format(pnlSolFast)} reason=$reason — AI learning skipped on shutdown")
+            ErrorLogger.info(TAG, "🪙 FAST_CLOSE [${mktSym}] pnl=${"%.4f".format(pnlSolFast)} reason=$reason — AI learning skipped on shutdown")
             persistAltPositions()
             return
         }
@@ -2451,7 +2509,7 @@ object CryptoAltTrader {
                 com.lifecyclebot.engine.LlmTradeScore.recordClose(
                     pnlSol = pnlSol,
                     pnlPct = pos.getPnlPct(),
-                    symbol = pos.market.symbol,
+                    symbol = mktSym,
                 )
             } catch (_: Exception) {}
             try {
@@ -2480,7 +2538,7 @@ object CryptoAltTrader {
         // education firehose learns WHY we closed, not just the magnitude.
         try {
             PerpsUnifiedScorerBridge.recordClose(
-                symbol = pos.market.symbol,
+                symbol = mktSym,
                 assetClass = "ALT",
                 pnlPct = pos.getPnlPct(),
                 exitReason = reason.ifBlank { "crypto_alt_close" },
@@ -2528,13 +2586,13 @@ object CryptoAltTrader {
 
         if (isPaperMode.get()) {
             // V5.9.5: Return funds to shared FluidLearning pool
-            try { com.lifecyclebot.engine.FluidLearning.recordPaperSell(pos.market.symbol, pos.sizeSol, pnlSol) } catch (_: Exception) {}
+            try { com.lifecyclebot.engine.FluidLearning.recordPaperSell(mktSym, pos.sizeSol, pnlSol) } catch (_: Exception) {}
             // Keep local paperBalance in sync for persistence/Turso
             paperBalance = com.lifecyclebot.engine.FluidLearning.getSimulatedBalance()
             // V5.9.48: Unified paper wallet — capital + PnL back to main dashboard.
             com.lifecyclebot.engine.BotService.creditUnifiedPaperSol(
                 delta = pos.sizeSol + pnlSol,
-                source = "CryptoAlt.close[${pos.market.symbol}]"
+                source = "CryptoAlt.close[${mktSym}]"
             )
         } else {
             // Live mode: execute on-chain close — MUST wait for result before removing position
@@ -2552,10 +2610,10 @@ object CryptoAltTrader {
                     ok
                 }
             } catch (e: Exception) {
-                ErrorLogger.warn(TAG, "🪙 Live close failed for ${pos.market.symbol}: ${e.message}")
+                ErrorLogger.warn(TAG, "🪙 Live close failed for ${mktSym}: ${e.message}")
             }
             if (!closeSuccess) {
-                ErrorLogger.warn(TAG, "🚨 LIVE CLOSE FAILED: ${pos.market.symbol} — re-inserting position for retry (was orphaned)")
+                ErrorLogger.warn(TAG, "🚨 LIVE CLOSE FAILED: ${mktSym} — re-inserting position for retry (was orphaned)")
                 positions[positionId] = pos
                 if (pos.leverage <= 1.0) spotPositions[positionId]      = pos
                 else                     leveragePositions[positionId] = pos
@@ -2591,11 +2649,11 @@ object CryptoAltTrader {
                 // no-op: scratch trades don't update persona traits
             } else if (isWin) {
                 com.lifecyclebot.engine.SentientPersonality.onTradeWin(
-                    pos.market.symbol, pnlPct, pos.reasons.firstOrNull() ?: "CryptoAltAI", holdMs / 1000
+                    mktSym, pnlPct, pos.reasons.firstOrNull() ?: "CryptoAltAI", holdMs / 1000
                 )
             } else {
                 com.lifecyclebot.engine.SentientPersonality.onTradeLoss(
-                    pos.market.symbol, pnlPct, pos.reasons.firstOrNull() ?: "CryptoAltAI", reason
+                    mktSym, pnlPct, pos.reasons.firstOrNull() ?: "CryptoAltAI", reason
                 )
             }
         } catch (_: Exception) {}
@@ -2614,17 +2672,17 @@ object CryptoAltTrader {
         // Persist counters immediately so win rate survives restarts
         try { saveToSharedPrefs() } catch (_: Exception) {}
 
-        ErrorLogger.info(TAG, "🪙 CLOSED: ${pos.market.symbol} | $reason | pnl=${pnlSol.fmt(3)}◎ | wr=${"%.0f".format(getWinRate())}%")
+        ErrorLogger.info(TAG, "🪙 CLOSED: ${mktSym} | $reason | pnl=${pnlSol.fmt(3)}◎ | wr=${"%.0f".format(getWinRate())}%")
 
         // V5.9.401 — Sentience hook #4: cross-engine telegraph (ALTS).
         try { com.lifecyclebot.engine.SentienceHooks.recordEngineOutcome("ALTS", pnlSol, isWin) } catch (_: Exception) {}
 
-        try { PortfolioHeatAI.removePosition("ALT_${pos.market.symbol}") } catch (_: Exception) {}
+        try { PortfolioHeatAI.removePosition("ALT_${mktSym}") } catch (_: Exception) {}
 
         // ── BehaviorAI (V5.9.1442 — isolated crypto brain) ───────────────────
         try {
             // Determine tier from symbol for the crypto-brain bucket key.
-            val symU = pos.market.symbol.uppercase()
+            val symU = mktSym.uppercase()
             val tier = when {
                 symU in tier1 -> "TIER1"
                 symU in tier2 -> "TIER2"
@@ -2637,15 +2695,15 @@ object CryptoAltTrader {
                 pnlSol = pnlSol,
                 isPaper = paper,
                 reason  = reason,
-                symbol  = pos.market.symbol,
+                symbol  = mktSym,
             )
         } catch (_: Exception) {}
 
         // V5.9.852 — non-meme close → CanonicalOutcomeBus (Layer Readiness fix).
         com.lifecyclebot.engine.CanonicalPublishHelper.publishExit(
             tradeIdSeed   = "${pos.id}_$timestamp",
-            mint          = pos.market.symbol,    // CryptoAlt has no mint — use market symbol
-            symbol        = pos.market.symbol,
+            mint          = mktSym,    // CryptoAlt has no mint — use market symbol
+            symbol        = mktSym,
             source        = com.lifecyclebot.engine.TradeSource.MARKETS,
             isPaper       = paper,
             entryTimeMs   = pos.openTime,
@@ -2673,7 +2731,7 @@ object CryptoAltTrader {
                 pnlSol           = pnlSol, pnlPct = pnlPct,
                 score            = pos.aiScore.toDouble(),
                 tradingMode      = "CryptoAlt_${if (pos.isSpot) "SPOT" else "${pos.leverage.toInt()}x"}",
-                tradingModeEmoji = "🪙", mint = pos.market.symbol
+                tradingModeEmoji = "🪙", mint = mktSym
             ))
         } catch (_: Exception) {}
 
@@ -2681,7 +2739,7 @@ object CryptoAltTrader {
         try {
             if (RunTracker30D.isRunActive()) {
                 RunTracker30D.recordTrade(
-                    symbol = pos.market.symbol, mint = pos.market.symbol,
+                    symbol = mktSym, mint = mktSym,
                     entryPrice = pos.entryPrice, exitPrice = pos.currentPrice,
                     sizeSol = pos.sizeSol, pnlPct = pnlPct,
                     holdTimeSec = holdMs / 1000,
@@ -2695,7 +2753,7 @@ object CryptoAltTrader {
         try {
             val lessonCtx = TradeLessonRecorder.captureContext(
                 strategy = "CryptoAltAI", market = "CRYPTO_ALT",
-                symbol = pos.market.symbol, leverageUsed = pos.leverage,
+                symbol = mktSym, leverageUsed = pos.leverage,
                 executionRoute = if (paper) "PAPER" else "LIVE",
                 expectedFillPrice = pos.entryPrice
             )
@@ -2710,7 +2768,7 @@ object CryptoAltTrader {
         // ── MetaCognitionAI ───────────────────────────────────────────────────
         try {
             MetaCognitionAI.recordTradeOutcome(
-                mint = pos.market.symbol, symbol = pos.market.symbol,
+                mint = mktSym, symbol = mktSym,
                 pnlPct = pnlPct, holdTimeMs = holdMs, exitReason = reason
             )
         } catch (_: Exception) {}
@@ -2718,7 +2776,7 @@ object CryptoAltTrader {
         // ── ShadowLearningEngine exit ─────────────────────────────────────────
         try {
             ShadowLearningEngine.onLiveTradeExit(
-                mint = pos.market.symbol, exitPrice = pos.currentPrice,
+                mint = mktSym, exitPrice = pos.currentPrice,
                 exitReason = reason, livePnlSol = pnlSol, isWin = isWin
             )
         } catch (_: Exception) {}
@@ -2740,12 +2798,12 @@ object CryptoAltTrader {
                 }
             }.distinct().ifEmpty { listOf("CryptoAltAI") }
             PerpsLearningBridge.learnFromAltTrade(
-                symbol = pos.market.symbol,
+                symbol = mktSym,
                 isWin = pnlPct > 0.0,
                 pnlPct = pnlPct,
                 contributingLayers = contributingLayers,
             )
-            ErrorLogger.debug(TAG, "🪙🧠 PerpsLearningBridge(ALT lane): ${pos.market.symbol} | pnl=${pnlPct.fmt(1)}% | cross-learn OK")
+            ErrorLogger.debug(TAG, "🪙🧠 PerpsLearningBridge(ALT lane): ${mktSym} | pnl=${pnlPct.fmt(1)}% | cross-learn OK")
         } catch (_: Exception) {}
 
         // ── FluidLearningAI persistence ───────────────────────────────────────
@@ -3196,6 +3254,10 @@ object CryptoAltTrader {
         return LlmTradeResult.Success("📄 perps sell queued: $ticker @ ${pnlPct.fmt(1)}%")
     }
     fun hasPosition(market: PerpsMarket): Boolean = positions.values.any { it.market == market }
+    // V5.9.1472 — DYNAMIC CRYPTO: dedupe by REAL coin symbol, not the shared DYN
+    // sentinel (otherwise only one DYN coin could ever be open at a time).
+    fun hasPositionSymbol(symbol: String): Boolean =
+        positions.values.any { it.marketSymbol.equals(symbol, ignoreCase = true) }
 
     /** V5.9.85: Manual close for Markets UI. */
     fun closePositionManual(positionId: String, reason: String = "USER"): Boolean {

@@ -614,7 +614,17 @@ enum class PerpsMarket(
     USDSGD("USDSGD", "🇸🇬", "USD/SGD", false, 30.0, "24/5", "#EF3340"),
     USDHKD("USDHKD", "🇭🇰", "USD/HKD", false, 30.0, "24/5", "#DE2910"),
     USDKRW("USDKRW", "🇰🇷", "USD/KRW", false, 30.0, "24/5", "#0047A0"),
-    
+
+    // V5.9.1472 — DYNAMIC CRYPTO SENTINEL. Type-carrier ONLY for the spot crypto
+    // trader (CryptoAltTrader) so it can open ANY non-Solana coin discovered by
+    // DynamicAltTokenRegistry — not just the ~404 hardcoded members above. The
+    // REAL symbol/name/emoji live in AltSignal.dynSymbol/dynName/dynEmoji and are
+    // read via AltSignal.marketSymbol / AltPosition.marketSymbol. DYN itself must
+    // NEVER be matched by `values().find { it.symbol == realSymbol }` (its symbol
+    // is the reserved literal "DYN", which no real coin uses). Spot-only: maxLev
+    // 1.0 so a stray leverage read can't lever a dynamic coin.
+    DYN("DYN", "🪙", "Dynamic Crypto", false, 1.0, "24/7", "#9945FF"),
+
     ;  // End of enum
     
     // ═══════════════════════════════════════════════════════════════════════════

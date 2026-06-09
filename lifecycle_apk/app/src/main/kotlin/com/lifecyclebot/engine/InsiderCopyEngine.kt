@@ -157,11 +157,11 @@ object InsiderCopyEngine {
         // CryptoAlts (BTC/ETH/SOL/SUI/etc.)
         try {
             val matches = com.lifecyclebot.perps.CryptoAltTrader.getOpenPositions()
-                .filter { it.market.symbol.equals(symbol, ignoreCase = true) }
+                .filter { it.marketSymbol.equals(symbol, ignoreCase = true) }
             for (p in matches) {
                 if (com.lifecyclebot.perps.CryptoAltTrader.closePositionManual(p.id, reason)) {
                     exits++
-                    ErrorLogger.info(TAG, "🐋 COPY-EXIT [Alts] ${p.market.symbol} | reason=$reason")
+                    ErrorLogger.info(TAG, "🐋 COPY-EXIT [Alts] ${p.marketSymbol} | reason=$reason")
                 }
             }
         } catch (_: Exception) {}
