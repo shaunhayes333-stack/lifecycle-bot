@@ -189,6 +189,22 @@ object TreasuryManager {
         }
     }
 
+    // V5.9.1473 — operator: "updates wipe held tokens and the treasury balance."
+    // autoSave() has a 5s throttle to avoid IO spam, but an APK update is an
+    // UNCONTROLLED process kill — any treasury gain locked within 5s of the
+    // kill was swallowed by the throttle and lost on relaunch. forceSave()
+    // bypasses the throttle so every realized lock / contribution is written
+    // through to BOTH encrypted + backup prefs the instant it happens. Cheap:
+    // fires only on actual treasury mutations (locks/contributions/back-funds),
+    // not on a hot loop.
+    private fun forceSave() {
+        val ctx = cachedCtx ?: return
+        lastAutoSaveMs = System.currentTimeMillis()
+        try { save(ctx) } catch (e: Exception) {
+            ErrorLogger.debug("Treasury", "forceSave failed: ${e.message}")
+        }
+    }
+
     // ── Core update logic ─────────────────────────────────────────────
 
     /**
@@ -269,7 +285,7 @@ object TreasuryManager {
                 walletUsd = peakWalletUsd,
                 solPrice = solPrice,
             ))
-            autoSave()   // V5.9.433 — persist milestone locks immediately
+            forceSave()  // V5.9.1473 — write-through (was throttled autoSave); APK-update-safe
         }
     }
     
@@ -392,7 +408,7 @@ object TreasuryManager {
             walletUsd = peakWalletUsd,
             solPrice = safePx,
         ))
-        autoSave()   // V5.9.433 — persist immediately so reboots don't wipe the gain
+        forceSave()  // V5.9.1473 — write-through (was throttled autoSave); APK-update-safe
         // V5.9.495z26 — live mode: physically move the SOL on-chain to the
         // treasury wallet so the operator's two-wallet separation is real,
         // not virtual. Paper mode keeps the virtual ledger only (no transfer).
@@ -449,7 +465,7 @@ object TreasuryManager {
             walletUsd = peakWalletUsd,
             solPrice = safePx,
         ))
-        autoSave()   // V5.9.433 — persist 30% splits immediately
+        forceSave()  // V5.9.1473 — write-through (was throttled autoSave); APK-update-safe
         // V5.9.495z26 — live mode: also push the SOL on-chain trading→treasury.
         triggerOnChainTransferIfLive(contribSol, "MEME_SELL_70_30")
         return contribSol
@@ -499,6 +515,7 @@ object TreasuryManager {
             walletUsd = peakWalletUsd,
             solPrice = solPrice,
         ))
+        forceSave()  // V5.9.1473 — back-fund mutates treasury; persist write-through
         return pull
     }
 

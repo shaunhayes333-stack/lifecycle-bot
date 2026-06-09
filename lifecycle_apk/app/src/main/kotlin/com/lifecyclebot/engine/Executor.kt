@@ -78,7 +78,18 @@ object WrRecoveryPartial {
     // in deep WR-recovery. Restored to spec.
     private const val MIN_PARTIAL_GAIN_PCT = 9.0
 
-    enum class Band { OFF, FLUID, MODERATE, AGGRESSIVE }
+    // V5.9.1473 — PERFORMING: the bot is AT or ABOVE its phase WR target.
+    // Pre-1473, this state mapped to Band.OFF, which reverted the partial
+    // ladder to the +200%/+500%/+2000% config defaults — meaning a WINNING
+    // bot took ZERO partials and rode every +10-30% winner naked until it
+    // either hit +200% or round-tripped to zero (operator screenshot
+    // 2026-06-10: MUSK +42926%, TOESCOIN +274%, plus 4 winners +10-18% all
+    // sitting open with no partials). PERFORMING gives a sane baseline
+    // winner-lock ladder so realized P&L accrues on normal winners while
+    // runners still ride the bulk into Capital Recovery / Profit Lock /
+    // Fluid Trail. Distinct from recovery bands: this is profit CAPTURE on
+    // a healthy bot, not loss DEFENSE on a sick one.
+    enum class Band { OFF, PERFORMING, FLUID, MODERATE, AGGRESSIVE }
 
     /** Snapshot of the WR-recovery state for the current call. */
     data class State(
@@ -166,7 +177,8 @@ object WrRecoveryPartial {
             currentWR < targetWR * DEEP_THRESHOLD     -> Band.AGGRESSIVE
             currentWR < targetWR * MODERATE_THRESHOLD -> Band.MODERATE
             currentWR < targetWR * FLUID_THRESHOLD    -> Band.FLUID
-            else -> Band.OFF
+            // V5.9.1473 — at/above target: still lock winners, just lighter.
+            else -> Band.PERFORMING
         }
         // Predictive escalation: when rolling-50 is bleeding, tighten by one band.
         // Collapse escalation: roll50 catastrophically low forces AGGRESSIVE
@@ -181,6 +193,7 @@ object WrRecoveryPartial {
 
     private fun escalate(b: Band): Band = when (b) {
         Band.OFF -> Band.FLUID
+        Band.PERFORMING -> Band.FLUID
         Band.FLUID -> Band.MODERATE
         Band.MODERATE -> Band.AGGRESSIVE
         Band.AGGRESSIVE -> Band.AGGRESSIVE
@@ -199,6 +212,12 @@ object WrRecoveryPartial {
         Band.AGGRESSIVE -> Triple(9.0, 35.0, 60.0)
         Band.MODERATE   -> Triple(25.0, 45.0, 80.0)
         Band.FLUID      -> Triple(30.0, 60.0, 120.0)
+        // V5.9.1473 — healthy-bot winner-lock ladder. Wider than FLUID so a
+        // performing bot lets winners breathe, but FAR below the +200% config
+        // default that left winners naked. R1 +12% locks the first tick on a
+        // normal scalp; R2/R3 space out so runners still develop. The bulk
+        // (post-R3) rides into Capital Recovery / Profit Lock / Fluid Trail.
+        Band.PERFORMING -> Triple(12.0, 30.0, 60.0)
         Band.OFF        -> Triple(Double.POSITIVE_INFINITY, Double.POSITIVE_INFINITY, Double.POSITIVE_INFINITY)
     }
 
@@ -239,6 +258,10 @@ object WrRecoveryPartial {
         Band.AGGRESSIVE -> 0.15
         Band.MODERATE   -> 0.15
         Band.FLUID      -> 0.12
+        // V5.9.1473 — lightest fraction: lock a small win tick per rung, leave
+        // the maximum tail riding for the runner stack. 10% per rung → ~73% of
+        // original qty still rides after R3 (1 − 0.90³).
+        Band.PERFORMING -> 0.10
         Band.OFF        -> 1.0  // pass-through; caller multiplies by config fraction
     }
 

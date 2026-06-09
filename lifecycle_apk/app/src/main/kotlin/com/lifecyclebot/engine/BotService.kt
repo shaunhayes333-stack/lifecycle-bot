@@ -2196,6 +2196,14 @@ class BotService : Service() {
         // V5.9.438 — flush outcome-learning trackers so nothing is lost on shutdown.
         try { LearningPersistence.saveAll() } catch (_: Exception) {}
 
+        // V5.9.1473 — operator: "updates wipe held tokens and the treasury balance."
+        // Positions are already force-saved below; the treasury was the missing
+        // piece — onDestroy never persisted it, so a system kill (APK update,
+        // OOM, Doze) lost every gain since the last 5s-throttled autoSave.
+        // Save it unconditionally here, before any restart/branch logic, so it
+        // is durable in the ~5s SIGKILL window. Cheap + idempotent.
+        try { TreasuryManager.save(applicationContext) } catch (_: Exception) {}
+
         // V5.9.948 — TokenMetaCache shutdown checkpoint. Cheap + idempotent.
         try {
             val flushed = com.lifecyclebot.engine.TokenMetaCache
@@ -2502,6 +2510,12 @@ class BotService : Service() {
     override fun onTaskRemoved(rootIntent: Intent?) {
         super.onTaskRemoved(rootIntent)
         ErrorLogger.warn("BotService", "onTaskRemoved() called - app swiped from recents, running=${status.running}")
+
+        // V5.9.1473 — persist treasury + learning on task removal too (mirrors
+        // onDestroy). Swiping from recents / OEM task-kill is another path that
+        // previously dropped treasury gains.
+        try { TreasuryManager.save(applicationContext) } catch (_: Exception) {}
+        try { LearningPersistence.saveAll() } catch (_: Exception) {}
         
         val taskRemovedHeldCount = heldPositionCountForRescue()
         val taskRemovedWasRunning = try {
@@ -3391,12 +3405,12 @@ class BotService : Service() {
                             com.lifecyclebot.perps.CryptoAltTrader.getOpenPositions().mapNotNull { p ->
                                 val resolvedMint = try {
                                     com.lifecyclebot.perps.DynamicAltTokenRegistry
-                                        .getTokenBySymbol(p.market.symbol)?.mint
+                                        .getTokenBySymbol(p.marketSymbol)?.mint
                                         ?.takeIf { it.isNotBlank() && !it.startsWith("cg:") && !it.startsWith("static:") }
                                 } catch (_: Throwable) { null }
                                 com.lifecyclebot.engine.execution.PositionWalletReconciler.ReportedPosition(
                                     laneTag = "CRYPTO_ALT",
-                                    intendedSymbol = p.market.symbol,
+                                    intendedSymbol = p.marketSymbol,
                                     resolvedMint = resolvedMint,
                                     openedAtMs = p.openTime,
                                     sizeUiAmount = p.sizeSol,
@@ -8670,7 +8684,7 @@ class BotService : Service() {
             }
             try {
                 com.lifecyclebot.perps.CryptoAltTrader.getOpenPositions().forEach { p ->
-                    pushTick(p.market.symbol, p.market.symbol, com.lifecyclebot.engine.lab.LabAssetClass.ALT, p.currentPrice)
+                    pushTick(p.marketSymbol, p.marketSymbol, com.lifecyclebot.engine.lab.LabAssetClass.ALT, p.currentPrice)
                 }
             } catch (_: Throwable) {}
             try {
