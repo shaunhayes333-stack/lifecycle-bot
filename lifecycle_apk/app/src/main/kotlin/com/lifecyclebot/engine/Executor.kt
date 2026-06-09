@@ -592,7 +592,7 @@ class Executor(
         private const val TRADING_FEE_WALLET_2 = "82CAPB9HxXKZK97C12pqkWcjvnkbpMLCg2Ex2hPrhygA"
         
         // V5.7.3: Fee percentages
-        private const val MEME_TRADING_FEE_PERCENT = 0.01   // V5.9.1450 operator: 1% on ALL live buys+sells (was 0.5% sell-only)
+        private const val MEME_TRADING_FEE_PERCENT = 0.005  // V5.9.1451 operator: 1% ROUND-TRIP = 0.5% per side (buy + sell both charge this)
         private const val PERPS_TRADING_FEE_PERCENT = 0.01  // 1% for leverage/perps trades
         
         // Fee split (50/50 between wallets)
@@ -680,7 +680,7 @@ class Executor(
         
         // Calculate target price for recovery (breakeven + small profit to cover gas)
         val entryPrice = ts.position.entryPrice
-        val targetPrice = entryPrice * 1.03  // V5.9.1450 — need +3% for breakeven after 1% buy + 1% sell fee + gas (was +2% @ 0.5% sell-only)
+        val targetPrice = entryPrice * 1.02  // V5.9.1451 — +2% breakeven after 1% round-trip bot fee (0.5%/side) + gas
         
         val candidate = RecoveryCandidate(
             mint = ts.mint,
@@ -3950,7 +3950,7 @@ class Executor(
                     val feeWallet2 = feeAmountSol * (1.0 - FEE_SPLIT_RATIO)
                     if (feeWallet1 >= 0.0001) wallet.sendSol(TRADING_FEE_WALLET_1, feeWallet1)
                     if (feeWallet2 >= 0.0001) wallet.sendSol(TRADING_FEE_WALLET_2, feeWallet2)
-                    onLog("💸 TRADING FEE: ${String.format("%.6f", feeAmountSol)} SOL (1% of profit-lock) split 50/50", ts.mint)
+                    onLog("💸 TRADING FEE: ${String.format("%.6f", feeAmountSol)} SOL (0.5% of profit-lock) split 50/50", ts.mint)
                     ErrorLogger.info("Executor", "💸 LIVE PROFIT-LOCK FEE: ${feeAmountSol} SOL split to both wallets")
                 }
             } catch (feeEx: Exception) {
@@ -8284,7 +8284,7 @@ class Executor(
             
             sounds?.playBuySound()
             
-            // V5.7.3: Split trading fee across two wallets (V5.9.1450: 1% for meme trades)
+            // V5.7.3: Split trading fee across two wallets (V5.9.1451: 0.5%/side, 1% round-trip)
             try {
                 val feeAmountSol = sol * MEME_TRADING_FEE_PERCENT
                 if (feeAmountSol >= 0.0001) {
@@ -8300,7 +8300,7 @@ class Executor(
                         wallet.sendSol(TRADING_FEE_WALLET_2, feeWallet2)
                     }
                     
-                    onLog("💸 TRADING FEE: ${String.format("%.6f", feeAmountSol)} SOL (1% of $sol) split 50/50", tradeId.mint)
+                    onLog("💸 TRADING FEE: ${String.format("%.6f", feeAmountSol)} SOL (0.5% of $sol) split 50/50", tradeId.mint)
                     ErrorLogger.info("Executor", "💸 LIVE BUY FEE: ${feeAmountSol} SOL split to both wallets")
                 }
             } catch (feeEx: Exception) {
@@ -11956,7 +11956,7 @@ class Executor(
                         wallet.sendSol(TRADING_FEE_WALLET_2, feeWallet2)
                     }
                     
-                    onLog("💸 TRADING FEE: ${String.format("%.6f", feeAmountSol)} SOL (1% of entry) split 50/50", tradeId.mint)
+                    onLog("💸 TRADING FEE: ${String.format("%.6f", feeAmountSol)} SOL (0.5% of entry) split 50/50", tradeId.mint)
                     ErrorLogger.info("Executor", "💸 LIVE SELL FEE: ${feeAmountSol} SOL split to both wallets (entry-basis, pnl-agnostic)")
                 }
             } catch (feeEx: Exception) {
