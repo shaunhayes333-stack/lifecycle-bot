@@ -12096,7 +12096,16 @@ if (hotExitHandledSweep) {
     // admitted far more work than the IO layer could drain (operator: workerTimeout=351,
     // expiredLeases=24, maxCycleMs=57807). Base cap lowered to 32 (bounded but still well
     // above the spec's 16 floor, so the 500-1000/day doctrine is preserved on a ~300 watchlist).
-    private val SUPERVISOR_BASE_MAX_WORKERS: Int = 32
+    // V5.9.1445 — 32->48. THIS is the real enforced supervisor cap (returned by
+    // supervisorEffectiveCap); SUPERVISOR_MAX_INFLIGHT=96 is cosmetic/unused (only
+    // printed in logs). 5.0.3447 snapshot: mints=96 every cycle, spawned=32
+    // skipped=64 — exactly 64 mints DEFERRED every cycle because the real cap was
+    // 32, parking throughput at ~140 trades. 48 still fits inside the 64-thread
+    // Dispatchers.IO pool (+OkHttp per-host pool) with headroom, lifting per-cycle
+    // coverage 50% without the 100-worker IO-starvation the V5.9.1026 cap guarded
+    // against. Paired with the 5s->8s worker-timeout widen so admitted workers
+    // actually complete instead of being force-released mid-flight.
+    private val SUPERVISOR_BASE_MAX_WORKERS: Int = 48
     // Emergency throttle target — effective cap drops to this on sustained overload.
     private val SUPERVISOR_EMERGENCY_MAX_WORKERS: Int = 16
     @Volatile private var supervisorEmergencyThrottleUntilMs: Long = 0L
@@ -12188,7 +12197,14 @@ if (hotExitHandledSweep) {
     // Worker slot budget is one bot-loop cadence: long enough for normal
     // processTokenCycle, short enough that stuck IO cannot hold a supervisor
     // slot across multiple 5s cycles.
-    private val SUPERVISOR_WORKER_TIMEOUT_MS: Long = 5_000L
+    // V5.9.1445 — 5s->8s. 5.0.3447 showed 668 SUPERVISOR_LEASE_FORCE_RELEASED in
+    // 302s, nearly all at afterMs=5750 (timeout+watchdog grace) — admitted workers
+    // were being force-killed at the 5s wall before processTokenCycle finished,
+    // because current API latency (groq 944ms rate-limited, geckoterminal 372ms,
+    // pumpfun 766ms) pushes per-token p95 past 5s. 8s lets real work complete while
+    // still bounding stuck IO well inside the cycle cadence. workerTimeout=15 (real
+    // timeouts) vs 668 force-releases proves most workers were NOT genuinely stuck.
+    private val SUPERVISOR_WORKER_TIMEOUT_MS: Long = 8_000L
     // V5.9.1180 — timeout quarantine is per-mint, not global scanner pruning.
     // 3145 showed workerTimeout=239 while WATCHLIST_RR kept reselecting the
     // same slow/no-pair/API-wedged mints. Re-spawning those mints every 5s burns
