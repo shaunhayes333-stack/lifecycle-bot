@@ -72,9 +72,22 @@ object SlotHealthGate {
         if (supervisorActive.get() > supervisorCap.get()) {
             return DeferDecision(true, "SUPERVISOR_OVER_CAP=${supervisorActive.get()}/${supervisorCap.get()}")
         }
-        if (exitPending.get() && !candidateConfirmedHighEdge) {
-            return DeferDecision(true, "EXIT_PENDING_NOT_HIGH_EDGE")
-        }
+        // V5.9.1487 — REMOVED the exitPending defer (was the executor stall).
+        // Snapshot 5.0.3492 showed EXEC_DEFERRED_SLOT_HEALTH/EXIT_PENDING_NOT_HIGH_EDGE
+        // firing nonstop, throttling the executor to ~10 trades/hour. Root cause: the
+        // universal stop-loss sweep is REQUESTED EVERY CYCLE (correct — it enforces SLs
+        // on open positions) and is only briefly consumed on the exit dispatcher, so
+        // universalSlSweepPending — and thus exitPending — is true essentially always.
+        // In bootstrap almost nothing is "confirmed high-edge", so this clause deferred
+        // virtually every buy on a permanent basis. That is a volume veto, not the
+        // one-cycle cleanup pause it was meant to be, and the routine SL sweep should
+        // NEVER gate entries (exits run on their own dispatcher and don't share slots
+        // with entry admission). The real dirty-slot pressure is already fully covered
+        // by the ghost / forced-open / supervisor-over-cap checks above, which DO clear
+        // once cleanup catches up. Exits are unaffected; the -15% hard floor and all FDG
+        // vetoes remain. The candidateConfirmedHighEdge param is retained for callers.
+        @Suppress("UNUSED_PARAMETER")
+        val highEdgeBypassRetained = candidateConfirmedHighEdge
         return DeferDecision(false, "slot_health_ok")
     }
 
