@@ -4465,6 +4465,32 @@ for legal compliance.
         return n
     }
 
+    // ════════════════════════════════════════════════════════════════════
+    // V5.9.1493 — OPEN-POSITION CARD CACHE (operator design: "build it once,
+    // use it until sold, store in token cache on host device"). The previous
+    // renderOpenPositions did llOpenPositions.removeAllViews() + a full inline
+    // rebuild of EVERY row whenever the structural hash flipped — and ONE
+    // position open/close/resize rebuilt ALL 34 cards (146-View construction
+    // each) on the main thread → the 12.7s frame gap in snapshot 5.0.3499.
+    //
+    // Fix: cache each position's row View keyed by mint. Build the heavy static
+    // chrome (logo, symbol, entry, size, badges) ONCE when the position first
+    // appears; on every subsequent render REUSE the cached View and mutate only
+    // the live TextViews in place (PnL%, PnL◎, USD value, trail, lock). Sold
+    // mints are evicted (removeView). This is true View recycling — no teardown,
+    // no reconstruction, structural source fix (no loop/UI throttles).
+    private class OpenPosCard(
+        val rowView: android.view.View,
+        val pnlPctTv: android.widget.TextView,
+        val pnlSolTv: android.widget.TextView,
+        val usdTv: android.widget.TextView,
+        val trailLockTv: android.widget.TextView?,
+        val barView: android.view.View,
+        var staticHash: Int,
+    )
+    // Insertion-ordered so we can cheaply diff against the desired sort order.
+    private val openPosCardCache = LinkedHashMap<String, OpenPosCard>(48)
+
     private fun renderOpenPositions(positions: List<TokenState>) {
         // V5.9.749 — STRUCTURAL-only hash. Excludes ts.ref (live price) on
         // purpose: price drift from the 1Hz tick loop must NOT trigger a
@@ -4635,6 +4661,9 @@ for legal compliance.
         )
         val capped = if (sortedByGain.size > RENDER_CAP) sortedByGain.take(RENDER_CAP) else sortedByGain
         val hiddenCount = positions.size - capped.size
+        // V5.9.1493 — track which mints we render this pass so we can evict
+        // sold positions from the cache afterwards.
+        val renderedMints = HashSet<String>(capped.size * 2)
         capped.forEach { ts ->
             val pos     = ts.position
             val ref     = ts.ref
@@ -4647,6 +4676,82 @@ for legal compliance.
             val tokenAmount = pos.qtyToken
             val currentValue = pos.costSol + pnlSol  // Current value in SOL
             val valueUsd = currentValue * solPrice
+            renderedMints.add(ts.mint)
+
+            // V5.9.1493 — STATIC-CONTENT HASH. Everything that does NOT change on
+            // a price tick: identity, entry, size, paper/live, dup-suffix, active
+            // selection. If this matches the cached card, the heavy chrome (logo,
+            // symbol, entry, size rows) is identical and we ONLY mutate the live
+            // numbers (PnL%/◎/USD/trail/lock + bar colour) in place — no rebuild.
+            val staticHash = (
+                ts.mint.hashCode() * 31 +
+                pos.entryPrice.hashCode() * 17 +
+                pos.costSol.hashCode() * 13 +
+                pos.qtyToken.hashCode() * 7 +
+                pos.isPaperPosition.hashCode() * 5 +
+                (if (duplicateSymbols.contains(ts.symbol.uppercase())) 1 else 0) * 3 +
+                (if (pos.entryTime > 0L) 0 else 1)
+            )
+            val cached = openPosCardCache[ts.mint]
+            if (cached != null && cached.staticHash == staticHash) {
+                // ── REUSE PATH — update only the live fields, no View construction.
+                cached.pnlPctTv.text = "%+.1f%%".format(gainPct)
+                cached.pnlPctTv.setTextColor(gainCol)
+                cached.pnlSolTv.text = "%+.4f◎".format(pnlSol)
+                cached.pnlSolTv.setTextColor(gainCol)
+                cached.usdTv.text = if (solPrice > 0) "≈\$%.2f".format(valueUsd) else "≈\$—"
+                cached.barView.setBackgroundColor(gainCol)
+                // live trail + lock (mirror the build-path math)
+                if (gainPct > pos.peakGainPct) pos.peakGainPct = gainPct
+                val holdSecR = ((System.currentTimeMillis() - pos.entryTime) / 1000.0).coerceAtLeast(0.0)
+                val volR = ts.volatility ?: 50.0
+                val fluidStopR = try {
+                    com.lifecyclebot.v3.scoring.FluidLearningAI.getDynamicFluidStop(
+                        modeDefaultStop = 20.0, currentPnlPct = gainPct,
+                        peakPnlPct = kotlin.math.max(pos.peakGainPct, gainPct),
+                        holdTimeSeconds = holdSecR, volatility = volR,
+                    )
+                } catch (_: Exception) { Double.NaN }
+                val fluidTrailR = try {
+                    com.lifecyclebot.v3.scoring.FluidLearningAI.fluidTrailPct(gainPct)
+                } catch (_: Exception) { Double.NaN }
+                run {
+                    val tpTxtR = when {
+                        !fluidTrailR.isNaN() && gainPct > 3.0 -> "trail ${fluidTrailR.toInt()}%"
+                        else -> null
+                    }
+                    val slTxtR = when {
+                        !fluidStopR.isNaN() && fluidStopR > 0.0 -> "lock +${fluidStopR.toInt()}%"
+                        !fluidStopR.isNaN() && fluidStopR < 0.0 -> "SL ${fluidStopR.toInt()}%"
+                        else -> null
+                    }
+                    val labelR = listOfNotNull(tpTxtR, slTxtR).joinToString("  ")
+                    if (cached.trailLockTv != null) {
+                        if (labelR.isNotEmpty()) {
+                            cached.trailLockTv.text = labelR
+                            cached.trailLockTv.visibility = android.view.View.VISIBLE
+                        } else {
+                            cached.trailLockTv.visibility = android.view.View.GONE
+                        }
+                    }
+                }
+                // Detach from any prior parent and re-add in the current sort order.
+                (cached.rowView.parent as? android.view.ViewGroup)?.removeView(cached.rowView)
+                llOpenPositions.addView(cached.rowView)
+                llOpenPositions.addView(View(this).apply {
+                    layoutParams = LinearLayout.LayoutParams(
+                        LinearLayout.LayoutParams.MATCH_PARENT, 1).also { it.topMargin = 10 }
+                    setBackgroundColor(0xFF1F2937.toInt())
+                })
+                return@forEach
+            }
+            // ── BUILD PATH — construct once, cache, then reuse on later renders.
+            // Live TextView handles captured during build for the reuse path.
+            var pnlPctTvRef: android.widget.TextView? = null
+            var pnlSolTvRef: android.widget.TextView? = null
+            var usdTvRef: android.widget.TextView? = null
+            var trailLockTvRef: android.widget.TextView? = null
+            var barViewRef: android.view.View? = null
 
             val row = LinearLayout(this).apply {
                 orientation = LinearLayout.HORIZONTAL
@@ -4686,6 +4791,7 @@ for legal compliance.
                 }
                 setBackgroundColor(gainCol)
             }
+            barViewRef = bar
             row.addView(bar)
 
             // Token info (left column)
@@ -4765,6 +4871,7 @@ for legal compliance.
                 setTextColor(gainCol)
                 typeface = android.graphics.Typeface.DEFAULT_BOLD
                 gravity = android.view.Gravity.END
+                pnlPctTvRef = this
             })
             // PnL in SOL
             right.addView(TextView(this).apply {
@@ -4773,6 +4880,7 @@ for legal compliance.
                 setTextColor(gainCol)
                 typeface = android.graphics.Typeface.MONOSPACE
                 gravity = android.view.Gravity.END
+                pnlSolTvRef = this
             })
             // Current value in USD — only show if we have real price data
             right.addView(TextView(this).apply {
@@ -4781,6 +4889,7 @@ for legal compliance.
                 setTextColor(muted)
                 typeface = android.graphics.Typeface.MONOSPACE
                 gravity = android.view.Gravity.END
+                usdTvRef = this
             })
             // V5.9.172 — show the FLUID TP/SL the bot is ACTUALLY enforcing
             // right now, not the stale entry-time static ladder. Pull the
@@ -4835,15 +4944,18 @@ for legal compliance.
                 else                                  -> null
             }
             val label = listOfNotNull(tpTxt, slTxt).joinToString("  ")
-            if (label.isNotEmpty()) {
-                right.addView(TextView(this).apply {
-                    text = label
-                    textSize = resources.getDimension(R.dimen.card_badge_size) / resources.displayMetrics.scaledDensity
-                    setTextColor(muted)
-                    typeface = android.graphics.Typeface.MONOSPACE
-                    gravity = android.view.Gravity.END
-                })
-            }
+            // V5.9.1493 — always build the trail/lock TextView (even if empty now)
+            // so the reuse path has a stable handle to mutate in place; just hide it
+            // when there's nothing to show.
+            right.addView(TextView(this).apply {
+                text = label
+                textSize = resources.getDimension(R.dimen.card_badge_size) / resources.displayMetrics.scaledDensity
+                setTextColor(muted)
+                typeface = android.graphics.Typeface.MONOSPACE
+                gravity = android.view.Gravity.END
+                visibility = if (label.isEmpty()) android.view.View.GONE else android.view.View.VISIBLE
+                trailLockTvRef = this
+            })
 
             // V5.9.118: Peak Gain / Profit-Lock badge — shows the peak gain,
             // current give-back, and the dynamic profit-floor lock level so
@@ -4881,6 +4993,32 @@ for legal compliance.
             }
             llOpenPositions.addView(row)
             llOpenPositions.addView(div)
+
+            // V5.9.1493 — cache this freshly built row keyed by mint so later
+            // renders reuse it (update live fields only) instead of rebuilding.
+            // Requires all live handles to have been captured during the build.
+            val pctRef = pnlPctTvRef; val solRef = pnlSolTvRef; val usdRef = usdTvRef
+            val barRef = barViewRef
+            if (pctRef != null && solRef != null && usdRef != null && barRef != null) {
+                openPosCardCache[ts.mint] = OpenPosCard(
+                    rowView = row,
+                    pnlPctTv = pctRef,
+                    pnlSolTv = solRef,
+                    usdTv = usdRef,
+                    trailLockTv = trailLockTvRef,
+                    barView = barRef,
+                    staticHash = staticHash,
+                )
+            }
+        }
+
+        // V5.9.1493 — EVICT SOLD POSITIONS. Any cached mint not rendered this
+        // pass has been closed/sold → drop it so the cache tracks only live
+        // positions (operator: "use it until sold"). Bounds memory at the live
+        // open-position count.
+        run {
+            val stale = openPosCardCache.keys.filter { it !in renderedMints }
+            stale.forEach { openPosCardCache.remove(it) }
         }
         // V5.9.802 — hidden-cards note when the cap was applied. Plain
         // textview at bottom of llOpenPositions so the operator can SEE
