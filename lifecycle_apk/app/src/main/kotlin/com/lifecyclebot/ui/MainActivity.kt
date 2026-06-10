@@ -2047,6 +2047,48 @@ for legal compliance.
         }
         // Initialize text
         tvAdvancedToggle.text = "► Advanced settings (tap to show)"
+
+        // ── V5.9.1484 — KILL onSaveInstanceState ANR CLASS ──────────────────
+        // Snapshot 5.0.3490 (623 ANR_HINTS, 0 trades/5h) showed the dominant
+        // recurring main-thread stalls (1660ms / 638ms / 386ms, repeated) rooted
+        // at: IdentityHashMap.init <- SpannableStringBuilder.restoreInvariants
+        //     <- TextView.onSaveInstanceState(TextView.java:7466).
+        // Android serialises the text of EVERY TextView in the tree into a
+        // SpannableStringBuilder on save/teardown. This tile tree is hundreds of
+        // TextViews, all of which are REPAINTED FROM LIVE DATA every render tick —
+        // so their saved instance state is pure waste that was stalling Main for
+        // ~1.6s a pop and helping drive the activity-recreation ANR spiral
+        // (MainActivity.onCreate = top ANR site, 182 hits) that starved the bot
+        // loop → supervisor leases force-released (48,982!) → 0 executions.
+        // Disabling saved state on the dynamic tile subtree removes the entire
+        // stall class. Pure UI; no trading/scanner/FDG/exit path touched. The
+        // tiles re-render from StateFlow on next tick regardless of saved state.
+        try { disableSavedStateRecursive(findViewById(R.id.mainScrollView)) } catch (_: Throwable) {}
+    }
+
+    /**
+     * V5.9.1484 — recursively disable instance-state saving (and text freezing)
+     * across a view subtree. Eliminates TextView.onSaveInstanceState /
+     * SpannableStringBuilder thrash on activity stop/recreate for views whose
+     * content is always rebuilt from live data. Safe: only affects transient
+     * saved-state, never live rendering or input.
+     */
+    private fun disableSavedStateRecursive(root: android.view.View?) {
+        if (root == null) return
+        try { root.isSaveEnabled = false } catch (_: Throwable) {}
+        try { root.isSaveFromParentEnabled = false } catch (_: Throwable) {}
+        if (root is android.widget.TextView) {
+            try { root.freezesText = false } catch (_: Throwable) {}
+        }
+        if (root is android.view.ViewGroup) {
+            try {
+                // Stop the ViewGroup itself from dispatching save to children.
+                root.setSaveFromParentEnabled(false)
+            } catch (_: Throwable) {}
+            for (i in 0 until root.childCount) {
+                disableSavedStateRecursive(root.getChildAt(i))
+            }
+        }
     }
 
     // ── chart ─────────────────────────────────────────────────────────

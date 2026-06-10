@@ -74,17 +74,17 @@ object ApiHealthMonitor {
             in 400..499 -> {
                 st.failures4xx.incrementAndGet()
                 st.lastFailureMs.set(System.currentTimeMillis())
-                st.lastErrorMessage.set(errorBody?.take(140))
+                st.lastErrorMessage.set(redactSecrets(errorBody)?.take(140))
             }
             in 500..599 -> {
                 st.failures5xx.incrementAndGet()
                 st.lastFailureMs.set(System.currentTimeMillis())
-                st.lastErrorMessage.set(errorBody?.take(140))
+                st.lastErrorMessage.set(redactSecrets(errorBody)?.take(140))
             }
             else -> {
                 st.networkErrors.incrementAndGet()
                 st.lastFailureMs.set(System.currentTimeMillis())
-                st.lastErrorMessage.set(errorBody?.take(140))
+                st.lastErrorMessage.set(redactSecrets(errorBody)?.take(140))
             }
         }
         if (latencyMs > 0L) {
@@ -98,7 +98,33 @@ object ApiHealthMonitor {
         val st = stats(host)
         st.networkErrors.incrementAndGet()
         st.lastFailureMs.set(System.currentTimeMillis())
-        st.lastErrorMessage.set(errorMessage?.take(140))
+        st.lastErrorMessage.set(redactSecrets(errorMessage)?.take(140))
+    }
+
+    // ── V5.9.1484 — SECRET REDACTION ───────────────────────────────────
+    // Snapshot 5.0.3490 leaked a Groq API key into the health export: the
+    // provider's 4xx error BODY embedded the key, and we stored it verbatim in
+    // lastErrorMessage, which is printed in the pipeline-health snapshot. NEVER
+    // persist or surface raw provider error bodies — they routinely echo the
+    // Authorization header / key. Strip anything that looks like a key/token
+    // before it can reach a log, a snapshot, or a journal.
+    private val SECRET_PATTERNS = listOf(
+        Regex("""(?i)(api[_-]?key|key|token|bearer|authorization|secret)\s*[:=]\s*[A-Za-z0-9._\-]{6,}"""),
+        Regex("""(?i)\bsk-[A-Za-z0-9]{8,}"""),          // OpenAI-style
+        Regex("""(?i)\bgsk_[A-Za-z0-9]{8,}"""),         // Groq-style
+        Regex("""\b[A-Za-z0-9_\-]{24,}\b"""),          // long opaque blobs
+    )
+    private fun redactSecrets(raw: String?): String? {
+        if (raw.isNullOrBlank()) return raw
+        var out = raw
+        for (re in SECRET_PATTERNS) out = re.replace(out) { m ->
+            // Keep a short prefix so the error is still debuggable, mask the rest.
+            val t = m.value
+            val cut = t.indexOfFirst { it == ':' || it == '=' }
+            if (cut in 0 until t.length - 1) t.substring(0, cut + 1) + " [REDACTED]"
+            else "[REDACTED]"
+        }
+        return out
     }
 
     /** UI snapshot. Returns one entry per tracked host. */
