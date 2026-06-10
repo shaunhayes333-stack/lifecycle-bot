@@ -458,6 +458,51 @@ class BotService : Service() {
 
     private val scope  = CoroutineScope(Dispatchers.IO + SupervisorJob() + exceptionHandler)
 
+    // V5.9.1495 — async safety-refresh trigger. Must fire BEFORE FDG's
+    // LiveBuyAdmissionGate.SAFETY_STALE_MS (120s) cutoff so the regenerated
+    // report lands while still "fresh", closing the 2min–10min dead zone that
+    // produced SAFETY_NOT_READY_STALE live-entry blocks. 30s margin covers the
+    // safety check's own 0–10s network latency + the next loop tick.
+    private val SAFETY_REFRESH_TRIGGER_MS: Long =
+        (com.lifecyclebot.engine.sell.LiveBuyAdmissionGate.SAFETY_STALE_MS - 30_000L)
+            .coerceAtLeast(30_000L)
+
+    /**
+     * V5.9.1495 — main-thread-safe live SOL balance read for UI preflight.
+     *
+     * ROOT CAUSE (5.0.3501 WALLET_RPC_ON_MAIN_THREAD): manualBuy/manualSell
+     * preflight read `if (cached>0) cached else w.getSolBalance()`. When the
+     * cached balance was 0.0 AND the call ran on the UI/Main thread (button
+     * handler), getSolBalance()'s V5.9.771 main-thread guard THREW, the catch
+     * swallowed it → preflight saw 0.0 SOL and could mis-toast "insufficient
+     * SOL" or skip the balance guard on a live trade. Dangerous for 10 live
+     * testers.
+     *
+     * Fix at source: never invoke the throwing RPC path on Main. Prefer the
+     * cached value; if empty, fall back to WalletManager's last published
+     * state (exactly what the top bar shows). Only when we are NOT on Main do
+     * we allow the on-demand RPC. No blocking call is ever issued on the UI
+     * thread.
+     */
+    private fun livePreflightWalletSol(w: SolanaWallet?): Double {
+        val cached = try {
+            com.lifecyclebot.engine.WalletManager.getInstance(applicationContext).state.value.solBalance
+        } catch (_: Throwable) { 0.0 }
+        if (cached > 0.0) return cached
+        val onMain = android.os.Looper.myLooper() === android.os.Looper.getMainLooper()
+        if (onMain) {
+            // Do NOT trip the RPC guard on Main. Use whatever WalletManager
+            // last published (may be 0.0 on a brand-new wallet — caller still
+            // gets a safe, non-throwing value and a fresh async refresh will
+            // populate it shortly).
+            return try {
+                com.lifecyclebot.engine.WalletManager.getInstance(applicationContext)
+                    .state.value.solBalance
+            } catch (_: Throwable) { 0.0 }
+        }
+        return try { w?.getSolBalance() ?: 0.0 } catch (_: Throwable) { 0.0 }
+    }
+
     // V5.9.1023 — DEDICATED BOT-LOOP DISPATCHER.
     //
     // Operator V5.9.1022 snapshot showed the bot completely dead, stuck in
@@ -2726,10 +2771,8 @@ class BotService : Service() {
         val walletSol = if (isPaper) {
             try { com.lifecyclebot.v3.scoring.CashGenerationAI.getTreasuryBalance(true) } catch (_: Throwable) { 0.0 }
         } else {
-            val cached = try {
-                com.lifecyclebot.engine.WalletManager.getInstance(applicationContext).state.value.solBalance
-            } catch (_: Throwable) { 0.0 }
-            if (cached > 0.0) cached else try { w?.getSolBalance() ?: 0.0 } catch (_: Throwable) { 0.0 }
+            // V5.9.1495 — main-thread-safe preflight read (no RPC on Main).
+            livePreflightWalletSol(w)
         }
 
         // Live preflight: wallet present + adequate SOL with fee buffer.
@@ -2831,10 +2874,8 @@ class BotService : Service() {
         val walletSol = if (isPaper) {
             try { com.lifecyclebot.v3.scoring.CashGenerationAI.getTreasuryBalance(true) } catch (_: Exception) { 0.0 }
         } else {
-            val cached = try {
-                com.lifecyclebot.engine.WalletManager.getInstance(applicationContext).state.value.solBalance
-            } catch (_: Throwable) { 0.0 }
-            if (cached > 0.0) cached else try { w?.getSolBalance() ?: 0.0 } catch (_: Exception) { 0.0 }
+            // V5.9.1495 — main-thread-safe preflight read (no RPC on Main).
+            livePreflightWalletSol(w)
         }
 
         // Live-mode preflight: ensure wallet exists + has enough SOL.
@@ -2884,10 +2925,8 @@ class BotService : Service() {
         val walletSol = if (isPaper) {
             try { com.lifecyclebot.v3.scoring.CashGenerationAI.getTreasuryBalance(true) } catch (_: Exception) { 0.0 }
         } else {
-            val cached = try {
-                com.lifecyclebot.engine.WalletManager.getInstance(applicationContext).state.value.solBalance
-            } catch (_: Throwable) { 0.0 }
-            if (cached > 0.0) cached else try { w?.getSolBalance() ?: 0.0 } catch (_: Exception) { 0.0 }
+            // V5.9.1495 — main-thread-safe preflight read (no RPC on Main).
+            livePreflightWalletSol(w)
         }
         if (!isPaper && w == null) return false to "Live wallet not connected"
 
@@ -13810,9 +13849,19 @@ if (hotExitHandledSweep) {
                     else -> {}
                 }
             }
-        } else if (safetyAge > 10 * 60_000L) {
-            // STALE refresh — keep async so the hot loop doesn't block
-            // on a network call when the report is already populated.
+        } else if (safetyAge > SAFETY_REFRESH_TRIGGER_MS) {
+            // V5.9.1495 — STALE-REFRESH DEAD-ZONE FIX (source).
+            // ROOT CAUSE (5.0.3501): FDG hard-blocks LIVE entries with
+            // SAFETY_NOT_READY_STALE once safetyAge > LiveBuyAdmissionGate
+            // .SAFETY_STALE_MS (120s), but this refresher only re-ran the
+            // safety check when safetyAge > 10min. That left a 2min–10min
+            // DEAD ZONE: the report was "stale" to FDG (blocking otherwise
+            // valid live buys, e.g. Brötchen safety=SAFE rug=58 still blocked)
+            // yet nothing regenerated it until 10min. For 10 live testers this
+            // silently kills real entries. Fix: trigger the async refresh at
+            // (SAFETY_STALE_MS - 30s margin) so a fresh report lands BEFORE
+            // FDG's staleness cutoff. Still async (hot loop never blocks); no
+            // veto/threshold weakening — we just stop starving the refresher.
             scope.launch {
                 val report = runSafetyCheck() ?: return@launch
                 when (report.tier) {
