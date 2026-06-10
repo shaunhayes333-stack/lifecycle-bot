@@ -14814,6 +14814,31 @@ if (hotExitHandledSweep) {
                         v3Score = result.score,
                         v3Confidence = result.confidence.toInt()
                     )
+                    // V5.9.1483 — STALE-VERDICT FINALITY LEAK FIX. A V3 EXECUTE is
+                    // itself the buy authority, but it only registered an approval and
+                    // NEVER refreshed ExecutableOpenGate's cached preFdgVerdict. So the
+                    // STANDARD/V3 doBuy() ran finality against a STALE preFdgVerdict left
+                    // by a PRIOR tick's lane FDG record (often NO_BUY/WATCH), and the
+                    // string precheck dropped it as EXEC_OPEN_DROPPED_PRE_FDG_NOT_BUY —
+                    // killing the MAIN execute path in the live log (CAINYABEL/MUMU:
+                    // EXECUTE_AGGRESSIVE -> NO_BUY -> no_open_committed_blocked_finality).
+                    // Refresh the verdict to BUY for the STANDARD lane so finality reads
+                    // V3's OWN decision, not a stale one. Boolean fdgCan + hardNo + the
+                    // -15% floor remain the real safety rails; this only stops a V3-
+                    // approved buy from being vetoed by a stale cached string.
+                    try {
+                        ExecutableOpenGate.recordFdg(
+                            ts.mint, ts.symbol, "STANDARD",
+                            canExecute = true,
+                            reason = "V3_EXECUTE",
+                            signal = "BUY",
+                            rugScore = ts.safety.rugcheckScore,
+                            safetyTier = ts.safety.tier.name,
+                            liquidityUsd = ts.lastLiquidityUsd,
+                            hardNoReasons = ts.safety.hardBlockReasons,
+                            entryScore = ts.entryScore.toInt(),
+                        )
+                    } catch (_: Throwable) { /* fail-open per FDG doctrine */ }
                     // V5.9.1323 — V3 Verdict Reconciliation (P0-4 surgical).
                     try {
                         com.lifecyclebot.engine.runtime.V3VerdictContract.recordEntry()

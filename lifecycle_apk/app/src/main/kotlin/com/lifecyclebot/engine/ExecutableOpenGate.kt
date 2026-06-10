@@ -130,7 +130,19 @@ object ExecutableOpenGate {
         // candidate. Surfaced as CANON_LANE_UNRESOLVED, the canonical terminal reason — NOT a
         // post-allow surprise. (Lane defaulting to STANDARD is intentionally NOT done.)
         if (!isRealExecutionLane(selected)) return "EXEC_OPEN_DROPPED_CANON_LANE_UNRESOLVED" to "CANON_LANE_UNRESOLVED_SELECTED_${selected}_REQUEST_${requested}"
-        if (preFdgVerdict != "BUY") return "EXEC_OPEN_DROPPED_PRE_FDG_NOT_BUY" to preFdgVerdict
+        // V5.9.1483 — PROBE_ONLY IS AN APPROVED BUY (single biggest volume choke).
+        // The boolean authority (FinalDecisionGate.canExecute(), line ~44) and the
+        // internal finality gate (fdgCan path, line ~588) already treat PROBE_ONLY
+        // as executable (dust-size approved buy, NOT a veto). But THIS earlier
+        // string-equality precheck demanded literal "BUY", so any candidate whose
+        // cached preFdgVerdict resolved to PROBE_ONLY (or whose last lane write was
+        // PROBE_ONLY) got dropped as PRE_FDG_NOT_BUY — killing the entire V3 EXECUTE
+        // path in the live log (CAINYABEL/MUMU: EXECUTE_AGGRESSIVE -> NO_BUY ->
+        // no_open_committed_blocked_finality). Accept PROBE_ONLY here so the string
+        // gate matches the boolean contract. Real vetoes (NO_BUY/HARD_NO_BUY/WATCH)
+        // still drop. -15% floor, FDG hard-veto, and hardNo gating untouched.
+        if (preFdgVerdict != "BUY" && preFdgVerdict != "PROBE_ONLY")
+            return "EXEC_OPEN_DROPPED_PRE_FDG_NOT_BUY" to preFdgVerdict
         if (hardNoReasons.isNotEmpty()) return "EXEC_OPEN_DROPPED_HARD_NO_BUY" to hardNoReasons.joinToString("+")
         if (candidateVersion != currentVersion) return "EXEC_OPEN_DROPPED_STALE_CANDIDATE" to "STALE_CANDIDATE_VERSION_$candidateVersion"
         return null
