@@ -32,13 +32,16 @@ object CyclicTradeEngine {
     private const val DEFAULT_TP_PCT = 65.0
     private const val DEFAULT_SL_PCT = 8.0
     // V5.9.1481 — REVIVAL: floor 62 -> 38. Root cause of the dead cyclic lane:
-    // the V3 scorer emits 0-30 for the overwhelming majority of the Solana
-    // pump-token pool (snapshot 5.0.3485: AVATRA 29.7, NPC 2.5, most 0.0; only
-    // a handful reach ~50). A 62 floor matched ~nothing, so cyclic sat in a
-    // permanent 'Scanning… need score >=62' state. 38 still selects the BETTER
-    // movers in the pool (top decile of the real distribution) without filtering
-    // the entire universe out. Edge-gate + cold-mode + loss-streak bars still
-    // protect the ring downstream; this only restores eligibility.
+    // cyclic ranks candidates from the live Solana-network watchlist (the Meme
+    // Trader opens ANY Solana mint via TokenState). The filter judges a token on
+    // its BLENDED V3 score when present (ts.lastV3Score), else the raw entryScore
+    // proxy. lastV3Score is only set on a V3 EXECUTE verdict, so most watchlist
+    // mints are judged on raw entryScore, which sits in the 0-30 band pre-verdict
+    // (snapshot 5.0.3485). A 62 floor matched ~nothing on that proxy path, so
+    // cyclic sat in a permanent 'Scanning… need score >=62' state. 38 restores
+    // eligibility; the conviction ranker (score x confidence, line ~443) then
+    // picks the highest-conviction Solana mint among survivors. Edge-gate +
+    // cold-mode + loss-streak bars still protect the ring downstream.
     private const val MIN_SCORE_TO_ENTER = 38.0
     // V5.9.1234 — Cyclic was deploying the full ring while cold (e.g. 1W/4L,
     // ring $3, -99% growth). Keep sampling, but stop full-ring gambling until
