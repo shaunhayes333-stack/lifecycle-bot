@@ -2,23 +2,61 @@
 <!--
     Network Security Config for AATE
 
-    By default Android 9+ blocks cleartext HTTP traffic.
-    Solana RPC nodes are almost always HTTPS, but some self-hosted nodes
-    and local devnet configurations use HTTP. This config allows cleartext
-    only for known RPC/API domains while keeping HTTPS enforced everywhere else.
+    V5.9.1494 — LIVE-TRADE TLS TRUST-ANCHOR FIX.
+    Operator forensics (5.0.3500 Live Trade Forensics) showed live BUY/SELL
+    broadcasts failing with:
+        java.security.cert.CertPathValidatorException:
+        Trust anchor for certification path not found
+    on pumpportal.fun (trade-local) and bundles.jito.wtf (tip floor).
 
-    Dexscreener, Birdeye, Rugcheck, Jupiter, and Helius are all HTTPS only.
-    The cleartext exception is purely for custom RPC node configurations.
+    Live cert probe confirmed the real cause:
+      • pumpportal.fun  → issued by Let's Encrypt "YE2"  → roots to ISRG Root X1
+      • bundles.jito.wtf → issued by Google Trust "WR3"  → roots to GTS Root R1
+      • lite-api.jup.ag → issued by Amazon RSA 2048 M04  → roots to Amazon Root CA 1
+    These are modern intermediates. On devices whose Android system CA store
+    predates them (minSdk 26 = Android 8 era), the chain cannot validate, so
+    OkHttp rejects the handshake — even though the certs are perfectly valid
+    (a browser, shipping its own current CA bundle, accepts them fine).
+
+    A failed SELL broadcast on a stop-loss = a stuck losing position bleeding
+    real SOL. Real-money-critical.
+
+    FIX: bundle the three actual root CAs the swap/broadcast hosts chain to
+    (res/raw/*.pem) and trust them for those hosts, ALONGSIDE the system and
+    user stores. This is NOT a security downgrade — full chain validation
+    still runs; we only guarantee the required roots are present regardless
+    of how stale the device's system store is. Cleartext stays DISABLED
+    everywhere except localhost/devnet.
 -->
 <network-security-config>
     <base-config cleartextTrafficPermitted="false">
         <trust-anchors>
             <certificates src="system"/>
+            <certificates src="user"/>
         </trust-anchors>
     </base-config>
 
+    <!-- V5.9.1494 — live-execution swap / broadcast hosts. Bundle the exact
+         roots their cert chains terminate at so validation never depends on a
+         stale device CA store. -->
+    <domain-config cleartextTrafficPermitted="false">
+        <domain includeSubdomains="true">pumpportal.fun</domain>
+        <domain includeSubdomains="true">pump.fun</domain>
+        <domain includeSubdomains="true">jito.wtf</domain>
+        <domain includeSubdomains="true">bundles.jito.wtf</domain>
+        <domain includeSubdomains="true">mainnet.block-engine.jito.wtf</domain>
+        <domain includeSubdomains="true">jup.ag</domain>
+        <domain includeSubdomains="true">lite-api.jup.ag</domain>
+        <trust-anchors>
+            <certificates src="@raw/isrg_root_x1"/>
+            <certificates src="@raw/gts_root_r1"/>
+            <certificates src="@raw/amazon_root_ca1"/>
+            <certificates src="system"/>
+            <certificates src="user"/>
+        </trust-anchors>
+    </domain-config>
+
     <!-- Allow cleartext only for user-configured custom RPC nodes -->
-    <!-- Production Solana RPCs (mainnet-beta) are all HTTPS -->
     <domain-config cleartextTrafficPermitted="true">
         <domain includeSubdomains="true">localhost</domain>
         <domain includeSubdomains="true">127.0.0.1</domain>
