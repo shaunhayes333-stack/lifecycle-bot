@@ -759,6 +759,16 @@ class SolanaMarketScanner(
     // cleanly (return null) instead of burning the budget on guaranteed-429s.
     private val geckoCallTimestamps = java.util.ArrayDeque<Long>()
     @Volatile private var geckoCooldownUntilMs = 0L
+    // V5.9.1478 — minimum spacing between GeckoTerminal calls. The 28/min
+    // token bucket bounds the per-MINUTE rate, but all 5 Gecko sources fire
+    // inside the same parallel batch (semaphore=8), bursting 5+ calls into a
+    // ~1s window. GeckoTerminal's free tier also enforces a per-second burst
+    // limit, so the burst trips a 429 even while the per-minute count is fine
+    // (snapshot: API_BACKOFF_ARMED host=geckoterminal code=429 → 30s park,
+    // killing the only liquid-pair feed). Serialise Gecko calls with a 1.3s
+    // floor so they pace under both the per-minute AND per-second ceilings.
+    @Volatile private var geckoLastCallMs = 0L
+    private val GECKO_MIN_SPACING_MS = 1_300L
     private val geckoLock = Any()
     private fun geckoBudgetAvailable(): Boolean {
         synchronized(geckoLock) {
@@ -778,14 +788,43 @@ class SolanaMarketScanner(
             geckoCooldownUntilMs = System.currentTimeMillis() + 20_000L
         }
     }
-    /** Gecko-aware fetch: respects the token bucket + 429 cooldown. Returns null when budget-blocked. */
+    /** Gecko-aware fetch: respects the global ApiBackoff host lockout, the
+     *  per-minute token bucket, the 429 cooldown, AND a per-call spacing floor
+     *  so the parallel sources never burst past GeckoTerminal's per-second
+     *  limit. Returns null when budget-blocked or backed off. V5.9.1478. */
     private fun getGecko(url: String): String? {
+        // 1) Honour the shared per-host backoff. If HealthAwareHttp already
+        //    armed a geckoterminal lockout from a 429 elsewhere, don't burn
+        //    a bucket token banging on a host we know is parked.
+        if (try { com.lifecyclebot.engine.ApiBackoff.isLockedOut("geckoterminal") } catch (_: Throwable) { false }) {
+            ErrorLogger.debug("Scanner", "[GECKO_BUDGET] skip (ApiBackoff lockout) ${url.take(50)}")
+            return null
+        }
+        // 2) Per-minute token bucket (28/min) + local 429 cooldown.
         if (!geckoBudgetAvailable()) {
             ErrorLogger.debug("Scanner", "[GECKO_BUDGET] skip (bucket full or cooling) ${url.take(50)}")
             return null
         }
+        // 3) Anti-burst spacing: serialise calls with a 1.3s floor so 5 parallel
+        //    Gecko sources don't slam the host inside one batch window.
+        synchronized(geckoLock) {
+            val now = System.currentTimeMillis()
+            val since = now - geckoLastCallMs
+            if (since < GECKO_MIN_SPACING_MS) {
+                try { Thread.sleep(GECKO_MIN_SPACING_MS - since) } catch (_: InterruptedException) {}
+            }
+            geckoLastCallMs = System.currentTimeMillis()
+        }
         val body = getWithRetry(url, maxRetries = 1)
-        if (body == null) geckoNote429()  // null is usually a 429/timeout at this host
+        if (body == null) {
+            // null is usually a 429/timeout at this host. Arm BOTH the local
+            // cooldown AND the shared ApiBackoff so the two systems agree and
+            // every Gecko caller (and HealthAwareHttp) backs off together.
+            geckoNote429()
+            try { com.lifecyclebot.engine.ApiBackoff.markFailure("geckoterminal", 429) } catch (_: Throwable) {}
+        } else {
+            try { com.lifecyclebot.engine.ApiBackoff.markSuccess("geckoterminal") } catch (_: Throwable) {}
+        }
         return body
     }
 
