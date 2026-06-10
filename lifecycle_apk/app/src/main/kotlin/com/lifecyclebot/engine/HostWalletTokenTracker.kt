@@ -153,6 +153,10 @@ object HostWalletTokenTracker {
 
         var activeSellAttemptId: String?,
         val notes: MutableList<String> = mutableListOf(),
+        // V5.9.1496 — zero-balance close debounce. Spec: require 2 consecutive
+        // zero-balance confirmations OR a confirmed sell signature before CLOSED,
+        // so a single transient RPC miss can't strand or falsely-close a row.
+        var consecutiveZeroConfirms: Int = 0,
     )
 
     @Volatile private var ctx: android.content.Context? = null
@@ -192,6 +196,7 @@ object HostWalletTokenTracker {
                     put("rawAmount", p.rawAmount)
                     put("decimals", p.decimals)
                     put("uiAmount", p.uiAmount)
+                    put("zeroConfirms", p.consecutiveZeroConfirms)  // V5.9.1496
                     put("maxGainPct", p.maxGainPct)
                     put("maxDrawdownPct", p.maxDrawdownPct)
                     put("takeProfitPct", p.takeProfitPct)
@@ -233,6 +238,7 @@ object HostWalletTokenTracker {
                     rawAmount = o.optString("rawAmount", "0"),
                     decimals = o.optInt("decimals", 9),
                     uiAmount = o.optDouble("uiAmount", 0.0),
+                    consecutiveZeroConfirms = o.optInt("zeroConfirms", 0),  // V5.9.1496
                     currentPriceUsd = null,
                     currentValueSol = null,
                     currentValueAud = null,
@@ -467,6 +473,8 @@ object HostWalletTokenTracker {
             val rawApprox = (uiAmount * Math.pow(10.0, decimals.toDouble())).toLong()
             val existing = positions[mint]
             if (existing != null) {
+                // V5.9.1496 — balance returned → cancel any pending zero-close debounce.
+                if (uiAmount > 0.000001) existing.consecutiveZeroConfirms = 0
                 existing.uiAmount = uiAmount
                 existing.decimals = decimals
                 existing.rawAmount = rawApprox.toString()
@@ -649,6 +657,73 @@ object HostWalletTokenTracker {
             "AntiChoke closed unheld tracker row: $reason")
         save()
         return true
+    }
+
+    /**
+     * V5.9.1496 — debounced zero-balance close for LiveWalletReconciler.
+     *
+     * Spec (5.0.3501 ZERO-BALANCE OPEN_TRACKING CLEANUP): an OPEN_TRACKING row
+     * seen at balance=0.0 must be CLOSED only after EITHER two consecutive
+     * zero-balance confirmations OR one confirmed sell signature — never on a
+     * single transient RPC read. On close we stamp the authoritative
+     * PositionCloseLedger, drop the row from the open set, and return the
+     * tracked position so the caller can release lane primary + write the
+     * learning close outcome.
+     *
+     * @param hasConfirmedSellSig true if a real sell signature exists for this
+     *        mint (immediate close path — no second confirmation needed).
+     * @return the closed TrackedTokenPosition if it transitioned to CLOSED this
+     *         call, or null if it is still pending a second confirmation / not
+     *         tracked / already non-zero.
+     */
+    @Synchronized
+    fun confirmZeroBalanceClose(
+        mint: String,
+        hasConfirmedSellSig: Boolean,
+        reason: String,
+    ): TrackedTokenPosition? {
+        val p = positions[mint] ?: return null
+        if (p.status == PositionStatus.CLOSED) return null
+        // Defensive: only act on genuinely-empty rows.
+        if (p.uiAmount > 0.000001) {
+            p.consecutiveZeroConfirms = 0
+            return null
+        }
+        val confirms = p.consecutiveZeroConfirms + 1
+        p.consecutiveZeroConfirms = confirms
+        val canClose = hasConfirmedSellSig || confirms >= 2
+        if (!canClose) {
+            // First zero sighting without a sell sig — defer one tick.
+            try {
+                ForensicLogger.lifecycle(
+                    "RECONCILER_ZERO_BALANCE_PENDING",
+                    "mint=${mint.take(10)} symbol=${p.symbol} confirms=$confirms need=2 sig=${p.sellSignature ?: "none"}",
+                )
+            } catch (_: Throwable) {}
+            save()
+            return null
+        }
+        // Authoritative close.
+        p.status = PositionStatus.CLOSED
+        p.activeSellAttemptId = null
+        p.consecutiveZeroConfirms = 0
+        p.notes.add("zero-balance close ($reason) confirms=$confirms sig=${if (hasConfirmedSellSig) "yes" else "no"}")
+        val pnlPct = try {
+            val entry = p.entryPriceUsd ?: 0.0
+            val cur = p.currentPriceUsd ?: 0.0
+            if (entry > 0.0 && cur > 0.0) (((cur - entry) / entry) * 100.0).toInt() else 0
+        } catch (_: Throwable) { 0 }
+        try {
+            val cid = com.lifecyclebot.engine.PositionCloseLedger.markClosed(mint, "RECONCILER_ZERO_$reason", pnlPct)
+            ForensicLogger.lifecycle(
+                "POSITION_CLOSE_LEDGER_STAMPED",
+                "mint=${mint.take(10)} closeId=$cid reason=RECONCILER_ZERO_$reason source=reconciler",
+            )
+        } catch (_: Throwable) {}
+        emitForensic(LiveTradeLogStore.Phase.POSITION_COUNT_RECONCILED, mint, p.symbol, p.sellSignature,
+            "Zero-balance CLOSED by reconciler: $reason (confirms=$confirms)")
+        save()
+        return p
     }
 
     /** Snapshot of every tracked position (open + closed) — diagnostics. */

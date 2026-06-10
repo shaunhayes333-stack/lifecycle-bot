@@ -55,6 +55,10 @@ object SellReconciler {
     // BotService.startBot() and rehydrates a TokenState from
     // HostWalletTokenTracker when needed before invoking requestSell.
     @Volatile private var sellTrigger: ((String, String, Double) -> Unit)? = null
+    // V5.9.1496 — invoked when a zero-balance OPEN_TRACKING row is debounced to
+    // CLOSED. BotService wires this to release lane primary + write the final
+    // close outcome to learning (so the close is trainable, not silently dropped).
+    @Volatile private var onZeroClose: ((mint: String, symbol: String, sig: String?) -> Unit)? = null
 
     /** Total ticks executed since service start — surfaced for debugging. */
     @Volatile var totalTicks: Long = 0L
@@ -77,10 +81,12 @@ object SellReconciler {
         isPaperMode: Boolean,
         hostWallet: SolanaWallet?,
         sellTrigger: ((mint: String, symbol: String, balance: Double) -> Unit)? = null,
+        onZeroClose: ((mint: String, symbol: String, sig: String?) -> Unit)? = null,
     ) {
         paperMode = isPaperMode
         wallet = hostWallet
         this.sellTrigger = sellTrigger
+        this.onZeroClose = onZeroClose
         // Cancel any prior loop.
         jobRef.get()?.cancel()
         // V5.9.1371 — PAPER MODE now ALSO runs the reconciler. Previously this
@@ -333,23 +339,38 @@ object SellReconciler {
             )
         } catch (_: Throwable) {}
 
-        // Case 1: wallet says zero → close tracker as confirmed-zero.
-        // No signature is recorded because we can't prove which tx removed
-        // the balance. Tracker is taken out of the open set so the bot
-        // stops trying to sell phantom inventory.
+        // Case 1: wallet says zero. V5.9.1496 — DEBOUNCED close per spec
+        // (5.0.3501 ZERO-BALANCE OPEN_TRACKING CLEANUP): require TWO consecutive
+        // zero confirmations OR a confirmed sell signature before stamping
+        // CLOSED. This stops a single transient RPC miss from falsely closing
+        // a still-held position, and — critically — stamps the authoritative
+        // PositionCloseLedger (which previously stayed at 0, leaving rows
+        // OPEN_TRACKING forever and polluting reentry/dup logic).
         if (balance <= 1e-9) {
-            val updated = HostWalletTokenTracker.markUnheldByAntiChoke(
-                pos.mint, "SellReconciler: wallet balance zero"
+            val sellSig = pos.sellSignature
+            val hasSig = !sellSig.isNullOrBlank()
+            val closed = HostWalletTokenTracker.confirmZeroBalanceClose(
+                pos.mint,
+                hasConfirmedSellSig = hasSig,
+                reason = if (hasSig) "SELL_SIG_CONFIRMED" else "WALLET_BALANCE_ZERO",
             )
-            if (updated) {
+            if (closed != null) {
+                // Transitioned to CLOSED this tick → release lane primary +
+                // write the trainable close outcome via BotService callback.
                 try {
                     ForensicLogger.lifecycle(
                         "SELL_VERIFY_BALANCE_ZERO",
-                        "mint=${pos.mint.take(10)} symbol=${pos.symbol} closedByReconciler=true",
+                        "mint=${pos.mint.take(10)} symbol=${pos.symbol} closedByReconciler=true sig=${sellSig ?: "none"}",
                     )
                 } catch (_: Throwable) {}
+                SellJobRegistry.markLanded(pos.mint, signature = sellSig)
+                try { onZeroClose?.invoke(pos.mint, pos.symbol ?: "?", sellSig) } catch (e: Throwable) {
+                    ErrorLogger.warn("SellReconciler", "onZeroClose threw: ${e.message?.take(80)}")
+                }
             }
-            SellJobRegistry.markLanded(pos.mint, signature = null)
+            // else: first zero sighting — pending one more confirmation; leave
+            // the row OPEN_TRACKING for exactly one more tick (RECONCILER_ZERO_
+            // BALANCE_PENDING already emitted). Not a ghost.
             return
         }
 

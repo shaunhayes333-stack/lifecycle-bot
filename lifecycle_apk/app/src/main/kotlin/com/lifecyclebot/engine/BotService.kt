@@ -3848,6 +3848,45 @@ class BotService : Service() {
                         ErrorLogger.warn("BotService", "sellTrigger error: ${e.message?.take(80)}")
                     }
                 },
+                // V5.9.1496 — ZERO-BALANCE CLOSE FINALITY. When the reconciler
+                // debounces a zero-balance OPEN_TRACKING row to CLOSED, finish
+                // the finality chain: release any lane-primary election the mint
+                // still holds (so dup/reentry logic is not polluted by an
+                // already-closed mint) and surface the close. We do NOT re-train
+                // here: the real sell path already recorded the trade outcome
+                // when the position actually sold (that is WHY balance is now 0);
+                // re-recording would double-count and corrupt analytics. The
+                // PositionCloseLedger stamp inside confirmZeroBalanceClose is the
+                // authoritative trainable close record.
+                onZeroClose = { mint, symbol, sig ->
+                    try {
+                        val laneGuess = try {
+                            synchronized(status.tokens) { status.tokens[mint]?.position?.tradingMode }
+                        } catch (_: Throwable) { null }
+                        // Release primary across the lanes this mint could hold.
+                        val lanesToRelease = listOfNotNull(
+                            laneGuess,
+                            "SHITCOIN", "MOONSHOT", "BLUECHIP", "QUALITY",
+                            "TREASURY", "MANIPULATED", "DIP_HUNTER", "PROJECT_SNIPER",
+                            "EXPRESS", "CORE",
+                        ).distinct()
+                        for (ln in lanesToRelease) {
+                            try {
+                                com.lifecyclebot.engine.LaneExecutionCoordinator.releaseIfPrimary(
+                                    mint, ln, "ZERO_BALANCE_RECONCILER_CLOSE",
+                                )
+                            } catch (_: Throwable) {}
+                        }
+                        try {
+                            ForensicLogger.lifecycle(
+                                "RECONCILER_ZERO_CLOSE_FINALIZED",
+                                "mint=${mint.take(10)} symbol=$symbol sig=${sig ?: "none"} lanesReleased=${lanesToRelease.size}",
+                            )
+                        } catch (_: Throwable) {}
+                    } catch (e: Throwable) {
+                        ErrorLogger.warn("BotService", "onZeroClose error: ${e.message?.take(80)}")
+                    }
+                },
             )
             BotRuntimeController.markSellReconcilerStarted(runtimeGeneration, com.lifecyclebot.engine.sell.SellReconciler.isStarted)
         } catch (e: Throwable) {
@@ -13849,7 +13888,13 @@ if (hotExitHandledSweep) {
                     else -> {}
                 }
             }
-        } else if (safetyAge > SAFETY_REFRESH_TRIGGER_MS) {
+        } else if (safetyAge > SAFETY_REFRESH_TRIGGER_MS ||
+                   com.lifecyclebot.engine.SafetyRefreshQueue.consume(canonicalMint) ||
+                   com.lifecyclebot.engine.SafetyRefreshQueue.consume(mint)) {
+            // V5.9.1496 — also refresh on explicit finality-defer request
+            // (SafetyRefreshQueue), not only on age. ExecutableOpenGate queues a
+            // mint when it deferred a LIVE candidate for stale safety; refreshing
+            // here lets FDG finalize it next tick (deferred + refreshed, per spec).
             // V5.9.1495 — STALE-REFRESH DEAD-ZONE FIX (source).
             // ROOT CAUSE (5.0.3501): FDG hard-blocks LIVE entries with
             // SAFETY_NOT_READY_STALE once safetyAge > LiveBuyAdmissionGate

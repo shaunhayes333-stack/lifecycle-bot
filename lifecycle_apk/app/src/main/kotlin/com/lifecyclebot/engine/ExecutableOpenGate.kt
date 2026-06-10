@@ -121,6 +121,10 @@ object ExecutableOpenGate {
         hardNoReasons: List<String>,
         candidateVersion: Long,
         currentVersion: Long,
+        mode: String = "",
+        lastSafetyCheckMs: Long = -1L,
+        mint: String = "",
+        symbol: String = "",
     ): Pair<String, String>? {
         if (state == null) return "EXEC_OPEN_DROPPED_NO_FINAL_CANDIDATE" to "NO_FINAL_BUY_CANDIDATE"
         val selected = canonicalLane(selectedLane)
@@ -141,8 +145,36 @@ object ExecutableOpenGate {
         // no_open_committed_blocked_finality). Accept PROBE_ONLY here so the string
         // gate matches the boolean contract. Real vetoes (NO_BUY/HARD_NO_BUY/WATCH)
         // still drop. -15% floor, FDG hard-veto, and hardNo gating untouched.
-        if (preFdgVerdict != "BUY" && preFdgVerdict != "PROBE_ONLY")
+        if (preFdgVerdict != "BUY" && preFdgVerdict != "PROBE_ONLY") {
+            // V5.9.1496 — FINALITY REASON NORMALIZATION (spec 5.0.3501 §1).
+            // In LIVE mode, when the candidate's verdict is NO_BUY *because*
+            // safety is stale/missing, report the SAME canonical reason FDG uses
+            // (SAFETY_NOT_READY_STALE / _MISSING) instead of the generic
+            // PRE_FDG_NOT_BUY, so FDG, EXEC_GATE, and TradeAuth all agree on the
+            // final reason. We also signal an immediate safety refresh so the
+            // candidate can be re-evaluated on the next tick (deferred, not a
+            // silent discard). FDG's veto + the -15% floor are untouched.
+            if (mode.equals("LIVE", true)) {
+                val safetyMissing = lastSafetyCheckMs <= 0L
+                val safetyStale = !safetyMissing &&
+                    (System.currentTimeMillis() - lastSafetyCheckMs) >
+                        com.lifecyclebot.engine.sell.LiveBuyAdmissionGate.SAFETY_STALE_MS
+                if (safetyMissing || safetyStale) {
+                    val canon = if (safetyMissing) "SAFETY_NOT_READY_MISSING" else "SAFETY_NOT_READY_STALE"
+                    try {
+                        com.lifecyclebot.engine.ForensicLogger.lifecycle(
+                            "EXEC_OPEN_DEFERRED_SAFETY_STALE",
+                            "mint=${mint.take(10)} symbol=$symbol reason=$canon refreshRequested=true (finality reason normalized to match FDG)",
+                        )
+                    } catch (_: Throwable) {}
+                    // Request an out-of-band safety refresh for this mint so the
+                    // next pipeline pass sees fresh safety and can finalize.
+                    try { com.lifecyclebot.engine.SafetyRefreshQueue.request(mint) } catch (_: Throwable) {}
+                    return "EXEC_OPEN_DEFERRED_$canon" to canon
+                }
+            }
             return "EXEC_OPEN_DROPPED_PRE_FDG_NOT_BUY" to preFdgVerdict
+        }
         if (hardNoReasons.isNotEmpty()) return "EXEC_OPEN_DROPPED_HARD_NO_BUY" to hardNoReasons.joinToString("+")
         if (candidateVersion != currentVersion) return "EXEC_OPEN_DROPPED_STALE_CANDIDATE" to "STALE_CANDIDATE_VERSION_$candidateVersion"
         return null
@@ -340,6 +372,7 @@ object ExecutableOpenGate {
             // never trusts a stale zero over a known-good live value.
             liveLiquidityUsd = ts.lastLiquidityUsd,
             liveSafetyTier = ts.safety.tier.name,
+            lastSafetyCheckMs = ts.lastSafetyCheck,
         )
     }
 
@@ -353,6 +386,7 @@ object ExecutableOpenGate {
         attemptId: String,
         liveLiquidityUsd: Double = -1.0,
         liveSafetyTier: String = "",
+        lastSafetyCheckMs: Long = -1L,  // V5.9.1496 — for finality reason normalization
     ): OpenVerdict {
         val state = states[mint]
         val v3Decision = state?.v3Decision ?: "UNKNOWN"
@@ -563,6 +597,10 @@ object ExecutableOpenGate {
             hardNoReasons = hardNoReasons,
             candidateVersion = candidateVersion,
             currentVersion = currentCandidateVersion,
+            mode = mode,                          // V5.9.1496
+            lastSafetyCheckMs = lastSafetyCheckMs, // V5.9.1496
+            mint = mint,                          // V5.9.1496
+            symbol = symbol,                      // V5.9.1496
         )?.let { (log, reason) ->
             if (log.contains("STALE_CANDIDATE")) {
                 try { LaneExecutionCoordinator.releaseIfPrimary(mint, laneForRelease(selectedLane, lane), "CANDIDATE_STALE_DROPPED", candidateVersion = candidateVersion) } catch (_: Throwable) {}
