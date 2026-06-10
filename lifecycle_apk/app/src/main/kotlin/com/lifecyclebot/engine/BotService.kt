@@ -6657,7 +6657,7 @@ class BotService : Service() {
                             }
                             continue  // can't do pnl math without price
                         }
-                        var currentPrice = rawPrice
+                        val currentPrice = rawPrice
 
                         // V5.9.698 — STALE LIVE PRICE GUARD: rawPrice is non-null but may be
                         // a cached value that hasn't moved since before the rug. If lastPriceUpdate
@@ -6825,6 +6825,12 @@ class BotService : Service() {
                         // DEX read per danger-zone position per 8s. Never blocks, never
                         // fakes a price; if the oracle is dark we fall through to the
                         // existing stale/floor logic unchanged.
+                        // dzEffectivePrice starts at the loop's currentPrice and is
+                        // replaced by a fresh oracle mark if the danger-zone refresh
+                        // fires. Kept as a separate val-after-block (not a reassigned
+                        // currentPrice) so downstream smart-casts on currentPrice stay
+                        // valid (currentPrice remains immutable / non-null).
+                        var dzEffectivePrice = currentPrice
                         run {
                             val preEntry = ts.position.entryPrice
                             if (preEntry > 0.0 && ts.position.isOpen) {
@@ -6840,7 +6846,7 @@ class BotService : Service() {
                                         ts.lastPrice = freshDz
                                         ts.lastPriceUpdate = System.currentTimeMillis()
                                         ts.lastPriceSource = "DANGER_ZONE_FRESH"
-                                        currentPrice = freshDz
+                                        dzEffectivePrice = freshDz
                                         try {
                                             val dzPnl = ((freshDz - preEntry) / preEntry) * 100.0
                                             ForensicLogger.lifecycle(
@@ -6854,8 +6860,9 @@ class BotService : Service() {
                             }
                         }
 
-                        // Calculate PnL
-                        val pnlPct = ((currentPrice - entryPrice) / entryPrice) * 100
+                        // Calculate PnL — uses the danger-zone-refreshed mark when it fired,
+                        // otherwise the loop's currentPrice (unchanged behaviour).
+                        val pnlPct = ((dzEffectivePrice - entryPrice) / entryPrice) * 100
 
                         // V5.9.922 — BELT-AND-BRACES HARD CATASTROPHE NET.
                         // Operator V5.9.921 dump: UNPC -90.8%, Thumas -75.8%, COMPASS -70.6%
