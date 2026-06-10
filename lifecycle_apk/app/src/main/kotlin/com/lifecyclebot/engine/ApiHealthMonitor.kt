@@ -116,7 +116,7 @@ object ApiHealthMonitor {
     )
     private fun redactSecrets(raw: String?): String? {
         if (raw.isNullOrBlank()) return raw
-        var out = raw
+        var out: String = raw
         for (re in SECRET_PATTERNS) out = re.replace(out) { m ->
             // Keep a short prefix so the error is still debuggable, mask the rest.
             val t = m.value
