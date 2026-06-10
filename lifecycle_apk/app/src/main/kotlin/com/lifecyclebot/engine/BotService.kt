@@ -6830,34 +6830,30 @@ class BotService : Service() {
                         // fires. Kept as a separate val-after-block (not a reassigned
                         // currentPrice) so downstream smart-casts on currentPrice stay
                         // valid (currentPrice remains immutable / non-null).
-                        var dzEffectivePrice = currentPrice
-                        run {
+                        val dzEffectivePrice: Double = run {
                             val preEntry = ts.position.entryPrice
-                            if (preEntry > 0.0 && ts.position.isOpen) {
-                                val premarkPnl = ((currentPrice - preEntry) / preEntry) * 100.0
-                                val posAgeMsDz = System.currentTimeMillis() - ts.position.entryTime
-                                val markAgeMsDz = if (ts.lastPriceUpdate > 0)
-                                    System.currentTimeMillis() - ts.lastPriceUpdate else Long.MAX_VALUE
-                                // In the danger zone, held past warmup, and the mark is at
-                                // least ~1 scan cycle old → force a real quote now.
-                                if (premarkPnl <= -5.0 && posAgeMsDz > 8_000L && markAgeMsDz > 4_000L) {
-                                    val freshDz = try { resolveStaleFallbackPrice(ts.mint) } catch (_: Throwable) { null }
-                                    if (freshDz != null && freshDz > 0.0) {
-                                        ts.lastPrice = freshDz
-                                        ts.lastPriceUpdate = System.currentTimeMillis()
-                                        ts.lastPriceSource = "DANGER_ZONE_FRESH"
-                                        dzEffectivePrice = freshDz
-                                        try {
-                                            val dzPnl = ((freshDz - preEntry) / preEntry) * 100.0
-                                            ForensicLogger.lifecycle(
-                                                "DANGER_ZONE_FRESH_QUOTE",
-                                                "symbol=${ts.symbol} staleMarkPnl=${"%.1f".format(premarkPnl)}% freshPnl=${"%.1f".format(dzPnl)}% markAgeS=${markAgeMsDz/1000} — refreshed before stop eval"
-                                            )
-                                            com.lifecyclebot.engine.PipelineHealthCollector.labelInc("DANGER_ZONE_FRESH_QUOTE")
-                                        } catch (_: Throwable) {}
-                                    }
-                                }
-                            }
+                            if (preEntry <= 0.0 || !ts.position.isOpen) return@run currentPrice
+                            val premarkPnl = ((currentPrice - preEntry) / preEntry) * 100.0
+                            val posAgeMsDz = System.currentTimeMillis() - ts.position.entryTime
+                            val markAgeMsDz = if (ts.lastPriceUpdate > 0)
+                                System.currentTimeMillis() - ts.lastPriceUpdate else Long.MAX_VALUE
+                            // In the danger zone, held past warmup, and the mark is at
+                            // least ~1 scan cycle old → force a real quote now.
+                            if (premarkPnl > -5.0 || posAgeMsDz <= 8_000L || markAgeMsDz <= 4_000L) return@run currentPrice
+                            val freshDz = try { resolveStaleFallbackPrice(ts.mint) } catch (_: Throwable) { null }
+                            if (freshDz == null || freshDz <= 0.0) return@run currentPrice
+                            ts.lastPrice = freshDz
+                            ts.lastPriceUpdate = System.currentTimeMillis()
+                            ts.lastPriceSource = "DANGER_ZONE_FRESH"
+                            try {
+                                val dzPnl = ((freshDz - preEntry) / preEntry) * 100.0
+                                ForensicLogger.lifecycle(
+                                    "DANGER_ZONE_FRESH_QUOTE",
+                                    "symbol=${ts.symbol} staleMarkPnl=${"%.1f".format(premarkPnl)}% freshPnl=${"%.1f".format(dzPnl)}% markAgeS=${markAgeMsDz/1000} — refreshed before stop eval"
+                                )
+                                com.lifecyclebot.engine.PipelineHealthCollector.labelInc("DANGER_ZONE_FRESH_QUOTE")
+                            } catch (_: Throwable) {}
+                            freshDz
                         }
 
                         // Calculate PnL — uses the danger-zone-refreshed mark when it fired,
