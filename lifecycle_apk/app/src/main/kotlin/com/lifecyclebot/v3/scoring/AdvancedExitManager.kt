@@ -81,12 +81,28 @@ object AdvancedExitManager {
             progressiveTrailing = false,
             liquidityCollapseThreshold = 0.7,
         ),
+        // V5.9.1480 — THESIS/EXIT REALIGNMENT. Root-cause fix for the TREASURY
+        // lane bleed (snapshot 5.0.3485: n=13 WR 33% EV -8.4% PnL -3.6 SOL while
+        // every other lane was +EV). TreasuryOpportunityEngine deploys treasury
+        // PROFIT capital into its targetModes = MOONSHOT/PUMP_SNIPER/MICRO_CAP/
+        // REVIVAL — i.e. volatile pump tokens that routinely wick -8..-10% in
+        // seconds before running. The OLD profile (TP15/SL8/trail6/30min) was a
+        // SCALP shape calibrated for a STABLE asset: an 8% SL on a pump token is
+        // noise, so TREASURY got chopped out on the wick over and over, booking
+        // many small losses (the 13-trade / -3.6 SOL bleed). After bootstrap
+        // multipliers the effective SL was only ~9.6% and TP ~12% — a ~1.25:1
+        // shape on assets that need room to work. Realign the exit to the
+        // volatility of what it actually trades: wider SL to survive pump noise
+        // (still well inside the unconditional -15% hard floor), a wider trail
+        // to ride the move, and a real TP so one winner pays for the wicks.
+        // This is the compounding thesis the lane was designed for; the prior
+        // shape amputated every winner at +12% and died by a thousand wick-cuts.
         TREASURY(
-            baseTakeProfitPct = 15.0,
-            baseStopLossPct = 8.0,
-            baseTrailingPct = 6.0,
-            maxHoldMinutes = 30,
-            chunkSellEnabled = false,
+            baseTakeProfitPct = 35.0,   // was 15 — let the asymmetric winner pay for the wicks
+            baseStopLossPct = 14.0,     // was 8 — survive pump-token noise; still inside the -15% floor
+            baseTrailingPct = 11.0,     // was 6 — give the move room instead of trailing out on noise
+            maxHoldMinutes = 90,        // was 30 — pump moves develop over more than half an hour
+            chunkSellEnabled = true,    // was false — bank partials on the way up, let a remainder ride
             progressiveTrailing = true,
             liquidityCollapseThreshold = 0.5,
         ),
