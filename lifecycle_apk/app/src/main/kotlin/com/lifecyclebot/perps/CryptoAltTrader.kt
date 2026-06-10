@@ -656,7 +656,21 @@ object CryptoAltTrader {
                 val refreshed = DynamicAltTokenRegistry.getTokenByMint(tok.mint) ?: tok
                 val vol     = refreshed.volume24h
                 val mcap    = refreshed.mcap
-                val liq     = refreshed.liquidityUsd
+                val rawLiq  = refreshed.liquidityUsd
+                // V5.9.1477 — CRYPTO UNIVERSE LIQUIDITY PROXY. The non-Solana universe
+                // is sourced from CoinGecko (cg:{id} keys), which returns 24h VOLUME but
+                // NOT DEX pool liquidity, so liquidityUsd arrives 0 for every BTC/ETH/L1/
+                // L2 major. The sub-trader gates (BlueChip liq>1M, Quality, Moonshot) then
+                // dropped the ENTIRE non-Solana universe — the bot could only trade the
+                // handful of coins with a resolvable Solana-DEX liq figure (operator saw
+                // ~5 crypto trades over 7h while meme did 536). A top-500-by-volume coin
+                // is by definition deeply liquid; when DEX liq is unknown, use a
+                // conservative fraction of 24h volume as the liquidity proxy so these
+                // legitimately-liquid majors clear the gates. Paper-mode only sizing risk;
+                // spot path. Real Solana-mint tokens keep their true on-chain liq.
+                val liq     = if (rawLiq > 0.0) rawLiq
+                              else if (tok.mint.startsWith("cg:") && vol > 0.0) (vol * 0.10).coerceAtMost(50_000_000.0)
+                              else rawLiq
                 val change  = refreshed.priceChange24h
                 val buys1h  = refreshed.buys24h  / 24
                 val sells1h = refreshed.sells24h / 24
