@@ -156,13 +156,54 @@ object TrailingStopManager {
             }
             val finalStopPct = baseStopPct.coerceIn(minStop, maxStop)
             
-            // Calculate actual stop price
-            val stopPrice = highPriceUsd * (1.0 - finalStopPct / 100.0)
-            
+            // Calculate actual stop price (anchored to the peak/high).
+            val trailStopPrice = highPriceUsd * (1.0 - finalStopPct / 100.0)
+
+            // ═══════════════════════════════════════════════════════════════════
+            // V5.9.1488 — PEAK-AWARE PROFIT-LOCK RATCHET (fix 55pp MFE give-back)
+            // Snapshot 5.0.3494: MOONSHOT avgPeak=+51% but avgRealized=-4.3%
+            // (giveBack=55.2pp, the #1 driver of pf=0.57). Root cause: the trail
+            // width above keys on CURRENT pnlPct, not PEAK gain. When a position
+            // peaks high then pulls back into a low-pnl band, it INHERITS the wide
+            // early-stage stop (maxStop up to 35%), so a token that hit +51% is
+            // allowed to round-trip to ~-2% before the trail fires. Peak info was
+            // ignored entirely.
+            //
+            // Fix: a monotonic profit-lock floor derived from the PEAK gain that
+            // never loosens. Once a position has achieved a peak tier, it may
+            // never give back below that tier's locked floor. We take the TIGHTER
+            // (higher) of the adaptive trail price and the peak-lock floor price.
+            // This directly protects avg_win (doctrine: avg_win*WR must beat
+            // avg_loss*(1-WR)). Pure exit-side; no entry/volume impact; the
+            // unconditional -15% hard floor and all other gates are untouched.
+            val peakGainPct = if (entryPriceUsd > 0.0)
+                ((highPriceUsd - entryPriceUsd) / entryPriceUsd) * 100.0
+            else 0.0
+            // Locked MINIMUM profit (vs entry) the position must retain, by peak tier.
+            val lockedFloorGainPct: Double = when {
+                peakGainPct >= 200.0 -> peakGainPct * 0.55  // give back at most ~45% of a huge run
+                peakGainPct >= 100.0 -> peakGainPct * 0.50
+                peakGainPct >= 50.0  -> 15.0                // +50% peak ⇒ keep at least +15%
+                peakGainPct >= 30.0  -> 8.0                 // +30% peak ⇒ keep at least +8%
+                peakGainPct >= 20.0  -> 2.0                 // +20% peak ⇒ never let it become a loss
+                else                 -> Double.NEGATIVE_INFINITY  // no lock below +20% peak
+            }
+            val lockFloorPrice = if (lockedFloorGainPct > Double.NEGATIVE_INFINITY)
+                entryPriceUsd * (1.0 + lockedFloorGainPct / 100.0)
+            else 0.0
+            // Tighter of the two = higher stop price.
+            val stopPrice = kotlin.math.max(trailStopPrice, lockFloorPrice)
+            val lockEngaged = lockFloorPrice > trailStopPrice && lockFloorPrice > 0.0
+            val finalReason = if (lockEngaged) "$reason+peaklock(${lockedFloorGainPct.toInt()}%@peak${peakGainPct.toInt()}%)" else reason
+            // Report the effective stop pct relative to the peak so telemetry stays consistent.
+            val effectiveStopPct = if (highPriceUsd > 0.0)
+                ((highPriceUsd - stopPrice) / highPriceUsd) * 100.0
+            else finalStopPct
+
             TrailingStopResult(
-                stopPricePct = finalStopPct,
+                stopPricePct = effectiveStopPct,
                 stopPriceUsd = stopPrice,
-                reason = reason,
+                reason = finalReason,
                 isAdaptive = true,
             )
         } catch (e: Exception) {
