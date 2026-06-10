@@ -3656,7 +3656,18 @@ object FinalDecisionGate {
             tags.add("bootstrap_penalized")
         }
 
-        val shouldTrade = blockReason == null && (candidate.shouldTrade || baseSignalMismatchIgnoredForLane)
+        // V5.9.1486 — PROBE_ONLY IS AN APPROVED DUST BUY, NOT A BLOCK (matches the
+        // canExecute() contract at the top of this file). Snapshot 5.0.3492 showed
+        // PROBE_ONLY as the #1 reject reason (471) AND logged as SHITCOIN_FDG_HARD_VETO
+        // — a direct contract violation. Cause: this recompute forced shouldTrade=false
+        // whenever blockReason!=null, but PROBE_ONLY candidates legitimately carry a
+        // non-null blockReason WITH shouldTrade=true (dust-size approved buy). The
+        // SHITCOIN/MOONSHOT/etc lanes then saw !canExecute() and HARD-VETOED the exact
+        // probes meant to flow at tiny size to gather bootstrap data. Treat PROBE_ONLY
+        // as non-blocking here, identically to canExecute(). Any OTHER non-null
+        // blockReason still forces shouldTrade=false; -15% floor + hardNo + genuine FDG
+        // veto untouched.
+        val shouldTrade = (blockReason == null || blockReason == "PROBE_ONLY") && (candidate.shouldTrade || baseSignalMismatchIgnoredForLane)
 
         if (!shouldTrade && blockReason != null) {
             recordBlock(blockReason)
