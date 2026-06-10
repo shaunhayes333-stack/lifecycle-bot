@@ -48,7 +48,13 @@ object ShitCoinExpress {
     
     // Market cap limits - Match BotService gate ($300K)
     private const val MAX_MARKET_CAP_USD = 300_000.0  // V5.5: Was $20K — too restrictive, now matches BotService gate
-    private const val MIN_MARKET_CAP_USD = 2_000.0    // At least $2K
+    // V5.9.1492 — DEAD-QUIET FIX: 2_000 -> 1_000. Snapshot 5.0.3498 showed the
+    // live PumpPortal flow at $1,820-2,044 mcap — roughly HALF the fresh launches
+    // fell below the $2K floor and were rejected MCAP_TOO_LOW, so EXPRESS went
+    // silent (0 rides). The rest of the meme lane already trades these via the
+    // $1K liquidity intake floor; EXPRESS should see the same universe. $1K keeps
+    // out only true dust while admitting the fresh-launch band EXPRESS exists for.
+    private const val MIN_MARKET_CAP_USD = 1_000.0    // At least $1K (was $2K)
 
     // V5.6.8: Lowered momentum requirements to actually trigger during bootstrap
     private const val MIN_MOMENTUM_PCT = 3.0          // V5.9.343: walk-back to pre-V5.9.194

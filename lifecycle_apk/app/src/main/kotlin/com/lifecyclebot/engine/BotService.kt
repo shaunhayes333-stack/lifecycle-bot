@@ -17051,7 +17051,7 @@ if (hotExitHandledSweep) {
                     // fresh pump.fun tokens arrive with lastMcap==0 before the
                     // first mcap fetch lands; still allow if liquidity >= $1K.
                     // V5.9.245: Raised Express mcap ceiling $300K → $5M — trending memes often 500K-3M
-                    val expressInMcapRange = ts.lastMcap in 2_000.0..5_000_000.0
+                    val expressInMcapRange = ts.lastMcap in 1_000.0..5_000_000.0  // V5.9.1492: 2K->1K, match ShitCoinExpress floor (dead-quiet fix)
                     val expressUnknownMcapOk = ts.lastMcap <= 0.0 && ts.lastLiquidityUsd >= 1_000.0
                     val passesPreFilter = (expressInMcapRange || expressUnknownMcapOk) &&
                         effectiveExpressMom >= expressMinMom && ts.lastBuyPressurePct >= expressMinBuyP
@@ -17063,7 +17063,7 @@ if (hotExitHandledSweep) {
                         val reason = when {
                             !expressInMcapRange && !expressUnknownMcapOk ->
                                 if (ts.lastMcap <= 0.0) "mcap=unknown liq=$${ts.lastLiquidityUsd.toInt()} < \$1K"
-                                else if (ts.lastMcap < 2_000) "mcap=\$$mcap < \$2K"
+                                else if (ts.lastMcap < 1_000) "mcap=\$$mcap < \$1K"
                                 else "mcap=\$$mcap > \$300K"
                             effectiveExpressMom < expressMinMom -> "mom=${effectiveExpressMom.fmt(1)}% < ${expressMinMom.fmt(1)}% (learning=${(expressLearning*100).toInt()}%)"
                             ts.lastBuyPressurePct < expressMinBuyP -> "buyP=${ts.lastBuyPressurePct.toInt()}% < ${expressMinBuyP.toInt()}%"

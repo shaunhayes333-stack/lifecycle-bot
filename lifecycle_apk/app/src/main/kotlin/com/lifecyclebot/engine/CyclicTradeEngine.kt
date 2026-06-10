@@ -43,6 +43,12 @@ object CyclicTradeEngine {
     // picks the highest-conviction Solana mint among survivors. Edge-gate +
     // cold-mode + loss-streak bars still protect the ring downstream.
     private const val MIN_SCORE_TO_ENTER = 38.0
+    // V5.9.1492 — starvation-probe tunables. After this many consecutive ticks
+    // with no token clearing the floor, take a relaxed probe pick so the ring
+    // never freezes. PROBE_MIN_SCORE is the minimal above-noise score a probe
+    // candidate must carry (never probes pure-zero dead tokens).
+    private const val STARVATION_PROBE_TICKS = 4
+    private const val PROBE_MIN_SCORE = 2.0
     // V5.9.1234 — Cyclic was deploying the full ring while cold (e.g. 1W/4L,
     // ring $3, -99% growth). Keep sampling, but stop full-ring gambling until
     // its own curve has proven profitable.
@@ -70,6 +76,13 @@ object CyclicTradeEngine {
     private const val LOSS_STREAK_BREAK_COUNT    = 3
     private const val LOSS_STREAK_BREAK_PAUSE_MS = 5 * 60 * 1000L
     @Volatile private var consecutiveLosses: Int = 0
+    // V5.9.1492 — STARVATION PROBE. When the strict score floor finds no
+    // eligible token for several consecutive ticks (the live PumpPortal flow
+    // scores ~0-3 while the floor is 28-48), CYCLIC was returning "Scanning…"
+    // forever — 5 lifetime cycles. Every OTHER lane fires via FDG PROBE_ONLY;
+    // CYCLIC had no equivalent. This counter triggers a relaxed PROBE pick so
+    // the ring keeps sampling (doctrine #3 throughput-first, #86 soft-shape).
+    @Volatile private var noEligibleStreak: Int = 0
     // V5.9.696 — Dynamic stop: track high-water pnl per position so profits get locked.
     @Volatile private var positionHighWaterPnlPct: Double = 0.0
     @Volatile private var pauseUntilMs: Long = 0L
@@ -449,8 +462,63 @@ object CyclicTradeEngine {
                 score * (conf / 100.0)
             }
             ?: run {
-                statusMessage = "Scanning… (need score ≥${effectiveMinScore.toInt()}${if (cyclicCold) " [COLD]" else if (isBootstrapPhase) " [BOOT]" else ""}${if (consecutiveLosses > 0) " +${consecutiveLosses}L" else ""})"
-                return
+                // V5.9.1492 — STARVATION PROBE FALLBACK. No token cleared the strict
+                // floor this tick. Rather than freeze at "Scanning…" indefinitely
+                // (the dead-CYCLIC bug — only 5 lifetime cycles), count the miss and,
+                // once we've been starved for STARVATION_PROBE_TICKS in a row, take
+                // the single highest-conviction available token at a PROBE-relaxed
+                // floor. The edge-gated ring deployment below (V5.9.1376) already
+                // collapses size to a true probe fraction on negative realized edge,
+                // so a low-score probe risks minimal ring capital while keeping the
+                // CYCLIC learning bucket maturing. Mirrors the PROBE_ONLY path every
+                // other lane already has. NEVER bypasses blacklist / loss-streak /
+                // danger-bucket guards — those are re-checked in the probe filter.
+                noEligibleStreak++
+                if (noEligibleStreak < STARVATION_PROBE_TICKS) {
+                    statusMessage = "Scanning… (need score ≥${effectiveMinScore.toInt()}${if (cyclicCold) " [COLD]" else if (isBootstrapPhase) " [BOOT]" else ""}${if (consecutiveLosses > 0) " +${consecutiveLosses}L" else ""}) probe in ${STARVATION_PROBE_TICKS - noEligibleStreak}"
+                    return
+                }
+                // Probe floor: a clearly-above-noise but reachable score. Honour all
+                // hard guards; require a real (non-zero) price and a minimal score so
+                // we never probe pure-zero dead tokens.
+                val probeFloor = PROBE_MIN_SCORE
+                val probePick = tokens.values
+                    .filter { ts ->
+                        val tScore = (ts.lastV3Score ?: ts.entryScore.toInt()).toDouble()
+                        !ts.position.isOpen
+                            && ts.lastPrice > 0.0
+                            && tScore >= probeFloor
+                            && ts.mint != currentMint
+                            && !TokenBlacklist.isBlocked(ts.mint)
+                            && !MemeLossStreakGuard.isBlocked(ts.mint)
+                            && run {
+                                val sc = (ts.lastV3Score ?: ts.entryScore.toInt())
+                                val expReject = try { com.lifecyclebot.engine.ScoreExpectancyTracker.shouldReject("CYCLIC", sc) } catch (_: Throwable) { false }
+                                val danger = try {
+                                    val d = com.lifecyclebot.engine.LosingPatternMemory.stats("CYCLIC", sc)
+                                    d.isDangerous && d.meanPnl < 0.0
+                                } catch (_: Throwable) { false }
+                                !(expReject || danger)
+                            }
+                    }
+                    .maxByOrNull { ts ->
+                        val score = ((ts.lastV3Score ?: ts.entryScore.toInt())).toDouble()
+                        val conf = (ts.lastV3Confidence ?: 50).coerceIn(1, 100).toDouble()
+                        score * (conf / 100.0)
+                    }
+                if (probePick == null) {
+                    statusMessage = "Scanning… (no probe candidate ≥${probeFloor.toInt()} either)"
+                    return
+                }
+                try {
+                    com.lifecyclebot.engine.PipelineHealthCollector.labelInc("CYCLIC_STARVATION_PROBE")
+                    ForensicLogger.lifecycle(
+                        "CYCLIC_STARVATION_PROBE",
+                        "symbol=${probePick.symbol} score=${probePick.lastV3Score ?: probePick.entryScore.toInt()} starvedTicks=$noEligibleStreak floorWas=${effectiveMinScore.toInt()} probeFloor=${probeFloor.toInt()} — relaxed pick (edge-gated size below)"
+                    )
+                } catch (_: Throwable) {}
+                noEligibleStreak = 0
+                probePick
             }
 
         // ── 3a. V5.9.451 — ChopFilter (phase/source) — skip the known chop pool.
@@ -468,6 +536,8 @@ object CyclicTradeEngine {
             }
         } catch (_: Throwable) {}
 
+        // V5.9.1492 — a token WAS selected (strict or probe) → clear starvation.
+        noEligibleStreak = 0
         // ── 4. Enter cycle ─────────────────────────────────────────────────────
         var ringDesiredSol = if (cyclicCold) (ringBalanceSol * COLD_RING_SIZE_MULT).coerceAtLeast(0.001) else ringBalanceSol
 
