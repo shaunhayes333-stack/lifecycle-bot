@@ -325,8 +325,14 @@ object ShitCoinExpress {
         // Tokens from PumpPortal WS arrive with no candle history → momentum=0
         // and buyPressure=50 (default). Old 65% floor silenced Express entirely
         // for fresh launches. 55% gives them a synthetic momentum read.
-        val effectiveMomentum = if (momentum <= 0.0 && buyPressurePct >= 55.0) {
-            (buyPressurePct - 50.0).coerceAtLeast(fluidMinMomentum)
+        // V5.9.1481 — DEAD-BAND FIX: proxy floor 55 -> 50. The PumpPortal WS
+        // default for lastBuyPressurePct IS 50.0, but the proxy only fired at
+        // >=55 — so the single most common fresh-token state (exactly 50%) fell
+        // into a 50-55 dead band: momentum stayed 0 -> NO_MOMENTUM skip ->
+        // Express went dead quiet. Synthesise from >=50 so the WS-default tokens
+        // get a minimal momentum read (max(fluidMinMomentum) keeps it honest).
+        val effectiveMomentum = if (momentum <= 0.0 && buyPressurePct >= 50.0) {
+            (buyPressurePct - 49.0).coerceAtLeast(fluidMinMomentum)
         } else momentum
 
         // CRITICAL: Must already be pumping (fluid gate)

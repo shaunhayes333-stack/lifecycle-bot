@@ -31,11 +31,19 @@ object CyclicTradeEngine {
     // line, not a full-exit ceiling.
     private const val DEFAULT_TP_PCT = 65.0
     private const val DEFAULT_SL_PCT = 8.0
-    private const val MIN_SCORE_TO_ENTER = 62.0
+    // V5.9.1481 — REVIVAL: floor 62 -> 38. Root cause of the dead cyclic lane:
+    // the V3 scorer emits 0-30 for the overwhelming majority of the Solana
+    // pump-token pool (snapshot 5.0.3485: AVATRA 29.7, NPC 2.5, most 0.0; only
+    // a handful reach ~50). A 62 floor matched ~nothing, so cyclic sat in a
+    // permanent 'Scanning… need score >=62' state. 38 still selects the BETTER
+    // movers in the pool (top decile of the real distribution) without filtering
+    // the entire universe out. Edge-gate + cold-mode + loss-streak bars still
+    // protect the ring downstream; this only restores eligibility.
+    private const val MIN_SCORE_TO_ENTER = 38.0
     // V5.9.1234 — Cyclic was deploying the full ring while cold (e.g. 1W/4L,
     // ring $3, -99% growth). Keep sampling, but stop full-ring gambling until
     // its own curve has proven profitable.
-    private const val COLD_MIN_SCORE_TO_ENTER = 72.0
+    private const val COLD_MIN_SCORE_TO_ENTER = 48.0  // V5.9.1481: 72 -> 48 (was unreachable vs real score dist; cold still demands a clearly above-median mover)
     private const val COLD_RING_SIZE_MULT = 0.40   // V5.9.1309: was 0.20 — too starved to recover; 40% still de-risks while allowing the ring to climb back
     // V5.9.1376 — EDGE-GATE constants. Once >=20 cycles are sampled, ring
     // deployment is gated on REALIZED edge vs the breakeven WR implied by the
@@ -48,7 +56,7 @@ object CyclicTradeEngine {
     // ring engine actually trades while FluidLearningAI is still calibrating.
     // Tokens don't have a reliable lastV3Score yet at that stage — entryScore
     // (raw signal) is used as the proxy. 30 is still a real signal, not noise.
-    private const val MIN_SCORE_TO_ENTER_BOOTSTRAP = 48.0
+    private const val MIN_SCORE_TO_ENTER_BOOTSTRAP = 28.0  // V5.9.1481: 48 -> 28. Bootstrap must actually sample to climb the maturity curve (doctrine #3 throughput-first); 28 is still a real signal above the 0-20 noise floor.
     private const val COOLDOWN_MS = 30_000L    // 30s between cycles
     private const val MAX_HOLD_MS = 90 * 60 * 1000L  // 90 min max hold
 

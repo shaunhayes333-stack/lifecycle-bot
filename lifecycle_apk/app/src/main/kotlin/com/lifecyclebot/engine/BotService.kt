@@ -16956,8 +16956,11 @@ if (hotExitHandledSweep) {
                     // The old 65% floor meant every PumpPortal token got effectiveMom=0
                     // and hit the EXPRESS SKIP gate. 55% lets the majority of fresh
                     // launches synthesise a minimal momentum read from buy pressure.
-                    val effectiveExpressMom = if (momentum <= 0.0 && ts.lastBuyPressurePct >= 55.0) {
-                        (ts.lastBuyPressurePct - 50.0).coerceAtLeast(expressMinMom)
+                    // V5.9.1481 — DEAD-BAND FIX (mirror of ShitCoinExpress): proxy
+                    // floor 55 -> 50 so WS-default (50.0) tokens synthesise momentum
+                    // and reach evaluate() instead of being pre-filtered into silence.
+                    val effectiveExpressMom = if (momentum <= 0.0 && ts.lastBuyPressurePct >= 50.0) {
+                        (ts.lastBuyPressurePct - 49.0).coerceAtLeast(expressMinMom)
                     } else momentum
                     // V5.9.240: Mirror Moonshot's mcapUnknownButLiq bypass —
                     // fresh pump.fun tokens arrive with lastMcap==0 before the

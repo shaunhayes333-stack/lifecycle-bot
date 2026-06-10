@@ -39,9 +39,17 @@ object AutoCompoundEngine {
 
     data class CompoundConfig(
         val enabled: Boolean = true,
-        val treasuryPct: Double = 30.0,       // V5.9.9: 30% of profit to treasury (more to wallet for loss coverage)
-        val compoundPct: Double = 0.0,        // V5.6.7: Disabled compound pool for cleaner split
-        val walletPct: Double = 70.0,         // V5.9.9: 70% of profit back to trading wallet
+        // V5.9.1481 — RE-ENABLE COMPOUNDING. The compound pool was zeroed
+        // (V5.6.7 "cleaner split"), which silently turned the whole engine
+        // inert: toCompound stayed 0 -> compoundPoolSol never grew ->
+        // getSizeMultiplier() was permanently 1.0, while 8 lanes consumed that
+        // dead 1.0x believing they were scaling on profit. Restore a real
+        // 25% compound allocation so wins actually grow position size as the
+        // book compounds. Split: 25% treasury / 25% compound / 50% wallet —
+        // wallet still keeps the majority for loss coverage and live safety.
+        val treasuryPct: Double = 25.0,
+        val compoundPct: Double = 25.0,       // was 0.0 — the bug that made the engine do nothing
+        val walletPct: Double = 50.0,
         val minProfitToCompound: Double = 0.01,  // Min profit before splitting
         val compoundThreshold: Double = 0.5,  // SOL needed to trigger size increase
         val maxSizeMultiplier: Double = 2.0,  // Max position size boost
@@ -238,6 +246,37 @@ object AutoCompoundEngine {
         appendLine("  Treasury: ${config.treasuryPct.toInt()}%")
         appendLine("  Compound: ${config.compoundPct.toInt()}%")
         appendLine("  Wallet: ${config.walletPct.toInt()}%")
+    }
+
+    // ── V5.9.1481 — PERSISTENCE (doctrine rule #2: any learnt state ships
+    // export/import in the same commit). The compound pool, size multiplier,
+    // and win streak are learnt state. Without this they reset to zero on every
+    // restart — so even with compounding re-enabled the book would amnesia-wipe
+    // its accumulated size advantage each session. Persist the whole state. ──
+    fun exportState(): String = try {
+        org.json.JSONObject().apply {
+            put("pool", state.compoundPoolSol)
+            put("totalCompounded", state.totalCompounded)
+            put("totalToTreasury", state.totalToTreasury)
+            put("mult", state.currentSizeMultiplier)
+            put("lastAt", state.lastCompoundAt)
+            put("streak", state.consecutiveWins)
+        }.toString()
+    } catch (_: Throwable) { "" }
+
+    fun importState(blob: String?) {
+        if (blob.isNullOrBlank()) return
+        try {
+            val o = org.json.JSONObject(blob)
+            state = state.copy(
+                compoundPoolSol      = o.optDouble("pool", 0.0),
+                totalCompounded      = o.optDouble("totalCompounded", 0.0),
+                totalToTreasury      = o.optDouble("totalToTreasury", 0.0),
+                currentSizeMultiplier= o.optDouble("mult", 1.0).coerceIn(1.0, config.maxSizeMultiplier),
+                lastCompoundAt       = o.optLong("lastAt", 0L),
+                consecutiveWins      = o.optInt("streak", 0),
+            )
+        } catch (_: Throwable) { /* corrupt blob -> keep fresh state */ }
     }
 
     private fun Double.fmt(d: Int) = "%.${d}f".format(this)
