@@ -154,13 +154,21 @@ object ExecutableOpenGate {
             // final reason. We also signal an immediate safety refresh so the
             // candidate can be re-evaluated on the next tick (deferred, not a
             // silent discard). FDG's veto + the -15% floor are untouched.
-            if (mode.equals("LIVE", true)) {
-                val safetyMissing = lastSafetyCheckMs <= 0L
-                val safetyStale = !safetyMissing &&
+            // Only normalize a STALE-SAFETY NO_BUY — never a real hard veto. A
+            // HARD_NO_BUY / RUG / rugScore<0 verdict is a genuine block and MUST
+            // keep reporting PRE_FDG_NOT_BUY (invariant tests guard this). We also
+            // require a REAL positive safety timestamp (lastSafetyCheckMs > 0) that
+            // is genuinely past the stale window — a default/unknown -1 is NOT
+            // treated as "missing safety" (that would swallow hard vetoes).
+            val verdictUpper = preFdgVerdict.uppercase()
+            val isStaleEligibleVerdict =
+                verdictUpper == "NO_BUY" || verdictUpper == "WATCH" || verdictUpper == "PROBE"
+            if (mode.equals("LIVE", true) && isStaleEligibleVerdict && lastSafetyCheckMs > 0L) {
+                val safetyStale =
                     (System.currentTimeMillis() - lastSafetyCheckMs) >
                         com.lifecyclebot.engine.sell.LiveBuyAdmissionGate.SAFETY_STALE_MS
-                if (safetyMissing || safetyStale) {
-                    val canon = if (safetyMissing) "SAFETY_NOT_READY_MISSING" else "SAFETY_NOT_READY_STALE"
+                if (safetyStale) {
+                    val canon = "SAFETY_NOT_READY_STALE"
                     try {
                         com.lifecyclebot.engine.ForensicLogger.lifecycle(
                             "EXEC_OPEN_DEFERRED_SAFETY_STALE",
