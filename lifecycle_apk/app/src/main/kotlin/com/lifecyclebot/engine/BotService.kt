@@ -9276,11 +9276,31 @@ class BotService : Service() {
             return mustInclude.distinct()
         }
 
+        // V5.9.1497 — PRE-LANE PURGE (spec 5.0.3502 §2): drop banned + quarantined
+        // mints from the PER-CYCLE work set before lane evaluation so the bot stops
+        // repeatedly reprocessing dead/dangerous targets. This does NOT shrink the
+        // protected 500-token intake pool — the mints remain in GlobalTradeRegistry
+        // and re-enter naturally if they clear ban/quarantine; we only skip them
+        // this cycle. Cheap O(n) set lookups, no network.
+        val preLaneFiltered = otherMints.filter { mint ->
+            val banned = try { com.lifecyclebot.engine.BannedTokens.isBanned(mint) } catch (_: Throwable) { false }
+            val quarantined = try { com.lifecyclebot.engine.QuarantineStore.isQuarantined(mint) } catch (_: Throwable) { false }
+            !(banned || quarantined)
+        }
+        val purgedCount = otherMints.size - preLaneFiltered.size
+        if (purgedCount > 0) {
+            try {
+                com.lifecyclebot.engine.ForensicLogger.lifecycle(
+                    "WATCHLIST_PRELANE_PURGE",
+                    "purged=$purgedCount kept=${preLaneFiltered.size} reason=banned_or_quarantined (pool intact, this-cycle skip only)",
+                )
+            } catch (_: Throwable) {}
+        }
         val fresh = mutableListOf<String>()
         val unseen = mutableListOf<String>()
         val cold = mutableListOf<Pair<String, Long>>()
         val probationDemoted = mutableListOf<String>()
-        otherMints.forEach { mint ->
+        preLaneFiltered.forEach { mint ->
             val entry = entriesByMint[mint]
             // V5.9.1226 — hot-watchlist probation demotion. This does not
             // shrink the protected scanner/intake universe; it moves repeatedly

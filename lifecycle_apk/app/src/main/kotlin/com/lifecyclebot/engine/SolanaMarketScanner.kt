@@ -861,6 +861,21 @@ class SolanaMarketScanner(
     // dead. Doctrine: serves volume (more cycles/min) with zero quality cost.
     private val SOURCE_SCAN_TIMEOUT_MS = 6_000L
 
+    // V5.9.1497 — SCANNER LOOP BUDGET (spec 5.0.3502 §2). Hard wall-clock
+    // ceiling for the whole parallel deep-scan batch. Even if several sources
+    // hang at their 6s per-source timeout AND queue behind the concurrency
+    // permit, the batch CANNOT exceed this — the cycle returns and the loop
+    // continues. Target: avg cycle <10s, no cycle >30s. Healthy sources finish
+    // in 300-1000ms so this never truncates a good cycle.
+    private val SCAN_BATCH_BUDGET_MS = 14_000L
+    // Per-source consecutive-timeout history → adaptive deprioritization. A
+    // source that times out repeatedly is SKIPPED on a rotating basis (1 in N
+    // cycles) so it stops eating the batch budget, but is NEVER permanently
+    // banned — the 500-token intake pool must stay fed (operator rule).
+    private val sourceTimeoutStreak = java.util.concurrent.ConcurrentHashMap<String, Int>()
+    private val SOURCE_DEPRIORITIZE_AFTER = 3   // consecutive timeouts before skipping
+    private val SOURCE_SKIP_EVERY = 3           // when deprioritized, run 1 of every 3 cycles
+
     @Volatile private var memorySafeMode = false
     @Volatile private var oomCount = 0
     @Volatile private var scanRotation = 0
@@ -1009,6 +1024,7 @@ class SolanaMarketScanner(
         try {
             withTimeout(SOURCE_SCAN_TIMEOUT_MS) { block() }
             telemetrySourceSuccesses++
+            sourceTimeoutStreak.remove(name)  // V5.9.1497 — healthy → reset deprioritization
             try {
                 ForensicLogger.lifecycle(
                     "SCANNER_SOURCE_DONE",
@@ -1017,7 +1033,9 @@ class SolanaMarketScanner(
             } catch (_: Throwable) {}
         } catch (e: TimeoutCancellationException) {
             telemetrySourceErrors++
-            ErrorLogger.warn("Scanner", "$name timed out after ${SOURCE_SCAN_TIMEOUT_MS}ms")
+            val streak = (sourceTimeoutStreak[name] ?: 0) + 1  // V5.9.1497
+            sourceTimeoutStreak[name] = streak
+            ErrorLogger.warn("Scanner", "$name timed out after ${SOURCE_SCAN_TIMEOUT_MS}ms (streak=$streak)")
             try { ForensicLogger.lifecycle("SCANNER_SOURCE_TIMEOUT", "name=$name raw=${telemetryRawScanned - rawBefore} enq=${telemetryEnqueued - enqBefore} durMs=${System.currentTimeMillis() - startedAt}") } catch (_: Throwable) {}
         } catch (e: CancellationException) {
             throw e
@@ -1044,12 +1062,47 @@ class SolanaMarketScanner(
         val overlayCap = try { RuntimeConfigOverlay.scannerConcurrencyCap() } catch (_: Throwable) { 0 }
         val permits = (if (overlayCap > 8) overlayCap else 8).coerceIn(8, 12)
         val gate = kotlinx.coroutines.sync.Semaphore(permits)
-        scans.toList().map { (name, block) ->
-            async(Dispatchers.IO) {
-                gate.acquire()
-                try { runScan(name, block) } finally { gate.release() }
+        // V5.9.1497 — ADAPTIVE DEPRIORITIZATION (spec §2): a source that has timed
+        // out SOURCE_DEPRIORITIZE_AFTER+ consecutive cycles is skipped on a rotating
+        // basis (run 1 in SOURCE_SKIP_EVERY cycles) so it stops burning the batch
+        // budget. Never permanently banned — it re-enters on its cadence so the
+        // intake pool keeps refilling. Healthy sources (streak<threshold) always run.
+        val active = scans.toList().filter { (name, _) ->
+            val streak = sourceTimeoutStreak[name] ?: 0
+            if (streak < SOURCE_DEPRIORITIZE_AFTER) true
+            else (scanRotation % SOURCE_SKIP_EVERY == 0).also { run ->
+                if (!run) try {
+                    ForensicLogger.lifecycle(
+                        "SCANNER_SOURCE_DEPRIORITIZED",
+                        "name=$name streak=$streak skippedThisCycle=true cadence=1/$SOURCE_SKIP_EVERY",
+                    )
+                } catch (_: Throwable) {}
             }
-        }.awaitAll()
+        }
+        // V5.9.1497 — HARD BATCH BUDGET (spec §2): the whole batch can never exceed
+        // SCAN_BATCH_BUDGET_MS. withTimeoutOrNull cancels any still-in-flight source
+        // and lets the loop continue — a hung source degrades priority (streak++ via
+        // its own per-source timeout) instead of stalling loop exit. No cycle >30s.
+        val batchStart = System.currentTimeMillis()
+        val finished = kotlinx.coroutines.withTimeoutOrNull(SCAN_BATCH_BUDGET_MS) {
+            active.map { (name, block) ->
+                async(Dispatchers.IO) {
+                    gate.acquire()
+                    try { runScan(name, block) } finally { gate.release() }
+                }
+            }.awaitAll()
+            true
+        }
+        if (finished == null) {
+            val durMs = System.currentTimeMillis() - batchStart
+            ErrorLogger.warn("Scanner", "⏱ SCAN_BATCH_BUDGET_EXCEEDED durMs=$durMs budget=$SCAN_BATCH_BUDGET_MS — batch cancelled, loop continues")
+            try {
+                ForensicLogger.lifecycle(
+                    "SCANNER_BATCH_BUDGET_EXCEEDED",
+                    "durMs=$durMs budget=$SCAN_BATCH_BUDGET_MS sources=${active.size} (slow sources cancelled, priority degraded)",
+                )
+            } catch (_: Throwable) {}
+        }
     }
 
     fun start() {

@@ -340,7 +340,8 @@ class MainActivity : AppCompatActivity() {
     // V5.9.317: Manual BUY/SELL buttons in active token panel
     private lateinit var btnManualBuy: android.widget.Button
     private lateinit var btnManualSell: android.widget.Button
-    private val logLines = ArrayDeque<String>(200)
+    private val logLines = ArrayDeque<String>(48)
+    private var lastDecisionLogTextHash: Int = 0  // V5.9.1497 — skip no-op StaticLayout relayouts
 
     // top-up settings
     private lateinit var switchTopUp: android.widget.Switch
@@ -518,6 +519,8 @@ class MainActivity : AppCompatActivity() {
     private var lastTreasuryPnlRefreshMs: Long = 0L
     private var lastTreasuryCachedPnlSol: Double = 0.0
     private var lastCryptoAltsRenderMs: Long = 0L  // V5.9.730 ANR debounce
+    private var lastRuntimeBarRenderMs: Long = 0L       // V5.9.1497 — ≤1/sec runtime-bar throttle
+    private var lastRuntimeBarCriticalState: Int = -1   // V5.9.1497 — bypass throttle on state change
     private var lastBlueChipHash: Int = -1
     private var lastBlueChipRenderMs: Long = 0L
     private var lastBlueChipCachedPnlSol: Double = 0.0
@@ -2388,6 +2391,24 @@ for legal compliance.
         val isHalted  = cb.isHalted
         val isPaused  = cb.isPaused && running
         val isRunning = running && !isHalted && !isPaused
+
+        // V5.9.1497 — SPEC §1: throttle the runtime bar to max ~1 update/sec.
+        // Start/Stop truth must NEVER be stale, so we bypass the throttle whenever
+        // the critical run-state (running/halted/paused) changes — those render
+        // immediately. Only redundant same-state repaints (the ANR-prone case where
+        // a 1Hz tick re-runs the whole bar) are gated.
+        run {
+            val critical = (if (isRunning) 1 else 0) or (if (isHalted) 2 else 0) or (if (isPaused) 4 else 0)
+            val nowMs = System.currentTimeMillis()
+            if (critical == lastRuntimeBarCriticalState &&
+                lastRuntimeBarRenderMs > 0L &&
+                nowMs - lastRuntimeBarRenderMs < 1_000L
+            ) {
+                return
+            }
+            lastRuntimeBarCriticalState = critical
+            lastRuntimeBarRenderMs = nowMs
+        }
 
         btnToggle.setTextIfChanged(when {
             isHalted -> "Halted — Tap to Reset"
@@ -8239,9 +8260,20 @@ This cannot be undone!
             signal
 
         logLines.addFirst(logLine)
-        if (logLines.size > 200) logLines.removeLast()
+        // V5.9.1497 — SPEC §1: cap the on-screen decision log to 40 lines. The
+        // previous 200-line buffer was rebuilt into one big String on the main
+        // thread every update → StaticLayout.generate / LineBreaker was a named
+        // ANR blocking site (35s frame gaps). 40 lines is well inside the 30-50
+        // spec band and keeps the text-layout cost trivial.
+        while (logLines.size > 40) logLines.removeLast()
 
-        tvDecisionLog.text = logLines.joinToString("\n")
+        // Only touch the TextView (which triggers a full StaticLayout relayout)
+        // when the rendered text actually changed.
+        val joined = logLines.joinToString("\n")
+        if (joined.hashCode() != lastDecisionLogTextHash) {
+            lastDecisionLogTextHash = joined.hashCode()
+            tvDecisionLog.text = joined
+        }
         // Auto-scroll to top (newest entry)
         if (::scrollLog.isInitialized) {
             scrollLog.post { scrollLog.smoothScrollTo(0, 0) }
