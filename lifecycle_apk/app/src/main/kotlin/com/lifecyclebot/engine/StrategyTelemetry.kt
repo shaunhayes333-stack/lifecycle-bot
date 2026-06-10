@@ -36,8 +36,19 @@ object StrategyTelemetry {
         val meanPnlPct: Double,
         val winRatePct: Double,
         val totalSolPnl: Double,
+        val avgWinPct: Double = 0.0,   // V5.9.1489 mean of winning trades' pnl%
+        val avgLossPct: Double = 0.0,  // V5.9.1489 mean of losing trades' pnl% (negative)
     ) {
         val isStatisticallyMeaningful: Boolean get() = trades >= 5
+
+        // V5.9.1489 — DOCTRINE PROFIT-FACTOR EDGE. The pf rule is
+        // avg_win*WR must exceed avg_loss*(1-WR). Expectancy here is the
+        // per-trade SOL-edge proxy in pp; <=0 means the lane loses money in
+        // expectation REGARDLESS of a skewed mean%. Self-contained, no I/O.
+        val pfExpectancyPp: Double get() {
+            val w = (winRatePct / 100.0).coerceIn(0.0, 1.0)
+            return avgWinPct * w - kotlin.math.abs(avgLossPct) * (1.0 - w)
+        }
     }
 
     /**
@@ -120,6 +131,13 @@ object StrategyTelemetry {
                 return p
             }
             val totalSol = trades.mapNotNull { saneSol(it) }.sum()
+            // V5.9.1489 — avg win/loss in % (sanitized like the mean) so the
+            // damper can apply the true profit-factor rule instead of raw mean,
+            // which a fat take-profit tail skews positive on real bleeders.
+            val winPcts = trades.asSequence().map { sanePct(it.pnlPct) }.filter { it > 1.0 }.toList()
+            val lossPcts = trades.asSequence().map { sanePct(it.pnlPct) }.filter { it < -1.0 }.toList()
+            val avgWinPct = if (winPcts.isNotEmpty()) winPcts.sum() / winPcts.size else 0.0
+            val avgLossPct = if (lossPcts.isNotEmpty()) lossPcts.sum() / lossPcts.size else 0.0
             StrategyMetric(
                 strategy   = strategy,
                 trades     = trades.size,
@@ -130,6 +148,8 @@ object StrategyTelemetry {
                 meanPnlPct = mean,
                 winRatePct = wr,
                 totalSolPnl = totalSol,
+                avgWinPct = avgWinPct,
+                avgLossPct = avgLossPct,
             )
         }
     }

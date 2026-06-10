@@ -6657,7 +6657,7 @@ class BotService : Service() {
                             }
                             continue  // can't do pnl math without price
                         }
-                        val currentPrice = rawPrice
+                        var currentPrice = rawPrice
 
                         // V5.9.698 — STALE LIVE PRICE GUARD: rawPrice is non-null but may be
                         // a cached value that hasn't moved since before the rug. If lastPriceUpdate
@@ -6796,7 +6796,64 @@ class BotService : Service() {
 
                         val entryPrice = ts.position.entryPrice
                         if (entryPrice <= 0) continue
-                        
+
+                        // ═══════════════════════════════════════════════════════════
+                        // V5.9.1489 — DANGER-ZONE FRESH-QUOTE (source fix for the
+                        // -8%→-31% / -53% STOP_LOSS overshoot).
+                        //
+                        // ROOT CAUSE: stops are SET tight (SHITCOIN -8%, lanes -15%
+                        // floor) but REALIZE deep (SHITCOIN avg -31.6%, MANIPULATED
+                        // -53.5% in snapshot 5.0.3494). The stop check below evaluates
+                        // against `currentPrice` = ts.lastPrice, which only refreshes on
+                        // the 6-9s scan cycle. On illiquid memes the price gaps between
+                        // polls, so by the time pnlPct is recomputed the position is
+                        // already -31%. The loss is booked far past where the stop sits.
+                        //
+                        // This is NOT the time-staleness path above (that fires at
+                        // 90-180s feed-dark). This is a fresh-but-one-cycle-old mark on a
+                        // position that has ENTERED the danger zone. The fix: the moment a
+                        // held position's last-known PnL is within striking distance of
+                        // its stop, pull a real oracle mark THIS tick (respecting the
+                        // oracle's own 8s/mint throttle) so the stop chain acts on the
+                        // true price and books nearer the intended level. Shrinks avg_loss
+                        // on EVERY lane — the doctrine pf lever (avg_win*WR vs avg_loss).
+                        //
+                        // Bounded + safe: only when held past warmup (>8s, avoids
+                        // entry-tick noise) AND last-known pnl <= -5% (approaching the
+                        // tightest -8% lane stop) AND not already fresh this tick. Oracle
+                        // self-throttles to ≤1 call/8s/mint, so worst case is one extra
+                        // DEX read per danger-zone position per 8s. Never blocks, never
+                        // fakes a price; if the oracle is dark we fall through to the
+                        // existing stale/floor logic unchanged.
+                        run {
+                            val preEntry = ts.position.entryPrice
+                            if (preEntry > 0.0 && ts.position.isOpen) {
+                                val premarkPnl = ((currentPrice - preEntry) / preEntry) * 100.0
+                                val posAgeMsDz = System.currentTimeMillis() - ts.position.entryTime
+                                val markAgeMsDz = if (ts.lastPriceUpdate > 0)
+                                    System.currentTimeMillis() - ts.lastPriceUpdate else Long.MAX_VALUE
+                                // In the danger zone, held past warmup, and the mark is at
+                                // least ~1 scan cycle old → force a real quote now.
+                                if (premarkPnl <= -5.0 && posAgeMsDz > 8_000L && markAgeMsDz > 4_000L) {
+                                    val freshDz = try { resolveStaleFallbackPrice(ts.mint) } catch (_: Throwable) { null }
+                                    if (freshDz != null && freshDz > 0.0) {
+                                        ts.lastPrice = freshDz
+                                        ts.lastPriceUpdate = System.currentTimeMillis()
+                                        ts.lastPriceSource = "DANGER_ZONE_FRESH"
+                                        currentPrice = freshDz
+                                        try {
+                                            val dzPnl = ((freshDz - preEntry) / preEntry) * 100.0
+                                            ForensicLogger.lifecycle(
+                                                "DANGER_ZONE_FRESH_QUOTE",
+                                                "symbol=${ts.symbol} staleMarkPnl=${"%.1f".format(premarkPnl)}% freshPnl=${"%.1f".format(dzPnl)}% markAgeS=${markAgeMsDz/1000} — refreshed before stop eval"
+                                            )
+                                            com.lifecyclebot.engine.PipelineHealthCollector.labelInc("DANGER_ZONE_FRESH_QUOTE")
+                                        } catch (_: Throwable) {}
+                                    }
+                                }
+                            }
+                        }
+
                         // Calculate PnL
                         val pnlPct = ((currentPrice - entryPrice) / entryPrice) * 100
 

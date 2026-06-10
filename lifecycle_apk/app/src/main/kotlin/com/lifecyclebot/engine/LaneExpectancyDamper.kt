@@ -55,6 +55,13 @@ object LaneExpectancyDamper {
     // this, the haircut scales linearly.
     private const val FLOOR_MEAN_PCT = -30.0
 
+    // V5.9.1489 — pf-edge bleeder tunables (net-negative-SOL lanes that the
+    // mean-based check misses). A lane losing money with non-positive per-trade
+    // edge starts at PF_START_MULT and scales toward MIN_MULT as the edge
+    // (pp/trade) gets more negative, reaching MIN_MULT at -PF_FLOOR_PP.
+    private const val PF_START_MULT = 0.85   // gentle first touch — still a probe
+    private const val PF_FLOOR_PP = 8.0      // edge this negative ⇒ full haircut
+
     // Cheap cache so we don't recompute the leaderboard on every single entry in
     // a hot scan burst. Refresh window keeps it live without thrashing.
     private const val CACHE_MS = 5_000L
@@ -106,18 +113,46 @@ object LaneExpectancyDamper {
         val out = HashMap<String, Double>()
         for (m in board) {
             if (m.trades < MIN_TRADES) continue
-            if (m.meanPnlPct >= BLEEDER_MEAN_PCT) continue
+
+            // V5.9.1489 — TWO-SIGNAL BLEEDER DETECTION (source fix for the
+            // skew-masked bleeder). The old check used meanPnlPct alone, but a
+            // lane with a fat take-profit tail (e.g. MANIPULATED μ=+86% yet
+            // net-negative SOL, WR 24%) reads as "not a bleeder" and never gets
+            // sized down — even though it loses money in expectation. We now also
+            // catch lanes that are NET-NEGATIVE in real SOL AND fail the doctrine
+            // profit-factor edge (avg_win*WR ≤ avg_loss*(1-WR)). Either signal
+            // qualifies a lane as a bleeder; both stay fully self-healing (recompute
+            // every call) and size-only (never a veto, per doctrine #86).
+            val meanBleeder = m.meanPnlPct < BLEEDER_MEAN_PCT
+            // pf-edge bleeder: real net loss over a meaningful sample AND the
+            // per-trade expectancy edge is non-positive. The net-SOL gate prevents
+            // flagging a high-variance lane that is actually net-positive.
+            val pfEdge = m.pfExpectancyPp
+            val pfBleeder = m.totalSolPnl < 0.0 && pfEdge <= 0.0
+            if (!meanBleeder && !pfBleeder) continue
+
             // Is this a PROVEN catastrophe (deep -EV + near-zero WR + big sample)?
             val catastrophic = m.trades >= CATASTROPHIC_MIN_TRADES &&
                 m.meanPnlPct <= CATASTROPHIC_MEAN_PCT &&
                 m.winRatePct <= CATASTROPHIC_WR_PCT
             // Floor depends on tier: catastrophic lanes may be cut deeper (still a probe).
             val floorMult = if (catastrophic) CATASTROPHIC_MIN_MULT else MIN_MULT
-            // Linear haircut: BLEEDER_MEAN_PCT → 1.0, FLOOR_MEAN_PCT → floorMult.
-            val span = (BLEEDER_MEAN_PCT - FLOOR_MEAN_PCT).coerceAtLeast(1.0)
-            val depth = (BLEEDER_MEAN_PCT - m.meanPnlPct).coerceIn(0.0, span)
-            val frac = depth / span                      // 0..1
-            val mult = (1.0 - frac * (1.0 - floorMult)).coerceIn(floorMult, 1.0)
+
+            // Haircut depth. For a mean-bleeder use the existing linear mean map.
+            // For a pf-edge-only bleeder (positive/near-zero mean but losing money),
+            // scale by how negative the pf edge is so a marginal lane is barely
+            // trimmed while a deep -edge lane is trimmed toward the floor.
+            val mult: Double = if (meanBleeder) {
+                val span = (BLEEDER_MEAN_PCT - FLOOR_MEAN_PCT).coerceAtLeast(1.0)
+                val depth = (BLEEDER_MEAN_PCT - m.meanPnlPct).coerceIn(0.0, span)
+                val frac = depth / span
+                (1.0 - frac * (1.0 - floorMult)).coerceIn(floorMult, 1.0)
+            } else {
+                // pf-edge bleeder: map edge 0 → 0.85 (gentle), edge ≤ -PF_FLOOR_PP → MIN_MULT.
+                val edgeDepth = (-pfEdge).coerceIn(0.0, PF_FLOOR_PP)
+                val frac = edgeDepth / PF_FLOOR_PP
+                (PF_START_MULT - frac * (PF_START_MULT - MIN_MULT)).coerceIn(MIN_MULT, 1.0)
+            }
             out[m.strategy.trim().uppercase()] = mult
         }
         return out
