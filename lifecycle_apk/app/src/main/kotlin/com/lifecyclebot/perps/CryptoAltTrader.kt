@@ -539,7 +539,12 @@ object CryptoAltTrader {
                 try { monitorPositions() }
                 catch (e: CancellationException) { throw e }
                 catch (e: Exception) { ErrorLogger.error(TAG, "Monitor error: ${e.message}", e) }
-                delay(5_000)
+                // V5.9.1455 — tightened 5s → 1s. Operator directive after
+                // memes bled -29% on a -15% stop: crypto must also evaluate
+                // exits at sub-second cadence to avoid the same slippage
+                // window. 1Hz is well within DexScreener/Birdeye rate budgets
+                // for typical 1-5 open positions in the crypto lane.
+                delay(1_000)
             }
         }
 
@@ -2315,6 +2320,45 @@ object CryptoAltTrader {
                     continue
                 }
                 val updated = position.copy(currentPrice = data.price)
+
+                // ═══════════════════════════════════════════════════════════════
+                // V5.9.1455 — TICK-TIME CATASTROPHIC FLOOR (-10% kill-switch).
+                // Operator directive after memes bled -29% on a -15% stop in
+                // a single tick. The configured stopLossPrice below may be set
+                // looser (lane-specific). This hard backstop fires first the
+                // instant a tick shows pnl ≤ -10%, no matter what the per-lane
+                // SL was, and no matter what direction. Bypasses all the gates
+                // beneath. This is the floor of the floor for crypto alts.
+                // ═══════════════════════════════════════════════════════════════
+                val tickPnl = updated.getPnlPct()
+                if (tickPnl <= -10.0) {
+                    ErrorLogger.warn(TAG,
+                        "🛑 TICK_HARD_FLOOR ${updated.market.symbol} " +
+                        "${"%.1f".format(tickPnl)}% ≤ -10.0% — immediate exit " +
+                        "(peak=${"%.1f".format(updated.highestPnlPct)}%)")
+                    closePosition(id, "TICK_HARD_FLOOR_${tickPnl.toInt()}PCT")
+                    continue
+                }
+                // ─── Peak give-back trailing (lock big runners) ───
+                val tickPeak = if (updated.highestPnlPct > tickPnl) updated.highestPnlPct else tickPnl
+                val tickGiveBackRatio = when {
+                    tickPeak >= 500.0 -> 0.30   // 5x+ : lock 70% of peak
+                    tickPeak >= 200.0 -> 0.40   // 2x+ : lock 60% of peak
+                    tickPeak >= 100.0 -> 0.50   // 1x+ : lock 50% of peak
+                    tickPeak >=  30.0 -> 0.60   // +30%+ runners: lock 40%
+                    else -> Double.NaN
+                }
+                if (!tickGiveBackRatio.isNaN()) {
+                    val tickLockedFloor = tickPeak - (tickPeak * tickGiveBackRatio)
+                    if (tickPnl < tickLockedFloor && tickPnl > 0.0) {
+                        ErrorLogger.warn(TAG,
+                            "🔒 TICK_PROFIT_LOCK ${updated.market.symbol} " +
+                            "peak=${"%.1f".format(tickPeak)}% now=${"%.1f".format(tickPnl)}% " +
+                            "floor=${"%.1f".format(tickLockedFloor)}% — locking profit")
+                        closePosition(id, "TICK_PROFIT_LOCK_peak${tickPeak.toInt()}_now${tickPnl.toInt()}")
+                        continue
+                    }
+                }
 
                 // V5.9.272: HARD SL — fire before anything else if price crossed stop
                 val slPriceOk = updated.stopLossPrice > 0 && updated.entryPrice > 0

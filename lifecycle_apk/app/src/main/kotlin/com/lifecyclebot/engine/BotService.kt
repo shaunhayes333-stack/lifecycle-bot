@@ -52,6 +52,15 @@ class BotService : Service() {
         // this is purely the BUY decision self-selecting depth. -1 (unknown
         // liquidity) still passes — the zero-score gate handles those.
         private const val LANE_PROBE_MIN_LIQ_USD = 1_500.0  // V5.9.1429 2500->1500: re-admit legit $1.5-2.5K tokens (3424 sweet spot), still rejects sub-$1K rug spam
+
+        // V5.9.1455 — TICK-TIME catastrophic loss floor for memes (Moonshot/ShitCoin).
+        // Evaluated INSIDE the 1Hz openPositionTickLoop on every fresh price → no
+        // 2s hotExit / 30s sweep slippage window. The lane-specific HARD_FLOOR_STOP
+        // (=-15) is retained as the slow-path backstop; this is the fast-path
+        // catastrophic kill-switch. Tighter (-10) at operator directive after a
+        // -29.4% real-money fill on a -15% stop (V5.9.1454 dump).
+        private const val TICK_HARD_FLOOR_PCT = -10.0
+
         // Dust-probe size multiplier (applied via qualityPenalty) — tiny, so a
         // weak/blind context can still generate a labelled learning sample
         // without spraying full-size capital into it.
@@ -7705,6 +7714,85 @@ class BotService : Service() {
                             } catch (_: Throwable) {}
                         }
                     } catch (_: Throwable) { /* never break the tick loop */ }
+
+                    // ═══════════════════════════════════════════════════════════════
+                    // V5.9.1455 — TICK-TIME HARD-FLOOR + PROFIT-LOCK (sub-second exit)
+                    // ───────────────────────────────────────────────────────────────
+                    // Problem (operator V5.9.1454 dump): -15% HARD_FLOOR filled at
+                    // -29.4% on a real-money sell because the actual stop check
+                    // lived in hotExit's 2s cadence → up to 2s of slippage on a
+                    // fast rug, AND a +1000% peak gave back to ~+4% because the
+                    // give-back trailing only fired in the slow path. Both bleed
+                    // real $$$.
+                    //
+                    // Fix: evaluate two tick-time guards the instant a fresh price
+                    // arrives. Gated to MEME lane (Moonshot + ShitCoin) per
+                    // operator directive — that's where the bleeds happened.
+                    // BlueChip/Treasury keep their own lane-specific tighter SLs.
+                    //
+                    //   1) TICK_HARD_FLOOR_PCT (-10): unconditional kill-switch.
+                    //   2) TICK_PROFIT_LOCK: progressive trailing give-back —
+                    //      once a position has peaked past +30%, we never let
+                    //      give-back exceed a peak-tier-specific share. Lets
+                    //      runners run but never gives back a 1000% ride.
+                    // ═══════════════════════════════════════════════════════════════
+                    try {
+                        val pos = ts.position
+                        val entryPx = pos.entryPrice
+                        if (pos.isOpen && entryPx > 0.0) {
+                            val isMeme = (pos.isShitCoinPosition || pos.tradingMode == "MOONSHOT")
+                            // Skip BlueChip/Treasury — they manage their own tighter exits.
+                            val excludedLane = pos.isBlueChipPosition || pos.isTreasuryPosition
+                            if (isMeme && !excludedLane) {
+                                val pnlPctNow = (priceUsd - entryPx) / entryPx * 100.0
+                                val peakPct = pos.peakGainPct
+
+                                // ─── Guard 1: TICK_HARD_FLOOR @ -10% ───
+                                if (pnlPctNow <= TICK_HARD_FLOOR_PCT) {
+                                    ErrorLogger.warn("BotService",
+                                        "🛑 TICK_HARD_FLOOR ${ts.symbol} ${"%.1f".format(pnlPctNow)}% " +
+                                        "≤ ${TICK_HARD_FLOOR_PCT.toInt()}% — immediate exit (peak=${"%.1f".format(peakPct)}%)")
+                                    try {
+                                        val cfgTick = ConfigStore.load(applicationContext)
+                                        val walletTick = walletManager.getWallet()
+                                        val balTick = status.getEffectiveBalance(cfgTick.paperMode)
+                                        executor.requestSell(ts,
+                                            "TICK_HARD_FLOOR_${pnlPctNow.toInt()}PCT",
+                                            walletTick, balTick)
+                                    } catch (_: Throwable) {}
+                                } else {
+                                    // ─── Guard 2: TICK_PROFIT_LOCK (peak give-back) ───
+                                    // Peak-tier give-back ratios — let runners run but
+                                    // never give back a 1000% ride.
+                                    val giveBackRatio = when {
+                                        peakPct >= 500.0 -> 0.30   // 5x+ : lock 70% of peak
+                                        peakPct >= 200.0 -> 0.40   // 2x+ : lock 60% of peak
+                                        peakPct >= 100.0 -> 0.50   // 1x+ : lock 50% of peak
+                                        peakPct >=  30.0 -> 0.60   // +30%+ modest runners: lock 40%
+                                        else -> Double.NaN
+                                    }
+                                    if (!giveBackRatio.isNaN()) {
+                                        val lockedFloor = peakPct - (peakPct * giveBackRatio)
+                                        if (pnlPctNow < lockedFloor && pnlPctNow > 0.0) {
+                                            ErrorLogger.warn("BotService",
+                                                "🔒 TICK_PROFIT_LOCK ${ts.symbol} " +
+                                                "peak=${"%.1f".format(peakPct)}% now=${"%.1f".format(pnlPctNow)}% " +
+                                                "floor=${"%.1f".format(lockedFloor)}% — locking profit")
+                                            try {
+                                                val cfgTick = ConfigStore.load(applicationContext)
+                                                val walletTick = walletManager.getWallet()
+                                                val balTick = status.getEffectiveBalance(cfgTick.paperMode)
+                                                executor.requestSell(ts,
+                                                    "TICK_PROFIT_LOCK_peak${peakPct.toInt()}_now${pnlPctNow.toInt()}",
+                                                    walletTick, balTick)
+                                            } catch (_: Throwable) {}
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    } catch (_: Throwable) { /* never break the tick loop */ }
+
                     updated++
                 }
 
