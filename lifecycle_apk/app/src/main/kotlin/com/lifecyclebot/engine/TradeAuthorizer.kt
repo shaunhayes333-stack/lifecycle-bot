@@ -288,8 +288,13 @@ object TradeAuthorizer {
         }
 
         // GATE 3: live liquidity floor
-        if (!isPaperMode && liquidity in 0.0001..1999.9999) {
-            ErrorLogger.info(TAG, "❌ REJECT $symbol: LIQUIDITY_${"%.0f".format(liquidity)} < 2000")
+        // V5.9.1523 — aligned with TokenSafetyChecker exit-safety floor ($1,200).
+        // The $1.2-2K controlled band is allowed here (size-capped downstream by
+        // the safety soft-penalty), so fresh launches in the pump.fun graduation
+        // zone are no longer rejected outright. Below $1,200 stays rejected: a
+        // live position genuinely cannot round-trip out of <$1.2K depth.
+        if (!isPaperMode && liquidity in 0.0001..1199.9999) {
+            ErrorLogger.info(TAG, "❌ REJECT $symbol: LIQUIDITY_${"%.0f".format(liquidity)} < 1200")
             return AuthorizationResult(
                 verdict = ExecutionVerdict.REJECT,
                 reason = "LOW_LIQUIDITY",

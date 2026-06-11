@@ -692,14 +692,38 @@ class TokenSafetyChecker(private val cfg: () -> BotConfig) {
         // here. Sub-trader floors + TradeAuthorizer GATE 3 still enforce
         // the $2K minimum.
         if (!isPaperMode) {
-            if (currentLiquidityUsd in 0.0..1_999.0) {
-                hard.add("Liquidity \$${currentLiquidityUsd.toInt()} < \$2,000 live floor — too thin to exit safely")
-                ErrorLogger.error(TAG, "🚫 LIQ HARD BLOCK (live): $symbol \$${currentLiquidityUsd.toInt()}")
+            // V5.9.1523 — VOLUME DE-CHOKE w/o bypassing exit safety.
+            // Live tape proved the entire fresh pump.fun graduation universe sits
+            // at ~$1.5-1.9K liquidity (Puffins $1766, bag $1745, Pentagassed $1881,
+            // SHMAYERS $1712 — ALL hard-blocked by the flat $2K floor while the bot
+            // sat idle). A 0.01-0.05 SOL live buy (~$1-3 notional) round-trips
+            // cleanly against ~$1.2K of depth. So:
+            //   • TRUE exit-safety floor → $1,200 (below this = genuinely un-exitable, HARD block stays).
+            //   • $1,200–$2,000 = CONTROLLED LIVE BAND: not a hard block; a size-cap
+            //     soft penalty so the position trades SMALL (executor sizing already
+            //     reduces on penalty). Other hard safety (rugcheck/LP/mint-authority)
+            //     is UNCHANGED and still shadows unsafe tokens — we only relax the
+            //     pure thin-liquidity dimension, never a high-score override.
+            val LIVE_LIQ_HARD_FLOOR = 1_200.0
+            if (currentLiquidityUsd >= 0.0 && currentLiquidityUsd < LIVE_LIQ_HARD_FLOOR) {
+                hard.add("Liquidity \$${currentLiquidityUsd.toInt()} < \$1,200 live exit-safety floor — un-exitable")
+                ErrorLogger.error(TAG, "🚫 LIQ HARD BLOCK (live): $symbol \$${currentLiquidityUsd.toInt()} < \$1200")
                 try {
                     com.lifecyclebot.engine.MemePipelineTracer.blocked(
                         mint = mint, symbol = symbol,
                         reason = "SAFETY_LIQ_HARD_BLOCK_LIVE",
-                        detail = "currentLiq=\$${currentLiquidityUsd.toInt()} < \$2000 floor",
+                        detail = "currentLiq=\$${currentLiquidityUsd.toInt()} < \$1200 floor",
+                    )
+                } catch (_: Throwable) {}
+            } else if (currentLiquidityUsd >= LIVE_LIQ_HARD_FLOOR && currentLiquidityUsd < 2_000.0) {
+                // controlled live band — SMALL size, not blocked. Soft penalty only.
+                soft.add("Thin live liquidity \$${currentLiquidityUsd.toInt()} (\$1.2-2K controlled band) — size-capped" to 6)
+                penalty += 6
+                try {
+                    com.lifecyclebot.engine.MemePipelineTracer.stage(
+                        tag = "SAFETY_LIQ_CONTROLLED_BAND_LIVE",
+                        mint = mint, symbol = symbol,
+                        detail = "currentLiq=\$${currentLiquidityUsd.toInt()} in \$1.2-2K → size-capped live attempt",
                     )
                 } catch (_: Throwable) {}
             }
