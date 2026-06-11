@@ -11917,28 +11917,36 @@ class Executor(
             // claimed a sell that never happened; the tokens stayed in the
             // user's wallet. A failed Jupiter quote is almost always
             // recoverable (rate-limit, indexer lag, momentary thin pool).
-            if (quote == null) {
-                onLog("🚨 SELL STUCK: ${ts.symbol} — all ${slippageLevels.size * 2} quote attempts failed. " +
-                      "Position kept OPEN; will retry next cycle.", tradeId.mint)
-                onNotify("🚨 Jupiter Can't Quote",
-                    "${ts.symbol}: no route from Jupiter right now. Bot will retry. " +
-                    "If persistent, clear manually from the positions panel.",
-                    com.lifecyclebot.engine.NotificationHistory.NotifEntry.NotifType.INFO)
-                ErrorLogger.warn("Executor", "SELL STUCK: ${ts.symbol} — Jupiter quote exhausted; " +
-                    "NOT closing position, NOT claiming sell PnL.")
-                // V5.9.458 — terminal forensics so the user sees the sell died on quote exhaustion.
+            // V5.9.1528 — PROVIDER PRIORITY: PUMP → HELIUS → JUPITER (sell source fix).
+            // ROOT CAUSE: a Jupiter quote 503 used to hard-return QUOTE EXHAUSTED
+            // HERE — before the PumpPortal/Helius direct route (tryPumpPortalSell,
+            // ~50 lines below) was ever attempted, even though pump.fun / PumpSwap /
+            // Raydium-auto routing needs NO Jupiter quote at all. Per operator spec,
+            // Jupiter is the LAST-resort aggregator; a failed Jupiter quote must
+            // ROTATE to the direct route, not exhaust the sell. We now treat a null
+            // quote as NON-FATAL: execution falls through to PUMP-FIRST (which builds
+            // + broadcasts via PumpPortal/Helius Sender with no Jupiter dependency).
+            // The Jupiter broadcast ladder below is already skipped when a direct sig
+            // lands; we ALSO skip it when there is no quote to build from. Only if
+            // BOTH the direct route AND Jupiter are unavailable do we keep the
+            // position OPEN_TRACKING with its single pending sell intent (lease).
+            val jupiterQuoteUnavailable = (quote == null)
+            if (jupiterQuoteUnavailable) {
                 LiveTradeLogStore.log(
                     sellTradeKey, ts.mint, ts.symbol, "SELL",
-                    LiveTradeLogStore.Phase.SELL_FAILED,
-                    "QUOTE EXHAUSTED — all ${slippageLevels.size * 2} attempts failed. Position kept OPEN.",
+                    LiveTradeLogStore.Phase.SELL_QUOTE_FAIL,
+                    "SELL_PROVIDER_FAIL provider=JUPITER status=quote_unavailable action=rotate_not_exhaust → PUMP/HELIUS direct first",
                     traderTag = "MEME",
                 )
-                return SellResult.FAILED_RETRYABLE
-            }
-
-            val qGuard = security.validateQuote(quote, isBuy = false, inputSol = pos.costSol)
-            if (qGuard is GuardResult.Block) {
-                onLog("⚠ Sell quote warning: ${qGuard.reason} — proceeding anyway", ts.mint)
+                try {
+                    ForensicLogger.lifecycle("SELL_PROVIDER_FAIL",
+                        "provider=JUPITER status=quote_unavailable action=rotate_not_exhaust mint=${ts.mint.take(10)} symbol=${ts.symbol}")
+                } catch (_: Throwable) {}
+            } else {
+                val qGuard = security.validateQuote(quote!!, isBuy = false, inputSol = pos.costSol)
+                if (qGuard is GuardResult.Block) {
+                    onLog("⚠ Sell quote warning: ${qGuard.reason} — proceeding anyway", ts.mint)
+                }
             }
 
             // V5.9.478 — IN-LINE BROADCAST RETRY for 0x1788 / SLIPPAGE_EXCEEDED.
@@ -12014,6 +12022,17 @@ class Executor(
             val lsPumpTip = com.lifecyclebot.network.JitoTipFetcher
                 .getDynamicTip(c.jitoTipLamports)
                 .let { if (isDrainExit) (it * 2).coerceAtMost(1_000_000L) else it }
+            // V5.9.1528 — provider-select forensic (operator spec). PumpPortal
+            // Lightning pool="auto" routes pump.fun bonding curve → PumpSwap →
+            // Raydium and broadcasts through the Helius Sender; it is the PRIMARY
+            // direct route. Jupiter (the ladder below) is fallback only.
+            try {
+                val pumpMint = com.lifecyclebot.network.PumpFunDirectApi.isPumpFunMint(ts.mint)
+                ForensicLogger.lifecycle("SELL_PROVIDER_SELECT",
+                    "provider=${if (pumpMint) "PUMP_DIRECT" else "HELIUS_DIRECT"} " +
+                    "reason=${if (pumpMint) "pump_mint" else "primary"} " +
+                    "mint=${ts.mint.take(10)} symbol=${ts.symbol} jupiterQuote=${if (jupiterQuoteUnavailable) "unavailable" else "available_fallback"}")
+            } catch (_: Throwable) {}
             sig = tryPumpPortalSell(
                 ts = ts,
                 wallet = wallet,
@@ -12039,7 +12058,7 @@ class Executor(
                     traderTag = "MEME",
                 )
             }
-            for (currentSlip in if (sig != null) emptyList() else broadcastSlipLadder) {
+            for (currentSlip in if (sig != null || jupiterQuoteUnavailable) emptyList<Int>() else broadcastSlipLadder) {
                 broadcastAttempts++
                 try {
                     // Re-quote at the new slippage tier on attempts 2+. The
@@ -12234,7 +12253,12 @@ class Executor(
             // V5.9.478 — capture the final non-null quote (the one whose
             // broadcast actually landed) so downstream PnL maths and
             // logging don't trip Kotlin's nullable-receiver checks.
-            val finalQuote: com.lifecyclebot.network.SwapQuote = quote!!
+            // V5.9.1528 — finalQuote is NULL when the sell landed via the PUMP/
+            // HELIUS direct route with no Jupiter quote (jupiterQuoteUnavailable).
+            // It is used only for PnL-display fallback + cost-predictor learning,
+            // both of which already prefer the real on-chain wallet delta. Guard
+            // the two derefs rather than NPE on a perfectly good direct-route sell.
+            val finalQuote: com.lifecyclebot.network.SwapQuote? = quote
             
             try {
                 // V5.9.455 — FEE FAIRNESS FIX.
@@ -12585,7 +12609,8 @@ class Executor(
                     }
                 }
                 if (delta > 0.001) {
-                    onLog("📊 SELL PnL (actual): received=${delta.fmt(6)} SOL | quoted=${(finalQuote.outAmount / 1_000_000_000.0).fmt(6)} SOL", tradeId.mint)
+                    val quotedDisp = finalQuote?.let { (it.outAmount / 1_000_000_000.0).fmt(6) } ?: "n/a(direct)"
+                    onLog("📊 SELL PnL (actual): received=${delta.fmt(6)} SOL | quoted=$quotedDisp SOL", tradeId.mint)
                     pos.costSol + delta  // costSol + delta = total back (delta = net SOL gain/loss vs cost)
                 } else {
                     // V5.9.495x — no on-chain SOL delta after 15s. Refuse
@@ -12616,7 +12641,7 @@ class Executor(
             // finally accumulates samples. quote.outAmount = optimistic
             // estimate; solBack = actual SOL received post-fees/MEV.
             try {
-                val quotedSol = finalQuote.outAmount / 1_000_000_000.0
+                val quotedSol = (finalQuote?.outAmount ?: 0L) / 1_000_000_000.0
                 if (quotedSol > 0.0 && solBack > 0.0) {
                     val liqUsd = ts.lastLiquidityUsd
                     com.lifecyclebot.v3.scoring.ExecutionCostPredictorAI.learn(
