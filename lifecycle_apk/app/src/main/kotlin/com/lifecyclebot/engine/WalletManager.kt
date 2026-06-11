@@ -77,8 +77,13 @@ class WalletManager private constructor(private val ctx: Context) {
         // Public RPC fallbacks (no API key required)
         // User should configure their own premium RPC (Helius, QuickNode) for better performance
         // These are sorted by reliability - Helius free tier is best
-        val FALLBACK_RPCS = listOf(
-            "https://mainnet.helius-rpc.com/?api-key=hive-pattern-learn",  // Helius free tier (most reliable)
+        // V5.9.1524 — paid Helius key as the FIRST fallback so a primary-RPC
+        // blip never silently downgrades broadcast to the rate-limited free tier
+        // (root cause of stuck sells). Falls back to the legacy free key only if
+        // the paid key somehow fails to decode.
+        val FALLBACK_RPCS: List<String> get() = listOf(
+            "https://mainnet.helius-rpc.com/?api-key=${com.lifecyclebot.data.DefaultKeys.HELIUS}",  // PAID Helius
+            "https://mainnet.helius-rpc.com/?api-key=hive-pattern-learn",  // legacy free fallback
             "https://api.mainnet-beta.solana.com",              // Official Solana (rate limited but stable)
             "https://rpc.ankr.com/solana",                      // Ankr (reliable)
             "https://solana-mainnet.g.alchemy.com/v2/demo",     // Alchemy demo

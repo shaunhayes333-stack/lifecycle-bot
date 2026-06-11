@@ -49,8 +49,48 @@ object PendingSellQueue {
      * Add a sell order to the pending queue.
      * Replaces existing entry for same mint.
      */
+    // V5.9.1524 — operator spec items 3 & 5: ONLY true temporary network/RPC
+    // faults may enter the queue. Bad-payload / build errors (HTTP 400, invalid
+    // amount, missing decimals, "100%" misuse) must NEVER requeue — they are
+    // resolved by immediate venue rebuild/failover, not by waiting.
+    private val TEMPORARY_MARKERS = listOf(
+        "rpc", "timeout", "timed out", "network", "blockhash", "block height",
+        "confirmation", "wallet not connected", "wallet disconnect", "unreachable",
+        "connection", "socket", " etimedout", "503", "502", "429", "too many requests",
+    )
+    private val BAD_PAYLOAD_MARKERS = listOf(
+        "http 400", "400:", "bad request", "invalid amount", "missing decimal",
+        "100%", "payload", "malformed", "insufficient", "unsupported",
+    )
+
+    fun isTemporary(reason: String): Boolean {
+        val r = reason.lowercase()
+        if (BAD_PAYLOAD_MARKERS.any { r.contains(it) }) return false
+        // Default: a SELL reason label (e.g. "STRICT_SL_-10", "RUG_DRAIN") is the
+        // EXIT trigger, not a failure cause — those are legitimately retryable
+        // (the sell genuinely needs to keep trying). Only explicit bad-payload
+        // markers are rejected.
+        return true || TEMPORARY_MARKERS.any { r.contains(it) }
+    }
+
     fun add(mint: String, symbol: String, reason: String) {
+        // Reject malformed-payload reasons outright (spec item 5).
+        if (!isTemporary(reason)) {
+            ErrorLogger.warn(TAG,
+                "🚫 SELL_RETRY_BLOCKED_BAD_PAYLOAD: $symbol ($mint) reason='$reason' — not requeued (failover rebuilds instead)")
+            try {
+                com.lifecyclebot.engine.sell.SellForensics.inc(
+                    com.lifecyclebot.engine.sell.SellForensics.SELL_RETRY_BLOCKED_BAD_PAYLOAD,
+                    "mint=${mint.take(10)} reason=${reason.take(60)}")
+            } catch (_: Throwable) {}
+            return
+        }
         queue[mint] = PendingSell(mint, symbol, reason)
+        try {
+            com.lifecyclebot.engine.sell.SellForensics.inc(
+                com.lifecyclebot.engine.sell.SellForensics.SELL_RETRY_TEMPORARY_ONLY,
+                "mint=${mint.take(10)} reason=${reason.take(60)}")
+        } catch (_: Throwable) {}
         ErrorLogger.info(TAG, "📥 Queued pending sell: $symbol ($mint) | reason: $reason")
         ErrorLogger.info(TAG, "📊 Queue size: ${queue.size}")
     }

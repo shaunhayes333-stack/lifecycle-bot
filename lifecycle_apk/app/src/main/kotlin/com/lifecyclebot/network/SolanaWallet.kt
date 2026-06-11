@@ -154,7 +154,26 @@ class SolanaWallet(privateKeyB58: String, val rpcUrl: String) {
         val signedBytes = signVersionedTx(txBytes)
         val signedB64   = android.util.Base64.encodeToString(signedBytes, android.util.Base64.NO_WRAP)
         
-        // Try Jito MEV protection first if enabled
+        // V5.9.1524 — HELIUS SENDER FIRST. When useJito=true the router baked a
+        // Jito tip into this tx (PumpPortal priorityFee==tip / Jupiter prio fee),
+        // so it satisfies Sender's mandatory tip requirement. Sender dual-routes
+        // to validators + Jito and lands in ~1 slot — this is the primary cure
+        // for "broadcast times out / sells stick". On ANY Sender miss we fall
+        // straight through to the legacy Jito-bundle → RPC path below.
+        if (useJito) {
+            val senderSig = try {
+                com.lifecyclebot.network.HeliusSender.send(signedB64)
+            } catch (_: Throwable) { null }
+            if (!senderSig.isNullOrBlank()) {
+                com.lifecyclebot.engine.ErrorLogger.info("SolanaWallet",
+                    "⚡ Broadcast via Helius Sender: ${senderSig.take(16)}…")
+                return senderSig
+            }
+            com.lifecyclebot.engine.ErrorLogger.warn("SolanaWallet",
+                "⚠️ Helius Sender miss (${com.lifecyclebot.network.HeliusSender.lastError}) — legacy Jito/RPC fallback")
+        }
+
+        // Try Jito MEV protection if enabled
         if (useJito) {
             try {
                 val jitoResult = kotlinx.coroutines.runBlocking {

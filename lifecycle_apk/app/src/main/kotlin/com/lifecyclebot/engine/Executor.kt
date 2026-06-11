@@ -3829,7 +3829,7 @@ class Executor(
             //
             // Inlined (no `run { }` lambda) so Kotlin smart-cast on `sig`
             // still works downstream — closures break flow analysis.
-            val pfPumpSlip = if (isDrainExit) 75 else 30
+            val pfPumpSlip = 5  // V5.9.1524 — 5% live sell cap (was 75/30; builder also caps)
             val pfPumpJito = c.jitoEnabled
             val pfPumpTip = com.lifecyclebot.network.JitoTipFetcher
                 .getDynamicTip(c.jitoTipLamports)
@@ -3957,7 +3957,7 @@ class Executor(
                 // slip; this final attempt bumps slippage so a tighter market
                 // gets a second shot via PumpPortal at e.g. 75% (drain) or
                 // 50% (normal).
-                val pumpSlip = if (isDrainExit) 90 else 50
+                val pumpSlip = 5  // V5.9.1524 — 5% live sell cap (was 90/50; builder also caps)
                 val pumpJito = c.jitoEnabled
                 val pumpTip = com.lifecyclebot.network.JitoTipFetcher
                     .getDynamicTip(c.jitoTipLamports)
@@ -4760,7 +4760,7 @@ class Executor(
                     ts = ts,
                     wallet = wallet,
                     tokenUnits = sellUnits,
-                    slipPct = 30,
+                    slipPct = 5,  // V5.9.1524 — 5% live sell cap
                     priorityFeeSol = 0.0001,
                     useJito = partialJito,
                     jitoTipLamports = partialTip,
@@ -4803,7 +4803,7 @@ class Executor(
                             ts = ts,
                             wallet = wallet,
                             tokenUnits = sellUnits,
-                            slipPct = 50,
+                            slipPct = 5,  // V5.9.1524 — 5% live sell cap
                             priorityFeeSol = 0.0002,
                             useJito = partialJito,
                             jitoTipLamports = partialTip,
@@ -11965,11 +11965,11 @@ class Executor(
                 ForensicLogger.lifecycle(
                     "ROUTE_ATTEMPT",
                     "mint=${ts.mint.take(10)} symbol=${ts.symbol} route=PUMPPORTAL_LOCAL attempt=1 " +
-                        "slippage=${if (isDrainExit) 75 else 30} venue=${venueResolution.venue.name} " +
+                        "slippage=5 venue=${venueResolution.venue.name} " +
                         "preferPumpNative=${com.lifecyclebot.engine.sell.MemeVenueRouter.preferPumpNative(venueResolution.venue)}",
                 )
             } catch (_: Throwable) {}
-            val lsPumpSlip = if (isDrainExit) 75 else 30
+            val lsPumpSlip = 5  // V5.9.1524 — 5% live sell cap (was 75/30; builder also caps)
             val lsPumpJito = c.jitoEnabled
             val lsPumpTip = com.lifecyclebot.network.JitoTipFetcher
                 .getDynamicTip(c.jitoTipLamports)
@@ -12163,7 +12163,7 @@ class Executor(
             // so a tighter market might land here when Jupiter and the
             // initial PUMP-FIRST attempt couldn't.
             if (sig == null) {
-                val rescueSlip = if (isDrainExit) 90 else 50
+                val rescueSlip = 5  // V5.9.1524 — 5% live sell cap (was 90/50; builder also caps)
                 val rescueJito = c.jitoEnabled
                 val rescueTip = com.lifecyclebot.network.JitoTipFetcher
                     .getDynamicTip(c.jitoTipLamports)
@@ -13869,7 +13869,7 @@ class Executor(
                 ts = orphanTs,
                 wallet = wallet,
                 tokenUnits = sellUnits,
-                slipPct = 30,
+                slipPct = 5,  // V5.9.1524 — 5% live sell cap
                 priorityFeeSol = 0.0001,
                 useJito = c.jitoEnabled,
                 jitoTipLamports = c.jitoTipLamports,
@@ -13904,7 +13904,7 @@ class Executor(
                     ts = orphanTs,
                     wallet = wallet,
                     tokenUnits = sellUnits,
-                    slipPct = 50,
+                    slipPct = 5,  // V5.9.1524 — 5% live sell cap
                     priorityFeeSol = 0.0002,
                     useJito = c.jitoEnabled,
                     jitoTipLamports = c.jitoTipLamports,
@@ -14247,12 +14247,19 @@ class Executor(
                 "🚀 PUMP-FIRST [$labelTag] @ ${slipPct}% slip | priorityFee=${priorityFeeSol}◎ | tip=${jitoTipLamports}lam",
                 traderTag = traderTag,
             )
+            val sellDecimals = try {
+                com.lifecyclebot.engine.HostWalletTokenTracker.getEntry(ts.mint)?.decimals ?: 6
+            } catch (_: Throwable) { 6 }
+            val emergencyOverride = com.lifecyclebot.engine.sell.SellSafetyPolicy
+                .isManualEmergency(labelTag) || labelTag.contains("PANIC_DRAIN", ignoreCase = true)
             val built = com.lifecyclebot.network.PumpFunDirectApi.buildSellTx(
                 publicKeyB58    = wallet.publicKeyB58,
                 mint            = ts.mint,
                 tokenAmount     = tokenUnits,
                 slippagePercent = slipPct,
                 priorityFeeSol  = priorityFeeSol,
+                decimals        = sellDecimals,
+                allowEmergencyOverride = emergencyOverride,
             )
             LiveTradeLogStore.log(
                 sellTradeKey, ts.mint, ts.symbol, "SELL",
@@ -14372,6 +14379,35 @@ class Executor(
                 }
             } catch (_: Exception) {}
             sig
+        } catch (badReq: com.lifecyclebot.network.PumpSellBadRequest) {
+            val safe = security.sanitiseForLog(badReq.message ?: "bad_request")
+            com.lifecyclebot.engine.sell.SellForensics.inc(
+                com.lifecyclebot.engine.sell.SellForensics.SELL_ROUTE_REBUILT_AFTER_400,
+                "mint=${ts.mint.take(10)} http=${badReq.httpCode} label=$labelTag → Jupiter failover")
+            com.lifecyclebot.engine.sell.SellForensics.inc(
+                com.lifecyclebot.engine.sell.SellForensics.SELL_FAILOVER_IMMEDIATE,
+                "mint=${ts.mint.take(10)} from=PUMP_DIRECT reason=HTTP_${badReq.httpCode}")
+            onLog("🔁 PUMP-FIRST [$labelTag] HTTP ${badReq.httpCode} (bad payload) — rebuild via Jupiter (no requeue)", ts.mint)
+            LiveTradeLogStore.log(
+                sellTradeKey, ts.mint, ts.symbol, "SELL",
+                LiveTradeLogStore.Phase.SELL_ROUTE_FAILED_NO_SIGNATURE,
+                "PUMP-FIRST [$labelTag] HTTP ${badReq.httpCode} bad payload — venue failover: ${safe.take(180)}",
+                traderTag = traderTag,
+            )
+            null
+        } catch (invalid: com.lifecyclebot.network.PumpSellPayloadInvalid) {
+            val safe = security.sanitiseForLog(invalid.message ?: "invalid_payload")
+            com.lifecyclebot.engine.sell.SellForensics.inc(
+                com.lifecyclebot.engine.sell.SellForensics.SELL_FAILOVER_IMMEDIATE,
+                "mint=${ts.mint.take(10)} from=PUMP_DIRECT reason=PAYLOAD_INVALID")
+            onLog("🔁 PUMP-FIRST [$labelTag] payload invalid — rebuild via Jupiter (no requeue): ${safe.take(140)}", ts.mint)
+            LiveTradeLogStore.log(
+                sellTradeKey, ts.mint, ts.symbol, "SELL",
+                LiveTradeLogStore.Phase.SELL_ROUTE_FAILED_NO_SIGNATURE,
+                "PUMP-FIRST [$labelTag] payload invalid — venue failover: ${safe.take(180)}",
+                traderTag = traderTag,
+            )
+            null
         } catch (pumpEx: Exception) {
             val safe = security.sanitiseForLog(pumpEx.message ?: "unknown")
             onLog("⚠️ PUMP-FIRST [$labelTag] failed (${safe.take(180)}) — falling through to Jupiter Ultra", ts.mint)

@@ -99,6 +99,8 @@ object PumpFunDirectApi {
         if (solAmount <= 0.0 || solAmount.isNaN() || solAmount.isInfinite()) {
             throw RuntimeException("PumpPortal BUY: invalid solAmount=$solAmount")
         }
+        // V5.9.1524 — Sender tip floor (priorityFee == Jito tip on PumpPortal).
+        val effPriorityFee = priorityFeeSol.coerceAtLeast(0.0002)
         val payload = JSONObject().apply {
             put("publicKey", publicKeyB58)
             put("action", "buy")
@@ -106,7 +108,7 @@ object PumpFunDirectApi {
             put("amount", solAmount)        // SOL (denominatedInSol=true)
             put("denominatedInSol", true)
             put("slippage", slip)
-            put("priorityFee", priorityFeeSol)
+            put("priorityFee", effPriorityFee)
             put("pool", "auto")
         }
 
@@ -177,24 +179,104 @@ object PumpFunDirectApi {
     fun buildSellTx(
         publicKeyB58: String,
         mint: String,
-        @Suppress("UNUSED_PARAMETER") tokenAmount: Long?,
+        tokenAmount: Long?,
         slippagePercent: Int,
         priorityFeeSol: Double = 0.0001,
-        amountString: String = "100%",   // V5.9.495y — spec item 4: percentage exits ("100%", "25%", "50%", custom "X%")
-        pool: String = "auto",           // V5.9.495y — spec item 5: pool fallback ladder support
+        amountString: String = "100%",   // legacy default — ONLY used when no raw authority exists
+        pool: String = "auto",
+        decimals: Int = 6,               // V5.9.1524 — token decimals for canonical UI conversion
+        allowEmergencyOverride: Boolean = false, // V5.9.1524 — operator-explicit panic only
     ): BuiltTx {
-        val slip = slippagePercent.coerceIn(1, 99)
-        // V5.9.495y — accept either a percent string ("100%") or a UI-token raw count ("12345.67"),
-        // matching PumpPortal API: percentage strings end in "%", numeric strings don't.
-        val amountField: Any = amountString.trim().ifBlank { "100%" }
+        // ── V5.9.1524 — CANONICAL SELL PAYLOAD (operator spec items 1, 2).
+        // ROOT CAUSE of HTTP 400 / amount="100%": this builder previously
+        // IGNORED the resolved tokenAmount and always shipped "100%". PumpPortal
+        // rejected it as a bad payload, which then entered the retry loop. We now
+        // build the EXACT amount from validated wallet/host authority and only
+        // ever send "100%" when there is genuinely no raw amount (and we flag it).
+
+        // Item 2 — slippage HARD CAP at 5% for all auto sells. Emergency exits
+        // may NOT exceed 5% unless the caller passes an explicit operator override.
+        val SELL_SLIP_CAP_PCT = 5
+        val rawSlip = slippagePercent.coerceIn(1, 99)
+        val slip = if (allowEmergencyOverride) rawSlip else rawSlip.coerceAtMost(SELL_SLIP_CAP_PCT)
+        if (rawSlip > slip) {
+            ErrorLogger.warn(TAG,
+                "🛡️ SELL_SLIP_CAPPED ${mint.take(8)}…: requested=$rawSlip% → capped=$slip% (5% live cap, no override)")
+        }
+
+        // V5.9.1524 — Helius Sender REQUIRES a Jito tip >= 0.0002 SOL in the tx.
+        // PumpPortal uses priorityFee AS the Jito tip, so floor it here. This
+        // guarantees every Sender-broadcast sell lands instead of being dropped.
+        val SENDER_MIN_TIP_SOL = 0.0002
+        val effPriorityFee = priorityFeeSol.coerceAtLeast(SENDER_MIN_TIP_SOL)
+
+        // Item 1 — validated amount authority. Prefer the exact raw token units.
+        val safeDecimals = decimals.coerceIn(0, 18)
+        val amountField: Any
+        val amountKind: String
+        when {
+            tokenAmount != null && tokenAmount > 0L -> {
+                // Canonical RAW base-unit amount (matches denominatedInSol=false,
+                // PumpPortal expects token UI units as a numeric string OR a "%").
+                // We send the validated UI amount derived from raw/decimals so the
+                // venue can never over- or under-shoot the wallet balance.
+                val uiAmount = tokenAmount.toBigDecimal()
+                    .movePointLeft(safeDecimals)
+                    .stripTrailingZeros()
+                    .toPlainString()
+                if (uiAmount.toBigDecimalOrNull()?.signum() != 1) {
+                    com.lifecyclebot.engine.sell.SellForensics.inc(
+                        com.lifecyclebot.engine.sell.SellForensics.SELL_PAYLOAD_INVALID,
+                        "mint=${mint.take(10)} raw=$tokenAmount decimals=$safeDecimals → ui=$uiAmount non-positive")
+                    throw PumpSellPayloadInvalid(
+                        "PumpPortal SELL: invalid canonical amount raw=$tokenAmount decimals=$safeDecimals ui=$uiAmount")
+                }
+                amountField = uiAmount
+                amountKind = "CANONICAL_UI"
+                com.lifecyclebot.engine.sell.SellForensics.inc(
+                    com.lifecyclebot.engine.sell.SellForensics.SELL_AMOUNT_CANONICAL_RAW,
+                    "mint=${mint.take(10)} raw=$tokenAmount decimals=$safeDecimals")
+                com.lifecyclebot.engine.sell.SellForensics.inc(
+                    com.lifecyclebot.engine.sell.SellForensics.SELL_AMOUNT_CANONICAL_UI,
+                    "mint=${mint.take(10)} ui=$uiAmount")
+            }
+            amountString.trim().endsWith("%") -> {
+                // No raw authority but an explicit percentage exit was requested.
+                // Allowed ONLY for full exits ("100%") — partial % exits are banned
+                // upstream (PumpPortalKillSwitch) and must never reach here.
+                val pctStr = amountString.trim()
+                if (pctStr != "100%") {
+                    com.lifecyclebot.engine.sell.SellForensics.inc(
+                        com.lifecyclebot.engine.sell.SellForensics.SELL_PAYLOAD_INVALID,
+                        "mint=${mint.take(10)} rejected partial-% without raw authority: $pctStr")
+                    throw PumpSellPayloadInvalid(
+                        "PumpPortal SELL: partial percent '$pctStr' requires resolved raw amount")
+                }
+                amountField = "100%"
+                amountKind = "FULL_PERCENT_NO_RAW"
+                ErrorLogger.warn(TAG,
+                    "⚠️ PUMP SELL using 100% fallback (no raw amount authority) mint=${mint.take(8)}…")
+            }
+            else -> {
+                com.lifecyclebot.engine.sell.SellForensics.inc(
+                    com.lifecyclebot.engine.sell.SellForensics.SELL_PAYLOAD_INVALID,
+                    "mint=${mint.take(10)} no raw amount + non-% amountString='$amountString'")
+                throw PumpSellPayloadInvalid(
+                    "PumpPortal SELL: no validated amount (raw=$tokenAmount, amountString='$amountString')")
+            }
+        }
+        com.lifecyclebot.engine.sell.SellForensics.inc(
+            com.lifecyclebot.engine.sell.SellForensics.SELL_PAYLOAD_VALIDATED,
+            "mint=${mint.take(10)} kind=$amountKind amount=$amountField slip=$slip%")
+
         val payload = JSONObject().apply {
             put("publicKey", publicKeyB58)
             put("action", "sell")
             put("mint", mint)
             put("amount", amountField)
-            put("denominatedInSol", false)    // V5.9.490 — boolean, not string
+            put("denominatedInSol", false)
             put("slippage", slip)
-            put("priorityFee", priorityFeeSol)
+            put("priorityFee", effPriorityFee)
             put("pool", pool.ifBlank { "auto" })
         }
 
@@ -218,12 +300,20 @@ object PumpFunDirectApi {
             // and JSON (or plain text) on error. resp.code is the discriminator.
             val bytes = body.bytes()
             if (!resp.isSuccessful) {
-                // V5.9.490 — surface FULL response body (up to 500 chars)
-                // so the operator's forensics actually shows WHY PumpPortal
-                // 400'd instead of just "Bad Request".
                 val text = try { String(bytes) } catch (_: Throwable) { "<binary ${bytes.size}B>" }
                 ErrorLogger.warn(TAG,
                     "PumpPortal HTTP ${resp.code} payload=${payload.toString().take(200)}  body=${text.take(300)}")
+                // V5.9.1524 — a 400 (and 4xx generally) is a PAYLOAD/BUILD error,
+                // NOT a temporary network fault. Throw a typed exception so the
+                // caller fails over immediately instead of requeuing a malformed
+                // payload (operator spec items 3 & 5).
+                if (resp.code in 400..499) {
+                    com.lifecyclebot.engine.sell.SellForensics.inc(
+                        com.lifecyclebot.engine.sell.SellForensics.SELL_ROUTE_DIRECT_REJECTED_400,
+                        "mint=${mint.take(10)} http=${resp.code} body=${text.take(120)}")
+                    throw PumpSellBadRequest(resp.code,
+                        "PumpPortal HTTP ${resp.code}: ${text.take(180).ifBlank { resp.message }}")
+                }
                 throw RuntimeException(
                     "PumpPortal HTTP ${resp.code}: ${text.take(180).ifBlank { resp.message }}"
                 )
@@ -243,4 +333,11 @@ object PumpFunDirectApi {
             return BuiltTx(txBase64 = txB64, pickedSlippagePct = slip)
         }
     }
+
 }
+
+/** V5.9.1524 — PumpPortal 4xx: payload/build error, never retry as-is. */
+class PumpSellBadRequest(val httpCode: Int, message: String) : RuntimeException(message)
+
+/** V5.9.1524 — payload failed local validation before any network call. */
+class PumpSellPayloadInvalid(message: String) : RuntimeException(message)
