@@ -17,6 +17,7 @@ package com.lifecyclebot.engine.sell
 object SellRouteErrorClassifier {
 
     enum class Class {
+        PUMP_ROUTE_INVALID,        // 0x1787 → pump bonding-curve state changed/migrated → RE-RESOLVE VENUE, never retry same payload
         ROUTE_SIMULATION_FAILED,   // 0x1788 / sim failed → MUST re-quote fresh, not just widen slippage
         SLIPPAGE_EXCEEDED,         // 0x1789 / TooLittleSolReceived / explicit Slippage → widen bps + re-quote
         INSUFFICIENT_FUNDS,        // lamports/rent → terminal-ish, no blind retry
@@ -37,6 +38,11 @@ object SellRouteErrorClassifier {
             // ── order matters: most-specific first ──
             // 0x1788 (6024) = bonding-curve / AMM custom program error. On pump.fun
             // / Raydium this is a SIMULATION/route failure, NOT a pure slippage cap.
+            // 0x1787 (6023) = pump.fun bonding-curve state changed / migrated. The
+            // payload is invalid against the CURRENT venue — re-resolve the venue
+            // (Pump curve / PumpSwap / Raydium / Jupiter), never retry the same body.
+            s.contains("0x1787") || s.contains("custom program error: 0x1787") ->
+                Class.PUMP_ROUTE_INVALID
             s.contains("0x1788") || s.contains("custom program error: 0x1788") ||
                 s.contains("simulation failed") || s.contains("instructionerror") ->
                 Class.ROUTE_SIMULATION_FAILED
@@ -79,6 +85,9 @@ object SellRouteErrorClassifier {
         /** the in-progress sell lock MUST be released now (no retry will hold it). */
         val releaseLock: Boolean,
         val reason: String,
+        /** V5.9.1533 — the venue must be RE-RESOLVED before any next attempt; the
+         *  same route payload must NOT be retried (Pump 0x1787 state-change). */
+        val requireVenueReResolution: Boolean = false,
     )
 
     /**
@@ -89,6 +98,13 @@ object SellRouteErrorClassifier {
      * is actually scheduled).
      */
     fun retryPolicy(cls: Class, attempt: Int, retryScheduled: Boolean): RetryPolicy = when (cls) {
+        Class.PUMP_ROUTE_INVALID ->
+            // Do NOT retry the same Pump-direct payload. Re-resolve the venue
+            // (Pump curve / PumpSwap / Raydium / Jupiter) on a fresh quote. Allow a
+            // bounded re-resolution attempt; release the lock so re-resolution can own it.
+            RetryPolicy(attempt < 3, requireFreshQuote = true, widenSlippage = false,
+                releaseLock = !retryScheduled, "0x1787 pump route invalid — RE-RESOLVE VENUE (no same-payload retry)",
+                requireVenueReResolution = true)
         Class.ROUTE_SIMULATION_FAILED ->
             RetryPolicy(attempt < 4, requireFreshQuote = true, widenSlippage = true, releaseLock = !retryScheduled, "0x1788 sim — re-quote fresh + wider")
         Class.SLIPPAGE_EXCEEDED ->

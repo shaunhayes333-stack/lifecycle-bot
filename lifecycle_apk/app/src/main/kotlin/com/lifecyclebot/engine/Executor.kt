@@ -3861,7 +3861,13 @@ class Executor(
             val pfPumpTip = com.lifecyclebot.network.JitoTipFetcher
                 .getDynamicTip(c.jitoTipLamports)
                 .let { if (isDrainExit) (it * 2).coerceAtMost(1_000_000L) else it }
-            sig = tryPumpPortalSell(
+            // V5.9.1533 — spec item 7: skip Pump-direct when this mint's pump route was
+            // invalidated by a prior 0x1787; let the Jupiter/venue ladder re-resolve.
+            sig = if (com.lifecyclebot.engine.sell.MemeVenueRouter.isPumpRouteInvalid(ts.mint)) {
+                try { ForensicLogger.lifecycle("PUMP_DIRECT_SKIPPED_RERESOLVE",
+                    "mint=${ts.mint.take(10)} symbol=${ts.symbol} label=PROFIT-LOCK reason=pump_route_invalid") } catch (_: Throwable) {}
+                null
+            } else tryPumpPortalSell(
                 ts = ts,
                 wallet = wallet,
                 tokenUnits = sellUnits,
@@ -4262,6 +4268,14 @@ class Executor(
             // V5.9.1522 — canonical classification (0x1788 is SIM, not generic slippage).
             val routeCls = com.lifecyclebot.engine.sell.SellRouteErrorClassifier.classify(safe)
             val routePolicy = com.lifecyclebot.engine.sell.SellRouteErrorClassifier.retryPolicy(routeCls, broadcastRetries, retryScheduled = false)
+            // V5.9.1533 — spec item 7: 0x1787 / PUMP_ROUTE_INVALID must RE-RESOLVE the
+            // venue, not retry the same Pump-direct payload. Mark the mint so the next
+            // attempt skips pump-native and re-resolves to PumpSwap/Raydium/Jupiter.
+            if (routePolicy.requireVenueReResolution) {
+                try { com.lifecyclebot.engine.sell.MemeVenueRouter.markPumpRouteInvalid(ts.mint) } catch (_: Throwable) {}
+                try { ForensicLogger.lifecycle("SELL_VENUE_RE_RESOLVE",
+                    "mint=${ts.mint.take(10)} class=${routeCls.name} action=skip_pump_direct_reresolve") } catch (_: Throwable) {}
+            }
             val failureClass = routeCls.name
             if (routePolicy.releaseLock) {
                 try { com.lifecyclebot.engine.sell.SellExecutionLocks.release(ts.mint) } catch (_: Throwable) {}
@@ -4797,7 +4811,11 @@ class Executor(
                 // forecast, not a settlement).
                 val partialJito = c.jitoEnabled
                 val partialTip = c.jitoTipLamports
-                val pumpSig = tryPumpPortalSell(
+                val pumpSig = if (com.lifecyclebot.engine.sell.MemeVenueRouter.isPumpRouteInvalid(ts.mint)) {
+                    try { ForensicLogger.lifecycle("PUMP_DIRECT_SKIPPED_RERESOLVE",
+                        "mint=${ts.mint.take(10)} symbol=${ts.symbol} label=PARTIAL reason=pump_route_invalid") } catch (_: Throwable) {}
+                    null
+                } else tryPumpPortalSell(
                     ts = ts,
                     wallet = wallet,
                     tokenUnits = sellUnits,
@@ -9801,6 +9819,14 @@ class Executor(
                     // V5.9.1522 — canonical classification (0x1788 is SIM, not generic slippage).
             val routeCls = com.lifecyclebot.engine.sell.SellRouteErrorClassifier.classify(safe)
             val routePolicy = com.lifecyclebot.engine.sell.SellRouteErrorClassifier.retryPolicy(routeCls, broadcastRetries, retryScheduled = false)
+            // V5.9.1533 — spec item 7: 0x1787 / PUMP_ROUTE_INVALID must RE-RESOLVE the
+            // venue, not retry the same Pump-direct payload. Mark the mint so the next
+            // attempt skips pump-native and re-resolves to PumpSwap/Raydium/Jupiter.
+            if (routePolicy.requireVenueReResolution) {
+                try { com.lifecyclebot.engine.sell.MemeVenueRouter.markPumpRouteInvalid(ts.mint) } catch (_: Throwable) {}
+                try { ForensicLogger.lifecycle("SELL_VENUE_RE_RESOLVE",
+                    "mint=${ts.mint.take(10)} class=${routeCls.name} action=skip_pump_direct_reresolve") } catch (_: Throwable) {}
+            }
             val failureClass = routeCls.name
             if (routePolicy.releaseLock) {
                 try { com.lifecyclebot.engine.sell.SellExecutionLocks.release(ts.mint) } catch (_: Throwable) {}
@@ -12097,7 +12123,11 @@ class Executor(
                     "reason=${if (pumpMint) "pump_mint" else "primary"} " +
                     "mint=${ts.mint.take(10)} symbol=${ts.symbol} jupiterQuote=${if (jupiterQuoteUnavailable) "unavailable" else "available_fallback"}")
             } catch (_: Throwable) {}
-            sig = tryPumpPortalSell(
+            sig = if (com.lifecyclebot.engine.sell.MemeVenueRouter.isPumpRouteInvalid(ts.mint)) {
+                try { ForensicLogger.lifecycle("PUMP_DIRECT_SKIPPED_RERESOLVE",
+                    "mint=${ts.mint.take(10)} symbol=${ts.symbol} label=EXIT reason=pump_route_invalid next=jupiter_ladder") } catch (_: Throwable) {}
+                null
+            } else tryPumpPortalSell(
                 ts = ts,
                 wallet = wallet,
                 tokenUnits = tokenUnits,
@@ -14035,7 +14065,11 @@ class Executor(
             // with the right symbol/mint. We pass a minimal stub.
             val orphanTs = TokenState(mint = mint, symbol = "ORPHAN-${mint.take(4)}")
             val orphanKey = LiveTradeLogStore.keyFor(mint, System.currentTimeMillis())
-            val pumpSig = tryPumpPortalSell(
+            val pumpSig = if (com.lifecyclebot.engine.sell.MemeVenueRouter.isPumpRouteInvalid(mint)) {
+                try { ForensicLogger.lifecycle("PUMP_DIRECT_SKIPPED_RERESOLVE",
+                    "mint=${mint.take(10)} label=ORPHAN-SWEEP reason=pump_route_invalid") } catch (_: Throwable) {}
+                null
+            } else tryPumpPortalSell(
                 ts = orphanTs,
                 wallet = wallet,
                 tokenUnits = sellUnits,

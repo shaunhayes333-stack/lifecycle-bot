@@ -133,9 +133,37 @@ object MemeVenueRouter {
         return resolution
     }
 
+    // V5.9.1533 — spec item 7: per-mint Pump-direct INVALIDATION. After a 0x1787
+    // (PUMP_ROUTE_INVALID — bonding-curve state changed/migrated), the Pump-direct
+    // payload is invalid against the current venue. Mark the mint so the next sell
+    // attempt SKIPS pump-native and re-resolves to PumpSwap / Raydium / Jupiter
+    // instead of retrying the same dead route. TTL-bounded so a later genuine pump
+    // state can recover.
+    private val pumpInvalidUntilMs = java.util.concurrent.ConcurrentHashMap<String, Long>()
+    private const val PUMP_INVALID_TTL_MS = 120_000L
+
+    fun markPumpRouteInvalid(mint: String) {
+        if (mint.isBlank()) return
+        pumpInvalidUntilMs[mint] = System.currentTimeMillis() + PUMP_INVALID_TTL_MS
+        try {
+            com.lifecyclebot.engine.ForensicLogger.lifecycle("VENUE_PUMP_DIRECT_INVALIDATED",
+                "mint=${mint.take(10)} ttlMs=$PUMP_INVALID_TTL_MS reason=0x1787_state_changed next=re_resolve_non_pump")
+        } catch (_: Throwable) {}
+    }
+
+    fun isPumpRouteInvalid(mint: String): Boolean {
+        val until = pumpInvalidUntilMs[mint] ?: return false
+        if (System.currentTimeMillis() > until) { pumpInvalidUntilMs.remove(mint); return false }
+        return true
+    }
+
     /** Convenience: should the sell try pump-native (PumpPortal) FIRST? */
     fun preferPumpNative(v: Venue): Boolean = when (v) {
         Venue.PUMP_FUN_BONDING, Venue.PUMPSWAP -> true
         else -> false
     }
+
+    /** V5.9.1533 — mint-aware variant: never prefer pump-native while invalidated. */
+    fun preferPumpNative(mint: String, v: Venue): Boolean =
+        !isPumpRouteInvalid(mint) && preferPumpNative(v)
 }

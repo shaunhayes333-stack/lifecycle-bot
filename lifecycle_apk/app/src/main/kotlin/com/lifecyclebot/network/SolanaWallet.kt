@@ -196,6 +196,14 @@ class SolanaWallet(privateKeyB58: String, val rpcUrl: String) {
                         return jitoResult.signature
                     }
                 } else {
+                    // V5.9.1533 — spec item 8: a JITO_PAYLOAD_INVALID (undecodable signed
+                    // tx) fails fast here WITHOUT burning bundle retries; we fall straight
+                    // through to the single normal-RPC send below.
+                    val jErr = jitoResult.error ?: ""
+                    if (jErr.startsWith("JITO_PAYLOAD_INVALID")) {
+                        try { com.lifecyclebot.engine.ForensicLogger.lifecycle("JITO_FALLBACK_SINGLE_RPC",
+                            "reason=payload_invalid action=single_rpc_send") } catch (_: Throwable) {}
+                    }
                     com.lifecyclebot.engine.ErrorLogger.warn("SolanaWallet", 
                         "⚠️ Jito failed: ${jitoResult.error}, falling back to normal RPC")
                 }

@@ -101,6 +101,31 @@ object JitoMEVProtection {
             )
         }
 
+        // V5.9.1533 — spec item 8: PRE-DECODE the signed tx BEFORE building the bundle.
+        // A payload that cannot be base64-decoded (or is implausibly small for a signed
+        // Solana tx) must FAIL-FAST with a distinct error so the caller falls back to a
+        // single RPC send instead of burning all Jito retries on an undecodable bundle.
+        run {
+            val decoded: ByteArray? = try {
+                android.util.Base64.decode(signedTxBase64, android.util.Base64.NO_WRAP)
+            } catch (_: Throwable) {
+                try { java.util.Base64.getDecoder().decode(signedTxBase64) } catch (_: Throwable) { null }
+            }
+            // A signed Solana tx is at minimum 1 sig (64B) + a tiny message — well over 80B.
+            if (decoded == null || decoded.size < 80) {
+                try {
+                    com.lifecyclebot.engine.ForensicLogger.lifecycle("JITO_PAYLOAD_INVALID",
+                        "decoded=${decoded?.size ?: -1}B action=fail_fast_fallback_single_rpc")
+                } catch (_: Throwable) {}
+                return@withContext BundleResult(
+                    success = false,
+                    bundleId = null,
+                    signature = null,
+                    error = "JITO_PAYLOAD_INVALID: signed tx could not be decoded (size=${decoded?.size ?: -1}) — fallback to single RPC",
+                )
+            }
+        }
+
         // Create tip instruction (transfer to Jito tip account)
         val tipAccount = JITO_TIP_ACCOUNTS.random()
         
