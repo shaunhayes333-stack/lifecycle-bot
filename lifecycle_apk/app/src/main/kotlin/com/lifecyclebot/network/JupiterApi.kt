@@ -650,23 +650,49 @@ class JupiterApi(private val apiKey: String = "") {
      * simulation failure — those are returned immediately as before).
      */
     fun simulateSwap(swapTxB64: String, rpcUrl: String): String? {
-        // V5.9.1525b — a blank rpcUrl must never be used for preflight; route
-        // straight to the paid Helius RPC.
+        // V5.9.1534 — REGRESSION FIX (live buys all blocked by SIM_UNAVAILABLE).
+        // V5.9.1524/1525 forced preflight onto the paid Helius RPC and, when the
+        // caller RPC was ALREADY Helius, the retry short-circuited (`return first`)
+        // — so a single Helius hiccup (max-usage / 429 / transient RPC error) hard-
+        // blocked EVERY live buy (EXEC_LIVE_ATTEMPT=0). Restore the working
+        // multi-RPC failover: walk caller → paid Helius → public RPCs on TRANSIENT
+        // errors only. A GENUINE simulation reject (bad accounts, insufficient
+        // funds, slippage, custom program error) is returned immediately and still
+        // blocks the broadcast — the no-preflight-skip safety (V5.9.753) is intact.
         val paidRpc = "https://mainnet.helius-rpc.com/?api-key=${com.lifecyclebot.data.DefaultKeys.HELIUS}"
-        val effRpc = rpcUrl.ifBlank { paidRpc }
-        val first = simulateSwapOnce(swapTxB64, effRpc)
-        if (first == null) return null  // sim OK
-        // Only retry on transport/usage errors, never on genuine sim rejects.
-        val transient = first.startsWith("RPC error:") &&
-            (first.contains("max usage", true) || first.contains("rate", true) ||
-             first.contains("429", true) || first.contains("empty response", true) ||
-             first.contains("timeout", true) || first.contains("limit", true) ||
-             first.contains("unavailable", true))
-        if (!transient) return first
-        val paid = "https://mainnet.helius-rpc.com/?api-key=${com.lifecyclebot.data.DefaultKeys.HELIUS}"
-        if (effRpc.contains(com.lifecyclebot.data.DefaultKeys.HELIUS)) return first  // already paid
-        log("🔁 SIMULATE retry via paid Helius RPC (first attempt: ${first.take(40)})")
-        return simulateSwapOnce(swapTxB64, paid)
+        // Ordered, de-duplicated failover ladder. Caller RPC first (may be blank →
+        // skipped), then paid Helius, then public fallbacks.
+        val ladder = LinkedHashSet<String>().apply {
+            if (rpcUrl.isNotBlank()) add(rpcUrl)
+            add(paidRpc)
+            add("https://api.mainnet-beta.solana.com")
+            add("https://rpc.ankr.com/solana")
+        }.toList()
+
+        fun isTransient(err: String): Boolean =
+            err.startsWith("RPC error:") && (
+                err.contains("max usage", true) || err.contains("rate", true) ||
+                err.contains("429", true) || err.contains("empty response", true) ||
+                err.contains("timeout", true) || err.contains("limit", true) ||
+                err.contains("unavailable", true) || err.contains("503", true) ||
+                err.contains("502", true) || err.contains("500", true) ||
+                err.contains("blockhash", true) || err.contains("Method not found", true) ||
+                err.contains("failed to", true) || err.contains("connection", true))
+
+        var lastErr: String? = null
+        for ((i, rpc) in ladder.withIndex()) {
+            val res = simulateSwapOnce(swapTxB64, rpc)
+            if (res == null) return null            // sim OK — preflight passed
+            lastErr = res
+            if (!isTransient(res)) return res       // genuine reject → block (safety)
+            if (i < ladder.size - 1) {
+                log("🔁 SIMULATE transient on ${rpc.take(32)} (${res.take(40)}) → failover RPC ${i + 2}/${ladder.size}")
+            }
+        }
+        // Every RPC in the ladder returned a TRANSIENT error. We still must not skip
+        // preflight, so we report unavailable — but this is now only reached after a
+        // full multi-RPC failover, not on a single Helius blip.
+        return lastErr
     }
 
     private fun simulateSwapOnce(swapTxB64: String, rpcUrl: String): String? {
