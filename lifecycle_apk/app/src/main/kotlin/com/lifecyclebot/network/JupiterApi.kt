@@ -642,9 +642,30 @@ class JupiterApi(private val apiKey: String = "") {
     }
 
     /**
-     * Advisory simulation only.
+     * V5.9.1525 — preflight must NOT die on a single throttled RPC.
+     * The screenshot failure "LIVE_BUY_BLOCKED_SIM_UNAVAILABLE: RPC error:
+     * max usage reached" was the simulation hitting a rate-limited endpoint.
+     * We now try the caller's RPC first, then the PAID Helius RPC as a second
+     * attempt whenever the first returns an RPC/usage error (not a real
+     * simulation failure — those are returned immediately as before).
      */
     fun simulateSwap(swapTxB64: String, rpcUrl: String): String? {
+        val first = simulateSwapOnce(swapTxB64, rpcUrl)
+        if (first == null) return null  // sim OK
+        // Only retry on transport/usage errors, never on genuine sim rejects.
+        val transient = first.startsWith("RPC error:") &&
+            (first.contains("max usage", true) || first.contains("rate", true) ||
+             first.contains("429", true) || first.contains("empty response", true) ||
+             first.contains("timeout", true) || first.contains("limit", true) ||
+             first.contains("unavailable", true))
+        if (!transient) return first
+        val paid = "https://mainnet.helius-rpc.com/?api-key=${com.lifecyclebot.data.DefaultKeys.HELIUS}"
+        if (rpcUrl.contains(com.lifecyclebot.data.DefaultKeys.HELIUS)) return first  // already paid
+        log("🔁 SIMULATE retry via paid Helius RPC (first attempt: ${first.take(40)})")
+        return simulateSwapOnce(swapTxB64, paid)
+    }
+
+    private fun simulateSwapOnce(swapTxB64: String, rpcUrl: String): String? {
         val startMs = System.currentTimeMillis()
         log("🧪 SIMULATE via ${rpcUrl.take(36)}...")
 

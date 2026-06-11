@@ -10,7 +10,9 @@
     on pumpportal.fun (trade-local) and bundles.jito.wtf (tip floor).
 
     Live cert probe confirmed the real cause:
-      • pumpportal.fun  → issued by Let's Encrypt "YE2"  → roots to ISRG Root X1
+      • pumpportal.fun  → Let's Encrypt YE2 → Root YE → ISRG Root X2 → X1
+      (V5.9.1525: chain now terminates at ISRG Root X2 — X1 alone was
+       insufficient; X2 added below. THIS was why TLS still failed.)
       • bundles.jito.wtf → issued by Google Trust "WR3"  → roots to GTS Root R1
       • lite-api.jup.ag → issued by Amazon RSA 2048 M04  → roots to Amazon Root CA 1
     These are modern intermediates. On devices whose Android system CA store
@@ -49,6 +51,7 @@
         <domain includeSubdomains="true">lite-api.jup.ag</domain>
         <trust-anchors>
             <certificates src="@raw/isrg_root_x1"/>
+            <certificates src="@raw/isrg_root_x2"/>
             <certificates src="@raw/gts_root_r1"/>
             <certificates src="@raw/amazon_root_ca1"/>
             <certificates src="system"/>
