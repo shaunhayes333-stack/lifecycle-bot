@@ -650,7 +650,11 @@ class JupiterApi(private val apiKey: String = "") {
      * simulation failure — those are returned immediately as before).
      */
     fun simulateSwap(swapTxB64: String, rpcUrl: String): String? {
-        val first = simulateSwapOnce(swapTxB64, rpcUrl)
+        // V5.9.1525b — a blank rpcUrl must never be used for preflight; route
+        // straight to the paid Helius RPC.
+        val paidRpc = "https://mainnet.helius-rpc.com/?api-key=${com.lifecyclebot.data.DefaultKeys.HELIUS}"
+        val effRpc = rpcUrl.ifBlank { paidRpc }
+        val first = simulateSwapOnce(swapTxB64, effRpc)
         if (first == null) return null  // sim OK
         // Only retry on transport/usage errors, never on genuine sim rejects.
         val transient = first.startsWith("RPC error:") &&
@@ -660,7 +664,7 @@ class JupiterApi(private val apiKey: String = "") {
              first.contains("unavailable", true))
         if (!transient) return first
         val paid = "https://mainnet.helius-rpc.com/?api-key=${com.lifecyclebot.data.DefaultKeys.HELIUS}"
-        if (rpcUrl.contains(com.lifecyclebot.data.DefaultKeys.HELIUS)) return first  // already paid
+        if (effRpc.contains(com.lifecyclebot.data.DefaultKeys.HELIUS)) return first  // already paid
         log("🔁 SIMULATE retry via paid Helius RPC (first attempt: ${first.take(40)})")
         return simulateSwapOnce(swapTxB64, paid)
     }
