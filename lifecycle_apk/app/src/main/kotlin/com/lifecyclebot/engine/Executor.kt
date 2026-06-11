@@ -9244,7 +9244,29 @@ class Executor(
         val pnlPct = if (ts.position.entryPrice > 0) {
             ((currentPrice - ts.position.entryPrice) / ts.position.entryPrice) * 100
         } else 0.0
-        
+
+        // V5.9.1515 — P0 FIX 3: NEVER partial-ladder a deeply red position.
+        // Operator audit: snapshot showed partial_10/20/30pct sells firing at
+        // -50% to -80%, dripping a loser out in slices instead of one clean cut —
+        // the exact opposite of what partials are for (capturing UPSIDE). Once a
+        // position has fallen past the -15% canonical floor, a partial is just a
+        // slow bleed that leaves the rump exposed to further downside. Collapse it
+        // into a single FULL risk exit. The only partials allowed below entry are
+        // EXPLICIT forced-risk/liquidity cuts (reason carries RISK/LIQUIDITY/
+        // STOP/RUG/RECOVERY) — those are deliberate, not laddering.
+        run {
+            val r = reason.uppercase()
+            val isForcedRiskCut = r.contains("RISK") || r.contains("LIQUIDITY") ||
+                r.contains("STOP") || r.contains("RUG") || r.contains("RECOVERY") ||
+                r.contains("CATASTROPHE") || r.contains("DRAIN")
+            if (pnlPct <= -15.0 && !isForcedRiskCut) {
+                try { ForensicLogger.lifecycle("PARTIAL_COLLAPSED_TO_RISK_EXIT",
+                    "mint=${ts.mint.take(10)} symbol=${ts.symbol} pnl=${pnlPct.toInt()}% reqPct=${(pct*100).toInt()} reason=$reason") } catch (_: Throwable) {}
+                requestSell(ts, "PARTIAL_LADDER_COLLAPSED_RISK_EXIT_${pnlPct.toInt()}", wallet, walletBalance)
+                return
+            }
+        }
+
         onLog("📊 PARTIAL SELL: ${ts.symbol} | ${(pct * 100).toInt()}% of position | " +
             "sell=$sellAmount remain=$remainingAmount | pnl=${pnlPct.toInt()}% | $reason", ts.mint)
         
