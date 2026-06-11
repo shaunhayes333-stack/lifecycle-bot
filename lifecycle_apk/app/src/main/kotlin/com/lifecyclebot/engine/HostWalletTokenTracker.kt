@@ -668,13 +668,6 @@ object HostWalletTokenTracker {
             .map { it.mint }
             .toCollection(HashSet())
 
-    /** True only if the wallet actually holds this mint above dust (or a sell is
-     *  in flight). The single predicate callers should use to decide "is open". */
-    fun isActuallyHeld(mint: String): Boolean {
-        if (mint.isBlank()) return false
-        val p = positions[mint] ?: return false
-        return p.status in OPEN_STATUSES && (p.uiAmount > 0.000001 || p.status in SELL_IN_FLIGHT_STATUSES)
-    }
 
     // V5.9.1501 — ZERO-BALANCE GHOST REAPER (root cause of "1/31 open").
     // A row in an OPEN_STATUS with uiAmount==0 holds NO wallet tokens — it is a
