@@ -158,6 +158,24 @@ class FinalDecisionEngine(
 
         fun recordExecute() { consecutiveNonExecute = 0 }
         fun recordNonExecute() { consecutiveNonExecute++ }
+
+        // V5.9.1516 — P1 FIX 4: PRE_RUNNER soft-shape telemetry. A PRE_RUNNER is
+        // a token that landed just BELOW the execute floor (WATCH range) but shows
+        // a CONFIRMED runner precursor — momentum AND volume both strongly positive
+        // on the same tick. Operator audit: these near-miss accelerating tokens were
+        // dumped to WATCH and never converted, starving the lane of exactly the
+        // launches that become runners. We promote them to EXECUTE_SMALL (smallest
+        // size — risk-bounded probe) WITHOUT bypassing FDG (still gates downstream)
+        // and WITHOUT a new enum value (keeps every when(band) exhaustive). Counters
+        // let the operator measure PRE_RUNNER hit-rate separately.
+        val preRunnerCandidates = java.util.concurrent.atomic.AtomicLong(0)
+        val preRunnerPromoted   = java.util.concurrent.atomic.AtomicLong(0)
+        val preRunnerSuppressed = java.util.concurrent.atomic.AtomicLong(0)
+        fun preRunnerSnapshot(): Map<String, Long> = mapOf(
+            "preRunnerCandidates" to preRunnerCandidates.get(),
+            "preRunnerPromoted"   to preRunnerPromoted.get(),
+            "preRunnerSuppressed" to preRunnerSuppressed.get(),
+        )
     }
 
     /**
@@ -461,13 +479,35 @@ class FinalDecisionEngine(
         val standardConfFloor    = maxOf(effectiveMinConf, if (isCGrade) 25 else bGradeConfFloor)
         val smallConfFloor       = maxOf(effectiveCGradeConf, 15)
 
-        val band = when {
+        val rawBand = when {
             hasMomentumOrVolume && score >= aggressiveScoreFloor && effectiveConf >= aggressiveConfFloor -> DecisionBand.EXECUTE_AGGRESSIVE
             hasMomentumOrVolume && score >= effectiveMinScore && effectiveConf >= standardConfFloor -> DecisionBand.EXECUTE_STANDARD
             hasMomentumOrVolume && score >= (effectiveMinScore * 0.7).toInt() && effectiveConf >= smallConfFloor -> DecisionBand.EXECUTE_SMALL
             score >= config.watchScoreMin -> DecisionBand.WATCH
             else -> DecisionBand.REJECT
         }
+
+        // V5.9.1516 — P1 FIX 4: PRE_RUNNER soft-shape promotion. When the raw band
+        // is WATCH (a near-miss: above watchScoreMin but below the EXECUTE_SMALL
+        // floor) AND the token shows a CONFIRMED runner precursor — momentum AND
+        // volume BOTH strongly positive on this tick, plus a non-trivial score —
+        // promote to EXECUTE_SMALL (smallest risk-bounded probe). This converts the
+        // accelerating near-miss launches the lane was throwing away. FDG still
+        // gates downstream; promotion only lifts WATCH→SMALL, never bypasses a veto.
+        val band = if (rawBand == DecisionBand.WATCH) {
+            val nearMissFloor = (effectiveMinScore * 0.7).toInt()
+            val isNearMiss = score >= (nearMissFloor - 4) && score < nearMissFloor
+            val confirmedPrecursor = momentumScoreV >= 6 && volumeScoreV >= 6 &&
+                effectiveConf >= (smallConfFloor - 3)
+            if (isNearMiss && confirmedPrecursor) {
+                preRunnerCandidates.incrementAndGet()
+                preRunnerPromoted.incrementAndGet()
+                DecisionBand.EXECUTE_SMALL
+            } else {
+                if (isNearMiss) { preRunnerCandidates.incrementAndGet(); preRunnerSuppressed.incrementAndGet() }
+                rawBand
+            }
+        } else rawBand
 
         if (band == DecisionBand.EXECUTE_AGGRESSIVE || band == DecisionBand.EXECUTE_STANDARD || band == DecisionBand.EXECUTE_SMALL) {
             recordExecute()
