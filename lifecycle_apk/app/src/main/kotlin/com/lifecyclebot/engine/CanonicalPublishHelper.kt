@@ -85,9 +85,21 @@ object CanonicalPublishHelper {
             // tradeId, don't double-fan.
             if (CanonicalOutcomeBus.isRichPublished(tradeId)) return
 
+            // V5.9.1513 — P0 FIX 1: classify by REALIZED NET SOL, not % and not
+            // exit-reason text. Operator audit: "WIN/LOSS must be based on realized
+            // PnL, not exit_reason text". exit_reason is metadata only (already
+            // true here — this site never read the string). The remaining defect
+            // was the ±1.0% GROSS band: after the 1% round-trip bot fee + ~0.6%
+            // protocol swap (~1.6% breakeven), a +1.0% gross close is a NET LOSS
+            // yet was booked WIN. Reclassify on realizedPnlSol against a fee-aware
+            // epsilon so the BREAKEVEN bucket absorbs sub-fee scratches instead of
+            // poisoning WR. epsilon = max(absolute dust floor, fee cost on entry).
+            // A close only counts WIN if it cleared the round-trip fee in SOL.
+            val feeCostSol = (entrySol * 0.016).coerceAtLeast(0.0)   // ~1.6% round-trip on notional
+            val epsilonSol = maxOf(0.0002, feeCostSol)               // dust floor OR fee cost
             val resultEnum = when {
-                realizedPnlPct >= 1.0 -> TradeResult.WIN
-                realizedPnlPct <= -1.0 -> TradeResult.LOSS
+                realizedPnlSol >  epsilonSol -> TradeResult.WIN
+                realizedPnlSol < -epsilonSol -> TradeResult.LOSS
                 else -> TradeResult.BREAKEVEN
             }
             val executionEnum = ExecutionResult.EXECUTED

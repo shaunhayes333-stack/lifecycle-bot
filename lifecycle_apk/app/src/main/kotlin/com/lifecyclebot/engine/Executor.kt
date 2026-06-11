@@ -2677,11 +2677,23 @@ class Executor(
                     val netPnlPct = if (!isPaperEnv && tradeWithMint.netPnlSol != 0.0 && costBasis != null && costBasis > 0.0) {
                         (tradeWithMint.netPnlSol / costBasis) * 100.0
                     } else grossPnl
-                    // Classify on net. Win must clear the fee floor — not merely be > 0.
+                    // V5.9.1513 — P0 FIX 1 (parity with CanonicalPublishHelper):
+                    // classify on REALIZED NET SOL against a fee-aware epsilon, for
+                    // BOTH paper and live. The prior paper path fell back to GROSS %
+                    // with a ±1.0% band, so a +1.0% gross paper scratch (net-negative
+                    // after the ~1.6% round-trip) was booked WIN — inflating paper WR
+                    // and poisoning learning. Win must clear the fee floor in SOL.
+                    val classifyCost = costBasis ?: ts.position.costSol.takeIf { it > 0.0 } ?: tradeWithMint.sol
+                    val feeCostSolCls = ((classifyCost ?: 0.0) * 0.016).coerceAtLeast(0.0)
+                    val epsilonSolCls = maxOf(0.0002, feeCostSolCls)
+                    // realized net SOL for this (partial) sell: prefer explicit netPnlSol,
+                    // else derive from gross pnl% on the cost actually consumed.
+                    val realizedNetSol = if (tradeWithMint.netPnlSol != 0.0) tradeWithMint.netPnlSol
+                                         else (netPnlPct / 100.0) * (classifyCost ?: 0.0)
                     val pnl = netPnlPct
                     val resultEnum = when {
-                        pnl >= 1.0 -> com.lifecyclebot.engine.TradeResult.WIN
-                        pnl <= -1.0 -> com.lifecyclebot.engine.TradeResult.LOSS
+                        realizedNetSol >  epsilonSolCls -> com.lifecyclebot.engine.TradeResult.WIN
+                        realizedNetSol < -epsilonSolCls -> com.lifecyclebot.engine.TradeResult.LOSS
                         else -> com.lifecyclebot.engine.TradeResult.BREAKEVEN
                     }
                     val executionEnum = if (tradeWithMint.sig.isNotBlank() || isPaperEnv)
