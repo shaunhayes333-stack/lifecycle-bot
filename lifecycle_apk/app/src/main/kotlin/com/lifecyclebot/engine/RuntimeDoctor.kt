@@ -107,6 +107,28 @@ object RuntimeDoctor {
         InvariantGuardian.FaultCode.FDG_FANOUT_EXPLOSION,
         InvariantGuardian.FaultCode.FDG_SIGNAL_BYPASS,
         InvariantGuardian.FaultCode.EXIT_SWEEP_UNSTABLE -> exitStabilityMitigations(f, snap)
+        // V5.9.1518 — PATCH ITEM 1/3/7: position-authority + scanner faults.
+        // Ledger drift / stalled reconciler / orphan-live / closed-but-held all
+        // demand an immediate reconcile pass. We trigger PositionWalletReconciler
+        // and SellReconciler directly (off the runtime-doctor executor thread —
+        // this commandsFor runs on RuntimeDoctorSnapshot daemon) and emit no
+        // bus command, since the existing bus has no force-reconcile primitive
+        // and we must NOT pause trading or choke the scanner for these.
+        InvariantGuardian.FaultCode.LEDGER_DRIFT,
+        InvariantGuardian.FaultCode.RECONCILER_STALLED,
+        InvariantGuardian.FaultCode.ORPHAN_LIVE_POSITIONS,
+        InvariantGuardian.FaultCode.CLOSED_BUT_WALLET_HELD,
+        InvariantGuardian.FaultCode.SELL_RETRY_STORM -> {
+            try { com.lifecyclebot.engine.execution.PositionWalletReconciler.forceTick() } catch (_: Throwable) {}
+            try { com.lifecyclebot.engine.sell.SellReconciler.requestImmediateTick() } catch (_: Throwable) {}
+            emptyList()
+        }
+        // SCANNER_INACTIVE: ask BotService to re-boot the meme scanner. The
+        // heartbeat watchdog also covers this; here we surface intent immediately.
+        InvariantGuardian.FaultCode.SCANNER_INACTIVE -> {
+            try { com.lifecyclebot.engine.BotService.instance?.requestScannerRestart("RUNTIME_DOCTOR_SCANNER_INACTIVE") } catch (_: Throwable) {}
+            emptyList()
+        }
     }
 
     private fun lightMitigations(f: InvariantGuardian.Fault): List<RuntimeMitigationBus.Command> {

@@ -21,6 +21,10 @@ data class RuntimeStateSnapshot(
     val canonicalOpenPositions: Int,
     val orphanPaperPositions: Int,
     val orphanLivePositions: Int,
+    // V5.9.1518 — PATCH ITEM 1/7: position-wallet reconciler progress. Must be
+    // >0 within ~30s of runtime start; if it stays 0 while running, the
+    // reconciler is stalled (RECONCILER_STALLED fault).
+    val reconcilerTotalChecked: Int,
     val mode: String,
     val enabledTraders: String,
     val intake: Long,
@@ -96,6 +100,10 @@ data class RuntimeStateSnapshot(
                 else (maxOf(hostOpen, lifecycleOpen) - liveOpen).coerceAtLeast(0)
             } catch (_: Throwable) { 0 }
 
+            val reconcilerChecked = try {
+                com.lifecyclebot.engine.execution.PositionWalletReconciler.snapshot().totalChecked
+            } catch (_: Throwable) { 0 }
+
             val api = ApiHealthMonitor.snapshot().mapValues { (_, s) ->
                 ApiSummary(
                     successRatePct = (s.successRate() * 100.0).toInt(),
@@ -124,6 +132,7 @@ data class RuntimeStateSnapshot(
                 canonicalOpenPositions = canonicalOpen,
                 orphanPaperPositions = orphanPaper,
                 orphanLivePositions = orphanLive,
+                reconcilerTotalChecked = reconcilerChecked,
                 mode = mode,
                 enabledTraders = runtime.enabledTraders,
                 intake = pipe.phaseCounts["INTAKE"] ?: 0L,

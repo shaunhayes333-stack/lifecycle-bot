@@ -77,7 +77,10 @@ object GlobalTradeRegistry {
     // same mint across rapid scan ticks. All dropped hard for memetrader
     // volume. Bootstrap-only: tightens back above 40% learning via
     // effective*() helpers below.
-    private const val DUPLICATE_COOLDOWN_MS = 20_000L   // mature: 20s
+    // V5.9.1518 — PATCH ITEM 4: duplicate-lane cooldown reduced 25% (20s→15s)
+    // to let a hot watchlist re-discover the same mint sooner without bypassing
+    // any safety gate. Bootstrap (3s) unchanged.
+    private const val DUPLICATE_COOLDOWN_MS = 15_000L   // mature: 15s (was 20s, -25%)
     private const val DUPLICATE_COOLDOWN_MS_BOOTSTRAP = 3_000L
     private const val REJECTION_COOLDOWN_MS = 20_000L   // mature: 20s
     private const val REJECTION_COOLDOWN_MS_BOOTSTRAP = 3_000L

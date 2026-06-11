@@ -5,7 +5,10 @@ object InvariantGuardian {
         RUNTIME_UI_SPLIT_BRAIN, SELL_RECONCILER_DEAD, HOST_TRACKER_DESYNC,
         LANE_FANOUT_EXPLOSION, EXEC_REQUEST_INFLATION, LEARNING_LEDGER_DUPLICATION,
         PAPER_LIVE_CONTAMINATION, SCANNER_RESTORE_POISONING, MAIN_THREAD_STALL, API_LAYER_DEGRADED,
-        FDG_FANOUT_EXPLOSION, FDG_SIGNAL_BYPASS, EXIT_SWEEP_UNSTABLE
+        FDG_FANOUT_EXPLOSION, FDG_SIGNAL_BYPASS, EXIT_SWEEP_UNSTABLE,
+        // V5.9.1518 — PATCH ITEM 7: real choke-state diagnosis flags.
+        LEDGER_DRIFT, RECONCILER_STALLED, SELL_RETRY_STORM, SCANNER_INACTIVE,
+        CLOSED_BUT_WALLET_HELD, ORPHAN_LIVE_POSITIONS
     }
     data class Fault(val code: FaultCode, val severity: String, val detail: String, val evidence: Map<String, String> = emptyMap(), val tsMs: Long = System.currentTimeMillis())
 
@@ -16,6 +19,31 @@ object InvariantGuardian {
         // Keep RUNTIME_UI_SPLIT_BRAIN enum for old reports, but do not emit it
         // for foreground absence.
         if (s.botLoopActive && !s.sellReconcilerStarted && s.liveOpenPositions > 0) out += Fault(FaultCode.SELL_RECONCILER_DEAD, "CRITICAL", "running with live open positions but sell reconciler stopped")
+
+        // V5.9.1518 — PATCH ITEM 1/7: ledger drift. Canonical open count exceeding
+        // wallet-held mints means we are tracking positions the wallet no longer
+        // holds (phantom / CLOSED-but-held) — a P0 authority fault.
+        if (s.mode == "LIVE" && (s.canonicalOpenPositions - s.walletHeldMints) > 0) {
+            out += Fault(FaultCode.LEDGER_DRIFT, "CRITICAL",
+                "canonicalOpen=${s.canonicalOpenPositions} > walletHeld=${s.walletHeldMints} (drift=${s.canonicalOpenPositions - s.walletHeldMints})")
+        }
+        // PATCH ITEM 1/7: reconciler stalled — running with open positions but the
+        // position-wallet reconciler has never checked anything.
+        if (s.botLoopActive && s.canonicalOpenPositions > 0 && s.reconcilerTotalChecked == 0) {
+            out += Fault(FaultCode.RECONCILER_STALLED, "CRITICAL",
+                "reconciler.totalChecked=0 while canonicalOpen=${s.canonicalOpenPositions}")
+        }
+        // PATCH ITEM 7: orphan live positions must be forced through reconcile.
+        if (s.orphanLivePositions > 0) {
+            out += Fault(FaultCode.ORPHAN_LIVE_POSITIONS, "HIGH",
+                "orphanLive=${s.orphanLivePositions} liveOpen=${s.liveOpenPositions} host=${s.hostTrackerOpenCount} walletHeld=${s.walletHeldMints}")
+        }
+        // PATCH ITEM 3/7: scanner inactive while runtime RUNNING (and not user-disabled).
+        if (uiRunning && s.botLoopActive && !s.scannerActive &&
+            !(try { RuntimeRepairState.isScannerUserDisabled() } catch (_: Throwable) { false })) {
+            out += Fault(FaultCode.SCANNER_INACTIVE, "HIGH",
+                "scannerActive=false while RUNNING (botLoop=${s.botLoopActive})")
+        }
         // V5.9.1162 — compare live domain to live wallet truth only. Paper positions
         // are expected to have walletHeldMints=0 and must not be reported as healthy
         // live wallet drift. They are surfaced separately as paperOpenPositions.

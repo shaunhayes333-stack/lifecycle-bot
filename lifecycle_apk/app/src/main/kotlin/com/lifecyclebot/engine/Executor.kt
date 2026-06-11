@@ -2108,12 +2108,12 @@ class Executor(
             onLog("📊 AI Sizer: conf=${adjustedConfidence.toInt()} → ${result.explanation}", "sizing")
             // V5.9.972 — Kelly soft-cap from global lifetime stats.
             // Only ever shrinks. Skipped when <200 settled trades.
-            val finalSolCapped = applyKellyCap(finalSol, walletSol, adjustedConfidence)
+            val finalSolCapped = applyLedgerDriftCap(applyKellyCap(finalSol, walletSol, adjustedConfidence))
             return finalSolCapped
         }
 
         // V5.9.972 — same Kelly cap on the non-logging path.
-        val resultSolCapped = applyKellyCap(result.solAmount, walletSol, adjustedConfidence)
+        val resultSolCapped = applyLedgerDriftCap(applyKellyCap(result.solAmount, walletSol, adjustedConfidence))
         return resultSolCapped
     }
 
@@ -2123,6 +2123,10 @@ class Executor(
      * Kelly-from-history clamp. NEVER enlarges. Allows 1.5× headroom
      * above raw Kelly so high-conviction AI sizing isn't crippled.
      */
+    /** V5.9.1518 — PATCH ITEM 5: hard ceiling on LIVE buy size while the ledger
+     *  is drifting / reconciler is stalled. 0.05 SOL per operator spec. */
+    private val LEDGER_DRIFT_MAX_LIVE_SOL: Double = 0.05
+
     private fun applyKellyCap(size: Double, walletSol: Double, confidence: Double): Double {
         return try {
             val kellyCap = com.lifecyclebot.engine.PositionSizing.kellyCapFromGlobalStats(
@@ -2138,7 +2142,31 @@ class Executor(
             } else size
         } catch (_: Throwable) { size }
     }
-    
+
+    /**
+     * V5.9.1518 — PATCH ITEM 5: cap LIVE buy size while the ledger is drifting.
+     * Until the position↔wallet ledger has converged (orphanLive==0, no
+     * canonicalOpen-vs-walletHeld drift) we hard-limit any LIVE buy to
+     * LEDGER_DRIFT_MAX_LIVE_SOL so a state-drifted runtime cannot scale risk.
+     * Paper sizing is untouched. Once the reconciler is healthy, normal sizing
+     * (Kelly-capped) flows through unchanged.
+     */
+    private fun applyLedgerDriftCap(size: Double): Double {
+        return try {
+            if (isPaperRT()) return size
+            val snap = com.lifecyclebot.engine.execution.PositionWalletReconciler.snapshot()
+            val canonical = try { com.lifecyclebot.engine.HostWalletTokenTracker.getOpenCount() } catch (_: Throwable) { 0 }
+            val walletHeld = try { com.lifecyclebot.engine.HostWalletTokenTracker.getActuallyHeldCount() } catch (_: Throwable) { 0 }
+            val drift = (canonical - walletHeld) > 0
+            val reconcilerStalled = snap.totalChecked == 0 && canonical > 0
+            if ((drift || reconcilerStalled) && size > LEDGER_DRIFT_MAX_LIVE_SOL) {
+                onLog("🛡 LedgerDriftCap: ${"%.4f".format(size)} → ${"%.4f".format(LEDGER_DRIFT_MAX_LIVE_SOL)} SOL (canonical=$canonical walletHeld=$walletHeld checked=${snap.totalChecked})", "sizing")
+                try { com.lifecyclebot.engine.ForensicLogger.lifecycle("LIVE_SIZE_CAPPED_LEDGER_DRIFT", "size=${"%.4f".format(size)} cap=$LEDGER_DRIFT_MAX_LIVE_SOL canonical=$canonical walletHeld=$walletHeld checked=${snap.totalChecked}") } catch (_: Throwable) {}
+                LEDGER_DRIFT_MAX_LIVE_SOL
+            } else size
+        } catch (_: Throwable) { size }
+    }
+
     /**
      * Calculate buy size for FDG evaluation.
      * Simplified wrapper around buySizeSol for the Final Decision Gate.

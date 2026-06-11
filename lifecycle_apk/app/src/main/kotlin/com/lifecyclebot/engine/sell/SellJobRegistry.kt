@@ -103,6 +103,16 @@ object SellJobRegistry {
                     existing.requestedQty = walletQtyAtStart
                 }
             }
+            // V5.9.1518 — PATCH ITEM 2: duplicate sell request against a live
+            // controller is COALESCED into the existing job, NOT a new attempt.
+            // This is the anti-retry-storm guarantee: strategy layers may request
+            // a sell, but a job already in flight / scheduled simply absorbs it.
+            try {
+                ForensicLogger.lifecycle(
+                    "SELL_REQUEST_COALESCED",
+                    "mint=${mint.take(10)} symbol=$symbol reason=$reason status=${existing.status.name} attempts=${existing.attemptCount} inFlight=${existing.isInFlight()}",
+                )
+            } catch (_: Throwable) {}
             return existing
         }
         val job = SellJob(

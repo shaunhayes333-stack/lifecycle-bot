@@ -3050,6 +3050,18 @@ class BotService : Service() {
      *
      * Returns true if a scanner is alive after this call, false on failure.
      */
+    /** V5.9.1518 — PATCH ITEM 3/7: public entrypoint for RuntimeDoctor to ask
+     *  for a scanner reboot when SCANNER_INACTIVE is diagnosed. Respects the
+     *  operator kill-switch and only acts while running. */
+    fun requestScannerRestart(reason: String) {
+        try {
+            if (!status.running) return
+            if (RuntimeRepairState.isScannerUserDisabled()) return
+            try { com.lifecyclebot.engine.ForensicLogger.lifecycle("SCANNER_WATCHDOG_RESTART", "reason=$reason via=requestScannerRestart") } catch (_: Throwable) {}
+            bootMemeScanner(reason = reason)
+        } catch (_: Throwable) {}
+    }
+
     private fun bootMemeScanner(reason: String): Boolean {
         // V5.9.651 — forensic heal entry
         ForensicLogger.phase(ForensicLogger.PHASE.SCANNER_HEAL, "_scanner", "reason=$reason existing=${marketScanner != null}")
@@ -9543,12 +9555,35 @@ class BotService : Service() {
             val sc = marketScanner
             if (sc == null) {
                 ErrorLogger.info("BotService", "🩺 SCANNER_HEARTBEAT: marketScanner=NULL running=${status.running} watch=${GlobalTradeRegistry.size()}")
+                // V5.9.1518 — PATCH ITEM 3: report scanner INACTIVE to the runtime
+                // controller so scannerActive truthfully reflects a dead scanner
+                // (markScannerActive was previously never called → scannerActive
+                // was permanently false even when the scanner was alive).
+                try { com.lifecyclebot.engine.BotRuntimeController.markScannerActive(
+                    com.lifecyclebot.engine.BotRuntimeController.currentGeneration(), false) } catch (_: Throwable) {}
                 if (status.running) {
                     addLog("🩹 Heartbeat: scanner NULL — auto-recovering")
+                    try { com.lifecyclebot.engine.ForensicLogger.lifecycle("SCANNER_WATCHDOG_RESTART", "reason=NULL running=${status.running}") } catch (_: Throwable) {}
                     bootMemeScanner(reason = "HEARTBEAT_NULL")
                 }
             } else {
                 val snap = try { sc.getThroughputTelemetrySnapshot() } catch (_: Throwable) { null }
+                // V5.9.1518 — PATCH ITEM 3: scanner alive-state truth + watchdog.
+                // The scanner is "active" when it is alive AND has ticked within
+                // the staleness window. Report that to BotRuntimeController so the
+                // runtime snapshot stops showing scannerActive=false on a healthy
+                // scanner. If the scanner is RUNNING but stale > WATCHDOG window,
+                // force a boot (auto-restart unless the user explicitly disabled).
+                val scannerAlive = try { sc.isAlive() } catch (_: Throwable) { false }
+                val ageSec = snap?.ageSec ?: 9999L
+                val healthy = scannerAlive && ageSec in 0..SCANNER_WATCHDOG_STALE_SEC
+                try { com.lifecyclebot.engine.BotRuntimeController.markScannerActive(
+                    com.lifecyclebot.engine.BotRuntimeController.currentGeneration(), healthy) } catch (_: Throwable) {}
+                if (!healthy && status.running && !RuntimeRepairState.isScannerUserDisabled()) {
+                    addLog("🩹 Heartbeat: scanner inactive/stale (alive=$scannerAlive ageSec=$ageSec) — auto-restarting")
+                    try { com.lifecyclebot.engine.ForensicLogger.lifecycle("SCANNER_WATCHDOG_RESTART", "reason=STALE alive=$scannerAlive ageSec=$ageSec") } catch (_: Throwable) {}
+                    bootMemeScanner(reason = "HEARTBEAT_STALE")
+                }
                 if (snap != null) {
                     ErrorLogger.info(
                         "BotService",
@@ -9562,6 +9597,11 @@ class BotService : Service() {
             ErrorLogger.debug("BotService", "Scanner heartbeat tick error: ${e.message}")
         }
     }
+
+    /** V5.9.1518 — PATCH ITEM 3: scanner is considered stale (watchdog restart)
+     *  when its last successful tick is older than this. Heartbeat fires every
+     *  6 loops; with a ~3-4s loop that is ~20-24s, matching the spec's 20s. */
+    private val SCANNER_WATCHDOG_STALE_SEC: Long = 20L
 
     /**
      * V5.9.660 — extracted from botLoop to keep it under the JVM 64KB

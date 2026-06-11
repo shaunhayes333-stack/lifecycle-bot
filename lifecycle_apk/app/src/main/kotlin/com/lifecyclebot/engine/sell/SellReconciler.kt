@@ -43,6 +43,10 @@ import java.util.concurrent.atomic.AtomicReference
 object SellReconciler {
     private const val TICK_INTERVAL_MS: Long = 10_000L
     private val jobRef = AtomicReference<Job?>(null)
+    // V5.9.1518 — PATCH ITEM 2/7: retain the live scope so the runtime doctor /
+    // ledger-drift mitigation can request an immediate off-loop reconcile tick
+    // without waiting for the next scheduled cadence.
+    @Volatile private var loopScope: CoroutineScope? = null
     @Volatile private var paperMode: Boolean = true
     @Volatile private var wallet: SolanaWallet? = null
 
@@ -87,6 +91,7 @@ object SellReconciler {
         wallet = hostWallet
         this.sellTrigger = sellTrigger
         this.onZeroClose = onZeroClose
+        loopScope = scope
         // Cancel any prior loop.
         jobRef.get()?.cancel()
         // V5.9.1371 — PAPER MODE now ALSO runs the reconciler. Previously this
@@ -159,6 +164,16 @@ object SellReconciler {
     fun stop() {
         isStarted = false
         jobRef.getAndSet(null)?.cancel()
+    }
+
+    /** V5.9.1518 — PATCH ITEM 2/7: fire-and-forget immediate reconcile nudge.
+     *  Called by RuntimeDoctor when LEDGER_DRIFT / SELL_RETRY_STORM /
+     *  CLOSED_BUT_WALLET_HELD is detected so the ledger converges between the
+     *  normal scheduled ticks. No-op if the reconciler is not started. */
+    fun requestImmediateTick() {
+        if (!isStarted) return
+        val sc = loopScope ?: return
+        sc.launch { try { tickOnce() } catch (_: Throwable) {} }
     }
 
     /** Single reconciliation pass. Public for unit-tests / manual nudges. */

@@ -52,7 +52,11 @@ object QuarantineStore {
     // cooldown so the token re-enters and gets re-evaluated against fresh liquidity.
     // FACTUAL POISON (blacklist/ban/rug) stays PERMANENT — the veto whitelist is
     // untouched.
-    private const val TRANSIENT_QUARANTINE_TTL_MS = 90_000L  // 90s — re-check once liq indexes
+    // V5.9.1518 — PATCH ITEM 4: transient quarantine decay shortened 90s→60s so
+    // a token whose liquidity/volume/holder profile improves re-enters the work
+    // set within the spec's 60s window. Factual poison (blacklist/rug) is still
+    // permanent — the veto whitelist is untouched.
+    private const val TRANSIENT_QUARANTINE_TTL_MS = 60_000L  // 60s — re-check once liq indexes
     private val TRANSIENT_REASON_PREFIXES = listOf("ZERO_LIQUIDITY", "RESTORE_ZERO_LIQUIDITY", "RESTORE_NO_MARKET")
     private fun isTransientReason(reason: String): Boolean =
         TRANSIENT_REASON_PREFIXES.any { reason.startsWith(it) }
