@@ -100,6 +100,7 @@ object GlobalTradeRegistry {
     // V5.0 Probation constants
     private const val PROBATION_MIN_TIME_MS = 60_000L       // 1 minute minimum probation
     private const val PROBATION_MAX_TIME_MS = 300_000L      // 5 minutes max probation before auto-reject
+    private const val STALE_POSITION_MS = 30 * 60_000L     // V5.9.1506 — ghost-prune cutoff (far beyond any meme hold)
     private const val PROBATION_CONF_THRESHOLD = 50         // Confidence below this = probation
     private const val PROBATION_CONF_THRESHOLD_PAPER = 22   // V5.9.266: moderate (was 18 at V5.9.263)
     private const val PROBATION_MULTI_SOURCE_EXEMPT = true  // Multi-source tokens skip probation
@@ -972,7 +973,10 @@ object GlobalTradeRegistry {
     /**
      * Get all open positions.
      */
-    fun getOpenPositions(): List<PositionEntry> = activePositions.values.toList()
+    fun getOpenPositions(): List<PositionEntry> {
+        try { pruneClosedPositions() } catch (_: Throwable) {}
+        return activePositions.values.toList()
+    }
 
     /**
      * Get total exposure in SOL.
@@ -980,9 +984,59 @@ object GlobalTradeRegistry {
     fun getTotalExposure(): Double = activePositions.values.sumOf { it.sizeSol }
 
     /**
-     * Get position count.
+     * V5.9.1506 — SELF-HEALING GHOST PRUNE (root fix for "open count out by 30
+     * and increasing"). PAPER-mode open count reads from activePositions.size,
+     * but only ONE exit path (paperSell) + AntiChoke ever call closePosition().
+     * Any position that exited via a different path (catastrophe stop, forced
+     * close, lane reassignment, scanner eviction, EXIT_MANAGED) leaked its
+     * registry row forever → the count climbed +1 per trade and never fell.
+     *
+     * This prune drops any active row that is ALREADY stamped CLOSED in the
+     * authoritative PositionCloseLedger, plus any row impossibly stale for a
+     * meme scalp (open > STALE_POSITION_MS with no close) — those are leaked
+     * ghosts by definition. Called from getPositionCount/getOpenPositions so
+     * the count is ALWAYS wallet/ledger-truth, no external scheduler needed.
      */
-    fun getPositionCount(): Int = activePositions.size
+    fun pruneClosedPositions(): Int {
+        if (activePositions.isEmpty()) return 0
+        val now = System.currentTimeMillis()
+        var pruned = 0
+        for ((mint, p) in activePositions.entries.toList()) {
+            val ledgerClosed = try { PositionCloseLedger.isClosed(mint) } catch (_: Throwable) { false }
+            val stale = p.openedAt > 0L && (now - p.openedAt) > STALE_POSITION_MS
+            if (ledgerClosed || stale) {
+                if (activePositions.remove(mint, p)) {
+                    pruned++
+                    val why = if (ledgerClosed) "LEDGER_CLOSED" else "STALE_${(now - p.openedAt)/60000}min"
+                    try {
+                        com.lifecyclebot.engine.ForensicLogger.lifecycle(
+                            "REGISTRY_GHOST_PRUNED",
+                            "mint=${mint.take(10)} symbol=${p.symbol} layer=${p.layer} reason=$why"
+                        )
+                    } catch (_: Throwable) {}
+                    // free re-entry the same way a real close does, so a pruned
+                    // ghost can't immediately re-open and re-leak.
+                    try {
+                        val fam = p.symbol.uppercase().trim().filter { it.isLetterOrDigit() }.take(8)
+                        com.lifecyclebot.engine.ReEntryLockout.onClose(mint, fam, "GHOST_REAP_ZERO_BALANCE", 0.0)
+                    } catch (_: Throwable) {}
+                }
+            }
+        }
+        if (pruned > 0) {
+            try { com.lifecyclebot.engine.PipelineHealthCollector.labelInc("REGISTRY_GHOST_PRUNED") } catch (_: Throwable) {}
+        }
+        return pruned
+    }
+
+    /**
+     * Get position count. Self-heals leaked ghosts first so the PAPER-mode
+     * "Open" tile equals ledger-truth instead of drifting upward.
+     */
+    fun getPositionCount(): Int {
+        try { pruneClosedPositions() } catch (_: Throwable) {}
+        return activePositions.size
+    }
 
     // ═══════════════════════════════════════════════════════════════════════════
     /** V5.9.612 AntiChoke: clear a stale registry-only position when wallet / sub-trader truth proves unheld. */
