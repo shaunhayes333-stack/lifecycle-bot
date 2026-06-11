@@ -641,8 +641,37 @@ object ExecutableOpenGate {
         if (safetyTier.equals("UNKNOWN", true)) {
             return blocked("EXEC_OPEN_BLOCKED_SAFETY_CONTEXT_MISSING", "PRE_FDG_SAFETY_CONTEXT_MISSING", shadow = mode == "PAPER")
         }
+        // V5.9.1504 — RUG-CONTEXT STRICT FALLBACK (master throughput unblock).
+        // Operator forensics 14:40: EVERY live candidate (incl. a 95%-pnl KNOWN
+        // WINNER that FDG itself flagged "FAST APPROVE") was hard-blocked here
+        // with PRE_FDG_RUG_CONTEXT_MISSING → 0/35 open, nothing could buy live.
+        // Cause: rugcheck.xyz returns -1 (PENDING/no-report-yet) for essentially
+        // every FRESH meme mint, and this gate treated rug<0 as an unconditional
+        // LIVE hard-no — STRICTER than FDG, which already approves pending-rug
+        // tokens via a STRICT safety fallback (liq+buy+vol floor). We now mirror
+        // FDG: a CONFIRMED rug (rug==0) is always blocked; a PENDING rug (rug==-1)
+        // is allowed THROUGH TO FDG only when it clears a hard safety floor, so
+        // FDG makes the final call instead of the candidate dying pre-FDG.
+        // Known-ruggers are still caught by the TokenBlacklist veto at liveBuy
+        // (V5.9.1502) and -15% SL is unchanged.
+        if (rug == 0 && modeUpper == "LIVE") {
+            return blocked("EXEC_OPEN_BLOCKED_CONFIRMED_RUG", "PRE_FDG_CONFIRMED_RUG_SCORE_0", shadow = false)
+        }
         if (rug < 0 && modeUpper == "LIVE") {
-            return blocked("EXEC_OPEN_BLOCKED_RUG_CONTEXT_MISSING", "PRE_FDG_RUG_CONTEXT_MISSING", shadow = false)
+            // PENDING rugcheck (-1). Apply the same STRICT fallback FDG uses.
+            val sEntry = state?.entryScore ?: -1
+            val tierKnown = !safetyTier.equals("UNKNOWN", true)
+            // Floor: real DEX liquidity AND (a resolved safety tier OR a strong
+            // V3 entry score). $8K liq matches FDG's weak-fallback liq floor.
+            val passesStrictFallback = liquidityUsd >= 8_000.0 && (tierKnown || sEntry >= 50)
+            if (!passesStrictFallback) {
+                return blocked("EXEC_OPEN_BLOCKED_RUG_CONTEXT_MISSING", "PRE_FDG_RUG_CONTEXT_MISSING", shadow = false)
+            }
+            try {
+                ForensicLogger.lifecycle("PRE_FDG_RUG_PENDING_FALLBACK_PASS",
+                    "symbol=$symbol mint=${mint.take(10)} liq=${liquidityUsd.toInt()} tier=$safetyTier entry=$sEntry → routed to FDG")
+            } catch (_: Throwable) {}
+            // fall through — FDG downstream makes the final allow/block call.
         }
         if (liquidityUsd <= 0.0) {
             // V5.9.1336 — ZERO LIQUIDITY IS UNCONDITIONAL, EVEN IN PAPER.

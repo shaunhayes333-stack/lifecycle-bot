@@ -643,6 +643,53 @@ class Executor(
         // V5.7.3: Dual wallet fee system
         private const val TRADING_FEE_WALLET_1 = "A8QPQrPwoc7kxhemPxoUQev67bwA5kVUAuiyU8Vxkkpd"
         private const val TRADING_FEE_WALLET_2 = "82CAPB9HxXKZK97C12pqkWcjvnkbpMLCg2Ex2hPrhygA"
+
+        /**
+         * V5.9.1504 — SELF-LOOP FEE FIX. Operator's trading wallet is
+         * A8QPQr…kkpd, which is identical to TRADING_FEE_WALLET_1, so every
+         * fee_w1 send was a transfer-to-self → "Account loaded twice" failure
+         * on EVERY sell, the fee share permanently stuck in the retry queue.
+         * This sender resolves the real destination per share: if a fee wallet
+         * equals the sending wallet's own address, that share is REDIRECTED to
+         * the other fee wallet (so the fee is still collected, not lost). If
+         * BOTH equal self, the share is skipped cleanly (no failed tx, no
+         * endless queue). Returns true if at least one transfer was attempted.
+         */
+        private fun sendFeeSplit(
+            wallet: SolanaWallet,
+            amount1: Double,
+            amount2: Double,
+            tag: String,
+        ): Boolean {
+            val self = try { wallet.publicKeyB58 } catch (_: Throwable) { "" }
+            fun dest(primary: String, fallback: String): String? = when {
+                !primary.equals(self, false) -> primary
+                !fallback.equals(self, false) -> fallback   // redirect self→other
+                else -> null                                 // both self — skip
+            }
+            var sent = false
+            // share 1 → wallet1, falling back to wallet2 if wallet1 is self
+            if (amount1 >= 0.0001) {
+                val d = dest(TRADING_FEE_WALLET_1, TRADING_FEE_WALLET_2)
+                if (d != null) {
+                    try { wallet.sendSol(d, amount1); sent = true }
+                    catch (e: Exception) { FeeRetryQueue.enqueue(d, amount1, "${tag}_w1"); }
+                } else {
+                    ErrorLogger.warn("Executor", "🪙 fee_w1 ($tag) skipped: both fee wallets == self")
+                }
+            }
+            // share 2 → wallet2, falling back to wallet1 if wallet2 is self
+            if (amount2 >= 0.0001) {
+                val d = dest(TRADING_FEE_WALLET_2, TRADING_FEE_WALLET_1)
+                if (d != null) {
+                    try { wallet.sendSol(d, amount2); sent = true }
+                    catch (e: Exception) { FeeRetryQueue.enqueue(d, amount2, "${tag}_w2"); }
+                } else {
+                    ErrorLogger.warn("Executor", "🪙 fee_w2 ($tag) skipped: both fee wallets == self")
+                }
+            }
+            return sent
+        }
         
         // V5.7.3: Fee percentages
         private const val MEME_TRADING_FEE_PERCENT = 0.005  // V5.9.1451 operator: 1% ROUND-TRIP = 0.5% per side (buy + sell both charge this)
@@ -4001,8 +4048,7 @@ class Executor(
                 if (feeAmountSol >= 0.0001) {
                     val feeWallet1 = feeAmountSol * FEE_SPLIT_RATIO
                     val feeWallet2 = feeAmountSol * (1.0 - FEE_SPLIT_RATIO)
-                    if (feeWallet1 >= 0.0001) wallet.sendSol(TRADING_FEE_WALLET_1, feeWallet1)
-                    if (feeWallet2 >= 0.0001) wallet.sendSol(TRADING_FEE_WALLET_2, feeWallet2)
+                    sendFeeSplit(wallet, feeWallet1, feeWallet2, "profit_lock")
                     onLog("💸 TRADING FEE: ${String.format("%.6f", feeAmountSol)} SOL (0.5% of profit-lock) split 50/50", ts.mint)
                     ErrorLogger.info("Executor", "💸 LIVE PROFIT-LOCK FEE: ${feeAmountSol} SOL split to both wallets")
                 }
@@ -4707,8 +4753,7 @@ class Executor(
                     if (feeAmountSol >= 0.0001) {
                         val feeWallet1 = feeAmountSol * FEE_SPLIT_RATIO
                         val feeWallet2 = feeAmountSol * (1.0 - FEE_SPLIT_RATIO)
-                        if (feeWallet1 >= 0.0001) wallet.sendSol(TRADING_FEE_WALLET_1, feeWallet1)
-                        if (feeWallet2 >= 0.0001) wallet.sendSol(TRADING_FEE_WALLET_2, feeWallet2)
+                        sendFeeSplit(wallet, feeWallet1, feeWallet2, "partial_sell")
                         ErrorLogger.info("Executor", "💸 LIVE PARTIAL-SELL FEE: ${feeAmountSol} SOL split to both wallets")
                     }
                 } catch (feeEx: Exception) {
@@ -8400,14 +8445,9 @@ class Executor(
                     val feeWallet1 = feeAmountSol * FEE_SPLIT_RATIO
                     val feeWallet2 = feeAmountSol * (1.0 - FEE_SPLIT_RATIO)
                     
-                    // Send to wallet 1
-                    if (feeWallet1 >= 0.0001) {
-                        wallet.sendSol(TRADING_FEE_WALLET_1, feeWallet1)
-                    }
-                    // Send to wallet 2
-                    if (feeWallet2 >= 0.0001) {
-                        wallet.sendSol(TRADING_FEE_WALLET_2, feeWallet2)
-                    }
+                    // V5.9.1504 — single resolver call handles BOTH shares,
+                    // redirecting any self-addressed fee wallet to the other.
+                    sendFeeSplit(wallet, feeWallet1, feeWallet2, "fee")
                     
                     onLog("💸 TRADING FEE: ${String.format("%.6f", feeAmountSol)} SOL (0.5% of $sol) split 50/50", tradeId.mint)
                     ErrorLogger.info("Executor", "💸 LIVE BUY FEE: ${feeAmountSol} SOL split to both wallets")
@@ -9511,8 +9551,7 @@ class Executor(
                         if (feeAmountSol >= 0.0001) {
                             val feeWallet1 = feeAmountSol * FEE_SPLIT_RATIO
                             val feeWallet2 = feeAmountSol * (1.0 - FEE_SPLIT_RATIO)
-                            if (feeWallet1 >= 0.0001) activeWallet.sendSol(TRADING_FEE_WALLET_1, feeWallet1)
-                            if (feeWallet2 >= 0.0001) activeWallet.sendSol(TRADING_FEE_WALLET_2, feeWallet2)
+                            sendFeeSplit(activeWallet, feeWallet1, feeWallet2, "partial_sell_v2")
                             ErrorLogger.info("Executor", "💸 LIVE PARTIAL-SELL FEE (v2): ${feeAmountSol} SOL split to both wallets")
                         }
                     } catch (feeEx: Exception) {
@@ -12078,14 +12117,9 @@ class Executor(
                     val feeWallet1 = feeAmountSol * FEE_SPLIT_RATIO
                     val feeWallet2 = feeAmountSol * (1.0 - FEE_SPLIT_RATIO)
                     
-                    // Send to wallet 1
-                    if (feeWallet1 >= 0.0001) {
-                        wallet.sendSol(TRADING_FEE_WALLET_1, feeWallet1)
-                    }
-                    // Send to wallet 2
-                    if (feeWallet2 >= 0.0001) {
-                        wallet.sendSol(TRADING_FEE_WALLET_2, feeWallet2)
-                    }
+                    // V5.9.1504 — single resolver call handles BOTH shares,
+                    // redirecting any self-addressed fee wallet to the other.
+                    sendFeeSplit(wallet, feeWallet1, feeWallet2, "fee")
                     
                     onLog("💸 TRADING FEE: ${String.format("%.6f", feeAmountSol)} SOL (0.5% of entry) split 50/50", tradeId.mint)
                     ErrorLogger.info("Executor", "💸 LIVE SELL FEE: ${feeAmountSol} SOL split to both wallets (entry-basis, pnl-agnostic)")
