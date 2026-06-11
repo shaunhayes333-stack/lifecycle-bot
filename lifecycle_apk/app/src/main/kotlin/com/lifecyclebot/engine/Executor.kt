@@ -3369,10 +3369,35 @@ class Executor(
         // qty/basis drift produced fake 240x/75,000x rows. Paper has no on-chain
         // token balance; its value is cost basis × resolved price return. LIVE keeps
         // qtyToken math because chain token quantity is real ground truth.
-        val gainMultiple = if (pos.isPaperPosition && pos.entryPrice > 0.0) {
+        val rawGainMultiple = if (pos.isPaperPosition && pos.entryPrice > 0.0) {
             (actualPrice / pos.entryPrice)
         } else {
             (pos.qtyToken * actualPrice) / pos.costSol
+        }
+        // V5.9.1510 — PHANTOM-MULTIPLE GUARD (operator export: USD1 bought @ $64.978,
+        // "sold" @ $64.972 — price FELL — yet booked +254513% / capital_recovery_2546.1x,
+        // flagged INVALID_EXPORT). Root cause: high-unit-price tokens (USD1 ≈ $64.97)
+        // get their PAPER entryPrice rebased toward a near-zero mcap-pivot basis, so
+        // actualPrice/entryPrice explodes to thousands even when the real price barely
+        // moved. A genuine recovery/profit-lock can't be triggered by a basis artifact.
+        // Cross-check the multiple against the candle-history price move; if the position
+        // multiple disagrees with reality by a large factor, the entry basis is corrupt —
+        // fall back to the honest price-move multiple and never let it exceed the 1000x
+        // sanity ceiling already used on the journal path.
+        val histRef = ts.history.lastOrNull { it.priceUsd > 0 && it.priceUsd.isFinite() }?.priceUsd
+        val priceMoveMultiple = if (pos.entryPrice > 0.0 && actualPrice > 0.0) actualPrice / pos.entryPrice else rawGainMultiple
+        val gainMultiple = when {
+            !rawGainMultiple.isFinite() || rawGainMultiple <= 0.0 -> 1.0
+            // If the position-derived multiple is wildly larger than the actual price
+            // move (basis corruption), trust the price move, not the corrupted qty/basis.
+            priceMoveMultiple.isFinite() && priceMoveMultiple > 0.0 &&
+                rawGainMultiple > priceMoveMultiple * 5.0 && rawGainMultiple > 5.0 -> {
+                try { com.lifecyclebot.engine.ErrorLogger.warn("Executor",
+                    "🚫 PHANTOM_MULTIPLE_GUARD ${ts.symbol}: raw=${rawGainMultiple} >> priceMove=${priceMoveMultiple} " +
+                    "(entry=${pos.entryPrice} live=${actualPrice}) — using price-move, basis likely corrupt") } catch (_: Throwable) {}
+                priceMoveMultiple.coerceAtMost(1000.0)
+            }
+            else -> rawGainMultiple.coerceAtMost(1000.0)
         }
         val currentValue = pos.costSol * gainMultiple
         val gainPct = (gainMultiple - 1.0) * 100.0
