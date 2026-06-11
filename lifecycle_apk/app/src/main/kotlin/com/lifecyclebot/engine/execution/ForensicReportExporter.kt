@@ -171,6 +171,9 @@ object ForensicReportExporter {
             put("quarantine_suppressed", try { QuarantineStore.suppressedCount() } catch (_: Throwable) { -1 })
             put("duplicate_open_attempts_suppressed", try { TradeOutcomeLedger.duplicateOpenSuppressions() } catch (_: Throwable) { -1 })
             put("duplicate_close_attempts_suppressed", try { TradeOutcomeLedger.duplicateCloseSuppressions() } catch (_: Throwable) { -1 })
+            // V5.9.1527 — close-lease lifecycle (spec item 3 acceptance B/G).
+            put("close_lease_duplicate_suppressed", try { com.lifecyclebot.engine.sell.CloseLease.duplicateCloseAttemptsSuppressed } catch (_: Throwable) { -1L })
+            put("close_lease_active", try { com.lifecyclebot.engine.sell.CloseLease.activeLeaseCount() } catch (_: Throwable) { -1 })
             put("orphan_closes_suppressed", try { TradeOutcomeLedger.orphanCloseSuppressions() } catch (_: Throwable) { -1 })
             put("learning_duplicate_suppressions", try { TradeOutcomeLedger.learningDuplicateSuppressions() } catch (_: Throwable) { -1 })
             put("unique_closed_positions", try { TradeOutcomeLedger.uniqueClosedPositionCount() } catch (_: Throwable) { -1 })

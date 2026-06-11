@@ -88,6 +88,19 @@ object LiveBuyAdmissionGate {
         onLog: (String, String) -> Unit = { _, _ -> },
         onNotify: (String, String, NotificationHistory.NotifEntry.NotifType) -> Unit = { _, _, _ -> },
     ): Decision {
+        // V5.9.1527 — SELL SOURCE FIX (spec item 10): PAUSE NEW LIVE BUYS while
+        // any live close is pending. Operator forensics showed wallet SOL draining
+        // during a stuck sell loop while the sell qty never moved — buying into a
+        // stuck-exit state compounds the bleed and starves the exit of SOL for
+        // priority fees. Scanners/watchlist keep running (this gate only governs
+        // BUY admission), so we lose no discovery; we simply prioritise finishing
+        // the open close(s) first. Self-clears the instant the lease releases.
+        val pendingCloses = try { com.lifecyclebot.engine.sell.CloseLease.activeLeaseCount() } catch (_: Throwable) { 0 }
+        if (pendingCloses > 0) {
+            return Decision.Blocked("CLOSE_PENDING_BUY_PAUSE",
+                "deferring live buy: $pendingCloses close(s) in flight — prioritising exit completion")
+        }
+
         val safety: SafetyReport = ts.safety
         val now = System.currentTimeMillis()
         val safetyAgeMs = now - ts.lastSafetyCheck

@@ -9238,12 +9238,52 @@ class Executor(
     fun requestSell(ts: TokenState, reason: String, wallet: SolanaWallet?, walletSol: Double): SellResult {
         // V5.9.1411 — Settle-in and duplicate-suppress guards moved into doSell()
         // so that direct doSell() calls from riskCheck/UltraFastRugDetector are caught too.
-        
+
         // V5.9.495z28 (operator spec items 1+3): mark the lifecycle record
         // as SELL_PENDING the moment any sell is requested. The downstream
         // SOL+token verification path (post-broadcast) flips it to CLEARED
         // / PARTIAL_SELL / RESIDUAL_HELD based on the wallet reading.
         try { TokenLifecycleTracker.onSellPending(ts.mint) } catch (_: Throwable) {}
+
+        // V5.9.1527 — SELL SOURCE FIX (spec item 3): canonical per-mint CLOSE
+        // LEASE. Live sells acquire the lease here; duplicate sell starts for the
+        // same mint are suppressed (no second SELL_START) and counted. The lease
+        // also de-pollutes the retry reason (no recursive PENDING_RETRY_n nesting)
+        // and is released on any terminal SellResult. Paper sells are sim-only and
+        // are NOT leased.
+        val isLivePosition = !ts.position.isPaperPosition
+        if (isLivePosition) {
+            val lease = com.lifecyclebot.engine.sell.CloseLease.acquire(ts.mint, ts.symbol ?: "?", reason)
+            if (lease == null) {
+                // A fresh close is already in flight for this mint — suppress the
+                // duplicate. The owning close job will complete or terminally fail.
+                return SellResult.FAILED_RETRYABLE
+            }
+            // Sell under the lease using the CANONICAL (de-polluted) reason so the
+            // forensic phases + any requeue carry a clean, non-nesting reason.
+            val canonicalReason = lease.originalExitReason
+            return try {
+                val r = doSell(ts, canonicalReason, wallet, walletSol)
+                when (r) {
+                    // Terminal outcomes → release the lease.
+                    SellResult.CONFIRMED, SellResult.PAPER_CONFIRMED,
+                    SellResult.ALREADY_CLOSED, SellResult.FAILED_FATAL ->
+                        com.lifecyclebot.engine.sell.CloseLease.release(ts.mint, r.name)
+                    // NO_WALLET is terminal for THIS attempt (wallet gone) — release
+                    // so a reconnect can re-acquire cleanly rather than starving.
+                    SellResult.NO_WALLET ->
+                        com.lifecyclebot.engine.sell.CloseLease.release(ts.mint, r.name)
+                    // Retryable → keep the lease, record the attempt (de-pollutes reason).
+                    SellResult.FAILED_RETRYABLE ->
+                        com.lifecyclebot.engine.sell.CloseLease.recordRetry(ts.mint, "RETRYABLE")
+                }
+                r
+            } catch (t: Throwable) {
+                // Never leak the lease on an unexpected throw.
+                com.lifecyclebot.engine.sell.CloseLease.recordRetry(ts.mint, "EXCEPTION:${t.message?.take(40)}")
+                throw t
+            }
+        }
         return doSell(ts, reason, wallet, walletSol)
     }
     

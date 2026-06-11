@@ -506,6 +506,37 @@ object HostWalletTokenTracker {
                     }
                 } else if (rawApprox > DUST_RAW &&
                     existing.status in setOf(
+                        PositionStatus.CLOSED,
+                        PositionStatus.CLOSED_SOLD_BY_AATE,
+                    )
+                ) {
+                    // V5.9.1527 — SELL SOURCE FIX (spec item 1 + 9 + acceptance E/H):
+                    // A position marked CLOSED while the wallet STILL HOLDS the token
+                    // (> dust) is an impossible-by-invariant state. Root cause was the
+                    // optimistic empty-map close path stamping CLOSED on a bare/absent
+                    // sell signature (MARS: CLOSED + 984,443 tokens, last_sell_sig="").
+                    // Wallet balance is ground truth → REOPEN to OPEN_TRACKING so the
+                    // exit monitor re-engages and a real sell can complete. Clear the
+                    // stale (unverified) sell signature so the close lifecycle restarts
+                    // clean. This is the parity repair: walletHeldMints will now match
+                    // canonical open/held after this snapshot.
+                    existing.status = PositionStatus.OPEN_TRACKING
+                    existing.sellSignature = null
+                    existing.activeSellAttemptId = null
+                    existing.consecutiveZeroConfirms = 0
+                    existing.notes.add("REOPENED: WALLET_BALANCE_STILL_HELD qty=$uiAmount (was CLOSED with no zero-balance proof)")
+                    emitForensic(LiveTradeLogStore.Phase.TOKEN_TRACKER_OPEN_TRACKING, mint, existing.symbol, null,
+                        "WALLET_BALANCE_STILL_HELD → REOPENED ${existing.symbol ?: mint.take(6)} qty=$uiAmount (CLOSED-but-held invariant repair)")
+                    try {
+                        com.lifecyclebot.engine.ForensicLogger.lifecycle(
+                            "RECONCILE_REOPEN_WALLET_BALANCE_STILL_HELD",
+                            "mint=${mint.take(10)} symbol=${existing.symbol ?: "?"} qty=$uiAmount prevStatus=CLOSED"
+                        )
+                    } catch (_: Throwable) {}
+                    // Release any terminal sell-job + close-lease so the lifecycle can restart.
+                    try { com.lifecyclebot.engine.sell.SellExecutionLocks.release(mint) } catch (_: Throwable) {}
+                } else if (rawApprox > DUST_RAW &&
+                    existing.status in setOf(
                         PositionStatus.BUY_PENDING,
                         PositionStatus.BUY_CONFIRMED,
                         PositionStatus.HELD_IN_WALLET,

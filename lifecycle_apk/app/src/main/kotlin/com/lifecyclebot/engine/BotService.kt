@@ -10950,11 +10950,13 @@ class BotService : Service() {
                                                 "reason=${sell.reason} | tokens STILL in wallet, NOT fake-closed")
                                         }
                                         addLog("Retrying sell: ${sell.symbol} (attempt ${sell.retryCount + 1})")
-                                        // V5.9.1526 (spec item 4) — strip any existing PENDING_RETRY_N: prefix so
-                                        // reasons never nest (PENDING_RETRY_1:PENDING_RETRY_1:...). One
-                                        // canonical base reason, one retry counter.
-                                        val baseReason = sell.reason.replace(Regex("^(PENDING_RETRY_\\d+:\\s*)+"), "").trim()
-                                        executor.requestSell(ts, "PENDING_RETRY_${sell.retryCount}: $baseReason", wallet, wallet!!.getSolBalance())
+                                        // V5.9.1527 (spec item 4) — pass the CANONICAL (de-polluted)
+                                        // exit reason. CloseLease.canonicalReason strips any nested
+                                        // PENDING_RETRY_n: prefixes so the reason never recurses. The
+                                        // attempt count is carried by the CloseLease, NOT baked into the
+                                        // reason string (originalExitReason is immutable).
+                                        val canonicalReason = com.lifecyclebot.engine.sell.CloseLease.canonicalReason(sell.reason)
+                                        executor.requestSell(ts, canonicalReason, wallet, wallet!!.getSolBalance())
                                     } else {
                                         // Token no longer tracked — might be orphaned or already sold
                                         addLog("Pending sell for untracked/closed token: ${sell.symbol} — removing from queue")
