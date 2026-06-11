@@ -281,9 +281,27 @@ class DataOrchestrator(
 
             onLog("🆕 NEW: $symbol | dev=${devWallet.take(8)}… | $creatorRisk", mint)
 
-            // Alert if known rugger
-            if (creatorReport?.isKnownRugger == true) {
-                onNotify("🚨 Known Rugger", "$symbol — dev has rugged ${creatorReport.ruggedTokens}x before", com.lifecyclebot.engine.NotificationHistory.NotifEntry.NotifType.INFO)
+            // Alert if known rugger — AND hard-block the mint so it can never
+            // reach a LIVE buy. V5.9.1502: operator breach — "Known Rugger"
+            // toasts were INFO-only and the token still flowed to live
+            // execution (LarpTube/TEST live buys despite "dev has rugged Nx").
+            // The known-rugger / high-rug-rate status is now a persistent veto
+            // via TokenBlacklist, enforced at the final liveBuy gate.
+            val isRugger = creatorReport?.isKnownRugger == true
+            val highRug  = (creatorReport?.rugRate ?: 0.0) > 0.3
+            if (isRugger || highRug) {
+                val why = if (isRugger)
+                    "KNOWN_RUGGER dev=${devWallet.take(8)} rugged=${creatorReport?.ruggedTokens}/${creatorReport?.tokensCreated}"
+                else
+                    "HIGH_RUG_RATE dev=${devWallet.take(8)} rate=${((creatorReport?.rugRate ?: 0.0) * 100).toInt()}%"
+                try { com.lifecyclebot.engine.TokenBlacklist.block(mint, why) } catch (_: Throwable) {}
+                try {
+                    com.lifecyclebot.engine.ForensicLogger.lifecycle(
+                        "RUGGER_HARD_BLOCKED", "mint=${mint.take(10)} symbol=$symbol $why")
+                } catch (_: Throwable) {}
+                onNotify("🚨 Known Rugger", "$symbol — dev has rugged ${creatorReport?.ruggedTokens}x before · BLACKLISTED", com.lifecyclebot.engine.NotificationHistory.NotifEntry.NotifType.WARNING)
+                // Do NOT feed a known rugger into the candidate pipeline at all.
+                return@launch
             }
 
             // Notify the bot to consider adding this token

@@ -7899,6 +7899,25 @@ class Executor(
             ErrorLogger.warn("Executor", "[EXECUTION/INVALID] Live buy skipped: empty mint/symbol")
             return
         }
+
+        // V5.9.1502 — UNIVERSAL LIVE BLACKLIST / KNOWN-RUGGER HARD VETO.
+        // Operator breach: "Known Rugger" tokens (LarpTube, TEST — dev rugged
+        // 2x/3x before) reached LIVE buys because the rugger status was only an
+        // advisory notification in DataOrchestrator and not every lane re-checked
+        // it. This is the ONE gate every live buy funnels through, so the veto is
+        // enforced here for ALL lanes/intake paths. Never bypassable in LIVE.
+        // (Paper learning is unaffected — paperBuy does not call liveBuy.)
+        if (com.lifecyclebot.engine.TokenBlacklist.isBlocked(ts.mint)) {
+            val why = com.lifecyclebot.engine.TokenBlacklist.getBlockReason(ts.mint)
+            ErrorLogger.warn("Executor", "🛑 LIVE_BUY_BLOCKED_BLACKLIST: ${ts.symbol} | $why")
+            try {
+                ForensicLogger.exec("LIVE_BUY_BLOCKED_BLACKLIST", ts.symbol,
+                    "mint=${ts.mint.take(10)} reason=$why")
+                com.lifecyclebot.engine.PipelineHealthCollector.labelInc("LIVE_BUY_BLOCKED_BLACKLIST")
+            } catch (_: Throwable) {}
+            return
+        }
+
         if (!finalityPrechecked) {
             val executableOpen = ExecutableOpenGate.canOpenExecutablePosition(
                 ts = ts,

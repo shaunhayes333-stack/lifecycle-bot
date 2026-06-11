@@ -877,17 +877,46 @@ object TreasuryManager {
         // Skip if the bot is configured paperMode=true (shadow learning still
         // gets a trading wallet but we don't want phantom transfers).
         val ctx = cachedCtx
+        var reserveSol = 0.05
         if (ctx != null) {
             try {
                 val cfg = com.lifecyclebot.data.ConfigStore.load(ctx)
                 if (cfg.paperMode) return
+                reserveSol = cfg.walletReserveSol.coerceAtLeast(0.05)
             } catch (_: Throwable) { /* config read fail — safer to attempt */ }
         }
+
+        // V5.9.1502 — WORKING-CAPITAL FLOOR on the 70/30 sweep.
+        // Operator: "splitting profit perfectly but too aggressively — the main
+        // wallet is going backwards." The sweep was asymmetric: 30% of every WIN
+        // left the trading wallet, while losses, fees, and failed/slipped sells
+        // stayed 100% in trading. With no floor, the trading wallet ratcheted
+        // below the size needed to fund the next entry + gas. We now only sweep
+        // the portion that keeps the trading wallet above (reserve + one working
+        // buffer), and defer the rest — treasury still accrues, but never by
+        // starving live trading. floorKeep = reserve + max(reserve, 0.08) buffer.
+        val liveBal = try { com.lifecyclebot.engine.WalletManager.state.value.solBalance } catch (_: Throwable) { 0.0 }
+        val workingBuffer = maxOf(reserveSol, 0.08)
+        val floorKeep = reserveSol + workingBuffer
+        val sweepable = (liveBal - floorKeep).coerceAtLeast(0.0)
+        if (sweepable < 0.000001) {
+            ErrorLogger.info("Treasury",
+                "🪙 SWEEP DEFERRED ($memo): bal=${"%.4f".format(liveBal)}◎ ≤ floor ${"%.4f".format(floorKeep)}◎ — preserving working capital")
+            try { com.lifecyclebot.engine.ForensicLogger.lifecycle("TREASURY_SWEEP_DEFERRED_FLOOR",
+                "bal=${"%.4f".format(liveBal)} floorKeep=${"%.4f".format(floorKeep)} wanted=${"%.4f".format(amountSol)}") } catch (_: Throwable) {}
+            return
+        }
+        val toSweep = minOf(amountSol, sweepable)
+        if (toSweep < amountSol) {
+            ErrorLogger.info("Treasury",
+                "🪙 SWEEP CLAMPED ($memo): wanted ${"%.4f".format(amountSol)}◎ → ${"%.4f".format(toSweep)}◎ to hold floor ${"%.4f".format(floorKeep)}◎")
+        }
+
         kotlinx.coroutines.GlobalScope.launch(Dispatchers.IO) {
             try {
                 com.lifecyclebot.engine.TreasuryWalletManager.transferFromTrading(
                     tradingWallet = tradingWallet,
-                    amountSol     = amountSol,
+                    amountSol     = toSweep,
                     memo          = memo,
                 )
             } catch (e: Exception) {
