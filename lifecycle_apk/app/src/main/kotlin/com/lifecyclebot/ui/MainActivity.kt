@@ -1255,6 +1255,15 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
+    // V5.9.1500 — ANR: Coil re-inflated the ic_token_placeholder VECTOR from XML
+    // on every image load (placeholder + error), surfacing as repeated
+    // loadColorStateList / XmlBlock.newParser main-thread work in the watchdog
+    // traces (renderMoonshotPositions ~779ms). cachedDrawable() returns a fresh
+    // newDrawable() from a cached constantState — inflated ONCE, mutated per call
+    // (safe for Coil crossfade) — so the XML parse happens a single time total.
+    private fun tokenPlaceholderDrawable(): android.graphics.drawable.Drawable? =
+        cachedDrawable(this@MainActivity, R.drawable.ic_token_placeholder)
+
     // V5.9.666 — Pipeline tile badge live updater. Reads
     // PipelineHealthCollector counters and updates the small stat
     // line on the row-2 Pipeline tile (e.g. "ANR 0" when healthy,
@@ -3158,8 +3167,8 @@ for legal compliance.
             val heroLogoUrl = ts.logoUrl.ifBlank { "https://cdn.dexscreener.com/tokens/solana/${ts.mint}.png" }
             ivTokenLogo.load(heroLogoUrl) {
                 crossfade(true)
-                placeholder(R.drawable.ic_token_placeholder)
-                error(R.drawable.ic_token_placeholder)
+                placeholder(tokenPlaceholderDrawable())
+                error(tokenPlaceholderDrawable())
                 allowHardware(false)
                 transformations(CircleCropTransformation())
             }
@@ -4797,8 +4806,8 @@ for legal compliance.
                     try { background = cachedDrawable(this@MainActivity, R.drawable.token_logo_bg) } catch (_: Exception) {}
                     val cachedLogo = try { ts.logoUrl.ifBlank { null } } catch (_: Exception) { null }
                     load(cachedLogo ?: "https://cdn.dexscreener.com/tokens/solana/${ts.mint}") {
-                        crossfade(true); placeholder(R.drawable.ic_token_placeholder)
-                        error(R.drawable.ic_token_placeholder); allowHardware(false)
+                        crossfade(true); placeholder(tokenPlaceholderDrawable())
+                        error(tokenPlaceholderDrawable()); allowHardware(false)
                         transformations(coil.transform.CircleCropTransformation())
                     }
                 }
@@ -5292,8 +5301,8 @@ for legal compliance.
                 scaleType = android.widget.ImageView.ScaleType.CENTER_CROP
                 try { background = cachedDrawable(this@MainActivity, R.drawable.token_logo_bg) } catch (_: Exception) {}
                 load("https://cdn.dexscreener.com/tokens/solana/${pos.mint}") {
-                    crossfade(true); placeholder(R.drawable.ic_token_placeholder)
-                    error(R.drawable.ic_token_placeholder); allowHardware(false)
+                    crossfade(true); placeholder(tokenPlaceholderDrawable())
+                    error(tokenPlaceholderDrawable()); allowHardware(false)
                     transformations(coil.transform.CircleCropTransformation())
                 }
             }
@@ -5425,8 +5434,8 @@ for legal compliance.
                 scaleType = android.widget.ImageView.ScaleType.CENTER_CROP
                 try { background = cachedDrawable(this@MainActivity, R.drawable.token_logo_bg) } catch (_: Exception) {}
                 load("https://cdn.dexscreener.com/tokens/solana/${pos.mint}") {
-                    crossfade(true); placeholder(R.drawable.ic_token_placeholder)
-                    error(R.drawable.ic_token_placeholder); allowHardware(false)
+                    crossfade(true); placeholder(tokenPlaceholderDrawable())
+                    error(tokenPlaceholderDrawable()); allowHardware(false)
                     transformations(coil.transform.CircleCropTransformation())
                 }
             }
@@ -5569,8 +5578,8 @@ for legal compliance.
                               else "https://cdn.dexscreener.com/tokens/solana/${pos.mint}.png"
                 load(logoUrl) {
                     crossfade(true)
-                    placeholder(R.drawable.ic_token_placeholder)
-                    error(R.drawable.ic_token_placeholder)
+                    placeholder(tokenPlaceholderDrawable())
+                    error(tokenPlaceholderDrawable())
                     allowHardware(false)
                     transformations(coil.transform.CircleCropTransformation())
                 }
@@ -5700,8 +5709,8 @@ for legal compliance.
                               else "https://cdn.dexscreener.com/tokens/solana/${ride.mint}.png"
                 load(logoUrl) {
                     crossfade(true)
-                    placeholder(R.drawable.ic_token_placeholder)
-                    error(R.drawable.ic_token_placeholder)
+                    placeholder(tokenPlaceholderDrawable())
+                    error(tokenPlaceholderDrawable())
                     allowHardware(false)
                     transformations(coil.transform.CircleCropTransformation())
                 }
@@ -5840,8 +5849,8 @@ for legal compliance.
                 scaleType = android.widget.ImageView.ScaleType.CENTER_CROP
                 try { background = cachedDrawable(this@MainActivity, R.drawable.token_logo_bg) } catch (_: Exception) {}
                 load("https://cdn.dexscreener.com/tokens/solana/${pos.mint}") {
-                    crossfade(true); placeholder(R.drawable.ic_token_placeholder)
-                    error(R.drawable.ic_token_placeholder); allowHardware(false)
+                    crossfade(true); placeholder(tokenPlaceholderDrawable())
+                    error(tokenPlaceholderDrawable()); allowHardware(false)
                     transformations(coil.transform.CircleCropTransformation())
                 }
             }
@@ -5995,8 +6004,8 @@ for legal compliance.
                 scaleType = android.widget.ImageView.ScaleType.CENTER_CROP
                 try { background = cachedDrawable(this@MainActivity, R.drawable.token_logo_bg) } catch (_: Exception) {}
                 load("https://cdn.dexscreener.com/tokens/solana/${pos.mint}") {
-                    crossfade(true); placeholder(R.drawable.ic_token_placeholder)
-                    error(R.drawable.ic_token_placeholder); allowHardware(false)
+                    crossfade(true); placeholder(tokenPlaceholderDrawable())
+                    error(tokenPlaceholderDrawable()); allowHardware(false)
                     transformations(coil.transform.CircleCropTransformation())
                 }
             }
