@@ -19,8 +19,28 @@ data class FatalRiskResult(
  */
 class RugModel {
     fun score(candidate: CandidateSnapshot, ctx: TradingContext): Int {
-        var score = candidate.rawRiskScore ?: 0
-        
+        // ═══════════════════════════════════════════════════════════════════
+        // V5.9.1511 — ROOT FIX: SCALE INVERSION (operator: "fresh launches all
+        // die at V3 EXTREME_RUG_RISK_97/99/100, standard lane silent").
+        //
+        // candidate.rawRiskScore is populated in V3Adapter as
+        //   rawRiskScore = safety.rugcheckScore  (rugcheck convention: HIGHER
+        //   = SAFER; 0 = rugged/honeypot, 100 = clean). The V3Adapter comment
+        //   even states "-1 → 100 which is safe".
+        // But this model previously did `var score = rawRiskScore ?: 0` and then
+        //   the gate blocks at `rugScore >= 95/90` as a RISK score. So a SAFE
+        //   token (safety=97) was read as RISK=97 and hard-blocked. The safer
+        //   the token, the more certainly it died — inverting the whole intent
+        //   and starving V3/STANDARD of every healthy fresh launch (JAM buy%=92
+        //   liq=$356k included).
+        //
+        // Correct mapping: risk = 100 - safety. Unknown safety (null, e.g.
+        // rugcheck timeout/-1) is NEUTRAL = 50, NOT 0 (which would falsely read
+        // as max-safe) and NOT 100 (which would falsely read as max-risk). Then
+        // the genuine danger-flag bundle adds risk on top.
+        val safety = candidate.rawRiskScore
+        var score = if (safety != null) (100 - safety).coerceIn(0, 100) else 50
+
         if (candidate.extraBoolean("zeroHolders")) score += 20
         if (candidate.extraBoolean("pureSellPressure")) score += 25
         if (candidate.extraBoolean("liquidityDraining")) score += 10
