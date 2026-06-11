@@ -444,6 +444,15 @@ object CanonicalLearningCounters {
     val failedExecutionsTotal = AtomicLong(0)
     val settledWins = AtomicLong(0)
     val settledLosses = AtomicLong(0)
+    // V5.9.1517 — P1 FIX 5: environment-split WR. settledWins/Losses pool PAPER
+    // and LIVE together, so the operator-facing win-rate was polluted by paper
+    // churn (and paper dominates volume during bootstrap). Split them so true
+    // LIVE WR and PAPER WR can be read independently. Persisted (doctrine: any
+    // learnt/aggregated state must survive restart).
+    val liveWins = AtomicLong(0)
+    val liveLosses = AtomicLong(0)
+    val paperWins = AtomicLong(0)
+    val paperLosses = AtomicLong(0)
     val openTrades = AtomicLong(0)
     val inconclusiveTrades = AtomicLong(0)
     val recoveredTrades = AtomicLong(0)
@@ -475,6 +484,10 @@ object CanonicalLearningCounters {
         "failedExecutionsTotal" to failedExecutionsTotal.get(),
         "settledWins" to settledWins.get(),
         "settledLosses" to settledLosses.get(),
+        "liveWins" to liveWins.get(),
+        "liveLosses" to liveLosses.get(),
+        "paperWins" to paperWins.get(),
+        "paperLosses" to paperLosses.get(),
         "openTrades" to openTrades.get(),
         "inconclusiveTrades" to inconclusiveTrades.get(),
         "recoveredTrades" to recoveredTrades.get(),
@@ -497,6 +510,7 @@ object CanonicalLearningCounters {
         canonicalOutcomesTotal.set(0); liveOutcomesTotal.set(0); paperOutcomesTotal.set(0)
         shadowOutcomesTotal.set(0); executedTradesTotal.set(0); failedExecutionsTotal.set(0)
         settledWins.set(0); settledLosses.set(0); openTrades.set(0); inconclusiveTrades.set(0)
+        liveWins.set(0); liveLosses.set(0); paperWins.set(0); paperLosses.set(0)
         recoveredTrades.set(0); rejectedBadLabels.set(0); incompleteFeatureOutcomes.set(0)
         richFeatureOutcomes.set(0); strategyTrainableOutcomes.set(0); executionOnlyOutcomes.set(0)
         bcSimOnlyOutcomes.set(0)
@@ -516,6 +530,10 @@ object CanonicalLearningCounters {
             put("failedExecutionsTotal", failedExecutionsTotal.get())
             put("settledWins", settledWins.get())
             put("settledLosses", settledLosses.get())
+            put("liveWins", liveWins.get())
+            put("liveLosses", liveLosses.get())
+            put("paperWins", paperWins.get())
+            put("paperLosses", paperLosses.get())
             put("openTrades", openTrades.get())
             put("inconclusiveTrades", inconclusiveTrades.get())
             put("recoveredTrades", recoveredTrades.get())
@@ -539,6 +557,10 @@ object CanonicalLearningCounters {
             failedExecutionsTotal.set(o.optLong("failedExecutionsTotal", 0L))
             settledWins.set(o.optLong("settledWins", 0L))
             settledLosses.set(o.optLong("settledLosses", 0L))
+            liveWins.set(o.optLong("liveWins", 0L))
+            liveLosses.set(o.optLong("liveLosses", 0L))
+            paperWins.set(o.optLong("paperWins", 0L))
+            paperLosses.set(o.optLong("paperLosses", 0L))
             // openTrades intentionally NOT restored — must reconcile from on-chain truth.
             inconclusiveTrades.set(o.optLong("inconclusiveTrades", 0L))
             recoveredTrades.set(o.optLong("recoveredTrades", 0L))
@@ -720,8 +742,22 @@ object CanonicalOutcomeBus {
             ExecutionResult.UNKNOWN -> {}
         }
         when (o.result) {
-            TradeResult.WIN -> if (o.isTrainable) CanonicalLearningCounters.settledWins.incrementAndGet()
-            TradeResult.LOSS -> if (o.isTrainable) CanonicalLearningCounters.settledLosses.incrementAndGet()
+            TradeResult.WIN -> if (o.isTrainable) {
+                CanonicalLearningCounters.settledWins.incrementAndGet()
+                when (o.environment) {
+                    TradeEnvironment.LIVE -> CanonicalLearningCounters.liveWins.incrementAndGet()
+                    TradeEnvironment.PAPER -> CanonicalLearningCounters.paperWins.incrementAndGet()
+                    else -> {}
+                }
+            }
+            TradeResult.LOSS -> if (o.isTrainable) {
+                CanonicalLearningCounters.settledLosses.incrementAndGet()
+                when (o.environment) {
+                    TradeEnvironment.LIVE -> CanonicalLearningCounters.liveLosses.incrementAndGet()
+                    TradeEnvironment.PAPER -> CanonicalLearningCounters.paperLosses.incrementAndGet()
+                    else -> {}
+                }
+            }
             TradeResult.OPEN -> CanonicalLearningCounters.openTrades.incrementAndGet()
             TradeResult.INCONCLUSIVE_PENDING -> CanonicalLearningCounters.inconclusiveTrades.incrementAndGet()
             TradeResult.BREAKEVEN, TradeResult.CANCELLED, TradeResult.UNKNOWN -> {}
