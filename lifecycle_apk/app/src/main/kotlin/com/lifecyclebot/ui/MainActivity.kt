@@ -3496,7 +3496,15 @@ for legal compliance.
             try { com.lifecyclebot.v3.scoring.MoonshotTraderAI.getActivePositions().forEach { openMints.add(it.mint) } } catch (_: Exception) {}
             try { com.lifecyclebot.v3.scoring.CashGenerationAI.getActivePositions().forEach { openMints.add(it.mint) } } catch (_: Exception) {}
             try { com.lifecyclebot.engine.HostWalletTokenTracker.getOpenTrackedPositions().forEach { openMints.add(it.mint) } } catch (_: Exception) {}
-            val lifecycleOpen = try { com.lifecyclebot.engine.TokenLifecycleTracker.openCount() } catch (_: Exception) { 0 }
+            // V5.9.1501 — WALLET-TRUTH open count. Previously this used
+            // TokenLifecycleTracker.openCount() (every non-terminal record) and
+            // HostWalletTokenTracker.getOpenCount() (every OPEN_STATUS row), both
+            // of which accumulated zero-balance ghosts → the "1/31" tile. Now use
+            // the wallet-truth counts (liveMemeOpenCount requires a real token qty;
+            // getOpenCount is itself wallet-truth-filtered as of 1501), and proactively
+            // reap host ghosts so the managed count converges to what is actually held.
+            try { com.lifecyclebot.engine.HostWalletTokenTracker.reapZeroBalanceGhosts() } catch (_: Exception) {}
+            val lifecycleOpen = try { com.lifecyclebot.engine.TokenLifecycleTracker.liveMemeOpenCount() } catch (_: Exception) { 0 }
             val hostOpen = try { com.lifecyclebot.engine.HostWalletTokenTracker.getOpenCount() } catch (_: Exception) { 0 }
             // V5.9.797 — operator audit (build-2734 screenshot): top tile showed
             // "7 Open" while the actual Open Positions list rendered 10 cards.

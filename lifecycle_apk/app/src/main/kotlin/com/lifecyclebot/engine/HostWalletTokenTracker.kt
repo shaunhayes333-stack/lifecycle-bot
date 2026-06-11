@@ -615,6 +615,12 @@ object HostWalletTokenTracker {
             }
         }
 
+        // V5.9.1501 — after wallet truth is applied, reap any zero-balance open
+        // rows that escaped Pass-2 (in-flight sells that landed off-band, RPC
+        // blips, sig-less closes). This is what keeps the dashboard "Open" tile
+        // equal to wallet-truth instead of drifting to "1/31".
+        try { reapZeroBalanceGhosts() } catch (_: Throwable) {}
+
         save()
     }
 
@@ -629,16 +635,68 @@ object HostWalletTokenTracker {
         return p.status in OPEN_STATUSES
     }
 
-    /** All currently-open tracked positions, used by exit engine fallback loop. */
+    /** All currently-open tracked positions, used by exit engine fallback loop.
+     *  WALLET-TRUTH filtered: zero-balance rows are ghosts and excluded unless a
+     *  sell is in flight (the exit engine still needs to finish those). */
     fun getOpenTrackedPositions(): List<TrackedTokenPosition> =
-        positions.values.filter { it.status in OPEN_STATUSES }.toList()
+        positions.values.filter {
+            it.status in OPEN_STATUSES && (it.uiAmount > 0.000001 || it.status in SELL_IN_FLIGHT_STATUSES)
+        }.toList()
 
-    /** Open count for dashboard "Open" tile. */
-    fun getOpenCount(): Int = positions.values.count { it.status in OPEN_STATUSES }
+    /** Open count for dashboard "Open" tile. WALLET-TRUTH: a row in an OPEN
+     *  status but holding ZERO tokens is a ghost (resolved/sold) and is NOT
+     *  counted — unless a sell is genuinely in flight (counted until it lands).
+     *  This is what stops the "1/31" ghost inflation at the source. */
+    fun getOpenCount(): Int = positions.values.count {
+        it.status in OPEN_STATUSES && (it.uiAmount > 0.000001 || it.status in SELL_IN_FLIGHT_STATUSES)
+    }
 
     /** Snapshot of every tracked position (open + closed) — diagnostics. */
     /** Count positions with actual wallet token amount above dust. */
     fun getActuallyHeldCount(): Int = positions.values.count { it.uiAmount > 0.000001 && it.status in OPEN_STATUSES }
+
+    // V5.9.1501 — ZERO-BALANCE GHOST REAPER (root cause of "1/31 open").
+    // A row in an OPEN_STATUS with uiAmount==0 holds NO wallet tokens — it is a
+    // resolved/sold position whose Pass-2 close was skipped (e.g. an in-flight
+    // sell attempt that landed off-band, an RPC blip during the close, or a
+    // SELL_PENDING/EXIT_SIGNALLED that completed without a captured sig). These
+    // accumulated forever and inflated every open counter (getOpenCount /
+    // getOpenTrackedPositions) and the dashboard tile, while wallet-truth held 1.
+    // A row that has been zero-balance for longer than this grace AND has no
+    // genuinely in-flight sell lifecycle is reaped to CLOSED. Grace protects a
+    // freshly-opened buy whose wallet hasn't hydrated yet (lastSeenWalletMs==0).
+    private const val GHOST_REAP_GRACE_MS = 60_000L
+
+    /** Returns number of ghost rows reaped to CLOSED. Safe to call every tick. */
+    fun reapZeroBalanceGhosts(): Int {
+        val now = System.currentTimeMillis()
+        var reaped = 0
+        for (p in positions.values.toList()) {
+            if (p.status !in OPEN_STATUSES) continue
+            if (p.uiAmount > 0.000001) continue                  // wallet-truth holds tokens — real
+            if (p.status in SELL_IN_FLIGHT_STATUSES && p.lastSeenWalletMs > 0L &&
+                (now - p.lastSeenWalletMs) < GHOST_REAP_GRACE_MS) continue  // genuine in-flight sell
+            // Never reaped while still inside the open grace window after first
+            // wallet sighting (protects a just-confirmed buy mid-hydration).
+            val seenAnchor = maxOf(p.lastSeenWalletMs, p.lastWalletReconcileMs ?: 0L, p.buyTimeMs ?: 0L)
+            if (seenAnchor > 0L && (now - seenAnchor) < GHOST_REAP_GRACE_MS) continue
+            p.status = PositionStatus.CLOSED
+            p.uiAmount = 0.0
+            p.activeSellAttemptId = null
+            p.notes.add("ghost reaped: zero wallet balance, no in-flight sell")
+            try {
+                com.lifecyclebot.engine.PositionCloseLedger.markClosed(p.mint, "GHOST_REAP_ZERO_BALANCE", 0)
+            } catch (_: Throwable) {}
+            emitForensic(LiveTradeLogStore.Phase.POSITION_COUNT_RECONCILED, p.mint, p.symbol, p.sellSignature,
+                "GHOST_REAPED zero-balance open row → CLOSED (${p.symbol ?: p.mint.take(6)})")
+            reaped++
+        }
+        if (reaped > 0) {
+            try { com.lifecyclebot.engine.PipelineHealthCollector.labelInc("ZERO_BALANCE_GHOST_REAPED") } catch (_: Throwable) {}
+            save()
+        }
+        return reaped
+    }
 
     /** True only when wallet-truth says this mint has a non-dust token amount. */
     fun isActuallyHeld(mint: String): Boolean {
