@@ -68,8 +68,16 @@ object RecoveryLockTracker {
         return true
     }
 
-    /** Forced unlock — only for operator manual override. */
+    /** Forced unlock — operator override + V5.9.1530 risk-exit/stale punch-through. */
     fun forceUnlock(mint: String) { map.remove(mint) }
+
+    /** V5.9.1530 — age of the lock in ms, or 0 if not locked. Used by the executor
+     *  to punch through a recovery lock that has clearly failed to load chain basis
+     *  so a position is never trapped un-sellable forever. */
+    fun lockAgeMs(mint: String): Long {
+        val e = map[mint] ?: return 0L
+        return System.currentTimeMillis() - e.lockedAtMs
+    }
 
     fun lockedCount(): Int = map.values.count { it.state == State.LOCKED_AWAITING_CHAIN_BASIS }
 }

@@ -354,6 +354,8 @@ data class BotStatus(
     val openPositions: List<TokenState>
         get() = tokens.values.filter { ts ->
             val pos = ts.position
+            // V5.9.1530 — UI/COUNT AUTHORITY: a CLOSED-ledger mint is never open.
+            if (com.lifecyclebot.engine.PositionCloseLedger.isClosed(ts.mint)) return@filter false
             if (pos.isOpen) return@filter true
             // V5.9.739 — include stale pendingVerify (>120s) with non-zero
             // qty as "open for viewing". Watchdog will resolve them in

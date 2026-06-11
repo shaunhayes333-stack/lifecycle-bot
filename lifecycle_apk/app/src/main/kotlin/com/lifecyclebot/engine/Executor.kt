@@ -11358,14 +11358,37 @@ class Executor(
             )
         } catch (_: Throwable) { /* never break the sell tick */ }
         if (com.lifecyclebot.engine.sell.RecoveryLockTracker.isLockedAwaitingChainBasis(ts.mint)) {
-            onLog("🔒 SELL DEFERRED: ${ts.symbol} — RECOVERY_POSITION_LOCKED_UNTIL_CHAIN_BASIS_CONFIRMED.", tradeId.mint)
-            LiveTradeLogStore.log(
-                sellTradeKey, ts.mint, ts.symbol, "SELL",
-                LiveTradeLogStore.Phase.SELL_VERIFY_INCONCLUSIVE_PENDING,
-                "🔒 RECOVERY_LOCK: skipping $reason exit until chain basis loaded.",
-                traderTag = "MEME",
-            )
-            return SellResult.FAILED_RETRYABLE
+            // V5.9.1530 — RECOVERY LOCK MUST NEVER BLOCK A RISK EXIT. Its only job is
+            // to stop a recovered position (costSol=0, synthetic entryPrice) from being
+            // PROFIT-TAKEN on a stale UI price before chain basis loads. But an
+            // underwater wallet-adopted ghost would NEVER unlock (tryUnlock requires
+            // profit), so the -15% hard floor / rug / drain / manual exit got an
+            // unconditional FAILED_RETRYABLE and the bag bled forever. That violates the
+            // unconditional hard-floor rule. Risk exits punch through; only discretionary
+            // profit-take/trail sells defer. A lock older than the stale TTL also punches
+            // through so nothing is trapped on a dead basis indefinitely.
+            val rLock = reason.uppercase()
+            val isRiskExit = rLock.contains("HARD_FLOOR") || rLock.contains("STOP_LOSS") ||
+                rLock.contains("STOP") || rLock.contains("STRICT_SL") || rLock.contains("CATASTROPHE") ||
+                rLock.contains("RUG") || rLock.contains("DRAIN") || rLock.contains("SHUTDOWN") ||
+                rLock.contains("MANUAL") || rLock.contains("EMERGENCY") || rLock.contains("LIQUIDATE")
+            val lockAgeMs = com.lifecyclebot.engine.sell.RecoveryLockTracker.lockAgeMs(ts.mint)
+            val staleLock = lockAgeMs > 600_000L  // 10 min — basis clearly not loading
+            if (isRiskExit || staleLock) {
+                try { com.lifecyclebot.engine.sell.RecoveryLockTracker.forceUnlock(ts.mint) } catch (_: Throwable) {}
+                try { ForensicLogger.lifecycle("RECOVERY_LOCK_PUNCH_THROUGH",
+                    "mint=${ts.mint.take(12)} reason=$reason risk=$isRiskExit staleMs=$lockAgeMs") } catch (_: Throwable) {}
+                // fall through to the normal sell path — risk exit proceeds NOW.
+            } else {
+                onLog("🔒 SELL DEFERRED: ${ts.symbol} — RECOVERY_POSITION_LOCKED (profit-take only).", tradeId.mint)
+                LiveTradeLogStore.log(
+                    sellTradeKey, ts.mint, ts.symbol, "SELL",
+                    LiveTradeLogStore.Phase.SELL_VERIFY_INCONCLUSIVE_PENDING,
+                    "🔒 RECOVERY_LOCK: deferring discretionary $reason exit until chain basis loaded.",
+                    traderTag = "MEME",
+                )
+                return SellResult.FAILED_RETRYABLE
+            }
         }
 
         // V5.9.495z39 — operator spec item 1: amount-violation lock.
@@ -12716,6 +12739,48 @@ class Executor(
                     "SellFinalizationCoordinator [final] threw (non-fatal): ${e.message}")
             }
 
+            // ═══ V5.9.1530 — ATOMIC SELL_FINALIZE (close authority at the source) ═══
+            // Runs HERE, inside the confirmed-sell block where sig/solBack/feeSol/pnl are
+            // all live, so a confirmed LIVE sell NEVER leaves the close ledger unstamped.
+            // Fresh Helius balance → dust/realized math → FULL ledger stamp → tracker
+            // CLOSED → drop sell job → unlock any recovery lock → EXEC_LIVE_SELL_OK →
+            // SELL_FINALIZED. Wrapped so a finalize hiccup can never throw the sell path.
+            run {
+                val fSig = sig ?: ""
+                if (fSig.isNotBlank()) {
+                    try {
+                        ForensicLogger.lifecycle("SELL_FINALIZE_START", "mint=${ts.mint.take(12)} sig=${fSig.take(16)}")
+                        val (postUi, postDec) = try {
+                            val bal = wallet.getTokenAccountsWithDecimalsBounded()[ts.mint]
+                            (bal?.first ?: 0.0) to (bal?.second ?: 9)
+                        } catch (_: Throwable) { 0.0 to 9 }
+                        val postRaw = try { java.math.BigDecimal(postUi).movePointRight(postDec).toLong() } catch (_: Throwable) { 0L }
+                        ForensicLogger.lifecycle("SELL_FINALIZE_BALANCE", "mint=${ts.mint.take(12)} pre=$tokenUnits post=$postRaw dust=$postUi")
+                        val pnlPctInt = try { pnlP.toInt() } catch (_: Throwable) { 0 }
+                        val cid = com.lifecyclebot.engine.PositionCloseLedger.markClosedFull(
+                            mint = ts.mint, reason = reason, pnlPct = pnlPctInt, sellSig = fSig,
+                            soldQtyRaw = tokenUnits, remainingQtyRaw = postRaw, dustAmount = postUi,
+                            realizedSol = solBack, realizedPnl = pnl, source = "HELIUS",
+                        )
+                        try { HostWalletTokenTracker.recordSellConfirmed(ts.mint, ts.symbol, price, pnlP, reason) } catch (_: Throwable) {}
+                        try { com.lifecyclebot.engine.sell.SellJobRegistry.markLanded(ts.mint, fSig) } catch (_: Throwable) {}
+                        try { com.lifecyclebot.engine.sell.RecoveryLockTracker.forceUnlock(ts.mint) } catch (_: Throwable) {}
+                        try { ForensicLogger.exec("LIVE_SELL_OK", ts.symbol, "sig=${fSig.take(16)} pnlSol=${"%.4f".format(pnl)} reason=$reason") } catch (_: Throwable) {}
+                        ForensicLogger.lifecycle("SELL_FINALIZED", "mint=${ts.mint.take(12)} sig=${fSig.take(16)} closed=true dust=$postUi source=HELIUS closeId=$cid")
+                    } catch (finEx: Throwable) {
+                        try {
+                            val cid = com.lifecyclebot.engine.PositionCloseLedger.markClosedFull(
+                                mint = ts.mint, reason = reason, pnlPct = (try { pnlP.toInt() } catch (_: Throwable) { 0 }),
+                                sellSig = fSig, soldQtyRaw = tokenUnits, remainingQtyRaw = 0L,
+                                dustAmount = 0.0, realizedSol = solBack, realizedPnl = pnl, source = "HELIUS_DEGRADED",
+                            )
+                            try { ForensicLogger.exec("LIVE_SELL_OK", ts.symbol, "sig=${fSig.take(16)} (finalize-degraded)") } catch (_: Throwable) {}
+                            ForensicLogger.lifecycle("SELL_FINALIZED", "mint=${ts.mint.take(12)} sig=${fSig.take(16)} closed=true dust=unknown source=HELIUS_DEGRADED closeId=$cid err=${finEx.message?.take(60)}")
+                        } catch (_: Throwable) {}
+                    }
+                }
+            }
+
             val trade = Trade(
                 side = "SELL", 
                 mode = "live", 
@@ -13496,7 +13561,6 @@ class Executor(
         // V5.9.248: stamp cooldown so universal gate blocks immediate re-entry
         // NOTE: also stamped above in synchronized block via lastExitTs, this is belt-and-suspenders.
         com.lifecyclebot.engine.BotService.recentlyClosedMs[ts.mint] = System.currentTimeMillis()
-        
         return SellResult.CONFIRMED
     }
 

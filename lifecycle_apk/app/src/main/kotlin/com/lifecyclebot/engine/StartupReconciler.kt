@@ -275,8 +275,31 @@ class StartupReconciler(
                                 )
                                 adoptTs  // return the new TokenState
                             } else {
-                                onLog("⚠️ UNKNOWN MINT (no DexScreener data): ${mint.take(12)}… | qty=${"%.4f".format(qty)} — will appear in orphan path")
-                                null
+                                // V5.9.1530 — NO DexScreener data: do NOT abandon a real
+                                // wallet-held bag (that is exactly the install-wipe ghost the
+                                // operator hits). Adopt a minimal LIVE TokenState flagged for
+                                // liquidation so the bot OWNS it and the exit/orphan path can
+                                // sell it off using the fresh on-chain wallet qty (the sell
+                                // path sizes from wallet balance, not price). No recovery lock
+                                // here — an unpriceable dead bag must be free to risk-exit.
+                                onLog("📥 ADOPT (no price data): ${mint.take(12)}… qty=${"%.4f".format(qty)} — tracking for liquidation")
+                                val deadTs = com.lifecyclebot.data.TokenState(
+                                    mint = mint, symbol = mint.take(6), name = mint.take(6),
+                                    source = "WALLET_RECOVERY_NOPRICE", phase = "hold",
+                                    position = com.lifecyclebot.data.Position(
+                                        qtyToken = qty, entryPrice = 0.0,
+                                        entryTime = System.currentTimeMillis() - 300_000L,
+                                        costSol = 0.0, entryScore = 0.0,
+                                        entryPhase = "wallet_recovery_noprice",
+                                        isPaperPosition = false,
+                                    ),
+                                )
+                                synchronized(status.tokens) { status.tokens[mint] = deadTs }
+                                adoptedMints += mint
+                                try { com.lifecyclebot.engine.TokenLifecycleTracker.autoImportFromWallet(
+                                    mint = mint, symbol = deadTs.symbol, walletUiAmount = qty, venue = "wallet_recovery_noprice") } catch (_: Throwable) {}
+                                try { com.lifecyclebot.engine.ForensicLogger.lifecycle("WALLET_ADOPT_NOPRICE_FOR_LIQUIDATION", "mint=${mint.take(12)} qty=$qty") } catch (_: Throwable) {}
+                                deadTs
                             }
                         } catch (e: Exception) {
                             onLog("⚠️ UNKNOWN MINT lookup failed: ${mint.take(12)}… | ${e.message}")

@@ -169,8 +169,10 @@ class SolanaWallet(privateKeyB58: String, val rpcUrl: String) {
                     "⚡ Broadcast via Helius Sender: ${senderSig.take(16)}…")
                 return senderSig
             }
+            try { com.lifecyclebot.engine.ForensicLogger.lifecycle("HELIUS_SENDER_DEGRADED",
+                "action=rotate_sender_not_jupiter err=${com.lifecyclebot.network.HeliusSender.lastError?.take(80)}") } catch (_: Throwable) {}
             com.lifecyclebot.engine.ErrorLogger.warn("SolanaWallet",
-                "⚠️ Helius Sender miss (${com.lifecyclebot.network.HeliusSender.lastError}) — legacy Jito/RPC fallback")
+                "⚠️ Helius Sender miss (${com.lifecyclebot.network.HeliusSender.lastError}) — rotating to Jito/RPC sender (NOT Jupiter)")
         }
 
         // Try Jito MEV protection if enabled

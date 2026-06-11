@@ -41,6 +41,8 @@ object SlotHealthGate {
 
     // Thresholds straight from the spec.
     private const val FORCED_OPEN_DIRTY = 20
+    // V5.9.1530 — open-position hard cap above which entries defer to in-flight exits.
+    private const val ENTRY_HARD_CAP = 12
 
     fun publish(
         ghostOpen: Int,
@@ -98,6 +100,16 @@ object SlotHealthGate {
         }
         if (supervisorActive.get() > supervisorCap.get()) {
             return DeferDecision(true, "SUPERVISOR_OVER_CAP=${supervisorActive.get()}/${supervisorCap.get()}")
+        }
+        // V5.9.1530 — ACTIVE SELL-JOB CHOKE (prioritize exits over entries when dirty).
+        // Gates on the FINITE in-flight sell-job count (self-clears on markLanded), NOT
+        // the always-on exitPending that caused the V5.9.1487 stall. Only fires at/over
+        // the open hard cap, so exits drain first without ever parking the bot.
+        if (!candidateConfirmedHighEdge) {
+            val activeSellJobs = try { com.lifecyclebot.engine.sell.SellJobRegistry.activeCount() } catch (_: Throwable) { 0 }
+            if (activeSellJobs > 0 && openPositionCount.get() >= ENTRY_HARD_CAP) {
+                return DeferDecision(true, "EXITS_PRIORITY sellJobsActive=$activeSellJobs open=${openPositionCount.get()}>=$ENTRY_HARD_CAP")
+            }
         }
         // V5.9.1487 — REMOVED the exitPending defer (was the executor stall).
         // Snapshot 5.0.3492 showed EXEC_DEFERRED_SLOT_HEALTH/EXIT_PENDING_NOT_HIGH_EDGE

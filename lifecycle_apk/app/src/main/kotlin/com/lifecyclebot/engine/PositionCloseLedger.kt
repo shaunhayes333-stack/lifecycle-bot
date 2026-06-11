@@ -35,6 +35,13 @@ object PositionCloseLedger {
         val closedAtMs: Long,
         val reason: String,
         val pnlPct: Int,
+        val sellSig: String = "",
+        val soldQtyRaw: Long = 0L,
+        val remainingQtyRaw: Long = 0L,
+        val dustAmount: Double = 0.0,
+        val realizedSol: Double = 0.0,
+        val realizedPnl: Double = 0.0,
+        val source: String = "",
     )
 
     private val closed = ConcurrentHashMap<String, CloseRecord>()
@@ -59,6 +66,37 @@ object PositionCloseLedger {
         val id = "C${now}_${mint.take(6)}"
         closed[mint] = CloseRecord(mint, id, now, reason.take(40), pnlPct)
         return id
+    }
+
+    /** V5.9.1530 — atomic FULL close stamp from the SELL_FINALIZE path. Carries the
+     *  entire canonical close payload so the ledger is the single source of truth.
+     *  Idempotent within TTL. */
+    fun markClosedFull(
+        mint: String, reason: String, pnlPct: Int, sellSig: String,
+        soldQtyRaw: Long, remainingQtyRaw: Long, dustAmount: Double,
+        realizedSol: Double, realizedPnl: Double, source: String,
+    ): String {
+        if (mint.isBlank()) return ""
+        val now = System.currentTimeMillis()
+        val existing = closed[mint]
+        if (existing != null && (now - existing.closedAtMs) < CLOSE_TTL_MS) return existing.closeId
+        val id = "C${now}_${mint.take(6)}"
+        closed[mint] = CloseRecord(
+            mint = mint, closeId = id, closedAtMs = now, reason = reason.take(40), pnlPct = pnlPct,
+            sellSig = sellSig.take(96), soldQtyRaw = soldQtyRaw, remainingQtyRaw = remainingQtyRaw,
+            dustAmount = dustAmount, realizedSol = realizedSol, realizedPnl = realizedPnl,
+            source = source.take(24),
+        )
+        return id
+    }
+
+    /** Spec rehydration rule: hard-closed = CLOSED in ledger AND fresh wallet balance
+     *  is dust. null balance = unknown → NOT hard-closed (never hide a genuinely-held
+     *  bag on an RPC blip). */
+    fun isHardClosed(mint: String, walletBalanceUi: Double?, dustUi: Double = 0.000001): Boolean {
+        if (!isClosed(mint)) return false
+        if (walletBalanceUi == null) return false
+        return walletBalanceUi <= dustUi
     }
 
     /** True if this mint has a live (within-TTL) close stamp. */

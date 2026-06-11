@@ -5573,6 +5573,12 @@ class BotService : Service() {
             val sym = (tracked?.symbol?.takeIf { it.isNotBlank() }) ?: symbolHint.takeIf { it.isNotBlank() } ?: "?"
             val qty = tracked?.uiAmount?.takeIf { it > 0.0 } ?: balanceHint
             if (qty <= 0.0) return null
+            // V5.9.1530 — REHYDRATION GUARD: a CLOSED+dust mint must NOT be resurrected.
+            // Only a confirmed NON-dust on-chain balance overrides a close stamp.
+            if (com.lifecyclebot.engine.PositionCloseLedger.isHardClosed(mint, qty)) {
+                try { ForensicLogger.lifecycle("SELL_REHYDRATE_BLOCKED_CLOSED_LEDGER", "mint=${mint.take(12)} qty=$qty reason=closed_ledger_dust") } catch (_: Throwable) {}
+                return null
+            }
             val ts = com.lifecyclebot.data.TokenState(mint = mint, symbol = sym, name = sym)
             ts.position = com.lifecyclebot.data.Position(
                 qtyToken = qty,
@@ -5624,6 +5630,11 @@ class BotService : Service() {
                 val sym = tracked?.symbol?.takeIf { it.isNotBlank() } ?: mint.take(6)
                 val bal = tracked?.uiAmount ?: 0.0
                 if (bal <= 0.000001) continue   // dust / not really held
+                // V5.9.1530 — AUTOHEAL GUARD: never autoheal a CLOSED+dust mint back to OPEN.
+                if (com.lifecyclebot.engine.PositionCloseLedger.isHardClosed(mint, bal)) {
+                    try { ForensicLogger.lifecycle("SELL_REHYDRATE_BLOCKED_CLOSED_LEDGER", "mint=${mint.take(12)} qty=$bal source=autoheal") } catch (_: Throwable) {}
+                    continue
+                }
                 val ts = rehydrateTokenStateFromTracker(mint, sym, bal)
                 if (ts != null) {
                     // ensure flagged open + live so the exit monitor/hotExit picks it up
