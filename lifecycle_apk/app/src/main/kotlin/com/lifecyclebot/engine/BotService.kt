@@ -4034,9 +4034,18 @@ class BotService : Service() {
                             // PumpPortal already admitted them at $1968 liq).
                             // Merge from the existing TokenState so the
                             // re-intake doesn't quarantine an active mint.
+                            // V5.9.1519 — ROOT DE-CHOKE: a DATA_ORCHESTRATOR re-emit of an
+                            // already-known mint frequently has NO fresh liquidity reading
+                            // (the TokenState may not be hydrated yet, or this is a pure
+                            // re-announce). The old code fell back to 0.0 = KNOWN-ZERO, which
+                            // tripped QuarantineStore ZERO_LIQUIDITY and parked the entire
+                            // intake funnel (oppo=$1639 etc. quarantined seconds after a
+                            // healthy PumpPortal admit). Unknown liquidity must be NaN
+                            // (= "unknown", quarantine skips the zero check), NOT 0.0. A real
+                            // known-zero only comes from a source that actually measured it.
                             val existingTs = status.tokens[mint]
-                            val mergedLiq = existingTs?.lastLiquidityUsd?.takeIf { it > 0.0 } ?: 0.0
-                            val mergedMcap = existingTs?.lastMcap?.takeIf { it > 0.0 } ?: 0.0
+                            val mergedLiq = existingTs?.lastLiquidityUsd?.takeIf { it > 0.0 } ?: Double.NaN
+                            val mergedMcap = existingTs?.lastMcap?.takeIf { it > 0.0 } ?: Double.NaN
                             admitProtectedMemeIntake(
                                 mint = mint,
                                 symbol = symbol,
@@ -4147,8 +4156,13 @@ class BotService : Service() {
                     symbol = m.symbol.ifBlank { m.mint.take(6) },
                     name = m.name.ifBlank { m.symbol.ifBlank { m.mint.take(6) } },
                     source = "MEME_REGISTRY_RESTORE",
-                    marketCapUsd = 0.0,
-                    liquidityUsd = 0.0,
+                    // V5.9.1519 — unknown liquidity on a registry restore must be NaN,
+                    // not 0.0. Passing 0.0 (known-zero) tripped RESTORE_ZERO_LIQUIDITY
+                    // every cycle, re-quarantining restored mints and producing the
+                    // "same tokens cycling / nothing trades" symptom. NaN = unknown,
+                    // so the scanner re-hydrates real liquidity organically.
+                    marketCapUsd = Double.NaN,
+                    liquidityUsd = Double.NaN,
                     volumeH1 = 0.0,
                     confidence = 50,
                     allSources = setOf(m.source.ifBlank { "restored" }, "MEME_REGISTRY_RESTORE"),

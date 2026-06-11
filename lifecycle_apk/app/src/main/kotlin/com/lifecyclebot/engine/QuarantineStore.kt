@@ -108,6 +108,19 @@ object QuarantineStore {
         // still short-circuits immediately.
         entries[mint]?.let { e ->
             if (!isTransientReason(e.reason)) return quarantine(mint, symbol, e.reason)
+            // V5.9.1519 — FRESH-LIQUIDITY OVERRIDE (root-cause de-choke).
+            // The transient short-circuit was re-quarantining a mint from its
+            // STALE zero-liq entry for the full TTL window, even when THIS call
+            // arrives with positive fresh liquidity proof (PumpPortal WS intake
+            // carries real liq, e.g. oppo=$1639). That parked every fresh-but-
+            // briefly-zero token for up to a minute. If the caller now provides
+            // positive liquidity, the stale zero-liq reason is obsolete: drop it
+            // and re-evaluate against the fresh numbers immediately.
+            val freshLiqPositive = !liquidityUsd.isNaN() && liquidityUsd > 0.0
+            if (freshLiqPositive) {
+                entries.remove(mint, e)
+                return@let
+            }
             val age = System.currentTimeMillis() - e.lastSeenMs
             if (age < TRANSIENT_QUARANTINE_TTL_MS) return quarantine(mint, symbol, e.reason)
             // aged out → drop stale entry and fall through to a fresh evaluation
