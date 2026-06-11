@@ -763,6 +763,40 @@ object TradeHistoryStore {
     fun getTotalTradeCount(): Int = synchronized(lock) { trades.size }
 
     /**
+     * V5.9.1532 — OPENED-BUT-NOT-CLOSED, straight from the durable journal.
+     *
+     * Operator's source-of-truth fix: the SQLite journal records a BUY row on
+     * every open and a SELL row on every close. A mint whose LATEST row is a BUY
+     * is an open position the bot must still be managing. This survives app
+     * updates / process kills because SQLite persists, unlike the in-memory
+     * activePositions map that boots empty and orphaned every install.
+     *
+     * Walks all rows newest-first (getAllTradesFromDb returns ts DESC); the first
+     * row seen per mint is its latest event. side=="BUY" → still open.
+     *
+     * @return map of mint -> the opening BUY Trade row (latest BUY for that mint).
+     */
+    fun openMintsFromJournal(): Map<String, Trade> {
+        val rows = try { getAllTradesFromDb() } catch (_: Throwable) { synchronized(lock) { trades.toList() } }
+        val latestSideSeen = HashMap<String, String>()   // mint -> latest side
+        val openBuyRow = HashMap<String, Trade>()         // mint -> its latest BUY row
+        for (t in rows) {  // already ts DESC (newest first)
+            val mint = t.mint
+            if (mint.isBlank()) continue
+            // First time we see this mint == its most recent event.
+            if (!latestSideSeen.containsKey(mint)) {
+                latestSideSeen[mint] = t.side
+                if (t.side == "BUY") openBuyRow[mint] = t
+            }
+        }
+        // Keep only mints whose LATEST event was a BUY (open, no later SELL).
+        return openBuyRow.filterKeys { latestSideSeen[it] == "BUY" }
+    }
+
+    /** Convenience: just the set of mints currently open per the journal. */
+    fun openMintSetFromJournal(): Set<String> = openMintsFromJournal().keys
+
+    /**
      * V5.9.1354 — CANONICAL ASSET BREAKDOWN (single source of truth).
      *
      * ROOT-CAUSE FIX (operator: "All Traders 82" ≠ "24h Trades 94", 4th time):

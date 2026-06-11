@@ -366,6 +366,73 @@ class StartupReconciler(
             if (adoptedMints.isNotEmpty()) {
                 onLog("📥 Adopted ${adoptedMints.size} on-chain position(s) into bot state")
             }
+
+            // ═══ V5.9.1532 — JOURNAL CROSS-REFERENCE (opened-but-not-closed) ═══
+            // The durable SQLite journal is the source of truth for what the bot
+            // OPENED. A mint whose latest journal row is a BUY is an open position;
+            // it survives app updates/installs (in-memory maps don't). Cross-check
+            // it against the trusted wallet snapshot so nothing slips through:
+            //   • journal-open AND wallet-held but still untracked → force-adopt.
+            //   • journal-open but wallet shows zero (DUST) → externally closed
+            //     while the app was dead; stamp the close ledger so it is never
+            //     resurrected as an open position again.
+            try {
+                val journalOpen = com.lifecyclebot.engine.TradeHistoryStore.openMintsFromJournal()
+                if (journalOpen.isNotEmpty()) {
+                    onLog("📒 JOURNAL: ${journalOpen.size} mint(s) opened-but-not-closed per durable journal")
+                    var jAdopted = 0; var jClosed = 0
+                    journalOpen.forEach jx@{ (jMint, buyRow) ->
+                        val alreadyTracked = status.tokens[jMint]?.position?.isOpen == true
+                        val walletQty = tokenAccounts[jMint] ?: 0.0
+                        if (alreadyTracked) return@jx
+                        if (walletQty > 0.0) {
+                            // Held on-chain but not tracked → adopt as LIVE so exits manage it.
+                            val jt = status.tokens.getOrPut(jMint) {
+                                com.lifecyclebot.data.TokenState(
+                                    mint = jMint, symbol = buyRow.mint.take(6),
+                                    name = buyRow.mint.take(6), source = "JOURNAL_RECOVERY", phase = "hold",
+                                )
+                            }
+                            synchronized(jt) {
+                                if (!jt.position.isOpen) {
+                                    jt.position = com.lifecyclebot.data.Position(
+                                        qtyToken = walletQty,
+                                        entryPrice = buyRow.price.takeIf { it > 0 } ?: 0.0,
+                                        entryTime = buyRow.ts,
+                                        costSol = buyRow.sol.takeIf { it > 0 } ?: 0.0,
+                                        entryScore = buyRow.score,
+                                        entryPhase = "journal_recovery",
+                                        highestPrice = buyRow.price.takeIf { it > 0 } ?: 0.0,
+                                        isPaperPosition = (buyRow.mode == "paper"),
+                                    )
+                                }
+                            }
+                            adoptedMints += jMint; jAdopted++
+                            try { com.lifecyclebot.engine.TokenLifecycleTracker.autoImportFromWallet(
+                                mint = jMint, symbol = jt.symbol, walletUiAmount = walletQty, venue = "journal_recovery") } catch (_: Throwable) {}
+                            try { com.lifecyclebot.engine.ForensicLogger.lifecycle(
+                                "JOURNAL_RECOVERY_ADOPT", "mint=${jMint.take(12)} qty=$walletQty mode=${buyRow.mode}") } catch (_: Throwable) {}
+                        } else if (buyRow.mode != "paper") {
+                            // Journal says open, wallet says zero → externally closed while dead.
+                            // Stamp the close ledger so it is never resurrected as open.
+                            try {
+                                com.lifecyclebot.engine.PositionCloseLedger.markClosedFull(
+                                    mint = jMint, reason = "EXTERNAL_CLOSE_RECONCILED", pnlPct = 0,
+                                    sellSig = "", soldQtyRaw = 0L, remainingQtyRaw = 0L, dustAmount = 0.0,
+                                    realizedSol = 0.0, realizedPnl = 0.0, source = "JOURNAL_XREF",
+                                )
+                                jClosed++
+                                com.lifecyclebot.engine.ForensicLogger.lifecycle(
+                                    "JOURNAL_XREF_EXTERNAL_CLOSE", "mint=${jMint.take(12)} reason=wallet_zero_while_journal_open")
+                            } catch (_: Throwable) {}
+                        }
+                    }
+                    if (jAdopted > 0 || jClosed > 0)
+                        onLog("📒 JOURNAL XREF: adopted=$jAdopted externally-closed=$jClosed")
+                }
+            } catch (e: Exception) {
+                onLog("Reconcile: journal cross-ref failed — ${e.message}")
+            }
         } catch (e: Exception) {
             onLog("Reconcile: adopt scan failed — ${e.message}")
             warnings.add("Adopt scan failed: ${e.message}")
