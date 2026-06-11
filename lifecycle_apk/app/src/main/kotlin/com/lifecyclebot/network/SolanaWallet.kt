@@ -405,12 +405,33 @@ class SolanaWallet(privateKeyB58: String, val rpcUrl: String) {
             throw lastException ?: RuntimeException("RFQ execute failed after $maxAttempts attempts")
         }
         
-        android.util.Log.w("SolanaWallet", "⚠️ Falling back to standard broadcast (non-RFQ route)...")
-        
+        android.util.Log.w("SolanaWallet", "⚠️ Ultra /execute failed (non-RFQ) — broadcasting via HELIUS SENDER first...")
+
+        // V5.9.1529 — HELIUS-FIRST ULTRA FALLBACK. The Ultra /execute path used to
+        // fall straight to plain RPC sendTransaction, BYPASSING Helius Sender — the
+        // one broadcast path the operator confirmed actually lands sells. Now a
+        // non-RFQ Ultra tx that couldn't /execute is submitted through Helius Sender
+        // (dual-routes validators + Jito, ~1 slot) exactly like the pump/direct path,
+        // and only falls to legacy RPC if Sender misses. The Ultra builder bakes a
+        // priority fee + tip into the tx, satisfying Sender's tip requirement.
+        run {
+            val senderSig = try {
+                com.lifecyclebot.network.HeliusSender.send(signedB64)
+            } catch (_: Throwable) { null }
+            if (!senderSig.isNullOrBlank()) {
+                com.lifecyclebot.engine.ErrorLogger.info("SolanaWallet",
+                    "⚡ SELL_BROADCAST provider=HELIUS (ultra-fallback) sig=${senderSig.take(16)}…")
+                awaitConfirmation(senderSig)
+                return senderSig
+            }
+            com.lifecyclebot.engine.ErrorLogger.warn("SolanaWallet",
+                "⚠️ Helius Sender miss on ultra-fallback (${com.lifecyclebot.network.HeliusSender.lastError}) — legacy RPC")
+        }
+
         try {
-            // Try standard send (already signed, so just broadcast)
+            // Last resort: plain RPC self-broadcast (already signed).
             val signature = sendRawTransaction(signedB64)
-            android.util.Log.i("SolanaWallet", "✅ Fallback broadcast succeeded! sig=${signature.take(20)}...")
+            android.util.Log.i("SolanaWallet", "✅ RPC fallback broadcast succeeded! sig=${signature.take(20)}...")
             awaitConfirmation(signature)
             return signature
         } catch (fallbackEx: Exception) {
