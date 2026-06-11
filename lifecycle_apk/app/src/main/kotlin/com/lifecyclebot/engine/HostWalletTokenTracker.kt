@@ -687,10 +687,54 @@ object HostWalletTokenTracker {
             try {
                 com.lifecyclebot.engine.PositionCloseLedger.markClosed(p.mint, "GHOST_REAP_ZERO_BALANCE", 0)
             } catch (_: Throwable) {}
+            // V5.9.1505 — a reaped dead position must (1) release any lane-primary
+            // election it still holds so the slot frees, and (2) arm a re-entry
+            // lockout so the bot does not instantly re-buy the same dead mint
+            // next tick (operator: "just re-enters the same shit on repeat").
+            try {
+                val fam = (p.symbol ?: "").uppercase().trim().filter { it.isLetterOrDigit() }.take(8)
+                com.lifecyclebot.engine.ReEntryLockout.onClose(p.mint, fam, "GHOST_REAP_ZERO_BALANCE", 0.0)
+            } catch (_: Throwable) {}
+            try {
+                for (ln in listOf("SHITCOIN","MOONSHOT","QUALITY","EXPRESS","CYCLIC","BLUE_CHIP","MANIPULATED","CORE","V3","DIP_HUNTER","PROJECT_SNIPER")) {
+                    com.lifecyclebot.engine.LaneExecutionCoordinator.releaseIfPrimary(p.mint, ln, "GHOST_REAP_FREE_SLOT")
+                }
+            } catch (_: Throwable) {}
             emitForensic(LiveTradeLogStore.Phase.POSITION_COUNT_RECONCILED, p.mint, p.symbol, p.sellSignature,
                 "GHOST_REAPED zero-balance open row → CLOSED (${p.symbol ?: p.mint.take(6)})")
             reaped++
         }
+        // V5.9.1505 — TERMINAL SWEEP for UNKNOWN_NEEDS_RECONCILE zero rows.
+        // Pass-2 case (d) parks zero-balance positions with a wedged in-flight
+        // sell attempt into UNKNOWN_NEEDS_RECONCILE. Nothing ever closed them, so
+        // they accumulated forever holding lane-primary locks and polluting
+        // re-entry/duplicate logic — the source of the "open count out by 30 and
+        // increasing" drift. Any such row that has been zero-balance for >3 min
+        // is dead: terminally close it, free its lane slots, arm re-entry lock.
+        val unknownStaleMs = 180_000L
+        for (p in positions.values.toList()) {
+            if (p.status != PositionStatus.UNKNOWN_NEEDS_RECONCILE) continue
+            if (p.uiAmount > 0.000001) continue
+            val anchor2 = maxOf(p.lastWalletReconcileMs ?: 0L, p.lastSeenWalletMs, p.buyTimeMs ?: 0L)
+            if (anchor2 > 0L && (now - anchor2) < unknownStaleMs) continue
+            p.status = PositionStatus.CLOSED
+            p.activeSellAttemptId = null
+            p.notes.add("unknown-reconcile reaped: zero balance >3min, no resolution")
+            try { com.lifecyclebot.engine.PositionCloseLedger.markClosed(p.mint, "UNKNOWN_RECONCILE_STALE_REAP", 0) } catch (_: Throwable) {}
+            try {
+                val fam = (p.symbol ?: "").uppercase().trim().filter { it.isLetterOrDigit() }.take(8)
+                com.lifecyclebot.engine.ReEntryLockout.onClose(p.mint, fam, "GHOST_REAP_ZERO_BALANCE", 0.0)
+            } catch (_: Throwable) {}
+            try {
+                for (ln in listOf("SHITCOIN","MOONSHOT","QUALITY","EXPRESS","CYCLIC","BLUE_CHIP","MANIPULATED","CORE","V3","DIP_HUNTER","PROJECT_SNIPER")) {
+                    com.lifecyclebot.engine.LaneExecutionCoordinator.releaseIfPrimary(p.mint, ln, "UNKNOWN_STALE_FREE_SLOT")
+                }
+            } catch (_: Throwable) {}
+            emitForensic(LiveTradeLogStore.Phase.POSITION_COUNT_RECONCILED, p.mint, p.symbol, null,
+                "UNKNOWN_RECONCILE_STALE_REAPED → CLOSED (${p.symbol ?: p.mint.take(6)})")
+            reaped++
+        }
+
         if (reaped > 0) {
             try { com.lifecyclebot.engine.PipelineHealthCollector.labelInc("ZERO_BALANCE_GHOST_REAPED") } catch (_: Throwable) {}
             save()

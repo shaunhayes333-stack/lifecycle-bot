@@ -33,6 +33,19 @@ object ReEntryLockout {
         "V8_DISTRIBUTION",
         "HARD_FLOOR",
         "DISTRIBUTION_STOP",
+        // V5.9.1505 — operator: "just re-enters the same shit on repeat."
+        // The catastrophe/hard-stop and managed-exit reasons were NOT locking
+        // re-entry, so a mint that just clawed -23% (CLAWED CATASTROPHE) or was
+        // exit-managed for liquidity collapse re-qualified next tick and bought
+        // again. These are exactly the closes that MUST cool down.
+        "HARD_STOP",
+        "CATASTROPHE",
+        "CLAW",
+        "RAPID_STOP",
+        "EXIT_MANAGED",
+        "LIQUIDITY_COLLAPSE",
+        "GHOST_REAP",
+        "MANUAL_SWAP",
     )
 
     private data class Lock(val untilMs: Long, val reason: String, val armedAtMs: Long)
@@ -51,7 +64,12 @@ object ReEntryLockout {
             // Only arm on a genuine stop-style LOSS. A stop reason with a positive
             // pnl (rare trailing-stop-in-profit) is a WIN — do not lock those.
             if (!isLockingReason(exitReason)) return
-            if (pnlPct > 0.0) return
+            // A trailing-stop that closed in PROFIT is a win — don't lock it.
+            // But ghost/manual/exit-managed closes report pnl=0 with no realized
+            // figure; those must still arm (they are dead-position cleanups).
+            val r = exitReason.uppercase()
+            val isCleanupClose = r.contains("GHOST_REAP") || r.contains("MANUAL_SWAP") || r.contains("EXIT_MANAGED")
+            if (pnlPct > 0.0 && !isCleanupClose) return
             val now = System.currentTimeMillis()
             val lock = Lock(now + LOCKOUT_MS, exitReason.take(40), now)
             if (mint.isNotBlank()) byMint[mint.trim()] = lock
