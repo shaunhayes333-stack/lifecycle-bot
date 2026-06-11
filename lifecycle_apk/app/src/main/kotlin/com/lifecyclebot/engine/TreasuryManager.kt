@@ -895,7 +895,7 @@ object TreasuryManager {
         // the portion that keeps the trading wallet above (reserve + one working
         // buffer), and defer the rest — treasury still accrues, but never by
         // starving live trading. floorKeep = reserve + max(reserve, 0.08) buffer.
-        val liveBal = try { com.lifecyclebot.engine.WalletManager.state.value.solBalance } catch (_: Throwable) { 0.0 }
+        val liveBal = com.lifecyclebot.engine.WalletManager.cachedSolBalance()
         val workingBuffer = maxOf(reserveSol, 0.08)
         val floorKeep = reserveSol + workingBuffer
         val sweepable = (liveBal - floorKeep).coerceAtLeast(0.0)

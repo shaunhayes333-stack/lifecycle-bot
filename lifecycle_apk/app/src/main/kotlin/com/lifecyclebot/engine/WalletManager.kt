@@ -101,6 +101,10 @@ class WalletManager private constructor(private val ctx: Context) {
          * Used by perps system for live transaction signing
          */
         fun getWallet(): SolanaWallet? = INSTANCE?.getWallet()
+
+        /** V5.9.1502 — cached live SOL balance from the singleton state, for
+         *  static callers (e.g. treasury sweep floor) that have no instance. */
+        fun cachedSolBalance(): Double = try { INSTANCE?.state?.value?.solBalance ?: 0.0 } catch (_: Throwable) { 0.0 }
         
         /**
          * CRITICAL FIX: Attempt to reconnect wallet using saved credentials.
