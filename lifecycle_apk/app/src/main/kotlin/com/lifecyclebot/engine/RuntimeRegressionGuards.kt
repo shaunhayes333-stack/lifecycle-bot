@@ -38,6 +38,11 @@ object RuntimeRegressionGuards {
         val closedPositionsWithNonDustBalance: Int = 0,
         val closedPositionsWithoutSignature: Int = 0,
         val duplicateCanonicalOpenMints: Int = 0,
+        // V5.9.1533 — sell-safety + balance-authority + venue + learning guards
+        val liveSellsBroadcastOnUnconfirmedBalance: Int = 0,
+        val liveSellsAboveSlippageCap: Int = 0,   // bps > 500 on a non-emergency live sell
+        val pumpRouteInvalidNotReResolved: Int = 0,
+        val learningFromUnconfirmedClose: Int = 0,
     )
 
     fun evaluate(input: Input): List<Check> {
@@ -135,6 +140,35 @@ object RuntimeRegressionGuards {
                 "no_duplicate_canonical_opens",
                 ok = input.duplicateCanonicalOpenMints == 0,
                 detail = "duplicateCanonicalOpenMints=${input.duplicateCanonicalOpenMints}",
+            ),
+            // ── V5.9.1533 SELL-SAFETY / BALANCE-AUTHORITY / VENUE / LEARNING GUARDS ──
+            Check(
+                // spec item 5: a LIVE sell must NEVER broadcast on a balance that is
+                // not on-chain confirmed (RPC_CONFIRMED / WALLET_SCAN_CONFIRMED).
+                "no_broadcast_on_unconfirmed_balance",
+                ok = input.liveSellsBroadcastOnUnconfirmedBalance == 0,
+                detail = "broadcastOnUnconfirmed=${input.liveSellsBroadcastOnUnconfirmedBalance}",
+            ),
+            Check(
+                // spec item 2: non-emergency live sells are hard-capped at 5% (500bps).
+                "no_live_sell_above_slippage_cap",
+                ok = input.liveSellsAboveSlippageCap == 0,
+                detail = "liveSellsAbove500bps=${input.liveSellsAboveSlippageCap} cap=500",
+            ),
+            Check(
+                // spec item 7: a Pump 0x1787 must trigger venue re-resolution, never a
+                // same-payload retry that stays pump-direct.
+                "pump_route_reresolved_on_invalid",
+                ok = input.pumpRouteInvalidNotReResolved == 0,
+                detail = "pumpInvalidNotReResolved=${input.pumpRouteInvalidNotReResolved}",
+            ),
+            Check(
+                // spec item 10: learning may only be recorded after a CONFIRMED close
+                // (on-chain settled / wallet-delta verified), never from an in-flight or
+                // unconfirmed close.
+                "learning_only_after_confirmed_close",
+                ok = input.learningFromUnconfirmedClose == 0,
+                detail = "learningFromUnconfirmedClose=${input.learningFromUnconfirmedClose}",
             ),
         )
     }

@@ -12167,8 +12167,11 @@ class Executor(
                             slippageBps = currentSlip, traderTag = "MEME",
                         )
                         try {
+                            // V5.9.1533 — spec item 2: assert the final broadcast bps is
+                            // within the 500bps non-emergency hard cap (counts + clamps any bypass).
+                            val safeSlip = com.lifecyclebot.engine.sell.SellSafetyPolicy.assertWithinCap(reason, currentSlip)
                             quote = getQuoteWithSlippageGuard(
-                                ts.mint, JupiterApi.SOL_MINT, tokenUnits, currentSlip,
+                                ts.mint, JupiterApi.SOL_MINT, tokenUnits, safeSlip,
                                 isBuy = false, sellTaker = wallet.publicKeyB58)
                             LiveTradeLogStore.log(
                                 sellTradeKey, ts.mint, ts.symbol, "SELL",
@@ -13038,6 +13041,22 @@ class Executor(
         }
 
         val exitPrice = getActualPrice(ts)
+        // V5.9.1533 — spec item 10: LEARNING ONLY AFTER A CONFIRMED CLOSE.
+        // By construction we only reach here once the sell broadcast confirmed (the
+        // sig==null failure branch above returns FAILED_RETRYABLE without learning).
+        // Assert that invariant explicitly: a live close must carry a confirmed sell
+        // signature before any outcome is fed to the learning brain. If it does not,
+        // we DO NOT learn and we flag the regression-guard counter.
+        run {
+            val confirmedSig = try { sig } catch (_: Throwable) { null }
+            val hasConfirmedClose = !confirmedSig.isNullOrBlank() && !confirmedSig.startsWith("PHANTOM_")
+            if (!hasConfirmedClose) {
+                try { ForensicLogger.lifecycle("LEARNING_BLOCKED_UNCONFIRMED_CLOSE",
+                    "mint=${ts.mint.take(10)} symbol=${ts.symbol} reason=$reason sig=${confirmedSig?.take(12) ?: "null"} action=skip_learning") } catch (_: Throwable) {}
+                try { com.lifecyclebot.engine.RuntimeRegressionState.bumpLearningFromUnconfirmedClose() } catch (_: Throwable) {}
+                return SellResult.FAILED_RETRYABLE
+            }
+        }
         
         val holdTimeMins = (System.currentTimeMillis() - pos.entryTime) / 60_000.0
         

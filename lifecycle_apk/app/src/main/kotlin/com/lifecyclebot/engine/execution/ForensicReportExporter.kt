@@ -162,6 +162,11 @@ object ForensicReportExporter {
                     closedPositionsWithNonDustBalance = try { com.lifecyclebot.engine.HostWalletTokenTracker.closeAuthorityAudit().closedWithNonDustBalance } catch (_: Throwable) { 0 },
                     closedPositionsWithoutSignature = try { com.lifecyclebot.engine.HostWalletTokenTracker.closeAuthorityAudit().closedWithoutSig } catch (_: Throwable) { 0 },
                     duplicateCanonicalOpenMints = try { com.lifecyclebot.engine.HostWalletTokenTracker.closeAuthorityAudit().duplicateOpenMints } catch (_: Throwable) { 0 },
+                    // V5.9.1533 — sell-safety / balance-authority / venue / learning guard inputs
+                    liveSellsBroadcastOnUnconfirmedBalance = try { com.lifecyclebot.engine.RuntimeRegressionState.broadcastOnUnconfirmedBalanceCount() } catch (_: Throwable) { 0 },
+                    liveSellsAboveSlippageCap = try { com.lifecyclebot.engine.RuntimeRegressionState.liveSellAboveSlippageCapCount() } catch (_: Throwable) { 0 },
+                    pumpRouteInvalidNotReResolved = try { com.lifecyclebot.engine.RuntimeRegressionState.pumpRouteInvalidNotReResolvedCount() } catch (_: Throwable) { 0 },
+                    learningFromUnconfirmedClose = try { com.lifecyclebot.engine.RuntimeRegressionState.learningFromUnconfirmedCloseCount() } catch (_: Throwable) { 0 },
                 )
             )
         } catch (_: Throwable) { emptyList() }

@@ -72,4 +72,24 @@ object SellSafetyPolicy {
         }
         return base.map { it.coerceAtMost(max) }.distinct()
     }
+
+    /**
+     * V5.9.1533 — spec item 2 broadcast-site assertion. Callers pass the FINAL slippage
+     * bps they are about to broadcast with. A non-emergency live exit above the 500bps
+     * hard cap is a doctrine violation: we clamp it down to the cap AND bump the
+     * regression-guard counter so the pipeline dump surfaces the bypass. Returns the
+     * SAFE bps the caller must actually use.
+     */
+    fun assertWithinCap(reason: String?, requestedBps: Int): Int {
+        if (isEmergencyExit(reason)) return requestedBps
+        if (requestedBps > HARD_MAX_SELL_SLIPPAGE_BPS) {
+            try {
+                com.lifecyclebot.engine.ForensicLogger.lifecycle("SELL_SLIPPAGE_CAP_VIOLATION",
+                    "reason=${reason.orEmpty()} requestedBps=$requestedBps clampedTo=$HARD_MAX_SELL_SLIPPAGE_BPS")
+            } catch (_: Throwable) {}
+            try { com.lifecyclebot.engine.RuntimeRegressionState.bumpLiveSellAboveSlippageCap() } catch (_: Throwable) {}
+            return HARD_MAX_SELL_SLIPPAGE_BPS
+        }
+        return requestedBps
+    }
 }
