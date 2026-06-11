@@ -6,6 +6,35 @@ NO local compiler. Multi-lane architecture (Memes [9 sub-lanes], Crypto/Alts,
 Stocks, Markets, Tokenized Stocks, Forex, Metals, Commodities). Foreground
 Service with a 50+ AI-module pipeline gated through processTokenCycle.
 
+## V5.9.1455 (Feb 2026) — TICK-TIME HARD-FLOOR + PROFIT-LOCK (real-money slippage fix) — CI ✅ compile green
+
+**Operator dump V5.9.1454:** -15% HARD_FLOOR filled at -29.4% on a real-money
+sell; +1000% peak gave back to ~+4%. Both bleed real money.
+
+**Root cause:** ALL exit decisions lived in the 2s `hotExit` cadence (and slow
+30s sweep). Prices were arriving every ~1s but stops were evaluated up to 2s
+later → catastrophic slippage on fast rugs; trailing give-back never fired on
+massive runners before they dumped.
+
+**Fix — tick-time guards (1Hz cadence) on every fresh price:**
+
+1. **BotService.openPositionTickLoop** (Memes — Moonshot + ShitCoin):
+   - `TICK_HARD_FLOOR_PCT = -10.0`: unconditional kill-switch
+   - `TICK_PROFIT_LOCK`: peak-tier give-back trailing
+     - peak ≥ 500% → exit if give-back ≥ 30% of peak (lock 70%)
+     - peak ≥ 200% → exit if give-back ≥ 40% of peak (lock 60%)
+     - peak ≥ 100% → exit if give-back ≥ 50% of peak (lock 50%)
+     - peak ≥ 30%  → exit if give-back ≥ 60% of peak (lock 40%)
+   - Gated to memes only — BlueChip/Treasury have their own tighter SLs
+
+2. **CryptoAltTrader.monitorPositions** (Crypto Alt lane):
+   - Monitor cadence tightened **5s → 1s**
+   - Same TICK_HARD_FLOOR(-10) + peak give-back trailing
+   - Fires ahead of configured `stopLossPrice`
+
+Lane-specific `HARD_FLOOR_STOP=-15` retained as slow-path backstop.
+
+
 ## V5.9.1333 (Feb 2026) — FLUID TACTIC SWITCHER + PERSONALITY TUNE WIRING (CI ✅ green)
 
 Operator mandate: *"I don't want lanes or traders disabled. If they aren't
