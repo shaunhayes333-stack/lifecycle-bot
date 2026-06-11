@@ -3621,6 +3621,8 @@ class Executor(
         var preSellRawForAudit: java.math.BigInteger = java.math.BigInteger.ZERO
         var expectedConsumedRawForAudit: java.math.BigInteger = java.math.BigInteger.ZERO
         var decimalsForAudit: Int = 0
+        var liveBalanceSource: com.lifecyclebot.engine.sell.SellAmountAuthority.BalanceSource =
+            com.lifecyclebot.engine.sell.SellAmountAuthority.BalanceSource.UNKNOWN
         val sellQty = run {
             // V5.9.495z46 P0 — operator spec items C/E (forensics 0508_143519):
             // replace `pos.qtyToken * sellFraction` ad-hoc math with the
@@ -3630,6 +3632,7 @@ class Executor(
             val resolution = try {
                 com.lifecyclebot.engine.sell.SellAmountAuthority.resolve(ts.mint, wallet)
             } catch (_: Throwable) { null }
+            liveBalanceSource = com.lifecyclebot.engine.sell.SellAmountAuthority.balanceSource(resolution)
             val confirmed = resolution as? com.lifecyclebot.engine.sell.SellAmountAuthority.Resolution.Confirmed
             if (confirmed != null) {
                 preSellRawForAudit = confirmed.rawAmount
@@ -3658,6 +3661,20 @@ class Executor(
             }
         }
         val sellUnits = resolveSellUnits(ts, sellQty, wallet = wallet)
+        // V5.9.1533 — spec item 5: LIVE sell broadcasts ONLY on on-chain confirmed
+        // balance (RPC_CONFIRMED / WALLET_SCAN_CONFIRMED). TX_PARSE-only / UNKNOWN =>
+        // queue recovery, do not broadcast a sell sized off a guess. Paper unaffected.
+        if (!pos.isPaperPosition) {
+            val cb = liveBalanceSource == com.lifecyclebot.engine.sell.SellAmountAuthority.BalanceSource.RPC_CONFIRMED ||
+                     liveBalanceSource == com.lifecyclebot.engine.sell.SellAmountAuthority.BalanceSource.WALLET_SCAN_CONFIRMED
+            if (!cb) {
+                try { ForensicLogger.lifecycle("SELL_BROADCAST_BLOCKED_UNCONFIRMED_BALANCE",
+                    "mint=${ts.mint.take(10)} symbol=${ts.symbol} balanceSource=$liveBalanceSource action=queue_recovery_not_broadcast") } catch (_: Throwable) {}
+                onLog("⏸️ SELL queued (recovery): ${ts.symbol} balance not on-chain confirmed (src=$liveBalanceSource) — re-resolving, not broadcasting.", ts.mint)
+                try { com.lifecyclebot.engine.sell.CloseLease.scheduleBackoff(ts.mint, "BALANCE_UNCONFIRMED") } catch (_: Throwable) {}
+                return
+            }
+        }
 
         // V5.9.495z29 — operator spec item 4: ExecutableQuoteGate.
         // Profit-lock is only allowed when a fresh executable Jupiter quote
@@ -4643,10 +4660,13 @@ class Executor(
         var preSellRawForAudit: java.math.BigInteger = java.math.BigInteger.ZERO
         var expectedConsumedRawForAudit: java.math.BigInteger = java.math.BigInteger.ZERO
         var decimalsForAudit: Int = 0
+        var liveBalanceSource: com.lifecyclebot.engine.sell.SellAmountAuthority.BalanceSource =
+            com.lifecyclebot.engine.sell.SellAmountAuthority.BalanceSource.UNKNOWN
         val sellQty: Double = run {
             val resolution = try {
                 com.lifecyclebot.engine.sell.SellAmountAuthority.resolve(ts.mint, wallet)
             } catch (_: Throwable) { null }
+            liveBalanceSource = com.lifecyclebot.engine.sell.SellAmountAuthority.balanceSource(resolution)
             val confirmed = resolution as? com.lifecyclebot.engine.sell.SellAmountAuthority.Resolution.Confirmed
             if (confirmed != null) {
                 preSellRawForAudit = confirmed.rawAmount
@@ -4755,6 +4775,17 @@ class Executor(
                     return true
                 }
                 val sellUnits = resolveSellUnits(ts, sellQty, wallet = wallet)
+                // V5.9.1533 — spec item 5: live partial sell broadcasts ONLY on confirmed balance.
+                run {
+                    val cb = liveBalanceSource == com.lifecyclebot.engine.sell.SellAmountAuthority.BalanceSource.RPC_CONFIRMED ||
+                             liveBalanceSource == com.lifecyclebot.engine.sell.SellAmountAuthority.BalanceSource.WALLET_SCAN_CONFIRMED
+                    if (!cb) {
+                        try { ForensicLogger.lifecycle("SELL_BROADCAST_BLOCKED_UNCONFIRMED_BALANCE",
+                            "mint=${ts.mint.take(10)} symbol=${ts.symbol} balanceSource=$liveBalanceSource phase=partial action=queue_recovery_not_broadcast") } catch (_: Throwable) {}
+                        try { com.lifecyclebot.engine.sell.CloseLease.scheduleBackoff(ts.mint, "BALANCE_UNCONFIRMED") } catch (_: Throwable) {}
+                        return false
+                    }
+                }
                 val sellSlippage = (c.slippageBps * 2).coerceAtMost(500)
 
                 // V5.9.495 — PUMP-FIRST routing for partial TPs.

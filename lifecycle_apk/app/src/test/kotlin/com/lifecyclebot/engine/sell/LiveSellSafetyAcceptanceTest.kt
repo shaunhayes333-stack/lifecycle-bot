@@ -124,15 +124,21 @@ class LiveSellSafetyAcceptanceTest {
 
     // ── #12 — slippage never exceeds live max cap ───────────────────────────
     @Test fun ac12_max_slippage_caps_match_operator_spec() {
-        // Operator spec: 200–500 normal, 800–1000 emergency, 9999 manual only.
-        assertEquals(500,  SellSafetyPolicy.maxSlippageBps("PROFIT_LOCK"))
-        assertEquals(500,  SellSafetyPolicy.maxSlippageBps("PARTIAL_TAKE_PROFIT"))
-        assertEquals(800,  SellSafetyPolicy.maxSlippageBps("CAPITAL_RECOVERY"))
-        assertEquals(1000, SellSafetyPolicy.maxSlippageBps("STOP_LOSS"))
-        assertEquals(1000, SellSafetyPolicy.maxSlippageBps("HARD_STOP"))
-        assertEquals(1000, SellSafetyPolicy.maxSlippageBps("EMERGENCY_AUTO"))
+        // V5.9.1533 — operator spec item 2: HARD 500bps cap for ALL non-emergency
+        // LIVE sells (the 800/1000bps ladder is removed). Only HARD-RUG / MANUAL-
+        // EMERGENCY may exceed the cap (9999). A generic "EMERGENCY_AUTO" string is
+        // NOT a hard-rug/manual emergency, so it is hard-capped at 500.
+        assertEquals(500, SellSafetyPolicy.maxSlippageBps("PROFIT_LOCK"))
+        assertEquals(500, SellSafetyPolicy.maxSlippageBps("PARTIAL_TAKE_PROFIT"))
+        assertEquals(500, SellSafetyPolicy.maxSlippageBps("CAPITAL_RECOVERY"))
+        assertEquals(500, SellSafetyPolicy.maxSlippageBps("STOP_LOSS"))
+        assertEquals(500, SellSafetyPolicy.maxSlippageBps("HARD_STOP"))
+        assertEquals(500, SellSafetyPolicy.maxSlippageBps("EMERGENCY_AUTO"))
         assertEquals(9999, SellSafetyPolicy.maxSlippageBps("MANUAL_EMERGENCY_RUG_DRAIN"))
         assertEquals(9999, SellSafetyPolicy.maxSlippageBps("RUG_DRAIN"))
+        // hard cap can never be exceeded by any non-emergency ladder rung
+        assertTrue(SellSafetyPolicy.ladder("PROFIT_LOCK").all { it <= 500 })
+        assertTrue(SellSafetyPolicy.ladder("STOP_LOSS").all { it <= 500 })
     }
 
     // ── #13 — reconciler.totalChecked > 0 after a manual reconcile ──────────

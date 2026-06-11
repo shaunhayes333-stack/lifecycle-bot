@@ -117,6 +117,32 @@ object SellAmountAuthority {
         return Resolution.Confirmed(e.rawAmount, e.decimals, Source.FRESH_TX_PARSE)
     }
 
+    /**
+     * V5.9.1533 — BALANCE RESOLUTION broadcast authority (operator spec item 5).
+     *
+     * A LIVE sell may broadcast ONLY when the balance is confirmed by an on-chain
+     * read (ACCOUNT_INFO / TOKEN_ACCOUNTS_BY_OWNER == RPC_CONFIRMED / WALLET_SCAN_CONFIRMED).
+     * A FRESH_TX_PARSE-only balance (HOST_TRACKER_TX_PARSE_ONLY) may QUEUE recovery but
+     * must NOT broadcast — it is not authoritative wallet truth. UNKNOWN never broadcasts.
+     */
+    enum class BalanceSource { RPC_CONFIRMED, WALLET_SCAN_CONFIRMED, HOST_TRACKER_TX_PARSE_ONLY, UNKNOWN }
+
+    fun balanceSource(resolution: Resolution?): BalanceSource = when (resolution) {
+        is Resolution.Confirmed -> when (resolution.source) {
+            Source.ACCOUNT_INFO -> BalanceSource.RPC_CONFIRMED
+            Source.TOKEN_ACCOUNTS_BY_OWNER -> BalanceSource.WALLET_SCAN_CONFIRMED
+            Source.FRESH_TX_PARSE -> BalanceSource.HOST_TRACKER_TX_PARSE_ONLY
+        }
+        is Resolution.Zero -> BalanceSource.RPC_CONFIRMED   // confirmed empty is authoritative
+        else -> BalanceSource.UNKNOWN
+    }
+
+    /** True only for RPC_CONFIRMED / WALLET_SCAN_CONFIRMED — the only sources allowed to broadcast a live sell. */
+    fun canBroadcastLive(resolution: Resolution?): Boolean = when (balanceSource(resolution)) {
+        BalanceSource.RPC_CONFIRMED, BalanceSource.WALLET_SCAN_CONFIRMED -> true
+        else -> false
+    }
+
     /** Operator-facing: read-only snapshot for the UI Forensics tile. */
     fun txParseCacheSize(): Int = txParseCache.size
 }

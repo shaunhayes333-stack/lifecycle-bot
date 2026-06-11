@@ -6918,6 +6918,7 @@ class BotService : Service() {
                                     ts.lastPrice = fbPrice
                                     ts.lastPriceUpdate = System.currentTimeMillis()
                                     ts.lastPriceSource = "ORACLE_FALLBACK"
+                                    try { com.lifecyclebot.engine.sell.StalePriceExitGuard.clearStale(ts.mint) } catch (_: Throwable) {}  // V5.9.1533
                                     ErrorLogger.info("BotService",
                                         "🛟 STALE_FALLBACK_RECOVERED: ${ts.symbol} primary feed dark ${lastPriceAgeMs/1000}s → oracle price \$$fbPrice (NO forced dump)")
                                     addLog("🛟 PRICE RECOVERED via oracle: ${ts.symbol} = \$$fbPrice — skipping rug-escape", ts.mint)
@@ -7026,6 +7027,7 @@ class BotService : Service() {
                                         ts.lastPrice = zombieFb
                                         ts.lastPriceUpdate = System.currentTimeMillis()
                                         ts.lastPriceSource = "ORACLE_ZOMBIE_REFRESH"
+                                        try { com.lifecyclebot.engine.sell.StalePriceExitGuard.clearStale(ts.mint) } catch (_: Throwable) {}  // V5.9.1533
                                         val zPnl = ((zombieFb - ts.position.entryPrice) / ts.position.entryPrice) * 100.0
                                         try {
                                             ForensicLogger.lifecycle(
@@ -7054,21 +7056,34 @@ class BotService : Service() {
                                     ts.lastPrice = fbLivePrice
                                     ts.lastPriceUpdate = System.currentTimeMillis()
                                     ts.lastPriceSource = "ORACLE_FALLBACK"
+                                    try { com.lifecyclebot.engine.sell.StalePriceExitGuard.clearStale(ts.mint) } catch (_: Throwable) {}  // V5.9.1533
                                     val fbPnl = ((fbLivePrice - ts.position.entryPrice) / ts.position.entryPrice) * 100.0
                                     ErrorLogger.info("BotService",
                                         "🛟 STALE_LIVE_FALLBACK: ${ts.symbol} feed frozen ${livePriceAgeMs/1000}s → oracle \$$fbLivePrice (pnl ${"%.1f".format(fbPnl)}%) — defer to floor logic")
                                     addLog("🛟 LIVE PRICE RECOVERED via oracle: ${ts.symbol} @ ${"%.1f".format(fbPnl)}% — no blind dump", ts.mint)
                                     continue  // real price now set; hard-floor/exit logic handles it correctly
                                 }
+                                // V5.9.1533 — spec item 4: emit EXACTLY ONE exit intent per
+                                // mint. Previously this fired every tick (stampede) and fed a
+                                // FAKE -100% into catastrophe cooldown + learning from a dark
+                                // price. Now: arm once; on later ticks skip cheaply. Never feed
+                                // catastrophe cooldown / learning from a stale/dark price — only
+                                // a confirmed on-chain zero or a verified fresh price may do that.
+                                val armedOnce = com.lifecyclebot.engine.sell.StalePriceExitGuard
+                                    .armOnceRugEscape(ts.mint, ts.symbol ?: "?")
+                                if (!armedOnce) {
+                                    // already armed within the window — do NOT re-fire / re-feed.
+                                    continue
+                                }
                                 ErrorLogger.warn("BotService",
-                                    "💀 STALE_LIVE_PRICE_RUG_ESCAPE: ${ts.symbol} — lastPrice stale ${livePriceAgeMs/1000}s (since max(priceUpd,entry)), lastPnl=${"%.1f".format(lastKnownPnlPct)}%, oracles dark, force-exit")
-                                addLog("💀 STALE LIVE PRICE EXIT: ${ts.symbol} | price frozen ${livePriceAgeMs/1000}s @ ${"%.1f".format(lastKnownPnlPct)}% — oracles dark, assume rug", ts.mint)
+                                    "💀 STALE_LIVE_PRICE_RUG_ESCAPE: ${ts.symbol} — lastPrice stale ${livePriceAgeMs/1000}s (since max(priceUpd,entry)), lastPnl=${"%.1f".format(lastKnownPnlPct)}%, oracles dark, force-exit (ONE intent)")
+                                addLog("💀 STALE LIVE PRICE EXIT: ${ts.symbol} | price frozen ${livePriceAgeMs/1000}s @ ${"%.1f".format(lastKnownPnlPct)}% — oracles dark, one exit intent", ts.mint)
                                 executor.requestSell(ts = ts, reason = "STALE_LIVE_PRICE_RUG_ESCAPE",
                                     wallet = wallet, walletSol = effectiveBalance)
-                                // V5.9.715-FIX: same as STALE_PRICE_RUG_ESCAPE — paper mode
-                                // stale prices are feed noise, not rugs. 30min lockout was
-                                // starving V3 via loss_streak guard → ZERO trading.
-                                if (!cfg.paperMode) TradeStateMachine.startCatastropheCooldown(ts.mint, -100.0)
+                                // V5.9.1533 — do NOT seed catastrophe cooldown from a stale/dark
+                                // price (it is not a confirmed -100% loss). The controlled sell
+                                // drain + on-chain balance read will confirm the real outcome;
+                                // catastrophe cooldown is seeded only on a verified close.
                                 continue
                             }
                         }
