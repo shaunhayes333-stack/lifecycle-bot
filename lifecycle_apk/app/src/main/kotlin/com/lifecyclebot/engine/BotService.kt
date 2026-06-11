@@ -733,6 +733,8 @@ class BotService : Service() {
         }
         // Force-reset the hot-exit lease/lock and resurrect the manager.
         try { ensureHotExitAlive() } catch (_: Throwable) {}
+        // V5.9.1522 — P0: sell reconciler is mandatory in live; resurrect if down/zombie.
+        try { ensureSellReconcilerAlive() } catch (_: Throwable) {}
         // V5.9.1470 (spec item 4) — SINGLE-FLIGHT COALESCE. The old code re-requested the
         // coordinator EVERY loop while stale, even though full+universal were already
         // pending/running — producing the HOT_EXIT_STALE_RESET storm (pendingFull=true,
@@ -769,6 +771,152 @@ class BotService : Service() {
     // we enter a stale episode and only re-arm after a healthy sweep is observed.
     @Volatile private var hotExitStaleEpisodeActive: Boolean = false
     @Volatile private var hotExitStaleResetCount: Long = 0L
+    // V5.9.1522 — LIVE EXECUTION FINALISATION: reconciler is MANDATORY in live.
+    // Extracted from botLoop startup so the P0 watchdog can re-invoke it after a
+    // deferred (wallet-not-ready) start or a detected zombie state.
+    private fun startSellReconciler(cfg: com.lifecyclebot.data.BotConfig, runtimeGeneration: Long) {
+        // V5.9.764 — EMERGENT CRITICAL item C: start the SellReconciler
+        // watchdog. Runs every 10s in LIVE mode only; scans the host
+        // wallet's open tracked positions, force-releases stale sell
+        // locks past LOCK_TTL_MS, and re-queues stuck full-exits.
+        // No-op if cfg.paperMode==true (the reconciler returns early).
+        try {
+            com.lifecyclebot.engine.sell.SellReconciler.start(
+                scope = scope,
+                isPaperMode = cfg.paperMode,
+                hostWallet = wallet,
+                // V5.9.779 — EMERGENT MEME-ONLY: SellReconciler now actively
+                // triggers a sell via the executor when it requeues. If the
+                // mint is missing from status.tokens (e.g. after a stopBot
+                // trim or service kill), we rehydrate a minimal TokenState
+                // from the host wallet tracker so the bot can still sell
+                // tokens the user holds without restarting the watchlist.
+                sellTrigger = { mint, symbol, balance ->
+                    try {
+                        val existing = synchronized(status.tokens) { status.tokens[mint] }
+                        val ts = existing ?: rehydrateTokenStateFromTracker(mint, symbol, balance)
+                        if (ts != null) {
+                            val curWallet = WalletManager.getWallet()
+                            val curSol = walletManager.state.value.solBalance
+                            executor.requestSell(
+                                ts,
+                                "RECONCILER_REQUEUE",
+                                curWallet,
+                                curSol,
+                            )
+                            try {
+                                ForensicLogger.lifecycle(
+                                    "RECONCILER_SELL_TRIGGERED",
+                                    "mint=${mint.take(10)} symbol=$symbol balance=$balance rehydrated=${existing == null}",
+                                )
+                            } catch (_: Throwable) {}
+                        }
+                    } catch (e: Throwable) {
+                        ErrorLogger.warn("BotService", "sellTrigger error: ${e.message?.take(80)}")
+                    }
+                },
+                // V5.9.1496 — ZERO-BALANCE CLOSE FINALITY. When the reconciler
+                // debounces a zero-balance OPEN_TRACKING row to CLOSED, finish
+                // the finality chain: release any lane-primary election the mint
+                // still holds (so dup/reentry logic is not polluted by an
+                // already-closed mint) and surface the close. We do NOT re-train
+                // here: the real sell path already recorded the trade outcome
+                // when the position actually sold (that is WHY balance is now 0);
+                // re-recording would double-count and corrupt analytics. The
+                // PositionCloseLedger stamp inside confirmZeroBalanceClose is the
+                // authoritative trainable close record.
+                onZeroClose = { mint, symbol, sig ->
+                    try {
+                        val laneGuess = try {
+                            synchronized(status.tokens) { status.tokens[mint]?.position?.tradingMode }
+                        } catch (_: Throwable) { null }
+                        // Release primary across the lanes this mint could hold.
+                        val lanesToRelease = listOfNotNull(
+                            laneGuess,
+                            "SHITCOIN", "MOONSHOT", "BLUECHIP", "QUALITY",
+                            "TREASURY", "MANIPULATED", "DIP_HUNTER", "PROJECT_SNIPER",
+                            "EXPRESS", "CORE",
+                        ).distinct()
+                        for (ln in lanesToRelease) {
+                            try {
+                                com.lifecyclebot.engine.LaneExecutionCoordinator.releaseIfPrimary(
+                                    mint, ln, "ZERO_BALANCE_RECONCILER_CLOSE",
+                                )
+                            } catch (_: Throwable) {}
+                        }
+                        try {
+                            ForensicLogger.lifecycle(
+                                "RECONCILER_ZERO_CLOSE_FINALIZED",
+                                "mint=${mint.take(10)} symbol=$symbol sig=${sig ?: "none"} lanesReleased=${lanesToRelease.size}",
+                            )
+                        } catch (_: Throwable) {}
+                    } catch (e: Throwable) {
+                        ErrorLogger.warn("BotService", "onZeroClose error: ${e.message?.take(80)}")
+                    }
+                },
+                onHealWalletHeld = { heldMints ->
+                    try { healWalletHeldIntoLiveStore(heldMints) }
+                    catch (e: Throwable) { ErrorLogger.warn("BotService", "onHealWalletHeld error: ${e.message?.take(80)}") }
+                },
+            )
+            BotRuntimeController.markSellReconcilerStarted(runtimeGeneration, com.lifecyclebot.engine.sell.SellReconciler.isStarted)
+        } catch (e: Throwable) {
+            BotRuntimeController.markSellReconcilerStarted(runtimeGeneration, false)
+            ErrorLogger.warn("BotService", "SellReconciler start failed: ${e.message}")
+        }
+    }
+
+    // V5.9.1522 — P0 WATCHDOG. Called every botLoop cycle. Guarantees the sell
+    // reconciler is alive whenever the runtime is live & active. Covers three
+    // illegal states the operator forensic export proved can occur:
+    //   1. pendingLiveStart latched (start() ran before wallet ready) + wallet now present
+    //   2. reconciler not started while walletHeldMints>0  → P0, restart now
+    //   3. live zombie: activeJobs>0 but totalTicks==0 (loop never advanced)
+    @Volatile private var reconcilerWatchdogLastMs: Long = 0L
+    private fun ensureSellReconcilerAlive() {
+        val cfg = try { com.lifecyclebot.data.ConfigStore.load(applicationContext) } catch (_: Throwable) { return }
+        if (cfg.paperMode) {
+            // Paper reconciler is best-effort; start it if somehow down but no P0.
+            if (!com.lifecyclebot.engine.sell.SellReconciler.isStarted && status.running) {
+                val gen = try { BotRuntimeController.currentGeneration() } catch (_: Throwable) { 0L }
+                try { startSellReconciler(cfg, gen) } catch (_: Throwable) {}
+            }
+            return
+        }
+        if (!status.running) return
+        // debounce restarts (3s) so a transient race can't spawn a storm
+        val now = System.currentTimeMillis()
+        if (now - reconcilerWatchdogLastMs < 3_000L) return
+
+        val recon = com.lifecyclebot.engine.sell.SellReconciler
+        val walletHeld = try { HostWalletTokenTracker.getActuallyHeldCount() } catch (_: Throwable) { 0 }
+        val activeJobs = try { com.lifecyclebot.engine.sell.SellJobRegistry.snapshot().size } catch (_: Throwable) { 0 }
+        val zombie = try { recon.isLiveZombie(activeJobs) } catch (_: Throwable) { false }
+        val deadWhileHeld = (!recon.isStarted || recon.pendingLiveStart) && walletHeld > 0
+        val walletReady = try { WalletManager.getWallet() != null } catch (_: Throwable) { false }
+        // pendingLiveStart should fire the instant the wallet exists, even with 0 held.
+        val pendingNowSatisfiable = recon.pendingLiveStart && walletReady
+
+        if (zombie || deadWhileHeld || pendingNowSatisfiable) {
+            reconcilerWatchdogLastMs = now
+            val gen = try { BotRuntimeController.currentGeneration() } catch (_: Throwable) { 0L }
+            try {
+                ForensicLogger.lifecycle(
+                    "SELL_RECONCILER_P0_RESTART",
+                    "zombie=$zombie deadWhileHeld=$deadWhileHeld pendingSatisfiable=$pendingNowSatisfiable " +
+                    "walletHeld=$walletHeld activeJobs=$activeJobs started=${recon.isStarted} totalTicks=${recon.totalTicks} walletReady=$walletReady",
+                )
+            } catch (_: Throwable) {}
+            try { ErrorLogger.error("BotService", "🚨 P0 SELL_RECONCILER restart — walletHeld=$walletHeld activeJobs=$activeJobs started=${recon.isStarted} ticks=${recon.totalTicks}") } catch (_: Throwable) {}
+            try { recon.stop() } catch (_: Throwable) {}
+            try { startSellReconciler(cfg, gen) } catch (e: Throwable) {
+                ErrorLogger.warn("BotService", "P0 reconciler restart failed: ${e.message}")
+            }
+            // nudge an immediate tick so totalTicks advances out of zombie band
+            try { recon.requestImmediateTick() } catch (_: Throwable) {}
+        }
+    }
+
     private fun ensureHotExitAlive() {
         try {
             if (hotExitJob?.isActive == true) return
@@ -3863,91 +4011,10 @@ class BotService : Service() {
         // The launch body moved into ensureHotExitAlive() so the botLoop can
         // resurrect it if it ever dies (see deferral guard). Start it here.
         ensureHotExitAlive()
-        // V5.9.764 — EMERGENT CRITICAL item C: start the SellReconciler
-        // watchdog. Runs every 10s in LIVE mode only; scans the host
-        // wallet's open tracked positions, force-releases stale sell
-        // locks past LOCK_TTL_MS, and re-queues stuck full-exits.
-        // No-op if cfg.paperMode==true (the reconciler returns early).
-        try {
-            com.lifecyclebot.engine.sell.SellReconciler.start(
-                scope = scope,
-                isPaperMode = cfg.paperMode,
-                hostWallet = wallet,
-                // V5.9.779 — EMERGENT MEME-ONLY: SellReconciler now actively
-                // triggers a sell via the executor when it requeues. If the
-                // mint is missing from status.tokens (e.g. after a stopBot
-                // trim or service kill), we rehydrate a minimal TokenState
-                // from the host wallet tracker so the bot can still sell
-                // tokens the user holds without restarting the watchlist.
-                sellTrigger = { mint, symbol, balance ->
-                    try {
-                        val existing = synchronized(status.tokens) { status.tokens[mint] }
-                        val ts = existing ?: rehydrateTokenStateFromTracker(mint, symbol, balance)
-                        if (ts != null) {
-                            val curWallet = WalletManager.getWallet()
-                            val curSol = walletManager.state.value.solBalance
-                            executor.requestSell(
-                                ts,
-                                "RECONCILER_REQUEUE",
-                                curWallet,
-                                curSol,
-                            )
-                            try {
-                                ForensicLogger.lifecycle(
-                                    "RECONCILER_SELL_TRIGGERED",
-                                    "mint=${mint.take(10)} symbol=$symbol balance=$balance rehydrated=${existing == null}",
-                                )
-                            } catch (_: Throwable) {}
-                        }
-                    } catch (e: Throwable) {
-                        ErrorLogger.warn("BotService", "sellTrigger error: ${e.message?.take(80)}")
-                    }
-                },
-                // V5.9.1496 — ZERO-BALANCE CLOSE FINALITY. When the reconciler
-                // debounces a zero-balance OPEN_TRACKING row to CLOSED, finish
-                // the finality chain: release any lane-primary election the mint
-                // still holds (so dup/reentry logic is not polluted by an
-                // already-closed mint) and surface the close. We do NOT re-train
-                // here: the real sell path already recorded the trade outcome
-                // when the position actually sold (that is WHY balance is now 0);
-                // re-recording would double-count and corrupt analytics. The
-                // PositionCloseLedger stamp inside confirmZeroBalanceClose is the
-                // authoritative trainable close record.
-                onZeroClose = { mint, symbol, sig ->
-                    try {
-                        val laneGuess = try {
-                            synchronized(status.tokens) { status.tokens[mint]?.position?.tradingMode }
-                        } catch (_: Throwable) { null }
-                        // Release primary across the lanes this mint could hold.
-                        val lanesToRelease = listOfNotNull(
-                            laneGuess,
-                            "SHITCOIN", "MOONSHOT", "BLUECHIP", "QUALITY",
-                            "TREASURY", "MANIPULATED", "DIP_HUNTER", "PROJECT_SNIPER",
-                            "EXPRESS", "CORE",
-                        ).distinct()
-                        for (ln in lanesToRelease) {
-                            try {
-                                com.lifecyclebot.engine.LaneExecutionCoordinator.releaseIfPrimary(
-                                    mint, ln, "ZERO_BALANCE_RECONCILER_CLOSE",
-                                )
-                            } catch (_: Throwable) {}
-                        }
-                        try {
-                            ForensicLogger.lifecycle(
-                                "RECONCILER_ZERO_CLOSE_FINALIZED",
-                                "mint=${mint.take(10)} symbol=$symbol sig=${sig ?: "none"} lanesReleased=${lanesToRelease.size}",
-                            )
-                        } catch (_: Throwable) {}
-                    } catch (e: Throwable) {
-                        ErrorLogger.warn("BotService", "onZeroClose error: ${e.message?.take(80)}")
-                    }
-                },
-            )
-            BotRuntimeController.markSellReconcilerStarted(runtimeGeneration, com.lifecyclebot.engine.sell.SellReconciler.isStarted)
-        } catch (e: Throwable) {
-            BotRuntimeController.markSellReconcilerStarted(runtimeGeneration, false)
-            ErrorLogger.warn("BotService", "SellReconciler start failed: ${e.message}")
-        }
+        // V5.9.1522 — reconciler start extracted into startSellReconciler() so the
+        // botLoop P0 watchdog (ensureSellReconcilerAlive) can re-invoke it after a
+        // deferred (wallet-not-ready) start or a detected zombie. Mandatory in live.
+        startSellReconciler(cfg, runtimeGeneration)
 
         // V5.9.777 — EMERGENT MEME-ONLY: LiveWalletReconciler periodic tick.
         // Operator forensics_20260516_014510 showed reconciler.totalChecked=0
@@ -5529,6 +5596,60 @@ class BotService : Service() {
         } catch (e: Throwable) {
             ErrorLogger.warn("BotService", "rehydrateTokenStateFromTracker(${mint.take(10)}) failed: ${e.message?.take(80)}")
             return null
+        }
+    }
+
+    // V5.9.1522 — POSITION AUTO-HEAL. Adopt any wallet-held mint that has no live
+    // open position in the store so it gets an exit monitor. Cure for the operator
+    // forensic: walletHeldMints>0 && liveOpenPositions==0 && orphanLivePositions=7.
+    // Called from the SellReconciler live tick with the wallet-truth held set.
+    @Volatile private var lastHealLogMs: Long = 0L
+    private fun healWalletHeldIntoLiveStore(heldMints: Set<String>) {
+        if (heldMints.isEmpty()) return
+        // Mints already represented as a LIVE open position in the store.
+        val liveOpen: Set<String> = try {
+            synchronized(status.tokens) {
+                status.tokens.values
+                    .filter { it.position.isOpen && !it.position.isPaperPosition }
+                    .map { it.mint }
+                    .toSet()
+            }
+        } catch (_: Throwable) { emptySet() }
+        val missing = heldMints.filter { it !in liveOpen }
+        if (missing.isEmpty()) return
+        var healed = 0
+        for (mint in missing) {
+            try {
+                val tracked = HostWalletTokenTracker.getEntry(mint)
+                val sym = tracked?.symbol?.takeIf { it.isNotBlank() } ?: mint.take(6)
+                val bal = tracked?.uiAmount ?: 0.0
+                if (bal <= 0.000001) continue   // dust / not really held
+                val ts = rehydrateTokenStateFromTracker(mint, sym, bal)
+                if (ts != null) {
+                    // ensure flagged open + live so the exit monitor/hotExit picks it up
+                    if (!ts.position.isOpen || ts.position.isPaperPosition) {
+                        synchronized(ts) {
+                            ts.position = ts.position.copy(isPaperPosition = false)
+                        }
+                    }
+                    healed++
+                }
+            } catch (e: Throwable) {
+                ErrorLogger.warn("BotService", "heal mint ${mint.take(10)} failed: ${e.message?.take(60)}")
+            }
+        }
+        if (healed > 0) {
+            val now = System.currentTimeMillis()
+            if (now - lastHealLogMs > 5_000L) {
+                lastHealLogMs = now
+                try {
+                    ForensicLogger.lifecycle(
+                        "LIVE_POSITION_AUTOHEAL",
+                        "walletHeld=${heldMints.size} liveOpenBefore=${liveOpen.size} missing=${missing.size} healed=$healed",
+                    )
+                } catch (_: Throwable) {}
+                try { ErrorLogger.warn("BotService", "♻️ LIVE_POSITION_AUTOHEAL healed=$healed orphan wallet bags into live store") } catch (_: Throwable) {}
+            }
         }
     }
 
@@ -9890,13 +10011,41 @@ class BotService : Service() {
         // isn't visible from this helper. Behaviour-preserving copy of
         // the same 15.0 hard floor.
         val HARD_FLOOR_STOP_PCT_CONST = 15.0
-        if (isInPaperSettleIn(ts, cfg.paperMode)) {
-            return false
-        }
         val catastropheThreshold = getCatastropheThreshold(cfg.paperMode)
         val peakGainPct = ts.position.peakGainPct
         val drawdownFromPeak = peakGainPct - pnlPct
         val giveBackTrigger = peakGainPct >= 20.0 && drawdownFromPeak >= 25.0
+
+        // V5.9.1521 — UNCONDITIONAL SAFETY MUST PRECEDE SETTLE-IN.
+        // ROOT CAUSE of "live/paper trading really poorly": the paper settle-in
+        // window returned FALSE on the very first line, bypassing BOTH the
+        // catastrophe band AND the -15% hard floor for the entire settle window
+        // (getFluidMinHoldMinutes can be several minutes). A token that rugged in
+        // its first minutes (operator screenshot: MORT -97.5%, Puffins -50.9%,
+        // both labelled "SL -20%") got ZERO stop protection and booked a near-total
+        // loss — exactly the WR/P&L killer. Doctrine rule: the -15% hard floor is
+        // UNCONDITIONAL for all open positions. So evaluate catastrophe + hard floor
+        // FIRST; settle-in may only suppress the softer adaptive/give-back paths.
+        if (pnlPct <= catastropheThreshold) {
+            ErrorLogger.warn("BotService", "🚨 RAPID STOP (CATASTROPHE): ${ts.symbol} at ${pnlPct.toInt()}%")
+            addLog("🛑 RAPID CATASTROPHE STOP: ${ts.symbol} ${pnlPct.toInt()}% | EXIT")
+            executor.requestSell(ts, "RAPID_CATASTROPHE_STOP", wallet, effectiveBalance)
+            TradeStateMachine.startCatastropheCooldown(ts.mint, pnlPct)
+            return true
+        }
+        if (pnlPct <= -HARD_FLOOR_STOP_PCT_CONST) {
+            ErrorLogger.warn("BotService", "🚨 RAPID STOP (HARD_FLOOR/unconditional): ${ts.symbol} at ${pnlPct.toInt()}% (peak=${peakGainPct.toInt()}%)")
+            addLog("🛑 RAPID HARD_FLOOR STOP: ${ts.symbol} ${pnlPct.toInt()}% | EXIT")
+            executor.requestSell(ts, "RAPID_HARD_FLOOR_STOP", wallet, effectiveBalance)
+            TradeStateMachine.startCooldown(ts.mint)
+            return true
+        }
+
+        // Settle-in only gates the SOFTER paths below (give-back / adaptive).
+        // The two unconditional safety bands above have already run.
+        if (isInPaperSettleIn(ts, cfg.paperMode)) {
+            return false
+        }
         return when {
             pnlPct <= catastropheThreshold -> {
                 ErrorLogger.warn("BotService", "🚨 RAPID STOP (CATASTROPHE): ${ts.symbol} at ${pnlPct.toInt()}%")

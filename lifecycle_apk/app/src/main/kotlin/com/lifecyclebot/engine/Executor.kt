@@ -1472,6 +1472,20 @@ class Executor(
 
     private fun blockIfSellInFlight(ts: TokenState, reason: String, tradeKey: String? = null): Boolean {
         val stateReason = HostWalletTokenTracker.sellBlockReason(ts.mint)
+        // V5.9.1522 — unconditional safety reasons PUNCH THROUGH a stale in-flight
+        // block. A -15% hard floor / catastrophe / rug exit must never wait behind
+        // a leaked SELL_BLOCKED_ALREADY_IN_PROGRESS (operator: positions bled to
+        // -50%/-97% while a prior sell attempt's lock was stuck). These reasons
+        // additionally clear the stale marker so the fresh stop proceeds now.
+        val rU = reason.uppercase()
+        val isUnconditionalSafety = rU.contains("HARD_FLOOR") || rU.contains("CATASTROPHE") ||
+            rU.contains("RUG") || rU.contains("DRAIN") || rU.contains("SHUTDOWN") || rU.contains("MANUAL")
+        if (stateReason != null && isUnconditionalSafety) {
+            try { HostWalletTokenTracker.clearSellInFlight(ts.mint, "PUNCH_THROUGH_$rU") } catch (_: Throwable) {}
+            try { com.lifecyclebot.engine.sell.SellExecutionLocks.release(ts.mint) } catch (_: Throwable) {}
+            try { ForensicLogger.lifecycle("SELL_INFLIGHT_PUNCH_THROUGH", "mint=${ts.mint.take(10)} symbol=${ts.symbol} reason=$reason staleState=$stateReason") } catch (_: Throwable) {}
+            return false   // allow the safety sell to proceed
+        }
         if (stateReason != null && !com.lifecyclebot.engine.sell.SellSafetyPolicy.isManualEmergency(reason)) {
             // V5.9.967 — z43-D SellSpamGuard: suppress duplicate blocked-log
             // floods. Higher-priority reasons (rug/manual/hard_stop) punch
@@ -4218,24 +4232,13 @@ class Executor(
             // (mirrors V5.9.468 outer-catch in liveSell). Was: onLog-only silent kill.
             val safe = security.sanitiseForLog(e.message ?: "unknown")
             val broadcastRetries = zeroBalanceRetries.merge(ts.mint + "_broadcast", 1) { old, _ -> old + 1 } ?: 1
-            val failureClass = when {
-                safe.contains("0x1788", ignoreCase = true) ||
-                safe.contains("0x1789", ignoreCase = true) ||
-                safe.contains("TooLittleSolReceived", ignoreCase = true) ||
-                safe.contains("Slippage", ignoreCase = true) -> "SLIPPAGE_EXCEEDED"
-                safe.contains("simulation failed", ignoreCase = true) -> "SIM_FAILED"
-                safe.contains("RFQ", ignoreCase = true) -> "RFQ_ROUTE_FAILED"
-                safe.contains("blockhash", ignoreCase = true) ||
-                safe.contains("expired", ignoreCase = true) -> "TX_EXPIRED"
-                safe.contains("rate limit", ignoreCase = true) ||
-                safe.contains("429", ignoreCase = true) -> "RATE_LIMITED"
-                safe.contains("timeout", ignoreCase = true) -> "TIMEOUT"
-                safe.contains("InsufficientFunds", ignoreCase = true) ||
-                safe.contains("insufficient lamports", ignoreCase = true) ||
-                safe.contains("rent", ignoreCase = true) -> "INSUFFICIENT_FUNDS"
-                safe.contains("buildSwapTx", ignoreCase = true) ||
-                safe.contains("transactionBase64", ignoreCase = true) -> "JUPITER_BUILD_FAILED"
-                else -> "BROADCAST_FAILED"
+            // V5.9.1522 — canonical classification (0x1788 is SIM, not generic slippage).
+            val routeCls = com.lifecyclebot.engine.sell.SellRouteErrorClassifier.classify(safe)
+            val routePolicy = com.lifecyclebot.engine.sell.SellRouteErrorClassifier.retryPolicy(routeCls, broadcastRetries, retryScheduled = false)
+            val failureClass = routeCls.name
+            if (routePolicy.releaseLock) {
+                try { com.lifecyclebot.engine.sell.SellExecutionLocks.release(ts.mint) } catch (_: Throwable) {}
+                try { com.lifecyclebot.engine.HostWalletTokenTracker.clearSellInFlight(ts.mint, "ROUTE_FAILED_" + routeCls.name) } catch (_: Throwable) {}
             }
             LiveTradeLogStore.log(
                 sellTradeKey, ts.mint, ts.symbol, "SELL",
@@ -9714,25 +9717,14 @@ class Executor(
                     val sellTradeKey2 = LiveTradeLogStore.keyFor(ts.mint, ts.position.entryTime)
                     val safe = security.sanitiseForLog(e.message ?: "unknown")
                     val broadcastRetries = zeroBalanceRetries.merge(ts.mint + "_broadcast_partial", 1) { old, _ -> old + 1 } ?: 1
-                    val failureClass = when {
-                        safe.contains("0x1788", ignoreCase = true) ||
-                        safe.contains("0x1789", ignoreCase = true) ||
-                        safe.contains("TooLittleSolReceived", ignoreCase = true) ||
-                        safe.contains("Slippage", ignoreCase = true) -> "SLIPPAGE_EXCEEDED"
-                        safe.contains("simulation failed", ignoreCase = true) -> "SIM_FAILED"
-                        safe.contains("RFQ", ignoreCase = true) -> "RFQ_ROUTE_FAILED"
-                        safe.contains("blockhash", ignoreCase = true) ||
-                        safe.contains("expired", ignoreCase = true) -> "TX_EXPIRED"
-                        safe.contains("rate limit", ignoreCase = true) ||
-                        safe.contains("429", ignoreCase = true) -> "RATE_LIMITED"
-                        safe.contains("timeout", ignoreCase = true) -> "TIMEOUT"
-                        safe.contains("InsufficientFunds", ignoreCase = true) ||
-                        safe.contains("insufficient lamports", ignoreCase = true) ||
-                        safe.contains("rent", ignoreCase = true) -> "INSUFFICIENT_FUNDS"
-                        safe.contains("buildSwapTx", ignoreCase = true) ||
-                        safe.contains("transactionBase64", ignoreCase = true) -> "JUPITER_BUILD_FAILED"
-                        else -> "BROADCAST_FAILED"
-                    }
+                    // V5.9.1522 — canonical classification (0x1788 is SIM, not generic slippage).
+            val routeCls = com.lifecyclebot.engine.sell.SellRouteErrorClassifier.classify(safe)
+            val routePolicy = com.lifecyclebot.engine.sell.SellRouteErrorClassifier.retryPolicy(routeCls, broadcastRetries, retryScheduled = false)
+            val failureClass = routeCls.name
+            if (routePolicy.releaseLock) {
+                try { com.lifecyclebot.engine.sell.SellExecutionLocks.release(ts.mint) } catch (_: Throwable) {}
+                try { com.lifecyclebot.engine.HostWalletTokenTracker.clearSellInFlight(ts.mint, "ROUTE_FAILED_" + routeCls.name) } catch (_: Throwable) {}
+            }
                     LiveTradeLogStore.log(
                         sellTradeKey2, ts.mint, ts.symbol, "SELL",
                         LiveTradeLogStore.Phase.SELL_FAILED,

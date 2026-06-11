@@ -151,6 +151,13 @@ object ForensicReportExporter {
                     liveOpenPositions = runtimeSnapshot?.liveOpenPositions ?: 0,
                     walletHeldMints = runtimeSnapshot?.walletHeldMints ?: 0,
                     canonicalOpenPositions = runtimeSnapshot?.canonicalOpenPositions ?: 0,
+                    // V5.9.1522 — live execution finalisation guard inputs
+                    orphanLivePositions = runtimeSnapshot?.orphanLivePositions ?: 0,
+                    reconcilerTotalTicks = try { com.lifecyclebot.engine.sell.SellReconciler.totalTicks } catch (_: Throwable) { 0L },
+                    sellJobsActive = try { com.lifecyclebot.engine.sell.SellJobRegistry.snapshot().size } catch (_: Throwable) { 0 },
+                    noSignatureLeakedLock = try { com.lifecyclebot.engine.sell.SellFailureHistory.hasLeakedNoSignatureLock() } catch (_: Throwable) { false },
+                    // grace: only assert orphan==0 once the reconciler has actually ticked a few times
+                    reconciliationGraceElapsed = try { com.lifecyclebot.engine.sell.SellReconciler.totalTicks >= 3L } catch (_: Throwable) { true },
                 )
             )
         } catch (_: Throwable) { emptyList() }

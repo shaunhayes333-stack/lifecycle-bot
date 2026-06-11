@@ -152,6 +152,11 @@ object HostWalletTokenTracker {
         var lastExitCheckMs: Long?,
 
         var activeSellAttemptId: String?,
+        // V5.9.1521 — wall-clock when the current sell attempt was signalled.
+        // Used by isSellInFlight's stale-TTL self-heal so a sell attempt that
+        // never cleared (failed swap / RPC timeout / restart mid-sell) cannot
+        // permanently block future stop-loss attempts on the same mint.
+        var sellAttemptStartedMs: Long = 0L,
         val notes: MutableList<String> = mutableListOf(),
         // V5.9.1496 — zero-balance close debounce. Spec: require 2 consecutive
         // zero-balance confirmations OR a confirmed sell signature before CLOSED,
@@ -377,6 +382,7 @@ object HostWalletTokenTracker {
             p.status = PositionStatus.EXIT_SIGNALLED
         }
         p.activeSellAttemptId = sellAttemptId
+        p.sellAttemptStartedMs = System.currentTimeMillis()   // V5.9.1521 — stale-TTL anchor
         emitForensic(LiveTradeLogStore.Phase.TOKEN_TRACKER_EXIT_SIGNALLED, mint, symbol, null,
             "Tracker EXIT_SIGNALLED ${symbol ?: mint.take(6)} reason=${reason ?: "?"}")
         save()
@@ -912,15 +918,57 @@ object HostWalletTokenTracker {
     fun snapshot(): List<TrackedTokenPosition> = positions.values.toList()
 
     /** V5.9.601: true when auto-sell must not start another executor job. */
+    /** V5.9.1521 — a sell attempt older than this is presumed dead. Any real
+     *  Jupiter/Raydium swap + verify completes well under this; beyond it the
+     *  in-flight state is a leak (failed swap, RPC timeout, restart mid-sell)
+     *  and MUST NOT keep blocking the unconditional -15% hard-floor stop. */
+    private const val SELL_IN_FLIGHT_STALE_MS = 90_000L
+
     fun isSellInFlight(mint: String): Boolean {
         if (mint.isBlank()) return false
         val p = positions[mint] ?: return false
-        return p.status in SELL_IN_FLIGHT_STATUSES || !p.activeSellAttemptId.isNullOrBlank()
+        val flagged = p.status in SELL_IN_FLIGHT_STATUSES || !p.activeSellAttemptId.isNullOrBlank()
+        if (!flagged) return false
+        // Stale-TTL self-heal: if the attempt was signalled long ago and never
+        // cleared, evict the leaked in-flight state so a fresh stop can fire.
+        val startedMs = p.sellAttemptStartedMs
+        if (startedMs > 0L && System.currentTimeMillis() - startedMs > SELL_IN_FLIGHT_STALE_MS) {
+            try {
+                ErrorLogger.warn(TAG,
+                    "♻️ [SELL_IN_FLIGHT_STALE] ${p.symbol ?: mint.take(6)} — attempt ${(System.currentTimeMillis()-startedMs)/1000}s old, evicting leaked in-flight block so stop-loss can re-fire")
+            } catch (_: Throwable) {}
+            // Roll status back to a non-in-flight state and clear the attempt id
+            // so the next requestSell proceeds. Wallet reconcile / verify watchdog
+            // will re-establish truth; we only unblock the SELL path here.
+            if (p.status in SELL_IN_FLIGHT_STATUSES) p.status = PositionStatus.OPEN_TRACKING
+            p.activeSellAttemptId = null
+            p.sellAttemptStartedMs = 0L
+            return false
+        }
+        return true
     }
 
     fun sellBlockReason(mint: String): String? {
         val p = positions[mint] ?: return null
         return if (isSellInFlight(mint)) "${p.status.name} attempt=${p.activeSellAttemptId ?: p.sellSignature ?: "?"}" else null
+    }
+
+    /** V5.9.1522 — explicitly clear an in-flight sell marker after a route
+     *  failure with no scheduled retry, so the next stop-loss attempt is not
+     *  blocked by a leaked SELL_BLOCKED_ALREADY_IN_PROGRESS. Rolls a sell-in-
+     *  flight status back to OPEN_TRACKING (truth is re-established by the next
+     *  wallet reconcile tick) and nulls the attempt id + timestamp. */
+    fun clearSellInFlight(mint: String, reason: String) {
+        val p = positions[mint] ?: return
+        val wasFlagged = p.status in SELL_IN_FLIGHT_STATUSES || !p.activeSellAttemptId.isNullOrBlank()
+        if (!wasFlagged) return
+        if (p.status in SELL_IN_FLIGHT_STATUSES) p.status = PositionStatus.OPEN_TRACKING
+        p.activeSellAttemptId = null
+        p.sellAttemptStartedMs = 0L
+        try {
+            ErrorLogger.warn(TAG, "♻️ [CLEAR_SELL_IN_FLIGHT] ${p.symbol ?: mint.take(6)} reason=$reason — lock cleared, stop can re-fire")
+        } catch (_: Throwable) {}
+        save()
     }
 
     fun getEntry(mint: String): TrackedTokenPosition? = positions[mint]

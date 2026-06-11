@@ -64,6 +64,12 @@ object SellReconciler {
     // close outcome to learning (so the close is trainable, not silently dropped).
     @Volatile private var onZeroClose: ((mint: String, symbol: String, sig: String?) -> Unit)? = null
 
+    // V5.9.1522 — POSITION AUTO-HEAL callback. Invoked each live tick with the
+    // set of mints the wallet actually holds. BotService rehydrates any held
+    // mint missing from the live position store (status.openPositions) so a
+    // wallet-held bag is never left without an exit monitor (orphanLivePositions).
+    @Volatile private var onHealWalletHeld: ((heldMints: Set<String>) -> Unit)? = null
+
     /** Total ticks executed since service start — surfaced for debugging. */
     @Volatile var totalTicks: Long = 0L
     /** Cumulative open positions inspected across all ticks. */
@@ -72,6 +78,26 @@ object SellReconciler {
     @Volatile var lastTickAtMs: Long = 0L
     /** V5.9.774 — true once a live-mode tick loop is active. Surfaced in forensics. */
     @Volatile var isStarted: Boolean = false
+
+    // V5.9.1522 — LIVE-MODE START PENDING. When start() is called in live mode
+    // before the wallet is ready, we no longer silently die: we record that a
+    // live start is owed and the botLoop P0 watchdog (ensureSellReconcilerAlive)
+    // re-invokes start() once the wallet exists. Without this, a live runtime
+    // that came up before wallet-connect left sellReconcilerStarted=false
+    // FOREVER while the wallet held positions — the exact SELL_RECONCILER_DEAD
+    // zombie (activeJobs>0, totalTicks=0) the operator reported.
+    @Volatile var pendingLiveStart: Boolean = false
+        private set
+
+    /** V5.9.1522 — zombie test: live, marked started, jobs exist, but the tick
+     *  loop never advanced. An illegal state the watchdog must force-restart. */
+    fun isLiveZombie(activeJobs: Int): Boolean =
+        !paperMode && (isStarted || pendingLiveStart) && activeJobs > 0 && totalTicks == 0L
+
+    /** V5.9.1522 — is a live reconciler genuinely alive (ticking)? */
+    fun isLiveAlive(): Boolean =
+        !paperMode && isStarted && (jobRef.get()?.isActive == true) &&
+            (totalTicks > 0L || (System.currentTimeMillis() - lastTickAtMs) < TICK_INTERVAL_MS * 3)
     /** V5.9.765 — count of consecutive ticks where a mint has price=0 so we
      *  can emit a PRICE_STALE_LIVE_POSITION anomaly after the second tick. */
     private val zeroPriceStreak = java.util.concurrent.ConcurrentHashMap<String, Int>()
@@ -86,11 +112,13 @@ object SellReconciler {
         hostWallet: SolanaWallet?,
         sellTrigger: ((mint: String, symbol: String, balance: Double) -> Unit)? = null,
         onZeroClose: ((mint: String, symbol: String, sig: String?) -> Unit)? = null,
+        onHealWalletHeld: ((heldMints: Set<String>) -> Unit)? = null,
     ) {
         paperMode = isPaperMode
         wallet = hostWallet
         this.sellTrigger = sellTrigger
         this.onZeroClose = onZeroClose
+        if (onHealWalletHeld != null) this.onHealWalletHeld = onHealWalletHeld
         loopScope = scope
         // Cancel any prior loop.
         jobRef.get()?.cancel()
@@ -105,11 +133,23 @@ object SellReconciler {
         // ORPHAN_RECONCILED. Real open sims are adopted (no-op). This keeps the
         // canonical paper book == the active sim book.
         if (hostWallet == null && !isPaperMode) {
-            // LIVE but no wallet yet — can't reconcile against chain; stay down.
+            // V5.9.1522 — LIVE but wallet not ready. DO NOT silently die. Latch a
+            // pending live-start so the botLoop watchdog re-invokes start() the
+            // moment the wallet connects. Previously this set isStarted=false and
+            // returned with no retry path → SELL_RECONCILER_DEAD for the session.
             isStarted = false
+            pendingLiveStart = true
             jobRef.set(null)
+            try {
+                ForensicLogger.lifecycle(
+                    "RECONCILER_START_DEFERRED",
+                    "paperMode=false walletPresent=false reason=wallet_not_ready latched=pendingLiveStart",
+                )
+            } catch (_: Throwable) {}
             return
         }
+        // Reaching here we have a usable wallet (or paper) → clear the latch.
+        pendingLiveStart = false
         if (isPaperMode) {
             val paperJob = scope.launch(Dispatchers.IO) {
                 isStarted = true
@@ -189,6 +229,15 @@ object SellReconciler {
                 "RECONCILER_TICK",
                 "tickCount=$totalTicks openTracked=${open.size} sellJobsActive=${SellJobRegistry.activeCount()}",
             )
+        } catch (_: Throwable) {}
+
+        // V5.9.1522 — POSITION AUTO-HEAL. Pull the wallet-truth held set and ask
+        // BotService to adopt any held mint missing from the live store. This is
+        // the cure for walletHeldMints>0 && liveOpenPositions==0 (orphan bags
+        // with no exit monitor). Cheap: getActuallyHeldMints reads the tracker map.
+        try {
+            val held = HostWalletTokenTracker.getActuallyHeldMints()
+            if (held.isNotEmpty()) onHealWalletHeld?.invoke(held)
         } catch (_: Throwable) {}
 
         if (open.isEmpty()) {

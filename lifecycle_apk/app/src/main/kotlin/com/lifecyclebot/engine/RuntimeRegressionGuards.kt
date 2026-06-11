@@ -28,6 +28,12 @@ object RuntimeRegressionGuards {
         val liveOpenPositions: Int = 0,
         val walletHeldMints: Int = 0,
         val canonicalOpenPositions: Int = 0,
+        // V5.9.1522 — live execution finalisation guards
+        val orphanLivePositions: Int = 0,
+        val reconcilerTotalTicks: Long = 0L,
+        val sellJobsActive: Int = 0,
+        val noSignatureLeakedLock: Boolean = false,
+        val reconciliationGraceElapsed: Boolean = true,
     )
 
     fun evaluate(input: Input): List<Check> {
@@ -73,6 +79,39 @@ object RuntimeRegressionGuards {
                 "forensics_events_present",
                 ok = !input.forensicLoggingOn || input.forensicsEvents > 0L,
                 detail = "forensicLoggingOn=${input.forensicLoggingOn} forensicsEvents=${input.forensicsEvents}",
+            ),
+            // ── V5.9.1522 LIVE EXECUTION FINALISATION GUARDS ──
+            Check(
+                "live_reconciler_mandatory",
+                // live + active + wallet holds mints ⇒ reconciler MUST be started
+                ok = !input.runtimeActive || input.walletHeldMints == 0 || input.sellReconcilerStarted,
+                detail = "runtimeActive=${input.runtimeActive} walletHeld=${input.walletHeldMints} reconcilerStarted=${input.sellReconcilerStarted}",
+            ),
+            Check(
+                "wallet_canonical_parity",
+                ok = input.walletHeldMints == input.canonicalOpenPositions,
+                detail = "walletHeld=${input.walletHeldMints} canonical=${input.canonicalOpenPositions}",
+            ),
+            Check(
+                "live_store_not_empty_when_wallet_held",
+                ok = !(input.walletHeldMints > 0 && input.liveOpenPositions == 0),
+                detail = "walletHeld=${input.walletHeldMints} liveOpen=${input.liveOpenPositions}",
+            ),
+            Check(
+                "no_reconciler_zombie",
+                // activeJobs>0 with totalTicks==0 is an illegal zombie state
+                ok = !(input.sellJobsActive > 0 && input.reconcilerTotalTicks == 0L && input.runtimeActive && input.liveOpenPositions + input.walletHeldMints > 0),
+                detail = "sellJobsActive=${input.sellJobsActive} reconcilerTotalTicks=${input.reconcilerTotalTicks}",
+            ),
+            Check(
+                "no_orphan_live_after_grace",
+                ok = !input.reconciliationGraceElapsed || input.orphanLivePositions == 0,
+                detail = "orphanLive=${input.orphanLivePositions} graceElapsed=${input.reconciliationGraceElapsed}",
+            ),
+            Check(
+                "no_signature_lock_cleared",
+                ok = !input.noSignatureLeakedLock,
+                detail = "noSignatureLeakedLock=${input.noSignatureLeakedLock}",
             ),
         )
     }
