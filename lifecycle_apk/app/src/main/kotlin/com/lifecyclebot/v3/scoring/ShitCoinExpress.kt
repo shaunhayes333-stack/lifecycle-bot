@@ -893,6 +893,17 @@ object ShitCoinExpress {
     }
     
     fun hasRide(mint: String): Boolean = activeRides.containsKey(mint)
+
+    /**
+     * V5.9.1498 — GHOST EVICTION. Drop a stale ride whose position is already
+     * closed elsewhere (close ledger CLOSED) so it stops being re-emitted into
+     * forcedOpen every cycle and permanently parking entry admission. Pure map
+     * removal: NO PnL, NO learning — the real sell path already recorded the
+     * outcome (that is precisely why this mint is a ghost). Returns true if it
+     * removed something.
+     */
+    fun evictGhost(mint: String): Boolean =
+        synchronized(activeRides) { activeRides.remove(mint) != null }
     
     /**
      * V5.9.705 — Reduce sub-trader tracked entrySol after a confirmed partial sell.

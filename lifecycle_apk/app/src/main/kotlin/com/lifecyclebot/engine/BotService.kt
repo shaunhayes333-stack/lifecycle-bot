@@ -12519,6 +12519,15 @@ if (hotExitHandledSweep) {
             for (m in reaped) {
                 try { com.lifecyclebot.engine.Executor.releasePaperSellLock(m) } catch (_: Throwable) {}
                 try { supervisorForceReleaseLeaseAndCancel(m, "GHOST_REAP") } catch (_: Throwable) {}
+                // V5.9.1498 — ROOT-CAUSE: evict the stale entry from the sub-trader
+                // stores so getActivePositions()/getActiveDips()/getActiveRides()
+                // stop re-emitting it into forcedOpenRaw next cycle. WITHOUT this,
+                // a closed mint is reaped (lease released) but immediately re-added
+                // from the store on the very next cycle → ghost>0 forever → every
+                // buy defers (the 6h-dead park). Pure map removal, no PnL/learning.
+                try { com.lifecyclebot.v3.scoring.BlueChipTraderAI.evictGhost(m) } catch (_: Throwable) {}
+                try { com.lifecyclebot.v3.scoring.DipHunterAI.evictGhost(m) } catch (_: Throwable) {}
+                try { com.lifecyclebot.v3.scoring.ShitCoinExpress.evictGhost(m) } catch (_: Throwable) {}
             }
         }
         // Stash the clean list + live set so publishSlotHealth counts the SAME truth.

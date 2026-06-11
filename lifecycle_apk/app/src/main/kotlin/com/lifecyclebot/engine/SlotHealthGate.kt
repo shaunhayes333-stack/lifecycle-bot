@@ -30,6 +30,14 @@ object SlotHealthGate {
     private val supervisorCap = AtomicInteger(48)
     private val exitPending = AtomicBoolean(false)
     private val lastPublishMs = AtomicLong(0L)
+    // V5.9.1498 — ghost-defer aging. A persistent ghost count must NEVER park
+    // the bot indefinitely (operator: 6h dead with ghosts dominating). We DEFER
+    // while ghosts are fresh (gives the reaper a chance), but FAIL-OPEN once the
+    // ghost condition has been continuously stuck past GHOST_DEFER_GRACE_MS — at
+    // that point the reaper is clearly not clearing them and starving entries is
+    // worse than running with a few stale slots. Mirrors the FDG fail-open rule.
+    private val ghostStuckSinceMs = AtomicLong(0L)
+    private const val GHOST_DEFER_GRACE_MS = 60_000L  // 1 min of deferring, then fail-open
 
     // Thresholds straight from the spec.
     private const val FORCED_OPEN_DIRTY = 20
@@ -49,6 +57,12 @@ object SlotHealthGate {
         supervisorCap.set(supCap.coerceAtLeast(1))
         exitPending.set(exitInFlight)
         lastPublishMs.set(System.currentTimeMillis())
+        // V5.9.1498 — track how long ghosts have been continuously > 0.
+        if (ghostOpen > 0) {
+            ghostStuckSinceMs.compareAndSet(0L, System.currentTimeMillis())
+        } else {
+            ghostStuckSinceMs.set(0L)
+        }
     }
 
     data class DeferDecision(val defer: Boolean, val reason: String)
@@ -63,8 +77,21 @@ object SlotHealthGate {
         if (System.currentTimeMillis() - lastPublishMs.get() > 15_000L) {
             return DeferDecision(false, "stale_snapshot_fail_open")
         }
-        if (ghostOpenCount.get() > 0) {
-            return DeferDecision(true, "GHOST_OPEN=${ghostOpenCount.get()}")
+        // V5.9.1498 — AGING GHOST DEFER (fail-open). Defer while ghosts are fresh
+        // so the reaper can catch up, but never permanently. Once the ghost
+        // condition has been continuously stuck past the grace window, fail-open:
+        // the reaper is not clearing them and parking all entries (the 6h-dead
+        // failure mode) is far worse than trading with a few stale slots. Exits
+        // and the -15% hard floor are unaffected.
+        val ghosts = ghostOpenCount.get()
+        if (ghosts > 0) {
+            val stuckSince = ghostStuckSinceMs.get()
+            val stuckMs = if (stuckSince > 0L) System.currentTimeMillis() - stuckSince else 0L
+            if (stuckMs <= GHOST_DEFER_GRACE_MS) {
+                return DeferDecision(true, "GHOST_OPEN=$ghosts(stuck=${stuckMs}ms)")
+            }
+            // Grace exceeded → fail-open so entries resume; reaper keeps working.
+            return DeferDecision(false, "GHOST_OPEN=${ghosts}_FAIL_OPEN_stuck=${stuckMs}ms")
         }
         if (forcedOpenCount.get() > FORCED_OPEN_DIRTY) {
             return DeferDecision(true, "FORCED_OPEN=${forcedOpenCount.get()}>$FORCED_OPEN_DIRTY")

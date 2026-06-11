@@ -280,6 +280,18 @@ object BlueChipTraderAI {
     private val activePositions: ConcurrentHashMap<String, BlueChipPosition>
         get() = if (isPaperMode) paperPositions else livePositions
     
+    /**
+     * V5.9.1498 — GHOST EVICTION. Pure map removal from BOTH live and paper maps
+     * for a mint already closed elsewhere (close ledger CLOSED). No PnL / no
+     * learning — the real close already recorded the outcome. Stops the ghost
+     * being re-emitted into forcedOpen and permanently parking entry admission.
+     */
+    fun evictGhost(mint: String): Boolean {
+        val a = synchronized(livePositions) { livePositions.remove(mint) != null }
+        val b = synchronized(paperPositions) { paperPositions.remove(mint) != null }
+        return a || b
+    }
+
     fun getActivePositions(): List<BlueChipPosition> {
         // V5.9.218: Auto-purge zombie positions (held > 2x MAX_HOLD_MINUTES with no monitor)
         val now = System.currentTimeMillis()

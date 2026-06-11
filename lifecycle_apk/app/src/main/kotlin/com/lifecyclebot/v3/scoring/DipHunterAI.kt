@@ -121,6 +121,15 @@ object DipHunterAI {
     
     // Track tokens we've already dip-bought
     private val recentDips = ConcurrentHashMap<String, Long>()
+
+    /**
+     * V5.9.1498 — GHOST EVICTION. Pure map removal of a stale dip whose position
+     * is already closed (close ledger CLOSED). No PnL / no learning — the real
+     * exit already recorded it; this only stops the ghost being re-emitted into
+     * forcedOpen and parking entries. Returns true if it removed something.
+     */
+    fun evictGhost(mint: String): Boolean =
+        synchronized(activeDips) { activeDips.remove(mint) != null }
     
     // ═══════════════════════════════════════════════════════════════════════════
     // DATA CLASSES
