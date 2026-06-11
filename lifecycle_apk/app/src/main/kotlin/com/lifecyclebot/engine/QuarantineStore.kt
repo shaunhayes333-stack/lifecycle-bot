@@ -42,6 +42,21 @@ object QuarantineStore {
     private val suppressWindow = java.util.concurrent.ConcurrentLinkedDeque<Long>()
     private const val SUPPRESS_WINDOW_MS = 60_000L
 
+    // V5.9.1508 — TRANSIENT-REASON TTL (root fix for "watchlist purged=803 kept=0,
+    // same tokens cycling"). ZERO_LIQUIDITY is a TRANSIENT fault: fresh pump.fun /
+    // Raydium mints report liq=0 for the first seconds before DexScreener indexes
+    // the pool. The old isQuarantined() was permanent (entries.containsKey), so a
+    // mint quarantined at intake for a momentary zero-liq read was skipped FOREVER
+    // by the pre-lane purge — collapsing the entire 803-token work set to kept=0
+    // and starving every lane. We expire ONLY transient reasons after a short
+    // cooldown so the token re-enters and gets re-evaluated against fresh liquidity.
+    // FACTUAL POISON (blacklist/ban/rug) stays PERMANENT — the veto whitelist is
+    // untouched.
+    private const val TRANSIENT_QUARANTINE_TTL_MS = 90_000L  // 90s — re-check once liq indexes
+    private val TRANSIENT_REASON_PREFIXES = listOf("ZERO_LIQUIDITY", "RESTORE_ZERO_LIQUIDITY", "RESTORE_NO_MARKET")
+    private fun isTransientReason(reason: String): Boolean =
+        TRANSIENT_REASON_PREFIXES.any { reason.startsWith(it) }
+
     fun quarantine(mint: String, symbol: String = "", reason: String): Verdict {
         if (mint.isBlank()) return Verdict(false)
         val now = System.currentTimeMillis()
@@ -82,7 +97,18 @@ object QuarantineStore {
         hasExternalLiquidityProof: Boolean = true,
     ): Verdict {
         if (mint.isBlank()) return Verdict(false)
-        entries[mint]?.let { return quarantine(mint, symbol, it.reason) }
+        // V5.9.1508 — respect the transient TTL here too. Without this, a mint
+        // whose zero-liq entry has aged past the TTL would be re-quarantined on
+        // the spot from the STALE entry (this short-circuit runs before the fresh
+        // liquidity check below), defeating the re-evaluation. Permanent poison
+        // still short-circuits immediately.
+        entries[mint]?.let { e ->
+            if (!isTransientReason(e.reason)) return quarantine(mint, symbol, e.reason)
+            val age = System.currentTimeMillis() - e.lastSeenMs
+            if (age < TRANSIENT_QUARANTINE_TTL_MS) return quarantine(mint, symbol, e.reason)
+            // aged out → drop stale entry and fall through to a fresh evaluation
+            entries.remove(mint, e)
+        }
 
         val src = source.uppercase()
         val liqKnown = !liquidityUsd.isNaN()
@@ -108,7 +134,20 @@ object QuarantineStore {
         return Verdict(false)
     }
 
-    fun isQuarantined(mint: String): Boolean = entries.containsKey(mint)
+    fun isQuarantined(mint: String): Boolean {
+        val e = entries[mint] ?: return false
+        // Factual poison (blacklist/ban/rug/etc) — permanent veto, never expires.
+        if (!isTransientReason(e.reason)) return true
+        // Transient (zero-liq) — expire after cooldown so the mint re-enters the
+        // work set and is re-evaluated against fresh liquidity. Drop the stale
+        // entry so a clean re-eval can re-quarantine ONLY if it's still poison.
+        val age = System.currentTimeMillis() - e.lastSeenMs
+        if (age >= TRANSIENT_QUARANTINE_TTL_MS) {
+            entries.remove(mint, e)
+            return false
+        }
+        return true
+    }
     fun reason(mint: String): String? = entries[mint]?.reason
     fun suppressedCount(): Long = suppressedTotal.get()
     /** V5.9.1339 — suppressions in the trailing SUPPRESS_WINDOW_MS, pruned lazily.
