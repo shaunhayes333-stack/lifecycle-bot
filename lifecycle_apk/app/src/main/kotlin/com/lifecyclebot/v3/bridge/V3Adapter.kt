@@ -393,7 +393,21 @@ object V3Adapter {
         // is "pending", NOT "zero". Only assert zeroHolders once
         // holderDataResolved=true AND the resolved count is 0.
         extras["zeroHolders"] = ts.holderDataResolved && ts.peakHolderCount <= 0
-        extras["pureSellPressure"] = meta.pressScore < 20.0
+        // V5.9.1512 — ROOT FIX: "pureSellPressure" false-positive on fresh launches.
+        // Snapshot showed V3_FATAL_EARLY_RETURN=773 (the single biggest killer),
+        // every fresh PUMP launch dying EXTREME_RUG_RISK_100. RugModel stacks +25
+        // risk for pureSellPressure; on a sub-2-minute launch the orderflow feed
+        // hasn't resolved so meta.pressScore=0 ("balanced (0%)" in logs), and the
+        // old `pressScore < 20.0` treated that UNINITIALISED zero as the most
+        // bearish possible signal — slandering every fresh mint as a pure-dump and
+        // shoving its risk to the 100 ceiling. DataOrchestrator itself defaults
+        // genuine no-data to 50.0 (neutral, line 423: `else 50.0`), so a literal
+        // 0.0 here means "feed not resolved yet", NOT "100% sellers".
+        // Same data-pending vs confirmed-zero distinction already applied to
+        // zeroHolders above. Only assert pureSellPressure when there is REAL
+        // pressure data: a low-but-nonzero reading (genuine sell skew), never the
+        // uninitialised 0.0. Train-First doctrine: pending data must reach FDG.
+        extras["pureSellPressure"] = meta.pressScore in 0.01..20.0
         extras["unsellableSignal"] = safety.isBlocked
 
         extras["suspiciousName"] =
