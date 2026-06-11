@@ -95,6 +95,16 @@ object LiveBuyAdmissionGate {
         // priority fees. Scanners/watchlist keep running (this gate only governs
         // BUY admission), so we lose no discovery; we simply prioritise finishing
         // the open close(s) first. Self-clears the instant the lease releases.
+        // V5.9.1533 — SELL-ONLY SAFE MODE (spec item 1) is the FIRST authority. It
+        // hard-blocks new live buys whenever pending sells, orphan live positions,
+        // provider backoff, a worker-timeout storm, host/store open-count mismatch,
+        // closed-with-nondust balance, or a stale live-price exit storm is present.
+        // This supersedes the narrower close-pending pause below.
+        val safeModeReason = try { com.lifecyclebot.engine.sell.SellOnlySafeMode.blockLiveBuyReason() } catch (_: Throwable) { null }
+        if (safeModeReason != null) {
+            return Decision.Blocked("SELL_ONLY_SAFE_MODE", safeModeReason)
+        }
+
         val pendingCloses = try { com.lifecyclebot.engine.sell.CloseLease.activeLeaseCount() } catch (_: Throwable) { 0 }
         if (pendingCloses > 0) {
             return Decision.Blocked("CLOSE_PENDING_BUY_PAUSE",

@@ -112,6 +112,26 @@ data class RuntimeStateSnapshot(
                     lastError = s.lastErrorMessage.get() ?: "",
                 )
             }
+            // V5.9.1533 — feed SELL-ONLY SAFE MODE the canonical signals each tick so
+            // it can gate new live buys when the runtime is unhealthy (spec item 1+9).
+            try {
+                val activeJobs = try { com.lifecyclebot.engine.sell.SellJobRegistry.snapshot().size } catch (_: Throwable) { 0 }
+                val pendingSell = try { com.lifecyclebot.engine.sell.CloseLease.activeLeaseCount() } catch (_: Throwable) { 0 }
+                val workerTimeouts = try { (pipe.labelCounts["LIFECYCLE/SUPERVISOR_WORKER_TIMEOUT"] ?: 0L).toInt() } catch (_: Throwable) { 0 }
+                val closedNonDust = try { com.lifecyclebot.engine.HostWalletTokenTracker.closeAuthorityAudit().closedWithNonDustBalance } catch (_: Throwable) { 0 }
+                val staleExit = try { com.lifecyclebot.engine.sell.StalePriceExitGuard.anyActive() } catch (_: Throwable) { false }
+                com.lifecyclebot.engine.sell.SellOnlySafeMode.updateSignals(
+                    pendingSellQueue = pendingSell,
+                    activeJobs = activeJobs,
+                    workerTimeoutCount = workerTimeouts,
+                    orphanLive = orphanLive,
+                    hostOpen = hostOpen,
+                    storeOpen = positionStoreOpen,
+                    closedNonDust = closedNonDust,
+                    staleLivePriceExit = staleExit,
+                )
+            } catch (_: Throwable) {}
+
             return RuntimeStateSnapshot(
                 buildVersion = try { com.lifecyclebot.BuildConfig.VERSION_NAME } catch (_: Throwable) { "unknown" },
                 // V5.9.1170 — never call PipelineHealthCollector.dumpText() from

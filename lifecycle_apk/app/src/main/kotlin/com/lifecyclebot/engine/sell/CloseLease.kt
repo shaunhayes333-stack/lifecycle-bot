@@ -38,6 +38,14 @@ object CloseLease {
         @Volatile var lastTouchMs: Long,
         @Volatile var closeAttemptCount: Int,
         @Volatile var lastCloseFailureCode: String?,
+        // V5.9.1533 — single-flight backoff (spec item 3). A released-or-retrying
+        // lease must NOT instantly re-enter the same failed route. nextEligibleMs is
+        // an absolute wallclock gate per mint; exit callers skip cheaply until then.
+        @Volatile var nextEligibleMs: Long = 0L,
+        @Volatile var lastErrorClass: String = "",
+        // Intent priority: a more urgent exit reason may RAISE priority without
+        // spawning a second worker. Higher = more urgent (RUG=100, SL=80, TP=40…).
+        @Volatile var intentPriority: Int = 0,
     )
 
     private val leases = ConcurrentHashMap<String, Lease>()
@@ -99,6 +107,62 @@ object CloseLease {
                 "originalExitReason=${l.originalExitReason}")
         } catch (_: Throwable) {}
         return l.closeAttemptCount
+    }
+
+    /**
+     * V5.9.1533 — per-mint exponential backoff keyed by error class (spec item 3 + 7).
+     * Jupiter 503/429, Pump 0x1787, etc. each get their own escalating cooldown so a
+     * release never re-enters the same dead route on the next tick. Caps at 60s.
+     */
+    fun scheduleBackoff(mint: String, errorClass: String): Long {
+        val l = current(mint) ?: return 0L
+        l.lastErrorClass = errorClass
+        val attempt = l.closeAttemptCount.coerceAtLeast(1)
+        // 2s, 4s, 8s, 16s, 32s, 60s cap — provider/error aware.
+        val base = when {
+            errorClass.contains("503") || errorClass.contains("429") || errorClass.contains("BACKOFF") -> 4_000L
+            errorClass.contains("0x1787") || errorClass.contains("PUMP_ROUTE_INVALID") -> 6_000L
+            errorClass.contains("JITO") -> 1_500L
+            else -> 2_000L
+        }
+        val delay = (base * (1L shl (attempt - 1).coerceIn(0, 5))).coerceAtMost(60_000L)
+        l.nextEligibleMs = System.currentTimeMillis() + delay
+        l.lastTouchMs = System.currentTimeMillis()
+        try {
+            ForensicLogger.lifecycle("SELL_BACKOFF_SCHEDULED",
+                "mint=${mint.take(10)} errorClass=$errorClass attempt=$attempt delayMs=$delay nextEligibleMs=${l.nextEligibleMs}")
+        } catch (_: Throwable) {}
+        return delay
+    }
+
+    /** True if this mint is currently in a backoff cooldown (caller should skip cheaply). */
+    fun inBackoff(mint: String): Boolean {
+        val l = current(mint) ?: return false
+        return System.currentTimeMillis() < l.nextEligibleMs
+    }
+
+    fun msUntilEligible(mint: String): Long {
+        val l = current(mint) ?: return 0L
+        return (l.nextEligibleMs - System.currentTimeMillis()).coerceAtLeast(0L)
+    }
+
+    /**
+     * Update intent priority WITHOUT spawning a second worker (spec item 3). A new,
+     * more-urgent exit reason raises priority on the existing lease; returns true if
+     * raised. The active worker reads intentPriority to escalate slippage/route.
+     */
+    fun raiseIntent(mint: String, reason: String, priority: Int): Boolean {
+        val l = current(mint) ?: return false
+        if (priority > l.intentPriority) {
+            l.intentPriority = priority
+            l.lastTouchMs = System.currentTimeMillis()
+            try {
+                ForensicLogger.lifecycle("SELL_INTENT_RAISED",
+                    "mint=${mint.take(10)} newReason=$reason priority=$priority (no new worker)")
+            } catch (_: Throwable) {}
+            return true
+        }
+        return false
     }
 
     fun release(mint: String, terminal: String) {

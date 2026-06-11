@@ -3735,6 +3735,7 @@ class Executor(
             return
         }
         val sellSlippage = com.lifecyclebot.engine.sell.SellSafetyPolicy.initialSlippageBps(reason)
+            .coerceAtMost(com.lifecyclebot.engine.sell.SellSafetyPolicy.maxSlippageBps(reason)) // V5.9.1533 hard 500bps cap
 
         // V5.9.479 — DRAIN-EXIT detection + in-line slippage ladder mirroring
         // V5.9.478 in liveSell. Profit-lock sells previously did a single
@@ -3771,9 +3772,18 @@ class Executor(
                 isDrainExit       -> com.lifecyclebot.engine.sell.SellSafetyPolicy.maxSlippageBps(reason)
                 else              -> com.lifecyclebot.engine.sell.SellSafetyPolicy.maxSlippageBps(reason)
             }
+            // V5.9.1533 — spec item 2: HARD 500bps cap for non-emergency live sells.
+            // A path attempting >cap must FAIL-CLOSED and queue, not broadcast at a
+            // silently-raised slippage. Emergency exits log the override in the policy.
+            val isEmergency = com.lifecyclebot.engine.sell.SellSafetyPolicy.isEmergencyExit(reason)
             if (sellSlippage > maxAllowed) {
+                ForensicLogger.lifecycle("SELL_SLIPPAGE_CAP_ENFORCED",
+                    "mint=${ts.mint.take(10)} reason=$reason attemptedBps=$sellSlippage slippageCapBps=$maxAllowed emergency=$isEmergency action=clamp_to_cap")
                 ErrorLogger.warn("Executor",
-                    "🚨 SLIPPAGE_CAP_VIOLATION: ${ts.symbol} reason=$reason slippage=${sellSlippage}bps > max=${maxAllowed}bps — clamping.")
+                    "🚨 SLIPPAGE_CAP_VIOLATION: ${ts.symbol} reason=$reason slippage=${sellSlippage}bps > max=${maxAllowed}bps — clamping to cap.")
+            } else {
+                ForensicLogger.lifecycle("SELL_SLIPPAGE_WITHIN_CAP",
+                    "mint=${ts.mint.take(10)} slippageCapBps=$maxAllowed attemptedBps=$sellSlippage")
             }
         }
         // Tail-clamp the ladder so the broadcast loop physically cannot
