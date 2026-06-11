@@ -289,8 +289,29 @@ object CanonicalOutcomeNormalizer {
      * Operator spec item 2 — block bad labels before learning.
      * Returns null to REJECT the outcome (counted in rejectedBadLabels).
      */
+    // V5.9.1514 — P0 FIX 2: three-class outcome separation. An untrainable row
+    // is not necessarily a BAD LABEL. Two populations were conflated into
+    // rejectedBadLabels:
+    //   • EXECUTION-ONLY: trade really happened but lacks strategy context
+    //     (no lane, or a recoverable-but-missing accounting field). May still
+    //     train route/slippage learners; MUST NOT inflate the "dirty data"
+    //     alarm. → executionOnlyOutcomes.
+    //   • BAD-LABEL: contradictory / stale / fabricated rows (invalid partial
+    //     accounting, negative proceeds, phantom-after-terminal, unverifiable
+    //     extreme). Genuinely corrupt. → rejectedBadLabels.
+    // Both stay isTrainable=false (never tune strategy); only the corrupt class
+    // trips rejectedBadLabels.
+    private val EXECUTION_ONLY_REASONS = setOf(
+        "UNKNOWN_LANE", "MISSING_EXIT_PRICE", "MISSING_COST_BASIS", "WIN_WITHOUT_EXIT"
+    )
     private fun invalid(raw: CanonicalTradeOutcome, reason: String): CanonicalTradeOutcome {
-        CanonicalLearningCounters.rejectedBadLabels.incrementAndGet()
+        // Only the CORRUPT class trips rejectedBadLabels. Execution-only rows
+        // (no lane / recoverable-missing accounting) are left to fall through to
+        // bumpCounters(), which already routes every isTrainable=false outcome to
+        // executionOnlyOutcomes — incrementing it here too would double-count.
+        if (reason !in EXECUTION_ONLY_REASONS) {
+            CanonicalLearningCounters.rejectedBadLabels.incrementAndGet()
+        }
         return raw.copy(isTrainable = false, invalidReason = reason)
     }
 
