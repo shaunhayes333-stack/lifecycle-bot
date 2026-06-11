@@ -901,11 +901,26 @@ object HostWalletTokenTracker {
             val cur = p.currentPriceUsd ?: 0.0
             if (entry > 0.0 && cur > 0.0) (((cur - entry) / entry) * 100.0).toInt() else 0
         } catch (_: Throwable) { 0 }
+        // V5.9.1526 — route reconciler close through the authority. Here the
+        // wallet balance is conclusively zero (this branch only runs on a real
+        // zero read with >=2 confirms or a confirmed sig). If we hold a sell
+        // signature this is a true sold-close; otherwise it's an explicit
+        // zero-balance reap (tokens gone by other means) — tagged distinctly so
+        // the regression guard does not flag it as a "CLOSED without signature".
         try {
-            val cid = com.lifecyclebot.engine.PositionCloseLedger.markClosed(mint, "RECONCILER_ZERO_$reason", pnlPct)
+            val cid = if (hasConfirmedSellSig) {
+                com.lifecyclebot.engine.sell.CanonicalCloseAuthority.evaluate(
+                    mint = mint, symbol = p.symbol ?: "?",
+                    sellSignature = p.sellSignature, signatureConfirmed = true,
+                    walletBalanceUi = 0.0, reason = "RECONCILER_ZERO_$reason", pnlPct = pnlPct,
+                ).closeId ?: com.lifecyclebot.engine.PositionCloseLedger.markClosed(mint, "RECONCILER_ZERO_$reason", pnlPct)
+            } else {
+                // No sig — explicit reap of a genuinely empty wallet slot.
+                com.lifecyclebot.engine.PositionCloseLedger.markClosed(mint, "RECONCILER_REAP_NOSIG_$reason", pnlPct)
+            }
             ForensicLogger.lifecycle(
                 "POSITION_CLOSE_LEDGER_STAMPED",
-                "mint=${mint.take(10)} closeId=$cid reason=RECONCILER_ZERO_$reason source=reconciler",
+                "mint=${mint.take(10)} closeId=$cid reason=RECONCILER_ZERO_$reason source=reconciler sig=${if (hasConfirmedSellSig) "yes" else "reap"}",
             )
         } catch (_: Throwable) {}
         emitForensic(LiveTradeLogStore.Phase.POSITION_COUNT_RECONCILED, mint, p.symbol, p.sellSignature,
@@ -915,6 +930,39 @@ object HostWalletTokenTracker {
     }
 
     /** Snapshot of every tracked position (open + closed) — diagnostics. */
+    /**
+     * V5.9.1526 — close-authority audit for the regression guard. Scans tracker
+     * records for invariant violations:
+     *  - closedWithNonDustBalance: a CLOSED/SOLD position still holding > dust
+     *  - closedWithoutSig: a CLOSED-by-sell position with no sell signature
+     *    (CLOSED_EXTERNALLY_MANUAL_SWAP and reaps are excluded — they are not
+     *     sell-claimed closes)
+     *  - duplicateOpenMints: should always be 0 (map is keyed by mint) — kept
+     *    as a defensive sentinel in case a future store-merge regresses.
+     */
+    data class CloseAudit(
+        val closedWithNonDustBalance: Int,
+        val closedWithoutSig: Int,
+        val duplicateOpenMints: Int,
+    )
+    fun closeAuthorityAudit(): CloseAudit {
+        var nonDust = 0
+        var noSig = 0
+        val seenOpen = HashSet<String>()
+        var dupOpen = 0
+        for (p in positions.values) {
+            val isClosedStatus = p.status == PositionStatus.CLOSED ||
+                p.status == PositionStatus.CLOSED_SOLD_BY_AATE
+            if (isClosedStatus && p.uiAmount > 0.000001) nonDust++
+            // sell-claimed close (AATE sold it) must carry a signature
+            if (p.status == PositionStatus.CLOSED_SOLD_BY_AATE && p.sellSignature.isNullOrBlank()) noSig++
+            if (p.status in OPEN_STATUSES) {
+                if (!seenOpen.add(p.mint)) dupOpen++
+            }
+        }
+        return CloseAudit(nonDust, noSig, dupOpen)
+    }
+
     fun snapshot(): List<TrackedTokenPosition> = positions.values.toList()
 
     /** V5.9.601: true when auto-sell must not start another executor job. */

@@ -231,6 +231,12 @@ class BrainNetworkView @JvmOverloads constructor(
         repeatCount = ValueAnimator.INFINITE
         interpolator = LinearInterpolator()
         addUpdateListener {
+            // V5.9.1526 (spec item 9) — STRUCTURAL: this view is purely
+            // decorative. While the bot is actively trading, yield the main
+            // thread entirely — no pulse math, no invalidate. Trading-loop UI
+            // (open positions, runtime bar, exits) must never compete with a
+            // neural-pulse animation. Resumes automatically when trading idles.
+            if (com.lifecyclebot.ui.BrainNetworkView.botTradingHot()) return@addUpdateListener
             animationPhase = (animationPhase + 0.02f) % 1f
             brainPulsePhase = (brainPulsePhase + 0.015f) % 1f
             updatePulses()
@@ -904,5 +910,15 @@ class BrainNetworkView @JvmOverloads constructor(
             labelPaint.color = 0xFF888888.toInt()
             canvas.drawText("→ $levelProgress%", cx, cy + brainRadius * 0.62f, labelPaint)
         }
+    }
+
+    companion object {
+        /** V5.9.1526 (spec item 9) — true when the bot runtime is actively
+         *  trading. The decorative neural animation freezes while this is true
+         *  so it never steals main-thread time from trading-loop UI (open
+         *  positions, runtime bar, exit rendering). Cheap, fail-safe read. */
+        fun botTradingHot(): Boolean = try {
+            com.lifecyclebot.engine.BotService.isRuntimeActive()
+        } catch (_: Throwable) { false }
     }
 }

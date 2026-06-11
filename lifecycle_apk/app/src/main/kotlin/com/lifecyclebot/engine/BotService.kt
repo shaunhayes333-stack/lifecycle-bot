@@ -10950,7 +10950,11 @@ class BotService : Service() {
                                                 "reason=${sell.reason} | tokens STILL in wallet, NOT fake-closed")
                                         }
                                         addLog("Retrying sell: ${sell.symbol} (attempt ${sell.retryCount + 1})")
-                                        executor.requestSell(ts, "PENDING_RETRY_${sell.retryCount}: ${sell.reason}", wallet, wallet!!.getSolBalance())
+                                        // V5.9.1526 (spec item 4) — strip any existing PENDING_RETRY_N: prefix so
+                                        // reasons never nest (PENDING_RETRY_1:PENDING_RETRY_1:...). One
+                                        // canonical base reason, one retry counter.
+                                        val baseReason = sell.reason.replace(Regex("^(PENDING_RETRY_\\d+:\\s*)+"), "").trim()
+                                        executor.requestSell(ts, "PENDING_RETRY_${sell.retryCount}: $baseReason", wallet, wallet!!.getSolBalance())
                                     } else {
                                         // Token no longer tracked — might be orphaned or already sold
                                         addLog("Pending sell for untracked/closed token: ${sell.symbol} — removing from queue")

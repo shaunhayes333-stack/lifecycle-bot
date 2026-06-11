@@ -158,6 +158,10 @@ object ForensicReportExporter {
                     noSignatureLeakedLock = try { com.lifecyclebot.engine.sell.SellFailureHistory.hasLeakedNoSignatureLock() } catch (_: Throwable) { false },
                     // grace: only assert orphan==0 once the reconciler has actually ticked a few times
                     reconciliationGraceElapsed = try { com.lifecyclebot.engine.sell.SellReconciler.totalTicks >= 3L } catch (_: Throwable) { true },
+                    // V5.9.1526 — canonical close-authority guard inputs
+                    closedPositionsWithNonDustBalance = try { com.lifecyclebot.engine.HostWalletTokenTracker.closeAuthorityAudit().closedWithNonDustBalance } catch (_: Throwable) { 0 },
+                    closedPositionsWithoutSignature = try { com.lifecyclebot.engine.HostWalletTokenTracker.closeAuthorityAudit().closedWithoutSig } catch (_: Throwable) { 0 },
+                    duplicateCanonicalOpenMints = try { com.lifecyclebot.engine.HostWalletTokenTracker.closeAuthorityAudit().duplicateOpenMints } catch (_: Throwable) { 0 },
                 )
             )
         } catch (_: Throwable) { emptyList() }

@@ -34,6 +34,10 @@ object RuntimeRegressionGuards {
         val sellJobsActive: Int = 0,
         val noSignatureLeakedLock: Boolean = false,
         val reconciliationGraceElapsed: Boolean = true,
+        // V5.9.1526 — canonical close-authority guards
+        val closedPositionsWithNonDustBalance: Int = 0,
+        val closedPositionsWithoutSignature: Int = 0,
+        val duplicateCanonicalOpenMints: Int = 0,
     )
 
     fun evaluate(input: Input): List<Check> {
@@ -112,6 +116,25 @@ object RuntimeRegressionGuards {
                 "no_signature_lock_cleared",
                 ok = !input.noSignatureLeakedLock,
                 detail = "noSignatureLeakedLock=${input.noSignatureLeakedLock}",
+            ),
+            // ── V5.9.1526 CANONICAL CLOSE AUTHORITY GUARDS ──
+            Check(
+                "no_closed_with_nondust_balance",
+                ok = input.closedPositionsWithNonDustBalance == 0,
+                detail = "closedWithNonDustBalance=${input.closedPositionsWithNonDustBalance}",
+            ),
+            Check(
+                "no_closed_without_signature",
+                // a CLOSED live position claimed via SELL must carry a sell sig
+                // (explicit reaps are tagged RECONCILER_REAP_NOSIG and excluded
+                //  by the collector, so any count here is a real violation)
+                ok = input.closedPositionsWithoutSignature == 0,
+                detail = "closedWithoutSig=${input.closedPositionsWithoutSignature}",
+            ),
+            Check(
+                "no_duplicate_canonical_opens",
+                ok = input.duplicateCanonicalOpenMints == 0,
+                detail = "duplicateCanonicalOpenMints=${input.duplicateCanonicalOpenMints}",
             ),
         )
     }
