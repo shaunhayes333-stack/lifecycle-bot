@@ -668,6 +668,72 @@ object HostWalletTokenTracker {
     private const val GHOST_REAP_GRACE_MS = 60_000L
 
     /** Returns number of ghost rows reaped to CLOSED. Safe to call every tick. */
+    /**
+     * V5.9.1507 — STARTUP HARD GHOST RECONCILE. Operator: "it should instantly
+     * refresh to 0 on bot start." On Start we take ONE authoritative wallet
+     * snapshot and terminally close every tracked OPEN position the wallet does
+     * NOT actually hold (balance==0 / mint absent). Genuinely-held on-chain
+     * tokens are KEPT (live positions stay sacred). This collapses the inflated
+     * "0/36" open count to wallet-truth the instant the bot starts, instead of
+     * waiting for the slow periodic reconciler. Also prunes the parallel
+     * GlobalTradeRegistry so the PAPER-mode counter agrees.
+     *
+     * walletMints: fresh on-chain snapshot (mint -> (uiAmount, decimals)).
+     * Pass an EMPTY map ONLY when you intend a full wipe (cold start, no holds).
+     */
+    fun forceStartupGhostReconcile(walletMints: Map<String, Pair<Double, Int>>): Int {
+        var closed = 0
+        for (p in positions.values.toList()) {
+            if (p.status !in OPEN_STATUSES) continue
+            val held = walletMints[p.mint]?.first ?: 0.0
+            if (held > 0.000001) {
+                // genuinely held — keep it, refresh wallet truth.
+                p.uiAmount = held
+                p.lastSeenWalletMs = System.currentTimeMillis()
+                p.lastWalletReconcileMs = System.currentTimeMillis()
+                continue
+            }
+            // Not held on-chain → terminal ghost. Close it now.
+            p.status = PositionStatus.CLOSED
+            p.uiAmount = 0.0
+            p.activeSellAttemptId = null
+            p.notes.add("startup ghost reconcile: wallet holds 0 at bot start")
+            try { com.lifecyclebot.engine.PositionCloseLedger.markClosed(p.mint, "STARTUP_GHOST_RECONCILE", 0) } catch (_: Throwable) {}
+            try {
+                for (ln in listOf("SHITCOIN","MOONSHOT","QUALITY","EXPRESS","CYCLIC","BLUE_CHIP","MANIPULATED","CORE","V3","DIP_HUNTER","PROJECT_SNIPER")) {
+                    com.lifecyclebot.engine.LaneExecutionCoordinator.releaseIfPrimary(p.mint, ln, "STARTUP_GHOST_RECONCILE")
+                }
+            } catch (_: Throwable) {}
+            emitForensic(LiveTradeLogStore.Phase.POSITION_COUNT_RECONCILED, p.mint, p.symbol, null,
+                "STARTUP_GHOST_RECONCILE wallet=0 → CLOSED (${p.symbol ?: p.mint.take(6)})")
+            closed++
+        }
+        // Also collapse the parallel paper-mode registry to ledger-truth.
+        try { com.lifecyclebot.engine.GlobalTradeRegistry.pruneClosedPositions() } catch (_: Throwable) {}
+        // And the third count source: TokenLifecycleTracker non-terminal records
+        // that the wallet does not hold. The UI "Open" tile is maxOf() across all
+        // three stores, so ALL must collapse or the inflated number persists.
+        try {
+            for (r in com.lifecyclebot.engine.TokenLifecycleTracker.all()) {
+                val held = walletMints[r.mint]?.first ?: 0.0
+                if (held <= 0.000001) {
+                    try { com.lifecyclebot.engine.TokenLifecycleTracker.forceClearUnheld(r.mint, "STARTUP_GHOST_RECONCILE") } catch (_: Throwable) {}
+                }
+            }
+        } catch (_: Throwable) {}
+        if (closed > 0) {
+            try { com.lifecyclebot.engine.PipelineHealthCollector.labelInc("STARTUP_GHOST_RECONCILED") } catch (_: Throwable) {}
+            save()
+            try {
+                com.lifecyclebot.engine.ForensicLogger.lifecycle(
+                    "STARTUP_GHOST_RECONCILE_DONE",
+                    "closed=$closed walletHeld=${walletMints.size} openAfter=${getOpenCount()}"
+                )
+            } catch (_: Throwable) {}
+        }
+        return closed
+    }
+
     fun reapZeroBalanceGhosts(): Int {
         val now = System.currentTimeMillis()
         var reaped = 0

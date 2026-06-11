@@ -3634,6 +3634,40 @@ class BotService : Service() {
                 addLog("⚠️ Position restore failed: ${e.message}")
             }
 
+            // ═══════════════════════════════════════════════════════════════
+            // V5.9.1507 — STARTUP HARD GHOST RECONCILE (refresh to wallet-truth
+            // on Start). Operator: "0/36 ... it should instantly refresh to 0 on
+            // bot start." After persistence restore, take ONE fresh wallet
+            // snapshot and terminally close every tracked OPEN position the
+            // wallet does NOT actually hold. Real on-chain holdings are kept.
+            // Off the main thread (RPC). Runs in LIVE and PAPER (paper passes an
+            // empty map → all internal ghosts collapse, which is correct since a
+            // fresh paper start holds nothing).
+            try {
+                scope.launch(kotlinx.coroutines.Dispatchers.IO) {
+                    try {
+                        val cfgGhost = try { ConfigStore.load(applicationContext) } catch (_: Throwable) { null }
+                        val paperGhost = cfgGhost?.paperMode ?: true
+                        val snap: Map<String, Pair<Double, Int>> = if (paperGhost) {
+                            emptyMap()
+                        } else {
+                            try { wallet?.getTokenAccountsWithDecimalsBounded() ?: emptyMap() } catch (_: Throwable) { emptyMap() }
+                        }
+                        // LIVE safety: if the wallet read failed (empty map) we must
+                        // NOT wipe real holdings. Only reconcile when we have a
+                        // trustworthy snapshot, OR we are in paper (intentional wipe).
+                        if (paperGhost || snap.isNotEmpty()) {
+                            val closed = com.lifecyclebot.engine.HostWalletTokenTracker.forceStartupGhostReconcile(snap)
+                            if (closed > 0) addLog("🧹 Startup reconcile: closed $closed ghost position(s) → wallet-truth")
+                        } else {
+                            ForensicLogger.lifecycle("STARTUP_GHOST_RECONCILE", "skipped=wallet_read_empty_live_safety")
+                        }
+                    } catch (e: Throwable) {
+                        ErrorLogger.debug("BotService", "startup ghost reconcile error: ${e.message}")
+                    }
+                }
+            } catch (_: Throwable) {}
+
         // ═══════════════════════════════════════════════════════════════════
         // V5.9.621 — PAPER GHOST AUTO-PURGE (V5.9.636: deferred + non-poisoning)
         //
