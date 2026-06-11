@@ -617,7 +617,26 @@ object ExecutableOpenGate {
             return dropped(log, reason)
         }
         if (!selectedLaneMatchesRequest(selectedLane, lane)) {
-            return dropped("EXEC_OPEN_DROPPED_SELECTED_LANE_MISMATCH", "SELECTED_LANE_${canonicalSelectedLane}_REQUEST_${requestedLane}")
+            // V5.9.1499 — LANE-CONTENTION DEDUP (not lost volume). When two REAL
+            // specialist lanes both qualify the same mint, LaneExecutionCoordinator
+            // elects ONE primary (priority + recent-WR based, with upgrade-steal).
+            // The non-primary lane's executor reaching here is CORRECT dedup — it
+            // must NOT double-open the same mint under a second lane's sizing/exits.
+            // Previously this logged as EXEC_OPEN_DROPPED_SELECTED_LANE_MISMATCH,
+            // which read as silently-lost throughput in the funnel. Two changes:
+            //   1) If the requesting lane happens to hold the primary (selected was a
+            //      stale UNKNOWN/bucket), prefer the requester instead of dropping —
+            //      this rescues genuine entries where state.selectedLane lagged.
+            //   2) Otherwise emit it under a DEDUP label so it stops masquerading as
+            //      lost volume; the primary lane still opens on its own pass.
+            // Rescue case: state.selectedLane was never a real lane (stale
+            // UNKNOWN/bucket) while the requester IS a real specialist — it is the
+            // lane actually trying to open and nothing else holds authority, so let
+            // it proceed. Otherwise this is genuine lane contention → dedup.
+            val rescueRequester = isRealExecutionLane(requestedLane) && !isRealExecutionLane(rawSelectedLane)
+            if (!rescueRequester) {
+                return dropped("EXEC_OPEN_DEDUP_LANE_CONTENTION", "PRIMARY_${canonicalSelectedLane}_LOST_${requestedLane}")
+            }
         }
         if (safetyTier.equals("UNKNOWN", true)) {
             return blocked("EXEC_OPEN_BLOCKED_SAFETY_CONTEXT_MISSING", "PRE_FDG_SAFETY_CONTEXT_MISSING", shadow = mode == "PAPER")

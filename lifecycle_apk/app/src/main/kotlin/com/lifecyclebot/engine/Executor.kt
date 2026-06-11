@@ -561,6 +561,36 @@ class Executor(
     private val sounds: SoundManager? = null,
 ) {
     companion object {
+
+        // V5.9.1499 — ANALYTICS TIMESTAMP INTEGRITY (root-cause fix).
+        // Persisted TradeRecords drove a 29,684,473-minute "held" value and a
+        // 0.0% drawdown in the analytics block. Root cause: when a position was
+        // rehydrated/restored (or its entry record was lost) pos.entryTime was 0
+        // (epoch), so (now - entryTime)/60000 = now/60000 ≈ 29M minutes and the
+        // tsEntry=0 poisoned the equity-curve ordering. These helpers are the
+        // SINGLE source of a sane entry timestamp + bounded hold for every
+        // journal insert, so corruption can never enter the analytics store.
+        // A trade cannot sanely be held longer than this; anything above is a
+        // lost/zero entry timestamp, not a real hold.
+        private const val MAX_SANE_HOLD_MS = 7L * 24L * 60L * 60L * 1000L  // 7 days
+
+        /** Returns a trustworthy entry-ts. If rawEntry is missing/epoch/absurd
+         *  relative to exit, fall back to exitTs (hold≈0) rather than poison the
+         *  record. Never returns 0. */
+        fun sanitizeEntryTs(rawEntry: Long, exitTs: Long): Long {
+            val exit = if (exitTs > 0L) exitTs else System.currentTimeMillis()
+            // valid = positive, not in the future, within the sane hold window.
+            if (rawEntry in 1 until exit && (exit - rawEntry) <= MAX_SANE_HOLD_MS) return rawEntry
+            return exit
+        }
+
+        /** Bounded hold in minutes from a (possibly bad) raw entry-ts. */
+        fun sanitizeHeldMins(rawEntry: Long, exitTs: Long): Double {
+            val exit = if (exitTs > 0L) exitTs else System.currentTimeMillis()
+            val entry = sanitizeEntryTs(rawEntry, exit)
+            return ((exit - entry).coerceAtLeast(0L)) / 60_000.0
+        }
+
         // V5.9.1442 — physically-impossible single-tick gain multiple. Any exit-tick
         // multiple above this is a stale/glitched price quote (e.g. failed pump.fun→
         // Raydium rebase), NOT a real move. Real graduations rebase far below this.
@@ -10450,8 +10480,9 @@ class Executor(
             else -> false
         }
         
+        val _exitTs1 = System.currentTimeMillis()  // V5.9.1499 — single exit-ts; entry/held sanitized
         tradeDb?.insertTrade(TradeRecord(
-            tsEntry=ts.position.entryTime, tsExit=System.currentTimeMillis(),
+            tsEntry=sanitizeEntryTs(ts.position.entryTime, _exitTs1), tsExit=_exitTs1,
             symbol=ts.symbol, mint=ts.mint,
             mode=if(ts.position.entryPhase.contains("pump")) "LAUNCH" else "RANGE",
             entryPrice=ts.position.entryPrice, entryScore=ts.position.entryScore,
@@ -10460,7 +10491,7 @@ class Executor(
             holderCount=ts.history.lastOrNull()?.holderCount?:0,
             holderGrowth=ts.holderGrowthRate, liquidityUsd=ts.lastLiquidityUsd, mcapUsd=ts.lastMcap,
             exitPrice=price, exitPhase=ts.phase, exitReason=reason,
-            heldMins=(System.currentTimeMillis()-ts.position.entryTime)/60_000.0,
+            heldMins=sanitizeHeldMins(ts.position.entryTime, _exitTs1),
             topUpCount=ts.position.topUpCount, partialSold=ts.position.partialSoldPct,
             solIn=ts.position.costSol, solOut=value, pnlSol=pnl, pnlPct=pnlP, 
             isWin=dbIsWin,
@@ -12776,8 +12807,9 @@ class Executor(
             else -> false
         }
         
+        val _exitTs2 = System.currentTimeMillis()  // V5.9.1499 — single exit-ts; entry/held sanitized
         tradeDb?.insertTrade(TradeRecord(
-            tsEntry=pos.entryTime, tsExit=System.currentTimeMillis(),
+            tsEntry=sanitizeEntryTs(pos.entryTime, _exitTs2), tsExit=_exitTs2,
             symbol=ts.symbol, mint=ts.mint,
             mode=if(pos.entryPhase.contains("pump")) "LAUNCH" else "RANGE",
             entryPrice=pos.entryPrice, entryScore=pos.entryScore,
@@ -12786,7 +12818,7 @@ class Executor(
             holderCount=ts.history.lastOrNull()?.holderCount?:0,
             holderGrowth=ts.holderGrowthRate, liquidityUsd=ts.lastLiquidityUsd, mcapUsd=ts.lastMcap,
             exitPrice=exitPrice, exitPhase=ts.phase, exitReason=reason,
-            heldMins=(System.currentTimeMillis()-pos.entryTime)/60_000.0,
+            heldMins=sanitizeHeldMins(pos.entryTime, _exitTs2),
             topUpCount=pos.topUpCount, partialSold=pos.partialSoldPct,
             solIn=pos.costSol, solOut=pnl + pos.costSol, pnlSol=pnl, pnlPct=pnlP, 
             isWin=dbIsWinLive,

@@ -248,40 +248,41 @@ object PerformanceAnalytics {
     private fun calculateDrawdown(trades: List<TradeRecord>): Triple<Double, Double, Double> {
         val sorted = trades.sortedBy { it.tsExit }
 
-        var peak = 0.0
+        // V5.9.1499 — DRAWDOWN INTEGRITY. The previous logic seeded peak=0 and
+        // only recorded a DD% once peak crossed a 0.05 SOL floor. Consequence:
+        // a curve that loses FIRST (peak stuck at 0) or whose wins/losses net to
+        // a small peak reported 0.0% DD even with a real intra-session dip —
+        // exactly the "Max Drawdown 0.0%" seen with +3.8 SOL / 175 losses.
+        // Correct definition: peak = running max of equity INCLUDING the implicit
+        // 0 starting baseline; maxDD(SOL) = largest peak→trough drop anywhere on
+        // the curve. The % is expressed against the running peak when it is
+        // meaningfully positive, otherwise against the gross capital deployed up
+        // to that trough (so a pre-peak bleed still yields a real, bounded %).
+        var peak = 0.0          // running equity high-water mark (>= 0 baseline)
         var equity = 0.0
         var maxDdSol = 0.0
         var maxDdPct = 0.0
-
-        // V5.9.1049 MATH FIX: previous logic used cumulative PnL as equity
-        // (starting at 0) and divided by a tiny `peak` whenever the first
-        // few wins built a small peak, producing absurd values like
-        // 459,621.4% Max DD. The drawdown % only makes sense relative to a
-        // meaningful peak — gate the % calc behind a floor and clamp to
-        // 100% (a 100% DD = full wipeout, by definition the worst possible).
-        val peakFloorSol = 0.05  // ignore peaks tinier than 0.05 SOL — noise
+        var grossDeployed = 0.0 // cumulative |risk| proxy for pre-peak DD%
 
         for (trade in sorted) {
-            equity += sanitizeDouble(trade.pnlSol)
+            val pnl = sanitizeDouble(trade.pnlSol)
+            grossDeployed += kotlin.math.abs(sanitizeDouble(trade.solIn).let { if (it > 0.0) it else pnl })
+            equity += pnl
+            if (equity > peak) peak = equity
 
-            if (equity > peak) {
-                peak = equity
-            }
-
-            val dd = peak - equity
+            val dd = peak - equity        // always >= 0
             if (dd > maxDdSol) {
                 maxDdSol = dd
-                maxDdPct = if (peak >= peakFloorSol) {
-                    ((dd / peak) * 100.0).coerceAtMost(100.0)
-                } else 0.0
+                val denom = if (peak >= 0.05) peak else grossDeployed
+                maxDdPct = if (denom > 0.0) ((dd / denom) * 100.0).coerceIn(0.0, 100.0) else 0.0
             }
         }
 
-        val currentDdPct = if (peak >= peakFloorSol && equity < peak) {
-            (((peak - equity) / peak) * 100.0).coerceAtMost(100.0)
-        } else {
-            0.0
-        }
+        val curDd = peak - equity
+        val curDenom = if (peak >= 0.05) peak else grossDeployed
+        val currentDdPct = if (curDd > 0.0 && curDenom > 0.0) {
+            ((curDd / curDenom) * 100.0).coerceIn(0.0, 100.0)
+        } else 0.0
 
         return Triple(
             sanitizeDouble(maxDdSol),
