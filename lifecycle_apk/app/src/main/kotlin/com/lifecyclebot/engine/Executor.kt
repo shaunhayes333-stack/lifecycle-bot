@@ -2661,7 +2661,24 @@ class Executor(
                 if (tradeWithMint.side.equals("SELL", ignoreCase = true) || tradeWithMint.side.equals("PARTIAL_SELL", ignoreCase = true)) {
                     val tradeId = "${tradeWithMint.mint}_${tradeWithMint.ts}"
                     val isPaperEnv = isPaperRT()
-                    val pnl = tradeWithMint.pnlPct
+                    // V5.9.1509 — NET-OF-FEE WIN/LOSS CLASSIFICATION (operator: "see
+                    // heaps of win alerts but the gain doesn't represent true gains").
+                    // The displayed/recorded pnlPct is GROSS (solBack vs cost) but the
+                    // SOL that actually lands is NET (gross − 1% bot fee − 0.6% protocol
+                    // − gas ≈ 1.6% round-trip). A trade grossing +0.5% is a NET LOSS yet
+                    // was booked WIN (pnl>=1.0 on gross) and fired a win alert. We now
+                    // classify on the NET pnl%: derive it from netPnlSol/costBasis when a
+                    // real fee was applied (live), falling back to gross for paper/zero-fee.
+                    val grossPnl = tradeWithMint.pnlPct
+                    val costBasis = (tradeWithMint.netPnlSol.takeIf { it != 0.0 }?.let { _ ->
+                        // prefer the entry cost actually consumed by this (partial) sell
+                        ts.position.costSol.takeIf { it > 0.0 } ?: tradeWithMint.sol.takeIf { it > 0.0 }
+                    }) ?: (ts.position.costSol.takeIf { it > 0.0 } ?: tradeWithMint.sol)
+                    val netPnlPct = if (!isPaperEnv && tradeWithMint.netPnlSol != 0.0 && costBasis != null && costBasis > 0.0) {
+                        (tradeWithMint.netPnlSol / costBasis) * 100.0
+                    } else grossPnl
+                    // Classify on net. Win must clear the fee floor — not merely be > 0.
+                    val pnl = netPnlPct
                     val resultEnum = when {
                         pnl >= 1.0 -> com.lifecyclebot.engine.TradeResult.WIN
                         pnl <= -1.0 -> com.lifecyclebot.engine.TradeResult.LOSS
@@ -2739,7 +2756,7 @@ class Executor(
                         entrySol = ts.position.costSol.takeIf { it > 0.0 },
                         exitSol = tradeWithMint.sol,
                         realizedPnlSol = tradeWithMint.netPnlSol.takeIf { it != 0.0 } ?: tradeWithMint.pnlSol,
-                        realizedPnlPct = pnl,
+                        realizedPnlPct = pnl,  // V5.9.1509 — net-of-fee (pnl is now netPnlPct)
                         maxGainPct = if (ts.position.entryPrice > 0 && ts.position.highestPrice > 0)
                             ((ts.position.highestPrice - ts.position.entryPrice) / ts.position.entryPrice) * 100.0 else null,
                         maxDrawdownPct = if (ts.position.entryPrice > 0 && ts.position.lowestPrice > 0)

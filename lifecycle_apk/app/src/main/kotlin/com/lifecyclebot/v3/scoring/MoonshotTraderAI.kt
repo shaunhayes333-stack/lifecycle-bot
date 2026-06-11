@@ -1070,7 +1070,14 @@ object MoonshotTraderAI {
         
         val pnlPct = (exitPrice - pos.entryPrice) / pos.entryPrice * 100
         val pnlSol = pos.entrySol * (pnlPct / 100)
-        val isWin = pnlPct > 0.0  // V5.9.408: restored pre-225 win-threshold (was 1.0% → killed WR via scratch count)
+        // V5.9.1509 — NET-OF-FEE WIN (operator: "win alerts but the gain doesn't
+        // represent true gains"). pnlPct here is GROSS price move. A live trade pays
+        // ~1.6% round-trip (1% bot + 0.6% protocol + gas), so a gross gain below that
+        // is a NET LOSS. The old `pnlPct > 0.0` booked every fee-losing scratch as a
+        // win, inflating the WR tile and firing false win alerts. Live trades must
+        // clear the fee floor to count as a win; paper (no fee) keeps the >0 rule.
+        val WIN_FEE_FLOOR_PCT = 1.6
+        val isWin = if (isPaperMode) pnlPct > 0.0 else pnlPct >= WIN_FEE_FLOOR_PCT
         val holdMinutesLong = (System.currentTimeMillis() - pos.entryTime) / 60_000L
 
         // V5.9.434 — journal every V3 Moonshot close so it shows in Journal

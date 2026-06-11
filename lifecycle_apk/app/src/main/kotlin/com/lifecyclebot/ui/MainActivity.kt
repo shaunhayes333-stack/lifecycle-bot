@@ -3517,7 +3517,25 @@ for legal compliance.
             val unifiedListSize = try {
                 buildUnifiedOpenPositions(state).size
             } catch (_: Throwable) { 0 }
-            val managedOpenCount = maxOf(openMints.size, hostOpen, lifecycleOpen, unifiedListSize)
+            // V5.9.1509 — WALLET-TRUTH OPEN COUNT (operator hard rule: "unless the
+            // bot has the position currently held it shouldn't acknowledge a
+            // position is open"). The old maxOf() unioned AI-side active maps
+            // (BlueChip/Moonshot/CashGen getActivePositions) + host/lifecycle rows,
+            // none of which are wallet-filtered, so a position the AI still BELIEVED
+            // was open but the wallet had already sold/never settled inflated the
+            // count to "1/39". We now INTERSECT the full union against the canonical
+            // wallet-held set: a mint counts as open ONLY if the wallet actually
+            // holds it (or a sell is in flight). Sub-trader maps can no longer
+            // acknowledge a position the chain doesn't back.
+            val heldSet = try { com.lifecyclebot.engine.HostWalletTokenTracker.getActuallyHeldMints() } catch (_: Throwable) { emptySet<String>() }
+            val managedOpenCount = if (heldSet.isEmpty()) {
+                // No wallet-held tokens → truly flat. Honour wallet truth, show 0,
+                // regardless of what stale AI maps claim. (unifiedListSize falls out
+                // of the same intersection below.)
+                0
+            } else {
+                openMints.count { it in heldSet }.coerceAtLeast(hostOpen)
+            }
             // V5.9.1134 — do not hide source divergence. The screenshot at
             // 3100 showed "11 Open" in the top tile but only 3 rendered in
             // Open Positions because the tile counts every managed holder
