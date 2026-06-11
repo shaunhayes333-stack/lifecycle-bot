@@ -755,6 +755,76 @@ class SolanaWallet(privateKeyB58: String, val rpcUrl: String) {
     }
 
     /**
+     * V5.9.1531 — ROBUST wallet-token read for connect-time reconciliation.
+     *
+     * THE GHOST BUG: getTokenAccounts() swallows RPC exceptions per-program and
+     * returns whatever (possibly empty) map it has. On a cold post-install connect
+     * the RPC is frequently rate-limited/timing-out, so the adoption sweep saw an
+     * empty wallet and adopted NOTHING — every real holding became an unmanaged
+     * ghost (operator: ~100 ghosts/24h across update installs).
+     *
+     * This variant tracks whether AT LEAST ONE program query SUCCEEDED. If every
+     * query threw (total RPC failure), it returns ok=false so callers RETRY instead
+     * of trusting a false-empty snapshot. A genuinely empty wallet returns ok=true
+     * with an empty map. Result: we never orphan holdings on a transient RPC blip.
+     */
+    data class WalletTokenSnapshot(val ok: Boolean, val tokens: Map<String, Double>)
+
+    fun getTokenAccountsChecked(): WalletTokenSnapshot {
+        val TOKEN_PROGRAM    = "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA"
+        val TOKEN_2022_PROG  = "TokenzQdBNbequivDy2Cv5VhM9xAZWQ8HHv2Q3ZUVV1"
+        val out = mutableMapOf<String, Double>()
+        var anySuccess = false
+        for (programId in listOf(TOKEN_PROGRAM, TOKEN_2022_PROG)) {
+            try {
+                val params = JSONArray()
+                    .put(publicKeyB58)
+                    .put(JSONObject()
+                        .put("encoding", "jsonParsed")
+                        .put("commitment", "confirmed")
+                        .put("programId", programId))
+                val resp = rpc("getTokenAccountsByOwner", params)
+                val value = resp.optJSONObject("result")?.optJSONArray("value")
+                if (value != null) {
+                    anySuccess = true
+                    for (i in 0 until value.length()) {
+                        val info = value.optJSONObject(i)
+                            ?.optJSONObject("account")?.optJSONObject("data")
+                            ?.optJSONObject("parsed")?.optJSONObject("info") ?: continue
+                        val mint = info.optString("mint", "")
+                        val qty  = info.optJSONObject("tokenAmount")
+                            ?.optString("uiAmountString", "0")?.toDoubleOrNull() ?: 0.0
+                        if (mint.isNotBlank() && qty > 0) out[mint] = qty
+                    }
+                }
+            } catch (_: Exception) { /* this program failed; note via anySuccess */ }
+        }
+        return WalletTokenSnapshot(ok = anySuccess, tokens = out)
+    }
+
+    /**
+     * Retry getTokenAccountsChecked until a trustworthy snapshot is obtained
+     * (ok=true) or attempts exhaust. Backoff 400/800/1600/3200ms. Never throws.
+     */
+    fun getTokenAccountsRobust(maxAttempts: Int = 5): WalletTokenSnapshot {
+        var last = WalletTokenSnapshot(false, emptyMap())
+        var delay = 400L
+        for (attempt in 1..maxAttempts) {
+            last = try { getTokenAccountsChecked() } catch (_: Throwable) { WalletTokenSnapshot(false, emptyMap()) }
+            if (last.ok) {
+                try { com.lifecyclebot.engine.ForensicLogger.lifecycle(
+                    "WALLET_TOKENS_ROBUST_OK", "attempt=$attempt count=${last.tokens.size}") } catch (_: Throwable) {}
+                return last
+            }
+            try { com.lifecyclebot.engine.ForensicLogger.lifecycle(
+                "WALLET_TOKENS_RPC_RETRY", "attempt=$attempt/$maxAttempts backoffMs=$delay") } catch (_: Throwable) {}
+            try { Thread.sleep(delay) } catch (_: InterruptedException) {}
+            delay = (delay * 2).coerceAtMost(3200L)
+        }
+        return last
+    }
+
+    /**
      * Transfer SOL to a destination address — used for treasury withdrawals.
      * Constructs a legacy SystemProgram.transfer transaction, signs it with
      * the loaded keypair, broadcasts and awaits on-chain confirmation.

@@ -96,7 +96,20 @@ class StartupReconciler(
         // through to the orphan sell path.
         val adoptedMints = mutableListOf<String>()
         try {
-            val tokenAccounts = wallet.getTokenAccounts()
+            // V5.9.1531 — ROBUST READ: retry until a trustworthy snapshot. A
+            // false-empty read (cold-install RPC rate-limit) must NEVER be treated
+            // as "wallet holds nothing" — that is exactly what orphaned ~100 real
+            // holdings into ghosts across update installs.
+            val walletSnap = wallet.getTokenAccountsRobust()
+            if (!walletSnap.ok) {
+                onLog("⛔ RECONCILE ABORT: wallet token read failed after retries — NOT clearing/ghosting any positions this pass (will retry on next 90s reconcile).")
+                try { com.lifecyclebot.engine.ForensicLogger.lifecycle(
+                    "RECONCILE_ABORT_RPC_UNTRUSTED", "reason=wallet_read_failed openPositions=${openPositions.size}") } catch (_: Throwable) {}
+                warnings.add("Wallet token read failed — reconcile deferred to protect positions")
+                return ReconciliationResult(onChainSol, botStateSol, mismatch,
+                    ghostCleared, verified, warnings)
+            }
+            val tokenAccounts = walletSnap.tokens
             // V5.9.748 — adoption path: only TRULY open positions count as
             // "tracked". V5.9.739 added stale-pendingVerify positions
             // (>120s, qty>0) to openPositions so the UI could show them as
@@ -385,6 +398,23 @@ class StartupReconciler(
                 val tokenBalance = getTokenBalance(ts.mint)
 
                 if (tokenBalance <= 0.0) {
+                    // V5.9.1531 — DOUBLE-CONFIRM before declaring a ghost. A single
+                    // getTokenBalance() can transiently return 0 on an RPC blip; wiping
+                    // a real position on that false-zero is how holdings became ghosts.
+                    // Re-read via the robust snapshot; only clear if the mint is truly
+                    // absent (read succeeded AND mint not present). If the read can't be
+                    // trusted, SKIP clearing this pass.
+                    val confirm = try { wallet.getTokenAccountsRobust(maxAttempts = 3) } catch (_: Throwable) { null }
+                    if (confirm == null || !confirm.ok) {
+                        onLog("⏸️ GHOST CHECK DEFERRED: ${ts.symbol} — could not trust on-chain read; keeping position.")
+                        verified.add(ts.mint)
+                        return@forEach
+                    }
+                    if ((confirm.tokens[ts.mint] ?: 0.0) > 0.0) {
+                        onLog("✅ GHOST FALSE-ALARM: ${ts.symbol} — robust read confirms ${confirm.tokens[ts.mint]} held; keeping.")
+                        verified.add(ts.mint)
+                        return@forEach
+                    }
                     // Bot thinks we have a position but on-chain balance is 0
                     // Could be: rug pulled, manual sell, tx failed silently
                     val msg = "Ghost position detected: ${ts.symbol} — on-chain balance=0 " +
