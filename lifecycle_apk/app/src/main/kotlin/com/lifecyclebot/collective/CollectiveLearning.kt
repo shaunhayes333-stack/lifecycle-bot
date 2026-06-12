@@ -309,6 +309,10 @@ object CollectiveLearning {
         val logoUrl: String,
         val pairAddress: String,
         val pairUrl: String,
+        val pairDex: String,
+        val lastPriceSource: String,
+        val quoteSuccessCount: Int,
+        val quoteFailCount: Int,
         val lastLiquidityUsd: Double,
         val lastMcapUsd: Double,
         val createdAtMs: Long,
@@ -325,6 +329,31 @@ object CollectiveLearning {
         val avgNetPnlSol: Double,
         val bestWinRatePct: Double,
     )
+
+    data class SourceReliability(
+        val source: String,
+        val totalOutcomes: Int,
+        val wins: Int,
+        val losses: Int,
+        val avgPnlPct: Double,
+        val bestPnlPct: Double,
+        val worstPnlPct: Double,
+        val instanceCount: Int,
+        val lastSeen: Long,
+    ) { val winRate: Double get() = if (totalOutcomes > 0) wins.toDouble() / totalOutcomes * 100.0 else 50.0 }
+
+    data class CreatorReputation(
+        val creatorAddress: String,
+        val tokenCount: Int,
+        val totalOutcomes: Int,
+        val wins: Int,
+        val losses: Int,
+        val avgPnlPct: Double,
+        val worstPnlPct: Double,
+        val rugLikeLosses: Int,
+        val instanceCount: Int,
+        val lastSeen: Long,
+    ) { val winRate: Double get() = if (totalOutcomes > 0) wins.toDouble() / totalOutcomes * 100.0 else 50.0 }
 
     fun getCachedTokenMint(mint: String): SharedTokenMint? {
         val key = CanonicalMint.normalize(mint)
@@ -347,7 +376,7 @@ object CollectiveLearning {
             try {
                 val weightsJson = org.json.JSONObject().apply {
                     featureWeights.forEach { (k, v) ->
-                        if (k.isNotBlank()) put(k, sanitizeDouble(v, 1.0).coerceIn(0.1, 5.0))
+                        if (k.isNotBlank()) put(k, sanitizeDouble(v).takeIf { !it.isNaN() && !it.isInfinite() }?.coerceIn(0.1, 5.0) ?: 1.0)
                     }
                 }.toString()
                 val now = System.currentTimeMillis()
@@ -409,7 +438,7 @@ object CollectiveLearning {
                         (pf / 3.0).coerceIn(0.0, 1.0) * 0.20).coerceIn(0.05, 1.0)
                     val obj = org.json.JSONObject(json); val keys = obj.keys()
                     while (keys.hasNext()) {
-                        val k = keys.next(); val v = sanitizeDouble(obj.optDouble(k, 1.0), 1.0).coerceIn(0.1, 5.0)
+                        val k = keys.next(); val v = sanitizeDouble(obj.optDouble(k, 1.0)).takeIf { !it.isNaN() && !it.isInfinite() }?.coerceIn(0.1, 5.0) ?: 1.0
                         weighted[k] = (weighted[k] ?: 0.0) + v * contributorWeight
                         weights[k] = (weights[k] ?: 0.0) + contributorWeight
                     }
@@ -430,6 +459,9 @@ object CollectiveLearning {
         logoUrl: String,
         pairAddress: String,
         pairUrl: String,
+        pairDex: String = "",
+        lastPriceSource: String = "",
+        quoteSuccessful: Boolean = false,
         lastLiquidityUsd: Double,
         lastMcapUsd: Double,
         createdAtMs: Long,
@@ -444,8 +476,9 @@ object CollectiveLearning {
                     """
                     INSERT INTO collective_token_mints
                         (mint, symbol, name, source, creator_address, logo_url, pair_address, pair_url,
+                         pair_dex, last_price_source, quote_success_count, quote_fail_count,
                          last_liquidity_usd, last_mcap_usd, created_at_ms, first_seen_ms, last_seen_ms, report_count)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1)
                     ON CONFLICT(mint) DO UPDATE SET
                         symbol = COALESCE(NULLIF(excluded.symbol, ''), symbol),
                         name = COALESCE(NULLIF(excluded.name, ''), name),
@@ -454,6 +487,10 @@ object CollectiveLearning {
                         logo_url = COALESCE(NULLIF(excluded.logo_url, ''), logo_url),
                         pair_address = COALESCE(NULLIF(excluded.pair_address, ''), pair_address),
                         pair_url = COALESCE(NULLIF(excluded.pair_url, ''), pair_url),
+                        pair_dex = COALESCE(NULLIF(excluded.pair_dex, ''), pair_dex),
+                        last_price_source = COALESCE(NULLIF(excluded.last_price_source, ''), last_price_source),
+                        quote_success_count = quote_success_count + excluded.quote_success_count,
+                        quote_fail_count = quote_fail_count + excluded.quote_fail_count,
                         last_liquidity_usd = MAX(last_liquidity_usd, excluded.last_liquidity_usd),
                         last_mcap_usd = MAX(last_mcap_usd, excluded.last_mcap_usd),
                         created_at_ms = CASE
@@ -473,6 +510,10 @@ object CollectiveLearning {
                         logoUrl.take(512),
                         pairAddress.take(96),
                         pairUrl.take(512),
+                        pairDex.take(40),
+                        lastPriceSource.take(80),
+                        if (quoteSuccessful) 1 else 0,
+                        if (!quoteSuccessful && pairAddress.isBlank()) 1 else 0,
                         sanitizeDouble(lastLiquidityUsd),
                         sanitizeDouble(lastMcapUsd),
                         createdAtMs.coerceAtLeast(0L),
@@ -1114,6 +1155,7 @@ object CollectiveLearning {
             val result = client!!.query(
                 """
                 SELECT mint, symbol, name, source, creator_address, logo_url, pair_address, pair_url,
+                       pair_dex, last_price_source, quote_success_count, quote_fail_count,
                        last_liquidity_usd, last_mcap_usd, created_at_ms, first_seen_ms, last_seen_ms, report_count
                 FROM collective_token_mints
                 WHERE last_seen_ms > ?
@@ -1136,6 +1178,10 @@ object CollectiveLearning {
                         logoUrl = parseString(row["logo_url"]),
                         pairAddress = parseString(row["pair_address"]),
                         pairUrl = parseString(row["pair_url"]),
+                        pairDex = parseString(row["pair_dex"]),
+                        lastPriceSource = parseString(row["last_price_source"]),
+                        quoteSuccessCount = parseInt(row["quote_success_count"]),
+                        quoteFailCount = parseInt(row["quote_fail_count"]),
                         lastLiquidityUsd = parseDouble(row["last_liquidity_usd"]),
                         lastMcapUsd = parseDouble(row["last_mcap_usd"]),
                         createdAtMs = parseLong(row["created_at_ms"]),
@@ -1531,6 +1577,107 @@ object CollectiveLearning {
             } catch (e: Exception) {
                 Log.e(TAG, "downloadModeStatsForAI error: ${e.message}")
                 emptyMap()
+            }
+        }
+    }
+
+    suspend fun downloadSourceReliabilityForAI(limit: Int = 500): List<SourceReliability> {
+        if (!isEnabled()) return emptyList()
+        val safeLimit = limit.coerceIn(50, 2000)
+        return withContext(Dispatchers.IO) {
+            try {
+                val cutoff = System.currentTimeMillis() - 14L * 24L * 60L * 60L * 1000L
+                val result = client!!.query(
+                    """
+                    SELECT source,
+                           COUNT(*) as total_outcomes,
+                           SUM(CASE WHEN is_win = 1 THEN 1 ELSE 0 END) as wins,
+                           SUM(CASE WHEN is_win = 0 THEN 1 ELSE 0 END) as losses,
+                           AVG(pnl_pct) as avg_pnl_pct,
+                           MAX(pnl_pct) as best_pnl_pct,
+                           MIN(pnl_pct) as worst_pnl_pct,
+                           COUNT(DISTINCT instance_id) as instance_count,
+                           MAX(timestamp) as last_seen
+                    FROM collective_trades
+                    WHERE source != '' AND side = 'SELL' AND timestamp > ?
+                    GROUP BY source
+                    HAVING COUNT(*) >= 3
+                    ORDER BY last_seen DESC
+                    LIMIT $safeLimit
+                    """.trimIndent(),
+                    listOf(cutoff)
+                )
+                if (result.success) {
+                    result.rows.mapNotNull { row ->
+                        val src = parseString(row["source"])
+                        if (src.isBlank()) null else SourceReliability(
+                            source = src,
+                            totalOutcomes = parseInt(row["total_outcomes"]),
+                            wins = parseInt(row["wins"]),
+                            losses = parseInt(row["losses"]),
+                            avgPnlPct = parseDouble(row["avg_pnl_pct"]),
+                            bestPnlPct = parseDouble(row["best_pnl_pct"]),
+                            worstPnlPct = parseDouble(row["worst_pnl_pct"]),
+                            instanceCount = parseInt(row["instance_count"]).coerceAtLeast(1),
+                            lastSeen = parseLong(row["last_seen"]),
+                        )
+                    }
+                } else emptyList()
+            } catch (e: Exception) {
+                Log.e(TAG, "downloadSourceReliabilityForAI error: ${e.message}")
+                emptyList()
+            }
+        }
+    }
+
+    suspend fun downloadCreatorReputationForAI(limit: Int = 1000): List<CreatorReputation> {
+        if (!isEnabled()) return emptyList()
+        val safeLimit = limit.coerceIn(100, 5000)
+        return withContext(Dispatchers.IO) {
+            try {
+                val cutoff = System.currentTimeMillis() - 30L * 24L * 60L * 60L * 1000L
+                val result = client!!.query(
+                    """
+                    SELECT m.creator_address as creator_address,
+                           COUNT(DISTINCT t.mint) as token_count,
+                           COUNT(*) as total_outcomes,
+                           SUM(CASE WHEN t.is_win = 1 THEN 1 ELSE 0 END) as wins,
+                           SUM(CASE WHEN t.is_win = 0 THEN 1 ELSE 0 END) as losses,
+                           AVG(t.pnl_pct) as avg_pnl_pct,
+                           MIN(t.pnl_pct) as worst_pnl_pct,
+                           SUM(CASE WHEN t.pnl_pct <= -25.0 THEN 1 ELSE 0 END) as rug_like_losses,
+                           COUNT(DISTINCT t.instance_id) as instance_count,
+                           MAX(t.timestamp) as last_seen
+                    FROM collective_trades t
+                    JOIN collective_token_mints m ON m.mint = t.mint
+                    WHERE m.creator_address != '' AND t.side = 'SELL' AND t.timestamp > ?
+                    GROUP BY m.creator_address
+                    HAVING COUNT(*) >= 2
+                    ORDER BY last_seen DESC
+                    LIMIT $safeLimit
+                    """.trimIndent(),
+                    listOf(cutoff)
+                )
+                if (result.success) {
+                    result.rows.mapNotNull { row ->
+                        val creator = parseString(row["creator_address"])
+                        if (creator.isBlank()) null else CreatorReputation(
+                            creatorAddress = creator,
+                            tokenCount = parseInt(row["token_count"]),
+                            totalOutcomes = parseInt(row["total_outcomes"]),
+                            wins = parseInt(row["wins"]),
+                            losses = parseInt(row["losses"]),
+                            avgPnlPct = parseDouble(row["avg_pnl_pct"]),
+                            worstPnlPct = parseDouble(row["worst_pnl_pct"]),
+                            rugLikeLosses = parseInt(row["rug_like_losses"]),
+                            instanceCount = parseInt(row["instance_count"]).coerceAtLeast(1),
+                            lastSeen = parseLong(row["last_seen"]),
+                        )
+                    }
+                } else emptyList()
+            } catch (e: Exception) {
+                Log.e(TAG, "downloadCreatorReputationForAI error: ${e.message}")
+                emptyList()
             }
         }
     }

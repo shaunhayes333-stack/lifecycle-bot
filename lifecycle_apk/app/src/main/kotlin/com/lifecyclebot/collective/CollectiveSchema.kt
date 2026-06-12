@@ -478,6 +478,10 @@ object CollectiveSchema {
             logo_url TEXT NOT NULL DEFAULT '',
             pair_address TEXT NOT NULL DEFAULT '',
             pair_url TEXT NOT NULL DEFAULT '',
+            pair_dex TEXT NOT NULL DEFAULT '',
+            last_price_source TEXT NOT NULL DEFAULT '',
+            quote_success_count INTEGER NOT NULL DEFAULT 0,
+            quote_fail_count INTEGER NOT NULL DEFAULT 0,
             last_liquidity_usd REAL NOT NULL DEFAULT 0.0,
             last_mcap_usd REAL NOT NULL DEFAULT 0.0,
             created_at_ms INTEGER NOT NULL DEFAULT 0,
@@ -834,6 +838,10 @@ object CollectiveSchema {
         "ALTER TABLE collective_token_mints ADD COLUMN logo_url TEXT NOT NULL DEFAULT ''",
         "ALTER TABLE collective_token_mints ADD COLUMN pair_address TEXT NOT NULL DEFAULT ''",
         "ALTER TABLE collective_token_mints ADD COLUMN pair_url TEXT NOT NULL DEFAULT ''",
+        "ALTER TABLE collective_token_mints ADD COLUMN pair_dex TEXT NOT NULL DEFAULT ''",
+        "ALTER TABLE collective_token_mints ADD COLUMN last_price_source TEXT NOT NULL DEFAULT ''",
+        "ALTER TABLE collective_token_mints ADD COLUMN quote_success_count INTEGER NOT NULL DEFAULT 0",
+        "ALTER TABLE collective_token_mints ADD COLUMN quote_fail_count INTEGER NOT NULL DEFAULT 0",
         // Hive performance genome migrations
         "ALTER TABLE hive_performance_genomes ADD COLUMN profit_factor REAL NOT NULL DEFAULT 0.0",
         "ALTER TABLE hive_performance_genomes ADD COLUMN feature_weights_json TEXT NOT NULL DEFAULT '{}'",
@@ -869,6 +877,7 @@ object CollectiveSchema {
         CREATE INDEX IF NOT EXISTS idx_token_mints_creator ON collective_token_mints(creator_address);
         CREATE INDEX IF NOT EXISTS idx_token_mints_source ON collective_token_mints(source);
         CREATE INDEX IF NOT EXISTS idx_token_mints_last_seen ON collective_token_mints(last_seen_ms DESC);
+        CREATE INDEX IF NOT EXISTS idx_token_mints_pair_dex ON collective_token_mints(pair_dex);
         CREATE INDEX IF NOT EXISTS idx_hive_genomes_wr ON hive_performance_genomes(win_rate_pct DESC);
         CREATE INDEX IF NOT EXISTS idx_hive_genomes_updated ON hive_performance_genomes(updated_at DESC);
         CREATE INDEX IF NOT EXISTS idx_hive_genomes_trades ON hive_performance_genomes(total_trades DESC);

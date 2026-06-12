@@ -84,6 +84,11 @@ object CollectiveIntelligenceAI {
     // V5.9.1551 — durable mint-level hive memory. networkSignals are fast/2h;
     // this cache is the longer-lived per-mint outcome edge from collective_trades.
     private val mintMemoryCache = ConcurrentHashMap<String, CollectiveLearning.CollectiveMintMemory>()
+
+    // V5.9.1554 — derived hive alpha layers. These are aggregated from shared
+    // settled outcomes and token metadata. Soft-shaping only, never authority.
+    private val sourceReliabilityCache = ConcurrentHashMap<String, CollectiveLearning.SourceReliability>()
+    private val creatorReputationCache = ConcurrentHashMap<String, CollectiveLearning.CreatorReputation>()
     
     // Dynamic thresholds (adjusted based on collective performance)
     @Volatile private var dynamicConfidenceThreshold = 70
@@ -98,6 +103,7 @@ object CollectiveIntelligenceAI {
     fun reset() {
         patternQualityCache.clear(); modePerformanceCache.clear(); tokenPredictionCache.clear()
         consensusCache.clear(); networkSignalsCache.clear(); mintMemoryCache.clear()
+        sourceReliabilityCache.clear(); creatorReputationCache.clear()
         patternsAnalyzed.set(0); patternsPruned.set(0); anomaliesDetected.set(0)
     }
     private val lastMaintenanceMs = AtomicLong(0)
@@ -237,6 +243,13 @@ object CollectiveIntelligenceAI {
 
             // 5. V5.9.1551: Durable mint-level hive memory from collective_trades.
             val mintMemory = mintMemoryCache[mint]
+
+            // 6. V5.9.1554: Derived source reliability + creator reputation.
+            val sourceReliability = findSourceReliability(source)
+            val creatorReputation = try {
+                CollectiveLearning.getCachedTokenMint(mint)?.creatorAddress?.takeIf { it.isNotBlank() }
+                    ?.let { creatorReputationCache[it] }
+            } catch (_: Exception) { null }
             
             // Calculate score adjustment based on collective data
             var scoreAdj = 0
@@ -316,6 +329,66 @@ object CollectiveIntelligenceAI {
                         scoreAdj -= if (crossInstance) 10 else 5
                         confAdj -= if (crossInstance) 5 else 2
                         reasoning.add("HIVE_MINT_RED(avg=${mintMemory.avgPnlPct.toInt()}%)")
+                    }
+                }
+            }
+
+            // ═══════════════════════════════════════════════════════════════════
+            // V5.9.1554: SOURCE RELIABILITY EDGE
+            // Learns which scanner feeds are actually producing settled winners,
+            // not just noisy volume. This reduces slow bad-intake pressure without
+            // relaxing gates or choking all discovery.
+            // ═══════════════════════════════════════════════════════════════════
+            if (sourceReliability != null) {
+                val wr = sourceReliability.winRate
+                val mature = sourceReliability.totalOutcomes >= 10 || sourceReliability.instanceCount >= 2
+                when {
+                    mature && wr >= 60.0 && sourceReliability.avgPnlPct >= 4.0 -> {
+                        scoreAdj += 10
+                        confAdj += 4
+                        reasoning.add("HIVE_SOURCE_HOT(${sourceReliability.source}:${wr.toInt()}%WR avg=+${sourceReliability.avgPnlPct.toInt()}%)")
+                    }
+                    wr >= 55.0 && sourceReliability.avgPnlPct > 0.0 -> {
+                        scoreAdj += 5
+                        confAdj += 2
+                        reasoning.add("HIVE_SOURCE_GREEN(${sourceReliability.source})")
+                    }
+                    mature && wr <= 30.0 && sourceReliability.avgPnlPct <= -4.0 -> {
+                        scoreAdj -= 12
+                        confAdj -= 5
+                        reasoning.add("HIVE_SOURCE_COLD(${sourceReliability.source}:${wr.toInt()}%WR)")
+                    }
+                    sourceReliability.worstPnlPct <= -25.0 && sourceReliability.losses >= 2 -> {
+                        scoreAdj -= 8
+                        confAdj -= 3
+                        reasoning.add("HIVE_SOURCE_RUGGY(${sourceReliability.source})")
+                    }
+                }
+            }
+
+            // ═══════════════════════════════════════════════════════════════════
+            // V5.9.1554: CREATOR WALLET REPUTATION EDGE
+            // Repeated deployer behavior is one of the highest-alpha shared DB
+            // signals. Still soft-shaping: FDG/original hard safety is authority.
+            // ═══════════════════════════════════════════════════════════════════
+            if (creatorReputation != null) {
+                val wr = creatorReputation.winRate
+                val multiToken = creatorReputation.tokenCount >= 2
+                when {
+                    creatorReputation.rugLikeLosses >= 2 || (multiToken && creatorReputation.avgPnlPct <= -10.0) -> {
+                        scoreAdj -= 18
+                        confAdj -= 8
+                        reasoning.add("HIVE_CREATOR_TOXIC(${creatorReputation.tokenCount}t rugs=${creatorReputation.rugLikeLosses})")
+                    }
+                    creatorReputation.worstPnlPct <= -30.0 && creatorReputation.losses >= 1 -> {
+                        scoreAdj -= 10
+                        confAdj -= 4
+                        reasoning.add("HIVE_CREATOR_BIGLOSS(${creatorReputation.worstPnlPct.toInt()}%)")
+                    }
+                    multiToken && wr >= 60.0 && creatorReputation.avgPnlPct >= 5.0 -> {
+                        scoreAdj += 10
+                        confAdj += 4
+                        reasoning.add("HIVE_CREATOR_GREEN(${wr.toInt()}%WR/${creatorReputation.tokenCount}t)")
                     }
                 }
             }
@@ -871,6 +944,8 @@ object CollectiveIntelligenceAI {
             launch { synthesizeConsensus() }
             launch { refreshNetworkSignals() }  // V4.0: New!
             launch { refreshMintMemory() }      // V5.9.1551: durable per-mint edge
+            launch { refreshSourceReliability() } // V5.9.1554: source WR/PnL edge
+            launch { refreshCreatorReputation() } // V5.9.1554: deployer reputation edge
         }
         
         lastRefreshMs.set(System.currentTimeMillis())
@@ -881,9 +956,45 @@ object CollectiveIntelligenceAI {
             "modes=${modePerformanceCache.size} | " +
             "consensus=${consensusCache.size} | " +
             "network=${networkSignalsCache.size} | " +
-            "mintMemory=${mintMemoryCache.size}")
+            "mintMemory=${mintMemoryCache.size} | " +
+            "sources=${sourceReliabilityCache.size} | " +
+            "creators=${creatorReputationCache.size}")
     }
     
+    private fun findSourceReliability(source: String): CollectiveLearning.SourceReliability? {
+        if (source.isBlank()) return null
+        sourceReliabilityCache[source]?.let { return it }
+        val parts = source.split(',', '|', '+', '/', ' ')
+            .map { it.trim() }
+            .filter { it.isNotBlank() }
+        return parts.mapNotNull { sourceReliabilityCache[it] }
+            .maxWithOrNull(compareBy<CollectiveLearning.SourceReliability> { it.instanceCount }.thenBy { it.totalOutcomes })
+    }
+
+    private suspend fun refreshSourceReliability() {
+        if (!com.lifecyclebot.engine.BotService.status.running) return
+        try {
+            val rows = CollectiveLearning.downloadSourceReliabilityForAI(500)
+            sourceReliabilityCache.clear()
+            for (r in rows) if (r.source.isNotBlank()) sourceReliabilityCache[r.source] = r
+            ErrorLogger.info(TAG, "🧠 Loaded ${rows.size} source-reliability records from hive")
+        } catch (e: Exception) {
+            ErrorLogger.debug(TAG, "refreshSourceReliability error: ${e.message}")
+        }
+    }
+
+    private suspend fun refreshCreatorReputation() {
+        if (!com.lifecyclebot.engine.BotService.status.running) return
+        try {
+            val rows = CollectiveLearning.downloadCreatorReputationForAI(1000)
+            creatorReputationCache.clear()
+            for (r in rows) if (r.creatorAddress.isNotBlank()) creatorReputationCache[r.creatorAddress] = r
+            ErrorLogger.info(TAG, "🧠 Loaded ${rows.size} creator-reputation records from hive")
+        } catch (e: Exception) {
+            ErrorLogger.debug(TAG, "refreshCreatorReputation error: ${e.message}")
+        }
+    }
+
     /** V5.9.1551: Refresh durable mint-level hive memory from completed outcomes. */
     private suspend fun refreshMintMemory() {
         if (!com.lifecyclebot.engine.BotService.status.running) return
@@ -1001,6 +1112,8 @@ object CollectiveIntelligenceAI {
     }
 
     fun getMintMemory(mint: String): CollectiveLearning.CollectiveMintMemory? = mintMemoryCache[mint]
+    fun getSourceReliability(source: String): CollectiveLearning.SourceReliability? = findSourceReliability(source)
+    fun getCreatorReputation(creatorAddress: String): CollectiveLearning.CreatorReputation? = creatorReputationCache[creatorAddress]
     
     /**
      * V5.6.29d: Get last refresh time for UI.

@@ -8872,6 +8872,8 @@ class BotService : Service() {
                         if (cached == null && hiveForIntake != null) {
                             if (hiveForIntake.lastMcapUsd > 0.0) fresh.lastMcap = hiveForIntake.lastMcapUsd
                             if (hiveForIntake.lastLiquidityUsd > 0.0) fresh.lastLiquidityUsd = hiveForIntake.lastLiquidityUsd
+                            if (hiveForIntake.pairDex.isNotBlank()) fresh.lastPriceDex = hiveForIntake.pairDex
+                            if (hiveForIntake.lastPriceSource.isNotBlank()) fresh.lastPriceSource = hiveForIntake.lastPriceSource
                         }
                     }
                 }
@@ -8895,6 +8897,8 @@ class BotService : Service() {
                     if (ts.logoUrl.isBlank() && hiveForIntake.logoUrl.isNotBlank()) ts.logoUrl = hiveForIntake.logoUrl
                     if (ts.lastMcap <= 0.0 && hiveForIntake.lastMcapUsd > 0.0) ts.lastMcap = hiveForIntake.lastMcapUsd
                     if (ts.lastLiquidityUsd <= 0.0 && hiveForIntake.lastLiquidityUsd > 0.0) ts.lastLiquidityUsd = hiveForIntake.lastLiquidityUsd
+                    if (ts.lastPriceDex.isBlank() && hiveForIntake.pairDex.isNotBlank()) ts.lastPriceDex = hiveForIntake.pairDex
+                    if (ts.lastPriceSource.isBlank() && hiveForIntake.lastPriceSource.isNotBlank()) ts.lastPriceSource = hiveForIntake.lastPriceSource
                 }
                 if (ts.source.isBlank()) ts.source = joinedSources
                 ts.laneAffinity.addAll(laneAffinity)
@@ -9061,6 +9065,9 @@ class BotService : Service() {
                             logoUrl = tsShared?.logoUrl ?: "",
                             pairAddress = tsShared?.pairAddress ?: "",
                             pairUrl = tsShared?.pairUrl ?: "",
+                            pairDex = tsShared?.lastPriceDex ?: "",
+                            lastPriceSource = tsShared?.lastPriceSource ?: "",
+                            quoteSuccessful = (tsShared?.pairAddress?.isNotBlank() == true) || (tsShared?.lastPrice ?: 0.0) > 0.0,
                             lastLiquidityUsd = tsShared?.lastLiquidityUsd ?: liquidityUsd,
                             lastMcapUsd = tsShared?.lastMcap ?: marketCapUsd,
                             createdAtMs = creation?.createdAtMs ?: tsShared?.addedToWatchlistAt ?: 0L,
