@@ -130,5 +130,34 @@ object BirdeyeMetaDataProvider {
         )
     }
 
+    /** V5.9.1555 — seed cache from hive-shared metadata. */
+    fun seedFromHive(
+        mint: String,
+        name: String,
+        symbol: String,
+        twitter: String,
+        telegram: String,
+        discord: String,
+        website: String,
+        coingeckoId: String,
+    ) {
+        if (mint.isBlank()) return
+        val existing = cache[mint]
+        if (existing != null && existing.meta.coingeckoId.isNotBlank() && coingeckoId.isBlank()) return
+        cache[mint] = Cached(
+            Meta(
+                name = name,
+                symbol = symbol,
+                twitter = twitter,
+                telegram = telegram,
+                discord = discord,
+                website = website,
+                coingeckoId = coingeckoId,
+                description = existing?.meta?.description ?: "",
+            ),
+            System.currentTimeMillis(),
+        )
+    }
+
     fun cacheSize(): Int = cache.size
 }

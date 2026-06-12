@@ -476,6 +476,12 @@ object CollectiveSchema {
             source TEXT NOT NULL DEFAULT '',
             creator_address TEXT NOT NULL DEFAULT '',
             logo_url TEXT NOT NULL DEFAULT '',
+            twitter TEXT NOT NULL DEFAULT '',
+            telegram TEXT NOT NULL DEFAULT '',
+            discord TEXT NOT NULL DEFAULT '',
+            website TEXT NOT NULL DEFAULT '',
+            coingecko_id TEXT NOT NULL DEFAULT '',
+            social_count INTEGER NOT NULL DEFAULT 0,
             pair_address TEXT NOT NULL DEFAULT '',
             pair_url TEXT NOT NULL DEFAULT '',
             pair_dex TEXT NOT NULL DEFAULT '',
@@ -488,6 +494,28 @@ object CollectiveSchema {
             first_seen_ms INTEGER NOT NULL DEFAULT 0,
             last_seen_ms INTEGER NOT NULL DEFAULT 0,
             report_count INTEGER NOT NULL DEFAULT 0
+        )
+    """
+
+
+    const val CREATE_ENDPOINT_HEALTH_TABLE = """
+        CREATE TABLE IF NOT EXISTS collective_endpoint_health (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            instance_id TEXT NOT NULL DEFAULT '',
+            app_version TEXT NOT NULL DEFAULT '',
+            region_code TEXT NOT NULL DEFAULT '',
+            device_model TEXT NOT NULL DEFAULT '',
+            host TEXT NOT NULL,
+            success_rate REAL NOT NULL DEFAULT 0.0,
+            avg_latency_ms REAL NOT NULL DEFAULT 0.0,
+            successes INTEGER NOT NULL DEFAULT 0,
+            failures_4xx INTEGER NOT NULL DEFAULT 0,
+            failures_5xx INTEGER NOT NULL DEFAULT 0,
+            network_errors INTEGER NOT NULL DEFAULT 0,
+            last_success_ms INTEGER NOT NULL DEFAULT 0,
+            last_failure_ms INTEGER NOT NULL DEFAULT 0,
+            last_error TEXT NOT NULL DEFAULT '',
+            updated_at INTEGER NOT NULL
         )
     """
 
@@ -836,6 +864,12 @@ object CollectiveSchema {
         // Shared token metadata migrations (idempotent; table created for new DBs)
         "ALTER TABLE collective_token_mints ADD COLUMN creator_address TEXT NOT NULL DEFAULT ''",
         "ALTER TABLE collective_token_mints ADD COLUMN logo_url TEXT NOT NULL DEFAULT ''",
+        "ALTER TABLE collective_token_mints ADD COLUMN twitter TEXT NOT NULL DEFAULT ''",
+        "ALTER TABLE collective_token_mints ADD COLUMN telegram TEXT NOT NULL DEFAULT ''",
+        "ALTER TABLE collective_token_mints ADD COLUMN discord TEXT NOT NULL DEFAULT ''",
+        "ALTER TABLE collective_token_mints ADD COLUMN website TEXT NOT NULL DEFAULT ''",
+        "ALTER TABLE collective_token_mints ADD COLUMN coingecko_id TEXT NOT NULL DEFAULT ''",
+        "ALTER TABLE collective_token_mints ADD COLUMN social_count INTEGER NOT NULL DEFAULT 0",
         "ALTER TABLE collective_token_mints ADD COLUMN pair_address TEXT NOT NULL DEFAULT ''",
         "ALTER TABLE collective_token_mints ADD COLUMN pair_url TEXT NOT NULL DEFAULT ''",
         "ALTER TABLE collective_token_mints ADD COLUMN pair_dex TEXT NOT NULL DEFAULT ''",
@@ -878,6 +912,9 @@ object CollectiveSchema {
         CREATE INDEX IF NOT EXISTS idx_token_mints_source ON collective_token_mints(source);
         CREATE INDEX IF NOT EXISTS idx_token_mints_last_seen ON collective_token_mints(last_seen_ms DESC);
         CREATE INDEX IF NOT EXISTS idx_token_mints_pair_dex ON collective_token_mints(pair_dex);
+        CREATE INDEX IF NOT EXISTS idx_token_mints_coingecko ON collective_token_mints(coingecko_id);
+        CREATE INDEX IF NOT EXISTS idx_endpoint_health_host ON collective_endpoint_health(host, updated_at DESC);
+        CREATE INDEX IF NOT EXISTS idx_endpoint_health_region ON collective_endpoint_health(region_code, host);
         CREATE INDEX IF NOT EXISTS idx_hive_genomes_wr ON hive_performance_genomes(win_rate_pct DESC);
         CREATE INDEX IF NOT EXISTS idx_hive_genomes_updated ON hive_performance_genomes(updated_at DESC);
         CREATE INDEX IF NOT EXISTS idx_hive_genomes_trades ON hive_performance_genomes(total_trades DESC);
@@ -1001,6 +1038,7 @@ object CollectiveSchema {
         CREATE_NETWORK_SIGNALS_TABLE,
         CREATE_HIVE_PERFORMANCE_GENOMES_TABLE,
         CREATE_TOKEN_MINTS_TABLE,
+        CREATE_ENDPOINT_HEALTH_TABLE,
         CREATE_COLLECTIVE_STATS_TABLE,
         CREATE_INSTANCE_REGISTRY_TABLE,
         CREATE_ALL_TRADES_TABLE,

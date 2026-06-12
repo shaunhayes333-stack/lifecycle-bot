@@ -8899,6 +8899,18 @@ class BotService : Service() {
                     if (ts.lastLiquidityUsd <= 0.0 && hiveForIntake.lastLiquidityUsd > 0.0) ts.lastLiquidityUsd = hiveForIntake.lastLiquidityUsd
                     if (ts.lastPriceDex.isBlank() && hiveForIntake.pairDex.isNotBlank()) ts.lastPriceDex = hiveForIntake.pairDex
                     if (ts.lastPriceSource.isBlank() && hiveForIntake.lastPriceSource.isNotBlank()) ts.lastPriceSource = hiveForIntake.lastPriceSource
+                    if (hiveForIntake.socialCount > 0 || hiveForIntake.coingeckoId.isNotBlank()) {
+                        com.lifecyclebot.engine.BirdeyeMetaDataProvider.seedFromHive(
+                            mint = ts.mint,
+                            name = hiveForIntake.name,
+                            symbol = hiveForIntake.symbol,
+                            twitter = hiveForIntake.twitter,
+                            telegram = hiveForIntake.telegram,
+                            discord = hiveForIntake.discord,
+                            website = hiveForIntake.website,
+                            coingeckoId = hiveForIntake.coingeckoId,
+                        )
+                    }
                 }
                 if (ts.source.isBlank()) ts.source = joinedSources
                 ts.laneAffinity.addAll(laneAffinity)
@@ -9056,6 +9068,7 @@ class BotService : Service() {
                     try {
                         val tsShared = synchronized(status.tokens) { status.tokens[mint] }
                         val creation = com.lifecyclebot.engine.BirdeyeCreationInfoProvider.peekCached(mint)
+                        val socialMeta = com.lifecyclebot.engine.BirdeyeMetaDataProvider.peekCached(mint)
                         com.lifecyclebot.collective.CollectiveLearning.uploadTokenMint(
                             mint = mint,
                             symbol = tsShared?.symbol ?: symbol.ifBlank { mint.take(6) },
@@ -9063,6 +9076,12 @@ class BotService : Service() {
                             source = tsShared?.source ?: joinedSources,
                             creatorAddress = creation?.creatorAddress ?: "",
                             logoUrl = tsShared?.logoUrl ?: "",
+                            twitter = socialMeta?.twitter ?: "",
+                            telegram = socialMeta?.telegram ?: "",
+                            discord = socialMeta?.discord ?: "",
+                            website = socialMeta?.website ?: "",
+                            coingeckoId = socialMeta?.coingeckoId ?: "",
+                            socialCount = socialMeta?.socialChannelCount() ?: 0,
                             pairAddress = tsShared?.pairAddress ?: "",
                             pairUrl = tsShared?.pairUrl ?: "",
                             pairDex = tsShared?.lastPriceDex ?: "",
@@ -10457,6 +10476,29 @@ class BotService : Service() {
                             trades24h = localStats.trades24h,
                             pnl24hPct = pnl24hPct
                         )
+                        try {
+                            val regionCode = java.util.Locale.getDefault().country.ifBlank { "UNKNOWN" }
+                            val deviceModel = "${android.os.Build.MANUFACTURER}/${android.os.Build.MODEL}".take(80)
+                            com.lifecyclebot.engine.ApiHealthMonitor.snapshot().forEach { (host, st) ->
+                                com.lifecyclebot.collective.CollectiveLearning.uploadEndpointHealth(
+                                    appVersion = com.lifecyclebot.BuildConfig.VERSION_NAME,
+                                    regionCode = regionCode,
+                                    deviceModel = deviceModel,
+                                    host = host,
+                                    successRate = st.successRate(),
+                                    avgLatencyMs = st.avgLatencyMs(),
+                                    successes = st.successes.get(),
+                                    failures4xx = st.failures4xx.get(),
+                                    failures5xx = st.failures5xx.get(),
+                                    networkErrors = st.networkErrors.get(),
+                                    lastSuccessMs = st.lastSuccessMs.get(),
+                                    lastFailureMs = st.lastFailureMs.get(),
+                                    lastError = st.lastErrorMessage.get() ?: "",
+                                )
+                            }
+                        } catch (e: Exception) {
+                            ErrorLogger.debug("BotService", "Endpoint health hive upload error: ${e.message}")
+                        }
                         val modeStats = ModeLearning.getAllModeStats()
                         val snapshots = modeStats.mapValues { (_, stats) ->
                             com.lifecyclebot.collective.CollectiveLearning.ModeStatSnapshot(

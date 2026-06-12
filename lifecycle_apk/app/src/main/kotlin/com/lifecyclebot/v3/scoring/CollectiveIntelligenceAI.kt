@@ -89,6 +89,9 @@ object CollectiveIntelligenceAI {
     // settled outcomes and token metadata. Soft-shaping only, never authority.
     private val sourceReliabilityCache = ConcurrentHashMap<String, CollectiveLearning.SourceReliability>()
     private val creatorReputationCache = ConcurrentHashMap<String, CollectiveLearning.CreatorReputation>()
+    private val rugClusterCache = ConcurrentHashMap<String, CollectiveLearning.RugCluster>()
+    private val liquidityDrainCache = ConcurrentHashMap<String, CollectiveLearning.LiquidityDrainSignature>()
+    private val endpointHealthCache = ConcurrentHashMap<String, CollectiveLearning.EndpointHealthRecord>()
     
     // Dynamic thresholds (adjusted based on collective performance)
     @Volatile private var dynamicConfidenceThreshold = 70
@@ -104,6 +107,7 @@ object CollectiveIntelligenceAI {
         patternQualityCache.clear(); modePerformanceCache.clear(); tokenPredictionCache.clear()
         consensusCache.clear(); networkSignalsCache.clear(); mintMemoryCache.clear()
         sourceReliabilityCache.clear(); creatorReputationCache.clear()
+        rugClusterCache.clear(); liquidityDrainCache.clear(); endpointHealthCache.clear()
         patternsAnalyzed.set(0); patternsPruned.set(0); anomaliesDetected.set(0)
     }
     private val lastMaintenanceMs = AtomicLong(0)
@@ -245,11 +249,13 @@ object CollectiveIntelligenceAI {
             val mintMemory = mintMemoryCache[mint]
 
             // 6. V5.9.1554: Derived source reliability + creator reputation.
+            val tokenMeta = try { CollectiveLearning.getCachedTokenMint(mint) } catch (_: Exception) { null }
             val sourceReliability = findSourceReliability(source)
-            val creatorReputation = try {
-                CollectiveLearning.getCachedTokenMint(mint)?.creatorAddress?.takeIf { it.isNotBlank() }
-                    ?.let { creatorReputationCache[it] }
-            } catch (_: Exception) { null }
+            val creatorReputation = tokenMeta?.creatorAddress?.takeIf { it.isNotBlank() }?.let { creatorReputationCache[it] }
+            val creatorRugCluster = tokenMeta?.creatorAddress?.takeIf { it.isNotBlank() }?.let { rugClusterCache["CREATOR:$it"] }
+            val sourceRugCluster = findRugClusterForSource(source)
+            val dexRugCluster = tokenMeta?.pairDex?.takeIf { it.isNotBlank() }?.let { rugClusterCache["DEX:$it"] }
+            val drainSignature = findDrainSignature(source, tokenMeta?.pairDex ?: "", tokenMeta?.creatorAddress ?: "")
             
             // Calculate score adjustment based on collective data
             var scoreAdj = 0
@@ -389,6 +395,43 @@ object CollectiveIntelligenceAI {
                         scoreAdj += 10
                         confAdj += 4
                         reasoning.add("HIVE_CREATOR_GREEN(${wr.toInt()}%WR/${creatorReputation.tokenCount}t)")
+                    }
+                }
+            }
+
+            // ═══════════════════════════════════════════════════════════════════
+            // V5.9.1555: GLOBAL RUG CLUSTERS + LIQUIDITY-DRAIN SIGNATURES
+            // Clustered by creator/source/dex and by short-hold heavy-loss paths.
+            // This is shared scar tissue: repeated fleet losses damp future
+            // candidates before they burn scan/execution cycles again.
+            // ═══════════════════════════════════════════════════════════════════
+            val strongestRug = listOfNotNull(creatorRugCluster, sourceRugCluster, dexRugCluster)
+                .maxWithOrNull(compareBy<CollectiveLearning.RugCluster> { it.rugLikeLosses }.thenByDescending { it.worstPnlPct * -1.0 })
+            if (strongestRug != null) {
+                when {
+                    strongestRug.rugLikeLosses >= 3 || strongestRug.avgPnlPct <= -15.0 -> {
+                        scoreAdj -= 16
+                        confAdj -= 7
+                        reasoning.add("HIVE_RUG_CLUSTER(${strongestRug.clusterType}:${strongestRug.rugLikeLosses}r worst=${strongestRug.worstPnlPct.toInt()}%)")
+                    }
+                    strongestRug.rugLikeLosses >= 2 -> {
+                        scoreAdj -= 9
+                        confAdj -= 4
+                        reasoning.add("HIVE_RUG_WARN(${strongestRug.clusterType}:${strongestRug.rugLikeLosses}r)")
+                    }
+                }
+            }
+            if (drainSignature != null) {
+                when {
+                    drainSignature.events >= 3 || drainSignature.worstPnlPct <= -30.0 -> {
+                        scoreAdj -= 14
+                        confAdj -= 6
+                        reasoning.add("HIVE_DRAIN_SIG(${drainSignature.events}x hold=${drainSignature.avgHoldMins.toInt()}m worst=${drainSignature.worstPnlPct.toInt()}%)")
+                    }
+                    drainSignature.events >= 2 -> {
+                        scoreAdj -= 8
+                        confAdj -= 3
+                        reasoning.add("HIVE_DRAIN_WARN(${drainSignature.events}x)")
                     }
                 }
             }
@@ -946,6 +989,9 @@ object CollectiveIntelligenceAI {
             launch { refreshMintMemory() }      // V5.9.1551: durable per-mint edge
             launch { refreshSourceReliability() } // V5.9.1554: source WR/PnL edge
             launch { refreshCreatorReputation() } // V5.9.1554: deployer reputation edge
+            launch { refreshRugClusters() }       // V5.9.1555: global rug clusters
+            launch { refreshLiquidityDrains() }   // V5.9.1555: liquidity-drain signatures
+            launch { refreshEndpointHealth() }    // V5.9.1555: endpoint telemetry cache
         }
         
         lastRefreshMs.set(System.currentTimeMillis())
@@ -958,9 +1004,70 @@ object CollectiveIntelligenceAI {
             "network=${networkSignalsCache.size} | " +
             "mintMemory=${mintMemoryCache.size} | " +
             "sources=${sourceReliabilityCache.size} | " +
-            "creators=${creatorReputationCache.size}")
+            "creators=${creatorReputationCache.size} | " +
+            "rugClusters=${rugClusterCache.size} | " +
+            "drains=${liquidityDrainCache.size} | " +
+            "endpoints=${endpointHealthCache.size}")
     }
     
+    private fun findRugClusterForSource(source: String): CollectiveLearning.RugCluster? {
+        if (source.isBlank()) return null
+        rugClusterCache["SOURCE:$source"]?.let { return it }
+        return source.split(',', '|', '+', '/', ' ')
+            .map { it.trim() }
+            .filter { it.isNotBlank() }
+            .mapNotNull { rugClusterCache["SOURCE:$it"] }
+            .maxWithOrNull(compareBy<CollectiveLearning.RugCluster> { it.rugLikeLosses }.thenBy { it.tokenCount })
+    }
+
+    private fun findDrainSignature(source: String, pairDex: String, creatorAddress: String): CollectiveLearning.LiquidityDrainSignature? {
+        val srcs = source.split(',', '|', '+', '/', ' ').map { it.trim() }.filter { it.isNotBlank() }.ifEmpty { listOf("?") }
+        val dex = pairDex.ifBlank { "?" }
+        val creator = creatorAddress.ifBlank { "?" }
+        val keys = mutableListOf<String>()
+        srcs.forEach { keys.add("$it|$dex|$creator") }
+        srcs.forEach { keys.add("$it|$dex|?") }
+        srcs.forEach { keys.add("$it|?|?") }
+        return keys.mapNotNull { liquidityDrainCache[it] }
+            .maxWithOrNull(compareBy<CollectiveLearning.LiquidityDrainSignature> { it.events }.thenByDescending { -it.worstPnlPct })
+    }
+
+    private suspend fun refreshRugClusters() {
+        if (!com.lifecyclebot.engine.BotService.status.running) return
+        try {
+            val rows = CollectiveLearning.downloadRugClustersForAI(500)
+            rugClusterCache.clear()
+            for (r in rows) if (r.clusterKey.isNotBlank()) rugClusterCache["${r.clusterType}:${r.clusterKey}"] = r
+            ErrorLogger.info(TAG, "🧠 Loaded ${rows.size} rug-cluster records from hive")
+        } catch (e: Exception) {
+            ErrorLogger.debug(TAG, "refreshRugClusters error: ${e.message}")
+        }
+    }
+
+    private suspend fun refreshLiquidityDrains() {
+        if (!com.lifecyclebot.engine.BotService.status.running) return
+        try {
+            val rows = CollectiveLearning.downloadLiquidityDrainSignaturesForAI(500)
+            liquidityDrainCache.clear()
+            for (r in rows) if (r.signatureKey.isNotBlank()) liquidityDrainCache[r.signatureKey] = r
+            ErrorLogger.info(TAG, "🧠 Loaded ${rows.size} liquidity-drain signatures from hive")
+        } catch (e: Exception) {
+            ErrorLogger.debug(TAG, "refreshLiquidityDrains error: ${e.message}")
+        }
+    }
+
+    private suspend fun refreshEndpointHealth() {
+        if (!com.lifecyclebot.engine.BotService.status.running) return
+        try {
+            val rows = CollectiveLearning.downloadEndpointHealthForAI(500)
+            endpointHealthCache.clear()
+            for (r in rows) if (r.host.isNotBlank()) endpointHealthCache["${r.regionCode}:${r.deviceModel}:${r.host}"] = r
+            ErrorLogger.info(TAG, "🧠 Loaded ${rows.size} endpoint-health records from hive")
+        } catch (e: Exception) {
+            ErrorLogger.debug(TAG, "refreshEndpointHealth error: ${e.message}")
+        }
+    }
+
     private fun findSourceReliability(source: String): CollectiveLearning.SourceReliability? {
         if (source.isBlank()) return null
         sourceReliabilityCache[source]?.let { return it }
@@ -1114,6 +1221,7 @@ object CollectiveIntelligenceAI {
     fun getMintMemory(mint: String): CollectiveLearning.CollectiveMintMemory? = mintMemoryCache[mint]
     fun getSourceReliability(source: String): CollectiveLearning.SourceReliability? = findSourceReliability(source)
     fun getCreatorReputation(creatorAddress: String): CollectiveLearning.CreatorReputation? = creatorReputationCache[creatorAddress]
+    fun getEndpointHealthRecords(): List<CollectiveLearning.EndpointHealthRecord> = endpointHealthCache.values.toList()
     
     /**
      * V5.6.29d: Get last refresh time for UI.

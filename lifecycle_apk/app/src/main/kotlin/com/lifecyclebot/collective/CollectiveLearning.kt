@@ -307,6 +307,12 @@ object CollectiveLearning {
         val source: String,
         val creatorAddress: String,
         val logoUrl: String,
+        val twitter: String,
+        val telegram: String,
+        val discord: String,
+        val website: String,
+        val coingeckoId: String,
+        val socialCount: Int,
         val pairAddress: String,
         val pairUrl: String,
         val pairDex: String,
@@ -354,6 +360,43 @@ object CollectiveLearning {
         val instanceCount: Int,
         val lastSeen: Long,
     ) { val winRate: Double get() = if (totalOutcomes > 0) wins.toDouble() / totalOutcomes * 100.0 else 50.0 }
+
+    data class RugCluster(
+        val clusterType: String,
+        val clusterKey: String,
+        val tokenCount: Int,
+        val rugLikeLosses: Int,
+        val avgPnlPct: Double,
+        val worstPnlPct: Double,
+        val instanceCount: Int,
+        val lastSeen: Long,
+    )
+
+    data class LiquidityDrainSignature(
+        val signatureKey: String,
+        val source: String,
+        val pairDex: String,
+        val creatorAddress: String,
+        val events: Int,
+        val avgPnlPct: Double,
+        val avgHoldMins: Double,
+        val worstPnlPct: Double,
+        val instanceCount: Int,
+        val lastSeen: Long,
+    )
+
+    data class EndpointHealthRecord(
+        val host: String,
+        val successRate: Double,
+        val avgLatencyMs: Double,
+        val successes: Int,
+        val failures4xx: Int,
+        val failures5xx: Int,
+        val networkErrors: Int,
+        val regionCode: String,
+        val deviceModel: String,
+        val lastSeen: Long,
+    )
 
     fun getCachedTokenMint(mint: String): SharedTokenMint? {
         val key = CanonicalMint.normalize(mint)
@@ -457,6 +500,12 @@ object CollectiveLearning {
         source: String,
         creatorAddress: String,
         logoUrl: String,
+        twitter: String = "",
+        telegram: String = "",
+        discord: String = "",
+        website: String = "",
+        coingeckoId: String = "",
+        socialCount: Int = 0,
         pairAddress: String,
         pairUrl: String,
         pairDex: String = "",
@@ -475,16 +524,23 @@ object CollectiveLearning {
                 val result = client!!.execute(
                     """
                     INSERT INTO collective_token_mints
-                        (mint, symbol, name, source, creator_address, logo_url, pair_address, pair_url,
-                         pair_dex, last_price_source, quote_success_count, quote_fail_count,
+                        (mint, symbol, name, source, creator_address, logo_url,
+                         twitter, telegram, discord, website, coingecko_id, social_count,
+                         pair_address, pair_url, pair_dex, last_price_source, quote_success_count, quote_fail_count,
                          last_liquidity_usd, last_mcap_usd, created_at_ms, first_seen_ms, last_seen_ms, report_count)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1)
                     ON CONFLICT(mint) DO UPDATE SET
                         symbol = COALESCE(NULLIF(excluded.symbol, ''), symbol),
                         name = COALESCE(NULLIF(excluded.name, ''), name),
                         source = COALESCE(NULLIF(excluded.source, ''), source),
                         creator_address = COALESCE(NULLIF(excluded.creator_address, ''), creator_address),
                         logo_url = COALESCE(NULLIF(excluded.logo_url, ''), logo_url),
+                        twitter = COALESCE(NULLIF(excluded.twitter, ''), twitter),
+                        telegram = COALESCE(NULLIF(excluded.telegram, ''), telegram),
+                        discord = COALESCE(NULLIF(excluded.discord, ''), discord),
+                        website = COALESCE(NULLIF(excluded.website, ''), website),
+                        coingecko_id = COALESCE(NULLIF(excluded.coingecko_id, ''), coingecko_id),
+                        social_count = MAX(social_count, excluded.social_count),
                         pair_address = COALESCE(NULLIF(excluded.pair_address, ''), pair_address),
                         pair_url = COALESCE(NULLIF(excluded.pair_url, ''), pair_url),
                         pair_dex = COALESCE(NULLIF(excluded.pair_dex, ''), pair_dex),
@@ -508,6 +564,12 @@ object CollectiveLearning {
                         source.take(128),
                         creatorAddress.take(64),
                         logoUrl.take(512),
+                        twitter.take(256),
+                        telegram.take(256),
+                        discord.take(256),
+                        website.take(512),
+                        coingeckoId.take(128),
+                        socialCount.coerceIn(0, 10),
                         pairAddress.take(96),
                         pairUrl.take(512),
                         pairDex.take(40),
@@ -1154,8 +1216,9 @@ object CollectiveLearning {
             val cutoff = System.currentTimeMillis() - 7L * 24L * 60L * 60L * 1000L
             val result = client!!.query(
                 """
-                SELECT mint, symbol, name, source, creator_address, logo_url, pair_address, pair_url,
-                       pair_dex, last_price_source, quote_success_count, quote_fail_count,
+                SELECT mint, symbol, name, source, creator_address, logo_url,
+                       twitter, telegram, discord, website, coingecko_id, social_count,
+                       pair_address, pair_url, pair_dex, last_price_source, quote_success_count, quote_fail_count,
                        last_liquidity_usd, last_mcap_usd, created_at_ms, first_seen_ms, last_seen_ms, report_count
                 FROM collective_token_mints
                 WHERE last_seen_ms > ?
@@ -1176,6 +1239,12 @@ object CollectiveLearning {
                         source = parseString(row["source"]),
                         creatorAddress = parseString(row["creator_address"]),
                         logoUrl = parseString(row["logo_url"]),
+                        twitter = parseString(row["twitter"]),
+                        telegram = parseString(row["telegram"]),
+                        discord = parseString(row["discord"]),
+                        website = parseString(row["website"]),
+                        coingeckoId = parseString(row["coingecko_id"]),
+                        socialCount = parseInt(row["social_count"]),
                         pairAddress = parseString(row["pair_address"]),
                         pairUrl = parseString(row["pair_url"]),
                         pairDex = parseString(row["pair_dex"]),
@@ -1189,6 +1258,22 @@ object CollectiveLearning {
                         lastSeenMs = parseLong(row["last_seen_ms"]),
                         reportCount = parseInt(row["report_count"]),
                     )
+                    cachedTokenMints[mint]?.let { shared ->
+                        if (shared.socialCount > 0 || shared.coingeckoId.isNotBlank()) {
+                            try {
+                                com.lifecyclebot.engine.BirdeyeMetaDataProvider.seedFromHive(
+                                    mint = mint,
+                                    name = shared.name,
+                                    symbol = shared.symbol,
+                                    twitter = shared.twitter,
+                                    telegram = shared.telegram,
+                                    discord = shared.discord,
+                                    website = shared.website,
+                                    coingeckoId = shared.coingeckoId,
+                                )
+                            } catch (_: Throwable) {}
+                        }
+                    }
                 }
                 Log.i(TAG, "Downloaded ${cachedTokenMints.size} shared token mints")
             }
@@ -1577,6 +1662,157 @@ object CollectiveLearning {
             } catch (e: Exception) {
                 Log.e(TAG, "downloadModeStatsForAI error: ${e.message}")
                 emptyMap()
+            }
+        }
+    }
+
+    suspend fun uploadEndpointHealth(
+        appVersion: String,
+        regionCode: String,
+        deviceModel: String,
+        host: String,
+        successRate: Double,
+        avgLatencyMs: Double,
+        successes: Int,
+        failures4xx: Int,
+        failures5xx: Int,
+        networkErrors: Int,
+        lastSuccessMs: Long,
+        lastFailureMs: Long,
+        lastError: String,
+    ): Boolean {
+        if (!isEnabled() || instanceId.isBlank() || host.isBlank()) return false
+        return withContext(Dispatchers.IO) {
+            try {
+                val now = System.currentTimeMillis()
+                val result = client!!.execute(
+                    """
+                    INSERT INTO collective_endpoint_health
+                        (instance_id, app_version, region_code, device_model, host, success_rate,
+                         avg_latency_ms, successes, failures_4xx, failures_5xx, network_errors,
+                         last_success_ms, last_failure_ms, last_error, updated_at)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    """.trimIndent(),
+                    listOf(instanceId, appVersion.take(40), regionCode.take(20), deviceModel.take(80), host.take(120),
+                        sanitizeDouble(successRate).coerceIn(0.0, 1.0), sanitizeDouble(avgLatencyMs).coerceAtLeast(0.0),
+                        successes.coerceAtLeast(0), failures4xx.coerceAtLeast(0), failures5xx.coerceAtLeast(0), networkErrors.coerceAtLeast(0),
+                        lastSuccessMs.coerceAtLeast(0L), lastFailureMs.coerceAtLeast(0L), lastError.take(180), now)
+                )
+                result.success
+            } catch (e: Exception) {
+                Log.e(TAG, "uploadEndpointHealth error: ${e.message}")
+                false
+            }
+        }
+    }
+
+    suspend fun downloadRugClustersForAI(limit: Int = 500): List<RugCluster> {
+        if (!isEnabled()) return emptyList()
+        val out = mutableListOf<RugCluster>()
+        return withContext(Dispatchers.IO) {
+            try {
+                val cutoff = System.currentTimeMillis() - 30L * 24L * 60L * 60L * 1000L
+                val specs = listOf(
+                    "CREATOR" to "m.creator_address",
+                    "SOURCE" to "t.source",
+                    "DEX" to "m.pair_dex"
+                )
+                for ((type, field) in specs) {
+                    val result = client!!.query(
+                        """
+                        SELECT $field as cluster_key,
+                               COUNT(DISTINCT t.mint) as token_count,
+                               SUM(CASE WHEN t.pnl_pct <= -25.0 THEN 1 ELSE 0 END) as rug_like_losses,
+                               AVG(t.pnl_pct) as avg_pnl_pct,
+                               MIN(t.pnl_pct) as worst_pnl_pct,
+                               COUNT(DISTINCT t.instance_id) as instance_count,
+                               MAX(t.timestamp) as last_seen
+                        FROM collective_trades t
+                        LEFT JOIN collective_token_mints m ON m.mint = t.mint
+                        WHERE t.side = 'SELL' AND t.timestamp > ? AND $field != ''
+                        GROUP BY $field
+                        HAVING rug_like_losses >= 2 OR (COUNT(*) >= 3 AND AVG(t.pnl_pct) <= -10.0)
+                        ORDER BY rug_like_losses DESC, worst_pnl_pct ASC
+                        LIMIT ${limit.coerceIn(50, 2000)}
+                        """.trimIndent(), listOf(cutoff)
+                    )
+                    if (result.success) result.rows.forEach { row ->
+                        val key = parseString(row["cluster_key"])
+                        if (key.isNotBlank()) out.add(RugCluster(type, key, parseInt(row["token_count"]), parseInt(row["rug_like_losses"]), parseDouble(row["avg_pnl_pct"]), parseDouble(row["worst_pnl_pct"]), parseInt(row["instance_count"]).coerceAtLeast(1), parseLong(row["last_seen"])))
+                    }
+                }
+                out
+            } catch (e: Exception) {
+                Log.e(TAG, "downloadRugClustersForAI error: ${e.message}")
+                emptyList()
+            }
+        }
+    }
+
+    suspend fun downloadLiquidityDrainSignaturesForAI(limit: Int = 500): List<LiquidityDrainSignature> {
+        if (!isEnabled()) return emptyList()
+        return withContext(Dispatchers.IO) {
+            try {
+                val cutoff = System.currentTimeMillis() - 14L * 24L * 60L * 60L * 1000L
+                val result = client!!.query(
+                    """
+                    SELECT COALESCE(NULLIF(t.source,''),'?') as source,
+                           COALESCE(NULLIF(m.pair_dex,''),'?') as pair_dex,
+                           COALESCE(NULLIF(m.creator_address,''),'?') as creator_address,
+                           COUNT(*) as events,
+                           AVG(t.pnl_pct) as avg_pnl_pct,
+                           AVG(t.hold_mins) as avg_hold_mins,
+                           MIN(t.pnl_pct) as worst_pnl_pct,
+                           COUNT(DISTINCT t.instance_id) as instance_count,
+                           MAX(t.timestamp) as last_seen
+                    FROM collective_trades t
+                    LEFT JOIN collective_token_mints m ON m.mint = t.mint
+                    WHERE t.side = 'SELL' AND t.timestamp > ? AND t.pnl_pct <= -15.0 AND t.hold_mins <= 20.0
+                    GROUP BY source, pair_dex, creator_address
+                    HAVING COUNT(*) >= 2
+                    ORDER BY events DESC, worst_pnl_pct ASC
+                    LIMIT ${limit.coerceIn(50, 2000)}
+                    """.trimIndent(), listOf(cutoff)
+                )
+                if (!result.success) emptyList() else result.rows.map { row ->
+                    val src = parseString(row["source"]); val dex = parseString(row["pair_dex"]); val creator = parseString(row["creator_address"])
+                    LiquidityDrainSignature("$src|$dex|$creator", src, dex, creator, parseInt(row["events"]), parseDouble(row["avg_pnl_pct"]), parseDouble(row["avg_hold_mins"]), parseDouble(row["worst_pnl_pct"]), parseInt(row["instance_count"]).coerceAtLeast(1), parseLong(row["last_seen"]))
+                }
+            } catch (e: Exception) {
+                Log.e(TAG, "downloadLiquidityDrainSignaturesForAI error: ${e.message}")
+                emptyList()
+            }
+        }
+    }
+
+    suspend fun downloadEndpointHealthForAI(limit: Int = 500): List<EndpointHealthRecord> {
+        if (!isEnabled()) return emptyList()
+        return withContext(Dispatchers.IO) {
+            try {
+                val cutoff = System.currentTimeMillis() - 24L * 60L * 60L * 1000L
+                val result = client!!.query(
+                    """
+                    SELECT host, region_code, device_model,
+                           AVG(success_rate) as success_rate,
+                           AVG(avg_latency_ms) as avg_latency_ms,
+                           SUM(successes) as successes,
+                           SUM(failures_4xx) as failures_4xx,
+                           SUM(failures_5xx) as failures_5xx,
+                           SUM(network_errors) as network_errors,
+                           MAX(updated_at) as last_seen
+                    FROM collective_endpoint_health
+                    WHERE updated_at > ?
+                    GROUP BY host, region_code, device_model
+                    ORDER BY success_rate DESC, avg_latency_ms ASC
+                    LIMIT ${limit.coerceIn(50, 2000)}
+                    """.trimIndent(), listOf(cutoff)
+                )
+                if (!result.success) emptyList() else result.rows.map { row ->
+                    EndpointHealthRecord(parseString(row["host"]), parseDouble(row["success_rate"]), parseDouble(row["avg_latency_ms"]), parseInt(row["successes"]), parseInt(row["failures_4xx"]), parseInt(row["failures_5xx"]), parseInt(row["network_errors"]), parseString(row["region_code"]), parseString(row["device_model"]), parseLong(row["last_seen"]))
+                }
+            } catch (e: Exception) {
+                Log.e(TAG, "downloadEndpointHealthForAI error: ${e.message}")
+                emptyList()
             }
         }
     }
