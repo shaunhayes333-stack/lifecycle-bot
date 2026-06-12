@@ -3,6 +3,7 @@ package com.lifecyclebot.collective
 import android.content.Context
 import android.content.SharedPreferences
 import android.util.Log
+import com.lifecyclebot.data.CanonicalMint
 import com.lifecyclebot.data.ConfigStore
 import com.lifecyclebot.engine.ErrorLogger
 import kotlinx.coroutines.CoroutineScope
@@ -65,6 +66,7 @@ object CollectiveLearning {
     private val cachedPatterns = mutableMapOf<String, CollectivePattern>()
     private val cachedModeStats = mutableMapOf<String, ModePerformance>()
     private val cachedWhaleStats = mutableMapOf<String, WhaleEffectiveness>()
+    private val cachedTokenMints = mutableMapOf<String, SharedTokenMint>()
 
     private var syncJob: Job? = null
     private val scope = CoroutineScope(Dispatchers.IO + SupervisorJob())
@@ -297,6 +299,96 @@ object CollectiveLearning {
         val errorMessage: String?,
         val lastReconnectAttempt: Long
     )
+
+    data class SharedTokenMint(
+        val mint: String,
+        val symbol: String,
+        val name: String,
+        val source: String,
+        val creatorAddress: String,
+        val logoUrl: String,
+        val pairAddress: String,
+        val pairUrl: String,
+        val lastLiquidityUsd: Double,
+        val lastMcapUsd: Double,
+        val createdAtMs: Long,
+        val firstSeenMs: Long,
+        val lastSeenMs: Long,
+        val reportCount: Int,
+    )
+
+    fun getCachedTokenMint(mint: String): SharedTokenMint? {
+        val key = CanonicalMint.normalize(mint)
+        if (key.isBlank()) return null
+        return cachedTokenMints[key]
+    }
+
+    suspend fun uploadTokenMint(
+        mint: String,
+        symbol: String,
+        name: String,
+        source: String,
+        creatorAddress: String,
+        logoUrl: String,
+        pairAddress: String,
+        pairUrl: String,
+        lastLiquidityUsd: Double,
+        lastMcapUsd: Double,
+        createdAtMs: Long,
+    ): Boolean {
+        if (!isEnabled()) return false
+        val safeMint = CanonicalMint.normalize(mint)
+        if (safeMint.isBlank()) return false
+        return withContext(Dispatchers.IO) {
+            try {
+                val now = System.currentTimeMillis()
+                val result = client!!.execute(
+                    """
+                    INSERT INTO collective_token_mints
+                        (mint, symbol, name, source, creator_address, logo_url, pair_address, pair_url,
+                         last_liquidity_usd, last_mcap_usd, created_at_ms, first_seen_ms, last_seen_ms, report_count)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1)
+                    ON CONFLICT(mint) DO UPDATE SET
+                        symbol = COALESCE(NULLIF(excluded.symbol, ''), symbol),
+                        name = COALESCE(NULLIF(excluded.name, ''), name),
+                        source = COALESCE(NULLIF(excluded.source, ''), source),
+                        creator_address = COALESCE(NULLIF(excluded.creator_address, ''), creator_address),
+                        logo_url = COALESCE(NULLIF(excluded.logo_url, ''), logo_url),
+                        pair_address = COALESCE(NULLIF(excluded.pair_address, ''), pair_address),
+                        pair_url = COALESCE(NULLIF(excluded.pair_url, ''), pair_url),
+                        last_liquidity_usd = MAX(last_liquidity_usd, excluded.last_liquidity_usd),
+                        last_mcap_usd = MAX(last_mcap_usd, excluded.last_mcap_usd),
+                        created_at_ms = CASE
+                            WHEN created_at_ms <= 0 THEN excluded.created_at_ms
+                            WHEN excluded.created_at_ms <= 0 THEN created_at_ms
+                            ELSE MIN(created_at_ms, excluded.created_at_ms)
+                        END,
+                        last_seen_ms = excluded.last_seen_ms,
+                        report_count = report_count + 1
+                    """.trimIndent(),
+                    listOf(
+                        safeMint,
+                        symbol.take(64),
+                        name.take(128),
+                        source.take(128),
+                        creatorAddress.take(64),
+                        logoUrl.take(512),
+                        pairAddress.take(96),
+                        pairUrl.take(512),
+                        sanitizeDouble(lastLiquidityUsd),
+                        sanitizeDouble(lastMcapUsd),
+                        createdAtMs.coerceAtLeast(0L),
+                        now,
+                        now,
+                    )
+                )
+                result.success
+            } catch (e: Exception) {
+                Log.e(TAG, "uploadTokenMint error: ${e.message}")
+                false
+            }
+        }
+    }
 
     suspend fun uploadPatternOutcome(
         patternType: String,
@@ -751,6 +843,7 @@ object CollectiveLearning {
             downloadPatterns()
             downloadModeStats()
             downloadWhaleStats()
+            downloadTokenMints()
 
             lastSyncTime = System.currentTimeMillis()
             totalDownloadsThisSession++
@@ -917,6 +1010,49 @@ object CollectiveLearning {
         }
     }
 
+    private suspend fun downloadTokenMints() {
+        try {
+            val cutoff = System.currentTimeMillis() - 7L * 24L * 60L * 60L * 1000L
+            val result = client!!.query(
+                """
+                SELECT mint, symbol, name, source, creator_address, logo_url, pair_address, pair_url,
+                       last_liquidity_usd, last_mcap_usd, created_at_ms, first_seen_ms, last_seen_ms, report_count
+                FROM collective_token_mints
+                WHERE last_seen_ms > ?
+                ORDER BY last_seen_ms DESC
+                LIMIT 5000
+                """.trimIndent(),
+                listOf(cutoff)
+            )
+            if (result.success) {
+                cachedTokenMints.clear()
+                for (row in result.rows) {
+                    val mint = CanonicalMint.normalize(parseString(row["mint"]))
+                    if (mint.isBlank()) continue
+                    cachedTokenMints[mint] = SharedTokenMint(
+                        mint = mint,
+                        symbol = parseString(row["symbol"]),
+                        name = parseString(row["name"]),
+                        source = parseString(row["source"]),
+                        creatorAddress = parseString(row["creator_address"]),
+                        logoUrl = parseString(row["logo_url"]),
+                        pairAddress = parseString(row["pair_address"]),
+                        pairUrl = parseString(row["pair_url"]),
+                        lastLiquidityUsd = parseDouble(row["last_liquidity_usd"]),
+                        lastMcapUsd = parseDouble(row["last_mcap_usd"]),
+                        createdAtMs = parseLong(row["created_at_ms"]),
+                        firstSeenMs = parseLong(row["first_seen_ms"]),
+                        lastSeenMs = parseLong(row["last_seen_ms"]),
+                        reportCount = parseInt(row["report_count"]),
+                    )
+                }
+                Log.i(TAG, "Downloaded ${cachedTokenMints.size} shared token mints")
+            }
+        } catch (e: Exception) {
+            Log.e(TAG, "Download token mints error: ${e.message}")
+        }
+    }
+
     fun isBlacklisted(mint: String): Boolean {
         return cachedBlacklist.contains(mint)
     }
@@ -1008,6 +1144,7 @@ object CollectiveLearning {
             "patterns" to cachedPatterns.size,
             "modeStats" to cachedModeStats.size,
             "whaleStats" to cachedWhaleStats.size,
+            "tokenMints" to cachedTokenMints.size,
             "lastSyncTime" to lastSyncTime,
             "uploadAttempts" to totalUploadAttemptsThisSession,
             "uploadSuccess" to totalUploadSuccessThisSession,

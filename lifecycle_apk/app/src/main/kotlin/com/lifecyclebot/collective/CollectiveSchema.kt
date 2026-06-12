@@ -453,6 +453,26 @@ object CollectiveSchema {
         )
     """
 
+
+    const val CREATE_TOKEN_MINTS_TABLE = """
+        CREATE TABLE IF NOT EXISTS collective_token_mints (
+            mint TEXT PRIMARY KEY NOT NULL,
+            symbol TEXT NOT NULL DEFAULT '',
+            name TEXT NOT NULL DEFAULT '',
+            source TEXT NOT NULL DEFAULT '',
+            creator_address TEXT NOT NULL DEFAULT '',
+            logo_url TEXT NOT NULL DEFAULT '',
+            pair_address TEXT NOT NULL DEFAULT '',
+            pair_url TEXT NOT NULL DEFAULT '',
+            last_liquidity_usd REAL NOT NULL DEFAULT 0.0,
+            last_mcap_usd REAL NOT NULL DEFAULT 0.0,
+            created_at_ms INTEGER NOT NULL DEFAULT 0,
+            first_seen_ms INTEGER NOT NULL DEFAULT 0,
+            last_seen_ms INTEGER NOT NULL DEFAULT 0,
+            report_count INTEGER NOT NULL DEFAULT 0
+        )
+    """
+
     const val CREATE_COLLECTIVE_STATS_TABLE = """
         CREATE TABLE IF NOT EXISTS collective_stats (
             stat_key TEXT PRIMARY KEY NOT NULL,
@@ -795,6 +815,11 @@ object CollectiveSchema {
         "ALTER TABLE collective_trades ADD COLUMN hold_mins REAL NOT NULL DEFAULT 0.0",
         "ALTER TABLE collective_trades ADD COLUMN is_win INTEGER NOT NULL DEFAULT 0",
         "ALTER TABLE collective_trades ADD COLUMN paper_mode INTEGER NOT NULL DEFAULT 1",
+        // Shared token metadata migrations (idempotent; table created for new DBs)
+        "ALTER TABLE collective_token_mints ADD COLUMN creator_address TEXT NOT NULL DEFAULT ''",
+        "ALTER TABLE collective_token_mints ADD COLUMN logo_url TEXT NOT NULL DEFAULT ''",
+        "ALTER TABLE collective_token_mints ADD COLUMN pair_address TEXT NOT NULL DEFAULT ''",
+        "ALTER TABLE collective_token_mints ADD COLUMN pair_url TEXT NOT NULL DEFAULT ''",
         // V5.7: Perps table migrations (for older databases)
         "ALTER TABLE perps_trades ADD COLUMN hold_mins REAL NOT NULL DEFAULT 0.0",
         "ALTER TABLE perps_positions ADD COLUMN last_update INTEGER NOT NULL DEFAULT 0",
@@ -823,6 +848,10 @@ object CollectiveSchema {
         CREATE INDEX IF NOT EXISTS idx_network_signals_mint ON network_signals(mint);
         CREATE INDEX IF NOT EXISTS idx_network_signals_expires ON network_signals(expires_at);
         CREATE INDEX IF NOT EXISTS idx_network_signals_type ON network_signals(signal_type);
+        CREATE INDEX IF NOT EXISTS idx_token_mints_symbol ON collective_token_mints(symbol);
+        CREATE INDEX IF NOT EXISTS idx_token_mints_creator ON collective_token_mints(creator_address);
+        CREATE INDEX IF NOT EXISTS idx_token_mints_source ON collective_token_mints(source);
+        CREATE INDEX IF NOT EXISTS idx_token_mints_last_seen ON collective_token_mints(last_seen_ms DESC);
         CREATE INDEX IF NOT EXISTS idx_perps_trades_market ON perps_trades(market);
         CREATE INDEX IF NOT EXISTS idx_perps_trades_direction ON perps_trades(direction);
         CREATE INDEX IF NOT EXISTS idx_perps_trades_close_time ON perps_trades(close_time);
@@ -941,6 +970,7 @@ object CollectiveSchema {
         CREATE_LEGAL_AGREEMENTS_TABLE,
         CREATE_INSTANCE_HEARTBEATS_TABLE,
         CREATE_NETWORK_SIGNALS_TABLE,
+        CREATE_TOKEN_MINTS_TABLE,
         CREATE_COLLECTIVE_STATS_TABLE,
         CREATE_INSTANCE_REGISTRY_TABLE,
         CREATE_ALL_TRADES_TABLE,

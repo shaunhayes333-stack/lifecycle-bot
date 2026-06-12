@@ -8801,6 +8801,9 @@ class BotService : Service() {
                     com.lifecyclebot.engine.TokenMetaCache
                         .get(applicationContext).lookup(mint)
                 } catch (_: Throwable) { null }
+                val hiveForIntake = try {
+                    com.lifecyclebot.collective.CollectiveLearning.getCachedTokenMint(mint)
+                } catch (_: Throwable) { null }
                 val ts = status.tokens.getOrPut(mint) {
                     // V5.9.948 — warm-boot hydration from disk-backed cache.
                     // If we've seen this mint before, restore the
@@ -8810,13 +8813,13 @@ class BotService : Service() {
                     val cached = cachedForIntake
                     com.lifecyclebot.data.TokenState(
                         mint = mint,
-                        symbol = symbol.ifBlank { cached?.symbol?.takeIf { it.isNotBlank() } ?: mint.take(6) },
-                        name = name.ifBlank { cached?.name?.takeIf { it.isNotBlank() } ?: symbol.ifBlank { mint.take(6) } },
-                        pairAddress = cached?.pairAddress ?: "",
-                        pairUrl = cached?.pairUrl ?: "",
+                        symbol = symbol.ifBlank { cached?.symbol?.takeIf { it.isNotBlank() } ?: hiveForIntake?.symbol?.takeIf { it.isNotBlank() } ?: mint.take(6) },
+                        name = name.ifBlank { cached?.name?.takeIf { it.isNotBlank() } ?: hiveForIntake?.name?.takeIf { it.isNotBlank() } ?: symbol.ifBlank { mint.take(6) } },
+                        pairAddress = cached?.pairAddress?.takeIf { it.isNotBlank() } ?: hiveForIntake?.pairAddress ?: "",
+                        pairUrl = cached?.pairUrl?.takeIf { it.isNotBlank() } ?: hiveForIntake?.pairUrl ?: "",
                         candleTimeframeMinutes = 1,
-                        source = joinedSources,
-                        logoUrl = cached?.logoUrl ?: "",
+                        source = joinedSources.ifBlank { hiveForIntake?.source ?: "" },
+                        logoUrl = cached?.logoUrl?.takeIf { it.isNotBlank() } ?: hiveForIntake?.logoUrl ?: "",
                     ).also { fresh ->
                         fresh.laneAffinity.addAll(laneAffinity)
                         fresh.toolAffinity.addAll(toolAffinity)
@@ -8831,6 +8834,10 @@ class BotService : Service() {
                             if (cached.lastFdv > 0.0) fresh.lastFdv = cached.lastFdv
                             if (cached.lastPriceDex.isNotBlank()) fresh.lastPriceDex = cached.lastPriceDex
                             if (cached.lastPricePoolAddr.isNotBlank()) fresh.lastPricePoolAddr = cached.lastPricePoolAddr
+                        }
+                        if (cached == null && hiveForIntake != null) {
+                            if (hiveForIntake.lastMcapUsd > 0.0) fresh.lastMcap = hiveForIntake.lastMcapUsd
+                            if (hiveForIntake.lastLiquidityUsd > 0.0) fresh.lastLiquidityUsd = hiveForIntake.lastLiquidityUsd
                         }
                     }
                 }
@@ -8850,6 +8857,10 @@ class BotService : Service() {
                     if (ts.lastFdv <= 0.0 && cachedForIntake.lastFdv > 0.0) ts.lastFdv = cachedForIntake.lastFdv
                     if (ts.lastPriceDex.isBlank() && cachedForIntake.lastPriceDex.isNotBlank()) ts.lastPriceDex = cachedForIntake.lastPriceDex
                     if (ts.lastPricePoolAddr.isBlank() && cachedForIntake.lastPricePoolAddr.isNotBlank()) ts.lastPricePoolAddr = cachedForIntake.lastPricePoolAddr
+                } else if (hiveForIntake != null) {
+                    if (ts.logoUrl.isBlank() && hiveForIntake.logoUrl.isNotBlank()) ts.logoUrl = hiveForIntake.logoUrl
+                    if (ts.lastMcap <= 0.0 && hiveForIntake.lastMcapUsd > 0.0) ts.lastMcap = hiveForIntake.lastMcapUsd
+                    if (ts.lastLiquidityUsd <= 0.0 && hiveForIntake.lastLiquidityUsd > 0.0) ts.lastLiquidityUsd = hiveForIntake.lastLiquidityUsd
                 }
                 if (ts.source.isBlank()) ts.source = joinedSources
                 ts.laneAffinity.addAll(laneAffinity)
@@ -9001,6 +9012,28 @@ class BotService : Service() {
                     lastLiquidityUsd = liquidityUsd.takeIf { it > 0.0 },
                 )
             } catch (_: Throwable) { /* best-effort */ }
+
+            try {
+                kotlinx.coroutines.GlobalScope.launch(AppDispatchers.sideEffect) {
+                    try {
+                        val tsShared = synchronized(status.tokens) { status.tokens[mint] }
+                        val creation = com.lifecyclebot.engine.BirdeyeCreationInfoProvider.peekCached(mint)
+                        com.lifecyclebot.collective.CollectiveLearning.uploadTokenMint(
+                            mint = mint,
+                            symbol = tsShared?.symbol ?: symbol.ifBlank { mint.take(6) },
+                            name = tsShared?.name ?: name.ifBlank { symbol.ifBlank { mint.take(6) } },
+                            source = tsShared?.source ?: joinedSources,
+                            creatorAddress = creation?.creatorAddress ?: "",
+                            logoUrl = tsShared?.logoUrl ?: "",
+                            pairAddress = tsShared?.pairAddress ?: "",
+                            pairUrl = tsShared?.pairUrl ?: "",
+                            lastLiquidityUsd = tsShared?.lastLiquidityUsd ?: liquidityUsd,
+                            lastMcapUsd = tsShared?.lastMcap ?: marketCapUsd,
+                            createdAtMs = creation?.createdAtMs ?: tsShared?.addedToWatchlistAt ?: 0L,
+                        )
+                    } catch (_: Throwable) {}
+                }
+            } catch (_: Throwable) {}
 
             try { orchestrator?.onTokenAdded(mint, symbol.ifBlank { mint.take(6) }) } catch (_: Throwable) {}
         } catch (e: Throwable) {
