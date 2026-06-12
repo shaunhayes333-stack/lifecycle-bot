@@ -49,7 +49,23 @@ object ExecutableOpenGate {
         lane: String = "PRIMARY",
         runtimeGeneration: Long = BotRuntimeController.currentGeneration(),
         candidateVersion: Long = LaneExecutionCoordinator.candidateVersionFor(mint),
-    ): String = "$runtimeGeneration:${mode.uppercase()}:${mint.trim()}:${side.uppercase()}:$candidateVersion"
+    ): String = "$runtimeGeneration:${mode.uppercase()}:${sanitizeMintForKey(mint)}:${side.uppercase()}:$candidateVersion"
+
+    /**
+     * V5.9.1537 — SECURITY: a Solana mint is base58, 32..44 chars, [1-9A-HJ-NP-Za-km-z].
+     * Forensic snapshot 5.0.3554 showed an attemptId whose mint slot contained a
+     * leaked Groq API key string (a log message had been mis-assigned into a mint
+     * variable upstream, then the platform secret-scanner caught it). attemptIds are
+     * emitted into forensic logs/telemetry, so ANY non-mint payload here is a secret-
+     * exfiltration vector. We hard-clamp the mint slot to a valid base58 shape; if it
+     * doesn't match, we substitute a safe redacted token (never the raw value), so a
+     * contaminated mint can never carry a secret into a log line again.
+     */
+    private fun sanitizeMintForKey(mint: String): String {
+        val m = mint.trim()
+        val base58 = Regex("^[1-9A-HJ-NP-Za-km-z]{32,44}$")
+        return if (base58.matches(m)) m else "INVALID_MINT_REDACTED"
+    }
 
     private val states = ConcurrentHashMap<String, EntryState>()
     private const val TTL_MS = 10 * 60 * 1000L
