@@ -293,22 +293,55 @@ object ExecutableOpenGate {
             // upstream; LIVE still treats 1..10 as hard no-buy finality.
             if (rugScore == 0 || (rugScore in 1..10 && !paperRuntime)) add("RC_SCORE_$rugScore")
         }.distinct()
+        // V5.9.1545 — STALE-VERDICT LEAK ROOT FIX (re-surfaced choke).
+        // The snapshot showed candidates with FDG_ALLOW=PROBE_ONLY (canExecute=true)
+        // being WRITTEN to state as WATCH, then read back by candidateInvalidReason
+        // and DROPPED as EXEC_OPEN_DROPPED_PRE_FDG_NOT_BUY (preFdg=WATCH). Cause:
+        // this when() only recognised literal signal=="BUY"/"EXECUTE" as executable.
+        // A PROBE_ONLY approval (canExecute=true, but signal not literally "BUY")
+        // fell through to the else->"WATCH" branch — overwriting an APPROVED dust-buy
+        // with a hard-drop verdict. That directly contradicts canExecute() (FDG line
+        // ~44) and the V5.9.1483 string-gate fix, both of which treat PROBE_ONLY as
+        // executable. FIX: if FDG says canExecute (no hard-no), the state verdict is
+        // EXECUTABLE — preserve an explicit PROBE_ONLY (so the dust-size path stays
+        // intact) and otherwise BUY. Never downgrade an approved candidate to WATCH.
+        val incomingProbe = preFdgVerdict.equals("PROBE_ONLY", true) ||
+                            (reason?.equals("PROBE_ONLY", true) == true)
         val finalVerdict = when {
             finalHardNo.isNotEmpty() -> "HARD_NO_BUY"
             !canExecute -> preFdgVerdict.takeIf { it != "BUY" } ?: "NO_BUY"
+            incomingProbe -> "PROBE_ONLY"   // approved dust-buy — must NOT become WATCH
             signal.equals("BUY", true) || signal.equals("EXECUTE", true) -> "BUY"
-            else -> "WATCH"
+            // canExecute=true with no hard-no is an APPROVAL regardless of the raw
+            // signal label — treat as executable PROBE_ONLY rather than WATCH-dropping it.
+            else -> "PROBE_ONLY"
         }
         put(mint) { old ->
+            // V5.9.1545 — VERDICT PRECEDENCE (multi-lane last-write-wins clobber fix).
+            // A single candidate (e.g. KNECKS) is evaluated across many lanes in one
+            // tick; each lane calls this writer. Plain last-write-wins meant a later
+            // lane resolving WATCH/NO_BUY could OVERWRITE an earlier lane's approved
+            // BUY/PROBE_ONLY for the SAME candidateVersion, then the finality gate read
+            // that stale WATCH and dropped the token. Rank verdicts and only let a
+            // verdict overwrite when it is >= the stored one (within the same version);
+            // a newer candidateVersion always wins (genuinely fresh evaluation).
+            fun rank(v: String?): Int = when (v?.uppercase()) {
+                "BUY" -> 3; "PROBE_ONLY" -> 2; "WATCH", "PROBE" -> 1
+                "NO_BUY" -> 0; "HARD_NO_BUY" -> 0; else -> 1
+            }
+            val sameVersion = old != null && old.candidateVersion == candidateVersion
+            val keepOld = sameVersion && rank(old?.preFdgVerdict) > rank(finalVerdict)
+            val effectiveVerdict = if (keepOld) old!!.preFdgVerdict else finalVerdict
+            val effectiveCan = if (keepOld) old!!.fdgCan else canExecute
             (old ?: EntryState(mint = mint, symbol = symbol)).copy(
                 symbol = symbol,
-                fdgCan = canExecute,
-                fdgReason = reason,
+                fdgCan = effectiveCan,
+                fdgReason = if (keepOld) old?.fdgReason else reason,
                 signal = signal.ifBlank { "UNKNOWN" },
-                decisionBand = if (finalVerdict == "BUY") "BUY" else (old?.decisionBand ?: finalVerdict),
+                decisionBand = if (effectiveVerdict == "BUY") "BUY" else (old?.decisionBand ?: effectiveVerdict),
                 selectedLane = lane.uppercase(),
-                preFdgVerdict = finalVerdict,
-                hardNoReasons = finalHardNo,
+                preFdgVerdict = effectiveVerdict,
+                hardNoReasons = if (keepOld) (old?.hardNoReasons ?: finalHardNo) else finalHardNo,
                 candidateVersion = candidateVersion,
                 entryScore = if (entryScore >= 0) entryScore else old?.entryScore ?: -1,
                 liquidityUsd = liquidityUsd,
