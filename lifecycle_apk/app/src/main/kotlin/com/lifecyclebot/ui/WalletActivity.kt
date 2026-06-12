@@ -70,16 +70,20 @@ class WalletActivity : AppCompatActivity() {
     private var withdrawPct: Int = 50   // 0–100
 
     override fun onCreate(savedInstanceState: Bundle?) {
-        // Apply theme BEFORE setContentView
+        // Apply theme BEFORE setContentView.
+        // V5.9.1546 — NO-OP GUARD (mirrors MainActivity.applyTheme V5.9.1447).
+        // setDefaultNightMode with a CHANGED value forces an Activity-stack
+        // recreate (onCreate re-runs, re-inflating heavy layer drawables — a
+        // multi-second main-thread stall that starves the bot loop). Only call
+        // it when the desired mode actually differs from the current effective
+        // mode, so opening Wallet can never trigger a redundant recreate storm.
         val cfg = ConfigStore.load(this)
-        if (cfg.darkModeEnabled) {
-            androidx.appcompat.app.AppCompatDelegate.setDefaultNightMode(
-                androidx.appcompat.app.AppCompatDelegate.MODE_NIGHT_YES
-            )
-        } else {
-            androidx.appcompat.app.AppCompatDelegate.setDefaultNightMode(
-                androidx.appcompat.app.AppCompatDelegate.MODE_NIGHT_NO
-            )
+        val desiredNightMode = if (cfg.darkModeEnabled)
+            androidx.appcompat.app.AppCompatDelegate.MODE_NIGHT_YES
+        else
+            androidx.appcompat.app.AppCompatDelegate.MODE_NIGHT_NO
+        if (androidx.appcompat.app.AppCompatDelegate.getDefaultNightMode() != desiredNightMode) {
+            androidx.appcompat.app.AppCompatDelegate.setDefaultNightMode(desiredNightMode)
         }
         
         super.onCreate(savedInstanceState)

@@ -63,17 +63,17 @@
         <activity
             android:name=".ui.MainActivity"
             android:exported="false"
-            android:configChanges="orientation|screenSize|screenLayout|smallestScreenSize|fontScale|uiMode"
+            android:configChanges="orientation|screenSize|screenLayout|smallestScreenSize|fontScale|uiMode|density"
             android:windowSoftInputMode="adjustResize|stateHidden"
             android:screenOrientation="portrait">
         </activity>
 
-        <activity android:name=".ui.AlertsActivity"  android:exported="false"/>
-        <activity android:name=".ui.JournalActivity" android:exported="false"/>
-        <activity android:name=".ui.ErrorLogActivity" android:exported="false"/>
-        <activity android:name=".ui.MultiAssetActivity" android:exported="false" android:screenOrientation="portrait"/>
-        <activity android:name=".ui.CollectiveBrainActivity" android:exported="false"/>
-        <activity android:name=".ui.BehaviorActivity" android:exported="false" android:screenOrientation="portrait"/>
+        <activity android:name=".ui.AlertsActivity" android:configChanges="orientation|screenSize|screenLayout|smallestScreenSize|fontScale|uiMode|density|keyboard|keyboardHidden"  android:exported="false"/>
+        <activity android:name=".ui.JournalActivity" android:configChanges="orientation|screenSize|screenLayout|smallestScreenSize|fontScale|uiMode|density|keyboard|keyboardHidden" android:exported="false"/>
+        <activity android:name=".ui.ErrorLogActivity" android:configChanges="orientation|screenSize|screenLayout|smallestScreenSize|fontScale|uiMode|density|keyboard|keyboardHidden" android:exported="false"/>
+        <activity android:name=".ui.MultiAssetActivity" android:configChanges="orientation|screenSize|screenLayout|smallestScreenSize|fontScale|uiMode|density|keyboard|keyboardHidden" android:exported="false" android:screenOrientation="portrait"/>
+        <activity android:name=".ui.CollectiveBrainActivity" android:configChanges="orientation|screenSize|screenLayout|smallestScreenSize|fontScale|uiMode|density|keyboard|keyboardHidden" android:exported="false"/>
+        <activity android:name=".ui.BehaviorActivity" android:configChanges="orientation|screenSize|screenLayout|smallestScreenSize|fontScale|uiMode|density|keyboard|keyboardHidden" android:exported="false" android:screenOrientation="portrait"/>
         <activity android:name=".ui.PersonaStudioActivity"
             android:exported="true"
             android:screenOrientation="portrait"
@@ -85,14 +85,14 @@
                 <data android:mimeType="audio/*"/>
             </intent-filter>
         </activity>
-        <activity android:name=".ui.InsiderWalletsActivity" android:exported="false" android:screenOrientation="portrait"/>
-        <activity android:name=".ui.WatchlistActivity" android:exported="false" android:screenOrientation="portrait"/>
-        <activity android:name=".ui.CryptoAltActivity" android:exported="false" android:screenOrientation="portrait"/>
-        <activity android:name=".ui.LiveTradeLogActivity" android:exported="false" android:screenOrientation="portrait" android:label="Live Trade Forensics"/>
-        <activity android:name=".ui.LearningCounterActivity" android:exported="false" android:screenOrientation="portrait" android:label="Learning Pipeline"/>
-        <activity android:name=".ui.TuningActivity" android:exported="false" android:screenOrientation="portrait" android:label="Tuning Console"/>
-        <activity android:name=".ui.PipelineHealthActivity" android:exported="false" android:screenOrientation="portrait" android:label="Pipeline Health" android:configChanges="orientation|screenSize|screenLayout|smallestScreenSize|fontScale|keyboard|keyboardHidden"/>
-        <activity android:name=".ui.UniverseHealthActivity" android:exported="false" android:screenOrientation="portrait" android:label="AATE Universe Health"/>
+        <activity android:name=".ui.InsiderWalletsActivity" android:configChanges="orientation|screenSize|screenLayout|smallestScreenSize|fontScale|uiMode|density|keyboard|keyboardHidden" android:exported="false" android:screenOrientation="portrait"/>
+        <activity android:name=".ui.WatchlistActivity" android:configChanges="orientation|screenSize|screenLayout|smallestScreenSize|fontScale|uiMode|density|keyboard|keyboardHidden" android:exported="false" android:screenOrientation="portrait"/>
+        <activity android:name=".ui.CryptoAltActivity" android:configChanges="orientation|screenSize|screenLayout|smallestScreenSize|fontScale|uiMode|density|keyboard|keyboardHidden" android:exported="false" android:screenOrientation="portrait"/>
+        <activity android:name=".ui.LiveTradeLogActivity" android:configChanges="orientation|screenSize|screenLayout|smallestScreenSize|fontScale|uiMode|density|keyboard|keyboardHidden" android:exported="false" android:screenOrientation="portrait" android:label="Live Trade Forensics"/>
+        <activity android:name=".ui.LearningCounterActivity" android:configChanges="orientation|screenSize|screenLayout|smallestScreenSize|fontScale|uiMode|density|keyboard|keyboardHidden" android:exported="false" android:screenOrientation="portrait" android:label="Learning Pipeline"/>
+        <activity android:name=".ui.TuningActivity" android:configChanges="orientation|screenSize|screenLayout|smallestScreenSize|fontScale|uiMode|density|keyboard|keyboardHidden" android:exported="false" android:screenOrientation="portrait" android:label="Tuning Console"/>
+        <activity android:name=".ui.PipelineHealthActivity" android:configChanges="orientation|screenSize|screenLayout|smallestScreenSize|fontScale|uiMode|density|keyboard|keyboardHidden" android:exported="false" android:screenOrientation="portrait" android:label="Pipeline Health"/>
+        <activity android:name=".ui.UniverseHealthActivity" android:configChanges="orientation|screenSize|screenLayout|smallestScreenSize|fontScale|uiMode|density|keyboard|keyboardHidden" android:exported="false" android:screenOrientation="portrait" android:label="AATE Universe Health"/>
 
         <provider
             android:name="androidx.core.content.FileProvider"
