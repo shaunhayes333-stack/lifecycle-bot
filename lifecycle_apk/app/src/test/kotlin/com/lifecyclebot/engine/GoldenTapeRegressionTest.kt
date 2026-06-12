@@ -1,0 +1,181 @@
+package com.lifecyclebot.engine
+
+import com.lifecyclebot.data.Position
+import com.lifecyclebot.data.TokenState
+import org.junit.After
+import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
+import org.junit.Assert.assertTrue
+import org.junit.Test
+
+/**
+ * V5.9.1562 — Golden-tape blocker taxonomy harness.
+ *
+ * This is the first CI regression net for the exact choke/unchoke oscillation
+ * the operator has been fighting:
+ *   UNKNOWN/PENDING          => penalty / size reduction, never blacklist
+ *   LOW BUT EXITABLE         => reduced-size preflight, not hard block
+ *   CONFIRMED FATAL / NO EXIT=> hard block
+ *   UNPROFITABLE AFTER COSTS => cost reject, not safety blacklist
+ *
+ * The tape is deliberately tiny and pure-JVM. It is not trying to model all
+ * markets yet; it pins the behavioral contract so future leaf patches cannot
+ * silently collapse soft states back into WATCHLIST_PROTECT_BLACKLISTED_TOKEN.
+ */
+class GoldenTapeRegressionTest {
+
+    private val softMint = "SoftPendingMint111111111111111111111111111111"
+    private val trueMint = "TrueFatalMint1111111111111111111111111111111"
+
+    @After
+    fun cleanup() {
+        TokenBlacklist.clear()
+        RuntimeModeAuthority.publishConfig(paperMode = true, autoTrade = false)
+    }
+
+    private fun token(
+        symbol: String,
+        liq: Double,
+        score: Double,
+        phase: String = "MOMENTUM",
+        tp: Double = 25.0,
+        safety: SafetyReport = SafetyReport(tier = SafetyTier.CAUTION),
+    ): TokenState {
+        return TokenState(
+            mint = symbol.padEnd(36, 'A'),
+            symbol = symbol,
+        ).also { ts ->
+            ts.lastLiquidityUsd = liq
+            ts.entryScore = score
+            ts.phase = phase
+            ts.safety = safety
+            ts.position = Position(
+                treasuryTakeProfit = tp,
+                blueChipTakeProfit = tp,
+                shitCoinTakeProfit = tp,
+                isPaperPosition = false,
+            )
+        }
+    }
+
+    @Test
+    fun golden_tape_has_distinct_intake_phases() {
+        val phases = LiveTradeLogStore.Phase.values().map { it.name }.toSet()
+        assertTrue(phases.contains("INTAKE_RISK_PENALTY"))
+        assertTrue(phases.contains("INTAKE_SIZE_REDUCED"))
+        assertTrue(phases.contains("INTAKE_PENDING_RUGCHECK"))
+        assertTrue(phases.contains("INTAKE_TRUE_HARD_BLOCK"))
+        assertTrue(phases.contains("INTAKE_COST_REJECT"))
+    }
+
+    @Test
+    fun legacy_false_blacklist_reasons_self_rehabilitate() {
+        val falseReasons = listOf(
+            "Safety: Rugcheck pending — live mode, no high-score override",
+            "Safety: Rugcheck API timeout (live: PENDING_REVIEW)",
+            "Safety: SAFETY_RUN_FAILED_PARTIAL_DATA: timeout",
+            "Safety: LOW_LIQUIDITY: \$900 < \$1200",
+            "Safety: Liquidity \$900 < \$1,200 live exit-safety floor — un-exitable",
+        )
+
+        for ((i, reason) in falseReasons.withIndex()) {
+            val mint = softMint + i
+            TokenBlacklist.block(mint, reason)
+            assertFalse("false safety blacklist must rehabilitate: $reason", TokenBlacklist.isBlocked(mint))
+        }
+    }
+
+    @Test
+    fun true_blacklist_reasons_remain_blocked() {
+        TokenBlacklist.block(trueMint, "Known malicious dev / verified blacklist")
+        assertTrue(TokenBlacklist.isBlocked(trueMint))
+
+        TokenBlacklist.block(trueMint + "B", "Honeypot / cannot sell / sell simulation fails")
+        assertTrue(TokenBlacklist.isBlocked(trueMint + "B"))
+    }
+
+    @Test
+    fun rugcheck_pending_caution_is_not_hard_blocked_by_live_admission_boundary() {
+        val pending = SafetyReport(
+            tier = SafetyTier.CAUTION,
+            hardBlockReasons = emptyList(),
+            softPenalties = listOf(
+                "Rugcheck pending (live risk penalty, no hard block)" to 12,
+                "RUGCHECK_UNKNOWN_MAX_SIZE_MULT=0.35" to 0,
+            ),
+            entryScorePenalty = 12,
+            rugcheckStatus = "PENDING_REVIEW",
+            checkedAt = 1_700_000_000_000L,
+        )
+
+        assertFalse("pending Rugcheck must not be SafetyReport.isBlocked", pending.isBlocked)
+        assertTrue(pending.hardBlockReasons.isEmpty())
+        assertEquals(SafetyTier.CAUTION, pending.tier)
+    }
+
+    @Test
+    fun low_but_exitable_liquidity_reduces_size_and_can_pass_cost_preflight() {
+        val ts = token(symbol = "LOWLIQ", liq = 900.0, score = 90.0, tp = 45.0)
+        val penalty = LiveRestoreExecutionPolicy.Penalty(
+            scorePenalty = -10,
+            sizeMultiplier = 0.35,
+            reason = "LOW_LIQUIDITY_SIZE_REDUCED",
+            liquidityOverrideUsd = 900.0,
+        )
+
+        val be = LiveRestoreExecutionPolicy.breakEvenCheck(
+            ts = ts,
+            requestedSizeSol = 0.05,
+            penalty = penalty,
+            walletSol = 1.0,
+        )
+
+        assertTrue("low-but-exitable liquidity should pass as reduced size; got ${be.decision}", be.allowed)
+        assertTrue("size should be reduced", be.sizeSol < 0.05)
+        assertTrue("all-in cost should include slippage/fees/giveback", be.allInCostPct > 10.0)
+    }
+
+    @Test
+    fun dust_no_exit_depth_hard_rejects_as_route_failure_not_blacklist() {
+        val ts = token(symbol = "DUST", liq = 80.0, score = 95.0, tp = 80.0)
+        val be = LiveRestoreExecutionPolicy.breakEvenCheck(
+            ts = ts,
+            requestedSizeSol = 0.02,
+            penalty = LiveRestoreExecutionPolicy.NONE,
+            walletSol = 1.0,
+        )
+
+        assertFalse(be.allowed)
+        assertEquals("NO_VALID_SELL_ROUTE", be.decision)
+    }
+
+    @Test
+    fun weak_edge_rejects_as_not_profitable_after_costs() {
+        val ts = token(symbol = "NOEDGE", liq = 900.0, score = 15.0, phase = "IDLE", tp = 0.0)
+        val penalty = LiveRestoreExecutionPolicy.Penalty(
+            scorePenalty = -10,
+            sizeMultiplier = 0.35,
+            reason = "LOW_LIQUIDITY_SIZE_REDUCED",
+            liquidityOverrideUsd = 900.0,
+        )
+        val be = LiveRestoreExecutionPolicy.breakEvenCheck(
+            ts = ts,
+            requestedSizeSol = 0.05,
+            penalty = penalty,
+            walletSol = 1.0,
+        )
+
+        assertFalse(be.allowed)
+        assertEquals("NOT_PROFITABLE_AFTER_COSTS", be.decision)
+    }
+
+    @Test
+    fun live_runtime_canonical_open_uses_wallet_truth_not_stale_local_max() {
+        // This pins the V5.9.1561 doctrine in source text because the full runtime
+        // snapshot depends on Android/global services. If this text disappears, the
+        // behavioral contract was likely reverted and the test should fail loudly.
+        val source = java.io.File("src/main/kotlin/com/lifecyclebot/engine/RuntimeStateSnapshot.kt").readText()
+        assertTrue(source.contains("canonical LIVE truth is wallet-held balance"))
+        assertTrue(source.contains("walletHeld"))
+    }
+}
