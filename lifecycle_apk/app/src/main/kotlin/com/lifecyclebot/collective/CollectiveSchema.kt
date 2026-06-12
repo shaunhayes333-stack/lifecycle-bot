@@ -454,6 +454,20 @@ object CollectiveSchema {
     """
 
 
+
+    const val CREATE_HIVE_PERFORMANCE_GENOMES_TABLE = """
+        CREATE TABLE IF NOT EXISTS hive_performance_genomes (
+            instance_id TEXT PRIMARY KEY NOT NULL,
+            app_version TEXT NOT NULL DEFAULT '',
+            total_trades INTEGER NOT NULL DEFAULT 0,
+            win_rate_pct REAL NOT NULL DEFAULT 0.0,
+            net_pnl_sol REAL NOT NULL DEFAULT 0.0,
+            profit_factor REAL NOT NULL DEFAULT 0.0,
+            feature_weights_json TEXT NOT NULL DEFAULT '{}',
+            updated_at INTEGER NOT NULL
+        )
+    """
+
     const val CREATE_TOKEN_MINTS_TABLE = """
         CREATE TABLE IF NOT EXISTS collective_token_mints (
             mint TEXT PRIMARY KEY NOT NULL,
@@ -820,6 +834,9 @@ object CollectiveSchema {
         "ALTER TABLE collective_token_mints ADD COLUMN logo_url TEXT NOT NULL DEFAULT ''",
         "ALTER TABLE collective_token_mints ADD COLUMN pair_address TEXT NOT NULL DEFAULT ''",
         "ALTER TABLE collective_token_mints ADD COLUMN pair_url TEXT NOT NULL DEFAULT ''",
+        // Hive performance genome migrations
+        "ALTER TABLE hive_performance_genomes ADD COLUMN profit_factor REAL NOT NULL DEFAULT 0.0",
+        "ALTER TABLE hive_performance_genomes ADD COLUMN feature_weights_json TEXT NOT NULL DEFAULT '{}'",
         // V5.7: Perps table migrations (for older databases)
         "ALTER TABLE perps_trades ADD COLUMN hold_mins REAL NOT NULL DEFAULT 0.0",
         "ALTER TABLE perps_positions ADD COLUMN last_update INTEGER NOT NULL DEFAULT 0",
@@ -852,6 +869,9 @@ object CollectiveSchema {
         CREATE INDEX IF NOT EXISTS idx_token_mints_creator ON collective_token_mints(creator_address);
         CREATE INDEX IF NOT EXISTS idx_token_mints_source ON collective_token_mints(source);
         CREATE INDEX IF NOT EXISTS idx_token_mints_last_seen ON collective_token_mints(last_seen_ms DESC);
+        CREATE INDEX IF NOT EXISTS idx_hive_genomes_wr ON hive_performance_genomes(win_rate_pct DESC);
+        CREATE INDEX IF NOT EXISTS idx_hive_genomes_updated ON hive_performance_genomes(updated_at DESC);
+        CREATE INDEX IF NOT EXISTS idx_hive_genomes_trades ON hive_performance_genomes(total_trades DESC);
         CREATE INDEX IF NOT EXISTS idx_perps_trades_market ON perps_trades(market);
         CREATE INDEX IF NOT EXISTS idx_perps_trades_direction ON perps_trades(direction);
         CREATE INDEX IF NOT EXISTS idx_perps_trades_close_time ON perps_trades(close_time);
@@ -970,6 +990,7 @@ object CollectiveSchema {
         CREATE_LEGAL_AGREEMENTS_TABLE,
         CREATE_INSTANCE_HEARTBEATS_TABLE,
         CREATE_NETWORK_SIGNALS_TABLE,
+        CREATE_HIVE_PERFORMANCE_GENOMES_TABLE,
         CREATE_TOKEN_MINTS_TABLE,
         CREATE_COLLECTIVE_STATS_TABLE,
         CREATE_INSTANCE_REGISTRY_TABLE,

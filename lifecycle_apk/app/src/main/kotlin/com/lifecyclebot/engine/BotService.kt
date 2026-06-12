@@ -4771,6 +4771,40 @@ class BotService : Service() {
                             pnl24hPct = pnl24hPct
                         )
                         addLog("💓 Instance registered with collective")
+
+                        // V5.9.1553 — Hive Genome inheritance. Upload this bot's
+                        // adaptive weights, then inherit only bounded nudges from
+                        // proven positive peers. This is fluid pressure, not overwrite.
+                        try {
+                            val localWeights = AdaptiveLearningEngine.getDetailedWeights()
+                            com.lifecyclebot.collective.CollectiveLearning.uploadPerformanceGenome(
+                                appVersion = com.lifecyclebot.BuildConfig.VERSION_NAME,
+                                totalTrades = localStats.totalTrades,
+                                winRatePct = localStats.winRate,
+                                netPnlSol = localStats.totalPnlSol,
+                                profitFactor = localStats.profitFactor,
+                                featureWeights = localWeights,
+                            )
+                            val genome = com.lifecyclebot.collective.CollectiveLearning.downloadPerformanceGenomeBlend(
+                                localTradeCount = localStats.totalTrades,
+                                localWinRatePct = localStats.winRate,
+                            )
+                            if (genome != null) {
+                                AdaptiveLearningEngine.applyHiveGenomeNudge(
+                                    hiveWeights = genome.featureWeights,
+                                    hiveAvgWinRatePct = genome.avgWinRatePct,
+                                    hiveContributors = genome.contributors,
+                                    hiveTotalTrades = genome.totalTrades,
+                                    localWinRatePct = localStats.winRate,
+                                    localTradeCount = localStats.totalTrades,
+                                )
+                                addLog("🧬 Hive genome nudge: ${genome.contributors} proven bots, hiveWR=${genome.avgWinRatePct.toInt()}%, best=${genome.bestWinRatePct.toInt()}%")
+                            } else {
+                                addLog("🧬 Hive genome: no proven peer genome yet")
+                            }
+                        } catch (e: Exception) {
+                            ErrorLogger.debug("BotService", "Hive genome sync error: ${e.message}")
+                        }
                         
                         // Get initial instance count
                         val activeCount = com.lifecyclebot.collective.CollectiveLearning.countActiveInstances()
@@ -9014,7 +9048,7 @@ class BotService : Service() {
             } catch (_: Throwable) { /* best-effort */ }
 
             try {
-                kotlinx.coroutines.GlobalScope.launch(AppDispatchers.sideEffect) {
+                kotlinx.coroutines.GlobalScope.launch(com.lifecyclebot.util.AppDispatchers.sideEffect) {
                     try {
                         val tsShared = synchronized(status.tokens) { status.tokens[mint] }
                         val creation = com.lifecyclebot.engine.BirdeyeCreationInfoProvider.peekCached(mint)

@@ -1347,6 +1347,47 @@ object AdaptiveLearningEngine {
         return featureBuffer.groupingBy { it.label.name }.eachCount()
     }
 
+    fun applyHiveGenomeNudge(
+        hiveWeights: Map<String, Double>, hiveAvgWinRatePct: Double, hiveContributors: Int,
+        hiveTotalTrades: Int, localWinRatePct: Double, localTradeCount: Int,
+    ) {
+        if (hiveWeights.isEmpty() || hiveContributors <= 0 || hiveTotalTrades < 100) return
+        val performanceGap = (hiveAvgWinRatePct - localWinRatePct).coerceAtLeast(0.0)
+        if (performanceGap < 5.0 && localTradeCount >= 500) return
+        val baseStrength = when {
+            localTradeCount < 100 -> 0.18
+            localWinRatePct < 20.0 -> 0.24
+            localWinRatePct < 35.0 -> 0.20
+            localWinRatePct < 50.0 -> 0.14
+            else -> 0.07
+        }
+        val strength = (baseStrength + (performanceGap / 60.0).coerceIn(0.0, 0.10) + if (hiveContributors >= 5) 0.04 else if (hiveContributors >= 2) 0.02 else 0.0).coerceIn(0.03, 0.28)
+        val maxStep = if (localWinRatePct < 25.0) 0.16 else if (localTradeCount < 100) 0.14 else 0.08
+        fun nudge(current: Double, targetRaw: Double, lo: Double, hi: Double): Double {
+            val target = sanitizeDouble(targetRaw, current).coerceIn(lo, hi)
+            return (current + ((target - current) * strength).coerceIn(-maxStep, maxStep)).coerceIn(lo, hi)
+        }
+        hiveWeights["mcap"]?.let { featureWeights.mcapWeight = nudge(featureWeights.mcapWeight, it, 0.3, 2.5) }
+        hiveWeights["age"]?.let { featureWeights.ageWeight = nudge(featureWeights.ageWeight, it, 0.3, 2.5) }
+        hiveWeights["buyRatio"]?.let { featureWeights.buyRatioWeight = nudge(featureWeights.buyRatioWeight, it, 0.5, 3.0) }
+        hiveWeights["volume"]?.let { featureWeights.volumeWeight = nudge(featureWeights.volumeWeight, it, 0.3, 2.5) }
+        hiveWeights["liquidity"]?.let { featureWeights.liquidityWeight = nudge(featureWeights.liquidityWeight, it, 0.3, 2.5) }
+        hiveWeights["holderCount"]?.let { featureWeights.holderCountWeight = nudge(featureWeights.holderCountWeight, it, 0.3, 2.5) }
+        hiveWeights["holderConc"]?.let { featureWeights.holderConcWeight = nudge(featureWeights.holderConcWeight, it, 0.5, 3.0) }
+        hiveWeights["holderGrowth"]?.let { featureWeights.holderGrowthWeight = nudge(featureWeights.holderGrowthWeight, it, 0.5, 2.5) }
+        hiveWeights["devWallet"]?.let { featureWeights.devWalletWeight = nudge(featureWeights.devWalletWeight, it, 0.5, 3.0) }
+        hiveWeights["bondingCurve"]?.let { featureWeights.bondingCurveWeight = nudge(featureWeights.bondingCurveWeight, it, 0.3, 2.5) }
+        hiveWeights["rugcheck"]?.let { featureWeights.rugcheckWeight = nudge(featureWeights.rugcheckWeight, it, 0.5, 3.0) }
+        hiveWeights["emaFan"]?.let { featureWeights.emaFanWeight = nudge(featureWeights.emaFanWeight, it, 0.5, 3.0) }
+        hiveWeights["volLiqRatio"]?.let { featureWeights.volLiqRatioWeight = nudge(featureWeights.volLiqRatioWeight, it, 0.3, 2.5) }
+        hiveWeights["athDistance"]?.let { featureWeights.athDistanceWeight = nudge(featureWeights.athDistanceWeight, it, 0.3, 2.5) }
+        hiveWeights["holdTime"]?.let { featureWeights.holdTimeWeight = nudge(featureWeights.holdTimeWeight, it, 0.4, 2.5) }
+        hiveWeights["maxGainFollow"]?.let { featureWeights.maxGainFollowWeight = nudge(featureWeights.maxGainFollowWeight, it, 0.4, 2.5) }
+        hiveWeights["exitQuality"]?.let { featureWeights.exitQualityWeight = nudge(featureWeights.exitQualityWeight, it, 0.4, 2.5) }
+        saveState()
+        ErrorLogger.info("AdaptiveLearning", "🧬 HIVE_GENOME_NUDGE strength=${(strength*100).toInt()}% localWR=${localWinRatePct.toInt()}% hiveWR=${hiveAvgWinRatePct.toInt()}% contributors=$hiveContributors")
+    }
+
     fun applyCommunityWeights(
         communityWeights: Map<String, Double>,
         communityTradeCount: Int

@@ -317,10 +317,108 @@ object CollectiveLearning {
         val reportCount: Int,
     )
 
+    data class HiveGenomeBlend(
+        val featureWeights: Map<String, Double>,
+        val contributors: Int,
+        val totalTrades: Int,
+        val avgWinRatePct: Double,
+        val avgNetPnlSol: Double,
+        val bestWinRatePct: Double,
+    )
+
     fun getCachedTokenMint(mint: String): SharedTokenMint? {
         val key = CanonicalMint.normalize(mint)
         if (key.isBlank()) return null
         return cachedTokenMints[key]
+    }
+
+    suspend fun uploadPerformanceGenome(
+        appVersion: String,
+        totalTrades: Int,
+        winRatePct: Double,
+        netPnlSol: Double,
+        profitFactor: Double,
+        featureWeights: Map<String, Double>,
+    ): Boolean {
+        if (!isEnabled()) return false
+        if (instanceId.isBlank()) return false
+        if (totalTrades < 20) return false
+        return withContext(Dispatchers.IO) {
+            try {
+                val weightsJson = org.json.JSONObject().apply {
+                    featureWeights.forEach { (k, v) ->
+                        if (k.isNotBlank()) put(k, sanitizeDouble(v, 1.0).coerceIn(0.1, 5.0))
+                    }
+                }.toString()
+                val now = System.currentTimeMillis()
+                val result = client!!.execute(
+                    """
+                    INSERT INTO hive_performance_genomes
+                        (instance_id, app_version, total_trades, win_rate_pct, net_pnl_sol,
+                         profit_factor, feature_weights_json, updated_at)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                    ON CONFLICT(instance_id) DO UPDATE SET
+                        app_version = excluded.app_version,
+                        total_trades = excluded.total_trades,
+                        win_rate_pct = excluded.win_rate_pct,
+                        net_pnl_sol = excluded.net_pnl_sol,
+                        profit_factor = excluded.profit_factor,
+                        feature_weights_json = excluded.feature_weights_json,
+                        updated_at = excluded.updated_at
+                    """.trimIndent(),
+                    listOf(instanceId, appVersion.take(40), totalTrades.coerceAtLeast(0),
+                        sanitizeDouble(winRatePct).coerceIn(0.0, 100.0), sanitizeDouble(netPnlSol),
+                        sanitizeDouble(profitFactor).coerceIn(0.0, 25.0), weightsJson, now)
+                )
+                if (result.success) Log.i(TAG, "Uploaded hive genome: trades=$totalTrades WR=${winRatePct.toInt()}%")
+                result.success
+            } catch (e: Exception) {
+                Log.e(TAG, "uploadPerformanceGenome error: ${e.message}")
+                false
+            }
+        }
+    }
+
+    suspend fun downloadPerformanceGenomeBlend(localTradeCount: Int, localWinRatePct: Double): HiveGenomeBlend? {
+        if (!isEnabled()) return null
+        return withContext(Dispatchers.IO) {
+            try {
+                val cutoff = System.currentTimeMillis() - 7L * 24L * 60L * 60L * 1000L
+                val result = client!!.query(
+                    """
+                    SELECT instance_id, total_trades, win_rate_pct, net_pnl_sol, profit_factor, feature_weights_json
+                    FROM hive_performance_genomes
+                    WHERE updated_at > ? AND instance_id != ? AND total_trades >= 100
+                      AND win_rate_pct >= 55.0 AND net_pnl_sol > 0.0 AND profit_factor >= 1.10
+                    ORDER BY win_rate_pct DESC, net_pnl_sol DESC
+                    LIMIT 25
+                    """.trimIndent(), listOf(cutoff, instanceId)
+                )
+                if (!result.success || result.rows.isEmpty()) return@withContext null
+                val weighted = mutableMapOf<String, Double>(); val weights = mutableMapOf<String, Double>()
+                var contributors = 0; var totalTrades = 0; var wrSum = 0.0; var pnlSum = 0.0; var bestWr = 0.0
+                for (row in result.rows) {
+                    val trades = parseInt(row["total_trades"]).coerceAtLeast(0)
+                    val wr = parseDouble(row["win_rate_pct"]).coerceIn(0.0, 100.0)
+                    val pnl = parseDouble(row["net_pnl_sol"])
+                    val pf = parseDouble(row["profit_factor"]).coerceIn(0.0, 25.0)
+                    val json = parseString(row["feature_weights_json"])
+                    if (trades < 100 || wr < 55.0 || pnl <= 0.0 || pf < 1.10 || json.isBlank()) continue
+                    val contributorWeight = ((trades.coerceAtMost(1000).toDouble() / 1000.0) * 0.35 +
+                        ((wr - 50.0) / 50.0).coerceIn(0.0, 1.0) * 0.45 +
+                        (pf / 3.0).coerceIn(0.0, 1.0) * 0.20).coerceIn(0.05, 1.0)
+                    val obj = org.json.JSONObject(json); val keys = obj.keys()
+                    while (keys.hasNext()) {
+                        val k = keys.next(); val v = sanitizeDouble(obj.optDouble(k, 1.0), 1.0).coerceIn(0.1, 5.0)
+                        weighted[k] = (weighted[k] ?: 0.0) + v * contributorWeight
+                        weights[k] = (weights[k] ?: 0.0) + contributorWeight
+                    }
+                    contributors++; totalTrades += trades; wrSum += wr; pnlSum += pnl; if (wr > bestWr) bestWr = wr
+                }
+                if (contributors <= 0 || weighted.isEmpty()) return@withContext null
+                HiveGenomeBlend(weighted.mapValues { (k, v) -> v / (weights[k] ?: 1.0) }, contributors, totalTrades, wrSum / contributors, pnlSum / contributors, bestWr)
+            } catch (e: Exception) { Log.e(TAG, "downloadPerformanceGenomeBlend error: ${e.message}"); null }
+        }
     }
 
     suspend fun uploadTokenMint(
@@ -1145,6 +1243,7 @@ object CollectiveLearning {
             "modeStats" to cachedModeStats.size,
             "whaleStats" to cachedWhaleStats.size,
             "tokenMints" to cachedTokenMints.size,
+            "hiveGenome" to "enabled",
             "lastSyncTime" to lastSyncTime,
             "uploadAttempts" to totalUploadAttemptsThisSession,
             "uploadSuccess" to totalUploadSuccessThisSession,
