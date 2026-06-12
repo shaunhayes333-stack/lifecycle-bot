@@ -65,6 +65,16 @@ object BaseQuoteMintGuard {
      * Canonical predicate used at every phase boundary. True ⇒ quarantine the
      * candidate (do NOT intake / FDG / exec / journal / learn from it).
      */
-    fun shouldQuarantine(mint: String?, symbol: String? = null): Boolean =
-        isBlockedMint(mint) || isBlockedSymbol(symbol)
+    fun shouldQuarantine(mint: String?, symbol: String? = null): Boolean {
+        // Address is the SOURCE OF TRUTH. A blocked mint always quarantines.
+        if (isBlockedMint(mint)) return true
+        // V5.9.1544 — the symbol fallback is a SECONDARY net for rows whose mint
+        // we cannot read. It must NOT override a VALID, non-blocked mint: a brand
+        // new legit token can legitimately be named "INF", "LP", "JSOL", etc., and
+        // quarantining it on symbol alone false-rejects real launches at intake
+        // (operator: 55 commits over-choked the gates). So only consult the symbol
+        // net when there is NO usable mint to verify against.
+        if (!mint.isNullOrBlank()) return false
+        return isBlockedSymbol(symbol)
+    }
 }

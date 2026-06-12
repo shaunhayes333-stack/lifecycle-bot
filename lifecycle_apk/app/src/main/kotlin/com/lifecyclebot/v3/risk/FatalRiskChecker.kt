@@ -221,20 +221,45 @@ class FatalRiskChecker(
                             !candidate.extraBoolean("pureSellPressure") &&
                             !candidate.extraBoolean("liquidityDraining") &&
                             !candidate.extraBoolean("unsellableSignal")
-        // V5.9.1535 — the >=95 / threshold score-fatals must reflect CONFIRMED
-        // danger, not a transient/low rugcheck number on a strong pool. A score
-        // that is high ONLY because rawRiskScore was low/unresolved (no danger
-        // flag set) on a well-liquid token is the same pending-RC false-positive
-        // that killed the live trader. Keep the hard block when ANY danger flag is
-        // set OR liquidity is thin; otherwise route a flag-clean, well-liquid
-        // token onward (FDG + size-cap have final say).
-        val anyDangerFlag = !rugFlagsClean
+        // V5.9.1544 — COLLAPSE the contradictory rug-score fatals into ONE
+        // liquidity-tiered policy (operator: 55 commits stacked gates on top of
+        // working logic; PBTC at $351k liq was hard-fatal'd EXTREME_RUG_RISK_91).
+        //
+        // ROOT CAUSE: "confirmedHighRisk" counted liquidityDraining (= meta.breakdown,
+        // a MOMENTARY momentum signal that fires on nearly every fresh launch in its
+        // first minutes) as a CONFIRMED danger flag. So a deep, clearly-exitable pool
+        // got hard-vetoed by a transient breakdown blip. That violates soft-shape >
+        // veto: a token you can demonstrably SELL is not a rug — penalize it in
+        // scoring, don't kill it upstream of FDG + the size-cap.
+        //
+        // New model — two flag classes:
+        //   CONFIRMED danger  = unsellableSignal (safety blocked) OR resolved
+        //                       zeroHolders. These are structural; they still hard-veto.
+        //   SOFT/transient     = liquidityDraining (momentary breakdown) +
+        //                       pureSellPressure (low-but-nonzero skew). These NEVER
+        //                       hard-veto on their own — UnifiedScorer already
+        //                       penalizes them (liquiditycycle/orderflow layers).
+        // And liquidity tiers the whole decision:
+        //   DEEP (>= $25k)  = demonstrably exitable -> rug SCORE alone never fatals;
+        //                     only a CONFIRMED structural danger flag does.
+        //   MID  ($8k-25k)  = require rugScore high AND a confirmed danger flag.
+        //   THIN (< $8k)    = strict: rugScore >= threshold fatals (real rugs live here).
+        val confirmedDanger = candidate.extraBoolean("unsellableSignal") ||
+                              candidate.extraBoolean("zeroHolders")
+        val deepLiquidity = candidate.liquidityUsd >= 25_000.0
         val thinLiquidity = candidate.liquidityUsd < 8_000.0
-        val confirmedHighRisk = anyDangerFlag || thinLiquidity
-        if (rugScore >= 95 && !(isPaperLearning && rugFlagsClean) && confirmedHighRisk) {
-            return FatalRiskResult(true, "EXTREME_RUG_RISK_$rugScore")
+        val paperClean = isPaperLearning && rugFlagsClean
+
+        val rugFatal = when {
+            wideOpen || paperClean -> false
+            // DEEP pool: only a confirmed structural danger flag can hard-veto.
+            deepLiquidity -> confirmedDanger && rugScore >= 95
+            // THIN pool: strict — score alone fatals (this is rug territory).
+            thinLiquidity -> rugScore >= config.fatalRugThreshold
+            // MID pool: score high AND a confirmed danger flag.
+            else -> rugScore >= config.fatalRugThreshold && confirmedDanger
         }
-        if (!wideOpen && !isPaperLearning && rugScore >= config.fatalRugThreshold && confirmedHighRisk) {
+        if (rugFatal) {
             return FatalRiskResult(true, "EXTREME_RUG_RISK_$rugScore")
         }
         

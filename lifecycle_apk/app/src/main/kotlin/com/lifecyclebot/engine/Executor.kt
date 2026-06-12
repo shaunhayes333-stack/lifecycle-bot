@@ -5849,19 +5849,22 @@ class Executor(
             // paper mode. Paper is for LEARNING — hard-kill is wrong here.
             // In paper we now let the fluid size multiplier + FDG confidence
             // floor handle weak setups instead of bailing outright.
-            if (isLowQuality && isUnknownPhase && isLowConfidence && !isPaper) {
-                ErrorLogger.info("Executor", "❌ ${ts.symbol} BLOCKED: C quality + unknown phase + low conf (${aiConfidence.toInt()}%) [LIVE]")
-                onLog("🚫 ${ts.symbol}: Blocked (C + unknown + low conf)", ts.mint)
-                return
-            }
-            if (isLowQuality && isUnknownPhase && isLowConfidence && isPaper) {
-                // Paper: log the warning but LET IT TRADE so the education
-                // layer can actually learn what works from this combo.
-                ErrorLogger.info("Executor", "🎓 ${ts.symbol} probe-buy: C+unknown+conf${aiConfidence.toInt()}% — size clamped via redFlagCount, NOT blocked")
+            // V5.9.1544 — DON'T HARD-BLOCK THE TRINITY IN LIVE (operator: 55
+            // commits stacked over-strict vetoes on working logic). "unknown phase"
+            // is the DEFAULT for a fresh launch before phase data resolves, so this
+            // C + unknown + low-conf trinity fired on nearly every new LIVE candidate
+            // — choking volume. The redFlagCount size-clamp directly below ALREADY
+            // shrinks weak setups to 0.25x; that is the correct soft-shape response,
+            // and it is strictly safer than a buy at full size. So LIVE now mirrors
+            // PAPER: probe at clamped size instead of hard-veto. The unconditional
+            // -15% hard-floor SL + FDG + size-cap remain the real risk controls.
+            if (isLowQuality && isUnknownPhase && isLowConfidence) {
+                ErrorLogger.info("Executor", "🎓 ${ts.symbol} probe-buy: C+unknown+conf${aiConfidence.toInt()}% — size clamped via redFlagCount, NOT blocked${if (isPaper) " [PAPER]" else " [LIVE]"}")
             }
             
             val redFlagCount = listOf(isLowQuality, isUnknownPhase, isLowConfidence).count { it }
             val qualityPenalty = when (redFlagCount) {
+                3 -> 0.15   // V5.9.1544 — full trinity (C+unknown+lowconf): smallest probe, NOT full size (was uncapped → 1.0)
                 2 -> 0.25
                 1 -> 0.60
                 else -> 1.0
