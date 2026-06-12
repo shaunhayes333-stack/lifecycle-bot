@@ -108,7 +108,15 @@ object RegimeDetector {
     fun scoreFloorDelta(): Int = when (currentRegime()) {
         Regime.BULL_RIPPING -> -10
         Regime.NORMAL       ->   0
-        Regime.CHOP         -> +5
+        // V5.9.1538 — operator: 'trading no choke / back like it was'. The CHOP
+        // +5 floor was the primary BUY suppressor — it raised the entry bar in
+        // exactly the regime where most fresh-launch flow lands, pushing
+        // candidates into PROBE_ONLY/EXPRESS dust instead of real entries.
+        // Doctrine: throughput before cleverness, soft-shape > veto, sample size
+        // climbs the maturity curve. CHOP no longer raises the floor; risk is
+        // owned by the unconditional -15% hard floor + size trim below, NOT a
+        // volume-killing entry veto. DUMP stays strict (genuine bleed defence).
+        Regime.CHOP         ->   0
         Regime.DUMP         -> +15
         Regime.DEAD         ->   0
     }
@@ -121,13 +129,14 @@ object RegimeDetector {
     fun sizeMultiplier(): Double = when (currentRegime()) {
         Regime.BULL_RIPPING -> 1.0
         Regime.NORMAL       -> 1.0
-        // V5.9.1352 troubleshoot — CHOP is where the bulk of the bleed happens
-        // (regime=CHOP wr=16.7% and most trades land here). 0.85 was too soft;
-        // tighten to 0.65 so we keep sampling (doctrine: throughput) but stop
-        // overbetting a regime the detector ALREADY knows is unprofitable.
-        Regime.CHOP         -> 0.65   // was 0.85
-        Regime.DUMP         -> 0.40   // was 0.50 — bleeding hard, near-minimum bets
-        Regime.DEAD         -> 0.70   // was 0.85 — no signal, stay tiny
+        // V5.9.1538 — restore CHOP sampling size ('back like it was'). 0.65 was
+        // starving throughput; the bot is net-positive (+12 SOL, PF 26) so the
+        // over-tightened CHOP clamp is no longer justified. 0.85 keeps a modest
+        // trim vs NORMAL while letting volume climb the maturity curve. The
+        // unconditional -15% hard floor remains the real risk control.
+        Regime.CHOP         -> 0.85   // was 0.65 — un-choke; sample the regime
+        Regime.DUMP         -> 0.40   // bleeding hard, near-minimum bets (unchanged)
+        Regime.DEAD         -> 0.85   // was 0.70 — no signal ≠ choke; stay sampling
     }
 
     fun formatForPipelineDump(): String {
