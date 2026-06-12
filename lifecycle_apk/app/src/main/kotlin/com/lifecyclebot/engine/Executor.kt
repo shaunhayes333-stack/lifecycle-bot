@@ -6799,16 +6799,27 @@ class Executor(
                 }
                 is GuardResult.Allow -> {
                     // V5.9.9: Cross-trader exposure check
-                    if (!WalletPositionLock.canOpen("Meme", effSol, walletSol)) {
-                        onLog("🔒 Exposure cap: ${ts.symbol} blocked (wallet ${WalletPositionLock.getExposurePct(walletSol).toInt()}% deployed)", tradeId.mint)
-                        if (cfg().shadowPaperEnabled) {
-                            runShadowPaperBuy(ts, effSol, score, quality, "exposure_cap", safeWallet, walletSol)
+                    var liveSol = effSol
+                    if (!WalletPositionLock.canOpen("Meme", liveSol, walletSol)) {
+                        val laneCapPenalty = LiveRestoreExecutionPolicy.fromRuntimeDrift(ts.lastLiquidityUsd).combine(LiveRestoreExecutionPolicy.fromLaneCap(ts.lastLiquidityUsd))
+                        if (laneCapPenalty.reason != "NONE" && RuntimeModeAuthority.isLive()) {
+                            liveSol = (effSol * laneCapPenalty.sizeMultiplier).coerceIn(0.01, 0.025)
+                            try { ForensicLogger.lifecycle("LIVE_RESTORE_LANE_CAP_SOFT_ALLOW", "symbol=${ts.symbol} mint=${ts.mint.take(10)} from=${effSol.fmt(4)} to=${liveSol.fmt(4)} penalty=${laneCapPenalty.reason}") } catch (_: Throwable) {}
+                        } else {
+                            onLog("🔒 Exposure cap: ${ts.symbol} blocked (wallet ${WalletPositionLock.getExposurePct(walletSol).toInt()}% deployed)", tradeId.mint)
+                            if (cfg().shadowPaperEnabled) {
+                                runShadowPaperBuy(ts, effSol, score, quality, "exposure_cap", safeWallet, walletSol)
+                            }
+                            return
                         }
-                        return
                     }
-                    ErrorLogger.info("Executor", "🧬 MEME_SPINE LIVE_PRECHECK_ALLOW ${ts.symbol} | size=${effSol.fmt(4)} | wallet=${walletSol.fmt(4)}")
-                    liveBuy(ts, effSol, score, safeWallet, walletSol, tradeId, quality, skipGraduated)
-                    WalletPositionLock.recordOpen("Meme", effSol)
+                    ErrorLogger.info("Executor", "🧬 MEME_SPINE LIVE_PRECHECK_ALLOW ${ts.symbol} | size=${liveSol.fmt(4)} | wallet=${walletSol.fmt(4)}")
+                    liveBuy(ts, liveSol, score, safeWallet, walletSol, tradeId, quality, skipGraduated)
+                    if (positionDidOpen(ts)) {
+                        WalletPositionLock.recordOpen("Meme", liveSol)
+                    } else {
+                        try { ForensicLogger.lifecycle("NO_OPEN_COMMITTED_LOCK_NOT_RECORDED", "symbol=${ts.symbol} mint=${ts.mint.take(10)} size=${liveSol.fmt(4)}") } catch (_: Throwable) {}
+                    }
                     
                     if (cfg().shadowPaperEnabled) {
                         runShadowPaperBuy(ts, effSol, score, quality, "parallel", safeWallet, walletSol)
@@ -8116,6 +8127,9 @@ class Executor(
             return
         }
 
+        var finalityVerdict: ExecutableOpenGate.OpenVerdict? = if (finalityPrechecked && attemptId.isNotBlank()) {
+            ExecutableOpenGate.consumeRestorePenalty(attemptId) ?: ExecutableOpenGate.restorePenaltyForAttempt(attemptId)
+        } else null
         if (!finalityPrechecked) {
             val executableOpen = ExecutableOpenGate.canOpenExecutablePosition(
                 ts = ts,
@@ -8128,6 +8142,7 @@ class Executor(
                 ErrorLogger.warn("Executor", "🚫 LIVE_BUY_BLOCKED_FINALITY: ${ts.symbol} | attemptId=${executableOpen.attemptId} | ${executableOpen.reason}")
                 return
             }
+            finalityVerdict = executableOpen
         }
 
         // V5.9.801 — operator audit Fix D: WR recovery entry-size dampener (live).
@@ -8136,7 +8151,7 @@ class Executor(
         // MODERATE → 0.75×, FLUID/OFF → 1.0× (no change).
         val wrSizeMult = try { WrRecoveryPartial.entrySizeMultiplier() } catch (_: Throwable) { 1.0 }
         @Suppress("NAME_SHADOWING")
-        val sol = if (wrSizeMult < 1.0) {
+        var sol = if (wrSizeMult < 1.0) {
             val damped = sol * wrSizeMult
             ErrorLogger.info("Executor", "🩹 WR_RECOVERY_SIZE_DAMP (live): ${ts.symbol} | sol=${sol.fmt(4)} × ${"%.2f".format(wrSizeMult)} → ${damped.fmt(4)} (band=${WrRecoveryPartial.stateNow().band.name})")
             damped
@@ -8165,6 +8180,42 @@ class Executor(
         if (score < 0 || score.isNaN()) {
             ErrorLogger.warn("Executor", "[EXECUTION/INVALID] Live buy skipped: invalid score $score for ${ts.symbol}")
             return
+        }
+
+        // V5.9.1550 — LIVE restore economics. Stale finality/desync can reduce
+        // size, but every live buy must still clear all-in round-trip costs.
+        val restorePenalty = run {
+            val fromGate = finalityVerdict?.takeIf { it.restoreReason.isNotBlank() && it.restoreReason != "NONE" }?.let {
+                LiveRestoreExecutionPolicy.Penalty(
+                    scorePenalty = it.scorePenalty,
+                    sizeMultiplier = it.sizeMultiplier,
+                    reason = it.restoreReason,
+                    liquidityOverrideUsd = it.liquidityOverrideUsd,
+                )
+            } ?: LiveRestoreExecutionPolicy.NONE
+            fromGate.combine(LiveRestoreExecutionPolicy.fromRuntimeDrift(LiveRestoreExecutionPolicy.trustedLiquidityUsd(ts, fromGate.liquidityOverrideUsd)))
+        }
+        if (restorePenalty.reason != "NONE") {
+            if (!LiveRestoreExecutionPolicy.isSafeOrCaution(ts)) {
+                val be = LiveRestoreExecutionPolicy.BreakEven(false, sol, 999.0, 0.0, 999.0, "SKIP_BELOW_BREAK_EVEN")
+                LiveRestoreExecutionPolicy.logBreakEven(ts, be, restorePenalty)
+                try { ForensicLogger.lifecycle("LIVE_RESTORE_SAFETY_TIER_SKIP", "symbol=${ts.symbol} mint=${ts.mint.take(10)} tier=${ts.safety.tier.name} penalty=${restorePenalty.reason}") } catch (_: Throwable) {}
+                return
+            }
+            if (LiveRestoreExecutionPolicy.mintActuallyOpen(ts.mint, ts)) {
+                try { ForensicLogger.lifecycle("TRUE_DUPLICATE_OPEN", "symbol=${ts.symbol} mint=${ts.mint.take(10)} penalty=${restorePenalty.reason}") } catch (_: Throwable) {}
+                return
+            }
+        }
+        val breakEven = LiveRestoreExecutionPolicy.breakEvenCheck(ts, sol, restorePenalty, walletSol)
+        LiveRestoreExecutionPolicy.logBreakEven(ts, breakEven, restorePenalty)
+        if (!breakEven.allowed) {
+            PipelineTracer.executorFailed(ts.symbol, ts.mint, "LIVE", breakEven.decision)
+            return
+        }
+        if (breakEven.sizeSol != sol) {
+            try { ForensicLogger.lifecycle("LIVE_RESTORE_PENALTY_EXEC", "symbol=${ts.symbol} mint=${ts.mint.take(10)} from=${"%.4f".format(sol)} to=${"%.4f".format(breakEven.sizeSol)} penalty=${restorePenalty.reason} decision=${breakEven.decision}") } catch (_: Throwable) {}
+            sol = breakEven.sizeSol
         }
         
         // V5.9.756 — extracted to LiveBuyAdmissionGate (Emergent CRITICAL ticket).
@@ -8271,9 +8322,14 @@ class Executor(
 
         val currentLayer = "LIVE"
         if (EmergentGuardrails.shouldBlockMultiLayerEntry(tradeId.mint, currentLayer)) {
-            onLog("⚠ Buy skipped: ${tradeId.symbol} already open in different layer", tradeId.mint)
-            PipelineTracer.noBuy(ts.symbol, ts.mint, PipelineTracer.NoBuyReason.ALREADY_IN_POSITION, "layer_conflict")
-            return
+            val trulyOpen = LiveRestoreExecutionPolicy.mintActuallyOpen(tradeId.mint, ts)
+            if (!trulyOpen) {
+                try { ForensicLogger.lifecycle("LIVE_RESTORE_ALREADY_OPEN_CORE_SOFT_ALLOW", "symbol=${tradeId.symbol} mint=${tradeId.mint.take(10)} reason=stale_core_not_wallet_or_canonical") } catch (_: Throwable) {}
+            } else {
+                onLog("⚠ Buy skipped: ${tradeId.symbol} already open in different layer", tradeId.mint)
+                PipelineTracer.noBuy(ts.symbol, ts.mint, PipelineTracer.NoBuyReason.ALREADY_IN_POSITION, "TRUE_DUPLICATE_OPEN")
+                return
+            }
         }
 
         val c = cfg()

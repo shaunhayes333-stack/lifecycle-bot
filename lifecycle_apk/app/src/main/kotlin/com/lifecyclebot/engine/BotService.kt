@@ -2969,13 +2969,13 @@ class BotService : Service() {
                 // never increments EXEC_BUY, never feeds canonical learning.
                 try {
                     com.lifecyclebot.engine.ForensicLogger.lifecycle(
-                        "EXEC_GATE_DROPPED",
+                        if (wasOpenBefore) "TRUE_DUPLICATE_OPEN" else "ROUTE_FAILED",
                         "mint=${ts.mint.take(10)} symbol=${ts.symbol} lane=V3 reason=${if (wasOpenBefore) "ALREADY_OPEN" else "NO_OPEN_COMMITTED"} mode=${if (isPaper) "PAPER" else "LIVE"}"
                     )
                 } catch (_: Throwable) {}
                 com.lifecyclebot.v3.ExecuteResult(
                     success = false,
-                    error = if (wasOpenBefore) "already_open" else "no_open_committed_blocked_finality",
+                    error = if (wasOpenBefore) "TRUE_DUPLICATE_OPEN" else "ROUTE_FAILED_NO_OPEN_COMMITTED",
                 )
             } else {
                 val lastPrice = ts.lastPrice

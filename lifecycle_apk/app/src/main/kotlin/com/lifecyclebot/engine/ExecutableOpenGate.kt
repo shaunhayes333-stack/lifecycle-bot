@@ -38,6 +38,10 @@ object ExecutableOpenGate {
         val shadowOnly: Boolean = false,
         val logName: String = "EXEC_OPEN_ALLOWED",
         val attemptId: String = "",
+        val scorePenalty: Int = 0,
+        val sizeMultiplier: Double = 1.0,
+        val restoreReason: String = "",
+        val liquidityOverrideUsd: Double = 0.0,
     )
 
     private val attemptSeq = AtomicLong(0L)
@@ -72,6 +76,11 @@ object ExecutableOpenGate {
     private val allowedAttempts = ConcurrentHashMap<String, Pair<String, Long>>()
     private val openRequests = ConcurrentHashMap<String, Long>()
     private val blockedCooldowns = ConcurrentHashMap<String, Pair<String, Long>>()
+    private val restorePenalties = ConcurrentHashMap<String, OpenVerdict>()
+
+    fun restorePenaltyForAttempt(attemptId: String): OpenVerdict? = restorePenalties[attemptId]
+    fun consumeRestorePenalty(attemptId: String): OpenVerdict? = restorePenalties.remove(attemptId)
+
     // V5.9.1476 (spec item 4) — per-(mint,log) last-emit ms for PRE_FDG_NOT_BUY drop throttle.
     private val preFdgDropDedupe = ConcurrentHashMap<String, Long>()
 
@@ -196,6 +205,18 @@ object ExecutableOpenGate {
                     try { com.lifecyclebot.engine.SafetyRefreshQueue.request(mint) } catch (_: Throwable) {}
                     return "EXEC_OPEN_DEFERRED_$canon" to canon
                 }
+            }
+            val latestAllows = state?.fdgCan == true || state?.preFdgVerdict.equals("BUY", true) || state?.preFdgVerdict.equals("PROBE_ONLY", true)
+            val safetyOk = state?.safetyTier.equals("SAFE", true) || state?.safetyTier.equals("CAUTION", true) || mode.equals("LIVE", true)
+            val liqOk = (state?.liquidityUsd ?: 0.0) >= 1200.0
+            if (mode.equals("LIVE", true) && latestAllows && safetyOk && liqOk && hardNoReasons.isEmpty()) {
+                try {
+                    ForensicLogger.lifecycle(
+                        "LIVE_RESTORE_STALE_WATCH_SOFT_ALLOW",
+                        "mint=${mint.take(10)} symbol=$symbol preFdg=$preFdgVerdict fdgCan=${state?.fdgCan} liq=${(state?.liquidityUsd ?: 0.0).toInt()} penalty=WATCH_FINALITY"
+                    )
+                } catch (_: Throwable) {}
+                return null
             }
             return "EXEC_OPEN_DROPPED_PRE_FDG_NOT_BUY" to preFdgVerdict
         }
@@ -480,6 +501,13 @@ object ExecutableOpenGate {
         val preFdgVerdict = state?.preFdgVerdict ?: "WATCH"
         val hardNoReasons = state?.hardNoReasons ?: emptyList()
         val candidateVersion = state?.candidateVersion ?: 0L
+        var restorePenalty = LiveRestoreExecutionPolicy.fromRuntimeDrift(liquidityUsd)
+        val staleApprovedVerdict = mode.equals("LIVE", true) &&
+            preFdgVerdict.uppercase() in setOf("WATCH", "PROBE", "NO_BUY") &&
+            fdgCan == true && hardNoReasons.isEmpty() && liquidityUsd >= 1200.0
+        if (staleApprovedVerdict) {
+            restorePenalty = restorePenalty.combine(LiveRestoreExecutionPolicy.fromStaleWatch(liquidityUsd))
+        }
 
         fun blocked(log: String, reason: String, shadow: Boolean = false): OpenVerdict {
             try {
@@ -736,13 +764,23 @@ object ExecutableOpenGate {
             return blocked("EXEC_OPEN_BLOCKED_ZERO_LIQUIDITY", "ZERO_LIQUIDITY", shadow = false)
         }
         if (!signal.equals("BUY", true) && !signal.equals("EXECUTE", true)) {
-            return blocked("EXEC_OPEN_BLOCKED_SIGNAL_NOT_BUY", signal.ifBlank { "UNKNOWN" }, shadow = mode == "PAPER")
+            if (modeUpper == "LIVE" && fdgCan == true && hardNoReasons.isEmpty() && liquidityUsd >= 1200.0) {
+                restorePenalty = restorePenalty.combine(LiveRestoreExecutionPolicy.fromStaleWatch(liquidityUsd))
+                try { ForensicLogger.lifecycle("LIVE_RESTORE_SIGNAL_SOFT_ALLOW", "symbol=$symbol mint=${mint.take(10)} signal=$signal fdgCan=true liq=${liquidityUsd.toInt()}") } catch (_: Throwable) {}
+            } else {
+                return blocked("EXEC_OPEN_BLOCKED_SIGNAL_NOT_BUY", signal.ifBlank { "UNKNOWN" }, shadow = mode == "PAPER")
+            }
         }
         if (fdgCan != true) {
             return blocked("EXEC_OPEN_BLOCKED_FDG_FINAL", fdgReason, shadow = mode == "PAPER")
         }
         if (signal.isNotBlank() && !signal.equals("UNKNOWN", true) && !signal.equals("BUY", true) && !signal.equals("EXECUTE", true)) {
-            return blocked("EXEC_OPEN_BLOCKED_SIGNAL_NOT_BUY", signal, shadow = mode == "PAPER")
+            if (modeUpper == "LIVE" && fdgCan == true && hardNoReasons.isEmpty() && liquidityUsd >= 1200.0) {
+                restorePenalty = restorePenalty.combine(LiveRestoreExecutionPolicy.fromStaleWatch(liquidityUsd))
+                try { ForensicLogger.lifecycle("LIVE_RESTORE_SIGNAL_SOFT_ALLOW", "symbol=$symbol mint=${mint.take(10)} signal=$signal fdgCan=true liq=${liquidityUsd.toInt()}") } catch (_: Throwable) {}
+            } else {
+                return blocked("EXEC_OPEN_BLOCKED_SIGNAL_NOT_BUY", signal, shadow = mode == "PAPER")
+            }
         }
         // V5.9.1214 — mirror PAPER low-RC learning policy at final open.
         // Paper blocks only confirmed rug score 0; scores 1..10 are allowed
@@ -782,7 +820,7 @@ object ExecutableOpenGate {
                     ForensicLogger.lifecycle("EXEC_OPEN_IDEMPOTENT_RECHECK", detail)
                     ForensicLogger.phase(ForensicLogger.PHASE.EXEC_GATE, symbol, "EXEC_GATE_ALLOW_RECHECK $detail")
                 } catch (_: Throwable) {}
-                return OpenVerdict(true, "finality_clear_recheck", attemptId = execKey)
+                return restorePenalties[execKey] ?: OpenVerdict(true, "finality_clear_recheck", attemptId = execKey)
             }
             try { TradeOutcomeLedger.recordSuppressedDuplicateOpen() } catch (_: Throwable) {}
             try {
@@ -796,14 +834,26 @@ object ExecutableOpenGate {
             allowedAttempts[laneAttemptKey] = execKey to System.currentTimeMillis()
             allowedAttempts[mint.trim()] = execKey to System.currentTimeMillis()
         } catch (_: Throwable) {}
+        val allowedVerdict = OpenVerdict(
+            true,
+            if (restorePenalty.reason == "NONE") "finality_clear" else "LIVE_RESTORE_PENALTY_EXEC:${restorePenalty.reason}",
+            attemptId = execKey,
+            scorePenalty = restorePenalty.scorePenalty,
+            sizeMultiplier = restorePenalty.sizeMultiplier,
+            restoreReason = restorePenalty.reason,
+            liquidityOverrideUsd = restorePenalty.liquidityOverrideUsd,
+        )
+        if (restorePenalty.reason != "NONE") {
+            try { restorePenalties[execKey] = allowedVerdict } catch (_: Throwable) {}
+        }
         try {
-            val detail = "attemptId=$execKey symbol=${symbol} mint=${mint.take(10)} mode=$mode lane=$lane source=$source preFdg=$preFdgVerdict selectedLane=$selectedLane hardNo=[] candidateVersion=$candidateVersion v3Decision=$v3Decision fdgCan=${fdgCan ?: "unknown"} fdgReason=$fdgReason safetyTier=$safetyTier rugScore=$rug liquidityUsd=${liquidityUsd.toInt()} signal=$signal band=$band"
+            val detail = "attemptId=$execKey symbol=${symbol} mint=${mint.take(10)} mode=$mode lane=$lane source=$source preFdg=$preFdgVerdict selectedLane=$selectedLane hardNo=[] candidateVersion=$candidateVersion v3Decision=$v3Decision fdgCan=${fdgCan ?: "unknown"} fdgReason=$fdgReason safetyTier=$safetyTier rugScore=$rug liquidityUsd=${liquidityUsd.toInt()} signal=$signal band=$band restorePenalty=${restorePenalty.reason} sizeMult=${restorePenalty.sizeMultiplier}"
             ForensicLogger.lifecycle("EXEC_OPEN_REQUEST", detail)
             ForensicLogger.lifecycle("EXEC_GATE_ALLOW", detail)
             ForensicLogger.phase(ForensicLogger.PHASE.EXEC_GATE, symbol, "EXEC_GATE_ALLOW $detail")
             ForensicLogger.gate(ForensicLogger.PHASE.EXEC_GATE, symbol, allow = true, reason = "finality_clear")
             ForensicLogger.lifecycle("EXEC_OPEN_ALLOWED", "attemptId=$execKey symbol=${symbol} mint=${mint.take(10)} mode=$mode lane=$lane reason=finality_clear candidateVersion=$candidateVersion")
         } catch (_: Throwable) {}
-        return OpenVerdict(true, "finality_clear", attemptId = execKey)
+        return allowedVerdict
     }
 }
