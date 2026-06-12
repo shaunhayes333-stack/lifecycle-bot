@@ -38,6 +38,15 @@ object SlotHealthGate {
     // worse than running with a few stale slots. Mirrors the FDG fail-open rule.
     private val ghostStuckSinceMs = AtomicLong(0L)
     private const val GHOST_DEFER_GRACE_MS = 60_000L  // 1 min of deferring, then fail-open
+    // V5.9.1547 — forced-open defer aging. The forcedOpen counter can wedge HIGH
+    // (snapshot 5.0.3575: forcedOpen=46 vs only 13 real lane positions) and, unlike
+    // the ghost path, the forced-open defer had NO fail-open — so every non-high-edge
+    // buy deferred FOREVER (EXEC frozen at 9, parked 11min at 501 closes with a healthy
+    // 5s loop). Mirror the ghost fail-open: defer while fresh so cleanup can catch up,
+    // then fail-open once the condition is clearly stuck past the grace window. The
+    // real risk backstops (-15% hard floor, FDG, per-lane slot caps) are unaffected.
+    private val forcedStuckSinceMs = AtomicLong(0L)
+    private const val FORCED_DEFER_GRACE_MS = 60_000L  // 1 min of deferring, then fail-open
 
     // Thresholds straight from the spec.
     private const val FORCED_OPEN_DIRTY = 20
@@ -64,6 +73,12 @@ object SlotHealthGate {
             ghostStuckSinceMs.compareAndSet(0L, System.currentTimeMillis())
         } else {
             ghostStuckSinceMs.set(0L)
+        }
+        // V5.9.1547 — track how long forcedOpen has been continuously over the dirty floor.
+        if (forcedOpen > FORCED_OPEN_DIRTY) {
+            forcedStuckSinceMs.compareAndSet(0L, System.currentTimeMillis())
+        } else {
+            forcedStuckSinceMs.set(0L)
         }
     }
 
@@ -95,8 +110,20 @@ object SlotHealthGate {
             // Grace exceeded → fail-open so entries resume; reaper keeps working.
             return DeferDecision(false, "GHOST_OPEN=${ghosts}_FAIL_OPEN_stuck=${stuckMs}ms")
         }
-        if (forcedOpenCount.get() > FORCED_OPEN_DIRTY) {
-            return DeferDecision(true, "FORCED_OPEN=${forcedOpenCount.get()}>$FORCED_OPEN_DIRTY")
+        val forced = forcedOpenCount.get()
+        if (forced > FORCED_OPEN_DIRTY) {
+            // V5.9.1547 — AGING FORCED-OPEN DEFER (fail-open). Defer while the
+            // forced-open condition is fresh so cleanup/reconciler can catch up,
+            // but NEVER permanently: a wedged/stale forcedOpen counter (e.g. 46 vs
+            // 13 real positions) must not park all entries indefinitely. Once stuck
+            // past the grace window, fail-open — starving entries is far worse than
+            // running with a stale slot counter. Same pattern as the ghost defer.
+            val stuckSince = forcedStuckSinceMs.get()
+            val stuckMs = if (stuckSince > 0L) System.currentTimeMillis() - stuckSince else 0L
+            if (stuckMs <= FORCED_DEFER_GRACE_MS) {
+                return DeferDecision(true, "FORCED_OPEN=$forced>$FORCED_OPEN_DIRTY(stuck=${stuckMs}ms)")
+            }
+            return DeferDecision(false, "FORCED_OPEN=${forced}_FAIL_OPEN_stuck=${stuckMs}ms")
         }
         if (supervisorActive.get() > supervisorCap.get()) {
             return DeferDecision(true, "SUPERVISOR_OVER_CAP=${supervisorActive.get()}/${supervisorCap.get()}")
