@@ -8488,7 +8488,19 @@ class BotService : Service() {
                 com.lifecyclebot.engine.RuntimeModeAuthority.isPaper() ||
                     com.lifecyclebot.engine.TradeHistoryStore.getProvenEdgeCached().hasProvenEdge
             } catch (_: Throwable) { true }   // fail-open to lenient = trade, never starve
-            val coldPump = !lenientIntake && isPumpPortalWs && !isUserAdded && !isRestoredVetted && volumeH1 <= 0.0 && liquidityUsd < 5_000.0
+            val pressureDecision = try {
+                com.lifecyclebot.engine.ProtectedIntakeAdmissionGate.decide(
+                    source = source,
+                    allSources = allSources,
+                    liquidityUsd = liquidityUsd,
+                    marketCapUsd = marketCapUsd,
+                    volumeH1 = volumeH1,
+                    supervisorTimeouts10m = supervisorTimeoutWindowCount,
+                    supervisorActive = supervisorLeases.size,
+                    supervisorLiveCap = supervisorEffectiveCap(),
+                )
+            } catch (_: Throwable) { com.lifecyclebot.engine.ProtectedIntakeAdmissionGate.Decision(false, "gate_error_fail_open") }
+            val coldPump = (!lenientIntake && isPumpPortalWs && !isUserAdded && !isRestoredVetted && volumeH1 <= 0.0 && liquidityUsd < 5_000.0) || pressureDecision.probationOnly
             if (coldPump) {
                 val laneAffinity = inferIntakeLaneAffinity(source, allSources, marketCapUsd, liquidityUsd)
                 val toolAffinity = inferIntakeToolAffinity(source, allSources, marketCapUsd, liquidityUsd)
@@ -8511,7 +8523,7 @@ class BotService : Service() {
                     val probationResult = added?.reason ?: "err"
                     ForensicLogger.lifecycle(
                         "INTAKE_PROBATION_ONLY",
-                        "symbol=${symbol.ifBlank { mint.take(6) }} mint=${mint.take(10)} src=$source liq=${liquidityUsd.toInt()} mcap=${marketCapUsd.toInt()} vol1h=${volumeH1.toInt()} result=$probationResult"
+                        "symbol=${symbol.ifBlank { mint.take(6) }} mint=${mint.take(10)} src=$source liq=${liquidityUsd.toInt()} mcap=${marketCapUsd.toInt()} vol1h=${volumeH1.toInt()} pressure=${pressureDecision.probationOnly} pressureReason=${pressureDecision.reason} result=$probationResult"
                     )
                 } catch (_: Throwable) {}
                 return added?.probation == true || added?.reason?.contains("PROBATION", ignoreCase = true) == true
@@ -9568,16 +9580,25 @@ class BotService : Service() {
         val basePerCycleCap = SUPERVISOR_MAX_INFLIGHT
         try { supervisorPruneExpiredLeases("select_cycle") } catch (_: Throwable) {}
         val currentSupervisorLoad = try { supervisorLeases.size } catch (_: Throwable) { 0 }
-        val PER_CYCLE_CAP = when {
-            currentSupervisorLoad >= (SUPERVISOR_MAX_INFLIGHT * 3 / 4) -> 100
-            currentSupervisorLoad >= (SUPERVISOR_MAX_INFLIGHT / 2) -> 120
-            else -> basePerCycleCap
-        }
-        if (PER_CYCLE_CAP != 200) {
+        val effectiveSupervisorCap = try { supervisorEffectiveCap() } catch (_: Throwable) { SUPERVISOR_MAX_LIVE_WORKERS }
+        // V5.9.1548 — use one planner for the per-cycle selection cap. The live
+        // worker cap was already adaptive at acquire time, but the selector still
+        // handed 96 mints into a 24/16-worker pressure window, creating 0/96 churn.
+        // Healthy runtime returns the full cap, so throughput is unchanged unless
+        // the timeout/cap telemetry proves the scheduler is overloaded.
+        val admissionPlan = com.lifecyclebot.engine.SupervisorAdmissionPlanner.plan(
+            maxInFlight = SUPERVISOR_MAX_INFLIGHT,
+            liveCap = effectiveSupervisorCap,
+            currentLoad = currentSupervisorLoad,
+            timeoutCount10m = supervisorTimeoutWindowCount,
+            forcedOpenCount = forcedOpenMints.size,
+        )
+        val PER_CYCLE_CAP = admissionPlan.perCycleCap
+        if (PER_CYCLE_CAP != basePerCycleCap || admissionPlan.pressureBand != "healthy") {
             try {
                 com.lifecyclebot.engine.ForensicLogger.lifecycle(
-                    "SUPERVISOR_ADMISSION_COOLDOWN",
-                    "active=$currentSupervisorLoad cap=$SUPERVISOR_MAX_INFLIGHT perCycle=$PER_CYCLE_CAP legacy=200 base=$basePerCycleCap"
+                    "SUPERVISOR_ADMISSION_PLANNED",
+                    "${admissionPlan.reason} legacy=$basePerCycleCap"
                 )
             } catch (_: Throwable) {}
         }

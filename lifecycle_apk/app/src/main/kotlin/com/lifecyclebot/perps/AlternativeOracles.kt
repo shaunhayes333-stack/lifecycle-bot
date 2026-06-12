@@ -202,7 +202,10 @@ object JupiterPriceOracle {
     private const val JUPITER_PRICE_API = "https://lite-api.jup.ag/price/v3"  // V5.9.862 — price.jup.ag DNS dead
     
     private val priceCache = ConcurrentHashMap<String, Double>()
-    private var lastFetchTime = 0L
+    // V5.9.1548 — freshness is per symbol. A single global lastFetchTime made a
+    // fetch for one asset refresh the cache window for every other symbol, allowing
+    // stale dynamic-alt prices to masquerade as fresh during cross-universe scans.
+    private val lastFetchTimeBySymbol = ConcurrentHashMap<String, Long>()
     private const val CACHE_TTL_MS = 3_000L
     
     private val client = SharedHttpClient.builder()
@@ -304,7 +307,8 @@ object JupiterPriceOracle {
      */
     suspend fun getPrice(symbol: String): Double? = withContext(Dispatchers.IO) {
         // Check cache
-        if (System.currentTimeMillis() - lastFetchTime < CACHE_TTL_MS) {
+        val now = System.currentTimeMillis()
+        if (now - (lastFetchTimeBySymbol[symbol] ?: 0L) < CACHE_TTL_MS) {
             priceCache[symbol]?.let { return@withContext it }
         }
         
@@ -327,7 +331,7 @@ object JupiterPriceOracle {
                     
                     if (price > 0) {
                         priceCache[symbol] = price
-                        lastFetchTime = System.currentTimeMillis()
+                        lastFetchTimeBySymbol[symbol] = System.currentTimeMillis()
                         ErrorLogger.info(TAG, "🪐 Jupiter: $symbol = \$${price.fmt(4)}")
                         return@withContext price
                     }
@@ -370,9 +374,9 @@ object JupiterPriceOracle {
                         if (price > 0) {
                             results[symbol] = price
                             priceCache[symbol] = price
+                            lastFetchTimeBySymbol[symbol] = System.currentTimeMillis()
                         }
                     }
-                    lastFetchTime = System.currentTimeMillis()
                 }
             }
             response.close()

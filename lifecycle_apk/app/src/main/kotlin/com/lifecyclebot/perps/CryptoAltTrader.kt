@@ -903,7 +903,11 @@ object CryptoAltTrader {
                 // V5.9.3: respect UI toggle for DynScan signals too
                 val dynSpot = !preferLeverage.get()
                 val dynLev  = if (dynSpot) 1.0 else DEFAULT_LEVERAGE
-                ErrorLogger.info(TAG, "🪙⚡ DynScan EXECUTE: ${sig.marketSymbol} score=${sig.score} conf=${sig.confidence} ${if (dynSpot) "SPOT" else "${dynLev.toInt()}x"}")
+                // V5.9.1548 — terminal-reject semantics: do not call this EXECUTE
+                // before executeSignal() runs price sanity, spread, FDG, sizing and
+                // route gates. Rejected candidates may be attempted/evaluated, but
+                // must never emit EXECUTE wording unless an open actually succeeds.
+                ErrorLogger.info(TAG, "🪙⚡ DynScan ATTEMPT: ${sig.marketSymbol} score=${sig.score} conf=${sig.confidence} ${if (dynSpot) "SPOT" else "${dynLev.toInt()}x"}")
                 executeSignal(sig.copy(leverage = dynLev), isSpot = dynSpot)
             }
         }
