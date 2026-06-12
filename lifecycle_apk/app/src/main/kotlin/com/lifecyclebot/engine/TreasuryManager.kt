@@ -363,7 +363,7 @@ object TreasuryManager {
     const val SEED_FLOOR_USD = 500.0
 
     /** V5.9.399 — fraction of realized profit siphoned into treasury per meme sell. */
-    const val MEME_SELL_TREASURY_PCT = 0.30
+    const val MEME_SELL_TREASURY_PCT = 0.25  // V5.9.1543 — operator: profit split is 75/25 (75% trading wallet / 25% treasury), was 0.30
 
     /**
      * V5.9.495z17 — operator-mandated dust filter. Profits below this floor
@@ -439,7 +439,7 @@ object TreasuryManager {
         val floor = if (isPaper) MEME_SELL_MIN_PROFIT_SOL_PAPER else MEME_SELL_MIN_PROFIT_SOL
         if (realizedProfitSol < floor) {
             ErrorLogger.debug("Treasury",
-                "🪙 70/30 SPLIT skipped: profit=${realizedProfitSol.fmtSol()}◎ < ${if (isPaper) "paper" else "live"} dust floor ${floor}◎")
+                "🪙 75/25 SPLIT skipped: profit=${realizedProfitSol.fmtSol()}◎ < ${if (isPaper) "paper" else "live"} dust floor ${floor}◎")
             return 0.0
         }
         val contribSol = realizedProfitSol * MEME_SELL_TREASURY_PCT
@@ -455,19 +455,19 @@ object TreasuryManager {
         treasuryUsd += contribUsd
         lifetimeLocked += contribSol
         ErrorLogger.info("Treasury",
-            "🪙 70/30 SPLIT: profit=${realizedProfitSol.fmtSol()}◎ → treasury +${contribSol.fmtSol()}◎ " +
-            "(30%) | balance=${treasurySol.fmtSol()}◎"
+            "🪙 75/25 SPLIT: profit=${realizedProfitSol.fmtSol()}◎ → treasury +${contribSol.fmtSol()}◎ " +
+            "(25%) | balance=${treasurySol.fmtSol()}◎"
         )
         addEvent(TreasuryEvent(
             type = TreasuryEventType.PROFIT_LOCKED,
             amountSol = contribSol,
-            description = "70/30 split: locked 30% of +${realizedProfitSol.fmtSol()}◎ realized",
+            description = "75/25 split: locked 25% of +${realizedProfitSol.fmtSol()}◎ realized",
             walletUsd = peakWalletUsd,
             solPrice = safePx,
         ))
         forceSave()  // V5.9.1473 — write-through (was throttled autoSave); APK-update-safe
         // V5.9.495z26 — live mode: also push the SOL on-chain trading→treasury.
-        triggerOnChainTransferIfLive(contribSol, "MEME_SELL_70_30")
+        triggerOnChainTransferIfLive(contribSol, "MEME_SELL_75_25")
         return contribSol
     }
 

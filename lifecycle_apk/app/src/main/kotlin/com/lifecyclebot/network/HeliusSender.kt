@@ -42,6 +42,21 @@ object HeliusSender {
             .build()
     }
 
+    // V5.9.1543 — SENDER GATED OFF BY DEFAULT (operator + Helius docs audit).
+    // ROOT CAUSE of helius_sender sr=0% / 503 cascade -> MARS-zombie deadlock:
+    // Helius Sender MANDATES a real Jito-tip-account SystemProgram.transfer
+    // instruction (>=0.0002 SOL) baked INTO the signed tx (per Helius docs +
+    // their official Jupiter+Sender reference). Our PumpPortal/Jupiter txs do
+    // NOT contain that transfer — `priorityFee`/`prioritizationFeeLamports` are
+    // compute-unit priority fees, NOT a tip transfer. So EVERY Sender submission
+    // was tip-less -> rejected. Injecting the tip needs v0-message decompile +
+    // ALT re-resolve + re-sign (we have no Solana SDK; raw-byte rebuild is unsafe).
+    // Until a proper tip-injection path exists, Sender is OFF and broadcasts use
+    // the proven PumpPortal/Jupiter self-broadcast + RPC path (pre-1524 behaviour
+    // the operator confirmed traded fine). Flip to true ONLY once tip injection
+    // is implemented. Nothing removed — code stays, just gated.
+    @Volatile var senderEnabled: Boolean = false
+
     @Volatile var lastError: String? = null
         private set
     @Volatile var sentCount: Long = 0L
@@ -53,6 +68,12 @@ object HeliusSender {
      *         the legacy Jito-bundle / RPC broadcast path).
      */
     fun send(signedTxBase64: String): String? {
+        // V5.9.1543 — gated off until tip-injection exists (see senderEnabled doc).
+        // Returns null so signAndSend falls straight through to Jito/RPC broadcast.
+        if (!senderEnabled) {
+            lastError = "SENDER_DISABLED_NO_TIP_INJECTION"
+            return null
+        }
         return try {
             val params = JSONArray()
                 .put(signedTxBase64)
