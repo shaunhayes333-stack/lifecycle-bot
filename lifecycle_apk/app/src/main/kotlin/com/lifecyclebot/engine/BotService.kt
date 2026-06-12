@@ -7456,15 +7456,13 @@ class BotService : Service() {
                             }
                             if (pnlPct >= tpPct) {
                                 ErrorLogger.info("BotService",
-                                    "🎯 RAPID TAKE_PROFIT: ${ts.symbol} pnl=${pnlPct.toInt()}% ≥ tp=${tpPct.toInt()}%")
-                                addLog("🎯 RAPID TP HIT: ${ts.symbol} +${pnlPct.toInt()}% (target +${tpPct.toInt()}%)")
-                                executor.requestSell(
-                                    ts = ts,
-                                    reason = "RAPID_TAKE_PROFIT_${tpPct.toInt()}",
-                                    wallet = wallet,
-                                    walletSol = effectiveBalance
-                                )
-                                TradeStateMachine.startCooldown(ts.mint)
+                                    "🎯 RAPID TAKE_PROFIT_DELEGATE: ${ts.symbol} pnl=${pnlPct.toInt()}% ≥ tp=${tpPct.toInt()}% — manage-only partial/profit-lock first")
+                                addLog("🎯 RAPID TP: ${ts.symbol} +${pnlPct.toInt()}% — checking dynamic partial/profit-lock first", ts.mint)
+                                // V5.9.1558 — do NOT full-close winners from rapid monitor.
+                                // Delegate to Executor's manage-only path, which now returns
+                                // immediately after any dynamic partial. If no partial applies,
+                                // its existing TP logic may still close normally.
+                                executor.runManageOnly(ts, wallet, effectiveBalance)
                             }
                         }
                         

@@ -446,7 +446,7 @@ class JournalActivity : AppCompatActivity() {
                                 mint            = t.mint,
                                 side            = t.side,
                                 entryPrice      = t.price,
-                                exitPrice       = if (t.side == "SELL") t.price else 0.0,
+                                exitPrice       = if (isSellLike(t.side)) t.price else 0.0,
                                 solAmount       = t.sol,
                                 pnlSol          = t.pnlSol,
                                 pnlPct          = t.pnlPct,
@@ -468,7 +468,7 @@ class JournalActivity : AppCompatActivity() {
                     else    -> allEntries
                 }
                 // Skip re-render if sell count unchanged (avoids 90 addView calls every 10s poll)
-                val sellCount = filtered.count { it.side == "SELL" }
+                val sellCount = filtered.count { isSellLike(it.side) }
                 if (sellCount == lastRenderedTradeCount && lastRenderedTradeCount >= 0) return@launch
                 val stats = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
                     journal.getStatsFiltered(filtered)
@@ -491,9 +491,12 @@ class JournalActivity : AppCompatActivity() {
         }
     }
 
+    private fun isSellLike(side: String): Boolean =
+        side.equals("SELL", ignoreCase = true) || side.equals("PARTIAL_SELL", ignoreCase = true)
+
     private fun renderJournalBody(filtered: List<com.lifecyclebot.engine.TradeJournal.JournalEntry>, stats: com.lifecyclebot.engine.TradeJournal.JournalStats) {
         val entries = filtered
-        val sellEntries = entries.filter { it.side == "SELL" }
+        val sellEntries = entries.filter { isSellLike(it.side) }
 
         tvJournalPnl.text = currency.format(stats.totalPnlSol, showPlus = true)
         tvJournalPnl.setTextColor(if (stats.totalPnlSol >= 0.0) green else red)

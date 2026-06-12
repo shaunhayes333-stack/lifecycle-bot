@@ -216,9 +216,11 @@ object WrRecoveryPartial {
         Band.AGGRESSIVE -> Triple(9.0, 45.0, 90.0)
         Band.MODERATE   -> Triple(30.0, 70.0, 140.0)
         Band.FLUID      -> Triple(60.0, 150.0, 300.0)
-        // Performing bots should not shave winners at +12/+30/+60 when MFE
-        // shows multi-1000% peaks. Let normal config/runner locks work.
-        Band.PERFORMING -> Triple(100.0, 500.0, 2000.0)
+        // V5.9.1558 — restore baseline dynamic partials in healthy mode.
+        // 1556 pushed PERFORMING to 100/500/2000, which made a profitable bot
+        // ride normal +10..+60% wins naked until terminal stops/TP. Keep runner
+        // tail via smaller fractions, not by disabling early rungs.
+        Band.PERFORMING -> Triple(12.0, 30.0, 60.0)
         Band.OFF        -> Triple(Double.POSITIVE_INFINITY, Double.POSITIVE_INFINITY, Double.POSITIVE_INFINITY)
     }
 
@@ -256,11 +258,12 @@ object WrRecoveryPartial {
      *     and -15% hard floor catching dumpers.
      */
     private fun fractionFor(band: Band): Double = when (band) {
-        // V5.9.1556 — MFE capture tuning: smaller rungs preserve runner tail.
+        // V5.9.1558 — smaller than old recovery chunks, but visible enough to
+        // actually realize profit. PERFORMING must not be effectively disabled.
         Band.AGGRESSIVE -> 0.10
         Band.MODERATE   -> 0.08
         Band.FLUID      -> 0.06
-        Band.PERFORMING -> 0.04
+        Band.PERFORMING -> 0.08
         Band.OFF        -> 1.0  // pass-through; caller multiplies by config fraction
     }
 
@@ -3509,7 +3512,7 @@ class Executor(
                     lockedProfitFloor = sellSol,
                 )
                 
-                val trade = Trade("SELL", "paper", sellSol, actualPrice,
+                val trade = Trade("PARTIAL_SELL", "paper", sellSol, actualPrice,
                     System.currentTimeMillis(), "capital_recovery_${gainMultiple.fmt(1)}x",
                     pnlSol, gainPct)
                 recordTrade(ts, trade)
@@ -3569,7 +3572,7 @@ class Executor(
                     lockedProfitFloor = pos.lockedProfitFloor + sellSol,
                 )
                 
-                val trade = Trade("SELL", "paper", sellSol, actualPrice,
+                val trade = Trade("PARTIAL_SELL", "paper", sellSol, actualPrice,
                     System.currentTimeMillis(), "profit_lock_${gainMultiple.fmt(1)}x",
                     pnlSol, gainPct)
                 recordTrade(ts, trade)
@@ -4575,7 +4578,11 @@ class Executor(
         }
 
         if (checkProfitLock(ts, wallet, walletSol)) return
-        if (ts.position.isOpen) checkPartialSell(ts, wallet, walletSol)
+        // V5.9.1558 — source fix: a partial rung is an exit action for THIS tick.
+        // Pre-fix, runManageOnly could partial-sell and then immediately fall
+        // through into full TP, so the journal showed terminal TAKE_PROFIT/SL
+        // instead of dynamic laddering.
+        if (ts.position.isOpen && checkPartialSell(ts, wallet, walletSol)) return
         if (ts.position.isOpen) {
             val pnlPct = if (ts.position.entryPrice > 0)
                 ((currentPrice - ts.position.entryPrice) / ts.position.entryPrice) * 100
@@ -5549,7 +5556,7 @@ class Executor(
             }
         }
 
-        if (ts.position.isOpen) checkPartialSell(ts, wallet, walletSol)
+        if (ts.position.isOpen && checkPartialSell(ts, wallet, walletSol)) return
 
         val reason = riskCheck(ts, modeConfig)
         if (reason != null) { doSell(ts, reason, wallet, walletSol); return }
@@ -6113,7 +6120,7 @@ class Executor(
                 return
             }
             
-            checkPartialSell(ts, wallet, walletSol)
+            if (checkPartialSell(ts, wallet, walletSol)) return
             
             val reason = riskCheck(ts, modeConfig)
             if (reason != null) {
