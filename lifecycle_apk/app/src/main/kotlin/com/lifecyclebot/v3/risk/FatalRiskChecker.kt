@@ -133,8 +133,27 @@ class FatalRiskChecker(
         if (rawRugcheckScore == 0) {
             return FatalRiskResult(true, "EXTREME_RUG_CRITICAL_score=0_CONFIRMED_RUG")
         }
+        // V5.9.1535 — ROOT FIX (live trader dead: EVERY fresh launch fatal'd).
+        // score==1 is the RC_PENDING sentinel (rugcheck API not yet resolved) —
+        // it is NOT a confirmed rug. Previous fixes (V5.9.689/1329) only carved
+        // this out for PAPER, so in LIVE every fresh pump.fun launch (where RC is
+        // ALWAYS pending at birth) died here as EXTREME_RUG_CRITICAL_score=1_RC_
+        // PENDING_LIVE — BEFORE ExecutableOpenGate's V5.9.1504 pending-rug→FDG
+        // fallback could run. The two gates contradicted: OpenGate opened the
+        // door, FatalRiskChecker locked it upstream. We now MIRROR OpenGate: a
+        // PENDING RC (score==1) in live is NON-FATAL when the token clears a hard
+        // liquidity floor (real, exitable pool) AND the danger-flag bundle is
+        // clean — it is routed onward to V3 scoring + FDG, which make the final
+        // (size-capped) call. Confirmed rug (score==0) below is still an
+        // unconditional live hard block. Known ruggers still caught by
+        // TokenBlacklist at liveBuy (V5.9.1502); -15% SL unchanged.
         if (rawRugcheckScore == 1 && !isPaperLearningRC) {
-            return FatalRiskResult(true, "EXTREME_RUG_CRITICAL_score=1_RC_PENDING_LIVE")
+            val pendingRcLiqFloorOk = candidate.liquidityUsd >= 8_000.0
+            if (!(pendingRcLiqFloorOk && rugFlagsCleanRC)) {
+                return FatalRiskResult(true, "EXTREME_RUG_CRITICAL_score=1_RC_PENDING_LIVE")
+            }
+            // else: pending RC + strong liquidity + clean flags → fall through to
+            // scoring/FDG (logged downstream as RC_PENDING route).
         }
         // V5.9.1329 — ROOT FIX: score=1 is RC_PENDING, not a confirmed rug.
         // The carve-out at line 116 lets score=1 PASS in paper, but the
@@ -202,10 +221,20 @@ class FatalRiskChecker(
                             !candidate.extraBoolean("pureSellPressure") &&
                             !candidate.extraBoolean("liquidityDraining") &&
                             !candidate.extraBoolean("unsellableSignal")
-        if (rugScore >= 95 && !(isPaperLearning && rugFlagsClean)) {
+        // V5.9.1535 — the >=95 / threshold score-fatals must reflect CONFIRMED
+        // danger, not a transient/low rugcheck number on a strong pool. A score
+        // that is high ONLY because rawRiskScore was low/unresolved (no danger
+        // flag set) on a well-liquid token is the same pending-RC false-positive
+        // that killed the live trader. Keep the hard block when ANY danger flag is
+        // set OR liquidity is thin; otherwise route a flag-clean, well-liquid
+        // token onward (FDG + size-cap have final say).
+        val anyDangerFlag = !rugFlagsClean
+        val thinLiquidity = candidate.liquidityUsd < 8_000.0
+        val confirmedHighRisk = anyDangerFlag || thinLiquidity
+        if (rugScore >= 95 && !(isPaperLearning && rugFlagsClean) && confirmedHighRisk) {
             return FatalRiskResult(true, "EXTREME_RUG_RISK_$rugScore")
         }
-        if (!wideOpen && !isPaperLearning && rugScore >= config.fatalRugThreshold) {
+        if (!wideOpen && !isPaperLearning && rugScore >= config.fatalRugThreshold && confirmedHighRisk) {
             return FatalRiskResult(true, "EXTREME_RUG_RISK_$rugScore")
         }
         
