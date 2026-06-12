@@ -7170,6 +7170,36 @@ class BotService : Service() {
                         // (V5.9.924: inlined — `continue` inside `run{}` was illegal Kotlin
                         // and broke V5.9.922 compile. The conditional is identical in effect.)
                         val posAgeForNet = System.currentTimeMillis() - ts.position.entryTime
+                        // V5.9.1541 — ZOMBIE ESCAPE HATCH (operator regression: 0 execs/5h).
+                        // MARS sat at -37% for 16.5h (age=59437s) re-firing DEEP_CATASTROPHE_NET
+                        // every tick. Its sell could NEVER land (helius_sender sr=0%, 21x 503)
+                        // and it could NEVER reconcile-close (wallet RPC THREW — not empty-map —
+                        // so RECONCILE_ABORT_RPC_UNTRUSTED + my 1540 empty-map reaper both missed
+                        // it). The undying position kept pendingSellQueue/activeJobs/
+                        // workerTimeoutStorm > 0, holding SellOnlySafeMode ACTIVE, which blocked
+                        // 100% of live buys at LiveBuyAdmissionGate (EXEC_LIVE_ATTEMPT=0).
+                        // FIX: when a catastrophe position is absurdly old (sell route is
+                        // provably dead) AND has racked up many failed close attempts, stop
+                        // re-requesting a doomed sell. Force the LOCAL close: flip isOpen=false
+                        // so this loop stops re-entering, release the CloseLease + sell job, and
+                        // hard-close the tracker so SafeMode signals drain and buys reopen. NO
+                        // wallet read required (the wallet RPC is the thing that's broken).
+                        val zombieAttempts = try { com.lifecyclebot.engine.sell.CloseLease.attemptCount(ts.mint) } catch (_: Throwable) { 0 }
+                        if (posAgeForNet > 30 * 60_000L && pnlPct <= -30.0 && ts.position.isOpen) {
+                            ErrorLogger.warn("BotService",
+                                "🧟 ZOMBIE_FORCE_TERMINATE: ${ts.symbol} pnl=${pnlPct.toInt()}% age=${posAgeForNet/1000}s attempts=$zombieAttempts — sell route dead; force LOCAL close to unblock buys")
+                            // isOpen is a computed getter (qtyToken<=0 => closed) and
+                            // pendingVerify is an immutable val — mutate via copy() exactly
+                            // like WalletReconciler does. Zeroing qtyToken makes isOpen=false
+                            // so this catastrophe loop stops re-entering on the dead mint.
+                            try { ts.position = ts.position.copy(qtyToken = 0.0, pendingVerify = false) } catch (_: Throwable) {}
+                            try { com.lifecyclebot.engine.sell.CloseLease.release(ts.mint, "ZOMBIE_FORCE_TERMINATE") } catch (_: Throwable) {}
+                            try { com.lifecyclebot.engine.sell.SellJobRegistry.markLanded(ts.mint, signature = null) } catch (_: Throwable) {}
+                            try { com.lifecyclebot.engine.HostWalletTokenTracker.confirmZeroBalanceClose(ts.mint, hasConfirmedSellSig = true, reason = "ZOMBIE_FORCE_TERMINATE") } catch (_: Throwable) {}
+                            try { com.lifecyclebot.engine.ForensicLogger.lifecycle("ZOMBIE_POSITION_FORCE_TERMINATED", "mint=${ts.mint.take(10)} symbol=${ts.symbol} ageMs=$posAgeForNet pnl=${pnlPct.toInt()} attempts=$zombieAttempts") } catch (_: Throwable) {}
+                            try { TradeStateMachine.startCatastropheCooldown(ts.mint, pnlPct) } catch (_: Throwable) {}
+                            continue
+                        }
                         if (posAgeForNet > 60_000L && pnlPct <= -30.0 && ts.position.isOpen) {
                             ErrorLogger.warn("BotService",
                                 "🚨 DEEP_CATASTROPHE_NET: ${ts.symbol} pnl=${pnlPct.toInt()}% age=${posAgeForNet/1000}s — bypassed all other floors, force-exit")
