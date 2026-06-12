@@ -4,6 +4,19 @@ import android.content.Context
 import androidx.security.crypto.EncryptedSharedPreferences
 import androidx.security.crypto.MasterKey
 
+object TursoDefaults {
+    const val DB_URL = "libsql://superbrain-shaunhayes333-stack.aws-ap-northeast-1.turso.io"
+    const val AUTH_TOKEN = "eyJhbGciOiJFZERTQSIsInR5cCI6IkpXVCJ9.eyJhIjoicnciLCJpYXQiOjE3NzU1NTE3MzQsImlkIjoiMDE5ZDMwNjYtMmUwMS03NzcyLTgyMTYtMDIyYzY1YzRmNmVjIiwicmlkIjoiMGExMzRiY2EtZmY1YS00NmQ2LWI2ZWYtYmU4MjAyYWE1ZWI4In0.PNhzeQw2rXloG3cDJaOPRg-Kq6rCpOy5kk6Q6GCD8Ar_AKC2iiW5OTKoK-q3Y78LFPWp_8ttrEhtlPz0VJ_VDw"
+    fun validOrDefaultUrl(raw: String?): String {
+        val v = raw?.trim().orEmpty()
+        return if (v.isBlank() || v.equals("null", true) || v.equals("none", true) || v.equals("unset", true)) DB_URL else v
+    }
+    fun validOrDefaultToken(raw: String?): String {
+        val v = raw?.trim().orEmpty()
+        return if (v.isBlank() || v.equals("null", true) || v.equals("none", true) || v.equals("unset", true)) AUTH_TOKEN else v
+    }
+}
+
 data class BotConfig(
     // wallet
     val privateKeyB58: String = "",
@@ -237,8 +250,8 @@ data class BotConfig(
     val historicalScanMinLiquidity: Double = 2000.0, // min liquidity for tokens to scan
     // ── Turso Collective Learning ────────────────────────────────────────
     // Shared knowledge base across all AATE instances (ENABLED BY DEFAULT)
-    val tursoDbUrl: String = "libsql://superbrain-shaunhayes333-stack.aws-ap-northeast-1.turso.io",
-    val tursoAuthToken: String = "eyJhbGciOiJFZERTQSIsInR5cCI6IkpXVCJ9.eyJhIjoicnciLCJpYXQiOjE3NzU1NTE3MzQsImlkIjoiMDE5ZDMwNjYtMmUwMS03NzcyLTgyMTYtMDIyYzY1YzRmNmVjIiwicmlkIjoiMGExMzRiY2EtZmY1YS00NmQ2LWI2ZWYtYmU4MjAyYWE1ZWI4In0.PNhzeQw2rXloG3cDJaOPRg-Kq6rCpOy5kk6Q6GCD8Ar_AKC2iiW5OTKoK-q3Y78LFPWp_8ttrEhtlPz0VJ_VDw",
+    val tursoDbUrl: String = TursoDefaults.DB_URL,
+    val tursoAuthToken: String = TursoDefaults.AUTH_TOKEN,
     val collectiveLearningEnabled: Boolean = true,  // Enable collective learning sync
     // ── V3 Scoring Engine ─────────────────────────────────────────────────
     // V3.2: V3 is now the PRIMARY and ONLY decision engine
@@ -323,8 +336,8 @@ object ConfigStore {
             // V5.9.915 — operator-hardcoded fallback LLM keys
             putString("openrouter_api_key",  cfg.openRouterApiKey)
             putString("cerebras_api_key",    cfg.cerebrasApiKey)
-            putString("turso_db_url",        cfg.tursoDbUrl)
-            putString("turso_auth_token",    cfg.tursoAuthToken)
+            putString("turso_db_url",        TursoDefaults.validOrDefaultUrl(cfg.tursoDbUrl))
+            putString("turso_auth_token",    TursoDefaults.validOrDefaultToken(cfg.tursoAuthToken))
             apply()
         }
         prefs(ctx).edit().apply {
@@ -564,12 +577,8 @@ object ConfigStore {
             cerebrasApiKey              = s.getString("cerebras_api_key", "").let {
                 if (it.isNullOrBlank()) DefaultKeys.CEREBRAS else it
             },
-            tursoDbUrl                  = s.getString("turso_db_url", "").let { 
-                if (it.isNullOrBlank()) "libsql://superbrain-shaunhayes333-stack.aws-ap-northeast-1.turso.io" else it 
-            },
-            tursoAuthToken              = s.getString("turso_auth_token", "").let {
-                if (it.isNullOrBlank()) "eyJhbGciOiJFZERTQSIsInR5cCI6IkpXVCJ9.eyJhIjoicnciLCJpYXQiOjE3NzU1NTE3MzQsImlkIjoiMDE5ZDMwNjYtMmUwMS03NzcyLTgyMTYtMDIyYzY1YzRmNmVjIiwicmlkIjoiMGExMzRiY2EtZmY1YS00NmQ2LWI2ZWYtYmU4MjAyYWE1ZWI4In0.PNhzeQw2rXloG3cDJaOPRg-Kq6rCpOy5kk6Q6GCD8Ar_AKC2iiW5OTKoK-q3Y78LFPWp_8ttrEhtlPz0VJ_VDw" else it
-            },
+            tursoDbUrl                  = TursoDefaults.validOrDefaultUrl(s.getString("turso_db_url", "")),
+            tursoAuthToken              = TursoDefaults.validOrDefaultToken(s.getString("turso_auth_token", "")),
             autoAddNewTokens            = p.getBoolean("auto_add_new_tokens", true),
             geminiEnabled               = p.getBoolean("gemini_enabled", true),
             // V5.9.1330 — default was 100; that capped paper learning at 100 slots.

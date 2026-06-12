@@ -577,6 +577,9 @@ class BotService : Service() {
     lateinit var autoMode: AutoModeEngine
     lateinit var copyTradeEngine: CopyTradeEngine
     private var loopJob: Job? = null
+    @Volatile private var rapidStopLossMonitorJob: Job? = null
+    @Volatile private var openPositionTickJob: Job? = null
+    private val tokenMintUploadInFlight = java.util.concurrent.ConcurrentHashMap<String, Long>()
 
     // V5.9.1081 — single-flight startup latch. Set to true the moment
     // ACTION_START is accepted, cleared when startBot() finishes
@@ -9064,7 +9067,10 @@ class BotService : Service() {
             } catch (_: Throwable) { /* best-effort */ }
 
             try {
-                kotlinx.coroutines.GlobalScope.launch(com.lifecyclebot.util.AppDispatchers.sideEffect) {
+                val uploadNow = System.currentTimeMillis()
+                val priorUpload = tokenMintUploadInFlight.put(mint, uploadNow) ?: 0L
+                val shouldUploadMintMeta = uploadNow - priorUpload >= 60_000L
+                if (shouldUploadMintMeta) kotlinx.coroutines.GlobalScope.launch(com.lifecyclebot.util.AppDispatchers.sideEffect) {
                     try {
                         val tsShared = synchronized(status.tokens) { status.tokens[mint] }
                         val creation = com.lifecyclebot.engine.BirdeyeCreationInfoProvider.peekCached(mint)
@@ -9091,7 +9097,10 @@ class BotService : Service() {
                             lastMcapUsd = tsShared?.lastMcap ?: marketCapUsd,
                             createdAtMs = creation?.createdAtMs ?: tsShared?.addedToWatchlistAt ?: 0L,
                         )
-                    } catch (_: Throwable) {}
+                    } catch (_: Throwable) {
+                    } finally {
+                        try { tokenMintUploadInFlight.remove(mint) } catch (_: Throwable) {}
+                    }
                 }
             } catch (_: Throwable) {}
 
@@ -10552,17 +10561,19 @@ class BotService : Service() {
             currentCoroutineContext()[kotlinx.coroutines.Job]
         } catch (_: Throwable) { null }
         
-        // START RAPID STOP-LOSS MONITOR IN PARALLEL
-        kotlinx.coroutines.GlobalScope.launch(kotlinx.coroutines.Dispatchers.IO) {
-            rapidStopLossMonitor()
+        // V5.9.1557 — source fanout fix: these are singleton monitor loops.
+        // GlobalScope launches here could survive botLoop rescue/restart and duplicate
+        // exit ticks. Bind them to service scope and only start when inactive.
+        if (rapidStopLossMonitorJob?.isActive != true) {
+            rapidStopLossMonitorJob = scope.launch(kotlinx.coroutines.Dispatchers.IO) { rapidStopLossMonitor() }
         }
 
         // V5.9.730 — START OPEN-POSITION 1Hz PRICE TICK LOOP IN PARALLEL.
         // Operator demand: paper+live positions must tick every second so
         // UI %PnL, trailing-stop, and rug-escape see fresh prices instead of
         // 8-second-stale snapshots from the main bot loop.
-        kotlinx.coroutines.GlobalScope.launch(kotlinx.coroutines.Dispatchers.IO) {
-            openPositionTickLoop()
+        if (openPositionTickJob?.isActive != true) {
+            openPositionTickJob = scope.launch(kotlinx.coroutines.Dispatchers.IO) { openPositionTickLoop() }
         }
 
         // V5.9.251: PERIODIC WALLET RECONCILIATION
@@ -12830,7 +12841,10 @@ if (hotExitHandledSweep) {
                     return@inner
                 }
                 val jobs = chunk.map { mint ->
-                    kotlinx.coroutines.GlobalScope.async(kotlinx.coroutines.Dispatchers.IO) {
+                    // V5.9.1557 — bounded structured workers. Detached GlobalScope
+                    // supervisor workers could outlive the chunk timeout and keep
+                    // mutating lane/FDG state after the cycle moved on.
+                    async(kotlinx.coroutines.Dispatchers.IO) {
                         try {
                             if (!status.running) return@async false
                             if (orchestrator?.shouldPoll(mint) == false) return@async false

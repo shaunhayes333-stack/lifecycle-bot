@@ -14,6 +14,8 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import java.security.MessageDigest
 import java.text.SimpleDateFormat
 import java.util.Date
@@ -38,6 +40,8 @@ object CollectiveLearning {
     private const val RECONNECT_COOLDOWN_MS = 60_000L
 
     private var instanceId: String = ""
+    private val initMutex = Mutex()
+    @Volatile private var lastInitError: String = ""
     
     /** V5.7.3: Public getter for instance ID (used by perps learning) */
     fun getInstanceId(): String? = instanceId.takeIf { it.isNotBlank() }
@@ -71,17 +75,25 @@ object CollectiveLearning {
     private var syncJob: Job? = null
     private val scope = CoroutineScope(Dispatchers.IO + SupervisorJob())
 
-    suspend fun init(ctx: Context): Boolean {
+    suspend fun init(ctx: Context): Boolean = initMutex.withLock {
         Log.i(TAG, "INIT CALLED | alreadyInit=$isInitialized | clientExists=${client != null}")
 
         if (isInitialized && client != null) {
             Log.d(TAG, "Already initialized and connected")
-            return true
+            return@withLock true
         }
 
+        // V5.9.1557 — source fix for Client=true / Initialized=false.
+        // A previous partial init could leave a client object visible while schema/download
+        // was still running or had failed. Reset the state before each non-ready init so
+        // diagnostics never classify half-init as "not configured" and concurrent init calls
+        // cannot race each other.
+        isInitialized = false
+        client = null
+        lastInitError = ""
         appContext = ctx.applicationContext
 
-        return try {
+        return@withLock try {
             prefs = ctx.applicationContext.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
 
             instanceId = prefs?.getString(KEY_INSTANCE_ID, null) ?: run {
@@ -112,6 +124,7 @@ object CollectiveLearning {
             )
 
             if (dbUrl.isBlank() || authToken.isBlank()) {
+                lastInitError = "Turso credentials blank after ConfigStore load"
                 Log.w(TAG, "Turso credentials not configured - using LOCAL CACHE ONLY")
                 if (cachedBlacklist.isNotEmpty() || cachedPatterns.isNotEmpty()) {
                     Log.i(
@@ -119,7 +132,7 @@ object CollectiveLearning {
                         "Local collective cache available (${cachedBlacklist.size} blacklist, ${cachedPatterns.size} patterns)"
                     )
                 }
-                return false
+                return@withLock false
             }
 
             client = TursoClient(dbUrl, authToken)
@@ -142,17 +155,21 @@ object CollectiveLearning {
             }
 
             if (!connectionSuccess) {
+                lastInitError = "Connection test failed after 3 attempts"
                 Log.e(TAG, "TURSO CONNECTION FAILED after 3 attempts - using LOCAL CACHE")
                 client = null
-                return false
+                isInitialized = false
+                return@withLock false
             }
 
             Log.i(TAG, "Turso connection successful!")
 
             if (!client!!.initSchema()) {
+                lastInitError = "Schema initialization failed"
                 Log.e(TAG, "Failed to initialize schema")
                 client = null
-                return false
+                isInitialized = false
+                return@withLock false
             }
 
             isInitialized = true
@@ -173,6 +190,9 @@ object CollectiveLearning {
 
             true
         } catch (e: Exception) {
+            lastInitError = e.message ?: e.javaClass.simpleName
+            client = null
+            isInitialized = false
             Log.e(TAG, "Init error: ${e.message}", e)
             false
         }
@@ -258,6 +278,9 @@ object CollectiveLearning {
     }
 
     suspend fun getDiagnostics(): CollectiveDiagnostics {
+        if (!isEnabled()) {
+            try { ensureConnected() } catch (_: Throwable) {}
+        }
         val connected = isEnabled()
         var canQuery = false
         var tableCount = 0
@@ -285,7 +308,7 @@ object CollectiveLearning {
             tableCount = tableCount,
             tradeCount = tradeCount,
             instanceId = if (instanceId.isNotBlank()) instanceId.take(8) + "..." else "",
-            errorMessage = errorMessage,
+            errorMessage = errorMessage ?: lastInitError.takeIf { it.isNotBlank() },
             lastReconnectAttempt = lastReconnectAttempt
         )
     }
@@ -2674,14 +2697,21 @@ object CollectiveLearning {
 
     suspend fun runDiagnostics(): String {
         if (!isEnabled()) {
+            try { ensureConnected() } catch (_: Throwable) {}
+        }
+        if (!isEnabled()) {
+            val cfg = try { appContext?.let { ConfigStore.load(it) } } catch (_: Throwable) { null }
             return """
 COLLECTIVE DIAGNOSTICS FAILED
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-Turso NOT CONFIGURED
+Turso CONFIGURED: ${cfg?.tursoDbUrl?.isNotBlank() == true && cfg.tursoAuthToken.isNotBlank()}
 Client: ${client != null}
 Initialized: $isInitialized
+Last init error: ${lastInitError.ifBlank { "none captured" }}
+URL present: ${cfg?.tursoDbUrl?.isNotBlank() == true}
+Token present: ${cfg?.tursoAuthToken?.isNotBlank() == true}
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-To fix: Configure Turso DB URL and Auth Token in Settings
+Tap Sync to retry; if this persists, check the init error above.
             """.trimIndent()
         }
 

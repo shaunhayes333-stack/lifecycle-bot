@@ -2571,7 +2571,7 @@ class Executor(
                     // ── ToxicModeCircuitBreaker ───────────────────────────────
                     if (_fanoutSide == "SELL" && _fanoutPnlPct < 0) {
                         try {
-                            val mode = ModeRouter.classify(ts).tradeType.name
+                            val mode = _fanoutTradingMode.takeIf { isMeaningfulLaneName(it) } ?: "STANDARD"
                             ToxicModeCircuitBreaker.recordLoss(
                                 mode = mode,
                                 pnlPct = _fanoutPnlPct,
