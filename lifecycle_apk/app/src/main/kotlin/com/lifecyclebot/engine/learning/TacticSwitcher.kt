@@ -64,6 +64,15 @@ object TacticSwitcher {
     private const val FAST_LOSS_RATE     = 0.85   // 85%+ losses = clearly broken, not noise
     private const val FAST_MEAN_PNL      = -4.0   // and net-negative
 
+    // V5.9.1563 — Bayesian early-stop. If the posterior probability that the
+    // current tactic's loss-rate is above BAYES_LOSS_RATE_TARGET exceeds 85%,
+    // rotate before waiting for the full trial window. This catches obvious
+    // meme-cycle failures after ~8 decisive closes while still filtering noise.
+    private const val BAYES_MIN_SAMPLES = 8
+    private const val BAYES_LOSS_RATE_TARGET = 0.70
+    private const val BAYES_TRIGGER_PROB = 0.85
+    private const val BAYES_MEAN_PNL = -2.0
+
     // V5.9.1370 — persistent-bleed (second) rotation condition. Catches buckets
     // that sit just under the hard trigger and used to reset every TRIAL_WINDOW.
     private const val PERSIST_WINDOW       = 40     // longer accumulation window
@@ -113,6 +122,25 @@ object TacticSwitcher {
         return currentTactic(lane, band)
     }
 
+    private fun posteriorLossProbAbove(losses: Int, wins: Int, threshold: Double = BAYES_LOSS_RATE_TARGET): Double {
+        // Loss probability p ~ Beta(losses+1, wins+1). For integer parameters,
+        // P(p > x) = sum_{j=0}^{a-1} C(a+b-1,j) x^j (1-x)^(a+b-1-j).
+        val a = (losses + 1).coerceAtLeast(1)
+        val b = (wins + 1).coerceAtLeast(1)
+        val n = a + b - 1
+        val x = threshold.coerceIn(0.001, 0.999)
+        var sum = 0.0
+        var comb = 1.0
+        for (j in 0 until a) {
+            if (j > 0) comb *= (n - (j - 1)).toDouble() / j.toDouble()
+            sum += comb * Math.pow(x, j.toDouble()) * Math.pow(1.0 - x, (n - j).toDouble())
+        }
+        return sum.coerceIn(0.0, 1.0)
+    }
+
+    internal fun posteriorLossProbAboveForTest(losses: Int, wins: Int, threshold: Double = BAYES_LOSS_RATE_TARGET): Double =
+        posteriorLossProbAbove(losses, wins, threshold)
+
     /**
      * Called from journal-write site (sell path) so the switcher observes
      * outcome per (lane, scoreBand) and decides whether to rotate.
@@ -129,6 +157,19 @@ object TacticSwitcher {
         val losses = cell.lossesSinceRotation.get()
         val lossRate = if (tradesIn > 0) losses.toDouble() / tradesIn else 0.0
         val meanPnl = if (tradesIn > 0) (cell.pnlSumSinceRotation.get().toDouble() / 100.0) / tradesIn else 0.0
+
+        // V5.9.1563 — Bayesian early-stop. This is deliberately earlier than
+        // FAST_ROTATION and probability-based instead of raw-threshold-only.
+        if (tradesIn >= BAYES_MIN_SAMPLES && tradesIn < TRIAL_WINDOW && meanPnl <= BAYES_MEAN_PNL) {
+            val probLosing = posteriorLossProbAbove(losses, cell.winsSinceRotation.get())
+            if (probLosing >= BAYES_TRIGGER_PROB) {
+                val targetPct = "%.0f".format(BAYES_LOSS_RATE_TARGET * 100)
+                val probPct = "%.0f".format(probLosing * 100)
+                val meanFmt = "%+.1f".format(meanPnl)
+                rotate(lane, scoreBand, cell, "bayes P(loss>$targetPct%)=$probPct% mean=$meanFmt% n=$tradesIn")
+                return
+            }
+        }
 
         // V5.9.1448 — FAST-ROTATION early path. Before the full TRIAL_WINDOW, a
         // bucket that is ALREADY catastrophically bad (>=FAST_MIN_SAMPLES closes,
