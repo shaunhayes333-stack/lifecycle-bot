@@ -512,6 +512,22 @@ class BotService : Service() {
         return try { w?.getSolBalance() ?: 0.0 } catch (_: Throwable) { 0.0 }
     }
 
+    // V5.9.1557b — keep singleton monitor startup OUT of botLoop's coroutine
+    // state machine. Inline launches made the already-huge botLoop trip Kotlin's
+    // CoroutineTransformer StackOverflowError in release CI.
+    private fun startSingletonRuntimeMonitors() {
+        try {
+            if (rapidStopLossMonitorJob?.isActive != true) {
+                rapidStopLossMonitorJob = scope.launch(kotlinx.coroutines.Dispatchers.IO) { rapidStopLossMonitor() }
+            }
+        } catch (_: Throwable) {}
+        try {
+            if (openPositionTickJob?.isActive != true) {
+                openPositionTickJob = scope.launch(kotlinx.coroutines.Dispatchers.IO) { openPositionTickLoop() }
+            }
+        } catch (_: Throwable) {}
+    }
+
     // V5.9.1023 — DEDICATED BOT-LOOP DISPATCHER.
     //
     // Operator V5.9.1022 snapshot showed the bot completely dead, stuck in
@@ -10561,20 +10577,7 @@ class BotService : Service() {
             currentCoroutineContext()[kotlinx.coroutines.Job]
         } catch (_: Throwable) { null }
         
-        // V5.9.1557 — source fanout fix: these are singleton monitor loops.
-        // GlobalScope launches here could survive botLoop rescue/restart and duplicate
-        // exit ticks. Bind them to service scope and only start when inactive.
-        if (rapidStopLossMonitorJob?.isActive != true) {
-            rapidStopLossMonitorJob = scope.launch(kotlinx.coroutines.Dispatchers.IO) { rapidStopLossMonitor() }
-        }
-
-        // V5.9.730 — START OPEN-POSITION 1Hz PRICE TICK LOOP IN PARALLEL.
-        // Operator demand: paper+live positions must tick every second so
-        // UI %PnL, trailing-stop, and rug-escape see fresh prices instead of
-        // 8-second-stale snapshots from the main bot loop.
-        if (openPositionTickJob?.isActive != true) {
-            openPositionTickJob = scope.launch(kotlinx.coroutines.Dispatchers.IO) { openPositionTickLoop() }
-        }
+        startSingletonRuntimeMonitors()
 
         // V5.9.251: PERIODIC WALLET RECONCILIATION
         // Re-run StartupReconciler every 90s during a live session so
