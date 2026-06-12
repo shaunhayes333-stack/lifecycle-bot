@@ -3856,7 +3856,13 @@ class Executor(
             //
             // Inlined (no `run { }` lambda) so Kotlin smart-cast on `sig`
             // still works downstream — closures break flow analysis.
-            val pfPumpSlip = 5  // V5.9.1524 — 5% live sell cap (was 75/30; builder also caps)
+            // V5.9.1542 — slip is QUOTE-DERIVED, not a flat 5% ceiling. The old
+            // hardcoded 5 authorized PumpPortal to fill against the curve up to 5%
+            // on EVERY sell, so we ate ~5% even on liquid profit-locks. Start at the
+            // reason-aware ladder floor (profit-lock/partial/cap-rec = 2%; only
+            // rug/SL/emergency = 5%); the broadcast ladder still widens to 5% ONLY
+            // if this tight attempt fails to land. sellSlippage is bps -> /100 for %.
+            val pfPumpSlip = (sellSlippage / 100).coerceIn(1, 5)
             val pfPumpJito = c.jitoEnabled
             val pfPumpTip = com.lifecyclebot.network.JitoTipFetcher
                 .getDynamicTip(c.jitoTipLamports)
@@ -12139,7 +12145,9 @@ class Executor(
                         "preferPumpNative=${com.lifecyclebot.engine.sell.MemeVenueRouter.preferPumpNative(venueResolution.venue)}",
                 )
             } catch (_: Throwable) {}
-            val lsPumpSlip = 5  // V5.9.1524 — 5% live sell cap (was 75/30; builder also caps)
+            // V5.9.1542 — quote-derived initial slip (see profit-lock path). Tight
+            // first (reason-aware floor), ladder widens to 5% only on a failed land.
+            val lsPumpSlip = (sellSlippage / 100).coerceIn(1, 5)
             val lsPumpJito = c.jitoEnabled
             val lsPumpTip = com.lifecyclebot.network.JitoTipFetcher
                 .getDynamicTip(c.jitoTipLamports)
