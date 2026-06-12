@@ -450,6 +450,11 @@ class LiveTradeLogActivity : Activity() {
         Phase.TOKEN_TRACKER_DUST_LEFT,
         Phase.WATCHLIST_PROTECT_HELD_TOKEN,
         Phase.WATCHLIST_PROTECT_BLACKLISTED_TOKEN,
+        Phase.INTAKE_RISK_PENALTY,
+        Phase.INTAKE_SIZE_REDUCED,
+        Phase.INTAKE_PENDING_RUGCHECK,
+        Phase.INTAKE_TRUE_HARD_BLOCK,
+        Phase.INTAKE_COST_REJECT,
         Phase.POSITION_COUNT_RECONCILED -> Color.parseColor("#3B82F6")              // blue
     }
 

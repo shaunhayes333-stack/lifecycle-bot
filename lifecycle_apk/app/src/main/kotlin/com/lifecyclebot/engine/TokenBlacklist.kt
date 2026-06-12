@@ -36,7 +36,30 @@ object TokenBlacklist {
         timestamps[mint] = System.currentTimeMillis()
     }
 
-    fun isBlocked(mint: String): Boolean = blocked.contains(mint)
+    private fun isFalseSafetyBlacklist(reason: String): Boolean {
+        val r = reason.uppercase()
+        return r.contains("RUGCHECK PENDING") ||
+            r.contains("RUGCHECK API TIMEOUT") ||
+            r.contains("PENDING_REVIEW") ||
+            r.contains("SAFETY_RUN_FAILED") ||
+            r.contains("PARTIAL_DATA") ||
+            (r.contains("LIQUIDITY") && !r.contains("NO VIABLE") && !r.contains("ZERO")) ||
+            r.contains("LOW_LIQUIDITY")
+    }
+
+    fun isBlocked(mint: String): Boolean {
+        if (!blocked.contains(mint)) return false
+        val reason = reasons[mint] ?: ""
+        // V5.9.1561 — rehabilitate false hard blockers created by older builds.
+        // Pending/timeout/partial safety and low-but-nonzero liquidity are penalties
+        // or size reducers, not persistent BLACKLISTED_TOKEN causes.
+        if (isFalseSafetyBlacklist(reason)) {
+            unblock(mint)
+            try { ForensicLogger.lifecycle("FALSE_BLACKLIST_REHABILITATED", "mint=${mint.take(10)} reason=${reason.take(120)}") } catch (_: Throwable) {}
+            return false
+        }
+        return true
+    }
 
     fun getBlockReason(mint: String): String = reasons[mint] ?: "Unknown"
 

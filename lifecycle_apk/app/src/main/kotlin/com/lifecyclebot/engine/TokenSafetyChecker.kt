@@ -153,6 +153,10 @@ class TokenSafetyChecker(private val cfg: () -> BotConfig) {
         // hammering RugCheck every 200ms while the API crawls).
         private const val RC_DEFER_TTL_MS: Long = 90_000L      // 90s total window
         private const val RC_DEFER_RECHECK_MS: Long = 30_000L  // re-check every 30s
+        private const val RUGCHECK_PENDING_PENALTY = 12
+        private const val RUGCHECK_TIMEOUT_PENALTY = 18
+        private const val RUGCHECK_UNKNOWN_MAX_SIZE_MULT = 0.35
+        private const val RUGCHECK_PENDING_TTL_MS: Long = 90_000L
         // INFLIGHT_WAIT_MS bounds how long a concurrent caller waits
         // for the first caller's check() to finish before giving up
         // and running its own check. Rugcheck retries top out around
@@ -297,10 +301,11 @@ class TokenSafetyChecker(private val cfg: () -> BotConfig) {
             val deferRecheckDue = deferUntil != null && now >= deferUntil && cachedIsRcPendingBlock
             if (deferRecheckDue) {
                 val deferAgeMs = now - (deferUntil!! - RC_DEFER_RECHECK_MS)
-                if (deferAgeMs >= RC_DEFER_TTL_MS) {
-                    // Past the total TTL — accept the hard block, stop deferring.
+                if (deferAgeMs >= RUGCHECK_PENDING_TTL_MS) {
+                    // Past pending TTL — do NOT accept a hard block for pending RC.
+                    // Drop stale pending cache and re-evaluate as timeout/penalty.
                     deferred.remove(mint)
-                    return cached
+                    cache.remove(mint)
                 }
                 ErrorLogger.info(TAG, "⏳ RC_DEFER_RECHECK: $symbol — re-evaluating after ${deferAgeMs / 1000}s")
                 cache.remove(mint)
@@ -309,7 +314,7 @@ class TokenSafetyChecker(private val cfg: () -> BotConfig) {
             } else if (!(cachedLiquidityBlock && currentLiquidityUsd >= 2_000.0)) {
                 return cached
             } else {
-                ErrorLogger.info(TAG, "🩹 Rechecking $symbol: cached liquidity block but fresh liq=$${currentLiquidityUsd.toInt()}")
+                ErrorLogger.info(TAG, "🩹 Rechecking $symbol: cached liquidity block but fresh liq=\$${currentLiquidityUsd.toInt()}")
                 cache.remove(mint)
             }
         }
@@ -362,9 +367,8 @@ class TokenSafetyChecker(private val cfg: () -> BotConfig) {
                 soft.add(conflictReason to 50)
                 penalty += 50
 
-                if (!isPaperMode) {
-                    hard.add(conflictReason)
-                }
+                // V5.9.1561 — data conflict/partial metadata is not a confirmed
+                // fatal condition. Keep as penalty; route/preflight decides.
             }
 
             liqConfirmed = currentLiquidityUsd > 0
@@ -382,16 +386,16 @@ class TokenSafetyChecker(private val cfg: () -> BotConfig) {
         if (rugcheck == null || rcScore == -1) {
             rugcheckStatus = "TIMEOUT"
             if (isPaperMode) {
-                rugcheckTimeoutPenalty = 10
-                soft.add("Rugcheck API timeout (paper: -10 penalty)" to 10)
-                penalty += 10
-                ErrorLogger.debug(TAG, "Rugcheck TIMEOUT for $symbol: applying -10 penalty (paper mode)")
+                rugcheckTimeoutPenalty = RUGCHECK_PENDING_PENALTY
+                soft.add("Rugcheck API timeout (paper: pending penalty)" to RUGCHECK_PENDING_PENALTY)
+                penalty += RUGCHECK_PENDING_PENALTY
+                ErrorLogger.debug(TAG, "Rugcheck TIMEOUT for $symbol: applying -$RUGCHECK_PENDING_PENALTY penalty (paper mode)")
             } else {
-                rugcheckTimeoutPenalty = 15
+                rugcheckTimeoutPenalty = RUGCHECK_TIMEOUT_PENALTY
                 rugcheckStatus = "PENDING_REVIEW"
-                soft.add("Rugcheck API timeout (live: -15 penalty, PENDING_REVIEW)" to 15)
-                penalty += 15
-                ErrorLogger.warn(TAG, "Rugcheck TIMEOUT for $symbol: applying -15 penalty + PENDING_REVIEW (live mode)")
+                soft.add("Rugcheck API timeout (live: risk penalty, no hard block)" to RUGCHECK_TIMEOUT_PENALTY)
+                penalty += RUGCHECK_TIMEOUT_PENALTY
+                ErrorLogger.warn(TAG, "Rugcheck TIMEOUT for $symbol: applying -$RUGCHECK_TIMEOUT_PENALTY penalty + PENDING_REVIEW (live mode, no hard block)")
             }
         } else {
             rugcheckStatus = "CONFIRMED"
@@ -433,8 +437,17 @@ class TokenSafetyChecker(private val cfg: () -> BotConfig) {
                         penalty += 35
                         ErrorLogger.info(TAG, "⚠️ RED_FLAG_SOFT (paper): $symbol — $redFlagCount danger flags → +35 penalty, routing upstream for qualification")
                     } else {
-                        hard.add("$redFlagCount critical risk flags — extreme rug risk (WCOR-type token)")
-                        ErrorLogger.error(TAG, "🚫 RED_FLAG_GATE: $symbol — $redFlagCount danger-level flags >= 5 threshold → HARD BLOCK")
+                        // V5.9.1561 — red flags alone are risk, not proof the route is
+                        // impossible. Hard-block only when route/liquidity danger is also
+                        // confirmed; otherwise apply a heavy penalty and let preflight/FDG decide.
+                        if (currentLiquidityUsd <= 0.0) {
+                            hard.add("$redFlagCount critical risk flags with no valid liquidity/route")
+                            ErrorLogger.error(TAG, "🚫 RED_FLAG_ROUTE_GATE: $symbol — $redFlagCount danger flags + no route/liquidity → HARD BLOCK")
+                        } else {
+                            soft.add("$redFlagCount critical risk flags (live penalty; route/liquidity still available)" to 45)
+                            penalty += 45
+                            ErrorLogger.warn(TAG, "⚠️ RED_FLAG_RISK_PENALTY: $symbol — $redFlagCount danger flags → +45 penalty, no hard block")
+                        }
                     }
                 }
             }
@@ -501,18 +514,19 @@ class TokenSafetyChecker(private val cfg: () -> BotConfig) {
                     val pen = com.lifecyclebot.engine.RugCheckPolicy.penaltyOrBlock(rcState)
                     when (rcState) {
                         com.lifecyclebot.engine.RugCheckPolicy.State.RC_PENDING_BLOCKED -> {
-                            hard.add("Rugcheck pending — live mode, no high-score override")
-                            // V5.9.736 — push to defer queue so we re-evaluate
-                            // in RC_DEFER_RECHECK_MS instead of giving up forever
-                            // on this token. First-stamp only — subsequent
-                            // re-checks update the timestamp inside the deferred-
-                            // aware invalidation block above.
+                            // V5.9.1561 — UNKNOWN/PENDING is not fatal. Never hard-block
+                            // live only because Rugcheck is pending. Cache pending and apply
+                            // a score penalty + size-shape hint; route/preflight still gate.
+                            val p = RUGCHECK_PENDING_PENALTY
+                            soft.add("Rugcheck pending (live risk penalty, no hard block)" to p)
+                            soft.add("RUGCHECK_UNKNOWN_MAX_SIZE_MULT=${"%.2f".format(RUGCHECK_UNKNOWN_MAX_SIZE_MULT)}" to 0)
+                            penalty += p
                             val existingDefer = deferred[mint]
                             if (existingDefer == null) {
-                                deferred[mint] = System.currentTimeMillis() + RC_DEFER_RECHECK_MS
-                                ErrorLogger.warn(TAG, "🚫 RC_PENDING_BLOCKED: $symbol (live, no override) — deferring re-check ${RC_DEFER_RECHECK_MS / 1000}s")
+                                deferred[mint] = System.currentTimeMillis() + RUGCHECK_PENDING_TTL_MS
+                                ErrorLogger.warn(TAG, "⏳ RC_PENDING_LIVE_PENALTY: $symbol → -$p penalty, ttl=${RUGCHECK_PENDING_TTL_MS / 1000}s")
                             } else {
-                                ErrorLogger.warn(TAG, "🚫 RC_PENDING_BLOCKED: $symbol (live, no override)")
+                                ErrorLogger.warn(TAG, "⏳ RC_PENDING_LIVE_PENALTY: $symbol → -$p penalty")
                             }
                         }
                         com.lifecyclebot.engine.RugCheckPolicy.State.RC_PENDING_ALLOWED_PAPER -> {
@@ -705,25 +719,44 @@ class TokenSafetyChecker(private val cfg: () -> BotConfig) {
             //     is UNCHANGED and still shadows unsafe tokens — we only relax the
             //     pure thin-liquidity dimension, never a high-score override.
             val LIVE_LIQ_HARD_FLOOR = 1_200.0
+            val MIN_EXECUTABLE_LIQ_USD = 150.0
             if (currentLiquidityUsd >= 0.0 && currentLiquidityUsd < LIVE_LIQ_HARD_FLOOR) {
-                hard.add("Liquidity \$${currentLiquidityUsd.toInt()} < \$1,200 live exit-safety floor — un-exitable")
-                ErrorLogger.error(TAG, "🚫 LIQ HARD BLOCK (live): $symbol \$${currentLiquidityUsd.toInt()} < \$1200")
-                try {
-                    com.lifecyclebot.engine.MemePipelineTracer.blocked(
-                        mint = mint, symbol = symbol,
-                        reason = "SAFETY_LIQ_HARD_BLOCK_LIVE",
-                        detail = "currentLiq=\$${currentLiquidityUsd.toInt()} < \$1200 floor",
-                    )
-                } catch (_: Throwable) {}
+                if (currentLiquidityUsd < MIN_EXECUTABLE_LIQ_USD) {
+                    hard.add("No viable exit route/liquidity depth: \$${currentLiquidityUsd.toInt()} < \$${MIN_EXECUTABLE_LIQ_USD.toInt()}")
+                    ErrorLogger.error(TAG, "🚫 LIQ TRUE HARD BLOCK (live): $symbol \$${currentLiquidityUsd.toInt()} < \$${MIN_EXECUTABLE_LIQ_USD.toInt()}")
+                    try {
+                        com.lifecyclebot.engine.MemePipelineTracer.blocked(
+                            mint = mint, symbol = symbol,
+                            reason = "INTAKE_TRUE_HARD_BLOCK",
+                            detail = "no viable exit depth currentLiq=\$${currentLiquidityUsd.toInt()}",
+                        )
+                    } catch (_: Throwable) {}
+                } else {
+                    val liqPenalty = when {
+                        currentLiquidityUsd < 500.0 -> 28
+                        currentLiquidityUsd < 800.0 -> 20
+                        else -> 12
+                    }
+                    soft.add("Low but non-zero liquidity — size reduce to exitable capacity (\$${currentLiquidityUsd.toInt()})" to liqPenalty)
+                    penalty += liqPenalty
+                    ErrorLogger.warn(TAG, "📉 LIQ SIZE-REDUCE (live): $symbol \$${currentLiquidityUsd.toInt()} < \$1200 → penalty=$liqPenalty, no hard block")
+                    try {
+                        com.lifecyclebot.engine.MemePipelineTracer.stage(
+                            tag = "INTAKE_SIZE_REDUCED",
+                            mint = mint, symbol = symbol,
+                            detail = "currentLiq=\$${currentLiquidityUsd.toInt()} < \$1200; route if min-size exitable",
+                        )
+                    } catch (_: Throwable) {}
+                }
             } else if (currentLiquidityUsd >= LIVE_LIQ_HARD_FLOOR && currentLiquidityUsd < 2_000.0) {
                 // controlled live band — SMALL size, not blocked. Soft penalty only.
-                soft.add("Thin live liquidity \$${currentLiquidityUsd.toInt()} (\$1.2-2K controlled band) — size-capped" to 6)
+                soft.add("Thin live liquidity \\$${currentLiquidityUsd.toInt()} (\$1.2-2K controlled band) — size-capped" to 6)
                 penalty += 6
                 try {
                     com.lifecyclebot.engine.MemePipelineTracer.stage(
                         tag = "SAFETY_LIQ_CONTROLLED_BAND_LIVE",
                         mint = mint, symbol = symbol,
-                        detail = "currentLiq=\$${currentLiquidityUsd.toInt()} in \$1.2-2K → size-capped live attempt",
+                        detail = "currentLiq=\\$${currentLiquidityUsd.toInt()} in \$1.2-2K → size-capped live attempt",
                     )
                 } catch (_: Throwable) {}
             }
@@ -900,7 +933,7 @@ class TokenSafetyChecker(private val cfg: () -> BotConfig) {
         try {
             val allow = report.hardBlockReasons.isEmpty()
             val reason = if (allow) {
-                "soft=${report.softPenalties.size} pen=${report.entryScorePenalty} rcScore=${report.rugcheckScore} liq=$${currentLiquidityUsd.toInt()}"
+                "soft=${report.softPenalties.size} pen=${report.entryScorePenalty} rcScore=${report.rugcheckScore} liq=\$${currentLiquidityUsd.toInt()}"
             } else {
                 "HARD=${report.hardBlockReasons.joinToString("|").take(120)} pen=${report.entryScorePenalty}"
             }

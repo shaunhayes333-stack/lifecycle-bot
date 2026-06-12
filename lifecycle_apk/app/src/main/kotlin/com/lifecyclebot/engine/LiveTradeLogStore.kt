@@ -237,6 +237,11 @@ object LiveTradeLogStore {
          *  stays for genuine wallet-held tokens (balance > 0); this new
          *  value covers everything else. */
         WATCHLIST_PROTECT_BLACKLISTED_TOKEN,
+        INTAKE_RISK_PENALTY,
+        INTAKE_SIZE_REDUCED,
+        INTAKE_PENDING_RUGCHECK,
+        INTAKE_TRUE_HARD_BLOCK,
+        INTAKE_COST_REJECT,
         POSITION_COUNT_RECONCILED,
 
         // Sweep phases (shutdown wallet liquidation)

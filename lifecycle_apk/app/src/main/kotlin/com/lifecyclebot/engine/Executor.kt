@@ -8219,7 +8219,15 @@ class Executor(
                     liquidityOverrideUsd = it.liquidityOverrideUsd,
                 )
             } ?: LiveRestoreExecutionPolicy.NONE
-            fromGate.combine(LiveRestoreExecutionPolicy.fromRuntimeDrift(LiveRestoreExecutionPolicy.trustedLiquidityUsd(ts, fromGate.liquidityOverrideUsd)))
+            var p = fromGate.combine(LiveRestoreExecutionPolicy.fromRuntimeDrift(LiveRestoreExecutionPolicy.trustedLiquidityUsd(ts, fromGate.liquidityOverrideUsd)))
+            val softText = try { ts.safety.softPenalties.joinToString("|") { it.first } } catch (_: Throwable) { "" }
+            if (softText.contains("Rugcheck pending", ignoreCase = true) || softText.contains("RUGCHECK_UNKNOWN_MAX_SIZE_MULT", ignoreCase = true)) {
+                p = p.combine(LiveRestoreExecutionPolicy.Penalty(scorePenalty = -12, sizeMultiplier = 0.35, reason = "RUGCHECK_PENDING_SIZE_CAP", liquidityOverrideUsd = ts.lastLiquidityUsd))
+            }
+            if (softText.contains("Low but non-zero liquidity", ignoreCase = true) || softText.contains("Thin live liquidity", ignoreCase = true)) {
+                p = p.combine(LiveRestoreExecutionPolicy.Penalty(scorePenalty = -10, sizeMultiplier = 0.35, reason = "LOW_LIQUIDITY_SIZE_REDUCED", liquidityOverrideUsd = ts.lastLiquidityUsd))
+            }
+            p
         }
         if (restorePenalty.reason != "NONE") {
             if (!LiveRestoreExecutionPolicy.isSafeOrCaution(ts)) {
@@ -8237,6 +8245,12 @@ class Executor(
         LiveRestoreExecutionPolicy.logBreakEven(ts, breakEven, restorePenalty)
         if (!breakEven.allowed) {
             PipelineTracer.executorFailed(ts.symbol, ts.mint, "LIVE", breakEven.decision)
+            try {
+                ForensicLogger.lifecycle(
+                    if (breakEven.decision == "NOT_PROFITABLE_AFTER_COSTS") "INTAKE_COST_REJECT" else "LIVE_PREFLIGHT_REJECT",
+                    "symbol=${ts.symbol} mint=${ts.mint.take(10)} decision=${breakEven.decision} allInCost=${"%.2f".format(breakEven.allInCostPct)} expectedEdge=${"%.2f".format(breakEven.expectedEdgePct)} minTarget=${"%.2f".format(breakEven.minTargetPct)} liq=${ts.lastLiquidityUsd.toInt()}"
+                )
+            } catch (_: Throwable) {}
             return
         }
         if (breakEven.sizeSol != sol) {

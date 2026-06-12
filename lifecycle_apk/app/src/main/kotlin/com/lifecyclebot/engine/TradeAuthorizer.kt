@@ -288,20 +288,13 @@ object TradeAuthorizer {
             }
         }
 
-        // GATE 3: live liquidity floor
-        // V5.9.1523 — aligned with TokenSafetyChecker exit-safety floor ($1,200).
-        // The $1.2-2K controlled band is allowed here (size-capped downstream by
-        // the safety soft-penalty), so fresh launches in the pump.fun graduation
-        // zone are no longer rejected outright. Below $1,200 stays rejected: a
-        // live position genuinely cannot round-trip out of <$1.2K depth.
+        // GATE 3: live liquidity shape, not hard reject.
+        // V5.9.1561 — low but non-zero liquidity is handled by Executor preflight
+        // as INTAKE_SIZE_REDUCED / NOT_PROFITABLE_AFTER_COSTS. Only zero route/depth
+        // is a true hard block elsewhere.
         if (!isPaperMode && liquidity in 0.0001..1199.9999) {
-            ErrorLogger.info(TAG, "❌ REJECT $symbol: LIQUIDITY_${"%.0f".format(liquidity)} < 1200")
-            return AuthorizationResult(
-                verdict = ExecutionVerdict.REJECT,
-                reason = "LOW_LIQUIDITY",
-                blockLevel = BlockLevel.SOFT,
-                canRetry = true,
-            )
+            ErrorLogger.info(TAG, "📉 SIZE-REDUCE $symbol: LIQUIDITY_${"%.0f".format(liquidity)} < 1200 — continuing to preflight")
+            try { ForensicLogger.lifecycle("INTAKE_SIZE_REDUCED", "symbol=$symbol mint=${mint.take(10)} liq=${liquidity.toInt()} stage=TradeAuthorizer") } catch (_: Throwable) {}
         }
 
         // GATE 4: same-book lock

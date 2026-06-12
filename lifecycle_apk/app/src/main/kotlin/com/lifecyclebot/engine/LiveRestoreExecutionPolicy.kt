@@ -94,7 +94,15 @@ object LiveRestoreExecutionPolicy {
     fun breakEvenCheck(ts: TokenState, requestedSizeSol: Double, penalty: Penalty, walletSol: Double): BreakEven {
         val liq = trustedLiquidityUsd(ts, penalty.liquidityOverrideUsd)
         val reduced = (requestedSizeSol * penalty.sizeMultiplier).coerceAtMost(requestedSizeSol)
-        val capped = if (penalty.reason != "NONE") reduced.coerceIn(0.01, 0.025) else reduced
+        val liquidityCap = when {
+            liq in 150.0..499.999 -> 0.010
+            liq in 500.0..799.999 -> 0.015
+            liq in 800.0..1199.999 -> 0.020
+            else -> requestedSizeSol
+        }
+        val capped = if (penalty.reason != "NONE" || liq < 1200.0) {
+            reduced.coerceAtMost(liquidityCap).coerceIn(0.005, requestedSizeSol.coerceAtLeast(0.005))
+        } else reduced
         val priorityFeeSol = 0.0001
         val buySlippagePct = 5.0.coerceAtMost(1.0 + (2500.0 / liq.coerceAtLeast(1200.0)))
         val expectedSellSlippagePct = 5.0.coerceAtMost(1.5 + (3000.0 / liq.coerceAtLeast(1200.0)))
@@ -102,7 +110,9 @@ object LiveRestoreExecutionPolicy {
         val priorityFeePct = if (capped > 0.0) (priorityFeeSol * 2.0 / capped) * 100.0 else 999.0
         val spreadPct = 0.75
         val liquidityGivebackPct = when {
-            liq < 1200.0 -> 999.0
+            liq < 150.0 -> 999.0
+            liq < 500.0 -> 8.0
+            liq < 1200.0 -> 5.0
             liq < 2000.0 -> 3.0
             liq < 5000.0 -> 2.0
             else -> 1.0
@@ -122,10 +132,10 @@ object LiveRestoreExecutionPolicy {
         val exitGivebackTooHigh = expectedSellSlippagePct + liquidityGivebackPct > expectedEdge
         val decision = when {
             capped <= 0.0 || capped > walletSol -> "SKIP_FEES_TOO_HIGH"
-            liq < 1200.0 -> "SKIP_BELOW_BREAK_EVEN"
+            liq < 150.0 -> "NO_VALID_SELL_ROUTE"
             fixedFeeTooHigh -> "SKIP_FEES_TOO_HIGH"
-            exitGivebackTooHigh -> "SKIP_EXIT_GIVEBACK_TOO_HIGH"
-            expectedEdge < minTarget -> "SKIP_BELOW_BREAK_EVEN"
+            exitGivebackTooHigh -> "NOT_PROFITABLE_AFTER_COSTS"
+            expectedEdge < minTarget -> "NOT_PROFITABLE_AFTER_COSTS"
             capped < requestedSizeSol -> "EXECUTE_REDUCED_SIZE_BREAK_EVEN_PASS"
             else -> "EXECUTE_BREAK_EVEN_PASS"
         }

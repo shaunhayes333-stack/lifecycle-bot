@@ -3699,17 +3699,18 @@ class BotService : Service() {
                             while (kotlinx.coroutines.currentCoroutineContext().isActive && status.running) {
                                 try {
                                     val isLive = !com.lifecyclebot.data.ConfigStore.load(applicationContext).paperMode
-                                    val openLive = try {
-                                        com.lifecyclebot.engine.HostWalletTokenTracker.getOpenCount()
-                                    } catch (_: Throwable) { 0 }
-                                    if (isLive && openLive > 0) {
-                                        // Bypass the 30 s throttle for this
-                                        // guaranteed-cadence loop by going
-                                        // direct to reconcileBlocking on IO.
-                                        // We are already on Dispatchers.IO.
+                                    val openLive = try { com.lifecyclebot.engine.HostWalletTokenTracker.getOpenCount() } catch (_: Throwable) { 0 }
+                                    val lifecycleOpen = try { com.lifecyclebot.engine.TokenLifecycleTracker.openCount() } catch (_: Throwable) { 0 }
+                                    val statusLive = try { synchronized(status.tokens) { status.tokens.values.count { it.position.isOpen && !it.position.isPaperPosition } } } catch (_: Throwable) { 0 }
+                                    val walletHeld = try { com.lifecyclebot.engine.HostWalletTokenTracker.getActuallyHeldCount() } catch (_: Throwable) { 0 }
+                                    val shouldReconcile = isLive && (openLive > 0 || lifecycleOpen > 0 || statusLive > 0 || walletHeld > 0)
+                                    if (shouldReconcile) {
+                                        // Bypass the 30 s throttle for this guaranteed-cadence loop.
+                                        // It must run even when hostOpen=0 but stale canonical/status
+                                        // rows exist; otherwise totalChecked can stay 0 during drift.
                                         try {
                                             com.lifecyclebot.engine.sell.LiveWalletReconciler.reconcileBlocking(
-                                                w, "periodic_live_${openLive}open")
+                                                w, "periodic_live_host${openLive}_life${lifecycleOpen}_status${statusLive}_wallet${walletHeld}")
                                         } catch (e: Throwable) {
                                             ErrorLogger.warn("BotService",
                                                 "periodic reconcile failed: ${e.message}")
@@ -13938,6 +13939,16 @@ if (hotExitHandledSweep) {
         var flatTagged = 0
         var missingStateTagged = 0
 
+        fun intakePhaseForShadow(phase: String, message: String): LiveTradeLogStore.Phase {
+            val text = (phase + "|" + message).uppercase()
+            return when {
+                text.contains("RUGCHECK") && (text.contains("PENDING") || text.contains("TIMEOUT") || text.contains("UNKNOWN")) -> LiveTradeLogStore.Phase.INTAKE_PENDING_RUGCHECK
+                text.contains("LIQ") && !text.contains("ZERO") && !text.contains("NO VALID") -> LiveTradeLogStore.Phase.INTAKE_SIZE_REDUCED
+                text.contains("BLACKLIST") || text.contains("BANNED") || text.contains("HONEYPOT") || text.contains("CANNOT_SELL") || text.contains("CONFIRMED RUG") -> LiveTradeLogStore.Phase.INTAKE_TRUE_HARD_BLOCK
+                else -> LiveTradeLogStore.Phase.INTAKE_RISK_PENALTY
+            }
+        }
+
         fun shadow(ts: com.lifecyclebot.data.TokenState?, mint: String, phase: String, message: String, hardSafety: Boolean = false) {
             shadowTagged++
             if (hardSafety) {
@@ -13955,8 +13966,8 @@ if (hotExitHandledSweep) {
                         mint = mint,
                         symbol = ts?.symbol ?: mint.take(6),
                         side = "INFO",
-                        phase = LiveTradeLogStore.Phase.WATCHLIST_PROTECT_BLACKLISTED_TOKEN,
-                        message = "🛡 protected intake hard-shadow · $phase · $message",
+                        phase = intakePhaseForShadow(phase, message),
+                        message = "🛡 protected intake shadow · $phase · $message",
                         traderTag = "INTAKE",
                     )
                 } catch (_: Throwable) {}
@@ -14561,12 +14572,14 @@ if (hotExitHandledSweep) {
                         "key=${canonicalMint.take(10)} symbol=${ts.symbol} err=${e.javaClass.simpleName}: ${e.message?.take(80)}",
                     )
                 } catch (_: Throwable) {}
-                // Stamp a HARD_BLOCK report so FDG sees a *fresh* (non-zero)
-                // lastSafetyCheck and can hard-block this token with a real
-                // reason instead of spinning on SAFETY_NOT_READY_MISSING.
+                // V5.9.1561 — safety failure / partial metadata is UNKNOWN,
+                // not confirmed fatal. Stamp CAUTION so FDG can apply penalty
+                // and preflight can reject under the correct route/cost reason.
                 val failReport = SafetyReport(
-                    tier = SafetyTier.HARD_BLOCK,
-                    hardBlockReasons = listOf("SAFETY_RUN_FAILED: ${e.message?.take(60) ?: e.javaClass.simpleName}"),
+                    tier = SafetyTier.CAUTION,
+                    softPenalties = listOf("SAFETY_RUN_FAILED_PARTIAL_DATA: ${e.message?.take(60) ?: e.javaClass.simpleName}" to 18),
+                    entryScorePenalty = 18,
+                    rugcheckStatus = "PENDING_REVIEW",
                     checkedAt = System.currentTimeMillis(),
                 )
                 synchronized(ts) {
@@ -14771,8 +14784,8 @@ if (hotExitHandledSweep) {
                     mint = ts.mint,
                     symbol = ts.symbol,
                     side = "INFO",
-                    phase = LiveTradeLogStore.Phase.WATCHLIST_PROTECT_BLACKLISTED_TOKEN,
-                    message = "🛡 drained zombie shadow-only retained in protected intake",
+                    phase = LiveTradeLogStore.Phase.INTAKE_RISK_PENALTY,
+                    message = "🛡 drained zombie risk-shadow retained in protected intake",
                     traderTag = "INTAKE",
                 )
             } catch (_: Throwable) {}

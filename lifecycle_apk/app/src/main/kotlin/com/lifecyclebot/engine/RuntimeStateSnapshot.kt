@@ -81,7 +81,10 @@ data class RuntimeStateSnapshot(
             val canonicalOpen = if (isPaperRuntime) {
                 positionStoreOpen
             } else {
-                maxOf(positionStoreOpen, hostOpen, lifecycleOpen)
+                // V5.9.1561 — canonical LIVE truth is wallet-held balance.
+                // Stale local/position/lifecycle rows are drift to reconcile, not
+                // canonical opens. This fixes walletHeld=0/canonical=1 false poison.
+                walletHeld
             }
             val orphanPaper = try {
                 if (isPaperRuntime) {
@@ -97,7 +100,7 @@ data class RuntimeStateSnapshot(
             } catch (_: Throwable) { 0 }
             val orphanLive = try {
                 if (isPaperRuntime) 0
-                else (maxOf(hostOpen, lifecycleOpen) - liveOpen).coerceAtLeast(0)
+                else (walletHeld - liveOpen).coerceAtLeast(0)
             } catch (_: Throwable) { 0 }
 
             val reconcilerChecked = try {
