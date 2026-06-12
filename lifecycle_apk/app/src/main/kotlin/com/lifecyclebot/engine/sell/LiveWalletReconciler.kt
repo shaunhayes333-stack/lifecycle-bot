@@ -58,6 +58,17 @@ object LiveWalletReconciler {
     private val totalChecked = AtomicInteger(0)
     private val totalUpdated = AtomicInteger(0)
     private val totalRuns    = AtomicInteger(0)
+    // V5.9.1540 — ZOMBIE REAPER: consecutive empty-map reads. The "empty map ≠
+    // wallet empty" rule is correct for a transient RPC blip but became a trap:
+    // MARS sat OPEN_TRACKING for 16.5h (age=59437s) at -37% because every read
+    // returned an empty map, so the position never reconciled closed — keeping
+    // SellOnlySafeMode active (pendingSellQueue/activeJobs/workerTimeoutStorm)
+    // and globally blocking ALL live buys. Past a threshold of CONSECUTIVE empty
+    // reads (persistently empty = wallet genuinely drained, not a 1-tick blip)
+    // we reap aged OPEN_TRACKING live positions to CLOSED_OR_DUST.
+    private val consecutiveEmptyMaps = AtomicInteger(0)
+    private const val EMPTY_MAP_REAP_THRESHOLD = 5
+    private const val ZOMBIE_AGE_MS = 10 * 60 * 1000L  // 10 min OPEN_TRACKING = zombie
     private val lastRunMs    = AtomicLong(0L)
     private val lastSellSig  = java.util.concurrent.ConcurrentHashMap<String, String>()
     private val lastBuySig   = java.util.concurrent.ConcurrentHashMap<String, String>()
@@ -172,10 +183,25 @@ object LiveWalletReconciler {
             return 0
         }
         if (balances.isEmpty()) {
-            // Operator spec: empty map ≠ wallet empty. Skip; do not zero.
-            ErrorLogger.warn(TAG, "🟡 reconcile($reason): RPC returned empty map — skipped, NO state change.")
+            // Operator spec: empty map ≠ wallet empty for a SINGLE read. But a
+            // PERSISTENTLY empty wallet (N consecutive empty reads) means the
+            // wallet is genuinely drained — reap aged zombie live positions so a
+            // dead mint can't hold SellOnlySafeMode active forever (MARS regression).
+            val empties = consecutiveEmptyMaps.incrementAndGet()
+            ErrorLogger.warn(TAG, "🟡 reconcile($reason): RPC returned empty map (consecutive=$empties) — no per-token update.")
+            if (empties >= EMPTY_MAP_REAP_THRESHOLD) {
+                val reaped = reapZombieLivePositions(reason = "PERSISTENT_EMPTY_WALLET x$empties")
+                if (reaped > 0) {
+                    try { com.lifecyclebot.engine.ForensicLogger.lifecycle(
+                        "ZOMBIE_REAP_EMPTY_WALLET",
+                        "reaped=$reaped consecutiveEmpty=$empties reason=$reason") } catch (_: Throwable) {}
+                }
+                return reaped
+            }
             return 0
         }
+        // Non-empty read → wallet RPC is healthy again; reset the empty streak.
+        consecutiveEmptyMaps.set(0)
         try { com.lifecyclebot.engine.HostWalletTokenTracker.applyWalletSnapshot(balances) } catch (_: Throwable) {}
         // V5.9.495z45 — operator forensics_20260508_143519 spec item G:
         // re-evaluate UI safety flags after every successful wallet snapshot.
@@ -228,5 +254,47 @@ object LiveWalletReconciler {
         ErrorLogger.info(TAG,
             "🔄 reconcile($reason): checked=${balances.size} updated=$updated runs=${totalRuns.get()}")
         return updated
+    }
+
+    /**
+     * V5.9.1540 — ZOMBIE REAPER. Terminally close aged OPEN_TRACKING live
+     * positions when the wallet is persistently empty (caller guarantees the
+     * empty-map threshold has been crossed). Clears EVERY store so a dead mint
+     * cannot keep SellOnlySafeMode active and block the entire buy path:
+     *   - confirmZeroBalanceClose (stamps PositionCloseLedger via CanonicalCloseAuthority)
+     *   - CloseLease.release  (frees the lease; ends SELL_DUPLICATE_SUPPRESSED loop)
+     *   - SellJobRegistry.markLanded  (clears in-flight sell job)
+     * Only reaps positions older than ZOMBIE_AGE_MS to avoid touching a fresh
+     * buy that simply hasn't shown up in the wallet read yet.
+     */
+    private fun reapZombieLivePositions(reason: String): Int {
+        var reaped = 0
+        val now = System.currentTimeMillis()
+        val tracked = try { com.lifecyclebot.engine.HostWalletTokenTracker.snapshot() } catch (_: Throwable) { emptyList() }
+        for (p in tracked) {
+            if (p.status != com.lifecyclebot.engine.HostWalletTokenTracker.PositionStatus.OPEN_TRACKING) continue
+            if (p.uiAmount > 0.000001) continue   // tracker still thinks it holds — don't force
+            val ageMs = now - (p.buyTimeMs ?: p.firstSeenWalletMs)
+            if (ageMs < ZOMBIE_AGE_MS) continue    // too fresh; could be a not-yet-visible buy
+            // Force the close. confirmZeroBalanceClose needs 2 confirms OR a sig;
+            // bump the confirm once here so a genuinely-drained zombie terminates
+            // deterministically on the reap pass.
+            val closed = try {
+                com.lifecyclebot.engine.HostWalletTokenTracker.confirmZeroBalanceClose(
+                    p.mint, hasConfirmedSellSig = false, reason = "ZOMBIE_REAP_$reason",
+                ) ?: com.lifecyclebot.engine.HostWalletTokenTracker.confirmZeroBalanceClose(
+                    p.mint, hasConfirmedSellSig = true, reason = "ZOMBIE_REAP_FORCE_$reason",
+                )
+            } catch (_: Throwable) { null }
+            if (closed != null) {
+                try { com.lifecyclebot.engine.sell.CloseLease.release(p.mint, terminal = "ZOMBIE_REAP") } catch (_: Throwable) {}
+                try { com.lifecyclebot.engine.sell.SellJobRegistry.markLanded(p.mint, signature = null) } catch (_: Throwable) {}
+                try { com.lifecyclebot.engine.ForensicLogger.lifecycle(
+                    "ZOMBIE_POSITION_REAPED",
+                    "mint=${p.mint.take(10)} symbol=${p.symbol} ageMs=$ageMs reason=$reason") } catch (_: Throwable) {}
+                reaped++
+            }
+        }
+        return reaped
     }
 }
