@@ -565,25 +565,23 @@ object ExecutableOpenGate {
         }
 
         // ──────────────────────────────────────────────────────────────────
-        // V5.9.1373 — SHADOW_TRAIN_ONLY EXECUTION GATE (P0 spec #1).
-        // Provably-toxic buckets (matured: n>=20, lossRate>=75% OR mean<=-10%)
-        // must remain TRAINABLE but must NOT create an executable BUY. All
-        // learning (counterfactual, MFE/MAE, hypothesis, forward model, memory)
-        // already ran UPSTREAM of this gate, and the blocked() path emits a
-        // NoTradeObservation row, so the bucket keeps learning — it just stops
-        // bleeding real (paper/live) capital and contaminating headline WR.
-        // Gate by the canonical execution lane + the recorded entry score.
-        // Fail-open: unknown score (-1) or any error => execute (BucketExecutionState
-        // is itself fail-open). Does NOT touch SL/TP, scanner, or tuning.
+        // V5.9.1549 — SHADOW_TRAIN_ONLY is NOT an execution veto.
+        // Operator hard rule: the bot has to trade to learn, and LIVE should mirror
+        // PAPER volume/decision shape while respecting real-money sizing/settlement.
+        // A learned toxic bucket is valuable telemetry for soft shaping, but using it
+        // as an EXEC hard block created the observed 36× TREASURY shadow-train choke
+        // and kept live at ~3 trades. FDG/original hard vetoes remain authoritative;
+        // this layer now emits telemetry and allows the executable BUY to proceed.
         run {
             val gateScore = state?.entryScore ?: -1
             if (gateScore >= 0 && isRealExecutionLane(canonicalSelectedLane)) {
                 if (BucketExecutionState.isShadowTrainOnly(canonicalSelectedLane, gateScore)) {
-                    return blocked(
-                        "EXEC_OPEN_BLOCKED_SHADOW_TRAIN_ONLY",
-                        "SHADOW_TRAIN_ONLY:${BucketExecutionState.describe(canonicalSelectedLane, gateScore)}",
-                        shadow = true,
-                    )
+                    try {
+                        ForensicLogger.lifecycle(
+                            "EXEC_OPEN_SHADOW_TRAIN_SOFT_ALLOW",
+                            "lane=$canonicalSelectedLane score=$gateScore mode=$modeUpper ${BucketExecutionState.describe(canonicalSelectedLane, gateScore)} attemptId=$attemptId"
+                        )
+                    } catch (_: Throwable) {}
                 }
             }
         }

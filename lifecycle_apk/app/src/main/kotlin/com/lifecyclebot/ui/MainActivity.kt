@@ -648,6 +648,16 @@ class MainActivity : AppCompatActivity() {
             this.setTextColor(color)
         }
     }
+    private var _lastBgColors: HashMap<Int, Int> = HashMap()
+    private fun android.view.View.setBackgroundColorIfChanged(color: Int) {
+        if (this.id == android.view.View.NO_ID) { this.setBackgroundColor(color); return }
+        val prev = _lastBgColors[this.id]
+        if (prev == null || prev != color) {
+            _lastBgColors[this.id] = color
+            this.setBackgroundColor(color)
+        }
+    }
+
     private var _lastTintColors: HashMap<Int, Int> = HashMap()
     private fun android.view.View.setBackgroundTintIfChanged(color: Int) {
         if (this.id == android.view.View.NO_ID) { this.backgroundTintList = android.content.res.ColorStateList.valueOf(color); return }
@@ -2373,11 +2383,11 @@ for legal compliance.
             com.lifecyclebot.network.LiveReadinessChecker.State.UNKNOWN ->
                 Triple("⚪", 0xFF6B7280.toInt(), 0xFF0F0F16.toInt())
         }
-        tvReadinessDot.text = dot
-        tvReadinessStatus.text = snap.summary
-        tvReadinessStatus.setTextColor(textColor)
-        readinessBanner.setBackgroundColor(bg)
-        tvReadinessLatency.text = if (snap.jupiterLatencyMs >= 0) {
+        tvReadinessDot.setTextIfChanged(dot)
+        tvReadinessStatus.setTextIfChanged(snap.summary)
+        tvReadinessStatus.setTextColorIfChanged(textColor)
+        readinessBanner.setBackgroundColorIfChanged(bg)
+        tvReadinessLatency.setTextIfChanged(if (snap.jupiterLatencyMs >= 0) {
             val jup = if (snap.jupiterOk) "jup ${snap.jupiterLatencyMs}ms" else "jup ✗"
             val py  = if (snap.pythOk) "pyth ${snap.pythLatencyMs}ms" else "pyth ✗"
             // V5.9.37: append 5-min live-attempt summary so users can see
@@ -2387,7 +2397,7 @@ for legal compliance.
                 if (s.attempts > 0) " · ⚡${s.executed}/${s.attempts}" else ""
             } catch (_: Throwable) { "" }
             "$jup · $py$att"
-        } else ""
+        } else "")
     }
 
 

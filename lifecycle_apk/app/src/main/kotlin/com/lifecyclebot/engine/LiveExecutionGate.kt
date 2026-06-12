@@ -36,12 +36,12 @@ object LiveExecutionGate {
     private const val TAG = "LiveExecGate"
 
     data class Config(
-        val highThroughputLiveMode: Boolean = false,
-        val maxLiveTradesPerDay: Int = 500,
-        val maxConcurrentLivePositions: Int = 12,
-        val minSecondsBetweenLiveBuys: Int = 4,
-        val maxPendingBuyVerifications: Int = 6,
-        val maxPendingSellVerifications: Int = 8,
+        val highThroughputLiveMode: Boolean = true,
+        val maxLiveTradesPerDay: Int = 1000,
+        val maxConcurrentLivePositions: Int = 24,
+        val minSecondsBetweenLiveBuys: Int = 0,
+        val maxPendingBuyVerifications: Int = 16,
+        val maxPendingSellVerifications: Int = 24,
         val hotPathTimeoutMs: Long = 10_000L,
         val walletReconcileTimeoutMs: Long = 12_000L,
         val skipSlowBackgroundScansWhenLiveBusy: Boolean = true,
@@ -76,10 +76,23 @@ object LiveExecutionGate {
     } catch (_: Throwable) { 0 }
 
     fun configure(c: Config) {
-        cfg = c
-        ErrorLogger.info(TAG, "configured | mode=${if (c.highThroughputLiveMode) "HOT" else "STANDARD"} " +
-            "| live=paper-fluid parity | pendingBuyMax=${c.maxPendingBuyVerifications} " +
-            "| pendingSellMax=${c.maxPendingSellVerifications} | hotPathTimeout=${c.hotPathTimeoutMs}ms")
+        // V5.9.1549 — LIVE mirrors PAPER decision throughput. Real-money respect
+        // lives in sizing, FDG, settlement verification and the unconditional hard
+        // SL — not in artificial daily/min-spacing/pending choke points. Clamp old
+        // saved low defaults upward so existing installs do not stay stuck at 2-3
+        // live trades while paper would keep sampling.
+        val mirror = c.copy(
+            highThroughputLiveMode = true,
+            maxLiveTradesPerDay = maxOf(c.maxLiveTradesPerDay, 1000),
+            maxConcurrentLivePositions = maxOf(c.maxConcurrentLivePositions, 24),
+            minSecondsBetweenLiveBuys = 0,
+            maxPendingBuyVerifications = maxOf(c.maxPendingBuyVerifications, 16),
+            maxPendingSellVerifications = maxOf(c.maxPendingSellVerifications, 24),
+        )
+        cfg = mirror
+        ErrorLogger.info(TAG, "configured | mode=HOT " +
+            "| live=paper-fluid parity | pendingBuyMax=${mirror.maxPendingBuyVerifications} " +
+            "| pendingSellMax=${mirror.maxPendingSellVerifications} | hotPathTimeout=${mirror.hotPathTimeoutMs}ms")
     }
 
     fun config(): Config = cfg
