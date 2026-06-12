@@ -428,6 +428,16 @@ object SellReconciler {
                     )
                 } catch (_: Throwable) {}
                 SellJobRegistry.markLanded(pos.mint, signature = sellSig)
+                // V5.9.1539 — ROOT FIX (operator spec item B + buy-handoff unblock):
+                // a reconciler zero-balance close MUST also release the CloseLease.
+                // Previously the lease leaked until its 600s TTL, so a sold/dust
+                // mint (MARS: wallet=0, trackerStatus was OPEN_TRACKING) kept
+                // CloseLease.activeLeaseCount()>0 and the LiveBuyAdmissionGate
+                // paused ALL live buys (EXEC_LIVE_ATTEMPT=0). Release the lease +
+                // single-flight state the instant the position is conclusively
+                // closed so slots/buys free immediately and SELL_DUPLICATE_
+                // SUPPRESSED / EXIT_COORDINATOR_STALE_RESET stop climbing.
+                try { com.lifecyclebot.engine.sell.CloseLease.release(pos.mint, terminal = "RECONCILER_ZERO_BALANCE_CLOSE") } catch (_: Throwable) {}
                 try { onZeroClose?.invoke(pos.mint, pos.symbol ?: "?", sellSig) } catch (e: Throwable) {
                     ErrorLogger.warn("SellReconciler", "onZeroClose threw: ${e.message?.take(80)}")
                 }

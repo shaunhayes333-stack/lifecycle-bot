@@ -851,8 +851,16 @@ object PipelineHealthCollector {
                 }
             } catch (_: Throwable) {}
 
+            // V5.9.1539 — REGRESSION-GUARD OVERRIDE (operator spec): structural
+            // invariant faults (LEDGER_DRIFT / RECONCILER_STALLED / ORPHAN_LIVE /
+            // HOST_TRACKER_DESYNC / SELL_RECONCILER_DEAD) MUST surface as the root
+            // cause and can never be masked by the NONE fallthrough.
+            try {
+                val faults = com.lifecyclebot.engine.RuntimeDoctor.recentFaults()
+                for (f in faults) { rootCauses.add(0, ("" + f.code + " (" + f.severity + ") " + f.detail).take(120)) }
+            } catch (_: Throwable) {}
             if (rootCauses.isEmpty()) rootCauses.add("NONE — mechanics AND performance within band")
-            sb.append("  Root cause likely:    ${rootCauses.joinToString(" | ").take(160)}\n")
+            sb.append("  Root cause likely:    ${rootCauses.distinct().joinToString(" | ").take(220)}\n")
         } catch (_: Throwable) {}
         sb.append("\n")
 

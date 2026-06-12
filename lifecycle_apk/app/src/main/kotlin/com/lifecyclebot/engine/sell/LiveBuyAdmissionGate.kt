@@ -105,10 +105,19 @@ object LiveBuyAdmissionGate {
             return Decision.Blocked("SELL_ONLY_SAFE_MODE", safeModeReason)
         }
 
-        val pendingCloses = try { com.lifecyclebot.engine.sell.CloseLease.activeLeaseCount() } catch (_: Throwable) { 0 }
-        if (pendingCloses > 0) {
-            return Decision.Blocked("CLOSE_PENDING_BUY_PAUSE",
-                "deferring live buy: $pendingCloses close(s) in flight — prioritising exit completion")
+        // V5.9.1539 — ROOT FIX (operator buy-handoff regression, build 5.0.3554):
+        // the old global guard blocked EVERY live buy whenever ANY mint held a
+        // close lease. A single stuck/stale sell (MARS: wallet balance=0 but the
+        // close lease never released) therefore halted the ENTIRE buy path —
+        // FDG allow=161 / EXEC_GATE allow=86 / EXEC_OPEN_ALLOWED=86 but
+        // EXEC_LIVE_ATTEMPT=0, silently returning before the executor's attempt
+        // counter. Re-buying the SAME mint mid-exit is the only real hazard, so we
+        // now pause only THIS mint's buy, not the whole bot. We also reap a stale
+        // lease (past TTL) for this mint so a leaked lease can never park it.
+        val thisMint = ts.mint
+        if (com.lifecyclebot.engine.sell.CloseLease.isLeased(thisMint)) {
+            return Decision.Blocked("CLOSE_PENDING_SAME_MINT",
+                "deferring live buy on $thisMint — its own close is in flight")
         }
 
         val safety: SafetyReport = ts.safety

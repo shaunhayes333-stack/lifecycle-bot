@@ -8170,7 +8170,21 @@ class Executor(
                 onLog = onLog,
                 onNotify = onNotify,
             )
-            if (decision is com.lifecyclebot.engine.sell.LiveBuyAdmissionGate.Decision.Blocked) return
+            if (decision is com.lifecyclebot.engine.sell.LiveBuyAdmissionGate.Decision.Blocked) {
+                // V5.9.1539 — INVARIANT: an EXEC_OPEN_ALLOWED candidate must NOT
+                // vanish silently. Emit a TERMINAL abort reason here so the
+                // lane-release path is no longer a silent BUY_NOT_OPENED. This
+                // makes every gate-blocked live buy traceable (operator spec:
+                // EXEC_OPEN_ALLOWED → EXEC_LIVE_ATTEMPT | EXEC_OPEN_ABORT_TERMINAL).
+                try {
+                    ForensicLogger.lifecycle(
+                        "EXEC_OPEN_ABORT_TERMINAL",
+                        "mint=${ts.mint.take(10)} symbol=${ts.symbol} stage=LiveBuyAdmissionGate " +
+                        "reason=${decision.reasonCode} detail=${decision.detail.take(80)}",
+                    )
+                } catch (_: Throwable) {}
+                return
+            }
         }
 
         // V5.9.777 — EMERGENT MEME-ONLY: EXEC_LIVE_ATTEMPT counter wiring.
@@ -9317,6 +9331,24 @@ class Executor(
                 // A fresh close is already in flight for this mint — suppress the
                 // duplicate. The owning close job will complete or terminally fail.
                 return SellResult.FAILED_RETRYABLE
+            }
+            // V5.9.1539 — ROOT FIX (operator spec item C): before retrying a sell
+            // under an existing lease, short-circuit if the wallet is CONCLUSIVELY
+            // empty. MARS looped forever broadcasting the stale HOST_TRACKER_TX_PARSE
+            // amount (984443.7) at 5% slippage while the wallet balance was already
+            // 0 — every 503 was classed RETRYABLE so the lease never released. A
+            // confirmed-zero (RPC_CONFIRMED / WALLET_SCAN_CONFIRMED Resolution.Zero)
+            // means there is nothing to sell: treat as ALREADY_CLOSED, release the
+            // lease, and let the reconciler stamp the ledger. We do NOT act on an
+            // UNKNOWN/empty-map RPC blip — only a genuine confirmed zero.
+            run {
+                val res = try { com.lifecyclebot.engine.sell.SellAmountAuthority.resolve(ts.mint, wallet) } catch (_: Throwable) { null }
+                if (res is com.lifecyclebot.engine.sell.SellAmountAuthority.Resolution.Zero) {
+                    try { ForensicLogger.lifecycle("SELL_ABORT_WALLET_CONFIRMED_ZERO",
+                        "mint=${ts.mint.take(10)} symbol=${ts.symbol} — confirmed-empty wallet, releasing lease (no stale TX_PARSE sell)") } catch (_: Throwable) {}
+                    com.lifecyclebot.engine.sell.CloseLease.release(ts.mint, "WALLET_CONFIRMED_ZERO")
+                    return SellResult.ALREADY_CLOSED
+                }
             }
             // Sell under the lease using the CANONICAL (de-polluted) reason so the
             // forensic phases + any requeue carry a clean, non-nesting reason.
