@@ -67,6 +67,7 @@ class SecurityGuard(
     // ── price anomaly tracking ────────────────────────────────────────
     // mint → last valid price
     private val lastValidPrice = mutableMapOf<String, Double>()
+    private val lastValidPriceMs = mutableMapOf<String, Long>()   // V5.9.1536 — basis freshness
     private val lastValidVol   = mutableMapOf<String, Double>()
 
     // ── rate limiting ─────────────────────────────────────────────────
@@ -198,14 +199,32 @@ class SecurityGuard(
             return GuardResult.Block("Too soon after last transaction (${msSinceLastTx}ms < ${MIN_TX_INTERVAL_MS}ms)")
         }
 
-        // ── 8. Price anomaly detection ────────────────────────────────
+        // ── 8. Price anomaly detection (V5.9.1536 — basis-aware) ──────
+        // ROOT FIX: fresh pump.fun launches (bonding-curve → migration) seed
+        // lastValidPrice from an EARLY, still-settling poll. A normal entry then
+        // reads as a huge "move between polls" against a corrupt/stale baseline —
+        // exactly the case the Executor PHANTOM_MULTIPLE_GUARD already flags
+        // ("basis likely corrupt"). The old code hard-BLOCKED the live buy on that
+        // artifact (LIVE_PRECHECK_BLOCK → no_open_committed), parking the trader.
+        // We now: (a) ignore a STALE basis (>60s old — not a valid between-polls
+        // pair); (b) on an implausible jump, treat it as a corrupt baseline →
+        // refresh the basis and ALLOW (size-cap + -15% floor own the risk), rather
+        // than vetoing the entry. Genuine in-stream manipulation is still caught by
+        // the volume-spike guard below, the hard floor, and PHANTOM_MULTIPLE_GUARD.
         val prevPrice = lastValidPrice[mint]
-        if (prevPrice != null && prevPrice > 0 && currentPrice > 0) {
+        val prevPriceMs = lastValidPriceMs[mint] ?: 0L
+        val basisAgeMs = System.currentTimeMillis() - prevPriceMs
+        val basisFresh = prevPriceMs > 0L && basisAgeMs in 0..60_000L
+        if (basisFresh && prevPrice != null && prevPrice > 0 && currentPrice > 0) {
             val movePct = Math.abs((currentPrice - prevPrice) / prevPrice * 100.0)
             if (movePct > MAX_PRICE_MOVE_PCT) {
-                audit("PRICE_ANOMALY", "$symbol: ${movePct.toInt()}% move in one poll — skipping")
-                onLog("⚠ Price anomaly on $symbol: ${movePct.toInt()}% move — not trading")
-                return GuardResult.Block("Price anomaly: ${movePct.toInt()}% move between polls")
+                // Corrupt/launch-volatility basis — do NOT veto the entry. Re-seed
+                // the basis from the current price and allow it through.
+                audit("PRICE_ANOMALY_BASIS_REFRESH",
+                    "$symbol: ${movePct.toInt()}% vs ${basisAgeMs}ms-old basis — basis corrupt, refreshing not blocking")
+                onLog("ℹ️ $symbol: ${movePct.toInt()}% basis jump (age=${basisAgeMs}ms) — refreshing basis, allowing")
+                lastValidPrice[mint] = currentPrice
+                lastValidPriceMs[mint] = System.currentTimeMillis()
             }
         }
 
@@ -221,7 +240,7 @@ class SecurityGuard(
         }
 
         // Update valid price/vol tracking
-        if (currentPrice > 0) lastValidPrice[mint] = currentPrice
+        if (currentPrice > 0) { lastValidPrice[mint] = currentPrice; lastValidPriceMs[mint] = System.currentTimeMillis() }
         if (currentVol   > 0) lastValidVol[mint]   = currentVol
 
         audit("BUY_ALLOWED", "$symbol ${cappedSol.fmt(4)} SOL")
