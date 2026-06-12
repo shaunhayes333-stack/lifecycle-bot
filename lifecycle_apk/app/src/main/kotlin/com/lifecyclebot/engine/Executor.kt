@@ -7567,6 +7567,7 @@ class Executor(
                     com.lifecyclebot.collective.CollectiveLearning.uploadTrade(
                         side = "BUY",
                         symbol = ts.symbol,
+                        mint = ts.mint,
                         mode = ts.position.tradingMode.ifBlank { v3Band },
                         source = ts.source.ifBlank { "UNKNOWN" },
                         liquidityUsd = ts.lastLiquidityUsd,
@@ -7781,6 +7782,7 @@ class Executor(
                     com.lifecyclebot.collective.CollectiveLearning.uploadTrade(
                         side = "BUY",
                         symbol = ts.symbol,
+                        mint = ts.mint,
                         mode = "TREASURY",
                         source = ts.source.ifBlank { "TREASURY_SCAN" },
                         liquidityUsd = ts.lastLiquidityUsd,
@@ -7885,6 +7887,7 @@ class Executor(
                 com.lifecyclebot.collective.CollectiveLearning.uploadTrade(
                     side = "BUY",
                     symbol = ts.symbol,
+                    mint = ts.mint,
                     mode = "BLUE_CHIP",
                     source = ts.source.ifBlank { "BLUE_CHIP_SCAN" },
                     liquidityUsd = ts.lastLiquidityUsd,
@@ -7989,6 +7992,7 @@ class Executor(
                 com.lifecyclebot.collective.CollectiveLearning.uploadTrade(
                     side = "BUY",
                     symbol = ts.symbol,
+                    mint = ts.mint,
                     mode = "SHITCOIN",
                     source = ts.source.ifBlank { "SHITCOIN_SCAN" },
                     liquidityUsd = ts.lastLiquidityUsd,
@@ -11001,6 +11005,7 @@ class Executor(
                         com.lifecyclebot.collective.CollectiveLearning.uploadTrade(
                             side = "SELL",
                             symbol = ts.symbol,
+                            mint = ts.mint,
                             mode = ts.position.tradingMode.ifEmpty { "STANDARD" },
                             source = ts.source.ifEmpty { "UNKNOWN" },
                             liquidityUsd = ts.lastLiquidityUsd,

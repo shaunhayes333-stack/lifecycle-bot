@@ -80,6 +80,10 @@ object CollectiveIntelligenceAI {
     
     // V4.0: Network signals cache - Hot tokens from other bots
     private val networkSignalsCache = ConcurrentHashMap<String, CollectiveLearning.NetworkSignal>()
+
+    // V5.9.1551 — durable mint-level hive memory. networkSignals are fast/2h;
+    // this cache is the longer-lived per-mint outcome edge from collective_trades.
+    private val mintMemoryCache = ConcurrentHashMap<String, CollectiveLearning.CollectiveMintMemory>()
     
     // Dynamic thresholds (adjusted based on collective performance)
     @Volatile private var dynamicConfidenceThreshold = 70
@@ -93,7 +97,7 @@ object CollectiveIntelligenceAI {
     /** V5.9.1353 — TRUE RESET: drop all learned caches + counters. */
     fun reset() {
         patternQualityCache.clear(); modePerformanceCache.clear(); tokenPredictionCache.clear()
-        consensusCache.clear(); networkSignalsCache.clear()
+        consensusCache.clear(); networkSignalsCache.clear(); mintMemoryCache.clear()
         patternsAnalyzed.set(0); patternsPruned.set(0); anomaliesDetected.set(0)
     }
     private val lastMaintenanceMs = AtomicLong(0)
@@ -230,6 +234,9 @@ object CollectiveIntelligenceAI {
             
             // 4. V4.0: Check network signals cache for hot tokens from other bots
             val networkSignal = networkSignalsCache[mint]
+
+            // 5. V5.9.1551: Durable mint-level hive memory from collective_trades.
+            val mintMemory = mintMemoryCache[mint]
             
             // Calculate score adjustment based on collective data
             var scoreAdj = 0
@@ -269,6 +276,50 @@ object CollectiveIntelligenceAI {
                 }
             }
             
+            // ═══════════════════════════════════════════════════════════════════
+            // V5.9.1551: DURABLE MINT MEMORY EDGE
+            // Every bot's completed outcomes on this exact mint now become a
+            // reusable shared edge. This is soft shaping, not a hard veto.
+            // Multi-instance evidence carries more weight than one noisy report.
+            // ═══════════════════════════════════════════════════════════════════
+            if (mintMemory != null) {
+                val crossInstance = mintMemory.instanceCount >= MIN_INSTANCES_FOR_CONSENSUS
+                val wr = mintMemory.winRate
+                val ageMins = (System.currentTimeMillis() - mintMemory.lastSeen).coerceAtLeast(0L) / 60_000L
+                when {
+                    crossInstance && mintMemory.losses >= 2 && mintMemory.avgPnlPct <= -8.0 -> {
+                        scoreAdj -= 20
+                        confAdj -= 8
+                        reasoning.add("HIVE_MINT_TOXIC(${mintMemory.losses}L/${mintMemory.instanceCount}bots avg=${mintMemory.avgPnlPct.toInt()}%)")
+                    }
+                    mintMemory.worstPnlPct <= -25.0 && mintMemory.losses >= 1 -> {
+                        scoreAdj -= if (crossInstance) 16 else 10
+                        confAdj -= if (crossInstance) 7 else 4
+                        reasoning.add("HIVE_MINT_BIG_LOSS(${mintMemory.worstPnlPct.toInt()}%)")
+                    }
+                    crossInstance && mintMemory.wins >= 2 && wr >= 55.0 && mintMemory.avgPnlPct >= 8.0 -> {
+                        scoreAdj += 18
+                        confAdj += 8
+                        reasoning.add("HIVE_MINT_PROVEN(${wr.toInt()}%WR/${mintMemory.instanceCount}bots avg=+${mintMemory.avgPnlPct.toInt()}%)")
+                    }
+                    mintMemory.bestPnlPct >= 25.0 && mintMemory.avgPnlPct > 0.0 && ageMins <= 360 -> {
+                        scoreAdj += if (crossInstance) 14 else 8
+                        confAdj += if (crossInstance) 6 else 3
+                        reasoning.add("HIVE_MINT_RECENT_WIN(+${mintMemory.bestPnlPct.toInt()}% ${ageMins}m)")
+                    }
+                    mintMemory.totalOutcomes >= 1 && mintMemory.avgPnlPct > 3.0 -> {
+                        scoreAdj += if (crossInstance) 8 else 4
+                        confAdj += if (crossInstance) 4 else 2
+                        reasoning.add("HIVE_MINT_GREEN(avg=+${mintMemory.avgPnlPct.toInt()}%)")
+                    }
+                    mintMemory.totalOutcomes >= 1 && mintMemory.avgPnlPct < -3.0 -> {
+                        scoreAdj -= if (crossInstance) 10 else 5
+                        confAdj -= if (crossInstance) 5 else 2
+                        reasoning.add("HIVE_MINT_RED(avg=${mintMemory.avgPnlPct.toInt()}%)")
+                    }
+                }
+            }
+
             // Token-specific prediction
             if (prediction != null && prediction.instancesReporting >= MIN_INSTANCES_FOR_CONSENSUS) {
                 when (prediction.collectiveSignal) {
@@ -394,6 +445,8 @@ object CollectiveIntelligenceAI {
                 networkSignal?.signalType == "MEGA_WINNER" -> Signal.STRONG_BUY
                 networkSignal?.signalType == "HOT_TOKEN" -> Signal.BUY
                 networkSignal?.signalType == "AVOID" -> Signal.STRONG_SELL
+                mintMemory != null && mintMemory.avgPnlPct >= 8.0 && mintMemory.winRate >= 55.0 -> Signal.BUY
+                mintMemory != null && mintMemory.avgPnlPct <= -8.0 -> Signal.SELL
                 else -> prediction?.collectiveSignal ?: consensus?.signal ?: Signal.NO_DATA
             }
             
@@ -817,6 +870,7 @@ object CollectiveIntelligenceAI {
             launch { aggregateModePerformance() }
             launch { synthesizeConsensus() }
             launch { refreshNetworkSignals() }  // V4.0: New!
+            launch { refreshMintMemory() }      // V5.9.1551: durable per-mint edge
         }
         
         lastRefreshMs.set(System.currentTimeMillis())
@@ -826,9 +880,25 @@ object CollectiveIntelligenceAI {
             "patterns=${patternQualityCache.size} | " +
             "modes=${modePerformanceCache.size} | " +
             "consensus=${consensusCache.size} | " +
-            "network=${networkSignalsCache.size}")
+            "network=${networkSignalsCache.size} | " +
+            "mintMemory=${mintMemoryCache.size}")
     }
     
+    /** V5.9.1551: Refresh durable mint-level hive memory from completed outcomes. */
+    private suspend fun refreshMintMemory() {
+        if (!com.lifecyclebot.engine.BotService.status.running) return
+        try {
+            val memories = CollectiveLearning.downloadMintMemoryForAI(1000)
+            mintMemoryCache.clear()
+            for (m in memories) {
+                if (m.mint.isNotBlank()) mintMemoryCache[m.mint] = m
+            }
+            ErrorLogger.info(TAG, "🧠 Loaded ${memories.size} mint-memory records from hive")
+        } catch (e: Exception) {
+            ErrorLogger.debug(TAG, "refreshMintMemory error: ${e.message}")
+        }
+    }
+
     /**
      * V4.0: Refresh network signals from other bots.
      * These are hot tokens that other bots have broadcast.
@@ -929,6 +999,8 @@ object CollectiveIntelligenceAI {
     fun getActiveNetworkSignals(): List<CollectiveLearning.NetworkSignal> {
         return networkSignalsCache.values.toList()
     }
+
+    fun getMintMemory(mint: String): CollectiveLearning.CollectiveMintMemory? = mintMemoryCache[mint]
     
     /**
      * V5.6.29d: Get last refresh time for UI.

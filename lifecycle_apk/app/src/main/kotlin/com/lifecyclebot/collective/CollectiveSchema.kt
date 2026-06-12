@@ -487,6 +487,7 @@ object CollectiveSchema {
             timestamp INTEGER NOT NULL,
             side TEXT NOT NULL,
             symbol TEXT NOT NULL,
+            mint TEXT NOT NULL DEFAULT '',
             mode TEXT NOT NULL,
             source TEXT NOT NULL DEFAULT '',
             liquidity_bucket TEXT NOT NULL DEFAULT '',
@@ -784,6 +785,7 @@ object CollectiveSchema {
     val MIGRATION_STATEMENTS = listOf(
         // Original collective_trades migrations
         "ALTER TABLE collective_trades ADD COLUMN instance_id TEXT NOT NULL DEFAULT ''",
+        "ALTER TABLE collective_trades ADD COLUMN mint TEXT NOT NULL DEFAULT ''",
         "ALTER TABLE collective_trades ADD COLUMN source TEXT NOT NULL DEFAULT ''",
         "ALTER TABLE collective_trades ADD COLUMN liquidity_bucket TEXT NOT NULL DEFAULT ''",
         "ALTER TABLE collective_trades ADD COLUMN market_sentiment TEXT NOT NULL DEFAULT ''",
@@ -814,6 +816,8 @@ object CollectiveSchema {
         CREATE INDEX IF NOT EXISTS idx_trades_timestamp ON collective_trades(timestamp);
         CREATE INDEX IF NOT EXISTS idx_trades_mode ON collective_trades(mode);
         CREATE INDEX IF NOT EXISTS idx_trades_symbol ON collective_trades(symbol);
+        CREATE INDEX IF NOT EXISTS idx_trades_mint ON collective_trades(mint);
+        CREATE INDEX IF NOT EXISTS idx_trades_mint_time ON collective_trades(mint, timestamp);
         CREATE INDEX IF NOT EXISTS idx_trades_instance ON collective_trades(instance_id);
         CREATE INDEX IF NOT EXISTS idx_registry_active ON instance_registry(last_active);
         CREATE INDEX IF NOT EXISTS idx_network_signals_mint ON network_signals(mint);

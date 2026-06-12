@@ -351,6 +351,7 @@ object CollectiveLearning {
     suspend fun uploadTrade(
         side: String,
         symbol: String,
+        mint: String = "",
         mode: String,
         source: String,
         liquidityUsd: Double,
@@ -401,7 +402,8 @@ object CollectiveLearning {
 
         try {
             val now = System.currentTimeMillis()
-            val tradeHash = sha256("$now|$side|$symbol|$mode|${System.nanoTime()}").take(24)
+            val safeMint = mint.trim()
+            val tradeHash = sha256("$now|$side|$symbol|$safeMint|$mode|${System.nanoTime()}").take(24)
 
             val liquidityBucket = when {
                 liquidityUsd < 5_000.0 -> "MICRO"
@@ -412,9 +414,9 @@ object CollectiveLearning {
 
             val sql = """
                 INSERT OR REPLACE INTO collective_trades
-                    (trade_hash, instance_id, timestamp, side, symbol, mode, source, liquidity_bucket,
+                    (trade_hash, instance_id, timestamp, side, symbol, mint, mode, source, liquidity_bucket,
                      market_sentiment, entry_score, confidence, pnl_pct, hold_mins, is_win, paper_mode)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """.trimIndent()
 
             ErrorLogger.info(
@@ -430,6 +432,7 @@ object CollectiveLearning {
                     now,
                     side,
                     symbol,
+                    safeMint,
                     mode,
                     source,
                     liquidityBucket,
@@ -1203,6 +1206,23 @@ object CollectiveLearning {
         val instanceCount: Int
     )
 
+    data class CollectiveMintMemory(
+        val mint: String,
+        val symbol: String,
+        val totalOutcomes: Int,
+        val wins: Int,
+        val losses: Int,
+        val avgPnlPct: Double,
+        val bestPnlPct: Double,
+        val worstPnlPct: Double,
+        val instanceCount: Int,
+        val avgEntryScore: Double,
+        val avgConfidence: Double,
+        val lastSeen: Long,
+    ) {
+        val winRate: Double get() = if (totalOutcomes > 0) wins.toDouble() / totalOutcomes.toDouble() * 100.0 else 0.0
+    }
+
     data class CollectiveSignal(
         val mint: String,
         val signal: String,
@@ -1275,6 +1295,62 @@ object CollectiveLearning {
             } catch (e: Exception) {
                 Log.e(TAG, "downloadModeStatsForAI error: ${e.message}")
                 emptyMap()
+            }
+        }
+    }
+
+    suspend fun downloadMintMemoryForAI(limit: Int = 1000): List<CollectiveMintMemory> {
+        if (!isEnabled()) return emptyList()
+        val safeLimit = limit.coerceIn(100, 5000)
+        return withContext(Dispatchers.IO) {
+            try {
+                val cutoff = System.currentTimeMillis() - 14L * 24L * 60L * 60L * 1000L
+                val result = client!!.query(
+                    """
+                    SELECT
+                        mint,
+                        MAX(symbol) as symbol,
+                        COUNT(*) as total_outcomes,
+                        SUM(CASE WHEN is_win = 1 THEN 1 ELSE 0 END) as wins,
+                        SUM(CASE WHEN is_win = 0 THEN 1 ELSE 0 END) as losses,
+                        AVG(pnl_pct) as avg_pnl_pct,
+                        MAX(pnl_pct) as best_pnl_pct,
+                        MIN(pnl_pct) as worst_pnl_pct,
+                        COUNT(DISTINCT instance_id) as instance_count,
+                        AVG(entry_score) as avg_entry_score,
+                        AVG(confidence) as avg_confidence,
+                        MAX(timestamp) as last_seen
+                    FROM collective_trades
+                    WHERE mint != '' AND side = 'SELL' AND timestamp > ?
+                    GROUP BY mint
+                    HAVING COUNT(*) >= 1
+                    ORDER BY last_seen DESC
+                    LIMIT $safeLimit
+                    """.trimIndent(),
+                    listOf(cutoff)
+                )
+                if (result.success) {
+                    result.rows.mapNotNull { row ->
+                        val m = parseString(row["mint"])
+                        if (m.isBlank()) null else CollectiveMintMemory(
+                            mint = m,
+                            symbol = parseString(row["symbol"]),
+                            totalOutcomes = parseInt(row["total_outcomes"]),
+                            wins = parseInt(row["wins"]),
+                            losses = parseInt(row["losses"]),
+                            avgPnlPct = parseDouble(row["avg_pnl_pct"]),
+                            bestPnlPct = parseDouble(row["best_pnl_pct"]),
+                            worstPnlPct = parseDouble(row["worst_pnl_pct"]),
+                            instanceCount = parseInt(row["instance_count"]).coerceAtLeast(1),
+                            avgEntryScore = parseDouble(row["avg_entry_score"]),
+                            avgConfidence = parseDouble(row["avg_confidence"]),
+                            lastSeen = parseLong(row["last_seen"]),
+                        )
+                    }
+                } else emptyList()
+            } catch (e: Exception) {
+                Log.e(TAG, "downloadMintMemoryForAI error: ${e.message}")
+                emptyList()
             }
         }
     }
