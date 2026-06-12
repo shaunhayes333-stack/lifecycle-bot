@@ -8489,6 +8489,10 @@ class BotService : Service() {
                     com.lifecyclebot.engine.TradeHistoryStore.getProvenEdgeCached().hasProvenEdge
             } catch (_: Throwable) { true }   // fail-open to lenient = trade, never starve
             val pressureDecision = try {
+                // V5.9.1548b — source-neutral pressure diversion. This is NOT
+                // pump.fun-only: DexScreener/CoinGecko/CMC-backed/Raydium/etc
+                // cold dust can go probation-only under supervisor pressure, while
+                // real-liq/multi-source candidates keep hot watchlist priority.
                 com.lifecyclebot.engine.ProtectedIntakeAdmissionGate.decide(
                     source = source,
                     allSources = allSources,
@@ -8523,7 +8527,7 @@ class BotService : Service() {
                     val probationResult = added?.reason ?: "err"
                     ForensicLogger.lifecycle(
                         "INTAKE_PROBATION_ONLY",
-                        "symbol=${symbol.ifBlank { mint.take(6) }} mint=${mint.take(10)} src=$source liq=${liquidityUsd.toInt()} mcap=${marketCapUsd.toInt()} vol1h=${volumeH1.toInt()} pressure=${pressureDecision.probationOnly} pressureReason=${pressureDecision.reason} result=$probationResult"
+                        "symbol=${symbol.ifBlank { mint.take(6) }} mint=${mint.take(10)} src=$source liq=${liquidityUsd.toInt()} mcap=${marketCapUsd.toInt()} vol1h=${volumeH1.toInt()} sourceNeutralPressure=${pressureDecision.probationOnly} pressureReason=${pressureDecision.reason} result=$probationResult"
                     )
                 } catch (_: Throwable) {}
                 return added?.probation == true || added?.reason?.contains("PROBATION", ignoreCase = true) == true
@@ -9800,20 +9804,86 @@ class BotService : Service() {
         val coldMutable = coldAfterCap.toMutableList()
         coldMutable.sortBy { it.second }
 
+        // V5.9.1548b — source-balanced scanner inflow. Fresh/unseen/cold ordering
+        // remains intact, but each tier is interleaved by source family so a single
+        // PumpPortal/pump.fun flood cannot crowd DexScreener, CoinGecko,
+        // CMC-backed, Raydium/Meteora, Birdeye, or generic scanner candidates out
+        // of the per-cycle worker slice. This does not raise caps or relax gates.
+        val balancedFresh = sourceBalancedWatchlistOrder(fresh, entriesByMint)
+        val balancedUnseen = sourceBalancedWatchlistOrder(unseen, entriesByMint)
+        val balancedCold = sourceBalancedWatchlistOrder(coldMutable.map { it.first }, entriesByMint)
+
         val picked = mutableListOf<String>()
-        picked.addAll(fresh.take(budget))
-        if (picked.size < budget) picked.addAll(unseen.take(budget - picked.size))
-        if (picked.size < budget) picked.addAll(coldMutable.map { it.first }.take(budget - picked.size))
+        picked.addAll(balancedFresh.take(budget))
+        if (picked.size < budget) picked.addAll(balancedUnseen.take(budget - picked.size))
+        if (picked.size < budget) picked.addAll(balancedCold.take(budget - picked.size))
 
         try {
             emitWatchlistCapTrace(PER_CYCLE_CAP, orderedMintsRaw.size, forcedOpenMints.size)
             com.lifecyclebot.engine.ForensicLogger.lifecycle(
                 "WATCHLIST_RR",
-                "cap=$PER_CYCLE_CAP picked=${picked.size} fresh=${fresh.size} unseen=${unseen.size} cold=${cold.size} probationDemoted=${probationDemoted.size} forcedOpen=${forcedOpenMints.size} total=${orderedMintsRaw.size}"
+                "cap=$PER_CYCLE_CAP picked=${picked.size} fresh=${fresh.size} unseen=${unseen.size} cold=${cold.size} probationDemoted=${probationDemoted.size} forcedOpen=${forcedOpenMints.size} total=${orderedMintsRaw.size} sourceBalanced=true"
             )
         } catch (_: Throwable) {}
 
         return (mustInclude + picked).distinct()
+    }
+
+
+    private fun sourceBalancedWatchlistOrder(
+        mints: List<String>,
+        entriesByMint: Map<String, com.lifecyclebot.engine.GlobalTradeRegistry.WatchlistEntry>,
+    ): List<String> {
+        if (mints.size <= 2) return mints
+        val priority = listOf(
+            "DEX", "COINGECKO", "CMC", "RAYDIUM", "BIRDEYE", "SCANNER", "PUMP", "OTHER"
+        )
+        val buckets = linkedMapOf<String, MutableList<String>>()
+        priority.forEach { buckets[it] = mutableListOf() }
+        fun bucketFor(mint: String): String {
+            val e = entriesByMint[mint]
+            val tags = buildString {
+                append(e?.addedBy ?: "")
+                append('|')
+                append(e?.source ?: "")
+                append('|')
+                append(e?.laneAffinity?.joinToString("|") ?: "")
+                append('|')
+                append(e?.toolAffinity?.joinToString("|") ?: "")
+            }.uppercase()
+            return when {
+                tags.contains("DEXSCREENER") || tags.contains("DEX_SCREENER") || tags.contains("DEX_TREND") || tags.contains("DEX_GAIN") || tags.contains("DEX_BOOST") -> "DEX"
+                tags.contains("COINGECKO") || tags.contains("COIN_GECKO") || tags.contains("GECKO") -> "COINGECKO"
+                tags.contains("COINMARKETCAP") || tags.contains("COIN_MARKET_CAP") || tags.contains("CMC") -> "CMC"
+                tags.contains("RAYDIUM") || tags.contains("METEORA") || tags.contains("ORCA") || tags.contains("JUPITER") || tags.contains("NEW_POOL") -> "RAYDIUM"
+                tags.contains("BIRDEYE") -> "BIRDEYE"
+                tags.contains("SCANNER") || tags.contains("TRENDING") || tags.contains("BOOSTED") || tags.contains("GAINERS") -> "SCANNER"
+                tags.contains("PUMP_PORTAL") || tags.contains("PUMPPORTAL") || tags.contains("PUMP.FUN") || tags.contains("PUMP_FUN") -> "PUMP"
+                else -> "OTHER"
+            }
+        }
+        mints.forEach { mint -> buckets.getOrPut(bucketFor(mint)) { mutableListOf() }.add(mint) }
+        val out = mutableListOf<String>()
+        var emitted: Boolean
+        do {
+            emitted = false
+            for (key in priority) {
+                val q = buckets[key] ?: continue
+                if (q.isNotEmpty()) {
+                    out.add(q.removeAt(0))
+                    emitted = true
+                }
+            }
+            // Include any future/unrecognized bucket keys without starving them.
+            for ((key, q) in buckets) {
+                if (key in priority) continue
+                if (q.isNotEmpty()) {
+                    out.add(q.removeAt(0))
+                    emitted = true
+                }
+            }
+        } while (emitted)
+        return out
     }
 
     private fun emitWatchlistCapTrace(cap: Int, total: Int, forcedOpen: Int) {
