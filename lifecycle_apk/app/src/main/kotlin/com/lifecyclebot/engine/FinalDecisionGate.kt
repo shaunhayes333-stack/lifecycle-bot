@@ -3989,12 +3989,23 @@ object FinalDecisionGate {
                 // and trade back through it. Only genuine INVALID_UNTRADEABLE (unsafe /
                 // unsellable data — already in the original veto whitelist) may zero out.
                 val isTrueUntradeable = lpState == com.lifecyclebot.engine.learning.LanePolicy.State.INVALID_UNTRADEABLE
-                val shapeW = if (isTrueUntradeable) lpWeight else lpWeight.coerceAtLeast(0.05)
-                finalSize = (finalSize * shapeW).coerceAtLeast(if (isTrueUntradeable) 0.0 else 0.01)
-                tags.add("lane_policy:${lpState.name}×${"%.2f".format(shapeW)}")
+                val liveRuntime = try { com.lifecyclebot.engine.RuntimeModeAuthority.isLive() } catch (_: Throwable) { !config.paperMode }
+                val liveParityMicro = liveRuntime && lpState == com.lifecyclebot.engine.learning.LanePolicy.State.PAPER_MICRO_EXECUTION
+                // V5.9.1559 — PAPER_MICRO_EXECUTION is a paper/probe state name. In LIVE
+                // it must NOT choke real execution down to the 0.01 SOL floor forever.
+                // Treat it as reduced-size live execution: still cautious, but mirrors
+                // paper decision volume/win-rate shape instead of becoming a live no-op.
+                val shapeW = when {
+                    isTrueUntradeable -> lpWeight
+                    liveParityMicro   -> lpWeight.coerceAtLeast(0.35)
+                    else              -> lpWeight.coerceAtLeast(0.05)
+                }
+                finalSize = (finalSize * shapeW).coerceAtLeast(if (isTrueUntradeable) 0.0 else if (liveParityMicro) 0.025 else 0.01)
+                val lpLabel = if (liveParityMicro) "LIVE_REDUCED_FROM_${lpState.name}" else lpState.name
+                tags.add("lane_policy:${lpLabel}×${"%.2f".format(shapeW)}")
                 checks.add(GateCheck("lane_policy_weight", true,
-                    "lane=$laneName band=$lpScoreBand state=${lpState.name} execW=${"%.2f".format(shapeW)} size ${beforeLp.format(3)}→${finalSize.format(3)}"))
-                ErrorLogger.info("FDG", "🛞 LANE_POLICY_EXEC_WEIGHT ${ts.symbol} lane=$laneName band=$lpScoreBand ${lpState.name} ×${"%.2f".format(shapeW)} size ${beforeLp.format(3)}→${finalSize.format(3)}")
+                    "lane=$laneName band=$lpScoreBand state=${lpLabel} execW=${"%.2f".format(shapeW)} size ${beforeLp.format(3)}→${finalSize.format(3)}"))
+                ErrorLogger.info("FDG", "🛞 LANE_POLICY_EXEC_WEIGHT ${ts.symbol} lane=$laneName band=$lpScoreBand ${lpLabel} ×${"%.2f".format(shapeW)} size ${beforeLp.format(3)}→${finalSize.format(3)}")
                 // Train-First telemetry note for weak buckets — but we DO open the trade.
                 com.lifecyclebot.engine.learning.LanePolicy.noteRetrainingSample(laneName, lpScoreBand)
                 // ONLY genuinely untradeable (unsafe data) is routed no-open. Strategy

@@ -150,10 +150,20 @@ object ExecutableOpenGate {
         lastSafetyCheckMs: Long = -1L,
         mint: String = "",
         symbol: String = "",
+        currentLiquidityUsd: Double = 0.0,
+        currentSafetyTier: String = "UNKNOWN",
     ): Pair<String, String>? {
         if (state == null) return "EXEC_OPEN_DROPPED_NO_FINAL_CANDIDATE" to "NO_FINAL_BUY_CANDIDATE"
         val selected = canonicalLane(selectedLane)
         val requested = canonicalLane(requestedLane)
+        // V5.9.1559 — live unchoke: stale context hardNos must not survive
+        // after the current candidate proves the context is valid. This strips
+        // only derived context labels; real rug/fatal hardNo reasons remain.
+        val effectiveHardNoReasons = hardNoReasons.filterNot { hn ->
+            (hn.equals("ZERO_LIQUIDITY", true) && currentLiquidityUsd > 0.0) ||
+                (hn.equals("PRE_FDG_SAFETY_CONTEXT_MISSING", true) &&
+                    currentSafetyTier.isNotBlank() && !currentSafetyTier.equals("UNKNOWN", true))
+        }
         // V5.9.1320 (Item 6) — lane is resolved upstream (real selected → real requested →
         // UNKNOWN). Reaching here UNKNOWN means NEITHER lane was real: a genuinely unresolved
         // candidate. Surfaced as CANON_LANE_UNRESOLVED, the canonical terminal reason — NOT a
@@ -207,20 +217,26 @@ object ExecutableOpenGate {
                 }
             }
             val latestAllows = state?.fdgCan == true || state?.preFdgVerdict.equals("BUY", true) || state?.preFdgVerdict.equals("PROBE_ONLY", true)
-            val safetyOk = state?.safetyTier.equals("SAFE", true) || state?.safetyTier.equals("CAUTION", true) || mode.equals("LIVE", true)
-            val liqOk = (state?.liquidityUsd ?: 0.0) >= 1200.0
-            if (mode.equals("LIVE", true) && latestAllows && safetyOk && liqOk && hardNoReasons.isEmpty()) {
+            val safetyOk = currentSafetyTier.equals("SAFE", true) || currentSafetyTier.equals("CAUTION", true) ||
+                state?.safetyTier.equals("SAFE", true) || state?.safetyTier.equals("CAUTION", true) || mode.equals("LIVE", true)
+            // V5.9.1559 — LIVE finality restore must use the CURRENT candidate
+            // liquidity, not the stale EntryState liquidity. Operator log showed
+            // current liq=$1599 but cached finality liq=0 → preFdg WATCH dropped
+            // a lane-approved live candidate.
+            val effectiveLiq = maxOf(currentLiquidityUsd, state?.liquidityUsd ?: 0.0)
+            val liqOk = effectiveLiq >= 1200.0
+            if (mode.equals("LIVE", true) && latestAllows && safetyOk && liqOk && effectiveHardNoReasons.isEmpty()) {
                 try {
                     ForensicLogger.lifecycle(
                         "LIVE_RESTORE_STALE_WATCH_SOFT_ALLOW",
-                        "mint=${mint.take(10)} symbol=$symbol preFdg=$preFdgVerdict fdgCan=${state?.fdgCan} liq=${(state?.liquidityUsd ?: 0.0).toInt()} penalty=WATCH_FINALITY"
+                        "mint=${mint.take(10)} symbol=$symbol preFdg=$preFdgVerdict fdgCan=${state?.fdgCan} stateLiq=${(state?.liquidityUsd ?: 0.0).toInt()} currentLiq=${currentLiquidityUsd.toInt()} penalty=WATCH_FINALITY_SOFT_ALLOW"
                     )
                 } catch (_: Throwable) {}
                 return null
             }
             return "EXEC_OPEN_DROPPED_PRE_FDG_NOT_BUY" to preFdgVerdict
         }
-        if (hardNoReasons.isNotEmpty()) return "EXEC_OPEN_DROPPED_HARD_NO_BUY" to hardNoReasons.joinToString("+")
+        if (effectiveHardNoReasons.isNotEmpty()) return "EXEC_OPEN_DROPPED_HARD_NO_BUY" to effectiveHardNoReasons.joinToString("+")
         if (candidateVersion != currentVersion) return "EXEC_OPEN_DROPPED_STALE_CANDIDATE" to "STALE_CANDIDATE_VERSION_$candidateVersion"
         return null
     }
@@ -280,7 +296,10 @@ object ExecutableOpenGate {
                 v3FatalReason = fatalReason,
                 decisionBand = decisionBand,
                 rugScore = if (rugScore >= 0) rugScore else old?.rugScore ?: -1,
-                safetyTier = safetyTier,
+                // V5.9.1559 — do not let a V3 call with default UNKNOWN erase
+                // live safety context written by FDG/safety. This exact overwrite
+                // produced EXEC_GATE safetyTier=UNKNOWN after SAFETY_WRITE SAFE.
+                safetyTier = if (safetyTier.isNotBlank() && !safetyTier.equals("UNKNOWN", true)) safetyTier else old?.safetyTier ?: "UNKNOWN",
                 updatedAtMs = System.currentTimeMillis(),
             )
         }
@@ -365,9 +384,9 @@ object ExecutableOpenGate {
                 hardNoReasons = if (keepOld) (old?.hardNoReasons ?: finalHardNo) else finalHardNo,
                 candidateVersion = candidateVersion,
                 entryScore = if (entryScore >= 0) entryScore else old?.entryScore ?: -1,
-                liquidityUsd = liquidityUsd,
+                liquidityUsd = if (liquidityUsd > 0.0) liquidityUsd else old?.liquidityUsd ?: 0.0,
                 rugScore = if (rugScore >= 0) rugScore else old?.rugScore ?: -1,
-                safetyTier = safetyTier,
+                safetyTier = if (safetyTier.isNotBlank() && !safetyTier.equals("UNKNOWN", true)) safetyTier else old?.safetyTier ?: "UNKNOWN",
                 updatedAtMs = System.currentTimeMillis(),
             )
         }
@@ -379,10 +398,11 @@ object ExecutableOpenGate {
             // verdict. ForensicLogger.decision() had ZERO callers, which is why the funnel
             // always showed verdicts produced=0 despite FDG running. phase() bumps phaseCounts;
             // decision() bumps verdictCounts — both are needed.
-            val verdictLabel = if (canExecute && finalVerdict == "BUY" && finalHardNo.isEmpty()) "BUY" else "BLOCK"
+            val executableFdg = canExecute && finalHardNo.isEmpty() && (finalVerdict == "BUY" || finalVerdict == "PROBE_ONLY")
+            val verdictLabel = if (executableFdg) finalVerdict else "BLOCK"
             try { ForensicLogger.decision(ForensicLogger.PHASE.FDG, symbol, verdictLabel, 0, 0, reason ?: finalHardNo.firstOrNull() ?: verdictLabel) } catch (_: Throwable) {}
-            if (canExecute && finalVerdict == "BUY" && finalHardNo.isEmpty()) {
-                ErrorLogger.info("FDG", "FDG_ALLOW $symbol lane=${lane.uppercase()} preFdg=BUY hardNo=[] safety=$safetyTier rug=$rugScore liq=${liquidityUsd.toInt()} duplicate=false circuit=${ToxicModeCircuitBreaker.currentEntryPause().active} sellPressure=OK version=$candidateVersion")
+            if (executableFdg) {
+                ErrorLogger.info("FDG", "FDG_ALLOW $symbol lane=${lane.uppercase()} preFdg=$finalVerdict hardNo=[] safety=$safetyTier rug=$rugScore liq=${liquidityUsd.toInt()} duplicate=false circuit=${ToxicModeCircuitBreaker.currentEntryPause().active} sellPressure=${reason ?: "OK"} version=$candidateVersion")
                 ForensicLogger.phase(ForensicLogger.PHASE.FDG, symbol, "FDG_ALLOW $msg")
             } else {
                 ErrorLogger.info("FDG", "FDG_BLOCK $symbol lane=${lane.uppercase()} preFdg=$finalVerdict hardNo=$hard reason=${reason ?: finalHardNo.firstOrNull() ?: "FDG_BLOCK"}")
@@ -413,6 +433,9 @@ object ExecutableOpenGate {
         lane: String,
         source: String,
         attemptId: String = nextAttemptId(mint, lane),
+        liveLiquidityUsd: Double = -1.0,
+        liveSafetyTier: String = "",
+        lastSafetyCheckMs: Long = -1L,
     ): OpenVerdict {
         return canOpenExecutablePositionInternal(
             mint = mint,
@@ -422,6 +445,9 @@ object ExecutableOpenGate {
             lane = lane,
             source = source,
             attemptId = attemptId,
+            liveLiquidityUsd = liveLiquidityUsd,
+            liveSafetyTier = liveSafetyTier,
+            lastSafetyCheckMs = lastSafetyCheckMs,
         )
     }
 
@@ -684,6 +710,8 @@ object ExecutableOpenGate {
             lastSafetyCheckMs = lastSafetyCheckMs, // V5.9.1496
             mint = mint,                          // V5.9.1496
             symbol = symbol,                      // V5.9.1496
+            currentLiquidityUsd = liquidityUsd,    // V5.9.1559 live stale-WATCH restore
+            currentSafetyTier = safetyTier,        // V5.9.1559 live stale-WATCH restore
         )?.let { (log, reason) ->
             if (log.contains("STALE_CANDIDATE")) {
                 try { LaneExecutionCoordinator.releaseIfPrimary(mint, laneForRelease(selectedLane, lane), "CANDIDATE_STALE_DROPPED", candidateVersion = candidateVersion) } catch (_: Throwable) {}
@@ -708,9 +736,26 @@ object ExecutableOpenGate {
             // UNKNOWN/bucket) while the requester IS a real specialist — it is the
             // lane actually trying to open and nothing else holds authority, so let
             // it proceed. Otherwise this is genuine lane contention → dedup.
-            val rescueRequester = isRealExecutionLane(requestedLane) && !isRealExecutionLane(rawSelectedLane)
+            val primaryHasAllowedHandoff = try { recentAllowedAttemptId(mint, canonicalSelectedLane) != null } catch (_: Throwable) { false }
+            val rescueRequester = isRealExecutionLane(requestedLane) && (
+                !isRealExecutionLane(rawSelectedLane) ||
+                    // V5.9.1559 — live unchoke: if lane election picked a primary
+                    // but that primary never produced an executable handoff, blocking
+                    // the requesting lane is lost volume, not dedup. Operator log:
+                    // PRIMARY_MANIPULATED_LOST_SHITCOIN while the SHITCOIN/EXPRESS
+                    // lane had can=true and the primary did not open.
+                    (modeUpper == "LIVE" && !primaryHasAllowedHandoff)
+            )
             if (!rescueRequester) {
                 return dropped("EXEC_OPEN_DEDUP_LANE_CONTENTION", "PRIMARY_${canonicalSelectedLane}_LOST_${requestedLane}")
+            }
+            if (modeUpper == "LIVE" && isRealExecutionLane(requestedLane) && !primaryHasAllowedHandoff) {
+                try {
+                    ForensicLogger.lifecycle(
+                        "LIVE_LANE_CONTENTION_RESCUED_REQUESTER",
+                        "mint=${mint.take(10)} symbol=$symbol selected=$canonicalSelectedLane requested=$requestedLane reason=primary_no_allowed_handoff"
+                    )
+                } catch (_: Throwable) {}
             }
         }
         if (safetyTier.equals("UNKNOWN", true)) {

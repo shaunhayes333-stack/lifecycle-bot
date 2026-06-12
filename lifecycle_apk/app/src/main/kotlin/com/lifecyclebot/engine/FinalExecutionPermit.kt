@@ -126,6 +126,9 @@ object FinalExecutionPermit {
         finalityPrechecked: Boolean = false,
         paperMode: Boolean = isPaperMode,
         rugScore: Int = -1,
+        liquidityUsd: Double = -1.0,
+        safetyTier: String = "",
+        lastSafetyCheckMs: Long = -1L,
     ): Boolean {
         val now = System.currentTimeMillis()
         fun releasePrimaryAfterPermitFailure(reason: String) {
@@ -160,6 +163,9 @@ object FinalExecutionPermit {
                 lane = layer,
                 source = "FinalExecutionPermit.tryAcquireExecution",
                 attemptId = finalityAttemptId,
+                liveLiquidityUsd = liquidityUsd,
+                liveSafetyTier = safetyTier,
+                lastSafetyCheckMs = lastSafetyCheckMs,
             )
             if (!finality.allowed) {
                 ErrorLogger.debug(TAG, "🚫 FINALITY_BLOCK: $symbol | layer=$layer attemptId=${finality.attemptId} reason=${finality.reason}")

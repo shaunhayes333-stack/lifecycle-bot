@@ -16076,7 +16076,10 @@ if (hotExitHandledSweep) {
                                     attemptId = treasuryAttemptId,
                                     finalityPrechecked = true,
                                     paperMode = cfg.paperMode,
-                                    rugScore = ts.safety.rugcheckScore
+                                    rugScore = ts.safety.rugcheckScore,
+                                    liquidityUsd = ts.lastLiquidityUsd,
+                                    safetyTier = ts.safety.tier.name,
+                                    lastSafetyCheckMs = ts.lastSafetyCheck
                                 )
                                 
                                 if (canExecute) {
@@ -16322,7 +16325,10 @@ if (hotExitHandledSweep) {
                                 layer = "QUALITY",
                                 sizeSol = qualitySignal.positionSizeSol,
                                 paperMode = cfg.paperMode,
-                                rugScore = ts.safety.rugcheckScore
+                                rugScore = ts.safety.rugcheckScore,
+                                liquidityUsd = ts.lastLiquidityUsd,
+                                safetyTier = ts.safety.tier.name,
+                                lastSafetyCheckMs = ts.lastSafetyCheck
                             )
                             
                             if (canExecute) {
@@ -16503,7 +16509,10 @@ if (hotExitHandledSweep) {
                                 layer = "BLUE_CHIP",
                                 sizeSol = blueChipSignal.positionSizeSol,
                                 paperMode = cfg.paperMode,
-                                rugScore = ts.safety.rugcheckScore
+                                rugScore = ts.safety.rugcheckScore,
+                                liquidityUsd = ts.lastLiquidityUsd,
+                                safetyTier = ts.safety.tier.name,
+                                lastSafetyCheckMs = ts.lastSafetyCheck
                             )
                             
                             if (canExecute) {
@@ -16830,6 +16839,9 @@ if (hotExitHandledSweep) {
                                         finalityPrechecked = true,
                                         paperMode = cfg.paperMode,
                                         rugScore = ts.safety.rugcheckScore,
+                                        liquidityUsd = ts.lastLiquidityUsd,
+                                        safetyTier = ts.safety.tier.name,
+                                        lastSafetyCheckMs = ts.lastSafetyCheck,
                                     )) {
                                         try {
                                             val collectiveLabel = if (moonshotScore.isCollectiveBoost) " [COLLECTIVE]" else ""
@@ -17417,6 +17429,9 @@ if (hotExitHandledSweep) {
                                     finalityPrechecked = true,
                                     paperMode = cfg.paperMode,
                                     rugScore = ts.safety.rugcheckScore,
+                                    liquidityUsd = ts.lastLiquidityUsd,
+                                    safetyTier = ts.safety.tier.name,
+                                    lastSafetyCheckMs = ts.lastSafetyCheck
                                 )
                                 
                                 if (canExecute) {

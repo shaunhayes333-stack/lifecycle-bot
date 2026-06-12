@@ -202,6 +202,7 @@ object TradeAuthorizer {
             lane = requestedBook.name,
             source = "TradeAuthorizer.preAuth",
             attemptId = finalityAttemptId,
+            liveLiquidityUsd = liquidity,
         )
         if (!finality.allowed) {
             ErrorLogger.info(TAG, "❌ REJECT $symbol: FINALITY_${finality.logName} attemptId=${finality.attemptId} reason=${finality.reason}")
