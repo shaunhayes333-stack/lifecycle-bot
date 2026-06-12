@@ -293,7 +293,11 @@ class CollectiveBrainActivity : AppCompatActivity() {
         // No more mixing local + collective - show TRUE network data when connected
         // ═══════════════════════════════════════════════════════════════════════════
         
-        val isTursoEnabled = CollectiveLearning.isEnabled()
+        // V5.9.1556b — don't show LOCAL ONLY just because async init has not
+        // completed yet. Try one reconnect/probe before deciding the hive is off.
+        val isTursoEnabled = if (CollectiveLearning.isEnabled()) true else {
+            try { CollectiveLearning.ensureConnected() } catch (_: Exception) { false }
+        }
         
         // V4.0: Get REAL collective stats from the network
         val collectiveStats = if (isTursoEnabled) {

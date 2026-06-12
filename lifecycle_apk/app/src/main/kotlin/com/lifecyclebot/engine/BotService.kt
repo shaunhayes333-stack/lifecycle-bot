@@ -15944,7 +15944,14 @@ if (hotExitHandledSweep) {
                                 ErrorLogger.info("BotService",
                                     "🏷️ [TREASURY] ${ts.symbol} | EXPECTANCY_SOFTSHAPE (size×0.25, not blocked) | score=$_trsScore | μ=${"%+.1f".format(com.lifecyclebot.engine.ScoreExpectancyTracker.bucketMean("TREASURY", _trsScore) ?: 0.0)}% n=${com.lifecyclebot.engine.ScoreExpectancyTracker.bucketSamples("TREASURY", _trsScore)}")
                             }
-                            val adjustedSize = (treasurySignal.positionSizeSol * bootstrapMultiplier * dangerSizeMult * _trsExpectancyMult * _trsCalMult).coerceAtLeast(0.01)
+                            // V5.9.1556 — tuning only: Treasury overall is net-positive,
+                            // but console shows TREASURY|S0-10 as the dominant danger
+                            // bucket (42L/6W mean -11.4%). Preserve learning/volume, but
+                            // let toxic buckets become true dust probes instead of being
+                            // floored back to 0.01 SOL after multipliers.
+                            val treasuryToxicBucket = _trsIsDanger || _trsExpectancyReject || _trsCalMult < 1.0
+                            val treasuryMinSize = if (treasuryToxicBucket) 0.002 else 0.01
+                            val adjustedSize = (treasurySignal.positionSizeSol * bootstrapMultiplier * dangerSizeMult * _trsExpectancyMult * _trsCalMult).coerceAtLeast(treasuryMinSize)
                             
                             // V5.2.8 FIX: If bootstrap override forced entry, use default TP/SL values
                             // When Treasury rejects, it returns 0% TP which causes immediate exits!

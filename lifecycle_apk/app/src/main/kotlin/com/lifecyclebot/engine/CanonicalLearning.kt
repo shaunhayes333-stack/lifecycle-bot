@@ -770,6 +770,11 @@ object CanonicalOutcomeBus {
      * SELL — buys produce OPEN events that get superseded by the SELL event
      * later in the trade lifecycle.
      */
+    private fun isMeaningfulModeName(raw: String?): Boolean {
+        val u = raw?.trim()?.uppercase().orEmpty()
+        return u.isNotBlank() && u !in setOf("UNKNOWN", "NULL", "NONE", "UNSET", "N/A", "NA")
+    }
+
     fun publishFromLegacyTrade(trade: Trade) {
         val isPartialSide = trade.side.equals("PARTIAL_SELL", ignoreCase = true)
         if (!trade.side.equals("SELL", ignoreCase = true) && !isPartialSide) return
@@ -785,7 +790,10 @@ object CanonicalOutcomeBus {
         // build the rich CandidateFeatures. Infer the mode from the close
         // reason as a fallback so these trades still resolve to a real
         // strategy bin instead of UNKNOWN.
-        val effectiveModeName: String = if (trade.tradingMode.isBlank() && trade.reason.isNotBlank()) {
+        // V5.9.1556b — UNKNOWN is not a lane. Treat literal UNKNOWN/NONE/etc
+        // the same as blank so the reason/execution fallback can repair the
+        // source label before it reaches learning.
+        val effectiveModeName: String = if (!isMeaningfulModeName(trade.tradingMode) && trade.reason.isNotBlank()) {
             val r = trade.reason.uppercase()
             when {
                 r.contains("MOONSHOT") -> "MOONSHOT"
@@ -806,7 +814,8 @@ object CanonicalOutcomeBus {
                 r.contains("MOMENTUM") -> "MOMENTUM_SWING"
                 r.contains("PRESALE") -> "PRESALE_SNIPE"
                 r.contains("RAPID_") || r.contains("FLUID") -> "STANDARD"
-                else -> trade.tradingMode
+                r.contains("PARTIAL") || r.contains("PROFIT_LOCK") || r.contains("CAPITAL_RECOVERY") -> "STANDARD"
+                else -> "STANDARD"
             }
         } else trade.tradingMode
         var mode = CanonicalOutcomeNormalizer.normalizeMode(effectiveModeName)

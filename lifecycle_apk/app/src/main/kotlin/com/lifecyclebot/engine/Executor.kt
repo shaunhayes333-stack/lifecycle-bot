@@ -209,15 +209,16 @@ object WrRecoveryPartial {
         // Forensic 2026-05-19 17:35: PTROLL +9.3% sat open with no partial
         // sell — exactly the scenario operator wrote the rule for.
         // R2/R3 unchanged (35/60) so the ladder still spaces out properly.
-        Band.AGGRESSIVE -> Triple(9.0, 35.0, 60.0)
-        Band.MODERATE   -> Triple(25.0, 45.0, 80.0)
-        Band.FLUID      -> Triple(30.0, 60.0, 120.0)
-        // V5.9.1473 — healthy-bot winner-lock ladder. Wider than FLUID so a
-        // performing bot lets winners breathe, but FAR below the +200% config
-        // default that left winners naked. R1 +12% locks the first tick on a
-        // normal scalp; R2/R3 space out so runners still develop. The bulk
-        // (post-R3) rides into Capital Recovery / Profit Lock / Fluid Trail.
-        Band.PERFORMING -> Triple(12.0, 30.0, 60.0)
+        // V5.9.1556 — TUNING ONLY from console MFE replay:
+        // UNKNOWN/FLOOR_-15_LETRUN replay beat CURRENT_ACTUAL hard, while
+        // partial ladder was realizing too little of peak. Keep WR recovery
+        // protection, but sell less and later so runners keep enough tail.
+        Band.AGGRESSIVE -> Triple(9.0, 45.0, 90.0)
+        Band.MODERATE   -> Triple(30.0, 70.0, 140.0)
+        Band.FLUID      -> Triple(60.0, 150.0, 300.0)
+        // Performing bots should not shave winners at +12/+30/+60 when MFE
+        // shows multi-1000% peaks. Let normal config/runner locks work.
+        Band.PERFORMING -> Triple(100.0, 500.0, 2000.0)
         Band.OFF        -> Triple(Double.POSITIVE_INFINITY, Double.POSITIVE_INFINITY, Double.POSITIVE_INFINITY)
     }
 
@@ -255,13 +256,11 @@ object WrRecoveryPartial {
      *     and -15% hard floor catching dumpers.
      */
     private fun fractionFor(band: Band): Double = when (band) {
-        Band.AGGRESSIVE -> 0.15
-        Band.MODERATE   -> 0.15
-        Band.FLUID      -> 0.12
-        // V5.9.1473 — lightest fraction: lock a small win tick per rung, leave
-        // the maximum tail riding for the runner stack. 10% per rung → ~73% of
-        // original qty still rides after R3 (1 − 0.90³).
-        Band.PERFORMING -> 0.10
+        // V5.9.1556 — MFE capture tuning: smaller rungs preserve runner tail.
+        Band.AGGRESSIVE -> 0.10
+        Band.MODERATE   -> 0.08
+        Band.FLUID      -> 0.06
+        Band.PERFORMING -> 0.04
         Band.OFF        -> 1.0  // pass-through; caller multiplies by config fraction
     }
 
@@ -2661,7 +2660,10 @@ class Executor(
                             try {
                                 val holdTimeSec = if (_fanoutEntryTime > 0)
                                     (System.currentTimeMillis() - _fanoutEntryTime) / 1000 else 0L
-                                val mode = try { ModeRouter.classify(ts).tradeType.name } catch (_: Exception) { "UNKNOWN" }
+                                // V5.9.1556b — UNKNOWN is not a lane. RunTracker must use
+                                // the same source-of-creation lane already resolved for the
+                                // Trade journal, not ModeRouter's coarse classifier fallback.
+                                val mode = _fanoutTradingMode.takeIf { isMeaningfulLaneName(it) } ?: "STANDARD"
                                 RunTracker30D.recordTrade(
                                     symbol = _fanoutSymbol, mint = _fanoutMint,
                                     entryPrice = _fanoutEntryPrice, exitPrice = _fanoutExitPrice,
@@ -2741,8 +2743,21 @@ class Executor(
                     val executionEnum = if (tradeWithMint.sig.isNotBlank() || isPaperEnv)
                         com.lifecyclebot.engine.ExecutionResult.EXECUTED
                     else com.lifecyclebot.engine.ExecutionResult.UNKNOWN
-                    val rawMode = try { ModeRouter.classify(ts).tradeType.name } catch (_: Throwable) { ts.position.tradingMode }
-                    val modeEnum = com.lifecyclebot.engine.CanonicalOutcomeNormalizer.normalizeMode(rawMode)
+                    // V5.9.1556b — fix UNKNOWN at source of rich canonical creation.
+                    // ModeRouter.classify(ts) can legitimately return UNKNOWN for generic
+                    // V3/core meme positions; using it first corrupted learning/UI bins.
+                    // The Trade has already been source-resolved above from the position
+                    // flags / pos.tradingMode / STANDARD fallback, so make that the
+                    // authority. ModeRouter is only a last-resort fallback.
+                    val rawMode = when {
+                        isMeaningfulLaneName(tradeWithMint.tradingMode) -> tradeWithMint.tradingMode
+                        isMeaningfulLaneName(ts.position.tradingMode) -> ts.position.tradingMode
+                        else -> try { ModeRouter.classify(ts).tradeType.name } catch (_: Throwable) { "STANDARD" }
+                    }
+                    val modeEnumRaw = com.lifecyclebot.engine.CanonicalOutcomeNormalizer.normalizeMode(rawMode)
+                    val modeEnum = if (modeEnumRaw == com.lifecyclebot.engine.TradeMode.UNKNOWN &&
+                        (tradeWithMint.sig.isNotBlank() || isPaperEnv) && tradeWithMint.price > 0.0
+                    ) com.lifecyclebot.engine.TradeMode.STANDARD else modeEnumRaw
                     // V5.9.853 — operator audit F4: source enum mistag.
                     // Executor.recordTrade default-mapped every non-flag position
                     // to TradeSource.V3, which clobbered MOONSHOT/MANIP/COPY/

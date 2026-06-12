@@ -108,7 +108,7 @@ object CollectiveLearning {
 
             Log.i(
                 TAG,
-                "INIT: dbUrl=${dbUrl.take(50)}... authToken=${authToken.take(20)}..."
+                "INIT: dbUrlHost=${dbUrl.replace("libsql://", "").replace("https://", "").take(80)} authTokenPresent=${authToken.isNotBlank()} tokenLen=${authToken.length}"
             )
 
             if (dbUrl.isBlank() || authToken.isBlank()) {
@@ -2603,12 +2603,23 @@ object CollectiveLearning {
     )
 
     fun getSyncStatus(): SyncStatus {
-        val tursoConfigured = client != null
-        val connected = isInitialized && tursoConfigured
+        // V5.9.1556b — client!=null means connected/initialized, not configured.
+        // The UI was reporting "Turso not configured" whenever init failed or was
+        // still async, even though defaults/config credentials exist. That hid the
+        // real issue and made Hive Mind look disabled. Check config separately.
+        val configuredByPrefs = try {
+            val ctx = appContext
+            if (ctx != null) {
+                val cfg = com.lifecyclebot.data.ConfigStore.load(ctx)
+                cfg.collectiveLearningEnabled && cfg.tursoDbUrl.isNotBlank() && cfg.tursoAuthToken.isNotBlank()
+            } else false
+        } catch (_: Throwable) { false }
+        val connected = isInitialized && client != null
+        val tursoConfigured = configuredByPrefs || client != null
 
         val message = when {
-            !tursoConfigured -> "Turso not configured - LOCAL ONLY mode"
-            !isInitialized -> "Collective learning not initialized"
+            !tursoConfigured -> "Turso credentials missing - LOCAL ONLY mode"
+            !connected -> "Turso configured but not connected - reconnect pending"
             lastSyncTime == 0L -> "Connected but never synced"
             else -> {
                 val ago = (System.currentTimeMillis() - lastSyncTime) / 60000L
