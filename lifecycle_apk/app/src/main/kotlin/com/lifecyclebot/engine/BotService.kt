@@ -8374,6 +8374,65 @@ class BotService : Service() {
         return out
     }
 
+    private fun isPumpDominanceSourceTag(tag: String): Boolean {
+        val t = tag.uppercase()
+        return t.contains("PUMP_PORTAL") || t.contains("PUMPPORTAL") ||
+            t.contains("PUMP_FUN") || t.contains("PUMPFUN") || t.contains("PF")
+    }
+
+    private fun hasNonPumpConfirmationTag(tag: String): Boolean {
+        val t = tag.uppercase()
+        return t.contains("DEX") || t.contains("RAYDIUM") || t.contains("COINGECKO") ||
+            t.contains("CMC") || t.contains("WHALE") || t.contains("BOOSTED") ||
+            t.contains("TRENDING") || t.contains("V3_PREMIUM")
+    }
+
+    /** V5.9.1560 — actively drain existing pump.fun dominance from hot runtime. */
+    private fun rebalanceHotWatchlistSources(reason: String) {
+        try {
+            val entries = com.lifecyclebot.engine.GlobalTradeRegistry.getWatchlistEntries()
+            if (entries.size < 12) return
+            fun isPumpOnly(e: com.lifecyclebot.engine.GlobalTradeRegistry.WatchlistEntry): Boolean {
+                val tag = e.addedBy + "|" + e.source
+                return isPumpDominanceSourceTag(tag) && !hasNonPumpConfirmationTag(tag)
+            }
+            val pumpEntries = entries.filter { isPumpOnly(it) }.sortedBy { it.addedAt }
+            val total = entries.size
+            val cap = minOf(
+                kotlin.math.ceil(total * 0.35).toInt().coerceAtLeast(1),
+                (total - 12).coerceAtLeast(1)
+            )
+            val excess = (pumpEntries.size - cap).coerceAtLeast(0)
+            if (excess <= 0) return
+            var demoted = 0
+            for (entry in pumpEntries.take(excess)) {
+                val open = try { synchronized(status.tokens) { status.tokens[entry.mint]?.position?.isOpen == true } } catch (_: Throwable) { false }
+                if (open) continue
+                val ok = try {
+                    com.lifecyclebot.engine.GlobalTradeRegistry.demoteWatchlistToProbation(
+                        mint = entry.mint,
+                        reason = "SOURCE_BALANCE_PUMP_DOMINANCE_$reason",
+                        liquidityUsd = 0.0,
+                        confidence = 0,
+                        isEstimatedLiquidity = true,
+                    )
+                } catch (_: Throwable) { false }
+                if (ok) {
+                    try { synchronized(status.tokens) { status.tokens.remove(entry.mint) } } catch (_: Throwable) {}
+                    demoted++
+                }
+            }
+            if (demoted > 0) {
+                try {
+                    ForensicLogger.lifecycle(
+                        "HOT_WATCHLIST_SOURCE_REBALANCED",
+                        "reason=$reason demoted=$demoted pump=${pumpEntries.size} cap=$cap total=$total"
+                    )
+                } catch (_: Throwable) {}
+            }
+        } catch (_: Throwable) {}
+    }
+
     private fun admitProtectedMemeIntake(
         mint: String,
         symbol: String,
@@ -8837,8 +8896,32 @@ class BotService : Service() {
             null
         }
 
-        // Hydrate runtime token state regardless of add result. Duplicates and
-        // legacy rejection memory must never leave registry/status/UI divergent.
+
+        rebalanceHotWatchlistSources("post_intake")
+
+        // V5.9.1560 — HOT WATCHLIST MEANS status.tokens too.
+        // Previous code claimed probation costs zero bot-loop cycles, then hydrated
+        // every probation-only mint into status.tokens anyway. The screenshot showed
+        // the result: visible scanner/watchlist still dominated by PF/RC pump.fun
+        // rows. If registry says probation-only, keep it out of the hot runtime map
+        // unless it already exists/open; future promotion will re-enter here with
+        // source=PROBATION and hydrate normally.
+        if (addResult?.probation == true && addResult.added == false) {
+            val alreadyHot = try { synchronized(status.tokens) { status.tokens.containsKey(mint) } } catch (_: Throwable) { false }
+            if (!alreadyHot) {
+                try {
+                    ForensicLogger.lifecycle(
+                        "HOT_WATCHLIST_HYDRATE_SKIPPED_PROBATION",
+                        "symbol=${symbol.ifBlank { mint.take(6) }} mint=${mint.take(10)} src=$source reason=${addResult.reason}"
+                    )
+                } catch (_: Throwable) {}
+                return true
+            }
+        }
+
+        // Hydrate runtime token state for hot watchlist entries / duplicates. Legacy
+        // rejection memory must never leave registry/status/UI divergent, but
+        // probation-only rows intentionally stay cold.
         try {
             synchronized(status.tokens) {
                 // V5.9.1193 — hot cache lookup BEFORE getOrPut. 3157 showed

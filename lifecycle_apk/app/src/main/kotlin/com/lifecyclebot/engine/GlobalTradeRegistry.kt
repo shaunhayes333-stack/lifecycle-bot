@@ -118,15 +118,17 @@ object GlobalTradeRegistry {
     private const val MAX_WATCHLIST_SIZE = 500  // V5.9.369: was 300; bumped for memetrader idle pool target ≥100
     private const val MAX_PROBATION_SIZE = 500
 
-    // V5.9.794 — operator audit Item 6: hard cap on concurrent PumpPortal
-    // active candidates. Operator-stated rule: "Cap PumpPortal active
-    // candidates." When the cap is reached, NEW pump-source additions are
-    // rejected (PUMP_PORTAL_CAP_REACHED) — old entries drain via the
-    // aggressive low-score TTL (WatchlistTtlPolicy V5.9.793) so the
-    // pipeline doesn't get poisoned by a long-tail of no-pair tokens.
+    // V5.9.1560 — SOURCE-BALANCED HOT WATCHLIST CAP.
+    // The previous hard cap was 300, effectively useless when the visible hot
+    // watchlist is 20-80 rows. Operator screenshots kept showing nearly all
+    // PF/RC pump.fun rows. Pump sources remain observable via probation, but
+    // cannot dominate the hot supervisor/UI bench.
     private const val MAX_PUMP_PORTAL_CONCURRENT = 300
+    private const val MAX_PUMP_HOT_FRACTION = 0.35
+    private const val MIN_NON_PUMP_RESERVED_HOT_SLOTS = 12
 
     private val pumpPortalRejections = AtomicLong(0)
+    private val pumpPortalProbationDiversions = AtomicLong(0)
 
     /** Identifies whether an addedBy / source tag points at a PumpPortal-style intake. */
     private fun isPumpPortalSource(addedBy: String, source: String): Boolean {
@@ -142,7 +144,39 @@ object GlobalTradeRegistry {
     fun pumpPortalConcurrentCount(): Int =
         watchlist.values.count { isPumpPortalSource(it.addedBy, it.source) }
 
+    fun sourceMixSnapshot(): Map<String, Int> = mapOf(
+        "pump" to pumpPortalConcurrentCount(),
+        "nonPump" to watchlist.values.count { !isPumpPortalSource(it.addedBy, it.source) },
+        "total" to watchlist.size,
+        "probation" to probation.size,
+    )
+
+    private fun pumpHotCapFor(totalHot: Int): Int {
+        val dynamic = kotlin.math.ceil((totalHot.coerceAtLeast(1)) * MAX_PUMP_HOT_FRACTION).toInt()
+        val reserved = (totalHot - MIN_NON_PUMP_RESERVED_HOT_SLOTS).coerceAtLeast(1)
+        return minOf(MAX_PUMP_PORTAL_CONCURRENT, maxOf(1, minOf(dynamic, reserved)))
+    }
+
+    private fun hasNonPumpConfirmation(addedBy: String, source: String): Boolean {
+        val tags = (addedBy + "|" + source).uppercase()
+        return tags.contains("DEX_") || tags.contains("DEXSCREENER") ||
+            tags.contains("RAYDIUM") || tags.contains("COINGECKO") ||
+            tags.contains("CMC") || tags.contains("WHALE") ||
+            tags.contains("V3_PREMIUM") || tags.contains("BOOSTED") ||
+            tags.contains("TRENDING")
+    }
+
+    private fun shouldDivertPumpToProbation(addedBy: String, source: String): Boolean {
+        if (!isPumpPortalSource(addedBy, source)) return false
+        if (hasNonPumpConfirmation(addedBy, source)) return false // multi-source confirmation earns hot admission
+        val total = watchlist.size
+        if (total < 12) return false // cold start: let a few through so UI is alive
+        val currentPump = pumpPortalConcurrentCount()
+        return currentPump >= pumpHotCapFor(total + 1)
+    }
+
     fun pumpPortalRejectionCount(): Long = pumpPortalRejections.get()
+    fun pumpPortalProbationDiversionCount(): Long = pumpPortalProbationDiversions.get()
 
     fun pumpPortalCapMax(): Int = MAX_PUMP_PORTAL_CONCURRENT
 
@@ -306,19 +340,31 @@ object GlobalTradeRegistry {
             }
         }
 
-        // V5.9.794 — operator audit Item 6: hard cap on concurrent PumpPortal
-        // candidates. Stops the pump-source firehose from saturating the
-        // watchlist with no-pair tokens that would never pass FDG's
-        // exitCapacityUsd floor anyway. Operator-stated target capped at
-        // MAX_PUMP_PORTAL_CONCURRENT (300). Aggressive low-score TTL +
-        // saturation TTL drain old entries so this cap is rarely hit
-        // outside genuine pump-launch storms.
-        if (isPumpPortalSource(addedBy, source)) {
+        // V5.9.1560 — source-balanced hot watchlist. Excess pump-origin rows
+        // go to probation instead of occupying the visible/supervisor hot bench.
+        // They are NOT deleted: later multi-source confirmation / RC / price action
+        // can still promote them.
+        if (shouldDivertPumpToProbation(addedBy, source)) {
+            pumpPortalProbationDiversions.incrementAndGet()
             val current = pumpPortalConcurrentCount()
-            if (current >= MAX_PUMP_PORTAL_CONCURRENT) {
-                pumpPortalRejections.incrementAndGet()
-                return AddResult(false, "PUMP_PORTAL_CAP_REACHED: $current >= $MAX_PUMP_PORTAL_CONCURRENT")
-            }
+            val cap = pumpHotCapFor(watchlist.size + 1)
+            try {
+                addToProbation(
+                    mint = mint,
+                    symbol = symbol,
+                    addedBy = addedBy,
+                    source = "SOURCE_BALANCE_DIVERT:$source",
+                    initialMcap = initialMcap,
+                    liquidityUsd = initialMcap / 10.0,
+                    confidence = 0,
+                    isEstimatedLiquidity = false,
+                    isSingleSource = true,
+                    price = 0.0,
+                    laneAffinity = laneAffinity,
+                    toolAffinity = toolAffinity,
+                )
+            } catch (_: Throwable) {}
+            return AddResult(false, "SOURCE_BALANCE_PUMP_PROBATION: pump=$current cap=$cap total=${watchlist.size}", probation = true)
         }
 
         // V5.2: No max size check - let watchlist grow as needed
