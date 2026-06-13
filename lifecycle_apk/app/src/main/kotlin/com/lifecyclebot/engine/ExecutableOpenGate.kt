@@ -670,28 +670,39 @@ object ExecutableOpenGate {
             return blocked("EXEC_OPEN_BLOCKED_RUNTIME_PAUSED", "RUNTIME_MITIGATION_PAUSE")
         }
         if (BirdeyeBudgetGate.isEntryBudgetLockedDown()) {
-            return blocked("EXEC_OPEN_BLOCKED_API_BUDGET_LOCKDOWN", "BIRDEYE_LOCKDOWN")
+            // V5.9.1568 — budget exhaustion must not halt PAPER learning. Paid
+            // endpoint lockdown should reduce enrichment quality, not stop the
+            // simulator from generating labelled outcomes. LIVE remains blocked
+            // conservatively until budget/API health recovers.
+            if (modeUpper == "PAPER") {
+                try {
+                    ForensicLogger.lifecycle("PAPER_API_BUDGET_LOCKDOWN_BYPASSED", "symbol=$symbol lane=$lane source=$source")
+                    PipelineHealthCollector.labelInc("PAPER_API_BUDGET_LOCKDOWN_BYPASSED")
+                } catch (_: Throwable) {}
+            } else {
+                return blocked("EXEC_OPEN_BLOCKED_API_BUDGET_LOCKDOWN", "BIRDEYE_LOCKDOWN")
+            }
         }
-        // V5.9.1230 — RC=1 is the RugCheck PENDING/UNKNOWN sentinel, not a
-        // confirmed rug. Upstream paper policy already allows RC=1 so learning
-        // can collect labelled outcomes; however V3 may still stamp the state
-        // BLOCK_FATAL as EXTREME_RUG_* before the pending RC resolves. In PAPER
-        // CYCLIC only (the original failing lane), when the executable-open rug
-        // score is exactly 1 and the fatal reason is rug-score based, treat that
-        // V3 fatal as learnable pending.
-        // Live remains strict, and confirmed RC=0 / other fatal categories still
-        // hard-block unconditionally.
-        val paperRcPendingV3Fatal = modeUpper == "PAPER" && requestedLane == "CYCLIC" && rug == 1 && (
+        // V5.9.1230/V5.9.1568 — RC=1 is RugCheck PENDING/UNKNOWN, not a
+        // confirmed rug. Upstream paper policy allows RC=1 so learning can
+        // collect labelled outcomes. This must apply to ALL paper meme lanes,
+        // not CYCLIC only: the live regression showed SHITCOIN/MEME fresh
+        // launches stamped BLOCK_FATAL EXTREME_RUG_RISK_100 and then blocked
+        // here even after FDG allowed execution. Live remains strict, and
+        // confirmed RC=0 / structural fatal categories still hard-block.
+        val paperRcPendingV3Fatal = modeUpper == "PAPER" && rug == 1 && (
             fatalReason.contains("EXTREME_RUG_CRITICAL_score=1", ignoreCase = true) ||
-                fatalReason.contains("EXTREME_RUG_RISK_100", ignoreCase = true)
+                fatalReason.contains("EXTREME_RUG_RISK", ignoreCase = true)
         )
-        if ((v3Decision == "BLOCK_FATAL" || v3Decision == "BLOCKED" || band == "BLOCK_FATAL") && !paperRcPendingV3Fatal) {
+        val paperModelRugFatal = modeUpper == "PAPER" && fatalReason.contains("EXTREME_RUG_RISK", ignoreCase = true)
+        val paperLearnableV3Fatal = paperRcPendingV3Fatal || paperModelRugFatal
+        if ((v3Decision == "BLOCK_FATAL" || v3Decision == "BLOCKED" || band == "BLOCK_FATAL") && !paperLearnableV3Fatal) {
             return blocked("EXEC_OPEN_BLOCKED_FATAL_V3", fatalReason)
         }
-        if (paperRcPendingV3Fatal) {
+        if (paperLearnableV3Fatal) {
             try {
                 ForensicLogger.lifecycle(
-                    "EXEC_OPEN_PAPER_RC_PENDING_V3_FATAL_BYPASSED",
+                    "EXEC_OPEN_PAPER_LEARNABLE_V3_FATAL_BYPASSED",
                     "attemptId=$attemptId symbol=$symbol mint=${mint.take(10)} lane=$lane fatalReason=$fatalReason rugScore=$rug"
                 )
             } catch (_: Throwable) {}

@@ -195,6 +195,22 @@ class GoldenTapeRegressionTest {
         assertTrue(bot.contains("QualityTraderAI.evictGhost"))
         assertTrue(bot.contains("ManipulatedTraderAI.evictGhost"))
     }
+
+    @Test
+    fun paper_model_rug_fatal_does_not_early_return_before_subtraders() {
+        val bot = java.io.File("src/main/kotlin/com/lifecyclebot/engine/BotService.kt").readText()
+        assertTrue(bot.contains("V3_PAPER_MODEL_RUG_FATAL_SOFTENED"))
+        assertTrue(bot.contains("paperModelRugFatal"))
+    }
+
+    @Test
+    fun executable_open_gate_bypasses_learnable_paper_v3_fatals_all_lanes() {
+        val gate = java.io.File("src/main/kotlin/com/lifecyclebot/engine/ExecutableOpenGate.kt").readText()
+        assertTrue(gate.contains("paperLearnableV3Fatal"))
+        assertFalse("RC_PENDING bypass must not be CYCLIC-only", gate.contains("requestedLane == \"CYCLIC\" && rug == 1"))
+        assertTrue(gate.contains("PAPER_API_BUDGET_LOCKDOWN_BYPASSED"))
+    }
 }
+
 
 

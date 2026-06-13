@@ -46,6 +46,10 @@ object CloseLease {
         // Intent priority: a more urgent exit reason may RAISE priority without
         // spawning a second worker. Higher = more urgent (RUG=100, SL=80, TP=40…).
         @Volatile var intentPriority: Int = 0,
+        // V5.9.1568 — true only while a doSell attempt is actively running.
+        // Retryable failures keep the lease but flip this false so a later tick
+        // can reuse the lease after backoff instead of waiting for 10m TTL.
+        @Volatile var inFlight: Boolean = true,
     )
 
     private val leases = ConcurrentHashMap<String, Lease>()
@@ -72,16 +76,28 @@ object CloseLease {
     fun acquire(mint: String, symbol: String, rawReason: String): Lease? {
         if (mint.isBlank()) return null
         val existing = current(mint)
-        if (existing != null) {
-            _dupSuppressed.incrementAndGet()
-            try {
-                ForensicLogger.lifecycle("SELL_DUPLICATE_SUPPRESSED",
-                    "mint=${mint.take(10)} symbol=$symbol heldAttempts=${existing.closeAttemptCount} " +
-                    "originalExitReason=${existing.originalExitReason} totalSuppressed=${_dupSuppressed.get()}")
-            } catch (_: Throwable) {}
-            return null
-        }
         val now = System.currentTimeMillis()
+        if (existing != null) {
+            if (existing.inFlight || now < existing.nextEligibleMs) {
+                _dupSuppressed.incrementAndGet()
+                try {
+                    ForensicLogger.lifecycle("SELL_DUPLICATE_SUPPRESSED",
+                        "mint=${mint.take(10)} symbol=$symbol heldAttempts=${existing.closeAttemptCount} " +
+                        "inFlight=${existing.inFlight} waitMs=${(existing.nextEligibleMs - now).coerceAtLeast(0L)} " +
+                        "originalExitReason=${existing.originalExitReason} totalSuppressed=${_dupSuppressed.get()}")
+                } catch (_: Throwable) {}
+                return null
+            }
+            // Retryable attempt completed and backoff has elapsed: reuse the
+            // existing lease, preserving originalExitReason/attempt history.
+            existing.inFlight = true
+            existing.lastTouchMs = now
+            try {
+                ForensicLogger.lifecycle("SELL_LEASE_RETRY_REENTERED",
+                    "mint=${mint.take(10)} symbol=$symbol attempt=${existing.closeAttemptCount + 1} originalExitReason=${existing.originalExitReason}")
+            } catch (_: Throwable) {}
+            return existing
+        }
         val canonical = canonicalReason(rawReason)
         val lease = Lease(mint, canonical, now, now, 1, null)
         val raced = leases.putIfAbsent(mint, lease)
@@ -100,11 +116,16 @@ object CloseLease {
         val l = current(mint) ?: return 0
         l.closeAttemptCount += 1
         l.lastCloseFailureCode = failureCode
-        l.lastTouchMs = System.currentTimeMillis()
+        val now = System.currentTimeMillis()
+        l.lastTouchMs = now
+        l.inFlight = false
+        // If the route did not set provider-specific backoff, still prevent an
+        // immediate same-tick retry storm while allowing the next cycle through.
+        if (l.nextEligibleMs <= now) l.nextEligibleMs = now + 2_000L
         try {
             ForensicLogger.lifecycle("SELL_RETRY_SCHEDULED",
                 "mint=${mint.take(10)} attempt=${l.closeAttemptCount} reason=$failureCode " +
-                "originalExitReason=${l.originalExitReason}")
+                "nextEligibleMs=${l.nextEligibleMs} originalExitReason=${l.originalExitReason}")
         } catch (_: Throwable) {}
         return l.closeAttemptCount
     }
@@ -128,6 +149,9 @@ object CloseLease {
         val delay = (base * (1L shl (attempt - 1).coerceIn(0, 5))).coerceAtMost(60_000L)
         l.nextEligibleMs = System.currentTimeMillis() + delay
         l.lastTouchMs = System.currentTimeMillis()
+        // Do NOT flip inFlight here: scheduleBackoff can be called from inside
+        // doSell while the stack is still active. recordRetry() marks the attempt
+        // reusable after doSell returns FAILED_RETRYABLE.
         try {
             ForensicLogger.lifecycle("SELL_BACKOFF_SCHEDULED",
                 "mint=${mint.take(10)} errorClass=$errorClass attempt=$attempt delayMs=$delay nextEligibleMs=${l.nextEligibleMs}")

@@ -15650,34 +15650,51 @@ if (hotExitHandledSweep) {
             // ═══════════════════════════════════════════════════════════════════
             when (val result = v3Decision) {
                 is com.lifecyclebot.v3.V3Decision.BlockFatal -> {
-                    ExecutableOpenGate.recordV3(ts.mint, ts.symbol, "BLOCK_FATAL", result.reason, "BLOCK_FATAL", ts.safety.rugcheckScore)
-                    // HARD BLOCK: Safety issue - block ALL layers
-                    FinalExecutionPermit.registerRejection(
-                        mint = ts.mint,
-                        symbol = ts.symbol,
-                        reason = result.reason,
-                        rejectedBy = "V3_BLOCK_FATAL",
-                        v3Score = 0,
-                        v3Confidence = 0
-                    )
-                    // V5.9.1121 — hard V3 fatal is terminal for new entries.
-                    // 3086 showed EXTREME_RUG_RISK_* continuing through every
-                    // lane, creating 4,858 fatal open blocks + 1,433 supervisor
-                    // worker timeouts. Exits/managed open positions already ran
-                    // above this point; for flat tokens, stop before Treasury/
-                    // ShitCoin/Moonshot/FDG fanout.
-                    if (!ts.position.isOpen) {
-                        try { ForensicLogger.lifecycle("V3_FATAL_EARLY_RETURN", "mint=${ts.mint.take(10)} symbol=${ts.symbol} reason=${result.reason}") } catch (_: Throwable) {}
-                        // V5.9.1323 — V3 Verdict Reconciliation (P0-4 surgical).
+                    // V5.9.1568 — model-only EXTREME_RUG_RISK is NOT a terminal
+                    // blocker in PAPER/bootstrap. The code below already had a
+                    // later v3HardReject carveout saying this, but this earlier
+                    // branch registered FinalExecutionPermit rejection + returned
+                    // before sub-traders/FDG could run. Confirmed rugcheck score=0
+                    // still emits EXTREME_RUG_CRITICAL_score=0 and remains fatal.
+                    val paperModelRugFatal = cfg.paperMode && result.reason.contains("EXTREME_RUG_RISK", ignoreCase = true)
+                    if (paperModelRugFatal) {
                         try {
-                            com.lifecyclebot.engine.runtime.V3VerdictContract.recordEntry()
-                            com.lifecyclebot.engine.runtime.V3VerdictContract.recordVerdict(
-                                com.lifecyclebot.engine.runtime.V3VerdictContract.Verdict.BLOCK,
-                                "FATAL_${result.reason}"
+                            ForensicLogger.lifecycle(
+                                "V3_PAPER_MODEL_RUG_FATAL_SOFTENED",
+                                "mint=${ts.mint.take(10)} symbol=${ts.symbol} reason=${result.reason} rc=${ts.safety.rugcheckScore}"
                             )
+                            com.lifecyclebot.engine.PipelineHealthCollector.labelInc("V3_PAPER_MODEL_RUG_FATAL_SOFTENED")
                         } catch (_: Throwable) {}
-                        ErrorLogger.debug("BotService", "🧯 V3_FATAL_EARLY_RETURN: ${ts.symbol} | ${result.reason}")
-                        return
+                    } else {
+                        ExecutableOpenGate.recordV3(ts.mint, ts.symbol, "BLOCK_FATAL", result.reason, "BLOCK_FATAL", ts.safety.rugcheckScore)
+                        // HARD BLOCK: Safety issue - block ALL layers
+                        FinalExecutionPermit.registerRejection(
+                            mint = ts.mint,
+                            symbol = ts.symbol,
+                            reason = result.reason,
+                            rejectedBy = "V3_BLOCK_FATAL",
+                            v3Score = 0,
+                            v3Confidence = 0
+                        )
+                        // V5.9.1121 — hard V3 fatal is terminal for new entries.
+                        // 3086 showed EXTREME_RUG_RISK_* continuing through every
+                        // lane, creating 4,858 fatal open blocks + 1,433 supervisor
+                        // worker timeouts. Exits/managed open positions already ran
+                        // above this point; for flat tokens, stop before Treasury/
+                        // ShitCoin/Moonshot/FDG fanout.
+                        if (!ts.position.isOpen) {
+                            try { ForensicLogger.lifecycle("V3_FATAL_EARLY_RETURN", "mint=${ts.mint.take(10)} symbol=${ts.symbol} reason=${result.reason}") } catch (_: Throwable) {}
+                            // V5.9.1323 — V3 Verdict Reconciliation (P0-4 surgical).
+                            try {
+                                com.lifecyclebot.engine.runtime.V3VerdictContract.recordEntry()
+                                com.lifecyclebot.engine.runtime.V3VerdictContract.recordVerdict(
+                                    com.lifecyclebot.engine.runtime.V3VerdictContract.Verdict.BLOCK,
+                                    "FATAL_${result.reason}"
+                                )
+                            } catch (_: Throwable) {}
+                            ErrorLogger.debug("BotService", "🧯 V3_FATAL_EARLY_RETURN: ${ts.symbol} | ${result.reason}")
+                            return
+                        }
                     }
                 }
                 is com.lifecyclebot.v3.V3Decision.Blocked -> {
