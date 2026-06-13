@@ -56,8 +56,11 @@ object RuntimeRegressionGuards {
             ),
             Check(
                 "sell_reconciler_running",
-                ok = !input.runtimeActive || input.paperMode || input.sellReconcilerStarted,
-                detail = "runtimeActive=${input.runtimeActive} paperMode=${input.paperMode} sellReconcilerStarted=${input.sellReconcilerStarted} liveOpen=${input.liveOpenPositions} paperOpen=${input.paperOpenPositions}",
+                // V5.9.1583 — runtimeActive here is the LIVE runtime invariant input.
+                // If the runtime is active, sell reconciler must be started even
+                // when liveOpenPositions==0; otherwise wallet/orphan cleanup never ticks.
+                ok = !input.runtimeActive || input.sellReconcilerStarted,
+                detail = "runtimeActive=${input.runtimeActive} sellReconcilerStarted=${input.sellReconcilerStarted} liveOpen=${input.liveOpenPositions} paperOpen=${input.paperOpenPositions}",
             ),
             Check(
                 "host_tracker_open_match",
