@@ -262,10 +262,31 @@ class GoldenTapeRegressionTest {
         assertTrue(bot.contains("val cooldownMs = if (open) 20_000L else SUPERVISOR_TIMEOUT_COOLDOWN_MS"))
         assertFalse("open mints must not bypass timeout cooldown and monopolise supervisor", bot.contains("if (supervisorMintIsOpen(mint)) return false"))
     }
+
+    @Test
+    fun drawdown_circuit_reads_canonical_journal_truth() {
+        val dd = java.io.File("src/main/kotlin/com/lifecyclebot/v3/scoring/DrawdownCircuitAI.kt").readText()
+        assertTrue(dd.contains("TradeHistoryStore.getAllSells"))
+        assertTrue(dd.contains("minOf(balanceAgg, journalAgg)"))
+        assertTrue(dd.contains("diagnosticLine"))
+        assertTrue(dd.contains("lossStreak"))
+        assertTrue(dd.contains("profitFactor"))
+    }
+
+    @Test
+    fun sentient_diagnostic_does_not_call_drawdown_normal_without_journal_context() {
+        val sent = java.io.File("src/main/kotlin/com/lifecyclebot/engine/SentientPersonality.kt").readText()
+        assertTrue(sent.contains("DrawdownCircuitAI.diagnosticLine"))
+        assertTrue(sent.contains("DRAWDOWN CIRCUIT: 🛡️ DEFENSIVE"))
+        assertTrue(sent.contains("Trust map is partially blind during defensive drawdown"))
+    }
+
+    @Test
+    fun strategy_trust_is_damped_by_drawdown_circuit_softly() {
+        val trust = java.io.File("src/main/kotlin/com/lifecyclebot/v4/meta/StrategyTrustAI.kt").readText()
+        assertTrue(trust.contains("V5.9.1573"))
+        assertTrue(trust.contains("DrawdownCircuitAI.getAggression"))
+        assertTrue(trust.contains("base * symFactor * ddFactor"))
+        assertTrue(trust.contains("coerceIn(0.15, 1.25)"))
+    }
 }
-
-
-
-
-
-

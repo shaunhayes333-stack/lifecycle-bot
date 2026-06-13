@@ -1077,10 +1077,12 @@ object SentientPersonality {
         // ── Drawdown Circuit ─────────────────────────────────────────────────
         try {
             val aggr = com.lifecyclebot.v3.scoring.DrawdownCircuitAI.getAggression()
+            val ddLine = try { com.lifecyclebot.v3.scoring.DrawdownCircuitAI.diagnosticLine() } catch (_: Throwable) { "" }
             when {
-                aggr <= 0.0 -> { issues.add("Drawdown circuit TRIPPED (aggression=0, no trades)"); sb.appendLine("DRAWDOWN CIRCUIT: 🚫 TRIPPED — aggression=0.00, bot will NOT trade") }
-                aggr < 0.5  -> { warnings.add("Drawdown circuit reduced (aggr=${String.format("%.2f", aggr)})"); sb.appendLine("DRAWDOWN CIRCUIT: ⚠️ REDUCED — aggr=${String.format("%.2f", aggr)}") }
-                else        -> { ok.add("circuit ok"); sb.appendLine("DRAWDOWN CIRCUIT: ✅ NORMAL — aggr=${String.format("%.2f", aggr)}") }
+                aggr <= 0.0 -> { issues.add("Drawdown circuit TRIPPED (aggression=0, no trades)"); sb.appendLine("DRAWDOWN CIRCUIT: 🚫 TRIPPED — aggression=0.00, bot will NOT trade | $ddLine") }
+                aggr < 0.5  -> { warnings.add("Drawdown circuit defensive (aggr=${String.format("%.2f", aggr)})"); sb.appendLine("DRAWDOWN CIRCUIT: 🛡️ DEFENSIVE — aggr=${String.format("%.2f", aggr)} | $ddLine") }
+                aggr < 0.8  -> { warnings.add("Drawdown circuit reduced (aggr=${String.format("%.2f", aggr)})"); sb.appendLine("DRAWDOWN CIRCUIT: ⚠️ REDUCED — aggr=${String.format("%.2f", aggr)} | $ddLine") }
+                else        -> { ok.add("circuit ok"); sb.appendLine("DRAWDOWN CIRCUIT: ✅ NORMAL — aggr=${String.format("%.2f", aggr)} | $ddLine") }
             }
         } catch (e: Exception) { issues.add("DrawdownCircuitAI error"); sb.appendLine("DRAWDOWN CIRCUIT: ❌ error — ${e.message}") }
 
@@ -1101,6 +1103,10 @@ object SentientPersonality {
                 }
                 if (distrusted.isNotEmpty()) issues.add("DISTRUSTED strategies: ${distrusted.keys.joinToString()}")
                 if (untested.isNotEmpty())   warnings.add("UNTESTED strategies: ${untested.keys.joinToString()}")
+                if (untested.isNotEmpty()) {
+                    val aggrNow = try { com.lifecyclebot.v3.scoring.DrawdownCircuitAI.getAggression() } catch (_: Throwable) { 1.0 }
+                    if (aggrNow < 0.8) warnings.add("Trust map is partially blind during defensive drawdown; untested lanes are not neutral edge")
+                }
                 sb.appendLine("STRATEGY TRUST (${trust.size} tracked):")
                 trust.entries.sortedBy { it.key }.forEach { (name, rec) ->
                     val level = com.lifecyclebot.v4.meta.StrategyTrustAI.getTrustLevel(name)

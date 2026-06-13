@@ -345,10 +345,23 @@ object StrategyTrustAI {
             (1.0 - (risk - 0.3).coerceAtLeast(0.0) * 0.35 + (edge - 0.5).coerceAtLeast(0.0) * 0.15)
                 .coerceIn(0.7, 1.2)
         } catch (_: Exception) { 1.0 }
+        // V5.9.1573 — market-read correction. If canonical journal truth says
+        // the bot is in drawdown/cold-streak damage, UNTESTED/neutral trust must
+        // not behave like normal-market trust. DrawdownCircuitAI now falls back
+        // to TradeHistoryStore, so this damp follows actual recent performance.
+        // Soft-shape only: floor remains >0, no strategy is disabled.
+        val ddFactor = try {
+            when (val aggr = com.lifecyclebot.v3.scoring.DrawdownCircuitAI.getAggression()) {
+                in 0.0..0.30 -> 0.45
+                in 0.30..0.50 -> 0.60
+                in 0.50..0.80 -> 0.80
+                else -> 1.0
+            }
+        } catch (_: Throwable) { 1.0 }
         // V5.9.463 — clamp floor raised from 0.0 → 0.15 so no path can
         // collapse a strategy to zero even on a perfect storm of bad
         // symbolic signals.
-        return (base * symFactor).coerceIn(0.15, 1.25)
+        return (base * symFactor * ddFactor).coerceIn(0.15, 1.25)
     }
 
     fun isStrategyAllowed(strategy: String): Boolean {

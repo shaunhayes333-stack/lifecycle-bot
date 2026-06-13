@@ -1,6 +1,8 @@
 package com.lifecyclebot.v3.scoring
 
 import com.lifecyclebot.engine.ErrorLogger
+import com.lifecyclebot.engine.TradeHistoryStore
+import kotlin.math.abs
 import com.lifecyclebot.v3.core.TradingContext
 import com.lifecyclebot.v3.scanner.CandidateSnapshot
 import java.util.ArrayDeque
@@ -31,6 +33,23 @@ object DrawdownCircuitAI {
 
     private val samples = ArrayDeque<PnlSample>()
     private val currentAggression = AtomicReference(1.0)
+
+    private data class JournalCircuitSnapshot(
+        val aggression: Double,
+        val decisive: Int,
+        val wrPct: Double,
+        val profitFactor: Double,
+        val currentLossStreak: Int,
+        val longestLossStreak: Int,
+        val currentDrawdownPct: Double,
+        val maxDrawdownPct: Double,
+    ) {
+        fun line(): String = "journal n=$decisive WR=${"%.1f".format(wrPct)}% PF=${"%.2f".format(profitFactor)} lossStreak=$currentLossStreak maxLossStreak=$longestLossStreak DD=${"%.1f".format(currentDrawdownPct)}% maxDD=${"%.1f".format(maxDrawdownPct)}% aggr=${"%.2f".format(aggression)}"
+    }
+
+    @Volatile private var cachedJournalCircuit: JournalCircuitSnapshot? = null
+    @Volatile private var cachedJournalCircuitAtMs: Long = 0L
+    private const val JOURNAL_CIRCUIT_TTL_MS = 5_000L
 
     @Synchronized
     fun recordBalance(balanceSol: Double) {
@@ -73,7 +92,86 @@ object DrawdownCircuitAI {
         }
     }
 
-    fun getAggression(): Double = currentAggression.get()
+    private fun journalCircuitSnapshot(): JournalCircuitSnapshot? {
+        val now = System.currentTimeMillis()
+        cachedJournalCircuit?.let { if (now - cachedJournalCircuitAtMs < JOURNAL_CIRCUIT_TTL_MS) return it }
+        return try {
+            val sells = TradeHistoryStore.getAllSells().takeLast(300)
+            if (sells.size < 20) return null
+            val decisive = sells.filter { it.pnlPct >= 0.5 || it.pnlPct <= -2.0 }.takeLast(120)
+            if (decisive.size < 20) return null
+            val wins = decisive.count { it.pnlPct >= 0.5 }
+            val losses = decisive.count { it.pnlPct <= -2.0 }
+            val wr = if (wins + losses > 0) wins.toDouble() * 100.0 / (wins + losses).toDouble() else 50.0
+            val grossWin = decisive.filter { it.pnlSol > 0.0 }.sumOf { it.pnlSol }
+            val grossLoss = abs(decisive.filter { it.pnlSol < 0.0 }.sumOf { it.pnlSol })
+            val pf = if (grossLoss > 1e-9) grossWin / grossLoss else if (grossWin > 0.0) 2.0 else 0.0
+
+            var curLoss = 0
+            var longestLoss = 0
+            var runningLoss = 0
+            decisive.forEach { t ->
+                if (t.pnlPct <= -2.0) {
+                    runningLoss++
+                    longestLoss = maxOf(longestLoss, runningLoss)
+                } else if (t.pnlPct >= 0.5) {
+                    runningLoss = 0
+                }
+            }
+            for (t in decisive.asReversed()) {
+                if (t.pnlPct <= -2.0) curLoss++ else if (t.pnlPct >= 0.5) break
+            }
+
+            var equity = 0.0
+            var peak = 0.0
+            var grossDeployed = 0.0
+            var maxDdPct = 0.0
+            var currentDdPct = 0.0
+            decisive.forEach { t ->
+                val pnl = if (t.pnlSol.isFinite()) t.pnlSol else 0.0
+                val notional = abs(t.sol).takeIf { it > 0.0 } ?: abs(pnl).coerceAtLeast(0.0001)
+                grossDeployed += notional
+                equity += pnl
+                if (equity > peak) peak = equity
+                val dd = peak - equity
+                val denom = if (peak >= 0.05) peak else grossDeployed
+                val ddPct = if (dd > 0.0 && denom > 0.0) (dd / denom * 100.0).coerceIn(0.0, 100.0) else 0.0
+                if (ddPct > maxDdPct) maxDdPct = ddPct
+                currentDdPct = ddPct
+            }
+
+            val journalAgg = when {
+                curLoss >= 30 || longestLoss >= 35 || currentDdPct >= 50.0 || (wr < 15.0 && pf < 0.50) -> 0.25
+                curLoss >= 15 || longestLoss >= 20 || currentDdPct >= 30.0 || (wr < 20.0 && pf < 0.70) -> 0.35
+                curLoss >= 8  || longestLoss >= 12 || currentDdPct >= 15.0 || wr < 30.0 -> 0.55
+                wr < 40.0 || pf < 0.90 -> 0.75
+                else -> 1.0
+            }
+            val snap = JournalCircuitSnapshot(
+                aggression = journalAgg,
+                decisive = decisive.size,
+                wrPct = wr,
+                profitFactor = pf,
+                currentLossStreak = curLoss,
+                longestLossStreak = longestLoss,
+                currentDrawdownPct = currentDdPct,
+                maxDrawdownPct = maxDdPct,
+            )
+            cachedJournalCircuit = snap
+            cachedJournalCircuitAtMs = now
+            snap
+        } catch (_: Throwable) { cachedJournalCircuit }
+    }
+
+    /** Current defensive aggression, using the stricter of balance-feed DD and canonical journal truth. */
+    fun getAggression(): Double {
+        val balanceAgg = currentAggression.get()
+        val journalAgg = journalCircuitSnapshot()?.aggression ?: 1.0
+        return minOf(balanceAgg, journalAgg).coerceIn(0.0, 1.0)
+    }
+
+    fun diagnosticLine(): String = journalCircuitSnapshot()?.line()
+        ?: "journal circuit warming up; balance aggression=${"%.2f".format(currentAggression.get())}"
 
     fun score(@Suppress("UNUSED_PARAMETER") candidate: CandidateSnapshot, @Suppress("UNUSED_PARAMETER") ctx: TradingContext): ScoreComponent {
         val agg = getAggression()
@@ -85,6 +183,6 @@ object DrawdownCircuitAI {
             else        -> -20  // 10%+ DD: -20 (was -10) — near-total halt
         }
         return ScoreComponent("DrawdownCircuitAI", value,
-            "📉 aggression=${"%.2f".format(agg)} (gate=$value)")
+            "📉 aggression=${"%.2f".format(agg)} (gate=$value; ${diagnosticLine()})")
     }
 }
