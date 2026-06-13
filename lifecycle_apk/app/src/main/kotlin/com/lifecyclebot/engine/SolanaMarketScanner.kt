@@ -764,7 +764,7 @@ class SolanaMarketScanner(
         synchronized(geckoLock) {
             val now = System.currentTimeMillis()
             if (now < geckoCooldownUntilMs) return false
-            while (geckoCallTimestamps.isNotEmpty() && now - geckoCallTimestamps.peekFirst() > 60_000L) {
+            while (geckoCallTimestamps.isNotEmpty() && now - (geckoCallTimestamps.peekFirst() ?: 0L) > 60_000L) {
                 geckoCallTimestamps.pollFirst()
             }
             if (geckoCallTimestamps.size >= 28) return false   // 28/min, headroom under the 30 cap
