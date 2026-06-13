@@ -50,11 +50,11 @@ data class RuntimeStateSnapshot(
         fun current(uiRunning: Boolean? = null): RuntimeStateSnapshot {
             val runtime = BotRuntimeController.snapshot()
             val pipe = PipelineHealthCollector.snapshot()
-            val mode = when {
-                RuntimeRepairState.shouldForcePaper() -> "PAPER_FORCED_BY_DOCTOR"
-                RuntimeModeAuthority.isLive() -> "LIVE"
-                else -> "PAPER"
-            }
+            // V5.9.1586 — single runtime authority. Doctor/repair state must never
+            // rewrite LIVE into PAPER after start. If the operator starts LIVE and
+            // wallet readiness is green, every scanner/lane/FDG/executor reader must
+            // see LIVE. Repair may pause trading, not shadow-convert the mode.
+            val mode = try { RuntimeModeAuthority.authority().name } catch (_: Throwable) { if (runtime.paperMode) "PAPER" else "LIVE" }
             val statusOpen = try { BotService.status.openPositions } catch (_: Throwable) { emptyList<com.lifecyclebot.data.TokenState>() }
             val paperOpen = try { statusOpen.count { it.position.isPaperPosition } } catch (_: Throwable) { 0 }
             val liveOpen = try { statusOpen.count { !it.position.isPaperPosition } } catch (_: Throwable) { 0 }

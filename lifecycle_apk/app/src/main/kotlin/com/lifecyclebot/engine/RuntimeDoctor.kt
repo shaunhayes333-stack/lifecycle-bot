@@ -100,7 +100,7 @@ object RuntimeDoctor {
         InvariantGuardian.FaultCode.PAPER_LIVE_CONTAMINATION -> listOf(RuntimeMitigationBus.Command.PauseTrading(f.detail, 60_000L))
         InvariantGuardian.FaultCode.SCANNER_RESTORE_POISONING -> listOf(RuntimeMitigationBus.Command.QuarantineSource("MEME_REGISTRY_RESTORE", f.detail, 60_000L))
         InvariantGuardian.FaultCode.MAIN_THREAD_STALL -> lightMitigations(f)
-        InvariantGuardian.FaultCode.API_LAYER_DEGRADED -> listOf(RuntimeMitigationBus.Command.ReduceScannerConcurrency(2, f.detail, 60_000L))
+        InvariantGuardian.FaultCode.API_LAYER_DEGRADED -> emptyList() // V5.9.1586: Dex/API degradation must not throttle PumpPortal/Pump.fun live trading.
         InvariantGuardian.FaultCode.HOST_TRACKER_DESYNC,
         InvariantGuardian.FaultCode.EXEC_REQUEST_INFLATION,
         InvariantGuardian.FaultCode.LEARNING_LEDGER_DUPLICATION,
@@ -132,7 +132,9 @@ object RuntimeDoctor {
     }
 
     private fun lightMitigations(f: InvariantGuardian.Fault): List<RuntimeMitigationBus.Command> {
-        return listOf(RuntimeMitigationBus.Command.ReduceScannerConcurrency(2, f.detail, 60_000L))
+        // UI/main-thread pressure is observability only here; never throttle scanners
+        // automatically because it changes live discovery behavior versus 3501.
+        return emptyList()
     }
 
     private fun exitStabilityMitigations(f: InvariantGuardian.Fault, snap: RuntimeStateSnapshot): List<RuntimeMitigationBus.Command> {
@@ -185,7 +187,9 @@ object RuntimeDoctor {
         // is handled with soft throughput shaping only. Lanes stay enabled;
         // FDG/safety/execution authority remain the real guards.
         return buildList {
-            add(RuntimeMitigationBus.Command.ReduceScannerConcurrency(2, f.detail, 60_000L))
+            // V5.9.1586 — no automatic scanner concurrency cap / lane suppression.
+            // Fanout is controlled by dedupe + FDG memoization, not by killing lanes
+            // or starving Pump.fun/PumpPortal discovery.
             if (shouldQuarantineRestore) add(RuntimeMitigationBus.Command.QuarantineSource(topSource, f.detail, 60_000L))
         }
     }

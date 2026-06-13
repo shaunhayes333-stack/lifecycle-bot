@@ -7099,6 +7099,16 @@ class Executor(
             finalSol
         }
         
+        // V5.9.1586 — canonical EXEC accounting for paper simulator too.
+        // TradeHistoryStore journal rows are outcomes; this is the actual executor
+        // invocation boundary so the funnel no longer shows EXEC=0 with paper buys.
+        try {
+            ForensicLogger.exec(
+                if (routeIsShadow) "SHADOW_PAPER_BUY" else "PAPER_BUY",
+                ts.symbol,
+                "mint=${ts.mint.take(10)} sol=${"%.4f".format(sol)} score=${"%.1f".format(score)} q=$quality src=paperBuy.entry",
+            )
+        } catch (_: Throwable) {}
         PipelineTracer.executorStart(ts.symbol, ts.mint, "PAPER", sol)
 
         // V5.9.771 — EMERGENT-MEME #4: hard guard against paper buys
@@ -8164,6 +8174,24 @@ class Executor(
             return
         }
 
+        // V5.9.1586 — canonical live attempt boundary restored to 3501 semantics.
+        // Entering liveBuy() with a valid live route is an EXEC attempt. Downstream
+        // finality/admission/break-even may fail, but they must not hide that the
+        // live executor was reached (3659 showed EXEC_LIVE_ATTEMPT=0 while aborting
+        // later in restore/break-even chains).
+        try {
+            ForensicLogger.exec(
+                "LIVE_BUY_ATTEMPT",
+                ts.symbol,
+                "mint=${ts.mint.take(10)} sol=${"%.4f".format(sol)} score=${"%.1f".format(score)} q=$quality src=liveBuy.entry",
+            )
+            ForensicLogger.lifecycle(
+                "MEME_LIVE_EXEC_ENTRY",
+                "mint=${ts.mint.take(10)} symbol=${ts.symbol} sol=${"%.4f".format(sol)} callSite=liveBuy.entry",
+            )
+        } catch (_: Throwable) {}
+        PipelineTracer.executorStart(ts.symbol, ts.mint, "LIVE", sol)
+
         var finalityVerdict: ExecutableOpenGate.OpenVerdict? = if (finalityPrechecked && attemptId.isNotBlank()) {
             ExecutableOpenGate.consumeRestorePenalty(attemptId) ?: ExecutableOpenGate.restorePenaltyForAttempt(attemptId)
         } else null
@@ -8222,7 +8250,7 @@ class Executor(
         // V5.9.1550 — LIVE restore economics. Stale finality/desync can reduce
         // size, but every live buy must still clear all-in round-trip costs.
         val restorePenalty = run {
-            val fromGate = finalityVerdict?.takeIf { it.restoreReason.isNotBlank() && it.restoreReason != "NONE" }?.let {
+            val fromGateRaw = finalityVerdict?.takeIf { it.restoreReason.isNotBlank() && it.restoreReason != "NONE" }?.let {
                 LiveRestoreExecutionPolicy.Penalty(
                     scorePenalty = it.scorePenalty,
                     sizeMultiplier = it.sizeMultiplier,
@@ -8230,6 +8258,7 @@ class Executor(
                     liquidityOverrideUsd = it.liquidityOverrideUsd,
                 )
             } ?: LiveRestoreExecutionPolicy.NONE
+            val fromGate = if (LiveRestoreExecutionPolicy.isSlotHealthClean()) LiveRestoreExecutionPolicy.NONE else fromGateRaw
             var p = fromGate.combine(LiveRestoreExecutionPolicy.fromRuntimeDrift(LiveRestoreExecutionPolicy.trustedLiquidityUsd(ts, fromGate.liquidityOverrideUsd)))
             val softText = try { ts.safety.softPenalties.joinToString("|") { it.first } } catch (_: Throwable) { "" }
             if (softText.contains("Rugcheck pending", ignoreCase = true) || softText.contains("RUGCHECK_UNKNOWN_MAX_SIZE_MULT", ignoreCase = true)) {
@@ -8298,28 +8327,6 @@ class Executor(
             }
         }
 
-        // V5.9.777 — EMERGENT MEME-ONLY: EXEC_LIVE_ATTEMPT counter wiring.
-        // Operator forensics showed 5 confirmed live buys landed while
-        // FDG_LIVE_ALLOW=0 / EXEC_LIVE_ATTEMPT=0 / EXEC funnel counter=0.
-        // Root cause: liveBuy() never called ForensicLogger.exec() so the
-        // PipelineHealthCollector.onExec counter pipeline was completely
-        // bypassed. Now wired at the canonical entry point, immediately
-        // after the admission gate so every gate-approved live attempt
-        // increments the counter even if the quote/broadcast later fails.
-        try {
-            ForensicLogger.exec(
-                "LIVE_BUY_ATTEMPT",
-                ts.symbol,
-                "mint=${ts.mint.take(10)} sol=${"%.4f".format(sol)} score=${"%.1f".format(score)} q=$quality src=liveBuy",
-            )
-            ForensicLogger.lifecycle(
-                "MEME_LIVE_EXEC_ENTRY",
-                "mint=${ts.mint.take(10)} symbol=${ts.symbol} sol=${"%.4f".format(sol)} callSite=liveBuy.main",
-            )
-        } catch (_: Throwable) {}
-
-        PipelineTracer.executorStart(ts.symbol, ts.mint, "LIVE", sol)
-        
         if (walletSol <= 0) {
             PipelineTracer.executorFailed(ts.symbol, ts.mint, "LIVE", "WALLET_BALANCE_ZERO")
             PipelineTracer.noBuy(ts.symbol, ts.mint, PipelineTracer.NoBuyReason.WALLET_BALANCE_ZERO, "bal=${walletSol}SOL")

@@ -322,6 +322,10 @@ class FinalDecisionEngine(
         
         val isCGrade = score < minScoreForExecute
         val isBGrade = score >= minScoreForExecute
+        // V5.9.1586 — 3501 fresh-launch bootstrap behavior. AGE_0_15m tokens
+        // naturally lack holders/orderflow/social/smart-money/history. Unknown or
+        // immature layers must be neutral/size-shaped, not converted into WATCH-only.
+        val isFreshLaunchProbe = try { candidate.ageMinutes <= 15.0 } catch (_: Throwable) { false }
         
         // ═══════════════════════════════════════════════════════════════════
         // V3 SELECTIVITY: HARD C-GRADE EXECUTION BAN
@@ -355,13 +359,13 @@ class FinalDecisionEngine(
         if (isCGrade) {
             val cGradeBlockReasons = mutableListOf<String>()
 
-            if (conf < cGradeConfFloor) {
+            if (conf < cGradeConfFloor && !isFreshLaunchProbe) {
                 cGradeBlockReasons.add("conf=$conf<$cGradeConfFloor")
             }
-            if (memoryScore <= cGradeMemoryFloor) {
+            if (memoryScore <= cGradeMemoryFloor && !isFreshLaunchProbe) {
                 cGradeBlockReasons.add("memory=$memoryScore<=$cGradeMemoryFloor")
             }
-            if (effectiveAIDegraded) {
+            if (effectiveAIDegraded && !isFreshLaunchProbe) {
                 cGradeBlockReasons.add("AI_DEGRADED")
             }
             // V5.5b: Only block early_unknown phase when very mature (>70% learning)
@@ -373,7 +377,7 @@ class FinalDecisionEngine(
             }
             // V5.4: Weak-signal veto — if score < 20 AND both momentum AND volume are flat/negative,
             // there is no directional edge. Block regardless of learning phase.
-            if (score < 20 && momentumScoreV <= 0 && volumeScoreV <= 0) {
+            if (score < 20 && momentumScoreV <= 0 && volumeScoreV <= 0 && !isFreshLaunchProbe) {
                 cGradeBlockReasons.add("no_momentum_no_volume_score=$score")
             }
             
@@ -480,6 +484,11 @@ class FinalDecisionEngine(
         val smallConfFloor       = maxOf(effectiveCGradeConf, 15)
 
         val rawBand = when {
+            // V5.9.1586 — AGE_0_15m probe restore. Low/unknown data is not a
+            // directional negative. Let fresh launches produce executable probe
+            // candidates when confidence is at least weakly present; FDG/safety and
+            // live sizing still decide actual risk.
+            isFreshLaunchProbe && score >= -5 && effectiveConf >= 20 -> DecisionBand.EXECUTE_SMALL
             hasMomentumOrVolume && score >= aggressiveScoreFloor && effectiveConf >= aggressiveConfFloor -> DecisionBand.EXECUTE_AGGRESSIVE
             hasMomentumOrVolume && score >= effectiveMinScore && effectiveConf >= standardConfFloor -> DecisionBand.EXECUTE_STANDARD
             hasMomentumOrVolume && score >= (effectiveMinScore * 0.7).toInt() && effectiveConf >= smallConfFloor -> DecisionBand.EXECUTE_SMALL

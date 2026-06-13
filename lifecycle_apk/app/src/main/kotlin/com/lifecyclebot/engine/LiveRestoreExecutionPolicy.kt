@@ -45,17 +45,28 @@ object LiveRestoreExecutionPolicy {
 
     val NONE = Penalty()
 
+    fun isSlotHealthClean(): Boolean = try {
+        val snap = RuntimeStateSnapshot.current()
+        snap.mode == "LIVE" &&
+            snap.hostTrackerOpenCount == 0 &&
+            snap.liveOpenPositions == 0 &&
+            snap.orphanLivePositions == 0 &&
+            snap.canonicalOpenPositions == 0
+    } catch (_: Throwable) { false }
+
     fun fromRuntimeDrift(liquidityUsd: Double = 0.0): Penalty {
         return try {
             val snap = RuntimeStateSnapshot.current()
+            if (snap.mode != "LIVE") return NONE
+            if (isSlotHealthClean()) return NONE
             var p = NONE
-            if (snap.mode == "LIVE" && snap.hostTrackerOpenCount != snap.liveOpenPositions) {
+            if (snap.hostTrackerOpenCount != snap.liveOpenPositions) {
                 p = p.combine(Penalty(scorePenalty = -10, sizeMultiplier = 0.35, reason = "HOST_TRACKER_DESYNC", liquidityOverrideUsd = liquidityUsd))
             }
-            if (snap.mode == "LIVE" && snap.orphanLivePositions > 0) {
+            if (snap.orphanLivePositions > 0) {
                 p = p.combine(Penalty(scorePenalty = -10, sizeMultiplier = 0.35, reason = "ORPHAN_LIVE_POSITIONS", liquidityOverrideUsd = liquidityUsd))
             }
-            if (snap.mode == "LIVE" && snap.reconcilerTotalChecked == 0 && snap.canonicalOpenPositions > 0) {
+            if (snap.reconcilerTotalChecked == 0 && snap.canonicalOpenPositions > 0) {
                 p = p.combine(Penalty(scorePenalty = -12, sizeMultiplier = 0.25, reason = "RECONCILER_STALLED", liquidityOverrideUsd = liquidityUsd))
             }
             p

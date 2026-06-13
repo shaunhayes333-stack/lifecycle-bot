@@ -22,7 +22,7 @@ object RuntimeRepairState {
 
     fun pauseTrading(reason: String) { tradingPaused.set(true); log("PAUSE_TRADING", reason) }
     fun resumeTrading(reason: String) { tradingPaused.set(false); log("RESUME_TRADING", reason) }
-    fun requestPaperMode(reason: String) { forcePaper.set(true); log("REQUEST_PAPER_MODE", reason) }
+    fun requestPaperMode(reason: String) { log("REQUEST_PAPER_MODE_IGNORED", "mode authority is operator-controlled: $reason") }
     fun clearPaperModeRequest(reason: String) { forcePaper.set(false); log("CLEAR_PAPER_REQUEST", reason) }
     fun disableLane(lane: String, reason: String) { disabledLanes += lane.uppercase(); log("DISABLE_LANE", "$lane $reason") }
     fun enableLane(lane: String, reason: String) { disabledLanes -= lane.uppercase(); log("ENABLE_LANE", "$lane $reason") }
@@ -35,7 +35,7 @@ object RuntimeRepairState {
     fun noteStaleLocksCleared(count: Long, reason: String) { staleLocksCleared.addAndGet(count); log("CLEAR_STALE_LOCKS", "$count $reason") }
 
     fun isTradingPaused(): Boolean = tradingPaused.get()
-    fun shouldForcePaper(): Boolean = forcePaper.get()
+    fun shouldForcePaper(): Boolean = false
     fun isLaneDisabled(lane: String): Boolean = lane.uppercase() in disabledLanes
     fun isScannerSourceDisabled(source: String): Boolean = source.uppercase() in disabledScannerSources
     fun scannerCap(): Int = scannerConcurrencyCap.get()

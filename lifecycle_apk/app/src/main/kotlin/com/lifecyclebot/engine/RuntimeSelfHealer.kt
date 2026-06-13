@@ -11,7 +11,12 @@ object RuntimeSelfHealer {
         if (forbiddenText.any { req.reason.contains(it, true) }) return Result(false, req.action, "forbidden unsafe request")
         return when (req.action) {
             Action.PAUSE_TRADING -> { RuntimeRepairState.pauseTrading(req.reason); Result(true, req.action, "trading paused") }
-            Action.SWITCH_LIVE_TO_PAPER -> { RuntimeRepairState.requestPaperMode(req.reason); Result(true, req.action, "paper requested; live not re-enabled automatically") }
+            Action.SWITCH_LIVE_TO_PAPER -> {
+                // V5.9.1586 — forbidden automatic mode rewrite. This was the live
+                // execution killer: scanner/lane/FDG saw PAPER after a doctor/repair
+                // event despite operator LIVE. Only the UI/config authority may switch modes.
+                Result(false, req.action, "ignored: runtime mode authority is operator-controlled; repair cannot force PAPER")
+            }
             Action.DISABLE_LANE -> { RuntimeRepairState.disableLane(req.target, req.reason); Result(true, req.action, "lane disabled ${req.target}") }
             Action.DISABLE_SCANNER_SOURCE -> { RuntimeRepairState.disableScannerSource(req.target, req.reason); Result(true, req.action, "scanner source disabled ${req.target}") }
             Action.QUARANTINE_TOKEN -> { QuarantineStore.quarantine(req.target, reason = req.reason); Result(true, req.action, "token quarantined ${req.target.take(10)}") }

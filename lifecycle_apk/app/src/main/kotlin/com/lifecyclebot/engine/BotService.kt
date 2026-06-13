@@ -244,6 +244,7 @@ class BotService : Service() {
         // ═══════════════════════════════════════════════════════════════
         const val STRATEGY_DISTRUST_PAUSE_MS = 2L * 60_000L  // V5.9.726 — was 10min, dropped to 2min: 10min lockouts on the only-active SHITCOIN lane were starving the executor (5132 LANE_EVAL, 0 EXEC_BUY in V5.9.725 dump)
         private val strategyPauseUntilMs = java.util.concurrent.ConcurrentHashMap<String, Long>()
+        private val rapidEntryWarmupHoldUntilMs = java.util.concurrent.ConcurrentHashMap<String, Long>()
 
         fun isStrategyPausedByTrust(strategy: String): Pair<Boolean, String> {
             // V5.9.1405 — autonomous agenic doctrine. Trust/distrust may shape
@@ -7385,14 +7386,21 @@ class BotService : Service() {
                         // The unconditional -15% hard floor (pnlPct > -HARD_FLOOR_STOP_PCT)
                         // and the true catastrophe exits handled ABOVE this block remain
                         // active — a token genuinely crashing past -15% still exits now.
-                        if (cfg.paperMode && holdTimeMs in 0L until 40_000L && pnlPct > -HARD_FLOOR_STOP_PCT) {  // V5.9.1429 60s->40s warmup: settle price but free slots ~40% faster
-                            try {
-                                ForensicLogger.lifecycle(
-                                    "RAPID_ENTRY_WARMUP_HOLD",
-                                    "symbol=${ts.symbol} pnl=${"%.1f".format(pnlPct)}% ageMs=$holdTimeMs floor=-${HARD_FLOOR_STOP_PCT.toInt()} window=40s"
-                                )
-                            } catch (_: Throwable) {}
-                            continue
+                        if (cfg.paperMode && holdTimeMs in 0L until 40_000L && pnlPct > -HARD_FLOOR_STOP_PCT) {  // V5.9.1429 60s->40s warmup
+                            val nowWarmup = System.currentTimeMillis()
+                            val holdUntil = rapidEntryWarmupHoldUntilMs[ts.mint] ?: 0L
+                            if (nowWarmup >= holdUntil) {
+                                rapidEntryWarmupHoldUntilMs[ts.mint] = nowWarmup + 30_000L
+                                try {
+                                    ForensicLogger.lifecycle(
+                                        "RAPID_ENTRY_WARMUP_HOLD",
+                                        "symbol=${ts.symbol} pnl=${"%.1f".format(pnlPct)}% ageMs=$holdTimeMs floor=-${HARD_FLOOR_STOP_PCT.toInt()} window=40s ttl=30s once_per_mint"
+                                    )
+                                } catch (_: Throwable) {}
+                                continue
+                            }
+                            // Already held recently; do not loop-hold forever. Fall through
+                            // to dynamic stop/normal management so stale fresh launches clear.
                         }
                         
                         val dynamicStopPct = try {
@@ -8370,24 +8378,12 @@ class BotService : Service() {
     }
 
     private fun shouldRunBuyLaneForCycle(ts: com.lifecyclebot.data.TokenState, lane: String, primaryLane: String): Boolean {
-        if (ts.position.isOpen) return true
-        val l = RuntimeConfigOverlay.normalizeLane(lane)
-        val p = RuntimeConfigOverlay.normalizeLane(primaryLane)
-        // Operator invariant: fanout collapse must NEVER suppress Standard V3/Core.
-        // This guard is only for optional specialist sub-lanes before FDG.
-        if (l == "STANDARD" || l == "CORE" || l == "V3") return true
-        if (l == p) return true
-        // V5.9.1582 — strict one-primary-lane rule before FDG. EXPRESS used to
-        // shadow-run beside SHITCOIN, which preserved FDG/EXEC preauth churn even
-        // after fanout collapse. It now runs only when EXPRESS itself is primary.
-        try {
-            ForensicLogger.lifecycle(
-                "LANE_FANOUT_SUPPRESSED_PRE_FDG",
-                "mint=${ts.mint.take(10)} symbol=${ts.symbol} lane=$l primary=$p"
-            )
-            PipelineHealthCollector.labelInc("LANE_FANOUT_SUPPRESSED_PRE_FDG")
-        } catch (_: Throwable) {}
-        return false
+        // V5.9.1586 — restore 3501 lane behavior. Primary lane is display/default
+        // metadata only; it is NOT a pre-FDG execution suppressor. Every enabled
+        // lane may evaluate, and FDG receives a candidate only if that lane actually
+        // produces BUY/PROBE intent. Runtime lane disable is already a no-op unless
+        // an explicit operator policy is added later.
+        return true
     }
 
     private fun inferIntakeLaneAffinity(source: String, allSources: Set<String>, marketCapUsd: Double, liquidityUsd: Double): Set<String> {
@@ -12989,7 +12985,8 @@ if (hotExitHandledSweep) {
                         try {
                             if (!status.running) return@async false
                             if (orchestrator?.shouldPoll(mint) == false) return@async false
-                            processTokenCycle(mint, cfg, wallet, lastSuccessfulPollMs)
+                            val cycleCfg = cfg.copy(paperMode = try { RuntimeModeAuthority.isPaper() } catch (_: Throwable) { cfg.paperMode })
+                            processTokenCycle(mint, cycleCfg, wallet, lastSuccessfulPollMs)
                             try { GlobalTradeRegistry.markProcessed(mint) } catch (_: Throwable) {}
                             true
                         } catch (ce: kotlinx.coroutines.CancellationException) {
@@ -13714,7 +13711,8 @@ if (hotExitHandledSweep) {
                     // worker actually dies and the finally block fires.
                     val ok = kotlinx.coroutines.withTimeoutOrNull(SUPERVISOR_WORKER_TIMEOUT_MS) {
                         kotlinx.coroutines.runInterruptible(kotlinx.coroutines.Dispatchers.IO) {
-                            processTokenCycle(mint, cfg, wallet, lastSuccessfulPollMs)
+                            val cycleCfg = cfg.copy(paperMode = try { RuntimeModeAuthority.isPaper() } catch (_: Throwable) { cfg.paperMode })
+                            processTokenCycle(mint, cycleCfg, wallet, lastSuccessfulPollMs)
                             try { GlobalTradeRegistry.markProcessed(mint) } catch (_: Throwable) {}
                         }
                     }
@@ -14231,7 +14229,7 @@ if (hotExitHandledSweep) {
         // onGate/onExec can split per-mode counters. One @Volatile write
         // per cycle; negligible cost. Truth source: cfg.paperMode.
         try {
-            PipelineHealthCollector.modeSnapshot = if (cfg.paperMode) "PAPER" else "LIVE"
+            PipelineHealthCollector.modeSnapshot = try { RuntimeModeAuthority.authority().name } catch (_: Throwable) { if (cfg.paperMode) "PAPER" else "LIVE" }
         } catch (_: Throwable) { /* never break the cycle */ }
         try {
             // V5.9.495z42 P1 — opportunistic recovery-lock unlock attempt at
