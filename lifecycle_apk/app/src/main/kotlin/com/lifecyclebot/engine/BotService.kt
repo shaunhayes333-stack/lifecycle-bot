@@ -8383,6 +8383,11 @@ class BotService : Service() {
         // lane may evaluate, and FDG receives a candidate only if that lane actually
         // produces BUY/PROBE intent. Runtime lane disable is already a no-op unless
         // an explicit operator policy is added later.
+        //
+        // V5.9.1561 — fanout collapse must NEVER suppress Standard V3/Core lanes
+        // (regression guard: GoldenTapeRegressionTest.fanout_suppression_never_…).
+        // The legacy STANDARD/CORE/V3 lanes are the trunk path; any future suppressor
+        // must explicitly whitelist them: l == "STANDARD" || l == "CORE" || l == "V3".
         return true
     }
 
