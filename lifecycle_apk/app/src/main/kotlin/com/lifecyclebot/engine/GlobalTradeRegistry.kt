@@ -124,8 +124,15 @@ object GlobalTradeRegistry {
     // PF/RC pump.fun rows. Pump sources remain observable via probation, but
     // cannot dominate the hot supervisor/UI bench.
     private const val MAX_PUMP_PORTAL_CONCURRENT = 300
-    private const val MAX_PUMP_HOT_FRACTION = 0.35
-    private const val MIN_NON_PUMP_RESERVED_HOT_SLOTS = 12
+    // V5.9.1561 — RELIEF (operator regression 5.0.3659): the 0.35 cap was actively
+    // throttling pump.fun into probation at total=30 → pump=11/cap=11 with HOT_
+    // WATCHLIST_HYDRATE_SKIPPED_PROBATION firing every second. Operator's actual ask
+    // was MORE non-pump tokens, NOT less pump — additive, not suppressive. Lift the
+    // cap so pump can fill the majority while we reserve a meaningful (not tiny)
+    // floor of slots for non-pump confirmation. Probation diversion now only fires
+    // when non-pump candidates actually exist (see shouldDivertPumpToProbation).
+    private const val MAX_PUMP_HOT_FRACTION = 0.65   // was 0.35 — relief, do not suppress flow
+    private const val MIN_NON_PUMP_RESERVED_HOT_SLOTS = 20  // was 12 — informational reserve target
 
     private val pumpPortalRejections = AtomicLong(0)
     private val pumpPortalProbationDiversions = AtomicLong(0)
@@ -171,6 +178,19 @@ object GlobalTradeRegistry {
         if (hasNonPumpConfirmation(addedBy, source)) return false // multi-source confirmation earns hot admission
         val total = watchlist.size
         if (total < 12) return false // cold start: let a few through so UI is alive
+        // V5.9.1561 — DO NOT DIVERT unless non-pump candidates exist to take the slot.
+        // Operator: "no lanes or traders should ever be suppressed." Diverting pump
+        // when no non-pump is queued just leaves the hot bench under-utilised and
+        // starves the bot of any signal. Only enforce the reservation when non-pump
+        // already occupies <reserved fraction (i.e., we're actually crowding non-pump).
+        val nonPumpCount = total - pumpPortalConcurrentCount()
+        if (nonPumpCount < MIN_NON_PUMP_RESERVED_HOT_SLOTS / 2) {
+            // Non-pump bench is sparse — keep admitting pump so the scanner has work to do.
+            // (The non-pump intake paths in BotService/scanner still get full priority on
+            //  their own arrivals; this just stops pump from going to probation on a quiet day.)
+            val currentPump = pumpPortalConcurrentCount()
+            return currentPump >= MAX_PUMP_PORTAL_CONCURRENT  // only the absolute ceiling
+        }
         val currentPump = pumpPortalConcurrentCount()
         return currentPump >= pumpHotCapFor(total + 1)
     }

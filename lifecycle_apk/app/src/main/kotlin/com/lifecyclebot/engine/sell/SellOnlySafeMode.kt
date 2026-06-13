@@ -33,7 +33,27 @@ object SellOnlySafeMode {
     @Volatile private var staleLivePriceExitActive: Boolean = false
     @Volatile private var lastSignalMs: Long = 0L
 
-    const val WORKER_TIMEOUT_THRESHOLD = 5
+    // V5.9.1561 — DELTA-WINDOW workerTimeout tracker (operator regression 5.0.3659).
+    // ───────────────────────────────────────────────────────────────────────────
+    // Bug: workerTimeouts is the CUMULATIVE session counter
+    // (LIFECYCLE/SUPERVISOR_WORKER_TIMEOUT) which monotonically increases for the
+    // lifetime of the run. Comparing it to a static threshold (>5) meant safe
+    // mode latched ON forever once the bot accumulated 6 timeouts — typically
+    // within the first few minutes of any session — and EVERY live buy was hard-
+    // blocked at LiveBuyAdmissionGate for the rest of the session.
+    // Operator dump 5.0.3659: workerTimeout=14, FDG_LIVE_ALLOW=95, EXEC_LIVE_ATTEMPT=0.
+    //
+    // Fix: track a sliding-window DELTA. Storm = ≥ STORM_THRESHOLD new timeouts
+    // within STORM_WINDOW_MS. A transient bad-API burst back-pressures live for
+    // ~90s, then self-clears once the burst stops. Cumulative count no longer
+    // matters — only RECENT rate does.
+    private const val STORM_WINDOW_MS = 90_000L
+    private const val STORM_THRESHOLD = 5
+    @Volatile private var prevWorkerTimeouts: Int = 0
+    @Volatile private var stormWindowStartMs: Long = 0L
+    @Volatile private var stormWindowDelta: Int = 0
+
+    const val WORKER_TIMEOUT_THRESHOLD = STORM_THRESHOLD  // kept for external probes
     private const val SIGNAL_TTL_MS = 30_000L
 
     private val _enterCount = AtomicLong(0L)
@@ -57,13 +77,24 @@ object SellOnlySafeMode {
     ) {
         pendingSellQueueSize = pendingSellQueue
         sellReconcilerActiveJobs = activeJobs
-        workerTimeouts = workerTimeoutCount
+        // V5.9.1561 — delta-window storm tracking; see field doc.
+        val now = System.currentTimeMillis()
+        val delta = (workerTimeoutCount - prevWorkerTimeouts).coerceAtLeast(0)
+        prevWorkerTimeouts = workerTimeoutCount
+        if (stormWindowStartMs == 0L || (now - stormWindowStartMs) > STORM_WINDOW_MS) {
+            // Window expired — start fresh with the new delta.
+            stormWindowStartMs = now
+            stormWindowDelta = delta
+        } else {
+            stormWindowDelta += delta
+        }
+        workerTimeouts = stormWindowDelta  // what recompute() / workerTimeoutStorm() will read
         orphanLivePositions = orphanLive
         hostTrackerOpenCount = hostOpen
         positionStoreOpenCount = storeOpen
         closedWithNonDustBalance = closedNonDust
         staleLivePriceExitActive = staleLivePriceExit
-        lastSignalMs = System.currentTimeMillis()
+        lastSignalMs = now
         recompute()
     }
 
@@ -87,7 +118,8 @@ object SellOnlySafeMode {
         if (fresh) {
             if (pendingSellQueueSize > 0) reasons += "pendingSellQueue=$pendingSellQueueSize"
             if (sellReconcilerActiveJobs > 0) reasons += "activeJobs=$sellReconcilerActiveJobs"
-            if (workerTimeoutStorm()) reasons += "workerTimeoutStorm=$workerTimeouts>$WORKER_TIMEOUT_THRESHOLD"
+            // V5.9.1561 — message uses window delta now, not lifetime cumulative.
+            if (workerTimeoutStorm()) reasons += "workerTimeoutStorm=$workerTimeouts(>${STORM_THRESHOLD})/90s"
             if (orphanLivePositions > 0) reasons += "orphanLive=$orphanLivePositions"
             if (hostTrackerOpenCount != positionStoreOpenCount)
                 reasons += "openCountMismatch host=$hostTrackerOpenCount store=$positionStoreOpenCount"
