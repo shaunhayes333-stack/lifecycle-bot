@@ -1121,6 +1121,17 @@ object CashGenerationAI {
         ErrorLogger.info(TAG, "💰 CLEARED ${paperCount + liveCount} Treasury positions on shutdown (paper=$paperCount live=$liveCount)")
     }
 
+    /** V5.9.1565 — metadata-only ghost eviction for BotService forcedOpen reaper. */
+    fun evictGhost(mint: String): Boolean {
+        var removed = false
+        synchronized(paperPositions) { removed = paperPositions.remove(mint) != null || removed }
+        synchronized(livePositions) { removed = livePositions.remove(mint) != null || removed }
+        currentPrices.remove(mint)
+        lastPriceUpdate.remove(mint)
+        if (removed) ErrorLogger.info(TAG, "💰 GHOST_EVICT Treasury ${mint.take(10)}")
+        return removed
+    }
+
     fun checkAllPositionsForExit(): List<Pair<String, ExitSignal>> {
         val exits = mutableListOf<Pair<String, ExitSignal>>()
 

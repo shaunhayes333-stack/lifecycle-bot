@@ -991,6 +991,16 @@ object MoonshotTraderAI {
             positions.values.toList()
         }
     }
+
+    /** V5.9.1565 — metadata-only ghost eviction for BotService forcedOpen reaper. */
+    fun evictGhost(mint: String): Boolean {
+        var removed = false
+        synchronized(activePositions) { removed = activePositions.remove(mint) != null || removed }
+        synchronized(paperPositions) { removed = paperPositions.remove(mint) != null || removed }
+        synchronized(livePositions) { removed = livePositions.remove(mint) != null || removed }
+        if (removed) ErrorLogger.info(TAG, "🌙 GHOST_EVICT Moonshot ${mint.take(10)}")
+        return removed
+    }
     
     fun addPosition(position: MoonshotPosition) {
         synchronized(activePositions) {

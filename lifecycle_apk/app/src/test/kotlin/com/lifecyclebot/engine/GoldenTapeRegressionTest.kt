@@ -185,5 +185,16 @@ class GoldenTapeRegressionTest {
         assertTrue(source.contains("PAPER_CIRCUIT_SOFT_ALLOW"))
         assertTrue(source.contains("circuitPaperMode && globalPause?.active != true"))
     }
+
+    @Test
+    fun forced_open_reaper_evicts_all_subtrader_stores() {
+        val bot = java.io.File("src/main/kotlin/com/lifecyclebot/engine/BotService.kt").readText()
+        assertTrue(bot.contains("CashGenerationAI.evictGhost"))
+        assertTrue(bot.contains("MoonshotTraderAI.evictGhost"))
+        assertTrue(bot.contains("ShitCoinTraderAI.evictGhost"))
+        assertTrue(bot.contains("QualityTraderAI.evictGhost"))
+        assertTrue(bot.contains("ManipulatedTraderAI.evictGhost"))
+    }
 }
+
 

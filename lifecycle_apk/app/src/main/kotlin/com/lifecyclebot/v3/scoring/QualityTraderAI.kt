@@ -800,6 +800,16 @@ object QualityTraderAI {
         return if (isPaper) paperPositions.values.toList() else livePositions.values.toList()
     }
 
+    /** V5.9.1565 — metadata-only ghost eviction for BotService forcedOpen reaper. */
+    fun evictGhost(mint: String): Boolean {
+        var removed = false
+        synchronized(activePositions) { removed = activePositions.remove(mint) != null || removed }
+        synchronized(paperPositions) { removed = paperPositions.remove(mint) != null || removed }
+        synchronized(livePositions) { removed = livePositions.remove(mint) != null || removed }
+        if (removed) ErrorLogger.info(TAG, "⭐ GHOST_EVICT Quality ${mint.take(10)}")
+        return removed
+    }
+
     /**
      * V5.9.705 — Reduce sub-trader tracked entrySol after a confirmed partial sell.
      */

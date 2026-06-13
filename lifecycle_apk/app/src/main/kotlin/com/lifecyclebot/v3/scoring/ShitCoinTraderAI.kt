@@ -466,6 +466,15 @@ object ShitCoinTraderAI {
         synchronized(livePositions) { livePositions.clear() }
         ErrorLogger.info(TAG, "💩 CLEARED ${paperCount + liveCount} ShitCoin positions on shutdown (paper=$paperCount live=$liveCount)")
     }
+
+    /** V5.9.1565 — metadata-only ghost eviction for BotService forcedOpen reaper. */
+    fun evictGhost(mint: String): Boolean {
+        var removed = false
+        synchronized(paperPositions) { removed = paperPositions.remove(mint) != null || removed }
+        synchronized(livePositions) { removed = livePositions.remove(mint) != null || removed }
+        if (removed) ErrorLogger.info(TAG, "💩 GHOST_EVICT ShitCoin ${mint.take(10)}")
+        return removed
+    }
     
     fun addPosition(position: ShitCoinPosition) {
         synchronized(activePositions) {

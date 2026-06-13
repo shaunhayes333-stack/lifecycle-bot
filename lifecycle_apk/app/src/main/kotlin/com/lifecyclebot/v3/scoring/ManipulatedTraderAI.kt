@@ -459,6 +459,13 @@ object ManipulatedTraderAI {
         }
     }
 
+    /** V5.9.1565 — metadata-only ghost eviction for BotService forcedOpen reaper. */
+    fun evictGhost(mint: String): Boolean {
+        val removed = activePositions.remove(mint) != null
+        if (removed) ErrorLogger.info(TAG, "☠️ GHOST_EVICT Manipulated ${mint.take(10)}")
+        return removed
+    }
+
     /**
      * V5.9.705 — Reduce sub-trader tracked entrySol after a confirmed partial sell.
      */

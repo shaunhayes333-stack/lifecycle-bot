@@ -12068,6 +12068,7 @@ val subTraderOpenMints: List<String> = try {
     try { out.addAll(com.lifecyclebot.v3.scoring.ShitCoinTraderAI.getActivePositions().map { it.mint }) } catch (_: Throwable) {}
     try { out.addAll(com.lifecyclebot.v3.scoring.QualityTraderAI.getActivePositions().map { it.mint }) } catch (_: Throwable) {}
     try { out.addAll(com.lifecyclebot.v3.scoring.BlueChipTraderAI.getActivePositions().map { it.mint }) } catch (_: Throwable) {}
+    try { out.addAll(com.lifecyclebot.v3.scoring.ManipulatedTraderAI.getActivePositions().map { it.mint }) } catch (_: Throwable) {}
     try { out.addAll(com.lifecyclebot.v3.scoring.DipHunterAI.getActiveDips().map { it.mint }) } catch (_: Throwable) {}
     try { out.addAll(com.lifecyclebot.v3.scoring.ShitCoinExpress.getActiveRides().map { it.mint }) } catch (_: Throwable) {}
     out.toList()
@@ -13218,7 +13219,12 @@ if (hotExitHandledSweep) {
                 // a closed mint is reaped (lease released) but immediately re-added
                 // from the store on the very next cycle → ghost>0 forever → every
                 // buy defers (the 6h-dead park). Pure map removal, no PnL/learning.
+                try { com.lifecyclebot.v3.scoring.CashGenerationAI.evictGhost(m) } catch (_: Throwable) {}
+                try { com.lifecyclebot.v3.scoring.MoonshotTraderAI.evictGhost(m) } catch (_: Throwable) {}
+                try { com.lifecyclebot.v3.scoring.ShitCoinTraderAI.evictGhost(m) } catch (_: Throwable) {}
+                try { com.lifecyclebot.v3.scoring.QualityTraderAI.evictGhost(m) } catch (_: Throwable) {}
                 try { com.lifecyclebot.v3.scoring.BlueChipTraderAI.evictGhost(m) } catch (_: Throwable) {}
+                try { com.lifecyclebot.v3.scoring.ManipulatedTraderAI.evictGhost(m) } catch (_: Throwable) {}
                 try { com.lifecyclebot.v3.scoring.DipHunterAI.evictGhost(m) } catch (_: Throwable) {}
                 try { com.lifecyclebot.v3.scoring.ShitCoinExpress.evictGhost(m) } catch (_: Throwable) {}
             }
