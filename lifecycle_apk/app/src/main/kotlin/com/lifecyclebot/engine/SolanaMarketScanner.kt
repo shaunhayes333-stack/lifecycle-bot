@@ -1492,7 +1492,9 @@ class SolanaMarketScanner(
                 // endpoint returns tokens that may not have a dex pair yet (pre-bonding-curve).
                 // Null pair = still admit with mcap-based liq estimate so fresh launches aren't dropped.
                 val pair = withContext(Dispatchers.IO) { dex.getBestPair(mint) }
-                val sym = pair?.baseSymbol ?: profile.optString("symbol", "").ifBlank { continue }
+                val rawSym = pair?.baseSymbol ?: profile.optString("symbol", "")
+                if (rawSym.isBlank()) continue
+                val sym = rawSym
                 if (sym.uppercase() in listOf("SOL", "WSOL", "USDC", "USDT", "RAY")) continue
 
                 val liq = if (pair != null && pair.liquidity > 0) pair.liquidity
@@ -1532,7 +1534,7 @@ class SolanaMarketScanner(
                     emitWithRugcheck(token)
                     found++
                     val freshIcon = if (ageHours < 1) "🆕" else if (ageHours < 6) "📈" else "📊"
-                    onLog("$freshIcon NEW: ${pair.baseSymbol} | ${ageHours.toInt()}h old | liq=\$${liq.toInt()}")
+                    onLog("$freshIcon NEW: $sym | ${ageHours.toInt()}h old | liq=\$${liq.toInt()}")
                 }
             }
             ErrorLogger.info("Scanner", "scanPumpFunActive: found $found tokens (checked $checked)")
@@ -2011,9 +2013,9 @@ class SolanaMarketScanner(
                 val mint = item.optString("tokenAddress", "")
                 if (mint.isBlank() || mint.startsWith("0x") || isSeen(mint)) continue
 
-                // V5.9.1586 — don't drop on null pair; fresh tokens may not have DEX pair yet
-                val pair = withContext(Dispatchers.IO) { dex.getBestPair(mint) }
-                if (pair != null && pair.baseSymbol.uppercase() in listOf("SOL", "WSOL", "USDC", "USDT")) continue
+                // scanDexBoosted: boosted tokens must have a live dex pair for price/liq data
+                val pair = withContext(Dispatchers.IO) { dex.getBestPair(mint) } ?: continue
+                if (pair.baseSymbol.uppercase() in listOf("SOL", "WSOL", "USDC", "USDT")) continue
 
                 var fallbackLiq = 0.0
                 if (pair.liquidity <= 0) {
@@ -2144,9 +2146,9 @@ class SolanaMarketScanner(
                 val mint = item.optString("address", "")
                 if (mint.isBlank() || isSeen(mint)) continue
 
-                // V5.9.1586 — don't drop on null pair; fresh tokens may not have DEX pair yet
-                val pair = withContext(Dispatchers.IO) { dex.getBestPair(mint) }
-                if (pair != null && pair.baseSymbol.uppercase() in listOf("SOL", "WSOL", "USDC", "USDT")) continue
+                // scanBirdeyeTrending: trending tokens need a live dex pair
+                val pair = withContext(Dispatchers.IO) { dex.getBestPair(mint) } ?: continue
+                if (pair.baseSymbol.uppercase() in listOf("SOL", "WSOL", "USDC", "USDT")) continue
 
                 var fallbackLiq = 0.0
                 if (pair.liquidity <= 0) {
