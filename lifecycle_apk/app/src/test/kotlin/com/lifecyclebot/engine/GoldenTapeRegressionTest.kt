@@ -433,4 +433,13 @@ class GoldenTapeRegressionTest {
         assertTrue(openGate.contains("EXEC_GATE_ALLOW>0 but EXEC_LIVE_ATTEMPT=0"))
         assertTrue(openGate.contains("latestAllows && safetyOk && effectiveLiq >= 1200.0"))
     }
+
+    @Test
+    fun rc_pending_live_must_not_be_v3_block_fatal() {
+        val fatal = java.io.File("src/main/kotlin/com/lifecyclebot/v3/risk/FatalRiskChecker.kt").readText()
+        assertTrue(fatal.contains("score=1 is RC_PENDING sentinel"))
+        assertFalse("FatalRiskChecker must not emit the stale live RC pending fatal", fatal.contains("EXTREME_RUG_CRITICAL_score=1_RC_PENDING_LIVE"))
+        val bot = java.io.File("src/main/kotlin/com/lifecyclebot/engine/BotService.kt").readText()
+        assertTrue("BotService needs downstream fuse for stale deployed/cached V3 fatal strings", bot.contains("V3_LIVE_RC_PENDING_FATAL_SOFTENED"))
+    }
 }

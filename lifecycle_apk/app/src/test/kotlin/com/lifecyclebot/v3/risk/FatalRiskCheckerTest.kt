@@ -52,6 +52,21 @@ class FatalRiskCheckerTest {
         assertFalse("pending RC + transient fresh-launch flag must not BLOCK_FATAL in paper", result.blocked)
     }
 
+
+    @Test fun score_1_does_not_fatal_live_at_log_liquidity() {
+        val checker = FatalRiskChecker(TradingConfigV3())
+        val liveCtx = TradingContext(TradingConfigV3(), V3BotMode.LIVE)
+        val result = checker.check(candidate(rawRiskScore = 1, liquidity = 1_614.0), liveCtx)
+        assertFalse("RC_PENDING live at real fresh-launch liquidity must be penalty/scoring, not BLOCK_FATAL", result.blocked)
+    }
+
+    @Test fun score_1_with_transient_fresh_launch_flag_does_not_fatal_live() {
+        val checker = FatalRiskChecker(TradingConfigV3())
+        val liveCtx = TradingContext(TradingConfigV3(), V3BotMode.LIVE)
+        val result = checker.check(candidate(rawRiskScore = 1, liquidity = 1_678.0, extra = mapOf("liquidityDraining" to true)), liveCtx)
+        assertFalse("RC_PENDING live plus transient fresh-launch flags must not recreate EXTREME_RUG_CRITICAL_score=1_RC_PENDING_LIVE", result.blocked)
+    }
+
     @Test fun score_0_confirmed_rug_still_fatals() {
         val checker = FatalRiskChecker(TradingConfigV3())
         val result = checker.check(candidate(rawRiskScore = 0), ctx)

@@ -131,35 +131,16 @@ class FatalRiskChecker(
                               !candidate.extraBoolean("pureSellPressure") &&
                               !candidate.extraBoolean("liquidityDraining") &&
                               !candidate.extraBoolean("unsellableSignal")
-        // V5.9.689 — score=1 is RC_PENDING sentinel (API not yet resolved),
-        // NOT a confirmed bad score. Treat it the same as ShitCoin's
-        // PAPER_LEARNING bypass: paper mode passes with RC_PENDING flag,
-        // live mode still blocks (unknown RC on real money = too risky).
-        // score=0 = confirmed rugged/honeypot → unconditional hard block.
+        // V5.9.1581 — score=1 is RC_PENDING sentinel (API not yet resolved),
+        // NOT confirmed risk. It must never be a V3 BLOCK_FATAL in paper OR live.
+        // The operator log at 23:53 showed FDG live allows present but executor
+        // attempts stuck at zero because V3 died upstream on RC_PENDING live
+        // fresh launches around $1.6k-$2.2k liquidity. That contradicted the gate taxonomy: pending = penalty,
+        // low-liq = size reduction/cost check, confirmed fatal = hard reject.
+        // Confirmed rug score=0 remains unconditional. Low confirmed 2..5 stays
+        // in the band check below. RC_PENDING falls through to scoring/FDG.
         if (rawRugcheckScore == 0) {
             return FatalRiskResult(true, "EXTREME_RUG_CRITICAL_score=0_CONFIRMED_RUG")
-        }
-        // V5.9.1535 — ROOT FIX (live trader dead: EVERY fresh launch fatal'd).
-        // score==1 is the RC_PENDING sentinel (rugcheck API not yet resolved) —
-        // it is NOT a confirmed rug. Previous fixes (V5.9.689/1329) only carved
-        // this out for PAPER, so in LIVE every fresh pump.fun launch (where RC is
-        // ALWAYS pending at birth) died here as EXTREME_RUG_CRITICAL_score=1_RC_
-        // PENDING_LIVE — BEFORE ExecutableOpenGate's V5.9.1504 pending-rug→FDG
-        // fallback could run. The two gates contradicted: OpenGate opened the
-        // door, FatalRiskChecker locked it upstream. We now MIRROR OpenGate: a
-        // PENDING RC (score==1) in live is NON-FATAL when the token clears a hard
-        // liquidity floor (real, exitable pool) AND the danger-flag bundle is
-        // clean — it is routed onward to V3 scoring + FDG, which make the final
-        // (size-capped) call. Confirmed rug (score==0) below is still an
-        // unconditional live hard block. Known ruggers still caught by
-        // TokenBlacklist at liveBuy (V5.9.1502); -15% SL unchanged.
-        if (rawRugcheckScore == 1 && !isPaperLearningRC) {
-            val pendingRcLiqFloorOk = candidate.liquidityUsd >= 8_000.0
-            if (!(pendingRcLiqFloorOk && rugFlagsCleanRC)) {
-                return FatalRiskResult(true, "EXTREME_RUG_CRITICAL_score=1_RC_PENDING_LIVE")
-            }
-            // else: pending RC + strong liquidity + clean flags → fall through to
-            // scoring/FDG (logged downstream as RC_PENDING route).
         }
         // V5.9.1329 — ROOT FIX: score=1 is RC_PENDING, not a confirmed rug.
         // The carve-out at line 116 lets score=1 PASS in paper, but the

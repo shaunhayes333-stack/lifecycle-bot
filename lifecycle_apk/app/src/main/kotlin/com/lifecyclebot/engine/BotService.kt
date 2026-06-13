@@ -15740,13 +15740,17 @@ if (hotExitHandledSweep) {
                     // before sub-traders/FDG could run. Confirmed rugcheck score=0
                     // still emits EXTREME_RUG_CRITICAL_score=0 and remains fatal.
                     val paperModelRugFatal = cfg.paperMode && result.reason.contains("EXTREME_RUG_RISK", ignoreCase = true)
-                    if (paperModelRugFatal) {
+                    val rcPendingLiveFatal = !cfg.paperMode &&
+                        ts.safety.rugcheckScore == 1 &&
+                        result.reason.contains("RC_PENDING_LIVE", ignoreCase = true)
+                    if (paperModelRugFatal || rcPendingLiveFatal) {
                         try {
+                            val label = if (rcPendingLiveFatal) "V3_LIVE_RC_PENDING_FATAL_SOFTENED" else "V3_PAPER_MODEL_RUG_FATAL_SOFTENED"
                             ForensicLogger.lifecycle(
-                                "V3_PAPER_MODEL_RUG_FATAL_SOFTENED",
+                                label,
                                 "mint=${ts.mint.take(10)} symbol=${ts.symbol} reason=${result.reason} rc=${ts.safety.rugcheckScore}"
                             )
-                            com.lifecyclebot.engine.PipelineHealthCollector.labelInc("V3_PAPER_MODEL_RUG_FATAL_SOFTENED")
+                            com.lifecyclebot.engine.PipelineHealthCollector.labelInc(label)
                         } catch (_: Throwable) {}
                     } else {
                         ExecutableOpenGate.recordV3(ts.mint, ts.symbol, "BLOCK_FATAL", result.reason, "BLOCK_FATAL", ts.safety.rugcheckScore)
