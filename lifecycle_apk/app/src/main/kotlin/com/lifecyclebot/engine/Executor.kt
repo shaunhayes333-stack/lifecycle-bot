@@ -8261,12 +8261,25 @@ class Executor(
             val fromGate = if (LiveRestoreExecutionPolicy.isSlotHealthClean()) LiveRestoreExecutionPolicy.NONE else fromGateRaw
             var p = fromGate.combine(LiveRestoreExecutionPolicy.fromRuntimeDrift(LiveRestoreExecutionPolicy.trustedLiquidityUsd(ts, fromGate.liquidityOverrideUsd)))
             val softText = try { ts.safety.softPenalties.joinToString("|") { it.first } } catch (_: Throwable) { "" }
-            if (softText.contains("Rugcheck pending", ignoreCase = true) || softText.contains("RUGCHECK_UNKNOWN_MAX_SIZE_MULT", ignoreCase = true)) {
-                p = p.combine(LiveRestoreExecutionPolicy.Penalty(scorePenalty = -12, sizeMultiplier = 0.35, reason = "RUGCHECK_PENDING_SIZE_CAP", liquidityOverrideUsd = ts.lastLiquidityUsd))
-            }
-            if (softText.contains("Low but non-zero liquidity", ignoreCase = true) || softText.contains("Thin live liquidity", ignoreCase = true)) {
-                p = p.combine(LiveRestoreExecutionPolicy.Penalty(scorePenalty = -10, sizeMultiplier = 0.35, reason = "LOW_LIQUIDITY_SIZE_REDUCED", liquidityOverrideUsd = ts.lastLiquidityUsd))
-            }
+            // V5.9.1565 — DOCTRINE FIX: live = paper twin. The two penalties below
+            // were live-only size caps that paper never bore, and they were the
+            // root cause of the 2484-paper-trades vs 57-live-trades disparity in
+            // operator dump 5.0.3672. Both shrink size below minExecutable on
+            // RugCheck-pending / thin-liq tokens — exactly the fresh-launch state
+            // where paper takes the trade and prints +119% mean PnL. Rug risk is
+            // already priced into score by CorrelationHedgeAI / LiquidityExitPathAI;
+            // a size cap here is double-counting. Break-even economics belong on
+            // the SELL side (only sell when realised pnl covers cost + treasury
+            // split), not as an entry brake.
+            //
+            // if (softText.contains("Rugcheck pending", true) || softText.contains("RUGCHECK_UNKNOWN_MAX_SIZE_MULT", true)) {
+            //     p = p.combine(LiveRestoreExecutionPolicy.Penalty(scorePenalty = -12, sizeMultiplier = 0.35, reason = "RUGCHECK_PENDING_SIZE_CAP", liquidityOverrideUsd = ts.lastLiquidityUsd))
+            // }
+            // if (softText.contains("Low but non-zero liquidity", true) || softText.contains("Thin live liquidity", true)) {
+            //     p = p.combine(LiveRestoreExecutionPolicy.Penalty(scorePenalty = -10, sizeMultiplier = 0.35, reason = "LOW_LIQUIDITY_SIZE_REDUCED", liquidityOverrideUsd = ts.lastLiquidityUsd))
+            // }
+            // (softText still consumed downstream for telemetry / safety tier.)
+            val _suppressedLiveOnlyPenalties = softText // keep softText referenced
             p
         }
         if (restorePenalty.reason != "NONE") {
@@ -8283,7 +8296,19 @@ class Executor(
         }
         val breakEven = LiveRestoreExecutionPolicy.breakEvenCheck(ts, sol, restorePenalty, walletSol, signalScore = score)
         LiveRestoreExecutionPolicy.logBreakEven(ts, breakEven, restorePenalty)
-        if (!breakEven.allowed) {
+        // V5.9.1565 — DOCTRINE FIX: break-even economics are a SELL-side concern.
+        // Entry-time we only reject if expectedEdge is genuinely negative (the
+        // score itself says the trade has no edge). Otherwise we let live take
+        // the trade at the same size paper would, and the sell logic enforces
+        // 'only realise gains that beat allInCost + profit-split feed-back'.
+        // This restores the doctrine: live ≠ a brake on paper, live = paper's
+        // twin paying real costs at sell-time.
+        // TODO V5.9.1566: in sub-trader sell paths, gate exits at positive pnl
+        //                 against (allInCostPct + treasurySplitPct + safetyMargin)
+        //                 so we only bank profit that net-feeds the treasury and
+        //                 doesn't self-starve the bot.
+        val hardNegativeEdge = breakEven.expectedEdgePct < 0.0
+        if (!breakEven.allowed && hardNegativeEdge) {
             PipelineTracer.executorFailed(ts.symbol, ts.mint, "LIVE", breakEven.decision)
             try {
                 ForensicLogger.lifecycle(
@@ -8293,8 +8318,16 @@ class Executor(
             } catch (_: Throwable) {}
             return
         }
-        if (breakEven.sizeSol != sol) {
-            try { ForensicLogger.lifecycle("LIVE_RESTORE_PENALTY_EXEC", "symbol=${ts.symbol} mint=${ts.mint.take(10)} from=${"%.4f".format(sol)} to=${"%.4f".format(breakEven.sizeSol)} penalty=${restorePenalty.reason} decision=${breakEven.decision}") } catch (_: Throwable) {}
+        if (!breakEven.allowed) {
+            // Entry passes despite slow break-even math; tag for sell-side enforcement.
+            try { ForensicLogger.lifecycle("LIVE_BREAK_EVEN_DEFERRED_TO_SELL", "symbol=${ts.symbol} mint=${ts.mint.take(10)} allInCost=${"%.2f".format(breakEven.allInCostPct)} expectedEdge=${"%.2f".format(breakEven.expectedEdgePct)} — doctrine: paper would take this, sell-side enforces") } catch (_: Throwable) {}
+        }
+        // V5.9.1565 — also honour paper-equality: never SHRINK sol below the
+        // caller's requested size on entry. breakEven.sizeSol used to write back
+        // a shrunken size when penalties bit; with penalties removed the size
+        // should not change, but keep sol = max(sol, breakEven.sizeSol) as a
+        // defensive doctrine guard.
+        if (breakEven.sizeSol > sol) {
             sol = breakEven.sizeSol
         }
         
