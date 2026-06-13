@@ -21,6 +21,7 @@ object RuntimeRegressionGuards {
         val forensicLoggingOn: Boolean = true,
         val runtimeActive: Boolean = false,
         val uiRunning: Boolean = false,
+        val mode: String = "PAPER",
         val sellReconcilerStarted: Boolean = false,
         val hostTrackerOpenCount: Int = 0,
         val positionStoreOpenCount: Int = 0,
@@ -48,6 +49,7 @@ object RuntimeRegressionGuards {
     fun evaluate(input: Input): List<Check> {
         val laneRatio = if (input.intake > 0) input.laneEval.toDouble() / input.intake.toDouble() else 0.0
         val execRatio = if (input.actualBuyAttempts > 0) input.execOpenRequest.toDouble() / input.actualBuyAttempts.toDouble() else 0.0
+        val liveRuntime = input.mode.equals("LIVE", ignoreCase = true) || input.mode.equals("REAL", ignoreCase = true)
         return listOf(
             Check(
                 "runtime_ui_truth",
@@ -56,11 +58,11 @@ object RuntimeRegressionGuards {
             ),
             Check(
                 "sell_reconciler_running",
-                // V5.9.1583 — runtimeActive here is the LIVE runtime invariant input.
-                // If the runtime is active, sell reconciler must be started even
-                // when liveOpenPositions==0; otherwise wallet/orphan cleanup never ticks.
-                ok = !input.runtimeActive || input.sellReconcilerStarted,
-                detail = "runtimeActive=${input.runtimeActive} sellReconcilerStarted=${input.sellReconcilerStarted} liveOpen=${input.liveOpenPositions} paperOpen=${input.paperOpenPositions}",
+                // V5.9.1584 — require the reconciler for LIVE runtime only. Paper
+                // positions must not fail this guard, but LIVE must tick even with
+                // liveOpenPositions==0 because it owns wallet/orphan cleanup.
+                ok = !input.runtimeActive || !liveRuntime || input.sellReconcilerStarted,
+                detail = "runtimeActive=${input.runtimeActive} mode=${input.mode} sellReconcilerStarted=${input.sellReconcilerStarted} liveOpen=${input.liveOpenPositions} paperOpen=${input.paperOpenPositions}",
             ),
             Check(
                 "host_tracker_open_match",

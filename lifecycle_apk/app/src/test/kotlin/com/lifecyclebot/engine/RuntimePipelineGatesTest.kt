@@ -461,6 +461,25 @@ class RuntimeDoctorSmokeTest {
 
 
 
+
+    @Test
+    fun regression_guards_require_sell_reconciler_for_active_live_runtime_even_with_zero_open_positions() {
+        val checks = RuntimeRegressionGuards.evaluate(
+            RuntimeRegressionGuards.Input(
+                runtimeActive = true,
+                mode = "LIVE",
+                sellReconcilerStarted = false,
+                hostTrackerOpenCount = 0,
+                paperOpenPositions = 0,
+                liveOpenPositions = 0,
+                walletHeldMints = 0,
+                canonicalOpenPositions = 0,
+            )
+        )
+        val sell = checks.first { it.name == "sell_reconciler_running" }
+        assertFalse(sell.ok)
+    }
+
     @Test
     fun ui_running_truth_must_allow_service_runtime_fallback() {
         val runtimeSaysStopped = BotRuntimeController.Snapshot(state = BotRuntimeController.RuntimeState.STOPPED)

@@ -144,6 +144,7 @@ object ForensicReportExporter {
                     forensicLoggingOn = com.lifecyclebot.engine.ForensicLogger.enabled,
                     runtimeActive = runtime.runtimeActive,
                     uiRunning = runtime.runtimeActive,
+                    mode = runtimeSnapshot?.mode ?: if (runtime.paperMode) "PAPER" else "LIVE",
                     sellReconcilerStarted = runtime.sellReconcilerStarted,
                     hostTrackerOpenCount = runtimeSnapshot?.hostTrackerOpenCount ?: runtime.hostTrackerOpenCount,
                     positionStoreOpenCount = runtimeSnapshot?.positionStoreOpenCount ?: -1,
