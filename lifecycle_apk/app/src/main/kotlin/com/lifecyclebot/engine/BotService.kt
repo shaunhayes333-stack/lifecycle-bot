@@ -8043,6 +8043,15 @@ class BotService : Service() {
                                     if (!giveBackRatio.isNaN()) {
                                         val lockedFloor = peakPct - (peakPct * giveBackRatio)
                                         if (pnlPctNow < lockedFloor && pnlPctNow > 0.0) {
+                                            // V5.9.1566 — doctrine: never bank a positive
+                                            // pnl that doesn't beat cost + treasury feed.
+                                            // Stop-loss path is unaffected (this branch
+                                            // only fires on positive pnl give-back).
+                                            val isPaperRt = try { com.lifecyclebot.engine.RuntimeModeAuthority.isPaper() } catch (_: Throwable) { false }
+                                            val beOk = com.lifecyclebot.engine.LiveRestoreExecutionPolicy.sellSideBreakEvenOk(ts, pnlPctNow, isPaperRt)
+                                            if (!beOk) {
+                                                // hold for more upside — peak-lock will fire on next deeper give-back
+                                            } else {
                                             ErrorLogger.warn("BotService",
                                                 "🔒 TICK_PROFIT_LOCK ${ts.symbol} " +
                                                 "peak=${"%.1f".format(peakPct)}% now=${"%.1f".format(pnlPctNow)}% " +
@@ -8055,6 +8064,7 @@ class BotService : Service() {
                                                     "TICK_PROFIT_LOCK_peak${peakPct.toInt()}_now${pnlPctNow.toInt()}",
                                                     walletTick, balTick)
                                             } catch (_: Throwable) {}
+                                            }
                                         }
                                     }
                                 }

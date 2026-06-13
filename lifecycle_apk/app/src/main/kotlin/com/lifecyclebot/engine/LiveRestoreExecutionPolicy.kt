@@ -187,4 +187,42 @@ object LiveRestoreExecutionPolicy {
             )
         } catch (_: Throwable) {}
     }
+
+    // V5.9.1566 — SELL-SIDE break-even with treasury feed-back.
+    // ─────────────────────────────────────────────────────────────────────
+    // Doctrine (operator): "break-even check belongs at SELL time when the
+    // token is held in a positive state. It must consider the profit split
+    // so it both feeds the treasury and doesn't self-starve the bot."
+    //
+    // Treasury takes MEME_SELL_TREASURY_PCT (25%) of realized profit. So the
+    // trading wallet only nets (1 - 0.25) = 75% of the realized pnl. For the
+    // trade to be net-positive AFTER costs AND treasury feed:
+    //     0.75 × pnlPct >= allInCostPct + safetyMargin
+    //   ⇒ pnlPct        >= (allInCostPct + safetyMargin) / 0.75
+    //
+    // Call this from profit-taking exits ONLY (TP, trailing, profit-lock).
+    // Do NOT call from stop-loss / hard-floor / emergency / rug exits —
+    // those fire on capital protection regardless of break-even math.
+    //
+    // Returns true if the sell is doctrine-allowed:
+    //   - pnl is non-positive (stop-loss path, not our concern), OR
+    //   - paper mode (no real costs), OR
+    //   - pnl beats true-break-even-with-treasury.
+    fun sellSideBreakEvenOk(ts: TokenState, currentPnlPct: Double, isPaper: Boolean): Boolean {
+        if (isPaper) return true
+        if (currentPnlPct <= 0.0) return true  // stop-loss handles negative side
+        val be = breakEvenCheck(ts, ts.position.solSpent.coerceAtLeast(0.01),
+            NONE, walletSol = 1.0, signalScore = ts.entryScore)
+        val treasurySharePct = com.lifecyclebot.engine.TreasuryManager.MEME_SELL_TREASURY_PCT
+        val safetyMarginPct = 1.0
+        val effectiveBreakEven = (be.allInCostPct + safetyMarginPct) / (1.0 - treasurySharePct)
+        val ok = currentPnlPct >= effectiveBreakEven
+        if (!ok) {
+            try { ForensicLogger.lifecycle(
+                "SELL_SIDE_BREAK_EVEN_DEFER",
+                "symbol=${ts.symbol} pnl=${"%.2f".format(currentPnlPct)}%% effBE=${"%.2f".format(effectiveBreakEven)}%% (allInCost=${"%.2f".format(be.allInCostPct)} treasuryShare=${(treasurySharePct*100).toInt()}%% safety=${safetyMarginPct}) — holding for more upside"
+            ) } catch (_: Throwable) {}
+        }
+        return ok
+    }
 }
