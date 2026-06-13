@@ -393,6 +393,14 @@ object FinalExecutionPermit {
         pendingExecutions.entries.removeIf { now - it.value.timestamp > EXECUTION_COOLDOWN_MS }
     }
     
+
+    /** Deterministic test isolation for execution-authority invariant tests. */
+    fun resetForTests() {
+        v3Rejections.clear()
+        pendingExecutions.clear()
+        isPaperMode = true
+    }
+
     /**
      * Get stats for logging/debugging.
      */

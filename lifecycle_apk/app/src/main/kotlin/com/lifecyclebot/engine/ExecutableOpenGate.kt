@@ -352,8 +352,8 @@ object ExecutableOpenGate {
             // pre-FDG rug context finality.
             if (rugScore < 0 && !paperRuntime) add("PRE_FDG_RUG_CONTEXT_MISSING")
             // V5.9.1214 — in PAPER only confirmed rug score 0 is fatal.
-            // Scores 1..10 are learnable low-RC samples with soft penalties
-            // upstream; LIVE still treats 1..10 as hard no-buy finality.
+            // Score 1 is RC_PENDING. Scores 2..10 are low confirmed RC samples
+            // with soft paper penalties; LIVE treats only 2..10 as hard finality.
             // V5.9.1577 — score 1 is RC_PENDING, not confirmed risk. Live log
             // showed FDG/style-approved fresh launches later dropped by finality as
             // hardNo RC_SCORE_1 / WATCH. Only confirmed rug score 0 remains fatal
@@ -865,10 +865,11 @@ object ExecutableOpenGate {
                 return blocked("EXEC_OPEN_BLOCKED_SIGNAL_NOT_BUY", signal, shadow = mode == "PAPER")
             }
         }
-        // V5.9.1214 — mirror PAPER low-RC learning policy at final open.
-        // Paper blocks only confirmed rug score 0; scores 1..10 are allowed
-        // to produce labelled samples. LIVE keeps 1..10 hard-blocked.
-        if (rug == 0 || (rug in 1..10 && modeUpper == "LIVE")) {
+        // V5.9.1579b — RC=1 is PENDING/needs-more-data, not confirmed risk.
+        // Paper blocks only confirmed rug score 0; live blocks confirmed rug 0
+        // and low confirmed 2..10. Do NOT reintroduce the RC_SCORE_1 live
+        // final-open blocker after FDG/style approval.
+        if (rug == 0 || (rug in 2..10 && modeUpper == "LIVE")) {
             return blocked("EXEC_OPEN_BLOCKED_RUG_SCORE", "RC_SCORE_$rug", shadow = mode == "PAPER")
         }
         if (fdgCan == false) {
