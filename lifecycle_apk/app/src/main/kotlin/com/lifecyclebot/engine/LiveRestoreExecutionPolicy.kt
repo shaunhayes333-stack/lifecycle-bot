@@ -211,7 +211,7 @@ object LiveRestoreExecutionPolicy {
     fun sellSideBreakEvenOk(ts: TokenState, currentPnlPct: Double, isPaper: Boolean): Boolean {
         if (isPaper) return true
         if (currentPnlPct <= 0.0) return true  // stop-loss handles negative side
-        val be = breakEvenCheck(ts, ts.position.solSpent.coerceAtLeast(0.01),
+        val be = breakEvenCheck(ts, ts.position.costSol.coerceAtLeast(0.01),
             NONE, walletSol = 1.0, signalScore = ts.entryScore)
         val treasurySharePct = com.lifecyclebot.engine.TreasuryManager.MEME_SELL_TREASURY_PCT
         val safetyMarginPct = 1.0
