@@ -8002,7 +8002,22 @@ class BotService : Service() {
                                 val peakPct = pos.peakGainPct
 
                                 // ─── Guard 1: TICK_HARD_FLOOR @ -10% ───
-                                if (pnlPctNow <= TICK_HARD_FLOOR_PCT) {
+                                // V5.9.1564 — SANITY: a single tick can read a stale entry
+                                // price right after a basis switch (PumpFun BC → Raydium)
+                                // and report pnl≈-96% on a token actually up +100%. Operator
+                                // dump 5.0.3671: 3osrzz BUY 0.014 → SELL 0.030 pnl=+0.016
+                                // reason=TICK_HARD_FLOOR_-96PCT (sold a winner because the
+                                // tick read a phantom -96%). Two-line guard:
+                                //   1) cap floor sensitivity — anything below -50% is past
+                                //      the real -10% floor anyway and almost certainly a
+                                //      bad read. Defer to the slow-path sweep / sub-trader.
+                                //   2) require two consecutive sub-floor reads before firing
+                                //      (lastTickPnlBelowFloor must already be true).
+                                val phantomRead = pnlPctNow < -50.0
+                                val twoStrike = pos.lastTickFloorBreach
+                                // Update the strike flag for the next tick.
+                                pos.lastTickFloorBreach = (pnlPctNow <= TICK_HARD_FLOOR_PCT && !phantomRead)
+                                if (pnlPctNow <= TICK_HARD_FLOOR_PCT && !phantomRead && twoStrike) {
                                     ErrorLogger.warn("BotService",
                                         "🛑 TICK_HARD_FLOOR ${ts.symbol} ${"%.1f".format(pnlPctNow)}% " +
                                         "≤ ${TICK_HARD_FLOOR_PCT.toInt()}% — immediate exit (peak=${"%.1f".format(peakPct)}%)")
@@ -8455,9 +8470,13 @@ class BotService : Service() {
             }
             val pumpEntries = entries.filter { isPumpOnly(it) }.sortedBy { it.addedAt }
             val total = entries.size
+            // V5.9.1564 — match V5.9.1561 GlobalTradeRegistry policy.
+            // 0.35 cap was suppressing pump even when no non-pump candidates queued;
+            // 0.65 cap + 20-slot non-pump floor lets pump dominate scanner output
+            // while still reserving meaningful headroom for non-pump confirmation.
             val cap = minOf(
-                kotlin.math.ceil(total * 0.35).toInt().coerceAtLeast(1),
-                (total - 12).coerceAtLeast(1)
+                kotlin.math.ceil(total * 0.65).toInt().coerceAtLeast(1),
+                (total - 20).coerceAtLeast(1)
             )
             val excess = (pumpEntries.size - cap).coerceAtLeast(0)
             if (excess <= 0) return
@@ -9946,12 +9965,22 @@ class BotService : Service() {
                 val volH1 = try { tsForProbation?.history?.lastOrNull()?.volumeH1 ?: 0.0 } catch (_: Throwable) { 0.0 }
                 val priceNow = tsForProbation?.lastPrice ?: 0.0
                 val priceAgeMs = tsForProbation?.lastPriceUpdate?.takeIf { it > 0L }?.let { nowMs - it } ?: Long.MAX_VALUE
+                // V5.9.1564 — Only treat "stale" / "no-volume" as a demote signal when we
+                // actually have a working price feed wired (priceAgeMs != MAX_VALUE).
+                // Previously every non-pump intake landed with Long.MAX_VALUE priceAge,
+                // hit pc>=5, and got demoted as "STALE_NO_MOVE" — that's why operator
+                // dump 5.0.3671 showed watchlist=0 / probation=152 with healthy-liq
+                // tokens (Brötchen $55K liq) being demoted. Also: never demote a token
+                // with healthy liquidity (>= $10K) — that's a feed problem, not a token
+                // problem; let it stay so any source can backfill the price later.
+                val hasPriceFeed = (tsForProbation?.lastPriceUpdate ?: 0L) > 0L
+                val healthyLiq = liqNow >= 10_000.0
                 val ageMs = nowMs - entry.addedAt
                 val coldEnough = entry.processCount >= 3 && ageMs > 120_000L
                 val lowExecutableLiq = liqNow > 0.0 && liqNow < 2_000.0
-                val noVolume = volH1 <= 0.0 && entry.processCount >= 5 && ageMs > 180_000L
-                val staleNoMove = priceAgeMs > 180_000L && entry.processCount >= 5
-                if (coldEnough && (lowExecutableLiq || noVolume || staleNoMove)) {
+                val noVolume = hasPriceFeed && volH1 <= 0.0 && entry.processCount >= 5 && ageMs > 180_000L
+                val staleNoMove = hasPriceFeed && priceAgeMs > 180_000L && entry.processCount >= 5
+                if (!healthyLiq && coldEnough && (lowExecutableLiq || noVolume || staleNoMove)) {
                     val why = when {
                         lowExecutableLiq -> "LOW_EXEC_LIQ_${liqNow.toInt()}"
                         noVolume -> "NO_H1_VOLUME"

@@ -73,6 +73,12 @@ data class Position(
     val entrySupplyAssumed: Double = 0.0, // supply used for synthetic price (1B for PumpFun BC); 0 if real on-chain quote
     var priceBasisRescaled: Boolean = false,  // true after one-time rebase fires
     var priceBasisRescaleFactor: Double = 1.0, // multiplicative factor applied to entryPrice/highestPrice
+    // V5.9.1564 — two-strike state for tick-time HARD_FLOOR (prevents single-tick
+    // basis-switch phantom reads from cutting real winners). Set true when a tick
+    // sees pnl <= TICK_HARD_FLOOR_PCT for the FIRST time; the next tick (if also
+    // below the floor) triggers the actual exit. Reset to false the instant a
+    // tick reads above the floor — so legitimate drops still fire within ~2s.
+    var lastTickFloorBreach: Boolean = false,
     // ═══════════════════════════════════════════════════════════════════
     // V5.6.8 FIX: Track if position was opened in PAPER or LIVE mode
     // This is CRITICAL - if user switches modes, we must sell in the mode
