@@ -163,6 +163,7 @@ class BotOrchestrator(
             fatal = fatal,
             isPaperMode = isPaperMode,
             marketCapUsd = candidate.marketCapUsd,  // V5.9.939: tier-aware floor
+            ageMinutes = candidate.ageMinutes,       // V5.9.1586: fresh-launch probe
         )
 
         logger.stage(

@@ -1488,17 +1488,20 @@ class SolanaMarketScanner(
                 if (mint.isBlank() || mint.startsWith("0x") || isSeen(mint)) continue
                 checked++
 
-                val pair = withContext(Dispatchers.IO) { dex.getBestPair(mint) } ?: continue
-                if (pair.baseSymbol.uppercase() in listOf("SOL", "WSOL", "USDC", "USDT", "RAY")) continue
+                // V5.9.1586 — try getBestPair but don't require it. DexScreener profiles
+                // endpoint returns tokens that may not have a dex pair yet (pre-bonding-curve).
+                // Null pair = still admit with mcap-based liq estimate so fresh launches aren't dropped.
+                val pair = withContext(Dispatchers.IO) { dex.getBestPair(mint) }
+                val sym = pair?.baseSymbol ?: profile.optString("symbol", "").ifBlank { continue }
+                if (sym.uppercase() in listOf("SOL", "WSOL", "USDC", "USDT", "RAY")) continue
 
-                val liq = pair.liquidity
-                if (liq < 1000) continue
-
-                val vol = pair.candle.volumeH1
-                val mcap = pair.candle.marketCap
-                val ageHours = (now - pair.pairCreatedAtMs) / 3_600_000.0
-                val buys = pair.candle.buysH1
-                val sells = pair.candle.sellsH1
+                val liq = if (pair != null && pair.liquidity > 0) pair.liquidity
+                          else (pair?.fdv ?: 0.0).let { if (it > 0) it * 0.05 else 0.0 }
+                val vol = pair?.candle?.volumeH1 ?: 0.0
+                val mcap = pair?.candle?.marketCap ?: 0.0
+                val ageHours = if (pair != null && pair.pairCreatedAtMs > 0) (now - pair.pairCreatedAtMs) / 3_600_000.0 else 0.5
+                val buys = pair?.candle?.buysH1 ?: 0
+                val sells = pair?.candle?.sellsH1 ?: 0
 
                 val ageBonus = when {
                     ageHours < 0.5 -> 35.0
@@ -1512,8 +1515,8 @@ class SolanaMarketScanner(
 
                 val token = ScannedToken(
                     mint = mint,
-                    symbol = pair.baseSymbol,
-                    name = pair.baseName,
+                    symbol = sym,
+                    name = pair?.baseName ?: sym,
                     source = TokenSource.RAYDIUM_NEW_POOL,
                     liquidityUsd = liq,
                     volumeH1 = vol,
@@ -1582,17 +1585,21 @@ class SolanaMarketScanner(
                     val name = coin.optString("name", "")
                     if (symbol.isBlank()) continue
 
-                    val pair = withContext(Dispatchers.IO) { dex.getBestPair(mint) }
-
-                    val liq = pair?.liquidity ?: (coin.optDouble("usd_market_cap", 0.0) * 0.1)
-                    val mcap = pair?.candle?.marketCap ?: coin.optDouble("usd_market_cap", 0.0)
-                    val vol = pair?.candle?.volumeH1 ?: 0.0
+                    // V5.9.1586 — remove getBestPair() per-coin secondary call from scanPumpFunDirect.
+                    // pump.fun coins are pre-bonding-curve / just graduated; they have NO dex pair yet.
+                    // The secondary call was timing out the entire 5-URL scan (streak=42+ deprioritized).
+                    // Use coin metadata directly: usd_market_cap * 0.05 for liq estimate.
+                    // virtual_sol_reserves (lamports) / 1e9 * ~$170 SOL ≈ reasonable liq floor.
+                    val mcap = coin.optDouble("usd_market_cap", 0.0)
+                    val virtualSolReserves = coin.optDouble("virtual_sol_reserves", 0.0) / 1_000_000_000.0
+                    val liq = if (virtualSolReserves > 0.0) virtualSolReserves * 170.0 else mcap * 0.05
+                    val vol = 0.0
 
                     val createdTs = coin.optLong("created_timestamp", 0L)
                     val ageHours = if (createdTs > 0) {
                         (now - createdTs) / 3_600_000.0
                     } else {
-                        pair?.pairCreatedAtMs?.let { (now - it) / 3_600_000.0 } ?: 24.0
+                        24.0
                     }
 
                     if (ageHours > 48) continue
@@ -1617,7 +1624,7 @@ class SolanaMarketScanner(
                         pairCreatedHoursAgo = ageHours,
                         dexId = "pump.fun",
                         priceChangeH1 = 0.0,
-                        txCountH1 = pair?.candle?.let { it.buysH1 + it.sellsH1 } ?: 0,
+                        txCountH1 = 0,
                         score = scoreToken(liq, vol, 0, mcap, 0.0, ageHours) + pumpBonus,
                     )
 
@@ -1671,11 +1678,11 @@ class SolanaMarketScanner(
                 val pair = withContext(Dispatchers.IO) { dex.getBestPair(mint) } ?: continue
                 if (pair.baseSymbol.uppercase() in listOf("SOL", "WSOL", "USDC", "USDT", "RAY")) continue
 
-                var liq = pair.liquidity
+                var liq = pair?.liquidity ?: 0.0
                 if (liq <= 0) {
                     val overview = withContext(Dispatchers.IO) { birdeye.getTokenOverview(mint) }
                     liq = overview?.liquidity ?: 0.0
-                    if (liq <= 0 && (pair.fdv > 0 || pair.candle.marketCap > 0)) {
+                    if (liq <= 0 && pair != null && (pair.fdv > 0 || pair.candle.marketCap > 0)) {
                         val mcap = if (pair.fdv > 0) pair.fdv else pair.candle.marketCap
                         liq = (mcap * 0.10).takeIf { it > 1000 } ?: 0.0
                         if (liq > 0) {
@@ -1686,17 +1693,17 @@ class SolanaMarketScanner(
 
                 if (liq < 1000) continue
 
-                val vol = pair.candle.volumeH1
-                val mcap = pair.candle.marketCap
-                val ageHours = (now - pair.pairCreatedAtMs) / 3_600_000.0
-                val buys = pair.candle.buysH1
-                val sells = pair.candle.sellsH1
+                val vol = pair?.candle?.volumeH1 ?: 0.0
+                val mcap = pair?.candle?.marketCap ?: 0.0
+                val ageHours = if (pair != null && pair.pairCreatedAtMs > 0) (now - pair.pairCreatedAtMs) / 3_600_000.0 else 0.5
+                val buys = pair?.candle?.buysH1 ?: 0
+                val sells = pair?.candle?.sellsH1 ?: 0
                 val boostBonus = 20.0
 
                 val token = ScannedToken(
                     mint = mint,
-                    symbol = pair.baseSymbol,
-                    name = pair.baseName,
+                    symbol = pair?.baseSymbol ?: item.optString("tokenAddress", mint.take(8)),
+                    name = pair?.baseName ?: "",
                     source = TokenSource.DEX_BOOSTED,
                     liquidityUsd = liq,
                     volumeH1 = vol,
@@ -1742,18 +1749,19 @@ class SolanaMarketScanner(
                 val mint = profile.optString("tokenAddress", "")
                 if (mint.isBlank() || mint.startsWith("0x") || isSeen(mint)) continue
 
-                val pair = withContext(Dispatchers.IO) { dex.getBestPair(mint) } ?: continue
-                if (pair.baseSymbol.uppercase() in listOf("SOL", "WSOL", "USDC", "USDT")) continue
+                // V5.9.1586 — don't drop on null pair; fresh tokens may not have DEX pair yet
+                val pair = withContext(Dispatchers.IO) { dex.getBestPair(mint) }
+                if (pair != null && pair.baseSymbol.uppercase() in listOf("SOL", "WSOL", "USDC", "USDT")) continue
 
-                val ageHours = (now - pair.pairCreatedAtMs) / 3_600_000.0
+                val ageHours = if (pair != null && pair.pairCreatedAtMs > 0) (now - pair.pairCreatedAtMs) / 3_600_000.0 else 0.1
                 val ageMinutes = ageHours * 60.0
                 if (ageHours > 8) continue
 
-                var liq = pair.liquidity
+                var liq = pair?.liquidity ?: 0.0
                 if (liq <= 0) {
                     val overview = withContext(Dispatchers.IO) { birdeye.getTokenOverview(mint) }
                     liq = overview?.liquidity ?: 0.0
-                    if (liq <= 0 && (pair.fdv > 0 || pair.candle.marketCap > 0)) {
+                    if (liq <= 0 && pair != null && (pair.fdv > 0 || pair.candle.marketCap > 0)) {
                         val mcap = if (pair.fdv > 0) pair.fdv else pair.candle.marketCap
                         liq = (mcap * 0.10).takeIf { it > 500 } ?: 0.0
                         if (liq > 0) {
@@ -1762,12 +1770,11 @@ class SolanaMarketScanner(
                     }
                 }
 
-                if (liq < 250) continue
-
-                val vol = pair.candle.volumeH1
-                val mcap = pair.candle.marketCap
-                val buys = pair.candle.buysH1
-                val sells = pair.candle.sellsH1
+                val vol = pair?.candle?.volumeH1 ?: 0.0
+                val mcap = pair?.candle?.marketCap ?: 0.0
+                val buys = pair?.candle?.buysH1 ?: 0
+                val sells = pair?.candle?.sellsH1 ?: 0
+                val sym = pair?.baseSymbol ?: profile.optString("tokenAddress", mint.take(8))
 
                 val freshnessBonus = when {
                     ageMinutes < 5 -> 40.0
@@ -1780,8 +1787,8 @@ class SolanaMarketScanner(
 
                 val token = ScannedToken(
                     mint = mint,
-                    symbol = pair.baseSymbol,
-                    name = pair.baseName,
+                    symbol = sym,
+                    name = pair?.baseName ?: sym,
                     source = TokenSource.RAYDIUM_NEW_POOL,
                     liquidityUsd = liq,
                     volumeH1 = vol,
@@ -1796,7 +1803,7 @@ class SolanaMarketScanner(
                 if (passesFilter(token)) {
                     emitWithRugcheck(token)
                     found++
-                    onLog("🆕 FRESH: ${pair.baseSymbol} | ${ageMinutes.toInt()}m old | liq=\$${liq.toInt()}")
+                    onLog("🆕 FRESH: $sym | ${ageMinutes.toInt()}m old | liq=\$${liq.toInt()}")
                 }
             }
 
@@ -1833,24 +1840,32 @@ class SolanaMarketScanner(
                 if (mint.isBlank() || mint.length < 32 || mint.startsWith("0x") || isSeen(mint)) continue
                 processed++
 
-                val pair = withContext(Dispatchers.IO) { dex.getBestPair(mint) } ?: continue
-                if (pair.baseSymbol.uppercase() in listOf("SOL", "WSOL", "USDC", "USDT")) continue
+                // V5.9.1586 — pair may be null for brand-new profiles not yet on DEX.
+                // Don't drop them — emit with available metadata so V3/FDG can evaluate.
+                val pair = withContext(Dispatchers.IO) { dex.getBestPair(mint) }
+                if (pair != null && pair.baseSymbol.uppercase() in listOf("SOL", "WSOL", "USDC", "USDT")) continue
+                if (pair == null) {
+                    // No pair yet — emit a minimal token so it gets into watchlist discovery
+                    val symbol = item.optString("tokenAddress", mint.take(8))
+                    val token = ScannedToken(
+                        mint = mint, symbol = symbol, name = symbol,
+                        source = TokenSource.DEX_TRENDING,
+                        liquidityUsd = 0.0, volumeH1 = 0.0, mcapUsd = 0.0,
+                        pairCreatedHoursAgo = 0.5, dexId = "solana",
+                        priceChangeH1 = 0.0, txCountH1 = 0,
+                        score = 20.0, // minimal signal; V3 will score properly
+                    )
+                    if (passesFilter(token)) { emitWithRugcheck(token); passed++ }
+                    continue
+                }
 
                 var fallbackLiq = 0.0
                 if (pair.liquidity <= 0) {
                     val overview = withContext(Dispatchers.IO) { birdeye.getTokenOverview(mint) }
                     fallbackLiq = overview?.liquidity ?: 0.0
-
-                    if (fallbackLiq > 0) {
-                        ErrorLogger.info("Scanner", "scanDexTrending: ${pair.baseSymbol} used Birdeye liq=\$${fallbackLiq.toInt()}")
-                    } else if (pair.fdv > 0 || pair.candle.marketCap > 0) {
+                    if (fallbackLiq <= 0 && (pair.fdv > 0 || pair.candle.marketCap > 0)) {
                         val mcap = if (pair.fdv > 0) pair.fdv else pair.candle.marketCap
-                        fallbackLiq = mcap * 0.10
-                        if (fallbackLiq > 2000) {
-                            ErrorLogger.info("Scanner", "scanDexTrending: ${pair.baseSymbol} estimated liq=\$${fallbackLiq.toInt()} from mcap=\$${mcap.toInt()}")
-                        } else {
-                            fallbackLiq = 0.0
-                        }
+                        fallbackLiq = (mcap * 0.10).takeIf { it > 2000 } ?: 0.0
                     }
                 }
 
@@ -1904,14 +1919,14 @@ class SolanaMarketScanner(
                 if (mint.isBlank() || mint.startsWith("0x") || isSeen(mint)) continue
                 checked++
 
-                val pair = withContext(Dispatchers.IO) { dex.getBestPair(mint) } ?: continue
-                if (pair.baseSymbol.uppercase() in listOf("SOL", "WSOL", "USDC", "USDT", "RAY")) continue
+                val pair = withContext(Dispatchers.IO) { dex.getBestPair(mint) }
+                if (pair != null && pair.baseSymbol.uppercase() in listOf("SOL", "WSOL", "USDC", "USDT", "RAY")) continue
 
-                var liq = pair.liquidity
+                var liq = pair?.liquidity ?: 0.0
                 if (liq <= 0) {
                     val overview = withContext(Dispatchers.IO) { birdeye.getTokenOverview(mint) }
                     liq = overview?.liquidity ?: 0.0
-                    if (liq <= 0 && (pair.fdv > 0 || pair.candle.marketCap > 0)) {
+                    if (liq <= 0 && pair != null && (pair.fdv > 0 || pair.candle.marketCap > 0)) {
                         val mcap = if (pair.fdv > 0) pair.fdv else pair.candle.marketCap
                         liq = (mcap * 0.10).takeIf { it > 1000 } ?: 0.0
                         if (liq > 0) {
@@ -1920,13 +1935,12 @@ class SolanaMarketScanner(
                     }
                 }
 
-                if (liq < 1000) continue
-
-                val vol = pair.candle.volumeH1
-                val mcap = pair.candle.marketCap
-                val ageHours = (now - pair.pairCreatedAtMs) / 3_600_000.0
-                val buys = pair.candle.buysH1
-                val sells = pair.candle.sellsH1
+                val vol = pair?.candle?.volumeH1 ?: 0.0
+                val mcap = pair?.candle?.marketCap ?: 0.0
+                val ageHours = if (pair != null && pair.pairCreatedAtMs > 0) (now - pair.pairCreatedAtMs) / 3_600_000.0 else 0.5
+                val buys = pair?.candle?.buysH1 ?: 0
+                val sells = pair?.candle?.sellsH1 ?: 0
+                val sym = pair?.baseSymbol ?: profile.optString("tokenAddress", mint.take(8))
 
                 val ageBonus = when {
                     ageHours < 1 -> 30.0
@@ -1939,8 +1953,8 @@ class SolanaMarketScanner(
 
                 val token = ScannedToken(
                     mint = mint,
-                    symbol = pair.baseSymbol,
-                    name = pair.baseName,
+                    symbol = sym,
+                    name = pair?.baseName ?: sym,
                     source = when {
                         ageHours < 6 -> TokenSource.PUMP_FUN_NEW
                         ageHours < 24 -> TokenSource.PUMP_FUN_GRADUATE
@@ -1965,7 +1979,7 @@ class SolanaMarketScanner(
                         ageHours < 24 -> "📈 YOUNG"
                         else -> "📊 TOKEN"
                     }
-                    onLog("$src: ${pair.baseSymbol} | age=${ageHours.toInt()}h | liq=\$${liq.toInt()}")
+                    onLog("$src: $sym | age=${ageHours.toInt()}h | liq=\$${liq.toInt()}")
                 }
             }
 
@@ -1997,8 +2011,9 @@ class SolanaMarketScanner(
                 val mint = item.optString("tokenAddress", "")
                 if (mint.isBlank() || mint.startsWith("0x") || isSeen(mint)) continue
 
-                val pair = withContext(Dispatchers.IO) { dex.getBestPair(mint) } ?: continue
-                if (pair.baseSymbol.uppercase() in listOf("SOL", "WSOL", "USDC", "USDT")) continue
+                // V5.9.1586 — don't drop on null pair; fresh tokens may not have DEX pair yet
+                val pair = withContext(Dispatchers.IO) { dex.getBestPair(mint) }
+                if (pair != null && pair.baseSymbol.uppercase() in listOf("SOL", "WSOL", "USDC", "USDT")) continue
 
                 var fallbackLiq = 0.0
                 if (pair.liquidity <= 0) {
@@ -2129,8 +2144,9 @@ class SolanaMarketScanner(
                 val mint = item.optString("address", "")
                 if (mint.isBlank() || isSeen(mint)) continue
 
-                val pair = withContext(Dispatchers.IO) { dex.getBestPair(mint) } ?: continue
-                if (pair.baseSymbol.uppercase() in listOf("SOL", "WSOL", "USDC", "USDT")) continue
+                // V5.9.1586 — don't drop on null pair; fresh tokens may not have DEX pair yet
+                val pair = withContext(Dispatchers.IO) { dex.getBestPair(mint) }
+                if (pair != null && pair.baseSymbol.uppercase() in listOf("SOL", "WSOL", "USDC", "USDT")) continue
 
                 var fallbackLiq = 0.0
                 if (pair.liquidity <= 0) {

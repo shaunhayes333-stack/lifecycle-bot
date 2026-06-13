@@ -194,6 +194,7 @@ class FinalDecisionEngine(
         isAIDegraded: Boolean = false,
         isPaperMode: Boolean = false,  // V5.2: Paper mode bypasses liquidity floors
         marketCapUsd: Double = 0.0,    // V5.9.939: tier-aware floor adjustment
+        ageMinutes: Double = 999.0,    // V5.9.1586: fresh-launch probe gate
     ): DecisionResult {
         // ═══════════════════════════════════════════════════════════════════
         // V5.9.939 — TIER-AWARE FLOOR ADJUSTMENT.
@@ -325,7 +326,7 @@ class FinalDecisionEngine(
         // V5.9.1586 — 3501 fresh-launch bootstrap behavior. AGE_0_15m tokens
         // naturally lack holders/orderflow/social/smart-money/history. Unknown or
         // immature layers must be neutral/size-shaped, not converted into WATCH-only.
-        val isFreshLaunchProbe = try { candidate.ageMinutes <= 15.0 } catch (_: Throwable) { false }
+        val isFreshLaunchProbe = ageMinutes <= 15.0
         
         // ═══════════════════════════════════════════════════════════════════
         // V3 SELECTIVITY: HARD C-GRADE EXECUTION BAN
