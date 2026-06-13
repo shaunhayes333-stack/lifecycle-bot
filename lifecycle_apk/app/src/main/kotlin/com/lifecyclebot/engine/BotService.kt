@@ -16420,7 +16420,8 @@ if (hotExitHandledSweep) {
             // was not Quality-eligible".
             // V5.9.921 — QualityTraderAI is always-on (no isEnabled toggle); only
             // gated by mcap downstream. Drop the isEnabled call (it does not exist).
-            if (!ts.position.isOpen) {
+            val qualityLaneAllowedThisCycle = !ts.position.isOpen && shouldRunBuyLaneForCycle(ts, "QUALITY", cyclePrimaryLane)
+            if (qualityLaneAllowedThisCycle) {
                 try {
                     ForensicLogger.phase(
                         ForensicLogger.PHASE.LANE_EVAL,
@@ -16429,7 +16430,7 @@ if (hotExitHandledSweep) {
                     )
                 } catch (_: Throwable) {}
             }
-            if (!ts.position.isOpen && shouldRunBuyLaneForCycle(ts, "QUALITY", cyclePrimaryLane) && ts.lastMcap >= 75_000) {  // V5.9.191: was 100K, align with QualityTraderAI $75K min1M layer)
+            if (qualityLaneAllowedThisCycle && ts.lastMcap >= 75_000) {  // V5.9.191: was 100K, align with QualityTraderAI $75K min1M layer)
                 // V5.7.8: Modes run independently — Treasury positions don't block them
                 try {
                     // ═══════════════════════════════════════════════════════════════
@@ -17838,8 +17839,9 @@ if (hotExitHandledSweep) {
             // V5.9.686 — Manipulated runs ALONGSIDE V3, not as a V3 fallback.
             // The old gate !(v3Enabled && V3Ready) meant ManipulatedTraderAI never
             // ran because V3 is always ready, silencing the entire trader.
-            if (!ts.position.isOpen && com.lifecyclebot.v3.scoring.ManipulatedTraderAI.isEnabled()) {
-                // V5.9.920 — MANIPULATED LANE_EVAL emit.
+            val manipulatedLaneAllowedThisCycle = !ts.position.isOpen && shouldRunBuyLaneForCycle(ts, "MANIPULATED", cyclePrimaryLane)
+            if (manipulatedLaneAllowedThisCycle && com.lifecyclebot.v3.scoring.ManipulatedTraderAI.isEnabled()) {
+                // V5.9.1585 — emit LANE_EVAL only after primary-lane suppression.
                 try {
                     ForensicLogger.phase(
                         ForensicLogger.PHASE.LANE_EVAL,

@@ -104,7 +104,11 @@ data class RuntimeStateSnapshot(
             } catch (_: Throwable) { 0 }
 
             val reconcilerChecked = try {
-                com.lifecyclebot.engine.execution.PositionWalletReconciler.snapshot().totalChecked
+                maxOf(
+                    com.lifecyclebot.engine.execution.PositionWalletReconciler.snapshot().totalChecked,
+                    try { com.lifecyclebot.engine.sell.SellReconciler.totalChecked.toInt() } catch (_: Throwable) { 0 },
+                    try { com.lifecyclebot.engine.sell.LiveWalletReconciler.totalChecked() } catch (_: Throwable) { 0 },
+                )
             } catch (_: Throwable) { 0 }
 
             val api = ApiHealthMonitor.snapshot().mapValues { (_, s) ->

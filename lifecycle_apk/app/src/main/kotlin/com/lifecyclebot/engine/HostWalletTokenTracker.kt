@@ -948,10 +948,20 @@ object HostWalletTokenTracker {
     ): TrackedTokenPosition? {
         val p = positions[mint] ?: return null
         if (p.status == PositionStatus.CLOSED) return null
-        // Defensive: only act on genuinely-empty rows.
+        // Defensive: only act on genuinely-empty rows. V5.9.1585: when the
+        // live reconciler explicitly passes WALLET_BALANCE_ZERO, that observation
+        // is fresher than the tracker's cached uiAmount. Update wallet truth first;
+        // otherwise OPEN_TRACKING rows with stale uiAmount keep hostLive=1 forever
+        // and poison buys with HOST_TRACKER_DESYNC / ORPHAN_LIVE_POSITIONS.
         if (p.uiAmount > 0.000001) {
-            p.consecutiveZeroConfirms = 0
-            return null
+            if (reason.contains("WALLET_BALANCE_ZERO", ignoreCase = true) || reason.contains("RECONCILER", ignoreCase = true)) {
+                p.uiAmount = 0.0
+                p.rawAmount = "0"
+                p.lastWalletReconcileMs = System.currentTimeMillis()
+            } else {
+                p.consecutiveZeroConfirms = 0
+                return null
+            }
         }
         val confirms = p.consecutiveZeroConfirms + 1
         p.consecutiveZeroConfirms = confirms

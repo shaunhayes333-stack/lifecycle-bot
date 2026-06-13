@@ -98,7 +98,7 @@ object LiveRestoreExecutionPolicy {
         } catch (_: Throwable) { ts?.position?.isOpen == true }
     }
 
-    fun breakEvenCheck(ts: TokenState, requestedSizeSol: Double, penalty: Penalty, walletSol: Double): BreakEven {
+    fun breakEvenCheck(ts: TokenState, requestedSizeSol: Double, penalty: Penalty, walletSol: Double, signalScore: Double = ts.entryScore): BreakEven {
         val liq = trustedLiquidityUsd(ts, penalty.liquidityOverrideUsd)
         val reduced = (requestedSizeSol * penalty.sizeMultiplier).coerceAtMost(requestedSizeSol)
         val liquidityCap = when {
@@ -139,7 +139,7 @@ object LiveRestoreExecutionPolicy {
         val allInCostPct = buySlippagePct + expectedSellSlippagePct + routeFeePct + priorityFeePct + spreadPct + liquidityGivebackPct + safetyBufferPct
         val minTarget = allInCostPct + 2.0
         val configuredTp = max(max(ts.position.treasuryTakeProfit, ts.position.blueChipTakeProfit), ts.position.shitCoinTakeProfit)
-        val scoreEdge = (ts.entryScore / 2.5).coerceIn(0.0, 45.0)
+        val scoreEdge = (max(signalScore, ts.entryScore) / 2.5).coerceIn(0.0, 45.0)
         val phaseEdge = when (ts.phase.uppercase()) {
             "BREAKOUT", "MOMENTUM", "MARKUP" -> 8.0
             "REACCUMULATION", "PULLBACK" -> 4.0

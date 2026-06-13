@@ -7535,6 +7535,9 @@ class Executor(
                 safetyTier = ts.safety.tier.name,
                 liquidityUsd = ts.lastLiquidityUsd,
                 hardNoReasons = ts.safety.hardBlockReasons,
+                candidateVersion = attemptId.substringAfterLast(":").toLongOrNull()
+                    ?: LaneExecutionCoordinator.candidateVersionFor(ts.mint),
+                entryScore = v3Score,
             )
         } catch (_: Throwable) {}
 
@@ -8249,7 +8252,7 @@ class Executor(
                 return
             }
         }
-        val breakEven = LiveRestoreExecutionPolicy.breakEvenCheck(ts, sol, restorePenalty, walletSol)
+        val breakEven = LiveRestoreExecutionPolicy.breakEvenCheck(ts, sol, restorePenalty, walletSol, signalScore = score)
         LiveRestoreExecutionPolicy.logBreakEven(ts, breakEven, restorePenalty)
         if (!breakEven.allowed) {
             PipelineTracer.executorFailed(ts.symbol, ts.mint, "LIVE", breakEven.decision)

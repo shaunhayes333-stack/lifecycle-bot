@@ -1760,8 +1760,10 @@ object FinalDecisionGate {
             // rugcheck API before verification completes. SafetyChecker sets
             // rugcheckStatus="CONFIRMED" when the API responds (even score=1),
             // so FDG was treating it as a confirmed low score and hard-blocking.
-            // Paper mode: pass with RC_PENDING tag (same as ShitCoin TradeAuth bypass).
-            // Live mode: block score=1 same as score=0..2 (unknown = risky with real SOL).
+            // V5.9.1585 — score=1 is RC_PENDING, not confirmed danger. Live must
+            // treat it as a penalty/probe-size condition, not HARD_BLOCK_RUGCHECK_1.
+            // Confirmed rug score 0 remains fatal; confirmed low scores 2..threshold
+            // remain strict in LIVE. This mirrors FatalRiskChecker/ExecutableOpenGate.
             config.paperMode && rugcheckScore < 0 -> {
                 tags.add("missing_rc_paper_learn")
                 false
@@ -1771,8 +1773,12 @@ object FinalDecisionGate {
                 tags.add("low_rc_paper_learn")
                 false
             }
-            rugcheckStatus == "CONFIRMED" && rugcheckScore == 1 && !config.paperMode -> true
-            rugcheckStatus == "CONFIRMED" && rugcheckScore <= rugcheckThreshold -> true
+            rugcheckStatus == "CONFIRMED" && rugcheckScore == 1 -> {
+                tags.add(if (config.paperMode) "rc_pending_paper_learn" else "rc_pending_live_probe")
+                false
+            }
+            rugcheckStatus == "CONFIRMED" && rugcheckScore == 0 -> true
+            rugcheckStatus == "CONFIRMED" && rugcheckScore in 2..rugcheckThreshold -> true
             rugcheckStatus == "CONFIRMED" && rugcheckScore > rugcheckThreshold -> false
             rugcheckStatus == "TIMEOUT" && config.paperMode -> {
                 tags.add("rugcheck_timeout")
@@ -1821,6 +1827,10 @@ object FinalDecisionGate {
             checks.add(GateCheck("rugcheck", false, checkReason))
             tags.add("low_rugcheck")
         } else if (blockReason == null) {
+            if (rugcheckStatus == "CONFIRMED" && rugcheckScore == 1) {
+                tags.add("rugcheck_pending_size_cap")
+                checks.add(GateCheck("rugcheck_pending_penalty", true, "RC_PENDING score=1 → penalty/probe size"))
+            }
             val passReason = when (rugcheckStatus) {
                 "TIMEOUT" ->
                     "status=TIMEOUT (paper: penalty=$rugcheckTimeoutPenalty applied, allowed for learning)"
@@ -1937,6 +1947,10 @@ object FinalDecisionGate {
 
         var softPenaltyScore = 0
         var sizeMultiplier = 1.0
+        if (rugcheckStatus == "CONFIRMED" && rugcheckScore == 1) {
+            softPenaltyScore += if (config.paperMode) 5 else 12
+            sizeMultiplier *= if (config.paperMode) 0.70 else 0.35
+        }
         var isProbeCandidate = false
         var behaviorPenalty = 0
         var behaviorSizeMultiplier = 1.0
