@@ -2843,20 +2843,28 @@ object FinalDecisionGate {
             val bucket = LosingPatternMemory.stats(laneName, laneScoreBanded)  // V5.9.1299 lane score
             if (bucket.sample > 0) {
                 val lossRate = bucket.lossRatePct
-                val learnedPressure = when {
+                val genericPressure = when {
                     bucket.isDangerous && deepLearningDeficit -> 0.35
                     bucket.isDangerous && moderateLearningDeficit -> 0.55
                     bucket.isDangerous -> 0.70
                     bucket.losses >= 5 && lossRate >= 65.0 && moderateLearningDeficit -> 0.75
                     else -> 1.0
                 }
+                // V5.9.1571 — tuning-only WR recovery. The dashboard shows matured
+                // negative danger buckets (TREASURY|S0-10, SHITCOIN|S61+) still taking
+                // meaningful losses. LosingPatternMemory already computes the loss-count
+                // scaled multiplier (down to ×0.02), but FDG was only applying the weak
+                // generic ×0.35/0.55/0.70 pressure. Compose both and take the stricter
+                // soft-shape. No veto, no lane disable, no live/paper plumbing change.
+                val learnedBucketMult = try { LosingPatternMemory.recommendedSizeMult(laneName, laneScoreBanded) } catch (_: Throwable) { 1.0 }
+                val learnedPressure = minOf(genericPressure, learnedBucketMult)
                 if (learnedPressure < 1.0) {
                     val originalSize = finalSize
                     finalSize = (finalSize * learnedPressure).coerceAtLeast(0.01)
                     tags.add("learning_recovery_shaped")
                     tags.add("danger_bucket:${LosingPatternMemory.bucketKey(laneName, laneScoreBanded)}")
-                    checks.add(GateCheck("learned_bucket", true, "bucket n=${bucket.sample} loss=${lossRate.toInt()}% mean=${bucket.meanPnl.format(1)}% wr=${canonicalWr.format(1)} target=${canonicalTargetWr.format(1)} size ${originalSize.format(3)}→${finalSize.format(3)}"))
-                    ErrorLogger.info("FDG", "🧠 LEARNING_RECOVERY_SHAPED ${ts.symbol} lane=$laneName bucket=${LosingPatternMemory.bucketKey(laneName, laneScoreBanded)} n=${bucket.sample} loss=${lossRate.toInt()}% wr=${canonicalWr.format(1)}/${canonicalTargetWr.format(1)} size×${learnedPressure.format(2)}")
+                    checks.add(GateCheck("learned_bucket", true, "bucket n=${bucket.sample} loss=${lossRate.toInt()}% mean=${bucket.meanPnl.format(1)}% wr=${canonicalWr.format(1)} target=${canonicalTargetWr.format(1)} mult=${learnedPressure.format(2)} size ${originalSize.format(3)}→${finalSize.format(3)}"))
+                    ErrorLogger.info("FDG", "🧠 LEARNING_RECOVERY_SHAPED ${ts.symbol} lane=$laneName bucket=${LosingPatternMemory.bucketKey(laneName, laneScoreBanded)} n=${bucket.sample} loss=${lossRate.toInt()}% mean=${bucket.meanPnl.format(1)}% wr=${canonicalWr.format(1)}/${canonicalTargetWr.format(1)} size×${learnedPressure.format(2)}")
                 }
                 val weakEvidence = candidate.setupQuality !in listOf("A+", "A", "B") && candidate.aiConfidence < 35.0 && candidate.entryScore < 25.0
                 if (blockReason == null && bucket.isDangerous && deepLearningDeficit && weakEvidence) {

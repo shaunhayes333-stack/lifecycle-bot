@@ -227,7 +227,26 @@ class GoldenTapeRegressionTest {
         assertTrue(authIdx > recordIdx)
         assertTrue(source.substring(recordIdx, authIdx).contains("ExecutableOpenGate.recordFdg"))
     }
+
+    @Test
+    fun wr_recovery_tuning_uses_learned_bucket_multiplier() {
+        val fdg = java.io.File("src/main/kotlin/com/lifecyclebot/engine/FinalDecisionGate.kt").readText()
+        assertTrue(fdg.contains("learnedBucketMult"))
+        assertTrue(fdg.contains("LosingPatternMemory.recommendedSizeMult"))
+        assertTrue(fdg.contains("minOf(genericPressure, learnedBucketMult)"))
+    }
+
+    @Test
+    fun wr_recovery_tuning_tightens_shitcoin_never_green_and_express_floor() {
+        val shit = java.io.File("src/main/kotlin/com/lifecyclebot/v3/scoring/ShitCoinTraderAI.kt").readText()
+        val exp = java.io.File("src/main/kotlin/com/lifecyclebot/v3/scoring/ShitCoinExpress.kt").readText()
+        assertTrue(shit.contains("ageSec >= 30L"))
+        assertTrue(shit.contains("pnlPct < -3.5"))
+        assertTrue(exp.contains("EXPRESS_SCORE_BOOTSTRAP = 10"))
+        assertTrue(exp.contains("coerceIn(0.01, MAX_POSITION_SOL)"))
+    }
 }
+
 
 
 

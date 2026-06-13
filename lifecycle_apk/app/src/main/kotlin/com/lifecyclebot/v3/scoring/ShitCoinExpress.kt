@@ -592,7 +592,10 @@ object ShitCoinExpress {
         } catch (_: Throwable) { /* fail-open */ }
 
         // Cap at max
-        positionSol = positionSol.coerceIn(0.02, MAX_POSITION_SOL)
+        // V5.9.1571 — allow calibration/danger shrink to reach 0.01 probes.
+        // EXPRESS is currently WR=0% / net-negative; keep samples, but don't force
+        // a 0.02 minimum on known-red score bands.
+        positionSol = positionSol.coerceIn(0.01, MAX_POSITION_SOL)
         
         ErrorLogger.info(TAG, "💩🚂 EXPRESS QUALIFIED: $symbol | " +
             "${rideType.emoji} ${rideType.name} | " +
@@ -876,7 +879,7 @@ object ShitCoinExpress {
     // V5.3: FIXED - was inverted (60 bootstrap → 45 mature = HARDER during learning!)
     // Now correctly starts permissive in bootstrap and tightens as bot learns
     // V5.6.8: LOWERED for bootstrap learning - need to see EXPRESS actually trade!
-    private const val EXPRESS_SCORE_BOOTSTRAP = 5   // V5.9.343: walk-back to pre-V5.9.194 for trade-from-start
+    private const val EXPRESS_SCORE_BOOTSTRAP = 10  // V5.9.1571: tune out EXPRESS[0-9] red band (μ≈-6/-9%) without disabling Express
     private const val EXPRESS_SCORE_MATURE = 20     // V5.9.442: 25→20 — user reported Express rarely firing
     
     private fun getFluidScoreThreshold(): Int {

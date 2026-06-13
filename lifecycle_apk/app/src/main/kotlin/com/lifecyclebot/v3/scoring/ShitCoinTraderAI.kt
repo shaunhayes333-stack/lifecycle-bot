@@ -1727,7 +1727,13 @@ object ShitCoinTraderAI {
         // All rug checks + the unconditional -15% hard floor remain above/below.
         run {
             val ageSec = holdSeconds
-            if (ageSec >= 45L && pos.peakPnlPct <= 0.0 && pnlPct < -5.0) {
+            // V5.9.1571 — tuning-only WR recovery. Current tuning screenshot:
+            // SHITCOIN_STOP_LOSS n=121 μ=-39.6%, SHITCOIN lane WR≈18%, and
+            // SHITCOIN S61+ danger bucket mean≈-14%. Waiting 45s/-5 lets too many
+            // never-green entries slide into hard-floor/gap-through losses. Cut the
+            // no-MFE thesis earlier. Any token that printed even +0.1% MFE keeps the
+            // normal breather/runner rules; unconditional -15% floor unchanged.
+            if (ageSec >= 30L && pos.peakPnlPct <= 0.0 && pnlPct < -3.5) {
                 ErrorLogger.info(TAG, "💩⏱️ EARLY-WEAKNESS EXIT: ${pos.symbol} | " +
                     "never green by ${ageSec}s (peak ${pos.peakPnlPct.fmt(1)}%, now ${pnlPct.fmt(1)}%) — cutting dead entry")
                 return ExitSignal.STOP_LOSS
