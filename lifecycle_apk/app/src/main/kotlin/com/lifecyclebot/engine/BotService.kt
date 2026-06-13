@@ -16017,7 +16017,7 @@ if (hotExitHandledSweep) {
                             liquidityUsd = ts.lastLiquidityUsd,
                             tokenAgeMinutes = tokenAge,
                             buyPressurePct = ts.lastBuyPressurePct,
-                            isPaper = cfg.paperMode
+                            isPaper = com.lifecyclebot.engine.RuntimeModeAuthority.isPaper()  // V5.9.1563 — runtime authority, not stale cfg
                         )
                         
                         val treasurySignal = com.lifecyclebot.v3.scoring.CashGenerationAI.evaluate(
@@ -16355,7 +16355,7 @@ if (hotExitHandledSweep) {
                                     takeProfitPct = effectiveTpPct,   // V5.2.8: Use effective (non-zero) TP
                                     stopLossPct = effectiveSlPct,     // V5.2.8: Use effective SL
                                     wallet = wallet,
-                                    isPaper = cfg.paperMode,
+                                    isPaper = com.lifecyclebot.engine.RuntimeModeAuthority.isPaper(),  // V5.9.1563 — runtime authority, not stale cfg
                                     finalityPrechecked = true,
                                     attemptId = treasuryAttemptId,
                                 )
@@ -16586,7 +16586,7 @@ if (hotExitHandledSweep) {
                                     takeProfitPct = qualityTp,
                                     stopLossPct = qualitySignal.stopLossPct,
                                     wallet = wallet,
-                                    isPaper = cfg.paperMode,
+                                    isPaper = com.lifecyclebot.engine.RuntimeModeAuthority.isPaper(),  // V5.9.1563 — runtime authority, not stale cfg
                                     // V5.9.386 — tag the BUY trade as QUALITY in the
                                     // journal (was showing as BLUE_CHIP / ExtendedMode).
                                     layerTag = "QUALITY",
@@ -16770,7 +16770,7 @@ if (hotExitHandledSweep) {
                                     takeProfitPct = blueChipTp,
                                     stopLossPct = blueChipSignal.stopLossPct,
                                     wallet = wallet,
-                                    isPaper = cfg.paperMode,
+                                    isPaper = com.lifecyclebot.engine.RuntimeModeAuthority.isPaper(),  // V5.9.1563 — runtime authority, not stale cfg
                                     // V5.9.1148 — FinalExecutionPermit above already passed
                                     // executable-open finality for BLUE_CHIP. Bypass only the
                                     // duplicate executor preflight, not FDG/FEP itself.
@@ -16797,7 +16797,7 @@ if (hotExitHandledSweep) {
                                         entryTime = System.currentTimeMillis(),
                                         marketCapUsd = ts.lastMcap,
                                         liquidityUsd = ts.lastLiquidityUsd,
-                                        isPaper = cfg.paperMode,
+                                        isPaper = com.lifecyclebot.engine.RuntimeModeAuthority.isPaper(),  // V5.9.1563 — runtime authority, not stale cfg
                                         takeProfitPct = blueChipTp,
                                         stopLossPct = blueChipSignal.stopLossPct,
                                         entryScore = blueChipSignal.entryScore,  // V5.9.436
@@ -16916,7 +16916,7 @@ if (hotExitHandledSweep) {
                                 v3EntryScore = (ts.lastV3Score ?: 50).toDouble(),
                                 v3Confidence = (ts.lastV3Confidence ?: 50).toDouble(),
                                 phase = ts.phase,
-                                isPaper = cfg.paperMode,
+                                isPaper = com.lifecyclebot.engine.RuntimeModeAuthority.isPaper(),  // V5.9.1563 — runtime authority, not stale cfg
                             )
 
                             // V5.9.618 — BRIDGE ADVISORY BOOST for Moonshot (additive).
@@ -17121,7 +17121,7 @@ if (hotExitHandledSweep) {
                                                 sizeSol = msEffectiveSize,
                                                 walletSol = effectiveBalance,
                                                 wallet = wallet,
-                                                isPaper = cfg.paperMode,
+                                                isPaper = com.lifecyclebot.engine.RuntimeModeAuthority.isPaper(),  // V5.9.1563 — runtime authority, not stale cfg
                                                 score = moonshotScore.score.toDouble(),
                                                 spaceModeEmoji = moonshotScore.spaceMode.emoji,
                                                 spaceModeName = moonshotScore.spaceMode.displayName,
@@ -17492,7 +17492,7 @@ if (hotExitHandledSweep) {
                             liquidityUsd = ts.lastLiquidityUsd,
                             tokenAgeMinutes = tokenAgeMinutes,
                             buyPressurePct = ts.lastBuyPressurePct,
-                            isPaper = cfg.paperMode
+                            isPaper = com.lifecyclebot.engine.RuntimeModeAuthority.isPaper()  // V5.9.1563 — runtime authority, not stale cfg
                         )
                         
                         // V4.1: Enter if ShitCoin says yes OR bootstrap override triggered
@@ -17716,7 +17716,7 @@ if (hotExitHandledSweep) {
                                     takeProfitPct = shitcoinEffectiveTpPct,  // V5.2.8: Use effective TP
                                     stopLossPct = shitcoinEffectiveSlPct,    // V5.2.8: Use effective SL
                                     wallet = wallet,
-                                    isPaper = cfg.paperMode,
+                                    isPaper = com.lifecyclebot.engine.RuntimeModeAuthority.isPaper(),  // V5.9.1563 — runtime authority, not stale cfg
                                     launchPlatform = shitCoinSignal.launchPlatform,
                                     riskLevel = shitCoinSignal.riskLevel,
                                     finalityPrechecked = true,
@@ -17764,7 +17764,7 @@ if (hotExitHandledSweep) {
                                             entryTime = System.currentTimeMillis(),
                                             marketCapUsd = ts.lastMcap,
                                             liquidityUsd = ts.lastLiquidityUsd,
-                                            isPaper = cfg.paperMode,
+                                            isPaper = com.lifecyclebot.engine.RuntimeModeAuthority.isPaper(),  // V5.9.1563 — runtime authority, not stale cfg
                                             takeProfitPct = shitcoinEffectiveTpPct,
                                             stopLossPct = shitcoinEffectiveSlPct,
                                             launchPlatform = shitCoinSignal.launchPlatform,
@@ -17886,7 +17886,7 @@ if (hotExitHandledSweep) {
                         source = ts.source,
                         ageMinutes = manipTokenAgeMinutes,
                         rugcheckScore = ts.safety.rugcheckScore.takeIf { it >= 0 } ?: 100,
-                        isPaper = cfg.paperMode,
+                        isPaper = com.lifecyclebot.engine.RuntimeModeAuthority.isPaper(),  // V5.9.1563 — runtime authority, not stale cfg
                     )
 
                     if (manipSignal.shouldEnter) {
@@ -17977,7 +17977,7 @@ if (hotExitHandledSweep) {
                                 takeProfitPct = 25.0,
                                 stopLossPct = -5.0,
                                 wallet = wallet,
-                                isPaper = cfg.paperMode,
+                                isPaper = com.lifecyclebot.engine.RuntimeModeAuthority.isPaper(),  // V5.9.1563 — runtime authority, not stale cfg
                                 launchPlatform = com.lifecyclebot.v3.scoring.ShitCoinTraderAI.detectPlatform(ts.source),
                                 riskLevel = com.lifecyclebot.v3.scoring.ShitCoinTraderAI.RiskLevel.EXTREME,
                                 finalityPrechecked = true,
@@ -18006,7 +18006,7 @@ if (hotExitHandledSweep) {
                                     manipScore = manipSignal.manipScore,
                                     bundlePct = manipBundlePct,
                                     buyPressure = ts.lastBuyPressurePct,
-                                    isPaper = cfg.paperMode,
+                                    isPaper = com.lifecyclebot.engine.RuntimeModeAuthority.isPaper(),  // V5.9.1563 — runtime authority, not stale cfg
                                 )
                             )
                             
@@ -18228,7 +18228,7 @@ if (hotExitHandledSweep) {
                                     takeProfitPct = expressSignal.estimatedGainPct,
                                     stopLossPct = -8.0,
                                     wallet = wallet,
-                                    isPaper = cfg.paperMode,
+                                    isPaper = com.lifecyclebot.engine.RuntimeModeAuthority.isPaper(),  // V5.9.1563 — runtime authority, not stale cfg
                                     launchPlatform = com.lifecyclebot.v3.scoring.ShitCoinTraderAI.detectPlatform(ts.source),
                                     riskLevel = com.lifecyclebot.v3.scoring.ShitCoinTraderAI.RiskLevel.EXTREME,
                                     finalityPrechecked = true,
@@ -18251,7 +18251,7 @@ if (hotExitHandledSweep) {
                                     entrySol = expressFinalSize,
                                     momentum = ts.momentum ?: 0.0,
                                     buyPressure = ts.lastBuyPressurePct,
-                                    isPaper = cfg.paperMode,
+                                    isPaper = com.lifecyclebot.engine.RuntimeModeAuthority.isPaper(),  // V5.9.1563 — runtime authority, not stale cfg
                                 )
                                 
                                 addLog("💩🚂 EXPRESS: ${ts.symbol} | ${expressSignal.rideType.emoji} | " +
@@ -18388,7 +18388,7 @@ if (hotExitHandledSweep) {
                                     takeProfitPct = 35.0,
                                     stopLossPct = -12.0,
                                     wallet = wallet,
-                                    isPaper = cfg.paperMode,
+                                    isPaper = com.lifecyclebot.engine.RuntimeModeAuthority.isPaper(),  // V5.9.1563 — runtime authority, not stale cfg
                                     launchPlatform = com.lifecyclebot.v3.scoring.ShitCoinTraderAI.detectPlatform(ts.source),
                                     riskLevel = com.lifecyclebot.v3.scoring.ShitCoinTraderAI.RiskLevel.EXTREME,
                                     finalityPrechecked = true,
@@ -18560,7 +18560,7 @@ if (hotExitHandledSweep) {
                                     dipDepthPct = dipSignal.dipDepthPct,
                                     marketCapUsd = ts.lastMcap,
                                     liquidityUsd = ts.lastLiquidityUsd,
-                                    isPaper = cfg.paperMode,
+                                    isPaper = com.lifecyclebot.engine.RuntimeModeAuthority.isPaper(),  // V5.9.1563 — runtime authority, not stale cfg
                                 )
                                 
                                 // V5.6.8 FIX: Notify V3 exposure guards
@@ -20186,7 +20186,7 @@ if (hotExitHandledSweep) {
                         currentPnlPct = currentPnlPct,
                         marketCapUsd = ts.lastMcap,
                         liquidityUsd = ts.lastLiquidityUsd,
-                        isPaper = cfg.paperMode,
+                        isPaper = com.lifecyclebot.engine.RuntimeModeAuthority.isPaper(),  // V5.9.1563 — runtime authority, not stale cfg
                     )
                     
                     // Close Treasury tracking (position stays open under Moonshot)
@@ -20287,7 +20287,7 @@ if (hotExitHandledSweep) {
                         currentPnlPct = currentPnlPct,
                         marketCapUsd = ts.lastMcap,
                         liquidityUsd = ts.lastLiquidityUsd,
-                        isPaper = cfg.paperMode,
+                        isPaper = com.lifecyclebot.engine.RuntimeModeAuthority.isPaper(),  // V5.9.1563 — runtime authority, not stale cfg
                     )
                     
                     // Close ShitCoin tracking (position stays open under Moonshot)
@@ -20339,7 +20339,7 @@ if (hotExitHandledSweep) {
                         entryTime = System.currentTimeMillis(),  // V5.9.192b: safe fallback (no holdTime field)
                         marketCapUsd = ts.lastMcap,
                         liquidityUsd = ts.lastLiquidityUsd,
-                        isPaper = cfg.paperMode,
+                        isPaper = com.lifecyclebot.engine.RuntimeModeAuthority.isPaper(),  // V5.9.1563 — runtime authority, not stale cfg
                         takeProfitPct = recTp,
                         stopLossPct = recSl,
                         launchPlatform = com.lifecyclebot.v3.scoring.ShitCoinTraderAI.LaunchPlatform.PUMP_FUN,
@@ -20752,7 +20752,7 @@ if (hotExitHandledSweep) {
                                 entryTime = System.currentTimeMillis(),
                                 marketCapUsd = currentMcap,
                                 liquidityUsd = ts.lastLiquidityUsd,
-                                isPaper = cfg.paperMode,
+                                isPaper = com.lifecyclebot.engine.RuntimeModeAuthority.isPaper(),  // V5.9.1563 — runtime authority, not stale cfg
                                 takeProfitPct = bcTp,
                                 stopLossPct = bcSl
                             )
@@ -20777,7 +20777,7 @@ if (hotExitHandledSweep) {
                             entryPrice = currentPrice, positionSol = ts.position.costSol,
                             currentPnlPct = if (ts.position.entryPrice > 0) (currentPrice - ts.position.entryPrice) / ts.position.entryPrice * 100 else 0.0,
                             marketCapUsd = currentMcap, liquidityUsd = ts.lastLiquidityUsd,
-                            isPaper = cfg.paperMode,
+                            isPaper = com.lifecyclebot.engine.RuntimeModeAuthority.isPaper(),  // V5.9.1563 — runtime authority, not stale cfg
                         )
                         ts.position.tradingMode = "MOONSHOT_ORBITAL"
                         ts.position.tradingModeEmoji = "🚀"
