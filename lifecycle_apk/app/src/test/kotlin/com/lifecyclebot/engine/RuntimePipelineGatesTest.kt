@@ -537,7 +537,7 @@ class RuntimeEnforcementSmokeTest {
     }
 
     @Test
-    fun non_cyclic_paper_rc_pending_v3_rug_fatal_remains_blocked() {
+    fun non_cyclic_paper_rc_pending_v3_rug_fatal_is_learnable() {
         RuntimeConfigOverlay.resetForTests()
         ExecutableOpenGate.resetForTests()
         ToxicModeCircuitBreaker.resetForTests()
@@ -560,8 +560,8 @@ class RuntimeEnforcementSmokeTest {
             liquidityUsd = 2500.0,
         )
         val v = ExecutableOpenGate.canOpenExecutablePosition(mint, "RCP", 1, "PAPER", "SHITCOIN", "test")
-        assertFalse("non-CYCLIC paper RC_PENDING V3 fatal should preserve volume discipline", v.allowed)
-        assertEquals("EXEC_OPEN_BLOCKED_FATAL_V3", v.logName)
+        assertTrue("all PAPER lanes must bypass learnable RC_PENDING/model-rug V3 fatal", v.allowed)
+        assertEquals("EXEC_OPEN_ALLOWED", v.logName)
     }
 
     @Test
@@ -916,7 +916,7 @@ class ExecutionAuthorityInvariantTest {
     }
 
     @Test
-    fun daily_budget_exhaustion_blocks_executable_entry_but_provider_lock_is_separate() {
+    fun daily_budget_exhaustion_bypasses_paper_entry_but_live_remains_strict() {
         resetAuthorities(paper = true)
         BirdeyeBudgetGate.resetForTests(dailyCapOverride = 25L)
         BirdeyeBudgetGate.recordCalls(1)
@@ -940,8 +940,8 @@ class ExecutionAuthorityInvariantTest {
             lane = "QUALITY",
             source = "test",
         )
-        assertFalse(v.allowed)
-        assertEquals("EXEC_OPEN_BLOCKED_API_BUDGET_LOCKDOWN", v.logName)
+        assertTrue("PAPER training must bypass API budget lockdown; LIVE remains strict", v.allowed)
+        assertEquals("EXEC_OPEN_ALLOWED", v.logName)
     }
 
     @Test

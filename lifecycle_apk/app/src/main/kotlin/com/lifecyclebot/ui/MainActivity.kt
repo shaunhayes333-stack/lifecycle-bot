@@ -590,11 +590,16 @@ class MainActivity : AppCompatActivity() {
     // matter how many code paths call updateUi(). Start/Stop truth + runtime bar
     // still render every call (they are cheap and gated separately below).
     @Volatile private var lastHeavyRepaintMs: Long = 0L
-    private val HEAVY_REPAINT_MIN_INTERVAL_MS: Long = 1_000L
+    // V5.9.1569 — runtime UI must not compete with bot-loop. Snapshot 5.0.3621
+    // still showed 18.9s frame gaps with renderWatchlist/renderOpenPositions and
+    // TextView highlight/layout work. While running, dashboard rows are observability
+    // only; cap them harder and repaint heavy panels slower.
+    private val HEAVY_REPAINT_MIN_INTERVAL_MS: Long = 2_500L
     // Row caps live here as single source of truth (was inline magic numbers).
-    private val WATCHLIST_ROW_CAP: Int = 10
-    private val IDLE_ROW_CAP: Int = 6
-    private val OPENPOS_ROW_CAP: Int = 10
+    private val WATCHLIST_ROW_CAP: Int = 6
+    private val IDLE_ROW_CAP: Int = 3
+    private val OPENPOS_ROW_CAP: Int = 4
+    private var lastRuntimeBarForensicMs: Long = 0L
     @Volatile private var forceNextForegroundRender: Boolean = false
     @Volatile private var mainUiActive: Boolean = false
     // V5.9.1316 — bind the start/stop listener exactly once (not per render).
@@ -763,29 +768,35 @@ class MainActivity : AppCompatActivity() {
             // expensive parts are inside setupChart (Matrix/Paint init) and
             // setupChartControls (setOnClickListener chains). setupSettings
             // also has heavy SharedPreferences reads in some branches.
-            window.decorView.post {
+            // V5.9.1569 — don't run every deferred setup in one post-frame chunk.
+            // 5.0.3621 still attributes 95 ANR samples to onCreate; spread chart,
+            // settings, help links, and quick-action listener wiring across frames.
+            window.decorView.postDelayed({
                 try { setupChartControls() } catch (e: Throwable) {
                     com.lifecyclebot.engine.ErrorLogger.warn("MainActivity", "deferred setupChartControls failed: ${e.message}")
                 }
+            }, 64L)
+            window.decorView.postDelayed({
                 try { setupChart() } catch (e: Throwable) {
                     com.lifecyclebot.engine.ErrorLogger.warn("MainActivity", "deferred setupChart failed: ${e.message}")
                 }
+            }, 160L)
+            window.decorView.postDelayed({
                 try { setupSettings() } catch (e: Throwable) {
                     com.lifecyclebot.engine.ErrorLogger.warn("MainActivity", "deferred setupSettings failed: ${e.message}")
                 }
+            }, 320L)
+            window.decorView.postDelayed({
                 try { setupApiKeyHelpLinks() } catch (e: Throwable) {
                     com.lifecyclebot.engine.ErrorLogger.warn("MainActivity", "deferred setupApiKeyHelpLinks failed: ${e.message}")
                 }
-                // V5.9.1327 — defer the quick-action button wiring past first
-                // frame. setupQuickActionButtons() chains 30+ findViewById +
-                // setOnClickListener calls. Operator snapshot showed lambda$461
-                // (one of the click closures) costing 250ms on the main thread
-                // during cold start. The buttons are invisible until paint;
-                // the user cannot tap them in the first 16ms anyway.
+            }, 480L)
+            window.decorView.postDelayed({
+                // V5.9.1327 — defer the quick-action button wiring past first frame.
                 try { setupQuickActionButtons() } catch (e: Throwable) {
                     com.lifecyclebot.engine.ErrorLogger.warn("MainActivity", "deferred setupQuickActionButtons failed: ${e.message}")
                 }
-            }
+            }, 640L)
             // V5.9.1071 — defer permission/battery checks past first frame.
             // Snapshot showed requestNotifPermission blocking Main for 2730ms in
             // Binder/PermissionManager during activity transition. These checks are
@@ -2525,12 +2536,18 @@ for legal compliance.
         if (state.blacklistedCount > 0) {
             tvBotStatus.text = tvBotStatus.text.toString() + "  🚫${state.blacklistedCount}"
         }
-        try {
-            com.lifecyclebot.engine.ForensicLogger.lifecycle(
-                "MAIN_RUNTIME_BAR_RENDER",
-                "running=$running stateRunning=${state.running} serviceActive=$serviceActive runtimeActive=$runtimeActive button=${btnToggle.text}",
-            )
-        } catch (_: Throwable) {}
+        // V5.9.1569 — this logger fired 111 times in 52m on the main thread.
+        // Keep a low-rate heartbeat only; render truth is visible in UI/state anyway.
+        val nowForensic = System.currentTimeMillis()
+        if (nowForensic - lastRuntimeBarForensicMs >= 30_000L) {
+            lastRuntimeBarForensicMs = nowForensic
+            try {
+                com.lifecyclebot.engine.ForensicLogger.lifecycle(
+                    "MAIN_RUNTIME_BAR_RENDER",
+                    "running=$running stateRunning=${state.running} serviceActive=$serviceActive runtimeActive=$runtimeActive button=${btnToggle.text}",
+                )
+            } catch (_: Throwable) {}
+        }
     }
 
     private fun refreshTrustUiSnapshotAsync(force: Boolean = false) {
