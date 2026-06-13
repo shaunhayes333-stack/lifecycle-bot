@@ -701,6 +701,24 @@ object FinalDecisionGate {
         var blockLevel: BlockLevel? = null
         val tags = mutableListOf<String>()
 
+        // V5.9.1567 — FDG MODE CONTAMINATION FIX. The `config` BotConfig passed
+        // into FDG can carry a stale `paperMode` flag (same regression that was
+        // previously patched only inside ToxicMode circuit breaker @ V5.9.1119).
+        // Result: live mode trades got evaluated under paper-mode branches
+        // throughout this function (~40 `config.paperMode` reads). Apply the
+        // RuntimeModeAuthority override ONCE at the top so every downstream
+        // `config.paperMode` read inside this function inherits the
+        // authoritative mode. Authority wins; config flag is fallback only.
+        val authoritativePaperMode: Boolean = try {
+            RuntimeModeAuthority.isPaper()
+        } catch (_: Throwable) {
+            config.paperMode
+        }
+        val configIn: BotConfig = config
+        @Suppress("NAME_SHADOWING")
+        val config: BotConfig =
+            if (authoritativePaperMode == configIn.paperMode) configIn
+            else configIn.copy(paperMode = authoritativePaperMode)
         val mode = if (config.paperMode) TradeMode.PAPER else TradeMode.LIVE
         val laneName = tradingModeTag?.name ?: "STANDARD"
         // V5.9.1299 — single source of truth for the LEARNING-CONTEXT score.

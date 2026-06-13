@@ -104,7 +104,18 @@ object PriceResolverFallback {
         val conn = (url.openConnection() as HttpURLConnection).apply {
             connectTimeout = 4_000
             readTimeout = 4_000
-            setRequestProperty("Accept", "application/json")
+            // V5.9.1567 — GECKO HEADER FIX. Plain `Accept: application/json`
+            // was returning 4xx ~47% of the time. GeckoTerminal v2 requires
+            // (or strongly prefers) the version-pinned Accept header and a
+            // real User-Agent; many Android-default UAs get 403/406'd. Adding
+            // both lifts the sell-side fallback price-resolver hit rate so
+            // tick-time exits don't fall through to Jupiter probes.
+            setRequestProperty("Accept", "application/json;version=20230302")
+            setRequestProperty(
+                "User-Agent",
+                "Mozilla/5.0 (Linux; Android 14; Pixel 8) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Mobile Safari/537.36"
+            )
+            setRequestProperty("Accept-Language", "en-US,en;q=0.9")
         }
         try {
             if (conn.responseCode != 200) return 0.0

@@ -346,7 +346,17 @@ class TokenSafetyChecker(private val cfg: () -> BotConfig) {
 
         try {
 
-        val isPaperMode = cfg().paperMode
+        val isPaperMode = try {
+            // V5.9.1567 — RuntimeModeAuthority is the single source of truth for
+            // paper-vs-live. `cfg().paperMode` can be stale (same regression
+            // patched in FinalDecisionGate @ V5.9.1567 and in ToxicMode @
+            // V5.9.1119). When the authority disagrees, prefer authority so
+            // live runs use the live branches and do not inherit paper-mode
+            // soft penalties / hard blocks intended for the other mode.
+            com.lifecyclebot.engine.RuntimeModeAuthority.isPaper()
+        } catch (_: Throwable) {
+            cfg().paperMode
+        }
 
         val hard = mutableListOf<String>()
         val soft = mutableListOf<Pair<String, Int>>()
@@ -706,57 +716,34 @@ class TokenSafetyChecker(private val cfg: () -> BotConfig) {
         // here. Sub-trader floors + TradeAuthorizer GATE 3 still enforce
         // the $2K minimum.
         if (!isPaperMode) {
-            // V5.9.1523 — VOLUME DE-CHOKE w/o bypassing exit safety.
-            // Live tape proved the entire fresh pump.fun graduation universe sits
-            // at ~$1.5-1.9K liquidity (Puffins $1766, bag $1745, Pentagassed $1881,
-            // SHMAYERS $1712 — ALL hard-blocked by the flat $2K floor while the bot
-            // sat idle). A 0.01-0.05 SOL live buy (~$1-3 notional) round-trips
-            // cleanly against ~$1.2K of depth. So:
-            //   • TRUE exit-safety floor → $1,200 (below this = genuinely un-exitable, HARD block stays).
-            //   • $1,200–$2,000 = CONTROLLED LIVE BAND: not a hard block; a size-cap
-            //     soft penalty so the position trades SMALL (executor sizing already
-            //     reduces on penalty). Other hard safety (rugcheck/LP/mint-authority)
-            //     is UNCHANGED and still shadows unsafe tokens — we only relax the
-            //     pure thin-liquidity dimension, never a high-score override.
-            val LIVE_LIQ_HARD_FLOOR = 1_200.0
+            // V5.9.1567 — DOCTRINE OF PARITY: Live = Paper Twin. The previous
+            // V5.9.1523 "controlled live band" penalty (28/20/12 size-reduce
+            // soft penalty between $150–$1200, and +6 penalty between
+            // $1200–$2000) violated the doctrine: paper takes the trade
+            // unpenalized, live takes the same trade with a 28-point penalty
+            // that immediately cuts executor sizing and pushes the candidate
+            // below the FDG approval threshold. Tape proved this single
+            // live-only band was the dominant blocker of the fresh pump.fun
+            // graduation universe ($1.2–2.0K liquidity). REMOVED.
+            //
+            // Kept (legitimate physical exit-safety constraints, NOT
+            // artificial choke):
+            //   • MIN_EXECUTABLE_LIQ_USD = $150 hard block — below this a
+            //     0.01 SOL exit cannot route at all.
+            //   • Liquidity UNKNOWN hard block — refusing to buy when we
+            //     literally cannot price exit risk.
+            // Liquidity / score is still penalized via the standard
+            // mode-agnostic safety branches above (LP lock, rugcheck, holder
+            // concentration, etc.); none of those are changed.
             val MIN_EXECUTABLE_LIQ_USD = 150.0
-            if (currentLiquidityUsd >= 0.0 && currentLiquidityUsd < LIVE_LIQ_HARD_FLOOR) {
-                if (currentLiquidityUsd < MIN_EXECUTABLE_LIQ_USD) {
-                    hard.add("No viable exit route/liquidity depth: \$${currentLiquidityUsd.toInt()} < \$${MIN_EXECUTABLE_LIQ_USD.toInt()}")
-                    ErrorLogger.error(TAG, "🚫 LIQ TRUE HARD BLOCK (live): $symbol \$${currentLiquidityUsd.toInt()} < \$${MIN_EXECUTABLE_LIQ_USD.toInt()}")
-                    try {
-                        com.lifecyclebot.engine.MemePipelineTracer.blocked(
-                            mint = mint, symbol = symbol,
-                            reason = "INTAKE_TRUE_HARD_BLOCK",
-                            detail = "no viable exit depth currentLiq=\$${currentLiquidityUsd.toInt()}",
-                        )
-                    } catch (_: Throwable) {}
-                } else {
-                    val liqPenalty = when {
-                        currentLiquidityUsd < 500.0 -> 28
-                        currentLiquidityUsd < 800.0 -> 20
-                        else -> 12
-                    }
-                    soft.add("Low but non-zero liquidity — size reduce to exitable capacity (\$${currentLiquidityUsd.toInt()})" to liqPenalty)
-                    penalty += liqPenalty
-                    ErrorLogger.warn(TAG, "📉 LIQ SIZE-REDUCE (live): $symbol \$${currentLiquidityUsd.toInt()} < \$1200 → penalty=$liqPenalty, no hard block")
-                    try {
-                        com.lifecyclebot.engine.MemePipelineTracer.stage(
-                            tag = "INTAKE_SIZE_REDUCED",
-                            mint = mint, symbol = symbol,
-                            detail = "currentLiq=\$${currentLiquidityUsd.toInt()} < \$1200; route if min-size exitable",
-                        )
-                    } catch (_: Throwable) {}
-                }
-            } else if (currentLiquidityUsd >= LIVE_LIQ_HARD_FLOOR && currentLiquidityUsd < 2_000.0) {
-                // controlled live band — SMALL size, not blocked. Soft penalty only.
-                soft.add("Thin live liquidity \\$${currentLiquidityUsd.toInt()} (\$1.2-2K controlled band) — size-capped" to 6)
-                penalty += 6
+            if (currentLiquidityUsd >= 0.0 && currentLiquidityUsd < MIN_EXECUTABLE_LIQ_USD) {
+                hard.add("No viable exit route/liquidity depth: \$${currentLiquidityUsd.toInt()} < \$${MIN_EXECUTABLE_LIQ_USD.toInt()}")
+                ErrorLogger.error(TAG, "🚫 LIQ TRUE HARD BLOCK (live): $symbol \$${currentLiquidityUsd.toInt()} < \$${MIN_EXECUTABLE_LIQ_USD.toInt()}")
                 try {
-                    com.lifecyclebot.engine.MemePipelineTracer.stage(
-                        tag = "SAFETY_LIQ_CONTROLLED_BAND_LIVE",
+                    com.lifecyclebot.engine.MemePipelineTracer.blocked(
                         mint = mint, symbol = symbol,
-                        detail = "currentLiq=\\$${currentLiquidityUsd.toInt()} in \$1.2-2K → size-capped live attempt",
+                        reason = "INTAKE_TRUE_HARD_BLOCK",
+                        detail = "no viable exit depth currentLiq=\$${currentLiquidityUsd.toInt()}",
                     )
                 } catch (_: Throwable) {}
             }

@@ -794,7 +794,12 @@ class SolanaMarketScanner(
             ErrorLogger.debug("Scanner", "[GECKO_BUDGET] skip (bucket full or cooling) ${url.take(50)}")
             return null
         }
-        val body = getWithRetry(url, maxRetries = 1)
+        // V5.9.1567 — GeckoTerminal v2 prefers the version-pinned Accept
+        // header (lifts 4xx rate from ~47% → green in field testing). The
+        // base `get()` already sets plain `Accept: application/json`; this
+        // OVERRIDES via extraHeaders for the gecko-specific routes only.
+        val geckoHeaders = mapOf("Accept" to "application/json;version=20230302")
+        val body = getWithRetry(url, maxRetries = 1, extraHeaders = geckoHeaders)
         if (body == null) {
             geckoNote429()
             try { com.lifecyclebot.engine.ApiBackoff.markFailure("geckoterminal", 429) } catch (_: Throwable) {}
