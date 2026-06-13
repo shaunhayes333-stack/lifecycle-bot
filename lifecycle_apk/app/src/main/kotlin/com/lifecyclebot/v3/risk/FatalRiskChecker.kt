@@ -34,12 +34,18 @@ class RugModel {
         //   and starving V3/STANDARD of every healthy fresh launch (JAM buy%=92
         //   liq=$356k included).
         //
-        // Correct mapping: risk = 100 - safety. Unknown safety (null, e.g.
-        // rugcheck timeout/-1) is NEUTRAL = 50, NOT 0 (which would falsely read
-        // as max-safe) and NOT 100 (which would falsely read as max-risk). Then
-        // the genuine danger-flag bundle adds risk on top.
+        // Correct mapping: risk = 100 - safety, with the sentinel exception:
+        // rugcheckScore=1 means RC_PENDING / needs more data, NOT safety=1.
+        // V5.9.1566 — this was the zero-trading regression: pending score=1
+        // became risk=99, then one fresh-launch transient flag pushed it to
+        // EXTREME_RUG_RISK_100. Keep 0 as confirmed rug via the raw-score
+        // fatal check below; map 1/null to neutral pending risk.
         val safety = candidate.rawRiskScore
-        var score = if (safety != null) (100 - safety).coerceIn(0, 100) else 50
+        var score = when (safety) {
+            null -> 50
+            1 -> 50
+            else -> (100 - safety).coerceIn(0, 100)
+        }
 
         if (candidate.extraBoolean("zeroHolders")) score += 20
         if (candidate.extraBoolean("pureSellPressure")) score += 25
