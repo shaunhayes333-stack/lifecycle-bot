@@ -237,7 +237,30 @@ object ExecutableOpenGate {
             return "EXEC_OPEN_DROPPED_PRE_FDG_NOT_BUY" to preFdgVerdict
         }
         if (effectiveHardNoReasons.isNotEmpty()) return "EXEC_OPEN_DROPPED_HARD_NO_BUY" to effectiveHardNoReasons.joinToString("+")
-        if (candidateVersion != currentVersion) return "EXEC_OPEN_DROPPED_STALE_CANDIDATE" to "STALE_CANDIDATE_VERSION_$candidateVersion"
+        if (candidateVersion != currentVersion) {
+            // V5.9.1579 — LIVE approved-handoff restore. Operator 5.0.3641
+            // snapshot showed EXEC_GATE_ALLOW>0 but EXEC_LIVE_ATTEMPT=0 with
+            // EXEC_OPEN_DROPPED_STALE_CANDIDATE / PRE_FDG_NOT_BUY. The version
+            // bucket can roll between FDG approval and executor handoff; if the
+            // current state is still an FDG-approved BUY/PROBE, safety is known,
+            // liquidity is real, and no hardNo remains, this is not a terminal
+            // stale candidate — it is the exact approved handoff we must execute.
+            val latestAllows = state?.fdgCan == true || state?.preFdgVerdict.equals("BUY", true) || state?.preFdgVerdict.equals("PROBE_ONLY", true)
+            val safetyOk = currentSafetyTier.equals("SAFE", true) || currentSafetyTier.equals("CAUTION", true) ||
+                state?.safetyTier.equals("SAFE", true) || state?.safetyTier.equals("CAUTION", true)
+            val effectiveLiq = maxOf(currentLiquidityUsd, state?.liquidityUsd ?: 0.0)
+            if (mode.equals("LIVE", true) && latestAllows && safetyOk && effectiveLiq >= 1200.0) {
+                try {
+                    ForensicLogger.lifecycle(
+                        "LIVE_RESTORE_STALE_CANDIDATE_SOFT_ALLOW",
+                        "mint=${mint.take(10)} symbol=$symbol candidateVersion=$candidateVersion currentVersion=$currentVersion liq=${effectiveLiq.toInt()}"
+                    )
+                    PipelineHealthCollector.labelInc("LIVE_RESTORE_STALE_CANDIDATE_SOFT_ALLOW")
+                } catch (_: Throwable) {}
+                return null
+            }
+            return "EXEC_OPEN_DROPPED_STALE_CANDIDATE" to "STALE_CANDIDATE_VERSION_$candidateVersion"
+        }
         return null
     }
 

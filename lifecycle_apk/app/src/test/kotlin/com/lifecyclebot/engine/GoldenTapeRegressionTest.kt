@@ -422,4 +422,13 @@ class GoldenTapeRegressionTest {
         val v3Area = bot.substring(v3ExecuteIdx, kotlin.math.min(bot.length, v3ExecuteIdx + 2500))
         assertFalse("Standard V3/Core path must not call specialist fanout suppression", v3Area.contains("shouldRunBuyLaneForCycle"))
     }
+
+
+    @Test
+    fun approved_live_handoff_survives_candidate_version_churn() {
+        val openGate = java.io.File("src/main/kotlin/com/lifecyclebot/engine/ExecutableOpenGate.kt").readText()
+        assertTrue(openGate.contains("LIVE_RESTORE_STALE_CANDIDATE_SOFT_ALLOW"))
+        assertTrue(openGate.contains("EXEC_GATE_ALLOW>0 but EXEC_LIVE_ATTEMPT=0"))
+        assertTrue(openGate.contains("latestAllows && safetyOk && effectiveLiq >= 1200.0"))
+    }
 }
