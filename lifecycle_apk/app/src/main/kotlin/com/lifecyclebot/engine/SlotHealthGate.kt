@@ -112,14 +112,19 @@ object SlotHealthGate {
         }
         val forced = forcedOpenCount.get()
         if (forced > FORCED_OPEN_DIRTY) {
-            // V5.9.1547 — AGING FORCED-OPEN DEFER (fail-open). Defer while the
-            // forced-open condition is fresh so cleanup/reconciler can catch up,
-            // but NEVER permanently: a wedged/stale forcedOpen counter (e.g. 46 vs
-            // 13 real positions) must not park all entries indefinitely. Once stuck
-            // past the grace window, fail-open — starving entries is far worse than
-            // running with a stale slot counter. Same pattern as the ghost defer.
+            // V5.9.1570 — PAPER forcedOpen is training state, not wallet capital.
+            // Runtime log 6dc6f73a showed EXPRESS FDG_ALLOW then TradeAuthorizer
+            // rejected 82% of Express with DEFER_SLOT_HEALTH_FORCED_OPEN=22>20.
+            // That turns normal paper bootstrap inventory into a throughput veto.
+            // Keep live conservative, but paper must fail-open so it can keep
+            // producing labelled samples while exit sweeps/reaper drain positions.
+            val paperRuntime = try { RuntimeModeAuthority.isPaper() } catch (_: Throwable) { false }
             val stuckSince = forcedStuckSinceMs.get()
             val stuckMs = if (stuckSince > 0L) System.currentTimeMillis() - stuckSince else 0L
+            if (paperRuntime) {
+                return DeferDecision(false, "PAPER_FORCED_OPEN_FAIL_OPEN=$forced>$FORCED_OPEN_DIRTY(stuck=${stuckMs}ms)")
+            }
+            // LIVE: aging forced-open defer remains, but the grace is bounded.
             if (stuckMs <= FORCED_DEFER_GRACE_MS) {
                 return DeferDecision(true, "FORCED_OPEN=$forced>$FORCED_OPEN_DIRTY(stuck=${stuckMs}ms)")
             }

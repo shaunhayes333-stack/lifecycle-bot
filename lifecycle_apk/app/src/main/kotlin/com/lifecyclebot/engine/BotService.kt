@@ -18025,6 +18025,31 @@ if (hotExitHandledSweep) {
                                 ErrorLogger.info("BotService", "🚫 FDG VETO on EXPRESS: ${ts.symbol} | ${expressFdg.blockReason ?: "fdg_block"}")
                                 RejectionTelemetry.record("EXPRESS_FDG", expressFdg.blockReason ?: "fdg_block")
                             } else {
+                            // V5.9.1570 — Express FDG verdict must be written before
+                            // TradeAuthorizer/ExecutableOpenGate finality. The 6dc6f73a
+                            // log showed FDG path=EXPRESS can=true immediately followed
+                            // by EXPRESS finality_exec_open_dropped_pre_fdg_not_buy_watch
+                            // dominating RejectStats (631/766). Cause: Express called
+                            // FDG for telemetry but never recordFdg(), so finality read
+                            // the old V3 WATCH state. Write the executable verdict now.
+                            try {
+                                ExecutableOpenGate.recordFdg(
+                                    mint = ts.mint,
+                                    symbol = ts.symbol,
+                                    lane = "SHITCOIN",
+                                    canExecute = expressFdg?.canExecute() ?: true,
+                                    reason = expressFdg?.blockReason ?: "EXPRESS_OK",
+                                    signal = "BUY",
+                                    rugScore = ts.safety.rugcheckScore.takeIf { it >= 0 } ?: 100,
+                                    safetyTier = ts.safety.tier.name,
+                                    liquidityUsd = ts.lastLiquidityUsd,
+                                    hardNoReasons = emptyList(),
+                                    preFdgVerdict = if (expressFdg?.canExecute() == false) "NO_BUY" else "BUY",
+                                    entryScore = expressSignal.estimatedGainPct.toInt(),
+                                )
+                            } catch (w: Throwable) {
+                                ErrorLogger.warn("BotService", "EXPRESS recordFdg failed: ${w.message} — continuing to auth")
+                            }
                             // V5.2: MUST check TradeAuthorizer BEFORE any execution
                             val authResult = TradeAuthorizer.authorize(
                                 mint = ts.mint,

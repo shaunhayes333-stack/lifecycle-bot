@@ -210,7 +210,25 @@ class GoldenTapeRegressionTest {
         assertFalse("RC_PENDING bypass must not be CYCLIC-only", gate.contains("requestedLane == \"CYCLIC\" && rug == 1"))
         assertTrue(gate.contains("PAPER_API_BUDGET_LOCKDOWN_BYPASSED"))
     }
+
+    @Test
+    fun paper_slot_health_forced_open_fail_open() {
+        val source = java.io.File("src/main/kotlin/com/lifecyclebot/engine/SlotHealthGate.kt").readText()
+        assertTrue(source.contains("PAPER_FORCED_OPEN_FAIL_OPEN"))
+        assertTrue(source.contains("RuntimeModeAuthority.isPaper()"))
+    }
+
+    @Test
+    fun express_records_fdg_before_authorizer_finality() {
+        val source = java.io.File("src/main/kotlin/com/lifecyclebot/engine/BotService.kt").readText()
+        val recordIdx = source.indexOf("V5.9.1570 — Express FDG verdict")
+        val authIdx = source.indexOf("TradeAuthorizer.authorize", recordIdx)
+        assertTrue(recordIdx >= 0)
+        assertTrue(authIdx > recordIdx)
+        assertTrue(source.substring(recordIdx, authIdx).contains("ExecutableOpenGate.recordFdg"))
+    }
 }
+
 
 
 
