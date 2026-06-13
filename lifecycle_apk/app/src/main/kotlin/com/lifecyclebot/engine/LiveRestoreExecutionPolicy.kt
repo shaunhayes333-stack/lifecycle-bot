@@ -19,12 +19,19 @@ object LiveRestoreExecutionPolicy {
         val reason: String = "NONE",
         val liquidityOverrideUsd: Double = 0.0,
     ) {
-        fun combine(other: Penalty): Penalty = Penalty(
-            scorePenalty = this.scorePenalty + other.scorePenalty,
-            sizeMultiplier = (this.sizeMultiplier * other.sizeMultiplier).coerceIn(0.05, 1.0),
-            reason = listOf(this.reason, other.reason).filter { it.isNotBlank() && it != "NONE" }.joinToString("+").ifBlank { "NONE" },
-            liquidityOverrideUsd = max(this.liquidityOverrideUsd, other.liquidityOverrideUsd),
-        )
+        fun combine(other: Penalty): Penalty {
+            val reasons = listOf(this.reason, other.reason)
+                .flatMap { it.split("+") }
+                .map { it.trim() }
+                .filter { it.isNotBlank() && it != "NONE" }
+                .distinct()
+            return Penalty(
+                scorePenalty = this.scorePenalty + other.scorePenalty,
+                sizeMultiplier = (this.sizeMultiplier * other.sizeMultiplier).coerceIn(0.05, 1.0),
+                reason = reasons.joinToString("+").ifBlank { "NONE" },
+                liquidityOverrideUsd = max(this.liquidityOverrideUsd, other.liquidityOverrideUsd),
+            )
+        }
     }
 
     data class BreakEven(
@@ -100,10 +107,21 @@ object LiveRestoreExecutionPolicy {
             liq in 800.0..1199.999 -> 0.020
             else -> requestedSizeSol
         }
-        val capped = if (penalty.reason != "NONE" || liq < 1200.0) {
-            reduced.coerceAtMost(liquidityCap).coerceIn(0.005, requestedSizeSol.coerceAtLeast(0.005))
-        } else reduced
         val priorityFeeSol = 0.0001
+        // V5.9.1582 — fixed network/priority fees make 0.005 SOL live probes
+        // non-executable economics. EXPRESS/drawdown/liquidity penalties may reduce
+        // risk size, but they must not shrink below break-even viability. Raise to
+        // the minimum fee-viable size when wallet/liquidity permit; otherwise skip.
+        val minFeeViableSizeSol = ((priorityFeeSol * 2.0) * 100.0 / 2.5).coerceAtLeast(0.008)
+        val cappedRaw = if (penalty.reason != "NONE" || liq < 1200.0) {
+            reduced.coerceAtMost(liquidityCap)
+        } else reduced
+        val capped = when {
+            cappedRaw <= 0.0 -> 0.0
+            cappedRaw < minFeeViableSizeSol && requestedSizeSol >= minFeeViableSizeSol -> minFeeViableSizeSol.coerceAtMost(requestedSizeSol)
+            cappedRaw < minFeeViableSizeSol -> cappedRaw
+            else -> cappedRaw
+        }
         val buySlippagePct = 5.0.coerceAtMost(1.0 + (2500.0 / liq.coerceAtLeast(1200.0)))
         val expectedSellSlippagePct = 5.0.coerceAtMost(1.5 + (3000.0 / liq.coerceAtLeast(1200.0)))
         val routeFeePct = 0.30
@@ -132,6 +150,7 @@ object LiveRestoreExecutionPolicy {
         val exitGivebackTooHigh = expectedSellSlippagePct + liquidityGivebackPct > expectedEdge
         val decision = when {
             capped <= 0.0 || capped > walletSol -> "SKIP_FEES_TOO_HIGH"
+            capped < minFeeViableSizeSol -> "SKIP_BELOW_MIN_EXECUTABLE_SIZE"
             liq < 150.0 -> "NO_VALID_SELL_ROUTE"
             fixedFeeTooHigh -> "SKIP_FEES_TOO_HIGH"
             exitGivebackTooHigh -> "NOT_PROFITABLE_AFTER_COSTS"

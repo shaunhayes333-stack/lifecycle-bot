@@ -4115,6 +4115,14 @@ class Executor(
                             "✅ SELL LANDED [$reason]: rawConsumed=${vsr.rawTokenConsumed} ui=${vsr.uiTokenConsumed.fmt(4)} solReceived=${vsr.solReceivedLamports} lamports${if (vsr.tokenAccountClosedFullExit) " (ATA closed = full exit)" else ""}",
                             sig = finalSig, tokenAmount = vsr.uiTokenConsumed, traderTag = "MEME",
                         )
+                        if (vsr.tokenAccountClosedFullExit) {
+                            try {
+                                HostWalletTokenTracker.recordAuthoritativeTxParseClose(
+                                    ts.mint, ts.symbol, finalSig,
+                                    "SELL_TX_PARSE_OK_FULL_EXIT_TOKEN_CONSUMED_ATA_CLOSED_SOL_RETURNED"
+                                )
+                            } catch (_: Throwable) {}
+                        }
                         // Fall through to position mutation + journal write.
                     }
                     TradeVerifier.Outcome.FAILED_CONFIRMED -> {
@@ -12564,6 +12572,14 @@ class Executor(
                             "✅ FULL SELL LANDED: rawConsumed=${vsr.rawTokenConsumed} ui=${vsr.uiTokenConsumed.fmt(4)} solReceived=${vsr.solReceivedLamports} lam${if (vsr.tokenAccountClosedFullExit) " (ATA closed)" else ""}",
                             sig = sig, tokenAmount = vsr.uiTokenConsumed, traderTag = "MEME",
                         )
+                        if (vsr.tokenAccountClosedFullExit) {
+                            try {
+                                HostWalletTokenTracker.recordAuthoritativeTxParseClose(
+                                    ts.mint, ts.symbol, sig,
+                                    "SELL_TX_PARSE_OK_FULL_EXIT_TOKEN_CONSUMED_ATA_CLOSED_SOL_RETURNED"
+                                )
+                            } catch (_: Throwable) {}
+                        }
                         // V5.9.767 — terminal LANDED state. Idempotent; reconciler
                         // also calls markLanded when on-chain balance reaches zero.
                         try { com.lifecyclebot.engine.sell.SellJobRegistry.markLanded(ts.mint, sig) } catch (_: Throwable) {}

@@ -56,8 +56,8 @@ object RuntimeRegressionGuards {
             ),
             Check(
                 "sell_reconciler_running",
-                ok = !input.runtimeActive || input.sellReconcilerStarted || input.liveOpenPositions == 0,
-                detail = "runtimeActive=${input.runtimeActive} sellReconcilerStarted=${input.sellReconcilerStarted} liveOpen=${input.liveOpenPositions} paperOpen=${input.paperOpenPositions}",
+                ok = !input.runtimeActive || input.paperMode || input.sellReconcilerStarted,
+                detail = "runtimeActive=${input.runtimeActive} paperMode=${input.paperMode} sellReconcilerStarted=${input.sellReconcilerStarted} liveOpen=${input.liveOpenPositions} paperOpen=${input.paperOpenPositions}",
             ),
             Check(
                 "host_tracker_open_match",

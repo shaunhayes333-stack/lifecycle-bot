@@ -426,6 +426,30 @@ object HostWalletTokenTracker {
                 "PAPER_EXIT_BLOCKED_FROM_HOST_TRACKER ${symbol ?: p.symbol ?: mint.take(6)} reason=$reason")
             return
         }
+        val authoritativeParseClose = reason?.let { r ->
+            r.contains("TX_PARSE", ignoreCase = true) ||
+            r.contains("TOKEN_CONSUMED", ignoreCase = true) ||
+            r.contains("ATA_CLOSED", ignoreCase = true) ||
+            r.contains("ACCOUNT_CLOSED", ignoreCase = true) ||
+            r.contains("SOL_RETURNED", ignoreCase = true) ||
+            r.contains("FULL_TOKEN_CONSUMPTION", ignoreCase = true)
+        } == true
+        // V5.9.1582 — TX_PARSE/ATA/token-consumed close is authoritative even if
+        // the tracker row is missing sellSignature. Do NOT resurrect OPEN_TRACKING
+        // just because a later signature field is blank; that poisoned live buys
+        // via HOST_TRACKER_DESYNC / ORPHAN_LIVE_POSITIONS after successful exits.
+        if (p.sellSignature.isNullOrBlank() && authoritativeParseClose) {
+            p.status = PositionStatus.CLOSED
+            p.activeSellAttemptId = null
+            p.consecutiveZeroConfirms = 0
+            p.uiAmount = 0.0
+            p.rawAmount = "0"
+            p.notes.add("authoritative tx-parse close reason=${reason ?: "?"}")
+            emitForensic(LiveTradeLogStore.Phase.TOKEN_TRACKER_CLOSED, mint, symbol ?: p.symbol, null,
+                "Tracker CLOSED_BY_TX_PARSE_NO_SIGNATURE ${symbol ?: p.symbol ?: mint.take(6)} reason=${reason ?: "?"}")
+            save()
+            return
+        }
         // SELL_VERIFYING is only valid after a real signature exists.
         if (p.sellSignature.isNullOrBlank()) {
             p.status = PositionStatus.OPEN_TRACKING
@@ -451,6 +475,27 @@ object HostWalletTokenTracker {
             emitForensic(LiveTradeLogStore.Phase.TOKEN_TRACKER_CLOSED, mint, symbol ?: p.symbol, p.sellSignature,
                 "Tracker CLOSED ${symbol ?: p.symbol ?: mint.take(6)}")
         }
+        save()
+    }
+
+
+    /**
+     * V5.9.1582 — authoritative sell finalization from tx parse / ATA close / SOL return.
+     * This is stronger than tracker signature bookkeeping. Once called, wallet reconcile
+     * must not restore OPEN_TRACKING unless a later wallet snapshot proves non-dust balance.
+     */
+    @Synchronized
+    fun recordAuthoritativeTxParseClose(mint: String, symbol: String?, sig: String?, reason: String) {
+        val p = positions[mint] ?: return
+        p.sellSignature = sig?.takeIf { it.isNotBlank() } ?: p.sellSignature
+        p.status = PositionStatus.CLOSED
+        p.activeSellAttemptId = null
+        p.consecutiveZeroConfirms = 0
+        p.uiAmount = 0.0
+        p.rawAmount = "0"
+        p.notes.add("authoritative close: $reason")
+        emitForensic(LiveTradeLogStore.Phase.TOKEN_TRACKER_CLOSED, mint, symbol ?: p.symbol, p.sellSignature,
+            "Tracker CLOSED_BY_AUTHORITATIVE_TX_PARSE ${symbol ?: p.symbol ?: mint.take(6)} reason=$reason")
         save()
     }
 

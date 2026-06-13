@@ -911,18 +911,22 @@ class BotService : Service() {
         val walletHeld = try { HostWalletTokenTracker.getActuallyHeldCount() } catch (_: Throwable) { 0 }
         val activeJobs = try { com.lifecyclebot.engine.sell.SellJobRegistry.snapshot().size } catch (_: Throwable) { 0 }
         val zombie = try { recon.isLiveZombie(activeJobs) } catch (_: Throwable) { false }
-        val deadWhileHeld = (!recon.isStarted || recon.pendingLiveStart) && walletHeld > 0
         val walletReady = try { WalletManager.getWallet() != null } catch (_: Throwable) { false }
-        // pendingLiveStart should fire the instant the wallet exists, even with 0 held.
+        // V5.9.1582 — in LIVE, reconciler is mandatory while runtime is RUNNING,
+        // even when PositionStore/tracker currently detects zero open positions. It
+        // owns wallet truth healing and orphan cleanup; gating start on walletHeld>0
+        // leaves sellReconcilerStarted=false and lets stale orphan penalties poison buys.
+        val deadWhileLive = (!recon.isStarted || recon.pendingLiveStart) && walletReady
+        val deadWhileHeld = (!recon.isStarted || recon.pendingLiveStart) && walletHeld > 0
         val pendingNowSatisfiable = recon.pendingLiveStart && walletReady
 
-        if (zombie || deadWhileHeld || pendingNowSatisfiable) {
+        if (zombie || deadWhileLive || deadWhileHeld || pendingNowSatisfiable) {
             reconcilerWatchdogLastMs = now
             val gen = try { BotRuntimeController.currentGeneration() } catch (_: Throwable) { 0L }
             try {
                 ForensicLogger.lifecycle(
                     "SELL_RECONCILER_P0_RESTART",
-                    "zombie=$zombie deadWhileHeld=$deadWhileHeld pendingSatisfiable=$pendingNowSatisfiable " +
+                    "zombie=$zombie deadWhileLive=$deadWhileLive deadWhileHeld=$deadWhileHeld pendingSatisfiable=$pendingNowSatisfiable " +
                     "walletHeld=$walletHeld activeJobs=$activeJobs started=${recon.isStarted} totalTicks=${recon.totalTicks} walletReady=$walletReady",
                 )
             } catch (_: Throwable) {}
@@ -8373,9 +8377,9 @@ class BotService : Service() {
         // This guard is only for optional specialist sub-lanes before FDG.
         if (l == "STANDARD" || l == "CORE" || l == "V3") return true
         if (l == p) return true
-        // EXPRESS is SHITCOIN's micro-execution tool; let it run only when the
-        // chosen primary is SHITCOIN/EXPRESS, not for every fresh token.
-        if (l == "EXPRESS" && (p == "SHITCOIN" || p == "EXPRESS")) return true
+        // V5.9.1582 — strict one-primary-lane rule before FDG. EXPRESS used to
+        // shadow-run beside SHITCOIN, which preserved FDG/EXEC preauth churn even
+        // after fanout collapse. It now runs only when EXPRESS itself is primary.
         try {
             ForensicLogger.lifecycle(
                 "LANE_FANOUT_SUPPRESSED_PRE_FDG",
