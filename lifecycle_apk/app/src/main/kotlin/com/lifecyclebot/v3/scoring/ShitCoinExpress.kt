@@ -591,6 +591,25 @@ object ShitCoinExpress {
             }
         } catch (_: Throwable) { /* fail-open */ }
 
+        // V5.9.1574 — Drawdown-aware Express sizing. Express is the fastest
+        // path and can otherwise keep opening normal-size QUICK_FLIPs during a
+        // defensive journal regime. Soft-shape only: never disables Express, but
+        // when DrawdownCircuitAI says the market is damaged, Express becomes a
+        // controlled probe until the journal recovers.
+        try {
+            val ddAgg = com.lifecyclebot.v3.scoring.DrawdownCircuitAI.getAggression()
+            val ddMult = when {
+                ddAgg < 0.30 -> 0.25
+                ddAgg < 0.50 -> 0.35
+                ddAgg < 0.80 -> 0.60
+                else -> 1.0
+            }
+            if (ddMult < 1.0) {
+                positionSol *= ddMult
+                ErrorLogger.info(TAG, "💩🚂🛡️ EXPRESS_DRAWDOWN_SIZE $symbol | aggr=${ddAgg.fmt(2)} size×$ddMult")
+            }
+        } catch (_: Throwable) { /* fail-open */ }
+
         // Cap at max
         // V5.9.1571 — allow calibration/danger shrink to reach 0.01 probes.
         // EXPRESS is currently WR=0% / net-negative; keep samples, but don't force

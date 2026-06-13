@@ -18102,16 +18102,23 @@ if (hotExitHandledSweep) {
                                 val expressAttemptId = ExecutableOpenGate.recentAllowedAttemptId(ts.mint, "EXPRESS")
                                     ?: ExecutableOpenGate.recentAllowedAttemptId(ts.mint, "SHITCOIN")
                                     ?: authResult.attemptId
+                                // V5.9.1574 — Express must obey FDG's learned size.
+                                // Runtime log 20:55 showed FDG_POLICY micro-sizing SHITCOIN
+                                // to 0.010, but Express still executed/boarded at raw
+                                // expressSignal.positionSizeSol=0.047. That bypassed
+                                // LanePolicy, danger buckets, drawdown circuit, and PROBE_ONLY
+                                // dust sizing. From here down, use the final FDG size.
+                                val expressFinalSize = (expressFdg?.sizeSol ?: expressSignal.positionSizeSol).coerceIn(0.01, expressSignal.positionSizeSol)
                                 ErrorLogger.info("BotService", "💩🚂 [EXPRESS] ${ts.symbol} | RIDE | " +
                                     "${expressSignal.rideType.emoji} ${expressSignal.rideType.name} | " +
                                     "mom=${(ts.momentum ?: 0.0).fmt(1)}% | " +
-                                    "size=${expressSignal.positionSizeSol.fmt(3)} SOL | " +
+                                    "size=${expressFinalSize.fmt(3)} SOL (raw=${expressSignal.positionSizeSol.fmt(3)}) | " +
                                     "target=${expressSignal.estimatedGainPct.toInt()}%")
                                 
                                 // Execute buy first — only board the ride if the buy actually opened
                                 val expressOpened = executor.shitCoinBuy(
                                     ts = ts,
-                                    sizeSol = expressSignal.positionSizeSol,
+                                    sizeSol = expressFinalSize,
                                     walletSol = effectiveBalance,
                                     takeProfitPct = expressSignal.estimatedGainPct,
                                     stopLossPct = -8.0,
@@ -18136,7 +18143,7 @@ if (hotExitHandledSweep) {
                                     mint = ts.mint,
                                     symbol = ts.symbol,
                                     entryPrice = ts.ref,
-                                    entrySol = expressSignal.positionSizeSol,
+                                    entrySol = expressFinalSize,
                                     momentum = ts.momentum ?: 0.0,
                                     buyPressure = ts.lastBuyPressurePct,
                                     isPaper = cfg.paperMode,

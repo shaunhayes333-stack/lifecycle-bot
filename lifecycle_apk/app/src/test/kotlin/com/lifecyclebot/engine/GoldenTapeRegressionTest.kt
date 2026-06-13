@@ -289,4 +289,27 @@ class GoldenTapeRegressionTest {
         assertTrue(trust.contains("base * symFactor * ddFactor"))
         assertTrue(trust.contains("coerceIn(0.15, 1.25)"))
     }
+
+    @Test
+    fun express_execution_uses_fdg_final_size() {
+        val bot = java.io.File("src/main/kotlin/com/lifecyclebot/engine/BotService.kt").readText()
+        assertTrue(bot.contains("val expressFinalSize = (expressFdg?.sizeSol ?: expressSignal.positionSizeSol)"))
+        assertTrue(bot.contains("sizeSol = expressFinalSize"))
+        assertTrue(bot.contains("entrySol = expressFinalSize"))
+        val start = bot.indexOf("val expressFinalSize")
+        val end = bot.indexOf("addLog("💩🚂 EXPRESS:", start)
+        assertTrue(start >= 0 && end > start)
+        val executionBlock = bot.substring(start, end)
+        assertFalse("Express must not execute/board using raw signal size after FDG", executionBlock.contains("sizeSol = expressSignal.positionSizeSol"))
+        assertFalse("Express must not board using raw signal size after FDG", executionBlock.contains("entrySol = expressSignal.positionSizeSol"))
+    }
+
+    @Test
+    fun express_is_drawdown_sized_before_cap() {
+        val exp = java.io.File("src/main/kotlin/com/lifecyclebot/v3/scoring/ShitCoinExpress.kt").readText()
+        assertTrue(exp.contains("V5.9.1574"))
+        assertTrue(exp.contains("DrawdownCircuitAI.getAggression"))
+        assertTrue(exp.contains("EXPRESS_DRAWDOWN_SIZE"))
+        assertTrue(exp.contains("positionSol = positionSol.coerceIn(0.01, MAX_POSITION_SOL)"))
+    }
 }
