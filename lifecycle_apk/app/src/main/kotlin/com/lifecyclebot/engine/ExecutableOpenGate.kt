@@ -331,7 +331,11 @@ object ExecutableOpenGate {
             // V5.9.1214 — in PAPER only confirmed rug score 0 is fatal.
             // Scores 1..10 are learnable low-RC samples with soft penalties
             // upstream; LIVE still treats 1..10 as hard no-buy finality.
-            if (rugScore == 0 || (rugScore in 1..10 && !paperRuntime)) add("RC_SCORE_$rugScore")
+            // V5.9.1577 — score 1 is RC_PENDING, not confirmed risk. Live log
+            // showed FDG/style-approved fresh launches later dropped by finality as
+            // hardNo RC_SCORE_1 / WATCH. Only confirmed rug score 0 remains fatal
+            // here; confirmed low scores 2..10 stay strict in LIVE.
+            if (rugScore == 0 || (rugScore in 2..10 && !paperRuntime)) add("RC_SCORE_$rugScore")
         }.distinct()
         // V5.9.1545 — STALE-VERDICT LEAK ROOT FIX (re-surfaced choke).
         // The snapshot showed candidates with FDG_ALLOW=PROBE_ONLY (canExecute=true)

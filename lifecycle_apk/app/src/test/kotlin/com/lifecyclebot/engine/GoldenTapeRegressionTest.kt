@@ -377,4 +377,37 @@ class GoldenTapeRegressionTest {
         assertFalse("boardRide must not write a duplicate BUY row after executor.shitCoinBuy", board.contains("V3JournalRecorder.recordOpen"))
         assertFalse("boardRide must not write directly to TradeHistoryStore", board.contains("TradeHistoryStore.recordTrade"))
     }
+
+
+    @Test
+    fun live_exposure_pct_is_not_v3_eligibility_veto() {
+        val elig = java.io.File("src/main/kotlin/com/lifecyclebot/v3/eligibility/EligibilityGate.kt").readText()
+        assertTrue(elig.contains("exposure PCT is a sizing/risk signal, not an"))
+        assertTrue(elig.contains("return openMints.size >= maxOpenPositions"))
+        assertFalse("Global exposure percentage must not terminally block V3 eligibility", elig.contains("currentExposurePct >= maxExposurePct"))
+        val adapter = java.io.File("src/main/kotlin/com/lifecyclebot/v3/bridge/V3Adapter.kt").readText()
+        assertTrue(adapter.contains("val fraction = if (exposurePct > 1.0) exposurePct / 100.0 else exposurePct"))
+        assertTrue(adapter.contains("coerceIn(0.0, 1.0)"))
+    }
+
+    @Test
+    fun live_pending_rc_one_is_not_hard_finality_block() {
+        val openGate = java.io.File("src/main/kotlin/com/lifecyclebot/engine/ExecutableOpenGate.kt").readText()
+        assertTrue(openGate.contains("score 1 is RC_PENDING"))
+        assertTrue(openGate.contains("rugScore in 2..10"))
+        assertFalse("RC_SCORE_1 must not be reintroduced as a live hardNo", openGate.contains("rugScore in 1..10"))
+        val moon = java.io.File("src/main/kotlin/com/lifecyclebot/v3/scoring/MoonshotTraderAI.kt").readText()
+        assertTrue(moon.contains("RC=1 is PENDING"))
+        assertTrue(moon.contains("val pendingRc = rugcheckScore == 1"))
+    }
+
+    @Test
+    fun live_mode_freeze_is_soft_allow_not_terminal_fdg_veto() {
+        val fdg = java.io.File("src/main/kotlin/com/lifecyclebot/engine/FinalDecisionGate.kt").readText()
+        assertTrue(fdg.contains("LIVE_CIRCUIT_SOFT_ALLOW"))
+        assertTrue(fdg.contains("liveLocalModeFreeze"))
+        val softIdx = fdg.indexOf("LIVE_CIRCUIT_SOFT_ALLOW")
+        val blockIdx = fdg.indexOf("return FinalDecision", softIdx)
+        assertTrue("live local mode freeze should be handled before the hard return path", softIdx >= 0 && blockIdx > softIdx)
+    }
 }

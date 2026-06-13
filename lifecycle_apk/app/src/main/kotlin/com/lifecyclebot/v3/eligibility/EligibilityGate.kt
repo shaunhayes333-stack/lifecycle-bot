@@ -179,10 +179,14 @@ class ExposureGuard(
     }
 
     fun isGlobalExposureMaxed(): Boolean {
-        // V5.9.408 — free-range mode uncaps open-position count and exposure
-        // so the bot can hold every concurrent signal for learning exposure.
+        // V5.9.1577 — live unchoke: exposure PCT is a sizing/risk signal, not an
+        // eligibility veto. Snapshot 23:02 showed GLOBAL_EXPOSURE_MAX_PCT(88%/70%)
+        // killing V3 discovery while the wallet still had live tradeable SOL and
+        // downstream SmartSizer/CashGen already capped orders to wallet-reserve.
+        // Keep the slot-count guard (real capacity), but do not make percentage
+        // exposure a terminal V3 reject. Lane/FDG/Executor size caps still shape risk.
         if (com.lifecyclebot.engine.FreeRangeMode.isWideOpen()) return false
-        return openMints.size >= maxOpenPositions || currentExposurePct >= maxExposurePct
+        return openMints.size >= maxOpenPositions
     }
 
     fun openCount(): Int = openMints.size

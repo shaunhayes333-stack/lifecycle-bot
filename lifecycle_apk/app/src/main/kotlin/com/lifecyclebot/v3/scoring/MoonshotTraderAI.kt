@@ -471,9 +471,14 @@ object MoonshotTraderAI {
         // bypasses RC_SCORE_1 with a TradeAuth PAPER_LEARNING bypass.
         // Mirror that here for paper mode only — drop the floor to 1 in
         // paper-learning so Moonshot can also collect labelled samples.
-        // Live mode keeps the 15 minimum unchanged.
-        val minRcScore = if (isPaper) 1 else 15
-        if (rugcheckScore < minRcScore) {
+        // V5.9.1577 — RC=1 is PENDING, not confirmed risky. Live log 23:02
+        // showed Moonshot rejecting every fresh launch with rugcheck_1_below_min_15
+        // before FDG/style sizing could make a dust/probe decision. Confirmed
+        // score 0 remains blocked; genuinely low confirmed scores 2..14 remain
+        // rejected in live. Pending score 1 passes with FDG/Executor size caps.
+        val pendingRc = rugcheckScore == 1
+        val minRcScore = if (isPaper || pendingRc) 1 else 15
+        if (rugcheckScore < minRcScore || (!isPaper && rugcheckScore in 2 until minRcScore)) {
             return MoonshotScore(false, 0, 0.0, "rugcheck_${rugcheckScore}_below_min_${minRcScore}")
         }
 

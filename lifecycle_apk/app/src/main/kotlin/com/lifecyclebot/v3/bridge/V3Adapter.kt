@@ -269,7 +269,11 @@ object V3Adapter {
     }
 
     fun updateExposure(exposurePct: Double) {
-        exposureGuard.currentExposurePct = exposurePct.coerceIn(0.0, 100.0)
+        // V5.9.1577 — ExposureGuard stores a FRACTION [0,1]. Some callers/UI
+        // surfaces pass percent-like values (88 for 88%). Normalize defensively
+        // so GLOBAL_EXPOSURE_MAX_PCT cannot become a permanent false clamp.
+        val fraction = if (exposurePct > 1.0) exposurePct / 100.0 else exposurePct
+        exposureGuard.currentExposurePct = fraction.coerceIn(0.0, 1.0)
     }
 
     fun getShadowTracker(): ShadowTracker = shadowTracker
