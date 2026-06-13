@@ -7986,6 +7986,19 @@ class BotService : Service() {
                             val excludedLane = pos.isBlueChipPosition || pos.isTreasuryPosition
                             if (isMeme && !excludedLane) {
                                 val pnlPctNow = (priceUsd - entryPx) / entryPx * 100.0
+                                // V5.9.1562 — RATCHET peakGainPct BEFORE the lock check.
+                                // Operator MFE forensic 5.0.3659 (MOONSHOT avgPeak +630% but
+                                // avgRealized -1.4% — runner cut catastrophically): root
+                                // cause was reading a stale ts.position.peakGainPct that
+                                // only got bumped by rapidStopLossMonitor's separate pnl
+                                // calc. The 1Hz openPositionTickLoop has the FRESHEST price
+                                // in the entire bot — if we don't ratchet here, the meme
+                                // peak runs ahead of the host peak by seconds-to-minutes
+                                // and the TICK_PROFIT_LOCK reads a near-zero high-water
+                                // mark, never firing while the runner gives it all back.
+                                if (pnlPctNow > pos.peakGainPct) {
+                                    pos.peakGainPct = pnlPctNow
+                                }
                                 val peakPct = pos.peakGainPct
 
                                 // ─── Guard 1: TICK_HARD_FLOOR @ -10% ───

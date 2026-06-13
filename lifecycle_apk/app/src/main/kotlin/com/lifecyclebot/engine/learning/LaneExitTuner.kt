@@ -116,10 +116,27 @@ object LaneExitTuner {
         val losers = w.filter { !it.win }
         val avgLoss = if (losers.isEmpty()) 0.0 else losers.map { it.pnlPct }.average()
 
+        // V5.9.1562 — RUNNER-PRESERVATION first principle (operator forensic 5.0.3659).
+        // Bug in the old decision table: branch 2 fired on WR<0.30 + avgPeak≥20 + avgReal≤5,
+        // which is the textbook signature of runner-cutting (the lane shows fat peaks but
+        // realizes nothing). It then DECREASED tpMult → exits even SOONER, making the
+        // bleed worse. MOONSHOT dump: WR 18.7%, avgPeak +630%, avgReal -1.4%, tpMult 0.84.
+        // The learner was actively choking the lane that needed to be widened.
+        //
+        // New ordering: when giveBack is large in absolute terms (≥40pp) AND peaks are
+        // real (avgPeak ≥ 30%), the ONLY correct adjustment is to widen TP (let winners
+        // breathe) — regardless of WR. WR low + peaks fat = give the bot space to LET
+        // them run, not pull the rip-cord earlier.
         var tp = st.tpMult
         when {
+            // Strong runner evidence — widen TP no matter what WR looks like.
+            giveBack >= 40.0 && avgPeak >= 30.0 -> tp += STEP
+            // Healthy lane with moderate give-back — widen further.
             wr >= 0.45 && avgPeak >= 25.0 && giveBack >= 15.0 -> tp += STEP
-            wr < 0.30 && avgPeak >= 20.0 && avgReal <= 5.0 -> tp -= STEP
+            // Low-WR with small/no peaks — entry signal weak, exit shouldn't be widened
+            // beyond neutral. Only bank-sooner when peaks themselves are tiny.
+            wr < 0.30 && avgPeak < 15.0 && avgReal <= -5.0 -> tp -= STEP
+            // Already tight lane that's banking too aggressively — nudge up.
             wr >= 0.50 && giveBack < 8.0 && tp < 1.0 -> tp += STEP * 0.5
         }
         st.tpMult = tp.coerceIn(TP_MIN, TP_MAX)
