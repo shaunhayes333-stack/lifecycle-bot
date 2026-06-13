@@ -347,4 +347,34 @@ class GoldenTapeRegressionTest {
         val executionBlock = bot.substring(start, end)
         assertFalse("Moonshot must not register raw size after final effective size", executionBlock.contains("entrySol = moonshotScore.suggestedSizeSol"))
     }
+
+
+    @Test
+    fun agentic_style_router_is_bounded_not_union_fanout() {
+        val router = java.io.File("src/main/kotlin/com/lifecyclebot/engine/AgenticStyleRouter.kt").readText()
+        assertTrue(router.contains("bounded style fanout"))
+        assertTrue(router.contains("stablePick"))
+        assertTrue(router.contains("return boundedLanes"))
+        assertFalse("1575 regression: style routing must not union every style lane onto every token", router.contains("return (base + d.lanes)"))
+    }
+
+    @Test
+    fun source_birth_affinity_is_seed_not_full_toolbox() {
+        val bot = java.io.File("src/main/kotlin/com/lifecyclebot/engine/BotService.kt").readText()
+        assertTrue(bot.contains("source-only birth affinity must be a seed"))
+        assertFalse("Pump source must not birth every meme lane before style classification", bot.contains("out += listOf("SHITCOIN", "MOONSHOT", "MANIPULATED", "PROJECT_SNIPER")"))
+        assertFalse("Raydium source must not birth every meme lane before style classification", bot.contains("out += listOf("MOONSHOT", "SHITCOIN", "MANIPULATED", "DIP_HUNTER")"))
+    }
+
+    @Test
+    fun express_board_ride_does_not_duplicate_buy_journal() {
+        val exp = java.io.File("src/main/kotlin/com/lifecyclebot/v3/scoring/ShitCoinExpress.kt").readText()
+        assertTrue(exp.contains("EXPRESS_BOARD_STATE_ONLY"))
+        val start = exp.indexOf("fun boardRide")
+        val end = exp.indexOf("fun checkExit", start)
+        assertTrue(start >= 0 && end > start)
+        val board = exp.substring(start, end)
+        assertFalse("boardRide must not write a duplicate BUY row after executor.shitCoinBuy", board.contains("V3JournalRecorder.recordOpen"))
+        assertFalse("boardRide must not write directly to TradeHistoryStore", board.contains("TradeHistoryStore.recordTrade"))
+    }
 }

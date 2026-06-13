@@ -674,18 +674,13 @@ object ShitCoinExpress {
         dailyRides.incrementAndGet()
         recentRides[mint] = System.currentTimeMillis()
 
-        // V5.9.447 — UNIVERSAL JOURNAL COVERAGE. Express was previously a
-        // silent execution lane that never wrote to TradeHistoryStore. Now
-        // every boardRide writes a BUY row so the user's Journal reflects
-        // every Express ride taken.
-        try {
-            com.lifecyclebot.engine.V3JournalRecorder.recordOpen(
-                symbol = symbol, mint = mint,
-                entryPrice = entryPrice, sizeSol = entrySol,
-                isPaper = isPaper, layer = "EXPRESS",
-                entryReason = "BOARDED",
-            )
-        } catch (_: Exception) {}
+        // V5.9.1576 — do NOT write a second BUY journal row here. Express
+        // now routes through executor.shitCoinBuy(), which already records the
+        // real BUY. The old boardRide recordOpen produced paired BUY rows
+        // (raw BUY + EXPRESS_BOARDED) for one execution, inflating EXEC_BUY,
+        // churn, and expectancy. boardRide owns ride state only; close/learning
+        // still flows through exitRide / executor sell paths.
+        try { com.lifecyclebot.engine.PipelineHealthCollector.labelInc("EXPRESS_BOARD_STATE_ONLY") } catch (_: Throwable) {}
 
         ErrorLogger.info(TAG, "💩🎫 BOARDED: $symbol | " +
             "entry=${entryPrice.fmtPrice()} | " +

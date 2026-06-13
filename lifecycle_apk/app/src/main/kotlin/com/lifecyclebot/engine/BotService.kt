@@ -8355,9 +8355,13 @@ class BotService : Service() {
     private fun inferIntakeLaneAffinity(source: String, allSources: Set<String>, marketCapUsd: Double, liquidityUsd: Double): Set<String> {
         val tags = (allSources + source).joinToString("|").uppercase()
         val out = linkedSetOf<String>()
-        if (tags.contains("PUMP") || tags.contains("PORTAL")) out += listOf("SHITCOIN", "MOONSHOT", "MANIPULATED", "PROJECT_SNIPER")
-        if (tags.contains("RAYDIUM") || tags.contains("NEW_POOL")) out += listOf("MOONSHOT", "SHITCOIN", "MANIPULATED", "DIP_HUNTER")
-        if (tags.contains("DEX_BOOSTED") || tags.contains("DEX_TRENDING") || tags.contains("COINGECKO")) out += listOf("QUALITY", "BLUECHIP", "TREASURY")
+        // V5.9.1576 — source-only birth affinity must be a seed, not a full
+        // strategy fanout. 1575's AgenticStyleRouter now expands/ranks lanes
+        // once character is known. If raw source already adds 3-4 lanes here,
+        // every token pays FDG for the whole toolbox before style selection.
+        if (tags.contains("PUMP") || tags.contains("PORTAL")) out += listOf("SHITCOIN", "PROJECT_SNIPER")
+        if (tags.contains("RAYDIUM") || tags.contains("NEW_POOL")) out += listOf("MOONSHOT", "DIP_HUNTER")
+        if (tags.contains("DEX_BOOSTED") || tags.contains("DEX_TRENDING") || tags.contains("COINGECKO")) out += listOf("QUALITY", "TREASURY")
         if (marketCapUsd in 75_000.0..1_000_000.0) out += "QUALITY"
         if (marketCapUsd >= 1_000_000.0 || liquidityUsd >= 75_000.0) out += "BLUECHIP"
         if (out.isEmpty()) out += listOf("SHITCOIN", "MOONSHOT")

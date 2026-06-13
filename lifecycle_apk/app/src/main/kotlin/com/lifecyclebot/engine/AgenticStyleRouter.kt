@@ -51,6 +51,31 @@ object AgenticStyleRouter {
         val tools: Set<String> get() = style.tools
     }
 
+    private fun stablePick(seed: String, count: Int): Int = if (count <= 0) 0 else ((seed.hashCode() and 0x7fffffff) % count)
+
+    private fun boundedLanes(mint: String, base: Set<String>, style: Style): Set<String> {
+        // V5.9.1576 — bounded style fanout. 1575 fixed strategy monoculture
+        // but unioned every style lane onto every candidate. Snapshot 5.0.3637
+        // showed FDG/intake >3.2 and projected execs/day >1000. Keep variety by
+        // rotating ONE alternate style lane deterministically per mint, instead
+        // of evaluating the whole toolbox on every tick.
+        val out = linkedSetOf<String>()
+        val primary = style.lanes.firstOrNull()
+        if (!primary.isNullOrBlank()) out += primary
+        val alternates = (style.lanes.drop(1) + base).filter { it.isNotBlank() && it !in out }.distinct()
+        if (alternates.isNotEmpty()) out += alternates[stablePick(mint, alternates.size)]
+        return out
+    }
+
+    private fun boundedTools(mint: String, base: Set<String>, style: Style): Set<String> {
+        val out = linkedSetOf<String>()
+        val primary = style.tools.firstOrNull()
+        if (!primary.isNullOrBlank()) out += primary
+        val alternates = (style.tools.drop(1) + base).filter { it.isNotBlank() && it !in out }.distinct()
+        if (alternates.isNotEmpty()) out += alternates[stablePick("tool:$mint", alternates.size)]
+        return out
+    }
+
     fun decide(ts: TokenState, classification: ModeRouter.Classification, laneHint: String = ""): Decision {
         val score = try { (ts.lastV3Score ?: ts.entryScore.toInt()).coerceIn(0, 150) } catch (_: Throwable) { 0 }
         val tactic = try { TacticSwitcher.currentTactic(if (laneHint.isBlank()) "SHITCOIN" else laneHint, score) } catch (_: Throwable) { TacticSwitcher.Tactic.MOMENTUM }
@@ -85,11 +110,11 @@ object AgenticStyleRouter {
 
     fun lanesFor(ts: TokenState, classification: ModeRouter.Classification, base: Set<String>): Set<String> {
         val d = decide(ts, classification)
-        return (base + d.lanes).filter { it.isNotBlank() }.toCollection(linkedSetOf())
+        return boundedLanes(ts.mint, base, d.style)
     }
 
     fun toolsFor(ts: TokenState, classification: ModeRouter.Classification, base: Set<String>): Set<String> {
         val d = decide(ts, classification)
-        return (base + d.tools).filter { it.isNotBlank() }.toCollection(linkedSetOf())
+        return boundedTools(ts.mint, base, d.style)
     }
 }
