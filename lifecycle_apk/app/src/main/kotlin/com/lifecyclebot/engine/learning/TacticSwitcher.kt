@@ -237,14 +237,28 @@ object TacticSwitcher {
         // MEMORY's own totalSamples below — that's what we're judging on.
         val st = try { LosingPatternMemory.stats(lane, scoreBandToMidScore(scoreBand)) } catch (_: Throwable) { return }
         val totalSamples = st.wins + st.losses
-        if (totalSamples < MIN_SAMPLES) return
+        if (totalSamples < BAYES_MIN_SAMPLES) return
         val lossRate = if (totalSamples > 0) st.losses.toDouble() / totalSamples else 0.0
-        // Same OR semantics as the inline path: hard bleed OR persistent bleed.
+        val memBayesProb = if (totalSamples >= BAYES_MIN_SAMPLES && st.meanPnl <= BAYES_MEAN_PNL) {
+            posteriorLossProbAbove(st.losses, st.wins)
+        } else 0.0
+        val memBayesBleed = memBayesProb >= BAYES_TRIGGER_PROB
+        // Same OR semantics as the inline path, plus V5.9.1564 memory-sweep
+        // Bayesian early-stop so existing bad buckets rotate without waiting
+        // for a fresh close after app update.
         val hardBleed = lossRate >= LOSS_RATE_TRIGGER && st.meanPnl <= MEAN_PNL_TRIGGER
         val persistBleed = totalSamples >= PERSIST_WINDOW &&
             lossRate >= PERSIST_LOSS_RATE && st.meanPnl <= PERSIST_MEAN_PNL
-        if (hardBleed || persistBleed) {
-            val tag = if (hardBleed) "mem-hard" else "mem-persist"
+        if (hardBleed || persistBleed || memBayesBleed) {
+            val tag = when {
+                hardBleed -> "mem-hard"
+                persistBleed -> "mem-persist"
+                else -> {
+                    val targetPct = "%.0f".format(BAYES_LOSS_RATE_TARGET * 100)
+                    val probPct = "%.0f".format(memBayesProb * 100)
+                    "mem-bayes P(loss>$targetPct%)=$probPct%"
+                }
+            }
             rotate(lane, scoreBand, cell, "$tag:lossRate=${"%.0f".format(lossRate * 100)}% μ=${"%+.1f".format(st.meanPnl)}% n=$totalSamples")
         }
     }

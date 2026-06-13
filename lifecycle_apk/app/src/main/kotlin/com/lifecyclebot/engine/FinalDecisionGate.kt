@@ -1586,7 +1586,21 @@ object FinalDecisionGate {
                     } catch (_: Throwable) {}
                 }
 
-                return FinalDecision(
+                // V5.9.1564 — PAPER bootstrap must not hard-veto ToxicMode local
+                // blocks (low-liq/phase/source/memory). The snapshot showed 6h
+                // runtime with FDG/CIRCUIT_BREAKER dominating while current=PAPER.
+                // In paper, local ToxicMode risk is labelled telemetry so the bot
+                // keeps producing samples; only true global emergency pause blocks.
+                if (circuitPaperMode && globalPause?.active != true && !circuitBlockReason.contains("EMERGENCY_STOP", ignoreCase = true)) {
+                    try {
+                        com.lifecyclebot.engine.ForensicLogger.lifecycle(
+                            "PAPER_CIRCUIT_SOFT_ALLOW",
+                            "mode=$tradingModeStr symbol=${ts.symbol} reason=$circuitBlockReason"
+                        )
+                        com.lifecyclebot.engine.PipelineHealthCollector.labelInc("PAPER_CIRCUIT_SOFT_ALLOW")
+                    } catch (_: Throwable) {}
+                } else {
+                    return FinalDecision(
                     shouldTrade = false,
                     mode = mode,
                     approvalClass = ApprovalClass.BLOCKED,
@@ -1601,7 +1615,8 @@ object FinalDecisionGate {
                     symbol = ts.symbol,
                     approvalReason = "ToxicModeCircuitBreaker: $circuitBlockReason",
                     gateChecks = listOf(GateCheck("circuit_breaker", false, circuitBlockReason))
-                )
+                    )
+                }
             }
         }
 

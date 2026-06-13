@@ -178,4 +178,12 @@ class GoldenTapeRegressionTest {
         assertTrue(source.contains("canonical LIVE truth is wallet-held balance"))
         assertTrue(source.contains("walletHeld"))
     }
+
+    @Test
+    fun paper_fdg_circuit_blocks_soft_allow_instead_of_hard_veto() {
+        val source = java.io.File("src/main/kotlin/com/lifecyclebot/engine/FinalDecisionGate.kt").readText()
+        assertTrue(source.contains("PAPER_CIRCUIT_SOFT_ALLOW"))
+        assertTrue(source.contains("circuitPaperMode && globalPause?.active != true"))
+    }
 }
+

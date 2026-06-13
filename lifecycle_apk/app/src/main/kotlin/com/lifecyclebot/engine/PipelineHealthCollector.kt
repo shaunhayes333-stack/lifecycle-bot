@@ -1001,7 +1001,7 @@ object PipelineHealthCollector {
                     } else ""
                     sb.append("  ${snap.key.padEnd(24)} ${snap.tactic.name.padEnd(15)} n=${snap.tradesSinceRotation} W/L=${snap.winsSinceRotation}/${snap.lossesSinceRotation} μ=${"%+.1f".format(snap.meanPnlPct)}% age=${ageMin}m$labTag\n")
                 }
-                sb.append("  (Rotates MOMENTUM → PULLBACK → REACCUMULATION → BREAKOUT → LAB_PROPOSED when bucket bleeds 75%+ loss for 25+ trades. NEVER disables.)\n\n")
+                sb.append("  (Rotates MOMENTUM → PULLBACK → REACCUMULATION → BREAKOUT → LAB_PROPOSED on Bayesian early-stop (8+ decisive closes), hard bleed, or persistent bleed. NEVER disables.)\n\n")
             }
             sb.append("  ${com.lifecyclebot.engine.PersonalityTraitMultipliers.summaryLine()}\n\n")
         } catch (_: Throwable) {}

@@ -39,4 +39,12 @@ class TacticSwitcherBayesTest {
         }
         assertEquals(TacticSwitcher.Tactic.MOMENTUM, TacticSwitcher.currentTactic(lane, band))
     }
+
+    @Test
+    fun memory_sweep_bayesian_path_is_present_for_existing_bad_buckets() {
+        val source = java.io.File("src/main/kotlin/com/lifecyclebot/engine/learning/TacticSwitcher.kt").readText()
+        assertTrue(source.contains("mem-bayes"))
+        assertTrue(source.contains("totalSamples < BAYES_MIN_SAMPLES"))
+    }
 }
+

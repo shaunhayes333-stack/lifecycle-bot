@@ -27,9 +27,12 @@ object InvariantGuardian {
             out += Fault(FaultCode.LEDGER_DRIFT, "CRITICAL",
                 "canonicalOpen=${s.canonicalOpenPositions} > walletHeld=${s.walletHeldMints} (drift=${s.canonicalOpenPositions - s.walletHeldMints})")
         }
-        // PATCH ITEM 1/7: reconciler stalled — running with open positions but the
-        // position-wallet reconciler has never checked anything.
-        if (s.botLoopActive && s.canonicalOpenPositions > 0 && s.reconcilerTotalChecked == 0) {
+        // PATCH ITEM 1/7: reconciler stalled — LIVE wallet reconciler only.
+        // V5.9.1564 — In PAPER mode canonicalOpen is the simulator book, so
+        // wallet reconciler.totalChecked=0 is expected and must not become a
+        // CRITICAL root cause / slot-poison signal. Paper ghosts are handled by
+        // SellReconciler.paperOrphanCount + forcedOpen reaper, not wallet truth.
+        if (s.mode == "LIVE" && s.botLoopActive && s.canonicalOpenPositions > 0 && s.reconcilerTotalChecked == 0) {
             out += Fault(FaultCode.RECONCILER_STALLED, "CRITICAL",
                 "reconciler.totalChecked=0 while canonicalOpen=${s.canonicalOpenPositions}")
         }
