@@ -362,8 +362,8 @@ class GoldenTapeRegressionTest {
     fun source_birth_affinity_is_seed_not_full_toolbox() {
         val bot = java.io.File("src/main/kotlin/com/lifecyclebot/engine/BotService.kt").readText()
         assertTrue(bot.contains("source-only birth affinity must be a seed"))
-        assertFalse("Pump source must not birth every meme lane before style classification", bot.contains("out += listOf("SHITCOIN", "MOONSHOT", "MANIPULATED", "PROJECT_SNIPER")"))
-        assertFalse("Raydium source must not birth every meme lane before style classification", bot.contains("out += listOf("MOONSHOT", "SHITCOIN", "MANIPULATED", "DIP_HUNTER")"))
+        assertFalse("Pump source must not birth every meme lane before style classification", bot.contains("SHITCOIN\", \"MOONSHOT\", \"MANIPULATED\", \"PROJECT_SNIPER"))
+        assertFalse("Raydium source must not birth every meme lane before style classification", bot.contains("MOONSHOT\", \"SHITCOIN\", \"MANIPULATED\", \"DIP_HUNTER"))
     }
 
     @Test
