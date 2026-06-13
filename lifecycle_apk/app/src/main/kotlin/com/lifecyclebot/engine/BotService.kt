@@ -9819,10 +9819,38 @@ class BotService : Service() {
                 .associateBy { it.mint }
         } catch (_: Throwable) { emptyMap() }
 
-        val mustInclude = forcedOpenMints.toMutableList()
+        // V5.9.1572 — SOURCE FIX: forced-open rows are mandatory EXIT surface,
+        // but they must not be an unbounded SUPERVISOR prefix. Snapshot 5.0.3627
+        // froze with forcedOpen=28, active=24/24, spawned=0 skipped=28; every loop
+        // reselected the same open mints first, so fresh candidates never reached
+        // workers. ExitCoordinator/open-position tick already protect hard floor and
+        // sells; supervisor is only expensive re-evaluation. Under timeout pressure,
+        // round-robin a bounded subset of forcedOpen through supervisor and leave the
+        // rest to exit-specific loops this cycle. Healthy runtime still includes all.
+        val forcedOpenForSupervisor: List<String> = try {
+            val pressure = admissionPlan.pressureBand
+            val forced = forcedOpenMints.distinct()
+            val forcedBudget = when (pressure) {
+                "healthy" -> forced.size
+                "live_cap_near_full" -> maxOf(6, effectiveSupervisorCap / 2)
+                "live_cap_saturated" -> maxOf(4, effectiveSupervisorCap / 3)
+                "moderate_timeout_pressure" -> maxOf(6, effectiveSupervisorCap / 2)
+                "heavy_timeout_pressure" -> maxOf(5, effectiveSupervisorCap / 3)
+                else -> maxOf(4, effectiveSupervisorCap / 4) // severe timeout pressure
+            }.coerceAtMost(forced.size)
+            if (forcedBudget >= forced.size) forced else {
+                val start = ((nowMs / 5_000L) % forced.size).toInt()
+                (0 until forcedBudget).map { forced[(start + it) % forced.size] }
+            }
+        } catch (_: Throwable) { forcedOpenMints.distinct() }
+
+        val mustInclude = forcedOpenForSupervisor.toMutableList()
         val budget = (PER_CYCLE_CAP - mustInclude.size).coerceAtLeast(0)
         if (budget == 0 || otherMints.isEmpty()) {
             try { emitWatchlistCapTrace(PER_CYCLE_CAP, orderedMintsRaw.size, forcedOpenMints.size) } catch (_: Throwable) {}
+            if (forcedOpenForSupervisor.size < forcedOpenMints.size) {
+                try { com.lifecyclebot.engine.ForensicLogger.lifecycle("FORCED_OPEN_SUPERVISOR_ROUND_ROBIN", "pressure=${admissionPlan.pressureBand} picked=${forcedOpenForSupervisor.size}/${forcedOpenMints.size} cap=$PER_CYCLE_CAP effectiveCap=$effectiveSupervisorCap budget=$budget") } catch (_: Throwable) {}
+            }
             return mustInclude.distinct()
         }
 
@@ -10022,7 +10050,7 @@ class BotService : Service() {
             emitWatchlistCapTrace(PER_CYCLE_CAP, orderedMintsRaw.size, forcedOpenMints.size)
             com.lifecyclebot.engine.ForensicLogger.lifecycle(
                 "WATCHLIST_RR",
-                "cap=$PER_CYCLE_CAP picked=${picked.size} fresh=${fresh.size} unseen=${unseen.size} cold=${cold.size} probationDemoted=${probationDemoted.size} forcedOpen=${forcedOpenMints.size} total=${orderedMintsRaw.size} sourceBalanced=true"
+                "cap=$PER_CYCLE_CAP picked=${picked.size} fresh=${fresh.size} unseen=${unseen.size} cold=${cold.size} probationDemoted=${probationDemoted.size} forcedOpen=${forcedOpenMints.size} forcedSupervisor=${forcedOpenForSupervisor.size} total=${orderedMintsRaw.size} sourceBalanced=true"
             )
         } catch (_: Throwable) {}
 
@@ -13381,7 +13409,10 @@ if (hotExitHandledSweep) {
     } catch (_: Throwable) { false }
 
     private fun supervisorTimeoutCooldownActive(mint: String, now: Long = System.currentTimeMillis()): Boolean {
-        if (supervisorMintIsOpen(mint)) return false
+        // V5.9.1572 — open mints no longer bypass supervisor timeout cooldown.
+        // Exits are handled by ExitCoordinator/open-position tick, so skipping full
+        // supervisor re-poll for a chronic open mint does NOT weaken hard-floor exits.
+        // It prevents the same open mints from monopolising every worker slot.
         val until = supervisorTimeoutCooldownUntil[mint] ?: return false
         if (until <= now) {
             supervisorTimeoutCooldownUntil.remove(mint, until)
@@ -13391,8 +13422,9 @@ if (hotExitHandledSweep) {
     }
 
     private fun supervisorArmTimeoutCooldown(mint: String) {
-        if (supervisorMintIsOpen(mint)) return
-        val until = System.currentTimeMillis() + SUPERVISOR_TIMEOUT_COOLDOWN_MS
+        val open = supervisorMintIsOpen(mint)
+        val cooldownMs = if (open) 20_000L else SUPERVISOR_TIMEOUT_COOLDOWN_MS
+        val until = System.currentTimeMillis() + cooldownMs
         supervisorTimeoutCooldownUntil[mint] = until
         if (supervisorTimeoutCooldownUntil.size > 2048) {
             val now = System.currentTimeMillis()

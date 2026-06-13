@@ -245,7 +245,25 @@ class GoldenTapeRegressionTest {
         assertTrue(exp.contains("EXPRESS_SCORE_BOOTSTRAP = 10"))
         assertTrue(exp.contains("coerceIn(0.01, MAX_POSITION_SOL)"))
     }
+
+    @Test
+    fun forced_open_supervisor_is_bounded_under_timeout_pressure() {
+        val bot = java.io.File("src/main/kotlin/com/lifecyclebot/engine/BotService.kt").readText()
+        assertTrue(bot.contains("forcedOpenForSupervisor"))
+        assertTrue(bot.contains("FORCED_OPEN_SUPERVISOR_ROUND_ROBIN"))
+        assertTrue(bot.contains("forcedSupervisor="))
+        assertFalse("forcedOpen must not remain an unbounded mandatory supervisor prefix", bot.contains("val mustInclude = forcedOpenMints.toMutableList()"))
+    }
+
+    @Test
+    fun open_mint_supervisor_timeouts_cooldown_without_touching_exits() {
+        val bot = java.io.File("src/main/kotlin/com/lifecyclebot/engine/BotService.kt").readText()
+        assertTrue(bot.contains("open mints no longer bypass supervisor timeout cooldown"))
+        assertTrue(bot.contains("val cooldownMs = if (open) 20_000L else SUPERVISOR_TIMEOUT_COOLDOWN_MS"))
+        assertFalse("open mints must not bypass timeout cooldown and monopolise supervisor", bot.contains("if (supervisorMintIsOpen(mint)) return false"))
+    }
 }
+
 
 
 
