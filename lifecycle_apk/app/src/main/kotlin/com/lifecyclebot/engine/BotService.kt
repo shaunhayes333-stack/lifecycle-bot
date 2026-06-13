@@ -8352,6 +8352,40 @@ class BotService : Service() {
         else                                     -> emptySet()
     }
 
+    private fun canonicalCycleLaneFor(ts: com.lifecyclebot.data.TokenState, classification: ModeRouter.Classification): String {
+        // V5.9.1578 — ONE CANONICAL BUY LANE PER MINT/VERSION/CYCLE.
+        // 5.0.3641 showed intake=252 but lane_eval=12271 and FDG/intake≈12x:
+        // every candidate was still walking all lane sections before finality.
+        // Pick the style/elected primary once, before lane FDG, and suppress all
+        // non-primary BUY lanes unless the operator explicitly forces a primary.
+        return try {
+            val forced = RuntimeConfigOverlay.forcedPrimaryLane()?.takeIf { it.isNotBlank() }
+            val styleLanes = AgenticStyleRouter.lanesFor(ts, classification, laneAffinityForTradeType(classification.tradeType)).toList()
+            RuntimeConfigOverlay.normalizeLane(forced ?: styleLanes.firstOrNull() ?: ts.laneAffinity.firstOrNull() ?: "SHITCOIN")
+        } catch (_: Throwable) { "SHITCOIN" }
+    }
+
+    private fun shouldRunBuyLaneForCycle(ts: com.lifecyclebot.data.TokenState, lane: String, primaryLane: String): Boolean {
+        if (ts.position.isOpen) return true
+        val l = RuntimeConfigOverlay.normalizeLane(lane)
+        val p = RuntimeConfigOverlay.normalizeLane(primaryLane)
+        // Operator invariant: fanout collapse must NEVER suppress Standard V3/Core.
+        // This guard is only for optional specialist sub-lanes before FDG.
+        if (l == "STANDARD" || l == "CORE" || l == "V3") return true
+        if (l == p) return true
+        // EXPRESS is SHITCOIN's micro-execution tool; let it run only when the
+        // chosen primary is SHITCOIN/EXPRESS, not for every fresh token.
+        if (l == "EXPRESS" && (p == "SHITCOIN" || p == "EXPRESS")) return true
+        try {
+            ForensicLogger.lifecycle(
+                "LANE_FANOUT_SUPPRESSED_PRE_FDG",
+                "mint=${ts.mint.take(10)} symbol=${ts.symbol} lane=$l primary=$p"
+            )
+            PipelineHealthCollector.labelInc("LANE_FANOUT_SUPPRESSED_PRE_FDG")
+        } catch (_: Throwable) {}
+        return false
+    }
+
     private fun inferIntakeLaneAffinity(source: String, allSources: Set<String>, marketCapUsd: Double, liquidityUsd: Double): Set<String> {
         val tags = (allSources + source).joinToString("|").uppercase()
         val out = linkedSetOf<String>()
@@ -15175,6 +15209,13 @@ if (hotExitHandledSweep) {
     // This ensures mint/symbol are always consistent across all systems
     // ═══════════════════════════════════════════════════════════════════
     val identity = TradeIdentityManager.getOrCreate(ts.mint, ts.symbol, ts.source)
+    val cyclePrimaryLane = canonicalCycleLaneFor(ts, modeClassification)
+    try {
+        ForensicLogger.lifecycle(
+            "CYCLE_PRIMARY_LANE",
+            "mint=${ts.mint.take(10)} symbol=${ts.symbol} primary=$cyclePrimaryLane type=${modeClassification.tradeType} conf=${modeClassification.confidence.toInt()}"
+        )
+    } catch (_: Throwable) {}
 
     // V5.9.1094 — CIRCUIT BREAKER EARLY BUY SHORT-CIRCUIT.
     // The breaker was previously discovered inside FDG, after all lane evals
@@ -15890,7 +15931,7 @@ if (hotExitHandledSweep) {
                 )
             }
 
-            if (!v3WillExecuteCore && !ts.position.isOpen && com.lifecyclebot.v3.scoring.CashGenerationAI.isEnabled()) {
+            if (!v3WillExecuteCore && !ts.position.isOpen && shouldRunBuyLaneForCycle(ts, "TREASURY", cyclePrimaryLane) && com.lifecyclebot.v3.scoring.CashGenerationAI.isEnabled()) {
                 // V5.9.920 — TREASURY LANE_EVAL emit.
                 try {
                     ForensicLogger.phase(
@@ -16380,7 +16421,7 @@ if (hotExitHandledSweep) {
                     )
                 } catch (_: Throwable) {}
             }
-            if (!ts.position.isOpen && ts.lastMcap >= 75_000) {  // V5.9.191: was 100K, align with QualityTraderAI $75K min1M layer)
+            if (!ts.position.isOpen && shouldRunBuyLaneForCycle(ts, "QUALITY", cyclePrimaryLane) && ts.lastMcap >= 75_000) {  // V5.9.191: was 100K, align with QualityTraderAI $75K min1M layer)
                 // V5.7.8: Modes run independently — Treasury positions don't block them
                 try {
                     // ═══════════════════════════════════════════════════════════════
@@ -16787,7 +16828,7 @@ if (hotExitHandledSweep) {
             // ramp, top-holder distribution gradient). Let it fire its own
             // evaluator independently. FinalExecutionPermit + the per-mint
             // GlobalTradeRegistry guard prevent V3+Moonshot double entries.
-            if (!ts.position.isOpen && com.lifecyclebot.v3.scoring.MoonshotTraderAI.isEnabled()) {
+            if (!ts.position.isOpen && shouldRunBuyLaneForCycle(ts, "MOONSHOT", cyclePrimaryLane) && com.lifecyclebot.v3.scoring.MoonshotTraderAI.isEnabled()) {
                 // V5.9.917 — unconditional LANE_EVAL emit (matches SHITCOIN pattern).
                 // Earlier this session the per-lane counter only saw SHITCOIN
                 // because every other lane emitted via gate() on permit-deny.
@@ -17149,7 +17190,7 @@ if (hotExitHandledSweep) {
             // V4.0 FIX: Must check FinalExecutionPermit before executing
             // V5.2 FIX: Must check if Treasury already has a position!
             // ═══════════════════════════════════════════════════════════════════
-            if (!ts.position.isOpen && com.lifecyclebot.v3.scoring.ShitCoinTraderAI.isEnabled()) {
+            if (!ts.position.isOpen && shouldRunBuyLaneForCycle(ts, "SHITCOIN", cyclePrimaryLane) && com.lifecyclebot.v3.scoring.ShitCoinTraderAI.isEnabled()) {
                 // V5.9.651 — forensic LANE_EVAL marker so operator can grep
                 // "🧬[LANE_EVAL]" and instantly see whether ShitCoin even
                 // entered evaluation for each watchlist token.
@@ -18217,7 +18258,7 @@ if (hotExitHandledSweep) {
             )
             // V5.9.920 — PROJECT_SNIPER LANE_EVAL emit (before sniperAllowed gate
             // so brain sees skips due to mode/permit too).
-            if (!ts.position.isOpen && !RuntimeConfigOverlay.isLaneDisabled("PROJECT_SNIPER")) {
+            if (!ts.position.isOpen && shouldRunBuyLaneForCycle(ts, "PROJECT_SNIPER", cyclePrimaryLane) && !RuntimeConfigOverlay.isLaneDisabled("PROJECT_SNIPER")) {
                 try {
                     ForensicLogger.phase(
                         ForensicLogger.PHASE.LANE_EVAL,
@@ -18226,7 +18267,7 @@ if (hotExitHandledSweep) {
                     )
                 } catch (_: Throwable) {}
             }
-            if (!ts.position.isOpen && sniperAllowed && !RuntimeConfigOverlay.isLaneDisabled("PROJECT_SNIPER")) {
+            if (!ts.position.isOpen && shouldRunBuyLaneForCycle(ts, "PROJECT_SNIPER", cyclePrimaryLane) && sniperAllowed && !RuntimeConfigOverlay.isLaneDisabled("PROJECT_SNIPER")) {
                 // Check if we already have a sniper mission on this token
                 if (com.lifecyclebot.v3.scoring.ProjectSniperAI.hasMission(ts.mint)) {
                     // Check exit conditions
@@ -18347,7 +18388,7 @@ if (hotExitHandledSweep) {
             // 📉🎯 DIP HUNTER - Buy quality dips on established tokens
             // V5.2 FIX: Must check if Treasury already has a position!
             // ═══════════════════════════════════════════════════════════════════
-            if (!ts.position.isOpen && com.lifecyclebot.v3.scoring.DipHunterAI.isEnabled()) {
+            if (!ts.position.isOpen && shouldRunBuyLaneForCycle(ts, "DIP_HUNTER", cyclePrimaryLane) && com.lifecyclebot.v3.scoring.DipHunterAI.isEnabled()) {
                 // V5.9.920 — DIP_HUNTER LANE_EVAL emit.
                 try {
                     ForensicLogger.phase(

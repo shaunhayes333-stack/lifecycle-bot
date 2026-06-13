@@ -831,7 +831,7 @@ class ExecutionAuthorityInvariantTest {
     }
 
     @Test
-    fun live_rc_score_one_remains_finality_blocked() {
+    fun live_rc_score_one_pending_is_not_finality_hard_blocked() {
         resetAuthorities(paper = false)
         val mint = "MintRcPendingLive1111111111111111111"
         ExecutableOpenGate.recordFdg(
@@ -852,10 +852,10 @@ class ExecutionAuthorityInvariantTest {
             mode = "LIVE",
             lane = "SHITCOIN",
             source = "test",
+            liveLiquidityUsd = 2500.0,
+            liveSafetyTier = "SAFE",
         )
-        assertFalse(v.allowed)
-        assertEquals("EXEC_OPEN_DROPPED_PRE_FDG_NOT_BUY", v.logName)
-        assertEquals("HARD_NO_BUY", v.reason)
+        assertTrue("RC=1 is pending/more-data, not confirmed rug; FDG-approved live candidates must reach executor", v.allowed)
     }
 
     @Test

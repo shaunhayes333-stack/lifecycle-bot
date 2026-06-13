@@ -410,4 +410,16 @@ class GoldenTapeRegressionTest {
         val blockIdx = fdg.indexOf("return FinalDecision", softIdx)
         assertTrue("live local mode freeze should be handled before the hard return path", softIdx >= 0 && blockIdx > softIdx)
     }
+
+
+    @Test
+    fun fanout_suppression_never_suppresses_standard_v3_or_core() {
+        val bot = java.io.File("src/main/kotlin/com/lifecyclebot/engine/BotService.kt").readText()
+        assertTrue(bot.contains("fanout collapse must NEVER suppress Standard V3/Core"))
+        assertTrue(bot.contains("l == \"STANDARD\" || l == \"CORE\" || l == \"V3\""))
+        val v3ExecuteIdx = bot.indexOf("V3 EXECUTE: Clean logging + trade execution")
+        assertTrue("Standard V3 execute path must remain present", v3ExecuteIdx > 0)
+        val v3Area = bot.substring(v3ExecuteIdx, kotlin.math.min(bot.length, v3ExecuteIdx + 2500))
+        assertFalse("Standard V3/Core path must not call specialist fanout suppression", v3Area.contains("shouldRunBuyLaneForCycle"))
+    }
 }
