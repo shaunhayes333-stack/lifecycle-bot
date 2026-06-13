@@ -14897,17 +14897,23 @@ if (hotExitHandledSweep) {
     try {
         if (modeClassification.tradeType != ModeRouter.TradeType.UNKNOWN &&
             modeClassification.confidence >= 50.0) {
-            val charLanes = laneAffinityForTradeType(modeClassification.tradeType)
-            if (charLanes.isNotEmpty()) {
+            val baseCharLanes = laneAffinityForTradeType(modeClassification.tradeType)
+            val styleDecision = AgenticStyleRouter.decide(ts, modeClassification)
+            val charLanes = AgenticStyleRouter.lanesFor(ts, modeClassification, baseCharLanes)
+            val charTools = AgenticStyleRouter.toolsFor(ts, modeClassification, emptySet())
+            if (charLanes.isNotEmpty() || charTools.isNotEmpty()) {
                 val newLanes = charLanes - (GlobalTradeRegistry.getLaneAffinity(ts.mint))
-                if (newLanes.isNotEmpty()) {
+                val newTools = charTools - (GlobalTradeRegistry.getToolAffinity(ts.mint))
+                if (newLanes.isNotEmpty() || newTools.isNotEmpty()) {
                     ts.laneAffinity.addAll(charLanes)
-                    GlobalTradeRegistry.mergeAffinity(ts.mint, charLanes, emptySet())
+                    ts.toolAffinity.addAll(charTools)
+                    GlobalTradeRegistry.mergeAffinity(ts.mint, charLanes, charTools)
                     try {
                         ForensicLogger.lifecycle(
-                            "CHARACTER_ROUTE",
-                            "symbol=${ts.symbol} mint=${ts.mint.take(10)} type=${modeClassification.tradeType} " +
-                            "conf=${modeClassification.confidence.toInt()} +lanes=${newLanes.joinToString("+")}"
+                            "AGENTIC_STYLE_ROUTE",
+                            "symbol=${ts.symbol} mint=${ts.mint.take(10)} style=${styleDecision.style.label} " +
+                            "type=${modeClassification.tradeType} tactic=${styleDecision.tactic} conf=${modeClassification.confidence.toInt()} " +
+                            "+lanes=${newLanes.joinToString("+")} +tools=${newTools.joinToString("+")} reason=${styleDecision.reason.take(140)}"
                         )
                     } catch (_: Throwable) {}
                 }
@@ -16897,6 +16903,26 @@ if (hotExitHandledSweep) {
                                 )
                             }
 
+                            // V5.9.1575 — Agentic style shaping for Moonshot. Same lane,
+                            // different trade style per candidate: micro-snipe / breakout
+                            // runner / swing hold / pullback reclaim / whale follow. This
+                            // does not move gates; it changes the strategy parameters the
+                            // lane expresses for this trade, expanding the sample surface.
+                            try {
+                                val style = AgenticStyleRouter.decide(ts, modeClassification, "MOONSHOT")
+                                if (moonshotScore.eligible) {
+                                    moonshotScore = moonshotScore.copy(
+                                        suggestedSizeSol = (moonshotScore.suggestedSizeSol * style.style.sizeMult).coerceIn(0.01, 0.60),
+                                        takeProfitPct = (moonshotScore.takeProfitPct * style.style.tpMult).coerceAtLeast(20.0),
+                                    )
+                                    ForensicLogger.lifecycle(
+                                        "AGENTIC_STYLE_APPLIED",
+                                        "lane=MOONSHOT symbol=${ts.symbol} style=${style.style.label} size×=${"%.2f".format(style.style.sizeMult)} tp×=${"%.2f".format(style.style.tpMult)} hold×=${"%.2f".format(style.style.holdMult)} reason=${style.reason.take(120)}"
+                                    )
+                                }
+                            } catch (_: Throwable) {}
+
+
                             // V5.9.449 — REMOVED V5.9.443 CHOP_REJECT for Moonshot.
                             // The filter blocked exactly the fresh-launch DEX_BOOSTED/
                             // DEX_TRENDING entries in early_unknown/pre_pump phases that
@@ -16985,9 +17011,17 @@ if (hotExitHandledSweep) {
                                     val _msCalMult = try {
                                         com.lifecyclebot.engine.ScoreExpectancyTracker.calibrationSizeMult("MOONSHOT", moonshotScore.score)
                                     } catch (_: Throwable) { 1.0 }
-                                    val msEffectiveSize = (if (fdgReducedSize)
+                                    // V5.9.1575 — obey FDG final size exactly when present.
+                                    // Moonshot previously proposed a calibrated size to FDG,
+                                    // then recomputed its own size downstream and registered
+                                    // positions using the raw suggestedSizeSol. That prevented
+                                    // the lane-policy/style surface from being reflected in
+                                    // actual exposure. Fallback preserves legacy behaviour if
+                                    // FDG errors.
+                                    val legacyMoonshotSize = ((if (fdgReducedSize)
                                         (moonshotScore.suggestedSizeSol * 0.5).coerceAtLeast(cfg.smallBuySol)
-                                    else moonshotScore.suggestedSizeSol) * _msCalMult
+                                    else moonshotScore.suggestedSizeSol) * _msCalMult).coerceAtLeast(0.01)
+                                    val msEffectiveSize = (moonshotFdgDecision?.sizeSol ?: legacyMoonshotSize).coerceIn(0.01, moonshotScore.suggestedSizeSol.coerceAtLeast(0.01))
                                     if (FinalExecutionPermit.tryAcquireExecution(
                                         mint = ts.mint,
                                         symbol = ts.symbol,
@@ -17040,7 +17074,7 @@ if (hotExitHandledSweep) {
                                                     mint = ts.mint,
                                                     symbol = ts.symbol,
                                                     entryPrice = ts.ref,
-                                                    entrySol = moonshotScore.suggestedSizeSol,
+                                                    entrySol = msEffectiveSize,
                                                     entryTime = System.currentTimeMillis(),
                                                     takeProfitPct = moonshotEffectiveTpPct,  // V5.2.8: Use effective TP
                                                     stopLossPct = moonshotEffectiveSlPct,    // V5.2.8: Use effective SL
@@ -17080,7 +17114,7 @@ if (hotExitHandledSweep) {
                                                 "${moonshotScore.spaceMode.displayName} | " +
                                                 "\$${(ts.lastMcap/1_000).toInt()}K mcap | " +
                                                 "score=${moonshotScore.score} | " +
-                                                "${moonshotScore.suggestedSizeSol.fmt(3)} SOL | " +
+                                                "${msEffectiveSize.fmt(3)} SOL (raw=${moonshotScore.suggestedSizeSol.fmt(3)}) | " +
                                                 "${if (cfg.paperMode) "PAPER" else "LIVE"}", ts.mint)
                                                 
                                         } finally {

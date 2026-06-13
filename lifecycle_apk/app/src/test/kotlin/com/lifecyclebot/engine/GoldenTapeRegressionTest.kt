@@ -297,7 +297,7 @@ class GoldenTapeRegressionTest {
         assertTrue(bot.contains("sizeSol = expressFinalSize"))
         assertTrue(bot.contains("entrySol = expressFinalSize"))
         val start = bot.indexOf("val expressFinalSize")
-        val end = bot.indexOf("addLog("💩🚂 EXPRESS:", start)
+        val end = bot.indexOf("addLog(\"💩🚂 EXPRESS:", start)
         assertTrue(start >= 0 && end > start)
         val executionBlock = bot.substring(start, end)
         assertFalse("Express must not execute/board using raw signal size after FDG", executionBlock.contains("sizeSol = expressSignal.positionSizeSol"))
@@ -311,5 +311,40 @@ class GoldenTapeRegressionTest {
         assertTrue(exp.contains("DrawdownCircuitAI.getAggression"))
         assertTrue(exp.contains("EXPRESS_DRAWDOWN_SIZE"))
         assertTrue(exp.contains("positionSol = positionSol.coerceIn(0.01, MAX_POSITION_SOL)"))
+    }
+
+
+    @Test
+    fun agentic_style_router_expands_trade_styles() {
+        val router = java.io.File("src/main/kotlin/com/lifecyclebot/engine/AgenticStyleRouter.kt").readText()
+        assertTrue(router.contains("MICRO_SNIPE"))
+        assertTrue(router.contains("BREAKOUT_RUNNER"))
+        assertTrue(router.contains("SWING_HOLD"))
+        assertTrue(router.contains("PULLBACK_RECLAIM"))
+        assertTrue(router.contains("WHALE_FOLLOW"))
+        assertTrue(router.contains("TacticSwitcher.currentTactic"))
+    }
+
+    @Test
+    fun character_route_uses_agentic_style_fanout() {
+        val bot = java.io.File("src/main/kotlin/com/lifecyclebot/engine/BotService.kt").readText()
+        assertTrue(bot.contains("AgenticStyleRouter.decide"))
+        assertTrue(bot.contains("AGENTIC_STYLE_ROUTE"))
+        assertTrue(bot.contains("AgenticStyleRouter.lanesFor"))
+        assertTrue(bot.contains("AgenticStyleRouter.toolsFor"))
+    }
+
+    @Test
+    fun moonshot_uses_agentic_style_and_final_effective_size() {
+        val bot = java.io.File("src/main/kotlin/com/lifecyclebot/engine/BotService.kt").readText()
+        assertTrue(bot.contains("AGENTIC_STYLE_APPLIED"))
+        assertTrue(bot.contains("val msEffectiveSize = (moonshotFdgDecision?.sizeSol ?: legacyMoonshotSize)"))
+        assertTrue(bot.contains("entrySol = msEffectiveSize"))
+        assertTrue(bot.contains("raw="))
+        val start = bot.indexOf("val msEffectiveSize")
+        val end = bot.indexOf("MOONSHOT BUY", start)
+        assertTrue(start >= 0 && end > start)
+        val executionBlock = bot.substring(start, end)
+        assertFalse("Moonshot must not register raw size after final effective size", executionBlock.contains("entrySol = moonshotScore.suggestedSizeSol"))
     }
 }
