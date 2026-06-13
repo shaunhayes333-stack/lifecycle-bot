@@ -12057,22 +12057,7 @@ val openPositionMints = prioritizedWatchlist.filter { mint ->
 // Force-include every open position from sub-trader stores PLUS the
 // V3 lane (status.tokens). Any mint with a live position somewhere
 // is processed every tick, irrespective of scanner visibility.
-val subTraderOpenMints: List<String> = try {
-    val out = mutableSetOf<String>()
-    // V5.9.610 — the old implementation only force-included Treasury even
-    // though the comment promised all sub-trader stores. That let Moonshot /
-    // ShitCoin / Quality / BlueChip / Dip / Express mints fall out of the hot
-    // loop when scanner priority shifted, delaying exits and choking turnover.
-    try { out.addAll(com.lifecyclebot.v3.scoring.CashGenerationAI.getActivePositionsSnapshot().map { it.mint }) } catch (_: Throwable) {}
-    try { out.addAll(com.lifecyclebot.v3.scoring.MoonshotTraderAI.getActivePositions().map { it.mint }) } catch (_: Throwable) {}
-    try { out.addAll(com.lifecyclebot.v3.scoring.ShitCoinTraderAI.getActivePositions().map { it.mint }) } catch (_: Throwable) {}
-    try { out.addAll(com.lifecyclebot.v3.scoring.QualityTraderAI.getActivePositions().map { it.mint }) } catch (_: Throwable) {}
-    try { out.addAll(com.lifecyclebot.v3.scoring.BlueChipTraderAI.getActivePositions().map { it.mint }) } catch (_: Throwable) {}
-    try { out.addAll(com.lifecyclebot.v3.scoring.ManipulatedTraderAI.getActivePositions().map { it.mint }) } catch (_: Throwable) {}
-    try { out.addAll(com.lifecyclebot.v3.scoring.DipHunterAI.getActiveDips().map { it.mint }) } catch (_: Throwable) {}
-    try { out.addAll(com.lifecyclebot.v3.scoring.ShitCoinExpress.getActiveRides().map { it.mint }) } catch (_: Throwable) {}
-    out.toList()
-} catch (_: Exception) { emptyList() }
+val subTraderOpenMints: List<String> = collectSubTraderOpenMints()
 
 val v3OpenMints: List<String> = synchronized(status.tokens) {
     status.tokens.values.filter { it.position.isOpen }.map { it.mint }
@@ -13190,6 +13175,35 @@ if (hotExitHandledSweep) {
         return false
     }
 
+    /** V5.9.1567 — keep sub-trader forced-open collection out of botLoop bytecode. */
+    private fun collectSubTraderOpenMints(): List<String> {
+        return try {
+            val out = mutableSetOf<String>()
+            // V5.9.610/1565 — universal open-position coverage across all sub-trader stores.
+            try { out.addAll(com.lifecyclebot.v3.scoring.CashGenerationAI.getActivePositionsSnapshot().map { it.mint }) } catch (_: Throwable) {}
+            try { out.addAll(com.lifecyclebot.v3.scoring.MoonshotTraderAI.getActivePositions().map { it.mint }) } catch (_: Throwable) {}
+            try { out.addAll(com.lifecyclebot.v3.scoring.ShitCoinTraderAI.getActivePositions().map { it.mint }) } catch (_: Throwable) {}
+            try { out.addAll(com.lifecyclebot.v3.scoring.QualityTraderAI.getActivePositions().map { it.mint }) } catch (_: Throwable) {}
+            try { out.addAll(com.lifecyclebot.v3.scoring.BlueChipTraderAI.getActivePositions().map { it.mint }) } catch (_: Throwable) {}
+            try { out.addAll(com.lifecyclebot.v3.scoring.ManipulatedTraderAI.getActivePositions().map { it.mint }) } catch (_: Throwable) {}
+            try { out.addAll(com.lifecyclebot.v3.scoring.DipHunterAI.getActiveDips().map { it.mint }) } catch (_: Throwable) {}
+            try { out.addAll(com.lifecyclebot.v3.scoring.ShitCoinExpress.getActiveRides().map { it.mint }) } catch (_: Throwable) {}
+            out.toList()
+        } catch (_: Throwable) { emptyList() }
+    }
+
+    /** V5.9.1567 — keep forced-open ghost eviction out of botLoop/reaper transform bulk. */
+    private fun evictSubTraderGhost(mint: String) {
+        try { com.lifecyclebot.v3.scoring.CashGenerationAI.evictGhost(mint) } catch (_: Throwable) {}
+        try { com.lifecyclebot.v3.scoring.MoonshotTraderAI.evictGhost(mint) } catch (_: Throwable) {}
+        try { com.lifecyclebot.v3.scoring.ShitCoinTraderAI.evictGhost(mint) } catch (_: Throwable) {}
+        try { com.lifecyclebot.v3.scoring.QualityTraderAI.evictGhost(mint) } catch (_: Throwable) {}
+        try { com.lifecyclebot.v3.scoring.BlueChipTraderAI.evictGhost(mint) } catch (_: Throwable) {}
+        try { com.lifecyclebot.v3.scoring.ManipulatedTraderAI.evictGhost(mint) } catch (_: Throwable) {}
+        try { com.lifecyclebot.v3.scoring.DipHunterAI.evictGhost(mint) } catch (_: Throwable) {}
+        try { com.lifecyclebot.v3.scoring.ShitCoinExpress.evictGhost(mint) } catch (_: Throwable) {}
+    }
+
     private fun reapGhostForcedOpen(forcedOpenRaw: List<String>): List<String> {
         try { com.lifecyclebot.engine.PositionCloseLedger.prune() } catch (_: Throwable) {}
         // Build the authoritative live-open set ONCE (close ledger + live TokenState
@@ -13219,14 +13233,7 @@ if (hotExitHandledSweep) {
                 // a closed mint is reaped (lease released) but immediately re-added
                 // from the store on the very next cycle → ghost>0 forever → every
                 // buy defers (the 6h-dead park). Pure map removal, no PnL/learning.
-                try { com.lifecyclebot.v3.scoring.CashGenerationAI.evictGhost(m) } catch (_: Throwable) {}
-                try { com.lifecyclebot.v3.scoring.MoonshotTraderAI.evictGhost(m) } catch (_: Throwable) {}
-                try { com.lifecyclebot.v3.scoring.ShitCoinTraderAI.evictGhost(m) } catch (_: Throwable) {}
-                try { com.lifecyclebot.v3.scoring.QualityTraderAI.evictGhost(m) } catch (_: Throwable) {}
-                try { com.lifecyclebot.v3.scoring.BlueChipTraderAI.evictGhost(m) } catch (_: Throwable) {}
-                try { com.lifecyclebot.v3.scoring.ManipulatedTraderAI.evictGhost(m) } catch (_: Throwable) {}
-                try { com.lifecyclebot.v3.scoring.DipHunterAI.evictGhost(m) } catch (_: Throwable) {}
-                try { com.lifecyclebot.v3.scoring.ShitCoinExpress.evictGhost(m) } catch (_: Throwable) {}
+                evictSubTraderGhost(m)
             }
         }
         // Stash the clean list + live set so publishSlotHealth counts the SAME truth.
