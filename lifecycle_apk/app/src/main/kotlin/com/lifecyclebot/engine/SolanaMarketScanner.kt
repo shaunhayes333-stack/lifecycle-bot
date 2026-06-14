@@ -1072,17 +1072,22 @@ class SolanaMarketScanner(
         // basis (run 1 in SOURCE_SKIP_EVERY cycles) so it stops burning the batch
         // budget. Never permanently banned — it re-enters on its cadence so the
         // intake pool keeps refilling. Healthy sources (streak<threshold) always run.
-        val active = scans.toList().filter { (name, _) ->
-            val streak = sourceTimeoutStreak[name] ?: 0
-            if (streak < SOURCE_DEPRIORITIZE_AFTER) true
-            else (scanRotation % SOURCE_SKIP_EVERY == 0).also { run ->
-                if (!run) try {
-                    ForensicLogger.lifecycle(
-                        "SCANNER_SOURCE_DEPRIORITIZED",
-                        "name=$name streak=$streak skippedThisCycle=true cadence=1/$SOURCE_SKIP_EVERY",
-                    )
-                } catch (_: Throwable) {}
-            }
+        // V5.0.3686 — SOURCE API RESTORE.
+        // The adaptive deprioritizer was the wrong failure mode for token-source APIs:
+        // after 3 timeouts it skipped 2 of every 3 cycles. In field logs this looked
+        // exactly like "Pump=0 / Dex=0" and let PumpPortal WS dominate by default.
+        // Per source-balanced doctrine, timeout history may be telemetry, not an intake
+        // veto. Run every source every cycle; per-source withTimeout still caps damage.
+        val active = scans.toList().also { all ->
+            try {
+                val bad = sourceTimeoutStreak.entries
+                    .filter { it.value >= SOURCE_DEPRIORITIZE_AFTER }
+                    .joinToString(",") { "${it.key}:${it.value}" }
+                if (bad.isNotBlank()) ForensicLogger.lifecycle(
+                    "SCANNER_SOURCE_TIMEOUT_HISTORY",
+                    "attemptingAllSources=true timedOut=$bad total=${all.size}"
+                )
+            } catch (_: Throwable) {}
         }
         // V5.9.1497 — HARD BATCH BUDGET (spec §2): the whole batch can never exceed
         // SCAN_BATCH_BUDGET_MS. withTimeoutOrNull cancels any still-in-flight source

@@ -3467,9 +3467,9 @@ class Executor(
                 try { com.lifecyclebot.engine.ErrorLogger.warn("Executor",
                     "🚫 PHANTOM_MULTIPLE_GUARD ${ts.symbol}: raw=${rawGainMultiple} >> priceMove=${priceMoveMultiple} " +
                     "(entry=${pos.entryPrice} live=${actualPrice}) — using price-move, basis likely corrupt") } catch (_: Throwable) {}
-                priceMoveMultiple.coerceAtMost(1000.0)
+                priceMoveMultiple.coerceAtMost(100.0)
             }
-            else -> rawGainMultiple.coerceAtMost(1000.0)
+            else -> rawGainMultiple.coerceAtMost(100.0)
         }
         val currentValue = pos.costSol * gainMultiple
         val gainPct = (gainMultiple - 1.0) * 100.0
@@ -3477,9 +3477,18 @@ class Executor(
         val (capitalRecoveryThreshold, profitLockThreshold) = calculateProfitLockThresholds(ts)
         
         if (!pos.capitalRecovered && gainMultiple >= capitalRecoveryThreshold) {
-            val sellFraction = (1.0 / gainMultiple).coerceIn(0.25, 0.70)
+            // V5.0.3686 — accounting/source fix: capital recovery sizing is
+            // target-recovery / expected net value, clamped to remaining position.
+            // Never force a 25% minimum and never let a phantom multiple inflate
+            // sell quantity/notional. Quantity is fraction of remaining tokens only.
+            val expectedNetPositionValueSol = (pos.qtyToken * actualPrice).takeIf { it.isFinite() && it > 0.0 } ?: currentValue
+            val targetRecoverySol = pos.costSol.coerceAtLeast(0.0)
+            val sellFraction = (targetRecoverySol / expectedNetPositionValueSol)
+                .coerceIn(0.0, 1.0)
+                .coerceAtMost((100.0 - pos.partialSoldPct).coerceAtLeast(0.0) / 100.0)
+            if (sellFraction <= 0.0) return false
             val sellQty = pos.qtyToken * sellFraction
-            val sellSol = if (pos.isPaperPosition) currentValue * sellFraction else sellQty * actualPrice
+            val sellSol = sellQty * actualPrice
             
             onLog("🔒 CAPITAL RECOVERY: ${ts.symbol} @ ${gainMultiple.fmt(2)}x (threshold: ${capitalRecoveryThreshold.fmt(2)}x) — selling ${(sellFraction*100).toInt()}% to recover initial", ts.mint)
             onNotify("🔒 Capital Recovered!",
@@ -3510,6 +3519,7 @@ class Executor(
                     capitalRecoveredSol = sellSol,
                     isHouseMoney = true,
                     lockedProfitFloor = sellSol,
+                    partialSoldPct = (pos.partialSoldPct + sellFraction * 100.0).coerceAtMost(100.0),
                 )
                 
                 val trade = Trade("PARTIAL_SELL", "paper", sellSol, actualPrice,
@@ -3555,9 +3565,11 @@ class Executor(
         }
         
         if (pos.capitalRecovered && !pos.profitLocked && gainMultiple >= profitLockThreshold) {
-            val sellFraction = 0.50
+            val remainingFraction = (100.0 - pos.partialSoldPct).coerceAtLeast(0.0) / 100.0
+            val sellFraction = 0.50.coerceAtMost(remainingFraction)
+            if (sellFraction <= 0.0) return false
             val sellQty = pos.qtyToken * sellFraction
-            val sellSol = if (pos.isPaperPosition) currentValue * sellFraction else sellQty * actualPrice
+            val sellSol = sellQty * actualPrice
             
             onLog("🔐 PROFIT LOCK: ${ts.symbol} @ ${gainMultiple.fmt(2)}x (threshold: ${profitLockThreshold.fmt(2)}x) — locking 50% of remaining profits", ts.mint)
             onNotify("🔐 Profits Locked!",
@@ -3583,6 +3595,7 @@ class Executor(
                     profitLocked = true,
                     profitLockedSol = sellSol,
                     lockedProfitFloor = pos.lockedProfitFloor + sellSol,
+                    partialSoldPct = (pos.partialSoldPct + sellFraction * 100.0).coerceAtMost(100.0),
                 )
                 
                 val trade = Trade("PARTIAL_SELL", "paper", sellSol, actualPrice,
@@ -9023,25 +9036,40 @@ class Executor(
                         )
                     }
                 }
+                fun promoteVerifiedLiveBuy(qtyUi: Double, stage: String) {
+                    val promoted = ts.position.copy(
+                        qtyToken = qtyUi,
+                        pendingVerify = false,
+                    )
+                    ts.position = promoted
+                    // V5.0.3686 — SOURCE FIX: every verified live-buy promotion must
+                    // atomically restore the TokenState into BotService.status.tokens.
+                    // 3501 worked because the TokenState generally survived the verify
+                    // window. Later watchlist/source reapers can evict it while the
+                    // side-effect verifier is sleeping. If promotion happens after that,
+                    // the wallet holds the token but UI/exits iterate status.tokens and
+                    // never see it. This helper is used by ALL promotion branches:
+                    // direct tx-parse, last-chance ATA rescue, and TradeVerifier rescue.
+                    try {
+                        synchronized(com.lifecyclebot.engine.BotService.status.tokens) {
+                            com.lifecyclebot.engine.BotService.status.tokens[verifyMint] = ts
+                        }
+                    } catch (_: Throwable) {}
+                    try { PositionPersistence.savePosition(ts) } catch (e: Exception) {
+                        ErrorLogger.error("Executor", "💾 persist after $stage failed: ${e.message}", e)
+                    }
+                    try { WalletTokenMemory.recordBuy(ts) } catch (_: Exception) {}
+                    try {
+                        ForensicLogger.lifecycle(
+                            "LIVE_POSITION_PROMOTED_VISIBLE",
+                            "stage=$stage symbol=${verifySymbol} mint=${verifyMint.take(10)} qty=${qtyUi.fmt(4)} inStatusTokens=${try { com.lifecyclebot.engine.BotService.status.tokens.containsKey(verifyMint) } catch (_: Throwable) { false }}"
+                        )
+                    } catch (_: Throwable) {}
+                }
+
                 if (verifiedQty > 0.0) {
                     if (ts.position.pendingVerify) {
-                        val promoted = ts.position.copy(
-                            qtyToken = verifiedQty,
-                            pendingVerify = false,
-                        )
-                        ts.position = promoted
-                        // V5.0.3685 — re-insert ts into status.tokens if it was evicted
-                        // during the verify window (e.g. by HOT_WATCHLIST_SOURCE_REBALANCED
-                        // or a Stop/Start cycle). Without this, the position is open in
-                        // memory but invisible to every UI and exit path that iterates
-                        // status.tokens → position appears bought but never shows in UI,
-                        // never gets an exit monitor, and the tokens are lost.
-                        try {
-                            // BotService.status.tokens is the live map
-                            synchronized(com.lifecyclebot.engine.BotService.status.tokens) {
-                                com.lifecyclebot.engine.BotService.status.tokens.putIfAbsent(verifyMint, ts)
-                            }
-                        } catch (_: Throwable) {}
+                        promoteVerifiedLiveBuy(verifiedQty, "DIRECT_VERIFY")
                         ErrorLogger.info(
                             "Executor",
                             "✅ POST-BUY OK: $verifySymbol | ${"%.4f".format(verifiedQty)} tokens confirmed — position now live"
@@ -9083,13 +9111,7 @@ class Executor(
                                 mint = verifyTradeMint, entryPrice = price, sizeSol = sol
                             )
                         } catch (_: Exception) {}
-                        try { PositionPersistence.savePosition(ts) } catch (e: Exception) {
-                            ErrorLogger.error("Executor", "💾 persist after verify failed: ${e.message}", e)
-                        }
-                        // V5.9.256: Record confirmed buy in persistent wallet memory.
-                        // Survives restarts/updates so bot can resume managing position
-                        // even if the scanner hasn't re-discovered the token yet.
-                        try { WalletTokenMemory.recordBuy(ts) } catch (_: Exception) {}
+                        // Persistence + wallet memory handled by promoteVerifiedLiveBuy().
                         // V5.9.751 — Base44 ticket item #4: assert host_tracker
                         // actually opens a position. Previously this was a
                         // silent try/catch; operator saw BUY_VERIFIED_LANDED
@@ -9214,8 +9236,7 @@ class Executor(
                     val lastChanceQty: Double = lastChanceBalances?.get(verifyMint)?.first ?: 0.0
                     val lastChanceMapEmpty = lastChanceBalances?.isEmpty() == true
                     if (lastChanceQty > 0.0) {
-                        val rescued = ts.position.copy(qtyToken = lastChanceQty, pendingVerify = false)
-                        ts.position = rescued
+                        promoteVerifiedLiveBuy(lastChanceQty, "LAST_CHANCE_ATA_RESCUE")
                         ErrorLogger.warn(
                             "Executor",
                             "🛟 PHANTOM RESCUE: $verifySymbol — last-chance ATA found ${lastChanceQty.fmt(4)} tokens after polls returned 0. Promoting position instead of wiping."
@@ -9226,8 +9247,7 @@ class Executor(
                             "🛟 PHANTOM RESCUE: late-indexed buy salvaged | qty=${lastChanceQty.fmt(4)}",
                             tokenAmount = lastChanceQty, sig = verifySig, traderTag = "MEME",
                         )
-                        try { PositionPersistence.savePosition(ts) } catch (_: Exception) {}
-                        try { WalletTokenMemory.recordBuy(ts) } catch (_: Exception) {}
+                        // Persistence + wallet memory handled by promoteVerifiedLiveBuy().
                         // V5.9.751 — Base44 ticket item #4: assert host_tracker
                         // actually opens a position. Previously this was a
                         // silent try/catch; operator saw BUY_VERIFIED_LANDED
@@ -9286,16 +9306,14 @@ class Executor(
                         val vr = TradeVerifier.verifyBuy(verifyWallet, verifySig, verifyMint, timeoutMs = 30_000L)
                         when (vr.outcome) {
                             TradeVerifier.Outcome.LANDED -> {
-                                val rescued = ts.position.copy(qtyToken = vr.uiTokenDelta, pendingVerify = false)
-                                ts.position = rescued
+                                promoteVerifiedLiveBuy(vr.uiTokenDelta, "TX_PARSE_RESCUE")
                                 LiveTradeLogStore.log(
                                     verifyTradeKey, verifyMint, verifySymbol, "BUY",
                                     LiveTradeLogStore.Phase.BUY_TX_PARSE_OK,
                                     "🛟 TX-PARSE RESCUE: tokens proven on-chain | rawDelta=${vr.rawTokenDelta} ui=${vr.uiTokenDelta.fmt(4)} dec=${vr.decimals}",
                                     tokenAmount = vr.uiTokenDelta, sig = verifySig, traderTag = "MEME",
                                 )
-                                try { PositionPersistence.savePosition(ts) } catch (_: Exception) {}
-                                try { WalletTokenMemory.recordBuy(ts) } catch (_: Exception) {}
+                                // Persistence + wallet memory handled by promoteVerifiedLiveBuy().
                                 // V5.9.751 — Base44 ticket item #4: assert host_tracker
                         // actually opens a position. Previously this was a
                         // silent try/catch; operator saw BUY_VERIFIED_LANDED
