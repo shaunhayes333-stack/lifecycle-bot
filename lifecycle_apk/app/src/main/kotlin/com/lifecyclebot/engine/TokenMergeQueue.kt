@@ -32,20 +32,27 @@ object TokenMergeQueue {
 
     // Scanner confidence rankings
     private val scannerConfidence = mapOf(
-        "DEX_BOOSTED" to 60,
-        "V3_PREMIUM" to 55,
-        "WHALE_COPY" to 50,
-        "DEX_TRENDING" to 45,
-        "MOONSHOT" to 45,
-        "RAYDIUM_NEW_POOL" to 40,
-        "RAYDIUM_NEW" to 40,
-        "V3_SCANNER" to 40,
-        "PUMP_PORTAL_WS" to 70,
-        "PUMP_PORTAL" to 65,
-        "DATA_ORCHESTRATOR" to 55,
-        "PUMP_FUN_GRADUATE" to 35,
-        "SOCIAL_TRENDING" to 35,
-        "USER_ADDED" to 30,
+        // V5.0.3708 — strict not-just-PumpFun source hierarchy. PumpPortal is
+        // high-throughput discovery, not the highest-confidence market proof.
+        // Real DEX / Raydium / cross-app Solana sources outrank Pump-only feeds.
+        "DEX_BOOSTED" to 72,
+        "DEX_TRENDING" to 64,
+        "RAYDIUM_NEW_POOL" to 62,
+        "RAYDIUM_NEW" to 62,
+        "V3_PREMIUM" to 60,
+        "COINGECKO_TRENDING" to 58,
+        "GECKO_TRENDING" to 58,
+        "METEORA" to 58,
+        "BIRDEYE_TRENDING" to 56,
+        "WHALE_COPY" to 55,
+        "DATA_ORCHESTRATOR" to 50,
+        "V3_SCANNER" to 48,
+        "PUMP_FUN_GRADUATE" to 45,
+        "PUMP_PORTAL" to 40,
+        "PUMP_PORTAL_WS" to 38,
+        "PUMP_FUN_NEW" to 38,
+        "SOCIAL_TRENDING" to 42,
+        "USER_ADDED" to 70,
         "UNKNOWN" to 20,
     )
 

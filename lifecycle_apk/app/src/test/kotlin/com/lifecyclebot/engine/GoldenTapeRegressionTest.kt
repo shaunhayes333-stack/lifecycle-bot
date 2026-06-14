@@ -544,4 +544,36 @@ class GoldenTapeRegressionTest {
         assertTrue(exec.contains("reason=PRETRADE:"))
     }
 
+
+    @Test
+    fun strict_source_balance_prevents_pumpfun_majority_hot_watchlist() {
+        val registry = java.io.File("src/main/kotlin/com/lifecyclebot/engine/GlobalTradeRegistry.kt").readText()
+        assertTrue(registry.contains("MAX_PUMP_HOT_FRACTION = 0.35"))
+        assertTrue(registry.contains("MIN_NON_PUMP_RESERVED_HOT_SLOTS = 80"))
+        assertTrue(registry.contains("MAX_PUMP_PORTAL_CONCURRENT = 175"))
+        assertFalse("Pump must not be allowed as 65% majority again", registry.contains("MAX_PUMP_HOT_FRACTION = 0.65"))
+        assertFalse("Sparse non-pump bench must not allow unlimited Pump admission", registry.contains("nonPumpCount < MIN_NON_PUMP_RESERVED_HOT_SLOTS / 2"))
+        assertTrue(registry.contains("tags.contains(\"METEORA\")"))
+        assertTrue(registry.contains("tags.contains(\"BIRDEYE\")"))
+        assertTrue(registry.contains("tags.contains(\"ORCA\")"))
+        assertTrue(registry.contains("tags.contains(\"JUPITER\")"))
+        assertTrue(registry.contains("tags.contains(\"SOLANA\")"))
+
+        val service = java.io.File("src/main/kotlin/com/lifecyclebot/engine/BotService.kt").readText()
+        assertFalse(service.contains("total * 0.65"))
+        assertTrue(service.contains("total * 0.35"))
+        assertTrue(service.contains("SOURCE_BALANCE_PUMP_DOMINANCE"))
+    }
+
+    @Test
+    fun token_merge_queue_ranks_dex_and_raydium_above_pumpportal() {
+        val queue = java.io.File("src/main/kotlin/com/lifecyclebot/engine/TokenMergeQueue.kt").readText()
+        assertTrue(queue.contains("\"DEX_BOOSTED\" to 72"))
+        assertTrue(queue.contains("\"DEX_TRENDING\" to 64"))
+        assertTrue(queue.contains("\"RAYDIUM_NEW_POOL\" to 62"))
+        assertTrue(queue.contains("\"PUMP_PORTAL_WS\" to 38"))
+        assertTrue(queue.contains("\"PUMP_PORTAL\" to 40"))
+        assertFalse("PumpPortal must not outrank DEX/Raydium again", queue.contains("\"PUMP_PORTAL_WS\" to 70"))
+    }
+
 }

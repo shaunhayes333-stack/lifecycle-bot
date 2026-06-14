@@ -8623,12 +8623,16 @@ class BotService : Service() {
     private fun isPumpDominanceSourceTag(tag: String): Boolean {
         val t = tag.uppercase()
         return t.contains("PUMP_PORTAL") || t.contains("PUMPPORTAL") ||
-            t.contains("PUMP_FUN") || t.contains("PUMPFUN") || t.contains("PF")
+            t.contains("PUMP_FUN") || t.contains("PUMPFUN") ||
+            t.contains("PUMP_GRADUATE") || t.contains("PUMPGRADUATE")
     }
 
     private fun hasNonPumpConfirmationTag(tag: String): Boolean {
         val t = tag.uppercase()
         return t.contains("DEX") || t.contains("RAYDIUM") || t.contains("COINGECKO") ||
+            t.contains("GECKO") || t.contains("METEORA") || t.contains("BIRDEYE") ||
+            t.contains("ORCA") || t.contains("JUPITER") || t.contains("HELIUS") ||
+            t.contains("SOLANA") || t.contains("WALLET") || t.contains("APP") ||
             t.contains("CMC") || t.contains("WHALE") || t.contains("BOOSTED") ||
             t.contains("TRENDING") || t.contains("V3_PREMIUM")
     }
@@ -8644,14 +8648,12 @@ class BotService : Service() {
             }
             val pumpEntries = entries.filter { isPumpOnly(it) }.sortedBy { it.addedAt }
             val total = entries.size
-            // V5.9.1564 — match V5.9.1561 GlobalTradeRegistry policy.
-            // 0.35 cap was suppressing pump even when no non-pump candidates queued;
-            // 0.65 cap + 20-slot non-pump floor lets pump dominate scanner output
-            // while still reserving meaningful headroom for non-pump confirmation.
-            val cap = minOf(
-                kotlin.math.ceil(total * 0.65).toInt().coerceAtLeast(1),
-                (total - 20).coerceAtLeast(1)
-            )
+            // V5.0.3708 — match strict GlobalTradeRegistry policy. Pump-only
+            // rows are allowed as a minority hot feed, not as the majority of
+            // the Solana scanner bench.
+            val dynamicCap = kotlin.math.ceil(total * 0.35).toInt().coerceAtLeast(1)
+            val reserveCap = if (total > 80) (total - 80).coerceAtLeast(1) else dynamicCap
+            val cap = minOf(175, minOf(dynamicCap, reserveCap))
             val excess = (pumpEntries.size - cap).coerceAtLeast(0)
             if (excess <= 0) return
             var demoted = 0
