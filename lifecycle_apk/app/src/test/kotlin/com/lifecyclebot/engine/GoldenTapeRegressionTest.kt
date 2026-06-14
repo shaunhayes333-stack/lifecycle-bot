@@ -480,4 +480,19 @@ class GoldenTapeRegressionTest {
         assertTrue(phc.contains("%+.6f"))
     }
 
+
+    @Test
+    fun runtime_report_faults_from_3700_are_guarded() {
+        val bot = java.io.File("src/main/kotlin/com/lifecyclebot/engine/BotService.kt").readText()
+        assertTrue("Meme runtime must treat legacy BOTH mode as MEME-only authority", bot.contains("cfg.tradingMode == 2 && memeOn"))
+        assertTrue("Cached FDG reuse must not be counted as a fresh FDG phase", bot.contains("FDG_CACHED_REUSE"))
+        assertTrue(bot.contains("if (!fdgWasCached)"))
+        val doctor = java.io.File("src/main/kotlin/com/lifecyclebot/engine/StateDebuggerAI.kt").readText()
+        assertTrue("Doctor must not report stale scanner inactive while scannerActive=true", doctor.contains("SCANNER_INACTIVE && ctx.snapshot.scannerActive"))
+        val exec = java.io.File("src/main/kotlin/com/lifecyclebot/engine/Executor.kt").readText()
+        val preLock = exec.substring(exec.indexOf("stage=pre_sell_lock"), exec.indexOf("// Atomic guard: only ONE sell"))
+        assertTrue(preLock.contains("PositionCloseLedger.closeIdOf"))
+        assertTrue(preLock.contains("stage=pre_sell_lock"))
+    }
+
 }

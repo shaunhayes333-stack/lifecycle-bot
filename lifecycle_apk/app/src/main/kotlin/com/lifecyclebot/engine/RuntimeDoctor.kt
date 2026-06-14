@@ -75,7 +75,10 @@ object RuntimeDoctor {
             snapshot = snap,
             forensicEvents = PipelineHealthCollector.snapshot().recentEvents.takeLast(200).map { "${it.tag}:${it.symbol}:${it.message}" },
             tradeRows = try { TradeHistoryStore.getAllTrades().takeLast(50).map { "${it.side}:${it.mode}:${it.mint}:${it.pnlPct}:${it.reason}" } } catch (_: Throwable) { emptyList() },
-            invariantFaults = recentFaults.toList().takeLast(20),
+            // Current faults first, then recent history. The diagnosis layer must not
+            // report a stale SCANNER_INACTIVE while the current snapshot says scanner=true
+            // and the active fault is FDG_FANOUT_EXPLOSION.
+            invariantFaults = (faults + recentFaults.toList().takeLast(20)).distinctBy { it.code to it.detail },
             configSummary = try {
                 val c = com.lifecyclebot.data.ConfigStore.load(BotService.instance!!.applicationContext)
                 "paper=${c.paperMode} auto=${c.autoTrade} tradingMode=${c.tradingMode} meme=${c.memeTraderEnabled} markets=${c.marketsTraderEnabled} shadow=${c.shadowPaperEnabled}"

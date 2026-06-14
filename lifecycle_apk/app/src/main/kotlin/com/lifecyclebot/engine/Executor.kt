@@ -10206,7 +10206,17 @@ class Executor(
                 reasonUpper.contains("MANUAL")
             val closedAgoMs = System.currentTimeMillis() - (BotService.recentlyClosedMs[ts.mint] ?: 0L)
             if (!hardFloorOrEmergency && closedAgoMs in 0L..60_000L) {
-                try { ForensicLogger.lifecycle("PAPER_SELL_DUPLICATE_SUPPRESSED", "mint=${ts.mint.take(10)} symbol=${ts.symbol} reason=$reason closedAgoMs=$closedAgoMs") } catch (_: Throwable) {}
+                try { ForensicLogger.lifecycle("PAPER_SELL_DUPLICATE_SUPPRESSED", "mint=${ts.mint.take(10)} symbol=${ts.symbol} reason=$reason closedAgoMs=$closedAgoMs stage=pre_sell_lock") } catch (_: Throwable) {}
+                return SellResult.ALREADY_CLOSED
+            }
+            // V5.0.3702 — close-ledger duplicate suppression must happen before
+            // acquireSellLock(). 3700 dump showed SELL_LOCK_SET=413 and
+            // PAPER_SELL_DUPLICATE_SUPPRESSED=367 because doSell acquired the
+            // general lock, then paperSell discovered the mint was already CLOSED.
+            // Duplicate closed rows are not sell attempts; never churn sell locks.
+            val existingCloseId = try { com.lifecyclebot.engine.PositionCloseLedger.closeIdOf(ts.mint) } catch (_: Throwable) { null }
+            if (existingCloseId != null) {
+                try { ForensicLogger.lifecycle("PAPER_SELL_DUPLICATE_SUPPRESSED", "mint=${ts.mint.take(10)} symbol=${ts.symbol} originalCloseId=$existingCloseId reason=$reason stage=pre_sell_lock") } catch (_: Throwable) {}
                 return SellResult.ALREADY_CLOSED
             }
             if (shouldDelayPaperSoftLossExit(ts, reason)) return SellResult.FAILED_RETRYABLE

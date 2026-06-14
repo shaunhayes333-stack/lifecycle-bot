@@ -1592,14 +1592,19 @@ class BotService : Service() {
         // mode publishes only MEME. Non-meme-only modes still get the full
         // surface for autonomous learning.
         run {
-            val memeOnlyUiMode = cfg.tradingMode == 0  // 0 = MEMES_ONLY
             val memeOn = cfg.memeTraderEnabled
-            val marketsOn = !marketsKill && cfg.marketsTraderEnabled && (cfg.tradingMode == 1 || cfg.tradingMode == 2)
+            // V5.0.3702 — operator runtime dump 3700: enabled=MEME,CRYPTO_ALT,PERPS,CYCLIC
+            // while running the meme trader. Mode 2 (legacy BOTH/Recommended) still let
+            // markets/perps/cyclic into the enabled set and inflated FDG/supervisor work.
+            // For the meme runtime, authority must publish MEME only. Markets-only mode
+            // remains mode=1; it is the only path allowed to publish non-meme traders.
+            val memeOnlyUiMode = cfg.tradingMode == 0 || (cfg.tradingMode == 2 && memeOn)
+            val marketsOn = !marketsKill && cfg.marketsTraderEnabled && cfg.tradingMode == 1
             val enabledSet = if (memeOnlyUiMode && memeOn) {
-                // True meme-only: ONLY MEME publishes. Sniper/Cyclic/Markets/Perps OFF.
+                // True meme runtime: ONLY MEME publishes. Sniper/Cyclic/Markets/Perps OFF.
                 setOf(com.lifecyclebot.engine.EnabledTraderAuthority.Trader.MEME)
             } else {
-                // Mixed/full-stack mode: respect per-lane toggles, but exclude
+                // Markets-only mode: respect per-lane toggles, but exclude
                 // quarantined market lanes and forced-off Crypto when markets-OFF.
                 val s = mutableSetOf<com.lifecyclebot.engine.EnabledTraderAuthority.Trader>()
                 if (memeOn) s += com.lifecyclebot.engine.EnabledTraderAuthority.Trader.MEME
@@ -19589,8 +19594,9 @@ if (hotExitHandledSweep) {
         // to avoid redundant compute. Throughput-positive, doctrine rule #3.
         val fdgScoreNow: Int = try { decision.entryScore.toInt() } catch (_: Throwable) { 0 }
         val cachedFdg = FdgReEvalThrottle.get(identity.mint, fdgScoreNow)
+        val fdgWasCached = cachedFdg != null
         val fdgDecision = if (cachedFdg != null) {
-            try { ForensicLogger.lifecycle("FDG_REEVAL_THROTTLED", "mint=${identity.mint.take(10)} reusedVerdict can=${cachedFdg.canExecute()} score=$fdgScoreNow") } catch (_: Throwable) {}
+            try { ForensicLogger.lifecycle("FDG_CACHED_REUSE", "mint=${identity.mint.take(10)} reusedVerdict can=${cachedFdg.canExecute()} score=$fdgScoreNow") } catch (_: Throwable) {}
             cachedFdg
         } else {
             val fresh = FinalDecisionGate.evaluate(
@@ -19609,18 +19615,21 @@ if (hotExitHandledSweep) {
         ErrorLogger.info("BotService", "🧬 MEME_SPINE FDG ${identity.symbol} | can=${fdgDecision.canExecute()} | qual=${fdgDecision.quality} | conf=${fdgDecision.confidence.toInt()} | size=${fdgDecision.sizeSol.fmt(4)} | reason=${fdgDecision.blockReason ?: "none"}")
         // V5.9.669 — operator pipeline-health visibility. FDG previously
         // wasn't wired into the in-app funnel counter (counter stuck at 0
-        // even when FDG was firing). Now every FDG eval registers as a
-        // FDG phase event, with allow/block tally driven by canExecute().
+        // even when FDG was firing). Count only fresh FDG evaluations here.
+        // V5.0.3702: cached reuse is NOT a new FDG eval; counting it as FDG
+        // made FDG/intake report a false fanout explosion and hid real compute.
         try {
-            ForensicLogger.phase(
-                ForensicLogger.PHASE.FDG, identity.symbol,
-                "can=${fdgDecision.canExecute()} qual=${fdgDecision.quality} conf=${fdgDecision.confidence.toInt()} size=${fdgDecision.sizeSol.fmt(4)} reason=${fdgDecision.blockReason ?: "none"}"
-            )
-            ForensicLogger.gate(
-                ForensicLogger.PHASE.FDG, identity.symbol,
-                allow = fdgDecision.canExecute(),
-                reason = fdgDecision.blockReason ?: "ok"
-            )
+            if (!fdgWasCached) {
+                ForensicLogger.phase(
+                    ForensicLogger.PHASE.FDG, identity.symbol,
+                    "can=${fdgDecision.canExecute()} qual=${fdgDecision.quality} conf=${fdgDecision.confidence.toInt()} size=${fdgDecision.sizeSol.fmt(4)} reason=${fdgDecision.blockReason ?: "none"}"
+                )
+                ForensicLogger.gate(
+                    ForensicLogger.PHASE.FDG, identity.symbol,
+                    allow = fdgDecision.canExecute(),
+                    reason = fdgDecision.blockReason ?: "ok"
+                )
+            }
         } catch (_: Throwable) {}
         
         // ═══════════════════════════════════════════════════════════════════

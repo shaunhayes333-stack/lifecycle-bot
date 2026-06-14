@@ -22,7 +22,9 @@ object StateDebuggerAI {
     )
 
     fun deterministicFallback(ctx: Context): Diagnosis {
-        val f = ctx.invariantFaults.firstOrNull()
+        val f = ctx.invariantFaults
+            .filterNot { it.code == InvariantGuardian.FaultCode.SCANNER_INACTIVE && ctx.snapshot.scannerActive }
+            .firstOrNull()
         return Diagnosis(
             faultCode = f?.code?.name ?: "NO_FAULT",
             rootCause = f?.detail ?: "No deterministic invariant fault currently active.",
