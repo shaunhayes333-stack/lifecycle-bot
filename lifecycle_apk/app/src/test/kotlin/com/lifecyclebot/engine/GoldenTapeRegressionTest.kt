@@ -495,4 +495,15 @@ class GoldenTapeRegressionTest {
         assertTrue(preLock.contains("stage=pre_sell_lock"))
     }
 
+
+    @Test
+    fun score_too_low_terminal_v3_reject_cannot_be_fdg_probe_override() {
+        val bot = java.io.File("src/main/kotlin/com/lifecyclebot/engine/BotService.kt").readText()
+        assertTrue(bot.contains("result.reason.contains(\"SCORE_TOO_LOW\", ignoreCase = true)"))
+        assertTrue(bot.contains("V3_REJECT_EXEC_SUPPRESSED"))
+        assertTrue(bot.contains("!isTerminalV3Reject"))
+        assertFalse("SCORE_TOO_LOW must not become FDG green tiny probe", bot.contains("V3 REJECT→PROBE"))
+        assertFalse("SCORE_TOO_LOW must not set v3SizeSol from fdgDecision", bot.contains("V3-REJECT-PROBE"))
+    }
+
 }
