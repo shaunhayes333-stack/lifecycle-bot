@@ -616,4 +616,17 @@ class GoldenTapeRegressionTest {
         assertTrue("Partial sells must remain Jupiter exact-in, not PumpPortal percent", pumpTests.contains("partial sells stay off PumpPortal"))
     }
 
+
+    @Test
+    fun meme_only_internal_toolkit_is_bounded_to_one_specialist_rescue() {
+        val bot = java.io.File("src/main/kotlin/com/lifecyclebot/engine/BotService.kt").readText()
+        assertTrue(bot.contains("BOUNDED_INTERNAL_TOOLKIT_RESCUE"))
+        assertTrue(bot.contains("at most ONE"))
+        assertTrue(bot.contains("return l == rescue"))
+        assertTrue(bot.contains("l == \"SHITCOIN\" || l == \"MOONSHOT\" || l == \"EXPRESS\""))
+        val report = java.io.File("src/main/kotlin/com/lifecyclebot/engine/PipelineHealthCollector.kt").readText()
+        assertTrue(report.contains("TradeHistoryStore journal rows; NOT on-chain proof"))
+        assertTrue(report.contains("SELL_FINALIZED for landed on-chain truth"))
+    }
+
 }

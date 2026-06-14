@@ -8582,15 +8582,26 @@ class BotService : Service() {
             // V5.0.3710 — INTERNAL_TOOLKIT_STARVATION_FIX.
             // MEME-only means external markets/perps/cyclic/sniper-family engines stay
             // isolated by EnabledTraderAuthority. It must NOT make the internal meme
-            // toolkit silent. EXPRESS is a meme-family lane; if AgenticStyleRouter
-            // / ModeRouter tagged QUALITY, BLUECHIP, TREASURY, DIP_HUNTER,
-            // PROJECT_SNIPER, etc. for THIS mint,
-            // allow that bounded specialist lane to evaluate. This preserves fanout
-            // containment because source/style affinity is already capped; it only
-            // removes the blanket non-meme specialist mute that caused reports with
-            // SHITCOIN/MOONSHOT ≈96% lane coverage and everything else quiet.
+            // toolkit silent. EXPRESS is a meme-family lane.
+            //
+            // V5.0.3712 — BOUNDED_INTERNAL_TOOLKIT_RESCUE.
+            // 3710 correctly woke QUALITY/BLUECHIP/TREASURY/DIP/SNIPER/MANIP, but
+            // because laneAffinity is additive over time it allowed EVERY tagged
+            // specialist to evaluate. Runtime 5.0.3710 showed FDG/intake=5.52 and
+            // LANE_EVAL=271 in 72s. Keep the toolkit alive but bounded: meme-family
+            // lanes may run, the primary always already passed above, and at most ONE
+            // non-meme specialist rescue lane is admitted per mint from current
+            // affinity. This restores the "primary + bounded rescue" contract without
+            // returning to SHITCOIN/MOONSHOT monoculture.
             if (memeFamily) return true
-            if (nonMemeSpecialist && affinity.contains(l)) return true
+            if (nonMemeSpecialist && affinity.contains(l)) {
+                val rescue = affinity
+                    .filter { it == "MANIPULATED" || it == "QUALITY" || it == "DIP_HUNTER" ||
+                        it == "PROJECT_SNIPER" || it == "TREASURY" || it == "BLUECHIP" }
+                    .sortedBy { it }
+                    .let { list -> if (list.isEmpty()) null else list[((ts.mint.hashCode() and 0x7fffffff) % list.size)] }
+                return l == rescue
+            }
             return false
         }
 

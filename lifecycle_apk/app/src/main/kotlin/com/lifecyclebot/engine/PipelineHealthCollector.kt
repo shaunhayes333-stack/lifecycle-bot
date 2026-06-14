@@ -1466,10 +1466,11 @@ object PipelineHealthCollector {
 
         // ── Execution counters ──────────────────────────────────────────
         sb.append("\n  [EXECUTION COUNTERS]\n")
-        sb.append("  EXEC_BUY=$execBuy  EXEC_SELL=$execSell  (from TradeHistoryStore journal writes)\n")
+        sb.append("  EXEC_BUY=$execBuy  EXEC_SELL=$execSell  (TradeHistoryStore journal rows; NOT on-chain proof)\n")
         val execFunnelCount = s.phaseCounts["EXEC"] ?: 0L
-        sb.append("  Note: EXEC funnel counter (=$execFunnelCount) counts executor invocations,\n")
-        sb.append("        not completed trades. EXEC_BUY/SELL are the definitive execution counts.\n")
+        sb.append("  Note: EXEC funnel counter (=$execFunnelCount) counts executor invocations.\n")
+        sb.append("        Journal BUY/SELL rows can be written before wallet-delta/finality proof;\n")
+        sb.append("        use EXEC_LIVE_BUY_OK / EXEC_LIVE_SELL_OK + BUY_VERIFIED_LANDED / SELL_FINALIZED for landed on-chain truth.\n")
         val jrnlRec = labelCounts["TRADEJRNL_REC"]?.get() ?: 0L
         sb.append("  TRADEJRNL_REC=$jrnlRec — journal records written this session.\n")
         if (execBuy > 0 && jrnlRec == 0L)
