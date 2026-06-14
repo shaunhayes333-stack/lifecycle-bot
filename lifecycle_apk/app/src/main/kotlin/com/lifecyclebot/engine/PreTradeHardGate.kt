@@ -33,10 +33,25 @@ object PreTradeHardGate {
         return Verdict(false, reason, detail)
     }
 
+    private fun allowWithPendingProof(ts: TokenState, pending: List<String>, callSite: String): Verdict {
+        if (pending.isNotEmpty()) {
+            try {
+                val detail = pending.joinToString("|").take(180)
+                ForensicLogger.lifecycle(
+                    "PRETRADE_PENDING_PROOF_SOFT_ALLOW",
+                    "mint=${ts.mint.take(10)} symbol=${ts.symbol} pending=$detail"
+                )
+                PipelineHealthCollector.labelInc("PRETRADE_PENDING_PROOF_SOFT_ALLOW")
+            } catch (_: Throwable) {}
+        }
+        return Verdict(true, "ALLOW", "site=$callSite" + if (pending.isNotEmpty()) " pending=${pending.joinToString("|")}" else "")
+    }
+
     fun requireLiveBuyAllowed(ts: TokenState, callSite: String): Verdict {
         val mint = ts.mint
         val safety = ts.safety
         val now = System.currentTimeMillis()
+        val pendingProofs = mutableListOf<String>()
 
         if (mint.isBlank() || mint.length < 30) return block(ts, "INVALID_EXACT_MINT", "mint=${mint.take(12)} site=$callSite")
         if (MintIntegrityGate.isSystemOrStablecoinMint(mint)) return block(ts, "BASE_OR_QUOTE_MINT_AS_TARGET", mint)
@@ -54,29 +69,35 @@ object PreTradeHardGate {
 
         val rcStatus = safety.rugcheckStatus.uppercase()
         if (rcStatus.isBlank() || rcStatus in setOf("UNKNOWN", "TIMEOUT", "PENDING", "PENDING_REVIEW", "ERROR")) {
-            return block(ts, "RUGCHECK_PENDING_OR_UNKNOWN", "status=$rcStatus")
+            pendingProofs.add("RUGCHECK_PENDING_OR_UNKNOWN:$rcStatus")
         }
         // RugModel/RugCheck convention in this codebase: 0 = confirmed rug/fatal,
-        // 1 = pending/needs-data and should already be caught above when status is pending.
+        // 1 = pending/needs-data. Pending is telemetry/penalty unless another
+        // confirmed fatal signal exists; score=0 remains a hard rug proof.
         if (safety.rugcheckScore == 0) return block(ts, "RUGCHECK_CONFIRMED_RUG", "score=0")
 
-        if (safety.mintAuthorityDisabled != true) {
-            return block(ts, "MINT_AUTHORITY_ACTIVE_OR_UNKNOWN", "mintAuthorityDisabled=${safety.mintAuthorityDisabled}")
+        when (safety.mintAuthorityDisabled) {
+            false -> return block(ts, "MINT_AUTHORITY_ACTIVE", "mintAuthorityDisabled=false")
+            null -> pendingProofs.add("MINT_AUTHORITY_UNKNOWN")
+            true -> Unit
         }
-        if (safety.freezeAuthorityDisabled != true) {
-            return block(ts, "FREEZE_AUTHORITY_ACTIVE_OR_UNKNOWN", "freezeAuthorityDisabled=${safety.freezeAuthorityDisabled}")
+        when (safety.freezeAuthorityDisabled) {
+            false -> return block(ts, "FREEZE_AUTHORITY_ACTIVE", "freezeAuthorityDisabled=false")
+            null -> pendingProofs.add("FREEZE_AUTHORITY_UNKNOWN")
+            true -> Unit
         }
 
         if (!safety.liqConfirmed && ts.lastLiquidityUsd < MIN_LIVE_LIQ_USD) {
             return block(ts, "LIQUIDITY_PROOF_INCOMPLETE", "liq=${ts.lastLiquidityUsd} liqConfirmed=${safety.liqConfirmed}")
         }
+        if (!safety.liqConfirmed) pendingProofs.add("LIQUIDITY_PROOF_PENDING")
         if (ts.lastLiquidityUsd > 0.0 && ts.lastLiquidityUsd < MIN_LIVE_LIQ_USD) {
             return block(ts, "LIQUIDITY_BELOW_LIVE_MIN", "liq=${ts.lastLiquidityUsd} min=$MIN_LIVE_LIQ_USD")
         }
 
-        if (!ts.holderDataResolved) return block(ts, "HOLDER_DATA_PENDING", "holderDataResolved=false")
+        if (!ts.holderDataResolved) pendingProofs.add("HOLDER_DATA_PENDING")
         val topHolder = listOfNotNull(ts.topHolderPct, safety.topHolderPct.takeIf { it >= 0.0 }).maxOrNull() ?: -1.0
-        if (topHolder < 0.0) return block(ts, "HOLDER_DATA_UNKNOWN", "topHolderPct missing")
+        if (topHolder < 0.0) pendingProofs.add("HOLDER_DATA_UNKNOWN")
         if (topHolder >= TOP_HOLDER_FATAL_PCT) return block(ts, "TOP_HOLDER_FATAL_CONCENTRATION", "topHolderPct=$topHolder")
 
         val text = buildString {
@@ -96,6 +117,6 @@ object PreTradeHardGate {
         val fatal = fatalNeedles.firstOrNull { text.contains(it) }
         if (fatal != null) return block(ts, "FATAL_SAFETY_TEXT", fatal)
 
-        return Verdict(true, "ALLOW", "site=$callSite")
+        return allowWithPendingProof(ts, pendingProofs.distinct(), callSite)
     }
 }
