@@ -519,4 +519,26 @@ class GoldenTapeRegressionTest {
         assertFalse("Empty-map post-buy verification must not leave live buys pending/unmanaged", exec.contains("position kept pending, no wipe"))
     }
 
+
+    @Test
+    fun live_pre_broadcast_rug_defense_gate_is_present_and_blocks_holder_risk() {
+        val gate = java.io.File("src/main/kotlin/com/lifecyclebot/engine/PreTradeHardGate.kt").readText()
+        assertTrue(gate.contains("object PreTradeHardGate"))
+        assertTrue(gate.contains("HOLDER_DATA_PENDING"))
+        assertTrue(gate.contains("TOP_HOLDER_FATAL_CONCENTRATION"))
+        assertTrue(gate.contains("MINT_AUTHORITY_ACTIVE_OR_UNKNOWN"))
+        assertTrue(gate.contains("FREEZE_AUTHORITY_ACTIVE_OR_UNKNOWN"))
+        assertTrue(gate.contains("RUGCHECK_PENDING_OR_UNKNOWN"))
+        assertTrue(gate.contains("PRETRADE_HARD_BLOCK"))
+        assertTrue(gate.contains("SINGLE HOLDER"))
+        assertTrue(gate.contains("UNVERIFIED TOKEN"))
+        assertTrue(gate.contains("TOP 10"))
+        val exec = java.io.File("src/main/kotlin/com/lifecyclebot/engine/Executor.kt").readText()
+        val liveGateIdx = exec.indexOf("LiveBuyAdmissionGate.requireApprovedLiveBuy")
+        val preTradeIdx = exec.indexOf("PreTradeHardGate.requireLiveBuyAllowed", liveGateIdx.coerceAtLeast(0))
+        val walletIdx = exec.indexOf("if (walletSol <= 0)", liveGateIdx.coerceAtLeast(0))
+        assertTrue("PreTradeHardGate must be wired after admission and before wallet/broadcast checks", liveGateIdx >= 0 && preTradeIdx > liveGateIdx && walletIdx > preTradeIdx)
+        assertTrue(exec.contains("reason=PRETRADE:"))
+    }
+
 }
