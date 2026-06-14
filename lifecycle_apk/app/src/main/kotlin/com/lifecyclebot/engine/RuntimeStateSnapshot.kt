@@ -66,7 +66,7 @@ data class RuntimeStateSnapshot(
             // ANY paper sim made positionStoreOpen > hostOpen → permanent SELL_ONLY_SAFE_MODE.
             // In LIVE runtime we compare only live open positions vs the host tracker.
             val positionStoreOpen = try {
-                val isLiveNow = try { com.lifecyclebot.engine.runtime.RuntimeModeAuthority.isLive() } catch (_: Throwable) { false }
+                val isLiveNow = try { com.lifecyclebot.engine.RuntimeModeAuthority.isLive() } catch (_: Throwable) { false }
                 if (isLiveNow) liveOpen else statusOpen.size
             } catch (_: Throwable) { paperOpen + liveOpen }
             // V5.9.1371 — MODE-AWARE orphan + canonical accounting.
