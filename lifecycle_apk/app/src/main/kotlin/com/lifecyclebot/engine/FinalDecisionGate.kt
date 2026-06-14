@@ -1557,21 +1557,24 @@ object FinalDecisionGate {
             // own exit-route safety — keeping FDG strict here would double-
             // block a token the live executor would already refuse.
             if (mode == TradeMode.PAPER) {
-                val dustMult = when {
-                    exitCapacityUsd < EXECUTION_FLOOR * 0.25 -> 0.20
-                    exitCapacityUsd < EXECUTION_FLOOR * 0.50 -> 0.30
-                    else                                     -> 0.45
-                }
-                sizeMultiplier *= dustMult
+                // V5.0.3680 — defer to the downstream FDG pipeline. sizeMultiplier
+                // isn't declared until line 1998 of this function, so we can't
+                // pre-multiply here. Instead we let the candidate FALL THROUGH:
+                // downstream confidence / narrative / momentum gates compute
+                // the right paper size naturally, and low-liq tokens typically
+                // also fail the LOW_CONFIDENCE threshold which already routes
+                // them into the V5.0.3676 paper dust-probe path
+                // (paper_low_conf_dust_probe tag). We add a forensic tag here
+                // so the operator can see WHY a particular paper buy is small.
                 checks.add(
                     GateCheck(
                         "liq_exec_floor",
                         true,
-                        "PAPER DUST PROBE: exitCap \$${exitCapacityUsd.toInt()} < \$${EXECUTION_FLOOR.toInt()} → size×${dustMult.format(2)} (no hard block)"
+                        "PAPER LIQ FLOOR PASS-THROUGH: exitCap \$${exitCapacityUsd.toInt()} < \$${EXECUTION_FLOOR.toInt()} → downstream gates size it"
                     )
                 )
-                tags.add("paper_liq_floor_dust_probe")
-                ErrorLogger.info("FDG", "🔬 PAPER LIQ DUST PROBE: ${ts.symbol} | exitCap=\$${exitCapacityUsd.toInt()} < \$${EXECUTION_FLOOR.toInt()} → size×${dustMult.format(2)}")
+                tags.add("paper_liq_floor_pass_through")
+                ErrorLogger.info("FDG", "🔬 PAPER LIQ FLOOR PASS-THROUGH: ${ts.symbol} | exitCap=\$${exitCapacityUsd.toInt()} < \$${EXECUTION_FLOOR.toInt()} (no hard block)")
             } else {
                 return FinalDecision(
                     shouldTrade = false,

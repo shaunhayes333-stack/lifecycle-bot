@@ -9,6 +9,9 @@ import android.os.Handler
 import android.os.Looper
 import android.os.HandlerThread
 import android.os.Process
+import kotlinx.coroutines.GlobalScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
 import com.lifecyclebot.data.Trade
 import org.json.JSONArray
 import org.json.JSONObject
