@@ -143,6 +143,71 @@ object SellAmountAuthority {
         else -> false
     }
 
+    /**
+     * V5.0.3682 — EMERGENCY LIQUIDATION BYPASS (operator P0 directive).
+     *
+     * Normal partial / discretionary exits MUST require RPC_CONFIRMED or
+     * WALLET_SCAN_CONFIRMED. But catastrophic exits (strict SL, hard floor,
+     * rug, drain, shutdown, manual emergency, liquidate, full bot stop)
+     * must NOT be deferred forever just because the wallet RPC briefly
+     * returned an empty token map. In that case we fall through to the
+     * authoritative TX_PARSE cache that was recorded at LIVE_BUY_LANDED
+     * (raw amount + buy signature + capture-time), provided:
+     *   • the TX_PARSE entry is still fresh (<= FRESH_TX_PARSE_MS / 90s)
+     *   • a buy signature was captured (so we know the wallet really got tokens)
+     *   • the requested raw amount is ≤ the recorded raw amount (never over-sell)
+     *   • the operator reason is one of the catastrophic-exit set
+     *
+     * Anything else still returns false — discretionary exits queue retries.
+     */
+    private val EMERGENCY_REASON_TOKENS = listOf(
+        "STRICT_SL", "HARD_FLOOR", "STOP_LOSS", "CATASTROPHE", "RUG", "DRAIN",
+        "SHUTDOWN", "LIQUIDATE", "EMERGENCY", "MANUAL_EMERGENCY",
+    )
+
+    fun isEmergencyExitReason(reason: String): Boolean {
+        val r = reason.uppercase()
+        return EMERGENCY_REASON_TOKENS.any { r.contains(it) }
+    }
+
+    /**
+     * Allow a broadcast when:
+     *   • the resolution is RPC_CONFIRMED / WALLET_SCAN_CONFIRMED (normal path), OR
+     *   • the exit reason is catastrophic AND the FRESH_TX_PARSE cache has a
+     *     valid entry whose recorded raw amount ≥ requestedRawAmount.
+     *
+     * Caller passes the requestedRawAmount it intends to sell. Pass null if
+     * the caller has not derived a raw amount yet (a non-null TX_PARSE entry
+     * is still required, but the size-cap check is skipped).
+     */
+    fun canBroadcastLiveOrEmergency(
+        resolution: Resolution?,
+        reason: String,
+        mint: String,
+        requestedRawAmount: java.math.BigInteger? = null,
+    ): Boolean {
+        if (canBroadcastLive(resolution)) return true
+        if (!isEmergencyExitReason(reason)) return false
+        val cached = txParseCache[mint] ?: return false
+        if (System.currentTimeMillis() - cached.capturedAtMs > FRESH_TX_PARSE_MS) return false
+        if (cached.rawAmount.signum() <= 0) return false
+        if (cached.txSignature.isBlank()) return false
+        if (requestedRawAmount != null && requestedRawAmount > cached.rawAmount) return false
+        ErrorLogger.warn(TAG,
+            "🚨 EMERGENCY_BROADCAST_BYPASS: mint=${mint.take(8)}… reason=$reason " +
+            "using FRESH_TX_PARSE raw=${cached.rawAmount} sig=${cached.txSignature.take(8)}… " +
+            "(captured ${(System.currentTimeMillis() - cached.capturedAtMs) / 1000}s ago)")
+        return true
+    }
+
+    /** Read-only snapshot of the cached TX_PARSE entry for a mint (for callers
+     *  that want the exact raw amount to size an emergency sell). */
+    data class TxParseSnapshot(val rawAmount: java.math.BigInteger, val decimals: Int, val txSignature: String, val capturedAtMs: Long)
+    fun txParseSnapshot(mint: String): TxParseSnapshot? {
+        val e = txParseCache[mint] ?: return null
+        return TxParseSnapshot(e.rawAmount, e.decimals, e.txSignature, e.capturedAtMs)
+    }
+
     /** Operator-facing: read-only snapshot for the UI Forensics tile. */
     fun txParseCacheSize(): Int = txParseCache.size
 }

@@ -9089,6 +9089,25 @@ class Executor(
                                 entryTokenRawConfirmed = entryRaw,
                                 poolLiquidityUsd = ts.lastLiquidityUsd,
                             )
+                            // V5.0.3682 — P0 SELL AUTHORITY: persist the verified
+                            // raw token balance + buy signature into the
+                            // SellAmountAuthority TX_PARSE cache. This is the
+                            // ONLY way emergency liquidation (strict_sl / hard_floor
+                            // / rug / shutdown) can authoritatively size a sell when
+                            // a wallet RPC briefly returns an empty token map
+                            // (BALANCE_UNKNOWN). Cached only for FRESH_TX_PARSE_MS
+                            // (90s) — discretionary sells still require RPC truth.
+                            if (entryRaw.signum() > 0 && verifySig.isNotBlank()) {
+                                try {
+                                    com.lifecyclebot.engine.sell.SellAmountAuthority
+                                        .recordTxParseBalance(
+                                            mint = verifyMint,
+                                            rawAmount = entryRaw,
+                                            decimals = decimals,
+                                            txSignature = verifySig,
+                                        )
+                                } catch (_: Throwable) { /* non-fatal */ }
+                            }
                         } catch (e: Throwable) {
                             ErrorLogger.warn("Executor", "recordEntryMetadata after verify failed (non-fatal): ${e.message}")
                         }
@@ -11603,6 +11622,59 @@ class Executor(
         // V5.9.262 — group all SELL events with the BUY events for the same trade
         // by reusing the entryTime as the keystone.
         val sellTradeKey = LiveTradeLogStore.keyFor(ts.mint, pos.entryTime)
+
+        // V5.0.3682 — P0 STOP SELL SPAM ON CLOSED/ZERO TRACKER ROWS.
+        // Before doing ANY of the heavy DEDUPE / RECOVERY_LOCK / SAFETY / quote
+        // work that legitimately costs API calls and writes LIVE SELL START to
+        // the log, check the canonical host-wallet tracker. If the row is
+        // already CLOSED, either:
+        //   (a) wallet confirms zero → just close TokenState and abort.
+        //   (b) wallet is UNKNOWN → defer + schedule priority reconcile, do
+        //       NOT emit LIVE SELL START again. The log spam was hammering the
+        //       UI and the journal with no behavioural change.
+        try {
+            val hostRow = HostWalletTokenTracker.getEntry(ts.mint)
+            val hostClosed = hostRow != null && (
+                hostRow.status == HostWalletTokenTracker.PositionStatus.CLOSED ||
+                hostRow.status == HostWalletTokenTracker.PositionStatus.CLOSED_SOLD_BY_AATE ||
+                hostRow.status == HostWalletTokenTracker.PositionStatus.CLOSED_EXTERNALLY_MANUAL_SWAP ||
+                hostRow.status == HostWalletTokenTracker.PositionStatus.SOLD_CONFIRMED
+            )
+            if (hostClosed && (hostRow?.uiAmount ?: 0.0) <= 0.0) {
+                // Confirm with SellAmountAuthority before acting (UNKNOWN still defers).
+                val resolution = try {
+                    com.lifecyclebot.engine.sell.SellAmountAuthority.resolve(ts.mint, wallet)
+                } catch (_: Throwable) { com.lifecyclebot.engine.sell.SellAmountAuthority.Resolution.Unknown }
+                val isZero = resolution is com.lifecyclebot.engine.sell.SellAmountAuthority.Resolution.Zero
+                val isUnknown = resolution is com.lifecyclebot.engine.sell.SellAmountAuthority.Resolution.Unknown
+                if (isZero) {
+                    // Wallet confirms empty → close TokenState + abort sell.
+                    // Position.isOpen is a computed property — zero qtyToken
+                    // is enough to mark it closed.
+                    try { ts.position = pos.copy(qtyToken = 0.0) } catch (_: Throwable) {}
+                    try {
+                        ForensicLogger.lifecycle(
+                            "SELL_ABORT_ALREADY_CLOSED_RECONCILED",
+                            "mint=${ts.mint.take(12)} sym=${ts.symbol} reason=$reason " +
+                                "tracker=${hostRow?.status} ui=${hostRow?.uiAmount} wallet=ZERO"
+                        )
+                    } catch (_: Throwable) {}
+                    return SellResult.ALREADY_CLOSED
+                }
+                if (isUnknown) {
+                    // Schedule priority reconcile next tick. Do NOT spam LIVE SELL START.
+                    try { com.lifecyclebot.engine.sell.LiveWalletReconciler.reconcileNow(wallet, "SELL_PAUSED_TRACKER_CLOSED_${ts.mint.take(8)}") } catch (_: Throwable) {}
+                    try {
+                        ForensicLogger.lifecycle(
+                            "SELL_PAUSED_TRACKER_CLOSED_WALLET_UNKNOWN",
+                            "mint=${ts.mint.take(12)} sym=${ts.symbol} reason=$reason " +
+                                "tracker=${hostRow?.status} ui=${hostRow?.uiAmount} — reconcile requested"
+                        )
+                    } catch (_: Throwable) {}
+                    return SellResult.FAILED_RETRYABLE
+                }
+            }
+        } catch (_: Throwable) { /* never block sell on guard failure */ }
         
         // V5.9.495y — DUPLICATE-EXIT GUARD (spec item 9).
         TradeVerifier.activeSellSig(ts.mint)?.let { existingSig ->

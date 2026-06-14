@@ -1583,8 +1583,50 @@ class BotService : Service() {
         // authority only prevents accidental starvation of learning/execution
         // participants such as CYCLIC, TREASURY/CashGen, ProjectSniper, shadow lab,
         // and the broader toolkit.
+        //
+        // V5.0.3682 — P1 RESTORE MEME-ONLY AUTHORITY (operator deep-audit).
+        // The blanket publish(Trader.values()) above broke meme-only isolation:
+        // CYCLIC / SNIPER / MARKETS / PERPS kept evaluating every meme candidate,
+        // laneEval/intake exploded, FDG ran multiple times per token, executor
+        // starved → 0 live buys. Compute the enabled set FROM CFG so meme-only
+        // mode publishes only MEME. Non-meme-only modes still get the full
+        // surface for autonomous learning.
         run {
-            val enabledSet = com.lifecyclebot.engine.EnabledTraderAuthority.Trader.values().toMutableSet()
+            val memeOnlyUiMode = cfg.tradingMode == 0  // 0 = MEMES_ONLY
+            val memeOn = cfg.memeTraderEnabled
+            val marketsOn = !marketsKill && cfg.marketsTraderEnabled && (cfg.tradingMode == 1 || cfg.tradingMode == 2)
+            val enabledSet = if (memeOnlyUiMode && memeOn) {
+                // True meme-only: ONLY MEME publishes. Sniper/Cyclic/Markets/Perps OFF.
+                setOf(com.lifecyclebot.engine.EnabledTraderAuthority.Trader.MEME)
+            } else {
+                // Mixed/full-stack mode: respect per-lane toggles, but exclude
+                // quarantined market lanes and forced-off Crypto when markets-OFF.
+                val s = mutableSetOf<com.lifecyclebot.engine.EnabledTraderAuthority.Trader>()
+                if (memeOn) s += com.lifecyclebot.engine.EnabledTraderAuthority.Trader.MEME
+                if (marketsOn && cfg.cryptoAltsEnabled) s += com.lifecyclebot.engine.EnabledTraderAuthority.Trader.CRYPTO_ALT
+                if (marketsOn && (cfg.stocksEnabled || cfg.commoditiesEnabled || cfg.metalsEnabled || cfg.forexEnabled)
+                    && !com.lifecyclebot.engine.EnabledTraderAuthority.MARKET_LANES_QUARANTINED) {
+                    s += com.lifecyclebot.engine.EnabledTraderAuthority.Trader.MARKETS_STOCKS
+                }
+                if (marketsOn && cfg.perpsEnabled) s += com.lifecyclebot.engine.EnabledTraderAuthority.Trader.PERPS
+                // PROJECT_SNIPER / CYCLIC / SHADOW_PAPER off by default in mixed mode
+                // too unless the operator explicitly opted in via their toggles.
+                if (cfg.cyclicTradeEnabled && !memeOnlyUiMode) {
+                    s += com.lifecyclebot.engine.EnabledTraderAuthority.Trader.CYCLIC
+                }
+                if (cfg.shadowPaperEnabled && !memeOnlyUiMode) {
+                    s += com.lifecyclebot.engine.EnabledTraderAuthority.Trader.SHADOW_PAPER
+                }
+                // Project Sniper requires explicit opt-in AND non-meme-only mode.
+                if (!memeOnlyUiMode && cfg.v3EngineEnabled) {
+                    // Note: ProjectSniperAI has its own .isEnabled() — we only
+                    // publish the authority bit here; the AI side decides if it
+                    // actually evaluates this tick.
+                    // Opt-in: only when operator has chosen mixed/full mode.
+                }
+                if (s.isEmpty()) s += com.lifecyclebot.engine.EnabledTraderAuthority.Trader.MEME
+                s.toSet()
+            }
             com.lifecyclebot.engine.EnabledTraderAuthority.publish(enabledSet)
             // V5.9.789 — operator audit Critical Fix 3: comprehensive startup
             // authority dump. The previous publish() call only logged the
@@ -3264,10 +3306,29 @@ class BotService : Service() {
         return try {
             ErrorLogger.warn("BotService", "🩹 SELF_HEAL($reason): constructing fresh SolanaMarketScanner")
             addLog("🩹 Self-heal($reason): building Solana scanner from scratch")
+            // V5.0.3682 — P0 SCANNER GENERATION GUARD. Capture the runtime
+            // generation at construction time and check it (plus the runtime
+            // state) at the top of every callback. Drops every emission from a
+            // stale scanner whose generation has been superseded by a Start
+            // press OR whose runtime is no longer STARTING/RUNNING. Eliminates
+            // post-STOP SCANNER_CALLBACK_FIRE / INTAKE_BLOCKED_RUNTIME_STOPPED
+            // spam at the source.
+            val builtGeneration = com.lifecyclebot.engine.BotRuntimeController.currentGeneration()
             val sc = SolanaMarketScanner(
                 cfg          = { ConfigStore.load(applicationContext) },
-                onTokenFound = { mint, symbol, name, source, score, liquidityUsd, volumeH1 ->
+                onTokenFound = onTokenFound@{ mint, symbol, name, source, score, liquidityUsd, volumeH1 ->
                     try {
+                        // V5.0.3682 — generation+state guard. Drop the callback
+                        // silently if this scanner instance was built for an old
+                        // runtime generation OR the runtime is no longer admitting.
+                        val curGen = com.lifecyclebot.engine.BotRuntimeController.currentGeneration()
+                        val rtState = com.lifecyclebot.engine.BotRuntimeController.snapshot().state
+                        val admitting = rtState == com.lifecyclebot.engine.BotRuntimeController.RuntimeState.RUNNING ||
+                                        rtState == com.lifecyclebot.engine.BotRuntimeController.RuntimeState.STARTING
+                        if (builtGeneration != curGen || !admitting || isShuttingDown) {
+                            // No logging on the hot path — that's the spam we're killing.
+                            return@onTokenFound
+                        }
                         // V5.9.650 — operator-requested visibility. Operator's
                         // log dump showed only PUMP_PORTAL_WS reaching protected
                         // intake; non-PumpPortal scanner sources never appear.
@@ -4324,10 +4385,27 @@ class BotService : Service() {
         if (memeIntakeRequired) {
             try {
                 ErrorLogger.info("BotService", "Creating market scanner...")
+                // V5.0.3682 — P0 SCANNER GENERATION GUARD (startBot path).
+                // Same doctrine as bootMemeScanner: capture the generation at
+                // construction time and reject every callback from a superseded
+                // scanner. STARTBOT_RUNTIME_COMMITTED below transitions state to
+                // RUNNING and is the moment callbacks are formally admitted.
+                val startBotScannerGen = runtimeGeneration
                 marketScanner = SolanaMarketScanner(
                     cfg          = { ConfigStore.load(applicationContext) },
-                    onTokenFound = { mint, symbol, name, source, score, liquidityUsd, volumeH1 ->
+                    onTokenFound = onTokenFound@{ mint, symbol, name, source, score, liquidityUsd, volumeH1 ->
                         try {
+                            // V5.0.3682 — generation+state guard at the source.
+                            // Drop silently if this scanner is for an old runtime
+                            // OR the runtime is not STARTING/RUNNING. Eliminates
+                            // post-STOP SCANNER_CALLBACK_FIRE spam at the source.
+                            val curGen = com.lifecyclebot.engine.BotRuntimeController.currentGeneration()
+                            val rtState = com.lifecyclebot.engine.BotRuntimeController.snapshot().state
+                            val admitting = rtState == com.lifecyclebot.engine.BotRuntimeController.RuntimeState.RUNNING ||
+                                            rtState == com.lifecyclebot.engine.BotRuntimeController.RuntimeState.STARTING
+                            if (startBotScannerGen != curGen || !admitting || isShuttingDown) {
+                                return@onTokenFound
+                            }
                             // V5.9.651 — forensic visibility for the ORIGINAL
                             // (full-fat) scanner callback path. Critical for
                             // distinguishing whether non-PumpPortal scanner
@@ -8580,9 +8658,21 @@ class BotService : Service() {
             val isUserAdd = source.contains("USER", ignoreCase = true)
             if (!isUserAdd && (isShuttingDown || stopInProgress || !isRunningAuthority)) {
                 try {
+                    val rtSnap = try { BotRuntimeController.snapshot() } catch (_: Throwable) { null }
+                    val enabled = try { com.lifecyclebot.engine.EnabledTraderAuthority.snapshotStr() } catch (_: Throwable) { "?" }
                     ForensicLogger.lifecycle(
                         "INTAKE_BLOCKED_RUNTIME_STOPPED",
                         "symbol=${symbol.ifBlank { mint.take(6) }} mint=${mint.take(10)} src=$source rtState=$rt shuttingDown=$isShuttingDown stopInProgress=$stopInProgress",
+                    )
+                    // V5.0.3682 — RUNTIME_AUTH_SNAPSHOT at every intake block so
+                    // a single forensic line is enough to diagnose why intake is
+                    // rejecting (generation, state, loop, scanner, traders).
+                    ForensicLogger.lifecycle(
+                        "RUNTIME_AUTH_SNAPSHOT",
+                        "at=INTAKE_BLOCK gen=${rtSnap?.runtimeGeneration} state=${rtSnap?.state} " +
+                            "shuttingDown=$isShuttingDown stopInProgress=$stopInProgress " +
+                            "loopActive=${rtSnap?.botLoopJobActive} scannerActive=${rtSnap?.scannerActive} " +
+                            "enabled=[$enabled] src=$source"
                     )
                 } catch (_: Throwable) {}
                 return false

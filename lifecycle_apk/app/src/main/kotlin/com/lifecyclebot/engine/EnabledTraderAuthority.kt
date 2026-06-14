@@ -87,14 +87,22 @@ object EnabledTraderAuthority {
     fun snapshotStr(): String = enabled.get().joinToString(",") { it.name }
 
     /**
-     * Canonical "Meme-trader is the LIVE active lane" predicate.
-     * Used at the top of every paper / sniper / cyclic / shadow path
-     * to refuse execution when only Meme is enabled in LIVE mode.
+     * V5.0.3682 — RESTORED canonical meme-live-only predicate.
+     *
+     * Operator audit: previously hard-coded to `false` to satisfy the
+     * autonomous agenic doctrine, which broke meme-only isolation
+     * (CYCLIC / SNIPER / MARKETS kept evaluating every meme candidate
+     * → laneEval/intake exploded → executor never finished → live buys
+     * starved). Now reads the published trader set as wallet-truth: the
+     * MEME lane is the only enabled trader when the operator's UI/config
+     * has selected MEMES_ONLY (the publish() call in BotService.startBot
+     * is the single source of truth that puts it there).
+     *
+     * Pair with `RuntimeModeAuthority.isLive()` for the canonical
+     * "MEME LIVE ONLY" predicate.
      */
     fun isMemeLiveOnly(): Boolean {
-        // V5.9.1405 — never report meme-live-only once the autonomous agent
-        // doctrine is active. Internal specialists must keep trading/learning;
-        // call sites that used this as a kill switch should not amputate lanes.
-        return false
+        val set = enabled.get()
+        return set.size == 1 && Trader.MEME in set
     }
 }
