@@ -9891,6 +9891,19 @@ class BotService : Service() {
             // The per-cycle WATCHLIST_CAP total= is the capped slice processed this tick.
             val watchSize = try { status.tokens.size } catch (_: Throwable) { -1 }
             val regSize = try { GlobalTradeRegistry.size() } catch (_: Throwable) { -1 }
+            // V5.0.3696 — scanner liveness truth: do not wait for the 30s
+            // scanner heartbeat to publish scannerActive=true. The pipeline
+            // health screen can snapshot at 20-25s uptime while SCAN_CB/INTAKE
+            // are already flowing, causing a false SCANNER_INACTIVE diagnosis
+            // and RuntimeDoctor restart churn. If the bot loop sees a live
+            // scanner object on a normal tick, publish it immediately.
+            try {
+                val scAliveNow = try { marketScanner?.isAlive() == true } catch (_: Throwable) { false }
+                if (status.running && scAliveNow) {
+                    com.lifecyclebot.engine.BotRuntimeController.markScannerActive(
+                        com.lifecyclebot.engine.BotRuntimeController.currentGeneration(), true)
+                }
+            } catch (_: Throwable) {}
             ForensicLogger.phase(
                 ForensicLogger.PHASE.SCAN_CB,
                 "_loop",
@@ -10434,6 +10447,12 @@ class BotService : Service() {
         try {
             val sc = marketScanner
             val scAlive = try { sc?.isAlive() ?: false } catch (_: Throwable) { false }
+            try {
+                if (status.running && scAlive) {
+                    com.lifecyclebot.engine.BotRuntimeController.markScannerActive(
+                        com.lifecyclebot.engine.BotRuntimeController.currentGeneration(), true)
+                }
+            } catch (_: Throwable) {}
             val mqDepth = try { TokenMergeQueue.size() } catch (_: Throwable) { -1 }
             val wlSize = try { GlobalTradeRegistry.size() } catch (_: Throwable) { -1 }
             val openCount = status.tokens.values.count { it.position.isOpen }

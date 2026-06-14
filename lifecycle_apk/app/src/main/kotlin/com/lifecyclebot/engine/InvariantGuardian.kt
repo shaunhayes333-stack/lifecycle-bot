@@ -41,11 +41,18 @@ object InvariantGuardian {
             out += Fault(FaultCode.ORPHAN_LIVE_POSITIONS, "HIGH",
                 "orphanLive=${s.orphanLivePositions} liveOpen=${s.liveOpenPositions} host=${s.hostTrackerOpenCount} walletHeld=${s.walletHeldMints}")
         }
-        // PATCH ITEM 3/7: scanner inactive while runtime RUNNING (and not user-disabled).
-        if (uiRunning && s.botLoopActive && !s.scannerActive &&
+        // V5.0.3696 — scanner inactive must mean no scanner evidence, not just
+        // a stale runtime boolean. Operator dump 5.0.3690 showed
+        // scannerActive=false while SCAN_CB=166, INTAKE=73, SAFETY=40 and
+        // source callbacks were flowing. That is not scanner death; it is a
+        // delayed liveness publication race. Only raise SCANNER_INACTIVE when
+        // runtime says inactive AND no downstream discovery/intake/eval evidence
+        // exists in the current capture window.
+        val scannerEvidence = s.intake > 0L || s.safety > 0L || s.v3 > 0L || s.laneEval > 0L || s.fdg > 0L || s.exec > 0L
+        if (uiRunning && s.botLoopActive && !s.scannerActive && !scannerEvidence &&
             !(try { RuntimeRepairState.isScannerUserDisabled() } catch (_: Throwable) { false })) {
             out += Fault(FaultCode.SCANNER_INACTIVE, "HIGH",
-                "scannerActive=false while RUNNING (botLoop=${s.botLoopActive})")
+                "scannerActive=false while RUNNING and no scanner evidence (botLoop=${s.botLoopActive})")
         }
         // V5.9.1162 — compare live domain to live wallet truth only. Paper positions
         // are expected to have walletHeldMints=0 and must not be reported as healthy
