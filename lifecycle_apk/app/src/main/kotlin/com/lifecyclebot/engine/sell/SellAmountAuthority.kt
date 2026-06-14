@@ -32,6 +32,12 @@ object SellAmountAuthority {
 
     private const val TAG = "SellAmountAuthority"
     private const val FRESH_TX_PARSE_MS = 90_000L
+    // V5.0.3711 — emergency exits may use buy-tied TX_PARSE longer than
+    // discretionary exits. Helius/Jupiter token-account indexing can return an
+    // empty map for minutes while a live meme is dumping; a STRICT_SL /
+    // CATASTROPHE full exit must attempt the Jupiter exact-in raw amount instead
+    // of silently requeueing until the stop is worthless.
+    private const val EMERGENCY_TX_PARSE_MS = 10 * 60_000L
 
     sealed class Resolution {
         data class Confirmed(
@@ -189,7 +195,8 @@ object SellAmountAuthority {
         if (canBroadcastLive(resolution)) return true
         if (!isEmergencyExitReason(reason)) return false
         val cached = txParseCache[mint] ?: return false
-        if (System.currentTimeMillis() - cached.capturedAtMs > FRESH_TX_PARSE_MS) return false
+        val maxAgeMs = if (isEmergencyExitReason(reason)) EMERGENCY_TX_PARSE_MS else FRESH_TX_PARSE_MS
+        if (System.currentTimeMillis() - cached.capturedAtMs > maxAgeMs) return false
         if (cached.rawAmount.signum() <= 0) return false
         if (cached.txSignature.isBlank()) return false
         if (requestedRawAmount != null && requestedRawAmount > cached.rawAmount) return false

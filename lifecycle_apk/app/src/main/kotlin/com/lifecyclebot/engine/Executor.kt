@@ -12238,25 +12238,68 @@ class Executor(
                             return SellResult.FAILED_RETRYABLE
                         }
                     } else {
-                        // Refresh confirmed empty AND tracker not authoritative.
-                        // Emit SELL_RETRY_SCHEDULED exactly once per stuck
-                        // window (first retry only).
-                        val firstTime = retryCount == 1
-                        if (firstTime) {
-                            onLog("🛑 SELL_RETRY_SCHEDULED: ${ts.symbol} RPC-EMPTY-MAP — refresh confirmed empty AND tracker not authoritative. Will retry on next sell tick.", tradeId.mint)
-                            ErrorLogger.warn("Executor",
-                                "SELL_RETRY_SCHEDULED ${ts.symbol} RPC-EMPTY-MAP after one refresh — retry armed")
+                        // V5.0.3711 — EMERGENCY_TX_PARSE_SELL_RESCUE.
+                        // Docs check: Jupiter ExactIn sell amount is the raw input-token
+                        // amount. If the wallet RPC returns an empty account map but the
+                        // buy path recorded a fresh, buy-tied TX_PARSE raw balance, a
+                        // catastrophic FULL exit should attempt that raw amount instead of
+                        // silently requeueing. This is NOT used for discretionary/partial
+                        // profit exits; those still require wallet-confirmed balance.
+                        val txSnap = try { com.lifecyclebot.engine.sell.SellAmountAuthority.txParseSnapshot(ts.mint) } catch (_: Throwable) { null }
+                        val emergencyTxParseAllowed = try {
+                            txSnap != null && com.lifecyclebot.engine.sell.SellAmountAuthority.canBroadcastLiveOrEmergency(
+                                resolution = null,
+                                reason = reason,
+                                mint = ts.mint,
+                                requestedRawAmount = txSnap.rawAmount,
+                            )
+                        } catch (_: Throwable) { false }
+                        if (emergencyTxParseAllowed && txSnap != null) {
+                            tokenUnits = txSnap.rawAmount.coerceAtMost(java.math.BigInteger.valueOf(Long.MAX_VALUE)).toLong()
+                            zeroBalanceRetries.remove(retryCountKey)
+                            mapEmpty = false
+                            val ui = java.math.BigDecimal(txSnap.rawAmount).movePointLeft(txSnap.decimals).toDouble()
+                            tokenData = Pair(ui, txSnap.decimals)
+                            onChainBalances = mapOf(ts.mint to tokenData!!)
+                            onLog(
+                                "🚨 SELL_QTY_SOURCE=FRESH_TX_PARSE_EMERGENCY: ${ts.symbol} — RPC empty after refresh, " +
+                                    "using buy-tied raw=$tokenUnits decimals=${txSnap.decimals} sig=${txSnap.txSignature.take(8)} reason=$reason",
+                                tradeId.mint,
+                            )
                             LiveTradeLogStore.log(
                                 sellTradeKey, ts.mint, ts.symbol, "SELL",
                                 LiveTradeLogStore.Phase.SELL_BALANCE_CHECK,
-                                "SELL_RETRY_SCHEDULED — RPC empty after one refresh AND tracker not authoritative (entry=${tracked?.status?.name} ui=${tracked?.uiAmount} sellSig=${tracked?.sellSignature?.take(8)}); will retry next sell tick (count=$retryCount)",
+                                "SELL_QTY_SOURCE=FRESH_TX_PARSE_EMERGENCY raw=$tokenUnits decimals=${txSnap.decimals} sig=${txSnap.txSignature.take(8)} — catastrophic full-exit RPC-empty fallback, proceeding to Jupiter ExactIn.",
+                                tokenAmount = ui,
                                 traderTag = "MEME",
                             )
-                        } else if (retryCount % 10 == 0) {
-                            // Heartbeat every 10 retries.
-                            onLog("🛑 SELL still blocked: ${ts.symbol} RPC-EMPTY-MAP (retry $retryCount) — RPC still empty AND tracker not authoritative.", tradeId.mint)
+                            try {
+                                ForensicLogger.lifecycle(
+                                    "SELL_QTY_SOURCE_FRESH_TX_PARSE_EMERGENCY",
+                                    "mint=${ts.mint.take(10)} sym=${ts.symbol} raw=$tokenUnits decimals=${txSnap.decimals} reason=$reason",
+                                )
+                            } catch (_: Throwable) {}
+                        } else {
+                            // Refresh confirmed empty AND tracker not authoritative.
+                            // Emit SELL_RETRY_SCHEDULED exactly once per stuck
+                            // window (first retry only).
+                            val firstTime = retryCount == 1
+                            if (firstTime) {
+                                onLog("🛑 SELL_RETRY_SCHEDULED: ${ts.symbol} RPC-EMPTY-MAP — refresh confirmed empty AND tracker not authoritative. Will retry on next sell tick.", tradeId.mint)
+                                ErrorLogger.warn("Executor",
+                                    "SELL_RETRY_SCHEDULED ${ts.symbol} RPC-EMPTY-MAP after one refresh — retry armed")
+                                LiveTradeLogStore.log(
+                                    sellTradeKey, ts.mint, ts.symbol, "SELL",
+                                    LiveTradeLogStore.Phase.SELL_BALANCE_CHECK,
+                                    "SELL_RETRY_SCHEDULED — RPC empty after one refresh AND tracker not authoritative (entry=${tracked?.status?.name} ui=${tracked?.uiAmount} sellSig=${tracked?.sellSignature?.take(8)}); will retry next sell tick (count=$retryCount)",
+                                    traderTag = "MEME",
+                                )
+                            } else if (retryCount % 10 == 0) {
+                                // Heartbeat every 10 retries.
+                                onLog("🛑 SELL still blocked: ${ts.symbol} RPC-EMPTY-MAP (retry $retryCount) — RPC still empty AND tracker not authoritative.", tradeId.mint)
+                            }
+                            return SellResult.FAILED_RETRYABLE
                         }
-                        return SellResult.FAILED_RETRYABLE
                     }
                 }
                 // Recovered — fall through to the normal tokenData checks

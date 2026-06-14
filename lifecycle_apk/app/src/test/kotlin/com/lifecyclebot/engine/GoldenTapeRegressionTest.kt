@@ -601,4 +601,19 @@ class GoldenTapeRegressionTest {
         assertTrue("External trader isolation authority must remain intact", bot.contains("setOf(com.lifecyclebot.engine.EnabledTraderAuthority.Trader.MEME)"))
     }
 
+
+    @Test
+    fun catastrophic_live_sell_uses_fresh_tx_parse_when_rpc_empty() {
+        val exec = java.io.File("src/main/kotlin/com/lifecyclebot/engine/Executor.kt").readText()
+        assertTrue(exec.contains("EMERGENCY_TX_PARSE_SELL_RESCUE"))
+        assertTrue(exec.contains("SELL_QTY_SOURCE_FRESH_TX_PARSE_EMERGENCY"))
+        assertTrue(exec.contains("Jupiter ExactIn"))
+        assertTrue(exec.contains("canBroadcastLiveOrEmergency"))
+        val authority = java.io.File("src/main/kotlin/com/lifecyclebot/engine/sell/SellAmountAuthority.kt").readText()
+        assertTrue(authority.contains("EMERGENCY_TX_PARSE_MS = 10 * 60_000L"))
+        assertTrue(authority.contains("val maxAgeMs = if (isEmergencyExitReason(reason)) EMERGENCY_TX_PARSE_MS else FRESH_TX_PARSE_MS"))
+        val pumpTests = java.io.File("src/test/kotlin/com/lifecyclebot/engine/sell/LiveSellSafetyAcceptanceTest.kt").readText()
+        assertTrue("Partial sells must remain Jupiter exact-in, not PumpPortal percent", pumpTests.contains("partial sells stay off PumpPortal"))
+    }
+
 }
