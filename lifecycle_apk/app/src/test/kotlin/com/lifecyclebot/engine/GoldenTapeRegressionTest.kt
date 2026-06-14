@@ -576,4 +576,17 @@ class GoldenTapeRegressionTest {
         assertFalse("PumpPortal must not outrank DEX/Raydium again", queue.contains("\"PUMP_PORTAL_WS\" to 70"))
     }
 
+
+    @Test
+    fun closed_tracker_with_authoritative_proof_must_not_requeue_forever_on_rpc_unknown() {
+        val exec = java.io.File("src/main/kotlin/com/lifecyclebot/engine/Executor.kt").readText()
+        assertTrue(exec.contains("SELL_ABORT_TRACKER_CLOSED_WALLET_UNKNOWN_TERMINAL"))
+        assertTrue(exec.contains("PositionCloseLedger.isClosed(ts.mint)"))
+        assertTrue(exec.contains("CLOSED_SOLD_BY_AATE"))
+        assertTrue(exec.contains("CLOSED_EXTERNALLY_MANUAL_SWAP"))
+        assertTrue(exec.contains("PendingSellQueue.remove(ts.mint)"))
+        assertTrue(exec.contains("return SellResult.ALREADY_CLOSED"))
+        assertTrue(exec.contains("SELL_PAUSED_TRACKER_CLOSED_WALLET_UNKNOWN"))
+    }
+
 }

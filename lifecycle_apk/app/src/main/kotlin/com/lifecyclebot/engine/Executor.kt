@@ -11845,6 +11845,33 @@ class Executor(
                     return SellResult.ALREADY_CLOSED
                 }
                 if (isUnknown) {
+                    // V5.0.3709 — CLOSED_TRACKER_UNKNOWN_RPC_RETRY_LOOP.
+                    // If the canonical tracker/ledger already carries an authoritative
+                    // close proof, an RPC-empty/unknown read must NOT requeue forever.
+                    // The report showed tracker=CLOSED ui=0 walletHeld=0 with attempt=17:
+                    // returning FAILED_RETRYABLE here re-added the same mint to
+                    // PendingSellQueue every loop and kept EXIT_COORDINATOR_STALE_RESET
+                    // climbing. This is not a fake close: it only terminally clears the
+                    // local TokenState when host/ledger already says closed.
+                    val ledgerClosed = try { com.lifecyclebot.engine.PositionCloseLedger.isClosed(ts.mint) } catch (_: Throwable) { false }
+                    val hostAuthoritativeClosed = hostRow != null && (
+                        hostRow.status == HostWalletTokenTracker.PositionStatus.CLOSED_SOLD_BY_AATE ||
+                        hostRow.status == HostWalletTokenTracker.PositionStatus.CLOSED_EXTERNALLY_MANUAL_SWAP ||
+                        hostRow.status == HostWalletTokenTracker.PositionStatus.SOLD_CONFIRMED ||
+                        (hostRow.status == HostWalletTokenTracker.PositionStatus.CLOSED && !hostRow.sellSignature.isNullOrBlank())
+                    )
+                    if (ledgerClosed || hostAuthoritativeClosed) {
+                        try { ts.position = pos.copy(qtyToken = 0.0, pendingVerify = false) } catch (_: Throwable) {}
+                        try { PendingSellQueue.remove(ts.mint) } catch (_: Throwable) {}
+                        try {
+                            ForensicLogger.lifecycle(
+                                "SELL_ABORT_TRACKER_CLOSED_WALLET_UNKNOWN_TERMINAL",
+                                "mint=${ts.mint.take(12)} sym=${ts.symbol} reason=$reason tracker=${hostRow?.status} " +
+                                    "ui=${hostRow?.uiAmount} ledgerClosed=$ledgerClosed sig=${hostRow?.sellSignature?.take(8) ?: "none"}"
+                            )
+                        } catch (_: Throwable) {}
+                        return SellResult.ALREADY_CLOSED
+                    }
                     // Schedule priority reconcile next tick. Do NOT spam LIVE SELL START.
                     try { com.lifecyclebot.engine.sell.LiveWalletReconciler.reconcileNow(wallet, "SELL_PAUSED_TRACKER_CLOSED_${ts.mint.take(8)}") } catch (_: Throwable) {}
                     try {
