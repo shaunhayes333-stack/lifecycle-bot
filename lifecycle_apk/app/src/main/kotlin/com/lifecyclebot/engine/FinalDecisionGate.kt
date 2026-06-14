@@ -1541,30 +1541,61 @@ object FinalDecisionGate {
         }
 
         if (exitCapacityUsd < EXECUTION_FLOOR) {
-            ErrorLogger.info("FDG", "👁️ LIQ_FLOOR: ${ts.symbol} | exitCap=\$${exitCapacityUsd.toInt()} (raw=\$${ts.lastLiquidityUsd.toInt()}) < \$${EXECUTION_FLOOR.toInt()} | WATCH_ONLY (no execution)")
+            ErrorLogger.info("FDG", "👁️ LIQ_FLOOR: ${ts.symbol} | exitCap=\$${exitCapacityUsd.toInt()} (raw=\$${ts.lastLiquidityUsd.toInt()}) < \$${EXECUTION_FLOOR.toInt()} | mode=$mode")
 
-            return FinalDecision(
-                shouldTrade = false,
-                mode = mode,
-                approvalClass = ApprovalClass.BLOCKED,
-                quality = candidate.setupQuality,
-                confidence = confidence,
-                edge = if (candidate.setupQuality in listOf("A+", "A", "B")) EdgeVerdict.WEAK else EdgeVerdict.SKIP,
-                blockReason = "LIQUIDITY_BELOW_EXECUTION_FLOOR",
-                blockLevel = BlockLevel.MODE,
-                sizeSol = 0.0,
-                tags = listOf("liq_below_exec_floor", "shadow_track", "watch_only"),
-                mint = ts.mint,
-                symbol = ts.symbol,
-                approvalReason = "Exit capacity \$${exitCapacityUsd.toInt()} < \$${EXECUTION_FLOOR.toInt()} execution floor - WATCH ONLY",
-                gateChecks = listOf(
+            // V5.0.3680 — operator directive (Doctrine of Parity continued).
+            // The execution-floor block was the #1 visible block in the
+            // PAPER snapshot (28 / 28 INTAKE-passing tokens died here over
+            // a 7400s run). Operator: "ensure there are no other duplicates
+            // etc blocking trading in paper or live."
+            //
+            // In PAPER, convert the hard block to a DUST PROBE size penalty
+            // (mirrors the V5.0.3676 LOW_CONFIDENCE fix): the bot can take
+            // learning samples on low-liq tokens without polluting live
+            // exit safety. In LIVE the hard block remains because the live
+            // executor's own pre-flight pool check is the right place to
+            // own exit-route safety — keeping FDG strict here would double-
+            // block a token the live executor would already refuse.
+            if (mode == TradeMode.PAPER) {
+                val dustMult = when {
+                    exitCapacityUsd < EXECUTION_FLOOR * 0.25 -> 0.20
+                    exitCapacityUsd < EXECUTION_FLOOR * 0.50 -> 0.30
+                    else                                     -> 0.45
+                }
+                sizeMultiplier *= dustMult
+                checks.add(
                     GateCheck(
                         "liq_exec_floor",
-                        false,
-                        "exitCap \$${exitCapacityUsd.toInt()} (BC-only? ${try { com.lifecyclebot.engine.LiquidityClassifier.isBcSimOnly(ts) } catch (_: Throwable) { false }}) < \$${EXECUTION_FLOOR.toInt()} = shadow track only"
+                        true,
+                        "PAPER DUST PROBE: exitCap \$${exitCapacityUsd.toInt()} < \$${EXECUTION_FLOOR.toInt()} → size×${dustMult.format(2)} (no hard block)"
                     )
                 )
-            )
+                tags.add("paper_liq_floor_dust_probe")
+                ErrorLogger.info("FDG", "🔬 PAPER LIQ DUST PROBE: ${ts.symbol} | exitCap=\$${exitCapacityUsd.toInt()} < \$${EXECUTION_FLOOR.toInt()} → size×${dustMult.format(2)}")
+            } else {
+                return FinalDecision(
+                    shouldTrade = false,
+                    mode = mode,
+                    approvalClass = ApprovalClass.BLOCKED,
+                    quality = candidate.setupQuality,
+                    confidence = confidence,
+                    edge = if (candidate.setupQuality in listOf("A+", "A", "B")) EdgeVerdict.WEAK else EdgeVerdict.SKIP,
+                    blockReason = "LIQUIDITY_BELOW_EXECUTION_FLOOR",
+                    blockLevel = BlockLevel.MODE,
+                    sizeSol = 0.0,
+                    tags = listOf("liq_below_exec_floor", "shadow_track", "watch_only"),
+                    mint = ts.mint,
+                    symbol = ts.symbol,
+                    approvalReason = "Exit capacity \$${exitCapacityUsd.toInt()} < \$${EXECUTION_FLOOR.toInt()} execution floor - WATCH ONLY",
+                    gateChecks = listOf(
+                        GateCheck(
+                            "liq_exec_floor",
+                            false,
+                            "exitCap \$${exitCapacityUsd.toInt()} (BC-only? ${try { com.lifecyclebot.engine.LiquidityClassifier.isBcSimOnly(ts) } catch (_: Throwable) { false }}) < \$${EXECUTION_FLOOR.toInt()} = shadow track only"
+                        )
+                    )
+                )
+            }
         }
 
         if (tradingModeStr.isNotBlank()) {

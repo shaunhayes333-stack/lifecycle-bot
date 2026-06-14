@@ -10502,9 +10502,25 @@ class Executor(
                 recordTrade(tsLearningSnap, tradeSnap)
                 try { security.recordTrade(tradeSnap) } catch (_: Throwable) {}
                 try { ForensicLogger.lifecycle("PAPER_SELL_JOURNAL_DONE", "mint=${tradeSnap.mint.take(10)} symbol=${tsLearningSnap.symbol} pnlPct=${tradeSnap.pnlPct.toInt()} reason=${tradeSnap.reason}") } catch (_: Throwable) {}
+                // V5.0.3680 — TELEMETRY GAP. EXEC_PAPER_SELL_OK was always 0
+                // despite EXEC_SELL=67 in journal. Same gap pattern as the
+                // V5.0.3679 LIVE_BUY_FAIL telemetry fix. Increment the per-
+                // mode exec counter so the operator dashboard reflects the
+                // 67 paper sells actually happening.
+                try { ForensicLogger.exec(
+                    "PAPER_SELL_OK",
+                    tsLearningSnap.symbol,
+                    "mint=${tradeSnap.mint.take(10)} pnlPct=${tradeSnap.pnlPct.toInt()} reason=${tradeSnap.reason.take(40)}",
+                ) } catch (_: Throwable) {}
             } catch (t: Throwable) {
                 ErrorLogger.warn("Executor", "paperSell async journal error: ${t.message}")
                 try { ForensicLogger.lifecycle("PAPER_SELL_JOURNAL_ASYNC_ERR", "mint=${tradeSnap.mint.take(10)} err=${t.message?.take(80)}") } catch (_: Throwable) {}
+                // V5.0.3680 — exec FAIL counter increment on the paper async path.
+                try { ForensicLogger.exec(
+                    "PAPER_SELL_FAIL",
+                    tsLearningSnap.symbol,
+                    "mint=${tradeSnap.mint.take(10)} reason=ASYNC_ERR:${t.message?.take(60)}",
+                ) } catch (_: Throwable) {}
             }
         }
         try { ForensicLogger.lifecycle("PAPER_SELL_LEARNING_ASYNC_QUEUED", "mint=${ts.mint.take(10)} symbol=${ts.symbol} reason=$reason") } catch (_: Throwable) {}

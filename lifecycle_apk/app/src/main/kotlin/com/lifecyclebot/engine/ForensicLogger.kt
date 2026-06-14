@@ -105,10 +105,38 @@ object ForensicLogger {
     }
 
     private fun emitAsync(phase: PHASE, line: String) {
-        if (pending.get() > MAX_PENDING && (phase == PHASE.LANE_EVAL || phase == PHASE.FDG || phase == PHASE.LIFECYCLE)) return
+        // V5.0.3680 — operator forensic snapshot showed emitAsync stalling
+        // the main thread for 1012ms (despite the name "Async"). Root cause:
+        // when the IO HandlerThread backs up under high write volume, the
+        // ioHandler.post() call still takes the underlying MessageQueue
+        // lock, and the JIT-inlined caller path (V3/LANE_EVAL/LIFECYCLE
+        // emits at thousands of events/sec) was blocking the main thread.
+        // Two-part fix: (1) drop more aggressively when pending backlog is
+        // material — raise the dropped phase set so any high-volume non-
+        // critical phase falls through fast; (2) cheaper queue probe.
+        if (!enabled) return
+        val p = pending.get()
+        if (p > MAX_PENDING) {
+            // Drop non-critical phases first; keep EXEC + DECISION + SAFETY
+            // because operator dashboards depend on them.
+            when (phase) {
+                PHASE.LANE_EVAL, PHASE.FDG, PHASE.LIFECYCLE,
+                PHASE.V3, PHASE.SCAN_CB, PHASE.TICK,
+                PHASE.WATCHLIST, PHASE.INTAKE, PHASE.SCAN_SOURCE,
+                PHASE.QUEUE -> return
+                else -> { /* allow EXEC / SAFETY / LANE_DEC / EXEC_GATE / PERMIT */ }
+            }
+        }
+        // V5.0.3680 — hard ceiling so we never queue beyond 2× MAX_PENDING.
+        if (p > MAX_PENDING * 2) return
         pending.incrementAndGet()
-        ioHandler.post {
-            try { ErrorLogger.info("FORENSIC", line) } finally { pending.decrementAndGet() }
+        try {
+            ioHandler.post {
+                try { ErrorLogger.info("FORENSIC", line) } finally { pending.decrementAndGet() }
+            }
+        } catch (_: Throwable) {
+            // Post failed (looper shutting down etc.); decrement so we don't leak the counter.
+            pending.decrementAndGet()
         }
     }
 }

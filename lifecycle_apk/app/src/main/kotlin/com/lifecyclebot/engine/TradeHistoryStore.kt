@@ -962,7 +962,43 @@ object TradeHistoryStore {
      * and returns the win-rate as a percentage. Returns -1.0 when the
      * sample is too small for a meaningful signal (< n/2 decisive trades).
      */
+    // V5.0.3680 — Main-thread cache for rollingWinRatePct. ANR snapshot
+    // showed this called from UI render eating 1269ms (SQLite-ish scan
+    // under `synchronized(lock)` with a large `trades` list). The exact
+    // value updates rarely (only on close); the UI doesn't need sub-second
+    // freshness. Cache the result for ROLLING_WR_CACHE_MS and refresh
+    // off-main when called from the UI.
+    private val rollingWrCache = java.util.concurrent.ConcurrentHashMap<Int, Double>()
+    @Volatile private var rollingWrCacheMs: Long = 0L
+    private val ROLLING_WR_CACHE_MS: Long = 4_000L
+
     fun rollingWinRatePct(n: Int): Double {
+        val now = System.currentTimeMillis()
+        val onMain = try { android.os.Looper.myLooper() == android.os.Looper.getMainLooper() } catch (_: Throwable) { false }
+        if (onMain) {
+            // Serve from cache if fresh; otherwise schedule a bg recompute
+            // and return the prior value (or -1.0 if we've never computed).
+            val cached = rollingWrCache[n]
+            if (cached != null && now - rollingWrCacheMs < ROLLING_WR_CACHE_MS) return cached
+            // Schedule async refresh — never block UI.
+            try {
+                kotlinx.coroutines.GlobalScope.launch(kotlinx.coroutines.Dispatchers.IO) {
+                    try {
+                        val v = computeRollingWinRatePct(n)
+                        rollingWrCache[n] = v
+                        rollingWrCacheMs = System.currentTimeMillis()
+                    } catch (_: Throwable) {}
+                }
+            } catch (_: Throwable) {}
+            return cached ?: -1.0
+        }
+        val v = computeRollingWinRatePct(n)
+        rollingWrCache[n] = v
+        rollingWrCacheMs = now
+        return v
+    }
+
+    private fun computeRollingWinRatePct(n: Int): Double {
         val sample = synchronized(lock) {
             // Newest-first window of the most recent N sells.
             // V5.9.1346 — include PARTIAL_SELL closes (was == "SELL", dropped partials).
