@@ -464,4 +464,20 @@ class GoldenTapeRegressionTest {
         assertFalse("Forensic export must not build JSON on UI click thread", forensicClick.contains("ForensicReportExporter.dumpToFile(applicationContext)"))
     }
 
+
+    @Test
+    fun partial_sell_alerts_and_reports_include_precise_realized_pnl() {
+        val exec = java.io.File("src/main/kotlin/com/lifecyclebot/engine/Executor.kt").readText()
+        assertTrue(exec.contains("PARTIAL_SELL_ACCOUNTING"))
+        assertTrue(exec.contains("fmtPctPrecise()"))
+        assertTrue(exec.contains("fmtSignedSol()"))
+        assertTrue(exec.contains("Partial Profit (PAPER)"))
+        assertTrue(exec.contains("PnL \\${pnlPct.fmtPctPrecise()} (\\${profitSol.fmtSignedSol()} SOL)"))
+        assertFalse("Partial paper alert must not round percent to Int", exec.contains("Sold \\${(pct * 100).toInt()}% @ +\\${pnlPct.toInt()}%"))
+        assertFalse("Partial paper alert must not hide small SOL PnL at 4 decimals", exec.contains("String.format(\"%.4f\", profitSol)"))
+        val phc = java.io.File("src/main/kotlin/com/lifecyclebot/engine/PipelineHealthCollector.kt").readText()
+        assertTrue(phc.contains("PARTIAL_SELL"))
+        assertTrue(phc.contains("%+.6f"))
+    }
+
 }

@@ -4810,10 +4810,14 @@ class Executor(
         }
 
         val wrRecovTag = if (partialLevel == 0) " [${WrRecoveryPartial.statusTag()}]" else ""
-        onLog("💰 $milestoneLabel: SELL ${(sellFraction*100).toInt()}% @ +${gainPct.toInt()}%$wrRecovTag " +
-              "(trigger: +${triggerPct.toInt()}%) | ~${sellSol.fmt(4)} SOL", ts.mint)
+        val partialCostBasisEstimate = pos.costSol * sellFraction
+        val partialGrossEstimate = sellQty * actualPrice
+        val partialNetEstimate = partialGrossEstimate - partialCostBasisEstimate
+        val partialPctEstimate = pct(partialCostBasisEstimate, partialGrossEstimate)
+        onLog("💰 $milestoneLabel: SELL ${(sellFraction*100).toInt()}% @ ${partialPctEstimate.fmtPctPrecise()}$wrRecovTag " +
+              "(trigger: +${triggerPct.toInt()}%) | cost=${partialCostBasisEstimate.fmtSol()} gross=${partialGrossEstimate.fmtSol()} pnl=${partialNetEstimate.fmtSignedSol()}", ts.mint)
         onNotify("💰 $milestoneLabel",
-                 "${ts.symbol}  +${gainPct.toInt()}%  selling ${(sellFraction*100).toInt()}%",
+                 "${ts.symbol}: sold ${(sellFraction*100).toInt()}% | PnL ${partialPctEstimate.fmtPctPrecise()} (${partialNetEstimate.fmtSignedSol()} SOL)",
                  com.lifecyclebot.engine.NotificationHistory.NotifEntry.NotifType.INFO)
         sounds?.playMilestone(gainPct)
 
@@ -4861,8 +4865,10 @@ class Executor(
                     ErrorLogger.debug("Executor", "Treasury split error (checkPartial paper): ${e.message}")
                 }
             }
+            try { ForensicLogger.lifecycle("PARTIAL_SELL_ACCOUNTING",
+                "mode=paper mint=${ts.mint.take(10)} symbol=${ts.symbol} soldPct=${(sellFraction*100).fmt(1)} cost=${partialCostBasisSol.fmtSol()} gross=${(sellQty * actualPrice).fmtSol()} pnl=${paperPnlSol.fmtSignedSol()} net=${paperPartialNetPnl.fmtSignedSol()} pct=${pct(partialCostBasisSol, sellQty * actualPrice).fmtPctPrecise()} reason=${trade.reason}") } catch (_: Throwable) {}
             onLog("PAPER PARTIAL SELL ${(sellFraction*100).toInt()}% | " +
-                  "${sellSol.fmt(4)} SOL | pnl ${paperPnlSol.fmt(4)} SOL", ts.mint)
+                  "cost=${partialCostBasisSol.fmtSol()} gross=${(sellQty * actualPrice).fmtSol()} pnl=${paperPnlSol.fmtSignedSol()} (${pct(partialCostBasisSol, sellQty * actualPrice).fmtPctPrecise()})", ts.mint)
         } else {
             // V5.9.751b — wallet guaranteed non-null by PARTIAL_SELL_DEFERRED guard above.
             // Shadow the nullable param with a non-null binding so the rest of
@@ -5026,10 +5032,12 @@ class Executor(
                         }
                     } catch (_: Throwable) { /* fail-soft */ }
                 }
-                onLog("LIVE PARTIAL SELL ${(sellFraction*100).toInt()}% @ +${gainPct.toInt()}% | " +
-                      "${solBack.fmt(4)}◎ | sig=${sig.take(16)}…", ts.mint)
+                try { ForensicLogger.lifecycle("PARTIAL_SELL_ACCOUNTING",
+                    "mode=live mint=${ts.mint.take(10)} symbol=${ts.symbol} soldPct=${(sellFraction*100).fmt(1)} cost=${livePartialCostBasisSol.fmtSol()} gross=${solBack.fmtSol()} pnl=${livePnl.fmtSignedSol()} net=${netPnl.fmtSignedSol()} pct=${liveScore.fmtPctPrecise()} reason=${liveTrade.reason} sig=${sig.take(16)}") } catch (_: Throwable) {}
+                onLog("LIVE PARTIAL SELL ${(sellFraction*100).toInt()}% @ ${liveScore.fmtPctPrecise()} | " +
+                      "cost=${livePartialCostBasisSol.fmtSol()} gross=${solBack.fmtSol()} pnl=${livePnl.fmtSignedSol()} net=${netPnl.fmtSignedSol()} | sig=${sig.take(16)}…", ts.mint)
                 onNotify("💰 Live Partial Sell",
-                    "${ts.symbol}  +${gainPct.toInt()}%  sold ${(sellFraction*100).toInt()}%",
+                    "${ts.symbol}: sold ${(sellFraction*100).toInt()}% | PnL ${liveScore.fmtPctPrecise()} (${netPnl.fmtSignedSol()} SOL net)",
                     com.lifecyclebot.engine.NotificationHistory.NotifEntry.NotifType.INFO)
                 // V5.9.743 — wire 70/30 treasury siphon onto LIVE autonomous
                 // partial-sell ladder. Use netPnl (post-fee) — same figure
@@ -9802,12 +9810,14 @@ class Executor(
             } else 0.0
             onPaperBalanceChange?.invoke((soldValueSol + profitSol) - partialTreasuryShare)
 
+            try { ForensicLogger.lifecycle("PARTIAL_SELL_ACCOUNTING",
+                "mode=paper mint=${ts.mint.take(10)} symbol=${ts.symbol} soldPct=${(pct*100).fmt(1)} cost=${soldValueSol.fmtSol()} gross=${(soldValueSol + profitSol).fmtSol()} pnl=${profitSol.fmtSignedSol()} net=${partialSellNetPnl.fmtSignedSol()} pct=${pnlPct.fmtPctPrecise()} reason=${trade.reason}") } catch (_: Throwable) {}
             ErrorLogger.info("Executor", "📄 PAPER PARTIAL SELL: ${ts.symbol} | " +
-                "sold=${(pct * 100).toInt()}% @ ${pnlPct.toInt()}% | profit=${profitSol}SOL | " +
+                "sold=${(pct * 100).toInt()}% @ ${pnlPct.fmtPctPrecise()} | cost=${soldValueSol.fmtSol()} gross=${(soldValueSol + profitSol).fmtSol()} profit=${profitSol.fmtSignedSol()}SOL net=${partialSellNetPnl.fmtSignedSol()}SOL | " +
                 "remaining=${((1-pct) * 100).toInt()}%")
 
             onNotify("📊 Partial Profit (PAPER)",
-                "${ts.symbol}: Sold ${(pct * 100).toInt()}% @ +${pnlPct.toInt()}% | +${String.format("%.4f", profitSol)}SOL",
+                "${ts.symbol}: sold ${(pct * 100).toInt()}% | PnL ${pnlPct.fmtPctPrecise()} (${profitSol.fmtSignedSol()} SOL)",
                 com.lifecyclebot.engine.NotificationHistory.NotifEntry.NotifType.INFO)
 
         } else {
@@ -10137,11 +10147,13 @@ class Executor(
                     // liveTrade above is the canonical partial outcome and trains
                     // through TradeHistoryStore → CanonicalOutcomeBus when valid.
 
-                    onLog("✅ LIVE PARTIAL SELL ${(pct*100).toInt()}% @ +${pnlPct.toInt()}% | " +
-                          "${solBack.fmt(4)}◎ | sig=${finalSig.take(16)}…", ts.mint)
+                    try { ForensicLogger.lifecycle("PARTIAL_SELL_ACCOUNTING",
+                        "mode=live mint=${ts.mint.take(10)} symbol=${ts.symbol} soldPct=${(pct*100).fmt(1)} cost=${livePartialCostBasisSol.fmtSol()} gross=${solBack.fmtSol()} pnl=${livePnl.fmtSignedSol()} net=${netPnl.fmtSignedSol()} pct=${liveScore.fmtPctPrecise()} reason=${liveTrade.reason} sig=${finalSig.take(16)} source=requestPartialSell") } catch (_: Throwable) {}
+                    onLog("✅ LIVE PARTIAL SELL ${(pct*100).toInt()}% @ ${liveScore.fmtPctPrecise()} | " +
+                          "cost=${livePartialCostBasisSol.fmtSol()} gross=${solBack.fmtSol()} pnl=${livePnl.fmtSignedSol()} net=${netPnl.fmtSignedSol()} | sig=${finalSig.take(16)}…", ts.mint)
                     
                     onNotify("💰 Live Partial Sell",
-                        "${ts.symbol}  +${pnlPct.toInt()}%  sold ${(pct*100).toInt()}%",
+                        "${ts.symbol}: sold ${(pct*100).toInt()}% | PnL ${liveScore.fmtPctPrecise()} (${netPnl.fmtSignedSol()} SOL net)",
                         com.lifecyclebot.engine.NotificationHistory.NotifEntry.NotifType.INFO)
                         
                 } catch (e: Exception) {
@@ -15359,4 +15371,25 @@ class Executor(
         }
     }
 }
+private fun Double.fmtSol(): String = when {
+    !this.isFinite() -> "0.000000"
+    kotlin.math.abs(this) >= 1.0 -> "%.4f".format(this)
+    kotlin.math.abs(this) >= 0.01 -> "%.5f".format(this)
+    else -> "%.6f".format(this)
+}
+
+private fun Double.fmtSignedSol(): String = when {
+    !this.isFinite() -> "+0.000000"
+    kotlin.math.abs(this) >= 1.0 -> "%+.4f".format(this)
+    kotlin.math.abs(this) >= 0.01 -> "%+.5f".format(this)
+    else -> "%+.6f".format(this)
+}
+
+private fun Double.fmtPctPrecise(): String = when {
+    !this.isFinite() -> "+0.00%"
+    kotlin.math.abs(this) >= 100.0 -> "%+.1f%%".format(this)
+    kotlin.math.abs(this) >= 10.0 -> "%+.2f%%".format(this)
+    else -> "%+.3f%%".format(this)
+}
+
 private fun Double.fmtPct() = "%+.1f%%".format(this)

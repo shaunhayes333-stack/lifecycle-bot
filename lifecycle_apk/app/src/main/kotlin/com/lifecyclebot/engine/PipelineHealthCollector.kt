@@ -1127,8 +1127,8 @@ object PipelineHealthCollector {
                     .append(ex.side.padEnd(4)).append(' ')
                     .append(ex.mode.padEnd(5)).append(' ')
                     .append(ex.symbol.padEnd(10)).append(' ')
-                    .append("sol=").append(String.format("%.3f", ex.sizeSol)).append(' ')
-                    .append("pnl=").append(String.format("%+.3f", ex.pnlSol))
+                    .append("sol=").append(if (ex.side.equals("PARTIAL_SELL", true)) String.format("%.6f", ex.sizeSol) else String.format("%.3f", ex.sizeSol)).append(' ')
+                    .append("pnl=").append(if (ex.side.equals("PARTIAL_SELL", true)) String.format("%+.6f", ex.pnlSol) else String.format("%+.3f", ex.pnlSol))
                 if (ex.reason.isNotBlank()) sb.append(" reason=").append(ex.reason.take(60))
                 sb.append('\n')
             }
