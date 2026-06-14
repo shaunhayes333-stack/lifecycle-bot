@@ -390,7 +390,7 @@ object TreasuryManager {
      * wallet; only the profit is siphoned. Caller is expected to deduct this
      * amount from the wallet credit so accounting stays consistent.
      */
-    fun contributeFullyFromTreasuryScalp(realizedProfitSol: Double, solPrice: Double): Double {
+    fun contributeFullyFromTreasuryScalp(realizedProfitSol: Double, solPrice: Double, isPaper: Boolean = false): Double {
         if (realizedProfitSol <= 0.0) return 0.0
         if (realizedProfitSol < 1e-6) return 0.0
         val safePx = if (solPrice > 0.0) solPrice else 0.0
@@ -412,7 +412,7 @@ object TreasuryManager {
         // V5.9.495z26 — live mode: physically move the SOL on-chain to the
         // treasury wallet so the operator's two-wallet separation is real,
         // not virtual. Paper mode keeps the virtual ledger only (no transfer).
-        triggerOnChainTransferIfLive(realizedProfitSol, "TREASURY_SCALP_100")
+        triggerOnChainTransferIfLive(realizedProfitSol, "TREASURY_SCALP_100", isPaperSell = isPaper)
         return realizedProfitSol
     }
 
@@ -426,7 +426,7 @@ object TreasuryManager {
      * @param solPrice           current SOL/USD price (for USD bookkeeping + events)
      * @return amount actually moved to treasury (0 if profit was non-positive)
      */
-    fun contributeFromMemeSell(realizedProfitSol: Double, solPrice: Double): Double {
+    fun contributeFromMemeSell(realizedProfitSol: Double, solPrice: Double, isPaper: Boolean = false): Double {
         if (realizedProfitSol <= 0.0) return 0.0
         // V5.9.495z17 — operator: skip dust splits below ~$0.40 USD so the
         // treasury ledger doesn't fill with rounding-error events.
@@ -467,7 +467,7 @@ object TreasuryManager {
         ))
         forceSave()  // V5.9.1473 — write-through (was throttled autoSave); APK-update-safe
         // V5.9.495z26 — live mode: also push the SOL on-chain trading→treasury.
-        triggerOnChainTransferIfLive(contribSol, "MEME_SELL_75_25")
+        triggerOnChainTransferIfLive(contribSol, "MEME_SELL_75_25", isPaperSell = isPaper)
         return contribSol
     }
 
@@ -870,8 +870,25 @@ object TreasuryManager {
      * is still earmarked as treasury, and the next reconciliation / manual
      * sweep will move it. Same defensive pattern as RecoveryExecutionLoop.
      */
-    private fun triggerOnChainTransferIfLive(amountSol: Double, memo: String) {
+    private fun triggerOnChainTransferIfLive(amountSol: Double, memo: String, isPaperSell: Boolean = false) {
         if (amountSol < 0.000001) return
+        // V5.0.3679 — DRAIN ROOT-CAUSE FIX. A paper SELL must NEVER move real
+        // SOL on-chain, regardless of the global cfg.paperMode flag. The
+        // previous gate at line 884 (cfg.paperMode) only protected when the
+        // ENTIRE bot was in paper mode. But the runtime supports mixed
+        // populations: paper-restored / sub-trader paper positions can exist
+        // while the global runtime is LIVE. A paper PARTIAL_SELL with broken
+        // (astronomical) PnL then computed contribSol = pnl * 0.25 → e.g.
+        // 105 SOL, which the working-capital clamp at line 909 silently
+        // capped at (liveBal - floorKeep) ≈ the operator's full wallet
+        // minus 0.13 SOL — repeatedly draining the trading wallet every few
+        // seconds as fake paper partial sells streamed in. Fix at SOURCE:
+        // paper-tagged contributions go straight to the virtual ledger only.
+        if (isPaperSell) {
+            try { com.lifecyclebot.engine.ForensicLogger.lifecycle("TREASURY_PAPER_SELL_NO_ONCHAIN",
+                "memo=$memo amt=${"%.6f".format(amountSol)} (virtual ledger only)") } catch (_: Throwable) {}
+            return
+        }
         val tradingWallet = try { com.lifecyclebot.engine.WalletManager.getWallet() } catch (_: Throwable) { null }
             ?: return
         // Skip if the bot is configured paperMode=true (shadow learning still

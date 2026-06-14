@@ -4796,10 +4796,10 @@ class Executor(
                 try {
                     if (pos.isTreasuryPosition || pos.tradingMode == "TREASURY") {
                         com.lifecyclebot.engine.TreasuryManager.contributeFullyFromTreasuryScalp(
-                            paperPnlSol, com.lifecyclebot.engine.WalletManager.lastKnownSolPrice)
+                            paperPnlSol, com.lifecyclebot.engine.WalletManager.lastKnownSolPrice, isPaper = true)
                     } else {
                         com.lifecyclebot.engine.TreasuryManager.contributeFromMemeSell(
-                            paperPnlSol, com.lifecyclebot.engine.WalletManager.lastKnownSolPrice)
+                            paperPnlSol, com.lifecyclebot.engine.WalletManager.lastKnownSolPrice, isPaper = true)
                     }
                 } catch (e: Exception) {
                     ErrorLogger.debug("Executor", "Treasury split error (checkPartial paper): ${e.message}")
@@ -8356,6 +8356,11 @@ class Executor(
                         "reason=${decision.reasonCode} detail=${decision.detail.take(80)}",
                     )
                 } catch (_: Throwable) {}
+                // V5.0.3679 — counter increment (LiveBuyAdmissionGate block).
+                try { ForensicLogger.exec(
+                    "LIVE_BUY_FAIL", ts.symbol,
+                    "mint=${ts.mint.take(10)} sol=$sol reason=ADMISSION_GATE:${decision.reasonCode}",
+                ) } catch (_: Throwable) {}
                 return
             }
         }
@@ -8363,12 +8368,20 @@ class Executor(
         if (walletSol <= 0) {
             PipelineTracer.executorFailed(ts.symbol, ts.mint, "LIVE", "WALLET_BALANCE_ZERO")
             PipelineTracer.noBuy(ts.symbol, ts.mint, PipelineTracer.NoBuyReason.WALLET_BALANCE_ZERO, "bal=${walletSol}SOL")
+            try { ForensicLogger.exec(
+                "LIVE_BUY_FAIL", ts.symbol,
+                "mint=${ts.mint.take(10)} sol=$sol reason=WALLET_BALANCE_ZERO bal=$walletSol",
+            ) } catch (_: Throwable) {}
             return
         }
         
         if (walletSol < sol) {
             PipelineTracer.executorFailed(ts.symbol, ts.mint, "LIVE", "INSUFFICIENT_BALANCE")
             PipelineTracer.noBuy(ts.symbol, ts.mint, PipelineTracer.NoBuyReason.WALLET_BALANCE_ZERO, "need=${sol}SOL have=${walletSol}SOL")
+            try { ForensicLogger.exec(
+                "LIVE_BUY_FAIL", ts.symbol,
+                "mint=${ts.mint.take(10)} sol=$sol reason=INSUFFICIENT_BALANCE have=$walletSol need=$sol",
+            ) } catch (_: Throwable) {}
             return
         }
 
@@ -8531,6 +8544,11 @@ class Executor(
                     traderTag = "MEME",
                 )
                 PipelineTracer.executorFailed(ts.symbol, ts.mint, "LIVE", "QUOTE_EXHAUSTED")
+                // V5.0.3679 — counter increment so EXEC_LIVE_BUY_FAIL reflects reality.
+                try { com.lifecyclebot.engine.ForensicLogger.exec(
+                    "LIVE_BUY_FAIL", ts.symbol,
+                    "mint=${ts.mint.take(10)} sol=$sol reason=QUOTE_EXHAUSTED",
+                ) } catch (_: Throwable) {}
                 return
             }
 
@@ -8543,6 +8561,11 @@ class Executor(
                     "Quote rejected by SecurityGuard: ${qGuard.reason}",
                     traderTag = "MEME",
                 )
+                // V5.0.3679 — counter increment.
+                try { com.lifecyclebot.engine.ForensicLogger.exec(
+                    "LIVE_BUY_FAIL", ts.symbol,
+                    "mint=${ts.mint.take(10)} sol=$sol reason=QUOTE_REJECTED:${qGuard.reason.take(60)}",
+                ) } catch (_: Throwable) {}
                 return
             }
 
@@ -9306,6 +9329,19 @@ class Executor(
 
         } catch (e: Exception) {
             val safe = security.sanitiseForLog(e.message ?: "unknown")
+            // V5.0.3679 — TELEMETRY GAP FIX. Every live-buy throw used to log
+            // to ErrorLogger / LiveTradeLogStore but NEVER increment
+            // EXEC_LIVE_BUY_FAIL, so operator forensics showed
+            // EXEC_LIVE_ATTEMPT=57 with OK=0 AND FAIL=0 (silent drop). Add the
+            // ForensicLogger.exec("LIVE_BUY_FAIL", ...) counter here so the
+            // catch arm is visible in the per-mode exec funnel.
+            try {
+                com.lifecyclebot.engine.ForensicLogger.exec(
+                    "LIVE_BUY_FAIL",
+                    tradeId.symbol,
+                    "mint=${tradeId.mint.take(10)} sol=$sol reason=THROWN:${safe.take(80)}",
+                )
+            } catch (_: Throwable) {}
             ErrorLogger.error("Trade", "Live buy FAILED for ${tradeId.symbol}: $safe", e)
             onLog("Live buy FAILED: $safe", tradeId.mint)
             LiveTradeLogStore.log(
@@ -9648,10 +9684,10 @@ class Executor(
                 try {
                     if (pos.isTreasuryPosition || pos.tradingMode == "TREASURY") {
                         com.lifecyclebot.engine.TreasuryManager.contributeFullyFromTreasuryScalp(
-                            profitSol, com.lifecyclebot.engine.WalletManager.lastKnownSolPrice)
+                            profitSol, com.lifecyclebot.engine.WalletManager.lastKnownSolPrice, isPaper = true)
                     } else {
                         com.lifecyclebot.engine.TreasuryManager.contributeFromMemeSell(
-                            profitSol, com.lifecyclebot.engine.WalletManager.lastKnownSolPrice)
+                            profitSol, com.lifecyclebot.engine.WalletManager.lastKnownSolPrice, isPaper = true)
                     }
                 } catch (e: Exception) {
                     ErrorLogger.debug("Executor", "Treasury split error (partial paper): ${e.message}")
@@ -10503,9 +10539,9 @@ class Executor(
         val treasuryShare = if (pnl > 0) {
             try {
                 if (pos.isTreasuryPosition || pos.tradingMode == "TREASURY") {
-                    TreasuryManager.contributeFullyFromTreasuryScalp(pnl, WalletManager.lastKnownSolPrice)
+                    TreasuryManager.contributeFullyFromTreasuryScalp(pnl, WalletManager.lastKnownSolPrice, isPaper = true)
                 } else {
-                    TreasuryManager.contributeFromMemeSell(pnl, WalletManager.lastKnownSolPrice)
+                    TreasuryManager.contributeFromMemeSell(pnl, WalletManager.lastKnownSolPrice, isPaper = true)
                 }
             } catch (e: Exception) {
                 ErrorLogger.debug("Executor", "Treasury split error (paper): ${e.message}")
