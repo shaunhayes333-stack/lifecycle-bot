@@ -3995,7 +3995,10 @@ class Executor(
                         }
                     }
                     val dynSlipCap = com.lifecyclebot.engine.sell.SellSafetyPolicy.maxSlippageBps(reason).coerceAtLeast(currentSlip)
-                    val txResult = buildTxWithRetry(quote, wallet.publicKeyB58, dynamicSlippageMaxBps = dynSlipCap)
+                    val txResult = buildTxWithRetry(
+                        quote, wallet.publicKeyB58, dynamicSlippageMaxBps = dynSlipCap,
+                        senderTipLamports = if (c.jitoEnabled) maxOf(com.lifecyclebot.network.JitoTipFetcher.getDynamicTip(c.jitoTipLamports), 200_000L) else 0L,
+                    )
                     LiveTradeLogStore.log(
                         sellTradeKey, ts.mint, ts.symbol, "SELL",
                         LiveTradeLogStore.Phase.SELL_TX_BUILT,
@@ -4019,7 +4022,7 @@ class Executor(
                         "Broadcasting @ ${currentSlip}bps | route=${if (quote.isUltra) "ULTRA" else if (useJito) "JITO" else "RPC"} (attempt $broadcastAttempts)",
                         traderTag = "MEME",
                     )
-                    sig = wallet.signSendAndConfirm(txResult.txBase64, useJito, jitoTip, ultraReqId, c.jupiterApiKey, txResult.isRfqRoute)
+                    sig = wallet.signSendAndConfirm(txResult.txBase64, useJito, jitoTip, ultraReqId, c.jupiterApiKey, txResult.isRfqRoute, txResult.senderCompatible)
                     LiveTradeLogStore.log(
                         sellTradeKey, ts.mint, ts.symbol, "SELL",
                         LiveTradeLogStore.Phase.SELL_CONFIRMED,
@@ -4937,14 +4940,17 @@ class Executor(
                     // here; Jupiter dynamicSlippage handles in-route escalation).
                     val quote     = getQuoteWithSlippageGuard(
                         ts.mint, JupiterApi.SOL_MINT, sellUnits, sellSlippage, isBuy = false)
-                    val txResult  = buildTxWithRetry(quote, wallet.publicKeyB58)
+                    val txResult  = buildTxWithRetry(
+                        quote, wallet.publicKeyB58,
+                        senderTipLamports = if (c.jitoEnabled) maxOf(c.jitoTipLamports, 200_000L) else 0L,
+                    )
                     security.enforceSignDelay()
 
                     val useJito = c.jitoEnabled && !quote.isUltra
-                    val jitoTip = c.jitoTipLamports
+                    val jitoTip = maxOf(c.jitoTipLamports, 200_000L)
                     val ultraReqId = if (quote.isUltra) txResult.requestId else null
                     sig = try {
-                        wallet.signSendAndConfirm(txResult.txBase64, useJito, jitoTip, ultraReqId, c.jupiterApiKey, txResult.isRfqRoute)
+                        wallet.signSendAndConfirm(txResult.txBase64, useJito, jitoTip, ultraReqId, c.jupiterApiKey, txResult.isRfqRoute, txResult.senderCompatible)
                     } catch (jupEx: Exception) {
                         // Jupiter exhausted too — final PumpPortal retry as last resort.
                         val rescue = tryPumpPortalSell(
@@ -6608,11 +6614,14 @@ class Executor(
                 if (qGuard is GuardResult.Block) {
                     onLog("🚫 Top-up quote rejected: ${qGuard.reason}", ts.mint); return
                 }
-                val txResult = buildTxWithRetry(quote, wallet.publicKeyB58)
+                val txResult = buildTxWithRetry(
+                        quote, wallet.publicKeyB58,
+                        senderTipLamports = if (c.jitoEnabled) maxOf(c.jitoTipLamports, 200_000L) else 0L,
+                    )
                 security.enforceSignDelay()
 
                 val useJito = c.jitoEnabled && !quote.isUltra
-                val jitoTip = c.jitoTipLamports
+                val jitoTip = maxOf(c.jitoTipLamports, 200_000L)
                 val ultraReqId = if (quote.isUltra) txResult.requestId else null
 
                 if (quote.isUltra) {
@@ -6620,7 +6629,7 @@ class Executor(
                 } else {
                     onLog("Broadcasting top-up tx…", ts.mint)
                 }
-                sig = wallet.signSendAndConfirm(txResult.txBase64, useJito, jitoTip, ultraReqId, c.jupiterApiKey, txResult.isRfqRoute)
+                sig = wallet.signSendAndConfirm(txResult.txBase64, useJito, jitoTip, ultraReqId, c.jupiterApiKey, txResult.isRfqRoute, txResult.senderCompatible)
                 newQty = rawTokenAmountToUiAmount(ts, quote.outAmount, solAmount = sol, priceUsd = price)
             }
 
@@ -8622,7 +8631,10 @@ class Executor(
                 return
             }
 
-            val txResultLocal = buildTxWithRetry(quote, wallet.publicKeyB58)
+            val txResultLocal = buildTxWithRetry(
+                        quote, wallet.publicKeyB58,
+                        senderTipLamports = if (c.jitoEnabled) maxOf(c.jitoTipLamports, 200_000L) else 0L,
+                    )
             txResult = txResultLocal
             LiveTradeLogStore.log(
                 tradeKey, ts.mint, ts.symbol, "BUY",
@@ -8676,7 +8688,7 @@ class Executor(
             security.enforceSignDelay()
 
             useJito = c.jitoEnabled && !quote.isUltra
-            jitoTip = c.jitoTipLamports
+            jitoTip = maxOf(c.jitoTipLamports, 200_000L)
             
             if (quote.isUltra) {
                 onLog("🚀 Broadcasting via Jupiter Ultra (Beam MEV protection)…", ts.mint)
@@ -8715,7 +8727,7 @@ class Executor(
                 val q = quote!!
                 val tx = txResult!!
                 val ultraReqId = if (q.isUltra) tx.requestId else null
-                sig = wallet.signSendAndConfirm(tx.txBase64, useJito, jitoTip, ultraReqId, c.jupiterApiKey, tx.isRfqRoute)
+                sig = wallet.signSendAndConfirm(tx.txBase64, useJito, jitoTip, ultraReqId, c.jupiterApiKey, tx.isRfqRoute, tx.senderCompatible)
                 LiveTradeLogStore.log(
                     tradeKey, ts.mint, ts.symbol, "BUY",
                     LiveTradeLogStore.Phase.BUY_CONFIRMED,
@@ -9929,7 +9941,10 @@ class Executor(
                                 }
                             }
                             val dynSlipCap = com.lifecyclebot.engine.sell.SellSafetyPolicy.maxSlippageBps(reason).coerceAtLeast(currentSlip)
-                            val txResult = buildTxWithRetry(quote, activeWallet.publicKeyB58, dynamicSlippageMaxBps = dynSlipCap)
+                            val txResult = buildTxWithRetry(
+                                quote, activeWallet.publicKeyB58, dynamicSlippageMaxBps = dynSlipCap,
+                                senderTipLamports = if (c.jitoEnabled) maxOf(com.lifecyclebot.network.JitoTipFetcher.getDynamicTip(c.jitoTipLamports), 200_000L) else 0L,
+                            )
                             LiveTradeLogStore.log(
                                 sellTradeKey, ts.mint, ts.symbol, "SELL",
                                 LiveTradeLogStore.Phase.SELL_TX_BUILT,
@@ -9952,7 +9967,7 @@ class Executor(
                                 "Broadcasting @ ${currentSlip}bps | route=${if (quote.isUltra) "ULTRA" else if (useJito) "JITO" else "RPC"} (attempt $broadcastAttempts)",
                                 traderTag = "MEME",
                             )
-                            sig = activeWallet.signSendAndConfirm(txResult.txBase64, useJito, jitoTip, ultraReqId, c.jupiterApiKey, txResult.isRfqRoute)
+                            sig = activeWallet.signSendAndConfirm(txResult.txBase64, useJito, jitoTip, ultraReqId, c.jupiterApiKey, txResult.isRfqRoute, txResult.senderCompatible)
                             LiveTradeLogStore.log(
                                 sellTradeKey, ts.mint, ts.symbol, "SELL",
                                 LiveTradeLogStore.Phase.SELL_CONFIRMED,
@@ -12591,7 +12606,10 @@ class Executor(
                     // in-line retries. Jupiter's simulation picks the actual
                     // value within bounds based on real pool state.
                     val dynSlipCap = com.lifecyclebot.engine.sell.SellSafetyPolicy.maxSlippageBps(reason).coerceAtLeast(currentSlip)
-                    val txResult = buildTxWithRetry(quote!!, wallet.publicKeyB58, dynamicSlippageMaxBps = dynSlipCap)
+                    val txResult = buildTxWithRetry(
+                        quote!!, wallet.publicKeyB58, dynamicSlippageMaxBps = dynSlipCap,
+                        senderTipLamports = if (c.jitoEnabled) maxOf(com.lifecyclebot.network.JitoTipFetcher.getDynamicTip(c.jitoTipLamports), 200_000L) else 0L,
+                    )
                     onLog("📊 SELL DEBUG: Transaction built | requestId=${txResult.requestId?.take(16) ?: "none"}", tradeId.mint)
                     LiveTradeLogStore.log(
                         sellTradeKey, ts.mint, ts.symbol, "SELL",
@@ -12627,7 +12645,7 @@ class Executor(
 
                     onLog("📊 SELL DEBUG: Signing and broadcasting (router=${txResult.router}, rfq=${txResult.isRfqRoute})...", tradeId.mint)
                     val ultraReqId = if (quote!!.isUltra) txResult.requestId else null
-                    sig = wallet.signSendAndConfirm(txResult.txBase64, useJito, jitoTip, ultraReqId, c.jupiterApiKey, txResult.isRfqRoute)
+                    sig = wallet.signSendAndConfirm(txResult.txBase64, useJito, jitoTip, ultraReqId, c.jupiterApiKey, txResult.isRfqRoute, txResult.senderCompatible)
                     onLog("📊 SELL DEBUG: Transaction confirmed! sig=${sig.take(20)}...", tradeId.mint)
                     LiveTradeLogStore.log(
                         sellTradeKey, ts.mint, ts.symbol, "SELL",
@@ -12972,9 +12990,12 @@ class Executor(
                             val dustQuote = getQuoteWithSlippageGuard(ts.mint, JupiterApi.SOL_MINT,
                                                                        remainingUnits, 1500, isBuy = false,
                                                                        sellTaker = wallet.publicKeyB58)
-                            val dustTx = buildTxWithRetry(dustQuote, wallet.publicKeyB58)
-                            val dustSig = wallet.signSendAndConfirm(dustTx.txBase64, c.jitoEnabled, c.jitoTipLamports, 
-                                if (dustQuote.isUltra) dustTx.requestId else null, c.jupiterApiKey, dustTx.isRfqRoute)
+                            val dustTx = buildTxWithRetry(
+                                dustQuote, wallet.publicKeyB58,
+                                senderTipLamports = if (c.jitoEnabled) maxOf(c.jitoTipLamports, 200_000L) else 0L,
+                            )
+                            val dustSig = wallet.signSendAndConfirm(dustTx.txBase64, c.jitoEnabled, maxOf(c.jitoTipLamports, 200_000L), 
+                                if (dustQuote.isUltra) dustTx.requestId else null, c.jupiterApiKey, dustTx.isRfqRoute, dustTx.senderCompatible)
                             
                             onLog("🧹 DUST-BUSTER SUCCESS: Sold remaining tokens | sig=${dustSig.take(20)}...", tradeId.mint)
                             
@@ -13035,9 +13056,12 @@ class Executor(
                                 val dustQuote = getQuoteWithSlippageGuard(ts.mint, JupiterApi.SOL_MINT,
                                                                            retryUnits, 2000, isBuy = false,
                                                                            sellTaker = wallet.publicKeyB58)
-                                val dustTx = buildTxWithRetry(dustQuote, wallet.publicKeyB58)
-                                val dustSig = wallet.signSendAndConfirm(dustTx.txBase64, c.jitoEnabled, c.jitoTipLamports,
-                                    if (dustQuote.isUltra) dustTx.requestId else null, c.jupiterApiKey, dustTx.isRfqRoute)
+                                val dustTx = buildTxWithRetry(
+                                dustQuote, wallet.publicKeyB58,
+                                senderTipLamports = if (c.jitoEnabled) maxOf(c.jitoTipLamports, 200_000L) else 0L,
+                            )
+                                val dustSig = wallet.signSendAndConfirm(dustTx.txBase64, c.jitoEnabled, maxOf(c.jitoTipLamports, 200_000L),
+                                    if (dustQuote.isUltra) dustTx.requestId else null, c.jupiterApiKey, dustTx.isRfqRoute, dustTx.senderCompatible)
                                 onLog("🧹 DUST-BUSTER (retry) SUCCESS: sig=${dustSig.take(20)}...", tradeId.mint)
                             } catch (dustEx: Exception) {
                                 onLog("⚠️ DUST-BUSTER (retry) FAILED: ${dustEx.message?.take(60)}", tradeId.mint)
@@ -14275,13 +14299,16 @@ class Executor(
                     }
                     // Got a quote at this tier — try to broadcast.
                     try {
-                        val txResultSweep = buildTxWithRetry(quote, wallet.publicKeyB58, dynamicSlippageMaxBps = (slip * 5).coerceIn(slip, 9999))
+                        val txResultSweep = buildTxWithRetry(
+                            quote, wallet.publicKeyB58, dynamicSlippageMaxBps = (slip * 5).coerceIn(slip, 9999),
+                            senderTipLamports = if (c.jitoEnabled) maxOf(com.lifecyclebot.network.JitoTipFetcher.getDynamicTip(c.jitoTipLamports), 200_000L) else 0L,
+                        )
                         security.enforceSignDelay()
                         val useJito = c.jitoEnabled && !quote.isUltra
                         val ultraReqId = if (quote.isUltra) txResultSweep.requestId else null
                         sweepSig = wallet.signSendAndConfirm(
-                            txResultSweep.txBase64, useJito, com.lifecyclebot.network.JitoTipFetcher.getDynamicTip(c.jitoTipLamports),
-                            ultraReqId, c.jupiterApiKey, txResultSweep.isRfqRoute,
+                            txResultSweep.txBase64, useJito, maxOf(com.lifecyclebot.network.JitoTipFetcher.getDynamicTip(c.jitoTipLamports), 200_000L),
+                            ultraReqId, c.jupiterApiKey, txResultSweep.isRfqRoute, txResultSweep.senderCompatible,
                         )
                         break@sweep
                     } catch (bex: Exception) {
@@ -14371,14 +14398,16 @@ class Executor(
     private fun buildTxWithRetry(
         quote: com.lifecyclebot.network.SwapQuote, pubkey: String,
         dynamicSlippageMaxBps: Int? = null,
+        senderTipLamports: Long = 0L,
+        senderComputeUnitPriceMicroLamports: Long = 25_000L,
     ): com.lifecyclebot.network.SwapTxResult {
         return try {
-            jupiter.buildSwapTx(quote, pubkey, dynamicSlippageMaxBps)
+            jupiter.buildSwapTx(quote, pubkey, dynamicSlippageMaxBps, senderTipLamports, senderComputeUnitPriceMicroLamports)
         } catch (e: Exception) {
             ErrorLogger.warn("Executor", "⚠️ buildSwapTx attempt 1 failed: ${e.javaClass.simpleName} | ${e.message?.take(120)}")
             Thread.sleep(1000)
             try {
-                jupiter.buildSwapTx(quote, pubkey, dynamicSlippageMaxBps)
+                jupiter.buildSwapTx(quote, pubkey, dynamicSlippageMaxBps, senderTipLamports, senderComputeUnitPriceMicroLamports)
             } catch (e2: Exception) {
                 ErrorLogger.error("Executor", "❌ buildSwapTx attempt 2 ALSO failed: ${e2.javaClass.simpleName} | ${e2.message?.take(120)}")
                 throw e2
@@ -14494,14 +14523,17 @@ class Executor(
             // Fallback: Jupiter Ultra → Metis ladder.
             val quote = getQuoteWithSlippageGuard(
                 mint, JupiterApi.SOL_MINT, sellUnits, sellSlippage, isBuy = false)
-            val txResult = buildTxWithRetry(quote, wallet.publicKeyB58)
+            val txResult = buildTxWithRetry(
+                        quote, wallet.publicKeyB58,
+                        senderTipLamports = if (c.jitoEnabled) maxOf(c.jitoTipLamports, 200_000L) else 0L,
+                    )
             
             val useJito = c.jitoEnabled && !quote.isUltra
-            val jitoTip = c.jitoTipLamports
+            val jitoTip = maxOf(c.jitoTipLamports, 200_000L)
             val ultraReqId = if (quote.isUltra) txResult.requestId else null
             
             val sig = try {
-                wallet.signSendAndConfirm(txResult.txBase64, useJito, jitoTip, ultraReqId, c.jupiterApiKey, txResult.isRfqRoute)
+                wallet.signSendAndConfirm(txResult.txBase64, useJito, jitoTip, ultraReqId, c.jupiterApiKey, txResult.isRfqRoute, txResult.senderCompatible)
             } catch (jupEx: Exception) {
                 // Final PumpPortal retry at higher slip if Jupiter died too.
                 val rescueKey = LiveTradeLogStore.keyFor(mint, System.currentTimeMillis())
@@ -14885,7 +14917,7 @@ class Executor(
             // A raw sendTransaction signature only means RPC/Jito accepted the
             // packet; it can still expire/fail before landing. Wallet polling
             // below remains the authority for token-gone/SOL-returned proof.
-            val sig = wallet.signSendAndConfirm(built.txBase64, useJito, jitoTipLamports)
+            val sig = wallet.signSendAndConfirm(built.txBase64, useJito, maxOf(jitoTipLamports, 200_000L), senderCompatible = false)
             if (sig.isBlank()) {
                 LiveTradeLogStore.log(
                     sellTradeKey, ts.mint, ts.symbol, "SELL",
@@ -15133,7 +15165,7 @@ class Executor(
             // a completed buy. sendTransaction/Jito acceptance can still expire
             // or fail before landing, which created ghost "held" positions with
             // no wallet tokens. Use the confirmed path just like Jupiter.
-            val sig = wallet.signSendAndConfirm(built.txBase64, useJito, jitoTipLamports)
+            val sig = wallet.signSendAndConfirm(built.txBase64, useJito, maxOf(jitoTipLamports, 200_000L), senderCompatible = false)
             // Sanity: signSendAndConfirm throws on RPC/on-chain failure, but defensively
             // verify the returned sig is non-blank before trusting it.
             if (sig.isBlank()) {

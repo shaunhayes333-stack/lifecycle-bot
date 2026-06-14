@@ -48,6 +48,10 @@ data class SwapTxResult(
     // Jupiter chose via simulation; incurred = the actual simulated slip.
     val dynSlipPickedBps: Int = -1,
     val dynSlipIncurredBps: Int = -1,
+    // V5.0.3690 — true only when Jupiter built the transaction with a real
+    // Jito tip transfer instruction for Helius Sender compatibility.
+    val senderCompatible: Boolean = false,
+    val senderTipLamports: Long = 0L,
 )
 
 class JupiterApi(private val apiKey: String = "") {
@@ -401,6 +405,8 @@ class JupiterApi(private val apiKey: String = "") {
         quote: SwapQuote,
         userPublicKey: String,
         dynamicSlippageMaxBps: Int? = null,
+        senderTipLamports: Long = 0L,
+        senderComputeUnitPriceMicroLamports: Long = 25_000L,
     ): SwapTxResult {
         require(userPublicKey.isNotBlank()) { "userPublicKey blank" }
 
@@ -411,7 +417,13 @@ class JupiterApi(private val apiKey: String = "") {
             return buildUltraTx(quote, userPublicKey)
         }
 
-        val v6 = buildSwapTxV6Detailed(quote, userPublicKey, dynamicSlippageMaxBps)
+        val v6 = buildSwapTxV6Detailed(
+            quote = quote,
+            userPublicKey = userPublicKey,
+            dynamicSlippageMaxBps = dynamicSlippageMaxBps,
+            senderTipLamports = senderTipLamports,
+            senderComputeUnitPriceMicroLamports = senderComputeUnitPriceMicroLamports,
+        )
         return SwapTxResult(
             txBase64 = v6.first,
             requestId = "",
@@ -419,6 +431,8 @@ class JupiterApi(private val apiKey: String = "") {
             isRfqRoute = false,
             dynSlipPickedBps = v6.second,
             dynSlipIncurredBps = v6.third,
+            senderCompatible = senderTipLamports >= 200_000L,
+            senderTipLamports = senderTipLamports,
         )
     }
 
@@ -490,6 +504,8 @@ class JupiterApi(private val apiKey: String = "") {
         quote: SwapQuote,
         userPublicKey: String,
         dynamicSlippageMaxBps: Int? = null,
+        senderTipLamports: Long = 0L,
+        senderComputeUnitPriceMicroLamports: Long = 25_000L,
     ): Triple<String, Int, Int> {
         val startMs = System.currentTimeMillis()
 
@@ -498,7 +514,17 @@ class JupiterApi(private val apiKey: String = "") {
             put("userPublicKey", userPublicKey)
             put("wrapAndUnwrapSol", true)
             put("dynamicComputeUnitLimit", true)
-            put("prioritizationFeeLamports", "auto")
+            if (senderTipLamports >= 200_000L) {
+                // V5.0.3690 — Helius Sender-compatible Jupiter build.
+                // Helius requires a real Jito tip transfer instruction AND a
+                // priority fee. Jupiter's prioritizationFeeLamports can be either
+                // priority fee OR Jito tip, not both, so we request the tip here
+                // and set CU price separately via computeUnitPriceMicroLamports.
+                put("prioritizationFeeLamports", JSONObject().put("jitoTipLamports", senderTipLamports))
+                put("computeUnitPriceMicroLamports", senderComputeUnitPriceMicroLamports.coerceAtLeast(1L))
+            } else {
+                put("prioritizationFeeLamports", "auto")
+            }
 
             // V5.9.490 — DROP dynamicSlippage on aggressive escalations.
             //
@@ -544,7 +570,7 @@ class JupiterApi(private val apiKey: String = "") {
             }
         }
 
-        log("🔧 V6 BUILD TX for ${userPublicKey.take(8)}... " +
+        log("🔧 V6 BUILD TX for ${userPublicKey.take(8)}... senderTip=$senderTipLamports cuPrice=$senderComputeUnitPriceMicroLamports " +
             (if (quote.raw.optInt("slippageBps", 0) >= 600)
                 "[STATIC slip=${quote.raw.optInt("slippageBps", 0)}bps  V5.9.490]"
              else if (dynamicSlippageMaxBps != null)

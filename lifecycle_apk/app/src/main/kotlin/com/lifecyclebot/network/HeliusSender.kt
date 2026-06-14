@@ -42,20 +42,13 @@ object HeliusSender {
             .build()
     }
 
-    // V5.9.1543 — SENDER GATED OFF BY DEFAULT (operator + Helius docs audit).
-    // ROOT CAUSE of helius_sender sr=0% / 503 cascade -> MARS-zombie deadlock:
-    // Helius Sender MANDATES a real Jito-tip-account SystemProgram.transfer
-    // instruction (>=0.0002 SOL) baked INTO the signed tx (per Helius docs +
-    // their official Jupiter+Sender reference). Our PumpPortal/Jupiter txs do
-    // NOT contain that transfer — `priorityFee`/`prioritizationFeeLamports` are
-    // compute-unit priority fees, NOT a tip transfer. So EVERY Sender submission
-    // was tip-less -> rejected. Injecting the tip needs v0-message decompile +
-    // ALT re-resolve + re-sign (we have no Solana SDK; raw-byte rebuild is unsafe).
-    // Until a proper tip-injection path exists, Sender is OFF and broadcasts use
-    // the proven PumpPortal/Jupiter self-broadcast + RPC path (pre-1524 behaviour
-    // the operator confirmed traded fine). Flip to true ONLY once tip injection
-    // is implemented. Nothing removed — code stays, just gated.
-    @Volatile var senderEnabled: Boolean = false
+    // V5.0.3690 — Sender is enabled again, but only SolanaWallet calls it for
+    // transactions explicitly tagged senderCompatible=true. That tag is only set
+    // when Jupiter built the tx with a real Jito tip transfer instruction using
+    // prioritizationFeeLamports.jitoTipLamports plus computeUnitPriceMicroLamports.
+    // This avoids the old V5.9.1543 503 loop where priority-fee-only txs were sent
+    // to Sender without the mandatory tip transfer.
+    @Volatile var senderEnabled: Boolean = true
 
     @Volatile var lastError: String? = null
         private set
@@ -68,8 +61,9 @@ object HeliusSender {
      *         the legacy Jito-bundle / RPC broadcast path).
      */
     fun send(signedTxBase64: String): String? {
-        // V5.9.1543 — gated off until tip-injection exists (see senderEnabled doc).
-        // Returns null so signAndSend falls straight through to Jito/RPC broadcast.
+        // Fail closed unless caller has built a correctly tipped tx and the global
+        // sender switch is enabled. Caller-side senderCompatible prevents priority-
+        // fee-only txs from ever reaching this method.
         if (!senderEnabled) {
             lastError = "SENDER_DISABLED_NO_TIP_INJECTION"
             return null

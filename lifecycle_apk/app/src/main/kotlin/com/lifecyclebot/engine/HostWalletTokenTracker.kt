@@ -360,7 +360,7 @@ object HostWalletTokenTracker {
         p.status = PositionStatus.OPEN_TRACKING
         p.sellSignature = null
         p.activeSellAttemptId = null
-        p.sellAttemptStartedMs = null
+        p.sellAttemptStartedMs = 0L
         p.consecutiveZeroConfirms = 0
         p.notes.add("fresh live buy reopened tracker gen=${try { BotRuntimeController.currentGeneration() } catch (_: Throwable) { 0L }}")
         p.symbol = ts.symbol.takeIf { it.isNotBlank() } ?: p.symbol
@@ -668,7 +668,7 @@ object HostWalletTokenTracker {
             //
             // V5.9.778 — EMERGENT MEME-ONLY: case (c) is the new branch
             // operator demanded — manual wallet swap terminal close.
-            val freshBuyAgeMs = now - p.buyTimeMs
+            val freshBuyAgeMs = p.buyTimeMs?.let { now - it } ?: Long.MAX_VALUE
             if (p.sellSignature.isNullOrBlank() && p.status in OPEN_STATUSES && freshBuyAgeMs in 0L..180_000L) {
                 // V5.0.3689 — live-buy indexer grace. A fresh TX_PARSE-confirmed buy
                 // may not appear in bulk wallet maps immediately. Do not convert

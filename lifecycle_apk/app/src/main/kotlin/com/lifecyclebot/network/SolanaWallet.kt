@@ -149,7 +149,7 @@ class SolanaWallet(privateKeyB58: String, val rpcUrl: String) {
      * 
      * If useJito=true, sends via Jito bundle for MEV protection.
      */
-    fun signAndSend(txBase64: String, useJito: Boolean = false, jitoTipLamports: Long = 10000): String {
+    fun signAndSend(txBase64: String, useJito: Boolean = false, jitoTipLamports: Long = 10000, senderCompatible: Boolean = false): String {
         val txBytes    = android.util.Base64.decode(txBase64, android.util.Base64.DEFAULT)
         val signedBytes = signVersionedTx(txBytes)
         val signedB64   = android.util.Base64.encodeToString(signedBytes, android.util.Base64.NO_WRAP)
@@ -160,7 +160,7 @@ class SolanaWallet(privateKeyB58: String, val rpcUrl: String) {
         // to validators + Jito and lands in ~1 slot — this is the primary cure
         // for "broadcast times out / sells stick". On ANY Sender miss we fall
         // straight through to the legacy Jito-bundle → RPC path below.
-        if (useJito) {
+        if (useJito && senderCompatible) {
             val senderSig = try {
                 com.lifecyclebot.network.HeliusSender.send(signedB64)
             } catch (_: Throwable) { null }
@@ -333,6 +333,7 @@ class SolanaWallet(privateKeyB58: String, val rpcUrl: String) {
         ultraRequestId: String? = null,
         jupiterApiKey: String = "",
         isRfqRoute: Boolean = false,  // NEW: RFQ routes can't self-broadcast
+        senderCompatible: Boolean = false,
     ): String {
         // If we have an Ultra requestId, use Jupiter's execute endpoint
         // This provides built-in MEV protection via Jupiter Beam
@@ -340,7 +341,7 @@ class SolanaWallet(privateKeyB58: String, val rpcUrl: String) {
             return signAndExecuteUltra(txBase64, ultraRequestId, jupiterApiKey, isRfqRoute)
         }
         
-        val sig = signAndSend(txBase64, useJito, jitoTipLamports)
+        val sig = signAndSend(txBase64, useJito, jitoTipLamports, senderCompatible)
         awaitConfirmation(sig)
         return sig
     }
@@ -415,29 +416,14 @@ class SolanaWallet(privateKeyB58: String, val rpcUrl: String) {
             throw lastException ?: RuntimeException("RFQ execute failed after $maxAttempts attempts")
         }
         
-        android.util.Log.w("SolanaWallet", "⚠️ Ultra /execute failed (non-RFQ) — broadcasting via HELIUS SENDER first...")
+        android.util.Log.w("SolanaWallet", "⚠️ Ultra /execute failed (non-RFQ) — falling back to legacy RPC self-broadcast")
 
-        // V5.9.1529 — HELIUS-FIRST ULTRA FALLBACK. The Ultra /execute path used to
-        // fall straight to plain RPC sendTransaction, BYPASSING Helius Sender — the
-        // one broadcast path the operator confirmed actually lands sells. Now a
-        // non-RFQ Ultra tx that couldn't /execute is submitted through Helius Sender
-        // (dual-routes validators + Jito, ~1 slot) exactly like the pump/direct path,
-        // and only falls to legacy RPC if Sender misses. The Ultra builder bakes a
-        // priority fee + tip into the tx, satisfying Sender's tip requirement.
-        run {
-            val senderSig = try {
-                com.lifecyclebot.network.HeliusSender.send(signedB64)
-            } catch (_: Throwable) { null }
-            if (!senderSig.isNullOrBlank()) {
-                com.lifecyclebot.engine.ErrorLogger.info("SolanaWallet",
-                    "⚡ SELL_BROADCAST provider=HELIUS (ultra-fallback) sig=${senderSig.take(16)}…")
-                awaitConfirmation(senderSig)
-                return senderSig
-            }
-            com.lifecyclebot.engine.ErrorLogger.warn("SolanaWallet",
-                "⚠️ Helius Sender miss on ultra-fallback (${com.lifecyclebot.network.HeliusSender.lastError}) — legacy RPC")
-        }
-
+        // V5.0.3690 — DO NOT send untipped Ultra fallback txs through Helius
+        // Sender. Sender requires a real Jito tip transfer instruction. Ultra
+        // /execute orders are not built through our Sender-compatible Jupiter v6
+        // builder, so they are not tagged/tip-guaranteed. Sending them to Sender
+        // recreated the old helius_sender 503 loop. Sender is used by signAndSend
+        // only when tx was explicitly built senderCompatible=true.
         try {
             // Last resort: plain RPC self-broadcast (already signed).
             val signature = sendRawTransaction(signedB64)
