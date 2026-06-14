@@ -3355,6 +3355,7 @@ class BotService : Service() {
                             allSources = setOf(source.name, "SCANNER_HEAL"),
                             playSound = false,
                             operatorLog = false,
+                            expectedRuntimeGeneration = builtGeneration,
                         )
                         TokenMergeQueue.enqueue(
                             mint = mint,
@@ -3421,7 +3422,7 @@ class BotService : Service() {
         // but no execution log following.
         if (loopJob?.isActive == true) {
             BotRuntimeController.registerJob(runtimeGeneration, "botLoop", loopJob)
-            BotRuntimeController.publishRunning(runtimeGeneration)
+            BotRuntimeController.publishRunning(runtimeGeneration, enabledTraders = try { EnabledTraderAuthority.snapshotStr() } catch (_: Throwable) { "" })
             status.running = true
             ErrorLogger.warn("BotService", "startBot() called but botLoop is already active — rebinding runtime state")
             return
@@ -4078,7 +4079,7 @@ class BotService : Service() {
         addLog("✓ Starting bot loop...")
         loopJob = scope.launch(botLoopDispatcher) { botLoop() } // V5.9.1023: dedicated single-thread dispatcher prevents Dispatchers.IO pool starvation from wedged supervisor workers
         BotRuntimeController.registerJob(runtimeGeneration, "botLoop", loopJob)
-        BotRuntimeController.publishRunning(runtimeGeneration)
+        BotRuntimeController.publishRunning(runtimeGeneration, enabledTraders = try { EnabledTraderAuthority.snapshotStr() } catch (_: Throwable) { "" })
         runtimeCommitted = true
         try {
             ForensicLogger.lifecycle(
@@ -4220,6 +4221,7 @@ class BotService : Service() {
                                 allSources = setOf("DATA_ORCHESTRATOR", "PUMP_FUN_NEW"),
                                 playSound = true,
                                 operatorLog = true,
+                                expectedRuntimeGeneration = runtimeGeneration,
                             )
                         }
                     } catch (e: Exception) {
@@ -4330,6 +4332,7 @@ class BotService : Service() {
                     allSources = setOf(m.source.ifBlank { "restored" }, "MEME_REGISTRY_RESTORE"),
                     playSound = false,
                     operatorLog = false,
+                    expectedRuntimeGeneration = runtimeGeneration,
                 )
                 if (ok || status.tokens.containsKey(m.mint)) hydrated++
             }
@@ -4464,6 +4467,7 @@ class BotService : Service() {
                                 allSources = setOf(source.name, "SCANNER_DIRECT"),
                                 playSound = false,
                                 operatorLog = false,
+                                expectedRuntimeGeneration = startBotScannerGen,
                             )
                             if (immediateAdmitted) {
                                 ErrorLogger.info("BotService", "🟢 MEME_DIRECT_INTAKE: ${identity.symbol} | src=${source.name} | liq=\$${liquidityUsd.toInt()} | score=$score | watch=${GlobalTradeRegistry.size()}")
@@ -4487,6 +4491,7 @@ class BotService : Service() {
                                     allSources = setOf(source.name, "REGISTRY_DUPLICATE_HYDRATE"),
                                     playSound = false,
                                     operatorLog = false,
+                                    expectedRuntimeGeneration = startBotScannerGen,
                                 )
                                 ErrorLogger.debug("BotService", "Token ${identity.symbol} already in registry — hydrated, continuing to queue")
                                 // fall through to TokenMergeQueue below — do NOT return here
@@ -6876,6 +6881,7 @@ class BotService : Service() {
                                 allSources = setOf("PUMP_PORTAL_WS", "PUMP_PORTAL"),
                                 playSound = true,
                                 operatorLog = true,
+                                expectedRuntimeGeneration = streamGeneration,
                             )
                             ErrorLogger.info(
                                 "BotService",
@@ -8690,7 +8696,23 @@ class BotService : Service() {
         allSources: Set<String> = setOf(source),
         playSound: Boolean = false,
         operatorLog: Boolean = false,
+        expectedRuntimeGeneration: Long? = null,
     ): Boolean {
+        // V5.0.3689 — runtime generation is now an intake contract.
+        // Any scanner/self-heal/WS emitter must pass the generation captured at
+        // construction. If that generation is no longer the live RUNNING generation,
+        // the callback is stale and must die before touching watchlist/state.
+        expectedRuntimeGeneration?.let { expectedGen ->
+            if (!com.lifecyclebot.engine.BotRuntimeController.isLiveGeneration(expectedGen)) {
+                try {
+                    com.lifecyclebot.engine.ForensicLogger.lifecycle(
+                        "INTAKE_DROPPED_STALE_GENERATION",
+                        "mint=${mint.take(10)} symbol=$symbol src=$source expectedGen=$expectedGen currentGen=${com.lifecyclebot.engine.BotRuntimeController.currentGeneration()} state=${com.lifecyclebot.engine.BotRuntimeController.snapshot().state}"
+                    )
+                } catch (_: Throwable) {}
+                return false
+            }
+        }
         if (mint.isBlank() || mint.length < 30) {
             ErrorLogger.debug("BotService", "🛡 protected intake ignored invalid mint ${mint.take(8)} source=$source")
             ForensicLogger.gate(ForensicLogger.PHASE.INTAKE, symbol.ifBlank { mint.take(6) }, allow=false, reason="INVALID_MINT mint=${mint.take(8)} src=$source")
@@ -9503,6 +9525,7 @@ class BotService : Service() {
                 allSources = merged.allScanners,
                 playSound = true,
                 operatorLog = true,
+                expectedRuntimeGeneration = com.lifecyclebot.engine.BotRuntimeController.currentGeneration(),
             )
 
             if (added) {
@@ -9530,6 +9553,7 @@ class BotService : Service() {
                             allSources = setOf("PROBATION"),
                             playSound = false,
                             operatorLog = false,
+                            expectedRuntimeGeneration = com.lifecyclebot.engine.BotRuntimeController.currentGeneration(),
                         )
                     } catch (e: Exception) {
                         ErrorLogger.debug("BotService", "PROMOTED protected intake hydrate error: ${e.message}")

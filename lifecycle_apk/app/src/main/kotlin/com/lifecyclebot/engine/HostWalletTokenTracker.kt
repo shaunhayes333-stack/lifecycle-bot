@@ -350,10 +350,19 @@ object HostWalletTokenTracker {
             lastPriceUpdateMs = now, lastWalletReconcileMs = null, lastExitCheckMs = null,
             activeSellAttemptId = null,
         )
-        // Monotonic: promote to OPEN_TRACKING (priority 4) — never downgrade.
-        if (p.status.priority < PositionStatus.OPEN_TRACKING.priority) {
-            p.status = PositionStatus.OPEN_TRACKING
-        }
+        // V5.0.3689 — fresh live buy is authoritative OPEN_TRACKING.
+        // The old priority-monotonic rule left a same-mint rebuy stuck CLOSED
+        // because CLOSED priority(9) > OPEN_TRACKING(4). Result: token landed,
+        // row carried uiAmount from the new buy, but sell/UI authority read it
+        // as closed/zero and stopped managing it. A verified BUY must reopen
+        // the tracker and clear stale sell/close bookkeeping; only a later
+        // authoritative sell or confirmed wallet-zero reconcile may close it.
+        p.status = PositionStatus.OPEN_TRACKING
+        p.sellSignature = null
+        p.activeSellAttemptId = null
+        p.sellAttemptStartedMs = null
+        p.consecutiveZeroConfirms = 0
+        p.notes.add("fresh live buy reopened tracker gen=${try { BotRuntimeController.currentGeneration() } catch (_: Throwable) { 0L }}")
         p.symbol = ts.symbol.takeIf { it.isNotBlank() } ?: p.symbol
         p.name = ts.name.takeIf { it.isNotBlank() } ?: p.name
         p.source = PositionSource.TX_PARSE
@@ -659,6 +668,20 @@ object HostWalletTokenTracker {
             //
             // V5.9.778 — EMERGENT MEME-ONLY: case (c) is the new branch
             // operator demanded — manual wallet swap terminal close.
+            val freshBuyAgeMs = now - p.buyTimeMs
+            if (p.sellSignature.isNullOrBlank() && p.status in OPEN_STATUSES && freshBuyAgeMs in 0L..180_000L) {
+                // V5.0.3689 — live-buy indexer grace. A fresh TX_PARSE-confirmed buy
+                // may not appear in bulk wallet maps immediately. Do not convert
+                // OPEN_TRACKING to CLOSED/ui=0 without a sell signature or mature,
+                // repeated zero-balance reconcile. Keep authority open so exits/UI
+                // do not lose a wallet-held token during indexer lag.
+                p.status = PositionStatus.OPEN_TRACKING
+                p.consecutiveZeroConfirms = 0
+                emitForensic(LiveTradeLogStore.Phase.WARNING, p.mint, p.symbol, null,
+                    "FRESH_BUY_ZERO_RECONCILE_DEFERRED ageMs=$freshBuyAgeMs — keeping OPEN_TRACKING")
+                save()
+                continue
+            }
             if (p.status == PositionStatus.SELL_VERIFYING || p.sellSignature != null) {
                 p.status = PositionStatus.CLOSED_SOLD_BY_AATE
                 emitForensic(LiveTradeLogStore.Phase.TOKEN_TRACKER_SELL_CONFIRMED, p.mint, p.symbol, p.sellSignature,
