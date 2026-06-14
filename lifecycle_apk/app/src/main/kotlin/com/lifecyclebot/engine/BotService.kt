@@ -8593,7 +8593,25 @@ class BotService : Service() {
             // non-meme specialist rescue lane is admitted per mint from current
             // affinity. This restores the "primary + bounded rescue" contract without
             // returning to SHITCOIN/MOONSHOT monoculture.
-            if (memeFamily) return true
+            // V5.0.3714 — PAPER_WR_DILUTION_FIX.
+            // 3712 bounded only the non-meme specialist side. Runtime paper WR
+            // then fell under 50% because MEME-only still admitted every meme-family
+            // lane (SHITCOIN + MOONSHOT + EXPRESS) for the same candidate, so one bad
+            // mint could become multiple paper losses. This is not alpha diversity;
+            // it is duplicate exposure. Keep throughput by preserving the primary
+            // lane and one deterministic meme-family rescue, plus one specialist
+            // rescue if source/style affinity explicitly asked for it.
+            val memeRescue = affinity
+                .filter { it == "SHITCOIN" || it == "MOONSHOT" || it == "EXPRESS" }
+                .filterNot { it.equals(primaryLane, ignoreCase = true) }
+                .sorted()
+                .let { list ->
+                    if (list.isNotEmpty()) list[((ts.mint.hashCode() and 0x7fffffff) % list.size)]
+                    else listOf("SHITCOIN", "MOONSHOT", "EXPRESS")
+                        .filterNot { it.equals(primaryLane, ignoreCase = true) }
+                        .let { fallback -> if (fallback.isEmpty()) null else fallback[((ts.mint.hashCode() and 0x7fffffff) % fallback.size)] }
+                }
+            if (memeFamily) return l == memeRescue
             if (nonMemeSpecialist && affinity.contains(l)) {
                 val rescue = affinity
                     .filter { it == "MANIPULATED" || it == "QUALITY" || it == "DIP_HUNTER" ||

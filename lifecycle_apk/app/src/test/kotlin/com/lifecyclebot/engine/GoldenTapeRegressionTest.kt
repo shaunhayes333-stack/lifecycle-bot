@@ -648,4 +648,14 @@ class GoldenTapeRegressionTest {
         assertTrue(stack.contains("EXEC_SENDER_TRY"))
     }
 
+
+    @Test
+    fun meme_only_mode_bounds_meme_family_rescue_to_prevent_paper_wr_dilution() {
+        val bot = java.io.File("src/main/kotlin/com/lifecyclebot/engine/BotService.kt").readText()
+        assertTrue(bot.contains("PAPER_WR_DILUTION_FIX"))
+        assertTrue(bot.contains("val memeRescue = affinity"))
+        assertTrue(bot.contains("if (memeFamily) return l == memeRescue"))
+        assertFalse("MEME-only must not admit all SHITCOIN/MOONSHOT/EXPRESS siblings", bot.contains("if (memeFamily) return true"))
+    }
+
 }

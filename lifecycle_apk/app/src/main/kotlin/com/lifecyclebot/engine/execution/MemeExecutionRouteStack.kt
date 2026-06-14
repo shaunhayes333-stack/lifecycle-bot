@@ -249,7 +249,7 @@ object MemeExecutionRouteStack {
             lifecycle("EXEC_PROVIDER_TRY", "provider=${p.providerName} side=${context.side.name} supported=${s.supported} reason=${s.reason}")
             if (!s.supported) lifecycle("EXEC_PROVIDER_FAIL", "provider=${p.providerName} reason=UNSUPPORTED:${s.reason}")
         }
-        senders.forEach { lifecycle("EXEC_SENDER_TRY", "sender=${it.senderName} planned=true") }
+        senders.forEach { lifecycle("EXEC_SENDER_TRY", "sender=$it planned=true") }
         lifecycle("EXEC_STACK_COVERAGE", "providers=${providers.joinToString(",") { it.providerName }} supported=$supported unsupported=$unsupported senders=$senders")
         return StackCoverage(providers.map { it.providerName }, supported, unsupported, senders)
     }
