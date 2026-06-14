@@ -8879,6 +8879,46 @@ class Executor(
                     "symbol=${ts.symbol} mint=${ts.mint.take(10)} sol=$sol price=$price signature=${sig.take(16)}"
                 )
             } catch (_: Throwable) {}
+
+            // V5.0.3705 — LIVE BUY MANAGEMENT HANDOFF.
+            // Operator 2026-06-15: live buys land in Phantom but bot shows open=0
+            // and leaves them unmanaged. Root pattern: the buy signature is confirmed
+            // and a BUY journal row is written, but wallet/tx indexers can return empty
+            // maps for 60s+. During that window pendingVerify=true makes Position.isOpen
+            // false, and HostWalletTokenTracker.recordBuyConfirmed() refuses to track it.
+            // Result: real wallet tokens with no exit monitor. Once a live swap returns a
+            // non-blank signature and we have an expected token qty/cost, manage it now
+            // using provisional qty; later tx-parse / ATA verification corrects qty or
+            // the true-phantom branch wipes it. Managed provisional is safer than blind.
+            val signatureManagedAtEntry: Boolean = try {
+                val provisional = ts.position
+                if (!provisional.isPaperPosition && provisional.pendingVerify && provisional.qtyToken > 0.0 && sig.isNotBlank()) {
+                    ts.position = provisional.copy(pendingVerify = false)
+                    try {
+                        synchronized(com.lifecyclebot.engine.BotService.status.tokens) {
+                            com.lifecyclebot.engine.BotService.status.tokens[tradeId.mint] = ts
+                        }
+                    } catch (_: Throwable) {}
+                    try { PositionPersistence.savePosition(ts) } catch (_: Throwable) {}
+                    try { WalletTokenMemory.recordBuy(ts) } catch (_: Throwable) {}
+                    try {
+                        com.lifecyclebot.engine.GlobalTradeRegistry.registerPosition(
+                            mint = tradeId.mint,
+                            symbol = tradeId.symbol,
+                            layer = currentLayer,
+                            sizeSol = sol,
+                        )
+                    } catch (_: Throwable) {}
+                    try { HostWalletTokenTracker.recordBuyConfirmed(ts, sig) } catch (_: Throwable) {}
+                    try {
+                        com.lifecyclebot.engine.ForensicLogger.lifecycle(
+                            "LIVE_BUY_MANAGED_FROM_SIGNATURE",
+                            "symbol=${ts.symbol} mint=${ts.mint.take(10)} sig=${sig.take(16)} provisionalQty=${ts.position.qtyToken} hostOpen=${try { HostWalletTokenTracker.getOpenCount() } catch (_: Throwable) { -1 }} statusHas=${try { com.lifecyclebot.engine.BotService.status.tokens.containsKey(tradeId.mint) } catch (_: Throwable) { false }}"
+                        )
+                    } catch (_: Throwable) {}
+                    true
+                } else false
+            } catch (_: Throwable) { false }
             tradeId.monitoring()
             
             TradeLifecycle.executed(tradeId.mint, price, sol)
@@ -9088,7 +9128,7 @@ class Executor(
                 }
 
                 if (verifiedQty > 0.0) {
-                    if (ts.position.pendingVerify) {
+                    if (ts.position.pendingVerify || signatureManagedAtEntry) {
                         promoteVerifiedLiveBuy(verifiedQty, "DIRECT_VERIFY")
                         ErrorLogger.info(
                             "Executor",
@@ -9206,23 +9246,23 @@ class Executor(
                             ErrorLogger.warn("Executor", "recordEntryMetadata after verify failed (non-fatal): ${e.message}")
                         }
                     }
-                } else if (anyRpcError && ts.position.pendingVerify) {
+                } else if (anyRpcError && (ts.position.pendingVerify || signatureManagedAtEntry)) {
                     // All polls returned 0 OR errored. If ANY error masked the
                     // result, we cannot safely conclude phantom — keep the
                     // position pendingVerify so the periodic reconciler /
                     // next restart can adopt it from the on-chain wallet.
                     ErrorLogger.warn(
                         "Executor",
-                        "⚠️ POST-BUY INCONCLUSIVE: $verifySymbol — RPC errors during verify; leaving pendingVerify " +
-                            "so StartupReconciler can adopt from wallet later"
+                        "⚠️ POST-BUY INCONCLUSIVE: $verifySymbol — RPC errors during verify; " +
+                            "position is managed provisionally; verifier/reconciler will correct qty later"
                     )
                     LiveTradeLogStore.log(
                         verifyTradeKey, verifyMint, verifySymbol, "BUY",
                         LiveTradeLogStore.Phase.WARNING,
-                        "⚠️ Verification inconclusive — RPC errors during all polls. Will reconcile on next startup.",
+                        "⚠️ Verification inconclusive — RPC errors during polls. Position remains managed from signature; reconciler will correct qty.",
                         traderTag = "MEME",
                     )
-                } else if (!sigParseConfirmedZero && ts.position.pendingVerify) {
+                } else if (!sigParseConfirmedZero && (ts.position.pendingVerify || signatureManagedAtEntry)) {
                     // V5.9.265 — All ATA polls returned 0 BUT the tx-parse never
                     // explicitly returned 0 (it returned null = "tx not yet
                     // indexed"). With Jupiter Ultra/RFQ this is the common case:
@@ -9237,10 +9277,10 @@ class Executor(
                     LiveTradeLogStore.log(
                         verifyTradeKey, verifyMint, verifySymbol, "BUY",
                         LiveTradeLogStore.Phase.WARNING,
-                        "⚠️ ATA poll returned 0 but tx not yet indexed — keeping position; StartupReconciler will adopt it once tokens index.",
+                        "⚠️ ATA poll returned 0 but tx not yet indexed — keeping managed-from-signature position; reconciler will correct qty once tokens index.",
                         traderTag = "MEME",
                     )
-                } else if (ts.position.pendingVerify) {
+                } else if (ts.position.pendingVerify || signatureManagedAtEntry) {
                     // All polls OK and all returned 0 → true phantom
                     // V5.9.495s — operator: "every buy lands as a phaeton".
                     // V5.9.495t — operator triage: "still logging everything
@@ -9306,12 +9346,12 @@ class Executor(
                     if (lastChanceMapEmpty || lastChanceBalances == null) {
                         ErrorLogger.warn(
                             "Executor",
-                            "⚠️ POST-BUY INCONCLUSIVE (RPC-EMPTY): $verifySymbol — last-chance map was empty/null. Leaving pendingVerify; StartupReconciler / WalletTokenMemory will adopt later."
+                            "⚠️ POST-BUY INCONCLUSIVE (RPC-EMPTY): $verifySymbol — last-chance map was empty/null. Position remains managed from signature; reconciler will correct later."
                         )
                         LiveTradeLogStore.log(
                             verifyTradeKey, verifyMint, verifySymbol, "BUY",
                             LiveTradeLogStore.Phase.WARNING,
-                            "⚠️ POST-BUY: RPC empty-map at end of verify — position kept pending, no wipe.",
+                            "⚠️ POST-BUY: RPC empty-map at end of verify — managed-from-signature position kept, no wipe.",
                             traderTag = "MEME",
                         )
                         return@launch
@@ -9373,7 +9413,7 @@ class Executor(
                                 LiveTradeLogStore.log(
                                     verifyTradeKey, verifyMint, verifySymbol, "BUY",
                                     LiveTradeLogStore.Phase.SELL_VERIFY_INCONCLUSIVE_PENDING,
-                                    "⏳ TRADE-VERIFIER INCONCLUSIVE — leaving position pending, NO wipe (reconciler will adopt later).",
+                                    "⏳ TRADE-VERIFIER INCONCLUSIVE — managed-from-signature position kept, NO wipe (reconciler will correct later).",
                                     sig = verifySig, traderTag = "MEME",
                                 )
                                 return@launch

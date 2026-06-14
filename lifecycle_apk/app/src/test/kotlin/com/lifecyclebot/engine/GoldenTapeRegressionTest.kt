@@ -506,4 +506,17 @@ class GoldenTapeRegressionTest {
         assertFalse("SCORE_TOO_LOW must not set v3SizeSol from fdgDecision", bot.contains("V3-REJECT-PROBE"))
     }
 
+
+    @Test
+    fun live_buy_signature_confirmation_must_create_managed_position_before_rpc_indexing() {
+        val exec = java.io.File("src/main/kotlin/com/lifecyclebot/engine/Executor.kt").readText()
+        assertTrue(exec.contains("LIVE_BUY_MANAGED_FROM_SIGNATURE"))
+        assertTrue(exec.contains("provisional.copy(pendingVerify = false)"))
+        assertTrue(exec.contains("HostWalletTokenTracker.recordBuyConfirmed(ts, sig)"))
+        assertTrue(exec.contains("GlobalTradeRegistry.registerPosition"))
+        assertTrue(exec.contains("ts.position.pendingVerify || signatureManagedAtEntry"))
+        assertFalse("Inconclusive post-buy verification must not leave live buys unmanaged until startup", exec.contains("Will reconcile on next startup"))
+        assertFalse("Empty-map post-buy verification must not leave live buys pending/unmanaged", exec.contains("position kept pending, no wipe"))
+    }
+
 }
