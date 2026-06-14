@@ -1640,3 +1640,53 @@ P1 — Restored meme-only trader authority
     • Mixed/full → MEME + (CRYPTO_ALT/MARKETS/PERPS) per toggles +
                    MARKET_LANES_QUARANTINED. CYCLIC/SHADOW_PAPER opt-in.
 
+
+═══════════════════════════════════════════════════════════════════════════
+V5.0.3683 — ACCOUNTING LEDGER REPAIR (no strategy changes)
+═══════════════════════════════════════════════════════════════════════════
+Date: 2026-06-14
+Status: ✅ Build + Runtime Smoke Test both PASSED
+
+DEEP OPERATOR AUDIT — AATE_All_Trades CSV produced impossible numbers
+($333M gains, 0 Net Gain on partials, 1000x sell quantities). Fixed at
+the SOURCE — three accounting bugs.
+
+1) trade.sol semantics standardised in Executor.kt
+   The live full-SELL leg (line 4193) stored solBack (PROCEEDS).
+   Every other partial/profit-lock site stored allocated COST BASIS.
+   Standardised to COST BASIS at all sell sites:
+     • SELL (live)              4193  solBack         → pos.costSol*sellFraction
+     • PARTIAL_SELL capital_rec 3515  sellSol         → pos.costSol*sellFraction
+     • PARTIAL_SELL profit_lock 3575  sellSol         → pos.costSol*sellFraction
+   Canonical equation now holds at every emit site:
+     proceedsSol = trade.sol + trade.pnlSol
+     gainLossSol = trade.pnlSol
+     netGainSol  = trade.pnlSol - trade.feeSol
+
+2) Paper partial-sell paths populate feeSol / netPnlSol
+   Lines 3515, 3575, 4781, 9724 had been calling Trade(...) without
+   feeSol/netPnlSol → exporter wrote Net Gain = 0 on 1078/1078 partials
+   despite multi-SOL realized gains. Now:
+     feeSol  = costBasisAllocated * MEME_TRADING_FEE_PERCENT (0.5%)
+     netPnl  = pnlSol - feeSol
+
+3) Partial percentage display > 100% cap
+   All four 'partial_NNpct' label sites wrapped with
+   .toInt().coerceAtMost(100) — display-only cap, sizing unchanged.
+
+CSV EXPORT REWRITE (TradeJournal.kt)
+  • exportCsv() now defaults to LIVE-only per operator P0 directive.
+    exportCombinedDiagnosticCsv() retained for non-tax diagnostic.
+  • New deriveRowAccounting() is the SINGLE canonical ledger calculator.
+    Footer totals derived strictly from emitted rows that pass
+    invariants — single source of truth.
+  • Hard invariants per operator spec written into 'Invariants' column:
+      BUY  : proceeds==0 ∧ gainLoss==0 ∧ netGain==0
+      SELL : |gainLoss − (proceeds−cost)| ≤ $0.01
+             |netGain − (gainLoss − fee)|  ≤ $0.01
+             ¬ (proceeds==0 ∧ gainLoss>0)
+  • rowType column added (TRADE / SUMMARY) so footer/summary lines
+    cannot be misread as malformed trade rows.
+  • LIVE Net Realized / PAPER Simulated Net broken out separately —
+    paper rows can never pollute tax math.
+
