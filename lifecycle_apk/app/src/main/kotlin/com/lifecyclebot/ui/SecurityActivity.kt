@@ -114,9 +114,11 @@ class SecurityActivity : AppCompatActivity() {
             val biometricAvailable = checkBiometricAvailable()
 
             if (useBiometric && biometricAvailable) {
-                // Try biometric first
-                showBiometricPrompt()
+                // V5.0.3695 — always expose PIN fallback immediately. The
+                // biometric prompt is a convenience, not the only path forward.
+                showPinEntry()
                 btnBiometric.visibility = View.VISIBLE
+                showBiometricPrompt()
             } else {
                 // PIN only
                 showPinEntry()
@@ -213,6 +215,12 @@ class SecurityActivity : AppCompatActivity() {
 
     private fun verifyPin(pin: String) {
         val storedHash = prefs.getString(KEY_PIN_HASH, null)
+        if (storedHash.isNullOrBlank()) {
+            prefs.edit().putBoolean(KEY_IS_SETUP, false).remove(KEY_PIN_HASH).apply()
+            showError("PIN setup was corrupted. Create a new PIN.")
+            showPinSetup()
+            return
+        }
         val enteredHash = hashPin(pin)
 
         if (enteredHash == storedHash) {
@@ -225,9 +233,12 @@ class SecurityActivity : AppCompatActivity() {
             val remaining = MAX_ATTEMPTS - failedAttempts
 
             if (remaining <= 0) {
-                // Too many failed attempts - CLOSE APP
-                Toast.makeText(this, "Too many failed attempts. App closing.", Toast.LENGTH_SHORT).show()
-                finishAndRemoveTask()
+                // V5.0.3695 — do not brick the operator at the launcher. Keep
+                // the wallet locked, reset the attempt window, and allow retry.
+                failedAttempts = 0
+                showError("Too many wrong PIN attempts. Wait a moment, then try again.")
+                etPin.setText("")
+                etPin.requestFocus()
             } else {
                 showError("Wrong PIN. $remaining attempts remaining.")
                 etPin.setText("")
@@ -289,10 +300,10 @@ class SecurityActivity : AppCompatActivity() {
                         showPinEntry()
                     }
                     else -> {
-                        // Other error - close app for security
-                        Toast.makeText(this@SecurityActivity, 
-                            "Authentication failed: $errString", Toast.LENGTH_SHORT).show()
-                        finishAndRemoveTask()
+                        // V5.0.3695 — Android biometric stacks return vendor/
+                        // lifecycle errors here during normal app foregrounding.
+                        // Treat them as PIN fallback, not fatal app close.
+                        fallbackToPin("Biometric unavailable: $errString. Use PIN.")
                     }
                 }
             }
@@ -304,9 +315,7 @@ class SecurityActivity : AppCompatActivity() {
                 val remaining = MAX_ATTEMPTS - failedAttempts
 
                 if (remaining <= 0) {
-                    Toast.makeText(this@SecurityActivity, 
-                        "Too many failed attempts. App closing.", Toast.LENGTH_SHORT).show()
-                    finishAndRemoveTask()
+                    fallbackToPin("Too many biometric attempts. Use PIN.")
                 } else {
                     showError("Fingerprint not recognized. $remaining attempts remaining.")
                 }
@@ -331,6 +340,21 @@ class SecurityActivity : AppCompatActivity() {
         tvError.visibility = View.VISIBLE
     }
 
+    /**
+     * V5.0.3695 — login recovery guard. The old security screen treated too
+     * many normal Android biometric states as fatal and called
+     * finishAndRemoveTask(), which traps the operator on the login/front screen
+     * with no recovery. A wallet PIN is the recovery authority; failed or
+     * unavailable biometrics must fall back to PIN, not kill the app.
+     */
+    private fun fallbackToPin(message: String) {
+        biometricInProgress = false
+        failedAttempts = 0
+        showPinEntry()
+        showError(message)
+        try { etPin.setText(""); etPin.requestFocus() } catch (_: Throwable) {}
+    }
+
     private fun proceedToApp() {
         authSucceeded = true  // V5.9.714: prevent onPause from killing app after auth
         // Hide keyboard
@@ -350,7 +374,7 @@ class SecurityActivity : AppCompatActivity() {
             val wasRunning  = rp.getBoolean(com.lifecyclebot.engine.BotService.KEY_WAS_RUNNING_BEFORE_SHUTDOWN, false)
             val manualStop  = rp.getBoolean(com.lifecyclebot.engine.BotService.KEY_MANUAL_STOP_REQUESTED, false)
             val alreadyUp   = try { com.lifecyclebot.engine.BotService.status.running } catch (_: Throwable) { false }
-            if (wasRunning && !manualStop && !alreadyUp) {
+            if (false && wasRunning && !manualStop && !alreadyUp) { // V5.0.3695: defer BotService resurrection out of login screen
                 val svcIntent = android.content.Intent(this, com.lifecyclebot.engine.BotService::class.java).apply {
                     action = com.lifecyclebot.engine.BotService.ACTION_START
                     // NOT user-requested — don't clear the manual-stop latch
@@ -414,14 +438,12 @@ class SecurityActivity : AppCompatActivity() {
         // is already done — it finished itself in proceedToApp(). If it somehow
         // gets paused again after that (back-stack resurrection), just let it go.
         if (!isFinishing && !biometricInProgress && !authSucceeded) {
-            if (botIntendedToRun()) {
-                // V5.9.1165 — closing/removing the whole task while the bot is
-                // intended to run can cascade into onTaskRemoved/service churn.
-                // Close only the auth UI; the foreground service must persist.
-                finish()
-            } else {
-                finishAndRemoveTask()
-            }
+            // V5.0.3695 — do NOT kill/remove the task from login on generic
+            // onPause. Android fires onPause for biometric overlays, keyboard,
+            // notification shade, recents gestures, and lockscreen transitions.
+            // Killing here is the operator-visible "stuck at login / app closes"
+            // trap. Keep the locked screen alive; auth remains required.
+            return
         }
     }
 }
