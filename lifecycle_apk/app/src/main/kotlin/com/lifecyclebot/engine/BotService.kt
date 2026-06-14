@@ -6793,11 +6793,33 @@ class BotService : Service() {
      * inner objects all guard against double-start.
      */
     private fun wireExternalStreams(cfg: com.lifecyclebot.data.BotConfig) {
+        // V5.0.3684 — capture the runtime generation at WS-wire time so the
+        // PumpPortal callback below can self-terminate if a STOP/START cycle
+        // supersedes this wiring (V5.0.3682 doctrine parity — the scanner
+        // callbacks already do this; PumpFunWS is the highest-volume meme
+        // intake stream and was the gap).
+        val streamGeneration = try {
+            com.lifecyclebot.engine.BotRuntimeController.currentGeneration()
+        } catch (_: Throwable) { 0L }
         // 1) PumpPortal WS — new pump.fun launches + migrations
         try {
             com.lifecyclebot.network.PumpFunWS.start(
-                onNewToken = { mint, symbol, name, mcapSol ->
+                onNewToken = onNewToken@{ mint, symbol, name, mcapSol ->
                     try {
+                        // V5.0.3684 — generation + state guard at the source.
+                        // Drop emissions when the WS outlived its runtime
+                        // generation OR the runtime is no longer admitting.
+                        val curGen = try {
+                            com.lifecyclebot.engine.BotRuntimeController.currentGeneration()
+                        } catch (_: Throwable) { 0L }
+                        val rtState = try {
+                            com.lifecyclebot.engine.BotRuntimeController.snapshot().state
+                        } catch (_: Throwable) { com.lifecyclebot.engine.BotRuntimeController.RuntimeState.STOPPED }
+                        val admitting = rtState == com.lifecyclebot.engine.BotRuntimeController.RuntimeState.RUNNING ||
+                                        rtState == com.lifecyclebot.engine.BotRuntimeController.RuntimeState.STARTING
+                        if (streamGeneration != 0L && (streamGeneration != curGen || !admitting || isShuttingDown)) {
+                            return@onNewToken
+                        }
                         // V5.9.629 — PumpPortal is the high-throughput Meme launch feed
                         // that made builds 2489/2490 ramp to ~40 open positions. It must
                         // follow the same Meme-enabled semantics as the scanner and main
@@ -8504,6 +8526,59 @@ class BotService : Service() {
         // (regression guard: GoldenTapeRegressionTest.fanout_suppression_never_…).
         // The legacy STANDARD/CORE/V3 lanes are the trunk path; any future suppressor
         // must explicitly whitelist them: l == "STANDARD" || l == "CORE" || l == "V3".
+        //
+        // V5.0.3684 — FANOUT CONTAINMENT (operator deep-audit P1).
+        //
+        // Diagnosis from the live snapshot:
+        //   LANE_EVAL=16084  INTAKE=716  → laneEval/intake = 22.42 (target ≤ 3)
+        //   QUALITY=2282, MOONSHOT=2262, SHITCOIN=2248, MANIPULATED=2237,
+        //   DIP_HUNTER=2236, PROJECT_SNIPER=2236, TREASURY=2220, BLUECHIP=363
+        // All 8 lanes evaluating every meme candidate even with enabled=[MEME].
+        // FDG was running multiple times per token → executor starved → 0 live buys.
+        //
+        // Doctrine:
+        //   1. STANDARD/CORE/V3 ALWAYS pass — regression-guarded trunk path.
+        //   2. The token's primary lane ALWAYS passes — that's the route the
+        //      AgenticStyleRouter chose for this candidate.
+        //   3. EnabledTraderAuthority.isMemeLiveOnly() ⇒ suppress every non-meme
+        //      specialist (MANIPULATED, QUALITY, DIP_HUNTER, PROJECT_SNIPER,
+        //      TREASURY, BLUECHIP). Only MEME-family lanes (SHITCOIN, MOONSHOT)
+        //      may evaluate alongside the primary.
+        //   4. Mixed/full mode ⇒ allow primary + ONE rescue lane drawn from the
+        //      token's intake-affinity set (already capped at 2-4 lanes per
+        //      intake by inferIntakeLaneAffinity). The token's affinity set is
+        //      the operator's signal that this candidate "looks like" multiple
+        //      lane shapes — but we still cap fanout per the operator P1 spec:
+        //      "primary lane + at most one rescue lane".
+        val l = lane.uppercase()
+        // (1) Regression guard — must remain literally these tokens.
+        if (l == "STANDARD" || l == "CORE" || l == "V3") return true
+        // (2) Primary always evaluates.
+        if (l.equals(primaryLane, ignoreCase = true)) return true
+
+        val memeOnly = try {
+            com.lifecyclebot.engine.EnabledTraderAuthority.isMemeLiveOnly()
+        } catch (_: Throwable) { false }
+        val memeFamily = (l == "SHITCOIN" || l == "MOONSHOT")
+        val nonMemeSpecialist = (l == "MANIPULATED" || l == "QUALITY" || l == "DIP_HUNTER"
+            || l == "PROJECT_SNIPER" || l == "TREASURY" || l == "BLUECHIP")
+
+        if (memeOnly) {
+            // (3) Meme-only mode: hard-suppress every non-meme specialist.
+            // SHITCOIN/MOONSHOT/MEME may still ride along with the primary.
+            return memeFamily
+        }
+
+        // (4) Mixed mode: primary + at most one rescue from the token's
+        // affinity set. Skip non-meme specialists that the affinity router
+        // didn't tag for this candidate.
+        if (nonMemeSpecialist) {
+            val affinity = try {
+                ts.laneAffinity.map { it.uppercase() }.toSet()
+            } catch (_: Throwable) { emptySet() }
+            return affinity.contains(l)
+        }
+        // Default: allow (preserves SHITCOIN/MOONSHOT/MEME side-by-side learning).
         return true
     }
 

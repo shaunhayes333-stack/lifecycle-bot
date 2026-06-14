@@ -62,13 +62,40 @@ object BotRuntimeController {
 
     fun beginStart(paperMode: Boolean, enabledTraders: String): Long = synchronized(this) {
         val cur = refreshDerived(_state.value)
-        if (cur.runtimeActive) {
-            publish(cur.copy(
+        // V5.0.3684 — UNPOISON STUCK STOPPING (operator deep-audit P0).
+        // If the runtime is stuck STOPPING but the bot loop has died
+        // (botLoopJobActive=false) and no live coroutine remains, force a
+        // clean STOPPED transition before accepting Start. Without this, a
+        // Stop that lost its STOPPED finalization (loop coroutine cancelled
+        // mid-await, exception eats the stop signal, etc.) leaves the runtime
+        // permanently STOPPING — the next Start sees runtimeActive=true (from
+        // STARTING/RUNNING/STOPPING ⇒ derived runtimeActive) and re-publishes
+        // RUNNING on the OLD generation. Scanner callbacks then keep emitting
+        // intake under enabled=[MEME] but loopActive=false → admit gate blocks
+        // every token (INTAKE_BLOCKED_RUNTIME_STOPPED spam) and 0 trades land.
+        // The fix: force a STOPPED finalization here so the next start gets a
+        // fresh generation and a clean runtime.
+        if (cur.state == RuntimeState.STOPPING && !cur.botLoopJobActive) {
+            val anyJobAlive = jobs.values.any { (_, j) -> j != null && j.isActive }
+            if (!anyJobAlive) {
+                jobs.clear()
+                publish(cur.copy(
+                    state = RuntimeState.STOPPED,
+                    botLoopJobActive = false,
+                    scannerActive = false,
+                    hotExitJobActive = false,
+                    sellReconcilerStarted = false,
+                ))
+            }
+        }
+        val curFinal = refreshDerived(_state.value)
+        if (curFinal.runtimeActive) {
+            publish(curFinal.copy(
                 state = RuntimeState.RUNNING,
                 paperMode = paperMode,
                 enabledTraders = enabledTraders,
             ))
-            return cur.runtimeGeneration
+            return curFinal.runtimeGeneration
         }
         val gen = generationSeq.incrementAndGet()
         jobs.clear()
