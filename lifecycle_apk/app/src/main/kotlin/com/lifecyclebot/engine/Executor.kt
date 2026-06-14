@@ -8427,6 +8427,27 @@ class Executor(
             }
         }
 
+        run {
+            val preTrade = PreTradeHardGate.requireLiveBuyAllowed(ts, "Executor.liveBuy.main")
+            if (!preTrade.allowed) {
+                try {
+                    ForensicLogger.exec(
+                        "LIVE_BUY_FAIL", ts.symbol,
+                        "mint=${ts.mint.take(10)} sol=$sol reason=PRETRADE:${preTrade.reason} detail=${preTrade.detail.take(80)}",
+                    )
+                } catch (_: Throwable) {}
+                try {
+                    LiveTradeLogStore.log(
+                        LiveTradeLogStore.keyFor(ts.mint, System.currentTimeMillis()),
+                        ts.mint, ts.symbol, "BUY", LiveTradeLogStore.Phase.BUY_FAILED,
+                        "PRETRADE_HARD_BLOCK ${preTrade.reason}: ${preTrade.detail.take(120)}",
+                        solAmount = sol, traderTag = "MEME",
+                    )
+                } catch (_: Throwable) {}
+                return
+            }
+        }
+
         if (walletSol <= 0) {
             PipelineTracer.executorFailed(ts.symbol, ts.mint, "LIVE", "WALLET_BALANCE_ZERO")
             PipelineTracer.noBuy(ts.symbol, ts.mint, PipelineTracer.NoBuyReason.WALLET_BALANCE_ZERO, "bal=${walletSol}SOL")
