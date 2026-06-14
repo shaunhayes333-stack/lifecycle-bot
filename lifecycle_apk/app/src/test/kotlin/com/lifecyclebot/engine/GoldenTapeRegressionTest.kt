@@ -589,4 +589,16 @@ class GoldenTapeRegressionTest {
         assertTrue(exec.contains("SELL_PAUSED_TRACKER_CLOSED_WALLET_UNKNOWN"))
     }
 
+
+    @Test
+    fun meme_only_mode_keeps_internal_style_toolkit_alive() {
+        val bot = java.io.File("src/main/kotlin/com/lifecyclebot/engine/BotService.kt").readText()
+        assertTrue(bot.contains("INTERNAL_TOOLKIT_STARVATION_FIX"))
+        assertTrue(bot.contains("l == \"SHITCOIN\" || l == \"MOONSHOT\" || l == \"EXPRESS\""))
+        assertTrue(bot.contains("if (memeFamily) return true"))
+        assertTrue(bot.contains("nonMemeSpecialist && affinity.contains(l)"))
+        assertFalse("MEME-only must not blanket-mute all non-meme specialist lanes", bot.contains("return memeFamily"))
+        assertTrue("External trader isolation authority must remain intact", bot.contains("setOf(com.lifecyclebot.engine.EnabledTraderAuthority.Trader.MEME)"))
+    }
+
 }

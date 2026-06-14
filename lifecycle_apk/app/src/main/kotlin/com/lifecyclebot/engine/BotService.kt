@@ -8570,23 +8570,34 @@ class BotService : Service() {
         val memeOnly = try {
             com.lifecyclebot.engine.EnabledTraderAuthority.isMemeLiveOnly()
         } catch (_: Throwable) { false }
-        val memeFamily = (l == "SHITCOIN" || l == "MOONSHOT")
+        val memeFamily = (l == "SHITCOIN" || l == "MOONSHOT" || l == "EXPRESS")
         val nonMemeSpecialist = (l == "MANIPULATED" || l == "QUALITY" || l == "DIP_HUNTER"
             || l == "PROJECT_SNIPER" || l == "TREASURY" || l == "BLUECHIP")
 
+        val affinity = try {
+            ts.laneAffinity.map { it.uppercase() }.toSet()
+        } catch (_: Throwable) { emptySet() }
+
         if (memeOnly) {
-            // (3) Meme-only mode: hard-suppress every non-meme specialist.
-            // SHITCOIN/MOONSHOT/MEME may still ride along with the primary.
-            return memeFamily
+            // V5.0.3710 — INTERNAL_TOOLKIT_STARVATION_FIX.
+            // MEME-only means external markets/perps/cyclic/sniper-family engines stay
+            // isolated by EnabledTraderAuthority. It must NOT make the internal meme
+            // toolkit silent. EXPRESS is a meme-family lane; if AgenticStyleRouter
+            // / ModeRouter tagged QUALITY, BLUECHIP, TREASURY, DIP_HUNTER,
+            // PROJECT_SNIPER, etc. for THIS mint,
+            // allow that bounded specialist lane to evaluate. This preserves fanout
+            // containment because source/style affinity is already capped; it only
+            // removes the blanket non-meme specialist mute that caused reports with
+            // SHITCOIN/MOONSHOT ≈96% lane coverage and everything else quiet.
+            if (memeFamily) return true
+            if (nonMemeSpecialist && affinity.contains(l)) return true
+            return false
         }
 
         // (4) Mixed mode: primary + at most one rescue from the token's
         // affinity set. Skip non-meme specialists that the affinity router
         // didn't tag for this candidate.
         if (nonMemeSpecialist) {
-            val affinity = try {
-                ts.laneAffinity.map { it.uppercase() }.toSet()
-            } catch (_: Throwable) { emptySet() }
             return affinity.contains(l)
         }
         // Default: allow (preserves SHITCOIN/MOONSHOT/MEME side-by-side learning).
