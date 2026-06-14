@@ -130,7 +130,8 @@ object CanonicalSubscribers {
                 //       UNKNOWN source and must also be excluded from meme WR.
                 try {
                     val memeOnly = try {
-                        com.lifecyclebot.engine.EnabledTraderAuthority.isMemeLiveOnly()
+                        com.lifecyclebot.engine.EnabledTraderAuthority.snapshot() ==
+                            setOf(com.lifecyclebot.engine.EnabledTraderAuthority.Trader.MEME)
                     } catch (_: Throwable) { false }
                     if (memeOnly) {
                         val memeSources = setOf(

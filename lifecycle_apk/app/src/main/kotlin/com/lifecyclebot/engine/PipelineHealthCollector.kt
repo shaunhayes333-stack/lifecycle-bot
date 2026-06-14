@@ -804,15 +804,6 @@ object PipelineHealthCollector {
         try {
             sb.append("  ${com.lifecyclebot.engine.LiveLayerGateRelaxer.summaryLine()}\n")
         } catch (_: Throwable) {}
-        // V5.0.3693 — source-of-truth mechanics trace. This is the section to
-        // paste when asking why trades are blocked: it stitches forensic + live
-        // trade + ErrorLogger rows into per-candidate terminal timelines.
-        try {
-            sb.append("\n")
-            sb.append(com.lifecyclebot.engine.TradeMechanicsTrace.exportText(limit = 12))
-            sb.append("\n")
-        } catch (_: Throwable) {}
-
         // V5.9.1324 — P2-12 surgical: Root-cause-likely banner at the top.
         // Operator §12: one section says where to look first based on the
         // dominant counter pattern.
@@ -1757,7 +1748,6 @@ object PipelineHealthCollector {
 
     /** Reset all counters — operator-triggered "fresh capture" for export. */
     fun reset() {
-        try { com.lifecyclebot.engine.TradeMechanicsTrace.reset() } catch (_: Throwable) {}
         phaseCounts.clear()
         phaseAllow.clear()
         phaseBlock.clear()

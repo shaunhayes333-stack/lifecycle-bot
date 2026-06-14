@@ -103,7 +103,6 @@ object EnabledTraderAuthority {
      */
     fun isMemeLiveOnly(): Boolean {
         val set = enabled.get()
-        val memeDomain = setOf(Trader.MEME, Trader.PROJECT_SNIPER, Trader.CYCLIC, Trader.SHADOW_PAPER)
-        return Trader.MEME in set && set.isNotEmpty() && set.all { it in memeDomain }
+        return set.size == 1 && Trader.MEME in set
     }
 }

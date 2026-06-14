@@ -1596,17 +1596,8 @@ class BotService : Service() {
             val memeOn = cfg.memeTraderEnabled
             val marketsOn = !marketsKill && cfg.marketsTraderEnabled && (cfg.tradingMode == 1 || cfg.tradingMode == 2)
             val enabledSet = if (memeOnlyUiMode && memeOn) {
-                // V5.0.3691 — meme-only means MEME DOMAIN, not MEME-LANE amputee.
-                // Keep markets/perps/crypto universe off, but allow the internal
-                // meme strategy toolkit to learn/pivot: Project Sniper, Cyclic,
-                // and Shadow lab. Source failures must be fixed at strategy/policy,
-                // not by disabling traders.
-                setOf(
-                    com.lifecyclebot.engine.EnabledTraderAuthority.Trader.MEME,
-                    com.lifecyclebot.engine.EnabledTraderAuthority.Trader.PROJECT_SNIPER,
-                    com.lifecyclebot.engine.EnabledTraderAuthority.Trader.CYCLIC,
-                    com.lifecyclebot.engine.EnabledTraderAuthority.Trader.SHADOW_PAPER,
-                )
+                // True meme-only: ONLY MEME publishes. Sniper/Cyclic/Markets/Perps OFF.
+                setOf(com.lifecyclebot.engine.EnabledTraderAuthority.Trader.MEME)
             } else {
                 // Mixed/full-stack mode: respect per-lane toggles, but exclude
                 // quarantined market lanes and forced-off Crypto when markets-OFF.
@@ -1631,7 +1622,7 @@ class BotService : Service() {
                     // Note: ProjectSniperAI has its own .isEnabled() — we only
                     // publish the authority bit here; the AI side decides if it
                     // actually evaluates this tick.
-                    s += com.lifecyclebot.engine.EnabledTraderAuthority.Trader.PROJECT_SNIPER
+                    // Opt-in: only when operator has chosen mixed/full mode.
                 }
                 if (s.isEmpty()) s += com.lifecyclebot.engine.EnabledTraderAuthority.Trader.MEME
                 s.toSet()
@@ -8574,18 +8565,14 @@ class BotService : Service() {
         val memeOnly = try {
             com.lifecyclebot.engine.EnabledTraderAuthority.isMemeLiveOnly()
         } catch (_: Throwable) { false }
-        val memeFamily = (l == "SHITCOIN" || l == "MOONSHOT" || l == "EXPRESS" || l == "PROJECT_SNIPER" || l == "CYCLIC")
+        val memeFamily = (l == "SHITCOIN" || l == "MOONSHOT")
         val nonMemeSpecialist = (l == "MANIPULATED" || l == "QUALITY" || l == "DIP_HUNTER"
             || l == "PROJECT_SNIPER" || l == "TREASURY" || l == "BLUECHIP")
 
         if (memeOnly) {
-            // V5.0.3691 — no more lane amputation. In meme-domain mode, allow
-            // the core meme family plus any lane explicitly elected by character/
-            // style affinity. That keeps fanout bounded by AgenticStyleRouter but
-            // prevents ProjectSniper/Quality/BlueChip-style pivots from being
-            // silently disabled after the router asked for them.
-            val affinity = try { ts.laneAffinity.map { it.uppercase() }.toSet() } catch (_: Throwable) { emptySet() }
-            return memeFamily || affinity.contains(l)
+            // (3) Meme-only mode: hard-suppress every non-meme specialist.
+            // SHITCOIN/MOONSHOT/MEME may still ride along with the primary.
+            return memeFamily
         }
 
         // (4) Mixed mode: primary + at most one rescue from the token's
@@ -9891,19 +9878,6 @@ class BotService : Service() {
             // The per-cycle WATCHLIST_CAP total= is the capped slice processed this tick.
             val watchSize = try { status.tokens.size } catch (_: Throwable) { -1 }
             val regSize = try { GlobalTradeRegistry.size() } catch (_: Throwable) { -1 }
-            // V5.0.3696 — scanner liveness truth: do not wait for the 30s
-            // scanner heartbeat to publish scannerActive=true. The pipeline
-            // health screen can snapshot at 20-25s uptime while SCAN_CB/INTAKE
-            // are already flowing, causing a false SCANNER_INACTIVE diagnosis
-            // and RuntimeDoctor restart churn. If the bot loop sees a live
-            // scanner object on a normal tick, publish it immediately.
-            try {
-                val scAliveNow = try { marketScanner?.isAlive() == true } catch (_: Throwable) { false }
-                if (status.running && scAliveNow) {
-                    com.lifecyclebot.engine.BotRuntimeController.markScannerActive(
-                        com.lifecyclebot.engine.BotRuntimeController.currentGeneration(), true)
-                }
-            } catch (_: Throwable) {}
             ForensicLogger.phase(
                 ForensicLogger.PHASE.SCAN_CB,
                 "_loop",
@@ -10447,12 +10421,6 @@ class BotService : Service() {
         try {
             val sc = marketScanner
             val scAlive = try { sc?.isAlive() ?: false } catch (_: Throwable) { false }
-            try {
-                if (status.running && scAlive) {
-                    com.lifecyclebot.engine.BotRuntimeController.markScannerActive(
-                        com.lifecyclebot.engine.BotRuntimeController.currentGeneration(), true)
-                }
-            } catch (_: Throwable) {}
             val mqDepth = try { TokenMergeQueue.size() } catch (_: Throwable) { -1 }
             val wlSize = try { GlobalTradeRegistry.size() } catch (_: Throwable) { -1 }
             val openCount = status.tokens.values.count { it.position.isOpen }
@@ -16177,21 +16145,16 @@ if (hotExitHandledSweep) {
                             "REJECTED_${result.reason}"
                         )
                     } catch (_: Throwable) {}
-                    // V5.0.3697 — TERMINAL REJECTION MEANS TERMINAL FOR THIS CYCLE.
-                    // Operator log 02:14 showed V3 DECISION_REJECT/SCORE_TOO_LOW,
-                    // then Moonshot/Express/FDG still revived the same mint into
-                    // PROBE_ONLY attempts until finality blocked on reentry lockout.
-                    // That violates the standing gate taxonomy: terminal rejection
-                    // must be enforced at the gate level and prevent subsequent
-                    // execution signalling. SCORE_TOO_LOW is not quarantined forever;
-                    // it simply stops THIS candidate cycle from walking lanes/FDG.
+                    // V5.9.1122 — only terminal eligibility rejects return early.
+                    // 3088 still showed ZERO_LIQUIDITY/LOW_LIQUIDITY walking all
+                    // lanes after V3 rejected them, creating supervisor timeouts
+                    // and finality blocks with no executable value. Keep
+                    // SCORE_TOO_LOW soft for bootstrap/learning probes.
                     val terminalRejected = result.reason.contains("ZERO_LIQUIDITY", ignoreCase = true) ||
                         result.reason.contains("LOW_LIQUIDITY", ignoreCase = true) ||
                         result.reason.contains("INELIGIBLE", ignoreCase = true) ||
                         result.reason.contains("TOO_OLD", ignoreCase = true) ||
-                        result.reason.contains("NO_PAIR", ignoreCase = true) ||
-                        result.reason.contains("SCORE_TOO_LOW", ignoreCase = true) ||
-                        result.reason.contains("DECISION_REJECT", ignoreCase = true)
+                        result.reason.contains("NO_PAIR", ignoreCase = true)
                     if (terminalRejected && !ts.position.isOpen) {
                         // V5.9.1225 — terminal factual rejects must leave the hot
                         // supervisor pool. 3192 showed 409 terminal early returns
@@ -19812,19 +19775,30 @@ if (hotExitHandledSweep) {
                         // ═════════════════════════════════════════════════════
                         // V5.9.812 — OPERATOR DOCTRINE "help, don't hinder"
                         // ─────────────────────────────────────────────────────
-                        // V5.0.3697 — SCORE_TOO_LOW is no longer a soft revive.
-                        // It is a terminal current-cycle reject. The old path turned
-                        // V3 REJECT + FDG green into V3-REJECT-PROBE, which directly
-                        // contradicted the finality contract and produced noisy
-                        // FINALITY_EXEC_OPEN_BLOCKED_REENTRY_LOCKOUT loops.
+                        // SCORE_TOO_LOW is NOT a stupid decision — it's V3
+                        // saying score < watchScoreMin. Other reject reasons
+                        // (SIZE_ZERO, eligibility fails, etc.) ARE
+                        // stupid-decision blocks and stay vetoes.
                         //
-                        // For all reject reasons: block as before. Near-miss
-                        // exploration belongs in explicit lane policy, not after a
-                        // V3 terminal reject.
+                        // For SCORE_TOO_LOW with FDG green: tiny probe
+                        // (0.4× FDG size). Bridge fallback below still
+                        // runs in paper for near-misses.
+                        //
+                        // For all other reject reasons: block as before.
                         // ═════════════════════════════════════════════════════
+                        val isSoftReject = result.reason.startsWith("SCORE_TOO_LOW")
                         if (v3ControlsExecution) {
-                            addLog("⚡ V3 REJECT: ${identity.symbol} | ${result.reason}", mint)
-                            useV3Decision = false
+                            if (isSoftReject && fdgDecision.canExecute() && fdgDecision.sizeSol > 0.0) {
+                                val probeSize = (fdgDecision.sizeSol * 0.4).coerceAtLeast(0.003)
+                                useV3Decision = true
+                                v3SizeSol = probeSize
+                                v3Thesis = "V3-REJECT-PROBE ${result.reason} (FDG=green, V3 shrunk 0.4×)"
+                                ErrorLogger.info("BotService", "⚡ V3 REJECT→PROBE: ${identity.symbol} | ${result.reason} | size=${probeSize.fmt(4)} SOL")
+                                addLog("⚡ V3 REJECT→PROBE: ${identity.symbol} | ${result.reason} | ${probeSize.fmt(4)} SOL (0.4× FDG)", mint)
+                            } else {
+                                addLog("⚡ V3 REJECT: ${identity.symbol} | ${result.reason}", mint)
+                                useV3Decision = false
+                            }
                         }
 
                         // ═════════════════════════════════════════════════════
@@ -19835,10 +19809,7 @@ if (hotExitHandledSweep) {
                         // look. If it says shouldEnter we override V3 with
                         // a small position. Live mode still defers to V3.
                         // ═════════════════════════════════════════════════════
-                        val bridgeAllowed = !useV3Decision &&
-                            !result.reason.contains("SCORE_TOO_LOW", ignoreCase = true) &&
-                            !result.reason.contains("DECISION_REJECT", ignoreCase = true) &&
-                            (cfg.paperMode || pre5000LearningOpen || hasProvenEdge)
+                        val bridgeAllowed = !useV3Decision && (cfg.paperMode || pre5000LearningOpen || hasProvenEdge)
                         if (bridgeAllowed) {
                             try {
                                 val verdict = com.lifecyclebot.v3.MemeUnifiedScorerBridge.scoreForEntry(ts)

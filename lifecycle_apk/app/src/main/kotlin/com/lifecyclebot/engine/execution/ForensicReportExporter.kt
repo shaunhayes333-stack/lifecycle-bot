@@ -76,7 +76,8 @@ object ForensicReportExporter {
                 putExtra(Intent.EXTRA_STREAM, uri)
                 putExtra(Intent.EXTRA_SUBJECT, "AATE Forensic Report ${file.name}")
                 putExtra(Intent.EXTRA_TEXT,
-                    "AATE forensic export attached. Start with trade_mechanics_trace: it shows the full candidate loop, terminal block/fail reason, and adjacent ErrorLogger rows.")
+                    "AATE forensic export attached. " +
+                    "Compare intended_symbol vs stored_mint vs wallet_balance vs last_buy_signature.")
                 addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
             }
         } catch (e: Exception) {
@@ -114,13 +115,6 @@ object ForensicReportExporter {
             put("active_mitigations", doctor?.snapshot?.activeMitigations?.joinToString(",") ?: "")
             put("quality_only_policy", com.lifecyclebot.engine.RuntimeConfigOverlay.qualityOnlySummary())
         })
-        try {
-            root.put("trade_mechanics_trace", com.lifecyclebot.engine.TradeMechanicsTrace.exportJson(limit = 60))
-            root.put("trade_mechanics_trace_text", com.lifecyclebot.engine.TradeMechanicsTrace.exportText(limit = 20))
-        } catch (_: Throwable) {
-            root.put("trade_mechanics_trace", JSONArray())
-        }
-
         root.put("runtime", JSONObject().apply {
             put("generation", runtime.runtimeGeneration)
             put("state", runtime.state.name)

@@ -108,24 +108,13 @@ object AgenticStyleRouter {
         )
     }
 
-    private fun tacticLaneHint(ts: TokenState, base: Set<String>): String {
-        val candidates = (base + ts.laneAffinity).filter { it.isNotBlank() }.distinct()
-        return candidates.getOrNull(stablePick("tactic:${ts.mint}", candidates.size)) ?: "SHITCOIN"
-    }
-
     fun lanesFor(ts: TokenState, classification: ModeRouter.Classification, base: Set<String>): Set<String> {
-        // V5.0.3691 — lane-specific tactic fix. This used to call decide() with
-        // no lane hint, so EVERY style lookup read SHITCOIN's tactic cell. That
-        // caused same-style repetition across lanes even though TacticSwitcher was
-        // rotating per lane×scoreBand correctly.
-        val laneHint = tacticLaneHint(ts, base)
-        val d = decide(ts, classification, laneHint)
+        val d = decide(ts, classification)
         return boundedLanes(ts.mint, base, d.style)
     }
 
     fun toolsFor(ts: TokenState, classification: ModeRouter.Classification, base: Set<String>): Set<String> {
-        val laneHint = tacticLaneHint(ts, base)
-        val d = decide(ts, classification, laneHint)
+        val d = decide(ts, classification)
         return boundedTools(ts.mint, base, d.style)
     }
 }
