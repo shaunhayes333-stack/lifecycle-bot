@@ -16177,16 +16177,21 @@ if (hotExitHandledSweep) {
                             "REJECTED_${result.reason}"
                         )
                     } catch (_: Throwable) {}
-                    // V5.9.1122 — only terminal eligibility rejects return early.
-                    // 3088 still showed ZERO_LIQUIDITY/LOW_LIQUIDITY walking all
-                    // lanes after V3 rejected them, creating supervisor timeouts
-                    // and finality blocks with no executable value. Keep
-                    // SCORE_TOO_LOW soft for bootstrap/learning probes.
+                    // V5.0.3697 — TERMINAL REJECTION MEANS TERMINAL FOR THIS CYCLE.
+                    // Operator log 02:14 showed V3 DECISION_REJECT/SCORE_TOO_LOW,
+                    // then Moonshot/Express/FDG still revived the same mint into
+                    // PROBE_ONLY attempts until finality blocked on reentry lockout.
+                    // That violates the standing gate taxonomy: terminal rejection
+                    // must be enforced at the gate level and prevent subsequent
+                    // execution signalling. SCORE_TOO_LOW is not quarantined forever;
+                    // it simply stops THIS candidate cycle from walking lanes/FDG.
                     val terminalRejected = result.reason.contains("ZERO_LIQUIDITY", ignoreCase = true) ||
                         result.reason.contains("LOW_LIQUIDITY", ignoreCase = true) ||
                         result.reason.contains("INELIGIBLE", ignoreCase = true) ||
                         result.reason.contains("TOO_OLD", ignoreCase = true) ||
-                        result.reason.contains("NO_PAIR", ignoreCase = true)
+                        result.reason.contains("NO_PAIR", ignoreCase = true) ||
+                        result.reason.contains("SCORE_TOO_LOW", ignoreCase = true) ||
+                        result.reason.contains("DECISION_REJECT", ignoreCase = true)
                     if (terminalRejected && !ts.position.isOpen) {
                         // V5.9.1225 — terminal factual rejects must leave the hot
                         // supervisor pool. 3192 showed 409 terminal early returns
@@ -19807,30 +19812,19 @@ if (hotExitHandledSweep) {
                         // ═════════════════════════════════════════════════════
                         // V5.9.812 — OPERATOR DOCTRINE "help, don't hinder"
                         // ─────────────────────────────────────────────────────
-                        // SCORE_TOO_LOW is NOT a stupid decision — it's V3
-                        // saying score < watchScoreMin. Other reject reasons
-                        // (SIZE_ZERO, eligibility fails, etc.) ARE
-                        // stupid-decision blocks and stay vetoes.
+                        // V5.0.3697 — SCORE_TOO_LOW is no longer a soft revive.
+                        // It is a terminal current-cycle reject. The old path turned
+                        // V3 REJECT + FDG green into V3-REJECT-PROBE, which directly
+                        // contradicted the finality contract and produced noisy
+                        // FINALITY_EXEC_OPEN_BLOCKED_REENTRY_LOCKOUT loops.
                         //
-                        // For SCORE_TOO_LOW with FDG green: tiny probe
-                        // (0.4× FDG size). Bridge fallback below still
-                        // runs in paper for near-misses.
-                        //
-                        // For all other reject reasons: block as before.
+                        // For all reject reasons: block as before. Near-miss
+                        // exploration belongs in explicit lane policy, not after a
+                        // V3 terminal reject.
                         // ═════════════════════════════════════════════════════
-                        val isSoftReject = result.reason.startsWith("SCORE_TOO_LOW")
                         if (v3ControlsExecution) {
-                            if (isSoftReject && fdgDecision.canExecute() && fdgDecision.sizeSol > 0.0) {
-                                val probeSize = (fdgDecision.sizeSol * 0.4).coerceAtLeast(0.003)
-                                useV3Decision = true
-                                v3SizeSol = probeSize
-                                v3Thesis = "V3-REJECT-PROBE ${result.reason} (FDG=green, V3 shrunk 0.4×)"
-                                ErrorLogger.info("BotService", "⚡ V3 REJECT→PROBE: ${identity.symbol} | ${result.reason} | size=${probeSize.fmt(4)} SOL")
-                                addLog("⚡ V3 REJECT→PROBE: ${identity.symbol} | ${result.reason} | ${probeSize.fmt(4)} SOL (0.4× FDG)", mint)
-                            } else {
-                                addLog("⚡ V3 REJECT: ${identity.symbol} | ${result.reason}", mint)
-                                useV3Decision = false
-                            }
+                            addLog("⚡ V3 REJECT: ${identity.symbol} | ${result.reason}", mint)
+                            useV3Decision = false
                         }
 
                         // ═════════════════════════════════════════════════════
@@ -19841,7 +19835,10 @@ if (hotExitHandledSweep) {
                         // look. If it says shouldEnter we override V3 with
                         // a small position. Live mode still defers to V3.
                         // ═════════════════════════════════════════════════════
-                        val bridgeAllowed = !useV3Decision && (cfg.paperMode || pre5000LearningOpen || hasProvenEdge)
+                        val bridgeAllowed = !useV3Decision &&
+                            !result.reason.contains("SCORE_TOO_LOW", ignoreCase = true) &&
+                            !result.reason.contains("DECISION_REJECT", ignoreCase = true) &&
+                            (cfg.paperMode || pre5000LearningOpen || hasProvenEdge)
                         if (bridgeAllowed) {
                             try {
                                 val verdict = com.lifecyclebot.v3.MemeUnifiedScorerBridge.scoreForEntry(ts)

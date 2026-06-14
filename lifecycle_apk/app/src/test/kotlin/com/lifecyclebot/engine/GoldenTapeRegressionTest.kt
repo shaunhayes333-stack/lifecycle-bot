@@ -442,4 +442,22 @@ class GoldenTapeRegressionTest {
         val bot = java.io.File("src/main/kotlin/com/lifecyclebot/engine/BotService.kt").readText()
         assertTrue("BotService needs downstream fuse for stale deployed/cached V3 fatal strings", bot.contains("V3_LIVE_RC_PENDING_FATAL_SOFTENED"))
     }
+
+    @Test
+    fun v3_score_too_low_reject_is_terminal_and_cannot_be_revived_as_probe() {
+        val bot = java.io.File("src/main/kotlin/com/lifecyclebot/engine/BotService.kt").readText()
+        assertTrue("SCORE_TOO_LOW must be in the terminal V3 reject set", bot.contains("result.reason.contains(\"SCORE_TOO_LOW\", ignoreCase = true)"))
+        assertTrue("terminal reject must return before lane/FDG fanout", bot.contains("V3_REJECTED_TERMINAL_EARLY_RETURN"))
+        assertFalse("SCORE_TOO_LOW must not revive into a V3 reject probe", bot.contains("result.reason.startsWith(\"SCORE_TOO_LOW\")"))
+        assertFalse("SCORE_TOO_LOW bridge fallback must be blocked", bot.contains("V3 REJECT→PROBE"))
+    }
+
+    @Test
+    fun perps_bridge_logs_signed_layer_vote_pnl_to_avoid_win_loss_inversion_confusion() {
+        val bridge = java.io.File("src/main/kotlin/com/lifecyclebot/perps/PerpsLearningBridge.kt").readText()
+        assertTrue(bridge.contains("val signedPnl = \"%+.1f\".format(pnlPct)"))
+        assertTrue(bridge.contains("layer_vote_correct"))
+        assertFalse("Bridge log must not print unsigned %.1f PnL", bridge.contains("\"%.1f\".format(pnlPct)}% | layers="))
+    }
+
 }

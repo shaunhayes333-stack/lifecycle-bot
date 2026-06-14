@@ -936,10 +936,13 @@ object PerpsLearningBridge {
         crossLayerSyncs.incrementAndGet()
         if (totalPerpsLearningEvents.get() % 10 == 0) save()  // batched persistence
 
+        val outcomeLabel = if (isWin) "WIN" else "LOSS"
+        val signedPnl = "%+.1f".format(pnlPct)
+        val voteGradingNote = if (asset == AssetClass.MEME && isWin && pnlPct > 0.0) " layer_vote_correct" else ""
         ErrorLogger.info(
             TAG,
             "🧠 ${asset.name} learning: ${if (symbol.isNotBlank()) "$symbol " else ""}" +
-                "${if (isWin) "WIN" else "LOSS"} ${"%.1f".format(pnlPct)}% | layers=${layers.size}"
+                "$outcomeLabel $signedPnl% | layers=${layers.size}$voteGradingNote"
         )
     }
 
