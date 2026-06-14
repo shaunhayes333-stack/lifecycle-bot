@@ -9030,6 +9030,18 @@ class Executor(
                             pendingVerify = false,
                         )
                         ts.position = promoted
+                        // V5.0.3685 — re-insert ts into status.tokens if it was evicted
+                        // during the verify window (e.g. by HOT_WATCHLIST_SOURCE_REBALANCED
+                        // or a Stop/Start cycle). Without this, the position is open in
+                        // memory but invisible to every UI and exit path that iterates
+                        // status.tokens → position appears bought but never shows in UI,
+                        // never gets an exit monitor, and the tokens are lost.
+                        try {
+                            // BotService.status.tokens is the live map
+                            synchronized(com.lifecyclebot.engine.BotService.status.tokens) {
+                                com.lifecyclebot.engine.BotService.status.tokens.putIfAbsent(verifyMint, ts)
+                            }
+                        } catch (_: Throwable) {}
                         ErrorLogger.info(
                             "Executor",
                             "✅ POST-BUY OK: $verifySymbol | ${"%.4f".format(verifiedQty)} tokens confirmed — position now live"

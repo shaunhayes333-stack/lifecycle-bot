@@ -56,7 +56,12 @@ object CloseLease {
     private val _dupSuppressed = AtomicLong(0L)
 
     val duplicateCloseAttemptsSuppressed: Long get() = _dupSuppressed.get()
-    fun activeLeaseCount(): Int = leases.size
+    // V5.0.3685 — P0: raw leases.size counted expired entries, inflating the
+    // pendingSellQueue signal fed to SellOnlySafeMode → SELL_ONLY_SAFE_MODE stayed
+    // active even after all sells landed. Count only TTL-live leases.
+    fun activeLeaseCount(): Int = leases.entries.count { (_, l) ->
+        System.currentTimeMillis() - l.acquiredMs < LEASE_TTL_MS
+    }
     fun isLeased(mint: String): Boolean = current(mint) != null
 
     private fun current(mint: String): Lease? {

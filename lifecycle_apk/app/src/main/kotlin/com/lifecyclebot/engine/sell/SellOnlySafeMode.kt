@@ -121,9 +121,13 @@ object SellOnlySafeMode {
             // V5.9.1561 — message uses window delta now, not lifetime cumulative.
             if (workerTimeoutStorm()) reasons += "workerTimeoutStorm=$workerTimeouts(>${STORM_THRESHOLD})/90s"
             if (orphanLivePositions > 0) reasons += "orphanLive=$orphanLivePositions"
-            if (hostTrackerOpenCount != positionStoreOpenCount)
+            // V5.0.3685 — P0: exact equality is too brittle (normal RPC-confirm delay
+            // can put these off by 1 transiently). Require diff > 1 to flag mismatch.
+            if (kotlin.math.abs(hostTrackerOpenCount - positionStoreOpenCount) > 1)
                 reasons += "openCountMismatch host=$hostTrackerOpenCount store=$positionStoreOpenCount"
-            if (closedWithNonDustBalance > 0) reasons += "closedWithNonDust=$closedWithNonDustBalance"
+            // V5.0.3685 — P0: 1 closed-with-dust entry is common during normal settlement
+            // (RPC lag between SELL_TX_PARSE_OK and balance zero). Require > 1 to trigger.
+            if (closedWithNonDustBalance > 1) reasons += "closedWithNonDust=$closedWithNonDustBalance"
             if (staleLivePriceExitActive) reasons += "staleLivePriceExit"
         }
         if (providerBackoffActive()) reasons += "providerBackoff"

@@ -8645,7 +8645,13 @@ class BotService : Service() {
             if (excess <= 0) return
             var demoted = 0
             for (entry in pumpEntries.take(excess)) {
-                val open = try { synchronized(status.tokens) { status.tokens[entry.mint]?.position?.isOpen == true } } catch (_: Throwable) { false }
+                // V5.0.3685 — guard: never evict a mint that is in-flight (pendingVerify)
+                // or already open. mid-buy verification sets pendingVerify=true BEFORE
+                // confirming token arrival; evicting here loses the position permanently.
+                val open = try { synchronized(status.tokens) {
+                    val pos = status.tokens[entry.mint]?.position
+                    pos?.isOpen == true || pos?.pendingVerify == true || (pos?.qtyToken ?: 0.0) > 0.0
+                } } catch (_: Throwable) { false }
                 if (open) continue
                 val ok = try {
                     com.lifecyclebot.engine.GlobalTradeRegistry.demoteWatchlistToProbation(

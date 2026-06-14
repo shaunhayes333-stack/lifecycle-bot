@@ -61,7 +61,14 @@ data class RuntimeStateSnapshot(
             val walletHeld = try { HostWalletTokenTracker.getActuallyHeldCount() } catch (_: Throwable) { 0 }
             val hostOpen = try { HostWalletTokenTracker.getOpenCount() } catch (_: Throwable) { runtime.hostTrackerOpenCount }
             val lifecycleOpen = try { TokenLifecycleTracker.openCount() } catch (_: Throwable) { 0 }
-            val positionStoreOpen = try { statusOpen.size } catch (_: Throwable) { paperOpen + liveOpen }
+            // V5.0.3685 — P0: SellOnlySafeMode compares hostOpen (live tracker) vs
+            // positionStoreOpen. The old statusOpen.size included paper positions, so
+            // ANY paper sim made positionStoreOpen > hostOpen → permanent SELL_ONLY_SAFE_MODE.
+            // In LIVE runtime we compare only live open positions vs the host tracker.
+            val positionStoreOpen = try {
+                val isLiveNow = try { com.lifecyclebot.engine.runtime.RuntimeModeAuthority.isLive() } catch (_: Throwable) { false }
+                if (isLiveNow) liveOpen else statusOpen.size
+            } catch (_: Throwable) { paperOpen + liveOpen }
             // V5.9.1371 — MODE-AWARE orphan + canonical accounting.
             // Pre-1369 the host/lifecycle trackers mirrored paper positions, so
             // orphanPaper = paperOpen - hostOpen made sense. V5.9.1369 deliberately
@@ -100,7 +107,12 @@ data class RuntimeStateSnapshot(
             } catch (_: Throwable) { 0 }
             val orphanLive = try {
                 if (isPaperRuntime) 0
-                else (walletHeld - liveOpen).coerceAtLeast(0)
+                // V5.0.3685 — P0: (walletHeld - liveOpen) can be 1 during the normal
+                // RPC-confirm delay after a buy lands on-chain but before position state
+                // propagates. A difference of 1 fires SellOnlySafeMode.orphanLive > 0
+                // which hard-blocks the NEXT live buy. Require > 1 delta before calling
+                // it an orphan — a genuine orphan is 2+ positions the store doesn't know about.
+                else ((walletHeld - liveOpen) - 1).coerceAtLeast(0)
             } catch (_: Throwable) { 0 }
 
             val reconcilerChecked = try {
@@ -122,7 +134,9 @@ data class RuntimeStateSnapshot(
             // V5.9.1533 — feed SELL-ONLY SAFE MODE the canonical signals each tick so
             // it can gate new live buys when the runtime is unhealthy (spec item 1+9).
             try {
-                val activeJobs = try { com.lifecyclebot.engine.sell.SellJobRegistry.snapshot().size } catch (_: Throwable) { 0 }
+                // V5.0.3685 — P0: snapshot().size counted terminal LANDED/FAILED_FINAL
+                // jobs → SellOnlySafeMode.activeJobs was always > 0 after the first sell.
+                val activeJobs = try { com.lifecyclebot.engine.sell.SellJobRegistry.activeCount() } catch (_: Throwable) { 0 }
                 val pendingSell = try { com.lifecyclebot.engine.sell.CloseLease.activeLeaseCount() } catch (_: Throwable) { 0 }
                 val workerTimeouts = try { (pipe.labelCounts["LIFECYCLE/SUPERVISOR_WORKER_TIMEOUT"] ?: 0L).toInt() } catch (_: Throwable) { 0 }
                 val closedNonDust = try { com.lifecyclebot.engine.HostWalletTokenTracker.closeAuthorityAudit().closedWithNonDustBalance } catch (_: Throwable) { 0 }
