@@ -321,20 +321,20 @@ class PipelineHealthActivity : AppCompatActivity() {
     private fun copyToClipboardAsync() {
         if (destroyed || !viewsBound) return
         val generation = renderGeneration
-        bgHandler.post {
-            if (destroyed || generation != renderGeneration) return@post
-            val text = try { PipelineHealthCollector.dumpText() } catch (_: Throwable) { "(render error)" }
-            mainHandler.post {
-                if (destroyed || generation != renderGeneration) return@post
-                val cb = getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
-                cb.setPrimaryClip(ClipData.newPlainText("AATE Pipeline Health", text))
-                try { com.lifecyclebot.engine.ForensicLogger.lifecycle("PIPELINE_FULL_DUMP_COPY_ONLY", "chars=${text.length}") } catch (_: Throwable) {}
-                Toast.makeText(
-                    this,
-                    "Pipeline health dump copied (${text.length} chars)",
-                    Toast.LENGTH_SHORT,
-                ).show()
-            }
+        com.lifecyclebot.engine.ReportingHub.buildTextAsync(
+            com.lifecyclebot.engine.ReportingHub.Kind.UNIFIED_HEALTH,
+            forceFresh = true,
+        ) { report, error ->
+            if (destroyed || generation != renderGeneration) return@buildTextAsync
+            val text = report?.text ?: "(render error: ${error?.message ?: "unknown"})"
+            val cb = getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+            cb.setPrimaryClip(ClipData.newPlainText("AATE Unified Report", text))
+            try { com.lifecyclebot.engine.ForensicLogger.lifecycle("UNIFIED_REPORT_COPY_ONLY", "chars=${text.length} hub=true") } catch (_: Throwable) {}
+            Toast.makeText(
+                this,
+                "Unified report copied (${text.length} chars)",
+                Toast.LENGTH_SHORT,
+            ).show()
         }
     }
 
