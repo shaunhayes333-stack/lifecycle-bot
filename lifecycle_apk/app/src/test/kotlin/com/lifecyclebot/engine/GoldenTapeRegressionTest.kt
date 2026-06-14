@@ -629,4 +629,23 @@ class GoldenTapeRegressionTest {
         assertTrue(report.contains("SELL_FINALIZED for landed on-chain truth"))
     }
 
+
+    @Test
+    fun all_live_meme_execution_entrypoints_emit_shared_route_stack() {
+        val exec = java.io.File("src/main/kotlin/com/lifecyclebot/engine/Executor.kt").readText()
+        listOf("callSite = \"liveBuy\"", "callSite = \"liveTopUp\"", "callSite = \"liveSell\"", "callSite = \"executeProfitLockSell\"", "callSite = \"checkPartialSell\"").forEach {
+            assertTrue("missing stack entrypoint marker: $it", exec.contains(it))
+        }
+        val stack = java.io.File("src/main/kotlin/com/lifecyclebot/engine/execution/MemeExecutionRouteStack.kt").readText()
+        listOf("PumpFunDirect", "PumpPortal", "PumpSwapDirect", "RaydiumDirect", "MeteoraDirect", "OrcaDirect", "JupiterUltra", "JupiterMetis").forEach {
+            assertTrue("missing execution provider: $it", stack.contains(it))
+        }
+        listOf("standardRpc", "HeliusSender", "Jito").forEach {
+            assertTrue("missing sender provider: $it", stack.contains(it))
+        }
+        assertTrue(stack.contains("EXEC_STACK_EXHAUSTED"))
+        assertTrue(stack.contains("EXEC_PROVIDER_TRY"))
+        assertTrue(stack.contains("EXEC_SENDER_TRY"))
+    }
+
 }

@@ -2972,7 +2972,6 @@ class Executor(
     ): Boolean {
         val c   = cfg()
         val pos = ts.position
-
         if (!c.topUpEnabled)   return false
         if (!pos.isOpen)       return false
         if (!c.autoTrade)      return false
@@ -3648,6 +3647,18 @@ class Executor(
         walletSol: Double,
     ) {
         val c = cfg()
+        beginMemeExecutionStack(
+            side = com.lifecyclebot.engine.execution.MemeExecutionRouteStack.Side.SELL,
+            ts = ts,
+            amountIn = sellFraction,
+            amountInRaw = "fraction=$sellFraction",
+            slippageBps = com.lifecyclebot.engine.sell.SellSafetyPolicy.initialSlippageBps(reason),
+            reason = reason,
+            urgency = if (reason.contains("profit", ignoreCase = true)) com.lifecyclebot.engine.execution.MemeExecutionRouteStack.Urgency.PROFIT_LOCK else com.lifecyclebot.engine.execution.MemeExecutionRouteStack.Urgency.PARTIAL,
+            walletSol = walletSol,
+            tokenBalanceAuthority = "SELL_AMOUNT_AUTHORITY_PENDING",
+            callSite = "executeProfitLockSell",
+        )
         // V5.9.475 — rehydrate ts.position from sub-trader maps if it's
         // empty. Sub-traders (Treasury, ShitCoin, etc.) keep positions in
         // private maps and don't always mirror to ts.position. Without
@@ -4870,6 +4881,18 @@ class Executor(
             onLog("PAPER PARTIAL SELL ${(sellFraction*100).toInt()}% | " +
                   "cost=${partialCostBasisSol.fmtSol()} gross=${(sellQty * actualPrice).fmtSol()} pnl=${paperPnlSol.fmtSignedSol()} (${pct(partialCostBasisSol, sellQty * actualPrice).fmtPctPrecise()})", ts.mint)
         } else {
+            beginMemeExecutionStack(
+                side = com.lifecyclebot.engine.execution.MemeExecutionRouteStack.Side.SELL,
+                ts = ts,
+                amountIn = sellFraction,
+                amountInRaw = "fraction=$sellFraction",
+                slippageBps = com.lifecyclebot.engine.sell.SellSafetyPolicy.initialSlippageBps("PARTIAL_TAKE_PROFIT"),
+                reason = "PARTIAL_TAKE_PROFIT",
+                urgency = com.lifecyclebot.engine.execution.MemeExecutionRouteStack.Urgency.PARTIAL,
+                walletSol = walletSol,
+                tokenBalanceAuthority = liveBalanceSource.name,
+                callSite = "checkPartialSell",
+            )
             // V5.9.751b — wallet guaranteed non-null by PARTIAL_SELL_DEFERRED guard above.
             // Shadow the nullable param with a non-null binding so the rest of
             // this else branch keeps its previous unchanged code (V5.9.495 etc).
@@ -6543,9 +6566,75 @@ class Executor(
         sounds?.playMilestone(gainPct)
     }
 
+
+    private fun beginMemeExecutionStack(
+        side: com.lifecyclebot.engine.execution.MemeExecutionRouteStack.Side,
+        ts: TokenState,
+        amountIn: Double,
+        amountInRaw: String = "",
+        slippageBps: Int = 0,
+        reason: String = "",
+        urgency: com.lifecyclebot.engine.execution.MemeExecutionRouteStack.Urgency = com.lifecyclebot.engine.execution.MemeExecutionRouteStack.Urgency.NORMAL,
+        walletSol: Double = 0.0,
+        tokenBalanceAuthority: String = "UNKNOWN",
+        callSite: String,
+    ) {
+        try {
+            val src = try { ts.source } catch (_: Throwable) { "" }
+            val upper = src.uppercase()
+            val intel = com.lifecyclebot.engine.execution.MemeExecutionRouteStack.RouteIntelligenceSnapshot(
+                birdeyePrice = null,
+                coingeckoContext = "",
+                dexScreenerPair = if (upper.contains("DEX") || upper.contains("RAYDIUM") || upper.contains("METEORA") || upper.contains("ORCA")) src else "",
+                pumpPortalSignal = if (upper.contains("PUMP") || ts.mint.endsWith("pump", ignoreCase = true)) src.ifBlank { "mint_suffix_or_pump_source" } else "",
+                pumpFunBondingSignal = ts.mint.endsWith("pump", ignoreCase = true) || upper.contains("PUMP_FUN") || upper.contains("PUMPPORTAL"),
+                pumpSwapPoolFound = upper.contains("PUMPSWAP") || upper.contains("GRADUATED") || upper.contains("PUMP_FUN_GRADUATE"),
+                raydiumPoolFound = upper.contains("RAYDIUM"),
+                meteoraPoolFound = upper.contains("METEORA") || upper.contains("DLMM"),
+                orcaPoolFound = upper.contains("ORCA") || upper.contains("WHIRLPOOL"),
+                liquidityDepthUsd = try { ts.lastLiquidityUsd } catch (_: Throwable) { 0.0 },
+                priceConfidence = 0,
+                exitDepthUsd = try { ts.lastLiquidityUsd } catch (_: Throwable) { 0.0 },
+                recommendedVenues = src.split(",", "+", "|").map { it.trim() }.filter { it.isNotBlank() }.take(8),
+                blockedVenues = emptyList(),
+                unsupportedVenues = emptyList(),
+            )
+            com.lifecyclebot.engine.execution.MemeExecutionRouteStack.start(
+                com.lifecyclebot.engine.execution.MemeExecutionRouteStack.ExecutionRouteContext(
+                    side = side,
+                    mint = ts.mint,
+                    symbol = ts.symbol,
+                    amountIn = amountIn,
+                    amountInRaw = amountInRaw,
+                    slippageBps = slippageBps,
+                    reason = reason,
+                    urgency = urgency,
+                    walletSol = walletSol,
+                    tokenBalanceAuthority = tokenBalanceAuthority,
+                    routeIntelligence = intel,
+                    safetyTier = "UNKNOWN",
+                    sourceTags = src,
+                    callSite = callSite,
+                )
+            )
+        } catch (_: Throwable) {}
+    }
+
     private fun liveTopUp(ts: TokenState, sol: Double,
                            wallet: SolanaWallet, walletSol: Double) {
         val c = cfg()
+        beginMemeExecutionStack(
+            side = com.lifecyclebot.engine.execution.MemeExecutionRouteStack.Side.BUY,
+            ts = ts,
+            amountIn = sol,
+            amountInRaw = ((sol * 1_000_000_000.0).toLong()).toString(),
+            slippageBps = c.slippageBps,
+            reason = "TOP_UP",
+            urgency = com.lifecyclebot.engine.execution.MemeExecutionRouteStack.Urgency.TOP_UP,
+            walletSol = walletSol,
+            tokenBalanceAuthority = "WALLET_SOL_PREFLIGHT",
+            callSite = "liveTopUp",
+        )
         if (!security.verifyKeypairIntegrity(wallet.publicKeyB58,
                 c.walletAddress.ifBlank { wallet.publicKeyB58 })) {
             onLog("🛑 Keypair integrity failure — top-up aborted", ts.mint)
@@ -8205,6 +8294,18 @@ class Executor(
             return
         }
         try {
+        beginMemeExecutionStack(
+            side = com.lifecyclebot.engine.execution.MemeExecutionRouteStack.Side.BUY,
+            ts = ts,
+            amountIn = sol,
+            amountInRaw = ((sol * 1_000_000_000.0).toLong()).toString(),
+            slippageBps = cfg().slippageBps,
+            reason = "LIVE_BUY",
+            urgency = com.lifecyclebot.engine.execution.MemeExecutionRouteStack.Urgency.NORMAL,
+            walletSol = walletSol,
+            tokenBalanceAuthority = "WALLET_SOL_PREFLIGHT",
+            callSite = "liveBuy",
+        )
         val liveRoute = ExecutionRouteGuard.requireLiveRoute(
             ts = ts,
             wallet = wallet,
@@ -11802,6 +11903,23 @@ class Executor(
         
         val c   = cfg()
         val pos = ts.position
+        beginMemeExecutionStack(
+            side = com.lifecyclebot.engine.execution.MemeExecutionRouteStack.Side.SELL,
+            ts = ts,
+            amountIn = pos.qtyToken,
+            amountInRaw = "qtyToken=${pos.qtyToken}",
+            slippageBps = com.lifecyclebot.engine.sell.SellSafetyPolicy.initialSlippageBps(reason),
+            reason = reason,
+            urgency = when {
+                reason.contains("PANIC", ignoreCase = true) || reason.contains("CATASTROPHE", ignoreCase = true) || reason.contains("RUG", ignoreCase = true) || reason.contains("DRAIN", ignoreCase = true) -> com.lifecyclebot.engine.execution.MemeExecutionRouteStack.Urgency.PANIC
+                reason.contains("STOP", ignoreCase = true) || reason.contains("HARD_FLOOR", ignoreCase = true) -> com.lifecyclebot.engine.execution.MemeExecutionRouteStack.Urgency.STOP_LOSS
+                reason.contains("MANUAL", ignoreCase = true) -> com.lifecyclebot.engine.execution.MemeExecutionRouteStack.Urgency.MANUAL
+                else -> com.lifecyclebot.engine.execution.MemeExecutionRouteStack.Urgency.NORMAL
+            },
+            walletSol = walletSol,
+            tokenBalanceAuthority = "SELL_AMOUNT_AUTHORITY_PENDING",
+            callSite = "liveSell",
+        )
         // V5.9.262 — group all SELL events with the BUY events for the same trade
         // by reusing the entryTime as the keystone.
         val sellTradeKey = LiveTradeLogStore.keyFor(ts.mint, pos.entryTime)
