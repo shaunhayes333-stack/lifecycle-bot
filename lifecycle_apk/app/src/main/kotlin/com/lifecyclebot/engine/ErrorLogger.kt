@@ -135,6 +135,7 @@ object ErrorLogger {
 
         val ts = System.currentTimeMillis()
         val lvlName = level.name
+        try { TradeMechanicsTrace.recordError(lvlName, component, message) } catch (_: Throwable) {}
         val msg = message.take(1000)
         val sid = sessionId
         pendingWrites.incrementAndGet()
