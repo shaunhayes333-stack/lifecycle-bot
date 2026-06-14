@@ -59,7 +59,6 @@ object ForensicLogger {
         if (!enabled) return
         val n = seq.incrementAndGet()
         emitAsync(p, "🧬[${p.tag}] #$n $symbol  $fields")
-        try { TradeMechanicsTrace.record("Forensic", "PHASE/${p.tag}", symbol, fields) } catch (_: Throwable) {}
         try { PipelineHealthCollector.onPhase(p.tag, symbol, fields) } catch (_: Throwable) {}
     }
 
@@ -68,7 +67,6 @@ object ForensicLogger {
         val n = seq.incrementAndGet()
         val mark = if (allow) "✅" else "🚫"
         emitAsync(p, "🧬[${p.tag}] #$n $symbol  $mark $reason")
-        try { TradeMechanicsTrace.record("Forensic", "GATE/${p.tag}/${if (allow) "ALLOW" else "BLOCK"}", symbol, reason) } catch (_: Throwable) {}
         try { PipelineHealthCollector.onGate(p.tag, symbol, allow, reason) } catch (_: Throwable) {}
     }
 
@@ -76,7 +74,6 @@ object ForensicLogger {
         if (!enabled) return
         val n = seq.incrementAndGet()
         emitAsync(p, "🧬[${p.tag}] #$n $symbol  verdict=$verdict score=$score conf=$conf  reason=$reason")
-        try { TradeMechanicsTrace.record("Forensic", "DEC/${p.tag}/$verdict", symbol, "score=$score conf=$conf reason=$reason") } catch (_: Throwable) {}
         try { PipelineHealthCollector.onDecision(p.tag, symbol, verdict, score, conf, reason) } catch (_: Throwable) {}
     }
 
@@ -84,7 +81,6 @@ object ForensicLogger {
         if (!enabled) return
         val n = seq.incrementAndGet()
         emitAsync(PHASE.EXEC, "🧬[EXEC] #$n $symbol  $action  $fields")
-        try { TradeMechanicsTrace.record("Forensic", "EXEC/$action", symbol, fields) } catch (_: Throwable) {}
         try { PipelineHealthCollector.onExec(action, symbol, fields) } catch (_: Throwable) {}
     }
 
@@ -92,7 +88,6 @@ object ForensicLogger {
         if (!enabled) return
         val n = seq.incrementAndGet()
         emitAsync(PHASE.LIFECYCLE, "🧬[LIFECYCLE] #$n $event  $fields")
-        try { TradeMechanicsTrace.record("Forensic", "LIFECYCLE/$event", event, fields) } catch (_: Throwable) {}
         try { PipelineHealthCollector.onLifecycle(event, fields) } catch (_: Throwable) {}
     }
 

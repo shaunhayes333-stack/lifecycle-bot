@@ -139,7 +139,25 @@ object TradeMechanicsTrace {
         }
     }
 
-    fun recent(limit: Int = 24): List<Cell> = order.toList().asReversed().mapNotNull { cells[it] }.take(limit)
+    @Volatile private var lastHydrateMs: Long = 0L
+
+    private fun hydrateFromStores() {
+        val n = now()
+        if (n - lastHydrateMs < 5_000L) return
+        lastHydrateMs = n
+        try { LiveTradeLogStore.snapshot().takeLast(220).forEach { recordLiveTrade(it) } } catch (_: Throwable) {}
+        try {
+            ErrorLogger.getRecentLogs(180, ErrorLogger.Level.INFO).asReversed().forEach { e ->
+                if (e.component == "FORENSIC") record("ErrorLogger", "FORENSIC", "FORENSIC", e.message)
+                else recordError(e.level.name, e.component, e.message)
+            }
+        } catch (_: Throwable) {}
+    }
+
+    fun recent(limit: Int = 24): List<Cell> {
+        hydrateFromStores()
+        return order.toList().asReversed().mapNotNull { cells[it] }.take(limit)
+    }
 
     fun exportText(limit: Int = 18): String {
         val df = SimpleDateFormat("HH:mm:ss.SSS", Locale.US)

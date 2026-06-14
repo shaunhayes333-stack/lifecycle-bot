@@ -124,8 +124,6 @@ object LiveTradeLogStore {
             event
         }
 
-        try { TradeMechanicsTrace.recordLiveTrade(effective) } catch (_: Throwable) {}
-
         // Latch terminal state on the way through.
         if (effective.phase in TERMINAL_GOOD || effective.phase in TERMINAL_BAD) {
             if (effective.tradeKey.isNotBlank()) terminalForKey[effective.tradeKey] = effective.phase
