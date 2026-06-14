@@ -1174,6 +1174,43 @@ object FluidLearningAI {
     fun getMinScoreThreshold(): Int = lerp(SCORE_BOOTSTRAP.toDouble(), SCORE_MATURE.toDouble()).toInt()
 
     /**
+     * V5.0.3681 — P1 SPARSE-LAYER RELIEF.
+     *
+     * The handoff diagnosis: ~67% of V3 evals were failing fatally with
+     * SCORE_TOO_LOW because most AI layers were SPARSE — i.e. they had not
+     * yet accumulated enough trades to vote meaningfully, so every candidate
+     * received a near-zero score even when the candidate looked fine.
+     *
+     * Returns a score-floor relief (points) that ramps with how many layers
+     * are still sparse (< 20 trades):
+     *   • ≥ 80% layers sparse → 12 points relief (heavy bootstrap)
+     *   • ≥ 50% layers sparse →  8 points relief (moderate bootstrap)
+     *   • ≥ 25% layers sparse →  4 points relief (light)
+     *   • otherwise           →  0 (mature — no relief, quality enforced)
+     *
+     * Fail-safe: any exception returns 0. The downstream WATCH / NEAR-MISS
+     * shadow-track learning loop still gates trade quality; this just lets
+     * borderline candidates fire through as small probes during bootstrap so
+     * the layers themselves can collect labels and graduate.
+     */
+    fun getSparseLayerRelief(): Int {
+        return try {
+            val maturityMap = com.lifecyclebot.v3.scoring.EducationSubLayerAI
+                .getAllLayerMaturity()
+            if (maturityMap.isEmpty()) return 12  // brand new install
+            val total = maturityMap.size
+            val sparse = maturityMap.values.count { it.trades < 20 }
+            val ratio = sparse.toDouble() / total.toDouble()
+            when {
+                ratio >= 0.80 -> 12
+                ratio >= 0.50 -> 8
+                ratio >= 0.25 -> 4
+                else -> 0
+            }
+        } catch (_: Throwable) { 0 }
+    }
+
+    /**
      * V5.8: Get minimum score required for EXECUTE_STANDARD.
      * Lerps from 25 (bootstrap) to 30 (mature). Hard cap at 40 prevents drift starvation.
      */

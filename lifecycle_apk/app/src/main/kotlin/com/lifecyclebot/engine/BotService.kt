@@ -10254,10 +10254,11 @@ class BotService : Service() {
                 // was permanently false even when the scanner was alive).
                 try { com.lifecyclebot.engine.BotRuntimeController.markScannerActive(
                     com.lifecyclebot.engine.BotRuntimeController.currentGeneration(), false) } catch (_: Throwable) {}
-                if (status.running) {
+                if (status.running && watchdogCooldownExpired()) {
                     addLog("🩹 Heartbeat: scanner NULL — auto-recovering")
                     try { com.lifecyclebot.engine.ForensicLogger.lifecycle("SCANNER_WATCHDOG_RESTART", "reason=NULL running=${status.running}") } catch (_: Throwable) {}
                     bootMemeScanner(reason = "HEARTBEAT_NULL")
+                    lastWatchdogRestartMs = System.currentTimeMillis()
                 }
             } else {
                 val snap = try { sc.getThroughputTelemetrySnapshot() } catch (_: Throwable) { null }
@@ -10272,10 +10273,11 @@ class BotService : Service() {
                 val healthy = scannerAlive && ageSec in 0..SCANNER_WATCHDOG_STALE_SEC
                 try { com.lifecyclebot.engine.BotRuntimeController.markScannerActive(
                     com.lifecyclebot.engine.BotRuntimeController.currentGeneration(), healthy) } catch (_: Throwable) {}
-                if (!healthy && status.running && !RuntimeRepairState.isScannerUserDisabled()) {
+                if (!healthy && status.running && !RuntimeRepairState.isScannerUserDisabled() && watchdogCooldownExpired()) {
                     addLog("🩹 Heartbeat: scanner inactive/stale (alive=$scannerAlive ageSec=$ageSec) — auto-restarting")
                     try { com.lifecyclebot.engine.ForensicLogger.lifecycle("SCANNER_WATCHDOG_RESTART", "reason=STALE alive=$scannerAlive ageSec=$ageSec") } catch (_: Throwable) {}
                     bootMemeScanner(reason = "HEARTBEAT_STALE")
+                    lastWatchdogRestartMs = System.currentTimeMillis()
                 }
                 if (snap != null) {
                     ErrorLogger.info(
@@ -10295,6 +10297,19 @@ class BotService : Service() {
      *  when its last successful tick is older than this. Heartbeat fires every
      *  6 loops; with a ~3-4s loop that is ~20-24s, matching the spec's 20s. */
     private val SCANNER_WATCHDOG_STALE_SEC: Long = 20L
+
+    /** V5.0.3681 — P2 PATCH: scanner watchdog RESTART COOLDOWN. Heartbeat fires
+     *  every 6 loops (~20-30s). Without a cooldown, a flaky scanner can be
+     *  bootMemeScanner()'d back-to-back on every heartbeat → SDK churn + thread
+     *  thrash + LIQUIDITY scan storm. Enforce a 30s minimum between forced
+     *  watchdog restarts. Manual `requestScannerRestart` bypasses (operator
+     *  intent is explicit). */
+    private val SCANNER_WATCHDOG_RESTART_COOLDOWN_MS: Long = 30_000L
+    @Volatile private var lastWatchdogRestartMs: Long = 0L
+    private fun watchdogCooldownExpired(): Boolean {
+        val sinceLast = System.currentTimeMillis() - lastWatchdogRestartMs
+        return sinceLast >= SCANNER_WATCHDOG_RESTART_COOLDOWN_MS
+    }
 
     /**
      * V5.9.660 — extracted from botLoop to keep it under the JVM 64KB

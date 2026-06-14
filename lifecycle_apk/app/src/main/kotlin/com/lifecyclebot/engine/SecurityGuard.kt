@@ -310,18 +310,35 @@ class SecurityGuard(
 
         if (trade.side == "SELL") {
             val pnl = trade.pnlSol
-            // V5.9.173 — paper mode must NEVER pause. A circuit breaker that
-            // halts paper trading chokes the entire learning loop and keeps
-            // the bot blind forever. We still track consecutive losses for
-            // telemetry but skip the pause + alert in paper. Live mode keeps
-            // the full protection because real money is at stake.
-            val isPaper = try { cfg().paperMode } catch (_: Exception) { true }
+            // V5.0.3681 — P0 ROOT-CAUSE FIX: paper trades MUST NOT touch ANY
+            // live-mode safety state. Doctrine of Parity (mirrors V5.0.3679
+            // treasury-drain fix): virtual events never pollute real-mode
+            // circuit breakers, daily-loss accountants, or wallet halts.
+            //
+            // Pre-fix: paper trades incremented dailyLossSol and
+            // consecutiveLosses globally; when the operator switched to live,
+            // checkBuy() read the polluted dailyLossSol against the live
+            // wallet and tripped halt("Daily loss limit reached") on the
+            // first buy attempt → 0 live trades executed.
+            //
+            // Determine paper-ness from the trade itself (authoritative)
+            // rather than cfg().paperMode (which can drift mid-trade if the
+            // operator toggles modes during a session).
+            val isPaper = trade.mode.equals("paper", ignoreCase = true) ||
+                          (trade.mode.isBlank() && try { cfg().paperMode } catch (_: Exception) { true })
+
+            if (isPaper) {
+                // Audit-only — keep observability without mutating live state.
+                audit("PAPER_TRADE_OBSERVED",
+                    "pnl=${pnl.fmt(4)} SOL pnlPct=${trade.pnlPct.fmt(2)} mint=${trade.mint} — live state UNCHANGED")
+                return
+            }
 
             synchronized(this) {
                 if (pnl < 0) {
                     val newLosses  = cbState.consecutiveLosses + 1
                     val newDaily   = cbState.dailyLossSol + (-pnl)
-                    val shouldPause = !isPaper && newLosses >= MAX_CONSECUTIVE_LOSSES
+                    val shouldPause = newLosses >= MAX_CONSECUTIVE_LOSSES
 
                     cbState = cbState.copy(
                         consecutiveLosses = newLosses,
@@ -337,7 +354,7 @@ class SecurityGuard(
                         onAlert("Circuit Breaker", msg)
                     }
 
-                    audit("LOSS_RECORDED", "pnl=${pnl.fmt(4)} SOL consecutive=$newLosses daily=${newDaily.fmt(4)} paper=$isPaper")
+                    audit("LOSS_RECORDED", "pnl=${pnl.fmt(4)} SOL consecutive=$newLosses daily=${newDaily.fmt(4)} paper=false (live-only)")
                 } else {
                     // Win — reset consecutive loss counter
                     cbState = cbState.copy(consecutiveLosses = 0)

@@ -453,8 +453,21 @@ class FinalDecisionEngine(
         // V5.8: Anti-starvation — relax floors if no executes in recent window
         // V5.9.939 — Apply tierAdj on top of starvation relief. Lower-tier
         // tokens (MICRO) get extra slack; higher-tier (BLUE_CHIP) tighten up.
+        // V5.0.3681 — P1: ADD sparse-layer relief. When most AI layers haven't
+        // collected ≥20 trades yet, the scoring stack literally cannot reach
+        // mature score floors → ~67% of evals fatally rejected as SCORE_TOO_LOW
+        // even on healthy candidates. Relief ramps from 12 (heavy bootstrap)
+        // → 0 (mature). This DOES NOT touch the aggressive/hard floors below
+        // so quality is preserved at the top end; it only opens the
+        // EXECUTE_SMALL / EXECUTE_STANDARD bands during learning so the
+        // brain can graduate. Floored at -10 so a tier-MICRO bootstrap token
+        // doesn't drive minScore negative.
         val starvationRelief = getStarvationRelief()
-        val effectiveMinScore = minScoreForExecute - starvationRelief + tierAdj
+        val sparseLayerRelief = try {
+            com.lifecyclebot.v3.scoring.FluidLearningAI.getSparseLayerRelief()
+        } catch (_: Throwable) { 0 }
+        val effectiveMinScore = (minScoreForExecute - starvationRelief - sparseLayerRelief + tierAdj)
+            .coerceAtLeast(-10)
         val effectiveMinConf = minConfForExecute - starvationRelief + tierAdj
         val effectiveCGradeConf = cGradeMinConf - starvationRelief + tierAdj
 
