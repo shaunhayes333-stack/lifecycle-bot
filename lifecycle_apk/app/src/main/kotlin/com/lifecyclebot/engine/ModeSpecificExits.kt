@@ -233,6 +233,11 @@ object ModeSpecificExits {
         currentPnlPct: Double,
         holdTimeMs: Long,
     ): ExitRecommendation {
+        // V5.0.3691 — consume honest lane replay at runtime. The tuning screen
+        // reports per-lane best exit profiles; this hook makes those profiles
+        // authoritative before the older mode-specific defaults can keep clipping
+        // runners or overholding bleeders.
+        try { LaneStrategyPolicy.exitOverride(ts, currentPnlPct)?.let { return it } } catch (_: Throwable) {}
         
         return when (tradeType) {
             ModeRouter.TradeType.FRESH_LAUNCH -> evaluateFreshLaunchExit(ts, currentPnlPct, holdTimeMs)

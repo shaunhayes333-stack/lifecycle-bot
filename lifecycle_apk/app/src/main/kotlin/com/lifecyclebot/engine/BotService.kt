@@ -1596,8 +1596,17 @@ class BotService : Service() {
             val memeOn = cfg.memeTraderEnabled
             val marketsOn = !marketsKill && cfg.marketsTraderEnabled && (cfg.tradingMode == 1 || cfg.tradingMode == 2)
             val enabledSet = if (memeOnlyUiMode && memeOn) {
-                // True meme-only: ONLY MEME publishes. Sniper/Cyclic/Markets/Perps OFF.
-                setOf(com.lifecyclebot.engine.EnabledTraderAuthority.Trader.MEME)
+                // V5.0.3691 — meme-only means MEME DOMAIN, not MEME-LANE amputee.
+                // Keep markets/perps/crypto universe off, but allow the internal
+                // meme strategy toolkit to learn/pivot: Project Sniper, Cyclic,
+                // and Shadow lab. Source failures must be fixed at strategy/policy,
+                // not by disabling traders.
+                setOf(
+                    com.lifecyclebot.engine.EnabledTraderAuthority.Trader.MEME,
+                    com.lifecyclebot.engine.EnabledTraderAuthority.Trader.PROJECT_SNIPER,
+                    com.lifecyclebot.engine.EnabledTraderAuthority.Trader.CYCLIC,
+                    com.lifecyclebot.engine.EnabledTraderAuthority.Trader.SHADOW_PAPER,
+                )
             } else {
                 // Mixed/full-stack mode: respect per-lane toggles, but exclude
                 // quarantined market lanes and forced-off Crypto when markets-OFF.
@@ -1622,7 +1631,7 @@ class BotService : Service() {
                     // Note: ProjectSniperAI has its own .isEnabled() — we only
                     // publish the authority bit here; the AI side decides if it
                     // actually evaluates this tick.
-                    // Opt-in: only when operator has chosen mixed/full mode.
+                    s += com.lifecyclebot.engine.EnabledTraderAuthority.Trader.PROJECT_SNIPER
                 }
                 if (s.isEmpty()) s += com.lifecyclebot.engine.EnabledTraderAuthority.Trader.MEME
                 s.toSet()
@@ -8565,14 +8574,18 @@ class BotService : Service() {
         val memeOnly = try {
             com.lifecyclebot.engine.EnabledTraderAuthority.isMemeLiveOnly()
         } catch (_: Throwable) { false }
-        val memeFamily = (l == "SHITCOIN" || l == "MOONSHOT")
+        val memeFamily = (l == "SHITCOIN" || l == "MOONSHOT" || l == "EXPRESS" || l == "PROJECT_SNIPER" || l == "CYCLIC")
         val nonMemeSpecialist = (l == "MANIPULATED" || l == "QUALITY" || l == "DIP_HUNTER"
             || l == "PROJECT_SNIPER" || l == "TREASURY" || l == "BLUECHIP")
 
         if (memeOnly) {
-            // (3) Meme-only mode: hard-suppress every non-meme specialist.
-            // SHITCOIN/MOONSHOT/MEME may still ride along with the primary.
-            return memeFamily
+            // V5.0.3691 — no more lane amputation. In meme-domain mode, allow
+            // the core meme family plus any lane explicitly elected by character/
+            // style affinity. That keeps fanout bounded by AgenticStyleRouter but
+            // prevents ProjectSniper/Quality/BlueChip-style pivots from being
+            // silently disabled after the router asked for them.
+            val affinity = try { ts.laneAffinity.map { it.uppercase() }.toSet() } catch (_: Throwable) { emptySet() }
+            return memeFamily || affinity.contains(l)
         }
 
         // (4) Mixed mode: primary + at most one rescue from the token's

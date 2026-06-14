@@ -4104,6 +4104,20 @@ object FinalDecisionGate {
             // Brain layer failure must never break the entry pipeline.
         }
 
+        // V5.0.3691 — HONEST REPLAY ENTRY SHAPE. LaneStrategyEvaluator may say a
+        // lane's best current behavior is NO_TRADE or a different exit profile.
+        // Do not disable the lane; micro-size NO_TRADE lanes and let exit policy
+        // apply the selected profile to held positions.
+        try {
+            val replayW = com.lifecyclebot.engine.LaneStrategyPolicy.executionWeight(laneName)
+            if (replayW < 1.0) {
+                val beforeReplay = finalSize
+                finalSize = (finalSize * replayW).coerceAtLeast(0.01)
+                tags.add("replayW:${"%.2f".format(replayW)}")
+                checks.add(GateCheck("lane_strategy_replay", true, "profile=${com.lifecyclebot.engine.LaneStrategyPolicy.bestProfile(laneName)} size ${beforeReplay.format(3)}→${finalSize.format(3)}"))
+            }
+        } catch (_: Throwable) {}
+
         // V5.9.1330 — LANE-POLICY EXECUTION WEIGHT (the dead-wiring bug, backtest-proven).
         // LanePolicy already encodes the EXACT verdicts the honest backtest replay reached:
         //   UNKNOWN     -> SHADOW_TRACK_ONLY  (execWeight 0.00)  == backtest "STOP TRADING"
