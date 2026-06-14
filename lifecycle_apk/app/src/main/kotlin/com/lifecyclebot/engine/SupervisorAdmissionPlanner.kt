@@ -45,11 +45,17 @@ object SupervisorAdmissionPlanner {
 
         val target = when (pressureBand) {
             "healthy" -> maxCap
-            "live_cap_near_full" -> maxOf(live * 2, 24)
-            "live_cap_saturated" -> maxOf(live, 16)
-            "moderate_timeout_pressure" -> maxOf(live * 2, 24)
-            "heavy_timeout_pressure" -> maxOf(live + (live / 2), 24)
-            else -> maxOf(live, 16) // severe timeout pressure
+            // V5.0.3676 — operator TUNING patch (recovery). Pressure caps now
+            // match the spec exactly so the per-cycle slice never exceeds the
+            // effective worker drain rate when supervisor is choking. Healthy
+            // returns maxCap unchanged (no throughput cost on a clean runtime).
+            //   spec: normalCap=24 / heavyTimeoutCap=12 / severeTimeoutCap=6
+            //         maxPerCycle=8 hard ceiling under pressure
+            "live_cap_near_full" -> minOf(maxCap, 24)
+            "live_cap_saturated" -> minOf(maxCap, 16)
+            "moderate_timeout_pressure" -> minOf(maxCap, 24)
+            "heavy_timeout_pressure" -> minOf(maxCap, 12)
+            else -> minOf(maxCap, 6) // severe timeout pressure
         }
 
         // Forced-open rows are mandatory management surface. Include them in the slice,

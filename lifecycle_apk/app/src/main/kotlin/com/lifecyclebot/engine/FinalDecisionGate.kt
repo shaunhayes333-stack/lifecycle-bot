@@ -2520,7 +2520,22 @@ object FinalDecisionGate {
         }
 
         var narrativeAdjustment = 0
-        if (blockReason == null && config.groqApiKey.isNotBlank()) {
+        // V5.0.3676 — operator TUNING patch (recovery). Groq is treated as
+        // OPTIONAL enrichment only. Spec: "If Groq sr < 50%, set narrative
+        // score to neutral and continue." The Groq lockout was rate-limiting
+        // FDG into an entry stall (groq sr=0%, 944ms p95 → workers blow past
+        // the 8s lease wall). Skip the network call entirely when Groq is
+        // either in ApiBackoff lockout or its rolling success rate < 50%.
+        // Other lanes (DexScreener/Jupiter/Helius) are unaffected — only this
+        // narrative branch short-circuits, and it stays a soft enrichment.
+        val groqHealthy: Boolean = try {
+            if (com.lifecyclebot.engine.ApiBackoff.isLockedOut("groq")) false
+            else {
+                val sr = try { com.lifecyclebot.engine.ApiHealthMonitor.successRate("groq") } catch (_: Throwable) { 1.0 }
+                sr >= 0.50
+            }
+        } catch (_: Throwable) { true }
+        if (blockReason == null && config.groqApiKey.isNotBlank() && groqHealthy) {
             try {
                 val narrativeResult = NarrativeDetector.analyze(
                     symbol = ts.symbol,
@@ -2574,7 +2589,15 @@ object FinalDecisionGate {
                 checks.add(GateCheck("narrative", true, "skipped (error)"))
             }
         } else if (blockReason == null) {
-            checks.add(GateCheck("narrative", true, "skipped (no key)"))
+            // V5.0.3676 — distinguish neutral-skip reasons in forensics so an
+            // operator can immediately see whether narrative was skipped for
+            // no key, or because the Groq lockout / SR<50% guard kicked in.
+            val skipReason = when {
+                config.groqApiKey.isBlank() -> "no key"
+                !groqHealthy -> "groq health-gated (lockout or sr<50%) — neutral"
+                else -> "skipped"
+            }
+            checks.add(GateCheck("narrative", true, skipReason))
         }
 
         var geminiRiskScore = 50.0
@@ -2745,18 +2768,47 @@ object FinalDecisionGate {
 
                 ErrorLogger.info("FDG", "🔬 BOOTSTRAP PROBE: ${ts.symbol} | conf=${adjustedConfidence.toInt()}% | $probeReason | size×${confidenceProbeSizeMultiplier.format(2)}")
             } else {
-                blockReason = "LOW_CONFIDENCE_${adjustedConfidence.toInt()}%$bootstrapTag$narrativeTag$orthoTag"
-                blockLevel = BlockLevel.CONFIDENCE
-                checks.add(
-                    GateCheck(
-                        "confidence",
-                        false,
-                        "conf=${confidence.toInt()}%+nar=$narrativeAdjustment+ortho=$orthogonalBonus=${adjustedConfidence.toInt()}% < ${confidenceThreshold.toInt()}%$bootstrapTag (adaptive)"
+                // V5.0.3676 — operator TUNING patch (recovery). LOW_CONFIDENCE in
+                // PAPER mode is now a SIZE/SCORE PENALTY (dust probe), not a
+                // hard veto. The previous hard block was a top FDG choke reason
+                // even though the operator spec is explicit:
+                //   "LOW_CONFIDENCE_0% should become a size/score penalty in
+                //    paper mode, not a hard block, unless route/liquidity is
+                //    impossible."
+                // Route/liquidity safety is unchanged (TokenSafetyChecker still
+                // owns the hard floor + UNKNOWN block). In LIVE mode the
+                // confidence floor remains a hard block as before.
+                if (mode == TradeMode.PAPER) {
+                    val dustMult = when {
+                        adjustedConfidence < 5  -> 0.20
+                        adjustedConfidence < 12 -> 0.30
+                        else                    -> 0.45
+                    }
+                    sizeMultiplier *= dustMult
+                    checks.add(
+                        GateCheck(
+                            "confidence",
+                            true,
+                            "PAPER DUST PROBE: conf=${adjustedConfidence.toInt()}% < ${confidenceThreshold.toInt()}% → size×${dustMult.format(2)} (no hard block)"
+                        )
                     )
-                )
-                tags.add("low_confidence")
-                tags.add("adaptive_conf:${confidenceThreshold.toInt()}")
-                if (isBootstrap) tags.add("bootstrap_phase")
+                    tags.add("paper_low_conf_dust_probe")
+                    if (isBootstrap) tags.add("bootstrap_phase")
+                    ErrorLogger.info("FDG", "🔬 PAPER LOW-CONF DUST PROBE: ${ts.symbol} | conf=${adjustedConfidence.toInt()}% < ${confidenceThreshold.toInt()}% → size×${dustMult.format(2)}")
+                } else {
+                    blockReason = "LOW_CONFIDENCE_${adjustedConfidence.toInt()}%$bootstrapTag$narrativeTag$orthoTag"
+                    blockLevel = BlockLevel.CONFIDENCE
+                    checks.add(
+                        GateCheck(
+                            "confidence",
+                            false,
+                            "conf=${confidence.toInt()}%+nar=$narrativeAdjustment+ortho=$orthogonalBonus=${adjustedConfidence.toInt()}% < ${confidenceThreshold.toInt()}%$bootstrapTag (adaptive)"
+                        )
+                    )
+                    tags.add("low_confidence")
+                    tags.add("adaptive_conf:${confidenceThreshold.toInt()}")
+                    if (isBootstrap) tags.add("bootstrap_phase")
+                }
             }
         } else if (blockReason == null) {
             checks.add(

@@ -13478,7 +13478,7 @@ if (hotExitHandledSweep) {
     // 10-min re-entry lockout, or any safety floor; it only processes more of the
     // already-admitted watchlist per tick. Workers remain bounded + leased, so this
     // cannot leak capacity (hard-expiry cleanup still applies).
-    @Suppress("unused") private val SUPERVISOR_MAX_INFLIGHT: Int = 96  // V5.9.1429 64->96: more candidates reach a worker/cycle (pure throughput, no quality cost)
+    @Suppress("unused") private val SUPERVISOR_MAX_INFLIGHT: Int = 24  // V5.0.3676 — operator TUNING patch: normalCap=24. The previous 96 amplified admission churn under timeout pressure (admitted 96 into a 24-worker pressure window, manufacturing 72 guaranteed skips/cycle and feeding SUPERVISOR_LEASE_FORCE_RELEASED storms). 24 aligns selection with the effective per-cycle budget. Healthy runtime is unchanged because supervisorEffectiveCap() floors at 24+ when truly healthy.
     // Worker slot budget is one bot-loop cadence: long enough for normal
     // processTokenCycle, short enough that stuck IO cannot hold a supervisor
     // slot across multiple 5s cycles.
@@ -13489,7 +13489,7 @@ if (hotExitHandledSweep) {
     // pumpfun 766ms) pushes per-token p95 past 5s. 8s lets real work complete while
     // still bounding stuck IO well inside the cycle cadence. workerTimeout=15 (real
     // timeouts) vs 668 force-releases proves most workers were NOT genuinely stuck.
-    private val SUPERVISOR_WORKER_TIMEOUT_MS: Long = 8_000L
+    private val SUPERVISOR_WORKER_TIMEOUT_MS: Long = 9_000L
     // V5.9.1180 — timeout quarantine is per-mint, not global scanner pruning.
     // 3145 showed workerTimeout=239 while WATCHLIST_RR kept reselecting the
     // same slow/no-pair/API-wedged mints. Re-spawning those mints every 5s burns
@@ -13497,7 +13497,7 @@ if (hotExitHandledSweep) {
     // Non-open timed-out mints cool briefly; open positions bypass this so exits
     // and hard-floor protection remain unconditional.
     private val supervisorTimeoutCooldownUntil = java.util.concurrent.ConcurrentHashMap<String, Long>()
-    private val SUPERVISOR_TIMEOUT_COOLDOWN_MS: Long = 45_000L
+    private val SUPERVISOR_TIMEOUT_COOLDOWN_MS: Long = 20_000L
 
     private fun supervisorMintIsOpen(mint: String): Boolean = try {
         status.tokens[mint]?.position?.isOpen == true ||

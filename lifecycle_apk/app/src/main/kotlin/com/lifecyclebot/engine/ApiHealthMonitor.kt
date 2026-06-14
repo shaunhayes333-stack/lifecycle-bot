@@ -130,6 +130,15 @@ object ApiHealthMonitor {
     /** UI snapshot. Returns one entry per tracked host. */
     fun snapshot(): Map<String, HostStats> = hosts.toMap()
 
+    /** V5.0.3676 — convenience helper used by FDG narrative health gate.
+     *  Returns 1.0 when no samples (fail-open: don't penalize a brand-new
+     *  host as unhealthy). Otherwise returns the host's rolling success
+     *  rate (0.0..1.0). Pure observability — never mutates state. */
+    fun successRate(host: String): Double {
+        val s = hosts[host.lowercase()] ?: return 1.0
+        return s.successRate()
+    }
+
     /** Convenience helper for one-line summary tile. */
     fun summary(host: String): String {
         val s = hosts[host.lowercase()] ?: return "[$host] no samples"
