@@ -117,9 +117,14 @@ class LiveTradeLogActivity : Activity() {
             setBackgroundColor(Color.parseColor("#1F2937"))
             setTextColor(Color.parseColor("#34D399"))
             setOnClickListener {
-                try {
-                    com.lifecyclebot.engine.execution.PositionWalletReconciler.forceTick()
-                    val file = com.lifecyclebot.engine.execution.ForensicReportExporter.dumpToFile(applicationContext)
+                android.widget.Toast.makeText(applicationContext,
+                    "Preparing forensic export…", android.widget.Toast.LENGTH_SHORT).show()
+                com.lifecyclebot.engine.ReportingHub.exportForensicFileAsync(applicationContext) { file, error ->
+                    if (file == null) {
+                        android.widget.Toast.makeText(applicationContext,
+                            "Export failed: ${error?.message ?: "unknown"}", android.widget.Toast.LENGTH_LONG).show()
+                        return@exportForensicFileAsync
+                    }
                     val intent = com.lifecyclebot.engine.execution.ForensicReportExporter.shareIntent(applicationContext, file)
                     if (intent != null) {
                         startActivity(android.content.Intent.createChooser(intent, "Export Forensic Report"))
@@ -127,9 +132,6 @@ class LiveTradeLogActivity : Activity() {
                         android.widget.Toast.makeText(applicationContext,
                             "Export written: ${file.name}", android.widget.Toast.LENGTH_LONG).show()
                     }
-                } catch (e: Exception) {
-                    android.widget.Toast.makeText(applicationContext,
-                        "Export failed: ${e.message}", android.widget.Toast.LENGTH_LONG).show()
                 }
             }
         }

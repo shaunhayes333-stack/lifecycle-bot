@@ -182,38 +182,35 @@ class ErrorLogActivity : AppCompatActivity() {
         // Main (top-3 ANR site in V5.9.1040 snapshot). Move to a background
         // thread; show the AlertDialog only after the text is ready.
         Toast.makeText(this, "Preparing logs…", Toast.LENGTH_SHORT).show()
-        Thread {
-            val exportText = try {
-                ErrorLogger.exportToText()
-            } catch (t: Throwable) {
-                "Error exporting logs: ${t.message}"
+        com.lifecyclebot.engine.ReportingHub.buildTextAsync(
+            com.lifecyclebot.engine.ReportingHub.Kind.UNIFIED_HEALTH,
+            forceFresh = true,
+        ) { report, error ->
+            if (isFinishing || isDestroyed) return@buildTextAsync
+            val exportText = report?.text ?: "Error exporting report: ${error?.message ?: "unknown"}"
+
+            // Copy to clipboard only after the unified report was built by ReportingHub off-main.
+            val clipboard = getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+            clipboard.setPrimaryClip(ClipData.newPlainText("AATE Unified Report", exportText))
+            try { com.lifecyclebot.engine.ForensicLogger.lifecycle("UNIFIED_REPORT_EXPORT_COPIED", "chars=${exportText.length} hub=true source=error_log") } catch (_: Throwable) {}
+
+            // Also offer to share. Do not render the blob in any TextView/Dialog.
+            val shareIntent = Intent().apply {
+                action = Intent.ACTION_SEND
+                type = "text/plain"
+                putExtra(Intent.EXTRA_TEXT, exportText)
+                putExtra(Intent.EXTRA_SUBJECT, "AATE Unified Operational Report")
             }
-            Handler(Looper.getMainLooper()).post {
-                if (isFinishing || isDestroyed) return@post
 
-                // Copy to clipboard only after the export string was built off-main.
-                val clipboard = getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
-                clipboard.setPrimaryClip(ClipData.newPlainText("Error Logs", exportText))
-                try { com.lifecyclebot.engine.ForensicLogger.lifecycle("ERROR_LOG_EXPORT_COPIED", "chars=${exportText.length}") } catch (_: Throwable) {}
-
-                // Also offer to share. Do not render the blob in any TextView/Dialog.
-                val shareIntent = Intent().apply {
-                    action = Intent.ACTION_SEND
-                    type = "text/plain"
-                    putExtra(Intent.EXTRA_TEXT, exportText)
-                    putExtra(Intent.EXTRA_SUBJECT, "AATE Error Logs")
+            AlertDialog.Builder(this)
+                .setTitle("Unified Report Ready")
+                .setMessage("Unified report copied to clipboard. Would you like to share it?")
+                .setPositiveButton("Share") { _, _ ->
+                    startActivity(Intent.createChooser(shareIntent, "Share logs"))
                 }
-
-                AlertDialog.Builder(this)
-                    .setTitle("Export Complete")
-                    .setMessage("Logs copied to clipboard. Would you like to share them?")
-                    .setPositiveButton("Share") { _, _ ->
-                        startActivity(Intent.createChooser(shareIntent, "Share logs"))
-                    }
-                    .setNegativeButton("Done", null)
-                    .show()
-            }
-        }.start()
+                .setNegativeButton("Done", null)
+                .show()
+        }
     }
 
     private fun confirmClear() {

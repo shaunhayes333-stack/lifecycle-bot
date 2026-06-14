@@ -442,4 +442,26 @@ class GoldenTapeRegressionTest {
         val bot = java.io.File("src/main/kotlin/com/lifecyclebot/engine/BotService.kt").readText()
         assertTrue("BotService needs downstream fuse for stale deployed/cached V3 fatal strings", bot.contains("V3_LIVE_RC_PENDING_FATAL_SOFTENED"))
     }
+
+    @Test
+    fun operator_reports_route_through_reporting_hub_not_scattered_ui_threads() {
+        val hub = java.io.File("src/main/kotlin/com/lifecyclebot/engine/ReportingHub.kt").readText()
+        assertTrue(hub.contains("object ReportingHub"))
+        assertTrue(hub.contains("UNIFIED_HEALTH"))
+        assertTrue(hub.contains("Trade Journal: EXCLUDED by design"))
+        assertTrue(hub.contains("buildMutex"))
+        val pipelineUi = java.io.File("src/main/kotlin/com/lifecyclebot/ui/PipelineHealthActivity.kt").readText()
+        val errorUi = java.io.File("src/main/kotlin/com/lifecyclebot/ui/ErrorLogActivity.kt").readText()
+        val forensicUi = java.io.File("src/main/kotlin/com/lifecyclebot/ui/LiveTradeLogActivity.kt").readText()
+        val pipelineCopy = pipelineUi.substring(pipelineUi.indexOf("private fun copyToClipboardAsync"))
+        val errorExport = errorUi.substring(errorUi.indexOf("private fun exportLogs"), errorUi.indexOf("private fun confirmClear"))
+        val forensicClick = forensicUi.substring(forensicUi.indexOf("setOnClickListener"), forensicUi.indexOf("header.addView"))
+        assertTrue(pipelineCopy.contains("ReportingHub.Kind.UNIFIED_HEALTH"))
+        assertTrue(errorExport.contains("ReportingHub.Kind.UNIFIED_HEALTH"))
+        assertTrue(forensicClick.contains("ReportingHub.exportForensicFileAsync"))
+        assertFalse("Pipeline copy must not directly build the massive dump", pipelineCopy.contains("PipelineHealthCollector.dumpText()"))
+        assertFalse("Error export must not spawn its own raw Thread", errorExport.contains("Thread {"))
+        assertFalse("Forensic export must not build JSON on UI click thread", forensicClick.contains("ForensicReportExporter.dumpToFile(applicationContext)"))
+    }
+
 }
