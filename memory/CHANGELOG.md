@@ -1475,3 +1475,102 @@ Notable post-V5.9.810 milestones:
   - V5.9.1016 — report navigation must not autosave or stop bot
   - V5.9.1017 — cap dashboard renders so UI cannot starve bot cycles
   - V5.9.1018 — full Pipeline report with sectioned rendering (broke CI char-literal)
+
+### V5.9.1567 — FDG mode contamination + SafetyChecker live parity + Gecko headers (Feb 2026)
+Three surgical fixes that finally unblock LIVE execution and lift the
+GeckoTerminal hit rate. CI: Build AATE APK ✅ + Runtime Smoke Test ✅ both
+GREEN on commit 5868295ba.
+
+(a) FinalDecisionGate.evaluate() — FDG MODE CONTAMINATION FIX.
+    The BotConfig passed in could carry a stale paperMode flag (same
+    regression previously patched only inside ToxicMode circuit breaker
+    @ V5.9.1119). ~40 downstream config.paperMode reads inherited the
+    stale value and routed LIVE trades through PAPER branches. Fix:
+    read RuntimeModeAuthority.isPaper() once at the top of evaluate()
+    and shadow the local `config` with `.copy(paperMode = authority)`
+    via a local `configIn` indirection. Every downstream config.paperMode
+    read transparently picks up the authoritative mode. config.paperMode
+    is fallback only.
+
+(b) TokenSafetyChecker — DOCTRINE OF PARITY (Live = Paper Twin).
+    * isPaperMode now reads RuntimeModeAuthority.isPaper() first
+      (cfg().paperMode fallback), same pattern as (a).
+    * Removed the V5.9.1523 "controlled live band" penalty stack:
+      28/20/12-point soft penalty between $150–$1200 and +6 penalty
+      between $1200–$2000 — live-only. Live size now mirrors paper.
+      Tape proved this was the dominant blocker of the fresh pump.fun
+      graduation universe ($1.2–2.0K liquidity).
+    * Kept genuine physical-safety constraints unchanged:
+      MIN_EXECUTABLE_LIQ_USD = $150 hard block (below this an exit
+      cannot route at all) and UNKNOWN-liquidity hard block. Standard
+      mode-agnostic safety branches above (LP lock, rugcheck, holder
+      concentration) untouched.
+
+(c) GeckoTerminal headers.
+    Plain `Accept: application/json` held the v2 endpoint at ~47%
+    success rate. v2 prefers the version-pinned Accept header.
+    * PriceResolverFallback.fetchGeckoTerminalPrice: now sets
+      `Accept: application/json;version=20230302` + real desktop UA +
+      Accept-Language (was missing both; some Android-default UAs get
+      403/406'd).
+    * SolanaMarketScanner.getGecko: passes the versioned Accept via
+      extraHeaders on the shared get() path so trending / new_pools /
+      pools / dexes calls all get the v2-correct header without
+      disturbing other hosts.
+
+No new gates added. No surrounding cleanup. Doctrine: Live === Paper
+unless a physical constraint genuinely blocks execution.
+
+
+
+### V5.0.3676 — TUNING ONLY RECOVERY PATCH, phase 1 (Feb 2026)
+Operator runtime tuning patch responding to the V5.0.3676 failure signature
+(scannerActive=false / LANE_FANOUT_EXPLOSION / supervisor LEASE_FORCE_RELEASED
+storm / forcedOpen=41 / 0 paper-sell counters). Phase 1 lands the 4
+highest-leverage tunings. Phase 2 (scanner partial-active, slot reconcile
+cadence, paper-sell telemetry, lane fanout dedupe, UI/ANR) is queued for
+the next push. CI: Build AATE APK ✅ + Runtime Smoke Test ✅ both GREEN on
+commit 5e26086ac.
+
+§2 Supervisor anti-thrash — BotService.kt
+  • SUPERVISOR_MAX_INFLIGHT  96 → 24 (spec normalCap=24). 96 was routing
+    candidates into a 24-worker pressure window → 72 guaranteed skips/cycle
+    feeding the LEASE_FORCE_RELEASED storm.
+  • SUPERVISOR_WORKER_TIMEOUT_MS 8000 → 9000 (spec workerTtlMs=9000) —
+    one extra second of lease so per-token p95 completes inside the wall.
+  • SUPERVISOR_TIMEOUT_COOLDOWN_MS 45000 → 20000 (spec
+    cooldownAfterTimeoutMs=20000) — chronic-mint quarantine halved.
+
+§2 SupervisorAdmissionPlanner.kt
+  Pressure-band targets rewritten to spec:
+      healthy            → maxCap (unchanged on clean runtime)
+      live_cap_near_full → min(maxCap, 24)
+      live_cap_saturated → min(maxCap, 16)
+      moderate_timeout   → min(maxCap, 24)
+      heavy_timeout      → min(maxCap, 12)
+      severe_timeout     → min(maxCap,  6)
+  No more 'maxOf(live * 2, 24)' inflation under pressure.
+
+§7 Entry / FDG tuning — FinalDecisionGate.kt
+  LOW_CONFIDENCE in PAPER mode → SIZE PENALTY (dust probe), not hard block:
+      dustMult: conf<5 → 0.20, conf<12 → 0.30, else → 0.45
+  LIVE mode still hard-blocks below the confidence floor. Route/liquidity
+  hard safety (TokenSafetyChecker) is unchanged.
+
+§8 API / backoff tuning — FinalDecisionGate.kt + ApiHealthMonitor.kt
+  Groq narrative is now health-gated: when Groq is in ApiBackoff lockout
+  or rolling success rate < 50%, FDG skips the network call entirely and
+  proceeds with narrativeAdjustment=0 (neutral). Spec §8 verbatim.
+  Added ApiHealthMonitor.successRate(host) convenience helper (fail-open).
+
+Mandatory catastrophic safety intact:
+  Mint authority / freeze authority / LP lock / rugcheck / holder
+  concentration / liquidity hard floors / LIVE confidence floor /
+  Zero-confidence LIVE shadow-block all unchanged.
+
+Phase 2 queue (next push):
+  §1 Scanner partial-active recovery state.
+  §3 Lane fanout cap + cross-lane dedupe.
+  §4 Slot/close ledger 30s reconcile + emergency forcedOpen cleanup.
+  §5 UI/ANR — MainActivity onCreate audit + render throttling.
+  §6 Paper sell telemetry counter (TradeHistoryStore-backed).
