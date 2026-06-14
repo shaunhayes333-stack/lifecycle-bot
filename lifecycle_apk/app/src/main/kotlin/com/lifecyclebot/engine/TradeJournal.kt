@@ -199,10 +199,101 @@ class TradeJournal(private val ctx: Context) {
     }
 
     /**
-     * Export ALL trades as CSV
+     * Export ALL trades as CSV.
+     *
+     * V5.0.3683 — operator deep-audit P0 directive: the default tax/accounting
+     * export must EXCLUDE PAPER. The "ALL" export now writes LIVE only by
+     * default; the legacy combined export is still available via
+     * exportCsvFiltered(tokens, modeFilter = null, "AATE_All_Trades_COMBINED")
+     * for diagnostic use, but every emitted row carries its mode column so
+     * paper rows can never be silently mixed into tax math downstream.
      */
     fun exportCsv(tokens: Map<String, TokenState>): Intent? {
-        return exportCsvFiltered(tokens, null, "AATE_All_Trades")
+        return exportCsvFiltered(tokens, "live", "AATE_Live_Trades")
+    }
+
+    /**
+     * Diagnostic-only: emit BOTH paper and live trades into a single CSV with
+     * the rowType/mode columns intact. The footer breaks out LIVE / PAPER /
+     * COMBINED so downstream readers can distinguish realised tax math from
+     * paper simulation math.
+     */
+    fun exportCombinedDiagnosticCsv(tokens: Map<String, TokenState>): Intent? {
+        return exportCsvFiltered(tokens, null, "AATE_All_Trades_COMBINED")
+    }
+
+    /**
+     * V5.0.3683 — Canonical per-row accounting derivation. Doctrine:
+     *
+     *   trade.sol (for sells) = COST BASIS allocated to the portion sold.
+     *   trade.pnlSol           = REALIZED gain on that portion (proceeds-cost).
+     *   trade.feeSol           = total fees paid on that exit leg.
+     *
+     * Every Trade emitted by Executor.kt now stores trade.sol consistently as
+     * cost basis (the old live SELL leg used solBack/proceeds; corrected in
+     * V5.0.3683). This function is the SINGLE ledger calculator — every
+     * exporter (CSV / PDF / 8949 / Summary) must call it so footer totals
+     * exactly equal the sum of emitted rows.
+     */
+    private data class RowAccounting(
+        val costBasisSol: Double,
+        val proceedsSol:  Double,
+        val gainLossSol:  Double,
+        val feeSol:       Double,
+        val netGainSol:   Double,
+        val costBasisUsd: Double,
+        val proceedsUsd:  Double,
+        val gainLossUsd:  Double,
+        val feeUsd:       Double,
+        val netGainUsd:   Double,
+        val invariantViolations: List<String>,
+    )
+
+    private fun deriveRowAccounting(e: JournalEntry, solUsd: Double): RowAccounting {
+        val v = mutableListOf<String>()
+        val isBuy  = e.side.equals("BUY", ignoreCase = true)
+        val isSell = isSellLike(e.side)
+
+        // trade.sol is cost basis allocated. trade.pnlSol is realized gain.
+        val costBasisSol = e.solAmount.coerceAtLeast(0.0)
+        val gainLossSol  = if (isBuy) 0.0 else e.pnlSol
+        val proceedsSol  = if (isBuy) 0.0 else (costBasisSol + gainLossSol).coerceAtLeast(0.0)
+
+        // Fee: trust the recorded value; fall back to 0.5% of cost basis on
+        // sells where the legacy paper paths failed to populate it.
+        val feeSol = if (e.feeSol > 0.0) e.feeSol
+                     else if (isSell) costBasisSol * 0.005
+                     else 0.0
+
+        // Net gain ALWAYS = gain - fee. Never zero when gain is non-zero
+        // unless fees exactly offset (catastrophe).
+        val netGainSol = if (isBuy) 0.0 else (gainLossSol - feeSol)
+
+        val costBasisUsd = costBasisSol * solUsd
+        val proceedsUsd  = proceedsSol  * solUsd
+        val gainLossUsd  = gainLossSol  * solUsd
+        val feeUsd       = feeSol       * solUsd
+        val netGainUsd   = netGainSol   * solUsd
+
+        // Hard invariants per operator spec.
+        if (isBuy) {
+            if (proceedsUsd  != 0.0) v += "BUY_PROCEEDS_NON_ZERO"
+            if (gainLossUsd  != 0.0) v += "BUY_GAINLOSS_NON_ZERO"
+            if (netGainUsd   != 0.0) v += "BUY_NETGAIN_NON_ZERO"
+        }
+        if (isSell) {
+            if (kotlin.math.abs(gainLossUsd - (proceedsUsd - costBasisUsd)) > 0.01)
+                v += "SELL_GAIN_NOT_PROCEEDS_MINUS_COST"
+            if (kotlin.math.abs(netGainUsd - (gainLossUsd - feeUsd)) > 0.01)
+                v += "SELL_NETGAIN_NOT_GAIN_MINUS_FEE"
+            if (proceedsUsd <= 0.0 && gainLossUsd > 0.0)
+                v += "ZERO_PROCEEDS_POSITIVE_GAIN_IMPOSSIBLE"
+        }
+        return RowAccounting(
+            costBasisSol, proceedsSol, gainLossSol, feeSol, netGainSol,
+            costBasisUsd, proceedsUsd, gainLossUsd, feeUsd, netGainUsd,
+            v.toList()
+        )
     }
 
     private fun exportCsvFiltered(
@@ -228,15 +319,19 @@ class TradeJournal(private val ctx: Context) {
             0.0
         }
 
+        // V5.0.3683 — rowType column added so footer/summary rows are never
+        // emitted under the trade schema. TRADE rows hold accounting; SUMMARY
+        // rows hold footer totals. Downstream readers filter by rowType.
         sb.appendLine(
             listOf(
+                "rowType",
                 "Date/Time",
                 "Token Symbol",
                 "Token Address (Mint)",
                 "Transaction Type",
                 "Trading Mode",
                 "Mode Emoji",
-                "Quantity (SOL)",
+                "Cost Basis (SOL)",
                 "Price per Token (USD)",
                 "Cost Basis (USD)",
                 "Proceeds (USD)",
@@ -250,86 +345,111 @@ class TradeJournal(private val ctx: Context) {
                 "Paper/Live",
                 "Entry Score",
                 "Exit Reason",
+                "Invariants",
                 "Notes"
             ).joinToString(",")
         )
 
-        entries.forEach { e ->
-            val invalidAccounting = isInvalidAccounting(e)
-            val priceUsd = e.entryPrice * solPrice
-            val costBasisUsd = e.solAmount * solPrice
-            val proceedsUsd = if (isSellLike(e.side) && !invalidAccounting) (e.solAmount + e.pnlSol).coerceAtLeast(0.0) * solPrice else 0.0
-            val pnlUsd = e.pnlSol * solPrice
-            val feeUsd = e.feeSol * solPrice
-            val netPnlUsd = e.netPnlSol * solPrice
+        // Canonical row emission. Each row uses deriveRowAccounting; rows that
+        // violate hard invariants are flagged but still emitted with an
+        // INVARIANT_VIOLATED note so downstream tooling can audit.
+        data class EmittedRow(val entry: JournalEntry, val acct: RowAccounting)
+        val emitted = mutableListOf<EmittedRow>()
 
+        entries.forEach { e ->
+            val legacyInvalid = isInvalidAccounting(e)
+            val acct = deriveRowAccounting(e, solPrice)
+            val invariantStr = if (acct.invariantViolations.isEmpty()) "OK"
+                               else acct.invariantViolations.joinToString("|")
+            val notes = if (legacyInvalid) "INVALID_LEGACY: zero price/proceeds with non-zero PnL"
+                        else if (acct.invariantViolations.isNotEmpty()) "INVARIANT_VIOLATED"
+                        else "Trading bot automated trade"
             sb.appendLine(
                 listOf(
+                    "TRADE",
                     sdf.format(Date(e.ts)),
                     e.symbol.csvEscape(),
                     e.mint,
                     e.side,
                     e.tradingMode.ifEmpty { "STANDARD" },
                     e.tradingModeEmoji.ifEmpty { "📈" },
-                    "%.6f".format(e.solAmount),
-                    "%.10f".format(priceUsd),
-                    "%.2f".format(costBasisUsd),
-                    "%.2f".format(proceedsUsd),
-                    "%.6f".format(e.pnlSol),
-                    "%.2f".format(pnlUsd),
+                    "%.6f".format(acct.costBasisSol),
+                    "%.10f".format(e.entryPrice * solPrice),
+                    "%.2f".format(acct.costBasisUsd),
+                    "%.2f".format(acct.proceedsUsd),
+                    "%.6f".format(acct.gainLossSol),
+                    "%.2f".format(acct.gainLossUsd),
                     "%.2f".format(e.pnlPct),
-                    "%.6f".format(e.feeSol),
-                    "%.2f".format(feeUsd),
-                    "%.6f".format(e.netPnlSol),
-                    "%.2f".format(netPnlUsd),
+                    "%.6f".format(acct.feeSol),
+                    "%.2f".format(acct.feeUsd),
+                    "%.6f".format(acct.netGainSol),
+                    "%.2f".format(acct.netGainUsd),
                     e.mode.uppercase(),
                     "%.0f".format(e.score),
                     e.reason.csvEscape(),
-                    (if (invalidAccounting) "INVALID_EXPORT: zero price/proceeds with non-zero PnL" else "Trading bot automated trade").csvEscape()
+                    invariantStr,
+                    notes.csvEscape()
                 ).joinToString(",")
             )
+            if (acct.invariantViolations.isEmpty() && !legacyInvalid) {
+                emitted += EmittedRow(e, acct)
+            }
         }
 
-        val sells = entries.filter { isSellLike(it.side) && !isInvalidAccounting(it) }
-        val decisiveSells = sells.filter { isDecisive(it.pnlPct) }
-        val wins = decisiveSells.count { isWin(it.pnlPct) }
-        val losses = decisiveSells.count { isLoss(it.pnlPct) }
-        val scratches = sells.count { isScratch(it.pnlPct) }
+        // V5.0.3683 — Footer derived strictly from emitted rows that PASSED
+        // invariants. Eliminates the dual-source drift the operator audit
+        // flagged (row sum != footer sum).
+        val tradeRows = emitted.map { it.entry }
+        val tradeAcct = emitted.map { it.acct }
 
-        val totalPnlSol = sells.sumOf { it.pnlSol }
-        val totalPnlUsd = totalPnlSol * solPrice
-        val totalFeeSol = sells.sumOf { it.feeSol }
-        val totalFeeUsd = totalFeeSol * solPrice
-        val totalVolumeSol = entries.sumOf { it.solAmount }
-        val totalVolumeUsd = totalVolumeSol * solPrice
+        val sells = emitted.filter { isSellLike(it.entry.side) }
+        val decisiveSells = sells.filter { isDecisive(it.entry.pnlPct) }
+        val wins = decisiveSells.count { isWin(it.entry.pnlPct) }
+        val losses = decisiveSells.count { isLoss(it.entry.pnlPct) }
+        val scratches = sells.count { isScratch(it.entry.pnlPct) }
+
+        val totalGainSol   = sells.sumOf { it.acct.gainLossSol }
+        val totalGainUsd   = sells.sumOf { it.acct.gainLossUsd }
+        val totalFeeSol    = tradeAcct.sumOf { it.feeSol }
+        val totalFeeUsd    = tradeAcct.sumOf { it.feeUsd }
+        val totalNetSol    = sells.sumOf { it.acct.netGainSol }
+        val totalNetUsd    = sells.sumOf { it.acct.netGainUsd }
+        val totalVolumeSol = tradeAcct.sumOf { it.costBasisSol }
+        val totalVolumeUsd = tradeAcct.sumOf { it.costBasisUsd }
         val winRate = if (wins + losses > 0) wins * 100.0 / (wins + losses) else 0.0
 
+        val liveOnly = sells.filter { it.entry.mode.equals("live", ignoreCase = true) }
+        val paperOnly = sells.filter { it.entry.mode.equals("paper", ignoreCase = true) }
+        val liveNetUsd = liveOnly.sumOf { it.acct.netGainUsd }
+        val paperNetUsd = paperOnly.sumOf { it.acct.netGainUsd }
+
+        fun summary(kv: String, value: String) {
+            sb.appendLine("SUMMARY,${kv.csvEscape()},,,,,,,,,,,,,,,,,,,," + value.csvEscape())
+        }
+
         sb.appendLine("")
-        sb.appendLine("=== SUMMARY FOR TAX REPORTING ===")
-        sb.appendLine("Report Generated,${sdf.format(Date())}")
-        sb.appendLine("SOL Price at Export,\$${String.format("%.2f", solPrice)}")
-        sb.appendLine("")
-        sb.appendLine("Total Trades,${entries.size}")
-        sb.appendLine("Buy Transactions,${entries.count { it.side == "BUY" }}")
-        sb.appendLine("Sell Transactions,${sells.size}")
-        sb.appendLine("Decisive Sells,${decisiveSells.size}")
-        sb.appendLine("Scratch Sells,${scratches}")
-        sb.appendLine("Wins,${wins}")
-        sb.appendLine("Losses,${losses}")
-        sb.appendLine("Win Rate,${String.format("%.1f", winRate)}%")
-        sb.appendLine("")
-        sb.appendLine("Total Volume (SOL),${String.format("%.4f", totalVolumeSol)}")
-        sb.appendLine("Total Volume (USD),\$${String.format("%.2f", totalVolumeUsd)}")
-        sb.appendLine("")
-        sb.appendLine("Realized Gain/Loss (SOL),${String.format("%.6f", totalPnlSol)}")
-        sb.appendLine("Realized Gain/Loss (USD),\$${String.format("%.2f", totalPnlUsd)}")
-        sb.appendLine("")
-        sb.appendLine("Total Fees (SOL),${String.format("%.6f", totalFeeSol)}")
-        sb.appendLine("Total Fees (USD),\$${String.format("%.2f", totalFeeUsd)}")
-        sb.appendLine("")
-        sb.appendLine("Net Realized Gain/Loss (USD),\$${String.format("%.2f", totalPnlUsd - totalFeeUsd)}")
-        sb.appendLine("")
-        sb.appendLine("DISCLAIMER: This report is for informational purposes only. Consult a tax professional for accurate tax advice.")
+        summary("=== SUMMARY (derived from emitted TRADE rows) ===", "")
+        summary("Report Generated", sdf.format(Date()))
+        summary("SOL Price at Export", "\$${"%.2f".format(solPrice)}")
+        summary("Total Trades", tradeRows.size.toString())
+        summary("Buy Transactions", tradeRows.count { it.side.equals("BUY", true) }.toString())
+        summary("Sell Transactions", sells.size.toString())
+        summary("Decisive Sells", decisiveSells.size.toString())
+        summary("Scratch Sells", scratches.toString())
+        summary("Wins", wins.toString())
+        summary("Losses", losses.toString())
+        summary("Win Rate", "${"%.1f".format(winRate)}%")
+        summary("Total Volume (Cost Basis SOL)", "%.4f".format(totalVolumeSol))
+        summary("Total Volume (Cost Basis USD)", "\$${"%.2f".format(totalVolumeUsd)}")
+        summary("Realized Gain/Loss (SOL)", "%.6f".format(totalGainSol))
+        summary("Realized Gain/Loss (USD)", "\$${"%.2f".format(totalGainUsd)}")
+        summary("Total Fees (SOL)", "%.6f".format(totalFeeSol))
+        summary("Total Fees (USD)", "\$${"%.2f".format(totalFeeUsd)}")
+        summary("Net Realized Gain/Loss (SOL)", "%.6f".format(totalNetSol))
+        summary("Net Realized Gain/Loss (USD)", "\$${"%.2f".format(totalNetUsd)}")
+        summary("LIVE Net Realized (USD)", "\$${"%.2f".format(liveNetUsd)}")
+        summary("PAPER Simulated Net (USD non-tax)", "\$${"%.2f".format(paperNetUsd)}")
+        summary("DISCLAIMER", "Informational. PAPER lines are simulation only and must not be used for tax. Consult a tax professional.")
 
         val modeLabel = when (modeFilter?.lowercase()) {
             "paper" -> "PAPER"
@@ -346,7 +466,7 @@ class TradeJournal(private val ctx: Context) {
             type = "text/csv"
             putExtra(Intent.EXTRA_STREAM, uri)
             putExtra(Intent.EXTRA_SUBJECT, "AATE Trade Journal - $modeLabel Trades - Tax Report")
-            putExtra(Intent.EXTRA_TEXT, "${entries.size} ${modeLabel.lowercase()} trades exported for tax reporting")
+            putExtra(Intent.EXTRA_TEXT, "${tradeRows.size} ${modeLabel.lowercase()} trades exported for tax reporting")
             addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
         }
     }

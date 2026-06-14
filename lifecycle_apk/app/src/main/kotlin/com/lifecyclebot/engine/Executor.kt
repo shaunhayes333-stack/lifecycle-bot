@@ -3515,8 +3515,21 @@ class Executor(
                 val trade = Trade("PARTIAL_SELL", "paper", sellSol, actualPrice,
                     System.currentTimeMillis(), "capital_recovery_${gainMultiple.fmt(1)}x",
                     pnlSol, gainPct)
-                recordTrade(ts, trade)
-                security.recordTrade(trade)
+                // V5.0.3683 — ACCOUNTING LEDGER FIX — replaced by canonical
+                // cost-basis tradeRow below. Kept as no-op recordTrade so any
+                // consumer wired by reference still sees the same identity.
+                @Suppress("UNUSED_VARIABLE") val _legacyCRTrade = trade
+                val paperCRCostBasis = pos.costSol * sellFraction
+                val paperCRFee = paperCRCostBasis * MEME_TRADING_FEE_PERCENT
+                val paperCRNetPnl = pnlSol - paperCRFee
+                val tradeRow = Trade(
+                    "PARTIAL_SELL", "paper", paperCRCostBasis, actualPrice,
+                    System.currentTimeMillis(), "capital_recovery_${gainMultiple.fmt(1)}x",
+                    pnlSol, gainPct,
+                    feeSol = paperCRFee, netPnlSol = paperCRNetPnl,
+                )
+                recordTrade(ts, tradeRow)
+                security.recordTrade(tradeRow)
                 onPaperBalanceChange?.invoke(sellSol)
                 
                 val solPrice = WalletManager.lastKnownSolPrice
@@ -3575,8 +3588,19 @@ class Executor(
                 val trade = Trade("PARTIAL_SELL", "paper", sellSol, actualPrice,
                     System.currentTimeMillis(), "profit_lock_${gainMultiple.fmt(1)}x",
                     pnlSol, gainPct)
-                recordTrade(ts, trade)
-                security.recordTrade(trade)
+                // V5.0.3683 — ACCOUNTING LEDGER FIX — canonical cost-basis row.
+                @Suppress("UNUSED_VARIABLE") val _legacyPLTrade = trade
+                val paperPLCostBasis = pos.costSol * sellFraction
+                val paperPLFee = paperPLCostBasis * MEME_TRADING_FEE_PERCENT
+                val paperPLNetPnl = pnlSol - paperPLFee
+                val tradeRow = Trade(
+                    "PARTIAL_SELL", "paper", paperPLCostBasis, actualPrice,
+                    System.currentTimeMillis(), "profit_lock_${gainMultiple.fmt(1)}x",
+                    pnlSol, gainPct,
+                    feeSol = paperPLFee, netPnlSol = paperPLNetPnl,
+                )
+                recordTrade(ts, tradeRow)
+                security.recordTrade(tradeRow)
                 onPaperBalanceChange?.invoke(sellSol)
                 
                 val solPrice = WalletManager.lastKnownSolPrice
@@ -4190,7 +4214,18 @@ class Executor(
                 lockedProfitFloor = pos.lockedProfitFloor + solBack,
             )
             
-            val trade = Trade("SELL", "live", solBack, getActualPrice(ts),
+            // V5.0.3683 — ACCOUNTING LEDGER FIX (operator deep-audit P0).
+            // trade.sol MUST be COST BASIS allocated to the portion sold so the
+            // canonical accounting equation holds across every sell site:
+            //   proceedsSol  = trade.sol + trade.pnlSol
+            //   gainLossSol  = trade.pnlSol
+            //   netGainSol   = trade.pnlSol - trade.feeSol
+            // Previously this single live SELL leg stored solBack (proceeds) in
+            // trade.sol while every other partial/profit-lock site stored
+            // allocated cost basis. That inconsistency forced the CSV exporter
+            // to either double-count proceeds or zero-out Net Gain.
+            val sellCostBasisSol = pos.costSol * sellFraction
+            val trade = Trade("SELL", "live", sellCostBasisSol, getActualPrice(ts),
                 System.currentTimeMillis(), reason,
                 pnlSol, pnlPct, sig = finalSig, feeSol = feeSol, netPnlSol = netPnl)
             recordTrade(ts, trade)
@@ -4778,9 +4813,14 @@ class Executor(
         if (pos.isPaperPosition) {
             ts.position = pos.copy(qtyToken = newQty, costSol = newCost, partialSoldPct = newSoldPct)
             val partialCostBasisSol = pos.costSol * sellFraction
+            // V5.0.3683 — ACCOUNTING LEDGER FIX — wire feeSol/netPnlSol so the
+            // exporter never zeroes Net Gain on paper partials.
+            val paperPartialFee = partialCostBasisSol * MEME_TRADING_FEE_PERCENT
+            val paperPartialNetPnl = paperPnlSol - paperPartialFee
             val trade   = Trade("PARTIAL_SELL", "paper", partialCostBasisSol, actualPrice,
-                              System.currentTimeMillis(), "partial_${newSoldPct.toInt()}pct",
+                              System.currentTimeMillis(), "partial_${newSoldPct.toInt().coerceAtMost(100)}pct",
                               paperPnlSol, pct(partialCostBasisSol, sellQty * actualPrice),
+                              feeSol = paperPartialFee, netPnlSol = paperPartialNetPnl,
                               tradingMode = pos.tradingMode, tradingModeEmoji = pos.tradingModeEmoji, mint = ts.mint)
             recordTrade(ts, trade); security.recordTrade(trade)
             // V5.9.743 — wire 70/30 treasury siphon onto the AUTONOMOUS partial-
@@ -4920,7 +4960,7 @@ class Executor(
                 ts.position = pos.copy(qtyToken = newQty, costSol = newCost, partialSoldPct = newSoldPct)
                 val livePartialCostBasisSol = pos.costSol * sellFraction
                 val liveTrade = Trade("PARTIAL_SELL", "live", livePartialCostBasisSol, actualPrice,
-                    System.currentTimeMillis(), "partial_${newSoldPct.toInt()}pct",
+                    System.currentTimeMillis(), "partial_${newSoldPct.toInt().coerceAtMost(100)}pct",
                     livePnl, liveScore, sig = sig, feeSol = feeSol, netPnlSol = netPnl,
                     mint = ts.mint, tradingMode = pos.tradingMode, tradingModeEmoji = pos.tradingModeEmoji)
                 recordTrade(ts, liveTrade); security.recordTrade(liveTrade)
@@ -9681,15 +9721,20 @@ class Executor(
             }
 
             // Record the partial sell as a proper Trade entry in the journal
+            // V5.0.3683 — ACCOUNTING LEDGER FIX — populate feeSol/netPnlSol.
+            val partialSellFee = soldValueSol * MEME_TRADING_FEE_PERCENT
+            val partialSellNetPnl = profitSol - partialSellFee
             val trade = Trade(
                 side             = "PARTIAL_SELL",
                 mode             = "paper",
                 sol              = soldValueSol,
                 price            = currentPrice,
                 ts               = System.currentTimeMillis(),
-                reason           = "partial_${newSoldPct.toInt()}pct",
+                reason           = "partial_${newSoldPct.toInt().coerceAtMost(100)}pct",
                 pnlSol           = profitSol,
                 pnlPct           = pnlPct.coerceAtLeast(-100.0),
+                feeSol           = partialSellFee,
+                netPnlSol        = partialSellNetPnl,
                 tradingMode      = pos.tradingMode,
                 tradingModeEmoji = pos.tradingModeEmoji,
                 mint             = ts.mint,
@@ -9986,7 +10031,7 @@ class Executor(
                     
                     val livePartialCostBasisSol = pos.costSol * pct
                     val liveTrade = Trade("PARTIAL_SELL", "live", livePartialCostBasisSol, currentPrice,
-                        System.currentTimeMillis(), "partial_${newSoldPct.toInt()}pct",
+                        System.currentTimeMillis(), "partial_${newSoldPct.toInt().coerceAtMost(100)}pct",
                         livePnl, liveScore, sig = finalSig, feeSol = feeSol, netPnlSol = netPnl,
                         mint = ts.mint, tradingMode = pos.tradingMode, tradingModeEmoji = pos.tradingModeEmoji)
                     

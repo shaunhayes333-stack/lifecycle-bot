@@ -1574,3 +1574,69 @@ Phase 2 queue (next push):
   §4 Slot/close ledger 30s reconcile + emergency forcedOpen cleanup.
   §5 UI/ANR — MainActivity onCreate audit + render throttling.
   §6 Paper sell telemetry counter (TradeHistoryStore-backed).
+
+═══════════════════════════════════════════════════════════════════════════
+V5.0.3681 — DAILY-LOSS CB UNCHOKE + SPARSE-LAYER RELIEF + WATCHDOG COOLDOWN
+═══════════════════════════════════════════════════════════════════════════
+Date: 2026-06-14
+Status: ✅ CI green (Build + Runtime Smoke Test both passed)
+
+P0 — SecurityGuard.recordTrade paper bypass
+  Paper trades NO LONGER accumulate into dailyLossSol / consecutiveLosses.
+  Doctrine of Parity (mirrors V5.0.3679 treasury-drain fix). Authoritative
+  paper-ness from trade.mode (not cfg.paperMode which can drift mid-trade).
+  Live trading is now unblocked: checkBuy() sees only real live PnL when
+  computing the 20% daily-loss halt threshold.
+
+P1 — V3 score-floor sparse-layer relief
+  FluidLearningAI.getSparseLayerRelief() returns ramped score-floor reduction
+  (0-12 pts) based on % of AI layers with <20 trades. DecisionEngine subtracts
+  it from effectiveMinScore. Aggressive hard floors UNCHANGED — quality at
+  the top end preserved. Breaks the can't-trade-can't-learn deadlock.
+
+P2 — Scanner watchdog restart cooldown
+  BotService.runScannerHeartbeat now enforces SCANNER_WATCHDOG_RESTART_COOLDOWN_MS
+  (30s) between auto bootMemeScanner calls. Manual operator restarts bypass.
+
+═══════════════════════════════════════════════════════════════════════════
+V5.0.3682 — RUNTIME GENERATION GUARD + MEME-ONLY AUTHORITY + SELL AUTHORITY
+═══════════════════════════════════════════════════════════════════════════
+Date: 2026-06-14
+Status: ✅ Build green; Runtime Smoke Test in progress
+
+DEEP OPERATOR AUDIT — Source-of-truth fixes (no thresholds touched).
+
+P0 — Scanner generation guard (BotService.kt × 2 sites)
+  bootMemeScanner + startBot scanner now capture currentGeneration() at
+  construction; onTokenFound checks against the live generation + runtime
+  state on every fire. Stale-scanner callbacks return silently.
+  No more SCANNER_CALLBACK_FIRE / INTAKE_BLOCKED_RUNTIME_STOPPED spam.
+
+P0 — RUNTIME_AUTH_SNAPSHOT forensic
+  admitProtectedMemeIntake INTAKE_BLOCKED branch now emits the full
+  runtime authority surface (gen/state/loop/scanner/enabledTraders).
+
+P0 — Sell amount authority (Executor.kt + SellAmountAuthority.kt)
+  • LIVE_BUY_LANDED now persists (mint, rawAmount, decimals, buySig)
+    into SellAmountAuthority.recordTxParseBalance.
+  • New canBroadcastLiveOrEmergency() allows FRESH_TX_PARSE for
+    catastrophic exits (strict_sl / hard_floor / rug / shutdown /
+    liquidate / emergency / manual_emergency) within 90s of buy when
+    requested amount ≤ recorded amount.
+
+P0 — Stop sell spam on closed/zero tracker rows
+  liveSell now consults HostWalletTokenTracker.getEntry FIRST.
+  CLOSED + ui<=0 + wallet ZERO    → ALREADY_CLOSED + forensic
+                                     SELL_ABORT_ALREADY_CLOSED_RECONCILED.
+  CLOSED + ui<=0 + wallet UNKNOWN → reconcileNow + FAILED_RETRYABLE +
+                                     forensic SELL_PAUSED_TRACKER_CLOSED_WALLET_UNKNOWN.
+  No repeated LIVE SELL START for already-closed mints.
+
+P1 — Restored meme-only trader authority
+  EnabledTraderAuthority.isMemeLiveOnly() now reads published set (truly
+  meme-only when {MEME} alone). BotService.startBot publish now COMPUTES
+  the enabled set from cfg:
+    • tradingMode == 0 + memeOn → ONLY MEME
+    • Mixed/full → MEME + (CRYPTO_ALT/MARKETS/PERPS) per toggles +
+                   MARKET_LANES_QUARANTINED. CYCLIC/SHADOW_PAPER opt-in.
+
