@@ -402,6 +402,7 @@ class LiveTradeLogActivity : Activity() {
 
         // amber — caution / inconclusive / blocked
         Phase.SELL_VERIFY_INCONCLUSIVE_PENDING,
+        Phase.SELL_ROUTE_SKIPPED,
         Phase.STATE_DOWNGRADE_BLOCKED,
         Phase.WATCHDOG_CANCELLED,
         Phase.FEE_RETRY_CANCELLED_FINAL_STATE,

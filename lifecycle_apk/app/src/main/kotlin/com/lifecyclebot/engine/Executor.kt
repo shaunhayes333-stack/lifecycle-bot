@@ -3809,7 +3809,7 @@ class Executor(
             wallet = wallet,
             processor = "INITIAL_SELL_PLAN",
             requestedUiQty = sellQty,
-            sellTradeKey = sellTradeKey,
+            sellTradeKey = null,
             traderTag = "MEME",
         ) ?: return
         val sellUnits = initialProcessorPlan.rawAmount
@@ -15575,7 +15575,7 @@ class Executor(
                 tradeKey, ts.mint, ts.symbol, "BUY",
                 LiveTradeLogStore.Phase.BUY_QUOTE_TRY,
                 "📋 PRE-BUY: walletSol=${"%.4f".format(preWalletSol)} | preTokenBal=${"%.4f".format(preTokenQty)} | venue=$pumpVenue",
-                solAmount = buySol, traderTag = traderTag,
+                solAmount = solAmount, traderTag = traderTag,
             )
 
             // V5.9.751 — Base44 ticket item #7: WALLET_BALANCE_UNKNOWN abort.
