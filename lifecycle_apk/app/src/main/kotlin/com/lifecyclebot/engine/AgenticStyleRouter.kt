@@ -82,14 +82,10 @@ object AgenticStyleRouter {
         val ddAgg = try { com.lifecyclebot.v3.scoring.DrawdownCircuitAI.getAggression() } catch (_: Throwable) { 1.0 }
         val ageMin = try { ((System.currentTimeMillis() - ts.addedToWatchlistAt) / 60_000.0).coerceAtLeast(0.0) } catch (_: Throwable) { 999.0 }
         val lowInfoFresh = ageMin <= 5.0 && ts.lastBuyPressurePct in 45.0..55.0 && ts.lastLiquidityUsd in 1_000.0..8_000.0
-        val badRegime = try {
-            val r = com.lifecyclebot.engine.RegimeDetector.current()
-            r.sampleSize >= 100 && r.recentWrPct < 20.0 &&
-                (r.regime == com.lifecyclebot.engine.RegimeDetector.Regime.CHOP ||
-                 r.regime == com.lifecyclebot.engine.RegimeDetector.Regime.DUMP ||
-                 r.regime == com.lifecyclebot.engine.RegimeDetector.Regime.DEAD)
-        } catch (_: Throwable) { false }
-        val lowScoreBleedContext = score <= 10 && badRegime
+        // V5.0.3718 — hot-path safe. Do NOT call the synchronous regime
+        // snapshot here; it can refresh by scanning TradeHistoryStore. This router runs per
+        // candidate, so use the O(1) stale-while-revalidate catastrophic flag.
+        val lowScoreBleedContext = score <= 10 && try { CatastrophicPaperBleedGuard.isActive() } catch (_: Throwable) { false }
 
         val style = when {
             // V5.0.3716 — do not let PULLBACK/LAB tactics route score-0 CHOP

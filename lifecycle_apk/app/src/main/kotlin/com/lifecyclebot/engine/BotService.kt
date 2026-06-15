@@ -8535,20 +8535,11 @@ class BotService : Service() {
             if (!nonMemeSpecialist) return false
             val score = (ts.lastV3Score ?: ts.entryScore.toInt()).coerceIn(-100, 150)
             if (score > 10) return false
-            val r = com.lifecyclebot.engine.RegimeDetector.current()
-            // V5.0.3716 — CATASTROPHIC_PAPER_SPECIALIST_BLEED_GUARD.
-            // Operator report 5.0.3714: bootstrap n=260, WR=5.4%, DD=73.5%,
-            // projected execs/day=1251. AgenticStyleRouter was making DIP_HUNTER
-            // the primary for many score=0 CHOP candidates, so the early
-            // "primary always evaluates" rule bypassed the bounded rescue cap.
-            // This is a pattern guard for all non-meme specialist lanes, not a DIP
-            // one-off: in catastrophic paper bleed + S0-10, keep meme-family
-            // learning alive but stop specialist duplicate exposure until the
-            // global curve climbs back into the bootstrap floor.
-            r.sampleSize >= 100 && r.recentWrPct < 20.0 &&
-                (r.regime == com.lifecyclebot.engine.RegimeDetector.Regime.CHOP ||
-                 r.regime == com.lifecyclebot.engine.RegimeDetector.Regime.DUMP ||
-                 r.regime == com.lifecyclebot.engine.RegimeDetector.Regime.DEAD)
+            // V5.0.3716/3718 — CATASTROPHIC_PAPER_SPECIALIST_BLEED_GUARD.
+            // 3716 used RegimeDetector.current() here, but this method runs per
+            // lane and RegimeDetector can synchronously scan TradeHistoryStore on
+            // cache expiry. Use the O(1) cached guard instead.
+            com.lifecyclebot.engine.CatastrophicPaperBleedGuard.isActive()
         } catch (_: Throwable) { false }
     }
 

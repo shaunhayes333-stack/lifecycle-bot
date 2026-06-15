@@ -662,11 +662,17 @@ class GoldenTapeRegressionTest {
         assertTrue(brake.contains("lifetime >= CATASTROPHIC_BOOTSTRAP_MIN && lifetime < MIN_LIFETIME_TRADES"))
         assertTrue(brake.contains("wrPct < CATASTROPHIC_BOOTSTRAP_WR_PCT"))
 
+        val guard = java.io.File("src/main/kotlin/com/lifecyclebot/engine/CatastrophicPaperBleedGuard.kt").readText()
+        assertTrue(guard.contains("stale-while-revalidate"))
+        assertTrue(guard.contains("catastrophic-paper-bleed-refresh"))
+        assertTrue(guard.contains("fun isActive(): Boolean"))
+
         val bot = java.io.File("src/main/kotlin/com/lifecyclebot/engine/BotService.kt").readText()
         assertTrue(bot.contains("CATASTROPHIC_PAPER_SPECIALIST_BLEED_GUARD"))
         assertTrue(bot.contains("LANE_PRIMARY_SUPPRESSED_CATASTROPHIC_PAPER_BLEED"))
         assertTrue(bot.contains("score > 10"))
-        assertTrue(bot.contains("r.sampleSize >= 100 && r.recentWrPct < 20.0"))
+        assertTrue(bot.contains("CatastrophicPaperBleedGuard.isActive()"))
+        assertFalse("lane hot path must not synchronously refresh RegimeDetector", bot.contains("val r = com.lifecyclebot.engine.RegimeDetector.current()"))
     }
 
     @Test
@@ -674,7 +680,9 @@ class GoldenTapeRegressionTest {
         val router = java.io.File("src/main/kotlin/com/lifecyclebot/engine/AgenticStyleRouter.kt").readText()
         assertTrue(router.contains("lowScoreBleedContext"))
         assertTrue(router.contains("lowScoreBleedContext -> Style.DEFENSIVE_PROBE"))
-        assertTrue(router.contains("score <= 10 && badRegime"))
+        assertTrue(router.contains("score <= 10"))
+        assertTrue(router.contains("CatastrophicPaperBleedGuard.isActive()"))
+        assertFalse("router hot path must not synchronously refresh RegimeDetector", router.contains("RegimeDetector.current()"))
     }
 
 }
