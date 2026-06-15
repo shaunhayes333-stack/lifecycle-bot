@@ -691,11 +691,25 @@ class GoldenTapeRegressionTest {
         val workflow = java.io.File("../.github/workflows/build.yml").readText()
         assertTrue(workflow.contains("id: aate_build"))
         assertTrue(workflow.contains("BUILD_NUMBER=$((GITHUB_RUN_NUMBER + 1))"))
-        assertTrue(workflow.contains("version_name=$VERSION_NAME"))
-        assertTrue(workflow.contains("-PbuildNumber=$AATE_BUILD_NUMBER"))
+        assertTrue(workflow.contains("version_name=\$VERSION_NAME"))
+        assertTrue(workflow.contains("-PbuildNumber=\$AATE_BUILD_NUMBER"))
         assertTrue(workflow.contains("AATE_v\${{ steps.aate_build.outputs.version_name }}"))
         assertFalse("APK version must not lag one behind operator patch number", workflow.contains("AATE_v5.0.\${{ github.run_number }}"))
         assertFalse("Gradle buildNumber must not use raw GitHub run number", workflow.contains("-PbuildNumber=\${{ github.run_number }}"))
+    }
+
+
+    @Test
+    fun parked_supervisor_timeout_band_must_throttle_before_fifty() {
+        val planner = java.io.File("src/main/kotlin/com/lifecyclebot/engine/SupervisorAdmissionPlanner.kt").readText()
+        assertTrue(planner.contains("timeoutCount10m >= 30"))
+        assertTrue(planner.contains("\"moderate_timeout_pressure\" -> minOf(maxCap, 12)"))
+        assertFalse("Report 3717 had workerTimeout=50 and was still treated healthy", planner.contains("timeoutCount10m > 50"))
+
+        val bot = java.io.File("src/main/kotlin/com/lifecyclebot/engine/BotService.kt").readText()
+        assertTrue(bot.contains("SUPERVISOR_TIMEOUT_COOLDOWN_MS: Long = 90_000L"))
+        assertTrue(bot.contains("timeouts >= 30"))
+        assertTrue(bot.contains("val healthy = scannerAlive && ageSec in 0..90L"))
     }
 
 }

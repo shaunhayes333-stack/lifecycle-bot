@@ -35,9 +35,9 @@ object SupervisorAdmissionPlanner {
         val forced = forcedOpenCount.coerceAtLeast(0)
 
         val pressureBand = when {
-            timeoutCount10m > 500 -> "severe_timeout_pressure"
-            timeoutCount10m > 150 -> "heavy_timeout_pressure"
-            timeoutCount10m > 50  -> "moderate_timeout_pressure"
+            timeoutCount10m >= 500 -> "severe_timeout_pressure"
+            timeoutCount10m >= 150 -> "heavy_timeout_pressure"
+            timeoutCount10m >= 30  -> "moderate_timeout_pressure"
             active >= live        -> "live_cap_saturated"
             active >= live * 3 / 4 -> "live_cap_near_full"
             else -> "healthy"
@@ -51,10 +51,10 @@ object SupervisorAdmissionPlanner {
             // returns maxCap unchanged (no throughput cost on a clean runtime).
             //   spec: normalCap=24 / heavyTimeoutCap=12 / severeTimeoutCap=6
             //         maxPerCycle=8 hard ceiling under pressure
-            "live_cap_near_full" -> minOf(maxCap, 24)
-            "live_cap_saturated" -> minOf(maxCap, 16)
-            "moderate_timeout_pressure" -> minOf(maxCap, 24)
-            "heavy_timeout_pressure" -> minOf(maxCap, 12)
+            "live_cap_near_full" -> minOf(maxCap, 20)
+            "live_cap_saturated" -> minOf(maxCap, 12)
+            "moderate_timeout_pressure" -> minOf(maxCap, 12)
+            "heavy_timeout_pressure" -> minOf(maxCap, 8)
             else -> minOf(maxCap, 6) // severe timeout pressure
         }
 

@@ -10538,7 +10538,13 @@ class BotService : Service() {
                 // force a boot (auto-restart unless the user explicitly disabled).
                 val scannerAlive = try { sc.isAlive() } catch (_: Throwable) { false }
                 val ageSec = snap?.ageSec ?: 9999L
-                val healthy = scannerAlive && ageSec in 0..SCANNER_WATCHDOG_STALE_SEC
+                // V5.0.3720 — scanner-active truth. The 5.0.3717 report showed
+                // SCANNER_INACTIVE while recent SCANNER_SOURCE_DONE events were
+                // firing every second. A scan loop that is attempting sources but
+                // finding raw=0 is LOW_OUTPUT, not dead/inactive. Mark active from
+                // scannerAlive + recent source/cycle pulse; use stale age only for
+                // restart decisions below.
+                val healthy = scannerAlive && ageSec in 0..90L
                 try { com.lifecyclebot.engine.BotRuntimeController.markScannerActive(
                     com.lifecyclebot.engine.BotRuntimeController.currentGeneration(), healthy) } catch (_: Throwable) {}
                 if (!healthy && status.running && !RuntimeRepairState.isScannerUserDisabled() && watchdogCooldownExpired()) {
@@ -13676,13 +13682,13 @@ if (hotExitHandledSweep) {
         val windowFresh = (now - supervisorTimeoutWindowStartMs) < 600_000L
         val timeouts = if (windowFresh) supervisorTimeoutWindowCount else 0
         // COOLING latch: >500/10min trips a 60s cooling window (concurrent cap halved, min 8).
-        if (timeouts > 500) supervisorCoolingUntilMs = now + 60_000L
+        if (timeouts >= 150) supervisorCoolingUntilMs = now + 90_000L
         val cooling = now < supervisorCoolingUntilMs
         val cap = when {
-            cooling          -> maxOf(8, base / 2)   // 60s cooling floor
-            timeouts > 150   -> maxOf(8, base / 2)   // heavy: halve, floor 8
-            timeouts > 50    -> maxOf(12, base / 2)  // moderate: halve, floor 12
-            else             -> base                 // healthy: full pool
+            cooling           -> maxOf(8, base / 3)   // 90s cooling floor
+            timeouts >= 150   -> maxOf(8, base / 3)   // heavy: drain debt first
+            timeouts >= 30    -> maxOf(12, base / 2)  // moderate: report 3717 had 50 and was parked
+            else              -> base                 // healthy: full pool
         }
         return cap
     }
@@ -13718,7 +13724,7 @@ if (hotExitHandledSweep) {
         // pins for 5min repeatedly, cutting effective throughput in half during the
         // exact window when intake should be highest. Raise threshold 20→60 so the
         // throttle only kicks in on REAL pool exhaustion, not normal API tail latency.
-        if (supervisorTimeoutWindowCount > 60) {
+        if (supervisorTimeoutWindowCount >= 30) {
             supervisorArmEmergencyThrottle("worker_timeouts", "count=$supervisorTimeoutWindowCount/10min")
         }
     }
@@ -13780,7 +13786,7 @@ if (hotExitHandledSweep) {
     // Non-open timed-out mints cool briefly; open positions bypass this so exits
     // and hard-floor protection remain unconditional.
     private val supervisorTimeoutCooldownUntil = java.util.concurrent.ConcurrentHashMap<String, Long>()
-    private val SUPERVISOR_TIMEOUT_COOLDOWN_MS: Long = 20_000L
+    private val SUPERVISOR_TIMEOUT_COOLDOWN_MS: Long = 90_000L
 
     private fun supervisorMintIsOpen(mint: String): Boolean = try {
         status.tokens[mint]?.position?.isOpen == true ||
@@ -13802,7 +13808,7 @@ if (hotExitHandledSweep) {
 
     private fun supervisorArmTimeoutCooldown(mint: String) {
         val open = supervisorMintIsOpen(mint)
-        val cooldownMs = if (open) 20_000L else SUPERVISOR_TIMEOUT_COOLDOWN_MS
+        val cooldownMs = if (open) 45_000L else SUPERVISOR_TIMEOUT_COOLDOWN_MS
         val until = System.currentTimeMillis() + cooldownMs
         supervisorTimeoutCooldownUntil[mint] = until
         if (supervisorTimeoutCooldownUntil.size > 2048) {
