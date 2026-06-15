@@ -1370,6 +1370,122 @@ class Executor(
         val decimals: Int,
     )
 
+
+    private data class ProcessorSellPlan(
+        val processor: String,
+        val rawAmount: Long,
+        val uiAmount: Double,
+        val walletRaw: Long,
+        val walletUi: Double,
+        val decimals: Int,
+    )
+
+    /**
+     * V5.0.3740 — processor-boundary sell amount recalculation.
+     * A sell amount/quote/tx payload may not survive a switch between execution
+     * processors (PumpPortal ↔ Jupiter Ultra/Metis ↔ direct DEX). Every processor
+     * receives a fresh owner-filtered balance proof, clamps to current wallet qty,
+     * and converts to that processor's exact input format before quote/build.
+     * Helius/Jito/RPC are senders, not processors; they do not mutate size.
+     */
+    private fun recalcSellPlanForProcessor(
+        ts: TokenState,
+        wallet: SolanaWallet,
+        processor: String,
+        requestedUiQty: Double,
+        fraction: Double? = null,
+        sellTradeKey: String? = null,
+        traderTag: String = "MEME",
+    ): ProcessorSellPlan? {
+        val confirmed = resolveConfirmedSellAmountOrNull(
+            ts = ts,
+            wallet = wallet,
+            requestedUiQty = requestedUiQty,
+            fraction = fraction,
+            sellTradeKey = sellTradeKey,
+            traderTag = traderTag,
+        ) ?: run {
+            try { ForensicLogger.lifecycle("PROCESSOR_AMOUNT_RECALC_BLOCKED", "processor=$processor mint=${ts.mint.take(10)} reason=BALANCE_UNKNOWN") } catch (_: Throwable) {}
+            return null
+        }
+        try {
+            LiveTradeLogStore.log(
+                sellTradeKey ?: LiveTradeLogStore.keyFor(ts.mint, ts.position.entryTime),
+                ts.mint, ts.symbol, "SELL", LiveTradeLogStore.Phase.SELL_BALANCE_CHECK,
+                "PROCESSOR_AMOUNT_RECALCULATED processor=$processor raw=${confirmed.requestedRaw} ui=${confirmed.requestedUi} walletRaw=${confirmed.walletRaw} decimals=${confirmed.decimals}",
+                tokenAmount = confirmed.requestedUi,
+                traderTag = traderTag,
+            )
+        } catch (_: Throwable) {}
+        try { ForensicLogger.lifecycle("PROCESSOR_AMOUNT_RECALCULATED", "processor=$processor mint=${ts.mint.take(10)} raw=${confirmed.requestedRaw} ui=${confirmed.requestedUi} decimals=${confirmed.decimals}") } catch (_: Throwable) {}
+        return ProcessorSellPlan(processor, confirmed.requestedRaw, confirmed.requestedUi, confirmed.walletRaw, confirmed.walletUi, confirmed.decimals)
+    }
+
+
+    private data class ProcessorBuyPlan(
+        val processor: String,
+        val solAmount: Double,
+        val lamports: Long,
+        val walletSol: Double,
+        val reserveSol: Double,
+    )
+
+    /**
+     * V5.0.3740 — processor-boundary buy amount recalculation.
+     * Buy spend cannot survive a switch between execution processors. PumpPortal
+     * takes SOL UI amount; Jupiter Ultra/Metis takes raw lamports. Before each
+     * processor quote/build, refresh wallet SOL, reserve likely sender/priority fees,
+     * clamp spend to available SOL, and emit the exact processor-formatted amount.
+     * Helius/Jito/RPC remain senders only; they cannot alter spend after build.
+     */
+    private fun recalcBuyPlanForProcessor(
+        ts: TokenState,
+        wallet: SolanaWallet,
+        processor: String,
+        requestedSol: Double,
+        priorityFeeSol: Double = 0.0,
+        jitoTipLamports: Long = 0L,
+        tradeKey: String? = null,
+        traderTag: String = "MEME",
+    ): ProcessorBuyPlan? {
+        if (!requestedSol.isFinite() || requestedSol <= 0.0) return null
+        val freshWalletSol = try { wallet.getSolBalance() } catch (e: Throwable) {
+            try { ForensicLogger.lifecycle("BUY_PROCESSOR_AMOUNT_BLOCKED", "processor=$processor mint=${ts.mint.take(10)} reason=WALLET_SOL_UNKNOWN err=${e.message?.take(60)}") } catch (_: Throwable) {}
+            return null
+        }
+        if (!freshWalletSol.isFinite() || freshWalletSol <= 0.0) return null
+        val senderTipSol = (jitoTipLamports.coerceAtLeast(0L).toDouble() / 1_000_000_000.0)
+        val baseFeeReserveSol = 0.0030   // signatures, rent/ATA, compute variance, sender retry margin
+        val reserveSol = (priorityFeeSol.coerceAtLeast(0.0) + senderTipSol + baseFeeReserveSol).coerceAtLeast(0.0030)
+        val spendableSol = (freshWalletSol - reserveSol).coerceAtLeast(0.0)
+        val clampedSol = requestedSol.coerceAtMost(spendableSol)
+        if (clampedSol <= 0.0 || clampedSol < 0.000001) {
+            try {
+                LiveTradeLogStore.log(
+                    tradeKey ?: LiveTradeLogStore.keyFor(ts.mint, System.currentTimeMillis()),
+                    ts.mint, ts.symbol, "BUY", LiveTradeLogStore.Phase.BUY_FAILED,
+                    "BUY_PROCESSOR_AMOUNT_BLOCKED processor=$processor requested=${requestedSol.fmt(6)} wallet=${freshWalletSol.fmt(6)} reserve=${reserveSol.fmt(6)}",
+                    solAmount = requestedSol,
+                    traderTag = traderTag,
+                )
+            } catch (_: Throwable) {}
+            try { ForensicLogger.lifecycle("BUY_PROCESSOR_AMOUNT_BLOCKED", "processor=$processor mint=${ts.mint.take(10)} requested=$requestedSol wallet=$freshWalletSol reserve=$reserveSol") } catch (_: Throwable) {}
+            return null
+        }
+        val lamports = (clampedSol * 1_000_000_000.0).toLong().coerceAtLeast(1L)
+        try {
+            LiveTradeLogStore.log(
+                tradeKey ?: LiveTradeLogStore.keyFor(ts.mint, System.currentTimeMillis()),
+                ts.mint, ts.symbol, "BUY", LiveTradeLogStore.Phase.BUY_QUOTE_TRY,
+                "BUY_PROCESSOR_AMOUNT_RECALCULATED processor=$processor sol=${clampedSol.fmt(6)} lamports=$lamports wallet=${freshWalletSol.fmt(6)} reserve=${reserveSol.fmt(6)} requested=${requestedSol.fmt(6)}",
+                solAmount = clampedSol,
+                traderTag = traderTag,
+            )
+        } catch (_: Throwable) {}
+        try { ForensicLogger.lifecycle("BUY_PROCESSOR_AMOUNT_RECALCULATED", "processor=$processor mint=${ts.mint.take(10)} sol=$clampedSol lamports=$lamports wallet=$freshWalletSol reserve=$reserveSol requested=$requestedSol") } catch (_: Throwable) {}
+        return ProcessorBuyPlan(processor, clampedSol, lamports, freshWalletSol, reserveSol)
+    }
+
     /** V5.9.601: confirmed wallet balance only. RPC-empty-map means no broadcast. */
     private fun resolveConfirmedSellAmountOrNull(
         ts: TokenState,
@@ -1385,56 +1501,12 @@ class Executor(
             null
         }
 
-        // V5.9.777 — EMERGENT MEME-ONLY: HOST_TRACKER FALLBACK for partial /
-        // treasury / PumpPortal sells. Operator forensics: RPD sell entered
-        // resolveConfirmedSellAmountOrNull, RPC returned an empty map, the
-        // function returned null and the caller logged "tokenUnits/cache not
-        // authoritative" + downgraded to Jupiter ladder which failed slippage.
-        // V5.9.775 added the fallback inside liveSell() but the partial-sell
-        // path uses THIS helper first. We now mirror the same authoritative-
-        // source rules here: if RPC empty/missing AND HostWalletTokenTracker
-        // shows uiAmount>0 with status OPEN_TRACKING/HELD_IN_WALLET (etc.)
-        // AND sellSignature is empty (no in-flight sell), we adopt the
-        // tracker reading as authoritative and proceed. Bonafide empty wallets
-        // still return null because tracker.uiAmount will also be zero.
+        // V5.0.3740 — HostWalletTokenTracker / generic TX_PARSE are not sell amount
+        // authority. RPC-empty/missing means BALANCE_UNKNOWN and no live broadcast.
         if (accounts == null || accounts.isEmpty() || accounts[ts.mint] == null) {
-            val tracked = HostWalletTokenTracker.getEntry(ts.mint)
-            val trackerEligible = tracked != null &&
-                tracked.uiAmount > 0.0 &&
-                tracked.status in setOf(
-                    HostWalletTokenTracker.PositionStatus.BUY_CONFIRMED,
-                    HostWalletTokenTracker.PositionStatus.HELD_IN_WALLET,
-                    HostWalletTokenTracker.PositionStatus.OPEN_TRACKING,
-                    HostWalletTokenTracker.PositionStatus.EXIT_SIGNALLED,
-                ) &&
-                tracked.sellSignature.isNullOrBlank()
-            if (trackerEligible) {
-                val t = tracked!!
-                val decimals = t.decimals.coerceAtLeast(0)
-                val scale = 10.0.pow(decimals.toDouble())
-                val walletUi = t.uiAmount
-                val walletRaw = (walletUi * scale).toLong().coerceAtLeast(0L)
-                if (walletRaw <= 0L) return null
-                val requestedUi = when {
-                    fraction != null -> walletUi * fraction.coerceIn(0.0, 1.0)
-                    requestedUiQty > walletUi -> walletUi
-                    else -> requestedUiQty
-                }
-                val requestedRaw = (requestedUi * scale).toLong().coerceIn(1L, walletRaw)
-                LiveTradeLogStore.log(
-                    sellTradeKey ?: LiveTradeLogStore.keyFor(ts.mint, ts.position.entryTime),
-                    ts.mint, ts.symbol, "SELL", LiveTradeLogStore.Phase.SELL_BALANCE_CHECK,
-                    "SELL_QTY_SOURCE=HOST_TRACKER (resolveConfirmed): RPC empty/missing → using tracker " +
-                        "raw=$walletRaw ui=$walletUi decimals=$decimals status=${t.status.name}",
-                    tokenAmount = walletUi, traderTag = traderTag,
-                )
-                try {
-                    ForensicLogger.lifecycle(
-                        "SELL_QTY_SOURCE_HOST_TRACKER",
-                        "mint=${ts.mint.take(10)} sym=${ts.symbol} ui=$walletUi raw=$walletRaw site=resolveConfirmed",
-                    )
-                } catch (_: Throwable) {}
-                return ConfirmedSellAmount(requestedRaw, requestedRaw.toDouble() / scale, walletRaw, walletUi, decimals)
+            val tracked = try { HostWalletTokenTracker.getEntry(ts.mint) } catch (_: Throwable) { null }
+            if (tracked != null && tracked.source == HostWalletTokenTracker.PositionSource.TX_PARSE) {
+                try { ForensicLogger.lifecycle("BALANCE_PROOF_REJECTED", "reason=GENERIC_TX_PARSE_NOT_OWNER_FILTERED mint=${ts.mint.take(10)} site=resolveConfirmed trackerStatus=${tracked.status.name}") } catch (_: Throwable) {}
             }
         }
 
@@ -3718,15 +3790,29 @@ class Executor(
                           "vs cached pos.qtyToken=${pos.qtyToken}", ts.mint)
                     ui
                 } else {
-                    onLog("⚠️ PartialSellSizer dust-rejected for ${ts.symbol} — falling back to cached qty.", ts.mint)
-                    pos.qtyToken * sellFraction
+                    onLog("⏸️ SELL_WAITING_BALANCE_PROOF: ${ts.symbol} dust-rejected by verified raw amount — no cached qty sell.", ts.mint)
+                    try { ForensicLogger.lifecycle("SELL_WAITING_BALANCE_PROOF", "mint=${ts.mint.take(10)} symbol=${ts.symbol} reason=${reason}_DUST_REJECTED") } catch (_: Throwable) {}
+                    try { com.lifecyclebot.engine.sell.CloseLease.release(ts.mint, "BALANCE_DUST_NO_SIGNATURE") } catch (_: Throwable) {}
+                    try { HostWalletTokenTracker.markSellNoSignatureUnlocked(ts.mint, ts.symbol, "BALANCE_DUST") } catch (_: Throwable) {}
+                    return
                 }
             } else {
-                onLog("⚠️ SellAmountAuthority UNKNOWN/ZERO for ${ts.symbol} — falling back to cached qty (pos.qtyToken=${pos.qtyToken}).", ts.mint)
-                pos.qtyToken * sellFraction
+                onLog("⏸️ SELL_WAITING_BALANCE_PROOF: ${ts.symbol} RPC empty/unknown — no cached qty sell.", ts.mint)
+                try { ForensicLogger.lifecycle("SELL_WAITING_BALANCE_PROOF", "mint=${ts.mint.take(10)} symbol=${ts.symbol} reason=$reason") } catch (_: Throwable) {}
+                try { com.lifecyclebot.engine.sell.CloseLease.release(ts.mint, "BALANCE_UNKNOWN_NO_SIGNATURE") } catch (_: Throwable) {}
+                try { HostWalletTokenTracker.markSellNoSignatureUnlocked(ts.mint, ts.symbol, "BALANCE_UNKNOWN") } catch (_: Throwable) {}
+                return
             }
         }
-        val sellUnits = resolveSellUnitsForMint(ts.mint, sellQty, wallet = wallet, fallbackDecimals = decimalsForAudit.takeIf { it > 0 })
+        val initialProcessorPlan = recalcSellPlanForProcessor(
+            ts = ts,
+            wallet = wallet,
+            processor = "INITIAL_SELL_PLAN",
+            requestedUiQty = sellQty,
+            sellTradeKey = sellTradeKey,
+            traderTag = "MEME",
+        ) ?: return
+        val sellUnits = initialProcessorPlan.rawAmount
         // V5.9.1533 — spec item 5: LIVE sell broadcasts ONLY on on-chain confirmed
         // balance (RPC_CONFIRMED / WALLET_SCAN_CONFIRMED). TX_PARSE-only / UNKNOWN =>
         // queue recovery, do not broadcast a sell sized off a guess. Paper unaffected.
@@ -3740,8 +3826,9 @@ class Executor(
             if (!cb) {
                 try { ForensicLogger.lifecycle("SELL_BROADCAST_BLOCKED_UNCONFIRMED_BALANCE",
                     "mint=${ts.mint.take(10)} symbol=${ts.symbol} balanceSource=$liveBalanceSource action=queue_recovery_not_broadcast") } catch (_: Throwable) {}
-                onLog("⏸️ SELL queued (recovery): ${ts.symbol} balance not on-chain confirmed (src=$liveBalanceSource) — re-resolving, not broadcasting.", ts.mint)
-                try { com.lifecyclebot.engine.sell.CloseLease.scheduleBackoff(ts.mint, "BALANCE_UNCONFIRMED") } catch (_: Throwable) {}
+                onLog("⏸️ SELL_WAITING_BALANCE_PROOF: ${ts.symbol} balance not on-chain confirmed (src=$liveBalanceSource) — no broadcast, no blocking lease.", ts.mint)
+                try { com.lifecyclebot.engine.sell.CloseLease.release(ts.mint, "BALANCE_UNKNOWN_NO_SIGNATURE") } catch (_: Throwable) {}
+                try { HostWalletTokenTracker.markSellNoSignatureUnlocked(ts.mint, ts.symbol, "BALANCE_UNKNOWN") } catch (_: Throwable) {}
                 return
             }
         }
@@ -3902,7 +3989,15 @@ class Executor(
             )
             // V5.9.468 — pass wallet pubkey as taker so the quote is a binding
             // Ultra-v2 order. RFQ rejections surface here, not silently in build.
-            var quote = getQuoteWithSlippageGuard(ts.mint, JupiterApi.SOL_MINT, sellUnits,
+            var jupiterPlan = recalcSellPlanForProcessor(
+                ts = ts,
+                wallet = wallet,
+                processor = "JUPITER_ULTRA_METIS",
+                requestedUiQty = sellQty,
+                sellTradeKey = sellTradeKey,
+                traderTag = "MEME",
+            ) ?: return
+            var quote = getQuoteWithSlippageGuard(ts.mint, JupiterApi.SOL_MINT, jupiterPlan.rawAmount,
                                                    sellSlippage, isBuy = false,
                                                    sellTaker = wallet.publicKeyB58)
             LiveTradeLogStore.log(
@@ -3946,7 +4041,14 @@ class Executor(
             } else tryPumpPortalSell(
                 ts = ts,
                 wallet = wallet,
-                tokenUnits = sellUnits,
+                tokenUnits = recalcSellPlanForProcessor(
+                    ts = ts,
+                    wallet = wallet,
+                    processor = "PUMPPORTAL",
+                    requestedUiQty = sellQty,
+                    sellTradeKey = sellTradeKey,
+                    traderTag = "MEME",
+                )?.rawAmount ?: return,
                 slipPct = pfPumpSlip,
                 priorityFeeSol = if (isDrainExit) 0.0005 else 0.0001,
                 useJito = pfPumpJito,
@@ -3979,8 +4081,16 @@ class Executor(
                             slippageBps = currentSlip, traderTag = "MEME",
                         )
                         try {
+                            jupiterPlan = recalcSellPlanForProcessor(
+                                ts = ts,
+                                wallet = wallet,
+                                processor = "JUPITER_ULTRA_METIS",
+                                requestedUiQty = sellQty,
+                                sellTradeKey = sellTradeKey,
+                                traderTag = "MEME",
+                            ) ?: return
                             quote = getQuoteWithSlippageGuard(
-                                ts.mint, JupiterApi.SOL_MINT, sellUnits, currentSlip,
+                                ts.mint, JupiterApi.SOL_MINT, jupiterPlan.rawAmount, currentSlip,
                                 isBuy = false, sellTaker = wallet.publicKeyB58)
                             // V5.9.495u — operator triage 06 May 2026: "are
                             // we using ultra the way its meant to be?". We
@@ -4077,7 +4187,14 @@ class Executor(
                 sig = tryPumpPortalSell(
                     ts = ts,
                     wallet = wallet,
-                    tokenUnits = sellUnits,
+                    tokenUnits = recalcSellPlanForProcessor(
+                        ts = ts,
+                        wallet = wallet,
+                        processor = "PUMPPORTAL_PROFIT_RESCUE",
+                        requestedUiQty = sellQty,
+                        sellTradeKey = sellTradeKey,
+                        traderTag = "MEME",
+                    )?.rawAmount ?: return,
                     slipPct = pumpSlip,
                     priorityFeeSol = if (isDrainExit) 0.0008 else 0.0003,
                     useJito = pumpJito,
@@ -4800,12 +4917,14 @@ class Executor(
                           "vs cached pos.qtyToken=${pos.qtyToken}", ts.mint)
                     ui
                 } else {
-                    onLog("⚠️ PartialSellSizer dust-rejected for ${ts.symbol} — falling back to cached qty.", ts.mint)
-                    pos.qtyToken * sellFraction
+                    onLog("⏸️ PARTIAL_SELL_WAITING_BALANCE_PROOF: ${ts.symbol} dust-rejected by verified raw amount — no cached qty sell.", ts.mint)
+                    try { ForensicLogger.lifecycle("SELL_WAITING_BALANCE_PROOF", "mint=${ts.mint.take(10)} symbol=${ts.symbol} reason=PARTIAL_DUST_REJECTED") } catch (_: Throwable) {}
+                    return false
                 }
             } else {
-                onLog("⚠️ SellAmountAuthority UNKNOWN/ZERO for ${ts.symbol} — falling back to cached qty (pos.qtyToken=${pos.qtyToken}).", ts.mint)
-                pos.qtyToken * sellFraction
+                onLog("⏸️ PARTIAL_SELL_WAITING_BALANCE_PROOF: ${ts.symbol} RPC empty/unknown — no cached qty sell.", ts.mint)
+                try { ForensicLogger.lifecycle("SELL_WAITING_BALANCE_PROOF", "mint=${ts.mint.take(10)} symbol=${ts.symbol} reason=PARTIAL_BALANCE_UNKNOWN") } catch (_: Throwable) {}
+                return false
             }
         }
         val sellSol      = sellQty * actualPrice
@@ -4913,7 +5032,15 @@ class Executor(
                     releasePartialSellLock(ts.mint)
                     return true
                 }
-                val sellUnits = resolveSellUnitsForMint(ts.mint, sellQty, wallet = wallet, fallbackDecimals = decimalsForAudit.takeIf { it > 0 })
+                val partialInitialPlan = recalcSellPlanForProcessor(
+                    ts = ts,
+                    wallet = wallet,
+                    processor = "PARTIAL_INITIAL_PLAN",
+                    requestedUiQty = sellQty,
+                    sellTradeKey = LiveTradeLogStore.keyFor(ts.mint, System.currentTimeMillis()),
+                    traderTag = "MEME",
+                ) ?: return false
+                val sellUnits = partialInitialPlan.rawAmount
                 // V5.9.1533 — spec item 5: live partial sell broadcasts ONLY on confirmed balance.
                 run {
                     val cb = com.lifecyclebot.engine.sell.SellAmountAuthority.canBroadcastLiveOrEmergency(
@@ -4925,7 +5052,8 @@ class Executor(
                     if (!cb) {
                         try { ForensicLogger.lifecycle("SELL_BROADCAST_BLOCKED_UNCONFIRMED_BALANCE",
                             "mint=${ts.mint.take(10)} symbol=${ts.symbol} balanceSource=$liveBalanceSource phase=partial action=queue_recovery_not_broadcast") } catch (_: Throwable) {}
-                        try { com.lifecyclebot.engine.sell.CloseLease.scheduleBackoff(ts.mint, "BALANCE_UNCONFIRMED") } catch (_: Throwable) {}
+                        try { com.lifecyclebot.engine.sell.CloseLease.release(ts.mint, "BALANCE_UNKNOWN_NO_SIGNATURE") } catch (_: Throwable) {}
+                        try { HostWalletTokenTracker.markSellNoSignatureUnlocked(ts.mint, ts.symbol, "BALANCE_UNKNOWN_PARTIAL") } catch (_: Throwable) {}
                         return false
                     }
                 }
@@ -4947,7 +5075,14 @@ class Executor(
                 } else tryPumpPortalSell(
                     ts = ts,
                     wallet = wallet,
-                    tokenUnits = sellUnits,
+                    tokenUnits = recalcSellPlanForProcessor(
+                        ts = ts,
+                        wallet = wallet,
+                        processor = "PUMPPORTAL_PARTIAL",
+                        requestedUiQty = sellQty,
+                        sellTradeKey = LiveTradeLogStore.keyFor(ts.mint, System.currentTimeMillis()),
+                        traderTag = "MEME",
+                    )?.rawAmount ?: return false,
                     slipPct = 5,  // V5.9.1524 — 5% live sell cap
                     priorityFeeSol = 0.0001,
                     useJito = partialJito,
@@ -4975,8 +5110,16 @@ class Executor(
                 } else {
                     // Fallback: full Jupiter Ultra → Metis ladder (single shot
                     // here; Jupiter dynamicSlippage handles in-route escalation).
+                    val partialJupiterPlan = recalcSellPlanForProcessor(
+                        ts = ts,
+                        wallet = wallet,
+                        processor = "JUPITER_ULTRA_METIS_PARTIAL",
+                        requestedUiQty = sellQty,
+                        sellTradeKey = LiveTradeLogStore.keyFor(ts.mint, System.currentTimeMillis()),
+                        traderTag = "MEME",
+                    ) ?: return false
                     val quote     = getQuoteWithSlippageGuard(
-                        ts.mint, JupiterApi.SOL_MINT, sellUnits, sellSlippage, isBuy = false)
+                        ts.mint, JupiterApi.SOL_MINT, partialJupiterPlan.rawAmount, sellSlippage, isBuy = false)
                     val txResult  = buildTxWithRetry(
                         quote, wallet.publicKeyB58,
                         senderTipLamports = if (c.jitoEnabled) maxOf(c.jitoTipLamports, 200_000L) else 0L,
@@ -4993,7 +5136,14 @@ class Executor(
                         val rescue = tryPumpPortalSell(
                             ts = ts,
                             wallet = wallet,
-                            tokenUnits = sellUnits,
+                            tokenUnits = recalcSellPlanForProcessor(
+                                ts = ts,
+                                wallet = wallet,
+                                processor = "PUMPPORTAL_PARTIAL_RESCUE",
+                                requestedUiQty = sellQty,
+                                sellTradeKey = LiveTradeLogStore.keyFor(ts.mint, System.currentTimeMillis()),
+                                traderTag = "MEME",
+                            )?.rawAmount ?: return false,
                             slipPct = 5,  // V5.9.1524 — 5% live sell cap
                             priorityFeeSol = 0.0002,
                             useJito = partialJito,
@@ -6693,10 +6843,20 @@ class Executor(
             val preTopUpQty = try { wallet.getTokenAccountsWithDecimalsBounded()[ts.mint]?.first ?: pos.qtyToken } catch (_: Throwable) { pos.qtyToken }
             // V5.9.495 — PUMP-FIRST routing for top-ups (add-to-position).
             // Same universal-auto routing the entry/exit ladder uses.
-            val ppResult = tryPumpPortalBuy(
+            val pumpTopUpPlan = recalcBuyPlanForProcessor(
                 ts = ts,
                 wallet = wallet,
-                solAmount = sol,
+                processor = "PUMPPORTAL_TOP_UP",
+                requestedSol = sol,
+                priorityFeeSol = 0.0001,
+                jitoTipLamports = c.jitoTipLamports,
+                tradeKey = tradeKey,
+                traderTag = "MEME",
+            )
+            val ppResult = if (pumpTopUpPlan == null) null else tryPumpPortalBuy(
+                ts = ts,
+                wallet = wallet,
+                solAmount = pumpTopUpPlan.solAmount,
                 slipPct = 10,
                 priorityFeeSol = 0.0001,
                 useJito = c.jitoEnabled,
@@ -6713,9 +6873,19 @@ class Executor(
                 newQty = ppResult.second
                 onLog("🔺 LIVE TOP-UP (PUMP-FIRST) #${pos.topUpCount + 1}: ${ts.symbol} | sig=${sig.take(16)}…", ts.mint)
             } else {
+                val jupiterTopUpPlan = recalcBuyPlanForProcessor(
+                    ts = ts,
+                    wallet = wallet,
+                    processor = "JUPITER_ULTRA_METIS_TOP_UP",
+                    requestedSol = sol,
+                    priorityFeeSol = 0.0,
+                    jitoTipLamports = if (c.jitoEnabled) maxOf(c.jitoTipLamports, 200_000L) else 0L,
+                    tradeKey = tradeKey,
+                    traderTag = "MEME",
+                ) ?: return
                 val quote  = getQuoteWithSlippageGuard(JupiterApi.SOL_MINT, ts.mint,
-                                                        lamports, c.slippageBps, sol)
-                val qGuard = security.validateQuote(quote, isBuy = true, inputSol = sol)
+                                                        jupiterTopUpPlan.lamports, c.slippageBps, jupiterTopUpPlan.solAmount)
+                val qGuard = security.validateQuote(quote, isBuy = true, inputSol = jupiterTopUpPlan.solAmount)
                 if (qGuard is GuardResult.Block) {
                     onLog("🚫 Top-up quote rejected: ${qGuard.reason}", ts.mint); return
                 }
@@ -6735,7 +6905,7 @@ class Executor(
                     onLog("Broadcasting top-up tx…", ts.mint)
                 }
                 sig = wallet.signSendAndConfirm(txResult.txBase64, useJito, jitoTip, ultraReqId, c.jupiterApiKey, txResult.isRfqRoute, txResult.senderCompatible)
-                newQty = rawTokenAmountToUiAmount(ts, quote.outAmount, solAmount = sol, priceUsd = price)
+                newQty = rawTokenAmountToUiAmount(ts, quote.outAmount, solAmount = jupiterTopUpPlan.solAmount, priceUsd = price)
             }
 
             val verifiedDelta = try {
@@ -8710,10 +8880,20 @@ class Executor(
             val pumpVenue = if (com.lifecyclebot.network.PumpFunDirectApi.isPumpFunMint(ts.mint))
                 "pump.fun" else "universal-auto"
 
-            val pumpFirstResult: Pair<String, Double>? = tryPumpPortalBuy(
+            val pumpBuyPlan = recalcBuyPlanForProcessor(
                 ts = ts,
                 wallet = wallet,
-                solAmount = effectiveSol,
+                processor = "PUMPPORTAL_BUY",
+                requestedSol = effectiveSol,
+                priorityFeeSol = 0.0001,
+                jitoTipLamports = c.jitoTipLamports,
+                tradeKey = tradeKey,
+                traderTag = "MEME",
+            )
+            val pumpFirstResult: Pair<String, Double>? = if (pumpBuyPlan == null) null else tryPumpPortalBuy(
+                ts = ts,
+                wallet = wallet,
+                solAmount = pumpBuyPlan.solAmount,
                 slipPct = 10,
                 priorityFeeSol = 0.0001,
                 useJito = c.jitoEnabled,
@@ -8756,9 +8936,19 @@ class Executor(
                     slippageBps = slip, solAmount = sol, traderTag = "MEME",
                 )
                 try {
+                    val jupiterBuyPlan = recalcBuyPlanForProcessor(
+                        ts = ts,
+                        wallet = wallet,
+                        processor = "JUPITER_ULTRA_METIS_BUY",
+                        requestedSol = effectiveSol,
+                        priorityFeeSol = 0.0,
+                        jitoTipLamports = if (c.jitoEnabled) maxOf(c.jitoTipLamports, 200_000L) else 0L,
+                        tradeKey = tradeKey,
+                        traderTag = "MEME",
+                    ) ?: throw Exception("BUY_BALANCE_PLAN_UNAVAILABLE")
                     quote = getQuoteWithSlippageGuard(
-                        JupiterApi.SOL_MINT, ts.mint, lamports,
-                        slip.coerceAtMost(500), sol,
+                        JupiterApi.SOL_MINT, ts.mint, jupiterBuyPlan.lamports,
+                        slip.coerceAtMost(500), jupiterBuyPlan.solAmount,
                     )
                     if (quote != null) {
                         if (slip != buyBaseSlippage) onLog("BUY: quote OK at ${slip}bps slippage", ts.mint)
@@ -9204,6 +9394,7 @@ class Executor(
             val verifySig = sig  // V5.9.265: capture sig for authoritative tx-based verification
             GlobalScope.launch(AppDispatchers.sideEffect) {
                 var verifiedQty = 0.0
+                var verifiedProof: com.lifecyclebot.engine.sell.BalanceProof? = null
                 var anyRpcError = false
                 var sigParseConfirmedZero = false  // V5.9.265: only TRUE phantom if tx parse explicitly says 0
                 // V5.9.750 — extended verify window. Operator screenshots
@@ -9233,20 +9424,32 @@ class Executor(
                         // were landing while the ATA poll returned 0. We now
                         // parse postTokenBalances from the tx itself — that's
                         // the on-chain ground truth, no indexer lag.
-                        val sigQty = try { verifyWallet.getTokenAmountFromSig(verifySig, verifyMint) } catch (_: Exception) { null }
-                        if (sigQty != null && sigQty > 0.0) {
-                            verifiedQty = sigQty
+                        val ownerDeltaProof = try {
+                            com.lifecyclebot.engine.sell.SellAmountAuthority.txMetaOwnerDeltaProof(
+                                mint = verifyMint,
+                                owner = verifyWallet.publicKeyB58,
+                                wallet = verifyWallet,
+                                sig = verifySig,
+                            )
+                        } catch (_: Exception) { null }
+                        if (ownerDeltaProof != null && ownerDeltaProof.amountRaw.signum() > 0) {
+                            verifiedProof = ownerDeltaProof
+                            verifiedQty = try { java.math.BigDecimal(ownerDeltaProof.amountRaw).movePointLeft(ownerDeltaProof.decimals).toDouble() } catch (_: Throwable) { 0.0 }
                             LiveTradeLogStore.log(
                                 verifyTradeKey, verifyMint, verifySymbol, "BUY",
                                 LiveTradeLogStore.Phase.BUY_VERIFY_POLL,
-                                "Poll $pollNum/$maxPolls — TX-PARSE qty=${sigQty} (authoritative)",
-                                tokenAmount = sigQty, traderTag = "MEME",
+                                "Poll $pollNum/$maxPolls — OWNER_DELTA_PROOF qty=${verifiedQty} raw=${ownerDeltaProof.amountRaw}",
+                                tokenAmount = verifiedQty, traderTag = "MEME",
                             )
                             break
                         }
-                        if (sigQty != null && sigQty == 0.0) sigParseConfirmedZero = true
+                        val genericSigQty = try { verifyWallet.getTokenAmountFromSig(verifySig, verifyMint) } catch (_: Exception) { null }
+                        if (genericSigQty != null && genericSigQty == 0.0) sigParseConfirmedZero = true
+                        if (genericSigQty != null && genericSigQty > 0.0) {
+                            try { com.lifecyclebot.engine.ForensicLogger.lifecycle("BALANCE_PROOF_REJECTED", "reason=GENERIC_TX_PARSE_NOT_OWNER_FILTERED mint=${verifyMint.take(10)} sig=${verifySig.take(12)}") } catch (_: Throwable) {}
+                        }
 
-                        // Fallback: legacy ATA poll
+                        // Fallback: owner token account poll
                         val balances = verifyWallet.getTokenAccountsWithDecimalsBounded()
                         val tokenData = balances[verifyMint]
                         val qty = tokenData?.first ?: 0.0
@@ -9254,11 +9457,24 @@ class Executor(
                             verifyTradeKey, verifyMint, verifySymbol, "BUY",
                             LiveTradeLogStore.Phase.BUY_VERIFY_POLL,
                             "Poll $pollNum/$maxPolls — wallet qty=${qty.fmt(4)}" +
-                                if (sigQty == null) " (tx-parse not ready yet)" else "",
+                                if (ownerDeltaProof == null) " (owner-delta proof not ready yet)" else "",
                             tokenAmount = qty, traderTag = "MEME",
                         )
                         if (qty > 0.0) {
                             verifiedQty = qty
+                            val decimals = tokenData?.second ?: 9
+                            val raw = try { java.math.BigDecimal(qty).movePointRight(decimals).toBigInteger() } catch (_: Throwable) { java.math.BigInteger.ZERO }
+                            verifiedProof = com.lifecyclebot.engine.sell.BalanceProof(
+                                mint = verifyMint,
+                                owner = verifyWallet.publicKeyB58,
+                                ata = null,
+                                amountRaw = raw,
+                                decimals = decimals,
+                                source = com.lifecyclebot.engine.sell.BalanceProofSource.RPC_CONFIRMED_OWNER_TOKEN_ACCOUNT,
+                                authoritative = raw.signum() > 0,
+                                observedAtMs = System.currentTimeMillis(),
+                                signature = null,
+                            )
                             break
                         }
                     } catch (e: Exception) {
@@ -9358,7 +9574,13 @@ class Executor(
                         // why. Now: log success/failure + emit LIVE_BUY_LANDED.
                         try {
                             val beforeOpen = HostWalletTokenTracker.getOpenCount()
-                            HostWalletTokenTracker.recordBuyConfirmed(ts, verifySig)
+                            val proof = verifiedProof
+                            if (proof != null && proof.authoritative) {
+                                HostWalletTokenTracker.recordBuyConfirmedWithProof(ts, proof, verifySig)
+                            } else {
+                                HostWalletTokenTracker.recordBuyPending(ts.mint, ts.symbol, verifySig)
+                                try { com.lifecyclebot.engine.ForensicLogger.lifecycle("BUY_PENDING_BALANCE_PROOF", "mint=${ts.mint.take(10)} symbol=${ts.symbol} reason=NO_AUTHORITATIVE_PROOF_AT_PROMOTION") } catch (_: Throwable) {}
+                            }
                             val afterOpen = HostWalletTokenTracker.getOpenCount()
                             val opened = HostWalletTokenTracker.hasOpenPosition(ts.mint)
                             LiveTradeLogStore.log(
@@ -9402,25 +9624,9 @@ class Executor(
                                 entryTokenRawConfirmed = entryRaw,
                                 poolLiquidityUsd = ts.lastLiquidityUsd,
                             )
-                            // V5.0.3682 — P0 SELL AUTHORITY: persist the verified
-                            // raw token balance + buy signature into the
-                            // SellAmountAuthority TX_PARSE cache. This is the
-                            // ONLY way emergency liquidation (strict_sl / hard_floor
-                            // / rug / shutdown) can authoritatively size a sell when
-                            // a wallet RPC briefly returns an empty token map
-                            // (BALANCE_UNKNOWN). Cached only for FRESH_TX_PARSE_MS
-                            // (90s) — discretionary sells still require RPC truth.
-                            if (entryRaw.signum() > 0 && verifySig.isNotBlank()) {
-                                try {
-                                    com.lifecyclebot.engine.sell.SellAmountAuthority
-                                        .recordTxParseBalance(
-                                            mint = verifyMint,
-                                            rawAmount = entryRaw,
-                                            decimals = decimals,
-                                            txSignature = verifySig,
-                                        )
-                                } catch (_: Throwable) { /* non-fatal */ }
-                            }
+                            // V5.0.3740 — do NOT cache generic TX_PARSE as sell authority.
+                            // SellAmountAuthority now requires owner-token-account proof or
+                            // owner/mint tx-meta delta at use time.
                         } catch (e: Throwable) {
                             ErrorLogger.warn("Executor", "recordEntryMetadata after verify failed (non-fatal): ${e.message}")
                         }
@@ -9854,7 +10060,7 @@ class Executor(
             }
             // V5.9.1539 — ROOT FIX (operator spec item C): before retrying a sell
             // under an existing lease, short-circuit if the wallet is CONCLUSIVELY
-            // empty. MARS looped forever broadcasting the stale HOST_TRACKER_TX_PARSE
+            // empty. MARS looped forever broadcasting the stale tracker-derived
             // amount (984443.7) at 5% slippage while the wallet balance was already
             // 0 — every 503 was classed RETRYABLE so the lease never released. A
             // confirmed-zero (RPC_CONFIRMED / WALLET_SCAN_CONFIRMED Resolution.Zero)
@@ -10097,7 +10303,7 @@ class Executor(
                             onLog("🛑 PARTIAL SELL BLOCKED: ${ts.symbol} BALANCE_UNKNOWN — refusing cached qty broadcast", ts.mint)
                             return
                         }
-                    val sellUnits = confirmedSell.requestedRaw
+                    var sellUnits = confirmedSell.requestedRaw
                     val sellSlippage = com.lifecyclebot.engine.sell.SellSafetyPolicy.initialSlippageBps(reason)
                     val broadcastSlipLadder = com.lifecyclebot.engine.sell.SellSafetyPolicy.ladder(reason)
                     val isDrainExit = com.lifecyclebot.engine.sell.SellSafetyPolicy.maxSlippageBps(reason) > 1200 &&
@@ -10122,6 +10328,18 @@ class Executor(
                         slippageBps = sellSlippage,
                         traderTag = "MEME",
                     )
+                    val manualJupiterPlan = recalcSellPlanForProcessor(
+                        ts = ts,
+                        wallet = activeWallet,
+                        processor = "JUPITER_ULTRA_METIS_MANUAL_PARTIAL",
+                        requestedUiQty = sellQty,
+                        sellTradeKey = sellTradeKey,
+                        traderTag = "MEME",
+                    ) ?: run {
+                        com.lifecyclebot.engine.sell.SellExecutionLocks.release(ts.mint)
+                        return
+                    }
+                    sellUnits = manualJupiterPlan.rawAmount
                     var quote = getQuoteWithSlippageGuard(
                         ts.mint, JupiterApi.SOL_MINT, sellUnits, sellSlippage, isBuy = false,
                         sellTaker = activeWallet.publicKeyB58)
@@ -10148,6 +10366,18 @@ class Executor(
                                     slippageBps = currentSlip, traderTag = "MEME",
                                 )
                                 try {
+                                    val manualLadderPlan = recalcSellPlanForProcessor(
+                                        ts = ts,
+                                        wallet = activeWallet,
+                                        processor = "JUPITER_ULTRA_METIS_MANUAL_PARTIAL_LADDER",
+                                        requestedUiQty = sellQty,
+                                        sellTradeKey = sellTradeKey,
+                                        traderTag = "MEME",
+                                    ) ?: run {
+                                        com.lifecyclebot.engine.sell.SellExecutionLocks.release(ts.mint)
+                                        return
+                                    }
+                                    sellUnits = manualLadderPlan.rawAmount
                                     quote = getQuoteWithSlippageGuard(
                                         ts.mint, JupiterApi.SOL_MINT, sellUnits, currentSlip,
                                         isBuy = false, sellTaker = activeWallet.publicKeyB58)
@@ -12328,144 +12558,24 @@ class Executor(
                     ErrorLogger.warn("Executor", "RPC refresh failed for ${ts.symbol}: ${e.message?.take(80)}")
                 }
                 if (!recovered) {
-                    // V5.9.775 — EMERGENT MEME RPC-EMPTY → HOST_TRACKER FALLBACK.
-                    //
-                    // Operator forensics_20260516_001259.json showed HODL
-                    // and GPT permanently stuck because every sell attempt
-                    // hit `RPC empty → return FAILED_RETRYABLE` and the
-                    // sell never reached PumpPortal/Jupiter. Per operator
-                    // spec V5.9.775: if HostWalletTokenTracker has
-                    // wallet_uiAmount > 0 with status OPEN_TRACKING and
-                    // last_sell_signature empty (i.e. the tracker is the
-                    // authoritative TX_PARSE-verified source of truth),
-                    // an empty RPC read must NOT block selling. We adopt
-                    // the tracker quantity as authoritative and fall
-                    // through to the quote/build/broadcast pipeline. The
-                    // Jupiter / PumpPortal call will fail cleanly if the
-                    // tokens are genuinely missing, so we don't risk a
-                    // false sell.
-                    val tracked = HostWalletTokenTracker.getEntry(ts.mint)
-                    val trackerEligible = tracked != null &&
-                        tracked.uiAmount > 0.0 &&
-                        tracked.status in setOf(
-                            HostWalletTokenTracker.PositionStatus.BUY_CONFIRMED,
-                            HostWalletTokenTracker.PositionStatus.HELD_IN_WALLET,
-                            HostWalletTokenTracker.PositionStatus.OPEN_TRACKING,
-                            HostWalletTokenTracker.PositionStatus.EXIT_SIGNALLED,
-                        ) &&
-                        tracked.sellSignature.isNullOrBlank()
-                    if (trackerEligible) {
-                        val t = tracked!!
-                        val multiplier = 10.0.pow(t.decimals.toDouble())
-                        val trackerRaw = (t.uiAmount * multiplier).toLong()
-                        if (trackerRaw > 0L) {
-                            tokenUnits = trackerRaw
-                            zeroBalanceRetries.remove(retryCountKey)
-                            onLog(
-                                "🟢 SELL_QTY_SOURCE=HOST_TRACKER: ${ts.symbol} — RPC empty after refresh, " +
-                                    "using tracker uiAmount=${t.uiAmount} raw=$trackerRaw decimals=${t.decimals} " +
-                                    "(status=${t.status.name}, source=${t.source.name}, sellSig empty) — proceeding with sell.",
-                                tradeId.mint,
-                            )
-                            LiveTradeLogStore.log(
-                                sellTradeKey, ts.mint, ts.symbol, "SELL",
-                                LiveTradeLogStore.Phase.SELL_BALANCE_CHECK,
-                                "SELL_QTY_SOURCE=HOST_TRACKER raw=$trackerRaw ui=${t.uiAmount} decimals=${t.decimals} " +
-                                    "status=${t.status.name} source=${t.source.name} — RPC-empty fallback, proceeding with sell.",
-                                tokenAmount = t.uiAmount, traderTag = "MEME",
-                            )
-                            try {
-                                ForensicLogger.lifecycle(
-                                    "SELL_QTY_SOURCE_HOST_TRACKER",
-                                    "mint=${ts.mint.take(10)} sym=${ts.symbol} raw=$trackerRaw ui=${t.uiAmount}",
-                                )
-                            } catch (_: Throwable) {}
-                            // Fall through to the post-balance-check sell
-                            // pipeline. tokenData stays null/empty — the
-                            // `tokenData == null` branch below is now bypassed
-                            // because we set mapEmpty=false (and tokenData
-                            // remains null but tokenUnits is authoritative).
-                            // To bypass cleanly, set mapEmpty=false AND
-                            // synthesise a tokenData pair from tracker so
-                            // the downstream branch treats this as a
-                            // successful balance resolve.
-                            mapEmpty = false
-                            tokenData = Pair(t.uiAmount, t.decimals)
-                            onChainBalances = mapOf(ts.mint to tokenData!!)
-                        } else {
-                            // tracker says 0 raw — really nothing to sell.
-                            LiveTradeLogStore.log(
-                                sellTradeKey, ts.mint, ts.symbol, "SELL",
-                                LiveTradeLogStore.Phase.SELL_BALANCE_CHECK,
-                                "SELL_RETRY_SCHEDULED — RPC empty AND tracker raw=0 (ui=${t.uiAmount} dust). count=$retryCount",
-                                traderTag = "MEME",
-                            )
-                            return SellResult.FAILED_RETRYABLE
-                        }
-                    } else {
-                        // V5.0.3711 — EMERGENCY_TX_PARSE_SELL_RESCUE.
-                        // Docs check: Jupiter ExactIn sell amount is the raw input-token
-                        // amount. If the wallet RPC returns an empty account map but the
-                        // buy path recorded a fresh, buy-tied TX_PARSE raw balance, a
-                        // catastrophic FULL exit should attempt that raw amount instead of
-                        // silently requeueing. This is NOT used for discretionary/partial
-                        // profit exits; those still require wallet-confirmed balance.
-                        val txSnap = try { com.lifecyclebot.engine.sell.SellAmountAuthority.txParseSnapshot(ts.mint) } catch (_: Throwable) { null }
-                        val emergencyTxParseAllowed = try {
-                            txSnap != null && com.lifecyclebot.engine.sell.SellAmountAuthority.canBroadcastLiveOrEmergency(
-                                resolution = null,
-                                reason = reason,
-                                mint = ts.mint,
-                                requestedRawAmount = txSnap.rawAmount,
-                            )
-                        } catch (_: Throwable) { false }
-                        if (emergencyTxParseAllowed && txSnap != null) {
-                            tokenUnits = txSnap.rawAmount.coerceAtMost(java.math.BigInteger.valueOf(Long.MAX_VALUE)).toLong()
-                            zeroBalanceRetries.remove(retryCountKey)
-                            mapEmpty = false
-                            val ui = java.math.BigDecimal(txSnap.rawAmount).movePointLeft(txSnap.decimals).toDouble()
-                            tokenData = Pair(ui, txSnap.decimals)
-                            onChainBalances = mapOf(ts.mint to tokenData!!)
-                            onLog(
-                                "🚨 SELL_QTY_SOURCE=FRESH_TX_PARSE_EMERGENCY: ${ts.symbol} — RPC empty after refresh, " +
-                                    "using buy-tied raw=$tokenUnits decimals=${txSnap.decimals} sig=${txSnap.txSignature.take(8)} reason=$reason",
-                                tradeId.mint,
-                            )
-                            LiveTradeLogStore.log(
-                                sellTradeKey, ts.mint, ts.symbol, "SELL",
-                                LiveTradeLogStore.Phase.SELL_BALANCE_CHECK,
-                                "SELL_QTY_SOURCE=FRESH_TX_PARSE_EMERGENCY raw=$tokenUnits decimals=${txSnap.decimals} sig=${txSnap.txSignature.take(8)} — catastrophic full-exit RPC-empty fallback, proceeding to Jupiter ExactIn.",
-                                tokenAmount = ui,
-                                traderTag = "MEME",
-                            )
-                            try {
-                                ForensicLogger.lifecycle(
-                                    "SELL_QTY_SOURCE_FRESH_TX_PARSE_EMERGENCY",
-                                    "mint=${ts.mint.take(10)} sym=${ts.symbol} raw=$tokenUnits decimals=${txSnap.decimals} reason=$reason",
-                                )
-                            } catch (_: Throwable) {}
-                        } else {
-                            // Refresh confirmed empty AND tracker not authoritative.
-                            // Emit SELL_RETRY_SCHEDULED exactly once per stuck
-                            // window (first retry only).
-                            val firstTime = retryCount == 1
-                            if (firstTime) {
-                                onLog("🛑 SELL_RETRY_SCHEDULED: ${ts.symbol} RPC-EMPTY-MAP — refresh confirmed empty AND tracker not authoritative. Will retry on next sell tick.", tradeId.mint)
-                                ErrorLogger.warn("Executor",
-                                    "SELL_RETRY_SCHEDULED ${ts.symbol} RPC-EMPTY-MAP after one refresh — retry armed")
-                                LiveTradeLogStore.log(
-                                    sellTradeKey, ts.mint, ts.symbol, "SELL",
-                                    LiveTradeLogStore.Phase.SELL_BALANCE_CHECK,
-                                    "SELL_RETRY_SCHEDULED — RPC empty after one refresh AND tracker not authoritative (entry=${tracked?.status?.name} ui=${tracked?.uiAmount} sellSig=${tracked?.sellSignature?.take(8)}); will retry next sell tick (count=$retryCount)",
-                                    traderTag = "MEME",
-                                )
-                            } else if (retryCount % 10 == 0) {
-                                // Heartbeat every 10 retries.
-                                onLog("🛑 SELL still blocked: ${ts.symbol} RPC-EMPTY-MAP (retry $retryCount) — RPC still empty AND tracker not authoritative.", tradeId.mint)
-                            }
-                            return SellResult.FAILED_RETRYABLE
-                        }
+                    // V5.0.3740 — strict live balance authority. RPC empty map + no
+                    // owner-filtered balance means BALANCE_UNKNOWN. Do not use HostTracker,
+                    // generic TX_PARSE, quote math, or cached tokenUnits for a live sell.
+                    val tracked = try { HostWalletTokenTracker.getEntry(ts.mint) } catch (_: Throwable) { null }
+                    if (tracked != null && tracked.source == HostWalletTokenTracker.PositionSource.TX_PARSE) {
+                        try { ForensicLogger.lifecycle("BALANCE_PROOF_REJECTED", "reason=GENERIC_TX_PARSE_NOT_OWNER_FILTERED mint=${ts.mint.take(10)} site=liveSell_rpc_empty trackerStatus=${tracked.status.name}") } catch (_: Throwable) {}
                     }
+                    LiveTradeLogStore.log(
+                        sellTradeKey, ts.mint, ts.symbol, "SELL",
+                        LiveTradeLogStore.Phase.SELL_BALANCE_CHECK,
+                        "SELL_QTY_SOURCE=BALANCE_UNKNOWN reason=RPC_EMPTY_MAP — no owner-filtered balance proof; no broadcast",
+                        traderTag = "MEME",
+                    )
+                    try { ForensicLogger.lifecycle("SELL_WAITING_BALANCE_PROOF", "mint=${ts.mint.take(10)} symbol=${ts.symbol} reason=RPC_EMPTY_MAP close_lease_released=true") } catch (_: Throwable) {}
+                    try { com.lifecyclebot.engine.sell.SellExecutionLocks.release(ts.mint) } catch (_: Throwable) {}
+                    try { com.lifecyclebot.engine.sell.CloseLease.release(ts.mint, "BALANCE_UNKNOWN_NO_SIGNATURE") } catch (_: Throwable) {}
+                    try { HostWalletTokenTracker.markSellNoSignatureUnlocked(ts.mint, ts.symbol, "BALANCE_UNKNOWN_RPC_EMPTY") } catch (_: Throwable) {}
+                    return SellResult.FAILED_RETRYABLE
                 }
                 // Recovered — fall through to the normal tokenData checks
                 // below (which run against the refreshed map).
@@ -12568,9 +12678,8 @@ class Executor(
             // Operator spec V5.9.775: every sell must log the
             // authoritative source of `tokenUnits` so the operator can
             // tell at a glance whether the bot used the on-chain RPC
-            // reading or the HOST_TRACKER fallback. The RPC fallback
-            // path above emits SELL_QTY_SOURCE=HOST_TRACKER; this is
-            // the normal RPC-resolved path.
+            // reading. Tracker/TX_PARSE fallback is forbidden for live amount authority;
+            // this is the normal RPC-resolved path.
             try {
                 LiveTradeLogStore.log(
                     sellTradeKey, ts.mint, ts.symbol, "SELL",
@@ -12704,6 +12813,15 @@ class Executor(
                             slippageBps = slipLevel,
                             traderTag = "MEME",
                         )
+                        val jupiterPlan = recalcSellPlanForProcessor(
+                            ts = ts,
+                            wallet = wallet,
+                            processor = "JUPITER_ULTRA_METIS",
+                            requestedUiQty = actualBalanceUi,
+                            sellTradeKey = sellTradeKey,
+                            traderTag = "MEME",
+                        ) ?: return SellResult.FAILED_RETRYABLE
+                        tokenUnits = jupiterPlan.rawAmount
                         quote = getQuoteWithSlippageGuard(ts.mint, JupiterApi.SOL_MINT,
                                                            tokenUnits, slipLevel,
                                                            isBuy = false,
@@ -12863,7 +12981,14 @@ class Executor(
             } else tryPumpPortalSell(
                 ts = ts,
                 wallet = wallet,
-                tokenUnits = tokenUnits,
+                tokenUnits = recalcSellPlanForProcessor(
+                    ts = ts,
+                    wallet = wallet,
+                    processor = if (isDrainExit) "PUMPPORTAL_EXIT_DRAIN" else "PUMPPORTAL_EXIT",
+                    requestedUiQty = actualBalanceUi,
+                    sellTradeKey = sellTradeKey,
+                    traderTag = "MEME",
+                )?.rawAmount ?: return SellResult.FAILED_RETRYABLE,
                 slipPct = lsPumpSlip,
                 priorityFeeSol = if (isDrainExit) 0.0005 else 0.0001,
                 useJito = lsPumpJito,
@@ -12903,6 +13028,15 @@ class Executor(
                             // V5.9.1533 — spec item 2: assert the final broadcast bps is
                             // within the 500bps non-emergency hard cap (counts + clamps any bypass).
                             val safeSlip = com.lifecyclebot.engine.sell.SellSafetyPolicy.assertWithinCap(reason, currentSlip)
+                            val ladderJupiterPlan = recalcSellPlanForProcessor(
+                                ts = ts,
+                                wallet = wallet,
+                                processor = "JUPITER_ULTRA_METIS_LADDER",
+                                requestedUiQty = actualBalanceUi,
+                                sellTradeKey = sellTradeKey,
+                                traderTag = "MEME",
+                            ) ?: return SellResult.FAILED_RETRYABLE
+                            tokenUnits = ladderJupiterPlan.rawAmount
                             quote = getQuoteWithSlippageGuard(
                                 ts.mint, JupiterApi.SOL_MINT, tokenUnits, safeSlip,
                                 isBuy = false, sellTaker = wallet.publicKeyB58)
@@ -13063,7 +13197,14 @@ class Executor(
                 sig = tryPumpPortalSell(
                     ts = ts,
                     wallet = wallet,
-                    tokenUnits = tokenUnits,
+                    tokenUnits = recalcSellPlanForProcessor(
+                        ts = ts,
+                        wallet = wallet,
+                        processor = if (isDrainExit) "PUMPPORTAL_EXIT_DRAIN_RESCUE" else "PUMPPORTAL_EXIT_RESCUE",
+                        requestedUiQty = actualBalanceUi,
+                        sellTradeKey = sellTradeKey,
+                        traderTag = "MEME",
+                    )?.rawAmount ?: return SellResult.FAILED_RETRYABLE,
                     slipPct = rescueSlip,
                     priorityFeeSol = if (isDrainExit) 0.0008 else 0.0003,
                     useJito = rescueJito,
@@ -13314,9 +13455,16 @@ class Executor(
                     if (remainingTokens > 0.01) {
                         onLog("🧹 DUST-BUSTER: Attempting to sell remaining $remainingTokens tokens...", tradeId.mint)
                         try {
-                            val remainingUnits = resolveSellUnits(ts, remainingTokens, wallet = wallet)
+                            val dustPlan = recalcSellPlanForProcessor(
+                                ts = ts,
+                                wallet = wallet,
+                                processor = "JUPITER_DUST_BUSTER",
+                                requestedUiQty = remainingTokens,
+                                sellTradeKey = sellTradeKey,
+                                traderTag = "MEME",
+                            ) ?: throw RuntimeException("Dust-buster balance proof unavailable")
                             val dustQuote = getQuoteWithSlippageGuard(ts.mint, JupiterApi.SOL_MINT,
-                                                                       remainingUnits, 1500, isBuy = false,
+                                                                       dustPlan.rawAmount, 1500, isBuy = false,
                                                                        sellTaker = wallet.publicKeyB58)
                             val dustTx = buildTxWithRetry(
                                 dustQuote, wallet.publicKeyB58,
@@ -13380,9 +13528,16 @@ class Executor(
                         if (retryRemaining > 0.01) {
                             onLog("🧹 DUST-BUSTER (retry): Attempting to sell remaining $retryRemaining tokens...", tradeId.mint)
                             try {
-                                val retryUnits = resolveSellUnits(ts, retryRemaining, wallet = wallet)
+                                val retryDustPlan = recalcSellPlanForProcessor(
+                                    ts = ts,
+                                    wallet = wallet,
+                                    processor = "JUPITER_DUST_BUSTER_RETRY",
+                                    requestedUiQty = retryRemaining,
+                                    sellTradeKey = sellTradeKey,
+                                    traderTag = "MEME",
+                                ) ?: throw RuntimeException("Dust-buster retry balance proof unavailable")
                                 val dustQuote = getQuoteWithSlippageGuard(ts.mint, JupiterApi.SOL_MINT,
-                                                                           retryUnits, 2000, isBuy = false,
+                                                                           retryDustPlan.rawAmount, 2000, isBuy = false,
                                                                            sellTaker = wallet.publicKeyB58)
                                 val dustTx = buildTxWithRetry(
                                 dustQuote, wallet.publicKeyB58,
@@ -14616,8 +14771,17 @@ class Executor(
                 var sweepLastEx: Exception? = null
                 sweep@ for (slip in slippageLevels) {
                     try {
+                        val sweepTs = TokenState(mint = mint, symbol = symbol)
+                        val sweepPlan = recalcSellPlanForProcessor(
+                            ts = sweepTs,
+                            wallet = wallet,
+                            processor = "JUPITER_SHUTDOWN_SWEEP",
+                            requestedUiQty = balanceUi,
+                            sellTradeKey = tokenSweepKey,
+                            traderTag = "SWEEP",
+                        ) ?: throw RuntimeException("Sweep balance proof unavailable")
                         quote = getQuoteWithSlippageGuard(
-                            mint, JupiterApi.SOL_MINT, rawUnits, slip,
+                            mint, JupiterApi.SOL_MINT, sweepPlan.rawAmount, slip,
                             isBuy = false, sellTaker = wallet.publicKeyB58)
                     } catch (e: Exception) {
                         sweepLastEx = e
@@ -14830,7 +14994,14 @@ class Executor(
             } else tryPumpPortalSell(
                 ts = orphanTs,
                 wallet = wallet,
-                tokenUnits = sellUnits,
+                tokenUnits = recalcSellPlanForProcessor(
+                    ts = orphanTs,
+                    wallet = wallet,
+                    processor = "PUMPPORTAL_ORPHAN_SWEEP",
+                    requestedUiQty = qty,
+                    sellTradeKey = orphanKey,
+                    traderTag = "ORPHAN",
+                )?.rawAmount ?: return false,
                 slipPct = 5,  // V5.9.1524 — 5% live sell cap
                 priorityFeeSol = 0.0001,
                 useJito = c.jitoEnabled,
@@ -14848,9 +15019,17 @@ class Executor(
                 true
             } else {
 
-            // Fallback: Jupiter Ultra → Metis ladder.
+            // Fallback: Jupiter Ultra → Metis ladder; fresh amount plan for this processor.
+            val orphanJupiterPlan = recalcSellPlanForProcessor(
+                ts = orphanTs,
+                wallet = wallet,
+                processor = "JUPITER_ULTRA_METIS_ORPHAN_SWEEP",
+                requestedUiQty = qty,
+                sellTradeKey = orphanKey,
+                traderTag = "ORPHAN",
+            ) ?: return false
             val quote = getQuoteWithSlippageGuard(
-                mint, JupiterApi.SOL_MINT, sellUnits, sellSlippage, isBuy = false)
+                mint, JupiterApi.SOL_MINT, orphanJupiterPlan.rawAmount, sellSlippage, isBuy = false)
             val txResult = buildTxWithRetry(
                         quote, wallet.publicKeyB58,
                         senderTipLamports = if (c.jitoEnabled) maxOf(c.jitoTipLamports, 200_000L) else 0L,
@@ -14868,7 +15047,14 @@ class Executor(
                 tryPumpPortalSell(
                     ts = orphanTs,
                     wallet = wallet,
-                    tokenUnits = sellUnits,
+                    tokenUnits = recalcSellPlanForProcessor(
+                        ts = orphanTs,
+                        wallet = wallet,
+                        processor = "PUMPPORTAL_ORPHAN_RESCUE",
+                        requestedUiQty = qty,
+                        sellTradeKey = rescueKey,
+                        traderTag = "ORPHAN",
+                    )?.rawAmount ?: throw jupEx,
                     slipPct = 5,  // V5.9.1524 — 5% live sell cap
                     priorityFeeSol = 0.0002,
                     useJito = c.jitoEnabled,
@@ -15037,22 +15223,13 @@ class Executor(
                 // sells route Jupiter exact-in only.
                 LiveTradeLogStore.log(
                     sellTradeKey, ts.mint, ts.symbol, "SELL",
-                    LiveTradeLogStore.Phase.SELL_ROUTE_FAILED_NO_SIGNATURE,
-                    "🚫 SEV_PUMPPORTAL_PARTIAL_BLOCKED label=$labelTag — Jupiter exact-in only.",
+                    LiveTradeLogStore.Phase.SELL_ROUTE_SKIPPED,
+                    "PumpPortal skipped for partial/profit label=$labelTag — continue Jupiter/Metis exact-in with verified amount.",
                     traderTag = traderTag,
                 )
                 com.lifecyclebot.engine.sell.PumpPortalKillSwitch.recordPartialAttempt(
                     mint = ts.mint, symbol = ts.symbol, labelTag = labelTag,
                 )
-                // V5.9.968 — z43-F SellFailureHistory record.
-                try {
-                    com.lifecyclebot.engine.sell.SellFailureHistory.record(
-                        mint = ts.mint, symbol = ts.symbol,
-                        kind = com.lifecyclebot.engine.sell.SellFailureHistory.Kind.ROUTE_FAILED_NO_SIGNATURE,
-                        reason = "PUMPPORTAL_PARTIAL_BLOCKED label=$labelTag",
-                        sig = null,
-                    )
-                } catch (_: Throwable) {}
                 return null
             }
             // V5.9.495z43 operator spec item B — even for "full exit" labels,
@@ -15070,21 +15247,13 @@ class Executor(
                     val dec = bal?.second ?: 9
                     if (ui > 0.0) java.math.BigDecimal(ui).movePointRight(dec).toBigInteger() else java.math.BigInteger.ZERO
                 } catch (_: Throwable) { java.math.BigInteger.ZERO }
-                // V5.9.779 — HOST_TRACKER_TX_PARSE fallback for the 95% check.
-                val effectiveVerified: java.math.BigInteger = if (verifiedRaw.signum() > 0) {
-                    verifiedRaw
-                } else {
-                    val tracked = HostWalletTokenTracker.getEntry(ts.mint)
-                    if (tracked != null &&
-                        tracked.uiAmount > 0.0 &&
-                        tracked.source == HostWalletTokenTracker.PositionSource.TX_PARSE &&
-                        tracked.status in HostWalletTokenTracker.OPEN_STATUSES &&
-                        tracked.sellSignature.isNullOrBlank()
-                    ) {
-                        try {
-                            java.math.BigDecimal(tracked.uiAmount).movePointRight(tracked.decimals).toBigInteger()
-                        } catch (_: Throwable) { java.math.BigInteger.ZERO }
-                    } else java.math.BigInteger.ZERO
+                // V5.0.3740 — no HostTracker/TX_PARSE fallback for PumpPortal amount authority.
+                val effectiveVerified: java.math.BigInteger = verifiedRaw
+                if (verifiedRaw.signum() <= 0) {
+                    val tracked = try { HostWalletTokenTracker.getEntry(ts.mint) } catch (_: Throwable) { null }
+                    if (tracked?.source == HostWalletTokenTracker.PositionSource.TX_PARSE) {
+                        try { ForensicLogger.lifecycle("BALANCE_PROOF_REJECTED", "reason=GENERIC_TX_PARSE_NOT_OWNER_FILTERED mint=${ts.mint.take(10)} site=pumpportal_fraction_check") } catch (_: Throwable) {}
+                    }
                 }
                 if (effectiveVerified.signum() > 0) {
                     val requested = java.math.BigInteger.valueOf(tokenUnits)
@@ -15093,9 +15262,9 @@ class Executor(
                     if (pctTimes100 < java.math.BigInteger.valueOf(95)) {
                         LiveTradeLogStore.log(
                             sellTradeKey, ts.mint, ts.symbol, "SELL",
-                            LiveTradeLogStore.Phase.SELL_ROUTE_FAILED_NO_SIGNATURE,
-                            "🚫 SEV_PUMPPORTAL_FRACTION_BLOCKED requested=$tokenUnits verified=$effectiveVerified " +
-                            "(${pctTimes100}%) < 95% — Jupiter exact-in only.",
+                            LiveTradeLogStore.Phase.SELL_ROUTE_SKIPPED,
+                            "PumpPortal skipped: requested=$tokenUnits verified=$effectiveVerified " +
+                            "(${pctTimes100}%) < 95% — continue Jupiter exact-in only.",
                             traderTag = traderTag,
                         )
                         com.lifecyclebot.engine.sell.PumpPortalKillSwitch.recordPartialAttempt(
@@ -15163,46 +15332,20 @@ class Executor(
                 return "PHANTOM_${System.currentTimeMillis().toString(16)}"
             }
             if (preBalancesEmpty) {
-                // V5.9.779 — EMERGENT MEME ROUTER FIX: PumpPortal must
-                // NOT be blocked by a single empty RPC read when the
-                // caller has authoritative tokenUnits AND HostWalletTokenTracker
-                // shows TX_PARSE-verified OPEN_TRACKING with sellSignature
-                // empty. Operator forensics: Marvin sell rejected at this
-                // exact gate even though SELL_QTY_SOURCE=HOST_TRACKER had
-                // just stamped the qty.
-                val tracked = HostWalletTokenTracker.getEntry(ts.mint)
-                val trackerAuthoritative = tracked != null &&
-                    tracked.uiAmount > 0.0 &&
-                    tracked.source == HostWalletTokenTracker.PositionSource.TX_PARSE &&
-                    tracked.status in HostWalletTokenTracker.OPEN_STATUSES &&
-                    tracked.sellSignature.isNullOrBlank()
-                if (tokenUnits != null && tokenUnits > 0L && trackerAuthoritative) {
-                    LiveTradeLogStore.log(
-                        sellTradeKey, ts.mint, ts.symbol, "SELL",
-                        LiveTradeLogStore.Phase.SELL_BALANCE_CHECK,
-                        "SELL_AMOUNT_AUTHORITY=HOST_TRACKER_TX_PARSE rawAmount=$tokenUnits uiAmount=${tracked!!.uiAmount} " +
-                            "decimals=${tracked.decimals} status=${tracked.status.name} source=${tracked.source.name} " +
-                            "— RPC empty BUT HostTracker TX_PARSE authoritative; proceeding with PumpPortal broadcast.",
-                        traderTag = traderTag,
-                    )
-                    try {
-                        ForensicLogger.lifecycle(
-                            "SELL_AMOUNT_AUTHORITY",
-                            "source=HOST_TRACKER_TX_PARSE mint=${ts.mint.take(10)} rawAmount=$tokenUnits uiAmount=${tracked.uiAmount} decimals=${tracked.decimals}",
-                        )
-                    } catch (_: Throwable) {}
-                    // Fall through to PumpPortal broadcast — DO NOT return null.
-                } else {
-                    LiveTradeLogStore.log(
-                        sellTradeKey, ts.mint, ts.symbol, "SELL",
-                        LiveTradeLogStore.Phase.SELL_BALANCE_CHECK,
-                        "RPC-EMPTY-MAP → BALANCE_UNKNOWN — PumpPortal broadcast blocked; caller tokenUnits/cache " +
-                            "AND HostWalletTokenTracker both non-authoritative (tracker=${tracked?.status?.name ?: "absent"} " +
-                            "source=${tracked?.source?.name ?: "?"} sellSig=${tracked?.sellSignature?.take(8) ?: "none"})",
-                        traderTag = traderTag,
-                    )
-                    return null
+                // V5.0.3740 — PumpPortal is an execution processor, not balance
+                // authority. Empty owner-token RPC means BALANCE_UNKNOWN; do not
+                // use HostTracker / TX_PARSE / caller cache to proceed.
+                val tracked = try { HostWalletTokenTracker.getEntry(ts.mint) } catch (_: Throwable) { null }
+                if (tracked?.source == HostWalletTokenTracker.PositionSource.TX_PARSE) {
+                    try { ForensicLogger.lifecycle("BALANCE_PROOF_REJECTED", "reason=GENERIC_TX_PARSE_NOT_OWNER_FILTERED mint=${ts.mint.take(10)} site=pumpportal_prebalance") } catch (_: Throwable) {}
                 }
+                LiveTradeLogStore.log(
+                    sellTradeKey, ts.mint, ts.symbol, "SELL",
+                    LiveTradeLogStore.Phase.SELL_BALANCE_CHECK,
+                    "RPC-EMPTY-MAP → BALANCE_UNKNOWN — PumpPortal broadcast blocked; no owner-filtered balance proof",
+                    traderTag = traderTag,
+                )
+                return null
             }
 
             onLog("🚀 PUMP-FIRST [$labelTag/$pumpVenue]: ${ts.symbol} → PumpPortal @ ${slipPct}% slip", ts.mint)
@@ -15432,7 +15575,7 @@ class Executor(
                 tradeKey, ts.mint, ts.symbol, "BUY",
                 LiveTradeLogStore.Phase.BUY_QUOTE_TRY,
                 "📋 PRE-BUY: walletSol=${"%.4f".format(preWalletSol)} | preTokenBal=${"%.4f".format(preTokenQty)} | venue=$pumpVenue",
-                solAmount = solAmount, traderTag = traderTag,
+                solAmount = buySol, traderTag = traderTag,
             )
 
             // V5.9.751 — Base44 ticket item #7: WALLET_BALANCE_UNKNOWN abort.
@@ -15453,27 +15596,29 @@ class Executor(
                     "[EXECUTION/WALLET_BALANCE_UNKNOWN] ${ts.symbol}: getSolBalance returned -1 sentinel, aborting PUMP-FIRST")
                 return null
             }
-            if (preWalletSol < solAmount) {
-                LiveTradeLogStore.log(
-                    tradeKey, ts.mint, ts.symbol, "BUY",
-                    LiveTradeLogStore.Phase.BUY_FAILED,
-                    "INSUFFICIENT_SOL — need=${"%.4f".format(solAmount)}◎ have=${"%.4f".format(preWalletSol)}◎. Refusing PUMP_DIRECT build.",
-                    traderTag = traderTag,
-                )
-                return null
-            }
+            val processorPlan = recalcBuyPlanForProcessor(
+                ts = ts,
+                wallet = wallet,
+                processor = "PUMPPORTAL_BUY_INTERNAL",
+                requestedSol = solAmount,
+                priorityFeeSol = priorityFeeSol,
+                jitoTipLamports = jitoTipLamports,
+                tradeKey = tradeKey,
+                traderTag = traderTag,
+            ) ?: return null
+            val buySol = processorPlan.solAmount
 
-            onLog("🚀 PUMP-FIRST BUY [$pumpVenue]: ${ts.symbol} → PumpPortal ${"%.4f".format(solAmount)}◎ @ ${slipPct}% slip", ts.mint)
+            onLog("🚀 PUMP-FIRST BUY [$pumpVenue]: ${ts.symbol} → PumpPortal ${"%.4f".format(buySol)}◎ @ ${slipPct}% slip", ts.mint)
             LiveTradeLogStore.log(
                 tradeKey, ts.mint, ts.symbol, "BUY",
                 LiveTradeLogStore.Phase.BUY_QUOTE_TRY,
-                "🚀 PUMP-FIRST BUY [$pumpVenue] ${"%.4f".format(solAmount)}◎ @ ${slipPct}% | priorityFee=${priorityFeeSol}◎ | tip=${jitoTipLamports}lam",
-                solAmount = solAmount, traderTag = traderTag,
+                "🚀 PUMP-FIRST BUY [$pumpVenue] ${"%.4f".format(buySol)}◎ @ ${slipPct}% | priorityFee=${priorityFeeSol}◎ | tip=${jitoTipLamports}lam",
+                solAmount = buySol, traderTag = traderTag,
             )
             val built = com.lifecyclebot.network.PumpFunDirectApi.buildBuyTx(
                 publicKeyB58    = wallet.publicKeyB58,
                 mint            = ts.mint,
-                solAmount       = solAmount,
+                solAmount       = buySol,
                 slippagePercent = slipPct,
                 priorityFeeSol  = priorityFeeSol,
             )
@@ -15542,7 +15687,7 @@ class Executor(
             val price = getActualPrice(ts).takeIf { it > 0.0 } ?: ts.position.entryPrice.takeIf { it > 0.0 }
             val solPriceUsd = WalletManager.lastKnownSolPrice
             val priceMathQty = if (price != null && price > 0.0 && solPriceUsd > 0.0) {
-                (solAmount * solPriceUsd) / price
+                (buySol * solPriceUsd) / price
             } else {
                 1.0
             }

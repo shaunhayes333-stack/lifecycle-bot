@@ -190,6 +190,7 @@ object LiveTradeLogStore {
         SELL_RECONCILE_SCHEDULED,
         SELL_RECONCILE_LANDED,
         SELL_ROUTE_FAILED_NO_SIGNATURE,
+        SELL_ROUTE_SKIPPED,
         SELL_FAILED_CONFIRMED,
         // BUY counterparts
         BUY_TX_PARSE_OK,

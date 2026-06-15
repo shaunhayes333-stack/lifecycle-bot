@@ -717,6 +717,54 @@ class SolanaWallet(privateKeyB58: String, val rpcUrl: String) {
         }
     }
 
+
+
+    /**
+     * V5.0.3740 — owner/mint-filtered raw tx-meta token delta.
+     * Generic TX_PARSE is not balance authority. This helper only returns a
+     * positive delta when pre/postTokenBalances contain rows where owner == this
+     * wallet public key AND mint == target mint. Pool/reserve/inner transfer rows
+     * are ignored by construction.
+     */
+    fun getOwnerTokenDeltaRawFromSig(sig: String, mint: String): Pair<java.math.BigInteger, Int>? {
+        return try {
+            val params = JSONArray()
+                .put(sig)
+                .put(JSONObject()
+                    .put("encoding", "jsonParsed")
+                    .put("commitment", "confirmed")
+                    .put("maxSupportedTransactionVersion", 0))
+            val resp = rpc("getTransaction", params)
+            val result = resp.optJSONObject("result") ?: return null
+            val meta = result.optJSONObject("meta") ?: return null
+            val pre  = meta.optJSONArray("preTokenBalances")  ?: JSONArray()
+            val post = meta.optJSONArray("postTokenBalances") ?: JSONArray()
+
+            fun extract(arr: JSONArray): Pair<java.math.BigInteger, Int> {
+                var raw = java.math.BigInteger.ZERO
+                var decimals = 0
+                for (i in 0 until arr.length()) {
+                    val o = arr.optJSONObject(i) ?: continue
+                    if (o.optString("mint") != mint) continue
+                    if (o.optString("owner") != publicKeyB58) continue
+                    val ta = o.optJSONObject("uiTokenAmount") ?: continue
+                    val amount = ta.optString("amount", "0").toBigIntegerOrNull() ?: java.math.BigInteger.ZERO
+                    raw = raw.add(amount)
+                    decimals = ta.optInt("decimals", decimals)
+                }
+                return raw to decimals
+            }
+            val (before, preDec) = extract(pre)
+            val (after, postDec) = extract(post)
+            val delta = after.subtract(before)
+            val dec = if (postDec > 0) postDec else preDec
+            if (delta.signum() > 0) delta to dec else null
+        } catch (e: Exception) {
+            android.util.Log.w("SolanaWallet", "getOwnerTokenDeltaRawFromSig failed: ${e.message}")
+            null
+        }
+    }
+
     fun getTokenAccounts(): Map<String, Double> {
         // V5.9.254 FIX: Same as getTokenAccountsWithDecimals — query both token programs
         // with commitment=confirmed and no dataSize filter.

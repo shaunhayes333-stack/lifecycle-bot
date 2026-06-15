@@ -8,7 +8,7 @@ object InvariantGuardian {
         FDG_FANOUT_EXPLOSION, FDG_SIGNAL_BYPASS, EXIT_SWEEP_UNSTABLE,
         // V5.9.1518 — PATCH ITEM 7: real choke-state diagnosis flags.
         LEDGER_DRIFT, RECONCILER_STALLED, SELL_RETRY_STORM, SCANNER_INACTIVE,
-        CLOSED_BUT_WALLET_HELD, ORPHAN_LIVE_POSITIONS
+        CLOSED_BUT_WALLET_HELD, ORPHAN_LIVE_POSITIONS, LIVE_SELL_NO_FINALITY
     }
     data class Fault(val code: FaultCode, val severity: String, val detail: String, val evidence: Map<String, String> = emptyMap(), val tsMs: Long = System.currentTimeMillis())
 
@@ -60,6 +60,31 @@ object InvariantGuardian {
         if (s.intake > 0 && fdgRatio > 3.0) out += Fault(FaultCode.FDG_FANOUT_EXPLOSION, "HIGH", "FDG/intake=${"%.2f".format(fdgRatio)} fdg=$fdg intake=${s.intake}")
         val ignoredSignal = pipe?.labelCounts?.get("LIFECYCLE/FDG_BASE_SIGNAL_BLOCK_IGNORED") ?: 0L
         if (ignoredSignal > 0L) out += Fault(FaultCode.FDG_SIGNAL_BYPASS, "CRITICAL", "FDG_BASE_SIGNAL_BLOCK_IGNORED=$ignoredSignal")
+        // V5.0.3740 — live sell finality authority. Doctor must not report NO_FAULT
+        // while sell routing has no-signature/slippage failures, blocking leases, or
+        // false CLOSED rows based on TX_PARSE/zero/no sell signature.
+        if (s.mode == "LIVE") {
+            val noSig = pipe?.labelCounts?.get("LIFECYCLE/SELL_ROUTE_FAILED_NO_SIGNATURE_UNLOCKED") ?: 0L
+            val slip = (pipe?.labelCounts?.get("LIFECYCLE/SLIPPAGE_EXCEEDED") ?: 0L) +
+                (pipe?.recentEvents?.count { it.message.contains("0x1788", true) || it.message.contains("SLIPPAGE_EXCEEDED", true) } ?: 0)
+            val closeActive = try { com.lifecyclebot.engine.sell.CloseLease.activeLeaseCount().toLong() } catch (_: Throwable) { 0L }
+            val closeBlocking = try { com.lifecyclebot.engine.sell.CloseLease.activeBlockingLeaseCount().toLong() } catch (_: Throwable) { 0L }
+            val falseClosed = try { HostWalletTokenTracker.countFalseTxParseClosedRows().toLong() } catch (_: Throwable) { 0L }
+            if (noSig > 0L || slip > 0L || falseClosed > 0L || (closeBlocking > 0L && noSig > 0L)) {
+                out += Fault(
+                    FaultCode.LIVE_SELL_NO_FINALITY,
+                    "CRITICAL",
+                    "live sell finality missing/corrupt: noSig=$noSig slippageOr1788=$slip close_lease_active=$closeActive close_lease_blocking=$closeBlocking falseTxParseClosed=$falseClosed",
+                    mapOf(
+                        "balance_authority" to "owner_rpc_or_owner_delta_only",
+                        "amount_source" to "BalanceProof",
+                        "close_lease_active" to closeActive.toString(),
+                        "close_lease_blocking" to closeBlocking.toString(),
+                        "tx_parse_false_closed" to falseClosed.toString(),
+                    )
+                )
+            }
+        }
         // V5.9.1125 — do NOT treat EXEC=0 + TRADEJRNL_REC>0 as split-brain.
         // The funnel EXEC counter tracks executor invocations, while EXEC_BUY/
         // EXEC_SELL/TRADEJRNL_REC track completed journaled trades. 3092 showed

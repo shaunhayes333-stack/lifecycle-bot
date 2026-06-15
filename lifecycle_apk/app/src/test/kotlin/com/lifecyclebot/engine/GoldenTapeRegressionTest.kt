@@ -608,17 +608,23 @@ class GoldenTapeRegressionTest {
 
 
     @Test
-    fun catastrophic_live_sell_uses_fresh_tx_parse_when_rpc_empty() {
+    fun live_sell_rejects_txparse_and_recalculates_at_every_processor_boundary() {
         val exec = java.io.File("src/main/kotlin/com/lifecyclebot/engine/Executor.kt").readText()
-        assertTrue(exec.contains("EMERGENCY_TX_PARSE_SELL_RESCUE"))
-        assertTrue(exec.contains("SELL_QTY_SOURCE_FRESH_TX_PARSE_EMERGENCY"))
-        assertTrue(exec.contains("Jupiter ExactIn"))
-        assertTrue(exec.contains("canBroadcastLiveOrEmergency"))
         val authority = java.io.File("src/main/kotlin/com/lifecyclebot/engine/sell/SellAmountAuthority.kt").readText()
-        assertTrue(authority.contains("EMERGENCY_TX_PARSE_MS = 10 * 60_000L"))
-        assertTrue(authority.contains("val maxAgeMs = if (emergency) EMERGENCY_TX_PARSE_MS else PROFIT_PROTECT_TX_PARSE_MS"))
-        val pumpTests = java.io.File("src/test/kotlin/com/lifecyclebot/engine/sell/LiveSellSafetyAcceptanceTest.kt").readText()
-        assertTrue("Partial sells must remain Jupiter exact-in, not PumpPortal percent", pumpTests.contains("partial sells stay off PumpPortal"))
+
+        assertTrue(exec.contains("SELL_QTY_SOURCE=BALANCE_UNKNOWN reason=RPC_EMPTY_MAP"))
+        assertTrue(exec.contains("PROCESSOR_AMOUNT_RECALCULATED"))
+        listOf(
+            "PUMPPORTAL", "JUPITER_ULTRA_METIS", "JUPITER_ULTRA_METIS_LADDER",
+            "PUMPPORTAL_EXIT", "PUMPPORTAL_EXIT_RESCUE", "JUPITER_DUST_BUSTER",
+            "JUPITER_SHUTDOWN_SWEEP", "PUMPPORTAL_ORPHAN_SWEEP"
+        ).forEach { label -> assertTrue("missing sell processor recalc label: $label", exec.contains(label)) }
+
+        assertTrue(exec.contains("canBroadcastLiveOrEmergency"))
+        assertTrue(authority.contains("BALANCE_PROOF_REJECTED reason=GENERIC_TX_PARSE_NOT_OWNER_FILTERED"))
+        assertFalse("Generic TX_PARSE must never be emergency broadcast authority", exec.contains("EMERGENCY_TX_PARSE_SELL_RESCUE"))
+        assertFalse(exec.contains("SELL_QTY_SOURCE_FRESH_TX_PARSE_EMERGENCY"))
+        assertFalse(authority.contains("return tryFreshTxParseFallback"))
     }
 
 
@@ -914,22 +920,19 @@ class GoldenTapeRegressionTest {
 
 
     @Test
-    fun live_profit_sells_use_tx_parse_during_rpc_indexing_gap() {
+    fun live_profit_sells_reject_generic_txparse_during_rpc_indexing_gap() {
         val auth = java.io.File("src/main/kotlin/com/lifecyclebot/engine/sell/SellAmountAuthority.kt").readText()
-        assertTrue(auth.contains("PROFIT_PROTECT_TX_PARSE_MS"))
+        val exec = java.io.File("src/main/kotlin/com/lifecyclebot/engine/Executor.kt").readText()
         assertTrue(auth.contains("fun resolveForExit"))
         assertTrue(auth.contains("isProfitProtectExitReason"))
         assertTrue(auth.contains("PARTIAL_TAKE_PROFIT"))
         assertTrue(auth.contains("CAPITAL_RECOVERY"))
-        assertTrue(auth.contains("TX_PARSE_BROADCAST_BYPASS"))
-
-        val exec = java.io.File("src/main/kotlin/com/lifecyclebot/engine/Executor.kt").readText()
+        assertTrue(auth.contains("BALANCE_PROOF_REJECTED reason=GENERIC_TX_PARSE_NOT_OWNER_FILTERED"))
+        assertTrue(auth.contains("BALANCE_UNKNOWN reason=RPC_EMPTY_MAP"))
+        assertFalse("Generic TX_PARSE must not bypass sell broadcast authority", auth.contains("TX_PARSE_BROADCAST_BYPASS"))
         assertTrue(exec.contains("resolveForExit(ts.mint, wallet, reason)"))
-        assertTrue(exec.contains("resolveForExit(ts.mint, wallet,"))
-        assertTrue(exec.contains("PARTIAL_TAKE_PROFIT"))
-        assertTrue(exec.contains("canBroadcastLiveOrEmergency"))
-        assertTrue(auth.contains("RPC returned"))
-        assertTrue(auth.contains("UNKNOWN/empty"))
+        assertTrue(exec.contains("SELL_WAITING_BALANCE_PROOF"))
+        assertTrue(exec.contains("CloseLease.release(ts.mint"))
     }
 
 
@@ -944,6 +947,55 @@ class GoldenTapeRegressionTest {
         assertTrue(bot.contains("Live keeps the existing"))
         assertTrue(exec.contains("SCRATCH"))
         assertTrue(exec.contains("return Pair(-3.0, +3.0)"))
+    }
+
+
+
+
+    @Test
+    fun live_buy_recalculates_sol_spend_at_processor_boundaries_and_senders_do_not_size() {
+        val exec = java.io.File("src/main/kotlin/com/lifecyclebot/engine/Executor.kt").readText()
+
+        assertTrue(exec.contains("data class ProcessorBuyPlan"))
+        assertTrue(exec.contains("BUY_PROCESSOR_AMOUNT_RECALCULATED"))
+        listOf(
+            "PUMPPORTAL_BUY", "PUMPPORTAL_BUY_INTERNAL", "JUPITER_ULTRA_METIS_BUY",
+            "PUMPPORTAL_TOP_UP", "JUPITER_ULTRA_METIS_TOP_UP"
+        ).forEach { label -> assertTrue("missing buy processor recalc label: $label", exec.contains(label)) }
+
+        assertTrue(exec.contains("PumpPortal") || exec.contains("PUMPPORTAL"))
+        assertTrue(exec.contains("Jupiter Ultra") || exec.contains("JUPITER_ULTRA"))
+        assertTrue(exec.contains("Helius/Jito/RPC remain senders only; they cannot alter spend after build"))
+        assertFalse("PumpPortal buy builder must not receive stale caller solAmount", exec.contains("solAmount       = solAmount"))
+        assertFalse("Jupiter live-buy quote must not use stale liveBuy lamports after PumpPortal fallback", exec.contains("JupiterApi.SOL_MINT, ts.mint, lamports"))
+    }
+
+    @Test
+    fun live_sell_balance_authority_rejects_generic_txparse_and_false_closed() {
+        val sellAuth = java.io.File("src/main/kotlin/com/lifecyclebot/engine/sell/SellAmountAuthority.kt").readText()
+        val tracker = java.io.File("src/main/kotlin/com/lifecyclebot/engine/HostWalletTokenTracker.kt").readText()
+        val exec = java.io.File("src/main/kotlin/com/lifecyclebot/engine/Executor.kt").readText()
+        val doctor = java.io.File("src/main/kotlin/com/lifecyclebot/engine/InvariantGuardian.kt").readText()
+
+        assertTrue(sellAuth.contains("data class BalanceProof") || java.io.File("src/main/kotlin/com/lifecyclebot/engine/sell/BalanceProof.kt").readText().contains("data class BalanceProof"))
+        assertTrue(sellAuth.contains("BALANCE_PROOF_REJECTED reason=GENERIC_TX_PARSE_NOT_OWNER_FILTERED"))
+        assertTrue(sellAuth.contains("BALANCE_UNKNOWN reason=RPC_EMPTY_MAP"))
+        assertFalse("RPC empty must not fall back to TX_PARSE confirmed balance", sellAuth.contains("return tryFreshTxParseFallback(mint) ?: Resolution.Unknown"))
+        assertFalse("TX_PARSE must not be broadcast bypass", sellAuth.contains("TX_PARSE_BROADCAST_BYPASS"))
+
+        assertTrue(tracker.contains("BALANCE_UNKNOWN_CLOSED_UNVERIFIED"))
+        assertTrue(tracker.contains("recordBuyConfirmedWithProof"))
+        assertTrue(tracker.contains("CLOSED_REJECTED_NO_SIGNATURE_NO_ZERO_PROOF"))
+        assertFalse("No-signature txparse must not stamp CLOSED", tracker.contains("CLOSED_BY_TX_PARSE_NO_SIGNATURE"))
+
+        assertTrue(exec.contains("OWNER_DELTA_PROOF"))
+        assertTrue(exec.contains("SELL_ROUTE_FAILED_NO_SIGNATURE_UNLOCKED"))
+        assertTrue(exec.contains("PUMPPORTAL_PARTIAL") || exec.contains("JUPITER_ULTRA_METIS_PARTIAL"))
+        assertFalse("PumpPortal partial skip must not be a no-signature failure", exec.contains("SEV_PUMPPORTAL_PARTIAL_BLOCKED"))
+        assertFalse("Host tracker must not be sell quantity authority", exec.contains("SELL_QTY_SOURCE=HOST_TRACKER"))
+
+        assertTrue(doctor.contains("LIVE_SELL_NO_FINALITY"))
+        assertTrue(doctor.contains("falseTxParseClosed"))
     }
 
 }

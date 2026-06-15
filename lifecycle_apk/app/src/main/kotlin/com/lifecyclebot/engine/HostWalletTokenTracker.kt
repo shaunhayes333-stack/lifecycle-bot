@@ -38,6 +38,8 @@ import org.json.JSONArray
 import org.json.JSONObject
 import java.io.File
 import java.util.concurrent.ConcurrentHashMap
+import com.lifecyclebot.engine.sell.BalanceProof
+import com.lifecyclebot.engine.sell.BalanceProofSource
 
 object HostWalletTokenTracker {
 
@@ -76,6 +78,12 @@ object HostWalletTokenTracker {
         SELL_PENDING(6),
         SELL_VERIFYING(7),
         SOLD_CONFIRMED(8),
+        SELL_WAITING_BALANCE_PROOF(8),
+        SELL_ROUTE_FAILED_NO_SIGNATURE_UNLOCKED(8),
+        SELL_REPRICE_OR_SPLIT_REQUIRED(8),
+        SELL_FAILED_BALANCE_UNKNOWN(8),
+        BALANCE_UNKNOWN_CLOSED_UNVERIFIED(9),
+        CLOSED_VERIFIED(10),
         CLOSED(9),
 
         // V5.9.778 — EMERGENT MEME-ONLY: external-swap terminal states.
@@ -100,6 +108,10 @@ object HostWalletTokenTracker {
         PositionStatus.EXIT_SIGNALLED,
         PositionStatus.SELL_PENDING,
         PositionStatus.SELL_VERIFYING,
+        PositionStatus.SELL_WAITING_BALANCE_PROOF,
+        PositionStatus.SELL_ROUTE_FAILED_NO_SIGNATURE_UNLOCKED,
+        PositionStatus.SELL_REPRICE_OR_SPLIT_REQUIRED,
+        PositionStatus.SELL_FAILED_BALANCE_UNKNOWN,
     )
 
     /** V5.9.601 — any of these means a sell/reconcile lifecycle is in flight. */
@@ -162,6 +174,11 @@ object HostWalletTokenTracker {
         // zero-balance confirmations OR a confirmed sell signature before CLOSED,
         // so a single transient RPC miss can't strand or falsely-close a row.
         var consecutiveZeroConfirms: Int = 0,
+        var balanceProof: BalanceProof? = null,
+        var balanceAuthoritySource: String? = null,
+        var balanceAuthorityObservedAtMs: Long = 0L,
+        var balanceAuthoritySignature: String? = null,
+        var zeroBalanceConfirmedByTwoProviders: Boolean = false,
     )
 
     @Volatile private var ctx: android.content.Context? = null
@@ -202,6 +219,10 @@ object HostWalletTokenTracker {
                     put("decimals", p.decimals)
                     put("uiAmount", p.uiAmount)
                     put("zeroConfirms", p.consecutiveZeroConfirms)  // V5.9.1496
+                    p.balanceAuthoritySource?.let { put("balanceAuthoritySource", it) }
+                    if (p.balanceAuthorityObservedAtMs > 0L) put("balanceAuthorityObservedAtMs", p.balanceAuthorityObservedAtMs)
+                    p.balanceAuthoritySignature?.let { put("balanceAuthoritySignature", it) }
+                    put("zeroBalanceConfirmedByTwoProviders", p.zeroBalanceConfirmedByTwoProviders)
                     put("maxGainPct", p.maxGainPct)
                     put("maxDrawdownPct", p.maxDrawdownPct)
                     put("takeProfitPct", p.takeProfitPct)
@@ -261,9 +282,40 @@ object HostWalletTokenTracker {
                     lastExitCheckMs = null,
                     activeSellAttemptId = null,
                     notes = mutableListOf("Recovered from disk"),
+                    balanceAuthoritySource = o.optString("balanceAuthoritySource", "").takeIf { it.isNotBlank() },
+                    balanceAuthorityObservedAtMs = o.optLong("balanceAuthorityObservedAtMs", 0L),
+                    balanceAuthoritySignature = o.optString("balanceAuthoritySignature", "").takeIf { it.isNotBlank() },
+                    zeroBalanceConfirmedByTwoProviders = o.optBoolean("zeroBalanceConfirmedByTwoProviders", false),
                 )
             }
+            sanitizeFalseTxParseClosedRows()
         } catch (_: Exception) { /* corrupted blob — start clean */ }
+    }
+
+    @Synchronized
+    private fun sanitizeFalseTxParseClosedRows() {
+        var changed = false
+        for (p in positions.values) {
+            val falseClosed = p.status in setOf(PositionStatus.CLOSED, PositionStatus.CLOSED_SOLD_BY_AATE, PositionStatus.CLOSED_VERIFIED) &&
+                p.source == PositionSource.TX_PARSE &&
+                p.uiAmount <= 0.0 &&
+                p.sellSignature.isNullOrBlank() &&
+                !p.zeroBalanceConfirmedByTwoProviders
+            if (falseClosed) {
+                p.status = PositionStatus.BALANCE_UNKNOWN_CLOSED_UNVERIFIED
+                p.balanceAuthoritySource = BalanceProofSource.REJECTED_TX_PARSE.name
+                p.activeSellAttemptId = null
+                p.notes.add("startup reclassified false CLOSED: TX_PARSE/zero/no sell signature/no zero proof")
+                changed = true
+                try { ForensicLogger.lifecycle("BALANCE_UNKNOWN_CLOSED_UNVERIFIED", "mint=${p.mint.take(10)} symbol=${p.symbol ?: "?"} source=TX_PARSE ui=0 sellSig=blank") } catch (_: Throwable) {}
+            }
+        }
+        if (changed) save()
+    }
+
+    fun countFalseTxParseClosedRows(): Int = positions.values.count {
+        it.status in setOf(PositionStatus.CLOSED, PositionStatus.CLOSED_SOLD_BY_AATE, PositionStatus.CLOSED_VERIFIED) &&
+            it.source == PositionSource.TX_PARSE && it.uiAmount <= 0.0 && it.sellSignature.isNullOrBlank() && !it.zeroBalanceConfirmedByTwoProviders
     }
 
     // ─────────────────────────────────────────────────────────────────
@@ -362,6 +414,20 @@ object HostWalletTokenTracker {
             lastPriceUpdateMs = now, lastWalletReconcileMs = null, lastExitCheckMs = null,
             activeSellAttemptId = null,
         )
+        // V5.0.3740 — legacy live buy tracking without BalanceProof is forbidden.
+        // pos.qtyToken may be quote/price/txparse-derived and is not wallet authority.
+        if (!isPaper) {
+            p.status = PositionStatus.BUY_PENDING
+            p.source = PositionSource.BOT_BUY
+            p.balanceAuthoritySource = BalanceProofSource.BALANCE_UNKNOWN.name
+            p.notes.add("BUY_PENDING_BALANCE_PROOF legacy recordBuyConfirmed blocked from OPEN_TRACKING")
+            positions[ts.mint] = p
+            emitForensic(LiveTradeLogStore.Phase.WARNING, ts.mint, ts.symbol, sig,
+                "BUY_PENDING_BALANCE_PROOF ${ts.symbol} — legacy recordBuyConfirmed had no authoritative BalanceProof")
+            try { ForensicLogger.lifecycle("BUY_PENDING_BALANCE_PROOF", "mint=${ts.mint.take(10)} symbol=${ts.symbol} reason=NO_AUTHORITATIVE_BALANCE_PROOF") } catch (_: Throwable) {}
+            save()
+            return
+        }
         // V5.0.3689 — fresh live buy is authoritative OPEN_TRACKING.
         // The old priority-monotonic rule left a same-mint rebuy stuck CLOSED
         // because CLOSED priority(9) > OPEN_TRACKING(4). Result: token landed,
@@ -392,6 +458,72 @@ object HostWalletTokenTracker {
         save()
     }
 
+
+    @Synchronized
+    fun recordBuyConfirmedWithProof(ts: TokenState, proof: BalanceProof, sig: String? = null) {
+        if (ts.mint.isBlank() || ts.mint == SOL_MINT) return
+        if (!proof.authoritative || proof.amountRaw.signum() <= 0 || proof.mint != ts.mint) {
+            try { ForensicLogger.lifecycle("BUY_PENDING_BALANCE_PROOF", "mint=${ts.mint.take(10)} symbol=${ts.symbol} reason=PROOF_REJECTED source=${proof.source}") } catch (_: Throwable) {}
+            recordBuyPending(ts.mint, ts.symbol, sig)
+            positions[ts.mint]?.apply {
+                status = PositionStatus.BUY_PENDING
+                source = PositionSource.BOT_BUY
+                balanceAuthoritySource = proof.source.name
+                balanceAuthorityObservedAtMs = proof.observedAtMs
+                balanceAuthoritySignature = proof.signature
+                notes.add("buy proof rejected source=${proof.source}")
+            }
+            save()
+            return
+        }
+        val now = System.currentTimeMillis()
+        val pos = ts.position
+        val ui = try { java.math.BigDecimal(proof.amountRaw).movePointLeft(proof.decimals).toDouble() } catch (_: Throwable) { pos.qtyToken }
+        val p = positions[ts.mint] ?: TrackedTokenPosition(
+            mint = ts.mint, symbol = ts.symbol, name = ts.name,
+            source = PositionSource.BOT_BUY,
+            status = PositionStatus.BUY_CONFIRMED,
+            buySignature = sig, sellSignature = null,
+            buyTimeMs = pos.entryTime, firstSeenWalletMs = now, lastSeenWalletMs = now,
+            entryPriceUsd = pos.entryPrice, entrySol = pos.costSol, entryMarketCap = pos.entryMcap,
+            rawAmount = proof.amountRaw.toString(), decimals = proof.decimals, uiAmount = ui,
+            currentPriceUsd = ts.lastPrice, currentValueSol = null, currentValueAud = null,
+            highestPriceUsd = pos.highestPrice, lowestPriceUsd = pos.lowestPrice,
+            maxGainPct = pos.peakGainPct, maxDrawdownPct = 0.0,
+            takeProfitPct = pos.treasuryTakeProfit, stopLossPct = pos.treasuryStopLoss, trailingStopPct = null,
+            venue = ts.source, pool = ts.pairAddress.takeIf { it.isNotBlank() },
+            lastPriceUpdateMs = now, lastWalletReconcileMs = now, lastExitCheckMs = null,
+            activeSellAttemptId = null,
+        )
+        p.status = PositionStatus.OPEN_TRACKING
+        p.source = when (proof.source) {
+            BalanceProofSource.TX_META_OWNER_DELTA -> PositionSource.BOT_BUY
+            else -> PositionSource.WALLET_RECONCILED
+        }
+        p.sellSignature = null
+        p.activeSellAttemptId = null
+        p.sellAttemptStartedMs = 0L
+        p.consecutiveZeroConfirms = 0
+        p.zeroBalanceConfirmedByTwoProviders = false
+        p.balanceProof = proof
+        p.balanceAuthoritySource = proof.source.name
+        p.balanceAuthorityObservedAtMs = proof.observedAtMs
+        p.balanceAuthoritySignature = proof.signature
+        p.buySignature = sig ?: proof.signature ?: p.buySignature
+        p.rawAmount = proof.amountRaw.toString()
+        p.decimals = proof.decimals
+        p.uiAmount = ui
+        p.symbol = ts.symbol.takeIf { it.isNotBlank() } ?: p.symbol
+        p.entryPriceUsd = pos.entryPrice.takeIf { it > 0 } ?: p.entryPriceUsd
+        p.entrySol = pos.costSol.takeIf { it > 0 } ?: p.entrySol
+        positions[ts.mint] = p
+        emitForensic(LiveTradeLogStore.Phase.TOKEN_TRACKER_BUY_CONFIRMED, ts.mint, ts.symbol, sig,
+            "Tracker BUY_CONFIRMED_WITH_PROOF ${ts.symbol} source=${proof.source} raw=${proof.amountRaw}")
+        emitForensic(LiveTradeLogStore.Phase.TOKEN_TRACKER_OPEN_TRACKING, ts.mint, ts.symbol, sig,
+            "→ OPEN_TRACKING proof=${proof.source}")
+        save()
+    }
+
     // ─────────────────────────────────────────────────────────────────
     // SELL flow
     // ─────────────────────────────────────────────────────────────────
@@ -406,6 +538,21 @@ object HostWalletTokenTracker {
         p.sellAttemptStartedMs = System.currentTimeMillis()   // V5.9.1521 — stale-TTL anchor
         emitForensic(LiveTradeLogStore.Phase.TOKEN_TRACKER_EXIT_SIGNALLED, mint, symbol, null,
             "Tracker EXIT_SIGNALLED ${symbol ?: mint.take(6)} reason=${reason ?: "?"}")
+        save()
+    }
+
+
+    @Synchronized
+    fun markSellNoSignatureUnlocked(mint: String, symbol: String?, reason: String?) {
+        val p = positions[mint] ?: return
+        p.status = PositionStatus.SELL_ROUTE_FAILED_NO_SIGNATURE_UNLOCKED
+        p.activeSellAttemptId = null
+        p.sellAttemptStartedMs = 0L
+        p.balanceAuthoritySource = BalanceProofSource.BALANCE_UNKNOWN.name
+        p.notes.add("SELL_ROUTE_FAILED_NO_SIGNATURE_UNLOCKED reason=${reason ?: "?"}")
+        emitForensic(LiveTradeLogStore.Phase.WARNING, mint, symbol ?: p.symbol, null,
+            "SELL_ROUTE_FAILED_NO_SIGNATURE_UNLOCKED ${symbol ?: p.symbol ?: mint.take(6)} reason=${reason ?: "?"}")
+        try { ForensicLogger.lifecycle("SELL_ROUTE_FAILED_NO_SIGNATURE_UNLOCKED", "mint=${mint.take(10)} symbol=${symbol ?: p.symbol ?: "?"} sell_lock_released=true close_lease_released=true") } catch (_: Throwable) {}
         save()
     }
 
@@ -455,19 +602,17 @@ object HostWalletTokenTracker {
             r.contains("SOL_RETURNED", ignoreCase = true) ||
             r.contains("FULL_TOKEN_CONSUMPTION", ignoreCase = true)
         } == true
-        // V5.9.1582 — TX_PARSE/ATA/token-consumed close is authoritative even if
-        // the tracker row is missing sellSignature. Do NOT resurrect OPEN_TRACKING
-        // just because a later signature field is blank; that poisoned live buys
-        // via HOST_TRACKER_DESYNC / ORPHAN_LIVE_POSITIONS after successful exits.
+        // V5.0.3740 — generic TX_PARSE/token-consumed close is NOT authoritative
+        // without a sell signature or two-provider zero proof. Never stamp CLOSED from
+        // a no-signature parse/intention path.
         if (p.sellSignature.isNullOrBlank() && authoritativeParseClose) {
-            p.status = PositionStatus.CLOSED
+            p.status = PositionStatus.BALANCE_UNKNOWN_CLOSED_UNVERIFIED
             p.activeSellAttemptId = null
-            p.consecutiveZeroConfirms = 0
-            p.uiAmount = 0.0
-            p.rawAmount = "0"
-            p.notes.add("authoritative tx-parse close reason=${reason ?: "?"}")
-            emitForensic(LiveTradeLogStore.Phase.TOKEN_TRACKER_CLOSED, mint, symbol ?: p.symbol, null,
-                "Tracker CLOSED_BY_TX_PARSE_NO_SIGNATURE ${symbol ?: p.symbol ?: mint.take(6)} reason=${reason ?: "?"}")
+            p.balanceAuthoritySource = BalanceProofSource.REJECTED_TX_PARSE.name
+            p.notes.add("rejected false close reason=${reason ?: "?"}: no sell signature/zero proof")
+            emitForensic(LiveTradeLogStore.Phase.WARNING, mint, symbol ?: p.symbol, null,
+                "CLOSED_REJECTED_NO_SIGNATURE_NO_ZERO_PROOF ${symbol ?: p.symbol ?: mint.take(6)} reason=${reason ?: "?"}")
+            try { ForensicLogger.lifecycle("BALANCE_PROOF_REJECTED", "reason=GENERIC_TX_PARSE_NOT_OWNER_FILTERED mint=${mint.take(10)} sig=blank closeReason=${reason ?: "?"}") } catch (_: Throwable) {}
             save()
             return
         }
@@ -508,15 +653,22 @@ object HostWalletTokenTracker {
     @Synchronized
     fun recordAuthoritativeTxParseClose(mint: String, symbol: String?, sig: String?, reason: String) {
         val p = positions[mint] ?: return
-        p.sellSignature = sig?.takeIf { it.isNotBlank() } ?: p.sellSignature
-        p.status = PositionStatus.CLOSED
+        if (sig.isNullOrBlank()) {
+            p.status = PositionStatus.BALANCE_UNKNOWN_CLOSED_UNVERIFIED
+            p.activeSellAttemptId = null
+            p.balanceAuthoritySource = BalanceProofSource.REJECTED_TX_PARSE.name
+            p.notes.add("authoritative txparse close rejected: no signature reason=$reason")
+            emitForensic(LiveTradeLogStore.Phase.WARNING, mint, symbol ?: p.symbol, null,
+                "CLOSED_BY_AUTHORITATIVE_TX_PARSE_REJECTED_NO_SIGNATURE ${symbol ?: p.symbol ?: mint.take(6)} reason=$reason")
+            save()
+            return
+        }
+        p.sellSignature = sig
+        p.status = PositionStatus.SELL_VERIFYING
         p.activeSellAttemptId = null
-        p.consecutiveZeroConfirms = 0
-        p.uiAmount = 0.0
-        p.rawAmount = "0"
-        p.notes.add("authoritative close: $reason")
-        emitForensic(LiveTradeLogStore.Phase.TOKEN_TRACKER_CLOSED, mint, symbol ?: p.symbol, p.sellSignature,
-            "Tracker CLOSED_BY_AUTHORITATIVE_TX_PARSE ${symbol ?: p.symbol ?: mint.take(6)} reason=$reason")
+        p.notes.add("txparse close awaiting zero proof: $reason")
+        emitForensic(LiveTradeLogStore.Phase.TOKEN_TRACKER_SELL_CONFIRMED, mint, symbol ?: p.symbol, p.sellSignature,
+            "Tracker SELL_FINALIZED_AWAITING_ZERO_PROOF ${symbol ?: p.symbol ?: mint.take(6)} reason=$reason")
         save()
     }
 

@@ -57,7 +57,7 @@ object SellAmountAuthority {
         object Unknown : Resolution()
     }
 
-    enum class Source { ACCOUNT_INFO, TOKEN_ACCOUNTS_BY_OWNER, FRESH_TX_PARSE }
+    enum class Source { ACCOUNT_INFO, TOKEN_ACCOUNTS_BY_OWNER, TX_META_OWNER_DELTA }
 
     // ── Recent TX_PARSE cache (operator spec — only fresh, only buy-tied) ──
     private data class TxParseEntry(
@@ -102,8 +102,9 @@ object SellAmountAuthority {
             emptyMap()
         }
         if (balances.isEmpty()) {
-            // RPC blip / overload — operator spec: empty map MUST mean UNKNOWN.
-            return tryFreshTxParseFallback(mint) ?: Resolution.Unknown
+            // V5.0.3740 — RPC empty map is UNKNOWN, never generic TX_PARSE authority.
+            ErrorLogger.warn(TAG, "BALANCE_UNKNOWN reason=RPC_EMPTY_MAP mint=${mint.take(8)}…")
+            return Resolution.Unknown
         }
         val entry = balances[mint]
         if (entry == null) {
@@ -127,7 +128,8 @@ object SellAmountAuthority {
             "🟡 RPC empty for ${mint.take(8)}… — using TX_PARSE fallback raw=${e.rawAmount} " +
             "(captured ${(System.currentTimeMillis() - e.capturedAtMs) / 1000}s ago, " +
             "sig=${e.txSignature.take(8)}…)")
-        return Resolution.Confirmed(e.rawAmount, e.decimals, Source.FRESH_TX_PARSE)
+        ErrorLogger.warn(TAG, "BALANCE_PROOF_REJECTED reason=GENERIC_TX_PARSE_NOT_OWNER_FILTERED mint=${mint.take(8)}… sig=${e.txSignature.take(8)}…")
+        return null
     }
 
     /**
@@ -135,18 +137,18 @@ object SellAmountAuthority {
      *
      * A LIVE sell may broadcast ONLY when the balance is confirmed by an on-chain
      * read (ACCOUNT_INFO / TOKEN_ACCOUNTS_BY_OWNER == RPC_CONFIRMED / WALLET_SCAN_CONFIRMED).
-     * A FRESH_TX_PARSE-only balance (HOST_TRACKER_TX_PARSE_ONLY) may QUEUE recovery but
-     * must NOT broadcast — it is not authoritative wallet truth. UNKNOWN never broadcasts.
+     * Generic TX_PARSE / tracker-only balances are never authoritative wallet truth.
+     * UNKNOWN never broadcasts.
      */
-    enum class BalanceSource { RPC_CONFIRMED, WALLET_SCAN_CONFIRMED, HOST_TRACKER_TX_PARSE_ONLY, UNKNOWN }
+    enum class BalanceSource { RPC_CONFIRMED, WALLET_SCAN_CONFIRMED, UNKNOWN }
 
     fun balanceSource(resolution: Resolution?): BalanceSource = when (resolution) {
         is Resolution.Confirmed -> when (resolution.source) {
             Source.ACCOUNT_INFO -> BalanceSource.RPC_CONFIRMED
             Source.TOKEN_ACCOUNTS_BY_OWNER -> BalanceSource.WALLET_SCAN_CONFIRMED
-            Source.FRESH_TX_PARSE -> BalanceSource.HOST_TRACKER_TX_PARSE_ONLY
+            Source.TX_META_OWNER_DELTA -> BalanceSource.WALLET_SCAN_CONFIRMED
         }
-        is Resolution.Zero -> BalanceSource.RPC_CONFIRMED   // confirmed empty is authoritative
+        is Resolution.Zero -> BalanceSource.UNKNOWN   // one provider missing-mint is not two-provider zero proof
         else -> BalanceSource.UNKNOWN
     }
 
@@ -205,7 +207,7 @@ object SellAmountAuthority {
             isProfitProtectExitReason(reason) -> PROFIT_PROTECT_TX_PARSE_MS
             else -> return normal
         }
-        return tryFreshTxParseFallback(mint, maxAge) ?: normal
+        return normal
     }
 
     /**
@@ -225,20 +227,79 @@ object SellAmountAuthority {
         requestedRawAmount: java.math.BigInteger? = null,
     ): Boolean {
         if (canBroadcastLive(resolution)) return true
-        val profitProtect = isProfitProtectExitReason(reason)
-        val emergency = isEmergencyExitReason(reason)
-        if (!emergency && !profitProtect) return false
-        val cached = txParseCache[mint] ?: return false
-        val maxAgeMs = if (emergency) EMERGENCY_TX_PARSE_MS else PROFIT_PROTECT_TX_PARSE_MS
-        if (System.currentTimeMillis() - cached.capturedAtMs > maxAgeMs) return false
-        if (cached.rawAmount.signum() <= 0) return false
-        if (cached.txSignature.isBlank()) return false
-        if (requestedRawAmount != null && requestedRawAmount > cached.rawAmount) return false
-        ErrorLogger.warn(TAG,
-            "🚨 TX_PARSE_BROADCAST_BYPASS: mint=${mint.take(8)}… reason=$reason " +
-            "using FRESH_TX_PARSE raw=${cached.rawAmount} sig=${cached.txSignature.take(8)}… " +
-            "(captured ${(System.currentTimeMillis() - cached.capturedAtMs) / 1000}s ago)")
-        return true
+        val cached = txParseCache[mint]
+        if (cached != null) {
+            ErrorLogger.warn(TAG,
+                "BALANCE_PROOF_REJECTED reason=GENERIC_TX_PARSE_NOT_OWNER_FILTERED mint=${mint.take(8)}… sig=${cached.txSignature.take(8)}…")
+        }
+        return false
+    }
+
+
+    fun resolveSellAmount(mint: String, owner: String, wallet: SolanaWallet?, intentAmountRaw: BigInteger? = null): BalanceProof {
+        val observed = System.currentTimeMillis()
+        val r = resolve(mint, wallet)
+        val proof = when (r) {
+            is Resolution.Confirmed -> BalanceProof(
+                mint = mint,
+                owner = owner,
+                ata = null,
+                amountRaw = intentAmountRaw?.let { if (it > r.rawAmount) r.rawAmount else it } ?: r.rawAmount,
+                decimals = r.decimals,
+                source = BalanceProofSource.RPC_CONFIRMED_OWNER_TOKEN_ACCOUNT,
+                authoritative = true,
+                observedAtMs = observed,
+                signature = null,
+            )
+            is Resolution.Zero -> BalanceProof(
+                mint = mint,
+                owner = owner,
+                ata = null,
+                amountRaw = BigInteger.ZERO,
+                decimals = 0,
+                source = BalanceProofSource.BALANCE_UNKNOWN,
+                authoritative = false,
+                observedAtMs = observed,
+                signature = null,
+            )
+            else -> BalanceProof(
+                mint = mint,
+                owner = owner,
+                ata = null,
+                amountRaw = BigInteger.ZERO,
+                decimals = 0,
+                source = BalanceProofSource.BALANCE_UNKNOWN,
+                authoritative = false,
+                observedAtMs = observed,
+                signature = null,
+            )
+        }
+        if (proof.authoritative) {
+            ErrorLogger.info(TAG, "BALANCE_PROOF_ACCEPTED source=${proof.source} owner=${owner.take(8)}… mint=${mint.take(8)}… ata=${proof.ata ?: "?"} raw=${proof.amountRaw} decimals=${proof.decimals} sig=${proof.signature ?: ""}")
+        } else {
+            ErrorLogger.warn(TAG, "BALANCE_UNKNOWN reason=RPC_EMPTY_AND_NO_OWNER_DELTA mint=${mint.take(8)}…")
+        }
+        return proof
+    }
+
+    fun txMetaOwnerDeltaProof(mint: String, owner: String, wallet: SolanaWallet?, sig: String?): BalanceProof? {
+        if (mint.isBlank() || sig.isNullOrBlank() || wallet == null) return null
+        val delta = try { wallet.getOwnerTokenDeltaRawFromSig(sig, mint) } catch (_: Throwable) { null } ?: return null
+        val proof = BalanceProof(
+            mint = mint,
+            owner = owner,
+            ata = null,
+            amountRaw = delta.first,
+            decimals = delta.second,
+            source = BalanceProofSource.TX_META_OWNER_DELTA,
+            authoritative = delta.first.signum() > 0,
+            observedAtMs = System.currentTimeMillis(),
+            signature = sig,
+        )
+        if (proof.authoritative) {
+            ErrorLogger.info(TAG, "BALANCE_PROOF_ACCEPTED source=${proof.source} owner=${owner.take(8)}… mint=${mint.take(8)}… ata=? raw=${proof.amountRaw} decimals=${proof.decimals} sig=${sig.take(8)}…")
+        }
+        return proof.takeIf { it.authoritative }
     }
 
     /** Read-only snapshot of the cached TX_PARSE entry for a mint (for callers
