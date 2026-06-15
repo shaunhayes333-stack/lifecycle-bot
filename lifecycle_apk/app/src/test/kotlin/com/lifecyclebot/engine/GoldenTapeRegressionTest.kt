@@ -912,4 +912,23 @@ class GoldenTapeRegressionTest {
         )
     }
 
+
+    @Test
+    fun live_profit_sells_use_tx_parse_during_rpc_indexing_gap() {
+        val auth = java.io.File("src/main/kotlin/com/lifecyclebot/engine/sell/SellAmountAuthority.kt").readText()
+        assertTrue(auth.contains("PROFIT_PROTECT_TX_PARSE_MS"))
+        assertTrue(auth.contains("fun resolveForExit"))
+        assertTrue(auth.contains("isProfitProtectExitReason"))
+        assertTrue(auth.contains("PARTIAL_TAKE_PROFIT"))
+        assertTrue(auth.contains("CAPITAL_RECOVERY"))
+        assertTrue(auth.contains("TX_PARSE_BROADCAST_BYPASS"))
+
+        val exec = java.io.File("src/main/kotlin/com/lifecyclebot/engine/Executor.kt").readText()
+        assertTrue(exec.contains("resolveForExit(ts.mint, wallet, reason)"))
+        assertTrue(exec.contains("resolveForExit(ts.mint, wallet,"))
+        assertTrue(exec.contains("PARTIAL_TAKE_PROFIT"))
+        assertTrue(exec.contains("canBroadcastLiveOrEmergency"))
+        assertTrue(exec.contains("TX_PARSE gap"))
+    }
+
 }

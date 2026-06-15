@@ -38,6 +38,13 @@ object SellAmountAuthority {
     // CATASTROPHE full exit must attempt the Jupiter exact-in raw amount instead
     // of silently requeueing until the stop is worthless.
     private const val EMERGENCY_TX_PARSE_MS = 10 * 60_000L
+    // V5.0.3735 — profit-protect sells are also time-critical. Reports showed
+    // PARTIAL_TAKE_PROFIT / capital_recovery sell stacks starting while RPC token
+    // accounts were still empty/lagged, then queueing forever with EXEC_LIVE_SELL_OK=0.
+    // Use the buy-verified TX_PARSE amount during the same 10m post-buy indexing gap,
+    // but only for explicit profit-protection/capital-recovery reasons and never when
+    // RPC positively returns a non-empty map missing the mint (that remains ZERO).
+    private const val PROFIT_PROTECT_TX_PARSE_MS = 10 * 60_000L
 
     sealed class Resolution {
         data class Confirmed(
@@ -112,9 +119,9 @@ object SellAmountAuthority {
         return Resolution.Confirmed(raw, decimals, Source.TOKEN_ACCOUNTS_BY_OWNER)
     }
 
-    private fun tryFreshTxParseFallback(mint: String): Resolution.Confirmed? {
+    private fun tryFreshTxParseFallback(mint: String, maxAgeMs: Long = FRESH_TX_PARSE_MS): Resolution.Confirmed? {
         val e = txParseCache[mint] ?: return null
-        if (System.currentTimeMillis() - e.capturedAtMs > FRESH_TX_PARSE_MS) return null
+        if (System.currentTimeMillis() - e.capturedAtMs > maxAgeMs) return null
         if (e.rawAmount.signum() <= 0) return null
         ErrorLogger.warn(TAG,
             "🟡 RPC empty for ${mint.take(8)}… — using TX_PARSE fallback raw=${e.rawAmount} " +
@@ -170,10 +177,35 @@ object SellAmountAuthority {
         "STRICT_SL", "HARD_FLOOR", "STOP_LOSS", "CATASTROPHE", "RUG", "DRAIN",
         "SHUTDOWN", "LIQUIDATE", "EMERGENCY", "MANUAL_EMERGENCY",
     )
+    private val PROFIT_PROTECT_REASON_TOKENS = listOf(
+        "PARTIAL_TAKE_PROFIT", "TAKE_PROFIT", "PROFIT_LOCK", "CAPITAL_RECOVERY", "RAPID_DRAWDOWN_FROM_PEAK_STOP",
+    )
 
     fun isEmergencyExitReason(reason: String): Boolean {
         val r = reason.uppercase()
         return EMERGENCY_REASON_TOKENS.any { r.contains(it) }
+    }
+
+    fun isProfitProtectExitReason(reason: String): Boolean {
+        val r = reason.uppercase()
+        return PROFIT_PROTECT_REASON_TOKENS.any { r.contains(it) }
+    }
+
+    /**
+     * Resolve balance for a concrete exit reason. Normal resolve() remains strict
+     * (90s TX_PARSE only). For emergency/profit-protect exits, if RPC returned
+     * UNKNOWN/empty, reuse buy-verified TX_PARSE for up to 10m so exits can actually
+     * broadcast during Solana account-indexing lag. Confirmed ZERO is never bypassed.
+     */
+    fun resolveForExit(mint: String, wallet: SolanaWallet?, reason: String): Resolution {
+        val normal = resolve(mint, wallet)
+        if (normal is Resolution.Confirmed || normal is Resolution.Zero) return normal
+        val maxAge = when {
+            isEmergencyExitReason(reason) -> EMERGENCY_TX_PARSE_MS
+            isProfitProtectExitReason(reason) -> PROFIT_PROTECT_TX_PARSE_MS
+            else -> return normal
+        }
+        return tryFreshTxParseFallback(mint, maxAge) ?: normal
     }
 
     /**
@@ -193,15 +225,17 @@ object SellAmountAuthority {
         requestedRawAmount: java.math.BigInteger? = null,
     ): Boolean {
         if (canBroadcastLive(resolution)) return true
-        if (!isEmergencyExitReason(reason)) return false
+        val profitProtect = isProfitProtectExitReason(reason)
+        val emergency = isEmergencyExitReason(reason)
+        if (!emergency && !profitProtect) return false
         val cached = txParseCache[mint] ?: return false
-        val maxAgeMs = if (isEmergencyExitReason(reason)) EMERGENCY_TX_PARSE_MS else FRESH_TX_PARSE_MS
+        val maxAgeMs = if (emergency) EMERGENCY_TX_PARSE_MS else PROFIT_PROTECT_TX_PARSE_MS
         if (System.currentTimeMillis() - cached.capturedAtMs > maxAgeMs) return false
         if (cached.rawAmount.signum() <= 0) return false
         if (cached.txSignature.isBlank()) return false
         if (requestedRawAmount != null && requestedRawAmount > cached.rawAmount) return false
         ErrorLogger.warn(TAG,
-            "🚨 EMERGENCY_BROADCAST_BYPASS: mint=${mint.take(8)}… reason=$reason " +
+            "🚨 TX_PARSE_BROADCAST_BYPASS: mint=${mint.take(8)}… reason=$reason " +
             "using FRESH_TX_PARSE raw=${cached.rawAmount} sig=${cached.txSignature.take(8)}… " +
             "(captured ${(System.currentTimeMillis() - cached.capturedAtMs) / 1000}s ago)")
         return true

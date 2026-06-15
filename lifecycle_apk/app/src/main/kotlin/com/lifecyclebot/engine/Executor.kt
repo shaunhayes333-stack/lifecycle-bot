@@ -3696,7 +3696,7 @@ class Executor(
             // pos.qtyToken can be stale (cached from initial buy result);
             // the wallet's chain-confirmed remaining balance is the truth.
             val resolution = try {
-                com.lifecyclebot.engine.sell.SellAmountAuthority.resolve(ts.mint, wallet)
+                com.lifecyclebot.engine.sell.SellAmountAuthority.resolveForExit(ts.mint, wallet, reason)
             } catch (_: Throwable) { null }
             liveBalanceSource = com.lifecyclebot.engine.sell.SellAmountAuthority.balanceSource(resolution)
             val confirmed = resolution as? com.lifecyclebot.engine.sell.SellAmountAuthority.Resolution.Confirmed
@@ -3726,13 +3726,17 @@ class Executor(
                 pos.qtyToken * sellFraction
             }
         }
-        val sellUnits = resolveSellUnits(ts, sellQty, wallet = wallet)
+        val sellUnits = resolveSellUnitsForMint(ts.mint, sellQty, wallet = wallet, fallbackDecimals = decimalsForAudit.takeIf { it > 0 })
         // V5.9.1533 — spec item 5: LIVE sell broadcasts ONLY on on-chain confirmed
         // balance (RPC_CONFIRMED / WALLET_SCAN_CONFIRMED). TX_PARSE-only / UNKNOWN =>
         // queue recovery, do not broadcast a sell sized off a guess. Paper unaffected.
         if (!pos.isPaperPosition) {
-            val cb = liveBalanceSource == com.lifecyclebot.engine.sell.SellAmountAuthority.BalanceSource.RPC_CONFIRMED ||
-                     liveBalanceSource == com.lifecyclebot.engine.sell.SellAmountAuthority.BalanceSource.WALLET_SCAN_CONFIRMED
+            val cb = com.lifecyclebot.engine.sell.SellAmountAuthority.canBroadcastLiveOrEmergency(
+                resolution = try { com.lifecyclebot.engine.sell.SellAmountAuthority.resolveForExit(ts.mint, wallet, reason) } catch (_: Throwable) { null },
+                reason = reason,
+                mint = ts.mint,
+                requestedRawAmount = java.math.BigInteger.valueOf(sellUnits),
+            )
             if (!cb) {
                 try { ForensicLogger.lifecycle("SELL_BROADCAST_BLOCKED_UNCONFIRMED_BALANCE",
                     "mint=${ts.mint.take(10)} symbol=${ts.symbol} balanceSource=$liveBalanceSource action=queue_recovery_not_broadcast") } catch (_: Throwable) {}
@@ -4776,7 +4780,7 @@ class Executor(
             com.lifecyclebot.engine.sell.SellAmountAuthority.BalanceSource.UNKNOWN
         val sellQty: Double = run {
             val resolution = try {
-                com.lifecyclebot.engine.sell.SellAmountAuthority.resolve(ts.mint, wallet)
+                com.lifecyclebot.engine.sell.SellAmountAuthority.resolveForExit(ts.mint, wallet, "PARTIAL_TAKE_PROFIT")
             } catch (_: Throwable) { null }
             liveBalanceSource = com.lifecyclebot.engine.sell.SellAmountAuthority.balanceSource(resolution)
             val confirmed = resolution as? com.lifecyclebot.engine.sell.SellAmountAuthority.Resolution.Confirmed
@@ -4909,11 +4913,15 @@ class Executor(
                     releasePartialSellLock(ts.mint)
                     return true
                 }
-                val sellUnits = resolveSellUnits(ts, sellQty, wallet = wallet)
+                val sellUnits = resolveSellUnitsForMint(ts.mint, sellQty, wallet = wallet, fallbackDecimals = decimalsForAudit.takeIf { it > 0 })
                 // V5.9.1533 — spec item 5: live partial sell broadcasts ONLY on confirmed balance.
                 run {
-                    val cb = liveBalanceSource == com.lifecyclebot.engine.sell.SellAmountAuthority.BalanceSource.RPC_CONFIRMED ||
-                             liveBalanceSource == com.lifecyclebot.engine.sell.SellAmountAuthority.BalanceSource.WALLET_SCAN_CONFIRMED
+                    val cb = com.lifecyclebot.engine.sell.SellAmountAuthority.canBroadcastLiveOrEmergency(
+                        resolution = try { com.lifecyclebot.engine.sell.SellAmountAuthority.resolveForExit(ts.mint, wallet, "PARTIAL_TAKE_PROFIT") } catch (_: Throwable) { null },
+                        reason = "PARTIAL_TAKE_PROFIT",
+                        mint = ts.mint,
+                        requestedRawAmount = java.math.BigInteger.valueOf(sellUnits),
+                    )
                     if (!cb) {
                         try { ForensicLogger.lifecycle("SELL_BROADCAST_BLOCKED_UNCONFIRMED_BALANCE",
                             "mint=${ts.mint.take(10)} symbol=${ts.symbol} balanceSource=$liveBalanceSource phase=partial action=queue_recovery_not_broadcast") } catch (_: Throwable) {}
