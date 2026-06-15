@@ -10134,20 +10134,29 @@ class BotService : Service() {
         // does NOT prune the protected 500-token intake pool; it only limits
         // the per-cycle slice handed to the supervisor so we stop manufacturing
         // 60 guaranteed skips per tick.
-        val basePerCycleCap = SUPERVISOR_MAX_INFLIGHT
         try { supervisorPruneExpiredLeases("select_cycle") } catch (_: Throwable) {}
         val currentSupervisorLoad = try { supervisorLeases.size } catch (_: Throwable) { 0 }
         val effectiveSupervisorCap = try { supervisorEffectiveCap() } catch (_: Throwable) { SUPERVISOR_MAX_LIVE_WORKERS }
+        // V5.0.3723 — HOT-POOL SOURCE FIX. The old selector always passed the
+        // 24-pressure floor as maxInFlight, even while runtime was healthy and the
+        // real worker pool was 48. That made scanner intake look alive while the
+        // hot meme universe was under-sampled. Expand ONLY when clean: no timeout
+        // debt in the current window, no active supervisor load, and effective cap
+        // is healthy. Pressure windows still use the old 24 floor and planner caps.
+        val supervisorTimeoutsForPlanning = if ((nowMs - supervisorTimeoutWindowStartMs) < 600_000L) supervisorTimeoutWindowCount else 0
+        val selectorHealthy = supervisorTimeoutsForPlanning == 0 && currentSupervisorLoad < (effectiveSupervisorCap / 2).coerceAtLeast(1) && effectiveSupervisorCap >= SUPERVISOR_BASE_MAX_WORKERS
+        val selectorMaxInFlight = if (selectorHealthy) SUPERVISOR_HEALTHY_MEME_MAX_INFLIGHT else SUPERVISOR_MAX_INFLIGHT
+        val basePerCycleCap = selectorMaxInFlight
         // V5.9.1548 — use one planner for the per-cycle selection cap. The live
         // worker cap was already adaptive at acquire time, but the selector still
         // handed 96 mints into a 24/16-worker pressure window, creating 0/96 churn.
         // Healthy runtime returns the full cap, so throughput is unchanged unless
         // the timeout/cap telemetry proves the scheduler is overloaded.
         val admissionPlan = com.lifecyclebot.engine.SupervisorAdmissionPlanner.plan(
-            maxInFlight = SUPERVISOR_MAX_INFLIGHT,
+            maxInFlight = selectorMaxInFlight,
             liveCap = effectiveSupervisorCap,
             currentLoad = currentSupervisorLoad,
-            timeoutCount10m = supervisorTimeoutWindowCount,
+            timeoutCount10m = supervisorTimeoutsForPlanning,
             forcedOpenCount = forcedOpenMints.size,
         )
         val PER_CYCLE_CAP = admissionPlan.perCycleCap
@@ -10171,6 +10180,23 @@ class BotService : Service() {
             com.lifecyclebot.engine.GlobalTradeRegistry.getWatchlistEntries()
                 .associateBy { it.mint }
         } catch (_: Throwable) { emptyMap() }
+
+        fun isFreshMemeSource(entry: com.lifecyclebot.engine.GlobalTradeRegistry.WatchlistEntry?): Boolean {
+            val tags = buildString {
+                append(entry?.addedBy ?: ""); append('|'); append(entry?.source ?: ""); append('|')
+                append(entry?.laneAffinity?.joinToString("|") ?: ""); append('|')
+                append(entry?.toolAffinity?.joinToString("|") ?: "")
+            }.uppercase()
+            return tags.contains("PUMP") || tags.contains("MEME") || tags.contains("SHITCOIN") || tags.contains("MOONSHOT") || tags.contains("EXPRESS")
+        }
+        fun isHighConvictionUnseen(mint: String, entry: com.lifecyclebot.engine.GlobalTradeRegistry.WatchlistEntry?): Boolean {
+            val ts = try { status.tokens[mint] } catch (_: Throwable) { null }
+            val liq = ts?.lastLiquidityUsd ?: 0.0
+            val score = try { ts?.entryScore ?: 0.0 } catch (_: Throwable) { 0.0 }
+            val processCount = entry?.processCount ?: 0
+            val multiAffinity = ((entry?.laneAffinity?.size ?: 0) + (entry?.toolAffinity?.size ?: 0)) >= 2
+            return processCount == 0 && (liq >= 10_000.0 || score >= 70.0 || multiAffinity)
+        }
 
         // V5.9.1572 — SOURCE FIX: forced-open rows are mandatory EXIT surface,
         // but they must not be an unbounded SUPERVISOR prefix. Snapshot 5.0.3627
@@ -10254,11 +10280,15 @@ class BotService : Service() {
                 val hasPriceFeed = (tsForProbation?.lastPriceUpdate ?: 0L) > 0L
                 val healthyLiq = liqNow >= 10_000.0
                 val ageMs = nowMs - entry.addedAt
-                val coldEnough = entry.processCount >= 3 && ageMs > 120_000L
+                val firstDeepEvalProtected = entry.processCount == 0 && isHighConvictionUnseen(mint, entry)
+                val memeFresh = isFreshMemeSource(entry) && ageMs < 10L * 60_000L
+                val demoteProcessFloor = if (memeFresh) 6 else 3
+                val demoteAgeFloorMs = if (memeFresh) 5L * 60_000L else 120_000L
+                val coldEnough = entry.processCount >= demoteProcessFloor && ageMs > demoteAgeFloorMs
                 val lowExecutableLiq = liqNow > 0.0 && liqNow < 2_000.0
-                val noVolume = hasPriceFeed && volH1 <= 0.0 && entry.processCount >= 5 && ageMs > 180_000L
-                val staleNoMove = hasPriceFeed && priceAgeMs > 180_000L && entry.processCount >= 5
-                if (!healthyLiq && coldEnough && (lowExecutableLiq || noVolume || staleNoMove)) {
+                val noVolume = hasPriceFeed && volH1 <= 0.0 && entry.processCount >= maxOf(5, demoteProcessFloor) && ageMs > maxOf(180_000L, demoteAgeFloorMs)
+                val staleNoMove = hasPriceFeed && priceAgeMs > maxOf(180_000L, demoteAgeFloorMs) && entry.processCount >= maxOf(5, demoteProcessFloor)
+                if (!firstDeepEvalProtected && !healthyLiq && coldEnough && (lowExecutableLiq || noVolume || staleNoMove)) {
                     val why = when {
                         lowExecutableLiq -> "LOW_EXEC_LIQ_${liqNow.toInt()}"
                         noVolume -> "NO_H1_VOLUME"
@@ -10276,7 +10306,7 @@ class BotService : Service() {
                     } catch (_: Throwable) { false }
                     if (demoted) {
                         probationDemoted.add(mint)
-                        try { com.lifecyclebot.engine.ForensicLogger.lifecycle("WATCHLIST_PROBATION_DEMOTE", "mint=${mint.take(10)} symbol=${entry.symbol} reason=$why pc=${entry.processCount} liq=${liqNow.toInt()} vol1h=${volH1.toInt()} priceAgeMs=$priceAgeMs") } catch (_: Throwable) {}
+                        try { com.lifecyclebot.engine.ForensicLogger.lifecycle("WATCHLIST_PROBATION_DEMOTE", "mint=${mint.take(10)} symbol=${entry.symbol} reason=$why pc=${entry.processCount}/$demoteProcessFloor ageMs=$ageMs/$demoteAgeFloorMs liq=${liqNow.toInt()} vol1h=${volH1.toInt()} priceAgeMs=$priceAgeMs memeFresh=$memeFresh") } catch (_: Throwable) {}
                         return@forEach
                     }
                 }
@@ -10370,6 +10400,7 @@ class BotService : Service() {
             }
             val capEvict = (coldAfterTime + unseenForEviction)
                 .filterNot { it.first in forcedOpenMints }
+                .filterNot { (mint, _) -> isHighConvictionUnseen(mint, entriesByMint[mint]) }
                 .sortedBy { it.second }
                 .take(excess)
             capEvict.forEach { (mint, _) ->
@@ -10413,7 +10444,7 @@ class BotService : Service() {
             emitWatchlistCapTrace(PER_CYCLE_CAP, orderedMintsRaw.size, forcedOpenMints.size)
             com.lifecyclebot.engine.ForensicLogger.lifecycle(
                 "WATCHLIST_RR",
-                "cap=$PER_CYCLE_CAP picked=${picked.size} fresh=${fresh.size} unseen=${unseen.size} cold=${cold.size} probationDemoted=${probationDemoted.size} forcedOpen=${forcedOpenMints.size} forcedSupervisor=${forcedOpenForSupervisor.size} total=${orderedMintsRaw.size} sourceBalanced=true"
+                "cap=$PER_CYCLE_CAP selectorHealthy=$selectorHealthy timeouts10m=$supervisorTimeoutsForPlanning load=$currentSupervisorLoad picked=${picked.size} fresh=${fresh.size} unseen=${unseen.size} cold=${cold.size} probationDemoted=${probationDemoted.size} forcedOpen=${forcedOpenMints.size} forcedSupervisor=${forcedOpenForSupervisor.size} total=${orderedMintsRaw.size} sourceBalanced=true"
             )
         } catch (_: Throwable) {}
 
@@ -13767,7 +13798,8 @@ if (hotExitHandledSweep) {
     // 10-min re-entry lockout, or any safety floor; it only processes more of the
     // already-admitted watchlist per tick. Workers remain bounded + leased, so this
     // cannot leak capacity (hard-expiry cleanup still applies).
-    @Suppress("unused") private val SUPERVISOR_MAX_INFLIGHT: Int = 24  // V5.0.3676 — operator TUNING patch: normalCap=24. The previous 96 amplified admission churn under timeout pressure (admitted 96 into a 24-worker pressure window, manufacturing 72 guaranteed skips/cycle and feeding SUPERVISOR_LEASE_FORCE_RELEASED storms). 24 aligns selection with the effective per-cycle budget. Healthy runtime is unchanged because supervisorEffectiveCap() floors at 24+ when truly healthy.
+    @Suppress("unused") private val SUPERVISOR_MAX_INFLIGHT: Int = 24  // V5.0.3676 — pressure-safe floor. Kept for overloaded/cooling windows.
+    private val SUPERVISOR_HEALTHY_MEME_MAX_INFLIGHT: Int = 48  // V5.0.3723 — source fix: when workerTimeout/lease debt is clean, sample the meme hot pool at the real healthy worker cap instead of the old pressure floor.
     // Worker slot budget is one bot-loop cadence: long enough for normal
     // processTokenCycle, short enough that stuck IO cannot hold a supervisor
     // slot across multiple 5s cycles.

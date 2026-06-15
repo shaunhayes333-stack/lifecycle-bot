@@ -178,16 +178,41 @@ object GlobalTradeRegistry {
             tags.contains("TRENDING")
     }
 
-    private fun shouldDivertPumpToProbation(addedBy: String, source: String): Boolean {
+    private fun strongPumpHotException(
+        addedBy: String,
+        source: String,
+        initialMcap: Double,
+        laneAffinity: Set<String>,
+        toolAffinity: Set<String>,
+    ): Boolean {
+        if (!isPumpPortalSource(addedBy, source)) return false
+        val tags = (addedBy + "|" + source + "|" + laneAffinity.joinToString("|") + "|" + toolAffinity.joinToString("|")).uppercase()
+        val specialistAffinity = tags.contains("SHITCOIN") || tags.contains("MOONSHOT") || tags.contains("EXPRESS") || tags.contains("SNIPER") || tags.contains("MEME")
+        val strongMcap = initialMcap >= 50_000.0
+        val strongTooling = toolAffinity.size >= 2 || laneAffinity.size >= 2
+        // V5.0.3723 — source-balance butterfly: keep the strict 35% Pump cap for
+        // weak single-source Pump spam, but do not throw high-conviction fresh meme
+        // candidates into slow probation purely because the quota is full. This is
+        // still source-balanced: weak Pump remains capped, non-Pump reservation stays,
+        // and multi-source/non-pump confirmation continues to hot-admit above.
+        return specialistAffinity && (strongMcap || strongTooling)
+    }
+
+    private fun shouldDivertPumpToProbation(
+        addedBy: String,
+        source: String,
+        initialMcap: Double = 0.0,
+        laneAffinity: Set<String> = emptySet(),
+        toolAffinity: Set<String> = emptySet(),
+    ): Boolean {
         if (!isPumpPortalSource(addedBy, source)) return false
         if (hasNonPumpConfirmation(addedBy, source)) return false // multi-source confirmation earns hot admission
+        if (strongPumpHotException(addedBy, source, initialMcap, laneAffinity, toolAffinity)) return false
         val total = watchlist.size
         if (total < 12) return false // cold start: let a few through so UI is alive
-        // V5.0.3708 — strict means strict. Do not keep admitting Pump merely
-        // because non-pump is currently sparse; that is exactly how the hot list
-        // becomes all Pump and never recovers. Once Pump hits its minority cap,
-        // Pump-only rows go cold/probation and the hot bench stays available for
-        // DexScreener/Raydium/Meteora/Birdeye/CoinGecko/wallet/app sources.
+        // V5.0.3708 — strict means strict for weak single-source Pump rows. Do not
+        // admit Pump merely because non-pump is sparse; strong Pump exceptions are
+        // handled above and are narrow, auditable, and telemetry-visible.
         val currentPump = pumpPortalConcurrentCount()
         return currentPump >= pumpHotCapFor(total + 1)
     }
@@ -361,7 +386,7 @@ object GlobalTradeRegistry {
         // go to probation instead of occupying the visible/supervisor hot bench.
         // They are NOT deleted: later multi-source confirmation / RC / price action
         // can still promote them.
-        if (shouldDivertPumpToProbation(addedBy, source)) {
+        if (shouldDivertPumpToProbation(addedBy, source, initialMcap, laneAffinity, toolAffinity)) {
             pumpPortalProbationDiversions.incrementAndGet()
             val current = pumpPortalConcurrentCount()
             val cap = pumpHotCapFor(watchlist.size + 1)
@@ -387,6 +412,10 @@ object GlobalTradeRegistry {
         // V5.2: No max size check - let watchlist grow as needed
         // Learning requires seeing many tokens
         // Stale tokens are pruned automatically by age/loss tracking
+
+        if (strongPumpHotException(addedBy, source, initialMcap, laneAffinity, toolAffinity)) {
+            try { ForensicLogger.lifecycle("SOURCE_BALANCE_PUMP_STRONG_HOT_ADMIT", "symbol=$symbol mint=${mint.take(10)} mcap=${initialMcap.toInt()} lane=${laneAffinity.joinToString("+")} tools=${toolAffinity.joinToString("+")} source=$source") } catch (_: Throwable) {}
+        }
 
         // Add to watchlist
         watchlist[mint] = WatchlistEntry(

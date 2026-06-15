@@ -725,4 +725,25 @@ class GoldenTapeRegressionTest {
         assertFalse("LIVE must not synthesize missing final candidates", gate.contains("modeUpper == \"LIVE\" &&\n            isRealExecutionLane(requestedLaneForSynth)"))
     }
 
+
+    @Test
+    fun meme_hot_pool_source_fix_preserves_balance_but_samples_healthy_runtime() {
+        val service = java.io.File("src/main/kotlin/com/lifecyclebot/engine/BotService.kt").readText()
+        assertTrue(service.contains("SUPERVISOR_HEALTHY_MEME_MAX_INFLIGHT: Int = 48"))
+        assertTrue(service.contains("supervisorTimeoutsForPlanning = if ((nowMs - supervisorTimeoutWindowStartMs) < 600_000L) supervisorTimeoutWindowCount else 0"))
+        assertTrue(service.contains("selectorHealthy = supervisorTimeoutsForPlanning == 0"))
+        assertTrue(service.contains("selectorMaxInFlight = if (selectorHealthy) SUPERVISOR_HEALTHY_MEME_MAX_INFLIGHT else SUPERVISOR_MAX_INFLIGHT"))
+        assertTrue(service.contains("val demoteProcessFloor = if (memeFresh) 6 else 3"))
+        assertTrue(service.contains("val demoteAgeFloorMs = if (memeFresh) 5L * 60_000L else 120_000L"))
+        assertTrue(service.contains("isHighConvictionUnseen"))
+        assertTrue(service.contains("filterNot { (mint, _) -> isHighConvictionUnseen(mint, entriesByMint[mint]) }"))
+
+        val registry = java.io.File("src/main/kotlin/com/lifecyclebot/engine/GlobalTradeRegistry.kt").readText()
+        assertTrue(registry.contains("MAX_PUMP_HOT_FRACTION = 0.35"))
+        assertTrue(registry.contains("strongPumpHotException"))
+        assertTrue(registry.contains("SOURCE_BALANCE_PUMP_STRONG_HOT_ADMIT"))
+        assertTrue(registry.contains("if (strongPumpHotException(addedBy, source, initialMcap, laneAffinity, toolAffinity)) return false"))
+        assertFalse("Do not weaken source-balance by reverting to 65% Pump", registry.contains("MAX_PUMP_HOT_FRACTION = 0.65"))
+    }
+
 }
