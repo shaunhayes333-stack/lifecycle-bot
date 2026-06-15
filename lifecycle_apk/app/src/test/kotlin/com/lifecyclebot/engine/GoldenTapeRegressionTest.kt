@@ -610,15 +610,18 @@ class GoldenTapeRegressionTest {
     @Test
     fun live_sell_rejects_txparse_and_recalculates_at_every_processor_boundary() {
         val exec = java.io.File("src/main/kotlin/com/lifecyclebot/engine/Executor.kt").readText()
+        val planner = java.io.File("src/main/kotlin/com/lifecyclebot/engine/ProcessorAmountPlanner.kt").readText()
         val authority = java.io.File("src/main/kotlin/com/lifecyclebot/engine/sell/SellAmountAuthority.kt").readText()
+        val amountPlanningSurface = exec + "\n" + planner
 
         assertTrue(exec.contains("SELL_QTY_SOURCE=BALANCE_UNKNOWN reason=RPC_EMPTY_MAP"))
-        assertTrue(exec.contains("PROCESSOR_AMOUNT_RECALCULATED"))
+        assertTrue(amountPlanningSurface.contains("PROCESSOR_AMOUNT_RECALCULATED"))
+        assertTrue(exec.contains("ProcessorAmountPlanner.planSellFromConfirmed"))
         listOf(
             "PUMPPORTAL", "JUPITER_ULTRA_METIS", "JUPITER_ULTRA_METIS_LADDER",
             "PUMPPORTAL_EXIT", "PUMPPORTAL_EXIT_RESCUE", "JUPITER_DUST_BUSTER",
             "JUPITER_SHUTDOWN_SWEEP", "PUMPPORTAL_ORPHAN_SWEEP"
-        ).forEach { label -> assertTrue("missing sell processor recalc label: $label", exec.contains(label)) }
+        ).forEach { label -> assertTrue("missing sell processor recalc label: $label", amountPlanningSurface.contains(label)) }
 
         assertTrue(exec.contains("canBroadcastLiveOrEmergency"))
         assertTrue(authority.contains("BALANCE_PROOF_REJECTED reason=GENERIC_TX_PARSE_NOT_OWNER_FILTERED"))
@@ -955,17 +958,21 @@ class GoldenTapeRegressionTest {
     @Test
     fun live_buy_recalculates_sol_spend_at_processor_boundaries_and_senders_do_not_size() {
         val exec = java.io.File("src/main/kotlin/com/lifecyclebot/engine/Executor.kt").readText()
+        val planner = java.io.File("src/main/kotlin/com/lifecyclebot/engine/ProcessorAmountPlanner.kt").readText()
+        val amountPlanningSurface = exec + "\n" + planner
 
         assertTrue(exec.contains("data class ProcessorBuyPlan"))
-        assertTrue(exec.contains("BUY_PROCESSOR_AMOUNT_RECALCULATED"))
+        assertTrue(planner.contains("data class BuyPlan"))
+        assertTrue(amountPlanningSurface.contains("BUY_PROCESSOR_AMOUNT_RECALCULATED"))
+        assertTrue(exec.contains("ProcessorAmountPlanner.planBuy"))
         listOf(
             "PUMPPORTAL_BUY", "PUMPPORTAL_BUY_INTERNAL", "JUPITER_ULTRA_METIS_BUY",
             "PUMPPORTAL_TOP_UP", "JUPITER_ULTRA_METIS_TOP_UP"
-        ).forEach { label -> assertTrue("missing buy processor recalc label: $label", exec.contains(label)) }
+        ).forEach { label -> assertTrue("missing buy processor recalc label: $label", amountPlanningSurface.contains(label)) }
 
-        assertTrue(exec.contains("PumpPortal") || exec.contains("PUMPPORTAL"))
-        assertTrue(exec.contains("Jupiter Ultra") || exec.contains("JUPITER_ULTRA"))
-        assertTrue(exec.contains("Helius/Jito/RPC remain senders only; they cannot alter spend after build"))
+        assertTrue(amountPlanningSurface.contains("PumpPortal") || amountPlanningSurface.contains("PUMPPORTAL"))
+        assertTrue(amountPlanningSurface.contains("Jupiter Ultra") || amountPlanningSurface.contains("JUPITER_ULTRA"))
+        assertTrue(amountPlanningSurface.contains("Helius/Jito/RPC remain senders") || planner.contains("Helius/Jito/RPC are senders"))
         assertFalse("PumpPortal buy builder must not receive stale caller solAmount", exec.contains("solAmount       = solAmount"))
         assertFalse("Jupiter live-buy quote must not use stale liveBuy lamports after PumpPortal fallback", exec.contains("JupiterApi.SOL_MINT, ts.mint, lamports"))
     }
