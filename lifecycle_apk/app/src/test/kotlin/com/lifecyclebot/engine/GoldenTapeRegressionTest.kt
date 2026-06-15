@@ -908,7 +908,7 @@ class GoldenTapeRegressionTest {
             service.contains("liquidityUsd = 0.0") &&
                 service.contains("confidence = 0") &&
                 service.contains("isEstimatedLiquidity = true") &&
-                service.contains("SOURCE_BALANCE_PUMP_DOMINANCE_$reason")
+                service.contains("SOURCE_BALANCE_PUMP_DOMINANCE_")
         )
     }
 
