@@ -87,6 +87,7 @@ object SellAmountAuthority {
             txSignature = txSignature,
             capturedAtMs = System.currentTimeMillis(),
         )
+        try { com.lifecyclebot.engine.ForensicLogger.lifecycle("EXEC_TRACE_AUTHORITY", "side=BUY stage=OWNER_DELTA_CACHE_RECORD mint=${mint.take(10)} raw=$rawAmount decimals=$decimals sig=${txSignature.take(12)}") } catch (_: Throwable) {}
     }
 
     fun resolve(mint: String, wallet: SolanaWallet?): Resolution {
@@ -103,6 +104,7 @@ object SellAmountAuthority {
         }
         if (balances.isEmpty()) {
             // V5.0.3740 — RPC empty map is UNKNOWN, never generic TX_PARSE authority.
+            try { com.lifecyclebot.engine.ForensicLogger.lifecycle("EXEC_TRACE_AUTHORITY", "side=SELL stage=BALANCE_RPC_EMPTY mint=${mint.take(10)} walletLoaded=true") } catch (_: Throwable) {}
             ErrorLogger.warn(TAG, "BALANCE_UNKNOWN reason=RPC_EMPTY_MAP mint=${mint.take(8)}…")
             return Resolution.Unknown
         }
@@ -110,6 +112,7 @@ object SellAmountAuthority {
         if (entry == null) {
             // V5.0.3749 — one provider missing the mint is UNKNOWN, not zero.
             // Zero finality requires the tracker/reconciler independent-proof path.
+            try { com.lifecyclebot.engine.ForensicLogger.lifecycle("EXEC_TRACE_AUTHORITY", "side=SELL stage=BALANCE_MINT_ABSENT mint=${mint.take(10)} accounts=${balances.size}") } catch (_: Throwable) {}
             ErrorLogger.warn(TAG, "BALANCE_UNKNOWN reason=MINT_ABSENT_FROM_ONE_PROVIDER mint=${mint.take(8)}…")
             return Resolution.Unknown
         }
@@ -122,6 +125,7 @@ object SellAmountAuthority {
             BigDecimal(uiAmount).movePointRight(decimals).toBigInteger()
         else
             BigDecimal(uiAmount).toBigInteger()
+        try { com.lifecyclebot.engine.ForensicLogger.lifecycle("EXEC_TRACE_AUTHORITY", "side=SELL stage=BALANCE_RPC_CONFIRMED mint=${mint.take(10)} raw=$raw decimals=$decimals ui=$uiAmount source=TOKEN_ACCOUNTS_BY_OWNER") } catch (_: Throwable) {}
         return Resolution.Confirmed(raw, decimals, Source.TOKEN_ACCOUNTS_BY_OWNER)
     }
 
@@ -233,6 +237,7 @@ object SellAmountAuthority {
             (isEmergencyExitReason(reason) || isProfitProtectExitReason(reason))) {
             ErrorLogger.warn(TAG,
                 "🟡 BALANCE_UNKNOWN using BUY_TIED_OWNER_DELTA recovery amount mint=${mint.take(8)}… raw=${cached.rawAmount} ageSec=${ageMs / 1000} reason=$reason sig=${cached.txSignature.take(8)}…")
+            try { com.lifecyclebot.engine.ForensicLogger.lifecycle("EXEC_TRACE_AUTHORITY", "side=SELL stage=OWNER_DELTA_RECOVERED mint=${mint.take(10)} reason=$reason raw=${cached.rawAmount} ageMs=$ageMs sig=${cached.txSignature.take(8)}") } catch (_: Throwable) {}
             try { com.lifecyclebot.engine.ForensicLogger.lifecycle("SELL_BALANCE_PROOF_OWNER_DELTA_RECOVERED", "mint=${mint.take(10)} reason=$reason raw=${cached.rawAmount} ageMs=$ageMs sig=${cached.txSignature.take(8)}") } catch (_: Throwable) {}
             return Resolution.Confirmed(cached.rawAmount, cached.decimals, Source.TX_META_OWNER_DELTA)
         }
@@ -255,12 +260,16 @@ object SellAmountAuthority {
         mint: String,
         requestedRawAmount: java.math.BigInteger? = null,
     ): Boolean {
-        if (canBroadcastLive(resolution)) return true
+        if (canBroadcastLive(resolution)) {
+            try { com.lifecyclebot.engine.ForensicLogger.lifecycle("EXEC_TRACE_AUTHORITY", "side=SELL stage=BROADCAST_AUTH_ALLOW mint=${mint.take(10)} reason=$reason source=${balanceSource(resolution)} requestedRaw=${requestedRawAmount ?: "-"}") } catch (_: Throwable) {}
+            return true
+        }
         val cached = txParseCache[mint]
         if (cached != null) {
             ErrorLogger.warn(TAG,
                 "BALANCE_PROOF_REJECTED reason=TX_PARSE_CACHE_NOT_RESOLVED_FOR_REASON mint=${mint.take(8)}… reason=$reason sig=${cached.txSignature.take(8)}…")
         }
+        try { com.lifecyclebot.engine.ForensicLogger.lifecycle("EXEC_TRACE_AUTHORITY", "side=SELL stage=BROADCAST_AUTH_BLOCK mint=${mint.take(10)} reason=$reason source=${balanceSource(resolution)} requestedRaw=${requestedRawAmount ?: "-"}") } catch (_: Throwable) {}
         return false
     }
 

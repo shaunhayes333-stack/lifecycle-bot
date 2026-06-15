@@ -1406,7 +1406,9 @@ class Executor(
             sellTradeKey = sellTradeKey,
             traderTag = traderTag,
             reason = exitReason,
+            processor = processor,
         ) ?: run {
+            ExecutionRootCauseTrace.authority("SELL", "PROCESSOR_AMOUNT_RECALC_BLOCKED", ts, "processor=$processor exitReason=$exitReason requestedUi=$requestedUiQty reason=BALANCE_UNKNOWN")
             try { ForensicLogger.lifecycle("PROCESSOR_AMOUNT_RECALC_BLOCKED", "processor=$processor mint=${ts.mint.take(10)} reason=BALANCE_UNKNOWN") } catch (_: Throwable) {}
             return null
         }
@@ -1473,6 +1475,7 @@ class Executor(
         sellTradeKey: String? = null,
         traderTag: String = "MEME",
         reason: String = "UNKNOWN",
+        processor: String = "DIRECT",
     ): ConfirmedSellAmount? {
         if (!requestedUiQty.isFinite() || requestedUiQty <= 0.0) return null
         val accounts = try { wallet.getTokenAccountsWithDecimalsBounded() } catch (e: Exception) {
@@ -1504,6 +1507,7 @@ class Executor(
                     .coerceIn(1L, walletRaw.coerceAtLeast(1L))
                 val requestedUi = requestedRaw.toDouble() / scale
                 val walletUi = walletRaw.toDouble() / scale
+                ExecutionRootCauseTrace.authority("SELL", "PROCESSOR_AMOUNT_OWNER_DELTA_RECOVERED", ts, "processor=$processor reason=$reason requestedRaw=$requestedRaw walletRaw=$walletRaw decimals=$decimals")
                 try { ForensicLogger.lifecycle("PROCESSOR_AMOUNT_OWNER_DELTA_RECOVERED", "processor=$processor mint=${ts.mint.take(10)} reason=$reason requestedRaw=$requestedRaw walletRaw=$walletRaw decimals=$decimals") } catch (_: Throwable) {}
                 return ConfirmedSellAmount(requestedRaw, requestedUi, walletRaw, walletUi, decimals)
             }
@@ -1531,6 +1535,7 @@ class Executor(
                     .coerceIn(1L, walletRaw.coerceAtLeast(1L))
                 val requestedUi = requestedRaw.toDouble() / scale
                 val walletUi = walletRaw.toDouble() / scale
+                ExecutionRootCauseTrace.authority("SELL", "PROCESSOR_AMOUNT_OWNER_DELTA_RECOVERED", ts, "processor=$processor reason=$reason requestedRaw=$requestedRaw walletRaw=$walletRaw decimals=$decimals")
                 try { ForensicLogger.lifecycle("PROCESSOR_AMOUNT_OWNER_DELTA_RECOVERED", "processor=$processor mint=${ts.mint.take(10)} reason=$reason requestedRaw=$requestedRaw walletRaw=$walletRaw decimals=$decimals") } catch (_: Throwable) {}
                 return ConfirmedSellAmount(requestedRaw, requestedUi, walletRaw, walletUi, decimals)
             }
@@ -6492,7 +6497,9 @@ class Executor(
         }
         
         val shouldActOnBuy = isPaperRT() || cfg().autoTrade
+        ExecutionRootCauseTrace.buy("DO_EXECUTE_BUY_DECISION", ts, "shouldAct=$shouldActOnBuy autoTrade=${cfg().autoTrade} paper=${isPaperRT()} shouldTrade=${decision.shouldTrade} signal=${decision.signal} final=${decision.finalSignal} score=${decision.entryScore} conf=${decision.aiConfidence} quality=${decision.finalQuality} block=${decision.blockReason.take(80)}")
         if (!shouldActOnBuy) {
+            ExecutionRootCauseTrace.buy("BUY_ABORT_AUTO_DISABLED", ts, "autoTrade=${cfg().autoTrade} paper=${isPaperRT()}")
             ErrorLogger.debug("Executor", "📊 ${ts.symbol}: Buy skipped - autoTrade disabled")
             return
         }
@@ -8557,7 +8564,9 @@ class Executor(
             return false
         }
         
+        ExecutionRootCauseTrace.buy("LIVE_BUY_ENTRY", ts, "sol=$sol walletSol=$walletSol score=$score quality=$quality layer=$layerTag attemptId=$attemptId finalityPrechecked=$finalityPrechecked autoTrade=${cfg().autoTrade}")
         if (sol <= 0 || sol.isNaN() || sol.isInfinite()) {
+            ExecutionRootCauseTrace.buy("LIVE_BUY_ABORT_INVALID_SIZE", ts, "sol=$sol")
             ErrorLogger.warn("Executor", "[EXECUTION/INVALID] Live buy skipped: invalid size $sol for ${ts.symbol}")
             emitLiveBuyFail(ts, sol, "INVALID_SIZE")
             return false
@@ -8617,6 +8626,7 @@ class Executor(
                 attemptId = attemptId.ifBlank { ExecutableOpenGate.nextAttemptId(ts.mint, layerTag.ifBlank { "UNKNOWN" }) },
             )
             if (!executableOpen.allowed) {
+                ExecutionRootCauseTrace.finality("BUY", "LIVE_BUY_FINALITY_BLOCK", ts, "attemptId=${executableOpen.attemptId} reason=${executableOpen.reason}")
                 ErrorLogger.warn("Executor", "🚫 LIVE_BUY_BLOCKED_FINALITY: ${ts.symbol} | attemptId=${executableOpen.attemptId} | ${executableOpen.reason}")
                 emitLiveBuyFail(ts, sol, "FINALITY_BLOCK", executableOpen.reason)
                 return false
@@ -10714,6 +10724,7 @@ class Executor(
     internal fun doSell(ts: TokenState, reason: String,
                        wallet: SolanaWallet?, walletSol: Double,
                        identity: TradeIdentity? = null): SellResult {
+        ExecutionRootCauseTrace.sell("DO_SELL_ENTRY", ts, "reason=$reason walletLoaded=${wallet != null} walletSol=$walletSol identity=${identity?.source ?: "-"} posQty=${ts.position.qtyToken} entry=${ts.position.entryPrice} high=${ts.position.highestPrice}")
         // V5.9.1411 — Move paper settle-in delay guard directly into doSell.
         // This ensures exits originating from riskCheck (like v8_catastrophic_loss)
         // or UltraFastRugDetector are caught by the settle-in delay if they are fake soft losses.
@@ -12272,6 +12283,7 @@ class Executor(
     private fun liveSell(ts: TokenState, reason: String,
                          wallet: SolanaWallet, walletSol: Double,
                          identity: TradeIdentity? = null): SellResult {
+        ExecutionRootCauseTrace.sell("LIVE_SELL_ENTRY", ts, "reason=$reason walletSol=$walletSol posQty=${ts.position.qtyToken} entry=${ts.position.entryPrice} high=${ts.position.highestPrice}")
         val tradeId = identity ?: TradeIdentityManager.getOrCreate(ts.mint, ts.symbol, ts.source)
         
         val c   = cfg()

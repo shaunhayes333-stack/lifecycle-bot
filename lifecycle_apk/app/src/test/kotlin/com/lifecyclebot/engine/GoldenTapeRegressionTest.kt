@@ -1201,4 +1201,26 @@ class GoldenTapeRegressionTest {
         assertFalse("generic tx parse must not be blindly accepted", authority.contains("return tryFreshTxParseFallback(mint"))
     }
 
+
+    @Test
+    fun buy_sell_root_cause_trace_labels_are_wired() {
+        val tracer = java.io.File("src/main/kotlin/com/lifecyclebot/engine/ExecutionRootCauseTrace.kt").readText()
+        val exec = java.io.File("src/main/kotlin/com/lifecyclebot/engine/Executor.kt").readText()
+        val planner = java.io.File("src/main/kotlin/com/lifecyclebot/engine/ProcessorAmountPlanner.kt").readText()
+        val authority = java.io.File("src/main/kotlin/com/lifecyclebot/engine/sell/SellAmountAuthority.kt").readText()
+
+        listOf("EXEC_TRACE_BUY", "EXEC_TRACE_SELL", "EXEC_TRACE_AUTHORITY", "EXEC_TRACE_ROUTE", "EXEC_TRACE_FINALITY").forEach { label ->
+            assertTrue("missing trace label $label", tracer.contains(label) || exec.contains(label) || planner.contains(label) || authority.contains(label))
+        }
+        assertTrue(exec.contains("DO_EXECUTE_BUY_DECISION"))
+        assertTrue(exec.contains("LIVE_BUY_ENTRY"))
+        assertTrue(exec.contains("DO_SELL_ENTRY"))
+        assertTrue(exec.contains("LIVE_SELL_ENTRY"))
+        assertTrue(planner.contains("BUY_PLAN_START"))
+        assertTrue(planner.contains("SELL_PLAN_OK"))
+        assertTrue(authority.contains("OWNER_DELTA_CACHE_RECORD"))
+        assertTrue(authority.contains("BROADCAST_AUTH_ALLOW"))
+        assertTrue(authority.contains("BROADCAST_AUTH_BLOCK"))
+    }
+
 }

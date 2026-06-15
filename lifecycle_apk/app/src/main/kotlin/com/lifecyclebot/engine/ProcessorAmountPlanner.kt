@@ -31,7 +31,11 @@ object ProcessorAmountPlanner {
         tradeKey: String? = null,
         traderTag: String = "MEME",
     ): BuyPlan? {
-        if (!requestedSol.isFinite() || requestedSol <= 0.0) return null
+        ExecutionRootCauseTrace.authority("BUY", "BUY_PLAN_START", ts, "processor=$processor requestedSol=$requestedSol priorityFee=$priorityFeeSol jitoTip=$jitoTipLamports")
+        if (!requestedSol.isFinite() || requestedSol <= 0.0) {
+            ExecutionRootCauseTrace.authority("BUY", "BUY_PLAN_BLOCK_INVALID_REQUEST", ts, "processor=$processor requestedSol=$requestedSol")
+            return null
+        }
         val freshWalletSol = try { wallet.getSolBalance() } catch (e: Throwable) {
             try { ForensicLogger.lifecycle("BUY_PROCESSOR_AMOUNT_BLOCKED", "processor=$processor mint=${ts.mint.take(10)} reason=WALLET_SOL_UNKNOWN err=${e.message?.take(60)}") } catch (_: Throwable) {}
             return null
@@ -52,6 +56,7 @@ object ProcessorAmountPlanner {
                     traderTag = traderTag,
                 )
             } catch (_: Throwable) {}
+            ExecutionRootCauseTrace.authority("BUY", "BUY_PLAN_BLOCK_INSUFFICIENT_SOL", ts, "processor=$processor requested=$requestedSol wallet=$freshWalletSol reserve=$reserveSol spendable=$spendableSol")
             try { ForensicLogger.lifecycle("BUY_PROCESSOR_AMOUNT_BLOCKED", "processor=$processor mint=${ts.mint.take(10)} requested=$requestedSol wallet=$freshWalletSol reserve=$reserveSol") } catch (_: Throwable) {}
             return null
         }
@@ -65,6 +70,7 @@ object ProcessorAmountPlanner {
                 traderTag = traderTag,
             )
         } catch (_: Throwable) {}
+        ExecutionRootCauseTrace.authority("BUY", "BUY_PLAN_OK", ts, "processor=$processor sol=$clampedSol lamports=$lamports wallet=$freshWalletSol reserve=$reserveSol requested=$requestedSol")
         try { ForensicLogger.lifecycle("BUY_PROCESSOR_AMOUNT_RECALCULATED", "processor=$processor mint=${ts.mint.take(10)} sol=$clampedSol lamports=$lamports wallet=$freshWalletSol reserve=$reserveSol requested=$requestedSol") } catch (_: Throwable) {}
         return BuyPlan(processor, clampedSol, lamports, freshWalletSol, reserveSol)
     }
@@ -89,6 +95,7 @@ object ProcessorAmountPlanner {
                 traderTag = traderTag,
             )
         } catch (_: Throwable) {}
+        ExecutionRootCauseTrace.authority("SELL", "SELL_PLAN_OK", ts, "processor=$processor raw=$requestedRaw ui=$requestedUi walletRaw=$walletRaw walletUi=$walletUi decimals=$decimals")
         try { ForensicLogger.lifecycle("PROCESSOR_AMOUNT_RECALCULATED", "processor=$processor mint=${ts.mint.take(10)} raw=$requestedRaw ui=$requestedUi decimals=$decimals") } catch (_: Throwable) {}
         return SellPlan(processor, requestedRaw, requestedUi, walletRaw, walletUi, decimals)
     }
