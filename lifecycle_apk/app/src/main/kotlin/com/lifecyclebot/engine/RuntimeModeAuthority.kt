@@ -79,6 +79,29 @@ object RuntimeModeAuthority {
         state.updateAndGet { it.copy(pipeline = mode(paperMode), updatedAtMs = System.currentTimeMillis()) }
     }
 
+    /**
+     * V5.0.3752 — generation-start mode sync.
+     *
+     * publishExecutorMode()/publishPipelineMode() are diagnostic writers, not
+     * independent sources of truth. A PAPER writer from a previous generation
+     * must not poison a fresh LIVE start with MODE_DESYNC before the new loop or
+     * executor has had a chance to publish. StartBot calls this once after cfg is
+     * loaded; any real later divergence is still detected normally.
+     */
+    fun publishRuntimeStart(paperMode: Boolean, autoTrade: Boolean) {
+        val m = mode(paperMode)
+        state.set(
+            Snapshot(
+                authority = m,
+                ui = m,
+                executor = m,
+                pipeline = m,
+                autoTrade = autoTrade,
+                updatedAtMs = System.currentTimeMillis(),
+            )
+        )
+    }
+
     fun current(): Snapshot = state.get()
 
     fun authority(): Mode = state.get().authority

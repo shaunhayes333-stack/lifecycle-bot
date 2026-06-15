@@ -112,6 +112,22 @@ object PipelineHealthCollector {
 
     @Volatile var modeSnapshot: String = "UNKNOWN"
 
+    fun resetModeCountersForRuntime(mode: String) {
+        modeSnapshot = mode
+        fdgLiveAllow.set(0L)
+        fdgLiveBlock.set(0L)
+        fdgPaperAllow.set(0L)
+        fdgPaperBlock.set(0L)
+        execLiveAttempt.set(0L)
+        execLiveBuyOk.set(0L)
+        execLiveBuyFail.set(0L)
+        execLiveSellOk.set(0L)
+        execLiveSellFail.set(0L)
+        execPaperBuyOk.set(0L)
+        execPaperSellOk.set(0L)
+        try { ForensicLogger.lifecycle("MODE_COUNTERS_RESET", "mode=$mode") } catch (_: Throwable) {}
+    }
+
     private val fdgLiveAllow   = AtomicLong(0L)
     private val fdgLiveBlock   = AtomicLong(0L)
     private val fdgPaperAllow  = AtomicLong(0L)

@@ -2176,8 +2176,14 @@ class BotService : Service() {
                     // V5.9.1218 — this branch is hit by keep-alive ACTION_START
                     // while the bot is already running. Do not decrypt ConfigStore on
                     // the service/main path; use the already-published runtime authority.
+                    val repairPaper = try { RuntimeModeAuthority.isPaper() } catch (_: Throwable) { true }
+                    val repairAuto = try { RuntimeModeAuthority.current().autoTrade } catch (_: Throwable) { true }
+                    try {
+                        RuntimeModeAuthority.publishRuntimeStart(repairPaper, repairAuto)
+                        PipelineHealthCollector.resetModeCountersForRuntime(if (repairPaper) "PAPER" else "LIVE")
+                    } catch (_: Throwable) {}
                     val repairGen = BotRuntimeController.beginStart(
-                        paperMode = try { RuntimeModeAuthority.isPaper() } catch (_: Throwable) { true },
+                        paperMode = repairPaper,
                         enabledTraders = try { EnabledTraderAuthority.snapshotStr() } catch (_: Throwable) { "" }
                     )
                     BotRuntimeController.registerJob(repairGen, "botLoop", loopJob)
@@ -3492,12 +3498,18 @@ class BotService : Service() {
         // failure from degraded post-commit startup cleanup.
         var runtimeCommitted = false
         val startCfgForRuntime = try { ConfigStore.load(applicationContext) } catch (_: Throwable) { null }
+        val startPaper = startCfgForRuntime?.paperMode ?: true
+        val startAuto = startCfgForRuntime?.autoTrade ?: false
+        try {
+            RuntimeModeAuthority.publishRuntimeStart(startPaper, startAuto)
+            PipelineHealthCollector.resetModeCountersForRuntime(if (startPaper) "PAPER" else "LIVE")
+        } catch (_: Throwable) {}
         val runtimeGeneration = BotRuntimeController.beginStart(
-            paperMode = startCfgForRuntime?.paperMode ?: true,
+            paperMode = startPaper,
             enabledTraders = try { EnabledTraderAuthority.snapshotStr() } catch (_: Throwable) { "" }
         )
         // V5.9.651 — forensic lifecycle marker
-        ForensicLogger.lifecycle("BOT_START_REQUESTED", "gen=$runtimeGeneration loopActive=${loopJob?.isActive == true} statusRunning=${status.running} runtimeState=${BotRuntimeController.snapshot().state}")
+        ForensicLogger.lifecycle("BOT_START_REQUESTED", "gen=$runtimeGeneration loopActive=${loopJob?.isActive == true} statusRunning=${status.running} runtimeState=${BotRuntimeController.snapshot().state} modeSynced=true paper=$startPaper")
         // V5.9.647 — gate on actual botLoop activity, NOT on status.running.
         // BotViewModel.startBot() pre-sets BotService.status.running = true
         // for instant UI feedback BEFORE the service even starts. The old
@@ -3591,8 +3603,9 @@ class BotService : Service() {
             // V5.9.602 — publish + log the actual persisted runtime mode at
             // service start. Wallet-connected/live-ready UI is not enough;
             // this is the authority that decides paper vs live execution.
-            RuntimeModeAuthority.publishConfig(cfg.paperMode, cfg.autoTrade)
-            addLog("✓ Config loaded: paperMode=${cfg.paperMode} authority=${RuntimeModeAuthority.authority()}")
+            RuntimeModeAuthority.publishRuntimeStart(cfg.paperMode, cfg.autoTrade)
+            PipelineHealthCollector.resetModeCountersForRuntime(if (cfg.paperMode) "PAPER" else "LIVE")
+            addLog("✓ Config loaded: paperMode=${cfg.paperMode} authority=${RuntimeModeAuthority.authority()} modeSynced=true")
 
             // V5.9.105: fresh start = clean circuit breaker. beginSession() is
             // called below once the live wallet balance is known.

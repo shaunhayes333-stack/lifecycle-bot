@@ -1164,4 +1164,22 @@ class GoldenTapeRegressionTest {
         assertTrue(crypto.contains("cfg.cryptoAltsEnabled && cfg.marketsTraderEnabled"))
     }
 
+
+    @Test
+    fun runtime_start_resets_mode_desync_writers() {
+        val authority = java.io.File("src/main/kotlin/com/lifecyclebot/engine/RuntimeModeAuthority.kt").readText()
+        val collector = java.io.File("src/main/kotlin/com/lifecyclebot/engine/PipelineHealthCollector.kt").readText()
+        val bot = java.io.File("src/main/kotlin/com/lifecyclebot/engine/BotService.kt").readText()
+
+        assertTrue(authority.contains("fun publishRuntimeStart"))
+        assertTrue(authority.contains("executor = m"))
+        assertTrue(authority.contains("pipeline = m"))
+        assertTrue(collector.contains("fun resetModeCountersForRuntime"))
+        assertTrue(collector.contains("fdgPaperAllow.set(0L)"))
+        assertTrue(collector.contains("execPaperBuyOk.set(0L)"))
+        assertTrue(bot.contains("publishRuntimeStart(startPaper, startAuto)"))
+        assertTrue(bot.contains("resetModeCountersForRuntime(if (startPaper) \"PAPER\" else \"LIVE\")"))
+        assertTrue(bot.contains("modeSynced=true"))
+    }
+
 }
