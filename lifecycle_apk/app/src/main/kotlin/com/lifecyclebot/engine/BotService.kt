@@ -7218,6 +7218,31 @@ class BotService : Service() {
                                         // real price set; do NOT continue — let this tick's
                                         // hard-floor / exit / pivot logic act on the true mark.
                                     } else {
+                                        // V5.0.3739 — PAPER stale-zombie source fix.
+                                        // In PAPER there is no wallet capital to protect from a
+                                        // blind stale-feed dump. Holding forever here turns a dark
+                                        // Dex/GT/API window into forcedOpen debt + thousands of
+                                        // EXIT evaluations (`STALE_LIVE_PRICE_HOLD...`) and poisons
+                                        // rolling WR with undead positions. Live keeps the existing
+                                        // conservative hold. Paper gets a bounded scratch/timeout
+                                        // close after one extra stale grace window so training churn
+                                        // keeps moving without inventing a rug loss.
+                                        val paperStaleTimeoutMs = staleLivePriceThreshMs + 60_000L
+                                        if (cfg.paperMode && livePriceAgeMs > paperStaleTimeoutMs) {
+                                            try {
+                                                ForensicLogger.lifecycle(
+                                                    "PAPER_STALE_ZOMBIE_SCRATCH_EXIT",
+                                                    "symbol=${ts.symbol} lastPnlPct=${"%.1f".format(lastKnownPnlPct)} floor=${"%.1f".format(stalePnlFloor)} ageS=${livePriceAgeMs/1000} timeoutS=${paperStaleTimeoutMs/1000} — feed+oracle dark, closing scratch to prevent forcedOpen/WR poison"
+                                                )
+                                            } catch (_: Throwable) {}
+                                            executor.requestSell(
+                                                ts = ts,
+                                                reason = "PAPER_STALE_PRICE_TIMEOUT_SCRATCH",
+                                                wallet = wallet,
+                                                walletSol = effectiveBalance,
+                                            )
+                                            continue
+                                        }
                                         try {
                                             ForensicLogger.lifecycle(
                                                 if (cfg.paperMode) "STALE_LIVE_PRICE_HOLD_PAPER_NOT_HARDFLOOR" else "STALE_LIVE_PRICE_HOLD_WINNER",
