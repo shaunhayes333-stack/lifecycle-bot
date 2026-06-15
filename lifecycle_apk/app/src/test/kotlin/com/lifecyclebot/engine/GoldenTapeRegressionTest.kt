@@ -890,4 +890,21 @@ class GoldenTapeRegressionTest {
         assertTrue(exec.contains("NO_FINAL_BUY_CANDIDATE"))
     }
 
+
+    @Test
+    fun source_balance_demotion_preserves_intake_liquidity_metadata() {
+        val registry = java.io.File("src/main/kotlin/com/lifecyclebot/engine/GlobalTradeRegistry.kt").readText()
+        assertTrue(registry.contains("var initialLiquidityUsd"))
+        assertTrue(registry.contains("var initialConfidence"))
+        assertTrue(registry.contains("if (initialLiquidityUsd > existing.initialLiquidityUsd)"))
+
+        val service = java.io.File("src/main/kotlin/com/lifecyclebot/engine/BotService.kt").readText()
+        assertTrue(service.contains("initialLiquidityUsd = liquidityUsd"))
+        assertTrue(service.contains("confidence = confidence"))
+        assertTrue(service.contains("do not fabricate zero-liquidity probation rows"))
+        assertTrue(service.contains("val demoteLiq"))
+        assertFalse("Source-balance demotion must not hardcode liq=0 for real-liq intake", service.contains("reason = "SOURCE_BALANCE_PUMP_DOMINANCE_$reason",
+                        liquidityUsd = 0.0"))
+    }
+
 }

@@ -8742,13 +8742,23 @@ class BotService : Service() {
                     pos?.isOpen == true || pos?.pendingVerify == true || (pos?.qtyToken ?: 0.0) > 0.0
                 } } catch (_: Throwable) { false }
                 if (open) continue
+                // V5.0.3732 — do not fabricate zero-liquidity probation rows.
+                // Report 5.0.3730 showed fresh tokens admitted with real liq ($5k+)
+                // immediately demoted as SOURCE_BALANCE_PUMP_DOMINANCE with liq=$0
+                // because rebalance runs before status.tokens hydration. Use registry
+                // intake metadata first, then any live TokenState fallback.
+                val demoteLiq = try {
+                    val liveLiq = synchronized(status.tokens) { status.tokens[entry.mint]?.lastLiquidityUsd ?: 0.0 }
+                    maxOf(entry.initialLiquidityUsd, liveLiq)
+                } catch (_: Throwable) { entry.initialLiquidityUsd }
+                val demoteConf = entry.initialConfidence.coerceAtLeast(0)
                 val ok = try {
                     com.lifecyclebot.engine.GlobalTradeRegistry.demoteWatchlistToProbation(
                         mint = entry.mint,
                         reason = "SOURCE_BALANCE_PUMP_DOMINANCE_$reason",
-                        liquidityUsd = 0.0,
-                        confidence = 0,
-                        isEstimatedLiquidity = true,
+                        liquidityUsd = demoteLiq,
+                        confidence = demoteConf,
+                        isEstimatedLiquidity = demoteLiq <= 0.0,
                     )
                 } catch (_: Throwable) { false }
                 if (ok) {
@@ -9249,6 +9259,8 @@ class BotService : Service() {
                     addedBy = source,
                     source = joinedSources,
                     initialMcap = marketCapUsd,
+                    initialLiquidityUsd = liquidityUsd,
+                    confidence = confidence,
                     laneAffinity = laneAffinity,
                     toolAffinity = toolAffinity,
                 )
