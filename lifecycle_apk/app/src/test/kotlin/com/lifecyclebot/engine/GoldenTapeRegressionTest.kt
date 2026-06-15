@@ -1272,7 +1272,10 @@ class GoldenTapeRegressionTest {
 
         assertTrue(poller.contains("ZERO_BALANCE_CONFIRMED"))
         assertTrue(bot.contains("recordIndependentZeroBalanceProof"))
-        assertTrue(bot.indexOf("recordIndependentZeroBalanceProof") < bot.indexOf("confirmZeroBalanceClose"))
+        val zeroCallback = bot.substring(bot.indexOf("recordIndependentZeroBalanceProof")).take(900)
+        assertTrue(zeroCallback.contains("recordIndependentZeroBalanceProof"))
+        assertTrue(zeroCallback.contains("confirmZeroBalanceClose"))
+        assertTrue(zeroCallback.indexOf("recordIndependentZeroBalanceProof") < zeroCallback.indexOf("confirmZeroBalanceClose"))
         assertTrue(tracker.contains("fun recordIndependentZeroBalanceProof"))
         assertTrue(tracker.contains("zeroBalanceConfirmedByTwoProviders = true"))
         assertTrue(tracker.contains("INDEPENDENT_ZERO_BALANCE_PROOF"))
