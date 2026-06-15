@@ -1393,6 +1393,7 @@ class Executor(
         wallet: SolanaWallet,
         processor: String,
         requestedUiQty: Double,
+        exitReason: String = processor,
         fraction: Double? = null,
         sellTradeKey: String? = null,
         traderTag: String = "MEME",
@@ -1404,6 +1405,7 @@ class Executor(
             fraction = fraction,
             sellTradeKey = sellTradeKey,
             traderTag = traderTag,
+            reason = exitReason,
         ) ?: run {
             try { ForensicLogger.lifecycle("PROCESSOR_AMOUNT_RECALC_BLOCKED", "processor=$processor mint=${ts.mint.take(10)} reason=BALANCE_UNKNOWN") } catch (_: Throwable) {}
             return null
@@ -1470,6 +1472,7 @@ class Executor(
         fraction: Double? = null,
         sellTradeKey: String? = null,
         traderTag: String = "MEME",
+        reason: String = "UNKNOWN",
     ): ConfirmedSellAmount? {
         if (!requestedUiQty.isFinite() || requestedUiQty <= 0.0) return null
         val accounts = try { wallet.getTokenAccountsWithDecimalsBounded() } catch (e: Exception) {
@@ -1487,6 +1490,23 @@ class Executor(
         }
 
         if (accounts == null || accounts.isEmpty()) {
+            val recovered = try { com.lifecyclebot.engine.sell.SellAmountAuthority.resolveForExit(ts.mint, wallet, reason) } catch (_: Throwable) { null }
+            val c = recovered as? com.lifecyclebot.engine.sell.SellAmountAuthority.Resolution.Confirmed
+            if (c != null) {
+                val walletRawBig = if (c.rawAmount.signum() < 0) java.math.BigInteger.ZERO else c.rawAmount
+                val walletRaw = if (walletRawBig > java.math.BigInteger.valueOf(Long.MAX_VALUE)) Long.MAX_VALUE else walletRawBig.toLong()
+                val decimals = c.decimals.coerceAtLeast(0)
+                val scale = 10.0.pow(decimals.toDouble())
+                val requestedRawBig0 = java.math.BigDecimal(requestedUiQty.coerceAtLeast(0.0)).movePointRight(decimals).toBigInteger()
+                val requestedRawBig = if (requestedRawBig0 < java.math.BigInteger.ONE) java.math.BigInteger.ONE else requestedRawBig0
+                val requestedRaw = (if (requestedRawBig > walletRawBig) walletRawBig else requestedRawBig)
+                    .let { if (it > java.math.BigInteger.valueOf(Long.MAX_VALUE)) Long.MAX_VALUE else it.toLong() }
+                    .coerceIn(1L, walletRaw.coerceAtLeast(1L))
+                val requestedUi = requestedRaw.toDouble() / scale
+                val walletUi = walletRaw.toDouble() / scale
+                try { ForensicLogger.lifecycle("PROCESSOR_AMOUNT_OWNER_DELTA_RECOVERED", "processor=$processor mint=${ts.mint.take(10)} reason=$reason requestedRaw=$requestedRaw walletRaw=$walletRaw decimals=$decimals") } catch (_: Throwable) {}
+                return ConfirmedSellAmount(requestedRaw, requestedUi, walletRaw, walletUi, decimals)
+            }
             LiveTradeLogStore.log(
                 sellTradeKey ?: LiveTradeLogStore.keyFor(ts.mint, ts.position.entryTime),
                 ts.mint, ts.symbol, "SELL", LiveTradeLogStore.Phase.SELL_BALANCE_CHECK,
@@ -1497,6 +1517,23 @@ class Executor(
         }
         val entry = accounts[ts.mint]
         if (entry == null) {
+            val recovered = try { com.lifecyclebot.engine.sell.SellAmountAuthority.resolveForExit(ts.mint, wallet, reason) } catch (_: Throwable) { null }
+            val c = recovered as? com.lifecyclebot.engine.sell.SellAmountAuthority.Resolution.Confirmed
+            if (c != null) {
+                val walletRawBig = if (c.rawAmount.signum() < 0) java.math.BigInteger.ZERO else c.rawAmount
+                val walletRaw = if (walletRawBig > java.math.BigInteger.valueOf(Long.MAX_VALUE)) Long.MAX_VALUE else walletRawBig.toLong()
+                val decimals = c.decimals.coerceAtLeast(0)
+                val scale = 10.0.pow(decimals.toDouble())
+                val requestedRawBig0 = java.math.BigDecimal(requestedUiQty.coerceAtLeast(0.0)).movePointRight(decimals).toBigInteger()
+                val requestedRawBig = if (requestedRawBig0 < java.math.BigInteger.ONE) java.math.BigInteger.ONE else requestedRawBig0
+                val requestedRaw = (if (requestedRawBig > walletRawBig) walletRawBig else requestedRawBig)
+                    .let { if (it > java.math.BigInteger.valueOf(Long.MAX_VALUE)) Long.MAX_VALUE else it.toLong() }
+                    .coerceIn(1L, walletRaw.coerceAtLeast(1L))
+                val requestedUi = requestedRaw.toDouble() / scale
+                val walletUi = walletRaw.toDouble() / scale
+                try { ForensicLogger.lifecycle("PROCESSOR_AMOUNT_OWNER_DELTA_RECOVERED", "processor=$processor mint=${ts.mint.take(10)} reason=$reason requestedRaw=$requestedRaw walletRaw=$walletRaw decimals=$decimals") } catch (_: Throwable) {}
+                return ConfirmedSellAmount(requestedRaw, requestedUi, walletRaw, walletUi, decimals)
+            }
             LiveTradeLogStore.log(
                 sellTradeKey ?: LiveTradeLogStore.keyFor(ts.mint, ts.position.entryTime),
                 ts.mint, ts.symbol, "SELL", LiveTradeLogStore.Phase.SELL_BALANCE_CHECK,
@@ -3794,6 +3831,7 @@ class Executor(
             wallet = wallet,
             processor = "INITIAL_SELL_PLAN",
             requestedUiQty = sellQty,
+            exitReason = reason,
             sellTradeKey = null,
             traderTag = "MEME",
         ) ?: return
@@ -3987,6 +4025,7 @@ class Executor(
                 wallet = wallet,
                 processor = "JUPITER_ULTRA_METIS",
                 requestedUiQty = sellQty,
+                exitReason = reason,
                 sellTradeKey = sellTradeKey,
                 traderTag = "MEME",
             ) ?: return
@@ -4039,6 +4078,7 @@ class Executor(
                     wallet = wallet,
                     processor = "PUMPPORTAL",
                     requestedUiQty = sellQty,
+                    exitReason = reason,
                     sellTradeKey = sellTradeKey,
                     traderTag = "MEME",
                 )?.rawAmount ?: return,
@@ -4079,6 +4119,7 @@ class Executor(
                                 wallet = wallet,
                                 processor = "JUPITER_ULTRA_METIS",
                                 requestedUiQty = sellQty,
+                                exitReason = reason,
                                 sellTradeKey = sellTradeKey,
                                 traderTag = "MEME",
                             ) ?: return
@@ -10327,7 +10368,7 @@ class Executor(
                     val newSoldPct = pos.partialSoldPct + (pct * 100)
                     
                     val sellTradeKey = LiveTradeLogStore.keyFor(ts.mint, pos.entryTime)
-                    val confirmedSell = resolveConfirmedSellAmountOrNull(ts, activeWallet, sellQty, pct, sellTradeKey)
+                    val confirmedSell = resolveConfirmedSellAmountOrNull(ts, activeWallet, sellQty, pct, sellTradeKey, reason = reason)
                         ?: run {
                             com.lifecyclebot.engine.sell.SellExecutionLocks.release(ts.mint)
                             onLog("🛑 PARTIAL SELL BLOCKED: ${ts.symbol} BALANCE_UNKNOWN — refusing cached qty broadcast", ts.mint)

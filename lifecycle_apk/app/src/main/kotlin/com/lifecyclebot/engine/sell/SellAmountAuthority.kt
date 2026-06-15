@@ -215,6 +215,27 @@ object SellAmountAuthority {
                 "🟡 BALANCE_UNKNOWN using lastPositiveRaw recovery amount mint=${mint.take(8)}… raw=$trackedRaw status=${tracked.status}")
             return Resolution.Confirmed(trackedRaw, tracked.decimals, Source.TX_META_OWNER_DELTA)
         }
+        // V5.0.3753 — live-sell finality restoration.
+        // The buy path records owner-filtered tx-meta token delta after a landed
+        // live buy. During Solana indexing gaps, getTokenAccountsByOwner can keep
+        // returning an empty map for minutes, which stranded profit/SL sells in
+        // SELL_WAITING_BALANCE_PROOF forever. Use the buy-tied owner-delta cache
+        // only for time-critical exits, never for ordinary discretionary sells,
+        // and keep the existing freshness windows.
+        val maxAgeMs = when {
+            isEmergencyExitReason(reason) -> EMERGENCY_TX_PARSE_MS
+            isProfitProtectExitReason(reason) -> PROFIT_PROTECT_TX_PARSE_MS
+            else -> FRESH_TX_PARSE_MS
+        }
+        val cached = txParseCache[mint]
+        val ageMs = cached?.let { System.currentTimeMillis() - it.capturedAtMs } ?: Long.MAX_VALUE
+        if (cached != null && ageMs <= maxAgeMs && cached.rawAmount.signum() > 0 &&
+            (isEmergencyExitReason(reason) || isProfitProtectExitReason(reason))) {
+            ErrorLogger.warn(TAG,
+                "🟡 BALANCE_UNKNOWN using BUY_TIED_OWNER_DELTA recovery amount mint=${mint.take(8)}… raw=${cached.rawAmount} ageSec=${ageMs / 1000} reason=$reason sig=${cached.txSignature.take(8)}…")
+            try { com.lifecyclebot.engine.ForensicLogger.lifecycle("SELL_BALANCE_PROOF_OWNER_DELTA_RECOVERED", "mint=${mint.take(10)} reason=$reason raw=${cached.rawAmount} ageMs=$ageMs sig=${cached.txSignature.take(8)}") } catch (_: Throwable) {}
+            return Resolution.Confirmed(cached.rawAmount, cached.decimals, Source.TX_META_OWNER_DELTA)
+        }
         return normal
     }
 
@@ -238,7 +259,7 @@ object SellAmountAuthority {
         val cached = txParseCache[mint]
         if (cached != null) {
             ErrorLogger.warn(TAG,
-                "BALANCE_PROOF_REJECTED reason=GENERIC_TX_PARSE_NOT_OWNER_FILTERED mint=${mint.take(8)}… sig=${cached.txSignature.take(8)}…")
+                "BALANCE_PROOF_REJECTED reason=TX_PARSE_CACHE_NOT_RESOLVED_FOR_REASON mint=${mint.take(8)}… reason=$reason sig=${cached.txSignature.take(8)}…")
         }
         return false
     }

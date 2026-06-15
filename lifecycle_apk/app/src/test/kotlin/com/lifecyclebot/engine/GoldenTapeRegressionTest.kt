@@ -1182,4 +1182,23 @@ class GoldenTapeRegressionTest {
         assertTrue(bot.contains("modeSynced=true"))
     }
 
+
+    @Test
+    fun live_sell_uses_buy_tied_owner_delta_during_rpc_empty_gap() {
+        val authority = java.io.File("src/main/kotlin/com/lifecyclebot/engine/sell/SellAmountAuthority.kt").readText()
+        val exec = java.io.File("src/main/kotlin/com/lifecyclebot/engine/Executor.kt").readText()
+
+        assertTrue(authority.contains("BUY_TIED_OWNER_DELTA"))
+        assertTrue(authority.contains("SELL_BALANCE_PROOF_OWNER_DELTA_RECOVERED"))
+        assertTrue(authority.contains("isEmergencyExitReason(reason) || isProfitProtectExitReason(reason)"))
+        assertTrue(authority.contains("Resolution.Confirmed(cached.rawAmount, cached.decimals, Source.TX_META_OWNER_DELTA)"))
+        assertTrue(authority.contains("Source.TX_META_OWNER_DELTA -> BalanceSource.WALLET_SCAN_CONFIRMED"))
+        assertTrue(exec.contains("SellAmountAuthority.resolveForExit(ts.mint, wallet, reason)"))
+        assertTrue(exec.contains("SellAmountAuthority.canBroadcastLiveOrEmergency"))
+        assertTrue(exec.contains("exitReason: String = processor"))
+        assertTrue(exec.contains("PROCESSOR_AMOUNT_OWNER_DELTA_RECOVERED"))
+        assertTrue(exec.contains("SellAmountAuthority.resolveForExit(ts.mint, wallet, reason)"))
+        assertFalse("generic tx parse must not be blindly accepted", authority.contains("return tryFreshTxParseFallback(mint"))
+    }
+
 }
