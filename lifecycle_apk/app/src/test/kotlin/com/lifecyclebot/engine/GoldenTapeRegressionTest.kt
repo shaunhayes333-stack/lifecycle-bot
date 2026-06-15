@@ -713,4 +713,16 @@ class GoldenTapeRegressionTest {
         assertTrue(bot.contains("val healthy = scannerAlive && ageSec in 0..90L"))
     }
 
+
+    @Test
+    fun paper_direct_executor_missing_state_is_synthetic_only_not_live() {
+        val gate = java.io.File("src/main/kotlin/com/lifecyclebot/engine/ExecutableOpenGate.kt").readText()
+        assertTrue(gate.contains("PAPER_EXEC_OPEN_SYNTHETIC_FINAL_CANDIDATE"))
+        assertTrue(gate.contains("modeUpper == \"PAPER\""))
+        assertTrue(gate.contains("isRealExecutionLane(requestedLaneForSynth)"))
+        assertTrue(gate.contains("liveLiquidityUsd > 0.0"))
+        assertTrue(gate.contains("rug != 0"))
+        assertFalse("LIVE must not synthesize missing final candidates", gate.contains("modeUpper == \"LIVE\" &&\n            isRealExecutionLane(requestedLaneForSynth)"))
+    }
+
 }

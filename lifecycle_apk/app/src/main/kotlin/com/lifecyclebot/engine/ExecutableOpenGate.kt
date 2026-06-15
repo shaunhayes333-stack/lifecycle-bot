@@ -519,7 +519,52 @@ object ExecutableOpenGate {
         liveSafetyTier: String = "",
         lastSafetyCheckMs: Long = -1L,  // V5.9.1496 — for finality reason normalization
     ): OpenVerdict {
-        val state = states[mint]
+        val modeUpper = mode.uppercase()
+        val requestedLaneForSynth = canonicalLane(lane)
+        val existingState = states[mint]
+        // V5.0.3722 — PAPER direct-lane finality restore.
+        // Some direct executor wrappers (LAB/sub-trader/dip variants) can reach
+        // paperBuy/open preflight before their FDG telemetry writer wins the shared
+        // EntryState race. In PAPER this should not silently drop as
+        // EXEC_OPEN_DROPPED_NO_FINAL_CANDIDATE when the caller supplies a real lane,
+        // positive liquidity, known SAFE/CAUTION safety, and no confirmed rug. LIVE
+        // remains strict: it still requires the canonical recorded FDG/V3 state.
+        val syntheticPaperState: EntryState? = if (existingState == null &&
+            modeUpper == "PAPER" &&
+            isRealExecutionLane(requestedLaneForSynth) &&
+            liveLiquidityUsd > 0.0 &&
+            (liveSafetyTier.equals("SAFE", true) || liveSafetyTier.equals("CAUTION", true)) &&
+            rug != 0
+        ) {
+            val cv = LaneExecutionCoordinator.candidateVersionFor(mint).takeIf { it > 0L } ?: 1L
+            EntryState(
+                mint = mint,
+                symbol = symbol,
+                v3Decision = "EXECUTE_PAPER_DIRECT",
+                fdgCan = true,
+                fdgReason = "PAPER_SYNTHETIC_FINAL_CANDIDATE",
+                safetyTier = liveSafetyTier,
+                rugScore = rug,
+                liquidityUsd = liveLiquidityUsd,
+                signal = "BUY",
+                decisionBand = "BUY",
+                selectedLane = requestedLaneForSynth,
+                preFdgVerdict = "BUY",
+                hardNoReasons = emptyList(),
+                candidateVersion = cv,
+                updatedAtMs = System.currentTimeMillis(),
+            ).also {
+                states[mint] = it
+                try {
+                    ForensicLogger.lifecycle(
+                        "PAPER_EXEC_OPEN_SYNTHETIC_FINAL_CANDIDATE",
+                        "attemptId=$attemptId symbol=$symbol mint=${mint.take(10)} lane=$requestedLaneForSynth liq=${liveLiquidityUsd.toInt()} safety=$liveSafetyTier rug=$rug source=$source"
+                    )
+                    PipelineHealthCollector.labelInc("PAPER_EXEC_OPEN_SYNTHETIC_FINAL_CANDIDATE")
+                } catch (_: Throwable) {}
+            }
+        } else null
+        val state = existingState ?: syntheticPaperState
         val v3Decision = state?.v3Decision ?: "UNKNOWN"
         val fdgCan = state?.fdgCan
         val fdgReason = state?.fdgReason ?: "n/a"
@@ -634,7 +679,6 @@ object ExecutableOpenGate {
             if (cd.second > nowPre) return OpenVerdict(false, "COOLDOWN_${cd.first}", shadowOnly = mode == "PAPER", logName = "EXEC_OPEN_BLOCKED_COOLDOWN", attemptId = attemptId)
         }
 
-        val modeUpper = mode.uppercase()
         if (modeUpper !in setOf("PAPER", "LIVE", "SHADOW")) {
             return blocked("EXEC_OPEN_BLOCKED_MODE_AUTHORITY", "MIXED_OR_UNKNOWN_MODE_$mode")
         }
