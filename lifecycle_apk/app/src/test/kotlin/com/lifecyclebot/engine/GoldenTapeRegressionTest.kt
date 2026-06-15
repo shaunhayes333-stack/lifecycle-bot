@@ -998,4 +998,28 @@ class GoldenTapeRegressionTest {
         assertTrue(doctor.contains("falseTxParseClosed"))
     }
 
+
+    @Test
+    fun live_buy_committed_open_result_drives_wallet_lock() {
+        val exec = java.io.File("src/main/kotlin/com/lifecyclebot/engine/Executor.kt").readText()
+        val planner = java.io.File("src/main/kotlin/com/lifecyclebot/engine/ProcessorAmountPlanner.kt").readText()
+
+        assertTrue(exec.contains("private fun liveBuy"))
+        assertTrue(exec.contains("): Boolean {    // V5.9.386"))
+        assertTrue(exec.contains("committed live-open source truth"))
+        assertTrue(exec.contains("val liveOpened = liveBuy(ts, liveSol"))
+        assertTrue(exec.contains("LIVE_OPEN_COMMITTED_LOCK_RECORDED"))
+        assertTrue(exec.contains("if (liveOpened || positionDidOpen(ts))"))
+        assertTrue(exec.contains("return true"))
+        assertTrue(exec.contains("return false"))
+
+        assertTrue(planner.contains("object ProcessorAmountPlanner"))
+        assertTrue(planner.contains("data class BuyPlan"))
+        assertTrue(planner.contains("data class SellPlan"))
+        assertTrue(planner.contains("fun planBuy"))
+        assertTrue(planner.contains("fun planSellFromConfirmed"))
+        assertTrue(exec.contains("ProcessorAmountPlanner.planBuy"))
+        assertTrue(exec.contains("ProcessorAmountPlanner.planSellFromConfirmed"))
+    }
+
 }
