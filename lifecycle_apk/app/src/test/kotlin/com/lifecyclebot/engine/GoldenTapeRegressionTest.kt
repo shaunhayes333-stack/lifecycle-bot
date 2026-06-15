@@ -1092,4 +1092,32 @@ class GoldenTapeRegressionTest {
         assertTrue(doctor.contains("waitingBalanceProof"))
     }
 
+
+    @Test
+    fun live_common_sense_gate_blocks_screenshot_garbage_before_live_attempt() {
+        val exec = java.io.File("src/main/kotlin/com/lifecyclebot/engine/Executor.kt").readText()
+        val gate = java.io.File("src/main/kotlin/com/lifecyclebot/engine/LiveCommonSenseGate.kt").readText()
+
+        assertTrue(exec.contains("LiveCommonSenseGate.evaluate"))
+        assertTrue(exec.contains("LIVE_BUY_BLOCKED_COMMON_SENSE"))
+        assertTrue(exec.contains("LIVE_TOP_UP_BLOCKED_COMMON_SENSE"))
+        assertTrue(exec.contains("stage=LiveCommonSenseGate"))
+        assertTrue(exec.contains("stage=LiveCommonSenseGate.topUp"))
+        val liveBuyBody = exec.substring(exec.indexOf("private fun liveBuy"))
+        assertTrue(liveBuyBody.indexOf("LiveCommonSenseGate.evaluate") < liveBuyBody.indexOf("\"LIVE_BUY_ATTEMPT\","))
+        val topUpBody = exec.substring(exec.indexOf("private fun liveTopUp"))
+        assertTrue(topUpBody.indexOf("LiveCommonSenseGate.evaluate") < topUpBody.indexOf("\"LIVE_BUY_ATTEMPT\","))
+
+        assertTrue(gate.contains("SINGLE_HOLDER_CONCENTRATION"))
+        assertTrue(gate.contains("NO_CHART_EARLY_UNKNOWN"))
+        assertTrue(gate.contains("NO_SOURCE_EARLY_UNKNOWN"))
+        assertTrue(gate.contains("EXIT_DOMINATES_ENTRY"))
+        assertTrue(gate.contains("ENTRY_TOO_WEAK_FOR_LIVE"))
+        assertTrue(gate.contains("UNINITIALIZED_NEUTRAL_SIGNAL"))
+        assertTrue(gate.contains("SHITCOIN_LIVE_RUG_SHAPE"))
+        assertTrue(gate.contains("ts.exitScore - ts.entryScore"))
+        assertTrue(gate.contains("ts.entryScore < 20.0"))
+        assertTrue(gate.contains("topHolderPct >= 50.0"))
+    }
+
 }
