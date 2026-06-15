@@ -1262,4 +1262,21 @@ class GoldenTapeRegressionTest {
         assertTrue(inv.contains("staleBuyPendingBalanceProof > 0"))
     }
 
+
+    @Test
+    fun balance_proof_zero_finality_sets_tracker_independent_zero_before_close() {
+        val bot = java.io.File("src/main/kotlin/com/lifecyclebot/engine/BotService.kt").readText()
+        val tracker = java.io.File("src/main/kotlin/com/lifecyclebot/engine/HostWalletTokenTracker.kt").readText()
+        val poller = java.io.File("src/main/kotlin/com/lifecyclebot/engine/sell/BalanceProofPoller.kt").readText()
+        val reconciler = java.io.File("src/main/kotlin/com/lifecyclebot/engine/sell/LiveWalletReconciler.kt").readText()
+
+        assertTrue(poller.contains("ZERO_BALANCE_CONFIRMED"))
+        assertTrue(bot.contains("recordIndependentZeroBalanceProof"))
+        assertTrue(bot.indexOf("recordIndependentZeroBalanceProof") < bot.indexOf("confirmZeroBalanceClose"))
+        assertTrue(tracker.contains("fun recordIndependentZeroBalanceProof"))
+        assertTrue(tracker.contains("zeroBalanceConfirmedByTwoProviders = true"))
+        assertTrue(tracker.contains("INDEPENDENT_ZERO_BALANCE_PROOF"))
+        assertTrue(reconciler.contains("RECONCILER_ABSENT_TRACKED_CHECKED"))
+    }
+
 }

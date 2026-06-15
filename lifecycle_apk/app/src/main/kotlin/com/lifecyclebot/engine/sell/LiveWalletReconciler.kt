@@ -202,7 +202,16 @@ object LiveWalletReconciler {
         }
         // Non-empty read → wallet RPC is healthy again; reset the empty streak.
         consecutiveEmptyMaps.set(0)
+        val trackedOpenBeforeSnapshot = try { com.lifecyclebot.engine.HostWalletTokenTracker.getOpenCount() } catch (_: Throwable) { 0 }
         try { com.lifecyclebot.engine.HostWalletTokenTracker.applyWalletSnapshot(balances) } catch (_: Throwable) {}
+        // V5.0.3758 — diagnostics/source fix: a healthy non-empty wallet snapshot
+        // also checks tracked positions that are ABSENT from the wallet map. Counting
+        // only returned positive token accounts made Recon.totalChecked stay 0 while
+        // HostTracker held dead/manual-sold mints, hiding the tracker↔reconciler split.
+        if (trackedOpenBeforeSnapshot > balances.size) {
+            totalChecked.addAndGet(trackedOpenBeforeSnapshot - balances.size)
+            try { com.lifecyclebot.engine.ForensicLogger.lifecycle("RECONCILER_ABSENT_TRACKED_CHECKED", "trackedOpen=$trackedOpenBeforeSnapshot returned=${balances.size} absent=${trackedOpenBeforeSnapshot - balances.size} reason=$reason") } catch (_: Throwable) {}
+        }
         // V5.9.495z45 — operator forensics_20260508_143519 spec item G:
         // re-evaluate UI safety flags after every successful wallet snapshot.
         try { LiveSafetyFlags.reevaluate(balances) } catch (_: Throwable) {}

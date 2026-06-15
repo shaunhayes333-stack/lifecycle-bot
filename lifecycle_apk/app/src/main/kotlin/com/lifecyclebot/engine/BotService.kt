@@ -928,6 +928,13 @@ class BotService : Service() {
                         // V5.0.3749 — zero proof may close only through the tracker
                         // finality state machine. Do not release lanes / stamp close
                         // just because the poller saw a zero-like state.
+                        try {
+                            com.lifecyclebot.engine.HostWalletTokenTracker.recordIndependentZeroBalanceProof(
+                                mint = mint,
+                                sources = setOf("BALANCE_PROOF_POLLER_ZERO_STREAK", "SELL_AMOUNT_AUTHORITY_NONEMPTY_MINT_ABSENT"),
+                                reason = "CONFIRMED_ZERO_FINALITY_$reason",
+                            )
+                        } catch (_: Throwable) {}
                         val closed = try {
                             com.lifecyclebot.engine.HostWalletTokenTracker.confirmZeroBalanceClose(
                                 mint = mint,

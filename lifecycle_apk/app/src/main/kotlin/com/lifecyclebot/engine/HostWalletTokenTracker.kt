@@ -977,8 +977,10 @@ object HostWalletTokenTracker {
     fun countStaleBuyPendingBalanceProof(maxAgeMs: Long = 90_000L): Int {
         val now = System.currentTimeMillis()
         return positions.values.count { p ->
+            val anchor = p.buyTimeMs ?: p.firstSeenWalletMs
             p.status == PositionStatus.BUY_PENDING &&
-                (now - p.buyTimeMs) > maxAgeMs &&
+                anchor > 0L &&
+                (now - anchor) > maxAgeMs &&
                 p.notes.any { it.contains("BUY_PENDING_BALANCE_PROOF", ignoreCase = true) || it.contains("BalanceProof", ignoreCase = true) }
         }
     }
@@ -1198,6 +1200,39 @@ object HostWalletTokenTracker {
      *         tracked / already non-zero.
      */
     @Synchronized
+    fun recordIndependentZeroBalanceProof(
+        mint: String,
+        sources: Set<String>,
+        reason: String,
+    ): Boolean {
+        val p = positions[mint] ?: return false
+        val cleanSources = sources.map { it.trim() }.filter { it.isNotBlank() }.toSet()
+        if (cleanSources.size < 2) {
+            markOpenBalanceUnknown(p, "ZERO_PROOF_REJECTED_NOT_INDEPENDENT:$reason sources=${cleanSources.joinToString("+")}")
+            save()
+            return false
+        }
+        if (p.activeSellAttemptId != null || p.status in setOf(PositionStatus.SELL_PENDING, PositionStatus.SELL_VERIFYING)) {
+            markOpenBalanceUnknown(p, "ZERO_PROOF_REJECTED_SELL_ACTIVE:$reason sources=${cleanSources.joinToString("+")}")
+            save()
+            return false
+        }
+        p.zeroBalanceConfirmedByTwoProviders = true
+        p.consecutiveZeroConfirms = maxOf(p.consecutiveZeroConfirms, 2)
+        p.uiAmount = 0.0
+        p.rawAmount = "0"
+        p.lastWalletReconcileMs = System.currentTimeMillis()
+        p.notes.add("independent zero-balance proof reason=$reason sources=${cleanSources.joinToString("+")}")
+        try {
+            ForensicLogger.lifecycle(
+                "INDEPENDENT_ZERO_BALANCE_PROOF",
+                "mint=${mint.take(10)} symbol=${p.symbol ?: "?"} sources=${cleanSources.joinToString("+")} reason=$reason",
+            )
+        } catch (_: Throwable) {}
+        save()
+        return true
+    }
+
     fun confirmZeroBalanceClose(
         mint: String,
         hasConfirmedSellSig: Boolean,

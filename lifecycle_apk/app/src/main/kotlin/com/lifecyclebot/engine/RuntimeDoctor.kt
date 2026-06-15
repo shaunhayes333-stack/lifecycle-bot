@@ -132,6 +132,10 @@ object RuntimeDoctor {
             try { com.lifecyclebot.engine.sell.SellReconciler.requestImmediateTick() } catch (_: Throwable) {}
             emptyList()
         }
+        InvariantGuardian.FaultCode.BUY_PENDING_BALANCE_PROOF_STALE -> {
+            try { com.lifecyclebot.engine.sell.SellReconciler.requestImmediateTick() } catch (_: Throwable) {}
+            emptyList()
+        }
         // SCANNER_INACTIVE: ask BotService to re-boot the meme scanner. The
         // heartbeat watchdog also covers this; here we surface intent immediately.
         InvariantGuardian.FaultCode.SCANNER_INACTIVE -> {
