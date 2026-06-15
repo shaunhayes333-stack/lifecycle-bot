@@ -9126,6 +9126,7 @@ class Executor(
                 "Broadcasting | route=${if (quote.isUltra) "ULTRA" else if (useJito) "JITO" else "RPC"}",
                 traderTag = "MEME",
             )
+            try { com.lifecyclebot.engine.ForensicLogger.lifecycle("BUY_BROADCAST", "mint=${ts.mint.take(10)} symbol=${ts.symbol} route=${if (quote.isUltra) "ULTRA" else if (useJito) "JITO" else "RPC"} sol=$sol") } catch (_: Throwable) {}
             }  // end if (pumpFirstResult == null) — Jupiter pipeline only runs when PUMP-FIRST didn't land
             
             val sig: String
@@ -9157,6 +9158,7 @@ class Executor(
                     "✅ Tx confirmed on-chain — awaiting token-arrival verification",
                     sig = sig, traderTag = "MEME",
                 )
+                try { com.lifecyclebot.engine.ForensicLogger.lifecycle("BUY_CONFIRMED", "mint=${ts.mint.take(10)} symbol=${ts.symbol} signature=${sig.take(16)} route=${q.router}") } catch (_: Throwable) {}
                 // V5.9.495z28 (operator spec item 3): record into authoritative
                 // lifecycle ledger keyed by mint. onBuyPending is called BEFORE
                 // broadcast (registers the intent); onBuyConfirmed flips it
@@ -9302,38 +9304,28 @@ class Executor(
             // and leaves them unmanaged. Root pattern: the buy signature is confirmed
             // and a BUY journal row is written, but wallet/tx indexers can return empty
             // maps for 60s+. During that window pendingVerify=true makes Position.isOpen
-            // false, and HostWalletTokenTracker.recordBuyConfirmed() refuses to track it.
+            // false, and the legacy pending-only tracker refuses to track it.
             // Result: real wallet tokens with no exit monitor. Once a live swap returns a
-            // non-blank signature and we have an expected token qty/cost, manage it now
-            // using provisional qty; later tx-parse / ATA verification corrects qty or
-            // the true-phantom branch wipes it. Managed provisional is safer than blind.
+            // non-blank signature and expected token qty/cost, record a pending buy only.
+            // The verifier below must produce authoritative owner/mint BalanceProof
+            // before the position becomes OPEN_TRACKING / sellable.
             val signatureManagedAtEntry: Boolean = try {
                 val provisional = ts.position
                 if (!provisional.isPaperPosition && provisional.pendingVerify && provisional.qtyToken > 0.0 && sig.isNotBlank()) {
-                    ts.position = provisional.copy(pendingVerify = false)
-                    try {
-                        synchronized(com.lifecyclebot.engine.BotService.status.tokens) {
-                            com.lifecyclebot.engine.BotService.status.tokens[tradeId.mint] = ts
-                        }
-                    } catch (_: Throwable) {}
-                    try { PositionPersistence.savePosition(ts) } catch (_: Throwable) {}
-                    try { WalletTokenMemory.recordBuy(ts) } catch (_: Throwable) {}
-                    try {
-                        com.lifecyclebot.engine.GlobalTradeRegistry.registerPosition(
-                            mint = tradeId.mint,
-                            symbol = tradeId.symbol,
-                            layer = currentLayer,
-                            sizeSol = sol,
-                        )
-                    } catch (_: Throwable) {}
-                    try { HostWalletTokenTracker.recordBuyConfirmed(ts, sig) } catch (_: Throwable) {}
+                    // V5.0.3757 — proof-first live buy doctrine.
+                    // A broadcast/confirmed signature is not sell authority. Do not flip
+                    // pendingVerify=false, do not OPEN_TRACKING, and do not call legacy
+                    // the legacy live final path here. The verifier below must produce an
+                    // authoritative BalanceProof and then call recordBuyConfirmedWithProof().
+                    try { HostWalletTokenTracker.recordBuyPending(ts.mint, ts.symbol, sig) } catch (_: Throwable) {}
                     try {
                         com.lifecyclebot.engine.ForensicLogger.lifecycle(
-                            "LIVE_BUY_MANAGED_FROM_SIGNATURE",
-                            "symbol=${ts.symbol} mint=${ts.mint.take(10)} sig=${sig.take(16)} provisionalQty=${ts.position.qtyToken} hostOpen=${try { HostWalletTokenTracker.getOpenCount() } catch (_: Throwable) { -1 }} statusHas=${try { com.lifecyclebot.engine.BotService.status.tokens.containsKey(tradeId.mint) } catch (_: Throwable) { false }}"
+                            "BUY_PENDING_BALANCE_PROOF",
+                            "mint=${ts.mint.take(10)} symbol=${ts.symbol} sig=${sig.take(16)} reason=SIGNATURE_CONFIRMED_AWAITING_BALANCE_PROOF provisionalQty=${provisional.qtyToken}"
                         )
                     } catch (_: Throwable) {}
-                    true
+                    try { ExecutionRootCauseTrace.authority("BUY", "BUY_CONFIRMED_AWAITING_BALANCE_PROOF", ts, "sig=${sig.take(16)} provisionalQty=${provisional.qtyToken} pendingVerify=${provisional.pendingVerify}") } catch (_: Throwable) {}
+                    false
                 } else false
             } catch (_: Throwable) { false }
             tradeId.monitoring()
@@ -9441,6 +9433,7 @@ class Executor(
             val verifyTradeKey = tradeKey
             val verifySig = sig  // V5.9.265: capture sig for authoritative tx-based verification
             GlobalScope.launch(AppDispatchers.sideEffect) {
+                try { com.lifecyclebot.engine.ForensicLogger.lifecycle("BALANCE_PROOF_START", "mint=${verifyMint.take(10)} symbol=$verifySymbol signature=${verifySig.take(16)} owner=${verifyWallet.publicKeyB58.take(8)}") } catch (_: Throwable) {}
                 var verifiedQty = 0.0
                 var verifiedProof: com.lifecyclebot.engine.sell.BalanceProof? = null
                 var anyRpcError = false
@@ -9570,34 +9563,76 @@ class Executor(
                     } catch (_: Throwable) {}
                 }
 
+                fun buildOwnerAccountProof(qtyUi: Double, decimals: Int, stage: String): com.lifecyclebot.engine.sell.BalanceProof? {
+                    val raw = try { java.math.BigDecimal(qtyUi).movePointRight(decimals.coerceAtLeast(0)).toBigInteger() } catch (_: Throwable) { java.math.BigInteger.ZERO }
+                    if (raw.signum() <= 0) return null
+                    return com.lifecyclebot.engine.sell.BalanceProof(
+                        mint = verifyMint,
+                        owner = verifyWallet.publicKeyB58,
+                        ata = null,
+                        amountRaw = raw,
+                        decimals = decimals.coerceAtLeast(0),
+                        source = com.lifecyclebot.engine.sell.BalanceProofSource.RPC_CONFIRMED_OWNER_TOKEN_ACCOUNT,
+                        authoritative = true,
+                        observedAtMs = System.currentTimeMillis(),
+                        signature = verifySig,
+                    )
+                }
+
+                fun completeVerifiedLiveBuyWithProof(proof: com.lifecyclebot.engine.sell.BalanceProof, qtyUi: Double, stage: String): Boolean {
+                    if (!proof.authoritative || proof.amountRaw.signum() <= 0 || proof.mint != verifyMint) {
+                        try { com.lifecyclebot.engine.ForensicLogger.lifecycle("BUY_PENDING_BALANCE_PROOF", "mint=${verifyMint.take(10)} symbol=$verifySymbol stage=$stage reason=INVALID_PROOF source=${proof.source} raw=${proof.amountRaw}") } catch (_: Throwable) {}
+                        try { HostWalletTokenTracker.recordBuyPending(verifyMint, verifySymbol, verifySig) } catch (_: Throwable) {}
+                        return false
+                    }
+                    try { com.lifecyclebot.engine.ForensicLogger.lifecycle("BALANCE_PROOF_OK", "mint=${verifyMint.take(10)} symbol=$verifySymbol source=${proof.source} rawAmount=${proof.amountRaw} decimals=${proof.decimals} sig=${verifySig.take(16)} stage=$stage") } catch (_: Throwable) {}
+                    try { com.lifecyclebot.engine.sell.SellAmountAuthority.recordTxParseBalance(verifyMint, proof.amountRaw, proof.decimals, verifySig) } catch (_: Throwable) {}
+                    try { com.lifecyclebot.engine.ForensicLogger.lifecycle("SELL_AMOUNT_AUTHORITY_SEEDED", "mint=${verifyMint.take(10)} symbol=$verifySymbol rawAmount=${proof.amountRaw} decimals=${proof.decimals} sig=${verifySig.take(16)} source=${proof.source}") } catch (_: Throwable) {}
+                    promoteVerifiedLiveBuy(qtyUi, stage)
+                    val beforeOpen = try { HostWalletTokenTracker.getOpenCount() } catch (_: Throwable) { -1 }
+                    try { HostWalletTokenTracker.recordBuyConfirmedWithProof(ts, proof, verifySig) } catch (e: Throwable) {
+                        ErrorLogger.error("Executor", "🚨 HOST_TRACKER_RECORD_WITH_PROOF_FAILED: $verifySymbol — ${e.javaClass.simpleName}: ${e.message?.take(120)}", e)
+                        try { HostWalletTokenTracker.recordBuyPending(verifyMint, verifySymbol, verifySig) } catch (_: Throwable) {}
+                        return false
+                    }
+                    val afterOpen = try { HostWalletTokenTracker.getOpenCount() } catch (_: Throwable) { -1 }
+                    val opened = try { HostWalletTokenTracker.hasOpenPosition(verifyMint) } catch (_: Throwable) { false }
+                    if (!opened) {
+                        try { com.lifecyclebot.engine.ForensicLogger.lifecycle("BUY_PENDING_BALANCE_PROOF", "mint=${verifyMint.take(10)} symbol=$verifySymbol stage=$stage reason=TRACKER_NOT_OPEN_AFTER_PROOF source=${proof.source}") } catch (_: Throwable) {}
+                        return false
+                    }
+                    try { com.lifecyclebot.engine.ForensicLogger.lifecycle("TOKEN_TRACKER_BUY_CONFIRMED_WITH_PROOF", "mint=${verifyMint.take(10)} symbol=$verifySymbol source=${proof.source} rawAmount=${proof.amountRaw} decimals=${proof.decimals} open=$beforeOpen->$afterOpen") } catch (_: Throwable) {}
+                    LiveTradeLogStore.log(
+                        verifyTradeKey, verifyMint, verifySymbol, "BUY",
+                        LiveTradeLogStore.Phase.BUY_VERIFIED_LANDED,
+                        "LIVE_BUY_LANDED — proof=${proof.source} raw=${proof.amountRaw} decimals=${proof.decimals} host_tracker open=$beforeOpen→$afterOpen | mint_tracked=$opened",
+                        tokenAmount = ts.position.qtyToken, sig = verifySig, traderTag = "MEME",
+                    )
+                    try { com.lifecyclebot.engine.ForensicLogger.lifecycle("LIVE_BUY_LANDED", "mint=${verifyMint.take(10)} symbol=$verifySymbol source=${proof.source} rawAmount=${proof.amountRaw} decimals=${proof.decimals} sig=${verifySig.take(16)}") } catch (_: Throwable) {}
+                    return true
+                }
+
                 if (verifiedQty > 0.0) {
                     if (ts.position.pendingVerify || signatureManagedAtEntry) {
-                        promoteVerifiedLiveBuy(verifiedQty, "DIRECT_VERIFY")
+                        val proof = verifiedProof
+                        if (proof == null || !proof.authoritative || proof.amountRaw.signum() <= 0) {
+                            try { HostWalletTokenTracker.recordBuyPending(verifyMint, verifySymbol, verifySig) } catch (_: Throwable) {}
+                            try { com.lifecyclebot.engine.ForensicLogger.lifecycle("BUY_PENDING_BALANCE_PROOF", "mint=${verifyMint.take(10)} symbol=$verifySymbol reason=NO_AUTHORITATIVE_PROOF_AT_DIRECT_VERIFY qty=$verifiedQty") } catch (_: Throwable) {}
+                            return@launch
+                        }
+                        if (!completeVerifiedLiveBuyWithProof(proof, verifiedQty, "DIRECT_VERIFY")) return@launch
                         ErrorLogger.info(
                             "Executor",
-                            "✅ POST-BUY OK: $verifySymbol | ${"%.4f".format(verifiedQty)} tokens confirmed — position now live"
+                            "✅ POST-BUY OK: $verifySymbol | ${"%.4f".format(verifiedQty)} tokens confirmed with ${proof.source} — position now live"
                         )
-                        LiveTradeLogStore.log(
-                            verifyTradeKey, verifyMint, verifySymbol, "BUY",
-                            LiveTradeLogStore.Phase.BUY_VERIFIED_LANDED,
-                            "✅ Tokens landed in host wallet | qty=${verifiedQty.fmt(4)}",
-                            tokenAmount = verifiedQty, traderTag = "MEME",
-                        )
-                        // V5.9.777 — EXEC_LIVE_BUY_OK counter wiring at the
-                        // canonical wallet-delta verification point. Operator
-                        // forensics showed EXEC=0 even after BUY_VERIFIED_LANDED.
                         try {
                             ForensicLogger.exec(
                                 "LIVE_BUY_OK",
                                 verifySymbol,
-                                "mint=${verifyMint.take(10)} qty=${verifiedQty.fmt(4)} sol=${"%.4f".format(sol)}",
+                                "mint=${verifyMint.take(10)} qty=${verifiedQty.fmt(4)} sol=${"%.4f".format(sol)} proof=${proof.source}",
                             )
                         } catch (_: Throwable) {}
                         EmergentGuardrails.registerPosition(verifyTradeMint, verifyTradeSymbol, verifyCurrentLayer, sol)
-                        // V5.9.385 — also register with GlobalTradeRegistry.
-                        // See detailed comment above the other registerPosition
-                        // site. Without this the scanner will evict the mint
-                        // and orphan the live position.
                         try {
                             com.lifecyclebot.engine.GlobalTradeRegistry.registerPosition(
                                 mint = verifyTradeMint,
@@ -9606,62 +9641,15 @@ class Executor(
                                 sizeSol = sol,
                             )
                         } catch (_: Exception) { /* non-critical */ }
-                        // V5.9.137 — register in SellOptimizationAI only after
-                        // on-chain tokens are verified (live path), mirroring
-                        // the guardrails pattern above.
                         try {
                             com.lifecyclebot.v3.scoring.SellOptimizationAI.registerPosition(
                                 mint = verifyTradeMint, entryPrice = price, sizeSol = sol
                             )
                         } catch (_: Exception) {}
-                        // Persistence + wallet memory handled by promoteVerifiedLiveBuy().
-                        // V5.9.751 — Base44 ticket item #4: assert host_tracker
-                        // actually opens a position. Previously this was a
-                        // silent try/catch; operator saw BUY_VERIFIED_LANDED
-                        // but host_tracker.open_count=0 with no signal as to
-                        // why. Now: log success/failure + emit LIVE_BUY_LANDED.
-                        try {
-                            val beforeOpen = HostWalletTokenTracker.getOpenCount()
-                            val proof = verifiedProof
-                            if (proof != null && proof.authoritative) {
-                                HostWalletTokenTracker.recordBuyConfirmedWithProof(ts, proof, verifySig)
-                            } else {
-                                HostWalletTokenTracker.recordBuyPending(ts.mint, ts.symbol, verifySig)
-                                try { com.lifecyclebot.engine.ForensicLogger.lifecycle("BUY_PENDING_BALANCE_PROOF", "mint=${ts.mint.take(10)} symbol=${ts.symbol} reason=NO_AUTHORITATIVE_PROOF_AT_PROMOTION") } catch (_: Throwable) {}
-                            }
-                            val afterOpen = HostWalletTokenTracker.getOpenCount()
-                            val opened = HostWalletTokenTracker.hasOpenPosition(ts.mint)
-                            LiveTradeLogStore.log(
-                                verifyTradeKey, verifyMint, verifySymbol, "BUY",
-                                LiveTradeLogStore.Phase.BUY_VERIFIED_LANDED,
-                                "LIVE_BUY_LANDED — host_tracker open=$beforeOpen→$afterOpen | mint_tracked=$opened",
-                                tokenAmount = ts.position.qtyToken, traderTag = "MEME",
-                            )
-                            if (!opened) {
-                                ErrorLogger.warn("Executor",
-                                    "⚠ HOST_TRACKER_NOT_OPENED: ${ts.symbol} mint=${ts.mint.take(12)}… recordBuyConfirmed returned but isOpenTracked=false (isOpen=${ts.position.isOpen} qty=${ts.position.qtyToken} pendingVerify=${ts.position.pendingVerify})")
-                            }
-                        } catch (e: Exception) {
-                            ErrorLogger.error("Executor",
-                                "🚨 HOST_TRACKER_RECORD_FAILED: ${ts.symbol} — ${e.javaClass.simpleName}: ${e.message?.take(120)}", e)
-                            try {
-                                LiveTradeLogStore.log(
-                                    verifyTradeKey, verifyMint, verifySymbol, "BUY",
-                                    LiveTradeLogStore.Phase.BUY_VERIFIED_LANDED,
-                                    "⚠ HOST_TRACKER_RECORD_FAILED — ${e.javaClass.simpleName}: ${e.message?.take(80)}",
-                                    traderTag = "MEME",
-                                )
-                            } catch (_: Throwable) {}
-                        }
                         try { TokenLifecycleTracker.onTokenLanded(verifyMint, verifiedQty) } catch (_: Throwable) {}
-                        // V5.9.602 — capture entry metadata only after token
-                        // arrival is verified. This keeps pool/price data from
-                        // being stamped onto ghost buys that never hit wallet.
                         try {
-                            val decimals = verifyWallet.getTokenAccountsWithDecimalsBounded()[verifyMint]?.second ?: 9
-                            val entryRaw = if (decimals > 0)
-                                java.math.BigDecimal(verifiedQty).movePointRight(decimals).toBigInteger()
-                            else java.math.BigInteger.ZERO
+                            val decimals = proof.decimals
+                            val entryRaw = proof.amountRaw
                             val priceSolPerToken = if (verifiedQty > 0.0) sol / verifiedQty else 0.0
                             val priceUsd = priceSolPerToken * (try { WalletManager.lastKnownSolPrice } catch (_: Throwable) { 0.0 })
                             TokenLifecycleTracker.recordEntryMetadata(
@@ -9672,9 +9660,6 @@ class Executor(
                                 entryTokenRawConfirmed = entryRaw,
                                 poolLiquidityUsd = ts.lastLiquidityUsd,
                             )
-                            // V5.0.3740 — do NOT cache generic TX_PARSE as sell authority.
-                            // SellAmountAuthority now requires owner-token-account proof or
-                            // owner/mint tx-meta delta at use time.
                         } catch (e: Throwable) {
                             ErrorLogger.warn("Executor", "recordEntryMetadata after verify failed (non-fatal): ${e.message}")
                         }
@@ -9687,12 +9672,12 @@ class Executor(
                     ErrorLogger.warn(
                         "Executor",
                         "⚠️ POST-BUY INCONCLUSIVE: $verifySymbol — RPC errors during verify; " +
-                            "position is managed provisionally; verifier/reconciler will correct qty later"
+                            "position remains pending balance proof; verifier/reconciler will promote only with proof"
                     )
                     LiveTradeLogStore.log(
                         verifyTradeKey, verifyMint, verifySymbol, "BUY",
                         LiveTradeLogStore.Phase.WARNING,
-                        "⚠️ Verification inconclusive — RPC errors during polls. Position remains managed from signature; reconciler will correct qty.",
+                        "⚠️ Verification inconclusive — RPC errors during polls. Position remains pending balance proof; reconciler will promote only with proof.",
                         traderTag = "MEME",
                     )
                 } else if (!sigParseConfirmedZero && (ts.position.pendingVerify || signatureManagedAtEntry)) {
@@ -9710,7 +9695,7 @@ class Executor(
                     LiveTradeLogStore.log(
                         verifyTradeKey, verifyMint, verifySymbol, "BUY",
                         LiveTradeLogStore.Phase.WARNING,
-                        "⚠️ ATA poll returned 0 but tx not yet indexed — keeping managed-from-signature position; reconciler will correct qty once tokens index.",
+                        "⚠️ ATA poll returned 0 but tx not yet indexed — keeping BUY_PENDING_BALANCE_PROOF; reconciler will promote only with proof once tokens index.",
                         traderTag = "MEME",
                     )
                 } else if (ts.position.pendingVerify || signatureManagedAtEntry) {
@@ -9729,62 +9714,35 @@ class Executor(
                     val lastChanceQty: Double = lastChanceBalances?.get(verifyMint)?.first ?: 0.0
                     val lastChanceMapEmpty = lastChanceBalances?.isEmpty() == true
                     if (lastChanceQty > 0.0) {
-                        promoteVerifiedLiveBuy(lastChanceQty, "LAST_CHANCE_ATA_RESCUE")
+                        val lastChanceDecimals = lastChanceBalances?.get(verifyMint)?.second ?: 9
+                        val lastChanceProof = buildOwnerAccountProof(lastChanceQty, lastChanceDecimals, "LAST_CHANCE_ATA_RESCUE")
+                        if (lastChanceProof == null || !completeVerifiedLiveBuyWithProof(lastChanceProof, lastChanceQty, "LAST_CHANCE_ATA_RESCUE")) {
+                            try { HostWalletTokenTracker.recordBuyPending(verifyMint, verifySymbol, verifySig) } catch (_: Throwable) {}
+                            try { com.lifecyclebot.engine.ForensicLogger.lifecycle("BUY_PENDING_BALANCE_PROOF", "mint=${verifyMint.take(10)} symbol=$verifySymbol reason=LAST_CHANCE_PROOF_BUILD_FAILED qty=$lastChanceQty") } catch (_: Throwable) {}
+                            return@launch
+                        }
                         ErrorLogger.warn(
                             "Executor",
-                            "🛟 PHANTOM RESCUE: $verifySymbol — last-chance ATA found ${lastChanceQty.fmt(4)} tokens after polls returned 0. Promoting position instead of wiping."
+                            "🛟 PHANTOM RESCUE: $verifySymbol — last-chance ATA found ${lastChanceQty.fmt(4)} tokens after polls returned 0. Promoting with proof."
                         )
                         LiveTradeLogStore.log(
                             verifyTradeKey, verifyMint, verifySymbol, "BUY",
                             LiveTradeLogStore.Phase.BUY_VERIFIED_LANDED,
-                            "🛟 PHANTOM RESCUE: late-indexed buy salvaged | qty=${lastChanceQty.fmt(4)}",
+                            "🛟 PHANTOM RESCUE: late-indexed buy salvaged with proof=${lastChanceProof.source} | qty=${lastChanceQty.fmt(4)}",
                             tokenAmount = lastChanceQty, sig = verifySig, traderTag = "MEME",
                         )
-                        // Persistence + wallet memory handled by promoteVerifiedLiveBuy().
-                        // V5.9.751 — Base44 ticket item #4: assert host_tracker
-                        // actually opens a position. Previously this was a
-                        // silent try/catch; operator saw BUY_VERIFIED_LANDED
-                        // but host_tracker.open_count=0 with no signal as to
-                        // why. Now: log success/failure + emit LIVE_BUY_LANDED.
-                        try {
-                            val beforeOpen = HostWalletTokenTracker.getOpenCount()
-                            HostWalletTokenTracker.recordBuyConfirmed(ts, verifySig)
-                            val afterOpen = HostWalletTokenTracker.getOpenCount()
-                            val opened = HostWalletTokenTracker.hasOpenPosition(ts.mint)
-                            LiveTradeLogStore.log(
-                                verifyTradeKey, verifyMint, verifySymbol, "BUY",
-                                LiveTradeLogStore.Phase.BUY_VERIFIED_LANDED,
-                                "LIVE_BUY_LANDED — host_tracker open=$beforeOpen→$afterOpen | mint_tracked=$opened",
-                                tokenAmount = ts.position.qtyToken, traderTag = "MEME",
-                            )
-                            if (!opened) {
-                                ErrorLogger.warn("Executor",
-                                    "⚠ HOST_TRACKER_NOT_OPENED: ${ts.symbol} mint=${ts.mint.take(12)}… recordBuyConfirmed returned but isOpenTracked=false (isOpen=${ts.position.isOpen} qty=${ts.position.qtyToken} pendingVerify=${ts.position.pendingVerify})")
-                            }
-                        } catch (e: Exception) {
-                            ErrorLogger.error("Executor",
-                                "🚨 HOST_TRACKER_RECORD_FAILED: ${ts.symbol} — ${e.javaClass.simpleName}: ${e.message?.take(120)}", e)
-                            try {
-                                LiveTradeLogStore.log(
-                                    verifyTradeKey, verifyMint, verifySymbol, "BUY",
-                                    LiveTradeLogStore.Phase.BUY_VERIFIED_LANDED,
-                                    "⚠ HOST_TRACKER_RECORD_FAILED — ${e.javaClass.simpleName}: ${e.message?.take(80)}",
-                                    traderTag = "MEME",
-                                )
-                            } catch (_: Throwable) {}
-                        }
                         try { TokenLifecycleTracker.onTokenLanded(verifyMint, lastChanceQty) } catch (_: Throwable) {}
                         return@launch
                     }
                     if (lastChanceMapEmpty || lastChanceBalances == null) {
                         ErrorLogger.warn(
                             "Executor",
-                            "⚠️ POST-BUY INCONCLUSIVE (RPC-EMPTY): $verifySymbol — last-chance map was empty/null. Position remains managed from signature; reconciler will correct later."
+                            "⚠️ POST-BUY INCONCLUSIVE (RPC-EMPTY): $verifySymbol — last-chance map was empty/null. Position remains pending balance proof; reconciler will promote only with proof later."
                         )
                         LiveTradeLogStore.log(
                             verifyTradeKey, verifyMint, verifySymbol, "BUY",
                             LiveTradeLogStore.Phase.WARNING,
-                            "⚠️ POST-BUY: RPC empty-map at end of verify — managed-from-signature position kept, no wipe.",
+                            "⚠️ POST-BUY: RPC empty-map at end of verify — BUY_PENDING_BALANCE_PROOF kept, no wipe/no sell authority.",
                             traderTag = "MEME",
                         )
                         return@launch
@@ -9799,46 +9757,28 @@ class Executor(
                         val vr = TradeVerifier.verifyBuy(verifyWallet, verifySig, verifyMint, timeoutMs = 30_000L)
                         when (vr.outcome) {
                             TradeVerifier.Outcome.LANDED -> {
-                                promoteVerifiedLiveBuy(vr.uiTokenDelta, "TX_PARSE_RESCUE")
+                                val rescueProof = com.lifecyclebot.engine.sell.BalanceProof(
+                                    mint = verifyMint,
+                                    owner = verifyWallet.publicKeyB58,
+                                    ata = null,
+                                    amountRaw = vr.rawTokenDelta,
+                                    decimals = vr.decimals,
+                                    source = com.lifecyclebot.engine.sell.BalanceProofSource.TX_META_OWNER_DELTA,
+                                    authoritative = vr.rawTokenDelta.signum() > 0,
+                                    observedAtMs = System.currentTimeMillis(),
+                                    signature = verifySig,
+                                )
                                 LiveTradeLogStore.log(
                                     verifyTradeKey, verifyMint, verifySymbol, "BUY",
                                     LiveTradeLogStore.Phase.BUY_TX_PARSE_OK,
                                     "🛟 TX-PARSE RESCUE: tokens proven on-chain | rawDelta=${vr.rawTokenDelta} ui=${vr.uiTokenDelta.fmt(4)} dec=${vr.decimals}",
                                     tokenAmount = vr.uiTokenDelta, sig = verifySig, traderTag = "MEME",
                                 )
-                                // Persistence + wallet memory handled by promoteVerifiedLiveBuy().
-                                // V5.9.751 — Base44 ticket item #4: assert host_tracker
-                        // actually opens a position. Previously this was a
-                        // silent try/catch; operator saw BUY_VERIFIED_LANDED
-                        // but host_tracker.open_count=0 with no signal as to
-                        // why. Now: log success/failure + emit LIVE_BUY_LANDED.
-                        try {
-                            val beforeOpen = HostWalletTokenTracker.getOpenCount()
-                            HostWalletTokenTracker.recordBuyConfirmed(ts, verifySig)
-                            val afterOpen = HostWalletTokenTracker.getOpenCount()
-                            val opened = HostWalletTokenTracker.hasOpenPosition(ts.mint)
-                            LiveTradeLogStore.log(
-                                verifyTradeKey, verifyMint, verifySymbol, "BUY",
-                                LiveTradeLogStore.Phase.BUY_VERIFIED_LANDED,
-                                "LIVE_BUY_LANDED — host_tracker open=$beforeOpen→$afterOpen | mint_tracked=$opened",
-                                tokenAmount = ts.position.qtyToken, traderTag = "MEME",
-                            )
-                            if (!opened) {
-                                ErrorLogger.warn("Executor",
-                                    "⚠ HOST_TRACKER_NOT_OPENED: ${ts.symbol} mint=${ts.mint.take(12)}… recordBuyConfirmed returned but isOpenTracked=false (isOpen=${ts.position.isOpen} qty=${ts.position.qtyToken} pendingVerify=${ts.position.pendingVerify})")
-                            }
-                        } catch (e: Exception) {
-                            ErrorLogger.error("Executor",
-                                "🚨 HOST_TRACKER_RECORD_FAILED: ${ts.symbol} — ${e.javaClass.simpleName}: ${e.message?.take(120)}", e)
-                            try {
-                                LiveTradeLogStore.log(
-                                    verifyTradeKey, verifyMint, verifySymbol, "BUY",
-                                    LiveTradeLogStore.Phase.BUY_VERIFIED_LANDED,
-                                    "⚠ HOST_TRACKER_RECORD_FAILED — ${e.javaClass.simpleName}: ${e.message?.take(80)}",
-                                    traderTag = "MEME",
-                                )
-                            } catch (_: Throwable) {}
-                        }
+                                if (!completeVerifiedLiveBuyWithProof(rescueProof, vr.uiTokenDelta, "TX_PARSE_RESCUE")) {
+                                    try { HostWalletTokenTracker.recordBuyPending(verifyMint, verifySymbol, verifySig) } catch (_: Throwable) {}
+                                    return@launch
+                                }
+                                try { TokenLifecycleTracker.onTokenLanded(verifyMint, vr.uiTokenDelta) } catch (_: Throwable) {}
                                 return@launch
                             }
                             TradeVerifier.Outcome.INCONCLUSIVE_PENDING,
@@ -9846,7 +9786,7 @@ class Executor(
                                 LiveTradeLogStore.log(
                                     verifyTradeKey, verifyMint, verifySymbol, "BUY",
                                     LiveTradeLogStore.Phase.SELL_VERIFY_INCONCLUSIVE_PENDING,
-                                    "⏳ TRADE-VERIFIER INCONCLUSIVE — managed-from-signature position kept, NO wipe (reconciler will correct later).",
+                                    "⏳ TRADE-VERIFIER INCONCLUSIVE — BUY_PENDING_BALANCE_PROOF kept, NO wipe/no sell authority until proof.",
                                     sig = verifySig, traderTag = "MEME",
                                 )
                                 return@launch
@@ -15805,6 +15745,7 @@ class Executor(
                 "Broadcasting PUMP-FIRST BUY @ ${slipPct}% | route=${if (useJito) "JITO" else "RPC"}",
                 traderTag = traderTag,
             )
+            try { com.lifecyclebot.engine.ForensicLogger.lifecycle("BUY_BROADCAST", "mint=${ts.mint.take(10)} symbol=${ts.symbol} route=PUMP_FIRST sol=$buySol slip=$slipPct") } catch (_: Throwable) {}
             // V5.9.602 — Pump-first must NOT treat a submitted signature as
             // a completed buy. sendTransaction/Jito acceptance can still expire
             // or fail before landing, which created ghost "held" positions with
@@ -15829,6 +15770,7 @@ class Executor(
                 "✅ Tx confirmed on-chain — awaiting token-arrival verification",
                 sig = sig, traderTag = traderTag,
             )
+            try { com.lifecyclebot.engine.ForensicLogger.lifecycle("BUY_CONFIRMED", "mint=${ts.mint.take(10)} symbol=${ts.symbol} signature=${sig.take(16)} route=PUMP_FIRST") } catch (_: Throwable) {}
 
             // V5.9.495l — PRIMARY qty source = WALLET, FALLBACK = price math.
             // Operator (06 May 2026): "phantom bought but they are in the

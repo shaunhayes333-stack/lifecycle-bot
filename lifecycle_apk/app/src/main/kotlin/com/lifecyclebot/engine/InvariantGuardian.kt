@@ -8,7 +8,8 @@ object InvariantGuardian {
         FDG_FANOUT_EXPLOSION, FDG_SIGNAL_BYPASS, EXIT_SWEEP_UNSTABLE,
         // V5.9.1518 — PATCH ITEM 7: real choke-state diagnosis flags.
         LEDGER_DRIFT, RECONCILER_STALLED, SELL_RETRY_STORM, SCANNER_INACTIVE,
-        CLOSED_BUT_WALLET_HELD, ORPHAN_LIVE_POSITIONS, LIVE_SELL_NO_FINALITY
+        CLOSED_BUT_WALLET_HELD, ORPHAN_LIVE_POSITIONS, LIVE_SELL_NO_FINALITY,
+        BUY_PENDING_BALANCE_PROOF_STALE
     }
     data class Fault(val code: FaultCode, val severity: String, val detail: String, val evidence: Map<String, String> = emptyMap(), val tsMs: Long = System.currentTimeMillis())
 
@@ -35,6 +36,13 @@ object InvariantGuardian {
         if (s.mode == "LIVE" && s.botLoopActive && s.canonicalOpenPositions > 0 && s.reconcilerTotalChecked == 0) {
             out += Fault(FaultCode.RECONCILER_STALLED, "CRITICAL",
                 "reconciler.totalChecked=0 while canonicalOpen=${s.canonicalOpenPositions}")
+        }
+        // V5.0.3757 — proof-first buy health. Pending buy proof older than
+        // the verification/recovery window means landed buys are not being
+        // completed into authoritative sell authority.
+        if (s.mode == "LIVE" && s.botLoopActive && s.staleBuyPendingBalanceProof > 0) {
+            out += Fault(FaultCode.BUY_PENDING_BALANCE_PROOF_STALE, "CRITICAL",
+                "BUY_PENDING_BALANCE_PROOF stale=${s.staleBuyPendingBalanceProof} older_than=90s")
         }
         // PATCH ITEM 7: orphan live positions must be forced through reconcile.
         if (s.orphanLivePositions > 0) {

@@ -509,15 +509,20 @@ class GoldenTapeRegressionTest {
 
 
     @Test
-    fun live_buy_signature_confirmation_must_create_managed_position_before_rpc_indexing() {
+    fun live_buy_signature_confirmation_must_wait_for_authoritative_balance_proof() {
         val exec = java.io.File("src/main/kotlin/com/lifecyclebot/engine/Executor.kt").readText()
-        assertTrue(exec.contains("LIVE_BUY_MANAGED_FROM_SIGNATURE"))
-        assertTrue(exec.contains("provisional.copy(pendingVerify = false)"))
-        assertTrue(exec.contains("HostWalletTokenTracker.recordBuyConfirmed(ts, sig)"))
-        assertTrue(exec.contains("GlobalTradeRegistry.registerPosition"))
-        assertTrue(exec.contains("ts.position.pendingVerify || signatureManagedAtEntry"))
-        assertFalse("Inconclusive post-buy verification must not leave live buys unmanaged until startup", exec.contains("Will reconcile on next startup"))
-        assertFalse("Empty-map post-buy verification must not leave live buys pending/unmanaged", exec.contains("position kept pending, no wipe"))
+        assertTrue(exec.contains("BUY_CONFIRMED_AWAITING_BALANCE_PROOF"))
+        assertTrue(exec.contains("completeVerifiedLiveBuyWithProof"))
+        assertTrue(exec.contains("SellAmountAuthority.recordTxParseBalance"))
+        assertTrue(exec.contains("HostWalletTokenTracker.recordBuyConfirmedWithProof(ts, proof, verifySig)"))
+        assertTrue(exec.contains("TOKEN_TRACKER_BUY_CONFIRMED_WITH_PROOF"))
+        assertTrue(exec.contains("SELL_AMOUNT_AUTHORITY_SEEDED"))
+        assertTrue(exec.contains("BALANCE_PROOF_START"))
+        assertTrue(exec.contains("BALANCE_PROOF_OK"))
+        assertTrue(java.io.File("src/main/kotlin/com/lifecyclebot/engine/HostWalletTokenTracker.kt").readText().contains("countStaleBuyPendingBalanceProof"))
+        assertFalse("Live buy must not become sellable from signature alone", exec.contains("provisional.copy(pendingVerify = false)"))
+        assertFalse("Live buy final success path must not call legacy pending-only tracker", exec.contains("HostWalletTokenTracker.recordBuyConfirmed(ts, sig)"))
+        assertFalse("Late rescue must not use legacy tracker", exec.contains("HostWalletTokenTracker.recordBuyConfirmed(ts, verifySig)"))
     }
 
 
@@ -1234,6 +1239,27 @@ class GoldenTapeRegressionTest {
         assertTrue(exec.contains("REQUEST_SELL_BALANCE_WAIT_PROOF_READY"))
         assertTrue(exec.contains("BalanceProofWaitState.clear(ts.mint, \"PROOF_READY_REQUESTSELL\")"))
         assertTrue(exec.indexOf("LIVESELL_RPC_EMPTY_OWNER_DELTA_RECOVERED") < exec.indexOf("LIVESELL_RPC_EMPTY_BALANCE_UNKNOWN"))
+    }
+
+
+    @Test
+    fun live_balance_authority_and_reconciler_contracts_are_wired() {
+        val authority = java.io.File("src/main/kotlin/com/lifecyclebot/engine/sell/SellAmountAuthority.kt").readText()
+        val exec = java.io.File("src/main/kotlin/com/lifecyclebot/engine/Executor.kt").readText()
+        val bot = java.io.File("src/main/kotlin/com/lifecyclebot/engine/BotService.kt").readText()
+        val inv = java.io.File("src/main/kotlin/com/lifecyclebot/engine/InvariantGuardian.kt").readText()
+
+        assertTrue("empty wallet map must stay UNKNOWN", authority.contains("if (balances.isEmpty())"))
+        assertTrue(authority.contains("return Resolution.Unknown"))
+        assertTrue("non-empty map mint miss is the zero path", authority.contains("MINT_ABSENT_FROM_ONE_PROVIDER"))
+        assertTrue(exec.contains("SELL_QTY_SOURCE=BALANCE_UNKNOWN"))
+        assertTrue(exec.contains("CloseLease.release(ts.mint, \"BALANCE_UNKNOWN_NO_SIGNATURE\")"))
+        assertTrue(bot.contains("SellReconciler.start"))
+        assertTrue(bot.contains("sellTrigger = { mint, symbol, balance ->"))
+        assertTrue(bot.contains("LiveWalletReconciler.start { WalletManager.getWallet() }"))
+        assertTrue(inv.contains("reconciler.totalChecked=0 while canonicalOpen"))
+        assertTrue(inv.contains("BUY_PENDING_BALANCE_PROOF_STALE"))
+        assertTrue(inv.contains("staleBuyPendingBalanceProof > 0"))
     }
 
 }

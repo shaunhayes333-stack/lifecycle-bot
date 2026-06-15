@@ -973,6 +973,16 @@ object HostWalletTokenTracker {
      *  This is what stops the "1/31" ghost inflation at the source. */
     fun getOpenCount(): Int = positions.values.count { isOpenForAccounting(it) }
 
+    /** V5.0.3757 — health: live BUY_PENDING_BALANCE_PROOF may not age forever. */
+    fun countStaleBuyPendingBalanceProof(maxAgeMs: Long = 90_000L): Int {
+        val now = System.currentTimeMillis()
+        return positions.values.count { p ->
+            p.status == PositionStatus.BUY_PENDING &&
+                (now - p.buyTimeMs) > maxAgeMs &&
+                p.notes.any { it.contains("BUY_PENDING_BALANCE_PROOF", ignoreCase = true) || it.contains("BalanceProof", ignoreCase = true) }
+        }
+    }
+
     /** Snapshot of every tracked position (open + closed) — diagnostics. */
     /** Count positions with actual wallet token amount above dust. */
     fun getActuallyHeldCount(): Int = positions.values.count { isOpenForAccounting(it) && hasLastPositiveRaw(it) }
