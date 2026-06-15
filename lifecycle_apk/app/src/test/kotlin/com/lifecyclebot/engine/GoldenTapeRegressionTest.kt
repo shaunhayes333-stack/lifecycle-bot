@@ -653,4 +653,28 @@ class GoldenTapeRegressionTest {
     }
 
 
+
+    @Test
+    fun catastrophic_bootstrap_bleed_engages_brake_and_blocks_low_score_specialist_primary() {
+        val brake = java.io.File("src/main/kotlin/com/lifecyclebot/engine/MemeWREmergencyBrake.kt").readText()
+        assertTrue(brake.contains("CATASTROPHIC_BOOTSTRAP_MIN"))
+        assertTrue(brake.contains("CATASTROPHIC_BOOTSTRAP_WR_PCT"))
+        assertTrue(brake.contains("lifetime >= CATASTROPHIC_BOOTSTRAP_MIN && lifetime < MIN_LIFETIME_TRADES"))
+        assertTrue(brake.contains("wrPct < CATASTROPHIC_BOOTSTRAP_WR_PCT"))
+
+        val bot = java.io.File("src/main/kotlin/com/lifecyclebot/engine/BotService.kt").readText()
+        assertTrue(bot.contains("CATASTROPHIC_PAPER_SPECIALIST_BLEED_GUARD"))
+        assertTrue(bot.contains("LANE_PRIMARY_SUPPRESSED_CATASTROPHIC_PAPER_BLEED"))
+        assertTrue(bot.contains("score > 10"))
+        assertTrue(bot.contains("r.sampleSize >= 100 && r.recentWrPct < 20.0"))
+    }
+
+    @Test
+    fun low_score_bad_regime_routes_to_defensive_probe_not_dip_primary() {
+        val router = java.io.File("src/main/kotlin/com/lifecyclebot/engine/AgenticStyleRouter.kt").readText()
+        assertTrue(router.contains("lowScoreBleedContext"))
+        assertTrue(router.contains("lowScoreBleedContext -> Style.DEFENSIVE_PROBE"))
+        assertTrue(router.contains("score <= 10 && badRegime"))
+    }
+
 }

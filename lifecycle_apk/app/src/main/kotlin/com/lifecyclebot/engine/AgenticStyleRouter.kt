@@ -82,8 +82,21 @@ object AgenticStyleRouter {
         val ddAgg = try { com.lifecyclebot.v3.scoring.DrawdownCircuitAI.getAggression() } catch (_: Throwable) { 1.0 }
         val ageMin = try { ((System.currentTimeMillis() - ts.addedToWatchlistAt) / 60_000.0).coerceAtLeast(0.0) } catch (_: Throwable) { 999.0 }
         val lowInfoFresh = ageMin <= 5.0 && ts.lastBuyPressurePct in 45.0..55.0 && ts.lastLiquidityUsd in 1_000.0..8_000.0
+        val badRegime = try {
+            val r = com.lifecyclebot.engine.RegimeDetector.current()
+            r.sampleSize >= 100 && r.recentWrPct < 20.0 &&
+                (r.regime == com.lifecyclebot.engine.RegimeDetector.Regime.CHOP ||
+                 r.regime == com.lifecyclebot.engine.RegimeDetector.Regime.DUMP ||
+                 r.regime == com.lifecyclebot.engine.RegimeDetector.Regime.DEAD)
+        } catch (_: Throwable) { false }
+        val lowScoreBleedContext = score <= 10 && badRegime
 
         val style = when {
+            // V5.0.3716 — do not let PULLBACK/LAB tactics route score-0 CHOP
+            // candidates into DIP_HUNTER as primary during a catastrophic paper
+            // WR collapse. Keep exploration alive, but via defensive meme-family
+            // probes rather than specialist duplicate exposure.
+            lowScoreBleedContext -> Style.DEFENSIVE_PROBE
             ddAgg < 0.50 && lowInfoFresh -> Style.DEFENSIVE_PROBE
             tactic == TacticSwitcher.Tactic.LAB_PROPOSED -> Style.LAB_EXPLORATION
             tactic == TacticSwitcher.Tactic.PULLBACK -> Style.PULLBACK_RECLAIM

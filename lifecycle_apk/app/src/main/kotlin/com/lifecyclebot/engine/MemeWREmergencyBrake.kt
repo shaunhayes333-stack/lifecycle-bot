@@ -40,6 +40,9 @@ object MemeWREmergencyBrake {
     private const val WINDOW_SIZE         = 200
     private const val ENGAGE_WR_PCT       = 30.0
     private const val RELEASE_WR_PCT      = 35.0   // hysteresis
+    private const val CATASTROPHIC_BOOTSTRAP_MIN = 200
+    private const val CATASTROPHIC_BOOTSTRAP_WR_PCT = 20.0
+    private const val CATASTROPHIC_RELEASE_WR_PCT = 25.0
     // V5.9.495z9 — operator: 'completely choked, no layers or traders are
     // working' (live, 06 May 2026). Brake stack was killing all live entries.
     // SCORE_BOOST 8→2 (just a nudge), SIZING_MULT 0.85→0.95.
@@ -139,14 +142,33 @@ object MemeWREmergencyBrake {
             TradeHistoryStore.memeWrSnapshot(WINDOW_SIZE, MIN_LIFETIME_TRADES) { isMemeMode(it) }
         } catch (_: Exception) { Pair(0, 0.0) }
 
+        val windowCount = if (lifetime < WINDOW_SIZE) lifetime else WINDOW_SIZE
+        val prev = cachedStatus
+
+        // V5.0.3716 — catastrophic bootstrap brake. Doctrine says 20-35% WR is
+        // expected during bootstrap, but the 5.0.3714 report showed 5.4% WR over
+        // 260 closes, 73.5% DD, and projected 1251 exec/day. That is not normal
+        // bootstrap noise; it is active quality collapse. Engage a bounded brake
+        // after 200 closes when WR is below the doctrine floor, and release once
+        // it climbs back into the bootstrap band. This preserves volume (size is
+        // shaped, not zeroed) while stopping below-floor churn.
+        val catastrophicBootstrap = lifetime >= CATASTROPHIC_BOOTSTRAP_MIN && lifetime < MIN_LIFETIME_TRADES
+        if (catastrophicBootstrap) {
+            val engaged = if (prev.engaged) wrPct < CATASTROPHIC_RELEASE_WR_PCT else wrPct < CATASTROPHIC_BOOTSTRAP_WR_PCT
+            if (engaged != prev.engaged) {
+                if (engaged) ErrorLogger.warn(TAG,
+                    "🚨 CATASTROPHIC_BOOTSTRAP_ENGAGED | meme WR=${"%.1f".format(wrPct)}% (last $windowCount) lifetime=$lifetime — below doctrine floor; raising score bar +$SCORE_BOOST and reducing size")
+                else ErrorLogger.info(TAG,
+                    "✅ CATASTROPHIC_BOOTSTRAP_RELEASED | meme WR recovered to ${"%.1f".format(wrPct)}%")
+            }
+            return Status(engaged, wrPct, windowCount, now)
+        }
+
         if (lifetime < MIN_LIFETIME_TRADES) {
             return Status(false, 0.0, lifetime, now)
         }
 
-        val windowCount = if (lifetime < WINDOW_SIZE) lifetime else WINDOW_SIZE
-
         // Hysteresis: once engaged, require RELEASE_WR_PCT to release.
-        val prev = cachedStatus
         val engaged = if (prev.engaged) wrPct < RELEASE_WR_PCT else wrPct < ENGAGE_WR_PCT
 
         if (engaged != prev.engaged) {

@@ -8526,6 +8526,32 @@ class BotService : Service() {
         } catch (_: Throwable) { "SHITCOIN" }
     }
 
+    private fun catastrophicPaperLowScoreSpecialistBleed(ts: com.lifecyclebot.data.TokenState, lane: String): Boolean {
+        return try {
+            if (!cfg.paperMode) return false
+            val l = lane.uppercase()
+            val nonMemeSpecialist = (l == "MANIPULATED" || l == "QUALITY" || l == "DIP_HUNTER"
+                || l == "PROJECT_SNIPER" || l == "TREASURY" || l == "BLUECHIP")
+            if (!nonMemeSpecialist) return false
+            val score = (ts.lastV3Score ?: ts.entryScore.toInt()).coerceIn(-100, 150)
+            if (score > 10) return false
+            val r = com.lifecyclebot.engine.RegimeDetector.current()
+            // V5.0.3716 — CATASTROPHIC_PAPER_SPECIALIST_BLEED_GUARD.
+            // Operator report 5.0.3714: bootstrap n=260, WR=5.4%, DD=73.5%,
+            // projected execs/day=1251. AgenticStyleRouter was making DIP_HUNTER
+            // the primary for many score=0 CHOP candidates, so the early
+            // "primary always evaluates" rule bypassed the bounded rescue cap.
+            // This is a pattern guard for all non-meme specialist lanes, not a DIP
+            // one-off: in catastrophic paper bleed + S0-10, keep meme-family
+            // learning alive but stop specialist duplicate exposure until the
+            // global curve climbs back into the bootstrap floor.
+            r.sampleSize >= 100 && r.recentWrPct < 20.0 &&
+                (r.regime == com.lifecyclebot.engine.RegimeDetector.Regime.CHOP ||
+                 r.regime == com.lifecyclebot.engine.RegimeDetector.Regime.DUMP ||
+                 r.regime == com.lifecyclebot.engine.RegimeDetector.Regime.DEAD)
+        } catch (_: Throwable) { false }
+    }
+
     private fun shouldRunBuyLaneForCycle(ts: com.lifecyclebot.data.TokenState, lane: String, primaryLane: String): Boolean {
         // V5.9.1586 — restore 3501 lane behavior. Primary lane is display/default
         // metadata only; it is NOT a pre-FDG execution suppressor. Every enabled
@@ -8564,8 +8590,17 @@ class BotService : Service() {
         val l = lane.uppercase()
         // (1) Regression guard — must remain literally these tokens.
         if (l == "STANDARD" || l == "CORE" || l == "V3") return true
-        // (2) Primary always evaluates.
-        if (l.equals(primaryLane, ignoreCase = true)) return true
+        // (2) Primary normally evaluates, except catastrophic paper S0-10
+        // specialist bleed. This prevents a low-score DIP/QUALITY/TREASURY/etc
+        // primary from bypassing the bounded rescue cap during a sub-bootstrap
+        // WR collapse while preserving meme-family training volume.
+        if (l.equals(primaryLane, ignoreCase = true)) {
+            if (catastrophicPaperLowScoreSpecialistBleed(ts, l)) {
+                try { ForensicLogger.lifecycle("LANE_PRIMARY_SUPPRESSED_CATASTROPHIC_PAPER_BLEED", "lane=$l symbol=${ts.symbol} mint=${ts.mint.take(10)} score=${ts.lastV3Score ?: ts.entryScore.toInt()}") } catch (_: Throwable) {}
+                return false
+            }
+            return true
+        }
 
         val memeOnly = try {
             com.lifecyclebot.engine.EnabledTraderAuthority.isMemeLiveOnly()
