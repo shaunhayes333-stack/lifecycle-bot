@@ -194,7 +194,13 @@ class BotService : Service() {
             // V5.9.1160 — Crypto Universe is part of the Markets lane. In MEME-only
             // mode (tradingMode=0 or markets master OFF) it must not scan, publish
             // DynSig/SIGNAL logs, write learning, or execute.
-            val cryptoUniverseOn = marketsOn && cfg.cryptoAltsEnabled
+            // V5.0.3744 — operator explicit-enable escape hatch (crypto-isolated).
+            // If cryptoAltsEnabled=true AND marketsTraderEnabled=true, keep crypto
+            // running even when tradingMode==0. Operator intent ('explicitly
+            // enabled') overrides the mode-based suppression.
+            val cryptoUniverseOn = (marketsOn ||
+                (cfg.marketsTraderEnabled && cfg.cryptoAltsEnabled)) &&
+                cfg.cryptoAltsEnabled
             try { com.lifecyclebot.perps.CryptoAltTrader.setEnabled(cryptoUniverseOn) } catch (_: Exception) {}
             if (!cryptoUniverseOn) {
                 try {
@@ -1567,7 +1573,10 @@ class BotService : Service() {
         com.lifecyclebot.perps.ForexTrader.setEnabled(marketsLaneOn && marketsStartCfg.forexEnabled && !com.lifecyclebot.engine.EnabledTraderAuthority.MARKET_LANES_QUARANTINED)
         // V5.9.1160 — Crypto Universe must honor Markets lane authority.
         // MEME-only mode must not start CryptoAlt scanner/signals/learning.
-        val cryptoUniverseOnAtStart = marketsLaneOn && marketsStartCfg.cryptoAltsEnabled
+        // V5.0.3744 — operator explicit-enable escape hatch (crypto-isolated).
+        val cryptoUniverseOnAtStart = (marketsLaneOn ||
+            (marketsStartCfg.marketsTraderEnabled && marketsStartCfg.cryptoAltsEnabled)) &&
+            marketsStartCfg.cryptoAltsEnabled
         com.lifecyclebot.perps.CryptoAltTrader.setEnabled(cryptoUniverseOnAtStart)
         if (!cryptoUniverseOnAtStart) {
             try { com.lifecyclebot.perps.CryptoAltTrader.stop() } catch (_: Exception) {}
@@ -1759,14 +1768,22 @@ class BotService : Service() {
         // V5.9.776 — EMERGENT MEME-ONLY: previously called start() unconditionally
         // even when the UI toggle was OFF, which leaked through to the engine's
         // initial scan (now gated in CryptoAltTrader.start as well, defence-in-depth).
+        // V5.0.3744 — operator explicit-enable escape hatch. If the operator
+        // has cryptoAltsEnabled=true AND marketsTraderEnabled=true, START
+        // the trader even when tradingMode==0 (meme-only). The crypto trader
+        // runs its own engine loop on its own universe — it does NOT inflate
+        // meme-lane fanout. Matches the V5.0.3744 escape inside
+        // CryptoAltTrader.runtimeDisabledReason.
         try {
             com.lifecyclebot.perps.CryptoAltTrader.init(applicationContext)
             com.lifecyclebot.perps.CryptoAltTrader.setLiveMode(!cfg.paperMode)
-            val cryptoUniverseOn = isMarketsLaneEnabled(cfg) && cfg.cryptoAltsEnabled
+            val cryptoUniverseOn = (isMarketsLaneEnabled(cfg) ||
+                (cfg.marketsTraderEnabled && cfg.cryptoAltsEnabled)) &&
+                cfg.cryptoAltsEnabled
             com.lifecyclebot.perps.CryptoAltTrader.setEnabled(cryptoUniverseOn)
             if (cryptoUniverseOn) {
                 com.lifecyclebot.perps.CryptoAltTrader.start()
-                ErrorLogger.info("BotService", "🪙 TRADER_GATE CRYPTO_ALT enabled=true started=true")
+                ErrorLogger.info("BotService", "🪙 TRADER_GATE CRYPTO_ALT enabled=true started=true (explicitMode=${!isMarketsLaneEnabled(cfg)})")
             } else {
                 // Make sure any stale instance from a prior run is stopped.
                 try { com.lifecyclebot.perps.CryptoAltTrader.stop() } catch (_: Exception) {}

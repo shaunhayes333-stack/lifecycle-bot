@@ -451,6 +451,36 @@ object CryptoAltTrader {
 
     private fun runtimeDisabledReason(): String? {
         if (com.lifecyclebot.engine.BotService.isShuttingDown) return "runtime_stopping"
+        // V5.0.3744 — OPERATOR EXPLICIT-ENABLE ESCAPE HATCH (crypto-isolated fix).
+        //
+        // Audit: with V5.0.3682 + V5.0.3702 in force, the EnabledTraderAuthority
+        // publish set is amputated to {MEME} whenever tradingMode==0 OR
+        // (tradingMode==2 && memeTraderEnabled). That correctly contains
+        // meme-lane fanout (V5.0.3684 shouldRunBuyLaneForCycle), but it
+        // simultaneously silenced THIS background trader's independent loop
+        // even when the operator had cryptoAltsEnabled=true in settings.
+        //
+        // The operator's original P1 spec said
+        // "PROJECT_SNIPER, CYCLIC, MARKETS, PERPS must be false UNLESS
+        //  EXPLICITLY ENABLED". A per-trader toggle IS the explicit enable.
+        // The crypto trader runs its own engine/monitor/dynScan jobs that
+        // never inflate meme-lane fanout (separate scoring stack, separate
+        // universe, separate ticker), so honouring cfg.cryptoAltsEnabled
+        // here is safe and surgical.
+        //
+        // Order of checks below:
+        //   1. cfg.cryptoAltsEnabled == true AND marketsTraderEnabled == true
+        //      → operator explicitly opted in → bypass authority suppression.
+        //   2. Otherwise fall through to the authority + config guards.
+        val c = ctx
+        val cfg = try { c?.let { com.lifecyclebot.data.ConfigStore.load(it) } } catch (_: Throwable) { null }
+        val operatorExplicitlyEnabled = cfg != null &&
+            cfg.cryptoAltsEnabled && cfg.marketsTraderEnabled
+        if (operatorExplicitlyEnabled) {
+            // Bypass the meme-only authority suppression — operator intent wins.
+            if (!isEnabled.get()) return "disabled"
+            return null
+        }
         // V5.9.1318 (Item 5) — EnabledTraderAuthority is the SINGLE ATOMIC source of truth
         // for which traders are enabled. Consult it FIRST so a mode switch is obeyed
         // immediately and atomically, closing the ConfigStore-load lag window that let
@@ -462,12 +492,8 @@ object CryptoAltTrader {
                 return "SUB_TRADER_SUPPRESSED_MEME_ONLY"
             }
         } catch (_: Throwable) { /* fall through to config check */ }
-        val c = ctx
-        if (c != null) {
-            val cfg = try { com.lifecyclebot.data.ConfigStore.load(c) } catch (_: Throwable) { null }
-            if (cfg != null && (cfg.tradingMode == 0 || !cfg.marketsTraderEnabled || !cfg.cryptoAltsEnabled)) {
-                return "MEME_ONLY_MODE"
-            }
+        if (cfg != null && (cfg.tradingMode == 0 || !cfg.marketsTraderEnabled || !cfg.cryptoAltsEnabled)) {
+            return "MEME_ONLY_MODE"
         }
         if (!isEnabled.get()) return "disabled"
         return null
