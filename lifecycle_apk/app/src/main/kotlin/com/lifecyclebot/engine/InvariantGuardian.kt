@@ -42,10 +42,11 @@ object InvariantGuardian {
                 "orphanLive=${s.orphanLivePositions} liveOpen=${s.liveOpenPositions} host=${s.hostTrackerOpenCount} walletHeld=${s.walletHeldMints}")
         }
         // PATCH ITEM 3/7: scanner inactive while runtime RUNNING (and not user-disabled).
-        if (uiRunning && s.botLoopActive && !s.scannerActive &&
+        val scannerRecentlyFed = try { PipelineHealthCollector.scannerRecentlyActive(15_000L) } catch (_: Throwable) { false }
+        if (uiRunning && s.botLoopActive && !s.scannerActive && !scannerRecentlyFed &&
             !(try { RuntimeRepairState.isScannerUserDisabled() } catch (_: Throwable) { false })) {
             out += Fault(FaultCode.SCANNER_INACTIVE, "HIGH",
-                "scannerActive=false while RUNNING (botLoop=${s.botLoopActive})")
+                "scannerActive=false while RUNNING (botLoop=${s.botLoopActive}) and no recent SCAN_CB/INTAKE pulse")
         }
         // V5.9.1162 — compare live domain to live wallet truth only. Paper positions
         // are expected to have walletHeldMints=0 and must not be reported as healthy

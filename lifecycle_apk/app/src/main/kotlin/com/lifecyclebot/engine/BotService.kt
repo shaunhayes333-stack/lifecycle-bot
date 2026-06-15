@@ -3348,6 +3348,8 @@ class BotService : Service() {
                         )
                         lastScannerDiscoveryMs = System.currentTimeMillis()
                         marketScanner?.recordNewTokenFound()
+                        // V5.0.3730 — scanner-active source truth (self-heal path sibling).
+                        try { com.lifecyclebot.engine.BotRuntimeController.markScannerActive(builtGeneration, true) } catch (_: Throwable) {}
                         admitProtectedMemeIntake(
                             mint = mint,
                             symbol = symbol,
@@ -4432,6 +4434,12 @@ class BotService : Service() {
                             // the scanner is alive but candidates are returning early.
                             lastScannerDiscoveryMs = System.currentTimeMillis()
                             marketScanner?.recordNewTokenFound()
+                            // V5.0.3730 — scanner-active source truth.
+                            // Runtime reports showed scannerActive=false while SCAN_CB/INTAKE
+                            // were firing in the same second. Heartbeat only runs every ~30s;
+                            // raw scanner callbacks are the authoritative proof that the live
+                            // watchlist feed is alive, so publish active here immediately.
+                            try { com.lifecyclebot.engine.BotRuntimeController.markScannerActive(startBotScannerGen, true) } catch (_: Throwable) {}
 
                             val c = ConfigStore.load(applicationContext)
                             
@@ -6850,6 +6858,8 @@ class BotService : Service() {
                         if (shouldAdmit) {
                             lastScannerDiscoveryMs = System.currentTimeMillis()
                             try { marketScanner?.recordNewTokenFound() } catch (_: Throwable) {}
+                            // V5.0.3730 — scanner-active source truth (PumpPortal WS sibling).
+                            try { com.lifecyclebot.engine.BotRuntimeController.markScannerActive(com.lifecyclebot.engine.BotRuntimeController.currentGeneration(), true) } catch (_: Throwable) {}
                             val solUsd = com.lifecyclebot.engine.WalletManager.lastKnownSolPrice
                                 .takeIf { it > 0.0 } ?: 150.0
                             val mcapUsd = mcapSol * solUsd

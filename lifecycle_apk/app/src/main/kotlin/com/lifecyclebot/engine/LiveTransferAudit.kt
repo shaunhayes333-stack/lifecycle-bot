@@ -43,6 +43,8 @@ object LiveTransferAudit {
             val fdgLiveAllow = try { PipelineHealthCollector.fdgLiveAllowCount() } catch (_: Throwable) { -1L }
             val fdgLiveBlock = try { PipelineHealthCollector.fdgLiveBlockCount() } catch (_: Throwable) { -1L }
             val execLiveAttempt = try { PipelineHealthCollector.execLiveAttemptCount() } catch (_: Throwable) { -1L }
+            val execLiveBuyOk = try { PipelineHealthCollector.execLiveBuyOkCount() } catch (_: Throwable) { -1L }
+            val execLiveSellOk = try { PipelineHealthCollector.execLiveSellOkCount() } catch (_: Throwable) { -1L }
             val fdgLiveSeen = if (fdgLiveAllow >= 0 && fdgLiveBlock >= 0) fdgLiveAllow + fdgLiveBlock else -1L
 
             val firstLiveBlocker: String = run {
@@ -52,7 +54,11 @@ object LiveTransferAudit {
                 if (!walletConnected) parts.add("WALLET_NOT_CONNECTED")
                 if (walletSol <= 0.0) parts.add("WALLET_BALANCE_ZERO")
                 try { RuntimeModeAuthority.detectDesync()?.let { parts.add("MODE_DESYNC") } } catch (_: Throwable) {}
-                parts.firstOrNull() ?: if (fdgLiveAllow <= 0L) "NO_LIVE_CANDIDATE_REACHED_FDG" else ""
+                // V5.0.3730 — do not emit the impossible blocker after live execution.
+                // 5.0.3727 showed fdgLiveAllow=0 but execLiveAttempt=37, BUY_OK=2, SELL_OK=1.
+                // That means FDG telemetry undercounted one execution path; live transfer did
+                // happen, so "NO_LIVE_CANDIDATE_REACHED_FDG" is a lying diagnosis.
+                parts.firstOrNull() ?: if (fdgLiveAllow <= 0L && execLiveAttempt <= 0L && execLiveBuyOk <= 0L && execLiveSellOk <= 0L) "NO_LIVE_CANDIDATE_REACHED_FDG" else ""
             }
             val liveGateAllow = firstLiveBlocker.isBlank()
 
@@ -70,6 +76,8 @@ object LiveTransferAudit {
                 append(" fdgLiveSeen=$fdgLiveSeen")
                 append(" fdgLiveAllow=$fdgLiveAllow")
                 append(" execLiveAttempt=$execLiveAttempt")
+                append(" execLiveBuyOk=$execLiveBuyOk")
+                append(" execLiveSellOk=$execLiveSellOk")
                 append(" liveGateAllow=$liveGateAllow")
                 append(" firstLiveBlocker=${if (firstLiveBlocker.isBlank()) "NONE" else firstLiveBlocker}")
             }

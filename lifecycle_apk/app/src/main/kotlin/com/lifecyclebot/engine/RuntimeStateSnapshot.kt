@@ -57,9 +57,16 @@ data class RuntimeStateSnapshot(
             val mode = try { RuntimeModeAuthority.authority().name } catch (_: Throwable) { if (runtime.paperMode) "PAPER" else "LIVE" }
             val statusOpen = try { BotService.status.openPositions } catch (_: Throwable) { emptyList<com.lifecyclebot.data.TokenState>() }
             val paperOpen = try { statusOpen.count { it.position.isPaperPosition } } catch (_: Throwable) { 0 }
-            val liveOpen = try { statusOpen.count { !it.position.isPaperPosition } } catch (_: Throwable) { 0 }
             val walletHeld = try { HostWalletTokenTracker.getActuallyHeldCount() } catch (_: Throwable) { 0 }
             val hostOpen = try { HostWalletTokenTracker.getOpenCount() } catch (_: Throwable) { runtime.hostTrackerOpenCount }
+            val heldMints = try { HostWalletTokenTracker.getActuallyHeldMints() } catch (_: Throwable) { emptySet<String>() }
+            // V5.0.3730 — live-open truth must be wallet/host-backed.
+            // Runtime 5.0.3727 showed liveStore=1 host=0 walletHeld=0 after a live sell
+            // finalized. Raw BotService.status.openPositions still contained a stale live
+            // TokenState, poisoning HOST_TRACKER_DESYNC and SellOnlySafeMode even though the
+            // wallet/tracker were empty. In LIVE, a local TokenState is not an open position
+            // unless the host wallet tracker still holds or is actively selling that mint.
+            val liveOpen = try { statusOpen.count { !it.position.isPaperPosition && it.mint in heldMints } } catch (_: Throwable) { 0 }
             val lifecycleOpen = try { TokenLifecycleTracker.openCount() } catch (_: Throwable) { 0 }
             // V5.0.3685 — P0: SellOnlySafeMode compares hostOpen (live tracker) vs
             // positionStoreOpen. The old statusOpen.size included paper positions, so

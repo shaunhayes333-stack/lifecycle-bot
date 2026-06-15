@@ -826,4 +826,48 @@ class GoldenTapeRegressionTest {
         assertFalse("SellOnlySafeMode must not use diagnostic activeLeaseCount as pendingSellQueue", snapshot.contains("val pendingSell = try { com.lifecyclebot.engine.sell.CloseLease.activeLeaseCount()"))
     }
 
+
+    @Test
+    fun live_transfer_audit_and_snapshot_do_not_report_stale_live_deadness() {
+        val snapshot = java.io.File("src/main/kotlin/com/lifecyclebot/engine/RuntimeStateSnapshot.kt").readText()
+        assertTrue(snapshot.contains("live-open truth must be wallet/host-backed"))
+        assertTrue(snapshot.contains("HostWalletTokenTracker.getActuallyHeldMints()"))
+        assertTrue(snapshot.contains("!it.position.isPaperPosition && it.mint in heldMints"))
+
+        val audit = java.io.File("src/main/kotlin/com/lifecyclebot/engine/LiveTransferAudit.kt").readText()
+        assertTrue(audit.contains("execLiveBuyOk"))
+        assertTrue(audit.contains("execLiveSellOk"))
+        assertTrue(audit.contains("do not emit the impossible blocker after live execution"))
+        assertTrue(audit.contains("fdgLiveAllow <= 0L && execLiveAttempt <= 0L && execLiveBuyOk <= 0L && execLiveSellOk <= 0L"))
+    }
+
+
+    @Test
+    fun scanner_active_truth_comes_from_recent_raw_callbacks_not_heartbeat_only() {
+        val bot = java.io.File("src/main/kotlin/com/lifecyclebot/engine/BotService.kt").readText()
+        assertTrue(bot.contains("scanner-active source truth"))
+        assertTrue(bot.contains("BotRuntimeController.markScannerActive(startBotScannerGen, true)"))
+
+        val pipe = java.io.File("src/main/kotlin/com/lifecyclebot/engine/PipelineHealthCollector.kt").readText()
+        assertTrue(pipe.contains("fun scannerRecentlyActive"))
+        assertTrue(pipe.contains("PHASE/SCAN_CB"))
+        assertTrue(pipe.contains("PHASE/INTAKE"))
+
+        val guardian = java.io.File("src/main/kotlin/com/lifecyclebot/engine/InvariantGuardian.kt").readText()
+        assertTrue(guardian.contains("scannerRecentlyFed"))
+        assertTrue(guardian.contains("no recent SCAN_CB/INTAKE pulse"))
+    }
+
+    @Test
+    fun runtime_root_cause_uses_current_faults_not_stale_recent_faults() {
+        val doctor = java.io.File("src/main/kotlin/com/lifecyclebot/engine/RuntimeDoctor.kt").readText()
+        assertTrue(doctor.contains("current faults only"))
+        assertTrue(doctor.contains("invariantFaults = faults"))
+        assertTrue(doctor.contains("fun currentFaults()"))
+
+        val report = java.io.File("src/main/kotlin/com/lifecyclebot/engine/PipelineHealthCollector.kt").readText()
+        assertTrue(report.contains("RuntimeDoctor.currentFaults()"))
+        assertFalse("Root cause line must not print stale recent RuntimeDoctor history", report.contains("RuntimeDoctor.recentFaults()"))
+    }
+
 }

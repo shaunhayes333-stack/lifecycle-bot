@@ -125,6 +125,8 @@ object PipelineHealthCollector {
     fun fdgLiveAllowCount(): Long = fdgLiveAllow.get()
     fun fdgLiveBlockCount(): Long = fdgLiveBlock.get()
     fun execLiveAttemptCount(): Long = execLiveAttempt.get()
+    fun execLiveBuyOkCount(): Long = execLiveBuyOk.get()
+    fun execLiveSellOkCount(): Long = execLiveSellOk.get()
     private val execLiveSellOk   = AtomicLong(0L)
     private val execLiveSellFail = AtomicLong(0L)
     private val execPaperBuyOk   = AtomicLong(0L)
@@ -703,6 +705,13 @@ object PipelineHealthCollector {
         val stackRing: List<StackSample>,
     )
 
+    fun scannerRecentlyActive(windowMs: Long = 15_000L): Boolean {
+        val cutoff = System.currentTimeMillis() - windowMs
+        return try {
+            ring.any { it.tsMs >= cutoff && (it.tag == "PHASE/SCAN_CB" || it.tag == "PHASE/INTAKE" || it.tag == "LIFECYCLE/SCANNER_SOURCE_DONE") }
+        } catch (_: Throwable) { false }
+    }
+
     fun snapshot(): Snapshot {
         val events = ring.toList()
         return Snapshot(
@@ -856,7 +865,7 @@ object PipelineHealthCollector {
             // HOST_TRACKER_DESYNC / SELL_RECONCILER_DEAD) MUST surface as the root
             // cause and can never be masked by the NONE fallthrough.
             try {
-                val faults = com.lifecyclebot.engine.RuntimeDoctor.recentFaults()
+                val faults = com.lifecyclebot.engine.RuntimeDoctor.currentFaults()
                 for (f in faults) { rootCauses.add(0, ("" + f.code + " (" + f.severity + ") " + f.detail).take(120)) }
             } catch (_: Throwable) {}
             if (rootCauses.isEmpty()) rootCauses.add("NONE — mechanics AND performance within band")
