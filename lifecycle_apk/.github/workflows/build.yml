@@ -27,6 +27,16 @@ jobs:
         with:
           accept-android-sdk-licenses: true
 
+      - name: Compute AATE build number
+        id: aate_build
+        run: |
+          BUILD_NUMBER=$((GITHUB_RUN_NUMBER + 1))
+          VERSION_NAME="5.0.${BUILD_NUMBER}"
+          echo "AATE_BUILD_NUMBER=$BUILD_NUMBER" >> "$GITHUB_ENV"
+          echo "AATE_VERSION_NAME=$VERSION_NAME" >> "$GITHUB_ENV"
+          echo "build_number=$BUILD_NUMBER" >> "$GITHUB_OUTPUT"
+          echo "version_name=$VERSION_NAME" >> "$GITHUB_OUTPUT"
+
       - name: Accept SDK Licenses
         run: |
           yes | $ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager --licenses || true
@@ -37,22 +47,22 @@ jobs:
           mkdir -p gradle/wrapper
           curl -sL -o gradle/wrapper/gradle-wrapper.jar "https://raw.githubusercontent.com/gradle/gradle/v8.7.0/gradle/wrapper/gradle-wrapper.jar"
           echo "========================================"
-          echo "Building AATE v5.0.${{ github.run_number }}"
-          echo "versionCode = $((500 + ${{ github.run_number }}))"
+          echo "Building AATE v${{ steps.aate_build.outputs.version_name }}"
+          echo "versionCode = $((500 + AATE_BUILD_NUMBER))"
           echo "========================================"
-          ./gradlew clean assembleRelease --no-daemon --stacktrace -PbuildNumber=${{ github.run_number }}
+          ./gradlew clean assembleRelease --no-daemon --stacktrace -PbuildNumber=$AATE_BUILD_NUMBER
           echo "Built APK:"
           ls -la app/build/outputs/apk/release/
           # Rename APK to include build number
-          mv app/build/outputs/apk/release/*.apk app/build/outputs/apk/release/AATE_v5.0.${{ github.run_number }}.apk
+          mv app/build/outputs/apk/release/*.apk app/build/outputs/apk/release/AATE_v${{ steps.aate_build.outputs.version_name }}.apk
           echo "Final APK:"
           ls -la app/build/outputs/apk/release/
 
       # Upload as artifact (backup)
       - uses: actions/upload-artifact@v4
         with:
-          name: AATE_v5.0.${{ github.run_number }}
-          path: lifecycle_apk/app/build/outputs/apk/release/AATE_v5.0.${{ github.run_number }}.apk
+          name: AATE_v${{ steps.aate_build.outputs.version_name }}
+          path: lifecycle_apk/app/build/outputs/apk/release/AATE_v${{ steps.aate_build.outputs.version_name }}.apk
 
       # Create/Update "latest" release for easy public download
       - name: Delete old latest release
@@ -68,9 +78,9 @@ jobs:
         uses: softprops/action-gh-release@v1
         with:
           tag_name: latest
-          name: "AATE Latest Build (v5.0.${{ github.run_number }})"
+          name: "AATE Latest Build (v${{ steps.aate_build.outputs.version_name }})"
           body: |
-            ## 📱 AATE v5.0.${{ github.run_number }}
+            ## 📱 AATE v${{ steps.aate_build.outputs.version_name }}
             
             **Public Download Link** - No login required!
             
@@ -78,7 +88,7 @@ jobs:
             Click the APK file below to download directly.
             
             ### ✨ Latest Changes
-            - Build #${{ github.run_number }}
+            - Build ${{ steps.aate_build.outputs.build_number }}
             - See commit history for details
             
             ### 📋 Requirements
@@ -87,7 +97,7 @@ jobs:
             
             ---
             🔗 **Share this link:** `https://github.com/${{ github.repository }}/releases/latest`
-          files: lifecycle_apk/app/build/outputs/apk/release/AATE_v5.0.${{ github.run_number }}.apk
+          files: lifecycle_apk/app/build/outputs/apk/release/AATE_v${{ steps.aate_build.outputs.version_name }}.apk
           draft: false
           prerelease: false
         env:

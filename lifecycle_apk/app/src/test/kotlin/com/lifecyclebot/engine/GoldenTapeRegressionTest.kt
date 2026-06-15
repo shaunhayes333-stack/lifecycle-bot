@@ -685,4 +685,17 @@ class GoldenTapeRegressionTest {
         assertFalse("router hot path must not synchronously refresh RegimeDetector", router.contains("RegimeDetector.current()"))
     }
 
+
+    @Test
+    fun ci_apk_version_name_matches_operator_patch_sequence() {
+        val workflow = java.io.File("../.github/workflows/build.yml").readText()
+        assertTrue(workflow.contains("id: aate_build"))
+        assertTrue(workflow.contains("BUILD_NUMBER=$((GITHUB_RUN_NUMBER + 1))"))
+        assertTrue(workflow.contains("version_name=$VERSION_NAME"))
+        assertTrue(workflow.contains("-PbuildNumber=$AATE_BUILD_NUMBER"))
+        assertTrue(workflow.contains("AATE_v\${{ steps.aate_build.outputs.version_name }}"))
+        assertFalse("APK version must not lag one behind operator patch number", workflow.contains("AATE_v5.0.\${{ github.run_number }}"))
+        assertFalse("Gradle buildNumber must not use raw GitHub run number", workflow.contains("-PbuildNumber=\${{ github.run_number }}"))
+    }
+
 }
