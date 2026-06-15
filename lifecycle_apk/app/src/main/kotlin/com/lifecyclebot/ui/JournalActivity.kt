@@ -70,6 +70,27 @@ class JournalActivity : AppCompatActivity() {
         private const val LOSS_THRESHOLD_PCT = -2.0
     }
 
+    private fun isValidJournalAccounting(e: com.lifecyclebot.engine.TradeJournal.JournalEntry): Boolean {
+        if (!isSellLike(e.side)) return true
+        val t = com.lifecyclebot.data.Trade(
+            side = e.side,
+            mode = e.mode,
+            sol = e.solAmount,
+            price = e.entryPrice,
+            ts = e.ts,
+            reason = e.reason,
+            pnlSol = e.pnlSol,
+            pnlPct = e.pnlPct,
+            score = e.score,
+            feeSol = e.feeSol,
+            netPnlSol = e.netPnlSol,
+            tradingMode = e.tradingMode,
+            tradingModeEmoji = e.tradingModeEmoji,
+            mint = e.mint,
+        )
+        return com.lifecyclebot.engine.TradeHistoryStore.isValidAccountingTrade(t)
+    }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         setContentView(R.layout.activity_journal)
@@ -437,6 +458,7 @@ class JournalActivity : AppCompatActivity() {
                         }
                     } catch (_: Throwable) {}
                     (rawTrades + tokenTrades)
+                        .filter { com.lifecyclebot.engine.TradeHistoryStore.isValidAccountingTrade(it) }
                         .sortedByDescending { it.ts }
                         .map { t ->
                             com.lifecyclebot.engine.TradeJournal.JournalEntry(
@@ -462,10 +484,11 @@ class JournalActivity : AppCompatActivity() {
                             )
                         }
                 }
+                val validEntries = allEntries.filter { isValidJournalAccounting(it) }
                 val filtered = when (currentModeFilter) {
-                    "live"  -> allEntries.filter { it.mode.equals("live",  ignoreCase = true) }
-                    "paper" -> allEntries.filter { it.mode.equals("paper", ignoreCase = true) }
-                    else    -> allEntries
+                    "live"  -> validEntries.filter { it.mode.equals("live",  ignoreCase = true) }
+                    "paper" -> validEntries.filter { it.mode.equals("paper", ignoreCase = true) }
+                    else    -> validEntries
                 }
                 // Skip re-render if sell count unchanged (avoids 90 addView calls every 10s poll)
                 val sellCount = filtered.count { isSellLike(it.side) }

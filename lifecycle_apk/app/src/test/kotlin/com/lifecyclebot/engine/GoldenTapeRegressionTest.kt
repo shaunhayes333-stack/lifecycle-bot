@@ -746,4 +746,29 @@ class GoldenTapeRegressionTest {
         assertFalse("Do not weaken source-balance by reverting to 65% Pump", registry.contains("MAX_PUMP_HOT_FRACTION = 0.65"))
     }
 
+
+    @Test
+    fun impossible_accounting_rows_are_quarantined_before_journal_display() {
+        val store = java.io.File("src/main/kotlin/com/lifecyclebot/engine/TradeHistoryStore.kt").readText()
+        assertTrue(store.contains("fun isValidAccountingTrade(t: Trade): Boolean"))
+        assertTrue(store.contains("t.pnlPct < -100.0001 || t.pnlPct > 100_000.0"))
+        assertTrue(store.contains("TRADE_ACCOUNTING_QUARANTINED"))
+        assertTrue(store.contains("return synchronized(lock) { trades.filter { isValidAccountingTrade(it) }.toList() }"))
+        assertTrue(store.contains("TRADE_ACCOUNTING_LEGACY_ROW_FILTERED"))
+        assertTrue(store.contains("TRADE_ACCOUNTING_BULK_QUARANTINED"))
+        assertTrue(store.contains("TRADE_ACCOUNTING_DB_INIT_FILTERED"))
+        assertTrue(store.contains("TRADE_ACCOUNTING_PREFS_MIGRATION_FILTERED"))
+        assertTrue(store.contains("trades.filter { it.ts >= midnight && isValidAccountingTrade(it) }"))
+        assertFalse("invalid accounting rows must not still be persisted after warning", store.contains("PARTIAL_SELL_INVALID_ACCOUNTING mint="))
+
+        val journal = java.io.File("src/main/kotlin/com/lifecyclebot/engine/TradeJournal.kt").readText()
+        assertTrue(journal.contains("TradeHistoryStore.isValidAccountingTrade(t)"))
+        assertFalse("avg win must not mask impossible rows with a 100000% cap", journal.contains("coerceAtMost(100000.0)"))
+
+        val activity = java.io.File("src/main/kotlin/com/lifecyclebot/ui/JournalActivity.kt").readText()
+        assertTrue(activity.contains("isValidJournalAccounting"))
+        assertTrue(activity.contains("filter { com.lifecyclebot.engine.TradeHistoryStore.isValidAccountingTrade(it) }"))
+        assertTrue(activity.contains("val validEntries = allEntries.filter { isValidJournalAccounting(it) }"))
+    }
+
 }

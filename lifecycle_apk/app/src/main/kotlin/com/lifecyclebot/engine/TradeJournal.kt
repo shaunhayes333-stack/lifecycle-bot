@@ -9,6 +9,7 @@ import android.graphics.Typeface
 import android.graphics.pdf.PdfDocument
 import androidx.core.content.FileProvider
 import com.lifecyclebot.data.TokenState
+import com.lifecyclebot.data.Trade
 import java.io.File
 import java.io.FileOutputStream
 import java.text.SimpleDateFormat
@@ -40,19 +41,23 @@ class TradeJournal(private val ctx: Context) {
 
     private fun isInvalidAccounting(e: JournalEntry): Boolean {
         if (!isSellLike(e.side)) return false
-        // Original guard: a sell with no entry price but non-zero pnl is impossible.
-        if (e.entryPrice <= 0.0 && kotlin.math.abs(e.pnlSol) > 0.0000001) return true
-        // V5.9.1454 — ABSOLUTE-SOL OUTLIER FIREWALL for the tax/PnL export totals.
-        // Foreign-domain rows (tokenized Stocks book a USD notional, not SOL) and
-        // feed glitches produced single closes like -151 SOL that summed to the
-        // -12,381 SOL Stocks total polluting the realized-PnL export & analytics
-        // header. No single close in this app moves more than ~5 SOL of real size;
-        // treat any |pnlSol| > 25 SOL as an accounting artifact and exclude it from
-        // the journal sums. NaN/Inf also excluded. Display/export only — does not
-        // touch the per-domain learning path (already firewalled in CanonicalLearning).
-        if (e.pnlSol.isNaN() || e.pnlSol.isInfinite()) return true
-        if (kotlin.math.abs(e.pnlSol) > 25.0) return true
-        return false
+        val t = Trade(
+            side = e.side,
+            mode = e.mode,
+            sol = e.solAmount,
+            price = e.entryPrice,
+            ts = e.ts,
+            reason = e.reason,
+            pnlSol = e.pnlSol,
+            pnlPct = e.pnlPct,
+            score = e.score,
+            feeSol = e.feeSol,
+            netPnlSol = e.netPnlSol,
+            tradingMode = e.tradingMode,
+            tradingModeEmoji = e.tradingModeEmoji,
+            mint = e.mint,
+        )
+        return !TradeHistoryStore.isValidAccountingTrade(t)
     }
 
     data class JournalEntry(
@@ -499,8 +504,8 @@ class TradeJournal(private val ctx: Context) {
         val wins = decisiveTrades.filter { isWin(it.pnlPct) }
         val losses = decisiveTrades.filter { isLoss(it.pnlPct) }
 
-        val cappedWinsPct = wins.map { it.pnlPct.coerceAtMost(100000.0) }
-        val cappedLossPct = losses.map { it.pnlPct.coerceAtLeast(-100.0) }
+        val cappedWinsPct = wins.map { it.pnlPct }
+        val cappedLossPct = losses.map { it.pnlPct }
 
         return JournalStats(
             totalTrades = decisiveTrades.size,

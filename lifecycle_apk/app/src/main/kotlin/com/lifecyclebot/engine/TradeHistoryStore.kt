@@ -384,15 +384,15 @@ object TradeHistoryStore {
     private fun isJournalSellLike(side: String): Boolean =
         side.equals("SELL", ignoreCase = true) || side.equals("PARTIAL_SELL", ignoreCase = true)
 
-    private fun isValidAccountingTrade(t: Trade): Boolean {
+    fun isValidAccountingTrade(t: Trade): Boolean {
         if (!isJournalSellLike(t.side)) return true
         if (t.price <= 0.0 && kotlin.math.abs(t.pnlSol) > 0.0000001) return false
         val proceeds = t.sol + (t.netPnlSol.takeIf { it != 0.0 } ?: t.pnlSol)
         if (proceeds < -0.0000001) return false
-        // V5.9.1440 — JOURNAL SANITY GUARD (P0). This predicate is the canonical
-        // filter behind every realized-total / expectancy / tax-export / lane-tuner
-        // read, so a row that fails here is kept as a forensic journal entry but is
-        // excluded from ALL realized math + learning. Quarantine the corruption
+        // V5.9.1440 / V5.0.3724 — JOURNAL SANITY GUARD (P0). This predicate is
+        // the canonical filter behind every realized-total / expectancy / tax-export
+        // / lane-tuner / UI read. A row that fails here is quarantined before memory
+        // and SQLite persistence; legacy bad rows are filtered on read. Quarantine
         // classes the operator confirmed (USDC EPjFWdd5 → SHITCOIN → +8722 SOL):
         //   1) base/quote/stable/LST mint as TARGET (address-keyed),
         //   2) impossible PnL% (a real meme exit cannot exceed +100000% / -100%),
@@ -400,6 +400,7 @@ object TradeHistoryStore {
         //   4) stale/inverted price with non-zero PnL (already partly above).
         // Bounds are deliberately astronomically loose so NO legitimate runner is
         // ever excluded — these only catch physically-impossible fabricated rows.
+        if (!t.price.isFinite() || !t.sol.isFinite() || !t.pnlSol.isFinite() || !t.pnlPct.isFinite() || !t.netPnlSol.isFinite()) return false
         if (com.lifecyclebot.engine.guard.BaseQuoteMintGuard.shouldQuarantine(t.mint)) return false
         // pnlPct sanity: -100% is total loss (floor); a genuine moonshot is bounded
         // far below +100000%. Anything outside is an accounting fabrication.
@@ -514,7 +515,14 @@ object TradeHistoryStore {
 
         val tradeToStore = if (normalizedMode != trade.tradingMode) trade.copy(tradingMode = normalizedMode) else trade
         if (!isValidAccountingTrade(tradeToStore)) {
-            try { ErrorLogger.warn("TradeHistoryStore", "PARTIAL_SELL_INVALID_ACCOUNTING mint=${tradeToStore.mint.take(8)} side=${tradeToStore.side} price=${tradeToStore.price} sol=${tradeToStore.sol} pnl=${tradeToStore.pnlSol} mode=${tradeToStore.tradingMode}") } catch (_: Throwable) {}
+            try {
+                ErrorLogger.warn(
+                    "TradeHistoryStore",
+                    "TRADE_ACCOUNTING_QUARANTINED mint=${tradeToStore.mint.take(8)} side=${tradeToStore.side} price=${tradeToStore.price} sol=${tradeToStore.sol} pnl=${tradeToStore.pnlSol} pnlPct=${tradeToStore.pnlPct} mode=${tradeToStore.tradingMode} reason=${tradeToStore.reason}",
+                )
+                PipelineHealthCollector.labelInc("TRADE_ACCOUNTING_QUARANTINED")
+            } catch (_: Throwable) {}
+            return
         }
         synchronized(lock) {
             trades.add(tradeToStore)
@@ -572,7 +580,13 @@ object TradeHistoryStore {
         val existingKeys = synchronized(lock) {
             trades.map { "${it.ts}_${it.mint}" }.toSet()
         }
-        val toAdd = newTrades.filter { "${it.ts}_${it.mint}" !in existingKeys }
+        val toAdd = newTrades
+            .filter { "${it.ts}_${it.mint}" !in existingKeys }
+            .filter { t ->
+                val ok = isValidAccountingTrade(t)
+                if (!ok) try { ErrorLogger.warn("TradeHistoryStore", "TRADE_ACCOUNTING_BULK_QUARANTINED mint=${t.mint.take(8)} side=${t.side} pnlPct=${t.pnlPct} pnl=${t.pnlSol} reason=${t.reason}") } catch (_: Throwable) {}
+                ok
+            }
         if (toAdd.isNotEmpty()) {
             synchronized(lock) { trades.addAll(toAdd) }
             toAdd.forEach { bumpLifetimeFor(it) }
@@ -582,6 +596,15 @@ object TradeHistoryStore {
     }
 
     fun getAllTrades(): List<Trade> {
+        ensureInitialized()
+        // V5.0.3724 — journal/accounting source fix. Bad decimal/price-basis rows
+        // must never reach UI totals, WR, avg win, lane tuners, or learning consumers.
+        // recordTrade() now quarantines future invalid rows; this read filter protects
+        // existing legacy rows already present in memory/SQLite before the fix.
+        return synchronized(lock) { trades.filter { isValidAccountingTrade(it) }.toList() }
+    }
+
+    fun getAllTradesIncludingInvalidForensics(): List<Trade> {
         ensureInitialized()
         return synchronized(lock) { trades.toList() }
     }
@@ -667,7 +690,7 @@ object TradeHistoryStore {
         if (database == null) {
             // DB not open yet — fall back to in-memory list (may be empty on first open)
             ensureInitialized()
-            return synchronized(lock) { trades.toList() }
+            return synchronized(lock) { trades.filter { isValidAccountingTrade(it) }.toList() }
         }
         val loaded = mutableListOf<Trade>()
         try {
@@ -677,7 +700,7 @@ object TradeHistoryStore {
             )
             cursor.use { c ->
                 while (c.moveToNext()) {
-                    loaded.add(Trade(
+                    val row = Trade(
                         ts             = c.getLong(c.getColumnIndexOrThrow("ts")),
                         side           = c.getString(c.getColumnIndexOrThrow("side")),
                         sol            = c.getDouble(c.getColumnIndexOrThrow("sol")),
@@ -692,13 +715,17 @@ object TradeHistoryStore {
                         tradingModeEmoji = c.getString(c.getColumnIndexOrThrow("trading_emoji")),
                         feeSol         = c.getDouble(c.getColumnIndexOrThrow("fee_sol")),
                         netPnlSol      = c.getDouble(c.getColumnIndexOrThrow("net_pnl_sol")),
-                    ))
+                    )
+                    if (isValidAccountingTrade(row)) loaded.add(row)
+                    else try { ErrorLogger.warn("TradeHistoryStore", "TRADE_ACCOUNTING_LEGACY_ROW_FILTERED mint=${row.mint.take(8)} side=${row.side} pnlPct=${row.pnlPct} pnl=${row.pnlSol} reason=${row.reason}") } catch (_: Throwable) {}
                 }
             }
         } catch (e: Exception) {
             ErrorLogger.error("TradeHistoryStore", "getAllTradesFromDb failed: ${e.message}")
-            // Fall back to in-memory list on any DB error
-            return synchronized(lock) { trades.toList() }
+            // Fall back to in-memory list on any DB error, but still apply the
+            // canonical accounting quarantine so legacy decimal-corrupt rows never
+            // reappear in the journal/header.
+            return synchronized(lock) { trades.filter { isValidAccountingTrade(it) }.toList() }
         }
         return loaded
     }
@@ -780,7 +807,7 @@ object TradeHistoryStore {
      * @return map of mint -> the opening BUY Trade row (latest BUY for that mint).
      */
     fun openMintsFromJournal(): Map<String, Trade> {
-        val rows = try { getAllTradesFromDb() } catch (_: Throwable) { synchronized(lock) { trades.toList() } }
+        val rows = try { getAllTradesFromDb() } catch (_: Throwable) { synchronized(lock) { trades.filter { isValidAccountingTrade(it) }.toList() } }
         val latestSideSeen = HashMap<String, String>()   // mint -> latest side
         val openBuyRow = HashMap<String, Trade>()         // mint -> its latest BUY row
         for (t in rows) {  // already ts DESC (newest first)
@@ -928,7 +955,7 @@ object TradeHistoryStore {
 
     fun getTrades24h(): List<Trade> {
         val midnight = midnightTs()
-        return synchronized(lock) { trades.filter { it.ts >= midnight } }
+        return synchronized(lock) { trades.filter { it.ts >= midnight && isValidAccountingTrade(it) } }
     }
 
     fun getSells24h(): List<Trade> {
@@ -1190,7 +1217,7 @@ object TradeHistoryStore {
         (getJournalClosedTradeCount().toDouble() / targetTrades.coerceAtLeast(1).toDouble()).coerceIn(0.0, 1.0)
 
     fun getTopMode(): String? {
-        val t = synchronized(lock) { trades.toList() }
+        val t = synchronized(lock) { trades.filter { isValidAccountingTrade(it) } }
         if (t.isEmpty()) return null
         return t.filter { it.tradingMode.isNotBlank() }
             .groupBy { it.tradingMode }
@@ -1203,8 +1230,8 @@ object TradeHistoryStore {
      * for this mode (caller should treat no-data as neutral).
      */
     fun getLaneWinRate(mode: String, minTrades: Int = 10): Double {
-        val t = synchronized(lock) { trades.toList() }
-        val modeTrades = t.filter { it.tradingMode.equals(mode, ignoreCase = true) && isJournalSellLike(it.side) && isValidAccountingTrade(it) }
+        val t = synchronized(lock) { trades.filter { isValidAccountingTrade(it) } }
+        val modeTrades = t.filter { it.tradingMode.equals(mode, ignoreCase = true) && isJournalSellLike(it.side) }
         if (modeTrades.size < minTrades) return -1.0
         val wins = modeTrades.count { it.pnlPct > 0.0 }
         return wins * 100.0 / modeTrades.size
@@ -1253,7 +1280,7 @@ object TradeHistoryStore {
             )
             cursor.use { c ->
                 while (c.moveToNext()) {
-                    loaded.add(Trade(
+                    val row = Trade(
                         ts             = c.getLong(c.getColumnIndexOrThrow("ts")),
                         side           = c.getString(c.getColumnIndexOrThrow("side")),
                         sol            = c.getDouble(c.getColumnIndexOrThrow("sol")),
@@ -1268,7 +1295,9 @@ object TradeHistoryStore {
                         tradingModeEmoji = c.getString(c.getColumnIndexOrThrow("trading_emoji")),
                         feeSol         = c.getDouble(c.getColumnIndexOrThrow("fee_sol")),
                         netPnlSol      = c.getDouble(c.getColumnIndexOrThrow("net_pnl_sol")),
-                    ))
+                    )
+                    if (isValidAccountingTrade(row)) loaded.add(row)
+                    else try { ErrorLogger.warn("TradeHistoryStore", "TRADE_ACCOUNTING_DB_INIT_FILTERED mint=${row.mint.take(8)} side=${row.side} pnlPct=${row.pnlPct} pnl=${row.pnlSol} reason=${row.reason}") } catch (_: Throwable) {}
                 }
             }
             synchronized(lock) {
@@ -1319,12 +1348,16 @@ object TradeHistoryStore {
                         feeSol         = obj.optDouble("feeSol", 0.0),
                         netPnlSol      = obj.optDouble("netPnlSol", 0.0),
                     )
-                    database.insertWithOnConflict(
-                        TradeDbHelper.TABLE, null,
-                        tradeToContentValues(trade),
-                        SQLiteDatabase.CONFLICT_IGNORE
-                    )
-                    synchronized(lock) { trades.add(trade) }
+                    if (isValidAccountingTrade(trade)) {
+                        database.insertWithOnConflict(
+                            TradeDbHelper.TABLE, null,
+                            tradeToContentValues(trade),
+                            SQLiteDatabase.CONFLICT_IGNORE
+                        )
+                        synchronized(lock) { trades.add(trade) }
+                    } else {
+                        try { ErrorLogger.warn("TradeHistoryStore", "TRADE_ACCOUNTING_PREFS_MIGRATION_FILTERED mint=${trade.mint.take(8)} side=${trade.side} pnlPct=${trade.pnlPct} pnl=${trade.pnlSol} reason=${trade.reason}") } catch (_: Throwable) {}
+                    }
                 }
                 database.setTransactionSuccessful()
                 ErrorLogger.info("TradeHistoryStore",
