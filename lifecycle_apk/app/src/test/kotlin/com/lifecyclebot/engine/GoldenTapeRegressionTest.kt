@@ -928,8 +928,8 @@ class GoldenTapeRegressionTest {
         assertTrue(exec.contains("resolveForExit(ts.mint, wallet,"))
         assertTrue(exec.contains("PARTIAL_TAKE_PROFIT"))
         assertTrue(exec.contains("canBroadcastLiveOrEmergency"))
-        assertTrue(authority.contains("RPC returned"))
-        assertTrue(authority.contains("UNKNOWN/empty"))
+        assertTrue(auth.contains("RPC returned"))
+        assertTrue(auth.contains("UNKNOWN/empty"))
     }
 
 }
