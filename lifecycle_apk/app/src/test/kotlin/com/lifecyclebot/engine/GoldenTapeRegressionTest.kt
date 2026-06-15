@@ -905,9 +905,10 @@ class GoldenTapeRegressionTest {
         assertTrue(service.contains("val demoteLiq"))
         assertFalse(
             "Source-balance demotion must not hardcode liq=0 for real-liq intake",
-            service.contains("liquidityUsd = 0.0,
-                        confidence = 0,
-                        isEstimatedLiquidity = true")
+            service.contains("liquidityUsd = 0.0") &&
+                service.contains("confidence = 0") &&
+                service.contains("isEstimatedLiquidity = true") &&
+                service.contains("SOURCE_BALANCE_PUMP_DOMINANCE_$reason")
         )
     }
 
