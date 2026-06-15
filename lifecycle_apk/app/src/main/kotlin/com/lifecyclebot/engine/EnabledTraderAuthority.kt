@@ -103,6 +103,10 @@ object EnabledTraderAuthority {
      */
     fun isMemeLiveOnly(): Boolean {
         val set = enabled.get()
-        return set.size == 1 && Trader.MEME in set
+        // V5.0.3750 — CRYPTO_ALT is an isolated sidecar engine. It must not make
+        // the meme-lane fanout predicate false, otherwise explicitly enabling the
+        // crypto trader re-opens ProjectSniper/Cyclic/markets leakage into meme FDG.
+        val laneSet = set - Trader.CRYPTO_ALT
+        return laneSet.size == 1 && Trader.MEME in laneSet
     }
 }

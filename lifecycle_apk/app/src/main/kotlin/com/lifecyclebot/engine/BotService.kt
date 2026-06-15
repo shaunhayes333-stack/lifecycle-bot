@@ -202,6 +202,12 @@ class BotService : Service() {
                 (cfg.marketsTraderEnabled && cfg.cryptoAltsEnabled)) &&
                 cfg.cryptoAltsEnabled
             try { com.lifecyclebot.perps.CryptoAltTrader.setEnabled(cryptoUniverseOn) } catch (_: Exception) {}
+            try {
+                val cur = com.lifecyclebot.engine.EnabledTraderAuthority.snapshot().toMutableSet()
+                if (cryptoUniverseOn) cur += com.lifecyclebot.engine.EnabledTraderAuthority.Trader.CRYPTO_ALT
+                else cur -= com.lifecyclebot.engine.EnabledTraderAuthority.Trader.CRYPTO_ALT
+                com.lifecyclebot.engine.EnabledTraderAuthority.publish(cur)
+            } catch (_: Exception) {}
             if (!cryptoUniverseOn) {
                 try {
                     com.lifecyclebot.perps.CryptoAltTrader.stop()
@@ -1669,15 +1675,20 @@ class BotService : Service() {
             // remains mode=1; it is the only path allowed to publish non-meme traders.
             val memeOnlyUiMode = cfg.tradingMode == 0 || (cfg.tradingMode == 2 && memeOn)
             val marketsOn = !marketsKill && cfg.marketsTraderEnabled && cfg.tradingMode == 1
+            val cryptoSidecarOn = ((marketsOn || (cfg.marketsTraderEnabled && cfg.cryptoAltsEnabled)) && cfg.cryptoAltsEnabled)
             val enabledSet = if (memeOnlyUiMode && memeOn) {
-                // True meme runtime: ONLY MEME publishes. Sniper/Cyclic/Markets/Perps OFF.
-                setOf(com.lifecyclebot.engine.EnabledTraderAuthority.Trader.MEME)
+                // True meme runtime keeps meme lane isolated, but CRYPTO_ALT is an
+                // isolated sidecar engine when explicitly enabled; it does not fan
+                // out meme FDG/lane evaluation.
+                mutableSetOf(com.lifecyclebot.engine.EnabledTraderAuthority.Trader.MEME).apply {
+                    if (cryptoSidecarOn) add(com.lifecyclebot.engine.EnabledTraderAuthority.Trader.CRYPTO_ALT)
+                }.toSet()
             } else {
                 // Markets-only mode: respect per-lane toggles, but exclude
                 // quarantined market lanes and forced-off Crypto when markets-OFF.
                 val s = mutableSetOf<com.lifecyclebot.engine.EnabledTraderAuthority.Trader>()
                 if (memeOn) s += com.lifecyclebot.engine.EnabledTraderAuthority.Trader.MEME
-                if (marketsOn && cfg.cryptoAltsEnabled) s += com.lifecyclebot.engine.EnabledTraderAuthority.Trader.CRYPTO_ALT
+                if (cryptoSidecarOn) s += com.lifecyclebot.engine.EnabledTraderAuthority.Trader.CRYPTO_ALT
                 if (marketsOn && (cfg.stocksEnabled || cfg.commoditiesEnabled || cfg.metalsEnabled || cfg.forexEnabled)
                     && !com.lifecyclebot.engine.EnabledTraderAuthority.MARKET_LANES_QUARANTINED) {
                     s += com.lifecyclebot.engine.EnabledTraderAuthority.Trader.MARKETS_STOCKS

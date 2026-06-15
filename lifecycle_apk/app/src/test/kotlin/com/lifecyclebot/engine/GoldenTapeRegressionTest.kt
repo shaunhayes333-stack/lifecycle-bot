@@ -1143,4 +1143,22 @@ class GoldenTapeRegressionTest {
         assertFalse("new runtime must not emit the old no-signature finality marker", exec.contains("\"SELL_ROUTE_FAILED_NO_SIGNATURE_UNLOCKED\""))
     }
 
+
+    @Test
+    fun crypto_alt_sidecar_does_not_break_meme_lane_isolation() {
+        val bot = java.io.File("src/main/kotlin/com/lifecyclebot/engine/BotService.kt").readText()
+        val auth = java.io.File("src/main/kotlin/com/lifecyclebot/engine/EnabledTraderAuthority.kt").readText()
+        val crypto = java.io.File("src/main/kotlin/com/lifecyclebot/perps/CryptoAltTrader.kt").readText()
+
+        assertTrue(bot.contains("cryptoSidecarOn"))
+        assertTrue(bot.contains("Trader.CRYPTO_ALT"))
+        assertTrue(bot.contains("cryptoSidecarOn) add(com.lifecyclebot.engine.EnabledTraderAuthority.Trader.CRYPTO_ALT)"))
+        assertTrue(bot.contains("CryptoAltTrader.start"))
+        assertTrue(bot.contains("CryptoAltTrader.setEnabled(cryptoUniverseOn"))
+        assertTrue(auth.contains("val laneSet = set - Trader.CRYPTO_ALT"))
+        assertTrue(auth.contains("return laneSet.size == 1 && Trader.MEME in laneSet"))
+        assertTrue(crypto.contains("operatorExplicitlyEnabled"))
+        assertTrue(crypto.contains("cfg.cryptoAltsEnabled && cfg.marketsTraderEnabled"))
+    }
+
 }
