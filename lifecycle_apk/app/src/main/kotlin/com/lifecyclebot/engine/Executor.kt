@@ -6797,6 +6797,17 @@ class Executor(
     fun positionDidOpen(ts: TokenState): Boolean =
         ts.position.qtyToken > 0.0 || ts.position.pendingVerify || ts.position.isOpen
 
+    private fun emitLiveBuyFail(ts: TokenState, sol: Double, reason: String, detail: String = "") {
+        try {
+            ForensicLogger.exec(
+                "LIVE_BUY_FAIL",
+                ts.symbol,
+                "mint=${ts.mint.take(10)} sol=${"%.4f".format(sol)} reason=$reason ${detail.take(140)}".trim(),
+            )
+            com.lifecyclebot.engine.PipelineHealthCollector.labelInc("LIVE_BUY_FAIL_$reason")
+        } catch (_: Throwable) {}
+    }
+
     internal fun doBuy(ts: TokenState, sol: Double, score: Double,
                       wallet: SolanaWallet?, walletSol: Double,
                       identity: TradeIdentity? = null,
@@ -7008,6 +7019,7 @@ class Executor(
                         WalletPositionLock.recordOpen("Meme", liveSol)
                     } else {
                         try { ForensicLogger.lifecycle("NO_OPEN_COMMITTED_LOCK_NOT_RECORDED", "symbol=${ts.symbol} mint=${ts.mint.take(10)} size=${liveSol.fmt(4)}") } catch (_: Throwable) {}
+                        emitLiveBuyFail(ts, liveSol, "NO_OPEN_COMMITTED_AFTER_LIVEBUY")
                     }
                     
                     if (cfg().shadowPaperEnabled) {
@@ -7029,6 +7041,7 @@ class Executor(
                              ts.meta.pressScore >= 70
             
             if (isMoonshot && wallet != null && walletSol > 0 && !isPaperRT()) {
+                try { ExecutionRouteGuard.recordShadowRouteAllowed() } catch (_: Throwable) {}
                 // V5.9.779 — EMERGENT MEME-ONLY: shadow → live shortcut
                 // must still pass the canonical LIVE buy chain. We hand
                 // off to liveBuy() which now enforces:
@@ -8291,6 +8304,7 @@ class Executor(
                     "mint=${ts.mint.take(10)} sol=${"%.4f".format(sol)}",
                 )
             } catch (_: Throwable) {}
+            emitLiveBuyFail(ts, sol, "MUTEX_BUSY")
             return
         }
         try {
@@ -8315,15 +8329,18 @@ class Executor(
         if (!liveRoute.allowed) {
             try { ForensicLogger.lifecycle("LIVE_ROUTE_BLOCKED", "symbol=${ts.symbol} mint=${ts.mint.take(10)} sol=$sol reason=${liveRoute.reason}") } catch (_: Throwable) {}
             ErrorLogger.warn("Executor", "🚫 LIVE_ROUTE_BLOCKED: ${ts.symbol} | ${liveRoute.reason}")
+            emitLiveBuyFail(ts, sol, "LIVE_ROUTE_BLOCKED", liveRoute.reason)
             return
         }
         
         if (sol <= 0 || sol.isNaN() || sol.isInfinite()) {
             ErrorLogger.warn("Executor", "[EXECUTION/INVALID] Live buy skipped: invalid size $sol for ${ts.symbol}")
+            emitLiveBuyFail(ts, sol, "INVALID_SIZE")
             return
         }
         if (ts.mint.isBlank() || ts.symbol.isBlank()) {
             ErrorLogger.warn("Executor", "[EXECUTION/INVALID] Live buy skipped: empty mint/symbol")
+            emitLiveBuyFail(ts, sol, "EMPTY_MINT_OR_SYMBOL")
             return
         }
 
@@ -8342,6 +8359,7 @@ class Executor(
                     "mint=${ts.mint.take(10)} reason=$why")
                 com.lifecyclebot.engine.PipelineHealthCollector.labelInc("LIVE_BUY_BLOCKED_BLACKLIST")
             } catch (_: Throwable) {}
+            emitLiveBuyFail(ts, sol, "BLACKLIST", why)
             return
         }
 
@@ -8376,6 +8394,7 @@ class Executor(
             )
             if (!executableOpen.allowed) {
                 ErrorLogger.warn("Executor", "🚫 LIVE_BUY_BLOCKED_FINALITY: ${ts.symbol} | attemptId=${executableOpen.attemptId} | ${executableOpen.reason}")
+                emitLiveBuyFail(ts, sol, "FINALITY_BLOCK", executableOpen.reason)
                 return
             }
             finalityVerdict = executableOpen
@@ -8410,11 +8429,13 @@ class Executor(
                 )
             } catch (_: Throwable) {}
             PipelineTracer.executorFailed(ts.symbol, ts.mint, "LIVE", "WRONG_TARGET_MINT")
+            emitLiveBuyFail(ts, sol, "WRONG_TARGET_MINT")
             return
         }
 
         if (score < 0 || score.isNaN()) {
             ErrorLogger.warn("Executor", "[EXECUTION/INVALID] Live buy skipped: invalid score $score for ${ts.symbol}")
+            emitLiveBuyFail(ts, sol, "INVALID_SCORE")
             return
         }
 
@@ -8458,10 +8479,12 @@ class Executor(
                 val be = LiveRestoreExecutionPolicy.BreakEven(false, sol, 999.0, 0.0, 999.0, "SKIP_BELOW_BREAK_EVEN")
                 LiveRestoreExecutionPolicy.logBreakEven(ts, be, restorePenalty)
                 try { ForensicLogger.lifecycle("LIVE_RESTORE_SAFETY_TIER_SKIP", "symbol=${ts.symbol} mint=${ts.mint.take(10)} tier=${ts.safety.tier.name} penalty=${restorePenalty.reason}") } catch (_: Throwable) {}
+                emitLiveBuyFail(ts, sol, "RESTORE_SAFETY_TIER_SKIP", restorePenalty.reason)
                 return
             }
             if (LiveRestoreExecutionPolicy.mintActuallyOpen(ts.mint, ts)) {
                 try { ForensicLogger.lifecycle("TRUE_DUPLICATE_OPEN", "symbol=${ts.symbol} mint=${ts.mint.take(10)} penalty=${restorePenalty.reason}") } catch (_: Throwable) {}
+                emitLiveBuyFail(ts, sol, "TRUE_DUPLICATE_OPEN", restorePenalty.reason)
                 return
             }
         }
@@ -8487,6 +8510,7 @@ class Executor(
                     "symbol=${ts.symbol} mint=${ts.mint.take(10)} decision=${breakEven.decision} allInCost=${"%.2f".format(breakEven.allInCostPct)} expectedEdge=${"%.2f".format(breakEven.expectedEdgePct)} minTarget=${"%.2f".format(breakEven.minTargetPct)} liq=${ts.lastLiquidityUsd.toInt()}"
                 )
             } catch (_: Throwable) {}
+            emitLiveBuyFail(ts, sol, breakEven.decision)
             return
         }
         if (!breakEven.allowed) {
@@ -8563,6 +8587,7 @@ class Executor(
                         solAmount = sol, traderTag = "MEME",
                     )
                 } catch (_: Throwable) {}
+                emitLiveBuyFail(ts, sol, "PRETRADE_HARD_BLOCK", preTrade.reason)
                 return
             }
         }
@@ -8600,6 +8625,7 @@ class Executor(
                 ErrorLogger.warn("Executor",
                     "🚦 GATE_BLOCK ${ts.symbol} ${decision.code} | ${decision.reason}")
                 PipelineTracer.executorFailed(ts.symbol, ts.mint, "LIVE", "GATE_${decision.code}")
+                emitLiveBuyFail(ts, sol, "LIVE_EXECUTION_GATE_${decision.code}", decision.reason)
                 return
             }
             LiveExecutionGate.Decision.Allowed -> { /* proceed */ }
@@ -8621,6 +8647,7 @@ class Executor(
         if (effectiveSol < 0.005) {
             onLog("⚠️ ${ts.symbol}: skipping buy — wallet too low for rent reserve (${walletSol.fmt(4)}◎ need ≥${RENT_RESERVE_SOL}◎ buffer)", ts.mint)
             PipelineTracer.noBuy(ts.symbol, ts.mint, PipelineTracer.NoBuyReason.WALLET_BALANCE_ZERO, "rent_reserve")
+            emitLiveBuyFail(ts, effectiveSol, "RENT_RESERVE_TOO_LOW", "walletSol=$walletSol")
             return
         }
 
@@ -8634,6 +8661,7 @@ class Executor(
             } else {
                 onLog("⚠ Buy skipped: ${tradeId.symbol} already open in different layer", tradeId.mint)
                 PipelineTracer.noBuy(ts.symbol, ts.mint, PipelineTracer.NoBuyReason.ALREADY_IN_POSITION, "TRUE_DUPLICATE_OPEN")
+                emitLiveBuyFail(ts, sol, "MULTILAYER_TRUE_DUPLICATE_OPEN")
                 return
             }
         }
@@ -8643,6 +8671,7 @@ class Executor(
         if (!security.verifyKeypairIntegrity(wallet.publicKeyB58,
                 c.walletAddress.ifBlank { wallet.publicKeyB58 })) {
             onLog("🛑 Keypair integrity failure — trade aborted", tradeId.mint)
+            emitLiveBuyFail(ts, sol, "KEYPAIR_INTEGRITY_FAILURE")
             return
         }
 
@@ -8897,7 +8926,9 @@ class Executor(
                 else rawTokenAmountToUiAmount(ts, quote!!.outAmount, solAmount = sol, priceUsd = price)
 
             if (ts.position.isOpen) {
-                onLog("⚠ Position opened during confirmation wait — aborting duplicate", ts.mint); return
+                onLog("⚠ Position opened during confirmation wait — aborting duplicate", ts.mint)
+                emitLiveBuyFail(ts, sol, "POSITION_OPENED_DURING_CONFIRMATION_WAIT")
+                return
             }
 
             val tokenAgeMs = System.currentTimeMillis() - ts.addedToWatchlistAt

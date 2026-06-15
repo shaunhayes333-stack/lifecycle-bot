@@ -771,4 +771,28 @@ class GoldenTapeRegressionTest {
         assertTrue(activity.contains("val validEntries = allEntries.filter { isValidJournalAccounting(it) }"))
     }
 
+
+    @Test
+    fun live_deadness_must_not_hide_behind_no_open_committed_or_paper_shadow() {
+        val exec = java.io.File("src/main/kotlin/com/lifecyclebot/engine/Executor.kt").readText()
+        assertTrue(exec.contains("emitLiveBuyFail"))
+        assertTrue(exec.contains("NO_OPEN_COMMITTED_AFTER_LIVEBUY"))
+        assertTrue(exec.contains("LIVE_BUY_FAIL_"))
+        assertTrue(exec.contains("emitLiveBuyFail(ts, liveSol, \"NO_OPEN_COMMITTED_AFTER_LIVEBUY\")"))
+
+        val guard = java.io.File("src/main/kotlin/com/lifecyclebot/engine/ExecutionRouteGuard.kt").readText()
+        assertTrue(guard.contains("PAPER_ROUTE_BLOCKED_IN_LIVE_USE_SHADOW_PATH"))
+        assertFalse("paperBuy must not be allowed in LIVE just because shadowPaperEnabled is true", guard.contains("SHADOW_ALLOWED_IN_LIVE"))
+        assertTrue(guard.contains("runShadowPaperBuy"))
+
+        val stack = java.io.File("src/main/kotlin/com/lifecyclebot/engine/execution/MemeExecutionRouteStack.kt").readText()
+        assertTrue(stack.contains("sideEffectLight: Boolean = true"))
+        assertTrue(stack.contains("if (!context.sideEffectLight && !s.supported)"))
+        assertTrue(stack.contains("if (!context.sideEffectLight) senders.forEach"))
+
+        val report = java.io.File("src/main/kotlin/com/lifecyclebot/engine/PipelineHealthCollector.kt").readText()
+        assertTrue(report.contains("MODE CONTAMINATION CHECK"))
+        assertFalse("Report must not claim paper is firing live from cumulative stale counters", report.contains("paper trades are firing during live"))
+    }
+
 }

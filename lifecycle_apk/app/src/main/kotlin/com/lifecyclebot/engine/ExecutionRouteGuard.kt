@@ -25,19 +25,24 @@ object ExecutionRouteGuard {
     fun requirePaperRoute(ts: TokenState, shadowEnabled: Boolean): Verdict {
         val live = RuntimeModeAuthority.isLive()
         return when {
-            live && shadowEnabled -> {
-                shadowAllowed.incrementAndGet()
-                Verdict(true, Route.SHADOW, "SHADOW_ALLOWED_IN_LIVE")
-            }
             live -> {
+                // V5.0.3725 — LIVE/PAPER contamination source fix.
+                // Normal paperBuy() mutates TokenState + TradeHistoryStore and bumps
+                // EXEC_PAPER_BUY_OK. Shadow learning in LIVE must use runShadowPaperBuy(),
+                // which stores ShadowPosition only and never journals normal paper trades.
+                // Therefore paperBuy() is blocked in LIVE even when shadowPaperEnabled=true.
                 paperBlockedInLive.incrementAndGet()
-                Verdict(false, Route.PAPER, "PAPER_ROUTE_BLOCKED_IN_LIVE")
+                Verdict(false, Route.PAPER, if (shadowEnabled) "PAPER_ROUTE_BLOCKED_IN_LIVE_USE_SHADOW_PATH" else "PAPER_ROUTE_BLOCKED_IN_LIVE")
             }
             else -> {
                 paperAllowed.incrementAndGet()
                 Verdict(true, Route.PAPER, "PAPER_ALLOWED")
             }
         }
+    }
+
+    fun recordShadowRouteAllowed() {
+        shadowAllowed.incrementAndGet()
     }
 
     fun requireLiveRoute(

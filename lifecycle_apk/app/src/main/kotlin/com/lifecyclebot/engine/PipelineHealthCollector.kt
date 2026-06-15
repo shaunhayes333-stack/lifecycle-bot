@@ -1540,8 +1540,8 @@ object PipelineHealthCollector {
         // V5.9.915 — EMERGENT-MEME #9: live-paper contamination
         // interpretation. Surface the mode mismatch in plain text.
         if (modeSnapshot == "LIVE" && execPaperBuyOk.get() > 0) {
-            sb.append("  ⚠ MODE CONTAMINATION: LIVE active but EXEC_PAPER_BUY_OK=${execPaperBuyOk.get()} — paper trades are firing during live.\n")
-            sb.append("    Fix: shadowPaperEnabled gate, or hard-block paper buys when mode==LIVE.\n")
+            sb.append("  ⚠ MODE CONTAMINATION CHECK: LIVE active and cumulative EXEC_PAPER_BUY_OK=${execPaperBuyOk.get()}.\n")
+            sb.append("    If PAPER_BUY_IN_LIVE_MODE_BLOCKED is absent and paper rows predate the LIVE generation, this is stale cumulative telemetry; V5.0.3725 blocks new normal paperBuy() rows in LIVE.\n")
         }
 
         // ── V3 / skip rate ──────────────────────────────────────────────
