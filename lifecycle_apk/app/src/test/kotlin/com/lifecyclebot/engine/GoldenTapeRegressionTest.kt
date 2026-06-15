@@ -591,13 +591,17 @@ class GoldenTapeRegressionTest {
 
 
     @Test
-    fun meme_only_mode_keeps_internal_style_toolkit_alive() {
+    fun meme_only_mode_keeps_internal_style_toolkit_alive_but_bounded() {
         val bot = java.io.File("src/main/kotlin/com/lifecyclebot/engine/BotService.kt").readText()
         assertTrue(bot.contains("INTERNAL_TOOLKIT_STARVATION_FIX"))
+        assertTrue(bot.contains("BOUNDED_INTERNAL_TOOLKIT_RESCUE"))
+        assertTrue(bot.contains("PAPER_WR_DILUTION_FIX"))
         assertTrue(bot.contains("l == \"SHITCOIN\" || l == \"MOONSHOT\" || l == \"EXPRESS\""))
-        assertTrue(bot.contains("if (memeFamily) return true"))
+        assertTrue(bot.contains("val memeRescue = affinity"))
+        assertTrue(bot.contains("if (memeFamily) return l == memeRescue"))
         assertTrue(bot.contains("nonMemeSpecialist && affinity.contains(l)"))
         assertFalse("MEME-only must not blanket-mute all non-meme specialist lanes", bot.contains("return memeFamily"))
+        assertFalse("toolkit alive must not mean all meme-family siblings execute", bot.contains("if (memeFamily) return true"))
         assertTrue("External trader isolation authority must remain intact", bot.contains("setOf(com.lifecyclebot.engine.EnabledTraderAuthority.Trader.MEME)"))
     }
 
@@ -648,14 +652,5 @@ class GoldenTapeRegressionTest {
         assertTrue(stack.contains("EXEC_SENDER_TRY"))
     }
 
-
-    @Test
-    fun meme_only_mode_bounds_meme_family_rescue_to_prevent_paper_wr_dilution() {
-        val bot = java.io.File("src/main/kotlin/com/lifecyclebot/engine/BotService.kt").readText()
-        assertTrue(bot.contains("PAPER_WR_DILUTION_FIX"))
-        assertTrue(bot.contains("val memeRescue = affinity"))
-        assertTrue(bot.contains("if (memeFamily) return l == memeRescue"))
-        assertFalse("MEME-only must not admit all SHITCOIN/MOONSHOT/EXPRESS siblings", bot.contains("if (memeFamily) return true"))
-    }
 
 }
