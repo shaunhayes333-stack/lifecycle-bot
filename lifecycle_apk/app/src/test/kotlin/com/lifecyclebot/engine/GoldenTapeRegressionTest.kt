@@ -810,4 +810,17 @@ class GoldenTapeRegressionTest {
         assertTrue(host.contains("pendingVerify=${'$'}{pos.pendingVerify}"))
     }
 
+
+    @Test
+    fun sell_only_safe_mode_uses_blocking_close_leases_not_idle_backoff_leases() {
+        val closeLease = java.io.File("src/main/kotlin/com/lifecyclebot/engine/sell/CloseLease.kt").readText()
+        assertTrue(closeLease.contains("fun activeBlockingLeaseCount()"))
+        assertTrue(closeLease.contains("l.inFlight || now >= l.nextEligibleMs"))
+        assertTrue(closeLease.contains("activeLeaseCount() is diagnostic"))
+
+        val snapshot = java.io.File("src/main/kotlin/com/lifecyclebot/engine/RuntimeStateSnapshot.kt").readText()
+        assertTrue(snapshot.contains("CloseLease.activeBlockingLeaseCount()"))
+        assertFalse("SellOnlySafeMode must not use diagnostic activeLeaseCount as pendingSellQueue", snapshot.contains("val pendingSell = try { com.lifecyclebot.engine.sell.CloseLease.activeLeaseCount()"))
+    }
+
 }

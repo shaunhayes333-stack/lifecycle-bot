@@ -137,7 +137,7 @@ data class RuntimeStateSnapshot(
                 // V5.0.3685 — P0: snapshot().size counted terminal LANDED/FAILED_FINAL
                 // jobs → SellOnlySafeMode.activeJobs was always > 0 after the first sell.
                 val activeJobs = try { com.lifecyclebot.engine.sell.SellJobRegistry.activeCount() } catch (_: Throwable) { 0 }
-                val pendingSell = try { com.lifecyclebot.engine.sell.CloseLease.activeLeaseCount() } catch (_: Throwable) { 0 }
+                val pendingSell = try { com.lifecyclebot.engine.sell.CloseLease.activeBlockingLeaseCount() } catch (_: Throwable) { 0 }
                 val workerTimeouts = try { (pipe.labelCounts["LIFECYCLE/SUPERVISOR_WORKER_TIMEOUT"] ?: 0L).toInt() } catch (_: Throwable) { 0 }
                 val closedNonDust = try { com.lifecyclebot.engine.HostWalletTokenTracker.closeAuthorityAudit().closedWithNonDustBalance } catch (_: Throwable) { 0 }
                 val staleExit = try { com.lifecyclebot.engine.sell.StalePriceExitGuard.anyActive() } catch (_: Throwable) { false }

@@ -62,6 +62,20 @@ object CloseLease {
     fun activeLeaseCount(): Int = leases.entries.count { (_, l) ->
         System.currentTimeMillis() - l.acquiredMs < LEASE_TTL_MS
     }
+
+    // V5.0.3728 — pending-sell safe-mode source fix.
+    // activeLeaseCount() is diagnostic: it includes retry/backoff leases that are
+    // intentionally idle (inFlight=false, nextEligibleMs in the future). Feeding that
+    // into SellOnlySafeMode made live buys dead for up to the 10m lease TTL even when
+    // the close worker was not running and sometimes even when open/host/wallet counts
+    // were already zero. For live-buy admission, only a lease that is actively running
+    // OR already eligible to retry should count as pending sell pressure.
+    fun activeBlockingLeaseCount(): Int {
+        val now = System.currentTimeMillis()
+        return leases.entries.count { (_, l) ->
+            (now - l.acquiredMs < LEASE_TTL_MS) && (l.inFlight || now >= l.nextEligibleMs)
+        }
+    }
     fun isLeased(mint: String): Boolean = current(mint) != null
 
     private fun current(mint: String): Lease? {

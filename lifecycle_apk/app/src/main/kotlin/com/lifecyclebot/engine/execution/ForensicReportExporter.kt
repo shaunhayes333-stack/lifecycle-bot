@@ -180,6 +180,7 @@ object ForensicReportExporter {
             // V5.9.1527 — close-lease lifecycle (spec item 3 acceptance B/G).
             put("close_lease_duplicate_suppressed", try { com.lifecyclebot.engine.sell.CloseLease.duplicateCloseAttemptsSuppressed } catch (_: Throwable) { -1L })
             put("close_lease_active", try { com.lifecyclebot.engine.sell.CloseLease.activeLeaseCount() } catch (_: Throwable) { -1 })
+            put("close_lease_blocking", try { com.lifecyclebot.engine.sell.CloseLease.activeBlockingLeaseCount() } catch (_: Throwable) { -1 })
             put("orphan_closes_suppressed", try { TradeOutcomeLedger.orphanCloseSuppressions() } catch (_: Throwable) { -1 })
             put("learning_duplicate_suppressions", try { TradeOutcomeLedger.learningDuplicateSuppressions() } catch (_: Throwable) { -1 })
             put("unique_closed_positions", try { TradeOutcomeLedger.uniqueClosedPositionCount() } catch (_: Throwable) { -1 })
