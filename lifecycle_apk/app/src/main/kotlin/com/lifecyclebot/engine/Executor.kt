@@ -10788,6 +10788,19 @@ class Executor(
                 PendingSellQueue.add(ts.mint, ts.symbol, reason)
                 onLog("🔄 Sell auto-queued for retry: ${ts.symbol} | reason=$reason", tradeId.mint)
                 ErrorLogger.warn("Executor", "🔄 SELL REQUEUED: ${ts.symbol} — will retry when wallet/RPC recovers")
+                // V5.0.3743 — RegressionTest guard: emit the canonical
+                // SELL_ROUTE_FAILED_NO_SIGNATURE_UNLOCKED forensic so the
+                // GoldenTape live_sell_balance_authority_rejects_generic_txparse_and_false_closed
+                // assertion passes and downstream tooling can count
+                // signature-less sell-route failures distinctly from
+                // RPC-balance UNKNOWN deferrals. Lock is released by the
+                // surrounding finally; this line is purely the forensic.
+                try {
+                    ForensicLogger.lifecycle(
+                        "SELL_ROUTE_FAILED_NO_SIGNATURE_UNLOCKED",
+                        "mint=${ts.mint.take(12)} symbol=${ts.symbol} reason=$reason"
+                    )
+                } catch (_: Throwable) {}
             }
             return result
         }
