@@ -1223,4 +1223,17 @@ class GoldenTapeRegressionTest {
         assertTrue(authority.contains("BROADCAST_AUTH_BLOCK"))
     }
 
+
+    @Test
+    fun live_sell_rpc_empty_precheck_uses_owner_delta_before_wait() {
+        val exec = java.io.File("src/main/kotlin/com/lifecyclebot/engine/Executor.kt").readText()
+        assertTrue(exec.contains("LIVESELL_RPC_EMPTY_OWNER_DELTA_RECOVERED"))
+        assertTrue(exec.contains("SellAmountAuthority.resolveForExit(ts.mint, wallet, reason)"))
+        assertTrue(exec.contains("LIVESELL_RPC_EMPTY_BALANCE_UNKNOWN"))
+        assertTrue(exec.contains("REQUEST_SELL_BALANCE_WAIT_MERGE"))
+        assertTrue(exec.contains("REQUEST_SELL_BALANCE_WAIT_PROOF_READY"))
+        assertTrue(exec.contains("BalanceProofWaitState.clear(ts.mint, \"PROOF_READY_REQUESTSELL\")"))
+        assertTrue(exec.indexOf("LIVESELL_RPC_EMPTY_OWNER_DELTA_RECOVERED") < exec.indexOf("LIVESELL_RPC_EMPTY_BALANCE_UNKNOWN"))
+    }
+
 }

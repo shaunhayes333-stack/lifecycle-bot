@@ -10106,11 +10106,21 @@ class Executor(
         // NO PendingSellQueue ACTIVE_SELL_READY job, NO duplicate-suppressed metric.
         val isLivePositionEarly = !ts.position.isPaperPosition
         if (isLivePositionEarly && com.lifecyclebot.engine.sell.BalanceProofWaitState.isWaiting(ts.mint)) {
-            com.lifecyclebot.engine.sell.BalanceProofWaitState.markWaiting(
-                ts.mint, ts.symbol ?: "?", reason,
-                runtimeGeneration = try { BotRuntimeController.currentGeneration() } catch (_: Throwable) { 0L },
-            )
-            return SellResult.WAITING_BALANCE_PROOF
+            val waitProof = try { wallet?.let { com.lifecyclebot.engine.sell.SellAmountAuthority.resolveForExit(ts.mint, it, reason) } } catch (_: Throwable) { null }
+            val waitConfirmed = waitProof as? com.lifecyclebot.engine.sell.SellAmountAuthority.Resolution.Confirmed
+            if (waitConfirmed != null && waitConfirmed.rawAmount.signum() > 0) {
+                ExecutionRootCauseTrace.authority("SELL", "REQUEST_SELL_BALANCE_WAIT_PROOF_READY", ts, "reason=$reason raw=${waitConfirmed.rawAmount} decimals=${waitConfirmed.decimals} source=${waitConfirmed.source} action=clear_wait_and_sell")
+                try { com.lifecyclebot.engine.sell.BalanceProofWaitState.clear(ts.mint, "PROOF_READY_REQUESTSELL") } catch (_: Throwable) {}
+                // Fall through to acquire the normal sell lease and route now.
+            } else {
+                val waitProofTrace = waitProof?.javaClass?.simpleName ?: "none"
+                ExecutionRootCauseTrace.authority("SELL", "REQUEST_SELL_BALANCE_WAIT_MERGE", ts, "reason=$reason alreadyWaiting=true proof=$waitProofTrace action=merge_no_new_lease")
+                com.lifecyclebot.engine.sell.BalanceProofWaitState.markWaiting(
+                    ts.mint, ts.symbol ?: "?", reason,
+                    runtimeGeneration = try { BotRuntimeController.currentGeneration() } catch (_: Throwable) { 0L },
+                )
+                return SellResult.WAITING_BALANCE_PROOF
+            }
         }
 
         // V5.9.495z28 (operator spec items 1+3): mark the lifecycle record
@@ -12667,6 +12677,30 @@ class Executor(
                     ErrorLogger.warn("Executor", "RPC refresh failed for ${ts.symbol}: ${e.message?.take(80)}")
                 }
                 if (!recovered) {
+                    // V5.0.3756 — source fix for the 3755 trace gap.
+                    // The main liveSell() RPC-empty precheck ran before the newer
+                    // SellAmountAuthority.resolveForExit() owner-delta fallback, so
+                    // emergency sells returned WAITING_BALANCE_PROOF forever even
+                    // when the buy path had recorded owner-filtered tx-meta proof.
+                    // Ask the authority here before declaring BALANCE_UNKNOWN.
+                    val authorityResolution = try {
+                        com.lifecyclebot.engine.sell.SellAmountAuthority.resolveForExit(ts.mint, wallet, reason)
+                    } catch (_: Throwable) { null }
+                    val authorityConfirmed = authorityResolution as? com.lifecyclebot.engine.sell.SellAmountAuthority.Resolution.Confirmed
+                    if (authorityConfirmed != null && authorityConfirmed.rawAmount.signum() > 0) {
+                        val decimals = authorityConfirmed.decimals.coerceAtLeast(0)
+                        val ui = try { java.math.BigDecimal(authorityConfirmed.rawAmount).movePointLeft(decimals).toDouble() } catch (_: Throwable) { 0.0 }
+                        if (ui > 0.0 && ui.isFinite()) {
+                            tokenData = Pair(ui, decimals)
+                            mapEmpty = false
+                            recovered = true
+                            zeroBalanceRetries.remove(retryCountKey)
+                            ExecutionRootCauseTrace.authority("SELL", "LIVESELL_RPC_EMPTY_OWNER_DELTA_RECOVERED", ts, "reason=$reason raw=${authorityConfirmed.rawAmount} ui=$ui decimals=$decimals source=${authorityConfirmed.source}")
+                            try { ForensicLogger.lifecycle("LIVESELL_RPC_EMPTY_OWNER_DELTA_RECOVERED", "mint=${ts.mint.take(10)} symbol=${ts.symbol} reason=$reason raw=${authorityConfirmed.rawAmount} ui=$ui decimals=$decimals source=${authorityConfirmed.source}") } catch (_: Throwable) {}
+                        }
+                    }
+                }
+                if (!recovered) {
                     // V5.0.3740 — strict live balance authority. RPC empty map + no
                     // owner-filtered balance means BALANCE_UNKNOWN. Do not use HostTracker,
                     // generic TX_PARSE, quote math, or cached tokenUnits for a live sell.
@@ -12674,6 +12708,9 @@ class Executor(
                     if (tracked != null && tracked.source == HostWalletTokenTracker.PositionSource.TX_PARSE) {
                         try { ForensicLogger.lifecycle("BALANCE_PROOF_REJECTED", "reason=GENERIC_TX_PARSE_NOT_OWNER_FILTERED mint=${ts.mint.take(10)} site=liveSell_rpc_empty trackerStatus=${tracked.status.name}") } catch (_: Throwable) {}
                     }
+                    val trackedStatusTrace = tracked?.status?.name ?: "none"
+                    val trackedRawTrace = tracked?.rawAmount ?: "none"
+                    ExecutionRootCauseTrace.authority("SELL", "LIVESELL_RPC_EMPTY_BALANCE_UNKNOWN", ts, "reason=$reason retry=$retryCount trackedStatus=$trackedStatusTrace trackedRaw=$trackedRawTrace action=wait_balance_proof")
                     LiveTradeLogStore.log(
                         sellTradeKey, ts.mint, ts.symbol, "SELL",
                         LiveTradeLogStore.Phase.SELL_BALANCE_CHECK,
