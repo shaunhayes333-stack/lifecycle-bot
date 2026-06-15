@@ -55,6 +55,7 @@ object TokenLifecycleTracker {
     enum class Status {
         BUY_PENDING,
         BUY_CONFIRMED,
+        CONFIRMED_PENDING_BALANCE,
         HELD,
         PARTIAL_SELL,
         SELL_PENDING,
@@ -141,10 +142,14 @@ object TokenLifecycleTracker {
             val v = r.venue.lowercase().trim()
             v !in nonMemeVenues &&
                 !r.buyTx.isNullOrBlank() &&
-                r.currentWalletTokenQty > DUST_UI_THRESHOLD &&
                 r.status != Status.RECONCILE_FAILED &&
-                !r.status.isTerminal()
+                !r.status.isTerminal() &&
+                (r.currentWalletTokenQty > DUST_UI_THRESHOLD || r.status == Status.CONFIRMED_PENDING_BALANCE || r.status == Status.BUY_CONFIRMED)
         }
+    } catch (_: Throwable) { 0 }
+
+    fun confirmedPendingCount(): Int = try {
+        records.values.count { it.status == Status.CONFIRMED_PENDING_BALANCE || (it.status == Status.BUY_CONFIRMED && !it.buyTx.isNullOrBlank() && it.currentWalletTokenQty <= DUST_UI_AMOUNT) }
     } catch (_: Throwable) { 0 }
 
     /** Stats for diagnostics export and the Universe / Forensics tile. */
@@ -192,8 +197,11 @@ object TokenLifecycleTracker {
         if (confirmedTokenQty > 0) {
             r.entryTokenQtyConfirmed = confirmedTokenQty
             r.currentWalletTokenQty = confirmedTokenQty
+            r.status = Status.BUY_CONFIRMED
+        } else {
+            r.status = Status.CONFIRMED_PENDING_BALANCE
+            r.reconcileFailReason = "ESTIMATED_PENDING_WALLET_PROOF"
         }
-        r.status = Status.BUY_CONFIRMED
         scheduleSave()
     }
 

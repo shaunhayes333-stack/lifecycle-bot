@@ -72,6 +72,7 @@ object HostWalletTokenTracker {
         UNKNOWN_NEEDS_RECONCILE(0),
         DUST_IGNORED(1),
         BUY_PENDING(2),
+        CONFIRMED_PENDING_BALANCE(3),
         BUY_CONFIRMED(3),
         HELD_IN_WALLET(3),
         OPEN_TRACKING(4),
@@ -106,6 +107,8 @@ object HostWalletTokenTracker {
 
     /** Statuses considered "open" for dashboard / exit-monitor / cleanup-protect. */
     internal val OPEN_STATUSES: Set<PositionStatus> = setOf(
+        PositionStatus.BUY_PENDING,
+        PositionStatus.CONFIRMED_PENDING_BALANCE,
         PositionStatus.BUY_CONFIRMED,
         PositionStatus.HELD_IN_WALLET,
         PositionStatus.OPEN_TRACKING,
@@ -207,6 +210,8 @@ object HostWalletTokenTracker {
             hasLastPositiveRaw(p) ||
             p.status in SELL_IN_FLIGHT_STATUSES ||
             p.status in setOf(
+                PositionStatus.BUY_PENDING,
+                PositionStatus.CONFIRMED_PENDING_BALANCE,
                 PositionStatus.OPEN_BALANCE_UNKNOWN,
                 PositionStatus.OPEN_BALANCE_UNKNOWN_RECOVERY_REQUIRED,
                 PositionStatus.OPEN_SELL_FAILED_NO_SIGNATURE_RETRYING,
@@ -463,14 +468,21 @@ object HostWalletTokenTracker {
         // V5.0.3740 — legacy live buy tracking without BalanceProof is forbidden.
         // pos.qtyToken may be quote/price/txparse-derived and is not wallet authority.
         if (!isPaper) {
-            p.status = PositionStatus.BUY_PENDING
+            p.status = PositionStatus.CONFIRMED_PENDING_BALANCE
             p.source = PositionSource.BOT_BUY
             p.balanceAuthoritySource = BalanceProofSource.BALANCE_UNKNOWN.name
-            p.notes.add("BUY_PENDING_BALANCE_PROOF legacy recordBuyConfirmed blocked from OPEN_TRACKING")
+            p.balanceAuthorityObservedAtMs = now
+            p.buySignature = sig ?: p.buySignature
+            p.uiAmount = pos.qtyToken
+            p.rawAmount = "0"
+            p.entrySol = pos.costSol.takeIf { it > 0 } ?: p.entrySol
+            p.entryPriceUsd = pos.entryPrice.takeIf { it > 0 } ?: p.entryPriceUsd
+            p.lastSeenWalletMs = now
+            p.notes.add("CONFIRMED_PENDING_BALANCE qtySource=ESTIMATED_PENDING_WALLET_PROOF sig=${sig ?: "none"}")
             positions[ts.mint] = p
-            emitForensic(LiveTradeLogStore.Phase.WARNING, ts.mint, ts.symbol, sig,
-                "BUY_PENDING_BALANCE_PROOF ${ts.symbol} — legacy recordBuyConfirmed had no authoritative BalanceProof")
-            try { ForensicLogger.lifecycle("BUY_PENDING_BALANCE_PROOF", "mint=${ts.mint.take(10)} symbol=${ts.symbol} reason=NO_AUTHORITATIVE_BALANCE_PROOF") } catch (_: Throwable) {}
+            emitForensic(LiveTradeLogStore.Phase.TOKEN_TRACKER_BUY_CONFIRMED, ts.mint, ts.symbol, sig,
+                "CONFIRMED_PENDING_BALANCE ${ts.symbol} — buy signature confirmed; qtySource=ESTIMATED_PENDING_WALLET_PROOF qty=${pos.qtyToken}")
+            try { ForensicLogger.lifecycle("CONFIRMED_PENDING_BALANCE", "mint=${ts.mint.take(10)} symbol=${ts.symbol} sig=${sig ?: "none"} qty=${pos.qtyToken} sellManaged=true") } catch (_: Throwable) {}
             save()
             return
         }
@@ -512,7 +524,7 @@ object HostWalletTokenTracker {
             try { ForensicLogger.lifecycle("BUY_PENDING_BALANCE_PROOF", "mint=${ts.mint.take(10)} symbol=${ts.symbol} reason=PROOF_REJECTED source=${proof.source}") } catch (_: Throwable) {}
             recordBuyPending(ts.mint, ts.symbol, sig)
             positions[ts.mint]?.apply {
-                status = PositionStatus.BUY_PENDING
+                status = PositionStatus.CONFIRMED_PENDING_BALANCE
                 source = PositionSource.BOT_BUY
                 balanceAuthoritySource = proof.source.name
                 balanceAuthorityObservedAtMs = proof.observedAtMs
@@ -806,6 +818,7 @@ object HostWalletTokenTracker {
                 } else if (rawApprox > DUST_RAW &&
                     existing.status in setOf(
                         PositionStatus.BUY_PENDING,
+                        PositionStatus.CONFIRMED_PENDING_BALANCE,
                         PositionStatus.BUY_CONFIRMED,
                         PositionStatus.HELD_IN_WALLET,
                         PositionStatus.UNKNOWN_NEEDS_RECONCILE,
@@ -972,16 +985,19 @@ object HostWalletTokenTracker {
      *  counted — unless a sell is genuinely in flight (counted until it lands).
      *  This is what stops the "1/31" ghost inflation at the source. */
     fun getOpenCount(): Int = positions.values.count { isOpenForAccounting(it) }
+    fun getPendingConfirmedCount(): Int = positions.values.count { it.status == PositionStatus.CONFIRMED_PENDING_BALANCE }
+    fun getPendingOrOpenCount(): Int = positions.values.count { isOpenForAccounting(it) || it.status == PositionStatus.BUY_PENDING || it.status == PositionStatus.CONFIRMED_PENDING_BALANCE }
+
 
     /** V5.0.3757 — health: live BUY_PENDING_BALANCE_PROOF may not age forever. */
     fun countStaleBuyPendingBalanceProof(maxAgeMs: Long = 90_000L): Int {
         val now = System.currentTimeMillis()
         return positions.values.count { p ->
             val anchor = p.buyTimeMs ?: p.firstSeenWalletMs
-            p.status == PositionStatus.BUY_PENDING &&
+            p.status in setOf(PositionStatus.BUY_PENDING, PositionStatus.CONFIRMED_PENDING_BALANCE) &&
                 anchor > 0L &&
                 (now - anchor) > maxAgeMs &&
-                p.notes.any { it.contains("BUY_PENDING_BALANCE_PROOF", ignoreCase = true) || it.contains("BalanceProof", ignoreCase = true) }
+                (p.status == PositionStatus.CONFIRMED_PENDING_BALANCE || p.notes.any { it.contains("BUY_PENDING_BALANCE_PROOF", ignoreCase = true) || it.contains("BalanceProof", ignoreCase = true) || it.contains("ESTIMATED_PENDING_WALLET_PROOF", ignoreCase = true) })
         }
     }
 
@@ -989,16 +1005,11 @@ object HostWalletTokenTracker {
     /** Count positions with actual wallet token amount above dust. */
     fun getActuallyHeldCount(): Int = positions.values.count { isOpenForAccounting(it) && hasLastPositiveRaw(it) }
 
-    /** V5.9.1509 — CANONICAL WALLET-TRUTH HELD SET. Operator hard rule: "unless
-     *  the bot has the position currently held it shouldn't acknowledge a position
-     *  is open." Returns the set of mints the wallet ACTUALLY holds above dust
-     *  (plus sells genuinely in flight, which still hold tokens until the swap
-     *  lands). The UI open-count and any "managed open" union MUST intersect
-     *  against this set so AI-side active maps that believe a position is open
-     *  cannot inflate the count past on-chain reality. */
+    /** Physical wallet-held set only. CONFIRMED_PENDING_BALANCE is open and
+     *  sell-managed, but not counted as physically held until balance proof lands. */
     fun getActuallyHeldMints(): Set<String> =
         positions.values.asSequence()
-            .filter { isOpenForAccounting(it) }
+            .filter { isOpenForAccounting(it) && hasLastPositiveRaw(it) }
             .map { it.mint }
             .toCollection(HashSet())
 

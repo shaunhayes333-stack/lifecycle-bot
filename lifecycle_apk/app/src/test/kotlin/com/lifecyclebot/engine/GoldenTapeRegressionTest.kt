@@ -1282,4 +1282,38 @@ class GoldenTapeRegressionTest {
         assertTrue(reconciler.contains("RECONCILER_ABSENT_TRACKED_CHECKED"))
     }
 
+
+    @Test
+    fun live_buy_clamps_to_wallet_and_min_executable_before_insufficient_balance() {
+        val exec = java.io.File("src/main/kotlin/com/lifecyclebot/engine/Executor.kt").readText()
+        assertTrue(exec.contains("LIVE_BUY_SIZE_CLAMPED_TO_WALLET"))
+        assertTrue(exec.contains("LIVE_BUY_SIZE_RAISED_TO_MIN_EXECUTABLE"))
+        assertTrue(exec.contains("liveMinExecutableBuySol = 0.005"))
+        assertTrue(exec.contains("liveRentReserveSol = 0.012"))
+        assertFalse("Live buy must not reject walletSol < sol before rent-reserve clamp", exec.contains("if (walletSol < sol)"))
+        assertTrue(exec.indexOf("maxSpendableSol") < exec.indexOf("val lamports = (effectiveSol"))
+    }
+
+
+    @Test
+    fun confirmed_buy_pending_wallet_proof_stays_visible_and_sell_managed() {
+        val models = java.io.File("src/main/kotlin/com/lifecyclebot/data/Models.kt").readText()
+        val host = java.io.File("src/main/kotlin/com/lifecyclebot/engine/HostWalletTokenTracker.kt").readText()
+        val lifecycle = java.io.File("src/main/kotlin/com/lifecyclebot/engine/TokenLifecycleTracker.kt").readText()
+        val snap = java.io.File("src/main/kotlin/com/lifecyclebot/engine/RuntimeStateSnapshot.kt").readText()
+        val doctor = java.io.File("src/main/kotlin/com/lifecyclebot/engine/InvariantGuardian.kt").readText()
+
+        assertTrue(models.contains("confirmed live buys must be visible/sell-managed"))
+        assertTrue(models.contains("return true"))
+        assertTrue(host.contains("CONFIRMED_PENDING_BALANCE"))
+        assertTrue(host.contains("qtySource=ESTIMATED_PENDING_WALLET_PROOF"))
+        assertTrue(host.contains("isOpenForAccounting(it) && hasLastPositiveRaw(it)"))
+        assertTrue(lifecycle.contains("CONFIRMED_PENDING_BALANCE"))
+        assertFalse("liveMemeOpenCount must not require positive wallet qty only", lifecycle.contains("r.currentWalletTokenQty > DUST_UI_THRESHOLD &&\n                r.status != Status.RECONCILE_FAILED"))
+        assertTrue(snap.contains("maxOf(localLiveOpen, hostOpen, lifecyclePendingConfirmed)"))
+        assertTrue(snap.contains("maxOf(walletHeld, hostOpen, localLiveOpen, lifecyclePendingConfirmed)"))
+        assertTrue(doctor.contains("RECONCILER_BLIND_CRITICAL"))
+        assertTrue(doctor.contains("LIVE_BUY_CONFIRMED_NOT_VISIBLE_CRITICAL"))
+    }
+
 }

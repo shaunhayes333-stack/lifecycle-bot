@@ -9,7 +9,9 @@ object InvariantGuardian {
         // V5.9.1518 — PATCH ITEM 7: real choke-state diagnosis flags.
         LEDGER_DRIFT, RECONCILER_STALLED, SELL_RETRY_STORM, SCANNER_INACTIVE,
         CLOSED_BUT_WALLET_HELD, ORPHAN_LIVE_POSITIONS, LIVE_SELL_NO_FINALITY,
-        BUY_PENDING_BALANCE_PROOF_STALE
+        BUY_PENDING_BALANCE_PROOF_STALE, TRACKER_OPEN_DESYNC_CRITICAL,
+        LIVE_BUY_CONFIRMED_NOT_VISIBLE_CRITICAL, RECONCILER_BLIND_CRITICAL,
+        BALANCE_AUTHORITY_FALSE_ZERO_CRITICAL
     }
     data class Fault(val code: FaultCode, val severity: String, val detail: String, val evidence: Map<String, String> = emptyMap(), val tsMs: Long = System.currentTimeMillis())
 
@@ -24,7 +26,11 @@ object InvariantGuardian {
         // V5.9.1518 — PATCH ITEM 1/7: ledger drift. Canonical open count exceeding
         // wallet-held mints means we are tracking positions the wallet no longer
         // holds (phantom / CLOSED-but-held) — a P0 authority fault.
-        if (s.mode == "LIVE" && (s.canonicalOpenPositions - s.walletHeldMints) > 0) {
+        if (s.mode == "LIVE" && s.canonicalOpenPositions > 0 && s.walletHeldMints == 0) {
+            // V5.0.3760: canonical>0/walletHeld=0 is not automatically a phantom;
+            // it is valid during CONFIRMED_PENDING_BALANCE. Fault only if the same
+            // canonical truth is invisible to host/live accounting below.
+        } else if (s.mode == "LIVE" && (s.canonicalOpenPositions - s.walletHeldMints) > 0) {
             out += Fault(FaultCode.LEDGER_DRIFT, "CRITICAL",
                 "canonicalOpen=${s.canonicalOpenPositions} > walletHeld=${s.walletHeldMints} (drift=${s.canonicalOpenPositions - s.walletHeldMints})")
         }
@@ -36,6 +42,18 @@ object InvariantGuardian {
         if (s.mode == "LIVE" && s.botLoopActive && s.canonicalOpenPositions > 0 && s.reconcilerTotalChecked == 0) {
             out += Fault(FaultCode.RECONCILER_STALLED, "CRITICAL",
                 "reconciler.totalChecked=0 while canonicalOpen=${s.canonicalOpenPositions}")
+        }
+        if (s.mode == "LIVE" && s.botLoopActive && s.canonicalOpenPositions > 0 && s.liveOpenPositions == 0) {
+            out += Fault(FaultCode.LIVE_BUY_CONFIRMED_NOT_VISIBLE_CRITICAL, "CRITICAL",
+                "canonicalOpen=${s.canonicalOpenPositions} but liveOpen=0; confirmed buy invisible")
+        }
+        if (s.mode == "LIVE" && s.botLoopActive && s.hostTrackerOpenCount == 0 && s.canonicalOpenPositions > 0) {
+            out += Fault(FaultCode.TRACKER_OPEN_DESYNC_CRITICAL, "CRITICAL",
+                "canonicalOpen=${s.canonicalOpenPositions} but hostTrackerOpen=0")
+        }
+        if (s.mode == "LIVE" && s.botLoopActive && s.canonicalOpenPositions > 0 && s.reconcilerTotalChecked == 0) {
+            out += Fault(FaultCode.RECONCILER_BLIND_CRITICAL, "CRITICAL",
+                "reconciler.totalChecked=0 while pending/open tracker rows exist")
         }
         // V5.0.3757 — proof-first buy health. Pending buy proof older than
         // the verification/recovery window means landed buys are not being

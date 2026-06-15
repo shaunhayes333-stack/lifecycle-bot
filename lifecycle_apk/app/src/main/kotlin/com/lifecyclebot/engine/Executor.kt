@@ -8835,15 +8835,36 @@ class Executor(
             ) } catch (_: Throwable) {}
             return false
         }
-        
-        if (walletSol < sol) {
-            PipelineTracer.executorFailed(ts.symbol, ts.mint, "LIVE", "INSUFFICIENT_BALANCE")
-            PipelineTracer.noBuy(ts.symbol, ts.mint, PipelineTracer.NoBuyReason.WALLET_BALANCE_ZERO, "need=${sol}SOL have=${walletSol}SOL")
-            try { ForensicLogger.exec(
-                "LIVE_BUY_FAIL", ts.symbol,
-                "mint=${ts.mint.take(10)} sol=$sol reason=INSUFFICIENT_BALANCE have=$walletSol need=$sol",
-            ) } catch (_: Throwable) {}
+
+        // V5.0.3760 — LIVE BUY SOURCE CLAMP. Runtime 3759 showed valid live
+        // candidates failing before broadcast for two opposite sizing errors:
+        //   • BULL requested 0.2938 SOL with wallet 0.1716 → rejected as
+        //     INSUFFICIENT_BALANCE before the existing wallet-rent clamp could run.
+        //   • V3 probes requested 0.0004–0.0006 SOL → below real Solana/Jupiter
+        //     min executable, causing RENT_RESERVE_TOO_LOW / NO_OPEN_COMMITTED noise.
+        // Fix at the final live authority chokepoint: compute spendable wallet SOL
+        // after rent reserve, clamp oversized buys down to spendable, and promote
+        // sub-min probes to the minimum executable size when capacity exists. If
+        // capacity does not exist, reject once with a truthful low-capacity reason.
+        val liveRentReserveSol = 0.012
+        val liveMinExecutableBuySol = 0.005
+        val maxSpendableSol = walletSol - liveRentReserveSol
+        if (maxSpendableSol < liveMinExecutableBuySol) {
+            onLog("⚠️ ${ts.symbol}: skipping buy — wallet too low after rent reserve (${walletSol.fmt(4)}◎ spendable=${maxSpendableSol.fmt(4)}◎)", ts.mint)
+            PipelineTracer.executorFailed(ts.symbol, ts.mint, "LIVE", "RENT_RESERVE_TOO_LOW")
+            PipelineTracer.noBuy(ts.symbol, ts.mint, PipelineTracer.NoBuyReason.WALLET_BALANCE_ZERO, "rent_reserve spendable=${maxSpendableSol}SOL")
+            emitLiveBuyFail(ts, maxOf(maxSpendableSol, 0.0), "RENT_RESERVE_TOO_LOW", "walletSol=$walletSol spendable=$maxSpendableSol")
             return false
+        }
+        if (sol > maxSpendableSol) {
+            val old = sol
+            sol = maxSpendableSol
+            try { ForensicLogger.lifecycle("LIVE_BUY_SIZE_CLAMPED_TO_WALLET", "mint=${ts.mint.take(10)} symbol=${ts.symbol} requested=$old spendable=$maxSpendableSol walletSol=$walletSol rentReserve=$liveRentReserveSol") } catch (_: Throwable) {}
+        }
+        if (sol < liveMinExecutableBuySol) {
+            val old = sol
+            sol = liveMinExecutableBuySol
+            try { ForensicLogger.lifecycle("LIVE_BUY_SIZE_RAISED_TO_MIN_EXECUTABLE", "mint=${ts.mint.take(10)} symbol=${ts.symbol} requested=$old raised=$sol walletSol=$walletSol spendable=$maxSpendableSol") } catch (_: Throwable) {}
         }
 
         // V5.9.611 — LiveExecutionGate is now settlement-pressure only.
@@ -8865,25 +8886,7 @@ class Executor(
             LiveExecutionGate.Decision.Allowed -> { /* proceed */ }
         }
 
-        // Solana Jupiter swap actually needs:
-        //   - 5_000 lamports base tx fee
-        //   - 2_039_280 lamports for ATA creation (rent-exempt) when buying a NEW token
-        //   - 100_000-500_000 lamports for compute-unit priority fee
-        //   - WSOL wrap unwrap overhead (~0.001 SOL)
-        // Plus a buffer for Jupiter's own slippage on the SOL leg.
-        // V5.9.309: 0.003 → 0.012 SOL — we were sizing too close to the wallet, causing
-        // 'Jupiter v2 order error: Insufficient funds' on every BELKA-style buy where
-        // wallet ~ 0.18 SOL and bot tried to spend 0.186 SOL. Now we always keep at
-        // least 12 millisol back. Tested: the median observed Jupiter swap consumes
-        // 6-9 millisol of fee+rent on Solana mainnet.
-        val RENT_RESERVE_SOL = 0.012
-        val effectiveSol = minOf(sol, walletSol - RENT_RESERVE_SOL)
-        if (effectiveSol < 0.005) {
-            onLog("⚠️ ${ts.symbol}: skipping buy — wallet too low for rent reserve (${walletSol.fmt(4)}◎ need ≥${RENT_RESERVE_SOL}◎ buffer)", ts.mint)
-            PipelineTracer.noBuy(ts.symbol, ts.mint, PipelineTracer.NoBuyReason.WALLET_BALANCE_ZERO, "rent_reserve")
-            emitLiveBuyFail(ts, effectiveSol, "RENT_RESERVE_TOO_LOW", "walletSol=$walletSol")
-            return false
-        }
+        val effectiveSol = sol
 
         val tradeId = identity ?: TradeIdentityManager.getOrCreate(ts.mint, ts.symbol, ts.source)
 

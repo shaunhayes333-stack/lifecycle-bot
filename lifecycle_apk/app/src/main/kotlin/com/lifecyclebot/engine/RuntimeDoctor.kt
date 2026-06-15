@@ -132,7 +132,11 @@ object RuntimeDoctor {
             try { com.lifecyclebot.engine.sell.SellReconciler.requestImmediateTick() } catch (_: Throwable) {}
             emptyList()
         }
-        InvariantGuardian.FaultCode.BUY_PENDING_BALANCE_PROOF_STALE -> {
+        InvariantGuardian.FaultCode.BUY_PENDING_BALANCE_PROOF_STALE,
+        InvariantGuardian.FaultCode.TRACKER_OPEN_DESYNC_CRITICAL,
+        InvariantGuardian.FaultCode.LIVE_BUY_CONFIRMED_NOT_VISIBLE_CRITICAL,
+        InvariantGuardian.FaultCode.RECONCILER_BLIND_CRITICAL,
+        InvariantGuardian.FaultCode.BALANCE_AUTHORITY_FALSE_ZERO_CRITICAL -> {
             try { com.lifecyclebot.engine.sell.SellReconciler.requestImmediateTick() } catch (_: Throwable) {}
             emptyList()
         }

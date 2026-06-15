@@ -1137,4 +1137,23 @@ class ExecutionAuthorityInvariantTest {
         assertTrue(live.logName.contains("NO_FINAL_CANDIDATE") || live.reason.contains("NO_FINAL"))
     }
 
+
+    @Test
+    fun regression_guard_summary_fail_is_build_blocking() {
+        val checks = RuntimeRegressionGuards.evaluate(
+            RuntimeRegressionGuards.Input(
+                runtimeActive = true,
+                uiRunning = true,
+                mode = "LIVE",
+                sellReconcilerStarted = true,
+                hostTrackerOpenCount = 0,
+                liveOpenPositions = 1,
+                canonicalOpenPositions = 1,
+            )
+        )
+        val summary = RuntimeRegressionGuards.summary(checks)
+        assertTrue("Expected a failing guard summary for mismatched host/live state", summary.contains("REGRESSION_GUARDS_FAIL"))
+        assertFalse("Build tests must never treat REGRESSION_GUARDS_FAIL as pass", checks.all { it.ok })
+    }
+
 }

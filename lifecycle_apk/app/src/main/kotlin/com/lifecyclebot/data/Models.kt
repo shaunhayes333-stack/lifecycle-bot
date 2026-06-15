@@ -157,7 +157,12 @@ data class Position(
     // BotService watchdog has confirmed real on-chain state.
     val isOpen get(): Boolean {
         if (qtyToken <= 0.0) return false
-        return !pendingVerify
+        // V5.0.3760 — confirmed live buys must be visible/sell-managed while
+        // wallet token indexing catches up. pendingVerify means qty authority is
+        // ESTIMATED_PENDING_WALLET_PROOF, not invisible. Ghost protection now
+        // lives in HostWalletTokenTracker / BalanceProofPoller finality, not by
+        // hiding a confirmed buy from open/sell loops.
+        return true
     }
     // True when tokens exist on-chain regardless of verify state — used for
     // fee accounting and capital exposure calculations.
@@ -363,14 +368,8 @@ data class BotStatus(
             // V5.9.1530 — UI/COUNT AUTHORITY: a CLOSED-ledger mint is never open.
             if (com.lifecyclebot.engine.PositionCloseLedger.isClosed(ts.mint)) return@filter false
             if (pos.isOpen) return@filter true
-            // V5.9.739 — include stale pendingVerify (>120s) with non-zero
-            // qty as "open for viewing". Watchdog will resolve them in
-            // ≤60s; until then, operator sees the position so they know
-            // capital is deployed.
-            if (pos.pendingVerify && pos.qtyToken > 0.0 && pos.entryTime > 0L) {
-                val ageMs = System.currentTimeMillis() - pos.entryTime
-                return@filter ageMs >= 120_000L
-            }
+            // V5.0.3760 — no 120s invisibility window. Confirmed/pending-proof
+            // live positions are already returned by pos.isOpen above.
             false
         }
 

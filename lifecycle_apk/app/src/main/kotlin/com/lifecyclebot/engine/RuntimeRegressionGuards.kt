@@ -102,8 +102,11 @@ object RuntimeRegressionGuards {
                 detail = "runtimeActive=${input.runtimeActive} walletHeld=${input.walletHeldMints} reconcilerStarted=${input.sellReconcilerStarted}",
             ),
             Check(
-                "wallet_canonical_parity",
-                ok = input.walletHeldMints == input.canonicalOpenPositions,
+                "wallet_canonical_not_above_open_authority",
+                // V5.0.3760 — canonical includes CONFIRMED_PENDING_BALANCE before
+                // wallet indexing lands. walletHeld may be below canonical during
+                // that proof window, but must never exceed canonical.
+                ok = input.walletHeldMints <= input.canonicalOpenPositions,
                 detail = "walletHeld=${input.walletHeldMints} canonical=${input.canonicalOpenPositions}",
             ),
             Check(

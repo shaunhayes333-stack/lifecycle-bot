@@ -60,6 +60,7 @@ data class RuntimeStateSnapshot(
             val paperOpen = try { statusOpen.count { it.position.isPaperPosition } } catch (_: Throwable) { 0 }
             val walletHeld = try { HostWalletTokenTracker.getActuallyHeldCount() } catch (_: Throwable) { 0 }
             val hostOpen = try { HostWalletTokenTracker.getOpenCount() } catch (_: Throwable) { runtime.hostTrackerOpenCount }
+            val hostPendingConfirmed = try { HostWalletTokenTracker.getPendingConfirmedCount() } catch (_: Throwable) { 0 }
             val heldMints = try { HostWalletTokenTracker.getActuallyHeldMints() } catch (_: Throwable) { emptySet<String>() }
             // V5.0.3730 — live-open truth must be wallet/host-backed.
             // Runtime 5.0.3727 showed liveStore=1 host=0 walletHeld=0 after a live sell
@@ -67,8 +68,10 @@ data class RuntimeStateSnapshot(
             // TokenState, poisoning HOST_TRACKER_DESYNC and SellOnlySafeMode even though the
             // wallet/tracker were empty. In LIVE, a local TokenState is not an open position
             // unless the host wallet tracker still holds or is actively selling that mint.
-            val liveOpen = try { statusOpen.count { !it.position.isPaperPosition && it.mint in heldMints } } catch (_: Throwable) { 0 }
+            val localLiveOpen = try { statusOpen.count { !it.position.isPaperPosition } } catch (_: Throwable) { 0 }
+            val lifecyclePendingConfirmed = try { TokenLifecycleTracker.confirmedPendingCount() } catch (_: Throwable) { 0 }
             val lifecycleOpen = try { TokenLifecycleTracker.openCount() } catch (_: Throwable) { 0 }
+            val liveOpen = maxOf(localLiveOpen, hostOpen, lifecyclePendingConfirmed)
             // V5.0.3685 — P0: SellOnlySafeMode compares hostOpen (live tracker) vs
             // positionStoreOpen. The old statusOpen.size included paper positions, so
             // ANY paper sim made positionStoreOpen > hostOpen → permanent SELL_ONLY_SAFE_MODE.
@@ -96,10 +99,11 @@ data class RuntimeStateSnapshot(
             val canonicalOpen = if (isPaperRuntime) {
                 positionStoreOpen
             } else {
-                // V5.9.1561 — canonical LIVE truth is wallet-held balance.
-                // Stale local/position/lifecycle rows are drift to reconcile, not
-                // canonical opens. This fixes walletHeld=0/canonical=1 false poison.
-                walletHeld
+                // V5.0.3760 — canonical LIVE truth includes confirmed-pending-balance.
+                // Wallet-held balance is physical proof; a confirmed buy signature with
+                // estimated qty is still an open, sell-managed position while wallet
+                // token indexing catches up.
+                maxOf(walletHeld, hostOpen, localLiveOpen, lifecyclePendingConfirmed)
             }
             val orphanPaper = try {
                 if (isPaperRuntime) {
