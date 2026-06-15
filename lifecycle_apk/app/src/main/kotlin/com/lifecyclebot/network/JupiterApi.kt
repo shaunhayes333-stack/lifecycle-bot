@@ -515,13 +515,15 @@ class JupiterApi(private val apiKey: String = "") {
             put("wrapAndUnwrapSol", true)
             put("dynamicComputeUnitLimit", true)
             if (senderTipLamports >= 200_000L) {
-                // V5.0.3690 — Helius Sender-compatible Jupiter build.
-                // Helius requires a real Jito tip transfer instruction AND a
-                // priority fee. Jupiter's prioritizationFeeLamports can be either
-                // priority fee OR Jito tip, not both, so we request the tip here
-                // and set CU price separately via computeUnitPriceMicroLamports.
+                // V5.0.3727 — Jupiter /swap fee-param source fix.
+                // Runtime 5.0.3725 produced HTTP 400:
+                // "Compute unit price and prioritization fee are mutually exclusive".
+                // Jupiter treats prioritizationFeeLamports (including jitoTipLamports)
+                // and computeUnitPriceMicroLamports as mutually-exclusive fee modes.
+                // For sender/Jito compatibility we request the Jito tip instruction here
+                // and DO NOT also send computeUnitPriceMicroLamports. Non-Jito builds use
+                // prioritizationFeeLamports="auto" below.
                 put("prioritizationFeeLamports", JSONObject().put("jitoTipLamports", senderTipLamports))
-                put("computeUnitPriceMicroLamports", senderComputeUnitPriceMicroLamports.coerceAtLeast(1L))
             } else {
                 put("prioritizationFeeLamports", "auto")
             }

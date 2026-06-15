@@ -311,7 +311,20 @@ object HostWalletTokenTracker {
      */
     fun recordBuyConfirmed(ts: TokenState, sig: String? = null) {
         if (ts.mint.isBlank() || ts.mint == SOL_MINT) return
-        if (!ts.position.isOpen) return
+        // V5.0.3727 — live buy handoff must not depend on Position.isOpen.
+        // Signature-managed live buys may still be pendingVerify while the indexer
+        // catches up, but they already carry a confirmed signature and positive
+        // expected/provisional qty. Refusing those rows leaves positionStoreOpen>0
+        // while hostOpen=0, which triggers SELL_ONLY_SAFE_MODE and deadlocks new buys.
+        // Paper is still blocked below; zero-qty ghosts are still rejected.
+        val pos = ts.position
+        if (pos.qtyToken <= 0.0) {
+            try {
+                emitForensic(LiveTradeLogStore.Phase.WARNING, ts.mint, ts.symbol, sig,
+                    "LIVE_BUY_NOT_TRACKED_ZERO_QTY ${ts.symbol} — confirmed buy had no positive qty")
+            } catch (_: Throwable) {}
+            return
+        }
         // V5.9.1369 — GHOST POSITION FIX. This tracker is LIVE-WALLET TRUTH ONLY
         // (recordSellConfirmed already early-returns on PAPER exits, line ~393). But
         // recordBuyConfirmed had NO paper guard, so paper BUYS entered the tracker as
@@ -332,7 +345,6 @@ object HostWalletTokenTracker {
             return
         }
         val now = System.currentTimeMillis()
-        val pos = ts.position
         val existing = positions[ts.mint]
         val p = existing ?: TrackedTokenPosition(
             mint = ts.mint, symbol = ts.symbol, name = ts.name,
@@ -362,7 +374,7 @@ object HostWalletTokenTracker {
         p.activeSellAttemptId = null
         p.sellAttemptStartedMs = 0L
         p.consecutiveZeroConfirms = 0
-        p.notes.add("fresh live buy reopened tracker gen=${try { BotRuntimeController.currentGeneration() } catch (_: Throwable) { 0L }}")
+        p.notes.add("fresh live buy reopened tracker gen=${try { BotRuntimeController.currentGeneration() } catch (_: Throwable) { 0L }} pendingVerify=${pos.pendingVerify}")
         p.symbol = ts.symbol.takeIf { it.isNotBlank() } ?: p.symbol
         p.name = ts.name.takeIf { it.isNotBlank() } ?: p.name
         p.source = PositionSource.TX_PARSE

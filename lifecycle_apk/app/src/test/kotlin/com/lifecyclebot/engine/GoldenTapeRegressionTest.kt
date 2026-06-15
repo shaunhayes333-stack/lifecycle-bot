@@ -795,4 +795,19 @@ class GoldenTapeRegressionTest {
         assertFalse("Report must not claim paper is firing live from cumulative stale counters", report.contains("paper trades are firing during live"))
     }
 
+
+    @Test
+    fun live_buy_and_jupiter_fee_contracts_do_not_recreate_sell_only_deadlock() {
+        val jupiter = java.io.File("src/main/kotlin/com/lifecyclebot/network/JupiterApi.kt").readText()
+        assertTrue(jupiter.contains("Compute unit price and prioritization fee are mutually exclusive"))
+        assertTrue(jupiter.contains("put(\"prioritizationFeeLamports\", JSONObject().put(\"jitoTipLamports\", senderTipLamports))"))
+        assertFalse("Jito-tip Jupiter builds must not also send computeUnitPriceMicroLamports", jupiter.contains("put(\"computeUnitPriceMicroLamports\", senderComputeUnitPriceMicroLamports.coerceAtLeast(1L))"))
+
+        val host = java.io.File("src/main/kotlin/com/lifecyclebot/engine/HostWalletTokenTracker.kt").readText()
+        assertTrue(host.contains("live buy handoff must not depend on Position.isOpen"))
+        assertTrue(host.contains("if (pos.qtyToken <= 0.0)"))
+        assertFalse("recordBuyConfirmed must not early-return on !isOpen; pendingVerify live buys must be tracked", host.contains("if (!ts.position.isOpen) return"))
+        assertTrue(host.contains("pendingVerify=${'$'}{pos.pendingVerify}"))
+    }
+
 }
