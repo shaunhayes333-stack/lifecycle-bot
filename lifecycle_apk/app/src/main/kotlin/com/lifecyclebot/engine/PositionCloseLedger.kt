@@ -58,6 +58,10 @@ object PositionCloseLedger {
      */
     fun markClosed(mint: String, reason: String, pnlPct: Int): String {
         if (mint.isBlank()) return ""
+        if (isRejectedCloseReason(reason)) {
+            try { ForensicLogger.lifecycle("POSITION_CLOSE_LEDGER_REJECTED", "mint=${mint.take(10)} reason=$reason") } catch (_: Throwable) {}
+            return ""
+        }
         val now = System.currentTimeMillis()
         val existing = closed[mint]
         if (existing != null && (now - existing.closedAtMs) < CLOSE_TTL_MS) {
@@ -77,6 +81,10 @@ object PositionCloseLedger {
         realizedSol: Double, realizedPnl: Double, source: String,
     ): String {
         if (mint.isBlank()) return ""
+        if (sellSig.isBlank() || isRejectedCloseReason(reason)) {
+            try { ForensicLogger.lifecycle("POSITION_CLOSE_LEDGER_REJECTED", "mint=${mint.take(10)} reason=$reason sigBlank=${sellSig.isBlank()}") } catch (_: Throwable) {}
+            return ""
+        }
         val now = System.currentTimeMillis()
         val existing = closed[mint]
         if (existing != null && (now - existing.closedAtMs) < CLOSE_TTL_MS) return existing.closeId
@@ -139,4 +147,17 @@ object PositionCloseLedger {
 
     /** Diagnostic snapshot for the health dump. */
     fun snapshot(): List<CloseRecord> = closed.values.sortedByDescending { it.closedAtMs }
+    private fun isRejectedCloseReason(reason: String): Boolean {
+        val r = reason.uppercase()
+        return r.contains("BALANCE_UNKNOWN") ||
+            r.contains("RPC_EMPTY_MAP") ||
+            r.contains("SELL_ROUTE_FAILED_NO_SIGNATURE") ||
+            r.contains("NO_SIGNATURE_UNLOCKED") ||
+            r.contains("CLOSED_UNVERIFIED") ||
+            r.contains("STARTUP_GHOST_RECONCILE") ||
+            r.contains("GHOST_REAP_ZERO_BALANCE") ||
+            r.contains("UNKNOWN_RECONCILE_STALE_REAP") ||
+            r.contains("RECONCILER_REAP_NOSIG")
+    }
+
 }

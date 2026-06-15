@@ -990,13 +990,14 @@ class GoldenTapeRegressionTest {
         assertFalse("RPC empty must not fall back to TX_PARSE confirmed balance", sellAuth.contains("return tryFreshTxParseFallback(mint) ?: Resolution.Unknown"))
         assertFalse("TX_PARSE must not be broadcast bypass", sellAuth.contains("TX_PARSE_BROADCAST_BYPASS"))
 
-        assertTrue(tracker.contains("BALANCE_UNKNOWN_CLOSED_UNVERIFIED"))
+        assertTrue(tracker.contains("OPEN_BALANCE_UNKNOWN_RECOVERY_REQUIRED"))
+        assertTrue(tracker.contains("OPEN_SELL_FAILED_NO_SIGNATURE_RETRYING"))
         assertTrue(tracker.contains("recordBuyConfirmedWithProof"))
         assertTrue(tracker.contains("CLOSED_REJECTED_NO_SIGNATURE_NO_ZERO_PROOF"))
         assertFalse("No-signature txparse must not stamp CLOSED", tracker.contains("CLOSED_BY_TX_PARSE_NO_SIGNATURE"))
 
         assertTrue(exec.contains("OWNER_DELTA_PROOF"))
-        assertTrue(exec.contains("SELL_ROUTE_FAILED_NO_SIGNATURE_UNLOCKED"))
+        assertTrue(exec.contains("OPEN_SELL_FAILED_NO_SIGNATURE_RETRYING"))
         assertTrue(exec.contains("PUMPPORTAL_PARTIAL") || exec.contains("JUPITER_ULTRA_METIS_PARTIAL"))
         assertFalse("PumpPortal partial skip must not be a no-signature failure", exec.contains("SEV_PUMPPORTAL_PARTIAL_BLOCKED"))
         assertFalse("Host tracker must not be sell quantity authority", exec.contains("SELL_QTY_SOURCE=HOST_TRACKER"))
@@ -1094,30 +1095,52 @@ class GoldenTapeRegressionTest {
 
 
     @Test
-    fun live_common_sense_gate_blocks_screenshot_garbage_before_live_attempt() {
+    fun live_position_finality_state_machine_never_closes_unknown_or_no_signature() {
+        val tracker = java.io.File("src/main/kotlin/com/lifecyclebot/engine/HostWalletTokenTracker.kt").readText()
+        val ledger = java.io.File("src/main/kotlin/com/lifecyclebot/engine/PositionCloseLedger.kt").readText()
+        val service = java.io.File("src/main/kotlin/com/lifecyclebot/engine/BotService.kt").readText()
+        val proofState = java.io.File("src/main/kotlin/com/lifecyclebot/engine/sell/BalanceProofState.kt").readText()
         val exec = java.io.File("src/main/kotlin/com/lifecyclebot/engine/Executor.kt").readText()
-        val gate = java.io.File("src/main/kotlin/com/lifecyclebot/engine/LiveCommonSenseGate.kt").readText()
 
-        assertTrue(exec.contains("LiveCommonSenseGate.evaluate"))
-        assertTrue(exec.contains("LIVE_BUY_BLOCKED_COMMON_SENSE"))
-        assertTrue(exec.contains("LIVE_TOP_UP_BLOCKED_COMMON_SENSE"))
-        assertTrue(exec.contains("stage=LiveCommonSenseGate"))
-        assertTrue(exec.contains("stage=LiveCommonSenseGate.topUp"))
-        val liveBuyBody = exec.substring(exec.indexOf("private fun liveBuy"))
-        assertTrue(liveBuyBody.indexOf("LiveCommonSenseGate.evaluate") < liveBuyBody.indexOf("\"LIVE_BUY_ATTEMPT\","))
-        val topUpBody = exec.substring(exec.indexOf("private fun liveTopUp"))
-        assertTrue(topUpBody.indexOf("LiveCommonSenseGate.evaluate") < topUpBody.indexOf("\"LIVE_BUY_ATTEMPT\","))
+        assertTrue(proofState.contains("data class PositiveBalanceProof"))
+        assertTrue(proofState.contains("data class ZeroBalanceProof"))
+        assertTrue(proofState.contains("data class UnknownBalanceProof"))
+        assertTrue(proofState.contains("data class StalePositiveBalanceProof"))
+        assertTrue(proofState.contains("UNKNOWN is intentionally not ZERO"))
 
-        assertTrue(gate.contains("SINGLE_HOLDER_CONCENTRATION"))
-        assertTrue(gate.contains("NO_CHART_EARLY_UNKNOWN"))
-        assertTrue(gate.contains("NO_SOURCE_EARLY_UNKNOWN"))
-        assertTrue(gate.contains("EXIT_DOMINATES_ENTRY"))
-        assertTrue(gate.contains("ENTRY_TOO_WEAK_FOR_LIVE"))
-        assertTrue(gate.contains("UNINITIALIZED_NEUTRAL_SIGNAL"))
-        assertTrue(gate.contains("SHITCOIN_LIVE_RUG_SHAPE"))
-        assertTrue(gate.contains("ts.exitScore - ts.entryScore"))
-        assertTrue(gate.contains("ts.entryScore < 20.0"))
-        assertTrue(gate.contains("topHolderPct >= 50.0"))
+        val sellAuthority = java.io.File("src/main/kotlin/com/lifecyclebot/engine/sell/SellAmountAuthority.kt").readText()
+        assertTrue(sellAuthority.contains("BALANCE_UNKNOWN reason=RPC_EMPTY_MAP"))
+        assertTrue(sellAuthority.contains("BALANCE_UNKNOWN reason=MINT_ABSENT_FROM_ONE_PROVIDER"))
+        assertTrue(sellAuthority.contains("BALANCE_UNKNOWN reason=ONE_PROVIDER_ZERO"))
+        assertTrue(sellAuthority.contains("using lastPositiveRaw recovery amount"))
+        assertTrue(sellAuthority.contains("HostWalletTokenTracker.getEntry"))
+        assertFalse("one provider missing mint must not be zero", sellAuthority.contains("mint NOT in the map AND map is non-empty → genuine zero"))
+
+        assertTrue(tracker.contains("markOpenBalanceUnknown"))
+        assertTrue(tracker.contains("RPC_EMPTY_MAP_MINT_ABSENT"))
+        assertTrue(tracker.contains("REAP_SKIPPED_BALANCE_UNKNOWN"))
+        assertTrue(tracker.contains("REAP_SKIPPED_LAST_POSITIVE_HELD"))
+        assertTrue(tracker.contains("OPEN_SELL_FAILED_NO_SIGNATURE_RETRYING"))
+        assertTrue(tracker.contains("OPEN_BALANCE_UNKNOWN_RECOVERY_REQUIRED"))
+        assertTrue(tracker.contains("hasLastPositiveRaw(p)"))
+        assertTrue(tracker.contains("isOpenForAccounting"))
+        assertTrue(tracker.contains("p.zeroBalanceConfirmedByTwoProviders"))
+        assertFalse("ghost reaper must not emit the old unverified close marker", tracker.contains("GHOST_REAPED zero-balance open row → CLOSED"))
+        assertFalse("startup reconcile must not close live rows from a bare wallet=0", tracker.contains("STARTUP_GHOST_RECONCILE wallet=0 → CLOSED"))
+
+        assertTrue(ledger.contains("POSITION_CLOSE_LEDGER_REJECTED"))
+        assertTrue(ledger.contains("RPC_EMPTY_MAP"))
+        assertTrue(ledger.contains("NO_SIGNATURE_UNLOCKED"))
+        assertTrue(ledger.contains("STARTUP_GHOST_RECONCILE"))
+        assertTrue(ledger.contains("GHOST_REAP_ZERO_BALANCE"))
+
+        assertTrue(service.contains("confirmZeroBalanceClose"))
+        assertTrue(service.contains("REAP_CLOSED_CONFIRMED_ZERO"))
+        assertTrue(service.contains("REAP_SKIPPED_BALANCE_UNKNOWN"))
+        assertFalse("poller must not close no-broadcast zero directly", service.contains("ZERO_BALANCE_CLOSED_NO_BROADCAST"))
+
+        assertTrue(exec.contains("OPEN_SELL_FAILED_NO_SIGNATURE_RETRYING"))
+        assertFalse("new runtime must not emit the old no-signature finality marker", exec.contains("\"SELL_ROUTE_FAILED_NO_SIGNATURE_UNLOCKED\""))
     }
 
 }

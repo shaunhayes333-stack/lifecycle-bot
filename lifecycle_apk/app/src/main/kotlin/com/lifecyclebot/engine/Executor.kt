@@ -6810,28 +6810,6 @@ class Executor(
                 return
             }
         }
-        run {
-            val commonSense = LiveCommonSenseGate.evaluate(
-                ts = ts,
-                lane = ts.position.tradingMode.ifBlank { "TOP_UP" },
-            )
-            if (!commonSense.allowed) {
-                onLog("🧯 LIVE TOP-UP BLOCKED COMMON_SENSE [${ts.symbol}]: ${commonSense.reasonCode} ${commonSense.detail.take(120)}", ts.mint)
-                try {
-                    ForensicLogger.exec(
-                        "LIVE_TOP_UP_BLOCKED_COMMON_SENSE",
-                        ts.symbol,
-                        "mint=${ts.mint.take(10)} reason=${commonSense.reasonCode} detail=${commonSense.detail.take(160)}"
-                    )
-                    ForensicLogger.lifecycle(
-                        "EXEC_OPEN_ABORT_TERMINAL",
-                        "mint=${ts.mint.take(10)} symbol=${ts.symbol} stage=LiveCommonSenseGate.topUp reason=${commonSense.reasonCode} detail=${commonSense.detail.take(160)}"
-                    )
-                } catch (_: Throwable) {}
-                return
-            }
-        }
-
         // V5.9.777 — EMERGENT MEME-ONLY: EXEC_LIVE_ATTEMPT counter wiring on
         // the second live-buy entrypoint (top-ups). Without this the operator
         // sees EXEC=0 even though tryPumpPortalBuy lands a real tx.
@@ -8568,32 +8546,6 @@ class Executor(
             return false
         }
 
-        // V5.0.3748 — universal LIVE common-sense gate. This is intentionally
-        // before EXEC_LIVE_ATTEMPT so terminal garbage does not count as a real
-        // execution attempt. Paper still learns; live refuses obvious rugs / no-chart
-        // unknowns / exit-dominant setups.
-        val commonSense = LiveCommonSenseGate.evaluate(
-            ts = ts,
-            lane = layerTag.ifBlank { ts.position.tradingMode.ifBlank { identity?.source ?: "UNKNOWN" } },
-        )
-        if (!commonSense.allowed) {
-            ErrorLogger.warn("Executor", "🧯 LIVE_BUY_BLOCKED_COMMON_SENSE: ${ts.symbol} | ${commonSense.reasonCode} | ${commonSense.detail}")
-            try {
-                ForensicLogger.exec(
-                    "LIVE_BUY_BLOCKED_COMMON_SENSE",
-                    ts.symbol,
-                    "mint=${ts.mint.take(10)} reason=${commonSense.reasonCode} detail=${commonSense.detail.take(160)}"
-                )
-                ForensicLogger.lifecycle(
-                    "EXEC_OPEN_ABORT_TERMINAL",
-                    "mint=${ts.mint.take(10)} symbol=${ts.symbol} stage=LiveCommonSenseGate reason=${commonSense.reasonCode} detail=${commonSense.detail.take(160)}"
-                )
-                com.lifecyclebot.engine.PipelineHealthCollector.labelInc("LIVE_BUY_BLOCKED_COMMON_SENSE_${commonSense.reasonCode}")
-            } catch (_: Throwable) {}
-            emitLiveBuyFail(ts, sol, "COMMON_SENSE_${commonSense.reasonCode}", commonSense.detail)
-            return false
-        }
-
         // V5.9.1586 — canonical live attempt boundary restored to 3501 semantics.
         // Entering liveBuy() with a valid live route is an EXEC attempt. Downstream
         // finality/admission/break-even may fail, but they must not hide that the
@@ -10087,7 +10039,7 @@ class Executor(
         // V5.0.3746 — operator spec items 1, 5, 6: explicit proof-wait outcome.
         // Distinct from FAILED_RETRYABLE so the wrapper does NOT call
         // PendingSellQueue.add() (which would emit SELL_RETRY_TEMPORARY_ONLY)
-        // and does NOT emit SELL_ROUTE_FAILED_NO_SIGNATURE_UNLOCKED. The mint
+        // and does NOT emit OPEN_SELL_FAILED_NO_SIGNATURE_RETRYING. The mint
         // is owned by BalanceProofPoller until proof arrives or zero confirmed.
         WAITING_BALANCE_PROOF,
     }
@@ -10867,7 +10819,7 @@ class Executor(
                 onLog("🔄 Sell auto-queued for retry: ${ts.symbol} | reason=$reason", tradeId.mint)
                 ErrorLogger.warn("Executor", "🔄 SELL REQUEUED: ${ts.symbol} — will retry when wallet/RPC recovers")
                 // V5.0.3743 — RegressionTest guard: emit the canonical
-                // SELL_ROUTE_FAILED_NO_SIGNATURE_UNLOCKED forensic so the
+                // OPEN_SELL_FAILED_NO_SIGNATURE_RETRYING forensic so the
                 // GoldenTape live_sell_balance_authority_rejects_generic_txparse_and_false_closed
                 // assertion passes and downstream tooling can count
                 // signature-less sell-route failures distinctly from
@@ -10875,8 +10827,8 @@ class Executor(
                 // surrounding finally; this line is purely the forensic.
                 try {
                     ForensicLogger.lifecycle(
-                        "SELL_ROUTE_FAILED_NO_SIGNATURE_UNLOCKED",
-                        "mint=${ts.mint.take(12)} symbol=${ts.symbol} reason=$reason"
+                        "OPEN_SELL_FAILED_NO_SIGNATURE_RETRYING",
+                        "mint=${ts.mint.take(12)} symbol=${ts.symbol} reason=$reason no_close=true"
                     )
                     com.lifecyclebot.engine.sell.SellForensics.inc(
                         com.lifecyclebot.engine.sell.SellForensics.EXEC_LIVE_SELL_ROUTE_FAILED_NO_SIGNATURE,
@@ -10887,7 +10839,7 @@ class Executor(
             // V5.0.3746 — operator spec items 1, 5, 6: WAITING_BALANCE_PROOF is a
             // proof wait, NEVER an active sell. Skip PendingSellQueue.add (no
             // SELL_RETRY_TEMPORARY_ONLY emission) and skip
-            // SELL_ROUTE_FAILED_NO_SIGNATURE_UNLOCKED (no route was actually
+            // OPEN_SELL_FAILED_NO_SIGNATURE_RETRYING (no route was actually
             // attempted). The BalanceProofPoller takes over from here.
             if (result == SellResult.WAITING_BALANCE_PROOF) {
                 onLog("⏸️ SELL WAITING BALANCE PROOF: ${ts.symbol} — owned by BalanceProofPoller, no requeue/no blocking lease.", tradeId.mint)
@@ -12684,7 +12636,7 @@ class Executor(
                     // emit SELL_RETRY_TEMPORARY_ONLY, MUST NOT acquire/blocking
                     // lease, MUST NOT enqueue ACTIVE_SELL_READY. The wrapper at
                     // requestSell() recognises WAITING_BALANCE_PROOF and skips
-                    // PendingSellQueue.add + SELL_ROUTE_FAILED_NO_SIGNATURE_UNLOCKED.
+                    // PendingSellQueue.add + OPEN_SELL_FAILED_NO_SIGNATURE_RETRYING.
                     try {
                         com.lifecyclebot.engine.sell.BalanceProofWaitState.markWaiting(
                             ts.mint, ts.symbol, reason,

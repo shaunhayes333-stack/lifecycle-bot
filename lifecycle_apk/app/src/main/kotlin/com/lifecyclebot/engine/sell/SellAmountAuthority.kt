@@ -108,11 +108,16 @@ object SellAmountAuthority {
         }
         val entry = balances[mint]
         if (entry == null) {
-            // mint NOT in the map AND map is non-empty → genuine zero.
-            return Resolution.Zero(Source.TOKEN_ACCOUNTS_BY_OWNER)
+            // V5.0.3749 — one provider missing the mint is UNKNOWN, not zero.
+            // Zero finality requires the tracker/reconciler independent-proof path.
+            ErrorLogger.warn(TAG, "BALANCE_UNKNOWN reason=MINT_ABSENT_FROM_ONE_PROVIDER mint=${mint.take(8)}…")
+            return Resolution.Unknown
         }
         val (uiAmount, decimals) = entry
-        if (uiAmount <= 0.0) return Resolution.Zero(Source.TOKEN_ACCOUNTS_BY_OWNER)
+        if (uiAmount <= 0.0) {
+            ErrorLogger.warn(TAG, "BALANCE_UNKNOWN reason=ONE_PROVIDER_ZERO mint=${mint.take(8)}…")
+            return Resolution.Unknown
+        }
         val raw = if (decimals > 0)
             BigDecimal(uiAmount).movePointRight(decimals).toBigInteger()
         else
@@ -194,18 +199,21 @@ object SellAmountAuthority {
     }
 
     /**
-     * Resolve balance for a concrete exit reason. Normal resolve() remains strict
-     * (90s TX_PARSE only). For emergency/profit-protect exits, if RPC returned
-     * UNKNOWN/empty, reuse buy-verified TX_PARSE for up to 10m so exits can actually
-     * broadcast during Solana account-indexing lag. Confirmed ZERO is never bypassed.
+     * Resolve balance for a concrete exit reason. UNKNOWN stays UNKNOWN unless
+     * HostWalletTokenTracker has a persisted lastPositiveRaw from a confirmed buy
+     * or wallet proof. One-provider missing/zero is never sell finality.
      */
     fun resolveForExit(mint: String, wallet: SolanaWallet?, reason: String): Resolution {
         val normal = resolve(mint, wallet)
         if (normal is Resolution.Confirmed || normal is Resolution.Zero) return normal
-        val maxAge = when {
-            isEmergencyExitReason(reason) -> EMERGENCY_TX_PARSE_MS
-            isProfitProtectExitReason(reason) -> PROFIT_PROTECT_TX_PARSE_MS
-            else -> return normal
+        val tracked = try { com.lifecyclebot.engine.HostWalletTokenTracker.getEntry(mint) } catch (_: Throwable) { null }
+        val trackedRaw = tracked?.rawAmount?.trim()?.takeIf { it.isNotBlank() }?.let { raw ->
+            runCatching { BigInteger(raw) }.getOrNull()
+        }
+        if (trackedRaw != null && trackedRaw.signum() > 0) {
+            ErrorLogger.warn(TAG,
+                "🟡 BALANCE_UNKNOWN using lastPositiveRaw recovery amount mint=${mint.take(8)}… raw=$trackedRaw status=${tracked.status}")
+            return Resolution.Confirmed(trackedRaw, tracked.decimals, Source.TX_META_OWNER_DELTA)
         }
         return normal
     }

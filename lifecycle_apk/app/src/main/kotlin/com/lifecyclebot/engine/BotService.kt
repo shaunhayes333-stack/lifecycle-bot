@@ -919,33 +919,29 @@ class BotService : Service() {
                 },
                 onZeroConfirmed = { mint, symbol, reason ->
                     try {
-                        // Two consecutive zero reads from the owner-filtered RPC
-                        // map ⇒ wallet truly has no balance. Close without
-                        // broadcast; mirror the SellReconciler onZeroClose flow.
-                        val lanesToRelease = listOf(
-                            "SHITCOIN", "MOONSHOT", "BLUECHIP", "QUALITY",
-                            "TREASURY", "MANIPULATED", "DIP_HUNTER", "PROJECT_SNIPER",
-                            "EXPRESS", "CORE",
-                        )
-                        for (ln in lanesToRelease) {
-                            try {
-                                com.lifecyclebot.engine.LaneExecutionCoordinator.releaseIfPrimary(
-                                    mint, ln, "ZERO_BALANCE_PROOF_CONFIRMED",
-                                )
-                            } catch (_: Throwable) {}
+                        // V5.0.3749 — zero proof may close only through the tracker
+                        // finality state machine. Do not release lanes / stamp close
+                        // just because the poller saw a zero-like state.
+                        val closed = try {
+                            com.lifecyclebot.engine.HostWalletTokenTracker.confirmZeroBalanceClose(
+                                mint = mint,
+                                hasConfirmedSellSig = false,
+                                reason = "CONFIRMED_ZERO_FINALITY_$reason",
+                            )
+                        } catch (_: Throwable) { null }
+                        if (closed != null) {
+                            val lanesToRelease = listOf(
+                                "SHITCOIN", "MOONSHOT", "BLUECHIP", "QUALITY",
+                                "TREASURY", "MANIPULATED", "DIP_HUNTER", "PROJECT_SNIPER",
+                                "EXPRESS", "CORE",
+                            )
+                            for (ln in lanesToRelease) {
+                                try { com.lifecyclebot.engine.LaneExecutionCoordinator.releaseIfPrimary(mint, ln, "CLOSED_BY_CONFIRMED_ZERO") } catch (_: Throwable) {}
+                            }
+                            try { ForensicLogger.lifecycle("REAP_CLOSED_CONFIRMED_ZERO", "mint=${mint.take(10)} symbol=$symbol reason=$reason") } catch (_: Throwable) {}
+                        } else {
+                            try { ForensicLogger.lifecycle("REAP_SKIPPED_BALANCE_UNKNOWN", "mint=${mint.take(10)} symbol=$symbol reason=$reason no_independent_zero_finality_or_last_positive") } catch (_: Throwable) {}
                         }
-                        // Mark the host tracker CLOSED (no signature; wallet empty).
-                        try {
-                            com.lifecyclebot.engine.HostWalletTokenTracker.markSellNoSignatureUnlocked(
-                                mint, symbol, "ZERO_BALANCE_CONFIRMED",
-                            )
-                        } catch (_: Throwable) {}
-                        try {
-                            ForensicLogger.lifecycle(
-                                "ZERO_BALANCE_CLOSED_NO_BROADCAST",
-                                "mint=${mint.take(10)} symbol=$symbol reason=$reason",
-                            )
-                        } catch (_: Throwable) {}
                     } catch (e: Throwable) {
                         ErrorLogger.warn("BotService", "onZeroConfirmed error: ${e.message?.take(80)}")
                     }
