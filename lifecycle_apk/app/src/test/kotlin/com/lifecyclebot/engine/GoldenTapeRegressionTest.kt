@@ -603,7 +603,10 @@ class GoldenTapeRegressionTest {
         assertTrue(bot.contains("nonMemeSpecialist && affinity.contains(l)"))
         assertFalse("MEME-only must not blanket-mute all non-meme specialist lanes", bot.contains("return memeFamily"))
         assertFalse("toolkit alive must not mean all meme-family siblings execute", bot.contains("if (memeFamily) return true"))
-        assertTrue("External trader isolation authority must remain intact", bot.contains("setOf(com.lifecyclebot.engine.EnabledTraderAuthority.Trader.MEME)"))
+        assertTrue("External trader isolation authority must keep MEME as the lane root", bot.contains("mutableSetOf(com.lifecyclebot.engine.EnabledTraderAuthority.Trader.MEME)"))
+        assertTrue("Crypto sidecar may be explicitly enabled without reopening meme fanout", bot.contains("if (cryptoSidecarOn) add(com.lifecyclebot.engine.EnabledTraderAuthority.Trader.CRYPTO_ALT)"))
+        val auth = java.io.File("src/main/kotlin/com/lifecyclebot/engine/EnabledTraderAuthority.kt").readText()
+        assertTrue("CRYPTO_ALT must be ignored by meme-lane isolation predicate", auth.contains("val laneSet = set - Trader.CRYPTO_ALT"))
     }
 
 
