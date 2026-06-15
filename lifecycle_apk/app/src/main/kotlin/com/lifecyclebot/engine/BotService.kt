@@ -890,6 +890,70 @@ class BotService : Service() {
             BotRuntimeController.markSellReconcilerStarted(runtimeGeneration, false)
             ErrorLogger.warn("BotService", "SellReconciler start failed: ${e.message}")
         }
+
+        // V5.0.3746 — BALANCE PROOF POLLER (operator spec items 2 + 5 + 10).
+        // Non-blocking per-mint poller that owns mints in WAITING_BALANCE_PROOF.
+        // Lives only in LIVE mode (paper has no on-chain balance to resolve).
+        try {
+            com.lifecyclebot.engine.sell.BalanceProofPoller.start(
+                scope = scope,
+                isPaperMode = cfg.paperMode,
+                hostWallet = wallet,
+                onProofReady = { mint, symbol, reason ->
+                    try {
+                        // Verified raw amount now exists in SellAmountAuthority's
+                        // RPC resolution. Push back into PendingSellQueue as an
+                        // ACTIVE retry; BotService's pending-sell processor will
+                        // invoke executor.requestSell which acquires a fresh
+                        // CloseLease and broadcasts under the verified amount.
+                        com.lifecyclebot.engine.PendingSellQueue.add(mint, symbol, reason)
+                        try {
+                            ForensicLogger.lifecycle(
+                                "BALANCE_PROOF_ENQUEUED_ACTIVE_SELL",
+                                "mint=${mint.take(10)} symbol=$symbol reason=$reason",
+                            )
+                        } catch (_: Throwable) {}
+                    } catch (e: Throwable) {
+                        ErrorLogger.warn("BotService", "onProofReady error: ${e.message?.take(80)}")
+                    }
+                },
+                onZeroConfirmed = { mint, symbol, reason ->
+                    try {
+                        // Two consecutive zero reads from the owner-filtered RPC
+                        // map ⇒ wallet truly has no balance. Close without
+                        // broadcast; mirror the SellReconciler onZeroClose flow.
+                        val lanesToRelease = listOf(
+                            "SHITCOIN", "MOONSHOT", "BLUECHIP", "QUALITY",
+                            "TREASURY", "MANIPULATED", "DIP_HUNTER", "PROJECT_SNIPER",
+                            "EXPRESS", "CORE",
+                        )
+                        for (ln in lanesToRelease) {
+                            try {
+                                com.lifecyclebot.engine.LaneExecutionCoordinator.releaseIfPrimary(
+                                    mint, ln, "ZERO_BALANCE_PROOF_CONFIRMED",
+                                )
+                            } catch (_: Throwable) {}
+                        }
+                        // Mark the host tracker CLOSED (no signature; wallet empty).
+                        try {
+                            com.lifecyclebot.engine.HostWalletTokenTracker.markSellNoSignatureUnlocked(
+                                mint, symbol, "ZERO_BALANCE_CONFIRMED",
+                            )
+                        } catch (_: Throwable) {}
+                        try {
+                            ForensicLogger.lifecycle(
+                                "ZERO_BALANCE_CLOSED_NO_BROADCAST",
+                                "mint=${mint.take(10)} symbol=$symbol reason=$reason",
+                            )
+                        } catch (_: Throwable) {}
+                    } catch (e: Throwable) {
+                        ErrorLogger.warn("BotService", "onZeroConfirmed error: ${e.message?.take(80)}")
+                    }
+                },
+            )
+        } catch (e: Throwable) {
+            ErrorLogger.warn("BotService", "BalanceProofPoller start failed: ${e.message}")
+        }
     }
 
     // V5.9.1522 — P0 WATCHDOG. Called every botLoop cycle. Guarantees the sell

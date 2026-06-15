@@ -70,17 +70,47 @@ object InvariantGuardian {
             val closeActive = try { com.lifecyclebot.engine.sell.CloseLease.activeLeaseCount().toLong() } catch (_: Throwable) { 0L }
             val closeBlocking = try { com.lifecyclebot.engine.sell.CloseLease.activeBlockingLeaseCount().toLong() } catch (_: Throwable) { 0L }
             val falseClosed = try { HostWalletTokenTracker.countFalseTxParseClosedRows().toLong() } catch (_: Throwable) { 0L }
-            if (noSig > 0L || slip > 0L || falseClosed > 0L || (closeBlocking > 0L && noSig > 0L)) {
+            // V5.0.3746 — operator spec items 9 + 11: explicit subfault detection
+            // for BALANCE_UNKNOWN_REQUEUE_LOOP and CLOSE_LEASE_LEAK_AFTER_NO_SIGNATURE.
+            val waitingProof = pipe?.labelCounts?.get("LIFECYCLE/SELL_WAITING_BALANCE_PROOF") ?: 0L
+            val retryTempOnly = pipe?.labelCounts?.get("LIFECYCLE/SELL_RETRY_TEMPORARY_ONLY") ?: 0L
+            val execLiveSellOk = pipe?.labelCounts?.get("LIFECYCLE/EXEC_LIVE_SELL_FINALIZED") ?: 0L
+            val dupSuppressed = try { com.lifecyclebot.engine.sell.CloseLease.duplicateCloseAttemptsSuppressed } catch (_: Throwable) { 0L }
+            val waitStateSize = try { com.lifecyclebot.engine.sell.BalanceProofWaitState.size().toLong() } catch (_: Throwable) { 0L }
+            // Subfault A — proof-waits leaking into the active retry queue.
+            val balanceUnknownRequeueLoop =
+                waitingProof > 0L && retryTempOnly > 0L && closeBlocking > 0L &&
+                execLiveSellOk == 0L && noSig > 0L
+            // Subfault B — leases held after a no-signature route failure.
+            val closeLeaseLeakAfterNoSignature =
+                noSig > 0L && closeBlocking > 0L
+            if (noSig > 0L || slip > 0L || falseClosed > 0L || (closeBlocking > 0L && noSig > 0L) ||
+                balanceUnknownRequeueLoop || closeLeaseLeakAfterNoSignature) {
+                val subfaults = buildList {
+                    if (balanceUnknownRequeueLoop) add("BALANCE_UNKNOWN_REQUEUE_LOOP")
+                    if (closeLeaseLeakAfterNoSignature) add("CLOSE_LEASE_LEAK_AFTER_NO_SIGNATURE")
+                }.joinToString(",")
                 out += Fault(
                     FaultCode.LIVE_SELL_NO_FINALITY,
                     "CRITICAL",
-                    "live sell finality missing/corrupt: noSig=$noSig slippageOr1788=$slip close_lease_active=$closeActive close_lease_blocking=$closeBlocking falseTxParseClosed=$falseClosed",
+                    "live sell finality missing/corrupt: noSig=$noSig slippageOr1788=$slip " +
+                        "close_lease_active=$closeActive close_lease_blocking=$closeBlocking " +
+                        "falseTxParseClosed=$falseClosed waitingBalanceProof=$waitingProof " +
+                        "retryTempOnly=$retryTempOnly execLiveSellOk=$execLiveSellOk " +
+                        "dupSuppressed=$dupSuppressed waitStateSize=$waitStateSize " +
+                        if (subfaults.isNotBlank()) "subfault=$subfaults" else "",
                     mapOf(
                         "balance_authority" to "owner_rpc_or_owner_delta_only",
                         "amount_source" to "BalanceProof",
                         "close_lease_active" to closeActive.toString(),
                         "close_lease_blocking" to closeBlocking.toString(),
                         "tx_parse_false_closed" to falseClosed.toString(),
+                        "waiting_balance_proof" to waitingProof.toString(),
+                        "sell_retry_temporary_only" to retryTempOnly.toString(),
+                        "exec_live_sell_finalized" to execLiveSellOk.toString(),
+                        "sell_duplicate_suppressed" to dupSuppressed.toString(),
+                        "wait_state_size" to waitStateSize.toString(),
+                        "subfaults" to subfaults,
                     )
                 )
             }

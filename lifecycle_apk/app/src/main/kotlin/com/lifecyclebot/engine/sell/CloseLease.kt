@@ -94,6 +94,21 @@ object CloseLease {
 
     fun acquire(mint: String, symbol: String, rawReason: String): Lease? {
         if (mint.isBlank()) return null
+        // V5.0.3746 — operator spec items 1, 4, 7: WAITING_BALANCE_PROOF must never
+        // hold a close lease, and a NEW close lease must NEVER be acquired while
+        // the mint is in proof-wait. The poller is the only worker permitted to
+        // act until proof arrives or zero is confirmed (ZERO_BALANCE_CONFIRMED).
+        if (BalanceProofWaitState.isWaiting(mint)) {
+            // Idempotent merge: raise the exit-reason priority on the wait, but
+            // do not spawn a second worker / lease / suppressed-duplicate metric.
+            BalanceProofWaitState.markWaiting(mint, symbol, rawReason)
+            try {
+                ForensicLogger.lifecycle("SELL_LEASE_DEFERRED_PROOF_WAIT",
+                    "mint=${mint.take(10)} symbol=$symbol reason=$rawReason " +
+                    "action=no_lease_no_duplicate_suppressed (poller owns this mint)")
+            } catch (_: Throwable) {}
+            return null
+        }
         val existing = current(mint)
         val now = System.currentTimeMillis()
         if (existing != null) {

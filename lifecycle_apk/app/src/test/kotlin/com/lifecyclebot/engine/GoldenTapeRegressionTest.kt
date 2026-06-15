@@ -1022,4 +1022,67 @@ class GoldenTapeRegressionTest {
         assertTrue(exec.contains("ProcessorAmountPlanner.planSellFromConfirmed"))
     }
 
+
+    @Test
+    fun balance_unknown_does_not_requeue_or_hold_blocking_lease() {
+        // V5.0.3746 — operator spec items 1, 4, 5, 7, 9, 11.
+        // BALANCE_UNKNOWN must hand the mint to BalanceProofPoller via the
+        // WAITING_BALANCE_PROOF state — it MUST NOT enter PendingSellQueue
+        // (which emits SELL_RETRY_TEMPORARY_ONLY) and MUST NOT re-acquire a
+        // close lease on the next exit tick.
+        val waitState = java.io.File("src/main/kotlin/com/lifecyclebot/engine/sell/BalanceProofWaitState.kt").readText()
+        val poller    = java.io.File("src/main/kotlin/com/lifecyclebot/engine/sell/BalanceProofPoller.kt").readText()
+        val exec      = java.io.File("src/main/kotlin/com/lifecyclebot/engine/Executor.kt").readText()
+        val lease     = java.io.File("src/main/kotlin/com/lifecyclebot/engine/sell/CloseLease.kt").readText()
+        val service   = java.io.File("src/main/kotlin/com/lifecyclebot/engine/BotService.kt").readText()
+        val forensics = java.io.File("src/main/kotlin/com/lifecyclebot/engine/sell/SellForensics.kt").readText()
+        val doctor    = java.io.File("src/main/kotlin/com/lifecyclebot/engine/InvariantGuardian.kt").readText()
+
+        // The wait registry exists and exposes the required surface.
+        assertTrue(waitState.contains("object BalanceProofWaitState"))
+        assertTrue(waitState.contains("fun markWaiting"))
+        assertTrue(waitState.contains("fun isWaiting"))
+        assertTrue(waitState.contains("fun scheduleNextPoll"))
+        assertTrue(waitState.contains("fun recordZeroRead"))
+        assertTrue(waitState.contains("BALANCE_WAIT_MERGE"))
+
+        // The poller is wired and uses the SellAmountAuthority + waitState pipeline.
+        assertTrue(poller.contains("object BalanceProofPoller"))
+        assertTrue(poller.contains("SellAmountAuthority.resolve"))
+        assertTrue(poller.contains("BALANCE_PROOF_READY"))
+        assertTrue(poller.contains("ZERO_BALANCE_CONFIRMED"))
+        assertTrue(poller.contains("BalanceProofWaitState.clear"))
+
+        // Forensic counter constants exist.
+        assertTrue(forensics.contains("SELL_WAITING_BALANCE_PROOF"))
+        assertTrue(forensics.contains("BALANCE_PROOF_POLL_SCHEDULED"))
+        assertTrue(forensics.contains("BALANCE_PROOF_STILL_UNKNOWN"))
+        assertTrue(forensics.contains("BALANCE_PROOF_READY"))
+        assertTrue(forensics.contains("ZERO_BALANCE_CONFIRMED"))
+        assertTrue(forensics.contains("EXEC_LIVE_SELL_WAITING_BALANCE_PROOF"))
+        assertTrue(forensics.contains("EXEC_LIVE_SELL_FINALIZED"))
+        assertTrue(forensics.contains("EXEC_LIVE_SELL_ROUTE_FAILED_NO_SIGNATURE"))
+
+        // SellResult.WAITING_BALANCE_PROOF must exist and be handled.
+        assertTrue(exec.contains("WAITING_BALANCE_PROOF,"))
+        assertTrue(exec.contains("SellResult.WAITING_BALANCE_PROOF ->"))
+        // requestSell short-circuits on the wait state, no lease re-acquired.
+        assertTrue(exec.contains("BalanceProofWaitState.isWaiting(ts.mint)"))
+        assertTrue(exec.contains("return SellResult.WAITING_BALANCE_PROOF"))
+
+        // CloseLease.acquire must short-circuit when the mint is in proof wait.
+        assertTrue(lease.contains("BalanceProofWaitState.isWaiting(mint)"))
+        assertTrue(lease.contains("SELL_LEASE_DEFERRED_PROOF_WAIT"))
+
+        // BotService wires the poller with both proof-ready and zero-confirmed callbacks.
+        assertTrue(service.contains("BalanceProofPoller.start"))
+        assertTrue(service.contains("onProofReady"))
+        assertTrue(service.contains("onZeroConfirmed"))
+
+        // Doctor knows about both subfaults.
+        assertTrue(doctor.contains("BALANCE_UNKNOWN_REQUEUE_LOOP"))
+        assertTrue(doctor.contains("CLOSE_LEASE_LEAK_AFTER_NO_SIGNATURE"))
+        assertTrue(doctor.contains("waitingBalanceProof"))
+    }
+
 }

@@ -6,6 +6,47 @@ NO local compiler. Multi-lane architecture (Memes [9 sub-lanes], Crypto/Alts,
 Stocks, Markets, Tokenized Stocks, Forex, Metals, Commodities). Foreground
 Service with a 50+ AI-module pipeline gated through processTokenCycle.
 
+## V5.0.3746 (Feb 2026) — BALANCE_UNKNOWN REQUEUE LOOP / CLOSE LEASE LEAK FIX
+
+**Operator dump V5.0.3744:** `EXEC_LIVE_SELL_OK=0`, `noSig=220`,
+`close_lease_active=2`, `SELL_WAITING_BALANCE_PROOF=110`,
+`SELL_RETRY_TEMPORARY_ONLY=110`, `SELL_DUPLICATE_SUPPRESSED=192`.
+Live sells dead: RPC empty-map / BALANCE_UNKNOWN was being treated as an
+active retry, requeued via PendingSellQueue, and ExitCoordinator kept
+re-acquiring close leases creating an infinite loop.
+
+**Structural fix — separate "waiting for proof" from "active sell":**
+
+1. **NEW `BalanceProofWaitState`** — per-mint registry of mints in proof wait.
+   Idempotent `markWaiting()`; subsequent calls merge exit-reason priority
+   without spawning another worker (no duplicate-suppressed metric).
+2. **NEW `BalanceProofPoller`** — non-blocking 2s coroutine that resolves
+   balance via `SellAmountAuthority.resolve()`. On `Confirmed` →
+   `BALANCE_PROOF_READY` re-enqueues an active sell with verified amount.
+   Two consecutive `Resolution.Zero` reads → `ZERO_BALANCE_CONFIRMED` closes
+   the position without broadcasting.
+3. **NEW `SellResult.WAITING_BALANCE_PROOF`** — distinct from
+   `FAILED_RETRYABLE`. The wrapper skips `PendingSellQueue.add` and skips
+   `SELL_ROUTE_FAILED_NO_SIGNATURE_UNLOCKED`. Lease is released.
+4. **`requestSell` short-circuit** — if `BalanceProofWaitState.isWaiting(mint)`,
+   merge intent and return `WAITING_BALANCE_PROOF`. No lease acquired.
+5. **`CloseLease.acquire` short-circuit** — returns `null` and emits
+   `SELL_LEASE_DEFERRED_PROOF_WAIT` while a mint is in proof wait.
+6. **InvariantGuardian subfaults** — `BALANCE_UNKNOWN_REQUEUE_LOOP` and
+   `CLOSE_LEASE_LEAK_AFTER_NO_SIGNATURE` are now reported as subfault
+   strings under `LIVE_SELL_NO_FINALITY` with full counter evidence.
+7. **New forensic counters**: `SELL_WAITING_BALANCE_PROOF`,
+   `BALANCE_PROOF_POLL_SCHEDULED`, `BALANCE_PROOF_STILL_UNKNOWN`,
+   `BALANCE_PROOF_READY`, `ZERO_BALANCE_CONFIRMED`, `BALANCE_WAIT_MERGE`,
+   `EXEC_LIVE_SELL_*` (waiting/route-started/route-failed/finalized/zero/terminal).
+
+**Acceptance**: BALANCE_UNKNOWN no longer holds a close lease, no longer
+emits SELL_RETRY_TEMPORARY_ONLY, no longer creates SELL_DUPLICATE_SUPPRESSED
+churn. Two-provider zero closes verified without broadcast. GoldenTape:
+`balance_unknown_does_not_requeue_or_hold_blocking_lease`.
+
+
+
 ## V5.9.1455 (Feb 2026) — TICK-TIME HARD-FLOOR + PROFIT-LOCK (real-money slippage fix) — CI ✅ compile green
 
 **Operator dump V5.9.1454:** -15% HARD_FLOOR filled at -29.4% on a real-money

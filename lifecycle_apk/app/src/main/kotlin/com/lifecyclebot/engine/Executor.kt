@@ -3777,6 +3777,15 @@ class Executor(
                 try { ForensicLogger.lifecycle("SELL_WAITING_BALANCE_PROOF", "mint=${ts.mint.take(10)} symbol=${ts.symbol} reason=$reason") } catch (_: Throwable) {}
                 try { com.lifecyclebot.engine.sell.CloseLease.release(ts.mint, "BALANCE_UNKNOWN_NO_SIGNATURE") } catch (_: Throwable) {}
                 try { HostWalletTokenTracker.markSellNoSignatureUnlocked(ts.mint, ts.symbol, "BALANCE_UNKNOWN") } catch (_: Throwable) {}
+                // V5.0.3746 — profit-lock BALANCE_UNKNOWN must also hand off to
+                // BalanceProofPoller so the next tick does NOT re-acquire a
+                // close lease (operator spec items 1, 4, 7).
+                try {
+                    com.lifecyclebot.engine.sell.BalanceProofWaitState.markWaiting(
+                        ts.mint, ts.symbol, "PROFIT_LOCK_BALANCE_UNKNOWN",
+                        runtimeGeneration = try { BotRuntimeController.currentGeneration() } catch (_: Throwable) { 0L },
+                    )
+                } catch (_: Throwable) {}
                 return
             }
         }
@@ -3805,6 +3814,14 @@ class Executor(
                 onLog("⏸️ SELL_WAITING_BALANCE_PROOF: ${ts.symbol} balance not on-chain confirmed (src=$liveBalanceSource) — no broadcast, no blocking lease.", ts.mint)
                 try { com.lifecyclebot.engine.sell.CloseLease.release(ts.mint, "BALANCE_UNKNOWN_NO_SIGNATURE") } catch (_: Throwable) {}
                 try { HostWalletTokenTracker.markSellNoSignatureUnlocked(ts.mint, ts.symbol, "BALANCE_UNKNOWN") } catch (_: Throwable) {}
+                // V5.0.3746 — profit-lock balance-not-on-chain-confirmed must hand
+                // off to BalanceProofPoller (operator spec items 1, 4, 7).
+                try {
+                    com.lifecyclebot.engine.sell.BalanceProofWaitState.markWaiting(
+                        ts.mint, ts.symbol, "PROFIT_LOCK_BROADCAST_BLOCKED",
+                        runtimeGeneration = try { BotRuntimeController.currentGeneration() } catch (_: Throwable) { 0L },
+                    )
+                } catch (_: Throwable) {}
                 return
             }
         }
@@ -10020,11 +10037,31 @@ class Executor(
         PAPER_CONFIRMED,
         ALREADY_CLOSED,
         NO_WALLET,
+        // V5.0.3746 — operator spec items 1, 5, 6: explicit proof-wait outcome.
+        // Distinct from FAILED_RETRYABLE so the wrapper does NOT call
+        // PendingSellQueue.add() (which would emit SELL_RETRY_TEMPORARY_ONLY)
+        // and does NOT emit SELL_ROUTE_FAILED_NO_SIGNATURE_UNLOCKED. The mint
+        // is owned by BalanceProofPoller until proof arrives or zero confirmed.
+        WAITING_BALANCE_PROOF,
     }
     
     fun requestSell(ts: TokenState, reason: String, wallet: SolanaWallet?, walletSol: Double): SellResult {
         // V5.9.1411 — Settle-in and duplicate-suppress guards moved into doSell()
         // so that direct doSell() calls from riskCheck/UltraFastRugDetector are caught too.
+
+        // V5.0.3746 — operator spec items 1, 4, 7: WAITING_BALANCE_PROOF short-circuit.
+        // If the mint is already in proof-wait, ExitCoordinator / Universal exit /
+        // strict-SL MUST NOT spawn another sell worker. We merge the desired exit
+        // reason (highest priority wins) and return WAITING_BALANCE_PROOF — NO lease,
+        // NO PendingSellQueue ACTIVE_SELL_READY job, NO duplicate-suppressed metric.
+        val isLivePositionEarly = !ts.position.isPaperPosition
+        if (isLivePositionEarly && com.lifecyclebot.engine.sell.BalanceProofWaitState.isWaiting(ts.mint)) {
+            com.lifecyclebot.engine.sell.BalanceProofWaitState.markWaiting(
+                ts.mint, ts.symbol ?: "?", reason,
+                runtimeGeneration = try { BotRuntimeController.currentGeneration() } catch (_: Throwable) { 0L },
+            )
+            return SellResult.WAITING_BALANCE_PROOF
+        }
 
         // V5.9.495z28 (operator spec items 1+3): mark the lifecycle record
         // as SELL_PENDING the moment any sell is requested. The downstream
@@ -10078,6 +10115,12 @@ class Executor(
                     // so a reconnect can re-acquire cleanly rather than starving.
                     SellResult.NO_WALLET ->
                         com.lifecyclebot.engine.sell.CloseLease.release(ts.mint, r.name)
+                    // V5.0.3746 — WAITING_BALANCE_PROOF is NOT a route failure. The
+                    // mint has been handed to BalanceProofPoller; the lease MUST be
+                    // released (no blocking lease, no in-flight, no duplicate
+                    // suppression for the poller's future re-entry).
+                    SellResult.WAITING_BALANCE_PROOF ->
+                        com.lifecyclebot.engine.sell.CloseLease.release(ts.mint, "WAITING_BALANCE_PROOF")
                     // Retryable → keep the lease, record the attempt (de-pollutes reason).
                     SellResult.FAILED_RETRYABLE ->
                         com.lifecyclebot.engine.sell.CloseLease.recordRetry(ts.mint, "RETRYABLE")
@@ -10788,7 +10831,19 @@ class Executor(
                         "SELL_ROUTE_FAILED_NO_SIGNATURE_UNLOCKED",
                         "mint=${ts.mint.take(12)} symbol=${ts.symbol} reason=$reason"
                     )
+                    com.lifecyclebot.engine.sell.SellForensics.inc(
+                        com.lifecyclebot.engine.sell.SellForensics.EXEC_LIVE_SELL_ROUTE_FAILED_NO_SIGNATURE,
+                        "mint=${ts.mint.take(10)} symbol=${ts.symbol} reason=$reason"
+                    )
                 } catch (_: Throwable) {}
+            }
+            // V5.0.3746 — operator spec items 1, 5, 6: WAITING_BALANCE_PROOF is a
+            // proof wait, NEVER an active sell. Skip PendingSellQueue.add (no
+            // SELL_RETRY_TEMPORARY_ONLY emission) and skip
+            // SELL_ROUTE_FAILED_NO_SIGNATURE_UNLOCKED (no route was actually
+            // attempted). The BalanceProofPoller takes over from here.
+            if (result == SellResult.WAITING_BALANCE_PROOF) {
+                onLog("⏸️ SELL WAITING BALANCE PROOF: ${ts.symbol} — owned by BalanceProofPoller, no requeue/no blocking lease.", tradeId.mint)
             }
             return result
         }
@@ -12577,7 +12632,19 @@ class Executor(
                     try { com.lifecyclebot.engine.sell.SellExecutionLocks.release(ts.mint) } catch (_: Throwable) {}
                     try { com.lifecyclebot.engine.sell.CloseLease.release(ts.mint, "BALANCE_UNKNOWN_NO_SIGNATURE") } catch (_: Throwable) {}
                     try { HostWalletTokenTracker.markSellNoSignatureUnlocked(ts.mint, ts.symbol, "BALANCE_UNKNOWN_RPC_EMPTY") } catch (_: Throwable) {}
-                    return SellResult.FAILED_RETRYABLE
+                    // V5.0.3746 — operator spec items 1, 2, 5: hand off to
+                    // BalanceProofPoller via BalanceProofWaitState. This MUST NOT
+                    // emit SELL_RETRY_TEMPORARY_ONLY, MUST NOT acquire/blocking
+                    // lease, MUST NOT enqueue ACTIVE_SELL_READY. The wrapper at
+                    // requestSell() recognises WAITING_BALANCE_PROOF and skips
+                    // PendingSellQueue.add + SELL_ROUTE_FAILED_NO_SIGNATURE_UNLOCKED.
+                    try {
+                        com.lifecyclebot.engine.sell.BalanceProofWaitState.markWaiting(
+                            ts.mint, ts.symbol, reason,
+                            runtimeGeneration = try { BotRuntimeController.currentGeneration() } catch (_: Throwable) { 0L },
+                        )
+                    } catch (_: Throwable) {}
+                    return SellResult.WAITING_BALANCE_PROOF
                 }
                 // Recovered — fall through to the normal tokenData checks
                 // below (which run against the refreshed map).
@@ -15348,6 +15415,18 @@ class Executor(
                     "RPC-EMPTY-MAP → BALANCE_UNKNOWN — PumpPortal broadcast blocked; no owner-filtered balance proof",
                     traderTag = traderTag,
                 )
+                // V5.0.3746 — operator spec items 1, 2, 5: BALANCE_UNKNOWN at the
+                // PumpPortal pre-balance check must hand the mint to
+                // BalanceProofPoller via BalanceProofWaitState. The outer
+                // requestSell wrapper releases the close lease for
+                // WAITING_BALANCE_PROOF; here we just mark the wait so the next
+                // exit tick / SellReconciler does NOT re-acquire a blocking lease.
+                try {
+                    com.lifecyclebot.engine.sell.BalanceProofWaitState.markWaiting(
+                        ts.mint, ts.symbol, "PUMPPORTAL_BALANCE_UNKNOWN",
+                        runtimeGeneration = try { BotRuntimeController.currentGeneration() } catch (_: Throwable) { 0L },
+                    )
+                } catch (_: Throwable) {}
                 return null
             }
 
