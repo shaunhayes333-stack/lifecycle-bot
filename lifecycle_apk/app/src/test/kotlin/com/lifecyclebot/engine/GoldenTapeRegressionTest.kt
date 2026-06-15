@@ -616,7 +616,7 @@ class GoldenTapeRegressionTest {
         assertTrue(exec.contains("canBroadcastLiveOrEmergency"))
         val authority = java.io.File("src/main/kotlin/com/lifecyclebot/engine/sell/SellAmountAuthority.kt").readText()
         assertTrue(authority.contains("EMERGENCY_TX_PARSE_MS = 10 * 60_000L"))
-        assertTrue(authority.contains("val maxAgeMs = if (isEmergencyExitReason(reason)) EMERGENCY_TX_PARSE_MS else FRESH_TX_PARSE_MS"))
+        assertTrue(authority.contains("val maxAgeMs = if (emergency) EMERGENCY_TX_PARSE_MS else PROFIT_PROTECT_TX_PARSE_MS"))
         val pumpTests = java.io.File("src/test/kotlin/com/lifecyclebot/engine/sell/LiveSellSafetyAcceptanceTest.kt").readText()
         assertTrue("Partial sells must remain Jupiter exact-in, not PumpPortal percent", pumpTests.contains("partial sells stay off PumpPortal"))
     }
@@ -928,7 +928,8 @@ class GoldenTapeRegressionTest {
         assertTrue(exec.contains("resolveForExit(ts.mint, wallet,"))
         assertTrue(exec.contains("PARTIAL_TAKE_PROFIT"))
         assertTrue(exec.contains("canBroadcastLiveOrEmergency"))
-        assertTrue(exec.contains("TX_PARSE gap"))
+        assertTrue(authority.contains("RPC returned"))
+        assertTrue(authority.contains("UNKNOWN/empty"))
     }
 
 }
