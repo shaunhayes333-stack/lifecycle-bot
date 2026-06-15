@@ -338,13 +338,18 @@ class ExecutionRouteGuardSmokeTest {
     }
 
     @Test
-    fun live_authority_allows_shadow_route_when_explicit() {
+    fun live_authority_blocks_normal_paper_route_even_when_shadow_enabled() {
         ExecutionRouteGuard.resetForTests()
         RuntimeModeAuthority.publishConfig(paperMode = false, autoTrade = true)
         val ts = com.lifecyclebot.data.TokenState(mint = "MintShadow11111111111111111111111111", symbol = "SHADOW")
         val v = ExecutionRouteGuard.requirePaperRoute(ts, shadowEnabled = true)
-        assertTrue(v.allowed)
-        assertEquals(ExecutionRouteGuard.Route.SHADOW, v.route)
+        assertFalse(v.allowed)
+        assertEquals(ExecutionRouteGuard.Route.PAPER, v.route)
+        assertEquals("PAPER_ROUTE_BLOCKED_IN_LIVE_USE_SHADOW_PATH", v.reason)
+        assertEquals(1L, ExecutionRouteGuard.paperBlockedInLiveCount())
+        assertEquals(0L, ExecutionRouteGuard.shadowAllowedCount())
+
+        ExecutionRouteGuard.recordShadowRouteAllowed()
         assertEquals(1L, ExecutionRouteGuard.shadowAllowedCount())
     }
 }

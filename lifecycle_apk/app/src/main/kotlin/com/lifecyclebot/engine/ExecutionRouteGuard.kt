@@ -9,8 +9,8 @@ import java.util.concurrent.atomic.AtomicLong
  *
  * This is not strategy logic. It prevents accounting contamination:
  * - LIVE cannot fall back to paper.
- * - PAPER cannot run while authority is LIVE unless explicitly shadow-enabled.
- * - SHADOW is labelled and counted as SHADOW, never normal PAPER/LIVE.
+ * - Normal PAPER cannot run while authority is LIVE, even when shadow is enabled.
+ * - SHADOW is labelled and counted via the explicit shadow path, never normal paperBuy().
  */
 object ExecutionRouteGuard {
     enum class Route { PAPER, LIVE, SHADOW }
