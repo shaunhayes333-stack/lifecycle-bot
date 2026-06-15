@@ -259,7 +259,8 @@ class GoldenTapeRegressionTest {
     fun open_mint_supervisor_timeouts_cooldown_without_touching_exits() {
         val bot = java.io.File("src/main/kotlin/com/lifecyclebot/engine/BotService.kt").readText()
         assertTrue(bot.contains("open mints no longer bypass supervisor timeout cooldown"))
-        assertTrue(bot.contains("val cooldownMs = if (open) 20_000L else SUPERVISOR_TIMEOUT_COOLDOWN_MS"))
+        assertTrue(bot.contains("SUPERVISOR_TIMEOUT_COOLDOWN_MS: Long = 90_000L"))
+        assertTrue(bot.contains("val cooldownMs = if (open) 45_000L else SUPERVISOR_TIMEOUT_COOLDOWN_MS"))
         assertFalse("open mints must not bypass timeout cooldown and monopolise supervisor", bot.contains("if (supervisorMintIsOpen(mint)) return false"))
     }
 
