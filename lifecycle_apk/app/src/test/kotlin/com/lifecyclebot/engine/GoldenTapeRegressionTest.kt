@@ -870,4 +870,24 @@ class GoldenTapeRegressionTest {
         assertFalse("Root cause line must not print stale recent RuntimeDoctor history", report.contains("RuntimeDoctor.recentFaults()"))
     }
 
+
+    @Test
+    fun v3_live_handoff_reuses_any_recent_lane_approved_attempt() {
+        val gate = java.io.File("src/main/kotlin/com/lifecyclebot/engine/ExecutableOpenGate.kt").readText()
+        assertTrue(gate.contains("fun recentAllowedAttemptIdAnyLane"))
+        assertTrue(gate.contains("NO_FINAL_BUY_CANDIDATE"))
+        assertTrue(gate.contains("MOONSHOT"))
+
+        val bot = java.io.File("src/main/kotlin/com/lifecyclebot/engine/BotService.kt").readText()
+        assertTrue(bot.contains("recentAllowedAttemptIdAnyLane(ts.mint)"))
+        assertTrue(bot.contains("authResult.attemptId.ifBlank"))
+        assertTrue(bot.contains("recentAllowedAttemptId(ts.mint, ts.position.tradingMode.ifBlank"))
+
+        val exec = java.io.File("src/main/kotlin/com/lifecyclebot/engine/Executor.kt").readText()
+        assertTrue(exec.contains("effectiveAttemptId"))
+        assertTrue(exec.contains("effectiveFinalityPrechecked"))
+        assertTrue(exec.contains("recentAllowedAttemptIdAnyLane(ts.mint)"))
+        assertTrue(exec.contains("NO_FINAL_BUY_CANDIDATE"))
+    }
+
 }

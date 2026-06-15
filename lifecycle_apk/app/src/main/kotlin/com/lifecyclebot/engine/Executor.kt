@@ -7692,6 +7692,14 @@ class Executor(
             ErrorLogger.warn("Executor", "📊 HIGH_EXPOSURE_AT_ENTRY ${ts.symbol} | exposure=${exposurePctOfBank.toInt()}% of bank | openPos=$openPositionCount")
         }
         
+        // V5.0.3731 — recover lane-approved finality handoff when caller lost it.
+        // Some V3 live paths arrive with blank attemptId even though TradeAuthorizer just
+        // approved a specialist lane (MOONSHOT/SHITCOIN/etc). Reuse that approved key so
+        // liveBuy does not re-check as STANDARD candidateVersion=0 and emit
+        // NO_FINAL_BUY_CANDIDATE.
+        val effectiveAttemptId = attemptId.ifBlank { ExecutableOpenGate.recentAllowedAttemptIdAnyLane(ts.mint) ?: "" }
+        val effectiveFinalityPrechecked = finalityPrechecked || effectiveAttemptId.isNotBlank()
+
         // V5.9.1366 — STANDARD-LANE GATE VERDICT. ROOT CAUSE of "parked / 0 open
         // despite V3 EXECUTE": the ExecutableOpenGate EntryState is keyed by MINT and
         // SHARED across every lane. When a meme lane (e.g. SHITCOIN) evaluates a token
@@ -7717,7 +7725,7 @@ class Executor(
                 safetyTier = ts.safety.tier.name,
                 liquidityUsd = ts.lastLiquidityUsd,
                 hardNoReasons = ts.safety.hardBlockReasons,
-                candidateVersion = attemptId.substringAfterLast(":").toLongOrNull()
+                candidateVersion = effectiveAttemptId.substringAfterLast(":").toLongOrNull()
                     ?: LaneExecutionCoordinator.candidateVersionFor(ts.mint),
                 entryScore = v3Score,
             )
@@ -7733,8 +7741,8 @@ class Executor(
                 skipGraduated = true,
                 wallet = wallet,
                 walletSol = walletSol,
-                finalityPrechecked = finalityPrechecked,
-                attemptId = attemptId,
+                finalityPrechecked = effectiveFinalityPrechecked,
+                attemptId = effectiveAttemptId,
             )
         } else {
             if (wallet == null) {
@@ -7750,8 +7758,8 @@ class Executor(
                 identity = identity,
                 quality = v3Band,
                 skipGraduated = true,
-                finalityPrechecked = finalityPrechecked,
-                attemptId = attemptId,
+                finalityPrechecked = effectiveFinalityPrechecked,
+                attemptId = effectiveAttemptId,
             )
         }
         

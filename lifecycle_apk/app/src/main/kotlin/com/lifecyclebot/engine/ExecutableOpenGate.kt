@@ -293,6 +293,24 @@ object ExecutableOpenGate {
         return allowedAttempts[laneKey(mint, lane)]?.takeIf { now - it.second <= ALLOWED_ATTEMPT_TTL_MS }?.first
     }
 
+    // V5.0.3731 — lane-agnostic approved handoff lookup.
+    // Runtime 5.0.3730 showed FDG/TradeAuthorizer approving MOONSHOT for BANNED
+    // (candidateVersion=59383825), then the V3 executor looked only for CORE/V3 and
+    // fell into a blank/STANDARD attempt, producing candidateVersion=0 and
+    // NO_FINAL_BUY_CANDIDATE. When an approved lane exists for the same mint inside
+    // the handoff TTL, downstream V3/liveBuy must reuse it instead of inventing a
+    // STANDARD/WATCH candidate.
+    fun recentAllowedAttemptIdAnyLane(mint: String): String? {
+        val now = System.currentTimeMillis()
+        allowedAttempts.entries.removeIf { now - it.value.second > ALLOWED_ATTEMPT_TTL_MS }
+        val sanitized = sanitizeMintForKey(mint)
+        return allowedAttempts.entries
+            .asSequence()
+            .filter { (_, v) -> now - v.second <= ALLOWED_ATTEMPT_TTL_MS }
+            .map { it.value.first }
+            .firstOrNull { it.contains(":${sanitized}:BUY:") }
+    }
+
 
     private fun staleCutoff() = System.currentTimeMillis() - TTL_MS
 

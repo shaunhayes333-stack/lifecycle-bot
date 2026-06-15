@@ -19250,9 +19250,13 @@ if (hotExitHandledSweep) {
                                 )
                             }
 
-                            val v3AttemptId = ExecutableOpenGate.recentAllowedAttemptId(ts.mint, "CORE")
-                                ?: ExecutableOpenGate.recentAllowedAttemptId(ts.mint, "V3")
-                                ?: authResult.attemptId
+                            val v3AttemptId = authResult.attemptId.ifBlank {
+                                ExecutableOpenGate.recentAllowedAttemptId(ts.mint, ts.position.tradingMode.ifBlank { "STANDARD" })
+                                    ?: ExecutableOpenGate.recentAllowedAttemptId(ts.mint, "CORE")
+                                    ?: ExecutableOpenGate.recentAllowedAttemptId(ts.mint, "V3")
+                                    ?: ExecutableOpenGate.recentAllowedAttemptIdAnyLane(ts.mint)
+                                    ?: ""
+                            }
                             ErrorLogger.info("BotService", "[EXECUTION] ${identity.symbol} | ${if (cfg.paperMode) "PAPER" else "LIVE"}_BUY | ${proposedSize.fmt(4)} SOL")
                             
                             // Record proposal for dedupe
