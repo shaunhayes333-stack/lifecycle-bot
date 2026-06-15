@@ -8528,7 +8528,7 @@ class BotService : Service() {
 
     private fun catastrophicPaperLowScoreSpecialistBleed(ts: com.lifecyclebot.data.TokenState, lane: String): Boolean {
         return try {
-            if (!cfg.paperMode) return false
+            if (!com.lifecyclebot.engine.RuntimeModeAuthority.isPaper()) return false
             val l = lane.uppercase()
             val nonMemeSpecialist = (l == "MANIPULATED" || l == "QUALITY" || l == "DIP_HUNTER"
                 || l == "PROJECT_SNIPER" || l == "TREASURY" || l == "BLUECHIP")
