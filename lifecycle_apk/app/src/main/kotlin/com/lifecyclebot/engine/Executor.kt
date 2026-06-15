@@ -12475,6 +12475,7 @@ class Executor(
                   "balance pre-check (tracker qty=$tokenUnits)", tradeId.mint)
         }
 
+        var confirmedSellUiQty = 0.0
         if (!skipOnChainCheck) try {
             onLog("📊 SELL DEBUG: Fetching on-chain token balances...", tradeId.mint)
             // V5.9.751 — `var` so the RPC-RECOVERY refresh below can rebind
@@ -12626,6 +12627,7 @@ class Executor(
                 return SellResult.FAILED_RETRYABLE
             } else {
             val actualBalanceUi = tokenData.first
+            confirmedSellUiQty = actualBalanceUi
             val actualDecimals = tokenData.second
             onLog("📊 SELL DEBUG: On-chain balance = $actualBalanceUi | decimals=$actualDecimals | mint=${ts.mint.take(8)}...", tradeId.mint)
             
@@ -12817,7 +12819,7 @@ class Executor(
                             ts = ts,
                             wallet = wallet,
                             processor = "JUPITER_ULTRA_METIS",
-                            requestedUiQty = actualBalanceUi,
+                            requestedUiQty = confirmedSellUiQty,
                             sellTradeKey = sellTradeKey,
                             traderTag = "MEME",
                         ) ?: return SellResult.FAILED_RETRYABLE
@@ -12985,7 +12987,7 @@ class Executor(
                     ts = ts,
                     wallet = wallet,
                     processor = if (isDrainExit) "PUMPPORTAL_EXIT_DRAIN" else "PUMPPORTAL_EXIT",
-                    requestedUiQty = actualBalanceUi,
+                    requestedUiQty = confirmedSellUiQty,
                     sellTradeKey = sellTradeKey,
                     traderTag = "MEME",
                 )?.rawAmount ?: return SellResult.FAILED_RETRYABLE,
@@ -13032,7 +13034,7 @@ class Executor(
                                 ts = ts,
                                 wallet = wallet,
                                 processor = "JUPITER_ULTRA_METIS_LADDER",
-                                requestedUiQty = actualBalanceUi,
+                                requestedUiQty = confirmedSellUiQty,
                                 sellTradeKey = sellTradeKey,
                                 traderTag = "MEME",
                             ) ?: return SellResult.FAILED_RETRYABLE
@@ -13201,7 +13203,7 @@ class Executor(
                         ts = ts,
                         wallet = wallet,
                         processor = if (isDrainExit) "PUMPPORTAL_EXIT_DRAIN_RESCUE" else "PUMPPORTAL_EXIT_RESCUE",
-                        requestedUiQty = actualBalanceUi,
+                        requestedUiQty = confirmedSellUiQty,
                         sellTradeKey = sellTradeKey,
                         traderTag = "MEME",
                     )?.rawAmount ?: return SellResult.FAILED_RETRYABLE,
