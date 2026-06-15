@@ -32,6 +32,16 @@ jobs:
         with:
           cache-read-only: false
 
+      - name: Compute AATE build number
+        id: aate_build
+        run: |
+          BUILD_NUMBER=$((GITHUB_RUN_NUMBER + 1))
+          VERSION_NAME="5.0.${BUILD_NUMBER}"
+          echo "AATE_BUILD_NUMBER=$BUILD_NUMBER" >> "$GITHUB_ENV"
+          echo "AATE_VERSION_NAME=$VERSION_NAME" >> "$GITHUB_ENV"
+          echo "build_number=$BUILD_NUMBER" >> "$GITHUB_OUTPUT"
+          echo "version_name=$VERSION_NAME" >> "$GITHUB_OUTPUT"
+
       - name: Accept SDK Licenses
         run: |
           yes | $ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager --licenses || true
@@ -52,19 +62,19 @@ jobs:
             sleep $((i*15))
           done
           echo "========================================"
-          echo "Building AATE v5.0.${{ github.run_number }}"
-          echo "versionCode = $((500 + ${{ github.run_number }}))"
+          echo "Building AATE v${{ steps.aate_build.outputs.version_name }}"
+          echo "versionCode = $((500 + AATE_BUILD_NUMBER))"
           echo "========================================"
           # V5.9.495z42 P1 — run unit tests before release build.
           # SellExecutionOverhaulTest (10 cases) + existing harness.
           # Tests must pass for the build to succeed; failure fails CI.
-          ./gradlew testReleaseUnitTest --no-daemon --stacktrace -PbuildNumber=${{ github.run_number }}
-          ./gradlew assembleRelease --no-daemon -PbuildNumber=${{ github.run_number }}
+          ./gradlew testReleaseUnitTest --no-daemon --stacktrace -PbuildNumber=$AATE_BUILD_NUMBER
+          ./gradlew assembleRelease --no-daemon -PbuildNumber=$AATE_BUILD_NUMBER
           echo "Built APK:"
           ls -la app/build/outputs/apk/release/
           # APK is already named AATE_v5.0.{buildNumber}.apk by gradle
 
       - uses: actions/upload-artifact@v4
         with:
-          name: AATE_v5.0.${{ github.run_number }}
-          path: lifecycle_apk/app/build/outputs/apk/release/AATE_v5.0.${{ github.run_number }}.apk
+          name: AATE_v${{ steps.aate_build.outputs.version_name }}
+          path: lifecycle_apk/app/build/outputs/apk/release/AATE_v${{ steps.aate_build.outputs.version_name }}.apk
