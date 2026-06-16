@@ -1856,6 +1856,24 @@ class GoldenTapeRegressionTest {
 
 
     @Test
+    fun bleed_auto_pivot_cap_overrides_normal_route_floor_without_veto() {
+        val lanePolicy = java.io.File("src/main/kotlin/com/lifecyclebot/engine/learning/LanePolicy.kt").readText()
+        val fdgRoute = java.io.File("src/main/kotlin/com/lifecyclebot/engine/learning/FdgRouteVerdict.kt").readText()
+
+        assertTrue("LanePolicy must expose bucket WR for source-level bleed detection", lanePolicy.contains("fun rollingWrForBucket("))
+        assertTrue("LanePolicy must expose persistent-bleed execution cap", lanePolicy.contains("fun bleedExecutionCap("))
+        assertTrue("bleed cap must consider hostile DUMP regime", lanePolicy.contains("RegimeDetector.Regime.DUMP"))
+        assertTrue("bleed cap must be report-visible", lanePolicy.contains("LANE_BLEED_EXECUTION_CAP"))
+
+        assertTrue("FDG route sizing must consume LanePolicy bleed cap", fdgRoute.contains("LanePolicy.bleedExecutionCap"))
+        assertTrue("NORMAL route must keep throughput floor only when no bleed cap exists", fdgRoute.contains("else base.coerceAtLeast(0.85)"))
+        assertTrue("NORMAL route must let learned bleed cap override the 85% floor", fdgRoute.contains("minOf(base, bleedCap).coerceIn(0.05, 0.85)"))
+        assertTrue("reduced route must not re-floor capped bleeders to 30%", fdgRoute.contains("minOf(base, bleedCap).coerceIn(0.05, 0.70)"))
+        assertFalse("persistent bleed response must not become a hard route veto", fdgRoute.contains("bleedCap != null) return Verdict.ROUTE_SHADOW_TRACK") || fdgRoute.contains("bleedCap != null) return Verdict.ROUTE_TRAIN_ONLY"))
+    }
+
+
+    @Test
     fun downstream_coroutine_split_only_moves_post_proof_reconcile_retry_work() {
         val bot = java.io.File("src/main/kotlin/com/lifecyclebot/engine/BotService.kt").readText()
         val queue = java.io.File("src/main/kotlin/com/lifecyclebot/engine/DownstreamWorkQueue.kt").readText()

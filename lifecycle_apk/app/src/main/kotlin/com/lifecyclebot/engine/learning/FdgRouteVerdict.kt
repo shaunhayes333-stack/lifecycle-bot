@@ -85,11 +85,23 @@ object FdgRouteVerdict {
     fun sizeMultiplier(verdict: Verdict, lane: String, scoreBand: String): Double {
         if (!verdict.executable) return 0.0
         val base = LanePolicy.effectiveExecutionWeight(lane, scoreBand)
+        val bleedCap = LanePolicy.bleedExecutionCap(lane, scoreBand)
         return when (verdict) {
-            Verdict.ALLOW_NORMAL          -> base.coerceAtLeast(0.85)
-            Verdict.ALLOW_REDUCED_SIZE    -> base.coerceIn(0.30, 0.70)
-            Verdict.ALLOW_PAPER_MICRO     -> base.coerceIn(0.05, 0.15)
-            else                          -> 0.0
+            Verdict.ALLOW_NORMAL -> {
+                // V5.0.3804 — do not let the NORMAL 85% floor erase learned bleed
+                // decay. If a lane/bucket has proven low-WR, the cap is the source
+                // authority; otherwise keep the old throughput-preserving floor.
+                if (bleedCap != null) minOf(base, bleedCap).coerceIn(0.05, 0.85)
+                else base.coerceAtLeast(0.85)
+            }
+            Verdict.ALLOW_REDUCED_SIZE -> {
+                if (bleedCap != null) minOf(base, bleedCap).coerceIn(0.05, 0.70)
+                else base.coerceIn(0.30, 0.70)
+            }
+            Verdict.ALLOW_PAPER_MICRO -> {
+                minOf(base, bleedCap ?: 0.15).coerceIn(0.05, 0.15)
+            }
+            else -> 0.0
         }
     }
 

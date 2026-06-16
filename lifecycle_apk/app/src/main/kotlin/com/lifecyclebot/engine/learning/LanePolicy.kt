@@ -2,6 +2,8 @@ package com.lifecyclebot.engine.learning
 
 import com.lifecyclebot.engine.ErrorLogger
 import com.lifecyclebot.engine.LearningPersistence
+import com.lifecyclebot.engine.PipelineHealthCollector
+import com.lifecyclebot.engine.RegimeDetector
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.atomic.AtomicInteger
 import java.util.concurrent.atomic.AtomicLong
@@ -254,6 +256,42 @@ object LanePolicy {
         val w = cell.winWindow.get(); val l = cell.lossWindow.get(); val n = w + l
         if (n < OUTCOME_WINDOW_MIN_SAMPLES) return null
         return w.toDouble() / n
+    }
+
+    fun rollingWrForBucket(lane: String, scoreBand: String): Double? {
+        if (lane.isBlank()) return null
+        val cell = getOrCreateBucketCell(lane, scoreBand)
+        val w = cell.winWindow.get(); val l = cell.lossWindow.get(); val n = w + l
+        if (n < OUTCOME_WINDOW_MIN_SAMPLES) return null
+        return w.toDouble() / n
+    }
+
+    /**
+     * V5.0.3804 — persistent-bleed auto-pivot cap.
+     *
+     * Root bug pattern: RetrainingDecay/LanePolicy could correctly learn that a lane
+     * or bucket was bleeding, but FdgRouteVerdict.ALLOW_NORMAL later floored size
+     * back to 85%, undoing the pivot. This returns a soft execution cap for proven
+     * low-WR windows. It never vetoes a valid candidate and never changes FDG score
+     * floors; it only keeps learned decay authoritative at the route-size source.
+     */
+    fun bleedExecutionCap(lane: String, scoreBand: String): Double? {
+        val laneWr = rollingWr(lane)
+        val bucketWr = rollingWrForBucket(lane, scoreBand)
+        val wr = listOfNotNull(laneWr, bucketWr).minOrNull() ?: return null
+        val regime = try { RegimeDetector.currentRegime() } catch (_: Throwable) { RegimeDetector.Regime.NORMAL }
+        val cap = when {
+            regime == RegimeDetector.Regime.DEAD && wr < 0.25 -> 0.08
+            regime == RegimeDetector.Regime.DUMP && wr < 0.15 -> 0.10
+            regime == RegimeDetector.Regime.DUMP && wr < 0.20 -> 0.18
+            wr < DEMOTE_WR -> 0.22
+            wr < 0.25 -> 0.35
+            else -> null
+        }
+        if (cap != null) {
+            try { PipelineHealthCollector.labelInc("LANE_BLEED_EXECUTION_CAP|${laneKey(lane)}") } catch (_: Throwable) {}
+        }
+        return cap
     }
 
     fun recordOutcome(lane: String, scoreBand: String, isWin: Boolean, isLoss: Boolean) {
