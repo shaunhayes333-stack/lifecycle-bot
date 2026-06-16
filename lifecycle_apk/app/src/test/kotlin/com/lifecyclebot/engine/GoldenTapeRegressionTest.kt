@@ -1799,4 +1799,28 @@ class GoldenTapeRegressionTest {
         assertFalse("no-signature route failure must not be auto-queued as FAILED_RETRYABLE", exec.contains("ROUTE_FAILED_NO_SIGNATURE -> {\n                        com.lifecyclebot.engine.sell.CloseLease.recordRetry"))
     }
 
+
+    @Test
+    fun lifecycle_confirmed_pending_count_is_host_tracker_backed_not_unbounded() {
+        val lifecycle = java.io.File("src/main/kotlin/com/lifecyclebot/engine/TokenLifecycleTracker.kt").readText()
+        val snapshot = java.io.File("src/main/kotlin/com/lifecyclebot/engine/RuntimeStateSnapshot.kt").readText()
+
+        assertTrue(snapshot.contains("TokenLifecycleTracker.confirmedPendingCount()"))
+        assertTrue(lifecycle.contains("fun confirmedPendingCount()"))
+        assertTrue("confirmed pending lifecycle rows must be backed by host wallet accounting", lifecycle.contains("HostWalletTokenTracker.isCapCountable(r.mint)"))
+        assertFalse("confirmedPendingCount must not count raw CONFIRMED_PENDING_BALANCE forever", lifecycle.contains("records.values.count { it.status == Status.CONFIRMED_PENDING_BALANCE"))
+        assertTrue("canonical open must still include host-backed fresh buy liabilities", snapshot.contains("lifecyclePendingConfirmed"))
+    }
+
+
+    @Test
+    fun runtime_open_pressure_uses_wallet_truth_filtered_lifecycle_not_raw_open_count() {
+        val bot = java.io.File("src/main/kotlin/com/lifecyclebot/engine/BotService.kt").readText()
+        val anti = java.io.File("src/main/kotlin/com/lifecyclebot/engine/AntiChokeManager.kt").readText()
+
+        assertTrue("BotService rescue/open pressure must use filtered lifecycle count", bot.contains("TokenLifecycleTracker.liveMemeOpenCount()"))
+        assertTrue("AntiChoke open pressure must use filtered lifecycle count", anti.contains("TokenLifecycleTracker.liveMemeOpenCount()"))
+        assertFalse("AntiChoke must not use raw lifecycle openCount for pressure", anti.contains("val lifecycleOpen = try { TokenLifecycleTracker.openCount()"))
+    }
+
 }

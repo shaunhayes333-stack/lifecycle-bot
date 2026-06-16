@@ -159,8 +159,25 @@ object TokenLifecycleTracker {
         }
     } catch (_: Throwable) { 0 }
 
+    /**
+     * Runtime/cap accounting bridge for fresh confirmed buys whose wallet-token
+     * index has not caught up yet.
+     *
+     * V5.0.3796 — this must be HOST-TRACKER-BACKED. Runtime 3795 proved the
+     * old unbounded lifecycle-only count could survive after startup/wallet
+     * reconciliation had cleared the host tracker, producing
+     * canonicalOpen=1/liveOpen=0/hostTrackerOpen=0 and the false
+     * LIVE_BUY_CONFIRMED_NOT_VISIBLE/TRACKER_OPEN_DESYNC doctor fault. The
+     * HostWalletTokenTracker already owns the fresh-buy-liability TTL and
+     * wallet-positive/sell-in-flight predicates, so lifecycle pending may only
+     * contribute if the same mint is cap-countable there.
+     */
     fun confirmedPendingCount(): Int = try {
-        records.values.count { it.status == Status.CONFIRMED_PENDING_BALANCE || (it.status == Status.BUY_CONFIRMED && !it.buyTx.isNullOrBlank() && it.currentWalletTokenQty <= DUST_UI_AMOUNT) }
+        records.values.count { r ->
+            val pending = r.status == Status.CONFIRMED_PENDING_BALANCE ||
+                (r.status == Status.BUY_CONFIRMED && !r.buyTx.isNullOrBlank() && r.currentWalletTokenQty <= DUST_UI_AMOUNT)
+            pending && try { HostWalletTokenTracker.isCapCountable(r.mint) } catch (_: Throwable) { false }
+        }
     } catch (_: Throwable) { 0 }
 
     /** Stats for diagnostics export and the Universe / Forensics tile. */

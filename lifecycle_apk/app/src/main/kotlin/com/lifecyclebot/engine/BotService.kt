@@ -470,7 +470,10 @@ class BotService : Service() {
                 val statusOpen = try { status.openPositions.size } catch (_: Throwable) { 0 }
                 val tokenOpen = try { status.tokens.values.count { it.position.isOpen } } catch (_: Throwable) { 0 }
                 val hostOpen = try { com.lifecyclebot.engine.HostWalletTokenTracker.getOpenCount() } catch (_: Throwable) { 0 }
-                val lifecycleOpen = try { com.lifecyclebot.engine.TokenLifecycleTracker.openCount() } catch (_: Throwable) { 0 }
+                // V5.0.3796 — wallet-truth filtered lifecycle count. Raw openCount()
+                // includes stale lifecycle-only rows after host/wallet reconciliation,
+                // causing loop header positions=1 while hostOpen=0/walletOpen=0.
+                val lifecycleOpen = try { com.lifecyclebot.engine.TokenLifecycleTracker.liveMemeOpenCount() } catch (_: Throwable) { 0 }
                 val cashGenOpen = try {
                     com.lifecyclebot.v3.scoring.CashGenerationAI.getPositionsForMode(true).size +
                         com.lifecyclebot.v3.scoring.CashGenerationAI.getPositionsForMode(false).size

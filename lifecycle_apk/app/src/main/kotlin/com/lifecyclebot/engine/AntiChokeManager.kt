@@ -188,7 +188,9 @@ object AntiChokeManager {
     private fun internalOpenCount(tokens: MutableMap<String, TokenState>): Int {
         val tokenOpen = synchronized(tokens) { tokens.values.count { it.position.hasTokens || it.position.pendingVerify } }
         val registryOpen = try { GlobalTradeRegistry.getPositionCount() } catch (_: Throwable) { 0 }
-        val lifecycleOpen = try { TokenLifecycleTracker.openCount() } catch (_: Throwable) { 0 }
+        // V5.0.3796 — host/wallet-truth filtered; raw lifecycle openCount can
+        // include cleared pending rows and inflate anti-choke pressure.
+        val lifecycleOpen = try { TokenLifecycleTracker.liveMemeOpenCount() } catch (_: Throwable) { 0 }
         return maxOf(tokenOpen, registryOpen, lifecycleOpen)
     }
 
