@@ -12741,8 +12741,15 @@ val v3OpenMints: List<String> = synchronized(status.tokens) {
 // "forcedOpen must not exceed actual open position count"). Reaping here = before
 // PRE_SUPERVISOR, exactly as the spec requires. Metadata-only filter; held positions
 // are never in the close ledger so they are never reaped.
-val forcedOpenRaw = (openPositionMints + subTraderOpenMints + v3OpenMints).distinct()
-val forcedOpenMints = reapGhostForcedOpen(forcedOpenRaw)
+val paperRuntimeForSlotTruth = try { RuntimeModeAuthority.isPaper() } catch (_: Throwable) { cfg.paperMode }
+val forcedOpenRaw = if (paperRuntimeForSlotTruth) {
+    // V5.0.3810 — PAPER slot truth is the simulator ledger only. Do not union
+    // stale sub-trader forced rows or live wallet/tracker state into paper slots.
+    rebuildPaperForcedOpenFromLedger()
+} else {
+    (openPositionMints + subTraderOpenMints + v3OpenMints).distinct()
+}
+val forcedOpenMints = if (paperRuntimeForSlotTruth) reapPaperForcedOpen(forcedOpenRaw) else reapGhostForcedOpen(forcedOpenRaw)
 
 // V5.9.1470b (spec item 7) — publish slot-health via helper (keeps botLoop bytecode
 // under the JVM method-size limit; CI run#3474 hit 'Couldn't transform method node').
@@ -13846,6 +13853,65 @@ if (hotExitHandledSweep) {
         return false
     }
 
+    private fun currentPaperOpenMintsFromLedger(): Set<String> {
+        return try {
+            val out = HashSet<String>()
+            synchronized(status.tokens) {
+                status.tokens.values.forEach { ts ->
+                    val p = ts.position
+                    if (p.isPaperPosition) {
+                        val dust = p.qtyToken <= 1e-12 || p.costSol <= 0.000_001
+                        if (dust && (p.qtyToken > 0.0 || p.costSol > 0.0)) {
+                            try { ts.position = com.lifecyclebot.data.Position() } catch (_: Throwable) {}
+                            try { com.lifecyclebot.engine.PositionPersistence.removePosition(ts.mint) } catch (_: Throwable) {}
+                            try { com.lifecyclebot.engine.PositionCloseLedger.markClosed(ts.mint, "PAPER_SLOT_DUST_CLOSED", 0) } catch (_: Throwable) {}
+                            try { com.lifecyclebot.engine.PaperPositionCloseAuthority.markClosed("PAPER", ts.mint, ts.symbol, "PAPER_SLOT_DUST_CLOSED") } catch (_: Throwable) {}
+                            try { com.lifecyclebot.engine.PipelineHealthCollector.labelInc("PAPER_FORCED_ROW_CLEARED_DUST") } catch (_: Throwable) {}
+                            try { ForensicLogger.lifecycle("PAPER_FORCED_ROW_CLEARED_DUST", "mint=${ts.mint.take(10)} symbol=${ts.symbol} qty=${p.qtyToken} cost=${p.costSol}") } catch (_: Throwable) {}
+                        } else if (p.qtyToken > 1e-12 && p.costSol > 0.0 && p.isOpen && !com.lifecyclebot.engine.PositionCloseLedger.isClosed(ts.mint)) {
+                            out.add(ts.mint)
+                        }
+                    }
+                }
+            }
+            out
+        } catch (_: Throwable) { emptySet() }
+    }
+
+    private fun rebuildPaperForcedOpenFromLedger(): List<String> {
+        val open = currentPaperOpenMintsFromLedger()
+        try { com.lifecyclebot.engine.PipelineHealthCollector.labelInc("PAPER_SLOT_HEALTH_REBUILT_FROM_LEDGER") } catch (_: Throwable) {}
+        try { ForensicLogger.lifecycle("PAPER_SLOT_HEALTH_REBUILT_FROM_LEDGER", "open=${open.size} mints=${open.take(8).joinToString(",") { it.take(8) }}") } catch (_: Throwable) {}
+        return open.toList()
+    }
+
+    private fun reapPaperForcedOpen(forcedOpenRaw: List<String>): List<String> {
+        try { com.lifecyclebot.engine.PositionCloseLedger.prune() } catch (_: Throwable) {}
+        val paperOpen = currentPaperOpenMintsFromLedger()
+        val clean = forcedOpenRaw.filter { mint ->
+            val closed = try { com.lifecyclebot.engine.PositionCloseLedger.isClosed(mint) } catch (_: Throwable) { false }
+            val isOpen = mint in paperOpen
+            if (closed) {
+                try { ForensicLogger.lifecycle("PAPER_FORCED_ROW_CLEARED_CLOSED_LEDGER", "mint=${mint.take(10)}") } catch (_: Throwable) {}
+                try { com.lifecyclebot.engine.PipelineHealthCollector.labelInc("PAPER_FORCED_ROW_CLEARED_CLOSED_LEDGER") } catch (_: Throwable) {}
+                false
+            } else if (!isOpen) {
+                try { ForensicLogger.lifecycle("PAPER_FORCED_ROW_CLEARED_NOT_OPEN", "mint=${mint.take(10)}") } catch (_: Throwable) {}
+                try { com.lifecyclebot.engine.PipelineHealthCollector.labelInc("PAPER_FORCED_ROW_CLEARED_NOT_OPEN") } catch (_: Throwable) {}
+                try { com.lifecyclebot.engine.Executor.releasePaperSellLock(mint) } catch (_: Throwable) {}
+                try { supervisorForceReleaseLeaseAndCancel(mint, "PAPER_FORCED_ROW_NOT_OPEN") } catch (_: Throwable) {}
+                false
+            } else true
+        }
+        if (clean.size != forcedOpenRaw.size || clean.size == paperOpen.size) {
+            try { ForensicLogger.lifecycle("PAPER_SLOT_OPEN_RECONCILED", "raw=${forcedOpenRaw.size} clean=${clean.size} ledger=${paperOpen.size}") } catch (_: Throwable) {}
+            try { com.lifecyclebot.engine.PipelineHealthCollector.labelInc("PAPER_SLOT_OPEN_RECONCILED") } catch (_: Throwable) {}
+        }
+        lastReapLiveOpenSet = paperOpen
+        return clean.distinct()
+    }
+
+
     /** V5.9.1567 — keep sub-trader forced-open collection out of botLoop bytecode. */
     private fun collectSubTraderOpenMints(): List<String> {
         return try {
@@ -13931,12 +13997,14 @@ if (hotExitHandledSweep) {
         // so ghost never fell to 0 even though reaping happened. After reaping, a
         // healthy steady state has ghost=0.
         val live = lastReapLiveOpenSet
-        val ghostOpenNow = forcedOpenClean.count { isGhostMint(it, live) }
+        val paperRuntime = try { RuntimeModeAuthority.isPaper() } catch (_: Throwable) { try { ConfigStore.load(applicationContext).paperMode } catch (_: Throwable) { false } }
+        val ghostOpenNow = if (paperRuntime) 0 else forcedOpenClean.count { isGhostMint(it, live) }
+        val paperOpenNow = if (paperRuntime) currentPaperOpenMintsFromLedger().size else forcedOpenCount
         val exitInFlight = try { fullExitSweepPending.get() || universalSlSweepPending.get() } catch (_: Throwable) { false }
         com.lifecyclebot.engine.SlotHealthGate.publish(
             ghostOpen = ghostOpenNow,
-            forcedOpen = forcedOpenCount,
-            openPositions = forcedOpenCount,
+            forcedOpen = if (paperRuntime) paperOpenNow else forcedOpenCount,
+            openPositions = if (paperRuntime) paperOpenNow else forcedOpenCount,
             supActive = supervisorActive.get(),
             supCap = supervisorEffectiveCap(),
             exitInFlight = exitInFlight,

@@ -719,6 +719,7 @@ object TradeHistoryStore {
                     "TRADE_ACCOUNTING_QUARANTINED mint=${tradeToStore.mint.take(8)} side=${tradeToStore.side} price=${tradeToStore.price} sol=${tradeToStore.sol} pnl=${tradeToStore.pnlSol} pnlPct=${tradeToStore.pnlPct} mode=${tradeToStore.tradingMode} reason=${tradeToStore.reason}",
                 )
                 PipelineHealthCollector.labelInc("TRADE_ACCOUNTING_QUARANTINED")
+                if (tradeToStore.mode.equals("paper", true)) PipelineHealthCollector.labelInc("PAPER_COUNTER_SKIPPED_QUARANTINED_ROW")
             } catch (_: Throwable) {}
             return
         }
@@ -789,7 +790,10 @@ object TradeHistoryStore {
                 )
                 val enriched = enrichJournalLinkage(normalized)
                 val ok = isValidAccountingTrade(enriched)
-                if (!ok) try { ErrorLogger.warn("TradeHistoryStore", "TRADE_ACCOUNTING_BULK_QUARANTINED mint=${enriched.mint.take(8)} side=${enriched.side} pnlPct=${enriched.pnlPct} pnl=${enriched.pnlSol} reason=${enriched.reason}") } catch (_: Throwable) {}
+                if (!ok) try {
+                    ErrorLogger.warn("TradeHistoryStore", "TRADE_ACCOUNTING_BULK_QUARANTINED mint=${enriched.mint.take(8)} side=${enriched.side} pnlPct=${enriched.pnlPct} pnl=${enriched.pnlSol} reason=${enriched.reason}")
+                    if (enriched.mode.equals("paper", true)) PipelineHealthCollector.labelInc("PAPER_COUNTER_SKIPPED_QUARANTINED_ROW")
+                } catch (_: Throwable) {}
                 if (ok) {
                     synchronized(lock) { trades.add(enriched) }
                     toAdd += enriched

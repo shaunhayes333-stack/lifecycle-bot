@@ -4813,35 +4813,53 @@ class Executor(
         var liveBalanceSource: com.lifecyclebot.engine.sell.SellAmountAuthority.BalanceSource =
             com.lifecyclebot.engine.sell.SellAmountAuthority.BalanceSource.UNKNOWN
         val sellQty: Double = run {
-            val resolution = try {
-                com.lifecyclebot.engine.sell.SellAmountAuthority.resolveForExit(ts.mint, wallet, "PARTIAL_TAKE_PROFIT")
-            } catch (_: Throwable) { null }
-            liveBalanceSource = com.lifecyclebot.engine.sell.SellAmountAuthority.balanceSource(resolution)
-            val confirmed = resolution as? com.lifecyclebot.engine.sell.SellAmountAuthority.Resolution.Confirmed
-            if (confirmed != null) {
-                preSellRawForAudit = confirmed.rawAmount
-                decimalsForAudit = confirmed.decimals
-                val sized = com.lifecyclebot.engine.sell.PartialSellSizer.size(
-                    intendedFraction = sellFraction,
-                    verifiedRemainingRaw = confirmed.rawAmount,
-                )
-                if (sized != null) {
-                    expectedConsumedRawForAudit = sized.rawAmount
-                    val ui = java.math.BigDecimal(sized.rawAmount)
-                        .movePointLeft(confirmed.decimals).toDouble()
-                    onLog("📐 PartialSellSizer ${ts.symbol}: verifiedRaw=${confirmed.rawAmount} " +
-                          "fraction=$sellFraction → rawAmount=${sized.rawAmount} (${"%.6f".format(ui)} ui) " +
-                          "vs cached pos.qtyToken=${pos.qtyToken}", ts.mint)
-                    ui
-                } else {
-                    onLog("⏸️ PARTIAL_SELL_WAITING_BALANCE_PROOF: ${ts.symbol} dust-rejected by verified raw amount — no cached qty sell.", ts.mint)
-                    try { ForensicLogger.lifecycle("SELL_WAITING_BALANCE_PROOF", "mint=${ts.mint.take(10)} symbol=${ts.symbol} reason=PARTIAL_DUST_REJECTED") } catch (_: Throwable) {}
+            if (pos.isPaperPosition) {
+                // V5.0.3810 — PAPER partial finality is ledger-authoritative.
+                // Do not call SellAmountAuthority / wallet tracker / Helius here:
+                // paper has no on-chain token account to prove, and using the live
+                // proof path emitted live balance-proof wait labels while valid
+                // paper positions were open in the simulator ledger.
+                try { ForensicLogger.lifecycle("PAPER_BALANCE_PROOF_BYPASSED_LEDGER_AUTHORITY", "mint=${ts.mint.take(10)} symbol=${ts.symbol} reason=PARTIAL_TAKE_PROFIT qty=${pos.qtyToken}") } catch (_: Throwable) {}
+                try { PipelineHealthCollector.labelInc("PAPER_BALANCE_PROOF_BYPASSED_LEDGER_AUTHORITY") } catch (_: Throwable) {}
+                if (pos.qtyToken <= 1e-12 || pos.costSol <= 0.0) {
+                    try { ForensicLogger.lifecycle("PAPER_PARTIAL_CLOSE_REJECTED_NO_LEDGER_POSITION", "mint=${ts.mint.take(10)} symbol=${ts.symbol} qty=${pos.qtyToken} cost=${pos.costSol}") } catch (_: Throwable) {}
+                    try { PipelineHealthCollector.labelInc("PAPER_PARTIAL_CLOSE_REJECTED_NO_LEDGER_POSITION") } catch (_: Throwable) {}
                     return false
                 }
+                try { ForensicLogger.lifecycle("PAPER_PARTIAL_CLOSE_REQUESTED", "mint=${ts.mint.take(10)} symbol=${ts.symbol} fraction=$sellFraction qty=${pos.qtyToken}") } catch (_: Throwable) {}
+                try { PipelineHealthCollector.labelInc("PAPER_PARTIAL_CLOSE_REQUESTED") } catch (_: Throwable) {}
+                (pos.qtyToken * sellFraction).coerceIn(0.0, pos.qtyToken)
             } else {
-                onLog("⏸️ PARTIAL_SELL_WAITING_BALANCE_PROOF: ${ts.symbol} RPC empty/unknown — no cached qty sell.", ts.mint)
-                try { ForensicLogger.lifecycle("SELL_WAITING_BALANCE_PROOF", "mint=${ts.mint.take(10)} symbol=${ts.symbol} reason=PARTIAL_BALANCE_UNKNOWN") } catch (_: Throwable) {}
-                return false
+                val resolution = try {
+                    com.lifecyclebot.engine.sell.SellAmountAuthority.resolveForExit(ts.mint, wallet, "PARTIAL_TAKE_PROFIT")
+                } catch (_: Throwable) { null }
+                liveBalanceSource = com.lifecyclebot.engine.sell.SellAmountAuthority.balanceSource(resolution)
+                val confirmed = resolution as? com.lifecyclebot.engine.sell.SellAmountAuthority.Resolution.Confirmed
+                if (confirmed != null) {
+                    preSellRawForAudit = confirmed.rawAmount
+                    decimalsForAudit = confirmed.decimals
+                    val sized = com.lifecyclebot.engine.sell.PartialSellSizer.size(
+                        intendedFraction = sellFraction,
+                        verifiedRemainingRaw = confirmed.rawAmount,
+                    )
+                    if (sized != null) {
+                        expectedConsumedRawForAudit = sized.rawAmount
+                        val ui = java.math.BigDecimal(sized.rawAmount)
+                            .movePointLeft(confirmed.decimals).toDouble()
+                        onLog("📐 PartialSellSizer ${ts.symbol}: verifiedRaw=${confirmed.rawAmount} " +
+                              "fraction=$sellFraction → rawAmount=${sized.rawAmount} (${"%.6f".format(ui)} ui) " +
+                              "vs cached pos.qtyToken=${pos.qtyToken}", ts.mint)
+                        ui
+                    } else {
+                        onLog("⏸️ PARTIAL_SELL_WAITING_BALANCE_PROOF: ${ts.symbol} dust-rejected by verified raw amount — no cached qty sell.", ts.mint)
+                        try { ForensicLogger.lifecycle("SELL_WAITING_BALANCE_PROOF", "mint=${ts.mint.take(10)} symbol=${ts.symbol} reason=PARTIAL_DUST_REJECTED") } catch (_: Throwable) {}
+                        return false
+                    }
+                } else {
+                    onLog("⏸️ PARTIAL_SELL_WAITING_BALANCE_PROOF: ${ts.symbol} RPC empty/unknown — no cached qty sell.", ts.mint)
+                    try { ForensicLogger.lifecycle("SELL_WAITING_BALANCE_PROOF", "mint=${ts.mint.take(10)} symbol=${ts.symbol} reason=PARTIAL_BALANCE_UNKNOWN") } catch (_: Throwable) {}
+                    return false
+                }
             }
         }
         val sellSol      = sellQty * actualPrice
@@ -4882,7 +4900,16 @@ class Executor(
             return false
         }
         if (pos.isPaperPosition) {
-            ts.position = pos.copy(qtyToken = newQty, costSol = newCost, partialSoldPct = newSoldPct)
+            val paperDustClosed = newQty <= 1e-12 || newCost <= 0.000_001
+            ts.position = if (paperDustClosed) com.lifecyclebot.data.Position() else pos.copy(qtyToken = newQty, costSol = newCost, partialSoldPct = newSoldPct)
+            if (paperDustClosed) {
+                try { PositionPersistence.removePosition(ts.mint) } catch (_: Throwable) {}
+                try { GlobalTradeRegistry.closePosition(ts.mint) } catch (_: Throwable) {}
+                try { PositionCloseLedger.markClosed(ts.mint, "PAPER_PARTIAL_DUST_CLOSED", gainPct.toInt()) } catch (_: Throwable) {}
+                try { PaperPositionCloseAuthority.markClosed("PAPER", ts.mint, ts.symbol, "PAPER_PARTIAL_DUST_CLOSED") } catch (_: Throwable) {}
+                try { ForensicLogger.lifecycle("PAPER_CLOSE_CONFIRMED_LEDGER_ONLY", "mint=${ts.mint.take(10)} symbol=${ts.symbol} reason=PARTIAL_DUST") } catch (_: Throwable) {}
+                try { PipelineHealthCollector.labelInc("PAPER_CLOSE_CONFIRMED_LEDGER_ONLY") } catch (_: Throwable) {}
+            }
             val partialCostBasisSol = pos.costSol * sellFraction
             // V5.0.3683 — ACCOUNTING LEDGER FIX — wire feeSol/netPnlSol so the
             // exporter never zeroes Net Gain on paper partials.
@@ -4894,6 +4921,8 @@ class Executor(
                               feeSol = paperPartialFee, netPnlSol = paperPartialNetPnl,
                               tradingMode = pos.tradingMode, tradingModeEmoji = pos.tradingModeEmoji, mint = ts.mint)
             recordTrade(ts, trade); security.recordTrade(trade)
+            try { ForensicLogger.lifecycle("PAPER_PARTIAL_CLOSE_DONE", "mint=${ts.mint.take(10)} symbol=${ts.symbol} soldQty=$sellQty remaining=${if (paperDustClosed) 0.0 else newQty} dustClosed=$paperDustClosed") } catch (_: Throwable) {}
+            try { PipelineHealthCollector.labelInc("PAPER_PARTIAL_CLOSE_DONE") } catch (_: Throwable) {}
             // V5.9.743 — wire 70/30 treasury siphon onto the AUTONOMOUS partial-
             // sell ladder. Previously only the manual requestPartialSell entry
             // point siphoned (V5.9.428 wired that one). checkPartialSell fires
@@ -10170,6 +10199,15 @@ class Executor(
         
         if (isPaper) {
             val pos = ts.position
+            try { ForensicLogger.lifecycle("PAPER_BALANCE_PROOF_BYPASSED_LEDGER_AUTHORITY", "mint=${ts.mint.take(10)} symbol=${ts.symbol} reason=REQUEST_PARTIAL_SELL qty=${pos.qtyToken}") } catch (_: Throwable) {}
+            try { PipelineHealthCollector.labelInc("PAPER_BALANCE_PROOF_BYPASSED_LEDGER_AUTHORITY") } catch (_: Throwable) {}
+            if (pos.qtyToken <= 1e-12 || pos.costSol <= 0.0) {
+                try { ForensicLogger.lifecycle("PAPER_PARTIAL_CLOSE_REJECTED_NO_LEDGER_POSITION", "mint=${ts.mint.take(10)} symbol=${ts.symbol} qty=${pos.qtyToken} cost=${pos.costSol}") } catch (_: Throwable) {}
+                try { PipelineHealthCollector.labelInc("PAPER_PARTIAL_CLOSE_REJECTED_NO_LEDGER_POSITION") } catch (_: Throwable) {}
+                return
+            }
+            try { ForensicLogger.lifecycle("PAPER_PARTIAL_CLOSE_REQUESTED", "mint=${ts.mint.take(10)} symbol=${ts.symbol} pct=$pct qty=${pos.qtyToken}") } catch (_: Throwable) {}
+            try { PipelineHealthCollector.labelInc("PAPER_PARTIAL_CLOSE_REQUESTED") } catch (_: Throwable) {}
             val soldValueSol = pos.costSol * pct
             val profitSol = soldValueSol * (pnlPct / 100.0)
             val newSoldPct = pos.partialSoldPct + (pct * 100.0)
@@ -10225,6 +10263,8 @@ class Executor(
                 mint             = ts.mint,
             )
             recordTrade(ts, trade)
+            try { ForensicLogger.lifecycle("PAPER_PARTIAL_CLOSE_DONE", "mint=${ts.mint.take(10)} symbol=${ts.symbol} soldValue=$soldValueSol remaining=${if (fullyExited) 0.0 else residualQty} fullyExited=$fullyExited") } catch (_: Throwable) {}
+            try { PipelineHealthCollector.labelInc("PAPER_PARTIAL_CLOSE_DONE") } catch (_: Throwable) {}
             // V5.9.428 — treasury split on partial sells too (same model as
             // full paperSell): meme wins 70/30, treasury scalps 100%, losers
             // contribute nothing. soldValueSol includes principal+profit share

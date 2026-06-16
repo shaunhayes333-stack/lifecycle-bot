@@ -114,6 +114,7 @@ object PaperPositionCloseAuthority {
             s
         }
         emit("PAPER_CLOSE_CLOSED", mint, symbol, "closeId=$cid reason=$reason")
+        if (normMode(mode) == "PAPER") emit("PAPER_CLOSE_CONFIRMED_LEDGER_ONLY", mint, symbol, "closeId=$cid reason=$reason")
     }
 
     fun markFailed(mode: String = "PAPER", mint: String, symbol: String = "", reason: String = "") {

@@ -126,6 +126,9 @@ object PipelineHealthCollector {
         execPaperBuyOk.set(0L)
         execPaperSellOk.set(0L)
         execPaperPartialOk.set(0L)
+        // V5.0.3810 — reset journal-derived paper labels with paper OK atomics;
+        // otherwise reports can show old PAPER_JOURNAL_ROWS with freshly-zero OK counters.
+        listOf("PAPER_JOURNAL_ROWS", "TRADEJRNL_REC_PAPER", "TRADEJRNL_REC_LIVE", "TRADEJRNL_REC_PARTIAL", "PAPER_LEARNING_ROW_QUARANTINED").forEach { labelCounts.remove(it) }
         try { ForensicLogger.lifecycle("MODE_COUNTERS_RESET", "mode=$mode") } catch (_: Throwable) {}
     }
 
@@ -535,10 +538,12 @@ object PipelineHealthCollector {
         if (sideUpper == "PARTIAL_SELL") bump(labelCounts, "TRADEJRNL_REC_PARTIAL")
         if (eventMode == "PAPER") {
             when (sideUpper) {
-                "BUY" -> execPaperBuyOk.incrementAndGet()
-                "SELL" -> execPaperSellOk.incrementAndGet()
-                "PARTIAL_SELL" -> execPaperPartialOk.incrementAndGet()
+                "BUY" -> { execPaperBuyOk.incrementAndGet(); bump(labelCounts, "PAPER_COUNTER_SIDE_MAPPED") }
+                "SELL" -> { execPaperSellOk.incrementAndGet(); bump(labelCounts, "PAPER_COUNTER_SIDE_MAPPED") }
+                "PARTIAL_SELL" -> { execPaperPartialOk.incrementAndGet(); bump(labelCounts, "PAPER_COUNTER_SIDE_MAPPED") }
+                else -> bump(labelCounts, "PAPER_COUNTER_SKIPPED_UNKNOWN_SIDE")
             }
+            bump(labelCounts, "PAPER_COUNTER_INCREMENTED_FROM_JOURNAL")
         }
         if (proof.isNotBlank()) bump(labelCounts, "PROOF_$proof")
         recentExecs.addLast(ExecRecord(System.currentTimeMillis(), side, eventMode, symbol, sizeSol, pnlSol, reason, proof))
@@ -1264,6 +1269,15 @@ object PipelineHealthCollector {
         sb.append("  PAPER_JOURNAL_ROWS:   $paperJournalRows\n")
         sb.append("  PAPER_QUARANTINED_ROWS: $paperQuarantinedRows\n")
         sb.append("  Recent journal rows:  ${paperRecentRows}\n")
+        val paperOkRows = execPaperBuyOk.get() + execPaperSellOk.get() + execPaperPartialOk.get()
+        val expectedPaperRows = jrnlPaperRows
+        if (expectedPaperRows == paperOkRows) {
+            bump(labelCounts, "TRADEJRNL_COUNTER_PARITY_OK")
+            sb.append("  Counter parity:       OK paperOk=$paperOkRows rows=$expectedPaperRows\n")
+        } else {
+            bump(labelCounts, "TRADEJRNL_COUNTER_PARITY_FAIL")
+            sb.append("  Counter parity:       FAIL paperOk=$paperOkRows rows=$expectedPaperRows\n")
+        }
         sb.append("\n")
 
         // ── Recent executions ───────────────────────────────────────

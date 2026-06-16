@@ -1857,6 +1857,39 @@ class GoldenTapeRegressionTest {
 
 
     @Test
+    fun paper_finality_slot_truth_and_counter_parity_are_ledger_authoritative() {
+        val exec = java.io.File("src/main/kotlin/com/lifecyclebot/engine/Executor.kt").readText()
+        val bot = java.io.File("src/main/kotlin/com/lifecyclebot/engine/BotService.kt").readText()
+        val collector = java.io.File("src/main/kotlin/com/lifecyclebot/engine/PipelineHealthCollector.kt").readText()
+        val store = java.io.File("src/main/kotlin/com/lifecyclebot/engine/TradeHistoryStore.kt").readText()
+        val paperClose = java.io.File("src/main/kotlin/com/lifecyclebot/engine/PaperPositionCloseAuthority.kt").readText()
+
+        val partialStart = exec.indexOf("fun checkPartialSell")
+        val partialChunk = exec.substring(partialStart, minOf(exec.length, partialStart + 8000))
+        val paperIdx = partialChunk.indexOf("if (pos.isPaperPosition)")
+        val liveProofIdx = partialChunk.indexOf("SellAmountAuthority.resolveForExit")
+        val liveWaitIdx = partialChunk.indexOf("SELL_WAITING_BALANCE_PROOF")
+        val liveUnknownIdx = partialChunk.indexOf("PARTIAL_BALANCE_UNKNOWN")
+        assertTrue("paper partial branch must precede live SellAmountAuthority", paperIdx >= 0 && liveProofIdx > paperIdx)
+        assertTrue("paper partial must bypass wallet proof with ledger authority", partialChunk.contains("PAPER_BALANCE_PROOF_BYPASSED_LEDGER_AUTHORITY") && partialChunk.contains("pos.qtyToken * sellFraction"))
+        assertTrue("paper partial must expose requested/done/rejected labels", exec.contains("PAPER_PARTIAL_CLOSE_REQUESTED") && exec.contains("PAPER_PARTIAL_CLOSE_DONE") && exec.contains("PAPER_PARTIAL_CLOSE_REJECTED_NO_LEDGER_POSITION"))
+        assertTrue("balance-proof wait labels must stay in the live branch after SellAmountAuthority", liveWaitIdx > liveProofIdx && liveUnknownIdx > liveProofIdx)
+
+        assertTrue("paper close authority must mark ledger-only finality", paperClose.contains("PAPER_CLOSE_CONFIRMED_LEDGER_ONLY"))
+        assertTrue("paper slot health must rebuild from paper ledger", bot.contains("rebuildPaperForcedOpenFromLedger") && bot.contains("PAPER_SLOT_HEALTH_REBUILT_FROM_LEDGER"))
+        assertTrue("paper forced rows must clear stale closed/dust states", bot.contains("PAPER_FORCED_ROW_CLEARED_NOT_OPEN") && bot.contains("PAPER_FORCED_ROW_CLEARED_CLOSED_LEDGER") && bot.contains("PAPER_FORCED_ROW_CLEARED_DUST"))
+        assertTrue("paper slot health publish must use paper open count", bot.contains("forcedOpen = if (paperRuntime) paperOpenNow else forcedOpenCount") && bot.contains("openPositions = if (paperRuntime) paperOpenNow else forcedOpenCount"))
+
+        assertTrue("paper counters must increment from accepted journal rows", collector.contains("PAPER_COUNTER_INCREMENTED_FROM_JOURNAL") && collector.contains("PAPER_COUNTER_SIDE_MAPPED"))
+        assertTrue("paper quarantine must skip OK counters", store.contains("PAPER_COUNTER_SKIPPED_QUARANTINED_ROW"))
+        assertTrue("paper journal/counter parity must be reported", collector.contains("TRADEJRNL_COUNTER_PARITY_OK") && collector.contains("TRADEJRNL_COUNTER_PARITY_FAIL"))
+        assertTrue("mode reset must clear journal-derived paper labels with paper OK atomics", collector.contains("PAPER_JOURNAL_ROWS") && collector.contains("labelCounts.remove(it)"))
+
+        assertFalse("paper finality fix must not touch FDG", java.io.File("src/main/kotlin/com/lifecyclebot/engine/FinalDecisionGate.kt").readText().contains("PAPER_BALANCE_PROOF_BYPASSED_LEDGER_AUTHORITY"))
+    }
+
+
+    @Test
     fun trade_journal_links_buy_partials_and_terminal_sell_with_entry_snapshot() {
         val models = java.io.File("src/main/kotlin/com/lifecyclebot/data/Models.kt").readText()
         val store = java.io.File("src/main/kotlin/com/lifecyclebot/engine/TradeHistoryStore.kt").readText()
