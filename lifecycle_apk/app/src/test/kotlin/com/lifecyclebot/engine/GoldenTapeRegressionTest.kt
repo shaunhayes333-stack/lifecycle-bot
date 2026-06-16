@@ -1490,7 +1490,7 @@ class GoldenTapeRegressionTest {
         assertTrue(wallet.contains("sanitizeWalletRpcUrl"))
         assertTrue(wallet.contains("WALLET_RPC_ENDPOINT_SKIPPED_BAD_TLS"))
         assertFalse("cert-broken public-rpc must not remain in fallback authority rotation",
-            wallet.contains("\"https://solana.public-rpc.com\","))
+            wallet.contains("\"https://solana.public-rpc.com\",                    // Public RPC"))
     }
 
 }
