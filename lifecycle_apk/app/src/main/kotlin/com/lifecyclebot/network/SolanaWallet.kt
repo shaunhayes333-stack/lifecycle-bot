@@ -565,51 +565,66 @@ class SolanaWallet(privateKeyB58: String, val rpcUrl: String) {
      * Get token accounts with BOTH balance AND decimals.
      * Returns Map<mint, Pair<uiAmount, decimals>>
      */
-    fun getTokenAccountsWithDecimals(): Map<String, Pair<Double, Int>> {
-        // V5.9.254 FIX: Two root causes patched here:
-        //
-        // 1. dataSize=165 filter — this is the standard SPL Token account size, but
-        //    Token-2022 program accounts are a DIFFERENT size (varies by extension,
-        //    typically 170+ bytes). Many new meme tokens on Pump.fun/Raydium use
-        //    Token-2022. The filter was silently dropping all Token-2022 holdings,
-        //    making the phantom guard see qty=0 and wipe real positions.
-        //    Fix: query BOTH token programs explicitly without a dataSize filter.
-        //
-        // 2. No commitment level — defaults to "finalized" which is 32+ slots behind
-        //    "confirmed". With a 30s verify window, a brand-new buy might not be
-        //    finalized yet even though it's confirmed and the tokens are real.
-        //    Fix: use commitment="confirmed" for all token account reads.
+    fun getTokenAccountsWithDecimals(): Map<String, Pair<Double, Int>> = try {
+        getTokenAccountsWithDecimalsStrict()
+    } catch (e: Exception) {
+        android.util.Log.w("SolanaWallet", "getTokenAccountsWithDecimals non-strict failed: ${e.message}")
+        emptyMap()
+    }
+
+    /**
+     * V5.0.3762 — strict wallet token snapshot.
+     * Timeout, transport failure, malformed RPC, or partial token-program
+     * failure is indeterminate. Return an empty map only after BOTH SPL Token
+     * and Token-2022 reads completed successfully and found no positive token
+     * accounts.
+     */
+    fun getTokenAccountsWithDecimalsStrict(): Map<String, Pair<Double, Int>> {
         val TOKEN_PROGRAM    = "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA"
         val TOKEN_2022_PROG  = "TokenzQdBNbequivDy2Cv5VhM9xAZWQ8HHv2Q3ZUVV1"
         val out = mutableMapOf<String, Pair<Double, Int>>()
+        val failures = mutableListOf<String>()
+        var successCount = 0
         for (programId in listOf(TOKEN_PROGRAM, TOKEN_2022_PROG)) {
+            var programOk = false
+            var lastProgramError: Exception? = null
             repeat(3) { attempt ->
+                if (programOk) return@repeat
                 try {
                     val params = JSONArray()
                         .put(publicKeyB58)
+                        .put(JSONObject().put("programId", programId))
                         .put(JSONObject()
                             .put("encoding", "jsonParsed")
-                            .put("commitment", "confirmed")
-                            .put("programId", programId))
+                            .put("commitment", "confirmed"))
                     val resp = rpc("getTokenAccountsByOwner", params)
-                    resp.optJSONObject("result")?.optJSONArray("value")?.let { arr ->
-                        for (i in 0 until arr.length()) {
-                            val info = arr.optJSONObject(i)
-                                ?.optJSONObject("account")?.optJSONObject("data")
-                                ?.optJSONObject("parsed")?.optJSONObject("info") ?: continue
-                            val mint = info.optString("mint", "")
-                            val tokenAmount = info.optJSONObject("tokenAmount")
-                            val qty = tokenAmount?.optString("uiAmountString", "0")?.toDoubleOrNull() ?: 0.0
-                            val decimals = tokenAmount?.optInt("decimals", 9) ?: 9
-                            if (mint.isNotBlank() && qty > 0) out[mint] = Pair(qty, decimals)
-                        }
+                    val err = resp.optJSONObject("error")
+                    if (err != null) throw RuntimeException("RPC error: ${err.optString("message", err.toString())}")
+                    val result = resp.optJSONObject("result") ?: throw RuntimeException("missing result")
+                    val arr = result.optJSONArray("value") ?: throw RuntimeException("missing result.value")
+                    for (i in 0 until arr.length()) {
+                        val info = arr.optJSONObject(i)
+                            ?.optJSONObject("account")?.optJSONObject("data")
+                            ?.optJSONObject("parsed")?.optJSONObject("info") ?: continue
+                        val mint = info.optString("mint", "")
+                        val tokenAmount = info.optJSONObject("tokenAmount")
+                        val qty = tokenAmount?.optString("uiAmountString", "0")?.toDoubleOrNull() ?: 0.0
+                        val decimals = tokenAmount?.optInt("decimals", 9) ?: 9
+                        if (mint.isNotBlank() && qty > 0) out[mint] = Pair(qty, decimals)
                     }
-                    return@repeat  // success for this program
+                    programOk = true
+                    successCount++
                 } catch (e: Exception) {
-                    android.util.Log.w("SolanaWallet", "getTokenAccountsWithDecimals [$programId] attempt ${attempt+1}/3 failed: ${e.message}")
+                    lastProgramError = e
+                    android.util.Log.w("SolanaWallet", "getTokenAccountsWithDecimalsStrict [$programId] attempt ${attempt+1}/3 failed: ${e.message}")
                     if (attempt < 2) Thread.sleep((300L shl attempt))
                 }
             }
+            if (!programOk) failures.add("${programId.take(8)}:${lastProgramError?.message ?: "unknown"}")
+        }
+        if (successCount < 2) {
+            try { com.lifecyclebot.engine.ForensicLogger.lifecycle("WALLET_TOKEN_READ_INDETERMINATE", "successPrograms=$successCount/2 failures=${failures.joinToString(";").take(180)}") } catch (_: Throwable) {}
+            throw RuntimeException("wallet token snapshot indeterminate: successPrograms=$successCount/2 failures=${failures.joinToString(";")}")
         }
         return out
     }
@@ -628,11 +643,10 @@ class SolanaWallet(privateKeyB58: String, val rpcUrl: String) {
      * This wrapper offloads the call to a dedicated daemon executor (NOT
      * Dispatchers.IO — we don't want a single hung RPC to consume an IO
      * worker that the bot loop, sweepers, or persistence rely on) and
-     * applies a hard `Future.get(timeoutMs)` ceiling. On timeout we:
-     *   1. Cancel the orphan future (best-effort interrupt of OkHttp read)
-     *   2. Return `emptyMap()` — semantically identical to "RPC returned 0
-     *      accounts", which every existing caller already handles via the
-     *      V5.9.467 RPC-EMPTY rescue path (falls back to tracker qty).
+     * applies a hard `Future.get(timeoutMs)` ceiling. On timeout/transport
+     * failure it throws WALLET_TOKEN_READ_INDETERMINATE. It must never invent
+     * emptyMap(), because emptyMap() was misread downstream as "wallet has no
+     * tokens" and stranded live sells in SELL_WAITING_BALANCE_PROOF.
      *
      * Default ceiling is 5 s: balances tolerance for normal RPC latency
      * against the desire to keep the bot loop ticking. Critical sell paths
@@ -643,22 +657,21 @@ class SolanaWallet(privateKeyB58: String, val rpcUrl: String) {
     ): Map<String, Pair<Double, Int>> {
         val fut: java.util.concurrent.Future<Map<String, Pair<Double, Int>>> = try {
             boundedRpcExecutor().submit(java.util.concurrent.Callable {
-                getTokenAccountsWithDecimals()
+                getTokenAccountsWithDecimalsStrict()
             })
-        } catch (_: Throwable) {
-            return emptyMap()
+        } catch (e: Throwable) {
+            throw RuntimeException("wallet token bounded executor unavailable: ${e.message}", e)
         }
         return try {
             fut.get(timeoutMs, java.util.concurrent.TimeUnit.MILLISECONDS)
-        } catch (_: java.util.concurrent.TimeoutException) {
+        } catch (e: java.util.concurrent.TimeoutException) {
             try { fut.cancel(true) } catch (_: Throwable) {}
-            android.util.Log.w(
-                "SolanaWallet",
-                "getTokenAccountsWithDecimalsBounded: RPC exceeded ${timeoutMs} ms — returning empty map (RPC-EMPTY rescue path)"
-            )
-            emptyMap()
-        } catch (_: Throwable) {
-            emptyMap()
+            try { com.lifecyclebot.engine.ForensicLogger.lifecycle("WALLET_TOKEN_READ_INDETERMINATE", "reason=TIMEOUT timeoutMs=$timeoutMs") } catch (_: Throwable) {}
+            android.util.Log.w("SolanaWallet", "getTokenAccountsWithDecimalsBounded: RPC exceeded ${timeoutMs} ms — indeterminate, not empty wallet")
+            throw RuntimeException("wallet token snapshot timeout after ${timeoutMs}ms", e)
+        } catch (e: Throwable) {
+            try { com.lifecyclebot.engine.ForensicLogger.lifecycle("WALLET_TOKEN_READ_INDETERMINATE", "reason=${e.message?.take(160)}") } catch (_: Throwable) {}
+            throw RuntimeException("wallet token snapshot failed: ${e.message}", e)
         }
     }
 
@@ -775,10 +788,10 @@ class SolanaWallet(privateKeyB58: String, val rpcUrl: String) {
             try {
                 val params = JSONArray()
                     .put(publicKeyB58)
+                    .put(JSONObject().put("programId", programId))
                     .put(JSONObject()
                         .put("encoding", "jsonParsed")
-                        .put("commitment", "confirmed")
-                        .put("programId", programId))
+                        .put("commitment", "confirmed"))
                 val resp = rpc("getTokenAccountsByOwner", params)
                 resp.optJSONObject("result")?.optJSONArray("value")?.let { arr ->
                     for (i in 0 until arr.length()) {
@@ -821,10 +834,10 @@ class SolanaWallet(privateKeyB58: String, val rpcUrl: String) {
             try {
                 val params = JSONArray()
                     .put(publicKeyB58)
+                    .put(JSONObject().put("programId", programId))
                     .put(JSONObject()
                         .put("encoding", "jsonParsed")
-                        .put("commitment", "confirmed")
-                        .put("programId", programId))
+                        .put("commitment", "confirmed"))
                 val resp = rpc("getTokenAccountsByOwner", params)
                 val value = resp.optJSONObject("result")?.optJSONArray("value")
                 if (value != null) {

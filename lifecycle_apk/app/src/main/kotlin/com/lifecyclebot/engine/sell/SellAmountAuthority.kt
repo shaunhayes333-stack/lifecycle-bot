@@ -99,13 +99,19 @@ object SellAmountAuthority {
         val balances: Map<String, Pair<Double, Int>> = try {
             w.getTokenAccountsWithDecimalsBounded()
         } catch (e: Throwable) {
-            ErrorLogger.warn(TAG, "wallet RPC threw for mint ${mint.take(8)}…: ${e.message}")
-            emptyMap()
+            // V5.0.3762 source fix: bounded wallet read failures/timeouts are
+            // indeterminate, not empty wallet snapshots. Do not convert them to
+            // emptyMap(), because that creates fake RPC_EMPTY_MAP sell waits.
+            try { com.lifecyclebot.engine.ForensicLogger.lifecycle("EXEC_TRACE_AUTHORITY", "side=SELL stage=WALLET_TOKEN_READ_INDETERMINATE mint=${mint.take(10)} err=${e.message?.take(120)}") } catch (_: Throwable) {}
+            ErrorLogger.warn(TAG, "BALANCE_UNKNOWN reason=WALLET_TOKEN_READ_INDETERMINATE mint=${mint.take(8)}… err=${e.message}")
+            return Resolution.Unknown
         }
         if (balances.isEmpty()) {
-            // V5.0.3740 — RPC empty map is UNKNOWN, never generic TX_PARSE authority.
-            try { com.lifecyclebot.engine.ForensicLogger.lifecycle("EXEC_TRACE_AUTHORITY", "side=SELL stage=BALANCE_RPC_EMPTY mint=${mint.take(10)} walletLoaded=true") } catch (_: Throwable) {}
-            ErrorLogger.warn(TAG, "BALANCE_UNKNOWN reason=RPC_EMPTY_MAP mint=${mint.take(8)}…")
+            // Both token-program reads succeeded and found no positive balances.
+            // Still UNKNOWN for one-shot sell authority; independent zero finality
+            // is owned by reconciler/two-provider proof.
+            try { com.lifecyclebot.engine.ForensicLogger.lifecycle("EXEC_TRACE_AUTHORITY", "side=SELL stage=BALANCE_RPC_CONFIRMED_EMPTY mint=${mint.take(10)} walletLoaded=true") } catch (_: Throwable) {}
+            ErrorLogger.warn(TAG, "BALANCE_UNKNOWN reason=RPC_CONFIRMED_EMPTY mint=${mint.take(8)}…")
             return Resolution.Unknown
         }
         val entry = balances[mint]

@@ -12644,26 +12644,26 @@ class Executor(
                     }
                 }
                 if (!recovered) {
-                    // V5.0.3740 — strict live balance authority. RPC empty map + no
-                    // owner-filtered balance means BALANCE_UNKNOWN. Do not use HostTracker,
-                    // generic TX_PARSE, quote math, or cached tokenUnits for a live sell.
+                    // V5.0.3762 — strict live balance authority. Wallet-token read
+                    // indeterminate + no owner-filtered/buy-tied proof means BALANCE_UNKNOWN.
+                    // Do not use generic TX_PARSE, quote math, or stale tokenUnits.
                     val tracked = try { HostWalletTokenTracker.getEntry(ts.mint) } catch (_: Throwable) { null }
                     if (tracked != null && tracked.source == HostWalletTokenTracker.PositionSource.TX_PARSE) {
                         try { ForensicLogger.lifecycle("BALANCE_PROOF_REJECTED", "reason=GENERIC_TX_PARSE_NOT_OWNER_FILTERED mint=${ts.mint.take(10)} site=liveSell_rpc_empty trackerStatus=${tracked.status.name}") } catch (_: Throwable) {}
                     }
                     val trackedStatusTrace = tracked?.status?.name ?: "none"
                     val trackedRawTrace = tracked?.rawAmount ?: "none"
-                    ExecutionRootCauseTrace.authority("SELL", "LIVESELL_RPC_EMPTY_BALANCE_UNKNOWN", ts, "reason=$reason retry=$retryCount trackedStatus=$trackedStatusTrace trackedRaw=$trackedRawTrace action=wait_balance_proof")
+                    ExecutionRootCauseTrace.authority("SELL", "LIVESELL_WALLET_READ_INDETERMINATE", ts, "reason=$reason retry=$retryCount trackedStatus=$trackedStatusTrace trackedRaw=$trackedRawTrace action=wait_balance_proof")
                     LiveTradeLogStore.log(
                         sellTradeKey, ts.mint, ts.symbol, "SELL",
                         LiveTradeLogStore.Phase.SELL_BALANCE_CHECK,
-                        "SELL_QTY_SOURCE=BALANCE_UNKNOWN reason=RPC_EMPTY_MAP — no owner-filtered balance proof; no broadcast",
+                        "SELL_QTY_SOURCE=BALANCE_UNKNOWN reason=WALLET_TOKEN_READ_INDETERMINATE — no owner-filtered balance proof; no broadcast",
                         traderTag = "MEME",
                     )
-                    try { ForensicLogger.lifecycle("SELL_WAITING_BALANCE_PROOF", "mint=${ts.mint.take(10)} symbol=${ts.symbol} reason=RPC_EMPTY_MAP close_lease_released=true") } catch (_: Throwable) {}
+                    try { ForensicLogger.lifecycle("SELL_WAITING_BALANCE_PROOF", "mint=${ts.mint.take(10)} symbol=${ts.symbol} reason=WALLET_TOKEN_READ_INDETERMINATE close_lease_released=true") } catch (_: Throwable) {}
                     try { com.lifecyclebot.engine.sell.SellExecutionLocks.release(ts.mint) } catch (_: Throwable) {}
                     try { com.lifecyclebot.engine.sell.CloseLease.release(ts.mint, "BALANCE_UNKNOWN_NO_SIGNATURE") } catch (_: Throwable) {}
-                    try { HostWalletTokenTracker.markSellNoSignatureUnlocked(ts.mint, ts.symbol, "BALANCE_UNKNOWN_RPC_EMPTY") } catch (_: Throwable) {}
+                    try { HostWalletTokenTracker.markSellNoSignatureUnlocked(ts.mint, ts.symbol, "BALANCE_UNKNOWN_WALLET_TOKEN_READ_INDETERMINATE") } catch (_: Throwable) {}
                     // V5.0.3746 — operator spec items 1, 2, 5: hand off to
                     // BalanceProofPoller via BalanceProofWaitState. This MUST NOT
                     // emit SELL_RETRY_TEMPORARY_ONLY, MUST NOT acquire/blocking

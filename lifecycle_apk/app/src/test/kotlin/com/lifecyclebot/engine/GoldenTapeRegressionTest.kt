@@ -623,7 +623,7 @@ class GoldenTapeRegressionTest {
         val authority = java.io.File("src/main/kotlin/com/lifecyclebot/engine/sell/SellAmountAuthority.kt").readText()
         val amountPlanningSurface = exec + "\n" + planner
 
-        assertTrue(exec.contains("SELL_QTY_SOURCE=BALANCE_UNKNOWN reason=RPC_EMPTY_MAP"))
+        assertTrue(exec.contains("SELL_QTY_SOURCE=BALANCE_UNKNOWN") || exec.contains("WALLET_TOKEN_READ_INDETERMINATE"))
         assertTrue(amountPlanningSurface.contains("PROCESSOR_AMOUNT_RECALCULATED"))
         assertTrue(exec.contains("ProcessorAmountPlanner.planSellFromConfirmed"))
         listOf(
@@ -940,7 +940,7 @@ class GoldenTapeRegressionTest {
         assertTrue(auth.contains("PARTIAL_TAKE_PROFIT"))
         assertTrue(auth.contains("CAPITAL_RECOVERY"))
         assertTrue(auth.contains("BALANCE_PROOF_REJECTED reason=GENERIC_TX_PARSE_NOT_OWNER_FILTERED"))
-        assertTrue(auth.contains("BALANCE_UNKNOWN reason=RPC_EMPTY_MAP"))
+        assertTrue(auth.contains("WALLET_TOKEN_READ_INDETERMINATE"))
         assertFalse("Generic TX_PARSE must not bypass sell broadcast authority", auth.contains("TX_PARSE_BROADCAST_BYPASS"))
         assertTrue(exec.contains("resolveForExit(ts.mint, wallet, reason)"))
         assertTrue(exec.contains("SELL_WAITING_BALANCE_PROOF"))
@@ -995,7 +995,7 @@ class GoldenTapeRegressionTest {
 
         assertTrue(sellAuth.contains("data class BalanceProof") || java.io.File("src/main/kotlin/com/lifecyclebot/engine/sell/BalanceProof.kt").readText().contains("data class BalanceProof"))
         assertTrue(sellAuth.contains("BALANCE_PROOF_REJECTED reason=GENERIC_TX_PARSE_NOT_OWNER_FILTERED"))
-        assertTrue(sellAuth.contains("BALANCE_UNKNOWN reason=RPC_EMPTY_MAP"))
+        assertTrue(sellAuth.contains("WALLET_TOKEN_READ_INDETERMINATE"))
         assertFalse("RPC empty must not fall back to TX_PARSE confirmed balance", sellAuth.contains("return tryFreshTxParseFallback(mint) ?: Resolution.Unknown"))
         assertFalse("TX_PARSE must not be broadcast bypass", sellAuth.contains("TX_PARSE_BROADCAST_BYPASS"))
 
@@ -1118,7 +1118,7 @@ class GoldenTapeRegressionTest {
         assertTrue(proofState.contains("UNKNOWN is intentionally not ZERO"))
 
         val sellAuthority = java.io.File("src/main/kotlin/com/lifecyclebot/engine/sell/SellAmountAuthority.kt").readText()
-        assertTrue(sellAuthority.contains("BALANCE_UNKNOWN reason=RPC_EMPTY_MAP"))
+        assertTrue(sellAuthority.contains("WALLET_TOKEN_READ_INDETERMINATE"))
         assertTrue(sellAuthority.contains("BALANCE_UNKNOWN reason=MINT_ABSENT_FROM_ONE_PROVIDER"))
         assertTrue(sellAuthority.contains("BALANCE_UNKNOWN reason=ONE_PROVIDER_ZERO"))
         assertTrue(sellAuthority.contains("using lastPositiveRaw recovery amount"))
@@ -1235,11 +1235,11 @@ class GoldenTapeRegressionTest {
         val exec = java.io.File("src/main/kotlin/com/lifecyclebot/engine/Executor.kt").readText()
         assertTrue(exec.contains("LIVESELL_RPC_EMPTY_OWNER_DELTA_RECOVERED"))
         assertTrue(exec.contains("SellAmountAuthority.resolveForExit(ts.mint, wallet, reason)"))
-        assertTrue(exec.contains("LIVESELL_RPC_EMPTY_BALANCE_UNKNOWN"))
+        assertTrue(exec.contains("LIVESELL_WALLET_READ_INDETERMINATE"))
         assertTrue(exec.contains("REQUEST_SELL_BALANCE_WAIT_MERGE"))
         assertTrue(exec.contains("REQUEST_SELL_BALANCE_WAIT_PROOF_READY"))
         assertTrue(exec.contains("BalanceProofWaitState.clear(ts.mint, \"PROOF_READY_REQUESTSELL\")"))
-        assertTrue(exec.indexOf("LIVESELL_RPC_EMPTY_OWNER_DELTA_RECOVERED") < exec.indexOf("LIVESELL_RPC_EMPTY_BALANCE_UNKNOWN"))
+        assertTrue(exec.indexOf("LIVESELL_RPC_EMPTY_OWNER_DELTA_RECOVERED") < exec.indexOf("LIVESELL_WALLET_READ_INDETERMINATE"))
     }
 
 
@@ -1315,6 +1315,19 @@ class GoldenTapeRegressionTest {
         assertTrue(snap.contains("maxOf(walletHeld, hostOpen, localLiveOpen, lifecyclePendingConfirmed)"))
         assertTrue(doctor.contains("RECONCILER_BLIND_CRITICAL"))
         assertTrue(doctor.contains("LIVE_BUY_CONFIRMED_NOT_VISIBLE_CRITICAL"))
+    }
+
+
+    @Test
+    fun wallet_token_rpc_uses_valid_getTokenAccountsByOwner_shape_and_never_timeout_empty() {
+        val wallet = java.io.File("src/main/kotlin/com/lifecyclebot/network/SolanaWallet.kt").readText()
+        assertTrue(wallet.contains("getTokenAccountsWithDecimalsStrict"))
+        assertTrue(wallet.contains("WALLET_TOKEN_READ_INDETERMINATE"))
+        assertTrue(wallet.contains(".put(JSONObject().put(\"programId\", programId))"))
+        assertTrue(wallet.contains(".put(\"encoding\", \"jsonParsed\")"))
+        assertFalse("bounded wallet token reads must never manufacture empty wallet on timeout", wallet.contains("returning empty map (RPC-EMPTY rescue path)"))
+        assertFalse("bounded timeout must throw indeterminate, not emptyMap", wallet.contains("catch (_: java.util.concurrent.TimeoutException)"))
+        assertTrue(wallet.contains("throw RuntimeException(\"wallet token snapshot timeout"))
     }
 
 }
