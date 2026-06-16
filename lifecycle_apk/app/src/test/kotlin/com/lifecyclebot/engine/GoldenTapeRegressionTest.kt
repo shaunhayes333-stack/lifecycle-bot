@@ -1835,9 +1835,9 @@ class GoldenTapeRegressionTest {
 
         val reqGuard = exec.indexOf("V5.0.3801 — PAPER source guard before any executor activity")
         val lifecyclePending = exec.indexOf("TokenLifecycleTracker.onSellPending")
-        val trace = exec.indexOf("ExecutionRootCauseTrace.sell("DO_SELL_ENTRY"")
+        val trace = exec.indexOf("ExecutionRootCauseTrace.sell(\"DO_SELL_ENTRY\"")
         assertTrue("paper requestSell guard must run before lifecycle pending", reqGuard >= 0 && lifecyclePending > reqGuard)
-        assertTrue("paper doSell guard must remain before EXEC_TRACE_SELL", exec.indexOf("PaperPositionCloseAuthority.preSellGuard("PAPER"") in 0 until trace)
+        assertTrue("paper doSell guard must remain before EXEC_TRACE_SELL", exec.indexOf("PaperPositionCloseAuthority.preSellGuard(\"PAPER\"") in 0 until trace)
 
         assertTrue("paper restore must use a bounded freshness window", persist.contains("PAPER_RESTORE_WINDOW_MS"))
         assertTrue("stale paper restore rows must be quarantined/dropped", persist.contains("PAPER_STALE_RESTORE_DROPPED"))
@@ -1847,10 +1847,34 @@ class GoldenTapeRegressionTest {
         assertTrue("paper exit sweep budget helper must cap checks at 5", budget.contains("minOf(5, openPaperPositions"))
         assertTrue("main loop must skip already CLOSED paper active rows", bot.contains("PAPER_CLOSED_ACTIVE_ROW_DROPPED"))
         assertTrue("main loop must budget paper exit maintenance", bot.contains("PaperExitSweepBudget.allow"))
-        assertTrue("fresh-timeout must consult paper close authority", exits.contains("PaperPositionCloseAuthority.stateOf("PAPER", mint)"))
+        assertTrue("fresh-timeout must consult paper close authority", exits.contains("PaperPositionCloseAuthority.stateOf(\"PAPER\", mint)"))
 
         assertTrue("paper journal row alias must be event-attributed", collector.contains("PAPER_JOURNAL_ROWS"))
         assertTrue("paper quarantine alias must be report-visible", collector.contains("PAPER_QUARANTINED_ROWS"))
+    }
+
+
+    @Test
+    fun processor_amount_planner_owns_buy_sell_amount_authority_executor_only_orchestrates() {
+        val exec = java.io.File("src/main/kotlin/com/lifecyclebot/engine/Executor.kt").readText()
+        val planner = java.io.File("src/main/kotlin/com/lifecyclebot/engine/ProcessorAmountPlanner.kt").readText()
+
+        assertTrue("planner must expose synchronous buy amount authority", planner.contains("fun planBuy("))
+        assertTrue("planner must expose synchronous sell amount authority", planner.contains("fun planSell("))
+        assertTrue("sell planner must refresh owner-filtered token accounts", planner.contains("wallet.getTokenAccountsWithDecimalsBounded()"))
+        assertTrue("sell planner must keep owner-delta rescue for critical exits", planner.contains("SellAmountAuthority.resolveForExit"))
+        assertTrue("buy planner must refresh wallet SOL before processor quote/build", planner.contains("wallet.getSolBalance()"))
+
+        assertTrue("Executor full-sell route ladder must still call the same wrapper", exec.contains("private fun recalcSellPlanForProcessor"))
+        assertTrue("Executor buy route ladder must still call the same wrapper", exec.contains("private fun recalcBuyPlanForProcessor"))
+        assertTrue("Executor wrapper must delegate sell authority to ProcessorAmountPlanner", exec.contains("ProcessorAmountPlanner.planSell("))
+        assertTrue("Executor wrapper must delegate buy authority to ProcessorAmountPlanner", exec.contains("ProcessorAmountPlanner.planBuy("))
+        assertFalse("Executor must not keep duplicate sell-balance authority after extraction", exec.contains("private fun resolveConfirmedSellAmountOrNull"))
+        assertFalse("Executor must not keep duplicate ConfirmedSellAmount model after extraction", exec.contains("private data class ConfirmedSellAmount"))
+
+        val partialIdx = exec.indexOf("processor = \"JupiterPartial\"")
+        val partialQuoteIdx = exec.indexOf("val manualJupiterPlan = recalcSellPlanForProcessor", partialIdx.coerceAtLeast(0))
+        assertTrue("live partial sells must obtain a processor-bound plan before quote/build", partialIdx >= 0 && partialQuoteIdx > partialIdx)
     }
 
 

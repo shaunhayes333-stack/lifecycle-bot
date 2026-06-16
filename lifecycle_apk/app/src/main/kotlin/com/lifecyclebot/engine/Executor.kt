@@ -1366,23 +1366,8 @@ class Executor(
         return (cappedQty * scale).toLong().coerceAtLeast(1L)
     }
 
-    private data class ConfirmedSellAmount(
-        val requestedRaw: Long,
-        val requestedUi: Double,
-        val walletRaw: Long,
-        val walletUi: Double,
-        val decimals: Int,
-    )
+    /** V5.0.3801 — amount proof/clamp/formatting lives in ProcessorAmountPlanner; Executor remains route orchestration. */
 
-
-    /**
-     * V5.0.3740 — processor-boundary sell amount recalculation.
-     * A sell amount/quote/tx payload may not survive a switch between execution
-     * processors (PumpPortal ↔ Jupiter Ultra/Metis ↔ direct DEX). Every processor
-     * receives a fresh owner-filtered balance proof, clamps to current wallet qty,
-     * and converts to that processor's exact input format before quote/build.
-     * Helius/Jito/RPC are senders, not processors; they do not mutate size.
-     */
     private fun recalcSellPlanForProcessor(
         ts: TokenState,
         wallet: SolanaWallet,
@@ -1393,40 +1378,19 @@ class Executor(
         sellTradeKey: String? = null,
         traderTag: String = "MEME",
     ): ProcessorAmountPlanner.SellPlan? {
-        val confirmed = resolveConfirmedSellAmountOrNull(
+        return ProcessorAmountPlanner.planSell(
             ts = ts,
             wallet = wallet,
+            processor = processor,
             requestedUiQty = requestedUiQty,
+            exitReason = exitReason,
             fraction = fraction,
             sellTradeKey = sellTradeKey,
             traderTag = traderTag,
-            reason = exitReason,
-            processor = processor,
-        ) ?: run {
-            ExecutionRootCauseTrace.authority("SELL", "PROCESSOR_AMOUNT_RECALC_BLOCKED", ts, "processor=$processor exitReason=$exitReason requestedUi=$requestedUiQty reason=BALANCE_UNKNOWN")
-            try { ForensicLogger.lifecycle("PROCESSOR_AMOUNT_RECALC_BLOCKED", "processor=$processor mint=${ts.mint.take(10)} reason=BALANCE_UNKNOWN") } catch (_: Throwable) {}
-            return null
-        }
-        val plan = ProcessorAmountPlanner.planSellFromConfirmed(
-            ts = ts,
-            processor = processor,
-            requestedRaw = confirmed.requestedRaw,
-            requestedUi = confirmed.requestedUi,
-            walletRaw = confirmed.walletRaw,
-            walletUi = confirmed.walletUi,
-            decimals = confirmed.decimals,
-            sellTradeKey = sellTradeKey,
-            traderTag = traderTag,
         )
-        return plan
     }
 
-
-    /** V5.0.3764 — single fee authority for live tx builders.
-     * Config default jitoTipLamports is 10k, but Helius Sender/Jupiter Jito-tip
-     * compatibility requires >=200k. Use dynamic 75th-percentile Jito tip when
-     * enabled, enforce the sender floor, and optionally double urgent exits.
-     */
+    /** V5.0.3764 — single fee authority for live tx builders. */
     private fun effectiveJitoTipLamports(c: com.lifecyclebot.data.BotConfig, urgent: Boolean = false): Long {
         if (!c.jitoEnabled) return 0L
         val dynamic = try { com.lifecyclebot.network.JitoTipFetcher.getDynamicTip(c.jitoTipLamports) } catch (_: Throwable) { c.jitoTipLamports }
@@ -1434,14 +1398,6 @@ class Executor(
         return if (urgent) (floored * 2L).coerceAtMost(1_000_000L) else floored
     }
 
-    /**
-     * V5.0.3740 — processor-boundary buy amount recalculation.
-     * Buy spend cannot survive a switch between execution processors. PumpPortal
-     * takes SOL UI amount; Jupiter Ultra/Metis takes raw lamports. Before each
-     * processor quote/build, refresh wallet SOL, reserve likely sender/priority fees,
-     * clamp spend to available SOL, and emit the exact processor-formatted amount.
-     * Helius/Jito/RPC remain senders only; they cannot alter spend after build.
-     */
     private fun recalcBuyPlanForProcessor(
         ts: TokenState,
         wallet: SolanaWallet,
@@ -1462,102 +1418,6 @@ class Executor(
             tradeKey = tradeKey,
             traderTag = traderTag,
         )
-    }
-
-    /** V5.9.601: confirmed wallet balance only. RPC-empty-map means no broadcast. */
-    private fun resolveConfirmedSellAmountOrNull(
-        ts: TokenState,
-        wallet: SolanaWallet,
-        requestedUiQty: Double,
-        fraction: Double? = null,
-        sellTradeKey: String? = null,
-        traderTag: String = "MEME",
-        reason: String = "UNKNOWN",
-        processor: String = "DIRECT",
-    ): ConfirmedSellAmount? {
-        if (!requestedUiQty.isFinite() || requestedUiQty <= 0.0) return null
-        val accounts = try { wallet.getTokenAccountsWithDecimalsBounded() } catch (e: Exception) {
-            ErrorLogger.warn("Executor", "BALANCE_UNKNOWN ${ts.symbol}: token-account read failed: ${e.message}")
-            null
-        }
-
-        // V5.0.3740 — HostWalletTokenTracker / generic TX_PARSE are not sell amount
-        // authority. RPC-empty/missing means BALANCE_UNKNOWN and no live broadcast.
-        if (accounts == null || accounts.isEmpty() || accounts[ts.mint] == null) {
-            val tracked = try { HostWalletTokenTracker.getEntry(ts.mint) } catch (_: Throwable) { null }
-            if (tracked != null && tracked.source == HostWalletTokenTracker.PositionSource.TX_PARSE) {
-                try { ForensicLogger.lifecycle("BALANCE_PROOF_REJECTED", "reason=GENERIC_TX_PARSE_NOT_OWNER_FILTERED mint=${ts.mint.take(10)} site=resolveConfirmed trackerStatus=${tracked.status.name}") } catch (_: Throwable) {}
-            }
-        }
-
-        if (accounts == null || accounts.isEmpty()) {
-            val recovered = try { com.lifecyclebot.engine.sell.SellAmountAuthority.resolveForExit(ts.mint, wallet, reason) } catch (_: Throwable) { null }
-            val c = recovered as? com.lifecyclebot.engine.sell.SellAmountAuthority.Resolution.Confirmed
-            if (c != null) {
-                val walletRawBig = if (c.rawAmount.signum() < 0) java.math.BigInteger.ZERO else c.rawAmount
-                val walletRaw = if (walletRawBig > java.math.BigInteger.valueOf(Long.MAX_VALUE)) Long.MAX_VALUE else walletRawBig.toLong()
-                val decimals = c.decimals.coerceAtLeast(0)
-                val scale = 10.0.pow(decimals.toDouble())
-                val requestedRawBig0 = java.math.BigDecimal(requestedUiQty.coerceAtLeast(0.0)).movePointRight(decimals).toBigInteger()
-                val requestedRawBig = if (requestedRawBig0 < java.math.BigInteger.ONE) java.math.BigInteger.ONE else requestedRawBig0
-                val requestedRaw = (if (requestedRawBig > walletRawBig) walletRawBig else requestedRawBig)
-                    .let { if (it > java.math.BigInteger.valueOf(Long.MAX_VALUE)) Long.MAX_VALUE else it.toLong() }
-                    .coerceIn(1L, walletRaw.coerceAtLeast(1L))
-                val requestedUi = requestedRaw.toDouble() / scale
-                val walletUi = walletRaw.toDouble() / scale
-                ExecutionRootCauseTrace.authority("SELL", "PROCESSOR_AMOUNT_OWNER_DELTA_RECOVERED", ts, "processor=$processor reason=$reason requestedRaw=$requestedRaw walletRaw=$walletRaw decimals=$decimals")
-                try { ForensicLogger.lifecycle("PROCESSOR_AMOUNT_OWNER_DELTA_RECOVERED", "processor=$processor mint=${ts.mint.take(10)} reason=$reason requestedRaw=$requestedRaw walletRaw=$walletRaw decimals=$decimals") } catch (_: Throwable) {}
-                return ConfirmedSellAmount(requestedRaw, requestedUi, walletRaw, walletUi, decimals)
-            }
-            LiveTradeLogStore.log(
-                sellTradeKey ?: LiveTradeLogStore.keyFor(ts.mint, ts.position.entryTime),
-                ts.mint, ts.symbol, "SELL", LiveTradeLogStore.Phase.SELL_BALANCE_CHECK,
-                "RPC-EMPTY-MAP → BALANCE_UNKNOWN — sell broadcast blocked; caller tokenUnits/cache not authoritative AND HostWalletTokenTracker has no eligible entry",
-                traderTag = traderTag,
-            )
-            return null
-        }
-        val entry = accounts[ts.mint]
-        if (entry == null) {
-            val recovered = try { com.lifecyclebot.engine.sell.SellAmountAuthority.resolveForExit(ts.mint, wallet, reason) } catch (_: Throwable) { null }
-            val c = recovered as? com.lifecyclebot.engine.sell.SellAmountAuthority.Resolution.Confirmed
-            if (c != null) {
-                val walletRawBig = if (c.rawAmount.signum() < 0) java.math.BigInteger.ZERO else c.rawAmount
-                val walletRaw = if (walletRawBig > java.math.BigInteger.valueOf(Long.MAX_VALUE)) Long.MAX_VALUE else walletRawBig.toLong()
-                val decimals = c.decimals.coerceAtLeast(0)
-                val scale = 10.0.pow(decimals.toDouble())
-                val requestedRawBig0 = java.math.BigDecimal(requestedUiQty.coerceAtLeast(0.0)).movePointRight(decimals).toBigInteger()
-                val requestedRawBig = if (requestedRawBig0 < java.math.BigInteger.ONE) java.math.BigInteger.ONE else requestedRawBig0
-                val requestedRaw = (if (requestedRawBig > walletRawBig) walletRawBig else requestedRawBig)
-                    .let { if (it > java.math.BigInteger.valueOf(Long.MAX_VALUE)) Long.MAX_VALUE else it.toLong() }
-                    .coerceIn(1L, walletRaw.coerceAtLeast(1L))
-                val requestedUi = requestedRaw.toDouble() / scale
-                val walletUi = walletRaw.toDouble() / scale
-                ExecutionRootCauseTrace.authority("SELL", "PROCESSOR_AMOUNT_OWNER_DELTA_RECOVERED", ts, "processor=$processor reason=$reason requestedRaw=$requestedRaw walletRaw=$walletRaw decimals=$decimals")
-                try { ForensicLogger.lifecycle("PROCESSOR_AMOUNT_OWNER_DELTA_RECOVERED", "processor=$processor mint=${ts.mint.take(10)} reason=$reason requestedRaw=$requestedRaw walletRaw=$walletRaw decimals=$decimals") } catch (_: Throwable) {}
-                return ConfirmedSellAmount(requestedRaw, requestedUi, walletRaw, walletUi, decimals)
-            }
-            LiveTradeLogStore.log(
-                sellTradeKey ?: LiveTradeLogStore.keyFor(ts.mint, ts.position.entryTime),
-                ts.mint, ts.symbol, "SELL", LiveTradeLogStore.Phase.SELL_BALANCE_CHECK,
-                "BALANCE_UNKNOWN — exact owner+mint token account missing; sell broadcast blocked (no tracker fallback eligible)",
-                traderTag = traderTag,
-            )
-            return null
-        }
-        val (walletUi, dec) = entry
-        if (!walletUi.isFinite() || walletUi <= 0.0) return null
-        val decimals = dec.coerceAtLeast(0)
-        val scale = 10.0.pow(decimals.toDouble())
-        val walletRaw = (walletUi * scale).toLong().coerceAtLeast(0L)
-        if (walletRaw <= 0L) return null
-        val requestedUi = when {
-            fraction != null -> walletUi * fraction.coerceIn(0.0, 1.0)
-            requestedUiQty > walletUi -> walletUi
-            else -> requestedUiQty
-        }
-        val requestedRaw = (requestedUi * scale).toLong().coerceIn(1L, walletRaw)
-        return ConfirmedSellAmount(requestedRaw, requestedRaw.toDouble() / scale, walletRaw, walletUi, decimals)
     }
 
     private fun blockIfSellInFlight(ts: TokenState, reason: String, tradeKey: String? = null): Boolean {
@@ -10415,19 +10275,27 @@ class Executor(
                 try {
                     val c = cfg()
                     val pos = ts.position
-                    val sellQty = pos.qtyToken * pct
-                    val newQty = pos.qtyToken - sellQty
-                    val newCost = pos.costSol * (1 - pct)
-                    val newSoldPct = pos.partialSoldPct + (pct * 100)
-                    
+                    val requestedSellQty = pos.qtyToken * pct
                     val sellTradeKey = LiveTradeLogStore.keyFor(ts.mint, pos.entryTime)
-                    val confirmedSell = resolveConfirmedSellAmountOrNull(ts, activeWallet, sellQty, pct, sellTradeKey, reason = reason)
-                        ?: run {
-                            com.lifecyclebot.engine.sell.SellExecutionLocks.release(ts.mint)
-                            onLog("🛑 PARTIAL SELL BLOCKED: ${ts.symbol} BALANCE_UNKNOWN — refusing cached qty broadcast", ts.mint)
-                            return
-                        }
-                    var sellUnits = confirmedSell.requestedRaw
+                    val partialPlan = ProcessorAmountPlanner.planSell(
+                        ts = ts,
+                        wallet = activeWallet,
+                        processor = "JupiterPartial",
+                        requestedUiQty = requestedSellQty,
+                        exitReason = reason,
+                        fraction = pct,
+                        sellTradeKey = sellTradeKey,
+                        traderTag = "MEME",
+                    ) ?: run {
+                        com.lifecyclebot.engine.sell.SellExecutionLocks.release(ts.mint)
+                        onLog("🛑 PARTIAL SELL BLOCKED: ${ts.symbol} BALANCE_UNKNOWN — refusing cached qty broadcast", ts.mint)
+                        return
+                    }
+                    val sellQty = partialPlan.uiAmount
+                    val newQty = (pos.qtyToken - sellQty).coerceAtLeast(0.0)
+                    val newCost = pos.costSol * (newQty / pos.qtyToken.coerceAtLeast(0.000000001))
+                    val newSoldPct = pos.partialSoldPct + (pct * 100)
+                    var sellUnits = partialPlan.rawAmount
                     val sellSlippage = com.lifecyclebot.engine.sell.SellSafetyPolicy.initialSlippageBps(reason)
                     val broadcastSlipLadder = com.lifecyclebot.engine.sell.SellSafetyPolicy.ladder(reason)
                     val isDrainExit = com.lifecyclebot.engine.sell.SellSafetyPolicy.maxSlippageBps(reason) > 1200 &&
