@@ -247,7 +247,7 @@ object LiveWalletReconciler {
                     )
                 } catch (_: Throwable) { null }
                 if (closed != null) {
-                    try { com.lifecyclebot.engine.sell.LivePositionCloseAuthority.finalizeClosed(p.mint, p.symbol, null, "DUST_ZOMBIE_REAP", source = "live_wallet_reconciler_dust") } catch (_: Throwable) {}
+                    try { com.lifecyclebot.engine.sell.LivePositionCloseAuthority.finalizeClosed(p.mint, p.symbol ?: p.mint.take(6), null, "DUST_ZOMBIE_REAP", source = "live_wallet_reconciler_dust") } catch (_: Throwable) {}
                     try { com.lifecyclebot.engine.sell.CloseLease.release(p.mint, terminal = "DUST_ZOMBIE_REAP") } catch (_: Throwable) {}
                     try { com.lifecyclebot.engine.sell.SellJobRegistry.markLanded(p.mint, signature = null) } catch (_: Throwable) {}
                     try { com.lifecyclebot.engine.ForensicLogger.lifecycle("DUST_ZOMBIE_POSITION_REAPED", "mint=${p.mint.take(10)} symbol=${p.symbol} walletRaw=$walletRawApprox ageMs=$ageMs reason=$reason") } catch (_: Throwable) {}
