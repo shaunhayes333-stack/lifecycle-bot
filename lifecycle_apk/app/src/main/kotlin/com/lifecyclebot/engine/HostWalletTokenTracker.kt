@@ -79,7 +79,6 @@ object HostWalletTokenTracker {
         OPEN_RESTORED(4),
         OPEN_BALANCE_PROOF_PENDING(4),
         STALE_RECOVERY_UNPROVEN(4),
-        STALE_RECOVERY_UNPROVEN(5),
         RECOVERY_SELL_REQUIRED(5),
         EXIT_SIGNALLED(5),
         SELL_PENDING(6),
