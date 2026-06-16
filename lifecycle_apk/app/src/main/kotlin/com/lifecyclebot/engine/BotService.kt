@@ -7564,7 +7564,10 @@ class BotService : Service() {
                             try { ts.position = ts.position.copy(qtyToken = 0.0, pendingVerify = false) } catch (_: Throwable) {}
                             try { com.lifecyclebot.engine.sell.CloseLease.release(ts.mint, "ZOMBIE_FORCE_TERMINATE") } catch (_: Throwable) {}
                             try { com.lifecyclebot.engine.sell.SellJobRegistry.markLanded(ts.mint, signature = null) } catch (_: Throwable) {}
-                            try { com.lifecyclebot.engine.HostWalletTokenTracker.confirmZeroBalanceClose(ts.mint, hasConfirmedSellSig = true, reason = "ZOMBIE_FORCE_TERMINATE") } catch (_: Throwable) {}
+                            try {
+                                val trackerHasSellSig = !com.lifecyclebot.engine.HostWalletTokenTracker.getEntry(ts.mint)?.sellSignature.isNullOrBlank()
+                                com.lifecyclebot.engine.HostWalletTokenTracker.confirmZeroBalanceClose(ts.mint, hasConfirmedSellSig = trackerHasSellSig, reason = "ZOMBIE_FORCE_TERMINATE")
+                            } catch (_: Throwable) {}
                             try { com.lifecyclebot.engine.ForensicLogger.lifecycle("ZOMBIE_POSITION_FORCE_TERMINATED", "mint=${ts.mint.take(10)} symbol=${ts.symbol} ageMs=$posAgeForNet pnl=${pnlPct.toInt()} attempts=$zombieAttempts") } catch (_: Throwable) {}
                             try { TradeStateMachine.startCatastropheCooldown(ts.mint, pnlPct) } catch (_: Throwable) {}
                             continue

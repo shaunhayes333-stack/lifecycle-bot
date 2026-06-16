@@ -240,10 +240,18 @@ object LiveWalletReconciler {
                 val ageMs = now - (p.buyTimeMs ?: p.firstSeenWalletMs)
                 if (ageMs < ZOMBIE_AGE_MS) continue              // too fresh; not-yet-visible buy
                 val closed = try {
+                    // Trusted non-empty wallet snapshot shows this tracked-open mint at
+                    // raw<=dust. Record an actual wallet-zero proof; do NOT fake a sell
+                    // signature. This closes only because the current wallet read is
+                    // authoritative dust-zero, not because a fabricated sig flag bypassed
+                    // the state machine.
+                    com.lifecyclebot.engine.HostWalletTokenTracker.recordIndependentZeroBalanceProof(
+                        p.mint,
+                        setOf("SELL_RECONCILER_NONEMPTY_SNAPSHOT", "CURRENT_WALLET_DUST_ZERO"),
+                        "DUST_ZOMBIE_REAP",
+                    )
                     com.lifecyclebot.engine.HostWalletTokenTracker.confirmZeroBalanceClose(
                         p.mint, hasConfirmedSellSig = false, reason = "DUST_ZOMBIE_REAP",
-                    ) ?: com.lifecyclebot.engine.HostWalletTokenTracker.confirmZeroBalanceClose(
-                        p.mint, hasConfirmedSellSig = true, reason = "DUST_ZOMBIE_REAP_FORCE",
                     )
                 } catch (_: Throwable) { null }
                 if (closed != null) {
@@ -368,10 +376,16 @@ object LiveWalletReconciler {
             // bump the confirm once here so a genuinely-drained zombie terminates
             // deterministically on the reap pass.
             val closed = try {
+                // Persistent empty wallet has crossed EMPTY_MAP_REAP_THRESHOLD and this
+                // stale row is past ZOMBIE_AGE_MS. Record terminal zero proof from the
+                // persistent wallet-empty observation; do NOT fake a sell signature.
+                com.lifecyclebot.engine.HostWalletTokenTracker.recordIndependentZeroBalanceProof(
+                    p.mint,
+                    setOf("SELL_RECONCILER_NONEMPTY_SNAPSHOT", "MINT_ABSENT_FROM_TOKEN_ACCOUNTS"),
+                    "ZOMBIE_REAP_$reason",
+                )
                 com.lifecyclebot.engine.HostWalletTokenTracker.confirmZeroBalanceClose(
                     p.mint, hasConfirmedSellSig = false, reason = "ZOMBIE_REAP_$reason",
-                ) ?: com.lifecyclebot.engine.HostWalletTokenTracker.confirmZeroBalanceClose(
-                    p.mint, hasConfirmedSellSig = true, reason = "ZOMBIE_REAP_FORCE_$reason",
                 )
             } catch (_: Throwable) { null }
             if (closed != null) {

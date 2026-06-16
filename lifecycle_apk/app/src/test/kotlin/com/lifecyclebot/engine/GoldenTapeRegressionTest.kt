@@ -1121,7 +1121,9 @@ class GoldenTapeRegressionTest {
         val sellAuthority = java.io.File("src/main/kotlin/com/lifecyclebot/engine/sell/SellAmountAuthority.kt").readText()
         assertTrue(sellAuthority.contains("WALLET_TOKEN_READ_INDETERMINATE"))
         assertTrue(sellAuthority.contains("BALANCE_UNKNOWN reason=MINT_ABSENT_FROM_ONE_PROVIDER"))
-        assertTrue(sellAuthority.contains("BALANCE_UNKNOWN reason=ONE_PROVIDER_ZERO"))
+        assertTrue(sellAuthority.contains("TRUSTED_WALLET_ZERO"))
+        assertTrue(sellAuthority.contains("BALANCE_RPC_CONFIRMED_DUST_ZERO"))
+        assertFalse("trusted current wallet zero must not stay unknown", sellAuthority.contains("BALANCE_UNKNOWN reason=ONE_PROVIDER_ZERO"))
         assertTrue(sellAuthority.contains("STALE_TRACKER_RAW_NOT_CURRENT_WALLET_AUTHORITY"))
         assertTrue(sellAuthority.contains("HostWalletTokenTracker.getEntry"))
         assertFalse("one provider missing mint must not be zero", sellAuthority.contains("mint NOT in the map AND map is non-empty → genuine zero"))
@@ -1768,6 +1770,8 @@ class GoldenTapeRegressionTest {
         assertTrue(bot.contains("fun purgeGhostLivePosition"))
         assertTrue(recon.contains("purgeGhostLivePosition"))
         assertTrue(recon.contains("GHOST_TOKENSTATE_REAPED"))
+        assertFalse("reconciler must not fake sell signatures to force-close ghosts", recon.contains("hasConfirmedSellSig = true"))
+        assertFalse("BotService zombie force must not fake a confirmed sell signature", bot.contains("ZOMBIE_FORCE_TERMINATE") && bot.contains("hasConfirmedSellSig = true"))
     }
 
 }

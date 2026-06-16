@@ -1430,6 +1430,7 @@ object HostWalletTokenTracker {
         }
         val trustedTerminalZero =
             ("SELL_RECONCILER_NONEMPTY_SNAPSHOT" in cleanSources && "MINT_ABSENT_FROM_TOKEN_ACCOUNTS" in cleanSources) ||
+            ("SELL_RECONCILER_NONEMPTY_SNAPSHOT" in cleanSources && "CURRENT_WALLET_DUST_ZERO" in cleanSources) ||
             ("BALANCE_PROOF_POLLER_ZERO_STREAK" in cleanSources && "SELL_AMOUNT_AUTHORITY_NONEMPTY_MINT_ABSENT" in cleanSources) ||
             ("LIVE_POSITION_CLOSE_AUTHORITY" in cleanSources && ("SELL_SIGNATURE_OR_META" in cleanSources || "CONFIRMED_ZERO_BALANCE" in cleanSources))
         if ((p.activeSellAttemptId != null || p.status in setOf(PositionStatus.SELL_PENDING, PositionStatus.SELL_VERIFYING)) && !trustedTerminalZero) {
