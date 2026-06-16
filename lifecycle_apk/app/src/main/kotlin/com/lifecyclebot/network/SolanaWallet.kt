@@ -581,7 +581,7 @@ class SolanaWallet(privateKeyB58: String, val rpcUrl: String) {
      */
     fun getTokenAccountsWithDecimalsStrict(): Map<String, Pair<Double, Int>> {
         val TOKEN_PROGRAM    = "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA"
-        val TOKEN_2022_PROG  = "TokenzQdBNbequivDy2Cv5VhM9xAZWQ8HHv2Q3ZUVV1"
+        val TOKEN_2022_PROG  = "TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb"
         val out = mutableMapOf<String, Pair<Double, Int>>()
         val failures = mutableListOf<String>()
         var successCount = 0
@@ -782,7 +782,7 @@ class SolanaWallet(privateKeyB58: String, val rpcUrl: String) {
         // V5.9.254 FIX: Same as getTokenAccountsWithDecimals — query both token programs
         // with commitment=confirmed and no dataSize filter.
         val TOKEN_PROGRAM    = "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA"
-        val TOKEN_2022_PROG  = "TokenzQdBNbequivDy2Cv5VhM9xAZWQ8HHv2Q3ZUVV1"
+        val TOKEN_2022_PROG  = "TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb"
         val out = mutableMapOf<String, Double>()
         for (programId in listOf(TOKEN_PROGRAM, TOKEN_2022_PROG)) {
             try {
@@ -827,7 +827,7 @@ class SolanaWallet(privateKeyB58: String, val rpcUrl: String) {
 
     fun getTokenAccountsChecked(): WalletTokenSnapshot {
         val TOKEN_PROGRAM    = "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA"
-        val TOKEN_2022_PROG  = "TokenzQdBNbequivDy2Cv5VhM9xAZWQ8HHv2Q3ZUVV1"
+        val TOKEN_2022_PROG  = "TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb"
         val out = mutableMapOf<String, Double>()
         var anySuccess = false
         for (programId in listOf(TOKEN_PROGRAM, TOKEN_2022_PROG)) {

@@ -1323,6 +1323,8 @@ class GoldenTapeRegressionTest {
         val wallet = java.io.File("src/main/kotlin/com/lifecyclebot/network/SolanaWallet.kt").readText()
         assertTrue(wallet.contains("getTokenAccountsWithDecimalsStrict"))
         assertTrue(wallet.contains("WALLET_TOKEN_READ_INDETERMINATE"))
+        assertTrue(wallet.contains("TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb"))
+        assertFalse("do not resurrect the fake Token-2022 program id", wallet.contains("TokenzQdBNbequivDy2Cv5VhM9xAZWQ8HHv2Q3ZUVV1"))
         assertTrue(wallet.contains(".put(JSONObject().put(\"programId\", programId))"))
         assertTrue(wallet.contains(".put(\"encoding\", \"jsonParsed\")"))
         assertFalse("bounded wallet token reads must never manufacture empty wallet on timeout", wallet.contains("returning empty map (RPC-EMPTY rescue path)"))
