@@ -13047,6 +13047,7 @@ class Executor(
                 )
             }
             var sig: String? = null
+            var closeAuthoritySig: String? = null
             var lastBroadcastException: Exception? = null
             var broadcastAttempts = 0
             // V5.9.495 — UNIVERSAL PUMP-FIRST routing (inlined — no `run { }`
@@ -13221,6 +13222,7 @@ class Executor(
                     onLog("📊 SELL DEBUG: Signing and broadcasting (router=${txResult.router}, rfq=${txResult.isRfqRoute})...", tradeId.mint)
                     val ultraReqId = if (quote!!.isUltra) txResult.requestId else null
                     sig = wallet.signSendAndConfirm(txResult.txBase64, useJito, jitoTip, ultraReqId, c.jupiterApiKey, txResult.isRfqRoute, txResult.senderCompatible)
+                    closeAuthoritySig = sig
                     try {
                         com.lifecyclebot.engine.sell.LivePositionCloseAuthority.markBroadcast(
                             mint = ts.mint,
@@ -13848,7 +13850,7 @@ class Executor(
             // CLOSED → drop sell job → unlock any recovery lock → EXEC_LIVE_SELL_OK →
             // SELL_FINALIZED. Wrapped so a finalize hiccup can never throw the sell path.
             run {
-                val fSig = sig ?: ""
+                val fSig = closeAuthoritySig ?: ""
                 if (fSig.isNotBlank()) {
                     try {
                         ForensicLogger.lifecycle("SELL_FINALIZE_START", "mint=${ts.mint.take(12)} sig=${fSig.take(16)}")
@@ -14048,17 +14050,17 @@ class Executor(
             ErrorLogger.warn("Executor", "SELL POST-QUOTE FAILURE: ${ts.symbol} class=$failureClass " +
                 "exc=${e.javaClass.simpleName} msg=${safe.take(80)} retry=$broadcastRetries")
 
-            if (!sig.isNullOrBlank()) {
+            if (!closeAuthoritySig.isNullOrBlank()) {
                 try {
                     com.lifecyclebot.engine.sell.LivePositionCloseAuthority.markClosingUnknown(
                         ts.mint,
                         ts.symbol ?: "?",
                         "POST_BROADCAST_VERIFY_FAILED:$failureClass",
-                        sig,
+                        closeAuthoritySig,
                     )
                 } catch (_: Throwable) {}
                 try { PendingSellQueue.remove(ts.mint) } catch (_: Throwable) {}
-                try { ForensicLogger.lifecycle("SELL_RETRY_SUPPRESSED_BROADCAST_PENDING_PROOF", "mint=${ts.mint.take(10)} symbol=${ts.symbol} failureClass=$failureClass sig=${sig?.take(12)}") } catch (_: Throwable) {}
+                try { ForensicLogger.lifecycle("SELL_RETRY_SUPPRESSED_BROADCAST_PENDING_PROOF", "mint=${ts.mint.take(10)} symbol=${ts.symbol} failureClass=$failureClass sig=${closeAuthoritySig?.take(12)}") } catch (_: Throwable) {}
                 return SellResult.WAITING_BALANCE_PROOF
             }
 
@@ -14650,7 +14652,7 @@ class Executor(
         }
         
         try {
-            val fSig = sig ?: ""
+            val fSig = closeAuthoritySig ?: ""
             com.lifecyclebot.engine.sell.LivePositionCloseAuthority.finalizeClosed(
                 mint = ts.mint,
                 symbol = ts.symbol ?: "?",
