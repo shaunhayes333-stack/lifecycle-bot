@@ -205,21 +205,50 @@ object HostWalletTokenTracker {
             (p.balanceProof?.amountRaw ?: BigInteger.ZERO) > BigInteger.valueOf(DUST_RAW) ||
             p.uiAmount > 0.000001
 
-    private fun isOpenForAccounting(p: TrackedTokenPosition): Boolean =
+    // V5.0.3780 — CAP TRUTH SPLIT.
+    // Historical positives (rawAmount/uiAmount/TX_META_OWNER_DELTA) are useful for
+    // recovery visibility, but they are NOT proof that the wallet currently holds
+    // the token. Position caps must count only current wallet proof, fresh buy
+    // liability, or a real in-flight sell. This prevents RECOVERED_* ghosts from
+    // occupying Moonshot/ShitCoin slots forever while still preserving recovery rows.
+    private const val CAP_WALLET_PROOF_TTL_MS = 5 * 60_000L
+    private const val CAP_FRESH_BUY_LIABILITY_MS = 3 * 60_000L
+    private const val CAP_SELL_IN_FLIGHT_MS = 90_000L
+
+    private fun hasCurrentWalletPositiveProof(p: TrackedTokenPosition, now: Long = System.currentTimeMillis()): Boolean {
+        if (!hasLastPositiveRaw(p)) return false
+        val src = p.balanceAuthoritySource ?: ""
+        val walletSource = src == BalanceProofSource.RPC_FINALIZED_OWNER_TOKEN_ACCOUNT.name ||
+            src == BalanceProofSource.RPC_CONFIRMED_OWNER_TOKEN_ACCOUNT.name ||
+            src == BalanceProofSource.RPC_CONFIRMED_SECOND_PROVIDER.name ||
+            p.source == PositionSource.WALLET_RECONCILED
+        val observed = listOfNotNull(p.lastWalletReconcileMs, p.balanceAuthorityObservedAtMs.takeIf { it > 0L }).maxOrNull() ?: 0L
+        return walletSource && observed > 0L && (now - observed) <= CAP_WALLET_PROOF_TTL_MS
+    }
+
+    private fun hasFreshBuyLiability(p: TrackedTokenPosition, now: Long = System.currentTimeMillis()): Boolean {
+        val anchor = p.buyTimeMs ?: p.firstSeenWalletMs
+        if (anchor <= 0L || (now - anchor) > CAP_FRESH_BUY_LIABILITY_MS) return false
+        return p.status in setOf(PositionStatus.BUY_PENDING, PositionStatus.CONFIRMED_PENDING_BALANCE, PositionStatus.BUY_CONFIRMED, PositionStatus.OPEN_TRACKING) &&
+            !p.buySignature.isNullOrBlank() &&
+            p.source == PositionSource.BOT_BUY
+    }
+
+    private fun hasLiveSellInFlightForCap(p: TrackedTokenPosition, now: Long = System.currentTimeMillis()): Boolean {
+        if (p.status !in SELL_IN_FLIGHT_STATUSES) return false
+        if (!p.sellSignature.isNullOrBlank()) return true
+        val started = p.sellAttemptStartedMs.takeIf { it > 0L } ?: return false
+        return (now - started) <= CAP_SELL_IN_FLIGHT_MS
+    }
+
+    private fun isCapCountable(p: TrackedTokenPosition, now: Long = System.currentTimeMillis()): Boolean =
         p.status in OPEN_STATUSES && (
-            hasLastPositiveRaw(p) ||
-            p.status in SELL_IN_FLIGHT_STATUSES ||
-            p.status in setOf(
-                PositionStatus.BUY_PENDING,
-                PositionStatus.CONFIRMED_PENDING_BALANCE,
-                PositionStatus.OPEN_BALANCE_UNKNOWN,
-                PositionStatus.OPEN_BALANCE_UNKNOWN_RECOVERY_REQUIRED,
-                PositionStatus.OPEN_SELL_FAILED_NO_SIGNATURE_RETRYING,
-                PositionStatus.SELL_WAITING_BALANCE_PROOF,
-                PositionStatus.SELL_FAILED_BALANCE_UNKNOWN,
-                PositionStatus.RECOVERY_SELL_REQUIRED,
-            )
+            hasCurrentWalletPositiveProof(p, now) ||
+            hasFreshBuyLiability(p, now) ||
+            hasLiveSellInFlightForCap(p, now)
         )
+
+    private fun isOpenForAccounting(p: TrackedTokenPosition): Boolean = isCapCountable(p)
 
     private fun markOpenBalanceUnknown(p: TrackedTokenPosition, reason: String) {
         if (p.status !in setOf(PositionStatus.SELL_PENDING, PositionStatus.SELL_VERIFYING)) {
@@ -781,6 +810,11 @@ object HostWalletTokenTracker {
                 existing.rawAmount = rawApprox.toString()
                 existing.lastSeenWalletMs = now
                 existing.lastWalletReconcileMs = now
+                if (rawApprox > DUST_RAW) {
+                    existing.balanceAuthoritySource = BalanceProofSource.RPC_CONFIRMED_OWNER_TOKEN_ACCOUNT.name
+                    existing.balanceAuthorityObservedAtMs = now
+                    existing.balanceAuthoritySignature = null
+                }
                 if (rawApprox > DUST_RAW && existing.status == PositionStatus.SELL_VERIFYING && existing.sellSignature.isNullOrBlank()) {
                     // V5.9.607 — SELL_VERIFYING is only valid after a real tx
                     // signature exists. Forensics showed stuck rows with
@@ -870,6 +904,9 @@ object HostWalletTokenTracker {
                 venue = null, pool = null,
                 lastPriceUpdateMs = null, lastWalletReconcileMs = now, lastExitCheckMs = null,
                 activeSellAttemptId = null,
+                balanceAuthoritySource = BalanceProofSource.RPC_CONFIRMED_OWNER_TOKEN_ACCOUNT.name,
+                balanceAuthorityObservedAtMs = now,
+                balanceAuthoritySignature = null,
                 notes = mutableListOf("Recovered from host wallet; was missing from bot state"),
             )
             positions[mint] = recovered
@@ -1021,6 +1058,17 @@ object HostWalletTokenTracker {
     // Public read API — dashboards / exit engine / cleanup
     // ─────────────────────────────────────────────────────────────────
 
+
+    /** Cap/count truth shared by LiveExecutionGate, TokenLifecycleTracker, dashboards, and slot health. */
+    fun isCapCountable(mint: String): Boolean {
+        if (mint.isBlank()) return false
+        val p = positions[mint] ?: return false
+        return isCapCountable(p)
+    }
+
+    /** Diagnostic: tracked row exists, even if not cap-countable/currently held. */
+    fun hasTrackedPosition(mint: String): Boolean = mint.isNotBlank() && positions.containsKey(mint)
+
     /** True if this mint is currently tracked as open (any of the OPEN_STATUSES). */
     fun hasOpenPosition(mint: String): Boolean {
         if (mint.isBlank()) return false
@@ -1056,14 +1104,14 @@ object HostWalletTokenTracker {
     }
 
     /** Snapshot of every tracked position (open + closed) — diagnostics. */
-    /** Count positions with actual wallet token amount above dust. */
-    fun getActuallyHeldCount(): Int = positions.values.count { isOpenForAccounting(it) && hasLastPositiveRaw(it) }
+    /** Count positions with current wallet-token proof above dust; stale raw/TX-meta does not count. */
+    fun getActuallyHeldCount(): Int = positions.values.count { hasCurrentWalletPositiveProof(it) }
 
-    /** Physical wallet-held set only. CONFIRMED_PENDING_BALANCE is open and
-     *  sell-managed, but not counted as physically held until balance proof lands. */
+    /** Physical wallet-held set only. CONFIRMED_PENDING_BALANCE / TX-meta are open
+     *  liabilities for a short TTL, but not physically held until wallet proof lands. */
     fun getActuallyHeldMints(): Set<String> =
         positions.values.asSequence()
-            .filter { isOpenForAccounting(it) && hasLastPositiveRaw(it) }
+            .filter { hasCurrentWalletPositiveProof(it) }
             .map { it.mint }
             .toCollection(HashSet())
 

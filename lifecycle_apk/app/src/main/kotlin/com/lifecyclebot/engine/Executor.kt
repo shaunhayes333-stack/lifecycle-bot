@@ -1375,15 +1375,6 @@ class Executor(
     )
 
 
-    private data class ProcessorSellPlan(
-        val processor: String,
-        val rawAmount: Long,
-        val uiAmount: Double,
-        val walletRaw: Long,
-        val walletUi: Double,
-        val decimals: Int,
-    )
-
     /**
      * V5.0.3740 — processor-boundary sell amount recalculation.
      * A sell amount/quote/tx payload may not survive a switch between execution
@@ -1401,7 +1392,7 @@ class Executor(
         fraction: Double? = null,
         sellTradeKey: String? = null,
         traderTag: String = "MEME",
-    ): ProcessorSellPlan? {
+    ): ProcessorAmountPlanner.SellPlan? {
         val confirmed = resolveConfirmedSellAmountOrNull(
             ts = ts,
             wallet = wallet,
@@ -1427,7 +1418,7 @@ class Executor(
             sellTradeKey = sellTradeKey,
             traderTag = traderTag,
         )
-        return ProcessorSellPlan(plan.processor, plan.rawAmount, plan.uiAmount, plan.walletRaw, plan.walletUi, plan.decimals)
+        return plan
     }
 
 
@@ -1442,14 +1433,6 @@ class Executor(
         val floored = maxOf(dynamic, c.jitoTipLamports, 200_000L)
         return if (urgent) (floored * 2L).coerceAtMost(1_000_000L) else floored
     }
-
-    private data class ProcessorBuyPlan(
-        val processor: String,
-        val solAmount: Double,
-        val lamports: Long,
-        val walletSol: Double,
-        val reserveSol: Double,
-    )
 
     /**
      * V5.0.3740 — processor-boundary buy amount recalculation.
@@ -1468,8 +1451,8 @@ class Executor(
         jitoTipLamports: Long = 0L,
         tradeKey: String? = null,
         traderTag: String = "MEME",
-    ): ProcessorBuyPlan? {
-        val plan = ProcessorAmountPlanner.planBuy(
+    ): ProcessorAmountPlanner.BuyPlan? {
+        return ProcessorAmountPlanner.planBuy(
             ts = ts,
             wallet = wallet,
             processor = processor,
@@ -1478,8 +1461,7 @@ class Executor(
             jitoTipLamports = jitoTipLamports,
             tradeKey = tradeKey,
             traderTag = traderTag,
-        ) ?: return null
-        return ProcessorBuyPlan(plan.processor, plan.solAmount, plan.lamports, plan.walletSol, plan.reserveSol)
+        )
     }
 
     /** V5.9.601: confirmed wallet balance only. RPC-empty-map means no broadcast. */

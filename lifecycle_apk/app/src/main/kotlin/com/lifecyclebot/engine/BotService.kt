@@ -12649,7 +12649,7 @@ val prioritizedWatchlist = if (cfg.v3EngineEnabled) {
 // ───────────────────────────────────────────────────────────────
 val openPositionMints = prioritizedWatchlist.filter { mint ->
     val ts = status.tokens[mint]
-    ts?.position?.isOpen == true || GlobalTradeRegistry.hasOpenPosition(mint)
+    isCapCountableLiveToken(mint, ts) || GlobalTradeRegistry.hasOpenPosition(mint)
 }
 
 // V5.9.494 — UNIVERSAL OPEN-POSITION COVERAGE.
@@ -12667,7 +12667,7 @@ val openPositionMints = prioritizedWatchlist.filter { mint ->
 val subTraderOpenMints: List<String> = collectSubTraderOpenMints()
 
 val v3OpenMints: List<String> = synchronized(status.tokens) {
-    status.tokens.values.filter { it.position.isOpen }.map { it.mint }
+    status.tokens.values.filter { isCapCountableLiveToken(it.mint, it) }.map { it.mint }
 }
 
 // V5.9.1470 (spec items 8+9) — GHOST REAPER + forcedOpen sanitization.
@@ -12906,7 +12906,7 @@ try {
 // openPositionTickLoop owns exit management; botLoop only requests a
 // single-flight async sweep and immediately continues toward CYCLE_EXIT.
 val postSupervisorOpenCount = try {
-    synchronized(status.tokens) { status.tokens.values.count { it.position.isOpen } }
+    synchronized(status.tokens) { status.tokens.values.count { isCapCountableLiveToken(it.mint, it) } }
 } catch (_: Throwable) { 0 }
 val postSupervisorNowMs = System.currentTimeMillis()
 val postSupervisorBackupDue = (postSupervisorNowMs - lastPostSupervisorExitBackupMs) >= POST_SUPERVISOR_EXIT_BACKUP_MS
@@ -13240,7 +13240,7 @@ if (hotExitHandledSweep) {
 
             // ── Cap diagnostics: per-lane open count + caps ────────
             val memeOpen = status.tokens.values.count { ts ->
-                try { ts.position.qtyToken > 0.0 } catch (_: Throwable) { false }
+                try { isCapCountableLiveToken(ts.mint, ts) } catch (_: Throwable) { false }
             }
             val memePending = status.tokens.values.count { ts ->
                 try { ts.position.pendingVerify && ts.position.qtyToken > 0.0 } catch (_: Throwable) { false }
@@ -13812,6 +13812,14 @@ if (hotExitHandledSweep) {
         try { com.lifecyclebot.v3.scoring.ShitCoinExpress.evictGhost(mint) } catch (_: Throwable) {}
     }
 
+    private fun isCapCountableLiveToken(mint: String, ts: com.lifecyclebot.data.TokenState? = null): Boolean = try {
+        if (mint.isBlank()) return false
+        val hostTracked = com.lifecyclebot.engine.HostWalletTokenTracker.hasTrackedPosition(mint)
+        if (hostTracked) return com.lifecyclebot.engine.HostWalletTokenTracker.isCapCountable(mint)
+        val pos = ts?.position ?: status.tokens[mint]?.position ?: return false
+        !pos.isPaperPosition && pos.qtyToken > 0.0 && pos.isOpen
+    } catch (_: Throwable) { false }
+
     private fun reapGhostForcedOpen(forcedOpenRaw: List<String>): List<String> {
         try { com.lifecyclebot.engine.PositionCloseLedger.prune() } catch (_: Throwable) {}
         // Build the authoritative live-open set ONCE (close ledger + live TokenState
@@ -13820,7 +13828,7 @@ if (hotExitHandledSweep) {
         val liveOpenSet: Set<String> = try {
             val out = HashSet<String>()
             synchronized(status.tokens) {
-                status.tokens.values.forEach { if (it.position.isOpen) out.add(it.mint) }
+                status.tokens.values.forEach { if (isCapCountableLiveToken(it.mint, it)) out.add(it.mint) }
             }
             forcedOpenRaw.forEach { m -> if (com.lifecyclebot.engine.GlobalTradeRegistry.hasOpenPosition(m)) out.add(m) }
             out
@@ -13985,8 +13993,8 @@ if (hotExitHandledSweep) {
     private val SUPERVISOR_TIMEOUT_COOLDOWN_MS: Long = 90_000L
 
     private fun supervisorMintIsOpen(mint: String): Boolean = try {
-        status.tokens[mint]?.position?.isOpen == true ||
-            status.openPositions.any { it.mint == mint && it.position.isOpen }
+        isCapCountableLiveToken(mint, status.tokens[mint]) ||
+            status.openPositions.any { it.mint == mint && isCapCountableLiveToken(it.mint, it) }
     } catch (_: Throwable) { false }
 
     private fun supervisorTimeoutCooldownActive(mint: String, now: Long = System.currentTimeMillis()): Boolean {

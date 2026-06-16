@@ -1336,7 +1336,8 @@ class GoldenTapeRegressionTest {
         val exec = java.io.File("src/main/kotlin/com/lifecyclebot/engine/Executor.kt").readText()
         val helperIdx = exec.indexOf("effectiveJitoTipLamports")
         assertTrue("fee authority helper missing", helperIdx >= 0)
-        val withoutHelper = exec.removeRange(helperIdx, exec.indexOf("private data class ProcessorBuyPlan", helperIdx))
+        val helperEnd = exec.indexOf("private fun recalcBuyPlanForProcessor", helperIdx).takeIf { it > helperIdx } ?: exec.length
+        val withoutHelper = exec.removeRange(helperIdx, helperEnd)
         assertFalse("live builders must not pass raw config jito tip", withoutHelper.contains("jitoTipLamports = c.jitoTipLamports"))
         assertFalse("live builders must not use static 200k without dynamic tip", withoutHelper.contains("maxOf(c.jitoTipLamports, 200_000L)"))
         assertFalse("live builders must not call dynamic tip ad hoc", withoutHelper.contains("getDynamicTip(c.jitoTipLamports)"))
@@ -1583,6 +1584,38 @@ class GoldenTapeRegressionTest {
         assertTrue(exec.contains("walletReadIndeterminate = true"))
         assertFalse("wallet timeout must not be described as proceeding via RPC-empty rescue",
             exec.contains("SELL RPC EMPTY/TIMEOUT: getTokenAccountsWithDecimals — proceeding via RPC-EMPTY rescue"))
+    }
+
+
+    @Test
+    fun position_caps_use_current_wallet_truth_not_stale_tracker_raw() {
+        val tracker = java.io.File("src/main/kotlin/com/lifecyclebot/engine/HostWalletTokenTracker.kt").readText()
+        val lifecycle = java.io.File("src/main/kotlin/com/lifecyclebot/engine/TokenLifecycleTracker.kt").readText()
+        val bot = java.io.File("src/main/kotlin/com/lifecyclebot/engine/BotService.kt").readText()
+
+        assertTrue(tracker.contains("CAP TRUTH SPLIT"))
+        assertTrue(tracker.contains("fun isCapCountable(mint: String)"))
+        assertTrue(tracker.contains("hasCurrentWalletPositiveProof"))
+        assertTrue(tracker.contains("hasFreshBuyLiability"))
+        assertTrue(tracker.contains("hasLiveSellInFlightForCap"))
+        assertTrue(tracker.contains("getActuallyHeldCount(): Int = positions.values.count { hasCurrentWalletPositiveProof(it) }"))
+        assertFalse("stale raw alone must not make a row open/cap-countable",
+            tracker.contains("hasLastPositiveRaw(p) ||\n            p.status in SELL_IN_FLIGHT_STATUSES"))
+
+        assertTrue(lifecycle.contains("HostWalletTokenTracker.isCapCountable(r.mint)"))
+        assertTrue(bot.contains("isCapCountableLiveToken"))
+        assertTrue(bot.contains("status.tokens.values.filter { isCapCountableLiveToken(it.mint, it) }"))
+    }
+
+    @Test
+    fun processor_amount_plans_are_owned_by_helper_not_executor_wrappers() {
+        val exec = java.io.File("src/main/kotlin/com/lifecyclebot/engine/Executor.kt").readText()
+        val planner = java.io.File("src/main/kotlin/com/lifecyclebot/engine/ProcessorAmountPlanner.kt").readText()
+        assertTrue(planner.contains("object ProcessorAmountPlanner"))
+        assertTrue(exec.contains(": ProcessorAmountPlanner.BuyPlan?"))
+        assertTrue(exec.contains(": ProcessorAmountPlanner.SellPlan?"))
+        assertFalse("Executor must not keep duplicate buy plan wrapper", exec.contains("private data class ProcessorBuyPlan"))
+        assertFalse("Executor must not keep duplicate sell plan wrapper", exec.contains("private data class ProcessorSellPlan"))
     }
 
 }

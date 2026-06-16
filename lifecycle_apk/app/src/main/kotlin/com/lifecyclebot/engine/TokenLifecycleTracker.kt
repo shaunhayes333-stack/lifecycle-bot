@@ -140,11 +140,22 @@ object TokenLifecycleTracker {
     fun liveMemeOpenCount(): Int = try {
         records.values.count { r ->
             val v = r.venue.lowercase().trim()
-            v !in nonMemeVenues &&
-                !r.buyTx.isNullOrBlank() &&
-                r.status != Status.RECONCILE_FAILED &&
-                !r.status.isTerminal() &&
-                (r.currentWalletTokenQty > DUST_UI_THRESHOLD || r.status == Status.CONFIRMED_PENDING_BALANCE || r.status == Status.BUY_CONFIRMED)
+            if (v in nonMemeVenues || r.buyTx.isNullOrBlank() || r.status == Status.RECONCILE_FAILED || r.status.isTerminal()) {
+                false
+            } else {
+                // V5.0.3780 — cap accounting must share HostWalletTokenTracker truth.
+                // If the host tracker knows this mint, it decides whether the row is
+                // currently cap-countable. This prevents stale lifecycle BUY_CONFIRMED /
+                // RECOVERED ghosts from consuming live slots after wallet proof expires.
+                val hostTracked = try { HostWalletTokenTracker.hasTrackedPosition(r.mint) } catch (_: Throwable) { false }
+                if (hostTracked) {
+                    try { HostWalletTokenTracker.isCapCountable(r.mint) } catch (_: Throwable) { false }
+                } else {
+                    val ageMs = System.currentTimeMillis() - r.openedAtMs
+                    r.currentWalletTokenQty > DUST_UI_THRESHOLD ||
+                        ((r.status == Status.CONFIRMED_PENDING_BALANCE || r.status == Status.BUY_CONFIRMED) && ageMs <= 3 * 60_000L)
+                }
+            }
         }
     } catch (_: Throwable) { 0 }
 
