@@ -1121,7 +1121,7 @@ class GoldenTapeRegressionTest {
         assertTrue(sellAuthority.contains("WALLET_TOKEN_READ_INDETERMINATE"))
         assertTrue(sellAuthority.contains("BALANCE_UNKNOWN reason=MINT_ABSENT_FROM_ONE_PROVIDER"))
         assertTrue(sellAuthority.contains("BALANCE_UNKNOWN reason=ONE_PROVIDER_ZERO"))
-        assertTrue(sellAuthority.contains("using lastPositiveRaw recovery amount"))
+        assertTrue(sellAuthority.contains("STALE_TRACKER_RAW_NOT_CURRENT_WALLET_AUTHORITY"))
         assertTrue(sellAuthority.contains("HostWalletTokenTracker.getEntry"))
         assertFalse("one provider missing mint must not be zero", sellAuthority.contains("mint NOT in the map AND map is non-empty → genuine zero"))
 
@@ -1190,23 +1190,21 @@ class GoldenTapeRegressionTest {
 
 
     @Test
-    fun live_sell_uses_buy_tied_owner_delta_during_rpc_empty_gap() {
+    fun live_sell_does_not_use_buy_tied_owner_delta_as_current_wallet_authority() {
         val authority = java.io.File("src/main/kotlin/com/lifecyclebot/engine/sell/SellAmountAuthority.kt").readText()
         val exec = java.io.File("src/main/kotlin/com/lifecyclebot/engine/Executor.kt").readText()
 
-        assertTrue(authority.contains("BUY_TIED_OWNER_DELTA"))
-        assertTrue(authority.contains("SELL_BALANCE_PROOF_OWNER_DELTA_RECOVERED"))
-        assertTrue(authority.contains("isEmergencyExitReason(reason) || isProfitProtectExitReason(reason)"))
-        assertTrue(authority.contains("Resolution.Confirmed(cached.rawAmount, cached.decimals, Source.TX_META_OWNER_DELTA)"))
-        assertTrue(authority.contains("Source.TX_META_OWNER_DELTA -> BalanceSource.WALLET_SCAN_CONFIRMED"))
+        assertTrue(authority.contains("BUY_TX_META_NOT_CURRENT_WALLET_AUTHORITY"))
+        assertTrue(authority.contains("Source.TX_META_OWNER_DELTA -> BalanceSource.UNKNOWN"))
+        assertFalse("buy-tied tx-meta must not be returned as confirmed sell balance",
+            authority.contains("Resolution.Confirmed(cached.rawAmount, cached.decimals, Source.TX_META_OWNER_DELTA)"))
+        assertFalse("tx-meta must not be wallet-scan confirmed",
+            authority.contains("Source.TX_META_OWNER_DELTA -> BalanceSource.WALLET_SCAN_CONFIRMED"))
         assertTrue(exec.contains("SellAmountAuthority.resolveForExit(ts.mint, wallet, reason)"))
         assertTrue(exec.contains("SellAmountAuthority.canBroadcastLiveOrEmergency"))
         assertTrue(exec.contains("exitReason: String = processor"))
-        assertTrue(exec.contains("PROCESSOR_AMOUNT_OWNER_DELTA_RECOVERED"))
-        assertTrue(exec.contains("SellAmountAuthority.resolveForExit(ts.mint, wallet, reason)"))
         assertFalse("generic tx parse must not be blindly accepted", authority.contains("return tryFreshTxParseFallback(mint"))
     }
-
 
     @Test
     fun buy_sell_root_cause_trace_labels_are_wired() {
