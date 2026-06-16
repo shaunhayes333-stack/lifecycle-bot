@@ -881,9 +881,48 @@ object HostWalletTokenTracker {
             if (p.status !in OPEN_STATUSES) continue
             val pair = walletMints[p.mint]
             if (pair == null) {
+                // V5.0.3767 — absent-mint zero proof ladder.
+                // A non-empty wallet snapshot that returns other token accounts but
+                // omits this tracked mint is a real zero observation for this mint,
+                // not an RPC_EMPTY_MAP. 3762/3763 fixed false-empty snapshots; keeping
+                // last-positive rows open forever here strands sold/external bags in
+                // OPEN_BALANCE_UNKNOWN_RECOVERY_REQUIRED, keeps close leases active,
+                // and blocks new buys. Still require two consecutive absent snapshots
+                // and fresh-buy grace before terminal close.
+                if (walletMints.isNotEmpty()) {
+                    val freshBuyAgeMs = p.buyTimeMs?.let { now - it } ?: Long.MAX_VALUE
+                    if (p.sellSignature.isNullOrBlank() && freshBuyAgeMs in 0L..180_000L) {
+                        p.status = PositionStatus.OPEN_TRACKING
+                        p.consecutiveZeroConfirms = 0
+                        p.lastWalletReconcileMs = now
+                        emitForensic(LiveTradeLogStore.Phase.WARNING, p.mint, p.symbol, null,
+                            "FRESH_BUY_ABSENT_RECONCILE_DEFERRED ageMs=$freshBuyAgeMs — keeping OPEN_TRACKING")
+                        continue
+                    }
+                    p.consecutiveZeroConfirms += 1
+                    p.lastWalletReconcileMs = now
+                    p.notes.add("mint absent from non-empty wallet snapshot count=${p.consecutiveZeroConfirms}")
+                    try {
+                        ForensicLogger.lifecycle(
+                            "ABSENT_MINT_ZERO_CONFIRM",
+                            "mint=${p.mint.take(10)} symbol=${p.symbol ?: "?"} confirms=${p.consecutiveZeroConfirms} walletHeld=${walletMints.size} lastPositiveRaw=${rawAmountBig(p)}",
+                        )
+                    } catch (_: Throwable) {}
+                    if (p.consecutiveZeroConfirms >= 2) {
+                        p.zeroBalanceConfirmedByTwoProviders = true
+                        p.uiAmount = 0.0
+                        p.rawAmount = "0"
+                        val closed = confirmZeroBalanceClose(p.mint, hasConfirmedSellSig = !p.sellSignature.isNullOrBlank(), reason = "CLOSED_BY_NONEMPTY_WALLET_MINT_ABSENT")
+                        if (closed != null) continue
+                    }
+                    markOpenBalanceUnknown(p, "NONEMPTY_WALLET_MINT_ABSENT_ZERO_PENDING")
+                    emitForensic(LiveTradeLogStore.Phase.POSITION_COUNT_RECONCILED, p.mint, p.symbol, null,
+                        "REAP_PENDING_ABSENT_MINT_ZERO_PROOF ${p.symbol ?: p.mint.take(6)} confirms=${p.consecutiveZeroConfirms}/2 walletHeld=${walletMints.size}")
+                    continue
+                }
                 markOpenBalanceUnknown(p, "RPC_EMPTY_MAP_MINT_ABSENT")
                 emitForensic(LiveTradeLogStore.Phase.POSITION_COUNT_RECONCILED, p.mint, p.symbol, null,
-                    "REAP_SKIPPED_BALANCE_UNKNOWN mint absent from one wallet snapshot — keeping open")
+                    "REAP_SKIPPED_BALANCE_UNKNOWN empty wallet snapshot / mint absent — keeping open")
                 continue
             }
             val walletUi = pair.first
@@ -1294,6 +1333,13 @@ object HostWalletTokenTracker {
         p.status = PositionStatus.CLOSED
         p.activeSellAttemptId = null
         p.consecutiveZeroConfirms = 0
+        try { com.lifecyclebot.engine.sell.SellExecutionLocks.release(mint) } catch (_: Throwable) {}
+        try { com.lifecyclebot.engine.sell.CloseLease.release(mint, "ZERO_BALANCE_CLOSE:$reason") } catch (_: Throwable) {}
+        try {
+            for (ln in listOf("SHITCOIN","MOONSHOT","QUALITY","EXPRESS","CYCLIC","BLUE_CHIP","BLUECHIP","MANIPULATED","CORE","V3","DIP_HUNTER","PROJECT_SNIPER","STANDARD")) {
+                com.lifecyclebot.engine.LaneExecutionCoordinator.releaseIfPrimary(mint, ln, "ZERO_BALANCE_CLOSE:$reason")
+            }
+        } catch (_: Throwable) {}
         p.notes.add("zero-balance close ($reason) confirms=$confirms sig=${if (hasConfirmedSellSig) "yes" else "no"}")
         val pnlPct = try {
             val entry = p.entryPriceUsd ?: 0.0

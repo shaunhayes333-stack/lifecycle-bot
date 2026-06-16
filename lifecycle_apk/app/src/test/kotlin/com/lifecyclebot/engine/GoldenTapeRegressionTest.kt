@@ -1357,4 +1357,21 @@ class GoldenTapeRegressionTest {
         assertFalse("low-WR no-runner lanes must not widen stops", tuner.contains("slHitRate >= 0.50 && avgPeak < 8.0 -> sl += STEP"))
     }
 
+
+    @Test
+    fun host_tracker_closes_absent_mint_after_two_nonempty_wallet_snapshots() {
+        val tracker = java.io.File("src/main/kotlin/com/lifecyclebot/engine/HostWalletTokenTracker.kt").readText()
+        assertTrue(tracker.contains("absent-mint zero proof ladder"))
+        assertTrue(tracker.contains("if (walletMints.isNotEmpty())"))
+        assertTrue(tracker.contains("ABSENT_MINT_ZERO_CONFIRM"))
+        assertTrue(tracker.contains("p.zeroBalanceConfirmedByTwoProviders = true"))
+        assertTrue(tracker.contains("CLOSED_BY_NONEMPTY_WALLET_MINT_ABSENT"))
+        assertTrue(tracker.contains("CloseLease.release(mint, "ZERO_BALANCE_CLOSE:$reason")"))
+        assertTrue(tracker.contains("SellExecutionLocks.release(mint)"))
+        assertTrue(tracker.contains("NONEMPTY_WALLET_MINT_ABSENT_ZERO_PENDING"))
+        assertTrue(tracker.contains("FRESH_BUY_ABSENT_RECONCILE_DEFERRED"))
+        assertFalse("non-empty absent snapshot must not be treated as RPC_EMPTY_MAP forever",
+            tracker.contains("REAP_SKIPPED_BALANCE_UNKNOWN mint absent from one wallet snapshot — keeping open"))
+    }
+
 }
