@@ -525,8 +525,9 @@ class JournalActivity : AppCompatActivity() {
         }
     }
 
+    private fun isPartialSell(side: String): Boolean = side.equals("PARTIAL_SELL", ignoreCase = true)
     private fun isSellLike(side: String): Boolean =
-        side.equals("SELL", ignoreCase = true) || side.equals("PARTIAL_SELL", ignoreCase = true)
+        side.equals("SELL", ignoreCase = true) || isPartialSell(side)
 
     private fun renderJournalBody(filtered: List<com.lifecyclebot.engine.TradeJournal.JournalEntry>, stats: com.lifecyclebot.engine.TradeJournal.JournalStats) {
         val entries = filtered
@@ -614,14 +615,16 @@ class JournalActivity : AppCompatActivity() {
             info.addView(TextView(this).apply {
                 val posTail = entry.positionId.takeLast(10).ifBlank { "unlinked" }
                 val proof = entry.proofState.ifBlank { if (entry.mode.equals("paper", true)) "PAPER_SIM" else "LIVE_PROOF?" }
-                text = "id=$posTail · proof=$proof · e=${"%.8f".format(entry.entryPrice)} x=${"%.8f".format(entry.exitPrice)}"
+                val rowKind = if (isPartialSell(entry.side)) "partial" else "terminal"
+                text = "id=$posTail · $rowKind · proof=$proof · e=${"%.8f".format(entry.entryPrice)} x=${"%.8f".format(entry.exitPrice)}"
                 textSize = 9f
                 setTextColor(muted)
                 typeface = Typeface.MONOSPACE
             })
             if (entry.soldQtyToken > 0.0 || entry.remainingQtyToken > 0.0 || entry.entryMcapUsd > 0.0) {
                 info.addView(TextView(this).apply {
-                    text = "qty sold=${"%.3f".format(entry.soldQtyToken)} rem=${"%.3f".format(entry.remainingQtyToken)} · mcap=${'$'}${"%.0f".format(entry.entryMcapUsd)}"
+                    val mcapText = if (entry.entryMcapUsd > 0.0) "mcap=${'$'}${"%.0f".format(entry.entryMcapUsd)}" else "mcap=n/a"
+                    text = "qty sold=${"%.3f".format(entry.soldQtyToken)} rem=${"%.3f".format(entry.remainingQtyToken)} · $mcapText"
                     textSize = 9f
                     setTextColor(muted)
                     typeface = Typeface.MONOSPACE

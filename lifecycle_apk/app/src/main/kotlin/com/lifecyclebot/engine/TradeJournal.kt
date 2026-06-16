@@ -439,6 +439,8 @@ class TradeJournal(private val ctx: Context) {
         val tradeAcct = emitted.map { it.acct }
 
         val sells = emitted.filter { isSellLike(it.entry.side) }
+        // V5.0.3808 — partial exits are real realized exits. Count them in WR,
+        // trade count, avg win/loss, and realized P&L; fix their source math instead.
         val decisiveSells = sells.filter { isDecisive(it.entry.pnlPct) }
         val wins = decisiveSells.count { isWin(it.entry.pnlPct) }
         val losses = decisiveSells.count { isLoss(it.entry.pnlPct) }
@@ -530,6 +532,7 @@ class TradeJournal(private val ctx: Context) {
 
     fun getStatsFiltered(entries: List<JournalEntry>): JournalStats {
         val sells = entries.filter { isSellLike(it.side) && !isInvalidAccounting(it) }
+        // V5.0.3808 — partial exits are real realized outcomes and must drive WR.
         val decisiveTrades = sells.filter { isDecisive(it.pnlPct) }
         val scratchTrades = sells.filter { isScratch(it.pnlPct) }
         val wins = decisiveTrades.filter { isWin(it.pnlPct) }
