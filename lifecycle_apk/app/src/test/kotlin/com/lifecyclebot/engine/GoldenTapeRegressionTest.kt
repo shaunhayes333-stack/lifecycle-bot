@@ -1856,6 +1856,30 @@ class GoldenTapeRegressionTest {
 
 
     @Test
+    fun downstream_coroutine_split_only_moves_post_proof_reconcile_retry_work() {
+        val bot = java.io.File("src/main/kotlin/com/lifecyclebot/engine/BotService.kt").readText()
+        val queue = java.io.File("src/main/kotlin/com/lifecyclebot/engine/DownstreamWorkQueue.kt").readText()
+        val exec = java.io.File("src/main/kotlin/com/lifecyclebot/engine/Executor.kt").readText()
+        val planner = java.io.File("src/main/kotlin/com/lifecyclebot/engine/ProcessorAmountPlanner.kt").readText()
+
+        assertTrue("downstream queue must exist", queue.contains("object DownstreamWorkQueue"))
+        assertTrue("downstream queue must expose verification lane", queue.contains("fun verification("))
+        assertTrue("downstream queue must expose reconciliation lane", queue.contains("fun reconciliation("))
+        assertTrue("downstream queue must expose retry lane", queue.contains("fun retry("))
+
+        assertTrue("reconciler sell trigger must be downstream async", bot.contains("DownstreamWorkQueue.reconciliation(\"reconciler_sell_trigger\""))
+        assertTrue("reconciler zero close finality must be downstream async", bot.contains("DownstreamWorkQueue.reconciliation(\"reconciler_zero_close\""))
+        assertTrue("proof-ready retry enqueue must be downstream async", bot.contains("DownstreamWorkQueue.retry(\"balance_proof_ready_enqueue\""))
+        assertTrue("zero-confirmed finality must be downstream async", bot.contains("DownstreamWorkQueue.verification(\"balance_proof_zero_confirmed\""))
+
+        assertFalse("live sell amount authority must not be moved into downstream queue", queue.contains("ProcessorAmountPlanner.planSell"))
+        assertFalse("live buy amount authority must not be moved into downstream queue", queue.contains("ProcessorAmountPlanner.planBuy"))
+        assertTrue("Executor must still invoke processor-bound sell planning synchronously", exec.contains("ProcessorAmountPlanner.planSell("))
+        assertTrue("ProcessorAmountPlanner must still read owner-filtered token accounts synchronously", planner.contains("wallet.getTokenAccountsWithDecimalsBounded()"))
+    }
+
+
+    @Test
     fun processor_amount_planner_owns_buy_sell_amount_authority_executor_only_orchestrates() {
         val exec = java.io.File("src/main/kotlin/com/lifecyclebot/engine/Executor.kt").readText()
         val planner = java.io.File("src/main/kotlin/com/lifecyclebot/engine/ProcessorAmountPlanner.kt").readText()

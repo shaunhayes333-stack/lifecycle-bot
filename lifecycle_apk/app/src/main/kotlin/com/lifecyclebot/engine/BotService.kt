@@ -863,27 +863,29 @@ class BotService : Service() {
                 // from the host wallet tracker so the bot can still sell
                 // tokens the user holds without restarting the watchlist.
                 sellTrigger = { mint, symbol, balance ->
-                    try {
-                        val existing = synchronized(status.tokens) { status.tokens[mint] }
-                        val ts = existing ?: rehydrateTokenStateFromTracker(mint, symbol, balance)
-                        if (ts != null) {
-                            val curWallet = WalletManager.getWallet()
-                            val curSol = walletManager.state.value.solBalance
-                            executor.requestSell(
-                                ts,
-                                "RECONCILER_REQUEUE",
-                                curWallet,
-                                curSol,
-                            )
-                            try {
-                                ForensicLogger.lifecycle(
-                                    "RECONCILER_SELL_TRIGGERED",
-                                    "mint=${mint.take(10)} symbol=$symbol balance=$balance rehydrated=${existing == null}",
+                    DownstreamWorkQueue.reconciliation("reconciler_sell_trigger", mint) {
+                        try {
+                            val existing = synchronized(status.tokens) { status.tokens[mint] }
+                            val ts = existing ?: rehydrateTokenStateFromTracker(mint, symbol, balance)
+                            if (ts != null) {
+                                val curWallet = WalletManager.getWallet()
+                                val curSol = walletManager.state.value.solBalance
+                                executor.requestSell(
+                                    ts,
+                                    "RECONCILER_REQUEUE",
+                                    curWallet,
+                                    curSol,
                                 )
-                            } catch (_: Throwable) {}
+                                try {
+                                    ForensicLogger.lifecycle(
+                                        "RECONCILER_SELL_TRIGGERED",
+                                        "mint=${mint.take(10)} symbol=$symbol balance=$balance rehydrated=${existing == null} async=downstream",
+                                    )
+                                } catch (_: Throwable) {}
+                            }
+                        } catch (e: Throwable) {
+                            ErrorLogger.warn("BotService", "sellTrigger error: ${e.message?.take(80)}")
                         }
-                    } catch (e: Throwable) {
-                        ErrorLogger.warn("BotService", "sellTrigger error: ${e.message?.take(80)}")
                     }
                 },
                 // V5.9.1496 — ZERO-BALANCE CLOSE FINALITY. When the reconciler
@@ -897,37 +899,41 @@ class BotService : Service() {
                 // PositionCloseLedger stamp inside confirmZeroBalanceClose is the
                 // authoritative trainable close record.
                 onZeroClose = { mint, symbol, sig ->
-                    try {
-                        val laneGuess = try {
-                            synchronized(status.tokens) { status.tokens[mint]?.position?.tradingMode }
-                        } catch (_: Throwable) { null }
-                        // Release primary across the lanes this mint could hold.
-                        val lanesToRelease = listOfNotNull(
-                            laneGuess,
-                            "SHITCOIN", "MOONSHOT", "BLUECHIP", "QUALITY",
-                            "TREASURY", "MANIPULATED", "DIP_HUNTER", "PROJECT_SNIPER",
-                            "EXPRESS", "CORE",
-                        ).distinct()
-                        for (ln in lanesToRelease) {
+                    DownstreamWorkQueue.reconciliation("reconciler_zero_close", mint) {
+                        try {
+                            val laneGuess = try {
+                                synchronized(status.tokens) { status.tokens[mint]?.position?.tradingMode }
+                            } catch (_: Throwable) { null }
+                            // Release primary across the lanes this mint could hold.
+                            val lanesToRelease = listOfNotNull(
+                                laneGuess,
+                                "SHITCOIN", "MOONSHOT", "BLUECHIP", "QUALITY",
+                                "TREASURY", "MANIPULATED", "DIP_HUNTER", "PROJECT_SNIPER",
+                                "EXPRESS", "CORE",
+                            ).distinct()
+                            for (ln in lanesToRelease) {
+                                try {
+                                    com.lifecyclebot.engine.LaneExecutionCoordinator.releaseIfPrimary(
+                                        mint, ln, "ZERO_BALANCE_RECONCILER_CLOSE",
+                                    )
+                                } catch (_: Throwable) {}
+                            }
                             try {
-                                com.lifecyclebot.engine.LaneExecutionCoordinator.releaseIfPrimary(
-                                    mint, ln, "ZERO_BALANCE_RECONCILER_CLOSE",
+                                ForensicLogger.lifecycle(
+                                    "RECONCILER_ZERO_CLOSE_FINALIZED",
+                                    "mint=${mint.take(10)} symbol=$symbol sig=${sig ?: "none"} lanesReleased=${lanesToRelease.size} async=downstream",
                                 )
                             } catch (_: Throwable) {}
+                        } catch (e: Throwable) {
+                            ErrorLogger.warn("BotService", "onZeroClose error: ${e.message?.take(80)}")
                         }
-                        try {
-                            ForensicLogger.lifecycle(
-                                "RECONCILER_ZERO_CLOSE_FINALIZED",
-                                "mint=${mint.take(10)} symbol=$symbol sig=${sig ?: "none"} lanesReleased=${lanesToRelease.size}",
-                            )
-                        } catch (_: Throwable) {}
-                    } catch (e: Throwable) {
-                        ErrorLogger.warn("BotService", "onZeroClose error: ${e.message?.take(80)}")
                     }
                 },
                 onHealWalletHeld = { heldMints ->
-                    try { healWalletHeldIntoLiveStore(heldMints) }
-                    catch (e: Throwable) { ErrorLogger.warn("BotService", "onHealWalletHeld error: ${e.message?.take(80)}") }
+                    DownstreamWorkQueue.reconciliation("reconciler_heal_wallet_held", heldMints.firstOrNull().orEmpty()) {
+                        try { healWalletHeldIntoLiveStore(heldMints) }
+                        catch (e: Throwable) { ErrorLogger.warn("BotService", "onHealWalletHeld error: ${e.message?.take(80)}") }
+                    }
                 },
             )
             BotRuntimeController.markSellReconcilerStarted(runtimeGeneration, com.lifecyclebot.engine.sell.SellReconciler.isStarted)
@@ -945,26 +951,29 @@ class BotService : Service() {
                 isPaperMode = cfg.paperMode,
                 hostWallet = wallet,
                 onProofReady = { mint, symbol, reason ->
-                    try {
-                        // Verified raw amount now exists in SellAmountAuthority's
-                        // RPC resolution. Push back into PendingSellQueue as an
-                        // ACTIVE retry; BotService's pending-sell processor will
-                        // invoke executor.requestSell which acquires a fresh
-                        // CloseLease and broadcasts under the verified amount.
-                        com.lifecyclebot.engine.PendingSellQueue.add(mint, symbol, reason)
+                    DownstreamWorkQueue.retry("balance_proof_ready_enqueue", mint) {
                         try {
-                            ForensicLogger.lifecycle(
-                                "BALANCE_PROOF_ENQUEUED_ACTIVE_SELL",
-                                "mint=${mint.take(10)} symbol=$symbol reason=$reason",
-                            )
-                        } catch (_: Throwable) {}
-                    } catch (e: Throwable) {
-                        ErrorLogger.warn("BotService", "onProofReady error: ${e.message?.take(80)}")
+                            // Verified raw amount now exists in SellAmountAuthority's
+                            // RPC resolution. Push back into PendingSellQueue as an
+                            // ACTIVE retry; BotService's pending-sell processor will
+                            // invoke executor.requestSell which acquires a fresh
+                            // CloseLease and broadcasts under the verified amount.
+                            com.lifecyclebot.engine.PendingSellQueue.add(mint, symbol, reason)
+                            try {
+                                ForensicLogger.lifecycle(
+                                    "BALANCE_PROOF_ENQUEUED_ACTIVE_SELL",
+                                    "mint=${mint.take(10)} symbol=$symbol reason=$reason async=downstream",
+                                )
+                            } catch (_: Throwable) {}
+                        } catch (e: Throwable) {
+                            ErrorLogger.warn("BotService", "onProofReady error: ${e.message?.take(80)}")
+                        }
                     }
                 },
                 onZeroConfirmed = { mint, symbol, reason ->
-                    try {
-                        // V5.0.3749 — zero proof may close only through the tracker
+                    DownstreamWorkQueue.verification("balance_proof_zero_confirmed", mint) {
+                        try {
+                            // V5.0.3749 — zero proof may close only through the tracker
                         // finality state machine. Do not release lanes / stamp close
                         // just because the poller saw a zero-like state.
                         try {
@@ -1003,8 +1012,9 @@ class BotService : Service() {
                         } else {
                             try { ForensicLogger.lifecycle("REAP_SKIPPED_BALANCE_UNKNOWN", "mint=${mint.take(10)} symbol=$symbol reason=$reason no_independent_zero_finality_or_last_positive") } catch (_: Throwable) {}
                         }
-                    } catch (e: Throwable) {
-                        ErrorLogger.warn("BotService", "onZeroConfirmed error: ${e.message?.take(80)}")
+                        } catch (e: Throwable) {
+                            ErrorLogger.warn("BotService", "onZeroConfirmed error: ${e.message?.take(80)}")
+                        }
                     }
                 },
             )
