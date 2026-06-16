@@ -1347,4 +1347,14 @@ class GoldenTapeRegressionTest {
         assertTrue(exec.contains("effectiveJitoTipLamports(c, urgent = true)"))
     }
 
+
+    @Test
+    fun lane_exit_tuner_tightens_low_wr_no_runner_bleeders() {
+        val tuner = java.io.File("src/main/kotlin/com/lifecyclebot/engine/learning/LaneExitTuner.kt").readText()
+        assertTrue(tuner.contains("low-WR/no-runner bleed fix"))
+        assertTrue(tuner.contains("wr < 0.20 && avgReal < 0.0 && avgPeak < 15.0 -> sl -= STEP * 2.0"))
+        assertTrue(tuner.contains("val slCap = if (wr < 0.20 && avgReal < 0.0 && avgPeak < 15.0) 1.0 else SL_MAX"))
+        assertFalse("low-WR no-runner lanes must not widen stops", tuner.contains("slHitRate >= 0.50 && avgPeak < 8.0 -> sl += STEP"))
+    }
+
 }

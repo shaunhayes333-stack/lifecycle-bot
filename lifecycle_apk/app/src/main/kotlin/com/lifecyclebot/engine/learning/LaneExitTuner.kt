@@ -143,10 +143,18 @@ object LaneExitTuner {
 
         var sl = st.slMult
         when {
-            slHitRate >= 0.50 && avgPeak < 8.0 -> sl += STEP
+            // V5.0.3765 — low-WR/no-runner bleed fix. The old rule widened stops
+            // whenever stop-hit rate was high and avgPeak was low. In a sub-20% WR
+            // negative-PF regime that is exactly backwards: there are no runners to
+            // preserve, so widening only increases realized loss. Tighten the lane
+            // until it proves it can produce peaks/wins again. Runner lanes are still
+            // protected above by the TP/giveBack logic and by the avgPeak guard here.
+            wr < 0.20 && avgReal < 0.0 && avgPeak < 15.0 -> sl -= STEP * 2.0
+            slHitRate >= 0.50 && avgPeak < 8.0 && wr >= 0.30 -> sl += STEP
             slHitRate < 0.25 && avgLoss <= -10.0 -> sl -= STEP
         }
-        st.slMult = sl.coerceIn(SL_MIN, SL_MAX)
+        val slCap = if (wr < 0.20 && avgReal < 0.0 && avgPeak < 15.0) 1.0 else SL_MAX
+        st.slMult = sl.coerceIn(SL_MIN, slCap)
     }
 
     fun getTpMult(lane: String): Double = try {
