@@ -1205,6 +1205,20 @@ object HostWalletTokenTracker {
             .map { it.mint }
             .toCollection(HashSet())
 
+    /**
+     * V5.0.3792 — accounting-open mint set (the SAME predicate that getOpenCount()
+     * counts: wallet-positive OR fresh-buy liability OR live-sell-in-flight). Used by
+     * RuntimeStateSnapshot to filter localLiveOpen so a stale live TokenState that the
+     * host tracker does NOT consider open can never inflate canonicalOpen and trip the
+     * canonicalOpen>walletHeld drift that latches SELL_ONLY_SAFE_MODE. This is the
+     * host-wallet-as-source-of-truth contract the runtime comment already mandated.
+     */
+    fun getOpenForAccountingMints(): Set<String> =
+        positions.values.asSequence()
+            .filter { isOpenForAccounting(it) }
+            .map { it.mint }
+            .toCollection(HashSet())
+
 
     // V5.9.1501 — ZERO-BALANCE GHOST REAPER (root cause of "1/31 open").
     // A row in an OPEN_STATUS with uiAmount==0 holds NO wallet tokens — it is a

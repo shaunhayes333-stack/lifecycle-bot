@@ -68,7 +68,26 @@ data class RuntimeStateSnapshot(
             // TokenState, poisoning HOST_TRACKER_DESYNC and SellOnlySafeMode even though the
             // wallet/tracker were empty. In LIVE, a local TokenState is not an open position
             // unless the host wallet tracker still holds or is actively selling that mint.
-            val localLiveOpen = try { statusOpen.count { !it.position.isPaperPosition } } catch (_: Throwable) { 0 }
+            // V5.0.3792 — HOST WALLET IS SOURCE OF TRUTH (operator: "no tokens in my
+            // wallet except SOL but the bot thinks there is 3"). A raw live TokenState in
+            // BotService.status.openPositions is NOT an open position unless the host
+            // wallet tracker still counts it open-for-accounting (wallet-positive, fresh
+            // buy liability, or live sell in-flight). Stale ghost TokenStates (Size 0,
+            // Entry —, e.g. WSOLP/VDoRrq/DiYVat) otherwise inflated localLiveOpen ->
+            // canonicalOpen -> canonicalOpen>walletHeld drift -> SELL_ONLY_SAFE_MODE ->
+            // every live buy hard-blocked. Intersect with the tracker's accounting-open
+            // set so the wallet remains the single source of truth.
+            // null = tracker call FAILED (fall back to legacy raw count so we never
+            // under-count a real position). An empty SET is the valid healthy answer
+            // ("nothing is open") and MUST gate the ghosts out — do not fall back on it.
+            val accountingOpenMints: Set<String>? = try { HostWalletTokenTracker.getOpenForAccountingMints() } catch (_: Throwable) { null }
+            val localLiveOpen = try {
+                statusOpen.count { ts ->
+                    if (ts.position.isPaperPosition) false
+                    else if (accountingOpenMints == null) true          // tracker error → legacy raw count
+                    else accountingOpenMints.contains(ts.mint)          // host-tracker truth gates ghosts
+                }
+            } catch (_: Throwable) { 0 }
             val lifecyclePendingConfirmed = try { TokenLifecycleTracker.confirmedPendingCount() } catch (_: Throwable) { 0 }
             val lifecycleOpen = try { TokenLifecycleTracker.openCount() } catch (_: Throwable) { 0 }
             val liveOpen = maxOf(localLiveOpen, hostOpen, lifecyclePendingConfirmed)

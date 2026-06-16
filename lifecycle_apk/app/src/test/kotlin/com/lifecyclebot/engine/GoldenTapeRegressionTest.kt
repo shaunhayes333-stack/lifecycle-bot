@@ -1748,4 +1748,26 @@ class GoldenTapeRegressionTest {
         assertTrue(recon.contains("if (rawApprox <= DUST_RAW_REAP) continue"))
     }
 
+
+    @Test
+    fun host_wallet_is_source_of_truth_ghost_positions_cannot_inflate_open_count() {
+        val snap = java.io.File("src/main/kotlin/com/lifecyclebot/engine/RuntimeStateSnapshot.kt").readText()
+        val tracker = java.io.File("src/main/kotlin/com/lifecyclebot/engine/HostWalletTokenTracker.kt").readText()
+        val bot = java.io.File("src/main/kotlin/com/lifecyclebot/engine/BotService.kt").readText()
+        val recon = java.io.File("src/main/kotlin/com/lifecyclebot/engine/sell/LiveWalletReconciler.kt").readText()
+
+        // localLiveOpen must be gated by the host tracker's accounting-open set so a
+        // stale live TokenState cannot inflate canonicalOpen and latch SELL_ONLY_SAFE_MODE.
+        assertTrue(snap.contains("getOpenForAccountingMints"))
+        assertTrue(snap.contains("accountingOpenMints"))
+        // An EMPTY accounting set must gate ghosts out (only a null/tracker-error falls back).
+        assertTrue(snap.contains("accountingOpenMints == null) true"))
+        assertTrue(tracker.contains("fun getOpenForAccountingMints"))
+
+        // Ghost live TokenStates must be purgeable so wallet == dashboard == accounting.
+        assertTrue(bot.contains("fun purgeGhostLivePosition"))
+        assertTrue(recon.contains("purgeGhostLivePosition"))
+        assertTrue(recon.contains("GHOST_TOKENSTATE_REAPED"))
+    }
+
 }

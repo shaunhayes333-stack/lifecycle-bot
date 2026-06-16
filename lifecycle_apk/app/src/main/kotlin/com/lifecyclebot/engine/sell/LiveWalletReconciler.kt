@@ -250,8 +250,44 @@ object LiveWalletReconciler {
                     try { com.lifecyclebot.engine.sell.LivePositionCloseAuthority.finalizeClosed(p.mint, p.symbol ?: p.mint.take(6), null, "DUST_ZOMBIE_REAP", source = "live_wallet_reconciler_dust") } catch (_: Throwable) {}
                     try { com.lifecyclebot.engine.sell.CloseLease.release(p.mint, terminal = "DUST_ZOMBIE_REAP") } catch (_: Throwable) {}
                     try { com.lifecyclebot.engine.sell.SellJobRegistry.markLanded(p.mint, signature = null) } catch (_: Throwable) {}
+                    try { com.lifecyclebot.engine.BotService.purgeGhostLivePosition(p.mint, "DUST_ZOMBIE_REAP") } catch (_: Throwable) {}
                     try { com.lifecyclebot.engine.ForensicLogger.lifecycle("DUST_ZOMBIE_POSITION_REAPED", "mint=${p.mint.take(10)} symbol=${p.symbol} walletRaw=$walletRawApprox ageMs=$ageMs reason=$reason") } catch (_: Throwable) {}
                 }
+            }
+        }
+        // V5.0.3792 — BotService-side ghost sweep against the TRUSTED non-empty wallet
+        // read. A live TokenState (status.tokens) can exist with a phantom qtyToken
+        // (RECOVERED row) while the wallet holds nothing for that mint. The tracker reap
+        // above only covers mints the host tracker knows about; this covers ghosts that
+        // live only as a BotService TokenState. Any LIVE position whose mint is absent or
+        // dust in the trusted wallet read, and which is not a fresh-buy liability, is
+        // purged so the wallet stays the single source of truth.
+        run {
+            val now = System.currentTimeMillis()
+            val ghostMints = try {
+                com.lifecyclebot.engine.BotService.status.tokens.values
+                    .asSequence()
+                    .filter { !it.position.isPaperPosition && it.position.qtyToken > 0.0 }
+                    .map { it.mint }
+                    .filter { m ->
+                        val pair = balances[m]
+                        val walletRaw = if (pair != null) (pair.first * Math.pow(10.0, pair.second.toDouble())).toLong() else 0L
+                        walletRaw <= DUST_RAW_REAP
+                    }
+                    .toList()
+            } catch (_: Throwable) { emptyList() }
+            for (m in ghostMints) {
+                // Protect a genuinely fresh buy whose wallet hasn't hydrated yet.
+                val fresh = try { com.lifecyclebot.engine.HostWalletTokenTracker.getEntry(m)?.let { e ->
+                    val anchor = e.buyTimeMs ?: e.firstSeenWalletMs
+                    (now - anchor) < ZOMBIE_AGE_MS
+                } ?: false } catch (_: Throwable) { false }
+                if (fresh) continue
+                try { com.lifecyclebot.engine.HostWalletTokenTracker.confirmZeroBalanceClose(m, hasConfirmedSellSig = false, reason = "GHOST_TOKENSTATE_NO_WALLET") } catch (_: Throwable) {}
+                try { com.lifecyclebot.engine.sell.LivePositionCloseAuthority.finalizeClosed(m, m.take(6), null, "GHOST_TOKENSTATE_NO_WALLET", source = "live_wallet_reconciler_ghost") } catch (_: Throwable) {}
+                try { com.lifecyclebot.engine.sell.CloseLease.release(m, terminal = "GHOST_TOKENSTATE_NO_WALLET") } catch (_: Throwable) {}
+                try { com.lifecyclebot.engine.BotService.purgeGhostLivePosition(m, "GHOST_TOKENSTATE_NO_WALLET") } catch (_: Throwable) {}
+                try { com.lifecyclebot.engine.ForensicLogger.lifecycle("GHOST_TOKENSTATE_REAPED", "mint=${m.take(10)} reason=$reason") } catch (_: Throwable) {}
             }
         }
         var updated = 0
@@ -341,6 +377,7 @@ object LiveWalletReconciler {
             if (closed != null) {
                 try { com.lifecyclebot.engine.sell.CloseLease.release(p.mint, terminal = "ZOMBIE_REAP") } catch (_: Throwable) {}
                 try { com.lifecyclebot.engine.sell.SellJobRegistry.markLanded(p.mint, signature = null) } catch (_: Throwable) {}
+                try { com.lifecyclebot.engine.BotService.purgeGhostLivePosition(p.mint, "ZOMBIE_REAP") } catch (_: Throwable) {}
                 try { com.lifecyclebot.engine.ForensicLogger.lifecycle(
                     "ZOMBIE_POSITION_REAPED",
                     "mint=${p.mint.take(10)} symbol=${p.symbol} ageMs=$ageMs reason=$reason") } catch (_: Throwable) {}

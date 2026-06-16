@@ -391,6 +391,31 @@ class BotService : Service() {
         lateinit var walletManager: WalletManager
         // V5.9: Track recently closed positions to prevent immediate re-entry (churn prevention)
         val recentlyClosedMs = java.util.concurrent.ConcurrentHashMap<String, Long>()
+
+        /**
+         * V5.0.3792 — GHOST LIVE-POSITION PURGE (host wallet = source of truth).
+         * Operator: "no tokens in my wallet except SOL but the bot thinks there is 3"
+         * (RECOVERED rows WSOLP/VDoRrq/DiYVat: Size 0, Entry —, phantom qtyToken).
+         * When the host-wallet tracker has terminally closed a mint (confirmed zero /
+         * dust / absent from a trusted wallet read), the matching live TokenState must
+         * also be cleared so the dashboard tile, status.openPositions and the
+         * localLiveOpen accounting all drop it. Idempotent and lock-safe; only ever
+         * clears a LIVE (non-paper) position so a paper sim book is never touched.
+         */
+        fun purgeGhostLivePosition(mint: String, reason: String) {
+            if (mint.isBlank()) return
+            try {
+                synchronized(status.tokens) {
+                    val ts = status.tokens[mint] ?: return@synchronized
+                    if (ts.position.isPaperPosition) return@synchronized
+                    ts.position = com.lifecyclebot.data.Position()  // qtyToken=0 → isOpen=false
+                    status.tokens.remove(mint)
+                }
+                recentlyClosedMs[mint] = System.currentTimeMillis()
+                try { com.lifecyclebot.v3.V3EngineManager.onPositionClosed(mint) } catch (_: Throwable) {}
+                try { com.lifecyclebot.engine.ForensicLogger.lifecycle("GHOST_LIVE_POSITION_PURGED", "mint=${mint.take(10)} reason=$reason") } catch (_: Throwable) {}
+            } catch (_: Throwable) {}
+        }
         private const val RE_ENTRY_COOLDOWN_MS = 300_000L  // 5 minutes
 
         // V5.9.148 — guards the stop → start race. stopBot() flips status.running
