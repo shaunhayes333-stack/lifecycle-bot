@@ -1253,6 +1253,7 @@ object PipelineHealthCollector {
         sb.append("  FDG allow/block:      ${fdgPaperAllow.get()} / ${fdgPaperBlock.get()}\n")
         sb.append("  BUY ok:               ${execPaperBuyOk.get()}\n")
         sb.append("  SELL ok:              ${execPaperSellOk.get()}\n")
+        sb.append("  PARTIAL ok:           ${execPaperPartialOk.get()}\n")
         sb.append("  Recent journal rows:  ${paperRecentRows}\n")
         sb.append("\n")
 
@@ -1587,7 +1588,7 @@ object PipelineHealthCollector {
         sb.append("    EXEC_LIVE_ATTEMPT=${execLiveAttempt.get()}\n")
         sb.append("    EXEC_LIVE_BUY_OK=${execLiveBuyOk.get()}   EXEC_LIVE_BUY_FAIL=${execLiveBuyFail.get()}\n")
         sb.append("    EXEC_LIVE_SELL_OK=${execLiveSellOk.get()}  EXEC_LIVE_SELL_FAIL=${execLiveSellFail.get()}\n")
-        sb.append("    EXEC_PAPER_BUY_OK=${execPaperBuyOk.get()}  EXEC_PAPER_SELL_OK=${execPaperSellOk.get()}\n")
+        sb.append("    EXEC_PAPER_BUY_OK=${execPaperBuyOk.get()}  EXEC_PAPER_SELL_OK=${execPaperSellOk.get()}  EXEC_PAPER_PARTIAL_OK=${execPaperPartialOk.get()}\n")
         if (modeSnapshot == "LIVE" && fdgLiveBlock.get() > 0 && fdgLiveAllow.get() == 0L) {
             sb.append("  ⚠ LIVE mode but FDG_LIVE_ALLOW=0 — live trading is fully blocked.\n")
             sb.append("    Check block-reason histogram below for the gate that\'s vetoing.\n")
