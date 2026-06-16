@@ -1332,4 +1332,19 @@ class GoldenTapeRegressionTest {
         assertTrue(wallet.contains("throw RuntimeException(\"wallet token snapshot timeout"))
     }
 
+
+    @Test
+    fun live_transaction_fee_authority_uses_dynamic_sender_floor_everywhere() {
+        val exec = java.io.File("src/main/kotlin/com/lifecyclebot/engine/Executor.kt").readText()
+        val helperIdx = exec.indexOf("effectiveJitoTipLamports")
+        assertTrue("fee authority helper missing", helperIdx >= 0)
+        val withoutHelper = exec.removeRange(helperIdx, exec.indexOf("private data class ProcessorBuyPlan", helperIdx))
+        assertFalse("live builders must not pass raw config jito tip", withoutHelper.contains("jitoTipLamports = c.jitoTipLamports"))
+        assertFalse("live builders must not use static 200k without dynamic tip", withoutHelper.contains("maxOf(c.jitoTipLamports, 200_000L)"))
+        assertFalse("live builders must not call dynamic tip ad hoc", withoutHelper.contains("getDynamicTip(c.jitoTipLamports)"))
+        assertTrue(exec.contains("maxOf(dynamic, c.jitoTipLamports, 200_000L)"))
+        assertTrue(exec.contains("effectiveJitoTipLamports(c, urgent = isDrainExit)"))
+        assertTrue(exec.contains("effectiveJitoTipLamports(c, urgent = true)"))
+    }
+
 }

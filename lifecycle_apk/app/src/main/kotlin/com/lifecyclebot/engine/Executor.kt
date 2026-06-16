@@ -1427,6 +1427,18 @@ class Executor(
     }
 
 
+    /** V5.0.3764 — single fee authority for live tx builders.
+     * Config default jitoTipLamports is 10k, but Helius Sender/Jupiter Jito-tip
+     * compatibility requires >=200k. Use dynamic 75th-percentile Jito tip when
+     * enabled, enforce the sender floor, and optionally double urgent exits.
+     */
+    private fun effectiveJitoTipLamports(c: com.lifecyclebot.data.BotConfig, urgent: Boolean = false): Long {
+        if (!c.jitoEnabled) return 0L
+        val dynamic = try { com.lifecyclebot.network.JitoTipFetcher.getDynamicTip(c.jitoTipLamports) } catch (_: Throwable) { c.jitoTipLamports }
+        val floored = maxOf(dynamic, c.jitoTipLamports, 200_000L)
+        return if (urgent) (floored * 2L).coerceAtMost(1_000_000L) else floored
+    }
+
     private data class ProcessorBuyPlan(
         val processor: String,
         val solAmount: Double,
@@ -4066,9 +4078,7 @@ class Executor(
             // if this tight attempt fails to land. sellSlippage is bps -> /100 for %.
             val pfPumpSlip = (sellSlippage / 100).coerceIn(1, 5)
             val pfPumpJito = c.jitoEnabled
-            val pfPumpTip = com.lifecyclebot.network.JitoTipFetcher
-                .getDynamicTip(c.jitoTipLamports)
-                .let { if (isDrainExit) (it * 2).coerceAtMost(1_000_000L) else it }
+            val pfPumpTip = effectiveJitoTipLamports(c, urgent = isDrainExit)
             // V5.9.1533 — spec item 7: skip Pump-direct when this mint's pump route was
             // invalidated by a prior 0x1787; let the Jupiter/venue ladder re-resolve.
             sig = if (com.lifecyclebot.engine.sell.MemeVenueRouter.isPumpRouteInvalid(ts.mint)) {
@@ -4161,7 +4171,7 @@ class Executor(
                     val dynSlipCap = com.lifecyclebot.engine.sell.SellSafetyPolicy.maxSlippageBps(reason).coerceAtLeast(currentSlip)
                     val txResult = buildTxWithRetry(
                         quote, wallet.publicKeyB58, dynamicSlippageMaxBps = dynSlipCap,
-                        senderTipLamports = if (c.jitoEnabled) maxOf(com.lifecyclebot.network.JitoTipFetcher.getDynamicTip(c.jitoTipLamports), 200_000L) else 0L,
+                        senderTipLamports = effectiveJitoTipLamports(c, urgent = isDrainExit),
                     )
                     LiveTradeLogStore.log(
                         sellTradeKey, ts.mint, ts.symbol, "SELL",
@@ -4175,9 +4185,7 @@ class Executor(
                     // V5.9.483 — dynamic Jito tip from bundles.jito.wtf 75th percentile.
                     // Static c.jitoTipLamports (10_000) was too low during congestion;
                     // drain-exit doubles the tip so we don't lose the position to a slow land.
-                    val jitoTip = com.lifecyclebot.network.JitoTipFetcher
-                        .getDynamicTip(c.jitoTipLamports)
-                        .let { if (isDrainExit) (it * 2).coerceAtMost(1_000_000L) else it }
+                    val jitoTip = effectiveJitoTipLamports(c, urgent = isDrainExit)
                     val ultraReqId = if (quote.isUltra) txResult.requestId else null
 
                     LiveTradeLogStore.log(
@@ -4220,9 +4228,7 @@ class Executor(
                 // 50% (normal).
                 val pumpSlip = 5  // V5.9.1524 — 5% live sell cap (was 90/50; builder also caps)
                 val pumpJito = c.jitoEnabled
-                val pumpTip = com.lifecyclebot.network.JitoTipFetcher
-                    .getDynamicTip(c.jitoTipLamports)
-                    .let { if (isDrainExit) (it * 2).coerceAtMost(1_000_000L) else it }
+                val pumpTip = effectiveJitoTipLamports(c, urgent = isDrainExit)
                 sig = tryPumpPortalSell(
                     ts = ts,
                     wallet = wallet,
@@ -5106,7 +5112,7 @@ class Executor(
                 // approximation `quote.outAmount` already gives is just a
                 // forecast, not a settlement).
                 val partialJito = c.jitoEnabled
-                val partialTip = c.jitoTipLamports
+                val partialTip = effectiveJitoTipLamports(c, urgent = false)
                 val pumpSig = if (com.lifecyclebot.engine.sell.MemeVenueRouter.isPumpRouteInvalid(ts.mint)) {
                     try { ForensicLogger.lifecycle("PUMP_DIRECT_SKIPPED_RERESOLVE",
                         "mint=${ts.mint.take(10)} symbol=${ts.symbol} label=PARTIAL reason=pump_route_invalid") } catch (_: Throwable) {}
@@ -5161,12 +5167,12 @@ class Executor(
                         ts.mint, JupiterApi.SOL_MINT, partialJupiterPlan.rawAmount, sellSlippage, isBuy = false)
                     val txResult  = buildTxWithRetry(
                         quote, wallet.publicKeyB58,
-                        senderTipLamports = if (c.jitoEnabled) maxOf(c.jitoTipLamports, 200_000L) else 0L,
+                        senderTipLamports = effectiveJitoTipLamports(c, urgent = false),
                     )
                     security.enforceSignDelay()
 
                     val useJito = c.jitoEnabled && !quote.isUltra
-                    val jitoTip = maxOf(c.jitoTipLamports, 200_000L)
+                    val jitoTip = effectiveJitoTipLamports(c, urgent = false)
                     val ultraReqId = if (quote.isUltra) txResult.requestId else null
                     sig = try {
                         wallet.signSendAndConfirm(txResult.txBase64, useJito, jitoTip, ultraReqId, c.jupiterApiKey, txResult.isRfqRoute, txResult.senderCompatible)
@@ -6889,7 +6895,7 @@ class Executor(
                 processor = "PUMPPORTAL_TOP_UP",
                 requestedSol = sol,
                 priorityFeeSol = 0.0001,
-                jitoTipLamports = c.jitoTipLamports,
+                jitoTipLamports = effectiveJitoTipLamports(c, urgent = false),
                 tradeKey = tradeKey,
                 traderTag = "MEME",
             )
@@ -6900,7 +6906,7 @@ class Executor(
                 slipPct = 10,
                 priorityFeeSol = 0.0001,
                 useJito = c.jitoEnabled,
-                jitoTipLamports = c.jitoTipLamports,
+                jitoTipLamports = effectiveJitoTipLamports(c, urgent = false),
                 tradeKey = tradeKey,
                 traderTag = "MEME",
             )
@@ -6919,7 +6925,7 @@ class Executor(
                     processor = "JUPITER_ULTRA_METIS_TOP_UP",
                     requestedSol = sol,
                     priorityFeeSol = 0.0,
-                    jitoTipLamports = if (c.jitoEnabled) maxOf(c.jitoTipLamports, 200_000L) else 0L,
+                    jitoTipLamports = effectiveJitoTipLamports(c, urgent = false),
                     tradeKey = tradeKey,
                     traderTag = "MEME",
                 ) ?: return
@@ -6931,12 +6937,12 @@ class Executor(
                 }
                 val txResult = buildTxWithRetry(
                         quote, wallet.publicKeyB58,
-                        senderTipLamports = if (c.jitoEnabled) maxOf(c.jitoTipLamports, 200_000L) else 0L,
+                        senderTipLamports = effectiveJitoTipLamports(c, urgent = false),
                     )
                 security.enforceSignDelay()
 
                 val useJito = c.jitoEnabled && !quote.isUltra
-                val jitoTip = maxOf(c.jitoTipLamports, 200_000L)
+                val jitoTip = effectiveJitoTipLamports(c, urgent = false)
                 val ultraReqId = if (quote.isUltra) txResult.requestId else null
 
                 if (quote.isUltra) {
@@ -8937,7 +8943,7 @@ class Executor(
                 processor = "PUMPPORTAL_BUY",
                 requestedSol = effectiveSol,
                 priorityFeeSol = 0.0001,
-                jitoTipLamports = c.jitoTipLamports,
+                jitoTipLamports = effectiveJitoTipLamports(c, urgent = false),
                 tradeKey = tradeKey,
                 traderTag = "MEME",
             )
@@ -8948,7 +8954,7 @@ class Executor(
                 slipPct = 10,
                 priorityFeeSol = 0.0001,
                 useJito = c.jitoEnabled,
-                jitoTipLamports = c.jitoTipLamports,
+                jitoTipLamports = effectiveJitoTipLamports(c, urgent = false),
                 tradeKey = tradeKey,
                 traderTag = "MEME",
             )
@@ -8993,7 +8999,7 @@ class Executor(
                         processor = "JUPITER_ULTRA_METIS_BUY",
                         requestedSol = effectiveSol,
                         priorityFeeSol = 0.0,
-                        jitoTipLamports = if (c.jitoEnabled) maxOf(c.jitoTipLamports, 200_000L) else 0L,
+                        jitoTipLamports = effectiveJitoTipLamports(c, urgent = false),
                         tradeKey = tradeKey,
                         traderTag = "MEME",
                     ) ?: throw Exception("BUY_BALANCE_PLAN_UNAVAILABLE")
@@ -9059,7 +9065,7 @@ class Executor(
 
             val txResultLocal = buildTxWithRetry(
                         quote, wallet.publicKeyB58,
-                        senderTipLamports = if (c.jitoEnabled) maxOf(c.jitoTipLamports, 200_000L) else 0L,
+                        senderTipLamports = effectiveJitoTipLamports(c, urgent = false),
                     )
             txResult = txResultLocal
             LiveTradeLogStore.log(
@@ -9114,7 +9120,7 @@ class Executor(
             security.enforceSignDelay()
 
             useJito = c.jitoEnabled && !quote.isUltra
-            jitoTip = maxOf(c.jitoTipLamports, 200_000L)
+            jitoTip = effectiveJitoTipLamports(c, urgent = false)
             
             if (quote.isUltra) {
                 onLog("🚀 Broadcasting via Jupiter Ultra (Beam MEV protection)…", ts.mint)
@@ -10436,7 +10442,7 @@ class Executor(
                             val dynSlipCap = com.lifecyclebot.engine.sell.SellSafetyPolicy.maxSlippageBps(reason).coerceAtLeast(currentSlip)
                             val txResult = buildTxWithRetry(
                                 quote, activeWallet.publicKeyB58, dynamicSlippageMaxBps = dynSlipCap,
-                                senderTipLamports = if (c.jitoEnabled) maxOf(com.lifecyclebot.network.JitoTipFetcher.getDynamicTip(c.jitoTipLamports), 200_000L) else 0L,
+                                senderTipLamports = effectiveJitoTipLamports(c, urgent = isDrainExit),
                             )
                             LiveTradeLogStore.log(
                                 sellTradeKey, ts.mint, ts.symbol, "SELL",
@@ -10448,9 +10454,7 @@ class Executor(
 
                             val useJito = c.jitoEnabled && !quote.isUltra
                             // V5.9.483 — dynamic Jito tip (see JitoTipFetcher).
-                            val jitoTip = com.lifecyclebot.network.JitoTipFetcher
-                                .getDynamicTip(c.jitoTipLamports)
-                                .let { if (isDrainExit) (it * 2).coerceAtMost(1_000_000L) else it }
+                            val jitoTip = effectiveJitoTipLamports(c, urgent = isDrainExit)
                             val ultraReqId = if (quote.isUltra) txResult.requestId else null
 
                             onLog("📊 LIVE PARTIAL: Signing and broadcasting @ ${currentSlip}bps (attempt $broadcastAttempts)...", ts.mint)
@@ -13062,9 +13066,7 @@ class Executor(
             // first (reason-aware floor), ladder widens to 5% only on a failed land.
             val lsPumpSlip = (sellSlippage / 100).coerceIn(1, 5)
             val lsPumpJito = c.jitoEnabled
-            val lsPumpTip = com.lifecyclebot.network.JitoTipFetcher
-                .getDynamicTip(c.jitoTipLamports)
-                .let { if (isDrainExit) (it * 2).coerceAtMost(1_000_000L) else it }
+            val lsPumpTip = effectiveJitoTipLamports(c, urgent = isDrainExit)
             // V5.9.1528 — provider-select forensic (operator spec). PumpPortal
             // Lightning pool="auto" routes pump.fun bonding curve → PumpSwap →
             // Raydium and broadcasts through the Helius Sender; it is the PRIMARY
@@ -13172,7 +13174,7 @@ class Executor(
                     val dynSlipCap = com.lifecyclebot.engine.sell.SellSafetyPolicy.maxSlippageBps(reason).coerceAtLeast(currentSlip)
                     val txResult = buildTxWithRetry(
                         quote!!, wallet.publicKeyB58, dynamicSlippageMaxBps = dynSlipCap,
-                        senderTipLamports = if (c.jitoEnabled) maxOf(com.lifecyclebot.network.JitoTipFetcher.getDynamicTip(c.jitoTipLamports), 200_000L) else 0L,
+                        senderTipLamports = effectiveJitoTipLamports(c, urgent = isDrainExit),
                     )
                     onLog("📊 SELL DEBUG: Transaction built | requestId=${txResult.requestId?.take(16) ?: "none"}", tradeId.mint)
                     LiveTradeLogStore.log(
@@ -13187,9 +13189,7 @@ class Executor(
 
                     val useJito = c.jitoEnabled && !quote!!.isUltra
                     // V5.9.483 — dynamic Jito tip from bundles.jito.wtf 75th percentile.
-                    val jitoTip = com.lifecyclebot.network.JitoTipFetcher
-                        .getDynamicTip(c.jitoTipLamports)
-                        .let { if (isDrainExit) (it * 2).coerceAtMost(1_000_000L) else it }
+                    val jitoTip = effectiveJitoTipLamports(c, urgent = isDrainExit)
 
                     if (quote!!.isUltra) {
                         onLog("🚀 Broadcasting sell via Jupiter Ultra (Beam MEV protection) @ ${currentSlip}bps…", ts.mint)
@@ -13293,9 +13293,7 @@ class Executor(
             if (sig == null) {
                 val rescueSlip = 5  // V5.9.1524 — 5% live sell cap (was 90/50; builder also caps)
                 val rescueJito = c.jitoEnabled
-                val rescueTip = com.lifecyclebot.network.JitoTipFetcher
-                    .getDynamicTip(c.jitoTipLamports)
-                    .let { if (isDrainExit) (it * 2).coerceAtMost(1_000_000L) else it }
+                val rescueTip = effectiveJitoTipLamports(c, urgent = isDrainExit)
                 sig = tryPumpPortalSell(
                     ts = ts,
                     wallet = wallet,
@@ -13570,9 +13568,9 @@ class Executor(
                                                                        sellTaker = wallet.publicKeyB58)
                             val dustTx = buildTxWithRetry(
                                 dustQuote, wallet.publicKeyB58,
-                                senderTipLamports = if (c.jitoEnabled) maxOf(c.jitoTipLamports, 200_000L) else 0L,
+                                senderTipLamports = effectiveJitoTipLamports(c, urgent = false),
                             )
-                            val dustSig = wallet.signSendAndConfirm(dustTx.txBase64, c.jitoEnabled, maxOf(c.jitoTipLamports, 200_000L), 
+                            val dustSig = wallet.signSendAndConfirm(dustTx.txBase64, c.jitoEnabled, effectiveJitoTipLamports(c, urgent = false),
                                 if (dustQuote.isUltra) dustTx.requestId else null, c.jupiterApiKey, dustTx.isRfqRoute, dustTx.senderCompatible)
                             
                             onLog("🧹 DUST-BUSTER SUCCESS: Sold remaining tokens | sig=${dustSig.take(20)}...", tradeId.mint)
@@ -13643,9 +13641,9 @@ class Executor(
                                                                            sellTaker = wallet.publicKeyB58)
                                 val dustTx = buildTxWithRetry(
                                 dustQuote, wallet.publicKeyB58,
-                                senderTipLamports = if (c.jitoEnabled) maxOf(c.jitoTipLamports, 200_000L) else 0L,
+                                senderTipLamports = effectiveJitoTipLamports(c, urgent = false),
                             )
-                                val dustSig = wallet.signSendAndConfirm(dustTx.txBase64, c.jitoEnabled, maxOf(c.jitoTipLamports, 200_000L),
+                                val dustSig = wallet.signSendAndConfirm(dustTx.txBase64, c.jitoEnabled, effectiveJitoTipLamports(c, urgent = false),
                                     if (dustQuote.isUltra) dustTx.requestId else null, c.jupiterApiKey, dustTx.isRfqRoute, dustTx.senderCompatible)
                                 onLog("🧹 DUST-BUSTER (retry) SUCCESS: sig=${dustSig.take(20)}...", tradeId.mint)
                             } catch (dustEx: Exception) {
@@ -14895,13 +14893,13 @@ class Executor(
                     try {
                         val txResultSweep = buildTxWithRetry(
                             quote, wallet.publicKeyB58, dynamicSlippageMaxBps = (slip * 5).coerceIn(slip, 9999),
-                            senderTipLamports = if (c.jitoEnabled) maxOf(com.lifecyclebot.network.JitoTipFetcher.getDynamicTip(c.jitoTipLamports), 200_000L) else 0L,
+                            senderTipLamports = effectiveJitoTipLamports(c, urgent = isDrainExit),
                         )
                         security.enforceSignDelay()
                         val useJito = c.jitoEnabled && !quote.isUltra
                         val ultraReqId = if (quote.isUltra) txResultSweep.requestId else null
                         sweepSig = wallet.signSendAndConfirm(
-                            txResultSweep.txBase64, useJito, maxOf(com.lifecyclebot.network.JitoTipFetcher.getDynamicTip(c.jitoTipLamports), 200_000L),
+                            txResultSweep.txBase64, useJito, effectiveJitoTipLamports(c, urgent = true),
                             ultraReqId, c.jupiterApiKey, txResultSweep.isRfqRoute, txResultSweep.senderCompatible,
                         )
                         break@sweep
@@ -15107,7 +15105,7 @@ class Executor(
                 slipPct = 5,  // V5.9.1524 — 5% live sell cap
                 priorityFeeSol = 0.0001,
                 useJito = c.jitoEnabled,
-                jitoTipLamports = c.jitoTipLamports,
+                jitoTipLamports = effectiveJitoTipLamports(c, urgent = true),
                 sellTradeKey = orphanKey,
                 traderTag = "ORPHAN",
                 labelTag = "ORPHAN-SWEEP",
@@ -15134,11 +15132,11 @@ class Executor(
                 mint, JupiterApi.SOL_MINT, orphanJupiterPlan.rawAmount, sellSlippage, isBuy = false)
             val txResult = buildTxWithRetry(
                         quote, wallet.publicKeyB58,
-                        senderTipLamports = if (c.jitoEnabled) maxOf(c.jitoTipLamports, 200_000L) else 0L,
+                        senderTipLamports = effectiveJitoTipLamports(c, urgent = false),
                     )
             
             val useJito = c.jitoEnabled && !quote.isUltra
-            val jitoTip = maxOf(c.jitoTipLamports, 200_000L)
+            val jitoTip = effectiveJitoTipLamports(c, urgent = false)
             val ultraReqId = if (quote.isUltra) txResult.requestId else null
             
             val sig = try {
@@ -15160,7 +15158,7 @@ class Executor(
                     slipPct = 5,  // V5.9.1524 — 5% live sell cap
                     priorityFeeSol = 0.0002,
                     useJito = c.jitoEnabled,
-                    jitoTipLamports = c.jitoTipLamports,
+                    jitoTipLamports = effectiveJitoTipLamports(c, urgent = true),
                     sellTradeKey = rescueKey,
                     traderTag = "ORPHAN",
                     labelTag = "ORPHAN-RESCUE",
