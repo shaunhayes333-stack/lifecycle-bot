@@ -1558,4 +1558,33 @@ class GoldenTapeRegressionTest {
         assertFalse("invalid price decision must not return shouldExit=true", src.contains("return ExitDecision(true, 100, ExitReason.INVALID_INPUT"))
     }
 
+
+    @Test
+    fun stale_tracker_raw_is_not_sell_authority() {
+        val authority = java.io.File("src/main/kotlin/com/lifecyclebot/engine/sell/SellAmountAuthority.kt").readText()
+        assertTrue(authority.contains("STALE_TRACKER_RAW_NOT_CURRENT_WALLET_AUTHORITY"))
+        assertTrue(authority.contains("stale tracker raw is visibility only, never sell authority"))
+        assertFalse("tracked raw must not be returned as sell authority",
+            authority.contains("return Resolution.Confirmed(trackedRaw, tracked.decimals, Source.TX_META_OWNER_DELTA)"))
+    }
+
+    @Test
+    fun tx_meta_owner_delta_is_not_current_wallet_broadcast_authority() {
+        val authority = java.io.File("src/main/kotlin/com/lifecyclebot/engine/sell/SellAmountAuthority.kt").readText()
+        assertTrue(authority.contains("Source.TX_META_OWNER_DELTA -> BalanceSource.UNKNOWN"))
+        assertTrue(authority.contains("BUY_TX_META_NOT_CURRENT_WALLET_AUTHORITY"))
+        assertFalse("buy tx-meta cache must not return confirmed sell authority",
+            authority.contains("return Resolution.Confirmed(cached.rawAmount, cached.decimals, Source.TX_META_OWNER_DELTA)"))
+    }
+
+    @Test
+    fun wallet_read_exception_does_not_become_rpc_empty_sell_rescue() {
+        val exec = java.io.File("src/main/kotlin/com/lifecyclebot/engine/Executor.kt").readText()
+        assertTrue(exec.contains("SELL_WALLET_READ_INDETERMINATE_NO_RESCUE"))
+        assertTrue(exec.contains("SELL_RPC_EMPTY_RESCUE_BLOCKED_INDETERMINATE"))
+        assertTrue(exec.contains("walletReadIndeterminate = true"))
+        assertFalse("wallet timeout must not be described as proceeding via RPC-empty rescue",
+            exec.contains("SELL RPC EMPTY/TIMEOUT: getTokenAccountsWithDecimals — proceeding via RPC-EMPTY rescue"))
+    }
+
 }

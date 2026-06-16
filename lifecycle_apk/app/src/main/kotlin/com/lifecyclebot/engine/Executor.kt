@@ -12597,14 +12597,18 @@ class Executor(
             // such hangs Dispatchers.IO is exhausted and the bot loop
             // appears dead. The bounded wrapper (SolanaWallet.kt) offloads
             // the call to a dedicated daemon pool with a hard 5 s ceiling;
-            // on timeout it returns emptyMap and the existing RPC-EMPTY
-            // rescue path (mapEmpty branch below) takes over so the sell
-            // proceeds with the tracker qty.
+            // V5.0.3778 — timeout/transport failure is INDETERMINATE, not an empty
+            // wallet snapshot. Never convert it to sell authority for recovered rows.
+            var walletReadIndeterminate = false
             var onChainBalances: Map<String, Pair<Double, Int>> = try {
                 wallet.getTokenAccountsWithDecimalsBounded(5_000L)
-            } catch (_: Throwable) { emptyMap() }
+            } catch (e: Throwable) {
+                walletReadIndeterminate = true
+                try { ForensicLogger.lifecycle("SELL_WALLET_READ_INDETERMINATE_NO_RESCUE", "mint=${ts.mint.take(10)} symbol=${ts.symbol} err=${e.message?.take(120)} action=wait_current_wallet_proof") } catch (_: Throwable) {}
+                emptyMap()
+            }
             if (onChainBalances.isEmpty()) {
-                onLog("⏱ SELL RPC EMPTY/TIMEOUT: getTokenAccountsWithDecimals — proceeding via RPC-EMPTY rescue", tradeId.mint)
+                onLog("⏱ SELL wallet read empty/indeterminate: ${ts.symbol} — current wallet proof required before broadcast", tradeId.mint)
             }
             var tokenData = onChainBalances[ts.mint]
             var mapEmpty = onChainBalances.isEmpty()
@@ -12689,6 +12693,9 @@ class Executor(
                             try { ForensicLogger.lifecycle("LIVESELL_RPC_EMPTY_OWNER_DELTA_RECOVERED", "mint=${ts.mint.take(10)} symbol=${ts.symbol} reason=$reason raw=${authorityConfirmed.rawAmount} ui=$ui decimals=$decimals source=${authorityConfirmed.source}") } catch (_: Throwable) {}
                         }
                     }
+                }
+                if (!recovered && walletReadIndeterminate) {
+                    try { ForensicLogger.lifecycle("SELL_RPC_EMPTY_RESCUE_BLOCKED_INDETERMINATE", "mint=${ts.mint.take(10)} symbol=${ts.symbol} reason=$reason action=no_stale_tracker_sell") } catch (_: Throwable) {}
                 }
                 if (!recovered) {
                     // V5.0.3762 — strict live balance authority. Wallet-token read

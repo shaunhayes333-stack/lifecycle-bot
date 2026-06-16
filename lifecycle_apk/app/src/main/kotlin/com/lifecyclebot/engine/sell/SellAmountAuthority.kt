@@ -188,7 +188,10 @@ object SellAmountAuthority {
         is Resolution.Confirmed -> when (resolution.source) {
             Source.ACCOUNT_INFO -> BalanceSource.RPC_CONFIRMED
             Source.TOKEN_ACCOUNTS_BY_OWNER -> BalanceSource.WALLET_SCAN_CONFIRMED
-            Source.TX_META_OWNER_DELTA -> BalanceSource.WALLET_SCAN_CONFIRMED
+            // V5.0.3778 — TX meta proves a historical owner delta, not CURRENT wallet balance.
+            // It must never be equivalent to TOKEN_ACCOUNTS_BY_OWNER / DAS wallet truth,
+            // or recovered ghost rows can keep trying to sell tokens the wallet no longer holds.
+            Source.TX_META_OWNER_DELTA -> BalanceSource.UNKNOWN
             Source.BALANCE_PROOF_POLLER -> BalanceSource.WALLET_SCAN_CONFIRMED
         }
         is Resolution.Zero -> BalanceSource.UNKNOWN   // one provider missing-mint is not two-provider zero proof
@@ -250,9 +253,13 @@ object SellAmountAuthority {
             runCatching { BigInteger(raw) }.getOrNull()
         }
         if (trackedRaw != null && trackedRaw.signum() > 0) {
+            // V5.0.3778 — stale tracker raw is visibility only, never sell authority.
+            // Runtime 3777 showed RECOVERED_* rows using lastPositiveRaw/TX_META_OWNER_DELTA
+            // after the wallet no longer held those tokens. A positive historical balance
+            // can keep a row open for reconciliation, but cannot authorize a broadcast.
             ErrorLogger.warn(TAG,
-                "🟡 BALANCE_UNKNOWN using lastPositiveRaw recovery amount mint=${mint.take(8)}… raw=$trackedRaw status=${tracked.status}")
-            return Resolution.Confirmed(trackedRaw, tracked.decimals, Source.TX_META_OWNER_DELTA)
+                "BALANCE_PROOF_REJECTED reason=STALE_TRACKER_RAW_NOT_CURRENT_WALLET_AUTHORITY mint=${mint.take(8)}… raw=$trackedRaw status=${tracked.status} source=${tracked.source}")
+            try { com.lifecyclebot.engine.ForensicLogger.lifecycle("BALANCE_PROOF_REJECTED", "reason=STALE_TRACKER_RAW_NOT_CURRENT_WALLET_AUTHORITY mint=${mint.take(10)} status=${tracked.status.name} source=${tracked.source.name} raw=$trackedRaw action=wait_current_wallet_proof") } catch (_: Throwable) {}
         }
         // V5.0.3753 — live-sell finality restoration.
         // The buy path records owner-filtered tx-meta token delta after a landed
@@ -271,10 +278,8 @@ object SellAmountAuthority {
         if (cached != null && ageMs <= maxAgeMs && cached.rawAmount.signum() > 0 &&
             (isEmergencyExitReason(reason) || isProfitProtectExitReason(reason))) {
             ErrorLogger.warn(TAG,
-                "🟡 BALANCE_UNKNOWN using BUY_TIED_OWNER_DELTA recovery amount mint=${mint.take(8)}… raw=${cached.rawAmount} ageSec=${ageMs / 1000} reason=$reason sig=${cached.txSignature.take(8)}…")
-            try { com.lifecyclebot.engine.ForensicLogger.lifecycle("EXEC_TRACE_AUTHORITY", "side=SELL stage=OWNER_DELTA_RECOVERED mint=${mint.take(10)} reason=$reason raw=${cached.rawAmount} ageMs=$ageMs sig=${cached.txSignature.take(8)}") } catch (_: Throwable) {}
-            try { com.lifecyclebot.engine.ForensicLogger.lifecycle("SELL_BALANCE_PROOF_OWNER_DELTA_RECOVERED", "mint=${mint.take(10)} reason=$reason raw=${cached.rawAmount} ageMs=$ageMs sig=${cached.txSignature.take(8)}") } catch (_: Throwable) {}
-            return Resolution.Confirmed(cached.rawAmount, cached.decimals, Source.TX_META_OWNER_DELTA)
+                "BALANCE_PROOF_REJECTED reason=BUY_TX_META_NOT_CURRENT_WALLET_AUTHORITY mint=${mint.take(8)}… raw=${cached.rawAmount} ageSec=${ageMs / 1000} reason=$reason sig=${cached.txSignature.take(8)}…")
+            try { com.lifecyclebot.engine.ForensicLogger.lifecycle("BALANCE_PROOF_REJECTED", "reason=BUY_TX_META_NOT_CURRENT_WALLET_AUTHORITY mint=${mint.take(10)} exitReason=$reason raw=${cached.rawAmount} ageMs=$ageMs sig=${cached.txSignature.take(8)} action=wait_current_wallet_proof") } catch (_: Throwable) {}
         }
         return normal
     }
