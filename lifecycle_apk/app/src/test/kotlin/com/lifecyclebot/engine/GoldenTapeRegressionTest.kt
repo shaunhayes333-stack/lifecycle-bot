@@ -1896,6 +1896,30 @@ class GoldenTapeRegressionTest {
 
 
     @Test
+    fun ai_stack_snapshot_and_size_shape_trace_are_read_only_event_attributed_telemetry() {
+        val snapshot = java.io.File("src/main/kotlin/com/lifecyclebot/engine/AIStackSnapshot.kt").readText()
+        val shape = java.io.File("src/main/kotlin/com/lifecyclebot/engine/EffectiveSizeShapeTrace.kt").readText()
+        val scorer = java.io.File("src/main/kotlin/com/lifecyclebot/v3/scoring/UnifiedScorer.kt").readText()
+        val fdg = java.io.File("src/main/kotlin/com/lifecyclebot/engine/FinalDecisionGate.kt").readText()
+        val collector = java.io.File("src/main/kotlin/com/lifecyclebot/engine/PipelineHealthCollector.kt").readText()
+
+        assertTrue("AIStackSnapshot must be read-only bounded telemetry", snapshot.contains("Read-only AI stack snapshot") && snapshot.contains("RING_CAP") && snapshot.contains("no influence on score"))
+        assertTrue("AIStackSnapshot must carry mux fields", snapshot.contains("val source: String") && snapshot.contains("val lane: String") && snapshot.contains("val mode: String") && snapshot.contains("val regime: String"))
+        assertTrue("UnifiedScorer must record exactly after score card computation", scorer.contains("val card = when") && scorer.contains("AIStackSnapshot.recordScoreCard"))
+        assertTrue("UnifiedScorer snapshot must use event context, not UI state", scorer.contains("source = candidate.source.name") && scorer.contains("mode = ctx.mode.name") && scorer.contains("regime = ctx.marketRegime"))
+
+        assertTrue("EffectiveSizeShapeTrace must be read-only telemetry", shape.contains("Read-only effective size-shape telemetry") && shape.contains("no influence on score") && shape.contains("no synchronous I/O"))
+        assertTrue("Size trace must carry event-local mode/lane/source", shape.contains("val mode: String") && shape.contains("val lane: String") && shape.contains("val source: String"))
+        assertTrue("Size trace must detect dusted/zeroed learned sizing", shape.contains("val dusted: Boolean") && shape.contains("val zeroed: Boolean") && shape.contains("AI_SIZE_STACK_DUSTED_"))
+        assertTrue("FDG must record size trace at the single final-return seam", fdg.contains("EffectiveSizeShapeTrace.recordDecision") && fdg.contains("mode = mode.name") && fdg.contains("lane = laneName") && fdg.contains("baseSizeSol = proposedSizeSol") && fdg.contains("finalSizeSol = finalSize"))
+        assertFalse("3807 telemetry must not add a new FDG hard veto", fdg.contains("AI_SIZE_STACK_ZEROED") && fdg.contains("shouldTradeFinal = false"))
+
+        assertTrue("Pipeline dump must expose AI stack and size trace", collector.contains("AIStackSnapshot.formatForPipelineDump") && collector.contains("EffectiveSizeShapeTrace.formatForPipelineDump"))
+        assertTrue("Pipeline reset must clear telemetry rings", collector.contains("AIStackSnapshot.reset()") && collector.contains("EffectiveSizeShapeTrace.reset()"))
+    }
+
+
+    @Test
     fun losing_pattern_memory_soft_sizes_emerging_bootstrap_bleeders_before_maturity() {
         val losing = java.io.File("src/main/kotlin/com/lifecyclebot/engine/LosingPatternMemory.kt").readText()
         val fdg = java.io.File("src/main/kotlin/com/lifecyclebot/engine/FinalDecisionGate.kt").readText()

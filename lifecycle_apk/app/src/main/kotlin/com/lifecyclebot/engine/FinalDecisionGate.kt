@@ -4236,6 +4236,25 @@ object FinalDecisionGate {
             // Symbolic verdict is pure telemetry — never affect the decision.
         }
 
+        // V5.0.3807 — read-only effective size-shape trace. Single final-return
+        // seam so the telemetry observes the completed FDG stack without changing
+        // any gate, size, lane, or executor behavior. Uses event-local FDG mode.
+        try {
+            EffectiveSizeShapeTrace.recordDecision(
+                mint = ts.mint,
+                symbol = ts.symbol,
+                mode = mode.name,
+                lane = laneName,
+                source = try { ts.source.toString() } catch (_: Throwable) { "UNKNOWN" },
+                baseSizeSol = proposedSizeSol,
+                finalSizeSol = finalSize,
+                shouldTrade = shouldTradeFinal,
+                blockReason = blockReasonFinal,
+                tags = tags,
+                gateChecks = checks,
+            )
+        } catch (_: Throwable) {}
+
         return FinalDecision(
             shouldTrade = shouldTradeFinal,
             mode = mode,

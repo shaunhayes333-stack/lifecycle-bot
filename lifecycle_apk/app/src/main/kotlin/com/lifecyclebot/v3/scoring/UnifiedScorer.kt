@@ -5,6 +5,7 @@ import com.lifecyclebot.v3.core.LayerHealthTracker
 import com.lifecyclebot.v3.scanner.CandidateSnapshot
 import com.lifecyclebot.v3.arb.ArbScannerAI
 import com.lifecyclebot.v3.arb.ArbEvaluation
+import com.lifecyclebot.engine.AIStackSnapshot
 import com.lifecyclebot.v4.meta.CrossTalkFusionEngine
 import com.lifecyclebot.v4.meta.AATESignal
 import android.util.Log
@@ -85,11 +86,26 @@ class UnifiedScorer(
         // V5.9.813 — unifiedMode takes precedence; falls through to classic/modern split otherwise.
         // Opt-in only. classicMode (default true) remains the production path until operator
         // flips unifiedMode after a successful paper-run comparison.
-        return when {
+        val card = when {
             unifiedMode -> unifiedScore(candidate, ctx)
             classicMode -> classicScore(candidate, ctx)
             else        -> modernScore(candidate, ctx)
         }
+        // V5.0.3807 — read-only AIStackSnapshot. This records the already-computed
+        // specialist vector once per score call for future MoE/counterfactual work.
+        // No score/FDG/sizing behavior changes; fail-open and bounded in-memory ring.
+        try {
+            AIStackSnapshot.recordScoreCard(
+                mint = candidate.mint,
+                symbol = candidate.symbol,
+                source = candidate.source.name,
+                lane = ctx.extraString("lane").ifBlank { ctx.extraString("tradingMode").ifBlank { "UNKNOWN" } },
+                mode = ctx.mode.name,
+                regime = ctx.marketRegime,
+                card = card,
+            )
+        } catch (_: Throwable) {}
+        return card
     }
 
     // ═══════════════════════════════════════════════════════════════════════════
