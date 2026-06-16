@@ -129,8 +129,12 @@ object SellAmountAuthority {
             // V5.0.3762 source fix: bounded wallet read failures/timeouts are
             // indeterminate, not empty wallet snapshots. Do not convert them to
             // emptyMap(), because that creates fake RPC_EMPTY_MAP sell waits.
-            try { com.lifecyclebot.engine.ForensicLogger.lifecycle("EXEC_TRACE_AUTHORITY", "side=SELL stage=WALLET_TOKEN_READ_INDETERMINATE mint=${mint.take(10)} err=${e.message?.take(120)}") } catch (_: Throwable) {}
-            ErrorLogger.warn(TAG, "BALANCE_UNKNOWN reason=WALLET_TOKEN_READ_INDETERMINATE mint=${mint.take(8)}… err=${e.message}")
+            // V5.0.3789 operator fault #4: a failed wallet read is UNTRUSTED proof.
+            // Mark the mint so the close authority / shutdown sweep hard-skip it and
+            // never treat it as held, absent, closed, or sellable.
+            try { com.lifecyclebot.engine.sell.LivePositionCloseAuthority.markUntrustedRpc(mint, "WALLET_TOKEN_READ_INDETERMINATE:${e.message?.take(40)}") } catch (_: Throwable) {}
+            try { com.lifecyclebot.engine.ForensicLogger.lifecycle("EXEC_TRACE_AUTHORITY", "side=SELL stage=WALLET_TOKEN_READ_INDETERMINATE mint=${mint.take(10)} rpc=UNTRUSTED err=${e.message?.take(120)}") } catch (_: Throwable) {}
+            ErrorLogger.warn(TAG, "RPC_UNTRUSTED reason=WALLET_TOKEN_READ_INDETERMINATE mint=${mint.take(8)}… err=${e.message}")
             return Resolution.Unknown
         }
         if (balances.isEmpty()) {
@@ -158,6 +162,7 @@ object SellAmountAuthority {
             BigDecimal(uiAmount).movePointRight(decimals).toBigInteger()
         else
             BigDecimal(uiAmount).toBigInteger()
+        try { com.lifecyclebot.engine.sell.LivePositionCloseAuthority.clearUntrustedRpc(mint) } catch (_: Throwable) {}
         try { com.lifecyclebot.engine.ForensicLogger.lifecycle("EXEC_TRACE_AUTHORITY", "side=SELL stage=BALANCE_RPC_CONFIRMED mint=${mint.take(10)} raw=$raw decimals=$decimals ui=$uiAmount source=TOKEN_ACCOUNTS_BY_OWNER") } catch (_: Throwable) {}
         return Resolution.Confirmed(raw, decimals, Source.TOKEN_ACCOUNTS_BY_OWNER)
     }

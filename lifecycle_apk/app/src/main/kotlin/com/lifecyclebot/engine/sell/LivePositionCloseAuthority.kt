@@ -221,6 +221,41 @@ object LivePositionCloseAuthority {
         }
     }
 
+    // V5.0.3789 — operator faults #2/#3/#4: explicit untrusted-RPC marking.
+    // When wallet proof cannot be trusted (TLS trust failure, 401/403, all
+    // endpoints failing the required Tokenkeg read), a mint must be UNKNOWN and
+    // NEVER sold, swept, or treated as closed/absent. We track these mints with a
+    // short TTL so the shutdown sweep and sell paths can hard-skip them.
+    private val untrustedRpcMints = ConcurrentHashMap<String, Long>()
+    private const val UNTRUSTED_RPC_TTL_MS = 60_000L
+
+    fun markUntrustedRpc(mint: String, reason: String) {
+        if (mint.isBlank()) return
+        untrustedRpcMints[mint] = System.currentTimeMillis()
+        emit("WALLET_PROOF_UNAVAILABLE_RPC_UNTRUSTED", mint, states[mint]?.symbol ?: mint.take(6), "reason=$reason")
+    }
+
+    fun isUntrustedRpc(mint: String): Boolean {
+        val ts = untrustedRpcMints[mint] ?: return false
+        if (System.currentTimeMillis() - ts > UNTRUSTED_RPC_TTL_MS) {
+            untrustedRpcMints.remove(mint)
+            return false
+        }
+        return true
+    }
+
+    fun clearUntrustedRpc(mint: String) { untrustedRpcMints.remove(mint) }
+
+    /**
+     * True if the mint is in any CLOSED/CLOSING terminal state OR currently has
+     * untrusted RPC proof. Callers (shutdown sweep, sell entry) must NOT sell.
+     */
+    fun isClosedOrUntrusted(mint: String): Boolean {
+        if (mint.isBlank()) return false
+        if (isUntrustedRpc(mint)) return true
+        return isTerminalOrClosing(mint)
+    }
+
     private fun pruneMint(mint: String) {
         val st = states[mint] ?: return
         if (st.state == State.CLOSING_PENDING_SIG || st.state == State.CLOSING_UNKNOWN) {

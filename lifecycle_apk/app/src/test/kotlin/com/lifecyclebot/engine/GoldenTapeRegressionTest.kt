@@ -1712,4 +1712,17 @@ class GoldenTapeRegressionTest {
         assertTrue(svc.contains("persistenceFinalizedByStop = false"))
     }
 
+
+    @Test
+    fun drawdown_circuit_does_not_park_bot_during_bootstrap() {
+        val dd = java.io.File("src/main/kotlin/com/lifecyclebot/v3/scoring/DrawdownCircuitAI.kt").readText()
+        // Bootstrap clamp must exist so paper-dominated drawdown can't veto live entries.
+        assertTrue(dd.contains("DD_CIRCUIT_BOOTSTRAP_LIFETIME"))
+        assertTrue(dd.contains("DD_CIRCUIT_BOOTSTRAP_AGG_FLOOR"))
+        assertTrue(dd.contains("getLifetimeStats().totalSells"))
+        assertTrue(dd.contains("coerceAtLeast(DD_CIRCUIT_BOOTSTRAP_AGG_FLOOR)"))
+        // Floor must keep aggression in the -4-penalty band (>=0.70), never -10/-20.
+        assertTrue(dd.contains("DD_CIRCUIT_BOOTSTRAP_AGG_FLOOR = 0.70"))
+    }
+
 }

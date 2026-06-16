@@ -350,10 +350,21 @@ object PipelineHealthCollector {
         // run identically in paper and live so the unified counter is
         // already correct for them.
         if (phaseTag == "FDG") {
-            when (modeSnapshot) {
+            // V5.0.3789 operator fault #5: every FDG decision MUST land in a
+            // per-mode counter. Previously, if modeSnapshot was still UNKNOWN
+            // (not yet stamped by runtime start), FDG allow=25 produced
+            // FDG_LIVE_ALLOW=0 / FDG_LIVE_BLOCK=0 — invalid telemetry. Fall back
+            // to the canonical RuntimeModeAuthority so the split is never lost.
+            val effMode = when (modeSnapshot) {
+                "LIVE", "PAPER" -> modeSnapshot
+                else -> try {
+                    if (com.lifecyclebot.engine.RuntimeModeAuthority.isLive()) "LIVE" else "PAPER"
+                } catch (_: Throwable) { "UNKNOWN" }
+            }
+            when (effMode) {
                 "LIVE"  -> if (allow) fdgLiveAllow.incrementAndGet()  else fdgLiveBlock.incrementAndGet()
                 "PAPER" -> if (allow) fdgPaperAllow.incrementAndGet() else fdgPaperBlock.incrementAndGet()
-                else    -> { /* mode unknown — only roll into the unified counters */ }
+                else    -> bump(labelCounts, "FDG_MODE_UNKNOWN_AT_DECISION")
             }
         }
         appendEvent(Event(

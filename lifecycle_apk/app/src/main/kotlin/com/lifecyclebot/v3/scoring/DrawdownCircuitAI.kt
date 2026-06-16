@@ -50,6 +50,15 @@ object DrawdownCircuitAI {
     @Volatile private var cachedJournalCircuit: JournalCircuitSnapshot? = null
     @Volatile private var cachedJournalCircuitAtMs: Long = 0L
     private const val JOURNAL_CIRCUIT_TTL_MS = 5_000L
+    // V5.0.3790 — BOOTSTRAP DRAWDOWN-CIRCUIT CLAMP (operator: bot parked / not trading).
+    // The journal circuit reads ALL sells (paper bootstrap losses included). In early
+    // bootstrap a 22-loss streak and 50%+ paper drawdown are EXPECTED noise, not a
+    // live-capital crisis — yet they drove journalAgg to 0.35 → a -10 score penalty on
+    // EVERY candidate, dragging all V3 totals negative → universal REJECT → zero buys.
+    // Doctrine: throughput before cleverness during bootstrap. Below this lifetime-close
+    // count we clamp the circuit so it can DAMPEN size but never veto entries outright.
+    private const val DD_CIRCUIT_BOOTSTRAP_LIFETIME = 5000
+    private const val DD_CIRCUIT_BOOTSTRAP_AGG_FLOOR = 0.70  // worst -4 penalty, never -10/-20
 
     @Synchronized
     fun recordBalance(balanceSol: Double) {
@@ -167,7 +176,14 @@ object DrawdownCircuitAI {
     fun getAggression(): Double {
         val balanceAgg = currentAggression.get()
         val journalAgg = journalCircuitSnapshot()?.aggression ?: 1.0
-        return minOf(balanceAgg, journalAgg).coerceIn(0.0, 1.0)
+        val combined = minOf(balanceAgg, journalAgg).coerceIn(0.0, 1.0)
+        // V5.0.3790 — bootstrap clamp: paper-dominated drawdown must not veto live
+        // entries. Once lifetime closes cross the maturity threshold the circuit runs
+        // at full strength again.
+        val lifetimeCloses = try { TradeHistoryStore.getLifetimeStats().totalSells } catch (_: Throwable) { Int.MAX_VALUE }
+        return if (lifetimeCloses < DD_CIRCUIT_BOOTSTRAP_LIFETIME) {
+            combined.coerceAtLeast(DD_CIRCUIT_BOOTSTRAP_AGG_FLOOR)
+        } else combined
     }
 
     fun diagnosticLine(): String = journalCircuitSnapshot()?.line()

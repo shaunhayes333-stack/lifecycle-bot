@@ -14874,8 +14874,38 @@ class Executor(
             return 0
         }
 
-        val sellable = onChain
-            .filter { (mint, data) -> mint !in PRESERVED_MINTS && data.first > 0.0 }
+        // V5.0.3789 — operator fault #3: shutdown sweep must ONLY sell current
+        // wallet-held live positions with trusted walletRaw > a real sellable
+        // floor. A bare data.first > 0.0 admitted dust like ui=0.000001 / raw=1,
+        // which then built a bogus SELL_PLAN_OK against a non-position. Enforce:
+        //   - mint not preserved (SOL / stables / active V3 positions),
+        //   - current wallet UI strictly above the sweep dust floor,
+        //   - raw units above the sweep raw floor,
+        //   - mint not stamped CLOSED / UNKNOWN_UNTRUSTED_RPC in the close authority.
+        val SWEEP_MIN_UI = 1e-4          // below this is dust, never routable
+        val SWEEP_MIN_RAW = 1000L        // raw floor independent of decimals
+        val sellable = onChain.filter { (mint, data) ->
+            if (mint in PRESERVED_MINTS) return@filter false
+            val ui = data.first
+            val decimals = data.second
+            if (!(ui > SWEEP_MIN_UI)) {
+                try { ForensicLogger.lifecycle("SHUTDOWN_SWEEP_SKIP_DUST", "mint=${mint.take(10)} ui=$ui reason=BELOW_SWEEP_UI_FLOOR") } catch (_: Throwable) {}
+                return@filter false
+            }
+            val rawApprox = try { (ui * 10.0.pow(decimals.toDouble())).toLong() } catch (_: Throwable) { 0L }
+            if (rawApprox < SWEEP_MIN_RAW) {
+                try { ForensicLogger.lifecycle("SHUTDOWN_SWEEP_SKIP_DUST", "mint=${mint.take(10)} raw=$rawApprox reason=BELOW_SWEEP_RAW_FLOOR") } catch (_: Throwable) {}
+                return@filter false
+            }
+            val closedOrUntrusted = try {
+                com.lifecyclebot.engine.sell.LivePositionCloseAuthority.isClosedOrUntrusted(mint)
+            } catch (_: Throwable) { false }
+            if (closedOrUntrusted) {
+                try { ForensicLogger.lifecycle("SHUTDOWN_SWEEP_SKIP_CLOSED", "mint=${mint.take(10)} reason=CLOSED_OR_UNTRUSTED_RPC") } catch (_: Throwable) {}
+                return@filter false
+            }
+            true
+        }
 
         if (sellable.isEmpty()) {
             onLog("✅ SHUTDOWN SWEEP: 0 non-stablecoin holdings — wallet is clean", "shutdown")
