@@ -531,6 +531,7 @@ object PipelineHealthCollector {
         bump(labelCounts, "EXEC_$sideUpper")
         bump(labelCounts, "EXEC_${eventMode}_$sideUpper")
         bump(labelCounts, "TRADEJRNL_REC_$eventMode")
+        if (eventMode == "PAPER") bump(labelCounts, "PAPER_JOURNAL_ROWS")
         if (sideUpper == "PARTIAL_SELL") bump(labelCounts, "TRADEJRNL_REC_PARTIAL")
         if (eventMode == "PAPER") {
             when (sideUpper) {
@@ -1249,11 +1250,19 @@ object PipelineHealthCollector {
         sb.append("  SELL ok/fail:         ${execLiveSellOk.get()} / ${execLiveSellFail.get()}\n")
         sb.append("  Recent journal rows:  ${liveRecentRows}\n")
         sb.append("\n")
+        val paperJournalRows = labelCounts["PAPER_JOURNAL_ROWS"]?.get() ?: paperRecentRows.toLong()
+        val paperQuarantinedRows = labelCounts["PAPER_LEARNING_ROW_QUARANTINED"]?.get() ?: 0L
+        val jrnlLiveRows = labelCounts["TRADEJRNL_REC_LIVE"]?.get() ?: 0L
+        val jrnlPaperRows = labelCounts["TRADEJRNL_REC_PAPER"]?.get() ?: 0L
+        val jrnlPartialRows = labelCounts["TRADEJRNL_REC_PARTIAL"]?.get() ?: 0L
         sb.append("===== PAPER execution telemetry (event-attributed) =====\n")
+        sb.append("  TRADEJRNL_SPLIT liveRows=$jrnlLiveRows paperRows=$jrnlPaperRows partialRows=$jrnlPartialRows quarantinedRows=$paperQuarantinedRows\n")
         sb.append("  FDG allow/block:      ${fdgPaperAllow.get()} / ${fdgPaperBlock.get()}\n")
         sb.append("  BUY ok:               ${execPaperBuyOk.get()}\n")
         sb.append("  SELL ok:              ${execPaperSellOk.get()}\n")
         sb.append("  PARTIAL ok:           ${execPaperPartialOk.get()}\n")
+        sb.append("  PAPER_JOURNAL_ROWS:   $paperJournalRows\n")
+        sb.append("  PAPER_QUARANTINED_ROWS: $paperQuarantinedRows\n")
         sb.append("  Recent journal rows:  ${paperRecentRows}\n")
         sb.append("\n")
 
@@ -1589,6 +1598,7 @@ object PipelineHealthCollector {
         sb.append("    EXEC_LIVE_BUY_OK=${execLiveBuyOk.get()}   EXEC_LIVE_BUY_FAIL=${execLiveBuyFail.get()}\n")
         sb.append("    EXEC_LIVE_SELL_OK=${execLiveSellOk.get()}  EXEC_LIVE_SELL_FAIL=${execLiveSellFail.get()}\n")
         sb.append("    EXEC_PAPER_BUY_OK=${execPaperBuyOk.get()}  EXEC_PAPER_SELL_OK=${execPaperSellOk.get()}  EXEC_PAPER_PARTIAL_OK=${execPaperPartialOk.get()}\n")
+        sb.append("    PAPER_JOURNAL_ROWS=$paperJournalRows  PAPER_QUARANTINED_ROWS=$paperQuarantinedRows\n")
         if (modeSnapshot == "LIVE" && fdgLiveBlock.get() > 0 && fdgLiveAllow.get() == 0L) {
             sb.append("  ⚠ LIVE mode but FDG_LIVE_ALLOW=0 — live trading is fully blocked.\n")
             sb.append("    Check block-reason histogram below for the gate that\'s vetoing.\n")

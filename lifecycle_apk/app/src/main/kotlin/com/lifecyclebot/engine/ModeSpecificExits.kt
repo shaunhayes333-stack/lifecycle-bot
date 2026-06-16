@@ -164,10 +164,19 @@ object ModeSpecificExits {
      *   FRESH_TIMEOUT_EXIT_BLOCKED_TOO_EARLY — when AI tried to exit too soon
      */
     private fun aiTimeoutHardFloorExit(
-        mint: String,
+        ts: TokenState,
         holdTimeMins: Double,
         aiTimeout: Int,
     ): Boolean {
+        val mint = ts.mint
+        if (ts.position.isPaperPosition) {
+            val state = try { PaperPositionCloseAuthority.stateOf("PAPER", mint) } catch (_: Throwable) { null }
+            if (state == PaperPositionCloseAuthority.State.CLOSE_REQUESTED ||
+                state == PaperPositionCloseAuthority.State.CLOSING ||
+                state == PaperPositionCloseAuthority.State.CLOSED) {
+                return false
+            }
+        }
         val aiTimeoutD = aiTimeout.toDouble()
         val aiOver = try { isAIOverheld(mint, holdTimeMins) } catch (_: Throwable) { false }
         val hardFloorMet = holdTimeMins >= aiTimeoutD
@@ -290,7 +299,7 @@ object ModeSpecificExits {
         }
         
         // V5.2: AI-ADAPTIVE TIMEOUT - Fresh launches use dynamic learned timeout
-        if (aiTimeoutHardFloorExit(ts.mint, holdTimeMins, aiTimeout)) {
+        if (aiTimeoutHardFloorExit(ts, holdTimeMins, aiTimeout)) {
             return ExitRecommendation(
                 shouldExit = true,
                 exitPct = 100.0,
@@ -368,7 +377,7 @@ object ModeSpecificExits {
         }
         
         // V5.2: AI-ADAPTIVE TIMEOUT
-        if (aiTimeoutHardFloorExit(ts.mint, holdTimeMins, aiTimeout)) {
+        if (aiTimeoutHardFloorExit(ts, holdTimeMins, aiTimeout)) {
             return ExitRecommendation(
                 shouldExit = true,
                 exitPct = 100.0,
@@ -465,7 +474,7 @@ object ModeSpecificExits {
         }
         
         // V5.2: AI-ADAPTIVE TIMEOUT (don't overstay reversals)
-        if (aiTimeoutHardFloorExit(ts.mint, holdTimeMins, aiTimeout)) {
+        if (aiTimeoutHardFloorExit(ts, holdTimeMins, aiTimeout)) {
             return ExitRecommendation(
                 shouldExit = true,
                 exitPct = 100.0,
@@ -663,7 +672,7 @@ object ModeSpecificExits {
         }
         
         // V5.2: AI-ADAPTIVE TIMEOUT - Medium patience
-        if (aiTimeoutHardFloorExit(ts.mint, holdTimeMins, aiTimeout)) {
+        if (aiTimeoutHardFloorExit(ts, holdTimeMins, aiTimeout)) {
             return ExitRecommendation(
                 shouldExit = true,
                 exitPct = 100.0,
@@ -829,7 +838,7 @@ object ModeSpecificExits {
         }
         
         // V5.2: AI-ADAPTIVE TIMEOUT - Very patient but AI-learned limits
-        if (aiTimeoutHardFloorExit(ts.mint, holdTimeMins, aiTimeout)) {
+        if (aiTimeoutHardFloorExit(ts, holdTimeMins, aiTimeout)) {
             return ExitRecommendation(
                 shouldExit = true,
                 exitPct = 100.0,
@@ -978,7 +987,7 @@ object ModeSpecificExits {
         }
         
         // V5.2: AI-ADAPTIVE TIMEOUT
-        if (aiTimeoutHardFloorExit(ts.mint, holdTimeMins, aiTimeout)) {
+        if (aiTimeoutHardFloorExit(ts, holdTimeMins, aiTimeout)) {
             return ExitRecommendation(
                 shouldExit = true,
                 exitPct = 100.0,

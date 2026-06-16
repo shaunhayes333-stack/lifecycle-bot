@@ -16042,6 +16042,23 @@ if (hotExitHandledSweep) {
     // Strategy output (phase, entry/exit scores, quality) feeds into V3
     // V3 is the ONLY thing that decides EXECUTE/WATCH/REJECT
     // ═══════════════════════════════════════════════════════════════════
+    if (ts.position.isOpen && ts.position.isPaperPosition) {
+        val paperCloseState = try { PaperPositionCloseAuthority.stateOf("PAPER", ts.mint) } catch (_: Throwable) { null }
+        if (paperCloseState == PaperPositionCloseAuthority.State.CLOSED) {
+            try { ts.position = ts.position.copy(qtyToken = 0.0, pendingVerify = false) } catch (_: Throwable) {}
+            try { PositionPersistence.removePosition(ts.mint) } catch (_: Throwable) {}
+            try { PipelineHealthCollector.labelInc("PAPER_CLOSED_ACTIVE_ROW_DROPPED") } catch (_: Throwable) {}
+            try { ForensicLogger.lifecycle("PAPER_CLOSED_ACTIVE_ROW_DROPPED", "mint=${ts.mint.take(10)} symbol=${ts.symbol} src=${ts.source}") } catch (_: Throwable) {}
+            return
+        }
+        if (paperCloseState == PaperPositionCloseAuthority.State.CLOSE_REQUESTED || paperCloseState == PaperPositionCloseAuthority.State.CLOSING) {
+            try { PaperPositionCloseAuthority.preSellGuard("PAPER", ts.mint, ts.symbol, "MAIN_LOOP_ALREADY_PENDING") } catch (_: Throwable) {}
+            return
+        }
+        val openPaperPositions = try { synchronized(status.tokens) { status.tokens.values.count { it.position.isOpen && it.position.isPaperPosition } } } catch (_: Throwable) { 1 }
+        if (!PaperExitSweepBudget.allow(ts.mint, openPaperPositions)) return
+    }
+
     val _v3PosOpen      = ts.position.isOpen
     val _v3CfgEnabled   = cfg.v3EngineEnabled
     val _v3MgrReady     = try { com.lifecyclebot.v3.V3EngineManager.isReady() } catch (_: Throwable) { false }

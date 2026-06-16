@@ -49,6 +49,10 @@ object PositionPersistence {
     
     // Minimum interval between periodic saves (don't spam disk)
     private const val MIN_SAVE_INTERVAL_MS = 10_000L  // 10 seconds
+    // V5.0.3801 — paper restore must not resurrect stale simulator rows into
+    // forcedOpen/exit-managed churn. Recent active paper rows survive restarts;
+    // old rows are quarantined/dropped and must not consume slots or learning.
+    private const val PAPER_RESTORE_WINDOW_MS = 6L * 60L * 60L * 1000L
     
     private var ctx: Context? = null
     private var prefs: SharedPreferences? = null
@@ -209,56 +213,33 @@ object PositionPersistence {
      * Returns list of TokenStates with positions restored.
      */
     fun restorePositions(existingTokens: MutableMap<String, TokenState>): Int {
-        val persisted = loadPositions()
+        val persisted = loadPositionsInternal()
         if (persisted.isEmpty()) return 0
         
         var restoredCount = 0
+        val droppedPaper = mutableListOf<String>()
+        val nowMs = System.currentTimeMillis()
         
         for ((mint, saved) in persisted) {
-            // V5.9.122: paper positions NEVER go stale — they represent real
-            // simulated capital. Previously anything > 24h old was silently
-            // dropped on restart, which wiped the paper balance attached to
-            // it (the SOL was debited on BUY but never refunded on drop).
-            // Users reported losing hundreds of thousands of paper dollars
-            // across app updates because of this. Now:
-            //   • Paper positions: NEVER dropped for age. They live until
-            //     normal exit logic closes them.
-            //   • Live positions: keep the 7-day (was 24h) cutoff — after
-            //     a week an on-chain position most likely was manually
-            //     closed outside the app and we shouldn't resurrect it.
-            //   • If we DO drop a paper position (future path), we MUST
-            //     refund the costSol to UnifiedPaperWallet before dropping.
-            val ageHours = (System.currentTimeMillis() - saved.savedAt) / 3600_000.0
+            val ageMs = (nowMs - saved.savedAt).coerceAtLeast(0L)
+            val ageHours = ageMs / 3600_000.0
+            if (saved.isPaperPosition) {
+                val validOpen = saved.qtyToken.isFinite() && saved.qtyToken > 0.0 &&
+                    saved.entryPrice.isFinite() && saved.entryPrice > 0.0 &&
+                    saved.costSol.isFinite() && saved.costSol > 0.0 &&
+                    saved.entryTime > 0L && saved.savedAt > 0L
+                if (!validOpen || ageMs > PAPER_RESTORE_WINDOW_MS) {
+                    droppedPaper.add(mint)
+                    try { PaperPositionCloseAuthority.markClosed("PAPER", mint, saved.symbol, "PAPER_STALE_RESTORE_DROPPED") } catch (_: Throwable) {}
+                    try { PipelineHealthCollector.labelInc("PAPER_STALE_RESTORE_DROPPED") } catch (_: Throwable) {}
+                    try { ForensicLogger.lifecycle("PAPER_STALE_RESTORE_DROPPED", "mint=${mint.take(10)} symbol=${saved.symbol} ageH=${String.format("%.1f", ageHours)} validOpen=$validOpen qty=${saved.qtyToken} entry=${saved.entryPrice} cost=${saved.costSol}") } catch (_: Throwable) {}
+                    continue
+                }
+            }
             if (!saved.isPaperPosition && ageHours > 24.0 * 7) {
                 ErrorLogger.warn(TAG, "⚠️ STALE live position for ${saved.symbol}: ${String.format("%.1f", ageHours)}h old — skipping restore")
                 continue
             }
-            if (saved.isPaperPosition && ageHours > 24.0 * 60) {
-                // 60-day sanity cap to prevent infinite growth of junk rows.
-                // REFUND the paper SOL back so capital isn't lost.
-                ErrorLogger.warn(TAG, "⚠️ Very old paper position for ${saved.symbol} (${String.format("%.1f", ageHours)}h) — refunding ${saved.costSol} SOL and dropping")
-                try {
-                    BotService.creditUnifiedPaperSol(saved.costSol,
-                        source = "stale_paper_refund[${saved.symbol}]")
-                } catch (_: Exception) { /* non-fatal */ }
-                // V5.9.447 — UNIVERSAL JOURNAL COVERAGE. Record a synthetic
-                // SELL row so this stale-paper refund shows up in the user's
-                // Journal as a 0% scratch close. Without this the cost-basis
-                // SOL silently rematerialises in the wallet with no audit trail.
-                try {
-                    com.lifecyclebot.engine.V3JournalRecorder.recordClose(
-                        symbol = saved.symbol, mint = saved.mint,
-                        entryPrice = saved.entryPrice, exitPrice = saved.entryPrice,
-                        sizeSol = saved.costSol, pnlPct = 0.0, pnlSol = 0.0,
-                        isPaper = true,
-                        layer = saved.tradingMode.takeIf { it.isNotBlank() } ?: "STALE_REFUND",
-                        exitReason = "EXPIRED_60D_REFUND",
-                        holdMinutes = (ageHours * 60).toLong(),
-                    )
-                } catch (_: Exception) { /* non-fatal */ }
-                continue
-            }
-            
             // Check if we already have this token
             val existing = existingTokens[mint]
             if (existing != null && existing.position.isOpen) {
@@ -341,6 +322,14 @@ object PositionPersistence {
             restoredCount++
         }
         
+        if (droppedPaper.isNotEmpty()) {
+            try {
+                val cleaned = persisted.toMutableMap()
+                droppedPaper.forEach { cleaned.remove(it) }
+                savePositionsInternal(cleaned)
+            } catch (_: Throwable) {}
+            ErrorLogger.warn(TAG, "🧹 Dropped ${droppedPaper.size} stale/invalid PAPER restored rows (window=${PAPER_RESTORE_WINDOW_MS / 3600000L}h)")
+        }
         if (restoredCount > 0) {
             ErrorLogger.info(TAG, "✅ Successfully restored $restoredCount positions")
         }
@@ -364,7 +353,7 @@ object PositionPersistence {
      */
     fun removePosition(mint: String) {
         try {
-            val current = loadPositions().toMutableMap()
+            val current = loadPositionsInternal().toMutableMap()
             if (current.remove(mint) != null) {
                 savePositionsInternal(current)
                 ErrorLogger.debug(TAG, "Removed persisted position for mint=${mint.take(8)}")

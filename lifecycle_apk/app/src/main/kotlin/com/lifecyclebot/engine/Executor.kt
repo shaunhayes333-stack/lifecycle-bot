@@ -7375,6 +7375,25 @@ class Executor(
         toRemove.forEach { shadowPositions.remove(it) }
     }
 
+
+    private fun shouldSuppressPaperLearningEntry(
+        ts: TokenState,
+        score: Double,
+        layerTag: String,
+        identity: TradeIdentity?,
+    ): String? {
+        val lane = (layerTag.ifBlank { ts.position.tradingMode.ifBlank { identity?.source ?: ts.source } }).uppercase()
+        val liq = ts.lastLiquidityUsd.takeIf { it.isFinite() } ?: 0.0
+        val dangerBucket = lane.contains("DANGER") || lane.contains("RUG") || lane.contains("HARD_FLOOR")
+        val familyStopLoss = try { MemeLossStreakGuard.blockedUntilMs(ts.mint) > System.currentTimeMillis() } catch (_: Throwable) { false }
+        return when {
+            lane.contains("BLUECHIP") && (score < 70.0 || liq < 25_000.0) -> "BLUECHIP score=${score.toInt()} liq=${liq.toInt()} minScore=70 minLiq=25000"
+            lane.contains("EXPRESS") && !dangerBucket && score < 11.0 -> "EXPRESS_S0_10 score=${score.toInt()} danger=$dangerBucket"
+            lane.contains("SHITCOIN") && (score < 66.0 || liq < 3_000.0 || familyStopLoss) -> "SHITCOIN score=${score.toInt()} liq=${liq.toInt()} familyStopLoss=$familyStopLoss minScore=66 minLiq=3000"
+            else -> null
+        }
+    }
+
     fun paperBuy(ts: TokenState, sol: Double, score: Double, identity: TradeIdentity? = null, 
                  quality: String = "C", skipGraduated: Boolean = false,
                  wallet: SolanaWallet? = null, walletSol: Double = 0.0,
@@ -7393,6 +7412,12 @@ class Executor(
         }
         if (score < 0 || score.isNaN()) {
             ErrorLogger.warn("Executor", "[EXECUTION/INVALID] Paper buy skipped: invalid score $score for ${ts.symbol}")
+            return
+        }
+        shouldSuppressPaperLearningEntry(ts, score, layerTag, identity)?.let { why ->
+            try { PipelineHealthCollector.labelInc("PAPER_LEARNING_QUALITY_SUPPRESSED") } catch (_: Throwable) {}
+            try { ForensicLogger.lifecycle("PAPER_LEARNING_QUALITY_SUPPRESSED", "mint=${ts.mint.take(10)} symbol=${ts.symbol} layer=$layerTag reason=$why") } catch (_: Throwable) {}
+            ErrorLogger.debug("Executor", "🧪 PAPER_LEARNING_QUALITY_SUPPRESSED: ${ts.symbol} | $why")
             return
         }
         // V5.9.1129 — route authority must run before open authority for direct
@@ -10068,6 +10093,18 @@ class Executor(
     }
     
     fun requestSell(ts: TokenState, reason: String, wallet: SolanaWallet?, walletSol: Double): SellResult {
+        // V5.0.3801 — PAPER source guard before any executor activity.
+        // requestSell() has many upstream callers (main loop, backup sweeps,
+        // stale/rug escape paths). If a paper mint already has CLOSE_REQUESTED /
+        // CLOSING / CLOSED / ledger closeId, return before TokenLifecycleTracker,
+        // sell locks, cooldown re-arm, EXEC_TRACE_SELL, or journal activity.
+        if (ts.position.isPaperPosition) {
+            val guard = try { PaperPositionCloseAuthority.preSellGuard("PAPER", ts.mint, ts.symbol, reason) } catch (_: Throwable) { null }
+            if (guard?.blocked == true) {
+                return SellResult.ALREADY_CLOSED
+            }
+        }
+
         // V5.9.1411 — Settle-in and duplicate-suppress guards moved into doSell()
         // so that direct doSell() calls from riskCheck/UltraFastRugDetector are caught too.
 

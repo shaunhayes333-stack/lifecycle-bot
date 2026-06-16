@@ -1825,6 +1825,36 @@ class GoldenTapeRegressionTest {
 
 
     @Test
+    fun paper_restore_exit_churn_is_blocked_at_source_before_trace_and_slot_inflation() {
+        val exec = java.io.File("src/main/kotlin/com/lifecyclebot/engine/Executor.kt").readText()
+        val persist = java.io.File("src/main/kotlin/com/lifecyclebot/engine/PositionPersistence.kt").readText()
+        val budget = java.io.File("src/main/kotlin/com/lifecyclebot/engine/PaperExitSweepBudget.kt").readText()
+        val bot = java.io.File("src/main/kotlin/com/lifecyclebot/engine/BotService.kt").readText()
+        val exits = java.io.File("src/main/kotlin/com/lifecyclebot/engine/ModeSpecificExits.kt").readText()
+        val collector = java.io.File("src/main/kotlin/com/lifecyclebot/engine/PipelineHealthCollector.kt").readText()
+
+        val reqGuard = exec.indexOf("V5.0.3801 — PAPER source guard before any executor activity")
+        val lifecyclePending = exec.indexOf("TokenLifecycleTracker.onSellPending")
+        val trace = exec.indexOf("ExecutionRootCauseTrace.sell("DO_SELL_ENTRY"")
+        assertTrue("paper requestSell guard must run before lifecycle pending", reqGuard >= 0 && lifecyclePending > reqGuard)
+        assertTrue("paper doSell guard must remain before EXEC_TRACE_SELL", exec.indexOf("PaperPositionCloseAuthority.preSellGuard("PAPER"") in 0 until trace)
+
+        assertTrue("paper restore must use a bounded freshness window", persist.contains("PAPER_RESTORE_WINDOW_MS"))
+        assertTrue("stale paper restore rows must be quarantined/dropped", persist.contains("PAPER_STALE_RESTORE_DROPPED"))
+        assertTrue("restore must not use noisy loadPositions()", persist.contains("val persisted = loadPositionsInternal()"))
+        assertFalse("paper restore doctrine must not say paper positions never go stale", persist.contains("paper positions NEVER go stale"))
+
+        assertTrue("paper exit sweep budget helper must cap checks at 5", budget.contains("minOf(5, openPaperPositions"))
+        assertTrue("main loop must skip already CLOSED paper active rows", bot.contains("PAPER_CLOSED_ACTIVE_ROW_DROPPED"))
+        assertTrue("main loop must budget paper exit maintenance", bot.contains("PaperExitSweepBudget.allow"))
+        assertTrue("fresh-timeout must consult paper close authority", exits.contains("PaperPositionCloseAuthority.stateOf("PAPER", mint)"))
+
+        assertTrue("paper journal row alias must be event-attributed", collector.contains("PAPER_JOURNAL_ROWS"))
+        assertTrue("paper quarantine alias must be report-visible", collector.contains("PAPER_QUARANTINED_ROWS"))
+    }
+
+
+    @Test
     fun paper_simulator_close_authority_size_clamp_and_quarantine_are_source_guarded() {
         val exec = java.io.File("src/main/kotlin/com/lifecyclebot/engine/Executor.kt").readText()
         val paperClose = java.io.File("src/main/kotlin/com/lifecyclebot/engine/PaperPositionCloseAuthority.kt").readText()
