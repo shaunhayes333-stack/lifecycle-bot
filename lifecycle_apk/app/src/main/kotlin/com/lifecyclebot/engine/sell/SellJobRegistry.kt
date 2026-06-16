@@ -32,6 +32,7 @@ enum class SellJobStatus {
     BROADCASTING,
     CONFIRMING,
     VERIFYING,
+    CLOSING_UNKNOWN,
     LANDED,
     FAILED_RETRYABLE,
     FAILED_FINAL,
@@ -63,7 +64,8 @@ data class SellJob(
         SellJobStatus.BUILDING,
         SellJobStatus.BROADCASTING,
         SellJobStatus.CONFIRMING,
-        SellJobStatus.VERIFYING -> true
+        SellJobStatus.VERIFYING,
+        SellJobStatus.CLOSING_UNKNOWN -> true
         else -> false
     }
 }
@@ -146,6 +148,7 @@ object SellJobRegistry {
                 SellJobStatus.BROADCASTING   -> "SELL_BROADCAST"
                 SellJobStatus.CONFIRMING     -> "SELL_SIG_CONFIRMED"
                 SellJobStatus.VERIFYING      -> "SELL_VERIFY_STARTED"
+                SellJobStatus.CLOSING_UNKNOWN -> "SELL_CLOSING_UNKNOWN"
                 SellJobStatus.LANDED         -> "SELL_CLOSED_TRACKER"
                 SellJobStatus.FAILED_RETRYABLE -> "SELL_FAILED_RETRYABLE"
                 SellJobStatus.FAILED_FINAL   -> "SELL_FAILED_FINAL"
@@ -157,6 +160,22 @@ object SellJobRegistry {
             )
         } catch (_: Throwable) {}
         return true
+    }
+
+    fun noteBroadcastSignature(mint: String, signature: String) {
+        val job = jobs[mint] ?: return
+        if (signature.isBlank()) return
+        job.signature = signature
+        job.status = SellJobStatus.CONFIRMING
+        job.lastAttemptAtMs = System.currentTimeMillis()
+        try { ForensicLogger.lifecycle("SELL_BROADCAST_SIGNATURE_REGISTERED", "mint=${mint.take(10)} sig=${signature.take(12)}") } catch (_: Throwable) {}
+    }
+
+    fun markClosingUnknown(mint: String, reason: String) {
+        val job = jobs[mint] ?: return
+        job.status = SellJobStatus.CLOSING_UNKNOWN
+        job.lastAttemptAtMs = System.currentTimeMillis()
+        try { ForensicLogger.lifecycle("SELL_JOB_CLOSING_UNKNOWN", "mint=${mint.take(10)} reason=$reason sig=${job.signature?.take(12) ?: "none"}") } catch (_: Throwable) {}
     }
 
     /** Idempotent — used when the executor finishes a successful sell or
@@ -181,6 +200,10 @@ object SellJobRegistry {
         if (!job.isInFlight()) return false
         val age = now - job.lastAttemptAtMs
         if (age > LOCK_TTL_MS) {
+            if (!job.signature.isNullOrBlank() || job.status in setOf(SellJobStatus.BROADCASTING, SellJobStatus.CONFIRMING, SellJobStatus.VERIFYING, SellJobStatus.CLOSING_UNKNOWN)) {
+                LivePositionCloseAuthority.markClosingUnknown(mint, job.symbol, "STALE_SELL_LOCK_PROOF_REQUIRED:${job.status.name}", job.signature)
+                return true
+            }
             try {
                 ErrorLogger.warn(
                     "SellJobRegistry",
@@ -191,7 +214,8 @@ object SellJobRegistry {
                     "mint=${mint.take(10)} ageMs=$age status=${job.status.name}",
                 )
             } catch (_: Throwable) {}
-            // Reset to FAILED_RETRYABLE so the next attempt re-engages.
+            // Only pre-broadcast BUILDING jobs may become retryable. Broadcasted or
+            // finality-waiting jobs are handled above as CLOSING_UNKNOWN and remain blocked.
             job.status = SellJobStatus.FAILED_RETRYABLE
             return false
         }

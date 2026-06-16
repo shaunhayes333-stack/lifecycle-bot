@@ -1,68 +1,27 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!--
-    Network Security Config for AATE
-
-    V5.9.1494 — LIVE-TRADE TLS TRUST-ANCHOR FIX.
-    Operator forensics (5.0.3500 Live Trade Forensics) showed live BUY/SELL
-    broadcasts failing with:
-        java.security.cert.CertPathValidatorException:
-        Trust anchor for certification path not found
-    on pumpportal.fun (trade-local) and bundles.jito.wtf (tip floor).
-
-    Live cert probe confirmed the real cause:
-      • pumpportal.fun  → Let's Encrypt YE2 → Root YE → ISRG Root X2 → X1
-      (V5.9.1525: chain now terminates at ISRG Root X2 — X1 alone was
-       insufficient; X2 added below. THIS was why TLS still failed.)
-      • bundles.jito.wtf → issued by Google Trust "WR3"  → roots to GTS Root R1
-      • lite-api.jup.ag → issued by Amazon RSA 2048 M04  → roots to Amazon Root CA 1
-    These are modern intermediates. On devices whose Android system CA store
-    predates them (minSdk 26 = Android 8 era), the chain cannot validate, so
-    OkHttp rejects the handshake — even though the certs are perfectly valid
-    (a browser, shipping its own current CA bundle, accepts them fine).
-
-    A failed SELL broadcast on a stop-loss = a stuck losing position bleeding
-    real SOL. Real-money-critical.
-
-    FIX: bundle the three actual root CAs the swap/broadcast hosts chain to
-    (res/raw/*.pem) and trust them for those hosts, ALONGSIDE the system and
-    user stores. This is NOT a security downgrade — full chain validation
-    still runs; we only guarantee the required roots are present regardless
-    of how stale the device's system store is. Cleartext stays DISABLED
-    everywhere except localhost/devnet.
--->
 <network-security-config>
+    <!-- V5.0.3770: Android trust-source repair for Solana RPC / Helius / Jupiter / Pump endpoints.
+         Use platform + user CAs so devices with updated user-installed roots or OEM CA drift do not
+         fail wallet proof with CertPathValidatorException: Trust anchor not found. No cleartext. -->
     <base-config cleartextTrafficPermitted="false">
         <trust-anchors>
-            <certificates src="system"/>
-            <certificates src="user"/>
+            <certificates src="system" />
+            <certificates src="user" />
         </trust-anchors>
     </base-config>
-
-    <!-- V5.9.1494 — live-execution swap / broadcast hosts. Bundle the exact
-         roots their cert chains terminate at so validation never depends on a
-         stale device CA store. -->
     <domain-config cleartextTrafficPermitted="false">
-        <domain includeSubdomains="true">pumpportal.fun</domain>
-        <domain includeSubdomains="true">pump.fun</domain>
-        <domain includeSubdomains="true">jito.wtf</domain>
-        <domain includeSubdomains="true">bundles.jito.wtf</domain>
-        <domain includeSubdomains="true">mainnet.block-engine.jito.wtf</domain>
+        <domain includeSubdomains="true">helius-rpc.com</domain>
+        <domain includeSubdomains="true">helius.xyz</domain>
         <domain includeSubdomains="true">jup.ag</domain>
-        <domain includeSubdomains="true">lite-api.jup.ag</domain>
+        <domain includeSubdomains="true">jup.io</domain>
+        <domain includeSubdomains="true">pump.fun</domain>
+        <domain includeSubdomains="true">solana.com</domain>
+        <domain includeSubdomains="true">ankr.com</domain>
+        <domain includeSubdomains="true">alchemy.com</domain>
+        <domain includeSubdomains="true">public-rpc.com</domain>
         <trust-anchors>
-            <certificates src="@raw/isrg_root_x1"/>
-            <certificates src="@raw/isrg_root_x2"/>
-            <certificates src="@raw/gts_root_r1"/>
-            <certificates src="@raw/amazon_root_ca1"/>
-            <certificates src="system"/>
-            <certificates src="user"/>
+            <certificates src="system" />
+            <certificates src="user" />
         </trust-anchors>
-    </domain-config>
-
-    <!-- Allow cleartext only for user-configured custom RPC nodes -->
-    <domain-config cleartextTrafficPermitted="true">
-        <domain includeSubdomains="true">localhost</domain>
-        <domain includeSubdomains="true">127.0.0.1</domain>
-        <domain includeSubdomains="true">10.0.2.2</domain>
     </domain-config>
 </network-security-config>

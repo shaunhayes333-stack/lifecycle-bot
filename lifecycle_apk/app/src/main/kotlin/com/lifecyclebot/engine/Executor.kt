@@ -10054,6 +10054,17 @@ class Executor(
         // reason (highest priority wins) and return WAITING_BALANCE_PROOF — NO lease,
         // NO PendingSellQueue ACTIVE_SELL_READY job, NO duplicate-suppressed metric.
         val isLivePositionEarly = !ts.position.isPaperPosition
+        if (isLivePositionEarly) {
+            val closeGuard = try { com.lifecyclebot.engine.sell.LivePositionCloseAuthority.preSellGuard(ts.mint, ts.symbol ?: "?", wallet) } catch (_: Throwable) { null }
+            if (closeGuard?.blocked == true) {
+                try { ForensicLogger.lifecycle("REQUEST_SELL_SUPPRESSED_CLOSE_AUTHORITY", "mint=${ts.mint.take(10)} symbol=${ts.symbol} guard=${closeGuard.reason} state=${closeGuard.state}") } catch (_: Throwable) {}
+                if (closeGuard.state == com.lifecyclebot.engine.sell.LivePositionCloseAuthority.State.CLOSED || closeGuard.state == com.lifecyclebot.engine.sell.LivePositionCloseAuthority.State.CLOSING_CONFIRMED) {
+                    try { ts.position = ts.position.copy(qtyToken = 0.0, pendingVerify = false) } catch (_: Throwable) {}
+                    return SellResult.ALREADY_CLOSED
+                }
+                return SellResult.WAITING_BALANCE_PROOF
+            }
+        }
         if (isLivePositionEarly && com.lifecyclebot.engine.sell.BalanceProofWaitState.isWaiting(ts.mint)) {
             val waitProof = try { wallet?.let { com.lifecyclebot.engine.sell.SellAmountAuthority.resolveForExit(ts.mint, it, reason) } } catch (_: Throwable) { null }
             val waitConfirmed = waitProof as? com.lifecyclebot.engine.sell.SellAmountAuthority.Resolution.Confirmed
@@ -13210,6 +13221,18 @@ class Executor(
                     onLog("📊 SELL DEBUG: Signing and broadcasting (router=${txResult.router}, rfq=${txResult.isRfqRoute})...", tradeId.mint)
                     val ultraReqId = if (quote!!.isUltra) txResult.requestId else null
                     sig = wallet.signSendAndConfirm(txResult.txBase64, useJito, jitoTip, ultraReqId, c.jupiterApiKey, txResult.isRfqRoute, txResult.senderCompatible)
+                    try {
+                        com.lifecyclebot.engine.sell.LivePositionCloseAuthority.markBroadcast(
+                            mint = ts.mint,
+                            symbol = ts.symbol ?: "?",
+                            signature = sig ?: "",
+                            rawAmount = java.math.BigInteger.ZERO,
+                            processor = if (quote!!.isUltra) "JUPITER_ULTRA" else txResult.router,
+                            route = if (quote!!.isUltra) "ULTRA" else if (useJito) "JITO" else "RPC",
+                            reason = reason,
+                            generation = try { BotRuntimeController.currentGeneration() } catch (_: Throwable) { 0L },
+                        )
+                    } catch (_: Throwable) {}
                     onLog("📊 SELL DEBUG: Transaction confirmed! sig=${sig.take(20)}...", tradeId.mint)
                     LiveTradeLogStore.log(
                         sellTradeKey, ts.mint, ts.symbol, "SELL",
@@ -14025,6 +14048,20 @@ class Executor(
             ErrorLogger.warn("Executor", "SELL POST-QUOTE FAILURE: ${ts.symbol} class=$failureClass " +
                 "exc=${e.javaClass.simpleName} msg=${safe.take(80)} retry=$broadcastRetries")
 
+            if (!sig.isNullOrBlank()) {
+                try {
+                    com.lifecyclebot.engine.sell.LivePositionCloseAuthority.markClosingUnknown(
+                        ts.mint,
+                        ts.symbol ?: "?",
+                        "POST_BROADCAST_VERIFY_FAILED:$failureClass",
+                        sig,
+                    )
+                } catch (_: Throwable) {}
+                try { PendingSellQueue.remove(ts.mint) } catch (_: Throwable) {}
+                try { ForensicLogger.lifecycle("SELL_RETRY_SUPPRESSED_BROADCAST_PENDING_PROOF", "mint=${ts.mint.take(10)} symbol=${ts.symbol} failureClass=$failureClass sig=${sig?.take(12)}") } catch (_: Throwable) {}
+                return SellResult.WAITING_BALANCE_PROOF
+            }
+
             if (broadcastRetries >= 5 && broadcastRetries % 5 == 0) {
                 // Louder notification every 5 consecutive failures — but we
                 // still don't close. User decides when to give up.
@@ -14612,6 +14649,20 @@ class Executor(
             ErrorLogger.warn("Executor", "🎓 Harvard Brain recording failed: ${e.message}")
         }
         
+        try {
+            val fSig = sig ?: ""
+            com.lifecyclebot.engine.sell.LivePositionCloseAuthority.finalizeClosed(
+                mint = ts.mint,
+                symbol = ts.symbol ?: "?",
+                signature = fSig.ifBlank { null },
+                reason = reason,
+                soldQtyRaw = 0L,
+                remainingQtyRaw = 0L,
+                pnlPct = pnlP.toInt(),
+                source = "executor_live_sell_success",
+            )
+        } catch (_: Throwable) {}
+
         // V5.9.284: Clear any pending sell queue entry on confirmed exit — prevents
         // duplicate SELL_START on the next BotService loop when the sell succeeded
         // but a stale entry was still sitting in PendingSellQueue (enqueued by an

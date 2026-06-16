@@ -1407,6 +1407,57 @@ class GoldenTapeRegressionTest {
         assertTrue(src.contains("pos.consecutiveZeroConfirms < 2"))
         assertTrue(tracker.contains("trustedTerminalZero"))
         assertTrue(tracker.contains("SELL_RECONCILER_NONEMPTY_SNAPSHOT"))
+        assertTrue(tracker.contains("LIVE_POSITION_CLOSE_AUTHORITY"))
+        assertTrue(tracker.contains("SELL_SIGNATURE_OR_META"))
+    }
+
+
+    @Test
+    fun live_position_close_authority_blocks_duplicate_resell_after_broadcast() {
+        val authority = java.io.File("src/main/kotlin/com/lifecyclebot/engine/sell/LivePositionCloseAuthority.kt").readText()
+        val executor = java.io.File("src/main/kotlin/com/lifecyclebot/engine/Executor.kt").readText()
+        val jobs = java.io.File("src/main/kotlin/com/lifecyclebot/engine/sell/SellJobRegistry.kt").readText()
+        val queue = java.io.File("src/main/kotlin/com/lifecyclebot/engine/PendingSellQueue.kt").readText()
+        assertTrue(authority.contains("enum class State { OPEN_CONFIRMED, CLOSING_PENDING_SIG, CLOSING_UNKNOWN, CLOSING_CONFIRMED, CLOSED }"))
+        assertTrue(authority.contains("fun preSellGuard"))
+        assertTrue(authority.contains("fun markBroadcast"))
+        assertTrue(authority.contains("fun finalizeClosed"))
+        assertTrue(authority.contains("SELL_FINALIZED_ONCE"))
+        assertTrue(executor.contains("REQUEST_SELL_SUPPRESSED_CLOSE_AUTHORITY"))
+        assertTrue(executor.contains("LivePositionCloseAuthority.markBroadcast"))
+        assertTrue(executor.contains("SELL_RETRY_SUPPRESSED_BROADCAST_PENDING_PROOF"))
+        assertTrue(jobs.contains("CLOSING_UNKNOWN"))
+        assertTrue(jobs.contains("STALE_SELL_LOCK_PROOF_REQUIRED"))
+        assertTrue(queue.contains("PENDING_SELL_SUPPRESSED_CLOSING"))
+        assertTrue(queue.contains("PENDING_SELL_PURGED_CLOSING_OR_CLOSED"))
+    }
+
+    @Test
+    fun sell_lock_release_does_not_make_broadcasted_mint_retryable() {
+        val jobs = java.io.File("src/main/kotlin/com/lifecyclebot/engine/sell/SellJobRegistry.kt").readText()
+        assertTrue(jobs.contains("LivePositionCloseAuthority.markClosingUnknown"))
+        assertTrue(jobs.contains("BROADCASTING, SellJobStatus.CONFIRMING, SellJobStatus.VERIFYING, SellJobStatus.CLOSING_UNKNOWN"))
+        assertTrue(jobs.contains("Only pre-broadcast BUILDING jobs may become retryable"))
+    }
+
+
+    @Test
+    fun android_network_security_config_is_wired_for_wallet_rpc_trust() {
+        val manifest = java.io.File("src/main/AndroidManifest.xml").readText()
+        val net = java.io.File("src/main/res/xml/network_security_config.xml").readText()
+        assertTrue(manifest.contains("android:networkSecurityConfig=\"@xml/network_security_config\""))
+        assertTrue(net.contains("<certificates src=\"system\""))
+        assertTrue(net.contains("<certificates src=\"user\""))
+        assertTrue(net.contains("helius-rpc.com"))
+        assertTrue(net.contains("solana.com"))
+    }
+
+    @Test
+    fun sell_reconciler_zero_close_flows_through_live_position_close_authority() {
+        val src = java.io.File("src/main/kotlin/com/lifecyclebot/engine/sell/SellReconciler.kt").readText()
+        assertTrue(src.contains("LivePositionCloseAuthority.finalizeClosed"))
+        assertTrue(src.contains("RECONCILER_SELL_SIG_ZERO"))
+        assertTrue(src.contains("RECONCILER_WALLET_ZERO"))
     }
 
 }

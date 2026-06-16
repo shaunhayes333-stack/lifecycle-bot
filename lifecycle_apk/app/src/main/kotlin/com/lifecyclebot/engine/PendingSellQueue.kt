@@ -74,6 +74,16 @@ object PendingSellQueue {
     }
 
     fun add(mint: String, symbol: String, reason: String) {
+        if (com.lifecyclebot.engine.sell.LivePositionCloseAuthority.isTerminalOrClosing(mint)) {
+            queue.remove(mint)
+            try { com.lifecyclebot.engine.ForensicLogger.lifecycle("PENDING_SELL_SUPPRESSED_CLOSING", "mint=${mint.take(10)} symbol=$symbol reason=$reason") } catch (_: Throwable) {}
+            return
+        }
+        if (com.lifecyclebot.engine.PositionCloseLedger.isClosed(mint)) {
+            queue.remove(mint)
+            try { com.lifecyclebot.engine.ForensicLogger.lifecycle("PENDING_SELL_PURGED_CLOSED", "mint=${mint.take(10)} symbol=$symbol reason=$reason") } catch (_: Throwable) {}
+            return
+        }
         // Reject malformed-payload reasons outright (spec item 5).
         if (!isTemporary(reason)) {
             ErrorLogger.warn(TAG,
@@ -125,6 +135,10 @@ object PendingSellQueue {
                     ErrorLogger.warn(TAG, "🔄 Max retries: ${sell.symbol} (${sell.retryCount} attempts)")
                     expired.add(mint)
                 }
+                com.lifecyclebot.engine.sell.LivePositionCloseAuthority.isTerminalOrClosing(mint) || com.lifecyclebot.engine.PositionCloseLedger.isClosed(mint) -> {
+                    expired.add(mint)
+                    try { com.lifecyclebot.engine.ForensicLogger.lifecycle("PENDING_SELL_PURGED_CLOSING_OR_CLOSED", "mint=${mint.take(10)} symbol=${sell.symbol}") } catch (_: Throwable) {}
+                }
                 else -> {
                     pending.add(sell.copy(retryCount = sell.retryCount + 1))
                 }
@@ -147,6 +161,11 @@ object PendingSellQueue {
      * Increments retry counter.
      */
     fun requeue(sell: PendingSell) {
+        if (com.lifecyclebot.engine.sell.LivePositionCloseAuthority.isTerminalOrClosing(sell.mint) || com.lifecyclebot.engine.PositionCloseLedger.isClosed(sell.mint)) {
+            queue.remove(sell.mint)
+            try { com.lifecyclebot.engine.ForensicLogger.lifecycle("PENDING_SELL_REQUEUE_SUPPRESSED_CLOSING", "mint=${sell.mint.take(10)} symbol=${sell.symbol} retry=${sell.retryCount}") } catch (_: Throwable) {}
+            return
+        }
         if (sell.retryCount >= MAX_RETRIES) {
             ErrorLogger.warn(TAG, "🛑 Not requeuing ${sell.symbol} - max retries reached")
             return

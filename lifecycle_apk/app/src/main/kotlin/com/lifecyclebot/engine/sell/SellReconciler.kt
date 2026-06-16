@@ -472,6 +472,13 @@ object SellReconciler {
                         "mint=${pos.mint.take(10)} symbol=${pos.symbol} closedByReconciler=true sig=${sellSig ?: "none"}",
                     )
                 } catch (_: Throwable) {}
+                LivePositionCloseAuthority.finalizeClosed(
+                    mint = pos.mint,
+                    symbol = pos.symbol ?: "?",
+                    signature = sellSig,
+                    reason = if (hasSig) "RECONCILER_SELL_SIG_ZERO" else "RECONCILER_WALLET_ZERO",
+                    source = "sell_reconciler_zero",
+                )
                 SellJobRegistry.markLanded(pos.mint, signature = sellSig)
                 // V5.9.1539 — ROOT FIX (operator spec item B + buy-handoff unblock):
                 // a reconciler zero-balance close MUST also release the CloseLease.
