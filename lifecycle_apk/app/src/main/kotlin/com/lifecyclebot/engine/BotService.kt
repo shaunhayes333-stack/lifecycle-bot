@@ -402,6 +402,17 @@ class BotService : Service() {
         @Volatile
         var stopInProgress = false
 
+        // V5.0.3789 — STOP PERSISTENCE FINALIZATION LATCH (operator fault #1).
+        // A manual stop runs PositionPersistence.clear() as the canonical final
+        // state. After that, NO code may re-save stale pre-clear status.tokens
+        // (onDestroy crash-recovery save / pre-death flush) until a fresh Start
+        // rebuilds canonical state. Without this latch, stopBot cleared persistence
+        // and then onDestroy immediately re-saved 4 stale open positions, causing
+        // liveStore / host tracker / close ledger / persisted positions to diverge
+        // and the reconciler to re-import dead rows on next start.
+        @Volatile
+        var persistenceFinalizedByStop = false
+
         @Volatile
         var userStartQueuedDuringStop = false
 
@@ -2615,7 +2626,7 @@ class BotService : Service() {
             getSharedPreferences(RUNTIME_PREFS, Context.MODE_PRIVATE)
                 .getBoolean(KEY_WAS_RUNNING_BEFORE_SHUTDOWN, false)
         } catch (_: Throwable) { false }
-        if ((status.running || onDestroyHeldCount > 0 || onDestroyWasRunning) && !isManualStopRequested(applicationContext)) {
+        if ((status.running || onDestroyHeldCount > 0 || onDestroyWasRunning) && !isManualStopRequested(applicationContext) && !persistenceFinalizedByStop) {
             try {
                 val tokensCopy = synchronized(status.tokens) { status.tokens.toMap() }
                 val openCount = maxOf(tokensCopy.values.count { it.position.isOpen }, onDestroyHeldCount)
@@ -2712,14 +2723,21 @@ class BotService : Service() {
             ErrorLogger.error("BotService", "Failed to save EdgeLearning: ${e.message}", e)
         }
         
-        // V5.6.9: Save open positions before shutdown for crash recovery
-        try {
-            val tokensCopy = synchronized(status.tokens) { status.tokens.toMap() }
-            PositionPersistence.saveAllPositions(tokensCopy, force = true)
-            val savedCount = PositionPersistence.getPersistedCount()
-            ErrorLogger.info("BotService", "💾 Position Persistence: Saved $savedCount positions before destroy")
-        } catch (e: Exception) {
-            ErrorLogger.error("BotService", "Failed to save positions: ${e.message}", e)
+        // V5.6.9: Save open positions before shutdown for crash recovery.
+        // V5.0.3789 — but NEVER re-save after a manual stop already finalized
+        // persistence (PositionPersistence.clear()). Re-saving stale pre-clear
+        // status.tokens here was the root of the stop/restart ledger drift.
+        if (!persistenceFinalizedByStop && !isManualStopRequested(applicationContext)) {
+            try {
+                val tokensCopy = synchronized(status.tokens) { status.tokens.toMap() }
+                PositionPersistence.saveAllPositions(tokensCopy, force = true)
+                val savedCount = PositionPersistence.getPersistedCount()
+                ErrorLogger.info("BotService", "💾 Position Persistence: Saved $savedCount positions before destroy")
+            } catch (e: Exception) {
+                ErrorLogger.error("BotService", "Failed to save positions: ${e.message}", e)
+            }
+        } else {
+            try { ForensicLogger.lifecycle("ONDESTROY_SAVE_SUPPRESSED", "reason=PERSISTENCE_FINALIZED_BY_STOP finalizedByStop=$persistenceFinalizedByStop manualStop=${isManualStopRequested(applicationContext)}") } catch (_: Throwable) {}
         }
         
         // Save Entry Intelligence AI before shutdown
@@ -3503,6 +3521,9 @@ class BotService : Service() {
 
     fun startBot() {
         isShuttingDown = false  // V5.9.721: clear shutdown flag so traders run normally
+        // V5.0.3789 — a fresh Start rebuilds canonical state, so release the
+        // stop-finalization latch. From here, normal persistence saves resume.
+        persistenceFinalizedByStop = false
         // V5.9.1072 — once the runtime loop has been launched, startBot's
         // giant outer catch must NEVER declare the bot stopped. Late optional
         // init failures (toast/notification/reconciler/external stream/etc.)
@@ -6558,8 +6579,9 @@ class BotService : Service() {
         // Without this, positions reappear after bot stop → start cycle
         try {
             PositionPersistence.clear()
+            persistenceFinalizedByStop = true
             try {
-                ForensicLogger.lifecycle("STOP_PERSIST_CLEARED", "ok=true")
+                ForensicLogger.lifecycle("STOP_PERSIST_CLEARED", "ok=true finalizedByStop=true")
             } catch (_: Throwable) {}
             addLog("✅ Cleared position persistence — positions won't restore on restart")
         } catch (persistEx: Exception) {

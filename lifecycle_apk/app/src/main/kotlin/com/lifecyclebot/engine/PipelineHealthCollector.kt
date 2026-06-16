@@ -811,14 +811,34 @@ object PipelineHealthCollector {
         // buying for a specific reason, not silently watch the loop tick
         // while no trades happen.
         try {
+            // V5.0.3789 — single canonical runtime authority. The Execution state
+            // line MUST be derived from BotRuntimeController (the same source the
+            // forensic summary reads), never an independent "ACTIVE" guess. A report
+            // header could previously print ACTIVE while the runtime was STOPPED,
+            // making "no buys" look like an active trading failure. Now: if the
+            // runtime authority is not RUNNING, the header reflects that and the
+            // report is stamped POST_STOP_SNAPSHOT so a stopped bot is not
+            // diagnosed as a live execution fault.
+            val rt = try { com.lifecyclebot.engine.BotRuntimeController.snapshot() } catch (_: Throwable) { null }
+            val runState = rt?.state
             val blockedMs = lastExecutionStateBlockedMs
             val ageSec = if (blockedMs > 0) ((System.currentTimeMillis() - blockedMs) / 1000L) else -1L
-            val state = if (blockedMs > 0 && ageSec in 0..120) {
-                "CIRCUIT_BREAKER (last block ${ageSec}s ago)"
-            } else {
-                "ACTIVE"
+            val state = when {
+                runState == com.lifecyclebot.engine.BotRuntimeController.RuntimeState.STOPPED ->
+                    "STOPPED (runtime authority) — POST_STOP_SNAPSHOT"
+                runState == com.lifecyclebot.engine.BotRuntimeController.RuntimeState.STOPPING ->
+                    "STOPPING (runtime authority)"
+                runState == com.lifecyclebot.engine.BotRuntimeController.RuntimeState.STARTING ->
+                    "STARTING (runtime authority)"
+                blockedMs > 0 && ageSec in 0..120 ->
+                    "CIRCUIT_BREAKER (last block ${ageSec}s ago)"
+                else -> "ACTIVE"
             }
             sb.append("  Execution state:       $state\n")
+            if (runState != null && runState != com.lifecyclebot.engine.BotRuntimeController.RuntimeState.RUNNING) {
+                sb.append("  Runtime authority:     state=$runState active=${rt.runtimeActive} botLoop=${rt.botLoopJobActive} scanner=${rt.scannerActive}\n")
+                sb.append("  POST_STOP_SNAPSHOT: bot is not RUNNING — 'no buys / no exec' below is expected, NOT a live execution fault.\n")
+            }
             if (blockedMs > 0 && ageSec in 0..120) {
                 sb.append("  Execution block reason: ${lastExecutionStateBlockedFields.take(160)}\n")
             }

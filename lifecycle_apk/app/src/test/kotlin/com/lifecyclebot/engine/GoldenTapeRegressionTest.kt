@@ -1687,4 +1687,29 @@ class GoldenTapeRegressionTest {
         assertTrue("orphan ignore guard must precede orphan adoption builder", guardIdx in 1 until adoptIdx)
     }
 
+
+    @Test
+    fun runtime_state_header_reads_canonical_authority_and_stop_does_not_resave() {
+        val pipe = java.io.File("src/main/kotlin/com/lifecyclebot/engine/PipelineHealthCollector.kt").readText()
+        val svc = java.io.File("src/main/kotlin/com/lifecyclebot/engine/BotService.kt").readText()
+
+        // Fault #6 — header Execution state must derive from BotRuntimeController, not a hardcoded ACTIVE.
+        assertTrue(pipe.contains("BotRuntimeController.snapshot()"))
+        assertTrue(pipe.contains("POST_STOP_SNAPSHOT"))
+        assertTrue(pipe.contains("RuntimeState.STOPPED"))
+        assertTrue(pipe.contains("RuntimeState.STOPPING"))
+        assertTrue(pipe.contains("RuntimeState.STARTING"))
+        assertFalse("header must not unconditionally guess ACTIVE without consulting runtime authority",
+            pipe.contains("val state = if (blockedMs > 0 && ageSec in 0..120) {"))
+
+        // Fault #1 — manual stop finalizes persistence and onDestroy must not re-save stale rows.
+        assertTrue(svc.contains("var persistenceFinalizedByStop = false"))
+        assertTrue(svc.contains("persistenceFinalizedByStop = true"))
+        assertTrue(svc.contains("ONDESTROY_SAVE_SUPPRESSED"))
+        // The unconditional crash-recovery save must now be guarded.
+        assertTrue(svc.contains("if (!persistenceFinalizedByStop && !isManualStopRequested(applicationContext)) {"))
+        // Latch released on a fresh start so normal saves resume.
+        assertTrue(svc.contains("persistenceFinalizedByStop = false"))
+    }
+
 }
