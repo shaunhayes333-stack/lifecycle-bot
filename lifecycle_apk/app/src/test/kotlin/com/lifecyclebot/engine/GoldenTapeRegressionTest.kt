@@ -1856,6 +1856,22 @@ class GoldenTapeRegressionTest {
 
 
     @Test
+    fun losing_pattern_memory_soft_sizes_emerging_bootstrap_bleeders_before_maturity() {
+        val losing = java.io.File("src/main/kotlin/com/lifecyclebot/engine/LosingPatternMemory.kt").readText()
+        val fdg = java.io.File("src/main/kotlin/com/lifecyclebot/engine/FinalDecisionGate.kt").readText()
+
+        assertTrue("LosingPatternMemory must define emerging danger before mature sample=20", losing.contains("val isEmergingDanger"))
+        assertTrue("emerging danger must be sample gated at 8..19", losing.contains("sample in 8..19"))
+        assertTrue("emerging danger must require net-negative mean", losing.contains("meanPnl <= -4.0"))
+        assertTrue("recommendedSizeMult must consume emerging danger", losing.contains("!s.isDangerous && !s.isEmergingDanger"))
+        assertTrue("emerging danger must soft-size, not veto", losing.contains("s.losses >= 10 -> 0.25") && losing.contains("else           -> 0.45"))
+        assertTrue("emerging danger telemetry must be visible", losing.contains("LOSING_PATTERN_EMERGING_DANGER"))
+        assertTrue("FDG must already consume LosingPatternMemory recommended sizing", fdg.contains("LosingPatternMemory.recommendedSizeMult"))
+        assertFalse("emerging danger must not introduce a hard reject", losing.contains("if (s.isEmergingDanger) return 0.0"))
+    }
+
+
+    @Test
     fun bleed_auto_pivot_cap_overrides_normal_route_floor_without_veto() {
         val lanePolicy = java.io.File("src/main/kotlin/com/lifecyclebot/engine/learning/LanePolicy.kt").readText()
         val fdgRoute = java.io.File("src/main/kotlin/com/lifecyclebot/engine/learning/FdgRouteVerdict.kt").readText()

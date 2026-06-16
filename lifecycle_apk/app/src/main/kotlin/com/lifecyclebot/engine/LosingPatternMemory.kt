@@ -40,6 +40,10 @@ object LosingPatternMemory {
         // buckets need genuine statistical weight before blocking. Mature bots still get
         // meaningful danger-zone detection; bootstrap bots can keep learning.
         val isDangerous: Boolean get() = losses >= 8 && sample >= 20 && (losses.toDouble() / sample) >= 0.75
+        // V5.0.3805 — emerging danger: don't wait for 20 closes before shrinking
+        // an obvious bootstrap bleeder. Still sample-gated enough to avoid 2-3 loss
+        // noise, still soft-shape only, and never applies to positive-mean buckets.
+        val isEmergingDanger: Boolean get() = losses >= 5 && sample in 8..19 && (losses.toDouble() / sample) >= 0.80 && meanPnl <= -4.0
     }
 
     @Volatile private var cache: Map<String, BucketStats> = emptyMap()
@@ -138,9 +142,11 @@ object LosingPatternMemory {
      * the bucket must keep recording outcomes so the scorer can self-correct),
      * but a bucket that has matured AND keeps bleeding deserves a deeper cut
      * than a flat ×0.35. Scales with loss count, mirroring recommendedSlPct's
-     * tiers. Returns 1.0 (no cut) when the bucket isn't a matured danger zone,
-     * so bootstrap-band candidates (sample<20) are never shrunk.
+     * tiers. Returns 1.0 (no cut) when the bucket is neither mature-danger nor
+     * emerging-danger. Obvious 8-19 sample bootstrap bleeders get a small probe,
+     * not full size, before they become expensive mature danger buckets.
      *
+     *   emerging 8-19 sample bootstrap bleeder → ×0.45/×0.25
      *   losses >= 40  → ×0.05  (V5.9.1250 — deepest proven death bucket)
      *   losses >= 30  → ×0.10  (proven, deep death bucket — near-zero learning probe)
      *   losses >= 20  → ×0.20
@@ -148,7 +154,7 @@ object LosingPatternMemory {
      */
     fun recommendedSizeMult(tradingMode: String, v3Score: Int): Double {
         val s = stats(tradingMode, v3Score)
-        if (!s.isDangerous) return 1.0
+        if (!s.isDangerous && !s.isEmergingDanger) return 1.0
         // V5.9.1306 — DO NOT damp a positive-expectancy band. isDangerous is a
         // pure LOSS-RATE flag (losses>=8, n>=20, lossRate>=75%) — it ignores
         // mean PnL entirely. But a low-WR / huge-avg-win band is a WINNER, not a
@@ -159,6 +165,13 @@ object LosingPatternMemory {
         // size untouched — let the winners run. Only proven NET-NEGATIVE danger
         // buckets get the shrink ladder below.
         if (s.meanPnl > 0.0) return 1.0
+        if (s.isEmergingDanger) {
+            try { PipelineHealthCollector.labelInc("LOSING_PATTERN_EMERGING_DANGER|${tradingMode.uppercase().take(24)}") } catch (_: Throwable) {}
+            return when {
+                s.losses >= 10 -> 0.25
+                else           -> 0.45
+            }
+        }
         return when {
             // V5.9.1250 — add the deepest tier. TREASURY|S61+ kept net-bleeding
             // (-1.0 SOL / n=23) even at ×0.10 because it keeps entering a proven
