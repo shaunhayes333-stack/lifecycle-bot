@@ -14893,7 +14893,7 @@ class Executor(
                     try {
                         val txResultSweep = buildTxWithRetry(
                             quote, wallet.publicKeyB58, dynamicSlippageMaxBps = (slip * 5).coerceIn(slip, 9999),
-                            senderTipLamports = effectiveJitoTipLamports(c, urgent = isDrainExit),
+                            senderTipLamports = effectiveJitoTipLamports(c, urgent = true),
                         )
                         security.enforceSignDelay()
                         val useJito = c.jitoEnabled && !quote.isUltra
