@@ -1529,4 +1529,33 @@ class GoldenTapeRegressionTest {
         assertFalse("checked wallet snapshot must not keep its own getTokenAccountsByOwner duplicate", checkedBody.contains("getTokenAccountsByOwner"))
     }
 
+
+    @Test
+    fun live_entry_price_uses_proof_cost_basis_not_guide_price() {
+        val exec = java.io.File("src/main/kotlin/com/lifecyclebot/engine/Executor.kt").readText()
+        assertTrue(exec.contains("LIVE_ENTRY_PRICE_FROM_PROOF"))
+        assertTrue(exec.contains("(sol / qtyUi) * solUsdForBasis"))
+        assertTrue(exec.contains("entryPriceSource = \"LIVE_PROOF_COST_BASIS\""))
+        assertTrue(exec.contains("entrySupplyAssumed = 0.0"))
+        assertTrue(exec.contains("priceBasisRescaled = true"))
+        assertTrue(exec.contains("entryPrice = ts.position.entryPrice.takeIf { it > 0.0 && it.isFinite() } ?: price"))
+    }
+
+    @Test
+    fun wallet_rehydrate_does_not_synthesize_sol_cost_from_usd_price() {
+        val exec = java.io.File("src/main/kotlin/com/lifecyclebot/engine/Executor.kt").readText()
+        assertFalse("wallet recovery must not convert USD token price into SOL cost", exec.contains("val entrySol = if (entryPrice > 0.0) qty * entryPrice else 0.0"))
+        assertTrue(exec.contains("WALLET_REHYDRATE_BASIS_UNKNOWN"))
+        assertTrue(exec.contains("costSol        = ts.position.costSol.takeIf { it > 0.0 } ?: 0.0"))
+    }
+
+    @Test
+    fun advanced_exit_invalid_price_holds_not_forced_sell() {
+        val src = java.io.File("src/main/kotlin/com/lifecyclebot/v3/scoring/AdvancedExitManager.kt").readText()
+        assertTrue(src.contains("ADV_EXIT_INVALID_PRICE_HOLD"))
+        assertTrue(src.contains("Invalid price input — hold until trustworthy price"))
+        assertFalse("invalid guide/basis price must not force a sell", src.contains("Invalid price input — forced exit"))
+        assertFalse("invalid price decision must not return shouldExit=true", src.contains("return ExitDecision(true, 100, ExitReason.INVALID_INPUT"))
+    }
+
 }

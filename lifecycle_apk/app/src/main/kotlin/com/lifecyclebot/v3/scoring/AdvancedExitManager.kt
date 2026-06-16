@@ -364,10 +364,11 @@ object AdvancedExitManager {
         symbol: String = "",
     ): ExitDecision {
 
-        if (entryPrice <= 0.0 || currentPrice <= 0.0) {
-            ErrorLogger.warn(TAG, "[$symbol] Invalid price: entry=$entryPrice current=$currentPrice")
-            return ExitDecision(true, 100, ExitReason.INVALID_INPUT, ExitUrgency.CRITICAL,
-                "Invalid price input — forced exit")
+        if (entryPrice <= 0.0 || currentPrice <= 0.0 || !entryPrice.isFinite() || !currentPrice.isFinite()) {
+            ErrorLogger.warn(TAG, "[$symbol] Invalid price: entry=$entryPrice current=$currentPrice — HOLD, data invalid")
+            try { com.lifecyclebot.engine.ForensicLogger.lifecycle("ADV_EXIT_INVALID_PRICE_HOLD", "symbol=$symbol entry=$entryPrice current=$currentPrice action=hold_no_forced_exit") } catch (_: Throwable) {}
+            return ExitDecision(false, 0, ExitReason.INVALID_INPUT, ExitUrgency.NONE,
+                "Invalid price input — hold until trustworthy price")
         }
 
         val pnlPct       = (currentPrice - entryPrice) / entryPrice * 100.0

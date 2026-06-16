@@ -1220,15 +1220,19 @@ class Executor(
             ?: ts.history.lastOrNull()?.priceUsd
             ?: ts.position.entryPrice.takeIf { it > 0.0 }
             ?: 0.0
-        val entrySol = if (entryPrice > 0.0) qty * entryPrice else 0.0
         synchronized(ts) {
             ts.position = ts.position.copy(
                 qtyToken       = qty,
-                costSol        = entrySol.takeIf { it > 0.0 } ?: ts.position.costSol,
+                // V5.0.3777 — do NOT synthesize SOL basis from USD/token price.
+                // Wallet-only recovery has token proof but no spend proof; invented
+                // costSol poisons PnL, thesis, and stop logic. Preserve existing
+                // cost if known, otherwise leave 0 and mark entry source as basis-unknown.
+                costSol        = ts.position.costSol.takeIf { it > 0.0 } ?: 0.0,
                 entryPrice     = entryPrice.takeIf { it > 0.0 } ?: ts.position.entryPrice,
                 entryTime      = if (ts.position.entryTime > 0L) ts.position.entryTime else System.currentTimeMillis(),
                 isPaperPosition= false,  // wallet has on-chain tokens → live by definition
                 pendingVerify  = false,
+                entryPriceSource = ts.position.entryPriceSource.ifBlank { "WALLET_REHYDRATE_BASIS_UNKNOWN" },
             )
         }
         ErrorLogger.warn("Executor",
@@ -9597,6 +9601,31 @@ class Executor(
                     try { com.lifecyclebot.engine.ForensicLogger.lifecycle("BALANCE_PROOF_OK", "mint=${verifyMint.take(10)} symbol=$verifySymbol source=${proof.source} rawAmount=${proof.amountRaw} decimals=${proof.decimals} sig=${verifySig.take(16)} stage=$stage") } catch (_: Throwable) {}
                     try { com.lifecyclebot.engine.sell.SellAmountAuthority.recordTxParseBalance(verifyMint, proof.amountRaw, proof.decimals, verifySig) } catch (_: Throwable) {}
                     try { com.lifecyclebot.engine.ForensicLogger.lifecycle("SELL_AMOUNT_AUTHORITY_SEEDED", "mint=${verifyMint.take(10)} symbol=$verifySymbol rawAmount=${proof.amountRaw} decimals=${proof.decimals} sig=${verifySig.take(16)} source=${proof.source}") } catch (_: Throwable) {}
+                    // V5.0.3777 — LIVE ENTRY PRICE AUTHORITY.
+                    // The provisional live position was stamped before token proof using
+                    // guide/feed price (ts.lastPrice). Once owner/mint balance proof arrives,
+                    // replace that guide basis with the actual economic entry:
+                    // (SOL spent / verified UI tokens) × SOL/USD. This prevents false thesis,
+                    // bogus stop-loss/TP, and corrupted learning labels from guide prices.
+                    val solUsdForBasis = try { WalletManager.lastKnownSolPrice } catch (_: Throwable) { 0.0 }
+                    val proofEntryUsd = if (qtyUi > 0.0 && sol > 0.0 && solUsdForBasis > 0.0)
+                        (sol / qtyUi) * solUsdForBasis else 0.0
+                    if (proofEntryUsd > 0.0 && proofEntryUsd.isFinite()) {
+                        val oldEntry = ts.position.entryPrice
+                        ts.position = ts.position.copy(
+                            entryPrice = proofEntryUsd,
+                            highestPrice = proofEntryUsd,
+                            lowestPrice = if (ts.position.lowestPrice > 0.0) minOf(ts.position.lowestPrice, proofEntryUsd) else proofEntryUsd,
+                            costSol = sol,
+                            entryPriceSource = "LIVE_PROOF_COST_BASIS",
+                            entrySupplyAssumed = 0.0,
+                            priceBasisRescaled = true,
+                            priceBasisRescaleFactor = if (oldEntry > 0.0) proofEntryUsd / oldEntry else 1.0,
+                        )
+                        try { com.lifecyclebot.engine.ForensicLogger.lifecycle("LIVE_ENTRY_PRICE_FROM_PROOF", "mint=${verifyMint.take(10)} symbol=$verifySymbol oldEntry=$oldEntry proofEntryUsd=$proofEntryUsd sol=$sol qty=$qtyUi solUsd=$solUsdForBasis source=${proof.source}") } catch (_: Throwable) {}
+                    } else {
+                        try { com.lifecyclebot.engine.ForensicLogger.lifecycle("LIVE_ENTRY_PRICE_PROOF_DEFERRED", "mint=${verifyMint.take(10)} symbol=$verifySymbol reason=missing_sol_usd_or_qty sol=$sol qty=$qtyUi solUsd=$solUsdForBasis") } catch (_: Throwable) {}
+                    }
                     promoteVerifiedLiveBuy(qtyUi, stage)
                     val beforeOpen = try { HostWalletTokenTracker.getOpenCount() } catch (_: Throwable) { -1 }
                     try { HostWalletTokenTracker.recordBuyConfirmedWithProof(ts, proof, verifySig) } catch (e: Throwable) {
@@ -9652,7 +9681,9 @@ class Executor(
                         } catch (_: Exception) { /* non-critical */ }
                         try {
                             com.lifecyclebot.v3.scoring.SellOptimizationAI.registerPosition(
-                                mint = verifyTradeMint, entryPrice = price, sizeSol = sol
+                                mint = verifyTradeMint,
+                                entryPrice = ts.position.entryPrice.takeIf { it > 0.0 && it.isFinite() } ?: price,
+                                sizeSol = sol
                             )
                         } catch (_: Exception) {}
                         try { TokenLifecycleTracker.onTokenLanded(verifyMint, verifiedQty) } catch (_: Throwable) {}
