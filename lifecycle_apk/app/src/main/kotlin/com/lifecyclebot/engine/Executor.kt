@@ -7479,7 +7479,11 @@ class Executor(
                     }
                 }
             } catch (_: Throwable) {}
-            finalSol
+            clampPaperTradeSol(finalSol, ts.mint, ts.symbol, "paperBuy.pre_mutation")
+        }
+        if (sol <= 0.0) {
+            try { ForensicLogger.lifecycle("PAPER_BUY_INVALID_SIZE_REJECTED", "mint=${ts.mint.take(10)} symbol=${ts.symbol} requested=$sol") } catch (_: Throwable) {}
+            return
         }
         
         // V5.9.1586 — canonical EXEC accounting for paper simulator too.
@@ -7541,13 +7545,13 @@ class Executor(
         val targetBuild: Double
         
         if (skipGraduated || quality == "C") {
-            actualSol = sol
+            actualSol = clampPaperTradeSol(sol, ts.mint, ts.symbol, "paperBuy.actual")
             buildPhase = if (quality != "C") 1 else 3
             targetBuild = if (quality != "C") sol / graduatedInitialPct(quality) else 0.0
         } else {
-            actualSol = graduatedInitialSize(sol, quality)
+            actualSol = clampPaperTradeSol(graduatedInitialSize(sol, quality), ts.mint, ts.symbol, "paperBuy.graduated")
             buildPhase = 1
-            targetBuild = sol
+            targetBuild = sol.coerceAtMost(maxConfiguredPaperTradeSol())
         }
         
         // V5.9.780 — EMERGENT MEME PAPER REALISM (entry side).
@@ -7740,6 +7744,7 @@ class Executor(
         // in paperSell only blocks a SELL while a live close stamp exists; a real new BUY
         // is the signal to clear it).
         try { com.lifecyclebot.engine.PositionCloseLedger.reopen(tradeId.mint) } catch (_: Throwable) {}
+        try { com.lifecyclebot.engine.PaperPositionCloseAuthority.reopen("PAPER", tradeId.mint) } catch (_: Throwable) {}
         
         try {
             PositionPersistence.savePosition(ts)
@@ -10723,6 +10728,14 @@ class Executor(
     internal fun doSell(ts: TokenState, reason: String,
                        wallet: SolanaWallet?, walletSol: Double,
                        identity: TradeIdentity? = null): SellResult {
+        val paperCloseAuthorityActive = ts.position.isPaperPosition
+        if (paperCloseAuthorityActive) {
+            val guard = PaperPositionCloseAuthority.preSellGuard("PAPER", ts.mint, ts.symbol, reason)
+            if (guard.blocked) {
+                return SellResult.ALREADY_CLOSED
+            }
+            PaperPositionCloseAuthority.markCloseRequested("PAPER", ts.mint, ts.symbol, reason)
+        }
         ExecutionRootCauseTrace.sell("DO_SELL_ENTRY", ts, "reason=$reason walletLoaded=${wallet != null} walletSol=$walletSol identity=${identity?.source ?: "-"} posQty=${ts.position.qtyToken} entry=${ts.position.entryPrice} high=${ts.position.highestPrice}")
         // V5.9.1411 — Move paper settle-in delay guard directly into doSell.
         // This ensures exits originating from riskCheck (like v8_catastrophic_loss)
@@ -10799,6 +10812,9 @@ class Executor(
             }
         }
         if (!ts.position.isOpen) {
+            if (paperCloseAuthorityActive) {
+                PaperPositionCloseAuthority.markClosed("PAPER", ts.mint, ts.symbol, "POSITION_ALREADY_CLOSED:$reason")
+            }
             onLog("⚠️ SELL SKIPPED: Position already closed for ${ts.symbol} (qty=${ts.position.qtyToken} pendingVerify=${ts.position.pendingVerify})", tradeId.mint)
             return SellResult.ALREADY_CLOSED
         }
@@ -10990,13 +11006,50 @@ class Executor(
         return r.contains("SCRATCH") || r.contains("FLAT_EXIT")
     }
 
+    private fun maxConfiguredPaperTradeSol(): Double {
+        return try {
+            val c = cfg()
+            maxOf(c.smallBuySol, c.maxPositionSol).takeIf { it.isFinite() && it > 0.0 } ?: 0.15
+        } catch (_: Throwable) { 0.15 }
+    }
+
+    private fun minConfiguredPaperTradeSol(): Double {
+        return try {
+            cfg().smallBuySol.takeIf { it.isFinite() && it > 0.0 } ?: 0.01
+        } catch (_: Throwable) { 0.01 }
+    }
+
+    private fun clampPaperTradeSol(requested: Double, mint: String = "", symbol: String = "", source: String = "paper"): Double {
+        val minSol = minConfiguredPaperTradeSol()
+        val maxSol = maxConfiguredPaperTradeSol().coerceAtLeast(minSol)
+        if (!requested.isFinite() || requested <= 0.0) return 0.0
+        val clamped = requested.coerceIn(minSol, maxSol)
+        if (kotlin.math.abs(clamped - requested) > 0.0000001) {
+            try {
+                ForensicLogger.lifecycle(
+                    "PAPER_BUY_SIZE_CLAMPED",
+                    "mint=${mint.take(10)} symbol=$symbol source=$source requested=${requested.fmt(6)} clamped=${clamped.fmt(6)} min=${minSol.fmt(6)} max=${maxSol.fmt(6)}"
+                )
+                PipelineHealthCollector.labelInc("PAPER_BUY_SIZE_CLAMPED")
+            } catch (_: Throwable) {}
+        }
+        return clamped
+    }
+
 
     fun paperSell(ts: TokenState, reason: String, identity: TradeIdentity? = null): SellResult {
         val tradeId = identity ?: TradeIdentityManager.getOrCreate(ts.mint, ts.symbol, ts.source)
         
         val pos   = ts.position
         val price = getActualPrice(ts)
-        if (!pos.isOpen || price == 0.0) return SellResult.ALREADY_CLOSED
+        if (!pos.isOpen) {
+            PaperPositionCloseAuthority.markClosed("PAPER", ts.mint, ts.symbol, "PAPER_SELL_NOT_OPEN:$reason")
+            return SellResult.ALREADY_CLOSED
+        }
+        if (price == 0.0) {
+            PaperPositionCloseAuthority.markFailed("PAPER", ts.mint, ts.symbol, "PAPER_SELL_NO_PRICE:$reason")
+            return SellResult.FAILED_RETRYABLE
+        }
         // V5.9.1470 (spec item 2) — CLOSE IDEMPOTENCY. If this mint already has a live
         // close stamp, a previous paperSell already finalized it. Suppress the duplicate
         // SELL: do NOT journal, train, or re-occupy the slot. Fixes the same-mint
@@ -11004,6 +11057,7 @@ class Executor(
         run {
             val existingCloseId = com.lifecyclebot.engine.PositionCloseLedger.closeIdOf(ts.mint)
             if (existingCloseId != null) {
+                PaperPositionCloseAuthority.markClosed("PAPER", ts.mint, ts.symbol, "LEDGER_ALREADY_CLOSED:$reason", existingCloseId)
                 try { ForensicLogger.lifecycle("PAPER_SELL_DUPLICATE_SUPPRESSED", "mint=${ts.mint.take(10)} symbol=${ts.symbol} originalCloseId=$existingCloseId reason=$reason") } catch (_: Throwable) {}
                 return SellResult.ALREADY_CLOSED
             }
@@ -11014,6 +11068,7 @@ class Executor(
             ErrorLogger.debug("Executor", "🔒 PAPER_DOUBLE_SELL_BLOCKED: ${ts.symbol} reason=$reason already selling")
             return SellResult.ALREADY_CLOSED
         }
+        PaperPositionCloseAuthority.markClosing("PAPER", ts.mint, ts.symbol, reason)
         // V5.9.720: try/finally ensures lock is ALWAYS released — even on exception.
         // Without this, a crash mid-sell leaves the lock set forever, causing
         // bot-stop closeAllPositions() to see ALREADY_CLOSED and skip the position.
@@ -11227,6 +11282,7 @@ class Executor(
         try {
             val pnlPctForLedger = try { ((price - pos.entryPrice) / pos.entryPrice * 100.0).toInt() } catch (_: Throwable) { 0 }
             val cid = com.lifecyclebot.engine.PositionCloseLedger.markClosed(tradeId.mint, reason, pnlPctForLedger)
+            PaperPositionCloseAuthority.markClosed("PAPER", tradeId.mint, ts.symbol, reason, cid)
             ForensicLogger.lifecycle("POSITION_CLOSE_LEDGER_STAMPED", "mint=${tradeId.mint.take(10)} closeId=$cid reason=$reason")
         } catch (_: Throwable) {}
 
@@ -11451,6 +11507,7 @@ class Executor(
             ts.lastExitPnlPct = pnlP
             ts.lastExitWasWin = pnlP >= 1.0
             try { PositionPersistence.removePosition(ts.mint) } catch (_: Exception) {}
+            try { PaperPositionCloseAuthority.markClosed("PAPER", ts.mint, ts.symbol, "bot_shutdown") } catch (_: Throwable) {}
             // V5.9.1369 — same deterministic paper lifecycle settle on the shutdown fast path.
             try {
                 TokenLifecycleTracker.onSellSettled(
@@ -12274,6 +12331,10 @@ class Executor(
         return SellResult.PAPER_CONFIRMED
         } finally {
             // V5.9.720: release under ALL exit paths (normal + exception + shutdown)
+            val paperState = try { PaperPositionCloseAuthority.stateOf("PAPER", ts.mint) } catch (_: Throwable) { null }
+            if (paperState == PaperPositionCloseAuthority.State.CLOSE_REQUESTED || paperState == PaperPositionCloseAuthority.State.CLOSING) {
+                try { PaperPositionCloseAuthority.markFailed("PAPER", ts.mint, ts.symbol, "PAPER_SELL_EXITED_WITHOUT_CLOSE:$reason") } catch (_: Throwable) {}
+            }
             releasePaperSellLock(ts.mint)
             try { ForensicLogger.lifecycle("PAPER_SELL_LOCK_RELEASED", "mint=${ts.mint.take(10)} symbol=${ts.symbol} reason=$reason") } catch (_: Throwable) {}
         }

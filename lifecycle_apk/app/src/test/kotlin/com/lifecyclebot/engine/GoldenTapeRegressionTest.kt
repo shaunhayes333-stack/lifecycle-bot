@@ -1825,6 +1825,40 @@ class GoldenTapeRegressionTest {
 
 
     @Test
+    fun paper_simulator_close_authority_size_clamp_and_quarantine_are_source_guarded() {
+        val exec = java.io.File("src/main/kotlin/com/lifecyclebot/engine/Executor.kt").readText()
+        val paperClose = java.io.File("src/main/kotlin/com/lifecyclebot/engine/PaperPositionCloseAuthority.kt").readText()
+        val paperSanity = java.io.File("src/main/kotlin/com/lifecyclebot/engine/PaperLearningSanity.kt").readText()
+        val tradeStore = java.io.File("src/main/kotlin/com/lifecyclebot/engine/TradeHistoryStore.kt").readText()
+        val rowSanity = java.io.File("src/main/kotlin/com/lifecyclebot/engine/learning/TradeRowSanityCheck.kt").readText()
+        val collector = java.io.File("src/main/kotlin/com/lifecyclebot/engine/PipelineHealthCollector.kt").readText()
+
+        assertTrue("paper close authority must exist", paperClose.contains("object PaperPositionCloseAuthority"))
+        assertTrue("paper authority must expose CLOSE_REQUESTED", paperClose.contains("CLOSE_REQUESTED"))
+        assertTrue("paper authority must low-rate duplicate close telemetry", paperClose.contains("PAPER_CLOSE_ALREADY_PENDING"))
+
+        val guardIdx = exec.indexOf("PaperPositionCloseAuthority.preSellGuard")
+        val traceIdx = exec.indexOf("ExecutionRootCauseTrace.sell(\"DO_SELL_ENTRY\"")
+        assertTrue("paper close guard must run before DO_SELL_ENTRY / EXEC_TRACE_SELL", guardIdx >= 0 && traceIdx >= 0 && guardIdx < traceIdx)
+        assertTrue("first paper close must mark requested before trace", exec.contains("PaperPositionCloseAuthority.markCloseRequested"))
+        assertTrue("paperSell must finalize the paper authority when ledger closes", exec.contains("PaperPositionCloseAuthority.markClosed(\"PAPER\", tradeId.mint"))
+
+        assertTrue("paper buy must clamp before position and journal mutation", exec.contains("clampPaperTradeSol(finalSol"))
+        assertTrue("paper buy max must be config-backed", exec.contains("maxOf(c.smallBuySol, c.maxPositionSol)"))
+        assertTrue("paper buy clamp telemetry must exist", exec.contains("PAPER_BUY_SIZE_CLAMPED"))
+
+        assertTrue("paper sanity must quarantine rows above configured max", paperSanity.contains("PAPER_SOL_ABOVE_CONFIG_MAX"))
+        assertTrue("paper sanity must emit required quarantine label", paperSanity.contains("PAPER_LEARNING_ROW_QUARANTINED"))
+        assertTrue("TradeHistoryStore must filter corrupted historical rows", tradeStore.contains("PaperLearningSanity.inspect(t)"))
+        assertTrue("TradeRowSanityCheck must quarantine paper corrupt rows", rowSanity.contains("PAPER_ROW_CORRUPT"))
+
+        assertTrue("paper telemetry must include partial ok", collector.contains("EXEC_PAPER_PARTIAL_OK"))
+        assertTrue("journal split must expose live/paper/partial/quarantine rows", collector.contains("TRADEJRNL_SPLIT liveRows="))
+        assertFalse("PAPER_BUY exec attempt labels must not directly increment OK counters", collector.contains("action.startsWith(\"PAPER_BUY\")        -> execPaperBuyOk.incrementAndGet()"))
+    }
+
+
+    @Test
     fun mixed_mode_report_uses_event_mode_and_splits_live_paper_recent_executions() {
         val collector = java.io.File("src/main/kotlin/com/lifecyclebot/engine/PipelineHealthCollector.kt").readText()
         val store = java.io.File("src/main/kotlin/com/lifecyclebot/engine/TradeHistoryStore.kt").readText()

@@ -880,6 +880,10 @@ object CanonicalOutcomeBus {
             pnlPct < -0.5 -> TradeResult.LOSS
             else -> TradeResult.BREAKEVEN
         }
+        val paperVerdict = com.lifecyclebot.engine.PaperLearningSanity.inspect(trade)
+        if (!paperVerdict.ok) {
+            com.lifecyclebot.engine.PaperLearningSanity.emitQuarantine(trade, paperVerdict.reason)
+        }
         val executionResult = if (trade.sig.isNotBlank() || env == TradeEnvironment.PAPER)
             ExecutionResult.EXECUTED else ExecutionResult.UNKNOWN
 
@@ -939,8 +943,12 @@ object CanonicalOutcomeBus {
             costBasisSol = trade.sol.takeIf { it > 0.0 },
             proceedsSol = (trade.sol + (trade.netPnlSol.takeIf { it != 0.0 } ?: trade.pnlSol)).coerceAtLeast(0.0),
             feesSol = trade.feeSol,
-            isTrainable = !isSyntheticBadPartial,
-            invalidReason = if (isSyntheticBadPartial) "PARTIAL_SELL_INVALID_ACCOUNTING" else null,
+            isTrainable = !isSyntheticBadPartial && paperVerdict.ok,
+            invalidReason = when {
+                isSyntheticBadPartial -> "PARTIAL_SELL_INVALID_ACCOUNTING"
+                !paperVerdict.ok -> paperVerdict.reason
+                else -> null
+            },
         )
         publish(outcome)
     }

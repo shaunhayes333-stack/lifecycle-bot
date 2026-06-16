@@ -125,6 +125,7 @@ object PipelineHealthCollector {
         execLiveSellFail.set(0L)
         execPaperBuyOk.set(0L)
         execPaperSellOk.set(0L)
+        execPaperPartialOk.set(0L)
         try { ForensicLogger.lifecycle("MODE_COUNTERS_RESET", "mode=$mode") } catch (_: Throwable) {}
     }
 
@@ -147,6 +148,7 @@ object PipelineHealthCollector {
     private val execLiveSellFail = AtomicLong(0L)
     private val execPaperBuyOk   = AtomicLong(0L)
     private val execPaperSellOk  = AtomicLong(0L)
+    private val execPaperPartialOk = AtomicLong(0L)
 
     /** V5.9.998 — operator triage: cache the PerformanceAnalytics block.
      *  db.getAllTrades() + analyze() takes 100-500 ms on a hot DB; we don't
@@ -442,11 +444,9 @@ object PipelineHealthCollector {
             action.startsWith("LIVE_BUY")         -> execLiveAttempt.incrementAndGet()  // existing emit site fires this at attempt time
             action.startsWith("LIVE_SELL_OK")     -> execLiveSellOk.incrementAndGet()
             action.startsWith("LIVE_SELL_FAIL")   -> execLiveSellFail.incrementAndGet()
-            action.startsWith("PAPER_BUY")        -> execPaperBuyOk.incrementAndGet()
-            action.startsWith("PAPER_SELL")       -> execPaperSellOk.incrementAndGet()
+            // PAPER OK counters are journal-attributed in recordExec(); PAPER_BUY/PAPER_SELL
+            // exec labels are attempts and must not inflate successful journal rows.
             eventMode == "LIVE" && action.contains("BUY", ignoreCase = true) -> execLiveAttempt.incrementAndGet()
-            eventMode == "PAPER" && action.contains("BUY", ignoreCase = true) -> execPaperBuyOk.incrementAndGet()
-            eventMode == "PAPER" && action.contains("SELL", ignoreCase = true) -> execPaperSellOk.incrementAndGet()
         }
         appendEvent(Event(System.currentTimeMillis(), "EXEC/$action", symbol, fields.take(220)))
     }
@@ -527,8 +527,18 @@ object PipelineHealthCollector {
             else -> extractModeFromText(reason).ifBlank { mode.trim().uppercase().ifBlank { "UNKNOWN" } }
         }
         val proof = normalizedProofState(eventMode, proofState, side)
-        bump(labelCounts, "EXEC_${side.uppercase()}")
-        bump(labelCounts, "EXEC_${eventMode}_${side.uppercase()}")
+        val sideUpper = side.uppercase()
+        bump(labelCounts, "EXEC_$sideUpper")
+        bump(labelCounts, "EXEC_${eventMode}_$sideUpper")
+        bump(labelCounts, "TRADEJRNL_REC_$eventMode")
+        if (sideUpper == "PARTIAL_SELL") bump(labelCounts, "TRADEJRNL_REC_PARTIAL")
+        if (eventMode == "PAPER") {
+            when (sideUpper) {
+                "BUY" -> execPaperBuyOk.incrementAndGet()
+                "SELL" -> execPaperSellOk.incrementAndGet()
+                "PARTIAL_SELL" -> execPaperPartialOk.incrementAndGet()
+            }
+        }
         if (proof.isNotBlank()) bump(labelCounts, "PROOF_$proof")
         recentExecs.addLast(ExecRecord(System.currentTimeMillis(), side, eventMode, symbol, sizeSol, pnlSol, reason, proof))
         if (recentExecsSize.incrementAndGet() > EXEC_RING_CAP) {

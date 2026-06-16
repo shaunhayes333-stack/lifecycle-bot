@@ -37,6 +37,7 @@ object TradeRowSanityCheck {
         PAPER_PRICE_CLAMP_UNMARKED("PAPER_PRICE_CLAMP_UNMARKED"),
         MODE_MISMATCH("MODE_MISMATCH"),
         BOT_ID_MISMATCH("BOT_ID_MISMATCH"),
+        PAPER_ROW_CORRUPT("PAPER_ROW_CORRUPT"),
         OK("OK"),
     }
 
@@ -59,6 +60,9 @@ object TradeRowSanityCheck {
      *   - mint:  token mint
      */
     fun inspect(t: Trade): QuarantineReason {
+        val paperVerdict = com.lifecyclebot.engine.PaperLearningSanity.inspect(t)
+        if (!paperVerdict.ok) return record(QuarantineReason.PAPER_ROW_CORRUPT, t, paperVerdict.reason)
+
         // 1. Duplicate row id (within recent window).
         val key = "${t.mint}|${t.ts}|${t.side}"
         val prev = seenTradeIds.put(key, System.currentTimeMillis())
@@ -105,11 +109,14 @@ object TradeRowSanityCheck {
         return QuarantineReason.OK
     }
 
-    private fun record(reason: QuarantineReason, t: Trade): QuarantineReason {
+    private fun record(reason: QuarantineReason, t: Trade, detail: String = ""): QuarantineReason {
         bump(quarantineCounts, reason.tag)
         try {
             PipelineHealthCollector.labelInc("TRADE_QUARANTINED_${reason.tag}")
-            ErrorLogger.warn("TradeSanity", "🧪 QUARANTINED ${reason.tag} mint=${t.mint.take(10)} ${t.side} price=${t.price} sol=${t.sol} pnlPct=${t.pnlPct} pnlSol=${t.pnlSol} reason=${t.reason.take(40)}")
+            if (reason == QuarantineReason.PAPER_ROW_CORRUPT) {
+                com.lifecyclebot.engine.PaperLearningSanity.emitQuarantine(t, detail.ifBlank { reason.tag })
+            }
+            ErrorLogger.warn("TradeSanity", "🧪 QUARANTINED ${reason.tag} detail=$detail mint=${t.mint.take(10)} ${t.side} price=${t.price} sol=${t.sol} pnlPct=${t.pnlPct} pnlSol=${t.pnlSol} reason=${t.reason.take(40)}")
         } catch (_: Throwable) {}
         return reason
     }
