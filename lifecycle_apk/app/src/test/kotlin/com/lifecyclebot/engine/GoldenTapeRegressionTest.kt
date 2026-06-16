@@ -170,13 +170,14 @@ class GoldenTapeRegressionTest {
     }
 
     @Test
-    fun live_runtime_canonical_open_uses_wallet_truth_not_stale_local_max() {
-        // This pins the V5.9.1561 doctrine in source text because the full runtime
-        // snapshot depends on Android/global services. If this text disappears, the
-        // behavioral contract was likely reverted and the test should fail loudly.
+    fun live_runtime_canonical_open_includes_confirmed_pending_balance_not_stale_local_only() {
+        // V5.0.3760 ASTRO fix: physical walletHeld remains proof-only, but a
+        // confirmed buy signature is canonical open/sell-managed while token
+        // account indexing catches up.
         val source = java.io.File("src/main/kotlin/com/lifecyclebot/engine/RuntimeStateSnapshot.kt").readText()
-        assertTrue(source.contains("canonical LIVE truth is wallet-held balance"))
-        assertTrue(source.contains("walletHeld"))
+        assertTrue(source.contains("canonical LIVE truth includes confirmed-pending-balance"))
+        assertTrue(source.contains("maxOf(walletHeld, hostOpen, localLiveOpen, lifecyclePendingConfirmed)"))
+        assertTrue(source.contains("val heldMints = try { HostWalletTokenTracker.getActuallyHeldMints()"))
     }
 
     @Test
@@ -847,9 +848,9 @@ class GoldenTapeRegressionTest {
     @Test
     fun live_transfer_audit_and_snapshot_do_not_report_stale_live_deadness() {
         val snapshot = java.io.File("src/main/kotlin/com/lifecyclebot/engine/RuntimeStateSnapshot.kt").readText()
-        assertTrue(snapshot.contains("live-open truth must be wallet/host-backed"))
         assertTrue(snapshot.contains("HostWalletTokenTracker.getActuallyHeldMints()"))
-        assertTrue(snapshot.contains("!it.position.isPaperPosition && it.mint in heldMints"))
+        assertTrue(snapshot.contains("val liveOpen = maxOf(localLiveOpen, hostOpen, lifecyclePendingConfirmed)"))
+        assertTrue(snapshot.contains("confirmed buy signature with"))
 
         val audit = java.io.File("src/main/kotlin/com/lifecyclebot/engine/LiveTransferAudit.kt").readText()
         assertTrue(audit.contains("execLiveBuyOk"))

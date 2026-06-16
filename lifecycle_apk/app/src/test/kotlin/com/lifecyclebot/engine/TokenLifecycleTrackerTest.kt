@@ -61,16 +61,17 @@ class TokenLifecycleTrackerTest {
     }
 
     @Test
-    fun scenarioB_buy_confirmation_delayed_position_stays_in_BUY_CONFIRMED() {
+    fun scenarioB_buy_confirmation_delayed_position_stays_confirmed_pending_balance() {
         TokenLifecycleTracker.onBuyPending(MINT_A, "AAA", "pump.fun", 0.1)
         TokenLifecycleTracker.onBuyConfirmed(MINT_A, "sigA")
         // No onTokenLanded call yet — simulating delayed wallet confirmation.
 
         val r = TokenLifecycleTracker.get(MINT_A)
         assertNotNull(r)
-        assertEquals(TokenLifecycleTracker.Status.BUY_CONFIRMED, r!!.status)
-        assertEquals("position must NOT be flipped to HELD until tokens land",
+        assertEquals(TokenLifecycleTracker.Status.CONFIRMED_PENDING_BALANCE, r!!.status)
+        assertEquals("position must NOT be flipped to HELD until tokens land, but remains sell-managed",
             0.0, r.currentWalletTokenQty, 1e-9)
+        assertEquals("ESTIMATED_PENDING_WALLET_PROOF", r.reconcileFailReason)
     }
 
     @Test
