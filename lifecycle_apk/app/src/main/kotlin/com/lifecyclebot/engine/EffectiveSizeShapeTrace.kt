@@ -98,9 +98,9 @@ object EffectiveSizeShapeTrace {
                 ringSize.decrementAndGet()
             }
             try {
-                PipelineHealthCollector.label("SIZE_SHAPE_TRACE_${trace.mode.uppercase()}")
-                if (trace.dusted) PipelineHealthCollector.label("AI_SIZE_STACK_DUSTED_${trace.mode.uppercase()}")
-                if (trace.zeroed) PipelineHealthCollector.label("AI_SIZE_STACK_ZEROED_${trace.mode.uppercase()}")
+                PipelineHealthCollector.labelInc("SIZE_SHAPE_TRACE_${trace.mode.uppercase()}")
+                if (trace.dusted) PipelineHealthCollector.labelInc("AI_SIZE_STACK_DUSTED_${trace.mode.uppercase()}")
+                if (trace.zeroed) PipelineHealthCollector.labelInc("AI_SIZE_STACK_ZEROED_${trace.mode.uppercase()}")
             } catch (_: Throwable) {}
         } catch (_: Throwable) {
             // Telemetry must never affect FDG.
@@ -116,26 +116,28 @@ object EffectiveSizeShapeTrace {
         return Triple(rows.size, rows.count { it.dusted }, rows.count { it.zeroed })
     }
 
-    fun formatForPipelineDump(limit: Int = 12): String = try {
-        val rows = recent(limit)
-        if (rows.isEmpty()) return ""
-        val live = summary("LIVE")
-        val paper = summary("PAPER")
-        val sb = StringBuilder("\n===== Effective Size Shape Trace (V5.0.3807, read-only) =====\n")
-        sb.append("  LIVE rows=${live.first} dusted=${live.second} zeroed=${live.third}\n")
-        sb.append("  PAPER rows=${paper.first} dusted=${paper.second} zeroed=${paper.third}\n")
-        rows.asReversed().forEach { t ->
-            val tagText = (t.shapeTags + t.shapeChecks).take(6).joinToString(" | ").ifBlank { "no_shape_tags" }
-            sb.append("  ")
-                .append(t.mode).append(' ')
-                .append(t.lane).append(' ')
-                .append(t.symbol.take(10)).append(' ')
-                .append(String.format("%.4f→%.4f ×%.3f", t.baseSizeSol, t.finalSizeSol, t.effectiveMult))
-            if (t.blockReason.isNotBlank()) sb.append(" block=").append(t.blockReason.take(28))
-            sb.append(" :: ").append(tagText.take(220)).append('\n')
-        }
-        sb.toString()
-    } catch (_: Throwable) { "" }
+    fun formatForPipelineDump(limit: Int = 12): String {
+        return try {
+            val rows = recent(limit)
+            if (rows.isEmpty()) return ""
+            val live = summary("LIVE")
+            val paper = summary("PAPER")
+            val sb = StringBuilder("\n===== Effective Size Shape Trace (V5.0.3807, read-only) =====\n")
+            sb.append("  LIVE rows=${live.first} dusted=${live.second} zeroed=${live.third}\n")
+            sb.append("  PAPER rows=${paper.first} dusted=${paper.second} zeroed=${paper.third}\n")
+            rows.asReversed().forEach { t ->
+                val tagText = (t.shapeTags + t.shapeChecks).take(6).joinToString(" | ").ifBlank { "no_shape_tags" }
+                sb.append("  ")
+                    .append(t.mode).append(' ')
+                    .append(t.lane).append(' ')
+                    .append(t.symbol.take(10)).append(' ')
+                    .append(String.format("%.4f→%.4f ×%.3f", t.baseSizeSol, t.finalSizeSol, t.effectiveMult))
+                if (t.blockReason.isNotBlank()) sb.append(" block=").append(t.blockReason.take(28))
+                sb.append(" :: ").append(tagText.take(220)).append('\n')
+            }
+            sb.toString()
+        } catch (_: Throwable) { "" }
+    }
 
     fun reset() {
         ring.clear()

@@ -88,7 +88,7 @@ object AIStackSnapshot {
                 ring.pollFirst()
                 ringSize.decrementAndGet()
             }
-            try { PipelineHealthCollector.label("AI_STACK_SNAPSHOT") } catch (_: Throwable) {}
+            try { PipelineHealthCollector.labelInc("AI_STACK_SNAPSHOT") } catch (_: Throwable) {}
         } catch (_: Throwable) {
             // Telemetry must never affect scoring/entry.
         }
@@ -98,25 +98,27 @@ object AIStackSnapshot {
         ring.toList().takeLast(limit.coerceIn(1, RING_CAP))
     } catch (_: Throwable) { emptyList() }
 
-    fun formatForPipelineDump(limit: Int = 8): String = try {
-        val rows = recent(limit)
-        if (rows.isEmpty()) return ""
-        val sb = StringBuilder("\n===== AI Stack Snapshot (V5.0.3807, read-only) =====\n")
-        rows.asReversed().forEach { s ->
-            val top = s.components.sortedByDescending { kotlin.math.abs(it.value) }.take(5)
-                .joinToString(" ") { "${it.name}=${it.value}${if (it.fatal) "!" else ""}" }
-            sb.append("  ")
-                .append(s.mode).append(' ')
-                .append(s.lane).append(' ')
-                .append(s.symbol.take(10)).append(' ')
-                .append("src=").append(s.source).append(' ')
-                .append("total=").append(s.scoreTotal)
-                .append(" +/-=").append(s.positiveCount).append('/').append(s.negativeCount)
-                .append(" fatal=").append(s.fatalCount)
-                .append(" top[").append(top).append("]\n")
-        }
-        sb.toString()
-    } catch (_: Throwable) { "" }
+    fun formatForPipelineDump(limit: Int = 8): String {
+        return try {
+            val rows = recent(limit)
+            if (rows.isEmpty()) return ""
+            val sb = StringBuilder("\n===== AI Stack Snapshot (V5.0.3807, read-only) =====\n")
+            rows.asReversed().forEach { s ->
+                val top = s.components.sortedByDescending { kotlin.math.abs(it.value) }.take(5)
+                    .joinToString(" ") { "${it.name}=${it.value}${if (it.fatal) "!" else ""}" }
+                sb.append("  ")
+                    .append(s.mode).append(' ')
+                    .append(s.lane).append(' ')
+                    .append(s.symbol.take(10)).append(' ')
+                    .append("src=").append(s.source).append(' ')
+                    .append("total=").append(s.scoreTotal)
+                    .append(" +/-=").append(s.positiveCount).append('/').append(s.negativeCount)
+                    .append(" fatal=").append(s.fatalCount)
+                    .append(" top[").append(top).append("]\n")
+            }
+            sb.toString()
+        } catch (_: Throwable) { "" }
+    }
 
     fun reset() {
         ring.clear()
