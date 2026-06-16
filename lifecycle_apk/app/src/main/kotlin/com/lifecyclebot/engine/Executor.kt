@@ -2266,20 +2266,13 @@ class Executor(
         val soldQtyForJournal = if (!trade.side.equals("BUY", true) && entryCostForJournal > 0.0 && entryQtyForJournal > 0.0 && trade.sol > 0.0) {
             (entryQtyForJournal * (trade.sol / entryCostForJournal)).coerceIn(0.0, entryQtyForJournal)
         } else trade.soldQtyToken
-        val entryMcapForJournal = trade.entryMcapUsd.takeIf { it > 0.0 }
-            ?: ts.position.entryMcap.takeIf { it > 0.0 }
-            // V5.0.3808 — do NOT stamp current/discovery mcap onto SELL/PARTIAL rows.
-            // If a restored/legacy position lacks entryMcap, leave it unknown (0) and let
-            // the row display "mcap=n/a" instead of mislabeling exit mcap as entry mcap.
-            ?: if (trade.side.equals("BUY", true)) ts.lastMcap.takeIf { it > 0.0 } else null
-            ?: 0.0
         val tradeWithMint = trade.copy(
             mint = if (trade.mint.isBlank()) ts.mint else trade.mint,
             tradingMode = resolvedTradingMode,
             positionId = trade.positionId.ifBlank { ledgerPositionId },
             entryTsMs = trade.entryTsMs.takeIf { it > 0L } ?: entryTsForJournal,
             entryPriceSnapshot = trade.entryPriceSnapshot.takeIf { it > 0.0 } ?: ts.position.entryPrice.takeIf { it > 0.0 } ?: if (trade.side.equals("BUY", true)) trade.price else 0.0,
-            entryMcapUsd = entryMcapForJournal,
+            entryMcapUsd = trade.entryMcapUsd.takeIf { it > 0.0 } ?: ts.position.entryMcap.takeIf { it > 0.0 } ?: ts.lastMcap.takeIf { it > 0.0 } ?: 0.0,
             entryQtyToken = entryQtyForJournal,
             entryCostSol = entryCostForJournal,
             soldQtyToken = soldQtyForJournal,
@@ -3503,11 +3496,10 @@ class Executor(
                 val paperCRCostBasis = pos.costSol * sellFraction
                 val paperCRFee = paperCRCostBasis * MEME_TRADING_FEE_PERCENT
                 val paperCRNetPnl = pnlSol - paperCRFee
-                val paperCRLegPct = pct(paperCRCostBasis, sellSol)
                 val tradeRow = Trade(
                     "PARTIAL_SELL", "paper", paperCRCostBasis, actualPrice,
                     System.currentTimeMillis(), "capital_recovery_${gainMultiple.fmt(1)}x",
-                    pnlSol, paperCRLegPct,
+                    pnlSol, gainPct,
                     feeSol = paperCRFee, netPnlSol = paperCRNetPnl,
                 )
                 recordTrade(ts, tradeRow)
@@ -3578,11 +3570,10 @@ class Executor(
                 val paperPLCostBasis = pos.costSol * sellFraction
                 val paperPLFee = paperPLCostBasis * MEME_TRADING_FEE_PERCENT
                 val paperPLNetPnl = pnlSol - paperPLFee
-                val paperPLLegPct = pct(paperPLCostBasis, sellSol)
                 val tradeRow = Trade(
                     "PARTIAL_SELL", "paper", paperPLCostBasis, actualPrice,
                     System.currentTimeMillis(), "profit_lock_${gainMultiple.fmt(1)}x",
-                    pnlSol, paperPLLegPct,
+                    pnlSol, gainPct,
                     feeSol = paperPLFee, netPnlSol = paperPLNetPnl,
                 )
                 recordTrade(ts, tradeRow)

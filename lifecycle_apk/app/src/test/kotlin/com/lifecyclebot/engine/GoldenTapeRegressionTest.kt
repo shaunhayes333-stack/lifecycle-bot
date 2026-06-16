@@ -1896,53 +1896,6 @@ class GoldenTapeRegressionTest {
 
 
     @Test
-    fun partial_rows_count_as_real_outcomes_but_use_leg_accounting_and_clean_mcap_basis() {
-        val executor = java.io.File("src/main/kotlin/com/lifecyclebot/engine/Executor.kt").readText()
-        val journal = java.io.File("src/main/kotlin/com/lifecyclebot/engine/TradeJournal.kt").readText()
-        val journalActivity = java.io.File("src/main/kotlin/com/lifecyclebot/ui/JournalActivity.kt").readText()
-
-        assertTrue("TradeJournal must treat PARTIAL_SELL as sell-like", journal.contains("side.equals(\"SELL\", ignoreCase = true) || side.equals(\"PARTIAL_SELL\", ignoreCase = true)"))
-        assertTrue("partial exits must drive journal WR", journal.contains("partial exits are real realized outcomes and must drive WR") && journal.contains("val decisiveTrades = sells.filter { isDecisive(it.pnlPct) }"))
-        assertTrue("partial exits must drive exported WR/count/avg", journal.contains("partial exits are real realized exits") && journal.contains("val decisiveSells = sells.filter { isDecisive(it.entry.pnlPct) }"))
-        assertTrue("JournalActivity count must include partial sell rows", journalActivity.contains("tvJournalCount.text = sellEntries.size.toString()"))
-        assertFalse("partials must not be demoted to terminal-only stats", journal.contains("terminalSells") || journalActivity.contains("isTerminalSell"))
-
-        assertTrue("capital recovery partial must store realized leg pct, not full-position gainPct", executor.contains("val paperCRLegPct = pct(paperCRCostBasis, sellSol)") && executor.contains("pnlSol, paperCRLegPct"))
-        assertTrue("profit lock partial must store realized leg pct, not full-position gainPct", executor.contains("val paperPLLegPct = pct(paperPLCostBasis, sellSol)") && executor.contains("pnlSol, paperPLLegPct"))
-        assertFalse("capital/profit-lock canonical row must not store raw gainPct as partial pnlPct", executor.contains("""pnlSol, gainPct,
-                    feeSol = paperCRFee""") || executor.contains("""pnlSol, gainPct,
-                    feeSol = paperPLFee"""))
-
-        assertTrue("sell/partial journal mcap must not fall back to current/discovery ts.lastMcap", executor.contains("entryMcapForJournal") && executor.contains("if (trade.side.equals(\"BUY\", true)) ts.lastMcap"))
-        assertTrue("UI must show unknown mcap as n/a instead of a fake current mcap", journalActivity.contains("mcap=n/a"))
-    }
-
-
-    @Test
-    fun ai_stack_snapshot_and_size_shape_trace_are_read_only_event_attributed_telemetry() {
-        val snapshot = java.io.File("src/main/kotlin/com/lifecyclebot/engine/AIStackSnapshot.kt").readText()
-        val shape = java.io.File("src/main/kotlin/com/lifecyclebot/engine/EffectiveSizeShapeTrace.kt").readText()
-        val scorer = java.io.File("src/main/kotlin/com/lifecyclebot/v3/scoring/UnifiedScorer.kt").readText()
-        val fdg = java.io.File("src/main/kotlin/com/lifecyclebot/engine/FinalDecisionGate.kt").readText()
-        val collector = java.io.File("src/main/kotlin/com/lifecyclebot/engine/PipelineHealthCollector.kt").readText()
-
-        assertTrue("AIStackSnapshot must be read-only bounded telemetry", snapshot.contains("Read-only AI stack snapshot") && snapshot.contains("RING_CAP") && snapshot.contains("no influence on score"))
-        assertTrue("AIStackSnapshot must carry mux fields", snapshot.contains("val source: String") && snapshot.contains("val lane: String") && snapshot.contains("val mode: String") && snapshot.contains("val regime: String"))
-        assertTrue("UnifiedScorer must record exactly after score card computation", scorer.contains("val card = when") && scorer.contains("AIStackSnapshot.recordScoreCard"))
-        assertTrue("UnifiedScorer snapshot must use event context, not UI state", scorer.contains("source = candidate.source.name") && scorer.contains("mode = ctx.mode.name") && scorer.contains("regime = ctx.marketRegime"))
-
-        assertTrue("EffectiveSizeShapeTrace must be read-only telemetry", shape.contains("Read-only effective size-shape telemetry") && shape.contains("no influence on score") && shape.contains("no synchronous I/O"))
-        assertTrue("Size trace must carry event-local mode/lane/source", shape.contains("val mode: String") && shape.contains("val lane: String") && shape.contains("val source: String"))
-        assertTrue("Size trace must detect dusted/zeroed learned sizing", shape.contains("val dusted: Boolean") && shape.contains("val zeroed: Boolean") && shape.contains("AI_SIZE_STACK_DUSTED_"))
-        assertTrue("FDG must record size trace at the single final-return seam", fdg.contains("EffectiveSizeShapeTrace.recordDecision") && fdg.contains("mode = mode.name") && fdg.contains("lane = laneName") && fdg.contains("baseSizeSol = proposedSizeSol") && fdg.contains("finalSizeSol = finalSize"))
-        assertFalse("3807 telemetry must not add a new FDG hard veto", fdg.contains("AI_SIZE_STACK_ZEROED") && fdg.contains("shouldTradeFinal = false"))
-
-        assertTrue("Pipeline dump must expose AI stack and size trace", collector.contains("AIStackSnapshot.formatForPipelineDump") && collector.contains("EffectiveSizeShapeTrace.formatForPipelineDump"))
-        assertTrue("Pipeline reset must clear telemetry rings", collector.contains("AIStackSnapshot.reset()") && collector.contains("EffectiveSizeShapeTrace.reset()"))
-    }
-
-
-    @Test
     fun losing_pattern_memory_soft_sizes_emerging_bootstrap_bleeders_before_maturity() {
         val losing = java.io.File("src/main/kotlin/com/lifecyclebot/engine/LosingPatternMemory.kt").readText()
         val fdg = java.io.File("src/main/kotlin/com/lifecyclebot/engine/FinalDecisionGate.kt").readText()

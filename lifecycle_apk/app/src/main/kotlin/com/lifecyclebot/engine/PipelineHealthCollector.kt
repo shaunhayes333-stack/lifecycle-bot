@@ -1406,15 +1406,11 @@ object PipelineHealthCollector {
             val fwdDump = try { com.lifecyclebot.engine.ForwardOutcomeModel.formatForPipelineDump() } catch (_: Throwable) { "" }
             val uphDump = try { com.lifecyclebot.engine.UnifiedPolicyHead.formatForPipelineDump() } catch (_: Throwable) { "" }
             val hypoDump = try { com.lifecyclebot.engine.StrategyHypothesisEngine.formatForPipelineDump() } catch (_: Throwable) { "" }
-            val aiStackDump = try { com.lifecyclebot.engine.AIStackSnapshot.formatForPipelineDump() } catch (_: Throwable) { "" }
-            val sizeShapeDump = try { com.lifecyclebot.engine.EffectiveSizeShapeTrace.formatForPipelineDump() } catch (_: Throwable) { "" }
             if (bcg.isNotEmpty()) sb.append(bcg)
             if (metaPolicyDump.isNotEmpty()) sb.append(metaPolicyDump)
             if (fwdDump.isNotEmpty()) sb.append(fwdDump)
             if (uphDump.isNotEmpty()) sb.append(uphDump)
             if (hypoDump.isNotEmpty()) sb.append(hypoDump)
-            if (aiStackDump.isNotEmpty()) sb.append(aiStackDump)
-            if (sizeShapeDump.isNotEmpty()) sb.append(sizeShapeDump)
             val laneTunerDump = try { com.lifecyclebot.engine.learning.LaneExitTuner.formatForPipelineDump() } catch (_: Throwable) { "" }
             if (laneTunerDump.isNotEmpty()) sb.append(laneTunerDump)
         } catch (_: Throwable) {}
@@ -1935,8 +1931,6 @@ object PipelineHealthCollector {
         totalCycleMs.set(0L)
         cycleCount.set(0L)
         maxCycleMs.set(0L)
-        try { AIStackSnapshot.reset() } catch (_: Throwable) {}
-        try { EffectiveSizeShapeTrace.reset() } catch (_: Throwable) {}
     }
 
     // ════════════════════════════════════════════════════════════════
