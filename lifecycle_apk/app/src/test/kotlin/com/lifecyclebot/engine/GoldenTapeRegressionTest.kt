@@ -1881,7 +1881,7 @@ class GoldenTapeRegressionTest {
 
         assertTrue("Executor must stamp journal positionId from TradeOutcomeLedger", executor.contains("TradeOutcomeLedger.positionId(ts, trade)"))
         assertTrue("Executor must stamp entry price from Position snapshot", executor.contains("entryPriceSnapshot = trade.entryPriceSnapshot") && executor.contains("ts.position.entryPrice"))
-        assertTrue("Executor must stamp entry mcap from Position snapshot", executor.contains("entryMcapUsd = trade.entryMcapUsd") && executor.contains("ts.position.entryMcap"))
+        assertTrue("Executor must stamp entry mcap from Position snapshot without sell-side current-mcap fallback", executor.contains("val entryMcapForJournal: Double") && executor.contains("trade.entryMcapUsd.takeIf") && executor.contains("ts.position.entryMcap"))
         assertTrue("Executor must stamp partial sold/remaining qty", executor.contains("soldQtyForJournal") && executor.contains("remainingQtyToken"))
 
         assertTrue("Journal rows must expose lifecycle position id", journal.contains("val positionId: String"))
