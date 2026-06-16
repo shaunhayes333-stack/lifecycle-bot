@@ -1460,4 +1460,37 @@ class GoldenTapeRegressionTest {
         assertTrue(src.contains("RECONCILER_WALLET_ZERO"))
     }
 
+
+    @Test
+    fun balance_unknown_sell_wait_does_not_emit_no_signature_retrying() {
+        val executor = java.io.File("src/main/kotlin/com/lifecyclebot/engine/Executor.kt").readText()
+        val tracker = java.io.File("src/main/kotlin/com/lifecyclebot/engine/HostWalletTokenTracker.kt").readText()
+        assertTrue(executor.contains("markSellWaitingBalanceProof"))
+        assertFalse("balance unknown must not reopen tracker as no-signature retry",
+            executor.contains("markSellNoSignatureUnlocked(ts.mint, ts.symbol, \"BALANCE_UNKNOWN"))
+        assertTrue(tracker.contains("fun markSellWaitingBalanceProof"))
+        assertTrue(tracker.contains("SELL_WAITING_BALANCE_PROOF_TRACKER"))
+        assertTrue(tracker.contains("no_signature_counter=false"))
+    }
+
+    @Test
+    fun balance_proof_ready_is_cached_for_next_sell_attempt() {
+        val authority = java.io.File("src/main/kotlin/com/lifecyclebot/engine/sell/SellAmountAuthority.kt").readText()
+        val poller = java.io.File("src/main/kotlin/com/lifecyclebot/engine/sell/BalanceProofPoller.kt").readText()
+        assertTrue(authority.contains("PROOF_READY_CACHE_MS"))
+        assertTrue(authority.contains("fun recordProofReady"))
+        assertTrue(authority.contains("consumeProofReady"))
+        assertTrue(authority.contains("BALANCE_PROOF_READY_CONSUMED"))
+        assertTrue(poller.contains("SellAmountAuthority.recordProofReady"))
+    }
+
+    @Test
+    fun wallet_authority_skips_cert_broken_public_rpc_endpoint() {
+        val wallet = java.io.File("src/main/kotlin/com/lifecyclebot/engine/WalletManager.kt").readText()
+        assertTrue(wallet.contains("sanitizeWalletRpcUrl"))
+        assertTrue(wallet.contains("WALLET_RPC_ENDPOINT_SKIPPED_BAD_TLS"))
+        assertFalse("cert-broken public-rpc must not remain in fallback authority rotation",
+            wallet.contains("\"https://solana.public-rpc.com\","))
+    }
+
 }

@@ -45,6 +45,7 @@ object SellAmountAuthority {
     // but only for explicit profit-protection/capital-recovery reasons and never when
     // RPC positively returns a non-empty map missing the mint (that remains ZERO).
     private const val PROFIT_PROTECT_TX_PARSE_MS = 10 * 60_000L
+    private const val PROOF_READY_CACHE_MS = 45_000L
 
     sealed class Resolution {
         data class Confirmed(
@@ -57,7 +58,33 @@ object SellAmountAuthority {
         object Unknown : Resolution()
     }
 
-    enum class Source { ACCOUNT_INFO, TOKEN_ACCOUNTS_BY_OWNER, TX_META_OWNER_DELTA }
+    enum class Source { ACCOUNT_INFO, TOKEN_ACCOUNTS_BY_OWNER, TX_META_OWNER_DELTA, BALANCE_PROOF_POLLER }
+
+    private data class ProofReadyEntry(
+        val rawAmount: BigInteger,
+        val decimals: Int,
+        val capturedAtMs: Long,
+        val source: Source,
+    )
+    private val proofReadyCache = ConcurrentHashMap<String, ProofReadyEntry>()
+
+    fun recordProofReady(mint: String, rawAmount: BigInteger, decimals: Int, source: Source) {
+        if (mint.isBlank() || rawAmount.signum() <= 0) return
+        proofReadyCache[mint] = ProofReadyEntry(rawAmount, decimals, System.currentTimeMillis(), source)
+        try { com.lifecyclebot.engine.ForensicLogger.lifecycle("BALANCE_PROOF_READY_CACHED", "mint=${mint.take(10)} raw=$rawAmount decimals=$decimals source=$source ttlMs=$PROOF_READY_CACHE_MS") } catch (_: Throwable) {}
+    }
+
+    private fun consumeProofReady(mint: String): Resolution.Confirmed? {
+        val e = proofReadyCache[mint] ?: return null
+        val ageMs = System.currentTimeMillis() - e.capturedAtMs
+        if (ageMs > PROOF_READY_CACHE_MS || e.rawAmount.signum() <= 0) {
+            proofReadyCache.remove(mint)
+            return null
+        }
+        proofReadyCache.remove(mint)
+        try { com.lifecyclebot.engine.ForensicLogger.lifecycle("BALANCE_PROOF_READY_CONSUMED", "mint=${mint.take(10)} raw=${e.rawAmount} decimals=${e.decimals} ageMs=$ageMs source=${e.source}") } catch (_: Throwable) {}
+        return Resolution.Confirmed(e.rawAmount, e.decimals, Source.BALANCE_PROOF_POLLER)
+    }
 
     // ── Recent TX_PARSE cache (operator spec — only fresh, only buy-tied) ──
     private data class TxParseEntry(
@@ -162,6 +189,7 @@ object SellAmountAuthority {
             Source.ACCOUNT_INFO -> BalanceSource.RPC_CONFIRMED
             Source.TOKEN_ACCOUNTS_BY_OWNER -> BalanceSource.WALLET_SCAN_CONFIRMED
             Source.TX_META_OWNER_DELTA -> BalanceSource.WALLET_SCAN_CONFIRMED
+            Source.BALANCE_PROOF_POLLER -> BalanceSource.WALLET_SCAN_CONFIRMED
         }
         is Resolution.Zero -> BalanceSource.UNKNOWN   // one provider missing-mint is not two-provider zero proof
         else -> BalanceSource.UNKNOWN
@@ -216,6 +244,7 @@ object SellAmountAuthority {
     fun resolveForExit(mint: String, wallet: SolanaWallet?, reason: String): Resolution {
         val normal = resolve(mint, wallet)
         if (normal is Resolution.Confirmed || normal is Resolution.Zero) return normal
+        consumeProofReady(mint)?.let { return it }
         val tracked = try { com.lifecyclebot.engine.HostWalletTokenTracker.getEntry(mint) } catch (_: Throwable) { null }
         val trackedRaw = tracked?.rawAmount?.trim()?.takeIf { it.isNotBlank() }?.let { raw ->
             runCatching { BigInteger(raw) }.getOrNull()

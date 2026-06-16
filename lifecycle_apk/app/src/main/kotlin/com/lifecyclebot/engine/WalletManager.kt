@@ -87,11 +87,21 @@ class WalletManager private constructor(private val ctx: Context) {
             "https://api.mainnet-beta.solana.com",              // Official Solana (rate limited but stable)
             "https://rpc.ankr.com/solana",                      // Ankr (reliable)
             "https://solana-mainnet.g.alchemy.com/v2/demo",     // Alchemy demo
-            "https://solana.public-rpc.com",                    // Public RPC
             "https://mainnet.rpcpool.com",                      // RPC Pool
             "https://solana-mainnet.rpc.extrnode.com",          // Extrnode  
         )
         
+
+        private fun sanitizeWalletRpcUrl(raw: String): String {
+            val trimmed = raw.trim()
+            if (trimmed.equals("https://solana.public-rpc.com", ignoreCase = true) ||
+                trimmed.contains("solana.public-rpc.com", ignoreCase = true)) {
+                try { ForensicLogger.lifecycle("WALLET_RPC_ENDPOINT_SKIPPED_BAD_TLS", "endpoint=solana.public-rpc.com action=use_fallback_rpc") } catch (_: Throwable) {}
+                return ""
+            }
+            return trimmed
+        }
+
         // SINGLETON: One wallet manager for the entire app
         @Volatile private var INSTANCE: WalletManager? = null
         
@@ -131,7 +141,7 @@ class WalletManager private constructor(private val ctx: Context) {
                 // Get saved config with credentials using instance's context
                 val config = ConfigStore.load(instance.ctx)
                 val savedKey = config.privateKeyB58
-                val savedRpc = config.rpcUrl.ifBlank { FALLBACK_RPCS.first() }
+                val savedRpc = sanitizeWalletRpcUrl(config.rpcUrl).ifBlank { FALLBACK_RPCS.first() }
                 
                 if (savedKey.isBlank()) {
                     ErrorLogger.warn("Wallet", "❌ attemptReconnect: No saved private key")
@@ -176,12 +186,15 @@ class WalletManager private constructor(private val ctx: Context) {
             return false
         }
         
-        // Build list of RPCs to try: user's RPC first, then fallbacks
+        // Build list of RPCs to try: user's RPC first, then fallbacks.
+        // V5.0.3773: never let cert-broken public-rpc become wallet authority.
         val rpcsToTry = mutableListOf<String>()
-        if (rpcUrl.isNotBlank()) {
-            rpcsToTry.add(rpcUrl)
+        val sanitizedPrimaryRpc = sanitizeWalletRpcUrl(rpcUrl)
+        if (sanitizedPrimaryRpc.isNotBlank()) {
+            rpcsToTry.add(sanitizedPrimaryRpc)
         }
-        rpcsToTry.addAll(FALLBACK_RPCS)
+        rpcsToTry.addAll(FALLBACK_RPCS.filter { sanitizeWalletRpcUrl(it).isNotBlank() })
+        val dedupedRpcsToTry = rpcsToTry.distinct()
         
         // V5.9.454 — WALLET PRESERVATION FIX.
         // Previously this function nulled the `wallet` field on *every*
@@ -200,7 +213,7 @@ class WalletManager private constructor(private val ctx: Context) {
 
         // Try each RPC until one works
         var lastError: String = "Unknown error"
-        for (tryRpc in rpcsToTry) {
+        for (tryRpc in dedupedRpcsToTry) {
             ErrorLogger.info("Wallet", "Trying RPC: ${tryRpc.take(50)}...")
             try {
                 ErrorLogger.debug("Wallet", "Creating SolanaWallet with key length: ${privateKeyB58.length}")
@@ -262,7 +275,7 @@ class WalletManager private constructor(private val ctx: Context) {
         // All RPCs failed — preserve the previous wallet so in-flight
         // live sells can still succeed if RPC transiently fails.
         ErrorLogger.error("Wallet",
-            "ALL ${rpcsToTry.size} RPCs FAILED. Last error: $lastError" +
+            "ALL ${dedupedRpcsToTry.size} RPCs FAILED. Last error: $lastError" +
             (if (previousWallet != null) " — preserving previous wallet for in-flight sells" else ""))
         _state.value = _state.value.copy(
             connectionState = if (previousWallet != null) WalletConnectionState.CONNECTED

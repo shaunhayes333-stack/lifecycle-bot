@@ -600,6 +600,21 @@ object HostWalletTokenTracker {
     }
 
 
+
+    @Synchronized
+    fun markSellWaitingBalanceProof(mint: String, symbol: String?, reason: String?) {
+        val p = positions[mint] ?: return
+        val r = reason ?: "?"
+        markOpenBalanceUnknown(p, "WAITING_BALANCE_PROOF:$r")
+        p.activeSellAttemptId = null
+        p.sellAttemptStartedMs = 0L
+        p.notes.add("SELL_WAITING_BALANCE_PROOF reason=$r")
+        emitForensic(LiveTradeLogStore.Phase.WARNING, mint, symbol ?: p.symbol, null,
+            "SELL_WAITING_BALANCE_PROOF ${symbol ?: p.symbol ?: mint.take(6)} reason=$r — proof poller owns next action")
+        try { ForensicLogger.lifecycle("SELL_WAITING_BALANCE_PROOF_TRACKER", "mint=${mint.take(10)} symbol=${symbol ?: p.symbol ?: "?"} reason=$r no_signature_counter=false") } catch (_: Throwable) {}
+        save()
+    }
+
     @Synchronized
     fun markSellNoSignatureUnlocked(mint: String, symbol: String?, reason: String?) {
         val p = positions[mint] ?: return

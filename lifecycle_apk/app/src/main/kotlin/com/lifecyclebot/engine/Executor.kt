@@ -3823,14 +3823,14 @@ class Executor(
                     onLog("⏸️ SELL_WAITING_BALANCE_PROOF: ${ts.symbol} dust-rejected by verified raw amount — no cached qty sell.", ts.mint)
                     try { ForensicLogger.lifecycle("SELL_WAITING_BALANCE_PROOF", "mint=${ts.mint.take(10)} symbol=${ts.symbol} reason=${reason}_DUST_REJECTED") } catch (_: Throwable) {}
                     try { com.lifecyclebot.engine.sell.CloseLease.release(ts.mint, "BALANCE_DUST_NO_SIGNATURE") } catch (_: Throwable) {}
-                    try { HostWalletTokenTracker.markSellNoSignatureUnlocked(ts.mint, ts.symbol, "BALANCE_DUST") } catch (_: Throwable) {}
+                    try { HostWalletTokenTracker.markSellWaitingBalanceProof(ts.mint, ts.symbol, "BALANCE_DUST") } catch (_: Throwable) {}
                     return
                 }
             } else {
                 onLog("⏸️ SELL_WAITING_BALANCE_PROOF: ${ts.symbol} RPC empty/unknown — no cached qty sell.", ts.mint)
                 try { ForensicLogger.lifecycle("SELL_WAITING_BALANCE_PROOF", "mint=${ts.mint.take(10)} symbol=${ts.symbol} reason=$reason") } catch (_: Throwable) {}
                 try { com.lifecyclebot.engine.sell.CloseLease.release(ts.mint, "BALANCE_UNKNOWN_NO_SIGNATURE") } catch (_: Throwable) {}
-                try { HostWalletTokenTracker.markSellNoSignatureUnlocked(ts.mint, ts.symbol, "BALANCE_UNKNOWN") } catch (_: Throwable) {}
+                try { HostWalletTokenTracker.markSellWaitingBalanceProof(ts.mint, ts.symbol, "BALANCE_UNKNOWN") } catch (_: Throwable) {}
                 // V5.0.3746 — profit-lock BALANCE_UNKNOWN must also hand off to
                 // BalanceProofPoller so the next tick does NOT re-acquire a
                 // close lease (operator spec items 1, 4, 7).
@@ -3868,7 +3868,7 @@ class Executor(
                     "mint=${ts.mint.take(10)} symbol=${ts.symbol} balanceSource=$liveBalanceSource action=queue_recovery_not_broadcast") } catch (_: Throwable) {}
                 onLog("⏸️ SELL_WAITING_BALANCE_PROOF: ${ts.symbol} balance not on-chain confirmed (src=$liveBalanceSource) — no broadcast, no blocking lease.", ts.mint)
                 try { com.lifecyclebot.engine.sell.CloseLease.release(ts.mint, "BALANCE_UNKNOWN_NO_SIGNATURE") } catch (_: Throwable) {}
-                try { HostWalletTokenTracker.markSellNoSignatureUnlocked(ts.mint, ts.symbol, "BALANCE_UNKNOWN") } catch (_: Throwable) {}
+                try { HostWalletTokenTracker.markSellWaitingBalanceProof(ts.mint, ts.symbol, "BALANCE_UNKNOWN") } catch (_: Throwable) {}
                 // V5.0.3746 — profit-lock balance-not-on-chain-confirmed must hand
                 // off to BalanceProofPoller (operator spec items 1, 4, 7).
                 try {
@@ -5098,7 +5098,7 @@ class Executor(
                         try { ForensicLogger.lifecycle("SELL_BROADCAST_BLOCKED_UNCONFIRMED_BALANCE",
                             "mint=${ts.mint.take(10)} symbol=${ts.symbol} balanceSource=$liveBalanceSource phase=partial action=queue_recovery_not_broadcast") } catch (_: Throwable) {}
                         try { com.lifecyclebot.engine.sell.CloseLease.release(ts.mint, "BALANCE_UNKNOWN_NO_SIGNATURE") } catch (_: Throwable) {}
-                        try { HostWalletTokenTracker.markSellNoSignatureUnlocked(ts.mint, ts.symbol, "BALANCE_UNKNOWN_PARTIAL") } catch (_: Throwable) {}
+                        try { HostWalletTokenTracker.markSellWaitingBalanceProof(ts.mint, ts.symbol, "BALANCE_UNKNOWN_PARTIAL") } catch (_: Throwable) {}
                         return false
                     }
                 }
@@ -12679,7 +12679,7 @@ class Executor(
                     try { ForensicLogger.lifecycle("SELL_WAITING_BALANCE_PROOF", "mint=${ts.mint.take(10)} symbol=${ts.symbol} reason=WALLET_TOKEN_READ_INDETERMINATE close_lease_released=true") } catch (_: Throwable) {}
                     try { com.lifecyclebot.engine.sell.SellExecutionLocks.release(ts.mint) } catch (_: Throwable) {}
                     try { com.lifecyclebot.engine.sell.CloseLease.release(ts.mint, "BALANCE_UNKNOWN_NO_SIGNATURE") } catch (_: Throwable) {}
-                    try { HostWalletTokenTracker.markSellNoSignatureUnlocked(ts.mint, ts.symbol, "BALANCE_UNKNOWN_WALLET_TOKEN_READ_INDETERMINATE") } catch (_: Throwable) {}
+                    try { HostWalletTokenTracker.markSellWaitingBalanceProof(ts.mint, ts.symbol, "BALANCE_UNKNOWN_WALLET_TOKEN_READ_INDETERMINATE") } catch (_: Throwable) {}
                     // V5.0.3746 — operator spec items 1, 2, 5: hand off to
                     // BalanceProofPoller via BalanceProofWaitState. This MUST NOT
                     // emit SELL_RETRY_TEMPORARY_ONLY, MUST NOT acquire/blocking

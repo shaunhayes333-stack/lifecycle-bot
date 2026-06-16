@@ -113,6 +113,7 @@ object BalanceProofPoller {
                     SellForensics.inc(SellForensics.BALANCE_PROOF_READY,
                         "mint=${entry.mint.take(10)} symbol=${entry.symbol}")
                 } catch (_: Throwable) {}
+                try { SellAmountAuthority.recordProofReady(entry.mint, resolution.rawAmount, resolution.decimals, resolution.source) } catch (_: Throwable) {}
                 // Reset zero-streak (we just saw a positive balance).
                 BalanceProofWaitState.resetZeroReads(entry.mint)
                 val reason = entry.desiredExitReason

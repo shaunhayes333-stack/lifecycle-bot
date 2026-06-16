@@ -943,6 +943,15 @@ class BotService : Service() {
                             )
                         } catch (_: Throwable) { null }
                         if (closed != null) {
+                            try {
+                                com.lifecyclebot.engine.sell.LivePositionCloseAuthority.finalizeClosed(
+                                    mint = mint,
+                                    symbol = symbol,
+                                    signature = null,
+                                    reason = "BALANCE_PROOF_POLLER_ZERO_$reason",
+                                    source = "balance_proof_poller_zero",
+                                )
+                            } catch (_: Throwable) {}
                             val lanesToRelease = listOf(
                                 "SHITCOIN", "MOONSHOT", "BLUECHIP", "QUALITY",
                                 "TREASURY", "MANIPULATED", "DIP_HUNTER", "PROJECT_SNIPER",
