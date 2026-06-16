@@ -1668,4 +1668,23 @@ class GoldenTapeRegressionTest {
             tracker.contains("p.status = PositionStatus.OPEN_TRACKING\n        p.source = when (proof.source)"))
     }
 
+
+    @Test
+    fun orphan_wallet_token_recovery_is_disabled_and_purged() {
+        val tracker = java.io.File("src/main/kotlin/com/lifecyclebot/engine/HostWalletTokenTracker.kt").readText()
+        assertTrue(tracker.contains("RECOVER_ORPHAN_WALLET_TOKENS: Boolean = false"))
+        assertTrue(tracker.contains("if (!RECOVER_ORPHAN_WALLET_TOKENS) {"))
+        assertTrue(tracker.contains("ORPHAN_WALLET_TOKEN_IGNORED"))
+        assertTrue(tracker.contains("fun purgeOrphanRecoveredRows"))
+        assertTrue(tracker.contains("ORPHAN_WALLET_TOKEN_PURGED"))
+        assertTrue(tracker.contains("purgeOrphanRecoveredRows(\"INIT\")"))
+        assertTrue(tracker.contains("purgeOrphanRecoveredRows(\"WALLET_SNAPSHOT\")"))
+
+        // The orphan-adoption row builder must be unreachable while the flag is off:
+        // the ignore-guard `continue` must appear before the recovered TrackedTokenPosition.
+        val guardIdx = tracker.indexOf("ORPHAN_WALLET_TOKEN_IGNORED")
+        val adoptIdx = tracker.indexOf("symbol = \"RECOVERED_")
+        assertTrue("orphan ignore guard must precede orphan adoption builder", guardIdx in 1 until adoptIdx)
+    }
+
 }

@@ -208,6 +208,13 @@ object HostWalletTokenTracker {
     private const val CAP_FRESH_BUY_LIABILITY_MS = 3 * 60_000L
     private const val CAP_SELL_IN_FLIGHT_MS = 90_000L
 
+    // V5.0.3788 — operator: orphan recovery is disabled. Wallet tokens the bot
+    // never bought (no buy signature, no tracked row) must NOT be adopted into the
+    // position book. Adopting them caused ledger drift, phantom open slots, and
+    // endless no-finality sell loops on tokens the bot has no entry/exit basis for.
+    // Flip to true only to re-enable wallet-orphan adoption.
+    @Volatile var RECOVER_ORPHAN_WALLET_TOKENS: Boolean = false
+
     private fun currentHeldSnapshot(p: TrackedTokenPosition, now: Long = System.currentTimeMillis()): WalletAuthoritySnapshot.HELD? {
         val snap = walletAuthority[p.mint] as? WalletAuthoritySnapshot.HELD ?: return null
         return snap.takeIf { it.raw > BigInteger.valueOf(DUST_RAW) && (now - it.observedAtMs) <= CAP_WALLET_PROOF_TTL_MS }
@@ -264,7 +271,39 @@ object HostWalletTokenTracker {
     fun init(context: android.content.Context) {
         ctx = context.applicationContext
         load()
+        purgeOrphanRecoveredRows("INIT")
         ErrorLogger.info(TAG, "✅ HostWalletTokenTracker loaded | ${positions.size} mints | open=${getOpenCount()}")
+    }
+
+    /**
+     * V5.0.3788 — operator: remove wallet-orphan rows entirely while orphan
+     * recovery is disabled. An orphan row is one the bot adopted from the wallet
+     * (PositionSource.WALLET_RECONCILED / RECOVERED_AFTER_RESTART) with no buy
+     * signature of its own. These caused ledger drift and no-finality sell loops.
+     * Real bot-bought positions (BOT_BUY / TX_PARSE with a buy signature) are kept.
+     */
+    @Synchronized
+    fun purgeOrphanRecoveredRows(phase: String) {
+        if (RECOVER_ORPHAN_WALLET_TOKENS) return
+        val drop = positions.values.filter { p ->
+            (p.source == PositionSource.WALLET_RECONCILED || p.source == PositionSource.RECOVERED_AFTER_RESTART) &&
+                p.buySignature.isNullOrBlank()
+        }
+        if (drop.isEmpty()) return
+        for (p in drop) {
+            positions.remove(p.mint)
+            walletAuthority.remove(p.mint)
+            try { com.lifecyclebot.engine.sell.SellExecutionLocks.release(p.mint) } catch (_: Throwable) {}
+            try { com.lifecyclebot.engine.sell.CloseLease.release(p.mint, "ORPHAN_RECOVERY_DISABLED_PURGE") } catch (_: Throwable) {}
+            try {
+                for (ln in listOf("SHITCOIN","MOONSHOT","QUALITY","EXPRESS","CYCLIC","BLUE_CHIP","MANIPULATED","CORE","V3","DIP_HUNTER","PROJECT_SNIPER")) {
+                    com.lifecyclebot.engine.LaneExecutionCoordinator.releaseIfPrimary(p.mint, ln, "ORPHAN_RECOVERY_DISABLED_PURGE")
+                }
+            } catch (_: Throwable) {}
+            try { ForensicLogger.lifecycle("ORPHAN_WALLET_TOKEN_PURGED", "mint=${p.mint.take(10)} symbol=${p.symbol ?: "?"} phase=$phase source=${p.source} qty=${p.uiAmount}") } catch (_: Throwable) {}
+        }
+        save()
+        try { ErrorLogger.info(TAG, "🧹 purged ${drop.size} orphan-recovered rows (orphan recovery disabled) phase=$phase") } catch (_: Throwable) {}
     }
 
     private fun file(): File? = ctx?.filesDir?.let { File(it, FILE_NAME) }
@@ -907,6 +946,19 @@ object HostWalletTokenTracker {
                 continue
             }
             if (rawApprox <= DUST_RAW) continue
+            // V5.0.3788 — orphan recovery disabled by operator. A wallet token the
+            // bot never bought is ignored: it never enters the position book, never
+            // consumes a slot, and never spawns a sell. Emit a forensic so it is
+            // still visible without being managed.
+            if (!RECOVER_ORPHAN_WALLET_TOKENS) {
+                try {
+                    com.lifecyclebot.engine.ForensicLogger.lifecycle(
+                        "ORPHAN_WALLET_TOKEN_IGNORED",
+                        "mint=${mint.take(10)} qty=$uiAmount decimals=$decimals reason=ORPHAN_RECOVERY_DISABLED"
+                    )
+                } catch (_: Throwable) {}
+                continue
+            }
             // True orphan — bot has no record of buying this. Recover.
             val recovered = TrackedTokenPosition(
                 mint = mint, symbol = "RECOVERED_${mint.take(6)}", name = "Wallet Recovered",
@@ -955,6 +1007,7 @@ object HostWalletTokenTracker {
             } catch (_: Throwable) {}
         }
 
+        purgeOrphanRecoveredRows("WALLET_SNAPSHOT")
         // Pass 2: zombie closure — open positions whose wallet balance is now zero.
         for (p in positions.values.toList()) {
             if (p.status !in OPEN_STATUSES) continue
