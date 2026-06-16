@@ -784,6 +784,7 @@ class GoldenTapeRegressionTest {
         assertFalse("invalid accounting rows must not still be persisted after warning", store.contains("PARTIAL_SELL_INVALID_ACCOUNTING mint="))
 
         val journal = java.io.File("src/main/kotlin/com/lifecyclebot/engine/TradeJournal.kt").readText()
+        val journalActivity = java.io.File("src/main/kotlin/com/lifecyclebot/ui/JournalActivity.kt").readText()
         assertTrue(journal.contains("TradeHistoryStore.isValidAccountingTrade(t)"))
         assertFalse("avg win must not mask impossible rows with a 100000% cap", journal.contains("coerceAtMost(100000.0)"))
 
@@ -1852,6 +1853,45 @@ class GoldenTapeRegressionTest {
 
         assertTrue("paper journal row alias must be event-attributed", collector.contains("PAPER_JOURNAL_ROWS"))
         assertTrue("paper quarantine alias must be report-visible", collector.contains("PAPER_QUARANTINED_ROWS"))
+    }
+
+
+    @Test
+    fun trade_journal_links_buy_partials_and_terminal_sell_with_entry_snapshot() {
+        val models = java.io.File("src/main/kotlin/com/lifecyclebot/data/Models.kt").readText()
+        val store = java.io.File("src/main/kotlin/com/lifecyclebot/engine/TradeHistoryStore.kt").readText()
+        val executor = java.io.File("src/main/kotlin/com/lifecyclebot/engine/Executor.kt").readText()
+        val journal = java.io.File("src/main/kotlin/com/lifecyclebot/engine/TradeJournal.kt").readText()
+        val journalActivity = java.io.File("src/main/kotlin/com/lifecyclebot/ui/JournalActivity.kt").readText()
+
+        assertTrue("Trade row must carry canonical lifecycle positionId", models.contains("val positionId: String"))
+        assertTrue("Trade row must persist entry timestamp snapshot", models.contains("val entryTsMs: Long"))
+        assertTrue("Trade row must persist entry price snapshot", models.contains("val entryPriceSnapshot: Double"))
+        assertTrue("Trade row must persist entry market cap", models.contains("val entryMcapUsd: Double"))
+        assertTrue("Trade row must persist token quantity basis", models.contains("val entryQtyToken: Double"))
+        assertTrue("Trade row must persist cost basis snapshot", models.contains("val entryCostSol: Double"))
+        assertTrue("Trade row must persist partial accounting quantities", models.contains("val soldQtyToken: Double") && models.contains("val remainingQtyToken: Double"))
+
+        assertTrue("SQLite schema must version linkage columns", store.contains("const val DB_VERSION = 6"))
+        assertTrue("SQLite schema must store position_id", store.contains("position_id   TEXT"))
+        assertTrue("SQLite schema must store entry price snapshot", store.contains("entry_price_snapshot"))
+        assertTrue("TradeHistoryStore must enrich missing sell linkage from prior BUY", store.contains("fun enrichJournalLinkage") && store.contains("TRADE_JOURNAL_LINKAGE_ENRICHED"))
+        assertTrue("DB reload must sequence-relink legacy BUY/SELL rows", store.contains("fun enrichRowsBySequence") && store.contains("val enrichedLoaded = enrichRowsBySequence(loaded)"))
+        assertTrue("Bulk record path must also enrich linkage", store.contains("val enriched = enrichJournalLinkage(normalized)"))
+
+        assertTrue("Executor must stamp journal positionId from TradeOutcomeLedger", executor.contains("TradeOutcomeLedger.positionId(ts, trade)"))
+        assertTrue("Executor must stamp entry price from Position snapshot", executor.contains("entryPriceSnapshot = trade.entryPriceSnapshot") && executor.contains("ts.position.entryPrice"))
+        assertTrue("Executor must stamp entry mcap from Position snapshot", executor.contains("entryMcapUsd = trade.entryMcapUsd") && executor.contains("ts.position.entryMcap"))
+        assertTrue("Executor must stamp partial sold/remaining qty", executor.contains("soldQtyForJournal") && executor.contains("remainingQtyToken"))
+
+        assertTrue("Journal rows must expose lifecycle position id", journal.contains("val positionId: String"))
+        assertTrue("Journal must build rows through canonical trade conversion", journal.contains("journalEntryFromTrade"))
+        assertTrue("Journal sell entryPrice must use entryPriceSnapshot not row-local sell price", journal.contains("val entryPx = trade.entryPriceSnapshot"))
+        assertTrue("CSV must expose entry snapshot and exit execution price separately", journal.contains("Entry Price Snapshot (SOL)") && journal.contains("Exit Price (SOL)"))
+        assertTrue("CSV must expose partial quantity accounting", journal.contains("Sold Token Qty") && journal.contains("Remaining Token Qty"))
+        assertTrue("JournalActivity UI mapper must use stored entry snapshot", journalActivity.contains("t.entryPriceSnapshot.takeIf"))
+        assertTrue("JournalActivity UI mapper must expose lifecycle linkage fields", journalActivity.contains("positionId      = t.positionId") && journalActivity.contains("remainingQtyToken = t.remainingQtyToken"))
+        assertFalse("Journal linkage must not be only mint/time inference", journal.contains("positionId = \"${'$'}{trade.ts}_${'$'}{trade.mint}\""))
     }
 
 

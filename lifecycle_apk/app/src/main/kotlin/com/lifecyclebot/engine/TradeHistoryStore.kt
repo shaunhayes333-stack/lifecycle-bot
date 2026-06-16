@@ -202,7 +202,7 @@ object TradeHistoryStore {
             // The DB on device is at v3 from a previous experiment, so returning
             // the codebase to v1 throws SQLiteException on startup and breaks
             // the entire learning pipeline. Bump to v4 to force an upgrade instead.
-            const val DB_VERSION = 5
+            const val DB_VERSION = 6
             const val TABLE = "trades"
         }
 
@@ -225,6 +225,17 @@ object TradeHistoryStore {
                     fee_sol       REAL    NOT NULL DEFAULT 0,
                     net_pnl_sol   REAL    NOT NULL DEFAULT 0,
                     proof_state   TEXT    NOT NULL DEFAULT '',
+                    position_id   TEXT    NOT NULL DEFAULT '',
+                    entry_ts_ms   INTEGER NOT NULL DEFAULT 0,
+                    entry_price_snapshot REAL NOT NULL DEFAULT 0,
+                    entry_mcap_usd REAL NOT NULL DEFAULT 0,
+                    entry_qty_token REAL NOT NULL DEFAULT 0,
+                    entry_cost_sol REAL NOT NULL DEFAULT 0,
+                    entry_decimals INTEGER NOT NULL DEFAULT 0,
+                    sold_qty_token REAL NOT NULL DEFAULT 0,
+                    remaining_qty_token REAL NOT NULL DEFAULT 0,
+                    entry_price_source TEXT NOT NULL DEFAULT '',
+                    entry_pool_address TEXT NOT NULL DEFAULT '',
                     dedup_key     TEXT    UNIQUE
                 )
             """.trimIndent())
@@ -235,6 +246,20 @@ object TradeHistoryStore {
         override fun onUpgrade(db: SQLiteDatabase, oldVersion: Int, newVersion: Int) {
             if (oldVersion < 5) {
                 try { db.execSQL("ALTER TABLE $TABLE ADD COLUMN proof_state TEXT NOT NULL DEFAULT ''") } catch (_: Throwable) {}
+            }
+            if (oldVersion < 6) {
+                try { db.execSQL("ALTER TABLE $TABLE ADD COLUMN position_id TEXT NOT NULL DEFAULT ''") } catch (_: Throwable) {}
+                try { db.execSQL("ALTER TABLE $TABLE ADD COLUMN entry_ts_ms INTEGER NOT NULL DEFAULT 0") } catch (_: Throwable) {}
+                try { db.execSQL("ALTER TABLE $TABLE ADD COLUMN entry_price_snapshot REAL NOT NULL DEFAULT 0") } catch (_: Throwable) {}
+                try { db.execSQL("ALTER TABLE $TABLE ADD COLUMN entry_mcap_usd REAL NOT NULL DEFAULT 0") } catch (_: Throwable) {}
+                try { db.execSQL("ALTER TABLE $TABLE ADD COLUMN entry_qty_token REAL NOT NULL DEFAULT 0") } catch (_: Throwable) {}
+                try { db.execSQL("ALTER TABLE $TABLE ADD COLUMN entry_cost_sol REAL NOT NULL DEFAULT 0") } catch (_: Throwable) {}
+                try { db.execSQL("ALTER TABLE $TABLE ADD COLUMN entry_decimals INTEGER NOT NULL DEFAULT 0") } catch (_: Throwable) {}
+                try { db.execSQL("ALTER TABLE $TABLE ADD COLUMN sold_qty_token REAL NOT NULL DEFAULT 0") } catch (_: Throwable) {}
+                try { db.execSQL("ALTER TABLE $TABLE ADD COLUMN remaining_qty_token REAL NOT NULL DEFAULT 0") } catch (_: Throwable) {}
+                try { db.execSQL("ALTER TABLE $TABLE ADD COLUMN entry_price_source TEXT NOT NULL DEFAULT ''") } catch (_: Throwable) {}
+                try { db.execSQL("ALTER TABLE $TABLE ADD COLUMN entry_pool_address TEXT NOT NULL DEFAULT ''") } catch (_: Throwable) {}
+                try { db.execSQL("CREATE INDEX IF NOT EXISTS idx_position_id ON $TABLE(position_id)") } catch (_: Throwable) {}
             }
         }
     }
@@ -462,6 +487,152 @@ object TradeHistoryStore {
         }
     }
 
+    private fun android.database.Cursor.stringOrBlank(col: String): String =
+        getColumnIndex(col).takeIf { it >= 0 }?.let { getString(it) } ?: ""
+
+    private fun android.database.Cursor.longOrZero(col: String): Long =
+        getColumnIndex(col).takeIf { it >= 0 }?.let { getLong(it) } ?: 0L
+
+    private fun android.database.Cursor.doubleOrZero(col: String): Double =
+        getColumnIndex(col).takeIf { it >= 0 }?.let { getDouble(it) } ?: 0.0
+
+    private fun android.database.Cursor.intOrZero(col: String): Int =
+        getColumnIndex(col).takeIf { it >= 0 }?.let { getInt(it) } ?: 0
+
+    private fun isBuyLike(side: String): Boolean = side.equals("BUY", ignoreCase = true)
+
+    private fun fallbackPositionId(t: Trade): String {
+        if (t.positionId.isNotBlank()) return t.positionId
+        val entryTs = when {
+            t.entryTsMs > 0L -> t.entryTsMs
+            isBuyLike(t.side) -> t.ts
+            else -> 0L
+        }
+        return if (t.mint.isNotBlank() && entryTs > 0L) "${t.mode.uppercase()}:${t.mint}:$entryTs" else ""
+    }
+
+    private fun enrichRowsBySequence(rows: List<Trade>): List<Trade> {
+        if (rows.isEmpty()) return rows
+        val lastBuyByModeMint = mutableMapOf<String, Trade>()
+        val enrichedByIndex = mutableMapOf<Int, Trade>()
+        rows.withIndex().sortedBy { it.value.ts }.forEach { indexed ->
+            val row = indexed.value
+            val key = "${row.mode.lowercase()}|${row.mint}"
+            val source = if (isBuyLike(row.side)) row else lastBuyByModeMint[key]
+            val entryTs = when {
+                row.entryTsMs > 0L -> row.entryTsMs
+                (source?.entryTsMs ?: 0L) > 0L -> source!!.entryTsMs
+                source != null -> source.ts
+                else -> 0L
+            }
+            val entryCost = when {
+                row.entryCostSol > 0.0 -> row.entryCostSol
+                (source?.entryCostSol ?: 0.0) > 0.0 -> source!!.entryCostSol
+                source != null -> source.sol
+                isBuyLike(row.side) -> row.sol
+                else -> 0.0
+            }
+            val entryQty = when {
+                row.entryQtyToken > 0.0 -> row.entryQtyToken
+                (source?.entryQtyToken ?: 0.0) > 0.0 -> source!!.entryQtyToken
+                else -> 0.0
+            }
+            val soldQty = when {
+                row.soldQtyToken > 0.0 -> row.soldQtyToken
+                !isBuyLike(row.side) && entryCost > 0.0 && entryQty > 0.0 && row.sol > 0.0 -> (entryQty * (row.sol / entryCost)).coerceIn(0.0, entryQty)
+                else -> 0.0
+            }
+            val enriched = row.copy(
+                positionId = row.positionId.ifBlank {
+                    source?.positionId?.takeIf { it.isNotBlank() } ?: if (row.mint.isNotBlank() && entryTs > 0L) "${row.mode.uppercase()}:${row.mint}:$entryTs" else ""
+                },
+                entryTsMs = entryTs,
+                entryPriceSnapshot = row.entryPriceSnapshot.takeIf { it > 0.0 }
+                    ?: source?.entryPriceSnapshot?.takeIf { it > 0.0 }
+                    ?: source?.price?.takeIf { it > 0.0 }
+                    ?: if (isBuyLike(row.side)) row.price else 0.0,
+                entryMcapUsd = row.entryMcapUsd.takeIf { it > 0.0 } ?: source?.entryMcapUsd ?: 0.0,
+                entryQtyToken = entryQty,
+                entryCostSol = entryCost,
+                entryDecimals = if (row.entryDecimals > 0) row.entryDecimals else source?.entryDecimals ?: 0,
+                soldQtyToken = soldQty,
+                remainingQtyToken = when {
+                    row.remainingQtyToken > 0.0 -> row.remainingQtyToken
+                    !isBuyLike(row.side) && entryQty > 0.0 -> (entryQty - soldQty).coerceAtLeast(0.0)
+                    isBuyLike(row.side) -> entryQty
+                    else -> 0.0
+                },
+                entryPriceSource = row.entryPriceSource.ifBlank { source?.entryPriceSource ?: "" },
+                entryPoolAddress = row.entryPoolAddress.ifBlank { source?.entryPoolAddress ?: "" },
+            )
+            if (isBuyLike(enriched.side)) lastBuyByModeMint[key] = enriched
+            enrichedByIndex[indexed.index] = enriched
+        }
+        return rows.indices.map { enrichedByIndex[it] ?: rows[it] }
+    }
+
+    private fun enrichJournalLinkage(t: Trade): Trade {
+        val priorBuy: Trade? = if (isBuyLike(t.side) || t.mint.isBlank()) null else try {
+            synchronized(lock) {
+                trades.asReversed().firstOrNull { prev ->
+                    isBuyLike(prev.side) && prev.mint == t.mint && prev.mode.equals(t.mode, true)
+                }
+            }
+        } catch (_: Throwable) { null }
+        val source: Trade? = if (isBuyLike(t.side)) t else priorBuy
+        val entryTs = when {
+            t.entryTsMs > 0L -> t.entryTsMs
+            (source?.entryTsMs ?: 0L) > 0L -> source!!.entryTsMs
+            source != null -> source.ts
+            else -> 0L
+        }
+        val entryCost = when {
+            t.entryCostSol > 0.0 -> t.entryCostSol
+            (source?.entryCostSol ?: 0.0) > 0.0 -> source!!.entryCostSol
+            source != null -> source.sol
+            isBuyLike(t.side) -> t.sol
+            else -> 0.0
+        }
+        val entryQty = when {
+            t.entryQtyToken > 0.0 -> t.entryQtyToken
+            (source?.entryQtyToken ?: 0.0) > 0.0 -> source!!.entryQtyToken
+            else -> 0.0
+        }
+        val soldQty = when {
+            t.soldQtyToken > 0.0 -> t.soldQtyToken
+            !isBuyLike(t.side) && entryCost > 0.0 && entryQty > 0.0 && t.sol > 0.0 -> (entryQty * (t.sol / entryCost)).coerceIn(0.0, entryQty)
+            else -> 0.0
+        }
+        val remainingQty = when {
+            t.remainingQtyToken > 0.0 -> t.remainingQtyToken
+            !isBuyLike(t.side) && entryQty > 0.0 -> (entryQty - soldQty).coerceAtLeast(0.0)
+            isBuyLike(t.side) -> entryQty
+            else -> 0.0
+        }
+        val enriched = t.copy(
+            positionId = t.positionId.ifBlank {
+                source?.positionId?.takeIf { it.isNotBlank() } ?: if (t.mint.isNotBlank() && entryTs > 0L) "${t.mode.uppercase()}:${t.mint}:$entryTs" else ""
+            },
+            entryTsMs = entryTs,
+            entryPriceSnapshot = t.entryPriceSnapshot.takeIf { it > 0.0 }
+                ?: source?.entryPriceSnapshot?.takeIf { it > 0.0 }
+                ?: source?.price?.takeIf { it > 0.0 }
+                ?: if (isBuyLike(t.side)) t.price else 0.0,
+            entryMcapUsd = t.entryMcapUsd.takeIf { it > 0.0 } ?: source?.entryMcapUsd ?: 0.0,
+            entryQtyToken = entryQty,
+            entryCostSol = entryCost,
+            entryDecimals = if (t.entryDecimals > 0) t.entryDecimals else source?.entryDecimals ?: 0,
+            soldQtyToken = soldQty,
+            remainingQtyToken = remainingQty,
+            entryPriceSource = t.entryPriceSource.ifBlank { source?.entryPriceSource ?: "" },
+            entryPoolAddress = t.entryPoolAddress.ifBlank { source?.entryPoolAddress ?: "" },
+        )
+        if ((t.positionId.isBlank() || (!isBuyLike(t.side) && t.entryPriceSnapshot <= 0.0)) && enriched.positionId.isNotBlank()) {
+            try { PipelineHealthCollector.labelInc("TRADE_JOURNAL_LINKAGE_ENRICHED") } catch (_: Throwable) {}
+        }
+        return enriched
+    }
+
     private fun normalizeProofState(t: Trade): String {
         val explicit = t.proofState.trim().uppercase()
         if (explicit in setOf("PAPER_SIMULATED", "LIVE_BROADCAST", "LIVE_SIG_CONFIRMED", "LIVE_BALANCE_CONFIRMED", "LIVE_FINALIZED")) return explicit
@@ -539,7 +710,8 @@ object TradeHistoryStore {
         }
 
         val normalizedProof = normalizeProofState(trade)
-        val tradeToStore = if (normalizedMode != trade.tradingMode || normalizedProof != trade.proofState) trade.copy(tradingMode = normalizedMode, proofState = normalizedProof) else trade
+        val normalizedTrade = if (normalizedMode != trade.tradingMode || normalizedProof != trade.proofState) trade.copy(tradingMode = normalizedMode, proofState = normalizedProof) else trade
+        val tradeToStore = enrichJournalLinkage(normalizedTrade)
         if (!isValidAccountingTrade(tradeToStore)) {
             try {
                 ErrorLogger.warn(
@@ -607,18 +779,26 @@ object TradeHistoryStore {
         val existingKeys = synchronized(lock) {
             trades.map { "${it.ts}_${it.mint}" }.toSet()
         }
-        val toAdd = newTrades
+        val toAdd = mutableListOf<Trade>()
+        newTrades
             .filter { "${it.ts}_${it.mint}" !in existingKeys }
-            .filter { t ->
-                val ok = isValidAccountingTrade(t)
-                if (!ok) try { ErrorLogger.warn("TradeHistoryStore", "TRADE_ACCOUNTING_BULK_QUARANTINED mint=${t.mint.take(8)} side=${t.side} pnlPct=${t.pnlPct} pnl=${t.pnlSol} reason=${t.reason}") } catch (_: Throwable) {}
-                ok
+            .forEach { raw ->
+                val normalized = raw.copy(
+                    tradingMode = normalizeTradeModeName(raw.tradingMode),
+                    proofState = normalizeProofState(raw),
+                )
+                val enriched = enrichJournalLinkage(normalized)
+                val ok = isValidAccountingTrade(enriched)
+                if (!ok) try { ErrorLogger.warn("TradeHistoryStore", "TRADE_ACCOUNTING_BULK_QUARANTINED mint=${enriched.mint.take(8)} side=${enriched.side} pnlPct=${enriched.pnlPct} pnl=${enriched.pnlSol} reason=${enriched.reason}") } catch (_: Throwable) {}
+                if (ok) {
+                    synchronized(lock) { trades.add(enriched) }
+                    toAdd += enriched
+                }
             }
         if (toAdd.isNotEmpty()) {
-            synchronized(lock) { trades.addAll(toAdd) }
             toAdd.forEach { bumpLifetimeFor(it) }
             toAdd.forEach { insertTradeAsync(it) }
-            ErrorLogger.debug("TradeHistoryStore", "💾 Added ${toAdd.size} new trades")
+            ErrorLogger.debug("TradeHistoryStore", "💾 Added ${toAdd.size} new linked trades")
         }
     }
 
@@ -742,12 +922,25 @@ object TradeHistoryStore {
                         tradingModeEmoji = c.getString(c.getColumnIndexOrThrow("trading_emoji")),
                         feeSol         = c.getDouble(c.getColumnIndexOrThrow("fee_sol")),
                         netPnlSol      = c.getDouble(c.getColumnIndexOrThrow("net_pnl_sol")),
-                        proofState     = c.getColumnIndex("proof_state").takeIf { it >= 0 }?.let { c.getString(it) } ?: "",
+                        proofState     = c.stringOrBlank("proof_state"),
+                        positionId     = c.stringOrBlank("position_id"),
+                        entryTsMs      = c.longOrZero("entry_ts_ms"),
+                        entryPriceSnapshot = c.doubleOrZero("entry_price_snapshot"),
+                        entryMcapUsd   = c.doubleOrZero("entry_mcap_usd"),
+                        entryQtyToken  = c.doubleOrZero("entry_qty_token"),
+                        entryCostSol   = c.doubleOrZero("entry_cost_sol"),
+                        entryDecimals  = c.intOrZero("entry_decimals"),
+                        soldQtyToken   = c.doubleOrZero("sold_qty_token"),
+                        remainingQtyToken = c.doubleOrZero("remaining_qty_token"),
+                        entryPriceSource = c.stringOrBlank("entry_price_source"),
+                        entryPoolAddress = c.stringOrBlank("entry_pool_address"),
                     )
                     if (isValidAccountingTrade(row)) loaded.add(row)
                     else try { ErrorLogger.warn("TradeHistoryStore", "TRADE_ACCOUNTING_LEGACY_ROW_FILTERED mint=${row.mint.take(8)} side=${row.side} pnlPct=${row.pnlPct} pnl=${row.pnlSol} reason=${row.reason}") } catch (_: Throwable) {}
                 }
             }
+            val enriched = enrichRowsBySequence(loaded).sortedByDescending { it.ts }
+            loaded.clear(); loaded.addAll(enriched)
         } catch (e: Exception) {
             ErrorLogger.error("TradeHistoryStore", "getAllTradesFromDb failed: ${e.message}")
             // Fall back to in-memory list on any DB error, but still apply the
@@ -1296,6 +1489,17 @@ object TradeHistoryStore {
         put("fee_sol",       t.feeSol)
         put("net_pnl_sol",   t.netPnlSol)
         put("proof_state",   t.proofState)
+        put("position_id",   fallbackPositionId(t))
+        put("entry_ts_ms",   t.entryTsMs)
+        put("entry_price_snapshot", t.entryPriceSnapshot)
+        put("entry_mcap_usd", t.entryMcapUsd)
+        put("entry_qty_token", t.entryQtyToken)
+        put("entry_cost_sol", t.entryCostSol)
+        put("entry_decimals", t.entryDecimals)
+        put("sold_qty_token", t.soldQtyToken)
+        put("remaining_qty_token", t.remainingQtyToken)
+        put("entry_price_source", t.entryPriceSource)
+        put("entry_pool_address", t.entryPoolAddress)
         put("dedup_key",     "${t.ts}_${t.mint}_${t.side}_${tradeSeq.incrementAndGet()}")
     }
 
@@ -1324,15 +1528,27 @@ object TradeHistoryStore {
                         tradingModeEmoji = c.getString(c.getColumnIndexOrThrow("trading_emoji")),
                         feeSol         = c.getDouble(c.getColumnIndexOrThrow("fee_sol")),
                         netPnlSol      = c.getDouble(c.getColumnIndexOrThrow("net_pnl_sol")),
-                        proofState     = c.getColumnIndex("proof_state").takeIf { it >= 0 }?.let { c.getString(it) } ?: "",
+                        proofState     = c.stringOrBlank("proof_state"),
+                        positionId     = c.stringOrBlank("position_id"),
+                        entryTsMs      = c.longOrZero("entry_ts_ms"),
+                        entryPriceSnapshot = c.doubleOrZero("entry_price_snapshot"),
+                        entryMcapUsd   = c.doubleOrZero("entry_mcap_usd"),
+                        entryQtyToken  = c.doubleOrZero("entry_qty_token"),
+                        entryCostSol   = c.doubleOrZero("entry_cost_sol"),
+                        entryDecimals  = c.intOrZero("entry_decimals"),
+                        soldQtyToken   = c.doubleOrZero("sold_qty_token"),
+                        remainingQtyToken = c.doubleOrZero("remaining_qty_token"),
+                        entryPriceSource = c.stringOrBlank("entry_price_source"),
+                        entryPoolAddress = c.stringOrBlank("entry_pool_address"),
                     )
                     if (isValidAccountingTrade(row)) loaded.add(row)
                     else try { ErrorLogger.warn("TradeHistoryStore", "TRADE_ACCOUNTING_DB_INIT_FILTERED mint=${row.mint.take(8)} side=${row.side} pnlPct=${row.pnlPct} pnl=${row.pnlSol} reason=${row.reason}") } catch (_: Throwable) {}
                 }
             }
+            val enrichedLoaded = enrichRowsBySequence(loaded)
             synchronized(lock) {
                 trades.clear()
-                trades.addAll(loaded)
+                trades.addAll(enrichedLoaded)
             }
             ErrorLogger.debug("TradeHistoryStore", "SQLite: loaded ${loaded.size} trades")
         } catch (e: Exception) {

@@ -79,7 +79,54 @@ class TradeJournal(private val ctx: Context) {
         val tradingModeEmoji: String,
         val feeSol: Double,
         val netPnlSol: Double,
+        val proofState: String = "",
+        val positionId: String = "",
+        val entryTsMs: Long = 0L,
+        val entryMcapUsd: Double = 0.0,
+        val entryQtyToken: Double = 0.0,
+        val entryCostSol: Double = 0.0,
+        val entryDecimals: Int = 0,
+        val soldQtyToken: Double = 0.0,
+        val remainingQtyToken: Double = 0.0,
+        val entryPriceSource: String = "",
+        val entryPoolAddress: String = "",
     )
+
+    private fun journalEntryFromTrade(trade: Trade, symbol: String, mint: String): JournalEntry {
+        val sellLike = isSellLike(trade.side)
+        val entryPx = trade.entryPriceSnapshot.takeIf { it > 0.0 } ?: if (!sellLike) trade.price else 0.0
+        return JournalEntry(
+            ts = trade.ts,
+            symbol = symbol,
+            mint = mint,
+            side = trade.side,
+            entryPrice = entryPx,
+            exitPrice = if (sellLike) trade.price else 0.0,
+            solAmount = trade.sol,
+            pnlSol = trade.pnlSol,
+            pnlPct = trade.pnlPct,
+            reason = trade.reason,
+            mode = trade.mode,
+            score = trade.score,
+            durationMins = 0.0,
+            phase = "",
+            tradingMode = trade.tradingMode,
+            tradingModeEmoji = trade.tradingModeEmoji,
+            feeSol = trade.feeSol,
+            netPnlSol = trade.netPnlSol,
+            proofState = trade.proofState,
+            positionId = trade.positionId,
+            entryTsMs = trade.entryTsMs,
+            entryMcapUsd = trade.entryMcapUsd,
+            entryQtyToken = trade.entryQtyToken,
+            entryCostSol = trade.entryCostSol,
+            entryDecimals = trade.entryDecimals,
+            soldQtyToken = trade.soldQtyToken,
+            remainingQtyToken = trade.remainingQtyToken,
+            entryPriceSource = trade.entryPriceSource,
+            entryPoolAddress = trade.entryPoolAddress,
+        )
+    }
 
     data class JournalStats(
         val totalTrades: Int,
@@ -122,28 +169,7 @@ class TradeJournal(private val ctx: Context) {
                 val key = buildKey(trade.ts, trade.mint, trade.side)
                 if (key !in seenKeys) {
                     seenKeys.add(key)
-                    entries.add(
-                        JournalEntry(
-                            ts = trade.ts,
-                            symbol = tokenState.symbol,
-                            mint = tokenState.mint,
-                            side = trade.side,
-                            entryPrice = trade.price,
-                            exitPrice = if (isSellLike(trade.side)) trade.price else 0.0,
-                            solAmount = trade.sol,
-                            pnlSol = trade.pnlSol,
-                            pnlPct = trade.pnlPct,
-                            reason = trade.reason,
-                            mode = trade.mode,
-                            score = trade.score,
-                            durationMins = 0.0,
-                            phase = "",
-                            tradingMode = trade.tradingMode,
-                            tradingModeEmoji = trade.tradingModeEmoji,
-                            feeSol = trade.feeSol,
-                            netPnlSol = trade.netPnlSol
-                        )
-                    )
+                    entries.add(journalEntryFromTrade(trade, tokenState.symbol, tokenState.mint))
                 }
             }
         }
@@ -158,28 +184,7 @@ class TradeJournal(private val ctx: Context) {
 
                     val symbol = tokens.values.find { it.mint == trade.mint }?.symbol ?: trade.mint.take(8)
 
-                    entries.add(
-                        JournalEntry(
-                            ts = trade.ts,
-                            symbol = symbol,
-                            mint = trade.mint,
-                            side = trade.side,
-                            entryPrice = trade.price,
-                            exitPrice = if (isSellLike(trade.side)) trade.price else 0.0,
-                            solAmount = trade.sol,
-                            pnlSol = trade.pnlSol,
-                            pnlPct = trade.pnlPct,
-                            reason = trade.reason,
-                            mode = trade.mode,
-                            score = trade.score,
-                            durationMins = 0.0,
-                            phase = "",
-                            tradingMode = trade.tradingMode,
-                            tradingModeEmoji = trade.tradingModeEmoji,
-                            feeSol = trade.feeSol,
-                            netPnlSol = trade.netPnlSol
-                        )
-                    )
+                    entries.add(journalEntryFromTrade(trade, symbol, trade.mint))
                 }
             }
         } catch (e: Exception) {
@@ -351,7 +356,20 @@ class TradeJournal(private val ctx: Context) {
                 "Entry Score",
                 "Exit Reason",
                 "Invariants",
-                "Notes"
+                "Notes",
+                "Position ID",
+                "Entry Timestamp",
+                "Entry Price Snapshot (SOL)",
+                "Exit Price (SOL)",
+                "Entry Market Cap (USD)",
+                "Entry Token Qty",
+                "Sold Token Qty",
+                "Remaining Token Qty",
+                "Entry Cost Snapshot (SOL)",
+                "Token Decimals",
+                "Proof State",
+                "Entry Price Source",
+                "Entry Pool"
             ).joinToString(",")
         )
 
@@ -379,7 +397,7 @@ class TradeJournal(private val ctx: Context) {
                     e.tradingMode.ifEmpty { "STANDARD" },
                     e.tradingModeEmoji.ifEmpty { "📈" },
                     "%.6f".format(acct.costBasisSol),
-                    "%.10f".format(e.entryPrice * solPrice),
+                    "%.10f".format((if (isSellLike(e.side) && e.exitPrice > 0.0) e.exitPrice else e.entryPrice) * solPrice),
                     "%.2f".format(acct.costBasisUsd),
                     "%.2f".format(acct.proceedsUsd),
                     "%.6f".format(acct.gainLossSol),
@@ -393,7 +411,20 @@ class TradeJournal(private val ctx: Context) {
                     "%.0f".format(e.score),
                     e.reason.csvEscape(),
                     invariantStr,
-                    notes.csvEscape()
+                    notes.csvEscape(),
+                    e.positionId.csvEscape(),
+                    if (e.entryTsMs > 0L) sdf.format(Date(e.entryTsMs)).csvEscape() else "",
+                    "%.12f".format(e.entryPrice),
+                    "%.12f".format(e.exitPrice),
+                    "%.2f".format(e.entryMcapUsd),
+                    "%.6f".format(e.entryQtyToken),
+                    "%.6f".format(e.soldQtyToken),
+                    "%.6f".format(e.remainingQtyToken),
+                    "%.6f".format(e.entryCostSol),
+                    e.entryDecimals.toString(),
+                    e.proofState.csvEscape(),
+                    e.entryPriceSource.csvEscape(),
+                    e.entryPoolAddress.csvEscape()
                 ).joinToString(",")
             )
             if (acct.invariantViolations.isEmpty() && !legacyInvalid) {
@@ -429,7 +460,7 @@ class TradeJournal(private val ctx: Context) {
         val paperNetUsd = paperOnly.sumOf { it.acct.netGainUsd }
 
         fun summary(kv: String, value: String) {
-            sb.appendLine("SUMMARY,${kv.csvEscape()},,,,,,,,,,,,,,,,,,,," + value.csvEscape())
+            sb.appendLine("SUMMARY,${kv.csvEscape()},,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,," + value.csvEscape())
         }
 
         sb.appendLine("")

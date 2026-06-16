@@ -467,7 +467,7 @@ class JournalActivity : AppCompatActivity() {
                                                     ?: t.mint.take(8),
                                 mint            = t.mint,
                                 side            = t.side,
-                                entryPrice      = t.price,
+                                entryPrice      = t.entryPriceSnapshot.takeIf { it > 0.0 } ?: if (!isSellLike(t.side)) t.price else 0.0,
                                 exitPrice       = if (isSellLike(t.side)) t.price else 0.0,
                                 solAmount       = t.sol,
                                 pnlSol          = t.pnlSol,
@@ -481,6 +481,17 @@ class JournalActivity : AppCompatActivity() {
                                 tradingModeEmoji = t.tradingModeEmoji,
                                 feeSol          = t.feeSol,
                                 netPnlSol       = t.netPnlSol,
+                                proofState      = t.proofState,
+                                positionId      = t.positionId,
+                                entryTsMs       = t.entryTsMs,
+                                entryMcapUsd    = t.entryMcapUsd,
+                                entryQtyToken   = t.entryQtyToken,
+                                entryCostSol    = t.entryCostSol,
+                                entryDecimals   = t.entryDecimals,
+                                soldQtyToken    = t.soldQtyToken,
+                                remainingQtyToken = t.remainingQtyToken,
+                                entryPriceSource = t.entryPriceSource,
+                                entryPoolAddress = t.entryPoolAddress,
                             )
                         }
                 }
@@ -596,6 +607,26 @@ class JournalActivity : AppCompatActivity() {
                 setTextColor(muted)
                 typeface = Typeface.MONOSPACE
             })
+
+            // V5.0.3806 — compact linked-lifecycle diagnostics. Keep this to
+            // two tiny TextViews so the Journal does not recreate the old ANR-heavy
+            // wall of text while still showing entry/exit basis and partial qty.
+            info.addView(TextView(this).apply {
+                val posTail = entry.positionId.takeLast(10).ifBlank { "unlinked" }
+                val proof = entry.proofState.ifBlank { if (entry.mode.equals("paper", true)) "PAPER_SIM" else "LIVE_PROOF?" }
+                text = "id=$posTail · proof=$proof · e=${"%.8f".format(entry.entryPrice)} x=${"%.8f".format(entry.exitPrice)}"
+                textSize = 9f
+                setTextColor(muted)
+                typeface = Typeface.MONOSPACE
+            })
+            if (entry.soldQtyToken > 0.0 || entry.remainingQtyToken > 0.0 || entry.entryMcapUsd > 0.0) {
+                info.addView(TextView(this).apply {
+                    text = "qty sold=${"%.3f".format(entry.soldQtyToken)} rem=${"%.3f".format(entry.remainingQtyToken)} · mcap=${'$'}${"%.0f".format(entry.entryMcapUsd)}"
+                    textSize = 9f
+                    setTextColor(muted)
+                    typeface = Typeface.MONOSPACE
+                })
+            }
 
             if (outcome == TradeOutcome.SCRATCH) {
                 info.addView(TextView(this).apply {

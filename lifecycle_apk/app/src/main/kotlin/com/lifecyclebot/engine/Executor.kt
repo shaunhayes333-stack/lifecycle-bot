@@ -2259,9 +2259,26 @@ class Executor(
             isMeaningfulLaneName(ts.position.tradingMode) -> ts.position.tradingMode
             else                                          -> "STANDARD"
         }
+        val ledgerPositionId = try { com.lifecyclebot.engine.TradeOutcomeLedger.positionId(ts, trade) } catch (_: Throwable) { "" }
+        val entryTsForJournal = ts.position.entryTime.takeIf { it > 0L } ?: if (trade.side.equals("BUY", true)) trade.ts else trade.entryTsMs
+        val entryCostForJournal = ts.position.costSol.takeIf { it > 0.0 } ?: if (trade.side.equals("BUY", true)) trade.sol else trade.entryCostSol
+        val entryQtyForJournal = ts.position.qtyToken.takeIf { it > 0.0 } ?: trade.entryQtyToken
+        val soldQtyForJournal = if (!trade.side.equals("BUY", true) && entryCostForJournal > 0.0 && entryQtyForJournal > 0.0 && trade.sol > 0.0) {
+            (entryQtyForJournal * (trade.sol / entryCostForJournal)).coerceIn(0.0, entryQtyForJournal)
+        } else trade.soldQtyToken
         val tradeWithMint = trade.copy(
             mint = if (trade.mint.isBlank()) ts.mint else trade.mint,
             tradingMode = resolvedTradingMode,
+            positionId = trade.positionId.ifBlank { ledgerPositionId },
+            entryTsMs = trade.entryTsMs.takeIf { it > 0L } ?: entryTsForJournal,
+            entryPriceSnapshot = trade.entryPriceSnapshot.takeIf { it > 0.0 } ?: ts.position.entryPrice.takeIf { it > 0.0 } ?: if (trade.side.equals("BUY", true)) trade.price else 0.0,
+            entryMcapUsd = trade.entryMcapUsd.takeIf { it > 0.0 } ?: ts.position.entryMcap.takeIf { it > 0.0 } ?: ts.lastMcap.takeIf { it > 0.0 } ?: 0.0,
+            entryQtyToken = entryQtyForJournal,
+            entryCostSol = entryCostForJournal,
+            soldQtyToken = soldQtyForJournal,
+            remainingQtyToken = if (entryQtyForJournal > 0.0) (entryQtyForJournal - soldQtyForJournal).coerceAtLeast(0.0) else trade.remainingQtyToken,
+            entryPriceSource = trade.entryPriceSource.ifBlank { ts.position.entryPriceSource },
+            entryPoolAddress = trade.entryPoolAddress.ifBlank { ts.position.entryPoolAddress },
         )
 
         // V5.9.1100 — canonical execution/outcome idempotency.

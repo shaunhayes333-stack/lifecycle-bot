@@ -197,6 +197,20 @@ data class Trade(
     // PAPER_SIMULATED, LIVE_BROADCAST, LIVE_SIG_CONFIRMED,
     // LIVE_BALANCE_CONFIRMED, LIVE_FINALIZED.
     val proofState: String = "",
+    // V5.0.3806 — canonical journal lifecycle linkage. Optional for legacy
+    // rows, mandatory for new rows stamped through Executor.recordTrade().
+    // positionId links BUY + PARTIAL_SELL + terminal SELL into one lifecycle.
+    val positionId: String = "",
+    val entryTsMs: Long = 0L,
+    val entryPriceSnapshot: Double = 0.0,
+    val entryMcapUsd: Double = 0.0,
+    val entryQtyToken: Double = 0.0,
+    val entryCostSol: Double = 0.0,
+    val entryDecimals: Int = 0,
+    val soldQtyToken: Double = 0.0,
+    val remainingQtyToken: Double = 0.0,
+    val entryPriceSource: String = "",
+    val entryPoolAddress: String = "",
 )
 
 data class StrategyMeta(
