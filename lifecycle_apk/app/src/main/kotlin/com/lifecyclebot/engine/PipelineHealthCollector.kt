@@ -255,7 +255,7 @@ object PipelineHealthCollector {
     // ════════════════════════════════════════════════════════════════
 
     private fun extractModeFromText(text: String): String {
-        val m = Regex("(?:^|[\s|])(?:mode|runtimeMode|execMode)=([A-Za-z_]+)").find(text)
+        val m = Regex("(?:^|[\\s|])(?:mode|runtimeMode|execMode)=([A-Za-z_]+)").find(text)
             ?.groupValues?.getOrNull(1)?.uppercase()
         return when (m) {
             "LIVE" -> "LIVE"
