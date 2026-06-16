@@ -69,6 +69,10 @@ object LiveWalletReconciler {
     private val consecutiveEmptyMaps = AtomicInteger(0)
     private const val EMPTY_MAP_REAP_THRESHOLD = 5
     private const val ZOMBIE_AGE_MS = 10 * 60 * 1000L  // 10 min OPEN_TRACKING = zombie
+    // V5.0.3791 — raw base-unit dust floor for reaping. Matches WalletReconciler.DUST_RAW.
+    // A tracked-open mint whose CURRENT wallet balance is <= this is economically
+    // empty/unsellable and must be reaped, not kept open (SELL_ONLY_SAFE_MODE source).
+    private const val DUST_RAW_REAP = 1L
     private val lastRunMs    = AtomicLong(0L)
     private val lastSellSig  = java.util.concurrent.ConcurrentHashMap<String, String>()
     private val lastBuySig   = java.util.concurrent.ConcurrentHashMap<String, String>()
@@ -215,11 +219,50 @@ object LiveWalletReconciler {
         // V5.9.495z45 — operator forensics_20260508_143519 spec item G:
         // re-evaluate UI safety flags after every successful wallet snapshot.
         try { LiveSafetyFlags.reevaluate(balances) } catch (_: Throwable) {}
+        // V5.0.3791 — DUST-ZOMBIE REAP on a HEALTHY (non-empty) wallet read.
+        // The empty-map reaper never fires when the wallet returns the mint at dust
+        // (ui=1e-6 / raw<=1): the loop below saw ui>0 and kept the position OPEN,
+        // so phantom dust rows (UPLON/WSOLP) stranded canonicalOpen>walletHeld,
+        // latching SELL_ONLY_SAFE_MODE (pendingSellQueue/openCountMismatch) and
+        // hard-blocking every live buy. A trusted non-empty read that shows a
+        // tracked mint at dust is a confirmed-empty proof for THAT mint — reap it.
+        run {
+            val now = System.currentTimeMillis()
+            val tracked = try { com.lifecyclebot.engine.HostWalletTokenTracker.snapshot() } catch (_: Throwable) { emptyList() }
+            for (p in tracked) {
+                if (p.status != com.lifecyclebot.engine.HostWalletTokenTracker.PositionStatus.OPEN_TRACKING) continue
+                val pair = balances[p.mint]
+                val walletRawApprox = if (pair != null) {
+                    val (ui, dec) = pair
+                    (ui * Math.pow(10.0, dec.toDouble())).toLong()
+                } else 0L  // tracked-open mint absent from a healthy non-empty read = drained
+                if (walletRawApprox > DUST_RAW_REAP) continue   // genuinely held; leave it
+                val ageMs = now - (p.buyTimeMs ?: p.firstSeenWalletMs)
+                if (ageMs < ZOMBIE_AGE_MS) continue              // too fresh; not-yet-visible buy
+                val closed = try {
+                    com.lifecyclebot.engine.HostWalletTokenTracker.confirmZeroBalanceClose(
+                        p.mint, hasConfirmedSellSig = false, reason = "DUST_ZOMBIE_REAP",
+                    ) ?: com.lifecyclebot.engine.HostWalletTokenTracker.confirmZeroBalanceClose(
+                        p.mint, hasConfirmedSellSig = true, reason = "DUST_ZOMBIE_REAP_FORCE",
+                    )
+                } catch (_: Throwable) { null }
+                if (closed != null) {
+                    try { com.lifecyclebot.engine.sell.LivePositionCloseAuthority.finalizeClosed(p.mint, p.symbol, null, "DUST_ZOMBIE_REAP", source = "live_wallet_reconciler_dust") } catch (_: Throwable) {}
+                    try { com.lifecyclebot.engine.sell.CloseLease.release(p.mint, terminal = "DUST_ZOMBIE_REAP") } catch (_: Throwable) {}
+                    try { com.lifecyclebot.engine.sell.SellJobRegistry.markLanded(p.mint, signature = null) } catch (_: Throwable) {}
+                    try { com.lifecyclebot.engine.ForensicLogger.lifecycle("DUST_ZOMBIE_POSITION_REAPED", "mint=${p.mint.take(10)} symbol=${p.symbol} walletRaw=$walletRawApprox ageMs=$ageMs reason=$reason") } catch (_: Throwable) {}
+                }
+            }
+        }
         var updated = 0
         for ((mint, pair) in balances) {
             totalChecked.incrementAndGet()
-            val (uiAmount, _) = pair
+            val (uiAmount, decimals) = pair
             if (uiAmount <= 0.0) continue
+            // V5.0.3791 — do not re-open / keep dust as a live held token; the
+            // dust-zombie reaper above owns finality for these.
+            val rawApprox = (uiAmount * Math.pow(10.0, decimals.toDouble())).toLong()
+            if (rawApprox <= DUST_RAW_REAP) continue
             try {
                 // Lazy-create if missing — ALL live wallet tokens must be tracked.
                 if (TokenLifecycleTracker.get(mint) == null) {

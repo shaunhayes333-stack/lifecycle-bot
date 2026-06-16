@@ -60,6 +60,13 @@ object SellAmountAuthority {
 
     enum class Source { ACCOUNT_INFO, TOKEN_ACCOUNTS_BY_OWNER, TX_META_OWNER_DELTA, BALANCE_PROOF_POLLER }
 
+    // V5.0.3791 — sell-side dust floor (raw base units). A confirmed wallet balance
+    // at or below this is economically unsellable (fees exceed proceeds) and is
+    // finalized as a confirmed Zero close rather than retried forever. Kept small so
+    // only true dust (sub-1e-6 of a 6-decimal token) is swept; real positions are
+    // never short-changed.
+    val SELL_DUST_RAW: java.math.BigInteger = java.math.BigInteger.valueOf(1L)
+
     private data class ProofReadyEntry(
         val rawAmount: BigInteger,
         val decimals: Int,
@@ -155,14 +162,35 @@ object SellAmountAuthority {
         }
         val (uiAmount, decimals) = entry
         if (uiAmount <= 0.0) {
-            ErrorLogger.warn(TAG, "BALANCE_UNKNOWN reason=ONE_PROVIDER_ZERO mint=${mint.take(8)}…")
-            return Resolution.Unknown
+            // V5.0.3791 — a trusted two-program wallet read that returns the mint at
+            // exactly zero IS a confirmed-zero proof (not indeterminate). The read
+            // succeeded robustly (getTokenAccountsWithDecimalsBounded did not throw),
+            // both SPL + Token-2022 programs were queried, and the mint resolved to 0.
+            // Resolve Zero so the close authority finalizes the position instead of
+            // re-queuing a sell forever (the phantom dust loop that latched
+            // SELL_ONLY_SAFE_MODE and blocked all live buys).
+            try { com.lifecyclebot.engine.sell.LivePositionCloseAuthority.clearUntrustedRpc(mint) } catch (_: Throwable) {}
+            try { com.lifecyclebot.engine.ForensicLogger.lifecycle("EXEC_TRACE_AUTHORITY", "side=SELL stage=BALANCE_RPC_CONFIRMED_ZERO mint=${mint.take(10)} ui=$uiAmount decimals=$decimals reason=TRUSTED_WALLET_ZERO source=TOKEN_ACCOUNTS_BY_OWNER") } catch (_: Throwable) {}
+            ErrorLogger.warn(TAG, "BALANCE_CONFIRMED_ZERO reason=TRUSTED_WALLET_ZERO mint=${mint.take(8)}…")
+            return Resolution.Zero(Source.TOKEN_ACCOUNTS_BY_OWNER)
         }
         val raw = if (decimals > 0)
             BigDecimal(uiAmount).movePointRight(decimals).toBigInteger()
         else
             BigDecimal(uiAmount).toBigInteger()
         try { com.lifecyclebot.engine.sell.LivePositionCloseAuthority.clearUntrustedRpc(mint) } catch (_: Throwable) {}
+        // V5.0.3791 — DUST-ZERO FINALITY. A confirmed wallet read whose raw units round
+        // to dust (<= SELL_DUST_RAW) is economically empty and unsellable — every sell
+        // build against it fails / re-enters the lease (SELL_LEASE_RETRY_REENTERED),
+        // keeping pendingSellQueue > 0 which latches SELL_ONLY_SAFE_MODE and hard-blocks
+        // new live buys. Treat trusted dust as confirmed Zero so the position finalizes
+        // closed and slots free. This is a TRUSTED read only (the bounded fetch
+        // succeeded); indeterminate/untrusted reads are handled above and never reach here.
+        if (raw <= SELL_DUST_RAW) {
+            try { com.lifecyclebot.engine.ForensicLogger.lifecycle("EXEC_TRACE_AUTHORITY", "side=SELL stage=BALANCE_RPC_CONFIRMED_DUST_ZERO mint=${mint.take(10)} raw=$raw decimals=$decimals ui=$uiAmount dustFloor=$SELL_DUST_RAW source=TOKEN_ACCOUNTS_BY_OWNER") } catch (_: Throwable) {}
+            ErrorLogger.warn(TAG, "BALANCE_CONFIRMED_ZERO reason=TRUSTED_DUST_UNSELLABLE raw=$raw mint=${mint.take(8)}…")
+            return Resolution.Zero(Source.TOKEN_ACCOUNTS_BY_OWNER)
+        }
         try { com.lifecyclebot.engine.ForensicLogger.lifecycle("EXEC_TRACE_AUTHORITY", "side=SELL stage=BALANCE_RPC_CONFIRMED mint=${mint.take(10)} raw=$raw decimals=$decimals ui=$uiAmount source=TOKEN_ACCOUNTS_BY_OWNER") } catch (_: Throwable) {}
         return Resolution.Confirmed(raw, decimals, Source.TOKEN_ACCOUNTS_BY_OWNER)
     }

@@ -1725,4 +1725,27 @@ class GoldenTapeRegressionTest {
         assertTrue(dd.contains("DD_CIRCUIT_BOOTSTRAP_AGG_FLOOR = 0.70"))
     }
 
+
+    @Test
+    fun dust_positions_finalize_closed_and_do_not_latch_sell_only_safe_mode() {
+        val auth = java.io.File("src/main/kotlin/com/lifecyclebot/engine/sell/SellAmountAuthority.kt").readText()
+        val recon = java.io.File("src/main/kotlin/com/lifecyclebot/engine/sell/LiveWalletReconciler.kt").readText()
+
+        // SellAmountAuthority: a trusted confirmed wallet read at zero/dust must resolve
+        // Zero (finalize-close), never Confirmed (which retries the sell forever).
+        assertTrue(auth.contains("SELL_DUST_RAW"))
+        assertTrue(auth.contains("BALANCE_RPC_CONFIRMED_DUST_ZERO"))
+        assertTrue(auth.contains("TRUSTED_WALLET_ZERO"))
+        // The ui<=0 branch must now return Zero, not Unknown.
+        assertFalse("trusted wallet-zero must finalize, not return Unknown",
+            auth.contains("BALANCE_UNKNOWN reason=ONE_PROVIDER_ZERO"))
+
+        // LiveWalletReconciler: a healthy (non-empty) wallet read that shows a tracked
+        // OPEN_TRACKING mint at dust must reap it — not keep it open and latch
+        // SELL_ONLY_SAFE_MODE via openCountMismatch / pendingSellQueue.
+        assertTrue(recon.contains("DUST_RAW_REAP"))
+        assertTrue(recon.contains("DUST_ZOMBIE_POSITION_REAPED"))
+        assertTrue(recon.contains("if (rawApprox <= DUST_RAW_REAP) continue"))
+    }
+
 }
