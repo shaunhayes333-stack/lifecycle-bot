@@ -10045,6 +10045,11 @@ class Executor(
     enum class SellResult {
         CONFIRMED,
         FAILED_RETRYABLE,
+        // V5.0.3795 — all providers failed before any broadcast signature. This is
+        // not a terminal close (tokens may still be held), but it also must NOT keep
+        // a CloseLease or PendingSellQueue entry. A stale blocking retry is exactly
+        // what latched LIVE_SELL_NO_FINALITY/noSig and stopped new buys.
+        ROUTE_FAILED_NO_SIGNATURE,
         FAILED_FATAL,
         PAPER_CONFIRMED,
         ALREADY_CLOSED,
@@ -10142,8 +10147,21 @@ class Executor(
                 when (r) {
                     // Terminal outcomes → release the lease.
                     SellResult.CONFIRMED, SellResult.PAPER_CONFIRMED,
-                    SellResult.ALREADY_CLOSED, SellResult.FAILED_FATAL ->
+                    SellResult.ALREADY_CLOSED, SellResult.FAILED_FATAL,
+                    SellResult.ROUTE_FAILED_NO_SIGNATURE -> {
                         com.lifecyclebot.engine.sell.CloseLease.release(ts.mint, r.name)
+                        if (r == SellResult.ROUTE_FAILED_NO_SIGNATURE) {
+                            try { PendingSellQueue.remove(ts.mint) } catch (_: Throwable) {}
+                            try { com.lifecyclebot.engine.HostWalletTokenTracker.clearSellInFlight(ts.mint, "ROUTE_FAILED_NO_SIGNATURE_NO_BLOCKING_RETRY") } catch (_: Throwable) {}
+                            try { com.lifecyclebot.engine.sell.SellFailureHistory.record(
+                                mint = ts.mint,
+                                symbol = ts.symbol,
+                                kind = com.lifecyclebot.engine.sell.SellFailureHistory.Kind.ROUTE_FAILED_NO_SIGNATURE,
+                                reason = "requestSell released CloseLease; no blocking retry queue",
+                                sig = null,
+                            ) } catch (_: Throwable) {}
+                        }
+                    }
                     // NO_WALLET is terminal for THIS attempt (wallet gone) — release
                     // so a reconnect can re-acquire cleanly rather than starving.
                     SellResult.NO_WALLET ->
@@ -13366,7 +13384,7 @@ class Executor(
                 // hand-off so it retries again in seconds (V5.9.478 also
                 // bumps the queue from %10 → %1 so it's almost immediate).
                 throw lastBroadcastException ?: RuntimeException(
-                    "${ts.symbol}: all in-line broadcast retries exhausted at ${broadcastSlipLadder.last()}bps")
+                    "NO_SIGNATURE: ${ts.symbol}: all providers exhausted without broadcast signature at ${broadcastSlipLadder.last()}bps")
             }
 
             // V5.9.478 — capture the final non-null quote (the one whose
@@ -14031,36 +14049,17 @@ class Executor(
             // build/execute failure vs an RPC simulation failure vs a rent /
             // insufficient-funds failure, so the user can immediately see
             // the class of problem.
-            val failureClass = when {
-                // V5.9.470 — fix misclassification observed in operator forensics:
-                // pump.fun / Raydium bonding-curve programs throw 0x1788 (6024 =
-                // 'TooLittleSolReceived' / 'SlippageExceeded') when on-chain
-                // price drifts past the quote tolerance. Was previously bucketed
-                // as INSUFFICIENT_FUNDS (because the generic '0x1' substring
-                // match was too greedy) which sent the user looking at their
-                // wallet balance instead of the slippage cap.
-                safe.contains("0x1788", ignoreCase = true) ||
-                safe.contains("0x1789", ignoreCase = true) ||
-                safe.contains("TooLittleSolReceived", ignoreCase = true) ||
-                safe.contains("Slippage", ignoreCase = true) -> "SLIPPAGE_EXCEEDED"
-
-                safe.contains("simulation failed", ignoreCase = true) -> "SIM_FAILED"
-                safe.contains("RFQ", ignoreCase = true) -> "RFQ_ROUTE_FAILED"
-                safe.contains("blockhash", ignoreCase = true) ||
-                safe.contains("expired", ignoreCase = true) -> "TX_EXPIRED"
-                safe.contains("rate limit", ignoreCase = true) ||
-                safe.contains("429", ignoreCase = true) -> "RATE_LIMITED"
-                safe.contains("timeout", ignoreCase = true) -> "TIMEOUT"
-                // Insufficient SOL for tx fees / rent. Be more specific than
-                // before — only match on actual rent / 0x1 (token program
-                // 'InsufficientFunds') / explicit 'insufficient' wording.
-                safe.contains("InsufficientFunds", ignoreCase = true) ||
-                safe.contains("insufficient lamports", ignoreCase = true) ||
-                safe.contains("rent", ignoreCase = true) -> "INSUFFICIENT_FUNDS"
-                safe.contains("buildSwapTx", ignoreCase = true) ||
-                safe.contains("transactionBase64", ignoreCase = true) -> "JUPITER_BUILD_FAILED"
-                else -> "BROADCAST_FAILED"
+            // V5.0.3795 — use the canonical route classifier here too. The old
+            // hand-written `failureClass` missed NO_SIGNATURE/all-provider-exhausted
+            // and collapsed it to BROADCAST_FAILED, which returned FAILED_RETRYABLE.
+            // doSell() then queued PendingSellQueue while requestSell() kept the
+            // CloseLease, producing LIVE_SELL_NO_FINALITY: noSig>0 + blocking lease.
+            val routeCls = com.lifecyclebot.engine.sell.SellRouteErrorClassifier.classify(safe)
+            val routePolicy = com.lifecyclebot.engine.sell.SellRouteErrorClassifier.retryPolicy(routeCls, broadcastRetries, retryScheduled = false)
+            if (routePolicy.requireVenueReResolution) {
+                try { com.lifecyclebot.engine.sell.MemeVenueRouter.markPumpRouteInvalid(ts.mint) } catch (_: Throwable) {}
             }
+            val failureClass = routeCls.name
             LiveTradeLogStore.log(
                 sellTradeKey, ts.mint, ts.symbol, "SELL",
                 LiveTradeLogStore.Phase.SELL_FAILED,
@@ -14101,6 +14100,23 @@ class Executor(
                 "${ts.symbol}: $failureClass — ${safe.take(80)} (retry $broadcastRetries)",
                 com.lifecyclebot.engine.NotificationHistory.NotifEntry.NotifType.INFO)
             onToast("SELL FAILED: ${ts.symbol} ($failureClass · attempt $broadcastRetries)")
+
+            if (routeCls == com.lifecyclebot.engine.sell.SellRouteErrorClassifier.Class.NO_SIGNATURE) {
+                try { PendingSellQueue.remove(ts.mint) } catch (_: Throwable) {}
+                try { com.lifecyclebot.engine.sell.CloseLease.release(ts.mint, "ROUTE_FAILED_${routeCls.name}_NO_BLOCKING_RETRY") } catch (_: Throwable) {}
+                try { com.lifecyclebot.engine.HostWalletTokenTracker.clearSellInFlight(ts.mint, "ROUTE_FAILED_${routeCls.name}_NO_BLOCKING_RETRY") } catch (_: Throwable) {}
+                try { com.lifecyclebot.engine.sell.SellFailureHistory.record(
+                    mint = ts.mint,
+                    symbol = ts.symbol,
+                    kind = com.lifecyclebot.engine.sell.SellFailureHistory.Kind.ROUTE_FAILED_NO_SIGNATURE,
+                    reason = "${routeCls.name}: ${safe.take(120)}",
+                    sig = null,
+                ) } catch (_: Throwable) {}
+                try { com.lifecyclebot.engine.sell.SellForensics.inc(
+                    com.lifecyclebot.engine.sell.SellForensics.EXEC_LIVE_SELL_ROUTE_FAILED_NO_SIGNATURE,
+                    "mint=${ts.mint.take(10)} symbol=${ts.symbol} class=${routeCls.name} action=release_no_queue") } catch (_: Throwable) {}
+                return SellResult.ROUTE_FAILED_NO_SIGNATURE
+            }
             return SellResult.FAILED_RETRYABLE
         }
 

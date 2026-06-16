@@ -1774,4 +1774,29 @@ class GoldenTapeRegressionTest {
         assertFalse("BotService zombie force must not fake a confirmed sell signature", bot.contains("ZOMBIE_FORCE_TERMINATE") && bot.contains("hasConfirmedSellSig = true"))
     }
 
+
+    @Test
+    fun live_sell_no_signature_releases_close_lease_and_does_not_queue_blocking_retry() {
+        val exec = java.io.File("src/main/kotlin/com/lifecyclebot/engine/Executor.kt").readText()
+        val cls = java.io.File("src/main/kotlin/com/lifecyclebot/engine/sell/SellRouteErrorClassifier.kt").readText()
+
+        assertTrue(cls.contains("Class.NO_SIGNATURE"))
+        assertTrue(cls.contains("no signature — clear lock unless retry scheduled"))
+
+        // A sell route that exhausts every provider before producing a broadcast
+        // signature must be classified as NO_SIGNATURE, not generic BROADCAST_FAILED.
+        assertTrue(exec.contains("all providers exhausted without broadcast signature"))
+        assertTrue(exec.contains("SellRouteErrorClassifier.classify"))
+        assertTrue(exec.contains("SellResult.ROUTE_FAILED_NO_SIGNATURE"))
+
+        // This outcome is deliberately non-closing but non-blocking: tokens stay open,
+        // yet the close lease / sell-in-flight / pending retry queue are cleared so
+        // the next fresh exit tick can try again and buys are not held in safe mode.
+        assertTrue(exec.contains("CloseLease.release(ts.mint, r.name)"))
+        assertTrue(exec.contains("PendingSellQueue.remove(ts.mint)"))
+        assertTrue(exec.contains("ROUTE_FAILED_NO_SIGNATURE_NO_BLOCKING_RETRY"))
+        assertTrue(exec.contains("return SellResult.ROUTE_FAILED_NO_SIGNATURE"))
+        assertFalse("no-signature route failure must not be auto-queued as FAILED_RETRYABLE", exec.contains("ROUTE_FAILED_NO_SIGNATURE -> {\n                        com.lifecyclebot.engine.sell.CloseLease.recordRetry"))
+    }
+
 }
