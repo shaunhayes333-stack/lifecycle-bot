@@ -13812,13 +13812,15 @@ if (hotExitHandledSweep) {
         try { com.lifecyclebot.v3.scoring.ShitCoinExpress.evictGhost(mint) } catch (_: Throwable) {}
     }
 
-    private fun isCapCountableLiveToken(mint: String, ts: com.lifecyclebot.data.TokenState? = null): Boolean = try {
-        if (mint.isBlank()) return false
-        val hostTracked = com.lifecyclebot.engine.HostWalletTokenTracker.hasTrackedPosition(mint)
-        if (hostTracked) return com.lifecyclebot.engine.HostWalletTokenTracker.isCapCountable(mint)
-        val pos = ts?.position ?: status.tokens[mint]?.position ?: return false
-        !pos.isPaperPosition && pos.qtyToken > 0.0 && pos.isOpen
-    } catch (_: Throwable) { false }
+    private fun isCapCountableLiveToken(mint: String, ts: com.lifecyclebot.data.TokenState? = null): Boolean {
+        return try {
+            if (mint.isBlank()) return false
+            val hostTracked = com.lifecyclebot.engine.HostWalletTokenTracker.hasTrackedPosition(mint)
+            if (hostTracked) return com.lifecyclebot.engine.HostWalletTokenTracker.isCapCountable(mint)
+            val pos = ts?.position ?: status.tokens[mint]?.position ?: return false
+            !pos.isPaperPosition && pos.qtyToken > 0.0 && pos.isOpen
+        } catch (_: Throwable) { false }
+    }
 
     private fun reapGhostForcedOpen(forcedOpenRaw: List<String>): List<String> {
         try { com.lifecyclebot.engine.PositionCloseLedger.prune() } catch (_: Throwable) {}
