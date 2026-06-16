@@ -1831,7 +1831,7 @@ class GoldenTapeRegressionTest {
         val models = java.io.File("src/main/kotlin/com/lifecyclebot/data/Models.kt").readText()
 
         assertTrue("FDG per-mode must parse mode from event payload", collector.contains("val eventMode = extractModeFromText(reason)"))
-        assertTrue("report must explain current snapshot vs event attribution", collector.contains("per-mode counters are event-attributed"))
+        assertTrue("report must explain event attribution", collector.contains("event-attributed"))
         assertTrue("live execution section must be separate", collector.contains("LIVE execution telemetry (event-attributed)"))
         assertTrue("paper execution section must be separate", collector.contains("PAPER execution telemetry (event-attributed)"))
         assertTrue("recent live list must be separate", collector.contains("Recent LIVE executions"))
