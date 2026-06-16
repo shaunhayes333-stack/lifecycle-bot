@@ -587,13 +587,13 @@ class GoldenTapeRegressionTest {
     @Test
     fun closed_tracker_with_authoritative_proof_must_not_requeue_forever_on_rpc_unknown() {
         val exec = java.io.File("src/main/kotlin/com/lifecyclebot/engine/Executor.kt").readText()
-        assertTrue(exec.contains("SELL_ABORT_TRACKER_CLOSED_WALLET_UNKNOWN_TERMINAL"))
+        assertTrue(exec.contains("SELL_ABORT_TRACKER_CLOSED_NO_CURRENT_HELD_PROOF_TERMINAL"))
         assertTrue(exec.contains("PositionCloseLedger.isClosed(ts.mint)"))
         assertTrue(exec.contains("CLOSED_SOLD_BY_AATE"))
         assertTrue(exec.contains("CLOSED_EXTERNALLY_MANUAL_SWAP"))
         assertTrue(exec.contains("PendingSellQueue.remove(ts.mint)"))
         assertTrue(exec.contains("return SellResult.ALREADY_CLOSED"))
-        assertTrue(exec.contains("SELL_PAUSED_TRACKER_CLOSED_WALLET_UNKNOWN"))
+        assertTrue(exec.contains("SELL_PAUSED_TRACKER_CLOSED_NO_CURRENT_HELD_PROOF"))
     }
 
 
@@ -1000,14 +1000,14 @@ class GoldenTapeRegressionTest {
         assertFalse("RPC empty must not fall back to TX_PARSE confirmed balance", sellAuth.contains("return tryFreshTxParseFallback(mint) ?: Resolution.Unknown"))
         assertFalse("TX_PARSE must not be broadcast bypass", sellAuth.contains("TX_PARSE_BROADCAST_BYPASS"))
 
-        assertTrue(tracker.contains("OPEN_BALANCE_UNKNOWN_RECOVERY_REQUIRED"))
-        assertTrue(tracker.contains("OPEN_SELL_FAILED_NO_SIGNATURE_RETRYING"))
+        assertTrue(tracker.contains("STALE_RECOVERY_UNPROVEN"))
+        assertTrue(tracker.contains("NO_CURRENT_HELD_PROOF"))
         assertTrue(tracker.contains("recordBuyConfirmedWithProof"))
         assertTrue(tracker.contains("CLOSED_REJECTED_NO_SIGNATURE_NO_ZERO_PROOF"))
         assertFalse("No-signature txparse must not stamp CLOSED", tracker.contains("CLOSED_BY_TX_PARSE_NO_SIGNATURE"))
 
         assertTrue(exec.contains("OWNER_DELTA_PROOF"))
-        assertTrue(exec.contains("OPEN_SELL_FAILED_NO_SIGNATURE_RETRYING"))
+        assertFalse(exec.contains("OPEN_SELL_FAILED_NO_SIGNATURE_RETRYING"))
         assertTrue(exec.contains("PUMPPORTAL_PARTIAL") || exec.contains("JUPITER_ULTRA_METIS_PARTIAL"))
         assertFalse("PumpPortal partial skip must not be a no-signature failure", exec.contains("SEV_PUMPPORTAL_PARTIAL_BLOCKED"))
         assertFalse("Host tracker must not be sell quantity authority", exec.contains("SELL_QTY_SOURCE=HOST_TRACKER"))
@@ -1126,12 +1126,12 @@ class GoldenTapeRegressionTest {
         assertTrue(sellAuthority.contains("HostWalletTokenTracker.getEntry"))
         assertFalse("one provider missing mint must not be zero", sellAuthority.contains("mint NOT in the map AND map is non-empty → genuine zero"))
 
-        assertTrue(tracker.contains("markOpenBalanceUnknown"))
+        assertTrue(tracker.contains("markNoCurrentHeldProof"))
         assertTrue(tracker.contains("RPC_EMPTY_MAP_MINT_ABSENT"))
-        assertTrue(tracker.contains("REAP_SKIPPED_BALANCE_UNKNOWN"))
-        assertTrue(tracker.contains("REAP_SKIPPED_LAST_POSITIVE_HELD"))
-        assertTrue(tracker.contains("OPEN_SELL_FAILED_NO_SIGNATURE_RETRYING"))
-        assertTrue(tracker.contains("OPEN_BALANCE_UNKNOWN_RECOVERY_REQUIRED"))
+        assertTrue(tracker.contains("NO_CURRENT_HELD_PROOF"))
+        assertTrue(tracker.contains("HISTORICAL_RAW_NOT_CURRENT_HELD_PROOF"))
+        assertTrue(tracker.contains("STALE_RECOVERY_UNPROVEN"))
+        assertFalse("no current proof must not become open recovery", tracker.contains("OPEN_BALANCE_UNKNOWN_RECOVERY_REQUIRED"))
         assertTrue(tracker.contains("hasLastPositiveRaw(p)"))
         assertTrue(tracker.contains("isOpenForAccounting"))
         assertTrue(tracker.contains("p.zeroBalanceConfirmedByTwoProviders"))
@@ -1149,7 +1149,7 @@ class GoldenTapeRegressionTest {
         assertTrue(service.contains("REAP_SKIPPED_BALANCE_UNKNOWN"))
         assertFalse("poller must not close no-broadcast zero directly", service.contains("ZERO_BALANCE_CLOSED_NO_BROADCAST"))
 
-        assertTrue(exec.contains("OPEN_SELL_FAILED_NO_SIGNATURE_RETRYING"))
+        assertFalse(exec.contains("OPEN_SELL_FAILED_NO_SIGNATURE_RETRYING"))
         assertFalse("new runtime must not emit the old no-signature finality marker", exec.contains("\"SELL_ROUTE_FAILED_NO_SIGNATURE_UNLOCKED\""))
     }
 
@@ -1620,6 +1620,52 @@ class GoldenTapeRegressionTest {
         assertTrue(exec.contains(": ProcessorAmountPlanner.SellPlan?"))
         assertFalse("Executor must not keep duplicate buy plan wrapper", exec.contains("private data class ProcessorBuyPlan"))
         assertFalse("Executor must not keep duplicate sell plan wrapper", exec.contains("private data class ProcessorSellPlan"))
+    }
+
+
+    @Test
+    fun wallet_authority_has_no_unknown_or_open_recovery_state() {
+        val tracker = java.io.File("src/main/kotlin/com/lifecyclebot/engine/HostWalletTokenTracker.kt").readText()
+        val snapshot = java.io.File("src/main/kotlin/com/lifecyclebot/engine/WalletAuthoritySnapshot.kt").readText()
+
+        assertTrue(snapshot.contains("sealed class WalletAuthoritySnapshot"))
+        assertTrue(snapshot.contains("data class HELD"))
+        assertTrue(snapshot.contains("data class ABSENT_CONFIRMED"))
+        assertTrue(snapshot.contains("data class NO_CURRENT_HELD_PROOF"))
+        assertFalse("wallet authority must not expose UNKNOWN state", snapshot.contains("data class UNKNOWN"))
+        assertFalse("wallet authority must not assign UNKNOWN snapshots", tracker.contains("WalletAuthoritySnapshot.UNKNOWN"))
+
+        val openStatusesStart = tracker.indexOf("internal val OPEN_STATUSES")
+        val openStatusesEnd = tracker.indexOf("private val SELL_IN_FLIGHT_STATUSES", openStatusesStart)
+        val openStatuses = tracker.substring(openStatusesStart, openStatusesEnd)
+        assertFalse("legacy unknown recovery must not be open", openStatuses.contains("OPEN_BALANCE_UNKNOWN_RECOVERY_REQUIRED"))
+        assertFalse("legacy unknown must not be open", openStatuses.contains("OPEN_BALANCE_UNKNOWN"))
+        assertFalse("no-signature retry must not be open", openStatuses.contains("OPEN_SELL_FAILED_NO_SIGNATURE_RETRYING"))
+        assertFalse("balance-proof wait must not be open", openStatuses.contains("SELL_WAITING_BALANCE_PROOF"))
+        assertTrue(openStatuses.contains("OPEN_BALANCE_PROOF_PENDING"))
+
+        assertTrue(tracker.contains("PositionStatus.STALE_RECOVERY_UNPROVEN"))
+        assertTrue(tracker.contains("CLOSED_STALE_RECOVERY_UNHELD"))
+        assertTrue(tracker.contains("HISTORICAL_RAW_NOT_CURRENT_HELD_PROOF"))
+        assertFalse("historical raw must not protect a row from stale-unproven conversion",
+            tracker.contains("REAP_SKIPPED_LAST_POSITIVE_HELD"))
+        assertFalse("no-signature failures must not create open retry state",
+            tracker.contains("retry_required=true"))
+        assertFalse("no-signature failures must not say open retry",
+            tracker.contains("open retry"))
+    }
+
+    @Test
+    fun tx_meta_buy_is_proof_pending_until_current_wallet_held_snapshot() {
+        val tracker = java.io.File("src/main/kotlin/com/lifecyclebot/engine/HostWalletTokenTracker.kt").readText()
+        assertTrue(tracker.contains("proof.source == BalanceProofSource.TX_META_OWNER_DELTA) PositionStatus.OPEN_BALANCE_PROOF_PENDING"))
+        assertTrue(tracker.contains("BUY_TX_META_AWAITING_CURRENT_WALLET_HELD"))
+        assertTrue(tracker.contains("WalletAuthoritySnapshot.HELD"))
+        assertTrue(tracker.contains("currentHeldSnapshot"))
+        assertTrue(tracker.contains("getActuallyHeldCount(): Int = positions.values.count { hasCurrentWalletPositiveProof(it) }"))
+        assertTrue(tracker.contains("getActuallyHeldMints(): Set<String>"))
+        assertFalse("TX-meta owner delta must not promote directly to open tracking",
+            tracker.contains("p.status = PositionStatus.OPEN_TRACKING\n        p.source = when (proof.source)"))
     }
 
 }

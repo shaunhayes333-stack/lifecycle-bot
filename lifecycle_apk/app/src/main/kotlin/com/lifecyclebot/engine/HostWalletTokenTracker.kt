@@ -29,7 +29,7 @@
  *
  * Wallet reconciliation runs every loop and is monotonic: a wallet
  * reconcile NEVER overwrites a HIGHER state with a lower one (e.g. a
- * stale RPC poll cannot demote OPEN_TRACKING back to UNKNOWN).
+ * stale RPC poll cannot demote current HELD into a sellable state).
  */
 package com.lifecyclebot.engine
 
@@ -69,7 +69,6 @@ object HostWalletTokenTracker {
 
     enum class PositionStatus(val priority: Int) {
         // Higher priority cannot be downgraded by lower priority.
-        UNKNOWN_NEEDS_RECONCILE(0),
         DUST_IGNORED(1),
         BUY_PENDING(2),
         CONFIRMED_PENDING_BALANCE(3),
@@ -78,19 +77,19 @@ object HostWalletTokenTracker {
         OPEN_TRACKING(4),
         OPEN_LIVE_CONFIRMED(4),
         OPEN_RESTORED(4),
-        OPEN_BALANCE_UNKNOWN(4),
-        OPEN_BALANCE_UNKNOWN_RECOVERY_REQUIRED(4),
-        OPEN_SELL_FAILED_NO_SIGNATURE_RETRYING(5),
+        OPEN_BALANCE_PROOF_PENDING(4),
+        STALE_RECOVERY_UNPROVEN(4),
+        STALE_RECOVERY_UNPROVEN(5),
         RECOVERY_SELL_REQUIRED(5),
         EXIT_SIGNALLED(5),
         SELL_PENDING(6),
         SELL_VERIFYING(7),
         SOLD_CONFIRMED(8),
-        SELL_WAITING_BALANCE_PROOF(8),
         SELL_REPRICE_OR_SPLIT_REQUIRED(8),
-        SELL_FAILED_BALANCE_UNKNOWN(8),
         CLOSED_VERIFIED(10),
         CLOSED(9),
+        CLOSED_STALE_RECOVERY_UNHELD(10),
+        CLOSED_DUST_UNROUTABLE(10),
 
         // V5.9.778 — EMERGENT MEME-ONLY: external-swap terminal states.
         // Operator forensics 5.0.2709: user manually swapped received
@@ -99,8 +98,8 @@ object HostWalletTokenTracker {
         // spawned endless sell retries. We now distinguish AATE-driven
         // sells from external user/wallet swaps:
         //   CLOSED_SOLD_BY_AATE         — AATE broadcasted+confirmed sell
-        //   OPEN_BALANCE_UNKNOWN_RECOVERY_REQUIRED — wallet snapshot/route proof is
-        //       inconclusive; keep open and retry recovery.
+        //   STALE_RECOVERY_UNPROVEN — wallet snapshot/route proof is inconclusive;
+        //       diagnostic only, never open/sell-managed/cap-countable.
         CLOSED_SOLD_BY_AATE(10),
         CLOSED_EXTERNALLY_MANUAL_SWAP(11),
     }
@@ -114,16 +113,10 @@ object HostWalletTokenTracker {
         PositionStatus.OPEN_TRACKING,
         PositionStatus.OPEN_LIVE_CONFIRMED,
         PositionStatus.OPEN_RESTORED,
-        PositionStatus.OPEN_BALANCE_UNKNOWN,
-        PositionStatus.OPEN_BALANCE_UNKNOWN_RECOVERY_REQUIRED,
-        PositionStatus.OPEN_SELL_FAILED_NO_SIGNATURE_RETRYING,
-        PositionStatus.RECOVERY_SELL_REQUIRED,
+        PositionStatus.OPEN_BALANCE_PROOF_PENDING,
         PositionStatus.EXIT_SIGNALLED,
         PositionStatus.SELL_PENDING,
         PositionStatus.SELL_VERIFYING,
-        PositionStatus.SELL_WAITING_BALANCE_PROOF,
-        PositionStatus.SELL_REPRICE_OR_SPLIT_REQUIRED,
-        PositionStatus.SELL_FAILED_BALANCE_UNKNOWN,
     )
 
     /** V5.9.601 — any of these means a sell/reconcile lifecycle is in flight. */
@@ -195,6 +188,7 @@ object HostWalletTokenTracker {
 
     @Volatile private var ctx: android.content.Context? = null
     private val positions = ConcurrentHashMap<String, TrackedTokenPosition>()
+    private val walletAuthority = ConcurrentHashMap<String, WalletAuthoritySnapshot>()
     @Volatile private var loaded = false
 
     private fun rawAmountBig(p: TrackedTokenPosition): BigInteger =
@@ -215,21 +209,18 @@ object HostWalletTokenTracker {
     private const val CAP_FRESH_BUY_LIABILITY_MS = 3 * 60_000L
     private const val CAP_SELL_IN_FLIGHT_MS = 90_000L
 
-    private fun hasCurrentWalletPositiveProof(p: TrackedTokenPosition, now: Long = System.currentTimeMillis()): Boolean {
-        if (!hasLastPositiveRaw(p)) return false
-        val src = p.balanceAuthoritySource ?: ""
-        val walletSource = src == BalanceProofSource.RPC_FINALIZED_OWNER_TOKEN_ACCOUNT.name ||
-            src == BalanceProofSource.RPC_CONFIRMED_OWNER_TOKEN_ACCOUNT.name ||
-            src == BalanceProofSource.RPC_CONFIRMED_SECOND_PROVIDER.name ||
-            p.source == PositionSource.WALLET_RECONCILED
-        val observed = listOfNotNull(p.lastWalletReconcileMs, p.balanceAuthorityObservedAtMs.takeIf { it > 0L }).maxOrNull() ?: 0L
-        return walletSource && observed > 0L && (now - observed) <= CAP_WALLET_PROOF_TTL_MS
+    private fun currentHeldSnapshot(p: TrackedTokenPosition, now: Long = System.currentTimeMillis()): WalletAuthoritySnapshot.HELD? {
+        val snap = walletAuthority[p.mint] as? WalletAuthoritySnapshot.HELD ?: return null
+        return snap.takeIf { it.raw > BigInteger.valueOf(DUST_RAW) && (now - it.observedAtMs) <= CAP_WALLET_PROOF_TTL_MS }
     }
+
+    private fun hasCurrentWalletPositiveProof(p: TrackedTokenPosition, now: Long = System.currentTimeMillis()): Boolean =
+        currentHeldSnapshot(p, now) != null
 
     private fun hasFreshBuyLiability(p: TrackedTokenPosition, now: Long = System.currentTimeMillis()): Boolean {
         val anchor = p.buyTimeMs ?: p.firstSeenWalletMs
         if (anchor <= 0L || (now - anchor) > CAP_FRESH_BUY_LIABILITY_MS) return false
-        return p.status in setOf(PositionStatus.BUY_PENDING, PositionStatus.CONFIRMED_PENDING_BALANCE, PositionStatus.BUY_CONFIRMED, PositionStatus.OPEN_TRACKING) &&
+        return p.status in setOf(PositionStatus.BUY_PENDING, PositionStatus.CONFIRMED_PENDING_BALANCE, PositionStatus.BUY_CONFIRMED, PositionStatus.OPEN_BALANCE_PROOF_PENDING) &&
             !p.buySignature.isNullOrBlank() &&
             p.source == PositionSource.BOT_BUY
     }
@@ -250,13 +241,21 @@ object HostWalletTokenTracker {
 
     private fun isOpenForAccounting(p: TrackedTokenPosition): Boolean = isCapCountable(p)
 
-    private fun markOpenBalanceUnknown(p: TrackedTokenPosition, reason: String) {
+    private fun markNoCurrentHeldProof(p: TrackedTokenPosition, reason: String) {
+        val now = System.currentTimeMillis()
+        walletAuthority[p.mint] = WalletAuthoritySnapshot.NO_CURRENT_HELD_PROOF(p.mint, reason, now)
+        val freshBotBuy = hasFreshBuyLiability(p, now)
         if (p.status !in setOf(PositionStatus.SELL_PENDING, PositionStatus.SELL_VERIFYING)) {
-            p.status = PositionStatus.OPEN_BALANCE_UNKNOWN_RECOVERY_REQUIRED
+            p.status = if (freshBotBuy) PositionStatus.OPEN_BALANCE_PROOF_PENDING else PositionStatus.STALE_RECOVERY_UNPROVEN
         }
-        p.balanceAuthoritySource = BalanceProofSource.BALANCE_UNKNOWN.name
-        p.notes.add("OPEN_BALANCE_UNKNOWN_RECOVERY_REQUIRED reason=$reason")
-        try { ForensicLogger.lifecycle("OPEN_BALANCE_UNKNOWN_RECOVERY_REQUIRED", "mint=${p.mint.take(10)} symbol=${p.symbol ?: "?"} reason=$reason lastPositiveRaw=${rawAmountBig(p)}") } catch (_: Throwable) {}
+        p.balanceAuthoritySource = "NO_CURRENT_HELD_PROOF"
+        p.activeSellAttemptId = null
+        p.sellAttemptStartedMs = 0L
+        p.notes.add("${p.status.name} reason=$reason")
+        val label = if (freshBotBuy) "OPEN_BALANCE_PROOF_PENDING" else "STALE_RECOVERY_UNPROVEN"
+        try { ForensicLogger.lifecycle(label, "mint=${p.mint.take(10)} symbol=${p.symbol ?: "?"} reason=$reason lastPositiveRaw=${rawAmountBig(p)} sellManaged=false capCountable=false") } catch (_: Throwable) {}
+        try { com.lifecyclebot.engine.sell.SellExecutionLocks.release(p.mint) } catch (_: Throwable) {}
+        try { com.lifecyclebot.engine.sell.CloseLease.release(p.mint, "WALLET_AUTH_UNKNOWN:$reason") } catch (_: Throwable) {}
     }
 
     // ─────────────────────────────────────────────────────────────────
@@ -326,11 +325,18 @@ object HostWalletTokenTracker {
                     source = runCatching { PositionSource.valueOf(o.optString("source", "RECOVERED_AFTER_RESTART")) }
                         .getOrDefault(PositionSource.RECOVERED_AFTER_RESTART),
                     status = run {
-                        val rawStatus = o.optString("status", "UNKNOWN_NEEDS_RECONCILE")
+                        val rawStatus = o.optString("status", "STALE_RECOVERY_UNPROVEN")
                         when (rawStatus) {
-                            "BALANCE_UNKNOWN_" + "CLOSED_UNVERIFIED" -> PositionStatus.OPEN_BALANCE_UNKNOWN_RECOVERY_REQUIRED
-                            "SELL_ROUTE_FAILED_" + "NO_SIGNATURE_UNLOCKED" -> PositionStatus.OPEN_SELL_FAILED_NO_SIGNATURE_RETRYING
-                            else -> runCatching { PositionStatus.valueOf(rawStatus) }.getOrDefault(PositionStatus.UNKNOWN_NEEDS_RECONCILE)
+                            "UNKNOWN_" + "NEEDS_RECONCILE",
+                            "OPEN_BALANCE_" + "UNKNOWN",
+                            "OPEN_BALANCE_" + "UNKNOWN_RECOVERY_REQUIRED",
+                            "BALANCE_UNKNOWN_" + "CLOSED_UNVERIFIED",
+                            "SELL_ROUTE_FAILED_" + "NO_SIGNATURE_UNLOCKED",
+                            "STALE_RECOVERY_UNPROVEN",
+                            "RECOVERY_SELL_REQUIRED",
+                            "SELL_WAITING_BALANCE_PROOF",
+                            "SELL_FAILED_BALANCE_" + "UNKNOWN" -> PositionStatus.STALE_RECOVERY_UNPROVEN
+                            else -> runCatching { PositionStatus.valueOf(rawStatus) }.getOrDefault(PositionStatus.STALE_RECOVERY_UNPROVEN)
                         }
                     },
                     buySignature = o.optString("buySig", "").takeIf { it.isNotBlank() },
@@ -382,12 +388,13 @@ object HostWalletTokenTracker {
                 p.sellSignature.isNullOrBlank() &&
                 !p.zeroBalanceConfirmedByTwoProviders
             if (falseClosed) {
-                p.status = PositionStatus.OPEN_BALANCE_UNKNOWN_RECOVERY_REQUIRED
+                p.status = PositionStatus.STALE_RECOVERY_UNPROVEN
                 p.balanceAuthoritySource = BalanceProofSource.REJECTED_TX_PARSE.name
                 p.activeSellAttemptId = null
-                p.notes.add("startup reclassified false CLOSED: TX_PARSE/zero/no sell signature/no zero proof → open recovery")
+                p.sellAttemptStartedMs = 0L
+                p.notes.add("startup reclassified false CLOSED: TX_PARSE/zero/no sell signature/no zero proof → stale unproven, not open")
                 changed = true
-                try { ForensicLogger.lifecycle("OPEN_BALANCE_UNKNOWN_RECOVERY_REQUIRED", "mint=${p.mint.take(10)} symbol=${p.symbol ?: "?"} source=TX_PARSE ui=0 sellSig=blank") } catch (_: Throwable) {}
+                try { ForensicLogger.lifecycle("STALE_RECOVERY_UNPROVEN", "mint=${p.mint.take(10)} symbol=${p.symbol ?: "?"} source=TX_PARSE ui=0 sellSig=blank open=false sellManaged=false") } catch (_: Throwable) {}
             }
         }
         if (changed) save()
@@ -499,7 +506,7 @@ object HostWalletTokenTracker {
         if (!isPaper) {
             p.status = PositionStatus.CONFIRMED_PENDING_BALANCE
             p.source = PositionSource.BOT_BUY
-            p.balanceAuthoritySource = BalanceProofSource.BALANCE_UNKNOWN.name
+            p.balanceAuthoritySource = "NO_CURRENT_HELD_PROOF"
             p.balanceAuthorityObservedAtMs = now
             p.buySignature = sig ?: p.buySignature
             p.uiAmount = pos.qtyToken
@@ -582,7 +589,7 @@ object HostWalletTokenTracker {
             lastPriceUpdateMs = now, lastWalletReconcileMs = now, lastExitCheckMs = null,
             activeSellAttemptId = null,
         )
-        p.status = PositionStatus.OPEN_TRACKING
+        p.status = if (proof.source == BalanceProofSource.TX_META_OWNER_DELTA) PositionStatus.OPEN_BALANCE_PROOF_PENDING else PositionStatus.OPEN_TRACKING
         p.source = when (proof.source) {
             BalanceProofSource.TX_META_OWNER_DELTA -> PositionSource.BOT_BUY
             else -> PositionSource.WALLET_RECONCILED
@@ -596,6 +603,11 @@ object HostWalletTokenTracker {
         p.balanceAuthoritySource = proof.source.name
         p.balanceAuthorityObservedAtMs = proof.observedAtMs
         p.balanceAuthoritySignature = proof.signature
+        if (proof.source == BalanceProofSource.TX_META_OWNER_DELTA) {
+            walletAuthority[ts.mint] = WalletAuthoritySnapshot.NO_CURRENT_HELD_PROOF(ts.mint, "BUY_TX_META_AWAITING_CURRENT_WALLET_HELD", now)
+        } else {
+            walletAuthority[ts.mint] = WalletAuthoritySnapshot.HELD(ts.mint, proof.amountRaw, ui, proof.decimals, proof.source.name, proof.observedAtMs)
+        }
         p.buySignature = sig ?: proof.signature ?: p.buySignature
         p.rawAmount = proof.amountRaw.toString()
         p.decimals = proof.decimals
@@ -634,7 +646,7 @@ object HostWalletTokenTracker {
     fun markSellWaitingBalanceProof(mint: String, symbol: String?, reason: String?) {
         val p = positions[mint] ?: return
         val r = reason ?: "?"
-        markOpenBalanceUnknown(p, "WAITING_BALANCE_PROOF:$r")
+        markNoCurrentHeldProof(p, "WAITING_BALANCE_PROOF:$r")
         p.activeSellAttemptId = null
         p.sellAttemptStartedMs = 0L
         p.notes.add("SELL_WAITING_BALANCE_PROOF reason=$r")
@@ -648,17 +660,17 @@ object HostWalletTokenTracker {
     fun markSellNoSignatureUnlocked(mint: String, symbol: String?, reason: String?) {
         val p = positions[mint] ?: return
         val r = reason ?: "?"
-        if (r.contains("BALANCE_UNKNOWN", true) || r.contains("RPC_EMPTY", true)) {
-            markOpenBalanceUnknown(p, r)
+        if (r.contains("NO_CURRENT_HELD_PROOF", true) || r.contains("BALANCE_UNKNOWN", true) || r.contains("RPC_EMPTY", true)) {
+            markNoCurrentHeldProof(p, r)
         } else {
-            p.status = PositionStatus.OPEN_SELL_FAILED_NO_SIGNATURE_RETRYING
-            p.notes.add("OPEN_SELL_FAILED_NO_SIGNATURE_RETRYING reason=$r")
+            markNoCurrentHeldProof(p, "NO_SIGNATURE_NO_CURRENT_HELD_PROOF:$r")
+            p.notes.add("STALE_RECOVERY_UNPROVEN no-signature reason=$r")
         }
         p.activeSellAttemptId = null
         p.sellAttemptStartedMs = 0L
         emitForensic(LiveTradeLogStore.Phase.WARNING, mint, symbol ?: p.symbol, null,
-            "OPEN_SELL_FAILED_NO_SIGNATURE_RETRYING ${symbol ?: p.symbol ?: mint.take(6)} reason=$r — no finality/no close")
-        try { ForensicLogger.lifecycle("OPEN_SELL_FAILED_NO_SIGNATURE_RETRYING", "mint=${mint.take(10)} symbol=${symbol ?: p.symbol ?: "?"} reason=$r no_close=true retry_required=true") } catch (_: Throwable) {}
+            "STALE_RECOVERY_UNPROVEN ${symbol ?: p.symbol ?: mint.take(6)} reason=$r — no finality/no close")
+        try { ForensicLogger.lifecycle("STALE_RECOVERY_UNPROVEN", "mint=${mint.take(10)} symbol=${symbol ?: p.symbol ?: "?"} reason=$r no_close=true retry_required=false") } catch (_: Throwable) {}
         save()
     }
 
@@ -668,10 +680,10 @@ object HostWalletTokenTracker {
         if (sig.isNullOrBlank()) {
             // V5.9.607 — SELL_PENDING only after a real signature exists.
             // No-signature sell attempts are failures, not pending/verifying.
-            p.status = PositionStatus.OPEN_SELL_FAILED_NO_SIGNATURE_RETRYING
+            markNoCurrentHeldProof(p, "SELL_PENDING_REJECTED_NO_SIGNATURE")
             p.activeSellAttemptId = null
             emitForensic(LiveTradeLogStore.Phase.WARNING, mint, p.symbol, null,
-                "SELL_PENDING_REJECTED_NO_SIGNATURE ${p.symbol ?: mint.take(6)} — OPEN_SELL_FAILED_NO_SIGNATURE_RETRYING")
+                "SELL_PENDING_REJECTED_NO_SIGNATURE ${p.symbol ?: mint.take(6)} — STALE_RECOVERY_UNPROVEN")
             save()
             return
         }
@@ -712,10 +724,10 @@ object HostWalletTokenTracker {
         // without a sell signature or two-provider zero proof. Never stamp CLOSED from
         // a no-signature parse/intention path.
         if (p.sellSignature.isNullOrBlank() && authoritativeParseClose) {
-            p.status = PositionStatus.OPEN_SELL_FAILED_NO_SIGNATURE_RETRYING
+            markNoCurrentHeldProof(p, "FALSE_CLOSE_REJECTED_NO_SIGNATURE:${reason ?: "?"}")
             p.activeSellAttemptId = null
             p.balanceAuthoritySource = BalanceProofSource.REJECTED_TX_PARSE.name
-            p.notes.add("rejected false close reason=${reason ?: "?"}: no sell signature/zero proof → open retry")
+            p.notes.add("rejected false close reason=${reason ?: "?"}: no sell signature/zero proof → not open")
             emitForensic(LiveTradeLogStore.Phase.WARNING, mint, symbol ?: p.symbol, null,
                 "CLOSED_REJECTED_NO_SIGNATURE_NO_ZERO_PROOF ${symbol ?: p.symbol ?: mint.take(6)} reason=${reason ?: "?"}")
             try { ForensicLogger.lifecycle("BALANCE_PROOF_REJECTED", "reason=GENERIC_TX_PARSE_NOT_OWNER_FILTERED mint=${mint.take(10)} sig=blank closeReason=${reason ?: "?"}") } catch (_: Throwable) {}
@@ -724,11 +736,11 @@ object HostWalletTokenTracker {
         }
         // SELL_VERIFYING is only valid after a real signature exists.
         if (p.sellSignature.isNullOrBlank()) {
-            p.status = PositionStatus.OPEN_SELL_FAILED_NO_SIGNATURE_RETRYING
+            markNoCurrentHeldProof(p, "SELL_CONFIRMED_REJECTED_NO_SIGNATURE:${reason ?: "?"}")
             p.activeSellAttemptId = null
-            p.notes.add("sell failed/no signature reason=${reason ?: "?"} → open retry")
+            p.notes.add("sell failed/no signature reason=${reason ?: "?"} → not open")
             emitForensic(LiveTradeLogStore.Phase.WARNING, mint, symbol ?: p.symbol, null,
-                "SELL_CONFIRMED_REJECTED_NO_SIGNATURE ${symbol ?: p.symbol ?: mint.take(6)} — restored OPEN_TRACKING")
+                "SELL_CONFIRMED_REJECTED_NO_SIGNATURE ${symbol ?: p.symbol ?: mint.take(6)} — not open")
             save()
             return
         }
@@ -760,10 +772,10 @@ object HostWalletTokenTracker {
     fun recordAuthoritativeTxParseClose(mint: String, symbol: String?, sig: String?, reason: String) {
         val p = positions[mint] ?: return
         if (sig.isNullOrBlank()) {
-            p.status = PositionStatus.OPEN_SELL_FAILED_NO_SIGNATURE_RETRYING
+            markNoCurrentHeldProof(p, "AUTHORITATIVE_TXPARSE_REJECTED_NO_SIGNATURE:$reason")
             p.activeSellAttemptId = null
             p.balanceAuthoritySource = BalanceProofSource.REJECTED_TX_PARSE.name
-            p.notes.add("authoritative txparse close rejected: no signature reason=$reason → open retry")
+            p.notes.add("authoritative txparse close rejected: no signature reason=$reason → not open")
             emitForensic(LiveTradeLogStore.Phase.WARNING, mint, symbol ?: p.symbol, null,
                 "CLOSED_BY_AUTHORITATIVE_TX_PARSE_REJECTED_NO_SIGNATURE ${symbol ?: p.symbol ?: mint.take(6)} reason=$reason")
             save()
@@ -811,6 +823,14 @@ object HostWalletTokenTracker {
                 existing.lastSeenWalletMs = now
                 existing.lastWalletReconcileMs = now
                 if (rawApprox > DUST_RAW) {
+                    walletAuthority[mint] = WalletAuthoritySnapshot.HELD(
+                        mint = mint,
+                        raw = BigInteger.valueOf(rawApprox.coerceAtLeast(0L)),
+                        uiAmount = uiAmount,
+                        decimals = decimals,
+                        source = BalanceProofSource.RPC_CONFIRMED_OWNER_TOKEN_ACCOUNT.name,
+                        observedAtMs = now,
+                    )
                     existing.balanceAuthoritySource = BalanceProofSource.RPC_CONFIRMED_OWNER_TOKEN_ACCOUNT.name
                     existing.balanceAuthorityObservedAtMs = now
                     existing.balanceAuthoritySignature = null
@@ -824,14 +844,14 @@ object HostWalletTokenTracker {
                     existing.status = PositionStatus.OPEN_TRACKING
                     existing.activeSellAttemptId = null
                     emitForensic(LiveTradeLogStore.Phase.TOKEN_TRACKER_OPEN_TRACKING, mint, existing.symbol, null,
-                        "SELL_VERIFYING without signature + wallet still holds qty=$uiAmount → restored OPEN_TRACKING")
+                        "SELL_VERIFYING without signature + wallet still holds qty=$uiAmount → not open")
                 } else if (rawApprox > DUST_RAW && existing.status == PositionStatus.SELL_VERIFYING && !existing.sellSignature.isNullOrBlank()) {
                     val started = existing.lastExitCheckMs ?: now
                     if (now - started > 120_000L) {
                         existing.status = PositionStatus.OPEN_TRACKING
                         existing.activeSellAttemptId = null
                         emitForensic(LiveTradeLogStore.Phase.WARNING, mint, existing.symbol, existing.sellSignature,
-                            "SELL_VERIFYING_TIMEOUT wallet still holds qty=$uiAmount after ${(now-started)/1000}s → restored OPEN_TRACKING")
+                            "SELL_VERIFYING_TIMEOUT wallet still holds qty=$uiAmount after ${(now-started)/1000}s → not open")
                     }
                 } else if (rawApprox > DUST_RAW &&
                     existing.status in setOf(
@@ -870,7 +890,7 @@ object HostWalletTokenTracker {
                         PositionStatus.CONFIRMED_PENDING_BALANCE,
                         PositionStatus.BUY_CONFIRMED,
                         PositionStatus.HELD_IN_WALLET,
-                        PositionStatus.UNKNOWN_NEEDS_RECONCILE,
+                        PositionStatus.STALE_RECOVERY_UNPROVEN,
                     )
                 ) {
                     existing.status = PositionStatus.OPEN_TRACKING
@@ -910,6 +930,14 @@ object HostWalletTokenTracker {
                 notes = mutableListOf("Recovered from host wallet; was missing from bot state"),
             )
             positions[mint] = recovered
+            walletAuthority[mint] = WalletAuthoritySnapshot.HELD(
+                mint = mint,
+                raw = BigInteger.valueOf(rawApprox.coerceAtLeast(0L)),
+                uiAmount = uiAmount,
+                decimals = decimals,
+                source = BalanceProofSource.RPC_CONFIRMED_OWNER_TOKEN_ACCOUNT.name,
+                observedAtMs = now,
+            )
             emitForensic(LiveTradeLogStore.Phase.TOKEN_TRACKER_RECOVERED_FROM_WALLET, mint, recovered.symbol, null,
                 "Tracker RECOVERED_FROM_WALLET qty=$uiAmount mint=${mint.take(8)}…")
             // V5.9.1081 — operator-spec'd forensic markers so the next pipeline
@@ -933,12 +961,17 @@ object HostWalletTokenTracker {
             if (p.status !in OPEN_STATUSES) continue
             val pair = walletMints[p.mint]
             if (pair == null) {
+                walletAuthority[p.mint] = WalletAuthoritySnapshot.ABSENT_CONFIRMED(
+                    mint = p.mint,
+                    sources = setOf("SELL_RECONCILER_NONEMPTY_SNAPSHOT", "MINT_ABSENT_FROM_TOKEN_ACCOUNTS"),
+                    observedAtMs = now,
+                )
                 // V5.0.3767 — absent-mint zero proof ladder.
                 // A non-empty wallet snapshot that returns other token accounts but
                 // omits this tracked mint is a real zero observation for this mint,
                 // not an RPC_EMPTY_MAP. 3762/3763 fixed false-empty snapshots; keeping
                 // last-positive rows open forever here strands sold/external bags in
-                // OPEN_BALANCE_UNKNOWN_RECOVERY_REQUIRED, keeps close leases active,
+                // STALE_RECOVERY_UNPROVEN, releases close leases,
                 // and blocks new buys. Still require two consecutive absent snapshots
                 // and fresh-buy grace before terminal close.
                 if (walletMints.isNotEmpty()) {
@@ -967,18 +1000,23 @@ object HostWalletTokenTracker {
                         val closed = confirmZeroBalanceClose(p.mint, hasConfirmedSellSig = !p.sellSignature.isNullOrBlank(), reason = "CLOSED_BY_NONEMPTY_WALLET_MINT_ABSENT")
                         if (closed != null) continue
                     }
-                    markOpenBalanceUnknown(p, "NONEMPTY_WALLET_MINT_ABSENT_ZERO_PENDING")
+                    markNoCurrentHeldProof(p, "NONEMPTY_WALLET_MINT_ABSENT_ZERO_PENDING")
                     emitForensic(LiveTradeLogStore.Phase.POSITION_COUNT_RECONCILED, p.mint, p.symbol, null,
                         "REAP_PENDING_ABSENT_MINT_ZERO_PROOF ${p.symbol ?: p.mint.take(6)} confirms=${p.consecutiveZeroConfirms}/2 walletHeld=${walletMints.size}")
                     continue
                 }
-                markOpenBalanceUnknown(p, "RPC_EMPTY_MAP_MINT_ABSENT")
+                markNoCurrentHeldProof(p, "RPC_EMPTY_MAP_MINT_ABSENT")
                 emitForensic(LiveTradeLogStore.Phase.POSITION_COUNT_RECONCILED, p.mint, p.symbol, null,
-                    "REAP_SKIPPED_BALANCE_UNKNOWN empty wallet snapshot / mint absent — keeping open")
+                    "NO_CURRENT_HELD_PROOF empty wallet snapshot / mint absent — not open")
                 continue
             }
             val walletUi = pair.first
             if (walletUi > 0.0) continue
+            walletAuthority[p.mint] = WalletAuthoritySnapshot.ABSENT_CONFIRMED(
+                mint = p.mint,
+                sources = setOf("SELL_RECONCILER_ZERO_BALANCE", "OWNER_TOKEN_ACCOUNT_ZERO"),
+                observedAtMs = now,
+            )
             // Wallet shows zero. Distinguish three cases:
             //  (a) AATE broadcasted a sell (sellSignature != null) →
             //      CLOSED_SOLD_BY_AATE then CLOSED.
@@ -987,8 +1025,8 @@ object HostWalletTokenTracker {
             //  (c) sellSignature is null AND activeSellAttemptId is null
             //      AND the token had previously been seen in the wallet
             //      → user/external tool swapped it manually. Mark
-            //      OPEN_BALANCE_UNKNOWN_RECOVERY_REQUIRED; keep recovery alive.
-            //  (d) Otherwise → UNKNOWN_NEEDS_RECONCILE (transient RPC).
+            //      STALE_RECOVERY_UNPROVEN; not open/sell-managed.
+            //  (d) Otherwise → STALE_RECOVERY_UNPROVEN (no current held proof).
             //
             // V5.9.778 — EMERGENT MEME-ONLY: case (c) is the new branch
             // operator demanded — manual wallet swap terminal close.
@@ -1026,22 +1064,22 @@ object HostWalletTokenTracker {
                 (now - p.lastSeenWalletMs) >= MANUAL_SWAP_GRACE_MS
             ) {
                 // No sell signature means no sell finality. A single provider zero
-                // after grace is still not enough to close a live row.
-                p.status = PositionStatus.OPEN_BALANCE_UNKNOWN_RECOVERY_REQUIRED
+                // cannot authorize a sell retry or keep a slot hostage.
+                markNoCurrentHeldProof(p, "SINGLE_PROVIDER_ZERO_NO_SELL_SIG")
                 p.lastWalletReconcileMs = now
-                p.notes.add("manual/external zero candidate rejected: no sell signature and no independent zero finality")
+                p.notes.add("manual/external zero candidate has no current held proof; not open/sell-managed")
                 emitForensic(LiveTradeLogStore.Phase.WARNING, p.mint, p.symbol, null,
-                    "REAP_SKIPPED_BALANCE_UNKNOWN ${p.symbol ?: p.mint.take(6)} — one-provider zero/no sell sig; keeping open recovery")
+                    "STALE_RECOVERY_UNPROVEN ${p.symbol ?: p.mint.take(6)} — one-provider zero/no sell sig; not open")
                 try {
                     com.lifecyclebot.engine.ForensicLogger.lifecycle(
-                        "REAP_SKIPPED_BALANCE_UNKNOWN",
-                        "mint=${p.mint.take(10)} symbol=${p.symbol ?: ""} reason=single_provider_zero_no_sell_sig",
+                        "STALE_RECOVERY_UNPROVEN",
+                        "mint=${p.mint.take(10)} symbol=${p.symbol ?: ""} reason=single_provider_zero_no_sell_sig open=false sellManaged=false",
                     )
                 } catch (_: Throwable) {}
             } else {
-                markOpenBalanceUnknown(p, "ONE_PROVIDER_ZERO_IN_FLIGHT")
+                markNoCurrentHeldProof(p, "ONE_PROVIDER_ZERO_IN_FLIGHT")
                 emitForensic(LiveTradeLogStore.Phase.POSITION_COUNT_RECONCILED, p.mint, p.symbol, null,
-                    "Tracker one-provider wallet=0 but no finality — OPEN_BALANCE_UNKNOWN_RECOVERY_REQUIRED")
+                    "Tracker one-provider wallet=0 but no finality — STALE_RECOVERY_UNPROVEN")
             }
         }
 
@@ -1153,13 +1191,13 @@ object HostWalletTokenTracker {
                 p.uiAmount = held
                 p.lastSeenWalletMs = System.currentTimeMillis()
                 p.lastWalletReconcileMs = System.currentTimeMillis()
-                p.status = if (p.status == PositionStatus.UNKNOWN_NEEDS_RECONCILE) PositionStatus.OPEN_RESTORED else p.status
+                p.status = if (hasCurrentWalletPositiveProof(p)) PositionStatus.OPEN_RESTORED else PositionStatus.STALE_RECOVERY_UNPROVEN
                 continue
             }
             if (hasLastPositiveRaw(p) || p.sellSignature.isNullOrBlank()) {
-                markOpenBalanceUnknown(p, if (pair == null) "STARTUP_RPC_EMPTY_MAP" else "STARTUP_SINGLE_PROVIDER_ZERO")
+                markNoCurrentHeldProof(p, if (pair == null) "STARTUP_NO_CURRENT_HELD_PROOF" else "STARTUP_SINGLE_PROVIDER_ZERO")
                 emitForensic(LiveTradeLogStore.Phase.POSITION_COUNT_RECONCILED, p.mint, p.symbol, null,
-                    "REAP_SKIPPED_LAST_POSITIVE_HELD startup snapshot not final — keeping open")
+                    "STALE_RECOVERY_UNPROVEN startup has no current held proof — not open/sell-managed")
                 continue
             }
             if (p.zeroBalanceConfirmedByTwoProviders) {
@@ -1177,9 +1215,9 @@ object HostWalletTokenTracker {
                     "REAP_CLOSED_CONFIRMED_ZERO startup (${p.symbol ?: p.mint.take(6)})")
                 closed++
             } else {
-                markOpenBalanceUnknown(p, "STARTUP_SELL_SIG_OR_ZERO_NEEDS_FINALITY")
+                markNoCurrentHeldProof(p, "STARTUP_SELL_SIG_OR_ZERO_NEEDS_FINALITY")
                 emitForensic(LiveTradeLogStore.Phase.POSITION_COUNT_RECONCILED, p.mint, p.symbol, null,
-                    "REAP_SKIPPED_BALANCE_UNKNOWN startup sell/zero candidate lacks finality — keeping open")
+                    "NO_CURRENT_HELD_PROOF startup sell/zero candidate lacks finality — not open")
                 continue
             }
         }
@@ -1206,16 +1244,11 @@ object HostWalletTokenTracker {
         var reaped = 0
         for (p in positions.values.toList()) {
             if (p.status !in OPEN_STATUSES) continue
-            if (p.uiAmount > 0.000001) continue                  // wallet-truth holds tokens — real
+            if (hasCurrentWalletPositiveProof(p)) continue                  // wallet-truth holds tokens — real
             if (hasLastPositiveRaw(p)) {
+                markNoCurrentHeldProof(p, "HISTORICAL_RAW_NOT_CURRENT_HELD_PROOF")
                 emitForensic(LiveTradeLogStore.Phase.POSITION_COUNT_RECONCILED, p.mint, p.symbol, null,
-                    "REAP_SKIPPED_LAST_POSITIVE_HELD ${p.symbol ?: p.mint.take(6)} lastPositiveRaw=${rawAmountBig(p)}")
-                continue
-            }
-            if (p.status in setOf(PositionStatus.OPEN_BALANCE_UNKNOWN, PositionStatus.OPEN_BALANCE_UNKNOWN_RECOVERY_REQUIRED, PositionStatus.OPEN_SELL_FAILED_NO_SIGNATURE_RETRYING, PositionStatus.SELL_WAITING_BALANCE_PROOF, PositionStatus.SELL_FAILED_BALANCE_UNKNOWN)) {
-                emitForensic(LiveTradeLogStore.Phase.POSITION_COUNT_RECONCILED, p.mint, p.symbol, null,
-                    "REAP_SKIPPED_BALANCE_UNKNOWN ${p.symbol ?: p.mint.take(6)} status=${p.status}")
-                continue
+                    "STALE_RECOVERY_UNPROVEN ${p.symbol ?: p.mint.take(6)} historicalRaw=${rawAmountBig(p)} is not current wallet proof")
             }
             if (p.status in SELL_IN_FLIGHT_STATUSES && p.lastSeenWalletMs > 0L &&
                 (now - p.lastSeenWalletMs) < GHOST_REAP_GRACE_MS) continue  // genuine in-flight sell
@@ -1225,7 +1258,7 @@ object HostWalletTokenTracker {
             if (seenAnchor > 0L && (now - seenAnchor) < GHOST_REAP_GRACE_MS) continue
             if (!p.zeroBalanceConfirmedByTwoProviders && p.sellSignature.isNullOrBlank()) {
                 emitForensic(LiveTradeLogStore.Phase.POSITION_COUNT_RECONCILED, p.mint, p.symbol, null,
-                    "REAP_SKIPPED_BALANCE_UNKNOWN ${p.symbol ?: p.mint.take(6)} no independent zero/sell finality")
+                    "NO_CURRENT_HELD_PROOF ${p.symbol ?: p.mint.take(6)} no independent zero/sell finality")
                 continue
             }
             p.status = PositionStatus.CLOSED
@@ -1252,23 +1285,27 @@ object HostWalletTokenTracker {
                 if (p.sellSignature.isNullOrBlank()) "REAP_CLOSED_CONFIRMED_ZERO (${p.symbol ?: p.mint.take(6)})" else "REAP_CLOSED_CONFIRMED_SELL (${p.symbol ?: p.mint.take(6)})")
             reaped++
         }
-        // V5.9.1505 — TERMINAL SWEEP for UNKNOWN_NEEDS_RECONCILE zero rows.
-        // Pass-2 case (d) parks zero-balance positions with a wedged in-flight
-        // sell attempt into UNKNOWN_NEEDS_RECONCILE. Nothing ever closed them, so
-        // they accumulated forever holding lane-primary locks and polluting
-        // re-entry/duplicate logic — the source of the "open count out by 30 and
-        // increasing" drift. Any such row that has been zero-balance for >3 min
-        // is dead: terminally close it, free its lane slots, arm re-entry lock.
-        val unknownStaleMs = 180_000L
+        // V5.0.3783 — terminal sweep for stale recovered/unproven rows.
+        // No current HELD proof means not open, not sell-managed, and after TTL
+        // not even recovery-visible. Historical raw never protects this row.
+        val staleRecoveryTtlMs = 180_000L
         for (p in positions.values.toList()) {
-            if (p.status != PositionStatus.UNKNOWN_NEEDS_RECONCILE) continue
-            if (p.uiAmount > 0.000001 || hasLastPositiveRaw(p)) continue
-            val anchor2 = maxOf(p.lastWalletReconcileMs ?: 0L, p.lastSeenWalletMs, p.buyTimeMs ?: 0L)
-            if (anchor2 > 0L && (now - anchor2) < unknownStaleMs) continue
-            markOpenBalanceUnknown(p, "UNKNOWN_RECONCILE_STALE_NO_FINALITY")
+            if (p.status != PositionStatus.STALE_RECOVERY_UNPROVEN) continue
+            if (hasCurrentWalletPositiveProof(p)) continue
+            val anchor2 = maxOf(p.lastWalletReconcileMs ?: 0L, p.lastSeenWalletMs, p.buyTimeMs ?: 0L, p.firstSeenWalletMs)
+            if (anchor2 > 0L && (now - anchor2) < staleRecoveryTtlMs) continue
+            p.status = PositionStatus.CLOSED_STALE_RECOVERY_UNHELD
+            p.uiAmount = 0.0
+            p.rawAmount = "0"
+            p.activeSellAttemptId = null
+            p.sellAttemptStartedMs = 0L
+            p.notes.add("closed stale recovery: no current held proof after TTL")
+            try { com.lifecyclebot.engine.PositionCloseLedger.markClosed(p.mint, "CLOSED_STALE_RECOVERY_UNHELD", 0) } catch (_: Throwable) {}
+            try { com.lifecyclebot.engine.sell.SellExecutionLocks.release(p.mint) } catch (_: Throwable) {}
+            try { com.lifecyclebot.engine.sell.CloseLease.release(p.mint, "CLOSED_STALE_RECOVERY_UNHELD") } catch (_: Throwable) {}
             emitForensic(LiveTradeLogStore.Phase.POSITION_COUNT_RECONCILED, p.mint, p.symbol, null,
-                "REAP_SKIPPED_BALANCE_UNKNOWN stale unknown has no sell/zero finality (${p.symbol ?: p.mint.take(6)})")
-            continue
+                "CLOSED_STALE_RECOVERY_UNHELD ${p.symbol ?: p.mint.take(6)} no current held proof")
+            reaped++
         }
 
         if (reaped > 0) {
@@ -1281,14 +1318,14 @@ object HostWalletTokenTracker {
     /** True only when wallet-truth says this mint has a non-dust token amount. */
     fun isActuallyHeld(mint: String): Boolean {
         val p = positions[mint] ?: return false
-        return isOpenForAccounting(p) && hasLastPositiveRaw(p)
+        return hasCurrentWalletPositiveProof(p)
     }
 
     /** V5.9.612 AntiChoke: wallet snapshot proved zero; unblock internal ghost state. */
     fun markUnheldByAntiChoke(mint: String, reason: String): Boolean {
         val p = positions[mint] ?: return false
         if (p.status in OPEN_STATUSES) {
-            markOpenBalanceUnknown(p, "ANTICHOKE_ZERO_REJECTED_NO_FINALITY:$reason")
+            markNoCurrentHeldProof(p, "ANTICHOKE_ZERO_REJECTED_NO_FINALITY:$reason")
             save()
             return false
         }
@@ -1321,7 +1358,7 @@ object HostWalletTokenTracker {
         val p = positions[mint] ?: return false
         val cleanSources = sources.map { it.trim() }.filter { it.isNotBlank() }.toSet()
         if (cleanSources.size < 2) {
-            markOpenBalanceUnknown(p, "ZERO_PROOF_REJECTED_NOT_INDEPENDENT:$reason sources=${cleanSources.joinToString("+")}")
+            markNoCurrentHeldProof(p, "ZERO_PROOF_REJECTED_NOT_INDEPENDENT:$reason sources=${cleanSources.joinToString("+")}")
             save()
             return false
         }
@@ -1330,7 +1367,7 @@ object HostWalletTokenTracker {
             ("BALANCE_PROOF_POLLER_ZERO_STREAK" in cleanSources && "SELL_AMOUNT_AUTHORITY_NONEMPTY_MINT_ABSENT" in cleanSources) ||
             ("LIVE_POSITION_CLOSE_AUTHORITY" in cleanSources && ("SELL_SIGNATURE_OR_META" in cleanSources || "CONFIRMED_ZERO_BALANCE" in cleanSources))
         if ((p.activeSellAttemptId != null || p.status in setOf(PositionStatus.SELL_PENDING, PositionStatus.SELL_VERIFYING)) && !trustedTerminalZero) {
-            markOpenBalanceUnknown(p, "ZERO_PROOF_REJECTED_SELL_ACTIVE:$reason sources=${cleanSources.joinToString("+")}")
+            markNoCurrentHeldProof(p, "ZERO_PROOF_REJECTED_SELL_ACTIVE:$reason sources=${cleanSources.joinToString("+")}")
             save()
             return false
         }
@@ -1358,7 +1395,7 @@ object HostWalletTokenTracker {
         val p = positions[mint] ?: return null
         if (p.status == PositionStatus.CLOSED) return null
         if (hasConfirmedSellSig && p.sellSignature.isNullOrBlank() && !p.zeroBalanceConfirmedByTwoProviders) {
-            markOpenBalanceUnknown(p, "SELL_FINALITY_REJECTED_SIG_FLAG_WITHOUT_SIGNATURE:$reason")
+            markNoCurrentHeldProof(p, "SELL_FINALITY_REJECTED_SIG_FLAG_WITHOUT_SIGNATURE:$reason")
             save()
             return null
         }
@@ -1368,12 +1405,12 @@ object HostWalletTokenTracker {
         // otherwise OPEN_TRACKING rows with stale uiAmount keep hostLive=1 forever
         // and poison buys with HOST_TRACKER_DESYNC / ORPHAN_LIVE_POSITIONS.
         if (p.uiAmount > 0.000001 && !hasConfirmedSellSig && !p.zeroBalanceConfirmedByTwoProviders) {
-            markOpenBalanceUnknown(p, "ZERO_CLOSE_REJECTED_POSITIVE_CACHE_NO_INDEPENDENT_FINALITY:$reason")
+            markNoCurrentHeldProof(p, "ZERO_CLOSE_REJECTED_POSITIVE_CACHE_NO_INDEPENDENT_FINALITY:$reason")
             save()
             return null
         }
         if (!hasConfirmedSellSig && hasLastPositiveRaw(p) && !p.zeroBalanceConfirmedByTwoProviders) {
-            markOpenBalanceUnknown(p, "ZERO_CLOSE_REJECTED_LAST_POSITIVE_NO_INDEPENDENT_FINALITY:$reason")
+            markNoCurrentHeldProof(p, "ZERO_CLOSE_REJECTED_LAST_POSITIVE_NO_INDEPENDENT_FINALITY:$reason")
             save()
             return null
         }
@@ -1501,7 +1538,9 @@ object HostWalletTokenTracker {
             // Roll status back to a non-in-flight state and clear the attempt id
             // so the next requestSell proceeds. Wallet reconcile / verify watchdog
             // will re-establish truth; we only unblock the SELL path here.
-            if (p.status in SELL_IN_FLIGHT_STATUSES) p.status = PositionStatus.OPEN_TRACKING
+            if (p.status in SELL_IN_FLIGHT_STATUSES) {
+                p.status = if (hasCurrentWalletPositiveProof(p)) PositionStatus.OPEN_TRACKING else PositionStatus.STALE_RECOVERY_UNPROVEN
+            }
             p.activeSellAttemptId = null
             p.sellAttemptStartedMs = 0L
             return false
@@ -1523,7 +1562,7 @@ object HostWalletTokenTracker {
         val p = positions[mint] ?: return
         val wasFlagged = p.status in SELL_IN_FLIGHT_STATUSES || !p.activeSellAttemptId.isNullOrBlank()
         if (!wasFlagged) return
-        if (p.status in SELL_IN_FLIGHT_STATUSES) p.status = PositionStatus.OPEN_TRACKING
+        if (p.status in SELL_IN_FLIGHT_STATUSES) p.status = if (hasCurrentWalletPositiveProof(p)) PositionStatus.OPEN_TRACKING else PositionStatus.STALE_RECOVERY_UNPROVEN
         p.activeSellAttemptId = null
         p.sellAttemptStartedMs = 0L
         try {
@@ -1572,8 +1611,8 @@ object HostWalletTokenTracker {
     fun getStats(): String {
         val open = getOpenCount()
         val closed = positions.values.count { it.status == PositionStatus.CLOSED }
-        val unknown = positions.values.count { it.status == PositionStatus.UNKNOWN_NEEDS_RECONCILE }
-        return "open=$open · closed=$closed · unknown=$unknown · total=${positions.size}"
+        val staleUnproven = positions.values.count { it.status == PositionStatus.STALE_RECOVERY_UNPROVEN }
+        return "open=$open · closed=$closed · staleUnproven=$staleUnproven · total=${positions.size}"
     }
 
     /**
@@ -1616,7 +1655,7 @@ object HostWalletTokenTracker {
      *   EXIT_SIGNALLED, SELL_PENDING, SELL_VERIFYING
      *
      * Statuses cleared:
-     *   UNKNOWN_NEEDS_RECONCILE, DUST_IGNORED, BUY_PENDING,
+     *   STALE_RECOVERY_UNPROVEN, DUST_IGNORED, BUY_PENDING,
      *   SOLD_CONFIRMED, CLOSED — plus everything originating from
      *   PositionSource.BOT_BUY in PAPER context (those statuses
      *   don't survive past CLOSED so this is implicit).

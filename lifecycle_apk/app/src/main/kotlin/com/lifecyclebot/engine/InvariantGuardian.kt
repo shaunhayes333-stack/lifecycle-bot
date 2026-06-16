@@ -90,7 +90,7 @@ object InvariantGuardian {
         // while sell routing has no-signature/slippage failures, blocking leases, or
         // false CLOSED rows based on TX_PARSE/zero/no sell signature.
         if (s.mode == "LIVE") {
-            val noSig = pipe?.labelCounts?.get("LIFECYCLE/OPEN_SELL_FAILED_NO_SIGNATURE_RETRYING") ?: 0L
+            val noSig = pipe?.labelCounts?.get("LIFECYCLE/SELL_NO_CURRENT_HELD_PROOF_NOT_RETRIED") ?: 0L
             val slip = (pipe?.labelCounts?.get("LIFECYCLE/SLIPPAGE_EXCEEDED") ?: 0L) +
                 (pipe?.recentEvents?.count { it.message.contains("0x1788", true) || it.message.contains("SLIPPAGE_EXCEEDED", true) } ?: 0)
             val closeActive = try { com.lifecyclebot.engine.sell.CloseLease.activeLeaseCount().toLong() } catch (_: Throwable) { 0L }

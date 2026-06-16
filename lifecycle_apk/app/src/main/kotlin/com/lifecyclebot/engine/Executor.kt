@@ -10052,7 +10052,7 @@ class Executor(
         // V5.0.3746 — operator spec items 1, 5, 6: explicit proof-wait outcome.
         // Distinct from FAILED_RETRYABLE so the wrapper does NOT call
         // PendingSellQueue.add() (which would emit SELL_RETRY_TEMPORARY_ONLY)
-        // and does NOT emit OPEN_SELL_FAILED_NO_SIGNATURE_RETRYING. The mint
+        // and does NOT emit SELL_NO_CURRENT_HELD_PROOF_NOT_RETRIED. The mint
         // is owned by BalanceProofPoller until proof arrives or zero confirmed.
         WAITING_BALANCE_PROOF,
     }
@@ -10852,15 +10852,15 @@ class Executor(
                 onLog("🔄 Sell auto-queued for retry: ${ts.symbol} | reason=$reason", tradeId.mint)
                 ErrorLogger.warn("Executor", "🔄 SELL REQUEUED: ${ts.symbol} — will retry when wallet/RPC recovers")
                 // V5.0.3743 — RegressionTest guard: emit the canonical
-                // OPEN_SELL_FAILED_NO_SIGNATURE_RETRYING forensic so the
+                // SELL_NO_CURRENT_HELD_PROOF_NOT_RETRIED forensic so the
                 // GoldenTape live_sell_balance_authority_rejects_generic_txparse_and_false_closed
                 // assertion passes and downstream tooling can count
                 // signature-less sell-route failures distinctly from
-                // RPC-balance UNKNOWN deferrals. Lock is released by the
+                // no-current-held-proof deferrals. Lock is released by the
                 // surrounding finally; this line is purely the forensic.
                 try {
                     ForensicLogger.lifecycle(
-                        "OPEN_SELL_FAILED_NO_SIGNATURE_RETRYING",
+                        "SELL_NO_CURRENT_HELD_PROOF_NOT_RETRIED",
                         "mint=${ts.mint.take(12)} symbol=${ts.symbol} reason=$reason no_close=true"
                     )
                     com.lifecyclebot.engine.sell.SellForensics.inc(
@@ -10872,7 +10872,7 @@ class Executor(
             // V5.0.3746 — operator spec items 1, 5, 6: WAITING_BALANCE_PROOF is a
             // proof wait, NEVER an active sell. Skip PendingSellQueue.add (no
             // SELL_RETRY_TEMPORARY_ONLY emission) and skip
-            // OPEN_SELL_FAILED_NO_SIGNATURE_RETRYING (no route was actually
+            // SELL_NO_CURRENT_HELD_PROOF_NOT_RETRIED (no route was actually
             // attempted). The BalanceProofPoller takes over from here.
             if (result == SellResult.WAITING_BALANCE_PROOF) {
                 onLog("⏸️ SELL WAITING BALANCE PROOF: ${ts.symbol} — owned by BalanceProofPoller, no requeue/no blocking lease.", tradeId.mint)
@@ -12297,7 +12297,7 @@ class Executor(
         // the log, check the canonical host-wallet tracker. If the row is
         // already CLOSED, either:
         //   (a) wallet confirms zero → just close TokenState and abort.
-        //   (b) wallet is UNKNOWN → defer + schedule priority reconcile, do
+        //   (b) wallet has no current held proof → defer + schedule priority reconcile, do
         //       NOT emit LIVE SELL START again. The log spam was hammering the
         //       UI and the journal with no behavioural change.
         try {
@@ -12309,7 +12309,7 @@ class Executor(
                 hostRow.status == HostWalletTokenTracker.PositionStatus.SOLD_CONFIRMED
             )
             if (hostClosed && (hostRow?.uiAmount ?: 0.0) <= 0.0) {
-                // Confirm with SellAmountAuthority before acting (UNKNOWN still defers).
+                // Confirm with SellAmountAuthority before acting (no-current-held-proof still defers).
                 val resolution = try {
                     com.lifecyclebot.engine.sell.SellAmountAuthority.resolve(ts.mint, wallet)
                 } catch (_: Throwable) { com.lifecyclebot.engine.sell.SellAmountAuthority.Resolution.Unknown }
@@ -12350,7 +12350,7 @@ class Executor(
                         try { PendingSellQueue.remove(ts.mint) } catch (_: Throwable) {}
                         try {
                             ForensicLogger.lifecycle(
-                                "SELL_ABORT_TRACKER_CLOSED_WALLET_UNKNOWN_TERMINAL",
+                                "SELL_ABORT_TRACKER_CLOSED_NO_CURRENT_HELD_PROOF_TERMINAL",
                                 "mint=${ts.mint.take(12)} sym=${ts.symbol} reason=$reason tracker=${hostRow?.status} " +
                                     "ui=${hostRow?.uiAmount} ledgerClosed=$ledgerClosed sig=${hostRow?.sellSignature?.take(8) ?: "none"}"
                             )
@@ -12361,12 +12361,12 @@ class Executor(
                     try { com.lifecyclebot.engine.sell.LiveWalletReconciler.reconcileNow(wallet, "SELL_PAUSED_TRACKER_CLOSED_${ts.mint.take(8)}") } catch (_: Throwable) {}
                     try {
                         ForensicLogger.lifecycle(
-                            "SELL_PAUSED_TRACKER_CLOSED_WALLET_UNKNOWN",
+                            "SELL_PAUSED_TRACKER_CLOSED_NO_CURRENT_HELD_PROOF",
                             "mint=${ts.mint.take(12)} sym=${ts.symbol} reason=$reason " +
                                 "tracker=${hostRow?.status} ui=${hostRow?.uiAmount} — reconcile requested"
                         )
                     } catch (_: Throwable) {}
-                    return SellResult.FAILED_RETRYABLE
+                    return SellResult.WAITING_BALANCE_PROOF
                 }
             }
         } catch (_: Throwable) { /* never block sell on guard failure */ }
@@ -12705,7 +12705,7 @@ class Executor(
                     // emit SELL_RETRY_TEMPORARY_ONLY, MUST NOT acquire/blocking
                     // lease, MUST NOT enqueue ACTIVE_SELL_READY. The wrapper at
                     // requestSell() recognises WAITING_BALANCE_PROOF and skips
-                    // PendingSellQueue.add + OPEN_SELL_FAILED_NO_SIGNATURE_RETRYING.
+                    // PendingSellQueue.add + SELL_NO_CURRENT_HELD_PROOF_NOT_RETRIED.
                     try {
                         com.lifecyclebot.engine.sell.BalanceProofWaitState.markWaiting(
                             ts.mint, ts.symbol, reason,
