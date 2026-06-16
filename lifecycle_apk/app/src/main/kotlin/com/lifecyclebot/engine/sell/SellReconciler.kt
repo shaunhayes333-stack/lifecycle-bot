@@ -246,8 +246,23 @@ object SellReconciler {
         }
 
         // One wallet read for the whole pass (cheaper than per-mint queries).
-        val tokens = withContext(Dispatchers.IO) {
-            try { w.getTokenAccountsWithDecimalsBounded() } catch (_: Throwable) { emptyMap() }
+        // V5.0.3769 — INDETERMINATE IS NOT EMPTY. The old catch returned emptyMap()
+        // on timeout/SSL/RPC failure, so reconcileOne() treated every open position
+        // as wallet balance zero, producing ZERO_CLOSE_REJECTED_POSITIVE_CACHE and
+        // retry storms while the wallet still physically held RETARD/Miaowtocracy.
+        // If wallet truth cannot be read, skip this reconciler tick entirely; live
+        // sells may still use their own owner-delta recovery path, but the reconciler
+        // must not invent zero balances.
+        val tokensOrNull: Map<String, Pair<Double, Int>>? = withContext(Dispatchers.IO) {
+            try { w.getTokenAccountsWithDecimalsBounded() } catch (e: Throwable) {
+                try { ForensicLogger.lifecycle("RECONCILER_WALLET_READ_INDETERMINATE_SKIP", "reason=${e.message?.take(140)}") } catch (_: Throwable) {}
+                ErrorLogger.warn("SellReconciler", "wallet read indeterminate; skipping zero-close pass: ${e.message?.take(80)}")
+                null
+            }
+        }
+        val tokens: Map<String, Pair<Double, Int>> = tokensOrNull ?: run {
+            SellJobRegistry.pruneTerminal()
+            return
         }
 
         // V5.9.765 — EMERGENT priority 2: live price hydration for every
@@ -413,6 +428,36 @@ object SellReconciler {
         if (balance <= 1e-9) {
             val sellSig = pos.sellSignature
             val hasSig = !sellSig.isNullOrBlank()
+            if (!hasSig) {
+                // V5.0.3769 — successful non-empty wallet read + this mint absent
+                // is a zero observation, but still debounce it. The previous flow
+                // called confirmZeroBalanceClose immediately, which rejected stale
+                // lastPositiveRaw forever and never advanced the zero-confirm ladder.
+                pos.consecutiveZeroConfirms += 1
+                pos.lastWalletReconcileMs = System.currentTimeMillis()
+                try {
+                    ForensicLogger.lifecycle(
+                        "RECONCILER_ZERO_OBSERVED",
+                        "mint=${pos.mint.take(10)} symbol=${pos.symbol} confirms=${pos.consecutiveZeroConfirms}/2 source=nonempty_wallet_absent",
+                    )
+                } catch (_: Throwable) {}
+                if (pos.consecutiveZeroConfirms < 2) {
+                    try {
+                        ForensicLogger.lifecycle(
+                            "RECONCILER_ZERO_BALANCE_PENDING",
+                            "mint=${pos.mint.take(10)} symbol=${pos.symbol} confirms=${pos.consecutiveZeroConfirms} need=2 sig=none",
+                        )
+                    } catch (_: Throwable) {}
+                    return
+                }
+                try {
+                    HostWalletTokenTracker.recordIndependentZeroBalanceProof(
+                        mint = pos.mint,
+                        sources = setOf("SELL_RECONCILER_NONEMPTY_SNAPSHOT", "MINT_ABSENT_FROM_TOKEN_ACCOUNTS"),
+                        reason = "RECONCILER_NONEMPTY_WALLET_ZERO",
+                    )
+                } catch (_: Throwable) {}
+            }
             val closed = HostWalletTokenTracker.confirmZeroBalanceClose(
                 pos.mint,
                 hasConfirmedSellSig = hasSig,

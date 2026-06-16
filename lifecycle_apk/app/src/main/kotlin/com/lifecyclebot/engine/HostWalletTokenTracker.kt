@@ -1262,7 +1262,10 @@ object HostWalletTokenTracker {
             save()
             return false
         }
-        if (p.activeSellAttemptId != null || p.status in setOf(PositionStatus.SELL_PENDING, PositionStatus.SELL_VERIFYING)) {
+        val trustedTerminalZero =
+            ("SELL_RECONCILER_NONEMPTY_SNAPSHOT" in cleanSources && "MINT_ABSENT_FROM_TOKEN_ACCOUNTS" in cleanSources) ||
+            ("BALANCE_PROOF_POLLER_ZERO_STREAK" in cleanSources && "SELL_AMOUNT_AUTHORITY_NONEMPTY_MINT_ABSENT" in cleanSources)
+        if ((p.activeSellAttemptId != null || p.status in setOf(PositionStatus.SELL_PENDING, PositionStatus.SELL_VERIFYING)) && !trustedTerminalZero) {
             markOpenBalanceUnknown(p, "ZERO_PROOF_REJECTED_SELL_ACTIVE:$reason sources=${cleanSources.joinToString("+")}")
             save()
             return false

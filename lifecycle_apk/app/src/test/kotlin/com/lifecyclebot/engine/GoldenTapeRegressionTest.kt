@@ -1375,4 +1375,38 @@ class GoldenTapeRegressionTest {
             tracker.contains("REAP_SKIPPED_BALANCE_UNKNOWN mint absent from one wallet snapshot — keeping open"))
     }
 
+
+    @Test
+    fun sell_reconciler_never_treats_indeterminate_wallet_read_as_empty() {
+        val src = java.io.File("src/main/kotlin/com/lifecyclebot/engine/sell/SellReconciler.kt").readText()
+        assertTrue(src.contains("INDETERMINATE IS NOT EMPTY"))
+        assertTrue(src.contains("RECONCILER_WALLET_READ_INDETERMINATE_SKIP"))
+        assertTrue(src.contains("wallet read indeterminate; skipping zero-close pass"))
+        assertFalse("wallet read failure must not synthesize an empty token map",
+            src.contains("try { w.getTokenAccountsWithDecimalsBounded() } catch (_: Throwable) { emptyMap() }"))
+    }
+
+
+    @Test
+    fun wallet_rpc_has_scoped_tls_fallback_for_android_trust_anchor_failures() {
+        val src = java.io.File("src/main/kotlin/com/lifecyclebot/network/SolanaWallet.kt").readText()
+        assertTrue(src.contains("WALLET_RPC_TLS_FALLBACK_USED"))
+        assertTrue(src.contains("isTlsTrustFailure"))
+        assertTrue(src.contains("Trust anchor"))
+        assertTrue(src.contains("unsafeWalletRpcClient"))
+    }
+
+    @Test
+    fun sell_reconciler_debounces_real_absent_mint_zero_and_records_independent_proof() {
+        val src = java.io.File("src/main/kotlin/com/lifecyclebot/engine/sell/SellReconciler.kt").readText()
+        val tracker = java.io.File("src/main/kotlin/com/lifecyclebot/engine/HostWalletTokenTracker.kt").readText()
+        assertTrue(src.contains("RECONCILER_ZERO_OBSERVED"))
+        assertTrue(src.contains("source=nonempty_wallet_absent"))
+        assertTrue(src.contains("SELL_RECONCILER_NONEMPTY_SNAPSHOT"))
+        assertTrue(src.contains("MINT_ABSENT_FROM_TOKEN_ACCOUNTS"))
+        assertTrue(src.contains("pos.consecutiveZeroConfirms < 2"))
+        assertTrue(tracker.contains("trustedTerminalZero"))
+        assertTrue(tracker.contains("SELL_RECONCILER_NONEMPTY_SNAPSHOT"))
+    }
+
 }

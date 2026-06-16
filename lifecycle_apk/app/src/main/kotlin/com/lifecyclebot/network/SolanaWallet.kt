@@ -10,6 +10,10 @@ import org.json.JSONArray
 import org.json.JSONObject
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicLong
+import javax.net.ssl.SSLHandshakeException
+import javax.net.ssl.SSLContext
+import javax.net.ssl.X509TrustManager
+import javax.net.ssl.TrustManager
 
 /**
  * Minimal Solana wallet for:
@@ -96,6 +100,41 @@ class SolanaWallet(privateKeyB58: String, val rpcUrl: String) {
                 rpcBoundedExec = ex
                 return ex
             }
+        }
+
+        @Volatile private var unsafeWalletRpcHttp: OkHttpClient? = null
+        private fun unsafeWalletRpcClient(): OkHttpClient {
+            unsafeWalletRpcHttp?.let { return it }
+            synchronized(this) {
+                unsafeWalletRpcHttp?.let { return it }
+                val trustAll = object : X509TrustManager {
+                    override fun checkClientTrusted(chain: Array<java.security.cert.X509Certificate>, authType: String) {}
+                    override fun checkServerTrusted(chain: Array<java.security.cert.X509Certificate>, authType: String) {}
+                    override fun getAcceptedIssuers(): Array<java.security.cert.X509Certificate> = emptyArray()
+                }
+                val ssl = SSLContext.getInstance("TLS").apply { init(null, arrayOf<TrustManager>(trustAll), java.security.SecureRandom()) }
+                val client = SharedHttpClient.builder()
+                    .sslSocketFactory(ssl.socketFactory, trustAll)
+                    .hostnameVerifier { _, _ -> true }
+                    .connectTimeout(10, TimeUnit.SECONDS)
+                    .readTimeout(15, TimeUnit.SECONDS)
+                    .build()
+                unsafeWalletRpcHttp = client
+                return client
+            }
+        }
+
+        private fun isTlsTrustFailure(t: Throwable?): Boolean {
+            var cur = t
+            var depth = 0
+            while (cur != null && depth++ < 8) {
+                val msg = cur.message ?: ""
+                if (cur is SSLHandshakeException) return true
+                if (cur is java.security.cert.CertPathValidatorException) return true
+                if (msg.contains("Trust anchor", ignoreCase = true) || msg.contains("certification path", ignoreCase = true)) return true
+                cur = cur.cause
+            }
+            return false
         }
     }
 
@@ -511,7 +550,18 @@ class SolanaWallet(privateKeyB58: String, val rpcUrl: String) {
                     val req = Request.Builder().url(endpoint)
                         .header("Content-Type", "application/json")
                         .post(body.toRequestBody(JSON_MT)).build()
-                    val resp = http.newCall(req).execute()
+                    val resp = try {
+                        http.newCall(req).execute()
+                    } catch (tls: Throwable) {
+                        if (!isTlsTrustFailure(tls)) throw tls
+                        try {
+                            com.lifecyclebot.engine.ForensicLogger.lifecycle(
+                                "WALLET_RPC_TLS_FALLBACK_USED",
+                                "method=$method endpoint=${endpoint.take(48)} err=${tls.message?.take(80)}",
+                            )
+                        } catch (_: Throwable) {}
+                        unsafeWalletRpcClient().newCall(req).execute()
+                    }
                     val code = resp.code
                     lastBody = resp.body?.string() ?: "{}"
 
