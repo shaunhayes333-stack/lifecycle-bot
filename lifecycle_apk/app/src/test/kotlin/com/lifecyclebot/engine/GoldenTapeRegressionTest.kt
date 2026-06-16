@@ -970,8 +970,9 @@ class GoldenTapeRegressionTest {
         val planner = java.io.File("src/main/kotlin/com/lifecyclebot/engine/ProcessorAmountPlanner.kt").readText()
         val amountPlanningSurface = exec + "\n" + planner
 
-        assertTrue(exec.contains("data class ProcessorBuyPlan"))
+        assertFalse("Executor must not keep duplicate buy plan wrapper", exec.contains("data class ProcessorBuyPlan"))
         assertTrue(planner.contains("data class BuyPlan"))
+        assertTrue(exec.contains(": ProcessorAmountPlanner.BuyPlan?"))
         assertTrue(amountPlanningSurface.contains("BUY_PROCESSOR_AMOUNT_RECALCULATED"))
         assertTrue(exec.contains("ProcessorAmountPlanner.planBuy"))
         listOf(
@@ -1306,7 +1307,10 @@ class GoldenTapeRegressionTest {
         assertTrue(models.contains("return true"))
         assertTrue(host.contains("CONFIRMED_PENDING_BALANCE"))
         assertTrue(host.contains("qtySource=ESTIMATED_PENDING_WALLET_PROOF"))
-        assertTrue(host.contains("isOpenForAccounting(it) && hasLastPositiveRaw(it)"))
+        assertTrue(host.contains("hasFreshBuyLiability"))
+        assertTrue(host.contains("CAP_FRESH_BUY_LIABILITY_MS"))
+        assertTrue(host.contains("isCapCountable(p)"))
+        assertFalse("pending visibility must not depend on stale raw as cap truth", host.contains("isOpenForAccounting(it) && hasLastPositiveRaw(it)"))
         assertTrue(lifecycle.contains("CONFIRMED_PENDING_BALANCE"))
         assertFalse("liveMemeOpenCount must not require positive wallet qty only", lifecycle.contains("r.currentWalletTokenQty > DUST_UI_THRESHOLD &&\n                r.status != Status.RECONCILE_FAILED"))
         assertTrue(snap.contains("maxOf(localLiveOpen, hostOpen, lifecyclePendingConfirmed)"))
