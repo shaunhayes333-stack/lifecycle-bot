@@ -1896,6 +1896,36 @@ class GoldenTapeRegressionTest {
 
 
     @Test
+    fun partial_rows_count_as_real_outcomes_but_use_leg_accounting_and_clean_mcap_basis() {
+        val executor = java.io.File("src/main/kotlin/com/lifecyclebot/engine/Executor.kt").readText()
+        val journal = java.io.File("src/main/kotlin/com/lifecyclebot/engine/TradeJournal.kt").readText()
+        val journalActivity = java.io.File("src/main/kotlin/com/lifecyclebot/ui/JournalActivity.kt").readText()
+        val scorer = java.io.File("src/main/kotlin/com/lifecyclebot/v3/scoring/UnifiedScorer.kt").readText()
+        val fdg = java.io.File("src/main/kotlin/com/lifecyclebot/engine/FinalDecisionGate.kt").readText()
+        val collector = java.io.File("src/main/kotlin/com/lifecyclebot/engine/PipelineHealthCollector.kt").readText()
+
+        assertTrue("TradeJournal must treat PARTIAL_SELL as sell-like", journal.contains("side.equals(\"SELL\", ignoreCase = true) || side.equals(\"PARTIAL_SELL\", ignoreCase = true)"))
+        assertTrue("partial exits must drive journal WR", journal.contains("partial exits are real realized outcomes and must drive WR") && journal.contains("val decisiveTrades = sells.filter { isDecisive(it.pnlPct) }"))
+        assertTrue("partial exits must drive exported WR/count/avg", journal.contains("partial exits are real realized exits") && journal.contains("val decisiveSells = sells.filter { isDecisive(it.entry.pnlPct) }"))
+        assertTrue("JournalActivity count must include partial sell rows", journalActivity.contains("tvJournalCount.text = sellEntries.size.toString()"))
+        assertFalse("partials must not be demoted to terminal-only stats", journal.contains("terminalSells") || journalActivity.contains("isTerminalSell"))
+
+        assertTrue("capital recovery partial must store realized leg pct, not full-position gainPct", executor.contains("val paperCRLegPct = pct(paperCRCostBasis, sellSol)") && executor.contains("pnlSol, paperCRLegPct"))
+        assertTrue("profit lock partial must store realized leg pct, not full-position gainPct", executor.contains("val paperPLLegPct = pct(paperPLCostBasis, sellSol)") && executor.contains("pnlSol, paperPLLegPct"))
+        assertFalse("capital/profit-lock canonical row must not store raw gainPct as partial pnlPct", executor.contains("""pnlSol, gainPct,
+                    feeSol = paperCRFee""") || executor.contains("""pnlSol, gainPct,
+                    feeSol = paperPLFee"""))
+
+        assertTrue("sell/partial journal mcap must not fall back to current/discovery ts.lastMcap", executor.contains("entryMcapForJournal: Double") && executor.contains("if (trade.side.equals(\"BUY\", true)) ts.lastMcap"))
+        assertTrue("UI must show unknown mcap as n/a instead of a fake current mcap", journalActivity.contains("mcap=n/a"))
+
+        assertFalse("safe rebuild must not include 3807 runtime telemetry scorer hook", scorer.contains("AIStackSnapshot"))
+        assertFalse("safe rebuild must not include 3807 runtime telemetry FDG hook", fdg.contains("EffectiveSizeShapeTrace"))
+        assertFalse("safe rebuild must not include 3807 runtime telemetry collector hook", collector.contains("AIStackSnapshot.formatForPipelineDump") || collector.contains("EffectiveSizeShapeTrace.formatForPipelineDump"))
+    }
+
+
+    @Test
     fun losing_pattern_memory_soft_sizes_emerging_bootstrap_bleeders_before_maturity() {
         val losing = java.io.File("src/main/kotlin/com/lifecyclebot/engine/LosingPatternMemory.kt").readText()
         val fdg = java.io.File("src/main/kotlin/com/lifecyclebot/engine/FinalDecisionGate.kt").readText()
