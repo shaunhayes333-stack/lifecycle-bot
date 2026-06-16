@@ -12253,6 +12253,7 @@ class Executor(
                          identity: TradeIdentity? = null): SellResult {
         ExecutionRootCauseTrace.sell("LIVE_SELL_ENTRY", ts, "reason=$reason walletSol=$walletSol posQty=${ts.position.qtyToken} entry=${ts.position.entryPrice} high=${ts.position.highestPrice}")
         val tradeId = identity ?: TradeIdentityManager.getOrCreate(ts.mint, ts.symbol, ts.source)
+        var closeAuthoritySig: String? = null
         
         val c   = cfg()
         val pos = ts.position
@@ -13047,7 +13048,6 @@ class Executor(
                 )
             }
             var sig: String? = null
-            var closeAuthoritySig: String? = null
             var lastBroadcastException: Exception? = null
             var broadcastAttempts = 0
             // V5.9.495 — UNIVERSAL PUMP-FIRST routing (inlined — no `run { }`
