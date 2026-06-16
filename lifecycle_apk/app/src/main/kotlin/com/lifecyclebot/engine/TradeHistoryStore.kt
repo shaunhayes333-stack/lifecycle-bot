@@ -202,7 +202,7 @@ object TradeHistoryStore {
             // The DB on device is at v3 from a previous experiment, so returning
             // the codebase to v1 throws SQLiteException on startup and breaks
             // the entire learning pipeline. Bump to v4 to force an upgrade instead.
-            const val DB_VERSION = 4
+            const val DB_VERSION = 5
             const val TABLE = "trades"
         }
 
@@ -224,6 +224,7 @@ object TradeHistoryStore {
                     trading_emoji TEXT    NOT NULL DEFAULT '',
                     fee_sol       REAL    NOT NULL DEFAULT 0,
                     net_pnl_sol   REAL    NOT NULL DEFAULT 0,
+                    proof_state   TEXT    NOT NULL DEFAULT '',
                     dedup_key     TEXT    UNIQUE
                 )
             """.trimIndent())
@@ -232,7 +233,9 @@ object TradeHistoryStore {
         }
 
         override fun onUpgrade(db: SQLiteDatabase, oldVersion: Int, newVersion: Int) {
-            // Future migrations go here
+            if (oldVersion < 5) {
+                try { db.execSQL("ALTER TABLE $TABLE ADD COLUMN proof_state TEXT NOT NULL DEFAULT ''") } catch (_: Throwable) {}
+            }
         }
     }
 
@@ -454,6 +457,23 @@ object TradeHistoryStore {
         }
     }
 
+    private fun normalizeProofState(t: Trade): String {
+        val explicit = t.proofState.trim().uppercase()
+        if (explicit in setOf("PAPER_SIMULATED", "LIVE_BROADCAST", "LIVE_SIG_CONFIRMED", "LIVE_BALANCE_CONFIRMED", "LIVE_FINALIZED")) return explicit
+        val m = t.mode.trim().lowercase()
+        if (m == "paper") return "PAPER_SIMULATED"
+        if (m == "live") {
+            val r = t.reason.uppercase()
+            return when {
+                r.contains("FINALIZED") || r.contains("SELL_FINALIZED") -> "LIVE_FINALIZED"
+                r.contains("ZERO_BALANCE") || r.contains("BALANCE_CONFIRMED") || r.contains("WALLET") -> "LIVE_BALANCE_CONFIRMED"
+                t.sig.isNotBlank() -> "LIVE_SIG_CONFIRMED"
+                else -> "LIVE_BROADCAST"
+            }
+        }
+        return ""
+    }
+
     fun recordTrade(trade: Trade) {
         ensureInitialized()
         // V5.9.1038 — choke-point dedupe gate. SELL-only (BUY tradeIds are
@@ -513,7 +533,8 @@ object TradeHistoryStore {
             }
         }
 
-        val tradeToStore = if (normalizedMode != trade.tradingMode) trade.copy(tradingMode = normalizedMode) else trade
+        val normalizedProof = normalizeProofState(trade)
+        val tradeToStore = if (normalizedMode != trade.tradingMode || normalizedProof != trade.proofState) trade.copy(tradingMode = normalizedMode, proofState = normalizedProof) else trade
         if (!isValidAccountingTrade(tradeToStore)) {
             try {
                 ErrorLogger.warn(
@@ -545,7 +566,7 @@ object TradeHistoryStore {
         try {
             ErrorLogger.info(
                 "TradeHistoryStore",
-                "📓 TRADEJRNL_REC side=${tradeToStore.side} mode=${tradeToStore.mode} sym=${tradeToStore.mint.take(6)} sol=${"%.3f".format(tradeToStore.sol)} pnl=${"%.3f".format(tradeToStore.pnlSol)} reason=${tradeToStore.reason} | inMem=${synchronized(lock) { trades.size }} lifetimeSells=$lifetimeSells",
+                "📓 TRADEJRNL_REC side=${tradeToStore.side} mode=${tradeToStore.mode} proof=${tradeToStore.proofState} sym=${tradeToStore.mint.take(6)} sol=${"%.3f".format(tradeToStore.sol)} pnl=${"%.3f".format(tradeToStore.pnlSol)} reason=${tradeToStore.reason} | inMem=${synchronized(lock) { trades.size }} lifetimeSells=$lifetimeSells",
             )
             PipelineHealthCollector.onTradeJournal()
             // V5.9.670 — also record into the recent-executions ring so the
@@ -557,6 +578,7 @@ object TradeHistoryStore {
                 sizeSol = tradeToStore.sol,
                 pnlSol  = tradeToStore.pnlSol,
                 reason  = tradeToStore.reason,
+                proofState = tradeToStore.proofState,
             )
         } catch (_: Throwable) { /* never let logging break the record path */ }
         // V5.9.353: Per-mint loss-streak guard (block re-entry after 3 losses in a row).
@@ -715,6 +737,7 @@ object TradeHistoryStore {
                         tradingModeEmoji = c.getString(c.getColumnIndexOrThrow("trading_emoji")),
                         feeSol         = c.getDouble(c.getColumnIndexOrThrow("fee_sol")),
                         netPnlSol      = c.getDouble(c.getColumnIndexOrThrow("net_pnl_sol")),
+                        proofState     = c.getColumnIndex("proof_state").takeIf { it >= 0 }?.let { c.getString(it) } ?: "",
                     )
                     if (isValidAccountingTrade(row)) loaded.add(row)
                     else try { ErrorLogger.warn("TradeHistoryStore", "TRADE_ACCOUNTING_LEGACY_ROW_FILTERED mint=${row.mint.take(8)} side=${row.side} pnlPct=${row.pnlPct} pnl=${row.pnlSol} reason=${row.reason}") } catch (_: Throwable) {}
@@ -1267,6 +1290,7 @@ object TradeHistoryStore {
         put("trading_emoji", t.tradingModeEmoji)
         put("fee_sol",       t.feeSol)
         put("net_pnl_sol",   t.netPnlSol)
+        put("proof_state",   t.proofState)
         put("dedup_key",     "${t.ts}_${t.mint}_${t.side}_${tradeSeq.incrementAndGet()}")
     }
 
@@ -1295,6 +1319,7 @@ object TradeHistoryStore {
                         tradingModeEmoji = c.getString(c.getColumnIndexOrThrow("trading_emoji")),
                         feeSol         = c.getDouble(c.getColumnIndexOrThrow("fee_sol")),
                         netPnlSol      = c.getDouble(c.getColumnIndexOrThrow("net_pnl_sol")),
+                        proofState     = c.getColumnIndex("proof_state").takeIf { it >= 0 }?.let { c.getString(it) } ?: "",
                     )
                     if (isValidAccountingTrade(row)) loaded.add(row)
                     else try { ErrorLogger.warn("TradeHistoryStore", "TRADE_ACCOUNTING_DB_INIT_FILTERED mint=${row.mint.take(8)} side=${row.side} pnlPct=${row.pnlPct} pnl=${row.pnlSol} reason=${row.reason}") } catch (_: Throwable) {}

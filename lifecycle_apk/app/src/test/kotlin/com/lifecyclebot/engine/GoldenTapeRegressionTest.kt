@@ -1823,4 +1823,28 @@ class GoldenTapeRegressionTest {
         assertFalse("AntiChoke must not use raw lifecycle openCount for pressure", anti.contains("val lifecycleOpen = try { TokenLifecycleTracker.openCount()"))
     }
 
+
+    @Test
+    fun mixed_mode_report_uses_event_mode_and_splits_live_paper_recent_executions() {
+        val collector = java.io.File("src/main/kotlin/com/lifecyclebot/engine/PipelineHealthCollector.kt").readText()
+        val store = java.io.File("src/main/kotlin/com/lifecyclebot/engine/TradeHistoryStore.kt").readText()
+        val models = java.io.File("src/main/kotlin/com/lifecyclebot/data/Models.kt").readText()
+
+        assertTrue("FDG per-mode must parse mode from event payload", collector.contains("val eventMode = extractModeFromText(reason)"))
+        assertTrue("report must explain current snapshot vs event attribution", collector.contains("per-mode counters are event-attributed"))
+        assertTrue("live execution section must be separate", collector.contains("LIVE execution telemetry (event-attributed)"))
+        assertTrue("paper execution section must be separate", collector.contains("PAPER execution telemetry (event-attributed)"))
+        assertTrue("recent live list must be separate", collector.contains("Recent LIVE executions"))
+        assertTrue("recent paper list must be separate", collector.contains("Recent PAPER executions"))
+        assertTrue("recent execution rows must carry proof state", collector.contains("val proofState: String = \"\"") )
+        assertTrue("live lifecycle execution labels must feed live attempt counter", collector.contains("\"MEME_LIVE_EXEC_ENTRY\" -> execLiveAttempt.incrementAndGet()"))
+        assertTrue("live finality labels must feed live sell-ok counter", collector.contains("\"SELL_FINALIZED_ONCE\", \"SELL_FINALIZED\", \"EXEC_LIVE_SELL_ZERO_BALANCE_CONFIRMED\", \"SELL_SIG_CONFIRMED\" -> execLiveSellOk.incrementAndGet()"))
+
+        assertTrue("Trade model must include proofState", models.contains("val proofState: String = \"\"") )
+        assertTrue("Trade DB must persist proof_state", store.contains("proof_state"))
+        assertTrue("TradeHistoryStore must default paper proof", store.contains("PAPER_SIMULATED"))
+        assertTrue("TradeHistoryStore must default live sig proof", store.contains("LIVE_SIG_CONFIRMED"))
+        assertTrue("TradeHistoryStore must send proof state to report ring", store.contains("proofState = tradeToStore.proofState"))
+    }
+
 }

@@ -193,6 +193,10 @@ data class Trade(
     val tradingMode: String = "STANDARD",    // ExtendedMode name
     val tradingModeEmoji: String = "📈",     // Emoji for display
     val mint: String = "",                    // Token mint address
+    // V5.0.3797 — execution proof state for mixed live/paper reports:
+    // PAPER_SIMULATED, LIVE_BROADCAST, LIVE_SIG_CONFIRMED,
+    // LIVE_BALANCE_CONFIRMED, LIVE_FINALIZED.
+    val proofState: String = "",
 )
 
 data class StrategyMeta(

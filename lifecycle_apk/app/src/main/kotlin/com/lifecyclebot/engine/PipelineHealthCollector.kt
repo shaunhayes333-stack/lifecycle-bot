@@ -178,6 +178,7 @@ object PipelineHealthCollector {
         val sizeSol: Double,
         val pnlSol: Double,
         val reason: String,
+        val proofState: String = "",
     )
     private val recentExecs = java.util.concurrent.ConcurrentLinkedDeque<ExecRecord>()
     private val recentExecsSize = AtomicInteger(0)
@@ -252,6 +253,32 @@ object PipelineHealthCollector {
     // ════════════════════════════════════════════════════════════════
     // Forensic hooks — called from ForensicLogger.
     // ════════════════════════════════════════════════════════════════
+
+    private fun extractModeFromText(text: String): String {
+        val m = Regex("(?:^|[\s|])(?:mode|runtimeMode|execMode)=([A-Za-z_]+)").find(text)
+            ?.groupValues?.getOrNull(1)?.uppercase()
+        return when (m) {
+            "LIVE" -> "LIVE"
+            "PAPER" -> "PAPER"
+            else -> ""
+        }
+    }
+
+    private fun modeFromExec(action: String, fields: String): String = when {
+        action.startsWith("LIVE_", ignoreCase = true) -> "LIVE"
+        action.startsWith("PAPER_", ignoreCase = true) -> "PAPER"
+        else -> extractModeFromText(fields)
+    }
+
+    private fun normalizedProofState(mode: String, proofState: String, side: String = ""): String {
+        val p = proofState.trim().uppercase()
+        if (p in setOf("PAPER_SIMULATED", "LIVE_BROADCAST", "LIVE_SIG_CONFIRMED", "LIVE_BALANCE_CONFIRMED", "LIVE_FINALIZED")) return p
+        return when (mode.uppercase()) {
+            "PAPER" -> "PAPER_SIMULATED"
+            "LIVE" -> "LIVE_BROADCAST"
+            else -> ""
+        }
+    }
 
     fun onPhase(phaseTag: String, symbol: String, fields: String) {
         if (!attached) return
@@ -355,11 +382,17 @@ object PipelineHealthCollector {
             // (not yet stamped by runtime start), FDG allow=25 produced
             // FDG_LIVE_ALLOW=0 / FDG_LIVE_BLOCK=0 — invalid telemetry. Fall back
             // to the canonical RuntimeModeAuthority so the split is never lost.
-            val effMode = when (modeSnapshot) {
-                "LIVE", "PAPER" -> modeSnapshot
-                else -> try {
-                    if (com.lifecyclebot.engine.RuntimeModeAuthority.isLive()) "LIVE" else "PAPER"
-                } catch (_: Throwable) { "UNKNOWN" }
+            // V5.0.3797 — mixed-mode telemetry fix: derive FDG attribution from
+            // the event's own mode= field, not the UI/current snapshot at copy time.
+            val eventMode = extractModeFromText(reason)
+            val effMode = when (eventMode) {
+                "LIVE", "PAPER" -> eventMode
+                else -> when (modeSnapshot) {
+                    "LIVE", "PAPER" -> modeSnapshot
+                    else -> try {
+                        if (com.lifecyclebot.engine.RuntimeModeAuthority.isLive()) "LIVE" else "PAPER"
+                    } catch (_: Throwable) { "UNKNOWN" }
+                }
             }
             when (effMode) {
                 "LIVE"  -> if (allow) fdgLiveAllow.incrementAndGet()  else fdgLiveBlock.incrementAndGet()
@@ -401,6 +434,7 @@ object PipelineHealthCollector {
         // ORDER MATTERS: longer / more specific prefixes first so a generic
         // "LIVE_BUY" doesn't shadow "LIVE_BUY_OK" / "LIVE_BUY_FAIL" once
         // those finer-grained actions are wired by callers.
+        val eventMode = modeFromExec(action, fields)
         when {
             action.startsWith("LIVE_BUY_OK")      -> execLiveBuyOk.incrementAndGet()
             action.startsWith("LIVE_BUY_FAIL")    -> execLiveBuyFail.incrementAndGet()
@@ -410,6 +444,9 @@ object PipelineHealthCollector {
             action.startsWith("LIVE_SELL_FAIL")   -> execLiveSellFail.incrementAndGet()
             action.startsWith("PAPER_BUY")        -> execPaperBuyOk.incrementAndGet()
             action.startsWith("PAPER_SELL")       -> execPaperSellOk.incrementAndGet()
+            eventMode == "LIVE" && action.contains("BUY", ignoreCase = true) -> execLiveAttempt.incrementAndGet()
+            eventMode == "PAPER" && action.contains("BUY", ignoreCase = true) -> execPaperBuyOk.incrementAndGet()
+            eventMode == "PAPER" && action.contains("SELL", ignoreCase = true) -> execPaperSellOk.incrementAndGet()
         }
         appendEvent(Event(System.currentTimeMillis(), "EXEC/$action", symbol, fields.take(220)))
     }
@@ -424,6 +461,15 @@ object PipelineHealthCollector {
         if (event == "EXECUTION_STATE_BLOCKED") {
             lastExecutionStateBlockedMs = System.currentTimeMillis()
             lastExecutionStateBlockedFields = fields.take(220)
+        }
+        // V5.0.3797 — mixed-mode proof attribution. Some live execution/finality
+        // evidence is emitted as LIFECYCLE labels, not EXEC labels. Count those
+        // from the event authority itself so a PAPER UI snapshot cannot hide live
+        // execution in the per-mode block.
+        when (event) {
+            "MEME_LIVE_EXEC_ENTRY" -> execLiveAttempt.incrementAndGet()
+            "LIVE_BUY_LANDED", "BUY_CONFIRMED", "LIVE_POSITION_CONFIRMED_FROM_WALLET", "LIVE_POSITION_CONFIRMED_FROM_SIGNATURE" -> execLiveBuyOk.incrementAndGet()
+            "SELL_FINALIZED_ONCE", "SELL_FINALIZED", "EXEC_LIVE_SELL_ZERO_BALANCE_CONFIRMED", "SELL_SIG_CONFIRMED" -> execLiveSellOk.incrementAndGet()
         }
         // V5.9.1046 — V3 reject reason histogram. Extract the normalised
         // V3 reason key from fields like 'mint=… sym=… v3=Rejected
@@ -473,10 +519,18 @@ object PipelineHealthCollector {
      * 30 trades right alongside the funnel counts. Called from TradeHistoryStore
      * after each successful journal write.
      */
-    fun recordExec(side: String, mode: String, symbol: String, sizeSol: Double, pnlSol: Double, reason: String) {
+    fun recordExec(side: String, mode: String, symbol: String, sizeSol: Double, pnlSol: Double, reason: String, proofState: String = "") {
         if (!attached) return
+        val eventMode = when (mode.trim().uppercase()) {
+            "LIVE" -> "LIVE"
+            "PAPER" -> "PAPER"
+            else -> extractModeFromText(reason).ifBlank { mode.trim().uppercase().ifBlank { "UNKNOWN" } }
+        }
+        val proof = normalizedProofState(eventMode, proofState, side)
         bump(labelCounts, "EXEC_${side.uppercase()}")
-        recentExecs.addLast(ExecRecord(System.currentTimeMillis(), side, mode, symbol, sizeSol, pnlSol, reason))
+        bump(labelCounts, "EXEC_${eventMode}_${side.uppercase()}")
+        if (proof.isNotBlank()) bump(labelCounts, "PROOF_$proof")
+        recentExecs.addLast(ExecRecord(System.currentTimeMillis(), side, eventMode, symbol, sizeSol, pnlSol, reason, proof))
         if (recentExecsSize.incrementAndGet() > EXEC_RING_CAP) {
             recentExecs.pollFirst()
             recentExecsSize.decrementAndGet()
@@ -1175,20 +1229,46 @@ object PipelineHealthCollector {
             sb.append('\n')
         }
 
+        // ── Mixed-mode execution breakdown ──────────────────────────
+        val liveRecentRows = s.recentExecs.count { it.mode.equals("LIVE", true) }
+        val paperRecentRows = s.recentExecs.count { it.mode.equals("PAPER", true) }
+        sb.append("===== LIVE execution telemetry (event-attributed) =====\n")
+        sb.append("  FDG allow/block:      ${fdgLiveAllow.get()} / ${fdgLiveBlock.get()}\n")
+        sb.append("  EXEC attempt:         ${execLiveAttempt.get()}\n")
+        sb.append("  BUY ok/fail:          ${execLiveBuyOk.get()} / ${execLiveBuyFail.get()}\n")
+        sb.append("  SELL ok/fail:         ${execLiveSellOk.get()} / ${execLiveSellFail.get()}\n")
+        sb.append("  Recent journal rows:  ${liveRecentRows}\n")
+        sb.append("\n")
+        sb.append("===== PAPER execution telemetry (event-attributed) =====\n")
+        sb.append("  FDG allow/block:      ${fdgPaperAllow.get()} / ${fdgPaperBlock.get()}\n")
+        sb.append("  BUY ok:               ${execPaperBuyOk.get()}\n")
+        sb.append("  SELL ok:              ${execPaperSellOk.get()}\n")
+        sb.append("  Recent journal rows:  ${paperRecentRows}\n")
+        sb.append("\n")
+
         // ── Recent executions ───────────────────────────────────────
         if (s.recentExecs.isNotEmpty()) {
-            sb.append("===== Recent executions (last ${s.recentExecs.size}) =====\n")
-            for (ex in s.recentExecs.asReversed()) {
-                sb.append("  ").append(df.format(Date(ex.tsMs))).append(' ')
-                    .append(ex.side.padEnd(4)).append(' ')
-                    .append(ex.mode.padEnd(5)).append(' ')
-                    .append(ex.symbol.padEnd(10)).append(' ')
-                    .append("sol=").append(if (ex.side.equals("PARTIAL_SELL", true)) String.format("%.6f", ex.sizeSol) else String.format("%.3f", ex.sizeSol)).append(' ')
-                    .append("pnl=").append(if (ex.side.equals("PARTIAL_SELL", true)) String.format("%+.6f", ex.pnlSol) else String.format("%+.3f", ex.pnlSol))
-                if (ex.reason.isNotBlank()) sb.append(" reason=").append(ex.reason.take(60))
+            fun appendExecList(title: String, rows: List<ExecRecord>) {
+                sb.append("===== ").append(title).append(" (last ").append(rows.size).append(") =====\n")
+                if (rows.isEmpty()) {
+                    sb.append("  (none)\n\n")
+                    return
+                }
+                for (ex in rows.asReversed()) {
+                    sb.append("  ").append(df.format(Date(ex.tsMs))).append(' ')
+                        .append(ex.side.padEnd(4)).append(' ')
+                        .append(ex.mode.padEnd(5)).append(' ')
+                        .append(ex.symbol.padEnd(10)).append(' ')
+                        .append("sol=").append(if (ex.side.equals("PARTIAL_SELL", true)) String.format("%.6f", ex.sizeSol) else String.format("%.3f", ex.sizeSol)).append(' ')
+                        .append("pnl=").append(if (ex.side.equals("PARTIAL_SELL", true)) String.format("%+.6f", ex.pnlSol) else String.format("%+.3f", ex.pnlSol))
+                    if (ex.proofState.isNotBlank()) sb.append(" proof=").append(ex.proofState)
+                    if (ex.reason.isNotBlank()) sb.append(" reason=").append(ex.reason.take(60))
+                    sb.append('\n')
+                }
                 sb.append('\n')
             }
-            sb.append('\n')
+            appendExecList("Recent LIVE executions", s.recentExecs.filter { it.mode.equals("LIVE", true) })
+            appendExecList("Recent PAPER executions", s.recentExecs.filter { it.mode.equals("PAPER", true) })
         }
 
         // ── ANR health (watchdog) ───────────────────────────────────
