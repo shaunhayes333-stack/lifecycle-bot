@@ -1506,4 +1506,27 @@ class GoldenTapeRegressionTest {
             wallet.contains("if (successCount < 2)"))
     }
 
+
+    @Test
+    fun wallet_snapshot_has_das_fallback_when_tokenkeg_rpc_fails() {
+        val wallet = java.io.File("src/main/kotlin/com/lifecyclebot/network/SolanaWallet.kt").readText()
+        assertTrue(wallet.contains("heliusDasFungibleTokensByOwner"))
+        assertTrue(wallet.contains("getAssetsByOwner"))
+        assertTrue(wallet.contains("showFungible"))
+        assertTrue(wallet.contains("WALLET_TOKEN_READ_DAS_FALLBACK_USED"))
+        assertTrue(wallet.contains("out.putAll(das)"))
+        assertTrue(wallet.contains("splProgramOk = true"))
+    }
+
+    @Test
+    fun legacy_wallet_token_readers_delegate_to_strict_authority() {
+        val wallet = java.io.File("src/main/kotlin/com/lifecyclebot/network/SolanaWallet.kt").readText()
+        val getTokensBody = Regex("""fun getTokenAccounts\(\): Map<String, Double> \{([\s\S]*?)\n    \}""").find(wallet)?.groupValues?.get(1) ?: ""
+        val checkedBody = Regex("""fun getTokenAccountsChecked\(\): WalletTokenSnapshot \{([\s\S]*?)\n    \}""").find(wallet)?.groupValues?.get(1) ?: ""
+        assertTrue(getTokensBody.contains("getTokenAccountsWithDecimalsStrict"))
+        assertTrue(checkedBody.contains("getTokenAccountsWithDecimalsStrict"))
+        assertFalse("legacy getTokenAccounts must not keep its own getTokenAccountsByOwner duplicate", getTokensBody.contains("getTokenAccountsByOwner"))
+        assertFalse("checked wallet snapshot must not keep its own getTokenAccountsByOwner duplicate", checkedBody.contains("getTokenAccountsByOwner"))
+    }
+
 }

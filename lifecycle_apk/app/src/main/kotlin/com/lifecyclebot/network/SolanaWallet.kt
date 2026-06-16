@@ -697,6 +697,59 @@ class SolanaWallet(privateKeyB58: String, val rpcUrl: String) {
         throw RuntimeException("getTokenAccountsByOwner failed on ${endpoints.size} wallet endpoints: ${failures.joinToString("|").take(420)}")
     }
 
+    private fun heliusDasFungibleTokensByOwner(): Map<String, Pair<Double, Int>> {
+        val apiKey = try { com.lifecyclebot.data.DefaultKeys.HELIUS } catch (_: Throwable) { "" }
+        if (apiKey.isBlank()) throw RuntimeException("Helius DAS unavailable: missing api key")
+        val url = "https://mainnet.helius-rpc.com/?api-key=$apiKey"
+        val payload = JSONObject()
+            .put("jsonrpc", "2.0")
+            .put("id", idGen.getAndIncrement())
+            .put("method", "getAssetsByOwner")
+            .put("params", JSONObject()
+                .put("ownerAddress", publicKeyB58)
+                .put("page", 1)
+                .put("limit", 1000)
+                .put("displayOptions", JSONObject()
+                    .put("showFungible", true)
+                    .put("showNativeBalance", false)))
+        val client = http.newBuilder()
+            .connectTimeout(1_200, TimeUnit.MILLISECONDS)
+            .readTimeout(2_000, TimeUnit.MILLISECONDS)
+            .callTimeout(2_500, TimeUnit.MILLISECONDS)
+            .build()
+        val req = Request.Builder().url(url)
+            .header("Content-Type", "application/json")
+            .post(payload.toString().toRequestBody(JSON_MT)).build()
+        val text = client.newCall(req).execute().use { resp ->
+            if (!resp.isSuccessful) throw RuntimeException("Helius DAS HTTP ${resp.code}")
+            resp.body?.string() ?: "{}"
+        }
+        val json = JSONObject(text)
+        val err = json.optJSONObject("error")
+        if (err != null) throw RuntimeException("Helius DAS RPC ${err.optString("message", err.toString())}")
+        val result = json.optJSONObject("result") ?: throw RuntimeException("Helius DAS missing result")
+        val items = result.optJSONArray("items") ?: JSONArray()
+        val out = mutableMapOf<String, Pair<Double, Int>>()
+        for (i in 0 until items.length()) {
+            val item = items.optJSONObject(i) ?: continue
+            val mint = item.optString("id", item.optString("mint", ""))
+            val tokenInfo = item.optJSONObject("token_info") ?: item.optJSONObject("tokenInfo") ?: continue
+            val decimals = tokenInfo.optInt("decimals", 0).coerceAtLeast(0)
+            val rawText = when (val rawAny = tokenInfo.opt("balance")) {
+                is Number -> rawAny.toString()
+                is String -> rawAny
+                else -> tokenInfo.optString("amount", "0")
+            }
+            val raw = rawText.toBigDecimalOrNull() ?: java.math.BigDecimal.ZERO
+            if (mint.isNotBlank() && raw.signum() > 0) {
+                val ui = try { raw.movePointLeft(decimals).toDouble() } catch (_: Throwable) { 0.0 }
+                if (ui > 0.0 && ui.isFinite()) out[mint] = Pair(ui, decimals)
+            }
+        }
+        try { com.lifecyclebot.engine.ForensicLogger.lifecycle("WALLET_TOKENS_DAS_OK", "count=${out.size} source=HELIUS_DAS") } catch (_: Throwable) {}
+        return out
+    }
+
     /**
      * V5.0.3762 — strict wallet token snapshot.
      * Timeout, transport failure, malformed RPC, or partial token-program
@@ -734,6 +787,14 @@ class SolanaWallet(privateKeyB58: String, val rpcUrl: String) {
             splProgramOk = true
         } catch (e: Exception) {
             failures.add("Tokenkeg:${e.message ?: "unknown"}")
+            try {
+                val das = heliusDasFungibleTokensByOwner()
+                out.putAll(das)
+                splProgramOk = true
+                try { com.lifecyclebot.engine.ForensicLogger.lifecycle("WALLET_TOKEN_READ_DAS_FALLBACK_USED", "reason=Tokenkeg_failed count=${das.size} err=${e.message?.take(90)}") } catch (_: Throwable) {}
+            } catch (dasErr: Exception) {
+                failures.add("HeliusDAS:${dasErr.message ?: "unknown"}")
+            }
         }
 
         try {
@@ -906,35 +967,14 @@ class SolanaWallet(privateKeyB58: String, val rpcUrl: String) {
     }
 
     fun getTokenAccounts(): Map<String, Double> {
-        // V5.9.254 FIX: Same as getTokenAccountsWithDecimals — query both token programs
-        // with commitment=confirmed and no dataSize filter.
-        val TOKEN_PROGRAM    = "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA"
-        val TOKEN_2022_PROG  = "TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb"
-        val out = mutableMapOf<String, Double>()
-        for (programId in listOf(TOKEN_PROGRAM, TOKEN_2022_PROG)) {
-            try {
-                val params = JSONArray()
-                    .put(publicKeyB58)
-                    .put(JSONObject().put("programId", programId))
-                    .put(JSONObject()
-                        .put("encoding", "jsonParsed")
-                        .put("commitment", "confirmed"))
-                val resp = rpc("getTokenAccountsByOwner", params)
-                resp.optJSONObject("result")?.optJSONArray("value")?.let { arr ->
-                    for (i in 0 until arr.length()) {
-                        val info = arr.optJSONObject(i)
-                            ?.optJSONObject("account")?.optJSONObject("data")
-                            ?.optJSONObject("parsed")?.optJSONObject("info") ?: continue
-                        val mint = info.optString("mint", "")
-                        val qty  = info.optJSONObject("tokenAmount")
-                            ?.optString("uiAmountString", "0")?.toDoubleOrNull() ?: 0.0
-                        if (mint.isNotBlank() && qty > 0) out[mint] = qty
-                    }
-                }
-            } catch (_: Exception) { /* continue to next program */ }
+        return try {
+            getTokenAccountsWithDecimalsStrict().mapValues { it.value.first }
+        } catch (e: Exception) {
+            android.util.Log.w("SolanaWallet", "getTokenAccounts failed via strict authority: ${e.message}")
+            emptyMap()
         }
-        return out
     }
+
 
     /**
      * V5.9.1531 — ROBUST wallet-token read for connect-time reconciliation.
@@ -953,36 +993,15 @@ class SolanaWallet(privateKeyB58: String, val rpcUrl: String) {
     data class WalletTokenSnapshot(val ok: Boolean, val tokens: Map<String, Double>)
 
     fun getTokenAccountsChecked(): WalletTokenSnapshot {
-        val TOKEN_PROGRAM    = "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA"
-        val TOKEN_2022_PROG  = "TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb"
-        val out = mutableMapOf<String, Double>()
-        var anySuccess = false
-        for (programId in listOf(TOKEN_PROGRAM, TOKEN_2022_PROG)) {
-            try {
-                val params = JSONArray()
-                    .put(publicKeyB58)
-                    .put(JSONObject().put("programId", programId))
-                    .put(JSONObject()
-                        .put("encoding", "jsonParsed")
-                        .put("commitment", "confirmed"))
-                val resp = rpc("getTokenAccountsByOwner", params)
-                val value = resp.optJSONObject("result")?.optJSONArray("value")
-                if (value != null) {
-                    anySuccess = true
-                    for (i in 0 until value.length()) {
-                        val info = value.optJSONObject(i)
-                            ?.optJSONObject("account")?.optJSONObject("data")
-                            ?.optJSONObject("parsed")?.optJSONObject("info") ?: continue
-                        val mint = info.optString("mint", "")
-                        val qty  = info.optJSONObject("tokenAmount")
-                            ?.optString("uiAmountString", "0")?.toDoubleOrNull() ?: 0.0
-                        if (mint.isNotBlank() && qty > 0) out[mint] = qty
-                    }
-                }
-            } catch (_: Exception) { /* this program failed; note via anySuccess */ }
+        return try {
+            val strict = getTokenAccountsWithDecimalsStrict().mapValues { it.value.first }
+            WalletTokenSnapshot(ok = true, tokens = strict)
+        } catch (e: Exception) {
+            try { com.lifecyclebot.engine.ForensicLogger.lifecycle("WALLET_TOKENS_CHECKED_INDETERMINATE", "err=${e.message?.take(180)}") } catch (_: Throwable) {}
+            WalletTokenSnapshot(ok = false, tokens = emptyMap())
         }
-        return WalletTokenSnapshot(ok = anySuccess, tokens = out)
     }
+
 
     /**
      * Retry getTokenAccountsChecked until a trustworthy snapshot is obtained
