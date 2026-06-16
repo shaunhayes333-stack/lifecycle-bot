@@ -622,60 +622,137 @@ class SolanaWallet(privateKeyB58: String, val rpcUrl: String) {
         emptyMap()
     }
 
+    private fun walletRpcEndpointsForTokenSnapshot(): List<String> {
+        val endpoints = mutableListOf<String>()
+        fun addClean(raw: String) {
+            val v = raw.trim()
+            if (v.isBlank()) return
+            // V5.0.3775: solana.public-rpc.com is cert-broken on some Android trust stores.
+            // It must never be used as wallet balance authority / reconciler proof.
+            if (v.contains("solana.public-rpc.com", ignoreCase = true)) {
+                try { com.lifecyclebot.engine.ForensicLogger.lifecycle("WALLET_RPC_ENDPOINT_SKIPPED_BAD_TLS", "endpoint=solana.public-rpc.com site=token_snapshot") } catch (_: Throwable) {}
+                return
+            }
+            if (v !in endpoints) endpoints.add(v)
+        }
+        addClean(rpcUrl)
+        try { com.lifecyclebot.engine.WalletManager.FALLBACK_RPCS.forEach { addClean(it) } } catch (_: Throwable) {}
+        return endpoints
+    }
+
+    private fun rpcTokenAccountsByOwnerFast(programId: String): JSONObject {
+        val params = JSONArray()
+            .put(publicKeyB58)
+            .put(JSONObject().put("programId", programId))
+            .put(JSONObject()
+                .put("encoding", "jsonParsed")
+                .put("commitment", "confirmed"))
+        val payload = JSONObject()
+            .put("jsonrpc", "2.0")
+            .put("id", idGen.getAndIncrement())
+            .put("method", "getTokenAccountsByOwner")
+            .put("params", params)
+        val body = payload.toString()
+        val endpoints = walletRpcEndpointsForTokenSnapshot()
+        val fastHttp = http.newBuilder()
+            .connectTimeout(900, TimeUnit.MILLISECONDS)
+            .readTimeout(1_400, TimeUnit.MILLISECONDS)
+            .callTimeout(1_800, TimeUnit.MILLISECONDS)
+            .build()
+        val failures = mutableListOf<String>()
+        for (endpoint in endpoints) {
+            try {
+                val req = Request.Builder().url(endpoint)
+                    .header("Content-Type", "application/json")
+                    .post(body.toRequestBody(JSON_MT)).build()
+                val resp = try {
+                    fastHttp.newCall(req).execute()
+                } catch (tls: Throwable) {
+                    if (!isTlsTrustFailure(tls)) throw tls
+                    failures.add("${endpoint.take(24)}:TLS")
+                    try { com.lifecyclebot.engine.ForensicLogger.lifecycle("WALLET_RPC_TLS_REJECTED_TOKEN_SNAPSHOT", "program=${programId.take(8)} endpoint=${endpoint.take(48)} err=${tls.message?.take(80)}") } catch (_: Throwable) {}
+                    continue
+                }
+                val code = resp.code
+                val text = resp.body?.string() ?: "{}"
+                if (code == 429 || code >= 500 || code == 401 || code == 403) {
+                    failures.add("${endpoint.take(24)}:HTTP$code")
+                    continue
+                }
+                val json = JSONObject(text)
+                val err = json.optJSONObject("error")
+                if (err != null) {
+                    val msg = err.optString("message", err.toString())
+                    val low = msg.lowercase()
+                    if (low.contains("rate") || low.contains("limit") || low.contains("unauthorized") || low.contains("forbidden") || low.contains("api key") || low.contains("invalid key")) {
+                        failures.add("${endpoint.take(24)}:RPC:${msg.take(36)}")
+                        continue
+                    }
+                }
+                return json
+            } catch (e: Throwable) {
+                failures.add("${endpoint.take(24)}:${e.javaClass.simpleName}:${e.message?.take(32) ?: "?"}")
+            }
+        }
+        throw RuntimeException("getTokenAccountsByOwner failed on ${endpoints.size} wallet endpoints: ${failures.joinToString("|").take(420)}")
+    }
+
     /**
      * V5.0.3762 — strict wallet token snapshot.
      * Timeout, transport failure, malformed RPC, or partial token-program
-     * failure is indeterminate. Return an empty map only after BOTH SPL Token
-     * and Token-2022 reads completed successfully and found no positive token
-     * accounts.
+     * failure is indeterminate. SPL Token (Tokenkeg) is required because normal
+     * meme holdings live there. Token-2022 is additive only: a Token-2022 read
+     * failure must not poison an otherwise successful SPL wallet snapshot.
      */
     fun getTokenAccountsWithDecimalsStrict(): Map<String, Pair<Double, Int>> {
         val TOKEN_PROGRAM    = "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA"
         val TOKEN_2022_PROG  = "TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb"
         val out = mutableMapOf<String, Pair<Double, Int>>()
         val failures = mutableListOf<String>()
-        var successCount = 0
-        for (programId in listOf(TOKEN_PROGRAM, TOKEN_2022_PROG)) {
-            var programOk = false
-            var lastProgramError: Exception? = null
-            repeat(3) { attempt ->
-                if (programOk) return@repeat
-                try {
-                    val params = JSONArray()
-                        .put(publicKeyB58)
-                        .put(JSONObject().put("programId", programId))
-                        .put(JSONObject()
-                            .put("encoding", "jsonParsed")
-                            .put("commitment", "confirmed"))
-                    val resp = rpc("getTokenAccountsByOwner", params)
-                    val err = resp.optJSONObject("error")
-                    if (err != null) throw RuntimeException("RPC error: ${err.optString("message", err.toString())}")
-                    val result = resp.optJSONObject("result") ?: throw RuntimeException("missing result")
-                    val arr = result.optJSONArray("value") ?: throw RuntimeException("missing result.value")
-                    for (i in 0 until arr.length()) {
-                        val info = arr.optJSONObject(i)
-                            ?.optJSONObject("account")?.optJSONObject("data")
-                            ?.optJSONObject("parsed")?.optJSONObject("info") ?: continue
-                        val mint = info.optString("mint", "")
-                        val tokenAmount = info.optJSONObject("tokenAmount")
-                        val qty = tokenAmount?.optString("uiAmountString", "0")?.toDoubleOrNull() ?: 0.0
-                        val decimals = tokenAmount?.optInt("decimals", 9) ?: 9
-                        if (mint.isNotBlank() && qty > 0) out[mint] = Pair(qty, decimals)
-                    }
-                    programOk = true
-                    successCount++
-                } catch (e: Exception) {
-                    lastProgramError = e
-                    android.util.Log.w("SolanaWallet", "getTokenAccountsWithDecimalsStrict [$programId] attempt ${attempt+1}/3 failed: ${e.message}")
-                    if (attempt < 2) Thread.sleep((300L shl attempt))
-                }
+        var splProgramOk = false
+        var token2022Ok = false
+
+        fun mergeFrom(programId: String, json: JSONObject) {
+            val err = json.optJSONObject("error")
+            if (err != null) throw RuntimeException("RPC error: ${err.optString("message", err.toString())}")
+            val result = json.optJSONObject("result") ?: throw RuntimeException("missing result")
+            val arr = result.optJSONArray("value") ?: throw RuntimeException("missing result.value")
+            for (i in 0 until arr.length()) {
+                val info = arr.optJSONObject(i)
+                    ?.optJSONObject("account")?.optJSONObject("data")
+                    ?.optJSONObject("parsed")?.optJSONObject("info") ?: continue
+                val mint = info.optString("mint", "")
+                val tokenAmount = info.optJSONObject("tokenAmount")
+                val qty = tokenAmount?.optString("uiAmountString", "0")?.toDoubleOrNull() ?: 0.0
+                val decimals = tokenAmount?.optInt("decimals", 9) ?: 9
+                if (mint.isNotBlank() && qty > 0) out[mint] = Pair(qty, decimals)
             }
-            if (!programOk) failures.add("${programId.take(8)}:${lastProgramError?.message ?: "unknown"}")
         }
-        if (successCount < 2) {
-            try { com.lifecyclebot.engine.ForensicLogger.lifecycle("WALLET_TOKEN_READ_INDETERMINATE", "successPrograms=$successCount/2 failures=${failures.joinToString(";").take(180)}") } catch (_: Throwable) {}
-            throw RuntimeException("wallet token snapshot indeterminate: successPrograms=$successCount/2 failures=${failures.joinToString(";")}")
+
+        try {
+            mergeFrom(TOKEN_PROGRAM, rpcTokenAccountsByOwnerFast(TOKEN_PROGRAM))
+            splProgramOk = true
+        } catch (e: Exception) {
+            failures.add("Tokenkeg:${e.message ?: "unknown"}")
         }
+
+        try {
+            mergeFrom(TOKEN_2022_PROG, rpcTokenAccountsByOwnerFast(TOKEN_2022_PROG))
+            token2022Ok = true
+        } catch (e: Exception) {
+            failures.add("TokenzQd:${e.message ?: "unknown"}")
+            // Token-2022 is additive for our meme wallet reconciliation. Do not poison
+            // normal SPL wallet proof if Tokenkeg succeeded; most AATE positions are SPL Token.
+        }
+
+        if (!splProgramOk) {
+            try { com.lifecyclebot.engine.ForensicLogger.lifecycle("WALLET_TOKEN_READ_INDETERMINATE", "successPrograms=0/2 required=Tokenkeg failures=${failures.joinToString(";").take(220)}") } catch (_: Throwable) {}
+            throw RuntimeException("wallet token snapshot indeterminate: required SPL Token program failed; ${failures.joinToString(";")}")
+        }
+        if (!token2022Ok) {
+            try { com.lifecyclebot.engine.ForensicLogger.lifecycle("WALLET_TOKEN_2022_OPTIONAL_FAILED", "action=continue_with_spl successPrograms=1/2 failures=${failures.joinToString(";").take(180)}") } catch (_: Throwable) {}
+        }
+        try { com.lifecyclebot.engine.ForensicLogger.lifecycle("WALLET_TOKENS_ROBUST_OK", "spl=true token2022=$token2022Ok count=${out.size}") } catch (_: Throwable) {}
         return out
     }
 

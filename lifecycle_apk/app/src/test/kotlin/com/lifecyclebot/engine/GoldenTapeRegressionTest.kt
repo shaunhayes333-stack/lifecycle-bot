@@ -1493,4 +1493,17 @@ class GoldenTapeRegressionTest {
             wallet.contains("\"https://solana.public-rpc.com\",                    // Public RPC"))
     }
 
+
+    @Test
+    fun wallet_snapshot_requires_spl_but_token2022_is_additive() {
+        val wallet = java.io.File("src/main/kotlin/com/lifecyclebot/network/SolanaWallet.kt").readText()
+        assertTrue(wallet.contains("rpcTokenAccountsByOwnerFast"))
+        assertTrue(wallet.contains("walletRpcEndpointsForTokenSnapshot"))
+        assertTrue(wallet.contains("if (!splProgramOk)"))
+        assertTrue(wallet.contains("WALLET_TOKEN_2022_OPTIONAL_FAILED"))
+        assertTrue(wallet.contains("action=continue_with_spl"))
+        assertFalse("Token-2022 failure must not poison normal SPL wallet proof",
+            wallet.contains("if (successCount < 2)"))
+    }
+
 }
