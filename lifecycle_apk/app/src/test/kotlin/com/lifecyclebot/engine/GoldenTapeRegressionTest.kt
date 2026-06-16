@@ -625,7 +625,8 @@ class GoldenTapeRegressionTest {
 
         assertTrue(exec.contains("SELL_QTY_SOURCE=BALANCE_UNKNOWN") || exec.contains("WALLET_TOKEN_READ_INDETERMINATE"))
         assertTrue(amountPlanningSurface.contains("PROCESSOR_AMOUNT_RECALCULATED"))
-        assertTrue(exec.contains("ProcessorAmountPlanner.planSellFromConfirmed"))
+        assertTrue("Executor must delegate sell planning to ProcessorAmountPlanner", exec.contains("ProcessorAmountPlanner.planSell("))
+        assertTrue("ProcessorAmountPlanner must own confirmed sell formatting", planner.contains("fun planSellFromConfirmed"))
         listOf(
             "PUMPPORTAL", "JUPITER_ULTRA_METIS", "JUPITER_ULTRA_METIS_LADDER",
             "PUMPPORTAL_EXIT", "PUMPPORTAL_EXIT_RESCUE", "JUPITER_DUST_BUSTER",
@@ -982,7 +983,7 @@ class GoldenTapeRegressionTest {
 
         assertTrue(amountPlanningSurface.contains("PumpPortal") || amountPlanningSurface.contains("PUMPPORTAL"))
         assertTrue(amountPlanningSurface.contains("Jupiter Ultra") || amountPlanningSurface.contains("JUPITER_ULTRA"))
-        assertTrue(amountPlanningSurface.contains("Helius/Jito/RPC remain senders") || planner.contains("Helius/Jito/RPC are senders"))
+        assertTrue("ProcessorAmountPlanner must refresh wallet SOL before senders quote/build", planner.contains("wallet.getSolBalance()"))
         assertFalse("PumpPortal buy builder must not receive stale caller solAmount", exec.contains("solAmount       = solAmount"))
         assertFalse("Jupiter live-buy quote must not use stale liveBuy lamports after PumpPortal fallback", exec.contains("JupiterApi.SOL_MINT, ts.mint, lamports"))
     }
@@ -1037,7 +1038,7 @@ class GoldenTapeRegressionTest {
         assertTrue(planner.contains("fun planBuy"))
         assertTrue(planner.contains("fun planSellFromConfirmed"))
         assertTrue(exec.contains("ProcessorAmountPlanner.planBuy"))
-        assertTrue(exec.contains("ProcessorAmountPlanner.planSellFromConfirmed"))
+        assertTrue(exec.contains("ProcessorAmountPlanner.planSell("))
     }
 
 
