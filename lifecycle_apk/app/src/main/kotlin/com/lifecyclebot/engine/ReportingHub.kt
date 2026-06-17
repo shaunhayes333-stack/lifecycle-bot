@@ -124,7 +124,7 @@ object ReportingHub {
         out.appendHeader("AATE UNIFIED OPERATIONAL REPORT")
         out.appendLine("Generated: ${stamp()}")
         out.appendLine("Scope: runtime / pipeline / learning / tuning / journal / forensic / errors")
-        out.appendLine("Size budget: ${budget} chars hard-capped for chat delivery; raw journal rows still excluded.")
+        out.appendLine("Size budget: ${budget} chars hard-capped for chat delivery; sections are priority-budgeted before truncation; raw journal rows excluded.")
         out.appendLine()
 
         fun addBoundedSection(title: String, maxChars: Int, body: () -> String) {
@@ -135,12 +135,17 @@ object ReportingHub {
             out.appendLine()
         }
 
-        addBoundedSection("EXECUTIVE SNAPSHOT", 3_200) { buildExecutiveSnapshot() }
-        addBoundedSection("PIPELINE HEALTH — CONDENSED", 14_000) { compactPipelineDump(PipelineHealthCollector.dumpText()) }
-        addBoundedSection("LEARNING + TUNING STATE", 10_000) { buildLearningTuningSummary() }
-        addBoundedSection("TRADE JOURNAL SUMMARY", 6_000) { buildJournalSummary() }
-        addBoundedSection("FORENSIC SUMMARY", 5_000) { buildForensicSummary() }
-        addBoundedSection("ERROR LOGS — RECENT", 6_000) { ErrorLogger.exportToText(limit = 60) }
+        // V5.0.3854 — REPORT BUDGET RECOMPILE.
+        // Previous budgets summed above the hard cap, so the tail (often toolkit proof,
+        // forensic/errors) was still chopped. Keep all sections, but give each a strict
+        // pre-cap budget and remove learning duplication from the pipeline block.
+        addBoundedSection("EXECUTIVE SNAPSHOT", 2_600) { buildExecutiveSnapshot() }
+        addBoundedSection("TOOLKIT SIGNAL SHEET", 2_600) { buildToolkitSignalSummary() }
+        addBoundedSection("PIPELINE HEALTH — CORE", 10_500) { compactPipelineDump(PipelineHealthCollector.dumpText()) }
+        addBoundedSection("LEARNING + TUNING STATE", 7_200) { buildLearningTuningSummary() }
+        addBoundedSection("TRADE JOURNAL SUMMARY", 5_200) { buildJournalSummary() }
+        addBoundedSection("FORENSIC SUMMARY", 2_800) { buildForensicSummary() }
+        addBoundedSection("ERROR LOGS — RECENT", 3_200) { ErrorLogger.exportToText(limit = 25) }
 
         val text = out.toString().trimEnd()
         return if (text.length <= budget) text else text.take(budget - 180) + "\n\n[REPORT_TRUNCATED hardCap=$budget chars — sections above are priority-ordered and internally condensed]"
@@ -174,6 +179,30 @@ object ReportingHub {
         if (journal != null) appendLine("Journal canonical: closes=${journal.trades} W/L=${journal.wins}/${journal.losses} WR=${journal.winRatePct().fmt1()}% PnL=${journal.pnlSol.fmt4()} SOL")
         appendLine("Learning: ${safe("token_win_stats") { TokenWinMemory.getStats() }} | ${safe("collective") { com.lifecyclebot.collective.CollectiveLearning.getInsightsSummary() }} | quarantined=${learningQuarantineLine()}")
         appendLine("Tuning: ${safe("pattern_auto_tuner") { PatternAutoTuner.getStatus() }}")
+    }
+
+    private fun buildToolkitSignalSummary(): String = buildString(3 * 1024) {
+        val s = safeSnapshot { PipelineHealthCollector.snapshot() }
+        val labels = s?.labelCounts ?: emptyMap()
+        val refreshed = labels["TOOLKIT_SIGNAL_SHEET_REFRESHED"] ?: 0L
+        val failed = labels["TOOLKIT_SIGNAL_SHEET_REFRESH_FAILED"] ?: 0L
+        appendLine("Helper: cached snapshot + silent AppDispatchers.sideEffect refresh; no FDG/executor fanout")
+        appendLine("Refresh: ok=$refreshed failed=$failed")
+        val setups = labels.entries
+            .filter { it.key.startsWith("TOOLKIT_SETUP_") }
+            .sortedByDescending { it.value }
+            .take(12)
+        appendLine("Top setups:")
+        if (setups.isEmpty()) appendLine("  none yet (cache warmup or report before async refresh)")
+        setups.forEach { e -> appendLine("  ${e.key.removePrefix("TOOLKIT_SETUP_").lowercase(Locale.US)}=${e.value}") }
+        val charts = labels.entries
+            .filter { it.key.startsWith("TOOLKIT_CHART_") }
+            .sortedByDescending { it.value }
+            .take(8)
+        appendLine("Top chart/setup patterns:")
+        if (charts.isEmpty()) appendLine("  none yet")
+        charts.forEach { e -> appendLine("  ${e.key.removePrefix("TOOLKIT_CHART_").lowercase(Locale.US)}=${e.value}") }
+        appendLine("Styles available: diamond_hands, degen_snipe, pump_graduation, chart_breakout, pullback_reclaim, whale/copy, narrative/social, liquidity_depth, panic_reversion, arb_flow, mev_protected, reentry, defensive_probe")
     }
 
     private fun buildLearningTuningSummary(): String = buildString(10 * 1024) {
@@ -235,8 +264,7 @@ object ReportingHub {
         val keepHeaders = listOf(
             "===== AATE Pipeline Health Snapshot", "===== Pipeline funnel", "===== Bot-loop cycle timing", "===== Runtime stall sentinels",
             "===== Per-lane open positions", "===== Gate allow / block tally", "===== Top block reasons", "===== Intake by source", "===== LANE_EVAL by lane",
-            "===== LIVE execution telemetry", "===== PAPER execution telemetry", "===== Strategy expectancy", "===== Regime detector", "===== Losing-pattern memory",
-            "===== Brain Consensus Gate", "===== Autonomous Meta-Policy", "===== Unified Policy Head", "===== Strategy Hypothesis Engine", "===== Lane Exit Tuner",
+            "===== LIVE execution telemetry", "===== PAPER execution telemetry", "===== Strategy expectancy", "===== Regime detector",
             "===== Performance analytics", "===== Separated WR metrics", "===== Throughput choke audit", "===== Token meta cache", "===== Slot health / close ledger",
             "===== Birdeye budget", "===== API health", "===== Key verdicts"
         )
@@ -268,12 +296,15 @@ object ReportingHub {
 
     private fun condenseSectionBody(header: String, body: String): String {
         val maxLines = when {
-            "API health" in header -> 14
-            "Intake by source" in header -> 12
-            "Strategy expectancy" in header -> 16
-            "Performance analytics" in header -> 20
-            "Throughput choke" in header -> 26
-            else -> 10
+            "API health" in header -> 10
+            "Key verdicts" in header -> 8
+            "Intake by source" in header -> 9
+            "LANE_EVAL" in header -> 9
+            "Strategy expectancy" in header -> 13
+            "Performance analytics" in header -> 14
+            "Throughput choke" in header -> 18
+            "Pipeline funnel" in header -> 12
+            else -> 7
         }
         return body.lineSequence()
             .filter { it.isNotBlank() }

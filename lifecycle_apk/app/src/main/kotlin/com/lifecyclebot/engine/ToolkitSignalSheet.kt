@@ -126,6 +126,8 @@ object ToolkitSignalSheet {
                 val built = build(ts, classification)
                 cache[mint] = CacheEntry(built, System.currentTimeMillis(), fp)
                 try { PipelineHealthCollector.labelInc("TOOLKIT_SIGNAL_SHEET_REFRESHED") } catch (_: Throwable) {}
+                try { PipelineHealthCollector.labelInc("TOOLKIT_SETUP_${built.setup.name}") } catch (_: Throwable) {}
+                try { PipelineHealthCollector.labelInc("TOOLKIT_CHART_${built.chartPattern.uppercase().take(48)}") } catch (_: Throwable) {}
             } catch (_: Throwable) {
                 try { PipelineHealthCollector.labelInc("TOOLKIT_SIGNAL_SHEET_REFRESH_FAILED") } catch (_: Throwable) {}
             } finally {
