@@ -53,6 +53,14 @@ object SlotHealthGate {
     // V5.9.1530 — open-position hard cap above which entries defer to in-flight exits.
     private const val ENTRY_HARD_CAP = 12
 
+    private fun canonicalPaperOpenCount(): Int = try {
+        com.lifecyclebot.v3.scoring.ShitCoinTraderAI.getActivePositionsForMode(true).size +
+            com.lifecyclebot.v3.scoring.MoonshotTraderAI.getActivePositionsForMode(true).size +
+            com.lifecyclebot.v3.scoring.BlueChipTraderAI.getActivePositionsForMode(true).size +
+            com.lifecyclebot.v3.scoring.QualityTraderAI.getActivePositionsForMode(true).size +
+            com.lifecyclebot.v3.scoring.CashGenerationAI.getActivePositionsForMode(true).size
+    } catch (_: Throwable) { -1 }
+
     fun publish(
         ghostOpen: Int,
         forcedOpen: Int,
@@ -61,9 +69,17 @@ object SlotHealthGate {
         supCap: Int,
         exitInFlight: Boolean,
     ) {
+        val paperRuntime = try { RuntimeModeAuthority.isPaper() } catch (_: Throwable) { false }
+        val canonicalPaperOpen = if (paperRuntime) canonicalPaperOpenCount() else -1
+        val effectiveOpen = if (paperRuntime && canonicalPaperOpen >= 0) canonicalPaperOpen else openPositions.coerceAtLeast(0)
+        val effectiveForced = if (paperRuntime && canonicalPaperOpen >= 0) forcedOpen.coerceAtLeast(0).coerceAtMost(canonicalPaperOpen) else forcedOpen.coerceAtLeast(0)
+        if (paperRuntime && canonicalPaperOpen >= 0 && (effectiveForced != forcedOpen.coerceAtLeast(0) || effectiveOpen != openPositions.coerceAtLeast(0))) {
+            try { PipelineHealthCollector.labelInc("PAPER_SLOT_HEALTH_REBUILT_FROM_LEDGER") } catch (_: Throwable) {}
+            try { ForensicLogger.lifecycle("PAPER_SLOT_HEALTH_REBUILT_FROM_LEDGER", "rawForced=$forcedOpen rawOpen=$openPositions canonicalPaperOpen=$canonicalPaperOpen") } catch (_: Throwable) {}
+        }
         ghostOpenCount.set(ghostOpen.coerceAtLeast(0))
-        forcedOpenCount.set(forcedOpen.coerceAtLeast(0))
-        openPositionCount.set(openPositions.coerceAtLeast(0))
+        forcedOpenCount.set(effectiveForced)
+        openPositionCount.set(effectiveOpen)
         supervisorActive.set(supActive.coerceAtLeast(0))
         supervisorCap.set(supCap.coerceAtLeast(1))
         exitPending.set(exitInFlight)
@@ -75,7 +91,7 @@ object SlotHealthGate {
             ghostStuckSinceMs.set(0L)
         }
         // V5.9.1547 — track how long forcedOpen has been continuously over the dirty floor.
-        if (forcedOpen > FORCED_OPEN_DIRTY) {
+        if (effectiveForced > FORCED_OPEN_DIRTY) {
             forcedStuckSinceMs.compareAndSet(0L, System.currentTimeMillis())
         } else {
             forcedStuckSinceMs.set(0L)

@@ -7316,23 +7316,36 @@ class Executor(
                  layerTagEmoji: String = "",
                  finalityPrechecked: Boolean = false,
                  attemptId: String = "") {     // V5.9.386 — matching emoji for the sub-trader tag
-        
+        try { PipelineHealthCollector.labelInc("PAPER_BUY_ATTEMPT") } catch (_: Throwable) {}
+
+        fun markPaperBuyNotOpened(reason: String) {
+            try { PipelineHealthCollector.labelInc("PAPER_BUY_NOT_OPENED") } catch (_: Throwable) {}
+            try { PipelineHealthCollector.labelInc("PAPER_BUY_NOT_OPENED_$reason") } catch (_: Throwable) {}
+            try { FinalExecutionPermit.releaseExecution(ts.mint) } catch (_: Throwable) {}
+            try { LaneExecutionCoordinator.releaseIfPrimary(ts.mint, layerTag.ifBlank { ts.position.tradingMode.ifBlank { "PAPER" } }, "BUY_NOT_OPENED_$reason") } catch (_: Throwable) {}
+            try { ForensicLogger.lifecycle("PAPER_BUY_NOT_OPENED", "mint=${ts.mint.take(10)} symbol=${ts.symbol} layer=$layerTag reason=$reason attemptId=$attemptId") } catch (_: Throwable) {}
+        }
+
         if (sol <= 0 || sol.isNaN() || sol.isInfinite()) {
             ErrorLogger.warn("Executor", "[EXECUTION/INVALID] Paper buy skipped: invalid size $sol for ${ts.symbol}")
+            markPaperBuyNotOpened("INVALID_SIZE")
             return
         }
         if (ts.mint.isBlank() || ts.symbol.isBlank()) {
             ErrorLogger.warn("Executor", "[EXECUTION/INVALID] Paper buy skipped: empty mint/symbol")
+            markPaperBuyNotOpened("EMPTY_MINT_OR_SYMBOL")
             return
         }
         if (score < 0 || score.isNaN()) {
             ErrorLogger.warn("Executor", "[EXECUTION/INVALID] Paper buy skipped: invalid score $score for ${ts.symbol}")
+            markPaperBuyNotOpened("INVALID_SCORE")
             return
         }
         shouldSuppressPaperLearningEntry(ts, score, layerTag, identity)?.let { why ->
             try { PipelineHealthCollector.labelInc("PAPER_LEARNING_QUALITY_SUPPRESSED") } catch (_: Throwable) {}
             try { ForensicLogger.lifecycle("PAPER_LEARNING_QUALITY_SUPPRESSED", "mint=${ts.mint.take(10)} symbol=${ts.symbol} layer=$layerTag reason=$why") } catch (_: Throwable) {}
             ErrorLogger.debug("Executor", "🧪 PAPER_LEARNING_QUALITY_SUPPRESSED: ${ts.symbol} | $why")
+            markPaperBuyNotOpened("QUALITY_SUPPRESSED")
             return
         }
         // V5.9.1129 — route authority must run before open authority for direct
@@ -7356,6 +7369,7 @@ class Executor(
                 )
             } catch (_: Throwable) {}
             ErrorLogger.warn("Executor", "🚫 PAPER_BUY_IN_LIVE_MODE_BLOCKED: ${ts.symbol} (sol=$sol) — ${routeVerdict.reason}")
+            markPaperBuyNotOpened("LIVE_MODE_BLOCKED")
             return
         }
         val routeIsShadow = routeVerdict.route == ExecutionRouteGuard.Route.SHADOW
@@ -7373,6 +7387,7 @@ class Executor(
             )
             if (!executableOpen.allowed) {
                 ErrorLogger.warn("Executor", "🚫 PAPER_BUY_BLOCKED_FINALITY: ${ts.symbol} | attemptId=${executableOpen.attemptId} | ${executableOpen.reason}")
+                markPaperBuyNotOpened("FINALITY_BLOCKED")
                 return
             }
         }
@@ -7423,6 +7438,7 @@ class Executor(
         }
         if (sol <= 0.0) {
             try { ForensicLogger.lifecycle("PAPER_BUY_INVALID_SIZE_REJECTED", "mint=${ts.mint.take(10)} symbol=${ts.symbol} requested=$sol") } catch (_: Throwable) {}
+            markPaperBuyNotOpened("SIZE_CLAMP_ZERO")
             return
         }
         
@@ -7468,15 +7484,17 @@ class Executor(
         val price = getActualPrice(ts)
         if (price <= 0) {
             ErrorLogger.debug("Executor", "Paper buy skipped: no valid price for ${tradeId.symbol}")
+            markPaperBuyNotOpened("NO_VALID_PRICE")
             return
         }
         if (ts.position.isOpen) {
-            onLog("⚠ Buy skipped: position already open", tradeId.mint); return
+            onLog("⚠ Buy skipped: position already open", tradeId.mint); markPaperBuyNotOpened("POSITION_ALREADY_OPEN"); return
         }
         
         val currentLayer = "PAPER"
         if (EmergentGuardrails.shouldBlockMultiLayerEntry(tradeId.mint, currentLayer)) {
             onLog("⚠ Buy skipped: ${tradeId.symbol} already open in different layer", tradeId.mint)
+            markPaperBuyNotOpened("MULTI_LAYER_ENTRY_BLOCK")
             return
         }
         
@@ -7661,7 +7679,8 @@ class Executor(
         )
         recordTrade(ts, trade)
         security.recordTrade(trade)
-        
+        try { PipelineHealthCollector.labelInc("PAPER_BUY_OPENED") } catch (_: Throwable) {}
+
         EmergentGuardrails.registerPosition(tradeId.mint, tradeId.symbol, currentLayer, actualSol)
         // V5.9.385 — the GHOST POSITION fix. V5.9.369 added a guard in
         // GlobalTradeRegistry.removeFromWatchlist that blocks eviction when

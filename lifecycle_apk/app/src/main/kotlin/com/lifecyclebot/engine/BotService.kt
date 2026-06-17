@@ -1281,6 +1281,8 @@ class BotService : Service() {
                     heliusKey  = cfg.heliusApiKey,
                     groqKey    = cfg.groqApiKey,
                     birdeyeKey = cfg.birdeyeApiKey,
+                    walletAddress = cfg.walletAddress,
+                    jupiterKey = cfg.jupiterApiKey,
                 )
             } catch (_: Throwable) { /* preflight is best-effort */ }
             // V5.9.455 — ANR FIX.

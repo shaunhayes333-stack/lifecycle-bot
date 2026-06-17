@@ -1,6 +1,13 @@
 package com.lifecyclebot.engine
 
+import com.lifecyclebot.network.SharedHttpClient
+import okhttp3.MediaType.Companion.toMediaType
+import okhttp3.Request
+import okhttp3.RequestBody.Companion.toRequestBody
+import org.json.JSONArray
+import org.json.JSONObject
 import java.util.concurrent.ConcurrentHashMap
+import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicLong
 
 /**
@@ -43,6 +50,7 @@ object KeyValidator {
         val timestampMs: Long,
         val lastHttp: Int,
         val lastError: String?,
+        val status: String = if (isLive) "HEALTHY" else "UNHEALTHY",
     )
 
     private val verdicts = ConcurrentHashMap<String, Verdict>()
@@ -70,6 +78,8 @@ object KeyValidator {
         heliusKey: String?,
         groqKey: String?,
         birdeyeKey: String?,
+        walletAddress: String? = null,
+        jupiterKey: String? = null,
     ) {
         if (geminiKey != null && geminiKey in knownDeadDefaults) {
             markDead("gemini", 401, "default placeholder key")
@@ -81,7 +91,18 @@ object KeyValidator {
             markDead("groq", 0, "blank key — no probe")
         }
         if (birdeyeKey != null && birdeyeKey.isBlank()) {
-            markDead("birdeye", 0, "blank key — no probe")
+            markDead("birdeye", 0, "blank key — no probe", "BIRDEYE_KEY_MISSING")
+        }
+        if (!heliusKey.isNullOrBlank()) {
+            Thread({ probeHeliusRpc(heliusKey, walletAddress.orEmpty()) }, "KeyValidator-HeliusProbe").apply { isDaemon = true }.start()
+        } else {
+            markDead("helius", 0, "blank key — no probe", "HELIUS_KEY_MISSING")
+        }
+        if (!groqKey.isNullOrBlank()) {
+            Thread({ probeGroqConfiguredModel(groqKey) }, "KeyValidator-GroqProbe").apply { isDaemon = true }.start()
+        }
+        if (!jupiterKey.isNullOrBlank()) {
+            recordResult("jupiter", success = true, httpStatus = 200, error = "configured")
         }
     }
 
@@ -103,7 +124,7 @@ object KeyValidator {
         val key = service.lowercase()
         if (success) {
             // Live verdict — clear any dead flag
-            verdicts[key] = Verdict(true, System.currentTimeMillis(), httpStatus, null)
+            verdicts[key] = Verdict(true, System.currentTimeMillis(), httpStatus, null, status = "${service.uppercase()}_HEALTHY")
         } else {
             // Auth-class failures (401/403/invalid_api_key) are sticky DEAD.
             // 5xx/timeout etc are transient — don't gate the service off for them.
@@ -116,9 +137,9 @@ object KeyValidator {
         }
     }
 
-    private fun markDead(service: String, httpStatus: Int, error: String?) {
+    private fun markDead(service: String, httpStatus: Int, error: String?, status: String = "${service.uppercase()}_UNHEALTHY") {
         val key = service.lowercase()
-        verdicts[key] = Verdict(false, System.currentTimeMillis(), httpStatus, error)
+        verdicts[key] = Verdict(false, System.currentTimeMillis(), httpStatus, error, status = status)
         try {
             ErrorLogger.info(TAG, "🔑❌ $service flagged DEAD (http=$httpStatus, err=${error?.take(60)})")
         } catch (_: Throwable) {}
@@ -131,5 +152,80 @@ object KeyValidator {
 
     /** Snapshot for UniverseHealthActivity / debug surface. */
     fun snapshot(): Map<String, Triple<Boolean, Int, String?>> =
-        verdicts.mapValues { (_, v) -> Triple(v.isLive, v.lastHttp, v.lastError) }
+        verdicts.mapValues { (_, v) -> Triple(v.isLive, v.lastHttp, listOf(v.status, v.lastError).filter { !it.isNullOrBlank() }.joinToString(" ")) }
+
+    private val jsonMedia = "application/json; charset=utf-8".toMediaType()
+
+    private fun probeHeliusRpc(apiKey: String, walletAddress: String) {
+        val service = "helius"
+        if (apiKey.isBlank() || apiKey in knownDeadDefaults) {
+            markDead(service, 0, "missing/default key", "HELIUS_KEY_MISSING")
+            return
+        }
+        val url = "https://mainnet.helius-rpc.com/?api-key=$apiKey"
+        val client = SharedHttpClient.builder()
+            .connectTimeout(4, TimeUnit.SECONDS)
+            .readTimeout(6, TimeUnit.SECONDS)
+            .callTimeout(8, TimeUnit.SECONDS)
+            .build()
+        fun rpc(method: String, params: JSONArray = JSONArray()): Pair<Int, JSONObject?> {
+            val payload = JSONObject().put("jsonrpc", "2.0").put("id", method).put("method", method).put("params", params)
+            val req = Request.Builder().url(url).post(payload.toString().toRequestBody(jsonMedia)).build()
+            client.newCall(req).execute().use { resp ->
+                val body = resp.body?.string().orEmpty()
+                if (resp.code == 401) { markDead(service, 401, body.take(120), "HELIUS_AUTH_FAILED_401"); return resp.code to null }
+                if (resp.code == 403) { markDead(service, 403, body.take(120), "HELIUS_FORBIDDEN_403"); return resp.code to null }
+                if (resp.code == 429) { markDead(service, 429, body.take(120), "HELIUS_RATE_LIMIT_429"); return resp.code to null }
+                if (!resp.isSuccessful) { markDead(service, resp.code, body.take(120), "HELIUS_RPC_ERROR"); return resp.code to null }
+                val json = try { JSONObject(body) } catch (_: Throwable) { JSONObject() }
+                if (json.has("error")) { markDead(service, resp.code, json.opt("error").toString().take(160), "HELIUS_RPC_ERROR"); return resp.code to json }
+                return resp.code to json
+            }
+        }
+        try {
+            val h = rpc("getHealth")
+            if (h.second == null) return
+            val bh = rpc("getLatestBlockhash")
+            if (bh.second == null) return
+            val wallet = walletAddress.ifBlank { "11111111111111111111111111111111" }
+            val bal = rpc("getBalance", JSONArray().put(wallet))
+            if (bal.second == null) return
+            val tokParams = JSONArray().put(wallet).put(JSONObject().put("programId", "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA")).put(JSONObject().put("encoding", "jsonParsed"))
+            val toks = rpc("getTokenAccountsByOwner", tokParams)
+            if (toks.second == null) return
+            verdicts[service] = Verdict(true, System.currentTimeMillis(), 200, "getHealth/getLatestBlockhash/getBalance/getTokenAccountsByOwner ok", "HELIUS_HEALTHY")
+            try { ApiHealthMonitor.record("helius", 200, 0) } catch (_: Throwable) {}
+        } catch (e: java.net.SocketTimeoutException) {
+            markDead(service, 0, e.message, "HELIUS_TIMEOUT")
+        } catch (e: Throwable) {
+            markDead(service, 0, e.message, "HELIUS_RPC_ERROR")
+        }
+    }
+
+    private fun probeGroqConfiguredModel(apiKey: String) {
+        val service = "groq"
+        val model = "openai/gpt-oss-20b"
+        val client = SharedHttpClient.builder().connectTimeout(4, TimeUnit.SECONDS).readTimeout(8, TimeUnit.SECONDS).callTimeout(10, TimeUnit.SECONDS).build()
+        val payload = JSONObject()
+            .put("model", model)
+            .put("messages", JSONArray().put(JSONObject().put("role", "user").put("content", "ping")))
+            .put("max_tokens", 1)
+        val req = Request.Builder()
+            .url("https://api.groq.com/openai/v1/chat/completions")
+            .addHeader("Authorization", "Bearer $apiKey")
+            .post(payload.toString().toRequestBody(jsonMedia))
+            .build()
+        try {
+            client.newCall(req).execute().use { resp ->
+                val body = resp.body?.string().orEmpty()
+                if (resp.code == 429) {
+                    verdicts[service] = Verdict(false, System.currentTimeMillis(), 429, body.take(160), "GROQ_RATE_LIMIT_429_NARRATIVE_DEGRADED")
+                    return
+                }
+                recordResult(service, resp.isSuccessful, resp.code, body.take(160))
+            }
+        } catch (t: Throwable) {
+            recordResult(service, false, 0, t.message)
+        }
+    }
 }

@@ -2313,4 +2313,27 @@ class GoldenTapeRegressionTest {
         assertTrue("Lane WR must use canonical scratch-aware win/loss thresholds", store.contains("val losses = modeTrades.count { isLoss(it) }") && store.contains("wins * 100.0 / decisive"))
     }
 
+
+    @Test
+    fun short_fix_block_3837_contracts() {
+        val keyValidator = java.io.File("src/main/kotlin/com/lifecyclebot/engine/KeyValidator.kt").readText()
+        assertTrue("Helius validator must probe real RPC health", keyValidator.contains("getHealth") && keyValidator.contains("getLatestBlockhash") && keyValidator.contains("getBalance") && keyValidator.contains("getTokenAccountsByOwner"))
+        assertTrue("Helius statuses must be exact", listOf("HELIUS_KEY_MISSING", "HELIUS_AUTH_FAILED_401", "HELIUS_FORBIDDEN_403", "HELIUS_RATE_LIMIT_429", "HELIUS_TIMEOUT", "HELIUS_RPC_ERROR", "HELIUS_HEALTHY").all { keyValidator.contains(it) })
+        assertTrue("Groq validator must test configured model path and expose rate-limit degradation", keyValidator.contains("https://api.groq.com/openai/v1/chat/completions") && keyValidator.contains("GROQ_RATE_LIMIT_429_NARRATIVE_DEGRADED"))
+
+        val fdg = java.io.File("src/main/kotlin/com/lifecyclebot/engine/FinalDecisionGate.kt").readText()
+        assertTrue("FDG must cache verdicts by generation/mint/candidate/lane/side", fdg.contains("fdgVerdictCache") && fdg.contains("candidateVersionOf") && fdg.contains("currentGeneration()") && fdg.contains("FDG_VERDICT_CACHE_HIT"))
+        assertTrue("Live mode must block buys when Helius is unhealthy; paper remains exempt", fdg.contains("mode == TradeMode.LIVE && !KeyValidator.isLive(\"helius\")") && fdg.contains("HELIUS_UNHEALTHY_LIVE_SAFE_MODE"))
+
+        val slot = java.io.File("src/main/kotlin/com/lifecyclebot/engine/SlotHealthGate.kt").readText()
+        assertTrue("Paper slot health must rebuild from canonical paper active positions", slot.contains("canonicalPaperOpenCount") && slot.contains("PAPER_SLOT_HEALTH_REBUILT_FROM_LEDGER") && slot.contains("coerceAtMost(canonicalPaperOpen)"))
+
+        val exec = java.io.File("src/main/kotlin/com/lifecyclebot/engine/Executor.kt").readText()
+        assertTrue("BUY_NOT_OPENED must be separated from BUY opened", exec.contains("PAPER_BUY_ATTEMPT") && exec.contains("PAPER_BUY_OPENED") && exec.contains("PAPER_BUY_NOT_OPENED"))
+        assertTrue("BUY_NOT_OPENED must release execution permit and lane primary", exec.contains("FinalExecutionPermit.releaseExecution(ts.mint)") && exec.contains("LaneExecutionCoordinator.releaseIfPrimary"))
+
+        val learning = java.io.File("src/main/kotlin/com/lifecyclebot/engine/CanonicalLearning.kt").readText()
+        assertTrue("Stop-loss label conflicting with positive signed PnL must not train", learning.contains("LEARNING_LABEL_SIGN_CONFLICT_QUARANTINED") && learning.contains("labelLooksStopLoss && learningPnlVerdict.pnlPct > 0.5"))
+    }
+
 }

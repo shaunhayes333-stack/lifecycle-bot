@@ -6,6 +6,7 @@ import com.lifecyclebot.data.TokenState
 import com.lifecyclebot.engine.quant.EVCalculator
 import com.lifecyclebot.engine.sell.LiveBuyAdmissionGate
 import com.lifecyclebot.v3.scoring.FluidLearningAI
+import java.util.concurrent.ConcurrentHashMap
 
 @Deprecated(
     message = "V3 Architecture Migration: Use v3/decision/FinalDecisionEngine instead",
@@ -97,6 +98,52 @@ object FinalDecisionGate {
 
     @Volatile
     private var closedLoopFeedback = ClosedLoopFeedback()
+
+    private data class FdgVerdictCacheEntry(val verdict: FinalDecision, val tsMs: Long)
+    private val fdgVerdictCache = ConcurrentHashMap<String, FdgVerdictCacheEntry>()
+    private const val FDG_VERDICT_CACHE_TTL_MS = 12_000L
+
+    private fun candidateVersionOf(candidate: CandidateDecision, laneScore: Double): String = listOf(
+        candidate.signal,
+        candidate.finalSignal,
+        candidate.blockReason,
+        candidate.entryScore.toInt(),
+        candidate.exitScore.toInt(),
+        candidate.aiConfidence.toInt(),
+        candidate.setupQuality,
+        candidate.edgeQuality,
+        candidate.finalQuality,
+        candidate.edgeVeto,
+        candidate.qualityPenalty,
+        laneScore.toInt(),
+    ).joinToString("|").hashCode().toString()
+
+    private fun runtimeGenerationKey(): String = try {
+        BotRuntimeController.currentGeneration().toString()
+    } catch (_: Throwable) { "0" }
+
+    private fun fdgCacheKey(ts: TokenState, candidate: CandidateDecision, lane: String, side: String, laneScore: Double): String =
+        "${runtimeGenerationKey()}|${ts.mint}|${candidateVersionOf(candidate, laneScore)}|${lane.uppercase()}|${side.uppercase()}"
+
+    private fun cachedFdgVerdict(key: String): FinalDecision? {
+        val now = System.currentTimeMillis()
+        val e = fdgVerdictCache[key] ?: return null
+        if (now - e.tsMs <= FDG_VERDICT_CACHE_TTL_MS) {
+            try { PipelineHealthCollector.labelInc("FDG_VERDICT_CACHE_HIT") } catch (_: Throwable) {}
+            return e.verdict
+        }
+        fdgVerdictCache.remove(key)
+        return null
+    }
+
+    private fun rememberFdgVerdict(key: String, verdict: FinalDecision): FinalDecision {
+        fdgVerdictCache[key] = FdgVerdictCacheEntry(verdict, System.currentTimeMillis())
+        if (fdgVerdictCache.size > 4096) {
+            val cutoff = System.currentTimeMillis() - FDG_VERDICT_CACHE_TTL_MS
+            fdgVerdictCache.entries.removeIf { it.value.tsMs < cutoff }
+        }
+        return verdict
+    }
 
     private const val FEEDBACK_EMA_ALPHA = 0.15
     private const val FEEDBACK_MIN_TRADES = 10
@@ -721,6 +768,30 @@ object FinalDecisionGate {
             else configIn.copy(paperMode = authoritativePaperMode)
         val mode = if (config.paperMode) TradeMode.PAPER else TradeMode.LIVE
         val laneName = tradingModeTag?.name ?: "STANDARD"
+        val fdgSide = candidate.finalSignal.ifBlank { candidate.signal }.ifBlank { "UNKNOWN" }
+        val fdgCacheKey = fdgCacheKey(ts, candidate, laneName, fdgSide, laneScore)
+        cachedFdgVerdict(fdgCacheKey)?.let { return it }
+
+        if (mode == TradeMode.LIVE && !KeyValidator.isLive("helius")) {
+            try { PipelineHealthCollector.labelInc("FDG_LIVE_BLOCK_HELIUS_UNHEALTHY") } catch (_: Throwable) {}
+            try { ForensicLogger.lifecycle("FDG_LIVE_BLOCK_HELIUS_UNHEALTHY", "mint=${ts.mint.take(10)} symbol=${ts.symbol} lane=$laneName side=$fdgSide") } catch (_: Throwable) {}
+            return rememberFdgVerdict(fdgCacheKey, FinalDecision(
+                shouldTrade = false,
+                mode = mode,
+                approvalClass = ApprovalClass.BLOCKED,
+                quality = candidate.setupQuality,
+                confidence = candidate.aiConfidence,
+                edge = EdgeVerdict.SKIP,
+                blockReason = "HELIUS_UNHEALTHY_LIVE_SAFE_MODE",
+                blockLevel = BlockLevel.HARD,
+                sizeSol = 0.0,
+                tags = listOf("live_safe_mode", "helius_unhealthy", "lane:$laneName"),
+                mint = ts.mint,
+                symbol = ts.symbol,
+                approvalReason = "LIVE safe mode: Helius unhealthy; paper unaffected",
+                gateChecks = listOf(GateCheck("helius_live_finality", false, "Helius required for wallet/token proof/finality/reconciliation")),
+            ))
+        }
         // V5.9.1299 — single source of truth for the LEARNING-CONTEXT score.
         // laneScore is the lane's REAL 0-100 signal (1296/1297); candidate.entryScore
         // is the shared base V3 score (~7 for memes). All learning lookups
@@ -4236,7 +4307,7 @@ object FinalDecisionGate {
             // Symbolic verdict is pure telemetry — never affect the decision.
         }
 
-        return FinalDecision(
+        return rememberFdgVerdict(fdgCacheKey, FinalDecision(
             shouldTrade = shouldTradeFinal,
             mode = mode,
             approvalClass = approvalClass,
@@ -4251,7 +4322,7 @@ object FinalDecisionGate {
             symbol = ts.symbol,
             approvalReason = approvalReason,
             gateChecks = checks,
-        )
+        ))
     }
 
     fun logBlockedTrade(decision: FinalDecision, onLog: (String) -> Unit) {
