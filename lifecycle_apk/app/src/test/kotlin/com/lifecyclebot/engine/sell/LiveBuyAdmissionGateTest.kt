@@ -9,10 +9,10 @@ import org.junit.Assert.fail
 /**
  * V5.9.756 — Emergent CRITICAL ticket smoke tests.
  *
- * Acceptance items 1, 2, 5 from the ticket:
- *   1. Live buy with missing safety report is blocked.
- *   2. Live buy with stale safety report is blocked.
- *   5. Live buy with safety pending (no report yet) is blocked.
+ * V5.0.3844 contract:
+ *   - True SafetyTier.HARD_BLOCK still blocks.
+ *   - Missing/stale safety without a true hard reason is PENALTY_ONLY/pending-proof
+ *     and must not stop live evaluation before quote/pretrade checks.
  *
  * These use LiveBuyAdmissionGate.evaluateForTest which mirrors the
  * production decision logic without writing forensics. The real gate is
@@ -37,23 +37,23 @@ class LiveBuyAdmissionGateTest {
     }
 
     @Test
-    fun safety_missing_blocks() {
+    fun safety_missing_is_penalty_only_not_hard_block() {
         val d = LiveBuyAdmissionGate.evaluateForTest(
             safetyTier = SafetyTier.SAFE,
             lastSafetyCheckMs = 0L,
             nowMs = NOW,
         )
-        assertBlocked(d, "SAFETY_DATA_MISSING")
+        assertTrue("Expected Approved/PENALTY_ONLY path for missing soft safety but got $d", d === LiveBuyAdmissionGate.Decision.Approved)
     }
 
     @Test
-    fun safety_stale_blocks() {
+    fun safety_stale_is_penalty_only_not_hard_block() {
         val d = LiveBuyAdmissionGate.evaluateForTest(
             safetyTier = SafetyTier.SAFE,
             lastSafetyCheckMs = NOW - (LiveBuyAdmissionGate.SAFETY_STALE_MS + 5_000L),
             nowMs = NOW,
         )
-        assertBlocked(d, "SAFETY_DATA_STALE")
+        assertTrue("Expected Approved/PENALTY_ONLY path for stale soft safety but got $d", d === LiveBuyAdmissionGate.Decision.Approved)
     }
 
     @Test

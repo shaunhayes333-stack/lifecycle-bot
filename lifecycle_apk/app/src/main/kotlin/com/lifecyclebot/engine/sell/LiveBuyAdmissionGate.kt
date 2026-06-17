@@ -126,23 +126,33 @@ object LiveBuyAdmissionGate {
         val safetyMissing = ts.lastSafetyCheck == 0L
         val safetyStale = !safetyMissing && safetyAgeMs > SAFETY_STALE_MS
         val safetyHardBlock = safety.tier == SafetyTier.HARD_BLOCK
+        val hardDetail = safety.hardBlockReasons.firstOrNull() ?: safety.summary.take(120)
+        val trueHardSafety = safetyHardBlock && !com.lifecyclebot.engine.TokenBlacklist.isSoftPenaltyOnlyReason(hardDetail)
 
-        if (!safetyHardBlock && !safetyMissing && !safetyStale) {
-            // Approved. No log spam on the happy path — the executor's
-            // own LIVE_BUY_START forensic already records the boundary.
+        if (trueHardSafety) {
+            block(ts, "SAFETY_HARD_BLOCK", hardDetail, callSite, onLog, onNotify)
+            return Decision.Blocked("SAFETY_HARD_BLOCK", hardDetail)
+        }
+
+        if (safetyHardBlock || safetyMissing || safetyStale) {
+            val reasonCode = when {
+                safetyHardBlock -> "SAFETY_SHADOW_PENALTY_ONLY"
+                safetyMissing -> "SAFETY_DATA_MISSING_PENALTY_ONLY"
+                else -> "SAFETY_DATA_STALE_PENALTY_ONLY"
+            }
+            val detail = when {
+                safetyHardBlock -> hardDetail
+                safetyMissing -> "no safety report has run for this mint"
+                else -> "lastCheck=${safetyAgeMs / 1000}s ago (> ${SAFETY_STALE_MS / 1000}s)"
+            }
+            try { ForensicLogger.lifecycle("BUY_GATE_DECISION", "mint=${ts.mint.take(10)} symbol=${ts.symbol} decision=PENALTY_ONLY reason=$reasonCode detail=${detail.take(120)} source=LiveBuyAdmissionGate liveEligible=true") } catch (_: Throwable) {}
+            try { com.lifecyclebot.engine.PipelineHealthCollector.labelInc("BUY_GATE_PENALTY_ONLY_SAFETY_SHADOW") } catch (_: Throwable) {}
             return Decision.Approved
         }
 
-        val (reasonCode, detail) = when {
-            safetyHardBlock -> "SAFETY_HARD_BLOCK" to
-                (safety.hardBlockReasons.firstOrNull() ?: safety.summary.take(120))
-            safetyMissing   -> "SAFETY_DATA_MISSING" to
-                "no safety report has run for this mint"
-            else            -> "SAFETY_DATA_STALE" to
-                "lastCheck=${safetyAgeMs / 1000}s ago (> ${SAFETY_STALE_MS / 1000}s)"
-        }
-        block(ts, reasonCode, detail, callSite, onLog, onNotify)
-        return Decision.Blocked(reasonCode, detail)
+        // Approved. No log spam on the happy path — the executor's own
+        // LIVE_BUY_START forensic already records the boundary.
+        return Decision.Approved
     }
 
     private fun block(
@@ -182,6 +192,12 @@ object LiveBuyAdmissionGate {
         }
 
         val fullReason = "$reasonCode: $detail"
+        try {
+            ForensicLogger.lifecycle(
+                "BUY_GATE_DECISION",
+                "mint=${ts.mint.take(10)} symbol=${ts.symbol} decision=HARD_BLOCK reason=$reasonCode detail=${detail.take(120)} source=LiveBuyAdmissionGate liveEligible=false",
+            )
+        } catch (_: Throwable) {}
         ErrorLogger.warn(TAG,
             "[EXECUTION/LIVE_BUY_BLOCKED_RISK] callSite=$callSite ${ts.symbol} mint=${ts.mint.take(12)}… reason=$fullReason")
         try {
@@ -213,15 +229,10 @@ object LiveBuyAdmissionGate {
         lastSafetyCheckMs: Long,
         nowMs: Long,
     ): Decision {
-        val safetyAgeMs = nowMs - lastSafetyCheckMs
-        val safetyMissing = lastSafetyCheckMs == 0L
-        val safetyStale = !safetyMissing && safetyAgeMs > SAFETY_STALE_MS
         val safetyHardBlock = safetyTier == SafetyTier.HARD_BLOCK
 
         return when {
             safetyHardBlock -> Decision.Blocked("SAFETY_HARD_BLOCK", "hard-block tier")
-            safetyMissing   -> Decision.Blocked("SAFETY_DATA_MISSING", "no report")
-            safetyStale     -> Decision.Blocked("SAFETY_DATA_STALE", "age=${safetyAgeMs / 1000}s")
             else            -> Decision.Approved
         }
     }

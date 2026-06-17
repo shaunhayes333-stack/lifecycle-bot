@@ -14882,11 +14882,17 @@ if (hotExitHandledSweep) {
 
             if (ts.safety.isBlocked) {
                 val reason = ts.safety.hardBlockReasons.firstOrNull() ?: "Safety check failed"
-                shadow(ts, mint, "SAFETY_SHADOW", reason, hardSafety = true)
-                // Do not mark scanner rejected and do not remove from registry.
-                // Entry/FDG safety will block execution while the candidate
-                // remains observable for learning, telemetry, and rehydration.
-                continue
+                if (!TokenBlacklist.isSoftPenaltyOnlyReason(reason)) {
+                    shadow(ts, mint, "SAFETY_SHADOW", reason, hardSafety = true)
+                    try { ForensicLogger.lifecycle("BUY_GATE_DECISION", "mint=${mint.take(10)} symbol=${ts.symbol} decision=HARD_BLOCK reason=${reason.take(120)} source=BotService.SAFETY_SHADOW liveEligible=false") } catch (_: Throwable) {}
+                    // Do not mark scanner rejected and do not remove from registry.
+                    // Entry/FDG safety will block execution while the candidate
+                    // remains observable for learning, telemetry, and rehydration.
+                    continue
+                } else {
+                    try { ForensicLogger.lifecycle("BUY_GATE_DECISION", "mint=${mint.take(10)} symbol=${ts.symbol} decision=PENALTY_ONLY reason=${reason.take(120)} source=BotService.SAFETY_SHADOW liveEligible=true") } catch (_: Throwable) {}
+                    try { PipelineHealthCollector.labelInc("BUY_GATE_PENALTY_ONLY_SAFETY_SHADOW") } catch (_: Throwable) {}
+                }
             }
 
             if (TokenBlacklist.isBlocked(mint)) {

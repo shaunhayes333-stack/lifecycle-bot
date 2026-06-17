@@ -28,6 +28,10 @@ object PreTradeHardGate {
                 "PRETRADE_HARD_BLOCK",
                 "mint=${ts.mint.take(10)} symbol=${ts.symbol} reason=$reason detail=${detail.take(180)}"
             )
+            ForensicLogger.lifecycle(
+                "BUY_GATE_DECISION",
+                "mint=${ts.mint.take(10)} symbol=${ts.symbol} decision=HARD_BLOCK reason=$reason source=PreTradeHardGate liveEligible=false",
+            )
             PipelineHealthCollector.labelInc("PRETRADE_HARD_BLOCK_$reason")
         } catch (_: Throwable) {}
         return Verdict(false, reason, detail)
@@ -61,10 +65,15 @@ object PreTradeHardGate {
         val safetyAt = maxOf(ts.lastSafetyCheck, safety.checkedAt)
         val safetyAge = now - safetyAt
         if (safetyAt <= 0L || safetyAge > SAFETY_FRESH_MS) {
-            return block(ts, "SAFETY_PROOF_STALE_OR_MISSING", "checkedAt=$safetyAt ageMs=$safetyAge")
+            pendingProofs.add("SAFETY_PROOF_STALE_OR_MISSING:checkedAt=$safetyAt ageMs=$safetyAge")
         }
         if (safety.tier == SafetyTier.HARD_BLOCK || safety.isBlocked) {
-            return block(ts, "SAFETY_HARD_BLOCK", safety.hardBlockReasons.joinToString("|").ifBlank { safety.summary })
+            val detail = safety.hardBlockReasons.joinToString("|").ifBlank { safety.summary }
+            if (!TokenBlacklist.isSoftPenaltyOnlyReason(detail)) {
+                return block(ts, "SAFETY_HARD_BLOCK", detail)
+            }
+            pendingProofs.add("SAFETY_SHADOW_PENALTY_ONLY:${detail.take(80)}")
+            try { ForensicLogger.lifecycle("BUY_GATE_DECISION", "mint=${ts.mint.take(10)} symbol=${ts.symbol} decision=PENALTY_ONLY reason=SAFETY_SHADOW source=PreTradeHardGate liveEligible=true") } catch (_: Throwable) {}
         }
 
         val rcStatus = safety.rugcheckStatus.uppercase()
@@ -87,12 +96,11 @@ object PreTradeHardGate {
             true -> Unit
         }
 
-        if (!safety.liqConfirmed && ts.lastLiquidityUsd < MIN_LIVE_LIQ_USD) {
-            return block(ts, "LIQUIDITY_PROOF_INCOMPLETE", "liq=${ts.lastLiquidityUsd} liqConfirmed=${safety.liqConfirmed}")
-        }
+        if (ts.lastLiquidityUsd == 0.0) return block(ts, "ZERO_LIQUIDITY", "liq=0")
         if (!safety.liqConfirmed) pendingProofs.add("LIQUIDITY_PROOF_PENDING")
         if (ts.lastLiquidityUsd > 0.0 && ts.lastLiquidityUsd < MIN_LIVE_LIQ_USD) {
-            return block(ts, "LIQUIDITY_BELOW_LIVE_MIN", "liq=${ts.lastLiquidityUsd} min=$MIN_LIVE_LIQ_USD")
+            pendingProofs.add("LOW_LIQUIDITY_SIZE_REDUCED:liq=${ts.lastLiquidityUsd} min=$MIN_LIVE_LIQ_USD")
+            try { ForensicLogger.lifecycle("BUY_GATE_DECISION", "mint=${ts.mint.take(10)} symbol=${ts.symbol} decision=PENALTY_ONLY reason=LOW_LIQUIDITY_SIZE_REDUCED source=PreTradeHardGate liveEligible=true") } catch (_: Throwable) {}
         }
 
         if (!ts.holderDataResolved) pendingProofs.add("HOLDER_DATA_PENDING")

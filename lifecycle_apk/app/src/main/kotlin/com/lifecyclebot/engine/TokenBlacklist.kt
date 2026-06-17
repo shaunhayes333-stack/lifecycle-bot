@@ -31,20 +31,80 @@ object TokenBlacklist {
     )
 
     fun block(mint: String, reason: String) {
+        // V5.0.3844 — blacklist is only for true mint-level malicious/fatal
+        // conditions. Learning/history/symbol-loss reasons are PENALTY_ONLY and
+        // must never become BLACKLIST_SHADOW / hard live-route blocks.
+        if (!isTrueBlacklistReason(reason)) {
+            try {
+                ForensicLogger.lifecycle(
+                    "BUY_GATE_DECISION",
+                    "mint=${mint.take(10)} symbol=? decision=PENALTY_ONLY reason=${reason.take(140)} source=TokenBlacklist liveEligible=true",
+                )
+            } catch (_: Throwable) {}
+            try { PipelineHealthCollector.labelInc("BUY_GATE_PENALTY_ONLY_TOKEN_BLACKLIST_SOFT_REASON") } catch (_: Throwable) {}
+            return
+        }
         blocked.add(mint)
         reasons[mint]    = reason
         timestamps[mint] = System.currentTimeMillis()
     }
 
-    private fun isFalseSafetyBlacklist(reason: String): Boolean {
+    fun isTrueBlacklistReason(reason: String): Boolean {
         val r = reason.uppercase()
-        return r.contains("RUGCHECK PENDING") ||
+        if (isSoftPenaltyOnlyReason(reason)) return false
+        return r.contains("KNOWN MALICIOUS") ||
+            r.contains("VERIFIED BLACKLIST") ||
+            r.contains("MINT BLACKLIST") ||
+            r.contains("CONFIRMED RUG") ||
+            r.contains("RUG DETECTED") ||
+            r.contains("RUGGED") ||
+            r.contains("HONEYPOT") ||
+            r.contains("CANNOT SELL") ||
+            r.contains("NO SELL ROUTE") ||
+            r.contains("SELL QUOTE IMPOSSIBLE") ||
+            r.contains("NO EXECUTABLE ROUTE") ||
+            r.contains("SELL SIMULATION FAIL") ||
+            r.contains("MALICIOUS CONTRACT") ||
+            r.contains("FREEZE AUTHORITY ACTIVE") ||
+            r.contains("MINT AUTHORITY ACTIVE") ||
+            r.contains("LP 0%") ||
+            r.contains("LP UNLOCKED") ||
+            r.contains("UNLOCKED LIQUIDITY") ||
+            r.contains("ZERO LIQUIDITY") ||
+            r.contains("TOP HOLDER") ||
+            r.contains("HOLDER CONCENTRATION") ||
+            r.contains("BASE_OR_QUOTE_MINT_AS_TARGET")
+    }
+
+    fun isSoftPenaltyOnlyReason(reason: String): Boolean {
+        val r = reason.uppercase()
+        return r.contains("2+ LOSSES") ||
+            r.contains("REPEATED LOSSES") ||
+            r.contains("PRIOR LOSSES") ||
+            r.contains("SAME SYMBOL") ||
+            r.contains("DUPLICATE SYMBOL") ||
+            r.contains("SYMBOL LOSS") ||
+            r.contains("PREVIOUS BAD TRADE") ||
+            r.contains("LOW SCORE") ||
+            r.contains("LOW CONFIDENCE") ||
+            r.contains("LEARNING") ||
+            r.contains("NEGATIVE SIGNAL") ||
+            r.contains("NARRATIVE") ||
+            r.contains("UNCERTAINTY") ||
+            r.contains("RUGCHECK PENDING") ||
             r.contains("RUGCHECK API TIMEOUT") ||
             r.contains("PENDING_REVIEW") ||
             r.contains("SAFETY_RUN_FAILED") ||
             r.contains("PARTIAL_DATA") ||
-            (r.contains("LIQUIDITY") && !r.contains("NO VIABLE") && !r.contains("ZERO")) ||
+            r.contains("LIQUIDITY DEPTH") ||
+            r.contains("LIQUIDITY_BELOW") ||
+            r.contains("BELOW_LIVE_MIN") ||
+            (r.contains("LIQUIDITY") && !r.contains("ZERO") && !r.contains("LP 0%") && !r.contains("UNLOCKED")) ||
             r.contains("LOW_LIQUIDITY")
+    }
+
+    private fun isFalseSafetyBlacklist(reason: String): Boolean {
+        return isSoftPenaltyOnlyReason(reason)
     }
 
     fun isBlocked(mint: String): Boolean {
@@ -58,6 +118,12 @@ object TokenBlacklist {
             try { ForensicLogger.lifecycle("FALSE_BLACKLIST_REHABILITATED", "mint=${mint.take(10)} reason=${reason.take(120)}") } catch (_: Throwable) {}
             return false
         }
+        try {
+            ForensicLogger.lifecycle(
+                "BUY_GATE_DECISION",
+                "mint=${mint.take(10)} symbol=? decision=HARD_BLOCK reason=${reason.take(140)} source=TokenBlacklist liveEligible=false",
+            )
+        } catch (_: Throwable) {}
         return true
     }
 

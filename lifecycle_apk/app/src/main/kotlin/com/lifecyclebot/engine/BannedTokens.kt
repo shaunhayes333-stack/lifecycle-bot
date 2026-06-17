@@ -65,7 +65,14 @@ object BannedTokens {
      */
     fun isBanned(mint: String): Boolean {
         if (paperMode) return false
-        return bannedMints.containsKey(mint)
+        if (!bannedMints.containsKey(mint)) return false
+        val reason = bannedReasons[mint] ?: ""
+        if (!TokenBlacklist.isTrueBlacklistReason(reason)) {
+            unban(mint)
+            try { ForensicLogger.lifecycle("BUY_GATE_DECISION", "mint=${mint.take(10)} symbol=? decision=PENALTY_ONLY reason=${reason.take(140)} source=BannedTokens liveEligible=true") } catch (_: Throwable) {}
+            return false
+        }
+        return true
     }
 
     /**
@@ -77,6 +84,12 @@ object BannedTokens {
 
         if (paperMode) {
             ErrorLogger.debug(TAG, "PAPER BYPASS: not banning ${mint.take(12)}... ($reason)")
+            return
+        }
+
+        if (!TokenBlacklist.isTrueBlacklistReason(reason)) {
+            ErrorLogger.debug(TAG, "PENALTY_ONLY: not banning ${mint.take(12)}... ($reason)")
+            try { ForensicLogger.lifecycle("BUY_GATE_DECISION", "mint=${mint.take(10)} symbol=? decision=PENALTY_ONLY reason=${reason.take(140)} source=BannedTokens.ban liveEligible=true") } catch (_: Throwable) {}
             return
         }
 

@@ -736,28 +736,23 @@ class TokenSafetyChecker(private val cfg: () -> BotConfig) {
             // mode-agnostic safety branches above (LP lock, rugcheck, holder
             // concentration, etc.); none of those are changed.
             val MIN_EXECUTABLE_LIQ_USD = 150.0
-            if (currentLiquidityUsd >= 0.0 && currentLiquidityUsd < MIN_EXECUTABLE_LIQ_USD) {
-                hard.add("No viable exit route/liquidity depth: \$${currentLiquidityUsd.toInt()} < \$${MIN_EXECUTABLE_LIQ_USD.toInt()}")
-                ErrorLogger.error(TAG, "🚫 LIQ TRUE HARD BLOCK (live): $symbol \$${currentLiquidityUsd.toInt()} < \$${MIN_EXECUTABLE_LIQ_USD.toInt()}")
-                try {
-                    com.lifecyclebot.engine.MemePipelineTracer.blocked(
-                        mint = mint, symbol = symbol,
-                        reason = "INTAKE_TRUE_HARD_BLOCK",
-                        detail = "no viable exit depth currentLiq=\$${currentLiquidityUsd.toInt()}",
-                    )
-                } catch (_: Throwable) {}
-            }
-            // Volume floor: if we couldn't get current liquidity, treat as unknown→block
-            if (currentLiquidityUsd < 0) {
-                hard.add("Liquidity UNKNOWN — refusing live buy until verified")
-                ErrorLogger.error(TAG, "🚫 LIQ-UNKNOWN HARD BLOCK (live): $symbol")
-                try {
-                    com.lifecyclebot.engine.MemePipelineTracer.blocked(
-                        mint = mint, symbol = symbol,
-                        reason = "SAFETY_LIQ_UNKNOWN_HARD_BLOCK_LIVE",
-                        detail = "currentLiq=UNKNOWN",
-                    )
-                } catch (_: Throwable) {}
+            when {
+                currentLiquidityUsd == 0.0 -> {
+                    hard.add("ZERO LIQUIDITY — no executable route")
+                    ErrorLogger.error(TAG, "🚫 ZERO-LIQ HARD BLOCK (live): $symbol")
+                    try { ForensicLogger.lifecycle("BUY_GATE_DECISION", "mint=${mint.take(10)} symbol=$symbol decision=HARD_BLOCK reason=ZERO_LIQUIDITY source=TokenSafetyChecker liveEligible=false") } catch (_: Throwable) {}
+                }
+                currentLiquidityUsd > 0.0 && currentLiquidityUsd < MIN_EXECUTABLE_LIQ_USD -> {
+                    soft.add("Low but nonzero liquidity \$${currentLiquidityUsd.toInt()} — quote/size validation required" to 12)
+                    penalty += 12
+                    ErrorLogger.warn(TAG, "📉 LIQ PENALTY_ONLY (live): $symbol \$${currentLiquidityUsd.toInt()} < \$${MIN_EXECUTABLE_LIQ_USD.toInt()} — let executor quote/size validate")
+                    try { ForensicLogger.lifecycle("BUY_GATE_DECISION", "mint=${mint.take(10)} symbol=$symbol decision=PENALTY_ONLY reason=LOW_LIQUIDITY_SIZE_REDUCED source=TokenSafetyChecker liveEligible=true") } catch (_: Throwable) {}
+                }
+                currentLiquidityUsd < 0.0 -> {
+                    soft.add("Liquidity unknown — quote/size validation required" to 10)
+                    penalty += 10
+                    try { ForensicLogger.lifecycle("BUY_GATE_DECISION", "mint=${mint.take(10)} symbol=$symbol decision=PENALTY_ONLY reason=LIQUIDITY_UNKNOWN source=TokenSafetyChecker liveEligible=true") } catch (_: Throwable) {}
+                }
             }
         }
 
@@ -792,7 +787,14 @@ class TokenSafetyChecker(private val cfg: () -> BotConfig) {
         // ── 7. Name duplicate detection
         val nameFlag = checkNameDuplicate(symbol, name, mint)
         when {
-            nameFlag.startsWith("HARD:") -> hard.add(nameFlag.removePrefix("HARD: "))
+            nameFlag.startsWith("HARD:") -> {
+                val msg = nameFlag.removePrefix("HARD: ")
+                // V5.0.3844 — duplicate/reused symbol/name history is not an
+                // exact mint malicious proof. Penalize instead of hard-blocking.
+                soft.add(msg to 25)
+                penalty += 25
+                try { ForensicLogger.lifecycle("BUY_GATE_DECISION", "mint=${mint.take(10)} symbol=$symbol decision=PENALTY_ONLY reason=DUPLICATE_SYMBOL_NAME source=TokenSafetyChecker liveEligible=true") } catch (_: Throwable) {}
+            }
             nameFlag.startsWith("SOFT:") -> {
                 val msg = nameFlag.removePrefix("SOFT: ")
                 soft.add(msg to 25)
@@ -884,6 +886,15 @@ class TokenSafetyChecker(private val cfg: () -> BotConfig) {
         }
 
         val summary = buildSummary(tier, hard, soft, rcScore, ageMinutes)
+
+        if (tier == SafetyTier.HARD_BLOCK) {
+            try {
+                ForensicLogger.lifecycle(
+                    "BUY_GATE_DECISION",
+                    "mint=${mint.take(10)} symbol=$symbol decision=HARD_BLOCK reason=${(hard.firstOrNull() ?: "unknown").take(140)} source=TokenSafetyChecker liveEligible=false",
+                )
+            } catch (_: Throwable) {}
+        }
 
         val report = SafetyReport(
             tier = tier,

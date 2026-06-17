@@ -11593,16 +11593,18 @@ class Executor(
                     tokenAgeMinutes = tokenAgeMins,
                 )
                 if (shouldBlacklist) {
-                    TokenBlacklist.block(ts.mint, "2+ losses on ${ts.symbol}")
-                    BannedTokens.ban(ts.mint, "2+ losses on ${ts.symbol}")
-                    if (isPaperRT()) {
-                        onLog("📝 PAPER LEARNED: ${ts.symbol} added to ban list (still trading for learning)", ts.mint)
-                    } else {
-                        onLog("🚫 PERMANENTLY BANNED: ${ts.symbol} after repeated losses", ts.mint)
-                        onNotify("🚫 Token Banned", 
-                                 "${ts.symbol}: 2+ losses — permanently banned",
-                                 com.lifecyclebot.engine.NotificationHistory.NotifEntry.NotifType.INFO)
-                    }
+                    // V5.0.3844 — repeated losses are learning pressure, not
+                    // malicious mint proof. They may reduce score/size or trigger
+                    // short cooldown/pivot logic, but must never write a hard
+                    // blacklist that diverts future live candidates into shadow.
+                    try {
+                        ForensicLogger.lifecycle(
+                            "BUY_GATE_DECISION",
+                            "mint=${ts.mint.take(10)} symbol=${ts.symbol} decision=PENALTY_ONLY reason=2+_losses source=Executor.paperLearning liveEligible=true",
+                        )
+                    } catch (_: Throwable) {}
+                    try { PipelineHealthCollector.labelInc("BUY_GATE_PENALTY_ONLY_REPEATED_LOSS") } catch (_: Throwable) {}
+                    onLog("🧠 PENALTY_ONLY: ${ts.symbol} repeated losses — score/size/cooldown pressure only, no blacklist", ts.mint)
                 }
             }
             
@@ -14247,16 +14249,18 @@ class Executor(
                     tokenAgeMinutes = tokenAgeMinsLive,
                 )
                 if (shouldBlacklist) {
-                    TokenBlacklist.block(ts.mint, "2+ losses on ${ts.symbol}")
-                    BannedTokens.ban(ts.mint, "2+ losses on ${ts.symbol}")
-                    if (isPaperRT()) {
-                        onLog("📝 PAPER LEARNED: ${ts.symbol} added to ban list (still trading for learning)", ts.mint)
-                    } else {
-                        onLog("🚫 PERMANENTLY BANNED: ${ts.symbol} after repeated losses", ts.mint)
-                        onNotify("🚫 Token Banned", 
-                                 "${ts.symbol}: 2+ losses — permanently banned",
-                                 com.lifecyclebot.engine.NotificationHistory.NotifEntry.NotifType.INFO)
-                    }
+                    // V5.0.3844 — live repeated-loss learning must pivot/penalize,
+                    // not become a permanent mint blacklist. True hard blocks remain
+                    // in safety/pretrade gates: rug, LP unlocked, mint/freeze auth,
+                    // honeypot/no sell route, fatal holder concentration, zero liq.
+                    try {
+                        ForensicLogger.lifecycle(
+                            "BUY_GATE_DECISION",
+                            "mint=${ts.mint.take(10)} symbol=${ts.symbol} decision=PENALTY_ONLY reason=2+_losses source=Executor.liveLearning liveEligible=true",
+                        )
+                    } catch (_: Throwable) {}
+                    try { PipelineHealthCollector.labelInc("BUY_GATE_PENALTY_ONLY_REPEATED_LOSS") } catch (_: Throwable) {}
+                    onLog("🧠 LIVE PENALTY_ONLY: ${ts.symbol} repeated losses — size/score/cooldown pressure only, no blacklist", ts.mint)
                 }
             }
         } else if (shouldLearnAsWin) {

@@ -2364,4 +2364,35 @@ class GoldenTapeRegressionTest {
     }
 
 
+    @Test
+    fun live_buy_gate_common_sense_hard_blocks_only() {
+        val tokenBlacklist = java.io.File("src/main/kotlin/com/lifecyclebot/engine/TokenBlacklist.kt").readText()
+        val bannedTokens = java.io.File("src/main/kotlin/com/lifecyclebot/engine/BannedTokens.kt").readText()
+        val executor = java.io.File("src/main/kotlin/com/lifecyclebot/engine/Executor.kt").readText()
+        val safety = java.io.File("src/main/kotlin/com/lifecyclebot/engine/TokenSafetyChecker.kt").readText()
+        val liveGate = java.io.File("src/main/kotlin/com/lifecyclebot/engine/sell/LiveBuyAdmissionGate.kt").readText()
+        val preTrade = java.io.File("src/main/kotlin/com/lifecyclebot/engine/PreTradeHardGate.kt").readText()
+        val bot = java.io.File("src/main/kotlin/com/lifecyclebot/engine/BotService.kt").readText()
+
+        TokenBlacklist.block(softMint + "loss", "2+ losses on SAME")
+        assertFalse("2+ historical losses must be PENALTY_ONLY, never hard blacklist", TokenBlacklist.isBlocked(softMint + "loss"))
+        TokenBlacklist.block(trueMint + "lp0", "LP 0% locked / unlocked liquidity")
+        assertTrue("LP 0% locked remains true hard blacklist", TokenBlacklist.isBlocked(trueMint + "lp0"))
+
+        assertTrue("Blacklist taxonomy must expose true vs penalty-only reasons", tokenBlacklist.contains("isTrueBlacklistReason") && tokenBlacklist.contains("isSoftPenaltyOnlyReason"))
+        assertTrue("BannedTokens must refuse to persist repeated-loss bans", bannedTokens.contains("PENALTY_ONLY: not banning") && bannedTokens.contains("isTrueBlacklistReason"))
+        assertFalse("Executor must not write repeated-losses into TokenBlacklist", executor.contains("TokenBlacklist.block(ts.mint, \"2+ losses"))
+        assertFalse("Executor must not write repeated-losses into BannedTokens", executor.contains("BannedTokens.ban(ts.mint, \"2+ losses"))
+        assertTrue("Repeated-loss learning must emit penalty-only proof", executor.contains("decision=PENALTY_ONLY reason=2+_losses"))
+
+        assertTrue("Zero liquidity remains hard block", safety.contains("ZERO LIQUIDITY") && preTrade.contains("ZERO_LIQUIDITY"))
+        assertTrue("Low but nonzero liquidity must be quote/size penalty, not static hard block", safety.contains("LOW_LIQUIDITY_SIZE_REDUCED") && preTrade.contains("LOW_LIQUIDITY_SIZE_REDUCED"))
+        assertFalse("Static liquidity min must not hard-block live buys", preTrade.contains("return block(ts, \"LIQUIDITY_BELOW_LIVE_MIN"))
+        assertFalse("Missing/stale safety must not hard-block by itself", preTrade.contains("return block(ts, \"SAFETY_PROOF_STALE_OR_MISSING"))
+        assertTrue("LiveBuyAdmissionGate must convert safety shadow to penalty-only unless true hard", liveGate.contains("SAFETY_SHADOW_PENALTY_ONLY") && liveGate.contains("BUY_GATE_PENALTY_ONLY_SAFETY_SHADOW"))
+        assertTrue("BotService SAFETY_SHADOW must continue only for true hard reasons", bot.contains("!TokenBlacklist.isSoftPenaltyOnlyReason(reason)") && bot.contains("source=BotService.SAFETY_SHADOW"))
+        assertTrue("Every taxonomy decision should surface forensic proof", listOf(tokenBlacklist, executor, safety, liveGate, preTrade, bot).all { it.contains("BUY_GATE_DECISION") })
+    }
+
+
 }
