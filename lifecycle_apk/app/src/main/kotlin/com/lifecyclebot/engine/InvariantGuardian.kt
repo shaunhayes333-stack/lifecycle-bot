@@ -17,11 +17,21 @@ object InvariantGuardian {
 
     fun check(s: RuntimeStateSnapshot, uiRunning: Boolean = s.uiState == "RUNNING"): List<Fault> {
         val out = mutableListOf<Fault>()
+        val pipe = try { PipelineHealthCollector.snapshot() } catch (_: Throwable) { null }
+        val liveJournalRows = pipe?.labelCounts?.get("TRADEJRNL_REC_LIVE") ?: 0L
+        val sellFinalizedLabels = (pipe?.labelCounts?.get("LIFECYCLE/SELL_FINALIZED") ?: 0L) +
+            (pipe?.labelCounts?.get("LIFECYCLE/SELL_FINALIZED_ONCE") ?: 0L) +
+            (pipe?.labelCounts?.get("LIFECYCLE/EXEC_LIVE_SELL_ZERO_BALANCE_CONFIRMED") ?: 0L) +
+            (pipe?.labelCounts?.get("LIFECYCLE/SELL_SIG_CONFIRMED") ?: 0L)
+        val liveSellPathHasProof = s.reconcilerTotalChecked > 0 || liveJournalRows > 0L || sellFinalizedLabels > 0L
         // V5.9.1164 — runtime active while Main/UI is backgrounded is NORMAL.
         // Navigating to another app/activity must never become a trading fault.
         // Keep RUNTIME_UI_SPLIT_BRAIN enum for old reports, but do not emit it
         // for foreground absence.
-        if (s.botLoopActive && !s.sellReconcilerStarted && s.liveOpenPositions > 0) out += Fault(FaultCode.SELL_RECONCILER_DEAD, "CRITICAL", "running with live open positions but sell reconciler stopped")
+        // V5.0.3862 — do not call the sell path dead when live journal/finality
+        // evidence proves buys/sells are actually landing. A stale isStarted flag
+        // is a watchdog/reporting fault, not trading truth.
+        if (s.botLoopActive && !s.sellReconcilerStarted && s.liveOpenPositions > 0 && !liveSellPathHasProof) out += Fault(FaultCode.SELL_RECONCILER_DEAD, "CRITICAL", "running with live open positions but sell reconciler stopped")
 
         // V5.9.1518 — PATCH ITEM 1/7: ledger drift. Canonical open count exceeding
         // wallet-held mints means we are tracking positions the wallet no longer
@@ -39,7 +49,7 @@ object InvariantGuardian {
         // wallet reconciler.totalChecked=0 is expected and must not become a
         // CRITICAL root cause / slot-poison signal. Paper ghosts are handled by
         // SellReconciler.paperOrphanCount + forcedOpen reaper, not wallet truth.
-        if (s.mode == "LIVE" && s.botLoopActive && s.canonicalOpenPositions > 0 && s.reconcilerTotalChecked == 0) {
+        if (s.mode == "LIVE" && s.botLoopActive && s.canonicalOpenPositions > 0 && s.reconcilerTotalChecked == 0 && !liveSellPathHasProof) {
             out += Fault(FaultCode.RECONCILER_STALLED, "CRITICAL",
                 "reconciler.totalChecked=0 while canonicalOpen=${s.canonicalOpenPositions}")
         }
@@ -51,7 +61,7 @@ object InvariantGuardian {
             out += Fault(FaultCode.TRACKER_OPEN_DESYNC_CRITICAL, "CRITICAL",
                 "canonicalOpen=${s.canonicalOpenPositions} but hostTrackerOpen=0")
         }
-        if (s.mode == "LIVE" && s.botLoopActive && s.canonicalOpenPositions > 0 && s.reconcilerTotalChecked == 0) {
+        if (s.mode == "LIVE" && s.botLoopActive && s.canonicalOpenPositions > 0 && s.reconcilerTotalChecked == 0 && !liveSellPathHasProof) {
             out += Fault(FaultCode.RECONCILER_BLIND_CRITICAL, "CRITICAL",
                 "reconciler.totalChecked=0 while pending/open tracker rows exist")
         }
@@ -80,7 +90,6 @@ object InvariantGuardian {
         if (s.liveOpenPositions != s.hostTrackerOpenCount && s.mode == "LIVE") out += Fault(FaultCode.HOST_TRACKER_DESYNC, "HIGH", "liveStore=${s.liveOpenPositions} hostLive=${s.hostTrackerOpenCount} paper=${s.paperOpenPositions} walletHeld=${s.walletHeldMints}")
         val laneRatio = if (s.intake > 0) s.laneEval.toDouble() / s.intake else 0.0
         if (s.intake > 0 && laneRatio > 12.0) out += Fault(FaultCode.LANE_FANOUT_EXPLOSION, "HIGH", "laneEval/intake=${"%.2f".format(laneRatio)}")
-        val pipe = try { PipelineHealthCollector.snapshot() } catch (_: Throwable) { null }
         // V5.0.3858 — FDG forensic rows are not FDG evaluations. A single
         // approved probe can emit path=…, verdict=…, and FDG_ALLOW rows, which
         // made phaseCounts[FDG]/intake report a fake fanout explosion. Diagnose

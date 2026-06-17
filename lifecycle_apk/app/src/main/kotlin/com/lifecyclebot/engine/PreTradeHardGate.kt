@@ -106,6 +106,14 @@ object PreTradeHardGate {
         if (!ts.holderDataResolved) pendingProofs.add("HOLDER_DATA_PENDING")
         val topHolder = listOfNotNull(ts.topHolderPct, safety.topHolderPct.takeIf { it >= 0.0 }).maxOrNull() ?: -1.0
         if (topHolder < 0.0) pendingProofs.add("HOLDER_DATA_UNKNOWN")
+        // V5.0.3862 — do not block every pending proof, but do block the exact
+        // pre-broadcast garbage shape: mint authority unknown + freeze authority
+        // unknown + holder concentration unknown. One unknown can be transient;
+        // all three means live SOL is blind to the core rug controls.
+        val criticalProofUnknown = pendingProofs.contains("MINT_AUTHORITY_UNKNOWN") &&
+            pendingProofs.contains("FREEZE_AUTHORITY_UNKNOWN") &&
+            pendingProofs.contains("HOLDER_DATA_UNKNOWN")
+        if (criticalProofUnknown) return block(ts, "CRITICAL_SAFETY_PROOF_UNKNOWN", pendingProofs.joinToString("|"))
         if (topHolder >= TOP_HOLDER_FATAL_PCT) return block(ts, "TOP_HOLDER_FATAL_CONCENTRATION", "topHolderPct=$topHolder")
 
         val text = buildString {

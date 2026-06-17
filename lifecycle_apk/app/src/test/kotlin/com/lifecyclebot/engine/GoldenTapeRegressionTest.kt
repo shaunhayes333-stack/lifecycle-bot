@@ -1372,6 +1372,13 @@ class GoldenTapeRegressionTest {
     }
 
 
+
+
+    @Test
+    fun runtime_doctor_does_not_call_sell_path_dead_when_live_sells_are_journaling() {
+        val inv = java.io.File("src/main/kotlin/com/lifecyclebot/engine/InvariantGuardian.kt").readText()
+        assertTrue("SELL_RECONCILER_DEAD must be proof-aware, not a stale flag only", inv.contains("liveSellPathHasProof") && inv.contains("TRADEJRNL_REC_LIVE") && inv.contains("!liveSellPathHasProof"))
+    }
     @Test
     fun live_balance_authority_and_reconciler_contracts_are_wired() {
         val authority = java.io.File("src/main/kotlin/com/lifecyclebot/engine/sell/SellAmountAuthority.kt").readText()
