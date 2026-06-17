@@ -5585,7 +5585,7 @@ for legal compliance.
                 val pnlVerdict = if (tsState != null) {
                     com.lifecyclebot.engine.OpenPnlSanity.inspect(tsState, "MainActivity.shitcoinFast/${pos.symbol}/${pos.mint.take(8)}", emit = true)
                 } else {
-                    com.lifecyclebot.engine.OpenPnlSanity.inspectPosition(pos, currentPrice, "MainActivity.shitcoinFast/${pos.symbol}/${pos.mint.take(8)}", emit = true)
+                    com.lifecyclebot.engine.OpenPnlSanity.inspect(entryPrice = pos.entryPrice, currentPrice = currentPrice, context = "MainActivity.shitcoinFast/${pos.symbol}/${pos.mint.take(8)}", emit = true)
                 }
                 val basisTrusted = pnlVerdict.ok
                 val gainPct = if (basisTrusted) pnlVerdict.pnlPct else 0.0
@@ -5615,7 +5615,7 @@ for legal compliance.
             val pnlVerdict = if (tsState != null) {
                 com.lifecyclebot.engine.OpenPnlSanity.inspect(tsState, "MainActivity.shitcoinBuild/${pos.symbol}/${pos.mint.take(8)}", emit = true)
             } else {
-                com.lifecyclebot.engine.OpenPnlSanity.inspectPosition(pos, currentPrice, "MainActivity.shitcoinBuild/${pos.symbol}/${pos.mint.take(8)}", emit = true)
+                com.lifecyclebot.engine.OpenPnlSanity.inspect(entryPrice = pos.entryPrice, currentPrice = currentPrice, context = "MainActivity.shitcoinBuild/${pos.symbol}/${pos.mint.take(8)}", emit = true)
             }
             val basisTrusted = pnlVerdict.ok
             val gainPct = if (basisTrusted) pnlVerdict.pnlPct else 0.0

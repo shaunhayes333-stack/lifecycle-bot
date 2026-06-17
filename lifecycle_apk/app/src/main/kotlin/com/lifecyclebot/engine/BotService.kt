@@ -21031,7 +21031,7 @@ if (hotExitHandledSweep) {
             
             // V5.2: Debug - log the PnL being calculated
             if (treasuryPos != null) {
-                val treasuryPnlVerdict = com.lifecyclebot.engine.OpenPnlSanity.inspectPosition(treasuryPos, currentPrice, "BotService.treasuryDebug/${ts.symbol}/${ts.mint.take(8)}")
+                val treasuryPnlVerdict = com.lifecyclebot.engine.OpenPnlSanity.inspect(entryPrice = treasuryPos.entryPrice, currentPrice = currentPrice, context = "BotService.treasuryDebug/${ts.symbol}/${ts.mint.take(8)}")
                 val treasuryPnl = if (treasuryPnlVerdict.ok) treasuryPnlVerdict.pnlPct else 0.0
                 ErrorLogger.debug("BotService", "💰 [TREASURY CHECK] ${ts.symbol} | " +
                     "price=$currentPrice | treasuryEntry=${treasuryPos.entryPrice} | pnl=${treasuryPnl.fmt(1)}%")

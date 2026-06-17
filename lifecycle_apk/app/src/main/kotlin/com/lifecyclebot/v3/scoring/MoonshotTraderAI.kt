@@ -1362,7 +1362,7 @@ object MoonshotTraderAI {
     
     fun checkExit(mint: String, currentPrice: Double): ExitSignal {
         val pos = synchronized(activePositions) { activePositions[mint] } ?: return ExitSignal.HOLD
-        val pnlVerdict = com.lifecyclebot.engine.OpenPnlSanity.inspectPosition(pos, currentPrice, "MoonshotTraderAI.checkExit/${pos.symbol}/${mint.take(8)}")
+        val pnlVerdict = com.lifecyclebot.engine.OpenPnlSanity.inspect(entryPrice = pos.entryPrice, currentPrice = currentPrice, context = "MoonshotTraderAI.checkExit/${pos.symbol}/${mint.take(8)}")
         if (!pnlVerdict.ok) return ExitSignal.HOLD
         // V5.9.392 — stash latest trusted price so the unified open-positions card
         // can render live P&L for moonshot bags not in status.tokens.
