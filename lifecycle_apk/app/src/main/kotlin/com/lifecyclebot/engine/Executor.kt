@@ -4476,8 +4476,12 @@ class Executor(
                 val nowMs = System.currentTimeMillis()
                 val heldMin = if (ts.position.entryTime > 0L)
                     (nowMs - ts.position.entryTime) / 60_000.0 else 0.0
-                val feedAgeMs = if (ts.lastPriceUpdate > 0L)
-                    nowMs - maxOf(ts.lastPriceUpdate, ts.position.entryTime) else Long.MAX_VALUE
+                // V5.0.3843 — UNKNOWN price timestamp is not an astronomically
+                // stale feed. Do not let Long.MAX_VALUE become an exit trigger or
+                // journal reason. Restored positions stamp lastPriceUpdate; if a
+                // legacy row still has none, stale-feed eviction waits for a real tick.
+                val feedAnchorMs = ts.lastPriceUpdate.takeIf { it > 0L }
+                val feedAgeMs = feedAnchorMs?.let { (nowMs - maxOf(it, ts.position.entryTime)).coerceAtLeast(0L) }
                 // V5.9.1264 — FAST-EVICT TIER for genuinely-dead paper micros.
                 // Runtime evidence (build 3228, 21:52): 20/20 slots pinned by
                 // pump.fun micros with vol1h=$0 that NEVER tick → PnL stuck at
@@ -4491,13 +4495,13 @@ class Executor(
                 val nowPnlFast = if (ts.position.entryPrice > 0.0 && currentPrice > 0.0)
                     ((currentPrice - ts.position.entryPrice) / ts.position.entryPrice) * 100.0 else 0.0
                 val fastDeadFeed = isPaperRT() &&
-                    feedAgeMs >= 3L * 60_000L &&      // feed silent ≥3min
+                    feedAgeMs != null && feedAgeMs >= 3L * 60_000L &&      // feed silent ≥3min
                     heldMin >= 4.0 &&                 // held ≥4min (well past 90s settle-in)
                     kotlin.math.abs(nowPnlFast) < 2.0 && // never moved off entry (dead, not a runner)
                     ts.position.peakGainPct < 20.0      // never ran
                 val FEED_DEAD_MS = 10L * 60_000L
                 val MIN_HELD_MIN = 20.0
-                if (fastDeadFeed || (feedAgeMs >= FEED_DEAD_MS && heldMin >= MIN_HELD_MIN)) {
+                if (fastDeadFeed || (feedAgeMs != null && feedAgeMs >= FEED_DEAD_MS && heldMin >= MIN_HELD_MIN)) {
                     // RUNNER BYPASS — don't evict a position that ran and is
                     // still near its peak (mirrors maybeAct runner-bypass).
                     val curPnl = if (ts.position.entryPrice > 0.0 && currentPrice > 0.0)
@@ -4512,8 +4516,9 @@ class Executor(
                         ageMs < 90_000L  // 90s hard floor; heldMin>=20 already exceeds this
                     }
                     if (!runnerIntact && !settleIn) {
-                        onLog("💀 STALE_FEED_EVICT: ${ts.symbol} feedAge=${feedAgeMs/60_000}min held=${heldMin.toInt()}min pnl=${"%+.0f".format(curPnl)}% — dead feed, recycling slot", ts.mint)
-                        doSell(ts, "stale_feed_evict_feedAge${feedAgeMs/60_000}m_held${heldMin.toInt()}m", wallet, walletSol)
+                        val feedAgeMin = (feedAgeMs ?: 0L) / 60_000L
+                        onLog("💀 STALE_FEED_EVICT: ${ts.symbol} feedAge=${feedAgeMin}min held=${heldMin.toInt()}min pnl=${"%+.0f".format(curPnl)}% — dead feed, recycling slot", ts.mint)
+                        doSell(ts, "stale_feed_evict_feedAge${feedAgeMin}m_held${heldMin.toInt()}m", wallet, walletSol)
                         return
                     }
                 }

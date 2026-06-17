@@ -159,6 +159,55 @@ object PipelineHealthCollector {
     @Volatile private var perfAnalyticsCache: String? = null
     @Volatile private var perfAnalyticsCacheAt: Long = 0L
 
+    // V5.0.3843 — report mux authority: PerformanceAnalytics must consume the
+    // same canonical journal rows as Journal Summary / TradeHistoryStore stats.
+    // The legacy TradeDatabase path defaulted many modes to RANGE and could read
+    // raw legacy accounting rows, producing contradictions like canonical WR=42.7%
+    // beside PerformanceAnalytics WR=9.2% / RANGE-only.
+    private fun canonicalPerformanceTrades(limit: Int = 1000): List<TradeRecord> {
+        fun sellLike(side: String): Boolean = side.equals("SELL", true) || side.equals("PARTIAL_SELL", true)
+        fun isWinPct(p: Double): Boolean = p >= 0.5
+        fun isLossPct(p: Double): Boolean = p <= -2.0
+        return try {
+            com.lifecyclebot.engine.TradeHistoryStore.getAllTrades()
+                .asSequence()
+                .filter { sellLike(it.side) }
+                .sortedByDescending { it.ts }
+                .take(limit.coerceAtLeast(1))
+                .map { t ->
+                    val entryTs = t.entryTsMs.takeIf { it > 0L } ?: t.ts
+                    val entryPrice = t.entryPriceSnapshot.takeIf { it.isFinite() && it > 0.0 } ?: t.price
+                    val solIn = t.entryCostSol.takeIf { it.isFinite() && it > 0.0 } ?: t.sol
+                    val pnl = t.netPnlSol.takeIf { it.isFinite() && it != 0.0 } ?: t.pnlSol
+                    TradeRecord(
+                        tsEntry = entryTs,
+                        tsExit = t.ts,
+                        symbol = t.sig.ifBlank { t.mint.take(8) },
+                        mint = t.mint,
+                        mode = t.tradingMode.ifBlank { "STANDARD" },
+                        entryPrice = entryPrice,
+                        entryScore = t.score,
+                        exitPrice = t.price,
+                        exitReason = t.reason,
+                        heldMins = ((t.ts - entryTs).coerceAtLeast(0L) / 60_000.0),
+                        solIn = solIn,
+                        solOut = solIn + pnl,
+                        pnlSol = pnl,
+                        pnlPct = t.pnlPct,
+                        isWin = when {
+                            isWinPct(t.pnlPct) -> true
+                            isLossPct(t.pnlPct) -> false
+                            else -> null
+                        },
+                        isScratch = !isWinPct(t.pnlPct) && !isLossPct(t.pnlPct),
+                        source = t.entryPriceSource.ifBlank { t.proofState },
+                    )
+                }
+                .toList()
+                .asReversed()
+        } catch (_: Throwable) { emptyList() }
+    }
+
     /** V5.9.915 — per-symbol intake counter (top-10 surfaced in dump). */
     private val symbolIntakeCounts = ConcurrentHashMap<String, AtomicLong>()
 
@@ -1484,9 +1533,9 @@ object PipelineHealthCollector {
 
         // ── PerformanceAnalytics block ─────────────────────────────
         // V5.9.997 — z PerformanceAnalytics revival (was 0-caller).
-        // Pulls last 1000 closed trades via TradeDatabase.getAllTrades()
-        // and produces a Sharpe/drawdown/profit-factor/expectancy block.
-        // Wrapped in try because tradeDb may be null during early boot.
+        // V5.0.3843 — now pulls last 1000 canonical closed journal rows via
+        // TradeHistoryStore, not legacy TradeDatabase, so WR/lane analytics match
+        // the Journal Summary and canonical totals in this same report.
         //
         // V5.9.998 — operator triage: this block was sitting INSIDE the
         // synchronous dumpText() path which gets invoked from the bot
@@ -1504,10 +1553,8 @@ object PipelineHealthCollector {
             if (cached != null && (now - perfAnalyticsCacheAt) < 30_000L) {
                 sb.append(cached)
             } else {
-                val db = BotService.instance?.tradeDb
-                if (db != null) {
-                    val trades = db.getAllTrades()
-                    if (trades.isNotEmpty()) {
+                val trades = canonicalPerformanceTrades()
+                if (trades.isNotEmpty()) {
                         val stats = com.lifecyclebot.engine.PerformanceAnalytics.analyze(trades)
                         val block = buildString {
                             append("\n===== Performance analytics (last 1000 closed) =====\n")

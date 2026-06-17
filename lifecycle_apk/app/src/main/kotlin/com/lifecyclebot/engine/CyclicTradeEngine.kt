@@ -222,13 +222,21 @@ object CyclicTradeEngine {
             // a reason to wait. Now: if price is missing OR stale (>90s since last
             // update), FORCE-CLOSE at last-known pnl instead of riding blind.
             val nowTickMs = System.currentTimeMillis()
-            val priceAgeMs = if (ts.lastPriceUpdate > 0L) nowTickMs - ts.lastPriceUpdate else Long.MAX_VALUE
+            val priceAgeMs = ts.lastPriceUpdate.takeIf { it > 0L }?.let { (nowTickMs - it).coerceAtLeast(0L) }
             val STALE_FEED_MS = 90_000L
             val rawPrice = ts.lastPrice
-            if (rawPrice <= 0.0 || priceAgeMs > STALE_FEED_MS) {
+            if (rawPrice > 0.0 && priceAgeMs == null) {
+                // V5.0.3843 — unknown timestamp is not Long.MAX stale. Wait for a
+                // real/restored tick instead of force-closing from fabricated age.
+                statusMessage = "⏸️ Cyclic holding $currentSymbol: price timestamp pending"
+                try { com.lifecyclebot.engine.PipelineHealthCollector.labelInc("CYCLIC_PRICE_TS_UNKNOWN_WAIT") } catch (_: Throwable) {}
+                return
+            }
+            if (rawPrice <= 0.0 || (priceAgeMs != null && priceAgeMs > STALE_FEED_MS)) {
                 val lastKnownPnl = if (entryPriceSol > 0.0 && rawPrice > 0.0)
                     ((rawPrice - entryPriceSol) / entryPriceSol) * 100.0 else 0.0
-                try { ErrorLogger.warn(TAG, "🧊 STALE_FEED_EXIT $currentSymbol price=${rawPrice} age=${priceAgeMs}ms → force-close @ ${"%+.1f".format(lastKnownPnl)}% (no blind riding)") } catch (_: Throwable) {}
+                val ageText = priceAgeMs?.let { "${it}ms" } ?: "unknown"
+                try { ErrorLogger.warn(TAG, "🧊 STALE_FEED_EXIT $currentSymbol price=${rawPrice} age=$ageText → force-close @ ${"%+.1f".format(lastKnownPnl)}% (no blind riding)") } catch (_: Throwable) {}
                 try { com.lifecyclebot.engine.PipelineHealthCollector.labelInc("CYCLIC_STALE_FEED_EXIT") } catch (_: Throwable) {}
                 closeCycle(context, ts, executor, wallet, walletSol, lastKnownPnl, "STALE_FEED", solPrice)
                 return
@@ -749,11 +757,12 @@ object CyclicTradeEngine {
         // candidate, don't enter blind. (Genuine micro-priced memes still have a
         // positive, fresh price; this only rejects 0/negative/frozen feeds.)
         run {
-            val entryAge = if (best.lastPriceUpdate > 0L) System.currentTimeMillis() - best.lastPriceUpdate else Long.MAX_VALUE
-            if (best.lastPrice <= 0.0 || entryAge > 90_000L) {
-                statusMessage = "⏸️ Cyclic skip ${best.symbol}: bad/stale entry price (p=${best.lastPrice} age=${entryAge}ms)"
+            val entryAge = best.lastPriceUpdate.takeIf { it > 0L }?.let { (System.currentTimeMillis() - it).coerceAtLeast(0L) }
+            if (best.lastPrice <= 0.0 || entryAge == null || entryAge > 90_000L) {
+                val ageText = entryAge?.let { "${it}ms" } ?: "unknown"
+                statusMessage = "⏸️ Cyclic skip ${best.symbol}: bad/stale entry price (p=${best.lastPrice} age=$ageText)"
                 try { com.lifecyclebot.engine.PipelineHealthCollector.labelInc("CYCLIC_ENTRY_PRICE_REJECTED") } catch (_: Throwable) {}
-                try { ErrorLogger.warn(TAG, "CYCLIC_ENTRY_PRICE_REJECTED ${best.symbol} p=${best.lastPrice} age=${entryAge}ms") } catch (_: Throwable) {}
+                try { ErrorLogger.warn(TAG, "CYCLIC_ENTRY_PRICE_REJECTED ${best.symbol} p=${best.lastPrice} age=$ageText") } catch (_: Throwable) {}
                 return
             }
         }

@@ -304,10 +304,17 @@ object PositionPersistence {
                 priceBasisRescaleFactor = saved.priceBasisRescaleFactor,
             )
             
+            // V5.0.3843 — restore freshness for persisted lastKnownPrice. Without
+            // this, restored positions have lastPrice>0 but lastPriceUpdate=0 and
+            // Executor stale-feed eviction can treat the feed age as unknown/MAX.
+            val restoredPriceUpdateMs = if (saved.lastKnownPrice.isFinite() && saved.lastKnownPrice > 0.0)
+                saved.savedAt.takeIf { it > 0L } ?: nowMs else 0L
+
             if (existing != null) {
                 // Update existing TokenState with restored position
                 existing.position = position
                 existing.lastPrice = saved.lastKnownPrice
+                if (restoredPriceUpdateMs > 0L) existing.lastPriceUpdate = restoredPriceUpdateMs
                 existing.lastLiquidityUsd = saved.lastKnownLiquidity
                 existing.lastMcap = saved.lastKnownMcap
                 existing.lastPriceSource = saved.lastPriceSource
@@ -322,6 +329,7 @@ object PositionPersistence {
                     name = saved.name,
                     position = position,
                     lastPrice = saved.lastKnownPrice,
+                    lastPriceUpdate = restoredPriceUpdateMs,
                     lastLiquidityUsd = saved.lastKnownLiquidity,
                     lastMcap = saved.lastKnownMcap,
                     source = "RESTORED",
