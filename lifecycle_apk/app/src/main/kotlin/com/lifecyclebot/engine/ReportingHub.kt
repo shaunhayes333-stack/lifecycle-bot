@@ -164,7 +164,11 @@ object ReportingHub {
             val fdg = pipe.phaseCounts["FDG"] ?: 0L
             val exec = pipe.phaseCounts["EXEC"] ?: 0L
             val journalRows = pipe.labelCounts["TRADEJRNL_REC"] ?: 0L
-            appendLine("Funnel: loop=$loop intake=$intake lane=$lane fdg=$fdg exec=$exec journalRows=$journalRows avgCycle=${pipe.avgCycleMs}ms max=${pipe.maxCycleMs}ms ANR=${pipe.anrHints}")
+            // V5.0.3829 — `avgCycleMs` is not a snapshot field, it is derived
+            // from totalCycleMs/cycleCount. The previous V5.0.3828 broke
+            // :app:compileReleaseKotlin by referencing a non-existent property.
+            val avgCycleMs = if (pipe.cycleCount > 0L) pipe.totalCycleMs / pipe.cycleCount else 0L
+            appendLine("Funnel: loop=$loop intake=$intake lane=$lane fdg=$fdg exec=$exec journalRows=$journalRows avgCycle=${avgCycleMs}ms max=${pipe.maxCycleMs}ms ANR=${pipe.anrHints}")
         }
         if (perf != null) appendLine("Perf(last analyze): n=${perf.totalTrades} WR=${perf.winRate.fmt1()}% PnL=${perf.totalPnlSol.fmt4()} SOL PF=${perf.profitFactor.fmt2()} DD=${perf.currentDrawdownPct.fmt1()}% streak=${perf.currentStreak}")
         if (journal != null) appendLine("Journal canonical: closes=${journal.trades} W/L=${journal.wins}/${journal.losses} WR=${journal.winRatePct().fmt1()}% PnL=${journal.pnlSol.fmt4()} SOL")
