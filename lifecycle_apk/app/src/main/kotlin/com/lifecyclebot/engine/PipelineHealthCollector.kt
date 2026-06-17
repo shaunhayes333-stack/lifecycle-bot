@@ -1548,43 +1548,34 @@ object PipelineHealthCollector {
                 if (perfTrades.isNotEmpty()) {
                     val stats = com.lifecyclebot.engine.PerformanceAnalytics.analyze(perfTrades)
                     val block = buildString {
-                        append("
-===== Performance analytics (last 1000 closed) =====
-")
+                        appendLine()
+                        appendLine("===== Performance analytics (last 1000 closed) =====")
                         append(com.lifecyclebot.engine.PerformanceAnalytics.formatSummary(stats))
-                        append('
-')
+                        appendLine()
                         try {
                             val lifetime = try { com.lifecyclebot.engine.TradeHistoryStore.getLifetimeStats().totalSells } catch (_: Throwable) { stats.totalTrades }
                             val mature = lifetime >= 5000
                             val phaseTag = if (mature) "MATURE" else "BOOTSTRAP"
                             val floor = if (mature) "50-89%" else "20-35%"
-                            append("===== Separated WR metrics (V5.9.1378) =====
-")
-                            append("  Phase:        $phaseTag  (lifetime closes=$lifetime; doctrine floor=$floor)
-")
-                            append("  Blended WR:   ${"%.1f".format(stats.winRate)}%  (n=${stats.totalTrades} in window)
-")
+                            appendLine("===== Separated WR metrics (V5.9.1378) =====")
+                            appendLine("  Phase:        $phaseTag  (lifetime closes=$lifetime; doctrine floor=$floor)")
+                            appendLine("  Blended WR:   ${"%.1f".format(stats.winRate)}%  (n=${stats.totalTrades} in window)")
                             val onFloor = if (mature) stats.winRate >= 50.0 else stats.winRate >= 20.0
-                            append("  Floor status: ${if (onFloor) "✅ within band" else "🔴 BELOW $phaseTag floor"}
-")
+                            appendLine("  Floor status: ${if (onFloor) "✅ within band" else "🔴 BELOW $phaseTag floor"}")
                             val byPhase = stats.winRateByPhase
                             val cntByPhase = stats.tradeCountByPhase
                             if (byPhase.isNotEmpty()) {
-                                append("  By lane (WR | n):
-")
+                                appendLine("  By lane (WR | n):")
                                 byPhase.entries
                                     .filter { (cntByPhase[it.key] ?: 0) >= 5 }
                                     .sortedBy { it.value }
                                     .forEach { (lane, wr) ->
                                         val n = cntByPhase[lane] ?: 0
                                         val flag = if (wr < 20.0) " 🔴bleeder" else if (wr >= 50.0) " ✅" else ""
-                                        append("    ${lane.padEnd(14)} ${"%.1f".format(wr)}%  n=$n$flag
-")
+                                        appendLine("    ${lane.padEnd(14)} ${"%.1f".format(wr)}%  n=$n$flag")
                                     }
                             }
-                            append('
-')
+                            appendLine()
                         } catch (_: Throwable) { /* diagnostic only */ }
                     }
                     perfAnalyticsCache = block
