@@ -8932,15 +8932,20 @@ class BotService : Service() {
             // it is duplicate exposure. Keep throughput by preserving the primary
             // lane and one deterministic meme-family rescue, plus one specialist
             // rescue if source/style affinity explicitly asked for it.
+            val scoreForToxicity = (ts.lastV3Score ?: ts.entryScore.toInt()).coerceIn(-100, 150)
             val memeRescue = affinity
                 .filter { it == "SHITCOIN" || it == "MOONSHOT" || it == "EXPRESS" }
                 .filterNot { it.equals(primaryLane, ignoreCase = true) }
                 .sorted()
-                .let { list ->
+                .let { rawList ->
+                    val list = com.lifecyclebot.engine.LaneToxicityGuard.filterNonToxic(rawList, scoreForToxicity).ifEmpty { rawList }
                     if (list.isNotEmpty()) list[((ts.mint.hashCode() and 0x7fffffff) % list.size)]
                     else listOf("SHITCOIN", "MOONSHOT", "EXPRESS")
                         .filterNot { it.equals(primaryLane, ignoreCase = true) }
-                        .let { fallback -> if (fallback.isEmpty()) null else fallback[((ts.mint.hashCode() and 0x7fffffff) % fallback.size)] }
+                        .let { rawFallback ->
+                            val fallback = com.lifecyclebot.engine.LaneToxicityGuard.filterNonToxic(rawFallback, scoreForToxicity).ifEmpty { rawFallback }
+                            if (fallback.isEmpty()) null else fallback[((ts.mint.hashCode() and 0x7fffffff) % fallback.size)]
+                        }
                 }
             if (memeFamily) return l == memeRescue
             if (nonMemeSpecialist) {
@@ -8953,7 +8958,8 @@ class BotService : Service() {
                 // from the full internal specialist ring with affinity lanes first.
                 val specialistRing = listOf("MANIPULATED", "QUALITY", "DIP_HUNTER", "PROJECT_SNIPER", "TREASURY", "BLUECHIP")
                 val affinitySpecialists = affinity.filter { it in specialistRing }.sorted()
-                val rescuePool = (affinitySpecialists + specialistRing).distinct()
+                val rawRescuePool = (affinitySpecialists + specialistRing).distinct()
+                val rescuePool = com.lifecyclebot.engine.LaneToxicityGuard.filterNonToxic(rawRescuePool, scoreForToxicity).ifEmpty { rawRescuePool }
                 val rot = try { (System.currentTimeMillis() / 5_000L).toInt() } catch (_: Throwable) { 0 }
                 val rescue = rescuePool[((ts.mint.hashCode() xor rot) and 0x7fffffff) % rescuePool.size]
                 if (l == rescue) {

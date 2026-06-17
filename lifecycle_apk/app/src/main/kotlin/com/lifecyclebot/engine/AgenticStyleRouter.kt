@@ -71,16 +71,18 @@ object AgenticStyleRouter {
 
     private fun stablePick(seed: String, count: Int): Int = if (count <= 0) 0 else ((seed.hashCode() and 0x7fffffff) % count)
 
-    private fun boundedLanes(mint: String, base: Set<String>, style: Style): Set<String> {
+    private fun boundedLanes(mint: String, base: Set<String>, style: Style, score: Int = 50): Set<String> {
         // V5.9.1576 — bounded style fanout. 1575 fixed strategy monoculture
         // but unioned every style lane onto every candidate. Snapshot 5.0.3637
         // showed FDG/intake >3.2 and projected execs/day >1000. Keep variety by
         // rotating ONE alternate style lane deterministically per mint, instead
         // of evaluating the whole toolbox on every tick.
         val out = linkedSetOf<String>()
-        val primary = style.lanes.firstOrNull()
+        val styleLaneList = style.lanes.filter { it.isNotBlank() }
+        val primary = LaneToxicityGuard.chooseNonToxicLane(mint, styleLaneList, score) ?: styleLaneList.firstOrNull()
         if (!primary.isNullOrBlank()) out += primary
-        val alternates = (style.lanes.drop(1) + base).filter { it.isNotBlank() && it !in out }.distinct()
+        val alternatesRaw = (style.lanes.drop(1) + base).filter { it.isNotBlank() && it !in out }.distinct()
+        val alternates = LaneToxicityGuard.filterNonToxic(alternatesRaw, score).ifEmpty { alternatesRaw }
         if (alternates.isNotEmpty()) out += alternates[stablePick(mint, alternates.size)]
         return out
     }
@@ -162,7 +164,8 @@ object AgenticStyleRouter {
 
     fun lanesFor(ts: TokenState, classification: ModeRouter.Classification, base: Set<String>): Set<String> {
         val d = decide(ts, classification)
-        return boundedLanes(ts.mint, base + d.toolkit.laneVotes, d.style)
+        val score = (ts.lastV3Score ?: ts.entryScore.toInt()).coerceIn(-100, 150)
+        return boundedLanes(ts.mint, base + d.toolkit.laneVotes, d.style, score)
     }
 
     fun toolsFor(ts: TokenState, classification: ModeRouter.Classification, base: Set<String>): Set<String> {
