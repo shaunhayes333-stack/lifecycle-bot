@@ -20,7 +20,7 @@ import java.util.concurrent.ConcurrentHashMap
  * V5.0.3700 — ReportingHub.
  *
  * Single reporting coordinator for heavy operator reports. This intentionally
- * excludes the Trade Journal accounting/export path. Existing collectors remain
+ * excludes raw Trade Journal row export, but includes compact journal metrics. Existing collectors remain
  * the data sources; this object owns orchestration, background execution,
  * caching, and UI-safe callbacks so four screens do not each spin their own
  * reporting workload against the bot loop.
@@ -118,20 +118,185 @@ object ReportingHub {
         Kind.UNIFIED_HEALTH -> buildUnifiedHealth()
     }
 
-    private fun buildUnifiedHealth(): String = buildString(48 * 1024) {
-        appendHeader("AATE UNIFIED OPERATIONAL REPORT")
-        appendLine("Generated: ${stamp()}")
-        appendLine("Scope: runtime / pipeline / errors / forensic summary")
-        appendLine("Trade Journal: EXCLUDED by design")
-        appendLine()
-        appendSection("PIPELINE HEALTH")
-        appendLine(safe("pipeline") { PipelineHealthCollector.dumpText() })
-        appendLine()
-        appendSection("FORENSIC SUMMARY")
-        appendLine(buildForensicSummary())
-        appendLine()
-        appendSection("ERROR LOGS")
-        appendLine(safe("error_log") { ErrorLogger.exportToText(limit = 120) })
+    private fun buildUnifiedHealth(): String {
+        val budget = MAX_UNIFIED_REPORT_CHARS
+        val out = StringBuilder(budget + 1024)
+        out.appendHeader("AATE UNIFIED OPERATIONAL REPORT")
+        out.appendLine("Generated: ${stamp()}")
+        out.appendLine("Scope: runtime / pipeline / learning / tuning / journal / forensic / errors")
+        out.appendLine("Size budget: ${budget} chars hard-capped for chat delivery; raw journal rows still excluded.")
+        out.appendLine()
+
+        fun addBoundedSection(title: String, maxChars: Int, body: () -> String) {
+            if (out.length >= budget) return
+            out.appendSection(title)
+            val raw = safe(title.lowercase(Locale.US).replace(" ", "_")) { body() }.trimEnd()
+            out.appendLine(condenseText(raw, maxChars.coerceAtMost((budget - out.length - 256).coerceAtLeast(512))))
+            out.appendLine()
+        }
+
+        addBoundedSection("EXECUTIVE SNAPSHOT", 3_200) { buildExecutiveSnapshot() }
+        addBoundedSection("PIPELINE HEALTH — CONDENSED", 14_000) { compactPipelineDump(PipelineHealthCollector.dumpText()) }
+        addBoundedSection("LEARNING + TUNING STATE", 10_000) { buildLearningTuningSummary() }
+        addBoundedSection("TRADE JOURNAL SUMMARY", 6_000) { buildJournalSummary() }
+        addBoundedSection("FORENSIC SUMMARY", 5_000) { buildForensicSummary() }
+        addBoundedSection("ERROR LOGS — RECENT", 6_000) { ErrorLogger.exportToText(limit = 60) }
+
+        val text = out.toString().trimEnd()
+        return if (text.length <= budget) text else text.take(budget - 180) + "\n\n[REPORT_TRUNCATED hardCap=$budget chars — sections above are priority-ordered and internally condensed]"
+    }
+
+
+    private const val MAX_UNIFIED_REPORT_CHARS = 42_000
+
+    private fun buildExecutiveSnapshot(): String = buildString(3 * 1024) {
+        val rt = safeSnapshot { BotRuntimeController.snapshot() }
+        val pipe = safeSnapshot { PipelineHealthCollector.snapshot() }
+        val doctor = try { RuntimeDoctor.tick() } catch (_: Throwable) { null }
+        val perf = try { PerformanceAnalytics.lastSnapshotOrNull() } catch (_: Throwable) { null }
+        val journal = try { TradeHistoryStore.getCanonicalTotals() } catch (_: Throwable) { null }
+        appendLine("Runtime: state=${rt?.state ?: "?"} active=${rt?.runtimeActive ?: "?"} paper=${rt?.paperMode ?: "?"} enabled=${rt?.enabledTraders ?: "?"}")
+        appendLine("Doctor: ${doctor?.diagnosis?.faultCode ?: "?"}/${doctor?.diagnosis?.subsystem ?: "?"} confidence=${doctor?.diagnosis?.confidence?.fmt2() ?: "?"} faults=${doctor?.faults?.size ?: "?"}")
+        if (pipe != null) {
+            val loop = pipe.phaseCounts["BOT_LOOP_TICK"] ?: 0L
+            val intake = pipe.phaseCounts["INTAKE"] ?: 0L
+            val lane = pipe.phaseCounts["LANE_EVAL"] ?: 0L
+            val fdg = pipe.phaseCounts["FDG"] ?: 0L
+            val exec = pipe.phaseCounts["EXEC"] ?: 0L
+            val journalRows = pipe.labelCounts["TRADEJRNL_REC"] ?: 0L
+            appendLine("Funnel: loop=$loop intake=$intake lane=$lane fdg=$fdg exec=$exec journalRows=$journalRows avgCycle=${pipe.avgCycleMs}ms max=${pipe.maxCycleMs}ms ANR=${pipe.anrHints}")
+        }
+        if (perf != null) appendLine("Perf(last analyze): n=${perf.totalTrades} WR=${perf.winRate.fmt1()}% PnL=${perf.totalPnlSol.fmt4()} SOL PF=${perf.profitFactor.fmt2()} DD=${perf.currentDrawdownPct.fmt1()}% streak=${perf.currentStreak}")
+        if (journal != null) appendLine("Journal canonical: closes=${journal.trades} W/L=${journal.wins}/${journal.losses} WR=${journal.winRatePct().fmt1()}% PnL=${journal.pnlSol.fmt4()} SOL")
+        appendLine("Learning: ${safe("token_win_stats") { TokenWinMemory.getStats() }} | ${safe("collective") { com.lifecyclebot.collective.CollectiveLearning.getInsightsSummary() }}")
+        appendLine("Tuning: ${safe("pattern_auto_tuner") { PatternAutoTuner.getStatus() }}")
+    }
+
+    private fun buildLearningTuningSummary(): String = buildString(10 * 1024) {
+        appendLine("TokenWinMemory: ${safe("token_win_stats") { TokenWinMemory.getStats() }}")
+        appendLine("PatternMemory: ${safe("token_pattern_summary") { TokenWinMemory.getPatternSummary() }}")
+        safe("best_patterns") {
+            val best = TokenWinMemory.getBestPatterns(5).joinToString(" | ") { (k, v) -> "$k n=${v.wins + v.losses} WR=${(v.winRate * 100.0).fmt1()}% avgWin=${v.avgWinPnl.fmt1()}%" }
+            val worst = TokenWinMemory.getWorstPatterns(5).joinToString(" | ") { (k, v) -> "$k n=${v.wins + v.losses} WR=${(v.winRate * 100.0).fmt1()}%" }
+            "Best patterns: ${best.ifBlank { "none" }}\nWorst patterns: ${worst.ifBlank { "none" }}"
+        }.let { appendLine(it) }
+        appendLine(safe("losing_pattern_memory") { LosingPatternMemory.formatForPipelineDump().trim() }.ifBlank { "Losing-pattern memory: no mature danger buckets" })
+        appendLine(safe("autonomous_meta_policy") { AutonomousMetaPolicy.formatForPipelineDump().trim() }.ifBlank { "Autonomous Meta-Policy: no mature contexts yet" })
+        appendLine(safe("unified_policy_head") { UnifiedPolicyHead.formatForPipelineDump().trim() }.ifBlank { "Unified Policy Head: no trained weights yet" })
+        appendLine(safe("strategy_hypothesis") { StrategyHypothesisEngine.formatForPipelineDump().trim() }.ifBlank { "Strategy Hypothesis Engine: no active/promoted experiments" })
+        appendLine(safe("lane_exit_tuner") { com.lifecyclebot.engine.learning.LaneExitTuner.formatForPipelineDump().trim() }.ifBlank { "Lane Exit Tuner: no lane tuning snapshot" })
+        appendLine("PatternAutoTuner: ${safe("pattern_auto_tuner") { PatternAutoTuner.getStatus() }}")
+        safe("pattern_auto_tuner_details") {
+            val adj = PatternAutoTuner.getDetailedAdjustments().entries
+                .filter { kotlin.math.abs(it.value - 1.0) >= 0.01 }
+                .sortedByDescending { kotlin.math.abs(it.value - 1.0) }
+                .take(12)
+                .joinToString(" | ") { "${it.key}×${it.value.fmt2()}" }
+            "PatternAutoTuner details: trades=${PatternAutoTuner.getTradesAnalyzed()} last=${PatternAutoTuner.getLastUpdateTs()} adj=${adj.ifBlank { "neutral" }}"
+        }.let { appendLine(it) }
+        appendLine(safe("collective") { com.lifecyclebot.collective.CollectiveLearning.getInsightsSummary() })
+    }
+
+    private fun buildJournalSummary(): String = buildString(6 * 1024) {
+        val totals = safeSnapshot { TradeHistoryStore.getCanonicalTotals() }
+        val lifetime = safeSnapshot { TradeHistoryStore.getLifetimeStats() }
+        val stats = safeSnapshot { TradeHistoryStore.getStatsCached() }
+        val sells24 = safeSnapshot { TradeHistoryStore.getSells24h() } ?: emptyList()
+        val allSells = safeSnapshot { TradeHistoryStore.getAllSells() } ?: emptyList()
+        if (totals != null) appendLine("Canonical totals: closes=${totals.trades} W/L=${totals.wins}/${totals.losses} WR=${totals.winRatePct().fmt1()}% PnL=${totals.pnlSol.fmt4()} SOL")
+        if (lifetime != null) appendLine("Lifetime persisted: sells=${lifetime.totalSells} wins=${lifetime.totalWins} losses=${lifetime.totalLosses} pnl=${lifetime.realizedPnlSol.fmt4()} SOL")
+        if (stats != null) appendLine("Store stats cache: trades=${stats.totalStoredTrades} WR=${stats.winRate.fmt1()}% avgHold=${stats.avgHoldTimeMinutes.toDouble().fmt1()}m")
+        appendLine("24h closes: n=${sells24.size} W/L=${sells24.count { isJournalWin(it) }}/${sells24.count { isJournalLoss(it) }} PnL=${sells24.sumOf { if (it.netPnlSol != 0.0) it.netPnlSol else it.pnlSol }.fmt4()} SOL")
+        val byMode = allSells.groupBy { TradeHistoryStore.normalizeTradeModeName(it.tradingMode).ifBlank { "UNKNOWN" } }
+            .mapValues { (_, rows) ->
+                val w = rows.count { isJournalWin(it) }; val l = rows.count { isJournalLoss(it) }
+                val pnl = rows.sumOf { if (it.netPnlSol != 0.0) it.netPnlSol else it.pnlSol }
+                Triple(w, l, pnl)
+            }
+            .entries.sortedByDescending { it.value.third }.take(10)
+        appendLine("By lane/mode (top pnl):")
+        byMode.forEach { (mode, t) ->
+            val n = t.first + t.second
+            val wr = if (n > 0) t.first * 100.0 / n else 0.0
+            appendLine("  $mode n=$n W/L=${t.first}/${t.second} WR=${wr.fmt1()}% PnL=${t.third.fmt4()} SOL")
+        }
+        appendLine("Recent closes:")
+        allSells.asReversed().take(10).forEach { t ->
+            appendLine("  ${t.side} ${t.mode.uppercase(Locale.US)} ${t.mint.take(8)} lane=${TradeHistoryStore.normalizeTradeModeName(t.tradingMode)} pnl=${t.pnlPct.fmt1()}%/${(if (t.netPnlSol != 0.0) t.netPnlSol else t.pnlSol).fmt4()} SOL reason=${t.reason.take(48)}")
+        }
+    }
+
+    private fun compactPipelineDump(raw: String): String {
+        val keepHeaders = listOf(
+            "===== AATE Pipeline Health Snapshot", "===== Pipeline funnel", "===== Bot-loop cycle timing", "===== Runtime stall sentinels",
+            "===== Per-lane open positions", "===== Gate allow / block tally", "===== Top block reasons", "===== Intake by source", "===== LANE_EVAL by lane",
+            "===== LIVE execution telemetry", "===== PAPER execution telemetry", "===== Strategy expectancy", "===== Regime detector", "===== Losing-pattern memory",
+            "===== Brain Consensus Gate", "===== Autonomous Meta-Policy", "===== Unified Policy Head", "===== Strategy Hypothesis Engine", "===== Lane Exit Tuner",
+            "===== Performance analytics", "===== Separated WR metrics", "===== Throughput choke audit", "===== Token meta cache", "===== Slot health / close ledger",
+            "===== Birdeye budget", "===== API health", "===== Key verdicts"
+        )
+        val sections = splitSections(raw)
+        val out = StringBuilder(14 * 1024)
+        for ((header, body) in sections) {
+            if (keepHeaders.any { header.startsWith(it) }) {
+                out.appendLine(header)
+                out.appendLine(condenseSectionBody(header, body))
+            }
+        }
+        return out.toString().ifBlank { raw.lineSequence().take(220).joinToString("\n") }
+    }
+
+    private fun splitSections(raw: String): List<Pair<String, String>> {
+        val result = mutableListOf<Pair<String, String>>()
+        var currentHeader = "===== HEADER ====="
+        val buf = StringBuilder()
+        raw.lineSequence().forEach { line ->
+            if (line.startsWith("=====") && line.endsWith("=====")) {
+                if (buf.isNotEmpty()) result += currentHeader to buf.toString().trimEnd()
+                currentHeader = line
+                buf.clear()
+            } else buf.appendLine(line)
+        }
+        if (buf.isNotEmpty()) result += currentHeader to buf.toString().trimEnd()
+        return result
+    }
+
+    private fun condenseSectionBody(header: String, body: String): String {
+        val maxLines = when {
+            "API health" in header -> 14
+            "Intake by source" in header -> 12
+            "Strategy expectancy" in header -> 16
+            "Performance analytics" in header -> 20
+            "Throughput choke" in header -> 26
+            else -> 10
+        }
+        return body.lineSequence()
+            .filter { it.isNotBlank() }
+            .take(maxLines)
+            .joinToString("\n")
+    }
+
+    private fun condenseText(raw: String, maxChars: Int): String {
+        if (raw.length <= maxChars) return raw
+        val lines = raw.lineSequence().toList()
+        val out = StringBuilder(maxChars)
+        for (line in lines) {
+            if (out.length + line.length + 1 > maxChars - 96) break
+            out.appendLine(line)
+        }
+        out.append("[section condensed: ${raw.length}→${out.length} chars]")
+        return out.toString()
+    }
+
+    private fun isJournalWin(t: com.lifecyclebot.data.Trade): Boolean = t.pnlPct >= 0.5
+    private fun isJournalLoss(t: com.lifecyclebot.data.Trade): Boolean = t.pnlPct <= -2.0
+
+    private fun Double.fmt1(): String = String.format(Locale.US, "%.1f", this)
+    private fun Double.fmt2(): String = String.format(Locale.US, "%.2f", this)
+    private fun Double.fmt4(): String = String.format(Locale.US, "%.4f", this)
+    private fun TradeHistoryStore.AssetCounts.winRatePct(): Double {
+        val decisive = wins + losses
+        return if (decisive > 0) wins * 100.0 / decisive else 0.0
     }
 
     private fun buildForensicSummary(): String = buildString(8 * 1024) {

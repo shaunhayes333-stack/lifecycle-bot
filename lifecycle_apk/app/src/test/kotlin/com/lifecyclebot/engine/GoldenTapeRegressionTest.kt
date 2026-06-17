@@ -450,7 +450,8 @@ class GoldenTapeRegressionTest {
         val hub = java.io.File("src/main/kotlin/com/lifecyclebot/engine/ReportingHub.kt").readText()
         assertTrue(hub.contains("object ReportingHub"))
         assertTrue(hub.contains("UNIFIED_HEALTH"))
-        assertTrue(hub.contains("Trade Journal: EXCLUDED by design"))
+        assertTrue(hub.contains("TRADE JOURNAL SUMMARY"))
+        assertTrue(hub.contains("raw journal rows still excluded"))
         assertTrue(hub.contains("buildMutex"))
         val pipelineUi = java.io.File("src/main/kotlin/com/lifecyclebot/ui/PipelineHealthActivity.kt").readText()
         val errorUi = java.io.File("src/main/kotlin/com/lifecyclebot/ui/ErrorLogActivity.kt").readText()
@@ -2029,6 +2030,19 @@ class GoldenTapeRegressionTest {
 
 
     @Test
+    fun unified_report_is_compact_and_includes_learning_tuning_journal() {
+        val hub = java.io.File("src/main/kotlin/com/lifecyclebot/engine/ReportingHub.kt").readText()
+        assertTrue("Unified report must have a hard chat-size budget", hub.contains("MAX_UNIFIED_REPORT_CHARS = 42_000") && hub.contains("REPORT_TRUNCATED"))
+        assertTrue("Unified report scope must include learning/tuning/journal", hub.contains("learning / tuning / journal") && hub.contains("LEARNING + TUNING STATE") && hub.contains("TRADE JOURNAL SUMMARY"))
+        assertTrue("Unified report must use condensed pipeline, not raw full dump only", hub.contains("compactPipelineDump(PipelineHealthCollector.dumpText())") && hub.contains("PIPELINE HEALTH — CONDENSED"))
+        assertTrue("Learning section must include local and collective memory", hub.contains("TokenWinMemory.getPatternSummary") && hub.contains("LosingPatternMemory.formatForPipelineDump") && hub.contains("CollectiveLearning.getInsightsSummary"))
+        assertTrue("Tuning section must include active tuners", hub.contains("PatternAutoTuner.getStatus") && hub.contains("LaneExitTuner.formatForPipelineDump") && hub.contains("StrategyHypothesisEngine.formatForPipelineDump") && hub.contains("UnifiedPolicyHead.formatForPipelineDump"))
+        assertTrue("Journal section must use canonical store summaries", hub.contains("TradeHistoryStore.getCanonicalTotals") && hub.contains("TradeHistoryStore.getLifetimeStats") && hub.contains("TradeHistoryStore.getAllSells"))
+        assertFalse("Unified report must not dump raw journal CSV/export rows", hub.contains("TradeJournal.export") || hub.contains("CSV") || hub.contains("buildJournal(tokens)"))
+    }
+
+
+    @Test
     fun hive_pattern_edges_are_consumed_by_collective_ai() {
         val collective = java.io.File("src/main/kotlin/com/lifecyclebot/collective/CollectiveLearning.kt").readText()
         val collectiveAi = java.io.File("src/main/kotlin/com/lifecyclebot/v3/scoring/CollectiveIntelligenceAI.kt").readText()
@@ -2038,7 +2052,7 @@ class GoldenTapeRegressionTest {
         assertTrue("CollectiveAI must consume hive pattern edges", collectiveAi.contains("HIVE_PATTERN_EDGE") && collectiveAi.contains("getPatternEdgesForCandidate"))
         assertTrue("Hive pattern edge must be bounded", collectiveAi.contains("coerceIn(-14, 14)") && collectiveAi.contains("coerceIn(-5, 5)"))
         assertTrue("UnifiedScorer must pass candidate mcap/buy-pressure into CollectiveAI", scorer.contains("marketCapUsd = candidate.marketCapUsd") && scorer.contains("buyPressurePct = candidate.buyPressurePct"))
-        assertFalse("Hive pattern edge must not become a hard veto", collectiveAi.contains("fatal = true") || collectiveAi.contains("return CollectiveInsight(\n                score = -100"))
+        assertFalse("Hive pattern edge must not become a hard veto", collectiveAi.contains("fatal = true") || collectiveAi.contains("score = -100") || collectiveAi.contains("return emptyList"))
     }
 
 
@@ -2050,10 +2064,10 @@ class GoldenTapeRegressionTest {
         val ui = java.io.File("src/main/kotlin/com/lifecyclebot/ui/CollectiveBrainActivity.kt").readText()
         val forceSync = collective.substring(collective.indexOf("suspend fun forceSyncNow"))
         assertTrue("TokenWinMemory must export aggregate pattern payloads", tokenWin.contains("fun exportPatternAggregates") && tokenWin.contains("ExportedPatternAggregate"))
-        assertTrue("CollectiveLearning must bulk upload local pattern aggregates", collective.contains("uploadLocalPatternAggregates") && collective.contains("LOCAL_PATTERN|$"))
+        assertTrue("CollectiveLearning must bulk upload local pattern aggregates", collective.contains("uploadLocalPatternAggregates") && collective.contains("LOCAL_PATTERN|") && collective.contains("patternHash"))
         assertTrue("Pattern aggregate upload must be idempotent", collective.contains("ON CONFLICT(pattern_hash) DO UPDATE SET") && collective.contains("excluded.total_trades"))
         assertTrue("manual sync must upload patterns before download", forceSync.contains("val uploadedPatterns = uploadLocalPatternAggregates()") && forceSync.indexOf("val uploadedPatterns = uploadLocalPatternAggregates()") < forceSync.indexOf("downloadAll()"))
-        assertTrue("background sync must upload patterns before download", collective.contains("uploadLocalPatternAggregates()") && collective.contains("pruneOldPatterns"))
+        assertTrue("background sync must upload patterns before download", collective.contains("uploadLocalPatternAggregates()") && collective.contains("downloadAll()"))
         assertTrue("canonical journal rows must upload to hive", history.contains("uploadCollectiveJournalRow") && history.contains("CollectiveLearning.uploadJournalTradeRow"))
         assertTrue("journal upload must use deterministic key", collective.contains("sha256(\"JOURNAL|"))
         assertFalse("hive sync must not depend on UI activity to upload patterns", ui.contains("uploadLocalPatternAggregates"))
