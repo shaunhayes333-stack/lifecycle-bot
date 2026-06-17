@@ -175,6 +175,7 @@ object CollectiveLearning {
             isInitialized = true
             Log.i(TAG, "COLLECTIVE LEARNING ONLINE - HIVE MIND ACTIVE")
 
+            uploadLocalPatternAggregates()
             downloadAll()
 
             try {
@@ -661,6 +662,117 @@ object CollectiveLearning {
             }
         } catch (e: Exception) {
             Log.e(TAG, "Upload pattern error: ${e.message}")
+        }
+    }
+
+    suspend fun uploadLocalPatternAggregates(limit: Int = 250): Int {
+        if (!isEnabled()) return 0
+        if (instanceId.isBlank()) return 0
+        val c = client ?: return 0
+        return withContext(Dispatchers.IO) {
+            var uploaded = 0
+            try {
+                val now = System.currentTimeMillis()
+                val aggregates = com.lifecyclebot.engine.TokenWinMemory.exportPatternAggregates(limit)
+                for (p in aggregates) {
+                    if (p.totalTrades <= 0) continue
+                    val safeType = p.type.take(80).ifBlank { "UNKNOWN" }
+                    val safeValue = p.value.take(120).ifBlank { "UNKNOWN" }
+                    // Per-instance hash makes the upload idempotent. Download readers still
+                    // aggregate by pattern fields, but re-syncing the same phone won't double-count.
+                    val patternHash = sha256("LOCAL_PATTERN|$instanceId|$safeType|$safeValue").take(32)
+                    val avgPnl = p.totalPnl / p.totalTrades.toDouble()
+                    val result = c.execute(
+                        """
+                        INSERT INTO collective_patterns
+                            (pattern_hash, pattern_type, discovery_source, liquidity_bucket, ema_trend,
+                             total_trades, wins, losses, avg_pnl_pct, avg_hold_mins, last_updated)
+                        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 0.0, ?)
+                        ON CONFLICT(pattern_hash) DO UPDATE SET
+                            total_trades = excluded.total_trades,
+                            wins = excluded.wins,
+                            losses = excluded.losses,
+                            avg_pnl_pct = excluded.avg_pnl_pct,
+                            avg_hold_mins = excluded.avg_hold_mins,
+                            last_updated = excluded.last_updated
+                        """.trimIndent(),
+                        listOf(patternHash, safeType, safeValue, "TOKEN_WIN_MEMORY", "AGGREGATE",
+                            p.totalTrades, p.wins, p.losses, sanitizeDouble(avgPnl), now)
+                    )
+                    if (result.success) uploaded++
+                }
+                if (uploaded > 0) {
+                    totalUploadsThisSession += uploaded
+                    try { com.lifecyclebot.engine.CollectiveAnalytics.recordPatternUpload(uploaded) } catch (_: Throwable) {}
+                    try { com.lifecyclebot.engine.PipelineHealthCollector.labelInc("HIVE_PATTERN_AGG_UPLOAD") } catch (_: Throwable) {}
+                    Log.i(TAG, "Uploaded $uploaded local TokenWinMemory pattern aggregates to hive")
+                }
+            } catch (e: Exception) {
+                Log.e(TAG, "uploadLocalPatternAggregates error: ${e.message}")
+            }
+            uploaded
+        }
+    }
+
+    suspend fun uploadJournalTradeRow(
+        side: String,
+        symbol: String,
+        mint: String,
+        mode: String,
+        source: String,
+        liquidityUsd: Double,
+        marketSentiment: String,
+        entryScore: Int,
+        confidence: Int,
+        pnlPct: Double,
+        holdMins: Double,
+        isWin: Boolean,
+        paperMode: Boolean,
+        journalKey: String,
+    ): Boolean {
+        if (journalKey.isBlank()) return false
+        if (!isEnabled()) {
+            try { ensureConnected() } catch (_: Throwable) {}
+            if (!isEnabled()) return false
+        }
+        val c = client ?: return false
+        return withContext(Dispatchers.IO) {
+            try {
+                val now = System.currentTimeMillis()
+                val tradeHash = sha256("JOURNAL|$instanceId|$journalKey").take(24)
+                val liquidityBucket = when {
+                    liquidityUsd < 5_000.0 -> "MICRO"
+                    liquidityUsd < 25_000.0 -> "SMALL"
+                    liquidityUsd < 100_000.0 -> "MID"
+                    else -> "LARGE"
+                }
+                val result = c.execute(
+                    """
+                    INSERT OR REPLACE INTO collective_trades
+                        (trade_hash, instance_id, timestamp, side, symbol, mint, mode, source, liquidity_bucket,
+                         market_sentiment, entry_score, confidence, pnl_pct, hold_mins, is_win, paper_mode)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    """.trimIndent(),
+                    listOf(
+                        tradeHash, instanceId, now, side.take(24), symbol.take(40), mint.take(80),
+                        mode.take(40).ifBlank { "STANDARD" }, source.take(80).ifBlank { "JOURNAL" }, liquidityBucket,
+                        marketSentiment.take(40).ifBlank { "JOURNAL" }, entryScore, confidence,
+                        sanitizeDouble(pnlPct), sanitizeDouble(holdMins), if (isWin) 1 else 0, if (paperMode) 1 else 0
+                    )
+                )
+                if (result.success) {
+                    totalUploadSuccessThisSession++
+                    totalUploadsThisSession++
+                    try { com.lifecyclebot.engine.PipelineHealthCollector.labelInc("HIVE_JOURNAL_TRADE_UPLOAD") } catch (_: Throwable) {}
+                    true
+                } else {
+                    Log.w(TAG, "uploadJournalTradeRow failed: ${result.error}")
+                    false
+                }
+            } catch (e: Exception) {
+                Log.e(TAG, "uploadJournalTradeRow error: ${e.message}")
+                false
+            }
         }
     }
 
@@ -1359,6 +1471,7 @@ object CollectiveLearning {
                 delay(SYNC_INTERVAL_MS)
                 if (isEnabled()) {
                     try {
+                        uploadLocalPatternAggregates()
                         downloadAll()
                     } catch (e: Exception) {
                         Log.e(TAG, "Background sync error: ${e.message}")
@@ -2672,8 +2785,10 @@ object CollectiveLearning {
         return try {
             val beforeBlacklist = cachedBlacklist.size
             val beforePatterns = cachedPatterns.size
+            val uploadedPatterns = uploadLocalPatternAggregates()
 
             downloadAll()
+            try { com.lifecyclebot.v3.scoring.CollectiveIntelligenceAI.refresh() } catch (_: Throwable) {}
 
             val afterBlacklist = cachedBlacklist.size
             val afterPatterns = cachedPatterns.size
@@ -2686,7 +2801,7 @@ object CollectiveLearning {
             sb.append("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n")
             sb.append("Instance: ").append(instanceId).append('\n')
             sb.append("Blacklist: ").append(afterBlacklist).append(" (+").append(blacklistDelta).append(" new)\n")
-            sb.append("Patterns: ").append(afterPatterns).append(" (+").append(patternDelta).append(" new)\n")
+            sb.append("Patterns: ").append(afterPatterns).append(" (+").append(patternDelta).append(" new, uploaded=").append(uploadedPatterns).append(")\n")
             sb.append("Mode Stats: ").append(cachedModeStats.size).append('\n')
             sb.append("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
             sb.toString()

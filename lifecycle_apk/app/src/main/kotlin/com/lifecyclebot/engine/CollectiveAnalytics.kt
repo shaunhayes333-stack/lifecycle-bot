@@ -120,9 +120,10 @@ object CollectiveAnalytics {
     // CONTRIBUTION TRACKING
     // ═══════════════════════════════════════════════════════════════════════
 
-    fun recordPatternUpload() {
+    fun recordPatternUpload(count: Int = 1) {
+        if (count <= 0) return
         synchronized(lock) {
-            patternsUploaded += 1
+            patternsUploaded += count
             saveToPrefsLocked()
         }
     }

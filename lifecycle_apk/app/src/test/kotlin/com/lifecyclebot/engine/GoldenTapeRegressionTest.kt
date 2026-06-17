@@ -2029,6 +2029,25 @@ class GoldenTapeRegressionTest {
 
 
     @Test
+    fun hive_sync_uploads_journal_rows_and_local_pattern_aggregates() {
+        val collective = java.io.File("src/main/kotlin/com/lifecyclebot/collective/CollectiveLearning.kt").readText()
+        val tokenWin = java.io.File("src/main/kotlin/com/lifecyclebot/engine/TokenWinMemory.kt").readText()
+        val history = java.io.File("src/main/kotlin/com/lifecyclebot/engine/TradeHistoryStore.kt").readText()
+        val ui = java.io.File("src/main/kotlin/com/lifecyclebot/ui/CollectiveBrainActivity.kt").readText()
+        val forceSync = collective.substring(collective.indexOf("suspend fun forceSyncNow"))
+        assertTrue("TokenWinMemory must export aggregate pattern payloads", tokenWin.contains("fun exportPatternAggregates") && tokenWin.contains("ExportedPatternAggregate"))
+        assertTrue("CollectiveLearning must bulk upload local pattern aggregates", collective.contains("uploadLocalPatternAggregates") && collective.contains("LOCAL_PATTERN|$"))
+        assertTrue("Pattern aggregate upload must be idempotent", collective.contains("ON CONFLICT(pattern_hash) DO UPDATE SET") && collective.contains("excluded.total_trades"))
+        assertTrue("manual sync must upload patterns before download", forceSync.contains("val uploadedPatterns = uploadLocalPatternAggregates()") && forceSync.indexOf("val uploadedPatterns = uploadLocalPatternAggregates()") < forceSync.indexOf("downloadAll()"))
+        assertTrue("background sync must upload patterns before download", collective.contains("uploadLocalPatternAggregates()") && collective.contains("pruneOldPatterns"))
+        assertTrue("canonical journal rows must upload to hive", history.contains("uploadCollectiveJournalRow") && history.contains("CollectiveLearning.uploadJournalTradeRow"))
+        assertTrue("journal upload must use deterministic key", collective.contains("sha256(\"JOURNAL|"))
+        assertFalse("hive sync must not depend on UI activity to upload patterns", ui.contains("uploadLocalPatternAggregates"))
+        assertFalse("journal hive upload must not be blocked by scratch BUY filter", history.contains("uploadTrade(") && history.contains("side = side"))
+    }
+
+
+    @Test
     fun specialist_moe_gate_weights_components_without_veto_or_zeroing() {
         val moe = java.io.File("src/main/kotlin/com/lifecyclebot/v3/scoring/SpecialistMoEGate.kt").readText()
         val scorer = java.io.File("src/main/kotlin/com/lifecyclebot/v3/scoring/UnifiedScorer.kt").readText()
@@ -2052,7 +2071,7 @@ class GoldenTapeRegressionTest {
         val report = java.io.File("src/main/kotlin/com/lifecyclebot/engine/ReportingHub.kt").readText()
         val collector = java.io.File("src/main/kotlin/com/lifecyclebot/engine/PipelineHealthCollector.kt").readText()
         assertTrue("doctor diagnosis must expose state", dbg.contains("val state: String = faultCode"))
-        assertTrue("doctor diagnosis must expose subsystem owner", dbg.contains("val subsystem: String = "runtime""))
+        assertTrue("doctor diagnosis must expose subsystem owner", dbg.contains("val subsystem: String = \"runtime\""))
         assertTrue("strategy bleed must be classified separately from invariant faults", dbg.contains("STRATEGY_BLEED") && dbg.contains("wr < 20.0"))
         assertTrue("mechanical degradation must catch ANR hints", dbg.contains("MECHANICAL_FAULT") && dbg.contains("anrHints >= 3"))
         assertTrue("doctor must expose latest diagnosis", doctor.contains("fun currentDiagnosis()"))

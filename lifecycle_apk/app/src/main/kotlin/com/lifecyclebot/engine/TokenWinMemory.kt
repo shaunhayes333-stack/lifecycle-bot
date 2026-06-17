@@ -79,6 +79,20 @@ object TokenWinMemory {
             get() = if (decisiveTrades > 0) wins.toDouble() / decisiveTrades.toDouble() else 0.5
     }
 
+    // V5.0.3825 — public aggregate for hive sync. This exposes only pattern
+    // aggregates, never wallet/user data or raw token lists.
+    data class ExportedPatternAggregate(
+        val type: String,
+        val value: String,
+        val wins: Int,
+        val losses: Int,
+        val totalPnl: Double,
+        val avgWinPnl: Double,
+    ) {
+        val totalTrades: Int get() = wins + losses
+        val winRate: Double get() = if (totalTrades > 0) wins.toDouble() / totalTrades.toDouble() else 0.5
+    }
+
     // Mint -> WinningToken
     private val winningTokens = ConcurrentHashMap<String, WinningToken>()
 
@@ -491,6 +505,28 @@ object TokenWinMemory {
             stats.totalPnl <= -5.0 -> -5
             else -> 0
         }
+    }
+
+    fun exportPatternAggregates(limit: Int = 250): List<ExportedPatternAggregate> {
+        return patterns.flatMap { (type, typePatterns) ->
+            typePatterns.map { (value, stats) ->
+                ExportedPatternAggregate(
+                    type = type,
+                    value = value,
+                    wins = stats.wins,
+                    losses = stats.losses,
+                    totalPnl = stats.totalPnl,
+                    avgWinPnl = stats.avgWinPnl,
+                )
+            }
+        }
+            .filter { it.totalTrades > 0 }
+            .sortedWith(
+                compareByDescending<ExportedPatternAggregate> { it.totalTrades }
+                    .thenByDescending { kotlin.math.abs(it.winRate - 0.5) }
+                    .thenByDescending { kotlin.math.abs(it.totalPnl) }
+            )
+            .take(limit.coerceIn(1, 1000))
     }
 
     fun getBestPatterns(limit: Int = 5): List<Pair<String, PatternStats>> {

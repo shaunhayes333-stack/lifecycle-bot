@@ -766,6 +766,7 @@ object TradeHistoryStore {
                 entryPriceSource = tradeToStore.entryPriceSource,
             )
         } catch (_: Throwable) { /* never let logging break the record path */ }
+        try { uploadCollectiveJournalRow(tradeToStore) } catch (_: Throwable) {}
         // V5.9.353: Per-mint loss-streak guard (block re-entry after 3 losses in a row).
         // Only emits on close events (SELL side). Buy events ignored.
         try {
@@ -780,6 +781,47 @@ object TradeHistoryStore {
         try {
             CanonicalOutcomeBus.publishFromLegacyTrade(tradeToStore)
         } catch (_: Throwable) { /* non-fatal — never break the trade record path */ }
+    }
+
+    private fun uploadCollectiveJournalRow(trade: Trade) {
+        try {
+            // V5.0.3825 — canonical hive trade upload. Executor-side BUY uploads
+            // pass pnl=0 and are intentionally skipped as scratch by uploadTrade();
+            // the accepted journal row is the source of truth for hive trade count.
+            val side = trade.side.uppercase().take(24)
+            if (side.isBlank()) return
+            val journalKey = listOf(
+                trade.positionId.ifBlank { trade.mint }, side, trade.ts.toString(), trade.reason.take(32)
+            ).joinToString("|")
+            val holdMins = if (trade.entryTsMs > 0L && trade.ts > trade.entryTsMs) {
+                (trade.ts - trade.entryTsMs).toDouble() / 60_000.0
+            } else 0.0
+            val liquidityProxy = when {
+                trade.entryMcapUsd > 0.0 -> trade.entryMcapUsd
+                trade.entryCostSol > 0.0 -> trade.entryCostSol * 10_000.0
+                else -> 0.0
+            }
+            kotlinx.coroutines.GlobalScope.launch(AppDispatchers.sideEffect) {
+                try {
+                    com.lifecyclebot.collective.CollectiveLearning.uploadJournalTradeRow(
+                        side = side,
+                        symbol = trade.mint.take(10).ifBlank { "UNKNOWN" },
+                        mint = trade.mint,
+                        mode = trade.tradingMode.ifBlank { "STANDARD" },
+                        source = trade.entryPriceSource.ifBlank { trade.proofState.ifBlank { "JOURNAL" } },
+                        liquidityUsd = liquidityProxy,
+                        marketSentiment = trade.reason.take(40).ifBlank { "JOURNAL" },
+                        entryScore = trade.score.toInt(),
+                        confidence = 0,
+                        pnlPct = trade.pnlPct,
+                        holdMins = holdMins,
+                        isWin = trade.pnlPct >= 0.0,
+                        paperMode = trade.mode.equals("paper", true) || trade.mode.equals("PAPER", true),
+                        journalKey = journalKey,
+                    )
+                } catch (_: Throwable) {}
+            }
+        } catch (_: Throwable) {}
     }
 
     fun recordTrades(newTrades: List<Trade>) {
