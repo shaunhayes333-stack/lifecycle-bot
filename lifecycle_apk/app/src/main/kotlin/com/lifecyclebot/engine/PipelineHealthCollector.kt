@@ -1737,6 +1737,7 @@ object PipelineHealthCollector {
         val execGateAllow = s.phaseAllow["EXEC_GATE"] ?: 0L
         val execGateBlock = s.phaseBlock["EXEC_GATE"] ?: 0L
         val recentExecCount = s.recentExecs.size.toLong()
+        val acceptedJournalRows = (s.phaseCounts["TRADEJRNL_REC"] ?: s.labelCounts["TRADEJRNL_REC"] ?: 0L)
         sb.append("  intake total:         $totalIntake (sum of all scanner sources)\n")
         sb.append("  lane evaluations:     $totalLaneEval active (${s.laneEvalSuppressedCounts.values.sum()} suppressed by QUALITY-only policy)\n")
         sb.append("  V3 evaluations:       ${v3Allow + v3Skipped}\n")
@@ -1780,19 +1781,19 @@ object PipelineHealthCollector {
                 sb.append("    • $reason: $n\n")
             }
         }
-        // Throughput rate — if bot has been running long enough, project to /day
+        // Throughput rate — project from accepted journal rows, not the 30-row recentExec ring.
         val uptimeMs = (s.nowMs - s.startedAtMs).coerceAtLeast(1L)
         val uptimeHr = uptimeMs / 3_600_000.0
-        if (uptimeHr >= 0.1 && recentExecCount > 0) {
-            val execsPerHour = recentExecCount / uptimeHr
+        if (uptimeHr >= 0.1 && acceptedJournalRows > 0) {
+            val execsPerHour = acceptedJournalRows / uptimeHr
             val execsPerDay = execsPerHour * 24.0
             val band = when {
                 execsPerDay in 500.0..1000.0 -> "✅ ON TARGET (500-1000/day band)"
                 execsPerDay > 1000.0 -> "🔴 ABOVE TARGET BAND (>1000/day; verify quality/FDG finality and churn)"
-                execsPerDay >= 200.0 -> "⚠ BELOW TARGET (need 500+/day; audit V3 allow rate)"
-                else -> "🛑 CRITICAL (need 500+/day; check FGS lifecycle + scanner pool)"
+                execsPerDay >= 200.0 -> "⚠ BELOW TARGET (need 500+/day; audit selector/slot/lane-eval choke)"
+                else -> "🛑 CRITICAL (need 500+/day; check lifecycle uptime + scanner pool)"
             }
-            sb.append("  projected execs/day:  ${"%.0f".format(execsPerDay)}  $band\n")
+            sb.append("  projected execs/day:  ${"%.0f".format(execsPerDay)}  $band (journalRows=$acceptedJournalRows, not 30-row ring)\n")
         }
 
         // ── V5.9.915 — Self-healing tier surface (H1+H2+H3) ──────────────

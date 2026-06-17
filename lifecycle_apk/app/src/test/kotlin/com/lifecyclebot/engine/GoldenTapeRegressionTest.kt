@@ -737,6 +737,19 @@ class GoldenTapeRegressionTest {
 
 
     @Test
+    fun keepalive_rebound_must_not_reset_session_counters_or_fake_throughput() {
+        val service = java.io.File("src/main/kotlin/com/lifecyclebot/engine/BotService.kt").readText()
+        val collector = java.io.File("src/main/kotlin/com/lifecyclebot/engine/PipelineHealthCollector.kt").readText()
+        val reboundIdx = service.indexOf("LIFECYCLE_RUNTIME_JOB_ALREADY_EXISTS")
+        val reboundChunk = service.substring(maxOf(0, reboundIdx - 900), minOf(service.length, reboundIdx + 500))
+        assertFalse("already-running keepalive repair must not reset mode counters", reboundChunk.contains("resetModeCountersForRuntime"))
+        assertTrue("already-running keepalive repair may refresh mode snapshot only", reboundChunk.contains("PipelineHealthCollector.modeSnapshot"))
+        assertTrue("throughput projection must use accepted journal rows, not capped recent exec ring", collector.contains("acceptedJournalRows") && collector.contains("not 30-row ring"))
+        assertFalse("projection must not divide the 30-row recent ring by uptime", collector.contains("val execsPerHour = recentExecCount / uptimeHr"))
+    }
+
+
+    @Test
     fun paper_direct_executor_missing_state_is_synthetic_only_not_live() {
         val gate = java.io.File("src/main/kotlin/com/lifecyclebot/engine/ExecutableOpenGate.kt").readText()
         assertTrue(gate.contains("PAPER_EXEC_OPEN_SYNTHETIC_FINAL_CANDIDATE"))
@@ -753,7 +766,7 @@ class GoldenTapeRegressionTest {
         val service = java.io.File("src/main/kotlin/com/lifecyclebot/engine/BotService.kt").readText()
         assertTrue(service.contains("SUPERVISOR_HEALTHY_MEME_MAX_INFLIGHT: Int = 48"))
         assertTrue(service.contains("supervisorTimeoutsForPlanning = if ((nowMs - supervisorTimeoutWindowStartMs) < 600_000L) supervisorTimeoutWindowCount else 0"))
-        assertTrue(service.contains("selectorHealthy = supervisorTimeoutsForPlanning == 0"))
+        assertTrue("selector should tolerate tiny timeout noise; real pressure starts in planner at >=30", service.contains("val lowTimeoutNoise = supervisorTimeoutsForPlanning <= 3") && service.contains("selectorHealthy = lowTimeoutNoise"))
         assertTrue(service.contains("selectorMaxInFlight = if (selectorHealthy) SUPERVISOR_HEALTHY_MEME_MAX_INFLIGHT else SUPERVISOR_MAX_INFLIGHT"))
         assertTrue(service.contains("val demoteProcessFloor = if (memeFresh) 6 else 3"))
         assertTrue(service.contains("val demoteAgeFloorMs = if (memeFresh) 5L * 60_000L else 120_000L"))

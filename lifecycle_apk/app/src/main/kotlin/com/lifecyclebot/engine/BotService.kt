@@ -2245,7 +2245,9 @@ class BotService : Service() {
                     val repairAuto = try { RuntimeModeAuthority.current().autoTrade } catch (_: Throwable) { true }
                     try {
                         RuntimeModeAuthority.publishRuntimeStart(repairPaper, repairAuto)
-                        PipelineHealthCollector.resetModeCountersForRuntime(if (repairPaper) "PAPER" else "LIVE")
+                        // V5.0.3811 — already-running keepalive repair must not reset
+                        // session counters. Rebounds are runtime-truth repairs, not new sessions.
+                        PipelineHealthCollector.modeSnapshot = if (repairPaper) "PAPER" else "LIVE"
                     } catch (_: Throwable) {}
                     val repairGen = BotRuntimeController.beginStart(
                         paperMode = repairPaper,
@@ -10371,7 +10373,10 @@ class BotService : Service() {
         // debt in the current window, no active supervisor load, and effective cap
         // is healthy. Pressure windows still use the old 24 floor and planner caps.
         val supervisorTimeoutsForPlanning = if ((nowMs - supervisorTimeoutWindowStartMs) < 600_000L) supervisorTimeoutWindowCount else 0
-        val selectorHealthy = supervisorTimeoutsForPlanning == 0 && currentSupervisorLoad < (effectiveSupervisorCap / 2).coerceAtLeast(1) && effectiveSupervisorCap >= SUPERVISOR_BASE_MAX_WORKERS
+        // V5.0.3811 — tiny timeout residue is scheduler noise, not pressure.
+        // Real pressure still starts in SupervisorAdmissionPlanner at >=30 timeouts/10m.
+        val lowTimeoutNoise = supervisorTimeoutsForPlanning <= 3
+        val selectorHealthy = lowTimeoutNoise && currentSupervisorLoad < (effectiveSupervisorCap / 2).coerceAtLeast(1) && effectiveSupervisorCap >= SUPERVISOR_BASE_MAX_WORKERS
         val selectorMaxInFlight = if (selectorHealthy) SUPERVISOR_HEALTHY_MEME_MAX_INFLIGHT else SUPERVISOR_MAX_INFLIGHT
         val basePerCycleCap = selectorMaxInFlight
         // V5.9.1548 — use one planner for the per-cycle selection cap. The live
