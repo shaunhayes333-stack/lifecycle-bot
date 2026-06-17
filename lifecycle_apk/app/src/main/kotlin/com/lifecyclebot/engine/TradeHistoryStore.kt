@@ -785,9 +785,11 @@ object TradeHistoryStore {
 
     private fun uploadCollectiveJournalRow(trade: Trade) {
         try {
-            // V5.0.3825 — canonical hive trade upload. Executor-side BUY uploads
-            // pass pnl=0 and are intentionally skipped as scratch by uploadTrade();
-            // the accepted journal row is the source of truth for hive trade count.
+            // V5.0.3828 — canonical hive trade upload. Executor-side BUY uploads
+            // pass pnl=0 and are intentionally skipped as scratch by the legacy
+            // CollectiveLearning.uploadTrade pathway; the accepted journal row is
+            // the source of truth for hive trade count (we go straight to
+            // uploadJournalTradeRow below, not to that scratch BUY filter).
             val side = trade.side.uppercase().take(24)
             if (side.isBlank()) return
             val journalKey = listOf(
