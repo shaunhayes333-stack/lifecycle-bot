@@ -8855,13 +8855,24 @@ class BotService : Service() {
                         .let { fallback -> if (fallback.isEmpty()) null else fallback[((ts.mint.hashCode() and 0x7fffffff) % fallback.size)] }
                 }
             if (memeFamily) return l == memeRescue
-            if (nonMemeSpecialist && affinity.contains(l)) {
-                val rescue = affinity
-                    .filter { it == "MANIPULATED" || it == "QUALITY" || it == "DIP_HUNTER" ||
-                        it == "PROJECT_SNIPER" || it == "TREASURY" || it == "BLUECHIP" }
-                    .sortedBy { it }
-                    .let { list -> if (list.isEmpty()) null else list[((ts.mint.hashCode() and 0x7fffffff) % list.size)] }
-                return l == rescue
+            if (nonMemeSpecialist) {
+                // V5.0.3817 — INTERNAL_SPECIALIST_ROTATION_FIX.
+                // Source/style affinity can be narrow for hours (report 5.0.3816:
+                // only SHITCOIN/MOONSHOT/PROJECT_SNIPER had LANE_EVAL). If specialist
+                // rescue is drawn ONLY from existing affinity, QUALITY/BLUECHIP/
+                // MANIPULATED/DIP/TREASURY never get measurement surface. Keep the
+                // fanout cap: exactly ONE specialist rescue per token/cycle, but draw
+                // from the full internal specialist ring with affinity lanes first.
+                val specialistRing = listOf("MANIPULATED", "QUALITY", "DIP_HUNTER", "PROJECT_SNIPER", "TREASURY", "BLUECHIP")
+                val affinitySpecialists = affinity.filter { it in specialistRing }.sorted()
+                val rescuePool = (affinitySpecialists + specialistRing).distinct()
+                val rot = try { loopCount.toInt() } catch (_: Throwable) { 0 }
+                val rescue = rescuePool[((ts.mint.hashCode() xor rot) and 0x7fffffff) % rescuePool.size]
+                if (l == rescue) {
+                    try { ForensicLogger.lifecycle("INTERNAL_SPECIALIST_ROTATION_RESCUE", "lane=$l primary=$primaryLane symbol=${ts.symbol} mint=${ts.mint.take(10)} affinity=${affinity.joinToString("+")}") } catch (_: Throwable) {}
+                    return true
+                }
+                return false
             }
             return false
         }
@@ -18724,8 +18735,17 @@ if (hotExitHandledSweep) {
             // Only evaluates tokens that are ALREADY pumping hard
             // V5.2 FIX: Must check if Treasury already has a position!
             // ═══════════════════════════════════════════════════════════════════
-            if (!ts.position.isOpen && com.lifecyclebot.v3.scoring.ShitCoinExpress.isEnabled()) {
-                // V5.7.8: Express runs independently
+            val expressLaneAllowedThisCycle = !ts.position.isOpen && shouldRunBuyLaneForCycle(ts, "EXPRESS", cyclePrimaryLane)
+            if (expressLaneAllowedThisCycle && com.lifecyclebot.v3.scoring.ShitCoinExpress.isEnabled()) {
+                try {
+                    ForensicLogger.phase(
+                        ForensicLogger.PHASE.LANE_EVAL,
+                        ts.symbol,
+                        "lane=EXPRESS paper=${cfg.paperMode} mcap=${ts.lastMcap.toInt()} liq=${ts.lastLiquidityUsd.toInt()} score=${ts.entryScore}"
+                    )
+                } catch (_: Throwable) {}
+                // V5.7.8: Express runs independently, but V5.0.3817 routes it through
+                // the shared bounded lane gate so coverage reports prove it is alive.
                 try {
                     val tokenAgeMinutes = if (ts.addedToWatchlistAt > 0) {
                         (System.currentTimeMillis() - ts.addedToWatchlistAt) / 60_000.0
