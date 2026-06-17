@@ -7031,9 +7031,18 @@ class Executor(
         // Lane key resolved the same way finalityLane is (layerTag→identity.source),
         // so the haircut targets the same bin StrategyTelemetry reports.
         val laneEvMult = try {
-            com.lifecyclebot.engine.LaneExpectancyDamper.sizeMultiplier(
+            val raw = com.lifecyclebot.engine.LaneExpectancyDamper.sizeMultiplier(
                 identity?.source ?: ts.source
             )
+            // V5.0.3847 — live micro-probe doctrine: trade expectancy is not a
+            // live entry-size authority. It can report/learn and shape paper, but
+            // live entries are deliberately tiny and must be governed by common-
+            // sense token/route safety, wallet/rent, and actual quote execution.
+            // Otherwise a healthy live candidate gets dust-sized before quote.
+            if (RuntimeModeAuthority.isLive()) {
+                if (raw < 1.0) try { ForensicLogger.lifecycle("LIVE_EXPECTANCY_SIZE_BYPASSED", "mint=${ts.mint.take(10)} symbol=${ts.symbol} layer=LaneExpectancyDamper rawMult=$raw applied=1.0") } catch (_: Throwable) {}
+                1.0
+            } else raw
         } catch (_: Throwable) { 1.0 }
         // V5.9.1329 — GLOBAL REGIME SIZE BRAKE (live snapshot 5.0.3297 fix).
         // RegimeDetector.sizeMultiplier() was COMPUTED and shown in the health snapshot
@@ -8683,43 +8692,18 @@ class Executor(
                 return false
             }
         }
-        val breakEven = LiveRestoreExecutionPolicy.breakEvenCheck(ts, sol, restorePenalty, walletSol, signalScore = score)
-        LiveRestoreExecutionPolicy.logBreakEven(ts, breakEven, restorePenalty)
-        // V5.9.1565 — DOCTRINE FIX: break-even economics are a SELL-side concern.
-        // Entry-time we only reject if expectedEdge is genuinely negative (the
-        // score itself says the trade has no edge). Otherwise we let live take
-        // the trade at the same size paper would, and the sell logic enforces
-        // 'only realise gains that beat allInCost + profit-split feed-back'.
-        // This restores the doctrine: live ≠ a brake on paper, live = paper's
-        // twin paying real costs at sell-time.
-        // TODO V5.9.1566: in sub-trader sell paths, gate exits at positive pnl
-        //                 against (allInCostPct + treasurySplitPct + safetyMargin)
-        //                 so we only bank profit that net-feeds the treasury and
-        //                 doesn't self-starve the bot.
-        val hardNegativeEdge = breakEven.expectedEdgePct < 0.0
-        if (!breakEven.allowed && hardNegativeEdge) {
-            PipelineTracer.executorFailed(ts.symbol, ts.mint, "LIVE", breakEven.decision)
-            try {
-                ForensicLogger.lifecycle(
-                    if (breakEven.decision == "NOT_PROFITABLE_AFTER_COSTS") "INTAKE_COST_REJECT" else "LIVE_PREFLIGHT_REJECT",
-                    "symbol=${ts.symbol} mint=${ts.mint.take(10)} decision=${breakEven.decision} allInCost=${"%.2f".format(breakEven.allInCostPct)} expectedEdge=${"%.2f".format(breakEven.expectedEdgePct)} minTarget=${"%.2f".format(breakEven.minTargetPct)} liq=${ts.lastLiquidityUsd.toInt()}"
-                )
-            } catch (_: Throwable) {}
-            emitLiveBuyFail(ts, sol, breakEven.decision)
-            return false
-        }
-        if (!breakEven.allowed) {
-            // Entry passes despite slow break-even math; tag for sell-side enforcement.
-            try { ForensicLogger.lifecycle("LIVE_BREAK_EVEN_DEFERRED_TO_SELL", "symbol=${ts.symbol} mint=${ts.mint.take(10)} allInCost=${"%.2f".format(breakEven.allInCostPct)} expectedEdge=${"%.2f".format(breakEven.expectedEdgePct)} — doctrine: paper would take this, sell-side enforces") } catch (_: Throwable) {}
-        }
-        // V5.9.1565 — also honour paper-equality: never SHRINK sol below the
-        // caller's requested size on entry. breakEven.sizeSol used to write back
-        // a shrunken size when penalties bit; with penalties removed the size
-        // should not change, but keep sol = max(sol, breakEven.sizeSol) as a
-        // defensive doctrine guard.
-        if (breakEven.sizeSol > sol) {
-            sol = breakEven.sizeSol
-        }
+        // V5.0.3847 — ENTRY BREAK-EVEN BYPASS FOR LIVE MICRO-PROBES.
+        // Do NOT process live buy size through break-even / cost expectancy.
+        // The entry authority is: wallet/rent, common-sense token safety, and
+        // executable buy/sell route quote. Break-even economics remain sell-side
+        // via LiveRestoreExecutionPolicy.sellSideBreakEvenOk(), where they can
+        // decide whether to bank a positive exit after real PnL exists.
+        try {
+            ForensicLogger.lifecycle(
+                "LIVE_ENTRY_BREAK_EVEN_BYPASSED_TO_SELL",
+                "symbol=${ts.symbol} mint=${ts.mint.take(10)} requestedSize=${sol.fmt(4)} penalty=${restorePenalty.reason} liq=${ts.lastLiquidityUsd.toInt()} score=${score.fmt(1)}",
+            )
+        } catch (_: Throwable) {}
         
         // V5.9.756 — extracted to LiveBuyAdmissionGate (Emergent CRITICAL ticket).
         // The V5.9.753 inline gate was only wired into liveBuy. liveTopUp

@@ -2395,4 +2395,19 @@ class GoldenTapeRegressionTest {
     }
 
 
+    @Test
+    fun live_micro_probe_entry_bypasses_expectancy_and_break_even_sizing() {
+        val executor = java.io.File("src/main/kotlin/com/lifecyclebot/engine/Executor.kt").readText()
+        val scoreExpectancy = java.io.File("src/main/kotlin/com/lifecyclebot/engine/ScoreExpectancyTracker.kt").readText()
+        val liveRestore = java.io.File("src/main/kotlin/com/lifecyclebot/engine/LiveRestoreExecutionPolicy.kt").readText()
+
+        assertTrue("Live entry must bypass LaneExpectancyDamper sizing", executor.contains("LIVE_EXPECTANCY_SIZE_BYPASSED") && executor.contains("if (RuntimeModeAuthority.isLive())") && executor.contains("applied=1.0"))
+        assertTrue("Live entry must bypass break-even economics and defer them to sell side", executor.contains("LIVE_ENTRY_BREAK_EVEN_BYPASSED_TO_SELL") && executor.contains("sellSideBreakEvenOk"))
+        assertFalse("liveBuy entry must not call breakEvenCheck before route quote", executor.contains("val breakEven = LiveRestoreExecutionPolicy.breakEvenCheck(ts, sol, restorePenalty"))
+        assertTrue("Score expectancy reject must be neutral in live", scoreExpectancy.contains("LIVE_EXPECTANCY_REJECT_BYPASSED") && scoreExpectancy.contains("RuntimeModeAuthority.isLive()") && scoreExpectancy.contains("return false"))
+        assertTrue("Score expectancy size multiplier must be neutral in live", scoreExpectancy.contains("do not dust-size live probes") && scoreExpectancy.contains("return 1.0"))
+        assertTrue("Break-even logic remains available for sell-side profit discipline", liveRestore.contains("sellSideBreakEvenOk") && liveRestore.contains("breakEvenCheck(ts, ts.position.costSol"))
+    }
+
+
 }

@@ -140,6 +140,13 @@ object ScoreExpectancyTracker {
      *   - rolling mean pnlPct >= REJECT_MEAN_PNL_PCT
      */
     fun shouldReject(layer: String, score: Int): Boolean {
+        // V5.0.3847 — live entry authority is common-sense safety + route quote,
+        // not learned expectancy veto. Keep this as paper/training shaping only;
+        // live still records outcomes and reports bucket expectancy.
+        if (try { RuntimeModeAuthority.isLive() } catch (_: Throwable) { false }) {
+            try { ForensicLogger.lifecycle("LIVE_EXPECTANCY_REJECT_BYPASSED", "layer=$layer score=$score") } catch (_: Throwable) {}
+            return false
+        }
         val mean = bucketMean(layer, score) ?: return false
         return mean < REJECT_MEAN_PNL_PCT
     }
@@ -163,6 +170,12 @@ object ScoreExpectancyTracker {
      * net-negative before it ever matures into a danger bucket.
      */
     fun calibrationSizeMult(layer: String, score: Int): Double {
+        // V5.0.3847 — do not dust-size live probes from score expectancy.
+        // Live uses tiny fixed executable entries; this multiplier remains active
+        // for paper/backtest shaping and telemetry only.
+        if (try { RuntimeModeAuthority.isLive() } catch (_: Throwable) { false }) {
+            return 1.0
+        }
         val mean = bucketMean(layer, score) ?: return 1.0   // null = too few samples → no shaping
         return when {
             mean >= 0.0    -> 1.0
