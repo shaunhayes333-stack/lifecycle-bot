@@ -123,6 +123,12 @@ object ToolkitSignalSheet {
         if (!inFlight.add(mint)) return
         GlobalScope.launch(AppDispatchers.sideEffect) {
             try {
+                try {
+                    InternetEdgeDesk.refreshAsync(
+                        trigger = "toolkit_sheet",
+                        context = "symbol=${ts.symbol} source=${ts.source} liq=${ts.lastLiquidityUsd.toInt()} mcap=${ts.lastMcap.toInt()} score=${ts.lastV3Score ?: ts.entryScore.toInt()} confidence=${ts.lastV3Confidence ?: 0} classification=${classification?.tradeType}",
+                    )
+                } catch (_: Throwable) {}
                 val built = build(ts, classification)
                 cache[mint] = CacheEntry(built, System.currentTimeMillis(), fp)
                 try { PipelineHealthCollector.labelInc("TOOLKIT_SIGNAL_SHEET_REFRESHED") } catch (_: Throwable) {}
@@ -395,7 +401,7 @@ object ToolkitSignalSheet {
             reasons = listOf("mevRisk=$mevRisk", "upperWicks=$upperWicks", "sell=${sellPressure.toInt()}", "vol=${volatility.toInt()}")
         ))
 
-        val best = candidates.maxByOrNull { it.score } ?: Candidate(
+        val best = candidates.maxByOrNull { it.score + InternetEdgeDesk.setupScoreBias(it.setup.name) } ?: Candidate(
             setup = Setup.NONE, score = 0.0, chart = "none", entry = "none", exit = "default", hold = 1.0, size = 1.0, tp = 1.0,
             lanes = emptySet(), tools = emptySet(), reasons = listOf("no_toolkit_setup")
         )
@@ -411,7 +417,7 @@ object ToolkitSignalSheet {
             tpMult = best.tp.coerceIn(0.60, 1.70),
             laneVotes = best.lanes,
             toolVotes = best.tools,
-            reasons = best.reasons,
+            reasons = best.reasons + listOf("internetBias=${InternetEdgeDesk.setupScoreBias(best.setup.name).toInt()}", InternetEdgeDesk.snapshot().riskMode),
         )
     }
 

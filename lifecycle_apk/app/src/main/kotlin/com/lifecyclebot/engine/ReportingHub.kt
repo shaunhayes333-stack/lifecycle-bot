@@ -190,6 +190,8 @@ object ReportingHub {
         val failed = labels["TOOLKIT_SIGNAL_SHEET_REFRESH_FAILED"] ?: 0L
         appendLine("Helper: cached snapshot + silent AppDispatchers.sideEffect refresh; no FDG/executor fanout")
         appendLine("Refresh: ok=$refreshed failed=$failed")
+        appendLine(InternetEdgeDesk.summaryLine())
+        appendLine("InternetEdge counters: ok=${labels["INTERNET_EDGE_REFRESHED"] ?: 0L} fail=${labels["INTERNET_EDGE_REFRESH_FAILED"] ?: 0L} parse=${labels["INTERNET_EDGE_PARSE_FAILED"] ?: 0L} skip=${labels["INTERNET_EDGE_SKIPPED_LLM_UNAVAILABLE"] ?: 0L}")
         val setups = labels.entries
             .filter { it.key.startsWith("TOOLKIT_SETUP_") }
             .sortedByDescending { it.value }
