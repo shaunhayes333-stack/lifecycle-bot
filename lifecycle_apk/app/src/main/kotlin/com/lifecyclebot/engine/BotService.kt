@@ -19929,6 +19929,72 @@ if (hotExitHandledSweep) {
     val pre5000LearningOpen = try { com.lifecyclebot.engine.FreeRangeMode.isWideOpen() } catch (_: Throwable) { false }
     val minBootstrapConf = com.lifecyclebot.v3.scoring.FluidLearningAI.getPaperConfidenceFloor().toInt()
 
+    // V5.0.3831 — operator P0/P1 from the 06-17 22:11 operational dump:
+    //   • WR=9.4% on 117 trades, longest loss streak 26, DD 87.8%.
+    //   • Smoking-gun log lines repeated for Ponyo/ASCEND/CHAD/LAY6:
+    //       [V3|SKIP_OVERRIDE] X | LEARNING_OPEN_PRE5000 |
+    //         edge=SKIP conf=8 learning=0% | allowing through
+    //
+    // pre5000LearningOpen (FreeRangeMode.isWideOpen, lifetime sells < 500)
+    // currently makes the whole SKIP / conf-floor gate below disappear, so
+    // EntryAI=88-but-V3=SKIP+conf=8 candidates buy on $116 liquidity tokens
+    // and immediately lose. The operator's doctrine — "the meme trader
+    // must never choke itself out" — is preserved by keeping pre5000 open
+    // in spirit, but pre5000 was being interpreted as *literally* "buy
+    // anything with any signal", which is what produces the bleed.
+    //
+    // Surgical sanity floors that pre5000 must always respect:
+    //   1. P0 — V3 SKIP must have conf >= 2 × minBootstrapConf. At
+    //      learning=0% the fluid floor is ~3, so SKIP requires conf >= 6;
+    //      at learning=80% the floor is ~36, so SKIP requires conf >= 72.
+    //      This still lets STRONG signals through during exploration; it
+    //      only blocks the conf=2/4/8 noise that 0% learning emits.
+    //   2. P1 — FRESH_LAUNCH lane requires lastLiquidityUsd >= $5k. Slip
+    //      on <$5k liquidity eats the TP target in one route round-trip
+    //      regardless of how strong the signal looks.
+    //   3. P1 — universal liquidity sanity: any candidate with
+    //      lastLiquidityUsd > 0 and < $2k is hard-blocked. (We tolerate
+    //      lastLiquidityUsd == 0.0 because that just means we haven't
+    //      polled it yet — let the normal flow run.)
+    //
+    // Each block writes SHADOW_ONLY through the existing ShadowLearningEngine
+    // pathway so the V3 brain still learns from the rejection, just without
+    // burning capital.
+    val laneType = (decision.phase ?: "").uppercase()
+    val isFreshLaunch = laneType.contains("FRESH_LAUNCH") || laneType.contains("PUMP_FUN") ||
+        laneType.contains("RAYDIUM_NEW")
+    val liqUsd = try { ts.lastLiquidityUsd } catch (_: Throwable) { 0.0 }
+    val pre5000SkipConfFloor = (2 * minBootstrapConf).coerceAtLeast(6)
+    val skipNoiseInPre5000 = edgeVerdictStr == "SKIP" && confValue < pre5000SkipConfFloor
+    val freshLaunchLiqStarved = isFreshLaunch && liqUsd in 0.000001..4_999.0
+    val universalLiqStarved   = liqUsd in 0.000001..1_999.0
+    val pre5000SanityBlock = pre5000LearningOpen && (skipNoiseInPre5000 || freshLaunchLiqStarved || universalLiqStarved)
+    if (pre5000SanityBlock && !ts.position.isOpen) {
+        val why = when {
+            skipNoiseInPre5000   -> "SKIP_NOISE_conf_${confValue.toInt()}_<_${pre5000SkipConfFloor}"
+            freshLaunchLiqStarved -> "FRESH_LAUNCH_LIQ_STARVED_${liqUsd.toInt()}_<_5000"
+            universalLiqStarved   -> "LIQ_STARVED_${liqUsd.toInt()}_<_2000"
+            else                  -> "PRE5000_SANITY"
+        }
+        ErrorLogger.info(
+            "BotService",
+            "[V3|PRE5000_SANITY_BLOCK] ${identity.symbol} | reason=$why | " +
+                "edge=$edgeVerdictStr conf=${confValue.toInt()} liq=${liqUsd.toInt()} → SHADOW_ONLY",
+        )
+        com.lifecyclebot.engine.ShadowLearningEngine.onFdgBlockedTrade(
+            mint = ts.mint,
+            symbol = ts.symbol,
+            blockReason = "PRE5000_SANITY_${why}",
+            blockLevel = "PRE5000_SANITY",
+            currentPrice = ts.ref,
+            proposedSizeSol = 0.1,
+            quality = decision.finalQuality,
+            confidence = confValue,
+            phase = decision.phase,
+        )
+        return
+    }
+
     if (!pre5000LearningOpen && ((edgeVerdictStr == "SKIP" && !allowSkipForLearning) || confValue < minBootstrapConf)) {
         // V5.9.270 FIX: CRITICAL — ONLY skip ENTRY if score is too low.
         // NEVER return here if position is already OPEN — that would kill the exit path
