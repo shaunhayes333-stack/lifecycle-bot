@@ -52,6 +52,7 @@ object LlmLabEngine {
     private val lastCullMs       = AtomicLong(0)
     private val lastHeartbeatMs  = AtomicLong(0)
     private val firstStartMs     = AtomicLong(0)
+    private val autoPivotSeededAt = java.util.concurrent.ConcurrentHashMap<String, Long>()
     @Volatile private var ctxRef: Context? = null
 
     // ────────────────────────────────────────────────────────────────────────
@@ -196,6 +197,66 @@ object LlmLabEngine {
         )
         LlmLabStore.addStrategy(child)
         ErrorLogger.info(TAG, "🧪 MUTATED ${parent.name} → ${child.name}")
+    }
+
+    /**
+     * V5.0.3822 — AUTONOMOUS_LAB_PIVOT_SEED.
+     *
+     * Safe AI/autonomy upgrade: when TacticSwitcher proves a tactic has failed,
+     * the lab gets a paper-only ACTIVE strategy derived from that lane/bucket/tactic.
+     * This is NOT an LLM hot-path call, NOT live trading, NOT a lane disable, and
+     * NOT a promotion. The lab may paper-test the idea inside its sandbox. Only if
+     * normal lab proof later promotes it does LabPromotedFeed expose a read-only
+     * nudge to the normal operating loop; the lab never directly controls trading.
+     */
+    fun seedFromTacticFailure(lane: String, scoreBand: String, failedTactic: String, nextTactic: String, reason: String) {
+        try {
+            if (!LlmLabStore.isEnabled()) return
+            val key = "${lane.uppercase().take(18)}|${scoreBand.uppercase().take(8)}|${nextTactic.uppercase().take(16)}"
+            val now = System.currentTimeMillis()
+            val last = autoPivotSeededAt[key] ?: 0L
+            if (now - last < 20L * 60_000L) return
+            if (LlmLabStore.activeStrategies().size >= MAX_LIVE_STRATEGIES) return
+            autoPivotSeededAt[key] = now
+
+            fun midScore(b: String): Int = when (b.uppercase()) {
+                "S0-10" -> 8; "S11-25" -> 18; "S26-40" -> 33; "S41-60" -> 50; "S61+" -> 70; else -> 45
+            }
+            val tactic = nextTactic.uppercase()
+            val params = when {
+                tactic.contains("PULLBACK") -> Triple(12.0, -5.0, 45)
+                tactic.contains("REACCUM") -> Triple(18.0, -7.0, 90)
+                tactic.contains("BREAKOUT") -> Triple(30.0, -9.0, 150)
+                tactic.contains("LAB") -> Triple(22.0, -6.0, 90)
+                else -> Triple(10.0, -5.0, 35)
+            }
+            val asset = when {
+                lane.contains("MOON", true) || lane.contains("SHIT", true) || lane.contains("SNIPER", true) || lane.contains("MANIP", true) -> LabAssetClass.MEME
+                lane.contains("BLUE", true) || lane.contains("QUALITY", true) -> LabAssetClass.ALT
+                else -> LabAssetClass.ANY
+            }
+            val strategy = LabStrategy(
+                id = LlmLabStore.newStrategyId(),
+                name = "AutoPivot · ${lane.uppercase().take(10)} ${scoreBand.take(6)} ${nextTactic.take(6)}",
+                rationale = "Auto-seeded after tactic failure: $lane/$scoreBand $failedTactic→$nextTactic ($reason). ACTIVE lab paper experiment only; not promoted/live-authorized.",
+                asset = asset,
+                entryScoreMin = midScore(scoreBand).coerceIn(8, 95),
+                entryRegime = "ANY",
+                takeProfitPct = params.first,
+                stopLossPct = params.second,
+                maxHoldMins = params.third,
+                sizingSol = 0.05,
+                parentId = null,
+                generation = 1,
+                status = LabStrategyStatus.ACTIVE,
+            )
+            LlmLabStore.addStrategy(strategy)
+            try { com.lifecyclebot.engine.PipelineHealthCollector.labelInc("LAB_AUTOPIVOT_STRATEGY_SEEDED") } catch (_: Throwable) {}
+            try { com.lifecyclebot.engine.SentienceOrchestrator.noteRuntimeEvent("LAB_AUTOPIVOT_SEED", strategy.rationale, "INFO") } catch (_: Throwable) {}
+            ErrorLogger.info(TAG, "🧪 AUTOPIVOT seeded ${strategy.name}: ${strategy.rationale.take(120)}")
+        } catch (e: Throwable) {
+            ErrorLogger.debug(TAG, "autopivot seed skipped: ${e.message}")
+        }
     }
 
     /** Permanently delete all archived strategies. */

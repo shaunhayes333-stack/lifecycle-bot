@@ -1379,6 +1379,42 @@ class GoldenTapeRegressionTest {
 
 
     @Test
+    fun mux_report_recent_exec_rows_expose_lifecycle_entry_snapshot() {
+        val collector = java.io.File("src/main/kotlin/com/lifecyclebot/engine/PipelineHealthCollector.kt").readText()
+        val store = java.io.File("src/main/kotlin/com/lifecyclebot/engine/TradeHistoryStore.kt").readText()
+        assertTrue("recent exec rows must carry canonical positionId", collector.contains("val positionId: String = \"\""))
+        assertTrue("recent exec rows must carry lane/mode-local attribution", collector.contains("val lane: String = \"\""))
+        assertTrue("recent exec rows must carry entry snapshot", collector.contains("val entryPriceSnapshot: Double = 0.0"))
+        assertTrue("recent exec rows must render pid", collector.contains(" pid=") && collector.contains("positionId.takeLast"))
+        assertTrue("recent exec rows must render entry cost/qty/source", collector.contains(" cost=") && collector.contains(" qty=") && collector.contains(" src="))
+        assertTrue("TradeHistoryStore must pass canonical positionId into mux report", store.contains("positionId = tradeToStore.positionId"))
+        assertTrue("TradeHistoryStore must pass buy snapshot into mux report", store.contains("entryPriceSnapshot = tradeToStore.entryPriceSnapshot") && store.contains("entryCostSol = tradeToStore.entryCostSol"))
+        assertFalse("mux report must not infer lifecycle only from mint/time", collector.contains("positionId = \"${'$'}{trade.ts}_${'$'}{trade.mint}\""))
+    }
+
+    @Test
+    fun failed_tactic_pivots_seed_paper_lab_without_live_authority() {
+        val switcher = java.io.File("src/main/kotlin/com/lifecyclebot/engine/learning/TacticSwitcher.kt").readText()
+        val lab = java.io.File("src/main/kotlin/com/lifecyclebot/engine/lab/LlmLabEngine.kt").readText()
+        assertTrue(switcher.contains("AUTONOMOUS_LAB_PIVOT_SEED"))
+        assertTrue(switcher.contains("seedFromTacticFailure"))
+        assertTrue(lab.contains("AUTONOMOUS_LAB_PIVOT_SEED"))
+        assertTrue(lab.contains("fun seedFromTacticFailure"))
+        assertTrue(lab.contains("status = LabStrategyStatus.ACTIVE"))
+        assertTrue(lab.contains("sizingSol = 0.05"))
+        assertTrue(lab.contains("ACTIVE lab paper experiment only; not promoted/live-authorized"))
+        val seedStart = lab.indexOf("fun seedFromTacticFailure")
+        val seedEnd = lab.indexOf("/** Permanently delete all archived strategies. */", seedStart).takeIf { it > seedStart } ?: lab.length
+        val seedFn = lab.substring(seedStart, seedEnd)
+        assertTrue("autopivot lab seed must create an ACTIVE paper experiment", seedFn.contains("status = LabStrategyStatus.ACTIVE"))
+        assertFalse("autopivot lab seed must not auto-promote", seedFn.contains("LabStrategyStatus.PROMOTED"))
+        assertFalse("autopivot lab seed must not request live approval", seedFn.contains("requestSingleLiveTrade") || seedFn.contains("addApproval") || seedFn.contains("grantLiveAuthority"))
+        assertFalse("autopivot lab seed must not call an LLM", seedFn.contains("GeminiCopilot") || seedFn.contains("rawText"))
+        assertFalse("autopivot lab seed must not call the main executor", seedFn.contains("executor.") || seedFn.contains("shitCoinBuy") || seedFn.contains("blueChipBuy"))
+    }
+
+
+    @Test
     fun tactic_switcher_pivots_strategies_never_disables_lanes() {
         val switcher = java.io.File("src/main/kotlin/com/lifecyclebot/engine/learning/TacticSwitcher.kt").readText()
         assertTrue(switcher.contains("POST-PIVOT FAIL-FAST"))

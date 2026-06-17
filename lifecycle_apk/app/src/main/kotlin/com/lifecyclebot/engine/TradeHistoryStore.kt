@@ -757,6 +757,13 @@ object TradeHistoryStore {
                 pnlSol  = tradeToStore.pnlSol,
                 reason  = tradeToStore.reason,
                 proofState = tradeToStore.proofState,
+                positionId = tradeToStore.positionId,
+                lane = tradeToStore.tradingMode,
+                entryPriceSnapshot = tradeToStore.entryPriceSnapshot,
+                entryMcapUsd = tradeToStore.entryMcapUsd,
+                entryQtyToken = tradeToStore.entryQtyToken,
+                entryCostSol = tradeToStore.entryCostSol,
+                entryPriceSource = tradeToStore.entryPriceSource,
             )
         } catch (_: Throwable) { /* never let logging break the record path */ }
         // V5.9.353: Per-mint loss-streak guard (block re-entry after 3 losses in a row).

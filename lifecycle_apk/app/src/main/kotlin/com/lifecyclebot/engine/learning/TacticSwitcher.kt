@@ -320,6 +320,13 @@ object TacticSwitcher {
             try {
                 PipelineHealthCollector.labelInc("TACTIC_ROTATE|$k|$nextName")
             } catch (_: Throwable) {}
+            // V5.0.3822 — AUTONOMOUS_LAB_PIVOT_SEED. Rotating is the immediate
+            // tactical pivot; seeding the lab gives autonomy a paper-only candidate
+            // to invent/test the NEXT tactic shape. No LLM call here, no live authority,
+            // no lane disable.
+            if (reason.contains("post-pivot-fast", ignoreCase = true) || nextName == Tactic.LAB_PROPOSED.name) {
+                try { com.lifecyclebot.engine.lab.LlmLabEngine.seedFromTacticFailure(lane, scoreBand, prevName, nextName, reason) } catch (_: Throwable) {}
+            }
         }
     }
 

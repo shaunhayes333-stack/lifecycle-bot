@@ -184,6 +184,13 @@ object PipelineHealthCollector {
         val pnlSol: Double,
         val reason: String,
         val proofState: String = "",
+        val positionId: String = "",
+        val lane: String = "",
+        val entryPriceSnapshot: Double = 0.0,
+        val entryMcapUsd: Double = 0.0,
+        val entryQtyToken: Double = 0.0,
+        val entryCostSol: Double = 0.0,
+        val entryPriceSource: String = "",
     )
     private val recentExecs = java.util.concurrent.ConcurrentLinkedDeque<ExecRecord>()
     private val recentExecsSize = AtomicInteger(0)
@@ -522,7 +529,22 @@ object PipelineHealthCollector {
      * 30 trades right alongside the funnel counts. Called from TradeHistoryStore
      * after each successful journal write.
      */
-    fun recordExec(side: String, mode: String, symbol: String, sizeSol: Double, pnlSol: Double, reason: String, proofState: String = "") {
+    fun recordExec(
+        side: String,
+        mode: String,
+        symbol: String,
+        sizeSol: Double,
+        pnlSol: Double,
+        reason: String,
+        proofState: String = "",
+        positionId: String = "",
+        lane: String = "",
+        entryPriceSnapshot: Double = 0.0,
+        entryMcapUsd: Double = 0.0,
+        entryQtyToken: Double = 0.0,
+        entryCostSol: Double = 0.0,
+        entryPriceSource: String = "",
+    ) {
         if (!attached) return
         val eventMode = when (mode.trim().uppercase()) {
             "LIVE" -> "LIVE"
@@ -546,7 +568,25 @@ object PipelineHealthCollector {
             bump(labelCounts, "PAPER_COUNTER_INCREMENTED_FROM_JOURNAL")
         }
         if (proof.isNotBlank()) bump(labelCounts, "PROOF_$proof")
-        recentExecs.addLast(ExecRecord(System.currentTimeMillis(), side, eventMode, symbol, sizeSol, pnlSol, reason, proof))
+        if (positionId.isNotBlank()) bump(labelCounts, "TRADEJRNL_POSITION_LINKED")
+        if (entryPriceSnapshot > 0.0) bump(labelCounts, "TRADEJRNL_ENTRY_SNAPSHOT_VISIBLE")
+        recentExecs.addLast(ExecRecord(
+            tsMs = System.currentTimeMillis(),
+            side = side,
+            mode = eventMode,
+            symbol = symbol,
+            sizeSol = sizeSol,
+            pnlSol = pnlSol,
+            reason = reason,
+            proofState = proof,
+            positionId = positionId,
+            lane = lane,
+            entryPriceSnapshot = entryPriceSnapshot,
+            entryMcapUsd = entryMcapUsd,
+            entryQtyToken = entryQtyToken,
+            entryCostSol = entryCostSol,
+            entryPriceSource = entryPriceSource,
+        ))
         if (recentExecsSize.incrementAndGet() > EXEC_RING_CAP) {
             recentExecs.pollFirst()
             recentExecsSize.decrementAndGet()
@@ -1296,6 +1336,13 @@ object PipelineHealthCollector {
                         .append("sol=").append(if (ex.side.equals("PARTIAL_SELL", true)) String.format("%.6f", ex.sizeSol) else String.format("%.3f", ex.sizeSol)).append(' ')
                         .append("pnl=").append(if (ex.side.equals("PARTIAL_SELL", true)) String.format("%+.6f", ex.pnlSol) else String.format("%+.3f", ex.pnlSol))
                     if (ex.proofState.isNotBlank()) sb.append(" proof=").append(ex.proofState)
+                    if (ex.positionId.isNotBlank()) sb.append(" pid=").append(ex.positionId.takeLast(12))
+                    if (ex.lane.isNotBlank()) sb.append(" lane=").append(ex.lane.take(16))
+                    if (ex.entryPriceSnapshot > 0.0) sb.append(" entry=").append(String.format("%.8g", ex.entryPriceSnapshot))
+                    if (ex.entryCostSol > 0.0) sb.append(" cost=").append(String.format("%.4f", ex.entryCostSol))
+                    if (ex.entryQtyToken > 0.0) sb.append(" qty=").append(String.format("%.4g", ex.entryQtyToken))
+                    if (ex.entryMcapUsd > 0.0) sb.append(" mcap=$").append(String.format("%.0f", ex.entryMcapUsd))
+                    if (ex.entryPriceSource.isNotBlank()) sb.append(" src=").append(ex.entryPriceSource.take(18))
                     if (ex.reason.isNotBlank()) sb.append(" reason=").append(ex.reason.take(60))
                     sb.append('\n')
                 }
