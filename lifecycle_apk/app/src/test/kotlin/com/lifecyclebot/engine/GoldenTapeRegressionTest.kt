@@ -1982,6 +1982,20 @@ class GoldenTapeRegressionTest {
 
 
     @Test
+    fun event_triggered_sentience_is_safe_and_non_mutating() {
+        val sentience = java.io.File("src/main/kotlin/com/lifecyclebot/engine/SentienceOrchestrator.kt").readText()
+        val doctor = java.io.File("src/main/kotlin/com/lifecyclebot/engine/RuntimeDoctor.kt").readText()
+        assertTrue(sentience.contains("EVENT_TRIGGERED_SENTIENCE_SAFE"))
+        assertTrue(sentience.contains("fun noteRuntimeEvent"))
+        assertTrue(sentience.contains("event_only:no_mutation"))
+        assertTrue(sentience.contains("no Gemini/Groq/LLM call"))
+        assertTrue(doctor.contains("publishSentienceEventReflections"))
+        assertTrue(doctor.contains("SentienceOrchestrator.noteRuntimeEvent"))
+        assertFalse("safe autonomy event reflection must not reintroduce 3807 scorer telemetry hook", java.io.File("src/main/kotlin/com/lifecyclebot/v3/scoring/UnifiedScorer.kt").readText().contains("AIStackSnapshot"))
+    }
+
+
+    @Test
     fun losing_pattern_memory_soft_sizes_emerging_bootstrap_bleeders_before_maturity() {
         val losing = java.io.File("src/main/kotlin/com/lifecyclebot/engine/LosingPatternMemory.kt").readText()
         val fdg = java.io.File("src/main/kotlin/com/lifecyclebot/engine/FinalDecisionGate.kt").readText()

@@ -71,6 +71,7 @@ object RuntimeDoctor {
             recentFaults.addLast(f)
             while (recentFaults.size > 20) recentFaults.pollFirst()
         }
+        publishSentienceEventReflections(faults)
         val ctx = StateDebuggerAI.Context(
             snapshot = snap,
             forensicEvents = PipelineHealthCollector.snapshot().recentEvents.takeLast(200).map { "${it.tag}:${it.symbol}:${it.message}" },
@@ -90,6 +91,21 @@ object RuntimeDoctor {
         val actions = faults.flatMap { commandsFor(it, snap) }
         actions.forEach { cmd -> try { RuntimeMitigationBus.publish(cmd) } catch (_: Throwable) {} }
         return Report(snap, faults, diagnosis, actions.map { toRequest(it) }).also { latestReport = it }
+    }
+
+    private fun publishSentienceEventReflections(faults: List<InvariantGuardian.Fault>) {
+        // V5.0.3820 — event-triggered autonomy, safe path only. RuntimeDoctor is
+        // already off the hot loop via requestTick(); this only records a bounded
+        // deterministic reflection. It never calls an LLM and never mutates policy.
+        faults.take(3).forEach { f ->
+            try {
+                SentienceOrchestrator.noteRuntimeEvent(
+                    event = "RUNTIME_FAULT_${f.code.name}",
+                    detail = f.detail,
+                    severity = f.severity,
+                )
+            } catch (_: Throwable) {}
+        }
     }
 
     fun latestSnapshot(): RuntimeStateSnapshot = latest ?: RuntimeStateSnapshot.current()

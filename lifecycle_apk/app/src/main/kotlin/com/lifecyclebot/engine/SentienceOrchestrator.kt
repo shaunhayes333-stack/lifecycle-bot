@@ -13,6 +13,7 @@ import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import org.json.JSONObject
 import java.util.concurrent.ConcurrentLinkedDeque
+import java.util.concurrent.ConcurrentHashMap
 import kotlin.math.abs
 /**
  * V5.9.129 — SENTIENCE ORCHESTRATOR
@@ -56,6 +57,49 @@ object SentienceOrchestrator {
         val mutationsApplied: String,
     )
     private val log = ConcurrentLinkedDeque<Reflection>()
+    private val eventReflectionLast = ConcurrentHashMap<String, Long>()
+    private const val EVENT_REFLECTION_COOLDOWN_MS = 5 * 60_000L
+
+    /**
+     * V5.0.3820 — EVENT_TRIGGERED_SENTIENCE_SAFE.
+     *
+     * First AI/autonomy-stack upgrade after the safe rebuild: reflect when the
+     * runtime sees important events (cold streaks, drawdown, worker storms,
+     * doctor faults) instead of waiting only for the 6-minute LLM loop.
+     * This path is deliberately deterministic and mutation-free:
+     *   - no Gemini/Groq/LLM call
+     *   - no scanner/API/network call
+     *   - no gate, score, size, route, or exit mutation
+     *   - debounced per event key
+     * It gives autonomy memory/context without risking another runtime break.
+     */
+    fun noteRuntimeEvent(event: String, detail: String, severity: String = "INFO") {
+        val cleanEvent = event.take(80).ifBlank { "UNKNOWN_EVENT" }
+        val key = cleanEvent.uppercase()
+        val now = System.currentTimeMillis()
+        val last = eventReflectionLast[key] ?: 0L
+        if (now - last < EVENT_REFLECTION_COOLDOWN_MS) return
+        eventReflectionLast[key] = now
+        val mono = "I noticed $severity/$cleanEvent: ${detail.take(220)}. I am logging the pattern for autonomy context without changing gates, sizing, or execution."
+        try {
+            SentientPersonality.injectAutonomousThought(
+                message = mono,
+                mood = SentientPersonality.Mood.ANALYTICAL,
+                category = SentientPersonality.Category.SELF_REFLECTION,
+                intensity = 0.62,
+            )
+        } catch (_: Exception) {}
+        try {
+            PersonalityMemoryStore.recordMilestone(
+                PersonalityMemoryStore.MilestoneType.SELF_REFLECTION,
+                "event:$cleanEvent ${detail.take(140)}",
+            )
+        } catch (_: Exception) {}
+        log.addLast(Reflection(now, mono, "event_only:no_mutation"))
+        while (log.size > MAX_REFLECTION_LOG) log.pollFirst()
+        try { PipelineHealthCollector.labelInc("SENTIENCE_EVENT_REFLECTION") } catch (_: Throwable) {}
+        ErrorLogger.info(TAG, "🌌 event-reflect: ${mono.take(160)}")
+    }
 
     @Synchronized
     fun start(context: Context) {
