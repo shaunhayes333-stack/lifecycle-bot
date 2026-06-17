@@ -360,6 +360,18 @@ object CollectiveLearning {
         val bestWinRatePct: Double,
     )
 
+    data class HivePatternEdge(
+        val patternType: String,
+        val patternValue: String,
+        val totalTrades: Int,
+        val wins: Int,
+        val losses: Int,
+        val winRate: Double,
+        val avgPnlPct: Double,
+        val scoreAdj: Int,
+        val confAdj: Int,
+    )
+
     data class SourceReliability(
         val source: String,
         val totalOutcomes: Int,
@@ -1451,6 +1463,86 @@ object CollectiveLearning {
 
     fun getHighWinPatterns(): List<CollectivePattern> {
         return cachedPatterns.values.filter { it.isReliable && it.winRate > 60.0 }
+    }
+
+    fun getPatternEdgesForCandidate(
+        symbol: String,
+        source: String,
+        liquidityUsd: Double,
+        marketCapUsd: Double = 0.0,
+        buyPressurePct: Double = 0.0,
+        limit: Int = 6,
+    ): List<HivePatternEdge> {
+        if (cachedPatterns.isEmpty()) return emptyList()
+        val wanted = mutableSetOf<Pair<String, String>>()
+        val src = source.ifBlank { "UNKNOWN" }
+        wanted += "source" to src
+        wanted += "symbol_pattern" to when {
+            symbol.length <= 3 -> "sym_short"
+            symbol.length <= 5 -> "sym_medium"
+            else -> "sym_long"
+        }
+        if (symbol.isNotBlank() && symbol.all { it.isUpperCase() || it.isDigit() }) wanted += "symbol_pattern" to "sym_standard"
+        if (marketCapUsd > 0.0) {
+            wanted += "mcap_bucket" to when {
+                marketCapUsd < 20_000.0 -> "micro_<20k"
+                marketCapUsd < 50_000.0 -> "small_20k_50k"
+                marketCapUsd < 100_000.0 -> "mid_50k_100k"
+                marketCapUsd < 500_000.0 -> "large_100k_500k"
+                else -> "mega_500k+"
+            }
+            val liqRatio = if (marketCapUsd > 0.0) liquidityUsd / marketCapUsd else 0.0
+            wanted += "liq_ratio" to when {
+                liqRatio < 0.1 -> "liq_ratio_<10%"
+                liqRatio < 0.3 -> "liq_ratio_10_30%"
+                liqRatio < 0.5 -> "liq_ratio_30_50%"
+                else -> "liq_ratio_50%+"
+            }
+        }
+        if (buyPressurePct > 0.0) {
+            wanted += "buy_pressure" to when {
+                buyPressurePct < 40.0 -> "buy_weak_<40%"
+                buyPressurePct < 55.0 -> "buy_neutral_40_55%"
+                buyPressurePct < 70.0 -> "buy_strong_55_70%"
+                else -> "buy_fomo_70%+"
+            }
+        }
+        return cachedPatterns.values.asSequence()
+            .filter { p -> p.totalTrades >= 5 && ((p.patternType to p.discoverySource) in wanted) }
+            .mapNotNull { p ->
+                val wr = p.winRate
+                val avg = sanitizeDouble(p.avgPnlPct)
+                val strongWin = wr >= 62.0 && avg >= 2.0
+                val strongLoss = wr <= 35.0 && avg <= -2.0
+                if (!strongWin && !strongLoss) return@mapNotNull null
+                val sampleWeight = when {
+                    p.totalTrades >= 100 -> 1.0
+                    p.totalTrades >= 40 -> 0.75
+                    p.totalTrades >= 15 -> 0.55
+                    else -> 0.35
+                }
+                val raw = if (strongWin) {
+                    4.0 + ((wr - 60.0) / 8.0).coerceIn(0.0, 4.0) + (avg / 8.0).coerceIn(0.0, 4.0)
+                } else {
+                    -4.0 - ((40.0 - wr) / 8.0).coerceIn(0.0, 5.0) - ((-avg) / 8.0).coerceIn(0.0, 5.0)
+                }
+                val score = (raw * sampleWeight).toInt().coerceIn(-12, 12)
+                if (score == 0) return@mapNotNull null
+                HivePatternEdge(
+                    patternType = p.patternType,
+                    patternValue = p.discoverySource,
+                    totalTrades = p.totalTrades,
+                    wins = p.wins,
+                    losses = p.losses,
+                    winRate = wr,
+                    avgPnlPct = avg,
+                    scoreAdj = score,
+                    confAdj = (score / 3).coerceIn(-4, 4),
+                )
+            }
+            .sortedWith(compareByDescending<HivePatternEdge> { kotlin.math.abs(it.scoreAdj) }.thenByDescending { it.totalTrades })
+            .take(limit.coerceIn(1, 12))
+            .toList()
     }
 
     fun getBestMode(marketCondition: String, liquidityBucket: String): String? {

@@ -801,7 +801,7 @@ object TradeHistoryStore {
                 trade.entryCostSol > 0.0 -> trade.entryCostSol * 10_000.0
                 else -> 0.0
             }
-            kotlinx.coroutines.GlobalScope.launch(AppDispatchers.sideEffect) {
+            kotlinx.coroutines.GlobalScope.launch(com.lifecyclebot.util.AppDispatchers.sideEffect) {
                 try {
                     com.lifecyclebot.collective.CollectiveLearning.uploadJournalTradeRow(
                         side = side,

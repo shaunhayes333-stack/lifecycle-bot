@@ -149,7 +149,9 @@ class UnifiedScorer(
                 source = candidate.source.name,
                 liquidityUsd = candidate.liquidityUsd,
                 v3Score = baseComponents.sumOf { it.value },
-                v3Confidence = 70
+                v3Confidence = 70,
+                marketCapUsd = candidate.marketCapUsd,
+                buyPressurePct = candidate.buyPressurePct
             )
             ScoreComponent(
                 name = "COLLECTIVE_AI",
@@ -627,7 +629,9 @@ class UnifiedScorer(
                 source = candidate.source.name,
                 liquidityUsd = candidate.liquidityUsd,
                 v3Score = v59123CappedComponents.sumOf { it.value },
-                v3Confidence = 70
+                v3Confidence = 70,
+                marketCapUsd = candidate.marketCapUsd,
+                buyPressurePct = candidate.buyPressurePct
             )
             ScoreComponent(
                 name = "COLLECTIVE_AI",
@@ -1207,6 +1211,8 @@ class UnifiedScorer(
                 liquidityUsd = candidate.liquidityUsd,
                 v3Score = (phase5Classic + phase6Outer).sumOf { it.value },
                 v3Confidence = 70,
+                marketCapUsd = candidate.marketCapUsd,
+                buyPressurePct = candidate.buyPressurePct,
             )
             ScoreComponent(
                 name = "COLLECTIVE_AI",

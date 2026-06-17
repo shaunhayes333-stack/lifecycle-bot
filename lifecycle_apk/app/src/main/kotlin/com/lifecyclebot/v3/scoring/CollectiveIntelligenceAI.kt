@@ -213,6 +213,8 @@ object CollectiveIntelligenceAI {
         liquidityUsd: Double,
         v3Score: Int,
         v3Confidence: Int,
+        marketCapUsd: Double = 0.0,
+        buyPressurePct: Double = 0.0,
     ): CollectiveInsight {
         
         if (!CollectiveLearning.isEnabled()) {
@@ -370,6 +372,33 @@ object CollectiveIntelligenceAI {
                         reasoning.add("HIVE_SOURCE_RUGGY(${sourceReliability.source})")
                     }
                 }
+            }
+
+            // ═══════════════════════════════════════════════════════════════════
+            // V5.0.3826: HIVE PATTERN FAMILY EDGE
+            // Uses the newly-uploaded TokenWinMemory aggregates from collective_patterns.
+            // Soft-shaping only: bounded to keep hive patterns from overriding local gates.
+            // ═══════════════════════════════════════════════════════════════════
+            val hivePatternEdges = try {
+                CollectiveLearning.getPatternEdgesForCandidate(
+                    symbol = symbol,
+                    source = source,
+                    liquidityUsd = liquidityUsd,
+                    marketCapUsd = marketCapUsd,
+                    buyPressurePct = buyPressurePct,
+                    limit = 4,
+                )
+            } catch (_: Exception) { emptyList() }
+            if (hivePatternEdges.isNotEmpty()) {
+                val edgeScore = hivePatternEdges.sumOf { it.scoreAdj }.coerceIn(-14, 14)
+                val edgeConf = hivePatternEdges.sumOf { it.confAdj }.coerceIn(-5, 5)
+                scoreAdj += edgeScore
+                confAdj += edgeConf
+                val tag = hivePatternEdges.take(2).joinToString(",") {
+                    "${it.patternType}:${it.patternValue} ${it.winRate.toInt()}%/${it.totalTrades} avg=${it.avgPnlPct.toInt()}%"
+                }
+                reasoning.add("HIVE_PATTERN_EDGE($tag)")
+                try { com.lifecyclebot.engine.PipelineHealthCollector.labelInc("HIVE_PATTERN_EDGE_APPLIED") } catch (_: Throwable) {}
             }
 
             // ═══════════════════════════════════════════════════════════════════
