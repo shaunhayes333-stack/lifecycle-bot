@@ -1674,10 +1674,12 @@ object ShitCoinTraderAI {
             }
         }
         if (pos == null) return ExitSignal.HOLD
-        // V5.9.392 — stash latest price for unified open-positions card.
+        val pnlVerdict = com.lifecyclebot.engine.OpenPnlSanity.inspectPosition(pos, currentPrice, "ShitCoinTraderAI.checkExit/${pos.symbol}/${mint.take(8)}")
+        if (!pnlVerdict.ok) return ExitSignal.HOLD
+        // V5.9.392 — stash latest trusted price for unified open-positions card.
         pos.lastSeenPrice = currentPrice
         
-        val pnlPct = (currentPrice - pos.entryPrice) / pos.entryPrice * 100
+        val pnlPct = pnlVerdict.pnlPct
         val holdMinutes = (System.currentTimeMillis() - pos.entryTime) / 60000
 
         // V5.9.443 — EARLY-DEATH STOP.

@@ -7381,9 +7381,17 @@ class BotService : Service() {
                                 // hypothesis and we should ride out the dark period rather
                                 // than nuke a winner. Operator words: "stale-feed AND
                                 // last-known PnL is already in the red".
-                                val lastKnownPnlPct = if (ts.position.entryPrice > 0 && ts.lastPrice > 0)
-                                    ((ts.lastPrice - ts.position.entryPrice) / ts.position.entryPrice) * 100.0
-                                else 0.0
+                                val lastKnownPnlVerdict = com.lifecyclebot.engine.OpenPnlSanity.inspect(
+                                    entryPrice = ts.position.entryPrice,
+                                    currentPrice = ts.lastPrice,
+                                    entrySource = ts.position.entryPriceSource,
+                                    currentSource = ts.lastPriceSource,
+                                    entryPool = ts.position.entryPoolAddress,
+                                    currentPool = ts.lastPricePoolAddr,
+                                    priceBasisRescaled = ts.position.priceBasisRescaled,
+                                    context = "BotService.staleLiveLastKnown/${ts.symbol}/${ts.mint.take(8)}",
+                                )
+                                val lastKnownPnlPct = if (lastKnownPnlVerdict.ok) lastKnownPnlVerdict.pnlPct else 0.0
                                 val stalePnlFloor = if (cfg.paperMode) -HARD_FLOOR_STOP_PCT else 0.0
                                 val pnlCorroborates = lastKnownPnlPct <= stalePnlFloor
                                 if (!pnlCorroborates) {
@@ -7402,7 +7410,17 @@ class BotService : Service() {
                                         ts.lastPriceUpdate = System.currentTimeMillis()
                                         ts.lastPriceSource = "ORACLE_ZOMBIE_REFRESH"
                                         try { com.lifecyclebot.engine.sell.StalePriceExitGuard.clearStale(ts.mint) } catch (_: Throwable) {}  // V5.9.1533
-                                        val zPnl = ((zombieFb - ts.position.entryPrice) / ts.position.entryPrice) * 100.0
+                                        val zPnlVerdict = com.lifecyclebot.engine.OpenPnlSanity.inspect(
+                                            entryPrice = ts.position.entryPrice,
+                                            currentPrice = zombieFb,
+                                            entrySource = ts.position.entryPriceSource,
+                                            currentSource = "ORACLE_ZOMBIE_REFRESH",
+                                            entryPool = ts.position.entryPoolAddress,
+                                            currentPool = ts.lastPricePoolAddr,
+                                            priceBasisRescaled = ts.position.priceBasisRescaled,
+                                            context = "BotService.zombieOracle/${ts.symbol}/${ts.mint.take(8)}",
+                                        )
+                                        val zPnl = if (zPnlVerdict.ok) zPnlVerdict.pnlPct else 0.0
                                         try {
                                             ForensicLogger.lifecycle(
                                                 "STALE_ZOMBIE_REFRESHED_ORACLE",
@@ -7456,7 +7474,17 @@ class BotService : Service() {
                                     ts.lastPriceUpdate = System.currentTimeMillis()
                                     ts.lastPriceSource = "ORACLE_FALLBACK"
                                     try { com.lifecyclebot.engine.sell.StalePriceExitGuard.clearStale(ts.mint) } catch (_: Throwable) {}  // V5.9.1533
-                                    val fbPnl = ((fbLivePrice - ts.position.entryPrice) / ts.position.entryPrice) * 100.0
+                                    val fbPnlVerdict = com.lifecyclebot.engine.OpenPnlSanity.inspect(
+                                        entryPrice = ts.position.entryPrice,
+                                        currentPrice = fbLivePrice,
+                                        entrySource = ts.position.entryPriceSource,
+                                        currentSource = "ORACLE_FALLBACK",
+                                        entryPool = ts.position.entryPoolAddress,
+                                        currentPool = ts.lastPricePoolAddr,
+                                        priceBasisRescaled = ts.position.priceBasisRescaled,
+                                        context = "BotService.liveFallback/${ts.symbol}/${ts.mint.take(8)}",
+                                    )
+                                    val fbPnl = if (fbPnlVerdict.ok) fbPnlVerdict.pnlPct else 0.0
                                     ErrorLogger.info("BotService",
                                         "🛟 STALE_LIVE_FALLBACK: ${ts.symbol} feed frozen ${livePriceAgeMs/1000}s → oracle \$$fbLivePrice (pnl ${"%.1f".format(fbPnl)}%) — defer to floor logic")
                                     addLog("🛟 LIVE PRICE RECOVERED via oracle: ${ts.symbol} @ ${"%.1f".format(fbPnl)}% — no blind dump", ts.mint)
@@ -7526,7 +7554,18 @@ class BotService : Service() {
                         val dzEffectivePrice: Double = run {
                             val preEntry = ts.position.entryPrice
                             if (preEntry <= 0.0 || !ts.position.isOpen) return@run currentPrice
-                            val premarkPnl = ((currentPrice - preEntry) / preEntry) * 100.0
+                            val premarkVerdict = com.lifecyclebot.engine.OpenPnlSanity.inspect(
+                                entryPrice = preEntry,
+                                currentPrice = currentPrice,
+                                entrySource = ts.position.entryPriceSource,
+                                currentSource = ts.lastPriceSource,
+                                entryPool = ts.position.entryPoolAddress,
+                                currentPool = ts.lastPricePoolAddr,
+                                priceBasisRescaled = ts.position.priceBasisRescaled,
+                                context = "BotService.dangerZonePremark/${ts.symbol}/${ts.mint.take(8)}",
+                            )
+                            if (!premarkVerdict.ok) return@run currentPrice
+                            val premarkPnl = premarkVerdict.pnlPct
                             val posAgeMsDz = System.currentTimeMillis() - ts.position.entryTime
                             val markAgeMsDz = if (ts.lastPriceUpdate > 0)
                                 System.currentTimeMillis() - ts.lastPriceUpdate else Long.MAX_VALUE
@@ -7539,7 +7578,17 @@ class BotService : Service() {
                             ts.lastPriceUpdate = System.currentTimeMillis()
                             ts.lastPriceSource = "DANGER_ZONE_FRESH"
                             try {
-                                val dzPnl = ((freshDz - preEntry) / preEntry) * 100.0
+                                val dzPnlVerdict = com.lifecyclebot.engine.OpenPnlSanity.inspect(
+                                    entryPrice = preEntry,
+                                    currentPrice = freshDz,
+                                    entrySource = ts.position.entryPriceSource,
+                                    currentSource = "DANGER_ZONE_FRESH",
+                                    entryPool = ts.position.entryPoolAddress,
+                                    currentPool = ts.lastPricePoolAddr,
+                                    priceBasisRescaled = ts.position.priceBasisRescaled,
+                                    context = "BotService.dangerZoneFresh/${ts.symbol}/${ts.mint.take(8)}",
+                                )
+                                val dzPnl = if (dzPnlVerdict.ok) dzPnlVerdict.pnlPct else premarkPnl
                                 ForensicLogger.lifecycle(
                                     "DANGER_ZONE_FRESH_QUOTE",
                                     "symbol=${ts.symbol} staleMarkPnl=${"%.1f".format(premarkPnl)}% freshPnl=${"%.1f".format(dzPnl)}% markAgeS=${markAgeMsDz/1000} — refreshed before stop eval"
@@ -7551,7 +7600,18 @@ class BotService : Service() {
 
                         // Calculate PnL — uses the danger-zone-refreshed mark when it fired,
                         // otherwise the loop's currentPrice (unchanged behaviour).
-                        val pnlPct = ((dzEffectivePrice - entryPrice) / entryPrice) * 100
+                        val pnlVerdict = com.lifecyclebot.engine.OpenPnlSanity.inspect(
+                            entryPrice = entryPrice,
+                            currentPrice = dzEffectivePrice,
+                            entrySource = ts.position.entryPriceSource,
+                            currentSource = ts.lastPriceSource,
+                            entryPool = ts.position.entryPoolAddress,
+                            currentPool = ts.lastPricePoolAddr,
+                            priceBasisRescaled = ts.position.priceBasisRescaled,
+                            context = "BotService.rapidStop/${ts.symbol}/${ts.mint.take(8)}",
+                        )
+                        if (!pnlVerdict.ok) continue
+                        val pnlPct = pnlVerdict.pnlPct
 
                         // V5.9.922 — BELT-AND-BRACES HARD CATASTROPHE NET.
                         // Operator V5.9.921 dump: UNPC -90.8%, Thumas -75.8%, COMPASS -70.6%
@@ -7949,7 +8009,18 @@ class BotService : Service() {
                             // Cheapest price source: status.tokens (no RPC hit)
                             val ts = synchronized(status.tokens) { status.tokens[mint] }
                             val currentPrice = ts?.lastPrice?.takeIf { it > 0.0 } ?: continue
-                            val pnlPct = ((currentPrice - entryPrice) / entryPrice) * 100.0
+                            val subPnlVerdict = com.lifecyclebot.engine.OpenPnlSanity.inspect(
+                                entryPrice = entryPrice,
+                                currentPrice = currentPrice,
+                                entrySource = ts.position.entryPriceSource,
+                                currentSource = ts.lastPriceSource,
+                                entryPool = ts.position.entryPoolAddress,
+                                currentPool = ts.lastPricePoolAddr,
+                                priceBasisRescaled = ts.position.priceBasisRescaled,
+                                context = "BotService.rapidSubTraderFloor/${ts.symbol}/${mint.take(8)}",
+                            )
+                            if (!subPnlVerdict.ok) continue
+                            val pnlPct = subPnlVerdict.pnlPct
                             if (pnlPct <= subFloor) {
                                 ErrorLogger.warn("BotService",
                                     "🚨 RAPID_SUB_TRADER_HARD_FLOOR: $mint pnl=${pnlPct.toInt()}% — force-closing")
@@ -14660,9 +14731,8 @@ if (hotExitHandledSweep) {
                 // sells them". 45s breathing room before any exit fires.
                 val posAgeMs = System.currentTimeMillis() - ts.position.entryTime
                 if (posAgeMs < 45_000L) return@forEach
-                val pnlPct = if (ts.position.entryPrice > 0)
-                    ((ts.lastPrice - ts.position.entryPrice) / ts.position.entryPrice) * 100
-                else 0.0
+                val sweepPnlVerdict = com.lifecyclebot.engine.OpenPnlSanity.inspect(ts, "BotService.treasurySweep/${ts.symbol}/${mint.take(8)}")
+                val pnlPct = if (sweepPnlVerdict.ok) sweepPnlVerdict.pnlPct else 0.0
                 ErrorLogger.warn(
                     "BotService",
                     "🧹 SWEEP TREASURY-EXIT: ${ts.symbol} | $signal | pnl=${pnlPct.toInt()}% — mint missed processTokenCycle",
@@ -20947,13 +21017,22 @@ if (hotExitHandledSweep) {
             } catch (_: Throwable) { /* never break the treasury tick */ }
             
             // V5.2: Calculate current P&L for potential Moonshot promotion
-            val currentPnlPct = if (ts.position.entryPrice > 0) {
-                ((currentPrice - ts.position.entryPrice) / ts.position.entryPrice) * 100
-            } else 0.0
+            val currentPnlVerdict = com.lifecyclebot.engine.OpenPnlSanity.inspect(
+                entryPrice = ts.position.entryPrice,
+                currentPrice = currentPrice,
+                entrySource = ts.position.entryPriceSource,
+                currentSource = ts.lastPriceSource,
+                entryPool = ts.position.entryPoolAddress,
+                currentPool = ts.lastPricePoolAddr,
+                priceBasisRescaled = ts.position.priceBasisRescaled,
+                context = "BotService.currentPnl/${ts.symbol}/${ts.mint.take(8)}",
+            )
+            val currentPnlPct = if (currentPnlVerdict.ok) currentPnlVerdict.pnlPct else 0.0
             
             // V5.2: Debug - log the PnL being calculated
             if (treasuryPos != null) {
-                val treasuryPnl = (currentPrice - treasuryPos.entryPrice) / treasuryPos.entryPrice * 100
+                val treasuryPnlVerdict = com.lifecyclebot.engine.OpenPnlSanity.inspectPosition(treasuryPos, currentPrice, "BotService.treasuryDebug/${ts.symbol}/${ts.mint.take(8)}")
+                val treasuryPnl = if (treasuryPnlVerdict.ok) treasuryPnlVerdict.pnlPct else 0.0
                 ErrorLogger.debug("BotService", "💰 [TREASURY CHECK] ${ts.symbol} | " +
                     "price=$currentPrice | treasuryEntry=${treasuryPos.entryPrice} | pnl=${treasuryPnl.fmt(1)}%")
             }
@@ -21015,9 +21094,17 @@ if (hotExitHandledSweep) {
                 // Old behavior: promoted without selling, locking capital forever
                 // New behavior: SELL first, return capital to wallet, then re-enter if qualified
                 
-                val pnlPct = if (ts.position.entryPrice > 0) {
-                    ((currentPrice - ts.position.entryPrice) / ts.position.entryPrice) * 100
-                } else 0.0
+                val pnlVerdictTreasuryExit = com.lifecyclebot.engine.OpenPnlSanity.inspect(
+                    entryPrice = ts.position.entryPrice,
+                    currentPrice = currentPrice,
+                    entrySource = ts.position.entryPriceSource,
+                    currentSource = ts.lastPriceSource,
+                    entryPool = ts.position.entryPoolAddress,
+                    currentPool = ts.lastPricePoolAddr,
+                    priceBasisRescaled = ts.position.priceBasisRescaled,
+                    context = "BotService.treasuryExit/${ts.symbol}/${ts.mint.take(8)}",
+                )
+                val pnlPct = if (pnlVerdictTreasuryExit.ok) pnlVerdictTreasuryExit.pnlPct else 0.0
                 
                 // V5.6.9g: Execute sell and only close strategy if confirmed
                 val sellResult = executor.requestSell(
@@ -21055,9 +21142,17 @@ if (hotExitHandledSweep) {
             val currentPrice = resolveLivePrice(ts)
             
             // V5.2: Calculate current P&L for potential Moonshot promotion
-            val currentPnlPct = if (ts.position.entryPrice > 0) {
-                ((currentPrice - ts.position.entryPrice) / ts.position.entryPrice) * 100
-            } else 0.0
+            val currentPnlVerdict = com.lifecyclebot.engine.OpenPnlSanity.inspect(
+                entryPrice = ts.position.entryPrice,
+                currentPrice = currentPrice,
+                entrySource = ts.position.entryPriceSource,
+                currentSource = ts.lastPriceSource,
+                entryPool = ts.position.entryPoolAddress,
+                currentPool = ts.lastPricePoolAddr,
+                priceBasisRescaled = ts.position.priceBasisRescaled,
+                context = "BotService.currentPnl/${ts.symbol}/${ts.mint.take(8)}",
+            )
+            val currentPnlPct = if (currentPnlVerdict.ok) currentPnlVerdict.pnlPct else 0.0
             
             // V5.2.12: Check for cross-trade promotion to Moonshot (200%+ gains)
             // ShitCoin → Moonshot: The degen play turned into a moonshot!
@@ -21564,16 +21659,26 @@ if (hotExitHandledSweep) {
 
                 if (exitSignal == com.lifecyclebot.v3.scoring.QualityTraderAI.ExitSignal.PROMOTE_MOONSHOT) {
                     com.lifecyclebot.v3.scoring.QualityTraderAI.closePosition(ts.mint, currentPrice, exitSignal)
-                    val promoted = com.lifecyclebot.v3.scoring.MoonshotTraderAI.shouldPromoteToMoonshot(
+                    val qualityPromotionPnl = com.lifecyclebot.engine.OpenPnlSanity.inspect(
+                        entryPrice = ts.position.entryPrice,
+                        currentPrice = currentPrice,
+                        entrySource = ts.position.entryPriceSource,
+                        currentSource = ts.lastPriceSource,
+                        entryPool = ts.position.entryPoolAddress,
+                        currentPool = ts.lastPricePoolAddr,
+                        priceBasisRescaled = ts.position.priceBasisRescaled,
+                        context = "BotService.qualityPromoteMoonshot/${ts.symbol}/${ts.mint.take(8)}",
+                    )
+                    val promoted = qualityPromotionPnl.ok && com.lifecyclebot.v3.scoring.MoonshotTraderAI.shouldPromoteToMoonshot(
                         mint = ts.mint, symbol = ts.symbol, fromLayer = "QUALITY",
-                        currentPnlPct = if (ts.position.entryPrice > 0) (currentPrice - ts.position.entryPrice) / ts.position.entryPrice * 100 else 0.0,
+                        currentPnlPct = qualityPromotionPnl.pnlPct,
                         currentPrice = currentPrice, marketCapUsd = currentMcap,
                     )
                     if (promoted) {
                         com.lifecyclebot.v3.scoring.MoonshotTraderAI.executePromotion(
                             mint = ts.mint, symbol = ts.symbol, fromLayer = "QUALITY",
                             entryPrice = currentPrice, positionSol = ts.position.costSol,
-                            currentPnlPct = if (ts.position.entryPrice > 0) (currentPrice - ts.position.entryPrice) / ts.position.entryPrice * 100 else 0.0,
+                            currentPnlPct = qualityPromotionPnl.pnlPct,
                             marketCapUsd = currentMcap, liquidityUsd = ts.lastLiquidityUsd,
                             isPaper = com.lifecyclebot.engine.RuntimeModeAuthority.isPaper(),  // V5.9.1563 — runtime authority, not stale cfg
                         )
@@ -21745,9 +21850,18 @@ if (hotExitHandledSweep) {
         val currentPrice = ts.lastPrice.takeIf { it > 0 } 
             ?: ts.history.lastOrNull()?.priceUsd 
             ?: ts.position.entryPrice
-        val pnlPct = if (ts.position.entryPrice > 0) {
-            ((currentPrice - ts.position.entryPrice) / ts.position.entryPrice) * 100
-        } else 0.0
+        val pivotPnlVerdict = com.lifecyclebot.engine.OpenPnlSanity.inspect(
+            entryPrice = ts.position.entryPrice,
+            currentPrice = currentPrice,
+            entrySource = ts.position.entryPriceSource,
+            currentSource = ts.lastPriceSource,
+            entryPool = ts.position.entryPoolAddress,
+            currentPool = ts.lastPricePoolAddr,
+            priceBasisRescaled = ts.position.priceBasisRescaled,
+            context = "BotService.heldPivot/${ts.symbol}/${ts.mint.take(8)}",
+        )
+        if (!pivotPnlVerdict.ok) return
+        val pnlPct = pivotPnlVerdict.pnlPct
         val holdTimeMs = System.currentTimeMillis() - ts.position.entryTime
         val holdTimeMinutes = (holdTimeMs / 60_000).toInt()
 

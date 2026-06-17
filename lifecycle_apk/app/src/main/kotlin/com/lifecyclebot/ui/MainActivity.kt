@@ -3654,9 +3654,9 @@ for legal compliance.
         if (openPos.isNotEmpty()) {
             val totalExposure = openPos.sumOf { it.position.costSol }
             val totalUpnl = openPos.sumOf { ts ->
-                val ref = ts.ref
                 val pos = ts.position
-                if (pos.entryPrice > 0 && ref > 0) pos.costSol * (ref - pos.entryPrice) / pos.entryPrice else 0.0
+                val verdict = com.lifecyclebot.engine.OpenPnlSanity.inspect(ts, "MainActivity.totalUpnl/${ts.symbol}/${ts.mint.take(8)}", emit = false)
+                if (verdict.ok) pos.costSol * verdict.pnlPct / 100.0 else 0.0
             }
             tvTotalExposure.setTextIfChanged(totalExposure.fastFixed(3) + "◎ at risk")
             tvTotalUnrealisedPnl.setTextIfChanged(totalUpnl.fastSigned(4) + "◎")
@@ -4514,9 +4514,8 @@ for legal compliance.
         // still appear before stale ones at 0%/0%.
         return merged.sortedWith(
             compareByDescending<com.lifecyclebot.data.TokenState> { ts ->
-                val p = ts.position
-                val r = ts.ref
-                if (p.entryPrice > 0.0 && r > 0.0) (r - p.entryPrice) / p.entryPrice * 100.0 else Double.NEGATIVE_INFINITY
+                val verdict = com.lifecyclebot.engine.OpenPnlSanity.inspect(ts, "MainActivity.openSort/${ts.symbol}/${ts.mint.take(8)}", emit = false)
+                if (verdict.ok) verdict.pnlPct else Double.NEGATIVE_INFINITY
             }.thenByDescending { it.position.entryTime }
         )
     }
@@ -4596,9 +4595,8 @@ for legal compliance.
         // structural source, never throttle the loop.)
         val openHash = positions.map {
             val p = it.position
-            val r = it.ref
-            val gainBand = if (p.entryPrice > 0.0 && r > 0.0)
-                kotlin.math.floor((r - p.entryPrice) / p.entryPrice * 100.0 / 5.0).toInt() else 0
+            val verdict = com.lifecyclebot.engine.OpenPnlSanity.inspect(it, "MainActivity.openHash/${it.symbol}/${it.mint.take(8)}", emit = false)
+            val gainBand = if (verdict.ok) kotlin.math.floor(verdict.pnlPct / 5.0).toInt() else 0
             "${it.mint}|${p.costSol}|${p.qtyToken}|${p.isPaperPosition}|${p.pendingVerify}|$gainBand"
         }.hashCode()
         // V5.9.1337 — STRUCTURAL CHANGES RENDER IMMEDIATELY; only redundant
@@ -4737,9 +4735,8 @@ for legal compliance.
         // hash above; this sort is cheap and must match the exact passed source.
         val sortedByGain = positions.sortedWith(
             compareByDescending<com.lifecyclebot.data.TokenState> { ts ->
-                val p = ts.position
-                val r = ts.ref
-                if (p.entryPrice > 0.0 && r > 0.0) (r - p.entryPrice) / p.entryPrice * 100.0 else Double.NEGATIVE_INFINITY
+                val verdict = com.lifecyclebot.engine.OpenPnlSanity.inspect(ts, "MainActivity.renderSort/${ts.symbol}/${ts.mint.take(8)}", emit = false)
+                if (verdict.ok) verdict.pnlPct else Double.NEGATIVE_INFINITY
             }.thenByDescending { it.position.entryTime }
         )
         val capped = if (sortedByGain.size > RENDER_CAP) sortedByGain.take(RENDER_CAP) else sortedByGain
@@ -4749,11 +4746,11 @@ for legal compliance.
         val renderedMints = HashSet<String>(capped.size * 2)
         capped.forEach { ts ->
             val pos     = ts.position
-            val ref     = ts.ref
-            val gainPct = if (pos.entryPrice > 0 && ref > 0)
-                (ref - pos.entryPrice) / pos.entryPrice * 100.0 else 0.0
-            val gainCol = if (gainPct >= 0) green else red
-            val pnlSol  = pos.costSol * gainPct / 100.0
+            val pnlVerdict = com.lifecyclebot.engine.OpenPnlSanity.inspect(ts, "MainActivity.renderRow/${ts.symbol}/${ts.mint.take(8)}", emit = true)
+            val basisTrusted = pnlVerdict.ok
+            val gainPct = if (basisTrusted) pnlVerdict.pnlPct else 0.0
+            val gainCol = if (!basisTrusted) muted else if (gainPct >= 0) green else red
+            val pnlSol  = if (basisTrusted) pos.costSol * gainPct / 100.0 else 0.0
             
             // V5.6.18: Use actual token quantity from position, not calculated value
             val tokenAmount = pos.qtyToken
@@ -4778,14 +4775,18 @@ for legal compliance.
             val cached = openPosCardCache[ts.mint]
             if (cached != null && cached.staticHash == staticHash) {
                 // ── REUSE PATH — update only the live fields, no View construction.
-                cached.pnlPctTv.text = "%+.1f%%".format(gainPct)
+                cached.pnlPctTv.text = if (basisTrusted) "%+.1f%%".format(gainPct) else "basis wait"
                 cached.pnlPctTv.setTextColor(gainCol)
-                cached.pnlSolTv.text = "%+.4f◎".format(pnlSol)
+                cached.pnlSolTv.text = if (basisTrusted) "%+.4f◎".format(pnlSol) else "—"
                 cached.pnlSolTv.setTextColor(gainCol)
-                cached.usdTv.text = if (solPrice > 0) "≈\$%.2f".format(valueUsd) else "≈\$—"
+                cached.usdTv.text = if (basisTrusted && solPrice > 0) "≈\$%.2f".format(valueUsd) else "≈\$—"
                 cached.barView.setBackgroundColor(gainCol)
-                // live trail + lock (mirror the build-path math)
-                if (gainPct > pos.peakGainPct) pos.peakGainPct = gainPct
+                // live trail + lock (mirror the build-path math). Never mutate peak/lock off untrusted basis.
+                if (!basisTrusted) {
+                    cached.trailLockTv?.visibility = android.view.View.GONE
+                } else {
+                    if (gainPct > pos.peakGainPct) pos.peakGainPct = gainPct
+                }
                 val holdSecR = ((System.currentTimeMillis() - pos.entryTime) / 1000.0).coerceAtLeast(0.0)
                 val volR = ts.volatility ?: 50.0
                 val fluidStopR = try {
@@ -4798,7 +4799,7 @@ for legal compliance.
                 val fluidTrailR = try {
                     com.lifecyclebot.v3.scoring.FluidLearningAI.fluidTrailPct(gainPct)
                 } catch (_: Exception) { Double.NaN }
-                run {
+                if (basisTrusted) run {
                     val tpTxtR = when {
                         !fluidTrailR.isNaN() && gainPct > 3.0 -> "trail ${fluidTrailR.toInt()}%"
                         else -> null
@@ -4949,7 +4950,7 @@ for legal compliance.
             }
             // PnL percentage
             right.addView(TextView(this).apply {
-                text = "%+.1f%%".format(gainPct)
+                text = if (basisTrusted) "%+.1f%%".format(gainPct) else "basis wait"
                 textSize = resources.getDimension(R.dimen.token_name_size) / resources.displayMetrics.scaledDensity
                 setTextColor(gainCol)
                 typeface = android.graphics.Typeface.DEFAULT_BOLD
@@ -4958,7 +4959,7 @@ for legal compliance.
             })
             // PnL in SOL
             right.addView(TextView(this).apply {
-                text = "%+.4f◎".format(pnlSol)
+                text = if (basisTrusted) "%+.4f◎".format(pnlSol) else "—"
                 textSize = resources.getDimension(R.dimen.trade_sub_text) / resources.displayMetrics.scaledDensity
                 setTextColor(gainCol)
                 typeface = android.graphics.Typeface.MONOSPACE
@@ -4967,7 +4968,7 @@ for legal compliance.
             })
             // Current value in USD — only show if we have real price data
             right.addView(TextView(this).apply {
-                text = if (solPrice > 0) "≈\$%.2f".format(valueUsd) else "≈\$—"
+                text = if (basisTrusted && solPrice > 0) "≈\$%.2f".format(valueUsd) else "≈\$—"
                 textSize = resources.getDimension(R.dimen.trade_sub_text) / resources.displayMetrics.scaledDensity
                 setTextColor(muted)
                 typeface = android.graphics.Typeface.MONOSPACE
@@ -4985,7 +4986,7 @@ for legal compliance.
             // peak (e.g. +252% on a +3198% runner) and the fluid lock was
             // calculated from the stale value. Sync inline on every render
             // so peak always reflects the live high-water mark.
-            if (gainPct > pos.peakGainPct) pos.peakGainPct = gainPct
+            if (basisTrusted && gainPct > pos.peakGainPct) pos.peakGainPct = gainPct
             val holdSec = ((System.currentTimeMillis() - pos.entryTime) / 1000.0).coerceAtLeast(0.0)
             val vol = ts.volatility ?: 50.0
             val fluidStop = try {
@@ -5015,17 +5016,17 @@ for legal compliance.
             }
 
             // Compose the display: live trail % + live fluid stop %.
-            val tpTxt: String? = when {
+            val tpTxt: String? = if (basisTrusted) when {
                 !fluidTrail.isNaN() && gainPct > 3.0 -> "trail ${fluidTrail.toInt()}%"
                 staticTp > 0                          -> "TP +${staticTp.toInt()}%"
                 else                                  -> null
-            }
-            val slTxt: String? = when {
+            } else null
+            val slTxt: String? = if (basisTrusted) when {
                 !fluidStop.isNaN() && fluidStop < 0.0 -> "SL ${fluidStop.toInt()}%"
                 !fluidStop.isNaN() && fluidStop > 0.0 -> "lock +${fluidStop.toInt()}%"
                 staticSl != 0.0                       -> "SL ${staticSl.toInt()}%"
                 else                                  -> null
-            }
+            } else null
             val label = listOfNotNull(tpTxt, slTxt).joinToString("  ")
             // V5.9.1493 — always build the trail/lock TextView (even if empty now)
             // so the reuse path has a stable handle to mutate in place; just hide it
@@ -5578,18 +5579,23 @@ for legal compliance.
         if (scHash == lastShitCoinHash && llShitCoinPositions.childCount > 0) {
             var liveSum = 0.0
             visible.forEach { pos ->
-                val currentPrice = try {
-                    com.lifecyclebot.engine.BotService.status.tokens[pos.mint]?.ref?.takeIf { it > 0 }
-                        ?: pos.highWaterMark.takeIf { it > pos.entryPrice } ?: pos.entryPrice
-                } catch (_: Exception) { pos.entryPrice }
-                val gainPct = if (pos.entryPrice > 0) (currentPrice - pos.entryPrice) / pos.entryPrice * 100 else 0.0
-                val pnlSol = pos.entrySol * gainPct / 100.0
+                val tsState = try { com.lifecyclebot.engine.BotService.status.tokens[pos.mint] } catch (_: Exception) { null }
+                val currentPrice = tsState?.ref?.takeIf { it > 0 }
+                    ?: pos.highWaterMark.takeIf { it > pos.entryPrice } ?: pos.entryPrice
+                val pnlVerdict = if (tsState != null) {
+                    com.lifecyclebot.engine.OpenPnlSanity.inspect(tsState, "MainActivity.shitcoinFast/${pos.symbol}/${pos.mint.take(8)}", emit = true)
+                } else {
+                    com.lifecyclebot.engine.OpenPnlSanity.inspectPosition(pos, currentPrice, "MainActivity.shitcoinFast/${pos.symbol}/${pos.mint.take(8)}", emit = true)
+                }
+                val basisTrusted = pnlVerdict.ok
+                val gainPct = if (basisTrusted) pnlVerdict.pnlPct else 0.0
+                val pnlSol = if (basisTrusted) pos.entrySol * gainPct / 100.0 else 0.0
                 liveSum += pnlSol
                 val pctTv = llShitCoinPositions.findViewWithTag<android.widget.TextView>("scpct_${pos.mint}")
                 val solTv = llShitCoinPositions.findViewWithTag<android.widget.TextView>("scsol_${pos.mint}")
-                val col = if (gainPct >= 0) green else red
-                pctTv?.let { it.setTextIfChanged("%+.1f%%".format(gainPct)); it.setTextColor(col) }
-                solTv?.let { it.setTextIfChanged("%+.4f◎".format(pnlSol)); it.setTextColor(col) }
+                val col = if (!basisTrusted) muted else if (gainPct >= 0) green else red
+                pctTv?.let { it.setTextIfChanged(if (basisTrusted) "%+.1f%%".format(gainPct) else "basis wait"); it.setTextColor(col) }
+                solTv?.let { it.setTextIfChanged(if (basisTrusted) "%+.4f◎".format(pnlSol) else "—"); it.setTextColor(col) }
             }
             return liveSum
         }
@@ -5602,15 +5608,19 @@ for legal compliance.
         
         visible.forEach { pos ->
             if (pos.entryPrice <= 0 || pos.entrySol <= 0 || pos.mint.isBlank()) return@forEach
-            val currentPrice = try {
-                com.lifecyclebot.engine.BotService.status.tokens[pos.mint]?.ref
-                    ?.takeIf { it > 0 }
-                    ?: pos.highWaterMark.takeIf { it > pos.entryPrice }
-                    ?: pos.entryPrice
-            } catch (_: Exception) { pos.entryPrice }
-            val gainPct = if (pos.entryPrice > 0) (currentPrice - pos.entryPrice) / pos.entryPrice * 100 else 0.0
-            val gainCol = if (gainPct >= 0) green else red
-            val pnlSol = pos.entrySol * gainPct / 100.0
+            val tsState = try { com.lifecyclebot.engine.BotService.status.tokens[pos.mint] } catch (_: Exception) { null }
+            val currentPrice = tsState?.ref?.takeIf { it > 0 }
+                ?: pos.highWaterMark.takeIf { it > pos.entryPrice }
+                ?: pos.entryPrice
+            val pnlVerdict = if (tsState != null) {
+                com.lifecyclebot.engine.OpenPnlSanity.inspect(tsState, "MainActivity.shitcoinBuild/${pos.symbol}/${pos.mint.take(8)}", emit = true)
+            } else {
+                com.lifecyclebot.engine.OpenPnlSanity.inspectPosition(pos, currentPrice, "MainActivity.shitcoinBuild/${pos.symbol}/${pos.mint.take(8)}", emit = true)
+            }
+            val basisTrusted = pnlVerdict.ok
+            val gainPct = if (basisTrusted) pnlVerdict.pnlPct else 0.0
+            val gainCol = if (!basisTrusted) muted else if (gainPct >= 0) green else red
+            val pnlSol = if (basisTrusted) pos.entrySol * gainPct / 100.0 else 0.0
             childrenUnrealizedSum += pnlSol
 
             val row = LinearLayout(this).apply {
@@ -5692,7 +5702,7 @@ for legal compliance.
             }
             right.addView(TextView(this).apply {
                 tag = "scpct_${pos.mint}"   // V5.9.1457 — live % view (recycle target)
-                text = "%+.1f%%".format(gainPct)
+                text = if (basisTrusted) "%+.1f%%".format(gainPct) else "basis wait"
                 textSize = resources.getDimension(R.dimen.token_name_size) / resources.displayMetrics.scaledDensity
                 setTextColor(gainCol)
                 typeface = android.graphics.Typeface.DEFAULT_BOLD
@@ -5700,7 +5710,7 @@ for legal compliance.
             })
             right.addView(TextView(this).apply {
                 tag = "scsol_${pos.mint}"   // V5.9.1457 — live ◎ pnl view (recycle target)
-                text = "%+.4f◎".format(pnlSol)
+                text = if (basisTrusted) "%+.4f◎".format(pnlSol) else "—"
                 textSize = resources.getDimension(R.dimen.trade_sub_text) / resources.displayMetrics.scaledDensity
                 setTextColor(gainCol)
                 typeface = android.graphics.Typeface.MONOSPACE

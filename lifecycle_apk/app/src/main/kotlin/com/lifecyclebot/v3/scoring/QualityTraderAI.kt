@@ -555,10 +555,12 @@ object QualityTraderAI {
             }
         }
         if (pos == null) return ExitSignal.HOLD
-        pos.lastSeenPrice = currentPrice  // V5.9.392 — unified UI live P&L
+        val pnlVerdict = com.lifecyclebot.engine.OpenPnlSanity.inspectPosition(pos, currentPrice, "QualityTraderAI.checkExit/${pos.symbol}/${mint.take(8)}")
+        if (!pnlVerdict.ok) return ExitSignal.HOLD
+        pos.lastSeenPrice = currentPrice  // V5.9.392 — unified UI live P&L, trusted basis only
         pos.lastPriceUpdateMs = System.currentTimeMillis()  // V5.9.415 — true freshness
         
-        val pnlPct = (currentPrice - pos.entryPrice) / pos.entryPrice * 100
+        val pnlPct = pnlVerdict.pnlPct
         val holdMinutes = (System.currentTimeMillis() - pos.entryTime) / 60000
         
         // Update high water mark

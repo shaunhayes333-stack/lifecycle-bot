@@ -2030,6 +2030,24 @@ class GoldenTapeRegressionTest {
 
 
     @Test
+    fun open_position_pnl_must_use_price_basis_authority() {
+        val authority = java.io.File("src/main/kotlin/com/lifecyclebot/engine/OpenPnlSanity.kt").readText()
+        val main = java.io.File("src/main/kotlin/com/lifecyclebot/ui/MainActivity.kt").readText()
+        val bot = java.io.File("src/main/kotlin/com/lifecyclebot/engine/BotService.kt").readText()
+        val persist = java.io.File("src/main/kotlin/com/lifecyclebot/engine/PositionPersistence.kt").readText()
+        val shit = java.io.File("src/main/kotlin/com/lifecyclebot/v3/scoring/ShitCoinTraderAI.kt").readText()
+        val moon = java.io.File("src/main/kotlin/com/lifecyclebot/v3/scoring/MoonshotTraderAI.kt").readText()
+        val quality = java.io.File("src/main/kotlin/com/lifecyclebot/v3/scoring/QualityTraderAI.kt").readText()
+        assertTrue("OpenPnlSanity must reject unknown/synthetic extreme basis ratios", authority.contains("PRICE_BASIS_UNTRUSTED_EXTREME_RATIO") && authority.contains("SYNTHETIC_PRICE_BASIS_EXTREME_PNL") && authority.contains("OPEN_PNL_BASIS_REJECTED"))
+        assertTrue("Unified Open Positions must show basis wait instead of fake mega PnL", main.contains("MainActivity.renderRow") && main.contains("basis wait") && main.contains("basisTrusted"))
+        assertTrue("ShitCoin Degen card must also use basis authority", main.contains("MainActivity.shitcoinFast") && main.contains("MainActivity.shitcoinBuild"))
+        assertTrue("Core lane exits must not update peak/lock/exit from raw current-entry ratios", shit.contains("OpenPnlSanity.inspectPosition") && moon.contains("OpenPnlSanity.inspectPosition") && quality.contains("OpenPnlSanity.inspectPosition"))
+        assertTrue("BotService rapid stop / stale / promotion paths must use basis authority", bot.contains("BotService.rapidStop") && bot.contains("BotService.rapidSubTraderFloor") && bot.contains("BotService.heldPivot") && bot.contains("qualityPromotionPnl"))
+        assertTrue("Position persistence must preserve price-basis metadata", persist.contains("entryPriceSource") && persist.contains("entryPoolAddress") && persist.contains("lastPriceSource") && persist.contains("priceBasisRescaled"))
+    }
+
+
+    @Test
     fun learning_pnl_sanitizer_blocks_poisoned_training_fanout() {
         val sanitizer = java.io.File("src/main/kotlin/com/lifecyclebot/engine/LearningPnlSanitizer.kt").readText()
         val tokenWin = java.io.File("src/main/kotlin/com/lifecyclebot/engine/TokenWinMemory.kt").readText()

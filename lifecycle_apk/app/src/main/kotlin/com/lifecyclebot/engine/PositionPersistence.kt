@@ -132,6 +132,16 @@ object PositionPersistence {
         // isOpen=true (qtyToken>0) but pendingVerify=false, causing traders
         // to run close logic on a phantom that hasn't landed on-chain yet.
         val pendingVerify: Boolean = false,
+        // V5.0.3833 — preserve price-basis authority across restarts.
+        val entryPriceSource: String = "",
+        val entryPoolAddress: String = "",
+        val entryDex: String = "",
+        val entrySupplyAssumed: Double = 0.0,
+        val priceBasisRescaled: Boolean = false,
+        val priceBasisRescaleFactor: Double = 1.0,
+        val lastPriceSource: String = "",
+        val lastPricePoolAddr: String = "",
+        val lastPriceDex: String = "",
     )
     
     /**
@@ -286,6 +296,12 @@ object PositionPersistence {
                 // as pendingVerify=true — the watchdog will do an on-chain RPC check
                 // before treating them as open, preventing ghost exit logic.
                 pendingVerify = saved.pendingVerify,
+                entryPriceSource = saved.entryPriceSource,
+                entryPoolAddress = saved.entryPoolAddress,
+                entryDex = saved.entryDex,
+                entrySupplyAssumed = saved.entrySupplyAssumed,
+                priceBasisRescaled = saved.priceBasisRescaled,
+                priceBasisRescaleFactor = saved.priceBasisRescaleFactor,
             )
             
             if (existing != null) {
@@ -294,6 +310,9 @@ object PositionPersistence {
                 existing.lastPrice = saved.lastKnownPrice
                 existing.lastLiquidityUsd = saved.lastKnownLiquidity
                 existing.lastMcap = saved.lastKnownMcap
+                existing.lastPriceSource = saved.lastPriceSource
+                existing.lastPricePoolAddr = saved.lastPricePoolAddr
+                existing.lastPriceDex = saved.lastPriceDex
                 ErrorLogger.info(TAG, "🔄 Restored position to existing ${saved.symbol}")
             } else {
                 // Create new TokenState
@@ -306,6 +325,9 @@ object PositionPersistence {
                     lastLiquidityUsd = saved.lastKnownLiquidity,
                     lastMcap = saved.lastKnownMcap,
                     source = "RESTORED",
+                    lastPriceSource = saved.lastPriceSource,
+                    lastPricePoolAddr = saved.lastPricePoolAddr,
+                    lastPriceDex = saved.lastPriceDex,
                 )
                 existingTokens[mint] = ts
                 ErrorLogger.info(TAG, "✨ Created TokenState for restored position ${saved.symbol}")
@@ -422,6 +444,15 @@ object PositionPersistence {
             lastKnownMcap = ts.lastMcap,
             savedAt = System.currentTimeMillis(),
             pendingVerify = ts.position.pendingVerify, // V5.9.684-FIX
+            entryPriceSource = pos.entryPriceSource,
+            entryPoolAddress = pos.entryPoolAddress,
+            entryDex = pos.entryDex,
+            entrySupplyAssumed = pos.entrySupplyAssumed,
+            priceBasisRescaled = pos.priceBasisRescaled,
+            priceBasisRescaleFactor = pos.priceBasisRescaleFactor,
+            lastPriceSource = ts.lastPriceSource,
+            lastPricePoolAddr = ts.lastPricePoolAddr,
+            lastPriceDex = ts.lastPriceDex,
         )
     }
     
@@ -470,6 +501,15 @@ object PositionPersistence {
                 put("lastKnownMcap", pos.lastKnownMcap)
                 put("savedAt", pos.savedAt)
                 put("pendingVerify", pos.pendingVerify) // V5.9.684-FIX
+                put("entryPriceSource", pos.entryPriceSource)
+                put("entryPoolAddress", pos.entryPoolAddress)
+                put("entryDex", pos.entryDex)
+                put("entrySupplyAssumed", pos.entrySupplyAssumed)
+                put("priceBasisRescaled", pos.priceBasisRescaled)
+                put("priceBasisRescaleFactor", pos.priceBasisRescaleFactor)
+                put("lastPriceSource", pos.lastPriceSource)
+                put("lastPricePoolAddr", pos.lastPricePoolAddr)
+                put("lastPriceDex", pos.lastPriceDex)
             }
             jsonArray.put(json)
         }
@@ -531,6 +571,15 @@ object PositionPersistence {
                     lastKnownMcap = obj.optDouble("lastKnownMcap", 0.0),
                     savedAt = obj.optLong("savedAt", 0L),
                     pendingVerify = obj.optBoolean("pendingVerify", false), // V5.9.684-FIX
+                    entryPriceSource = obj.optString("entryPriceSource", ""),
+                    entryPoolAddress = obj.optString("entryPoolAddress", ""),
+                    entryDex = obj.optString("entryDex", ""),
+                    entrySupplyAssumed = obj.optDouble("entrySupplyAssumed", 0.0),
+                    priceBasisRescaled = obj.optBoolean("priceBasisRescaled", false),
+                    priceBasisRescaleFactor = obj.optDouble("priceBasisRescaleFactor", 1.0),
+                    lastPriceSource = obj.optString("lastPriceSource", ""),
+                    lastPricePoolAddr = obj.optString("lastPricePoolAddr", ""),
+                    lastPriceDex = obj.optString("lastPriceDex", ""),
                 )
                 result[pos.mint] = pos
             }
