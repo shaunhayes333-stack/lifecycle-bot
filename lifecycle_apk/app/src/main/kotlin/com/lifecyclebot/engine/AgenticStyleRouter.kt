@@ -29,6 +29,15 @@ object AgenticStyleRouter {
         val tpMult: Double,
         val holdMult: Double,
     ) {
+        DIAMOND_HANDS_RUNNER("diamond_hands_runner", setOf("MOONSHOT", "QUALITY", "BLUECHIP"), setOf("DIAMOND_HANDS", "MFE_TRAIL", "SMART_CHART"), 0.92, 1.55, 2.80),
+        DEGEN_MICRO_SNIPE("degen_micro_snipe", setOf("PROJECT_SNIPER", "SHITCOIN", "EXPRESS"), setOf("DEGEN_ENTRY", "MICRO_SNIPE", "PUMP_FUN"), 0.55, 0.82, 0.45),
+        PUMP_GRADUATION_SNIPE("pump_graduation_snipe", setOf("PROJECT_SNIPER", "MOONSHOT", "SHITCOIN"), setOf("PUMP_GRADUATION", "SNIPE_AGE_GATE", "RAYDIUM"), 0.62, 1.05, 0.80),
+        CHART_BREAKOUT("chart_breakout", setOf("MOONSHOT", "PROJECT_SNIPER", "QUALITY"), setOf("SMART_CHART", "CHART_BREAKOUT", "PATTERN_CLASSIFIER"), 1.02, 1.30, 1.75),
+        CHART_PULLBACK_RECLAIM("chart_pullback_reclaim", setOf("DIP_HUNTER", "QUALITY", "TREASURY"), setOf("PULLBACK_RECLAIM", "DIP_RECLAIM", "REENTRY_RECOVERY"), 0.82, 1.05, 1.25),
+        WHALE_ACCUMULATION_HOLD("whale_accumulation_hold", setOf("QUALITY", "BLUECHIP", "MOONSHOT"), setOf("WHALE", "QUALITY_DEPTH", "SWING"), 0.96, 1.22, 2.10),
+        EXHAUSTION_QUICK_FLIP("exhaustion_quick_flip", setOf("EXPRESS", "MANIPULATED", "SHITCOIN"), setOf("EXHAUSTION", "QUICK_FLIP", "UPPER_WICK"), 0.58, 0.72, 0.38),
+        MAINSTREAM_CRYPTO_SWING("mainstream_crypto_swing", setOf("QUALITY", "BLUECHIP", "MOONSHOT"), setOf("MAINSTREAM_CRYPTO", "SWING", "QUALITY_DEPTH"), 0.96, 1.22, 2.10),
+        VOLUME_IGNITION_SCALP("volume_ignition_scalp", setOf("EXPRESS", "SHITCOIN", "MANIPULATED"), setOf("VOLUME_IGNITION", "ORDER_FLOW", "SCALP"), 0.78, 0.92, 0.75),
         MICRO_SNIPE("micro_snipe", setOf("PROJECT_SNIPER", "SHITCOIN", "EXPRESS"), setOf("SNIPER", "PUMP_FUN", "EXPRESS"), 0.55, 0.85, 0.45),
         QUICK_FLIP("quick_flip", setOf("SHITCOIN", "EXPRESS", "MANIPULATED"), setOf("EXPRESS", "MEME", "PUMP_FUN"), 0.75, 0.95, 0.65),
         BREAKOUT_RUNNER("breakout_runner", setOf("MOONSHOT", "SHITCOIN", "PROJECT_SNIPER"), setOf("MOONSHOT", "BREAKOUT", "RAYDIUM"), 1.05, 1.25, 1.50),
@@ -46,6 +55,7 @@ object AgenticStyleRouter {
         val tradeType: ModeRouter.TradeType,
         val confidence: Double,
         val reason: String,
+        val toolkit: ToolkitSignalSheet.Sheet,
     ) {
         val lanes: Set<String> get() = style.lanes
         val tools: Set<String> get() = style.tools
@@ -76,7 +86,21 @@ object AgenticStyleRouter {
         return out
     }
 
+    private fun styleForToolkit(sheet: ToolkitSignalSheet.Sheet): Style? = when (sheet.setup) {
+        ToolkitSignalSheet.Setup.DIAMOND_HANDS_RUNNER -> Style.DIAMOND_HANDS_RUNNER
+        ToolkitSignalSheet.Setup.DEGEN_MICRO_SNIPE -> Style.DEGEN_MICRO_SNIPE
+        ToolkitSignalSheet.Setup.PUMP_GRADUATION_SNIPE -> Style.PUMP_GRADUATION_SNIPE
+        ToolkitSignalSheet.Setup.CHART_BREAKOUT -> Style.CHART_BREAKOUT
+        ToolkitSignalSheet.Setup.CHART_PULLBACK_RECLAIM -> Style.CHART_PULLBACK_RECLAIM
+        ToolkitSignalSheet.Setup.WHALE_ACCUMULATION_HOLD -> Style.WHALE_ACCUMULATION_HOLD
+        ToolkitSignalSheet.Setup.EXHAUSTION_QUICK_FLIP -> Style.EXHAUSTION_QUICK_FLIP
+        ToolkitSignalSheet.Setup.MAINSTREAM_CRYPTO_SWING -> Style.MAINSTREAM_CRYPTO_SWING
+        ToolkitSignalSheet.Setup.VOLUME_IGNITION_SCALP -> Style.VOLUME_IGNITION_SCALP
+        ToolkitSignalSheet.Setup.NONE -> null
+    }
+
     fun decide(ts: TokenState, classification: ModeRouter.Classification, laneHint: String = ""): Decision {
+        val sheet = try { ToolkitSignalSheet.build(ts, classification) } catch (_: Throwable) { ToolkitSignalSheet.build(ts, null) }
         val score = try { (ts.lastV3Score ?: ts.entryScore.toInt()).coerceIn(0, 150) } catch (_: Throwable) { 0 }
         val tactic = try { TacticSwitcher.currentTactic(if (laneHint.isBlank()) "SHITCOIN" else laneHint, score) } catch (_: Throwable) { TacticSwitcher.Tactic.MOMENTUM }
         val ddAgg = try { com.lifecyclebot.v3.scoring.DrawdownCircuitAI.getAggression() } catch (_: Throwable) { 1.0 }
@@ -87,7 +111,9 @@ object AgenticStyleRouter {
         // candidate, so use the O(1) stale-while-revalidate catastrophic flag.
         val lowScoreBleedContext = score <= 10 && try { CatastrophicPaperBleedGuard.isActive() } catch (_: Throwable) { false }
 
+        val toolkitStyle = if (sheet.confidence >= 38.0) styleForToolkit(sheet) else null
         val style = when {
+            toolkitStyle != null -> toolkitStyle
             // V5.0.3716 — do not let PULLBACK/LAB tactics route score-0 CHOP
             // candidates into DIP_HUNTER as primary during a catastrophic paper
             // WR collapse. Keep exploration alive, but via defensive meme-family
@@ -112,18 +138,19 @@ object AgenticStyleRouter {
             style = style,
             tactic = tactic,
             tradeType = classification.tradeType,
-            confidence = classification.confidence,
-            reason = "type=${classification.tradeType} tactic=$tactic dd=${"%.2f".format(ddAgg)} age=${"%.1f".format(ageMin)} liq=${ts.lastLiquidityUsd.toInt()} bp=${ts.lastBuyPressurePct.toInt()}",
+            confidence = maxOf(classification.confidence, sheet.confidence),
+            reason = "type=${classification.tradeType} tactic=$tactic toolkit=${sheet.setup} chart=${sheet.chartPattern} entry=${sheet.entryStyle} exit=${sheet.exitStyle} hold×=${"%.2f".format(sheet.holdMult)} size×=${"%.2f".format(sheet.sizeMult)} tp×=${"%.2f".format(sheet.tpMult)} dd=${"%.2f".format(ddAgg)} age=${"%.1f".format(ageMin)} liq=${ts.lastLiquidityUsd.toInt()} bp=${ts.lastBuyPressurePct.toInt()} why=${sheet.compactReason}",
+            toolkit = sheet,
         )
     }
 
     fun lanesFor(ts: TokenState, classification: ModeRouter.Classification, base: Set<String>): Set<String> {
         val d = decide(ts, classification)
-        return boundedLanes(ts.mint, base, d.style)
+        return boundedLanes(ts.mint, base + d.toolkit.laneVotes, d.style)
     }
 
     fun toolsFor(ts: TokenState, classification: ModeRouter.Classification, base: Set<String>): Set<String> {
         val d = decide(ts, classification)
-        return boundedTools(ts.mint, base, d.style)
+        return boundedTools(ts.mint, base + d.toolkit.toolVotes, d.style)
     }
 }
