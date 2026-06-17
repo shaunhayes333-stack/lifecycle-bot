@@ -2766,31 +2766,48 @@ for legal compliance.
             }
         }
 
-        // ── hero balance — BotService.status is the single source of truth ──
+        // ── hero balance / paper realized-P&L display ─────────────────────────
         val config = state.config // V5.9.706 — use pre-loaded config from UiState (avoid AES-GCM decrypt on main thread)
         val solPx  = com.lifecyclebot.engine.WalletManager.lastKnownSolPrice.takeIf { it in 50.0..500.0 } ?: 85.0
+        // V5.0.3838 — PAPER HERO DISPLAY AUTHORITY FIX.
+        // Root cause of the repeated "$7M up" UI lie: this hero card displayed
+        // BotService.status.paperWalletSol and CurrencyManager converted that
+        // simulated bankroll to USD. paperWalletSol is sizing bankroll, NOT
+        // realized profit/equity. In paper mode the only honest top-line money
+        // number is the journal/accounting source of truth: realized net P&L.
+        // Keep balSol for trading/return denominator paths; use heroSol only for UI.
+        val journalStats = try {
+            com.lifecyclebot.engine.TradeHistoryStore.getStatsCached()
+        } catch (_: Throwable) { null }
         val balSol = if (config.paperMode) {
             val livePaper = com.lifecyclebot.engine.BotService.status.paperWalletSol
             if (livePaper > 0.001) livePaper else ws.solBalance
         } else {
             ws.solBalance
         }
+        val heroSol = if (config.paperMode) {
+            journalStats?.totalPnlSol ?: ws.totalPnlSol
+        } else {
+            balSol
+        }
+        val bankrollSol = if (config.paperMode) balSol else ws.solBalance
 
-        if (balSol > 0.001) {
+        if (config.paperMode) {
+            tvBalanceLarge.setTextIfChanged(currency.format(heroSol, showPlus = true))
+            tvBalanceUsd.setTextIfChanged("📝 PAPER MODE · realized P&L ◎ ${"%+.4f".format(heroSol)} · bankroll ◎ ${"%.4f".format(bankrollSol)}")
+        } else if (balSol > 0.001) {
             tvBalanceLarge.setTextIfChanged(currency.format(balSol))  // V5.9.1278 change-guarded; converts SOL→display currency internally
             // V5.9.773 — BIG explicit mode chip so the operator can never
             // confuse "🟢 APIs READY" (Jupiter/Pyth health) with actual
             // trade mode. Per troubleshoot RCA: user saw "LIVE READY"
             // banner and thought bot was live, but cfg.paperMode=true.
-            tvBalanceUsd.setTextIfChanged(if (config.paperMode) "📝 PAPER MODE  ◎ ${"%.4f".format(balSol)}"
-                                  else "🔴 LIVE MODE  ◎ ${"%.4f".format(balSol)}")
+            tvBalanceUsd.setTextIfChanged("🔴 LIVE MODE  ◎ ${"%.4f".format(balSol)}")
         } else if (ws.isConnected && ws.solBalance > 0) {
             tvBalanceLarge.setTextIfChanged(currency.format(ws.solBalance))
-            tvBalanceUsd.setTextIfChanged(if (config.paperMode) "📝 PAPER MODE  ◎ ${"%.4f".format(ws.solBalance)}"
-                                  else "🔴 LIVE MODE  ◎ ${"%.4f".format(ws.solBalance)}")
+            tvBalanceUsd.setTextIfChanged("🔴 LIVE MODE  ◎ ${"%.4f".format(ws.solBalance)}")
         } else {
             tvBalanceLarge.setTextIfChanged("—")
-            tvBalanceUsd.setTextIfChanged(if (config.paperMode) "📝 PAPER MODE" else "🔴 LIVE MODE")
+            tvBalanceUsd.setTextIfChanged("🔴 LIVE MODE")
         }
 
         // ── Live SOL Price ──────────────────────────────────────────────
@@ -2823,9 +2840,6 @@ for legal compliance.
         // same journal SOL P&L over starting capital (currentBal - journalPnl),
         // so the % can never disagree with the $. Fail-open to WalletState if
         // the journal stats read throws.
-        val journalStats = try {
-            com.lifecyclebot.engine.TradeHistoryStore.getStatsCached()
-        } catch (_: Throwable) { null }
         val pnl    = journalStats?.totalPnlSol ?: ws.totalPnlSol
         val startCapitalSol = (balSol - pnl)
         val pnlPct = if (startCapitalSol > 0.0001) (pnl / startCapitalSol) * 100.0 else ws.totalPnlPct

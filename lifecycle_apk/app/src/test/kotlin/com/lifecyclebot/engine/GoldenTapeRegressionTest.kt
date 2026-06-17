@@ -2336,4 +2336,15 @@ class GoldenTapeRegressionTest {
         assertTrue("Stop-loss label conflicting with positive signed PnL must not train", learning.contains("LEARNING_LABEL_SIGN_CONFLICT_QUARANTINED") && learning.contains("labelLooksStopLoss && learningPnlVerdict.pnlPct > 0.5"))
     }
 
+
+    @Test
+    fun paper_hero_balance_must_show_realized_pnl_not_simulated_bankroll() {
+        val main = java.io.File("src/main/kotlin/com/lifecyclebot/ui/MainActivity.kt").readText()
+        assertTrue("Paper hero must use journal realized PnL as display authority", main.contains("PAPER HERO DISPLAY AUTHORITY FIX") && main.contains("val heroSol = if (config.paperMode)") && main.contains("journalStats?.totalPnlSol ?: ws.totalPnlSol"))
+        assertTrue("Paper hero mode chip must disclose realized P&L vs bankroll", main.contains("realized P&L") && main.contains("bankroll ◎"))
+        val paperHeroIdx = main.indexOf("if (config.paperMode) {\n            tvBalanceLarge.setTextIfChanged(currency.format(heroSol, showPlus = true))")
+        val liveBalanceIdx = main.indexOf("tvBalanceLarge.setTextIfChanged(currency.format(balSol))")
+        assertTrue("Paper branch must render heroSol before any live balSol display", paperHeroIdx >= 0 && liveBalanceIdx > paperHeroIdx)
+    }
+
 }
