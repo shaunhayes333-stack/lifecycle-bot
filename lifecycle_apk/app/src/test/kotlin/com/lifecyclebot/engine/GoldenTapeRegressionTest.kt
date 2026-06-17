@@ -1678,7 +1678,7 @@ class GoldenTapeRegressionTest {
         assertTrue(tracker.contains("hasCurrentWalletPositiveProof"))
         assertTrue(tracker.contains("hasFreshBuyLiability"))
         assertTrue(tracker.contains("hasLiveSellInFlightForCap"))
-        assertTrue(tracker.contains("getActuallyHeldCount(): Int = positions.values.count { hasCurrentWalletPositiveProof(it) }"))
+        assertTrue(tracker.contains("getActuallyHeldCount(): Int = positions.values.count { hasCurrentWalletPositiveProof(it) || hasBotBoughtPositiveLiability(it) }"))
         assertFalse("stale raw alone must not make a row open/cap-countable",
             tracker.contains("hasLastPositiveRaw(p) ||\n            p.status in SELL_IN_FLIGHT_STATUSES"))
 
@@ -1738,7 +1738,7 @@ class GoldenTapeRegressionTest {
         assertTrue(tracker.contains("BUY_TX_META_AWAITING_CURRENT_WALLET_HELD"))
         assertTrue(tracker.contains("WalletAuthoritySnapshot.HELD"))
         assertTrue(tracker.contains("currentHeldSnapshot"))
-        assertTrue(tracker.contains("getActuallyHeldCount(): Int = positions.values.count { hasCurrentWalletPositiveProof(it) }"))
+        assertTrue(tracker.contains("getActuallyHeldCount(): Int = positions.values.count { hasCurrentWalletPositiveProof(it) || hasBotBoughtPositiveLiability(it) }"))
         assertTrue(tracker.contains("getActuallyHeldMints(): Set<String>"))
         assertFalse("TX-meta owner delta must not promote directly to open tracking",
             tracker.contains("p.status = PositionStatus.OPEN_TRACKING\n        p.source = when (proof.source)"))
@@ -2425,6 +2425,18 @@ class GoldenTapeRegressionTest {
         assertTrue("Bot-bought positive liability must count in open/cap accounting", host.contains("hasBotBoughtPositiveLiability(p, now) ||") && host.contains("capCountable=\${freshBotBuy || botPositiveLiability}"))
         assertTrue("Actually-held UI set must include bot-bought positive liabilities", host.contains("getActuallyHeldMints") && host.contains("hasCurrentWalletPositiveProof(it) || hasBotBoughtPositiveLiability(it)"))
         assertTrue("Main UI must still intersect visible positions with HostWallet held set", main.contains("getActuallyHeldMints()") && main.contains("buildUnifiedOpenPositions(state)"))
+    }
+
+
+    @Test
+    fun live_sell_accounting_uses_proceeds_not_cost_plus_proceeds_and_repairs_sign_conflicts() {
+        val exec = java.io.File("src/main/kotlin/com/lifecyclebot/engine/Executor.kt").readText()
+        assertTrue("Live sell accounting authority must exist", exec.contains("LIVE SELL ACCOUNTING AUTHORITY") && exec.contains("LIVE_SELL_ACCOUNTING_REPAIRED"))
+        assertFalse("Verified sell proceeds must not add cost basis into solBack", exec.contains("pos.costSol + verifiedSol"))
+        assertFalse("Wallet SOL delta must not be treated as cost+delta proceeds", exec.contains("pos.costSol + delta  // costSol + delta"))
+        assertTrue("Terminal live sell must use accounting authority", exec.contains("liveSellAccountingAuthority(ts, pos.costSol, solBack, reason, \"liveSell.terminal\")"))
+        assertTrue("Profit-lock/partial live sells must use accounting authority", exec.contains("liveSellAccountingAuthority(ts, pos.costSol * sellFraction, solBack, reason, \"profitLock\")") && exec.contains("partial.jupiter"))
+        assertTrue("Stop-like positive sign conflicts must be repaired before journal/learning", exec.contains("stopLike && pnlPct > 0.5") && exec.contains("OpenPnlSanity.inspect(ts, \"SELL_ACCOUNTING:$context\""))
     }
 
 

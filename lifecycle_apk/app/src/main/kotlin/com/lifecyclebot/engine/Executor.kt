@@ -2091,6 +2091,58 @@ class Executor(
      *  is drifting / reconciler is stalled. 0.05 SOL per operator spec. */
     private val LEDGER_DRIFT_MAX_LIVE_SOL: Double = 0.05
 
+    private data class LiveSellAccounting(
+        val pnlSol: Double,
+        val pnlPct: Double,
+        val netPnlSol: Double,
+        val feeSol: Double,
+    )
+
+    /**
+     * V5.0.3849 — LIVE SELL ACCOUNTING AUTHORITY.
+     *
+     * Sell PnL must be computed as proceeds - allocated cost basis. It must not
+     * add cost basis into proceeds, and stop-loss / hard-floor reasons must not
+     * publish positive wins unless price-basis authority proves the position was
+     * actually positive. This prevents STRICT_SL rows like +99% and partial rows
+     * at impossible +20,000% from poisoning journal/learning/treasury.
+     */
+    private fun liveSellAccountingAuthority(
+        ts: TokenState,
+        allocatedCostSol: Double,
+        proceedsSol: Double,
+        reason: String,
+        context: String,
+    ): LiveSellAccounting {
+        val safeCost = allocatedCostSol.takeIf { it.isFinite() && it > 0.0 } ?: 0.0
+        val safeProceeds = proceedsSol.takeIf { it.isFinite() && it >= 0.0 } ?: 0.0
+        var pnlSol = safeProceeds - safeCost
+        var pnlPct = pct(safeCost, safeProceeds)
+        val r = reason.uppercase()
+        val stopLike = r.contains("STOP") || r.contains("STRICT_SL") || r.contains("HARD_FLOOR") || r.contains("FALLBACK_ORPHAN_HARD_FLOOR")
+        val impossible = !pnlPct.isFinite() || pnlPct > 5_000.0 || pnlPct < -100.0001
+        val signConflict = stopLike && pnlPct > 0.5
+        if (impossible || signConflict) {
+            val priceVerdict = try { OpenPnlSanity.inspect(ts, "SELL_ACCOUNTING:$context", emit = true) } catch (_: Throwable) { OpenPnlSanity.Verdict(false, reason = "INSPECT_THROW") }
+            val replacementPct = when {
+                priceVerdict.ok && priceVerdict.pnlPct.isFinite() && priceVerdict.pnlPct in -100.0..5_000.0 -> priceVerdict.pnlPct
+                signConflict -> 0.0
+                else -> 0.0
+            }
+            val replacementPnl = safeCost * (replacementPct / 100.0)
+            try {
+                ForensicLogger.lifecycle(
+                    "LIVE_SELL_ACCOUNTING_REPAIRED",
+                    "mint=${ts.mint.take(10)} symbol=${ts.symbol} context=$context reason=$reason oldPct=${pnlPct.fmt(2)} newPct=${replacementPct.fmt(2)} oldPnl=${pnlSol.fmt(6)} newPnl=${replacementPnl.fmt(6)} cost=${safeCost.fmt(6)} proceeds=${safeProceeds.fmt(6)} basis=${priceVerdict.reason}",
+                )
+            } catch (_: Throwable) {}
+            pnlPct = replacementPct
+            pnlSol = replacementPnl
+        }
+        val pair = slippageGuard.calcNetPnl(pnlSol, safeCost)
+        return LiveSellAccounting(pnlSol, pnlPct, pair.first, pair.second)
+    }
+
     /**
      * V5.0.3848 — REALISTIC LIVE ENTRY SIZE AUTHORITY.
      *
@@ -4333,9 +4385,11 @@ class Executor(
                 else -> quote.outAmount / 1_000_000_000.0  // legacy fallback (rare; verifier should always populate)
             }
 
-            val pnlSol = solBack - pos.costSol * sellFraction
-            val pnlPct = pct(pos.costSol * sellFraction, solBack)
-            val (netPnl, feeSol) = slippageGuard.calcNetPnl(pnlSol, pos.costSol * sellFraction)
+            val profitLockAcct = liveSellAccountingAuthority(ts, pos.costSol * sellFraction, solBack, reason, "profitLock")
+            val pnlSol = profitLockAcct.pnlSol
+            val pnlPct = profitLockAcct.pnlPct
+            val netPnl = profitLockAcct.netPnlSol
+            val feeSol = profitLockAcct.feeSol
             
             val newQty = pos.qtyToken - sellQty
             val newCost = pos.costSol * (1.0 - sellFraction)
@@ -5126,11 +5180,11 @@ class Executor(
                     sig = pumpSig
                     // Estimate solBack from current mark + sold quantity.
                     solBack = sellQty * actualPrice
-                    livePnl = solBack - pos.costSol * sellFraction
-                    liveScore = pct(pos.costSol * sellFraction, solBack)
-                    val pair = slippageGuard.calcNetPnl(livePnl, pos.costSol * sellFraction)
-                    netPnl = pair.first
-                    feeSol = pair.second
+                    val partialAcct = liveSellAccountingAuthority(ts, pos.costSol * sellFraction, solBack, "partial_${(sellFraction*100).toInt()}pct", "partial.pump")
+                    livePnl = partialAcct.pnlSol
+                    liveScore = partialAcct.pnlPct
+                    netPnl = partialAcct.netPnlSol
+                    feeSol = partialAcct.feeSol
                 } else {
                     // Fallback: full Jupiter Ultra → Metis ladder (single shot
                     // here; Jupiter dynamicSlippage handles in-route escalation).
@@ -5181,11 +5235,11 @@ class Executor(
                     // V5.9.495k — PHANTOM-aware solBack: zero out fake gains
                     // when the rescue helper returned a PHANTOM_* sentinel sig.
                     solBack = if (sig.startsWith("PHANTOM_")) 0.0 else quote.outAmount / 1_000_000_000.0
-                    livePnl = solBack - pos.costSol * sellFraction
-                    liveScore = pct(pos.costSol * sellFraction, solBack)
-                    val pair = slippageGuard.calcNetPnl(livePnl, pos.costSol * sellFraction)
-                    netPnl = pair.first
-                    feeSol = pair.second
+                    val partialAcct = liveSellAccountingAuthority(ts, pos.costSol * sellFraction, solBack, "partial_${(sellFraction*100).toInt()}pct", "partial.jupiter")
+                    livePnl = partialAcct.pnlSol
+                    liveScore = partialAcct.pnlPct
+                    netPnl = partialAcct.netPnlSol
+                    feeSol = partialAcct.feeSol
                 }
                 ts.position = pos.copy(qtyToken = newQty, costSol = newCost, partialSoldPct = newSoldPct)
                 val livePartialCostBasisSol = pos.costSol * sellFraction
@@ -13885,7 +13939,7 @@ class Executor(
                 // that the tokens clear the wallet and return the sol".
                 val verifiedSol = fullSellVerifiedSol / 1_000_000_000.0
                 onLog("📊 SELL PnL (verifier): received=${verifiedSol.fmt(6)} SOL (tx-parse authoritative)", tradeId.mint)
-                pos.costSol + verifiedSol
+                verifiedSol
             } else try {
                 var actualBalance = wallet.getSolBalance()
                 var delta = actualBalance - walletSol
@@ -13902,7 +13956,7 @@ class Executor(
                 if (delta > 0.001) {
                     val quotedDisp = finalQuote?.let { (it.outAmount / 1_000_000_000.0).fmt(6) } ?: "n/a(direct)"
                     onLog("📊 SELL PnL (actual): received=${delta.fmt(6)} SOL | quoted=$quotedDisp SOL", tradeId.mint)
-                    pos.costSol + delta  // costSol + delta = total back (delta = net SOL gain/loss vs cost)
+                    delta  // wallet SOL delta is proceeds from the sell, not cost+proceeds
                 } else {
                     // V5.9.495x — no on-chain SOL delta after 15s. Refuse
                     // to trust the inflated `quote.outAmount`; record as
@@ -13923,9 +13977,11 @@ class Executor(
                 onLog("📊 SELL PnL: balance read failed (${balEx.message?.take(40)}) — recording as SCRATCH", tradeId.mint)
                 pos.costSol
             }
-            pnl  = solBack - pos.costSol
-            pnlP = pct(pos.costSol, solBack)
-            val (netPnl, feeSol) = slippageGuard.calcNetPnl(pnl, pos.costSol)
+            val terminalAcct = liveSellAccountingAuthority(ts, pos.costSol, solBack, reason, "liveSell.terminal")
+            pnl = terminalAcct.pnlSol
+            pnlP = terminalAcct.pnlPct
+            val netPnl = terminalAcct.netPnlSol
+            val feeSol = terminalAcct.feeSol
 
             // V5.9.357 — feed real Jupiter quote-vs-realized slip into
             // ExecutionCostPredictorAI so its per-liquidity-band history
