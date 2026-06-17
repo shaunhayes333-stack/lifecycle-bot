@@ -174,6 +174,8 @@ object ReportingHub {
             // :app:compileReleaseKotlin by referencing a non-existent property.
             val avgCycleMs = if (pipe.cycleCount > 0L) pipe.totalCycleMs / pipe.cycleCount else 0L
             appendLine("Funnel: loop=$loop intake=$intake lane=$lane fdg=$fdg exec=$exec journalRows=$journalRows avgCycle=${avgCycleMs}ms max=${pipe.maxCycleMs}ms ANR=${pipe.anrHints}")
+            val topAnr = pipe.anrStackCounts.entries.maxByOrNull { it.value }
+            if (topAnr != null) appendLine("ANR top: [${topAnr.value}] ${topAnr.key.take(140)}")
         }
         if (perf != null) appendLine("Perf(last analyze): n=${perf.totalTrades} WR=${perf.winRate.fmt1()}% PnL=${perf.totalPnlSol.fmt4()} SOL PF=${perf.profitFactor.fmt2()} DD=${perf.currentDrawdownPct.fmt1()}% streak=${perf.currentStreak}")
         if (journal != null) appendLine("Journal canonical: closes=${journal.trades} W/L=${journal.wins}/${journal.losses} WR=${journal.winRatePct().fmt1()}% PnL=${journal.pnlSol.fmt4()} SOL")
@@ -264,7 +266,8 @@ object ReportingHub {
         val keepHeaders = listOf(
             "===== AATE Pipeline Health Snapshot", "===== Pipeline funnel", "===== Bot-loop cycle timing", "===== Runtime stall sentinels",
             "===== Per-lane open positions", "===== Gate allow / block tally", "===== Top block reasons", "===== Intake by source", "===== LANE_EVAL by lane",
-            "===== LIVE execution telemetry", "===== PAPER execution telemetry", "===== Strategy expectancy", "===== Regime detector",
+            "===== LIVE execution telemetry", "===== PAPER execution telemetry", "===== ANR / main-thread health", "===== ANR top blocking call sites",
+            "===== Strategy expectancy", "===== Regime detector",
             "===== Performance analytics", "===== Separated WR metrics", "===== Throughput choke audit", "===== Token meta cache", "===== Slot health / close ledger",
             "===== Birdeye budget", "===== API health", "===== Key verdicts"
         )
@@ -296,6 +299,8 @@ object ReportingHub {
 
     private fun condenseSectionBody(header: String, body: String): String {
         val maxLines = when {
+            "ANR / main-thread" in header -> 8
+            "ANR top blocking" in header -> 8
             "API health" in header -> 10
             "Key verdicts" in header -> 8
             "Intake by source" in header -> 9
