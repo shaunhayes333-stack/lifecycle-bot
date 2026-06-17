@@ -54,7 +54,7 @@ object TradeHistoryStore {
     // V5.9.408: bumped whenever win/loss thresholds change so legacy persisted
     // counters get back-filled from the raw SELL rows instead of shown stale.
     private const val KEY_THRESHOLD_VER   = "threshold_version"
-    private const val CURRENT_THRESHOLD_VER = 728  // V5.9.728 — asymmetric scratch band
+    private const val CURRENT_THRESHOLD_VER = 729  // V5.0.3836 — canonical accounting quarantine bound + WR filters
 
     // V5.9.728 — align lifetime stats thresholds with TradeJournal so scratches
     // don't poison the displayed WR.
@@ -435,9 +435,14 @@ object TradeHistoryStore {
         // ever excluded — these only catch physically-impossible fabricated rows.
         if (!t.price.isFinite() || !t.sol.isFinite() || !t.pnlSol.isFinite() || !t.pnlPct.isFinite() || !t.netPnlSol.isFinite()) return false
         if (com.lifecyclebot.engine.guard.BaseQuoteMintGuard.shouldQuarantine(t.mint)) return false
-        // pnlPct sanity: -100% is total loss (floor); a genuine moonshot is bounded
-        // far below +100000%. Anything outside is an accounting fabrication.
-        if (t.pnlPct < -100.0001 || t.pnlPct > 100_000.0) return false
+        // pnlPct sanity: canonical WR/PnL must use the same poison ceiling as
+        // learning. Rows above MAX_TRAINABLE_PNL_PCT are not necessarily deleted
+        // from forensic history, but they are NOT valid accounting rows: they
+        // collapse avg-win, profit factor, readiness WR, and lane tuning. A real
+        // exit still has its realized SOL preserved in raw forensics; canonical
+        // scoreboards require a basis-sane percent.
+        val canonicalPnlVerdict = LearningPnlSanitizer.inspectTrade(t, "TradeHistoryStore.isValidAccountingTrade", emit = false)
+        if (!canonicalPnlVerdict.ok) return false
         // Notional cap: a single paper/live meme exit's proceeds cannot exceed a
         // sane SOL notional. The corrupt USDC row booked ~+8722 SOL on a position
         // that never cost that. Cap at 5000 SOL proceeds (orders of magnitude above
@@ -1311,7 +1316,11 @@ object TradeHistoryStore {
         val sample = synchronized(lock) {
             // Newest-first window of the most recent N sells.
             // V5.9.1346 — include PARTIAL_SELL closes (was == "SELL", dropped partials).
-            trades.asReversed().asSequence().filter { isJournalSellLike(it.side) }.take(n).toList()
+            // V5.0.3836 — same validity filter as canonical totals/readiness.
+            trades.asReversed().asSequence()
+                .filter { isJournalSellLike(it.side) && isValidAccountingTrade(it) }
+                .take(n)
+                .toList()
         }
         val wins   = sample.count { isWin(it) }
         val losses = sample.count { isLoss(it) }
@@ -1343,7 +1352,8 @@ object TradeHistoryStore {
         val sample = synchronized(lock) {
             trades.asReversed().asSequence()
                 // V5.9.1346 — include PARTIAL_SELL closes (was == "SELL").
-                .filter { isJournalSellLike(it.side) }
+                // V5.0.3836 — same validity filter as canonical totals.
+                .filter { isJournalSellLike(it.side) && isValidAccountingTrade(it) }
                 .drop(offset)
                 .take(width)
                 .toList()
@@ -1512,8 +1522,11 @@ object TradeHistoryStore {
         val t = synchronized(lock) { trades.filter { isValidAccountingTrade(it) } }
         val modeTrades = t.filter { it.tradingMode.equals(mode, ignoreCase = true) && isJournalSellLike(it.side) }
         if (modeTrades.size < minTrades) return -1.0
-        val wins = modeTrades.count { it.pnlPct > 0.0 }
-        return wins * 100.0 / modeTrades.size
+        val wins = modeTrades.count { isWin(it) }
+        val losses = modeTrades.count { isLoss(it) }
+        val decisive = wins + losses
+        if (decisive < minTrades) return -1.0
+        return wins * 100.0 / decisive
     }
 
     // ── SQLite persistence ───────────────────────────────────────────

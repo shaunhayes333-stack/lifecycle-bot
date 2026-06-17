@@ -2302,4 +2302,14 @@ class GoldenTapeRegressionTest {
         assertTrue("TradeHistoryStore must send proof state to report ring", store.contains("proofState = tradeToStore.proofState"))
     }
 
+
+    @Test
+    fun canonical_wr_must_exclude_learning_quarantined_pnl_rows() {
+        val store = java.io.File("src/main/kotlin/com/lifecyclebot/engine/TradeHistoryStore.kt").readText()
+        assertTrue("Canonical accounting must use the same poison ceiling as LearningPnlSanitizer", store.contains("LearningPnlSanitizer.inspectTrade(t, \"TradeHistoryStore.isValidAccountingTrade\"") && !store.contains("t.pnlPct > 100_000.0"))
+        assertTrue("Threshold version must force lifetime WR/PnL backfill when canonical accounting rules change", store.contains("CURRENT_THRESHOLD_VER = 729"))
+        assertTrue("Rolling WR must filter invalid accounting rows", store.contains("filter { isJournalSellLike(it.side) && isValidAccountingTrade(it) }") && store.contains("computeRollingWinRatePct"))
+        assertTrue("Lane WR must use canonical scratch-aware win/loss thresholds", store.contains("val losses = modeTrades.count { isLoss(it) }") && store.contains("wins * 100.0 / decisive"))
+    }
+
 }
