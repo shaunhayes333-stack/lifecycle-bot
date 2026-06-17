@@ -1536,65 +1536,60 @@ object PipelineHealthCollector {
         // V5.0.3843 — now pulls last 1000 canonical closed journal rows via
         // TradeHistoryStore, not legacy TradeDatabase, so WR/lane analytics match
         // the Journal Summary and canonical totals in this same report.
-        //
-        // V5.9.998 — operator triage: this block was sitting INSIDE the
-        // synchronous dumpText() path which gets invoked from the bot
-        // loop's pipeline-snapshot logging. db.getAllTrades() pulls up
-        // to 1000 rows from SQLite + PerformanceAnalytics.analyze() does
-        // Sharpe/drawdown/profit-factor (5-50 ms each). When the loop is
-        // running fast and dump fires multiple times per cycle this added
-        // 100-500 ms per tick — enough to push cycle time past 5 s and
-        // trip the heartbeat watchdog. Cached now: only refresh the
-        // analytics block every 30 s, serve a cached string the rest of
-        // the time. Stale-by-30 s is fine — diagnostic only.
+        // Cached: only refresh the analytics block every 30s; stale diagnostic
+        // output is fine and avoids hot-loop DB/report churn.
         try {
             val cached = perfAnalyticsCache
             val now = System.currentTimeMillis()
             if (cached != null && (now - perfAnalyticsCacheAt) < 30_000L) {
                 sb.append(cached)
             } else {
-                val trades = canonicalPerformanceTrades()
-                if (trades.isNotEmpty()) {
-                        val stats = com.lifecyclebot.engine.PerformanceAnalytics.analyze(trades)
-                        val block = buildString {
-                            append("\n===== Performance analytics (last 1000 closed) =====\n")
-                            append(com.lifecyclebot.engine.PerformanceAnalytics.formatSummary(stats))
-                            append('\n')
-                            // V5.9.1378 (P0 #10) — SEPARATED WR METRICS. A single blended
-                            // "12% WR" hides which lane is bleeding and conflates the
-                            // bootstrap learning phase with the mature phase (different
-                            // floors per the performance doctrine). Break it out.
-                            try {
-                                val lifetime = try { com.lifecyclebot.engine.TradeHistoryStore.getLifetimeStats().totalSells } catch (_: Throwable) { stats.totalTrades }
-                                val mature = lifetime >= 5000
-                                val phaseTag = if (mature) "MATURE" else "BOOTSTRAP"
-                                val floor = if (mature) "50-89%" else "20-35%"
-                                append("===== Separated WR metrics (V5.9.1378) =====\n")
-                                append("  Phase:        $phaseTag  (lifetime closes=$lifetime; doctrine floor=$floor)\n")
-                                append("  Blended WR:   ${"%.1f".format(stats.winRate)}%  (n=${stats.totalTrades} in window)\n")
-                                val onFloor = if (mature) stats.winRate >= 50.0 else stats.winRate >= 20.0
-                                append("  Floor status: ${if (onFloor) "✅ within band" else "🔴 BELOW $phaseTag floor"}\n")
-                                // Per-phase (lane) WR with sample size — exposes the bleeder.
-                                val byPhase = stats.winRateByPhase
-                                val cntByPhase = stats.tradeCountByPhase
-                                if (byPhase.isNotEmpty()) {
-                                    append("  By lane (WR | n):\n")
-                                    byPhase.entries
-                                        .filter { (cntByPhase[it.key] ?: 0) >= 5 }
-                                        .sortedBy { it.value }
-                                        .forEach { (lane, wr) ->
-                                            val n = cntByPhase[lane] ?: 0
-                                            val flag = if (wr < 20.0) " 🔴bleeder" else if (wr >= 50.0) " ✅" else ""
-                                            append("    ${lane.padEnd(14)} ${"%.1f".format(wr)}%  n=$n$flag\n")
-                                        }
-                                }
-                                append('\n')
-                            } catch (_: Throwable) { /* diagnostic only */ }
-                        }
-                        perfAnalyticsCache   = block
-                        perfAnalyticsCacheAt = now
-                        sb.append(block)
+                val perfTrades = canonicalPerformanceTrades()
+                if (perfTrades.isNotEmpty()) {
+                    val stats = com.lifecyclebot.engine.PerformanceAnalytics.analyze(perfTrades)
+                    val block = buildString {
+                        append("
+===== Performance analytics (last 1000 closed) =====
+")
+                        append(com.lifecyclebot.engine.PerformanceAnalytics.formatSummary(stats))
+                        append('
+')
+                        try {
+                            val lifetime = try { com.lifecyclebot.engine.TradeHistoryStore.getLifetimeStats().totalSells } catch (_: Throwable) { stats.totalTrades }
+                            val mature = lifetime >= 5000
+                            val phaseTag = if (mature) "MATURE" else "BOOTSTRAP"
+                            val floor = if (mature) "50-89%" else "20-35%"
+                            append("===== Separated WR metrics (V5.9.1378) =====
+")
+                            append("  Phase:        $phaseTag  (lifetime closes=$lifetime; doctrine floor=$floor)
+")
+                            append("  Blended WR:   ${"%.1f".format(stats.winRate)}%  (n=${stats.totalTrades} in window)
+")
+                            val onFloor = if (mature) stats.winRate >= 50.0 else stats.winRate >= 20.0
+                            append("  Floor status: ${if (onFloor) "✅ within band" else "🔴 BELOW $phaseTag floor"}
+")
+                            val byPhase = stats.winRateByPhase
+                            val cntByPhase = stats.tradeCountByPhase
+                            if (byPhase.isNotEmpty()) {
+                                append("  By lane (WR | n):
+")
+                                byPhase.entries
+                                    .filter { (cntByPhase[it.key] ?: 0) >= 5 }
+                                    .sortedBy { it.value }
+                                    .forEach { (lane, wr) ->
+                                        val n = cntByPhase[lane] ?: 0
+                                        val flag = if (wr < 20.0) " 🔴bleeder" else if (wr >= 50.0) " ✅" else ""
+                                        append("    ${lane.padEnd(14)} ${"%.1f".format(wr)}%  n=$n$flag
+")
+                                    }
+                            }
+                            append('
+')
+                        } catch (_: Throwable) { /* diagnostic only */ }
                     }
+                    perfAnalyticsCache = block
+                    perfAnalyticsCacheAt = now
+                    sb.append(block)
                 }
             }
         } catch (_: Throwable) { /* fail-open — diagnostic only */ }
