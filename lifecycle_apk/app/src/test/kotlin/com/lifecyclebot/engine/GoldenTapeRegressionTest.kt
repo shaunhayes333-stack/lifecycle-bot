@@ -2038,8 +2038,7 @@ class GoldenTapeRegressionTest {
         assertTrue("CollectiveAI must consume hive pattern edges", collectiveAi.contains("HIVE_PATTERN_EDGE") && collectiveAi.contains("getPatternEdgesForCandidate"))
         assertTrue("Hive pattern edge must be bounded", collectiveAi.contains("coerceIn(-14, 14)") && collectiveAi.contains("coerceIn(-5, 5)"))
         assertTrue("UnifiedScorer must pass candidate mcap/buy-pressure into CollectiveAI", scorer.contains("marketCapUsd = candidate.marketCapUsd") && scorer.contains("buyPressurePct = candidate.buyPressurePct"))
-        assertFalse("Hive pattern edge must not become a hard veto", collectiveAi.contains("fatal = true") || collectiveAi.contains("return CollectiveInsight(
-                score = -100"))
+        assertFalse("Hive pattern edge must not become a hard veto", collectiveAi.contains("fatal = true") || collectiveAi.contains("return CollectiveInsight(\n                score = -100"))
     }
 
 
