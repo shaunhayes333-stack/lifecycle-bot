@@ -1324,7 +1324,11 @@ class UnifiedScorer(
                 Log.i("UnifiedScorer", "🌟 BOOST[UNIFIED] ${candidate.symbol} | ${boostedNames.joinToString(",")}")
             }
 
-            val finalCard = ScoreCard(gatedComponents)
+            // V5.0.3823 — Specialist MoE gate. This is bounded read-weighting over
+            // the existing specialist components, not a veto and not a new model call.
+            val moeComponents = SpecialistMoEGate.apply(gatedComponents, candidate, ctx)
+
+            val finalCard = ScoreCard(moeComponents)
             try { EducationSubLayerAI.recordEntryScores(candidate.mint, finalCard.components, candidate) } catch (_: Exception) {}
 
             // CrossTalk publish (existing behavior — fan-out the unified score)

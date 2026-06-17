@@ -2029,6 +2029,23 @@ class GoldenTapeRegressionTest {
 
 
     @Test
+    fun specialist_moe_gate_weights_components_without_veto_or_zeroing() {
+        val moe = java.io.File("src/main/kotlin/com/lifecyclebot/v3/scoring/SpecialistMoEGate.kt").readText()
+        val scorer = java.io.File("src/main/kotlin/com/lifecyclebot/v3/scoring/UnifiedScorer.kt").readText()
+        val collector = java.io.File("src/main/kotlin/com/lifecyclebot/engine/PipelineHealthCollector.kt").readText()
+        assertTrue("MoE gate must exist", moe.contains("object SpecialistMoEGate"))
+        assertTrue("MoE must consume Education evidence", moe.contains("EducationSubLayerAI.getLayerAccuracy") && moe.contains("EducationSubLayerAI.getLayerMaturity"))
+        assertTrue("MoE must consume MetaCog trust", moe.contains("MetaCognitionAI.getTrustMultiplier"))
+        assertTrue("MoE must be bounded", moe.contains("FLOOR = 0.75") && moe.contains("CAP = 1.25"))
+        assertTrue("MoE must preserve non-zero votes", moe.contains("nonZeroRounded"))
+        assertTrue("UnifiedScorer must apply MoE before final ScoreCard", scorer.contains("SpecialistMoEGate.apply(gatedComponents, candidate, ctx)") && scorer.contains("ScoreCard(moeComponents)"))
+        assertTrue("MoE telemetry must be report-visible", collector.contains("SpecialistMoEGate.formatForPipelineDump"))
+        assertFalse("MoE must not introduce hard veto", moe.contains("fatal = true") || moe.contains("return emptyList") || moe.contains("return false"))
+        assertFalse("MoE must not call an LLM/API on scorer hot path", moe.contains("GeminiCopilot") || moe.contains("Groq") || moe.contains("rawText") || moe.contains("http"))
+    }
+
+
+    @Test
     fun event_triggered_sentience_is_safe_and_non_mutating() {
         val sentience = java.io.File("src/main/kotlin/com/lifecyclebot/engine/SentienceOrchestrator.kt").readText()
         val doctor = java.io.File("src/main/kotlin/com/lifecyclebot/engine/RuntimeDoctor.kt").readText()

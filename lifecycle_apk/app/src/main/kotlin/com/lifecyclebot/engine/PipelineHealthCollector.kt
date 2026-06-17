@@ -1466,11 +1466,13 @@ object PipelineHealthCollector {
             val metaPolicyDump = try { com.lifecyclebot.engine.AutonomousMetaPolicy.formatForPipelineDump() } catch (_: Throwable) { "" }
             val fwdDump = try { com.lifecyclebot.engine.ForwardOutcomeModel.formatForPipelineDump() } catch (_: Throwable) { "" }
             val uphDump = try { com.lifecyclebot.engine.UnifiedPolicyHead.formatForPipelineDump() } catch (_: Throwable) { "" }
+            val moeDump = try { com.lifecyclebot.v3.scoring.SpecialistMoEGate.formatForPipelineDump() } catch (_: Throwable) { "" }
             val hypoDump = try { com.lifecyclebot.engine.StrategyHypothesisEngine.formatForPipelineDump() } catch (_: Throwable) { "" }
             if (bcg.isNotEmpty()) sb.append(bcg)
             if (metaPolicyDump.isNotEmpty()) sb.append(metaPolicyDump)
             if (fwdDump.isNotEmpty()) sb.append(fwdDump)
             if (uphDump.isNotEmpty()) sb.append(uphDump)
+            if (moeDump.isNotEmpty()) sb.append(moeDump)
             if (hypoDump.isNotEmpty()) sb.append(hypoDump)
             val laneTunerDump = try { com.lifecyclebot.engine.learning.LaneExitTuner.formatForPipelineDump() } catch (_: Throwable) { "" }
             if (laneTunerDump.isNotEmpty()) sb.append(laneTunerDump)
