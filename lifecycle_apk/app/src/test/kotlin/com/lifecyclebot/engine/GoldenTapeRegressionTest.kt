@@ -2346,7 +2346,7 @@ class GoldenTapeRegressionTest {
         assertTrue("Open-position UI must recover missing entry/current pricing from journal/token sources", main.contains("recoverRenderablePricing") && main.contains("journalEntryPrice") && main.contains("OPEN_POSITION_PRICE_RECOVERED_FOR_UI"))
         assertTrue("Main UI panels must use shared current-price authority", main.contains("mainUiCurrentPrice") && main.contains("shared Main UI current-price authority"))
         assertTrue("Main UI must show pricing wait instead of fake zero entry", main.contains("pricing wait") && main.contains("basis wait") && !main.contains("if (ref > 0.0) ref else pos.entryPrice") && !main.contains("ts.lastPrice - pos.entryPrice"))
-        assertTrue("CYCLIC panel must recompute display price/PnL from live token state", main.contains("cyclicStatusDisplay") && main.contains("engine.entryPriceSol") && main.contains("cyclicToken?.history?.lastOrNull()?.priceUsd") && main.contains("px=") && main.contains("priceTxt"))
+        assertTrue("CYCLIC panel must display engine-published price/PnL authority, not raw token fallback", main.contains("cyclicStatusDisplay") && main.contains("engine.entryPriceSol") && main.contains("engine.currentPriceSol") && main.contains("engine.priceState") && main.contains("px=") && main.contains("priceTxt") && !main.contains("cyclicToken?.history?.lastOrNull()?.priceUsd"))
     }
 
 

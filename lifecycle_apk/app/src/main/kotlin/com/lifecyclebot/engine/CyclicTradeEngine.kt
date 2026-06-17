@@ -281,12 +281,18 @@ object CyclicTradeEngine {
             val STALE_FEED_MS = 90_000L
             val priceVerdict = resolveCyclicPrice(ts, executor, entryPriceSol, "held", requireFresh = true)
             if (!priceVerdict.ok) {
+                val ageText = priceAgeMs?.let { "${it}ms" } ?: "unknown"
                 currentPriceSol = 0.0
                 currentPnlPct = 0.0
                 priceState = priceVerdict.reason
                 statusMessage = "⏸️ Cyclic holding $currentSymbol: pricing wait (${priceVerdict.reason.take(48)})"
                 try { com.lifecyclebot.engine.PipelineHealthCollector.labelInc("CYCLIC_PRICE_AUTHORITY_WAIT") } catch (_: Throwable) {}
-                try { ForensicLogger.lifecycle("CYCLIC_PRICE_AUTHORITY_WAIT", "mint=${ts.mint.take(10)} symbol=${ts.symbol} reason=${priceVerdict.reason} entry=$entryPriceSol raw=${ts.lastPrice} source=${ts.lastPriceSource} age=${priceAgeMs ?: -1}") } catch (_: Throwable) {}
+                // Preserve the legacy timestamp-specific marker for reports/tests, but route it through
+                // the new authority wait path instead of the old Long.MAX stale force-close behavior.
+                if (priceVerdict.reason.contains("TS_UNKNOWN") || ageText == "unknown") {
+                    try { com.lifecyclebot.engine.PipelineHealthCollector.labelInc("CYCLIC_PRICE_TS_UNKNOWN_WAIT") } catch (_: Throwable) {}
+                }
+                try { ForensicLogger.lifecycle("CYCLIC_PRICE_AUTHORITY_WAIT", "mint=${ts.mint.take(10)} symbol=${ts.symbol} reason=${priceVerdict.reason} entry=$entryPriceSol raw=${ts.lastPrice} source=${ts.lastPriceSource} age=$ageText") } catch (_: Throwable) {}
                 return
             }
             val currentPrice = priceVerdict.price
