@@ -2769,13 +2769,12 @@ for legal compliance.
         // ── hero balance / paper realized-P&L display ─────────────────────────
         val config = state.config // V5.9.706 — use pre-loaded config from UiState (avoid AES-GCM decrypt on main thread)
         val solPx  = com.lifecyclebot.engine.WalletManager.lastKnownSolPrice.takeIf { it in 50.0..500.0 } ?: 85.0
-        // V5.0.3838 — PAPER HERO DISPLAY AUTHORITY FIX.
-        // Root cause of the repeated "$7M up" UI lie: this hero card displayed
-        // BotService.status.paperWalletSol and CurrencyManager converted that
-        // simulated bankroll to USD. paperWalletSol is sizing bankroll, NOT
-        // realized profit/equity. In paper mode the only honest top-line money
-        // number is the journal/accounting source of truth: realized net P&L.
-        // Keep balSol for trading/return denominator paths; use heroSol only for UI.
+        // V5.0.3839 — MAIN UI MONEY DISPLAY AUTHORITY FIX.
+        // 3838 overcorrected the fake "$7M up" bug by replacing the hero balance
+        // with realized P&L only. Correct model: the large hero number is a sane
+        // paper display balance/equity, while realized P&L is shown separately and
+        // sourced from TradeHistoryStore. paperWalletSol remains the sizing bankroll
+        // but cannot print raw fantasy 99k SOL as the headline again.
         val journalStats = try {
             com.lifecyclebot.engine.TradeHistoryStore.getStatsCached()
         } catch (_: Throwable) { null }
@@ -2785,16 +2784,19 @@ for legal compliance.
         } else {
             ws.solBalance
         }
-        val heroSol = if (config.paperMode) {
-            journalStats?.totalPnlSol ?: ws.totalPnlSol
-        } else {
-            balSol
-        }
-        val bankrollSol = if (config.paperMode) balSol else ws.solBalance
+        val realizedPnlSol = journalStats?.totalPnlSol ?: ws.totalPnlSol
+        val rawBankrollSol = if (config.paperMode) balSol else ws.solBalance
+        val paperStartSol = config.paperSimulatedBalance.takeIf { it.isFinite() && it > 0.0 } ?: 10.0
+        val sanePaperCeiling = maxOf(paperStartSol * 10.0, paperStartSol + kotlin.math.abs(realizedPnlSol) * 4.0 + 25.0)
+        val displayBankrollSol = if (config.paperMode && rawBankrollSol > sanePaperCeiling) {
+            try { com.lifecyclebot.engine.PipelineHealthCollector.labelInc("PAPER_HERO_BANKROLL_DISPLAY_SANITIZED") } catch (_: Throwable) {}
+            try { com.lifecyclebot.engine.ForensicLogger.lifecycle("PAPER_HERO_BANKROLL_DISPLAY_SANITIZED", "raw=$rawBankrollSol ceiling=$sanePaperCeiling realized=$realizedPnlSol start=$paperStartSol") } catch (_: Throwable) {}
+            (paperStartSol + realizedPnlSol).coerceAtLeast(0.0)
+        } else rawBankrollSol
 
         if (config.paperMode) {
-            tvBalanceLarge.setTextIfChanged(currency.format(heroSol, showPlus = true))
-            tvBalanceUsd.setTextIfChanged("📝 PAPER MODE · realized P&L ◎ ${"%+.4f".format(heroSol)} · bankroll ◎ ${"%.4f".format(bankrollSol)}")
+            tvBalanceLarge.setTextIfChanged(currency.format(displayBankrollSol))
+            tvBalanceUsd.setTextIfChanged("📝 PAPER MODE · balance ◎ ${"%.4f".format(displayBankrollSol)} · realized P&L ◎ ${"%+.4f".format(realizedPnlSol)}")
         } else if (balSol > 0.001) {
             tvBalanceLarge.setTextIfChanged(currency.format(balSol))  // V5.9.1278 change-guarded; converts SOL→display currency internally
             // V5.9.773 — BIG explicit mode chip so the operator can never
@@ -2840,7 +2842,7 @@ for legal compliance.
         // same journal SOL P&L over starting capital (currentBal - journalPnl),
         // so the % can never disagree with the $. Fail-open to WalletState if
         // the journal stats read throws.
-        val pnl    = journalStats?.totalPnlSol ?: ws.totalPnlSol
+        val pnl    = realizedPnlSol
         val startCapitalSol = (balSol - pnl)
         val pnlPct = if (startCapitalSol > 0.0001) (pnl / startCapitalSol) * 100.0 else ws.totalPnlPct
         if (ws.totalTrades > 0) {
@@ -3906,7 +3908,7 @@ for legal compliance.
             ).hashCode()
             val nowCyclic = System.currentTimeMillis()
             val runtimeActive = try { com.lifecyclebot.engine.BotService.isRuntimeActive() } catch (_: Throwable) { false }
-            val minCyclicMs = if (runtimeActive) 60_000L else 10_000L
+            val minCyclicMs = if (runtimeActive && engine.isInPosition) 8_000L else if (runtimeActive) 60_000L else 10_000L
             if (cardCyclicPanel != null && cyclicHash == lastCyclicPanelHash && nowCyclic - lastCyclicPanelRenderMs < minCyclicMs) return
             if (runtimeActive && lastCyclicPanelRenderMs > 0L && nowCyclic - lastCyclicPanelRenderMs < minCyclicMs) return
             lastCyclicPanelHash = cyclicHash
@@ -3946,6 +3948,21 @@ for legal compliance.
             val entryTime = engine.entryTimeMs
             val isLive    = engine.isLiveMode
             val status    = engine.statusMessage
+            val cyclicToken = state.tokens[engine.currentMint]
+            val cyclicEntry = engine.entryPriceSol.takeIf { it.isFinite() && it > 0.0 } ?: cyclicToken?.position?.entryPrice?.takeIf { it > 0.0 } ?: 0.0
+            val cyclicCurrent = listOf(
+                cyclicToken?.lastPrice,
+                cyclicToken?.ref,
+                cyclicToken?.history?.lastOrNull()?.priceUsd,
+                cyclicEntry,
+            ).firstOrNull { it != null && it.isFinite() && it > 0.0 } ?: 0.0
+            val cyclicPriceFresh = cyclicToken?.lastPriceUpdate?.let { it > 0L && System.currentTimeMillis() - it <= 90_000L } ?: false
+            val cyclicDisplayPnlPct = if (isInPos && cyclicEntry > 0.0 && cyclicCurrent > 0.0) ((cyclicCurrent - cyclicEntry) / cyclicEntry) * 100.0 else 0.0
+            val cyclicStatusDisplay = if (isInPos && symbol.isNotBlank()) {
+                val priceTxt = if (cyclicCurrent > 0.0) cyclicCurrent.fmtPrice() else "pricing wait"
+                val pnlTxt = if (cyclicEntry > 0.0 && cyclicCurrent > 0.0) "%+.1f%%".format(cyclicDisplayPnlPct) else "basis wait"
+                "IN: $symbol | px=$priceTxt | PnL: $pnlTxt | ${if (cyclicPriceFresh) "fresh" else "stale/wait"} | ${if (isLive) "LIVE" else "PAPER"}"
+            } else status
 
             val winRate = if (cycles > 0) (wins * 100 / cycles) else 0
             val growthPct = ((ringUsd - 500.0) / 500.0 * 100.0)
@@ -4047,7 +4064,7 @@ for legal compliance.
 
                 // Status line
                 card.addView(TextView(this@MainActivity).apply {
-                    text = status
+                    text = cyclicStatusDisplay
                     setTextColor(android.graphics.Color.parseColor("#9CA3AF"))
                     textSize = 10f
                     setPadding((2 * resources.displayMetrics.density).toInt(), (2 * resources.displayMetrics.density).toInt(), 0, 0)
@@ -4087,12 +4104,11 @@ for legal compliance.
                 var totalPnl = 0.0
                 for (pos in moonshotPositions) {
                     // V5.9.302: dead-feed guard — ref=0 must NOT count as -100%
-                    val currentPrice = try {
-                        val ref = com.lifecyclebot.engine.BotService.status.tokens[pos.mint]?.ref ?: 0.0
-                        if (ref > 0.0) ref else pos.entryPrice
-                    } catch (_: Exception) { pos.entryPrice }
-                    val pnlPct = if (pos.entryPrice > 0) ((currentPrice - pos.entryPrice) / pos.entryPrice * 100) else 0.0
-                    totalPnl += pos.entrySol * (pnlPct / 100)
+                    val currentPrice = mainUiCurrentPrice(pos.mint, pos.lastSeenPrice)
+                    if (currentPrice != null && pos.entryPrice > 0) {
+                        val pnlPct = ((currentPrice - pos.entryPrice) / pos.entryPrice * 100)
+                        totalPnl += pos.entrySol * (pnlPct / 100)
+                    }
                 }
                 
                 val pnlColor = if (totalPnl >= 0) green else red
@@ -4373,20 +4389,71 @@ for legal compliance.
             .filter { it.position.isPaperPosition == isPaperMode }
             .toMutableList()
         val alreadyRendered = merged.map { it.mint }.toMutableSet()
+        var latestBuyByMint: Map<String, com.lifecyclebot.data.Trade>? = null
+        fun latestBuy(mint: String): com.lifecyclebot.data.Trade? {
+            if (mint.isBlank()) return null
+            val cached = latestBuyByMint
+            if (cached != null) return cached[mint]
+            val built = try {
+                com.lifecyclebot.engine.TradeHistoryStore.getAllTrades()
+                    .asReversed()
+                    .filter { it.mint.isNotBlank() && it.side.equals("BUY", ignoreCase = true) }
+                    .distinctBy { it.mint }
+                    .associateBy { it.mint }
+            } catch (_: Throwable) { emptyMap() }
+            latestBuyByMint = built
+            return built[mint]
+        }
+        fun firstPositive(vararg values: Double?): Double = values.firstOrNull { it != null && it.isFinite() && it > 0.0 } ?: 0.0
+        fun journalEntryPrice(t: com.lifecyclebot.data.Trade?): Double = if (t == null) 0.0 else firstPositive(
+            t.entryPriceSnapshot,
+            if (t.entryCostSol > 0.0 && t.entryQtyToken > 0.0) t.entryCostSol / t.entryQtyToken else 0.0,
+            t.price,
+        )
+        fun recoverRenderablePricing(ts: com.lifecyclebot.data.TokenState) {
+            val p0 = ts.position
+            if (p0.entryPrice > 0.0 && ts.lastPrice > 0.0 && p0.qtyToken > 0.0) return
+            val buy = latestBuy(ts.mint)
+            val recoveredEntry = firstPositive(p0.entryPrice, journalEntryPrice(buy), ts.lastPrice, ts.ref)
+            if (recoveredEntry <= 0.0) return
+            val recoveredCurrent = firstPositive(ts.lastPrice, ts.ref, recoveredEntry)
+            val recoveredCost = firstPositive(p0.costSol, buy?.entryCostSol, buy?.sol)
+            val recoveredQty = firstPositive(p0.qtyToken, buy?.entryQtyToken, if (recoveredEntry > 0.0 && recoveredCost > 0.0) recoveredCost / recoveredEntry else 0.0)
+            ts.position = p0.copy(
+                entryPrice = recoveredEntry,
+                qtyToken = recoveredQty,
+                costSol = recoveredCost.takeIf { it > 0.0 } ?: p0.costSol,
+                highestPrice = firstPositive(p0.highestPrice, recoveredCurrent, recoveredEntry),
+                entryPriceSource = p0.entryPriceSource.ifBlank { buy?.entryPriceSource ?: "UI_RECOVERED_JOURNAL" },
+                entryPoolAddress = p0.entryPoolAddress.ifBlank { buy?.entryPoolAddress ?: "" },
+            )
+            if (ts.lastPrice <= 0.0 && recoveredCurrent > 0.0) {
+                ts.lastPrice = recoveredCurrent
+                ts.lastPriceUpdate = System.currentTimeMillis()
+                ts.lastPriceSource = ts.lastPriceSource.ifBlank { "UI_RECOVERED" }
+            }
+            try { com.lifecyclebot.engine.PipelineHealthCollector.labelInc("OPEN_POSITION_PRICE_RECOVERED_FOR_UI") } catch (_: Throwable) {}
+        }
 
         fun upsert(mint: String, symbol: String, layer: String, emoji: String,
                    entryPrice: Double, entrySol: Double, entryTime: Long,
                    peakPct: Double, currentPrice: Double, isPaper: Boolean) {
             if (mint.isBlank() || alreadyRendered.contains(mint)) return
+            val existing = state.tokens[mint] ?: merged.firstOrNull { it.mint == mint }
+            val buy = latestBuy(mint)
+            val recoveredEntry = firstPositive(entryPrice, existing?.position?.entryPrice, journalEntryPrice(buy), currentPrice, existing?.lastPrice, existing?.ref)
+            val recoveredCurrent = firstPositive(currentPrice, existing?.lastPrice, existing?.ref, recoveredEntry)
+            val recoveredCost = firstPositive(entrySol, existing?.position?.costSol, buy?.entryCostSol, buy?.sol)
+            val recoveredQty = firstPositive(existing?.position?.qtyToken, buy?.entryQtyToken, if (recoveredEntry > 0.0 && recoveredCost > 0.0) recoveredCost / recoveredEntry else 0.0)
             val synth = TokenState(mint = mint, symbol = symbol)
             // Seed a complete Position so renderOpenPositions shows entry,
             // size, token qty, P&L%, SOL PnL, USD value, peak/lock badge.
             synth.position = com.lifecyclebot.data.Position(
-                qtyToken        = if (entryPrice > 0) entrySol / entryPrice else 0.0,
-                entryPrice      = entryPrice,
-                entryTime       = entryTime.takeIf { it > 0 } ?: System.currentTimeMillis(),
-                costSol         = entrySol,
-                highestPrice    = if (peakPct > 0 && entryPrice > 0) entryPrice * (1.0 + peakPct / 100.0) else entryPrice,
+                qtyToken        = recoveredQty,
+                entryPrice      = recoveredEntry,
+                entryTime       = entryTime.takeIf { it > 0 } ?: buy?.ts?.takeIf { it > 0 } ?: System.currentTimeMillis(),
+                costSol         = recoveredCost,
+                highestPrice    = if (peakPct > 0 && recoveredEntry > 0) recoveredEntry * (1.0 + peakPct / 100.0) else firstPositive(recoveredCurrent, recoveredEntry),
                 entryPhase      = "sub_trader",
                 entryScore      = 0.0,
                 isPaperPosition = isPaper,
@@ -4397,7 +4464,7 @@ for legal compliance.
                 isBlueChipPosition = (layer == "BLUE_CHIP"),
                 isTreasuryPosition = (layer == "TREASURY"),
             )
-            synth.lastPrice = if (currentPrice > 0) currentPrice else entryPrice
+            synth.lastPrice = recoveredCurrent
             synth.lastPriceUpdate = System.currentTimeMillis()
             merged += synth
             alreadyRendered += mint
@@ -4520,6 +4587,8 @@ for legal compliance.
                     currentPrice = it.currentPrice, isPaper = it.isPaper)
             }
         } catch (_: Exception) {}
+
+        merged.forEach { recoverRenderablePricing(it) }
 
         // V5.9.810 — sort by current unrealized gain % descending so the
         // strongest movers stay at the top of the Open Positions card.
@@ -4938,7 +5007,7 @@ for legal compliance.
             }
             // Entry price per token and time — use pos.entryPrice directly
             info.addView(TextView(this).apply {
-                text = "Entry: ${pos.entryPrice.fmtPrice()}  ·  ${sdf.format(java.util.Date(pos.entryTime))}"
+                text = "Entry: ${if (pos.entryPrice > 0.0) pos.entryPrice.fmtPrice() else "pricing wait"}  ·  ${sdf.format(java.util.Date(pos.entryTime))}"
                 textSize = resources.getDimension(R.dimen.trade_sub_text) / resources.displayMetrics.scaledDensity
                 setTextColor(muted)
                 typeface = android.graphics.Typeface.MONOSPACE
@@ -5152,24 +5221,38 @@ for legal compliance.
     private val expressTimeSdf     = java.text.SimpleDateFormat("HH:mm", java.util.Locale.US)
     private val manipTimeSdf       = java.text.SimpleDateFormat("HH:mm", java.util.Locale.US)
 
+    // V5.0.3839 — shared Main UI current-price authority. Dedicated cards must
+    // never pretend entryPrice is a live quote; that pins rows at +0.0% forever.
+    // Use scanner/token history first, then lane-provided current/last-seen values.
+    // If nothing real exists, callers show pricing wait / no live feed.
+    private fun mainUiCurrentPrice(mint: String, vararg laneCandidates: Double?): Double? {
+        fun good(v: Double?): Double? = v?.takeIf { it.isFinite() && it > 0.0 }
+        val ts = try { com.lifecyclebot.engine.BotService.status.tokens[mint] } catch (_: Throwable) { null }
+        return good(ts?.lastPrice)
+            ?: good(ts?.ref)
+            ?: good(ts?.history?.lastOrNull()?.priceUsd)
+            ?: laneCandidates.firstNotNullOfOrNull { good(it) }
+    }
+
+    private fun mainUiPriceFresh(mint: String, maxAgeMs: Long = 90_000L): Boolean {
+        val ts = try { com.lifecyclebot.engine.BotService.status.tokens[mint] } catch (_: Throwable) { null }
+        val ageOk = ts?.lastPriceUpdate?.let { it > 0L && System.currentTimeMillis() - it <= maxAgeMs } == true
+        return ageOk || mainUiCurrentPrice(mint) != null
+    }
+
     // V5.9.1089 — cheap Treasury PnL refresh without row rebuild.
     private fun computeTreasuryUnrealizedPnl(positions: List<com.lifecyclebot.v3.scoring.CashGenerationAI.TreasuryPosition>): Double {
         var sum = 0.0
         val now = System.currentTimeMillis()
         positions.forEach { pos ->
             if (pos.entryPrice <= 0.0 || pos.entrySol <= 0.0) return@forEach
-            val currentPrice = try {
-                val fromScanner = com.lifecyclebot.engine.BotService.status.tokens[pos.mint]?.ref
-                val fromTreasury = com.lifecyclebot.v3.scoring.CashGenerationAI.getTrackedPrice(pos.mint)
-                val fromPosObj = pos.currentPrice.takeIf { it > 0.0 }
-                val resolved = fromScanner ?: fromTreasury ?: fromPosObj
-                if (resolved == null || resolved <= 0.0) pos.entryPrice else resolved
-            } catch (_: Exception) { pos.entryPrice }
+            val currentPrice = mainUiCurrentPrice(pos.mint, com.lifecyclebot.v3.scoring.CashGenerationAI.getTrackedPrice(pos.mint), pos.currentPrice)
             val lastTick = com.lifecyclebot.v3.scoring.CashGenerationAI.getLastPriceUpdateMs(pos.mint) ?: 0L
             val scannerHasMint = try { com.lifecyclebot.engine.BotService.status.tokens[pos.mint]?.ref?.let { it > 0.0 } == true } catch (_: Throwable) { false }
             val hasFresh = scannerHasMint || (lastTick > 0L && (now - lastTick) < 60_000L)
             if (hasFresh) {
-                val gainPct = (currentPrice - pos.entryPrice) / pos.entryPrice * 100.0
+                val px = currentPrice ?: return@forEach
+                val gainPct = (px - pos.entryPrice) / pos.entryPrice * 100.0
                 sum += pos.entrySol * gainPct / 100.0
             }
         }
@@ -5195,20 +5278,13 @@ for legal compliance.
             // V5.9.188c (fix): 3-tier price lookup for Treasury positions
             // Tier 1: live scanner token map (mint key) — updated every scan cycle
             // Tier 2: CashGenerationAI tracked price — fed from BotService scanner loop
-            // Tier 3: entryPrice — last resort (will show +0.0% but won't crash)
-            val currentPrice = try {
-                // V5.9.415 — 4-tier price lookup.
-                val fromScanner   = com.lifecyclebot.engine.BotService.status.tokens[pos.mint]?.ref
-                val fromTreasury  = com.lifecyclebot.v3.scoring.CashGenerationAI.getTrackedPrice(pos.mint)
-                val fromPosObj    = pos.currentPrice.takeIf { it > 0.0 }
-                val resolved = fromScanner ?: fromTreasury ?: fromPosObj
-                if (resolved == null || resolved <= 0.0) pos.entryPrice else resolved
-            } catch (_: Exception) { pos.entryPrice }
-            val gainPct = (currentPrice - pos.entryPrice) / pos.entryPrice * 100.0
+            // No entryPrice-as-current fallback: missing live price shows pricing wait.
+            val currentPrice = mainUiCurrentPrice(pos.mint, com.lifecyclebot.v3.scoring.CashGenerationAI.getTrackedPrice(pos.mint), pos.currentPrice)
+            val gainPct = if (currentPrice != null && pos.entryPrice > 0.0) (currentPrice - pos.entryPrice) / pos.entryPrice * 100.0 else 0.0
             val now = System.currentTimeMillis()
             val lastTick = com.lifecyclebot.v3.scoring.CashGenerationAI.getLastPriceUpdateMs(pos.mint) ?: 0L
-            val scannerHasMint = com.lifecyclebot.engine.BotService.status.tokens[pos.mint]?.ref?.let { it > 0.0 } == true
-            val hasFresh = scannerHasMint || (lastTick > 0L && (now - lastTick) < 60_000L)
+            val scannerHasMint = mainUiCurrentPrice(pos.mint) != null
+            val hasFresh = currentPrice != null && (scannerHasMint || (lastTick > 0L && (now - lastTick) < 60_000L))
             val pnlSol = if (hasFresh) pos.entrySol * gainPct / 100.0 else 0.0
             childrenUnrealizedSum += pnlSol
 
@@ -5320,17 +5396,15 @@ for legal compliance.
         if (bcHash == lastBlueChipHash && llBlueChipPositions.childCount > 0) {
             var liveSum = 0.0
             bcVisible.forEach { pos ->
-                val cp = try {
-                    val ref = com.lifecyclebot.engine.BotService.status.tokens[pos.mint]?.ref ?: 0.0
-                    if (ref > 0.0) ref else pos.entryPrice
-                } catch (_: Exception) { pos.entryPrice }
-                val g = if (pos.entryPrice > 0) (cp - pos.entryPrice) / pos.entryPrice * 100 else 0.0
-                val ps = pos.entrySol * g / 100.0
+                val cp = mainUiCurrentPrice(pos.mint, pos.lastSeenPrice)
+                val hasPrice = cp != null && pos.entryPrice > 0.0
+                val g = if (hasPrice) (cp!! - pos.entryPrice) / pos.entryPrice * 100 else 0.0
+                val ps = if (hasPrice) pos.entrySol * g / 100.0 else 0.0
                 val hm = (System.currentTimeMillis() - pos.entryTime) / 60_000
                 liveSum += ps
-                val col = if (g >= 0) green else red
+                val col = if (!hasPrice) muted else if (g >= 0) green else red
                 llBlueChipPositions.findViewWithTag<android.widget.TextView>("bcpct_${pos.mint}")
-                    ?.let { it.setTextIfChanged("%+.1f%%".format(g)); it.setTextColor(col) }
+                    ?.let { it.setTextIfChanged(if (hasPrice) "%+.1f%%".format(g) else "pricing wait"); it.setTextColor(col) }
                 llBlueChipPositions.findViewWithTag<android.widget.TextView>("bcsol_${pos.mint}")
                     ?.let { it.setTextIfChanged("%+.4f◎  ${hm}m".format(ps)); it.setTextColor(col) }
             }
@@ -5347,13 +5421,11 @@ for legal compliance.
         positions.take(4).forEach { pos ->
             // V5.8: Use live token price from BotService (consistent with other windows)
             // V5.9.302: dead-feed guard — ref=0 must NOT count as -100%
-            val currentPrice = try {
-                val ref = com.lifecyclebot.engine.BotService.status.tokens[pos.mint]?.ref ?: 0.0
-                if (ref > 0.0) ref else pos.entryPrice
-            } catch (_: Exception) { pos.entryPrice }
-            val gainPct = if (pos.entryPrice > 0) (currentPrice - pos.entryPrice) / pos.entryPrice * 100 else 0.0
-            val gainCol = if (gainPct >= 0) green else red
-            val pnlSol = pos.entrySol * gainPct / 100.0
+            val currentPrice = mainUiCurrentPrice(pos.mint, pos.lastSeenPrice)
+            val hasPrice = currentPrice != null && pos.entryPrice > 0.0
+            val gainPct = if (hasPrice) (currentPrice!! - pos.entryPrice) / pos.entryPrice * 100 else 0.0
+            val gainCol = if (!hasPrice) muted else if (gainPct >= 0) green else red
+            val pnlSol = if (hasPrice) pos.entrySol * gainPct / 100.0 else 0.0
             childrenUnrealizedSum += pnlSol
 
             val row = LinearLayout(this).apply {
@@ -5473,14 +5545,10 @@ for legal compliance.
             val lastTick = try {
                 com.lifecyclebot.v3.scoring.QualityTraderAI.getLastPriceUpdateMs(pos.mint) ?: 0L
             } catch (_: Exception) { 0L }
-            val hasFresh = (tsRef > 0.0) ||
-                (lastTick > 0L && (now - lastTick) < 60_000L)
-            val currentPrice = when {
-                tsRef > 0.0                       -> tsRef
-                pos.lastSeenPrice > 0.0           -> pos.lastSeenPrice
-                else                              -> pos.entryPrice
-            }
-            val gainPct = if (pos.entryPrice > 0) (currentPrice - pos.entryPrice) / pos.entryPrice * 100 else 0.0
+            val currentPrice = mainUiCurrentPrice(pos.mint, tsRef, pos.lastSeenPrice)
+            val hasFresh = currentPrice != null && ((tsRef > 0.0) ||
+                (lastTick > 0L && (now - lastTick) < 60_000L))
+            val gainPct = if (currentPrice != null && pos.entryPrice > 0) (currentPrice - pos.entryPrice) / pos.entryPrice * 100 else 0.0
             val gainCol = when {
                 !hasFresh    -> muted             // stale → grey, no false-zero green
                 gainPct >= 0 -> green
@@ -5594,12 +5662,13 @@ for legal compliance.
             var liveSum = 0.0
             visible.forEach { pos ->
                 val tsState = try { com.lifecyclebot.engine.BotService.status.tokens[pos.mint] } catch (_: Exception) { null }
-                val currentPrice = tsState?.ref?.takeIf { it > 0 }
-                    ?: pos.highWaterMark.takeIf { it > pos.entryPrice } ?: pos.entryPrice
+                val currentPrice = mainUiCurrentPrice(pos.mint, pos.lastSeenPrice)
                 val pnlVerdict = if (tsState != null) {
                     com.lifecyclebot.engine.OpenPnlSanity.inspect(tsState, "MainActivity.shitcoinFast/${pos.symbol}/${pos.mint.take(8)}", emit = true)
-                } else {
+                } else if (currentPrice != null) {
                     com.lifecyclebot.engine.OpenPnlSanity.inspect(entryPrice = pos.entryPrice, currentPrice = currentPrice, context = "MainActivity.shitcoinFast/${pos.symbol}/${pos.mint.take(8)}", emit = true)
+                } else {
+                    com.lifecyclebot.engine.OpenPnlSanity.Verdict(false, reason = "PRICE_WAIT")
                 }
                 val basisTrusted = pnlVerdict.ok
                 val gainPct = if (basisTrusted) pnlVerdict.pnlPct else 0.0
@@ -5623,13 +5692,13 @@ for legal compliance.
         visible.forEach { pos ->
             if (pos.entryPrice <= 0 || pos.entrySol <= 0 || pos.mint.isBlank()) return@forEach
             val tsState = try { com.lifecyclebot.engine.BotService.status.tokens[pos.mint] } catch (_: Exception) { null }
-            val currentPrice = tsState?.ref?.takeIf { it > 0 }
-                ?: pos.highWaterMark.takeIf { it > pos.entryPrice }
-                ?: pos.entryPrice
+            val currentPrice = mainUiCurrentPrice(pos.mint, pos.lastSeenPrice)
             val pnlVerdict = if (tsState != null) {
                 com.lifecyclebot.engine.OpenPnlSanity.inspect(tsState, "MainActivity.shitcoinBuild/${pos.symbol}/${pos.mint.take(8)}", emit = true)
-            } else {
+            } else if (currentPrice != null) {
                 com.lifecyclebot.engine.OpenPnlSanity.inspect(entryPrice = pos.entryPrice, currentPrice = currentPrice, context = "MainActivity.shitcoinBuild/${pos.symbol}/${pos.mint.take(8)}", emit = true)
+            } else {
+                com.lifecyclebot.engine.OpenPnlSanity.Verdict(false, reason = "PRICE_WAIT")
             }
             val basisTrusted = pnlVerdict.ok
             val gainPct = if (basisTrusted) pnlVerdict.pnlPct else 0.0
@@ -5758,14 +5827,11 @@ for legal compliance.
         var childrenUnrealizedSum = 0.0
         rides.forEach { ride ->
             if (ride.entryPrice <= 0 || ride.entrySol <= 0 || ride.mint.isBlank()) return@forEach
-            val currentPrice = try {
-                com.lifecyclebot.engine.BotService.status.tokens[ride.mint]?.ref
-                    ?.takeIf { it > 0 }
-                    ?: ride.entryPrice
-            } catch (_: Exception) { ride.entryPrice }
-            val gainPct = if (ride.entryPrice > 0) (currentPrice - ride.entryPrice) / ride.entryPrice * 100 else 0.0
-            val gainCol = if (gainPct >= 0) green else red
-            val pnlSol = ride.entrySol * gainPct / 100.0
+            val currentPrice = mainUiCurrentPrice(ride.mint)
+            val hasPrice = currentPrice != null && ride.entryPrice > 0.0
+            val gainPct = if (hasPrice) (currentPrice!! - ride.entryPrice) / ride.entryPrice * 100 else 0.0
+            val gainCol = if (!hasPrice) muted else if (gainPct >= 0) green else red
+            val pnlSol = if (hasPrice) ride.entrySol * gainPct / 100.0 else 0.0
             childrenUnrealizedSum += pnlSol
             val holdMins = (System.currentTimeMillis() - ride.entryTime) / 60_000
 
@@ -5876,10 +5942,9 @@ for legal compliance.
         // longer triggers a teardown. NOT a loop throttle — the heavy view work is
         // gated, the data loop is untouched.
         val manipUnrealizedSum = positions.sumOf { pos ->
-            val ref = try { com.lifecyclebot.engine.BotService.status.tokens[pos.mint]?.ref ?: 0.0 } catch (_: Throwable) { 0.0 }
-            val px = if (ref > 0.0) ref else pos.entryPrice
-            val g = if (pos.entryPrice > 0) (px - pos.entryPrice) / pos.entryPrice * 100.0 else 0.0
-            pos.entrySol * g / 100.0
+            val px = mainUiCurrentPrice(pos.mint, pos.highWaterMark)
+            val g = if (px != null && pos.entryPrice > 0) (px - pos.entryPrice) / pos.entryPrice * 100.0 else 0.0
+            if (px != null) pos.entrySol * g / 100.0 else 0.0
         }
         val manipHash = positions.map { pos ->
             val ref = try { com.lifecyclebot.engine.BotService.status.tokens[pos.mint]?.ref ?: 0.0 } catch (_: Throwable) { 0.0 }
@@ -5905,13 +5970,11 @@ for legal compliance.
         var childrenUnrealizedSum = 0.0
         positions.forEach { pos ->
             // V5.9.302: dead-feed guard — ref=0 must NOT count as -100%
-            val currentPrice = try {
-                val ref = com.lifecyclebot.engine.BotService.status.tokens[pos.mint]?.ref ?: 0.0
-                if (ref > 0.0) ref else pos.entryPrice
-            } catch (_: Exception) { pos.entryPrice }
-            val gainPct = if (pos.entryPrice > 0) (currentPrice - pos.entryPrice) / pos.entryPrice * 100 else 0.0
-            val gainCol = if (gainPct >= 0) green else red
-            val pnlSol = pos.entrySol * gainPct / 100.0
+            val currentPrice = mainUiCurrentPrice(pos.mint, pos.highWaterMark)
+            val hasPrice = currentPrice != null && pos.entryPrice > 0.0
+            val gainPct = if (hasPrice) (currentPrice!! - pos.entryPrice) / pos.entryPrice * 100 else 0.0
+            val gainCol = if (!hasPrice) muted else if (gainPct >= 0) green else red
+            val pnlSol = if (hasPrice) pos.entrySol * gainPct / 100.0 else 0.0
             childrenUnrealizedSum += pnlSol
             val holdMins = (System.currentTimeMillis() - pos.entryTime) / 60_000
 
@@ -6013,15 +6076,13 @@ for legal compliance.
         val moonHash = moonVisible.map { "${it.mint}|${it.entrySol}|${it.isPaperMode}" }.hashCode()
         if (moonHash == lastMoonshotHash && llMoonshotPositions.childCount > 0) {
             moonVisible.forEach { pos ->
-                val cp = try {
-                    val ref = com.lifecyclebot.engine.BotService.status.tokens[pos.mint]?.ref ?: 0.0
-                    if (ref > 0.0) ref else pos.entryPrice
-                } catch (_: Exception) { pos.entryPrice }
-                val p = if (pos.entryPrice > 0) ((cp - pos.entryPrice) / pos.entryPrice * 100) else 0.0
+                val cp = mainUiCurrentPrice(pos.mint, pos.lastSeenPrice)
+                val hasPrice = cp != null && pos.entryPrice > 0.0
+                val p = if (hasPrice) ((cp!! - pos.entryPrice) / pos.entryPrice * 100) else 0.0
                 val hm = (System.currentTimeMillis() - pos.entryTime) / 60000
-                val col = if (p >= 0) 0xFF10B981.toInt() else 0xFFEF4444.toInt()
+                val col = if (!hasPrice) muted else if (p >= 0) 0xFF10B981.toInt() else 0xFFEF4444.toInt()
                 llMoonshotPositions.findViewWithTag<android.widget.TextView>("msentry_${pos.mint}")
-                    ?.setTextIfChanged("${String.format("%.6f", pos.entryPrice)} → ${String.format("%.6f", cp)}")
+                    ?.setTextIfChanged(if (hasPrice) "${String.format("%.6f", pos.entryPrice)} → ${String.format("%.6f", cp)}" else "${String.format("%.6f", pos.entryPrice)} → pricing wait")
                 llMoonshotPositions.findViewWithTag<android.widget.TextView>("mspnl_${pos.mint}")
                     ?.let { it.setTextIfChanged("${if (p >= 0) "+" else ""}${String.format("%.1f", p)}%"); it.setTextColor(col) }
                 llMoonshotPositions.findViewWithTag<android.widget.TextView>("mshold_${pos.mint}")
@@ -6051,12 +6112,9 @@ for legal compliance.
             // V5.9.302: Guard against dead price feed (ref=0 when token rugs/dies).
             // Without guard: pnlPct = (0 - entryPrice)/entryPrice*100 = -100% even though
             // the engine hasn't closed it. Show ~0% instead while RUG_SAFETY_NET fires.
-            val currentPrice = try {
-                val ref = com.lifecyclebot.engine.BotService.status.tokens[pos.mint]?.ref ?: 0.0
-                if (ref > 0.0) ref else pos.entryPrice
-            } catch (_: Exception) { pos.entryPrice }
+            val currentPrice = mainUiCurrentPrice(pos.mint, pos.lastSeenPrice)
             
-            val pnlPct = if (pos.entryPrice > 0) ((currentPrice - pos.entryPrice) / pos.entryPrice * 100) else 0.0
+            val pnlPct = if (currentPrice != null && pos.entryPrice > 0) ((currentPrice - pos.entryPrice) / pos.entryPrice * 100) else 0.0
             val holdMins = (System.currentTimeMillis() - pos.entryTime) / 60000
             
             val row = LinearLayout(this).apply {
@@ -6100,7 +6158,7 @@ for legal compliance.
             // Entry / Current
             val tvEntry = TextView(this).apply {
                 tag = "msentry_${pos.mint}"   // V5.9.1458 recycle target
-                text = "${String.format("%.6f", pos.entryPrice)} → ${String.format("%.6f", currentPrice)}"
+                text = if (currentPrice != null) "${String.format("%.6f", pos.entryPrice)} → ${String.format("%.6f", currentPrice)}" else "${String.format("%.6f", pos.entryPrice)} → pricing wait"
                 setTextColor(0xFF6B7280.toInt())
                 textSize = resources.getDimension(R.dimen.trade_sub_text) / resources.displayMetrics.scaledDensity
                 typeface = android.graphics.Typeface.create("monospace", android.graphics.Typeface.NORMAL)
@@ -6328,11 +6386,8 @@ for legal compliance.
             
             for (mission in missions) {
                 // V5.9.302: dead-feed guard — ref=0 must NOT count as -100%
-                val currentPrice = run {
-                    val ref = com.lifecyclebot.engine.BotService.status.tokens[mission.mint]?.ref ?: 0.0
-                    if (ref > 0.0) ref else mission.entryPrice
-                }
-                val pnlPct = ((currentPrice - mission.entryPrice) / mission.entryPrice * 100)
+                val currentPrice = mainUiCurrentPrice(mission.mint)
+                val pnlPct = if (currentPrice != null && mission.entryPrice > 0.0) ((currentPrice - mission.entryPrice) / mission.entryPrice * 100) else 0.0
                 val holdTimeSecs = (System.currentTimeMillis() - mission.entryTime) / 1000
                 
                 val row = LinearLayout(this).apply {

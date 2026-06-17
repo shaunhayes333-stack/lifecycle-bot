@@ -2338,13 +2338,16 @@ class GoldenTapeRegressionTest {
 
 
     @Test
-    fun paper_hero_balance_must_show_realized_pnl_not_simulated_bankroll() {
+    fun main_ui_money_and_pricing_surfaces_use_display_authority() {
         val main = java.io.File("src/main/kotlin/com/lifecyclebot/ui/MainActivity.kt").readText()
-        assertTrue("Paper hero must use journal realized PnL as display authority", main.contains("PAPER HERO DISPLAY AUTHORITY FIX") && main.contains("val heroSol = if (config.paperMode)") && main.contains("journalStats?.totalPnlSol ?: ws.totalPnlSol"))
-        assertTrue("Paper hero mode chip must disclose realized P&L vs bankroll", main.contains("realized P&L") && main.contains("bankroll ◎"))
-        val paperHeroIdx = main.indexOf("if (config.paperMode) {\n            tvBalanceLarge.setTextIfChanged(currency.format(heroSol, showPlus = true))")
-        val liveBalanceIdx = main.indexOf("tvBalanceLarge.setTextIfChanged(currency.format(balSol))")
-        assertTrue("Paper branch must render heroSol before any live balSol display", paperHeroIdx >= 0 && liveBalanceIdx > paperHeroIdx)
+        assertTrue("Paper hero must show a sane display balance, not PnL-only", main.contains("MAIN UI MONEY DISPLAY AUTHORITY FIX") && main.contains("displayBankrollSol") && main.contains("tvBalanceLarge.setTextIfChanged(currency.format(displayBankrollSol))"))
+        assertTrue("Paper hero chip must separate balance from realized journal P&L", main.contains("realizedPnlSol = journalStats?.totalPnlSol ?: ws.totalPnlSol") && main.contains("balance ◎") && main.contains("realized P&L ◎"))
+        assertTrue("Raw inflated paper bankroll must be display-sanitized", main.contains("PAPER_HERO_BANKROLL_DISPLAY_SANITIZED") && main.contains("rawBankrollSol > sanePaperCeiling"))
+        assertTrue("Open-position UI must recover missing entry/current pricing from journal/token sources", main.contains("recoverRenderablePricing") && main.contains("journalEntryPrice") && main.contains("OPEN_POSITION_PRICE_RECOVERED_FOR_UI"))
+        assertTrue("Main UI panels must use shared current-price authority", main.contains("mainUiCurrentPrice") && main.contains("shared Main UI current-price authority"))
+        assertTrue("Main UI must show pricing wait instead of fake zero entry", main.contains("pricing wait") && main.contains("basis wait") && !main.contains("if (ref > 0.0) ref else pos.entryPrice"))
+        assertTrue("CYCLIC panel must recompute display price/PnL from live token state", main.contains("cyclicStatusDisplay") && main.contains("engine.entryPriceSol") && main.contains("cyclicToken?.history?.lastOrNull()?.priceUsd") && main.contains("px=") && main.contains("priceTxt"))
     }
+
 
 }
