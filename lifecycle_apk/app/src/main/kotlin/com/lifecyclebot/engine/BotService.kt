@@ -1747,6 +1747,14 @@ class BotService : Service() {
                 // out meme FDG/lane evaluation.
                 mutableSetOf(com.lifecyclebot.engine.EnabledTraderAuthority.Trader.MEME).apply {
                     if (cryptoSidecarOn) add(com.lifecyclebot.engine.EnabledTraderAuthority.Trader.CRYPTO_ALT)
+                    // V5.0.3818 — CYCLIC_INTERNAL_SIDECAR_FIX. CYCLIC is the
+                    // self-contained compound ring over the MEME watchlist, not a
+                    // markets/perps lane. Keeping it out of MEME authority made
+                    // maybeTickCyclicTradeEngine() unreachable, so the trader was
+                    // "always-on" internally but never ticked. Enable it as an
+                    // isolated sidecar; EnabledTraderAuthority.isMemeLiveOnly()
+                    // explicitly ignores CYCLIC so this does not reopen full lane fanout.
+                    if (cfg.cyclicTradeEnabled) add(com.lifecyclebot.engine.EnabledTraderAuthority.Trader.CYCLIC)
                 }.toSet()
             } else {
                 // Markets-only mode: respect per-lane toggles, but exclude
@@ -1761,7 +1769,7 @@ class BotService : Service() {
                 if (marketsOn && cfg.perpsEnabled) s += com.lifecyclebot.engine.EnabledTraderAuthority.Trader.PERPS
                 // PROJECT_SNIPER / CYCLIC / SHADOW_PAPER off by default in mixed mode
                 // too unless the operator explicitly opted in via their toggles.
-                if (cfg.cyclicTradeEnabled && !memeOnlyUiMode) {
+                if (cfg.cyclicTradeEnabled) {
                     s += com.lifecyclebot.engine.EnabledTraderAuthority.Trader.CYCLIC
                 }
                 if (cfg.shadowPaperEnabled && !memeOnlyUiMode) {
@@ -1778,6 +1786,13 @@ class BotService : Service() {
                 s.toSet()
             }
             com.lifecyclebot.engine.EnabledTraderAuthority.publish(enabledSet)
+            try {
+                CyclicTradeEngine.setEnabled(
+                    com.lifecyclebot.engine.EnabledTraderAuthority.isEnabled(
+                        com.lifecyclebot.engine.EnabledTraderAuthority.Trader.CYCLIC
+                    )
+                )
+            } catch (_: Throwable) {}
             // V5.9.789 — operator audit Critical Fix 3: comprehensive startup
             // authority dump. The previous publish() call only logged the
             // enabled/disabled trader sets. Operator audit requires the full
@@ -8866,7 +8881,7 @@ class BotService : Service() {
                 val specialistRing = listOf("MANIPULATED", "QUALITY", "DIP_HUNTER", "PROJECT_SNIPER", "TREASURY", "BLUECHIP")
                 val affinitySpecialists = affinity.filter { it in specialistRing }.sorted()
                 val rescuePool = (affinitySpecialists + specialistRing).distinct()
-                val rot = try { loopCount.toInt() } catch (_: Throwable) { 0 }
+                val rot = try { (System.currentTimeMillis() / 5_000L).toInt() } catch (_: Throwable) { 0 }
                 val rescue = rescuePool[((ts.mint.hashCode() xor rot) and 0x7fffffff) % rescuePool.size]
                 if (l == rescue) {
                     try { ForensicLogger.lifecycle("INTERNAL_SPECIALIST_ROTATION_RESCUE", "lane=$l primary=$primaryLane symbol=${ts.symbol} mint=${ts.mint.take(10)} affinity=${affinity.joinToString("+")}") } catch (_: Throwable) {}

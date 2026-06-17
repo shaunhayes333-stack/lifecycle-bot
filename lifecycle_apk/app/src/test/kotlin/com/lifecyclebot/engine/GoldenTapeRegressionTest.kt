@@ -616,8 +616,10 @@ class GoldenTapeRegressionTest {
         assertFalse("toolkit alive must not mean all meme-family siblings execute", bot.contains("if (memeFamily) return true"))
         assertTrue("External trader isolation authority must keep MEME as the lane root", bot.contains("mutableSetOf(com.lifecyclebot.engine.EnabledTraderAuthority.Trader.MEME)"))
         assertTrue("Crypto sidecar may be explicitly enabled without reopening meme fanout", bot.contains("if (cryptoSidecarOn) add(com.lifecyclebot.engine.EnabledTraderAuthority.Trader.CRYPTO_ALT)"))
+        assertTrue("CYCLIC sidecar must be enabled inside MEME runtime without reopening fanout", bot.contains("CYCLIC_INTERNAL_SIDECAR_FIX") && bot.contains("if (cfg.cyclicTradeEnabled) add(com.lifecyclebot.engine.EnabledTraderAuthority.Trader.CYCLIC)"))
         val auth = java.io.File("src/main/kotlin/com/lifecyclebot/engine/EnabledTraderAuthority.kt").readText()
         assertTrue("CRYPTO_ALT must be ignored by meme-lane isolation predicate", auth.contains("val laneSet = set - Trader.CRYPTO_ALT"))
+        assertTrue("CYCLIC must also be ignored by meme-lane isolation predicate", auth.contains("val laneSet = set - Trader.CRYPTO_ALT - Trader.CYCLIC"))
     }
 
 
@@ -1189,7 +1191,7 @@ class GoldenTapeRegressionTest {
         assertTrue(bot.contains("cryptoSidecarOn) add(com.lifecyclebot.engine.EnabledTraderAuthority.Trader.CRYPTO_ALT)"))
         assertTrue(bot.contains("CryptoAltTrader.start"))
         assertTrue(bot.contains("CryptoAltTrader.setEnabled(cryptoUniverseOn"))
-        assertTrue(auth.contains("val laneSet = set - Trader.CRYPTO_ALT"))
+        assertTrue(auth.contains("val laneSet = set - Trader.CRYPTO_ALT - Trader.CYCLIC"))
         assertTrue(auth.contains("return laneSet.size == 1 && Trader.MEME in laneSet"))
         assertTrue(crypto.contains("operatorExplicitlyEnabled"))
         assertTrue(crypto.contains("cfg.cryptoAltsEnabled && cfg.marketsTraderEnabled"))

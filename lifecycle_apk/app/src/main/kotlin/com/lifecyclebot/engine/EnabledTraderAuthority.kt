@@ -103,10 +103,12 @@ object EnabledTraderAuthority {
      */
     fun isMemeLiveOnly(): Boolean {
         val set = enabled.get()
-        // V5.0.3750 — CRYPTO_ALT is an isolated sidecar engine. It must not make
-        // the meme-lane fanout predicate false, otherwise explicitly enabling the
-        // crypto trader re-opens ProjectSniper/Cyclic/markets leakage into meme FDG.
-        val laneSet = set - Trader.CRYPTO_ALT
+        // V5.0.3750/3818 — CRYPTO_ALT and CYCLIC are isolated sidecar engines.
+        // They must not make the meme-lane fanout predicate false, otherwise
+        // explicitly enabling a sidecar re-opens ProjectSniper/markets/perps
+        // leakage into meme FDG. CYCLIC is the internal compound ring and ticks
+        // separately through maybeTickCyclicTradeEngine().
+        val laneSet = set - Trader.CRYPTO_ALT - Trader.CYCLIC
         return laneSet.size == 1 && Trader.MEME in laneSet
     }
 }
