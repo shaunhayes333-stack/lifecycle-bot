@@ -1,6 +1,10 @@
 package com.lifecyclebot.engine
 
 import com.lifecyclebot.data.TokenState
+import com.lifecyclebot.util.AppDispatchers
+import kotlinx.coroutines.GlobalScope
+import kotlinx.coroutines.launch
+import java.util.concurrent.ConcurrentHashMap
 import kotlin.math.abs
 
 /**
@@ -12,10 +16,20 @@ import kotlin.math.abs
  * into one compact per-token sheet consumed by AgenticStyleRouter.
  *
  * Contract:
- *   scanner/token state -> ToolkitSignalSheet -> AgenticStyleRouter -> existing bounded
- *   lane/tool affinity -> existing FDG/executor path.
+ *   scanner/token state -> ToolkitSignalSheet.snapshot() -> AgenticStyleRouter -> existing
+ *   bounded lane/tool affinity -> existing FDG/executor path.
+ *
+ * Performance contract:
+ *   AgenticStyleRouter reads a cached helper snapshot. Full-sheet refresh runs as a
+ *   silent coroutine on AppDispatchers.sideEffect, single-flight per mint. Cold cache
+ *   returns a cheap O(1) fallback sheet and warms in the background. No bot-loop choke.
  */
 object ToolkitSignalSheet {
+    private const val CACHE_TTL_MS = 2_500L
+    private data class CacheEntry(val sheet: Sheet, val tsMs: Long, val fingerprint: Int)
+    private val cache = ConcurrentHashMap<String, CacheEntry>()
+    private val inFlight = ConcurrentHashMap.newKeySet<String>()
+
     enum class Setup {
         NONE,
         DIAMOND_HANDS_RUNNER,
@@ -27,6 +41,14 @@ object ToolkitSignalSheet {
         EXHAUSTION_QUICK_FLIP,
         MAINSTREAM_CRYPTO_SWING,
         VOLUME_IGNITION_SCALP,
+        SMART_WALLET_COPY_FOLLOW,
+        NARRATIVE_SOCIAL_IGNITION,
+        LIQUIDITY_DEPTH_QUALITY,
+        PANIC_REVERSION_BOUNCE,
+        ARB_FLOW_IMBALANCE,
+        MEV_PROTECTED_ENTRY,
+        REENTRY_RECOVERY,
+        REGIME_DEFENSIVE_PROBE,
     }
 
     data class Sheet(
@@ -58,6 +80,74 @@ object ToolkitSignalSheet {
         val tools: Set<String>,
         val reasons: List<String>,
     )
+
+    fun snapshot(ts: TokenState, classification: ModeRouter.Classification? = null): Sheet {
+        val now = System.currentTimeMillis()
+        val fp = fingerprint(ts, classification)
+        val existing = cache[ts.mint]
+        if (existing != null && existing.fingerprint == fp && now - existing.tsMs <= CACHE_TTL_MS) return existing.sheet
+        refreshAsync(ts, classification, fp)
+        return existing?.sheet ?: fallbackSheet(ts, classification)
+    }
+
+    fun fallbackSheet(ts: TokenState, classification: ModeRouter.Classification? = null): Sheet {
+        val tt = classification?.tradeType ?: ModeRouter.TradeType.UNKNOWN
+        val setup = when (tt) {
+            ModeRouter.TradeType.BREAKOUT_CONTINUATION, ModeRouter.TradeType.GRADUATION -> Setup.CHART_BREAKOUT
+            ModeRouter.TradeType.FRESH_LAUNCH -> Setup.DEGEN_MICRO_SNIPE
+            ModeRouter.TradeType.REVERSAL_RECLAIM -> Setup.CHART_PULLBACK_RECLAIM
+            ModeRouter.TradeType.WHALE_ACCUMULATION -> Setup.WHALE_ACCUMULATION_HOLD
+            ModeRouter.TradeType.TREND_PULLBACK -> Setup.MAINSTREAM_CRYPTO_SWING
+            ModeRouter.TradeType.SENTIMENT_IGNITION -> Setup.NARRATIVE_SOCIAL_IGNITION
+            ModeRouter.TradeType.COPY_TRADE -> Setup.SMART_WALLET_COPY_FOLLOW
+            else -> Setup.NONE
+        }
+        return Sheet(
+            setup = setup,
+            confidence = (classification?.confidence ?: 0.0).coerceIn(0.0, 55.0),
+            chartPattern = "snapshot_pending",
+            entryStyle = "cached_or_pending",
+            exitStyle = "default_until_sheet_refresh",
+            holdMult = 1.0,
+            sizeMult = 1.0,
+            tpMult = 1.0,
+            laneVotes = emptySet(),
+            toolVotes = emptySet(),
+            reasons = listOf("silent_refresh_pending", "type=$tt", "mint=${ts.mint.take(8)}"),
+        )
+    }
+
+    private fun refreshAsync(ts: TokenState, classification: ModeRouter.Classification?, fp: Int) {
+        val mint = ts.mint
+        if (mint.isBlank()) return
+        if (!inFlight.add(mint)) return
+        GlobalScope.launch(AppDispatchers.sideEffect) {
+            try {
+                val built = build(ts, classification)
+                cache[mint] = CacheEntry(built, System.currentTimeMillis(), fp)
+                try { PipelineHealthCollector.labelInc("TOOLKIT_SIGNAL_SHEET_REFRESHED") } catch (_: Throwable) {}
+            } catch (_: Throwable) {
+                try { PipelineHealthCollector.labelInc("TOOLKIT_SIGNAL_SHEET_REFRESH_FAILED") } catch (_: Throwable) {}
+            } finally {
+                inFlight.remove(mint)
+            }
+        }
+    }
+
+    private fun fingerprint(ts: TokenState, classification: ModeRouter.Classification?): Int = listOf(
+        ts.mint,
+        ts.lastPriceUpdate,
+        ts.history.size,
+        ts.lastV3Score,
+        ts.lastV3Confidence,
+        ts.lastBuyPressurePct.toInt(),
+        ts.lastSellPressurePct.toInt(),
+        ts.lastLiquidityUsd.toInt(),
+        ts.lastMcap.toInt(),
+        ts.source,
+        classification?.tradeType?.name,
+        classification?.confidence?.toInt(),
+    ).hashCode()
 
     fun build(ts: TokenState, classification: ModeRouter.Classification? = null): Sheet {
         val hist = try { ts.history.toList().filter { it.priceUsd.isFinite() && it.priceUsd > 0.0 } } catch (_: Throwable) { emptyList() }
@@ -91,6 +181,16 @@ object ToolkitSignalSheet {
         val higherLows = if (prices.size >= 5) prices.takeLast(5).zipWithNext { a, b -> b >= a * 0.985 }.count { it } else 0
         val wickBought = hist.takeLast(4).count { c -> c.lowUsd > 0.0 && c.priceUsd > c.lowUsd * 1.02 }
         val upperWicks = hist.takeLast(4).count { it.hasUpperWick }
+        val toolHints = try { ts.toolAffinity.map { it.uppercase() }.toSet() } catch (_: Throwable) { emptySet() }
+        val laneHints = try { ts.laneAffinity.map { it.uppercase() }.toSet() } catch (_: Throwable) { emptySet() }
+        val sellPressure = ts.lastSellPressurePct.takeIf { it.isFinite() } ?: 50.0
+        val sentimentScore = try { ts.sentiment.score } catch (_: Throwable) { 0.0 }
+        val volatility = ts.volatility ?: 0.0
+        val momentum = ts.momentum ?: 0.0
+        val copyHint = toolHints.any { it.contains("COPY") || it.contains("SMART") || it.contains("WHALE") }
+        val socialHint = toolHints.any { it.contains("NARRATIVE") || it.contains("SOCIAL") || it.contains("SENTIMENT") } || src.contains("TREND")
+        val mevRisk = toolHints.any { it.contains("MEV") || it.contains("JITO") } || (upperWicks >= 2 && sellPressure > 58.0)
+        val arbHint = toolHints.any { it.contains("ARB") || it.contains("FLOW") || it.contains("VENUE") }
 
         val candidates = mutableListOf<Candidate>()
 
@@ -201,6 +301,96 @@ object ToolkitSignalSheet {
             lanes = setOf("EXPRESS", "SHITCOIN", "MANIPULATED"),
             tools = setOf("VOLUME_IGNITION", "ORDER_FLOW", "SCALP", "DEGEN_EXIT"),
             reasons = listOf("volIgn=${"%.1f".format(volIgnition)}x", "bp=${bp.toInt()}", "move5=${move5.toInt()}%")
+        ))
+
+        // Smart-wallet/copy follow: use existing whale/copy hints as style votes, never a separate executor.
+        add(Candidate(
+            setup = Setup.SMART_WALLET_COPY_FOLLOW,
+            score = (if (copyHint || tt == ModeRouter.TradeType.COPY_TRADE || tt == ModeRouter.TradeType.WHALE_ACCUMULATION) 45.0 else 0.0) + conf * 0.20 + if (liq >= 5_000.0) 8.0 else 0.0,
+            chart = "smart_wallet_follow",
+            entry = "copy_follow_confirmed_flow",
+            exit = "leader_like_partial_then_trail",
+            hold = 1.70,
+            size = 0.82,
+            tp = 1.12,
+            lanes = setOf("QUALITY", "MOONSHOT", "BLUECHIP"),
+            tools = setOf("COPY_TRADE", "WHALE_WALLET", "INSIDER_COPY", "SMART_MONEY"),
+            reasons = listOf("copyHint=$copyHint", "type=$tt", "toolHints=${toolHints.take(4).joinToString("+")}")
+        ))
+
+        // Narrative/social ignition: already has sentiment/narrative systems; route as a bounded style.
+        add(Candidate(
+            setup = Setup.NARRATIVE_SOCIAL_IGNITION,
+            score = (if (socialHint || tt == ModeRouter.TradeType.SENTIMENT_IGNITION) 38.0 else 0.0) + sentimentScore.coerceAtLeast(0.0) * 0.35 + (bp - 50.0).coerceAtLeast(0.0) * 0.5,
+            chart = "narrative_social_ignition",
+            entry = "narrative_momentum_confirm",
+            exit = "narrative_fade_quick_trail",
+            hold = 0.85,
+            size = 0.72,
+            tp = 1.02,
+            lanes = setOf("MANIPULATED", "SHITCOIN", "EXPRESS"),
+            tools = setOf("NARRATIVE", "SOCIAL", "SENTIMENT", "DEX_SOCIAL"),
+            reasons = listOf("socialHint=$socialHint", "sent=${sentimentScore.toInt()}", "src=$src")
+        ))
+
+        // Liquidity depth quality: use liquidity/depth/quality toolkit for safer larger-cap crypto setups.
+        add(Candidate(
+            setup = Setup.LIQUIDITY_DEPTH_QUALITY,
+            score = (if (liq >= 50_000.0) 36.0 else 0.0) + if (mcap >= 1_000_000.0) 14.0 else 0.0 + conf * 0.20 + if (sellPressure <= 52.0) 8.0 else 0.0,
+            chart = "liquidity_depth_quality",
+            entry = "liquid_quality_accumulation",
+            exit = "quality_depth_swing_trail",
+            hold = 2.20,
+            size = 1.05,
+            tp = 1.18,
+            lanes = setOf("QUALITY", "BLUECHIP", "TREASURY"),
+            tools = setOf("LIQUIDITY_DEPTH", "QUALITY_DEPTH", "BLUECHIP", "MAINSTREAM_CRYPTO"),
+            reasons = listOf("liq=${liq.toInt()}", "mcap=${mcap.toInt()}", "sell=${sellPressure.toInt()}")
+        ))
+
+        // Panic reversion / recovery: route dumps that stabilize into reclaim tooling.
+        add(Candidate(
+            setup = if (laneHints.contains("DIP_HUNTER")) Setup.REENTRY_RECOVERY else Setup.PANIC_REVERSION_BOUNCE,
+            score = (if (pullbackFromHigh >= 28.0 && wickBought >= 1) 35.0 else 0.0) + if (move5 > -8.0) 10.0 else 0.0 + if (bp >= 45.0) 8.0 else 0.0,
+            chart = "panic_reversion_bounce",
+            entry = "panic_reclaim_probe",
+            exit = "bounce_bank_or_recovery_trail",
+            hold = 1.05,
+            size = 0.62,
+            tp = 0.95,
+            lanes = setOf("DIP_HUNTER", "TREASURY", "QUALITY"),
+            tools = setOf("PANIC_REVERSION", "REENTRY_RECOVERY", "DIP_RECLAIM", "PATTERN_BACKTESTER"),
+            reasons = listOf("pullback=${pullbackFromHigh.toInt()}%", "wickBought=$wickBought", "move5=${move5.toInt()}%")
+        ))
+
+        // Arb/flow imbalance: consume existing arb/order-flow names as a routing style, not a new venue executor.
+        add(Candidate(
+            setup = Setup.ARB_FLOW_IMBALANCE,
+            score = (if (arbHint) 42.0 else 0.0) + momentum.coerceAtLeast(0.0).coerceAtMost(30.0) + ((volIgnition - 1.0) * 10.0).coerceIn(0.0, 15.0),
+            chart = "arb_flow_imbalance",
+            entry = "flow_imbalance_probe",
+            exit = "fast_mean_or_momentum_exit",
+            hold = 0.55,
+            size = 0.60,
+            tp = 0.78,
+            lanes = setOf("EXPRESS", "SHITCOIN", "TREASURY"),
+            tools = setOf("ARB", "FLOW_IMBALANCE", "VENUE_LAG", "ORDER_FLOW"),
+            reasons = listOf("arbHint=$arbHint", "mom=${momentum.toInt()}", "volIgn=${"%.1f".format(volIgnition)}x")
+        ))
+
+        // MEV protected entry / defensive probe: marks hostile microstructure and keeps sizing conservative.
+        add(Candidate(
+            setup = if (mevRisk) Setup.MEV_PROTECTED_ENTRY else Setup.REGIME_DEFENSIVE_PROBE,
+            score = (if (mevRisk) 40.0 else 0.0) + if (volatility > 55.0) 10.0 else 0.0 + if (sellPressure > 60.0) 10.0 else 0.0,
+            chart = "mev_or_hostile_microstructure",
+            entry = "protected_probe_only",
+            exit = "tight_invalidated_exit",
+            hold = 0.50,
+            size = 0.42,
+            tp = 0.75,
+            lanes = setOf("SHITCOIN", "PROJECT_SNIPER", "EXPRESS"),
+            tools = setOf("MEV_PROTECTION", "JITO", "DEFENSIVE_PROBE", "TOXIC_GUARD"),
+            reasons = listOf("mevRisk=$mevRisk", "upperWicks=$upperWicks", "sell=${sellPressure.toInt()}", "vol=${volatility.toInt()}")
         ))
 
         val best = candidates.maxByOrNull { it.score } ?: Candidate(

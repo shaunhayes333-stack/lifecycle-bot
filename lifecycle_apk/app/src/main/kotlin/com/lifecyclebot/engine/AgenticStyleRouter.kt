@@ -38,6 +38,14 @@ object AgenticStyleRouter {
         EXHAUSTION_QUICK_FLIP("exhaustion_quick_flip", setOf("EXPRESS", "MANIPULATED", "SHITCOIN"), setOf("EXHAUSTION", "QUICK_FLIP", "UPPER_WICK"), 0.58, 0.72, 0.38),
         MAINSTREAM_CRYPTO_SWING("mainstream_crypto_swing", setOf("QUALITY", "BLUECHIP", "MOONSHOT"), setOf("MAINSTREAM_CRYPTO", "SWING", "QUALITY_DEPTH"), 0.96, 1.22, 2.10),
         VOLUME_IGNITION_SCALP("volume_ignition_scalp", setOf("EXPRESS", "SHITCOIN", "MANIPULATED"), setOf("VOLUME_IGNITION", "ORDER_FLOW", "SCALP"), 0.78, 0.92, 0.75),
+        SMART_WALLET_COPY_FOLLOW("smart_wallet_copy_follow", setOf("QUALITY", "MOONSHOT", "BLUECHIP"), setOf("COPY_TRADE", "WHALE_WALLET", "SMART_MONEY"), 0.82, 1.12, 1.70),
+        NARRATIVE_SOCIAL_IGNITION("narrative_social_ignition", setOf("MANIPULATED", "SHITCOIN", "EXPRESS"), setOf("NARRATIVE", "SOCIAL", "SENTIMENT"), 0.72, 1.02, 0.85),
+        LIQUIDITY_DEPTH_QUALITY("liquidity_depth_quality", setOf("QUALITY", "BLUECHIP", "TREASURY"), setOf("LIQUIDITY_DEPTH", "QUALITY_DEPTH", "MAINSTREAM_CRYPTO"), 1.05, 1.18, 2.20),
+        PANIC_REVERSION_BOUNCE("panic_reversion_bounce", setOf("DIP_HUNTER", "TREASURY", "QUALITY"), setOf("PANIC_REVERSION", "REENTRY_RECOVERY", "DIP_RECLAIM"), 0.62, 0.95, 1.05),
+        ARB_FLOW_IMBALANCE("arb_flow_imbalance", setOf("EXPRESS", "SHITCOIN", "TREASURY"), setOf("ARB", "FLOW_IMBALANCE", "VENUE_LAG"), 0.60, 0.78, 0.55),
+        MEV_PROTECTED_ENTRY("mev_protected_entry", setOf("SHITCOIN", "PROJECT_SNIPER", "EXPRESS"), setOf("MEV_PROTECTION", "JITO", "DEFENSIVE_PROBE"), 0.42, 0.75, 0.50),
+        REENTRY_RECOVERY("reentry_recovery", setOf("DIP_HUNTER", "TREASURY", "QUALITY"), setOf("REENTRY_RECOVERY", "PATTERN_BACKTESTER", "DIP_RECLAIM"), 0.65, 0.98, 1.20),
+        REGIME_DEFENSIVE_PROBE("regime_defensive_probe", setOf("SHITCOIN", "PROJECT_SNIPER", "MOONSHOT"), setOf("DEFENSIVE_PROBE", "TOXIC_GUARD", "REGIME"), 0.35, 0.75, 0.55),
         MICRO_SNIPE("micro_snipe", setOf("PROJECT_SNIPER", "SHITCOIN", "EXPRESS"), setOf("SNIPER", "PUMP_FUN", "EXPRESS"), 0.55, 0.85, 0.45),
         QUICK_FLIP("quick_flip", setOf("SHITCOIN", "EXPRESS", "MANIPULATED"), setOf("EXPRESS", "MEME", "PUMP_FUN"), 0.75, 0.95, 0.65),
         BREAKOUT_RUNNER("breakout_runner", setOf("MOONSHOT", "SHITCOIN", "PROJECT_SNIPER"), setOf("MOONSHOT", "BREAKOUT", "RAYDIUM"), 1.05, 1.25, 1.50),
@@ -96,11 +104,19 @@ object AgenticStyleRouter {
         ToolkitSignalSheet.Setup.EXHAUSTION_QUICK_FLIP -> Style.EXHAUSTION_QUICK_FLIP
         ToolkitSignalSheet.Setup.MAINSTREAM_CRYPTO_SWING -> Style.MAINSTREAM_CRYPTO_SWING
         ToolkitSignalSheet.Setup.VOLUME_IGNITION_SCALP -> Style.VOLUME_IGNITION_SCALP
+        ToolkitSignalSheet.Setup.SMART_WALLET_COPY_FOLLOW -> Style.SMART_WALLET_COPY_FOLLOW
+        ToolkitSignalSheet.Setup.NARRATIVE_SOCIAL_IGNITION -> Style.NARRATIVE_SOCIAL_IGNITION
+        ToolkitSignalSheet.Setup.LIQUIDITY_DEPTH_QUALITY -> Style.LIQUIDITY_DEPTH_QUALITY
+        ToolkitSignalSheet.Setup.PANIC_REVERSION_BOUNCE -> Style.PANIC_REVERSION_BOUNCE
+        ToolkitSignalSheet.Setup.ARB_FLOW_IMBALANCE -> Style.ARB_FLOW_IMBALANCE
+        ToolkitSignalSheet.Setup.MEV_PROTECTED_ENTRY -> Style.MEV_PROTECTED_ENTRY
+        ToolkitSignalSheet.Setup.REENTRY_RECOVERY -> Style.REENTRY_RECOVERY
+        ToolkitSignalSheet.Setup.REGIME_DEFENSIVE_PROBE -> Style.REGIME_DEFENSIVE_PROBE
         ToolkitSignalSheet.Setup.NONE -> null
     }
 
     fun decide(ts: TokenState, classification: ModeRouter.Classification, laneHint: String = ""): Decision {
-        val sheet = try { ToolkitSignalSheet.build(ts, classification) } catch (_: Throwable) { ToolkitSignalSheet.build(ts, null) }
+        val sheet = try { ToolkitSignalSheet.snapshot(ts, classification) } catch (_: Throwable) { ToolkitSignalSheet.fallbackSheet(ts, classification) }
         val score = try { (ts.lastV3Score ?: ts.entryScore.toInt()).coerceIn(0, 150) } catch (_: Throwable) { 0 }
         val tactic = try { TacticSwitcher.currentTactic(if (laneHint.isBlank()) "SHITCOIN" else laneHint, score) } catch (_: Throwable) { TacticSwitcher.Tactic.MOMENTUM }
         val ddAgg = try { com.lifecyclebot.v3.scoring.DrawdownCircuitAI.getAggression() } catch (_: Throwable) { 1.0 }
