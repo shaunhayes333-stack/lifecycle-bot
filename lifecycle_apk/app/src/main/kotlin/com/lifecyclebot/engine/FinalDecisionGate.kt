@@ -773,24 +773,16 @@ object FinalDecisionGate {
         cachedFdgVerdict(fdgCacheKey)?.let { return it }
 
         if (mode == TradeMode.LIVE && !KeyValidator.isLive("helius")) {
-            try { PipelineHealthCollector.labelInc("FDG_LIVE_BLOCK_HELIUS_UNHEALTHY") } catch (_: Throwable) {}
-            try { ForensicLogger.lifecycle("FDG_LIVE_BLOCK_HELIUS_UNHEALTHY", "mint=${ts.mint.take(10)} symbol=${ts.symbol} lane=$laneName side=$fdgSide") } catch (_: Throwable) {}
-            return rememberFdgVerdict(fdgCacheKey, FinalDecision(
-                shouldTrade = false,
-                mode = mode,
-                approvalClass = ApprovalClass.BLOCKED,
-                quality = candidate.setupQuality,
-                confidence = candidate.aiConfidence,
-                edge = EdgeVerdict.SKIP,
-                blockReason = "HELIUS_UNHEALTHY_LIVE_SAFE_MODE",
-                blockLevel = BlockLevel.HARD,
-                sizeSol = 0.0,
-                tags = listOf("live_safe_mode", "helius_unhealthy", "lane:$laneName"),
-                mint = ts.mint,
-                symbol = ts.symbol,
-                approvalReason = "LIVE safe mode: Helius unhealthy; paper unaffected",
-                gateChecks = listOf(GateCheck("helius_live_finality", false, "Helius required for wallet/token proof/finality/reconciliation")),
-            ))
+            // V5.0.3861 — Helius is one RPC/proof provider, not global trading authority.
+            // A 429 here must not hard-block buys while Jupiter/PumpPortal/Dex routes and
+            // wallet-local checks can still operate. Surface degraded finality so sizing,
+            // route telemetry, sell authority, and reconciler can be conservative; do not
+            // set blockReason/shouldTrade=false at FDG. True hard safety still lives in
+            // rug/liquidity/mint/freeze/blacklist gates and the executor choke point.
+            try { PipelineHealthCollector.labelInc("FDG_LIVE_HELIUS_DEGRADED_SOFTSHAPE") } catch (_: Throwable) {}
+            try { ForensicLogger.lifecycle("FDG_LIVE_HELIUS_DEGRADED_SOFTSHAPE", "mint=${ts.mint.take(10)} symbol=${ts.symbol} lane=$laneName side=$fdgSide") } catch (_: Throwable) {}
+            tags.add("helius_degraded_softshape")
+            checks.add(GateCheck("helius_live_finality_degraded", true, "Helius unhealthy; continue via route/wallet proof fallbacks, no FDG hard block"))
         }
         // V5.9.1299 — single source of truth for the LEARNING-CONTEXT score.
         // laneScore is the lane's REAL 0-100 signal (1296/1297); candidate.entryScore

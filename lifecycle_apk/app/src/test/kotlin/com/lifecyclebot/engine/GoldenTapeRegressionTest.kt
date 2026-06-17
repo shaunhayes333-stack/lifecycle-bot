@@ -375,10 +375,18 @@ class GoldenTapeRegressionTest {
 
 
 
+
+
+    @Test
+    fun live_stale_restore_cannot_resurrect_old_fdg_approval() {
+        val openGate = java.io.File("src/main/kotlin/com/lifecyclebot/engine/ExecutableOpenGate.kt").readText()
+        assertTrue("LIVE stale-WATCH restore must require current candidate version and fdgCan=true", openGate.contains("currentStateVersion") && openGate.contains("state?.fdgCan == true") && openGate.contains("candidateVersion == currentVersion"))
+        assertTrue("LIVE stale-candidate restore must be disabled; current FDG must re-approve", openGate.contains("stale candidate restore disabled for LIVE; current FDG must re-approve"))
+    }
     @Test
     fun internet_edge_text_fallback_is_not_mislabeled_as_parsed_internet_json() {
         val internet = java.io.File("src/main/kotlin/com/lifecyclebot/engine/InternetEdgeDesk.kt").readText()
-        assertTrue("Text-only LLM fallback must keep llm_text source instead of being overwritten as llm_internet", internet.contains("val src = if (brief.source == "llm_text") "llm_text" else "llm_internet"") && internet.contains("source = "llm_text""))
+        assertTrue("Text-only LLM fallback must keep llm_text source instead of being overwritten as llm_internet", internet.contains("""val src = if (brief.source == "llm_text") "llm_text" else "llm_internet""".trimIndent()) && internet.contains("""source = "llm_text""".trimIndent()))
         assertTrue("Internet edge must still mark parsed JSON briefs as llm_internet", internet.contains("cached = brief.copy(atMs = System.currentTimeMillis(), source = src)"))
     }
 
@@ -2416,7 +2424,7 @@ class GoldenTapeRegressionTest {
 
         val fdg = java.io.File("src/main/kotlin/com/lifecyclebot/engine/FinalDecisionGate.kt").readText()
         assertTrue("FDG must cache verdicts by generation/mint/candidate/lane/side", fdg.contains("fdgVerdictCache") && fdg.contains("candidateVersionOf") && fdg.contains("currentGeneration()") && fdg.contains("FDG_VERDICT_CACHE_HIT"))
-        assertTrue("Live mode must block buys when Helius is unhealthy; paper remains exempt", fdg.contains("mode == TradeMode.LIVE && !KeyValidator.isLive(\"helius\")") && fdg.contains("HELIUS_UNHEALTHY_LIVE_SAFE_MODE"))
+        assertTrue("Helius unhealthy must be degraded-route softshape, not global live-buy hard block", fdg.contains("""mode == TradeMode.LIVE && !KeyValidator.isLive("helius")""".trimIndent()) && fdg.contains("FDG_LIVE_HELIUS_DEGRADED_SOFTSHAPE") && !fdg.contains("HELIUS_UNHEALTHY_LIVE_SAFE_MODE"))
 
         val slot = java.io.File("src/main/kotlin/com/lifecyclebot/engine/SlotHealthGate.kt").readText()
         assertTrue("Paper slot health must rebuild from canonical paper active positions", slot.contains("canonicalPaperOpenCount") && slot.contains("PAPER_SLOT_HEALTH_REBUILT_FROM_LEDGER") && slot.contains("coerceAtMost(canonicalPaperOpen)"))

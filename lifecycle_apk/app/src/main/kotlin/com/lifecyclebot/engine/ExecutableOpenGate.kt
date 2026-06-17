@@ -216,9 +216,10 @@ object ExecutableOpenGate {
                     return "EXEC_OPEN_DEFERRED_$canon" to canon
                 }
             }
-            val latestAllows = state?.fdgCan == true || state?.preFdgVerdict.equals("BUY", true) || state?.preFdgVerdict.equals("PROBE_ONLY", true)
-            val safetyOk = currentSafetyTier.equals("SAFE", true) || currentSafetyTier.equals("CAUTION", true) ||
-                state?.safetyTier.equals("SAFE", true) || state?.safetyTier.equals("CAUTION", true) || mode.equals("LIVE", true)
+            val currentStateVersion = state?.candidateVersion == currentVersion && candidateVersion == currentVersion
+            val latestAllows = currentStateVersion && state?.fdgCan == true && (state?.preFdgVerdict.equals("BUY", true) || state?.preFdgVerdict.equals("PROBE_ONLY", true))
+            val safetyOk = currentStateVersion && (currentSafetyTier.equals("SAFE", true) || currentSafetyTier.equals("CAUTION", true) ||
+                state?.safetyTier.equals("SAFE", true) || state?.safetyTier.equals("CAUTION", true))
             // V5.9.1559 — LIVE finality restore must use the CURRENT candidate
             // liquidity, not the stale EntryState liquidity. Operator log showed
             // current liq=$1599 but cached finality liq=0 → preFdg WATCH dropped
@@ -245,9 +246,8 @@ object ExecutableOpenGate {
             // current state is still an FDG-approved BUY/PROBE, safety is known,
             // liquidity is real, and no hardNo remains, this is not a terminal
             // stale candidate — it is the exact approved handoff we must execute.
-            val latestAllows = state?.fdgCan == true || state?.preFdgVerdict.equals("BUY", true) || state?.preFdgVerdict.equals("PROBE_ONLY", true)
-            val safetyOk = currentSafetyTier.equals("SAFE", true) || currentSafetyTier.equals("CAUTION", true) ||
-                state?.safetyTier.equals("SAFE", true) || state?.safetyTier.equals("CAUTION", true)
+            val latestAllows = false // V5.0.3861: stale candidate restore disabled for LIVE; current FDG must re-approve.
+            val safetyOk = false
             val effectiveLiq = maxOf(currentLiquidityUsd, state?.liquidityUsd ?: 0.0)
             if (mode.equals("LIVE", true) && latestAllows && safetyOk && effectiveLiq >= 1200.0) {
                 try {
