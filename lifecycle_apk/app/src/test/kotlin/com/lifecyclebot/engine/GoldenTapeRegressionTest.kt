@@ -373,6 +373,15 @@ class GoldenTapeRegressionTest {
 
 
 
+
+
+    @Test
+    fun internet_edge_text_fallback_is_not_mislabeled_as_parsed_internet_json() {
+        val internet = java.io.File("src/main/kotlin/com/lifecyclebot/engine/InternetEdgeDesk.kt").readText()
+        assertTrue("Text-only LLM fallback must keep llm_text source instead of being overwritten as llm_internet", internet.contains("val src = if (brief.source == "llm_text") "llm_text" else "llm_internet"") && internet.contains("source = "llm_text""))
+        assertTrue("Internet edge must still mark parsed JSON briefs as llm_internet", internet.contains("cached = brief.copy(atMs = System.currentTimeMillis(), source = src)"))
+    }
+
     @Test
     fun fdg_fanout_diagnosis_uses_decision_outcomes_not_forensic_rows() {
         val guardian = java.io.File("src/main/kotlin/com/lifecyclebot/engine/InvariantGuardian.kt").readText()
@@ -380,7 +389,7 @@ class GoldenTapeRegressionTest {
         val hub = java.io.File("src/main/kotlin/com/lifecyclebot/engine/ReportingHub.kt").readText()
 
         assertTrue("FDG fanout fault must use allow+block decision outcomes, not raw FDG forensic rows", guardian.contains("fdgDecisions") && guardian.contains("phaseAllow[\"FDG\"]") && guardian.contains("phaseBlock[\"FDG\"]") && guardian.contains("rawFdgRows"))
-        assertTrue("Pipeline report must display FDG decision outcomes and separate raw rows", phc.contains("FinalDecisionGate decision outcomes") && phc.contains("FDG_RAW_ROWS") && phc.contains("forensic FDG rows; not unique evaluations"))
+        assertTrue("Pipeline report must display FDG decision outcomes and separate raw rows", phc.contains("FinalDecisionGate decision outcomes") && phc.contains("FDG_RAW_ROWS") && phc.contains("forensic FDG rows; not unique evaluations") && phc.contains("throughputFdgDecisions") && phc.contains("raw FDG forensic rows"))
         assertTrue("Executive snapshot must use decision outcomes for FDG count", hub.contains("pipe.phaseAllow[\"FDG\"]") && hub.contains("pipe.phaseBlock[\"FDG\"]"))
     }
 
@@ -390,7 +399,9 @@ class GoldenTapeRegressionTest {
         assertTrue("Toolkit must inspect cached RegimeDetector state only inside async sheet build", sheet.contains("val regime = try { RegimeDetector.current()"))
         assertTrue("Weak CHOP/DUMP must penalize degen and volume/express-like scalps", sheet.contains("Setup.DEGEN_MICRO_SNIPE -> -18.0") && sheet.contains("Setup.VOLUME_IGNITION_SCALP -> -10.0") && sheet.contains("Setup.PUMP_GRADUATION_SNIPE -> -12.0"))
         assertTrue("Weak CHOP/DUMP must prefer pullback/quality/defensive structures", sheet.contains("Setup.CHART_PULLBACK_RECLAIM -> 10.0") && sheet.contains("Setup.LIQUIDITY_DEPTH_QUALITY -> 8.0") && sheet.contains("Setup.REGIME_DEFENSIVE_PROBE -> 6.0"))
+        val router = java.io.File("src/main/kotlin/com/lifecyclebot/engine/AgenticStyleRouter.kt").readText()
         assertTrue("Regime pivot must remain a soft score bias and visible in toolkit reasons", sheet.contains("regimeSetupBias(it.setup, regime)") && sheet.contains("regimeBias="))
+        assertTrue("Router must remap weak-CHOP degen/fresh styles before primary lane election", router.contains("weakChopStylePivot") && router.contains("Style.DEGEN_MICRO_SNIPE") && router.contains("Style.DEFENSIVE_PROBE") && router.contains("Style.DIAMOND_HANDS_RUNNER") && router.contains("Style.LIQUIDITY_DEPTH_QUALITY") && router.contains("weakChopSheet && classification.tradeType == ModeRouter.TradeType.FRESH_LAUNCH"))
         assertFalse("Regime toolkit pivot must not hard-block or disable lanes", sheet.contains("disableLane") || sheet.contains("shouldTrade = false") || sheet.contains("BLOCK_"))
     }
 

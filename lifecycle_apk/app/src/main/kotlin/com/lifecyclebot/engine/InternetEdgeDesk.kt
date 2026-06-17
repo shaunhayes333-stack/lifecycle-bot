@@ -72,7 +72,8 @@ object InternetEdgeDesk {
                 ) ?: return@launch
                 val brief = parseBrief(response)
                 if (brief != null) {
-                    cached = brief.copy(atMs = System.currentTimeMillis(), source = "llm_internet")
+                    val src = if (brief.source == "llm_text") "llm_text" else "llm_internet"
+                    cached = brief.copy(atMs = System.currentTimeMillis(), source = src)
                     try { PipelineHealthCollector.labelInc("INTERNET_EDGE_REFRESHED") } catch (_: Throwable) {}
                 } else {
                     try { PipelineHealthCollector.labelInc("INTERNET_EDGE_PARSE_FAILED") } catch (_: Throwable) {}

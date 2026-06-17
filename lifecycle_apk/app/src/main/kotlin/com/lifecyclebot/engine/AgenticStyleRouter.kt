@@ -117,6 +117,29 @@ object AgenticStyleRouter {
         ToolkitSignalSheet.Setup.NONE -> null
     }
 
+    private fun isWeakChopSheet(sheet: ToolkitSignalSheet.Sheet): Boolean =
+        sheet.reasons.any { it == "regime=CHOP" || it == "regime=DUMP" }
+
+    private fun weakChopStylePivot(style: Style, sheet: ToolkitSignalSheet.Sheet): Style {
+        if (!isWeakChopSheet(sheet)) return style
+        return when (style) {
+            // 5.0.3859 report: CHOP wr=15.7%, EXPRESS 0% WR, MOONSHOT S41-60 danger.
+            // Do not let weak-CHOP toolkit/fresh-launch style election keep routing
+            // degen scalps or MOONSHOT-first diamond runners as primary exposure.
+            Style.DEGEN_MICRO_SNIPE,
+            Style.PUMP_GRADUATION_SNIPE,
+            Style.VOLUME_IGNITION_SCALP,
+            Style.EXHAUSTION_QUICK_FLIP,
+            Style.ARB_FLOW_IMBALANCE,
+            Style.MICRO_SNIPE,
+            Style.QUICK_FLIP -> Style.DEFENSIVE_PROBE
+            Style.DIAMOND_HANDS_RUNNER,
+            Style.BREAKOUT_RUNNER,
+            Style.SWING_HOLD -> Style.LIQUIDITY_DEPTH_QUALITY
+            else -> style
+        }
+    }
+
     fun decide(ts: TokenState, classification: ModeRouter.Classification, laneHint: String = ""): Decision {
         val sheet = try { ToolkitSignalSheet.snapshot(ts, classification) } catch (_: Throwable) { ToolkitSignalSheet.fallbackSheet(ts, classification) }
         val score = try { (ts.lastV3Score ?: ts.entryScore.toInt()).coerceIn(0, 150) } catch (_: Throwable) { 0 }
@@ -129,7 +152,8 @@ object AgenticStyleRouter {
         // candidate, so use the O(1) stale-while-revalidate catastrophic flag.
         val lowScoreBleedContext = score <= 10 && try { CatastrophicPaperBleedGuard.isActive() } catch (_: Throwable) { false }
 
-        val toolkitStyle = if (sheet.confidence >= 38.0) styleForToolkit(sheet) else null
+        val weakChopSheet = isWeakChopSheet(sheet)
+        val toolkitStyle = if (sheet.confidence >= 38.0) styleForToolkit(sheet)?.let { weakChopStylePivot(it, sheet) } else null
         val style = when {
             toolkitStyle != null -> toolkitStyle
             // V5.0.3716 — do not let PULLBACK/LAB tactics route score-0 CHOP
@@ -142,6 +166,7 @@ object AgenticStyleRouter {
             tactic == TacticSwitcher.Tactic.PULLBACK -> Style.PULLBACK_RECLAIM
             tactic == TacticSwitcher.Tactic.REACCUMULATION -> Style.REACCUMULATION
             tactic == TacticSwitcher.Tactic.BREAKOUT -> Style.BREAKOUT_RUNNER
+            weakChopSheet && classification.tradeType == ModeRouter.TradeType.FRESH_LAUNCH -> Style.DEFENSIVE_PROBE
             classification.tradeType == ModeRouter.TradeType.FRESH_LAUNCH && ageMin <= 3.0 -> Style.MICRO_SNIPE
             classification.tradeType == ModeRouter.TradeType.FRESH_LAUNCH -> Style.QUICK_FLIP
             classification.tradeType == ModeRouter.TradeType.BREAKOUT_CONTINUATION -> Style.BREAKOUT_RUNNER

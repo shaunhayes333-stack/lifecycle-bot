@@ -1825,6 +1825,8 @@ object PipelineHealthCollector {
         sb.append("\n===== Throughput choke audit (V5.9.951) =====\n")
         val totalIntake = s.intakeBySource.values.sum()
         val totalLaneEval = s.laneEvalCounts.values.sum()
+        val throughputFdgRawRows = s.phaseCounts["FDG"] ?: 0L
+        val throughputFdgDecisions = ((s.phaseAllow["FDG"] ?: 0L) + (s.phaseBlock["FDG"] ?: 0L)).takeIf { it > 0L } ?: throughputFdgRawRows
         val totalVerdicts = s.verdictCounts.values.sum()
         val v3Allow = s.phaseAllow["V3"] ?: 0L
         val execGateAllow = s.phaseAllow["EXEC_GATE"] ?: 0L
@@ -1834,7 +1836,8 @@ object PipelineHealthCollector {
         sb.append("  intake total:         $totalIntake (sum of all scanner sources)\n")
         sb.append("  lane evaluations:     $totalLaneEval active (${s.laneEvalSuppressedCounts.values.sum()} suppressed by QUALITY-only policy)\n")
         sb.append("  V3 evaluations:       ${v3Allow + v3Skipped}\n")
-        sb.append("  FDG active/suppressed:${s.phaseCounts["FDG"] ?: 0L} / ${s.fdgSuppressedPathCounts.values.sum()}\n")
+        sb.append("  FDG active/suppressed:$throughputFdgDecisions / ${s.fdgSuppressedPathCounts.values.sum()}\n")
+        if (throughputFdgRawRows > throughputFdgDecisions) sb.append("    └─ raw FDG forensic rows: $throughputFdgRawRows\n")
         sb.append("    ├─ V3 allow:        $v3Allow\n")
         sb.append("    └─ V3 skip:         $v3Skipped\n")
         sb.append("  verdicts produced:    $totalVerdicts\n")
