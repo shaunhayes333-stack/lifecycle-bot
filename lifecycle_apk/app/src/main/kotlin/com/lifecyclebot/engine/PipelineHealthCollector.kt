@@ -1024,8 +1024,12 @@ object PipelineHealthCollector {
             try {
                 val faults = com.lifecyclebot.engine.RuntimeDoctor.currentFaults()
                 for (f in faults) { rootCauses.add(0, ("" + f.code + " (" + f.severity + ") " + f.detail).take(120)) }
+                val diag = com.lifecyclebot.engine.RuntimeDoctor.currentDiagnosis()
+                if (diag != null && diag.faultCode !in setOf("NO_FAULT", "HEALTHY")) {
+                    rootCauses.add(0, "${diag.faultCode}/${diag.subsystem}: ${diag.rootCause}".take(160))
+                }
             } catch (_: Throwable) {}
-            if (rootCauses.isEmpty()) rootCauses.add("NONE — mechanics AND performance within band")
+            if (rootCauses.isEmpty()) rootCauses.add("HEALTHY — mechanics and recent performance within deterministic bands")
             sb.append("  Root cause likely:    ${rootCauses.distinct().joinToString(" | ").take(220)}\n")
         } catch (_: Throwable) {}
         sb.append("\n")

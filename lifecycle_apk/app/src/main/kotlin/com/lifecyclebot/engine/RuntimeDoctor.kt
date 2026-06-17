@@ -110,6 +110,7 @@ object RuntimeDoctor {
 
     fun latestSnapshot(): RuntimeStateSnapshot = latest ?: RuntimeStateSnapshot.current()
     fun currentFaults(): List<InvariantGuardian.Fault> = latestReport?.faults ?: emptyList()
+    fun currentDiagnosis(): StateDebuggerAI.Diagnosis? = latestReport?.diagnosis
     fun recentFaults(): List<InvariantGuardian.Fault> = recentFaults.toList()
 
     private fun commandsFor(f: InvariantGuardian.Fault, snap: RuntimeStateSnapshot): List<RuntimeMitigationBus.Command> = when (f.code) {

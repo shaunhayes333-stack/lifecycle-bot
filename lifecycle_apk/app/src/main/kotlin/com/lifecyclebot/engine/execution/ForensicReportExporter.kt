@@ -109,6 +109,8 @@ object ForensicReportExporter {
         root.put("runtime_doctor", JSONObject().apply {
             put("fault_count", doctor?.faults?.size ?: -1)
             put("diagnosis_fault", doctor?.diagnosis?.faultCode ?: "unavailable")
+            put("diagnosis_state", doctor?.diagnosis?.state ?: "unavailable")
+            put("diagnosis_subsystem", doctor?.diagnosis?.subsystem ?: "unavailable")
             put("diagnosis_confidence", doctor?.diagnosis?.confidence ?: 0.0)
             put("safe_actions", doctor?.recommendedActions?.joinToString(",") { it.action.name + ":" + it.target } ?: "")
             put("latest_snapshot_ts", doctor?.snapshot?.timestampMs ?: 0L)

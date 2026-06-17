@@ -2046,6 +2046,24 @@ class GoldenTapeRegressionTest {
 
 
     @Test
+    fun runtime_doctor_classifies_strategy_bleed_and_mechanical_degradation() {
+        val dbg = java.io.File("src/main/kotlin/com/lifecyclebot/engine/StateDebuggerAI.kt").readText()
+        val doctor = java.io.File("src/main/kotlin/com/lifecyclebot/engine/RuntimeDoctor.kt").readText()
+        val report = java.io.File("src/main/kotlin/com/lifecyclebot/engine/ReportingHub.kt").readText()
+        val collector = java.io.File("src/main/kotlin/com/lifecyclebot/engine/PipelineHealthCollector.kt").readText()
+        assertTrue("doctor diagnosis must expose state", dbg.contains("val state: String = faultCode"))
+        assertTrue("doctor diagnosis must expose subsystem owner", dbg.contains("val subsystem: String = "runtime""))
+        assertTrue("strategy bleed must be classified separately from invariant faults", dbg.contains("STRATEGY_BLEED") && dbg.contains("wr < 20.0"))
+        assertTrue("mechanical degradation must catch ANR hints", dbg.contains("MECHANICAL_FAULT") && dbg.contains("anrHints >= 3"))
+        assertTrue("doctor must expose latest diagnosis", doctor.contains("fun currentDiagnosis()"))
+        assertTrue("forensic report must print state/subsystem", report.contains("state=${'$'}{doctor.diagnosis.state}") && report.contains("subsystem=${'$'}{doctor.diagnosis.subsystem}"))
+        assertTrue("pipeline root cause must consume doctor diagnosis", collector.contains("RuntimeDoctor.currentDiagnosis()"))
+        assertFalse("autonomy diagnosis must not self-edit code", dbg.contains("PatchWriterAI") || dbg.contains("deploy") || dbg.contains("git commit"))
+        assertFalse("autonomy diagnosis must not weaken live safety", dbg.contains("disableTerminal") || dbg.contains("ignoreFinality") || dbg.contains("forceLive"))
+    }
+
+
+    @Test
     fun event_triggered_sentience_is_safe_and_non_mutating() {
         val sentience = java.io.File("src/main/kotlin/com/lifecyclebot/engine/SentienceOrchestrator.kt").readText()
         val doctor = java.io.File("src/main/kotlin/com/lifecyclebot/engine/RuntimeDoctor.kt").readText()

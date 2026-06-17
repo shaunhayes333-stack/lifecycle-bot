@@ -157,6 +157,8 @@ object ReportingHub {
         val doctor = try { RuntimeDoctor.tick() } catch (_: Throwable) { null }
         if (doctor != null) {
             appendLine("  diagnosis=${doctor.diagnosis.faultCode}")
+            appendLine("  state=${doctor.diagnosis.state}")
+            appendLine("  subsystem=${doctor.diagnosis.subsystem}")
             appendLine("  confidence=${String.format(Locale.US, "%.2f", doctor.diagnosis.confidence)}")
             appendLine("  faults=${doctor.faults.size}")
             doctor.faults.take(12).forEach { f -> appendLine("  - ${f.code}/${f.severity}: ${f.detail.take(160)}") }
