@@ -172,12 +172,13 @@ object ReportingHub {
         }
         if (perf != null) appendLine("Perf(last analyze): n=${perf.totalTrades} WR=${perf.winRate.fmt1()}% PnL=${perf.totalPnlSol.fmt4()} SOL PF=${perf.profitFactor.fmt2()} DD=${perf.currentDrawdownPct.fmt1()}% streak=${perf.currentStreak}")
         if (journal != null) appendLine("Journal canonical: closes=${journal.trades} W/L=${journal.wins}/${journal.losses} WR=${journal.winRatePct().fmt1()}% PnL=${journal.pnlSol.fmt4()} SOL")
-        appendLine("Learning: ${safe("token_win_stats") { TokenWinMemory.getStats() }} | ${safe("collective") { com.lifecyclebot.collective.CollectiveLearning.getInsightsSummary() }}")
+        appendLine("Learning: ${safe("token_win_stats") { TokenWinMemory.getStats() }} | ${safe("collective") { com.lifecyclebot.collective.CollectiveLearning.getInsightsSummary() }} | quarantined=${learningQuarantineLine()}")
         appendLine("Tuning: ${safe("pattern_auto_tuner") { PatternAutoTuner.getStatus() }}")
     }
 
     private fun buildLearningTuningSummary(): String = buildString(10 * 1024) {
         appendLine("TokenWinMemory: ${safe("token_win_stats") { TokenWinMemory.getStats() }}")
+        appendLine("Learning quarantine: ${learningQuarantineLine()}")
         appendLine("PatternMemory: ${safe("token_pattern_summary") { TokenWinMemory.getPatternSummary() }}")
         safe("best_patterns") {
             val best = TokenWinMemory.getBestPatterns(5).joinToString(" | ") { (k, v) -> "$k n=${v.wins + v.losses} WR=${(v.winRate * 100.0).fmt1()}% avgWin=${v.avgWinPnl.fmt1()}%" }
@@ -290,6 +291,18 @@ object ReportingHub {
         }
         out.append("[section condensed: ${raw.length}→${out.length} chars]")
         return out.toString()
+    }
+
+    private fun learningQuarantineLine(): String {
+        val s = safeSnapshot { PipelineHealthCollector.snapshot() }
+        val total = s?.labelCounts?.get("LEARNING_PNL_QUARANTINED") ?: 0L
+        val top = s?.labelCounts?.entries
+            ?.filter { it.key.startsWith("LEARNING_PNL_QUARANTINED_") }
+            ?.sortedByDescending { it.value }
+            ?.take(3)
+            ?.joinToString(",") { "${it.key.removePrefix("LEARNING_PNL_QUARANTINED_")}=${it.value}" }
+            ?: ""
+        return if (top.isBlank()) total.toString() else "$total ($top)"
     }
 
     private fun isJournalWin(t: com.lifecyclebot.data.Trade): Boolean = t.pnlPct >= 0.5

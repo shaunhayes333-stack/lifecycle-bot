@@ -792,6 +792,9 @@ object TradeHistoryStore {
             // uploadJournalTradeRow below, not to that scratch BUY filter).
             val side = trade.side.uppercase().take(24)
             if (side.isBlank()) return
+            val closeLike = side == "SELL" || side == "PARTIAL_SELL"
+            val learningVerdict = if (closeLike) LearningPnlSanitizer.inspectTrade(trade, "TradeHistoryStore.uploadCollectiveJournalRow") else LearningPnlSanitizer.Verdict(true, trade.pnlPct)
+            if (!learningVerdict.ok) return
             val journalKey = listOf(
                 trade.positionId.ifBlank { trade.mint }, side, trade.ts.toString(), trade.reason.take(32)
             ).joinToString("|")
@@ -815,9 +818,9 @@ object TradeHistoryStore {
                         marketSentiment = trade.reason.take(40).ifBlank { "JOURNAL" },
                         entryScore = trade.score.toInt(),
                         confidence = 0,
-                        pnlPct = trade.pnlPct,
+                        pnlPct = learningVerdict.pnlPct,
                         holdMins = holdMins,
-                        isWin = trade.pnlPct >= 0.0,
+                        isWin = learningVerdict.pnlPct >= 0.5,
                         paperMode = trade.mode.equals("paper", true) || trade.mode.equals("PAPER", true),
                         journalKey = journalKey,
                     )

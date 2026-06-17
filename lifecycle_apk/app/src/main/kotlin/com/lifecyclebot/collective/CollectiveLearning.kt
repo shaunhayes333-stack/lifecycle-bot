@@ -637,6 +637,8 @@ object CollectiveLearning {
         holdMins: Double
     ) {
         if (!isEnabled()) return
+        val pnlVerdict = com.lifecyclebot.engine.LearningPnlSanitizer.inspectPct(pnlPct, "CollectiveLearning.uploadPatternOutcome/$patternType")
+        if (!pnlVerdict.ok) return
 
         try {
             val patternHash = hashPattern(patternType, discoverySource, liquidityBucket, emaTrend)
@@ -662,8 +664,8 @@ object CollectiveLearning {
                 sql,
                 listOf(
                     patternHash, patternType, discoverySource, liquidityBucket, emaTrend,
-                    winInc, lossInc, sanitizeDouble(pnlPct), sanitizeDouble(holdMins), now,
-                    winInc, lossInc, sanitizeDouble(pnlPct), sanitizeDouble(holdMins), now
+                    winInc, lossInc, sanitizeDouble(pnlVerdict.pnlPct), sanitizeDouble(holdMins), now,
+                    winInc, lossInc, sanitizeDouble(pnlVerdict.pnlPct), sanitizeDouble(holdMins), now
                 )
             )
 
@@ -751,6 +753,9 @@ object CollectiveLearning {
         return withContext(Dispatchers.IO) {
             try {
                 val now = System.currentTimeMillis()
+                val closeLike = side.equals("SELL", true) || side.equals("PARTIAL_SELL", true)
+                val pnlVerdict = if (closeLike) com.lifecyclebot.engine.LearningPnlSanitizer.inspectPct(pnlPct, "CollectiveLearning.uploadJournalTradeRow/$side/$mode") else com.lifecyclebot.engine.LearningPnlSanitizer.Verdict(true, pnlPct)
+                if (!pnlVerdict.ok) return@withContext false
                 val tradeHash = sha256("JOURNAL|$instanceId|$journalKey").take(24)
                 val liquidityBucket = when {
                     liquidityUsd < 5_000.0 -> "MICRO"
@@ -769,7 +774,7 @@ object CollectiveLearning {
                         tradeHash, instanceId, now, side.take(24), symbol.take(40), mint.take(80),
                         mode.take(40).ifBlank { "STANDARD" }, source.take(80).ifBlank { "JOURNAL" }, liquidityBucket,
                         marketSentiment.take(40).ifBlank { "JOURNAL" }, entryScore, confidence,
-                        sanitizeDouble(pnlPct), sanitizeDouble(holdMins), if (isWin) 1 else 0, if (paperMode) 1 else 0
+                        sanitizeDouble(pnlVerdict.pnlPct), sanitizeDouble(holdMins), if (pnlVerdict.pnlPct >= 0.5) 1 else 0, if (paperMode) 1 else 0
                     )
                 )
                 if (result.success) {
@@ -839,6 +844,9 @@ object CollectiveLearning {
             ErrorLogger.error("CollectiveTrade", "SKIP: $side $symbol - client became null after isEnabled check")
             return
         }
+        val closeLike = side.equals("SELL", true) || side.equals("PARTIAL_SELL", true)
+        val pnlVerdict = if (closeLike) com.lifecyclebot.engine.LearningPnlSanitizer.inspectPct(pnlPct, "CollectiveLearning.uploadTrade/$side/$mode") else com.lifecyclebot.engine.LearningPnlSanitizer.Verdict(true, pnlPct)
+        if (!pnlVerdict.ok) return
 
         try {
             val now = System.currentTimeMillis()
@@ -879,9 +887,9 @@ object CollectiveLearning {
                     marketSentiment,
                     entryScore,
                     confidence,
-                    sanitizeDouble(pnlPct),
+                    sanitizeDouble(pnlVerdict.pnlPct),
                     sanitizeDouble(holdMins),
-                    if (isWin) 1 else 0,
+                    if (pnlVerdict.pnlPct >= 0.5) 1 else 0,
                     if (paperMode) 1 else 0
                 )
             )
@@ -1040,6 +1048,8 @@ object CollectiveLearning {
         leadTimeSec: Int
     ) {
         if (!isEnabled()) return
+        val pnlVerdict = com.lifecyclebot.engine.LearningPnlSanitizer.inspectPct(pnlPct, "CollectiveLearning.uploadWhaleEffectiveness")
+        if (!pnlVerdict.ok) return
 
         try {
             val walletHash = hashWallet(walletAddress)
@@ -1061,8 +1071,8 @@ object CollectiveLearning {
             client!!.execute(
                 sql,
                 listOf(
-                    walletHash, profitInc, sanitizeDouble(pnlPct), leadTimeSec, now,
-                    profitInc, sanitizeDouble(pnlPct), leadTimeSec, now
+                    walletHash, profitInc, sanitizeDouble(pnlVerdict.pnlPct), leadTimeSec, now,
+                    profitInc, sanitizeDouble(pnlVerdict.pnlPct), leadTimeSec, now
                 )
             )
 
@@ -2522,12 +2532,15 @@ object CollectiveLearning {
         return withContext(Dispatchers.IO) {
             try {
                 val now = System.currentTimeMillis()
+                val pnlVerdict = com.lifecyclebot.engine.LearningPnlSanitizer.inspectPct(pnlPct, "CollectiveLearning.broadcastHotToken/$mode")
+                if (!pnlVerdict.ok) return@withContext false
+                val safePnlPct = pnlVerdict.pnlPct
                 val expiresAt = now + (2 * 60 * 60 * 1000L)
 
                 val signalType = when {
-                    pnlPct >= 50.0 -> "MEGA_WINNER"
-                    pnlPct >= 20.0 -> "HOT_TOKEN"
-                    pnlPct <= -15.0 -> "AVOID"
+                    safePnlPct >= 50.0 -> "MEGA_WINNER"
+                    safePnlPct >= 20.0 -> "HOT_TOKEN"
+                    safePnlPct <= -15.0 -> "AVOID"
                     else -> "INFO"
                 }
 
@@ -2544,7 +2557,7 @@ object CollectiveLearning {
                         symbol,
                         instanceId,
                         now,
-                        sanitizeDouble(pnlPct),
+                        sanitizeDouble(safePnlPct),
                         confidence,
                         sanitizeDouble(liquidityUsd),
                         mode,
@@ -2554,7 +2567,7 @@ object CollectiveLearning {
                 )
 
                 if (result.success) {
-                    Log.i(TAG, "BROADCAST: $signalType $symbol ${pnlPct.toInt()}% -> NETWORK")
+                    Log.i(TAG, "BROADCAST: $signalType $symbol ${safePnlPct.toInt()}% -> NETWORK")
                 }
 
                 result.success

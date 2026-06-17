@@ -70,14 +70,18 @@ object TradeRowSanityCheck {
             return record(QuarantineReason.FAKE_DUPLICATE_SELL, t)
         }
 
-        // 2. Missing fields on a SELL row.
-        if (t.side.equals("SELL", ignoreCase = true)) {
+        val closeLike = t.side.equals("SELL", ignoreCase = true) || t.side.equals("PARTIAL_SELL", ignoreCase = true)
+        val pnlVerdict = com.lifecyclebot.engine.LearningPnlSanitizer.inspectTrade(t, "TradeRowSanityCheck")
+        if (!pnlVerdict.ok) return record(QuarantineReason.IMPOSSIBLE_PNL, t, pnlVerdict.reason)
+
+        // 2. Missing fields on a close row.
+        if (closeLike) {
             if (t.price <= 0.0) return record(QuarantineReason.MISSING_EXIT_PRICE, t)
             if (t.sol <= 0.0) return record(QuarantineReason.MISSING_ENTRY_PRICE, t)
         }
 
         // 3. Impossible PnL: declared pnlPct vs implied from pnlSol/sol.
-        if (t.side.equals("SELL", ignoreCase = true) && t.sol > 0.0) {
+        if (closeLike && t.sol > 0.0) {
             val impliedPct = t.pnlSol / t.sol * 100.0
             val declared = t.pnlPct
             // Allow paper-mode clamps within tolerance; outside +/- 50 absolute pts is impossible.
@@ -94,7 +98,7 @@ object TradeRowSanityCheck {
         }
 
         // 4. Bad decimals — sanity check pnlSol vs (sol × pnlPct/100).
-        if (t.side.equals("SELL", ignoreCase = true) && t.sol > 0.0) {
+        if (closeLike && t.sol > 0.0) {
             val expectedPnl = t.sol * (t.pnlPct / 100.0)
             val declared = t.pnlSol
             // Allow up to 50% slip on fees/slippage, but anything wilder is a decimal bug.

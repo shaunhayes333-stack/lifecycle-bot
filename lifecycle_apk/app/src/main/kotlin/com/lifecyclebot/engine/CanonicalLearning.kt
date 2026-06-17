@@ -884,6 +884,11 @@ object CanonicalOutcomeBus {
         if (!paperVerdict.ok) {
             com.lifecyclebot.engine.PaperLearningSanity.emitQuarantine(trade, paperVerdict.reason)
         }
+        val learningPnlVerdict = com.lifecyclebot.engine.LearningPnlSanitizer.inspectTrade(trade, "CanonicalOutcomeBus.publishFromLegacyTrade")
+        if (!learningPnlVerdict.ok) {
+            // Journal/accounting row remains stored; only strategy-learning fanout is suppressed.
+            return
+        }
         val executionResult = if (trade.sig.isNotBlank() || env == TradeEnvironment.PAPER)
             ExecutionResult.EXECUTED else ExecutionResult.UNKNOWN
 
@@ -928,7 +933,7 @@ object CanonicalOutcomeBus {
             entrySol = null,
             exitSol = trade.sol,
             realizedPnlSol = trade.netPnlSol.takeIf { it != 0.0 } ?: trade.pnlSol,
-            realizedPnlPct = pnlPct,
+            realizedPnlPct = learningPnlVerdict.pnlPct,
             maxGainPct = null,
             maxDrawdownPct = null,
             holdSeconds = null,

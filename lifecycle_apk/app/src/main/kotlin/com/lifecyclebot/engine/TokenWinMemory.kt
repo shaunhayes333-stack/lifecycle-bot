@@ -137,14 +137,23 @@ object TokenWinMemory {
         phase: String,
         creatorAddress: String? = null,
     ) {
-        val isWin = isWinPnl(pnlPercent)
-        val isLoss = isLossPnl(pnlPercent)
+        val verdict = LearningPnlSanitizer.inspectPct(
+            pnlPct = pnlPercent,
+            context = "TokenWinMemory.recordTradeOutcome/${source.take(40)}/${phase.take(40)}",
+        )
+        if (!verdict.ok) {
+            ErrorLogger.warn("TokenWinMemory", "LEARNING_PNL_QUARANTINED mint=${mint.take(8)} symbol=$symbol pnlPct=$pnlPercent reason=${verdict.reason}")
+            return
+        }
+        val trainablePnl = verdict.pnlPct
+        val isWin = isWinPnl(trainablePnl)
+        val isLoss = isLossPnl(trainablePnl)
         val isScratch = !isWin && !isLoss
 
         if (isScratch) {
             ErrorLogger.debug(
                 "TokenWinMemory",
-                "$symbol: Scratch trade (${pnlPercent.toInt()}%) - not recorded"
+                "$symbol: Scratch trade (${trainablePnl.toInt()}%) - not recorded"
             )
             return
         }
@@ -158,9 +167,9 @@ object TokenWinMemory {
         } else {
             mintStats.losses++
         }
-        mintStats.totalPnl += pnlPercent
-        mintStats.bestPnl = maxOf(mintStats.bestPnl, pnlPercent)
-        mintStats.lastPnl = pnlPercent
+        mintStats.totalPnl += trainablePnl
+        mintStats.bestPnl = maxOf(mintStats.bestPnl, trainablePnl)
+        mintStats.lastPnl = trainablePnl
         mintStats.lastSeen = now
 
         // ── Record / update winning token memory ──────────────────────────
@@ -169,17 +178,17 @@ object TokenWinMemory {
         if (isWin) {
             if (existingWinner != null) {
                 existingWinner.timesTraded++
-                existingWinner.totalPnl += pnlPercent
+                existingWinner.totalPnl += trainablePnl
                 ErrorLogger.info(
                     "TokenWinMemory",
-                    "🏆 REPEAT WINNER: $symbol | +${pnlPercent.toInt()}% | total: +${existingWinner.totalPnl.toInt()}% over ${existingWinner.timesTraded} trades"
+                    "🏆 REPEAT WINNER: $symbol | +${trainablePnl.toInt()}% | total: +${existingWinner.totalPnl.toInt()}% over ${existingWinner.timesTraded} trades"
                 )
             } else {
                 winningTokens[mint] = WinningToken(
                     mint = mint,
                     symbol = symbol,
                     name = name,
-                    pnlPercent = pnlPercent,
+                    pnlPercent = trainablePnl,
                     peakPnl = peakPnl,
                     entryMcap = entryMcap,
                     exitMcap = exitMcap,
@@ -192,16 +201,16 @@ object TokenWinMemory {
                 )
                 ErrorLogger.info(
                     "TokenWinMemory",
-                    "🏆 NEW WINNER: $symbol | +${pnlPercent.toInt()}% | mcap: $${entryMcap.toInt()} → $${exitMcap.toInt()}"
+                    "🏆 NEW WINNER: $symbol | +${trainablePnl.toInt()}% | mcap: $${entryMcap.toInt()} → $${exitMcap.toInt()}"
                 )
                 trimWinners()
             }
         } else if (existingWinner != null) {
             existingWinner.timesTraded++
-            existingWinner.totalPnl += pnlPercent
+            existingWinner.totalPnl += trainablePnl
             ErrorLogger.debug(
                 "TokenWinMemory",
-                "📉 KNOWN WINNER LOST: $symbol | ${pnlPercent.toInt()}% | cumulative: ${existingWinner.totalPnl.toInt()}%"
+                "📉 KNOWN WINNER LOST: $symbol | ${trainablePnl.toInt()}% | cumulative: ${existingWinner.totalPnl.toInt()}%"
             )
         }
 
@@ -215,7 +224,7 @@ object TokenWinMemory {
             phase = phase,
             source = source,
             isWin = isWin,
-            pnl = pnlPercent,
+            pnl = trainablePnl,
         )
 
         // ── Track creator stats ───────────────────────────────────────────
@@ -223,7 +232,7 @@ object TokenWinMemory {
             val stats = creatorStats.getOrPut(creatorAddress) { PatternStats() }
             if (isWin) {
                 stats.wins++
-                stats.totalPnl += pnlPercent
+                stats.totalPnl += trainablePnl
                 stats.avgWinPnl = stats.totalPnl / stats.wins.toDouble()
             } else {
                 stats.losses++
@@ -353,6 +362,28 @@ object TokenWinMemory {
         return found
     }
 
+    private fun sanePatternStats(stats: PatternStats): Boolean {
+        val n = stats.wins + stats.losses
+        if (n <= 0) return false
+        if (!stats.totalPnl.isFinite() || !stats.avgWinPnl.isFinite()) return false
+        if (kotlin.math.abs(stats.totalPnl) > n.toDouble() * LearningPnlSanitizer.MAX_TRAINABLE_PNL_PCT) return false
+        if (stats.wins > 0 && (stats.avgWinPnl < 0.0 || stats.avgWinPnl > LearningPnlSanitizer.MAX_TRAINABLE_PNL_PCT)) return false
+        return true
+    }
+
+    private fun saneTokenStats(stats: TokenStats): Boolean {
+        val n = stats.decisiveTrades
+        if (n <= 0) return false
+        if (!stats.totalPnl.isFinite() || !stats.bestPnl.isFinite() || !stats.lastPnl.isFinite()) return false
+        return kotlin.math.abs(stats.totalPnl) <= n.toDouble() * LearningPnlSanitizer.MAX_TRAINABLE_PNL_PCT &&
+            stats.bestPnl <= LearningPnlSanitizer.MAX_TRAINABLE_PNL_PCT && stats.lastPnl <= LearningPnlSanitizer.MAX_TRAINABLE_PNL_PCT
+    }
+
+    private fun saneWinner(w: WinningToken): Boolean =
+        w.pnlPercent.isFinite() && w.totalPnl.isFinite() &&
+            w.pnlPercent in WIN_THRESHOLD_PCT..LearningPnlSanitizer.MAX_TRAINABLE_PNL_PCT &&
+            kotlin.math.abs(w.totalPnl) <= w.timesTraded.coerceAtLeast(1).toDouble() * LearningPnlSanitizer.MAX_TRAINABLE_PNL_PCT
+
     // ═══════════════════════════════════════════════════════════════════════
     // QUERY
     // ═══════════════════════════════════════════════════════════════════════
@@ -371,7 +402,7 @@ object TokenWinMemory {
         var factors = 0
 
         val exactStats = tokenStats[mint]
-        if (exactStats != null && exactStats.decisiveTrades > 0) {
+        if (exactStats != null && exactStats.decisiveTrades > 0 && saneTokenStats(exactStats)) {
             val rawExactScore = when {
                 exactStats.totalPnl >= 100.0 -> 50.0
                 exactStats.totalPnl >= 50.0 -> 35.0
@@ -486,12 +517,13 @@ object TokenWinMemory {
         return multiplier
     }
 
-    fun isKnownWinner(mint: String): Boolean = winningTokens.containsKey(mint)
+    fun isKnownWinner(mint: String): Boolean = winningTokens[mint]?.let { saneWinner(it) } == true
 
-    fun getWinnerStats(mint: String): WinningToken? = winningTokens[mint]
+    fun getWinnerStats(mint: String): WinningToken? = winningTokens[mint]?.takeIf { saneWinner(it) }
 
     fun getMemoryScoreForMint(mint: String): Int {
         val stats = tokenStats[mint] ?: return 0
+        if (!saneTokenStats(stats)) return 0
 
         return when {
             stats.totalPnl >= 100.0 -> 50
@@ -520,7 +552,7 @@ object TokenWinMemory {
                 )
             }
         }
-            .filter { it.totalTrades > 0 }
+            .filter { it.totalTrades > 0 && kotlin.math.abs(it.totalPnl) <= it.totalTrades.toDouble() * LearningPnlSanitizer.MAX_TRAINABLE_PNL_PCT && it.avgWinPnl <= LearningPnlSanitizer.MAX_TRAINABLE_PNL_PCT }
             .sortedWith(
                 compareByDescending<ExportedPatternAggregate> { it.totalTrades }
                     .thenByDescending { kotlin.math.abs(it.winRate - 0.5) }
@@ -533,7 +565,7 @@ object TokenWinMemory {
         return patterns.flatMap { (type, typePatterns) ->
             typePatterns.map { (value, stats) -> "$type:$value" to stats }
         }
-            .filter { it.second.isReliable }
+            .filter { it.second.isReliable && sanePatternStats(it.second) }
             .sortedByDescending { it.second.winRate }
             .take(limit)
     }
@@ -542,7 +574,7 @@ object TokenWinMemory {
         return patterns.flatMap { (type, typePatterns) ->
             typePatterns.map { (value, stats) -> "$type:$value" to stats }
         }
-            .filter { it.second.isReliable }
+            .filter { it.second.isReliable && sanePatternStats(it.second) }
             .sortedBy { it.second.winRate }
             .take(limit)
     }
@@ -595,19 +627,23 @@ object TokenWinMemory {
     }
 
     fun getStats(): String {
-        val totalWinners = winningTokens.size
-        val totalPnl = winningTokens.values.sumOf { it.totalPnl }
+        val saneWinners = winningTokens.values.filter { saneWinner(it) }
+        val quarantinedWinners = winningTokens.size - saneWinners.size
+        val totalWinners = saneWinners.size
+        val totalPnl = saneWinners.sumOf { it.totalPnl }
         val avgPnl = if (totalWinners > 0) totalPnl / totalWinners.toDouble() else 0.0
-        val repeatWinners = winningTokens.values.count { it.timesTraded > 1 }
+        val repeatWinners = saneWinners.count { it.timesTraded > 1 }
 
-        return "Winners: $totalWinners ($repeatWinners repeat) | Total PnL: ${totalPnl.toInt()}% | Avg: ${avgPnl.toInt()}%"
+        return "Winners: $totalWinners ($repeatWinners repeat) | Total PnL: ${totalPnl.toInt()}% | Avg: ${avgPnl.toInt()}%" + if (quarantinedWinners > 0) " | quarantinedLegacy=$quarantinedWinners" else ""
     }
 
     fun getPatternSummary(): String {
         val totalPatterns = countPatterns()
+        val sanePatternCount = patterns.values.sumOf { typeMap -> typeMap.values.count { sanePatternStats(it) } }
         val reliablePatterns = patterns.values.sumOf { typeMap ->
-            typeMap.values.count { it.isReliable }
+            typeMap.values.count { it.isReliable && sanePatternStats(it) }
         }
+        val saneWinnerCount = winningTokens.values.count { saneWinner(it) }
 
         val bestPatterns = getBestPatterns(3)
         val worstPatterns = getWorstPatterns(3)
@@ -619,8 +655,8 @@ object TokenWinMemory {
             "${it.first.substringAfter(":")}(${(it.second.winRate * 100).toInt()}%)"
         }
 
-        return "patterns=$totalPatterns (reliable=$reliablePatterns) | " +
-            "winners=${winningTokens.size} | best=[$bestStr] | worst=[$worstStr]"
+        return "patterns=$sanePatternCount/$totalPatterns (reliable=$reliablePatterns) | " +
+            "winners=$saneWinnerCount/${winningTokens.size} | best=[$bestStr] | worst=[$worstStr]"
     }
 
     fun forceSave() {

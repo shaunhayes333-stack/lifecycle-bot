@@ -52,8 +52,8 @@ object StrategyTelemetry {
     }
 
     /**
-     * Aggregate all SELL trades (those carry the realised pnlPct) by their
-     * `tradingMode` field. BUYs are excluded — they have pnlPct=0.0 by
+     * Aggregate all close trades (SELL + PARTIAL_SELL; both carry realised pnlPct)
+     * by their `tradingMode` field. BUYs are excluded — they have pnlPct=0.0 by
      * definition and would skew the EV calculation.
      */
     fun computeLeaderboard(): List<StrategyMetric> {
@@ -62,7 +62,8 @@ object StrategyTelemetry {
 
         val sellsByStrategy: Map<String, List<Trade>> = all
             .asSequence()
-            .filter { it.side.equals("SELL", ignoreCase = true) }
+            .filter { it.side.equals("SELL", ignoreCase = true) || it.side.equals("PARTIAL_SELL", ignoreCase = true) }
+            .filter { LearningPnlSanitizer.inspectTrade(it, "StrategyTelemetry", emit = false).ok }
             // V5.9.1043 — also collapse legacy bin names at read time so
             // historical trades recorded before V5.9.1038's choke-point
             // normalization (e.g. BLUE_CHIP) merge with the canonical
@@ -79,20 +80,15 @@ object StrategyTelemetry {
             }
 
         return sellsByStrategy.map { (strategy, trades) ->
-            val wins = trades.count { it.pnlPct > 1.0 }
-            val losses = trades.count { it.pnlPct < -1.0 }
+            val wins = trades.count { it.pnlPct >= 0.5 }
+            val losses = trades.count { it.pnlPct <= -2.0 }
             val scratches = trades.size - wins - losses
             // V5.9.1357 — clamp per-trade pnl% for the EV/mean view so a single
             // feed-artifact outlier (e.g. +1,340,125% from a glitched price tick)
             // can't make a bleeding lane read as a megawinner (the "lie of
             // averages"). totalSolPnl below stays RAW so real SOL accounting is
             // untouched — this only sanitizes the percentage expectancy display.
-            fun sanePct(p: Double): Double = when {
-                p.isNaN() || p.isInfinite() -> 0.0
-                p > 5000.0 -> 5000.0
-                p < -100.0 -> -100.0
-                else -> p
-            }
+            fun sanePct(p: Double): Double = LearningPnlSanitizer.inspectPct(p, "StrategyTelemetry.sanePct", emit = false).takeIf { it.ok }?.pnlPct ?: 0.0
             val sumPnl = trades.sumOf { sanePct(it.pnlPct) }
             val mean = if (trades.isNotEmpty()) sumPnl / trades.size else 0.0
             val wlDenom = wins + losses
@@ -134,8 +130,8 @@ object StrategyTelemetry {
             // V5.9.1489 — avg win/loss in % (sanitized like the mean) so the
             // damper can apply the true profit-factor rule instead of raw mean,
             // which a fat take-profit tail skews positive on real bleeders.
-            val winPcts = trades.asSequence().map { sanePct(it.pnlPct) }.filter { it > 1.0 }.toList()
-            val lossPcts = trades.asSequence().map { sanePct(it.pnlPct) }.filter { it < -1.0 }.toList()
+            val winPcts = trades.asSequence().map { sanePct(it.pnlPct) }.filter { it >= 0.5 }.toList()
+            val lossPcts = trades.asSequence().map { sanePct(it.pnlPct) }.filter { it <= -2.0 }.toList()
             val avgWinPct = if (winPcts.isNotEmpty()) winPcts.sum() / winPcts.size else 0.0
             val avgLossPct = if (lossPcts.isNotEmpty()) lossPcts.sum() / lossPcts.size else 0.0
             StrategyMetric(
@@ -209,7 +205,7 @@ object StrategyTelemetry {
 
         val sb = StringBuilder()
         sb.append("\n===== Strategy expectancy (V5.9.806) =====\n")
-        sb.append("  (sells with ≥5 trades, sorted by mean PnL%)\n\n")
+        sb.append("  (SELL+PARTIAL_SELL with ≥5 trainable closes, sorted by mean PnL%)\n\n")
 
         val winners = meaningful.sortedByDescending { it.meanPnlPct }.take(5)
         sb.append("  Top 5 winners:\n")
