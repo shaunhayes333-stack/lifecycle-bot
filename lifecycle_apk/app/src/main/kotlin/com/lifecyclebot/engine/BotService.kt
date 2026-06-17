@@ -10399,9 +10399,11 @@ class BotService : Service() {
         // debt in the current window, no active supervisor load, and effective cap
         // is healthy. Pressure windows still use the old 24 floor and planner caps.
         val supervisorTimeoutsForPlanning = if ((nowMs - supervisorTimeoutWindowStartMs) < 600_000L) supervisorTimeoutWindowCount else 0
-        // V5.0.3811 — tiny timeout residue is scheduler noise, not pressure.
-        // Real pressure still starts in SupervisorAdmissionPlanner at >=30 timeouts/10m.
-        val lowTimeoutNoise = supervisorTimeoutsForPlanning <= 3
+        // V5.0.3819 — align selector health with the planner's real pressure band.
+        // Report 5.0.3818 had timeouts10m=7, load=0, but selectorHealthy=false,
+        // cap=24 and forcedOpen=21 consumed the whole supervisor slice. Real timeout
+        // pressure still starts in SupervisorAdmissionPlanner at >=30 timeouts/10m.
+        val lowTimeoutNoise = supervisorTimeoutsForPlanning < 30
         val selectorHealthy = lowTimeoutNoise && currentSupervisorLoad < (effectiveSupervisorCap / 2).coerceAtLeast(1) && effectiveSupervisorCap >= SUPERVISOR_BASE_MAX_WORKERS
         val selectorMaxInFlight = if (selectorHealthy) SUPERVISOR_HEALTHY_MEME_MAX_INFLIGHT else SUPERVISOR_MAX_INFLIGHT
         val basePerCycleCap = selectorMaxInFlight
@@ -10467,12 +10469,18 @@ class BotService : Service() {
         val forcedOpenForSupervisor: List<String> = try {
             val pressure = admissionPlan.pressureBand
             val forced = forcedOpenMints.distinct()
-            val forcedBudget = when (pressure) {
-                "healthy" -> forced.size
-                "live_cap_near_full" -> maxOf(6, effectiveSupervisorCap / 2)
-                "live_cap_saturated" -> maxOf(4, effectiveSupervisorCap / 3)
-                "moderate_timeout_pressure" -> maxOf(6, effectiveSupervisorCap / 2)
-                "heavy_timeout_pressure" -> maxOf(5, effectiveSupervisorCap / 3)
+            val forcedBudget = when {
+                // V5.0.3819 — forced-open paper rows are mandatory EXIT surface, not
+                // mandatory supervisor prefix. When selector capacity is degraded/cooling
+                // (report: cap=24 forcedOpen=21 picked=3), bound forced rows to half the
+                // work slice and let ExitCoordinator/open-position tick own exits. This
+                // preserves fresh discovery without dropping exit safety.
+                pressure == "healthy" && !selectorHealthy -> maxOf(6, PER_CYCLE_CAP / 2)
+                pressure == "healthy" -> forced.size
+                pressure == "live_cap_near_full" -> maxOf(6, effectiveSupervisorCap / 2)
+                pressure == "live_cap_saturated" -> maxOf(4, effectiveSupervisorCap / 3)
+                pressure == "moderate_timeout_pressure" -> maxOf(6, effectiveSupervisorCap / 2)
+                pressure == "heavy_timeout_pressure" -> maxOf(5, effectiveSupervisorCap / 3)
                 else -> maxOf(4, effectiveSupervisorCap / 4) // severe timeout pressure
             }.coerceAtMost(forced.size)
             if (forcedBudget >= forced.size) forced else {
