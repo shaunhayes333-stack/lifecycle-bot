@@ -124,6 +124,12 @@ object CyclicTradeEngine {
         private set
     @Volatile var entryPriceSol: Double = 0.0
         private set
+    @Volatile var currentPriceSol: Double = 0.0
+        private set
+    @Volatile var currentPnlPct: Double = 0.0
+        private set
+    @Volatile var priceState: String = "WAIT"
+        private set
     @Volatile private var entrySizeSol: Double = 0.0
     @Volatile var entryTimeMs: Long = 0L
         private set
@@ -160,6 +166,55 @@ object CyclicTradeEngine {
 
     fun setEnabled(on: Boolean) { enabled.set(on) }
     fun isEnabled(): Boolean = enabled.get()
+
+    private data class CyclicPriceVerdict(
+        val ok: Boolean,
+        val price: Double = 0.0,
+        val pnlPct: Double = 0.0,
+        val fresh: Boolean = false,
+        val reason: String = "",
+    )
+
+    /**
+     * V5.0.3850 — CYCLIC PRICING AUTHORITY.
+     * CYCLIC may not use raw lastPrice, ref, history, or entryPrice fallback as a
+     * current price. Use Executor's source-aware resolver, require a fresh feed,
+     * and run OpenPnlSanity before any PnL/exit/UI state is published.
+     */
+    private fun resolveCyclicPrice(
+        ts: TokenState,
+        executor: Executor,
+        entryPrice: Double,
+        context: String,
+        requireFresh: Boolean = true,
+    ): CyclicPriceVerdict {
+        val now = System.currentTimeMillis()
+        val ageMs = ts.lastPriceUpdate.takeIf { it > 0L }?.let { (now - it).coerceAtLeast(0L) }
+        val fresh = ageMs != null && ageMs <= 90_000L
+        if (requireFresh && !fresh) {
+            return CyclicPriceVerdict(false, reason = "PRICE_STALE_OR_TS_UNKNOWN age=${ageMs ?: -1}")
+        }
+        val price = try { executor.getActualPricePublic(ts) } catch (_: Throwable) { 0.0 }
+            .takeIf { it.isFinite() && it > 0.0 } ?: return CyclicPriceVerdict(false, reason = "PRICE_UNAVAILABLE")
+        if (entryPrice > 0.0) {
+            val v = try {
+                OpenPnlSanity.inspect(
+                    entryPrice = entryPrice,
+                    currentPrice = price,
+                    entrySource = ts.position.entryPriceSource,
+                    currentSource = ts.lastPriceSource,
+                    entryPool = ts.position.entryPoolAddress,
+                    currentPool = ts.lastPricePoolAddr,
+                    priceBasisRescaled = ts.position.priceBasisRescaled,
+                    context = "CYCLIC:$context/${ts.symbol}/${ts.mint.take(8)}",
+                    emit = true,
+                )
+            } catch (_: Throwable) { OpenPnlSanity.Verdict(false, reason = "INSPECT_THROW") }
+            if (!v.ok) return CyclicPriceVerdict(false, price = price, fresh = fresh, reason = "BASIS_REJECTED:${v.reason}")
+            return CyclicPriceVerdict(true, price = price, pnlPct = v.pnlPct, fresh = fresh, reason = "OK")
+        }
+        return CyclicPriceVerdict(true, price = price, fresh = fresh, reason = "OK")
+    }
 
     // ── Main tick — call every N loops from BotService ─────────────────────────
     fun tick(
@@ -224,27 +279,21 @@ object CyclicTradeEngine {
             val nowTickMs = System.currentTimeMillis()
             val priceAgeMs = ts.lastPriceUpdate.takeIf { it > 0L }?.let { (nowTickMs - it).coerceAtLeast(0L) }
             val STALE_FEED_MS = 90_000L
-            val rawPrice = ts.lastPrice
-            if (rawPrice > 0.0 && priceAgeMs == null) {
-                // V5.0.3843 — unknown timestamp is not Long.MAX stale. Wait for a
-                // real/restored tick instead of force-closing from fabricated age.
-                statusMessage = "⏸️ Cyclic holding $currentSymbol: price timestamp pending"
-                try { com.lifecyclebot.engine.PipelineHealthCollector.labelInc("CYCLIC_PRICE_TS_UNKNOWN_WAIT") } catch (_: Throwable) {}
+            val priceVerdict = resolveCyclicPrice(ts, executor, entryPriceSol, "held", requireFresh = true)
+            if (!priceVerdict.ok) {
+                currentPriceSol = 0.0
+                currentPnlPct = 0.0
+                priceState = priceVerdict.reason
+                statusMessage = "⏸️ Cyclic holding $currentSymbol: pricing wait (${priceVerdict.reason.take(48)})"
+                try { com.lifecyclebot.engine.PipelineHealthCollector.labelInc("CYCLIC_PRICE_AUTHORITY_WAIT") } catch (_: Throwable) {}
+                try { ForensicLogger.lifecycle("CYCLIC_PRICE_AUTHORITY_WAIT", "mint=${ts.mint.take(10)} symbol=${ts.symbol} reason=${priceVerdict.reason} entry=$entryPriceSol raw=${ts.lastPrice} source=${ts.lastPriceSource} age=${priceAgeMs ?: -1}") } catch (_: Throwable) {}
                 return
             }
-            if (rawPrice <= 0.0 || (priceAgeMs != null && priceAgeMs > STALE_FEED_MS)) {
-                val lastKnownPnl = if (entryPriceSol > 0.0 && rawPrice > 0.0)
-                    ((rawPrice - entryPriceSol) / entryPriceSol) * 100.0 else 0.0
-                val ageText = priceAgeMs?.let { "${it}ms" } ?: "unknown"
-                try { ErrorLogger.warn(TAG, "🧊 STALE_FEED_EXIT $currentSymbol price=${rawPrice} age=$ageText → force-close @ ${"%+.1f".format(lastKnownPnl)}% (no blind riding)") } catch (_: Throwable) {}
-                try { com.lifecyclebot.engine.PipelineHealthCollector.labelInc("CYCLIC_STALE_FEED_EXIT") } catch (_: Throwable) {}
-                closeCycle(context, ts, executor, wallet, walletSol, lastKnownPnl, "STALE_FEED", solPrice)
-                return
-            }
-            val currentPrice = rawPrice
-            val pnlPct = if (entryPriceSol > 0.0) {
-                ((currentPrice - entryPriceSol) / entryPriceSol) * 100.0
-            } else 0.0
+            val currentPrice = priceVerdict.price
+            val pnlPct = priceVerdict.pnlPct
+            currentPriceSol = currentPrice
+            currentPnlPct = pnlPct
+            priceState = if (priceVerdict.fresh) "FRESH" else "STALE"
 
             // V5.9.1359 — UNCONDITIONAL HARD FLOOR (standing operator rule:
             // -15% hard SL on ALL open positions, no exceptions). The mode SL
@@ -425,7 +474,7 @@ object CyclicTradeEngine {
             .filter { ts ->
                 val tokenScore = (ts.lastV3Score ?: ts.entryScore.toInt()).toDouble()
                 !ts.position.isOpen
-                    && ts.lastPrice > 0.0
+                    && resolveCyclicPrice(ts, executor, 0.0, "candidate", requireFresh = true).ok
                     && tokenScore >= effectiveMinScore
                     && ts.mint != currentMint   // don't immediately re-enter same token
                     // V5.9.451 — TokenBlacklist + MemeLossStreakGuard respect.
@@ -494,7 +543,7 @@ object CyclicTradeEngine {
                     .filter { ts ->
                         val tScore = (ts.lastV3Score ?: ts.entryScore.toInt()).toDouble()
                         !ts.position.isOpen
-                            && ts.lastPrice > 0.0
+                            && resolveCyclicPrice(ts, executor, 0.0, "probe", requireFresh = true).ok
                             && tScore >= probeFloor
                             && ts.mint != currentMint
                             && !TokenBlacklist.isBlocked(ts.mint)
@@ -756,13 +805,12 @@ object CyclicTradeEngine {
         // artifacts). Refuse to open on a bad/stale entry anchor — skip the
         // candidate, don't enter blind. (Genuine micro-priced memes still have a
         // positive, fresh price; this only rejects 0/negative/frozen feeds.)
+        val entryPriceVerdict = resolveCyclicPrice(best, executor, 0.0, "entry", requireFresh = true)
         run {
-            val entryAge = best.lastPriceUpdate.takeIf { it > 0L }?.let { (System.currentTimeMillis() - it).coerceAtLeast(0L) }
-            if (best.lastPrice <= 0.0 || entryAge == null || entryAge > 90_000L) {
-                val ageText = entryAge?.let { "${it}ms" } ?: "unknown"
-                statusMessage = "⏸️ Cyclic skip ${best.symbol}: bad/stale entry price (p=${best.lastPrice} age=$ageText)"
+            if (!entryPriceVerdict.ok) {
+                statusMessage = "⏸️ Cyclic skip ${best.symbol}: bad/stale entry price (${entryPriceVerdict.reason})"
                 try { com.lifecyclebot.engine.PipelineHealthCollector.labelInc("CYCLIC_ENTRY_PRICE_REJECTED") } catch (_: Throwable) {}
-                try { ErrorLogger.warn(TAG, "CYCLIC_ENTRY_PRICE_REJECTED ${best.symbol} p=${best.lastPrice} age=$ageText") } catch (_: Throwable) {}
+                try { ErrorLogger.warn(TAG, "CYCLIC_ENTRY_PRICE_REJECTED ${best.symbol} reason=${entryPriceVerdict.reason} raw=${best.lastPrice} source=${best.lastPriceSource}") } catch (_: Throwable) {}
                 return
             }
         }
@@ -813,7 +861,10 @@ object CyclicTradeEngine {
             currentMint   = best.mint
             currentMode   = chosenLaneMode   // V5.9.1347 — V3-chosen style captured before CYCLIC re-stamp
             currentSymbol = best.symbol
-            entryPriceSol = best.lastPrice
+            entryPriceSol = entryPriceVerdict.price
+            currentPriceSol = entryPriceVerdict.price
+            currentPnlPct = 0.0
+            priceState = "ENTRY_FRESH"
             entrySizeSol  = sizeSol
             entryTimeMs   = System.currentTimeMillis()
             isRunning     = true
@@ -826,7 +877,7 @@ object CyclicTradeEngine {
             try {
                 V3JournalRecorder.recordOpen(
                     symbol = best.symbol, mint = best.mint,
-                    entryPrice = best.lastPrice, sizeSol = sizeSol,
+                    entryPrice = entryPriceVerdict.price, sizeSol = sizeSol,
                     isPaper = !isLiveMode, layer = "CYCLIC",
                     entryScore = best.lastV3Score ?: best.entryScore.toInt(),
                     entryReason = "RING_ENTRY_TP${tpPctEntry.toInt()}SL${slPctEntry.toInt()}",
@@ -941,7 +992,7 @@ object CyclicTradeEngine {
             val holdMins = if (entryTimeMs > 0) (System.currentTimeMillis() - entryTimeMs) / 60_000L else 0L
             V3JournalRecorder.recordClose(
                 symbol = ts.symbol, mint = ts.mint,
-                entryPrice = entryPriceSol, exitPrice = ts.lastPrice,
+                entryPrice = entryPriceSol, exitPrice = currentPriceSol.takeIf { it > 0.0 } ?: ts.lastPrice,
                 sizeSol = deployedSizeSol, pnlPct = pnlPct, pnlSol = pnlSol,
                 isPaper = !isLiveMode, layer = "CYCLIC",
                 exitReason = reason,
@@ -959,6 +1010,9 @@ object CyclicTradeEngine {
         currentMode    = "STANDARD"
         currentSymbol  = ""
         entryPriceSol  = 0.0
+        currentPriceSol = 0.0
+        currentPnlPct = 0.0
+        priceState = "WAIT"
         entrySizeSol   = 0.0
         entryTimeMs    = 0L
 
@@ -974,6 +1028,9 @@ object CyclicTradeEngine {
         currentMode   = "STANDARD"
         currentSymbol = ""
         entryPriceSol = 0.0
+        currentPriceSol = 0.0
+        currentPnlPct = 0.0
+        priceState = "WAIT"
         entrySizeSol  = 0.0
         entryTimeMs   = 0L
         lastCycleEndMs = System.currentTimeMillis()
@@ -1011,6 +1068,9 @@ object CyclicTradeEngine {
         currentMode   = "STANDARD"
         currentSymbol = ""
         entryPriceSol = 0.0
+        currentPriceSol = 0.0
+        currentPnlPct = 0.0
+        priceState = "WAIT"
         entrySizeSol  = 0.0
         entryTimeMs   = 0L
         lastCycleEndMs = 0L

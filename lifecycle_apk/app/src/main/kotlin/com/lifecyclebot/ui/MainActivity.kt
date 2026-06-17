@@ -3933,20 +3933,14 @@ for legal compliance.
             val entryTime = engine.entryTimeMs
             val isLive    = engine.isLiveMode
             val status    = engine.statusMessage
-            val cyclicToken = state.tokens[engine.currentMint]
-            val cyclicEntry = engine.entryPriceSol.takeIf { it.isFinite() && it > 0.0 } ?: cyclicToken?.position?.entryPrice?.takeIf { it > 0.0 } ?: 0.0
-            val cyclicCurrent = listOf(
-                cyclicToken?.lastPrice,
-                cyclicToken?.ref,
-                cyclicToken?.history?.lastOrNull()?.priceUsd,
-                cyclicEntry,
-            ).firstOrNull { it != null && it.isFinite() && it > 0.0 } ?: 0.0
-            val cyclicPriceFresh = cyclicToken?.lastPriceUpdate?.let { it > 0L && System.currentTimeMillis() - it <= 90_000L } ?: false
-            val cyclicDisplayPnlPct = if (isInPos && cyclicEntry > 0.0 && cyclicCurrent > 0.0) ((cyclicCurrent - cyclicEntry) / cyclicEntry) * 100.0 else 0.0
+            val cyclicEntry = engine.entryPriceSol.takeIf { it.isFinite() && it > 0.0 } ?: 0.0
+            val cyclicCurrent = engine.currentPriceSol.takeIf { it.isFinite() && it > 0.0 } ?: 0.0
+            val cyclicPriceFresh = engine.priceState == "FRESH" || engine.priceState == "ENTRY_FRESH"
+            val cyclicDisplayPnlPct = engine.currentPnlPct.takeIf { it.isFinite() } ?: 0.0
             val cyclicStatusDisplay = if (isInPos && symbol.isNotBlank()) {
                 val priceTxt = if (cyclicCurrent > 0.0) cyclicCurrent.fmtPrice() else "pricing wait"
-                val pnlTxt = if (cyclicEntry > 0.0 && cyclicCurrent > 0.0) "%+.1f%%".format(cyclicDisplayPnlPct) else "basis wait"
-                "IN: $symbol | px=$priceTxt | PnL: $pnlTxt | ${if (cyclicPriceFresh) "fresh" else "stale/wait"} | ${if (isLive) "LIVE" else "PAPER"}"
+                val pnlTxt = if (cyclicCurrent > 0.0 && cyclicEntry > 0.0) "%+.1f%%".format(cyclicDisplayPnlPct) else "basis wait"
+                "IN: $symbol | px=$priceTxt | PnL: $pnlTxt | ${engine.priceState.take(22)} | ${if (isLive) "LIVE" else "PAPER"}"
             } else status
 
             val winRate = if (cycles > 0) (wins * 100 / cycles) else 0

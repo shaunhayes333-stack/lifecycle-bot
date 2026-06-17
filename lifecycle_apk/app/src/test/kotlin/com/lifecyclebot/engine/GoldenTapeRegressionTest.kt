@@ -2436,7 +2436,20 @@ class GoldenTapeRegressionTest {
         assertFalse("Wallet SOL delta must not be treated as cost+delta proceeds", exec.contains("pos.costSol + delta  // costSol + delta"))
         assertTrue("Terminal live sell must use accounting authority", exec.contains("liveSellAccountingAuthority(ts, pos.costSol, solBack, reason, \"liveSell.terminal\")"))
         assertTrue("Profit-lock/partial live sells must use accounting authority", exec.contains("liveSellAccountingAuthority(ts, pos.costSol * sellFraction, solBack, reason, \"profitLock\")") && exec.contains("partial.jupiter"))
-        assertTrue("Stop-like positive sign conflicts must be repaired before journal/learning", exec.contains("stopLike && pnlPct > 0.5") && exec.contains("OpenPnlSanity.inspect(ts, \"SELL_ACCOUNTING:$context\""))
+        assertTrue("Stop-like positive sign conflicts must be repaired before journal/learning", exec.contains("stopLike && pnlPct > 0.5") && exec.contains("OpenPnlSanity.inspect(ts, \"SELL_ACCOUNTING:${'$'}context\""))
+    }
+
+
+    @Test
+    fun cyclic_uses_price_authority_not_raw_last_price_or_entry_fallback() {
+        val cyclic = java.io.File("src/main/kotlin/com/lifecyclebot/engine/CyclicTradeEngine.kt").readText()
+        val main = java.io.File("src/main/kotlin/com/lifecyclebot/ui/MainActivity.kt").readText()
+        assertTrue("CYCLIC must have a dedicated price authority", cyclic.contains("CYCLIC PRICING AUTHORITY") && cyclic.contains("resolveCyclicPrice"))
+        assertTrue("CYCLIC held PnL must be guarded by OpenPnlSanity", cyclic.contains("OpenPnlSanity.inspect") && cyclic.contains("CYCLIC_PRICE_AUTHORITY_WAIT"))
+        assertFalse("CYCLIC held path must not calculate pnl from raw lastPrice", cyclic.contains("val currentPrice = rawPrice"))
+        assertTrue("CYCLIC entry stamp must use authority price", cyclic.contains("entryPriceSol = entryPriceVerdict.price") && cyclic.contains("entryPrice = entryPriceVerdict.price"))
+        assertFalse("CYCLIC UI must not read raw token price sources", main.contains("cyclicToken?.lastPrice") || main.contains("cyclicToken?.ref") || main.contains("cyclicToken?.history?.lastOrNull()?.priceUsd"))
+        assertTrue("CYCLIC UI must read engine-published price state", main.contains("engine.currentPriceSol") && main.contains("engine.priceState"))
     }
 
 
