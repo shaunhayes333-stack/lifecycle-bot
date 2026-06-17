@@ -797,7 +797,8 @@ class GoldenTapeRegressionTest {
     fun impossible_accounting_rows_are_quarantined_before_journal_display() {
         val store = java.io.File("src/main/kotlin/com/lifecyclebot/engine/TradeHistoryStore.kt").readText()
         assertTrue(store.contains("fun isValidAccountingTrade(t: Trade): Boolean"))
-        assertTrue(store.contains("t.pnlPct < -100.0001 || t.pnlPct > 100_000.0"))
+        assertTrue(store.contains("LearningPnlSanitizer.inspectTrade(t, \"TradeHistoryStore.isValidAccountingTrade\", emit = false)"))
+        assertFalse("canonical accounting must not keep the obsolete +100000% poison ceiling", store.contains("t.pnlPct > 100_000.0"))
         assertTrue(store.contains("TRADE_ACCOUNTING_QUARANTINED"))
         assertTrue(store.contains("return synchronized(lock) { trades.filter { isValidAccountingTrade(it) }.toList() }"))
         assertTrue(store.contains("TRADE_ACCOUNTING_LEGACY_ROW_FILTERED"))
