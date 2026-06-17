@@ -2340,9 +2340,9 @@ class GoldenTapeRegressionTest {
     @Test
     fun main_ui_money_and_pricing_surfaces_use_display_authority() {
         val main = java.io.File("src/main/kotlin/com/lifecyclebot/ui/MainActivity.kt").readText()
-        assertTrue("Paper hero must show a sane display balance, not PnL-only", main.contains("MAIN UI MONEY DISPLAY AUTHORITY FIX") && main.contains("displayBankrollSol") && main.contains("tvBalanceLarge.setTextIfChanged(currency.format(displayBankrollSol))"))
-        assertTrue("Paper hero chip must separate balance from realized journal P&L", main.contains("realizedPnlSol = journalStats?.totalPnlSol ?: ws.totalPnlSol") && main.contains("balance ◎") && main.contains("realized P&L ◎"))
-        assertTrue("Raw inflated paper bankroll must be display-sanitized", main.contains("PAPER_HERO_BANKROLL_DISPLAY_SANITIZED") && main.contains("rawBankrollSol > sanePaperCeiling"))
+        assertTrue("Hero balance must preserve the original BotService.status rolling wallet balance contract", main.contains("hero balance — BotService.status is the single source of truth") && main.contains("if (balSol > 0.001)") && main.contains("tvBalanceLarge.setTextIfChanged(currency.format(balSol))"))
+        assertTrue("Paper hero chip must remain the old balance chip, not realized-PnL replacement", main.contains("📝 PAPER MODE  ◎") && !main.contains("realized P&L ◎") && !main.contains("displayBankrollSol"))
+        assertTrue("Paper hero must not sanitize/delete the headline balance", !main.contains("PAPER_HERO_BANKROLL_DISPLAY_SANITIZED") && !main.contains("rawBankrollSol > sanePaperCeiling"))
         assertTrue("Open-position UI must recover missing entry/current pricing from journal/token sources", main.contains("recoverRenderablePricing") && main.contains("journalEntryPrice") && main.contains("OPEN_POSITION_PRICE_RECOVERED_FOR_UI"))
         assertTrue("Main UI panels must use shared current-price authority", main.contains("mainUiCurrentPrice") && main.contains("shared Main UI current-price authority"))
         assertTrue("Main UI must show pricing wait instead of fake zero entry", main.contains("pricing wait") && main.contains("basis wait") && !main.contains("if (ref > 0.0) ref else pos.entryPrice") && !main.contains("ts.lastPrice - pos.entryPrice"))
