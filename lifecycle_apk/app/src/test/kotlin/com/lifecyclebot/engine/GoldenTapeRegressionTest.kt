@@ -1379,6 +1379,17 @@ class GoldenTapeRegressionTest {
 
 
     @Test
+    fun tactic_switcher_pivots_strategies_never_disables_lanes() {
+        val switcher = java.io.File("src/main/kotlin/com/lifecyclebot/engine/learning/TacticSwitcher.kt").readText()
+        assertTrue(switcher.contains("POST-PIVOT FAIL-FAST"))
+        assertTrue(switcher.contains("POST_PIVOT_FAST_MIN_SAMPLES = 4"))
+        assertTrue(switcher.contains("post-pivot-fast"))
+        assertTrue(switcher.contains("Rotate again; never"))
+        assertFalse("tactic switcher must not disable lanes", switcher.contains("DISABLE_LANE") || switcher.contains("enabled = false") || switcher.contains("return false"))
+    }
+
+
+    @Test
     fun lane_exit_tuner_tightens_low_wr_no_runner_bleeders() {
         val tuner = java.io.File("src/main/kotlin/com/lifecyclebot/engine/learning/LaneExitTuner.kt").readText()
         assertTrue(tuner.contains("low-WR/no-runner bleed fix"))

@@ -40,6 +40,24 @@ class TacticSwitcherBayesTest {
         assertEquals(TacticSwitcher.Tactic.MOMENTUM, TacticSwitcher.currentTactic(lane, band))
     }
 
+
+    @Test
+    fun post_pivot_tactic_rotates_again_after_four_decisive_losses() {
+        val lane = "MOONSHOT_POST_PIVOT"
+        val band = "S41-60"
+        repeat(8) { TacticSwitcher.onTradeClosed(lane, band, pnlPct = -6.0) }
+        assertEquals(TacticSwitcher.Tactic.PULLBACK, TacticSwitcher.currentTactic(lane, band))
+
+        repeat(4) { TacticSwitcher.onTradeClosed(lane, band, pnlPct = -48.0) }
+
+        assertEquals(
+            "A post-pivot tactic that immediately goes 0/4 badly must pivot again, not disable the lane",
+            TacticSwitcher.Tactic.REACCUMULATION,
+            TacticSwitcher.currentTactic(lane, band),
+        )
+    }
+
+
     @Test
     fun memory_sweep_bayesian_path_is_present_for_existing_bad_buckets() {
         val source = java.io.File("src/main/kotlin/com/lifecyclebot/engine/learning/TacticSwitcher.kt").readText()

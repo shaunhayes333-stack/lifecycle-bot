@@ -79,6 +79,17 @@ object TacticSwitcher {
     private const val PERSIST_LOSS_RATE    = 0.70   // 70%+ losses
     private const val PERSIST_MEAN_PNL     = -3.0   // mildly-but-consistently negative
 
+    // V5.0.3821 — POST-PIVOT FAIL-FAST.
+    // Operator doctrine: lanes NEVER disable; strategies must pivot. Report 3820
+    // showed MOONSHOT|S41-60 already pivoted MOMENTUM→PULLBACK, then the new tactic
+    // went 0W/4L at μ=-48.8% but was still waiting for the generic 8/25-close gates.
+    // Once a bucket has already pivoted away from its initial tactic, four decisive
+    // losses are enough evidence that THIS tactic is wrong too. Rotate again; never
+    // suppress the lane.
+    private const val POST_PIVOT_FAST_MIN_SAMPLES = 4
+    private const val POST_PIVOT_FAST_LOSS_RATE = 1.00
+    private const val POST_PIVOT_FAST_MEAN_PNL = -8.0
+
     private data class Cell(
         val tactic: AtomicInteger,
         val trialStartedAt: AtomicLong,          // ms
@@ -157,6 +168,16 @@ object TacticSwitcher {
         val losses = cell.lossesSinceRotation.get()
         val lossRate = if (tradesIn > 0) losses.toDouble() / tradesIn else 0.0
         val meanPnl = if (tradesIn > 0) (cell.pnlSumSinceRotation.get().toDouble() / 100.0) / tradesIn else 0.0
+
+        // V5.0.3821 — post-pivot fail-fast. Do this BEFORE Bayesian/normal fast
+        // gates because once a non-initial tactic instantly goes 0/4, waiting for
+        // 8 or 25 closes is needless bleed. This is a tactic rotation only.
+        val alreadyPivoted = cell.tactic.get() != Tactic.MOMENTUM.ordinal || cell.lastRotationReason.get() != "initial"
+        if (alreadyPivoted && tradesIn >= POST_PIVOT_FAST_MIN_SAMPLES && tradesIn < TRIAL_WINDOW &&
+            lossRate >= POST_PIVOT_FAST_LOSS_RATE && meanPnl <= POST_PIVOT_FAST_MEAN_PNL) {
+            rotate(lane, scoreBand, cell, "post-pivot-fast lossRate=${"%.0f".format(lossRate * 100)}% mean=${"%+.1f".format(meanPnl)}% n=$tradesIn")
+            return
+        }
 
         // V5.9.1563 — Bayesian early-stop. This is deliberately earlier than
         // FAST_ROTATION and probability-based instead of raw-threshold-only.
