@@ -8236,10 +8236,12 @@ This cannot be undone!
         }
 
         val pos = ts.position
-        val pnlPct = if (pos.entryPrice > 0 && ts.lastPrice > 0)
-            ((ts.lastPrice - pos.entryPrice) / pos.entryPrice) * 100.0
-        else 0.0
-        val pnlSol = pos.qtyToken * (ts.lastPrice - pos.entryPrice) / (ts.lastPrice.takeIf { it > 0 } ?: 1.0)
+        val currentPrice = mainUiCurrentPrice(mint, ts.lastPrice)
+        val hasPrice = currentPrice != null && pos.entryPrice > 0.0
+        val pnlPct = if (hasPrice) ((currentPrice!! - pos.entryPrice) / pos.entryPrice) * 100.0 else 0.0
+        val pnlSol = if (hasPrice) pos.costSol * pnlPct / 100.0 else 0.0
+        val nowTxt = if (hasPrice) "$${"%.6f".format(currentPrice)}" else "pricing wait"
+        val pnlTxt = if (hasPrice) "%+.2f%%".format(pnlPct) else "basis wait"
 
         val cfg = com.lifecyclebot.data.ConfigStore.load(this)
         val modeLabel = if (cfg.paperMode) "PAPER" else "🔴 LIVE"
@@ -8250,8 +8252,8 @@ This cannot be undone!
                 "Close position now?\n\n" +
                 "Qty: ${"%.4f".format(pos.qtyToken)}\n" +
                 "Entry: $${"%.6f".format(pos.entryPrice)}\n" +
-                "Now:   $${"%.6f".format(ts.lastPrice)}\n" +
-                "PnL:   ${"%+.2f".format(pnlPct)}%  (${"%+.4f".format(pnlSol)} SOL)"
+                "Now:   $nowTxt\n" +
+                "PnL:   $pnlTxt  (${"%+.4f".format(pnlSol)} SOL)"
             )
             .setPositiveButton("SELL") { _, _ ->
                 // V5.9.495m — ANR FIX: manualSell now triggers wallet RPC
