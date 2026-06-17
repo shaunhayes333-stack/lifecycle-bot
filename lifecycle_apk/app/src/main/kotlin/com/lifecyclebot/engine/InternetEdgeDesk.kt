@@ -109,19 +109,25 @@ Bias values must be soft, -8..+8 max. No hard blocks.
         val start = raw.indexOf('{')
         val end = raw.lastIndexOf('}')
         if (start < 0 || end <= start) {
-            return Brief(confidence = 15.0, riskMode = "neutral", summary = raw.replace(Regex("\\s+"), " ").take(260), source = "llm_text")
+            Brief(
+                confidence = 15.0,
+                riskMode = "neutral",
+                summary = raw.replace(Regex("\\s+"), " ").take(260),
+                source = "llm_text"
+            )
+        } else {
+            val jsonText = raw.substring(start, end + 1)
+            val obj = JSONObject(jsonText)
+            Brief(
+                confidence = obj.optDouble("confidence", 0.0).coerceIn(0.0, 100.0),
+                riskMode = obj.optString("riskMode", "unknown").take(32),
+                summary = obj.optString("summary", "").replace(Regex("\\s+"), " ").take(260),
+                watchThemes = obj.optJSONArray("watchThemes")?.toList(8) ?: emptyList(),
+                avoidThemes = obj.optJSONArray("avoidThemes")?.toList(8) ?: emptyList(),
+                setupBias = obj.optJSONObject("setupBias")?.toBiasMap() ?: emptyMap(),
+                laneBias = obj.optJSONObject("laneBias")?.toBiasMap() ?: emptyMap(),
+            )
         }
-        val jsonText = raw.substring(start, end + 1)
-        val obj = JSONObject(jsonText)
-        Brief(
-            confidence = obj.optDouble("confidence", 0.0).coerceIn(0.0, 100.0),
-            riskMode = obj.optString("riskMode", "unknown").take(32),
-            summary = obj.optString("summary", "").replace(Regex("\\s+"), " ").take(260),
-            watchThemes = obj.optJSONArray("watchThemes")?.toList(8) ?: emptyList(),
-            avoidThemes = obj.optJSONArray("avoidThemes")?.toList(8) ?: emptyList(),
-            setupBias = obj.optJSONObject("setupBias")?.toBiasMap() ?: emptyMap(),
-            laneBias = obj.optJSONObject("laneBias")?.toBiasMap() ?: emptyMap(),
-        )
     } catch (_: Throwable) { null }
 
     private fun JSONObject.toBiasMap(): Map<String, Double> {
