@@ -1092,14 +1092,19 @@ object PipelineHealthCollector {
             "SAFETY"        to "safety checks",
             "V3"            to "V3 engine ticks",
             "LANE_EVAL"     to "lane evaluations",
-            "FDG"           to "FinalDecisionGate evaluations",
+            "FDG"           to "FinalDecisionGate decision outcomes",
             "EXEC"          to "executor invocations",
             "EXIT"          to "exit gate evaluations",
             "TRADEJRNL_REC" to "journal writes",
         )
+        val fdgDecisionCount = (s.phaseAllow["FDG"] ?: 0L) + (s.phaseBlock["FDG"] ?: 0L)
+        val rawFdgRows = s.phaseCounts["FDG"] ?: 0L
         phasesOfInterest.forEach { (k, hint) ->
-            val v = s.phaseCounts[k] ?: s.labelCounts[k] ?: 0L
+            val v = if (k == "FDG" && fdgDecisionCount > 0L) fdgDecisionCount else (s.phaseCounts[k] ?: s.labelCounts[k] ?: 0L)
             sb.append(line("$k:", v, hint)).append('\n')
+        }
+        if (rawFdgRows > fdgDecisionCount && fdgDecisionCount > 0L) {
+            sb.append(line("FDG_RAW_ROWS:", rawFdgRows, "forensic FDG rows; not unique evaluations")).append('\n')
         }
         sb.append('\n')
 
@@ -1604,9 +1609,10 @@ object PipelineHealthCollector {
         val safety      = s.phaseCounts["SAFETY"]  ?: 0L
         val v3          = s.phaseCounts["V3"]       ?: 0L
         val laneEval    = s.phaseCounts["LANE_EVAL"]?: 0L
-        val fdgTotal    = s.phaseCounts["FDG"]      ?: 0L
+        val fdgRawRows  = s.phaseCounts["FDG"]      ?: 0L
         val fdgBlock    = s.phaseBlock["FDG"]       ?: 0L
         val fdgAllow    = s.phaseAllow["FDG"]       ?: 0L
+        val fdgTotal    = (fdgAllow + fdgBlock).takeIf { it > 0L } ?: fdgRawRows
         val intakeBlock = s.phaseBlock["INTAKE"]    ?: 0L
         val exitAllow   = s.phaseAllow["EXIT"]      ?: 0L
         val exitBlock   = s.phaseBlock["EXIT"]      ?: 0L
@@ -1625,6 +1631,7 @@ object PipelineHealthCollector {
         sb.append("\n")
 
         sb.append("  SCAN_CB=$scanCb  INTAKE=$intake  SAFETY=$safety  V3=$v3  LANE_EVAL=$laneEval  FDG=$fdgTotal  EXEC=$execBuy  EXIT=$exitAllow\n")
+        if (fdgRawRows > fdgTotal) sb.append("  FDG_RAW_ROWS=$fdgRawRows  (forensic rows; decision outcomes=$fdgTotal)\n")
         if (scanCb > 0 && intake == 0L)
             sb.append("  ⚠ SCAN_CB>0 but INTAKE=0 — scanner discoveries not reaching intake gate.\n")
         if (intake > 0 && safety == 0L && intakeBlock < intake)

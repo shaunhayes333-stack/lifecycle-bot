@@ -371,6 +371,29 @@ class GoldenTapeRegressionTest {
 
 
 
+
+
+    @Test
+    fun fdg_fanout_diagnosis_uses_decision_outcomes_not_forensic_rows() {
+        val guardian = java.io.File("src/main/kotlin/com/lifecyclebot/engine/InvariantGuardian.kt").readText()
+        val phc = java.io.File("src/main/kotlin/com/lifecyclebot/engine/PipelineHealthCollector.kt").readText()
+        val hub = java.io.File("src/main/kotlin/com/lifecyclebot/engine/ReportingHub.kt").readText()
+
+        assertTrue("FDG fanout fault must use allow+block decision outcomes, not raw FDG forensic rows", guardian.contains("fdgDecisions") && guardian.contains("phaseAllow[\"FDG\"]") && guardian.contains("phaseBlock[\"FDG\"]") && guardian.contains("rawFdgRows"))
+        assertTrue("Pipeline report must display FDG decision outcomes and separate raw rows", phc.contains("FinalDecisionGate decision outcomes") && phc.contains("FDG_RAW_ROWS") && phc.contains("forensic FDG rows; not unique evaluations"))
+        assertTrue("Executive snapshot must use decision outcomes for FDG count", hub.contains("pipe.phaseAllow[\"FDG\"]") && hub.contains("pipe.phaseBlock[\"FDG\"]"))
+    }
+
+    @Test
+    fun weak_chop_pivots_toolkit_away_from_degen_express_scalps_without_blocking() {
+        val sheet = java.io.File("src/main/kotlin/com/lifecyclebot/engine/ToolkitSignalSheet.kt").readText()
+        assertTrue("Toolkit must inspect cached RegimeDetector state only inside async sheet build", sheet.contains("val regime = try { RegimeDetector.current()"))
+        assertTrue("Weak CHOP/DUMP must penalize degen and volume/express-like scalps", sheet.contains("Setup.DEGEN_MICRO_SNIPE -> -18.0") && sheet.contains("Setup.VOLUME_IGNITION_SCALP -> -10.0") && sheet.contains("Setup.PUMP_GRADUATION_SNIPE -> -12.0"))
+        assertTrue("Weak CHOP/DUMP must prefer pullback/quality/defensive structures", sheet.contains("Setup.CHART_PULLBACK_RECLAIM -> 10.0") && sheet.contains("Setup.LIQUIDITY_DEPTH_QUALITY -> 8.0") && sheet.contains("Setup.REGIME_DEFENSIVE_PROBE -> 6.0"))
+        assertTrue("Regime pivot must remain a soft score bias and visible in toolkit reasons", sheet.contains("regimeSetupBias(it.setup, regime)") && sheet.contains("regimeBias="))
+        assertFalse("Regime toolkit pivot must not hard-block or disable lanes", sheet.contains("disableLane") || sheet.contains("shouldTrade = false") || sheet.contains("BLOCK_"))
+    }
+
     @Test
     fun net_negative_danger_bucket_reroutes_lane_exposure_without_trade_block() {
         val guard = java.io.File("src/main/kotlin/com/lifecyclebot/engine/LaneToxicityGuard.kt").readText()

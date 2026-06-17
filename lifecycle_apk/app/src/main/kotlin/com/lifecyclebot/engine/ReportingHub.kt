@@ -166,7 +166,7 @@ object ReportingHub {
             val loop = pipe.phaseCounts["BOT_LOOP_TICK"] ?: 0L
             val intake = pipe.phaseCounts["INTAKE"] ?: 0L
             val lane = pipe.phaseCounts["LANE_EVAL"] ?: 0L
-            val fdg = pipe.phaseCounts["FDG"] ?: 0L
+            val fdg = ((pipe.phaseAllow["FDG"] ?: 0L) + (pipe.phaseBlock["FDG"] ?: 0L)).takeIf { it > 0L } ?: (pipe.phaseCounts["FDG"] ?: 0L)
             val exec = pipe.phaseCounts["EXEC"] ?: 0L
             val journalRows = pipe.labelCounts["TRADEJRNL_REC"] ?: 0L
             // V5.0.3829 — `avgCycleMs` is not a snapshot field, it is derived

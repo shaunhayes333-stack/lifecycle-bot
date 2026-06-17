@@ -106,7 +106,12 @@ Bias values must be soft, -8..+8 max. No hard blocks.
 """.trimIndent()
 
     private fun parseBrief(raw: String): Brief? = try {
-        val jsonText = raw.substring(raw.indexOf('{').coerceAtLeast(0), raw.lastIndexOf('}').takeIf { it >= 0 }?.plus(1) ?: raw.length)
+        val start = raw.indexOf('{')
+        val end = raw.lastIndexOf('}')
+        if (start < 0 || end <= start) {
+            return Brief(confidence = 15.0, riskMode = "neutral", summary = raw.replace(Regex("\\s+"), " ").take(260), source = "llm_text")
+        }
+        val jsonText = raw.substring(start, end + 1)
         val obj = JSONObject(jsonText)
         Brief(
             confidence = obj.optDouble("confidence", 0.0).coerceIn(0.0, 100.0),

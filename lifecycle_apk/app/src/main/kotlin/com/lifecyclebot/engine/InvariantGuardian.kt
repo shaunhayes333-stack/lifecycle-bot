@@ -81,9 +81,14 @@ object InvariantGuardian {
         val laneRatio = if (s.intake > 0) s.laneEval.toDouble() / s.intake else 0.0
         if (s.intake > 0 && laneRatio > 12.0) out += Fault(FaultCode.LANE_FANOUT_EXPLOSION, "HIGH", "laneEval/intake=${"%.2f".format(laneRatio)}")
         val pipe = try { PipelineHealthCollector.snapshot() } catch (_: Throwable) { null }
-        val fdg = pipe?.phaseCounts?.get("FDG") ?: s.fdg
-        val fdgRatio = if (s.intake > 0) fdg.toDouble() / s.intake else 0.0
-        if (s.intake > 0 && fdgRatio > 3.0) out += Fault(FaultCode.FDG_FANOUT_EXPLOSION, "HIGH", "FDG/intake=${"%.2f".format(fdgRatio)} fdg=$fdg intake=${s.intake}")
+        // V5.0.3858 — FDG forensic rows are not FDG evaluations. A single
+        // approved probe can emit path=…, verdict=…, and FDG_ALLOW rows, which
+        // made phaseCounts[FDG]/intake report a fake fanout explosion. Diagnose
+        // fanout from unique gate outcomes (allow+block); keep raw FDG rows only
+        // as telemetry.
+        val fdgDecisions = pipe?.let { (it.phaseAllow["FDG"] ?: 0L) + (it.phaseBlock["FDG"] ?: 0L) }?.takeIf { it > 0L } ?: s.fdg
+        val fdgRatio = if (s.intake > 0) fdgDecisions.toDouble() / s.intake else 0.0
+        if (s.intake > 0 && fdgRatio > 3.0) out += Fault(FaultCode.FDG_FANOUT_EXPLOSION, "HIGH", "FDG_decisions/intake=${"%.2f".format(fdgRatio)} fdgDecisions=$fdgDecisions rawFdgRows=${pipe?.phaseCounts?.get("FDG") ?: s.fdg} intake=${s.intake}")
         val ignoredSignal = pipe?.labelCounts?.get("LIFECYCLE/FDG_BASE_SIGNAL_BLOCK_IGNORED") ?: 0L
         if (ignoredSignal > 0L) out += Fault(FaultCode.FDG_SIGNAL_BYPASS, "CRITICAL", "FDG_BASE_SIGNAL_BLOCK_IGNORED=$ignoredSignal")
         // V5.0.3740 — live sell finality authority. Doctor must not report NO_FAULT

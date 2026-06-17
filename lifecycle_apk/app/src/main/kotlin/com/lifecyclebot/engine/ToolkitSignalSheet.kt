@@ -170,6 +170,7 @@ object ToolkitSignalSheet {
         val conf = (ts.lastV3Confidence ?: 50).coerceIn(0, 100).toDouble()
         val v3 = (ts.lastV3Score ?: ts.entryScore.toInt()).coerceIn(-100, 150).toDouble()
         val tt = classification?.tradeType ?: try { ModeRouter.classify(ts).tradeType } catch (_: Throwable) { ModeRouter.TradeType.UNKNOWN }
+        val regime = try { RegimeDetector.current() } catch (_: Throwable) { null }
 
         val move5 = pctMove(prices.takeLast(6))
         val move12 = pctMove(prices.takeLast(13))
@@ -401,11 +402,12 @@ object ToolkitSignalSheet {
             reasons = listOf("mevRisk=$mevRisk", "upperWicks=$upperWicks", "sell=${sellPressure.toInt()}", "vol=${volatility.toInt()}")
         ))
 
-        val best = candidates.maxByOrNull { it.score + InternetEdgeDesk.setupScoreBias(it.setup.name) } ?: Candidate(
+        val best = candidates.maxByOrNull { it.score + InternetEdgeDesk.setupScoreBias(it.setup.name) + regimeSetupBias(it.setup, regime) } ?: Candidate(
             setup = Setup.NONE, score = 0.0, chart = "none", entry = "none", exit = "default", hold = 1.0, size = 1.0, tp = 1.0,
             lanes = emptySet(), tools = emptySet(), reasons = listOf("no_toolkit_setup")
         )
-        val boundedConf = best.score.coerceIn(0.0, 100.0)
+        val finalBias = InternetEdgeDesk.setupScoreBias(best.setup.name) + regimeSetupBias(best.setup, regime)
+        val boundedConf = (best.score + finalBias).coerceIn(0.0, 100.0)
         return Sheet(
             setup = if (boundedConf >= 25.0) best.setup else Setup.NONE,
             confidence = boundedConf,
@@ -417,8 +419,30 @@ object ToolkitSignalSheet {
             tpMult = best.tp.coerceIn(0.60, 1.70),
             laneVotes = best.lanes,
             toolVotes = best.tools,
-            reasons = best.reasons + listOf("internetBias=${InternetEdgeDesk.setupScoreBias(best.setup.name).toInt()}", InternetEdgeDesk.snapshot().riskMode),
+            reasons = best.reasons + listOf("internetBias=${InternetEdgeDesk.setupScoreBias(best.setup.name).toInt()}", "regimeBias=${regimeSetupBias(best.setup, regime).toInt()}", "regime=${regime?.regime ?: "unknown"}", InternetEdgeDesk.snapshot().riskMode),
         )
+    }
+
+    private fun regimeSetupBias(setup: Setup, regime: RegimeDetector.RegimeSnapshot?): Double {
+        val r = regime?.regime ?: return 0.0
+        val weakChop = (r == RegimeDetector.Regime.CHOP && regime.recentWrPct < 25.0) || r == RegimeDetector.Regime.DUMP
+        if (!weakChop) return 0.0
+        return when (setup) {
+            // Current report: CHOP wr=19.3%, toolkit selected DEGEN_MICRO_SNIPE 128/201,
+            // EXPRESS 0% WR. Pivot away from fresh-pool scalps during weak chop.
+            Setup.DEGEN_MICRO_SNIPE -> -18.0
+            Setup.PUMP_GRADUATION_SNIPE -> -12.0
+            Setup.VOLUME_IGNITION_SCALP -> -10.0
+            Setup.EXHAUSTION_QUICK_FLIP -> -8.0
+            Setup.ARB_FLOW_IMBALANCE -> -8.0
+            // Prefer structures that survive chop instead of pure birth momentum.
+            Setup.CHART_PULLBACK_RECLAIM -> 10.0
+            Setup.PANIC_REVERSION_BOUNCE -> 8.0
+            Setup.LIQUIDITY_DEPTH_QUALITY -> 8.0
+            Setup.MAINSTREAM_CRYPTO_SWING -> 6.0
+            Setup.REGIME_DEFENSIVE_PROBE -> 6.0
+            else -> 0.0
+        }
     }
 
     private fun pctMove(prices: List<Double>): Double {
