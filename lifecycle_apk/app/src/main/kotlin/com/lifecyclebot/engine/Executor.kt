@@ -2091,6 +2091,79 @@ class Executor(
      *  is drifting / reconciler is stalled. 0.05 SOL per operator spec. */
     private val LEDGER_DRIFT_MAX_LIVE_SOL: Double = 0.05
 
+    /**
+     * V5.0.3848 — REALISTIC LIVE ENTRY SIZE AUTHORITY.
+     *
+     * The lane/V3 stack sometimes hands final live execution a tiny 0.005–0.009 SOL
+     * "probe" even when the wallet has >1 SOL and liquidity can absorb more. That
+     * cannot drive profits. This final entry-size normalizer raises dust outputs to
+     * a wallet/liquidity/score-aware live size while still respecting rent reserve,
+     * wallet exposure, and liquidity impact. It never bypasses safety/route gates.
+     */
+    private fun realisticLiveEntrySize(
+        ts: TokenState,
+        requestedSol: Double,
+        walletSol: Double,
+        score: Double,
+        lane: String,
+        source: String,
+    ): Double {
+        if (!RuntimeModeAuthority.isLive()) return requestedSol
+        if (!requestedSol.isFinite() || requestedSol <= 0.0 || walletSol <= 0.0) return requestedSol
+        val rentReserve = 0.012
+        val spendable = (walletSol - rentReserve).coerceAtLeast(0.0)
+        if (spendable <= 0.0) return requestedSol
+        val solPx = try { WalletManager.lastKnownSolPrice.takeIf { it.isFinite() && it > 0.0 } ?: 104.0 } catch (_: Throwable) { 104.0 }
+        val liqUsd = ts.lastLiquidityUsd.takeIf { it.isFinite() && it > 0.0 } ?: 0.0
+        val laneKey = lane.ifBlank { ts.source }.uppercase()
+        val walletPct = when {
+            score >= 70.0 -> 0.045
+            score >= 50.0 -> 0.038
+            score >= 25.0 -> 0.030
+            else -> 0.022
+        }
+        val laneMult = when {
+            laneKey.contains("QUALITY") -> 1.15
+            laneKey.contains("STANDARD") -> 1.10
+            laneKey.contains("PRESALE") || laneKey.contains("SNIPER") -> 1.05
+            laneKey.contains("MOONSHOT") -> 1.00
+            laneKey.contains("SHITCOIN") -> 0.85
+            laneKey.contains("MANIP") -> 0.75
+            else -> 1.00
+        }
+        val walletTarget = spendable * walletPct * laneMult
+        // Intended live buy should be small relative to pool depth. Use current SOL
+        // price and live liquidity to prevent unrealistic impact, but don't mistake
+        // low-but-exitable liquidity for a dust-only probe.
+        val liquidityCapSol = if (liqUsd > 0.0) {
+            ((liqUsd * 0.0035) / solPx).coerceIn(0.010, spendable)
+        } else {
+            spendable * 0.030
+        }
+        val walletCapSol = (spendable * 0.070).coerceAtMost(when {
+            walletSol < 2.0 -> 0.075
+            walletSol < 10.0 -> 0.150
+            else -> 0.300
+        })
+        val cap = minOf(liquidityCapSol, walletCapSol, spendable)
+        val minRealistic = when {
+            spendable >= 1.0 -> 0.025
+            spendable >= 0.5 -> 0.018
+            else -> 0.010
+        }.coerceAtMost(cap)
+        val desired = maxOf(requestedSol, walletTarget, minRealistic).coerceAtMost(cap)
+        val out = desired.coerceAtLeast(minOf(requestedSol, cap)).coerceAtMost(spendable)
+        if (kotlin.math.abs(out - requestedSol) >= 0.0005) {
+            try {
+                ForensicLogger.lifecycle(
+                    "LIVE_REALISTIC_SIZE_AUTHORITY",
+                    "mint=${ts.mint.take(10)} symbol=${ts.symbol} source=$source lane=$laneKey requested=${requestedSol.fmt(4)} target=${walletTarget.fmt(4)} out=${out.fmt(4)} wallet=${walletSol.fmt(4)} spendable=${spendable.fmt(4)} liqUsd=${liqUsd.toInt()} cap=${cap.fmt(4)} score=${score.fmt(1)}",
+                )
+            } catch (_: Throwable) {}
+        }
+        return out
+    }
+
     private fun applyKellyCap(size: Double, walletSol: Double, confidence: Double): Double {
         return try {
             val kellyCap = com.lifecyclebot.engine.PositionSizing.kellyCapFromGlobalStats(
@@ -7074,7 +7147,10 @@ class Executor(
         } catch (_: Throwable) { 1.0 }
         // Floor widened 0.4→0.30→0.22 so MANIPULATED's 0.30 cap can actually bite
         // alongside the DUMP brake (0.40) without being clamped away.
-        val effSol = (sol * sizeMult * labMult * laneEvMult * regimeMult * laneSizeCap).coerceIn(sol * 0.18, sol * 1.75)
+        val effSolRaw = (sol * sizeMult * labMult * laneEvMult * regimeMult * laneSizeCap).coerceIn(sol * 0.18, sol * 1.75)
+        val effSol = if (RuntimeModeAuthority.isLive()) {
+            realisticLiveEntrySize(ts, effSolRaw, walletSol, score, identity?.source ?: ts.source, "doBuy.final")
+        } else effSolRaw
 
         // V5.9.642: spine log uses a separate val so the compiler keeps
         // its smart cast on `wallet` inside the else branch (non-null guaranteed).
@@ -8810,6 +8886,14 @@ class Executor(
             val old = sol
             sol = liveMinExecutableBuySol
             try { ForensicLogger.lifecycle("LIVE_BUY_SIZE_RAISED_TO_MIN_EXECUTABLE", "mint=${ts.mint.take(10)} symbol=${ts.symbol} requested=$old raised=$sol walletSol=$walletSol spendable=$maxSpendableSol") } catch (_: Throwable) {}
+        }
+        val realisticSol = realisticLiveEntrySize(ts, sol, walletSol, score, layerTag.ifBlank { identity?.source ?: ts.source }, "liveBuy.final")
+        if (realisticSol > maxSpendableSol) {
+            val old = realisticSol
+            sol = maxSpendableSol
+            try { ForensicLogger.lifecycle("LIVE_REALISTIC_SIZE_CLAMPED_TO_SPENDABLE", "mint=${ts.mint.take(10)} symbol=${ts.symbol} requested=$old spendable=$maxSpendableSol walletSol=$walletSol") } catch (_: Throwable) {}
+        } else {
+            sol = realisticSol
         }
 
         // V5.9.611 — LiveExecutionGate is now settlement-pressure only.

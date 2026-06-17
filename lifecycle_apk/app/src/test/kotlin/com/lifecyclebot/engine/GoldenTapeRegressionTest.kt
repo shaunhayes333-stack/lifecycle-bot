@@ -2410,4 +2410,22 @@ class GoldenTapeRegressionTest {
     }
 
 
+    @Test
+    fun live_realistic_sizing_and_bot_bought_wallet_liability_are_authoritative() {
+        val executor = java.io.File("src/main/kotlin/com/lifecyclebot/engine/Executor.kt").readText()
+        val host = java.io.File("src/main/kotlin/com/lifecyclebot/engine/HostWalletTokenTracker.kt").readText()
+        val main = java.io.File("src/main/kotlin/com/lifecyclebot/ui/MainActivity.kt").readText()
+
+        assertTrue("Live sizing must be centralized after lane math", executor.contains("realisticLiveEntrySize") && executor.contains("LIVE_REALISTIC_SIZE_AUTHORITY"))
+        assertTrue("doBuy final size must pass through realistic live sizing", executor.contains("source=doBuy.final") || executor.contains("\"doBuy.final\""))
+        assertTrue("liveBuy final chokepoint must also pass through realistic sizing", executor.contains("\"liveBuy.final\"") && executor.contains("LIVE_REALISTIC_SIZE_CLAMPED_TO_SPENDABLE"))
+        assertTrue("Realistic sizing must use wallet, liquidity, score, and lane", listOf("walletTarget", "liquidityCapSol", "laneMult", "walletPct").all { executor.contains(it) })
+
+        assertTrue("Host tracker must keep bot-bought positive raw rows visible through RPC indeterminate windows", host.contains("hasBotBoughtPositiveLiability") && host.contains("bot-bought positive liability"))
+        assertTrue("Bot-bought positive liability must count in open/cap accounting", host.contains("hasBotBoughtPositiveLiability(p, now) ||") && host.contains("capCountable=\${freshBotBuy || botPositiveLiability}"))
+        assertTrue("Actually-held UI set must include bot-bought positive liabilities", host.contains("getActuallyHeldMints") && host.contains("hasCurrentWalletPositiveProof(it) || hasBotBoughtPositiveLiability(it)"))
+        assertTrue("Main UI must still intersect visible positions with HostWallet held set", main.contains("getActuallyHeldMints()") && main.contains("buildUnifiedOpenPositions(state)"))
+    }
+
+
 }

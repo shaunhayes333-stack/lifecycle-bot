@@ -231,6 +231,26 @@ object HostWalletTokenTracker {
             p.source == PositionSource.BOT_BUY
     }
 
+    /**
+     * V5.0.3848 — bot-bought positive liability.
+     * If AATE bought it and has a positive tx-meta/tracker amount, do not drop it
+     * from UI/cap/management merely because current wallet RPC is indeterminate or
+     * rate-limited. Only confirmed sell finality or independent zero-balance proof
+     * may remove it. This matches Phantom screenshots during Helius/RPC 429 storms.
+     */
+    private fun hasBotBoughtPositiveLiability(p: TrackedTokenPosition, now: Long = System.currentTimeMillis()): Boolean {
+        if (p.status !in OPEN_STATUSES) return false
+        if (p.zeroBalanceConfirmedByTwoProviders) return false
+        if (!p.sellSignature.isNullOrBlank() && p.status.priority >= PositionStatus.SELL_VERIFYING.priority) return false
+        val botBought = p.source == PositionSource.BOT_BUY || p.source == PositionSource.TX_PARSE || !p.buySignature.isNullOrBlank()
+        if (!botBought) return false
+        if (!hasLastPositiveRaw(p)) return false
+        val anchor = maxOf(p.balanceAuthorityObservedAtMs, p.buyTimeMs ?: 0L, p.firstSeenWalletMs, p.lastSeenWalletMs)
+        // Keep current-session bot-bought rows visible through RPC outages, but do
+        // not resurrect ancient orphan dust forever if no wallet proof ever returns.
+        return anchor <= 0L || (now - anchor) <= 45 * 60_000L
+    }
+
     private fun hasLiveSellInFlightForCap(p: TrackedTokenPosition, now: Long = System.currentTimeMillis()): Boolean {
         if (p.status !in SELL_IN_FLIGHT_STATUSES) return false
         if (!p.sellSignature.isNullOrBlank()) return true
@@ -242,6 +262,7 @@ object HostWalletTokenTracker {
         p.status in OPEN_STATUSES && (
             hasCurrentWalletPositiveProof(p, now) ||
             hasFreshBuyLiability(p, now) ||
+            hasBotBoughtPositiveLiability(p, now) ||
             hasLiveSellInFlightForCap(p, now)
         )
 
@@ -251,15 +272,16 @@ object HostWalletTokenTracker {
         val now = System.currentTimeMillis()
         walletAuthority[p.mint] = WalletAuthoritySnapshot.NO_CURRENT_HELD_PROOF(p.mint, reason, now)
         val freshBotBuy = hasFreshBuyLiability(p, now)
+        val botPositiveLiability = hasBotBoughtPositiveLiability(p, now)
         if (p.status !in setOf(PositionStatus.SELL_PENDING, PositionStatus.SELL_VERIFYING)) {
-            p.status = if (freshBotBuy) PositionStatus.OPEN_BALANCE_PROOF_PENDING else PositionStatus.STALE_RECOVERY_UNPROVEN
+            p.status = if (freshBotBuy || botPositiveLiability) PositionStatus.OPEN_BALANCE_PROOF_PENDING else PositionStatus.STALE_RECOVERY_UNPROVEN
         }
         p.balanceAuthoritySource = "NO_CURRENT_HELD_PROOF"
         p.activeSellAttemptId = null
         p.sellAttemptStartedMs = 0L
         p.notes.add("${p.status.name} reason=$reason")
-        val label = if (freshBotBuy) "OPEN_BALANCE_PROOF_PENDING" else "STALE_RECOVERY_UNPROVEN"
-        try { ForensicLogger.lifecycle(label, "mint=${p.mint.take(10)} symbol=${p.symbol ?: "?"} reason=$reason lastPositiveRaw=${rawAmountBig(p)} sellManaged=false capCountable=false") } catch (_: Throwable) {}
+        val label = if (freshBotBuy || botPositiveLiability) "OPEN_BALANCE_PROOF_PENDING" else "STALE_RECOVERY_UNPROVEN"
+        try { ForensicLogger.lifecycle(label, "mint=${p.mint.take(10)} symbol=${p.symbol ?: "?"} reason=$reason lastPositiveRaw=${rawAmountBig(p)} botPositiveLiability=$botPositiveLiability sellManaged=${freshBotBuy || botPositiveLiability} capCountable=${freshBotBuy || botPositiveLiability}") } catch (_: Throwable) {}
         try { com.lifecyclebot.engine.sell.SellExecutionLocks.release(p.mint) } catch (_: Throwable) {}
         try { com.lifecyclebot.engine.sell.CloseLease.release(p.mint, "WALLET_AUTH_UNKNOWN:$reason") } catch (_: Throwable) {}
     }
@@ -1195,13 +1217,15 @@ object HostWalletTokenTracker {
 
     /** Snapshot of every tracked position (open + closed) — diagnostics. */
     /** Count positions with current wallet-token proof above dust; stale raw/TX-meta does not count. */
-    fun getActuallyHeldCount(): Int = positions.values.count { hasCurrentWalletPositiveProof(it) }
+    fun getActuallyHeldCount(): Int = positions.values.count { hasCurrentWalletPositiveProof(it) || hasBotBoughtPositiveLiability(it) }
 
-    /** Physical wallet-held set only. CONFIRMED_PENDING_BALANCE / TX-meta are open
-     *  liabilities for a short TTL, but not physically held until wallet proof lands. */
+    /** Physical wallet-held set plus current-session bot-bought positive liabilities.
+     *  During RPC/Helius 429 storms Phantom can show tokens while current wallet proof
+     *  is unavailable; a bot buy + positive tx-meta amount remains held until zero/sell
+     *  finality proves otherwise. */
     fun getActuallyHeldMints(): Set<String> =
         positions.values.asSequence()
-            .filter { hasCurrentWalletPositiveProof(it) }
+            .filter { hasCurrentWalletPositiveProof(it) || hasBotBoughtPositiveLiability(it) }
             .map { it.mint }
             .toCollection(HashSet())
 
