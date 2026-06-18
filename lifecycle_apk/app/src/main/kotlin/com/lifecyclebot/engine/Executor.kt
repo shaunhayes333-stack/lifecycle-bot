@@ -2398,7 +2398,7 @@ class Executor(
             // the row display "mcap=n/a" instead of mislabeling exit/discovery mcap as entry mcap.
             ?: (if (trade.side.equals("BUY", true)) ts.lastMcap.takeIf { it > 0.0 } else null)
             ?: 0.0
-        val tradeWithMint = trade.copy(
+        var tradeWithMint = trade.copy(
             mint = if (trade.mint.isBlank()) ts.mint else trade.mint,
             tradingMode = resolvedTradingMode,
             positionId = trade.positionId.ifBlank { ledgerPositionId },
@@ -2412,6 +2412,42 @@ class Executor(
             entryPriceSource = trade.entryPriceSource.ifBlank { ts.position.entryPriceSource },
             entryPoolAddress = trade.entryPoolAddress.ifBlank { ts.position.entryPoolAddress },
         )
+
+
+        // V5.0.3868 — paper→live transfer authority: every legacy/journal/learning
+        // consumer must see executable NET edge, not gross displayed paper percent.
+        // Canonical rich publish already used netPnlSol for realizedPnlSol, but
+        // TradeHistoryStore/LosingPatternMemory/RunTracker30D/SmartSizer consumed
+        // tradeWithMint.pnlPct before the rich event. Normalize close rows here at
+        // the shared choke point so paper readiness cannot promote scratch edges
+        // that live fees/slippage turn red.
+        if (tradeWithMint.side.equals("SELL", true) || tradeWithMint.side.equals("PARTIAL_SELL", true)) {
+            val isPartialClose = tradeWithMint.side.equals("PARTIAL_SELL", true)
+            val basis = if (isPartialClose) {
+                // Partial SELL rows use sol as the sold-leg cost basis; using full
+                // position cost would dilute/lie about partial edge.
+                tradeWithMint.sol.takeIf { it.isFinite() && it > 0.0 }
+                    ?: tradeWithMint.entryCostSol.takeIf { it.isFinite() && it > 0.0 }
+                    ?: 0.0
+            } else {
+                tradeWithMint.entryCostSol.takeIf { it.isFinite() && it > 0.0 }
+                    ?: ts.position.costSol.takeIf { it.isFinite() && it > 0.0 }
+                    ?: tradeWithMint.sol.takeIf { it.isFinite() && it > 0.0 }
+                    ?: 0.0
+            }
+            val realizedNet = when {
+                tradeWithMint.netPnlSol.isFinite() && tradeWithMint.netPnlSol != 0.0 -> tradeWithMint.netPnlSol
+                tradeWithMint.feeSol.isFinite() && tradeWithMint.feeSol > 0.0 -> tradeWithMint.pnlSol - tradeWithMint.feeSol
+                else -> tradeWithMint.pnlSol
+            }
+            if (basis > 0.0 && realizedNet.isFinite()) {
+                val netPct = (realizedNet / basis) * 100.0
+                if (netPct.isFinite() && kotlin.math.abs(netPct - tradeWithMint.pnlPct) > 0.01) {
+                    try { PipelineHealthCollector.labelInc("PAPER_LIVE_TRANSFER_NET_PCT_NORMALIZED") } catch (_: Throwable) {}
+                    tradeWithMint = tradeWithMint.copy(pnlPct = netPct, pnlSol = realizedNet, netPnlSol = realizedNet)
+                }
+            }
+        }
 
         // V5.9.1100 — canonical execution/outcome idempotency.
         // BUY records register a canonical PositionId. Terminal SELL records
@@ -2807,12 +2843,10 @@ class Executor(
                     val isPaperEnv = isPaperRT()
                     // V5.9.1509 — NET-OF-FEE WIN/LOSS CLASSIFICATION (operator: "see
                     // heaps of win alerts but the gain doesn't represent true gains").
-                    // The displayed/recorded pnlPct is GROSS (solBack vs cost) but the
-                    // SOL that actually lands is NET (gross − 1% bot fee − 0.6% protocol
-                    // − gas ≈ 1.6% round-trip). A trade grossing +0.5% is a NET LOSS yet
-                    // was booked WIN (pnl>=1.0 on gross) and fired a win alert. We now
-                    // classify on the NET pnl%: derive it from netPnlSol/costBasis when a
-                    // real fee was applied (live), falling back to gross for paper/zero-fee.
+                    // V5.0.3868 — tradeWithMint has already been normalized at the
+                    // legacy/journal choke point so recorded pnlPct represents executable
+                    // net edge when fee/net fields exist. Keep classification net-SOL based
+                    // so paper/live readiness and canonical outcomes agree.
                     val grossPnl = tradeWithMint.pnlPct
                     val costBasis = (tradeWithMint.netPnlSol.takeIf { it != 0.0 }?.let { _ ->
                         // prefer the entry cost actually consumed by this (partial) sell
@@ -4422,7 +4456,8 @@ class Executor(
                 pnlSol, pnlPct, sig = finalSig, feeSol = feeSol, netPnlSol = netPnl)
             recordTrade(ts, trade)
             security.recordTrade(trade)
-            SmartSizer.recordTrade(pnlSol > 0, isPaperMode = false)
+            SmartSizer.recordTrade(netPnl > 0, isPaperMode = false)
+            // V5.0.3868 — live sizing learns from realized net PnL, not gross pre-fee PnL.
             // V5.9.105: feed live PnL into session drawdown circuit breaker
             LiveSafetyCircuitBreaker.recordTradeResult(netPnl)
 
@@ -5248,7 +5283,7 @@ class Executor(
                     livePnl, liveScore, sig = sig, feeSol = feeSol, netPnlSol = netPnl,
                     mint = ts.mint, tradingMode = pos.tradingMode, tradingModeEmoji = pos.tradingModeEmoji)
                 recordTrade(ts, liveTrade); security.recordTrade(liveTrade)
-                SmartSizer.recordTrade(livePnl > 0, isPaperMode = false)
+                SmartSizer.recordTrade(netPnl > 0, isPaperMode = false)
                 LiveSafetyCircuitBreaker.recordTradeResult(netPnl)  // V5.9.105 session drawdown halt
                 // V5.9.109: FAIRNESS — partial sell #1 pays same 0.5% fee
                 // (of the portion sold) to both wallets as full sells do.
@@ -10743,7 +10778,7 @@ class Executor(
                     
                     recordTrade(ts, liveTrade)
                     security.recordTrade(liveTrade)
-                    SmartSizer.recordTrade(livePnl > 0, isPaperMode = false)
+                    SmartSizer.recordTrade(netPnl > 0, isPaperMode = false)
                     LiveSafetyCircuitBreaker.recordTradeResult(netPnl)  // V5.9.105 session drawdown halt
                     // V5.9.109: FAIRNESS — partial sell #2 pays same 0.5% fee.
                     try {
@@ -11278,7 +11313,17 @@ class Executor(
             } catch (_: Throwable) {}
         }
 
-        val simulatedFeePct = 0.5
+        // V5.0.3868 — executable-live paper friction.
+        // Report: live MemeTrader buys/sells flow, but paper edge doesn't transfer;
+        // bot runs about even/slightly under live. Root cause: terminal paper sells
+        // only charged 0.5%, while live meme round-trip drag is ≈1.6% plus route/
+        // liquidity slippage. Train paper on executable net edge, not optimistic
+        // gross paper edge, so readiness/lane memory promote only trades that can
+        // survive real fees/slip.
+        val expectedRouteSlipPct = try {
+            com.lifecyclebot.v3.scoring.ExecutionCostPredictorAI.expectedExtraSlipPct(ts.lastLiquidityUsd)
+        } catch (_: Throwable) { 0.0 }
+        val simulatedFeePct = (1.6 + expectedRouteSlipPct.coerceIn(0.0, 8.0)).coerceIn(1.6, 9.6)
 
         val priceDerivedPnlPct = run {
             val base = pct(pos.entryPrice, effectivePrice).coerceIn(-100.0, 1000.0)
@@ -11312,6 +11357,8 @@ class Executor(
             } else rawValue
         }
         val value = cappedValue.coerceAtLeast(0.0)
+        val grossNoFrictionValue = (pos.costSol * (1.0 + priceDerivedPnlPct / 100.0)).coerceAtLeast(0.0)
+        val simulatedFeeSol = (grossNoFrictionValue - value).coerceAtLeast(0.0)
         val pnl   = value - pos.costSol
         val pnlP  = pct(pos.costSol, value)
         val trade = Trade(
@@ -11336,6 +11383,8 @@ class Executor(
             // LosingPatternMemory. Default 0 made normal ShitCoin/Quality
             // closes look like S0-10 death-bucket samples.
             score = pos.entryScore,
+            feeSol = simulatedFeeSol,
+            netPnlSol = pnl,
             tradingMode = pos.tradingMode,
             tradingModeEmoji = pos.tradingModeEmoji,
         )
@@ -14136,7 +14185,7 @@ class Executor(
                 com.lifecyclebot.engine.GlobalTradeRegistry.closePosition(tradeId.mint)
             } catch (_: Exception) { /* non-critical */ }
 
-            SmartSizer.recordTrade(pnl > 0, isPaperMode = false)
+            SmartSizer.recordTrade(netPnl > 0, isPaperMode = false)
             LiveSafetyCircuitBreaker.recordTradeResult(netPnl)  // V5.9.105 session drawdown halt
 
             // V5.9.399 / V5.9.428 — treasury split (live-mode mirror of paperSell).
