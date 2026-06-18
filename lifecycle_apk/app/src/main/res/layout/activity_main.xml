@@ -657,7 +657,7 @@
                             android:padding="8dp"
                             android:contentDescription="Wallet icon"/>
                         <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
-                            android:text="Wallet" android:textColor="#CBD5E1" android:textSize="8sp"
+                            android:text="Wallet" android:textColor="#CBD5E1" android:textSize="9sp"
                             android:layout_marginTop="2dp"/>
                     </LinearLayout>
 
@@ -681,7 +681,7 @@
                             android:padding="8dp"
                             android:contentDescription="Journal icon"/>
                         <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
-                            android:text="Journal" android:textColor="#CBD5E1" android:textSize="8sp"
+                            android:text="Journal" android:textColor="#CBD5E1" android:textSize="9sp"
                             android:layout_marginTop="2dp"/>
                     </LinearLayout>
 
@@ -705,7 +705,7 @@
                             android:padding="8dp"
                             android:contentDescription="Markets icon"/>
                         <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
-                            android:text="Markets" android:textColor="#FBBF24" android:textSize="8sp"
+                            android:text="Markets" android:textColor="#FBBF24" android:textSize="9sp"
                             android:layout_marginTop="2dp"/>
                     </LinearLayout>
 
@@ -729,7 +729,7 @@
                             android:padding="8dp"
                             android:contentDescription="Lab icon"/>
                         <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
-                            android:text="Lab" android:textColor="#C4B5FD" android:textSize="8sp"
+                            android:text="Lab" android:textColor="#C4B5FD" android:textSize="9sp"
                             android:layout_marginTop="2dp"/>
                         <TextView android:id="@+id/tvLabTileStats"
                             android:layout_width="wrap_content" android:layout_height="wrap_content"
@@ -757,7 +757,7 @@
                             android:padding="8dp"
                             android:contentDescription="Pipeline icon"/>
                         <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
-                            android:text="Pipeline" android:textColor="#86EFAC" android:textSize="8sp"
+                            android:text="Pipeline" android:textColor="#86EFAC" android:textSize="9sp"
                             android:layout_marginTop="2dp"/>
                         <TextView android:id="@+id/tvPipelineTileStats"
                             android:layout_width="wrap_content" android:layout_height="wrap_content"
@@ -795,7 +795,7 @@
                             android:padding="8dp"
                             android:contentDescription="Settings icon"/>
                         <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
-                            android:text="Settings" android:textColor="#CBD5E1" android:textSize="8sp"
+                            android:text="Settings" android:textColor="#CBD5E1" android:textSize="9sp"
                             android:layout_marginTop="2dp"/>
                     </LinearLayout>
 
@@ -819,7 +819,7 @@
                             android:padding="8dp"
                             android:contentDescription="Logs icon"/>
                         <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
-                            android:text="Logs" android:textColor="#CBD5E1" android:textSize="8sp"
+                            android:text="Logs" android:textColor="#CBD5E1" android:textSize="9sp"
                             android:layout_marginTop="2dp"/>
                     </LinearLayout>
 
@@ -843,7 +843,7 @@
                             android:padding="8dp"
                             android:contentDescription="Persona icon"/>
                         <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
-                            android:text="Persona" android:textColor="#F9A8D4" android:textSize="8sp"
+                            android:text="Persona" android:textColor="#F9A8D4" android:textSize="9sp"
                             android:layout_marginTop="2dp"/>
                     </LinearLayout>
 
@@ -867,7 +867,7 @@
                             android:padding="8dp"
                             android:contentDescription="CryptoAlts icon"/>
                         <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
-                            android:text="Crypto" android:textColor="#C4B5FD" android:textSize="8sp"
+                            android:text="Crypto" android:textColor="#C4B5FD" android:textSize="9sp"
                             android:layout_marginTop="2dp"/>
                         <TextView android:id="@+id/tvCryptoAltsStats"
                             android:layout_width="wrap_content" android:layout_height="wrap_content"
@@ -894,7 +894,7 @@
                             android:padding="8dp"
                             android:contentDescription="Behavior icon"/>
                         <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
-                            android:text="Tuning" android:textColor="#86EFAC" android:textSize="8sp"
+                            android:text="Tuning" android:textColor="#86EFAC" android:textSize="9sp"
                             android:layout_marginTop="2dp"/>
                     </LinearLayout>
                 </LinearLayout>
@@ -985,7 +985,7 @@
                             android:padding="8dp"
                             android:contentDescription="Learning icon"/>
                         <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
-                            android:text="Learning" android:textColor="#86EFAC" android:textSize="8sp"
+                            android:text="Learning" android:textColor="#86EFAC" android:textSize="9sp"
                             android:layout_marginTop="2dp"/>
                         <TextView android:id="@+id/tvLearningTileStats"
                             android:layout_width="wrap_content" android:layout_height="wrap_content"
@@ -1014,7 +1014,7 @@
                             android:padding="8dp"
                             android:contentDescription="Forensics icon"/>
                         <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
-                            android:text="Forensics" android:textColor="#C4B5FD" android:textSize="8sp"
+                            android:text="Forensics" android:textColor="#C4B5FD" android:textSize="9sp"
                             android:layout_marginTop="2dp"/>
                         <TextView android:id="@+id/tvForensicsTileStats"
                             android:layout_width="wrap_content" android:layout_height="wrap_content"
@@ -1737,9 +1737,9 @@
                     android:clickable="true"
                     android:focusable="true">
                     <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
-                        android:text="TARGET" android:textSize="18sp"/>
+                        android:text="SNIP" android:textSize="11sp" android:textStyle="bold" android:fontFamily="monospace" android:singleLine="true" android:maxLines="1" android:ellipsize="end"/>
                     <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
-                        android:text="V3" android:textColor="#9945FF" android:textSize="8sp"
+                        android:text="Sniper" android:textColor="#9945FF" android:textSize="7sp" android:singleLine="true" android:maxLines="1" android:ellipsize="end"
                         android:layout_marginTop="1dp"/>
                     <TextView android:id="@+id/tvV3Stats"
                         android:layout_width="wrap_content" android:layout_height="wrap_content"
@@ -1761,9 +1761,9 @@
                     android:clickable="true"
                     android:focusable="true">
                     <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
-                        android:text="TREASURY" android:textSize="18sp"/>
+                        android:text="CASH" android:textSize="11sp" android:textStyle="bold" android:fontFamily="monospace" android:singleLine="true" android:maxLines="1" android:ellipsize="end"/>
                     <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
-                        android:text="Treasury" android:textColor="#22C55E" android:textSize="8sp"
+                        android:text="Treasury" android:textColor="#22C55E" android:textSize="7sp" android:singleLine="true" android:maxLines="1" android:ellipsize="end"
                         android:layout_marginTop="1dp"/>
                     <TextView android:id="@+id/tvTreasuryStats"
                         android:layout_width="wrap_content" android:layout_height="wrap_content"
@@ -1785,9 +1785,9 @@
                     android:clickable="true"
                     android:focusable="true">
                     <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
-                        android:text="BLUECHIP" android:textSize="18sp"/>
+                        android:text="BLUE" android:textSize="11sp" android:textStyle="bold" android:fontFamily="monospace" android:singleLine="true" android:maxLines="1" android:ellipsize="end"/>
                     <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
-                        android:text="Blue" android:textColor="#3B82F6" android:textSize="8sp"
+                        android:text="Blue" android:textColor="#3B82F6" android:textSize="7sp" android:singleLine="true" android:maxLines="1" android:ellipsize="end"
                         android:layout_marginTop="1dp"/>
                     <TextView android:id="@+id/tvBlueChipStats"
                         android:layout_width="wrap_content" android:layout_height="wrap_content"
@@ -1809,9 +1809,9 @@
                     android:clickable="true"
                     android:focusable="true">
                     <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
-                        android:text="HIGH-RISK" android:textSize="18sp"/>
+                        android:text="RISK" android:textSize="11sp" android:textStyle="bold" android:fontFamily="monospace" android:singleLine="true" android:maxLines="1" android:ellipsize="end"/>
                     <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
-                        android:text="Shit" android:textColor="#F97316" android:textSize="8sp"
+                        android:text="Risk" android:textColor="#F97316" android:textSize="7sp" android:singleLine="true" android:maxLines="1" android:ellipsize="end"
                         android:layout_marginTop="1dp"/>
                     <TextView android:id="@+id/tvShitCoinStats"
                         android:layout_width="wrap_content" android:layout_height="wrap_content"
@@ -1833,9 +1833,9 @@
                     android:clickable="true"
                     android:focusable="true">
                     <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
-                        android:text="SIGNAL" android:textSize="18sp"/>
+                        android:text="FAST" android:textSize="11sp" android:textStyle="bold" android:fontFamily="monospace" android:singleLine="true" android:maxLines="1" android:ellipsize="end"/>
                     <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
-                        android:text="Express" android:textColor="#EAB308" android:textSize="8sp"
+                        android:text="Express" android:textColor="#EAB308" android:textSize="7sp" android:singleLine="true" android:maxLines="1" android:ellipsize="end"
                         android:layout_marginTop="1dp"/>
                     <TextView android:id="@+id/tvExpressStats"
                         android:layout_width="wrap_content" android:layout_height="wrap_content"
@@ -1857,9 +1857,9 @@
                     android:clickable="true"
                     android:focusable="true">
                     <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
-                        android:text="MANIP" android:textSize="18sp"/>
+                        android:text="MANIP" android:textSize="10sp" android:textStyle="bold" android:fontFamily="monospace" android:singleLine="true" android:maxLines="1" android:ellipsize="end"/>
                     <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
-                        android:text="Manip" android:textColor="#B91C1C" android:textSize="8sp"
+                        android:text="Manip" android:textColor="#B91C1C" android:textSize="7sp" android:singleLine="true" android:maxLines="1" android:ellipsize="end"
                         android:layout_marginTop="1dp"/>
                     <TextView android:id="@+id/tvManipStats"
                         android:layout_width="wrap_content" android:layout_height="wrap_content"
@@ -1881,7 +1881,7 @@
                     android:clickable="true"
                     android:focusable="true">
                     <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
-                        android:text="LAUNCH" android:textSize="18sp"/>
+                        android:text="MOON" android:textSize="11sp" android:textStyle="bold" android:fontFamily="monospace" android:singleLine="true" android:maxLines="1" android:ellipsize="end"/>
                     <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
                         android:text="Moon" android:textColor="#A855F7" android:textSize="8sp"
                         android:layout_marginTop="1dp"/>
@@ -4452,7 +4452,7 @@
                     android:orientation="horizontal" android:gravity="center_vertical"
                     android:layout_marginBottom="10dp">
                     <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
-                        android:text="TREASURY" android:textSize="18sp"
+                        android:text="CASH" android:textSize="11sp" android:textStyle="bold" android:fontFamily="monospace" android:singleLine="true" android:maxLines="1" android:ellipsize="end"
                         android:layout_marginEnd="8dp"/>
                     <TextView android:layout_width="0dp" android:layout_height="wrap_content"
                         android:layout_weight="1"
@@ -4596,7 +4596,7 @@
                     android:orientation="horizontal" android:gravity="center_vertical"
                     android:layout_marginBottom="10dp">
                     <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
-                        android:text="BLUECHIP" android:textSize="18sp"
+                        android:text="BLUE" android:textSize="11sp" android:textStyle="bold" android:fontFamily="monospace" android:singleLine="true" android:maxLines="1" android:ellipsize="end"
                         android:layout_marginEnd="8dp"/>
                     <TextView android:layout_width="0dp" android:layout_height="wrap_content"
                         android:layout_weight="1"
@@ -4679,7 +4679,7 @@
                     android:orientation="horizontal" android:gravity="center_vertical"
                     android:layout_marginBottom="10dp">
                     <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
-                        android:text="HIGH-RISK" android:textSize="18sp"
+                        android:text="RISK" android:textSize="11sp" android:textStyle="bold" android:fontFamily="monospace" android:singleLine="true" android:maxLines="1" android:ellipsize="end"
                         android:layout_marginEnd="8dp"/>
                     <TextView android:layout_width="0dp" android:layout_height="wrap_content"
                         android:layout_weight="1"
@@ -4801,7 +4801,7 @@
                     android:orientation="horizontal" android:gravity="center_vertical"
                     android:layout_marginBottom="10dp">
                     <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
-                        android:text="SIGNAL" android:textSize="18sp"
+                        android:text="FAST" android:textSize="11sp" android:textStyle="bold" android:fontFamily="monospace" android:singleLine="true" android:maxLines="1" android:ellipsize="end"
                         android:layout_marginEnd="8dp"/>
                     <TextView android:layout_width="0dp" android:layout_height="wrap_content"
                         android:layout_weight="1"
@@ -4857,7 +4857,7 @@
                     android:orientation="horizontal" android:gravity="center_vertical"
                     android:layout_marginBottom="10dp">
                     <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
-                        android:text="MANIP" android:textSize="18sp"
+                        android:text="MANIP" android:textSize="10sp" android:textStyle="bold" android:fontFamily="monospace" android:singleLine="true" android:maxLines="1" android:ellipsize="end"
                         android:layout_marginEnd="8dp"/>
                     <TextView android:layout_width="0dp" android:layout_height="wrap_content"
                         android:layout_weight="1"

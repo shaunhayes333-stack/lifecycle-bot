@@ -117,8 +117,11 @@ object AgenticStyleRouter {
         ToolkitSignalSheet.Setup.NONE -> null
     }
 
+    private fun isRiskOffSheet(sheet: ToolkitSignalSheet.Sheet): Boolean =
+        sheet.reasons.any { it.equals("risk_off", ignoreCase = true) || it.contains("risk_off", ignoreCase = true) }
+
     private fun isWeakChopSheet(sheet: ToolkitSignalSheet.Sheet): Boolean =
-        sheet.reasons.any { it == "regime=CHOP" || it == "regime=DUMP" }
+        sheet.reasons.any { it == "regime=CHOP" || it == "regime=DUMP" } || isRiskOffSheet(sheet)
 
     private fun isWeakRuntimeRegime(): Boolean = try {
         // V5.0.3863 — cached/fallback ToolkitSignalSheet can elect DEGEN_MICRO_SNIPE
@@ -141,6 +144,8 @@ object AgenticStyleRouter {
             Style.VOLUME_IGNITION_SCALP,
             Style.EXHAUSTION_QUICK_FLIP,
             Style.ARB_FLOW_IMBALANCE,
+            Style.MEV_PROTECTED_ENTRY,
+            Style.NARRATIVE_SOCIAL_IGNITION,
             Style.MICRO_SNIPE,
             Style.QUICK_FLIP -> Style.DEFENSIVE_PROBE
             Style.DIAMOND_HANDS_RUNNER,
@@ -176,7 +181,8 @@ object AgenticStyleRouter {
             tactic == TacticSwitcher.Tactic.PULLBACK -> Style.PULLBACK_RECLAIM
             tactic == TacticSwitcher.Tactic.REACCUMULATION -> Style.REACCUMULATION
             tactic == TacticSwitcher.Tactic.BREAKOUT -> Style.BREAKOUT_RUNNER
-            weakChopSheet && classification.tradeType == ModeRouter.TradeType.FRESH_LAUNCH -> Style.DEFENSIVE_PROBE
+            weakChopSheet && classification.tradeType in setOf(ModeRouter.TradeType.FRESH_LAUNCH, ModeRouter.TradeType.SENTIMENT_IGNITION, ModeRouter.TradeType.GRADUATION) -> Style.DEFENSIVE_PROBE
+            weakChopSheet && classification.tradeType == ModeRouter.TradeType.BREAKOUT_CONTINUATION -> Style.LIQUIDITY_DEPTH_QUALITY
             classification.tradeType == ModeRouter.TradeType.FRESH_LAUNCH && ageMin <= 3.0 -> Style.MICRO_SNIPE
             classification.tradeType == ModeRouter.TradeType.FRESH_LAUNCH -> Style.QUICK_FLIP
             classification.tradeType == ModeRouter.TradeType.BREAKOUT_CONTINUATION -> Style.BREAKOUT_RUNNER

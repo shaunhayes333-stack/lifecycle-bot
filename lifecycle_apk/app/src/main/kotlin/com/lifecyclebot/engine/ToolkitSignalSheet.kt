@@ -406,11 +406,13 @@ object ToolkitSignalSheet {
             reasons = listOf("mevRisk=$mevRisk", "upperWicks=$upperWicks", "sell=${sellPressure.toInt()}", "vol=${volatility.toInt()}")
         ))
 
-        val best = candidates.maxByOrNull { it.score + InternetEdgeDesk.setupScoreBias(it.setup.name) + regimeSetupBias(it.setup, regime) } ?: Candidate(
+        val internetRiskMode = try { InternetEdgeDesk.snapshot().riskMode } catch (_: Throwable) { "unknown" }
+        val riskOff = internetRiskMode.equals("risk_off", ignoreCase = true)
+        val best = candidates.maxByOrNull { it.score + InternetEdgeDesk.setupScoreBias(it.setup.name) + regimeSetupBias(it.setup, regime) + riskOffSetupBias(it.setup, riskOff) } ?: Candidate(
             setup = Setup.NONE, score = 0.0, chart = "none", entry = "none", exit = "default", hold = 1.0, size = 1.0, tp = 1.0,
             lanes = emptySet(), tools = emptySet(), reasons = listOf("no_toolkit_setup")
         )
-        val finalBias = InternetEdgeDesk.setupScoreBias(best.setup.name) + regimeSetupBias(best.setup, regime)
+        val finalBias = InternetEdgeDesk.setupScoreBias(best.setup.name) + regimeSetupBias(best.setup, regime) + riskOffSetupBias(best.setup, riskOff)
         val boundedConf = (best.score + finalBias).coerceIn(0.0, 100.0)
         return Sheet(
             setup = if (boundedConf >= 25.0) best.setup else Setup.NONE,
@@ -423,8 +425,28 @@ object ToolkitSignalSheet {
             tpMult = best.tp.coerceIn(0.60, 1.70),
             laneVotes = best.lanes,
             toolVotes = best.tools,
-            reasons = best.reasons + listOf("internetBias=${InternetEdgeDesk.setupScoreBias(best.setup.name).toInt()}", "regimeBias=${regimeSetupBias(best.setup, regime).toInt()}", "regime=${regime?.regime ?: "unknown"}", InternetEdgeDesk.snapshot().riskMode),
+            reasons = best.reasons + listOf("internetBias=${InternetEdgeDesk.setupScoreBias(best.setup.name).toInt()}", "regimeBias=${regimeSetupBias(best.setup, regime).toInt()}", "riskOffBias=${riskOffSetupBias(best.setup, riskOff).toInt()}", "regime=${regime?.regime ?: "unknown"}", internetRiskMode),
         )
+    }
+
+    private fun riskOffSetupBias(setup: Setup, riskOff: Boolean): Double {
+        if (!riskOff) return 0.0
+        return when (setup) {
+            Setup.DEGEN_MICRO_SNIPE,
+            Setup.PUMP_GRADUATION_SNIPE,
+            Setup.EXHAUSTION_QUICK_FLIP,
+            Setup.VOLUME_IGNITION_SCALP,
+            Setup.NARRATIVE_SOCIAL_IGNITION,
+            Setup.ARB_FLOW_IMBALANCE,
+            Setup.MEV_PROTECTED_ENTRY -> -35.0
+            Setup.LIQUIDITY_DEPTH_QUALITY,
+            Setup.MAINSTREAM_CRYPTO_SWING,
+            Setup.CHART_PULLBACK_RECLAIM,
+            Setup.REENTRY_RECOVERY,
+            Setup.PANIC_REVERSION_BOUNCE,
+            Setup.REGIME_DEFENSIVE_PROBE -> 22.0
+            else -> 0.0
+        }
     }
 
     private fun regimeSetupBias(setup: Setup, regime: RegimeDetector.RegimeSnapshot?): Double {

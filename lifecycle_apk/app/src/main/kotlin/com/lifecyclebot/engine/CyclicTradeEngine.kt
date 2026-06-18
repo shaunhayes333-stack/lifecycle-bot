@@ -59,7 +59,8 @@ object CyclicTradeEngine {
     // active TP/SL geometry. Negative edge => probe-only (5% of ring) so the
     // lane keeps sampling/learning but cannot bleed the compounded principal.
     private const val EDGE_GATE_MIN_CYCLES = 20
-    private const val EDGE_PROBE_FRACTION  = 0.05   // probe size when edge <= 0
+    private const val EDGE_PROBE_FRACTION  = 0.05   // normal probe size when edge <= 0
+    private const val MELTDOWN_PROBE_FRACTION = 0.01 // 24h report 5.0.3884: CYCLIC n=19 WR=15.8% PnL<0; micro-probe while bleeding
     private const val EDGE_FULL_DEPLOY     = 0.10   // edge (in WR points, e.g. +10pp over breakeven) at which full deploy is authorized
     // V5.9.240: During bootstrap (<40% learning) lower the score floor so the
     // ring engine actually trades while FluidLearningAI is still calibrating.
@@ -658,9 +659,12 @@ object CyclicTradeEngine {
                 // default. Learning is untouched — we still enter and journal every
                 // probe, so the CYCLIC bucket keeps maturing toward the edge-gate.
                 if (n < EDGE_GATE_MIN_CYCLES) {
-                    ringDesiredSol = (ringBalanceSol * EDGE_PROBE_FRACTION).coerceAtLeast(0.001)
-                    try { ErrorLogger.info(TAG, "🪙🌱 CYCLIC UNPROVEN: cycle $n/$EDGE_GATE_MIN_CYCLES → PROBE ${(EDGE_PROBE_FRACTION*100).toInt()}% ring (sampling to earn edge; no full deploy until proven)") } catch (_: Throwable) {}
-                    try { com.lifecyclebot.engine.PipelineHealthCollector.labelInc("CYCLIC_UNPROVEN_PROBE") } catch (_: Throwable) {}
+                    val wrPctNow = if (n > 0) winCount * 100.0 / n.toDouble() else 100.0
+                    val meltdown = n >= 10 && (wrPctNow < 20.0 || totalPnlSol < 0.0)
+                    val probeFrac = if (meltdown) MELTDOWN_PROBE_FRACTION else EDGE_PROBE_FRACTION
+                    ringDesiredSol = (ringBalanceSol * probeFrac).coerceAtLeast(0.001)
+                    try { ErrorLogger.info(TAG, "CYCLIC UNPROVEN: cycle $n/$EDGE_GATE_MIN_CYCLES wr=${"%.1f".format(wrPctNow)} pnl=${"%.3f".format(totalPnlSol)} → PROBE ${(probeFrac*100).toInt()}% ring (sampling to earn edge; no full deploy until proven)") } catch (_: Throwable) {}
+                    try { com.lifecyclebot.engine.PipelineHealthCollector.labelInc(if (meltdown) "CYCLIC_MELTDOWN_MICRO_PROBE" else "CYCLIC_UNPROVEN_PROBE") } catch (_: Throwable) {}
                 }
                 if (n >= EDGE_GATE_MIN_CYCLES) {
                     // V5.9.1423 — REALIZED-PnL EDGE GATE (operator: "cyclic ...
@@ -693,8 +697,10 @@ object CyclicTradeEngine {
                         totalPnlSol <= 0.0 || edge <= 0.0 -> {
                             // Empirically bleeding (negative realized P&L) or negative WR
                             // edge — PROBE ONLY. Sample to learn/pivot, never bleed.
-                            ringDesiredSol = (ringBalanceSol * EDGE_PROBE_FRACTION).coerceAtLeast(0.001)
-                            try { ErrorLogger.warn(TAG, "🪙🛑 CYCLIC EDGE-GATE: realizedPnL=${"%.3f".format(totalPnlSol)} SOL over $n cycles (wr=${(wr*100).toInt()}% vs breakeven=${(breakevenWr*100).toInt()}%) → PROBE ${(EDGE_PROBE_FRACTION*100).toInt()}% ring (bleeding — sampling to pivot, not betting principal)") } catch (_: Throwable) {}
+                            val meltdown = (wr * 100.0) < 20.0 || totalPnlSol < 0.0
+                            val probeFrac = if (meltdown) MELTDOWN_PROBE_FRACTION else EDGE_PROBE_FRACTION
+                            ringDesiredSol = (ringBalanceSol * probeFrac).coerceAtLeast(0.001)
+                            try { ErrorLogger.warn(TAG, "CYCLIC EDGE-GATE: realizedPnL=${"%.3f".format(totalPnlSol)} SOL over $n cycles (wr=${(wr*100).toInt()}% vs breakeven=${(breakevenWr*100).toInt()}%) → PROBE ${(probeFrac*100).toInt()}% ring (bleeding — sampling to pivot, not betting principal)") } catch (_: Throwable) {}
                             try { com.lifecyclebot.engine.PipelineHealthCollector.labelInc("CYCLIC_EDGE_GATE_PROBE") } catch (_: Throwable) {}
                         }
                         edge < EDGE_FULL_DEPLOY -> {
