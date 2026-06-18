@@ -7498,7 +7498,9 @@ class Executor(
                  layerTag: String = "",            // V5.9.386 — override BUY trade tradingMode for sub-trader journal tagging
                  layerTagEmoji: String = "",
                  finalityPrechecked: Boolean = false,
-                 attemptId: String = "") {     // V5.9.386 — matching emoji for the sub-trader tag
+                 attemptId: String = "",     // V5.9.386 — matching emoji for the sub-trader tag
+                 debitPaperWallet: Boolean = true,
+                 maxPaperTradeSolOverride: Double? = null) {
         try { PipelineHealthCollector.labelInc("PAPER_BUY_ATTEMPT") } catch (_: Throwable) {}
 
         fun markPaperBuyNotOpened(reason: String) {
@@ -7617,7 +7619,7 @@ class Executor(
                     }
                 }
             } catch (_: Throwable) {}
-            clampPaperTradeSol(finalSol, ts.mint, ts.symbol, "paperBuy.pre_mutation")
+            clampPaperTradeSol(finalSol, ts.mint, ts.symbol, "paperBuy.pre_mutation", maxPaperTradeSolOverride)
         }
         if (sol <= 0.0) {
             try { ForensicLogger.lifecycle("PAPER_BUY_INVALID_SIZE_REJECTED", "mint=${ts.mint.take(10)} symbol=${ts.symbol} requested=$sol") } catch (_: Throwable) {}
@@ -7686,11 +7688,11 @@ class Executor(
         val targetBuild: Double
         
         if (skipGraduated || quality == "C") {
-            actualSol = clampPaperTradeSol(sol, ts.mint, ts.symbol, "paperBuy.actual")
+            actualSol = clampPaperTradeSol(sol, ts.mint, ts.symbol, "paperBuy.actual", maxPaperTradeSolOverride)
             buildPhase = if (quality != "C") 1 else 3
             targetBuild = if (quality != "C") sol / graduatedInitialPct(quality) else 0.0
         } else {
-            actualSol = clampPaperTradeSol(graduatedInitialSize(sol, quality), ts.mint, ts.symbol, "paperBuy.graduated")
+            actualSol = clampPaperTradeSol(graduatedInitialSize(sol, quality), ts.mint, ts.symbol, "paperBuy.graduated", maxPaperTradeSolOverride)
             buildPhase = 1
             targetBuild = sol.coerceAtMost(maxConfiguredPaperTradeSol())
         }
@@ -7902,7 +7904,11 @@ class Executor(
         TradeLifecycle.executed(tradeId.mint, price, actualSol)
         TradeLifecycle.monitoring(tradeId.mint, 0.0)
         
-        onPaperBalanceChange?.invoke(-actualSol)
+        if (debitPaperWallet) {
+            onPaperBalanceChange?.invoke(-actualSol)
+        } else {
+            try { ForensicLogger.lifecycle("PAPER_BUY_SHARED_WALLET_DEBIT_SKIPPED", "mint=${tradeId.mint.take(10)} symbol=${tradeId.symbol} layer=$layerTag sol=${actualSol.fmt(4)} reason=virtual_book") } catch (_: Throwable) {}
+        }
         
         if (cfg().fluidLearningEnabled) {
             FluidLearning.recordPaperBuy(tradeId.mint, actualSol)
@@ -8288,7 +8294,11 @@ class Executor(
         wallet: SolanaWallet?,
         isPaper: Boolean,
         finalityPrechecked: Boolean = false,
-        attemptId: String = ""
+        attemptId: String = "",
+        paperLayerTag: String = "TREASURY",
+        paperLayerEmoji: String = "💰",
+        debitPaperWallet: Boolean = true,
+        maxPaperTradeSolOverride: Double? = null,
     ): Boolean {
         val preflight = if (finalityPrechecked) ExecutableOpenGate.OpenVerdict(true, "prechecked", attemptId = attemptId)
             else preflightExecutableOpen(ts, isPaper, "TREASURY", "Executor.treasuryBuy", attemptId)
@@ -8314,9 +8324,11 @@ class Executor(
                 skipGraduated = true,
                 wallet = wallet,
                 walletSol = walletSol,
-                layerTag = "TREASURY",        // V5.9.386 — journal tag
-                layerTagEmoji = "💰",
+                layerTag = paperLayerTag,        // V5.9.386 — journal tag
+                layerTagEmoji = paperLayerEmoji,
                 finalityPrechecked = true, attemptId = preflight.attemptId,
+                debitPaperWallet = debitPaperWallet,
+                maxPaperTradeSolOverride = maxPaperTradeSolOverride,
             )
         } else {
             if (wallet == null) {
@@ -11175,9 +11187,10 @@ class Executor(
         } catch (_: Throwable) { 0.01 }
     }
 
-    private fun clampPaperTradeSol(requested: Double, mint: String = "", symbol: String = "", source: String = "paper"): Double {
+    private fun clampPaperTradeSol(requested: Double, mint: String = "", symbol: String = "", source: String = "paper", maxOverrideSol: Double? = null): Double {
         val minSol = minConfiguredPaperTradeSol()
-        val maxSol = maxConfiguredPaperTradeSol().coerceAtLeast(minSol)
+        val configuredMax = maxOverrideSol?.takeIf { it.isFinite() && it > 0.0 } ?: maxConfiguredPaperTradeSol()
+        val maxSol = configuredMax.coerceAtLeast(minSol)
         if (!requested.isFinite() || requested <= 0.0) return 0.0
         val clamped = requested.coerceIn(minSol, maxSol)
         if (kotlin.math.abs(clamped - requested) > 0.0000001) {
@@ -11477,7 +11490,12 @@ class Executor(
             }
         } else 0.0
 
-        onPaperBalanceChange?.invoke(value - treasuryShare)
+        val cyclicVirtualPaperClose = pos.tradingMode.equals("CYCLIC", true) || reason.startsWith("CYCLIC_", true)
+        if (cyclicVirtualPaperClose) {
+            try { ForensicLogger.lifecycle("PAPER_SELL_SHARED_WALLET_CREDIT_SKIPPED", "mint=${tradeId.mint.take(10)} symbol=${tradeId.symbol} mode=${pos.tradingMode} reason=$reason value=${value.fmt(4)} virtual_book=CYCLIC") } catch (_: Throwable) {}
+        } else {
+            onPaperBalanceChange?.invoke(value - treasuryShare)
+        }
         
         if (cfg().fluidLearningEnabled) {
             FluidLearning.recordPaperSell(tradeId.mint, pos.costSol, pnl)

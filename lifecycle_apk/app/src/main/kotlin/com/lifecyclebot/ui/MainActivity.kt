@@ -2797,6 +2797,7 @@ for legal compliance.
             try {
                 state.openPositions.asSequence()
                     .filter { it.position.isPaperPosition && it.position.isOpen }
+                    .filter { !it.position.tradingMode.equals("CYCLIC", true) && !it.position.tradingMode.equals("CYCLIC_VIRTUAL", true) }
                     .sumOf { it.position.costSol.takeIf { v -> v.isFinite() && v > 0.0 } ?: 0.0 }
             } catch (_: Throwable) { 0.0 }
         } else 0.0

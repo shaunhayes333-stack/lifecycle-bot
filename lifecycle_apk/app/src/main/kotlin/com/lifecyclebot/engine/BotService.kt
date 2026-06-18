@@ -372,6 +372,7 @@ class BotService : Service() {
                         "[$source] Δ=${"%.4f".format(delta)} SOL → main balance=${"%.4f".format(status.paperWalletSol)}")
                 } else {
                     status.paperWalletSol = (status.paperWalletSol + delta).coerceAtLeast(0.0)
+                    try { svc.repairUnifiedPaperWalletIfImpossible("creditUnifiedPaperSol:$source") } catch (_: Throwable) {}
                 }
             } catch (e: Throwable) {
                 ErrorLogger.warn("UnifiedPaperWallet", "[$source] credit failed: ${e.message}")
@@ -3097,6 +3098,44 @@ class BotService : Service() {
         }
     }
 
+
+    /**
+     * V5.0.3872 — PAPER WALLET SOURCE-AUTHORITY REPAIR.
+     * Repairs only catastrophic paper-cash drift where the persisted wallet is
+     * impossible versus journal-derived authority: configured start + realised
+     * journal PnL - current open paper cost basis.
+     */
+    private fun repairUnifiedPaperWalletIfImpossible(source: String) {
+        try {
+            val cfgNow = com.lifecyclebot.data.ConfigStore.load(applicationContext)
+            if (!cfgNow.paperMode) return
+            val current = status.paperWalletSol
+            val stats = try { TradeHistoryStore.getStatsCached() } catch (_: Throwable) { null }
+            val realized = stats?.totalPnlSol?.takeIf { it.isFinite() } ?: 0.0
+            val openCost = try {
+                status.openPositions.asSequence()
+                    .filter { it.position.isPaperPosition && it.position.isOpen }
+                    .sumOf { it.position.costSol.takeIf { v -> v.isFinite() && v > 0.0 } ?: 0.0 }
+            } catch (_: Throwable) { 0.0 }
+            val start = cfgNow.paperSimulatedBalance.takeIf { it.isFinite() && it > 0.001 } ?: 11.76
+            val expectedCash = (start + realized - openCost).coerceAtLeast(0.0)
+            val tolerance = maxOf(start * 20.0, kotlin.math.abs(realized) * 5.0, openCost * 5.0, 25.0)
+            val upper = expectedCash + tolerance
+            val impossible = !current.isFinite() || current < -0.001 || current > upper
+            if (!impossible) return
+            ErrorLogger.warn(
+                "PaperWallet",
+                "PAPER_WALLET_IMPOSSIBLE_REPAIRED source=$source cash=${current.fmt(4)} expected=${expectedCash.fmt(4)} upper=${upper.fmt(4)} start=${start.fmt(4)} realized=${realized.fmt(4)} openCost=${openCost.fmt(4)}"
+            )
+            try { ForensicLogger.lifecycle("PAPER_WALLET_IMPOSSIBLE_REPAIRED", "source=$source cash=${current.fmt(4)} repaired=${expectedCash.fmt(4)} realized=${realized.fmt(4)} openCost=${openCost.fmt(4)} upper=${upper.fmt(4)}") } catch (_: Throwable) {}
+            try { PipelineHealthCollector.labelInc("PAPER_WALLET_IMPOSSIBLE_REPAIRED") } catch (_: Throwable) {}
+            status.paperWalletSol = expectedCash
+            try { PaperWalletStore.persist(applicationContext, expectedCash) } catch (_: Throwable) {}
+        } catch (e: Throwable) {
+            try { ErrorLogger.warn("PaperWallet", "repairUnifiedPaperWalletIfImpossible failed: ${e.message}") } catch (_: Throwable) {}
+        }
+    }
+
     // ── start / stop ───────────────────────────────────────
 
     // V5.9.54: one-time reconciliation of historical sub-trader P&L into
@@ -3745,6 +3784,7 @@ class BotService : Service() {
                     status.paperWalletSol = savedBalance
                     addLog("💰 Paper wallet restored: ${"%.4f".format(savedBalance)} SOL")
                 }
+                repairUnifiedPaperWalletIfImpossible("startBot.restore")
                 // Clear state that accumulates during live sessions and blocks paper trades
                 ReentryGuard.clearAll()
                 FinalDecisionGate.clearAllEdgeVetoes()
@@ -5448,6 +5488,7 @@ class BotService : Service() {
             }
 
             status.paperWalletSol = (status.paperWalletSol + applied).coerceAtLeast(0.0)
+            repairUnifiedPaperWalletIfImpossible("paper_delta")
             ErrorLogger.info("PaperWallet",
                 "Δ=${"%.4f".format(applied)} SOL → balance=${"%.4f".format(status.paperWalletSol)}" +
                 if (isInsane) " [CLAMPED from ${"%.4f".format(delta)}]" else "")

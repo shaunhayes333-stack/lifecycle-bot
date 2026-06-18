@@ -161,7 +161,23 @@ object CyclicTradeEngine {
         currentMint    = ""
         currentMode    = "STANDARD"
         isRunning      = false
+        sanitizeRingState("init")
         ErrorLogger.info(TAG, "CyclicTradeEngine initialised | ring=\$${ringBalanceUsd.toInt()} | cycles=$cycleCount")
+    }
+
+
+    private fun sanitizeRingState(source: String) {
+        val impossible = !ringBalanceSol.isFinite() || !ringBalanceUsd.isFinite() ||
+            ringBalanceSol <= 0.0 || ringBalanceUsd <= 0.0 || ringBalanceUsd > 1_250_000.0
+        if (!impossible) return
+        val solPrice = WalletManager.lastKnownSolPrice.takeIf { it in 10.0..1000.0 } ?: 85.0
+        ringBalanceUsd = RING_SIZE_USD
+        ringBalanceSol = RING_SIZE_USD / solPrice
+        lockedFloorUsd = RING_SIZE_USD
+        milestoneTier = 0
+        totalPnlSol = 0.0
+        try { ErrorLogger.warn(TAG, "CYCLIC_RING_IMPOSSIBLE_RESET source=$source") } catch (_: Throwable) {}
+        try { PipelineHealthCollector.labelInc("CYCLIC_RING_IMPOSSIBLE_RESET") } catch (_: Throwable) {}
     }
 
     fun setEnabled(on: Boolean) { enabled.set(on) }
@@ -849,6 +865,10 @@ object CyclicTradeEngine {
             isPaper     = !isLiveMode,
             finalityPrechecked = true,
             attemptId = cyclicAttemptId,
+            paperLayerTag = "CYCLIC",
+            paperLayerEmoji = "🔁",
+            debitPaperWallet = isLiveMode,
+            maxPaperTradeSolOverride = if (isLiveMode) null else sizeSol,
         )
 
         if (entered) {
