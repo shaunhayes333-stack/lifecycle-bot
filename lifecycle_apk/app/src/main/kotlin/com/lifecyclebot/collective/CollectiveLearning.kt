@@ -139,24 +139,30 @@ object CollectiveLearning {
             Log.i(TAG, "TursoClient created, testing connection...")
 
             var connectionSuccess = false
+            var connectionError = "no response captured"
             for (attempt in 1..3) {
                 try {
-                    if (client!!.testConnection()) {
+                    val probe = client!!.testConnectionResult()
+                    if (probe.success) {
                         connectionSuccess = true
                         break
                     }
-                    Log.w(TAG, "Connection attempt $attempt/3 failed, retrying...")
+                    connectionError = probe.error ?: "connection probe returned success=false"
+                    lastInitError = "Connection attempt $attempt/3 failed: $connectionError"
+                    Log.w(TAG, "Connection attempt $attempt/3 failed: $connectionError, retrying...")
                     if (attempt < 3) {
                         delay(attempt * 1000L)
                     }
                 } catch (e: Exception) {
-                    Log.e(TAG, "Connection attempt $attempt error: ${e.message}")
+                    connectionError = e.message ?: e.javaClass.simpleName
+                    lastInitError = "Connection attempt $attempt/3 error: $connectionError"
+                    Log.e(TAG, "Connection attempt $attempt error: $connectionError")
                 }
             }
 
             if (!connectionSuccess) {
-                lastInitError = "Connection test failed after 3 attempts"
-                Log.e(TAG, "TURSO CONNECTION FAILED after 3 attempts - using LOCAL CACHE")
+                lastInitError = "Connection test failed after 3 attempts: $connectionError"
+                Log.e(TAG, "TURSO CONNECTION FAILED after 3 attempts - using LOCAL CACHE: $connectionError")
                 client = null
                 isInitialized = false
                 return@withLock false
@@ -247,17 +253,23 @@ object CollectiveLearning {
         return enabled
     }
 
-    suspend fun ensureConnected(): Boolean {
+    suspend fun ensureConnected(force: Boolean = false): Boolean {
         if (isEnabled()) return true
 
         val now = System.currentTimeMillis()
-        if (now - lastReconnectAttempt < RECONNECT_COOLDOWN_MS) {
+        if (!force && now - lastReconnectAttempt < RECONNECT_COOLDOWN_MS) {
+            val waitMs = (RECONNECT_COOLDOWN_MS - (now - lastReconnectAttempt)).coerceAtLeast(0L)
+            if (lastInitError.isBlank()) lastInitError = "Reconnect cooldown active (${waitMs / 1000}s remaining); tap Sync/Diagnostics to force retry"
             return false
         }
         lastReconnectAttempt = now
 
-        val ctx = appContext ?: return false
-        Log.i(TAG, "Attempting to reconnect to Turso...")
+        val ctx = appContext
+        if (ctx == null) {
+            lastInitError = "No application context captured for Turso init"
+            return false
+        }
+        Log.i(TAG, "Attempting to reconnect to Turso... force=$force")
 
         isInitialized = false
         client = null
@@ -265,6 +277,7 @@ object CollectiveLearning {
         return try {
             init(ctx)
         } catch (e: Exception) {
+            lastInitError = e.message ?: e.javaClass.simpleName
             Log.e(TAG, "Reconnect failed: ${e.message}")
             false
         }
@@ -2843,18 +2856,20 @@ object CollectiveLearning {
         val statusMessage: String
     )
 
+    fun isConfigured(): Boolean {
+        return try {
+            val ctx = appContext ?: return false
+            val cfg = ConfigStore.load(ctx)
+            cfg.collectiveLearningEnabled && cfg.tursoDbUrl.isNotBlank() && cfg.tursoAuthToken.isNotBlank()
+        } catch (_: Throwable) { false }
+    }
+
     fun getSyncStatus(): SyncStatus {
         // V5.9.1556b — client!=null means connected/initialized, not configured.
         // The UI was reporting "Turso not configured" whenever init failed or was
         // still async, even though defaults/config credentials exist. That hid the
         // real issue and made Hive Mind look disabled. Check config separately.
-        val configuredByPrefs = try {
-            val ctx = appContext
-            if (ctx != null) {
-                val cfg = com.lifecyclebot.data.ConfigStore.load(ctx)
-                cfg.collectiveLearningEnabled && cfg.tursoDbUrl.isNotBlank() && cfg.tursoAuthToken.isNotBlank()
-            } else false
-        } catch (_: Throwable) { false }
+        val configuredByPrefs = isConfigured()
         val connected = isInitialized && client != null
         val tursoConfigured = configuredByPrefs || client != null
 
@@ -2884,7 +2899,20 @@ object CollectiveLearning {
 
     suspend fun forceSyncNow(): String {
         if (!isEnabled()) {
-            return "Collective learning disabled or Turso not configured"
+            val reconnected = try { ensureConnected(force = true) } catch (e: Throwable) {
+                lastInitError = e.message ?: e.javaClass.simpleName
+                false
+            }
+            if (!reconnected || !isEnabled()) {
+                return """
+SYNC FAILED
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+Turso configured: ${isConfigured()}
+Client: ${client != null}
+Initialized: $isInitialized
+Last init error: ${lastInitError.ifBlank { "none captured" }}
+                """.trimIndent()
+            }
         }
 
         return try {
@@ -2917,7 +2945,7 @@ object CollectiveLearning {
 
     suspend fun runDiagnostics(): String {
         if (!isEnabled()) {
-            try { ensureConnected() } catch (_: Throwable) {}
+            try { ensureConnected(force = true) } catch (e: Throwable) { lastInitError = e.message ?: e.javaClass.simpleName }
         }
         if (!isEnabled()) {
             val cfg = try { appContext?.let { ConfigStore.load(it) } } catch (_: Throwable) { null }
@@ -2930,6 +2958,7 @@ Initialized: $isInitialized
 Last init error: ${lastInitError.ifBlank { "none captured" }}
 URL present: ${cfg?.tursoDbUrl?.isNotBlank() == true}
 Token present: ${cfg?.tursoAuthToken?.isNotBlank() == true}
+Reconnect forced: true
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 Tap Sync to retry; if this persists, check the init error above.
             """.trimIndent()

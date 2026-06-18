@@ -116,15 +116,20 @@ class TursoClient(
         }
     }
 
-    suspend fun testConnection(): Boolean {
+    suspend fun testConnectionResult(): QueryResult {
         return try {
             val result = query("SELECT 1 as test")
-            result.success
+            if (!result.success) {
+                Log.e(TAG, "Connection test failed: ${result.error}")
+            }
+            result
         } catch (e: Exception) {
             Log.e(TAG, "Connection test failed: ${e.message}", e)
-            false
+            QueryResult(success = false, rows = emptyList(), error = e.message ?: e.javaClass.simpleName)
         }
     }
+
+    suspend fun testConnection(): Boolean = testConnectionResult().success
 
     private suspend fun runMigrations(): Boolean {
         for (sql in CollectiveSchema.MIGRATION_STATEMENTS) {
