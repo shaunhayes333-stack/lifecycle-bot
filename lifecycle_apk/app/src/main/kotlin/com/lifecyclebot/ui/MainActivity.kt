@@ -631,6 +631,28 @@ class MainActivity : AppCompatActivity() {
     // entire MPAndroidChart (main-thread draw) even when no new candle arrived.
     private var lastCandleChartSig: String = ""
 
+
+    private fun compactHeroBalance(sol: Double): String {
+        return try {
+            val info = currency.selectedInfo
+            val amount = currency.solToDisplay(sol)
+            val absAmount = kotlin.math.abs(amount)
+            val compact = when {
+                absAmount >= 1_000_000_000.0 -> "%.2fB".format(amount / 1_000_000_000.0)
+                absAmount >= 1_000_000.0     -> "%.2fM".format(amount / 1_000_000.0)
+                absAmount >= 10_000.0        -> "%.1fK".format(amount / 1_000.0)
+                currency.selectedCurrency == "SOL" -> "%.4f".format(amount)
+                currency.selectedCurrency == "BTC" -> "%.6f".format(amount)
+                currency.selectedCurrency == "ETH" -> "%.5f".format(amount)
+                else -> "%,.2f".format(amount)
+            }
+            when (currency.selectedCurrency) {
+                "SOL", "BTC", "ETH" -> "${info.symbol} $compact"
+                else -> "${info.symbol}$compact"
+            }
+        } catch (_: Throwable) { currency.format(sol) }
+    }
+
     private fun android.widget.TextView.setTextIfChanged(value: CharSequence) {
         if (this.text?.toString() != value.toString()) this.text = value
     }
@@ -2804,22 +2826,24 @@ for legal compliance.
         val paperEquityAtCostSol = if (config.paperMode) balSol + paperOpenCostSol else balSol
 
         if (balSol > 0.001) {
-            tvBalanceLarge.setTextIfChanged(currency.format(balSol))  // V5.9.1278 change-guarded; converts SOL→display currency internally
+            tvBalanceLarge.setTextIfChanged(compactHeroBalance(balSol))  // V5.0.3874 mobile-safe compact headline
             // V5.9.773 — BIG explicit mode chip so the operator can never
             // confuse "🟢 APIs READY" (Jupiter/Pyth health) with actual
             // trade mode. Per troubleshoot RCA: user saw "LIVE READY"
             // banner and thought bot was live, but cfg.paperMode=true.
-            tvBalanceUsd.setTextIfChanged(if (config.paperMode) {
-                "📝 PAPER CASH ◎ ${"%.4f".format(balSol)} · equity≈◎ ${"%.4f".format(paperEquityAtCostSol)}"
-            } else "🔴 LIVE MODE  ◎ ${"%.4f".format(balSol)}")
+            tvBalanceUsd.setTextIfChanged(if (config.paperMode) "PAPER" else "LIVE")
+            tvBalanceUsd.contentDescription = if (config.paperMode) {
+                "Paper cash ${"%.4f".format(balSol)} SOL. Approx equity ${"%.4f".format(paperEquityAtCostSol)} SOL."
+            } else "Live wallet ${"%.4f".format(balSol)} SOL."
         } else if (ws.isConnected && ws.solBalance > 0) {
-            tvBalanceLarge.setTextIfChanged(currency.format(ws.solBalance))
-            tvBalanceUsd.setTextIfChanged(if (config.paperMode) {
-                "📝 PAPER CASH ◎ ${"%.4f".format(ws.solBalance)} · equity≈◎ ${"%.4f".format(ws.solBalance + paperOpenCostSol)}"
-            } else "🔴 LIVE MODE  ◎ ${"%.4f".format(ws.solBalance)}")
+            tvBalanceLarge.setTextIfChanged(compactHeroBalance(ws.solBalance))
+            tvBalanceUsd.setTextIfChanged(if (config.paperMode) "PAPER" else "LIVE")
+            tvBalanceUsd.contentDescription = if (config.paperMode) {
+                "Paper cash ${"%.4f".format(ws.solBalance)} SOL. Approx equity ${"%.4f".format(ws.solBalance + paperOpenCostSol)} SOL."
+            } else "Live wallet ${"%.4f".format(ws.solBalance)} SOL."
         } else {
             tvBalanceLarge.setTextIfChanged("—")
-            tvBalanceUsd.setTextIfChanged(if (config.paperMode) "📝 PAPER CASH" else "🔴 LIVE MODE")
+            tvBalanceUsd.setTextIfChanged(if (config.paperMode) "PAPER" else "LIVE")
         }
 
         // ── Live SOL Price ──────────────────────────────────────────────
@@ -2872,9 +2896,13 @@ for legal compliance.
             // V5.9.810 — journal is source of truth for win%. V5.9.1248 — same
             // source now drives the $ and % too. One source, one number, everywhere.
             val journalWinRate = journalStats?.winRate?.toInt() ?: ws.winRate
-            val pnlLabel = if (config.paperMode) "lifetime journal" else "%+.1f%%".format(pnlPct)
-            val paperPct = if (config.paperMode && startCapitalSol > 0.0001) " (%+.1f%% vs start)".format(pnlPct) else ""
-            tvPnlChangePct.setTextIfChanged(if (config.paperMode) "$pnlLabel$paperPct  •  $journalWinRate%% wins" else "$pnlLabel  •  $journalWinRate%% wins")
+            val pnlLabel = if (config.paperMode) {
+                if (startCapitalSol > 0.0001) "%+.0f%% start".format(pnlPct) else "journal"
+            } else "%+.1f%%".format(pnlPct)
+            tvPnlChangePct.setTextIfChanged("$pnlLabel · $journalWinRate% WR")
+            tvPnlChangePct.contentDescription = if (config.paperMode) {
+                "Lifetime journal return ${"%+.1f".format(pnlPct)} percent versus start. $journalWinRate percent wins."
+            } else "$pnlLabel. $journalWinRate percent wins."
         } else {
             tvPnlChange.setTextIfChanged("")
             tvPnlChangePct.setTextIfChanged("")
