@@ -92,9 +92,13 @@ object ToolkitSignalSheet {
 
     fun fallbackSheet(ts: TokenState, classification: ModeRouter.Classification? = null): Sheet {
         val tt = classification?.tradeType ?: ModeRouter.TradeType.UNKNOWN
+        val weakRegime = try {
+            val r = RegimeDetector.current()
+            r.regime == RegimeDetector.Regime.DUMP || (r.regime == RegimeDetector.Regime.CHOP && r.recentWrPct < 25.0)
+        } catch (_: Throwable) { false }
         val setup = when (tt) {
-            ModeRouter.TradeType.BREAKOUT_CONTINUATION, ModeRouter.TradeType.GRADUATION -> Setup.CHART_BREAKOUT
-            ModeRouter.TradeType.FRESH_LAUNCH -> Setup.DEGEN_MICRO_SNIPE
+            ModeRouter.TradeType.BREAKOUT_CONTINUATION, ModeRouter.TradeType.GRADUATION -> if (weakRegime) Setup.LIQUIDITY_DEPTH_QUALITY else Setup.CHART_BREAKOUT
+            ModeRouter.TradeType.FRESH_LAUNCH -> if (weakRegime) Setup.REGIME_DEFENSIVE_PROBE else Setup.DEGEN_MICRO_SNIPE
             ModeRouter.TradeType.REVERSAL_RECLAIM -> Setup.CHART_PULLBACK_RECLAIM
             ModeRouter.TradeType.WHALE_ACCUMULATION -> Setup.WHALE_ACCUMULATION_HOLD
             ModeRouter.TradeType.TREND_PULLBACK -> Setup.MAINSTREAM_CRYPTO_SWING
@@ -113,7 +117,7 @@ object ToolkitSignalSheet {
             tpMult = 1.0,
             laneVotes = emptySet(),
             toolVotes = emptySet(),
-            reasons = listOf("silent_refresh_pending", "type=$tt", "mint=${ts.mint.take(8)}"),
+            reasons = listOf("silent_refresh_pending", "type=$tt", "mint=${ts.mint.take(8)}") + if (weakRegime) listOf("regime=weak_runtime") else emptyList(),
         )
     }
 

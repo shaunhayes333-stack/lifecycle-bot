@@ -401,6 +401,13 @@ class GoldenTapeRegressionTest {
         assertTrue("Executive snapshot must use decision outcomes for FDG count", hub.contains("pipe.phaseAllow[\"FDG\"]") && hub.contains("pipe.phaseBlock[\"FDG\"]"))
     }
 
+
+
+    @Test
+    fun strategy_hypothesis_does_not_mutate_bleeder_lanes_in_dump() {
+        val hyp = java.io.File("src/main/kotlin/com/lifecyclebot/engine/StrategyHypothesisEngine.kt").readText()
+        assertTrue("Hypothesis engine must suppress DUMP variants for known bleeder lanes", hyp.contains("suppressVariantForContext") && hyp.contains("HYPOTHESIS_DUMP_BLEEDER_VARIANT_SUPPRESSED") && hyp.contains("MOONSHOT") && hyp.contains("SHITCOIN") && hyp.contains("return 1.0"))
+    }
     @Test
     fun weak_chop_pivots_toolkit_away_from_degen_express_scalps_without_blocking() {
         val sheet = java.io.File("src/main/kotlin/com/lifecyclebot/engine/ToolkitSignalSheet.kt").readText()
@@ -409,7 +416,8 @@ class GoldenTapeRegressionTest {
         assertTrue("Weak CHOP/DUMP must prefer pullback/quality/defensive structures", sheet.contains("Setup.CHART_PULLBACK_RECLAIM -> 10.0") && sheet.contains("Setup.LIQUIDITY_DEPTH_QUALITY -> 8.0") && sheet.contains("Setup.REGIME_DEFENSIVE_PROBE -> 6.0"))
         val router = java.io.File("src/main/kotlin/com/lifecyclebot/engine/AgenticStyleRouter.kt").readText()
         assertTrue("Regime pivot must remain a soft score bias and visible in toolkit reasons", sheet.contains("regimeSetupBias(it.setup, regime)") && sheet.contains("regimeBias="))
-        assertTrue("Router must remap weak-CHOP degen/fresh styles before primary lane election", router.contains("weakChopStylePivot") && router.contains("Style.DEGEN_MICRO_SNIPE") && router.contains("Style.DEFENSIVE_PROBE") && router.contains("Style.DIAMOND_HANDS_RUNNER") && router.contains("Style.LIQUIDITY_DEPTH_QUALITY") && router.contains("weakChopSheet && classification.tradeType == ModeRouter.TradeType.FRESH_LAUNCH"))
+        assertTrue("Router must remap weak-CHOP/DUMP degen/fresh styles before primary lane election even on fallback sheets", router.contains("weakChopStylePivot") && router.contains("isWeakRuntimeRegime") && router.contains("RegimeDetector.Regime.DUMP") && router.contains("Style.DEGEN_MICRO_SNIPE") && router.contains("Style.DEFENSIVE_PROBE") && router.contains("Style.DIAMOND_HANDS_RUNNER") && router.contains("Style.LIQUIDITY_DEPTH_QUALITY") && router.contains("weakChopSheet && classification.tradeType == ModeRouter.TradeType.FRESH_LAUNCH"))
+        assertTrue("Fallback toolkit sheet must not emit degen fresh-launch style in weak runtime regime", sheet.contains("weakRegime") && sheet.contains("Setup.REGIME_DEFENSIVE_PROBE") && sheet.contains("regime=weak_runtime"))
         assertFalse("Regime toolkit pivot must not hard-block or disable lanes", sheet.contains("disableLane") || sheet.contains("shouldTrade = false") || sheet.contains("BLOCK_"))
     }
 
@@ -1374,6 +1382,13 @@ class GoldenTapeRegressionTest {
 
 
 
+
+
+    @Test
+    fun runtime_doctor_flags_low_throughput_choke_not_healthy() {
+        val inv = java.io.File("src/main/kotlin/com/lifecyclebot/engine/InvariantGuardian.kt").readText()
+        assertTrue("Doctor must flag intake→lane/V3 starvation instead of HEALTHY", inv.contains("THROUGHPUT_CHOKE") && inv.contains("intake_to_lane_eval") && inv.contains("lane_to_v3=0%"))
+    }
     @Test
     fun runtime_doctor_does_not_call_sell_path_dead_when_live_sells_are_journaling() {
         val inv = java.io.File("src/main/kotlin/com/lifecyclebot/engine/InvariantGuardian.kt").readText()

@@ -94,6 +94,20 @@ object StrategyHypothesisEngine {
     private fun ctxKey(lane: String, score: Int, regime: String) =
         "${lane.uppercase().take(14)}|${band(score)}|${regime.uppercase().take(10)}"
 
+    private fun suppressVariantForContext(lane: String, score: Int, regime: String): Boolean {
+        val l = lane.uppercase()
+        val r = regime.uppercase()
+        // V5.0.3863 — DUMP is not the time to run live-facing A/B variants in
+        // known bleeder lanes. This is not a trade veto; it disables experimental
+        // size/stop mutation and returns neutral bias so FDG/executor policy remains
+        // the sole authority. Report showed MOONSHOT|S20|DUMP active while DUMP WR
+        // was 13.8% and MOONSHOT/SHITCOIN were net negative.
+        return r.contains("DUMP") && score < 60 && (
+            l.contains("MOONSHOT") || l.contains("SHITCOIN") ||
+            l.contains("EXPRESS") || l.contains("TREASURY")
+        )
+    }
+
     /** Deterministic arm assignment so a mint always lands in the same arm. */
     private fun isVariant(mint: String): Boolean = (mint.hashCode() and 0x1) == 0
 
@@ -136,6 +150,12 @@ object StrategyHypothesisEngine {
     fun getSizeBias(lane: String, score: Int, regime: String, mint: String): Double {
         return try {
             val ctx = ctxKey(lane, score, regime)
+            if (suppressVariantForContext(lane, score, regime)) {
+                active.remove(ctx)
+                pending.remove(mint)
+                try { PipelineHealthCollector.labelInc("HYPOTHESIS_DUMP_BLEEDER_VARIANT_SUPPRESSED") } catch (_: Throwable) {}
+                return 1.0
+            }
             val h = active.getOrPut(ctx) { spawn(ctx) }
             val variant = isVariant(mint)
             pending[mint] = ctx to variant
@@ -153,6 +173,11 @@ object StrategyHypothesisEngine {
     fun getStopBias(lane: String, score: Int, regime: String, mint: String): Double {
         return try {
             val ctx = ctxKey(lane, score, regime)
+            if (suppressVariantForContext(lane, score, regime)) {
+                active.remove(ctx)
+                pending.remove(mint)
+                return 1.0
+            }
             // Self-activating: spawn the arm if absent so the stop dimension evolves
             // independently of whether the FDG happened to stamp the same ctx via
             // getSizeBias. Stamp the arm assignment so the settled PnL credits it.

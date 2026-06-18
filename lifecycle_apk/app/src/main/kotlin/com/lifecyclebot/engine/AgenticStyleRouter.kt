@@ -120,8 +120,18 @@ object AgenticStyleRouter {
     private fun isWeakChopSheet(sheet: ToolkitSignalSheet.Sheet): Boolean =
         sheet.reasons.any { it == "regime=CHOP" || it == "regime=DUMP" }
 
-    private fun weakChopStylePivot(style: Style, sheet: ToolkitSignalSheet.Sheet): Style {
-        if (!isWeakChopSheet(sheet)) return style
+    private fun isWeakRuntimeRegime(): Boolean = try {
+        // V5.0.3863 — cached/fallback ToolkitSignalSheet can elect DEGEN_MICRO_SNIPE
+        // before the sheet reasons carry regime=DUMP/CHOP. Router must treat weak
+        // regime as direct authority, not as optional sheet decoration. current() is
+        // memoized by RegimeDetector and ToolkitSignalSheet already warmed it on this path.
+        val r = RegimeDetector.current()
+        r.regime == RegimeDetector.Regime.DUMP ||
+            (r.regime == RegimeDetector.Regime.CHOP && r.recentWrPct < 25.0)
+    } catch (_: Throwable) { false }
+
+    private fun weakChopStylePivot(style: Style, sheet: ToolkitSignalSheet.Sheet, weakRuntimeRegime: Boolean): Style {
+        if (!weakRuntimeRegime && !isWeakChopSheet(sheet)) return style
         return when (style) {
             // 5.0.3859 report: CHOP wr=15.7%, EXPRESS 0% WR, MOONSHOT S41-60 danger.
             // Do not let weak-CHOP toolkit/fresh-launch style election keep routing
@@ -152,8 +162,8 @@ object AgenticStyleRouter {
         // candidate, so use the O(1) stale-while-revalidate catastrophic flag.
         val lowScoreBleedContext = score <= 10 && try { CatastrophicPaperBleedGuard.isActive() } catch (_: Throwable) { false }
 
-        val weakChopSheet = isWeakChopSheet(sheet)
-        val toolkitStyle = if (sheet.confidence >= 38.0) styleForToolkit(sheet)?.let { weakChopStylePivot(it, sheet) } else null
+        val weakChopSheet = isWeakChopSheet(sheet) || isWeakRuntimeRegime()
+        val toolkitStyle = if (sheet.confidence >= 38.0) styleForToolkit(sheet)?.let { weakChopStylePivot(it, sheet, weakChopSheet) } else null
         val style = when {
             toolkitStyle != null -> toolkitStyle
             // V5.0.3716 — do not let PULLBACK/LAB tactics route score-0 CHOP
