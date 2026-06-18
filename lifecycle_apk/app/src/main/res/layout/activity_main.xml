@@ -888,6 +888,110 @@
                     </LinearLayout>
                 </LinearLayout>
 
+                <!-- ─── Row 3: Operator diagnostics formerly floating over readiness ─── -->
+                <LinearLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:orientation="horizontal"
+                    android:gravity="center"
+                    android:layout_marginTop="8dp">
+
+                    <LinearLayout
+                        android:id="@+id/btnQuickUniverse"
+                        android:layout_width="0dp"
+                        android:layout_height="wrap_content"
+                        android:layout_weight="1"
+                        android:orientation="vertical"
+                        android:gravity="center"
+                        android:padding="10dp"
+                        android:background="@drawable/aate_action_card_bg"
+                        android:layout_marginEnd="6dp"
+                        android:clickable="true"
+                        android:focusable="true">
+                        <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
+                            android:text="🪐" android:textSize="20sp"/>
+                        <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
+                            android:text="Universe" android:textColor="#F59E0B" android:textSize="10sp"
+                            android:layout_marginTop="2dp"/>
+                        <TextView android:id="@+id/tvUniverseTileStats"
+                            android:layout_width="wrap_content" android:layout_height="wrap_content"
+                            android:text="mints"
+                            android:textColor="#F59E0B" android:textSize="8sp"
+                            android:fontFamily="monospace"/>
+                    </LinearLayout>
+
+                    <LinearLayout
+                        android:id="@+id/btnQuickPhase"
+                        android:layout_width="0dp"
+                        android:layout_height="wrap_content"
+                        android:layout_weight="1"
+                        android:orientation="vertical"
+                        android:gravity="center"
+                        android:padding="10dp"
+                        android:background="@drawable/aate_action_card_bg"
+                        android:layout_marginEnd="6dp"
+                        android:clickable="true"
+                        android:focusable="true">
+                        <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
+                            android:text="🌗" android:textSize="20sp"/>
+                        <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
+                            android:text="Phase" android:textColor="#FBBF24" android:textSize="10sp"
+                            android:layout_marginTop="2dp"/>
+                        <TextView android:id="@+id/tvPhaseTileStats"
+                            android:layout_width="wrap_content" android:layout_height="wrap_content"
+                            android:text="learn"
+                            android:textColor="#FBBF24" android:textSize="8sp"
+                            android:fontFamily="monospace"/>
+                    </LinearLayout>
+
+                    <LinearLayout
+                        android:id="@+id/btnQuickLearning"
+                        android:layout_width="0dp"
+                        android:layout_height="wrap_content"
+                        android:layout_weight="1"
+                        android:orientation="vertical"
+                        android:gravity="center"
+                        android:padding="10dp"
+                        android:background="@drawable/aate_action_card_bg"
+                        android:layout_marginEnd="6dp"
+                        android:clickable="true"
+                        android:focusable="true">
+                        <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
+                            android:text="🧠" android:textSize="20sp"/>
+                        <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
+                            android:text="Learning" android:textColor="#10B981" android:textSize="10sp"
+                            android:layout_marginTop="2dp"/>
+                        <TextView android:id="@+id/tvLearningTileStats"
+                            android:layout_width="wrap_content" android:layout_height="wrap_content"
+                            android:text="pipeline"
+                            android:textColor="#10B981" android:textSize="8sp"
+                            android:fontFamily="monospace"/>
+                    </LinearLayout>
+
+                    <LinearLayout
+                        android:id="@+id/btnQuickForensics"
+                        android:layout_width="0dp"
+                        android:layout_height="wrap_content"
+                        android:layout_weight="1"
+                        android:orientation="vertical"
+                        android:gravity="center"
+                        android:padding="10dp"
+                        android:background="@drawable/aate_action_card_bg"
+                        android:clickable="true"
+                        android:focusable="true">
+                        <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
+                            android:text="🔬" android:textSize="20sp"/>
+                        <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
+                            android:text="Forensics" android:textColor="#A78BFA" android:textSize="10sp"
+                            android:layout_marginTop="2dp"/>
+                        <TextView android:id="@+id/tvForensicsTileStats"
+                            android:layout_width="wrap_content" android:layout_height="wrap_content"
+                            android:text="live"
+                            android:textColor="#A78BFA" android:textSize="8sp"
+                            android:fontFamily="monospace"/>
+                    </LinearLayout>
+                </LinearLayout>
+
             </LinearLayout>
 
             <!-- ═══════════════════════════════════════════════════════════════

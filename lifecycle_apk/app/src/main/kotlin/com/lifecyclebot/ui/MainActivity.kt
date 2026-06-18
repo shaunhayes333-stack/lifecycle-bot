@@ -865,149 +865,14 @@ class MainActivity : AppCompatActivity() {
                 }
             }
             
-            // V5.9.262: floating "Live Trade Forensics" tile — opens the
-            // end-to-end live-trade timeline UI. Implemented programmatically
-            // so it doesn't depend on layout XML resource IDs.
-            // V5.0.3867 — do not construct floating debug tiles inside onCreate.
-            // 3866 runtime still showed a 49s startup frame attributed to
-            // MainActivity.onCreate. These tiles are optional navigation/debug UI;
-            // build them after startup and keep registry reads off the main thread.
-            window.decorView.postDelayed({
-            try {
-                val fab = android.widget.TextView(this).apply {
-                    text = "🔬 Live Forensics"
-                    setTextColor(android.graphics.Color.WHITE)
-                    textSize = 12f
-                    typeface = android.graphics.Typeface.create(android.graphics.Typeface.DEFAULT, android.graphics.Typeface.BOLD)
-                    setBackgroundColor(android.graphics.Color.parseColor("#A78BFA"))
-                    val pad = (10 * resources.displayMetrics.density).toInt()
-                    setPadding(pad + pad / 2, pad / 2 + 2, pad + pad / 2, pad / 2 + 2)
-                    elevation = 12f * resources.displayMetrics.density
-                    isClickable = true
-                    isFocusable = true
-                    setOnClickListener {
-                        startActivity(android.content.Intent(this@MainActivity, LiveTradeLogActivity::class.java))
-                    }
-                }
-                val flp = android.widget.FrameLayout.LayoutParams(
-                    android.widget.FrameLayout.LayoutParams.WRAP_CONTENT,
-                    android.widget.FrameLayout.LayoutParams.WRAP_CONTENT,
-                ).apply {
-                    gravity = android.view.Gravity.BOTTOM or android.view.Gravity.END
-                    val mPx = (16 * resources.displayMetrics.density).toInt()
-                    rightMargin = mPx
-                    bottomMargin = (84 * resources.displayMetrics.density).toInt()
-                }
-                val rootDecor = window.decorView as? android.view.ViewGroup
-                rootDecor?.addView(fab, flp)
-
-                // V5.9.495z8 — second floating tile: 🧠 Learning Pipeline
-                // Stacks above the Live Forensics FAB.
-                val brain = android.widget.TextView(this).apply {
-                    text = "🧠 Learning"
-                    setTextColor(android.graphics.Color.WHITE)
-                    textSize = 12f
-                    typeface = android.graphics.Typeface.create(android.graphics.Typeface.DEFAULT, android.graphics.Typeface.BOLD)
-                    setBackgroundColor(android.graphics.Color.parseColor("#10B981"))
-                    val pad = (10 * resources.displayMetrics.density).toInt()
-                    setPadding(pad + pad / 2, pad / 2 + 2, pad + pad / 2, pad / 2 + 2)
-                    elevation = 12f * resources.displayMetrics.density
-                    isClickable = true
-                    isFocusable = true
-                    setOnClickListener {
-                        startActivity(android.content.Intent(this@MainActivity, LearningCounterActivity::class.java))
-                    }
-                }
-                val brainLp = android.widget.FrameLayout.LayoutParams(
-                    android.widget.FrameLayout.LayoutParams.WRAP_CONTENT,
-                    android.widget.FrameLayout.LayoutParams.WRAP_CONTENT,
-                ).apply {
-                    gravity = android.view.Gravity.BOTTOM or android.view.Gravity.END
-                    val mPx = (16 * resources.displayMetrics.density).toInt()
-                    rightMargin = mPx
-                    bottomMargin = (132 * resources.displayMetrics.density).toInt()
-                }
-                rootDecor?.addView(brain, brainLp)
-
-                // V5.9.495z25 — Universe stat tile.
-                // Operator: "add the universe stat tile" — surfaces the live size
-                // of the persistent token universe so the operator can see the
-                // discovery loop is feeding (e.g. "🪙 487 mints +12 today").
-                // Tap → opens LiveTradeLogActivity (which already shows the
-                // PositionWalletReconciler counter strip too). Refreshes every
-                // 30s while MainActivity is foregrounded.
-                val universeTile = android.widget.TextView(this).apply {
-                    text = "🪙 Universe"
-                    setTextColor(android.graphics.Color.WHITE)
-                    textSize = 11f
-                    typeface = android.graphics.Typeface.create(android.graphics.Typeface.DEFAULT, android.graphics.Typeface.BOLD)
-                    setBackgroundColor(android.graphics.Color.parseColor("#F59E0B"))
-                    val pad = (10 * resources.displayMetrics.density).toInt()
-                    setPadding(pad + pad / 2, pad / 2 + 2, pad + pad / 2, pad / 2 + 2)
-                    elevation = 12f * resources.displayMetrics.density
-                    isClickable = true
-                    isFocusable = true
-                    setOnClickListener {
-                        // Long-form stats popup so operator can see both registries at once
-                        try {
-                            val altStats = com.lifecyclebot.perps.DynamicAltTokenRegistry.getStats()
-                            val memeStats = com.lifecyclebot.engine.MemeMintRegistry.stats()
-                            android.app.AlertDialog.Builder(this@MainActivity)
-                                .setTitle("🪙 Token Universe")
-                                .setMessage("ALT: $altStats\n\nMEME: $memeStats")
-                                .setPositiveButton("OK", null)
-                                .show()
-                        } catch (_: Exception) { /* never crash on stats display */ }
-                    }
-                }
-                val universeLp = android.widget.FrameLayout.LayoutParams(
-                    android.widget.FrameLayout.LayoutParams.WRAP_CONTENT,
-                    android.widget.FrameLayout.LayoutParams.WRAP_CONTENT,
-                ).apply {
-                    gravity = android.view.Gravity.BOTTOM or android.view.Gravity.END
-                    val mPx = (16 * resources.displayMetrics.density).toInt()
-                    rightMargin = mPx
-                    bottomMargin = (180 * resources.displayMetrics.density).toInt()
-                }
-                rootDecor?.addView(universeTile, universeLp)
-                // Periodic refresh on the main thread (30s). V5.9.1074: gate
-                // by mainUiActive and unregister onStop/onDestroy so this loose
-                // handler cannot keep touching TextViews while Android is stopping
-                // the render surface/backgrounding the app.
-                val handler = android.os.Handler(android.os.Looper.getMainLooper())
-                val updater = object : Runnable {
-                    // V5.9.1278 — only mutate the TextView when the value actually
-                    // changes. A no-op `.text =` still invalidates + schedules a
-                    // layout/measure/draw pass; the watchdog repeatedly caught this
-                    // updater Runnable as the top app frame during main-thread stalls.
-                    private var lastUniverseText: String = ""
-                    override fun run() {
-                        if (!mainUiActive || isFinishing || isDestroyed) return
-                        val self = this
-                        lifecycleScope.launch(kotlinx.coroutines.Dispatchers.IO) {
-                            val next = try {
-                                val total = com.lifecyclebot.perps.DynamicAltTokenRegistry.getTokenCount()
-                                val memeTotal = com.lifecyclebot.engine.MemeMintRegistry.count()
-                                "🪙 ${total + memeTotal} mints"
-                            } catch (_: Throwable) { null }
-                            withContext(kotlinx.coroutines.Dispatchers.Main) {
-                                if (!mainUiActive || isFinishing || isDestroyed) return@withContext
-                                if (next != null && next != lastUniverseText) {
-                                    lastUniverseText = next
-                                    universeTile.text = next
-                                }
-                                handler.postDelayed(self, 30_000L)
-                            }
-                        }
-                    }
-                }
-                looseMainHandlers.add(handler)
-                looseMainRunnables.add(updater)
-                handler.postDelayed(updater, 3_000L)
-            } catch (e: Exception) {
-                com.lifecyclebot.engine.ErrorLogger.warn("MainActivity", "FAB inject failed: ${e.message}")
-            }
-            }, 2_000L)
+            // V5.0.3878 — floating diagnostic overlays removed.
+            // The previous Universe / Learning / Live Forensics TextViews were
+            // injected into decorView and floated over the Live Readiness card,
+            // visually breaking the premium 3876/3877 restyle. Those actions now
+            // live in Mission Control as normal XML navigation tiles:
+            // btnQuickUniverse, btnQuickPhase, btnQuickLearning, btnQuickForensics.
+            // Do not re-add decorView overlay buttons here.
+            setupOperatorDiagnosticTiles()
             
             // Show first-time disclaimer if not yet agreed
             showFirstTimeDisclaimer()
@@ -9188,6 +9053,70 @@ This cannot be undone!
     }
 
     /** Setup quick action icon buttons */
+    private fun showTokenUniverseDialog() {
+        try {
+            val altStats = com.lifecyclebot.perps.DynamicAltTokenRegistry.getStats()
+            val memeStats = com.lifecyclebot.engine.MemeMintRegistry.stats()
+            android.app.AlertDialog.Builder(this@MainActivity)
+                .setTitle("🪐 Token Universe")
+                .setMessage("ALT: $altStats\n\nMEME: $memeStats")
+                .setPositiveButton("OK", null)
+                .show()
+        } catch (_: Exception) { /* never crash on stats display */ }
+    }
+
+    private fun setupOperatorDiagnosticTiles() {
+        try {
+            findViewById<View>(R.id.btnQuickUniverse)?.setOnClickListener { showTokenUniverseDialog() }
+            findViewById<View>(R.id.btnQuickPhase)?.setOnClickListener { showLearningStats() }
+            findViewById<View>(R.id.btnQuickLearning)?.setOnClickListener {
+                startActivity(android.content.Intent(this@MainActivity, LearningCounterActivity::class.java))
+            }
+            findViewById<View>(R.id.btnQuickForensics)?.setOnClickListener {
+                startActivity(android.content.Intent(this@MainActivity, LiveTradeLogActivity::class.java))
+            }
+
+            val universeStats = try { findViewById<android.widget.TextView>(R.id.tvUniverseTileStats) } catch (_: Exception) { null }
+            val phaseStats = try { findViewById<android.widget.TextView>(R.id.tvPhaseTileStats) } catch (_: Exception) { null }
+            val learningStats = try { findViewById<android.widget.TextView>(R.id.tvLearningTileStats) } catch (_: Exception) { null }
+            val forensicsStats = try { findViewById<android.widget.TextView>(R.id.tvForensicsTileStats) } catch (_: Exception) { null }
+            phaseStats?.text = "phase"
+            learningStats?.text = "pipeline"
+            forensicsStats?.text = "live"
+
+            // Keep the old Universe counter behavior, but update the tile text
+            // instead of floating a button over the readiness card.
+            val handler = android.os.Handler(android.os.Looper.getMainLooper())
+            val updater = object : Runnable {
+                private var lastUniverseText: String = ""
+                override fun run() {
+                    if (!mainUiActive || isFinishing || isDestroyed) return
+                    val self = this
+                    lifecycleScope.launch(kotlinx.coroutines.Dispatchers.IO) {
+                        val next = try {
+                            val total = com.lifecyclebot.perps.DynamicAltTokenRegistry.getTokenCount()
+                            val memeTotal = com.lifecyclebot.engine.MemeMintRegistry.count()
+                            "${total + memeTotal} mints"
+                        } catch (_: Throwable) { null }
+                        withContext(kotlinx.coroutines.Dispatchers.Main) {
+                            if (!mainUiActive || isFinishing || isDestroyed) return@withContext
+                            if (next != null && next != lastUniverseText) {
+                                lastUniverseText = next
+                                universeStats?.text = next
+                            }
+                            handler.postDelayed(self, 30_000L)
+                        }
+                    }
+                }
+            }
+            looseMainHandlers.add(handler)
+            looseMainRunnables.add(updater)
+            handler.postDelayed(updater, 3_000L)
+        } catch (e: Exception) {
+            com.lifecyclebot.engine.ErrorLogger.warn("MainActivity", "Mission Control diagnostics setup failed: ${e.message}")
+        }
+    }
+
     private fun setupQuickActionButtons() {
         // Wallet button
         findViewById<View>(R.id.btnQuickWallet)?.setOnClickListener {
