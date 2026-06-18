@@ -2204,6 +2204,15 @@ class GoldenTapeRegressionTest {
         assertTrue("Core lane exits must not update peak/lock/exit from raw current-entry ratios", shit.contains("OpenPnlSanity.inspect") && moon.contains("OpenPnlSanity.inspect") && quality.contains("OpenPnlSanity.inspect"))
         assertTrue("BotService rapid stop / stale / promotion paths must use basis authority", bot.contains("BotService.rapidStop") && bot.contains("BotService.rapidSubTraderFloor") && bot.contains("BotService.heldPivot") && bot.contains("qualityPromotionPnl"))
         assertTrue("Position persistence must preserve price-basis metadata", persist.contains("entryPriceSource") && persist.contains("entryPoolAddress") && persist.contains("lastPriceSource") && persist.contains("priceBasisRescaled"))
+        val store = java.io.File("src/main/kotlin/com/lifecyclebot/engine/TradeHistoryStore.kt").readText()
+        val paperSanity = java.io.File("src/main/kotlin/com/lifecyclebot/engine/PaperLearningSanity.kt").readText()
+        val learningSanity = java.io.File("src/main/kotlin/com/lifecyclebot/engine/LearningPnlSanitizer.kt").readText()
+        val rowSanity = java.io.File("src/main/kotlin/com/lifecyclebot/engine/learning/TradeRowSanityCheck.kt").readText()
+        val startup = java.io.File("src/main/kotlin/com/lifecyclebot/engine/StartupReconciler.kt").readText()
+        val v3Journal = java.io.File("src/main/kotlin/com/lifecyclebot/engine/V3JournalRecorder.kt").readText()
+        assertTrue("Canonical journal/accounting must reject BUY/SELL rows missing executable entry basis", store.contains("if (isBuyLike(t.side))") && store.contains("t.entryCostSol <= 0.0") && store.contains("t.entryPriceSnapshot <= 0.0") && paperSanity.contains("PAPER_BUY_ENTRY_BASIS_MISSING") && learningSanity.contains("MISSING_ENTRY_COST_BASIS") && rowSanity.contains("MISSING_COST_BASIS"))
+        assertTrue("Wallet/live recovery with unknown cost basis must be visibly basis-unknown and recovery-locked", startup.contains("WALLET_RECOVERY_SYNTHETIC_BASIS_UNKNOWN") && startup.contains("WALLET_RECOVERY_NOPRICE_BASIS_UNKNOWN") && startup.contains("JOURNAL_RECOVERY_BASIS_UNKNOWN") && bot.contains("HOST_WALLET_TRACKER_BASIS_UNKNOWN") && persist.contains("RESTORED_LIVE_BASIS_UNKNOWN") && startup.contains("RecoveryLockTracker.lock"))
+        assertTrue("V3 journal direct rows must stamp self-contained entry basis for audit exports", v3Journal.contains("entryPriceSnapshot = entryPrice") && v3Journal.contains("entryCostSol = sizeSol") && v3Journal.contains("remainingQtyToken") && v3Journal.contains("soldQtyToken"))
     }
 
 
@@ -2534,6 +2543,7 @@ class GoldenTapeRegressionTest {
         assertTrue("Main runtime chrome must render institutional readiness/trader copy", !main.contains("🚀 Live Readiness") && !main.contains("🧠 All Traders") && !main.contains("📊 ${'$'}perAssetLine") && !main.contains("🛡 Guards") && !main.contains("🏆 Top-3") && main.contains("LIVE READINESS · MEME") && main.contains("ALL TRADERS ·"))
         assertTrue("Paper hero must not sanitize/delete the headline balance", !main.contains("PAPER_HERO_BANKROLL_DISPLAY_SANITIZED") && !main.contains("rawBankrollSol > sanePaperCeiling"))
         assertTrue("Open-position UI must recover missing entry/current pricing from journal/token sources", main.contains("recoverRenderablePricing") && main.contains("journalEntryPrice") && main.contains("OPEN_POSITION_PRICE_RECOVERED_FOR_UI"))
+        assertTrue("Open-position UI must not invent entry basis from current price/ref/lastPrice", !main.contains("journalEntryPrice(buy), ts.lastPrice, ts.ref") && !main.contains("journalEntryPrice(buy), currentPrice, existing?.lastPrice") && main.contains("OPEN_POSITION_UI_BASIS_WAIT"))
         assertTrue("Main UI panels must use shared current-price authority", main.contains("mainUiCurrentPrice") && main.contains("shared Main UI current-price authority"))
         assertTrue("Main UI must show pricing wait instead of fake zero entry", main.contains("pricing wait") && main.contains("basis wait") && !main.contains("if (ref > 0.0) ref else pos.entryPrice") && !main.contains("ts.lastPrice - pos.entryPrice"))
         val styleRouter = java.io.File("src/main/kotlin/com/lifecyclebot/engine/AgenticStyleRouter.kt").readText()

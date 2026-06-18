@@ -296,7 +296,7 @@ object PositionPersistence {
                 // as pendingVerify=true — the watchdog will do an on-chain RPC check
                 // before treating them as open, preventing ghost exit logic.
                 pendingVerify = saved.pendingVerify,
-                entryPriceSource = saved.entryPriceSource,
+                entryPriceSource = saved.entryPriceSource.ifBlank { if (!saved.isPaperPosition && (saved.entryPrice <= 0.0 || saved.costSol <= 0.0)) "RESTORED_LIVE_BASIS_UNKNOWN" else "" },
                 entryPoolAddress = saved.entryPoolAddress,
                 entryDex = saved.entryDex,
                 entrySupplyAssumed = saved.entrySupplyAssumed,
@@ -341,6 +341,11 @@ object PositionPersistence {
                 ErrorLogger.info(TAG, "✨ Created TokenState for restored position ${saved.symbol}")
             }
             
+            if (!saved.isPaperPosition && (position.entryPrice <= 0.0 || position.costSol <= 0.0)) {
+                try { com.lifecyclebot.engine.sell.RecoveryLockTracker.lock(mint = mint, symbol = saved.symbol, reason = "RESTORED_LIVE_BASIS_UNKNOWN") } catch (_: Throwable) {}
+                try { PipelineHealthCollector.labelInc("RESTORED_LIVE_BASIS_UNKNOWN") } catch (_: Throwable) {}
+            }
+
             // Register with GlobalTradeRegistry
             GlobalTradeRegistry.registerPosition(
                 mint = mint,

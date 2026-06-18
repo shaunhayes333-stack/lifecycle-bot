@@ -4321,7 +4321,7 @@ for legal compliance.
             val p0 = ts.position
             if (p0.entryPrice > 0.0 && ts.lastPrice > 0.0 && p0.qtyToken > 0.0) return
             val buy = latestBuy(ts.mint)
-            val recoveredEntry = firstPositive(p0.entryPrice, journalEntryPrice(buy), ts.lastPrice, ts.ref)
+            val recoveredEntry = firstPositive(p0.entryPrice, journalEntryPrice(buy))
             if (recoveredEntry <= 0.0) return
             val recoveredCurrent = firstPositive(ts.lastPrice, ts.ref, recoveredEntry)
             val recoveredCost = firstPositive(p0.costSol, buy?.entryCostSol, buy?.sol)
@@ -4348,9 +4348,13 @@ for legal compliance.
             if (mint.isBlank() || alreadyRendered.contains(mint)) return
             val existing = state.tokens[mint] ?: merged.firstOrNull { it.mint == mint }
             val buy = latestBuy(mint)
-            val recoveredEntry = firstPositive(entryPrice, existing?.position?.entryPrice, journalEntryPrice(buy), currentPrice, existing?.lastPrice, existing?.ref)
+            val recoveredEntry = firstPositive(entryPrice, existing?.position?.entryPrice, journalEntryPrice(buy))
             val recoveredCurrent = firstPositive(currentPrice, existing?.lastPrice, existing?.ref, recoveredEntry)
             val recoveredCost = firstPositive(entrySol, existing?.position?.costSol, buy?.entryCostSol, buy?.sol)
+            if (recoveredEntry <= 0.0 || recoveredCost <= 0.0) {
+                try { com.lifecyclebot.engine.PipelineHealthCollector.labelInc("OPEN_POSITION_UI_BASIS_WAIT") } catch (_: Throwable) {}
+                return
+            }
             val recoveredQty = firstPositive(existing?.position?.qtyToken, buy?.entryQtyToken, if (recoveredEntry > 0.0 && recoveredCost > 0.0) recoveredCost / recoveredEntry else 0.0)
             val synth = TokenState(mint = mint, symbol = symbol)
             // Seed a complete Position so renderOpenPositions shows entry,

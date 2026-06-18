@@ -1042,6 +1042,8 @@ object ForexTrader {
                 tradingMode      = "Forex",
                 tradingModeEmoji = "💱",
                 mint             = position.market.symbol,
+                entryPriceSnapshot = position.entryPrice,
+                entryCostSol      = position.size,
             ))
         } catch (_: Exception) {}
 

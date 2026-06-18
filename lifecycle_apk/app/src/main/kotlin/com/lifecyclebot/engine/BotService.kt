@@ -5977,7 +5977,11 @@ class BotService : Service() {
                 costSol = tracked?.entrySol ?: 0.0,
                 entryTime = tracked?.buyTimeMs ?: System.currentTimeMillis(),
                 isPaperPosition = false,
+                entryPriceSource = if ((tracked?.entryPriceUsd ?: 0.0) > 0.0 && (tracked?.entrySol ?: 0.0) > 0.0) "HOST_WALLET_TRACKER" else "HOST_WALLET_TRACKER_BASIS_UNKNOWN",
             )
+            if (ts.position.entryPrice <= 0.0 || ts.position.costSol <= 0.0) {
+                try { com.lifecyclebot.engine.sell.RecoveryLockTracker.lock(mint = mint, symbol = sym, reason = "HOST_WALLET_TRACKER_BASIS_UNKNOWN") } catch (_: Throwable) {}
+            }
             ts.source = "WALLET_RESTORED_LIVE_POSITION"
             ts.addedToWatchlistAt = System.currentTimeMillis()
             synchronized(status.tokens) {

@@ -30,6 +30,7 @@ object TradeRowSanityCheck {
         IMPOSSIBLE_PNL("IMPOSSIBLE_PNL"),
         MISSING_ENTRY_PRICE("MISSING_ENTRY_PRICE"),
         MISSING_EXIT_PRICE("MISSING_EXIT_PRICE"),
+        MISSING_COST_BASIS("MISSING_COST_BASIS"),
         BAD_DECIMALS("BAD_DECIMALS"),
         MISMATCHED_TRADE_ID("MISMATCHED_TRADE_ID"),
         FAKE_DUPLICATE_SELL("FAKE_DUPLICATE_SELL"),
@@ -70,14 +71,20 @@ object TradeRowSanityCheck {
             return record(QuarantineReason.FAKE_DUPLICATE_SELL, t)
         }
 
+        val buyLike = t.side.equals("BUY", ignoreCase = true)
         val closeLike = t.side.equals("SELL", ignoreCase = true) || t.side.equals("PARTIAL_SELL", ignoreCase = true)
+        if (buyLike) {
+            if (t.price <= 0.0 || t.entryPriceSnapshot <= 0.0) return record(QuarantineReason.MISSING_ENTRY_PRICE, t)
+            if (t.sol <= 0.0 || t.entryCostSol <= 0.0) return record(QuarantineReason.MISSING_COST_BASIS, t)
+        }
         val pnlVerdict = com.lifecyclebot.engine.LearningPnlSanitizer.inspectTrade(t, "TradeRowSanityCheck")
         if (!pnlVerdict.ok) return record(QuarantineReason.IMPOSSIBLE_PNL, t, pnlVerdict.reason)
 
         // 2. Missing fields on a close row.
         if (closeLike) {
             if (t.price <= 0.0) return record(QuarantineReason.MISSING_EXIT_PRICE, t)
-            if (t.sol <= 0.0) return record(QuarantineReason.MISSING_ENTRY_PRICE, t)
+            if (t.sol <= 0.0 || t.entryCostSol <= 0.0) return record(QuarantineReason.MISSING_COST_BASIS, t)
+            if (t.entryPriceSnapshot <= 0.0) return record(QuarantineReason.MISSING_ENTRY_PRICE, t)
         }
 
         // 3. Impossible PnL: declared pnlPct vs implied from pnlSol/sol.

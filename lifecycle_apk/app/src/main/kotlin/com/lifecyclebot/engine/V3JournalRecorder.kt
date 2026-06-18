@@ -81,6 +81,12 @@ object V3JournalRecorder {
                 tradingMode = layer,
                 tradingModeEmoji = layerEmoji(layer),
                 mint       = mint,
+                entryTsMs = System.currentTimeMillis(),
+                entryPriceSnapshot = entryPrice,
+                entryCostSol = sizeSol,
+                entryQtyToken = if (entryPrice > 0.0 && sizeSol > 0.0) sizeSol / entryPrice else 0.0,
+                remainingQtyToken = if (entryPrice > 0.0 && sizeSol > 0.0) sizeSol / entryPrice else 0.0,
+                entryPriceSource = layer,
             )
             TradeHistoryStore.recordTrade(t)
             // V5.9.495z39 P1 backfill — ensure every sub-trader buy populates
@@ -222,6 +228,11 @@ object V3JournalRecorder {
                 tradingMode = layer,
                 tradingModeEmoji = layerEmoji(layer),
                 mint       = mint,
+                entryPriceSnapshot = entryPrice,
+                entryCostSol = sizeSol,
+                entryQtyToken = if (entryPrice > 0.0 && sizeSol > 0.0) sizeSol / entryPrice else 0.0,
+                soldQtyToken = if (entryPrice > 0.0 && sizeSol > 0.0) sizeSol / entryPrice else 0.0,
+                entryPriceSource = layer,
             )
             TradeHistoryStore.recordTrade(t)
             wrote = true

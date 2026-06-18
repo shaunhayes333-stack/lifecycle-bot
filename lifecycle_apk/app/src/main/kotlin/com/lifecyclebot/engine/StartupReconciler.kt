@@ -255,6 +255,7 @@ class StartupReconciler(
                                         entryPhase      = "wallet_recovery",
                                         highestPrice    = livePrice,
                                         isPaperPosition = false,       // real wallet = live position
+                                        entryPriceSource = "WALLET_RECOVERY_SYNTHETIC_BASIS_UNKNOWN",
                                     ),
                                 )
                                 synchronized(status.tokens) { status.tokens[mint] = adoptTs }
@@ -305,12 +306,16 @@ class StartupReconciler(
                                         costSol = 0.0, entryScore = 0.0,
                                         entryPhase = "wallet_recovery_noprice",
                                         isPaperPosition = false,
+                                        entryPriceSource = "WALLET_RECOVERY_NOPRICE_BASIS_UNKNOWN",
                                     ),
                                 )
                                 synchronized(status.tokens) { status.tokens[mint] = deadTs }
                                 adoptedMints += mint
-                                try { com.lifecyclebot.engine.TokenLifecycleTracker.autoImportFromWallet(
-                                    mint = mint, symbol = deadTs.symbol, walletUiAmount = qty, venue = "wallet_recovery_noprice") } catch (_: Throwable) {}
+                                try {
+                                    com.lifecyclebot.engine.sell.RecoveryLockTracker.lock(mint = mint, symbol = deadTs.symbol, reason = "WALLET_RECOVERY_NOPRICE_BASIS_UNKNOWN")
+                                    com.lifecyclebot.engine.TokenLifecycleTracker.autoImportFromWallet(
+                                        mint = mint, symbol = deadTs.symbol, walletUiAmount = qty, venue = "wallet_recovery_noprice")
+                                } catch (_: Throwable) {}
                                 try { com.lifecyclebot.engine.ForensicLogger.lifecycle("WALLET_ADOPT_NOPRICE_FOR_LIQUIDATION", "mint=${mint.take(12)} qty=$qty") } catch (_: Throwable) {}
                                 deadTs
                             }
@@ -353,7 +358,11 @@ class StartupReconciler(
                         entryPhase      = "adopted_from_wallet",
                         highestPrice    = adoptPrice,
                         isPaperPosition = false,  // V5.9.252 FIX: adopted tokens are LIVE — must execute real sells
+                        entryPriceSource = "WALLET_ADOPT_SYNTHETIC_BASIS_UNKNOWN",
                     )
+                }
+                if (ts.position.costSol <= 0.0) {
+                    try { com.lifecyclebot.engine.sell.RecoveryLockTracker.lock(mint = mint, symbol = ts.symbol, reason = "WALLET_ADOPT_COST_BASIS_UNKNOWN") } catch (_: Throwable) {}
                 }
                 adoptedMints += mint
                 onLog("📥 ADOPTED: ${ts.symbol} | ${"%.4f".format(qty)} tokens @ ${adoptPrice} — bot will manage exits")
@@ -404,12 +413,19 @@ class StartupReconciler(
                                         entryPhase = "journal_recovery",
                                         highestPrice = buyRow.price.takeIf { it > 0 } ?: 0.0,
                                         isPaperPosition = (buyRow.mode == "paper"),
+                                        entryPriceSource = buyRow.entryPriceSource.ifBlank { if (buyRow.sol > 0.0 && buyRow.price > 0.0) "JOURNAL_RECOVERY" else "JOURNAL_RECOVERY_BASIS_UNKNOWN" },
+                                        entryPoolAddress = buyRow.entryPoolAddress,
                                     )
                                 }
                             }
                             adoptedMints += jMint; jAdopted++
-                            try { com.lifecyclebot.engine.TokenLifecycleTracker.autoImportFromWallet(
-                                mint = jMint, symbol = jt.symbol, walletUiAmount = walletQty, venue = "journal_recovery") } catch (_: Throwable) {}
+                            try {
+                                if (jt.position.costSol <= 0.0 || jt.position.entryPrice <= 0.0) {
+                                    com.lifecyclebot.engine.sell.RecoveryLockTracker.lock(mint = jMint, symbol = jt.symbol, reason = "JOURNAL_RECOVERY_BASIS_UNKNOWN")
+                                }
+                                com.lifecyclebot.engine.TokenLifecycleTracker.autoImportFromWallet(
+                                    mint = jMint, symbol = jt.symbol, walletUiAmount = walletQty, venue = "journal_recovery")
+                            } catch (_: Throwable) {}
                             try { com.lifecyclebot.engine.ForensicLogger.lifecycle(
                                 "JOURNAL_RECOVERY_ADOPT", "mint=${jMint.take(12)} qty=$walletQty mode=${buyRow.mode}") } catch (_: Throwable) {}
                         } else if (buyRow.mode != "paper") {

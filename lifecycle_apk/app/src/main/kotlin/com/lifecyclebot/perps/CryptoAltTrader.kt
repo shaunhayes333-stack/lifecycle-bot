@@ -2819,7 +2819,9 @@ object CryptoAltTrader {
                 pnlSol           = pnlSol, pnlPct = pnlPct,
                 score            = pos.aiScore.toDouble(),
                 tradingMode      = "CryptoAlt_${if (pos.isSpot) "SPOT" else "${pos.leverage.toInt()}x"}",
-                tradingModeEmoji = "🪙", mint = mktSym
+                tradingModeEmoji = "🪙", mint = mktSym,
+                entryPriceSnapshot = pos.entryPrice,
+                entryCostSol      = pos.sizeSol
             ))
         } catch (_: Exception) {}
 

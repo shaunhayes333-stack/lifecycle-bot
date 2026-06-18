@@ -1629,6 +1629,8 @@ fun isLiveReady(): Boolean = totalTrades.get() >= 5000 && getWinRate() >= 50.0
                 tradingMode      = "Stocks",
                 tradingModeEmoji = "📈",
                 mint             = position.market.symbol,
+                entryPriceSnapshot = position.entryPrice,
+                entryCostSol      = position.sizeSol,
             ))
         } catch (_: Exception) {}
 

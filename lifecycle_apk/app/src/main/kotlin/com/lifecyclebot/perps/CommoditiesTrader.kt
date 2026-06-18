@@ -1008,6 +1008,8 @@ object CommoditiesTrader {
                 tradingMode      = "Commodities",
                 tradingModeEmoji = "🛢️",
                 mint             = position.market.symbol,
+                entryPriceSnapshot = position.entryPrice,
+                entryCostSol      = position.size,
             ))
         } catch (_: Exception) {}
 

@@ -29,6 +29,7 @@ object PaperLearningSanity {
         val maxSol = configuredMaxTradeSol()
         if (!t.sol.isFinite()) return Verdict(false, "PAPER_SOL_NOT_FINITE")
         if (t.side.equals("BUY", true) && t.sol <= 0.0) return Verdict(false, "PAPER_BUY_SOL_NON_POSITIVE")
+        if (t.side.equals("BUY", true) && (t.price <= 0.0 || t.entryPriceSnapshot <= 0.0 || t.entryCostSol <= 0.0)) return Verdict(false, "PAPER_BUY_ENTRY_BASIS_MISSING")
         if (t.sol > maxSol + 0.0000001) return Verdict(false, "PAPER_SOL_ABOVE_CONFIG_MAX")
         if ((t.side.equals("SELL", true) || t.side.equals("PARTIAL_SELL", true)) && t.sol <= 0.0) return Verdict(false, "PAPER_SELL_COST_NON_POSITIVE")
         if ((t.side.equals("SELL", true) || t.side.equals("PARTIAL_SELL", true)) && t.sol > 0.0) {

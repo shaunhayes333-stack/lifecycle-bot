@@ -1003,6 +1003,8 @@ object MetalsTrader {
                 tradingMode      = "Metals",
                 tradingModeEmoji = "🥇",
                 mint             = position.market.symbol,
+                entryPriceSnapshot = position.entryPrice,
+                entryCostSol      = position.size,
             ))
         } catch (_: Exception) {}
 

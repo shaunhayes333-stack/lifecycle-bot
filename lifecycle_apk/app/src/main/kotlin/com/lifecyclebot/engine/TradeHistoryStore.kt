@@ -418,7 +418,15 @@ object TradeHistoryStore {
             com.lifecyclebot.engine.PaperLearningSanity.emitQuarantine(t, paperVerdict.reason)
             return false
         }
+        if (isBuyLike(t.side)) {
+            if (t.price <= 0.0 || !t.price.isFinite()) return false
+            if (t.entryCostSol <= 0.0 || !t.entryCostSol.isFinite()) return false
+            if (t.entryPriceSnapshot <= 0.0 || !t.entryPriceSnapshot.isFinite()) return false
+            return true
+        }
         if (!isJournalSellLike(t.side)) return true
+        if (t.entryCostSol <= 0.0 || !t.entryCostSol.isFinite()) return false
+        if (t.entryPriceSnapshot <= 0.0 || !t.entryPriceSnapshot.isFinite()) return false
         if (t.price <= 0.0 && kotlin.math.abs(t.pnlSol) > 0.0000001) return false
         val proceeds = t.sol + (t.netPnlSol.takeIf { it != 0.0 } ?: t.pnlSol)
         if (proceeds < -0.0000001) return false

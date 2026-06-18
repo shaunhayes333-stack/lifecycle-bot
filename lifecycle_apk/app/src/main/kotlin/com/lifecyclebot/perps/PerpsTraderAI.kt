@@ -1183,6 +1183,8 @@ object PerpsTraderAI {
                 tradingMode      = "Perps_${position.leverage.toInt()}x",
                 tradingModeEmoji = dirEmoji,
                 mint             = position.market.symbol,
+                entryPriceSnapshot = position.entryPrice,
+                entryCostSol      = position.sizeSol,
             ))
         } catch (_: Exception) {}
 
