@@ -850,6 +850,15 @@ object GlobalTradeRegistry {
             // so V3/FDG can re-evaluate with full pipeline data instead
             // of being silently culled by an opaque 5-min cutoff.
             if (elapsed >= PROBATION_MAX_TIME_MS) {
+                val noPairCold = entry.source.contains("NO_PAIR_NO_FALLBACK", ignoreCase = true) &&
+                    entry.priceAtAdd <= 0.0 && entry.currentPrice <= 0.0 && entry.additionalScanners.isEmpty() && entry.rcScore < 2
+                if (noPairCold) {
+                    if (entry.promotionReason != "NO_PAIR_TIMEOUT_HELD") {
+                        entry.promotionReason = "NO_PAIR_TIMEOUT_HELD"
+                        try { ForensicLogger.lifecycle("PROBATION_TIMEOUT_HELD_NO_PAIR", "mint=${mint.take(10)} symbol=${entry.symbol} src=${entry.source} ageMs=$elapsed no_price_no_pair=true") } catch (_: Throwable) {}
+                    }
+                    continue
+                }
                 promoteFromProbation(mint, "TIMEOUT_AUTO_PROMOTE")
                 results.add(ProbationResult(mint, entry.symbol, "PROMOTED", "TIMEOUT_AUTO_PROMOTE"))
                 continue

@@ -1101,6 +1101,8 @@ class GoldenTapeRegressionTest {
         assertTrue(service.contains("confidence = confidence"))
         assertTrue(service.contains("do not fabricate zero-liquidity probation rows"))
         assertTrue(service.contains("val demoteLiq"))
+        assertTrue("NO_PAIR hot-loop rows must demote to probation instead of burning every cycle", service.contains("INTAKE_NO_PAIR_DEMOTED_TO_PROBATION") && service.contains("reason = \"NO_PAIR_NO_FALLBACK\"") && service.contains("status.tokens.remove(mint)"))
+        assertTrue("NO_PAIR probation rows must not timeout-promote back to hot loop without price/source proof", registry.contains("NO_PAIR_TIMEOUT_HELD") && registry.contains("PROBATION_TIMEOUT_HELD_NO_PAIR") && registry.contains("entry.source.contains(\"NO_PAIR_NO_FALLBACK\""))
         assertFalse(
             "Source-balance demotion must not hardcode liq=0 for real-liq intake",
             service.contains("liquidityUsd = 0.0") &&

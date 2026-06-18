@@ -15144,6 +15144,28 @@ if (hotExitHandledSweep) {
                     // No usable price — last-resort exit safety net.
                     if (ts.position.qtyToken > 0.0 && ts.position.entryPrice > 0.0) {
                         runFallbackSafetyExit(ts, cfg, wallet)
+                    } else {
+                        // V5.0.3891 — hot-loop no-pair demotion. A mint with no
+                        // Dex pair, no fallback price, and no open position is not
+                        // executable. Keeping it in status.tokens causes the same
+                        // NO_PAIR_NO_FALLBACK block to fire every loop. Move it to
+                        // probation/cold storage so future multi-source/price/RC
+                        // signals can promote it, but it stops burning live cycles.
+                        val demoted = try {
+                            com.lifecyclebot.engine.GlobalTradeRegistry.demoteWatchlistToProbation(
+                                mint = mint,
+                                reason = "NO_PAIR_NO_FALLBACK",
+                                liquidityUsd = ts.lastLiquidityUsd,
+                                confidence = 0,
+                                price = 0.0,
+                                isEstimatedLiquidity = true,
+                            )
+                        } catch (_: Throwable) { false }
+                        if (demoted) {
+                            try { synchronized(status.tokens) { status.tokens.remove(mint) } } catch (_: Throwable) {}
+                            try { PipelineHealthCollector.labelInc("INTAKE_NO_PAIR_DEMOTED_TO_PROBATION") } catch (_: Throwable) {}
+                            try { ForensicLogger.lifecycle("INTAKE_NO_PAIR_DEMOTED_TO_PROBATION", "mint=${mint.take(10)} symbol=${ts.symbol} src=${ts.source} mcap=${ts.lastMcap.toInt()} liq=${ts.lastLiquidityUsd.toInt()}") } catch (_: Throwable) {}
+                        }
                     }
                     return
                 }
