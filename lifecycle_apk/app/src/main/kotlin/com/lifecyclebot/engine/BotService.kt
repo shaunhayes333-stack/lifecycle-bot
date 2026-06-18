@@ -8933,40 +8933,30 @@ class BotService : Service() {
             // lane and one deterministic meme-family rescue, plus one specialist
             // rescue if source/style affinity explicitly asked for it.
             val scoreForToxicity = (ts.lastV3Score ?: ts.entryScore.toInt()).coerceIn(-100, 150)
-            val memeRescue = affinity
-                .filter { it == "SHITCOIN" || it == "MOONSHOT" || it == "EXPRESS" }
-                .filterNot { it.equals(primaryLane, ignoreCase = true) }
-                .sorted()
-                .let { rawList ->
-                    val list = com.lifecyclebot.engine.LaneToxicityGuard.filterNonToxic(rawList, scoreForToxicity).ifEmpty { rawList }
-                    if (list.isNotEmpty()) list[((ts.mint.hashCode() and 0x7fffffff) % list.size)]
-                    else listOf("SHITCOIN", "MOONSHOT", "EXPRESS")
-                        .filterNot { it.equals(primaryLane, ignoreCase = true) }
-                        .let { rawFallback ->
-                            val fallback = com.lifecyclebot.engine.LaneToxicityGuard.filterNonToxic(rawFallback, scoreForToxicity).ifEmpty { rawFallback }
-                            if (fallback.isEmpty()) null else fallback[((ts.mint.hashCode() and 0x7fffffff) % fallback.size)]
-                        }
+            // V5.0.3864 — MEMETRADER_CONTRIBUTION_ROTATION.
+            // 3862 runtime: intake=165 but laneEval=9; only SHITCOIN/MOONSHOT/
+            // DIP/QUALITY contributed while 90% of MemeTrader sat idle. The old
+            // primary+one-rescue contract protected against fanout explosions but
+            // it starved the internal trader surface. Keep bounded fanout, but make
+            // ownership rotate across the whole MemeTrader ring: exactly ONE owner
+            // lane per token/cycle (plus STANDARD/CORE/V3 trunk above), with affinity
+            // lanes first and toxicity filtering. This raises contribution without
+            // returning to every-token/every-lane FDG storms.
+            val fullMemeTraderRing = listOf(
+                "SHITCOIN", "MOONSHOT", "EXPRESS", "PROJECT_SNIPER",
+                "MANIPULATED", "QUALITY", "DIP_HUNTER", "TREASURY", "BLUECHIP"
+            )
+            val affinityRanked = affinity.filter { it in fullMemeTraderRing }.sorted()
+            val rawOwnerPool = (listOf(primaryLane.uppercase()) + affinityRanked + fullMemeTraderRing).distinct()
+            val ownerPool = com.lifecyclebot.engine.LaneToxicityGuard.filterNonToxic(rawOwnerPool, scoreForToxicity).ifEmpty { rawOwnerPool }
+            val rot = try { (System.currentTimeMillis() / 3_000L).toInt() } catch (_: Throwable) { 0 }
+            val ownerLane = ownerPool[((ts.mint.hashCode() xor rot) and 0x7fffffff) % ownerPool.size]
+            if (l in fullMemeTraderRing) {
+                val allowed = l == ownerLane
+                if (allowed) {
+                    try { ForensicLogger.lifecycle("MEMETRADER_OWNER_LANE", "lane=$l primary=$primaryLane symbol=${ts.symbol} mint=${ts.mint.take(10)} pool=${ownerPool.joinToString("+")}") } catch (_: Throwable) {}
                 }
-            if (memeFamily) return l == memeRescue
-            if (nonMemeSpecialist) {
-                // V5.0.3817 — INTERNAL_SPECIALIST_ROTATION_FIX.
-                // Source/style affinity can be narrow for hours (report 5.0.3816:
-                // only SHITCOIN/MOONSHOT/PROJECT_SNIPER had LANE_EVAL). If specialist
-                // rescue is drawn ONLY from existing affinity, QUALITY/BLUECHIP/
-                // MANIPULATED/DIP/TREASURY never get measurement surface. Keep the
-                // fanout cap: exactly ONE specialist rescue per token/cycle, but draw
-                // from the full internal specialist ring with affinity lanes first.
-                val specialistRing = listOf("MANIPULATED", "QUALITY", "DIP_HUNTER", "PROJECT_SNIPER", "TREASURY", "BLUECHIP")
-                val affinitySpecialists = affinity.filter { it in specialistRing }.sorted()
-                val rawRescuePool = (affinitySpecialists + specialistRing).distinct()
-                val rescuePool = com.lifecyclebot.engine.LaneToxicityGuard.filterNonToxic(rawRescuePool, scoreForToxicity).ifEmpty { rawRescuePool }
-                val rot = try { (System.currentTimeMillis() / 5_000L).toInt() } catch (_: Throwable) { 0 }
-                val rescue = rescuePool[((ts.mint.hashCode() xor rot) and 0x7fffffff) % rescuePool.size]
-                if (l == rescue) {
-                    try { ForensicLogger.lifecycle("INTERNAL_SPECIALIST_ROTATION_RESCUE", "lane=$l primary=$primaryLane symbol=${ts.symbol} mint=${ts.mint.take(10)} affinity=${affinity.joinToString("+")}") } catch (_: Throwable) {}
-                    return true
-                }
-                return false
+                return allowed
             }
             return false
         }
