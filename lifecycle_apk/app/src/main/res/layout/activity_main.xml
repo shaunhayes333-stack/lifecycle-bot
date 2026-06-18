@@ -3,7 +3,7 @@
     xmlns:android="http://schemas.android.com/apk/res/android"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
-    android:background="#0A0A0F">
+    android:background="@drawable/aate_screen_bg">
 
     <!-- ── PULL TO REFRESH ── -->
     <androidx.swiperefreshlayout.widget.SwipeRefreshLayout
@@ -40,7 +40,7 @@
                 android:paddingEnd="@dimen/screen_padding"
                 android:paddingTop="8dp"
                 android:paddingBottom="4dp"
-                android:background="#0A0A0F">
+                android:background="#00000000">
 
                 <!-- Left: AATE title -->
                 <LinearLayout
@@ -79,7 +79,7 @@
                     android:textSize="10sp"
                     android:fontFamily="monospace"
                     android:textStyle="bold"
-                    android:background="@drawable/pill_bg"
+                    android:background="@drawable/aate_glow_pill_bg"
                     android:paddingStart="8dp"
                     android:paddingEnd="8dp"
                     android:paddingTop="4dp"
@@ -130,7 +130,7 @@
                     android:layout_height="wrap_content"
                     android:orientation="horizontal"
                     android:gravity="center_vertical"
-                    android:background="@drawable/pill_bg"
+                    android:background="@drawable/aate_glow_pill_bg"
                     android:paddingStart="6dp"
                     android:paddingEnd="6dp"
                     android:paddingTop="4dp"
@@ -186,7 +186,7 @@
                 android:paddingEnd="@dimen/screen_padding"
                 android:paddingTop="4dp"
                 android:paddingBottom="4dp"
-                android:background="#0F0F16"
+                android:background="@drawable/aate_readiness_strip_bg"
                 android:clickable="true"
                 android:focusable="true"
                 android:foreground="?android:attr/selectableItemBackground">
@@ -235,7 +235,7 @@
                 android:layout_marginTop="10dp"
                 android:layout_marginBottom="10dp"
                 android:orientation="vertical"
-                android:background="@drawable/hero_card_bg"
+                android:background="@drawable/aate_hero_premium_bg"
                 android:paddingStart="14dp"
                 android:paddingEnd="14dp"
                 android:paddingTop="12dp"
@@ -285,7 +285,7 @@
                         android:maxLines="1"
                         android:ellipsize="end"
                         android:fontFamily="monospace"
-                        android:background="@drawable/pill_bg"
+                        android:background="@drawable/aate_glow_pill_bg"
                         android:paddingStart="9dp"
                         android:paddingEnd="9dp"
                         android:paddingTop="4dp"
@@ -351,7 +351,7 @@
                         android:textColor="#9CA3AF"
                         android:textSize="10sp"
                         android:fontFamily="monospace"
-                        android:background="@drawable/pill_bg"
+                        android:background="@drawable/aate_glow_pill_bg"
                         android:paddingStart="8dp"
                         android:paddingEnd="8dp"
                         android:paddingTop="4dp"
@@ -468,7 +468,7 @@
                 android:layout_marginTop="2dp"
                 android:layout_marginBottom="8dp"
                 android:padding="10dp"
-                android:background="@drawable/chip_neutral_bg"
+                android:background="@drawable/aate_debug_card_bg"
                 android:text=""
                 android:textColor="#E5E7EB"
                 android:textSize="11sp"
@@ -493,7 +493,7 @@
                     android:layout_weight="1"
                     android:orientation="vertical"
                     android:gravity="center"
-                    android:background="@drawable/stat_card_bg"
+                    android:background="@drawable/aate_metric_card_bg"
                     android:padding="10dp"
                     android:layout_marginEnd="6dp">
                     <TextView
@@ -507,7 +507,7 @@
                     <TextView
                         android:layout_width="wrap_content"
                         android:layout_height="wrap_content"
-                        android:text="24h Trades"
+                        android:text="TRADES"
                         android:textColor="#6B7280"
                         android:textSize="9sp"/>
                 </LinearLayout>
@@ -519,7 +519,7 @@
                     android:layout_weight="1"
                     android:orientation="vertical"
                     android:gravity="center"
-                    android:background="@drawable/stat_card_bg"
+                    android:background="@drawable/aate_metric_card_bg"
                     android:padding="10dp"
                     android:layout_marginEnd="6dp">
                     <TextView
@@ -533,7 +533,7 @@
                     <TextView
                         android:layout_width="wrap_content"
                         android:layout_height="wrap_content"
-                        android:text="Win Rate"
+                        android:text="WIN RATE"
                         android:textColor="#6B7280"
                         android:textSize="9sp"/>
                 </LinearLayout>
@@ -545,7 +545,7 @@
                     android:layout_weight="1"
                     android:orientation="vertical"
                     android:gravity="center"
-                    android:background="@drawable/stat_card_bg"
+                    android:background="@drawable/aate_metric_card_bg"
                     android:padding="10dp"
                     android:layout_marginEnd="6dp">
                     <TextView
@@ -559,7 +559,7 @@
                     <TextView
                         android:layout_width="wrap_content"
                         android:layout_height="wrap_content"
-                        android:text="Open"
+                        android:text="OPEN"
                         android:textColor="#6B7280"
                         android:textSize="9sp"/>
                 </LinearLayout>
@@ -571,7 +571,7 @@
                     android:layout_weight="1"
                     android:orientation="vertical"
                     android:gravity="center"
-                    android:background="@drawable/stat_card_bg"
+                    android:background="@drawable/aate_metric_card_bg"
                     android:padding="10dp">
                     <TextView
                         android:id="@+id/tvStatsAiConf"
@@ -584,17 +584,29 @@
                     <TextView
                         android:layout_width="wrap_content"
                         android:layout_height="wrap_content"
-                        android:text="AI Conf"
+                        android:text="SIGNAL"
                         android:textColor="#6B7280"
                         android:textSize="9sp"/>
                 </LinearLayout>
             </LinearLayout>
 
             <!-- ═══════════════════════════════
-                 QUICK ACTIONS BAR (V5.9.453: split into 2 rows so tiles
-                 stop clipping off-screen on phones — Row 1: core actions,
-                 Row 2: trading surfaces.)
+                 MISSION CONTROL
+                 Premium command actions: core controls first, expansion surfaces second.
                  ═══════════════════════════════ -->
+            <TextView
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:paddingStart="@dimen/screen_padding"
+                android:paddingEnd="@dimen/screen_padding"
+                android:layout_marginTop="2dp"
+                android:layout_marginBottom="7dp"
+                android:text="MISSION CONTROL"
+                android:textColor="#7DD3FC"
+                android:textSize="10sp"
+                android:textStyle="bold"
+                android:letterSpacing="0.16"
+                android:fontFamily="monospace"/>
             <LinearLayout
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
@@ -619,7 +631,7 @@
                         android:orientation="vertical"
                         android:gravity="center"
                         android:padding="10dp"
-                        android:background="@drawable/section_card_bg"
+                        android:background="@drawable/aate_action_card_bg"
                         android:layout_marginEnd="6dp"
                         android:clickable="true"
                         android:focusable="true">
@@ -639,7 +651,7 @@
                         android:orientation="vertical"
                         android:gravity="center"
                         android:padding="10dp"
-                        android:background="@drawable/section_card_bg"
+                        android:background="@drawable/aate_action_card_bg"
                         android:layout_marginEnd="6dp"
                         android:clickable="true"
                         android:focusable="true">
@@ -658,7 +670,7 @@
                         android:orientation="vertical"
                         android:gravity="center"
                         android:padding="10dp"
-                        android:background="@drawable/section_card_bg"
+                        android:background="@drawable/aate_action_card_bg"
                         android:clickable="true"
                         android:focusable="true"
                         android:visibility="gone">
@@ -678,7 +690,7 @@
                         android:orientation="vertical"
                         android:gravity="center"
                         android:padding="10dp"
-                        android:background="@drawable/section_card_bg"
+                        android:background="@drawable/aate_action_card_bg"
                         android:layout_marginEnd="6dp"
                         android:clickable="true"
                         android:focusable="true">
@@ -698,7 +710,7 @@
                         android:orientation="vertical"
                         android:gravity="center"
                         android:padding="10dp"
-                        android:background="@drawable/section_card_bg"
+                        android:background="@drawable/aate_action_card_bg"
                         android:layout_marginEnd="6dp"
                         android:clickable="true"
                         android:focusable="true">
@@ -718,7 +730,7 @@
                         android:orientation="vertical"
                         android:gravity="center"
                         android:padding="10dp"
-                        android:background="@drawable/section_card_bg"
+                        android:background="@drawable/aate_action_card_bg"
                         android:clickable="true"
                         android:focusable="true">
                         <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
@@ -746,7 +758,7 @@
                         android:orientation="vertical"
                         android:gravity="center"
                         android:padding="10dp"
-                        android:background="@drawable/section_card_bg"
+                        android:background="@drawable/aate_action_card_bg"
                         android:layout_marginEnd="6dp"
                         android:clickable="true"
                         android:focusable="true">
@@ -766,7 +778,7 @@
                         android:orientation="vertical"
                         android:gravity="center"
                         android:padding="10dp"
-                        android:background="@drawable/section_card_bg"
+                        android:background="@drawable/aate_action_card_bg"
                         android:layout_marginEnd="6dp"
                         android:clickable="true"
                         android:focusable="true">
@@ -790,7 +802,7 @@
                         android:orientation="vertical"
                         android:gravity="center"
                         android:padding="10dp"
-                        android:background="@drawable/section_card_bg"
+                        android:background="@drawable/aate_action_card_bg"
                         android:layout_marginEnd="6dp"
                         android:clickable="true"
                         android:focusable="true">
@@ -810,7 +822,7 @@
                         android:orientation="vertical"
                         android:gravity="center"
                         android:padding="10dp"
-                        android:background="@drawable/section_card_bg"
+                        android:background="@drawable/aate_action_card_bg"
                         android:layout_marginEnd="6dp"
                         android:clickable="true"
                         android:focusable="true">
@@ -835,7 +847,7 @@
                         android:orientation="vertical"
                         android:gravity="center"
                         android:padding="10dp"
-                        android:background="@drawable/section_card_bg"
+                        android:background="@drawable/aate_action_card_bg"
                         android:clickable="true"
                         android:focusable="true">
                         <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
@@ -860,7 +872,7 @@
                         android:orientation="vertical"
                         android:gravity="center"
                         android:padding="10dp"
-                        android:background="@drawable/section_card_bg"
+                        android:background="@drawable/aate_action_card_bg"
                         android:clickable="true"
                         android:focusable="true">
                         <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
@@ -1093,7 +1105,7 @@
                         <TextView
                             android:layout_width="wrap_content"
                             android:layout_height="wrap_content"
-                            android:text="Win Rate"
+                            android:text="WIN RATE"
                             android:textColor="#6B7280"
                             android:textSize="10sp"/>
                     </LinearLayout>
@@ -1414,7 +1426,7 @@
                         <TextView
                             android:layout_width="wrap_content"
                             android:layout_height="wrap_content"
-                            android:text="Win Rate"
+                            android:text="WIN RATE"
                             android:textColor="#6B7280"
                             android:textSize="8sp"/>
                         <TextView
@@ -2095,7 +2107,7 @@
                         <TextView
                             android:layout_width="wrap_content"
                             android:layout_height="wrap_content"
-                            android:text="Win Rate"
+                            android:text="WIN RATE"
                             android:textColor="#6B7280"
                             android:textSize="9sp"/>
                     </LinearLayout>
@@ -3080,7 +3092,7 @@
                         <TextView
                             android:layout_width="wrap_content"
                             android:layout_height="wrap_content"
-                            android:text="Win Rate"
+                            android:text="WIN RATE"
                             android:textColor="#6B7280"
                             android:textSize="8sp"/>
                     </LinearLayout>
@@ -5349,7 +5361,7 @@
                         android:stateListAnimator="@null"
                         android:layout_width="wrap_content"
                         android:layout_height="40dp"
-                        android:text="Open"
+                        android:text="OPEN"
                         android:textColor="#FFFFFF"
                         android:textSize="12sp"
                         android:textStyle="bold"
