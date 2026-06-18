@@ -909,6 +909,11 @@ object FinalDecisionGate {
             }
             if (safetyMissing || safetyStale) {
                 val reason = if (safetyMissing) "SAFETY_NOT_READY_MISSING" else "SAFETY_NOT_READY_STALE"
+                // V5.0.3894 — data-capture defer must schedule data capture.
+                // FDG previously only logged SAFETY_NOT_READY_*; now it also queues
+                // a synchronous BotService safety hydration for the next token pass.
+                try { com.lifecyclebot.engine.SafetyRefreshQueue.request(ts.mint) } catch (_: Throwable) {}
+                try { com.lifecyclebot.engine.PipelineHealthCollector.labelInc("FDG_SAFETY_NOT_READY_REFRESH_REQUESTED") } catch (_: Throwable) {}
                 if (shouldEmitSafetyReadyBlock(ts.mint)) {
                     try {
                         ForensicLogger.lifecycle(

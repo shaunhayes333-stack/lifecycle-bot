@@ -86,6 +86,12 @@ object PipelineHealthCollector {
     /** V5.9.915 — block-reason histogram across all gate types (top key on dump). */
     private val blockReasonCounts = ConcurrentHashMap<String, AtomicLong>()
 
+    /** V5.0.3894 — reason histogram for LIVE_BUY_FAIL. BUY ok/fail alone hides
+     *  whether current live trading is choked by quote, route, wallet/rent, safety,
+     *  duplicate, mutex, simulation, or finality. Built from ForensicLogger.exec
+     *  fields so direct emitters that bypass Executor.emitLiveBuyFail still count. */
+    private val liveBuyFailReasonCounts = ConcurrentHashMap<String, AtomicLong>()
+
     /** V5.9.1046 — V3 REJECTED_FATAL reason histogram. The bare lifecycle
      *  counter shows '132 rejects' but operator can't tell what the
      *  dominant cause is. This histogram surfaces the normalised reason
@@ -126,6 +132,7 @@ object PipelineHealthCollector {
         execPaperBuyOk.set(0L)
         execPaperSellOk.set(0L)
         execPaperPartialOk.set(0L)
+        liveBuyFailReasonCounts.clear()
         // V5.0.3810 — reset journal-derived paper labels with paper OK atomics;
         // otherwise reports can show old PAPER_JOURNAL_ROWS with freshly-zero OK counters.
         listOf("PAPER_JOURNAL_ROWS", "TRADEJRNL_REC_PAPER", "TRADEJRNL_REC_LIVE", "TRADEJRNL_REC_PARTIAL", "PAPER_LEARNING_ROW_QUARANTINED").forEach { labelCounts.remove(it) }
@@ -479,6 +486,12 @@ object PipelineHealthCollector {
         ))
     }
 
+    private fun liveBuyFailReason(fields: String): String {
+        val raw = fields.substringAfter("reason=", "").trim()
+        val token = raw.takeWhile { !it.isWhitespace() }.ifBlank { "UNKNOWN" }
+        return token.take(96).replace('/', '_').replace('\n', '_').ifBlank { "UNKNOWN" }
+    }
+
     fun onExec(action: String, symbol: String, fields: String) {
         if (!attached) return
         bump(phaseCounts, "EXEC")
@@ -496,7 +509,10 @@ object PipelineHealthCollector {
         val eventMode = modeFromExec(action, fields)
         when {
             action.startsWith("LIVE_BUY_OK")      -> execLiveBuyOk.incrementAndGet()
-            action.startsWith("LIVE_BUY_FAIL")    -> execLiveBuyFail.incrementAndGet()
+            action.startsWith("LIVE_BUY_FAIL")    -> {
+                execLiveBuyFail.incrementAndGet()
+                bump(liveBuyFailReasonCounts, liveBuyFailReason(fields))
+            }
             action.startsWith("LIVE_BUY_ATTEMPT") -> execLiveAttempt.incrementAndGet()
             action.startsWith("LIVE_BUY")         -> execLiveAttempt.incrementAndGet()  // existing emit site fires this at attempt time
             action.startsWith("LIVE_SELL_OK")     -> execLiveSellOk.incrementAndGet()
@@ -873,6 +889,7 @@ object PipelineHealthCollector {
         val fdgPathCounts: Map<String, Long>,
         val fdgSuppressedPathCounts: Map<String, Long>,
         val blockReasonCounts: Map<String, Long>,
+        val liveBuyFailReasonCounts: Map<String, Long>,
         val v3RejectReasonCounts: Map<String, Long>,
         val symbolIntakeCounts: Map<String, Long>,
         val anrStackCounts: Map<String, Long>,
@@ -912,6 +929,7 @@ object PipelineHealthCollector {
             fdgPathCounts          = fdgPathCounts.mapValues { it.value.get() },
             fdgSuppressedPathCounts = fdgSuppressedPathCounts.mapValues { it.value.get() },
             blockReasonCounts      = blockReasonCounts.mapValues { it.value.get() },
+            liveBuyFailReasonCounts = liveBuyFailReasonCounts.mapValues { it.value.get() },
             v3RejectReasonCounts   = v3RejectReasonCounts.mapValues { it.value.get() },
             symbolIntakeCounts     = symbolIntakeCounts.mapValues { it.value.get() },
             anrStackCounts         = anrStackCounts.mapValues { it.value.get() },
@@ -1349,6 +1367,12 @@ object PipelineHealthCollector {
         sb.append("  EXEC attempt:         ${execLiveAttempt.get()}\n")
         sb.append("  BUY ok/fail:          ${execLiveBuyOk.get()} / ${execLiveBuyFail.get()}\n")
         sb.append("  SELL ok/fail:         ${execLiveSellOk.get()} / ${execLiveSellFail.get()}\n")
+        val topLiveBuyFailReasons = s.liveBuyFailReasonCounts.entries.sortedByDescending { it.value }.take(8)
+        if (topLiveBuyFailReasons.isNotEmpty()) {
+            sb.append("  Top BUY fail reasons: ")
+            sb.append(topLiveBuyFailReasons.joinToString(" · ") { "${it.key}=${it.value}" })
+            sb.append("\n")
+        }
         sb.append("  Recent journal rows:  ${liveRecentRows}\n")
         sb.append("\n")
         val paperJournalRows = labelCounts["PAPER_JOURNAL_ROWS"]?.get() ?: paperRecentRows.toLong()
@@ -1701,6 +1725,11 @@ object PipelineHealthCollector {
         sb.append("  [EXEC PER-MODE]\n")
         sb.append("    EXEC_LIVE_ATTEMPT=${execLiveAttempt.get()}\n")
         sb.append("    EXEC_LIVE_BUY_OK=${execLiveBuyOk.get()}   EXEC_LIVE_BUY_FAIL=${execLiveBuyFail.get()}\n")
+        if (s.liveBuyFailReasonCounts.isNotEmpty()) {
+            sb.append("    EXEC_LIVE_BUY_FAIL_REASONS=")
+            sb.append(s.liveBuyFailReasonCounts.entries.sortedByDescending { it.value }.take(8).joinToString(" · ") { "${it.key}:${it.value}" })
+            sb.append("\n")
+        }
         sb.append("    EXEC_LIVE_SELL_OK=${execLiveSellOk.get()}  EXEC_LIVE_SELL_FAIL=${execLiveSellFail.get()}\n")
         sb.append("    EXEC_PAPER_BUY_OK=${execPaperBuyOk.get()}  EXEC_PAPER_SELL_OK=${execPaperSellOk.get()}  EXEC_PAPER_PARTIAL_OK=${execPaperPartialOk.get()}\n")
         sb.append("    PAPER_JOURNAL_ROWS=$paperJournalRows  PAPER_QUARANTINED_ROWS=$paperQuarantinedRows\n")

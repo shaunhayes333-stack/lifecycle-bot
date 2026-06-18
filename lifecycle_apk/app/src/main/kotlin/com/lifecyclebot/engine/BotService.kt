@@ -15484,6 +15484,19 @@ if (hotExitHandledSweep) {
         val safetyAge = System.currentTimeMillis() - ts.lastSafetyCheck
         val canonicalMint = com.lifecyclebot.data.CanonicalMint.normalize(mint)
         val needsFirstCheck = ts.lastSafetyCheck == 0L
+        // V5.0.3894 — explicit safety hydration requests must complete BEFORE
+        // FDG/lane handoff. The old SafetyRefreshQueue path used scope.launch and
+        // continued immediately, so current-cycle FDG still saw missing/old safety
+        // and live candidates looped through SAFETY_NOT_READY_MISSING. Age-only
+        // refreshes remain async below; explicit queue/defer refresh is sync.
+        val explicitSafetyRefresh = !needsFirstCheck && (
+            com.lifecyclebot.engine.SafetyRefreshQueue.consume(canonicalMint) ||
+                com.lifecyclebot.engine.SafetyRefreshQueue.consume(mint)
+        )
+        if (explicitSafetyRefresh) {
+            try { ForensicLogger.lifecycle("SAFETY_REFRESH_SYNC_REQUEST", "key=${canonicalMint.take(10)} symbol=${ts.symbol} ageSec=${safetyAge / 1000}") } catch (_: Throwable) {}
+            try { PipelineHealthCollector.labelInc("SAFETY_REFRESH_SYNC_REQUEST") } catch (_: Throwable) {}
+        }
 
         // Resolve liquidity inputs once — used by both sync and async paths.
         fun runSafetyCheck(): SafetyReport? {
@@ -15555,12 +15568,12 @@ if (hotExitHandledSweep) {
             }
         }
 
-        if (needsFirstCheck) {
-            // SYNCHRONOUS first-ever safety check so the very next
-            // pipeline phase (FDG) sees a populated ts.lastSafetyCheck.
-            // SafetyChecker's per-mint in-flight dedupe keeps concurrent
-            // callers cheap (6s wait cap). The bot loop's per-token
-            // budget absorbs this 0–10s blocking call once per mint.
+        if (needsFirstCheck || explicitSafetyRefresh) {
+            // SYNCHRONOUS first-ever / explicit-defer safety check so the very next
+            // pipeline phase (FDG) sees a populated ts.lastSafetyCheck. SafetyChecker's
+            // per-mint in-flight dedupe keeps concurrent callers cheap (6s wait cap).
+            // This is the current-structure equivalent of the 3868 live path: do not
+            // dispatch a live candidate until the safety proof write has landed.
             val report = runSafetyCheck()
             if (report != null) {
                 when (report.tier) {
@@ -15587,13 +15600,9 @@ if (hotExitHandledSweep) {
                     else -> {}
                 }
             }
-        } else if (safetyAge > SAFETY_REFRESH_TRIGGER_MS ||
-                   com.lifecyclebot.engine.SafetyRefreshQueue.consume(canonicalMint) ||
-                   com.lifecyclebot.engine.SafetyRefreshQueue.consume(mint)) {
-            // V5.9.1496 — also refresh on explicit finality-defer request
-            // (SafetyRefreshQueue), not only on age. ExecutableOpenGate queues a
-            // mint when it deferred a LIVE candidate for stale safety; refreshing
-            // here lets FDG finalize it next tick (deferred + refreshed, per spec).
+        } else if (safetyAge > SAFETY_REFRESH_TRIGGER_MS) {
+            // Age-only stale refresh stays async. Explicit finality/pretrade safety
+            // hydration is handled synchronously above so FDG cannot race the write.
             // V5.9.1495 — STALE-REFRESH DEAD-ZONE FIX (source).
             // ROOT CAUSE (5.0.3501): FDG hard-blocks LIVE entries with
             // SAFETY_NOT_READY_STALE once safetyAge > LiveBuyAdmissionGate

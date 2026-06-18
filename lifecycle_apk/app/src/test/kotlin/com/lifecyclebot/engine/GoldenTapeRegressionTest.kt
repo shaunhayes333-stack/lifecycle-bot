@@ -718,6 +718,11 @@ class GoldenTapeRegressionTest {
         assertTrue("PreTradeHardGate must be wired after admission and before wallet/broadcast checks", liveGateIdx >= 0 && preTradeIdx > liveGateIdx && walletIdx > preTradeIdx)
         assertTrue(exec.contains("reason=PRETRADE:"))
         assertTrue("Executor must request safety hydration defer without LIVE_BUY_FAIL/BUY_FAILED spam", exec.contains("EXEC_OPEN_DEFERRED_SAFETY_PROOF") && exec.contains("SafetyRefreshQueue.request(ts.mint)") && exec.contains("LIVE_BUY_DEFERRED") && exec.contains("no_live_buy_fail=true"))
+        assertFalse("PreTrade defer must not zero safety timestamps and recreate FDG missing-safety loops", exec.contains("ts.lastSafetyCheck = 0L") || exec.contains("ts.safety = ts.safety.copy(checkedAt = 0L)"))
+        val bot = java.io.File("src/main/kotlin/com/lifecyclebot/engine/BotService.kt").readText()
+        val fdg = java.io.File("src/main/kotlin/com/lifecyclebot/engine/FinalDecisionGate.kt").readText()
+        assertTrue("Explicit SafetyRefreshQueue hydration must run synchronously before FDG", bot.contains("explicitSafetyRefresh") && bot.contains("SAFETY_REFRESH_SYNC_REQUEST") && bot.contains("if (needsFirstCheck || explicitSafetyRefresh)") && bot.contains("} else if (safetyAge > SAFETY_REFRESH_TRIGGER_MS)"))
+        assertTrue("FDG safety-not-ready must enqueue hydration, not just log a block", fdg.contains("FDG_SAFETY_NOT_READY_REFRESH_REQUESTED") && fdg.contains("SafetyRefreshQueue.request(ts.mint)"))
     }
 
 
@@ -1001,6 +1006,7 @@ class GoldenTapeRegressionTest {
 
         val report = java.io.File("src/main/kotlin/com/lifecyclebot/engine/PipelineHealthCollector.kt").readText()
         assertTrue(report.contains("MODE CONTAMINATION CHECK"))
+        assertTrue("Live buy fail reasons must be report-visible", report.contains("liveBuyFailReasonCounts") && report.contains("Top BUY fail reasons") && report.contains("EXEC_LIVE_BUY_FAIL_REASONS"))
         assertFalse("Report must not claim paper is firing live from cumulative stale counters", report.contains("paper trades are firing during live"))
     }
 

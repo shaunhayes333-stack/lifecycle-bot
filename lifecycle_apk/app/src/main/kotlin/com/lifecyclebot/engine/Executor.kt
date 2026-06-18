@@ -8931,10 +8931,10 @@ class Executor(
             if (!preTrade.allowed) {
                 if (preTrade.reason == "DEFER_SAFETY_PROOF") {
                     try { SafetyRefreshQueue.request(ts.mint) } catch (_: Throwable) {}
-                    // Force the next processTokenCycle down the synchronous first-check
-                    // path instead of allowing another stale async refresh race.
-                    try { ts.lastSafetyCheck = 0L } catch (_: Throwable) {}
-                    try { ts.safety = ts.safety.copy(checkedAt = 0L) } catch (_: Throwable) {}
+                    // V5.0.3894 — do NOT zero lastSafetyCheck here. BotService now
+                    // consumes SafetyRefreshQueue synchronously before FDG. Resetting
+                    // timestamps created SAFETY_NOT_READY_MISSING noise and could route
+                    // current-structure live candidates into a missing-safety loop.
                     try {
                         PipelineHealthCollector.labelInc("LIVE_BUY_DEFERRED_SAFETY_PROOF")
                         ForensicLogger.lifecycle(
