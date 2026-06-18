@@ -15404,19 +15404,27 @@ if (hotExitHandledSweep) {
             val recentPrice = recentCandles.lastOrNull()?.priceUsd ?: 0.0
             val olderPrice = olderCandles.firstOrNull()?.priceUsd ?: recentPrice
             
-            // Detect potential rug: BOTH price drop AND liquidity collapse required.
-            // Using OR was causing false rug learning: olderLiq is estimated from mcap×0.1
-            // when real data is missing, producing fake 100% liq drops on tokens with $0
-            // reported liquidity — poisoning TradingMemory with fabricated rug patterns.
-            // Requiring BOTH conditions means only genuine multi-signal events are learned.
+            // V5.0.3893 — CONFIRMED DATA ONLY for intake rug blacklists.
+            // Screenshots showed repeated BLACKLIST_SHADOW "Rug detected: price -96%"
+            // rows across fresh meme symbols. Source bug: V5.9.204 allowed price-only
+            // collapse to become a true TokenBlacklist reason, and olderLiq was only
+            // mcap×0.1 estimated — not a historical liquidity proof. Crypto prices can
+            // print -90% from pool migration, bad decimal basis, stale BC synthetic → DEX
+            // basis switch, or indexer glitch. That is NOT enough to hard-blacklist.
+            // True rug learning/blacklist now requires real liquidity-collapse evidence
+            // from TokenSafetyChecker.checkLiquidityConflict plus a large price collapse.
+            // Price-only collapse becomes telemetry + safety-refresh request only.
             if (olderPrice > 0 && recentPrice > 0) {
                 val priceDropPct = ((olderPrice - recentPrice) / olderPrice) * 100
-                val liqDropPct = if (olderLiq > 0) ((olderLiq - recentLiq) / olderLiq) * 100 else 0.0
+                val (liqConflict, liqConflictReason) = try {
+                    safetyChecker.checkLiquidityConflict(mint, recentLiq)
+                } catch (_: Throwable) { false to "" }
+                val liqDropPct = Regex("""dropped\s+(\d+)%""", RegexOption.IGNORE_CASE)
+                    .find(liqConflictReason)?.groupValues?.getOrNull(1)?.toDoubleOrNull() ?: 0.0
 
-                // V5.9.204: Also catch pure price rugs (>80% drop) even without liq collapse
-                val isPriceRug = priceDropPct >= 80.0  // catastrophic price wipe = rug regardless of liq
-                val isDualRug = priceDropPct >= 50 && liqDropPct >= 70
-                if (isPriceRug || isDualRug) {  // was AND-only — missed price-only rugs
+                val confirmedDualRug = priceDropPct >= 50.0 && liqConflict
+                val unconfirmedPriceCollapse = priceDropPct >= 80.0 && !liqConflict
+                if (confirmedDualRug) {
                     val ageHours = (System.currentTimeMillis() - (ts.addedToWatchlistAt)) / 3_600_000.0
                     val volumeSpike = recentCandles.sumOf { it.vol } > olderCandles.sumOf { it.vol } * 2
 
@@ -15430,8 +15438,17 @@ if (hotExitHandledSweep) {
                         holderDumpDetected = ts.holderGrowthRate < -20,
                         timeFromLaunchHours = ageHours,
                     )
-                    addLog("🤖 AI RUG LEARNED: ${ts.symbol} | price -${priceDropPct.toInt()}% liq -${liqDropPct.toInt()}% | Pattern saved", mint)
-                    TokenBlacklist.block(mint, "Rug detected: price -${priceDropPct.toInt()}%")
+                    addLog("🤖 AI RUG LEARNED: ${ts.symbol} | confirmed price -${priceDropPct.toInt()}% liqProof=$liqConflictReason | Pattern saved", mint)
+                    TokenBlacklist.block(mint, "CONFIRMED_RUG_COLLAPSE: price -${priceDropPct.toInt()}% liqProof=${liqConflictReason.take(96)} pool=${pair.pairAddress.take(12)}")
+                } else if (unconfirmedPriceCollapse) {
+                    try { SafetyRefreshQueue.request(mint) } catch (_: Throwable) {}
+                    try { PipelineHealthCollector.labelInc("RUG_PRICE_COLLAPSE_UNCONFIRMED") } catch (_: Throwable) {}
+                    try {
+                        ForensicLogger.lifecycle(
+                            "RUG_PRICE_COLLAPSE_UNCONFIRMED",
+                            "mint=${mint.take(10)} symbol=${ts.symbol} priceDrop=${priceDropPct.toInt()}% older=$olderPrice recent=$recentPrice liq=${recentLiq.toInt()} source=${ts.lastPriceSource} pool=${pair.pairAddress.take(12)} action=no_blacklist_refresh_safety",
+                        )
+                    } catch (_: Throwable) {}
                 }
             }
         }

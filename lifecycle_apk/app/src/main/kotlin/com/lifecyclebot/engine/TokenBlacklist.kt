@@ -56,7 +56,8 @@ object TokenBlacklist {
             r.contains("VERIFIED BLACKLIST") ||
             r.contains("MINT BLACKLIST") ||
             r.contains("CONFIRMED RUG") ||
-            r.contains("RUG DETECTED") ||
+            r.contains("CONFIRMED_RUG_COLLAPSE") ||
+            r.contains("RUGCHECK_CONFIRMED") ||
             r.contains("RUGGED") ||
             r.contains("HONEYPOT") ||
             r.contains("CANNOT SELL") ||
@@ -93,6 +94,8 @@ object TokenBlacklist {
             r.contains("UNCERTAINTY") ||
             r.contains("RUGCHECK PENDING") ||
             r.contains("RUGCHECK API TIMEOUT") ||
+            (r.contains("RUG DETECTED") && !r.contains("CONFIRMED_RUG_COLLAPSE")) ||
+            r.contains("UNCONFIRMED_PRICE_COLLAPSE") ||
             r.contains("PENDING_REVIEW") ||
             r.contains("SAFETY_RUN_FAILED") ||
             r.contains("PARTIAL_DATA") ||

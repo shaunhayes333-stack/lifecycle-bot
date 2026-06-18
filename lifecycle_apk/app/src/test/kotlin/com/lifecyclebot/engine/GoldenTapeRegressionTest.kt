@@ -76,6 +76,8 @@ class GoldenTapeRegressionTest {
             "Safety: SAFETY_RUN_FAILED_PARTIAL_DATA: timeout",
             "Safety: LOW_LIQUIDITY: \$900 < \$1200",
             "Safety: Liquidity \$900 < \$1,200 live exit-safety floor — un-exitable",
+            "Rug detected: price -96%",
+            "UNCONFIRMED_PRICE_COLLAPSE: price -96%",
         )
 
         for ((i, reason) in falseReasons.withIndex()) {
@@ -92,6 +94,9 @@ class GoldenTapeRegressionTest {
 
         TokenBlacklist.block(trueMint + "B", "Honeypot / cannot sell / sell simulation fails")
         assertTrue(TokenBlacklist.isBlocked(trueMint + "B"))
+
+        TokenBlacklist.block(trueMint + "C", "CONFIRMED_RUG_COLLAPSE: price -96% liqProof=DATA_CONFLICT")
+        assertTrue(TokenBlacklist.isBlocked(trueMint + "C"))
     }
 
     @Test
@@ -2614,6 +2619,8 @@ class GoldenTapeRegressionTest {
         assertTrue("Unknown mint/freeze/holder proof is a capture-more-data defer, not a terminal live block", preTrade.contains("DEFER_SAFETY_PROOF") && executor.contains("LIVE_BUY_DEFERRED"))
         assertTrue("LiveBuyAdmissionGate must convert safety shadow to penalty-only unless true hard", liveGate.contains("SAFETY_SHADOW_PENALTY_ONLY") && liveGate.contains("BUY_GATE_PENALTY_ONLY_SAFETY_SHADOW"))
         assertTrue("BotService SAFETY_SHADOW must continue only for true hard reasons", bot.contains("!TokenBlacklist.isSoftPenaltyOnlyReason(reason)") && bot.contains("source=BotService.SAFETY_SHADOW"))
+        assertTrue("Price-only collapse must not become a true hard blacklist", tokenBlacklist.contains("RUG DETECTED") && tokenBlacklist.contains("!r.contains(\"CONFIRMED_RUG_COLLAPSE\")") && bot.contains("RUG_PRICE_COLLAPSE_UNCONFIRMED") && bot.contains("SafetyRefreshQueue.request(mint)"))
+        assertTrue("Confirmed rug blacklist requires real liquidity conflict proof", bot.contains("checkLiquidityConflict(mint, recentLiq)") && bot.contains("CONFIRMED_RUG_COLLAPSE") && !bot.contains("TokenBlacklist.block(mint, \"Rug detected: price"))
         assertTrue("Every taxonomy decision should surface forensic proof", listOf(tokenBlacklist, executor, safety, liveGate, preTrade, bot).all { it.contains("BUY_GATE_DECISION") })
     }
 
