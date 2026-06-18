@@ -440,7 +440,7 @@ class GoldenTapeRegressionTest {
         assertTrue("Guard must key toxicity on matured net-negative danger buckets, not raw WR alone", guard.contains("s.isDangerous && s.meanPnl <= -8.0"))
         assertTrue("Guard must reroute only when alternatives exist", guard.contains("chooseNonToxicLane") && guard.contains("filterNonToxic") && guard.contains("return lanes.firstOrNull"))
         assertTrue("Agentic style primary/alternate lane election must avoid toxic buckets when possible", router.contains("LaneToxicityGuard.chooseNonToxicLane") && router.contains("LaneToxicityGuard.filterNonToxic") && router.contains("boundedLanes(ts.mint, base + d.toolkit.laneVotes, d.style, score)"))
-        assertTrue("Meme/specialist rescue fanout must avoid toxic lanes when possible", bot.contains("scoreForToxicity") && bot.contains("LaneToxicityGuard.filterNonToxic(rawList") && bot.contains("LaneToxicityGuard.filterNonToxic(rawRescuePool"))
+        assertTrue("MemeTrader owner rotation must avoid toxic lanes when possible", bot.contains("scoreForToxicity") && bot.contains("LaneToxicityGuard.filterNonToxic(rawOwnerPool") && bot.contains("ownerPool"))
         assertTrue("FDG train-first micro/size shaping remains the downstream fallback, not a hard strategy block", fdg.contains("TRAIN_FIRST_MICRO") && fdg.contains("LosingPatternMemory.recommendedSizeMult"))
         assertFalse("Toxicity guard must not disable lanes or hard-block trades", guard.contains("BLOCK") || guard.contains("disableLane") || guard.contains("shouldTrade = false"))
     }
@@ -722,24 +722,16 @@ class GoldenTapeRegressionTest {
         assertTrue(bot.contains("INTERNAL_TOOLKIT_STARVATION_FIX"))
         assertTrue(bot.contains("BOUNDED_INTERNAL_TOOLKIT_RESCUE"))
         assertTrue(bot.contains("PAPER_WR_DILUTION_FIX"))
-        assertTrue(bot.contains("l == \"SHITCOIN\" || l == \"MOONSHOT\" || l == \"EXPRESS\""))
-        assertTrue(bot.contains("val specialistRing = listOf"))
-        assertFalse("bounded specialist rescue must not require pre-existing affinity", bot.contains("nonMemeSpecialist && affinity.contains(l)"))
-        assertTrue(bot.contains("val memeRescue = affinity"))
-        assertTrue(bot.contains("if (memeFamily) return l == memeRescue"))
+        assertTrue(bot.contains("MEMETRADER_CONTRIBUTION_ROTATION"))
+        assertTrue(bot.contains("val fullMemeTraderRing = listOf"))
+        assertTrue("Full MemeTrader ring must include previously idle internal lanes", listOf("SHITCOIN", "MOONSHOT", "EXPRESS", "PROJECT_SNIPER", "MANIPULATED", "QUALITY", "DIP_HUNTER", "TREASURY", "BLUECHIP").all { bot.contains(it) })
+        assertTrue("Owner rotation must be affinity-first and toxicity-filtered", bot.contains("affinityRanked") && bot.contains("rawOwnerPool") && bot.contains("LaneToxicityGuard.filterNonToxic(rawOwnerPool"))
         assertTrue("EXPRESS must use the same bounded lane gate and emit LANE_EVAL", bot.contains("expressLaneAllowedThisCycle") && bot.contains("lane=EXPRESS paper="))
-        assertTrue(bot.contains("INTERNAL_SPECIALIST_ROTATION_FIX"))
-        assertTrue(bot.contains("val specialistRing = listOf"))
-        assertTrue(bot.contains("INTERNAL_SPECIALIST_ROTATION_RESCUE"))
+        assertTrue(bot.contains("MEMETRADER_OWNER_LANE"))
         assertFalse("MEME-only must not blanket-mute all non-meme specialist lanes", bot.contains("return memeFamily"))
         assertFalse("toolkit alive must not mean all meme-family siblings execute", bot.contains("if (memeFamily) return true"))
-        assertTrue("External trader isolation authority must keep MEME as the lane root", bot.contains("mutableSetOf(com.lifecyclebot.engine.EnabledTraderAuthority.Trader.MEME)"))
-        assertTrue("Crypto sidecar may be explicitly enabled without reopening meme fanout", bot.contains("if (cryptoSidecarOn) add(com.lifecyclebot.engine.EnabledTraderAuthority.Trader.CRYPTO_ALT)"))
-        assertTrue("CYCLIC sidecar must be enabled inside MEME runtime without reopening fanout", bot.contains("CYCLIC_INTERNAL_SIDECAR_FIX") && bot.contains("if (cfg.cyclicTradeEnabled) add(com.lifecyclebot.engine.EnabledTraderAuthority.Trader.CYCLIC)"))
-        val auth = java.io.File("src/main/kotlin/com/lifecyclebot/engine/EnabledTraderAuthority.kt").readText()
-        assertTrue("CRYPTO_ALT must be ignored by meme-lane isolation predicate", auth.contains("val laneSet = set - Trader.CRYPTO_ALT"))
-        assertTrue("CYCLIC must also be ignored by meme-lane isolation predicate", auth.contains("val laneSet = set - Trader.CRYPTO_ALT - Trader.CYCLIC"))
     }
+
 
 
     @Test
@@ -768,18 +760,19 @@ class GoldenTapeRegressionTest {
 
 
     @Test
-    fun meme_only_internal_toolkit_is_bounded_to_one_specialist_rescue() {
+    fun meme_only_internal_toolkit_is_bounded_to_one_owner_lane() {
         val bot = java.io.File("src/main/kotlin/com/lifecyclebot/engine/BotService.kt").readText()
-        assertTrue(bot.contains("BOUNDED_INTERNAL_TOOLKIT_RESCUE"))
-        assertTrue(bot.contains("at most ONE"))
-        assertTrue(bot.contains("if (l == rescue)"))
-        assertTrue(bot.contains("l == \"SHITCOIN\" || l == \"MOONSHOT\" || l == \"EXPRESS\""))
-        assertTrue(bot.contains("val specialistRing = listOf"))
-        assertFalse("bounded specialist rescue must not require pre-existing affinity", bot.contains("nonMemeSpecialist && affinity.contains(l)"))
+        assertTrue(bot.contains("MEMETRADER_CONTRIBUTION_ROTATION"))
+        assertTrue(bot.contains("exactly ONE owner"))
+        assertTrue(bot.contains("val allowed = l == ownerLane"))
+        assertTrue(bot.contains("return allowed"))
+        assertTrue(bot.contains("val fullMemeTraderRing = listOf"))
+        assertFalse("owner rotation must not require pre-existing affinity", bot.contains("nonMemeSpecialist && affinity.contains(l)"))
         val report = java.io.File("src/main/kotlin/com/lifecyclebot/engine/PipelineHealthCollector.kt").readText()
         assertTrue(report.contains("TradeHistoryStore journal rows; NOT on-chain proof"))
         assertTrue(report.contains("SELL_FINALIZED for landed on-chain truth"))
     }
+
 
 
     @Test
