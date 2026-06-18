@@ -6,10 +6,12 @@ import com.lifecyclebot.engine.execution.PositionWalletReconciler
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.TimeoutCancellationException
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.withTimeout
 import java.io.File
 import java.text.SimpleDateFormat
 import java.util.Date
@@ -38,6 +40,8 @@ object ReportingHub {
     private data class CacheEntry(val atMs: Long, val report: TextReport)
 
     private const val CACHE_TTL_MS = 2_500L
+    private const val STALE_CACHE_TTL_MS = 120_000L
+    private const val REPORT_BUILD_TIMEOUT_MS = 6_000L
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private val buildMutex = Mutex()
     private val textCache = ConcurrentHashMap<Kind, CacheEntry>()
@@ -71,7 +75,15 @@ object ReportingHub {
                     if (now2 - cached.atMs <= CACHE_TTL_MS) return@withLock cached.report
                 }
             }
-            val text = buildTextSync(kind)
+            val text = try {
+                withTimeout(REPORT_BUILD_TIMEOUT_MS) { buildTextSync(kind) }
+            } catch (_: TimeoutCancellationException) {
+                textCache[kind]?.takeIf { now2 - it.atMs <= STALE_CACHE_TTL_MS }?.report?.text
+                    ?: buildEmergencyText(kind, "timeout>${REPORT_BUILD_TIMEOUT_MS}ms")
+            } catch (t: Throwable) {
+                textCache[kind]?.takeIf { now2 - it.atMs <= STALE_CACHE_TTL_MS }?.report?.text
+                    ?: buildEmergencyText(kind, "error=${t.javaClass.simpleName}:${t.message?.take(80)}")
+            }
             val report = TextReport(kind, titleFor(kind), now2, text)
             textCache[kind] = CacheEntry(now2, report)
             report
@@ -118,6 +130,33 @@ object ReportingHub {
         Kind.UNIFIED_HEALTH -> buildUnifiedHealth()
     }
 
+
+    private fun buildEmergencyText(kind: Kind, reason: String): String = buildString(4096) {
+        appendHeader("AATE REPORT DEGRADED")
+        appendLine("Generated: ${stamp()}")
+        appendLine("Kind: $kind")
+        appendLine("Reason: $reason")
+        appendLine("This is a bounded fallback so the UI returns instead of freezing while full report generation is overloaded.")
+        appendLine()
+        val snap = try { PipelineHealthCollector.snapshot() } catch (_: Throwable) { null }
+        val rt = try { BotRuntimeController.snapshot() } catch (_: Throwable) { null }
+        val journal = try { TradeHistoryStore.getStatsCached() } catch (_: Throwable) { null }
+        val avgCycle = if (snap != null && snap.cycleCount > 0L) snap.totalCycleMs / snap.cycleCount else -1L
+        fun phase(name: String): Long = snap?.phaseCounts?.get(name) ?: 0L
+        val loop = phase("BOT_LOOP_TICK")
+        val intake = phase("INTAKE")
+        val lane = phase("LANE_EVAL")
+        val fdg = phase("FDG")
+        val exec = phase("EXEC")
+        val journalRows = phase("TRADEJRNL_REC")
+        appendLine("Runtime: state=${rt?.state ?: "?"} active=${rt?.runtimeActive ?: "?"} paper=${rt?.paperMode ?: "?"} enabled=${rt?.enabledTraders ?: "?"}")
+        appendLine("Funnel: loop=$loop intake=$intake lane=$lane fdg=$fdg exec=$exec journal=$journalRows")
+        appendLine("ANR: hints=${snap?.anrHints ?: -1} maxFrame=${snap?.maxFrameGapMs ?: -1}ms avgCycle=${avgCycle}ms")
+        appendLine("Journal cache: trades=${journal?.totalStoredTrades ?: -1} WR=${journal?.winRate?.let { String.format(Locale.US, "%.1f", it) } ?: "?"}% PnL=${journal?.totalPnlSol?.let { String.format(Locale.US, "%.4f", it) } ?: "?"} SOL")
+        appendLine()
+        appendLine("Action: close heavy report screen, keep bot running, then retry after installing the latest build if available.")
+    }
+
     private fun buildUnifiedHealth(): String {
         val budget = MAX_UNIFIED_REPORT_CHARS
         val out = StringBuilder(budget + 1024)
@@ -157,7 +196,7 @@ object ReportingHub {
     private fun buildExecutiveSnapshot(): String = buildString(3 * 1024) {
         val rt = safeSnapshot { BotRuntimeController.snapshot() }
         val pipe = safeSnapshot { PipelineHealthCollector.snapshot() }
-        val doctor = try { RuntimeDoctor.tick() } catch (_: Throwable) { null }
+        val doctor = try { RuntimeDoctor.requestTick() } catch (_: Throwable) { null }
         val perf = try { PerformanceAnalytics.lastSnapshotOrNull() } catch (_: Throwable) { null }
         val journal = try { TradeHistoryStore.getCanonicalTotals() } catch (_: Throwable) { null }
         appendLine("Runtime: state=${rt?.state ?: "?"} active=${rt?.runtimeActive ?: "?"} paper=${rt?.paperMode ?: "?"} enabled=${rt?.enabledTraders ?: "?"}")
@@ -374,7 +413,7 @@ object ReportingHub {
         }
         appendLine()
         appendLine("Doctor:")
-        val doctor = try { RuntimeDoctor.tick() } catch (_: Throwable) { null }
+        val doctor = try { RuntimeDoctor.requestTick() } catch (_: Throwable) { null }
         if (doctor != null) {
             appendLine("  diagnosis=${doctor.diagnosis.faultCode}")
             appendLine("  state=${doctor.diagnosis.state}")

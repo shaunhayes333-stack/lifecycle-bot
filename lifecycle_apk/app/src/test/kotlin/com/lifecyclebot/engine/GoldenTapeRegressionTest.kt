@@ -2235,7 +2235,8 @@ class GoldenTapeRegressionTest {
         assertTrue("Unified report must use compact core pipeline, not raw full dump only", hub.contains("compactPipelineDump(PipelineHealthCollector.dumpText())") && hub.contains("PIPELINE HEALTH — CORE"))
         assertTrue("Learning section must include local and collective memory", hub.contains("TokenWinMemory.getPatternSummary") && hub.contains("LosingPatternMemory.formatForPipelineDump") && hub.contains("CollectiveLearning.getInsightsSummary"))
         assertTrue("Tuning section must include active tuners", hub.contains("PatternAutoTuner.getStatus") && hub.contains("LaneExitTuner.formatForPipelineDump") && hub.contains("StrategyHypothesisEngine.formatForPipelineDump") && hub.contains("UnifiedPolicyHead.formatForPipelineDump"))
-        assertTrue("Journal section must use canonical store summaries", hub.contains("TradeHistoryStore.getCanonicalTotals") && hub.contains("TradeHistoryStore.getLifetimeStats") && hub.contains("TradeHistoryStore.getAllSells"))
+        assertTrue("Journal section must use canonical bounded store summaries", hub.contains("TradeHistoryStore.getCanonicalTotals") && hub.contains("TradeHistoryStore.getLifetimeStats") && hub.contains("TradeHistoryStore.getRecentValidClosedTrades"))
+        assertTrue("Unified report must have timeout/degraded fallback instead of freezing", hub.contains("REPORT_BUILD_TIMEOUT_MS") && hub.contains("buildEmergencyText") && hub.contains("AATE REPORT DEGRADED") && hub.contains("withTimeout"))
         assertFalse("Unified report must not dump raw journal CSV/export rows", hub.contains("TradeJournal.export") || hub.contains("CSV") || hub.contains("buildJournal(tokens)"))
     }
 
