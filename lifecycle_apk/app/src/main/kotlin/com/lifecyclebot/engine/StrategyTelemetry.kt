@@ -6,7 +6,7 @@ import com.lifecyclebot.data.Trade
  * V5.9.806 — Operator-only telemetry: per-strategy expectancy aggregator.
  *
  * Read-only summary of which `tradingMode` strategies are profitable and
- * which are bleeding. Reads exclusively from `TradeHistoryStore.getAllTrades()`
+ * which are bleeding. Reads exclusively from bounded TradeHistoryStore close snapshots
  * — no new hooks in hot trading paths, no new fields on trade records,
  * nothing that can affect entry/exit decisions or trading volume.
  *
@@ -57,12 +57,11 @@ object StrategyTelemetry {
      * definition and would skew the EV calculation.
      */
     fun computeLeaderboard(): List<StrategyMetric> {
-        val all = try { TradeHistoryStore.getAllTrades() } catch (_: Throwable) { emptyList() }
+        val all = try { TradeHistoryStore.getRecentValidClosedTrades(limit = 2_500, includePartials = true) } catch (_: Throwable) { emptyList() }
         if (all.isEmpty()) return emptyList()
 
         val sellsByStrategy: Map<String, List<Trade>> = all
             .asSequence()
-            .filter { it.side.equals("SELL", ignoreCase = true) || it.side.equals("PARTIAL_SELL", ignoreCase = true) }
             .filter { LearningPnlSanitizer.inspectTrade(it, "StrategyTelemetry", emit = false).ok }
             // V5.9.1043 — also collapse legacy bin names at read time so
             // historical trades recorded before V5.9.1038's choke-point

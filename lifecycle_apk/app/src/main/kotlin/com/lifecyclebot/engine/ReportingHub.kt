@@ -240,7 +240,7 @@ object ReportingHub {
         val lifetime = safeSnapshot { TradeHistoryStore.getLifetimeStats() }
         val stats = safeSnapshot { TradeHistoryStore.getStatsCached() }
         val sells24 = safeSnapshot { TradeHistoryStore.getSells24h() } ?: emptyList()
-        val allSells = safeSnapshot { TradeHistoryStore.getAllSells() } ?: emptyList()
+        val allSells = safeSnapshot { TradeHistoryStore.getRecentValidClosedTrades(limit = 2_500, includePartials = true) } ?: emptyList()
         if (totals != null) appendLine("Canonical totals: closes=${totals.trades} W/L=${totals.wins}/${totals.losses} WR=${totals.winRatePct().fmt1()}% PnL=${totals.pnlSol.fmt4()} SOL")
         if (lifetime != null) appendLine("Lifetime persisted: sells=${lifetime.totalSells} wins=${lifetime.totalWins} losses=${lifetime.totalLosses} pnl=${lifetime.realizedPnlSol.fmt4()} SOL")
         if (stats != null) appendLine("Store stats cache: trades=${stats.totalStoredTrades} WR=${stats.winRate.fmt1()}% avgHold=${stats.avgHoldTimeMinutes.toDouble().fmt1()}m")

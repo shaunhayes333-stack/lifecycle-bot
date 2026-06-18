@@ -47,9 +47,9 @@ class LearningCounterActivity : Activity() {
     private val handler = Handler(Looper.getMainLooper())
     private var refreshing = false
 
-    // V5.9.868 — operator instruction: high-latency DB queries MUST NOT run
-    // on the UI thread. TradeHistoryStore.getAllTrades() was called every 2s
-    // on the main looper from renderAll(). Solution: keep the existing
+    // V5.0.3869 — operator instruction: high-latency DB queries MUST NOT run
+    // from UI refresh surfaces. Use TradeHistoryStore cached stats instead of
+    // copying full getAllTrades() every 2s. Solution: keep the existing
     // 2-second refresh cadence, but pre-warm the cached count on a
     // background HandlerThread so the UI-thread render reads a snapshot
     // value instead of issuing a fresh DB scan.
@@ -61,7 +61,7 @@ class LearningCounterActivity : Activity() {
         override fun run() {
             if (!refreshing) return
             cachedTradeHistorySize = try {
-                TradeHistoryStore.getAllTrades().size.toString()
+                TradeHistoryStore.getStatsCached().totalStoredTrades.toString()
             } catch (_: Throwable) { "?" }
             ioHandler.postDelayed(this, 2_000L)
         }

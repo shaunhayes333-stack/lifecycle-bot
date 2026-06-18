@@ -169,11 +169,9 @@ object PipelineHealthCollector {
         fun isWinPct(p: Double): Boolean = p >= 0.5
         fun isLossPct(p: Double): Boolean = p <= -2.0
         return try {
-            com.lifecyclebot.engine.TradeHistoryStore.getAllTrades()
+            com.lifecyclebot.engine.TradeHistoryStore.getRecentValidClosedTrades(limit.coerceAtLeast(1), includePartials = true)
                 .asSequence()
                 .filter { sellLike(it.side) }
-                .sortedByDescending { it.ts }
-                .take(limit.coerceAtLeast(1))
                 .map { t ->
                     val entryTs = t.entryTsMs.takeIf { it > 0L } ?: t.ts
                     val entryPrice = t.entryPriceSnapshot.takeIf { it.isFinite() && it > 0.0 } ?: t.price

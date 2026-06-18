@@ -176,7 +176,7 @@ class TradeJournal(private val ctx: Context) {
 
         // Persisted history
         try {
-            val persistedTrades = TradeHistoryStore.getAllTrades()
+            val persistedTrades = TradeHistoryStore.getRecentValidTrades(5_000)
             persistedTrades.forEach { trade ->
                 val key = buildKey(trade.ts, trade.mint, trade.side)
                 if (key !in seenKeys) {

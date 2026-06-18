@@ -69,12 +69,7 @@ object LosingPatternMemory {
 
         val acc = ConcurrentHashMap<String, IntArray>(64)  // [losses, wins, sumPnlx1000]
         try {
-            val sells = TradeHistoryStore.getAllTrades()
-                .asSequence()
-                .filter { it.side.equals("SELL", ignoreCase = true) }
-                .sortedByDescending { it.ts }
-                .take(2_000)  // last 2k closes — enough for stable buckets
-                .toList()
+            val sells = TradeHistoryStore.getRecentValidClosedTrades(limit = 2_000, includePartials = false)
 
             for (t in sells) {
                 val key = bucketKey(tradingMode = t.tradingMode, score = t.score.toInt())

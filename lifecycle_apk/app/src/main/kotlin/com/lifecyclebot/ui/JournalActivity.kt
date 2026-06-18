@@ -412,12 +412,12 @@ class JournalActivity : AppCompatActivity() {
     }
 
     private fun buildJournal(tokens: Map<String, TokenState>, knownStoreCount: Int = -1) {
-        // V5.9.1059 — Rewritten to read DIRECTLY from TradeHistoryStore.getAllTrades()
+        // V5.0.3869 — UI must not copy the full in-memory journal on refresh.
         // instead of going through TradeJournal.buildJournal(tokens).
         //
         // Root cause of blank journal: TradeJournal.buildJournal(tokens) had two
         // data sources: (1) in-memory token.trades (empty when bot is stopped because
-        // status.tokens is cleared on stopBot) and (2) TradeHistoryStore.getAllTrades().
+        // status.tokens is cleared on stopBot) and (2) TradeHistoryStore bounded snapshots.
         // When the bot is stopped and the process was freshly started, the in-memory
         // token map is empty AND TradeHistoryStore may not have loaded from SQLite yet
         // (init called async in fix 1). The TradeJournal path also depended on the
@@ -442,7 +442,7 @@ class JournalActivity : AppCompatActivity() {
                     // Read in-memory first; fall back to SQLite only when memory
                     // is empty (bot stopped / fresh open before init() finished).
                     val rawTrades = run {
-                        val mem = com.lifecyclebot.engine.TradeHistoryStore.getAllTrades()
+                        val mem = com.lifecyclebot.engine.TradeHistoryStore.getRecentValidTrades(5_000)
                         if (mem.isNotEmpty()) mem
                         else com.lifecyclebot.engine.TradeHistoryStore.getAllTradesFromDb()
                     }

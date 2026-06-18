@@ -143,7 +143,7 @@ object MacroPollers {
         if (!GeminiCopilot.isConfigured()) return
         // Build a minimal prompt context from the trade history. Cheap and
         // self-contained so we don't depend on TradingMemory/SymbolicContext.
-        val recentTrades = try { TradeHistoryStore.getAllTrades().takeLast(50) } catch (_: Exception) { emptyList() }
+        val recentTrades = try { TradeHistoryStore.getRecentValidTrades(50) } catch (_: Exception) { emptyList() }
         val recentTokens = recentTrades.mapNotNull {
             it.mint.takeIf { m -> m.isNotBlank() }?.take(8)
         }.distinct().take(8)

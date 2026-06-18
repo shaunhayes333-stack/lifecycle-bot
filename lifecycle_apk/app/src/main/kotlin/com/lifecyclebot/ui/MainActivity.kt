@@ -4386,11 +4386,7 @@ for legal compliance.
             val cached = latestBuyByMint
             if (cached != null) return cached[mint]
             val built = try {
-                com.lifecyclebot.engine.TradeHistoryStore.getAllTrades()
-                    .asReversed()
-                    .filter { it.mint.isNotBlank() && it.side.equals("BUY", ignoreCase = true) }
-                    .distinctBy { it.mint }
-                    .associateBy { it.mint }
+                com.lifecyclebot.engine.TradeHistoryStore.getLatestBuyByMintSnapshot(2_000)
             } catch (_: Throwable) { emptyMap() }
             latestBuyByMint = built
             return built[mint]

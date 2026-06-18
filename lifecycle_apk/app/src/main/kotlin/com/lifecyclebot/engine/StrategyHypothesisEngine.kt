@@ -97,17 +97,18 @@ object StrategyHypothesisEngine {
     private fun suppressVariantForContext(lane: String, score: Int, regime: String): Boolean {
         val l = lane.uppercase()
         val r = regime.uppercase()
-        val lowScoreHostileRegime = score < 60 && (r.contains("DUMP") || r.contains("CHOP"))
+        val hostileRegime = r.contains("DUMP") || r.contains("CHOP")
+        val hostileExperiment = hostileRegime && score < 80
         val knownBleederLane = l.contains("MOONSHOT") || l.contains("SHITCOIN") ||
-            l.contains("EXPRESS") || l.contains("TREASURY")
+            l.contains("EXPRESS") || l.contains("TREASURY") || l.contains("MANIPULATED")
         val dangerBucket = try { LaneToxicityGuard.isNetNegativeDanger(l, score) } catch (_: Throwable) { false }
-        // V5.0.3867 — hostile-regime hypothesis suppression must cover weak CHOP
-        // too, not only DUMP. Report 3866 showed MOONSHOT|S00|CHOP and
-        // SHITCOIN|S20|CHOP active with vBias=1.10 while lane memory still printed
-        // MOONSHOT/SHITCOIN danger buckets and EXPRESS/TREASURY 0% WR bleeders.
-        // This is not a trade veto; it disables experimental size/stop mutation and
-        // returns neutral bias so FDG/executor policy remains authority.
-        return (lowScoreHostileRegime && knownBleederLane) || dangerBucket
+        // V5.0.3869 — report 3868 still showed DUMP variants active at S60
+        // (MOONSHOT|S60|DUMP, MANIPULATED|S60|DUMP) while regime=DUMP had 6.3% WR
+        // and -13.88% mean PnL. Hostile-regime A/B sizing is not useful learning;
+        // it teaches the bot to scale trash weather. Suppress experimental mutation
+        // in DUMP/CHOP below elite score and in known bleeder lanes/danger buckets.
+        // This is not a trade veto; FDG/executor still own entry and sizing.
+        return hostileExperiment || (hostileRegime && knownBleederLane) || dangerBucket
     }
 
     /** Deterministic arm assignment so a mint always lands in the same arm. */

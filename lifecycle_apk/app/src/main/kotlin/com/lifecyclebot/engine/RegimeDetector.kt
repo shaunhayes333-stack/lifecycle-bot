@@ -67,12 +67,7 @@ object RegimeDetector {
 
     private fun recompute(now: Long): RegimeSnapshot {
         val recentSells = try {
-            TradeHistoryStore.getAllTrades()
-                .asSequence()
-                .filter { it.side.equals("SELL", ignoreCase = true) }
-                .sortedByDescending { it.ts }
-                .take(100)
-                .toList()
+            TradeHistoryStore.getRecentValidClosedTrades(limit = 100, includePartials = false)
         } catch (_: Throwable) { emptyList() }
 
         val v3Median = try {

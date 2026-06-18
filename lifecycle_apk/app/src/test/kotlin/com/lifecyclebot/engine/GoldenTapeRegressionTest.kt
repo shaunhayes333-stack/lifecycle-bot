@@ -416,6 +416,25 @@ class GoldenTapeRegressionTest {
 
 
 
+
+
+    @Test
+    fun ui_and_runtime_diagnostics_do_not_copy_full_trade_journal_on_hot_paths() {
+        val store = java.io.File("src/main/kotlin/com/lifecyclebot/engine/TradeHistoryStore.kt").readText()
+        val main = java.io.File("src/main/kotlin/com/lifecyclebot/ui/MainActivity.kt").readText()
+        val doctor = java.io.File("src/main/kotlin/com/lifecyclebot/engine/RuntimeDoctor.kt").readText()
+        val losing = java.io.File("src/main/kotlin/com/lifecyclebot/engine/LosingPatternMemory.kt").readText()
+        val regime = java.io.File("src/main/kotlin/com/lifecyclebot/engine/RegimeDetector.kt").readText()
+        val macro = java.io.File("src/main/kotlin/com/lifecyclebot/engine/MacroPollers.kt").readText()
+        val strategy = java.io.File("src/main/kotlin/com/lifecyclebot/engine/StrategyTelemetry.kt").readText()
+        val journalActivity = java.io.File("src/main/kotlin/com/lifecyclebot/ui/JournalActivity.kt").readText()
+        val learningCounter = java.io.File("src/main/kotlin/com/lifecyclebot/ui/LearningCounterActivity.kt").readText()
+        assertTrue("TradeHistoryStore must expose bounded snapshots for UI/reporting", store.contains("fun getRecentValidTrades") && store.contains("fun getRecentValidClosedTrades") && store.contains("fun getLatestBuyByMintSnapshot") && store.contains("fun getRecentTradeFingerprints"))
+        assertTrue("MainActivity open-position recovery must not call getAllTrades", main.contains("getLatestBuyByMintSnapshot") && !main.contains("TradeHistoryStore.getAllTrades()"))
+        assertTrue("RuntimeDoctor must not materialize the full journal for recent fingerprints", doctor.contains("getRecentTradeFingerprints(50)") && !doctor.contains("TradeHistoryStore.getAllTrades()"))
+        assertTrue("Hot diagnostic/learning readers must use bounded closed-trade snapshots", losing.contains("getRecentValidClosedTrades") && regime.contains("getRecentValidClosedTrades") && strategy.contains("getRecentValidClosedTrades") && macro.contains("getRecentValidTrades"))
+        assertTrue("Journal/Learning UI screens must not copy the full in-memory trade journal", journalActivity.contains("getRecentValidTrades(5_000)") && learningCounter.contains("getStatsCached().totalStoredTrades") && !journalActivity.contains("TradeHistoryStore.getAllTrades()") && !learningCounter.contains("TradeHistoryStore.getAllTrades()"))
+    }
     @Test
     fun paper_to_live_transfer_uses_executable_net_edge_not_gross_paper_pct() {
         val exec = java.io.File("src/main/kotlin/com/lifecyclebot/engine/Executor.kt").readText()
@@ -2499,7 +2518,7 @@ class GoldenTapeRegressionTest {
         assertTrue("Executor stale-feed eviction must never use Long.MAX_VALUE as real feed age", executor.contains("val feedAnchorMs = ts.lastPriceUpdate.takeIf") && executor.contains("feedAgeMs != null && feedAgeMs >=") && !executor.contains("feedAgeMs = if (ts.lastPriceUpdate > 0L)"))
         assertTrue("Restored persisted prices must restore a bounded price timestamp", persistence.contains("restoredPriceUpdateMs") && persistence.contains("existing.lastPriceUpdate = restoredPriceUpdateMs") && persistence.contains("lastPriceUpdate = restoredPriceUpdateMs"))
         assertTrue("CYCLIC must wait on unknown timestamp instead of force-closing Long.MAX stale", cyclic.contains("CYCLIC_PRICE_TS_UNKNOWN_WAIT") && cyclic.contains("ageText") && !cyclic.contains("priceAgeMs = if (ts.lastPriceUpdate > 0L)"))
-        assertTrue("Pipeline PerformanceAnalytics must read canonical TradeHistoryStore rows, not legacy TradeDatabase", phc.contains("canonicalPerformanceTrades") && phc.contains("TradeHistoryStore.getAllTrades()") && !phc.contains("BotService.instance?.tradeDb"))
+        assertTrue("Pipeline PerformanceAnalytics must read bounded canonical TradeHistoryStore rows, not legacy TradeDatabase or full journal copies", phc.contains("canonicalPerformanceTrades") && phc.contains("TradeHistoryStore.getRecentValidClosedTrades") && !phc.contains("BotService.instance?.tradeDb"))
     }
 
 

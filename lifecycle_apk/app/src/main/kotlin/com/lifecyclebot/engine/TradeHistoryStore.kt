@@ -874,6 +874,56 @@ object TradeHistoryStore {
         return synchronized(lock) { trades.filter { isValidAccountingTrade(it) }.toList() }
     }
 
+
+
+    /** V5.0.3869 — bounded valid-trade snapshot for UI/reporting hot paths.
+     * Newest-first, no full-list materialisation by callers. */
+    fun getRecentValidTrades(limit: Int = 250): List<Trade> {
+        ensureInitialized()
+        val cap = limit.coerceAtLeast(1)
+        return synchronized(lock) {
+            trades.asReversed().asSequence()
+                .filter { isValidAccountingTrade(it) }
+                .take(cap)
+                .toList()
+        }
+    }
+
+    /** Newest-first bounded close rows (SELL + PARTIAL_SELL by default). */
+    fun getRecentValidClosedTrades(limit: Int = 1000, includePartials: Boolean = true): List<Trade> {
+        ensureInitialized()
+        val cap = limit.coerceAtLeast(1)
+        return synchronized(lock) {
+            trades.asReversed().asSequence()
+                .filter { if (includePartials) isJournalSellLike(it.side) else it.side.equals("SELL", true) }
+                .filter { isValidAccountingTrade(it) }
+                .take(cap)
+                .toList()
+        }
+    }
+
+    /** Latest BUY row per mint, bounded newest-first so MainActivity never copies the whole journal. */
+    fun getLatestBuyByMintSnapshot(limit: Int = 2_000): Map<String, Trade> {
+        ensureInitialized()
+        val cap = limit.coerceAtLeast(1)
+        val out = LinkedHashMap<String, Trade>()
+        synchronized(lock) {
+            val it = trades.asReversed().iterator()
+            var seen = 0
+            while (it.hasNext() && seen < cap) {
+                val t = it.next(); seen++
+                if (t.mint.isBlank() || !t.side.equals("BUY", true)) continue
+                if (!isValidAccountingTrade(t)) continue
+                if (!out.containsKey(t.mint)) out[t.mint] = t
+            }
+        }
+        return out
+    }
+
+    fun getRecentTradeFingerprints(limit: Int = 50): List<String> =
+        getRecentValidTrades(limit).map { "${it.side}:${it.mode}:${it.mint}:${it.pnlPct}:${it.reason}" }
+
+
     fun getAllTradesIncludingInvalidForensics(): List<Trade> {
         ensureInitialized()
         return synchronized(lock) { trades.toList() }

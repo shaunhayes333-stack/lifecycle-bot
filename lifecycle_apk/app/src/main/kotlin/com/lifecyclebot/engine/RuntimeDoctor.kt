@@ -75,7 +75,7 @@ object RuntimeDoctor {
         val ctx = StateDebuggerAI.Context(
             snapshot = snap,
             forensicEvents = PipelineHealthCollector.snapshot().recentEvents.takeLast(200).map { "${it.tag}:${it.symbol}:${it.message}" },
-            tradeRows = try { TradeHistoryStore.getAllTrades().takeLast(50).map { "${it.side}:${it.mode}:${it.mint}:${it.pnlPct}:${it.reason}" } } catch (_: Throwable) { emptyList() },
+            tradeRows = try { TradeHistoryStore.getRecentTradeFingerprints(50) } catch (_: Throwable) { emptyList() },
             // V5.0.3730 — current faults only. Recent history is useful for logs, but
             // StateDebuggerAI treats invariantFaults as active root-cause evidence. Runtime
             // 5.0.3727 printed HOST_TRACKER_DESYNC/SCANNER_INACTIVE/FDG_FANOUT even while

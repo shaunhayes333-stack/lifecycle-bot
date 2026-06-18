@@ -928,9 +928,8 @@ object BehaviorAI {
      */
     fun loadFromHistory() {
         try {
-            val trades = TradeHistoryStore.getAllTrades()
-                .filter { it.side == "SELL" }
-                .sortedBy { it.ts }
+            val trades = TradeHistoryStore.getRecentValidClosedTrades(limit = 2_000, includePartials = false)
+                .asReversed()
             
             if (trades.isEmpty()) {
                 ErrorLogger.info(TAG, "📊 No trade history - starting fresh")
