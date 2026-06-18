@@ -649,13 +649,13 @@
                         android:layout_marginEnd="6dp"
                         android:clickable="true"
                         android:focusable="true">
-                        <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
-                            android:text="WA" android:textSize="16sp"
-                            android:gravity="center"
+                        <ImageView android:layout_width="wrap_content" android:layout_height="wrap_content"
+                            android:src="@drawable/aate_ic_wallet"
                             android:background="@drawable/aate_nav_icon_badge_bg"
-                            android:minWidth="30dp"
-                            android:minHeight="30dp"
-                            android:padding="3dp"/>
+                            android:minWidth="42dp"
+                            android:minHeight="42dp"
+                            android:padding="8dp"
+                            android:contentDescription="Wallet icon"/>
                         <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
                             android:text="Wallet" android:textColor="#CBD5E1" android:textSize="8sp"
                             android:layout_marginTop="2dp"/>
@@ -673,13 +673,13 @@
                         android:layout_marginEnd="6dp"
                         android:clickable="true"
                         android:focusable="true">
-                        <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
-                            android:text="JR" android:textSize="16sp"
-                            android:gravity="center"
+                        <ImageView android:layout_width="wrap_content" android:layout_height="wrap_content"
+                            android:src="@drawable/aate_ic_journal"
                             android:background="@drawable/aate_nav_icon_badge_bg"
-                            android:minWidth="30dp"
-                            android:minHeight="30dp"
-                            android:padding="3dp"/>
+                            android:minWidth="42dp"
+                            android:minHeight="42dp"
+                            android:padding="8dp"
+                            android:contentDescription="Journal icon"/>
                         <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
                             android:text="Journal" android:textColor="#CBD5E1" android:textSize="8sp"
                             android:layout_marginTop="2dp"/>
@@ -697,13 +697,13 @@
                         android:layout_marginEnd="6dp"
                         android:clickable="true"
                         android:focusable="true">
-                        <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
-                            android:text="MK" android:textSize="16sp"
-                            android:gravity="center"
+                        <ImageView android:layout_width="wrap_content" android:layout_height="wrap_content"
+                            android:src="@drawable/aate_ic_markets"
                             android:background="@drawable/aate_nav_icon_badge_bg"
-                            android:minWidth="30dp"
-                            android:minHeight="30dp"
-                            android:padding="3dp"/>
+                            android:minWidth="42dp"
+                            android:minHeight="42dp"
+                            android:padding="8dp"
+                            android:contentDescription="Markets icon"/>
                         <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
                             android:text="Markets" android:textColor="#FBBF24" android:textSize="8sp"
                             android:layout_marginTop="2dp"/>
@@ -721,13 +721,13 @@
                         android:layout_marginEnd="6dp"
                         android:clickable="true"
                         android:focusable="true">
-                        <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
-                            android:text="LB" android:textSize="16sp"
-                            android:gravity="center"
+                        <ImageView android:layout_width="wrap_content" android:layout_height="wrap_content"
+                            android:src="@drawable/aate_ic_lab"
                             android:background="@drawable/aate_nav_icon_badge_bg"
-                            android:minWidth="30dp"
-                            android:minHeight="30dp"
-                            android:padding="3dp"/>
+                            android:minWidth="42dp"
+                            android:minHeight="42dp"
+                            android:padding="8dp"
+                            android:contentDescription="Lab icon"/>
                         <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
                             android:text="Lab" android:textColor="#C4B5FD" android:textSize="8sp"
                             android:layout_marginTop="2dp"/>
@@ -749,13 +749,13 @@
                         android:background="@drawable/aate_nav_tile_bg"
                         android:clickable="true"
                         android:focusable="true">
-                        <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
-                            android:text="PL" android:textSize="16sp"
-                            android:gravity="center"
+                        <ImageView android:layout_width="wrap_content" android:layout_height="wrap_content"
+                            android:src="@drawable/aate_ic_pipeline"
                             android:background="@drawable/aate_nav_icon_badge_bg"
-                            android:minWidth="30dp"
-                            android:minHeight="30dp"
-                            android:padding="3dp"/>
+                            android:minWidth="42dp"
+                            android:minHeight="42dp"
+                            android:padding="8dp"
+                            android:contentDescription="Pipeline icon"/>
                         <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
                             android:text="Pipeline" android:textColor="#86EFAC" android:textSize="8sp"
                             android:layout_marginTop="2dp"/>
@@ -787,13 +787,13 @@
                         android:layout_marginEnd="6dp"
                         android:clickable="true"
                         android:focusable="true">
-                        <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
-                            android:text="ST" android:textSize="16sp"
-                            android:gravity="center"
+                        <ImageView android:layout_width="wrap_content" android:layout_height="wrap_content"
+                            android:src="@drawable/aate_ic_settings"
                             android:background="@drawable/aate_nav_icon_badge_bg"
-                            android:minWidth="30dp"
-                            android:minHeight="30dp"
-                            android:padding="3dp"/>
+                            android:minWidth="42dp"
+                            android:minHeight="42dp"
+                            android:padding="8dp"
+                            android:contentDescription="Settings icon"/>
                         <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
                             android:text="Settings" android:textColor="#CBD5E1" android:textSize="8sp"
                             android:layout_marginTop="2dp"/>
@@ -811,13 +811,13 @@
                         android:layout_marginEnd="6dp"
                         android:clickable="true"
                         android:focusable="true">
-                        <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
-                            android:text="LG" android:textSize="16sp"
-                            android:gravity="center"
+                        <ImageView android:layout_width="wrap_content" android:layout_height="wrap_content"
+                            android:src="@drawable/aate_ic_logs"
                             android:background="@drawable/aate_nav_icon_badge_bg"
-                            android:minWidth="30dp"
-                            android:minHeight="30dp"
-                            android:padding="3dp"/>
+                            android:minWidth="42dp"
+                            android:minHeight="42dp"
+                            android:padding="8dp"
+                            android:contentDescription="Logs icon"/>
                         <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
                             android:text="Logs" android:textColor="#CBD5E1" android:textSize="8sp"
                             android:layout_marginTop="2dp"/>
@@ -835,13 +835,13 @@
                         android:layout_marginEnd="6dp"
                         android:clickable="true"
                         android:focusable="true">
-                        <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
-                            android:text="PS" android:textSize="16sp"
-                            android:gravity="center"
+                        <ImageView android:layout_width="wrap_content" android:layout_height="wrap_content"
+                            android:src="@drawable/aate_ic_persona"
                             android:background="@drawable/aate_nav_icon_badge_bg"
-                            android:minWidth="30dp"
-                            android:minHeight="30dp"
-                            android:padding="3dp"/>
+                            android:minWidth="42dp"
+                            android:minHeight="42dp"
+                            android:padding="8dp"
+                            android:contentDescription="Persona icon"/>
                         <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
                             android:text="Persona" android:textColor="#F9A8D4" android:textSize="8sp"
                             android:layout_marginTop="2dp"/>
@@ -859,13 +859,13 @@
                         android:layout_marginEnd="6dp"
                         android:clickable="true"
                         android:focusable="true">
-                        <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
-                            android:text="CR" android:textSize="16sp"
-                            android:gravity="center"
+                        <ImageView android:layout_width="wrap_content" android:layout_height="wrap_content"
+                            android:src="@drawable/aate_ic_crypto"
                             android:background="@drawable/aate_nav_icon_badge_bg"
-                            android:minWidth="30dp"
-                            android:minHeight="30dp"
-                            android:padding="3dp"/>
+                            android:minWidth="42dp"
+                            android:minHeight="42dp"
+                            android:padding="8dp"
+                            android:contentDescription="CryptoAlts icon"/>
                         <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
                             android:text="Crypto" android:textColor="#C4B5FD" android:textSize="8sp"
                             android:layout_marginTop="2dp"/>
@@ -886,13 +886,13 @@
                         android:background="@drawable/aate_nav_tile_bg"
                         android:clickable="true"
                         android:focusable="true">
-                        <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
-                            android:text="BT" android:textSize="16sp"
-                            android:gravity="center"
+                        <ImageView android:layout_width="wrap_content" android:layout_height="wrap_content"
+                            android:src="@drawable/aate_ic_behavior"
                             android:background="@drawable/aate_nav_icon_badge_bg"
-                            android:minWidth="30dp"
-                            android:minHeight="30dp"
-                            android:padding="3dp"/>
+                            android:minWidth="42dp"
+                            android:minHeight="42dp"
+                            android:padding="8dp"
+                            android:contentDescription="Behavior icon"/>
                         <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
                             android:text="Tuning" android:textColor="#86EFAC" android:textSize="8sp"
                             android:layout_marginTop="2dp"/>
@@ -919,13 +919,13 @@
                         android:layout_marginEnd="6dp"
                         android:clickable="true"
                         android:focusable="true">
-                        <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
-                            android:text="UN" android:textSize="16sp"
-                            android:gravity="center"
+                        <ImageView android:layout_width="wrap_content" android:layout_height="wrap_content"
+                            android:src="@drawable/aate_ic_universe"
                             android:background="@drawable/aate_nav_icon_badge_bg"
-                            android:minWidth="30dp"
-                            android:minHeight="30dp"
-                            android:padding="3dp"/>
+                            android:minWidth="42dp"
+                            android:minHeight="42dp"
+                            android:padding="8dp"
+                            android:contentDescription="Universe icon"/>
                         <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
                             android:text="Universe" android:textColor="#FCD34D" android:textSize="8sp"
                             android:layout_marginTop="2dp"/>
@@ -948,13 +948,13 @@
                         android:layout_marginEnd="6dp"
                         android:clickable="true"
                         android:focusable="true">
-                        <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
-                            android:text="PH" android:textSize="16sp"
-                            android:gravity="center"
+                        <ImageView android:layout_width="wrap_content" android:layout_height="wrap_content"
+                            android:src="@drawable/aate_ic_phase"
                             android:background="@drawable/aate_nav_icon_badge_bg"
-                            android:minWidth="30dp"
-                            android:minHeight="30dp"
-                            android:padding="3dp"/>
+                            android:minWidth="42dp"
+                            android:minHeight="42dp"
+                            android:padding="8dp"
+                            android:contentDescription="Phase icon"/>
                         <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
                             android:text="Phase" android:textColor="#FBBF24" android:textSize="10sp"
                             android:layout_marginTop="2dp"/>
@@ -977,13 +977,13 @@
                         android:layout_marginEnd="6dp"
                         android:clickable="true"
                         android:focusable="true">
-                        <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
-                            android:text="AI" android:textSize="16sp"
-                            android:gravity="center"
+                        <ImageView android:layout_width="wrap_content" android:layout_height="wrap_content"
+                            android:src="@drawable/aate_ic_learning"
                             android:background="@drawable/aate_nav_icon_badge_bg"
-                            android:minWidth="30dp"
-                            android:minHeight="30dp"
-                            android:padding="3dp"/>
+                            android:minWidth="42dp"
+                            android:minHeight="42dp"
+                            android:padding="8dp"
+                            android:contentDescription="Learning icon"/>
                         <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
                             android:text="Learning" android:textColor="#86EFAC" android:textSize="8sp"
                             android:layout_marginTop="2dp"/>
@@ -1006,13 +1006,13 @@
                         android:layout_marginEnd="6dp"
                         android:clickable="true"
                         android:focusable="true">
-                        <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
-                            android:text="FX" android:textSize="16sp"
-                            android:gravity="center"
+                        <ImageView android:layout_width="wrap_content" android:layout_height="wrap_content"
+                            android:src="@drawable/aate_ic_forensics"
                             android:background="@drawable/aate_nav_icon_badge_bg"
-                            android:minWidth="30dp"
-                            android:minHeight="30dp"
-                            android:padding="3dp"/>
+                            android:minWidth="42dp"
+                            android:minHeight="42dp"
+                            android:padding="8dp"
+                            android:contentDescription="Forensics icon"/>
                         <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
                             android:text="Forensics" android:textColor="#C4B5FD" android:textSize="8sp"
                             android:layout_marginTop="2dp"/>
@@ -1034,13 +1034,13 @@
                         android:background="@drawable/aate_nav_tile_bg"
                         android:clickable="true"
                         android:focusable="true">
-                        <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
-                            android:text="LN" android:textSize="16sp"
-                            android:gravity="center"
+                        <ImageView android:layout_width="wrap_content" android:layout_height="wrap_content"
+                            android:src="@drawable/aate_ic_tuning"
                             android:background="@drawable/aate_nav_icon_badge_bg"
-                            android:minWidth="30dp"
-                            android:minHeight="30dp"
-                            android:padding="3dp"/>
+                            android:minWidth="42dp"
+                            android:minHeight="42dp"
+                            android:padding="8dp"
+                            android:contentDescription="Tuning icon"/>
                         <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
                             android:text="Tuning" android:textColor="#FCD34D" android:textSize="8sp"
                             android:layout_marginTop="2dp"/>
