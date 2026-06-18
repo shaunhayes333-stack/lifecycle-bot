@@ -598,15 +598,15 @@
 
             <!-- ═══════════════════════════════
                  MISSION CONTROL
-                 Premium command actions: core controls first, expansion surfaces second.
+                 3×5 premium navigation deck: primary surfaces, system tools, operator diagnostics.
                  ═══════════════════════════════ -->
             <TextView
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 android:paddingStart="@dimen/screen_padding"
                 android:paddingEnd="@dimen/screen_padding"
-                android:layout_marginTop="2dp"
-                android:layout_marginBottom="7dp"
+                android:layout_marginTop="1dp"
+                android:layout_marginBottom="6dp"
                 android:text="MISSION CONTROL · NAVIGATION DECK"
                 android:textColor="#7DD3FC"
                 android:textSize="10sp"
@@ -614,21 +614,21 @@
                 android:letterSpacing="0.16"
                 android:fontFamily="monospace"/>
             <LinearLayout
+                android:id="@+id/missionControlDeck"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 android:orientation="vertical"
                 android:paddingStart="@dimen/screen_padding"
                 android:paddingEnd="@dimen/screen_padding"
-                android:layout_marginBottom="10dp">
+                android:layout_marginBottom="8dp">
 
-                <!-- ─── Row 1: Wallet · Journal · Settings · Logs · Tuning ─── -->
+                <!-- Row 1: primary operating surfaces -->
                 <LinearLayout
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
                     android:orientation="horizontal"
                     android:gravity="center">
 
-                    <!-- Wallet -->
                     <LinearLayout
                         android:id="@+id/btnQuickWallet"
                         android:layout_width="0dp"
@@ -636,24 +636,23 @@
                         android:layout_weight="1"
                         android:orientation="vertical"
                         android:gravity="center"
-                        android:padding="8dp"
+                        android:padding="7dp"
                         android:background="@drawable/aate_nav_tile_bg"
                         android:layout_marginEnd="6dp"
                         android:clickable="true"
                         android:focusable="true">
                         <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
-                            android:text="👛" android:textSize="18sp"
+                            android:text="◈" android:textSize="16sp"
                             android:gravity="center"
                             android:background="@drawable/aate_nav_icon_badge_bg"
-                            android:minWidth="34dp"
-                            android:minHeight="34dp"
-                            android:padding="4dp"/>
+                            android:minWidth="30dp"
+                            android:minHeight="30dp"
+                            android:padding="3dp"/>
                         <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
-                            android:text="Wallet" android:textColor="#CBD5E1" android:textSize="9sp"
+                            android:text="Wallet" android:textColor="#CBD5E1" android:textSize="8sp"
                             android:layout_marginTop="2dp"/>
                     </LinearLayout>
 
-                    <!-- Journal -->
                     <LinearLayout
                         android:id="@+id/btnQuickJournal"
                         android:layout_width="0dp"
@@ -661,131 +660,23 @@
                         android:layout_weight="1"
                         android:orientation="vertical"
                         android:gravity="center"
-                        android:padding="8dp"
+                        android:padding="7dp"
                         android:background="@drawable/aate_nav_tile_bg"
                         android:layout_marginEnd="6dp"
                         android:clickable="true"
                         android:focusable="true">
                         <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
-                            android:text="📊" android:textSize="18sp"
+                            android:text="▥" android:textSize="16sp"
                             android:gravity="center"
                             android:background="@drawable/aate_nav_icon_badge_bg"
-                            android:minWidth="34dp"
-                            android:minHeight="34dp"
-                            android:padding="4dp"/>
+                            android:minWidth="30dp"
+                            android:minHeight="30dp"
+                            android:padding="3dp"/>
                         <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
-                            android:text="Journal" android:textColor="#CBD5E1" android:textSize="9sp"
+                            android:text="Journal" android:textColor="#CBD5E1" android:textSize="8sp"
                             android:layout_marginTop="2dp"/>
                     </LinearLayout>
 
-                    <!-- Alerts (kept gone to preserve wiring) -->
-                    <LinearLayout
-                        android:id="@+id/btnQuickAlerts"
-                        android:layout_width="0dp"
-                        android:layout_height="wrap_content"
-                        android:orientation="vertical"
-                        android:gravity="center"
-                        android:padding="8dp"
-                        android:background="@drawable/aate_nav_tile_bg"
-                        android:clickable="true"
-                        android:focusable="true"
-                        android:visibility="gone">
-                        <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
-                            android:text="🔔" android:textSize="18sp"
-                            android:gravity="center"
-                            android:background="@drawable/aate_nav_icon_badge_bg"
-                            android:minWidth="34dp"
-                            android:minHeight="34dp"
-                            android:padding="4dp"/>
-                        <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
-                            android:text="Alerts" android:textColor="#CBD5E1" android:textSize="9sp"
-                            android:layout_marginTop="2dp"/>
-                    </LinearLayout>
-
-                    <!-- Settings -->
-                    <LinearLayout
-                        android:id="@+id/btnQuickSettings"
-                        android:layout_width="0dp"
-                        android:layout_height="wrap_content"
-                        android:layout_weight="1"
-                        android:orientation="vertical"
-                        android:gravity="center"
-                        android:padding="8dp"
-                        android:background="@drawable/aate_nav_tile_bg"
-                        android:layout_marginEnd="6dp"
-                        android:clickable="true"
-                        android:focusable="true">
-                        <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
-                            android:text="⚙️" android:textSize="18sp"
-                            android:gravity="center"
-                            android:background="@drawable/aate_nav_icon_badge_bg"
-                            android:minWidth="34dp"
-                            android:minHeight="34dp"
-                            android:padding="4dp"/>
-                        <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
-                            android:text="Settings" android:textColor="#CBD5E1" android:textSize="9sp"
-                            android:layout_marginTop="2dp"/>
-                    </LinearLayout>
-
-                    <!-- Error Logs -->
-                    <LinearLayout
-                        android:id="@+id/btnQuickLogs"
-                        android:layout_width="0dp"
-                        android:layout_height="wrap_content"
-                        android:layout_weight="1"
-                        android:orientation="vertical"
-                        android:gravity="center"
-                        android:padding="8dp"
-                        android:background="@drawable/aate_nav_tile_bg"
-                        android:layout_marginEnd="6dp"
-                        android:clickable="true"
-                        android:focusable="true">
-                        <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
-                            android:text="🐛" android:textSize="18sp"
-                            android:gravity="center"
-                            android:background="@drawable/aate_nav_icon_badge_bg"
-                            android:minWidth="34dp"
-                            android:minHeight="34dp"
-                            android:padding="4dp"/>
-                        <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
-                            android:text="Logs" android:textColor="#CBD5E1" android:textSize="9sp"
-                            android:layout_marginTop="2dp"/>
-                    </LinearLayout>
-
-                    <!-- V5.2: Behavior Tuning Tile -->
-                    <LinearLayout
-                        android:id="@+id/btnQuickBehavior"
-                        android:layout_width="0dp"
-                        android:layout_height="wrap_content"
-                        android:layout_weight="1"
-                        android:orientation="vertical"
-                        android:gravity="center"
-                        android:padding="8dp"
-                        android:background="@drawable/aate_nav_tile_bg"
-                        android:clickable="true"
-                        android:focusable="true">
-                        <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
-                            android:text="🎚️" android:textSize="18sp"
-                            android:gravity="center"
-                            android:background="@drawable/aate_nav_icon_badge_bg"
-                            android:minWidth="34dp"
-                            android:minHeight="34dp"
-                            android:padding="4dp"/>
-                        <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
-                            android:text="Tuning" android:textColor="#86EFAC" android:textSize="9sp"
-                            android:layout_marginTop="2dp"/>
-                    </LinearLayout>
-                </LinearLayout>
-
-                <!-- ─── Row 2: Markets · Crypto · Persona · Lab ─── -->
-                <LinearLayout
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:orientation="horizontal"
-                    android:gravity="center"
-                    android:layout_marginTop="8dp">
-
-                    <!-- V5.7.6: Multi-Asset Markets Tile -->
                     <LinearLayout
                         android:id="@+id/btnQuickMarkets"
                         android:layout_width="0dp"
@@ -793,78 +684,23 @@
                         android:layout_weight="1"
                         android:orientation="vertical"
                         android:gravity="center"
-                        android:padding="8dp"
+                        android:padding="7dp"
                         android:background="@drawable/aate_nav_tile_bg"
                         android:layout_marginEnd="6dp"
                         android:clickable="true"
                         android:focusable="true">
                         <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
-                            android:text="📊" android:textSize="18sp"
+                            android:text="▰" android:textSize="16sp"
                             android:gravity="center"
                             android:background="@drawable/aate_nav_icon_badge_bg"
-                            android:minWidth="34dp"
-                            android:minHeight="34dp"
-                            android:padding="4dp"/>
+                            android:minWidth="30dp"
+                            android:minHeight="30dp"
+                            android:padding="3dp"/>
                         <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
-                            android:text="Markets" android:textColor="#FBBF24" android:textSize="9sp"
+                            android:text="Markets" android:textColor="#FBBF24" android:textSize="8sp"
                             android:layout_marginTop="2dp"/>
                     </LinearLayout>
 
-                    <!-- V1.0: Crypto Alts Meme Tile — Cross-chain alts -->
-                    <LinearLayout
-                        android:id="@+id/btnQuickCryptoAlts"
-                        android:layout_width="0dp"
-                        android:layout_height="wrap_content"
-                        android:layout_weight="1"
-                        android:orientation="vertical"
-                        android:gravity="center"
-                        android:padding="8dp"
-                        android:background="@drawable/aate_nav_tile_bg"
-                        android:layout_marginEnd="6dp"
-                        android:clickable="true"
-                        android:focusable="true">
-                        <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
-                            android:text="🌐" android:textSize="18sp"
-                            android:gravity="center"
-                            android:background="@drawable/aate_nav_icon_badge_bg"
-                            android:minWidth="34dp"
-                            android:minHeight="34dp"
-                            android:padding="4dp"/>
-                        <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
-                            android:text="Crypto" android:textColor="#C4B5FD" android:textSize="9sp"
-                            android:layout_marginTop="2dp"/>
-                        <TextView android:id="@+id/tvCryptoAltsStats"
-                            android:layout_width="wrap_content" android:layout_height="wrap_content"
-                            android:text="0/0" android:textColor="#7C3AED" android:textSize="8sp"
-                            android:fontFamily="monospace"/>
-                    </LinearLayout>
-
-                    <!-- V5.9.359: Persona Studio Tile -->
-                    <LinearLayout
-                        android:id="@+id/btnQuickPersona"
-                        android:layout_width="0dp"
-                        android:layout_height="wrap_content"
-                        android:layout_weight="1"
-                        android:orientation="vertical"
-                        android:gravity="center"
-                        android:padding="8dp"
-                        android:background="@drawable/aate_nav_tile_bg"
-                        android:layout_marginEnd="6dp"
-                        android:clickable="true"
-                        android:focusable="true">
-                        <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
-                            android:text="🎭" android:textSize="18sp"
-                            android:gravity="center"
-                            android:background="@drawable/aate_nav_icon_badge_bg"
-                            android:minWidth="34dp"
-                            android:minHeight="34dp"
-                            android:padding="4dp"/>
-                        <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
-                            android:text="Persona" android:textColor="#F9A8D4" android:textSize="9sp"
-                            android:layout_marginTop="2dp"/>
-                    </LinearLayout>
-
-                    <!-- V5.9.402: LLM Lab Tile -->
                     <LinearLayout
                         android:id="@+id/btnQuickLab"
                         android:layout_width="0dp"
@@ -872,29 +708,28 @@
                         android:layout_weight="1"
                         android:orientation="vertical"
                         android:gravity="center"
-                        android:padding="8dp"
+                        android:padding="7dp"
                         android:background="@drawable/aate_nav_tile_bg"
                         android:layout_marginEnd="6dp"
                         android:clickable="true"
                         android:focusable="true">
                         <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
-                            android:text="🧪" android:textSize="18sp"
+                            android:text="◇" android:textSize="16sp"
                             android:gravity="center"
                             android:background="@drawable/aate_nav_icon_badge_bg"
-                            android:minWidth="34dp"
-                            android:minHeight="34dp"
-                            android:padding="4dp"/>
+                            android:minWidth="30dp"
+                            android:minHeight="30dp"
+                            android:padding="3dp"/>
                         <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
-                            android:text="Lab" android:textColor="#C4B5FD" android:textSize="9sp"
+                            android:text="Lab" android:textColor="#C4B5FD" android:textSize="8sp"
                             android:layout_marginTop="2dp"/>
                         <TextView android:id="@+id/tvLabTileStats"
                             android:layout_width="wrap_content" android:layout_height="wrap_content"
                             android:text="0/0"
-                            android:textColor="#7C3AED" android:textSize="8sp"
+                            android:textColor="#7C3AED" android:textSize="7sp"
                             android:fontFamily="monospace"/>
                     </LinearLayout>
 
-                    <!-- V5.9.666: Pipeline Health Tile (CI funnel mirror + ANR + clipboard export) -->
                     <LinearLayout
                         android:id="@+id/btnQuickPipeline"
                         android:layout_width="0dp"
@@ -902,65 +737,167 @@
                         android:layout_weight="1"
                         android:orientation="vertical"
                         android:gravity="center"
-                        android:padding="8dp"
+                        android:padding="7dp"
                         android:background="@drawable/aate_nav_tile_bg"
                         android:clickable="true"
                         android:focusable="true">
                         <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
-                            android:text="🩺" android:textSize="18sp"
+                            android:text="⌁" android:textSize="16sp"
                             android:gravity="center"
                             android:background="@drawable/aate_nav_icon_badge_bg"
-                            android:minWidth="34dp"
-                            android:minHeight="34dp"
-                            android:padding="4dp"/>
+                            android:minWidth="30dp"
+                            android:minHeight="30dp"
+                            android:padding="3dp"/>
                         <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
-                            android:text="Pipeline" android:textColor="#86EFAC" android:textSize="9sp"
+                            android:text="Pipeline" android:textColor="#86EFAC" android:textSize="8sp"
                             android:layout_marginTop="2dp"/>
                         <TextView android:id="@+id/tvPipelineTileStats"
                             android:layout_width="wrap_content" android:layout_height="wrap_content"
                             android:text="ANR 0"
-                            android:textColor="#10B981" android:textSize="8sp"
-                            android:fontFamily="monospace"/>
-                    </LinearLayout>
-
-                    <!-- V5.9.1239: Tuning Console Tile (per-lane expectancy, score-band
-                         calibration, exit-reason P&L, danger buckets) -->
-                    <LinearLayout
-                        android:id="@+id/btnQuickTuning"
-                        android:layout_width="0dp"
-                        android:layout_height="wrap_content"
-                        android:layout_weight="1"
-                        android:orientation="vertical"
-                        android:gravity="center"
-                        android:padding="8dp"
-                        android:background="@drawable/aate_nav_tile_bg"
-                        android:clickable="true"
-                        android:focusable="true">
-                        <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
-                            android:text="🎚" android:textSize="18sp"
-                            android:gravity="center"
-                            android:background="@drawable/aate_nav_icon_badge_bg"
-                            android:minWidth="34dp"
-                            android:minHeight="34dp"
-                            android:padding="4dp"/>
-                        <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
-                            android:text="Tuning" android:textColor="#FCD34D" android:textSize="9sp"
-                            android:layout_marginTop="2dp"/>
-                        <TextView android:id="@+id/tvTuningTileStats"
-                            android:layout_width="wrap_content" android:layout_height="wrap_content"
-                            android:text="lanes"
-                            android:textColor="#F59E0B" android:textSize="8sp"
+                            android:textColor="#10B981" android:textSize="7sp"
                             android:fontFamily="monospace"/>
                     </LinearLayout>
                 </LinearLayout>
 
-                <!-- ─── Row 3: Operator diagnostics formerly floating over readiness ─── -->
+                <!-- Row 2: configuration and strategy tools -->
                 <LinearLayout
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
                     android:orientation="horizontal"
                     android:gravity="center"
-                    android:layout_marginTop="8dp">
+                    android:layout_marginTop="7dp">
+
+                    <LinearLayout
+                        android:id="@+id/btnQuickSettings"
+                        android:layout_width="0dp"
+                        android:layout_height="wrap_content"
+                        android:layout_weight="1"
+                        android:orientation="vertical"
+                        android:gravity="center"
+                        android:padding="7dp"
+                        android:background="@drawable/aate_nav_tile_bg"
+                        android:layout_marginEnd="6dp"
+                        android:clickable="true"
+                        android:focusable="true">
+                        <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
+                            android:text="⚙" android:textSize="16sp"
+                            android:gravity="center"
+                            android:background="@drawable/aate_nav_icon_badge_bg"
+                            android:minWidth="30dp"
+                            android:minHeight="30dp"
+                            android:padding="3dp"/>
+                        <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
+                            android:text="Settings" android:textColor="#CBD5E1" android:textSize="8sp"
+                            android:layout_marginTop="2dp"/>
+                    </LinearLayout>
+
+                    <LinearLayout
+                        android:id="@+id/btnQuickLogs"
+                        android:layout_width="0dp"
+                        android:layout_height="wrap_content"
+                        android:layout_weight="1"
+                        android:orientation="vertical"
+                        android:gravity="center"
+                        android:padding="7dp"
+                        android:background="@drawable/aate_nav_tile_bg"
+                        android:layout_marginEnd="6dp"
+                        android:clickable="true"
+                        android:focusable="true">
+                        <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
+                            android:text="⌕" android:textSize="16sp"
+                            android:gravity="center"
+                            android:background="@drawable/aate_nav_icon_badge_bg"
+                            android:minWidth="30dp"
+                            android:minHeight="30dp"
+                            android:padding="3dp"/>
+                        <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
+                            android:text="Logs" android:textColor="#CBD5E1" android:textSize="8sp"
+                            android:layout_marginTop="2dp"/>
+                    </LinearLayout>
+
+                    <LinearLayout
+                        android:id="@+id/btnQuickPersona"
+                        android:layout_width="0dp"
+                        android:layout_height="wrap_content"
+                        android:layout_weight="1"
+                        android:orientation="vertical"
+                        android:gravity="center"
+                        android:padding="7dp"
+                        android:background="@drawable/aate_nav_tile_bg"
+                        android:layout_marginEnd="6dp"
+                        android:clickable="true"
+                        android:focusable="true">
+                        <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
+                            android:text="◉" android:textSize="16sp"
+                            android:gravity="center"
+                            android:background="@drawable/aate_nav_icon_badge_bg"
+                            android:minWidth="30dp"
+                            android:minHeight="30dp"
+                            android:padding="3dp"/>
+                        <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
+                            android:text="Persona" android:textColor="#F9A8D4" android:textSize="8sp"
+                            android:layout_marginTop="2dp"/>
+                    </LinearLayout>
+
+                    <LinearLayout
+                        android:id="@+id/btnQuickCryptoAlts"
+                        android:layout_width="0dp"
+                        android:layout_height="wrap_content"
+                        android:layout_weight="1"
+                        android:orientation="vertical"
+                        android:gravity="center"
+                        android:padding="7dp"
+                        android:background="@drawable/aate_nav_tile_bg"
+                        android:layout_marginEnd="6dp"
+                        android:clickable="true"
+                        android:focusable="true">
+                        <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
+                            android:text="◎" android:textSize="16sp"
+                            android:gravity="center"
+                            android:background="@drawable/aate_nav_icon_badge_bg"
+                            android:minWidth="30dp"
+                            android:minHeight="30dp"
+                            android:padding="3dp"/>
+                        <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
+                            android:text="Crypto" android:textColor="#C4B5FD" android:textSize="8sp"
+                            android:layout_marginTop="2dp"/>
+                        <TextView android:id="@+id/tvCryptoAltsStats"
+                            android:layout_width="wrap_content" android:layout_height="wrap_content"
+                            android:text="0/0" android:textColor="#7C3AED" android:textSize="7sp"
+                            android:fontFamily="monospace"/>
+                    </LinearLayout>
+
+                    <LinearLayout
+                        android:id="@+id/btnQuickBehavior"
+                        android:layout_width="0dp"
+                        android:layout_height="wrap_content"
+                        android:layout_weight="1"
+                        android:orientation="vertical"
+                        android:gravity="center"
+                        android:padding="7dp"
+                        android:background="@drawable/aate_nav_tile_bg"
+                        android:clickable="true"
+                        android:focusable="true">
+                        <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
+                            android:text="☷" android:textSize="16sp"
+                            android:gravity="center"
+                            android:background="@drawable/aate_nav_icon_badge_bg"
+                            android:minWidth="30dp"
+                            android:minHeight="30dp"
+                            android:padding="3dp"/>
+                        <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
+                            android:text="Tuning" android:textColor="#86EFAC" android:textSize="8sp"
+                            android:layout_marginTop="2dp"/>
+                    </LinearLayout>
+                </LinearLayout>
+
+                <!-- Row 3: operator diagnostics -->
+                <LinearLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:orientation="horizontal"
+                    android:gravity="center"
+                    android:layout_marginTop="7dp">
 
                     <LinearLayout
                         android:id="@+id/btnQuickUniverse"
@@ -969,25 +906,25 @@
                         android:layout_weight="1"
                         android:orientation="vertical"
                         android:gravity="center"
-                        android:padding="8dp"
+                        android:padding="7dp"
                         android:background="@drawable/aate_nav_tile_bg"
                         android:layout_marginEnd="6dp"
                         android:clickable="true"
                         android:focusable="true">
                         <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
-                            android:text="🪐" android:textSize="18sp"
+                            android:text="✦" android:textSize="16sp"
                             android:gravity="center"
                             android:background="@drawable/aate_nav_icon_badge_bg"
-                            android:minWidth="34dp"
-                            android:minHeight="34dp"
-                            android:padding="4dp"/>
+                            android:minWidth="30dp"
+                            android:minHeight="30dp"
+                            android:padding="3dp"/>
                         <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
-                            android:text="Universe" android:textColor="#FCD34D" android:textSize="9sp"
+                            android:text="Universe" android:textColor="#FCD34D" android:textSize="8sp"
                             android:layout_marginTop="2dp"/>
                         <TextView android:id="@+id/tvUniverseTileStats"
                             android:layout_width="wrap_content" android:layout_height="wrap_content"
                             android:text="mints"
-                            android:textColor="#F59E0B" android:textSize="8sp"
+                            android:textColor="#F59E0B" android:textSize="7sp"
                             android:fontFamily="monospace"/>
                     </LinearLayout>
 
@@ -998,25 +935,25 @@
                         android:layout_weight="1"
                         android:orientation="vertical"
                         android:gravity="center"
-                        android:padding="8dp"
+                        android:padding="7dp"
                         android:background="@drawable/aate_nav_tile_bg"
                         android:layout_marginEnd="6dp"
                         android:clickable="true"
                         android:focusable="true">
                         <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
-                            android:text="🌗" android:textSize="18sp"
+                            android:text="◐" android:textSize="16sp"
                             android:gravity="center"
                             android:background="@drawable/aate_nav_icon_badge_bg"
-                            android:minWidth="34dp"
-                            android:minHeight="34dp"
-                            android:padding="4dp"/>
+                            android:minWidth="30dp"
+                            android:minHeight="30dp"
+                            android:padding="3dp"/>
                         <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
                             android:text="Phase" android:textColor="#FBBF24" android:textSize="10sp"
                             android:layout_marginTop="2dp"/>
                         <TextView android:id="@+id/tvPhaseTileStats"
                             android:layout_width="wrap_content" android:layout_height="wrap_content"
                             android:text="learn"
-                            android:textColor="#FBBF24" android:textSize="8sp"
+                            android:textColor="#FBBF24" android:textSize="7sp"
                             android:fontFamily="monospace"/>
                     </LinearLayout>
 
@@ -1027,25 +964,25 @@
                         android:layout_weight="1"
                         android:orientation="vertical"
                         android:gravity="center"
-                        android:padding="8dp"
+                        android:padding="7dp"
                         android:background="@drawable/aate_nav_tile_bg"
                         android:layout_marginEnd="6dp"
                         android:clickable="true"
                         android:focusable="true">
                         <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
-                            android:text="🧠" android:textSize="18sp"
+                            android:text="◆" android:textSize="16sp"
                             android:gravity="center"
                             android:background="@drawable/aate_nav_icon_badge_bg"
-                            android:minWidth="34dp"
-                            android:minHeight="34dp"
-                            android:padding="4dp"/>
+                            android:minWidth="30dp"
+                            android:minHeight="30dp"
+                            android:padding="3dp"/>
                         <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
-                            android:text="Learning" android:textColor="#86EFAC" android:textSize="9sp"
+                            android:text="Learning" android:textColor="#86EFAC" android:textSize="8sp"
                             android:layout_marginTop="2dp"/>
                         <TextView android:id="@+id/tvLearningTileStats"
                             android:layout_width="wrap_content" android:layout_height="wrap_content"
                             android:text="pipeline"
-                            android:textColor="#10B981" android:textSize="8sp"
+                            android:textColor="#10B981" android:textSize="7sp"
                             android:fontFamily="monospace"/>
                     </LinearLayout>
 
@@ -1056,28 +993,56 @@
                         android:layout_weight="1"
                         android:orientation="vertical"
                         android:gravity="center"
-                        android:padding="8dp"
+                        android:padding="7dp"
                         android:background="@drawable/aate_nav_tile_bg"
+                        android:layout_marginEnd="6dp"
                         android:clickable="true"
                         android:focusable="true">
                         <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
-                            android:text="🔬" android:textSize="18sp"
+                            android:text="⌬" android:textSize="16sp"
                             android:gravity="center"
                             android:background="@drawable/aate_nav_icon_badge_bg"
-                            android:minWidth="34dp"
-                            android:minHeight="34dp"
-                            android:padding="4dp"/>
+                            android:minWidth="30dp"
+                            android:minHeight="30dp"
+                            android:padding="3dp"/>
                         <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
-                            android:text="Forensics" android:textColor="#C4B5FD" android:textSize="9sp"
+                            android:text="Forensics" android:textColor="#C4B5FD" android:textSize="8sp"
                             android:layout_marginTop="2dp"/>
                         <TextView android:id="@+id/tvForensicsTileStats"
                             android:layout_width="wrap_content" android:layout_height="wrap_content"
                             android:text="live"
-                            android:textColor="#A78BFA" android:textSize="8sp"
+                            android:textColor="#A78BFA" android:textSize="7sp"
+                            android:fontFamily="monospace"/>
+                    </LinearLayout>
+
+                    <LinearLayout
+                        android:id="@+id/btnQuickTuning"
+                        android:layout_width="0dp"
+                        android:layout_height="wrap_content"
+                        android:layout_weight="1"
+                        android:orientation="vertical"
+                        android:gravity="center"
+                        android:padding="7dp"
+                        android:background="@drawable/aate_nav_tile_bg"
+                        android:clickable="true"
+                        android:focusable="true">
+                        <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
+                            android:text="≋" android:textSize="16sp"
+                            android:gravity="center"
+                            android:background="@drawable/aate_nav_icon_badge_bg"
+                            android:minWidth="30dp"
+                            android:minHeight="30dp"
+                            android:padding="3dp"/>
+                        <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
+                            android:text="Tuning" android:textColor="#FCD34D" android:textSize="8sp"
+                            android:layout_marginTop="2dp"/>
+                        <TextView android:id="@+id/tvTuningTileStats"
+                            android:layout_width="wrap_content" android:layout_height="wrap_content"
+                            android:text="lanes"
+                            android:textColor="#F59E0B" android:textSize="7sp"
                             android:fontFamily="monospace"/>
                     </LinearLayout>
                 </LinearLayout>
-
             </LinearLayout>
 
             <!-- ═══════════════════════════════════════════════════════════════
@@ -1092,8 +1057,8 @@
                 android:orientation="vertical"
                 android:layout_marginStart="@dimen/screen_padding"
                 android:layout_marginEnd="@dimen/screen_padding"
-                android:layout_marginTop="2dp"
-                android:layout_marginBottom="4dp">
+                android:layout_marginTop="0dp"
+                android:layout_marginBottom="3dp">
 
                 <!-- Combined summary line across all traders -->
                 <TextView
@@ -1105,8 +1070,8 @@
                     android:textSize="10sp"
                     android:fontFamily="monospace"
                     android:gravity="center"
-                    android:paddingTop="2dp"
-                    android:paddingBottom="6dp"/>
+                    android:paddingTop="1dp"
+                    android:paddingBottom="5dp"/>
 
                 <!-- Tab row -->
                 <LinearLayout
