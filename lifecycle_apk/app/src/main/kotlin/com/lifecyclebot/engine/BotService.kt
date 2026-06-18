@@ -5891,11 +5891,10 @@ class BotService : Service() {
             val liveThreshold = 1500.0
             val allowTick = when {
                 isPaperRuntime -> cyclicEnabled
-                // V5.9.1405 — never starve CYCLIC. In LIVE runtime it should still
-                // tick as a live participant; wallet/balance/FDG/TradeAuthorizer are
-                // the safety rails, not a config-disable path. If wallet is too small
-                // the executor rejects size; the lane still observes and learns.
-                else -> cyclicEnabled
+                // V5.0.3895 — CYCLIC is a live bleeder in current reports
+                // (WR<30%, EV<0, PnL<0). Keep its paper/shadow learning alive, but
+                // remove it from live hot path until recovery thresholds are met.
+                else -> false
             }
             if (allowTick) {
                 // V5.9.1238 — snapshot cheap state on the loop thread, then run the

@@ -1374,6 +1374,7 @@ object PipelineHealthCollector {
             sb.append("\n")
         }
         sb.append("  Recent journal rows:  ${liveRecentRows}\n")
+        sb.append("  Execution leases:     ${ExecutionAttemptLease.formatForReport()}\n")
         sb.append("\n")
         val paperJournalRows = labelCounts["PAPER_JOURNAL_ROWS"]?.get() ?: paperRecentRows.toLong()
         val paperQuarantinedRows = labelCounts["PAPER_LEARNING_ROW_QUARANTINED"]?.get() ?: 0L
@@ -1995,6 +1996,16 @@ object PipelineHealthCollector {
                 }
             }
         } catch (_: Throwable) { /* observability never fails dumpText */ }
+
+        try {
+            sb.append("\n===== Provider capability (execution truth) =====\n")
+            fun lc(k: String): Long = labelCounts[k]?.get() ?: 0L
+            sb.append("  Helius role: HOT_PATH=false critical=false\n")
+            sb.append("  Helius degraded: ${if (!KeyValidator.isLive("helius")) "HELIUS_DEGRADED_NON_CRITICAL" else "ok"}\n")
+            sb.append("  Jupiter quote/build/confirm: quoteFail=${lc("JUPITER_QUOTE_FAIL")} buildOk=${lc("JUPITER_SWAP_BUILD_OK")} confirmOk=${lc("JUPITER_CONFIRM_OK")} quoteRejected=${lc("JUPITER_QUOTE_REJECTED")}\n")
+            sb.append("  Buy terminal: planOk=${lc("BUY_PLAN_OK")} txSubmitted=${lc("BUY_TX_SUBMITTED")} ok=${lc("BUY_TERMINAL_OK")} fail=${lc("BUY_TERMINAL_FAIL")} duplicateSuppressed=${lc("EXEC_DUPLICATE_SUPPRESSED")} backoff=${lc("EXEC_RETRY_BACKOFF_SET")}\n")
+            sb.append("  Live lane policy: CYCLIC=paperOnly MANIPULATED=paperOnlyInDump TREASURY=paperOnlyInDump dumpSizeEvents=${lc("DUMP_REGIME_LIVE_SIZE_SHAPED")} dumpPaperOnly=${lc("DUMP_LIVE_LANE_PAPER_ONLY")}\n")
+        } catch (_: Throwable) { /* capability report never fails dumpText */ }
 
         try {
             val keySnap = KeyValidator.snapshot()

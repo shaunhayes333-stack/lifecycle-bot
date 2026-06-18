@@ -2689,4 +2689,21 @@ class GoldenTapeRegressionTest {
     }
 
 
+    @Test
+    fun live_execution_has_per_mint_buy_lease_and_helius_noncritical_capability_report() {
+        val lease = java.io.File("src/main/kotlin/com/lifecyclebot/engine/ExecutionAttemptLease.kt").readText()
+        val exec = java.io.File("src/main/kotlin/com/lifecyclebot/engine/Executor.kt").readText()
+        val pipe = java.io.File("src/main/kotlin/com/lifecyclebot/engine/PipelineHealthCollector.kt").readText()
+        val fdg = java.io.File("src/main/kotlin/com/lifecyclebot/engine/FinalDecisionGate.kt").readText()
+
+        assertTrue("ExecutionAttemptLease must enforce active lease + backoff", lease.contains("EXEC_LEASE_SET") && lease.contains("EXEC_DUPLICATE_SUPPRESSED") && lease.contains("EXEC_RETRY_BACKOFF_SET") && lease.contains("terminalOk") && lease.contains("terminalFail"))
+        assertTrue("liveBuy must acquire lease before route/build/submit", exec.contains("ExecutionAttemptLease.acquire") && exec.indexOf("ExecutionAttemptLease.acquire") < exec.indexOf("MEME_LIVE_BUY_MUTEX.tryAcquire"))
+        assertTrue("liveBuy must emit plan/route/tx/terminal stages", listOf("BUY_PLAN_OK", "BUY_ROUTE_REQUESTED", "BUY_TX_SUBMITTED", "buyTerminalOk", "buyTerminalFail").all { exec.contains(it) })
+        assertTrue("Provider capability report must say Helius is non-critical and show execution truth", pipe.contains("Provider capability (execution truth)") && pipe.contains("Helius role:") && pipe.contains("HOT_PATH=false") && pipe.contains("Jupiter quote/build/confirm") && pipe.contains("Execution leases:"))
+        val bot = java.io.File("src/main/kotlin/com/lifecyclebot/engine/BotService.kt").readText()
+        assertTrue("CYCLIC must be paper-only in live until recovery", bot.contains("CYCLIC is a live bleeder") && bot.contains("else -> false") && pipe.contains("CYCLIC=paperOnly"))
+        assertTrue("DUMP live policy must paper-only MANIP/TREASURY/CYCLIC and size-shape risky lanes", exec.contains("DUMP_LIVE_LANE_PAPER_ONLY") && exec.contains("DUMP_REGIME_LIVE_SIZE_SHAPED") && exec.contains("laneTag.contains(\"TREASURY\")") && exec.contains("laneTag.contains(\"MANIP"))
+        assertFalse("FDG must not hard-block live solely because Helius is down", fdg.contains("HELIUS_UNHEALTHY_LIVE_SAFE_MODE") || fdg.contains("blockReason = \"HELIUS"))
+    }
+
 }
