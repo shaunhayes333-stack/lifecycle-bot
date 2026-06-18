@@ -699,7 +699,9 @@ class GoldenTapeRegressionTest {
         assertTrue(gate.contains("RUGCHECK_PENDING_OR_UNKNOWN"))
         assertTrue(gate.contains("PRETRADE_HARD_BLOCK"))
         assertTrue(gate.contains("PRETRADE_PENDING_PROOF_SOFT_ALLOW"))
+        assertTrue("Critical unknown safety proof must defer/hydrate, not terminally hard-block", gate.contains("deferSafetyProof") && gate.contains("DEFER_SAFETY_PROOF") && gate.contains("PRETRADE_SAFETY_PROOF_DEFER"))
         assertFalse("Pending holder data alone must not hard-block every live buy", gate.contains("return block(ts, \"HOLDER_DATA_PENDING\""))
+        assertFalse("Critical pending proof must not emit PRETRADE_HARD_BLOCK anymore", gate.contains("return block(ts, \"CRITICAL_SAFETY_PROOF_UNKNOWN\""))
         assertFalse("RugCheck pending alone must not recreate RC=1 live choke", gate.contains("return block(ts, \"RUGCHECK_PENDING_OR_UNKNOWN\""))
         assertTrue(gate.contains("SINGLE HOLDER"))
         assertTrue(gate.contains("UNVERIFIED TOKEN"))
@@ -710,6 +712,7 @@ class GoldenTapeRegressionTest {
         val walletIdx = exec.indexOf("if (walletSol <= 0)", liveGateIdx.coerceAtLeast(0))
         assertTrue("PreTradeHardGate must be wired after admission and before wallet/broadcast checks", liveGateIdx >= 0 && preTradeIdx > liveGateIdx && walletIdx > preTradeIdx)
         assertTrue(exec.contains("reason=PRETRADE:"))
+        assertTrue("Executor must request safety hydration defer without LIVE_BUY_FAIL/BUY_FAILED spam", exec.contains("EXEC_OPEN_DEFERRED_SAFETY_PROOF") && exec.contains("SafetyRefreshQueue.request(ts.mint)") && exec.contains("LIVE_BUY_DEFERRED") && exec.contains("no_live_buy_fail=true"))
     }
 
 
@@ -2608,6 +2611,7 @@ class GoldenTapeRegressionTest {
         assertTrue("Low but nonzero liquidity must be quote/size penalty, not static hard block", safety.contains("LOW_LIQUIDITY_SIZE_REDUCED") && preTrade.contains("LOW_LIQUIDITY_SIZE_REDUCED"))
         assertFalse("Static liquidity min must not hard-block live buys", preTrade.contains("return block(ts, \"LIQUIDITY_BELOW_LIVE_MIN"))
         assertFalse("Missing/stale safety must not hard-block by itself", preTrade.contains("return block(ts, \"SAFETY_PROOF_STALE_OR_MISSING"))
+        assertTrue("Unknown mint/freeze/holder proof is a capture-more-data defer, not a terminal live block", preTrade.contains("DEFER_SAFETY_PROOF") && executor.contains("LIVE_BUY_DEFERRED"))
         assertTrue("LiveBuyAdmissionGate must convert safety shadow to penalty-only unless true hard", liveGate.contains("SAFETY_SHADOW_PENALTY_ONLY") && liveGate.contains("BUY_GATE_PENALTY_ONLY_SAFETY_SHADOW"))
         assertTrue("BotService SAFETY_SHADOW must continue only for true hard reasons", bot.contains("!TokenBlacklist.isSoftPenaltyOnlyReason(reason)") && bot.contains("source=BotService.SAFETY_SHADOW"))
         assertTrue("Every taxonomy decision should surface forensic proof", listOf(tokenBlacklist, executor, safety, liveGate, preTrade, bot).all { it.contains("BUY_GATE_DECISION") })

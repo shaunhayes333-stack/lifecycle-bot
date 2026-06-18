@@ -37,6 +37,22 @@ object PreTradeHardGate {
         return Verdict(false, reason, detail)
     }
 
+    private fun deferSafetyProof(ts: TokenState, reason: String, pending: List<String>, callSite: String): Verdict {
+        val detail = pending.joinToString("|").take(220)
+        try {
+            ForensicLogger.lifecycle(
+                "PRETRADE_SAFETY_PROOF_DEFER",
+                "mint=${ts.mint.take(10)} symbol=${ts.symbol} reason=$reason pending=$detail site=$callSite",
+            )
+            ForensicLogger.lifecycle(
+                "BUY_GATE_DECISION",
+                "mint=${ts.mint.take(10)} symbol=${ts.symbol} decision=DEFER reason=$reason source=PreTradeHardGate liveEligible=pending_proof",
+            )
+            PipelineHealthCollector.labelInc("PRETRADE_DEFER_$reason")
+        } catch (_: Throwable) {}
+        return Verdict(false, "DEFER_SAFETY_PROOF", "$reason|$detail")
+    }
+
     private fun allowWithPendingProof(ts: TokenState, pending: List<String>, callSite: String): Verdict {
         if (pending.isNotEmpty()) {
             try {
@@ -106,14 +122,17 @@ object PreTradeHardGate {
         if (!ts.holderDataResolved) pendingProofs.add("HOLDER_DATA_PENDING")
         val topHolder = listOfNotNull(ts.topHolderPct, safety.topHolderPct.takeIf { it >= 0.0 }).maxOrNull() ?: -1.0
         if (topHolder < 0.0) pendingProofs.add("HOLDER_DATA_UNKNOWN")
-        // V5.0.3862 — do not block every pending proof, but do block the exact
-        // pre-broadcast garbage shape: mint authority unknown + freeze authority
-        // unknown + holder concentration unknown. One unknown can be transient;
-        // all three means live SOL is blind to the core rug controls.
+        // V5.0.3892 — pending safety proof is a HYDRATION DEFER, not a terminal
+        // live-buy failure. The old CRITICAL_SAFETY_PROOF_UNKNOWN hard block fired
+        // after FDG/EXEC allowed the candidate, so live sessions showed hundreds of
+        // BUY_FAIL rows while mint/freeze/holder data was merely not loaded yet.
+        // Preserve true hard blocks above (active mint/freeze, confirmed rug, zero
+        // liquidity, fatal holder concentration), but defer this exact unknown-proof
+        // shape and let Executor queue a forced safety refresh before re-admission.
         val criticalProofUnknown = pendingProofs.contains("MINT_AUTHORITY_UNKNOWN") &&
             pendingProofs.contains("FREEZE_AUTHORITY_UNKNOWN") &&
             pendingProofs.contains("HOLDER_DATA_UNKNOWN")
-        if (criticalProofUnknown) return block(ts, "CRITICAL_SAFETY_PROOF_UNKNOWN", pendingProofs.joinToString("|"))
+        if (criticalProofUnknown) return deferSafetyProof(ts, "CRITICAL_SAFETY_PROOF_UNKNOWN", pendingProofs, callSite)
         if (topHolder >= TOP_HOLDER_FATAL_PCT) return block(ts, "TOP_HOLDER_FATAL_CONCENTRATION", "topHolderPct=$topHolder")
 
         val text = buildString {

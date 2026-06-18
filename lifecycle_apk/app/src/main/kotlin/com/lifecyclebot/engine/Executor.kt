@@ -8929,6 +8929,25 @@ class Executor(
         run {
             val preTrade = PreTradeHardGate.requireLiveBuyAllowed(ts, "Executor.liveBuy.main")
             if (!preTrade.allowed) {
+                if (preTrade.reason == "DEFER_SAFETY_PROOF") {
+                    try { SafetyRefreshQueue.request(ts.mint) } catch (_: Throwable) {}
+                    // Force the next processTokenCycle down the synchronous first-check
+                    // path instead of allowing another stale async refresh race.
+                    try { ts.lastSafetyCheck = 0L } catch (_: Throwable) {}
+                    try { ts.safety = ts.safety.copy(checkedAt = 0L) } catch (_: Throwable) {}
+                    try {
+                        PipelineHealthCollector.labelInc("LIVE_BUY_DEFERRED_SAFETY_PROOF")
+                        ForensicLogger.lifecycle(
+                            "EXEC_OPEN_DEFERRED_SAFETY_PROOF",
+                            "mint=${ts.mint.take(10)} symbol=${ts.symbol} stage=PreTradeHardGate detail=${preTrade.detail.take(120)} action=refresh_then_retry no_live_buy_fail=true",
+                        )
+                        ForensicLogger.exec(
+                            "LIVE_BUY_DEFERRED", ts.symbol,
+                            "mint=${ts.mint.take(10)} sol=$sol reason=SAFETY_PROOF_HYDRATION detail=${preTrade.detail.take(80)}",
+                        )
+                    } catch (_: Throwable) {}
+                    return false
+                }
                 try {
                     ForensicLogger.lifecycle(
                         "EXEC_OPEN_ABORT_TERMINAL",
