@@ -141,7 +141,7 @@
         android:orientation="vertical"
         android:gravity="center"
         android:layout_marginTop="28dp"
-        android:background="@drawable/aate_debug_card_bg"
+        android:background="@drawable/aate_universe_panel_bg"
         android:padding="14dp">
 
         <TextView

@@ -63,7 +63,7 @@
         android:paddingEnd="@dimen/screen_padding"
         android:paddingTop="12dp"
         android:paddingBottom="12dp"
-        android:background="@drawable/aate_debug_card_bg">
+        android:background="@drawable/aate_universe_panel_bg">
 
         <LinearLayout android:layout_width="0dp" android:layout_height="wrap_content"
             android:layout_weight="1" android:orientation="vertical">
@@ -112,7 +112,7 @@
     </LinearLayout>
 
     <View android:layout_width="match_parent" android:layout_height="1dp"
-        android:background="#1F2937"/>
+        android:background="@drawable/aate_universe_list_bg"/>
 
     <!-- Trade list -->
     <ScrollView android:layout_width="match_parent" android:layout_height="match_parent">

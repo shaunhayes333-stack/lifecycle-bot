@@ -2283,20 +2283,20 @@ for legal compliance.
      */
     private fun renderReadiness() {
         val snap = com.lifecyclebot.network.LiveReadinessChecker.current()
-        val (dot, textColor, bg) = when (snap.state) {
+        val (dot, textColor, bgDrawable) = when (snap.state) {
             com.lifecyclebot.network.LiveReadinessChecker.State.GREEN ->
-                Triple("🟢", 0xFF9CA3AF.toInt(), 0xFF0B1A10.toInt())
+                Triple("🟢", 0xFF9CA3AF.toInt(), R.drawable.aate_status_strip_green)
             com.lifecyclebot.network.LiveReadinessChecker.State.YELLOW ->
-                Triple("🟡", 0xFFFCD34D.toInt(), 0xFF1A1608.toInt())
+                Triple("🟡", 0xFFFCD34D.toInt(), R.drawable.aate_status_strip_yellow)
             com.lifecyclebot.network.LiveReadinessChecker.State.RED ->
-                Triple("🔴", 0xFFF87171.toInt(), 0xFF1F0B0F.toInt())
+                Triple("🔴", 0xFFF87171.toInt(), R.drawable.aate_status_strip_red)
             com.lifecyclebot.network.LiveReadinessChecker.State.UNKNOWN ->
-                Triple("⚪", 0xFF6B7280.toInt(), 0xFF0F0F16.toInt())
+                Triple("⚪", 0xFF6B7280.toInt(), R.drawable.aate_status_strip_unknown)
         }
         tvReadinessDot.setTextIfChanged(dot)
         tvReadinessStatus.setTextIfChanged(snap.summary)
         tvReadinessStatus.setTextColorIfChanged(textColor)
-        readinessBanner.setBackgroundColorIfChanged(bg)
+        readinessBanner.setBackgroundDrawableIfChanged(bgDrawable, cachedDrawable(this, bgDrawable))
         tvReadinessLatency.setTextIfChanged(if (snap.jupiterLatencyMs >= 0) {
             val jup = if (snap.jupiterOk) "jup ${snap.jupiterLatencyMs}ms" else "jup ✗"
             val py  = if (snap.pythOk) "pyth ${snap.pythLatencyMs}ms" else "pyth ✗"
@@ -2344,11 +2344,12 @@ for legal compliance.
             running  -> "Stop Bot"
             else     -> "Start Bot"
         })
-        btnToggle.setBackgroundTintIfChanged(when {
-            isHalted -> 0xFFEF4444.toInt()
-            running  -> 0xFF374151.toInt()
-            else     -> purple
-        })
+        val commandButtonBg = when {
+            isHalted -> R.drawable.aate_command_button_halt
+            running  -> R.drawable.aate_command_button_stop
+            else     -> R.drawable.aate_command_button_start
+        }
+        btnToggle.setBackgroundDrawableIfChanged(commandButtonBg, cachedDrawable(this, commandButtonBg))
         btnToggle.setTextColorIfChanged(white)
 
         // V5.9.1316 — STOP must ALWAYS work and not be lost to per-render churn.
@@ -7826,12 +7827,12 @@ This cannot be undone!
         tabs.forEach { (key, tv) ->
             val t = tv ?: return@forEach
             if (key == currentReadinessTab) {
-                t.setBackgroundResource(R.drawable.pill_bg_green)
-                t.setTextColor(Color.BLACK)
+                t.setBackgroundResource(R.drawable.aate_tab_active_bg)
+                t.setTextColor(Color.parseColor("#EFFFF9"))
                 t.setTypeface(null, android.graphics.Typeface.BOLD)
             } else {
-                t.setBackgroundResource(R.drawable.pill_bg)
-                t.setTextColor(Color.parseColor("#9CA3AF"))
+                t.setBackgroundResource(R.drawable.aate_tab_inactive_bg)
+                t.setTextColor(Color.parseColor("#94A3B8"))
                 t.setTypeface(null, android.graphics.Typeface.NORMAL)
             }
         }

@@ -54,7 +54,7 @@
     </LinearLayout>
 
     <View android:layout_width="match_parent" android:layout_height="1dp"
-        android:background="@drawable/aate_debug_card_bg"/>
+        android:background="@drawable/aate_universe_panel_bg"/>
 
     <ScrollView
         android:layout_width="match_parent"
@@ -75,7 +75,7 @@
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 android:orientation="vertical"
-                android:background="@drawable/aate_debug_card_bg"
+                android:background="@drawable/aate_universe_panel_bg"
                 android:padding="@dimen/card_padding"
                 android:layout_marginBottom="@dimen/card_margin_bottom">
 
@@ -168,7 +168,7 @@
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 android:orientation="vertical"
-                android:background="@drawable/aate_debug_card_bg"
+                android:background="@drawable/aate_universe_panel_bg"
                 android:padding="@dimen/card_padding"
                 android:layout_marginBottom="@dimen/card_margin_bottom">
 
@@ -209,7 +209,7 @@
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 android:orientation="vertical"
-                android:background="@drawable/aate_debug_card_bg"
+                android:background="@drawable/aate_universe_panel_bg"
                 android:padding="@dimen/card_padding"
                 android:layout_marginBottom="@dimen/card_margin_bottom">
 
@@ -291,7 +291,7 @@
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 android:orientation="vertical"
-                android:background="@drawable/aate_debug_card_bg"
+                android:background="@drawable/aate_universe_panel_bg"
                 android:padding="@dimen/card_padding"
                 android:layout_marginBottom="@dimen/card_margin_bottom">
 
@@ -355,7 +355,7 @@
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 android:orientation="vertical"
-                android:background="@drawable/aate_debug_card_bg"
+                android:background="@drawable/aate_universe_panel_bg"
                 android:padding="@dimen/card_padding"
                 android:layout_marginBottom="@dimen/card_margin_bottom">
 
@@ -541,7 +541,7 @@
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 android:orientation="vertical"
-                android:background="@drawable/aate_debug_card_bg"
+                android:background="@drawable/aate_universe_panel_bg"
                 android:padding="12dp"
                 android:layout_marginTop="12dp">
 
@@ -606,7 +606,7 @@
                     android:layout_width="match_parent"
                     android:layout_height="220dp"
                     android:layout_marginTop="8dp"
-                    android:background="@drawable/aate_debug_card_bg"
+                    android:background="@drawable/aate_universe_panel_bg"
                     android:padding="10dp"
                     android:scrollbars="vertical"
                     android:scrollbarThumbVertical="@android:color/darker_gray"
@@ -644,7 +644,7 @@
                         android:textColor="#E5E7EB"
                         android:textSize="11sp"
                         android:fontFamily="monospace"
-                        android:background="@drawable/aate_debug_card_bg"
+                        android:background="@drawable/aate_universe_panel_bg"
                         android:padding="8dp"
                         android:maxLines="2"
                         android:inputType="textShortMessage|textCapSentences"
@@ -699,7 +699,7 @@
                     android:textColor="#B8A5D6"
                     android:textSize="9sp"
                     android:fontFamily="monospace"
-                    android:background="#0A0014"
+                    android:background="@drawable/aate_universe_list_bg"
                     android:padding="8dp"
                     android:layout_marginTop="2dp"
                     android:visibility="gone"/>
@@ -801,7 +801,7 @@
                 android:layout_height="wrap_content"
                 android:orientation="vertical"
                 android:layout_marginTop="24dp"
-                android:background="#080F1A"
+                android:background="@drawable/aate_universe_list_bg"
                 android:padding="14dp">
 
                 <LinearLayout

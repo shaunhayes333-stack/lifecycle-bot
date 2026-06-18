@@ -64,7 +64,7 @@
         android:paddingEnd="@dimen/screen_padding"
         android:paddingTop="@dimen/inner_gap"
         android:paddingBottom="10dp"
-        android:background="@drawable/aate_debug_card_bg"
+        android:background="@drawable/aate_universe_panel_bg"
         android:layout_marginStart="@dimen/screen_padding"
         android:layout_marginEnd="@dimen/screen_padding"
         android:layout_marginTop="6dp"
@@ -123,7 +123,7 @@
     <View
         android:layout_width="match_parent"
         android:layout_height="1dp"
-        android:background="@drawable/aate_debug_card_bg"
+        android:background="@drawable/aate_universe_panel_bg"
         android:layout_marginTop="4dp"/>
 
     <!-- ── CURRENCY LIST ── -->

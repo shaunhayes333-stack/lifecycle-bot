@@ -195,7 +195,7 @@
         android:paddingTop="6dp"
         android:paddingBottom="6dp"
         android:singleLine="true"
-        android:background="@drawable/aate_debug_card_bg"/>
+        android:background="@drawable/aate_universe_panel_bg"/>
 
     <!-- ═══════════════════════════════════════════════════════════════════
          NARRATIVE LIVE strip — alive memetic clusters with bonus chips
@@ -348,7 +348,7 @@
     </HorizontalScrollView>
 
     <View android:layout_width="match_parent" android:layout_height="1dp"
-        android:background="@drawable/aate_debug_card_bg"/>
+        android:background="@drawable/aate_universe_panel_bg"/>
 
     <ScrollView
         android:id="@+id/svLabContent"
@@ -375,7 +375,7 @@
         android:orientation="horizontal"
         android:gravity="center_vertical"
         android:padding="10dp"
-        android:background="@drawable/aate_debug_card_bg"
+        android:background="@drawable/aate_universe_panel_bg"
         android:visibility="gone">
 
         <TextView

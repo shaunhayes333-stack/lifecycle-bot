@@ -109,7 +109,7 @@
     </LinearLayout>
 
     <View android:layout_width="match_parent" android:layout_height="1dp"
-        android:background="#1F2937"/>
+        android:background="@drawable/aate_universe_list_bg"/>
 
     <ProgressBar android:id="@+id/progressLoading"
         android:layout_width="match_parent" android:layout_height="3dp"
