@@ -106,13 +106,13 @@ class MainActivity : AppCompatActivity() {
     private lateinit var llOpenPositions: LinearLayout
     private lateinit var tvTotalExposure: TextView
     private lateinit var tvTotalUnrealisedPnl: TextView
-    
+
     // V4.0: Treasury positions panel
     private lateinit var cardTreasuryPositions: android.view.View
     private lateinit var llTreasuryPositions: LinearLayout
     private lateinit var tvTreasuryExposure: TextView
     private lateinit var tvTreasuryPnl: TextView
-    
+
     // V4.0: Blue Chip positions panel
     private lateinit var cardBlueChipPositions: android.view.View
     private lateinit var llBlueChipPositions: LinearLayout
@@ -142,7 +142,7 @@ class MainActivity : AppCompatActivity() {
     private lateinit var tvExpressWinRate: TextView
     private lateinit var tvExpressDailyPnl: TextView
 
-    // ☠️ The Manipulated positions panel
+    // MANIP The Manipulated positions panel
     private lateinit var cardManipulatedPositions: android.view.View
     private lateinit var llManipPositions: LinearLayout
     private lateinit var tvManipExposure: TextView
@@ -163,7 +163,7 @@ class MainActivity : AppCompatActivity() {
     private lateinit var tvMoonshotWinRate: TextView
     private lateinit var tvMoonshotDailyPnl: TextView
     private lateinit var tvMoonshotLearning: TextView
-    
+
     // V5.6.29d: Network Signals panel (Collective Intelligence)
     private lateinit var cardNetworkSignals: android.view.View
     private lateinit var llNetworkSignals: LinearLayout
@@ -172,7 +172,7 @@ class MainActivity : AppCompatActivity() {
     private lateinit var tvNetworkHotTokens: TextView
     private lateinit var tvNetworkAvoid: TextView
     private lateinit var tvNetworkLastSync: TextView
-    
+
     // V5.6.29d: Project Sniper panel
     private lateinit var cardSniperPositions: android.view.View
     private lateinit var llSniperMissions: LinearLayout
@@ -180,7 +180,7 @@ class MainActivity : AppCompatActivity() {
     private lateinit var tvSniperRank: TextView
     private lateinit var tvSniperWinRate: TextView
     private lateinit var tvSniperDailyPnl: TextView
-    
+
     // V5.2: Tile Stats TextViews (show wins/trades on each tile)
     private lateinit var tvV3Stats: TextView
     private lateinit var tvTreasuryStats: TextView
@@ -195,7 +195,7 @@ class MainActivity : AppCompatActivity() {
     private var tvShadowStats: TextView? = null
     private var tvRegimesStats: TextView? = null
     private var tv25AIsStats: TextView? = null
-    
+
     // V5.7: Perps Trading UI
     private var cardPerpsTrading: android.view.View? = null
     private var tvPerpsModeBadge: TextView? = null
@@ -209,7 +209,7 @@ class MainActivity : AppCompatActivity() {
     private var tvPerpsSolPrice: TextView? = null
     private var tvPerpsSolChange: TextView? = null
     private var llPerpsPositions: LinearLayout? = null
-    
+
     // V5.7.1: Layer Confidence Dashboard
     private var tvLayerSyncCount: TextView? = null
     private var tvLayer1Name: TextView? = null
@@ -222,12 +222,12 @@ class MainActivity : AppCompatActivity() {
     private var tvLayer4Score: TextView? = null
     private var tvLayerLearningEvents: TextView? = null
     private var tvLayerCrossSync: TextView? = null
-    
+
     // V5.7.4: Perps Card - Quick Stock Prices (AAPL, TSLA, NVDA in header)
     private var tvPerpsAaplPrice: TextView? = null
     private var tvPerpsTslaPrice: TextView? = null
     private var tvPerpsNvdaPrice: TextView? = null
-    
+
     // V1.0: Crypto Alts UI
     private var tvCryptoAltsStats: TextView? = null
     private var cardCryptoAlts: android.view.View? = null
@@ -273,7 +273,7 @@ class MainActivity : AppCompatActivity() {
     private var tvStocksMetaPrice: TextView? = null
     private var tvStocksMsftPrice: TextView? = null
     private var tvStocksCoinPrice: TextView? = null
-    
+
     // V5.7.3: Learning Insights Panel
     private var cardLearningInsights: android.view.View? = null
     private var tvInsightsCount: TextView? = null
@@ -282,7 +282,7 @@ class MainActivity : AppCompatActivity() {
     private var tvInsightsOptimizations: TextView? = null
     private var llRecentInsights: LinearLayout? = null
     private var btnViewAllInsights: TextView? = null
-    
+
     // V5.2: Side-by-side Treasury + Moonshot row
     private lateinit var rowTreasuryMoonshot: android.view.View
     private lateinit var cardTreasuryMini: android.view.View
@@ -291,7 +291,7 @@ class MainActivity : AppCompatActivity() {
     private lateinit var llMoonshotMiniPositions: LinearLayout
     private lateinit var tvTreasuryMiniPnl: TextView
     private lateinit var tvMoonshotMiniPnl: TextView
-    
+
     // V5.2: Chart enhancements
     private lateinit var tvChartSymbol: TextView
     private lateinit var tvChartPrice: TextView
@@ -299,14 +299,14 @@ class MainActivity : AppCompatActivity() {
     private var selectedChartMint: String? = null
     private var chartTimeRange: String = "5m"
     private var chartType: String = "line"
-    
+
     // V5.6: DexScreener-style chart metrics
     private var tvChartMcap: TextView? = null
     private var tvChart5mVol: TextView? = null
     private var tvChartLiq: TextView? = null
     private var tvChartHolders: TextView? = null
     private var tvChartBuyPressure: TextView? = null
-    
+
     // V4.0: AI Status panel
     private lateinit var tvAiHealth: TextView
     private lateinit var tvAiTradingMode: TextView
@@ -371,7 +371,7 @@ class MainActivity : AppCompatActivity() {
     private var lastWatchlistRenderMs: Long = 0L
     private var lastWatchlistOpenCount: Int = -1
     private var lastWatchlistActiveMint: String = ""
-    
+
     // V5.2.8: 30-Day Run Stats views
     private lateinit var card30DayRun: View
     private lateinit var tv30DayCounter: TextView
@@ -385,7 +385,7 @@ class MainActivity : AppCompatActivity() {
     private lateinit var tv30DayAccuracy: TextView
     private lateinit var tv30DayIntegrity: TextView
     private lateinit var btn30DayExport: TextView
-    
+
     // V5.6.9: Live Readiness Indicator
     private lateinit var cardLiveReadiness: View
     private lateinit var tvLiveReadinessBadge: TextView
@@ -442,16 +442,16 @@ class MainActivity : AppCompatActivity() {
 
     // NEW: Pull to refresh
     private lateinit var swipeRefresh: androidx.swiperefreshlayout.widget.SwipeRefreshLayout
-    
+
     // NEW: Quick stats
     private lateinit var tvStats24hTrades: TextView
     private lateinit var tvStatsWinRate: TextView
     private lateinit var tvStatsOpenPos: TextView
     private lateinit var tvStatsAiConf: TextView
-    
+
     // NEW: Token logo
     private lateinit var ivTokenLogo: ImageView
-    
+
     // NEW: Position PnL card
     private lateinit var cardPositionPnl: LinearLayout
     private lateinit var tvPnlSymbol: TextView
@@ -725,7 +725,7 @@ class MainActivity : AppCompatActivity() {
         super.onCreate(savedInstanceState)
         activityCreatedAtMs = System.currentTimeMillis()
         lastNetworkSigRenderMs = activityCreatedAtMs
-        
+
         // Ensure ErrorLogger is initialized (backup - App class should have done this)
         try {
             com.lifecyclebot.engine.ErrorLogger.init(applicationContext)
@@ -733,11 +733,11 @@ class MainActivity : AppCompatActivity() {
         } catch (e: Exception) {
             android.util.Log.e("MainActivity", "ErrorLogger init failed: ${e.message}")
         }
-        
+
         // V5.9.1013 — first frame before warmups. Do not load SQLite, parse
         // learning blobs, fetch SOL price, or restore paper wallet before
         // setContentView(); those were visible as 10-15s black-screen stalls.
-        
+
         try {
             setContentView(R.layout.activity_main)
             supportActionBar?.hide()
@@ -754,7 +754,7 @@ class MainActivity : AppCompatActivity() {
                 com.lifecyclebot.engine.CurrencyManager(applicationContext)
             }
             queuePostFirstFrameWarmups("onCreate")
-            
+
             // Refresh currency rates immediately
             lifecycleScope.launch(kotlinx.coroutines.Dispatchers.IO) {
                 try {
@@ -864,7 +864,7 @@ class MainActivity : AppCompatActivity() {
                         "V5.9.713: auto-restart check failed: ${'$'}{e.message}")
                 }
             }
-            
+
             // V5.0.3878 — floating diagnostic overlays removed.
             // The previous Universe / Learning / Live Forensics TextViews were
             // injected into decorView and floated over the Live Readiness card,
@@ -873,7 +873,7 @@ class MainActivity : AppCompatActivity() {
             // btnQuickUniverse, btnQuickPhase, btnQuickLearning, btnQuickForensics.
             // Do not re-add decorView overlay buttons here.
             setupOperatorDiagnosticTiles()
-            
+
             // Show first-time disclaimer if not yet agreed
             showFirstTimeDisclaimer()
 
@@ -905,17 +905,17 @@ class MainActivity : AppCompatActivity() {
                         com.lifecyclebot.v3.core.AIStartupCoordinator.initialize(this)
                     }
                     if (result.success) {
-                        com.lifecyclebot.engine.ErrorLogger.info("MainActivity", 
+                        com.lifecyclebot.engine.ErrorLogger.info("MainActivity",
                             "AI System initialized: ${result.readyLayers} ready, " +
                             "${result.degradedLayers} degraded, ${result.failedLayers} failed")
                     } else {
-                        com.lifecyclebot.engine.ErrorLogger.error("MainActivity", 
+                        com.lifecyclebot.engine.ErrorLogger.error("MainActivity",
                             "AI System FAILED: ${result.message}")
-                        Toast.makeText(this@MainActivity, 
-                            "⚠️ Some AI layers failed to initialize", Toast.LENGTH_LONG).show()
+                        Toast.makeText(this@MainActivity,
+                            "WARN Some AI layers failed to initialize", Toast.LENGTH_LONG).show()
                     }
                 } catch (e: Exception) {
-                    com.lifecyclebot.engine.ErrorLogger.error("MainActivity", 
+                    com.lifecyclebot.engine.ErrorLogger.error("MainActivity",
                         "AIStartupCoordinator error: ${e.message}")
                 }
             }
@@ -957,7 +957,7 @@ class MainActivity : AppCompatActivity() {
                     }
                 }
             }
-            
+
             com.lifecyclebot.engine.ErrorLogger.info("MainActivity", "onCreate completed successfully")
         } catch (e: Exception) {
             com.lifecyclebot.engine.ErrorLogger.crash("MainActivity", "onCreate CRASH: ${e.message}", e)
@@ -979,7 +979,7 @@ class MainActivity : AppCompatActivity() {
         // are now saved only by explicit Apply/Save actions.
         super.onPause()
     }
-    
+
     private fun rescueStrandedRuntimeIfNeeded(reason: String) {
         lifecycleScope.launch(kotlinx.coroutines.Dispatchers.IO) {
             try {
@@ -1106,7 +1106,7 @@ class MainActivity : AppCompatActivity() {
         val outer = topBar.parent as? android.widget.LinearLayout ?: return
         val tv = android.widget.TextView(this).apply {
             id = BATTERY_OPT_BANNER_VIEW_ID
-            text = "⚠ Battery optimisation is ON — bot will freeze when screen turns off. Tap to fix."
+            text = "WARN Battery optimisation is ON — bot will freeze when screen turns off. Tap to fix."
             setTextColor(0xFF0A0A0F.toInt())
             setBackgroundColor(0xFFF59E0B.toInt())
             setPadding(40, 28, 40, 28)
@@ -1303,26 +1303,26 @@ class MainActivity : AppCompatActivity() {
                 .show()
         }
     }
-    
+
     // ── First Time Disclaimer ───────────────────────────────────────────
-    
+
     private fun showFirstTimeDisclaimer() {
         val prefs = getSharedPreferences("lifecycle_disclaimer", Context.MODE_PRIVATE)
         val agreedAt = prefs.getLong("disclaimer_agreed_at", 0L)
-        
+
         // Check if current version has been agreed to
         val agreedVersion = prefs.getString("disclaimer_version", null)
         val currentVersion = com.lifecyclebot.collective.LegalAgreementManager.CURRENT_AGREEMENT_VERSION
-        
+
         // If already agreed to current version, don't show again
         if (agreedAt > 0 && agreedVersion == currentVersion) return
-        
+
         val disclaimerText = com.lifecyclebot.collective.LegalAgreementManager.DISCLAIMER_TEXT + """
 
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-📝 PAPER MODE FIRST — MANDATORY
+PAPER MODE FIRST — MANDATORY
 
 1. Start the bot in PAPER MODE only
 2. Let it run for at least 24-48 hours
@@ -1330,16 +1330,16 @@ class MainActivity : AppCompatActivity() {
 4. Review the trade journal daily
 5. Only switch to LIVE after you trust its judgment
 
-By clicking "I AGREE", you acknowledge that you have read, understood, 
-and accept full responsibility for any outcomes resulting from the use 
-of this application. Your acceptance will be recorded with timestamp 
+By clicking "I AGREE", you acknowledge that you have read, understood,
+and accept full responsibility for any outcomes resulting from the use
+of this application. Your acceptance will be recorded with timestamp
 for legal compliance.
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
         """.trimIndent()
-        
+
         val dialog = AlertDialog.Builder(this, R.style.Theme_AATE_Dialog)
-            .setTitle("🚨 AATE Risk Disclaimer v$currentVersion")
+            .setTitle("AATE Risk Disclaimer v$currentVersion")
             .setMessage(disclaimerText)
             .setCancelable(false)  // Cannot dismiss by clicking outside
             .setPositiveButton("I AGREE") { dialogInterface, _ ->
@@ -1348,10 +1348,10 @@ for legal compliance.
                 prefs.edit()
                     .putLong("disclaimer_agreed_at", timestamp)
                     .putString("disclaimer_version", currentVersion)
-                    .putString("disclaimer_agreed_date", 
+                    .putString("disclaimer_agreed_date",
                         SimpleDateFormat("yyyy-MM-dd HH:mm:ss z", Locale.getDefault()).format(Date(timestamp)))
                     .apply()
-                
+
                 // Record in collective database for legal compliance
                 lifecycleScope.launch {
                     try {
@@ -1363,23 +1363,23 @@ for legal compliance.
                         com.lifecyclebot.engine.ErrorLogger.error("Disclaimer", "Failed to record to collective: ${e.message}")
                     }
                 }
-                
+
                 // Log to ErrorLogger as well
-                com.lifecyclebot.engine.ErrorLogger.info("Disclaimer", 
+                com.lifecyclebot.engine.ErrorLogger.info("Disclaimer",
                     "User agreed to disclaimer v$currentVersion at ${SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.getDefault()).format(Date(timestamp))}")
-                
+
                 // Haptic feedback
                 performHaptic(HapticFeedbackConstants.CONFIRM)
-                
+
                 dialogInterface.dismiss()
-                
+
                 // Show brief toast confirmation
                 Toast.makeText(this, "Agreement recorded. Start in PAPER mode!", Toast.LENGTH_LONG).show()
             }
             .create()
-        
+
         dialog.show()
-        
+
         // Style the dialog button
         dialog.getButton(AlertDialog.BUTTON_POSITIVE)?.apply {
             setTextColor(green)
@@ -1406,23 +1406,23 @@ for legal compliance.
             // Repaint in ~500ms after the check likely lands
             readinessBanner.postDelayed({ renderReadiness() }, 500)
         }
-        
+
         // Brain learning indicator
         brainContainer   = try { findViewById(R.id.brainContainer) } catch (_: Exception) { FrameLayout(this) }
         pbBrainProgress  = try { findViewById(R.id.pbBrainProgress) } catch (_: Exception) { ProgressBar(this) }
         tvBrainEmoji     = try { findViewById(R.id.tvBrainEmoji) } catch (_: Exception) { TextView(this) }
-        
+
         // Click brain icon to open Collective Brain Activity
         brainContainer.setOnClickListener {
             startActivity(android.content.Intent(this, CollectiveBrainActivity::class.java))
         }
-        
+
         // Long press to show quick learning stats
         brainContainer.setOnLongClickListener {
             showLearningStats()
             true
         }
-        
+
         tvBalanceLarge  = findViewById(R.id.tvBalanceLarge)
         tvBalanceUsd    = findViewById(R.id.tvBalanceUsd)
         tvPnlChange     = findViewById(R.id.tvPnlChange)
@@ -1478,13 +1478,13 @@ for legal compliance.
             } catch (_: Exception) {}
         }
         btnOpenAlerts.setOnClickListener  { startActivity(android.content.Intent(this, AlertsActivity::class.java)) }
-        
+
         // V5.7.8: Watchlist button — long-press alerts to open watchlist
         btnOpenAlerts.setOnLongClickListener {
             startActivity(android.content.Intent(this, WatchlistActivity::class.java))
             true
         }
-        
+
         // V5.2: Behavior Dashboard button
         try {
             findViewById<android.view.View>(R.id.btnOpenBehavior)
@@ -1495,7 +1495,7 @@ for legal compliance.
                     startActivity(android.content.Intent(this, PersonaStudioActivity::class.java)); true
                 }
         } catch (_: Exception) {}
-        
+
         // V5.2: Quick Behavior Tile
         try {
             findViewById<android.view.View>(R.id.btnQuickBehavior)
@@ -1526,30 +1526,30 @@ for legal compliance.
             findViewById<android.view.View>(R.id.tvCopilotRibbon)
                 ?.setOnClickListener { startActivity(android.content.Intent(this, BehaviorActivity::class.java)) }
         } catch (_: Exception) {}
-        
+
         // Collective Brain button
         try {
             findViewById<android.widget.TextView>(R.id.btnOpenCollectiveBrain)
                 ?.setOnClickListener { startActivity(android.content.Intent(this, CollectiveBrainActivity::class.java)) }
         } catch (_: Exception) {}
-        
+
         // Historical Chart Scanner button — manual trigger
         try {
             findViewById<android.widget.TextView>(R.id.btnHistoricalScan)
                 ?.setOnClickListener { showHistoricalScanDialog() }
         } catch (_: Exception) {}
-        
+
         cardOpenPositions  = findViewById(R.id.cardOpenPositions)
         llOpenPositions    = findViewById(R.id.llOpenPositions)
         tvTotalExposure    = try { findViewById(R.id.tvTotalExposure) } catch (_: Exception) { TextView(this) }
         tvTotalUnrealisedPnl = try { findViewById(R.id.tvTotalUnrealisedPnl) } catch (_: Exception) { TextView(this) }
-        
+
         // V4.0: Treasury positions panel bindings
         cardTreasuryPositions = try { findViewById(R.id.cardTreasuryPositions) } catch (_: Exception) { android.view.View(this) }
         llTreasuryPositions = try { findViewById(R.id.llTreasuryPositions) } catch (_: Exception) { LinearLayout(this) }
         tvTreasuryExposure = try { findViewById(R.id.tvTreasuryExposure) } catch (_: Exception) { TextView(this) }
         tvTreasuryPnl = try { findViewById(R.id.tvTreasuryPnl) } catch (_: Exception) { TextView(this) }
-        
+
         // V4.0: Blue Chip positions panel bindings
         cardBlueChipPositions = try { findViewById(R.id.cardBlueChipPositions) } catch (_: Exception) { android.view.View(this) }
         llBlueChipPositions = try { findViewById(R.id.llBlueChipPositions) } catch (_: Exception) { LinearLayout(this) }
@@ -1579,7 +1579,7 @@ for legal compliance.
         tvExpressWinRate = try { findViewById(R.id.tvExpressWinRate) } catch (_: Exception) { TextView(this) }
         tvExpressDailyPnl = try { findViewById(R.id.tvExpressDailyPnl) } catch (_: Exception) { TextView(this) }
 
-        // ☠️ The Manipulated positions panel bindings
+        // MANIP The Manipulated positions panel bindings
         cardManipulatedPositions = try { findViewById(R.id.cardManipulatedPositions) } catch (_: Exception) { android.view.View(this) }
         llManipPositions = try { findViewById(R.id.llManipPositions) } catch (_: Exception) { LinearLayout(this) }
         tvManipExposure = try { findViewById(R.id.tvManipExposure) } catch (_: Exception) { TextView(this) }
@@ -1597,7 +1597,7 @@ for legal compliance.
         tvMoonshotWinRate = try { findViewById(R.id.tvMoonshotWinRate) } catch (_: Exception) { TextView(this) }
         tvMoonshotDailyPnl = try { findViewById(R.id.tvMoonshotDailyPnl) } catch (_: Exception) { TextView(this) }
         tvMoonshotLearning = try { findViewById(R.id.tvMoonshotLearning) } catch (_: Exception) { TextView(this) }
-        
+
         // V5.6.29d: Network Signals panel bindings (Collective Intelligence)
         cardNetworkSignals = try { findViewById(R.id.cardNetworkSignals) } catch (_: Exception) { android.view.View(this) }
         llNetworkSignals = try { findViewById(R.id.llNetworkSignals) } catch (_: Exception) { LinearLayout(this) }
@@ -1606,7 +1606,7 @@ for legal compliance.
         tvNetworkHotTokens = try { findViewById(R.id.tvNetworkHotTokens) } catch (_: Exception) { TextView(this) }
         tvNetworkAvoid = try { findViewById(R.id.tvNetworkAvoid) } catch (_: Exception) { TextView(this) }
         tvNetworkLastSync = try { findViewById(R.id.tvNetworkLastSync) } catch (_: Exception) { TextView(this) }
-        
+
         // V5.6.29d: Project Sniper panel bindings
         cardSniperPositions = try { findViewById(R.id.cardSniperPositions) } catch (_: Exception) { android.view.View(this) }
         llSniperMissions = try { findViewById(R.id.llSniperMissions) } catch (_: Exception) { LinearLayout(this) }
@@ -1614,7 +1614,7 @@ for legal compliance.
         tvSniperRank = try { findViewById(R.id.tvSniperRank) } catch (_: Exception) { TextView(this) }
         tvSniperWinRate = try { findViewById(R.id.tvSniperWinRate) } catch (_: Exception) { TextView(this) }
         tvSniperDailyPnl = try { findViewById(R.id.tvSniperDailyPnl) } catch (_: Exception) { TextView(this) }
-        
+
         // V5.2: Tile stats TextViews - show wins/trades on each tile
         tvV3Stats = try { findViewById(R.id.tvV3Stats) } catch (_: Exception) { TextView(this) }
         tvTreasuryStats = try { findViewById(R.id.tvTreasuryStats) } catch (_: Exception) { TextView(this) }
@@ -1628,7 +1628,7 @@ for legal compliance.
         tvShadowStats = try { findViewById(R.id.tvShadowStats) } catch (_: Exception) { null }
         tvRegimesStats = try { findViewById(R.id.tvRegimesStats) } catch (_: Exception) { null }
         tv25AIsStats = try { findViewById(R.id.tv25AIsStats) } catch (_: Exception) { null }
-        
+
         // V5.7: Perps Trading UI bindings
         cardPerpsTrading = try { findViewById(R.id.cardPerpsTrading) } catch (_: Exception) { null }
         tvPerpsModeBadge = try { findViewById(R.id.tvPerpsModeBadge) } catch (_: Exception) { null }
@@ -1642,7 +1642,7 @@ for legal compliance.
         tvPerpsSolPrice = try { findViewById(R.id.tvPerpsSolPrice) } catch (_: Exception) { null }
         tvPerpsSolChange = try { findViewById(R.id.tvPerpsSolChange) } catch (_: Exception) { null }
         llPerpsPositions = try { findViewById(R.id.llPerpsPositions) } catch (_: Exception) { null }
-        
+
         // V5.7.1: Layer Confidence Dashboard bindings
         tvLayerSyncCount = try { findViewById(R.id.tvLayerSyncCount) } catch (_: Exception) { null }
         tvLayer1Name = try { findViewById(R.id.tvLayer1Name) } catch (_: Exception) { null }
@@ -1655,12 +1655,12 @@ for legal compliance.
         tvLayer4Score = try { findViewById(R.id.tvLayer4Score) } catch (_: Exception) { null }
         tvLayerLearningEvents = try { findViewById(R.id.tvLayerLearningEvents) } catch (_: Exception) { null }
         tvLayerCrossSync = try { findViewById(R.id.tvLayerCrossSync) } catch (_: Exception) { null }
-        
+
         // V5.7.4: Perps Card - Quick Stock Prices (AAPL, TSLA, NVDA in header)
         tvPerpsAaplPrice = try { findViewById(R.id.tvPerpsAaplPrice) } catch (_: Exception) { null }
         tvPerpsTslaPrice = try { findViewById(R.id.tvPerpsTslaPrice) } catch (_: Exception) { null }
         tvPerpsNvdaPrice = try { findViewById(R.id.tvPerpsNvdaPrice) } catch (_: Exception) { null }
-        
+
         // V5.7.3: Tokenized Stocks UI bindings
         cardTokenizedStocks = try { findViewById(R.id.cardTokenizedStocks) } catch (_: Exception) { null }
         tvStocksModeBadge = try { findViewById(R.id.tvStocksModeBadge) } catch (_: Exception) { null }
@@ -1683,7 +1683,7 @@ for legal compliance.
         tvStocksMetaPrice = try { findViewById(R.id.tvStocksMetaPrice) } catch (_: Exception) { null }
         tvStocksMsftPrice = try { findViewById(R.id.tvStocksMsftPrice) } catch (_: Exception) { null }
         tvStocksCoinPrice = try { findViewById(R.id.tvStocksCoinPrice) } catch (_: Exception) { null }
-        
+
         // V5.7.3: Learning Insights Panel bindings
         cardLearningInsights = try { findViewById(R.id.cardLearningInsights) } catch (_: Exception) { null }
         tvInsightsCount = try { findViewById(R.id.tvInsightsCount) } catch (_: Exception) { null }
@@ -1692,7 +1692,7 @@ for legal compliance.
         tvInsightsOptimizations = try { findViewById(R.id.tvInsightsOptimizations) } catch (_: Exception) { null }
         llRecentInsights = try { findViewById(R.id.llRecentInsights) } catch (_: Exception) { null }
         btnViewAllInsights = try { findViewById(R.id.btnViewAllInsights) } catch (_: Exception) { null }
-        
+
         // V5.2: Side-by-side Treasury + Moonshot
         rowTreasuryMoonshot = try { findViewById(R.id.rowTreasuryMoonshot) } catch (_: Exception) { android.view.View(this) }
         cardTreasuryMini = try { findViewById(R.id.cardTreasuryMini) } catch (_: Exception) { android.view.View(this) }
@@ -1701,22 +1701,22 @@ for legal compliance.
         llMoonshotMiniPositions = try { findViewById(R.id.llMoonshotMiniPositions) } catch (_: Exception) { LinearLayout(this) }
         tvTreasuryMiniPnl = try { findViewById(R.id.tvTreasuryMiniPnl) } catch (_: Exception) { TextView(this) }
         tvMoonshotMiniPnl = try { findViewById(R.id.tvMoonshotMiniPnl) } catch (_: Exception) { TextView(this) }
-        
+
         // V5.2: Chart enhancements
         tvChartSymbol = try { findViewById(R.id.tvChartSymbol) } catch (_: Exception) { TextView(this) }
         tvChartPrice = try { findViewById(R.id.tvChartPrice) } catch (_: Exception) { TextView(this) }
         candleChart = try { findViewById(R.id.candleChart) } catch (_: Exception) { com.github.mikephil.charting.charts.CandleStickChart(this) }
-        
+
         // V5.6: DexScreener-style chart metrics
         tvChartMcap = try { findViewById(R.id.tvChartMcap) } catch (_: Exception) { null }
         tvChart5mVol = try { findViewById(R.id.tvChart5mVol) } catch (_: Exception) { null }
         tvChartLiq = try { findViewById(R.id.tvChartLiq) } catch (_: Exception) { null }
         tvChartHolders = try { findViewById(R.id.tvChartHolders) } catch (_: Exception) { null }
         tvChartBuyPressure = try { findViewById(R.id.tvChartBuyPressure) } catch (_: Exception) { null }
-        
+
         // V5.9.1019 — setupChartControls() moved to deferred onCreate post-frame block.
         // It was the #1 ANR offender at 1321ms (setOnClickListener → ImeFocusController init).
-        
+
         // V4.0: AI Status panel bindings
         tvAiHealth = try { findViewById(R.id.tvAiHealth) } catch (_: Exception) { TextView(this) }
         tvAiTradingMode = try { findViewById(R.id.tvAiTradingMode) } catch (_: Exception) { TextView(this) }
@@ -1725,7 +1725,7 @@ for legal compliance.
         tvAiShitCoin = try { findViewById(R.id.tvAiShitCoin) } catch (_: Exception) { TextView(this) }
         tvAiLearning = try { findViewById(R.id.tvAiLearning) } catch (_: Exception) { TextView(this) }
         tvAiLayers = try { findViewById(R.id.tvAiLayers) } catch (_: Exception) { TextView(this) }
-        
+
         // V5.2.8: 30-Day Run Stats bindings
         card30DayRun = try { findViewById(R.id.card30DayRun) } catch (_: Exception) { View(this) }
         tv30DayCounter = try { findViewById(R.id.tv30DayCounter) } catch (_: Exception) { TextView(this) }
@@ -1739,7 +1739,7 @@ for legal compliance.
         tv30DayAccuracy = try { findViewById(R.id.tv30DayAccuracy) } catch (_: Exception) { TextView(this) }
         tv30DayIntegrity = try { findViewById(R.id.tv30DayIntegrity) } catch (_: Exception) { TextView(this) }
         btn30DayExport = try { findViewById(R.id.btn30DayExport) } catch (_: Exception) { TextView(this) }
-        
+
         // V5.6.9: Live Readiness Indicator views
         cardLiveReadiness = try { findViewById(R.id.cardLiveReadiness) } catch (_: Exception) { View(this) }
         tvLiveReadinessBadge = try { findViewById(R.id.tvLiveReadinessBadge) } catch (_: Exception) { TextView(this) }
@@ -1760,23 +1760,23 @@ for legal compliance.
         tabTraderAlts?.setOnClickListener  { selectReadinessTab("ALTS") }
         tabTraderPerps?.setOnClickListener { selectReadinessTab("PERPS") }
         applyTabStyles()
-        
+
         // V5.2.8: Export button click listener
         btn30DayExport.setOnClickListener {
             try {
                 com.lifecyclebot.engine.RunTracker30D.exportAllReports()
-                Toast.makeText(this, "📥 Reports exported to /reports/", Toast.LENGTH_SHORT).show()
+                Toast.makeText(this, "Reports exported to /reports/", Toast.LENGTH_SHORT).show()
             } catch (e: Exception) {
                 Toast.makeText(this, "Export failed: ${e.message}", Toast.LENGTH_SHORT).show()
             }
         }
-        
+
         // V5.7.5: Long-press 30-day card to reset
         card30DayRun.setOnLongClickListener {
             show30DayResetDialog()
             true
         }
-        
+
         llTokenList     = findViewById(R.id.llTokenList)
         llProbationList = findViewById(R.id.llProbationList)  // V5.0
         llIdleList      = findViewById(R.id.llIdleList)       // V5.2: Idle column
@@ -1810,21 +1810,21 @@ for legal compliance.
         switchSounds    = try { findViewById(R.id.switchSounds) } catch (_: Exception) { android.widget.Switch(this) }
         switchDarkMode  = try { findViewById(R.id.switchDarkMode) } catch (_: Exception) { androidx.appcompat.widget.SwitchCompat(this) }
         btnSave         = findViewById(R.id.btnSave)
-        
+
         // Notification toggle listener - save immediately when toggled
         switchNotifications.setOnCheckedChangeListener { _, isChecked ->
             val currentConfig = com.lifecyclebot.data.ConfigStore.load(applicationContext)
             com.lifecyclebot.data.ConfigStore.save(applicationContext, currentConfig.copy(notificationsEnabled = isChecked))
             com.lifecyclebot.engine.ErrorLogger.info("Settings", "Notifications ${if (isChecked) "ENABLED" else "DISABLED"}")
         }
-        
+
         // Sound toggle listener - save immediately when toggled
         switchSounds.setOnCheckedChangeListener { _, isChecked ->
             val currentConfig = com.lifecyclebot.data.ConfigStore.load(applicationContext)
             com.lifecyclebot.data.ConfigStore.save(applicationContext, currentConfig.copy(soundEnabled = isChecked))
             com.lifecyclebot.engine.ErrorLogger.info("Settings", "Sounds ${if (isChecked) "ENABLED" else "DISABLED"}")
         }
-        
+
         // Dark mode toggle listener
         switchDarkMode.setOnCheckedChangeListener { _, isChecked ->
             applyTheme(isChecked)
@@ -1835,7 +1835,7 @@ for legal compliance.
 
         // Clear settings button
         setupClearSettingsButton()
-        
+
         // Test toast button (for debugging notifications)
         setupTestToastButton()
 
@@ -1846,11 +1846,11 @@ for legal compliance.
         // is now invoked from the same post-block that defers setupChart /
         // setupChartControls / setupSettings.
         // setupQuickActionButtons()
-        
+
         // V5.7.3: Setup perps and stocks card click handlers
         setupPerpsPositionClickHandlers()
         setupStockButtonClickHandlers()
-        
+
         // V5.7.4: Setup Network Signals / Insider Tracker click handlers
         try {
             cardNetworkSignals.setOnClickListener {
@@ -1908,8 +1908,8 @@ for legal compliance.
         btnToggle       = findViewById(R.id.btnToggle)
 
         // NEW: Pull-to-refresh
-        swipeRefresh    = try { findViewById(R.id.swipeRefresh) } catch (_: Exception) { 
-            androidx.swiperefreshlayout.widget.SwipeRefreshLayout(this) 
+        swipeRefresh    = try { findViewById(R.id.swipeRefresh) } catch (_: Exception) {
+            androidx.swiperefreshlayout.widget.SwipeRefreshLayout(this)
         }
         swipeRefresh.setColorSchemeColors(purple, green, amber)
         swipeRefresh.setOnRefreshListener {
@@ -1920,16 +1920,16 @@ for legal compliance.
             // Stop the animation after a delay
             swipeRefresh.postDelayed({ swipeRefresh.isRefreshing = false }, 1500)
         }
-        
+
         // NEW: Quick stats
         tvStats24hTrades = try { findViewById(R.id.tvStats24hTrades) } catch (_: Exception) { TextView(this) }
         tvStatsWinRate   = try { findViewById(R.id.tvStatsWinRate) } catch (_: Exception) { TextView(this) }
         tvStatsOpenPos   = try { findViewById(R.id.tvStatsOpenPos) } catch (_: Exception) { TextView(this) }
         tvStatsAiConf    = try { findViewById(R.id.tvStatsAiConf) } catch (_: Exception) { TextView(this) }
-        
+
         // NEW: Token logo
         ivTokenLogo      = try { findViewById(R.id.ivTokenLogo) } catch (_: Exception) { ImageView(this) }
-        
+
         // NEW: Position PnL card
         cardPositionPnl  = try { findViewById(R.id.cardPositionPnl) } catch (_: Exception) { LinearLayout(this) }
         tvPnlSymbol      = try { findViewById(R.id.tvPnlSymbol) } catch (_: Exception) { TextView(this) }
@@ -1952,21 +1952,21 @@ for legal compliance.
         btnWalletTop.setOnClickListener {
             startActivity(Intent(this, WalletActivity::class.java))
         }
-        
+
         // Currency selector - opens currency picker
         btnCurrencySelector.setOnClickListener {
             startActivity(Intent(this, CurrencyActivity::class.java))
         }
         // Update currency selector text on init
         updateCurrencySelectorText()
-        
+
         btnAddToken.setOnClickListener { addToken() }
         btnSave.setOnClickListener { saveSettings() }
-        
+
         // V5.1: Export/Import learning data buttons
         findViewById<View>(R.id.btnExportData)?.setOnClickListener { exportLearningData() }
         findViewById<View>(R.id.btnImportData)?.setOnClickListener { importLearningData() }
-        
+
         tvAdvancedToggle.setOnClickListener {
             try {
                 advancedExpanded = !advancedExpanded
@@ -2157,7 +2157,7 @@ for legal compliance.
             candleChart.clear()
             return
         }
-        
+
         // Pick the right history bucket based on chartTimeRange
         val sourceHistory: List<com.lifecyclebot.data.Candle> = try {
             when (chartTimeRange) {
@@ -2167,7 +2167,7 @@ for legal compliance.
                 else  -> synchronized(ts.history) { ts.history.toList() }       // 1m default
             }
         } catch (_: Exception) { emptyList() }
-        
+
         if (sourceHistory.isEmpty()) {
             candleChart.clear()
             lastCandleChartSig = ""
@@ -2191,7 +2191,7 @@ for legal compliance.
             val low   = if (candle.lowUsd  > 0) candle.lowUsd.toFloat()  else minOf(open, close) * 0.999f
             entries.add(com.github.mikephil.charting.data.CandleEntry(idx.toFloat(), high, low, open, close))
         }
-        
+
         val ds = com.github.mikephil.charting.data.CandleDataSet(entries, "").apply {
             setDrawIcons(false)
             shadowColor = 0xFF6B7280.toInt()
@@ -2203,7 +2203,7 @@ for legal compliance.
             neutralColor = 0xFF6B7280.toInt()
             setDrawValues(false)
         }
-        
+
         candleChart.data = com.github.mikephil.charting.data.CandleData(ds)
         candleChart.invalidate()
     }
@@ -2263,7 +2263,7 @@ for legal compliance.
                 com.lifecyclebot.engine.BotService.status.paperWalletLastRefreshMs = System.currentTimeMillis()
                 com.lifecyclebot.engine.ErrorLogger.info(
                     "MainActivity",
-                    "💰 Paper wallet cold-open hydrate ($reason): ${"%.4f".format(restored.balanceSol)} SOL"
+                    "TREASURY Paper wallet cold-open hydrate ($reason): ${"%.4f".format(restored.balanceSol)} SOL"
                 )
             }
         } catch (e: Exception) {
@@ -2275,23 +2275,23 @@ for legal compliance.
 
     /**
      * V5.9.29: Render the live-readiness banner.
-     *   🟢 GREEN   — Jupiter + Pyth both healthy → live trading safe
-     *   🟡 YELLOW  — Jupiter OK but oracle slow/down → degraded
-     *   🔴 RED     — Jupiter unreachable → live swaps WILL fail; stay in paper
-     *   ⚪ UNKNOWN — first check hasn't returned yet
+     *   OK GREEN   — Jupiter + Pyth both healthy → live trading safe
+     *   WARN YELLOW  — Jupiter OK but oracle slow/down → degraded
+     *   FAIL RED     — Jupiter unreachable → live swaps WILL fail; stay in paper
+     *   INIT UNKNOWN — first check hasn't returned yet
      * Tap the banner to force an immediate re-check.
      */
     private fun renderReadiness() {
         val snap = com.lifecyclebot.network.LiveReadinessChecker.current()
         val (dot, textColor, bgDrawable) = when (snap.state) {
             com.lifecyclebot.network.LiveReadinessChecker.State.GREEN ->
-                Triple("🟢", 0xFF9CA3AF.toInt(), R.drawable.aate_status_strip_green)
+                Triple("OK", 0xFF9CA3AF.toInt(), R.drawable.aate_status_strip_green)
             com.lifecyclebot.network.LiveReadinessChecker.State.YELLOW ->
-                Triple("🟡", 0xFFFCD34D.toInt(), R.drawable.aate_status_strip_yellow)
+                Triple("WARN", 0xFFFCD34D.toInt(), R.drawable.aate_status_strip_yellow)
             com.lifecyclebot.network.LiveReadinessChecker.State.RED ->
-                Triple("🔴", 0xFFF87171.toInt(), R.drawable.aate_status_strip_red)
+                Triple("FAIL", 0xFFF87171.toInt(), R.drawable.aate_status_strip_red)
             com.lifecyclebot.network.LiveReadinessChecker.State.UNKNOWN ->
-                Triple("⚪", 0xFF6B7280.toInt(), R.drawable.aate_status_strip_unknown)
+                Triple("INIT", 0xFF6B7280.toInt(), R.drawable.aate_status_strip_unknown)
         }
         tvReadinessDot.setTextIfChanged(dot)
         tvReadinessStatus.setTextIfChanged(snap.summary)
@@ -2304,7 +2304,7 @@ for legal compliance.
             // in real time whether the bot is actively hunting.
             val att = try {
                 val s = com.lifecyclebot.engine.LiveAttemptStats.snapshot()
-                if (s.attempts > 0) " · ⚡${s.executed}/${s.attempts}" else ""
+                if (s.attempts > 0) " · EXEC ${s.executed}/${s.attempts}" else ""
             } catch (_: Throwable) { "" }
             "$jup · $py$att"
         } else "")
@@ -2409,8 +2409,8 @@ for legal compliance.
         statusDot.setBackgroundDrawableIfChanged(dotKey, cachedDrawable(this, dotKey))
 
         tvBotStatus.setTextIfChanged(when {
-            isHalted  -> "🛑 ${cb.haltReason.take(40)}"
-            isPaused  -> "⏸ Paused ${cb.pauseRemainingSecs}s  •  ${cb.consecutiveLosses} losses"
+            isHalted  -> "HALT · ${cb.haltReason.take(40)}"
+            isPaused  -> "PAUSED · ${cb.pauseRemainingSecs}s  •  ${cb.consecutiveLosses} losses"
             running && activeToken?.signal in listOf("BUY","EXIT","SELL") ->
                 "Signal: ${activeToken?.signal}  •  ${activeToken?.symbol ?: ""}"
             running   -> "Scanning  ${activeToken?.symbol ?: ""}  •  ${cb.consecutiveLosses} consec losses"
@@ -2434,7 +2434,7 @@ for legal compliance.
         tvAutoMode.setTextColorIfChanged(mode.colour)
 
         if (state.blacklistedCount > 0) {
-            tvBotStatus.text = tvBotStatus.text.toString() + "  🚫${state.blacklistedCount}"
+            tvBotStatus.text = tvBotStatus.text.toString() + "  · BLK ${state.blacklistedCount}"
         }
         // V5.9.1569 — this logger fired 111 times in 52m on the main thread.
         // Keep a low-rate heartbeat only; render truth is visible in UI/state anyway.
@@ -2694,7 +2694,7 @@ for legal compliance.
         if (balSol > 0.001) {
             tvBalanceLarge.setTextIfChanged(compactHeroBalance(balSol))  // V5.0.3874 mobile-safe compact headline
             // V5.9.773 — BIG explicit mode chip so the operator can never
-            // confuse "🟢 APIs READY" (Jupiter/Pyth health) with actual
+            // confuse "OK APIs READY" (Jupiter/Pyth health) with actual
             // trade mode. Per troubleshoot RCA: user saw "LIVE READY"
             // banner and thought bot was live, but cfg.paperMode=true.
             tvBalanceUsd.setTextIfChanged(if (config.paperMode) "PAPER" else "LIVE")
@@ -2797,11 +2797,11 @@ for legal compliance.
         try {
             val sc = com.lifecyclebot.engine.SymbolicContext
             val moodEmoji = when (sc.emotionalState) {
-                "PANIC"    -> "😱"
-                "FEARFUL"  -> "😟"
-                "EUPHORIC" -> "🤩"
-                "GREEDY"   -> "😈"
-                else       -> "🧠"
+                "PANIC"    -> "PANIC"
+                "FEARFUL"  -> "FEAR"
+                "EUPHORIC" -> "EUPH"
+                "GREEDY"   -> "GREED"
+                else       -> "STATE"
             }
             val moodColor = when (sc.emotionalState) {
                 "PANIC"    -> 0xFFFF4444.toInt()
@@ -2832,9 +2832,9 @@ for legal compliance.
                 // Only surface once copilot has emitted at least one directive.
                 if (com.lifecyclebot.engine.TradingCopilot.lastUpdated() > 0 && ageMs < 30L * 60_000L) {
                     val (label, color) = when (d.learningHealth) {
-                        com.lifecyclebot.engine.TradingCopilot.LearningHealth.EXCELLENT -> "🧠 EXCELLENT" to 0xFF00FF88.toInt()
-                        com.lifecyclebot.engine.TradingCopilot.LearningHealth.STEADY    -> "🧠 STEADY"    to 0xFF9CA3AF.toInt()
-                        com.lifecyclebot.engine.TradingCopilot.LearningHealth.DRIFTING  -> "🧠 DRIFTING"  to 0xFFFFAA00.toInt()
+                        com.lifecyclebot.engine.TradingCopilot.LearningHealth.EXCELLENT -> "EXCELLENT" to 0xFF00FF88.toInt()
+                        com.lifecyclebot.engine.TradingCopilot.LearningHealth.STEADY    -> "STEADY"    to 0xFF9CA3AF.toInt()
+                        com.lifecyclebot.engine.TradingCopilot.LearningHealth.DRIFTING  -> "DRIFTING"  to 0xFFFFAA00.toInt()
                         // V5.9.495z35 — never call our own layers POISONED.
                         // Show the coaching curriculum count instead so the
                         // operator sees we're tutoring, not dying.
@@ -2842,7 +2842,7 @@ for legal compliance.
                             val count = try {
                                 com.lifecyclebot.engine.CoachingCurriculum.count()
                             } catch (_: Throwable) { 0 }
-                            (if (count > 0) "🧑‍🏫 COACHING ($count)" else "🧑‍🏫 COACHING") to 0xFF8B5CF6.toInt()
+                            (if (count > 0) "COACHING ($count)" else "COACHING") to 0xFF8B5CF6.toInt()
                         }
                     }
                     pill.setTextIfChanged(label)
@@ -2885,10 +2885,10 @@ for legal compliance.
                 val tier = com.lifecyclebot.engine.QualityLadder.tier()
                 val sizeMult = com.lifecyclebot.engine.QualityLadder.sizeMultiplier()
                 val icon = when (tier) {
-                    0    -> "🔓"
-                    1, 2 -> "🟡"
-                    3, 4 -> "🟠"
-                    else -> "🔴"
+                    0    -> "T0"
+                    1, 2 -> "T1"
+                    3, 4 -> "T3"
+                    else -> "T5"
                 }
                 // V5.9.495z32 — augment label with TierState so users can
                 // see WHY a high tier is not "ready" (TIER_COUNT_UNLOCKED
@@ -2956,28 +2956,28 @@ for legal compliance.
                 // canonical status tag from WrRecoveryPartial.statusTag().
                 val wrRecoveryTag = try {
                     // V5.9.797 — operator audit: pull the active-band badge (e.g. F@30%,
-                    // M@25%, A@18%, with ⚡ prefix when predictive escalated) instead of
+                    // M@25%, A@18%, with SIGNAL prefix when predictive escalated) instead of
                     // the stale hardcoded "@9%". When recovery is off the badge is empty.
                     // V5.9.1332 — main-thread ANR fix: route through UiSnapshotCache
                     // (2.5s TTL). Raw shortBadge() scans TradeHistoryStore on every
                     // updateUi() and was producing 1004ms freezes.
                     val short = com.lifecyclebot.ui.UiSnapshotCache.wrShortBadge()
-                    if (short == "off") "" else "🚑 WR recovery $short"
+                    if (short == "off") "" else "WR recovery $short"
                 } catch (_: Throwable) { "" }
 
                 if (streakBlocks == 0 && distrustPauses == 0 && coachingCount == 0 &&
                     recoveryLocks == 0 && amountViolations == 0 && wrRecoveryTag.isEmpty()) {
-                    gs.setTextIfChanged("🛡 Guards: clear" + appendDeferTile())
+                    gs.setTextIfChanged("GUARDS · CLEAR" + appendDeferTile())
                     gs.setTextColor(0xFF6B7280.toInt())
                 } else {
                     val parts = mutableListOf<String>()
                     if (streakBlocks > 0) parts += "$streakBlocks streak-block${if (streakBlocks == 1) "" else "s"}"
                     if (distrustPauses > 0) parts += "$distrustPauses cooling"
                     if (coachingCount > 0) parts += "$coachingCount coaching"
-                    if (recoveryLocks > 0) parts += "🔒 $recoveryLocks recovery-lock${if (recoveryLocks == 1) "" else "s"}"
-                    if (amountViolations > 0) parts += "🚨 $amountViolations amount-violation${if (amountViolations == 1) "" else "s"}"
+                    if (recoveryLocks > 0) parts += "$recoveryLocks recovery-lock${if (recoveryLocks == 1) "" else "s"}"
+                    if (amountViolations > 0) parts += "$amountViolations amount-violation${if (amountViolations == 1) "" else "s"}"
                     if (wrRecoveryTag.isNotEmpty()) parts += wrRecoveryTag
-                    gs.setTextIfChanged("🛡 Guards: " + parts.joinToString(" · ") + appendDeferTile())
+                    gs.setTextIfChanged("GUARDS · " + parts.joinToString(" · ") + appendDeferTile())
                     gs.setTextColor(if (distrustPauses > 0 || streakBlocks > 0 || amountViolations > 0) 0xFFFFAA00.toInt() else 0xFF9CA3AF.toInt())
                 }
                 gs.visibility = android.view.View.VISIBLE
@@ -3014,7 +3014,7 @@ for legal compliance.
                 if (txt.isBlank()) {
                     lb.visibility = android.view.View.GONE
                 } else {
-                    lb.setTextIfChanged("🏆 Top-3: $txt")
+                    lb.setTextIfChanged("TOP-3 · $txt")
                     lb.visibility = android.view.View.VISIBLE
                 }
                 }
@@ -3030,10 +3030,10 @@ for legal compliance.
             val d = com.lifecyclebot.engine.TradingCopilot.current()
             val ageMs = System.currentTimeMillis() - com.lifecyclebot.engine.TradingCopilot.lastUpdated()
             val moodIcon = when (d.mood) {
-                com.lifecyclebot.engine.TradingCopilot.TradeMood.EMERGENCY_BRAKE -> "🛑"
-                com.lifecyclebot.engine.TradingCopilot.TradeMood.PROTECT          -> "🟠"
-                com.lifecyclebot.engine.TradingCopilot.TradeMood.AGGRESSIVE_HUNT  -> "🟢"
-                else -> "🧭"
+                com.lifecyclebot.engine.TradingCopilot.TradeMood.EMERGENCY_BRAKE -> "HALT"
+                com.lifecyclebot.engine.TradingCopilot.TradeMood.PROTECT          -> "RISK"
+                com.lifecyclebot.engine.TradingCopilot.TradeMood.AGGRESSIVE_HUNT  -> "HUNT"
+                else -> "NAV"
             }
             val show = ageMs in 0..(15 * 60_000L) &&
                        (d.mood != com.lifecyclebot.engine.TradingCopilot.TradeMood.NORMAL ||
@@ -3063,12 +3063,12 @@ for legal compliance.
             val isPaper = cfg.paperMode
             val trs: Double
             val trsUsd: Double
-            
+
             // V5.6.20: Get SOL price with fallback to prevent $0 display bug
             val solPrice = com.lifecyclebot.engine.WalletManager.lastKnownSolPrice.takeIf { it > 0 }
                 ?: ws.solPriceUsd.takeIf { it > 0 }
                 ?: 130.0  // Reasonable fallback if all else fails
-            
+
             if (isPaper) {
                 // V5.9.425 — paper mode previously read CashGenerationAI's separate
                 // auto-compound counter, which hid the 70/30 meme-sell splits that
@@ -3082,7 +3082,7 @@ for legal compliance.
                 // V5.6.20: Also recalculate USD in live mode if ws.treasuryUsd is 0
                 trsUsd = if (ws.treasuryUsd > 0) ws.treasuryUsd else trs * solPrice
             }
-            
+
             // V5.6.21: Calculate milestone tier DYNAMICALLY based on actual treasury USD value
             // This fixes the issue where paper mode showed "Max tier reached" with only $780
             val milestones = com.lifecyclebot.engine.TreasuryManager.MILESTONES
@@ -3092,12 +3092,12 @@ for legal compliance.
                     currentTierIdx = idx
                 }
             }
-            
+
             val tier = if (currentTierIdx >= 0) milestones[currentTierIdx].label else "None"
             val nextMilestone = milestones.getOrNull(currentTierIdx + 1)
             val nextUsd = nextMilestone?.thresholdUsd ?: 0.0
             val modeLabel = if (isPaper) " [PAPER]" else ""
-            
+
             // Update BOTH old and new treasury views (new views have "2" suffix)
             val tierText = if (trs > 0.001) "Tier: $tier$modeLabel" else "Tier: None$modeLabel"
             val amountText = if (trs > 0.001) "${"%.3f".format(trs)} SOL  ($${"%.0f".format(trsUsd)})" else "—"
@@ -3106,12 +3106,12 @@ for legal compliance.
                 trs > 0     -> "Max tier reached"
                 else        -> "First: $500"
             }
-            
+
             // Old views (hidden but keeping for compatibility)
             findViewById<android.widget.TextView?>(R.id.tvTreasuryTier)?.text = tierText
             findViewById<android.widget.TextView?>(R.id.tvTreasuryAmount)?.text = amountText
             findViewById<android.widget.TextView?>(R.id.tvTreasuryNext)?.text = nextText
-            
+
             // New visible views (V5.6.8 moved section)
             findViewById<android.widget.TextView?>(R.id.tvTreasuryTier2)?.text = tierText
             findViewById<android.widget.TextView?>(R.id.tvTreasuryAmount2)?.text = amountText
@@ -3121,7 +3121,7 @@ for legal compliance.
         // ── bot status card ───────────────────────────────────────────
         tvTokenName.setTextIfChanged(ts?.symbol?.ifBlank { "Scanning $uiTokenCount tokens" }
             ?: if (state.running || runtimeActiveForUi) "Scanning $uiTokenCount tokens" else "No token selected")
-        
+
         // Load token logo from DexScreener
         if (ts != null) {
             val heroLogoUrl = ts.logoUrl.ifBlank { "https://cdn.dexscreener.com/tokens/solana/${ts.mint}.png" }
@@ -3135,18 +3135,18 @@ for legal compliance.
         } else {
             ivTokenLogo.setImageResource(R.drawable.ic_token_placeholder)
         }
-        
+
         val ageMins = if (ts != null && ts.history.isNotEmpty()) {
             (System.currentTimeMillis() - ts.history.first().ts) / 60_000.0
         } else -1.0
-        
+
         // V3.2: Show ACTUAL trading mode from MarketStructureRouter instead of simple age label
         val modeLabel = if (ts != null) {
             if (runtimeActiveForUi) {
                 when {
                     ageMins < 0  -> ""
-                    ageMins <= 15 -> " · 🚀 Fresh"
-                    else         -> " · 📊 Range"
+                    ageMins <= 15 -> " · FRESH"
+                    else         -> " · RANGE"
                 }
             } else try {
                 val classification = com.lifecyclebot.v3.modes.MarketStructureRouter.classify(ts)
@@ -3154,8 +3154,8 @@ for legal compliance.
             } catch (_: Exception) {
                 when {
                     ageMins < 0  -> ""
-                    ageMins <= 15 -> " · 🚀 Fresh"
-                    else         -> " · 📊 Range"
+                    ageMins <= 15 -> " · FRESH"
+                    else         -> " · RANGE"
                 }
             }
         } else ""
@@ -3208,7 +3208,7 @@ for legal compliance.
             chartEntries.clear()
             chartIdx = 0f
             lastChartTokenMint = ts.mint
-            
+
             // Build chart from historical candles
             synchronized(ts.history) {
                 val historyList = ts.history.takeLast(100)
@@ -3218,7 +3218,7 @@ for legal compliance.
                     }
                 }
             }
-            
+
             // Update chart display
             if (chartEntries.isNotEmpty()) {
                 val ds = LineDataSet(chartEntries, "").apply {
@@ -3236,7 +3236,7 @@ for legal compliance.
                 lastChartRenderMs = nowChartMs
                 lastChartRenderedPrice = ts.lastPrice
             }
-            
+
             // V5.6: Update DexScreener-style chart metrics
             updateCandleChart(ts)
             updateChartMetrics(ts)
@@ -3246,7 +3246,7 @@ for legal compliance.
             updateCandleChart(ts)  // V5.8.0: keep candle chart in sync
             lastChartRenderMs = nowChartMs
             lastChartRenderedPrice = ts.lastPrice
-            
+
             // V5.6: Update metrics on each tick
             updateChartMetrics(ts)
         } else if (state.running || runtimeActiveForUi) {
@@ -3261,10 +3261,10 @@ for legal compliance.
         try {
             val now = System.currentTimeMillis()
             val twentyFourHoursAgo = now - (24 * 60 * 60 * 1000L)
-            
+
             // ═══════════════════════════════════════════════════════════════════
             // USE PERSISTED JOURNAL DATA ONLY
-            // 
+            //
             // The journal (TradeHistoryStore) is the source of truth for stats.
             // Stats are calculated from ALL stored trades, not just 24h.
             // Data persists across app restarts and is never auto-cleared.
@@ -3283,7 +3283,7 @@ for legal compliance.
             val memeScratchRT = tracker30d.scratches
             val memeDecisive  = memeWinsRT + memeLossesRT
             val memeWrRT      = if (memeDecisive > 0) (memeWinsRT * 100.0) / memeDecisive else 0.0
-            
+
             // 24H trades from persisted journal
             // V5.9.386 — On MEME tab, match the 30-Day Proof Run card byte-for-byte:
             // use RunTracker30D.totalTrades (same field the card shows) so the
@@ -3298,7 +3298,7 @@ for legal compliance.
             val trades24h = persistedStats.trades24h
             val topBarTradeCount = persistedStats.totalStoredTrades
             tvStats24hTrades.setTextIfChanged("$topBarTradeCount")
-            
+
             // Win rate: Use RunTracker30D meme-trader-specific WR.
             // V5.9.649 — fix data pollution where MEME tab showed e.g. "20%"
             // while the W/L/S subline read "0W 0L 0S". Operator screenshot:
@@ -3321,7 +3321,7 @@ for legal compliance.
             // lane-specific WR for drill-down (those are correct in context).
             val journalWr = persistedStats.winRate.toInt()
             val winRate = if (persistedStats.totalTrades >= 1) journalWr else 0
-            
+
             tvStatsWinRate.setTextIfChanged("$winRate%")
             tvStatsWinRate.setTextColor(when {
                 winRate >= 60 -> green
@@ -3436,7 +3436,7 @@ for legal compliance.
                     }
                 }
             } catch (_: Exception) { /* never crash on UI sub-injection */ }
-            
+
             // ═══════════════════════════════════════════════════════════════════
             // OPEN POSITIONS COUNT
             // V5.9.475 — DEDUPLICATED count fix. Operator: 'main meme ui open
@@ -3508,14 +3508,14 @@ for legal compliance.
                 "$unifiedListSize"
             }
             tvStatsOpenPos.setTextColor(if (managedOpenCount > 0) purple else muted)
-            
+
             // ═══════════════════════════════════════════════════════════════════
             // AI CONFIDENCE / MODE DISPLAY (unified - no double-write)
             // Priority: Dashboard mode > Active token entry score > Default
             // ═══════════════════════════════════════════════════════════════════
             val dashboardData = state.dashboardData
             val activeEntryScore = ts?.entryScore?.toInt() ?: 0
-            
+
             when {
                 // If we have an active token being evaluated, show its entry score
                 activeEntryScore > 0 -> {
@@ -3542,17 +3542,17 @@ for legal compliance.
                 }
             }
         } catch (_: Exception) {}
-        
+
         // ── Brain Learning Indicator ─────────────────────────────────
         try {
             val totalTrades = ws.totalTrades
             val winRate = ws.winRate
             val learningProgress = com.lifecyclebot.engine.FinalDecisionGate.getLearningProgress(totalTrades, winRate.toDouble())
             val progressPct = (learningProgress * 100).toInt()
-            
+
             // Animate progress
             animateProgress(pbBrainProgress, progressPct)
-            
+
             // Pulse animation when learning
             if (progressPct < 100) {
                 tvBrainEmoji.animate()
@@ -3607,7 +3607,7 @@ for legal compliance.
             // never gate the most important card on a timer.)
             renderOpenPositions(openPos)
         }
-        
+
         // ── V4.0: Treasury positions panel ─────────────────────────────────
         try {
             // V5.9.458 — operator directive: 'treasury when connected and in
@@ -3660,7 +3660,7 @@ for legal compliance.
                 }
             }
         } catch (_: Exception) {}
-        
+
         // ── V4.0: Blue Chip positions panel ─────────────────────────────────
         try {
             // V5.9.495z17 — show both paper + live so toggling mode never hides held positions.
@@ -3687,7 +3687,7 @@ for legal compliance.
                 tvBlueChipPnl.setTextColor(if (blueChipUnrealized >= 0) green else red)
             }
         } catch (_: Exception) {}
-        
+
         // ── Quality positions panel ───────────────────────────────────────
         try {
             // V5.9.495z17 — show both paper + live.
@@ -3737,11 +3737,11 @@ for legal compliance.
                     tvShitCoinPnl.setTextColor(if (shitCoinUnrealized >= 0) green else red)
                 }
                 val modeEmoji = when (shitCoinStats.mode) {
-                    com.lifecyclebot.v3.scoring.ShitCoinTraderAI.ShitCoinMode.HUNTING -> "🎯"
-                    com.lifecyclebot.v3.scoring.ShitCoinTraderAI.ShitCoinMode.POSITIONED -> "📊"
-                    com.lifecyclebot.v3.scoring.ShitCoinTraderAI.ShitCoinMode.CAUTIOUS -> "⚠️"
+                    com.lifecyclebot.v3.scoring.ShitCoinTraderAI.ShitCoinMode.HUNTING -> "TARGET"
+                    com.lifecyclebot.v3.scoring.ShitCoinTraderAI.ShitCoinMode.POSITIONED -> "ANALYTICS"
+                    com.lifecyclebot.v3.scoring.ShitCoinTraderAI.ShitCoinMode.CAUTIOUS -> "WARN"
                     com.lifecyclebot.v3.scoring.ShitCoinTraderAI.ShitCoinMode.PAUSED -> "⏸️"
-                    com.lifecyclebot.v3.scoring.ShitCoinTraderAI.ShitCoinMode.GRADUATION -> "🎓"
+                    com.lifecyclebot.v3.scoring.ShitCoinTraderAI.ShitCoinMode.GRADUATION -> "GRAD"
                 }
                 tvShitCoinMode.setTextIfChanged("$modeEmoji ${shitCoinStats.mode.name}")
                 tvShitCoinWinRate.setTextIfChanged("${shitCoinStats.dailyWins}W/${shitCoinStats.dailyLosses}L")
@@ -3771,7 +3771,7 @@ for legal compliance.
             }
         } catch (_: Exception) {}
 
-        // ── ☠️ The Manipulated positions panel ────────────────────────────
+        // ── MANIP The Manipulated positions panel ────────────────────────────
         try {
             val manipPositions = com.lifecyclebot.v3.scoring.ManipulatedTraderAI.getActivePositions()
             val manipStats = com.lifecyclebot.v3.scoring.ManipulatedTraderAI.getStats()
@@ -3791,7 +3791,7 @@ for legal compliance.
             }
         } catch (_: Exception) {}
 
-    
+
     // ═══════════════════════════════════════════════════════════════════════════
     // V5.9.222: Cyclic $500→$1M Panel
     // Shows only when CyclicTradeEngine is running. Inserted above moonshot panel.
@@ -3878,7 +3878,7 @@ for legal compliance.
             val winRate = if (cycles > 0) (wins * 100 / cycles) else 0
             val growthPct = ((ringUsd - 500.0) / 500.0 * 100.0)
             val modeColor = if (isLive) android.graphics.Color.parseColor("#FF4444") else amber
-            val modeLabel = if (isLive) "🔴 LIVE" else "📄 PAPER"
+            val modeLabel = if (isLive) "FAIL LIVE" else "PAPER"
 
             // ── Row 1: Header ─────────────────────────────────────────────────
             card.addView(LinearLayout(this).apply {
@@ -3889,7 +3889,7 @@ for legal compliance.
                 ).apply { setMargins(0, 0, 0, (6 * resources.displayMetrics.density).toInt()) }
 
                 addView(TextView(this@MainActivity).apply {
-                    text = "🔄 Cyclic $500→$1M"
+                    text = "SYNC Cyclic $500→$1M"
                     setTextColor(android.graphics.Color.WHITE)
                     textSize = 13f
                     typeface = android.graphics.Typeface.DEFAULT_BOLD
@@ -3960,7 +3960,7 @@ for legal compliance.
                     ).apply { setMargins(0, (2 * resources.displayMetrics.density).toInt(), 0, 0) }
 
                     addView(TextView(this@MainActivity).apply {
-                        text = "⚡ $symbol"
+                        text = "SIGNAL $symbol"
                         setTextColor(android.graphics.Color.parseColor("#00CFFF"))
                         textSize = 12f
                         typeface = android.graphics.Typeface.DEFAULT_BOLD
@@ -4004,13 +4004,13 @@ for legal compliance.
                 com.lifecyclebot.v3.scoring.MoonshotTraderAI.getActivePositionsForMode(false)
             )
             val showMoonshot = moonshotPositions.isNotEmpty()
-            
+
             cardMoonshotPositions.visibility = if (showMoonshot) android.view.View.VISIBLE else android.view.View.GONE
-            
+
             if (showMoonshot) {
                 val moonshotExposure = moonshotPositions.sumOf { it.entrySol }
                 tvMoonshotExposure.setTextIfChanged("${String.format("%.3f", moonshotExposure)} SOL")
-                
+
                 // Calculate total P&L
                 var totalPnl = 0.0
                 for (pos in moonshotPositions) {
@@ -4021,25 +4021,25 @@ for legal compliance.
                         totalPnl += pos.entrySol * (pnlPct / 100)
                     }
                 }
-                
+
                 val pnlColor = if (totalPnl >= 0) green else red
                 tvMoonshotPnl.setTextIfChanged("${if (totalPnl >= 0) "+" else ""}${String.format("%.4f", totalPnl)} SOL")
                 tvMoonshotPnl.setTextColor(pnlColor)
-                
+
                 // Stats
                 val winRate = com.lifecyclebot.v3.scoring.MoonshotTraderAI.getWinRatePct()
                 val dailyPnl = com.lifecyclebot.v3.scoring.MoonshotTraderAI.getDailyPnlSol()
                 val learning = (com.lifecyclebot.v3.scoring.MoonshotTraderAI.getLearningProgress() * 100).toInt()
-                
+
                 tvMoonshotMode.setTextIfChanged(if (moonshotPositions.size >= 3) "RIDING" else "HUNTING")
                 tvMoonshotWinRate.setTextIfChanged("${com.lifecyclebot.v3.scoring.MoonshotTraderAI.getDailyWins()}W/${com.lifecyclebot.v3.scoring.MoonshotTraderAI.getDailyLosses()}L")
                 tvMoonshotDailyPnl.setTextIfChanged("Day: ${if (dailyPnl >= 0) "+" else ""}${String.format("%.3f", dailyPnl)}")
                 tvMoonshotDailyPnl.setTextColor(if (dailyPnl >= 0) green else red)
                 tvMoonshotLearning.setTextIfChanged("Learn: $learning%")
-                
+
                 renderMoonshotPositions(moonshotPositions)
             }
-            
+
             // V5.2: Update Treasury+Moonshot side-by-side row
             val treasuryPositions = (
                 com.lifecyclebot.v3.scoring.CashGenerationAI.getPositionsForMode(true) +
@@ -4047,17 +4047,17 @@ for legal compliance.
             )
             val showTreasuryMini = treasuryPositions.isNotEmpty()
             val showMoonshotMini = moonshotPositions.isNotEmpty()
-            
+
             if (showTreasuryMini && showMoonshotMini) {
                 rowTreasuryMoonshot.visibility = android.view.View.VISIBLE
                 cardTreasuryMini.visibility = android.view.View.VISIBLE
                 cardMoonshotMini.visibility = android.view.View.VISIBLE
-                
+
                 // Treasury mini P&L
                 val treasuryPnl = com.lifecyclebot.v3.scoring.CashGenerationAI.getDailyPnlSol()
                 tvTreasuryMiniPnl.setTextIfChanged("${if (treasuryPnl >= 0) "+" else ""}${String.format("%.3f", treasuryPnl)}")
                 tvTreasuryMiniPnl.setTextColor(if (treasuryPnl >= 0) green else red)
-                
+
                 // Moonshot mini P&L
                 val moonshotDailyPnl = com.lifecyclebot.v3.scoring.MoonshotTraderAI.getDailyPnlSol()
                 tvMoonshotMiniPnl.setTextIfChanged("${if (moonshotDailyPnl >= 0) "+" else ""}${String.format("%.3f", moonshotDailyPnl)}")
@@ -4066,22 +4066,22 @@ for legal compliance.
                 rowTreasuryMoonshot.visibility = android.view.View.GONE
             }
         } catch (_: Exception) {}
-        
+
         // V5.6.29d: Update Network Signals panel (Collective Intelligence)
         try {
             renderNetworkSignals()
         } catch (_: Exception) {}
-        
+
         // V5.6.29d: Update Project Sniper panel
         try {
             renderSniperMissions()
         } catch (_: Exception) {}
-        
+
         // ── V4.0: AI Status panel ─────────────────────────────────
         try {
             updateAiStatusPanel(ts)
         } catch (_: Exception) {}
-        
+
         // ── V5.2: Tile Stats ─────────────────────────────────
         try {
             val nowTile = System.currentTimeMillis()
@@ -4104,7 +4104,7 @@ for legal compliance.
                 }
             }
         } catch (_: Exception) {}
-        
+
         // ── V5.2.8: 30-Day Run Stats ─────────────────────────────────
         try {
             val now30 = System.currentTimeMillis()
@@ -4114,7 +4114,7 @@ for legal compliance.
                 update30DayRunStats()
             }
         } catch (_: Exception) {}
-        
+
         // ── V5.6.9: Live Readiness Indicator ─────────────────────────
         try {
             updateLiveReadiness()
@@ -4199,7 +4199,7 @@ for legal compliance.
         if (ts?.position?.isOpen == true && ts.position.topUpCount > 0) {
             val gainPct = if (ts.position.entryPrice > 0)
                 (ts.ref - ts.position.entryPrice) / ts.position.entryPrice * 100.0 else 0.0
-            val topUpBadge = "🔺×${ts.position.topUpCount}  avg entry ${ts.position.entryPrice.fmtRef()}"
+            val topUpBadge = "TOP-UP×${ts.position.topUpCount}  avg entry ${ts.position.entryPrice.fmtRef()}"
             tvBotStatus.setTextIfChanged("${tvBotStatus.text}  $topUpBadge")
         }
 
@@ -4247,7 +4247,7 @@ for legal compliance.
             etTopUpMaxSol.setText(c.topUpMaxTotalSol.toString())
             populateSettings(cfg)
             settingsPopulated = true
-            
+
             // Apply theme on startup
             applyTheme(c.darkModeEnabled)
         }
@@ -4390,7 +4390,7 @@ for legal compliance.
                 com.lifecyclebot.v3.scoring.ShitCoinTraderAI.getActivePositionsForMode(false)
             )
             shitCoinAll.forEach {
-                upsert(it.mint, it.symbol, "SHITCOIN", "💩",
+                upsert(it.mint, it.symbol, "SHITCOIN", "HIGH-RISK",
                     entryPrice = it.entryPrice, entrySol = it.entrySol,
                     entryTime = it.entryTime, peakPct = it.peakPnlPct,
                     currentPrice = it.lastSeenPrice, isPaper = it.isPaper)
@@ -4404,7 +4404,7 @@ for legal compliance.
                     .map { it to false }
             )
             qualityAll.forEach { (it, isPaper) ->
-                upsert(it.mint, it.symbol, "QUALITY", "⭐",
+                upsert(it.mint, it.symbol, "QUALITY", "STAR",
                     entryPrice = it.entryPrice, entrySol = it.entrySol,
                     entryTime = it.entryTime, peakPct = it.peakPnlPct,
                     currentPrice = it.lastSeenPrice, isPaper = isPaper)
@@ -4419,7 +4419,7 @@ for legal compliance.
                 com.lifecyclebot.v3.scoring.MoonshotTraderAI.getActivePositionsForMode(false)
             )
             moonshotAll.forEach {
-                upsert(it.mint, it.symbol, "MOONSHOT", "🚀",
+                upsert(it.mint, it.symbol, "MOONSHOT", "FRESH",
                     entryPrice = it.entryPrice, entrySol = it.entrySol,
                     entryTime = it.entryTime, peakPct = it.peakPnlPct,
                     currentPrice = it.lastSeenPrice, isPaper = it.isPaperMode)
@@ -4434,7 +4434,7 @@ for legal compliance.
         try {
             com.lifecyclebot.v3.scoring.ProjectSniperAI.getActiveMissions().forEach { m ->
                 upsert(
-                    m.mint, m.symbol, "PROJECT_SNIPER", "🎯",
+                    m.mint, m.symbol, "PROJECT_SNIPER", "TARGET",
                     entryPrice = m.entryPrice,
                     entrySol = m.entrySol,
                     entryTime = m.entryTime,
@@ -4448,7 +4448,7 @@ for legal compliance.
         try {
             com.lifecyclebot.v3.scoring.ManipulatedTraderAI.getActivePositions().forEach { p ->
                 upsert(
-                    p.mint, p.symbol, "MANIPULATED", "🎭",
+                    p.mint, p.symbol, "MANIPULATED", "MANIP",
                     entryPrice = p.entryPrice,
                     entrySol = p.entrySol,
                     entryTime = p.entryTime,
@@ -4688,9 +4688,9 @@ for legal compliance.
                 val liveCount = positions.size - paperCount
                 chip.text = when {
                     positions.isEmpty()     -> ""
-                    liveCount == 0          -> "📝 PAPER"
-                    paperCount == 0         -> "💵 LIVE"
-                    else                    -> "📝 ${paperCount} paper · 💵 ${liveCount} live"
+                    liveCount == 0          -> "PAPER"
+                    paperCount == 0         -> "LIVE LIVE"
+                    else                    -> "PAPER ${paperCount} paper · LIVE ${liveCount} live"
                 }
                 chip.setTextColor(when {
                     paperCount > 0 && liveCount > 0 -> 0xFFFFAA00.toInt()  // mixed = amber
@@ -4701,7 +4701,7 @@ for legal compliance.
         } catch (_: Throwable) { /* best-effort */ }
         val sdf = openPosTimeSdf  // V5.9.1070 — class-field, no ICU init
         val solPrice = com.lifecyclebot.engine.WalletManager.lastKnownSolPrice.takeIf { it in 50.0..1000.0 } ?: 85.0
-        
+
         // V5.9.802 — operator audit Fix (b): defensive render cap.
         // Build-5.0.2741 forensic showed 122 open positions × full
         // LinearLayout rebuild → maxFrameGap 30,947 ms, ANR top-site
@@ -4741,7 +4741,7 @@ for legal compliance.
             val gainPct = if (basisTrusted) pnlVerdict.pnlPct else 0.0
             val gainCol = if (!basisTrusted) muted else if (gainPct >= 0) green else red
             val pnlSol  = if (basisTrusted) pos.costSol * gainPct / 100.0 else 0.0
-            
+
             // V5.6.18: Use actual token quantity from position, not calculated value
             val tokenAmount = pos.qtyToken
             val currentValue = pos.costSol + pnlSol  // Current value in SOL
@@ -4874,12 +4874,12 @@ for legal compliance.
                 layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
             }
             // Symbol + Trading Mode emoji
-            val modeEmoji = pos.tradingModeEmoji.ifEmpty { "📈" }
+            val modeEmoji = pos.tradingModeEmoji.ifEmpty { "MARKET" }
             // V5.9.495z36 — operator-reported "paper positions polluting
             // live UI". Make the paper/live distinction visually obvious
             // in the row title so the open-positions card can never be
             // mistaken for a live wallet view.
-            val paperBadge = if (pos.isPaperPosition) " 📝" else ""
+            val paperBadge = if (pos.isPaperPosition) " PAPER" else ""
             // V5.9.923 — append mint suffix when symbol is duplicated across
             // the rendered set, so two "Luisa" positions on different mints
             // are visually distinguishable.
@@ -4905,7 +4905,7 @@ for legal compliance.
                 if (pos.entryTime > 0L && ageMs in 0L..settleMs) {
                     val remainSec = ((settleMs - ageMs) / 1000L).coerceAtLeast(0L)
                     info.addView(TextView(this).apply {
-                        text = "🛡 SETTLE 0:${"%02d".format(remainSec)}"
+                        text = "RISK SETTLE 0:${"%02d".format(remainSec)}"
                         textSize = resources.getDimension(R.dimen.trade_sub_text) / resources.displayMetrics.scaledDensity
                         setTextColor(0xFFFBBF24.toInt()) // amber/gold
                         typeface = android.graphics.Typeface.DEFAULT_BOLD
@@ -4972,7 +4972,7 @@ for legal compliance.
             // can't compute (very early position, no peak yet).
             // V5.9.428 — peak fix: sub-traders (Moonshot / ShitCoin) maintain
             // their own internal peakPnlPct but never mirror it back to
-            // pos.peakGainPct, so the "🎯 Peak +X%" badge displayed a stale
+            // pos.peakGainPct, so the "TARGET Peak +X%" badge displayed a stale
             // peak (e.g. +252% on a +3198% runner) and the fluid lock was
             // calculated from the stale value. Sync inline on every render
             // so peak always reflects the live high-water mark.
@@ -5051,7 +5051,7 @@ for legal compliance.
                 val peakCol = if (pos.peakGainPct >= 100.0) 0xFFFACC15.toInt() else muted
                 right.addView(TextView(this).apply {
                     val peakTxt = "Peak +${pos.peakGainPct.toInt()}%"
-                    text = if (lockLevel != null) "🎯 $peakTxt · lock +${lockLevel.toInt()}%" else "🎯 $peakTxt"
+                    text = if (lockLevel != null) "TARGET $peakTxt · lock +${lockLevel.toInt()}%" else "TARGET $peakTxt"
                     textSize = resources.getDimension(R.dimen.card_badge_size) / resources.displayMetrics.scaledDensity
                     setTextColor(peakCol)
                     typeface = android.graphics.Typeface.MONOSPACE
@@ -5108,7 +5108,7 @@ for legal compliance.
             })
         }
     }
-    
+
     // V5.9.1067 — class-field SimpleDateFormat. ICU Locale.clone() inside
     // SimpleDateFormat.initialize is heavyweight (5+ seconds in V5.9.1065
     // ANR snapshot). Allocating once at class-init avoids that cost on
@@ -5180,7 +5180,7 @@ for legal compliance.
         // V5.9.420 — accumulate children unrealized PnL so the card header
         // matches the visible rows below (was showing daily realized PnL).
         var childrenUnrealizedSum = 0.0
-        
+
         positions.forEach { pos ->
             // V5.9.188c (fix): 3-tier price lookup for Treasury positions
             // Tier 1: live scanner token map (mint key) — updated every scan cycle
@@ -5236,7 +5236,7 @@ for legal compliance.
                 layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
             }
             info.addView(TextView(this).apply {
-                text = "💰 ${pos.symbol}"
+                text = "TREASURY ${pos.symbol}"
                 textSize = resources.getDimension(R.dimen.trade_row_text) / resources.displayMetrics.scaledDensity
                 setTextColor(0xFFFFD700.toInt())
                 typeface = android.graphics.Typeface.DEFAULT_BOLD
@@ -5292,7 +5292,7 @@ for legal compliance.
         }
         return childrenUnrealizedSum
     }
-    
+
     // V4.0: Render Blue Chip positions
     private fun renderBlueChipPositions(positions: List<com.lifecyclebot.v3.scoring.BlueChipTraderAI.BlueChipPosition>): Double {
         // V5.9.709 — skip re-render if blue chip list unchanged
@@ -5324,7 +5324,7 @@ for legal compliance.
         val sdf = blueChipTimeSdf  // V5.9.1070 — class-field, no ICU init
         // V5.9.420 — accumulate children unrealized PnL for header parity.
         var childrenUnrealizedSum = 0.0
-        
+
         positions.take(4).forEach { pos ->
             // V5.8: Use live token price from BotService (consistent with other windows)
             // V5.9.302: dead-feed guard — ref=0 must NOT count as -100%
@@ -5370,7 +5370,7 @@ for legal compliance.
                 layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
             }
             info.addView(TextView(this).apply {
-                text = "🔵 ${pos.symbol}"
+                text = "BLUECHIP ${pos.symbol}"
                 textSize = resources.getDimension(R.dimen.trade_row_text) / resources.displayMetrics.scaledDensity
                 setTextColor(0xFF3B82F6.toInt()) // Blue
                 typeface = android.graphics.Typeface.DEFAULT_BOLD
@@ -5426,7 +5426,7 @@ for legal compliance.
         lastBlueChipCachedPnlSol = childrenUnrealizedSum
         return childrenUnrealizedSum
     }
-    
+
     // Render Quality positions ($100K-$1M mcap)
     private fun renderQualityPositions(positions: List<com.lifecyclebot.v3.scoring.QualityTraderAI.QualityPosition>): Double {
         // V5.9.709 — skip re-render if quality list unchanged
@@ -5499,7 +5499,7 @@ for legal compliance.
                 layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
             }
             info.addView(TextView(this).apply {
-                text = "⭐ ${pos.symbol}"
+                text = "STAR ${pos.symbol}"
                 textSize = resources.getDimension(R.dimen.trade_row_text) / resources.displayMetrics.scaledDensity
                 setTextColor(0xFFF59E0B.toInt())
                 typeface = android.graphics.Typeface.DEFAULT_BOLD
@@ -5595,7 +5595,7 @@ for legal compliance.
         llShitCoinPositions.removeAllViews()
         // V5.9.420 — accumulate children unrealized PnL for header parity.
         var childrenUnrealizedSum = 0.0
-        
+
         visible.forEach { pos ->
             if (pos.entryPrice <= 0 || pos.entrySol <= 0 || pos.mint.isBlank()) return@forEach
             val tsState = try { com.lifecyclebot.engine.BotService.status.tokens[pos.mint] } catch (_: Exception) { null }
@@ -5677,7 +5677,7 @@ for legal compliance.
                 } else {
                     "\$${pos.marketCapUsd.toInt()}"
                 }
-                val bundleWarn = if (pos.bundlePct >= 80) " ⚠️BUNDLE" else ""
+                val bundleWarn = if (pos.bundlePct >= 80) " WARNBUNDLE" else ""
                 text = "MCap: $mcapLabel  ·  ${String.format("%.3f", pos.entrySol)}◎$bundleWarn"
                 textSize = resources.getDimension(R.dimen.trade_sub_text) / resources.displayMetrics.scaledDensity
                 setTextColor(muted)
@@ -5725,7 +5725,7 @@ for legal compliance.
         }
         return childrenUnrealizedSum
     }
-    
+
     // V5.9: Render ShitCoinExpress active rides into dedicated Express card
     private fun renderExpressRides(rides: List<com.lifecyclebot.v3.scoring.ShitCoinExpress.ExpressRide>): Double {
         llExpressPositions.removeAllViews()
@@ -5778,7 +5778,7 @@ for legal compliance.
                 layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
             }
             info.addView(TextView(this).apply {
-                text = "🚂 ${ride.symbol}  ${ride.ridePhase.emoji}"
+                text = "RUNNER ${ride.symbol}  ${ride.ridePhase.emoji}"
                 textSize = resources.getDimension(R.dimen.trade_row_text) / resources.displayMetrics.scaledDensity
                 setTextColor(0xFFFF4500.toInt())
                 typeface = android.graphics.Typeface.DEFAULT_BOLD
@@ -5834,7 +5834,7 @@ for legal compliance.
         return childrenUnrealizedSum
     }
 
-    // ☠️ Render Manipulated positions into the Manip card
+    // MANIP Render Manipulated positions into the Manip card
     private fun renderManipPositions(positions: List<com.lifecyclebot.v3.scoring.ManipulatedTraderAI.ManipulatedPosition>): Double {
         // V5.9.1447 — ANR ROOT-CAUSE FIX. This card had NO structural guard (unlike
         // renderOpenPositions): it ran llManipPositions.removeAllViews() + a full
@@ -5914,7 +5914,7 @@ for legal compliance.
                 layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
             }
             info.addView(TextView(this).apply {
-                text = "☠️ ${pos.symbol}  score=${pos.manipScore}"
+                text = "MANIP ${pos.symbol}  score=${pos.manipScore}"
                 textSize = resources.getDimension(R.dimen.trade_row_text) / resources.displayMetrics.scaledDensity
                 setTextColor(0xFFB91C1C.toInt())
                 typeface = android.graphics.Typeface.DEFAULT_BOLD
@@ -6014,16 +6014,16 @@ for legal compliance.
         lastMoonshotHash = moonHash
         lastMoonshotRenderMs = nowMs
         llMoonshotPositions.removeAllViews()
-        
+
         for (pos in positions.take(4)) {
             // V5.9.302: Guard against dead price feed (ref=0 when token rugs/dies).
             // Without guard: pnlPct = (0 - entryPrice)/entryPrice*100 = -100% even though
             // the engine hasn't closed it. Show ~0% instead while RUG_SAFETY_NET fires.
             val currentPrice = mainUiCurrentPrice(pos.mint, pos.lastSeenPrice)
-            
+
             val pnlPct = if (currentPrice != null && pos.entryPrice > 0) ((currentPrice - pos.entryPrice) / pos.entryPrice * 100) else 0.0
             val holdMins = (System.currentTimeMillis() - pos.entryTime) / 60000
-            
+
             val row = LinearLayout(this).apply {
                 orientation = LinearLayout.HORIZONTAL
                 gravity = android.view.Gravity.CENTER_VERTICAL
@@ -6031,7 +6031,7 @@ for legal compliance.
                     LinearLayout.LayoutParams.MATCH_PARENT,
                     LinearLayout.LayoutParams.WRAP_CONTENT
                 ).also { it.bottomMargin = 6 }
-                
+
                 // V5.2: Click to show chart for this token
                 setOnClickListener {
                     selectedChartMint = pos.mint
@@ -6039,7 +6039,7 @@ for legal compliance.
                     // Trigger chart update on next cycle
                 }
             }
-            
+
             // V5.8.0: Token logo
             val logoImgMs = android.widget.ImageView(this).apply {
                 layoutParams = LinearLayout.LayoutParams(40, 40).also { it.marginEnd = 10 }
@@ -6061,7 +6061,7 @@ for legal compliance.
                 typeface = android.graphics.Typeface.create("monospace", android.graphics.Typeface.BOLD)
                 layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
             }
-            
+
             // Entry / Current
             val tvEntry = TextView(this).apply {
                 tag = "msentry_${pos.mint}"   // V5.9.1458 recycle target
@@ -6071,7 +6071,7 @@ for legal compliance.
                 typeface = android.graphics.Typeface.create("monospace", android.graphics.Typeface.NORMAL)
                 layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1.2f)
             }
-            
+
             // P&L
             val tvPnl = TextView(this).apply {
                 tag = "mspnl_${pos.mint}"   // V5.9.1458 recycle target
@@ -6081,7 +6081,7 @@ for legal compliance.
                 typeface = android.graphics.Typeface.create("monospace", android.graphics.Typeface.BOLD)
                 layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 0.5f)
             }
-            
+
             // Hold time
             val tvHold = TextView(this).apply {
                 tag = "mshold_${pos.mint}"   // V5.9.1458 recycle target
@@ -6091,12 +6091,12 @@ for legal compliance.
                 typeface = android.graphics.Typeface.create("monospace", android.graphics.Typeface.NORMAL)
                 layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 0.3f)
             }
-            
+
             row.addView(tvSymbol)
             row.addView(tvEntry)
             row.addView(tvPnl)
             row.addView(tvHold)
-            
+
             val div = View(this).apply {
                 layoutParams = LinearLayout.LayoutParams(
                     LinearLayout.LayoutParams.MATCH_PARENT, 1).also { it.topMargin = 6 }
@@ -6106,7 +6106,7 @@ for legal compliance.
             llMoonshotPositions.addView(div)
         }
     }
-    
+
     // V5.6.29d: Render Network Signals from Collective Intelligence
     private fun renderNetworkSignals() {
         // V5.9.1013 — optional panel; skip during Activity transition. Snapshot
@@ -6123,24 +6123,24 @@ for legal compliance.
         lastNetworkSigRenderMs = now
         try {
             val rawSignals = com.lifecyclebot.v3.scoring.CollectiveIntelligenceAI.getActiveNetworkSignals()
-            
+
             // V5.7.7: Filter out obviously corrupted signals (price scale bugs can create >10M% values)
             // Real meme pumps can hit 100,000% but anything above 1,000,000% is likely data corruption
-            val signals = rawSignals.filter { 
-                it.pnlPct.isFinite() && it.pnlPct > -101.0 && it.pnlPct < 1_000_000.0 
+            val signals = rawSignals.filter {
+                it.pnlPct.isFinite() && it.pnlPct > -101.0 && it.pnlPct < 1_000_000.0
             }
-            
+
             // Count by type
             val megaCount = signals.count { it.signalType == "MEGA_WINNER" }
             val hotCount = signals.count { it.signalType == "HOT_TOKEN" }
             val avoidCount = signals.count { it.signalType == "AVOID" }
             val totalActive = signals.size
-            
+
             // Show/hide card based on whether we have signals
             cardNetworkSignals.visibility = if (totalActive > 0) android.view.View.VISIBLE else android.view.View.GONE
-            
+
             if (totalActive == 0) return
-            
+
             // Update stats
             tvNetworkSignalCount.text = "$totalActive active"
             tvNetworkMegaWinners.text = "MEGA: $megaCount"
@@ -6149,12 +6149,12 @@ for legal compliance.
             tvNetworkHotTokens.setTextColor(if (hotCount > 0) 0xFF10B981.toInt() else 0xFF6B7280.toInt())
             tvNetworkAvoid.text = "AVOID: $avoidCount"
             tvNetworkAvoid.setTextColor(if (avoidCount > 0) 0xFFEF4444.toInt() else 0xFF6B7280.toInt())
-            
+
             // Get last sync time from CollectiveIntelligenceAI
             val lastRefresh = com.lifecyclebot.v3.scoring.CollectiveIntelligenceAI.getLastRefreshTime()
             val syncAgoSecs = (System.currentTimeMillis() - lastRefresh) / 1000
             tvNetworkLastSync.text = if (syncAgoSecs < 60) "Sync: ${syncAgoSecs}s" else "Sync: ${syncAgoSecs/60}m"
-            
+
             // V5.9.1456 — STRUCTURE-HASH SKIP. This was the ONE heavy render with no
             // structural guard: it did an unconditional removeAllViews()+rebuild of
             // the signal rows every 12s (renderNetworkSignals 1277ms in 5.0.3458).
@@ -6174,7 +6174,7 @@ for legal compliance.
 
             // Clear and repopulate list
             llNetworkSignals.removeAllViews()
-            
+
             for (signal in sortedSignals) {
                 val row = LinearLayout(this).apply {
                     orientation = LinearLayout.HORIZONTAL
@@ -6183,13 +6183,13 @@ for legal compliance.
                         LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT
                     ).also { it.bottomMargin = 4 }
                 }
-                
+
                 // Signal type emoji
                 val emoji = when (signal.signalType) {
-                    "MEGA_WINNER" -> "🔥"
-                    "HOT_TOKEN" -> "🌐"
-                    "AVOID" -> "⚠️"
-                    else -> "📡"
+                    "MEGA_WINNER" -> "HOT"
+                    "HOT_TOKEN" -> "GLOBAL"
+                    "AVOID" -> "WARN"
+                    else -> "RADAR"
                 }
                 val tvEmoji = TextView(this).apply {
                     text = emoji
@@ -6198,7 +6198,7 @@ for legal compliance.
                         LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT
                     ).also { it.marginEnd = 8 }
                 }
-                
+
                 // Symbol
                 val tvSymbol = TextView(this).apply {
                     text = signal.symbol.take(10)
@@ -6212,7 +6212,7 @@ for legal compliance.
                     typeface = android.graphics.Typeface.DEFAULT_BOLD
                     layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 0.35f)
                 }
-                
+
                 // PnL %
                 val pnlColor = if (signal.pnlPct >= 0) 0xFF10B981.toInt() else 0xFFEF4444.toInt()
                 val pnlSign = if (signal.pnlPct >= 0) "+" else ""
@@ -6223,7 +6223,7 @@ for legal compliance.
                     typeface = android.graphics.Typeface.create("monospace", android.graphics.Typeface.BOLD)
                     layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 0.2f)
                 }
-                
+
                 // Source (broadcaster truncated)
                 val tvSource = TextView(this).apply {
                     text = "from ${signal.broadcasterId.take(6)}..."
@@ -6232,7 +6232,7 @@ for legal compliance.
                     typeface = android.graphics.Typeface.create("monospace", android.graphics.Typeface.NORMAL)
                     layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 0.35f)
                 }
-                
+
                 // Ack count if > 1
                 if (signal.ackCount > 1) {
                     val tvAck = TextView(this).apply {
@@ -6254,49 +6254,49 @@ for legal compliance.
                     row.addView(tvPnl)
                     row.addView(tvSource)
                 }
-                
+
                 llNetworkSignals.addView(row)
             }
         } catch (e: Exception) {
             // Silent fail - don't crash UI for network signals
         }
     }
-    
+
     // V5.6.29d: Render Project Sniper missions
     private fun renderSniperMissions() {
         try {
             val missions = com.lifecyclebot.v3.scoring.ProjectSniperAI.getActiveMissions()
             val dailyStats = com.lifecyclebot.v3.scoring.ProjectSniperAI.getDailyStats()
             val lifetimeStats = com.lifecyclebot.v3.scoring.ProjectSniperAI.getLifetimeStats()
-            
+
             // Show/hide card
             cardSniperPositions.visibility = if (missions.isNotEmpty() || dailyStats.missions > 0) {
                 android.view.View.VISIBLE
             } else {
                 android.view.View.GONE
             }
-            
+
             if (cardSniperPositions.visibility == android.view.View.GONE) return
-            
+
             // Update stats
             tvSniperExposure.text = "${missions.size} missions"
-            tvSniperRank.text = "⭐${lifetimeStats.generals} 🎖️${lifetimeStats.colonels + lifetimeStats.majors}"
+            tvSniperRank.text = "STAR${lifetimeStats.generals} MEDAL${lifetimeStats.colonels + lifetimeStats.majors}"
             tvSniperWinRate.text = "${dailyStats.kills}K/${dailyStats.kia}KIA"
-            
+
             val pnlColor = if (dailyStats.pnlSol >= 0) 0xFF10B981.toInt() else 0xFFEF4444.toInt()
             val pnlSign = if (dailyStats.pnlSol >= 0) "+" else ""
             tvSniperDailyPnl.text = "Day: $pnlSign${String.format("%.2f", dailyStats.pnlSol)}"
             tvSniperDailyPnl.setTextColor(pnlColor)
-            
+
             // Render active missions
             llSniperMissions.removeAllViews()
-            
+
             for (mission in missions) {
                 // V5.9.302: dead-feed guard — ref=0 must NOT count as -100%
                 val currentPrice = mainUiCurrentPrice(mission.mint)
                 val pnlPct = if (currentPrice != null && mission.entryPrice > 0.0) ((currentPrice - mission.entryPrice) / mission.entryPrice * 100) else 0.0
                 val holdTimeSecs = (System.currentTimeMillis() - mission.entryTime) / 1000
-                
+
                 val row = LinearLayout(this).apply {
                     orientation = LinearLayout.HORIZONTAL
                     gravity = android.view.Gravity.CENTER_VERTICAL
@@ -6304,15 +6304,15 @@ for legal compliance.
                         LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT
                     ).also { it.bottomMargin = 6 }
                 }
-                
+
                 // Rank emoji
                 val rankEmoji = when {
-                    pnlPct >= 100 -> "⭐"
-                    pnlPct >= 50 -> "🎖️"
-                    pnlPct >= 25 -> "🎖️"
-                    pnlPct >= 10 -> "🎖️"
-                    pnlPct >= 0 -> "🎯"
-                    else -> "💀"
+                    pnlPct >= 100 -> "STAR"
+                    pnlPct >= 50 -> "MEDAL"
+                    pnlPct >= 25 -> "MEDAL"
+                    pnlPct >= 10 -> "MEDAL"
+                    pnlPct >= 0 -> "TARGET"
+                    else -> "LOSS"
                 }
                 val tvEmoji = TextView(this).apply {
                     text = rankEmoji
@@ -6321,7 +6321,7 @@ for legal compliance.
                         LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT
                     ).also { it.marginEnd = 6 }
                 }
-                
+
                 // Symbol
                 val tvSymbol = TextView(this).apply {
                     text = mission.symbol.take(8)
@@ -6330,7 +6330,7 @@ for legal compliance.
                     typeface = android.graphics.Typeface.DEFAULT_BOLD
                     layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 0.3f)
                 }
-                
+
                 // PnL
                 val pnlTextColor = if (pnlPct >= 0) 0xFF10B981.toInt() else 0xFFEF4444.toInt()
                 val tvPnl = TextView(this).apply {
@@ -6340,7 +6340,7 @@ for legal compliance.
                     typeface = android.graphics.Typeface.create("monospace", android.graphics.Typeface.BOLD)
                     layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 0.2f)
                 }
-                
+
                 // Hold time
                 val tvTime = TextView(this).apply {
                     text = "${holdTimeSecs}s"
@@ -6349,7 +6349,7 @@ for legal compliance.
                     typeface = android.graphics.Typeface.create("monospace", android.graphics.Typeface.NORMAL)
                     layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 0.15f)
                 }
-                
+
                 // Entry age
                 val tvAge = TextView(this).apply {
                     text = "@${mission.tokenAgeSecs}s"
@@ -6357,7 +6357,7 @@ for legal compliance.
                     textSize = 10f
                     layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 0.15f)
                 }
-                
+
                 // Size
                 val tvSize = TextView(this).apply {
                     text = String.format("%.2f◎", mission.entrySol)
@@ -6365,21 +6365,21 @@ for legal compliance.
                     textSize = 10f
                     layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 0.2f)
                 }
-                
+
                 row.addView(tvEmoji)
                 row.addView(tvSymbol)
                 row.addView(tvPnl)
                 row.addView(tvTime)
                 row.addView(tvAge)
                 row.addView(tvSize)
-                
+
                 llSniperMissions.addView(row)
             }
         } catch (e: Exception) {
             // Silent fail
         }
     }
-    
+
     // V5.2: Setup chart time range and type controls
     private fun setupChartControls() {
         val timeButtons = listOf(
@@ -6388,12 +6388,12 @@ for legal compliance.
             "15m" to try { findViewById<TextView>(R.id.btnChart15m) } catch (_: Exception) { null },
             "1h" to try { findViewById<TextView>(R.id.btnChart1h) } catch (_: Exception) { null },
         )
-        
+
         val typeButtons = listOf(
             "line" to try { findViewById<TextView>(R.id.btnChartLine) } catch (_: Exception) { null },
             "candle" to try { findViewById<TextView>(R.id.btnChartCandle) } catch (_: Exception) { null },
         )
-        
+
         // Time range buttons
         for ((range, btn) in timeButtons) {
             btn?.setOnClickListener {
@@ -6413,7 +6413,7 @@ for legal compliance.
                 updateCandleChart(activeTs)
             }
         }
-        
+
         // Chart type buttons
         for ((type, btn) in typeButtons) {
             btn?.setOnClickListener {
@@ -6429,18 +6429,18 @@ for legal compliance.
             }
         }
     }
-    
+
     // V5.6: Update DexScreener-style chart metrics
     private fun updateChartMetrics(ts: TokenState?) {
         if (ts == null) return
-        
+
         // Market Cap
         tvChartMcap?.text = when {
             ts.lastMcap >= 1_000_000 -> "$${(ts.lastMcap / 1_000_000).toInt()}M"
             ts.lastMcap >= 1_000 -> "$${(ts.lastMcap / 1_000).toInt()}K"
             else -> "$${ts.lastMcap.toInt()}"
         }
-        
+
         // 5m Volume (use recent history to calculate)
         // V5.9.1424 — ANR FIX: do not hold ts.history's lock on the MAIN thread
         // while filtering/summing. The trade loop also writes that list under the
@@ -6452,7 +6452,7 @@ for legal compliance.
             val fiveMinAgo = System.currentTimeMillis() - (5 * 60 * 1000L)
             snap.asSequence().filter { it.ts > fiveMinAgo }.sumOf { it.volumeH1 }
         } catch (_: Exception) { 0.0 }
-        
+
         tvChart5mVol?.text = when {
             vol5m >= 1_000_000 -> "$${(vol5m / 1_000_000).toInt()}M"
             vol5m >= 1_000 -> "$${(vol5m / 1_000).toInt()}K"
@@ -6460,7 +6460,7 @@ for legal compliance.
             else -> "$0"
         }
         tvChart5mVol?.setTextColor(if (vol5m > 10000) green else if (vol5m > 1000) 0xFF10B981.toInt() else 0xFF6B7280.toInt())
-        
+
         // Liquidity
         tvChartLiq?.text = when {
             ts.lastLiquidityUsd >= 1_000_000 -> "$${(ts.lastLiquidityUsd / 1_000_000).toInt()}M"
@@ -6472,7 +6472,7 @@ for legal compliance.
             ts.lastLiquidityUsd >= 10000 -> 0xFF3B82F6.toInt()
             else -> amber
         })
-        
+
         // Holders (from last candle if available)
         val holders = try {
             ts.history.lastOrNull()?.holderCount ?: 0
@@ -6482,7 +6482,7 @@ for legal compliance.
             holders > 0 -> "$holders"
             else -> "—"
         }
-        
+
         // Buy Pressure
         val buyPressure = ts.lastBuyPressurePct
         tvChartBuyPressure?.text = "${buyPressure.toInt()}%"
@@ -6493,7 +6493,7 @@ for legal compliance.
             else -> red
         })
     }
-    
+
     // V4.0: Update AI Status Panel with live data
     private fun updateAiStatusPanel(ts: TokenState?) {
         val nowAi = System.currentTimeMillis()
@@ -6504,14 +6504,14 @@ for legal compliance.
             // ═══════════════════════════════════════════════════════════════
             // V5.2: EMERGENT PATCH - Add RunTracker30D metrics to AI panel
             // ═══════════════════════════════════════════════════════════════
-            
+
             // AI Health - show system integrity score if run active
             val integrityScore = try {
                 if (com.lifecyclebot.engine.RunTracker30D.isRunActive()) {
                     com.lifecyclebot.engine.RunTracker30D.integrityScore()
                 } else null
             } catch (_: Exception) { null }
-            
+
             if (integrityScore != null) {
                 tvAiHealth.text = "Integrity: $integrityScore/100"
                 tvAiHealth.setTextColor(when {
@@ -6523,7 +6523,7 @@ for legal compliance.
                 tvAiHealth.text = "25 layers"
                 tvAiHealth.setTextColor(green)
             }
-            
+
             // Trading Mode - from current token or default
             val tradingMode = ts?.position?.tradingMode?.ifEmpty { "SCANNING" } ?: "SCANNING"
             tvAiTradingMode.text = tradingMode.uppercase()
@@ -6533,7 +6533,7 @@ for legal compliance.
                 tradingMode.contains("RANGE", ignoreCase = true) -> green
                 else -> muted
             })
-            
+
             // Market Regime - infer from token phase or liquidity
             val regime = when {
                 ts?.phase?.contains("pump", ignoreCase = true) == true -> "MEME_MICRO"
@@ -6548,17 +6548,17 @@ for legal compliance.
                 regime.contains("MAJOR", ignoreCase = true) -> amber
                 else -> muted
             })
-            
+
             // Treasury Mode Status
             val treasuryStatus = try {
                 val positions = com.lifecyclebot.v3.scoring.CashGenerationAI.getActivePositions()
-                if (positions.isNotEmpty()) "SCALPING (${positions.size})" 
+                if (positions.isNotEmpty()) "SCALPING (${positions.size})"
                 else if (com.lifecyclebot.v3.scoring.CashGenerationAI.getDailyPnlSol() >= 3.33) "TARGET HIT"
                 else "HUNTING"
             } catch (_: Exception) { "IDLE" }
             tvAiTreasury.text = treasuryStatus
             tvAiTreasury.setTextColor(0xFFFFD700.toInt())
-            
+
             // ShitCoin Mode Status
             val shitCoinStatus = try {
                 val stats = com.lifecyclebot.v3.scoring.ShitCoinTraderAI.getStats()
@@ -6572,7 +6572,7 @@ for legal compliance.
             } catch (_: Exception) { "IDLE" }
             tvAiShitCoin.text = shitCoinStatus
             tvAiShitCoin.setTextColor(0xFFF97316.toInt()) // Orange
-            
+
             // V5.2: Learning Progress - use RunTracker30D if active, else FluidLearningAI
             val learningPct = try {
                 if (com.lifecyclebot.engine.RunTracker30D.isRunActive()) {
@@ -6581,26 +6581,26 @@ for legal compliance.
                     com.lifecyclebot.v3.scoring.FluidLearningAI.getMaturityPercent()
                 }
             } catch (_: Exception) { 0.0 }
-            
+
             // V5.2: Show run day if active
             val runInfo = try {
                 if (com.lifecyclebot.engine.RunTracker30D.isRunActive()) {
                     " (Day ${com.lifecyclebot.engine.RunTracker30D.getCurrentDay()})"
                 } else ""
             } catch (_: Exception) { "" }
-            
+
             tvAiLearning.text = "%.1f%% learning$runInfo".format(learningPct)
             tvAiLearning.setTextColor(when {
                 learningPct >= 50.0 -> green
                 learningPct >= 20.0 -> amber
                 else -> 0xFF3B82F6.toInt() // blue
             })
-            
+
             // V5.6: ML Engine Status - show training progress
             val mlStatus = try {
                 com.lifecyclebot.ml.OnDeviceMLEngine.getStatus()
             } catch (_: Exception) { "Not initialized" }
-            
+
             // Active AI Layers - concise list with ML
             // V5.9.230: Live Education layer health — top performing + muted
             // V5.9.1332 — main-thread ANR fix: getAllLayerMaturity() iterates all
@@ -6616,7 +6616,7 @@ for legal compliance.
                 val muted = maturity.entries
                     .filter { !it.value.isActive }
                     .take(2)
-                    .joinToString(", ") { "⛔${it.key.take(6)}" }
+                    .joinToString(", ") { "BLOCK${it.key.take(6)}" }
                 val metaConf = try {
                     val mc = com.lifecyclebot.v3.scoring.MetaCognitionAI.calculateMetaConfidence(emptyList())
                     " | Meta:${mc.confidence.toInt()}%"
@@ -6627,19 +6627,19 @@ for legal compliance.
                 val sentLine = try {
                     " | ${com.lifecyclebot.engine.SentientPersonality.getStatusLine().take(24)}"
                 } catch (_: Exception) { "" }
-                "${if (top.isNotEmpty()) "🏆 $top" else "Learning..."}${if (muted.isNotEmpty()) " | $muted" else ""}$metaConf$symCtx$sentLine"
+                "${if (top.isNotEmpty()) "RANK $top" else "Learning..."}${if (muted.isNotEmpty()) " | $muted" else ""}$metaConf$symCtx$sentLine"
             } catch (_: Exception) {
                 "Entry · Exit · Momentum · Liquidity · Regime · ShitCoin · Express · ML($mlStatus)"
             }
             tvAiLayers.text = eduHealthStr
             tvAiLayers.setTextColor(muted)
-            
+
         } catch (e: Exception) {
             tvAiHealth.text = "Error"
             tvAiHealth.setTextColor(red)
         }
     }
-    
+
     /**
      * V5.2: Update tile stats with real data from each AI layer
      * Shows wins/trades, win rate, or other relevant stats on each tile
@@ -6656,9 +6656,9 @@ for legal compliance.
             val moonshotPos = com.lifecyclebot.v3.scoring.MoonshotTraderAI.getActivePositions().size
             val blueChipPos = com.lifecyclebot.v3.scoring.BlueChipTraderAI.getActivePositions().size
             val totalOpenPos = treasuryPos + shitCoinPos + expressPos + manipPos + qualityPos + moonshotPos + blueChipPos
-            
+
             val learningPct = com.lifecyclebot.v3.scoring.FluidLearningAI.getLearningProgress() * 100
-            
+
             // Show: total positions | learning%
             tvV3Stats.text = "$totalOpenPos | ${learningPct.toInt()}%"
             tvV3Stats.setTextColor(when {
@@ -6667,7 +6667,7 @@ for legal compliance.
                 else -> 0xFF3B82F6.toInt() // blue (learning)
             })
         } catch (_: Exception) { tvV3Stats.text = "—" }
-        
+
         // Treasury - show daily P&L and active scalps
         try {
             val positions = com.lifecyclebot.v3.scoring.CashGenerationAI.getActivePositions()
@@ -6682,7 +6682,7 @@ for legal compliance.
                 tvTreasuryStats.setTextColor(muted)
             }
         } catch (_: Exception) { tvTreasuryStats.text = "—" }
-        
+
         // BlueChip - show active positions and win rate
         // V5.2.11: Blue tile shows Quality ($100K-$1M) + BlueChip ($1M+) combined
         try {
@@ -6690,7 +6690,7 @@ for legal compliance.
             val blueChipPos = com.lifecyclebot.v3.scoring.BlueChipTraderAI.getActivePositions()
             val qualityWR = com.lifecyclebot.v3.scoring.QualityTraderAI.getWinRate().toInt()
             val blueChipStats = com.lifecyclebot.v3.scoring.BlueChipTraderAI.getStats()
-            
+
             val totalPos = qualityPos.size + blueChipPos.size
             // Show combined stats: Quality | BlueChip
             if (totalPos > 0 || qualityWR > 0 || blueChipStats.dailyTradeCount > 0) {
@@ -6705,7 +6705,7 @@ for legal compliance.
                 tvBlueChipStats.setTextColor(muted)
             }
         } catch (_: Exception) { tvBlueChipStats.text = "—" }
-        
+
         // ShitCoin - show active positions and mode
         try {
             val stats = com.lifecyclebot.v3.scoring.ShitCoinTraderAI.getStats()
@@ -6723,7 +6723,7 @@ for legal compliance.
                 tvShitCoinStats.setTextColor(muted)
             }
         } catch (_: Exception) { tvShitCoinStats.text = "—" }
-        
+
         // ShitCoinExpress - show active rides and win rate
         try {
             val stats = com.lifecyclebot.v3.scoring.ShitCoinExpress.getStats()
@@ -6742,7 +6742,7 @@ for legal compliance.
             }
         } catch (_: Exception) { tvExpressStats.text = "—" }
 
-        // ☠️ The Manipulated - show active positions and win rate
+        // MANIP The Manipulated - show active positions and win rate
         try {
             val manipStats = com.lifecyclebot.v3.scoring.ManipulatedTraderAI.getStats()
             val posCount = manipStats.activeCount
@@ -6779,14 +6779,14 @@ for legal compliance.
                 tvMoonshotStats.setTextColor(muted)
             }
         } catch (_: Exception) { tvMoonshotStats.text = "—" }
-        
+
         // V5.7: Perps - show active positions and win rate
         try {
             val perpsAI = com.lifecyclebot.perps.PerpsTraderAI
             val posCount = perpsAI.getPositionCount()
             val winRate = perpsAI.getWinRatePct()
             val totalTrades = perpsAI.getDailyWins() + perpsAI.getDailyLosses()
-            
+
             if (perpsAI.isEnabled()) {
                 if (posCount > 0 || totalTrades > 0) {
                     tvPerpsStats?.text = "$posCount | $winRate%"
@@ -6799,20 +6799,20 @@ for legal compliance.
                     tvPerpsStats?.text = "0/0"
                     tvPerpsStats?.setTextColor(muted)
                 }
-                
+
                 // Update Perps card if visible
                 updatePerpsCard(perpsAI)
             } else {
                 tvPerpsStats?.text = "OFF"
                 tvPerpsStats?.setTextColor(muted)
             }
-            
+
             // V5.7.6: ALWAYS update Tokenized Stocks card - it has its own engine
             // TokenizedStockTrader is independent of PerpsTraderAI
             updateTokenizedStocksCard()
         updateCryptoAltsCard()
         } catch (_: Exception) { tvPerpsStats?.text = "—" }
-        
+
         // AI Brain - show active/total layers
         try {
             val diagnostics = com.lifecyclebot.v3.scoring.EducationSubLayerAI.runDiagnostics()
@@ -6825,7 +6825,7 @@ for legal compliance.
                 else -> muted
             })
         } catch (_: Exception) { tvAiBrainStats?.text = "—" }
-        
+
         // Shadow - show shadow trades count
         try {
             val stats = com.lifecyclebot.engine.ShadowLearningEngine.getStats()
@@ -6834,7 +6834,7 @@ for legal compliance.
             tvShadowStats?.text = "$openTrades/$totalTrades"
             tvShadowStats?.setTextColor(if (totalTrades > 0) green else muted)
         } catch (_: Exception) { tvShadowStats?.text = "—" }
-        
+
         // Regimes - show current regime
         try {
             val regime = com.lifecyclebot.engine.MarketRegimeAI.getCurrentRegime()
@@ -6855,7 +6855,7 @@ for legal compliance.
                 else -> amber
             })
         } catch (_: Exception) { tvRegimesStats?.text = "—" }
-        
+
         // 25 AIs - show learning progress percentage
         try {
             val learningPct = com.lifecyclebot.v3.scoring.FluidLearningAI.getMaturityPercent()
@@ -6867,7 +6867,7 @@ for legal compliance.
             })
         } catch (_: Exception) { tv25AIsStats?.text = "—" }
     }
-    
+
     /**
      * V5.7: Update Perps Trading Card UI
      */
@@ -6877,32 +6877,32 @@ for legal compliance.
                 cardPerpsTrading?.visibility = View.GONE
                 return
             }
-            
+
             // V5.7.6: Perps card moved to MultiAssetActivity - keep hidden
             cardPerpsTrading?.visibility = View.GONE
             return
-            
+
             // DEPRECATED: All code below is unused - perps card now in Markets UI
             val state = perpsAI.getState()
             val readiness = perpsAI.getLiveReadiness()
             val cfg = com.lifecyclebot.data.ConfigStore.load(applicationContext)
-            
+
             // Mode badge
             tvPerpsModeBadge?.text = if (cfg.paperMode) "PAPER" else "LIVE"
             tvPerpsModeBadge?.setBackgroundResource(
                 if (cfg.paperMode) R.drawable.pill_bg_yellow else R.drawable.pill_bg_green
             )
-            
+
             // Balance
             val balance = if (cfg.paperMode) state.paperBalanceSol else state.liveBalanceSol
             tvPerpsBalance?.text = "%.4f".format(balance)
-            
+
             // P&L
             val pnlPct = state.dailyPnlPct
             val pnlSign = if (pnlPct >= 0) "+" else ""
             tvPerpsPnl?.text = "$pnlSign${"%.2f".format(pnlPct)}%"
             tvPerpsPnl?.setTextColor(if (pnlPct >= 0) 0xFF22C55E.toInt() else 0xFFEF4444.toInt())
-            
+
             // Win Rate
             val winRate = perpsAI.getWinRatePct()
             tvPerpsWinRate?.text = "${winRate}%"
@@ -6911,22 +6911,22 @@ for legal compliance.
                 winRate >= 45 -> 0xFFF59E0B.toInt()
                 else -> 0xFFEF4444.toInt()
             })
-            
+
             // Trades
             tvPerpsTrades?.text = "${state.dailyTrades}"
-            
+
             // Readiness gauge
             tvPerpsReadinessPhase?.text = readiness.phase.displayName
             tvPerpsReadinessPhase?.setTextColor(android.graphics.Color.parseColor(readiness.phase.color))
-            
+
             // Progress bar
             val progressPct = readiness.getProgressPct()
             val barWidth = (cardPerpsTrading?.width ?: 300) * progressPct / 100
             viewPerpsReadinessBar?.layoutParams?.width = barWidth.coerceAtLeast(0)
             viewPerpsReadinessBar?.requestLayout()
-            
+
             tvPerpsReadinessText?.text = readiness.recommendation
-            
+
             // Fetch and display SOL price
             kotlinx.coroutines.GlobalScope.launch(kotlinx.coroutines.Dispatchers.Main) {
                 try {
@@ -6943,32 +6943,32 @@ for legal compliance.
                     tvPerpsSolPrice?.text = "$—"
                     tvPerpsSolChange?.text = "—"
                 }
-                
+
                 // V5.7.4: Update AAPL/TSLA/NVDA prices in perps card header
                 try {
                     val aaplData = com.lifecyclebot.perps.PerpsMarketDataFetcher.getMarketData(com.lifecyclebot.perps.PerpsMarket.AAPL)
                     tvPerpsAaplPrice?.text = "$${"%.2f".format(aaplData.price)}"
                 } catch (_: Exception) { tvPerpsAaplPrice?.text = "$--" }
-                
+
                 try {
                     val tslaData = com.lifecyclebot.perps.PerpsMarketDataFetcher.getMarketData(com.lifecyclebot.perps.PerpsMarket.TSLA)
                     tvPerpsTslaPrice?.text = "$${"%.2f".format(tslaData.price)}"
                 } catch (_: Exception) { tvPerpsTslaPrice?.text = "$--" }
-                
+
                 try {
                     val nvdaData = com.lifecyclebot.perps.PerpsMarketDataFetcher.getMarketData(com.lifecyclebot.perps.PerpsMarket.NVDA)
                     tvPerpsNvdaPrice?.text = "$${"%.2f".format(nvdaData.price)}"
                 } catch (_: Exception) { tvPerpsNvdaPrice?.text = "$--" }
             }
-            
+
             // V5.7.1: Update Layer Confidence Dashboard
             updateLayerConfidenceDashboard()
-            
+
         } catch (e: Exception) {
             com.lifecyclebot.engine.ErrorLogger.warn("MainActivity", "Perps card update error: ${e.message}")
         }
     }
-    
+
     /**
      * V5.7.1: Update Layer Confidence Dashboard with top performing layers
      */
@@ -6976,15 +6976,15 @@ for legal compliance.
         try {
             val bridge = com.lifecyclebot.perps.PerpsLearningBridge
             val layerStats = bridge.getLayerPerpsStats()
-            
+
             // Sort layers by trust score
             val sortedLayers = layerStats.entries
                 .sortedByDescending { it.value.first }
                 .take(4)
-            
+
             // Update layer count
             tvLayerSyncCount?.text = "${bridge.getConnectedLayerCount()} layers"
-            
+
             // Update top 4 layers
             sortedLayers.getOrNull(0)?.let { (name, stats) ->
                 tvLayer1Name?.text = name.replace("TraderAI", "").replace("AI", "")
@@ -6992,40 +6992,40 @@ for legal compliance.
                 tvLayer1Score?.text = "$score%"
                 tvLayer1Score?.setTextColor(getScoreColor(score))
             }
-            
+
             sortedLayers.getOrNull(1)?.let { (name, stats) ->
                 tvLayer2Name?.text = name.replace("TraderAI", "").replace("AI", "")
                 val score = (stats.first * 100).toInt()
                 tvLayer2Score?.text = "$score%"
                 tvLayer2Score?.setTextColor(getScoreColor(score))
             }
-            
+
             sortedLayers.getOrNull(2)?.let { (name, stats) ->
                 tvLayer3Name?.text = name.replace("TraderAI", "").replace("AI", "")
                 val score = (stats.first * 100).toInt()
                 tvLayer3Score?.text = "$score%"
                 tvLayer3Score?.setTextColor(getScoreColor(score))
             }
-            
+
             sortedLayers.getOrNull(3)?.let { (name, stats) ->
                 tvLayer4Name?.text = name.replace("TraderAI", "").replace("AI", "")
                 val score = (stats.first * 100).toInt()
                 tvLayer4Score?.text = "$score%"
                 tvLayer4Score?.setTextColor(getScoreColor(score))
             }
-            
+
             // Update learning stats
             tvLayerLearningEvents?.text = "${bridge.getTotalLearningEvents()} learning events"
             tvLayerCrossSync?.text = "${bridge.getCrossLayerSyncs()} cross-syncs"
-            
+
             // V5.7.3: Update Learning Insights Panel
             updateLearningInsightsPanel()
-            
+
         } catch (e: Exception) {
             com.lifecyclebot.engine.ErrorLogger.debug("MainActivity", "Layer dashboard update error: ${e.message}")
         }
     }
-    
+
     private fun getScoreColor(score: Int): Int {
         return when {
             score >= 80 -> 0xFF22C55E.toInt()  // Green
@@ -7034,7 +7034,7 @@ for legal compliance.
             else -> 0xFFEF4444.toInt()          // Red
         }
     }
-    
+
     /**
      * V5.2.8: Update 30-Day Run Stats Card
      * Shows balance, return, drawdown, trades, W/L/S, win rate, learning metrics, and integrity
@@ -7051,21 +7051,21 @@ for legal compliance.
     /** V5.9.348: Meme 30-day proof run (native RunTracker30D). */
     private fun render30DayMeme() {
         val tracker = com.lifecyclebot.engine.RunTracker30D
-        
+
         // Show/hide card based on whether run is active
         if (!tracker.isRunActive()) {
             card30DayRun.visibility = View.GONE
             return
         }
         card30DayRun.visibility = View.VISIBLE
-        
+
         // Day counter
         val currentDay = tracker.getCurrentDay()
         tv30DayCounter.text = "Day $currentDay/30"
-        
+
         // Balance
         tv30DayBalance.text = String.format("%.4f SOL", tracker.currentBalance)
-        
+
         // Return percentage
         val returnPct = if (tracker.startBalance > 0) {
             ((tracker.currentBalance - tracker.startBalance) / tracker.startBalance) * 100
@@ -7073,19 +7073,19 @@ for legal compliance.
         val returnSign = if (returnPct >= 0) "+" else ""
         tv30DayReturn.text = "$returnSign${String.format("%.2f", returnPct)}%"
         tv30DayReturn.setTextColor(if (returnPct >= 0) green else red)
-        
+
         // Max Drawdown
         tv30DayDrawdown.text = "N/A"
         tv30DayDrawdown.setTextColor(muted)
-        
+
         // V5.9.1117 — Journal is the scoreboard source of truth. 30D must match
         // Journal/main stat card exactly; RunTracker remains balance/timeline only.
         val journalStats = com.lifecyclebot.engine.TradeHistoryStore.getStatsCached()
         tv30DayTrades.text = journalStats.totalStoredTrades.toString()
-        
+
         // W/L/S
         tv30DayWLS.text = "${journalStats.totalWins} / ${journalStats.totalLosses} / ${journalStats.totalScratches}"
-        
+
         // Win rate - exclude scratches from calculation
         val meaningfulTrades = journalStats.totalWins + journalStats.totalLosses
         val winRate = if (meaningfulTrades > 0) {
@@ -7097,7 +7097,7 @@ for legal compliance.
             winRate >= 45 -> amber
             else -> red
         })
-        
+
         // Intelligence metrics
         val metrics = tracker.metrics
         val journalLearningPct = com.lifecyclebot.engine.TradeHistoryStore.getJournalLearningProgress() * 100.0
@@ -7108,7 +7108,7 @@ for legal compliance.
             metrics.decisionAccuracy >= 45 -> amber
             else -> red
         })
-        
+
         // Integrity score
         val integrity = tracker.integrityScore()
         tv30DayIntegrity.text = integrity.toString()
@@ -7134,7 +7134,7 @@ for legal compliance.
         val phaseLabel    = (stats["learningPhase"]  as? String) ?: "BOOTSTRAP"
         val initialBalance = try { com.lifecyclebot.perps.CryptoAltTrader.getInitialBalance() } catch (_: Exception) { paperBalance }
 
-        tv30DayCounter.text = "🪙 CRYPTO · LIFETIME"
+        tv30DayCounter.text = "CRYPTO · LIFETIME"
         tv30DayBalance.text = String.format("%.4f SOL", paperBalance)
         val returnPct = if (initialBalance > 0) ((paperBalance - initialBalance) / initialBalance) * 100 else 0.0
         val sign = if (returnPct >= 0) "+" else ""
@@ -7218,7 +7218,7 @@ for legal compliance.
         val discipline   = try { perps.getDisciplineScore() } catch (_: Exception) { 0 }
         val readiness    = try { perps.getLiveReadiness() } catch (_: Exception) { null }
 
-        tv30DayCounter.text = "⚡ AATE MARKETS · LIFETIME"
+        tv30DayCounter.text = "AATE MARKETS · LIFETIME"
         tv30DayBalance.text = String.format("%.4f SOL", balance)
 
         // Trade-weighted return: prefer aggregate PnL across all market buckets
@@ -7271,15 +7271,15 @@ for legal compliance.
             else                                    -> red
         })
     }
-    
+
     /**
      * V5.7.5: Show 30-Day Run Reset Dialog
      */
     private fun show30DayResetDialog() {
         val tracker = com.lifecyclebot.engine.RunTracker30D
-        
+
         val message = """
-🔄 RESET 30-DAY RUN TRACKER?
+SYNC RESET 30-DAY RUN TRACKER?
 
 Current Stats:
 • Day: ${tracker.getCurrentDay()}/30
@@ -7287,33 +7287,33 @@ Current Stats:
 • Trades: ${tracker.totalTrades}
 • W/L/S: ${tracker.wins}/${tracker.losses}/${tracker.scratches}
 
-⚠️ This will:
+WARN This will:
 • Clear all trading history
 • Reset balance to current wallet
 • Start a new 30-day period
 
 This cannot be undone!
         """.trimIndent()
-        
+
         AlertDialog.Builder(this, R.style.Theme_AATE_Dialog)
-            .setTitle("🔄 Reset 30-Day Tracker")
+            .setTitle("SYNC Reset 30-Day Tracker")
             .setMessage(message)
             .setPositiveButton("RESET") { dialog, _ ->
                 try {
                     // Get current wallet balance for fresh start
                     val currentWalletBalance = com.lifecyclebot.engine.BotService.status.paperWalletSol
-                    
+
                     // Reset the tracker
                     tracker.reset()
-                    
+
                     // Start a fresh run with current balance
                     tracker.startRun(currentWalletBalance)
-                    
-                    Toast.makeText(this, "✅ 30-Day Tracker Reset! New run started.", Toast.LENGTH_LONG).show()
-                    
+
+                    Toast.makeText(this, "OK 30-Day Tracker Reset! New run started.", Toast.LENGTH_LONG).show()
+
                     // Update UI
                     update30DayRunStats()
-                    
+
                     performHaptic()
                 } catch (e: Exception) {
                     Toast.makeText(this, "Reset failed: ${e.message}", Toast.LENGTH_SHORT).show()
@@ -7323,11 +7323,11 @@ This cannot be undone!
             .setNegativeButton("Cancel") { dialog, _ -> dialog.dismiss() }
             .show()
     }
-    
+
     /**
      * V5.6.9: Update Live Readiness Indicator
      * Shows when paper trading performance is ready for live mode
-     * 
+     *
      * Criteria for READY status:
      * - 1000+ trades (enough data)
      * - 42%+ win rate (profitable with good R:R)
@@ -7341,9 +7341,9 @@ This cannot be undone!
             // confusion is impossible — user can read at a glance which
             // trader's stats are showing.
             tvLiveReadinessTitle?.text = when (currentReadinessTab) {
-                "ALTS"  -> "🚀 Live Readiness · 🪙 CRYPTO"
-                "PERPS" -> "🚀 Live Readiness · 📈 MARKETS"  // V5.9.433 — renamed from AATE MARKETS
-                else    -> "🚀 Live Readiness · 💎 MEME"
+                "ALTS"  -> "LIVE READINESS · CRYPTO"
+                "PERPS" -> "LIVE READINESS · MARKETS"  // V5.9.433 — renamed from AATE MARKETS
+                else    -> "LIVE READINESS · MEME"
             }
             when (currentReadinessTab) {
                 "ALTS"  -> renderAltsReadiness()
@@ -7497,7 +7497,7 @@ This cannot be undone!
                     tvLiveReadinessBadge.text = "READY"
                     tvLiveReadinessBadge.setTextColor(Color.BLACK)
                     tvLiveReadinessBadge.setCachedBackground(R.drawable.pill_bg_green)
-                    tvReadinessRecommendation.text = "✅ Bot is profitable in paper mode. Safe to switch to live."
+                    tvReadinessRecommendation.text = "READY · Paper edge is profitable. Live switch allowed."
                     tvReadinessRecommendation.setTextColor(green)
                 }
                 isAlmostReady -> {
@@ -7509,7 +7509,7 @@ This cannot be undone!
                     if (winRate < WR_READY)               needed.add("${String.format("%.1f", WR_READY - winRate)}% more WR (need $WR_READY%)")
                     if (profitFactor < PF_READY)          needed.add("PF ${String.format("%.2f", profitFactor)} → need $PF_READY")
                     if (!isProfitable)                    needed.add("positive total PnL")
-                    tvReadinessRecommendation.text = "⏳ Almost there! Need: ${needed.joinToString(" · ")}"
+                    tvReadinessRecommendation.text = "ALMOST READY · Need: ${needed.joinToString(" · ")}"
                     tvReadinessRecommendation.setTextColor(amber)
                 }
                 else -> {
@@ -7521,7 +7521,7 @@ This cannot be undone!
                     if (winRate < WR_READY)               needed.add("WR ${winRate.toInt()}% → need $WR_READY%")
                     if (profitFactor < PF_READY)          needed.add("PF ${String.format("%.2f", profitFactor)} → need $PF_READY")
                     if (!isProfitable)                    needed.add("positive total PnL")
-                    tvReadinessRecommendation.text = "🚫 Not profitable yet. ${needed.joinToString(" · ")}"
+                    tvReadinessRecommendation.text = "NOT READY · ${needed.joinToString(" · ")}"
                     tvReadinessRecommendation.setTextColor(red)
                 }
             }
@@ -7590,7 +7590,7 @@ This cannot be undone!
                 tvLiveReadinessBadge.text = "READY"
                 tvLiveReadinessBadge.setTextColor(Color.BLACK)
                 tvLiveReadinessBadge.setCachedBackground(R.drawable.pill_bg_green)
-                tvReadinessRecommendation.text = "✅ Crypto profitable in paper. Safe for live."
+                tvReadinessRecommendation.text = "READY · Crypto paper edge is profitable."
                 tvReadinessRecommendation.setTextColor(green)
             }
             isAlmostReady -> {
@@ -7601,7 +7601,7 @@ This cannot be undone!
                 if (gatingTrades < TRADES_READY) needed.add("${TRADES_READY - gatingTrades} more trades")
                 if (winRate < WR_READY)              needed.add("WR ${winRate.toInt()}% → need ${WR_READY.toInt()}%")
                 if (!isProfitable)                   needed.add("positive PnL")
-                tvReadinessRecommendation.text = "⏳ Almost there! Need: ${needed.joinToString(" · ")}"
+                tvReadinessRecommendation.text = "ALMOST READY · Need: ${needed.joinToString(" · ")}"
                 tvReadinessRecommendation.setTextColor(amber)
             }
             else -> {
@@ -7612,7 +7612,7 @@ This cannot be undone!
                 if (gatingTrades < TRADES_READY) needed.add("${TRADES_READY - gatingTrades} more trades")
                 if (winRate < WR_READY)              needed.add("WR ${winRate.toInt()}% → need ${WR_READY.toInt()}%")
                 if (!isProfitable)                   needed.add("positive PnL")
-                tvReadinessRecommendation.text = "🚫 Crypto learning. ${needed.joinToString(" · ")}"
+                tvReadinessRecommendation.text = "LEARNING · ${needed.joinToString(" · ")}"
                 tvReadinessRecommendation.setTextColor(red)
             }
         }
@@ -7652,7 +7652,7 @@ This cannot be undone!
             val pnl = com.lifecyclebot.perps.PerpsTraderAI.getLifetimePnlSol()
             val wl = w + l
             buckets += BucketStats(
-                emoji = "⚡", shortLabel = "P",
+                emoji = "SIGNAL", shortLabel = "P",
                 trades = t, wins = w, pnlSol = pnl,
                 winRate = if (wl > 0) w.toDouble() / wl * 100.0 else 0.0,
             )
@@ -7661,7 +7661,7 @@ This cannot be undone!
         // Tokenized Stocks
         try {
             buckets += BucketStats(
-                emoji = "📈", shortLabel = "S",
+                emoji = "MARKET", shortLabel = "S",
                 trades = com.lifecyclebot.perps.TokenizedStockTrader.getTotalTrades(),
                 wins = com.lifecyclebot.perps.TokenizedStockTrader.getWinningTrades(),
                 pnlSol = com.lifecyclebot.perps.TokenizedStockTrader.getTotalPnlSol(),
@@ -7672,7 +7672,7 @@ This cannot be undone!
         // Forex
         try {
             buckets += BucketStats(
-                emoji = "💱", shortLabel = "FX",
+                emoji = "FOREX", shortLabel = "FX",
                 trades = com.lifecyclebot.perps.ForexTrader.getTotalTrades(),
                 wins = com.lifecyclebot.perps.ForexTrader.getWinningTrades(),
                 pnlSol = com.lifecyclebot.perps.ForexTrader.getTotalPnlSol(),
@@ -7683,7 +7683,7 @@ This cannot be undone!
         // Metals
         try {
             buckets += BucketStats(
-                emoji = "🥇", shortLabel = "MT",
+                emoji = "METAL", shortLabel = "MT",
                 trades = com.lifecyclebot.perps.MetalsTrader.getTotalTrades(),
                 wins = com.lifecyclebot.perps.MetalsTrader.getWinningTrades(),
                 pnlSol = com.lifecyclebot.perps.MetalsTrader.getTotalPnlSol(),
@@ -7694,7 +7694,7 @@ This cannot be undone!
         // Commodities
         try {
             buckets += BucketStats(
-                emoji = "🛢️", shortLabel = "CD",
+                emoji = "COMMODITY", shortLabel = "CD",
                 trades = com.lifecyclebot.perps.CommoditiesTrader.getTotalTrades(),
                 wins = com.lifecyclebot.perps.CommoditiesTrader.getWinningTrades(),
                 pnlSol = com.lifecyclebot.perps.CommoditiesTrader.getTotalPnlSol(),
@@ -7747,12 +7747,12 @@ This cannot be undone!
 
         // Phase label reflects combined progress for the unified view.
         val phaseLabel = when {
-            totalTrades < 500  -> "📚 BOOTSTRAP"
-            totalTrades < 1500 -> "🧠 LEARNING"
-            totalTrades < 3000 -> "🔬 VALIDATING"
-            totalTrades < 5000 -> "⚡ MATURING"
-            unifiedWinRate >= WR_READY -> "✅ READY"
-            else               -> "⚡ MATURING"
+            totalTrades < 500  -> "BOOTSTRAP"
+            totalTrades < 1500 -> "LEARNING"
+            totalTrades < 3000 -> "VALIDATING"
+            totalTrades < 5000 -> "MATURING"
+            unifiedWinRate >= WR_READY -> "READY"
+            else               -> "MATURING"
         }
         tvReadinessPhase.text = phaseLabel
         tvReadinessPhase.setTextColor(Color.parseColor("#9945FF"))
@@ -7779,7 +7779,7 @@ This cannot be undone!
                 tvLiveReadinessBadge.text = "READY"
                 tvLiveReadinessBadge.setTextColor(Color.BLACK)
                 tvLiveReadinessBadge.setCachedBackground(R.drawable.pill_bg_green)
-                tvReadinessRecommendation.text = "✅ AATE markets profitable in paper. Safe for live.\n$breakdown"
+                tvReadinessRecommendation.text = "READY · AATE markets paper edge is profitable.\n$breakdown"
                 tvReadinessRecommendation.setTextColor(green)
             }
             isAlmostReady -> {
@@ -7790,7 +7790,7 @@ This cannot be undone!
                 if (totalTrades < TRADES_READY)    needed.add("${TRADES_READY - totalTrades} more trades")
                 if (unifiedWinRate < WR_READY)     needed.add("WR ${unifiedWinRate.toInt()}% → need ${WR_READY.toInt()}%")
                 if (!isProfitable)                 needed.add("positive PnL")
-                tvReadinessRecommendation.text = "⏳ Almost there! ${needed.joinToString(" · ")}\n$breakdown"
+                tvReadinessRecommendation.text = "ALMOST READY · ${needed.joinToString(" · ")}\n$breakdown"
                 tvReadinessRecommendation.setTextColor(amber)
             }
             else -> {
@@ -7801,7 +7801,7 @@ This cannot be undone!
                 if (totalTrades < TRADES_READY)    needed.add("${TRADES_READY - totalTrades} more trades")
                 if (unifiedWinRate < WR_READY)     needed.add("WR ${unifiedWinRate.toInt()}% → need ${WR_READY.toInt()}%")
                 if (!isProfitable)                 needed.add("positive PnL")
-                tvReadinessRecommendation.text = "🚫 AATE markets learning. ${needed.joinToString(" · ")}\n$breakdown"
+                tvReadinessRecommendation.text = "LEARNING · ${needed.joinToString(" · ")}\n$breakdown"
                 tvReadinessRecommendation.setTextColor(red)
             }
         }
@@ -7928,9 +7928,9 @@ This cannot be undone!
                 ).joinToString(" · ")
             } catch (_: Exception) { "" }
             val finalText = if (perAssetLine.isNotEmpty()) {
-                "🧠 All Traders: $totalTrades trades · $wrLabel · $pnlSign${String.format("%.4f", totalPnl)} SOL\n📊 $perAssetLine"
+                "ALL TRADERS · $totalTrades trades · $wrLabel · $pnlSign${String.format("%.4f", totalPnl)} SOL\n$perAssetLine"
             } else {
-                "🧠 All Traders: $totalTrades trades · $wrLabel · $pnlSign${String.format("%.4f", totalPnl)} SOL"
+                "ALL TRADERS · $totalTrades trades · $wrLabel · $pnlSign${String.format("%.4f", totalPnl)} SOL"
             }
             val finalColor = when {
                 blendedWR >= 50.0 -> green
@@ -7991,7 +7991,7 @@ This cannot be undone!
                 layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
             }
             val sideLabel = TextView(this).apply {
-                val modeEmoji = t.tradingModeEmoji.ifEmpty { "📈" }
+                val modeEmoji = t.tradingModeEmoji.ifEmpty { "MARKET" }
                 text      = "$modeEmoji ${t.side}  ${t.reason.ifBlank { t.mode }}"
                 textSize  = tradeTextSp
                 setTextColor(if (t.side == "BUY") green else if (t.pnlSol > 0) green else red)
@@ -8077,7 +8077,7 @@ This cannot be undone!
 
         val cfg = com.lifecyclebot.data.ConfigStore.load(this)
         val isPaper = cfg.paperMode
-        val modeLabel = if (isPaper) "PAPER" else "🔴 LIVE"
+        val modeLabel = if (isPaper) "PAPER" else "LIVE"
 
         val pad = (16 * resources.displayMetrics.density).toInt()
         val input = EditText(this).apply {
@@ -8109,7 +8109,7 @@ This cannot be undone!
                         false to "Error: ${e.message ?: e.javaClass.simpleName}"
                     }
                     runOnUiThread {
-                        Toast.makeText(this, (if (ok) "✅ " else "❌ ") + msg, if (ok) Toast.LENGTH_SHORT else Toast.LENGTH_LONG).show()
+                        Toast.makeText(this, (if (ok) "OK " else "FAIL ") + msg, if (ok) Toast.LENGTH_SHORT else Toast.LENGTH_LONG).show()
                     }
                 }.start()
             }
@@ -8151,7 +8151,7 @@ This cannot be undone!
         val pnlTxt = if (hasPrice) "%+.2f%%".format(pnlPct) else "basis wait"
 
         val cfg = com.lifecyclebot.data.ConfigStore.load(this)
-        val modeLabel = if (cfg.paperMode) "PAPER" else "🔴 LIVE"
+        val modeLabel = if (cfg.paperMode) "PAPER" else "LIVE"
 
         android.app.AlertDialog.Builder(this)
             .setTitle("Manual SELL — ${ts.symbol}  [$modeLabel]")
@@ -8175,7 +8175,7 @@ This cannot be undone!
                         false to "Error: ${e.message ?: e.javaClass.simpleName}"
                     }
                     runOnUiThread {
-                        Toast.makeText(this, (if (ok) "✅ " else "❌ ") + msg, if (ok) Toast.LENGTH_SHORT else Toast.LENGTH_LONG).show()
+                        Toast.makeText(this, (if (ok) "OK " else "FAIL ") + msg, if (ok) Toast.LENGTH_SHORT else Toast.LENGTH_LONG).show()
                     }
                 }.start()
             }
@@ -8201,7 +8201,7 @@ This cannot be undone!
         lastDecisionLogHash = hash
         cardLogScores.visibility = android.view.View.GONE
         val header = if (state.running || runtimeActiveForLog) {
-            "🟢 Bot running — scanning $tokenCountForLog tokens"
+            "BOT RUNNING — scanning $tokenCountForLog tokens"
         } else {
             "Bot stopped — no selected token"
         }
@@ -8264,9 +8264,9 @@ This cannot be undone!
             if (phase == "micro_cap_wait") add("LOW HOLDERS")
             if (ts.exitScore > 70)         add("EXIT HIGH")
             if (ts.entryScore > 70)        add("ENTRY HIGH")
-            if (meta.topUpReady)           add("🔺 TOP-UP READY")
-            if (meta.spikeDetected)        add("⚡ SPIKE")
-            if (meta.protectMode)          add("🔒 PROTECT")
+            if (meta.topUpReady)           add("TOP-UP TOP-UP READY")
+            if (meta.spikeDetected)        add("SIGNAL SPIKE")
+            if (meta.protectMode)          add("LOCK PROTECT")
             try {
                 val regime = com.lifecyclebot.engine.BotService.instance?.botBrain?.currentRegime ?: ""
                 if (regime.isNotBlank() && regime != "NEUTRAL" && regime != "UNKNOWN") add("brain:$regime")
@@ -8279,7 +8279,7 @@ This cannot be undone!
         tvLogReason.text = buildReasonLine(ts, phase, signal)
         try {
             val insight = com.lifecyclebot.engine.BotService.instance?.botBrain?.lastLlmInsight ?: ""
-            if (insight.isNotBlank()) tvLogReason.text = "${tvLogReason.text}\n💡 $insight"
+            if (insight.isNotBlank()) tvLogReason.text = "${tvLogReason.text}\nINSIGHT $insight"
         } catch (_: Exception) {}
 
         // Show SmartSizer tier + multipliers
@@ -8351,7 +8351,7 @@ This cannot be undone!
                 else                     -> "Exit score ${ts.exitScore.toInt()} crossed threshold"
             }
             signal == "WAIT_CHOP"      -> "Choppy range: flat EMAs, no volume expansion — skipping"
-            meta.topUpReady            -> "🔺 Top-up conditions met — will add to position"
+            meta.topUpReady            -> "TOP-UP Top-up conditions met — will add to position"
             signal == "WAIT_HOLDERS"   -> "Micro-cap: holder count below 150 — waiting for distribution"
             signal == "WAIT_BUILDING"  -> "Pre-pump building: vol accelerating, not yet confirmed"
             signal == "WAIT_PULLBACK"  -> "Pumping: waiting for pullback entry"
@@ -8418,14 +8418,14 @@ This cannot be undone!
         llTokenList.removeAllViews()
         llProbationList.removeAllViews()
         llIdleList.removeAllViews()
-        
+
         val active = state.config.activeToken
         val solPrice = com.lifecyclebot.engine.WalletManager.lastKnownSolPrice.takeIf { it in 50.0..1000.0 } ?: 85.0
-        
+
         // ═══════════════════════════════════════════════════════════════════════
         // V5.2: THREE-COLUMN LAYOUT - Probation | Watchlist | Idle
         // ═══════════════════════════════════════════════════════════════════════
-        
+
         // V5.9.640 — Watchlist means the upstream qualification bench.
         // Fresh protected-intake tokens default to phase="idle" until the first
         // scoring pass touches them, but they are STILL watchlist candidates.
@@ -8437,9 +8437,9 @@ This cannot be undone!
         val idleVisibleModel = wlModel.idleVisible
         val activeTokensSize = wlModel.activeTotal
         val idleTokensSize = wlModel.idleTotal
-        
+
         val probationEntries = com.lifecyclebot.engine.GlobalTradeRegistry.getProbationEntries()
-        
+
         // Determine column visibility and scaling
         val visibleColumns = listOfNotNull(
             if (probationEntries.isNotEmpty()) "probation" else null,
@@ -8458,7 +8458,7 @@ This cannot be undone!
         }
         // Combine: smaller on more columns, but respect user font preference
         val scaleFactor = columnScale * fontScale.coerceIn(0.85f, 1.3f)
-        
+
         // ═══════════════════════════════════════════════════════════════════════
         // PROBATION COLUMN (left)
         // ═══════════════════════════════════════════════════════════════════════
@@ -8487,7 +8487,7 @@ This cannot be undone!
             tvProbationHeader.visibility = android.view.View.GONE
             llProbationList.visibility = android.view.View.GONE
         }
-        
+
         // ═══════════════════════════════════════════════════════════════════════
         // WATCHLIST COLUMN (center) - Active tokens only
         // ═══════════════════════════════════════════════════════════════════════
@@ -8504,7 +8504,7 @@ This cannot be undone!
             val insiderBuys = com.lifecyclebot.engine.InsiderCopyEngine.totalCopyBuys.get()
             val insiderExits = com.lifecyclebot.engine.InsiderCopyEngine.totalCopyExits.get()
             val insiderSuffix = if (insiderBuys > 0 || insiderExits > 0) {
-                " · 🐋$insiderBuys/$insiderExits"
+                " · WHALE$insiderBuys/$insiderExits"
             } else ""
             val scannerPulse = if (tele.src > 0 || tele.ok > 0 || tele.err > 0) {
                 "SRC ${tele.src}/${tele.ok}/${tele.err} → RAW ${tele.raw} → ENQ ${tele.enq}"
@@ -8512,8 +8512,8 @@ This cannot be undone!
                 "RAW ${tele.raw} → ENQ ${tele.enq}"
             }
             "$scannerPulse → MQ $mqSize → WL ${activeTokensSize}  ·  Prob $probSize · LIQ-rej ${tele.liqRej} · SAT ${tele.sat}" +
-                (if (!tele.alive && tele.ageSec > 90) " · ⚠scan stale ${tele.ageSec}s" else "") +
-                (if (bypassCount > 0) " · 🟢Bypass $bypassCount" else "") +
+                (if (!tele.alive && tele.ageSec > 90) " · WARNscan stale ${tele.ageSec}s" else "") +
+                (if (bypassCount > 0) " · OKBypass $bypassCount" else "") +
                 insiderSuffix
         } catch (_: Exception) { "" }
         tvWatchlistHeader.text = if (funnelLine.isNotEmpty()) {
@@ -8521,7 +8521,7 @@ This cannot be undone!
         } else {
             "Watchlist (${activeTokensSize})"
         }
-        
+
         // V5.9.613 — watchlist UI must be lightweight. The scanner can hold
         // hundreds of candidates, but drawing hundreds of nested cards + images
         // every UI tick OOMs low-memory Android heaps. Render the most relevant
@@ -8545,7 +8545,7 @@ This cannot be undone!
         if (activeTokensSize > activeVisible.size) {
             llTokenList.addView(buildListFooter("showing ${activeVisible.size}/${activeTokensSize} — scanner still tracking all"))
         }
-        
+
         // ═══════════════════════════════════════════════════════════════════════
         // IDLE COLUMN (right) - Idle/blocked/dead tokens
         // ═══════════════════════════════════════════════════════════════════════
@@ -8553,7 +8553,7 @@ This cannot be undone!
             tvIdleHeader.visibility = android.view.View.VISIBLE
             llIdleList.visibility = android.view.View.VISIBLE
             tvIdleHeader.text = "Idle (${idleTokensSize})"
-            
+
             val maxIdleRows = 4
             // V5.9.1474 — already sorted off-thread; just cap + bind.
             val idleVisible = idleVisibleModel.take(maxIdleRows)
@@ -8569,7 +8569,7 @@ This cannot be undone!
             llIdleList.visibility = android.view.View.GONE
         }
     }
-    
+
     private fun buildListFooter(textValue: String): android.view.View {
         return TextView(this).apply {
             text = textValue
@@ -8590,19 +8590,19 @@ This cannot be undone!
             elapsed < 60 -> "${elapsed}s"
             else -> "${elapsed / 60}m"
         }
-        
+
         val probationCard = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             setPadding((8 * scale).toInt(), (8 * scale).toInt(), (8 * scale).toInt(), (8 * scale).toInt())
             background = ContextCompat.getDrawable(this@MainActivity, R.drawable.card_bg)
         }
-        
+
         // Row 1: Logo + Symbol + Timer
         val row1 = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
             gravity = android.view.Gravity.CENTER_VERTICAL
         }
-        
+
         // V5.9.1228 — no Coil/image load in probation rows. Probation can hold
         // hundreds of slow-lane mints; decoding logos here was a direct ANR source.
         row1.addView(TextView(this).apply {
@@ -8614,7 +8614,7 @@ This cannot be undone!
             }
             gravity = android.view.Gravity.CENTER
         })
-        
+
         row1.addView(TextView(this).apply {
             text = entry.symbol
             textSize = 11f * scale
@@ -8628,7 +8628,7 @@ This cannot be undone!
             setTextColor(muted)
         })
         probationCard.addView(row1)
-        
+
         // Row 2: Reason + RC + Conf
         val row2 = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
@@ -8664,7 +8664,7 @@ This cannot be undone!
             })
         }
         probationCard.addView(row2)
-        
+
         val wrapper = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             setPadding(0, 0, 0, (4 * scale).toInt())
@@ -8672,7 +8672,7 @@ This cannot be undone!
         wrapper.addView(probationCard)
         return wrapper
     }
-    
+
     /**
      * Build a token card for watchlist or idle column with scaled text/elements
      */
@@ -8902,11 +8902,11 @@ This cannot be undone!
         settingsPopulated = false
         Toast.makeText(this, "Saved", Toast.LENGTH_SHORT).show()
     }
-    
+
     // ═══════════════════════════════════════════════════════════════════════════
     // V5.1: EXPORT/IMPORT LEARNING DATA
     // ═══════════════════════════════════════════════════════════════════════════
-    
+
     private fun exportLearningData() {
         // Request storage permission if needed
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
@@ -8916,27 +8916,27 @@ This cannot be undone!
                 return
             }
         }
-        
+
         // Show confirmation dialog
         android.app.AlertDialog.Builder(this)
-            .setTitle("📦 Export Learning Data")
+            .setTitle("EXPORT Learning Data")
             .setMessage("This will export all learned AI data to Downloads/AATE_Backups/\n\nThe backup file survives app uninstall and can be imported after reinstall.\n\nExport now?")
             .setPositiveButton("Export") { _, _ ->
                 try {
                     val backupFile = com.lifecyclebot.engine.PersistentLearning.exportFullBackup(this)
                     if (backupFile != null) {
-                        Toast.makeText(this, "✅ Exported to:\n${backupFile.absolutePath}", Toast.LENGTH_LONG).show()
+                        Toast.makeText(this, "OK Exported to:\n${backupFile.absolutePath}", Toast.LENGTH_LONG).show()
                     } else {
-                        Toast.makeText(this, "❌ Export failed - check storage permission", Toast.LENGTH_LONG).show()
+                        Toast.makeText(this, "FAIL Export failed - check storage permission", Toast.LENGTH_LONG).show()
                     }
                 } catch (e: Exception) {
-                    Toast.makeText(this, "❌ Export error: ${e.message}", Toast.LENGTH_LONG).show()
+                    Toast.makeText(this, "FAIL Export error: ${e.message}", Toast.LENGTH_LONG).show()
                 }
             }
             .setNegativeButton("Cancel", null)
             .show()
     }
-    
+
     private fun importLearningData() {
         // Request storage permission if needed
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
@@ -8946,25 +8946,25 @@ This cannot be undone!
                 return
             }
         }
-        
+
         // Find available backups
         val backups = com.lifecyclebot.engine.PersistentLearning.listBackups()
-        
+
         if (backups.isEmpty()) {
             Toast.makeText(this, "No backups found in Downloads/AATE_Backups/", Toast.LENGTH_LONG).show()
             return
         }
-        
+
         // Show backup selection dialog with OK button
         val backupNames = backups.map { file ->
             val date = java.text.SimpleDateFormat("yyyy-MM-dd HH:mm").format(java.util.Date(file.lastModified()))
             "${file.name} ($date)"
         }.toTypedArray()
-        
+
         var selectedIndex = 0  // Default to first backup
-        
+
         android.app.AlertDialog.Builder(this)
-            .setTitle("📥 Import Learning Data")
+            .setTitle("IMPORT Learning Data")
             .setSingleChoiceItems(backupNames, 0) { _, which ->
                 selectedIndex = which
             }
@@ -8973,12 +8973,12 @@ This cannot be undone!
                 try {
                     val success = com.lifecyclebot.engine.PersistentLearning.importFullBackup(this, selectedBackup)
                     if (success) {
-                        Toast.makeText(this, "✅ Learning data + API keys restored!\n\nRestart app for changes.", Toast.LENGTH_LONG).show()
+                        Toast.makeText(this, "OK Learning data + API keys restored!\n\nRestart app for changes.", Toast.LENGTH_LONG).show()
                     } else {
-                        Toast.makeText(this, "❌ Import failed", Toast.LENGTH_SHORT).show()
+                        Toast.makeText(this, "FAIL Import failed", Toast.LENGTH_SHORT).show()
                     }
                 } catch (e: Exception) {
-                    Toast.makeText(this, "❌ Import error: ${e.message}", Toast.LENGTH_LONG).show()
+                    Toast.makeText(this, "FAIL Import error: ${e.message}", Toast.LENGTH_LONG).show()
                 }
             }
             .setNegativeButton("Cancel", null)
@@ -8996,7 +8996,7 @@ This cannot be undone!
             }
         }
     }
-    
+
     private fun requestStoragePermission() {
         // For Android 11+ (API 30+), we need MANAGE_EXTERNAL_STORAGE for full access
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
@@ -9032,7 +9032,7 @@ This cannot be undone!
             R.id.tvGroqHelp to "https://console.groq.com",
             R.id.tvTelegramHelp to "https://t.me/BotFather"
         )
-        
+
         apiLinks.forEach { (viewId, url) ->
             try {
                 findViewById<TextView>(viewId)?.apply {
@@ -9059,7 +9059,7 @@ This cannot be undone!
             val altStats = com.lifecyclebot.perps.DynamicAltTokenRegistry.getStats()
             val memeStats = com.lifecyclebot.engine.MemeMintRegistry.stats()
             android.app.AlertDialog.Builder(this@MainActivity)
-                .setTitle("🪐 Token Universe")
+                .setTitle("Token Universe")
                 .setMessage("ALT: $altStats\n\nMEME: $memeStats")
                 .setPositiveButton("OK", null)
                 .show()
@@ -9206,50 +9206,50 @@ This cannot be undone!
             showAILayersDialog()
             performHaptic()
         }
-        
+
         // V5.2: V3 Core Mode button → Shows V3 Engine status
         findViewById<View>(R.id.btnQuickV3)?.setOnClickListener {
             showV3ModeDialog()
             performHaptic()
         }
-        
+
         // Treasury Mode button → Shows Cash Generation AI status
         findViewById<View>(R.id.btnQuickTreasury)?.setOnClickListener {
             showTreasuryModeDialog()
             performHaptic()
         }
-        
+
         // V4.20: BlueChip Mode button → Shows BlueChip AI status
         findViewById<View>(R.id.btnQuickBlueChip)?.setOnClickListener {
             showBlueChipModeDialog()
             performHaptic()
         }
-        
+
         // V4.20: ShitCoin Mode button → Shows ShitCoin AI status
         findViewById<View>(R.id.btnQuickShitCoin)?.setOnClickListener {
             showShitCoinModeDialog()
             performHaptic()
         }
-        
+
         // V5.2: Moonshot Mode button → Shows Moonshot AI status
         findViewById<View>(R.id.btnQuickMoonshot)?.setOnClickListener {
             showMoonshotModeDialog()
             performHaptic()
         }
-        
+
         // V5.7: Perps/Leverage Mode button → Shows Perps AI status
         findViewById<View>(R.id.btnQuickPerps)?.setOnClickListener {
             showPerpsModeDialog()
             performHaptic()
         }
-        
+
         // V5.7.3: Tokenized Stocks button → Opens dedicated Markets UI
         // V5.7.6: Now navigates to MultiAssetActivity for proper Markets AI layers
         findViewById<View>(R.id.btnQuickStocks)?.setOnClickListener {
             startActivity(Intent(this, MultiAssetActivity::class.java))
             performHaptic()
         }
-        
+
         // V5.7.6: Multi-Asset Markets button → Opens dedicated trading UI
         findViewById<View>(R.id.btnQuickMarkets)?.setOnClickListener {
             startActivity(Intent(this, MultiAssetActivity::class.java))
@@ -9325,11 +9325,11 @@ This cannot be undone!
             Toast.makeText(this, "API keys cleared", Toast.LENGTH_SHORT).show()
         } catch (_: Exception) {}
     }
-    
+
     // ═══════════════════════════════════════════════════════════════════════════
     // V5.2: SETTINGS BOTTOM SHEET
     // ═══════════════════════════════════════════════════════════════════════════
-    
+
     /**
      * V5.2: Opens the Settings Bottom Sheet dialog.
      * Replaces the inline settings card for cleaner UI.
@@ -9338,7 +9338,7 @@ This cannot be undone!
         val state = vm.ui.value
         val sheet = SettingsBottomSheet.newInstance()
         sheet.setConfig(state.config)
-        
+
         // Wire up callbacks
         sheet.onSettingsSaved = { newConfig ->
             vm.saveConfig(newConfig)
@@ -9352,55 +9352,55 @@ This cannot be undone!
             // have to restart the bot service to enable/disable a trader.
             try { com.lifecyclebot.engine.BotService.reapplyMarketsTraderSwitches(applicationContext) } catch (_: Exception) {}
         }
-        
+
         sheet.onExportRequested = {
             exportLearningData()
         }
-        
+
         sheet.onImportRequested = {
             importLearningData()
         }
-        
+
         sheet.onClearApiKeys = {
             clearApiKeys()
         }
-        
+
         sheet.onTestToast = {
             testToastNotifications()
         }
-        
+
         sheet.show(supportFragmentManager, "SettingsBottomSheet")
     }
-    
+
     /** V5.2: Test toast notifications - called from settings bottom sheet */
     private fun testToastNotifications() {
-        Toast.makeText(this, "✅ LIVE BUY: TESTTOKEN\n0.0150 SOL @ 0.00001234", Toast.LENGTH_LONG).show()
+        Toast.makeText(this, "OK LIVE BUY: TESTTOKEN\n0.0150 SOL @ 0.00001234", Toast.LENGTH_LONG).show()
         android.os.Handler(android.os.Looper.getMainLooper()).postDelayed({
-            Toast.makeText(this, "💰 PARTIAL SELL: TESTTOKEN\n+125% | 0.0050 SOL sold", Toast.LENGTH_LONG).show()
+            Toast.makeText(this, "TREASURY PARTIAL SELL: TESTTOKEN\n+125% | 0.0050 SOL sold", Toast.LENGTH_LONG).show()
         }, 2000)
         android.os.Handler(android.os.Looper.getMainLooper()).postDelayed({
-            Toast.makeText(this, "🎯 FULL EXIT: TESTTOKEN\n+85% | 0.0280 SOL profit", Toast.LENGTH_LONG).show()
+            Toast.makeText(this, "TARGET FULL EXIT: TESTTOKEN\n+85% | 0.0280 SOL profit", Toast.LENGTH_LONG).show()
         }, 4000)
     }
-    
+
     /** Test toast notifications - simulates live trade toasts */
     private fun setupTestToastButton() {
         try {
             findViewById<android.widget.Button>(R.id.btnTestToast)?.setOnClickListener {
                 // Show a series of test toasts to verify they work
-                Toast.makeText(this, "✅ LIVE BUY: TESTTOKEN\n0.0150 SOL @ 0.00001234", Toast.LENGTH_LONG).show()
-                
+                Toast.makeText(this, "OK LIVE BUY: TESTTOKEN\n0.0150 SOL @ 0.00001234", Toast.LENGTH_LONG).show()
+
                 // Schedule follow-up toasts
                 android.os.Handler(android.os.Looper.getMainLooper()).postDelayed({
-                    Toast.makeText(this, "📉 LIVE SELL: TESTTOKEN\nPnL: -5.2% (-0.0008 SOL)", Toast.LENGTH_LONG).show()
+                    Toast.makeText(this, "DOWNTICK LIVE SELL: TESTTOKEN\nPnL: -5.2% (-0.0008 SOL)", Toast.LENGTH_LONG).show()
                 }, 3500)
-                
+
                 android.os.Handler(android.os.Looper.getMainLooper()).postDelayed({
-                    Toast.makeText(this, "✅ Toast notifications working!", Toast.LENGTH_SHORT).show()
+                    Toast.makeText(this, "OK Toast notifications working!", Toast.LENGTH_SHORT).show()
                 }, 7000)
             }
         } catch (_: Exception) {}
-        
+
         // V5.2: Wire up the "Open Settings" button to show bottom sheet
         try {
             findViewById<android.widget.Button>(R.id.btnOpenSettingsSheet)?.setOnClickListener {
@@ -9408,7 +9408,7 @@ This cannot be undone!
             }
         } catch (_: Exception) {}
     }
-    
+
     /**
      * Apply dark or light theme to the UI
      */
@@ -9436,14 +9436,14 @@ This cannot be undone!
             )
         }
     }
-    
+
     // ── Haptic Feedback ─────────────────────────────────────────────────
     private fun performHaptic(feedbackType: Int = HapticFeedbackConstants.CONTEXT_CLICK) {
         try {
             window.decorView.performHapticFeedback(feedbackType)
         } catch (_: Exception) {}
     }
-    
+
     @Suppress("DEPRECATION")
     private fun vibrate(durationMs: Long = 50) {
         try {
@@ -9462,12 +9462,12 @@ This cannot be undone!
             }
         } catch (_: Exception) {}
     }
-    
+
     // ── Animated Progress ───────────────────────────────────────────────
     private fun animateProgress(progressBar: ProgressBar, newValue: Int) {
         val currentValue = progressBar.progress
         if (currentValue == newValue) return
-        
+
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
             progressBar.setProgress(newValue, true)
         } else {
@@ -9477,33 +9477,33 @@ This cannot be undone!
             animator.start()
         }
     }
-    
+
     // ── Historical Chart Scanner Popup ────────────────────────────────────
     private fun showHistoricalScanDialog() {
         try {
             val stats = com.lifecyclebot.engine.HistoricalChartScanner.getStats()
             val isScanning = com.lifecyclebot.engine.HistoricalChartScanner.isScanning()
-            
+
             val lastScanStr = if (stats.lastScanTime > 0) {
                 val hoursAgo = (System.currentTimeMillis() - stats.lastScanTime) / (1000 * 60 * 60)
                 if (hoursAgo < 1) "Just now" else "${hoursAgo}h ago"
             } else "Never"
-            
+
             val statusEmoji = when {
-                isScanning -> "🔄"
-                stats.tokensAnalyzed > 100 -> "✅"
-                stats.tokensAnalyzed > 0 -> "📊"
-                else -> "⏳"
+                isScanning -> "SYNC"
+                stats.tokensAnalyzed > 100 -> "OK"
+                stats.tokensAnalyzed > 0 -> "ANALYTICS"
+                else -> "INIT"
             }
-            
+
             val message = """
 $statusEmoji Historical Chart Scanner
 
-📊 Tokens Analyzed: ${stats.tokensAnalyzed}
-🟢 Winning Patterns: ${stats.winningPatterns}
-🔴 Losing Patterns: ${stats.losingPatterns}
-🕐 Last Scan: $lastScanStr
-${if (isScanning) "🔄 SCAN IN PROGRESS..." else ""}
+ANALYTICS Tokens Analyzed: ${stats.tokensAnalyzed}
+OK Winning Patterns: ${stats.winningPatterns}
+FAIL Losing Patterns: ${stats.losingPatterns}
+TIME Last Scan: $lastScanStr
+${if (isScanning) "SYNC SCAN IN PROGRESS..." else ""}
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━
 
@@ -9515,12 +9515,12 @@ This scanner backtests historical charts to:
 
 ${if (!isScanning) "Tap 'Start Scan' to begin." else "Scan running in background..."}
             """.trimIndent()
-            
+
             val builder = AlertDialog.Builder(this, R.style.Theme_AATE_Dialog)
-                .setTitle("📊 Historical Scanner")
+                .setTitle("Historical Scanner")
                 .setMessage(message)
                 .setNegativeButton("Close") { d, _ -> d.dismiss() }
-            
+
             if (!isScanning) {
                 builder.setPositiveButton("Start Scan") { d, _ ->
                     d.dismiss()
@@ -9533,21 +9533,21 @@ ${if (!isScanning) "Tap 'Start Scan' to begin." else "Scan running in background
                     Toast.makeText(this, "Scan stopped", Toast.LENGTH_SHORT).show()
                 }
             }
-            
+
             builder.show()
             performHaptic()
         } catch (e: Exception) {
             Toast.makeText(this, "Error: ${e.message}", Toast.LENGTH_SHORT).show()
         }
     }
-    
+
     private fun startHistoricalScan() {
         try {
             val cfg = vm.ui.value.config
-            
+
             // Show progress toast
-            Toast.makeText(this, "📊 Starting historical scan...", Toast.LENGTH_SHORT).show()
-            
+            Toast.makeText(this, "Starting historical scan...", Toast.LENGTH_SHORT).show()
+
             // Start scan in background
             com.lifecyclebot.engine.HistoricalChartScanner.startScan(
                 hoursBack = cfg.historicalScanHoursBack,
@@ -9556,8 +9556,8 @@ ${if (!isScanning) "Tap 'Start Scan' to begin." else "Scan running in background
                     if (pct % 10 == 0) {
                         runOnUiThread {
                             try {
-                                Toast.makeText(this@MainActivity, 
-                                    "📊 Scan: $pct% ($total tokens)", 
+                                Toast.makeText(this@MainActivity,
+                                    "Scan: $pct% ($total tokens)",
                                     Toast.LENGTH_SHORT).show()
                             } catch (_: Exception) {}
                         }
@@ -9567,7 +9567,7 @@ ${if (!isScanning) "Tap 'Start Scan' to begin." else "Scan running in background
                     runOnUiThread {
                         try {
                             AlertDialog.Builder(this@MainActivity, R.style.Theme_AATE_Dialog)
-                                .setTitle("✅ Scan Complete!")
+                                .setTitle("Scan Complete")
                                 .setMessage("""
 Analyzed: $analyzed tokens
 Patterns Learned: $learned
@@ -9601,14 +9601,14 @@ The AI brain has been updated with new insights from historical data.
             val engine = com.lifecyclebot.engine.ShadowLearningEngine
             val stats = engine.getStats()
             val statusText = engine.getStatus()
-            
+
             val message = """
-👁️ SHADOW LEARNING ENGINE
+SHADOW SHADOW LEARNING ENGINE
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-Status: 🟢 ACTIVE
+Status: OK ACTIVE
 
-📊 Virtual Trade Statistics:
+ANALYTICS Virtual Trade Statistics:
 • Total Shadow Trades: ${stats.totalTrades}
 • Open Positions: ${stats.openTrades}
 • Wins: ${stats.wins}
@@ -9618,17 +9618,17 @@ Status: 🟢 ACTIVE
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-📈 Status: $statusText
+MARKET Status: $statusText
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-ℹ️ Shadow Learning runs continuous virtual 
-trades to calibrate AI scoring without 
+INFO Shadow Learning runs continuous virtual
+trades to calibrate AI scoring without
 risking real capital.
             """.trimIndent()
-            
+
             AlertDialog.Builder(this, R.style.Theme_AATE_Dialog)
-                .setTitle("👁️ Shadow Learning Engine")
+                .setTitle("Shadow Learning Engine")
                 .setMessage(message)
                 .setPositiveButton("Close") { d, _ -> d.dismiss() }
                 .show()
@@ -9647,62 +9647,62 @@ risking real capital.
             val stats = treasuryAI.getStats()
             val cfg = com.lifecyclebot.data.ConfigStore.load(applicationContext)
             val solPrice = com.lifecyclebot.engine.WalletManager.lastKnownSolPrice.takeIf { it in 50.0..1000.0 } ?: 85.0
-            
+
             // Get both paper and live balances for comparison
             val paperBalance = treasuryAI.getTreasuryBalance(true)
             val liveBalance = treasuryAI.getTreasuryBalance(false)
-            
+
             val modeEmoji = when (stats.mode) {
-                com.lifecyclebot.v3.scoring.CashGenerationAI.TreasuryMode.HUNT -> "🎯"
-                com.lifecyclebot.v3.scoring.CashGenerationAI.TreasuryMode.CRUISE -> "🚢"
-                com.lifecyclebot.v3.scoring.CashGenerationAI.TreasuryMode.DEFENSIVE -> "🛡️"
-                com.lifecyclebot.v3.scoring.CashGenerationAI.TreasuryMode.PAUSED -> "⏸️"
-                com.lifecyclebot.v3.scoring.CashGenerationAI.TreasuryMode.AGGRESSIVE -> "⚡"
+                com.lifecyclebot.v3.scoring.CashGenerationAI.TreasuryMode.HUNT -> "TARGET"
+                com.lifecyclebot.v3.scoring.CashGenerationAI.TreasuryMode.CRUISE -> "CRUISE"
+                com.lifecyclebot.v3.scoring.CashGenerationAI.TreasuryMode.DEFENSIVE -> "RISK"
+                com.lifecyclebot.v3.scoring.CashGenerationAI.TreasuryMode.PAUSED -> "PAUSED"
+                com.lifecyclebot.v3.scoring.CashGenerationAI.TreasuryMode.AGGRESSIVE -> "SIGNAL"
             }
-            
-            val currentModeLabel = if (cfg.paperMode) "📝 PAPER MODE" else "💰 LIVE MODE"
+
+            val currentModeLabel = if (cfg.paperMode) "PAPER MODE" else "LIVE MODE"
             val currentBalance = stats.treasuryBalanceSol
             val currentBalanceUsd = currentBalance * solPrice
-            
+
             val pnlSign = if (stats.dailyPnlSol >= 0) "+" else ""
-            
+
             val message = """
-💰 CASH GENERATION AI (Treasury Mode)
+CASH GENERATION AI · TREASURY MODE
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 $currentModeLabel
 Current Treasury: ${"%.4f".format(currentBalance)} SOL (~$${"%.0f".format(currentBalanceUsd)})
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-📊 DAILY PERFORMANCE
+ANALYTICS DAILY PERFORMANCE
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 $modeEmoji Mode: ${stats.mode.name}
 
 Daily P&L: $pnlSign${"%.4f".format(stats.dailyPnlSol)} SOL
 Max Loss Limit: ${"%.2f".format(stats.dailyMaxLossSol)} SOL (~$50)
-Target: UNLIMITED 🚀
+Target: UNLIMITED
 
 Trades: ${stats.dailyTradeCount} | W/L: ${stats.dailyWins}/${stats.dailyLosses}
 Win Rate: ${"%.1f".format(stats.winRate)}%
 Active Positions: ${stats.activePositions}
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-📈 TREASURY BALANCES
+MARKET TREASURY BALANCES
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-📝 Paper Treasury: ${"%.4f".format(paperBalance)} SOL
-💰 Live Treasury:  ${"%.4f".format(liveBalance)} SOL
+Paper Treasury: ${"%.4f".format(paperBalance)} SOL
+Live Treasury:  ${"%.4f".format(liveBalance)} SOL
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-ℹ️ Treasury Mode runs concurrent scalps
+INFO Treasury Mode runs concurrent scalps
 aiming for $500-$1000/day with strict
 $50 max daily loss protection.
             """.trimIndent()
-            
+
             AlertDialog.Builder(this, R.style.Theme_AATE_Dialog)
-                .setTitle("💰 Treasury Mode")
+                .setTitle("Treasury Mode")
                 .setMessage(message)
                 .setPositiveButton("Close") { d, _ -> d.dismiss() }
                 .setNeutralButton("Reset Daily") { d, _ ->
@@ -9715,7 +9715,7 @@ $50 max daily loss protection.
             Toast.makeText(this, "Treasury Mode: ${e.message ?: "Not available"}", Toast.LENGTH_SHORT).show()
         }
     }
-    
+
     /** Helper to build a visual progress bar */
     private fun buildProgressBar(pct: Double): String {
         val filled = ((pct / 100.0) * 10).toInt().coerceIn(0, 10)
@@ -9732,43 +9732,43 @@ $50 max daily loss protection.
             val modes = com.lifecyclebot.v3.modes.MarketStructureRouter.StructureMode.values()
             val statusText = com.lifecyclebot.v3.modes.MarketStructureRouter.getStatus()
             val regimeTransitionStatus = com.lifecyclebot.v3.scoring.RegimeTransitionAI.getStatus()
-            
+
             // Build regime summary
             val regimeSummary = regimes.joinToString("\n") { regime ->
                 val modeCount = modes.count { it.regime == regime }
                 "${regime.emoji} ${regime.label}: $modeCount modes"
             }
-            
+
             // Build modes list (first 12)
             val modesText = modes.take(12).joinToString("\n") { mode ->
                 "${mode.emoji} ${mode.label} (${mode.regime.label})"
             }
-            
+
             val message = """
-📊 MARKET STRUCTURE ROUTER
+ANALYTICS MARKET STRUCTURE ROUTER
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 $statusText
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-🏛️ Market Regimes (${regimes.size}):
+REGIME Market Regimes (${regimes.size}):
 
 $regimeSummary
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-🎯 Trading Modes (${modes.size}):
+TARGET Trading Modes (${modes.size}):
 
 $modesText
 ${if (modes.size > 12) "...and ${modes.size - 12} more" else ""}
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-📈 Regime Transition AI:
+MARKET Regime Transition AI:
 $regimeTransitionStatus
             """.trimIndent()
-            
+
             AlertDialog.Builder(this, R.style.Theme_AATE_Dialog)
-                .setTitle("📊 Market Regimes & Modes")
+                .setTitle("ANALYTICS Market Regimes & Modes")
                 .setMessage(message)
                 .setPositiveButton("Close") { d, _ -> d.dismiss() }
                 .show()
@@ -9785,17 +9785,17 @@ $regimeTransitionStatus
             val coordinator = com.lifecyclebot.v3.core.AIStartupCoordinator
             val healthReport = coordinator.runHealthCheck()
             val detailedStatus = coordinator.getDetailedStatus()
-            
-            val statusEmoji = if (healthReport.overallHealthy) "✅" else "⚠️"
-            val tradingStatus = if (healthReport.tradingAllowed) "🟢 ENABLED" else "🔴 DISABLED"
-            
+
+            val statusEmoji = if (healthReport.overallHealthy) "OK" else "WARN"
+            val tradingStatus = if (healthReport.tradingAllowed) "OK ENABLED" else "FAIL DISABLED"
+
             // Build layer status list
             val layerLines = detailedStatus.take(25).joinToString("\n") { (name, status) ->
                 "$status $name"
             }
-            
+
             val message = """
-🤖 AI SYSTEM STATUS ($statusEmoji)
+AI AI SYSTEM STATUS ($statusEmoji)
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 Trading: $tradingStatus
@@ -9803,24 +9803,24 @@ Critical Issues: ${healthReport.criticalIssues}
 Warnings: ${healthReport.warnings}
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-📋 Layer Status (25 AI Modules):
+LAYERS Layer Status (25 AI Modules):
 
 $layerLines
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 Legend:
-✅ Ready  ⚠️ Degraded  ❌ Failed
+OK Ready  WARN Degraded  FAIL Failed
 ⏳ Loading  ⏸️ Pending
 
 Last Check: ${java.text.SimpleDateFormat("HH:mm:ss", java.util.Locale.US).format(java.util.Date(healthReport.timestamp))}
             """.trimIndent()
-            
+
             AlertDialog.Builder(this, R.style.Theme_AATE_Dialog)
-                .setTitle("🤖 25 AI Layers")
+                .setTitle("25 AI Layers")
                 .setMessage(message)
                 .setPositiveButton("Close") { d, _ -> d.dismiss() }
-                .setNeutralButton("Refresh") { _, _ -> 
+                .setNeutralButton("Refresh") { _, _ ->
                     showAILayersDialog() // Re-run to refresh
                 }
                 .show()
@@ -9828,7 +9828,7 @@ Last Check: ${java.text.SimpleDateFormat("HH:mm:ss", java.util.Locale.US).format
             Toast.makeText(this, "AI Layers: ${e.message ?: "Not available"}", Toast.LENGTH_SHORT).show()
         }
     }
-    
+
     /**
      * V4.20: Shows BlueChip AI status - similar to Treasury dialog
      */
@@ -9839,17 +9839,17 @@ Last Check: ${java.text.SimpleDateFormat("HH:mm:ss", java.util.Locale.US).format
             val blueChipStats = blueChipAI.getStats()
             val cfg = com.lifecyclebot.data.ConfigStore.load(applicationContext)
             val solPrice = com.lifecyclebot.engine.WalletManager.lastKnownSolPrice.takeIf { it in 50.0..1000.0 } ?: 85.0
-            
-            val currentModeLabel = if (cfg.paperMode) "📝 PAPER MODE" else "💰 LIVE MODE"
-            
+
+            val currentModeLabel = if (cfg.paperMode) "PAPER MODE" else "LIVE MODE"
+
             // Get Quality positions
             val qualityPositions = qualityAI.getActivePositions()
             val qualityWR = qualityAI.getWinRate()
             val qualityPnl = qualityAI.getDailyPnl()
-            
-            // Get BlueChip positions  
+
+            // Get BlueChip positions
             val blueChipPositions = blueChipAI.getActivePositions()
-            
+
             // Build Quality positions list
             val qualityPosList = if (qualityPositions.isEmpty()) {
                 "   (none)"
@@ -9860,7 +9860,7 @@ Last Check: ${java.text.SimpleDateFormat("HH:mm:ss", java.util.Locale.US).format
                     "   • ${pos.symbol} | \$${(pos.entryMcap/1000).toInt()}K | ${holdMins}min"
                 }
             }
-            
+
             // Build BlueChip positions list
             val blueChipPosList = if (blueChipPositions.isEmpty()) {
                 "   (none)"
@@ -9870,22 +9870,22 @@ Last Check: ${java.text.SimpleDateFormat("HH:mm:ss", java.util.Locale.US).format
                     "   • ${pos.symbol} | \$${(pos.marketCapUsd/1_000_000).toInt()}M | ${holdMins}min"
                 }
             }
-            
+
             val modeEmoji = when (blueChipStats.mode) {
-                com.lifecyclebot.v3.scoring.BlueChipTraderAI.BlueChipMode.HUNTING -> "🎯"
-                com.lifecyclebot.v3.scoring.BlueChipTraderAI.BlueChipMode.POSITIONED -> "📊"
-                com.lifecyclebot.v3.scoring.BlueChipTraderAI.BlueChipMode.CAUTIOUS -> "⚠️"
+                com.lifecyclebot.v3.scoring.BlueChipTraderAI.BlueChipMode.HUNTING -> "TARGET"
+                com.lifecyclebot.v3.scoring.BlueChipTraderAI.BlueChipMode.POSITIONED -> "ANALYTICS"
+                com.lifecyclebot.v3.scoring.BlueChipTraderAI.BlueChipMode.CAUTIOUS -> "WARN"
                 com.lifecyclebot.v3.scoring.BlueChipTraderAI.BlueChipMode.PAUSED -> "⏸️"
             }
-            
+
             val message = """
-⭐ QUALITY + 🔵 BLUECHIP LAYERS
+STAR QUALITY + BLUECHIP BLUECHIP LAYERS
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 $currentModeLabel
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-⭐ QUALITY LAYER ($100K-$1M)
+STAR QUALITY LAYER ($100K-$1M)
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 Professional Solana trading
@@ -9904,7 +9904,7 @@ Entry Criteria:
 • TP: 15-50% | SL: -8%
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-🔵 BLUECHIP LAYER ($1M+)
+BLUECHIP BLUECHIP LAYER ($1M+)
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 $modeEmoji Mode: ${blueChipStats.mode.name}
@@ -9920,9 +9920,9 @@ Entry Criteria:
 • Liquidity: $200K+
 • TP: 10-20% | SL: -8%
             """.trimIndent()
-            
+
             AlertDialog.Builder(this, R.style.Theme_AATE_Dialog)
-                .setTitle("⭐ Quality + 🔵 BlueChip")
+                .setTitle("STAR Quality + BLUECHIP BlueChip")
                 .setMessage(message)
                 .setPositiveButton("Close") { d, _ -> d.dismiss() }
                 .setNeutralButton("Reset Daily") { d, _ ->
@@ -9936,7 +9936,7 @@ Entry Criteria:
             Toast.makeText(this, "Quality/BlueChip: ${e.message ?: "Not available"}", Toast.LENGTH_SHORT).show()
         }
     }
-    
+
     /**
      * V4.20: Shows ShitCoin AI status - similar to Treasury dialog
      */
@@ -9946,28 +9946,28 @@ Entry Criteria:
             val stats = shitCoinAI.getStats()
             val cfg = com.lifecyclebot.data.ConfigStore.load(applicationContext)
             val solPrice = com.lifecyclebot.engine.WalletManager.lastKnownSolPrice.takeIf { it in 50.0..1000.0 } ?: 85.0
-            
-            val currentModeLabel = if (cfg.paperMode) "📝 PAPER MODE" else "💰 LIVE MODE"
+
+            val currentModeLabel = if (cfg.paperMode) "PAPER MODE" else "LIVE MODE"
             val pnlSign = if (stats.dailyPnlSol >= 0) "+" else ""
             val dailyPnlUsd = stats.dailyPnlSol * solPrice
-            
+
             val modeEmoji = when (stats.mode) {
-                com.lifecyclebot.v3.scoring.ShitCoinTraderAI.ShitCoinMode.HUNTING -> "🎯"
-                com.lifecyclebot.v3.scoring.ShitCoinTraderAI.ShitCoinMode.POSITIONED -> "📍"
-                com.lifecyclebot.v3.scoring.ShitCoinTraderAI.ShitCoinMode.CAUTIOUS -> "⚠️"
+                com.lifecyclebot.v3.scoring.ShitCoinTraderAI.ShitCoinMode.HUNTING -> "TARGET"
+                com.lifecyclebot.v3.scoring.ShitCoinTraderAI.ShitCoinMode.POSITIONED -> "PIN"
+                com.lifecyclebot.v3.scoring.ShitCoinTraderAI.ShitCoinMode.CAUTIOUS -> "WARN"
                 com.lifecyclebot.v3.scoring.ShitCoinTraderAI.ShitCoinMode.PAUSED -> "⏸️"
-                com.lifecyclebot.v3.scoring.ShitCoinTraderAI.ShitCoinMode.GRADUATION -> "🎓"
+                com.lifecyclebot.v3.scoring.ShitCoinTraderAI.ShitCoinMode.GRADUATION -> "GRAD"
             }
-            
+
             val message = """
-💩 SHITCOIN AI (Degen Plays)
+HIGH-RISK SHITCOIN AI (Degen Plays)
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 $currentModeLabel
 $modeEmoji Mode: ${stats.mode.name}
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-📊 DAILY PERFORMANCE
+ANALYTICS DAILY PERFORMANCE
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 Daily P&L: $pnlSign${"%.4f".format(stats.dailyPnlSol)} SOL (~$${"%.2f".format(dailyPnlUsd)})
@@ -9977,7 +9977,7 @@ Active Positions: ${stats.activePositions}
 Max Loss/Day: ${"%.2f".format(stats.dailyMaxLossSol)} SOL (~$50)
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-🎰 TARGET TOKENS
+TARGET TARGET TOKENS
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 Market Cap: <$30K
@@ -9987,13 +9987,13 @@ Hold Time: <15 minutes
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-⚠️ HIGH RISK! ShitCoin AI hunts
+WARN HIGH RISK! ShitCoin AI hunts
 pump.fun launches and micro-caps.
 Use with caution - moon or zero!
             """.trimIndent()
-            
+
             AlertDialog.Builder(this, R.style.Theme_AATE_Dialog)
-                .setTitle("💩 ShitCoin Mode")
+                .setTitle("HIGH-RISK ShitCoin Mode")
                 .setMessage(message)
                 .setPositiveButton("Close") { d, _ -> d.dismiss() }
                 .setNeutralButton("Reset Daily") { d, _ ->
@@ -10006,7 +10006,7 @@ Use with caution - moon or zero!
             Toast.makeText(this, "ShitCoin Mode: ${e.message ?: "Not available"}", Toast.LENGTH_SHORT).show()
         }
     }
-    
+
     // ═══════════════════════════════════════════════════════════════════════════
     // V5.2: V3 CORE MODE DIALOG
     // ═══════════════════════════════════════════════════════════════════════════
@@ -10015,16 +10015,16 @@ Use with caution - moon or zero!
             val tradeStore = com.lifecyclebot.engine.TradeHistoryStore
             val cfg = com.lifecyclebot.data.ConfigStore.load(applicationContext)
             val solPrice = com.lifecyclebot.engine.WalletManager.lastKnownSolPrice.takeIf { it in 50.0..1000.0 } ?: 85.0
-            
-            val currentModeLabel = if (cfg.paperMode) "📝 PAPER MODE" else "💰 LIVE MODE"
-            
+
+            val currentModeLabel = if (cfg.paperMode) "PAPER MODE" else "LIVE MODE"
+
             // V5.2.11: Get positions from ALL layers
             val treasuryPos = com.lifecyclebot.v3.scoring.CashGenerationAI.getActivePositions()
             val shitCoinPos = com.lifecyclebot.v3.scoring.ShitCoinTraderAI.getActivePositions()
             val moonshotPos = com.lifecyclebot.v3.scoring.MoonshotTraderAI.getActivePositions()
             val blueChipPos = com.lifecyclebot.v3.scoring.BlueChipTraderAI.getActivePositions()
             val totalOpenPos = treasuryPos.size + shitCoinPos.size + moonshotPos.size + blueChipPos.size
-            
+
             // Get ALL trades from 24h (not filtered by mode)
             val allTrades = tradeStore.getTrades24h()
             val wins = allTrades.count { it.pnlPct > 0 }
@@ -10032,15 +10032,15 @@ Use with caution - moon or zero!
             val scratches = allTrades.count { it.pnlPct == 0.0 }
             val totalPnl = allTrades.sumOf { it.pnlSol }
             val winRate = if (allTrades.isNotEmpty()) (wins.toDouble() / allTrades.size * 100) else 0.0
-            
+
             val pnlSign = if (totalPnl >= 0) "+" else ""
             val totalPnlUsd = totalPnl * solPrice
-            
+
             // Get fluid learning progress
             val learningProgress = try {
                 com.lifecyclebot.v3.scoring.FluidLearningAI.getLearningProgress()
             } catch (_: Exception) { 0.0 }
-            
+
             // Get 30-day run stats if active
             val runStats = try {
                 val tracker = com.lifecyclebot.engine.RunTracker30D
@@ -10050,27 +10050,27 @@ Use with caution - moon or zero!
                     "Not started"
                 }
             } catch (_: Exception) { "N/A" }
-            
+
             val message = """
-🎯 V3 CORE ENGINE
+TARGET V3 CORE ENGINE
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 $currentModeLabel
-🧠 Learning: ${"%.0f".format(learningProgress * 100)}%
+AI Learning: ${"%.0f".format(learningProgress * 100)}%
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-📊 OPEN POSITIONS (All Layers)
+ANALYTICS OPEN POSITIONS (All Layers)
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-💰 Treasury: ${treasuryPos.size}
-💩 ShitCoin: ${shitCoinPos.size}
-🚀 Moonshot: ${moonshotPos.size}
-💎 BlueChip: ${blueChipPos.size}
+TREASURY Treasury: ${treasuryPos.size}
+HIGH-RISK ShitCoin: ${shitCoinPos.size}
+FRESH Moonshot: ${moonshotPos.size}
+MEME BlueChip: ${blueChipPos.size}
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 Total Open: $totalOpenPos
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-📊 24H PERFORMANCE (All Layers)
+ANALYTICS 24H PERFORMANCE (All Layers)
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 Daily P&L: $pnlSign${"%.4f".format(totalPnl)} SOL (~$${"%.2f".format(totalPnlUsd)})
@@ -10078,22 +10078,22 @@ Trades: ${allTrades.size} | W/L/S: $wins/$losses/$scratches
 Win Rate: ${"%.1f".format(winRate)}%
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-📅 30-DAY RUN
+SCHEDULE 30-DAY RUN
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 $runStats
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-🧠 V3 AI COMPONENTS (25)
+AI V3 AI COMPONENTS (25)
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 Entry, Exit, Edge, Momentum,
 Liquidity, Volume, Behavior,
 HoldTime, Whale, Regime + 15 more
             """.trimIndent()
-            
+
             AlertDialog.Builder(this, R.style.Theme_AATE_Dialog)
-                .setTitle("🎯 V3 Core Engine")
+                .setTitle("TARGET V3 Core Engine")
                 .setMessage(message)
                 .setPositiveButton("Close") { d, _ -> d.dismiss() }
                 .show()
@@ -10101,7 +10101,7 @@ HoldTime, Whale, Regime + 15 more
             Toast.makeText(this, "V3 Mode: ${e.message ?: "Not available"}", Toast.LENGTH_SHORT).show()
         }
     }
-    
+
     // ═══════════════════════════════════════════════════════════════════════════
     // V5.2: MOONSHOT MODE DIALOG - Space-themed 10x Hunter!
     // ═══════════════════════════════════════════════════════════════════════════
@@ -10110,65 +10110,65 @@ HoldTime, Whale, Regime + 15 more
             val moonshotAI = com.lifecyclebot.v3.scoring.MoonshotTraderAI
             val cfg = com.lifecyclebot.data.ConfigStore.load(applicationContext)
             val solPrice = com.lifecyclebot.engine.WalletManager.lastKnownSolPrice.takeIf { it in 50.0..1000.0 } ?: 85.0
-            
-            val currentModeLabel = if (cfg.paperMode) "📝 PAPER MODE" else "💰 LIVE MODE"
+
+            val currentModeLabel = if (cfg.paperMode) "PAPER MODE" else "LIVE MODE"
             val pnlSign = if (moonshotAI.getDailyPnlSol() >= 0) "+" else ""
             val dailyPnlUsd = moonshotAI.getDailyPnlSol() * solPrice
-            
+
             val winRate = moonshotAI.getWinRatePct()
             val learningPct = (moonshotAI.getLearningProgress() * 100).toInt()
             val positionCount = moonshotAI.getPositionCount()
-            
+
             // Space mode distribution
             val spaceModeStats = moonshotAI.getSpaceModeStats()
             val orbitalCount = spaceModeStats[com.lifecyclebot.v3.scoring.MoonshotTraderAI.SpaceMode.ORBITAL] ?: 0
             val lunarCount = spaceModeStats[com.lifecyclebot.v3.scoring.MoonshotTraderAI.SpaceMode.LUNAR] ?: 0
             val marsCount = spaceModeStats[com.lifecyclebot.v3.scoring.MoonshotTraderAI.SpaceMode.MARS] ?: 0
             val jupiterCount = spaceModeStats[com.lifecyclebot.v3.scoring.MoonshotTraderAI.SpaceMode.JUPITER] ?: 0
-            
+
             val message = """
-🚀 MOONSHOT AI - TO THE MOON!
+FRESH MOONSHOT AI - TO THE MOON!
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 $currentModeLabel
-🧠 Learning: $learningPct%
+AI Learning: $learningPct%
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-📊 DAILY PERFORMANCE
+ANALYTICS DAILY PERFORMANCE
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 Daily P&L: $pnlSign${"%.4f".format(moonshotAI.getDailyPnlSol())} SOL (~$${"%.2f".format(dailyPnlUsd)})
 W/L: ${moonshotAI.getDailyWins()}/${moonshotAI.getDailyLosses()} | Win Rate: $winRate%
-🔟 Today's 10x+: ${moonshotAI.getDailyTenX()}
-💯 Today's 100x+: ${moonshotAI.getDailyHundredX()}
+10X Today's 10x+: ${moonshotAI.getDailyTenX()}
+100X Today's 100x+: ${moonshotAI.getDailyHundredX()}
 Active Positions: $positionCount
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-🚀 LIFETIME MILESTONES
+FRESH LIFETIME MILESTONES
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-🔟 10x Wins: ${moonshotAI.getLifetimeTenX()}
-💯 100x Wins: ${moonshotAI.getLifetimeHundredX()}
-🌌 1000x Wins: ${moonshotAI.getLifetimeThousandX()}
+10X 10x Wins: ${moonshotAI.getLifetimeTenX()}
+100X 100x Wins: ${moonshotAI.getLifetimeHundredX()}
+DEEP 1000x Wins: ${moonshotAI.getLifetimeThousandX()}
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-🛸 SPACE MODES (Active)
+SPACE SPACE MODES (Active)
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-🛸 Orbital ($50K-$500K): $orbitalCount
-🌙 Lunar ($500K-$2M): $lunarCount
-🔴 Mars ($2M-$5M): $marsCount
-🪐 Jupiter ($5M-$50M): $jupiterCount
+SPACE Orbital ($50K-$500K): $orbitalCount
+MOON Lunar ($500K-$2M): $lunarCount
+FAIL Mars ($2M-$5M): $marsCount
+JUPITER Jupiter ($5M-$50M): $jupiterCount
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-🚀 200%+ gains from other layers
+FRESH 200%+ gains from other layers
 get PROMOTED here to ride for
 10x-100x-1000x! LET IT RIDE!
             """.trimIndent()
-            
+
             AlertDialog.Builder(this, R.style.Theme_AATE_Dialog)
-                .setTitle("🚀 Moonshot Mode")
+                .setTitle("FRESH Moonshot Mode")
                 .setMessage(message)
                 .setPositiveButton("Close") { d, _ -> d.dismiss() }
                 .setNeutralButton("Reset Daily") { d, _ ->
@@ -10190,44 +10190,44 @@ get PROMOTED here to ride for
             val perpsAI = com.lifecyclebot.perps.PerpsTraderAI
             val cfg = com.lifecyclebot.data.ConfigStore.load(applicationContext)
             val solPrice = com.lifecyclebot.engine.WalletManager.lastKnownSolPrice.takeIf { it in 50.0..1000.0 } ?: 85.0
-            
+
             // Check if user has acknowledged risk
             if (!perpsAI.hasAcknowledgedRisk()) {
                 showPerpsRiskWarning()
                 return
             }
-            
+
             val currentModeLabel = if (cfg.paperMode) "PAPER MODE" else "LIVE MODE"
             val state = perpsAI.getState()
             val readiness = perpsAI.getLiveReadiness()
-            
+
             val pnlSign = if (state.dailyPnlSol >= 0) "+" else ""
             val dailyPnlUsd = state.dailyPnlSol * solPrice
-            
+
             val streakEmoji = when {
-                state.currentStreak >= 5 -> "🔥🔥🔥"
-                state.currentStreak >= 3 -> "🔥🔥"
-                state.currentStreak > 0 -> "🔥"
-                state.currentStreak <= -3 -> "❄️"
+                state.currentStreak >= 5 -> "HOTHOTHOT"
+                state.currentStreak >= 3 -> "HOTHOT"
+                state.currentStreak > 0 -> "HOT"
+                state.currentStreak <= -3 -> "COLD"
                 else -> ""
             }
-            
+
             val message = """
-📊 SOL PERPS & LEVERAGE
+ANALYTICS SOL PERPS & LEVERAGE
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-${if (cfg.paperMode) "📝" else "💰"} $currentModeLabel
-🧠 Learning: ${state.learningProgress.toInt()}% | Discipline: ${perpsAI.getDisciplineScore()}%
+${if (cfg.paperMode) "PAPER" else "TREASURY"} $currentModeLabel
+AI Learning: ${state.learningProgress.toInt()}% | Discipline: ${perpsAI.getDisciplineScore()}%
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-💼 BALANCE
+BALANCE BALANCE
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 Paper: ${"%.4f".format(state.paperBalanceSol)} ◎
 Live: ${"%.4f".format(state.liveBalanceSol)} ◎
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-📊 TODAY'S PERFORMANCE
+ANALYTICS TODAY'S PERFORMANCE
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 Day P&L: $pnlSign${"%.4f".format(state.dailyPnlSol)} ◎ (~$${"%.2f".format(dailyPnlUsd)})
@@ -10236,7 +10236,7 @@ Trades: ${state.dailyTrades}
 Streak: ${state.currentStreak} $streakEmoji
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-📈 LIFETIME STATS
+MARKET LIFETIME STATS
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 Total Trades: ${state.lifetimeTrades}
@@ -10248,7 +10248,7 @@ Max Win Streak: ${perpsAI.getMaxWinStreak()}
 Max Loss Streak: ${perpsAI.getMaxLossStreak()}
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-🎯 LIVE READINESS
+TARGET LIVE READINESS
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 ${readiness.phase.emoji} ${readiness.phase.displayName}
@@ -10260,14 +10260,14 @@ Max Drawdown: disabled
 ${readiness.recommendation}
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-⚠️ RISK TIERS:
-🎯 Sniper (2x) | ⚔️ Tactical (5x)
-💥 Assault (10x) | ☢️ Nuclear (20x)
+WARN RISK TIERS:
+TARGET Sniper (2x) | TACTICAL Tactical (5x)
+ASSAULT Assault (10x) | NUCLEAR Nuclear (20x)
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
             """.trimIndent()
-            
+
             AlertDialog.Builder(this, R.style.Theme_AATE_Dialog)
-                .setTitle("📊 Perps & Leverage")
+                .setTitle("ANALYTICS Perps & Leverage")
                 .setMessage(message)
                 .setPositiveButton("Close") { d, _ -> d.dismiss() }
                 .setNegativeButton("Reset Daily") { d, _ ->
@@ -10286,13 +10286,13 @@ ${readiness.recommendation}
             Toast.makeText(this, "Perps Mode: ${e.message ?: "Not available"}", Toast.LENGTH_SHORT).show()
         }
     }
-    
+
     /**
      * V5.7: Shows risk warning before enabling Perps trading
      */
     private fun showPerpsRiskWarning() {
         val warningMessage = """
-⚠️ LEVERAGE TRADING RISK WARNING ⚠️
+WARN LEVERAGE TRADING RISK WARNING WARN
 
 Leverage trading carries EXTREME risk:
 
@@ -10314,16 +10314,16 @@ By proceeding, you acknowledge:
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
         """.trimIndent()
-        
+
         AlertDialog.Builder(this, R.style.Theme_AATE_Dialog)
-            .setTitle("⚠️ Risk Acknowledgement Required")
+            .setTitle("WARN Risk Acknowledgement Required")
             .setMessage(warningMessage)
             .setCancelable(false)
             .setPositiveButton("I UNDERSTAND & ACCEPT") { d, _ ->
                 com.lifecyclebot.perps.PerpsTraderAI.acknowledgeRisk()
                 com.lifecyclebot.perps.PerpsTraderAI.setEnabled(true)
                 // V5.7.6: Perps card moved to Markets UI
-                Toast.makeText(this, "📊 Perps Trading Unlocked - Open Markets to trade!", Toast.LENGTH_LONG).show()
+                Toast.makeText(this, "ANALYTICS Perps Trading Unlocked - Open Markets to trade!", Toast.LENGTH_LONG).show()
                 d.dismiss()
                 // Show the full dialog now
                 showPerpsModeDialog()
@@ -10331,11 +10331,11 @@ By proceeding, you acknowledge:
             .setNegativeButton("Cancel") { d, _ -> d.dismiss() }
             .show()
     }
-    
+
     // ═══════════════════════════════════════════════════════════════════════════════
     // V5.7.3: PERPS TRADE VISUALIZER & BUY/SELL TRIGGERS
     // ═══════════════════════════════════════════════════════════════════════════════
-    
+
     /**
      * V5.7.3: Shows the detailed trade visualizer pop-out for a specific position
      */
@@ -10344,39 +10344,39 @@ By proceeding, you acknowledge:
             lifecycleScope.launch {
                 // Generate visualization data
                 val viz = com.lifecyclebot.perps.PerpsTradeVisualizer.generateVisualization(position)
-                
+
                 withContext(kotlinx.coroutines.Dispatchers.Main) {
                     val pred = viz.prediction
                     val risk = viz.riskGauge
                     val momentum = viz.momentumRibbon
                     val pnl = viz.pnlProjection
-                    
-                    val alertsText = viz.smartAlerts.take(3).joinToString("\n") { 
-                        "${it.emoji} ${it.message}" 
+
+                    val alertsText = viz.smartAlerts.take(3).joinToString("\n") {
+                        "${it.emoji} ${it.message}"
                     }
-                    
+
                     val message = """
 ${position.market.emoji} ${position.market.displayName}
 ${position.direction.emoji} ${position.direction.symbol} | ${position.leverage}x
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-💰 CURRENT P&L
+TREASURY CURRENT P&L
 Entry: $${String.format("%.4f", position.entryPrice)}
 Current: $${String.format("%.4f", position.currentPrice)}
 P&L: ${position.getDisplayPnl()} ($$${String.format("%.2f", position.getUnrealizedPnlUsd())})
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-🔮 AI PREDICTION (${pred.layerConsensus} layers)
+PREDICT AI PREDICTION (${pred.layerConsensus} layers)
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 ${pred.emoji} Direction: ${pred.predictedDirection.symbol}
 Confidence: ${String.format("%.0f", pred.directionConfidence)}%
 Target: $${String.format("%.4f", pred.predictedPriceTarget)}
 
-📊 Probabilities:
-  🎯 TP: ${String.format("%.0f", pred.probabilityOfTP)}%
-  🛑 SL: ${String.format("%.0f", pred.probabilityOfSL)}%
-  💀 Liquidation: ${String.format("%.0f", pred.probabilityOfLiquidation)}%
+ANALYTICS Probabilities:
+  TARGET TP: ${String.format("%.0f", pred.probabilityOfTP)}%
+  HALT SL: ${String.format("%.0f", pred.probabilityOfSL)}%
+  LOSS Liquidation: ${String.format("%.0f", pred.probabilityOfLiquidation)}%
 
 ${pred.reasoning}
 
@@ -10396,7 +10396,7 @@ Trend: ${momentum.trend.name}
 Direction: ${momentum.direction.symbol}
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-📈 P&L PROJECTION
+MARKET P&L PROJECTION
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 Break Even: $${String.format("%.4f", pnl.breakEvenPrice)}
@@ -10404,14 +10404,14 @@ Max Potential: $${String.format("%.2f", pnl.maxGain)}
 Max Loss: $${String.format("%.2f", pnl.maxLoss)}
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-⚡ SMART ALERTS
+SIGNAL SMART ALERTS
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 ${if (alertsText.isNotEmpty()) alertsText else "No active alerts"}
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
                     """.trimIndent()
-                    
+
                     AlertDialog.Builder(this@MainActivity, R.style.Theme_AATE_Dialog)
                         .setTitle("${position.market.emoji} Trade Visualizer")
                         .setMessage(message)
@@ -10431,16 +10431,16 @@ ${if (alertsText.isNotEmpty()) alertsText else "No active alerts"}
             Toast.makeText(this, "Visualizer error: ${e.message}", Toast.LENGTH_SHORT).show()
         }
     }
-    
+
     /**
      * V5.7.3: Shows confirmation dialog before closing a position
      */
     private fun showClosePositionConfirmation(position: com.lifecyclebot.perps.PerpsPosition) {
         val pnlText = position.getDisplayPnl()
         val pnlColor = if (position.getUnrealizedPnlPct() >= 0) "profit" else "loss"
-        
+
         AlertDialog.Builder(this, R.style.Theme_AATE_Dialog)
-            .setTitle("⚠️ Close Position?")
+            .setTitle("WARN Close Position?")
             .setMessage("""
 Close ${position.market.symbol} ${position.direction.symbol} position?
 
@@ -10454,8 +10454,8 @@ This action cannot be undone.
                         val trade = com.lifecyclebot.perps.PerpsExecutionEngine.manualClose(position.id)
                         withContext(kotlinx.coroutines.Dispatchers.Main) {
                             if (trade != null) {
-                                Toast.makeText(this@MainActivity, 
-                                    "${if (trade.pnlPct >= 0) "✅" else "📉"} Closed: ${trade.pnlPct.fmt(1)}%", 
+                                Toast.makeText(this@MainActivity,
+                                    "${if (trade.pnlPct >= 0) "OK" else "DOWNTICK"} Closed: ${trade.pnlPct.fmt(1)}%",
                                     Toast.LENGTH_SHORT).show()
                             } else {
                                 Toast.makeText(this@MainActivity, "Failed to close position", Toast.LENGTH_SHORT).show()
@@ -10472,31 +10472,31 @@ This action cannot be undone.
             .setNegativeButton("Cancel") { d, _ -> d.dismiss() }
             .show()
     }
-    
+
     /**
      * V5.7.3: Shows manual buy dialog for perps trading
      */
     private fun showPerpsBuyDialog() {
         val perpsAI = com.lifecyclebot.perps.PerpsTraderAI
-        
+
         if (!perpsAI.isEnabled() || !perpsAI.hasAcknowledgedRisk()) {
             showPerpsRiskWarning()
             return
         }
-        
+
         val markets = com.lifecyclebot.perps.PerpsMarket.values()
         val marketLabels = markets.map { "${it.emoji} ${it.symbol} (${it.displayName})" }.toTypedArray()
         var selectedMarket = com.lifecyclebot.perps.PerpsMarket.SOL
         var selectedDirection = com.lifecyclebot.perps.PerpsDirection.LONG
         var selectedLeverage = 2.0
         var selectedSizePct = 5.0
-        
+
         // Build dialog with input fields
         val layout = android.widget.LinearLayout(this).apply {
             orientation = android.widget.LinearLayout.VERTICAL
             setPadding(48, 24, 48, 24)
         }
-        
+
         // Market selector
         val marketSpinner = android.widget.Spinner(this)
         val marketAdapter = android.widget.ArrayAdapter(this, android.R.layout.simple_spinner_dropdown_item, marketLabels)
@@ -10507,13 +10507,13 @@ This action cannot be undone.
             }
             override fun onNothingSelected(parent: android.widget.AdapterView<*>?) {}
         }
-        
+
         // Direction buttons
         val directionLayout = android.widget.LinearLayout(this).apply {
             orientation = android.widget.LinearLayout.HORIZONTAL
         }
         val btnLong = android.widget.Button(this).apply {
-            text = "📈 LONG"
+            text = "MARKET LONG"
             setBackgroundColor(0xFF22C55E.toInt())
             setTextColor(0xFFFFFFFF.toInt())
             setOnClickListener {
@@ -10523,7 +10523,7 @@ This action cannot be undone.
             }
         }
         val btnShort = android.widget.Button(this).apply {
-            text = "📉 SHORT"
+            text = "DOWNTICK SHORT"
             setBackgroundColor(0xFF374151.toInt())
             setTextColor(0xFFFFFFFF.toInt())
             setOnClickListener {
@@ -10534,7 +10534,7 @@ This action cannot be undone.
         }
         directionLayout.addView(btnLong, android.widget.LinearLayout.LayoutParams(0, android.widget.LinearLayout.LayoutParams.WRAP_CONTENT, 1f))
         directionLayout.addView(btnShort, android.widget.LinearLayout.LayoutParams(0, android.widget.LinearLayout.LayoutParams.WRAP_CONTENT, 1f))
-        
+
         // Leverage input
         val leverageLabel = android.widget.TextView(this).apply {
             text = "Leverage: 2x"
@@ -10552,7 +10552,7 @@ This action cannot be undone.
                 override fun onStopTrackingTouch(seekBar: android.widget.SeekBar?) {}
             })
         }
-        
+
         // Size input
         val sizeLabel = android.widget.TextView(this).apply {
             text = "Position Size: 5% of balance"
@@ -10570,7 +10570,7 @@ This action cannot be undone.
                 override fun onStopTrackingTouch(seekBar: android.widget.SeekBar?) {}
             })
         }
-        
+
         layout.addView(android.widget.TextView(this).apply { text = "Market:"; setTextColor(0xFFFFFFFF.toInt()) })
         layout.addView(marketSpinner)
         layout.addView(android.widget.TextView(this).apply { text = "\nDirection:"; setTextColor(0xFFFFFFFF.toInt()) })
@@ -10581,9 +10581,9 @@ This action cannot be undone.
         layout.addView(android.widget.TextView(this).apply { text = "\n"; setTextColor(0xFFFFFFFF.toInt()) })
         layout.addView(sizeLabel)
         layout.addView(sizeSeekBar)
-        
+
         AlertDialog.Builder(this, R.style.Theme_AATE_Dialog)
-            .setTitle("📈 Open Perps Position")
+            .setTitle("MARKET Open Perps Position")
             .setView(layout)
             .setPositiveButton("Open Position") { d, _ ->
                 lifecycleScope.launch {
@@ -10596,8 +10596,8 @@ This action cannot be undone.
                         )
                         withContext(kotlinx.coroutines.Dispatchers.Main) {
                             if (position != null) {
-                                Toast.makeText(this@MainActivity, 
-                                    "${selectedDirection.emoji} Opened ${selectedMarket.symbol} @ ${selectedLeverage.toInt()}x", 
+                                Toast.makeText(this@MainActivity,
+                                    "${selectedDirection.emoji} Opened ${selectedMarket.symbol} @ ${selectedLeverage.toInt()}x",
                                     Toast.LENGTH_SHORT).show()
                                 performHaptic()
                             } else {
@@ -10615,18 +10615,18 @@ This action cannot be undone.
             .setNegativeButton("Cancel") { d, _ -> d.dismiss() }
             .show()
     }
-    
+
     /**
      * V5.7.3: Shows AI-recommended perps signals for quick execution
      */
     private fun showPerpsSignalsDialog() {
         val perpsAI = com.lifecyclebot.perps.PerpsTraderAI
-        
+
         if (!perpsAI.isEnabled() || !perpsAI.hasAcknowledgedRisk()) {
             showPerpsRiskWarning()
             return
         }
-        
+
         lifecycleScope.launch {
             try {
                 // Get current market data and generate signals
@@ -10636,18 +10636,18 @@ This action cannot be undone.
                 val aggregated = com.lifecyclebot.perps.PerpsLearningBridge.aggregateLayerSignals(
                     com.lifecyclebot.perps.PerpsMarket.SOL, solData
                 )
-                
+
                 // Get replay learner recommendation
                 val recommendation = com.lifecyclebot.perps.PerpsAutoReplayLearner.getRecommendation(
                     com.lifecyclebot.perps.PerpsMarket.SOL, aggregated.direction
                 )
-                
+
                 // Get recent insights
                 val insights = com.lifecyclebot.perps.PerpsAutoReplayLearner.getRecentInsights().take(5)
-                val insightsText = insights.joinToString("\n") { 
-                    "${it.type.name}: ${it.insight}" 
+                val insightsText = insights.joinToString("\n") {
+                    "${it.type.name}: ${it.insight}"
                 }
-                
+
                 withContext(kotlinx.coroutines.Dispatchers.Main) {
                     // V5.9.10: 16-channel symbolic snapshot — every AI module, one view
                     val symSnap = try {
@@ -10665,15 +10665,15 @@ This action cannot be undone.
                     val sentStatus = try { com.lifecyclebot.engine.SentientPersonality.getStatusLine() } catch (_: Exception) { "—" }
 
                     val message = """
-🧠 AI SIGNAL ANALYSIS
+AI AI SIGNAL ANALYSIS
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-📊 SOL-PERP Current: $${String.format("%.2f", solData.price)}
+ANALYTICS SOL-PERP Current: $${String.format("%.2f", solData.price)}
 24h Change: ${if (solData.priceChange24hPct >= 0) "+" else ""}${String.format("%.1f", solData.priceChange24hPct)}%
 Funding: ${String.format("%.4f", solData.fundingRate * 100)}%
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-🧠 SENTIENT MIND
+AI SENTIENT MIND
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 $sentStatus
@@ -10681,13 +10681,13 @@ $sentStatus
 $symDiag
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-🎯 16-CHANNEL SYMBOLIC FIRING
+TARGET 16-CHANNEL SYMBOLIC FIRING
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 $symBars
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-🎯 26-LAYER CONSENSUS
+TARGET 26-LAYER CONSENSUS
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 Direction: ${aggregated.direction.emoji} ${aggregated.direction.symbol}
@@ -10698,7 +10698,7 @@ Risk Score: ${aggregated.riskScore.toInt()}/100
 Top Layers: ${aggregated.contributingLayers.take(3).joinToString(", ")}
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-🎬 REPLAY LEARNER
+REPLAY REPLAY LEARNER
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 $recommendation
@@ -10707,16 +10707,16 @@ Patterns Identified: ${com.lifecyclebot.perps.PerpsAutoReplayLearner.getPatterns
 Total Replays: ${com.lifecyclebot.perps.PerpsAutoReplayLearner.getTotalReplays()}
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-💡 RECENT INSIGHTS
+INSIGHT RECENT INSIGHTS
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 ${if (insightsText.isNotEmpty()) insightsText else "No recent insights"}
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
                     """.trimIndent()
-                    
+
                     AlertDialog.Builder(this@MainActivity, R.style.Theme_AATE_Dialog)
-                        .setTitle("🧠 AI Signals")
+                        .setTitle("AI AI Signals")
                         .setMessage(message)
                         .setPositiveButton("Close") { d, _ -> d.dismiss() }
                         .setNeutralButton("Manual Trade") { d, _ ->
@@ -10732,7 +10732,7 @@ ${if (insightsText.isNotEmpty()) insightsText else "No recent insights"}
             }
         }
     }
-    
+
     /**
      * V5.7.3: Setup perps card click handlers for positions
      */
@@ -10743,7 +10743,7 @@ ${if (insightsText.isNotEmpty()) insightsText else "No recent insights"}
                 showPerpsModeDialog()
                 performHaptic()
             }
-            
+
             // Long press → show buy dialog
             cardPerpsTrading?.setOnLongClickListener {
                 showPerpsBuyDialog()
@@ -10752,32 +10752,32 @@ ${if (insightsText.isNotEmpty()) insightsText else "No recent insights"}
             }
         } catch (_: Exception) {}
     }
-    
+
     private fun Double.fmt(decimals: Int): String = String.format("%.${decimals}f", this)
-    
+
     // ═══════════════════════════════════════════════════════════════════════════════
     // V5.7.3: TOKENIZED STOCKS TRADING UI
     // ═══════════════════════════════════════════════════════════════════════════════
-    
+
     /**
      * V5.7.3: Shows the tokenized stocks main dialog
      */
     private fun showTokenizedStocksDialog() {
         val perpsAI = com.lifecyclebot.perps.PerpsTraderAI
-        
+
         // Check risk acknowledgement
         if (!perpsAI.hasAcknowledgedRisk()) {
             showPerpsRiskWarning()
             return
         }
-        
+
         val cfg = com.lifecyclebot.data.ConfigStore.load(applicationContext)
         val state = perpsAI.getState()
-        
+
         // Get stock positions
         val stockPositions = perpsAI.getActivePositions().filter { it.market.isStock }
         val stockTrades = state.lifetimeTrades  // Would ideally filter by stock trades
-        
+
         val positionsText = if (stockPositions.isEmpty()) {
             "No open stock positions"
         } else {
@@ -10785,47 +10785,47 @@ ${if (insightsText.isNotEmpty()) insightsText else "No recent insights"}
                 "${pos.market.emoji} ${pos.market.symbol}: ${pos.getDisplayPnl()} | ${pos.direction.symbol} ${pos.leverage}x"
             }
         }
-        
+
         val message = """
-📈 TOKENIZED STOCKS TRADING
+MARKET TOKENIZED STOCKS TRADING
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-${if (cfg.paperMode) "📝" else "💰"} ${if (cfg.paperMode) "PAPER MODE" else "LIVE MODE"}
+${if (cfg.paperMode) "PAPER" else "TREASURY"} ${if (cfg.paperMode) "PAPER MODE" else "LIVE MODE"}
 
 AVAILABLE MARKETS:
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-🍎 AAPL (Apple)     - Max 10x
-🚗 TSLA (Tesla)     - Max 10x  
-🖥️ NVDA (NVIDIA)    - Max 10x
-🔍 GOOGL (Alphabet) - Max 10x
-📦 AMZN (Amazon)    - Max 10x
-👤 META (Meta)      - Max 10x
-🪟 MSFT (Microsoft) - Max 10x
-🪙 COIN (Coinbase)  - Max 10x
+AAPL (Apple)     - Max 10x
+TSLA (Tesla)     - Max 10x
+NVDA (NVIDIA)    - Max 10x
+SEARCH GOOGL (Alphabet) - Max 10x
+EXPORT AMZN (Amazon)    - Max 10x
+META (Meta)      - Max 10x
+MSFT (Microsoft) - Max 10x
+COIN (Coinbase)  - Max 10x
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-📊 CURRENT POSITIONS
+ANALYTICS CURRENT POSITIONS
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 $positionsText
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-📅 MARKET HOURS
+SCHEDULE MARKET HOURS
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 Mon-Fri: 9:30 AM - 4:00 PM ET
 Pre-market: 4:00 AM - 9:30 AM ET
 After-hours: 4:00 PM - 8:00 PM ET
 
-⚠️ Tokenized stocks follow real market hours!
+WARN Tokenized stocks follow real market hours!
 Trading outside hours may have wider spreads.
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
         """.trimIndent()
-        
+
         AlertDialog.Builder(this, R.style.Theme_AATE_Dialog)
-            .setTitle("📈 Tokenized Stocks")
+            .setTitle("MARKET Tokenized Stocks")
             .setMessage(message)
             .setPositiveButton("Close") { d, _ -> d.dismiss() }
             .setNegativeButton("Open Markets") { d, _ ->
@@ -10835,18 +10835,18 @@ Trading outside hours may have wider spreads.
             }
             .show()
     }
-    
+
     /**
      * V5.7.3: Shows manual buy dialog for tokenized stocks
      */
     private fun showStockBuyDialog() {
         val perpsAI = com.lifecyclebot.perps.PerpsTraderAI
-        
+
         if (!perpsAI.isEnabled() || !perpsAI.hasAcknowledgedRisk()) {
             showPerpsRiskWarning()
             return
         }
-        
+
         // Only show stock markets
         val stockMarkets = com.lifecyclebot.perps.PerpsMarket.values().filter { it.isStock }
         val marketLabels = stockMarkets.map { "${it.emoji} ${it.symbol} (${it.displayName})" }.toTypedArray()
@@ -10854,13 +10854,13 @@ Trading outside hours may have wider spreads.
         var selectedDirection = com.lifecyclebot.perps.PerpsDirection.LONG
         var selectedLeverage = 2.0
         var selectedSizePct = 5.0
-        
+
         // Build dialog with input fields
         val layout = android.widget.LinearLayout(this).apply {
             orientation = android.widget.LinearLayout.VERTICAL
             setPadding(48, 24, 48, 24)
         }
-        
+
         // Market selector
         val marketSpinner = android.widget.Spinner(this)
         val marketAdapter = android.widget.ArrayAdapter(this, android.R.layout.simple_spinner_dropdown_item, marketLabels)
@@ -10871,13 +10871,13 @@ Trading outside hours may have wider spreads.
             }
             override fun onNothingSelected(parent: android.widget.AdapterView<*>?) {}
         }
-        
+
         // Direction buttons
         val directionLayout = android.widget.LinearLayout(this).apply {
             orientation = android.widget.LinearLayout.HORIZONTAL
         }
         val btnLong = android.widget.Button(this).apply {
-            text = "📈 LONG"
+            text = "MARKET LONG"
             setBackgroundColor(0xFF22C55E.toInt())
             setTextColor(0xFFFFFFFF.toInt())
             setOnClickListener {
@@ -10887,7 +10887,7 @@ Trading outside hours may have wider spreads.
             }
         }
         val btnShort = android.widget.Button(this).apply {
-            text = "📉 SHORT"
+            text = "DOWNTICK SHORT"
             setBackgroundColor(0xFF374151.toInt())
             setTextColor(0xFFFFFFFF.toInt())
             setOnClickListener {
@@ -10898,7 +10898,7 @@ Trading outside hours may have wider spreads.
         }
         directionLayout.addView(btnLong, android.widget.LinearLayout.LayoutParams(0, android.widget.LinearLayout.LayoutParams.WRAP_CONTENT, 1f))
         directionLayout.addView(btnShort, android.widget.LinearLayout.LayoutParams(0, android.widget.LinearLayout.LayoutParams.WRAP_CONTENT, 1f))
-        
+
         // Leverage input (max 10x for stocks)
         val leverageLabel = android.widget.TextView(this).apply {
             text = "Leverage: 2x"
@@ -10916,7 +10916,7 @@ Trading outside hours may have wider spreads.
                 override fun onStopTrackingTouch(seekBar: android.widget.SeekBar?) {}
             })
         }
-        
+
         // Size input
         val sizeLabel = android.widget.TextView(this).apply {
             text = "Position Size: 5% of balance"
@@ -10934,7 +10934,7 @@ Trading outside hours may have wider spreads.
                 override fun onStopTrackingTouch(seekBar: android.widget.SeekBar?) {}
             })
         }
-        
+
         layout.addView(android.widget.TextView(this).apply { text = "Stock:"; setTextColor(0xFFFFFFFF.toInt()) })
         layout.addView(marketSpinner)
         layout.addView(android.widget.TextView(this).apply { text = "\nDirection:"; setTextColor(0xFFFFFFFF.toInt()) })
@@ -10945,9 +10945,9 @@ Trading outside hours may have wider spreads.
         layout.addView(android.widget.TextView(this).apply { text = "\n"; setTextColor(0xFFFFFFFF.toInt()) })
         layout.addView(sizeLabel)
         layout.addView(sizeSeekBar)
-        
+
         AlertDialog.Builder(this, R.style.Theme_AATE_Dialog)
-            .setTitle("📈 Open Stock Position")
+            .setTitle("MARKET Open Stock Position")
             .setView(layout)
             .setPositiveButton("Open Position") { d, _ ->
                 lifecycleScope.launch {
@@ -10960,8 +10960,8 @@ Trading outside hours may have wider spreads.
                         )
                         withContext(kotlinx.coroutines.Dispatchers.Main) {
                             if (position != null) {
-                                Toast.makeText(this@MainActivity, 
-                                    "${selectedMarket.emoji} Opened ${selectedMarket.symbol} ${selectedDirection.symbol} @ ${selectedLeverage.toInt()}x - View in Markets", 
+                                Toast.makeText(this@MainActivity,
+                                    "${selectedMarket.emoji} Opened ${selectedMarket.symbol} ${selectedDirection.symbol} @ ${selectedLeverage.toInt()}x - View in Markets",
                                     Toast.LENGTH_SHORT).show()
                                 performHaptic()
                                 // V5.7.6: Stocks card moved to Markets UI
@@ -10980,7 +10980,7 @@ Trading outside hours may have wider spreads.
             .setNegativeButton("Cancel") { d, _ -> d.dismiss() }
             .show()
     }
-    
+
     /**
      * V5.7.3: Update the tokenized stocks card with current prices and positions
      * V5.7.6: Card moved to Markets UI - this function now just returns early
@@ -10989,48 +10989,48 @@ Trading outside hours may have wider spreads.
         // V5.7.6: Stocks card moved to MultiAssetActivity (Markets UI)
         cardTokenizedStocks?.visibility = View.GONE
         return
-        
+
         // DEPRECATED: All code below unused - stocks now in Markets UI
         try {
             // V5.7.5: Use dedicated TokenizedStockTrader instead of PerpsTraderAI
             val stockTrader = com.lifecyclebot.perps.TokenizedStockTrader
             val stockPositions = stockTrader.getActivePositions()
-            
+
             // Always show the stocks card
             cardTokenizedStocks?.visibility = View.VISIBLE
-            
+
             val cfg = com.lifecyclebot.data.ConfigStore.load(applicationContext)
-            
+
             // Mode badge
             tvStocksModeBadge?.text = "PAPER"
             tvStocksModeBadge?.setBackgroundResource(R.drawable.pill_bg_yellow)
-            
+
             // Balance from stock trader
             val balance = stockTrader.getBalance()
             tvStocksBalance?.text = "%.4f".format(balance)
-            
+
             // Stats from dedicated trader
             val stockPnlPct = stockPositions.sumOf { it.getUnrealizedPnlPct() }
             val stockWins = stockPositions.count { it.getUnrealizedPnlPct() > 0 }
             val stockTotal = stockPositions.size
             val winRate = stockTrader.getWinRate()
             val totalTrades = stockTrader.getTotalTrades()
-            
+
             tvStocksPnl?.text = "${if (stockPnlPct >= 0) "+" else ""}${"%.2f".format(stockPnlPct)}%"
             tvStocksPnl?.setTextColor(if (stockPnlPct >= 0) 0xFF22C55E.toInt() else 0xFFEF4444.toInt())
-            
+
             tvStocksWinRate?.text = "${winRate.toInt()}%"
             tvStocksTrades?.text = "$totalTrades"
-            
+
             // Update tile stats
             tvStocksStats?.text = "$stockWins/$stockTotal"
-            
+
             // Fetch stock prices asynchronously
             lifecycleScope.launch {
                 try {
                     // Fetch prices for each stock market
                     val stockMarkets = com.lifecyclebot.perps.PerpsMarket.values().filter { it.isStock }
-                    
+
                     for (market in stockMarkets) {
                         try {
                             val data = com.lifecyclebot.perps.PerpsMarketDataFetcher.getMarketData(market)
@@ -11075,10 +11075,10 @@ Trading outside hours may have wider spreads.
                     }
                 } catch (_: Exception) {}
             }
-            
+
             // Update positions list with stock trader positions
             updateStockTraderPositionsList(stockPositions)
-            
+
         } catch (e: Exception) {
             com.lifecyclebot.engine.ErrorLogger.debug("MainActivity", "Stocks card update error: ${e.message}")
         }
@@ -11137,12 +11137,12 @@ Trading outside hours may have wider spreads.
             // Readiness phase
             val trades = altTrader.getTotalTrades()
             val (phase, phasePct, phaseColor, phaseText) = when {
-                trades < 500  -> Quadruple("📚 BOOTSTRAP",  trades / 500.0,  0xFFF59E0B.toInt(), "Learning alt market patterns — paper mode only")
-                trades < 1500 -> Quadruple("🧠 LEARNING",   (trades - 500) / 1000.0,  0xFFF59E0B.toInt(), "Building alt pattern memory")
-                trades < 3000 -> Quadruple("🔬 VALIDATING", (trades - 1500) / 1500.0, 0xFF3B82F6.toInt(), "Validating signal reliability")
-                trades < 5000 -> Quadruple("⚡ MATURING",   (trades - 3000) / 2000.0, 0xFF8B5CF6.toInt(), "Refining alt execution strategy")
-                wr >= 55      -> Quadruple("✅ READY",       1.0, 0xFF22C55E.toInt(), "Alt trader is ready for live trading")
-                else          -> Quadruple("⚡ MATURING",   0.9, 0xFF8B5CF6.toInt(), "Improving win rate before live mode")
+                trades < 500  -> Quadruple("BOOTSTRAP BOOTSTRAP",  trades / 500.0,  0xFFF59E0B.toInt(), "Learning alt market patterns — paper mode only")
+                trades < 1500 -> Quadruple("AI LEARNING",   (trades - 500) / 1000.0,  0xFFF59E0B.toInt(), "Building alt pattern memory")
+                trades < 3000 -> Quadruple("VALIDATING VALIDATING", (trades - 1500) / 1500.0, 0xFF3B82F6.toInt(), "Validating signal reliability")
+                trades < 5000 -> Quadruple("SIGNAL MATURING",   (trades - 3000) / 2000.0, 0xFF8B5CF6.toInt(), "Refining alt execution strategy")
+                wr >= 55      -> Quadruple("OK READY",       1.0, 0xFF22C55E.toInt(), "Alt trader is ready for live trading")
+                else          -> Quadruple("SIGNAL MATURING",   0.9, 0xFF8B5CF6.toInt(), "Improving win rate before live mode")
             }
             tvCryptoAltsPhase?.text = phase
             tvCryptoAltsPhase?.setTextColor(phaseColor)
@@ -11231,19 +11231,19 @@ Trading outside hours may have wider spreads.
     private operator fun <A,B,C,D> Quadruple<A,B,C,D>.component3() = c
     private operator fun <A,B,C,D> Quadruple<A,B,C,D>.component4() = d
 
-    
+
     /**
      * V5.7.5: Update the stocks positions list UI for TokenizedStockTrader
      */
     private fun updateStockTraderPositionsList(positions: List<com.lifecyclebot.perps.TokenizedStockTrader.StockPosition>) {
         llStocksPositions?.removeAllViews()
-        
+
         if (positions.isEmpty()) return
-        
+
         for (position in positions) {
             try {
                 val livePrice = position.currentPrice.takeIf { it > 0 } ?: position.entryPrice
-                
+
                 // Create a rich position card
                 val cardLayout = LinearLayout(this).apply {
                     orientation = LinearLayout.VERTICAL
@@ -11256,13 +11256,13 @@ Trading outside hours may have wider spreads.
                         setMargins(0, 0, 0, 12)
                     }
                 }
-                
+
                 // Header row: Symbol + Direction + Leverage
                 val headerRow = LinearLayout(this).apply {
                     orientation = LinearLayout.HORIZONTAL
                     gravity = android.view.Gravity.CENTER_VERTICAL
                 }
-                
+
                 val headerText = TextView(this).apply {
                     text = "${position.market.emoji} ${position.market.symbol} ${position.direction.symbol} ${position.leverage.toInt()}x"
                     setTextColor(0xFFFFFFFF.toInt())
@@ -11271,7 +11271,7 @@ Trading outside hours may have wider spreads.
                     layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
                 }
                 headerRow.addView(headerText)
-                
+
                 // P&L badge
                 val pnlPct = position.getUnrealizedPnlPct()
                 val pnlBadge = TextView(this).apply {
@@ -11282,17 +11282,17 @@ Trading outside hours may have wider spreads.
                 }
                 headerRow.addView(pnlBadge)
                 cardLayout.addView(headerRow)
-                
+
                 // Spacer
                 cardLayout.addView(android.view.View(this).apply {
                     layoutParams = LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, 8)
                 })
-                
+
                 // Data grid
                 val dataGrid = LinearLayout(this).apply {
                     orientation = LinearLayout.HORIZONTAL
                 }
-                
+
                 // Entry price
                 val entryCol = LinearLayout(this).apply {
                     orientation = LinearLayout.VERTICAL
@@ -11309,7 +11309,7 @@ Trading outside hours may have wider spreads.
                     textSize = 12f
                 })
                 dataGrid.addView(entryCol)
-                
+
                 // Current price with change indicator
                 val currentCol = LinearLayout(this).apply {
                     orientation = LinearLayout.VERTICAL
@@ -11320,7 +11320,7 @@ Trading outside hours may have wider spreads.
                     setTextColor(0xFF9CA3AF.toInt())
                     textSize = 10f
                 })
-                
+
                 val priceChangePct = if (position.entryPrice > 0) {
                     ((livePrice - position.entryPrice) / position.entryPrice * 100)
                 } else 0.0
@@ -11334,14 +11334,14 @@ Trading outside hours may have wider spreads.
                     priceChangePct < -0.1 -> 0xFFEF4444.toInt()
                     else -> 0xFFFFFFFF.toInt()
                 }
-                
+
                 currentCol.addView(TextView(this).apply {
                     text = "$${String.format("%.2f", livePrice)} $changeArrow"
                     setTextColor(changeColor)
                     textSize = 12f
                 })
                 dataGrid.addView(currentCol)
-                
+
                 // Size
                 val sizeCol = LinearLayout(this).apply {
                     orientation = LinearLayout.VERTICAL
@@ -11358,7 +11358,7 @@ Trading outside hours may have wider spreads.
                     textSize = 12f
                 })
                 dataGrid.addView(sizeCol)
-                
+
                 // P&L SOL
                 val pnlCol = LinearLayout(this).apply {
                     orientation = LinearLayout.VERTICAL
@@ -11376,14 +11376,14 @@ Trading outside hours may have wider spreads.
                     textSize = 12f
                 })
                 dataGrid.addView(pnlCol)
-                
+
                 cardLayout.addView(dataGrid)
-                
+
                 // Spacer
                 cardLayout.addView(android.view.View(this).apply {
                     layoutParams = LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, 8)
                 })
-                
+
                 // TP/SL row
                 val tpSlRow = LinearLayout(this).apply {
                     orientation = LinearLayout.HORIZONTAL
@@ -11407,28 +11407,28 @@ Trading outside hours may have wider spreads.
                     textSize = 10f
                 })
                 cardLayout.addView(tpSlRow)
-                
+
                 llStocksPositions?.addView(cardLayout)
             } catch (e: Exception) {
                 com.lifecyclebot.engine.ErrorLogger.debug("MainActivity", "Stock position card error: ${e.message}")
             }
         }
     }
-    
+
     /**
      * V5.7.5: Update the stocks positions list UI (legacy for PerpsPosition)
      * Uses position's currentPrice which is updated by the monitor loop
      */
     private fun updateStocksPositionsList(positions: List<com.lifecyclebot.perps.PerpsPosition>) {
         llStocksPositions?.removeAllViews()
-        
+
         if (positions.isEmpty()) return
-        
+
         for (position in positions) {
             try {
                 // Use the position's current price (updated by monitor loop)
                 val livePrice = position.currentPrice.takeIf { it > 0 } ?: position.entryPrice
-                
+
                 // Create a rich position card
                 val cardLayout = LinearLayout(this).apply {
                     orientation = LinearLayout.VERTICAL
@@ -11441,13 +11441,13 @@ Trading outside hours may have wider spreads.
                         setMargins(0, 0, 0, 12)
                     }
                 }
-                
+
                 // Header row: Symbol + Direction + Leverage
                 val headerRow = LinearLayout(this).apply {
                     orientation = LinearLayout.HORIZONTAL
                     gravity = android.view.Gravity.CENTER_VERTICAL
                 }
-                
+
                 val headerText = TextView(this).apply {
                     text = "${position.market.emoji} ${position.market.symbol} ${position.direction.symbol} ${position.leverage.toInt()}x"
                     setTextColor(0xFFFFFFFF.toInt())
@@ -11456,7 +11456,7 @@ Trading outside hours may have wider spreads.
                     layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
                 }
                 headerRow.addView(headerText)
-                
+
                 // P&L badge - Calculate with current price
                 val pnlPct = position.getUnrealizedPnlPct()
                 val pnlBadge = TextView(this).apply {
@@ -11467,17 +11467,17 @@ Trading outside hours may have wider spreads.
                 }
                 headerRow.addView(pnlBadge)
                 cardLayout.addView(headerRow)
-                
+
                 // Spacer
                 cardLayout.addView(android.view.View(this).apply {
                     layoutParams = LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, 8)
                 })
-                
+
                 // Data grid
                 val dataGrid = LinearLayout(this).apply {
                     orientation = LinearLayout.HORIZONTAL
                 }
-                
+
                 // Entry price
                 val entryCol = LinearLayout(this).apply {
                     orientation = LinearLayout.VERTICAL
@@ -11494,7 +11494,7 @@ Trading outside hours may have wider spreads.
                     textSize = 12f
                 })
                 dataGrid.addView(entryCol)
-                
+
                 // Current price with change indicator
                 val currentCol = LinearLayout(this).apply {
                     orientation = LinearLayout.VERTICAL
@@ -11505,7 +11505,7 @@ Trading outside hours may have wider spreads.
                     setTextColor(0xFF9CA3AF.toInt())
                     textSize = 10f
                 })
-                
+
                 // Price change indicator
                 val priceChangePct = if (position.entryPrice > 0) {
                     ((livePrice - position.entryPrice) / position.entryPrice * 100)
@@ -11520,14 +11520,14 @@ Trading outside hours may have wider spreads.
                     priceChangePct < -0.1 -> 0xFFEF4444.toInt()
                     else -> 0xFFFFFFFF.toInt()
                 }
-                
+
                 currentCol.addView(TextView(this).apply {
                     text = "$${String.format("%.2f", livePrice)} $changeArrow"
                     setTextColor(changeColor)
                     textSize = 12f
                 })
                 dataGrid.addView(currentCol)
-                
+
                 // Size
                 val sizeCol = LinearLayout(this).apply {
                     orientation = LinearLayout.VERTICAL
@@ -11544,7 +11544,7 @@ Trading outside hours may have wider spreads.
                     textSize = 12f
                 })
                 dataGrid.addView(sizeCol)
-                
+
                 // P&L USD
                 val pnlCol = LinearLayout(this).apply {
                     orientation = LinearLayout.VERTICAL
@@ -11562,14 +11562,14 @@ Trading outside hours may have wider spreads.
                     textSize = 12f
                 })
                 dataGrid.addView(pnlCol)
-                
+
                 cardLayout.addView(dataGrid)
-                
+
                 // Spacer
                 cardLayout.addView(android.view.View(this).apply {
                     layoutParams = LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, 8)
                 })
-                
+
                 // TP/SL row
                 val tpSlRow = LinearLayout(this).apply {
                     orientation = LinearLayout.HORIZONTAL
@@ -11593,20 +11593,20 @@ Trading outside hours may have wider spreads.
                     textSize = 10f
                 })
                 cardLayout.addView(tpSlRow)
-                
+
                 // Click to show visualizer
                 cardLayout.setOnClickListener {
                     showPerpsTradeVisualizerDialog(position)
                     performHaptic()
                 }
-                
+
                 llStocksPositions?.addView(cardLayout)
             } catch (e: Exception) {
                 com.lifecyclebot.engine.ErrorLogger.debug("MainActivity", "Position card error: ${e.message}")
             }
         }
     }
-    
+
     /**
      * V5.7.3: Setup stock button click handlers for direct trading
      */
@@ -11645,13 +11645,13 @@ Trading outside hours may have wider spreads.
                 openQuickStockTrade(com.lifecyclebot.perps.PerpsMarket.COIN)
                 performHaptic()
             }
-            
+
             // Card click → V5.7.6: Navigate to MultiAssetActivity for proper Markets AI layers
             cardTokenizedStocks?.setOnClickListener {
                 startActivity(Intent(this, MultiAssetActivity::class.java))
                 performHaptic()
             }
-            
+
             // Long press → show trade dialog
             cardTokenizedStocks?.setOnLongClickListener {
                 showStockBuyDialog()
@@ -11660,18 +11660,18 @@ Trading outside hours may have wider spreads.
             }
         } catch (_: Exception) {}
     }
-    
+
     /**
      * V5.7.3: Quick trade dialog for a specific stock
      */
     private fun openQuickStockTrade(market: com.lifecyclebot.perps.PerpsMarket) {
         val perpsAI = com.lifecyclebot.perps.PerpsTraderAI
-        
+
         if (!perpsAI.isEnabled() || !perpsAI.hasAcknowledgedRisk()) {
             showPerpsRiskWarning()
             return
         }
-        
+
         // Check if already have position in this market
         val existingPosition = perpsAI.getActivePositions().find { it.market == market }
         if (existingPosition != null) {
@@ -11679,7 +11679,7 @@ Trading outside hours may have wider spreads.
             showPerpsTradeVisualizerDialog(existingPosition)
             return
         }
-        
+
         AlertDialog.Builder(this, R.style.Theme_AATE_Dialog)
             .setTitle("${market.emoji} Trade ${market.symbol}")
             .setMessage("""
@@ -11689,7 +11689,7 @@ Trading Hours: ${market.tradingHours}
 
 Quick trade or open detailed dialog?
             """.trimIndent())
-            .setPositiveButton("📈 LONG") { d, _ ->
+            .setPositiveButton("MARKET LONG") { d, _ ->
                 lifecycleScope.launch {
                     try {
                         val position = com.lifecyclebot.perps.PerpsExecutionEngine.manualOpen(
@@ -11700,7 +11700,7 @@ Quick trade or open detailed dialog?
                         )
                         withContext(kotlinx.coroutines.Dispatchers.Main) {
                             if (position != null) {
-                                Toast.makeText(this@MainActivity, "📈 Opened ${market.symbol} LONG @ 2x - View in Markets", Toast.LENGTH_SHORT).show()
+                                Toast.makeText(this@MainActivity, "MARKET Opened ${market.symbol} LONG @ 2x - View in Markets", Toast.LENGTH_SHORT).show()
                                 // V5.7.6: Stocks card moved to Markets UI
                             }
                         }
@@ -11712,7 +11712,7 @@ Quick trade or open detailed dialog?
                 }
                 d.dismiss()
             }
-            .setNegativeButton("📉 SHORT") { d, _ ->
+            .setNegativeButton("DOWNTICK SHORT") { d, _ ->
                 lifecycleScope.launch {
                     try {
                         val position = com.lifecyclebot.perps.PerpsExecutionEngine.manualOpen(
@@ -11723,7 +11723,7 @@ Quick trade or open detailed dialog?
                         )
                         withContext(kotlinx.coroutines.Dispatchers.Main) {
                             if (position != null) {
-                                Toast.makeText(this@MainActivity, "📉 Opened ${market.symbol} SHORT @ 2x - View in Markets", Toast.LENGTH_SHORT).show()
+                                Toast.makeText(this@MainActivity, "DOWNTICK Opened ${market.symbol} SHORT @ 2x - View in Markets", Toast.LENGTH_SHORT).show()
                                 // V5.7.6: Stocks card moved to Markets UI
                             }
                         }
@@ -11752,9 +11752,9 @@ Quick trade or open detailed dialog?
             val phase = com.lifecyclebot.engine.FinalDecisionGate.getLearningPhase(totalTrades)
 
             val phaseEmoji = when (phase) {
-                com.lifecyclebot.engine.FinalDecisionGate.LearningPhase.BOOTSTRAP -> "🌒"
-                com.lifecyclebot.engine.FinalDecisionGate.LearningPhase.LEARNING -> "🌗"
-                com.lifecyclebot.engine.FinalDecisionGate.LearningPhase.MATURE -> "🌕"
+                com.lifecyclebot.engine.FinalDecisionGate.LearningPhase.BOOTSTRAP -> "BOOT"
+                com.lifecyclebot.engine.FinalDecisionGate.LearningPhase.LEARNING -> "LEARN"
+                com.lifecyclebot.engine.FinalDecisionGate.LearningPhase.MATURE -> "MATURE"
             }
             val phaseName = when (phase) {
                 com.lifecyclebot.engine.FinalDecisionGate.LearningPhase.BOOTSTRAP -> "Bootstrap"
@@ -11776,7 +11776,7 @@ Quick trade or open detailed dialog?
                 val maturity = com.lifecyclebot.ui.UiSnapshotCache.eduAllLayerMaturity()
                 maturity.entries.filter { it.value.trades >= 5 }
                     .sortedByDescending { it.value.smoothedAccuracy }.take(5)
-                    .joinToString("\n") { "  • ${it.key.padEnd(22)} WR=${(it.value.smoothedAccuracy*100).toInt()}% (${it.value.trades}t)${if (!it.value.isActive) " ⛔MUTED" else ""}" }
+                    .joinToString("\n") { "  • ${it.key.padEnd(22)} WR=${(it.value.smoothedAccuracy*100).toInt()}% (${it.value.trades}t)${if (!it.value.isActive) " BLOCKMUTED" else ""}" }
             } catch (_: Exception) { "  (not enough data)" }
 
             // ── MetaCognition ───────────────────────────────────────────────────
@@ -11814,14 +11814,14 @@ Quick trade or open detailed dialog?
             } catch (_: Exception) { "  No reflections yet — runs every 6 min after boot" }
 
             val message = """
-🧠 AI CONSCIOUSNESS REPORT
+AI AI CONSCIOUSNESS REPORT
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 $phaseEmoji Phase: $phaseName | ${"%.0f".format(learningProgress * 100)}% mature
-📈 Trades: $totalTrades | WR: $winRate%${if (tradesNeeded > 0) " | ⏳ $tradesNeeded to next phase" else " | ✅ Fully Mature"}
+MARKET Trades: $totalTrades | WR: $winRate%${if (tradesNeeded > 0) " | ⏳ $tradesNeeded to next phase" else " | OK Fully Mature"}
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-📚 EDUCATION SUBLAYER (41 layers)
+BOOTSTRAP EDUCATION SUBLAYER (41 layers)
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 $eduReport
 
@@ -11829,20 +11829,20 @@ Top layers by accuracy:
 $eduTop
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-🔬 METACOGNITION (Layer 20)
+VALIDATING METACOGNITION (Layer 20)
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 Trades analysed: $totalAnalyzed
 $metaTop
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-🎯 SYMBOLIC EXIT SIGNALS
+TARGET SYMBOLIC EXIT SIGNALS
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 $symDiag
 
 $symSnap
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-🌌 SENTIENCE ORCHESTRATOR
+DEEP SENTIENCE ORCHESTRATOR
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 $sentStatus
 
@@ -11855,7 +11855,7 @@ ${com.lifecyclebot.engine.SignalQualityTracker.detailBlock()}
             """.trimIndent()
 
             AlertDialog.Builder(this, R.style.Theme_AATE_Dialog)
-                .setTitle("🧠 AI Consciousness Report")
+                .setTitle("AI AI Consciousness Report")
                 .setMessage(message)
                 .setPositiveButton("Close") { d, _ -> d.dismiss() }
                 .setNeutralButton("Brain Screen") { d, _ ->
@@ -11867,7 +11867,7 @@ ${com.lifecyclebot.engine.SignalQualityTracker.detailBlock()}
             performHaptic()
         } catch (_: Exception) {}
     }
-    
+
     /**
      * Update the currency selector button text to show current currency
      */
@@ -11877,11 +11877,11 @@ ${com.lifecyclebot.engine.SignalQualityTracker.detailBlock()}
             btnCurrencySelector.text = "${info.code} ▼"
         } catch (_: Exception) {}
     }
-    
+
     // ═══════════════════════════════════════════════════════════════════════════════
     // V5.7.3: LEARNING INSIGHTS PANEL
     // ═══════════════════════════════════════════════════════════════════════════════
-    
+
     /**
      * Update the Learning Insights Panel with latest data
      */
@@ -11892,17 +11892,17 @@ ${com.lifecyclebot.engine.SignalQualityTracker.detailBlock()}
             val patterns = com.lifecyclebot.perps.PerpsLearningInsightsPanel.getPatternsCount()
             val replays = com.lifecyclebot.perps.PerpsAutoReplayLearner.getTotalReplays()
             val optimizations = com.lifecyclebot.perps.PerpsLearningInsightsPanel.getOptimizationsCount()
-            
+
             // Update counts
             tvInsightsCount?.text = "$totalInsights insights"
             tvInsightsPatternsCount?.text = "$patterns"
             tvInsightsReplaysCount?.text = "$replays"
             tvInsightsOptimizations?.text = "$optimizations"
-            
+
             // Update recent insights list
             val insights = com.lifecyclebot.perps.PerpsLearningInsightsPanel.getRecentInsights(3)
             llRecentInsights?.removeAllViews()
-            
+
             for (insight in insights) {
                 val row = LinearLayout(this).apply {
                     orientation = LinearLayout.HORIZONTAL
@@ -11911,7 +11911,7 @@ ${com.lifecyclebot.engine.SignalQualityTracker.detailBlock()}
                         LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT
                     ).also { it.bottomMargin = 4 }
                 }
-                
+
                 val tvEmoji = TextView(this).apply {
                     text = insight.type.emoji
                     textSize = 12f
@@ -11919,43 +11919,43 @@ ${com.lifecyclebot.engine.SignalQualityTracker.detailBlock()}
                         LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT
                     ).also { it.marginEnd = 6 }
                 }
-                
+
                 val tvText = TextView(this).apply {
                     text = insight.title
                     setTextColor(0xFFFFFFFF.toInt())
                     textSize = 9f
                     layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
                 }
-                
+
                 val tvTime = TextView(this).apply {
                     text = insight.getTimeAgo()
                     setTextColor(0xFF6B7280.toInt())
                     textSize = 8f
                 }
-                
+
                 row.addView(tvEmoji)
                 row.addView(tvText)
                 row.addView(tvTime)
-                
+
                 row.setOnClickListener {
                     showInsightDetailDialog(insight)
                     performHaptic()
                 }
-                
+
                 llRecentInsights?.addView(row)
             }
-            
+
             // Setup view all button
             btnViewAllInsights?.setOnClickListener {
                 showAllInsightsDialog()
                 performHaptic()
             }
-            
+
         } catch (e: Exception) {
             com.lifecyclebot.engine.ErrorLogger.debug("MainActivity", "Insights panel update error: ${e.message}")
         }
     }
-    
+
     /**
      * Show detailed insight dialog
      */
@@ -11968,22 +11968,22 @@ ${insight.title}
 
 ${insight.description}
 
-${if (insight.market != null) "📊 Market: ${insight.market}" else ""}
-${if (insight.layerName != null) "🧠 Layer: ${insight.layerName}" else ""}
-${if (insight.impactScore != 0.0) "📈 Impact: ${String.format("%.1f", insight.impactScore)}" else ""}
+${if (insight.market != null) "ANALYTICS Market: ${insight.market}" else ""}
+${if (insight.layerName != null) "AI Layer: ${insight.layerName}" else ""}
+${if (insight.impactScore != 0.0) "MARKET Impact: ${String.format("%.1f", insight.impactScore)}" else ""}
 
-🕐 ${insight.getTimeAgo()}
+TIME ${insight.getTimeAgo()}
 
-${if (insight.actionable && insight.actionText != null) "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n💡 Suggested Action: ${insight.actionText}" else ""}
+${if (insight.actionable && insight.actionText != null) "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\nINSIGHT Suggested Action: ${insight.actionText}" else ""}
         """.trimIndent()
-        
+
         AlertDialog.Builder(this, R.style.Theme_AATE_Dialog)
             .setTitle("${insight.type.emoji} Insight Detail")
             .setMessage(message)
             .setPositiveButton("Close") { d, _ -> d.dismiss() }
             .show()
     }
-    
+
     /**
      * Show all insights dialog
      */
@@ -11991,40 +11991,40 @@ ${if (insight.actionable && insight.actionText != null) "━━━━━━━�
         lifecycleScope.launch {
             try {
                 val panelData = com.lifecyclebot.perps.PerpsLearningInsightsPanel.getPanelData()
-                
+
                 withContext(kotlinx.coroutines.Dispatchers.Main) {
                     val insightsText = panelData.recentInsights.take(10).joinToString("\n\n") { insight ->
                         "${insight.type.emoji} ${insight.title}\n   ${insight.description}\n   ${insight.getTimeAgo()}"
                     }
-                    
+
                     val topLayersText = panelData.topPerformingLayers.take(5).joinToString("\n") { (name, score) ->
                         "• $name: ${String.format("%.0f", score)}%"
                     }
-                    
+
                     val message = """
-🧠 LEARNING INSIGHTS DASHBOARD
+AI LEARNING INSIGHTS DASHBOARD
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-📊 STATS
+ANALYTICS STATS
 ───────────────────────────────
 Total Insights: ${panelData.totalInsights}
 Patterns Found: ${panelData.patternsIdentified}
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-🏆 TOP PERFORMING LAYERS
+RANK TOP PERFORMING LAYERS
 ───────────────────────────────
 ${if (topLayersText.isNotEmpty()) topLayersText else "No data yet"}
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-📜 RECENT INSIGHTS
+LOG RECENT INSIGHTS
 ───────────────────────────────
 ${if (insightsText.isNotEmpty()) insightsText else "No insights yet. Keep trading!"}
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
                     """.trimIndent()
-                    
+
                     AlertDialog.Builder(this@MainActivity, R.style.Theme_AATE_Dialog)
-                        .setTitle("🧠 All Learning Insights")
+                        .setTitle("AI All Learning Insights")
                         .setMessage(message)
                         .setPositiveButton("Close") { d, _ -> d.dismiss() }
                         .setNeutralButton("Refresh") { d, _ ->
@@ -12040,7 +12040,7 @@ ${if (insightsText.isNotEmpty()) insightsText else "No insights yet. Keep tradin
             }
         }
     }
-    
+
     /**
      * V5.7.3: Show Network Signal Auto-Buyer dialog
      */
@@ -12048,16 +12048,16 @@ ${if (insightsText.isNotEmpty()) insightsText else "No insights yet. Keep tradin
         val autoBuyer = com.lifecyclebot.perps.NetworkSignalAutoBuyer
         val stats = autoBuyer.getStats()
         val config = autoBuyer.getConfig()
-        
+
         val message = """
-📡 NETWORK SIGNAL AUTO-BUYER
+RADAR NETWORK SIGNAL AUTO-BUYER
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-Status: ${if (stats.isEnabled) "🟢 ACTIVE" else "🔴 DISABLED"}
-Mode: ${if (stats.paperModeOnly) "📝 PAPER" else "💰 LIVE"}
+Status: ${if (stats.isEnabled) "OK ACTIVE" else "FAIL DISABLED"}
+Mode: ${if (stats.paperModeOnly) "PAPER" else "LIVE"}
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-📊 TODAY'S STATS
+ANALYTICS TODAY'S STATS
 ───────────────────────────────
 Daily Auto-Buys: ${stats.dailyAutoBuys}/${stats.maxDailyAutoBuys}
 Successful: ${stats.successfulBuys}
@@ -12065,54 +12065,54 @@ Failed: ${stats.failedBuys}
 Active Cooldowns: ${stats.activeCooldowns}
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-⚙️ CONFIGURATION
+CONFIG CONFIGURATION
 ───────────────────────────────
-🔥 MEGA_WINNER: ${if (config.autoBuyMegaWinners) "✅ Auto" else "❌ Skip"}
-🌐 HOT_TOKEN: ${if (config.autoBuyHotTokens) "✅ Auto" else "❌ Skip"}
+HOT MEGA_WINNER: ${if (config.autoBuyMegaWinners) "OK Auto" else "FAIL Skip"}
+GLOBAL HOT_TOKEN: ${if (config.autoBuyHotTokens) "OK Auto" else "FAIL Skip"}
 Min Acks: ${config.minAckCount}
 Min Confidence: ${config.minConfidence}%
 Min Liquidity: $${String.format("%,.0f", config.minLiquidityUsd)}
 Position Size: ${config.positionSizePct}%
 Cooldown: ${config.cooldownMinutes} min
-AI Confirmation: ${if (config.requireAIConfirmation) "✅" else "❌"}
+AI Confirmation: ${if (config.requireAIConfirmation) "OK" else "FAIL"}
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
         """.trimIndent()
-        
+
         AlertDialog.Builder(this, R.style.Theme_AATE_Dialog)
-            .setTitle("📡 Network Signal Auto-Buyer")
+            .setTitle("RADAR Network Signal Auto-Buyer")
             .setMessage(message)
             .setPositiveButton("Close") { d, _ -> d.dismiss() }
             .setNegativeButton(if (stats.isEnabled) "Disable" else "Enable") { d, _ ->
                 if (stats.isEnabled) {
                     autoBuyer.stop()
-                    Toast.makeText(this, "📡 Auto-buyer disabled", Toast.LENGTH_SHORT).show()
+                    Toast.makeText(this, "RADAR Auto-buyer disabled", Toast.LENGTH_SHORT).show()
                 } else {
                     autoBuyer.start()
-                    Toast.makeText(this, "📡 Auto-buyer enabled", Toast.LENGTH_SHORT).show()
+                    Toast.makeText(this, "RADAR Auto-buyer enabled", Toast.LENGTH_SHORT).show()
                 }
                 d.dismiss()
             }
             .show()
     }
-    
+
     // ═══════════════════════════════════════════════════════════════════════════════
     // V5.7.4: INSIDER TRACKER DIALOG
     // ═══════════════════════════════════════════════════════════════════════════════
-    
+
     /**
      * V5.7.4: Show Network Signals menu with options for Auto-Buyer and Insider Tracker
      */
     private fun showNetworkSignalsMenu() {
         val options = arrayOf(
-            "📡 Network Signal Auto-Buyer",
-            "🔍 Insider Tracker (Trump/Pelosi/Whales)",
-            "📊 View All Network Signals",
-            "🔔 Watchlist & Price Alerts"
+            "RADAR Network Signal Auto-Buyer",
+            "SEARCH Insider Tracker (Trump/Pelosi/Whales)",
+            "ANALYTICS View All Network Signals",
+            "ALERTS Watchlist & Price Alerts"
         )
-        
+
         AlertDialog.Builder(this, R.style.Theme_AATE_Dialog)
-            .setTitle("🌐 Network Intelligence")
+            .setTitle("GLOBAL Network Intelligence")
             .setItems(options) { _, which ->
                 when (which) {
                     0 -> showNetworkSignalAutoBuyerDialog()
@@ -12124,68 +12124,68 @@ AI Confirmation: ${if (config.requireAIConfirmation) "✅" else "❌"}
             .setNegativeButton("Cancel") { d, _ -> d.dismiss() }
             .show()
     }
-    
+
     /**
      * V5.7.4: Show all network signals dialog
      */
     private fun showAllNetworkSignalsDialog() {
         val signals = com.lifecyclebot.v3.scoring.CollectiveIntelligenceAI.getActiveNetworkSignals()
-        
+
         if (signals.isEmpty()) {
             Toast.makeText(this, "No active network signals", Toast.LENGTH_SHORT).show()
             return
         }
-        
+
         val message = signals.sortedByDescending { it.pnlPct }.take(20).joinToString("\n\n") { signal ->
             val emoji = when (signal.signalType) {
-                "MEGA_WINNER" -> "🔥"
-                "HOT_TOKEN" -> "🌐"
-                "AVOID" -> "⚠️"
-                else -> "📡"
+                "MEGA_WINNER" -> "HOT"
+                "HOT_TOKEN" -> "GLOBAL"
+                "AVOID" -> "WARN"
+                else -> "RADAR"
             }
             "$emoji ${signal.symbol}\n   PnL: ${String.format("%+.1f", signal.pnlPct)}% | Acks: ${signal.ackCount} | Conf: ${signal.confidence}%"
         }
-        
+
         AlertDialog.Builder(this, R.style.Theme_AATE_Dialog)
-            .setTitle("📡 Active Network Signals (${signals.size})")
+            .setTitle("RADAR Active Network Signals (${signals.size})")
             .setMessage(message)
             .setPositiveButton("Close") { d, _ -> d.dismiss() }
             .show()
     }
-    
+
     private fun showInsiderTrackerDialog() {
         val tracker = com.lifecyclebot.v3.scoring.InsiderTrackerAI
         val stats = tracker.getStats()
         val recentAlpha = tracker.getAlphaSignals(5)
         val preTweet = tracker.getPreTweetSignals()
-        
+
         val signalsText = if (recentAlpha.isNotEmpty()) {
             recentAlpha.joinToString("\n") { signal ->
                 val age = (System.currentTimeMillis() - signal.timestamp) / 60000
                 val emoji = when (signal.signalType) {
-                    com.lifecyclebot.v3.scoring.InsiderTrackerAI.InsiderSignalType.PRE_TWEET -> "🐦"
-                    com.lifecyclebot.v3.scoring.InsiderTrackerAI.InsiderSignalType.ACCUMULATION -> "💰"
-                    com.lifecyclebot.v3.scoring.InsiderTrackerAI.InsiderSignalType.DISTRIBUTION -> "🚨"
-                    else -> "⚡"
+                    com.lifecyclebot.v3.scoring.InsiderTrackerAI.InsiderSignalType.PRE_TWEET -> "SOCIAL"
+                    com.lifecyclebot.v3.scoring.InsiderTrackerAI.InsiderSignalType.ACCUMULATION -> "TREASURY"
+                    com.lifecyclebot.v3.scoring.InsiderTrackerAI.InsiderSignalType.DISTRIBUTION -> "ALERT"
+                    else -> "SIGNAL"
                 }
                 "$emoji ${signal.wallet.label}: ${signal.tokenSymbol ?: "?"} (${age}m ago)"
             }
         } else "No recent ALPHA signals"
-        
+
         val preTweetText = if (preTweet.isNotEmpty()) {
-            preTweet.joinToString("\n") { "🐦 ${it.wallet.label}: Watch for tweet!" }
+            preTweet.joinToString("\n") { "SOCIAL ${it.wallet.label}: Watch for tweet!" }
         } else "None detected"
-        
+
         val message = """
-🔍 INSIDER TRACKER
+SEARCH INSIDER TRACKER
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-Status: ${if (stats.isRunning) "🟢 ACTIVE" else "🔴 STOPPED"}
+Status: ${if (stats.isRunning) "OK ACTIVE" else "FAIL STOPPED"}
 Wallets Tracked: ${stats.walletsTracked}
 ALPHA Wallets: ${stats.alphaWallets}
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-📊 SIGNAL STATS
+ANALYTICS SIGNAL STATS
 ───────────────────────────────
 Total Signals: ${stats.totalSignals}
 ALPHA Signals: ${stats.alphaSignals}
@@ -12193,26 +12193,26 @@ Pre-Tweet Signals: ${stats.preTweetSignals}
 Active Signals: ${stats.recentSignalCount}
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-🔥 RECENT ALPHA SIGNALS
+HOT RECENT ALPHA SIGNALS
 ───────────────────────────────
 $signalsText
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-🐦 PRE-TWEET ALERTS
+PRE-TWEET ALERTS
 ───────────────────────────────
 $preTweetText
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-🎯 TRACKED CATEGORIES:
+TARGET TRACKED CATEGORIES:
 • Politicians (Pelosi)
 • Trump Family (Barron, DJT)
 • Whales (Jump, Wintermute)
 • Influencers (Ansem)
 • Exchanges (Coinbase, Binance)
         """.trimIndent()
-        
+
         AlertDialog.Builder(this, R.style.Theme_AATE_Dialog)
-            .setTitle("🔍 Insider Tracker (Trump/Pelosi)")
+            .setTitle("SEARCH Insider Tracker (Trump/Pelosi)")
             .setMessage(message)
             .setPositiveButton("Full View") { d, _ ->
                 startActivity(Intent(this, InsiderWalletsActivity::class.java))
@@ -12221,10 +12221,10 @@ $preTweetText
             .setNegativeButton(if (stats.isRunning) "Stop" else "Start") { d, _ ->
                 if (stats.isRunning) {
                     tracker.stop()
-                    Toast.makeText(this, "🔍 Insider Tracker stopped", Toast.LENGTH_SHORT).show()
+                    Toast.makeText(this, "SEARCH Insider Tracker stopped", Toast.LENGTH_SHORT).show()
                 } else {
                     tracker.start()
-                    Toast.makeText(this, "🔍 Insider Tracker started", Toast.LENGTH_SHORT).show()
+                    Toast.makeText(this, "SEARCH Insider Tracker started", Toast.LENGTH_SHORT).show()
                 }
                 d.dismiss()
             }
@@ -12234,33 +12234,33 @@ $preTweetText
             }
             .show()
     }
-    
+
     private fun showAddInsiderWalletDialog() {
         val layout = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             setPadding(48, 24, 48, 24)
         }
-        
+
         val addressInput = EditText(this).apply {
             hint = "Solana Wallet Address"
             inputType = android.text.InputType.TYPE_CLASS_TEXT
         }
-        
+
         val labelInput = EditText(this).apply {
             hint = "Label (e.g., 'My Insider')"
             inputType = android.text.InputType.TYPE_CLASS_TEXT
         }
-        
+
         layout.addView(addressInput)
         layout.addView(labelInput)
-        
+
         AlertDialog.Builder(this, R.style.Theme_AATE_Dialog)
             .setTitle("Add Custom Wallet to Track")
             .setView(layout)
             .setPositiveButton("Add") { d, _ ->
                 val address = addressInput.text.toString().trim()
                 val label = labelInput.text.toString().trim().ifEmpty { "Custom Wallet" }
-                
+
                 if (address.length >= 32) {
                     val success = com.lifecyclebot.v3.scoring.InsiderTrackerAI.addCustomWallet(
                         address = address,
@@ -12269,12 +12269,12 @@ $preTweetText
                         riskLevel = com.lifecyclebot.v3.scoring.InsiderTrackerAI.RiskLevel.HIGH
                     )
                     if (success) {
-                        Toast.makeText(this, "✅ Wallet added: $label", Toast.LENGTH_SHORT).show()
+                        Toast.makeText(this, "OK Wallet added: $label", Toast.LENGTH_SHORT).show()
                     } else {
-                        Toast.makeText(this, "❌ Failed to add wallet", Toast.LENGTH_SHORT).show()
+                        Toast.makeText(this, "FAIL Failed to add wallet", Toast.LENGTH_SHORT).show()
                     }
                 } else {
-                    Toast.makeText(this, "❌ Invalid address", Toast.LENGTH_SHORT).show()
+                    Toast.makeText(this, "FAIL Invalid address", Toast.LENGTH_SHORT).show()
                 }
                 d.dismiss()
             }
@@ -12285,13 +12285,13 @@ $preTweetText
     /**
      * V5.9.495z34 — defer counter for the Guards strip on the Meme
      * tab. Returns "" when no defer activity in the last 5 minutes,
-     * otherwise " · 🛡 24 deferred · 3 background-classed · 6 expired".
+     * otherwise " · RISK 24 deferred · 3 background-classed · 6 expired".
      */
     private fun appendDeferTile(): String {
         return try {
             val s = com.lifecyclebot.engine.DeferActivityTracker.snapshot()
             val total = s.deferred + s.backgroundClassed + s.expired
-            if (total == 0) "" else " · 🛡 ${s.deferred} deferred · ${s.backgroundClassed} bg · ${s.expired} expired"
+            if (total == 0) "" else " · RISK ${s.deferred} deferred · ${s.backgroundClassed} bg · ${s.expired} expired"
         } catch (_: Throwable) { "" }
     }
 
@@ -12316,7 +12316,7 @@ $preTweetText
 
             val sliceWidth = 50
             val sliceCount = 5
-            val builder = android.text.SpannableStringBuilder("🌡 WR slices: ")
+            val builder = android.text.SpannableStringBuilder("WR SLICES: ")
             val rolling = store.rollingWinRatePct(sliceWidth)
             for (i in 0 until sliceCount) {
                 val pct = store.rollingWinRatePctSlice(offset = i * sliceWidth, width = sliceWidth)

@@ -106,7 +106,7 @@
                 android:id="@+id/tvUsdBalance"
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
-                android:text=""
+                android:text="•"
                 android:textColor="#6B7280"
                 android:textSize="13sp"
                 android:layout_marginStart="8dp"
@@ -131,7 +131,7 @@
                 android:id="@+id/tvLastRefreshed"
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
-                android:text=""
+                android:text="•"
                 android:textColor="#4A5E70"
                 android:textSize="10sp"
                 android:fontFamily="monospace"/>
@@ -288,14 +288,14 @@
                     <TextView
                         android:layout_width="match_parent"
                         android:layout_height="wrap_content"
-                        android:text="💡 Leave empty to auto-connect via public RPCs"
+                        android:text="Leave empty to auto-connect via public RPCs"
                         android:textColor="#4A5E70"
                         android:textSize="10sp"
                         android:layout_marginBottom="10dp"/>
                     <TextView
                         android:layout_width="match_parent"
                         android:layout_height="wrap_content"
-                        android:text="⚠ Use a dedicated burner wallet only. Never your main wallet."
+                        android:text="Use a dedicated burner wallet only. Never your main wallet."
                         android:textColor="#FFB700"
                         android:textSize="11sp"
                         android:fontFamily="monospace"
@@ -539,7 +539,7 @@
                         <TextView
                             android:layout_width="wrap_content"
                             android:layout_height="wrap_content"
-                            android:text="TREASURY LOCKED"
+                            android:text="TREASURY SECUREED"
                             android:textColor="#6B7280"
                             android:textSize="9sp"
                             android:fontFamily="monospace"/>
@@ -547,7 +547,7 @@
                             android:id="@+id/tvWithdrawTreasuryBal"
                             android:layout_width="wrap_content"
                             android:layout_height="wrap_content"
-                            android:text="0.0000◎"
+                            android:text="0.0000CRYPTO"
                             android:textColor="#00FF88"
                             android:textSize="14sp"
                             android:fontFamily="monospace"
@@ -569,7 +569,7 @@
                             android:id="@+id/tvWithdrawTradeable"
                             android:layout_width="wrap_content"
                             android:layout_height="wrap_content"
-                            android:text="0.0000◎"
+                            android:text="0.0000CRYPTO"
                             android:textColor="#FFFFFF"
                             android:textSize="14sp"
                             android:fontFamily="monospace"
@@ -609,7 +609,7 @@
                         android:id="@+id/tvWithdrawSolAmt"
                         android:layout_width="wrap_content"
                         android:layout_height="wrap_content"
-                        android:text=""
+                        android:text="•"
                         android:textColor="#6B7280"
                         android:textSize="12sp"
                         android:fontFamily="monospace"
@@ -679,7 +679,7 @@
                 <!-- Warning for 100% -->
                 <TextView android:id="@+id/tvWithdrawWarning"
                     android:layout_width="match_parent" android:layout_height="wrap_content"
-                    android:text="⚠ You are withdrawing 100% of the treasury. The bot will have no locked profit reserve."
+                    android:text="You are withdrawing 100% of the treasury. The bot will have no locked profit reserve."
                     android:textColor="#FFB700" android:textSize="11sp" android:fontFamily="monospace"
                     android:layout_marginBottom="8dp"
                     android:visibility="gone"/>
@@ -693,7 +693,7 @@
 
                 <TextView android:id="@+id/tvWithdrawStatus"
                     android:layout_width="match_parent" android:layout_height="wrap_content"
-                    android:text="" android:textColor="#4A5E70"
+                    android:text="•" android:textColor="#4A5E70"
                     android:textSize="12sp" android:fontFamily="monospace"
                     android:layout_marginTop="8dp"
                     android:minLines="2"/>
@@ -711,7 +711,7 @@
                 <TextView
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
-                    android:text="🔒"
+                    android:text="SECURE"
                     android:textSize="18sp"
                     android:layout_marginEnd="10dp"/>
                 <TextView

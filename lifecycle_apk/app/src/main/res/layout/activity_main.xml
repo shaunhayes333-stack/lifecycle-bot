@@ -120,7 +120,7 @@
                         android:id="@+id/tvBrainEmoji"
                         android:layout_width="match_parent"
                         android:layout_height="match_parent"
-                        android:text="🧠"
+                        android:text="AI"
                         android:textSize="14sp"
                         android:gravity="center"/>
                 </FrameLayout>
@@ -197,7 +197,7 @@
                     android:id="@+id/tvReadinessDot"
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
-                    android:text="⚪"
+                    android:text="•"
                     android:textSize="10sp"
                     android:layout_marginEnd="6dp"/>
 
@@ -217,7 +217,7 @@
                     android:id="@+id/tvReadinessLatency"
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
-                    android:text=""
+                    android:text="•"
                     android:textColor="#6B7280"
                     android:textSize="10sp"
                     android:fontFamily="monospace"/>
@@ -376,7 +376,7 @@
                         android:id="@+id/tvPnlChange"
                         android:layout_width="wrap_content"
                         android:layout_height="wrap_content"
-                        android:text=""
+                        android:text="•"
                         android:textColor="#10B981"
                         android:textSize="13sp"
                         android:maxLines="1"
@@ -388,7 +388,7 @@
                         android:layout_width="0dp"
                         android:layout_height="wrap_content"
                         android:layout_weight="1"
-                        android:text=""
+                        android:text="•"
                         android:textColor="#94A3B8"
                         android:textSize="11sp"
                         android:maxLines="1"
@@ -412,7 +412,7 @@
                         android:id="@+id/tvSymHomeMood"
                         android:layout_width="wrap_content"
                         android:layout_height="wrap_content"
-                        android:text="🧠"
+                        android:text="AI"
                         android:textSize="18sp"/>
 
                     <TextView
@@ -448,7 +448,7 @@
                         android:layout_width="0dp"
                         android:layout_height="wrap_content"
                         android:layout_weight="1"
-                        android:text="edge —  risk —  health —"
+                        android:text="edge — risk — health —"
                         android:textColor="#64748B"
                         android:textSize="9sp"
                         android:fontFamily="monospace"
@@ -471,7 +471,7 @@
                 android:layout_marginBottom="8dp"
                 android:padding="10dp"
                 android:background="@drawable/aate_universe_panel_bg"
-                android:text=""
+                android:text="•"
                 android:textColor="#E5E7EB"
                 android:textSize="11sp"
                 android:fontFamily="monospace"
@@ -650,7 +650,7 @@
                         android:clickable="true"
                         android:focusable="true">
                         <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
-                            android:text="◈" android:textSize="16sp"
+                            android:text="WA" android:textSize="16sp"
                             android:gravity="center"
                             android:background="@drawable/aate_nav_icon_badge_bg"
                             android:minWidth="30dp"
@@ -674,7 +674,7 @@
                         android:clickable="true"
                         android:focusable="true">
                         <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
-                            android:text="▥" android:textSize="16sp"
+                            android:text="JR" android:textSize="16sp"
                             android:gravity="center"
                             android:background="@drawable/aate_nav_icon_badge_bg"
                             android:minWidth="30dp"
@@ -698,7 +698,7 @@
                         android:clickable="true"
                         android:focusable="true">
                         <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
-                            android:text="▰" android:textSize="16sp"
+                            android:text="MK" android:textSize="16sp"
                             android:gravity="center"
                             android:background="@drawable/aate_nav_icon_badge_bg"
                             android:minWidth="30dp"
@@ -722,7 +722,7 @@
                         android:clickable="true"
                         android:focusable="true">
                         <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
-                            android:text="◇" android:textSize="16sp"
+                            android:text="LB" android:textSize="16sp"
                             android:gravity="center"
                             android:background="@drawable/aate_nav_icon_badge_bg"
                             android:minWidth="30dp"
@@ -750,7 +750,7 @@
                         android:clickable="true"
                         android:focusable="true">
                         <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
-                            android:text="⌁" android:textSize="16sp"
+                            android:text="PL" android:textSize="16sp"
                             android:gravity="center"
                             android:background="@drawable/aate_nav_icon_badge_bg"
                             android:minWidth="30dp"
@@ -788,7 +788,7 @@
                         android:clickable="true"
                         android:focusable="true">
                         <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
-                            android:text="⚙" android:textSize="16sp"
+                            android:text="ST" android:textSize="16sp"
                             android:gravity="center"
                             android:background="@drawable/aate_nav_icon_badge_bg"
                             android:minWidth="30dp"
@@ -812,7 +812,7 @@
                         android:clickable="true"
                         android:focusable="true">
                         <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
-                            android:text="⌕" android:textSize="16sp"
+                            android:text="LG" android:textSize="16sp"
                             android:gravity="center"
                             android:background="@drawable/aate_nav_icon_badge_bg"
                             android:minWidth="30dp"
@@ -836,7 +836,7 @@
                         android:clickable="true"
                         android:focusable="true">
                         <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
-                            android:text="◉" android:textSize="16sp"
+                            android:text="PS" android:textSize="16sp"
                             android:gravity="center"
                             android:background="@drawable/aate_nav_icon_badge_bg"
                             android:minWidth="30dp"
@@ -860,7 +860,7 @@
                         android:clickable="true"
                         android:focusable="true">
                         <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
-                            android:text="◎" android:textSize="16sp"
+                            android:text="CR" android:textSize="16sp"
                             android:gravity="center"
                             android:background="@drawable/aate_nav_icon_badge_bg"
                             android:minWidth="30dp"
@@ -887,7 +887,7 @@
                         android:clickable="true"
                         android:focusable="true">
                         <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
-                            android:text="☷" android:textSize="16sp"
+                            android:text="BT" android:textSize="16sp"
                             android:gravity="center"
                             android:background="@drawable/aate_nav_icon_badge_bg"
                             android:minWidth="30dp"
@@ -920,7 +920,7 @@
                         android:clickable="true"
                         android:focusable="true">
                         <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
-                            android:text="✦" android:textSize="16sp"
+                            android:text="UN" android:textSize="16sp"
                             android:gravity="center"
                             android:background="@drawable/aate_nav_icon_badge_bg"
                             android:minWidth="30dp"
@@ -949,7 +949,7 @@
                         android:clickable="true"
                         android:focusable="true">
                         <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
-                            android:text="◐" android:textSize="16sp"
+                            android:text="PH" android:textSize="16sp"
                             android:gravity="center"
                             android:background="@drawable/aate_nav_icon_badge_bg"
                             android:minWidth="30dp"
@@ -978,7 +978,7 @@
                         android:clickable="true"
                         android:focusable="true">
                         <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
-                            android:text="◆" android:textSize="16sp"
+                            android:text="AI" android:textSize="16sp"
                             android:gravity="center"
                             android:background="@drawable/aate_nav_icon_badge_bg"
                             android:minWidth="30dp"
@@ -1007,7 +1007,7 @@
                         android:clickable="true"
                         android:focusable="true">
                         <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
-                            android:text="⌬" android:textSize="16sp"
+                            android:text="FX" android:textSize="16sp"
                             android:gravity="center"
                             android:background="@drawable/aate_nav_icon_badge_bg"
                             android:minWidth="30dp"
@@ -1035,7 +1035,7 @@
                         android:clickable="true"
                         android:focusable="true">
                         <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
-                            android:text="≋" android:textSize="16sp"
+                            android:text="LN" android:textSize="16sp"
                             android:gravity="center"
                             android:background="@drawable/aate_nav_icon_badge_bg"
                             android:minWidth="30dp"
@@ -1075,7 +1075,7 @@
                     android:id="@+id/tvTradersSummary"
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
-                    android:text="🧠 All Traders: 0 trades · --% WR · 0.0000 SOL"
+                    android:text="ALL TRADERS · 0 TRADES · --% WR · 0.0000 SOL"
                     android:textColor="#9CA3AF"
                     android:textSize="10sp"
                     android:fontFamily="monospace"
@@ -1094,7 +1094,7 @@
                         android:layout_width="0dp"
                         android:layout_height="wrap_content"
                         android:layout_weight="1"
-                        android:text="💎 Meme"
+                        android:text="MEME"
                         android:gravity="center"
                         android:textColor="#EFFFF9"
                         android:background="@drawable/aate_tab_active_bg"
@@ -1111,7 +1111,7 @@
                         android:layout_width="0dp"
                         android:layout_height="wrap_content"
                         android:layout_weight="1"
-                        android:text="🪙 Crypto"
+                        android:text="CRYPTO"
                         android:gravity="center"
                         android:textColor="#9CA3AF"
                         android:background="@drawable/aate_tab_inactive_bg"
@@ -1127,7 +1127,7 @@
                         android:layout_width="0dp"
                         android:layout_height="wrap_content"
                         android:layout_weight="1"
-                        android:text="📈 Markets"
+                        android:text="MARKETS"
                         android:gravity="center"
                         android:textColor="#9CA3AF"
                         android:background="@drawable/aate_tab_inactive_bg"
@@ -1202,7 +1202,7 @@
                     android:id="@+id/tvLadderPill"
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
-                    android:text="🔓 TIER 0 · wide open"
+                    android:text="TIER 0 · OPEN"
                     android:textColor="#9CA3AF"
                     android:textSize="10sp"
                     android:fontFamily="monospace"
@@ -1218,7 +1218,7 @@
                     android:id="@+id/tvGuardsStrip"
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
-                    android:text="🛡 Guards: idle"
+                    android:text="GUARDS · IDLE"
                     android:textColor="#6B7280"
                     android:textSize="10sp"
                     android:fontFamily="monospace"
@@ -1237,7 +1237,7 @@
                     android:id="@+id/tvWrHeatmap"
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
-                    android:text="🌡 WR slices: ▰▰▰▰▰"
+                    android:text="WR SLICES · ▰ ▰ ▰ ▰ ▰"
                     android:textColor="#94A3B8"
                     android:textSize="11sp"
                     android:fontFamily="monospace"
@@ -1253,7 +1253,7 @@
                     android:id="@+id/tvStrategyLeaderboard"
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
-                    android:text="🏆 Strategy Leaderboard: —"
+                    android:text="STRATEGY LEADERBOARD · —"
                     android:textColor="#A78BFA"
                     android:textSize="10sp"
                     android:fontFamily="monospace"
@@ -1480,7 +1480,7 @@
                         android:id="@+id/btn30DayExport"
                         android:layout_width="wrap_content"
                         android:layout_height="wrap_content"
-                        android:text="📥 Export"
+                        android:text="EXPORT"
                         android:textColor="#F59E0B"
                         android:textSize="9sp"
                         android:fontFamily="monospace"
@@ -1737,7 +1737,7 @@
                     android:clickable="true"
                     android:focusable="true">
                     <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
-                        android:text="🎯" android:textSize="18sp"/>
+                        android:text="TARGET" android:textSize="18sp"/>
                     <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
                         android:text="V3" android:textColor="#9945FF" android:textSize="8sp"
                         android:layout_marginTop="1dp"/>
@@ -1761,7 +1761,7 @@
                     android:clickable="true"
                     android:focusable="true">
                     <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
-                        android:text="💰" android:textSize="18sp"/>
+                        android:text="TREASURY" android:textSize="18sp"/>
                     <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
                         android:text="Treasury" android:textColor="#22C55E" android:textSize="8sp"
                         android:layout_marginTop="1dp"/>
@@ -1785,7 +1785,7 @@
                     android:clickable="true"
                     android:focusable="true">
                     <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
-                        android:text="🔵" android:textSize="18sp"/>
+                        android:text="BLUECHIP" android:textSize="18sp"/>
                     <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
                         android:text="Blue" android:textColor="#3B82F6" android:textSize="8sp"
                         android:layout_marginTop="1dp"/>
@@ -1809,7 +1809,7 @@
                     android:clickable="true"
                     android:focusable="true">
                     <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
-                        android:text="💩" android:textSize="18sp"/>
+                        android:text="HIGH-RISK" android:textSize="18sp"/>
                     <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
                         android:text="Shit" android:textColor="#F97316" android:textSize="8sp"
                         android:layout_marginTop="1dp"/>
@@ -1833,7 +1833,7 @@
                     android:clickable="true"
                     android:focusable="true">
                     <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
-                        android:text="⚡" android:textSize="18sp"/>
+                        android:text="SIGNAL" android:textSize="18sp"/>
                     <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
                         android:text="Express" android:textColor="#EAB308" android:textSize="8sp"
                         android:layout_marginTop="1dp"/>
@@ -1857,7 +1857,7 @@
                     android:clickable="true"
                     android:focusable="true">
                     <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
-                        android:text="☠️" android:textSize="18sp"/>
+                        android:text="MANIP" android:textSize="18sp"/>
                     <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
                         android:text="Manip" android:textColor="#B91C1C" android:textSize="8sp"
                         android:layout_marginTop="1dp"/>
@@ -1881,7 +1881,7 @@
                     android:clickable="true"
                     android:focusable="true">
                     <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
-                        android:text="🚀" android:textSize="18sp"/>
+                        android:text="LAUNCH" android:textSize="18sp"/>
                     <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
                         android:text="Moon" android:textColor="#A855F7" android:textSize="8sp"
                         android:layout_marginTop="1dp"/>
@@ -1909,7 +1909,7 @@
                     android:focusable="true"
                     android:visibility="gone">
                     <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
-                        android:text="📊" android:textSize="18sp"/>
+                        android:text="ANALYTICS" android:textSize="18sp"/>
                     <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
                         android:text="Markets" android:textColor="#FF6B6B" android:textSize="8sp"
                         android:layout_marginTop="1dp"/>
@@ -1933,7 +1933,7 @@
                     android:focusable="true"
                     android:visibility="gone">
                     <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
-                        android:text="📈" android:textSize="18sp"/>
+                        android:text="MARKETS" android:textSize="18sp"/>
                     <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
                         android:text="Stocks" android:textColor="#4285F4" android:textSize="8sp"
                         android:layout_marginTop="1dp"/>
@@ -1971,7 +1971,7 @@
                     android:clickable="true"
                     android:focusable="true">
                     <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
-                        android:text="🧠" android:textSize="18sp"/>
+                        android:text="AI" android:textSize="18sp"/>
                     <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
                         android:text="HIVE MIND" android:textColor="#9945FF" android:textSize="9sp"
                         android:fontFamily="monospace" android:letterSpacing="0.06"
@@ -1997,7 +1997,7 @@
                     android:clickable="true"
                     android:focusable="true">
                     <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
-                        android:text="👁️" android:textSize="18sp"/>
+                        android:text="SHADOW" android:textSize="18sp"/>
                     <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
                         android:text="SHADOW" android:textColor="#6366F1" android:textSize="9sp"
                         android:fontFamily="monospace" android:letterSpacing="0.06"
@@ -2023,7 +2023,7 @@
                     android:clickable="true"
                     android:focusable="true">
                     <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
-                        android:text="📊" android:textSize="18sp"/>
+                        android:text="ANALYTICS" android:textSize="18sp"/>
                     <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
                         android:text="REGIMES" android:textColor="#10B981" android:textSize="9sp"
                         android:fontFamily="monospace" android:letterSpacing="0.06"
@@ -2048,7 +2048,7 @@
                     android:clickable="true"
                     android:focusable="true">
                     <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
-                        android:text="🤖" android:textSize="18sp"/>
+                        android:text="AGENT" android:textSize="18sp"/>
                     <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
                         android:text="LAYERS" android:textColor="#F59E0B" android:textSize="9sp"
                         android:fontFamily="monospace" android:letterSpacing="0.06"
@@ -2090,7 +2090,7 @@
                     <TextView
                         android:layout_width="wrap_content"
                         android:layout_height="wrap_content"
-                        android:text="📊 SOL Perps &amp; Leverage"
+                        android:text="SOL PERPS &amp; LEVERAGE"
                         android:textColor="#FF6B6B"
                         android:textSize="12sp"
                         android:textStyle="bold"/>
@@ -2138,7 +2138,7 @@
                         android:clickable="true"
                         android:focusable="true">
                         <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
-                            android:text="◎" android:textSize="18sp" android:textColor="#14F195"/>
+                            android:text="CRYPTO" android:textSize="18sp" android:textColor="#14F195"/>
                         <TextView android:id="@+id/tvPerpsSolPrice"
                             android:layout_width="wrap_content" android:layout_height="wrap_content"
                             android:text="$—" android:textColor="#FFFFFF" android:textSize="11sp"
@@ -2424,7 +2424,7 @@
                         <TextView
                             android:layout_width="wrap_content"
                             android:layout_height="wrap_content"
-                            android:text="🧠 Layer Confidence"
+                            android:text="AI Layer Confidence"
                             android:textColor="#A855F7"
                             android:textSize="11sp"
                             android:textStyle="bold"/>
@@ -2613,7 +2613,7 @@
                         <TextView
                             android:layout_width="wrap_content"
                             android:layout_height="wrap_content"
-                            android:text=" • "
+                            android:text="•"
                             android:textColor="#4B5563"
                             android:textSize="9sp"/>
                         
@@ -2645,7 +2645,7 @@
                             <TextView
                                 android:layout_width="wrap_content"
                                 android:layout_height="wrap_content"
-                                android:text="🔥 Heatmap"
+                                android:text="HEATMAP"
                                 android:textColor="#F97316"
                                 android:textSize="10sp"
                                 android:textStyle="bold"/>
@@ -2682,7 +2682,7 @@
                                 <TextView
                                     android:layout_width="wrap_content"
                                     android:layout_height="wrap_content"
-                                    android:text="◎"
+                                    android:text="CRYPTO"
                                     android:textColor="#14F195"
                                     android:textSize="10sp"/>
                                 <LinearLayout
@@ -2815,7 +2815,7 @@
                             android:id="@+id/tvHeatmapRecommendation"
                             android:layout_width="match_parent"
                             android:layout_height="wrap_content"
-                            android:text="L|S • 🟢Hot 🔴Cold"
+                            android:text="L|S • Hot Cold"
                             android:textColor="#6B7280"
                             android:textSize="8sp"
                             android:layout_marginTop="4dp"
@@ -2841,7 +2841,7 @@
                             <TextView
                                 android:layout_width="wrap_content"
                                 android:layout_height="wrap_content"
-                                android:text="🧠 Learning Insights"
+                                android:text="LEARNING INSIGHTS"
                                 android:textColor="#8B5CF6"
                                 android:textSize="10sp"
                                 android:textStyle="bold"/>
@@ -2987,7 +2987,7 @@
                     <TextView
                         android:layout_width="wrap_content"
                         android:layout_height="wrap_content"
-                        android:text="📈 Tokenized Stocks"
+                        android:text="TOKENIZED STOCKS"
                         android:textColor="#4285F4"
                         android:textSize="13sp"
                         android:textStyle="bold"/>
@@ -3031,7 +3031,7 @@
                         android:clickable="true"
                         android:focusable="true">
                         <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
-                            android:text="🍎 AAPL" android:textSize="9sp" android:textColor="#A2AAAD"
+                            android:text="AAPL" android:textSize="9sp" android:textColor="#A2AAAD"
                             android:textStyle="bold"/>
                         <TextView android:id="@+id/tvStocksAaplPrice"
                             android:layout_width="wrap_content" android:layout_height="wrap_content"
@@ -3056,7 +3056,7 @@
                         android:clickable="true"
                         android:focusable="true">
                         <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
-                            android:text="🚗 TSLA" android:textSize="9sp" android:textColor="#E31937"
+                            android:text="TSLA" android:textSize="9sp" android:textColor="#E31937"
                             android:textStyle="bold"/>
                         <TextView android:id="@+id/tvStocksTslaPrice"
                             android:layout_width="wrap_content" android:layout_height="wrap_content"
@@ -3081,7 +3081,7 @@
                         android:clickable="true"
                         android:focusable="true">
                         <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
-                            android:text="🖥️ NVDA" android:textSize="9sp" android:textColor="#76B900"
+                            android:text="NVDA" android:textSize="9sp" android:textColor="#76B900"
                             android:textStyle="bold"/>
                         <TextView android:id="@+id/tvStocksNvdaPrice"
                             android:layout_width="wrap_content" android:layout_height="wrap_content"
@@ -3105,7 +3105,7 @@
                         android:clickable="true"
                         android:focusable="true">
                         <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
-                            android:text="🔍 GOOG" android:textSize="9sp" android:textColor="#4285F4"
+                            android:text="GOOG" android:textSize="9sp" android:textColor="#4285F4"
                             android:textStyle="bold"/>
                         <TextView android:id="@+id/tvStocksGooglPrice"
                             android:layout_width="wrap_content" android:layout_height="wrap_content"
@@ -3138,7 +3138,7 @@
                         android:clickable="true"
                         android:focusable="true">
                         <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
-                            android:text="📦 AMZN" android:textSize="9sp" android:textColor="#FF9900"
+                            android:text="AMZN" android:textSize="9sp" android:textColor="#FF9900"
                             android:textStyle="bold"/>
                         <TextView android:id="@+id/tvStocksAmznPrice"
                             android:layout_width="wrap_content" android:layout_height="wrap_content"
@@ -3160,7 +3160,7 @@
                         android:clickable="true"
                         android:focusable="true">
                         <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
-                            android:text="👤 META" android:textSize="9sp" android:textColor="#0081FB"
+                            android:text="META" android:textSize="9sp" android:textColor="#0081FB"
                             android:textStyle="bold"/>
                         <TextView android:id="@+id/tvStocksMetaPrice"
                             android:layout_width="wrap_content" android:layout_height="wrap_content"
@@ -3182,7 +3182,7 @@
                         android:clickable="true"
                         android:focusable="true">
                         <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
-                            android:text="🪟 MSFT" android:textSize="9sp" android:textColor="#00A4EF"
+                            android:text="MSFT" android:textSize="9sp" android:textColor="#00A4EF"
                             android:textStyle="bold"/>
                         <TextView android:id="@+id/tvStocksMsftPrice"
                             android:layout_width="wrap_content" android:layout_height="wrap_content"
@@ -3203,7 +3203,7 @@
                         android:clickable="true"
                         android:focusable="true">
                         <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
-                            android:text="🪙 COIN" android:textSize="9sp" android:textColor="#0052FF"
+                            android:text="COIN" android:textSize="9sp" android:textColor="#0052FF"
                             android:textStyle="bold"/>
                         <TextView android:id="@+id/tvStocksCoinPrice"
                             android:layout_width="wrap_content" android:layout_height="wrap_content"
@@ -3239,7 +3239,7 @@
                         <TextView
                             android:layout_width="wrap_content"
                             android:layout_height="wrap_content"
-                            android:text="Balance ◎"
+                            android:text="CRYPTO BALANCE"
                             android:textColor="#6B7280"
                             android:textSize="8sp"/>
                     </LinearLayout>
@@ -3330,7 +3330,7 @@
                     android:id="@+id/tvStocksMarketHours"
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
-                    android:text="📅 Market Hours: Mon-Fri 9:30 AM - 4:00 PM ET"
+                    android:text="SCHEDULE Market Hours: Mon-Fri 9:30 AM - 4:00 PM ET"
                     android:textColor="#6B7280"
                     android:textSize="8sp"
                     android:layout_marginTop="6dp"
@@ -3365,7 +3365,7 @@
                     <TextView
                         android:layout_width="wrap_content"
                         android:layout_height="wrap_content"
-                        android:text="🪙 Crypto Alts"
+                        android:text="CRYPTO ALTS"
                         android:textColor="#A78BFA"
                         android:textSize="13sp"
                         android:textStyle="bold"/>
@@ -3815,7 +3815,7 @@
                         android:textSize="@dimen/section_title_size" android:textStyle="bold"/>
                     <TextView android:id="@+id/tvChartPrice"
                         android:layout_width="wrap_content" android:layout_height="wrap_content"
-                        android:text="" android:textColor="#10B981"
+                        android:text="•" android:textColor="#10B981"
                         android:textSize="14sp" android:fontFamily="monospace"
                         android:layout_marginEnd="8dp"/>
                     <TextView android:id="@+id/tvSafetyChip"
@@ -4123,7 +4123,7 @@
                         android:layout_width="0dp"
                         android:layout_height="wrap_content"
                         android:layout_weight="1"
-                        android:text="📜 Decision Log"
+                        android:text="LOG Decision Log"
                         android:textColor="#FFFFFF"
                         android:textSize="@dimen/section_title_size"
                         android:textStyle="bold"/>
@@ -4273,7 +4273,7 @@
                             android:layout_width="0dp"
                             android:layout_height="wrap_content"
                             android:layout_weight="1"
-                            android:text="ENTRY  —"
+                            android:text="ENTRY —"
                             android:textColor="#9945FF"
                             android:textSize="11sp"
                             android:fontFamily="monospace"/>
@@ -4283,7 +4283,7 @@
                             android:layout_width="0dp"
                             android:layout_height="wrap_content"
                             android:layout_weight="1"
-                            android:text="EXIT  —"
+                            android:text="EXIT —"
                             android:textColor="#EF4444"
                             android:textSize="11sp"
                             android:fontFamily="monospace"/>
@@ -4300,7 +4300,7 @@
                             android:layout_width="0dp"
                             android:layout_height="wrap_content"
                             android:layout_weight="1"
-                            android:text="VOL  —"
+                            android:text="VOL —"
                             android:textColor="#3B82F6"
                             android:textSize="11sp"
                             android:fontFamily="monospace"/>
@@ -4310,7 +4310,7 @@
                             android:layout_width="0dp"
                             android:layout_height="wrap_content"
                             android:layout_weight="1"
-                            android:text="BUY%  —"
+                            android:text="BUY% —"
                             android:textColor="#10B981"
                             android:textSize="11sp"
                             android:fontFamily="monospace"/>
@@ -4327,7 +4327,7 @@
                             android:layout_width="0dp"
                             android:layout_height="wrap_content"
                             android:layout_weight="1"
-                            android:text="MOM  —"
+                            android:text="MOM —"
                             android:textColor="#F59E0B"
                             android:textSize="11sp"
                             android:fontFamily="monospace"/>
@@ -4337,7 +4337,7 @@
                             android:layout_width="0dp"
                             android:layout_height="wrap_content"
                             android:layout_weight="1"
-                            android:text="EMA FAN  —"
+                            android:text="EMA FAN —"
                             android:textColor="#6B7280"
                             android:textSize="11sp"
                             android:fontFamily="monospace"/>
@@ -4348,7 +4348,7 @@
                         android:id="@+id/tvLogFlags"
                         android:layout_width="match_parent"
                         android:layout_height="wrap_content"
-                        android:text=""
+                        android:text="•"
                         android:textColor="#F59E0B"
                         android:textSize="11sp"
                         android:fontFamily="monospace"
@@ -4359,7 +4359,7 @@
                         android:id="@+id/tvLogReason"
                         android:layout_width="match_parent"
                         android:layout_height="wrap_content"
-                        android:text=""
+                        android:text="•"
                         android:textColor="#6B7280"
                         android:textSize="11sp"
                         android:fontFamily="monospace"
@@ -4412,17 +4412,17 @@
                         android:textSize="@dimen/section_title_size" android:textStyle="bold"/>
                     <TextView android:id="@+id/tvOpenPositionsModeChip"
                         android:layout_width="wrap_content" android:layout_height="wrap_content"
-                        android:text="" android:textColor="#B58CFF"
+                        android:text="•" android:textColor="#B58CFF"
                         android:textSize="11sp" android:fontFamily="monospace"
                         android:paddingStart="6dp" android:paddingEnd="6dp"
                         android:layout_marginEnd="8dp"/>
                     <TextView android:id="@+id/tvTotalExposure"
                         android:layout_width="wrap_content" android:layout_height="wrap_content"
-                        android:text="" android:textColor="#6B7280"
+                        android:text="•" android:textColor="#6B7280"
                         android:textSize="12sp" android:fontFamily="monospace"/>
                     <TextView android:id="@+id/tvTotalUnrealisedPnl"
                         android:layout_width="wrap_content" android:layout_height="wrap_content"
-                        android:text="" android:textColor="#10B981"
+                        android:text="•" android:textColor="#10B981"
                         android:textSize="12sp" android:fontFamily="monospace"
                         android:layout_marginStart="8dp"/>
                 </LinearLayout>
@@ -4452,7 +4452,7 @@
                     android:orientation="horizontal" android:gravity="center_vertical"
                     android:layout_marginBottom="10dp">
                     <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
-                        android:text="💰" android:textSize="18sp"
+                        android:text="TREASURY" android:textSize="18sp"
                         android:layout_marginEnd="8dp"/>
                     <TextView android:layout_width="0dp" android:layout_height="wrap_content"
                         android:layout_weight="1"
@@ -4460,11 +4460,11 @@
                         android:textSize="@dimen/section_title_size" android:textStyle="bold"/>
                     <TextView android:id="@+id/tvTreasuryExposure"
                         android:layout_width="wrap_content" android:layout_height="wrap_content"
-                        android:text="" android:textColor="#6B7280"
+                        android:text="•" android:textColor="#6B7280"
                         android:textSize="12sp" android:fontFamily="monospace"/>
                     <TextView android:id="@+id/tvTreasuryPnl"
                         android:layout_width="wrap_content" android:layout_height="wrap_content"
-                        android:text="" android:textColor="#10B981"
+                        android:text="•" android:textColor="#10B981"
                         android:textSize="12sp" android:fontFamily="monospace"
                         android:layout_marginStart="8dp"/>
                 </LinearLayout>
@@ -4500,7 +4500,7 @@
                         android:layout_width="0dp"
                         android:layout_height="wrap_content"
                         android:layout_weight="1"
-                        android:text="🏦 Treasury Tier"
+                        android:text="TREASURY Treasury Tier"
                         android:textColor="#FFD700"
                         android:textSize="@dimen/section_title_size"
                         android:textStyle="bold"/>
@@ -4596,7 +4596,7 @@
                     android:orientation="horizontal" android:gravity="center_vertical"
                     android:layout_marginBottom="10dp">
                     <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
-                        android:text="🔵" android:textSize="18sp"
+                        android:text="BLUECHIP" android:textSize="18sp"
                         android:layout_marginEnd="8dp"/>
                     <TextView android:layout_width="0dp" android:layout_height="wrap_content"
                         android:layout_weight="1"
@@ -4604,11 +4604,11 @@
                         android:textSize="@dimen/section_title_size" android:textStyle="bold"/>
                     <TextView android:id="@+id/tvBlueChipExposure"
                         android:layout_width="wrap_content" android:layout_height="wrap_content"
-                        android:text="" android:textColor="#6B7280"
+                        android:text="•" android:textColor="#6B7280"
                         android:textSize="12sp" android:fontFamily="monospace"/>
                     <TextView android:id="@+id/tvBlueChipPnl"
                         android:layout_width="wrap_content" android:layout_height="wrap_content"
-                        android:text="" android:textColor="#10B981"
+                        android:text="•" android:textColor="#10B981"
                         android:textSize="12sp" android:fontFamily="monospace"
                         android:layout_marginStart="8dp"/>
                 </LinearLayout>
@@ -4637,7 +4637,7 @@
                     android:orientation="horizontal" android:gravity="center_vertical"
                     android:layout_marginBottom="10dp">
                     <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
-                        android:text="⭐" android:textSize="18sp"
+                        android:text="STAR" android:textSize="18sp"
                         android:layout_marginEnd="8dp"/>
                     <TextView android:layout_width="0dp" android:layout_height="wrap_content"
                         android:layout_weight="1"
@@ -4645,11 +4645,11 @@
                         android:textSize="@dimen/section_title_size" android:textStyle="bold"/>
                     <TextView android:id="@+id/tvQualityExposure"
                         android:layout_width="wrap_content" android:layout_height="wrap_content"
-                        android:text="" android:textColor="#6B7280"
+                        android:text="•" android:textColor="#6B7280"
                         android:textSize="12sp" android:fontFamily="monospace"/>
                     <TextView android:id="@+id/tvQualityPnl"
                         android:layout_width="wrap_content" android:layout_height="wrap_content"
-                        android:text="" android:textColor="#10B981"
+                        android:text="•" android:textColor="#10B981"
                         android:textSize="12sp" android:fontFamily="monospace"
                         android:layout_marginStart="8dp"/>
                 </LinearLayout>
@@ -4679,7 +4679,7 @@
                     android:orientation="horizontal" android:gravity="center_vertical"
                     android:layout_marginBottom="10dp">
                     <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
-                        android:text="💩" android:textSize="18sp"
+                        android:text="HIGH-RISK" android:textSize="18sp"
                         android:layout_marginEnd="8dp"/>
                     <TextView android:layout_width="0dp" android:layout_height="wrap_content"
                         android:layout_weight="1"
@@ -4687,11 +4687,11 @@
                         android:textSize="@dimen/section_title_size" android:textStyle="bold"/>
                     <TextView android:id="@+id/tvShitCoinExposure"
                         android:layout_width="wrap_content" android:layout_height="wrap_content"
-                        android:text="" android:textColor="#6B7280"
+                        android:text="•" android:textColor="#6B7280"
                         android:textSize="12sp" android:fontFamily="monospace"/>
                     <TextView android:id="@+id/tvShitCoinPnl"
                         android:layout_width="wrap_content" android:layout_height="wrap_content"
-                        android:text="" android:textColor="#10B981"
+                        android:text="•" android:textColor="#10B981"
                         android:textSize="12sp" android:fontFamily="monospace"
                         android:layout_marginStart="8dp"/>
                 </LinearLayout>
@@ -4724,7 +4724,7 @@
             </LinearLayout>
 
             <!-- ═══════════════════════════════
-                 🎯 PROJECT SNIPER CARD (V5.6.29d)
+                 TARGET PROJECT SNIPER CARD (V5.6.29d)
                  Military-themed launch sniper
                  ═══════════════════════════════ -->
             <LinearLayout
@@ -4743,7 +4743,7 @@
                     android:orientation="horizontal" android:gravity="center_vertical"
                     android:layout_marginBottom="6dp">
                     <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
-                        android:text="🎯" android:textSize="14sp"
+                        android:text="TARGET" android:textSize="14sp"
                         android:layout_marginEnd="6dp"/>
                     <TextView android:layout_width="0dp" android:layout_height="wrap_content"
                         android:layout_weight="1"
@@ -4761,7 +4761,7 @@
                     android:layout_marginBottom="8dp">
                     <TextView android:id="@+id/tvSniperRank"
                         android:layout_width="wrap_content" android:layout_height="wrap_content"
-                        android:text="⭐0 🎖️0" android:textColor="#F59E0B"
+                        android:text="STAR0 MEDAL0" android:textColor="#F59E0B"
                         android:textSize="10sp" android:fontFamily="monospace"
                         android:background="#1F1F1F"
                         android:paddingHorizontal="6dp" android:paddingVertical="2dp"/>
@@ -4801,7 +4801,7 @@
                     android:orientation="horizontal" android:gravity="center_vertical"
                     android:layout_marginBottom="10dp">
                     <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
-                        android:text="⚡" android:textSize="18sp"
+                        android:text="SIGNAL" android:textSize="18sp"
                         android:layout_marginEnd="8dp"/>
                     <TextView android:layout_width="0dp" android:layout_height="wrap_content"
                         android:layout_weight="1"
@@ -4809,11 +4809,11 @@
                         android:textSize="@dimen/section_title_size" android:textStyle="bold"/>
                     <TextView android:id="@+id/tvExpressExposure"
                         android:layout_width="wrap_content" android:layout_height="wrap_content"
-                        android:text="" android:textColor="#6B7280"
+                        android:text="•" android:textColor="#6B7280"
                         android:textSize="12sp" android:fontFamily="monospace"/>
                     <TextView android:id="@+id/tvExpressPnl"
                         android:layout_width="wrap_content" android:layout_height="wrap_content"
-                        android:text="" android:textColor="#10B981"
+                        android:text="•" android:textColor="#10B981"
                         android:textSize="12sp" android:fontFamily="monospace"
                         android:layout_marginStart="8dp"/>
                 </LinearLayout>
@@ -4857,7 +4857,7 @@
                     android:orientation="horizontal" android:gravity="center_vertical"
                     android:layout_marginBottom="10dp">
                     <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
-                        android:text="☠️" android:textSize="18sp"
+                        android:text="MANIP" android:textSize="18sp"
                         android:layout_marginEnd="8dp"/>
                     <TextView android:layout_width="0dp" android:layout_height="wrap_content"
                         android:layout_weight="1"
@@ -4865,11 +4865,11 @@
                         android:textSize="@dimen/section_title_size" android:textStyle="bold"/>
                     <TextView android:id="@+id/tvManipExposure"
                         android:layout_width="wrap_content" android:layout_height="wrap_content"
-                        android:text="" android:textColor="#6B7280"
+                        android:text="•" android:textColor="#6B7280"
                         android:textSize="12sp" android:fontFamily="monospace"/>
                     <TextView android:id="@+id/tvManipPnl"
                         android:layout_width="wrap_content" android:layout_height="wrap_content"
-                        android:text="" android:textColor="#10B981"
+                        android:text="•" android:textColor="#10B981"
                         android:textSize="12sp" android:fontFamily="monospace"
                         android:layout_marginStart="8dp"/>
                 </LinearLayout>
@@ -4932,7 +4932,7 @@
                             android:textSize="12sp" android:textStyle="bold"/>
                         <TextView android:id="@+id/tvTreasuryMiniPnl"
                             android:layout_width="wrap_content" android:layout_height="wrap_content"
-                            android:text="" android:textColor="#10B981"
+                            android:text="•" android:textColor="#10B981"
                             android:textSize="10sp" android:fontFamily="monospace"
                             android:layout_marginStart="6dp"/>
                     </LinearLayout>
@@ -4960,7 +4960,7 @@
                             android:textSize="12sp" android:textStyle="bold"/>
                         <TextView android:id="@+id/tvMoonshotMiniPnl"
                             android:layout_width="wrap_content" android:layout_height="wrap_content"
-                            android:text="" android:textColor="#A855F7"
+                            android:text="•" android:textColor="#A855F7"
                             android:textSize="10sp" android:fontFamily="monospace"
                             android:layout_marginStart="6dp"/>
                     </LinearLayout>
@@ -4990,7 +4990,7 @@
                     android:orientation="horizontal" android:gravity="center_vertical"
                     android:layout_marginBottom="10dp">
                     <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
-                        android:text="🌙" android:textSize="18sp"
+                        android:text="MOON" android:textSize="18sp"
                         android:layout_marginEnd="8dp"/>
                     <TextView android:layout_width="0dp" android:layout_height="wrap_content"
                         android:layout_weight="1"
@@ -4998,11 +4998,11 @@
                         android:textSize="@dimen/section_title_size" android:textStyle="bold"/>
                     <TextView android:id="@+id/tvMoonshotExposure"
                         android:layout_width="wrap_content" android:layout_height="wrap_content"
-                        android:text="" android:textColor="#6B7280"
+                        android:text="•" android:textColor="#6B7280"
                         android:textSize="12sp" android:fontFamily="monospace"/>
                     <TextView android:id="@+id/tvMoonshotPnl"
                         android:layout_width="wrap_content" android:layout_height="wrap_content"
-                        android:text="" android:textColor="#A855F7"
+                        android:text="•" android:textColor="#A855F7"
                         android:textSize="12sp" android:fontFamily="monospace"
                         android:layout_marginStart="8dp"/>
                 </LinearLayout>
@@ -5040,7 +5040,7 @@
             </LinearLayout>
 
             <!-- ═══════════════════════════════
-                 📡 NETWORK SIGNALS CARD (V5.6.29d)
+                 NETWORK NETWORK SIGNALS CARD (V5.6.29d)
                  Collective Intelligence - Hot tokens from other bots
                  ═══════════════════════════════ -->
             <LinearLayout
@@ -5059,7 +5059,7 @@
                     android:orientation="horizontal" android:gravity="center_vertical"
                     android:layout_marginBottom="10dp">
                     <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
-                        android:text="📡" android:textSize="18sp"
+                        android:text="RADAR" android:textSize="18sp"
                         android:layout_marginEnd="8dp"/>
                     <TextView android:layout_width="0dp" android:layout_height="wrap_content"
                         android:layout_weight="1"
@@ -5121,7 +5121,7 @@
                     android:orientation="horizontal" android:gravity="center_vertical"
                     android:layout_marginBottom="8dp">
                     <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
-                        android:text="🤖" android:textSize="14sp" android:layout_marginEnd="6dp"/>
+                        android:text="AGENT" android:textSize="14sp" android:layout_marginEnd="6dp"/>
                     <TextView android:layout_width="0dp" android:layout_height="wrap_content"
                         android:layout_weight="1"
                         android:text="NEURAL SYSTEM" android:textColor="#14F195"
@@ -5178,7 +5178,7 @@
                         android:background="@drawable/aate_universe_panel_bg" android:padding="10dp"
                         android:layout_marginEnd="4dp">
                         <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
-                            android:text="💰 TREASURY" android:textColor="#FFD700"
+                            android:text="TREASURY" android:textColor="#FFD700"
                             android:textSize="8sp" android:fontFamily="monospace" android:letterSpacing="0.1"/>
                         <TextView android:id="@+id/tvAiTreasury"
                             android:layout_width="match_parent" android:layout_height="wrap_content"
@@ -5193,7 +5193,7 @@
                         android:background="@drawable/aate_universe_panel_bg" android:padding="10dp"
                         android:layout_marginStart="4dp">
                         <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
-                            android:text="💩 SHITCOIN" android:textColor="#F97316"
+                            android:text="HIGH-RISK" android:textColor="#F97316"
                             android:textSize="8sp" android:fontFamily="monospace" android:letterSpacing="0.1"/>
                         <TextView android:id="@+id/tvAiShitCoin"
                             android:layout_width="match_parent" android:layout_height="wrap_content"
@@ -5261,16 +5261,16 @@
                         android:textSize="@dimen/section_title_size" android:textStyle="bold"/>
                     <TextView android:id="@+id/tvTradeCount"
                         android:layout_width="wrap_content" android:layout_height="wrap_content"
-                        android:text="" android:textColor="#6B7280" android:textSize="12sp"/>
+                        android:text="•" android:textColor="#6B7280" android:textSize="12sp"/>
                     <TextView android:id="@+id/btnOpenJournal"
                         android:layout_width="wrap_content" android:layout_height="wrap_content"
-                        android:text=" Journal"
+                        android:text="Journal"
                         android:textColor="#9945FF" android:textSize="12sp"
                         android:layout_marginStart="10dp"
                         android:clickable="true" android:focusable="true"/>
                     <TextView android:id="@+id/btnOpenAlerts"
                         android:layout_width="wrap_content" android:layout_height="wrap_content"
-                        android:text=" Alerts"
+                        android:text="Alerts"
                         android:textColor="#9945FF" android:textSize="12sp"
                         android:layout_marginStart="8dp"
                         android:clickable="true" android:focusable="true"/>
@@ -5288,7 +5288,7 @@
                         android:clickable="true" android:focusable="true"/>
                     <TextView android:id="@+id/btnHistoricalScan"
                         android:layout_width="wrap_content" android:layout_height="wrap_content"
-                        android:text="📊 Scan"
+                        android:text="SCAN"
                         android:textColor="#10B981" android:textSize="12sp"
                         android:layout_marginStart="8dp"
                         android:clickable="true" android:focusable="true"/>
@@ -5327,7 +5327,7 @@
                         android:layout_width="0dp"
                         android:layout_height="wrap_content"
                         android:layout_weight="1"
-                        android:text="🏦 Treasury"
+                        android:text="TREASURY"
                         android:textColor="#FFFFFF"
                         android:textSize="@dimen/section_title_size"
                         android:textStyle="bold"/>
@@ -5583,7 +5583,7 @@
                 android:visibility="gone">
 
                 <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
-                    android:text="⚙️ Settings" android:textColor="#FFFFFF"
+                    android:text="Settings" android:textColor="#FFFFFF"
                     android:textSize="@dimen/section_title_size" android:textStyle="bold"
                     android:layout_marginBottom="14dp"/>
 
@@ -5775,7 +5775,7 @@
 
                     <TextView android:id="@+id/tvTelegramHelp"
                         android:layout_width="wrap_content" android:layout_height="wrap_content"
-                        android:text="📱 TELEGRAM BOT — t.me/BotFather"
+                        android:text="TELEGRAM BOT — t.me/BotFather"
                         android:textColor="#14F195" android:textSize="10sp" android:fontFamily="monospace"
                         android:layout_marginBottom="2dp"/>
                     <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
@@ -5804,13 +5804,13 @@
                         android:paddingStart="@dimen/input_padding_h"
                         android:layout_marginBottom="4dp"/>
                     <TextView android:layout_width="match_parent" android:layout_height="wrap_content"
-                        android:text="💡 Get chat ID: api.telegram.org/bot&lt;TOKEN&gt;/getUpdates"
+                        android:text="TIP Get chat ID: api.telegram.org/bot&lt;TOKEN&gt;/getUpdates"
                         android:textColor="#4B5563" android:textSize="9sp" android:fontFamily="monospace"
                         android:layout_marginBottom="10dp"/>
 
                     <!-- API Keys section -->
                     <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
-                        android:text="🔑 FREE API KEYS" android:textColor="#9945FF"
+                        android:text="KEYS FREE API KEYS" android:textColor="#9945FF"
                         android:textSize="11sp" android:fontFamily="monospace"
                         android:letterSpacing="0.12" android:layout_marginBottom="4dp"
                         android:layout_marginTop="6dp"/>
@@ -5822,7 +5822,7 @@
 
                     <TextView android:id="@+id/tvHeliusHelp"
                         android:layout_width="wrap_content" android:layout_height="wrap_content"
-                        android:text="⚡ HELIUS KEY — helius.dev/signup"
+                        android:text="SIGNAL HELIUS KEY — helius.dev/signup"
                         android:textColor="#14F195" android:textSize="10sp" android:fontFamily="monospace"
                         android:layout_marginBottom="2dp"/>
                     <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
@@ -5840,7 +5840,7 @@
 
                     <TextView android:id="@+id/tvBirdeyeHelp"
                         android:layout_width="wrap_content" android:layout_height="wrap_content"
-                        android:text="📊 BIRDEYE KEY — birdeye.so"
+                        android:text="ANALYTICS BIRDEYE KEY — birdeye.so"
                         android:textColor="#14F195" android:textSize="10sp" android:fontFamily="monospace"
                         android:layout_marginBottom="2dp"/>
                     <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
@@ -5858,7 +5858,7 @@
 
                     <TextView android:id="@+id/tvGroqHelp"
                         android:layout_width="wrap_content" android:layout_height="wrap_content"
-                        android:text="🧠 GROQ KEY — console.groq.com"
+                        android:text="GROQ KEY — console.groq.com"
                         android:textColor="#14F195" android:textSize="10sp" android:fontFamily="monospace"
                         android:layout_marginBottom="2dp"/>
                     <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
@@ -5876,7 +5876,7 @@
 
                     <TextView android:id="@+id/tvGeminiHelp"
                         android:layout_width="wrap_content" android:layout_height="wrap_content"
-                        android:text="✨ GEMINI KEY — aistudio.google.com"
+                        android:text="GEMINI KEY — aistudio.google.com"
                         android:textColor="#6B7280" android:textSize="10sp"
                         android:fontFamily="monospace" android:layout_marginBottom="4dp"/>
                     <EditText android:id="@+id/etGeminiKey"
@@ -5890,7 +5890,7 @@
 
                     <TextView android:id="@+id/tvJupiterHelp"
                         android:layout_width="wrap_content" android:layout_height="wrap_content"
-                        android:text="🪐 JUPITER KEY — portal.jup.ag"
+                        android:text="JUPITER JUPITER KEY — portal.jup.ag"
                         android:textColor="#6B7280" android:textSize="10sp"
                         android:fontFamily="monospace" android:layout_marginBottom="4dp"/>
                     <EditText android:id="@+id/etJupiterKey"
@@ -5917,7 +5917,7 @@
 
                     <!-- Notifications & Sounds Toggle Section -->
                     <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
-                        android:text="🔔 ALERTS &amp; SOUNDS" android:textColor="#9945FF"
+                        android:text="ALERTS ALERTS &amp; SOUNDS" android:textColor="#9945FF"
                         android:textSize="11sp" android:fontFamily="monospace"
                         android:letterSpacing="0.12" android:layout_marginBottom="10dp"/>
 
@@ -6033,7 +6033,7 @@
                     android:layout_width="match_parent"
                     android:layout_height="@dimen/input_height"
                     android:layout_marginTop="8dp"
-                    android:text="💾  Save Settings"
+                    android:text="SAVE SETTINGS"
                     android:textColor="#FFFFFF" android:textStyle="bold"
                     android:textSize="@dimen/input_text_size"
                     android:backgroundTint="#1F2937"/>
@@ -6051,7 +6051,7 @@
                         android:layout_weight="1"
                         android:layout_height="@dimen/input_height"
                         android:layout_marginEnd="4dp"
-                        android:text="📦 Export"
+                        android:text="EXPORT"
                         android:textColor="#14F195" android:textStyle="bold"
                         android:textSize="@dimen/input_text_size"
                         android:backgroundTint="#1F2937"/>
@@ -6062,7 +6062,7 @@
                         android:layout_weight="1"
                         android:layout_height="@dimen/input_height"
                         android:layout_marginStart="4dp"
-                        android:text="📥 Import"
+                        android:text="IMPORT"
                         android:textColor="#3B82F6" android:textStyle="bold"
                         android:textSize="@dimen/input_text_size"
                         android:backgroundTint="#1F2937"/>
@@ -6082,7 +6082,7 @@
                     android:layout_width="match_parent"
                     android:layout_height="@dimen/input_height"
                     android:layout_marginTop="8dp"
-                    android:text="🗑️  Clear All API Keys"
+                    android:text="CLEAR API KEYS"
                     android:textColor="#EF4444" android:textStyle="bold"
                     android:textSize="@dimen/input_text_size"
                     android:backgroundTint="#1F2937"/>
@@ -6092,7 +6092,7 @@
                     android:layout_width="match_parent"
                     android:layout_height="@dimen/input_height"
                     android:layout_marginTop="8dp"
-                    android:text="🔔  Test Toast Notifications"
+                    android:text="TEST NOTIFICATIONS"
                     android:textColor="#10B981" android:textStyle="bold"
                     android:textSize="@dimen/input_text_size"
                     android:backgroundTint="#1F2937"/>
@@ -6120,7 +6120,7 @@
                     android:layout_marginBottom="12dp">
                     <TextView android:layout_width="0dp" android:layout_height="wrap_content"
                         android:layout_weight="1"
-                        android:text="🔺  Top-Up Strategy"
+                        android:text="TOP-UP STRATEGY"
                         android:textColor="#FFFFFF"
                         android:textSize="@dimen/section_title_size"
                         android:textStyle="bold"/>
@@ -6214,7 +6214,7 @@
                 android:layout_width="match_parent"
                 android:layout_height="48dp"
                 android:gravity="center"
-                android:text="📊  Open Backtest"
+                android:text="OPEN BACKTEST"
                 android:textColor="#9945FF"
                 android:textSize="14sp"
                 android:fontFamily="monospace"
@@ -6240,7 +6240,7 @@
                     android:layout_height="wrap_content" android:orientation="horizontal"
                     android:gravity="center_vertical" android:layout_marginBottom="8dp">
                     <TextView android:layout_width="0dp" android:layout_height="wrap_content"
-                        android:layout_weight="1" android:text="🌐  Full Solana Scanner"
+                        android:layout_weight="1" android:text="FULL SOLANA SCANNER"
                         android:textColor="#FFFFFF" android:textSize="@dimen/section_title_size"
                         android:textStyle="bold"/>
                     <Switch android:id="@+id/switchFullScan"

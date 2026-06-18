@@ -68,7 +68,7 @@
         android:id="@+id/tvSecurityError"
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
-        android:text=""
+        android:text="•"
         android:textColor="#EF4444"
         android:textSize="12sp"
         android:fontFamily="monospace"
@@ -147,7 +147,7 @@
         <TextView
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
-            android:text="⚠ IMPORTANT"
+            android:text="IMPORTANT"
             android:textColor="#F59E0B"
             android:textSize="10sp"
             android:textStyle="bold"

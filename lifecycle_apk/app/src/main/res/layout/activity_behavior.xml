@@ -46,7 +46,7 @@
             <TextView
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
-                android:text="Instinct  ·  Plasticity  ·  Layer Health"
+                android:text="Instinct · Plasticity · Layer Health"
                 android:textColor="#6B7280"
                 android:textSize="9sp"
                 android:fontFamily="monospace"/>
@@ -527,7 +527,7 @@
                         android:id="@+id/tvDormantWarning"
                         android:layout_width="match_parent"
                         android:layout_height="wrap_content"
-                        android:text=""
+                        android:text="•"
                         android:textColor="#FF8800"
                         android:textSize="9sp"
                         android:fontFamily="monospace"
@@ -554,7 +554,7 @@
                         android:layout_width="0dp"
                         android:layout_height="wrap_content"
                         android:layout_weight="1"
-                        android:text="🧠 SENTIENT MIND"
+                        android:text="SENTIENT MIND"
                         android:textColor="#9945FF"
                         android:textSize="14sp"
                         android:textStyle="bold"
@@ -563,7 +563,7 @@
                         android:id="@+id/tvSentientMood"
                         android:layout_width="wrap_content"
                         android:layout_height="wrap_content"
-                        android:text="🧠"
+                        android:text="AI"
                         android:textSize="18sp"/>
                 </LinearLayout>
 
@@ -663,7 +663,7 @@
                         android:id="@+id/btnChatMute"
                         android:layout_width="wrap_content"
                         android:layout_height="wrap_content"
-                        android:text="🔇"
+                        android:text="MUTE"
                         android:textSize="14sp"
                         android:textColor="#E5E7EB"
                         android:fontFamily="monospace"
@@ -681,7 +681,7 @@
                     android:id="@+id/tvLlmScoreSummary"
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
-                    android:text="🧠 LLM DESK · no chat trades yet"
+                    android:text="LLM DESK · no chat trades yet"
                     android:textColor="#9945FF"
                     android:textSize="10sp"
                     android:fontFamily="monospace"
@@ -695,7 +695,7 @@
                     android:id="@+id/tvLlmScoreDetail"
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
-                    android:text=""
+                    android:text="•"
                     android:textColor="#B8A5D6"
                     android:textSize="9sp"
                     android:fontFamily="monospace"
@@ -782,7 +782,7 @@
                 android:id="@+id/btnLayerAmnesty"
                 android:layout_width="match_parent"
                 android:layout_height="@dimen/bottom_bar_button_height"
-                android:text="🕊  LAYER AMNESTY (UN-POISON BRAIN)"
+                android:text="LAYER AMNESTY"
                 android:textColor="#9945FF"
                 android:textSize="12sp"
                 android:fontFamily="monospace"
@@ -790,7 +790,7 @@
                 android:layout_marginTop="8dp"/>
 
             <!-- ═══════════════════════════════════════════════
-                 V5.9.32: 🌊 FLUID CONTROL DASHBOARD
+                 V5.9.32: FLUID FLUID CONTROL DASHBOARD
                  Live view of every adaptive threshold the bot is
                  currently applying. Reads FluidLearningAI and the
                  per-strategy getFluid* helpers so you can WATCH the
@@ -813,7 +813,7 @@
                         android:layout_width="0dp"
                         android:layout_height="wrap_content"
                         android:layout_weight="1"
-                        android:text="🌊 FLUID DASHBOARD"
+                        android:text="FLUID FLUID DASHBOARD"
                         android:textColor="#14F195"
                         android:textSize="14sp"
                         android:fontFamily="monospace"
@@ -822,7 +822,7 @@
                         android:id="@+id/tvFluidProgress"
                         android:layout_width="wrap_content"
                         android:layout_height="wrap_content"
-                        android:text=""
+                        android:text="•"
                         android:textColor="#9CA3AF"
                         android:textSize="11sp"
                         android:fontFamily="monospace"/>
@@ -849,7 +849,7 @@
                     android:id="@+id/tvFluidFooter"
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
-                    android:text=""
+                    android:text="•"
                     android:textColor="#4B5563"
                     android:textSize="9sp"
                     android:fontFamily="monospace"

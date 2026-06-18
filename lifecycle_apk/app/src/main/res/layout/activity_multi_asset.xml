@@ -59,7 +59,7 @@
                     <TextView
                         android:layout_width="wrap_content"
                         android:layout_height="wrap_content"
-                        android:text=" MARKETS"
+                        android:text="MARKETS"
                         android:textColor="#FFFFFF"
                         android:textSize="15sp"
                         android:textStyle="bold"
@@ -155,7 +155,7 @@
                     android:id="@+id/tvBalanceSecondary"
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
-                    android:text=""
+                    android:text="•"
                     android:textColor="#4B5563"
                     android:textSize="10sp"/>
             </LinearLayout>
@@ -307,7 +307,7 @@
                 android:id="@+id/tvMarketsReadinessBadge"
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
-                android:text="⚡ LEARNING"
+                android:text="LEARNING"
                 android:textColor="#F59E0B"
                 android:textSize="9sp"
                 android:textStyle="bold"
@@ -379,7 +379,7 @@
                     <TextView
                         android:layout_width="wrap_content"
                         android:layout_height="wrap_content"
-                        android:text=" trades"
+                        android:text="trades"
                         android:textColor="#4B5563"
                         android:textSize="8sp"/>
                 </LinearLayout>
@@ -504,7 +504,7 @@
                         <LinearLayout android:layout_width="wrap_content" android:layout_height="wrap_content"
                             android:orientation="horizontal" android:gravity="center_vertical">
                             <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
-                                android:text="AI " android:textColor="#4B5563" android:textSize="7.5sp"
+                                android:text="AI" android:textColor="#4B5563" android:textSize="7.5sp"
                                 android:fontFamily="monospace"/>
                             <View
                                 android:layout_width="6dp" android:layout_height="6dp"
@@ -531,7 +531,7 @@
                             android:id="@+id/tvCategoryIcon"
                             android:layout_width="wrap_content"
                             android:layout_height="wrap_content"
-                            android:text="📈"
+                            android:text="MARKETS"
                             android:textSize="18sp"
                             android:layout_marginEnd="8dp"/>
                         <LinearLayout
@@ -584,7 +584,7 @@
                                 android:id="@+id/btnLeverageMode"
                                 android:layout_width="wrap_content"
                                 android:layout_height="match_parent"
-                                android:text="⚡ LEV"
+                                android:text="SIGNAL LEV"
                                 android:textColor="#6B7280"
                                 android:textSize="9sp"
                                 android:textStyle="bold"
@@ -618,7 +618,7 @@
                             <TextView
                                 android:layout_width="wrap_content"
                                 android:layout_height="wrap_content"
-                                android:text="📂"
+                                android:text="PORTFOLIO"
                                 android:textSize="13sp"
                                 android:layout_marginEnd="6dp"/>
                             <TextView
@@ -696,7 +696,7 @@
                             <TextView
                                 android:layout_width="wrap_content"
                                 android:layout_height="wrap_content"
-                                android:text="🔥"
+                                android:text="HEAT"
                                 android:textSize="12sp"
                                 android:layout_marginEnd="6dp"/>
                             <TextView
@@ -742,7 +742,7 @@
                             <TextView
                                 android:layout_width="wrap_content"
                                 android:layout_height="wrap_content"
-                                android:text="🧠"
+                                android:text="AI"
                                 android:textSize="12sp"
                                 android:layout_marginEnd="6dp"/>
                             <TextView
@@ -803,7 +803,7 @@
                         <TextView
                             android:layout_width="wrap_content"
                             android:layout_height="wrap_content"
-                            android:text="🌡 SECTOR HEAT"
+                            android:text="SECTOR HEAT"
                             android:textColor="#FFFFFF"
                             android:textSize="10sp"
                             android:textStyle="bold"
@@ -892,7 +892,7 @@
                         <TextView
                             android:layout_width="wrap_content"
                             android:layout_height="wrap_content"
-                            android:text="⚡ RECENT SIGNALS"
+                            android:text="RECENT SIGNALS"
                             android:textColor="#FFFFFF"
                             android:textSize="10sp"
                             android:textStyle="bold"
@@ -932,7 +932,7 @@
                         <TextView
                             android:layout_width="wrap_content"
                             android:layout_height="wrap_content"
-                            android:text="📋 AVAILABLE ASSETS"
+                            android:text="AVAILABLE ASSETS"
                             android:textColor="#FFFFFF"
                             android:textSize="10sp"
                             android:textStyle="bold"
@@ -972,7 +972,7 @@
                         <TextView
                             android:layout_width="wrap_content"
                             android:layout_height="wrap_content"
-                            android:text="🔬 AI LAYER CONFIDENCE"
+                            android:text="AI LAYER CONFIDENCE"
                             android:textColor="#FFFFFF"
                             android:textSize="10sp"
                             android:textStyle="bold"
@@ -987,22 +987,22 @@
                             android:gravity="center_vertical">
 
                             <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
-                                android:text="RSI " android:textColor="#4B5563" android:textSize="8sp" android:fontFamily="monospace"/>
+                                android:text="RSI" android:textColor="#4B5563" android:textSize="8sp" android:fontFamily="monospace"/>
                             <TextView android:id="@+id/tvLayerRsi" android:layout_width="wrap_content" android:layout_height="wrap_content"
                                 android:text="--" android:textColor="#22C55E" android:textSize="9sp" android:textStyle="bold"/>
 
                             <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
-                                android:text="  MACD " android:textColor="#4B5563" android:textSize="8sp" android:fontFamily="monospace"/>
+                                android:text="MACD" android:textColor="#4B5563" android:textSize="8sp" android:fontFamily="monospace"/>
                             <TextView android:id="@+id/tvLayerMacd" android:layout_width="wrap_content" android:layout_height="wrap_content"
                                 android:text="--" android:textColor="#22C55E" android:textSize="9sp" android:textStyle="bold"/>
 
                             <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
-                                android:text="  VOL " android:textColor="#4B5563" android:textSize="8sp" android:fontFamily="monospace"/>
+                                android:text="VOL" android:textColor="#4B5563" android:textSize="8sp" android:fontFamily="monospace"/>
                             <TextView android:id="@+id/tvLayerVolume" android:layout_width="wrap_content" android:layout_height="wrap_content"
                                 android:text="--" android:textColor="#22C55E" android:textSize="9sp" android:textStyle="bold"/>
 
                             <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
-                                android:text="  S/R " android:textColor="#4B5563" android:textSize="8sp" android:fontFamily="monospace"/>
+                                android:text="S/R" android:textColor="#4B5563" android:textSize="8sp" android:fontFamily="monospace"/>
                             <TextView android:id="@+id/tvLayerSR" android:layout_width="wrap_content" android:layout_height="wrap_content"
                                 android:text="--" android:textColor="#22C55E" android:textSize="9sp" android:textStyle="bold"/>
                         </LinearLayout>
@@ -1015,17 +1015,17 @@
                             android:layout_marginTop="4dp">
 
                             <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
-                                android:text="MOM " android:textColor="#4B5563" android:textSize="8sp" android:fontFamily="monospace"/>
+                                android:text="MOM" android:textColor="#4B5563" android:textSize="8sp" android:fontFamily="monospace"/>
                             <TextView android:id="@+id/tvLayerMomentum" android:layout_width="wrap_content" android:layout_height="wrap_content"
                                 android:text="--" android:textColor="#22C55E" android:textSize="9sp" android:textStyle="bold"/>
 
                             <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
-                                android:text="  SEC " android:textColor="#4B5563" android:textSize="8sp" android:fontFamily="monospace"/>
+                                android:text="SEC" android:textColor="#4B5563" android:textSize="8sp" android:fontFamily="monospace"/>
                             <TextView android:id="@+id/tvLayerSector" android:layout_width="wrap_content" android:layout_height="wrap_content"
                                 android:text="--" android:textColor="#22C55E" android:textSize="9sp" android:textStyle="bold"/>
 
                             <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
-                                android:text="  COR " android:textColor="#4B5563" android:textSize="8sp" android:fontFamily="monospace"/>
+                                android:text="COR" android:textColor="#4B5563" android:textSize="8sp" android:fontFamily="monospace"/>
                             <TextView android:id="@+id/tvLayerCorrel" android:layout_width="wrap_content" android:layout_height="wrap_content"
                                 android:text="--" android:textColor="#22C55E" android:textSize="9sp" android:textStyle="bold"/>
 
@@ -1035,7 +1035,7 @@
                                 android:layout_height="wrap_content" android:text="0"
                                 android:textColor="#00FF88" android:textSize="9sp" android:textStyle="bold"/>
                             <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
-                                android:text=" 📚 " android:textSize="8sp"/>
+                                android:text="•" android:textSize="8sp"/>
                             <TextView android:id="@+id/tvMarketsCrossSync" android:layout_width="wrap_content"
                                 android:layout_height="wrap_content" android:text="OK"
                                 android:textColor="#00FF88" android:textSize="8sp" android:textStyle="bold"/>
@@ -1061,9 +1061,9 @@
                             android:background="@drawable/aate_universe_panel_bg" android:layout_marginEnd="3dp"
                             android:clickable="true" android:focusable="true">
                             <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
-                                android:text="📒" android:textSize="12sp"/>
+                                android:text="•" android:textSize="12sp"/>
                             <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
-                                android:text=" Log" android:textColor="#6B7280" android:textSize="9sp"
+                                android:text="Log" android:textColor="#6B7280" android:textSize="9sp"
                                 android:fontFamily="monospace"/>
                         </LinearLayout>
 
@@ -1073,9 +1073,9 @@
                             android:background="@drawable/aate_universe_panel_bg" android:layout_marginEnd="3dp"
                             android:clickable="true" android:focusable="true">
                             <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
-                                android:text="📋" android:textSize="12sp"/>
+                                android:text="•" android:textSize="12sp"/>
                             <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
-                                android:text=" Tax" android:textColor="#6B7280" android:textSize="9sp"
+                                android:text="Tax" android:textColor="#6B7280" android:textSize="9sp"
                                 android:fontFamily="monospace"/>
                         </LinearLayout>
 
@@ -1085,9 +1085,9 @@
                             android:background="@drawable/aate_universe_panel_bg" android:layout_marginEnd="3dp"
                             android:clickable="true" android:focusable="true">
                             <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
-                                android:text="📊" android:textSize="12sp"/>
+                                android:text="ANALYTICS" android:textSize="12sp"/>
                             <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
-                                android:text=" Stats" android:textColor="#6B7280" android:textSize="9sp"
+                                android:text="Stats" android:textColor="#6B7280" android:textSize="9sp"
                                 android:fontFamily="monospace"/>
                         </LinearLayout>
 
@@ -1097,9 +1097,9 @@
                             android:background="@drawable/aate_universe_panel_bg"
                             android:clickable="true" android:focusable="true">
                             <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
-                                android:text="📤" android:textSize="12sp"/>
+                                android:text="•" android:textSize="12sp"/>
                             <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
-                                android:text=" Export" android:textColor="#6B7280" android:textSize="9sp"
+                                android:text="Export" android:textColor="#6B7280" android:textSize="9sp"
                                 android:fontFamily="monospace"/>
                         </LinearLayout>
                     </LinearLayout>
