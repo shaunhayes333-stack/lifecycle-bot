@@ -1281,6 +1281,7 @@ class GoldenTapeRegressionTest {
         assertTrue(doctor.contains("BALANCE_UNKNOWN_REQUEUE_LOOP"))
         assertTrue(doctor.contains("CLOSE_LEASE_LEAK_AFTER_NO_SIGNATURE"))
         assertTrue(doctor.contains("waitingBalanceProof"))
+        assertTrue("Doctor noSig must be recent-window based, not permanently red from cumulative session history", doctor.contains("cumulativeNoSig") && doctor.contains("recentCutoffMs") && doctor.contains("recentEvents?.count"))
     }
 
 
@@ -1709,6 +1710,9 @@ class GoldenTapeRegressionTest {
         assertTrue(tracker.contains("fun markSellWaitingBalanceProof"))
         assertTrue(tracker.contains("SELL_WAITING_BALANCE_PROOF_TRACKER"))
         assertTrue(tracker.contains("no_signature_counter=false"))
+        assertTrue("Non-route sell waits must not auto-queue or emit noSig", executor.contains("isNonRouteSellWait") && executor.contains("SELL_RETRY_SUPPRESSED_NON_ROUTE_WAIT") && executor.contains("ACTIVE_SELL_SIG_IN_FLIGHT") && executor.contains("FAILURE_HISTORY_RECONCILER_WAIT"))
+        val retryBlock = executor.substring(executor.indexOf("if (result == SellResult.FAILED_RETRYABLE)"), executor.indexOf("if (result == SellResult.WAITING_BALANCE_PROOF)"))
+        assertTrue("PendingSellQueue/noSig must only run in the route-retry branch", retryBlock.contains("val nonRouteWait = isNonRouteSellWait(ts)") && retryBlock.indexOf("if (nonRouteWait)") < retryBlock.indexOf("else {") && retryBlock.indexOf("else {") < retryBlock.indexOf("PendingSellQueue.add") && retryBlock.indexOf("else {") < retryBlock.indexOf("SELL_NO_CURRENT_HELD_PROOF_NOT_RETRIED"))
     }
 
     @Test

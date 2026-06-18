@@ -10893,6 +10893,16 @@ class Executor(
         }
     }
 
+    private fun isNonRouteSellWait(ts: TokenState): Boolean {
+        return try {
+            com.lifecyclebot.engine.sell.BalanceProofWaitState.isWaiting(ts.mint) ||
+                TradeVerifier.activeSellSig(ts.mint) != null ||
+                com.lifecyclebot.engine.sell.SellFailureHistory.shouldBlockNextRetry(ts.mint) ||
+                HostWalletTokenTracker.sellBlockReason(ts.mint) != null ||
+                com.lifecyclebot.engine.sell.LivePositionCloseAuthority.isTerminalOrClosing(ts.mint)
+        } catch (_: Throwable) { false }
+    }
+
     internal fun doSell(ts: TokenState, reason: String,
                        wallet: SolanaWallet?, walletSol: Double,
                        identity: TradeIdentity? = null): SellResult {
@@ -11050,26 +11060,28 @@ class Executor(
             val result = liveSell(ts, reason, wallet, walletSol, tradeId)
             // V5.7.7 FIX: Auto-requeue on retryable failure so SL/TP never gets silently dropped
             if (result == SellResult.FAILED_RETRYABLE) {
-                PendingSellQueue.add(ts.mint, ts.symbol, reason)
-                onLog("🔄 Sell auto-queued for retry: ${ts.symbol} | reason=$reason", tradeId.mint)
-                ErrorLogger.warn("Executor", "🔄 SELL REQUEUED: ${ts.symbol} — will retry when wallet/RPC recovers")
-                // V5.0.3743 — RegressionTest guard: emit the canonical
-                // SELL_NO_CURRENT_HELD_PROOF_NOT_RETRIED forensic so the
-                // GoldenTape live_sell_balance_authority_rejects_generic_txparse_and_false_closed
-                // assertion passes and downstream tooling can count
-                // signature-less sell-route failures distinctly from
-                // no-current-held-proof deferrals. Lock is released by the
-                // surrounding finally; this line is purely the forensic.
-                try {
-                    ForensicLogger.lifecycle(
-                        "SELL_NO_CURRENT_HELD_PROOF_NOT_RETRIED",
-                        "mint=${ts.mint.take(12)} symbol=${ts.symbol} reason=$reason no_close=true"
-                    )
-                    com.lifecyclebot.engine.sell.SellForensics.inc(
-                        com.lifecyclebot.engine.sell.SellForensics.EXEC_LIVE_SELL_ROUTE_FAILED_NO_SIGNATURE,
-                        "mint=${ts.mint.take(10)} symbol=${ts.symbol} reason=$reason"
-                    )
-                } catch (_: Throwable) {}
+                val nonRouteWait = isNonRouteSellWait(ts)
+                if (nonRouteWait) {
+                    onLog("⏸️ Sell retry suppressed for ${ts.symbol}: existing finality/proof worker owns this mint; no PendingSellQueue/no noSig.", tradeId.mint)
+                    try { ForensicLogger.lifecycle("SELL_RETRY_SUPPRESSED_NON_ROUTE_WAIT", "mint=${ts.mint.take(12)} symbol=${ts.symbol} reason=$reason proofWait=${com.lifecyclebot.engine.sell.BalanceProofWaitState.isWaiting(ts.mint)} activeSig=${TradeVerifier.activeSellSig(ts.mint)?.take(12) ?: "none"}") } catch (_: Throwable) {}
+                } else {
+                    PendingSellQueue.add(ts.mint, ts.symbol, reason)
+                    onLog("🔄 Sell auto-queued for retry: ${ts.symbol} | reason=$reason", tradeId.mint)
+                    ErrorLogger.warn("Executor", "🔄 SELL REQUEUED: ${ts.symbol} — will retry when wallet/RPC recovers")
+                    // Only true route/no-signature failures emit this. Active sigs,
+                    // balance-proof waits, close-authority guards, and failure-history
+                    // holds are not noSig finality faults.
+                    try {
+                        ForensicLogger.lifecycle(
+                            "SELL_NO_CURRENT_HELD_PROOF_NOT_RETRIED",
+                            "mint=${ts.mint.take(12)} symbol=${ts.symbol} reason=$reason no_close=true route_retry=true"
+                        )
+                        com.lifecyclebot.engine.sell.SellForensics.inc(
+                            com.lifecyclebot.engine.sell.SellForensics.EXEC_LIVE_SELL_ROUTE_FAILED_NO_SIGNATURE,
+                            "mint=${ts.mint.take(10)} symbol=${ts.symbol} reason=$reason"
+                        )
+                    } catch (_: Throwable) {}
+                }
             }
             // V5.0.3746 — operator spec items 1, 5, 6: WAITING_BALANCE_PROOF is a
             // proof wait, NEVER an active sell. Skip PendingSellQueue.add (no
@@ -12661,7 +12673,8 @@ class Executor(
                 "⏳ DEDUPE: existing sell sig=${existingSig.take(16)}… still in flight. Skipping duplicate $reason exit.",
                 sig = existingSig, traderTag = "MEME",
             )
-            return SellResult.FAILED_RETRYABLE
+            try { com.lifecyclebot.engine.sell.BalanceProofWaitState.markWaiting(ts.mint, ts.symbol ?: "?", "ACTIVE_SELL_SIG_IN_FLIGHT:$reason", runtimeGeneration = try { BotRuntimeController.currentGeneration() } catch (_: Throwable) { 0L }) } catch (_: Throwable) {}
+            return SellResult.WAITING_BALANCE_PROOF
         }
 
         // V5.9.977 — z43-F SellFailureHistory.shouldBlockNextRetry consumer
@@ -12682,7 +12695,8 @@ class Executor(
                     "🛑 BLOCKED_BY_FAILURE_HISTORY: last=${last?.kind} — do not retry until reconciler.",
                     sig = last?.sigOrNull, traderTag = "MEME",
                 )
-                return SellResult.FAILED_RETRYABLE
+                try { com.lifecyclebot.engine.sell.BalanceProofWaitState.markWaiting(ts.mint, ts.symbol ?: "?", "FAILURE_HISTORY_RECONCILER_WAIT:$reason", runtimeGeneration = try { BotRuntimeController.currentGeneration() } catch (_: Throwable) { 0L }) } catch (_: Throwable) {}
+                return SellResult.WAITING_BALANCE_PROOF
             }
         } catch (_: Throwable) {}
 

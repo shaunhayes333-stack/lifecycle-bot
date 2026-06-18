@@ -104,7 +104,12 @@ object InvariantGuardian {
         // while sell routing has no-signature/slippage failures, blocking leases, or
         // false CLOSED rows based on TX_PARSE/zero/no sell signature.
         if (s.mode == "LIVE") {
-            val noSig = pipe?.labelCounts?.get("LIFECYCLE/SELL_NO_CURRENT_HELD_PROOF_NOT_RETRIED") ?: 0L
+            val cumulativeNoSig = pipe?.labelCounts?.get("LIFECYCLE/SELL_NO_CURRENT_HELD_PROOF_NOT_RETRIED") ?: 0L
+            val recentCutoffMs = System.currentTimeMillis() - 120_000L
+            val noSig = pipe?.recentEvents?.count { ev ->
+                ev.tsMs >= recentCutoffMs &&
+                    (ev.tag == "LIFECYCLE/SELL_NO_CURRENT_HELD_PROOF_NOT_RETRIED" || ev.message.contains("SELL_NO_CURRENT_HELD_PROOF_NOT_RETRIED", true))
+            }?.toLong() ?: 0L
             val slip = (pipe?.labelCounts?.get("LIFECYCLE/SLIPPAGE_EXCEEDED") ?: 0L) +
                 (pipe?.recentEvents?.count { it.message.contains("0x1788", true) || it.message.contains("SLIPPAGE_EXCEEDED", true) } ?: 0)
             val closeActive = try { com.lifecyclebot.engine.sell.CloseLease.activeLeaseCount().toLong() } catch (_: Throwable) { 0L }
@@ -133,7 +138,7 @@ object InvariantGuardian {
                 out += Fault(
                     FaultCode.LIVE_SELL_NO_FINALITY,
                     "CRITICAL",
-                    "live sell finality missing/corrupt: noSig=$noSig slippageOr1788=$slip " +
+                    "live sell finality missing/corrupt: noSig=$noSig cumulativeNoSig=$cumulativeNoSig slippageOr1788=$slip " +
                         "close_lease_active=$closeActive close_lease_blocking=$closeBlocking " +
                         "falseTxParseClosed=$falseClosed waitingBalanceProof=$waitingProof " +
                         "retryTempOnly=$retryTempOnly execLiveSellOk=$execLiveSellOk " +
@@ -149,6 +154,7 @@ object InvariantGuardian {
                         "sell_retry_temporary_only" to retryTempOnly.toString(),
                         "exec_live_sell_finalized" to execLiveSellOk.toString(),
                         "sell_duplicate_suppressed" to dupSuppressed.toString(),
+                        "cumulative_no_signature" to cumulativeNoSig.toString(),
                         "wait_state_size" to waitStateSize.toString(),
                         "subfaults" to subfaults,
                     )
