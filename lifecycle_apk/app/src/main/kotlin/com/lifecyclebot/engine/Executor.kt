@@ -11177,14 +11177,26 @@ class Executor(
     private fun maxConfiguredPaperTradeSol(): Double {
         return try {
             val c = cfg()
-            maxOf(c.smallBuySol, c.maxPositionSol).takeIf { it.isFinite() && it > 0.0 } ?: 0.15
-        } catch (_: Throwable) { 0.15 }
+            val legacyMax = maxOf(c.smallBuySol, c.maxPositionSol).takeIf { it.isFinite() && it > 0.0 } ?: 0.15
+            // V5.0.3873 — ALL PAPER ENTRIES must train at live-transfer size, not
+            // legacy micro-probe size. SmartSizer can compute realistic paper sizes,
+            // but this final executor clamp used to crush every normal paper lane
+            // back to maxPositionSol (default 0.15 SOL). That makes paper PnL/impact
+            // too small to teach live sizing. Use 10% of configured paper bankroll as
+            // the universal paper-learning cap, bounded to a sane 2 SOL ceiling.
+            maxOf(legacyMax, (c.paperSimulatedBalance * 0.10).coerceIn(legacyMax, 2.0))
+        } catch (_: Throwable) { 1.0 }
     }
 
     private fun minConfiguredPaperTradeSol(): Double {
         return try {
-            cfg().smallBuySol.takeIf { it.isFinite() && it > 0.0 } ?: 0.01
-        } catch (_: Throwable) { 0.01 }
+            val c = cfg()
+            val legacyMin = c.smallBuySol.takeIf { it.isFinite() && it > 0.0 } ?: 0.05
+            // V5.0.3873 — live-transfer floor. A 0.01/0.03 SOL paper row is useful
+            // for route smoke, but not for learned live sizing. Default paper bankroll
+            // 11.76 SOL => min ≈0.1176 SOL, still small enough for high throughput.
+            maxOf(legacyMin, (c.paperSimulatedBalance * 0.01).coerceIn(0.05, 0.15))
+        } catch (_: Throwable) { 0.10 }
     }
 
     private fun clampPaperTradeSol(requested: Double, mint: String = "", symbol: String = "", source: String = "paper", maxOverrideSol: Double? = null): Double {

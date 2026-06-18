@@ -10,13 +10,18 @@ object PaperLearningSanity {
 
     fun configuredMinTradeSol(): Double {
         val cfg = loadCfg()
-        return cfg.smallBuySol.takeIf { it.isFinite() && it > 0.0 } ?: BotConfig().smallBuySol
+        val legacyMin = cfg.smallBuySol.takeIf { it.isFinite() && it > 0.0 } ?: BotConfig().smallBuySol
+        // V5.0.3873 — same live-transfer floor as Executor.paperBuy().
+        return maxOf(legacyMin, (cfg.paperSimulatedBalance * 0.01).coerceIn(0.05, 0.15))
     }
 
     fun configuredMaxTradeSol(): Double {
         val cfg = loadCfg()
         val min = configuredMinTradeSol()
-        return maxOf(min, cfg.maxPositionSol.takeIf { it.isFinite() && it > 0.0 } ?: BotConfig().maxPositionSol)
+        val legacyMax = maxOf(min, cfg.maxPositionSol.takeIf { it.isFinite() && it > 0.0 } ?: BotConfig().maxPositionSol)
+        // V5.0.3873 — same live-transfer cap as Executor.paperBuy(). Do not
+        // quarantine valid larger paper rows just because legacy maxPositionSol is 0.15.
+        return maxOf(legacyMax, (cfg.paperSimulatedBalance * 0.10).coerceIn(legacyMax, 2.0))
     }
 
     fun inspect(t: Trade): Verdict {
