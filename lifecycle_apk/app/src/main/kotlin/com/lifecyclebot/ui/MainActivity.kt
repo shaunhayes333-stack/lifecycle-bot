@@ -846,6 +846,11 @@ class MainActivity : AppCompatActivity() {
             // V5.9.262: floating "Live Trade Forensics" tile — opens the
             // end-to-end live-trade timeline UI. Implemented programmatically
             // so it doesn't depend on layout XML resource IDs.
+            // V5.0.3867 — do not construct floating debug tiles inside onCreate.
+            // 3866 runtime still showed a 49s startup frame attributed to
+            // MainActivity.onCreate. These tiles are optional navigation/debug UI;
+            // build them after startup and keep registry reads off the main thread.
+            window.decorView.postDelayed({
             try {
                 val fab = android.widget.TextView(this).apply {
                     text = "🔬 Live Forensics"
@@ -956,24 +961,31 @@ class MainActivity : AppCompatActivity() {
                     private var lastUniverseText: String = ""
                     override fun run() {
                         if (!mainUiActive || isFinishing || isDestroyed) return
-                        try {
-                            val total = com.lifecyclebot.perps.DynamicAltTokenRegistry.getTokenCount()
-                            val memeTotal = com.lifecyclebot.engine.MemeMintRegistry.count()
-                            val next = "🪙 ${total + memeTotal} mints"
-                            if (next != lastUniverseText) {
-                                lastUniverseText = next
-                                universeTile.text = next
+                        val self = this
+                        lifecycleScope.launch(kotlinx.coroutines.Dispatchers.IO) {
+                            val next = try {
+                                val total = com.lifecyclebot.perps.DynamicAltTokenRegistry.getTokenCount()
+                                val memeTotal = com.lifecyclebot.engine.MemeMintRegistry.count()
+                                "🪙 ${total + memeTotal} mints"
+                            } catch (_: Throwable) { null }
+                            withContext(kotlinx.coroutines.Dispatchers.Main) {
+                                if (!mainUiActive || isFinishing || isDestroyed) return@withContext
+                                if (next != null && next != lastUniverseText) {
+                                    lastUniverseText = next
+                                    universeTile.text = next
+                                }
+                                handler.postDelayed(self, 30_000L)
                             }
-                        } catch (_: Throwable) {}
-                        if (mainUiActive && !isFinishing && !isDestroyed) handler.postDelayed(this, 30_000L)
+                        }
                     }
                 }
                 looseMainHandlers.add(handler)
                 looseMainRunnables.add(updater)
-                handler.post(updater)
+                handler.postDelayed(updater, 3_000L)
             } catch (e: Exception) {
                 com.lifecyclebot.engine.ErrorLogger.warn("MainActivity", "FAB inject failed: ${e.message}")
             }
+            }, 2_000L)
             
             // Show first-time disclaimer if not yet agreed
             showFirstTimeDisclaimer()

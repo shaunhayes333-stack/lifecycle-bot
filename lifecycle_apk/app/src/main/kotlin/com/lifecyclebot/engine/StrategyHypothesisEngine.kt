@@ -97,15 +97,17 @@ object StrategyHypothesisEngine {
     private fun suppressVariantForContext(lane: String, score: Int, regime: String): Boolean {
         val l = lane.uppercase()
         val r = regime.uppercase()
-        // V5.0.3863 — DUMP is not the time to run live-facing A/B variants in
-        // known bleeder lanes. This is not a trade veto; it disables experimental
-        // size/stop mutation and returns neutral bias so FDG/executor policy remains
-        // the sole authority. Report showed MOONSHOT|S20|DUMP active while DUMP WR
-        // was 13.8% and MOONSHOT/SHITCOIN were net negative.
-        return r.contains("DUMP") && score < 60 && (
-            l.contains("MOONSHOT") || l.contains("SHITCOIN") ||
+        val lowScoreHostileRegime = score < 60 && (r.contains("DUMP") || r.contains("CHOP"))
+        val knownBleederLane = l.contains("MOONSHOT") || l.contains("SHITCOIN") ||
             l.contains("EXPRESS") || l.contains("TREASURY")
-        )
+        val dangerBucket = try { LaneToxicityGuard.isNetNegativeDanger(l, score) } catch (_: Throwable) { false }
+        // V5.0.3867 — hostile-regime hypothesis suppression must cover weak CHOP
+        // too, not only DUMP. Report 3866 showed MOONSHOT|S00|CHOP and
+        // SHITCOIN|S20|CHOP active with vBias=1.10 while lane memory still printed
+        // MOONSHOT/SHITCOIN danger buckets and EXPRESS/TREASURY 0% WR bleeders.
+        // This is not a trade veto; it disables experimental size/stop mutation and
+        // returns neutral bias so FDG/executor policy remains authority.
+        return (lowScoreHostileRegime && knownBleederLane) || dangerBucket
     }
 
     /** Deterministic arm assignment so a mint always lands in the same arm. */
@@ -153,7 +155,7 @@ object StrategyHypothesisEngine {
             if (suppressVariantForContext(lane, score, regime)) {
                 active.remove(ctx)
                 pending.remove(mint)
-                try { PipelineHealthCollector.labelInc("HYPOTHESIS_DUMP_BLEEDER_VARIANT_SUPPRESSED") } catch (_: Throwable) {}
+                try { PipelineHealthCollector.labelInc("HYPOTHESIS_HOSTILE_BLEEDER_VARIANT_SUPPRESSED") } catch (_: Throwable) {}
                 return 1.0
             }
             val h = active.getOrPut(ctx) { spawn(ctx) }

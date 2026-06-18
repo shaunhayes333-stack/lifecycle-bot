@@ -412,10 +412,19 @@ class GoldenTapeRegressionTest {
         assertTrue("Rotation must include internal lanes that were previously idle", listOf("SHITCOIN", "MOONSHOT", "EXPRESS", "PROJECT_SNIPER", "MANIPULATED", "QUALITY", "DIP_HUNTER", "TREASURY", "BLUECHIP").all { bot.contains(it) })
         assertTrue("Contribution fix must remain bounded to one owner lane, not all-lane fanout", bot.contains("val allowed = l == ownerLane") && bot.contains("return allowed"))
     }
+
+
     @Test
-    fun strategy_hypothesis_does_not_mutate_bleeder_lanes_in_dump() {
+    fun mainactivity_debug_tiles_do_not_block_oncreate_or_read_registries_on_main() {
+        val main = java.io.File("src/main/kotlin/com/lifecyclebot/ui/MainActivity.kt").readText()
+        assertTrue("Floating debug tiles must be deferred beyond onCreate startup", main.contains("do not construct floating debug tiles inside onCreate") && main.contains("}, 2_000L)"))
+        assertTrue("Universe registry counts must run on IO, not inside the main handler frame", main.contains("lifecycleScope.launch(kotlinx.coroutines.Dispatchers.IO)") && main.contains("DynamicAltTokenRegistry.getTokenCount()") && main.contains("withContext(kotlinx.coroutines.Dispatchers.Main)"))
+        assertTrue("Universe updater must not fire immediately during first startup frame", main.contains("handler.postDelayed(updater, 3_000L)"))
+    }
+    @Test
+    fun strategy_hypothesis_does_not_mutate_bleeder_lanes_in_hostile_regimes() {
         val hyp = java.io.File("src/main/kotlin/com/lifecyclebot/engine/StrategyHypothesisEngine.kt").readText()
-        assertTrue("Hypothesis engine must suppress DUMP variants for known bleeder lanes", hyp.contains("suppressVariantForContext") && hyp.contains("HYPOTHESIS_DUMP_BLEEDER_VARIANT_SUPPRESSED") && hyp.contains("MOONSHOT") && hyp.contains("SHITCOIN") && hyp.contains("return 1.0"))
+        assertTrue("Hypothesis engine must suppress DUMP/CHOP variants for known bleeder lanes", hyp.contains("suppressVariantForContext") && hyp.contains("HYPOTHESIS_HOSTILE_BLEEDER_VARIANT_SUPPRESSED") && hyp.contains("r.contains(\"DUMP\") || r.contains(\"CHOP\")") && hyp.contains("MOONSHOT") && hyp.contains("SHITCOIN") && hyp.contains("LaneToxicityGuard.isNetNegativeDanger") && hyp.contains("return 1.0"))
     }
     @Test
     fun weak_chop_pivots_toolkit_away_from_degen_express_scalps_without_blocking() {
