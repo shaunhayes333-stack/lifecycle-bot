@@ -20,6 +20,7 @@ object PreTradeHardGate {
 
     private const val MIN_LIVE_LIQ_USD = 1_500.0
     private const val TOP_HOLDER_FATAL_PCT = 35.0
+    private const val TOP10_HOLDER_FATAL_PCT = 50.0
     private const val SAFETY_FRESH_MS = 120_000L
 
     private fun block(ts: TokenState, reason: String, detail: String): Verdict {
@@ -122,6 +123,14 @@ object PreTradeHardGate {
         if (!ts.holderDataResolved) pendingProofs.add("HOLDER_DATA_PENDING")
         val topHolder = listOfNotNull(ts.topHolderPct, safety.topHolderPct.takeIf { it >= 0.0 }).maxOrNull() ?: -1.0
         if (topHolder < 0.0) pendingProofs.add("HOLDER_DATA_UNKNOWN")
+        // V5.0.3896 — Phantom-style holder risk is live-critical, not enrichment.
+        // The wallet warning class shown by the operator — Single holder ownership,
+        // Unverified token, top 10 holders >50% — must never reach real spend. If
+        // holder distribution is unresolved/unknown, live buy must hydrate/defer;
+        // paper can still learn via the normal non-live path outside this gate.
+        if (!ts.holderDataResolved || topHolder < 0.0) {
+            return deferSafetyProof(ts, "HOLDER_DISTRIBUTION_PROOF_REQUIRED", pendingProofs, callSite)
+        }
         // V5.0.3892 — pending safety proof is a HYDRATION DEFER, not a terminal
         // live-buy failure. The old CRITICAL_SAFETY_PROOF_UNKNOWN hard block fired
         // after FDG/EXEC allowed the candidate, so live sessions showed hundreds of
@@ -146,8 +155,9 @@ object PreTradeHardGate {
         // are still hydrating. LIVE must treat those as pre-broadcast fatal.
         val fatalNeedles = listOf(
             "HONEYPOT", "CANNOT_SELL", "CONFIRMED_RUG", "KNOWN_RUGGER", "BLACKLIST", "BANNED", "FROZEN_AUTHORITY",
-            "SINGLE HOLDER", "SINGLE_HOLDER", "SINGLE_HOLDER_OWNERSHIP", "UNVERIFIED TOKEN", "UNVERIFIED_TOKEN",
-            "HIGH HOLDER CONCENTRATION", "HOLDER CONCENTRATION", "TOP10", "TOP 10", "TOP HOLDERS", "TOP_HOLDERS",
+            "SINGLE HOLDER", "SINGLE_HOLDER", "SINGLE_HOLDER_OWNERSHIP", "ONE USER HOLDS", "LARGE AMOUNT OF THE TOKEN SUPPLY",
+            "UNVERIFIED TOKEN", "UNVERIFIED_TOKEN", "MULTIPLE TOKENS CAN USE THE SAME NAME", "SAME NAME AND SYMBOL",
+            "HIGH HOLDER CONCENTRATION", "HOLDER CONCENTRATION", "TOP10", "TOP 10", "TOP HOLDERS", "TOP_HOLDERS", "MORE THAN 50%",
         )
         val fatal = fatalNeedles.firstOrNull { text.contains(it) }
         if (fatal != null) return block(ts, "FATAL_SAFETY_TEXT", fatal)

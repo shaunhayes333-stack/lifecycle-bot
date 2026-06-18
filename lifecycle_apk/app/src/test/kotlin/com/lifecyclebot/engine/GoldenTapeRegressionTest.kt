@@ -2706,4 +2706,14 @@ class GoldenTapeRegressionTest {
         assertFalse("FDG must not hard-block live solely because Helius is down", fdg.contains("HELIUS_UNHEALTHY_LIVE_SAFE_MODE") || fdg.contains("blockReason = \"HELIUS"))
     }
 
+    @Test
+    fun live_holder_risk_requires_distribution_proof_and_ultra_runner_banks_immediately() {
+        val pre = java.io.File("src/main/kotlin/com/lifecyclebot/engine/PreTradeHardGate.kt").readText()
+        val exec = java.io.File("src/main/kotlin/com/lifecyclebot/engine/Executor.kt").readText()
+
+        assertTrue("Live buy must defer until holder distribution is actually proven", pre.contains("HOLDER_DISTRIBUTION_PROOF_REQUIRED") && pre.contains("!ts.holderDataResolved || topHolder < 0.0") && pre.contains("deferSafetyProof"))
+        assertTrue("Wallet/Phantom holder warning text must be fatal in live pretrade", listOf("ONE USER HOLDS", "LARGE AMOUNT OF THE TOKEN SUPPLY", "UNVERIFIED TOKEN", "MORE THAN 50%").all { pre.contains(it) })
+        assertTrue("Ultra live runners must bank before normal partial cadence", exec.contains("ULTRA-RUNNER PANIC BANK") && exec.contains("ULTRA_RUNNER_BANK_TRIGGERED") && exec.contains("gainMultiple >= 50.0") && exec.contains("peakGainPct >= 5_000.0") && exec.contains("executeProfitLockSell(ts, wallet, sellFraction, \"ultra_runner_bank_"))
+    }
+
 }

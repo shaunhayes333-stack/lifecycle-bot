@@ -3605,6 +3605,41 @@ class Executor(
         val gainPct = (gainMultiple - 1.0) * 100.0
         
         val (capitalRecoveryThreshold, profitLockThreshold) = calculateProfitLockThresholds(ts)
+
+        // V5.0.3896 — ULTRA-RUNNER PANIC BANK.
+        // If a live meme bid turns into a 50x/5000% monster, the correct action is
+        // not to admire the runner or wait for the regular partial ladder. Bank the
+        // bulk immediately before the inevitable holder/rug liquidity snapback. This
+        // path bypasses normal capital-recovery/profit-lock cadence, but still uses
+        // executeProfitLockSell so wallet proof/route/finality/journal authority stays
+        // centralized. Paper keeps normal ladder so learning data remains comparable.
+        val peakGainPct = try { pos.peakGainPct.coerceAtLeast(gainPct) } catch (_: Throwable) { gainPct }
+        val ultraRunnerLiveBank = !pos.isPaperPosition && (gainMultiple >= 50.0 || peakGainPct >= 5_000.0)
+        if (ultraRunnerLiveBank) {
+            if (wallet == null) {
+                ErrorLogger.warn("Executor", "🚫 ULTRA_RUNNER_BANK_DEFERRED: ${ts.symbol} @ ${gainMultiple.fmt(1)}x peak=${peakGainPct.toInt()}% — wallet=null")
+                try { ForensicLogger.lifecycle("ULTRA_RUNNER_BANK_DEFERRED", "mint=${ts.mint.take(10)} symbol=${ts.symbol} gain=${gainMultiple.fmt(2)}x peakPct=${peakGainPct.toInt()} reason=wallet_null") } catch (_: Throwable) {}
+                return false
+            }
+            val remainingFraction = (100.0 - pos.partialSoldPct).coerceAtLeast(0.0) / 100.0
+            val sellFraction = when {
+                peakGainPct >= 10_000.0 || gainMultiple >= 100.0 -> 0.95
+                peakGainPct >= 5_000.0 || gainMultiple >= 50.0 -> 0.90
+                else -> 0.80
+            }.coerceAtMost(remainingFraction)
+            if (sellFraction > 0.0) {
+                try {
+                    ForensicLogger.lifecycle(
+                        "ULTRA_RUNNER_BANK_TRIGGERED",
+                        "mint=${ts.mint.take(10)} symbol=${ts.symbol} gain=${gainMultiple.fmt(2)}x peakPct=${peakGainPct.toInt()} sellPct=${(sellFraction*100).toInt()} reason=live_mega_mfe_bank",
+                    )
+                    PipelineHealthCollector.labelInc("ULTRA_RUNNER_BANK_TRIGGERED")
+                } catch (_: Throwable) {}
+                onLog("🚀💰 ULTRA RUNNER BANK: ${ts.symbol} @ ${gainMultiple.fmt(1)}x peak=${peakGainPct.toInt()}% — selling ${(sellFraction*100).toInt()}% NOW", ts.mint)
+                executeProfitLockSell(ts, wallet, sellFraction, "ultra_runner_bank_${gainMultiple.fmt(1)}x", walletSol)
+                return true
+            }
+        }
         
         if (!pos.capitalRecovered && gainMultiple >= capitalRecoveryThreshold) {
             // V5.0.3686 — accounting/source fix: capital recovery sizing is
