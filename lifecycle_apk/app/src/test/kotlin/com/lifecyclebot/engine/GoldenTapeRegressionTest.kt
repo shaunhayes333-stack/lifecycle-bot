@@ -2500,11 +2500,14 @@ class GoldenTapeRegressionTest {
     fun main_ui_money_and_pricing_surfaces_use_display_authority() {
         val main = java.io.File("src/main/kotlin/com/lifecyclebot/ui/MainActivity.kt").readText()
         assertTrue("Hero balance must preserve the original BotService.status rolling wallet balance contract", main.contains("hero balance — BotService.status is the single source of truth") && main.contains("if (balSol > 0.001)") && main.contains("tvBalanceLarge.setTextIfChanged(currency.format(balSol))"))
-        assertTrue("Paper hero chip must remain the old balance chip, not realized-PnL replacement", main.contains("📝 PAPER MODE  ◎") && !main.contains("realized P&L ◎") && !main.contains("displayBankrollSol"))
+        assertTrue("Paper hero must explicitly label available cash and show cost-basis equity, not replace cash with realized PnL", main.contains("📝 PAPER CASH ◎") && main.contains("equity≈◎") && !main.contains("realized P&L ◎") && !main.contains("displayBankrollSol"))
+        assertTrue("Paper PnL percent must not derive from current cash minus lifetime journal PnL", main.contains("paperReturnBasisSol") && main.contains("lifetime journal") && !main.contains("val startCapitalSol = (balSol - pnl)"))
         assertTrue("Paper hero must not sanitize/delete the headline balance", !main.contains("PAPER_HERO_BANKROLL_DISPLAY_SANITIZED") && !main.contains("rawBankrollSol > sanePaperCeiling"))
         assertTrue("Open-position UI must recover missing entry/current pricing from journal/token sources", main.contains("recoverRenderablePricing") && main.contains("journalEntryPrice") && main.contains("OPEN_POSITION_PRICE_RECOVERED_FOR_UI"))
         assertTrue("Main UI panels must use shared current-price authority", main.contains("mainUiCurrentPrice") && main.contains("shared Main UI current-price authority"))
         assertTrue("Main UI must show pricing wait instead of fake zero entry", main.contains("pricing wait") && main.contains("basis wait") && !main.contains("if (ref > 0.0) ref else pos.entryPrice") && !main.contains("ts.lastPrice - pos.entryPrice"))
+        val exec = java.io.File("src/main/kotlin/com/lifecyclebot/engine/Executor.kt").readText()
+        assertTrue("Paper top-up BUY legs must debit available paper cash like fresh buys/graduated adds", exec.contains("paper top-ups are BUY legs") && exec.contains("onPaperBalanceChange?.invoke(-sol)"))
         assertTrue("CYCLIC panel must display engine-published price/PnL authority, not raw token fallback", main.contains("cyclicStatusDisplay") && main.contains("engine.entryPriceSol") && main.contains("engine.currentPriceSol") && main.contains("engine.priceState") && main.contains("px=") && main.contains("priceTxt") && !main.contains("cyclicToken?.history?.lastOrNull()?.priceUsd"))
     }
 

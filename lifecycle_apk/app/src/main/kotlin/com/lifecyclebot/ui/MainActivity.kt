@@ -2788,21 +2788,37 @@ for legal compliance.
             ws.solBalance
         }
 
+        // V5.0.3871 — paper CASH vs EQUITY clarity.
+        // The headline balance contract remains BotService.status.paperWalletSol
+        // (available paper cash). But the old subtitle simply said "PAPER MODE ◎ X",
+        // while the green PnL line below is lifetime journal PnL. That mixed current
+        // cash with lifetime realized PnL and made profitable runs look contradictory.
+        val paperOpenCostSol = if (config.paperMode) {
+            try {
+                state.openPositions.asSequence()
+                    .filter { it.position.isPaperPosition && it.position.isOpen }
+                    .sumOf { it.position.costSol.takeIf { v -> v.isFinite() && v > 0.0 } ?: 0.0 }
+            } catch (_: Throwable) { 0.0 }
+        } else 0.0
+        val paperEquityAtCostSol = if (config.paperMode) balSol + paperOpenCostSol else balSol
+
         if (balSol > 0.001) {
             tvBalanceLarge.setTextIfChanged(currency.format(balSol))  // V5.9.1278 change-guarded; converts SOL→display currency internally
             // V5.9.773 — BIG explicit mode chip so the operator can never
             // confuse "🟢 APIs READY" (Jupiter/Pyth health) with actual
             // trade mode. Per troubleshoot RCA: user saw "LIVE READY"
             // banner and thought bot was live, but cfg.paperMode=true.
-            tvBalanceUsd.setTextIfChanged(if (config.paperMode) "📝 PAPER MODE  ◎ ${"%.4f".format(balSol)}"
-                                  else "🔴 LIVE MODE  ◎ ${"%.4f".format(balSol)}")
+            tvBalanceUsd.setTextIfChanged(if (config.paperMode) {
+                "📝 PAPER CASH ◎ ${"%.4f".format(balSol)} · equity≈◎ ${"%.4f".format(paperEquityAtCostSol)}"
+            } else "🔴 LIVE MODE  ◎ ${"%.4f".format(balSol)}")
         } else if (ws.isConnected && ws.solBalance > 0) {
             tvBalanceLarge.setTextIfChanged(currency.format(ws.solBalance))
-            tvBalanceUsd.setTextIfChanged(if (config.paperMode) "📝 PAPER MODE  ◎ ${"%.4f".format(ws.solBalance)}"
-                                  else "🔴 LIVE MODE  ◎ ${"%.4f".format(ws.solBalance)}")
+            tvBalanceUsd.setTextIfChanged(if (config.paperMode) {
+                "📝 PAPER CASH ◎ ${"%.4f".format(ws.solBalance)} · equity≈◎ ${"%.4f".format(ws.solBalance + paperOpenCostSol)}"
+            } else "🔴 LIVE MODE  ◎ ${"%.4f".format(ws.solBalance)}")
         } else {
             tvBalanceLarge.setTextIfChanged("—")
-            tvBalanceUsd.setTextIfChanged(if (config.paperMode) "📝 PAPER MODE" else "🔴 LIVE MODE")
+            tvBalanceUsd.setTextIfChanged(if (config.paperMode) "📝 PAPER CASH" else "🔴 LIVE MODE")
         }
 
         // ── Live SOL Price ──────────────────────────────────────────────
@@ -2831,16 +2847,23 @@ for legal compliance.
         // .winRate did before V5.9.810 migrated the win% here. Now the big $
         // number reads TradeHistoryStore.getStatsCached().totalPnlSol
         // (= lifetimeRealizedPnlSol — the SAME value the Journal header sums),
-        // so $ and win% trace to ONE source. The % return is derived FROM that
-        // same journal SOL P&L over starting capital (currentBal - journalPnl),
-        // so the % can never disagree with the $. Fail-open to WalletState if
-        // the journal stats read throws.
+        // so $ and win% trace to ONE source. V5.0.3871: the percent label is
+        // explicitly paper-start/lifetime-journal based in paper mode; never derive
+        // it from current cash, because cash excludes open deployed capital and may
+        // be a different wallet epoch than the lifetime journal.
         val journalStats = try {
             com.lifecyclebot.engine.TradeHistoryStore.getStatsCached()
         } catch (_: Throwable) { null }
         val realizedPnlSol = journalStats?.totalPnlSol ?: ws.totalPnlSol
         val pnl    = realizedPnlSol
-        val startCapitalSol = (balSol - pnl)
+        // V5.0.3871 — never derive return% from (current cash - lifetime PnL).
+        // Current paper cash can be near zero while lifetime journal PnL is strongly
+        // positive because cash excludes open deployed capital and can be reset while
+        // journal history persists. That produced nonsense like +11051% and made the
+        // operator think WR/PnL contradicted balance. Use configured paper starting
+        // bankroll for paper-mode lifetime return; live keeps the old wallet fallback.
+        val paperReturnBasisSol = config.paperSimulatedBalance.takeIf { it.isFinite() && it > 0.001 }
+        val startCapitalSol = if (config.paperMode) paperReturnBasisSol ?: 0.0 else (balSol - pnl)
         val pnlPct = if (startCapitalSol > 0.0001) (pnl / startCapitalSol) * 100.0 else ws.totalPnlPct
         if (ws.totalTrades > 0) {
             tvPnlChange.setTextIfChanged(currency.format(pnl, showPlus = true))
@@ -2848,7 +2871,9 @@ for legal compliance.
             // V5.9.810 — journal is source of truth for win%. V5.9.1248 — same
             // source now drives the $ and % too. One source, one number, everywhere.
             val journalWinRate = journalStats?.winRate?.toInt() ?: ws.winRate
-            tvPnlChangePct.setTextIfChanged("%+.1f%%  •  $journalWinRate%% wins".format(pnlPct))
+            val pnlLabel = if (config.paperMode) "lifetime journal" else "%+.1f%%".format(pnlPct)
+            val paperPct = if (config.paperMode && startCapitalSol > 0.0001) " (%+.1f%% vs start)".format(pnlPct) else ""
+            tvPnlChangePct.setTextIfChanged(if (config.paperMode) "$pnlLabel$paperPct  •  $journalWinRate%% wins" else "$pnlLabel  •  $journalWinRate%% wins")
         } else {
             tvPnlChange.setTextIfChanged("")
             tvPnlChangePct.setTextIfChanged("")
