@@ -2,7 +2,7 @@
 <LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
-    android:background="#0A0A0F"
+    android:background="@drawable/aate_screen_bg"
     android:orientation="vertical"
     android:fitsSystemWindows="true">
 
@@ -16,7 +16,7 @@
         android:paddingEnd="@dimen/screen_padding"
         android:paddingTop="10dp"
         android:paddingBottom="8dp"
-        android:background="#0A0A0F">
+        android:background="@drawable/aate_screen_bg">
 
         <ImageButton
             android:id="@+id/backButton"
@@ -87,7 +87,7 @@
             android:layout_width="0dp"
             android:layout_height="36dp"
             android:layout_weight="1"
-            android:background="@drawable/input_bg"
+            android:background="@drawable/edit_text_bg"
             android:padding="8dp"
             android:layout_marginEnd="8dp"/>
 

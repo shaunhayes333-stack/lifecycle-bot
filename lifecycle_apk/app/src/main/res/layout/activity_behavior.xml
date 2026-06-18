@@ -2,7 +2,7 @@
 <LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
-    android:background="#0A0A0F"
+    android:background="@drawable/aate_screen_bg"
     android:orientation="vertical"
     android:fitsSystemWindows="true">
 
@@ -16,7 +16,7 @@
         android:paddingEnd="@dimen/screen_padding"
         android:paddingTop="10dp"
         android:paddingBottom="8dp"
-        android:background="#0A0A0F">
+        android:background="@drawable/aate_screen_bg">
 
         <ImageButton
             android:id="@+id/btnBack"
@@ -54,7 +54,7 @@
     </LinearLayout>
 
     <View android:layout_width="match_parent" android:layout_height="1dp"
-        android:background="#111827"/>
+        android:background="@drawable/aate_debug_card_bg"/>
 
     <ScrollView
         android:layout_width="match_parent"
@@ -75,7 +75,7 @@
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 android:orientation="vertical"
-                android:background="@drawable/section_card_bg"
+                android:background="@drawable/aate_debug_card_bg"
                 android:padding="@dimen/card_padding"
                 android:layout_marginBottom="@dimen/card_margin_bottom">
 
@@ -168,7 +168,7 @@
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 android:orientation="vertical"
-                android:background="@drawable/section_card_bg"
+                android:background="@drawable/aate_debug_card_bg"
                 android:padding="@dimen/card_padding"
                 android:layout_marginBottom="@dimen/card_margin_bottom">
 
@@ -209,7 +209,7 @@
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 android:orientation="vertical"
-                android:background="@drawable/section_card_bg"
+                android:background="@drawable/aate_debug_card_bg"
                 android:padding="@dimen/card_padding"
                 android:layout_marginBottom="@dimen/card_margin_bottom">
 
@@ -291,7 +291,7 @@
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 android:orientation="vertical"
-                android:background="@drawable/section_card_bg"
+                android:background="@drawable/aate_debug_card_bg"
                 android:padding="@dimen/card_padding"
                 android:layout_marginBottom="@dimen/card_margin_bottom">
 
@@ -355,7 +355,7 @@
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 android:orientation="vertical"
-                android:background="@drawable/section_card_bg"
+                android:background="@drawable/aate_debug_card_bg"
                 android:padding="@dimen/card_padding"
                 android:layout_marginBottom="@dimen/card_margin_bottom">
 
@@ -448,7 +448,7 @@
                         android:layout_weight="1"
                         android:orientation="vertical"
                         android:gravity="center"
-                        android:background="@drawable/stat_card_bg"
+                        android:background="@drawable/aate_metric_card_bg"
                         android:padding="12dp"
                         android:layout_marginEnd="6dp">
                         <TextView android:id="@+id/tvActiveLayers"
@@ -466,7 +466,7 @@
                         android:layout_weight="1"
                         android:orientation="vertical"
                         android:gravity="center"
-                        android:background="@drawable/stat_card_bg"
+                        android:background="@drawable/aate_metric_card_bg"
                         android:padding="12dp"
                         android:layout_marginStart="6dp"
                         android:layout_marginEnd="6dp">
@@ -485,7 +485,7 @@
                         android:layout_weight="1"
                         android:orientation="vertical"
                         android:gravity="center"
-                        android:background="@drawable/stat_card_bg"
+                        android:background="@drawable/aate_metric_card_bg"
                         android:padding="12dp"
                         android:layout_marginStart="6dp">
                         <TextView android:id="@+id/tvAvgAccuracy"
@@ -503,7 +503,7 @@
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
                     android:orientation="vertical"
-                    android:background="@drawable/stat_card_bg"
+                    android:background="@drawable/aate_metric_card_bg"
                     android:padding="12dp">
                     <TextView
                         android:layout_width="match_parent"
@@ -541,7 +541,7 @@
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 android:orientation="vertical"
-                android:background="#0A0A14"
+                android:background="@drawable/aate_debug_card_bg"
                 android:padding="12dp"
                 android:layout_marginTop="12dp">
 
@@ -606,7 +606,7 @@
                     android:layout_width="match_parent"
                     android:layout_height="220dp"
                     android:layout_marginTop="8dp"
-                    android:background="#05050A"
+                    android:background="@drawable/aate_debug_card_bg"
                     android:padding="10dp"
                     android:scrollbars="vertical"
                     android:scrollbarThumbVertical="@android:color/darker_gray"
@@ -644,7 +644,7 @@
                         android:textColor="#E5E7EB"
                         android:textSize="11sp"
                         android:fontFamily="monospace"
-                        android:background="#0B0F1A"
+                        android:background="@drawable/aate_debug_card_bg"
                         android:padding="8dp"
                         android:maxLines="2"
                         android:inputType="textShortMessage|textCapSentences"

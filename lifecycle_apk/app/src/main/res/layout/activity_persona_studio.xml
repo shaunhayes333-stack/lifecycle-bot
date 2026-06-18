@@ -9,7 +9,7 @@
     android:id="@+id/personaStudioRoot"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
-    android:background="#07090E"
+    android:background="@drawable/aate_screen_bg"
     android:fillViewport="true">
 
     <LinearLayout
@@ -49,7 +49,7 @@
                 android:textColor="#9945FF"
                 android:textSize="11sp"
                 android:fontFamily="monospace"
-                android:background="@drawable/pill_bg"
+                android:background="@drawable/aate_glow_pill_bg"
                 android:paddingStart="8dp"
                 android:paddingEnd="8dp"
                 android:paddingTop="3dp"
@@ -71,7 +71,7 @@
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:orientation="vertical"
-            android:background="@drawable/section_card_bg"
+            android:background="@drawable/aate_debug_card_bg"
             android:padding="12dp"
             android:layout_marginBottom="10dp">
 
@@ -124,7 +124,7 @@
                 android:textColor="#F59E0B"
                 android:textSize="10sp"
                 android:fontFamily="monospace"
-                android:background="@drawable/pill_bg"
+                android:background="@drawable/aate_glow_pill_bg"
                 android:paddingStart="10dp"
                 android:paddingEnd="10dp"
                 android:paddingTop="6dp"
@@ -141,7 +141,7 @@
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:orientation="vertical"
-            android:background="@drawable/section_card_bg"
+            android:background="@drawable/aate_debug_card_bg"
             android:padding="12dp"
             android:layout_marginBottom="10dp">
 
@@ -197,7 +197,7 @@
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:orientation="vertical"
-            android:background="@drawable/section_card_bg"
+            android:background="@drawable/aate_debug_card_bg"
             android:padding="12dp"
             android:layout_marginBottom="10dp">
 
@@ -253,7 +253,7 @@
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:orientation="vertical"
-            android:background="@drawable/section_card_bg"
+            android:background="@drawable/aate_debug_card_bg"
             android:padding="12dp"
             android:layout_marginBottom="10dp">
 
@@ -324,7 +324,7 @@
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:orientation="vertical"
-            android:background="@drawable/section_card_bg"
+            android:background="@drawable/aate_debug_card_bg"
             android:padding="12dp"
             android:layout_marginBottom="10dp">
 
@@ -352,7 +352,7 @@
                 android:orientation="horizontal"
                 android:gravity="center_vertical"
                 android:padding="8dp"
-                android:background="@drawable/pill_bg"
+                android:background="@drawable/aate_glow_pill_bg"
                 android:clickable="true"
                 android:focusable="true"
                 android:layout_marginBottom="6dp">
@@ -392,7 +392,7 @@
                 android:orientation="horizontal"
                 android:gravity="center_vertical"
                 android:padding="8dp"
-                android:background="@drawable/pill_bg"
+                android:background="@drawable/aate_glow_pill_bg"
                 android:clickable="true"
                 android:focusable="true"
                 android:layout_marginBottom="6dp">
@@ -432,7 +432,7 @@
                 android:orientation="horizontal"
                 android:gravity="center_vertical"
                 android:padding="8dp"
-                android:background="@drawable/pill_bg"
+                android:background="@drawable/aate_glow_pill_bg"
                 android:clickable="true"
                 android:focusable="true">
                 <TextView

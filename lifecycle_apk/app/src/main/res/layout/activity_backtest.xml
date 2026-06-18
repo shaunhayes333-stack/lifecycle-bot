@@ -2,7 +2,7 @@
 <LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
-    android:background="#0A0A0F"
+    android:background="@drawable/aate_screen_bg"
     android:orientation="vertical"
     android:fitsSystemWindows="true">
 
@@ -16,7 +16,7 @@
         android:paddingEnd="@dimen/screen_padding"
         android:paddingTop="10dp"
         android:paddingBottom="8dp"
-        android:background="#0A0A0F">
+        android:background="@drawable/aate_screen_bg">
 
         <TextView
             android:id="@+id/btnBtBack"
@@ -61,7 +61,7 @@
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:orientation="vertical"
-        android:background="@drawable/section_card_bg"
+        android:background="@drawable/aate_debug_card_bg"
         android:paddingStart="@dimen/screen_padding"
         android:paddingEnd="@dimen/screen_padding"
         android:paddingTop="14dp"
@@ -84,7 +84,7 @@
         <EditText android:id="@+id/etBtMint"
             android:layout_width="match_parent"
             android:layout_height="@dimen/input_height"
-            android:background="@drawable/input_bg"
+            android:background="@drawable/edit_text_bg"
             android:textColor="#FFFFFF"
             android:textColorHint="#4A5E70"
             android:textSize="@dimen/input_text_size"
@@ -107,7 +107,7 @@
                     android:letterSpacing="0.10" android:layout_marginBottom="6dp"/>
                 <Spinner android:id="@+id/spinnerBtTf"
                     android:layout_width="match_parent" android:layout_height="@dimen/input_height"
-                    android:background="@drawable/input_bg"
+                    android:background="@drawable/edit_text_bg"
                     android:paddingStart="@dimen/input_padding_h"/>
             </LinearLayout>
 
@@ -119,7 +119,7 @@
                     android:letterSpacing="0.10" android:layout_marginBottom="6dp"/>
                 <EditText android:id="@+id/etBtCandles"
                     android:layout_width="match_parent" android:layout_height="@dimen/input_height"
-                    android:background="@drawable/input_bg"
+                    android:background="@drawable/edit_text_bg"
                     android:textColor="#FFFFFF" android:textColorHint="#4A5E70"
                     android:textSize="@dimen/input_text_size" android:fontFamily="monospace"
                     android:hint="200" android:inputType="number"
@@ -134,7 +134,7 @@
                     android:letterSpacing="0.10" android:layout_marginBottom="6dp"/>
                 <EditText android:id="@+id/etBtPositionSol"
                     android:layout_width="match_parent" android:layout_height="@dimen/input_height"
-                    android:background="@drawable/input_bg"
+                    android:background="@drawable/edit_text_bg"
                     android:textColor="#FFFFFF" android:textColorHint="#4A5E70"
                     android:textSize="@dimen/input_text_size" android:fontFamily="monospace"
                     android:hint="0.10" android:inputType="numberDecimal"
@@ -186,7 +186,7 @@
     <LinearLayout android:id="@+id/cardBtSummary"
         android:layout_width="match_parent" android:layout_height="wrap_content"
         android:orientation="vertical"
-        android:background="@drawable/section_card_bg"
+        android:background="@drawable/aate_debug_card_bg"
         android:paddingStart="@dimen/screen_padding"
         android:paddingEnd="@dimen/screen_padding"
         android:paddingTop="12dp"

@@ -3,7 +3,7 @@
     android:layout_width="match_parent"
     android:layout_height="match_parent"
     android:orientation="vertical"
-    android:background="#0A0A0F"
+    android:background="@drawable/aate_screen_bg"
     android:fitsSystemWindows="true">
 
     <!-- ── TOP BAR ── -->
@@ -14,7 +14,7 @@
         android:gravity="center_vertical"
         android:paddingStart="@dimen/screen_padding"
         android:paddingEnd="@dimen/screen_padding"
-        android:background="#0A0A0F">
+        android:background="@drawable/aate_screen_bg">
 
         <TextView
             android:id="@+id/btnBrainBack"
@@ -65,7 +65,7 @@
             android:textSize="9sp"
             android:textStyle="bold"
             android:fontFamily="monospace"
-            android:background="@drawable/pill_bg"
+            android:background="@drawable/aate_glow_pill_bg"
             android:paddingStart="10dp"
             android:paddingEnd="10dp"
             android:layout_marginEnd="6dp"/>
@@ -149,7 +149,7 @@
                     android:layout_weight="1"
                     android:orientation="vertical"
                     android:gravity="center"
-                    android:background="@drawable/section_card_bg"
+                    android:background="@drawable/aate_debug_card_bg"
                     android:padding="@dimen/card_padding"
                     android:layout_marginEnd="3dp">
 
@@ -181,7 +181,7 @@
                     android:layout_weight="1"
                     android:orientation="vertical"
                     android:gravity="center"
-                    android:background="@drawable/section_card_bg"
+                    android:background="@drawable/aate_debug_card_bg"
                     android:padding="@dimen/card_padding"
                     android:layout_marginStart="3dp"
                     android:layout_marginEnd="3dp">
@@ -214,7 +214,7 @@
                     android:layout_weight="1"
                     android:orientation="vertical"
                     android:gravity="center"
-                    android:background="@drawable/section_card_bg"
+                    android:background="@drawable/aate_debug_card_bg"
                     android:padding="@dimen/card_padding"
                     android:layout_marginStart="3dp">
 
@@ -255,7 +255,7 @@
                     android:layout_weight="1"
                     android:orientation="vertical"
                     android:gravity="center"
-                    android:background="@drawable/section_card_bg"
+                    android:background="@drawable/aate_debug_card_bg"
                     android:padding="12dp"
                     android:layout_marginEnd="3dp">
 
@@ -288,7 +288,7 @@
                     android:layout_weight="1"
                     android:orientation="vertical"
                     android:gravity="center"
-                    android:background="@drawable/section_card_bg"
+                    android:background="@drawable/aate_debug_card_bg"
                     android:padding="12dp"
                     android:layout_marginStart="3dp"
                     android:layout_marginEnd="3dp">
@@ -322,7 +322,7 @@
                     android:layout_weight="1"
                     android:orientation="vertical"
                     android:gravity="center"
-                    android:background="@drawable/section_card_bg"
+                    android:background="@drawable/aate_debug_card_bg"
                     android:padding="12dp"
                     android:layout_marginStart="3dp">
 
@@ -364,7 +364,7 @@
                     android:layout_weight="1"
                     android:orientation="vertical"
                     android:gravity="center"
-                    android:background="@drawable/section_card_bg"
+                    android:background="@drawable/aate_debug_card_bg"
                     android:padding="12dp"
                     android:layout_marginEnd="3dp">
 
@@ -397,7 +397,7 @@
                     android:layout_weight="1"
                     android:orientation="vertical"
                     android:gravity="center"
-                    android:background="@drawable/section_card_bg"
+                    android:background="@drawable/aate_debug_card_bg"
                     android:padding="12dp"
                     android:layout_marginStart="3dp"
                     android:layout_marginEnd="3dp">
@@ -431,7 +431,7 @@
                     android:layout_weight="1"
                     android:orientation="vertical"
                     android:gravity="center"
-                    android:background="@drawable/section_card_bg"
+                    android:background="@drawable/aate_debug_card_bg"
                     android:padding="12dp"
                     android:layout_marginStart="3dp">
 
@@ -502,7 +502,7 @@
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 android:orientation="vertical"
-                android:background="@drawable/section_card_bg"
+                android:background="@drawable/aate_debug_card_bg"
                 android:padding="@dimen/card_padding"
                 android:layout_marginBottom="@dimen/card_margin"/>
 

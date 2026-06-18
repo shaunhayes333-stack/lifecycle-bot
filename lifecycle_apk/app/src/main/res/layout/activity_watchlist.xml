@@ -2,7 +2,7 @@
 <LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
-    android:background="#0A0A0F"
+    android:background="@drawable/aate_screen_bg"
     android:orientation="vertical"
     android:fitsSystemWindows="true">
 
@@ -14,7 +14,7 @@
         android:gravity="center_vertical"
         android:paddingStart="@dimen/screen_padding"
         android:paddingEnd="@dimen/screen_padding"
-        android:background="#0A0A0F">
+        android:background="@drawable/aate_screen_bg">
 
         <TextView
             android:id="@+id/btnWatchlistBack"
@@ -82,7 +82,7 @@
             android:paddingStart="10dp"
             android:paddingEnd="10dp"
             android:layout_marginEnd="6dp"
-            android:background="@drawable/pill_bg"
+            android:background="@drawable/aate_glow_pill_bg"
             android:clickable="true"
             android:focusable="true"/>
 
@@ -111,7 +111,7 @@
         android:orientation="horizontal"
         android:paddingStart="@dimen/screen_padding"
         android:paddingEnd="@dimen/screen_padding"
-        android:background="#0A0A0F">
+        android:background="@drawable/aate_screen_bg">
 
         <TextView
             android:id="@+id/tabWatchlist"
@@ -164,7 +164,7 @@
     <View
         android:layout_width="match_parent"
         android:layout_height="1dp"
-        android:background="#111827"/>
+        android:background="@drawable/aate_debug_card_bg"/>
 
     <!-- Loading bar -->
     <ProgressBar

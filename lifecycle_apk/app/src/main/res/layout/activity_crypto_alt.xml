@@ -3,7 +3,7 @@
     xmlns:android="http://schemas.android.com/apk/res/android"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
-    android:background="#0A0A0F">
+    android:background="@drawable/aate_screen_bg">
 
     <!-- PULL TO REFRESH -->
     <androidx.swiperefreshlayout.widget.SwipeRefreshLayout
@@ -40,7 +40,7 @@
                 android:paddingEnd="@dimen/screen_padding"
                 android:paddingTop="8dp"
                 android:paddingBottom="4dp"
-                android:background="#0A0A0F">
+                android:background="@drawable/aate_screen_bg">
 
                 <!-- Back arrow -->
                 <TextView
@@ -102,7 +102,7 @@
                     android:textSize="10sp"
                     android:fontFamily="monospace"
                     android:textStyle="bold"
-                    android:background="@drawable/pill_bg"
+                    android:background="@drawable/aate_glow_pill_bg"
                     android:paddingStart="8dp"
                     android:paddingEnd="8dp"
                     android:paddingTop="4dp"
@@ -167,7 +167,7 @@
                     android:layout_height="wrap_content"
                     android:orientation="horizontal"
                     android:gravity="center_vertical"
-                    android:background="@drawable/pill_bg"
+                    android:background="@drawable/aate_glow_pill_bg"
                     android:paddingStart="6dp"
                     android:paddingEnd="6dp"
                     android:paddingTop="4dp"
@@ -216,7 +216,7 @@
                 android:orientation="horizontal"
                 android:paddingStart="@dimen/screen_padding"
                 android:paddingEnd="@dimen/screen_padding"
-                android:background="#0D0D14">
+                android:background="@drawable/aate_debug_card_bg">
 
                 <TextView
                     android:id="@+id/tabCryptoAltScanner"
@@ -335,7 +335,7 @@
                     android:text="SCAN"
                     android:textColor="#3B82F6" android:textSize="10sp"
                     android:fontFamily="monospace" android:textStyle="bold"
-                    android:background="@drawable/chip_neutral_bg"
+                    android:background="@drawable/aate_debug_card_bg"
                     android:paddingStart="8dp" android:paddingEnd="8dp"
                     android:paddingTop="3dp" android:paddingBottom="3dp"
                     android:layout_marginEnd="6dp"/>

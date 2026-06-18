@@ -2508,6 +2508,12 @@ class GoldenTapeRegressionTest {
         assertTrue("Hero XML must be a premium command card, not a flat debug balance row", mainLayout.contains("commandHeroCard") && mainLayout.contains("@drawable/aate_hero_premium_bg") && mainLayout.contains("AATE COMMAND") && mainLayout.contains("rowSymTelemetry"))
         assertTrue("Hero XML must protect mobile width with auto-size headline and capped mode chip", mainLayout.contains("android:autoSizeTextType=\"uniform\"") && mainLayout.contains("android:maxWidth=\"66dp\"") && mainLayout.contains("android:ellipsize=\"end\"") && mainLayout.contains("android:autoSizeMaxTextSize=\"32sp\""))
         assertTrue("Main UI restyle must use the AATE premium visual system", mainLayout.contains("@drawable/aate_screen_bg") && mainLayout.contains("@drawable/aate_metric_card_bg") && mainLayout.contains("@drawable/aate_action_card_bg") && mainLayout.contains("MISSION CONTROL") && !mainLayout.contains("@drawable/stats_pill_bg"))
+        val activityLayouts = java.io.File("src/main/res/layout").listFiles()
+            ?.filter { it.name.startsWith("activity_") && it.name.endsWith(".xml") && it.name != "activity_splash.xml" }
+            ?: emptyList()
+        assertTrue("All operational AATE screens must use the premium AATE visual shell", activityLayouts.isNotEmpty() && activityLayouts.all { it.readText().contains("@drawable/aate_screen_bg") })
+        val forbiddenLegacySkins = listOf("@drawable/stats_pill_bg", "@drawable/stat_card_bg", "@drawable/section_card_bg", "@drawable/hero_card_bg", "@drawable/card_bg\"", "@drawable/pill_bg\"")
+        assertTrue("Operational AATE screens must not regress to the old flat/debug skin", activityLayouts.all { layout -> forbiddenLegacySkins.none { legacy -> layout.readText().contains(legacy) } })
         assertTrue("Paper hero must not sanitize/delete the headline balance", !main.contains("PAPER_HERO_BANKROLL_DISPLAY_SANITIZED") && !main.contains("rawBankrollSol > sanePaperCeiling"))
         assertTrue("Open-position UI must recover missing entry/current pricing from journal/token sources", main.contains("recoverRenderablePricing") && main.contains("journalEntryPrice") && main.contains("OPEN_POSITION_PRICE_RECOVERED_FOR_UI"))
         assertTrue("Main UI panels must use shared current-price authority", main.contains("mainUiCurrentPrice") && main.contains("shared Main UI current-price authority"))
