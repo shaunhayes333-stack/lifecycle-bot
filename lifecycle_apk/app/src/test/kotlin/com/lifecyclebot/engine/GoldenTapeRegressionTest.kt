@@ -2811,4 +2811,19 @@ class GoldenTapeRegressionTest {
         assertTrue("manual stop/full reset remains the explicit clear path", persist.contains("fun clear()") && persist.contains("Cleared all persisted positions"))
     }
 
+
+    @Test
+    fun paper_circuit_pause_must_not_short_circuit_prelane_buy_refill() {
+        val bot = java.io.File("src/main/kotlin/com/lifecyclebot/engine/BotService.kt").readText()
+        val gate = java.io.File("src/main/kotlin/com/lifecyclebot/engine/ExecutableOpenGate.kt").readText()
+        val security = java.io.File("src/main/kotlin/com/lifecyclebot/engine/SecurityGuard.kt").readText()
+        val preLaneIdx = bot.indexOf("processTokenCycle.preLane")
+        val bypassIdx = bot.indexOf("PAPER_PRELANE_CIRCUIT_PAUSE_BYPASSED")
+        assertTrue("BotService pre-lane circuit pause must inspect currentEntryPause", bot.contains("ToxicModeCircuitBreaker.currentEntryPause()"))
+        assertTrue("LIVE may still return during a toxic global pause", bot.contains("toxicPause.active && !cfg.paperMode") && bot.contains("emitExecutionStateBlockedIfDue(identity.symbol, "processTokenCycle.preLane")"))
+        assertTrue("PAPER must bypass pre-lane circuit pause so BUY signals can reach V3/LANE_EVAL/FDG", bypassIdx > preLaneIdx && bot.contains("toxicPause.active && cfg.paperMode"))
+        assertTrue("ExecutableOpenGate must also bypass circuit pauses in PAPER", gate.contains("PAPER_EXEC_CIRCUIT_PAUSE_BYPASSED"))
+        assertTrue("SecurityGuard buy preflight must bypass circuit pause in PAPER", security.contains("cbState.isPaused && !cfg().paperMode"))
+    }
+
 }

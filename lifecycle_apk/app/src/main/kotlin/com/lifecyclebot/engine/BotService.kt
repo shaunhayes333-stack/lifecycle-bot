@@ -16128,8 +16128,18 @@ if (hotExitHandledSweep) {
     // above this point still run; new BUY/V3/lane/FDG/open work below is paused.
     if (!ts.position.isOpen) {
         try {
-            if (com.lifecyclebot.engine.ToxicModeCircuitBreaker.emitExecutionStateBlockedIfDue(identity.symbol, "processTokenCycle.preLane")) {
-                return
+            val toxicPause = com.lifecyclebot.engine.ToxicModeCircuitBreaker.currentEntryPause()
+            if (toxicPause.active && !cfg.paperMode) {
+                if (com.lifecyclebot.engine.ToxicModeCircuitBreaker.emitExecutionStateBlockedIfDue(identity.symbol, "processTokenCycle.preLane")) {
+                    return
+                }
+            } else if (toxicPause.active && cfg.paperMode) {
+                // V5.0.3907 — PAPER must keep learning/refilling during circuit pauses.
+                // SecurityGuard and ExecutableOpenGate already bypass this pause for PAPER,
+                // but this pre-lane short-circuit returned before V3/LANE_EVAL/FDG, producing
+                // the exact UI symptom: Signal=BUY + Paused + open book draining with no refill.
+                try { ForensicLogger.lifecycle("PAPER_PRELANE_CIRCUIT_PAUSE_BYPASSED", "mint=${identity.mint.take(10)} symbol=${identity.symbol} reason=${toxicPause.reason}") } catch (_: Throwable) {}
+                try { PipelineHealthCollector.labelInc("PAPER_PRELANE_CIRCUIT_PAUSE_BYPASSED") } catch (_: Throwable) {}
             }
         } catch (_: Throwable) {}
     }
