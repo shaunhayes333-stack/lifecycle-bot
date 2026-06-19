@@ -174,21 +174,46 @@ object PositionPersistence {
             return  // Don't spam disk
         }
         
-        val openPositions = tokens.values
-            .filter { it.position.isOpen }
-            .associate { it.mint to createPersistedPosition(it) }
-        
-        if (openPositions.isEmpty()) {
-            // Clear persistence if no open positions
-            prefs?.edit()?.remove(KEY_POSITIONS)?.apply()
+        // V5.0.3906 — NON-AUTHORITATIVE BATCH SAVE FIX.
+        // status.tokens is not a complete position ledger during restart/rescue/
+        // onDestroy and can also miss positions held in lane-private stores. The
+        // old implementation replaced the entire persisted book with only the
+        // currently visible open rows; a partial snapshot of 3 opens could overwrite
+        // a 70-position paper book down to 3. Batch save is now MERGE/REMOVE-KNOWN:
+        // update rows for tokens present and open, remove rows for tokens present and
+        // explicitly closed, but preserve persisted rows for mints absent from this
+        // snapshot. Manual stop/full reset still use clear(), and individual closes
+        // still call removePosition()/savePosition(closed) at the source.
+        val current = loadPositionsInternal().toMutableMap()
+        var updated = 0
+        var removed = 0
+        tokens.values.forEach { ts ->
+            if (ts.position.isOpen) {
+                current[ts.mint] = createPersistedPosition(ts)
+                updated++
+            } else if (current.remove(ts.mint) != null) {
+                removed++
+            }
+        }
+
+        if (tokens.isEmpty() && current.isNotEmpty()) {
+            try { PipelineHealthCollector.labelInc("POSITION_PERSIST_EMPTY_SNAPSHOT_PRESERVED") } catch (_: Throwable) {}
+            try { ForensicLogger.lifecycle("POSITION_PERSIST_EMPTY_SNAPSHOT_PRESERVED", "persisted=${current.size} force=$force") } catch (_: Throwable) {}
             lastSaveTime = now
             return
         }
-        
-        savePositionsInternal(openPositions)
+
+        if (current.isEmpty()) {
+            prefs?.edit()?.remove(KEY_POSITIONS)?.apply()
+            lastSaveTime = now
+            ErrorLogger.info(TAG, "💾 Batch save cleared persistence after authoritative closed snapshot updated=$updated removed=$removed")
+            return
+        }
+
+        savePositionsInternal(current)
         lastSaveTime = now
         
-        ErrorLogger.info(TAG, "💾 Batch saved ${openPositions.size} positions")
+        ErrorLogger.info(TAG, "💾 Batch saved/merged updated=$updated removed=$removed persisted=${current.size}")
     }
     
     /**

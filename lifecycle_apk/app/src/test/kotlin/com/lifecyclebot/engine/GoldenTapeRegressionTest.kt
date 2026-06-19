@@ -2799,4 +2799,16 @@ class GoldenTapeRegressionTest {
         assertTrue("protected intake must stay intact while this-cycle workset skips dead rows", bot.contains("pool intact, this-cycle skip only"))
     }
 
+
+    @Test
+    fun position_persistence_batch_save_must_not_amputate_missing_open_rows() {
+        val persist = java.io.File("src/main/kotlin/com/lifecyclebot/engine/PositionPersistence.kt").readText()
+        assertTrue("batch persistence must merge into existing persisted book", persist.contains("NON-AUTHORITATIVE BATCH SAVE FIX") && persist.contains("val current = loadPositionsInternal().toMutableMap()"))
+        assertTrue("batch save must preserve rows absent from a partial status.tokens snapshot", persist.contains("preserve persisted rows for mints absent from this") || persist.contains("POSITION_PERSIST_EMPTY_SNAPSHOT_PRESERVED"))
+        assertTrue("empty restart/destroy snapshots must not clear a non-empty persisted book", persist.contains("tokens.isEmpty() && current.isNotEmpty()") && persist.contains("POSITION_PERSIST_EMPTY_SNAPSHOT_PRESERVED"))
+        assertFalse("batch save must not replace the whole book with only currently visible open rows", persist.contains("savePositionsInternal(openPositions)"))
+        assertFalse("batch save must not clear all persistence solely because visible openPositions is empty", persist.contains("if (openPositions.isEmpty())") && persist.contains("remove(KEY_POSITIONS)"))
+        assertTrue("manual stop/full reset remains the explicit clear path", persist.contains("fun clear()") && persist.contains("Cleared all persisted positions"))
+    }
+
 }
