@@ -430,16 +430,50 @@ class StartupReconciler(
                                 "JOURNAL_RECOVERY_ADOPT", "mint=${jMint.take(12)} qty=$walletQty mode=${buyRow.mode}") } catch (_: Throwable) {}
                         } else if (buyRow.mode != "paper") {
                             // Journal says open, wallet says zero → externally closed while dead.
-                            // Stamp the close ledger so it is never resurrected as open.
+                            // V5.0.3926 — RUG-CLOSE ACCURACY. The wallet going
+                            // to zero on an open live position is a rug or
+                            // external drain — NOT a 0% close. Recording
+                            // pnlPct=0 corrupts WR math (rugs were appearing
+                            // as scratch trades in the journal). Mark the
+                            // realized loss as the full entry cost (-100%
+                            // PnL%, -buyRow.sol realized SOL) so the journal
+                            // and learning bus see the true outcome. Also
+                            // emit a TradeHistoryStore SELL row so canonical
+                            // closes count this trade.
                             try {
+                                val lostSol = buyRow.sol.takeIf { it.isFinite() && it > 0.0 } ?: 0.0
                                 com.lifecyclebot.engine.PositionCloseLedger.markClosedFull(
-                                    mint = jMint, reason = "EXTERNAL_CLOSE_RECONCILED", pnlPct = 0,
+                                    mint = jMint, reason = "EXTERNAL_CLOSE_RECONCILED_RUG",
+                                    pnlPct = -100,
                                     sellSig = "", soldQtyRaw = 0L, remainingQtyRaw = 0L, dustAmount = 0.0,
-                                    realizedSol = 0.0, realizedPnl = 0.0, source = "JOURNAL_XREF",
+                                    realizedSol = -lostSol, realizedPnl = -lostSol, source = "JOURNAL_XREF",
                                 )
                                 jClosed++
+                                // Record a synthesized SELL row in the journal
+                                // so closes/WR math include this rug.
+                                try {
+                                    val rugSell = com.lifecyclebot.data.Trade(
+                                        side = "SELL",
+                                        mode = "live",
+                                        sol = lostSol,
+                                        price = 0.0,
+                                        entryPriceSnapshot = buyRow.price.takeIf { it > 0.0 } ?: 0.0,
+                                        entryCostSol = lostSol,
+                                        ts = System.currentTimeMillis(),
+                                        entryTsMs = buyRow.ts,
+                                        reason = "EXTERNAL_RUG_CLOSE",
+                                        pnlSol = -lostSol,
+                                        pnlPct = -100.0,
+                                        netPnlSol = -lostSol,
+                                        feeSol = 0.0,
+                                        score = buyRow.score,
+                                        mint = jMint,
+                                    )
+                                    com.lifecyclebot.engine.TradeHistoryStore.recordTrade(rugSell)
+                                } catch (_: Throwable) {}
                                 com.lifecyclebot.engine.ForensicLogger.lifecycle(
-                                    "JOURNAL_XREF_EXTERNAL_CLOSE", "mint=${jMint.take(12)} reason=wallet_zero_while_journal_open")
+                                    "JOURNAL_XREF_EXTERNAL_CLOSE",
+                                    "mint=${jMint.take(12)} reason=wallet_zero_while_journal_open lostSol=$lostSol pnlPct=-100")
                             } catch (_: Throwable) {}
                         }
                     }

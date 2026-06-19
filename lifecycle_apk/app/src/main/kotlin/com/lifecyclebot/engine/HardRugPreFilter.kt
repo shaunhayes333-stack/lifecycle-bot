@@ -73,6 +73,22 @@ object HardRugPreFilter {
         
         // Grace period: no liquidity + (added recently OR no API data yet) = let API poll have time to fetch data
         if (hasNoLiquidity && (isVeryNew || hasNoHistoryYet)) {
+            // V5.0.3926 — LIVE GRACE TIGHTENING. Operator dump V5.0.3929
+            // showed STANDARD-lane rugs (-96.9%) entering during this window
+            // because liquidity/LP/holder data hadn't landed yet. For PAPER
+            // we still want the learning signal — pass the grace. For LIVE
+            // we have no safety proof at all; do not authorize a real-money
+            // buy on UNKNOWN data. This is the rug-prevention requirement:
+            // 'live entry must block or probe-only if RugCheck/LP/holder
+            // proof is unknown.'
+            if (!isPaperMode) {
+                ErrorLogger.debug(TAG, "⛔ GRACE_BLOCK_LIVE: ${ts.symbol} age=${tokenAgeMs/1000}s hist=${ts.history.size} — live needs proof")
+                return PreFilterResult(
+                    pass = false,
+                    reason = "GRACE_PERIOD_DATA_UNAVAILABLE_LIVE",
+                    severity = FilterSeverity.HARD_FAIL,
+                )
+            }
             ErrorLogger.debug(TAG, "⏳ GRACE PERIOD: ${ts.symbol} - no liquidity yet (age=${tokenAgeMs/1000}s, hist=${ts.history.size})")
             return PreFilterResult(
                 pass = true,

@@ -8857,6 +8857,24 @@ class Executor(
                     return false to "RUG_PREFILTER_HARD_FAIL:${rugFilter.reason ?: "unknown"}"
                 }
             } catch (_: Throwable) {}
+            // V5.0.3926 — PROVIDER PROOF GATE. Operator P1: 'use the whole
+            // API stack as its intended for. we have multiple fallbacks for
+            // literally everything.' STANDARD-lane rugs slipped through
+            // because the per-provider proof was UNKNOWN/STALE but no gate
+            // checked it. Walk the health-ranked provider stack for the
+            // critical liquidity field; require at least PARTIAL_CONFIRMED
+            // (≤120s old) before any live buy. UNKNOWN/STALE means no
+            // provider has populated the field on this token yet — that is
+            // exactly the rug-vector window per doctrine ('live entry must
+            // block or probe-only if liquidity/LP/holder proof is unknown').
+            try {
+                val liqProof = com.lifecyclebot.engine.ProviderProofWalker.getBestAvailableProof(
+                    ts, com.lifecyclebot.engine.ProviderProofWalker.Field.LIQUIDITY_USD
+                )
+                if (!liqProof.ok) {
+                    return false to "PROVIDER_PROOF_LIQUIDITY:${liqProof.quality.name}:source=${liqProof.source}"
+                }
+            } catch (_: Throwable) {}
             // MomentumPredictor: shouldAvoid() returns false when there's no
             // data for this mint, so this won't fire on fresh launches.
             if (com.lifecyclebot.engine.MomentumPredictorAI.shouldAvoid(mint)) {

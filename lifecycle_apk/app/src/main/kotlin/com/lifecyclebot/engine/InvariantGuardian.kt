@@ -53,11 +53,26 @@ object InvariantGuardian {
             out += Fault(FaultCode.RECONCILER_STALLED, "CRITICAL",
                 "reconciler.totalChecked=0 while canonicalOpen=${s.canonicalOpenPositions}")
         }
-        if (s.mode == "LIVE" && s.botLoopActive && s.canonicalOpenPositions > 0 && s.liveOpenPositions == 0) {
+        // V5.0.3926 — DESYNC FAULTS GRACE GUARD. Both faults below fired
+        // whenever canonicalOpen > 0 && (liveOpen == 0 || hostTrackerOpen
+        // == 0). That condition is *normal* during BUY_PENDING_BALANCE —
+        // the buy is on-chain confirmed but the wallet-balance proof
+        // hasn't landed yet (≤90s window per V5.0.3757). The genuine
+        // stale case is already handled by BUY_PENDING_BALANCE_PROOF_STALE
+        // (the next fault below). Skip these CRITICAL faults while any
+        // pending-balance proof is still within the recovery window —
+        // otherwise the doctor fires every cycle on every confirmed buy.
+        val pendingProofInFlight = try {
+            // Pending proof rows exist when scanner has pending buys awaiting
+            // balance confirmation. We approximate via the lifecycle tracker:
+            // confirmed-pending-balance count > 0 means a buy is mid-flight.
+            com.lifecyclebot.engine.TokenLifecycleTracker.confirmedPendingCount() > 0
+        } catch (_: Throwable) { false }
+        if (s.mode == "LIVE" && s.botLoopActive && s.canonicalOpenPositions > 0 && s.liveOpenPositions == 0 && !pendingProofInFlight) {
             out += Fault(FaultCode.LIVE_BUY_CONFIRMED_NOT_VISIBLE_CRITICAL, "CRITICAL",
                 "canonicalOpen=${s.canonicalOpenPositions} but liveOpen=0; confirmed buy invisible")
         }
-        if (s.mode == "LIVE" && s.botLoopActive && s.hostTrackerOpenCount == 0 && s.canonicalOpenPositions > 0) {
+        if (s.mode == "LIVE" && s.botLoopActive && s.hostTrackerOpenCount == 0 && s.canonicalOpenPositions > 0 && !pendingProofInFlight) {
             out += Fault(FaultCode.TRACKER_OPEN_DESYNC_CRITICAL, "CRITICAL",
                 "canonicalOpen=${s.canonicalOpenPositions} but hostTrackerOpen=0")
         }
