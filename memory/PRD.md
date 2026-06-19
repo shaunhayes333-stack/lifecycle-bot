@@ -6,6 +6,34 @@ NO local compiler. Multi-lane architecture (Memes [9 sub-lanes], Crypto/Alts,
 Stocks, Markets, Tokenized Stocks, Forex, Metals, Commodities). Foreground
 Service with a 50+ AI-module pipeline gated through processTokenCycle.
 
+## V5.0.3922–3923 (Feb 2026) — PRICE PRECISION + DORMANT-AI ADVISOR GATE — CI ✅ (build AATE_v5.0.3926)
+
+**Operator findings:**
+- "anything under with a .00000 gets marked as 0 cost basis possibly as the price gets cut off" — phantom `$0.00000000` entryPrice on DUMOCRATS/antnald positions producing junk +99964645% PnL, rug-protection bypass, journal validation failures.
+- "all the tech is already there but the bot isn't using it" — 4 entry-quality AIs (EntryIntelligence, MomentumPredictorAI, RouteSelector, SlippageGuard) marked LIVE_ELIGIBLE in UI but never consulted before live BUYs.
+
+**3922 — `PositionPersistence.kt` PRECISION FIX + SYNTH-FROM-COST FALLBACK:**
+1. Every `Double` price field now serialized via `.toString()` (preserves full IEEE-754 precision including denormals/scientific notation) with a `putPrice()`/`getPrice()` helper. Round-trip through SharedPreferences cannot truncate sub-1e-5 prices.
+2. **Synth-from-cost fallback**: when a restored position has `entryPrice=0.0` but `costSol>0 && qtyToken>0`, reconstruct as `costSol/qtyToken`. Tagged `SYNTH_COST_DIV_QTY|<orig source>` so operators can spot rescued positions. **Retroactively rescues every existing phantom-zero position on next app cycle** — DUMOCRATS, antnald, etc. all get computable PnL/SL/TP back.
+
+**3923 — DORMANT-AI ADVISOR GATE at `liveBuy()` chokepoint:**
+1. New `consultEntryAdvisors(ts, layerTag)` helper. Permissive thresholds (never choke):
+   - `MomentumPredictorAI.shouldAvoid(mint)` → block (returns false on no-data → fresh launches unaffected).
+   - `EntryIntelligence.scoreEntry()` → block ONLY when `recommendation == AVOID && score < 25 && trainedTrades ≥ 40`.
+   - Any internal failure → ALLOW.
+2. Inserted as FIRST step of `liveBuy()`, BEFORE `ExecutionAttemptLease.acquire()` so an advisor-block cannot leak a lease.
+3. All 9 sub-lanes multiplex through `liveBuy()` (SHITCOIN/MOONSHOT/MANIPULATED/EXPRESS/QUALITY/BLUECHIP/TREASURY/DIP_HUNTER/PROJECT_SNIPER) → single insertion is the entire fix.
+4. Telemetry: `LIVE_BUY_ADVISOR_BLOCK` ForensicLogger row + `PipelineHealthCollector.labelInc()`.
+
+**Sibling audit (no butterflies):**
+- 9 sub-lanes confirmed wired (QUALITY→blueChipBuy, MANIPULATED/EXPRESS→shitCoinBuy, etc.) — not missing.
+- LiveBuyAdmissionGate/FinalDecisionGate/ExecutableOpenGate untouched.
+- GoldenTape: no assertions on EntryIntelligence/Momentum symbols → existing tests safe.
+- Brace/paren balance verified clean.
+
+**CI:** run 27827714272 → SUCCESS → APK `AATE_v5.0.3926` published.
+
+
 ## V5.0.3921 (Feb 2026) — JOURNAL RENDER + LIVE SIZING + PROVIDER QUORUM + RUNNER SL FLOOR — CI ✅ (build AATE_v5.0.3924)
 
 **Operator dump V5.0.3922:**
