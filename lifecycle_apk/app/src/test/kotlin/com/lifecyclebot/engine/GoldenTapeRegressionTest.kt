@@ -385,8 +385,8 @@ class GoldenTapeRegressionTest {
     @Test
     fun live_stale_restore_cannot_resurrect_old_fdg_approval() {
         val openGate = java.io.File("src/main/kotlin/com/lifecyclebot/engine/ExecutableOpenGate.kt").readText()
-        assertTrue("LIVE stale-WATCH restore must require current candidate version and fdgCan=true", openGate.contains("currentStateVersion") && openGate.contains("state?.fdgCan == true") && openGate.contains("candidateVersion == currentVersion"))
-        assertTrue("LIVE stale-candidate restore must be disabled; current FDG must re-approve", openGate.contains("stale candidate restore disabled for LIVE; current FDG must re-approve"))
+        assertTrue("LIVE stale-WATCH restore must be ticket based, not global-version based", openGate.contains("data class ExecutionTicket") && openGate.contains("EXEC_TICKET_RESTORED_IMMUTABLE"))
+        assertTrue("LIVE stale-candidate version churn must not kill an immutable ticket", openGate.contains("immutableTicket == null && !selectedLaneMatchesRequest") && openGate.contains("immutableTicket == null"))
     }
     @Test
     fun internet_edge_text_fallback_is_not_mislabeled_as_parsed_internet_json() {
@@ -702,8 +702,8 @@ class GoldenTapeRegressionTest {
         val gate = java.io.File("src/main/kotlin/com/lifecyclebot/engine/PreTradeHardGate.kt").readText()
         assertTrue(gate.contains("object PreTradeHardGate"))
         assertTrue(gate.contains("HOLDER_DATA_PENDING"))
-        assertTrue(gate.contains("TOP_HOLDER_FATAL_CONCENTRATION"))
-        assertTrue(gate.contains("MINT_AUTHORITY_ACTIVE"))
+        assertTrue(gate.contains("TOP_HOLDER_SIZE_CLAMP"))
+        assertTrue(gate.contains("MINT_AUTHORITY_ACTIVE_SIZE_CLAMP"))
         assertTrue(gate.contains("FREEZE_AUTHORITY_ACTIVE"))
         assertTrue(gate.contains("RUGCHECK_PENDING_OR_UNKNOWN"))
         assertTrue(gate.contains("PRETRADE_HARD_BLOCK"))
@@ -2876,7 +2876,7 @@ class GoldenTapeRegressionTest {
         val gate = java.io.File("src/main/kotlin/com/lifecyclebot/engine/ExecutableOpenGate.kt").readText()
         val safe = java.io.File("src/main/kotlin/com/lifecyclebot/engine/sell/SellOnlySafeMode.kt").readText()
         assertTrue("FDG-approved WATCH/PROBE must be restorable when current candidate is safe/liquid", gate.contains("verdictAllowedByFdg") && gate.contains("WATCH") && gate.contains("PROBE") && gate.contains("LIVE_RESTORE_STALE_WATCH_SOFT_ALLOW"))
-        assertTrue("WATCH restore must require current version, safety, liquidity, and no hardNo", gate.contains("currentStateVersion") && gate.contains("safetyOk") && gate.contains("liqOk") && gate.contains("effectiveHardNoReasons.isEmpty()"))
+        assertTrue("WATCH restore must be backed by FDG/ticket authority, safety, liquidity, and no hardNo", gate.contains("verdictAllowedByFdg") && gate.contains("liqOk") && gate.contains("effectiveHardNoReasons.isEmpty()") && gate.contains("ExecutionTicket"))
         assertTrue("SellOnlySafeMode must not let empty stale drain jobs globally block live buys", safe.contains("liveExposureToDrain") && safe.contains("liveExposureToDrain && pendingSellQueueSize > 0") && safe.contains("liveExposureToDrain && sellReconcilerActiveJobs > 0"))
         assertTrue("Real sell-only dangers must remain hard reasons", safe.contains("workerTimeoutStorm()") && safe.contains("orphanLivePositions > 0") && safe.contains("closedWithNonDustBalance > 1") && safe.contains("providerBackoffActive()"))
     }
@@ -2901,6 +2901,24 @@ class GoldenTapeRegressionTest {
         assertTrue("live MemeTrader ring must return true for all internal lanes before paper owner rotation", bot.contains("LIVE_FULL_RING_LANE_OBSERVE") && bot.contains("RuntimeModeAuthority.isLive()") && bot.contains("PROJECT_SNIPER") && bot.contains("DIP_HUNTER") && bot.contains("BLUECHIP"))
         assertTrue("paper owner rotation should remain below live full-observe branch for duplicate-loss control", bot.indexOf("LIVE_FULL_RING_LANE_OBSERVE") < bot.indexOf("MEMETRADER_OWNER_LANE"))
         assertTrue("runtime report must expose full-ring live observation", pipe.contains("MEME_RING=liveFullObserve") && pipe.contains("LIVE_FULL_RING_LANE_OBSERVE"))
+    }
+
+
+    @Test
+    fun live_buy_finality_ticket_and_executor_phase_contracts_are_pinned() {
+        val gate = java.io.File("src/main/kotlin/com/lifecyclebot/engine/ExecutableOpenGate.kt").readText()
+        val exec = java.io.File("src/main/kotlin/com/lifecyclebot/engine/Executor.kt").readText()
+        val pre = java.io.File("src/main/kotlin/com/lifecyclebot/engine/PreTradeHardGate.kt").readText()
+        val bot = java.io.File("src/main/kotlin/com/lifecyclebot/engine/BotService.kt").readText()
+        val pipe = java.io.File("src/main/kotlin/com/lifecyclebot/engine/PipelineHealthCollector.kt").readText()
+        assertTrue("FDG allow must create immutable execution tickets", gate.contains("data class ExecutionTicket") && gate.contains("EXEC_TICKET_CREATED") && gate.contains("allowedAttempts[laneKey(ticket.mint, ticket.lane)]"))
+        assertTrue("ticket restore must bypass mutable WATCH/version/lane churn", gate.contains("EXEC_TICKET_RESTORED_IMMUTABLE") && gate.contains("immutableTicket == null && !selectedLaneMatchesRequest") && gate.contains("""safetyTier.equals("UNKNOWN", true) && immutableTicket == null"""))
+        assertTrue("stale/finality failures need separate counters", exec.contains("BUY_FAILED_FINALITY") && exec.contains("BUY_FAILED_STALE_TICKET") && exec.contains("BUY_FAILED_ROUTE") && exec.contains("BUY_FAILED_SAFETY"))
+        assertTrue("executor phase counters must represent actual tx progress", listOf("EXEC_SELECTED", "EXEC_TICKET_CREATED", "QUOTE_REQUESTED", "QUOTE_OK", "SWAP_BUILT", "TX_SIGNED", "TX_SUBMITTED", "TX_CONFIRMED", "BUY_JOURNALED").all { (gate + exec).contains(it) })
+        assertTrue("tx confirmed without live journal must fail regression guard", pipe.contains("TX_CONFIRMED_WITHOUT_BUY_JOURNALED") && pipe.contains("REGRESSION_GUARDS_FAIL"))
+        assertTrue("confirmed live BUY must journal after tx confirmation", exec.indexOf("TX_CONFIRMED") < exec.indexOf("BUY_JOURNALED") && exec.contains("recordTrade(ts, trade)"))
+        assertTrue("non-mechanical live safety residues must be penalty only", pre.contains("MINT_AUTHORITY_ACTIVE_SIZE_CLAMP") && pre.contains("TOP_HOLDER_SIZE_CLAMP") && !pre.contains("""return block(ts, "MINT_AUTHORITY_ACTIVE""") && !pre.contains("""return block(ts, "TOP_HOLDER_FATAL_CONCENTRATION"""))
+        assertTrue("V3 terminal early return must keep only mechanical hard reasons", bot.contains("NO_EXECUTABLE_ROUTE") && bot.contains("NO_SELL_ROUTE") && !bot.contains("""result.reason.contains("SCORE_TOO_LOW", ignoreCase = true) ||"""))
     }
 
 }

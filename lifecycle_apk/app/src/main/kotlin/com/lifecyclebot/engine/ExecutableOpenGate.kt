@@ -32,6 +32,22 @@ object ExecutableOpenGate {
         val updatedAtMs: Long = System.currentTimeMillis(),
     )
 
+    data class ExecutionTicket(
+        val attemptId: String,
+        val mint: String,
+        val symbol: String,
+        val lane: String,
+        val mode: String,
+        val candidateVersion: Long,
+        val fdgReason: String?,
+        val signal: String,
+        val safetyTier: String,
+        val liquidityUsd: Double,
+        val rugScore: Int,
+        val hardNoReasons: List<String>,
+        val createdAtMs: Long = System.currentTimeMillis(),
+    )
+
     data class OpenVerdict(
         val allowed: Boolean,
         val reason: String,
@@ -45,7 +61,7 @@ object ExecutableOpenGate {
     )
 
     private val attemptSeq = AtomicLong(0L)
-    fun nextAttemptId(mint: String, lane: String): String = canonicalExecutionKey(mint, lane = lane)
+    fun nextAttemptId(mint: String, lane: String): String = canonicalExecutionKey(mint, lane = lane, ticketId = attemptSeq.incrementAndGet())
     fun canonicalExecutionKey(
         mint: String,
         mode: String = if (FinalExecutionPermit.isPaperMode) "PAPER" else "LIVE",
@@ -53,7 +69,8 @@ object ExecutableOpenGate {
         lane: String = "PRIMARY",
         runtimeGeneration: Long = BotRuntimeController.currentGeneration(),
         candidateVersion: Long = LaneExecutionCoordinator.candidateVersionFor(mint),
-    ): String = "$runtimeGeneration:${mode.uppercase()}:${sanitizeMintForKey(mint)}:${side.uppercase()}:$candidateVersion"
+        ticketId: Long = attemptSeq.incrementAndGet(),
+    ): String = "$runtimeGeneration:${mode.uppercase()}:${sanitizeMintForKey(mint)}:${side.uppercase()}:${canonicalLane(lane)}:$candidateVersion:$ticketId"
 
     /**
      * V5.9.1537 — SECURITY: a Solana mint is base58, 32..44 chars, [1-9A-HJ-NP-Za-km-z].
@@ -74,12 +91,39 @@ object ExecutableOpenGate {
     private val states = ConcurrentHashMap<String, EntryState>()
     private const val TTL_MS = 10 * 60 * 1000L
     private val allowedAttempts = ConcurrentHashMap<String, Pair<String, Long>>()
+    private val executionTickets = ConcurrentHashMap<String, ExecutionTicket>()
+    private const val EXECUTION_TICKET_TTL_MS = 45_000L
     private val openRequests = ConcurrentHashMap<String, Long>()
     private val blockedCooldowns = ConcurrentHashMap<String, Pair<String, Long>>()
     private val restorePenalties = ConcurrentHashMap<String, OpenVerdict>()
 
     fun restorePenaltyForAttempt(attemptId: String): OpenVerdict? = restorePenalties[attemptId]
     fun consumeRestorePenalty(attemptId: String): OpenVerdict? = restorePenalties.remove(attemptId)
+
+    private fun ticketLive(ticket: ExecutionTicket, now: Long = System.currentTimeMillis()): Boolean =
+        now - ticket.createdAtMs <= EXECUTION_TICKET_TTL_MS
+
+    fun ticketForAttempt(attemptId: String): ExecutionTicket? = executionTickets[attemptId]?.takeIf { ticketLive(it) }
+
+    private fun publishTicket(ticket: ExecutionTicket) {
+        val now = System.currentTimeMillis()
+        executionTickets.entries.removeIf { now - it.value.createdAtMs > EXECUTION_TICKET_TTL_MS }
+        allowedAttempts.entries.removeIf { now - it.value.second > ALLOWED_ATTEMPT_TTL_MS }
+        executionTickets[ticket.attemptId] = ticket
+        allowedAttempts[laneKey(ticket.mint, ticket.lane)] = ticket.attemptId to now
+        allowedAttempts[ticket.mint.trim()] = ticket.attemptId to now
+        try { PipelineHealthCollector.labelInc("EXEC_TICKET_CREATED") } catch (_: Throwable) {}
+        try { ForensicLogger.lifecycle("EXEC_TICKET_CREATED", "attemptId=${ticket.attemptId} mint=${ticket.mint.take(10)} symbol=${ticket.symbol} lane=${ticket.lane} version=${ticket.candidateVersion} liq=${ticket.liquidityUsd.toInt()} safety=${ticket.safetyTier}") } catch (_: Throwable) {}
+    }
+
+    private fun trueHardTicketKill(reason: String): Boolean {
+        val r = reason.uppercase()
+        return r.contains("ZERO_LIQUIDITY") || r.contains("NO_EXECUTABLE_ROUTE") ||
+            r.contains("NO_SELL_ROUTE") || r.contains("BASE_OR_QUOTE_MINT_AS_TARGET") ||
+            r.contains("DUPLICATE_OPEN") || r.contains("CONFIRMED_RUG") ||
+            r.contains("RUGCHECK_100") || r.contains("RC_SCORE_0") ||
+            r.contains("TRUE_DUPLICATE_OPEN")
+    }
 
     // V5.9.1476 (spec item 4) — per-(mint,log) last-emit ms for PRE_FDG_NOT_BUY drop throttle.
     private val preFdgDropDedupe = ConcurrentHashMap<String, Long>()
@@ -225,7 +269,7 @@ object ExecutableOpenGate {
             // WATCH first. Keep HARD_NO/true NO_BUY blocked; restore only FDG-approved
             // WATCH/PROBE/PROBE_ONLY/BUY with no hardNo.
             val verdictAllowedByFdg = state?.fdgCan == true && verdictUpper in setOf("BUY", "PROBE_ONLY", "WATCH", "PROBE")
-            val latestAllows = currentStateVersion && verdictAllowedByFdg
+            val latestAllows = (currentStateVersion || mode.equals("LIVE", true)) && verdictAllowedByFdg
             val safetyOk = currentStateVersion && (currentSafetyTier.equals("SAFE", true) || currentSafetyTier.equals("CAUTION", true) ||
                 state?.safetyTier.equals("SAFE", true) || state?.safetyTier.equals("CAUTION", true))
             // V5.9.1559 — LIVE finality restore must use the CURRENT candidate
@@ -278,6 +322,7 @@ object ExecutableOpenGate {
     fun resetForTests() {
         states.clear()
         allowedAttempts.clear()
+        executionTickets.clear()
         openRequests.clear()
         blockedCooldowns.clear()
     }
@@ -372,19 +417,11 @@ object ExecutableOpenGate {
         val paperRuntime = try { RuntimeModeAuthority.isPaper() } catch (_: Throwable) { false }
         val finalHardNo = hardNoReasons.toMutableList().apply {
             if (liquidityUsd <= 0.0) add("ZERO_LIQUIDITY")
-            if (safetyTier.equals("UNKNOWN", true)) add("PRE_FDG_SAFETY_CONTEXT_MISSING")
-            // V5.9.1216 — PAPER treats missing RC context as learnable unknown,
-            // same philosophy as RC_PENDING / low-RC sampling. LIVE keeps strict
-            // pre-FDG rug context finality.
-            if (rugScore < 0 && !paperRuntime) add("PRE_FDG_RUG_CONTEXT_MISSING")
-            // V5.9.1214 — in PAPER only confirmed rug score 0 is fatal.
-            // Score 1 is RC_PENDING. Scores 2..10 are low confirmed RC samples
-            // with soft paper penalties; LIVE treats only 2..10 as hard finality.
-            // V5.9.1577 — score 1 is RC_PENDING, not confirmed risk. Live log
-            // showed FDG/style-approved fresh launches later dropped by finality as
-            // hardNo RC_SCORE_1 / WATCH. Only confirmed rug score 0 remains fatal
-            // here; confirmed low scores 2..10 stay strict in LIVE.
-            if (rugScore == 0 || (rugScore in 2..10 && !paperRuntime)) add("RC_SCORE_$rugScore")
+            // V5.0.3915 — hard-block residue purge. FDG/ticket hardNo may only
+            // encode mechanical impossibility / confirmed rug. Missing safety, pending
+            // RC, low-but-nonzero RC, LP/mint/dev/holder warnings are penalty/size
+            // clamps downstream, not pre-submit finality killers.
+            if (rugScore == 0) add("RC_SCORE_0")
         }.distinct()
         // V5.9.1545 — STALE-VERDICT LEAK ROOT FIX (re-surfaced choke).
         // The snapshot showed candidates with FDG_ALLOW=PROBE_ONLY (canExecute=true)
@@ -452,6 +489,26 @@ object ExecutableOpenGate {
             // always showed verdicts produced=0 despite FDG running. phase() bumps phaseCounts;
             // decision() bumps verdictCounts — both are needed.
             val executableFdg = canExecute && finalHardNo.isEmpty() && (finalVerdict == "BUY" || finalVerdict == "PROBE_ONLY")
+            if (executableFdg) {
+                val ticketLane = canonicalLane(lane)
+                val ticketId = canonicalExecutionKey(mint, mode = if (paperRuntime) "PAPER" else "LIVE", side = "BUY", lane = ticketLane, candidateVersion = candidateVersion)
+                publishTicket(
+                    ExecutionTicket(
+                        attemptId = ticketId,
+                        mint = mint,
+                        symbol = symbol,
+                        lane = ticketLane,
+                        mode = if (paperRuntime) "PAPER" else "LIVE",
+                        candidateVersion = candidateVersion,
+                        fdgReason = reason,
+                        signal = signal,
+                        safetyTier = safetyTier,
+                        liquidityUsd = liquidityUsd,
+                        rugScore = rugScore,
+                        hardNoReasons = finalHardNo,
+                    )
+                )
+            }
             val verdictLabel = if (executableFdg) finalVerdict else "BLOCK"
             try { ForensicLogger.decision(ForensicLogger.PHASE.FDG, symbol, verdictLabel, 0, 0, reason ?: finalHardNo.firstOrNull() ?: verdictLabel) } catch (_: Throwable) {}
             if (executableFdg) {
@@ -768,6 +825,9 @@ object ExecutableOpenGate {
         if (RuntimeConfigOverlay.isTradingPaused()) {
             return blocked("EXEC_OPEN_BLOCKED_RUNTIME_PAUSED", "RUNTIME_MITIGATION_PAUSE")
         }
+        val currentCandidateVersion = LaneExecutionCoordinator.candidateVersionFor(mint)
+        val immutableTicket = ticketForAttempt(attemptId)
+
         if (BirdeyeBudgetGate.isEntryBudgetLockedDown()) {
             // V5.9.1568 — budget exhaustion must not halt PAPER learning. Paid
             // endpoint lockdown should reduce enrichment quality, not stop the
@@ -795,7 +855,7 @@ object ExecutableOpenGate {
         )
         val paperModelRugFatal = modeUpper == "PAPER" && fatalReason.contains("EXTREME_RUG_RISK", ignoreCase = true)
         val paperLearnableV3Fatal = paperRcPendingV3Fatal || paperModelRugFatal
-        if ((v3Decision == "BLOCK_FATAL" || v3Decision == "BLOCKED" || band == "BLOCK_FATAL") && !paperLearnableV3Fatal) {
+        if (immutableTicket == null && (v3Decision == "BLOCK_FATAL" || v3Decision == "BLOCKED" || band == "BLOCK_FATAL") && !paperLearnableV3Fatal) {
             return blocked("EXEC_OPEN_BLOCKED_FATAL_V3", fatalReason)
         }
         if (paperLearnableV3Fatal) {
@@ -807,8 +867,20 @@ object ExecutableOpenGate {
             } catch (_: Throwable) {}
         }
 
-        val currentCandidateVersion = LaneExecutionCoordinator.candidateVersionFor(mint)
-        candidateInvalidReason(
+        if (immutableTicket != null && modeUpper == "LIVE") {
+            val ticketExpired = !ticketLive(immutableTicket)
+            val ticketHardNo = immutableTicket.hardNoReasons.firstOrNull { trueHardTicketKill(it) }
+            if (ticketExpired) return blocked("EXEC_OPEN_BLOCKED_STALE_TICKET", "TICKET_TTL_EXPIRED")
+            if (ticketHardNo != null) return blocked("EXEC_OPEN_BLOCKED_TICKET_HARD_SAFETY", ticketHardNo)
+            if (liquidityUsd <= 0.0 && immutableTicket.liquidityUsd <= 0.0) return blocked("EXEC_OPEN_BLOCKED_ZERO_LIQUIDITY", "ZERO_LIQUIDITY")
+            try {
+                ForensicLogger.lifecycle(
+                    "EXEC_TICKET_RESTORED_IMMUTABLE",
+                    "attemptId=$attemptId mint=${mint.take(10)} symbol=$symbol lane=$lane ticketLane=${immutableTicket.lane} ticketVersion=${immutableTicket.candidateVersion} currentVersion=$currentCandidateVersion preFdg=$preFdgVerdict"
+                )
+                PipelineHealthCollector.labelInc("EXEC_TICKET_RESTORED_IMMUTABLE")
+            } catch (_: Throwable) {}
+        } else candidateInvalidReason(
             state = state,
             selectedLane = selectedLane,
             requestedLane = lane,
@@ -829,7 +901,7 @@ object ExecutableOpenGate {
             }
             return dropped(log, reason)
         }
-        if (!selectedLaneMatchesRequest(selectedLane, lane)) {
+        if (immutableTicket == null && !selectedLaneMatchesRequest(selectedLane, lane)) {
             // V5.9.1499 — LANE-CONTENTION DEDUP (not lost volume). When two REAL
             // specialist lanes both qualify the same mint, LaneExecutionCoordinator
             // elects ONE primary (priority + recent-WR based, with upgrade-steal).
@@ -868,7 +940,7 @@ object ExecutableOpenGate {
                 } catch (_: Throwable) {}
             }
         }
-        if (safetyTier.equals("UNKNOWN", true)) {
+        if (safetyTier.equals("UNKNOWN", true) && immutableTicket == null) {
             return blocked("EXEC_OPEN_BLOCKED_SAFETY_CONTEXT_MISSING", "PRE_FDG_SAFETY_CONTEXT_MISSING", shadow = mode == "PAPER")
         }
         // V5.9.1504 — RUG-CONTEXT STRICT FALLBACK (master throughput unblock).
@@ -887,7 +959,7 @@ object ExecutableOpenGate {
         if (rug == 0 && modeUpper == "LIVE") {
             return blocked("EXEC_OPEN_BLOCKED_CONFIRMED_RUG", "PRE_FDG_CONFIRMED_RUG_SCORE_0", shadow = false)
         }
-        if (rug < 0 && modeUpper == "LIVE") {
+        if (rug < 0 && modeUpper == "LIVE" && immutableTicket == null) {
             // PENDING rugcheck (-1). Apply the same STRICT fallback FDG uses.
             val sEntry = state?.entryScore ?: -1
             val tierKnown = !safetyTier.equals("UNKNOWN", true)
@@ -937,12 +1009,10 @@ object ExecutableOpenGate {
                 return blocked("EXEC_OPEN_BLOCKED_SIGNAL_NOT_BUY", signal, shadow = mode == "PAPER")
             }
         }
-        // V5.9.1579b — RC=1 is PENDING/needs-more-data, not confirmed risk.
-        // Paper blocks only confirmed rug score 0; live blocks confirmed rug 0
-        // and low confirmed 2..10. Do NOT reintroduce the RC_SCORE_1 live
-        // final-open blocker after FDG/style approval.
-        if (rug == 0 || (rug in 2..10 && modeUpper == "LIVE")) {
-            return blocked("EXEC_OPEN_BLOCKED_RUG_SCORE", "RC_SCORE_$rug", shadow = mode == "PAPER")
+        // V5.0.3915 — only confirmed rug is a final-open hard block. Low/nonzero
+        // RC scores are risk penalties, not mechanical impossibility.
+        if (rug == 0) {
+            return blocked("EXEC_OPEN_BLOCKED_RUG_SCORE", "RC_SCORE_0", shadow = mode == "PAPER")
         }
         if (fdgCan == false) {
             return blocked("EXEC_OPEN_BLOCKED_FDG_FINAL", fdgReason, shadow = mode == "PAPER")
@@ -957,7 +1027,7 @@ object ExecutableOpenGate {
         if ((signal.equals("WAIT", ignoreCase = true) || fdgReason.contains("WAIT", ignoreCase = true)) && fdgCan != true) {
             return blocked("EXEC_OPEN_BLOCKED_SIGNAL_WAIT", signal.ifBlank { fdgReason }, shadow = mode == "PAPER")
         }
-        val execKey = canonicalExecutionKey(mint, mode = mode, side = "BUY", lane = lane)
+        val execKey = attemptId.ifBlank { canonicalExecutionKey(mint, mode = mode, side = "BUY", lane = lane) }
         val now = System.currentTimeMillis()
         openRequests.entries.removeIf { now - it.value > ALLOWED_ATTEMPT_TTL_MS }
         val laneAttemptKey = laneKey(mint, lane)

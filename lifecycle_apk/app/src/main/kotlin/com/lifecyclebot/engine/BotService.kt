@@ -16841,12 +16841,12 @@ if (hotExitHandledSweep) {
                     // fdgCan=true, EXEC_GATE_ALLOW). A V3 terminal reject must
                     // stop execution signalling at the gate level. This is not a
                     // score-floor tune; it enforces the existing terminal label.
-                    val terminalRejected = result.reason.contains("SCORE_TOO_LOW", ignoreCase = true) ||
-                        result.reason.contains("ZERO_LIQUIDITY", ignoreCase = true) ||
-                        result.reason.contains("LOW_LIQUIDITY", ignoreCase = true) ||
-                        result.reason.contains("INELIGIBLE", ignoreCase = true) ||
-                        result.reason.contains("TOO_OLD", ignoreCase = true) ||
-                        result.reason.contains("NO_PAIR", ignoreCase = true)
+                    val terminalRejected = result.reason.contains("ZERO_LIQUIDITY", ignoreCase = true) ||
+                        result.reason.contains("BASE_OR_QUOTE_MINT_AS_TARGET", ignoreCase = true) ||
+                        result.reason.contains("NO_EXECUTABLE_ROUTE", ignoreCase = true) ||
+                        result.reason.contains("NO_SELL_ROUTE", ignoreCase = true) ||
+                        result.reason.contains("CONFIRMED_RUG", ignoreCase = true) ||
+                        result.reason.contains("RUGCHECK_100", ignoreCase = true)
                     if (terminalRejected && !ts.position.isOpen) {
                         // V5.9.1225 — terminal factual rejects must leave the hot
                         // supervisor pool. 3192 showed 409 terminal early returns

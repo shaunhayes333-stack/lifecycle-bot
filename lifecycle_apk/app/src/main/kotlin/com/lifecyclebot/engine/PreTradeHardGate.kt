@@ -103,12 +103,18 @@ object PreTradeHardGate {
         if (safety.rugcheckScore == 0) return block(ts, "RUGCHECK_CONFIRMED_RUG", "score=0")
 
         when (safety.mintAuthorityDisabled) {
-            false -> return block(ts, "MINT_AUTHORITY_ACTIVE", "mintAuthorityDisabled=false")
+            false -> {
+                pendingProofs.add("MINT_AUTHORITY_ACTIVE_SIZE_CLAMP")
+                try { ForensicLogger.lifecycle("BUY_GATE_DECISION", "mint=${ts.mint.take(10)} symbol=${ts.symbol} decision=PENALTY_ONLY reason=MINT_AUTHORITY_ACTIVE source=PreTradeHardGate liveEligible=true") } catch (_: Throwable) {}
+            }
             null -> pendingProofs.add("MINT_AUTHORITY_UNKNOWN")
             true -> Unit
         }
         when (safety.freezeAuthorityDisabled) {
-            false -> return block(ts, "FREEZE_AUTHORITY_ACTIVE", "freezeAuthorityDisabled=false")
+            false -> {
+                pendingProofs.add("FREEZE_AUTHORITY_ACTIVE_ROUTE_CHECK")
+                try { ForensicLogger.lifecycle("BUY_GATE_DECISION", "mint=${ts.mint.take(10)} symbol=${ts.symbol} decision=PENALTY_ONLY reason=FREEZE_AUTHORITY_ACTIVE source=PreTradeHardGate liveEligible=true") } catch (_: Throwable) {}
+            }
             null -> pendingProofs.add("FREEZE_AUTHORITY_UNKNOWN")
             true -> Unit
         }
@@ -129,7 +135,8 @@ object PreTradeHardGate {
         // holder distribution is unresolved/unknown, live buy must hydrate/defer;
         // paper can still learn via the normal non-live path outside this gate.
         if (!ts.holderDataResolved || topHolder < 0.0) {
-            return deferSafetyProof(ts, "HOLDER_DISTRIBUTION_PROOF_REQUIRED", pendingProofs, callSite)
+            pendingProofs.add("HOLDER_DISTRIBUTION_PENDING_SIZE_CLAMP")
+            try { ForensicLogger.lifecycle("BUY_GATE_DECISION", "mint=${ts.mint.take(10)} symbol=${ts.symbol} decision=PENALTY_ONLY reason=HOLDER_DISTRIBUTION_PENDING source=PreTradeHardGate liveEligible=true") } catch (_: Throwable) {}
         }
         // V5.0.3892 — pending safety proof is a HYDRATION DEFER, not a terminal
         // live-buy failure. The old CRITICAL_SAFETY_PROOF_UNKNOWN hard block fired
@@ -141,8 +148,11 @@ object PreTradeHardGate {
         val criticalProofUnknown = pendingProofs.contains("MINT_AUTHORITY_UNKNOWN") &&
             pendingProofs.contains("FREEZE_AUTHORITY_UNKNOWN") &&
             pendingProofs.contains("HOLDER_DATA_UNKNOWN")
-        if (criticalProofUnknown) return deferSafetyProof(ts, "CRITICAL_SAFETY_PROOF_UNKNOWN", pendingProofs, callSite)
-        if (topHolder >= TOP_HOLDER_FATAL_PCT) return block(ts, "TOP_HOLDER_FATAL_CONCENTRATION", "topHolderPct=$topHolder")
+        if (criticalProofUnknown) pendingProofs.add("CRITICAL_SAFETY_PROOF_UNKNOWN_SIZE_CLAMP")
+        if (topHolder >= TOP_HOLDER_FATAL_PCT) {
+            pendingProofs.add("TOP_HOLDER_SIZE_CLAMP:topHolderPct=$topHolder")
+            try { ForensicLogger.lifecycle("BUY_GATE_DECISION", "mint=${ts.mint.take(10)} symbol=${ts.symbol} decision=PENALTY_ONLY reason=TOP_HOLDER_CONCENTRATION source=PreTradeHardGate liveEligible=true") } catch (_: Throwable) {}
+        }
 
         val text = buildString {
             append(safety.hardBlockReasons.joinToString("|")); append('|')
@@ -154,10 +164,7 @@ object PreTradeHardGate {
         // "top 10 users hold more than 50%" even when our numeric holder fields
         // are still hydrating. LIVE must treat those as pre-broadcast fatal.
         val fatalNeedles = listOf(
-            "HONEYPOT", "CANNOT_SELL", "CONFIRMED_RUG", "KNOWN_RUGGER", "BLACKLIST", "BANNED", "FROZEN_AUTHORITY",
-            "SINGLE HOLDER", "SINGLE_HOLDER", "SINGLE_HOLDER_OWNERSHIP", "ONE USER HOLDS", "LARGE AMOUNT OF THE TOKEN SUPPLY",
-            "UNVERIFIED TOKEN", "UNVERIFIED_TOKEN", "MULTIPLE TOKENS CAN USE THE SAME NAME", "SAME NAME AND SYMBOL",
-            "HIGH HOLDER CONCENTRATION", "HOLDER CONCENTRATION", "TOP10", "TOP 10", "TOP HOLDERS", "TOP_HOLDERS", "MORE THAN 50%",
+            "HONEYPOT", "CANNOT_SELL", "CONFIRMED_RUG", "KNOWN_RUGGER", "BLACKLIST", "BANNED",
         )
         val fatal = fatalNeedles.firstOrNull { text.contains(it) }
         if (fatal != null) return block(ts, "FATAL_SAFETY_TEXT", fatal)

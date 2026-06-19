@@ -1153,6 +1153,66 @@ class ExecutionAuthorityInvariantTest {
 
 
     @Test
+    fun live_fdg_allow_watch_before_signature_proceeds_with_execution_ticket() {
+        resetAuthorities(paper = false)
+        ExecutableOpenGate.resetForTests()
+        LaneExecutionCoordinator.resetForTests()
+        val mint = "WatchTicket111111111111111111111111111111"
+        ExecutableOpenGate.recordFdg(
+            mint = mint,
+            symbol = "WTCH",
+            lane = "SHITCOIN",
+            canExecute = true,
+            reason = null,
+            signal = "WATCH",
+            rugScore = 90,
+            safetyTier = "SAFE",
+            liquidityUsd = 2500.0,
+            preFdgVerdict = "WATCH",
+        )
+        val attempt = ExecutableOpenGate.recentAllowedAttemptId(mint, "SHITCOIN")
+        assertNotNull("FDG allow must create an immutable execution ticket", attempt)
+        val v = ExecutableOpenGate.canOpenExecutablePosition(
+            mint, "WTCH", 90, "LIVE", "SHITCOIN", "test.watchTicket", attemptId = attempt!!,
+            liveLiquidityUsd = 2500.0, liveSafetyTier = "SAFE",
+        )
+        assertTrue("pre-signature WATCH must not block tx submission", v.allowed)
+    }
+
+    @Test
+    fun live_fdg_ticket_survives_later_candidate_version_rescore() {
+        resetAuthorities(paper = false)
+        ExecutableOpenGate.resetForTests()
+        LaneExecutionCoordinator.resetForTests()
+        val mint = "StaleTicket11111111111111111111111111111"
+        ExecutableOpenGate.recordFdg(mint, "STAL", "MOONSHOT", true, null, signal = "BUY", rugScore = 90, safetyTier = "SAFE", liquidityUsd = 3000.0)
+        val attempt = ExecutableOpenGate.recentAllowedAttemptId(mint, "MOONSHOT")
+        assertNotNull(attempt)
+        // Simulate later lane/fanout churn moving the global candidate version.
+        LaneExecutionCoordinator.canRequestExecution(mint, "SHITCOIN")
+        LaneExecutionCoordinator.releaseIfPrimary(mint, "SHITCOIN", "test_rescore")
+        LaneExecutionCoordinator.canRequestExecution(mint, "QUALITY")
+        val v = ExecutableOpenGate.canOpenExecutablePosition(
+            mint, "STAL", 90, "LIVE", "MOONSHOT", "test.staleTicket", attemptId = attempt!!,
+            liveLiquidityUsd = 3000.0, liveSafetyTier = "SAFE",
+        )
+        assertTrue("later candidateVersion churn must not invalidate an approved ticket", v.allowed)
+    }
+
+    @Test
+    fun live_zero_liquidity_without_ticket_remains_hard_block() {
+        resetAuthorities(paper = false)
+        ExecutableOpenGate.resetForTests()
+        val v = ExecutableOpenGate.canOpenExecutablePosition(
+            "ZeroLiq11111111111111111111111111111111", "ZLIQ", 90, "LIVE", "SHITCOIN", "test.zero",
+            liveLiquidityUsd = 0.0, liveSafetyTier = "SAFE",
+        )
+        assertFalse(v.allowed)
+        assertTrue(v.reason.contains("ZERO") || v.reason.contains("NO_FINAL") || v.reason.contains("TOKEN_STATE_CHANGED"))
+    }
+
+
+    @Test
     fun regression_guard_summary_fail_is_build_blocking() {
         val checks = RuntimeRegressionGuards.evaluate(
             RuntimeRegressionGuards.Input(

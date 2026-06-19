@@ -7128,8 +7128,19 @@ class Executor(
     fun positionDidOpen(ts: TokenState): Boolean =
         ts.position.qtyToken > 0.0 || ts.position.pendingVerify || ts.position.isOpen
 
+    private fun buyPhase(label: String) {
+        try { PipelineHealthCollector.labelInc(label) } catch (_: Throwable) {}
+    }
+
     private fun emitLiveBuyFail(ts: TokenState, sol: Double, reason: String, detail: String = "") {
         try {
+            val r = reason.uppercase()
+            when {
+                r.contains("FINALITY") || r.contains("WATCH") -> buyPhase("BUY_FAILED_FINALITY")
+                r.contains("STALE") || r.contains("TICKET") || r.contains("TOKEN_STATE_CHANGED") -> buyPhase("BUY_FAILED_STALE_TICKET")
+                r.contains("QUOTE") || r.contains("ROUTE") || r.contains("PROVIDER") || r.contains("SWAP") -> buyPhase("BUY_FAILED_ROUTE")
+                r.contains("SAFETY") || r.contains("BLACKLIST") || r.contains("RUG") || r.contains("WRONG_TARGET") -> buyPhase("BUY_FAILED_SAFETY")
+            }
             ForensicLogger.exec(
                 "LIVE_BUY_FAIL",
                 ts.symbol,
@@ -8915,12 +8926,15 @@ class Executor(
             if (!executableOpen.allowed) {
                 ExecutionRootCauseTrace.finality("BUY", "LIVE_BUY_FINALITY_BLOCK", ts, "attemptId=${executableOpen.attemptId} reason=${executableOpen.reason}")
                 ErrorLogger.warn("Executor", "🚫 LIVE_BUY_BLOCKED_FINALITY: ${ts.symbol} | attemptId=${executableOpen.attemptId} | ${executableOpen.reason}")
-                emitLiveBuyFail(ts, sol, "FINALITY_BLOCK:${executableOpen.reason.take(72).replace(' ', '_')}", executableOpen.reason)
+                val failBucket = if (executableOpen.reason.contains("STALE", true) || executableOpen.reason.contains("TICKET", true) || executableOpen.reason.contains("TOKEN_STATE_CHANGED", true)) "STALE_TICKET:${executableOpen.reason.take(72).replace(' ', '_')}" else "FINALITY_BLOCK:${executableOpen.reason.take(72).replace(' ', '_')}"
+                emitLiveBuyFail(ts, sol, failBucket, executableOpen.reason)
                 buyTerminalFail("BUY_TERMINAL_NO_EXECUTABLE_ROUTE:FINALITY_${executableOpen.reason.take(60)}")
                 return false
             }
             finalityVerdict = executableOpen
         }
+        buyPhase("EXEC_SELECTED")
+        try { ForensicLogger.lifecycle("EXEC_SELECTED", "mint=${ts.mint.take(10)} symbol=${ts.symbol} lane=$layerTag attemptId=$recoveredLiveAttemptId") } catch (_: Throwable) {}
 
         // V5.9.801 — operator audit Fix D: WR recovery entry-size dampener (live).
         // Same dampener applied in paperBuy(); duplicated here so the
@@ -9309,6 +9323,7 @@ class Executor(
                 throw Exception("PROVIDER_DISABLED:JUPITER_QUOTE $disabledReason")
             }
             for (slip in slippageLadder) {
+                buyPhase("QUOTE_REQUESTED")
                 LiveTradeLogStore.log(
                     tradeKey, ts.mint, ts.symbol, "BUY",
                     LiveTradeLogStore.Phase.BUY_QUOTE_TRY,
@@ -9332,6 +9347,7 @@ class Executor(
                     )
                     if (quote != null) {
                         if (slip != buyBaseSlippage) onLog("BUY: quote OK at ${slip}bps slippage", ts.mint)
+                        buyPhase("QUOTE_OK")
                         LiveTradeLogStore.log(
                             tradeKey, ts.mint, ts.symbol, "BUY",
                             LiveTradeLogStore.Phase.BUY_QUOTE_OK,
@@ -9404,6 +9420,7 @@ class Executor(
                         senderTipLamports = effectiveJitoTipLamports(c, urgent = false),
                     )
             txResult = txResultLocal
+            buyPhase("SWAP_BUILT")
             LiveTradeLogStore.log(
                 tradeKey, ts.mint, ts.symbol, "BUY",
                 LiveTradeLogStore.Phase.BUY_TX_BUILT,
@@ -9483,8 +9500,11 @@ class Executor(
                 // V5.9.495 — PUMP-FIRST landed; skip the entire Jupiter pipeline.
                 sig = pumpFirstResult.first
                 qty = pumpFirstResult.second
+                buyPhase("TX_SIGNED")
                 try { ForensicLogger.lifecycle("BUY_TX_SUBMITTED", "mint=${ts.mint.take(10)} symbol=${ts.symbol} route=PUMPPORTAL sig=${sig.take(16)}") } catch (_: Throwable) {}
                 try { PipelineHealthCollector.labelInc("BUY_TX_SUBMITTED") } catch (_: Throwable) {}
+                buyPhase("TX_SUBMITTED")
+                buyPhase("TX_CONFIRMED")
                 // V5.9.602 — Pump-first gets the same lifecycle ledger as
                 // Jupiter: pending intent, confirmed tx, then HELD only after
                 // the verifier proves tokens landed.
@@ -9501,9 +9521,12 @@ class Executor(
                 val ultraReqId = if (q.isUltra) tx.requestId else null
                 try { PipelineHealthCollector.labelInc("JUPITER_SWAP_BUILD_OK") } catch (_: Throwable) {}
                 sig = wallet.signSendAndConfirm(tx.txBase64, useJito, jitoTip, ultraReqId, c.jupiterApiKey, tx.isRfqRoute, tx.senderCompatible)
+                buyPhase("TX_SIGNED")
                 try { ForensicLogger.lifecycle("BUY_TX_SUBMITTED", "mint=${ts.mint.take(10)} symbol=${ts.symbol} route=${q.router} sig=${sig.take(16)}") } catch (_: Throwable) {}
                 try { PipelineHealthCollector.labelInc("BUY_TX_SUBMITTED") } catch (_: Throwable) {}
+                buyPhase("TX_SUBMITTED")
                 try { PipelineHealthCollector.labelInc("JUPITER_CONFIRM_OK") } catch (_: Throwable) {}
+                buyPhase("TX_CONFIRMED")
                 LiveTradeLogStore.log(
                     tradeKey, ts.mint, ts.symbol, "BUY",
                     LiveTradeLogStore.Phase.BUY_CONFIRMED,
@@ -9605,6 +9628,7 @@ class Executor(
                 tradingModeEmoji = if (layerTagEmoji.isNotBlank()) layerTagEmoji else currentMode.emoji,
             )
             recordTrade(ts, trade)
+            buyPhase("BUY_JOURNALED")
             security.recordTrade(trade)
 
             // V5.9.602 — no route gets inline HELD registration here.

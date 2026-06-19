@@ -2013,7 +2013,11 @@ object PipelineHealthCollector {
             sb.append("  Helius role: HOT_PATH=false critical=false\n")
             sb.append("  Helius degraded: ${if (!KeyValidator.isLive("helius")) "HELIUS_DEGRADED_NON_CRITICAL" else "ok"}\n")
             sb.append("  Jupiter quote/build/confirm: quoteFail=${lc("JUPITER_QUOTE_FAIL")} buildOk=${lc("JUPITER_SWAP_BUILD_OK")} confirmOk=${lc("JUPITER_CONFIRM_OK")} quoteRejected=${lc("JUPITER_QUOTE_REJECTED")}\n")
-            sb.append("  Buy terminal: planOk=${lc("BUY_PLAN_OK")} txSubmitted=${lc("BUY_TX_SUBMITTED")} ok=${lc("BUY_TERMINAL_OK")} fail=${lc("BUY_TERMINAL_FAIL")} duplicateSuppressed=${lc("EXEC_DUPLICATE_SUPPRESSED")} backoff=${lc("EXEC_RETRY_BACKOFF_SET")}\n")
+            sb.append("  Buy terminal: planOk=${lc("BUY_PLAN_OK")} execSelected=${lc("EXEC_SELECTED")} ticket=${lc("EXEC_TICKET_CREATED")} quoteReq=${lc("QUOTE_REQUESTED")} quoteOk=${lc("QUOTE_OK")} swapBuilt=${lc("SWAP_BUILT")} txSigned=${lc("TX_SIGNED")} txSubmitted=${lc("TX_SUBMITTED")} txConfirmed=${lc("TX_CONFIRMED")} journaled=${lc("BUY_JOURNALED")} ok=${lc("BUY_TERMINAL_OK")} fail=${lc("BUY_TERMINAL_FAIL")} duplicateSuppressed=${lc("EXEC_DUPLICATE_SUPPRESSED")} backoff=${lc("EXEC_RETRY_BACKOFF_SET")}\n")
+            if (lc("TX_CONFIRMED") > 0L && lc("BUY_JOURNALED") <= 0L) {
+                sb.append("  REGRESSION_GUARDS_FAIL: TX_CONFIRMED_WITHOUT_BUY_JOURNALED txConfirmed=${lc("TX_CONFIRMED")} journaled=${lc("BUY_JOURNALED")}\n")
+            }
+            sb.append("  Buy fail buckets: finality=${lc("BUY_FAILED_FINALITY")} route=${lc("BUY_FAILED_ROUTE")} staleTicket=${lc("BUY_FAILED_STALE_TICKET")} safety=${lc("BUY_FAILED_SAFETY")}\n")
             sb.append("  Live lane policy: CYCLIC=liveSoftSized MEME_RING=liveFullObserve MANIPULATED=dumpSoftSized TREASURY=dumpSoftSized fullRingObserve=${lc("LIVE_FULL_RING_LANE_OBSERVE")} dumpSizeEvents=${lc("DUMP_REGIME_LIVE_SIZE_SHAPED")} noPairHeldHot=${lc("INTAKE_NO_PAIR_HELD_HOT_FOR_HYDRATION")}\n")
         } catch (_: Throwable) { /* capability report never fails dumpText */ }
 
