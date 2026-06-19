@@ -990,9 +990,9 @@ class GoldenTapeRegressionTest {
     fun live_deadness_must_not_hide_behind_no_open_committed_or_paper_shadow() {
         val exec = java.io.File("src/main/kotlin/com/lifecyclebot/engine/Executor.kt").readText()
         assertTrue(exec.contains("emitLiveBuyFail"))
-        assertTrue(exec.contains("NO_OPEN_COMMITTED_AFTER_LIVEBUY"))
+        assertTrue(exec.contains("NO_OPEN_COMMITTED_AFTER_LIVEBUY_OBSERVED"))
         assertTrue(exec.contains("LIVE_BUY_FAIL_"))
-        assertTrue(exec.contains("emitLiveBuyFail(ts, liveSol, \"NO_OPEN_COMMITTED_AFTER_LIVEBUY\")"))
+        assertFalse("outer no-open observation must not double-count as LIVE_BUY_FAIL", exec.contains("emitLiveBuyFail(ts, liveSol, \"NO_OPEN_COMMITTED_AFTER_LIVEBUY\")"))
 
         val guard = java.io.File("src/main/kotlin/com/lifecyclebot/engine/ExecutionRouteGuard.kt").readText()
         assertTrue(guard.contains("PAPER_ROUTE_BLOCKED_IN_LIVE_USE_SHADOW_PATH"))
@@ -2739,6 +2739,17 @@ class GoldenTapeRegressionTest {
         assertTrue("Runtime fault must key supervisor worker disease off recent pressure", guardian.contains("workerTimeoutRecent2m") && guardian.contains("recentEventCount(\"LIFECYCLE/SUPERVISOR_WORKER_TIMEOUT\", 120_000L)") && guardian.contains("workerTimeoutRecent2m > 15L"))
         assertTrue("Report must show cumulative and recent supervisor timeouts separately", phc.contains("WORKER_TIMEOUT_RECENT") && phc.contains("recent2m=${'$'}supTimeoutRecent2m") && phc.contains("cumulative=${'$'}supTimeout"))
         assertFalse("Cumulative workerTimeout >100 must not directly trigger EXIT_SWEEP_UNSTABLE", guardian.contains("workerTimeout > 100L"))
+    }
+
+    @Test
+    fun live_buy_admission_does_not_global_safe_mode_on_jupiter_fallback_backoff() {
+        val safe = java.io.File("src/main/kotlin/com/lifecyclebot/engine/sell/SellOnlySafeMode.kt").readText()
+        val exec = java.io.File("src/main/kotlin/com/lifecyclebot/engine/Executor.kt").readText()
+
+        assertTrue("Pump-first live buy admission must still respect pump/finality provider backoff", safe.contains("pumpportal.fun") && safe.contains("pump.fun") && safe.contains("mainnet.helius-rpc.com") && safe.contains("api.mainnet-beta.solana.com"))
+        assertFalse("Jupiter fallback backoff must not globally trigger SELL_ONLY_SAFE_MODE while Pump-first is healthy", safe.contains("quote-api.jup.ag") || safe.contains("jup.ag"))
+        assertTrue("Outer live buy caller must preserve inner terminal fail authority", exec.contains("NO_OPEN_COMMITTED_AFTER_LIVEBUY_OBSERVED") && exec.contains("action=observe_only_inner_reason_authority"))
+        assertTrue("Finality-block telemetry must include the normalized finality reason", exec.contains("FINALITY_BLOCK:${'$'}{executableOpen.reason.take(72).replace(' ', '_')}"))
     }
 
 }

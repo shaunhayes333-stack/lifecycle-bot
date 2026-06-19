@@ -7380,12 +7380,31 @@ class Executor(
                     }
                     ErrorLogger.info("Executor", "🧬 MEME_SPINE LIVE_PRECHECK_ALLOW ${ts.symbol} | size=${liveSol.fmt(4)} | wallet=${walletSol.fmt(4)}")
                     val liveOpened = liveBuy(ts, liveSol, score, safeWallet, walletSol, tradeId, quality, skipGraduated)
-                    if (liveOpened || positionDidOpen(ts)) {
+                    val pendingLiveCommit = try {
+                        !ts.position.isPaperPosition && ts.position.pendingVerify && ts.position.qtyToken > 0.0 && ts.position.costSol > 0.0
+                    } catch (_: Throwable) { false }
+                    if (liveOpened || positionDidOpen(ts) || pendingLiveCommit) {
                         WalletPositionLock.recordOpen("Meme", liveSol)
-                        try { ForensicLogger.lifecycle("LIVE_OPEN_COMMITTED_LOCK_RECORDED", "symbol=${ts.symbol} mint=${ts.mint.take(10)} size=${liveSol.fmt(4)} result=$liveOpened positionOpen=${positionDidOpen(ts)}") } catch (_: Throwable) {}
+                        try {
+                            ForensicLogger.lifecycle(
+                                if (pendingLiveCommit && !positionDidOpen(ts)) "LIVE_BUY_PENDING_COMMIT_ACCEPTED" else "LIVE_OPEN_COMMITTED_LOCK_RECORDED",
+                                "symbol=${ts.symbol} mint=${ts.mint.take(10)} size=${liveSol.fmt(4)} result=$liveOpened positionOpen=${positionDidOpen(ts)} pendingLiveCommit=$pendingLiveCommit",
+                            )
+                            if (pendingLiveCommit && !positionDidOpen(ts)) PipelineHealthCollector.labelInc("LIVE_BUY_PENDING_COMMIT_ACCEPTED")
+                        } catch (_: Throwable) {}
                     } else {
-                        try { ForensicLogger.lifecycle("NO_OPEN_COMMITTED_LOCK_NOT_RECORDED", "symbol=${ts.symbol} mint=${ts.mint.take(10)} size=${liveSol.fmt(4)}") } catch (_: Throwable) {}
-                        emitLiveBuyFail(ts, liveSol, "NO_OPEN_COMMITTED_AFTER_LIVEBUY")
+                        // V5.0.3900 — do not double-count the outer no-open observation
+                        // as the primary LIVE_BUY_FAIL reason. liveBuy() already emits the
+                        // real terminal reason (FINALITY_BLOCK, route throw, admission gate,
+                        // quote/sim failure, etc.). The old outer fail dominated reports as
+                        // NO_OPEN_COMMITTED_AFTER_LIVEBUY=170 and hid the true source.
+                        try {
+                            ForensicLogger.lifecycle(
+                                "NO_OPEN_COMMITTED_LOCK_NOT_RECORDED",
+                                "symbol=${ts.symbol} mint=${ts.mint.take(10)} size=${liveSol.fmt(4)} result=$liveOpened positionOpen=${positionDidOpen(ts)} pendingVerify=${ts.position.pendingVerify} action=observe_only_inner_reason_authority",
+                            )
+                            PipelineHealthCollector.labelInc("NO_OPEN_COMMITTED_AFTER_LIVEBUY_OBSERVED")
+                        } catch (_: Throwable) {}
                     }
                     
                     if (cfg().shadowPaperEnabled) {
@@ -8880,7 +8899,7 @@ class Executor(
             if (!executableOpen.allowed) {
                 ExecutionRootCauseTrace.finality("BUY", "LIVE_BUY_FINALITY_BLOCK", ts, "attemptId=${executableOpen.attemptId} reason=${executableOpen.reason}")
                 ErrorLogger.warn("Executor", "🚫 LIVE_BUY_BLOCKED_FINALITY: ${ts.symbol} | attemptId=${executableOpen.attemptId} | ${executableOpen.reason}")
-                emitLiveBuyFail(ts, sol, "FINALITY_BLOCK", executableOpen.reason)
+                emitLiveBuyFail(ts, sol, "FINALITY_BLOCK:${executableOpen.reason.take(72).replace(' ', '_')}", executableOpen.reason)
                 buyTerminalFail("BUY_TERMINAL_NO_EXECUTABLE_ROUTE:FINALITY_${executableOpen.reason.take(60)}")
                 return false
             }

@@ -101,8 +101,13 @@ object SellOnlySafeMode {
     private fun providerBackoffActive(): Boolean {
         return try {
             val ab = com.lifecyclebot.engine.ApiBackoff
-            ab.isLockedOut("quote-api.jup.ag") ||
-            ab.isLockedOut("jup.ag") ||
+            // V5.0.3900 — Pump-first live buys must not be globally frozen by
+            // Jupiter quote backoff. Jupiter/DEX degradation is a route fallback
+            // concern; PumpPortal/pump.fun + Helius/Solana are the buy/finality
+            // authorities that can make new live entries unsafe. Report 5.0.3899:
+            // pumpfun healthy, dex/jupiter degraded, FDG live allowed, but
+            // SELL_ONLY_SAFE_MODE blocked live buys. Keep sell/finality safety;
+            // do not let a degraded fallback venue park the whole live buy path.
             ab.isLockedOut("pumpportal.fun") ||
             ab.isLockedOut("pump.fun") ||
             ab.isLockedOut("mainnet.helius-rpc.com") ||
