@@ -6,6 +6,28 @@ NO local compiler. Multi-lane architecture (Memes [9 sub-lanes], Crypto/Alts,
 Stocks, Markets, Tokenized Stocks, Forex, Metals, Commodities). Foreground
 Service with a 50+ AI-module pipeline gated through processTokenCycle.
 
+## V5.0.3921 (Feb 2026) — JOURNAL RENDER + LIVE SIZING + PROVIDER QUORUM + RUNNER SL FLOOR — CI ✅ (build AATE_v5.0.3924)
+
+**Operator dump V5.0.3922:**
+- `BUY ok=21 fail=953` with 855 `ADMISSION_GATE:SELL_ONLY_SAFE_MODE` blocks (90% of meme trader dead live).
+- HELIUS_TIMEOUT (single execution provider) → providerBackoff=helius → safe mode parked everything.
+- Live trades landing at 0.0095 SOL (~$1.50) — too small to self-sustain.
+- Journal UI rendering blank despite `TradeHistoryStore.size=4`.
+- Exit-reason P&L: MOONSHOT n=200 STOP_LOSS μ=-24.4% vs n=25 TAKE_PROFIT μ=+1284.5%; SHITCOIN n=200 STOP_LOSS μ=-25.7% vs n=25 TAKE_PROFIT μ=+1796.6% — TPs 50× the SLs, but `LaneExitTuner` had tightened MOONSHOT slMult to 0.92 cutting would-be runners.
+
+**Fixes:**
+
+1. **`JournalActivity.isValidJournalAccounting()` — DELETED the buggy synthetic-Trade revalidator.** It built a synthetic `Trade` WITHOUT `entryCostSol` or `entryPriceSnapshot`, which made `TradeHistoryStore.isValidAccountingTrade()` reject EVERY sell at the `entryCostSol <= 0.0 → return false` gate. Root cause of the blank-journal UI bug. `allEntries` is already validated upstream — the second pass was dead weight AND incorrect.
+
+2. **`SmartSizerV3` — LIVE-mode size promotion.** EXECUTE_SMALL basePct 0.03 → 0.05; STANDARD 0.06 → 0.08; AGGRESSIVE 0.09 → 0.12. PAPER / LEARNING modes unchanged so backtests stay conservative.
+
+3. **`SellOnlySafeMode.providerBackoffActive()` — QUORUM-BASED scoping.** A single execution venue down (pre-3921) was too brittle. Each class has two venues — Pump (`pumpportal` + `pumpfun`) and RPC (`helius` + `solana_rpc`). Only freeze when BOTH venues in a class are down. Unblocks live buys when one alternative is healthy (the operator's case: helius timing out but solana_rpc OK). `_lastProviderBackoffHost` reports `pump` / `rpc` / `pump+rpc`.
+
+4. **`LaneExitTuner.recompute()` — RUNNER-PRESERVATION SL FLOOR.** When `avgWinPct ≥ 10 × |avgLoss|` (MOONSHOT/SHITCOIN profile), force `slMult` floor to 1.0× — never tighten the stop on a lane whose winners dwarf its losers. Other lanes keep existing SL_MIN.
+
+**GoldenTape:** `providerBackoffActive()` symbol + `executionProviderLabels` array still present → existing assertions remain green. CI run 27825104458 → SUCCESS → APK `AATE_v5.0.3924` published.
+
+
 ## V5.0.3919 (Feb 2026) — PROVIDER-BACKOFF SOURCE FIX + DAMPENER FLOOR + FEE THRESHOLD + ANR MITIGATION — CI ✅ (build AATE_v5.0.3922)
 
 **Operator report:** SELL_ONLY_SAFE_MODE blocking live buys even though
