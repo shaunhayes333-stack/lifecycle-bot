@@ -2937,6 +2937,8 @@ class GoldenTapeRegressionTest {
         assertTrue("TradeAuthorizer must prune stale live auth locks against wallet/accounting truth", auth.contains("STALE_AUTH_LOCK_PRUNED") && auth.contains("LIVE_AUTH_LOCK_GRACE_MS") && auth.contains("getOpenForAccountingMints") && auth.contains("getActuallyHeldMints"))
         assertTrue("same-book and cross-book duplicate checks must use authoritative lock validation", auth.contains("isAuthoritativeOpenLock(sameBookLock, isPaperMode)") && auth.contains("lock != null && isAuthoritativeOpenLock(lock, isPaperMode)"))
         assertTrue("post-auth pre-buy CORE aborts must release auth locks", bot.contains("V3_SYMBOLIC_BLOCK_PREBUY") && bot.contains("V3_PERSONALITY_VETO_PREBUY") && bot.contains("TradeAuthorizer.releasePosition(ts.mint"))
+        val exec = java.io.File("src/main/kotlin/com/lifecyclebot/engine/Executor.kt").readText()
+        assertTrue("v3 live pre-open no-wallet abort must release auth lock", exec.contains("V3_LIVE_BUY_NO_WALLET_PREOPEN") && exec.contains("LIVE_BUY_PREOPEN_RELEASE_NO_WALLET"))
     }
 
     @Test

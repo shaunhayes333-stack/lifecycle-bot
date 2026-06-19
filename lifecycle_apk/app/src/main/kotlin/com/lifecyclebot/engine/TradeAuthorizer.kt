@@ -578,6 +578,21 @@ object TradeAuthorizer {
         }
     }
 
+    internal fun forceOpenLockForTests(
+        mint: String,
+        book: ExecutionBook,
+        live: Boolean = true,
+        ageMs: Long = LIVE_AUTH_LOCK_GRACE_MS + 1_000L,
+    ) {
+        tokenLocks[lockKey(mint, book)] = TokenLock(
+            mint = mint,
+            state = if (live) TokenState.LIVE_OPEN else TokenState.PAPER_OPEN,
+            book = book,
+            lockedAt = System.currentTimeMillis() - ageMs,
+            lastDecisionEpoch = currentEpoch,
+        )
+    }
+
     internal fun forceAgeOpenLockForTests(mint: String, book: ExecutionBook, ageMs: Long = LIVE_AUTH_LOCK_GRACE_MS + 1_000L) {
         val key = lockKey(mint, book)
         val old = tokenLocks[key] ?: return
