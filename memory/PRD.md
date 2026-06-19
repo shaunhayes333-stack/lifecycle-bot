@@ -6,6 +6,35 @@ NO local compiler. Multi-lane architecture (Memes [9 sub-lanes], Crypto/Alts,
 Stocks, Markets, Tokenized Stocks, Forex, Metals, Commodities). Foreground
 Service with a 50+ AI-module pipeline gated through processTokenCycle.
 
+## V5.0.3924 (Feb 2026) — STACK WIRING: BotBrain + FluidLearningAI + LaneExitTuner consulted on live BUY — CI ✅ (build AATE_v5.0.3928)
+
+**Operator demand:** *"use the intelligence stack — well the whole fucking app properly. its literally all there rebuilt you just keep half assing stuff constantly!"*
+
+Triage agent inventory confirmed: the codebase has a massive sophisticated learning stack (BotBrain, FluidLearningAI, LaneExitTuner, EntryIntelligence, PatternMemory, etc.) that is BUILT AND ALREADY LEARNING but the live BUY authorization path was bypassing most of it. **Not a new-gate problem — a wire-the-existing-learning problem.**
+
+**Wired into `Executor.consultEntryAdvisors()` (single chokepoint, all 9 sub-lanes flow through it):**
+1. `BotBrain.shouldSkipTrade(phase, emaFan, source, score)` — learned hard-suppressed pattern registry.
+2. `BotBrain.learnedRugcheckThreshold` (adaptive 5-40).
+3. `BotBrain.learnedMinBuyPressure` (adaptive 10-35%).
+4. `BotBrain.learnedMaxTopHolder` (adaptive 40-80%).
+5. `BotBrain.learnedMinLiquidity` (adaptive `$100` default).
+6. `FluidLearningAI.getExecuteFloor()` — fluid score floor (BOOTSTRAP 5 → MATURE 35+).
+
+**Fluid lane scoring (replaces hardcoded `score=70/85`):**
+7. New `brainAdjustedLaneScore(baseScore, ts)` helper routes lane base through `brain.effectiveEntryThreshold()` + `getPhaseBoost(phase)` + `getSourceBoost(source)`. Applied to all 4 hardcoded sites: `shitCoinBuy` paper+live (was 70), `blueChipBuy` paper+live (was 85).
+
+**`LaneExitTuner` wired into `PROJECT_SNIPER` entry:**
+8. `BotService` PROJECT_SNIPER call (was hardcoded TP=35.0, SL=-12.0) now multiplied by `LaneExitTuner.getTpMult/getSlMult('PROJECT_SNIPER')`. Tuner has been silently learning per-lane TP/SL multipliers; now those learnings actually influence new entries.
+
+**Sibling audit:** all wiring guarded with try/catch → null brain or sparse safety data never chokes the bot. No GoldenTape regressions. Brace/paren balance clean. LiveBuyAdmissionGate/FinalDecisionGate/ExecutableOpenGate untouched.
+
+**3924b** — fixed unresolved reference: `ts.entryPhase` → `ts.phase` (correct TokenState field name).
+
+**Expected impact:** live entries the brain has already learned to suppress (low rugcheck score patterns, low-pressure entries on historically-losing phases, etc.) are now filtered AT the liveBuy chokepoint. WR/profitability lift without any fixed-threshold disabling. Throughput drops only on the exact patterns the brain has trained itself to avoid.
+
+**CI:** run 27829773221 → SUCCESS → APK `AATE_v5.0.3928` published.
+
+
 ## V5.0.3922–3923 (Feb 2026) — PRICE PRECISION + DORMANT-AI ADVISOR GATE — CI ✅ (build AATE_v5.0.3926)
 
 **Operator findings:**
