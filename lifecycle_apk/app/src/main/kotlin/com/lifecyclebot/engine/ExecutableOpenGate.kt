@@ -217,7 +217,15 @@ object ExecutableOpenGate {
                 }
             }
             val currentStateVersion = state?.candidateVersion == currentVersion && candidateVersion == currentVersion
-            val latestAllows = currentStateVersion && state?.fdgCan == true && (state?.preFdgVerdict.equals("BUY", true) || state?.preFdgVerdict.equals("PROBE_ONLY", true))
+            // V5.0.3911 — FDG-approved WATCH/PROBE is a stale string verdict, not
+            // a terminal live veto, when the boolean FDG authority allowed the same
+            // current candidate and live safety/liquidity are resolved. Report 3909
+            // still showed FINALITY_BLOCK:WATCH after FDG live allow. The later
+            // staleApprovedVerdict branch could not fire because this function returned
+            // WATCH first. Keep HARD_NO/true NO_BUY blocked; restore only FDG-approved
+            // WATCH/PROBE/PROBE_ONLY/BUY with no hardNo.
+            val verdictAllowedByFdg = state?.fdgCan == true && verdictUpper in setOf("BUY", "PROBE_ONLY", "WATCH", "PROBE")
+            val latestAllows = currentStateVersion && verdictAllowedByFdg
             val safetyOk = currentStateVersion && (currentSafetyTier.equals("SAFE", true) || currentSafetyTier.equals("CAUTION", true) ||
                 state?.safetyTier.equals("SAFE", true) || state?.safetyTier.equals("CAUTION", true))
             // V5.9.1559 — LIVE finality restore must use the CURRENT candidate

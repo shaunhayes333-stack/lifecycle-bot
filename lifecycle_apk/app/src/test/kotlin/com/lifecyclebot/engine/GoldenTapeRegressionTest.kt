@@ -2867,7 +2867,18 @@ class GoldenTapeRegressionTest {
         assertFalse("mutex contention must not increment LIVE_BUY_FAIL", busyBlock.contains("emitLiveBuyFail"))
         assertFalse("mutex contention must not call buyTerminalFail", busyBlock.contains("buyTerminalFail"))
         assertTrue("lease must expose non-terminal release for retryable contention", lease.contains("fun releaseNonTerminal") && lease.contains("terminal=NON_TERMINAL"))
-        assertTrue("live finality must synthesize a current direct-lane candidate when state is missing but safety/liquidity are present", gate.contains("modeUpper in setOf("PAPER", "LIVE")") && gate.contains("LIVE_SYNTHETIC_FINAL_CANDIDATE") && gate.contains("LIVE_EXEC_OPEN_SYNTHETIC_FINAL_CANDIDATE"))
+        assertTrue("live finality must synthesize a current direct-lane candidate when state is missing but safety/liquidity are present", gate.contains("""modeUpper in setOf("PAPER", "LIVE")""") && gate.contains("LIVE_SYNTHETIC_FINAL_CANDIDATE") && gate.contains("LIVE_EXEC_OPEN_SYNTHETIC_FINAL_CANDIDATE"))
+    }
+
+
+    @Test
+    fun live_finality_watch_and_empty_drain_safe_mode_must_not_choke_live_buys() {
+        val gate = java.io.File("src/main/kotlin/com/lifecyclebot/engine/ExecutableOpenGate.kt").readText()
+        val safe = java.io.File("src/main/kotlin/com/lifecyclebot/engine/sell/SellOnlySafeMode.kt").readText()
+        assertTrue("FDG-approved WATCH/PROBE must be restorable when current candidate is safe/liquid", gate.contains("verdictAllowedByFdg") && gate.contains("WATCH") && gate.contains("PROBE") && gate.contains("LIVE_RESTORE_STALE_WATCH_SOFT_ALLOW"))
+        assertTrue("WATCH restore must require current version, safety, liquidity, and no hardNo", gate.contains("currentStateVersion") && gate.contains("safetyOk") && gate.contains("liqOk") && gate.contains("effectiveHardNoReasons.isEmpty()"))
+        assertTrue("SellOnlySafeMode must not let empty stale drain jobs globally block live buys", safe.contains("liveExposureToDrain") && safe.contains("liveExposureToDrain && pendingSellQueueSize > 0") && safe.contains("liveExposureToDrain && sellReconcilerActiveJobs > 0"))
+        assertTrue("Real sell-only dangers must remain hard reasons", safe.contains("workerTimeoutStorm()") && safe.contains("orphanLivePositions > 0") && safe.contains("closedWithNonDustBalance > 1") && safe.contains("providerBackoffActive()"))
     }
 
 }

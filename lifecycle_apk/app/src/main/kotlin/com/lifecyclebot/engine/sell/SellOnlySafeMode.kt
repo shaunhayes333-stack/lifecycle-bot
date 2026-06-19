@@ -121,8 +121,15 @@ object SellOnlySafeMode {
         val fresh = (System.currentTimeMillis() - lastSignalMs) < SIGNAL_TTL_MS
         val reasons = ArrayList<String>(6)
         if (fresh) {
-            if (pendingSellQueueSize > 0) reasons += "pendingSellQueue=$pendingSellQueueSize"
-            if (sellReconcilerActiveJobs > 0) reasons += "activeJobs=$sellReconcilerActiveJobs"
+            // V5.0.3911 — drain-mode reasons only block buys when there is actual
+            // live exposure to drain/reconcile. Report 3909 had SELL_ONLY_SAFE_MODE
+            // blocks with hostOpen=0/storeOpen=0/orphan=0 and sell OKs draining old
+            // work; activeJobs/pendingQueue alone then became a global live-buy choke.
+            // Keep real danger reasons below hard-blocking, but don't let stale/empty
+            // sell work park new live entries when no live position exists.
+            val liveExposureToDrain = hostTrackerOpenCount > 0 || positionStoreOpenCount > 0 || orphanLivePositions > 0 || closedWithNonDustBalance > 0 || staleLivePriceExitActive
+            if (liveExposureToDrain && pendingSellQueueSize > 0) reasons += "pendingSellQueue=$pendingSellQueueSize"
+            if (liveExposureToDrain && sellReconcilerActiveJobs > 0) reasons += "activeJobs=$sellReconcilerActiveJobs"
             // V5.9.1561 — message uses window delta now, not lifetime cumulative.
             if (workerTimeoutStorm()) reasons += "workerTimeoutStorm=$workerTimeouts(>${STORM_THRESHOLD})/90s"
             if (orphanLivePositions > 0) reasons += "orphanLive=$orphanLivePositions"
