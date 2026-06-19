@@ -8755,6 +8755,32 @@ class Executor(
                         finalityPrechecked: Boolean = false,
                         attemptId: String = ""): Boolean {    // V5.9.386 — matching emoji
 
+        // V5.0.3908 — universal approved-handoff recovery for LIVE buys.
+        // Some older/direct callers reach liveBuy() without the lane attemptId even
+        // after TradeAuthorizer/ExecutableOpenGate already approved a specialist lane.
+        // Rechecking here as STANDARD/UNKNOWN produced FINALITY_BLOCK storms like
+        // PRIMARY_MOONSHOT_LOST_STANDARD, TOKEN_STATE_CHANGED_NO_FINAL_CANDIDATE, and
+        // STALE_CANDIDATE_VERSION_* while APIs were healthy. If any lane has a fresh
+        // allowed executable-open handoff for this mint, reuse it and skip duplicate
+        // finality. Hard safety is preserved because allowedAttempts are written only
+        // by canOpenExecutablePosition() after the finality gate has already allowed.
+        val recoveredLiveAttemptId = attemptId.ifBlank {
+            val preferredLane = layerTag.ifBlank { ts.position.tradingMode.ifBlank { identity?.source?.takeIf { it.isNotBlank() } ?: "STANDARD" } }
+            ExecutableOpenGate.recentAllowedAttemptId(ts.mint, preferredLane)
+                ?: ExecutableOpenGate.recentAllowedAttemptIdAnyLane(ts.mint)
+                ?: ""
+        }
+        val recoveredFinalityPrechecked = finalityPrechecked || recoveredLiveAttemptId.isNotBlank()
+        if (attemptId.isBlank() && recoveredLiveAttemptId.isNotBlank()) {
+            try {
+                ForensicLogger.lifecycle(
+                    "LIVE_BUY_APPROVED_HANDOFF_RECOVERED",
+                    "mint=${ts.mint.take(10)} symbol=${ts.symbol} layer=$layerTag attemptId=$recoveredLiveAttemptId source=liveBuy.entry",
+                )
+                PipelineHealthCollector.labelInc("LIVE_BUY_APPROVED_HANDOFF_RECOVERED")
+            } catch (_: Throwable) {}
+        }
+
         // V5.0.3895 — per-mint/per-side execution lease. The global mutex only
         // serializes wallet spend; it does NOT stop one bad mint from retrying on
         // every scanner/lane pass. This lease makes every BUY plan terminal and
@@ -8842,7 +8868,7 @@ class Executor(
             return false
         }
         
-        ExecutionRootCauseTrace.buy("LIVE_BUY_ENTRY", ts, "sol=$sol walletSol=$walletSol score=$score quality=$quality layer=$layerTag attemptId=$attemptId finalityPrechecked=$finalityPrechecked autoTrade=${cfg().autoTrade}")
+        ExecutionRootCauseTrace.buy("LIVE_BUY_ENTRY", ts, "sol=$sol walletSol=$walletSol score=$score quality=$quality layer=$layerTag attemptId=$recoveredLiveAttemptId finalityPrechecked=$recoveredFinalityPrechecked autoTrade=${cfg().autoTrade}")
         if (sol <= 0 || sol.isNaN() || sol.isInfinite()) {
             ExecutionRootCauseTrace.buy("LIVE_BUY_ABORT_INVALID_SIZE", ts, "sol=$sol")
             ErrorLogger.warn("Executor", "[EXECUTION/INVALID] Live buy skipped: invalid size $sol for ${ts.symbol}")
@@ -8895,16 +8921,16 @@ class Executor(
         } catch (_: Throwable) {}
         PipelineTracer.executorStart(ts.symbol, ts.mint, "LIVE", sol)
 
-        var finalityVerdict: ExecutableOpenGate.OpenVerdict? = if (finalityPrechecked && attemptId.isNotBlank()) {
-            ExecutableOpenGate.consumeRestorePenalty(attemptId) ?: ExecutableOpenGate.restorePenaltyForAttempt(attemptId)
+        var finalityVerdict: ExecutableOpenGate.OpenVerdict? = if (recoveredFinalityPrechecked && recoveredLiveAttemptId.isNotBlank()) {
+            ExecutableOpenGate.consumeRestorePenalty(recoveredLiveAttemptId) ?: ExecutableOpenGate.restorePenaltyForAttempt(recoveredLiveAttemptId)
         } else null
-        if (!finalityPrechecked) {
+        if (!recoveredFinalityPrechecked) {
             val executableOpen = ExecutableOpenGate.canOpenExecutablePosition(
                 ts = ts,
                 mode = "LIVE",
                 lane = layerTag.ifBlank { ts.position.tradingMode.ifBlank { identity?.source?.takeIf { it.isNotBlank() } ?: "STANDARD" } },  // V5.9.1331 lane attribution
                 source = "Executor.liveBuy",
-                attemptId = attemptId.ifBlank { ExecutableOpenGate.nextAttemptId(ts.mint, layerTag.ifBlank { "UNKNOWN" }) },
+                attemptId = recoveredLiveAttemptId.ifBlank { ExecutableOpenGate.nextAttemptId(ts.mint, layerTag.ifBlank { "UNKNOWN" }) },
             )
             if (!executableOpen.allowed) {
                 ExecutionRootCauseTrace.finality("BUY", "LIVE_BUY_FINALITY_BLOCK", ts, "attemptId=${executableOpen.attemptId} reason=${executableOpen.reason}")

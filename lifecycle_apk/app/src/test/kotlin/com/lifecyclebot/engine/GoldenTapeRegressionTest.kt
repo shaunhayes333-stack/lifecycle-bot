@@ -2820,10 +2820,22 @@ class GoldenTapeRegressionTest {
         val preLaneIdx = bot.indexOf("processTokenCycle.preLane")
         val bypassIdx = bot.indexOf("PAPER_PRELANE_CIRCUIT_PAUSE_BYPASSED")
         assertTrue("BotService pre-lane circuit pause must inspect currentEntryPause", bot.contains("ToxicModeCircuitBreaker.currentEntryPause()"))
-        assertTrue("LIVE may still return during a toxic global pause", bot.contains("toxicPause.active && !cfg.paperMode") && bot.contains("emitExecutionStateBlockedIfDue(identity.symbol, "processTokenCycle.preLane")"))
+        assertTrue("LIVE may still return during a toxic global pause", bot.contains("toxicPause.active && !cfg.paperMode") && bot.contains("emitExecutionStateBlockedIfDue(identity.symbol, \"processTokenCycle.preLane\")"))
         assertTrue("PAPER must bypass pre-lane circuit pause so BUY signals can reach V3/LANE_EVAL/FDG", bypassIdx > preLaneIdx && bot.contains("toxicPause.active && cfg.paperMode"))
         assertTrue("ExecutableOpenGate must also bypass circuit pauses in PAPER", gate.contains("PAPER_EXEC_CIRCUIT_PAUSE_BYPASSED"))
         assertTrue("SecurityGuard buy preflight must bypass circuit pause in PAPER", security.contains("cbState.isPaused && !cfg().paperMode"))
+    }
+
+
+    @Test
+    fun live_buy_must_recover_approved_handoff_before_rechecking_as_standard() {
+        val exec = java.io.File("src/main/kotlin/com/lifecyclebot/engine/Executor.kt").readText()
+        val gate = java.io.File("src/main/kotlin/com/lifecyclebot/engine/ExecutableOpenGate.kt").readText()
+        assertTrue("liveBuy must recover a lane-approved attempt from any lane", exec.contains("LIVE_BUY_APPROVED_HANDOFF_RECOVERED") && exec.contains("recentAllowedAttemptIdAnyLane(ts.mint)"))
+        assertTrue("recovered approved handoff must make liveBuy finality-prechecked", exec.contains("val recoveredFinalityPrechecked = finalityPrechecked || recoveredLiveAttemptId.isNotBlank()"))
+        assertTrue("liveBuy must use recovered attempt id for restore penalty and finality retry", exec.contains("consumeRestorePenalty(recoveredLiveAttemptId)") && exec.contains("attemptId = recoveredLiveAttemptId.ifBlank"))
+        assertTrue("allowed attempts are only created after executable-open finality allows", gate.contains("allowedAttempts[laneAttemptKey] = execKey") && gate.contains("OpenVerdict(") && gate.contains("true,"))
+        assertTrue("lane-agnostic handoff lookup must exist for owner-rotation callers", gate.contains("fun recentAllowedAttemptIdAnyLane"))
     }
 
 }
