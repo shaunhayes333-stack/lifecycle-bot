@@ -8902,8 +8902,33 @@ class Executor(
                     if (ts.meta.pressScore > 0.0 && ts.meta.pressScore < b.learnedMinBuyPressure) {
                         return false to "BRAIN_BUY_PRESSURE_FLOOR:press=${ts.meta.pressScore}<${b.learnedMinBuyPressure}"
                     }
-                    if (ts.safety.topHolderPct > 0.0 && ts.safety.topHolderPct > b.learnedMaxTopHolder) {
-                        return false to "BRAIN_TOP_HOLDER_CEILING:top=${ts.safety.topHolderPct}>${b.learnedMaxTopHolder}"
+                    // V5.0.3927 — TOP-HOLDER POLARITY-AGNOSTIC GATE. Operator
+                    // dump V5.0.3930 showed RICHTROLL bought live despite a
+                    // SolanaTrack-style risk page flagging '4 critical
+                    // risks: top10 holders >70%, single holder ownership,
+                    // unverified, low liquidity'. Internal rugcheckScore=61
+                    // (rugcheck.xyz feed) said safe → BRAIN_RUGCHECK_FLOOR
+                    // didn't fire. The pre-3927 guard also required
+                    // topHolderPct > 0.0 — meaning if Birdeye/Helius hadn't
+                    // populated the holder field yet (Birdeye in EMERGENCY
+                    // CONSERVATION = 1 call/day), the check SILENTLY skipped
+                    // and the token slipped through.
+                    //
+                    // New semantics: the live BUY chokepoint REQUIRES a
+                    // populated topHolderPct value AND that value below the
+                    // brain's learned ceiling. UNKNOWN holder concentration
+                    // is itself a block reason per doctrine ('live entry
+                    // must block or probe-only if holder proof is unknown').
+                    // Paper still passes (learning value); the
+                    // ProviderProofWalker holder-concentration field will
+                    // walk Birdeye → Helius for fallback once per-provider
+                    // snapshot provenance lands in a future commit.
+                    val holderPct = ts.safety.topHolderPct
+                    if (holderPct <= 0.0) {
+                        return false to "PROVIDER_PROOF_HOLDER_UNKNOWN:no_data"
+                    }
+                    if (holderPct > b.learnedMaxTopHolder) {
+                        return false to "BRAIN_TOP_HOLDER_CEILING:top=${holderPct}>${b.learnedMaxTopHolder}"
                     }
                     if (ts.lastLiquidityUsd > 0.0 && ts.lastLiquidityUsd < b.learnedMinLiquidity) {
                         return false to "BRAIN_LIQUIDITY_FLOOR:liq=${ts.lastLiquidityUsd}<${b.learnedMinLiquidity}"
