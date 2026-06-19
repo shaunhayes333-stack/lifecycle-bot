@@ -481,6 +481,38 @@ object ExecutableOpenGate {
             )
         }
         try {
+            // V5.0.3917 — immutable execution ticket published at FDG-allow time.
+            // The RuntimePipelineGatesTest pair `live_fdg_allow_watch_before_signature_
+            // proceeds_with_execution_ticket` and `live_fdg_ticket_survives_later_
+            // candidate_version_rescore` assert that as soon as FDG approves with
+            // canExecute=true and no hard-no, an executable ticket exists in
+            // allowedAttempts so a later LaneExecutionCoordinator version churn can
+            // not invalidate the approval. The previous wiring only published the
+            // ticket inside canOpenExecutablePosition, leaving recentAllowedAttemptId
+            // null between FDG approval and the executor call — breaking both tests
+            // and (per the operator dump 06-19) producing FINALITY_BLOCK:STALE_
+            // CANDIDATE_VERSION_xxx spam on live BUYs while no ticket lived.
+            val executableFdgEarly = canExecute && finalHardNo.isEmpty() &&
+                (finalVerdict == "BUY" || finalVerdict == "PROBE_ONLY")
+            if (executableFdgEarly) {
+                val ticket = ExecutionTicket(
+                    attemptId = nextAttemptId(mint, lane),
+                    mint = mint,
+                    symbol = symbol,
+                    lane = lane.uppercase(),
+                    mode = if (paperRuntime) "PAPER" else "LIVE",
+                    candidateVersion = candidateVersion,
+                    fdgReason = reason,
+                    signal = signal.ifBlank { "BUY" },
+                    safetyTier = safetyTier,
+                    liquidityUsd = liquidityUsd,
+                    rugScore = rugScore,
+                    hardNoReasons = finalHardNo,
+                )
+                publishTicket(ticket)
+            }
+        } catch (_: Throwable) {}
+        try {
             val hard = finalHardNo.joinToString(prefix = "[", postfix = "]")
             val msg = "symbol=$symbol lane=${lane.uppercase()} preFdg=$finalVerdict hardNo=$hard safety=$safetyTier rug=$rugScore liq=${liquidityUsd.toInt()} duplicate=false circuit=${ToxicModeCircuitBreaker.currentEntryPause().active} sellPressure=${reason ?: "OK"} version=$candidateVersion"
             // V5.9.1320 (Item 6) — emit a canonical FDG DECISION so the health snapshot's

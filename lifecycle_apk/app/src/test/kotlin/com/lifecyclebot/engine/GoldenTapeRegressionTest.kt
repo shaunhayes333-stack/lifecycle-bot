@@ -1035,8 +1035,20 @@ class GoldenTapeRegressionTest {
     fun sell_only_safe_mode_uses_blocking_close_leases_not_idle_backoff_leases() {
         val closeLease = java.io.File("src/main/kotlin/com/lifecyclebot/engine/sell/CloseLease.kt").readText()
         assertTrue(closeLease.contains("fun activeBlockingLeaseCount()"))
-        assertTrue(closeLease.contains("l.inFlight || now >= l.nextEligibleMs"))
-        assertTrue(closeLease.contains("activeLeaseCount() is diagnostic"))
+        // V5.0.3915 — operator dump 06-19 19:28: the previous semantic
+        // (l.inFlight || now >= l.nextEligibleMs) made idle-backoff leases
+        // count as blocking forever (until 10-min TTL), permanently arming
+        // SellOnlySafeMode and producing ADMISSION_GATE:SELL_ONLY_SAFE_MODE=337
+        // with LIVE BUY ok/fail = 0/482. Correct semantic: only inFlight=true
+        // counts as blocking; idle residue is reaped after 60s.
+        assertTrue(closeLease.contains("(now - l.acquiredMs < LEASE_TTL_MS) && l.inFlight"))
+        assertFalse(
+            "SellOnlySafeMode must not see idle-backoff leases as pending sell pressure",
+            closeLease.contains("l.inFlight || now >= l.nextEligibleMs"),
+        )
+        assertTrue(closeLease.contains("fun reapResidue"))
+        assertTrue(closeLease.contains("RESIDUE_REAP_MS"))
+        assertTrue(closeLease.contains("SELL_LEASE_RESIDUE_REAPED"))
 
         val snapshot = java.io.File("src/main/kotlin/com/lifecyclebot/engine/RuntimeStateSnapshot.kt").readText()
         assertTrue(snapshot.contains("CloseLease.activeBlockingLeaseCount()"))
