@@ -1107,7 +1107,7 @@ class ExecutionAuthorityInvariantTest {
 
 
     @Test
-    fun paper_direct_lane_synthesizes_missing_final_candidate_but_live_does_not() {
+    fun direct_lane_synthesizes_missing_final_candidate_only_with_safe_liquid_context() {
         resetAuthorities(paper = true)
         val mint = "SynthPaper111111111111111111111111111111"
         val paper = ExecutableOpenGate.canOpenExecutablePosition(
@@ -1120,7 +1120,7 @@ class ExecutionAuthorityInvariantTest {
             liveLiquidityUsd = 2500.0,
             liveSafetyTier = "SAFE",
         )
-        assertTrue("paper direct wrapper should not drop NO_FINAL_CANDIDATE when live context is valid", paper.allowed)
+        assertTrue("paper direct wrapper should not drop NO_FINAL_CANDIDATE when context is valid", paper.allowed)
 
         resetAuthorities(paper = false)
         val live = ExecutableOpenGate.canOpenExecutablePosition(
@@ -1133,8 +1133,22 @@ class ExecutionAuthorityInvariantTest {
             liveLiquidityUsd = 2500.0,
             liveSafetyTier = "SAFE",
         )
-        assertFalse("live must still require canonical recorded final candidate state", live.allowed)
-        assertTrue(live.logName.contains("NO_FINAL_CANDIDATE") || live.reason.contains("NO_FINAL"))
+        assertTrue("live direct wrapper should synthesize current candidate when lane/liquidity/safety are valid", live.allowed)
+        assertEquals("EXEC_OPEN_ALLOWED", live.logName)
+
+        resetAuthorities(paper = false)
+        val unsafeLive = ExecutableOpenGate.canOpenExecutablePosition(
+            mint,
+            "SYNTH",
+            1,
+            "LIVE",
+            "SHITCOIN",
+            "test.liveDirectUnsafe",
+            liveLiquidityUsd = 2500.0,
+            liveSafetyTier = "UNKNOWN",
+        )
+        assertFalse("live synthetic restore must not bypass unknown/unsafe safety", unsafeLive.allowed)
+        assertTrue(unsafeLive.logName.contains("NO_FINAL_CANDIDATE") || unsafeLive.reason.contains("NO_FINAL") || unsafeLive.reason.contains("TOKEN_STATE_CHANGED"))
     }
 
 
