@@ -122,12 +122,36 @@ object SellOnlySafeMode {
     @Volatile private var _lastProviderBackoffHost: String? = null
     val lastProviderBackoffHost: String? get() = _lastProviderBackoffHost
 
+    // V5.0.3921 — QUORUM-BASED PROVIDER BACKOFF. Operator dump V5.0.3922
+    // showed BUY ok=21 / fail=953 with 855 ADMISSION_GATE:SELL_ONLY_SAFE_MODE
+    // blocks while a SINGLE execution venue (Helius RPC) was timing out.
+    // Treating any one execution venue lockout as fatal is too brittle:
+    // Pump has two venues (pumpportal direct + pumpfun) and RPC has two
+    // (helius + solana_rpc). One side of each pair degrading is recoverable
+    // via the alternative. Only freeze the live buy path when an ENTIRE
+    // class is down:
+    //   - both pump venues locked (no way to send a buy tx), OR
+    //   - both RPCs locked (no way to finalize / confirm).
+    // This restores live trading whenever at least one of each pair is
+    // healthy — exactly the situation in the operator's last dump where
+    // Helius timed out but solana_rpc was healthy.
     private fun providerBackoffActive(): Boolean {
         return try {
             val ab = com.lifecyclebot.engine.ApiBackoff
-            val hit = executionProviderLabels.firstOrNull { ab.isLockedOut(it) }
-            _lastProviderBackoffHost = hit
-            hit != null
+            val pumpPortalDown = ab.isLockedOut("pumpportal")
+            val pumpFunDown = ab.isLockedOut("pumpfun")
+            val heliusDown = ab.isLockedOut("helius")
+            val rpcDown = ab.isLockedOut("solana_rpc")
+            val pumpQuorumDown = pumpPortalDown && pumpFunDown
+            val rpcQuorumDown = heliusDown && rpcDown
+            val active = pumpQuorumDown || rpcQuorumDown
+            _lastProviderBackoffHost = when {
+                pumpQuorumDown && rpcQuorumDown -> "pump+rpc"
+                pumpQuorumDown -> "pump"
+                rpcQuorumDown -> "rpc"
+                else -> null
+            }
+            active
         } catch (_: Throwable) { false }
     }
 

@@ -142,6 +142,19 @@ object LaneExitTuner {
         st.tpMult = tp.coerceIn(TP_MIN, TP_MAX)
 
         var sl = st.slMult
+        // V5.0.3921 — RUNNER-PRESERVATION SL FLOOR. Operator dump V5.0.3922
+        // exit-reason P&L showed MOONSHOT n=200 STOP_LOSS μ=-24.4% vs n=25
+        // TAKE_PROFIT μ=+1284.5%, SHITCOIN n=200 STOP_LOSS μ=-25.7% vs n=25
+        // TAKE_PROFIT μ=+1796.6%. The TPs are ~50× the |SLs|, so even with
+        // 8:1 stop:profit ratio the EV is hugely positive — but the lane
+        // tuner had tightened MOONSHOT slMult to 0.92 (TIGHTER than neutral),
+        // cutting more would-be runners. When winners are ≥10× the size of
+        // losers, the stop should NEVER be tightened below 1.0× — let
+        // runners breathe. Compute runner-strength on the win-only subset
+        // because peakPct can be diluted by losers' near-zero peaks.
+        val winners = w.filter { it.win }
+        val avgWinPct = if (winners.isEmpty()) 0.0 else winners.map { it.pnlPct }.average()
+        val runnerLane = avgWinPct >= 10.0 * kotlin.math.abs(avgLoss) && winners.size >= 3
         when {
             // V5.0.3765 — low-WR/no-runner bleed fix. The old rule widened stops
             // whenever stop-hit rate was high and avgPeak was low. In a sub-20% WR
@@ -154,7 +167,11 @@ object LaneExitTuner {
             slHitRate < 0.25 && avgLoss <= -10.0 -> sl -= STEP
         }
         val slCap = if (wr < 0.20 && avgReal < 0.0 && avgPeak < 15.0) 1.0 else SL_MAX
-        st.slMult = sl.coerceIn(SL_MIN, slCap)
+        // RUNNER-LANE FLOOR: never let the stop tighten below 1.0× when wins
+        // dwarf losses by ≥10×. Widens further if existing tuner logic
+        // already raised it; never pulls it back below neutral.
+        val slFloor = if (runnerLane) maxOf(SL_MIN, 1.0) else SL_MIN
+        st.slMult = sl.coerceIn(slFloor, slCap)
     }
 
     fun getTpMult(lane: String): Double = try {

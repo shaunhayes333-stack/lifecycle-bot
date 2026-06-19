@@ -58,11 +58,22 @@ class SmartSizerV3(
     ): SizeResult {
         val tradeable = wallet.tradeableSol
         
+        // V5.0.3921 — LIVE-MODE SIZE PROMOTION. Operator dump V5.0.3922
+        // showed live trades landing at ~0.0095 SOL (~$1.50 — too small to
+        // self-sustain after Solana fees + 0.5% fee skim). Root cause:
+        // EXECUTE_SMALL basePct was capped at 3.0% of tradeable, compounded
+        // with confMult≤0.55 + probeMult=0.50 + liqMult≤0.40 to deliver
+        // <1% of wallet. Promote LIVE-mode EXECUTE_SMALL to 5% basePct and
+        // drop the 0.50 probe shrink (probe rationale was for LEARNING /
+        // PAPER, not real-money). PAPER / LEARNING modes are unchanged so
+        // backtests remain conservative.
+        val isLive = mode == V3BotMode.LIVE
         // Base percentage by band
         val basePct = when (band) {
-            DecisionBand.EXECUTE_SMALL -> config.maxSmallSizePct.coerceAtMost(0.03)
-            DecisionBand.EXECUTE_STANDARD -> 0.06
-            DecisionBand.EXECUTE_AGGRESSIVE -> 0.09
+            DecisionBand.EXECUTE_SMALL -> if (isLive) maxOf(config.maxSmallSizePct.coerceAtMost(0.05), 0.05)
+                                          else config.maxSmallSizePct.coerceAtMost(0.03)
+            DecisionBand.EXECUTE_STANDARD -> if (isLive) 0.08 else 0.06
+            DecisionBand.EXECUTE_AGGRESSIVE -> if (isLive) 0.12 else 0.09
             else -> 0.0
         }
         

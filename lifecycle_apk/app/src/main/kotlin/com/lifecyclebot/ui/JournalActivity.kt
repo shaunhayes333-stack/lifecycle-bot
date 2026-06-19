@@ -70,26 +70,17 @@ class JournalActivity : AppCompatActivity() {
         private const val LOSS_THRESHOLD_PCT = -2.0
     }
 
-    private fun isValidJournalAccounting(e: com.lifecyclebot.engine.TradeJournal.JournalEntry): Boolean {
-        if (!isSellLike(e.side)) return true
-        val t = com.lifecyclebot.data.Trade(
-            side = e.side,
-            mode = e.mode,
-            sol = e.solAmount,
-            price = e.entryPrice,
-            ts = e.ts,
-            reason = e.reason,
-            pnlSol = e.pnlSol,
-            pnlPct = e.pnlPct,
-            score = e.score,
-            feeSol = e.feeSol,
-            netPnlSol = e.netPnlSol,
-            tradingMode = e.tradingMode,
-            tradingModeEmoji = e.tradingModeEmoji,
-            mint = e.mint,
-        )
-        return com.lifecyclebot.engine.TradeHistoryStore.isValidAccountingTrade(t)
-    }
+    // V5.0.3921 — DELETED the synthetic-Trade revalidator. The block below
+    // built a synthetic Trade missing entryCostSol + entryPriceSnapshot,
+    // which made TradeHistoryStore.isValidAccountingTrade() reject EVERY
+    // sell at the "entryCostSol <= 0.0 → return false" gate — the literal
+    // root cause of the blank-journal UI bug the operator kept reporting.
+    // allEntries is ALREADY validated upstream at line 461
+    // (.filter { TradeHistoryStore.isValidAccountingTrade(it) }) AND the
+    // memory snapshot comes from getRecentValidTrades() which only returns
+    // already-valid rows. A second client-side revalidation was always
+    // dead weight; now it's gone.
+    private fun isValidJournalAccounting(e: com.lifecyclebot.engine.TradeJournal.JournalEntry): Boolean = true
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
