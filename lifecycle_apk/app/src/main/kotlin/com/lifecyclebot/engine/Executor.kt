@@ -8825,7 +8825,7 @@ class Executor(
         val b = brain ?: return baseScore
         return try {
             val adjusted = b.effectiveEntryThreshold(baseScore)
-            val phaseBoost = b.getPhaseBoost(ts.entryPhase)
+            val phaseBoost = b.getPhaseBoost(ts.phase)
             val sourceBoost = b.getSourceBoost(ts.source)
             (adjusted + phaseBoost + sourceBoost).coerceIn(0.0, 100.0)
         } catch (_: Throwable) { baseScore }
@@ -8847,8 +8847,8 @@ class Executor(
             val b = brain
             if (b != null) {
                 try {
-                    if (b.shouldSkipTrade(ts.entryPhase, ts.meta.emafanAlignment, ts.source, score)) {
-                        return false to "BRAIN_PATTERN_SUPPRESSED:phase=${ts.entryPhase}|source=${ts.source}"
+                    if (b.shouldSkipTrade(ts.phase, ts.meta.emafanAlignment, ts.source, score)) {
+                        return false to "BRAIN_PATTERN_SUPPRESSED:phase=${ts.phase}|source=${ts.source}"
                     }
                 } catch (_: Throwable) {}
                 // Learned safety thresholds. Only enforce when the token has
