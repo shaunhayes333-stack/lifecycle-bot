@@ -153,7 +153,7 @@ object ExecutableOpenGate {
         currentLiquidityUsd: Double = 0.0,
         currentSafetyTier: String = "UNKNOWN",
     ): Pair<String, String>? {
-        if (state == null) return "EXEC_OPEN_DROPPED_NO_FINAL_CANDIDATE" to "NO_FINAL_BUY_CANDIDATE"
+        if (state == null) return "EXEC_OPEN_DROPPED_TOKEN_STATE_CHANGED" to "TOKEN_STATE_CHANGED_NO_FINAL_CANDIDATE"
         val selected = canonicalLane(selectedLane)
         val requested = canonicalLane(requestedLane)
         // V5.9.1559 — live unchoke: stale context hardNos must not survive

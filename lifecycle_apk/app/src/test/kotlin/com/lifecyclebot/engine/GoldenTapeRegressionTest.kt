@@ -1087,7 +1087,8 @@ class GoldenTapeRegressionTest {
     fun v3_live_handoff_reuses_any_recent_lane_approved_attempt() {
         val gate = java.io.File("src/main/kotlin/com/lifecyclebot/engine/ExecutableOpenGate.kt").readText()
         assertTrue(gate.contains("fun recentAllowedAttemptIdAnyLane"))
-        assertTrue(gate.contains("NO_FINAL_BUY_CANDIDATE"))
+        assertFalse("Generic NO_FINAL_BUY_CANDIDATE must not survive as final live-buy reason", gate.contains("\"NO_FINAL_BUY_CANDIDATE\""))
+        assertTrue(gate.contains("TOKEN_STATE_CHANGED_NO_FINAL_CANDIDATE"))
         assertTrue(gate.contains("MOONSHOT"))
 
         val bot = java.io.File("src/main/kotlin/com/lifecyclebot/engine/BotService.kt").readText()
@@ -1099,7 +1100,8 @@ class GoldenTapeRegressionTest {
         assertTrue(exec.contains("effectiveAttemptId"))
         assertTrue(exec.contains("effectiveFinalityPrechecked"))
         assertTrue(exec.contains("recentAllowedAttemptIdAnyLane(ts.mint)"))
-        assertTrue(exec.contains("NO_FINAL_BUY_CANDIDATE"))
+        assertFalse("Executor must not emit generic NO_FINAL_BUY_CANDIDATE", exec.contains("reason=FINALITY_BLOCK:NO_FINAL_BUY_CANDIDATE"))
+        assertTrue(exec.contains("FINALITY_BLOCK:${'$'}{executableOpen.reason"))
     }
 
 
@@ -2752,6 +2754,37 @@ class GoldenTapeRegressionTest {
         assertFalse("Jupiter fallback backoff must not globally trigger SELL_ONLY_SAFE_MODE while Pump-first is healthy", safe.contains("quote-api.jup.ag") || safe.contains("jup.ag"))
         assertTrue("Outer live buy caller must preserve inner terminal fail authority", exec.contains("NO_OPEN_COMMITTED_AFTER_LIVEBUY_OBSERVED") && exec.contains("action=observe_only_inner_reason_authority"))
         assertTrue("Finality-block telemetry must include the normalized finality reason", exec.contains("FINALITY_BLOCK:${'$'}{executableOpen.reason.take(72).replace(' ', '_')}"))
+    }
+
+
+    @Test
+    fun live_execution_unblock_3902_contracts_are_source_pinned() {
+        val lease = java.io.File("src/main/kotlin/com/lifecyclebot/engine/ExecutionAttemptLease.kt").readText()
+        val gate = java.io.File("src/main/kotlin/com/lifecyclebot/engine/ExecutableOpenGate.kt").readText()
+        val exec = java.io.File("src/main/kotlin/com/lifecyclebot/engine/Executor.kt").readText()
+        val endpoint = java.io.File("src/main/kotlin/com/lifecyclebot/engine/ExecutionEndpointHealth.kt").readText()
+        val jupiter = java.io.File("src/main/kotlin/com/lifecyclebot/network/JupiterApi.kt").readText()
+        val pump = java.io.File("src/main/kotlin/com/lifecyclebot/network/PumpFunDirectApi.kt").readText()
+        val bot = java.io.File("src/main/kotlin/com/lifecyclebot/engine/BotService.kt").readText()
+
+        assertTrue("expired execution leases must be synchronously pruned with forensic detail", lease.contains("fun pruneExpired") && lease.contains("EXEC_LEASE_PRUNED_EXPIRED") && lease.contains("ttlMs=") && lease.contains("ageMs=") && lease.contains("visibleNegativeTtlCount"))
+        assertTrue("deterministic terminal failures must clear lease without retry backoff", lease.contains("FAIL_NO_BACKOFF") && lease.contains("isRetryableTerminal"))
+        assertTrue("supervisor cap reports must include expired lease pruning at cap time", bot.contains("supervisorPruneExpiredLeases(\"cap_report\")") && bot.contains("expiredLeases=${'$'}expiredAtCapReport"))
+
+        assertFalse("generic NO_FINAL_BUY_CANDIDATE must not be emitted as final reason", gate.contains("\"NO_FINAL_BUY_CANDIDATE\""))
+        assertTrue("missing final candidate must be source-specific TOKEN_STATE_CHANGED", gate.contains("TOKEN_STATE_CHANGED_NO_FINAL_CANDIDATE"))
+
+        assertTrue("execution endpoint health must exist and disable by endpoint/mint", endpoint.contains("object ExecutionEndpointHealth") && endpoint.contains("EXEC_ENDPOINT_DISABLED") && endpoint.contains("endpoint.uppercase()"))
+        assertTrue("Jupiter quote/build/send/RPC health must be endpoint split", jupiter.contains("JUPITER_QUOTE") && jupiter.contains("JUPITER_SWAP_BUILD") && jupiter.contains("JUPITER_SEND") && jupiter.contains("helius_rpc") && jupiter.contains("jupiter_quote"))
+        assertTrue("Jupiter quote 503/4xx must disable quote endpoint only", jupiter.contains("ExecutionEndpointHealth.disable(endpoint") && jupiter.contains("code == 503 || code in 400..499"))
+        assertTrue("Jupiter quote deterministic failure must rotate without burning full slippage ladder", exec.contains("rotate_provider_no_ladder_burn") && exec.contains("PROVIDER_DISABLED:JUPITER_QUOTE") && exec.contains("NO_QUOTE:JUPITER_QUOTE_EXHAUSTED"))
+
+        assertTrue("Pump Direct build health must be endpoint-specific", pump.contains("pump_direct_build") && pump.contains("PUMP_DIRECT_BUILD"))
+        assertTrue("Pump Direct 0x1788 must disable Pump route for mint and rotate", exec.contains("PUMP_DIRECT_SIM_0X1788") && exec.contains("PUMP_DIRECT_0X1788_ROUTE_DISABLED") && exec.contains("MemeVenueRouter.markPumpRouteInvalid(ts.mint)"))
+        assertTrue("graduated/Raydium/AMM tokens must not force Pump Direct first", exec.contains("PUMP_DIRECT_SKIPPED_ROUTE_POLICY") && exec.contains("graduatedOrAmm") && exec.contains("freshPumpRoute"))
+
+        assertTrue("orphan dust must not consume executor route capacity", exec.contains("ORPHAN_DUST_IGNORED") && exec.contains("qty <= 0.000001"))
+        assertTrue("live buy failures must write live telemetry rows", exec.contains("LIVE_BUY_FAIL_TELEMETRY") && exec.contains("LIVE_TELEMETRY_ROW_BUY_FAIL"))
     }
 
 }

@@ -7137,6 +7137,16 @@ class Executor(
             )
             com.lifecyclebot.engine.PipelineHealthCollector.labelInc("LIVE_BUY_FAIL_$reason")
         } catch (_: Throwable) {}
+        try {
+            LiveTradeLogStore.log(
+                LiveTradeLogStore.keyFor(ts.mint, System.currentTimeMillis()),
+                ts.mint, ts.symbol, "BUY", LiveTradeLogStore.Phase.BUY_FAILED,
+                "LIVE_BUY_FAIL_TELEMETRY reason=$reason ${detail.take(140)}".trim(),
+                solAmount = sol,
+                traderTag = "MEME",
+            )
+            PipelineHealthCollector.labelInc("LIVE_TELEMETRY_ROW_BUY_FAIL")
+        } catch (_: Throwable) {}
     }
 
     internal fun doBuy(ts: TokenState, sol: Double, score: Double,
@@ -9211,7 +9221,16 @@ class Executor(
             val pumpVenue = if (com.lifecyclebot.network.PumpFunDirectApi.isPumpFunMint(ts.mint))
                 "pump.fun" else "universal-auto"
 
-            val pumpBuyPlan = recalcBuyPlanForProcessor(
+            val srcUpperForRoute = ts.source.uppercase()
+            val graduatedOrAmm = srcUpperForRoute.contains("RAYDIUM") || srcUpperForRoute.contains("GRADUATE") ||
+                srcUpperForRoute.contains("MIGRATED") || srcUpperForRoute.contains("PUMPSWAP") ||
+                srcUpperForRoute.contains("METEORA") || srcUpperForRoute.contains("ORCA")
+            val freshPumpRoute = !graduatedOrAmm && (com.lifecyclebot.network.PumpFunDirectApi.isPumpFunMint(ts.mint) ||
+                srcUpperForRoute.contains("PUMP_PORTAL") || srcUpperForRoute.contains("PUMP_FUN_NEW") || srcUpperForRoute.contains("PUMP_FUN"))
+            val pumpBuyPlan = if (!freshPumpRoute) {
+                try { ForensicLogger.lifecycle("PUMP_DIRECT_SKIPPED_ROUTE_POLICY", "mint=${ts.mint.take(10)} symbol=${ts.symbol} src=${ts.source.take(80)} reason=graduated_or_amm_use_jupiter_first") } catch (_: Throwable) {}
+                null
+            } else recalcBuyPlanForProcessor(
                 ts = ts,
                 wallet = wallet,
                 processor = "PUMPPORTAL_BUY",
@@ -9261,6 +9280,10 @@ class Executor(
                 "↩ FALLBACK → Jupiter Ultra (v2) primary, v6 Metis secondary | ladder=${slippageLadder.joinToString("/")}bps",
                 solAmount = sol, traderTag = "MEME",
             )
+            if (ExecutionEndpointHealth.isDisabled("JUPITER_QUOTE", ts.mint)) {
+                val disabledReason = ExecutionEndpointHealth.reason("JUPITER_QUOTE", ts.mint)
+                throw Exception("PROVIDER_DISABLED:JUPITER_QUOTE $disabledReason")
+            }
             for (slip in slippageLadder) {
                 LiveTradeLogStore.log(
                     tradeKey, ts.mint, ts.symbol, "BUY",
@@ -9295,13 +9318,21 @@ class Executor(
                     }
                 } catch (e: Exception) {
                     lastQuoteError = e
-                    onLog("BUY: quote ${slip}bps failed — ${e.message?.take(50)}", ts.mint)
+                    val msg = e.message ?: "unknown"
+                    val deterministicProviderFailure = msg.contains("PROVIDER_DISABLED:JUPITER_QUOTE", true) ||
+                        msg.contains("Jupiter GET 503", true) || msg.contains("Jupiter GET 429", true) ||
+                        msg.contains("Jupiter GET 4", true)
+                    if (deterministicProviderFailure) {
+                        try { ExecutionEndpointHealth.disable("JUPITER_QUOTE", msg, 30_000L, ts.mint) } catch (_: Throwable) {}
+                    }
+                    onLog("BUY: quote ${slip}bps failed — ${msg.take(50)}", ts.mint)
                     LiveTradeLogStore.log(
                         tradeKey, ts.mint, ts.symbol, "BUY",
                         LiveTradeLogStore.Phase.BUY_QUOTE_FAIL,
-                        "Quote ${slip}bps FAILED: ${e.message?.take(80)}",
+                        "Quote ${slip}bps FAILED: ${msg.take(80)}${if (deterministicProviderFailure) " | rotate_provider_no_ladder_burn" else ""}",
                         slippageBps = slip, traderTag = "MEME",
                     )
+                    if (deterministicProviderFailure) break
                     Thread.sleep(250)
                 }
             }
@@ -9320,7 +9351,8 @@ class Executor(
                     "mint=${ts.mint.take(10)} sol=$sol reason=QUOTE_EXHAUSTED",
                 ) } catch (_: Throwable) {}
                 try { PipelineHealthCollector.labelInc("JUPITER_QUOTE_FAIL") } catch (_: Throwable) {}
-                buyTerminalFail("BUY_TERMINAL_ROUTE_FAIL:QUOTE_EXHAUSTED")
+                val terminal = if ((lastQuoteError?.message ?: "").contains("PROVIDER_DISABLED", true)) "PROVIDER_DISABLED:JUPITER_QUOTE" else "NO_QUOTE:JUPITER_QUOTE_EXHAUSTED"
+                buyTerminalFail("BUY_TERMINAL_ROUTE_FAIL:$terminal")
                 return false
             }
 
@@ -15642,6 +15674,13 @@ class Executor(
         
         return try {
             onLog("🧹 Attempting orphan sell: $mint ($qty tokens)", mint)
+            if (qty <= 0.000001) {
+                try {
+                    ForensicLogger.lifecycle("ORPHAN_DUST_IGNORED", "mint=${mint.take(10)} qty=$qty reason=below_min_sellable_threshold")
+                    PipelineHealthCollector.labelInc("ORPHAN_DUST_IGNORED")
+                } catch (_: Throwable) {}
+                return true
+            }
             
             val sellUnits = resolveSellUnitsForMint(mint, qty, wallet = wallet)
             val sellSlippage = (c.slippageBps * 3).coerceAtMost(500)   // V5.9.103: hard cap 5%
@@ -16291,6 +16330,10 @@ class Executor(
                 "🚀 PUMP-FIRST BUY [$pumpVenue] ${"%.4f".format(buySol)}◎ @ ${slipPct}% | priorityFee=${priorityFeeSol}◎ | tip=${jitoTipLamports}lam",
                 solAmount = buySol, traderTag = traderTag,
             )
+            if (ExecutionEndpointHealth.isDisabled("PUMP_DIRECT_BUILD", ts.mint) || com.lifecyclebot.engine.sell.MemeVenueRouter.isPumpRouteInvalid(ts.mint)) {
+                try { ForensicLogger.lifecycle("PUMP_DIRECT_SKIPPED_RERESOLVE", "mint=${ts.mint.take(10)} symbol=${ts.symbol} reason=endpoint_or_mint_route_disabled") } catch (_: Throwable) {}
+                return null
+            }
             val built = com.lifecyclebot.network.PumpFunDirectApi.buildBuyTx(
                 publicKeyB58    = wallet.publicKeyB58,
                 mint            = ts.mint,
@@ -16498,13 +16541,28 @@ class Executor(
                     )
                 } catch (_: Throwable) {}
             } else {
-                onLog("⚠️ PUMP-FIRST BUY failed (${safe.take(80)}) — falling through to Jupiter Ultra", ts.mint)
-                LiveTradeLogStore.log(
-                    tradeKey, ts.mint, ts.symbol, "BUY",
-                    LiveTradeLogStore.Phase.BUY_FAILED,
-                    "PUMP-FIRST BUY failed: ${safe.take(80)} — falling back to Jupiter",
-                    traderTag = traderTag,
-                )
+                val isPump1788 = safe.contains("0x1788", ignoreCase = true) || safe.contains("custom program error", ignoreCase = true)
+                if (isPump1788) {
+                    try { ExecutionEndpointHealth.disable("PUMP_DIRECT_SIM", "0x1788 simulation rejected route", 60_000L, ts.mint) } catch (_: Throwable) {}
+                    try { com.lifecyclebot.engine.sell.MemeVenueRouter.markPumpRouteInvalid(ts.mint) } catch (_: Throwable) {}
+                    try { PipelineHealthCollector.labelInc("PUMP_DIRECT_SIM_0X1788") } catch (_: Throwable) {}
+                    try { ForensicLogger.lifecycle("PUMP_DIRECT_0X1788_ROUTE_DISABLED", "mint=${ts.mint.take(10)} symbol=${ts.symbol} action=refresh_accounts_blockhash_verify_migration_then_rotate_route err=${safe.take(120)}") } catch (_: Throwable) {}
+                    onLog("⚠️ PUMP-FIRST BUY 0x1788 simulation rejected — disabling Pump Direct for mint and rotating route", ts.mint)
+                    LiveTradeLogStore.log(
+                        tradeKey, ts.mint, ts.symbol, "BUY",
+                        LiveTradeLogStore.Phase.BUY_SIM_FAIL,
+                        "PUMP_DIRECT_SIM_FAIL_0X1788 — route disabled for mint; refresh accounts/blockhash/migration then rotate provider",
+                        traderTag = traderTag,
+                    )
+                } else {
+                    onLog("⚠️ PUMP-FIRST BUY failed (${safe.take(80)}) — falling through to Jupiter Ultra", ts.mint)
+                    LiveTradeLogStore.log(
+                        tradeKey, ts.mint, ts.symbol, "BUY",
+                        LiveTradeLogStore.Phase.BUY_FAILED,
+                        "PUMP-FIRST BUY failed: ${safe.take(80)} — falling back to Jupiter",
+                        traderTag = traderTag,
+                    )
+                }
             }
             null
         }

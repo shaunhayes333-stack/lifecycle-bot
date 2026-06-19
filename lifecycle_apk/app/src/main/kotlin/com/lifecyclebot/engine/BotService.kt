@@ -14643,10 +14643,11 @@ if (hotExitHandledSweep) {
         }
         if (skipped > 0) supervisorLifetimeSkipped.addAndGet(skipped.toLong())
         if (skipped > 0) {
+            val expiredAtCapReport = supervisorPruneExpiredLeases("cap_report")
             try {
                 ForensicLogger.lifecycle(
                     "SUPERVISOR_INFLIGHT_CAP",
-                    "loop=$loopCount spawned=$spawned skipped=$skipped cooldown=$cooldownSkipped shouldPoll=$shouldPollSkipped active=${supervisorLeases.size} cap=$SUPERVISOR_MAX_INFLIGHT liveCap=$SUPERVISOR_MAX_LIVE_WORKERS",
+                    "loop=$loopCount spawned=$spawned skipped=$skipped cooldown=$cooldownSkipped shouldPoll=$shouldPollSkipped active=${supervisorLeases.size} cap=$SUPERVISOR_MAX_INFLIGHT liveCap=$SUPERVISOR_MAX_LIVE_WORKERS expiredLeases=$expiredAtCapReport",
                 )
             } catch (_: Throwable) {}
         }

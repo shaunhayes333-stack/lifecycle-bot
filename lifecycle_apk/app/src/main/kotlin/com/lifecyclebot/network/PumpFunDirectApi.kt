@@ -122,7 +122,7 @@ object PumpFunDirectApi {
         ErrorLogger.info(TAG,
             "🚀 PUMP DIRECT BUY → mint=${mint.take(8)}… sol=${"%.4f".format(solAmount)} slip=$slip%")
 
-        com.lifecyclebot.engine.HealthAwareHttp.execute(httpClient, req, host = "pumpfun").use { resp ->
+        com.lifecyclebot.engine.HealthAwareHttp.execute(httpClient, req, host = "pump_direct_build").use { resp ->
             val body = resp.body
                 ?: throw RuntimeException("PumpPortal returned empty body (HTTP ${resp.code})")
             val ct = resp.header("Content-Type", "")?.lowercase() ?: ""
@@ -131,12 +131,14 @@ object PumpFunDirectApi {
                 val text = try { String(bytes) } catch (_: Throwable) { "<binary ${bytes.size}B>" }
                 ErrorLogger.warn(TAG,
                     "PumpPortal BUY HTTP ${resp.code} payload=${payload.toString().take(200)}  body=${text.take(300)}")
+                try { com.lifecyclebot.engine.ExecutionEndpointHealth.disable("PUMP_DIRECT_BUILD", "HTTP_${resp.code}: ${text.take(120)}", 30_000L, mint) } catch (_: Throwable) {}
                 throw RuntimeException(
                     "PumpPortal BUY HTTP ${resp.code}: ${text.take(180).ifBlank { resp.message }}"
                 )
             }
             if (ct.contains("json") || (bytes.isNotEmpty() && bytes[0].toInt() == '{'.code)) {
                 val text = try { String(bytes) } catch (_: Throwable) { "<binary>" }
+                try { com.lifecyclebot.engine.ExecutionEndpointHealth.disable("PUMP_DIRECT_BUILD", "JSON_ERROR: ${text.take(120)}", 30_000L, mint) } catch (_: Throwable) {}
                 throw RuntimeException("PumpPortal BUY JSON error (HTTP 200): ${text.take(300)}")
             }
             if (bytes.size < 64) {

@@ -751,7 +751,7 @@ class JupiterApi(private val apiKey: String = "") {
                 .post(payload.toRequestBody(JSON))
                 .build()
 
-            com.lifecyclebot.engine.HealthAwareHttp.execute(http, req, host = "jupiter").use { resp ->
+            com.lifecyclebot.engine.HealthAwareHttp.execute(http, req, host = "helius_rpc").use { resp ->
                 val body = resp.body?.string()
                 val elapsed = System.currentTimeMillis() - startMs
 
@@ -805,6 +805,10 @@ class JupiterApi(private val apiKey: String = "") {
     // ─────────────────────────────────────────────────────────────────────────────
 
     private fun getOrThrow(url: String): String {
+        val endpoint = "JUPITER_QUOTE"
+        if (com.lifecyclebot.engine.ExecutionEndpointHealth.isDisabled(endpoint)) {
+            throw RuntimeException("PROVIDER_DISABLED:$endpoint ${com.lifecyclebot.engine.ExecutionEndpointHealth.reason(endpoint)}")
+        }
         val reqBuilder = Request.Builder()
             .url(url)
             .header("User-Agent", "lifecycle-bot-android/6.0")
@@ -820,16 +824,20 @@ class JupiterApi(private val apiKey: String = "") {
         for (attempt in 0..2) {
             if (attempt > 0) Thread.sleep(1500L * attempt)
             try {
-                com.lifecyclebot.engine.HealthAwareHttp.execute(http, req, host = "jupiter").use { resp ->
+                com.lifecyclebot.engine.HealthAwareHttp.execute(http, req, host = "jupiter_quote").use { resp ->
                     val code = resp.code
                     val body = resp.body?.string()
                     if (code == 429) {
-                        lastErr = RuntimeException("Jupiter GET $code: ${body?.take(300) ?: "no body"}")
+                        val msg = "Jupiter GET $code: ${body?.take(300) ?: "no body"}"
+                        com.lifecyclebot.engine.ExecutionEndpointHealth.disable(endpoint, msg, 30_000L)
+                        lastErr = RuntimeException(msg)
                         return@use
                     }
                     if (!resp.isSuccessful) {
                         if (code == 401) throw RuntimeException("Jupiter API 401: API key required")
-                        throw RuntimeException("Jupiter GET $code: ${body?.take(300) ?: "no body"}")
+                        val msg = "Jupiter GET $code: ${body?.take(300) ?: "no body"}"
+                        if (code == 503 || code in 400..499) com.lifecyclebot.engine.ExecutionEndpointHealth.disable(endpoint, msg, 30_000L)
+                        throw RuntimeException(msg)
                     }
                     if (body.isNullOrBlank()) throw RuntimeException("Empty Jupiter GET response")
                     return body
@@ -846,6 +854,10 @@ class JupiterApi(private val apiKey: String = "") {
     }
 
     private fun postOrThrow(url: String, json: String): String {
+        val endpoint = if (url.contains("/execute", true)) "JUPITER_SEND" else "JUPITER_SWAP_BUILD"
+        if (com.lifecyclebot.engine.ExecutionEndpointHealth.isDisabled(endpoint)) {
+            throw RuntimeException("PROVIDER_DISABLED:$endpoint ${com.lifecyclebot.engine.ExecutionEndpointHealth.reason(endpoint)}")
+        }
         val reqBuilder = Request.Builder()
             .url(url)
             .header("User-Agent", "lifecycle-bot-android/6.0")
@@ -862,16 +874,20 @@ class JupiterApi(private val apiKey: String = "") {
         for (attempt in 0..2) {
             if (attempt > 0) Thread.sleep(1500L * attempt)
             try {
-                com.lifecyclebot.engine.HealthAwareHttp.execute(http, req, host = "jupiter").use { resp ->
+                com.lifecyclebot.engine.HealthAwareHttp.execute(http, req, host = endpoint.lowercase()).use { resp ->
                     val code = resp.code
                     val body = resp.body?.string()
                     if (code == 429) {
-                        lastErr = RuntimeException("Jupiter POST $code: ${body?.take(300) ?: "no body"}")
+                        val msg = "Jupiter POST $code: ${body?.take(300) ?: "no body"}"
+                        com.lifecyclebot.engine.ExecutionEndpointHealth.disable(endpoint, msg, 30_000L)
+                        lastErr = RuntimeException(msg)
                         return@use
                     }
                     if (!resp.isSuccessful) {
                         if (code == 401) throw RuntimeException("Jupiter API 401: API key required")
-                        throw RuntimeException("Jupiter POST $code: ${body?.take(300) ?: "no body"}")
+                        val msg = "Jupiter POST $code: ${body?.take(300) ?: "no body"}"
+                        if (code == 503 || code in 400..499) com.lifecyclebot.engine.ExecutionEndpointHealth.disable(endpoint, msg, 30_000L)
+                        throw RuntimeException(msg)
                     }
                     if (body.isNullOrBlank()) throw RuntimeException("Empty Jupiter POST response")
                     return body

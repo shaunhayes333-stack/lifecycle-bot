@@ -29,6 +29,8 @@ object ExecutionAttemptLease {
         val mode: String,
         val side: String,
         val mint: String,
+        val symbol: String = "",
+        val createdAtMs: Long = System.currentTimeMillis(),
     )
 
     private val states = ConcurrentHashMap<String, State>()
@@ -39,6 +41,40 @@ object ExecutionAttemptLease {
 
     private fun baseKey(generation: Long, mode: String, side: String, mint: String): String =
         "${generation}:${mode.uppercase()}:${side.uppercase()}:${mint}"
+
+    private fun isRetryableTerminal(reason: String): Boolean {
+        val r = reason.uppercase()
+        return r.contains("NETWORK") || r.contains("TIMEOUT") || r.contains("HTTP_503") ||
+            r.contains("HTTP_429") || r.contains("HTTP_5") || r.contains("PROVIDER_RETRY") ||
+            r.contains("RPC") || r.contains("BLOCKHASH") || r.contains("RATE_LIMIT")
+    }
+
+    fun pruneExpired(nowMs: Long = now()): Int {
+        var pruned = 0
+        states.entries.removeIf { e ->
+            val st = e.value
+            val expiry = maxOf(st.activeUntilMs, st.backoffUntilMs)
+            val expired = expiry <= nowMs
+            if (expired) {
+                pruned++
+                emit(
+                    "EXEC_LEASE_PRUNED_EXPIRED",
+                    st.side,
+                    st.mint,
+                    st.symbol,
+                    "lane=${st.lastProcessor} ttlMs=${expiry - nowMs} ageMs=${nowMs - st.createdAtMs}"
+                )
+            }
+            expired
+        }
+        return pruned
+    }
+
+    fun visibleNegativeTtlCount(): Int {
+        val n = now()
+        pruneExpired(n)
+        return states.values.count { maxOf(it.activeUntilMs, it.backoffUntilMs) - n < 0L }
+    }
 
     private fun backoffFor(failures: Int, side: String): Long {
         if (side.equals("SELL", true)) return when {
@@ -65,6 +101,7 @@ object ExecutionAttemptLease {
         leaseMs: Long = if (side.equals("SELL", true)) 90_000L else 30_000L,
     ): Verdict {
         val n = now()
+        pruneExpired(n)
         val groupPrefix = baseKey(generation, mode, side, mint) + ":"
         val current = states.entries.firstOrNull { it.key.startsWith(groupPrefix) }?.let { it.key to it.value }
         if (current != null) {
@@ -94,6 +131,8 @@ object ExecutionAttemptLease {
             mode = mode,
             side = side,
             mint = mint,
+            symbol = symbol,
+            createdAtMs = n,
         )
         emit("EXEC_LEASE_SET", side, mint, symbol, "processor=$processor leaseMs=$leaseMs failures=$previousFailures")
         return Verdict(true, k)
@@ -107,8 +146,15 @@ object ExecutionAttemptLease {
 
     fun terminalFail(key: String, side: String, mint: String, symbol: String, reason: String, processor: String) {
         val n = now()
+        pruneExpired(n)
         val old = states[key]
         val failures = (old?.failures ?: 0) + 1
+        if (!isRetryableTerminal(reason)) {
+            states.remove(key)
+            emit("${side.uppercase()}_TERMINAL_FAIL", side, mint, symbol, "reason=$reason processor=$processor failures=$failures backoffMs=0 deterministic=true")
+            emit("EXEC_LEASE_CLEARED", side, mint, symbol, "terminal=FAIL_NO_BACKOFF reason=$reason")
+            return
+        }
         val backoff = backoffFor(failures, side)
         if (old != null) {
             states[key] = old.copy(
@@ -117,18 +163,20 @@ object ExecutionAttemptLease {
                 failures = failures,
                 lastProcessor = processor,
                 lastReason = reason,
+                symbol = symbol,
             )
         }
         emit("${side.uppercase()}_TERMINAL_FAIL", side, mint, symbol, "reason=$reason processor=$processor failures=$failures backoffMs=$backoff")
         emit("EXEC_RETRY_BACKOFF_SET", side, mint, symbol, "reason=$reason processor=$processor failures=$failures backoffMs=$backoff")
     }
 
-    fun activeBuyLeases(): Int = states.values.count { it.side.equals("BUY", true) && it.activeUntilMs > now() }
-    fun activeSellLeases(): Int = states.values.count { it.side.equals("SELL", true) && it.activeUntilMs > now() }
-    fun activeBackoffs(): Int = states.values.count { it.backoffUntilMs > now() }
+    fun activeBuyLeases(): Int { val n = now(); pruneExpired(n); return states.values.count { it.side.equals("BUY", true) && it.activeUntilMs > n } }
+    fun activeSellLeases(): Int { val n = now(); pruneExpired(n); return states.values.count { it.side.equals("SELL", true) && it.activeUntilMs > n } }
+    fun activeBackoffs(): Int { val n = now(); pruneExpired(n); return states.values.count { it.backoffUntilMs > n } }
 
     fun formatForReport(): String {
         val n = now()
+        pruneExpired(n)
         val buy = activeBuyLeases()
         val sell = activeSellLeases()
         val backs = activeBackoffs()
