@@ -98,20 +98,34 @@ object SellOnlySafeMode {
         recompute()
     }
 
+    // V5.0.3919 — EXECUTION-ONLY ALLOWLIST. The labels HealthAwareHttp +
+    // SolanaMarketScanner actually write via ApiBackoff.markFailure are the
+    // SHORT host labels emitted by hostLabel() ("pumpfun", "pumpportal",
+    // "helius", "solana_rpc", "dexscreener", "geckoterminal", "birdeye",
+    // "jupiter", "groq", "gemini", "coingecko", "pyth"). The pre-3919 long-
+    // DNS keys (e.g. "pumpportal.fun", "mainnet.helius-rpc.com") matched
+    // NOTHING — providerBackoff was dead. Worse, any future writer using
+    // the long name would have parked the entire live buy path on a
+    // scanner-only outage. Explicit allowlist keeps the check scoped to
+    // execution venues (buy/finality authorities). Scanner-only labels
+    // (dexscreener / geckoterminal / birdeye / coingecko / pyth / groq /
+    // gemini / jupiter quote backoff) MUST NEVER block live buys.
+    private val executionProviderLabels = arrayOf(
+        "pumpportal",
+        "pumpfun",
+        "helius",
+        "solana_rpc",
+    )
+
+    @Volatile private var _lastProviderBackoffHost: String? = null
+    val lastProviderBackoffHost: String? get() = _lastProviderBackoffHost
+
     private fun providerBackoffActive(): Boolean {
         return try {
             val ab = com.lifecyclebot.engine.ApiBackoff
-            // V5.0.3900 — Pump-first live buys must not be globally frozen by
-            // Jupiter quote backoff. Jupiter/DEX degradation is a route fallback
-            // concern; PumpPortal/pump.fun + Helius/Solana are the buy/finality
-            // authorities that can make new live entries unsafe. Report 5.0.3899:
-            // pumpfun healthy, dex/jupiter degraded, FDG live allowed, but
-            // SELL_ONLY_SAFE_MODE blocked live buys. Keep sell/finality safety;
-            // do not let a degraded fallback venue park the whole live buy path.
-            ab.isLockedOut("pumpportal.fun") ||
-            ab.isLockedOut("pump.fun") ||
-            ab.isLockedOut("mainnet.helius-rpc.com") ||
-            ab.isLockedOut("api.mainnet-beta.solana.com")
+            val hit = executionProviderLabels.firstOrNull { ab.isLockedOut(it) }
+            _lastProviderBackoffHost = hit
+            hit != null
         } catch (_: Throwable) { false }
     }
 
@@ -142,7 +156,7 @@ object SellOnlySafeMode {
             if (closedWithNonDustBalance > 1) reasons += "closedWithNonDust=$closedWithNonDustBalance"
             if (staleLivePriceExitActive) reasons += "staleLivePriceExit"
         }
-        if (providerBackoffActive()) reasons += "providerBackoff"
+        if (providerBackoffActive()) reasons += "providerBackoff=${_lastProviderBackoffHost ?: "unknown"}"
 
         val nowActive = reasons.isNotEmpty()
         if (nowActive && !_active) {

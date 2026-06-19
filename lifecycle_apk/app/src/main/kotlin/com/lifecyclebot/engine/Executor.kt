@@ -656,7 +656,18 @@ class Executor(
          * the other fee wallet (so the fee is still collected, not lost). If
          * BOTH equal self, the share is skipped cleanly (no failed tx, no
          * endless queue). Returns true if at least one transfer was attempted.
+         *
+         * V5.0.3919 — FEE-MIN THRESHOLD LOWERED. Previous 0.0001 SOL per-
+         * share floor silently dropped fees whenever the dampened live buy
+         * landed below ~0.04 SOL (0.5% × 0.04 ÷ 2 ≈ 0.0001). Operator
+         * reported "transaction fees aren't being sent" — root cause was
+         * this skip. Lower to 0.000005 SOL (just above SOL dust threshold),
+         * so any non-trivial fee actually transfers. A 0.005 SOL live trade
+         * → 0.0000125 SOL per fee wallet → still sent. SolanaWallet.sendSol
+         * already enforces the network minimum; below-rent shares throw and
+         * land in FeeRetryQueue rather than silently disappearing.
          */
+        private const val FEE_SEND_MIN_SOL = 0.000005
         private fun sendFeeSplit(
             wallet: SolanaWallet,
             amount1: Double,
@@ -671,7 +682,7 @@ class Executor(
             }
             var sent = false
             // share 1 → wallet1, falling back to wallet2 if wallet1 is self
-            if (amount1 >= 0.0001) {
+            if (amount1 >= FEE_SEND_MIN_SOL) {
                 val d = dest(TRADING_FEE_WALLET_1, TRADING_FEE_WALLET_2)
                 if (d != null) {
                     try { wallet.sendSol(d, amount1); sent = true }
@@ -679,9 +690,11 @@ class Executor(
                 } else {
                     ErrorLogger.warn("Executor", "🪙 fee_w1 ($tag) skipped: both fee wallets == self")
                 }
+            } else if (amount1 > 0.0) {
+                ErrorLogger.debug("Executor", "🪙 fee_w1 ($tag) dust-skipped: ${amount1} SOL < ${FEE_SEND_MIN_SOL}")
             }
             // share 2 → wallet2, falling back to wallet1 if wallet2 is self
-            if (amount2 >= 0.0001) {
+            if (amount2 >= FEE_SEND_MIN_SOL) {
                 val d = dest(TRADING_FEE_WALLET_2, TRADING_FEE_WALLET_1)
                 if (d != null) {
                     try { wallet.sendSol(d, amount2); sent = true }
@@ -689,6 +702,8 @@ class Executor(
                 } else {
                     ErrorLogger.warn("Executor", "🪙 fee_w2 ($tag) skipped: both fee wallets == self")
                 }
+            } else if (amount2 > 0.0) {
+                ErrorLogger.debug("Executor", "🪙 fee_w2 ($tag) dust-skipped: ${amount2} SOL < ${FEE_SEND_MIN_SOL}")
             }
             return sent
         }
@@ -4503,7 +4518,7 @@ class Executor(
             try {
                 val sellBasisSol = pos.costSol * sellFraction
                 val feeAmountSol = sellBasisSol * MEME_TRADING_FEE_PERCENT
-                if (feeAmountSol >= 0.0001) {
+                if (feeAmountSol >= FEE_SEND_MIN_SOL) {
                     val feeWallet1 = feeAmountSol * FEE_SPLIT_RATIO
                     val feeWallet2 = feeAmountSol * (1.0 - FEE_SPLIT_RATIO)
                     sendFeeSplit(wallet, feeWallet1, feeWallet2, "profit_lock")
@@ -4515,7 +4530,7 @@ class Executor(
                 // V5.9.226: Bug #7 — enqueue for retry instead of silently dropping
                 val sellBasisSol2 = pos.costSol * sellFraction
                 val feeAmt2 = sellBasisSol2 * MEME_TRADING_FEE_PERCENT
-                if (feeAmt2 >= 0.0001) {
+                if (feeAmt2 >= FEE_SEND_MIN_SOL) {
                     FeeRetryQueue.enqueue(TRADING_FEE_WALLET_1, feeAmt2 * FEE_SPLIT_RATIO, "profit_lock_w1")
                     FeeRetryQueue.enqueue(TRADING_FEE_WALLET_2, feeAmt2 * (1.0 - FEE_SPLIT_RATIO), "profit_lock_w2")
                 }
@@ -5324,7 +5339,7 @@ class Executor(
                 // (of the portion sold) to both wallets as full sells do.
                 try {
                     val feeAmountSol = (pos.costSol * sellFraction) * MEME_TRADING_FEE_PERCENT
-                    if (feeAmountSol >= 0.0001) {
+                    if (feeAmountSol >= FEE_SEND_MIN_SOL) {
                         val feeWallet1 = feeAmountSol * FEE_SPLIT_RATIO
                         val feeWallet2 = feeAmountSol * (1.0 - FEE_SPLIT_RATIO)
                         sendFeeSplit(wallet, feeWallet1, feeWallet2, "partial_sell")
@@ -5334,7 +5349,7 @@ class Executor(
                     ErrorLogger.error("Executor", "🚨 FEE SEND FAILED — PARTIAL-SELL fee NOT sent, will retry next trade: ${feeEx.message}")
                     // V5.9.226: Bug #7 — enqueue for retry
                     val feeAmt3 = (pos.costSol * sellFraction) * MEME_TRADING_FEE_PERCENT
-                    if (feeAmt3 >= 0.0001) {
+                    if (feeAmt3 >= FEE_SEND_MIN_SOL) {
                         FeeRetryQueue.enqueue(TRADING_FEE_WALLET_1, feeAmt3 * FEE_SPLIT_RATIO, "partial_sell_w1")
                         FeeRetryQueue.enqueue(TRADING_FEE_WALLET_2, feeAmt3 * (1.0 - FEE_SPLIT_RATIO), "partial_sell_w2")
                     }
@@ -7307,8 +7322,17 @@ class Executor(
         } catch (_: Throwable) { 1.0 }
         // Floor widened 0.4→0.30→0.22 so MANIPULATED's 0.30 cap can actually bite
         // alongside the DUMP brake (0.40) without being clamped away.
-        val liveFloorMult = if (dumpRegimeLive) 0.10 else 0.18
-        val effSolRaw = (sol * sizeMult * labMult * laneEvMult * regimeMult * laneSizeCap).coerceIn(sol * liveFloorMult, sol * 1.75)
+        // V5.0.3919 — CUMULATIVE DAMPENER FLOOR. Operator dump showed live
+        // buys landing at ~$0.005 because every multiplier shaved more off
+        // the requested size (sizeMult × labMult × laneEvMult × regimeMult ×
+        // laneSizeCap). Solana network fees + 0.5% trading fee then ate
+        // the 40%+ winners. Clamp the cumulative multiplier product to
+        // ≥0.5× of base size in NORMAL regime. DUMP regime is allowed to
+        // shrink to its 0.10 safety floor — that brake is intentional and
+        // protects against regime-shift drawdown bleed.
+        val liveFloorMult = if (dumpRegimeLive) 0.10 else maxOf(0.18, 0.50)
+        val multiplierProduct = sizeMult * labMult * laneEvMult * regimeMult * laneSizeCap
+        val effSolRaw = (sol * multiplierProduct).coerceIn(sol * liveFloorMult, sol * 1.75)
         if (dumpRegimeLive) {
             try { ForensicLogger.lifecycle("DUMP_REGIME_LIVE_SIZE_SHAPED", "mint=${ts.mint.take(10)} symbol=${ts.symbol} lane=$laneTag regimeMult=$regimeMult laneCap=$laneSizeCap floor=$liveFloorMult raw=${effSolRaw.fmt(4)}") } catch (_: Throwable) {}
             try { PipelineHealthCollector.labelInc("DUMP_REGIME_LIVE_SIZE_SHAPED") } catch (_: Throwable) {}
@@ -9646,7 +9670,7 @@ class Executor(
             // V5.7.3: Split trading fee across two wallets (V5.9.1451: 0.5%/side, 1% round-trip)
             try {
                 val feeAmountSol = sol * MEME_TRADING_FEE_PERCENT
-                if (feeAmountSol >= 0.0001) {
+                if (feeAmountSol >= FEE_SEND_MIN_SOL) {
                     val feeWallet1 = feeAmountSol * FEE_SPLIT_RATIO
                     val feeWallet2 = feeAmountSol * (1.0 - FEE_SPLIT_RATIO)
                     
@@ -9661,7 +9685,7 @@ class Executor(
                 ErrorLogger.error("Executor", "🚨 FEE SEND FAILED — TRADING fee NOT sent, will retry next trade: ${feeEx.message}")
                 // V5.9.226: Bug #7 — enqueue for retry
                 val feeAmt4 = sol * MEME_TRADING_FEE_PERCENT
-                if (feeAmt4 >= 0.0001) {
+                if (feeAmt4 >= FEE_SEND_MIN_SOL) {
                     FeeRetryQueue.enqueue(TRADING_FEE_WALLET_1, feeAmt4 * FEE_SPLIT_RATIO, "buy_fee_w1")
                     FeeRetryQueue.enqueue(TRADING_FEE_WALLET_2, feeAmt4 * (1.0 - FEE_SPLIT_RATIO), "buy_fee_w2")
                 }
@@ -11042,7 +11066,7 @@ class Executor(
                     // V5.9.109: FAIRNESS — partial sell #2 pays same 0.5% fee.
                     try {
                         val feeAmountSol = (pos.costSol * pct) * MEME_TRADING_FEE_PERCENT
-                        if (feeAmountSol >= 0.0001) {
+                        if (feeAmountSol >= FEE_SEND_MIN_SOL) {
                             val feeWallet1 = feeAmountSol * FEE_SPLIT_RATIO
                             val feeWallet2 = feeAmountSol * (1.0 - FEE_SPLIT_RATIO)
                             sendFeeSplit(activeWallet, feeWallet1, feeWallet2, "partial_sell_v2")
@@ -13930,7 +13954,7 @@ class Executor(
                 // "live transaction fees should be on all sells profitable
                 // or not."
                 val feeAmountSol = pos.costSol * MEME_TRADING_FEE_PERCENT
-                if (feeAmountSol >= 0.0001) {
+                if (feeAmountSol >= FEE_SEND_MIN_SOL) {
                     val feeWallet1 = feeAmountSol * FEE_SPLIT_RATIO
                     val feeWallet2 = feeAmountSol * (1.0 - FEE_SPLIT_RATIO)
                     

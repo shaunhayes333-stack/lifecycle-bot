@@ -874,10 +874,21 @@ class MainActivity : AppCompatActivity() {
             // live in Mission Control as normal XML navigation tiles:
             // btnQuickUniverse, btnQuickPhase, btnQuickLearning, btnQuickForensics.
             // Do not re-add decorView overlay buttons here.
-            setupOperatorDiagnosticTiles()
-
-            // Show first-time disclaimer if not yet agreed
-            showFirstTimeDisclaimer()
+            // V5.0.3919 — defer setupOperatorDiagnosticTiles + first-time disclaimer
+            // past first frame. Forensic dumps showed 2600ms+ frame gaps and 4.4%
+            // uptime stalls inside onCreate; the diagnostic tiles run ~8 findViewById
+            // calls plus a Handler+Runnable wiring, and the disclaimer AlertDialog
+            // inflate adds another sync chunk. Neither is needed before the first
+            // paint — push both behind postDelayed alongside the chart/settings/
+            // quick-action wiring so onCreate's main-thread budget stops blowing up.
+            window.decorView.postDelayed({
+                try { setupOperatorDiagnosticTiles() } catch (e: Throwable) {
+                    com.lifecyclebot.engine.ErrorLogger.warn("MainActivity", "deferred setupOperatorDiagnosticTiles failed: ${e.message}")
+                }
+                try { showFirstTimeDisclaimer() } catch (e: Throwable) {
+                    com.lifecyclebot.engine.ErrorLogger.warn("MainActivity", "deferred showFirstTimeDisclaimer failed: ${e.message}")
+                }
+            }, 220L)
 
             // ════════════════════════════════════════════════════════════════════════════
             // V3.2: Initialize all 21 AI layers via AIStartupCoordinator
