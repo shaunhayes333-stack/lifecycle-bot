@@ -1223,7 +1223,9 @@ class GoldenTapeRegressionTest {
         assertTrue(exec.contains("committed live-open source truth"))
         assertTrue(exec.contains("val liveOpened = liveBuy(ts, liveSol"))
         assertTrue(exec.contains("LIVE_OPEN_COMMITTED_LOCK_RECORDED"))
-        assertTrue(exec.contains("if (liveOpened || positionDidOpen(ts))"))
+        assertTrue(exec.contains("pendingLiveCommit"))
+        assertTrue(exec.contains("if (liveOpened || positionDidOpen(ts) || pendingLiveCommit)"))
+        assertTrue(exec.contains("LIVE_BUY_PENDING_COMMIT_ACCEPTED"))
         assertTrue(exec.contains("return true"))
         assertTrue(exec.contains("return false"))
 
