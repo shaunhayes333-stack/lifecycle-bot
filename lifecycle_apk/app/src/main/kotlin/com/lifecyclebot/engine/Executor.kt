@@ -657,15 +657,16 @@ class Executor(
          * BOTH equal self, the share is skipped cleanly (no failed tx, no
          * endless queue). Returns true if at least one transfer was attempted.
          *
-         * V5.0.3919 — FEE-MIN THRESHOLD LOWERED. Previous 0.0001 SOL per-
-         * share floor silently dropped fees whenever the dampened live buy
-         * landed below ~0.04 SOL (0.5% × 0.04 ÷ 2 ≈ 0.0001). Operator
-         * reported "transaction fees aren't being sent" — root cause was
-         * this skip. Lower to 0.000005 SOL (just above SOL dust threshold),
-         * so any non-trivial fee actually transfers. A 0.005 SOL live trade
-         * → 0.0000125 SOL per fee wallet → still sent. SolanaWallet.sendSol
-         * already enforces the network minimum; below-rent shares throw and
-         * land in FeeRetryQueue rather than silently disappearing.
+         * V5.0.3919 — FEE-MIN THRESHOLD LOWERED to 0.000005 SOL.
+         *
+         * V5.0.3920 — FEE ACCUMULATOR. Instead of attempting a network tx
+         * per micro fee (Solana base fee + priority fee + rent checks make
+         * sub-$0.10 fees uneconomic and most fail), accrue each share to a
+         * persisted per-destination bucket. The next FeeRetryQueue drain
+         * (once per scan cycle) calls FeeAccumulator.tryFlush(wallet)
+         * which sends the WHOLE bucket as a single tx once it crosses
+         * 0.01 SOL (~$1.50). Result: one tx per ~hundreds of trades, base
+         * fee is <0.05% of the batched amount, no fees silently lost.
          */
         private const val FEE_SEND_MIN_SOL = 0.000005
         private fun sendFeeSplit(
@@ -680,13 +681,16 @@ class Executor(
                 !fallback.equals(self, false) -> fallback   // redirect self→other
                 else -> null                                 // both self — skip
             }
-            var sent = false
+            var accrued = false
             // share 1 → wallet1, falling back to wallet2 if wallet1 is self
             if (amount1 >= FEE_SEND_MIN_SOL) {
                 val d = dest(TRADING_FEE_WALLET_1, TRADING_FEE_WALLET_2)
                 if (d != null) {
-                    try { wallet.sendSol(d, amount1); sent = true }
-                    catch (e: Exception) { FeeRetryQueue.enqueue(d, amount1, "${tag}_w1"); }
+                    try { FeeAccumulator.accrue(d, amount1, "${tag}_w1"); accrued = true }
+                    catch (e: Exception) {
+                        // Accumulator persistence failed — fall back to immediate retry queue
+                        FeeRetryQueue.enqueue(d, amount1, "${tag}_w1_acc_fail")
+                    }
                 } else {
                     ErrorLogger.warn("Executor", "🪙 fee_w1 ($tag) skipped: both fee wallets == self")
                 }
@@ -697,15 +701,17 @@ class Executor(
             if (amount2 >= FEE_SEND_MIN_SOL) {
                 val d = dest(TRADING_FEE_WALLET_2, TRADING_FEE_WALLET_1)
                 if (d != null) {
-                    try { wallet.sendSol(d, amount2); sent = true }
-                    catch (e: Exception) { FeeRetryQueue.enqueue(d, amount2, "${tag}_w2"); }
+                    try { FeeAccumulator.accrue(d, amount2, "${tag}_w2"); accrued = true }
+                    catch (e: Exception) {
+                        FeeRetryQueue.enqueue(d, amount2, "${tag}_w2_acc_fail")
+                    }
                 } else {
                     ErrorLogger.warn("Executor", "🪙 fee_w2 ($tag) skipped: both fee wallets == self")
                 }
             } else if (amount2 > 0.0) {
                 ErrorLogger.debug("Executor", "🪙 fee_w2 ($tag) dust-skipped: ${amount2} SOL < ${FEE_SEND_MIN_SOL}")
             }
-            return sent
+            return accrued
         }
         
         // V5.7.3: Fee percentages

@@ -1220,6 +1220,7 @@ class BotService : Service() {
             // Initialize error logger first so we can capture any init errors
             ErrorLogger.init(applicationContext)
             FeeRetryQueue.init(applicationContext)  // V5.9.226: Bug #7 — fee retry queue
+            FeeAccumulator.init(applicationContext)  // V5.0.3920 — fee accumulator (batched flush)
             // V5.9.666 — install Choreographer-based ANR / long-frame
             // detector so the in-app Pipeline Health panel captures
             // every main-thread stutter with elapsed delta. onCreate
@@ -11630,11 +11631,14 @@ class BotService : Service() {
             val cfg = ConfigStore.load(applicationContext)
 
             // V5.9.226: Bug #7 — Drain failed fee retry queue at cycle start (live mode only)
+            // V5.0.3920 — also flush the FeeAccumulator (batched per-destination fees).
             if (!cfg.paperMode) {
                 val liveWallet = wallet
                 if (liveWallet != null) {
                     try { FeeRetryQueue.drainFeeQueue(liveWallet) }
                     catch (e: Exception) { ErrorLogger.warn("BotService", "FeeRetryQueue drain error: ${e.message}") }
+                    try { FeeAccumulator.tryFlush(liveWallet) }
+                    catch (e: Exception) { ErrorLogger.warn("BotService", "FeeAccumulator flush error: ${e.message}") }
                 }
             }
 
