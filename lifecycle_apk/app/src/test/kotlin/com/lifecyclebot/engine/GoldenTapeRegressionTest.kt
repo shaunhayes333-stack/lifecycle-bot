@@ -2768,9 +2768,18 @@ class GoldenTapeRegressionTest {
         val safe = java.io.File("src/main/kotlin/com/lifecyclebot/engine/sell/SellOnlySafeMode.kt").readText()
         val exec = java.io.File("src/main/kotlin/com/lifecyclebot/engine/Executor.kt").readText()
 
-        assertTrue("Pump-first live buy admission must still respect pump/finality provider backoff", safe.contains("\"pumpportal\"") && safe.contains("\"pumpfun\"") && safe.contains("\"helius\"") && safe.contains("\"solana_rpc\""))
-        assertFalse("Jupiter fallback backoff must not globally trigger SELL_ONLY_SAFE_MODE while Pump-first is healthy", safe.contains("\"jupiter\"") || safe.contains("quote-api.jup.ag") || safe.contains("jup.ag"))
-        assertFalse("Scanner-only labels must never park live buys via SELL_ONLY_SAFE_MODE", safe.contains("\"dexscreener\"") || safe.contains("\"geckoterminal\"") || safe.contains("\"birdeye\"") || safe.contains("\"coingecko\"") || safe.contains("\"pyth\"") || safe.contains("\"groq\"") || safe.contains("\"gemini\""))
+        // V5.0.3919 — extract ONLY the executionProviderLabels array literal so
+        // documentation/comments above the field can't fool the assertion (the
+        // pre-3919b version did `safe.contains(\"jupiter\")` and tripped on the
+        // doc comment that explains why scanner-only labels are excluded).
+        val arrayBlock = Regex(
+            "executionProviderLabels\\s*=\\s*arrayOf\\s*\\(([^)]*)\\)",
+            RegexOption.DOT_MATCHES_ALL,
+        ).find(safe)?.groupValues?.get(1).orEmpty()
+        assertTrue("executionProviderLabels array literal must exist in SellOnlySafeMode", arrayBlock.isNotBlank())
+        assertTrue("Pump-first live buy admission must still respect pump/finality provider backoff", arrayBlock.contains("\"pumpportal\"") && arrayBlock.contains("\"pumpfun\"") && arrayBlock.contains("\"helius\"") && arrayBlock.contains("\"solana_rpc\""))
+        assertFalse("Jupiter fallback backoff must not globally trigger SELL_ONLY_SAFE_MODE while Pump-first is healthy", arrayBlock.contains("\"jupiter\"") || arrayBlock.contains("quote-api.jup.ag") || arrayBlock.contains("jup.ag"))
+        assertFalse("Scanner-only labels must never park live buys via SELL_ONLY_SAFE_MODE", arrayBlock.contains("\"dexscreener\"") || arrayBlock.contains("\"geckoterminal\"") || arrayBlock.contains("\"birdeye\"") || arrayBlock.contains("\"coingecko\"") || arrayBlock.contains("\"pyth\"") || arrayBlock.contains("\"groq\"") || arrayBlock.contains("\"gemini\""))
         assertTrue("Outer live buy caller must preserve inner terminal fail authority", exec.contains("NO_OPEN_COMMITTED_AFTER_LIVEBUY_OBSERVED") && exec.contains("action=observe_only_inner_reason_authority"))
         assertTrue("Finality-block telemetry must include the normalized finality reason", exec.contains("FINALITY_BLOCK:${'$'}{executableOpen.reason.take(72).replace(' ', '_')}"))
     }

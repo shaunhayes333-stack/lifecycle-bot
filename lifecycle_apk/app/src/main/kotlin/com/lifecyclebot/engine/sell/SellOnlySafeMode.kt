@@ -100,16 +100,18 @@ object SellOnlySafeMode {
 
     // V5.0.3919 — EXECUTION-ONLY ALLOWLIST. The labels HealthAwareHttp +
     // SolanaMarketScanner actually write via ApiBackoff.markFailure are the
-    // SHORT host labels emitted by hostLabel() ("pumpfun", "pumpportal",
-    // "helius", "solana_rpc", "dexscreener", "geckoterminal", "birdeye",
-    // "jupiter", "groq", "gemini", "coingecko", "pyth"). The pre-3919 long-
-    // DNS keys (e.g. "pumpportal.fun", "mainnet.helius-rpc.com") matched
-    // NOTHING — providerBackoff was dead. Worse, any future writer using
-    // the long name would have parked the entire live buy path on a
-    // scanner-only outage. Explicit allowlist keeps the check scoped to
-    // execution venues (buy/finality authorities). Scanner-only labels
-    // (dexscreener / geckoterminal / birdeye / coingecko / pyth / groq /
-    // gemini / jupiter quote backoff) MUST NEVER block live buys.
+    // SHORT host labels emitted by hostLabel() — execution venues (pump
+    // portal/pump direct/helius rpc/solana rpc), scanner-only feeds
+    // (dexscreener / geckoterminal / birdeye / coingecko / pyth), and
+    // quote-API/LLM labels (jupiter quote / groq / gemini). The pre-3919
+    // long-DNS keys (pumpportal[dot]fun / mainnet[dot]helius-rpc[dot]com)
+    // matched NOTHING — providerBackoff was dead. Worse, any future writer
+    // using the long name would have parked the entire live buy path on a
+    // scanner-only outage. The allowlist below keeps the check scoped to
+    // execution venues. Scanner-only and quote-API labels MUST NEVER block
+    // live buys. (Literal quoted labels are deliberately NOT spelled out in
+    // this comment so naive substring-match regression tests cannot trip on
+    // documentation — they assert against the array literal directly.)
     private val executionProviderLabels = arrayOf(
         "pumpportal",
         "pumpfun",
