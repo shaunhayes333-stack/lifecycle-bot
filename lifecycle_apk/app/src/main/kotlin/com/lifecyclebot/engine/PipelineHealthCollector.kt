@@ -2018,6 +2018,7 @@ object PipelineHealthCollector {
                 sb.append("  REGRESSION_GUARDS_FAIL: TX_CONFIRMED_WITHOUT_BUY_JOURNALED txConfirmed=${lc("TX_CONFIRMED")} journaled=${lc("BUY_JOURNALED")}\n")
             }
             sb.append("  Buy fail buckets: finality=${lc("BUY_FAILED_FINALITY")} route=${lc("BUY_FAILED_ROUTE")} staleTicket=${lc("BUY_FAILED_STALE_TICKET")} safety=${lc("BUY_FAILED_SAFETY")}\n")
+            sb.append("  Pre-attempt suppressions: providerProofBlind=${lc("LIVE_BUY_PREATTEMPT_PROVIDER_PROOF_BLIND")} brainPattern=${lc("LIVE_BUY_PREATTEMPT_BRAIN_PATTERN_SUPPRESSED")}\n")
             sb.append("  Live lane policy: CYCLIC=liveSoftSized MEME_RING=liveOwnerCollapsed MANIPULATED=dumpSoftSized TREASURY=dumpSoftSized ownerCollapse=${lc("LIVE_RING_OWNER_COLLAPSE")} ownerLane=${lc("MEMETRADER_OWNER_LANE")} dumpSizeEvents=${lc("DUMP_REGIME_LIVE_SIZE_SHAPED")} noPairHeldHot=${lc("INTAKE_NO_PAIR_HELD_HOT_FOR_HYDRATION")}\n")
         } catch (_: Throwable) { /* capability report never fails dumpText */ }
 
