@@ -113,6 +113,38 @@ object TradeAuthorizer {
 
     private fun lockKey(mint: String, book: ExecutionBook): String = "$mint:${book.name}"
 
+    // V5.0.3936 — AUTH-LOCK TRUTH PRUNE.
+    // authorize() historically wrote PAPER_OPEN/LIVE_OPEN before the executor
+    // actually opened. If a later pre-buy stage returned, the lock could live
+    // forever and reject every future lane as ALREADY_OPEN_IN_CORE while wallet
+    // truth/open counters were zero. Keep a short in-flight grace, then require
+    // live locks to be backed by HostWalletTokenTracker accounting truth.
+    private const val LIVE_AUTH_LOCK_GRACE_MS = 15_000L
+
+    private fun isOpenState(state: TokenState?): Boolean = state == TokenState.PAPER_OPEN || state == TokenState.LIVE_OPEN
+
+    private fun liveWalletThinksOpen(mint: String): Boolean = try {
+        HostWalletTokenTracker.getOpenForAccountingMints().contains(mint) ||
+            HostWalletTokenTracker.getActuallyHeldMints().contains(mint)
+    } catch (_: Throwable) { true } // fail closed: do not prune if wallet truth unavailable
+
+    private fun isAuthoritativeOpenLock(lock: TokenLock, isPaperMode: Boolean): Boolean {
+        if (!isOpenState(lock.state)) return false
+        if (lock.state == TokenState.PAPER_OPEN || isPaperMode) return true
+        val ageMs = System.currentTimeMillis() - lock.lockedAt
+        if (ageMs <= LIVE_AUTH_LOCK_GRACE_MS) return true
+        if (liveWalletThinksOpen(lock.mint)) return true
+        try {
+            ForensicLogger.lifecycle(
+                "STALE_AUTH_LOCK_PRUNED",
+                "mint=${lock.mint.take(10)} book=${lock.book.name} ageMs=$ageMs reason=no_wallet_accounting_open"
+            )
+            PipelineHealthCollector.labelInc("STALE_AUTH_LOCK_PRUNED")
+        } catch (_: Throwable) {}
+        tokenLocks.remove(lockKey(lock.mint, lock.book), lock)
+        return false
+    }
+
     // ───────────────────────────────────────────────────────────────────────────
     // MAIN AUTHORIZATION
     // ───────────────────────────────────────────────────────────────────────────
@@ -302,14 +334,16 @@ object TradeAuthorizer {
         if (sameBookLock != null) {
             when (sameBookLock.state) {
                 TokenState.PAPER_OPEN, TokenState.LIVE_OPEN -> {
-                    ErrorLogger.info(TAG, "❌ REJECT $symbol: ALREADY_OPEN_IN_${requestedBook.name}")
-                    releasePrimaryAfterAuthFailure("ALREADY_OPEN")
-                    return AuthorizationResult(
-                        verdict = ExecutionVerdict.REJECT,
-                        reason = "ALREADY_OPEN",
-                        blockLevel = BlockLevel.SOFT,
-                        canRetry = false,
-                    )
+                    if (isAuthoritativeOpenLock(sameBookLock, isPaperMode)) {
+                        ErrorLogger.info(TAG, "❌ REJECT $symbol: ALREADY_OPEN_IN_${requestedBook.name}")
+                        releasePrimaryAfterAuthFailure("ALREADY_OPEN")
+                        return AuthorizationResult(
+                            verdict = ExecutionVerdict.REJECT,
+                            reason = "ALREADY_OPEN",
+                            blockLevel = BlockLevel.SOFT,
+                            canRetry = false,
+                        )
+                    }
                 }
 
                 TokenState.SHADOW_TRACKING -> {
@@ -325,8 +359,8 @@ object TradeAuthorizer {
         val otherBooks = ExecutionBook.values()
             .filter { it != requestedBook && it != ExecutionBook.SHADOW }
             .filter { book ->
-                val state = tokenLocks[lockKey(mint, book)]?.state
-                state == TokenState.PAPER_OPEN || state == TokenState.LIVE_OPEN
+                val lock = tokenLocks[lockKey(mint, book)]
+                lock != null && isAuthoritativeOpenLock(lock, isPaperMode)
             }
 
         // ══════════════════════════════════════════════════════════════════
@@ -544,20 +578,26 @@ object TradeAuthorizer {
         }
     }
 
+    internal fun forceAgeOpenLockForTests(mint: String, book: ExecutionBook, ageMs: Long = LIVE_AUTH_LOCK_GRACE_MS + 1_000L) {
+        val key = lockKey(mint, book)
+        val old = tokenLocks[key] ?: return
+        tokenLocks[key] = old.copy(lockedAt = System.currentTimeMillis() - ageMs)
+    }
+
     fun isShadowOnly(mint: String): Boolean {
         return tokenLocks[lockKey(mint, ExecutionBook.SHADOW)]?.state == TokenState.SHADOW_TRACKING
     }
 
     fun hasOpenPosition(mint: String): Boolean {
         return ExecutionBook.values().any { b ->
-            val state = tokenLocks[lockKey(mint, b)]?.state
-            state == TokenState.PAPER_OPEN || state == TokenState.LIVE_OPEN
+            val lock = tokenLocks[lockKey(mint, b)]
+            lock != null && isAuthoritativeOpenLock(lock, isPaperMode = false)
         }
     }
 
     fun hasOpenPositionInBook(mint: String, book: ExecutionBook): Boolean {
-        val state = tokenLocks[lockKey(mint, book)]?.state
-        return state == TokenState.PAPER_OPEN || state == TokenState.LIVE_OPEN
+        val lock = tokenLocks[lockKey(mint, book)] ?: return false
+        return isAuthoritativeOpenLock(lock, isPaperMode = false)
     }
 
     fun getTokensInBook(book: ExecutionBook): List<String> {
@@ -570,7 +610,7 @@ object TradeAuthorizer {
 
     fun getOpenPositions(): List<String> {
         return tokenLocks.values
-            .filter { it.state == TokenState.PAPER_OPEN || it.state == TokenState.LIVE_OPEN }
+            .filter { isAuthoritativeOpenLock(it, isPaperMode = false) }
             .map { it.mint }
             .distinct()
     }
@@ -607,7 +647,7 @@ object TradeAuthorizer {
     fun getStats(): String {
         val values = tokenLocks.values
         val paperOpen = values.count { it.state == TokenState.PAPER_OPEN }
-        val liveOpen = values.count { it.state == TokenState.LIVE_OPEN }
+        val liveOpen = values.count { it.state == TokenState.LIVE_OPEN && isAuthoritativeOpenLock(it, isPaperMode = false) }
         val shadow = values.count { it.state == TokenState.SHADOW_TRACKING }
 
         return "TradeAuth: paper_open=$paperOpen live_open=$liveOpen shadow=$shadow total=${tokenLocks.size}"

@@ -916,6 +916,66 @@ class ExecutionAuthorityInvariantTest {
         assertEquals("AUTHORIZED", auth.reason)
     }
 
+
+    @Test
+    fun live_stale_auth_lock_without_wallet_truth_does_not_deadlock_core_reentry() {
+        resetAuthorities(paper = false)
+        TradeAuthorizer.reset()
+        LaneExecutionCoordinator.resetForTests()
+        val mint = "MintStaleAuthCore111111111111111111"
+        ExecutableOpenGate.recordFdg(
+            mint = mint,
+            symbol = "STALEAUTH",
+            lane = "CORE",
+            canExecute = true,
+            reason = null,
+            signal = "BUY",
+            rugScore = 90,
+            safetyTier = "SAFE",
+            liquidityUsd = 5000.0,
+        )
+        val first = TradeAuthorizer.authorize(
+            mint = mint,
+            symbol = "STALEAUTH",
+            score = 55,
+            confidence = 70.0,
+            quality = "B",
+            isPaperMode = false,
+            requestedBook = TradeAuthorizer.ExecutionBook.CORE,
+            rugcheckScore = 90,
+            liquidity = 5000.0,
+        )
+        assertTrue(first.isExecutable())
+        assertTrue(TradeAuthorizer.hasOpenPositionInBook(mint, TradeAuthorizer.ExecutionBook.CORE))
+        TradeAuthorizer.forceAgeOpenLockForTests(mint, TradeAuthorizer.ExecutionBook.CORE)
+        assertFalse("stale live auth lock with no wallet/accounting open must prune itself", TradeAuthorizer.hasOpenPositionInBook(mint, TradeAuthorizer.ExecutionBook.CORE))
+        LaneExecutionCoordinator.resetForTests()
+        ExecutableOpenGate.recordFdg(
+            mint = mint,
+            symbol = "STALEAUTH",
+            lane = "CORE",
+            canExecute = true,
+            reason = null,
+            signal = "BUY",
+            rugScore = 90,
+            safetyTier = "SAFE",
+            liquidityUsd = 5000.0,
+        )
+        val second = TradeAuthorizer.authorize(
+            mint = mint,
+            symbol = "STALEAUTH",
+            score = 55,
+            confidence = 70.0,
+            quality = "B",
+            isPaperMode = false,
+            requestedBook = TradeAuthorizer.ExecutionBook.CORE,
+            rugcheckScore = 90,
+            liquidity = 5000.0,
+        )
+        assertTrue("stale CORE auth lock must not cause ALREADY_OPEN live death", second.isExecutable())
+        assertEquals("AUTHORIZED", second.reason)
+    }
+
     @Test
     fun trade_authorizer_returns_finality_attempt_contract() {
         resetAuthorities(paper = true)

@@ -2925,9 +2925,19 @@ class GoldenTapeRegressionTest {
         assertTrue("live MemeTrader must use owner collapse, not all-lane FDG fanout", bot.contains("LIVE_RING_OWNER_COLLAPSE") && bot.contains("MEMETRADER_OWNER_LANE") && bot.contains("val allowed = l == ownerLane"))
         assertFalse("live full-ring observe must not return true before owner rotation", bot.contains("LIVE_FULL_RING_LANE_OBSERVE") || bot.contains("fullRingObserve"))
         assertTrue("runtime report must expose bounded owner-collapse policy", pipe.contains("MEME_RING=liveOwnerCollapsed") && pipe.contains("LIVE_RING_OWNER_COLLAPSE") && pipe.contains("MEMETRADER_OWNER_LANE"))
-        assertTrue("runtime report must expose pre-attempt live buy suppressions", pipe.contains("Pre-attempt suppressions") && pipe.contains("LIVE_BUY_PREATTEMPT_PROVIDER_PROOF_BLIND"))
+        assertTrue("runtime report must expose pre-attempt live buy suppressions", pipe.contains("Pre-attempt suppressions") && pipe.contains("LIVE_BUY_PREATTEMPT_PROVIDER_PROOF_BLIND") && pipe.contains("STALE_AUTH_LOCK_PRUNED"))
     }
 
+
+
+    @Test
+    fun live_auth_locks_are_truth_pruned_not_permanent_open_positions() {
+        val auth = java.io.File("src/main/kotlin/com/lifecyclebot/engine/TradeAuthorizer.kt").readText()
+        val bot = java.io.File("src/main/kotlin/com/lifecyclebot/engine/BotService.kt").readText()
+        assertTrue("TradeAuthorizer must prune stale live auth locks against wallet/accounting truth", auth.contains("STALE_AUTH_LOCK_PRUNED") && auth.contains("LIVE_AUTH_LOCK_GRACE_MS") && auth.contains("getOpenForAccountingMints") && auth.contains("getActuallyHeldMints"))
+        assertTrue("same-book and cross-book duplicate checks must use authoritative lock validation", auth.contains("isAuthoritativeOpenLock(sameBookLock, isPaperMode)") && auth.contains("lock != null && isAuthoritativeOpenLock(lock, isPaperMode)"))
+        assertTrue("post-auth pre-buy CORE aborts must release auth locks", bot.contains("V3_SYMBOLIC_BLOCK_PREBUY") && bot.contains("V3_PERSONALITY_VETO_PREBUY") && bot.contains("TradeAuthorizer.releasePosition(ts.mint"))
+    }
 
     @Test
     fun live_buy_finality_ticket_and_executor_phase_contracts_are_pinned() {
