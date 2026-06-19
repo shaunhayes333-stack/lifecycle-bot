@@ -494,6 +494,22 @@ object PositionPersistence {
         )
     }
     
+    // V5.0.3922 — PRICE PRECISION FIX. Operator identified the phantom
+    // $0.00000000 entryPrice bug: any sub-1e-5 SOL/token price (typical
+    // for fresh pumpfun memecoins, e.g. 4.14e-6 SOL/token) was getting
+    // truncated to 0.0 on the JSONObject round-trip via SharedPreferences.
+    // Even if Android's org.json preserves the Double, ANY upstream/
+    // downstream %.5f/%.6f formatter that touched a price field could
+    // silently squash the value. Fix: store every price/SOL/USD field
+    // as its FULL Double string representation (toString preserves all
+    // significant digits including denormals and scientific notation)
+    // and parse back via toDoubleOrNull(). Zero precision loss possible.
+    private fun JSONObject.putPrice(key: String, v: Double): JSONObject =
+        put(key, v.toString())
+    private fun JSONObject.getPrice(key: String, default: Double = 0.0): Double =
+        optString(key, "").toDoubleOrNull()
+            ?: optDouble(key, default).let { if (it.isFinite()) it else default }
+
     private fun savePositionsInternal(positions: Map<String, PersistedPosition>) {
         val jsonArray = JSONArray()
         
@@ -502,17 +518,17 @@ object PositionPersistence {
                 put("mint", pos.mint)
                 put("symbol", pos.symbol)
                 put("name", pos.name)
-                put("qtyToken", pos.qtyToken)
-                put("entryPrice", pos.entryPrice)
+                putPrice("qtyToken", pos.qtyToken)
+                putPrice("entryPrice", pos.entryPrice)
                 put("entryTime", pos.entryTime)
-                put("costSol", pos.costSol)
-                put("highestPrice", pos.highestPrice)
-                put("lowestPrice", pos.lowestPrice)
-                put("peakGainPct", pos.peakGainPct)
+                putPrice("costSol", pos.costSol)
+                putPrice("highestPrice", pos.highestPrice)
+                putPrice("lowestPrice", pos.lowestPrice)
+                putPrice("peakGainPct", pos.peakGainPct)
                 put("entryPhase", pos.entryPhase)
-                put("entryScore", pos.entryScore)
-                put("entryLiquidityUsd", pos.entryLiquidityUsd)
-                put("entryMcap", pos.entryMcap)
+                putPrice("entryScore", pos.entryScore)
+                putPrice("entryLiquidityUsd", pos.entryLiquidityUsd)
+                putPrice("entryMcap", pos.entryMcap)
                 put("isPaperPosition", pos.isPaperPosition)
                 put("tradingMode", pos.tradingMode)
                 put("tradingModeEmoji", pos.tradingModeEmoji)
@@ -522,29 +538,29 @@ object PositionPersistence {
                 put("isShitCoinPosition", pos.isShitCoinPosition)
                 put("isLongHold", pos.isLongHold)
                 put("capitalRecovered", pos.capitalRecovered)
-                put("capitalRecoveredSol", pos.capitalRecoveredSol)
+                putPrice("capitalRecoveredSol", pos.capitalRecoveredSol)
                 put("profitLocked", pos.profitLocked)
-                put("profitLockedSol", pos.profitLockedSol)
+                putPrice("profitLockedSol", pos.profitLockedSol)
                 put("isHouseMoney", pos.isHouseMoney)
-                put("lockedProfitFloor", pos.lockedProfitFloor)
+                putPrice("lockedProfitFloor", pos.lockedProfitFloor)
                 put("topUpCount", pos.topUpCount)
-                put("topUpCostSol", pos.topUpCostSol)
+                putPrice("topUpCostSol", pos.topUpCostSol)
                 put("lastTopUpTime", pos.lastTopUpTime)
-                put("lastTopUpPrice", pos.lastTopUpPrice)
-                put("partialSoldPct", pos.partialSoldPct)
+                putPrice("lastTopUpPrice", pos.lastTopUpPrice)
+                putPrice("partialSoldPct", pos.partialSoldPct)
                 put("buildPhase", pos.buildPhase)
-                put("targetBuildSol", pos.targetBuildSol)
-                put("lastKnownPrice", pos.lastKnownPrice)
-                put("lastKnownLiquidity", pos.lastKnownLiquidity)
-                put("lastKnownMcap", pos.lastKnownMcap)
+                putPrice("targetBuildSol", pos.targetBuildSol)
+                putPrice("lastKnownPrice", pos.lastKnownPrice)
+                putPrice("lastKnownLiquidity", pos.lastKnownLiquidity)
+                putPrice("lastKnownMcap", pos.lastKnownMcap)
                 put("savedAt", pos.savedAt)
                 put("pendingVerify", pos.pendingVerify) // V5.9.684-FIX
                 put("entryPriceSource", pos.entryPriceSource)
                 put("entryPoolAddress", pos.entryPoolAddress)
                 put("entryDex", pos.entryDex)
-                put("entrySupplyAssumed", pos.entrySupplyAssumed)
+                putPrice("entrySupplyAssumed", pos.entrySupplyAssumed)
                 put("priceBasisRescaled", pos.priceBasisRescaled)
-                put("priceBasisRescaleFactor", pos.priceBasisRescaleFactor)
+                putPrice("priceBasisRescaleFactor", pos.priceBasisRescaleFactor)
                 put("lastPriceSource", pos.lastPriceSource)
                 put("lastPricePoolAddr", pos.lastPricePoolAddr)
                 put("lastPriceDex", pos.lastPriceDex)
@@ -568,21 +584,38 @@ object PositionPersistence {
             
             for (i in 0 until jsonArray.length()) {
                 val obj = jsonArray.getJSONObject(i)
+                val qty = obj.getPrice("qtyToken")
+                val cost = obj.getPrice("costSol")
+                val rawEntry = obj.getPrice("entryPrice")
+                // V5.0.3922 — SYNTH-FROM-COST FALLBACK. Legacy positions that
+                // were saved before the precision fix may already have
+                // entryPrice=0.0 baked into prefs. Reconstruct the cost basis
+                // as costSol/qtyToken if both legs are valid — this is what
+                // every downstream PnL/SL/TP calculator implicitly expects.
+                // Tag the source so the operator knows it's a recovery basis.
+                val (entryPrice, entryPriceSource) = if (rawEntry > 0.0) {
+                    rawEntry to obj.optString("entryPriceSource", "")
+                } else if (cost > 0.0 && qty > 0.0) {
+                    val synth = cost / qty
+                    synth to ("SYNTH_COST_DIV_QTY|" + obj.optString("entryPriceSource", ""))
+                } else {
+                    0.0 to obj.optString("entryPriceSource", "")
+                }
                 val pos = PersistedPosition(
                     mint = obj.getString("mint"),
                     symbol = obj.optString("symbol", "???"),
                     name = obj.optString("name", ""),
-                    qtyToken = obj.getDouble("qtyToken"),
-                    entryPrice = obj.getDouble("entryPrice"),
+                    qtyToken = qty,
+                    entryPrice = entryPrice,
                     entryTime = obj.getLong("entryTime"),
-                    costSol = obj.getDouble("costSol"),
-                    highestPrice = obj.optDouble("highestPrice", 0.0),
-                    lowestPrice = obj.optDouble("lowestPrice", 0.0),
-                    peakGainPct = obj.optDouble("peakGainPct", 0.0),
+                    costSol = cost,
+                    highestPrice = obj.getPrice("highestPrice"),
+                    lowestPrice = obj.getPrice("lowestPrice"),
+                    peakGainPct = obj.getPrice("peakGainPct"),
                     entryPhase = obj.optString("entryPhase", ""),
-                    entryScore = obj.optDouble("entryScore", 0.0),
-                    entryLiquidityUsd = obj.optDouble("entryLiquidityUsd", 0.0),
-                    entryMcap = obj.optDouble("entryMcap", 0.0),
+                    entryScore = obj.getPrice("entryScore"),
+                    entryLiquidityUsd = obj.getPrice("entryLiquidityUsd"),
+                    entryMcap = obj.getPrice("entryMcap"),
                     isPaperPosition = obj.optBoolean("isPaperPosition", false),  // V5.9.252 FIX: default LIVE not paper — old saved positions without this field are on-chain positions
                     tradingMode = obj.optString("tradingMode", "STANDARD"),
                     tradingModeEmoji = obj.optString("tradingModeEmoji", "📈"),
@@ -592,29 +625,29 @@ object PositionPersistence {
                     isShitCoinPosition = obj.optBoolean("isShitCoinPosition", false),
                     isLongHold = obj.optBoolean("isLongHold", false),
                     capitalRecovered = obj.optBoolean("capitalRecovered", false),
-                    capitalRecoveredSol = obj.optDouble("capitalRecoveredSol", 0.0),
+                    capitalRecoveredSol = obj.getPrice("capitalRecoveredSol"),
                     profitLocked = obj.optBoolean("profitLocked", false),
-                    profitLockedSol = obj.optDouble("profitLockedSol", 0.0),
+                    profitLockedSol = obj.getPrice("profitLockedSol"),
                     isHouseMoney = obj.optBoolean("isHouseMoney", false),
-                    lockedProfitFloor = obj.optDouble("lockedProfitFloor", 0.0),
+                    lockedProfitFloor = obj.getPrice("lockedProfitFloor"),
                     topUpCount = obj.optInt("topUpCount", 0),
-                    topUpCostSol = obj.optDouble("topUpCostSol", 0.0),
+                    topUpCostSol = obj.getPrice("topUpCostSol"),
                     lastTopUpTime = obj.optLong("lastTopUpTime", 0L),
-                    lastTopUpPrice = obj.optDouble("lastTopUpPrice", 0.0),
-                    partialSoldPct = obj.optDouble("partialSoldPct", 0.0),
+                    lastTopUpPrice = obj.getPrice("lastTopUpPrice"),
+                    partialSoldPct = obj.getPrice("partialSoldPct"),
                     buildPhase = obj.optInt("buildPhase", 0),
-                    targetBuildSol = obj.optDouble("targetBuildSol", 0.0),
-                    lastKnownPrice = obj.optDouble("lastKnownPrice", 0.0),
-                    lastKnownLiquidity = obj.optDouble("lastKnownLiquidity", 0.0),
-                    lastKnownMcap = obj.optDouble("lastKnownMcap", 0.0),
+                    targetBuildSol = obj.getPrice("targetBuildSol"),
+                    lastKnownPrice = obj.getPrice("lastKnownPrice"),
+                    lastKnownLiquidity = obj.getPrice("lastKnownLiquidity"),
+                    lastKnownMcap = obj.getPrice("lastKnownMcap"),
                     savedAt = obj.optLong("savedAt", 0L),
                     pendingVerify = obj.optBoolean("pendingVerify", false), // V5.9.684-FIX
-                    entryPriceSource = obj.optString("entryPriceSource", ""),
+                    entryPriceSource = entryPriceSource,
                     entryPoolAddress = obj.optString("entryPoolAddress", ""),
                     entryDex = obj.optString("entryDex", ""),
-                    entrySupplyAssumed = obj.optDouble("entrySupplyAssumed", 0.0),
+                    entrySupplyAssumed = obj.getPrice("entrySupplyAssumed"),
                     priceBasisRescaled = obj.optBoolean("priceBasisRescaled", false),
-                    priceBasisRescaleFactor = obj.optDouble("priceBasisRescaleFactor", 1.0),
+                    priceBasisRescaleFactor = obj.getPrice("priceBasisRescaleFactor", 1.0),
                     lastPriceSource = obj.optString("lastPriceSource", ""),
                     lastPricePoolAddr = obj.optString("lastPricePoolAddr", ""),
                     lastPriceDex = obj.optString("lastPriceDex", ""),
