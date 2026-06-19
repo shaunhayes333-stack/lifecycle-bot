@@ -19747,6 +19747,8 @@ if (hotExitHandledSweep) {
                                     "🌌 [V3|SYMBOLIC_BLOCK] ${identity.symbol} | greenLight=${"%.2f".format(symGreenLight)} mood=$symMood circuit_breaking=true (LIVE) — SKIP execute"
                                 )
                                 addLog("🌌 SYMBOLIC BLOCK: ${identity.symbol} | $symMood / circuit-breaking", ts.mint)
+                                try { TradeAuthorizer.releasePosition(ts.mint, "V3_SYMBOLIC_BLOCK_PREBUY", TradeAuthorizer.ExecutionBook.CORE) } catch (_: Throwable) {}
+                                try { LaneExecutionCoordinator.releaseIfPrimary(ts.mint, "CORE", "V3_SYMBOLIC_BLOCK_PREBUY") } catch (_: Throwable) {}
                                 return
                             }
 
@@ -19774,6 +19776,8 @@ if (hotExitHandledSweep) {
                                     "🧠 [V3|PERSONALITY_VETO] ${identity.symbol} | regime=$regimeHint — user persona said skip"
                                 )
                                 addLog("🧠 PERSONA VETO: ${identity.symbol} (regime=$regimeHint)", ts.mint)
+                                try { TradeAuthorizer.releasePosition(ts.mint, "V3_PERSONALITY_VETO_PREBUY", TradeAuthorizer.ExecutionBook.CORE) } catch (_: Throwable) {}
+                                try { LaneExecutionCoordinator.releaseIfPrimary(ts.mint, "CORE", "V3_PERSONALITY_VETO_PREBUY") } catch (_: Throwable) {}
                                 return
                             }
 
