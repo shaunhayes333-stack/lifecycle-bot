@@ -8956,6 +8956,24 @@ class BotService : Service() {
         } catch (_: Throwable) { emptySet() }
 
         if (memeOnly) {
+            // V5.0.3914 — LIVE_FULL_RING_OBSERVATION.
+            // Operator benchmark: 3868-3879 traded live; current live UI showed
+            // enabled=MEME,CYCLIC but tiny intake/no live trades. The owner-rotation
+            // below is acceptable for PAPER duplicate-loss control, but in LIVE it
+            // silently skips most layers before LANE_EVAL/FDG. Skipping is not enough:
+            // every MemeTrader specialist must observe/evaluate; downstream
+            // LaneExecutionCoordinator + FinalExecutionPermit still choose a single
+            // execution owner, so this restores layer visibility without double-buying.
+            if (com.lifecyclebot.engine.RuntimeModeAuthority.isLive()) {
+                val liveRing = setOf(
+                    "SHITCOIN", "MOONSHOT", "EXPRESS", "PROJECT_SNIPER",
+                    "MANIPULATED", "QUALITY", "DIP_HUNTER", "TREASURY", "BLUECHIP"
+                )
+                if (l in liveRing) {
+                    try { ForensicLogger.lifecycle("LIVE_FULL_RING_LANE_OBSERVE", "lane=$l primary=$primaryLane symbol=${ts.symbol} mint=${ts.mint.take(10)}") } catch (_: Throwable) {}
+                    return true
+                }
+            }
             // V5.0.3710 — INTERNAL_TOOLKIT_STARVATION_FIX.
             // MEME-only means external markets/perps/cyclic/sniper-family engines stay
             // isolated by EnabledTraderAuthority. It must NOT make the internal meme

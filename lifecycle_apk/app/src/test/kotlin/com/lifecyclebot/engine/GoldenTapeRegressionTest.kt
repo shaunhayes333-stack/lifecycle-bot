@@ -2893,4 +2893,14 @@ class GoldenTapeRegressionTest {
         assertTrue("Fresh no-pair discoveries must be held hot before aged demotion", bot.contains("INTAKE_NO_PAIR_HELD_HOT_FOR_HYDRATION") && bot.contains("NO_PAIR_NO_FALLBACK_AGED"))
         assertTrue("Report must expose soft-sized live policy", pipe.contains("CYCLIC=liveSoftSized") && pipe.contains("noPairHeldHot"))
     }
+
+    @Test
+    fun live_meme_mode_must_observe_all_internal_lanes_not_owner_skip_them() {
+        val bot = java.io.File("src/main/kotlin/com/lifecyclebot/engine/BotService.kt").readText()
+        val pipe = java.io.File("src/main/kotlin/com/lifecyclebot/engine/PipelineHealthCollector.kt").readText()
+        assertTrue("live MemeTrader ring must return true for all internal lanes before paper owner rotation", bot.contains("LIVE_FULL_RING_LANE_OBSERVE") && bot.contains("RuntimeModeAuthority.isLive()") && bot.contains("PROJECT_SNIPER") && bot.contains("DIP_HUNTER") && bot.contains("BLUECHIP"))
+        assertTrue("paper owner rotation should remain below live full-observe branch for duplicate-loss control", bot.indexOf("LIVE_FULL_RING_LANE_OBSERVE") < bot.indexOf("MEMETRADER_OWNER_LANE"))
+        assertTrue("runtime report must expose full-ring live observation", pipe.contains("MEME_RING=liveFullObserve") && pipe.contains("LIVE_FULL_RING_LANE_OBSERVE"))
+    }
+
 }
