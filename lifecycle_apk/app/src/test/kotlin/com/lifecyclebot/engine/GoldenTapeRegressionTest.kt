@@ -945,8 +945,9 @@ class GoldenTapeRegressionTest {
         assertTrue("selector should tolerate timeout noise below the planner pressure band", service.contains("val lowTimeoutNoise = supervisorTimeoutsForPlanning < 30") && service.contains("selectorHealthy = lowTimeoutNoise"))
         assertTrue("degraded selector must cap forced-open supervisor prefix", service.contains("pressure == \"healthy\" && !selectorHealthy -> maxOf(6, PER_CYCLE_CAP / 2)"))
         assertTrue(service.contains("selectorMaxInFlight = if (selectorHealthy) SUPERVISOR_HEALTHY_MEME_MAX_INFLIGHT else SUPERVISOR_MAX_INFLIGHT"))
-        assertTrue(service.contains("val demoteProcessFloor = if (memeFresh) 6 else 3"))
-        assertTrue(service.contains("val demoteAgeFloorMs = if (memeFresh) 5L * 60_000L else 120_000L"))
+        assertTrue("fresh-source demotion protection must now be Solana-wide, not pump/meme-only", service.contains("val demoteProcessFloor = if (solanaFresh) 6 else 3"))
+        assertTrue("fresh-source age protection must now be Solana-wide, not pump/meme-only", service.contains("val demoteAgeFloorMs = if (solanaFresh) 5L * 60_000L else 120_000L"))
+        assertTrue("Solana-wide helper must include non-pump sources", service.contains("fun isFreshSolanaSource") && service.contains("RAYDIUM") && service.contains("DATA_ORCHESTRATOR") && service.contains("METEORA") && service.contains("ORCA"))
         assertTrue(service.contains("isHighConvictionUnseen"))
         assertTrue(service.contains("filterNot { (mint, _) -> isHighConvictionUnseen(mint, entriesByMint[mint]) }"))
 
