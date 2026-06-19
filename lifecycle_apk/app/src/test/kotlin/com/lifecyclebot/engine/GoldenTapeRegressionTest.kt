@@ -1122,7 +1122,7 @@ class GoldenTapeRegressionTest {
         assertTrue(service.contains("confidence = confidence"))
         assertTrue(service.contains("do not fabricate zero-liquidity probation rows"))
         assertTrue(service.contains("val demoteLiq"))
-        assertTrue("NO_PAIR hot-loop rows must demote to probation instead of burning every cycle", service.contains("INTAKE_NO_PAIR_DEMOTED_TO_PROBATION") && service.contains("reason = \"NO_PAIR_NO_FALLBACK\"") && service.contains("status.tokens.remove(mint)"))
+        assertTrue("Fresh NO_PAIR rows must stay hot for hydration before aged demotion", service.contains("INTAKE_NO_PAIR_HELD_HOT_FOR_HYDRATION") && service.contains("NO_PAIR_NO_FALLBACK_AGED") && service.contains("processCount >= 4") && service.contains("ageMs > 120_000L"))
         assertTrue("NO_PAIR probation rows must not timeout-promote back to hot loop without price/source proof", registry.contains("NO_PAIR_TIMEOUT_HELD") && registry.contains("PROBATION_TIMEOUT_HELD_NO_PAIR") && registry.contains("entry.source.contains(\"NO_PAIR_NO_FALLBACK\""))
         assertFalse(
             "Source-balance demotion must not hardcode liq=0 for real-liq intake",
@@ -2711,8 +2711,8 @@ class GoldenTapeRegressionTest {
         assertTrue("liveBuy must emit plan/route/tx/terminal stages", listOf("BUY_PLAN_OK", "BUY_ROUTE_REQUESTED", "BUY_TX_SUBMITTED", "buyTerminalOk", "buyTerminalFail").all { exec.contains(it) })
         assertTrue("Provider capability report must say Helius is non-critical and show execution truth", pipe.contains("Provider capability (execution truth)") && pipe.contains("Helius role:") && pipe.contains("HOT_PATH=false") && pipe.contains("Jupiter quote/build/confirm") && pipe.contains("Execution leases:"))
         val bot = java.io.File("src/main/kotlin/com/lifecyclebot/engine/BotService.kt").readText()
-        assertTrue("CYCLIC must be paper-only in live until recovery", bot.contains("CYCLIC is a live bleeder") && bot.contains("else -> false") && pipe.contains("CYCLIC=paperOnly"))
-        assertTrue("DUMP live policy must paper-only MANIP/TREASURY/CYCLIC and size-shape risky lanes", exec.contains("DUMP_LIVE_LANE_PAPER_ONLY") && exec.contains("DUMP_REGIME_LIVE_SIZE_SHAPED") && exec.contains("laneTag.contains(\"TREASURY\")") && exec.contains("laneTag.contains(\"MANIP"))
+        assertTrue("CYCLIC must remain live-enabled like the 3868-3879 benchmark", bot.contains("else -> cyclicEnabled") && bot.contains("benchmark restore") && pipe.contains("CYCLIC=liveSoftSized"))
+        assertTrue("DUMP live policy must soft-size risky lanes, not paper-only veto them", !exec.contains("DUMP_LIVE_LANE_PAPER_ONLY") && exec.contains("DUMP_REGIME_LIVE_SIZE_SHAPED") && exec.contains("laneTag.contains(\"TREASURY\")") && exec.contains("laneTag.contains(\"MANIP") && exec.contains("laneTag.contains(\"CYCLIC\")"))
         assertFalse("FDG must not hard-block live solely because Helius is down", fdg.contains("HELIUS_UNHEALTHY_LIVE_SAFE_MODE") || fdg.contains("blockReason = \"HELIUS"))
     }
 
@@ -2881,4 +2881,16 @@ class GoldenTapeRegressionTest {
         assertTrue("Real sell-only dangers must remain hard reasons", safe.contains("workerTimeoutStorm()") && safe.contains("orphanLivePositions > 0") && safe.contains("closedWithNonDustBalance > 1") && safe.contains("providerBackoffActive()"))
     }
 
+
+    @Test
+    fun benchmark_3868_3879_live_throughput_paths_must_not_be_hard_disabled() {
+        val bot = java.io.File("src/main/kotlin/com/lifecyclebot/engine/BotService.kt").readText()
+        val exec = java.io.File("src/main/kotlin/com/lifecyclebot/engine/Executor.kt").readText()
+        val pipe = java.io.File("src/main/kotlin/com/lifecyclebot/engine/PipelineHealthCollector.kt").readText()
+        assertTrue("CYCLIC live tick must follow enabled authority, not hard false", bot.contains("else -> cyclicEnabled") && !bot.contains("CYCLIC is a live bleeder"))
+        assertFalse("DUMP regime must not force live lanes to paper-only", exec.contains("DUMP_LIVE_LANE_PAPER_ONLY") || exec.contains("dump_paper_only:"))
+        assertTrue("DUMP regime must remain risk-shaped via size caps", exec.contains("dumpRegimeLive && laneTag.contains(\"CYCLIC\")") && exec.contains("dumpRegimeLive && laneTag.contains(\"TREASURY\")") && exec.contains("DUMP_REGIME_LIVE_SIZE_SHAPED"))
+        assertTrue("Fresh no-pair discoveries must be held hot before aged demotion", bot.contains("INTAKE_NO_PAIR_HELD_HOT_FOR_HYDRATION") && bot.contains("NO_PAIR_NO_FALLBACK_AGED"))
+        assertTrue("Report must expose soft-sized live policy", pipe.contains("CYCLIC=liveSoftSized") && pipe.contains("noPairHeldHot"))
+    }
 }

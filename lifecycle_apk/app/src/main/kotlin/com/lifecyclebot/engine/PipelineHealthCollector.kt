@@ -2014,7 +2014,7 @@ object PipelineHealthCollector {
             sb.append("  Helius degraded: ${if (!KeyValidator.isLive("helius")) "HELIUS_DEGRADED_NON_CRITICAL" else "ok"}\n")
             sb.append("  Jupiter quote/build/confirm: quoteFail=${lc("JUPITER_QUOTE_FAIL")} buildOk=${lc("JUPITER_SWAP_BUILD_OK")} confirmOk=${lc("JUPITER_CONFIRM_OK")} quoteRejected=${lc("JUPITER_QUOTE_REJECTED")}\n")
             sb.append("  Buy terminal: planOk=${lc("BUY_PLAN_OK")} txSubmitted=${lc("BUY_TX_SUBMITTED")} ok=${lc("BUY_TERMINAL_OK")} fail=${lc("BUY_TERMINAL_FAIL")} duplicateSuppressed=${lc("EXEC_DUPLICATE_SUPPRESSED")} backoff=${lc("EXEC_RETRY_BACKOFF_SET")}\n")
-            sb.append("  Live lane policy: CYCLIC=paperOnly MANIPULATED=paperOnlyInDump TREASURY=paperOnlyInDump dumpSizeEvents=${lc("DUMP_REGIME_LIVE_SIZE_SHAPED")} dumpPaperOnly=${lc("DUMP_LIVE_LANE_PAPER_ONLY")}\n")
+            sb.append("  Live lane policy: CYCLIC=liveSoftSized MANIPULATED=dumpSoftSized TREASURY=dumpSoftSized dumpSizeEvents=${lc("DUMP_REGIME_LIVE_SIZE_SHAPED")} noPairHeldHot=${lc("INTAKE_NO_PAIR_HELD_HOT_FOR_HYDRATION")}\n")
         } catch (_: Throwable) { /* capability report never fails dumpText */ }
 
         try {

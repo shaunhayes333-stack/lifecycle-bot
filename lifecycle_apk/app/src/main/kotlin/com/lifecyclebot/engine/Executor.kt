@@ -7276,22 +7276,16 @@ class Executor(
         val laneTag = (identity?.source ?: ts.source).uppercase()
         val currentRegimeForLivePolicy = try { com.lifecyclebot.engine.RegimeDetector.currentRegime() } catch (_: Throwable) { com.lifecyclebot.engine.RegimeDetector.Regime.NORMAL }
         val dumpRegimeLive = RuntimeModeAuthority.isLive() && currentRegimeForLivePolicy == com.lifecyclebot.engine.RegimeDetector.Regime.DUMP
-        if (dumpRegimeLive && (laneTag.contains("CYCLIC") || laneTag.contains("MANIPULATED") || laneTag.contains("MANIP") || laneTag.contains("TREASURY"))) {
-            try {
-                ForensicLogger.lifecycle(
-                    "DUMP_LIVE_LANE_PAPER_ONLY",
-                    "mint=${ts.mint.take(10)} symbol=${ts.symbol} lane=$laneTag regime=$currentRegimeForLivePolicy action=no_live_buy paperOnly=true",
-                )
-                PipelineHealthCollector.labelInc("DUMP_LIVE_LANE_PAPER_ONLY")
-            } catch (_: Throwable) {}
-            if (cfg().shadowPaperEnabled) {
-                try { runShadowPaperBuy(ts, sol, score, quality, "dump_paper_only:$laneTag", wallet, walletSol) } catch (_: Throwable) {}
-            }
-            return
-        }
+        // V5.0.3913 — benchmark restore: 3868-3879 traded live in high-risk
+        // regimes. The 3895 hard paper-only branch for CYCLIC/MANIP/TREASURY
+        // killed live throughput despite FDG/executor allows. Do not veto lanes
+        // here; DUMP risk is handled by the size caps below and downstream safety.
         val laneSizeCap = try {
             val wr = com.lifecyclebot.engine.learning.LanePolicy.rollingWr(laneTag)  // null until enough samples
             when {
+                dumpRegimeLive && laneTag.contains("CYCLIC") -> 0.10
+                dumpRegimeLive && laneTag.contains("TREASURY") -> 0.12
+                dumpRegimeLive && (laneTag.contains("MANIPULATED") || laneTag.contains("MANIP")) -> 0.12
                 dumpRegimeLive && laneTag.contains("EXPRESS") -> 0.10
                 dumpRegimeLive && laneTag.contains("SHITCOIN") -> 0.10
                 laneTag.contains("MANIPULATED") -> if ((wr ?: 0.0) > 0.18) 1.0 else 0.30   // spec 3: 0.25-0.35 until WR>18%

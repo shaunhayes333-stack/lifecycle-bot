@@ -5891,10 +5891,12 @@ class BotService : Service() {
             val liveThreshold = 1500.0
             val allowTick = when {
                 isPaperRuntime -> cyclicEnabled
-                // V5.0.3895 — CYCLIC is a live bleeder in current reports
-                // (WR<30%, EV<0, PnL<0). Keep its paper/shadow learning alive, but
-                // remove it from live hot path until recovery thresholds are met.
-                else -> false
+                // V5.0.3913 — benchmark restore: 3868-3879 traded live with
+                // CYCLIC enabled in live and relied on wallet/FDG/executor safety.
+                // A hard config-disable made UI enabled=MEME,CYCLIC lie while no
+                // CYCLIC live candidates could ever reach execution. Keep live
+                // throughput; risk is soft-shaped downstream, not vetoed here.
+                else -> cyclicEnabled
             }
             if (allowTick) {
                 // V5.9.1238 — snapshot cheap state on the loop thread, then run the
@@ -15152,26 +15154,35 @@ if (hotExitHandledSweep) {
                     if (ts.position.qtyToken > 0.0 && ts.position.entryPrice > 0.0) {
                         runFallbackSafetyExit(ts, cfg, wallet)
                     } else {
-                        // V5.0.3891 — hot-loop no-pair demotion. A mint with no
-                        // Dex pair, no fallback price, and no open position is not
-                        // executable. Keeping it in status.tokens causes the same
-                        // NO_PAIR_NO_FALLBACK block to fire every loop. Move it to
-                        // probation/cold storage so future multi-source/price/RC
-                        // signals can promote it, but it stops burning live cycles.
-                        val demoted = try {
-                            com.lifecyclebot.engine.GlobalTradeRegistry.demoteWatchlistToProbation(
-                                mint = mint,
-                                reason = "NO_PAIR_NO_FALLBACK",
-                                liquidityUsd = ts.lastLiquidityUsd,
-                                confidence = 0,
-                                price = 0.0,
-                                isEstimatedLiquidity = true,
-                            )
-                        } catch (_: Throwable) { false }
-                        if (demoted) {
-                            try { synchronized(status.tokens) { status.tokens.remove(mint) } } catch (_: Throwable) {}
-                            try { PipelineHealthCollector.labelInc("INTAKE_NO_PAIR_DEMOTED_TO_PROBATION") } catch (_: Throwable) {}
-                            try { ForensicLogger.lifecycle("INTAKE_NO_PAIR_DEMOTED_TO_PROBATION", "mint=${mint.take(10)} symbol=${ts.symbol} src=${ts.source} mcap=${ts.lastMcap.toInt()} liq=${ts.lastLiquidityUsd.toInt()}") } catch (_: Throwable) {}
+                        // V5.0.3913 — benchmark restore: 3868-3879 kept fresh
+                        // no-pair pump/Raydium discoveries hot long enough for
+                        // fallback price/pair hydration. 3891 demoted/removed them
+                        // on the FIRST no-pair miss, producing tiny WL counts and no
+                        // live trade opportunities. Demote only after repeated aged
+                        // misses; fresh tokens stay in status.tokens/watchlist.
+                        val entry = try { com.lifecyclebot.engine.GlobalTradeRegistry.getEntry(mint) } catch (_: Throwable) { null }
+                        val ageMs = entry?.addedAt?.let { System.currentTimeMillis() - it } ?: 0L
+                        val processCount = entry?.processCount ?: 0
+                        val agedNoPair = processCount >= 4 && ageMs > 120_000L
+                        if (!agedNoPair) {
+                            try { PipelineHealthCollector.labelInc("INTAKE_NO_PAIR_HELD_HOT_FOR_HYDRATION") } catch (_: Throwable) {}
+                            try { ForensicLogger.lifecycle("INTAKE_NO_PAIR_HELD_HOT_FOR_HYDRATION", "mint=${mint.take(10)} symbol=${ts.symbol} src=${ts.source} pc=$processCount ageMs=$ageMs mcap=${ts.lastMcap.toInt()} liq=${ts.lastLiquidityUsd.toInt()} action=keep_hot") } catch (_: Throwable) {}
+                        } else {
+                            val demoted = try {
+                                com.lifecyclebot.engine.GlobalTradeRegistry.demoteWatchlistToProbation(
+                                    mint = mint,
+                                    reason = "NO_PAIR_NO_FALLBACK_AGED",
+                                    liquidityUsd = ts.lastLiquidityUsd,
+                                    confidence = 0,
+                                    price = 0.0,
+                                    isEstimatedLiquidity = true,
+                                )
+                            } catch (_: Throwable) { false }
+                            if (demoted) {
+                                try { synchronized(status.tokens) { status.tokens.remove(mint) } } catch (_: Throwable) {}
+                                try { PipelineHealthCollector.labelInc("INTAKE_NO_PAIR_DEMOTED_TO_PROBATION_AGED") } catch (_: Throwable) {}
+                                try { ForensicLogger.lifecycle("INTAKE_NO_PAIR_DEMOTED_TO_PROBATION_AGED", "mint=${mint.take(10)} symbol=${ts.symbol} src=${ts.source} pc=$processCount ageMs=$ageMs mcap=${ts.lastMcap.toInt()} liq=${ts.lastLiquidityUsd.toInt()}") } catch (_: Throwable) {}
+                            }
                         }
                     }
                     return
