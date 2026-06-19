@@ -63,17 +63,59 @@ object CloseLease {
         System.currentTimeMillis() - l.acquiredMs < LEASE_TTL_MS
     }
 
-    // V5.0.3728 — pending-sell safe-mode source fix.
-    // activeLeaseCount() is diagnostic: it includes retry/backoff leases that are
-    // intentionally idle (inFlight=false, nextEligibleMs in the future). Feeding that
-    // into SellOnlySafeMode made live buys dead for up to the 10m lease TTL even when
-    // the close worker was not running and sometimes even when open/host/wallet counts
-    // were already zero. For live-buy admission, only a lease that is actively running
-    // OR already eligible to retry should count as pending sell pressure.
+    // V5.0.3915 — operator dump 06-19 19:28 root cause.
+    // The bot stopped LIVE BUYs completely (0/482) while LIVE SELLs kept working
+    // (81/81), because ADMISSION_GATE:SELL_ONLY_SAFE_MODE = 337 — SellOnlySafeMode
+    // was permanently armed off the back of a phantom pendingSellQueue signal.
+    // Reason: the previous version of activeBlockingLeaseCount() counted any
+    // lease as "blocking" when EITHER inFlight=true OR now >= nextEligibleMs.
+    // Once a sell route failed without signature, the lease was recorded with
+    // inFlight=false and nextEligibleMs=now+backoff. The instant that backoff
+    // elapsed (seconds, not minutes) the lease started satisfying the
+    // (now >= nextEligibleMs) branch forever, until the 10-min TTL pruned it.
+    // With zero open positions and zero host wallet tokens, this is residue,
+    // not pressure — but SellOnlySafeMode read it as live pending sell pressure
+    // and hard-blocked every buy.
+    //
+    // Correct semantics: a lease is "actively blocking" admission ONLY while a
+    // close route is genuinely in-flight (inFlight=true). A non-in-flight lease
+    // past its backoff is a retryable residue — the next exit/reconciler tick
+    // either picks it up (after which inFlight flips true again and it
+    // legitimately blocks) or it ages out via TTL. Either way it must not
+    // gate live buys in the meantime.
     fun activeBlockingLeaseCount(): Int {
+        reapResidue()
         val now = System.currentTimeMillis()
         return leases.entries.count { (_, l) ->
-            (now - l.acquiredMs < LEASE_TTL_MS) && (l.inFlight || now >= l.nextEligibleMs)
+            (now - l.acquiredMs < LEASE_TTL_MS) && l.inFlight
+        }
+    }
+
+    // V5.0.3915 — proactive residue reaper. Any lease that has been
+    // !inFlight for longer than RESIDUE_REAP_MS gets pruned even before TTL.
+    // The 10-min TTL is correct for in-flight protection, but for a long-idle
+    // retryable record it's pure latency on the SellOnlySafeMode signal. Called
+    // by activeBlockingLeaseCount() on every read so the reap happens lazily
+    // wherever the signal is consumed (RuntimeStateSnapshot, doctor, admission).
+    private const val RESIDUE_REAP_MS: Long = 60_000L
+    private fun reapResidue() {
+        val now = System.currentTimeMillis()
+        val it = leases.entries.iterator()
+        while (it.hasNext()) {
+            val e = it.next()
+            val l = e.value
+            val idleMs = now - l.acquiredMs
+            val pastBackoff = now >= l.nextEligibleMs
+            if (!l.inFlight && pastBackoff && idleMs >= RESIDUE_REAP_MS) {
+                it.remove()
+                try {
+                    ForensicLogger.lifecycle(
+                        "SELL_LEASE_RESIDUE_REAPED",
+                        "mint=${e.key.take(10)} idleMs=$idleMs attempts=${l.closeAttemptCount} " +
+                                "reason=non_in_flight_past_backoff (frees SellOnlySafeMode signal)",
+                    )
+                } catch (_: Throwable) {}
+            }
         }
     }
     fun isLeased(mint: String): Boolean = current(mint) != null
