@@ -183,9 +183,9 @@ object HardRugPreFilter {
         
         if (liq < minLiq) {
             return PreFilterResult(
-                pass = false,
-                reason = "LOW_LIQUIDITY: $${liq.toInt()} < $${minLiq.toInt()} min",
-                severity = FilterSeverity.HARD_FAIL,
+                pass = true,
+                reason = "LOW_LIQUIDITY_SIZE_REDUCED: $${liq.toInt()} < $${minLiq.toInt()} min",
+                severity = FilterSeverity.SOFT_FAIL,
             )
         }
         

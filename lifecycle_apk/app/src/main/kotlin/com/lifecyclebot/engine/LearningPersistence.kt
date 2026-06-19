@@ -3,6 +3,7 @@ package com.lifecyclebot.engine
 import android.content.Context
 import android.database.sqlite.SQLiteDatabase
 import android.database.sqlite.SQLiteOpenHelper
+import android.os.Looper
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.GlobalScope
 import kotlinx.coroutines.launch
@@ -242,6 +243,11 @@ object LearningPersistence {
 
     private fun putBlob(name: String, json: String) {
         val d = db ?: return
+        if (Looper.getMainLooper().thread == Thread.currentThread() && !d.inTransaction()) {
+            GlobalScope.launch(Dispatchers.IO) { putBlob(name, json) }
+            try { PipelineHealthCollector.labelInc("LEARNING_PERSISTENCE_PUTBLOB_OFFMAIN") } catch (_: Throwable) {}
+            return
+        }
         try {
             d.execSQL("DELETE FROM kv WHERE tracker = 'BLOB' AND bucket = ?", arrayOf(name))
             d.execSQL(

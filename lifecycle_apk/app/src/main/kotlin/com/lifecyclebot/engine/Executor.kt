@@ -8898,6 +8898,10 @@ class Executor(
                 )
                 if (!liqProof.ok && !isPaperMode) {
                     val walked = liqProof.attempted.size
+                    try {
+                        ForensicLogger.exec("LIVE_BUY_PREATTEMPT_SUPPRESSED", ts.symbol, "mint=${ts.mint.take(10)} reason=PROVIDER_PROOF_LIQUIDITY_CASCADE_BLIND quality=${liqProof.quality.name} source=${liqProof.source} walked=$walked")
+                        PipelineHealthCollector.labelInc("LIVE_BUY_PREATTEMPT_PROVIDER_PROOF_BLIND")
+                    } catch (_: Throwable) {}
                     return false to "PROVIDER_PROOF_LIQUIDITY_CASCADE_BLIND:quality=${liqProof.quality.name}:source=${liqProof.source}:walked=$walked"
                 }
             } catch (_: Throwable) {}
@@ -8915,6 +8919,10 @@ class Executor(
             if (b != null) {
                 try {
                     if (b.shouldSkipTrade(ts.phase, ts.meta.emafanAlignment, ts.source, score)) {
+                        try {
+                            ForensicLogger.exec("LIVE_BUY_PREATTEMPT_SUPPRESSED", ts.symbol, "mint=${ts.mint.take(10)} reason=BRAIN_PATTERN_SUPPRESSED phase=${ts.phase} source=${ts.source}")
+                            PipelineHealthCollector.labelInc("LIVE_BUY_PREATTEMPT_BRAIN_PATTERN_SUPPRESSED")
+                        } catch (_: Throwable) {}
                         return false to "BRAIN_PATTERN_SUPPRESSED:phase=${ts.phase}|source=${ts.source}"
                     }
                 } catch (_: Throwable) {}

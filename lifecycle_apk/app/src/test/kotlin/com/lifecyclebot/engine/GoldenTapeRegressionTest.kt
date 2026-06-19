@@ -416,6 +416,7 @@ class GoldenTapeRegressionTest {
         assertTrue("MEME-only should rotate ownership across the full MemeTrader surface", bot.contains("MEMETRADER_CONTRIBUTION_ROTATION") && bot.contains("fullMemeTraderRing") && bot.contains("MEMETRADER_OWNER_LANE"))
         assertTrue("Rotation must include internal lanes that were previously idle", listOf("SHITCOIN", "MOONSHOT", "EXPRESS", "PROJECT_SNIPER", "MANIPULATED", "QUALITY", "DIP_HUNTER", "TREASURY", "BLUECHIP").all { bot.contains(it) })
         assertTrue("Contribution fix must remain bounded to one owner lane, not all-lane fanout", bot.contains("val allowed = l == ownerLane") && bot.contains("return allowed"))
+        assertFalse("3914 live full-ring fanout regression must stay dead", bot.contains("LIVE_FULL_RING_LANE_OBSERVE"))
     }
 
 
@@ -789,6 +790,7 @@ class GoldenTapeRegressionTest {
         assertTrue(bot.contains("MEMETRADER_OWNER_LANE"))
         assertFalse("MEME-only must not blanket-mute all non-meme specialist lanes", bot.contains("return memeFamily"))
         assertFalse("toolkit alive must not mean all meme-family siblings execute", bot.contains("if (memeFamily) return true"))
+        assertFalse("live owner collapse must not be bypassed by full-ring observe", bot.contains("LIVE_FULL_RING_LANE_OBSERVE"))
     }
 
 
@@ -2917,12 +2919,13 @@ class GoldenTapeRegressionTest {
     }
 
     @Test
-    fun live_meme_mode_must_observe_all_internal_lanes_not_owner_skip_them() {
+    fun live_meme_mode_must_collapse_to_one_owner_lane_not_full_ring_fanout() {
         val bot = java.io.File("src/main/kotlin/com/lifecyclebot/engine/BotService.kt").readText()
         val pipe = java.io.File("src/main/kotlin/com/lifecyclebot/engine/PipelineHealthCollector.kt").readText()
-        assertTrue("live MemeTrader ring must return true for all internal lanes before paper owner rotation", bot.contains("LIVE_FULL_RING_LANE_OBSERVE") && bot.contains("RuntimeModeAuthority.isLive()") && bot.contains("PROJECT_SNIPER") && bot.contains("DIP_HUNTER") && bot.contains("BLUECHIP"))
-        assertTrue("paper owner rotation should remain below live full-observe branch for duplicate-loss control", bot.indexOf("LIVE_FULL_RING_LANE_OBSERVE") < bot.indexOf("MEMETRADER_OWNER_LANE"))
-        assertTrue("runtime report must expose full-ring live observation", pipe.contains("MEME_RING=liveFullObserve") && pipe.contains("LIVE_FULL_RING_LANE_OBSERVE"))
+        assertTrue("live MemeTrader must use owner collapse, not all-lane FDG fanout", bot.contains("LIVE_RING_OWNER_COLLAPSE") && bot.contains("MEMETRADER_OWNER_LANE") && bot.contains("val allowed = l == ownerLane"))
+        assertFalse("live full-ring observe must not return true before owner rotation", bot.contains("LIVE_FULL_RING_LANE_OBSERVE") || bot.contains("fullRingObserve"))
+        assertTrue("runtime report must expose bounded owner-collapse policy", pipe.contains("MEME_RING=liveOwnerCollapsed") && pipe.contains("LIVE_RING_OWNER_COLLAPSE") && pipe.contains("MEMETRADER_OWNER_LANE"))
+        assertTrue("runtime report must expose pre-attempt live buy suppressions", pipe.contains("Pre-attempt suppressions") && pipe.contains("LIVE_BUY_PREATTEMPT_PROVIDER_PROOF_BLIND"))
     }
 
 

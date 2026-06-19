@@ -1898,7 +1898,10 @@ object FinalDecisionGate {
                 false
             }
             rugcheckStatus == "CONFIRMED" && rugcheckScore == 0 -> true
-            rugcheckStatus == "CONFIRMED" && rugcheckScore in 2..rugcheckThreshold -> true
+            rugcheckStatus == "CONFIRMED" && rugcheckScore in 2..rugcheckThreshold -> {
+                tags.add("low_rc_penalty_only")
+                false
+            }
             rugcheckStatus == "CONFIRMED" && rugcheckScore > rugcheckThreshold -> false
             rugcheckStatus == "TIMEOUT" && config.paperMode -> {
                 tags.add("rugcheck_timeout")
@@ -1925,8 +1928,8 @@ object FinalDecisionGate {
                 shouldBlock
             }
             else -> {
-                tags.add("rugcheck_unknown")
-                rugcheckScore <= rugcheckThreshold
+                tags.add("rugcheck_unknown_penalty_only")
+                false
             }
         }
 

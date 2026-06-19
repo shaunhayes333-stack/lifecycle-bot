@@ -8957,23 +8957,16 @@ class BotService : Service() {
         } catch (_: Throwable) { emptySet() }
 
         if (memeOnly) {
-            // V5.0.3914 — LIVE_FULL_RING_OBSERVATION.
-            // Operator benchmark: 3868-3879 traded live; current live UI showed
-            // enabled=MEME,CYCLIC but tiny intake/no live trades. The owner-rotation
-            // below is acceptable for PAPER duplicate-loss control, but in LIVE it
-            // silently skips most layers before LANE_EVAL/FDG. Skipping is not enough:
-            // every MemeTrader specialist must observe/evaluate; downstream
-            // LaneExecutionCoordinator + FinalExecutionPermit still choose a single
-            // execution owner, so this restores layer visibility without double-buying.
+            // V5.0.3934 — LIVE_RING_OWNER_COLLAPSE.
+            // 3914's LIVE_FULL_RING_OBSERVATION returned true for every internal
+            // meme/toolkit lane before owner rotation. Runtime 3933 proved that was
+            // self-caused fanout: laneEval/intake=35.25, FDG/intake=3.35, EXEC_GATE
+            // allow=1346 but live EXEC attempt=0. Observation cannot mean all lanes
+            // run FDG/executor. Live uses the same bounded owner rotation below:
+            // exactly one primary executable lane per mint/cycle, with the full ring
+            // still represented over time by MEMETRADER_OWNER_LANE rotation.
             if (com.lifecyclebot.engine.RuntimeModeAuthority.isLive()) {
-                val liveRing = setOf(
-                    "SHITCOIN", "MOONSHOT", "EXPRESS", "PROJECT_SNIPER",
-                    "MANIPULATED", "QUALITY", "DIP_HUNTER", "TREASURY", "BLUECHIP"
-                )
-                if (l in liveRing) {
-                    try { ForensicLogger.lifecycle("LIVE_FULL_RING_LANE_OBSERVE", "lane=$l primary=$primaryLane symbol=${ts.symbol} mint=${ts.mint.take(10)}") } catch (_: Throwable) {}
-                    return true
-                }
+                try { ForensicLogger.lifecycle("LIVE_RING_OWNER_COLLAPSE", "lane=$l primary=$primaryLane symbol=${ts.symbol} mint=${ts.mint.take(10)} reason=prevent_lane_fdg_fanout") } catch (_: Throwable) {}
             }
             // V5.0.3710 — INTERNAL_TOOLKIT_STARVATION_FIX.
             // MEME-only means external markets/perps/cyclic/sniper-family engines stay
