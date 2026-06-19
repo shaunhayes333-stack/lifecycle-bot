@@ -107,6 +107,17 @@ object TradeHistoryStore {
     @Volatile private var rollingSliceRefreshInFlight: Boolean = false
     private const val ROLLING_SLICE_CACHE_MS = 30_000L
 
+    // V5.0.3909 — Latest-BUY cache for UI/open-position recovery.
+    // ANR snapshot showed MainActivity repeatedly blocked in
+    // getLatestBuyByMintSnapshot(SourceFile:14). Even though the scan is bounded,
+    // rebuilding mint→BUY under the journal lock on the main thread is still enough
+    // to steal frames while the bot is trading. Main-thread callers now receive this
+    // cached snapshot immediately and refresh it on TradeHistoryIO.
+    @Volatile private var latestBuyByMintCache: Map<String, Trade> = emptyMap()
+    @Volatile private var latestBuyByMintCacheMs: Long = 0L
+    @Volatile private var latestBuyRefreshInFlight: Boolean = false
+    private const val LATEST_BUY_CACHE_MS = 5_000L
+
     fun getStatsCached(): StatsSnapshot {
         val now = System.currentTimeMillis()
         cachedStatsSnapshot?.let { if (now - cachedStatsSnapshotMs < STATS_SNAPSHOT_CACHE_MS) return it }
@@ -743,6 +754,14 @@ object TradeHistoryStore {
                 trades.subList(0, trades.size - MAX_IN_MEMORY_TRADES).clear()
             }
         }
+        if (tradeToStore.side.equals("BUY", true) && tradeToStore.mint.isNotBlank()) {
+            try {
+                latestBuyByMintCache = LinkedHashMap(latestBuyByMintCache).apply { put(tradeToStore.mint, tradeToStore) }
+                latestBuyByMintCacheMs = System.currentTimeMillis()
+            } catch (_: Throwable) { latestBuyByMintCacheMs = 0L }
+        } else if (tradeToStore.mint.isNotBlank()) {
+            latestBuyByMintCacheMs = 0L
+        }
         bumpLifetimeFor(tradeToStore)
         insertTradeAsync(tradeToStore)
         // V5.9.658 — operator triage: user reports "Journal shows 0 trades but
@@ -869,6 +888,7 @@ object TradeHistoryStore {
         if (toAdd.isNotEmpty()) {
             toAdd.forEach { bumpLifetimeFor(it) }
             toAdd.forEach { insertTradeAsync(it) }
+            latestBuyByMintCacheMs = 0L
             ErrorLogger.debug("TradeHistoryStore", "💾 Added ${toAdd.size} new linked trades")
         }
     }
@@ -912,8 +932,24 @@ object TradeHistoryStore {
 
     /** Latest BUY row per mint, bounded newest-first so MainActivity never copies the whole journal. */
     fun getLatestBuyByMintSnapshot(limit: Int = 2_000): Map<String, Trade> {
-        ensureInitialized()
         val cap = limit.coerceAtLeast(1)
+        val now = System.currentTimeMillis()
+        val onMain = try { Looper.myLooper() == Looper.getMainLooper() } catch (_: Throwable) { false }
+        if (onMain) {
+            val cached = latestBuyByMintCache
+            if (cached.isNotEmpty() && now - latestBuyByMintCacheMs < LATEST_BUY_CACHE_MS) return cached
+            scheduleLatestBuyRefresh(cap)
+            try { PipelineHealthCollector.labelInc("LATEST_BUY_SNAPSHOT_MAIN_CACHE_RETURN") } catch (_: Throwable) {}
+            return cached
+        }
+        return computeLatestBuyByMintSnapshot(cap).also {
+            latestBuyByMintCache = it
+            latestBuyByMintCacheMs = System.currentTimeMillis()
+        }
+    }
+
+    private fun computeLatestBuyByMintSnapshot(cap: Int): Map<String, Trade> {
+        ensureInitialized()
         val out = LinkedHashMap<String, Trade>()
         synchronized(lock) {
             val it = trades.asReversed().iterator()
@@ -926,6 +962,26 @@ object TradeHistoryStore {
             }
         }
         return out
+    }
+
+    private fun scheduleLatestBuyRefresh(cap: Int) {
+        if (latestBuyRefreshInFlight) return
+        latestBuyRefreshInFlight = true
+        val r = Runnable {
+            try {
+                val fresh = computeLatestBuyByMintSnapshot(cap)
+                latestBuyByMintCache = fresh
+                latestBuyByMintCacheMs = System.currentTimeMillis()
+            } catch (_: Throwable) {
+            } finally {
+                latestBuyRefreshInFlight = false
+            }
+        }
+        try {
+            ioHandler?.post(r) ?: Thread(r, "TradeLatestBuyRefresh").start()
+        } catch (_: Throwable) {
+            try { Thread(r, "TradeLatestBuyRefresh").start() } catch (_: Throwable) { latestBuyRefreshInFlight = false }
+        }
     }
 
     fun getRecentTradeFingerprints(limit: Int = 50): List<String> =
@@ -1081,6 +1137,8 @@ object TradeHistoryStore {
      *  timeline are PRESERVED — only the visible scoreboard resets. */
     fun clearAllTrades() {
         synchronized(lock) { trades.clear() }
+        latestBuyByMintCache = emptyMap()
+        latestBuyByMintCacheMs = 0L
         ioHandler?.post {
             try {
                 db?.delete(TradeDbHelper.TABLE, null, null)
@@ -1677,6 +1735,8 @@ object TradeHistoryStore {
             val enrichedLoaded = enrichRowsBySequence(loaded)
             synchronized(lock) {
                 trades.clear()
+                latestBuyByMintCache = emptyMap()
+                latestBuyByMintCacheMs = 0L
                 trades.addAll(enrichedLoaded)
             }
             ErrorLogger.debug("TradeHistoryStore", "SQLite: loaded ${loaded.size} trades")

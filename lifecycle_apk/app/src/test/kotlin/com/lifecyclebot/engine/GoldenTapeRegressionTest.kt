@@ -435,6 +435,10 @@ class GoldenTapeRegressionTest {
         val journalActivity = java.io.File("src/main/kotlin/com/lifecyclebot/ui/JournalActivity.kt").readText()
         val learningCounter = java.io.File("src/main/kotlin/com/lifecyclebot/ui/LearningCounterActivity.kt").readText()
         assertTrue("TradeHistoryStore must expose bounded snapshots for UI/reporting", store.contains("fun getRecentValidTrades") && store.contains("fun getRecentValidClosedTrades") && store.contains("fun getLatestBuyByMintSnapshot") && store.contains("fun getRecentTradeFingerprints"))
+        assertTrue("Latest-buy snapshot must be main-thread cached and async refreshed", store.contains("latestBuyByMintCache") && store.contains("scheduleLatestBuyRefresh(cap)") && store.contains("LATEST_BUY_SNAPSHOT_MAIN_CACHE_RETURN"))
+        val latestBuyFn = store.substring(store.indexOf("fun getLatestBuyByMintSnapshot"), store.indexOf("private fun computeLatestBuyByMintSnapshot"))
+        assertTrue("getLatestBuyByMintSnapshot must check main thread before any journal lock/init scan", latestBuyFn.indexOf("val onMain") < latestBuyFn.indexOf("computeLatestBuyByMintSnapshot"))
+        assertFalse("getLatestBuyByMintSnapshot hot wrapper must not call ensureInitialized before the main-thread cache branch", latestBuyFn.contains("ensureInitialized()"))
         assertTrue("MainActivity open-position recovery must not call getAllTrades", main.contains("getLatestBuyByMintSnapshot") && !main.contains("TradeHistoryStore.getAllTrades()"))
         assertTrue("RuntimeDoctor must not materialize the full journal for recent fingerprints", doctor.contains("getRecentTradeFingerprints(50)") && !doctor.contains("TradeHistoryStore.getAllTrades()"))
         assertTrue("Hot diagnostic/learning readers must use bounded closed-trade snapshots", losing.contains("getRecentValidClosedTrades") && regime.contains("getRecentValidClosedTrades") && strategy.contains("getRecentValidClosedTrades") && macro.contains("getRecentValidTrades"))
@@ -2836,6 +2840,18 @@ class GoldenTapeRegressionTest {
         assertTrue("liveBuy must use recovered attempt id for restore penalty and finality retry", exec.contains("consumeRestorePenalty(recoveredLiveAttemptId)") && exec.contains("attemptId = recoveredLiveAttemptId.ifBlank"))
         assertTrue("allowed attempts are only created after executable-open finality allows", gate.contains("allowedAttempts[laneAttemptKey] = execKey") && gate.contains("OpenVerdict(") && gate.contains("true,"))
         assertTrue("lane-agnostic handoff lookup must exist for owner-rotation callers", gate.contains("fun recentAllowedAttemptIdAnyLane"))
+    }
+
+
+    @Test
+    fun latest_buy_snapshot_must_never_rebuild_journal_on_main_thread() {
+        val store = java.io.File("src/main/kotlin/com/lifecyclebot/engine/TradeHistoryStore.kt").readText()
+        val fn = store.substring(store.indexOf("fun getLatestBuyByMintSnapshot"), store.indexOf("private fun computeLatestBuyByMintSnapshot"))
+        assertTrue("latest buy hot path must detect main thread", fn.contains("Looper.myLooper() == Looper.getMainLooper()"))
+        assertTrue("main thread must return cached snapshot and schedule IO refresh", fn.contains("scheduleLatestBuyRefresh(cap)") && fn.contains("return cached"))
+        assertFalse("main-thread wrapper must not enter synchronized(lock)", fn.contains("synchronized(lock)"))
+        assertFalse("main-thread wrapper must not call ensureInitialized", fn.contains("ensureInitialized()"))
+        assertTrue("actual journal scan must be isolated to computeLatestBuyByMintSnapshot", store.contains("private fun computeLatestBuyByMintSnapshot") && store.substring(store.indexOf("private fun computeLatestBuyByMintSnapshot"), store.indexOf("private fun scheduleLatestBuyRefresh")).contains("synchronized(lock)"))
     }
 
 }
