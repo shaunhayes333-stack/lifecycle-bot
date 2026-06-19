@@ -10554,13 +10554,16 @@ class BotService : Service() {
                 .associateBy { it.mint }
         } catch (_: Throwable) { emptyMap() }
 
-        fun isFreshMemeSource(entry: com.lifecyclebot.engine.GlobalTradeRegistry.WatchlistEntry?): Boolean {
+        fun isFreshSolanaSource(entry: com.lifecyclebot.engine.GlobalTradeRegistry.WatchlistEntry?): Boolean {
             val tags = buildString {
                 append(entry?.addedBy ?: ""); append('|'); append(entry?.source ?: ""); append('|')
                 append(entry?.laneAffinity?.joinToString("|") ?: ""); append('|')
                 append(entry?.toolAffinity?.joinToString("|") ?: "")
             }.uppercase()
-            return tags.contains("PUMP") || tags.contains("MEME") || tags.contains("SHITCOIN") || tags.contains("MOONSHOT") || tags.contains("EXPRESS")
+            return tags.contains("PUMP") || tags.contains("MEME") || tags.contains("SHITCOIN") || tags.contains("MOONSHOT") || tags.contains("EXPRESS") ||
+                tags.contains("RAYDIUM") || tags.contains("NEW_POOL") || tags.contains("DEX") || tags.contains("BOOSTED") || tags.contains("TRENDING") ||
+                tags.contains("DATA_ORCHESTRATOR") || tags.contains("SCANNER_DIRECT") || tags.contains("BIRDEYE") || tags.contains("METEORA") ||
+                tags.contains("ORCA") || tags.contains("JUPITER") || tags.contains("HELIUS") || tags.contains("GRADUATE") || tags.contains("MIGRATED")
         }
         fun isHighConvictionUnseen(mint: String, entry: com.lifecyclebot.engine.GlobalTradeRegistry.WatchlistEntry?): Boolean {
             val ts = try { status.tokens[mint] } catch (_: Throwable) { null }
@@ -10621,14 +10624,18 @@ class BotService : Service() {
         val preLaneFiltered = otherMints.filter { mint ->
             val banned = try { com.lifecyclebot.engine.BannedTokens.isBanned(mint) } catch (_: Throwable) { false }
             val quarantined = try { com.lifecyclebot.engine.QuarantineStore.isQuarantined(mint) } catch (_: Throwable) { false }
-            !(banned || quarantined)
+            val flatTokenBlacklisted = try {
+                val ts = status.tokens[mint]
+                ts?.position?.isOpen != true && com.lifecyclebot.engine.TokenBlacklist.isBlocked(mint)
+            } catch (_: Throwable) { false }
+            !(banned || quarantined || flatTokenBlacklisted)
         }
         val purgedCount = otherMints.size - preLaneFiltered.size
         if (purgedCount > 0) {
             try {
                 com.lifecyclebot.engine.ForensicLogger.lifecycle(
                     "WATCHLIST_PRELANE_PURGE",
-                    "purged=$purgedCount kept=${preLaneFiltered.size} reason=banned_or_quarantined (pool intact, this-cycle skip only)",
+                    "purged=$purgedCount kept=${preLaneFiltered.size} reason=banned_quarantined_or_flat_token_blacklist (pool intact, this-cycle skip only)",
                 )
             } catch (_: Throwable) {}
         }
@@ -10660,9 +10667,9 @@ class BotService : Service() {
                 val healthyLiq = liqNow >= 10_000.0
                 val ageMs = nowMs - entry.addedAt
                 val firstDeepEvalProtected = entry.processCount == 0 && isHighConvictionUnseen(mint, entry)
-                val memeFresh = isFreshMemeSource(entry) && ageMs < 10L * 60_000L
-                val demoteProcessFloor = if (memeFresh) 6 else 3
-                val demoteAgeFloorMs = if (memeFresh) 5L * 60_000L else 120_000L
+                val solanaFresh = isFreshSolanaSource(entry) && ageMs < 10L * 60_000L
+                val demoteProcessFloor = if (solanaFresh) 6 else 3
+                val demoteAgeFloorMs = if (solanaFresh) 5L * 60_000L else 120_000L
                 val coldEnough = entry.processCount >= demoteProcessFloor && ageMs > demoteAgeFloorMs
                 val lowExecutableLiq = liqNow > 0.0 && liqNow < 2_000.0
                 val noVolume = hasPriceFeed && volH1 <= 0.0 && entry.processCount >= maxOf(5, demoteProcessFloor) && ageMs > maxOf(180_000L, demoteAgeFloorMs)
@@ -10685,7 +10692,7 @@ class BotService : Service() {
                     } catch (_: Throwable) { false }
                     if (demoted) {
                         probationDemoted.add(mint)
-                        try { com.lifecyclebot.engine.ForensicLogger.lifecycle("WATCHLIST_PROBATION_DEMOTE", "mint=${mint.take(10)} symbol=${entry.symbol} reason=$why pc=${entry.processCount}/$demoteProcessFloor ageMs=$ageMs/$demoteAgeFloorMs liq=${liqNow.toInt()} vol1h=${volH1.toInt()} priceAgeMs=$priceAgeMs memeFresh=$memeFresh") } catch (_: Throwable) {}
+                        try { com.lifecyclebot.engine.ForensicLogger.lifecycle("WATCHLIST_PROBATION_DEMOTE", "mint=${mint.take(10)} symbol=${entry.symbol} reason=$why pc=${entry.processCount}/$demoteProcessFloor ageMs=$ageMs/$demoteAgeFloorMs liq=${liqNow.toInt()} vol1h=${volH1.toInt()} priceAgeMs=$priceAgeMs solanaFresh=$solanaFresh") } catch (_: Throwable) {}
                         return@forEach
                     }
                 }
@@ -16047,13 +16054,18 @@ if (hotExitHandledSweep) {
         }
     }
 
-    // Blacklist check — immediate skip if blocked
+    // Blacklist check — immediate skip if blocked. Workset filtering normally keeps
+    // flat hard-blacklisted rows out before they burn lane-eval slots; this branch is
+    // the per-mint safety net and held-position exit surface.
     if (TokenBlacklist.isBlocked(mint)) {
         if (ts.position.isOpen) {
             // Force exit if we somehow hold a blacklisted token
             val effectiveBalance = status.getEffectiveBalance(cfg.paperMode)
             executor.maybeAct(ts, "EXIT", 0.0, effectiveBalance, wallet,
                 lastSuccessfulPollMs, status.openPositionCount, status.totalExposureSol)
+        } else {
+            try { ForensicLogger.lifecycle("TOKEN_BLACKLIST_FLAT_SKIPPED_PRELANE", "mint=${mint.take(10)} symbol=${ts.symbol} paper=${cfg.paperMode} source=${ts.source.take(80)}") } catch (_: Throwable) {}
+            try { PipelineHealthCollector.labelInc("TOKEN_BLACKLIST_FLAT_SKIPPED_PRELANE") } catch (_: Throwable) {}
         }
         return
     }

@@ -2787,4 +2787,15 @@ class GoldenTapeRegressionTest {
         assertTrue("live buy failures must write live telemetry rows", exec.contains("LIVE_BUY_FAIL_TELEMETRY") && exec.contains("LIVE_TELEMETRY_ROW_BUY_FAIL"))
     }
 
+
+    @Test
+    fun solana_wide_scheduler_does_not_overfit_pumpfun_or_blacklist_choke_workset() {
+        val bot = java.io.File("src/main/kotlin/com/lifecyclebot/engine/BotService.kt").readText()
+        assertTrue("freshness protection must be Solana-wide, not pumpfun-only", bot.contains("fun isFreshSolanaSource") && bot.contains("RAYDIUM") && bot.contains("DEX") && bot.contains("DATA_ORCHESTRATOR") && bot.contains("SCANNER_DIRECT") && bot.contains("METEORA") && bot.contains("ORCA") && bot.contains("GRADUATE") && bot.contains("MIGRATED"))
+        assertFalse("scheduler freshness helper must not remain pump/meme-only", bot.contains("fun isFreshMemeSource"))
+        assertTrue("probation demotion trace must expose Solana-wide freshness", bot.contains("solanaFresh=$solanaFresh") && !bot.contains("memeFresh=$memeFresh"))
+        assertTrue("flat hard-blacklisted mints must not burn per-cycle lane-eval workset slots", bot.contains("flatTokenBlacklisted") && bot.contains("banned_quarantined_or_flat_token_blacklist") && bot.contains("TOKEN_BLACKLIST_FLAT_SKIPPED_PRELANE"))
+        assertTrue("protected intake must stay intact while this-cycle workset skips dead rows", bot.contains("pool intact, this-cycle skip only"))
+    }
+
 }
