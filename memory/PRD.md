@@ -6,6 +6,21 @@ NO local compiler. Multi-lane architecture (Memes [9 sub-lanes], Crypto/Alts,
 Stocks, Markets, Tokenized Stocks, Forex, Metals, Commodities). Foreground
 Service with a 50+ AI-module pipeline gated through processTokenCycle.
 
+## V5.0.3925 (Feb 2026) — HardRugPreFilter STRICT on liveBuy + BotBrain size multiplier wired — CI ✅ (build AATE_v5.0.3929)
+
+**Operator dump on V5.0.3928:** *"bot is still getting rugged… not good enough"* — screenshot showed Insider-lane position at -100% (rug). 3924 wiring (brain, fluid floor, fluid lane scoring) wasn't catching it.
+
+**Root causes:**
+1. `HardRugPreFilter` exists and is called in the scanning pipeline (`BotService:15737`), BUT its result is softened by `ModeLeniency.useLenientGates()` for proven-edge live runs — that bypass let rug patterns reach `liveBuy()` unfiltered.
+2. `BotBrain.getRiskAdjustedSizeMultiplier(phase, emaFan, source)` was a public API learning per-tuple drawdown patterns but was NEVER consulted in the final sizing pipeline.
+
+**Fixes:**
+1. `consultEntryAdvisors()` now calls `HardRugPreFilter.filter(ts, isPaperMode=false)` in **STRICT mode** regardless of overall lenient setting. `HARD_FAIL` → blocks with `RUG_PREFILTER_HARD_FAIL:<reason>`. `SOFT_FAIL` still passes with telemetry. Single insertion covers all 9 sub-lanes including Insider/WHALE_COPY watchlist entries.
+2. `multiplierProduct` in the live sizing path now includes `brainSizeMult = brain.getRiskAdjustedSizeMultiplier(phase, emaFan, source)`. Brain shrinks size on (phase, emaFan, source) contexts that have produced sustained drawdowns. Defaults 1.0 when brain null or no context history.
+
+**CI:** run 27830987595 → SUCCESS → APK `AATE_v5.0.3929` published.
+
+
 ## V5.0.3924 (Feb 2026) — STACK WIRING: BotBrain + FluidLearningAI + LaneExitTuner consulted on live BUY — CI ✅ (build AATE_v5.0.3928)
 
 **Operator demand:** *"use the intelligence stack — well the whole fucking app properly. its literally all there rebuilt you just keep half assing stuff constantly!"*
