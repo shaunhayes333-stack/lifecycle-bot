@@ -2705,8 +2705,9 @@ class GoldenTapeRegressionTest {
         val pipe = java.io.File("src/main/kotlin/com/lifecyclebot/engine/PipelineHealthCollector.kt").readText()
         val fdg = java.io.File("src/main/kotlin/com/lifecyclebot/engine/FinalDecisionGate.kt").readText()
 
-        assertTrue("ExecutionAttemptLease must enforce active lease + backoff", lease.contains("EXEC_LEASE_SET") && lease.contains("EXEC_DUPLICATE_SUPPRESSED") && lease.contains("EXEC_RETRY_BACKOFF_SET") && lease.contains("terminalOk") && lease.contains("terminalFail"))
+        assertTrue("ExecutionAttemptLease must enforce active lease + backoff", lease.contains("EXEC_LEASE_SET") && lease.contains("EXEC_DUPLICATE_SUPPRESSED") && lease.contains("EXEC_RETRY_BACKOFF_SET") && lease.contains("terminalOk") && lease.contains("terminalFail") && lease.contains("releaseNonTerminal"))
         assertTrue("liveBuy must acquire lease before route/build/submit", exec.contains("ExecutionAttemptLease.acquire") && exec.indexOf("ExecutionAttemptLease.acquire") < exec.indexOf("MEME_LIVE_BUY_MUTEX.tryAcquire"))
+        assertTrue("liveBuy wallet mutex must be after finality/admission/keypair, not around cheap rejects", exec.indexOf("canOpenExecutablePosition") < exec.indexOf("MEME_LIVE_BUY_MUTEX.tryAcquire") && exec.indexOf("LiveBuyAdmissionGate.requireApprovedLiveBuy") < exec.indexOf("MEME_LIVE_BUY_MUTEX.tryAcquire") && exec.indexOf("security.verifyKeypairIntegrity") < exec.indexOf("MEME_LIVE_BUY_MUTEX.tryAcquire"))
         assertTrue("liveBuy must emit plan/route/tx/terminal stages", listOf("BUY_PLAN_OK", "BUY_ROUTE_REQUESTED", "BUY_TX_SUBMITTED", "buyTerminalOk", "buyTerminalFail").all { exec.contains(it) })
         assertTrue("Provider capability report must say Helius is non-critical and show execution truth", pipe.contains("Provider capability (execution truth)") && pipe.contains("Helius role:") && pipe.contains("HOT_PATH=false") && pipe.contains("Jupiter quote/build/confirm") && pipe.contains("Execution leases:"))
         val bot = java.io.File("src/main/kotlin/com/lifecyclebot/engine/BotService.kt").readText()
@@ -2852,6 +2853,21 @@ class GoldenTapeRegressionTest {
         assertFalse("main-thread wrapper must not enter synchronized(lock)", fn.contains("synchronized(lock)"))
         assertFalse("main-thread wrapper must not call ensureInitialized", fn.contains("ensureInitialized()"))
         assertTrue("actual journal scan must be isolated to computeLatestBuyByMintSnapshot", store.contains("private fun computeLatestBuyByMintSnapshot") && store.substring(store.indexOf("private fun computeLatestBuyByMintSnapshot"), store.indexOf("private fun scheduleLatestBuyRefresh")).contains("synchronized(lock)"))
+    }
+
+
+    @Test
+    fun live_buy_mutex_busy_is_defer_not_failed_buy_and_finality_can_synth_current_live_candidate() {
+        val exec = java.io.File("src/main/kotlin/com/lifecyclebot/engine/Executor.kt").readText()
+        val gate = java.io.File("src/main/kotlin/com/lifecyclebot/engine/ExecutableOpenGate.kt").readText()
+        val lease = java.io.File("src/main/kotlin/com/lifecyclebot/engine/ExecutionAttemptLease.kt").readText()
+        val mutexIdx = exec.indexOf("MEME_LIVE_BUY_MUTEX.tryAcquire")
+        val busyBlock = exec.substring(mutexIdx, exec.indexOf("liveBuyMutexAcquired = true", mutexIdx))
+        assertTrue("mutex busy must be reported as deferred, not terminal buy failure", busyBlock.contains("LIVE_BUY_DEFERRED") && busyBlock.contains("MUTEX_BUSY_DEFERRED") && busyBlock.contains("releaseNonTerminal"))
+        assertFalse("mutex contention must not increment LIVE_BUY_FAIL", busyBlock.contains("emitLiveBuyFail"))
+        assertFalse("mutex contention must not call buyTerminalFail", busyBlock.contains("buyTerminalFail"))
+        assertTrue("lease must expose non-terminal release for retryable contention", lease.contains("fun releaseNonTerminal") && lease.contains("terminal=NON_TERMINAL"))
+        assertTrue("live finality must synthesize a current direct-lane candidate when state is missing but safety/liquidity are present", gate.contains("modeUpper in setOf("PAPER", "LIVE")") && gate.contains("LIVE_SYNTHETIC_FINAL_CANDIDATE") && gate.contains("LIVE_EXEC_OPEN_SYNTHETIC_FINAL_CANDIDATE"))
     }
 
 }

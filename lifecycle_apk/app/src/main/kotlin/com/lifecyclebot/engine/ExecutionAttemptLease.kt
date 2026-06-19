@@ -144,6 +144,12 @@ object ExecutionAttemptLease {
         emit("EXEC_LEASE_CLEARED", side, mint, symbol, "terminal=OK reason=$reason")
     }
 
+    fun releaseNonTerminal(key: String, side: String, mint: String, symbol: String, reason: String) {
+        states.remove(key)
+        emit("${side.uppercase()}_NON_TERMINAL_RELEASE", side, mint, symbol, "reason=$reason")
+        emit("EXEC_LEASE_CLEARED", side, mint, symbol, "terminal=NON_TERMINAL reason=$reason")
+    }
+
     fun terminalFail(key: String, side: String, mint: String, symbol: String, reason: String, processor: String) {
         val n = now()
         pruneExpired(n)

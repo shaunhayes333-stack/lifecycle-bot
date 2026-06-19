@@ -8820,27 +8820,13 @@ class Executor(
         try { ForensicLogger.lifecycle("BUY_PLAN_OK", "mint=${ts.mint.take(10)} symbol=${ts.symbol} sol=$sol processor=$buyLeaseProcessor") } catch (_: Throwable) {}
         try { PipelineHealthCollector.labelInc("BUY_PLAN_OK") } catch (_: Throwable) {}
 
-        // V5.9.778 — EMERGENT MEME-ONLY: MEME_LIVE_BUY_MUTEX.
-        // Operator forensics 5.0.2709: 15 live buys attempted ~0.097 SOL
-        // each against a 0.107 SOL wallet → Jupiter "Insufficient funds"
-        // failures, balance exhaustion, and several broadcast races.
-        // Serialise live buys per host wallet. tryAcquire with a short
-        // timeout (150 ms) — if another live buy is in flight we drop
-        // this signal cleanly and let the next intake try again.
-        if (!MEME_LIVE_BUY_MUTEX.tryAcquire(MEME_LIVE_BUY_MUTEX_WAIT_MS, java.util.concurrent.TimeUnit.MILLISECONDS)) {
-            ErrorLogger.warn("Executor",
-                "[LIVE_BUY_MUTEX_BUSY] ${ts.symbol} — another live buy in flight; skipping to prevent SOL race")
-            try {
-                ForensicLogger.exec(
-                    "LIVE_BUY_MUTEX_BUSY",
-                    ts.symbol,
-                    "mint=${ts.mint.take(10)} sol=${"%.4f".format(sol)}",
-                )
-            } catch (_: Throwable) {}
-            emitLiveBuyFail(ts, sol, "MUTEX_BUSY")
-            buyTerminalFail("BUY_TERMINAL_DUPLICATE_SUPPRESSED:MUTEX_BUSY")
-            return false
-        }
+        // V5.0.3910 — do NOT hold the wallet mutex while doing finality,
+        // admission, sizing, or other non-wallet checks. Operator 3909 live report:
+        // BUY ok=0/fail=48 with MUTEX_BUSY=26 while the holder later died on
+        // TOKEN_STATE_CHANGED / SELL_ONLY_SAFE_MODE. That serialized non-wallet
+        // rejects and converted contention into fake failed buys. The mutex is now
+        // acquired only at the final wallet-spend boundary below.
+        var liveBuyMutexAcquired = false
         try {
         beginMemeExecutionStack(
             side = com.lifecyclebot.engine.execution.MemeExecutionRouteStack.Side.BUY,
@@ -9227,6 +9213,24 @@ class Executor(
             buyTerminalFail("BUY_TERMINAL_SUBMIT_FAIL:KEYPAIR_INTEGRITY_FAILURE")
             return false
         }
+
+        // V5.0.3910 — final wallet-spend mutex boundary. Every cheap/non-wallet
+        // rejection has already run. If the wallet is busy now, this candidate is
+        // deferred, not failed: no LIVE_BUY_FAIL, no terminal failure/backoff.
+        if (!MEME_LIVE_BUY_MUTEX.tryAcquire(MEME_LIVE_BUY_MUTEX_WAIT_MS, java.util.concurrent.TimeUnit.MILLISECONDS)) {
+            ErrorLogger.warn("Executor", "[LIVE_BUY_MUTEX_BUSY] ${ts.symbol} — wallet spend in flight; deferring, not failing")
+            try {
+                ForensicLogger.exec("LIVE_BUY_DEFERRED", ts.symbol,
+                    "mint=${ts.mint.take(10)} sol=${"%.4f".format(sol)} reason=MUTEX_BUSY_DEFERRED")
+                ForensicLogger.lifecycle("LIVE_BUY_MUTEX_DEFERRED_NON_TERMINAL",
+                    "mint=${ts.mint.take(10)} symbol=${ts.symbol} sol=${"%.4f".format(sol)} stage=wallet_spend_boundary")
+                PipelineHealthCollector.labelInc("LIVE_BUY_MUTEX_DEFERRED_NON_TERMINAL")
+            } catch (_: Throwable) {}
+            ExecutionAttemptLease.releaseNonTerminal(buyLease.key, "BUY", ts.mint, ts.symbol, "MUTEX_BUSY_DEFERRED")
+            buyTerminalRecorded = true
+            return false
+        }
+        liveBuyMutexAcquired = true
 
         val lamports = (effectiveSol * 1_000_000_000L).toLong()
         val tradeKey = LiveTradeLogStore.keyFor(ts.mint, System.currentTimeMillis())
@@ -10269,10 +10273,9 @@ class Executor(
             if (!buyTerminalRecorded) {
                 buyTerminalFail("BUY_TERMINAL_LEASE_EXPIRED_REQUEUED:NON_TERMINAL_EXIT")
             }
-            // V5.9.778 — release MEME_LIVE_BUY_MUTEX on every exit path
-            // so a thrown exception, blocked return, or successful broadcast
-            // all hand the lock back to the next intake cleanly.
-            try { MEME_LIVE_BUY_MUTEX.release() } catch (_: Throwable) {}
+            // V5.9.778/V5.0.3910 — release MEME_LIVE_BUY_MUTEX only if this
+            // invocation actually acquired it at the wallet-spend boundary.
+            try { if (liveBuyMutexAcquired) MEME_LIVE_BUY_MUTEX.release() } catch (_: Throwable) {}
         }
     }
 
