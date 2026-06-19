@@ -7655,6 +7655,31 @@ class Executor(
             markPaperBuyNotOpened("INVALID_SCORE")
             return
         }
+
+        // V5.0.3928 — PAPER ADVISOR GATE. Operator: 'the entire learning
+        // system is basically poisoned currently'. Paper trades that get
+        // rugged feed the brain garbage signal-to-outcome pairs (token
+        // had no holder data + rug-class characteristics → -100%), which
+        // contaminates BotBrain pattern memory, EntryIntelligence weights,
+        // and PatternAutoTuner phase/EMA buckets. Run the same advisor
+        // chain as live so paper learning trains on the SAME filtered
+        // token set live trades on. HardRugPreFilter, ProviderProofWalker
+        // liquidity gate, MomentumPredictor, BotBrain learned thresholds,
+        // FluidLearningAI floor, EntryIntelligence — all wired identically
+        // to live so the learning data isn't contaminated by rug-class
+        // outcomes that live wouldn't have taken either.
+        val advisor = consultEntryAdvisors(ts, score, layerTag)
+        if (!advisor.first) {
+            ErrorLogger.warn("Executor",
+                "🛡️ PAPER_BUY_ADVISOR_BLOCK ${ts.symbol} layer=$layerTag reason=${advisor.second}")
+            try {
+                ForensicLogger.lifecycle("PAPER_BUY_ADVISOR_BLOCK",
+                    "mint=${ts.mint.take(10)} symbol=${ts.symbol} layer=$layerTag reason=${advisor.second}")
+            } catch (_: Throwable) {}
+            try { PipelineHealthCollector.labelInc("PAPER_BUY_ADVISOR_BLOCK") } catch (_: Throwable) {}
+            markPaperBuyNotOpened("ADVISOR_${advisor.second.substringBefore(':')}")
+            return
+        }
         shouldSuppressPaperLearningEntry(ts, score, layerTag, identity)?.let { why ->
             try { PipelineHealthCollector.labelInc("PAPER_LEARNING_QUALITY_SUPPRESSED") } catch (_: Throwable) {}
             try { ForensicLogger.lifecycle("PAPER_LEARNING_QUALITY_SUPPRESSED", "mint=${ts.mint.take(10)} symbol=${ts.symbol} layer=$layerTag reason=$why") } catch (_: Throwable) {}
