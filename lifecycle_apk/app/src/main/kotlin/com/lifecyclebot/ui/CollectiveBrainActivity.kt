@@ -72,12 +72,12 @@ class CollectiveBrainActivity : AppCompatActivity() {
         findViewById<View>(R.id.btnBrainBack).setOnClickListener { finish() }
         
         // V3.2: Send heartbeat when screen opens (in case bot isn't running)
-        lifecycleScope.launch {
+        lifecycleScope.launch(Dispatchers.IO) {
             sendHeartbeatIfEnabled()
         }
         
         // Start polling for updates
-        lifecycleScope.launch {
+        lifecycleScope.launch(Dispatchers.IO) {
             while (true) {
                 try {
                     refreshStats()
@@ -113,7 +113,7 @@ class CollectiveBrainActivity : AppCompatActivity() {
                 }
             
             val config = com.lifecyclebot.data.ConfigStore.load(applicationContext)
-            val localStats = com.lifecyclebot.engine.TradeHistoryStore.getStats()
+            val localStats = com.lifecyclebot.engine.TradeHistoryStore.getStatsCached()
             val pnl24hPct = if (localStats.trades24h > 0) {
                 (localStats.pnl24hSol / (localStats.trades24h * 0.1).coerceAtLeast(0.01)) * 100
             } else 0.0
@@ -340,7 +340,7 @@ class CollectiveBrainActivity : AppCompatActivity() {
         val collectiveBlacklisted = basicStats["blacklistedTokens"] as? Int ?: 0
         
         // Get local stats for comparison
-        val localStats = com.lifecyclebot.engine.TradeHistoryStore.getStats()
+        val localStats = com.lifecyclebot.engine.TradeHistoryStore.getStatsCached()
         val localWinRate = localStats.winRate  // Already a percentage (0-100)
         
         // Determine data source and display values
@@ -454,10 +454,7 @@ class CollectiveBrainActivity : AppCompatActivity() {
             })
             
             // AVG HOLD — derive from local trade history (avgHoldMins field)
-            val avgHoldMins = try {
-                val stats = com.lifecyclebot.engine.TradeHistoryStore.getStats()
-                stats.avgHoldTimeMinutes.toDouble()
-            } catch (_: Exception) { 0.0 }
+            val avgHoldMins = try { localStats.avgHoldTimeMinutes.toDouble() } catch (_: Exception) { 0.0 }
             tvAvgHold.text = when {
                 avgHoldMins >= 60 -> "${(avgHoldMins / 60).toInt()}h"
                 avgHoldMins > 0  -> "${avgHoldMins.toInt()}m"

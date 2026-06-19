@@ -2716,4 +2716,18 @@ class GoldenTapeRegressionTest {
         assertTrue("Ultra live runners must bank before normal partial cadence", exec.contains("ULTRA-RUNNER PANIC BANK") && exec.contains("ULTRA_RUNNER_BANK_TRIGGERED") && exec.contains("gainMultiple >= 50.0") && exec.contains("peakGainPct >= 5_000.0") && exec.contains("executeProfitLockSell(ts, wallet, sellFraction, \"ultra_runner_bank_"))
     }
 
+    @Test
+    fun anr_storm_sheds_heavy_dashboard_render_and_ui_pollers_stay_off_main() {
+        val main = java.io.File("src/main/kotlin/com/lifecyclebot/ui/MainActivity.kt").readText()
+        val phc = java.io.File("src/main/kotlin/com/lifecyclebot/engine/PipelineHealthCollector.kt").readText()
+        val collective = java.io.File("src/main/kotlin/com/lifecyclebot/ui/CollectiveBrainActivity.kt").readText()
+
+        assertTrue("PipelineHealthCollector must expose lightweight atomic ANR getters", phc.contains("fun anrHintCountNow(): Int = anrHintCount.get()") && phc.contains("fun maxFrameGapMsNow(): Long = maxFrameGapMs.get()"))
+        assertTrue("MainActivity must shed row-heavy rendering during catastrophic ANR storms", main.contains("MAIN_HEAVY_RENDER_ANR_SHED") && main.contains("anrHintCountNow()") && main.contains("anrHintsForRenderShed >= 100") && main.contains("skip=heavy_dashboard_rows"))
+        assertFalse("Dashboard render path must not create unmanaged MainScope jobs", main.contains("MainScope().launch"))
+        assertFalse("ANR shed must not call PipelineHealthCollector.snapshot() from updateUi", main.contains("PipelineHealthCollector.snapshot().anrHints"))
+        assertTrue("CollectiveBrain polling must start on IO and use cached trade stats", collective.contains("lifecycleScope.launch(Dispatchers.IO)") && collective.contains("TradeHistoryStore.getStatsCached()"))
+        assertFalse("CollectiveBrain UI polling must not call uncached TradeHistoryStore.getStats", collective.contains("TradeHistoryStore.getStats()"))
+    }
+
 }

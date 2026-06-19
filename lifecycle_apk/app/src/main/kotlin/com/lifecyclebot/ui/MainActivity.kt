@@ -590,6 +590,8 @@ class MainActivity : AppCompatActivity() {
     // matter how many code paths call updateUi(). Start/Stop truth + runtime bar
     // still render every call (they are cheap and gated separately below).
     @Volatile private var lastHeavyRepaintMs: Long = 0L
+    @Volatile private var anrHeavyRenderShedUntilMs: Long = 0L
+    @Volatile private var lastAnrHeavyRenderShedLogMs: Long = 0L
     // V5.9.1569 — runtime UI must not compete with bot-loop. Snapshot 5.0.3621
     // still showed 18.9s frame gaps with renderWatchlist/renderOpenPositions and
     // TextView highlight/layout work. While running, dashboard rows are observability
@@ -2718,7 +2720,7 @@ for legal compliance.
             tvSolPrice.setTextIfChanged("$${solPrice.toInt()}")
         } else {
             tvSolPrice.setTextIfChanged("$—")
-            kotlinx.coroutines.MainScope().launch(kotlinx.coroutines.Dispatchers.IO) {
+            lifecycleScope.launch(kotlinx.coroutines.Dispatchers.IO) {
                 try {
                     val freshPrice = com.lifecyclebot.engine.WalletManager.getInstance(applicationContext).fetchSolPrice()
                     if (freshPrice >= 10) {
@@ -3571,6 +3573,32 @@ for legal compliance.
         // ── Position PnL Floating Card ──────────────────────────────
         // Disabled - users found it annoying
         cardPositionPnl.visibility = View.GONE
+
+        // V5.0.3897 — ANR STORM RENDER SHED.
+        // 552 ANR hints means the dashboard itself has become a live-risk source.
+        // Keep the mission-critical runtime/wallet/status/header sections above,
+        // but temporarily skip row-heavy cards (open positions, sub-lane panels,
+        // watchlist, trade rows) while runtime is active and the watchdog is screaming.
+        // This removes the repeated main-thread work source instead of letting every
+        // updateUi pass add another removeAllViews/TextView/layout storm.
+        val anrHintsForRenderShed = try { com.lifecyclebot.engine.PipelineHealthCollector.anrHintCountNow() } catch (_: Throwable) { 0 }
+        val nowForRenderShed = System.currentTimeMillis()
+        if (runtimeActiveForUi && anrHintsForRenderShed >= 100) {
+            anrHeavyRenderShedUntilMs = maxOf(anrHeavyRenderShedUntilMs, nowForRenderShed + 15_000L)
+        }
+        if (runtimeActiveForUi && nowForRenderShed < anrHeavyRenderShedUntilMs) {
+            if (nowForRenderShed - lastAnrHeavyRenderShedLogMs > 10_000L) {
+                lastAnrHeavyRenderShedLogMs = nowForRenderShed
+                try {
+                    com.lifecyclebot.engine.ForensicLogger.lifecycle(
+                        "MAIN_HEAVY_RENDER_ANR_SHED",
+                        "anrHints=$anrHintsForRenderShed shedMs=${anrHeavyRenderShedUntilMs - nowForRenderShed} runtimeActive=$runtimeActiveForUi skip=heavy_dashboard_rows",
+                    )
+                    com.lifecyclebot.engine.PipelineHealthCollector.labelInc("MAIN_HEAVY_RENDER_ANR_SHED")
+                } catch (_: Throwable) {}
+            }
+            return
+        }
 
         // ── open positions panel ─────────────────────────────────
         // V5.9.389 — unified render (fixes V5.9.386 regression where sub-
@@ -7104,7 +7132,7 @@ for legal compliance.
 
         // Intelligence metrics
         val metrics = tracker.metrics
-        val journalLearningPct = com.lifecyclebot.engine.TradeHistoryStore.getJournalLearningProgress() * 100.0
+        val journalLearningPct = (journalStats.totalStoredTrades.toDouble() / 5_000.0).coerceIn(0.0, 1.0) * 100.0
         tv30DayLearning.text = String.format("%.1f", journalLearningPct) + "%"
         tv30DayAccuracy.text = String.format("%.1f", metrics.decisionAccuracy) + "%"
         tv30DayAccuracy.setTextColor(when {

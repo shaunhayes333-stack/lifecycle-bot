@@ -906,6 +906,9 @@ object PipelineHealthCollector {
         val stackRing: List<StackSample>,
     )
 
+    fun anrHintCountNow(): Int = anrHintCount.get()
+    fun maxFrameGapMsNow(): Long = maxFrameGapMs.get()
+
     fun scannerRecentlyActive(windowMs: Long = 15_000L): Boolean {
         val cutoff = System.currentTimeMillis() - windowMs
         return try {
