@@ -6,6 +6,21 @@ NO local compiler. Multi-lane architecture (Memes [9 sub-lanes], Crypto/Alts,
 Stocks, Markets, Tokenized Stocks, Forex, Metals, Commodities). Foreground
 Service with a 50+ AI-module pipeline gated through processTokenCycle.
 
+## V5.0.3928 (Feb 2026) — PAPER ADVISOR GATE: de-poisons learning — CI ✅ (build AATE_v5.0.3932)
+
+**Operator:** *"same logic now needs to be applied to paper learning. it must not buy rugs in paper mode either. the entire learning system is basically poisoned currently."*
+
+**Root cause:** `consultEntryAdvisors` (rug/proof/brain/fluid/intel/momentum chain) only ran in `liveBuy()`. `paperBuy()` bypassed all of it. Paper rugs at -100% were feeding BotBrain pattern memory, EntryIntelligence weights, and PatternAutoTuner buckets with garbage signal→outcome pairs — the brain learned wrong patterns and either over-blocked legit signals OR failed to suppress them in live because the noise drowned the signal.
+
+**Fix:** Inserted identical `consultEntryAdvisors(ts, score, layerTag)` call at the top of `paperBuy()` after basic INVALID_SIZE/EMPTY_MINT/INVALID_SCORE validation. Paper and live now consult the EXACT same chain — paper learning trains on the SAME filtered token set as live. Telemetry: `PAPER_BUY_ADVISOR_BLOCK` label + ForensicLogger row + `ADVISOR_<reason>` tag on `markPaperBuyNotOpened`.
+
+**Sibling audit (no butterflies):** consultEntryAdvisors is the same function liveBuy uses (zero divergence). `markPaperBuyNotOpened` releases FinalExecutionPermit + LaneExecutionCoordinator slot intact. Brace/paren balance clean. Live path untouched.
+
+**Expected impact:** Paper trade volume drops on the subset of tokens the advisor chain blocks. The brain stops being trained on rug outcomes. Learned thresholds converge to true population distribution faster; live learning signal becomes representative.
+
+**CI:** run 27835383071 → SUCCESS → APK `AATE_v5.0.3932` published.
+
+
 ## V5.0.3927 (Feb 2026) — RUGCHECK POLARITY AUDITED + HOLDER-UNKNOWN LIVE GATE — CI ✅ (build AATE_v5.0.3931)
 
 **Operator hypothesis: "rug prevention scoring is flipped".** Audited at producer:
