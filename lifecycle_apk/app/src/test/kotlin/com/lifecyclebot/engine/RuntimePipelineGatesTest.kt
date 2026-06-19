@@ -630,6 +630,8 @@ class ExecutionAuthorityInvariantTest {
         ExecutableOpenGate.resetForTests()
         ToxicModeCircuitBreaker.resetForTests()
         BirdeyeBudgetGate.resetForTests()
+        FinalExecutionPermit.resetForTests()
+        LiveSafetyCircuitBreaker.reset()
         RuntimeModeAuthority.publishConfig(paperMode = paper, autoTrade = true)
         RuntimeModeAuthority.publishUiMode(paper)
         RuntimeModeAuthority.publishExecutorMode(paper)
@@ -918,44 +920,25 @@ class ExecutionAuthorityInvariantTest {
 
 
     @Test
-    fun live_stale_auth_lock_without_wallet_truth_does_not_deadlock_core_reentry() {
+    fun live_stale_core_auth_lock_without_wallet_truth_does_not_block_specialist_reentry() {
         resetAuthorities(paper = false)
         TradeAuthorizer.reset()
         LaneExecutionCoordinator.resetForTests()
         val mint = "MintStaleAuthCore111111111111111111"
-        ExecutableOpenGate.recordV3(mint, "STALEAUTH", "EXECUTE", "DECISION_EXECUTE", "BUY", 90)
-        ExecutableOpenGate.recordFdg(
-            mint = mint,
-            symbol = "STALEAUTH",
-            lane = "CORE",
-            canExecute = true,
-            reason = null,
-            signal = "BUY",
-            rugScore = 90,
-            safetyTier = "SAFE",
-            liquidityUsd = 5000.0,
-        )
-        val first = TradeAuthorizer.authorize(
-            mint = mint,
-            symbol = "STALEAUTH",
-            score = 55,
-            confidence = 70.0,
-            quality = "B",
-            isPaperMode = false,
-            requestedBook = TradeAuthorizer.ExecutionBook.CORE,
-            rugcheckScore = 90,
-            liquidity = 5000.0,
-        )
-        assertTrue(first.isExecutable())
-        assertTrue(TradeAuthorizer.hasOpenPositionInBook(mint, TradeAuthorizer.ExecutionBook.CORE))
-        TradeAuthorizer.forceAgeOpenLockForTests(mint, TradeAuthorizer.ExecutionBook.CORE)
-        assertFalse("stale live auth lock with no wallet/accounting open must prune itself", TradeAuthorizer.hasOpenPositionInBook(mint, TradeAuthorizer.ExecutionBook.CORE))
+
+        // Mirrors the runtime failure: TradeAuthorizer held an old CORE LIVE_OPEN
+        // lock, while HostWalletTokenTracker/open counters said the mint was not
+        // actually open. A later SHITCOIN/MEME lane must prune the stale CORE lock
+        // instead of rejecting ALREADY_OPEN_CROSS_BOOK existing=CORE.
+        TradeAuthorizer.forceOpenLockForTests(mint, TradeAuthorizer.ExecutionBook.CORE, live = true)
+        assertFalse("stale live CORE auth lock with no wallet/accounting open must prune itself", TradeAuthorizer.hasOpenPositionInBook(mint, TradeAuthorizer.ExecutionBook.CORE))
+
         LaneExecutionCoordinator.resetForTests()
         ExecutableOpenGate.recordV3(mint, "STALEAUTH", "EXECUTE", "DECISION_EXECUTE", "BUY", 90)
         ExecutableOpenGate.recordFdg(
             mint = mint,
             symbol = "STALEAUTH",
-            lane = "CORE",
+            lane = "SHITCOIN",
             canExecute = true,
             reason = null,
             signal = "BUY",
@@ -963,19 +946,19 @@ class ExecutionAuthorityInvariantTest {
             safetyTier = "SAFE",
             liquidityUsd = 5000.0,
         )
-        val second = TradeAuthorizer.authorize(
+        val auth = TradeAuthorizer.authorize(
             mint = mint,
             symbol = "STALEAUTH",
             score = 55,
             confidence = 70.0,
             quality = "B",
             isPaperMode = false,
-            requestedBook = TradeAuthorizer.ExecutionBook.CORE,
+            requestedBook = TradeAuthorizer.ExecutionBook.SHITCOIN,
             rugcheckScore = 90,
             liquidity = 5000.0,
         )
-        assertTrue("stale CORE auth lock must not cause ALREADY_OPEN live death", second.isExecutable())
-        assertEquals("AUTHORIZED", second.reason)
+        assertTrue("stale CORE auth lock must not cause ALREADY_OPEN_CROSS_BOOK live death: ${auth.reason}", auth.isExecutable())
+        assertEquals("AUTHORIZED", auth.reason)
     }
 
     @Test

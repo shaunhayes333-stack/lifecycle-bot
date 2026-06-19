@@ -8265,6 +8265,9 @@ class Executor(
         } else {
             if (wallet == null) {
                 ErrorLogger.error("Executor", "[V3] ${ts.symbol} | LIVE_BUY_FAILED | no wallet")
+                try { TradeAuthorizer.releasePosition(ts.mint, "V3_LIVE_BUY_NO_WALLET_PREOPEN") } catch (_: Throwable) {}
+                try { LaneExecutionCoordinator.releaseIfPrimary(ts.mint, ts.position.tradingMode.ifBlank { "CORE" }, "V3_LIVE_BUY_NO_WALLET_PREOPEN") } catch (_: Throwable) {}
+                try { PipelineHealthCollector.labelInc("LIVE_BUY_PREOPEN_RELEASE_NO_WALLET") } catch (_: Throwable) {}
                 return
             }
             liveBuy(
