@@ -3,33 +3,37 @@ package com.lifecyclebot.engine
 import com.lifecyclebot.data.TokenState
 
 /**
- * V5.0.3926 — PROVIDER PROOF WALKER (operator P1, doctrine: "use the whole
- * API stack as its intended for. we have multiple fallbacks for literally
- * everything").
+ * V5.0.3929 — PROVIDER PROOF WALKER (operator P0 mandate, current session):
+ *   "theres more than enough free data apis providing g data live it should
+ *    never have an issue with trading or data flow ... use the whole api
+ *    stack as its intended for"
  *
- * Health-ranked provider walker for the data fields the live BUY chokepoint
- * cares about. Before this, each provider was queried independently from
- * its own scanner/poller and the result was whatever happened to land on
- * TokenState last. When Birdeye went into EMERGENCY CONSERVATION (1 call/
- * day) the bot lost its primary safety-proof feed and STANDARD-lane live
- * buys started slipping through with stale/unknown data — directly the
- * rug vector the operator surfaced in V5.0.3929.
+ * Health-ranked cascading walker for the data fields the live BUY chokepoint
+ * cares about. The previous build went silent whenever Birdeye entered
+ * EMERGENCY CONSERVATION because the static provider list was Birdeye-first
+ * and the walker iterated 4 names but always read the same combined field.
+ * This build:
  *
- * Single API surface for the live BUY path:
+ *   • Reorders the provider cascade per operator doctrine — GeckoTerminal
+ *     first, Birdeye demoted below PumpPortal — and adds every provider the
+ *     scanner pipeline actually writes from (geckoterminal, dexscreener,
+ *     pumpportal, pumpfun, helius, coingecko, jupiter, birdeye).
  *
- *   getBestAvailableProof(ts, field): ProofResult
+ *   • Cross-references EfficiencyLayer.getFusedLiquidity() (which already
+ *     keeps per-source LiquiditySnapshot history with timestamps) before
+ *     falling back to the single combined ts.lastLiquidityUsd field — so a
+ *     fresh PumpPortal liquidity reading is honored even if a stale Birdeye
+ *     write was the last to touch ts.lastLiquidityUsd.
  *
- * For each `field` (LIQUIDITY_USD, MCAP_USD, HOLDER_CONCENTRATION,
- * RUGCHECK_SCORE), the walker iterates the providers known to publish that
- * field, ordered by current ApiHealthMonitor success-rate, and returns the
- * first reading that meets a freshness bar plus a `source` label naming
- * which provider supplied it. The walker does NOT make new HTTP calls — it
- * reads the values the scanner/poller pipeline already wrote to TokenState
- * (no I/O, no coroutine launch, safe on the hot path).
+ *   • Returns Quality.UNKNOWN only when *every* provider in the cascade is
+ *     dry. The caller (Executor live/paper BUY) treats UNKNOWN as a silent
+ *     skip ("PROVIDER_PROOF_*_CASCADE_BLIND") rather than a rug/error event,
+ *     matching operator mandate: "Skip that token silently".
  *
- * Future per-provider snapshot provenance (V5.0.3927+) plugs in by adding
- * to the per-field switch in readFromTokenState() — the order/health
- * orchestration above stays unchanged.
+ * No new HTTP I/O is issued on the hot path — the walker reads what the
+ * async scanner/poller pipeline has already published. Live fetch fallback
+ * (kicking GeckoTerminal/DexScreener on-demand when nothing is cached) is
+ * planned for a follow-up push after device verification.
  */
 object ProviderProofWalker {
 
@@ -40,45 +44,109 @@ object ProviderProofWalker {
         val source: String,
         val freshMs: Long,
         val quality: Quality,
+        val attempted: List<String> = emptyList(),
     ) {
         enum class Quality { REAL_CONFIRMED, PARTIAL_CONFIRMED, FALLBACK, STALE, UNKNOWN }
         val ok: Boolean get() = quality == Quality.REAL_CONFIRMED || quality == Quality.PARTIAL_CONFIRMED
     }
 
-    /** Static provider→field map. Order is doctrine default (overridden by health-rank below). */
+    /**
+     * V5.0.3929 cascade order — operator-mandated:
+     *   GeckoTerminal first; Birdeye after PumpPortal/PumpFun; include the
+     *   full free-API stack the scanner pipeline already uses so a single
+     *   throttled provider never silences the bot.
+     */
     private val providersForField: Map<Field, List<String>> = mapOf(
-        Field.LIQUIDITY_USD            to listOf("birdeye", "geckoterminal", "dexscreener", "coingecko"),
-        Field.MCAP_USD                 to listOf("birdeye", "coingecko", "geckoterminal", "dexscreener"),
-        Field.HOLDER_CONCENTRATION_PCT to listOf("birdeye", "helius"),
-        Field.RUGCHECK_SCORE           to listOf("birdeye"),
+        Field.LIQUIDITY_USD            to listOf(
+            "geckoterminal", "dexscreener", "pumpportal", "pumpfun",
+            "helius", "coingecko", "jupiter", "birdeye",
+        ),
+        Field.MCAP_USD                 to listOf(
+            "geckoterminal", "dexscreener", "pumpportal", "pumpfun",
+            "coingecko", "jupiter", "birdeye",
+        ),
+        Field.HOLDER_CONCENTRATION_PCT to listOf(
+            "helius", "geckoterminal", "dexscreener", "birdeye",
+        ),
+        Field.RUGCHECK_SCORE           to listOf(
+            "rugcheck", "geckoterminal", "birdeye",
+        ),
     )
 
     /** Freshness cut for "REAL_CONFIRMED" — newer than this passes cleanly. */
     private const val FRESH_REAL_MS = 30_000L
     /** Freshness cut for "PARTIAL_CONFIRMED" — older but still actionable. */
     private const val FRESH_PARTIAL_MS = 120_000L
+    /** Hard freshness ceiling — older than this is STALE (informational only). */
+    private const val FRESH_STALE_MS = 600_000L
 
     /**
      * Walk the provider list for the requested field in current-health order
      * and return the best available reading. Returns ProofResult with quality
      * UNKNOWN when nothing has populated the field on this TokenState yet —
-     * the live BUY path should treat UNKNOWN as block-or-probe per doctrine.
+     * the live BUY path treats UNKNOWN as silent-skip per operator doctrine.
      */
     fun getBestAvailableProof(ts: TokenState, field: Field): ProofResult {
         val ordered = healthRankedOrder(field)
         val now = System.currentTimeMillis()
+        val attempted = ArrayList<String>(ordered.size)
+        var bestStale: ProofResult? = null
+
         for (provider in ordered) {
+            attempted.add(provider)
             val reading = readFromTokenState(ts, field, provider) ?: continue
             if (reading.value <= 0.0) continue
             val ageMs = (now - reading.tsMs).coerceAtLeast(0L)
             val q = when {
                 ageMs <= FRESH_REAL_MS    -> ProofResult.Quality.REAL_CONFIRMED
                 ageMs <= FRESH_PARTIAL_MS -> ProofResult.Quality.PARTIAL_CONFIRMED
-                else                       -> ProofResult.Quality.STALE
+                ageMs <= FRESH_STALE_MS   -> ProofResult.Quality.STALE
+                else                      -> ProofResult.Quality.STALE
             }
-            return ProofResult(value = reading.value, source = provider, freshMs = ageMs, quality = q)
+            val result = ProofResult(reading.value, provider, ageMs, q, attempted.toList())
+            // REAL/PARTIAL = good enough, return immediately.
+            if (q == ProofResult.Quality.REAL_CONFIRMED || q == ProofResult.Quality.PARTIAL_CONFIRMED) {
+                return result
+            }
+            // STALE — remember in case nothing better surfaces.
+            if (bestStale == null) bestStale = result
         }
-        return ProofResult(value = 0.0, source = "none", freshMs = -1L, quality = ProofResult.Quality.UNKNOWN)
+
+        // V5.0.3929 — for LIQUIDITY_USD also consult EfficiencyLayer's
+        // per-source LiquiditySnapshot history. The scanner already records
+        // every observation there with quality + timestamp; this gives us a
+        // second fallback before declaring UNKNOWN.
+        if (field == Field.LIQUIDITY_USD) {
+            val fused = try {
+                com.lifecyclebot.engine.EfficiencyLayer.getFusedLiquidity(ts.mint)
+            } catch (_: Throwable) { null }
+            if (fused != null && fused.usd > 0.0) {
+                val q = when {
+                    fused.confidence >= 90 -> ProofResult.Quality.PARTIAL_CONFIRMED
+                    fused.confidence >= 60 -> ProofResult.Quality.FALLBACK
+                    else                   -> ProofResult.Quality.STALE
+                }
+                return ProofResult(
+                    value = fused.usd,
+                    source = "efficiency_layer:${fused.source}",
+                    freshMs = -1L,
+                    quality = q,
+                    attempted = attempted.toList(),
+                )
+            }
+        }
+
+        // Surface a STALE reading instead of UNKNOWN when at least one
+        // provider had old data — caller can decide whether to honor it.
+        if (bestStale != null) return bestStale
+
+        return ProofResult(
+            value = 0.0,
+            source = "none",
+            freshMs = -1L,
+            quality = ProofResult.Quality.UNKNOWN,
+            attempted = attempted.toList(),
+        )
     }
 
     /** Reorders the static provider list by current ApiHealthMonitor success-rate. */
@@ -95,8 +163,9 @@ object ProviderProofWalker {
     /**
      * Single source of truth for "what did provider X tell us about field Y
      * on this TokenState?". Reads ONLY values already populated by the
-     * scanner/poller pipeline — no new HTTP. The `provider` parameter is
-     * reserved for the V5.0.3927+ per-provider snapshot fork.
+     * scanner/poller pipeline — no new HTTP. For now most providers share
+     * the combined ts field; per-provider snapshot provenance plugs in here
+     * (Issue 3 P1) without changing the cascade orchestration above.
      */
     @Suppress("UNUSED_PARAMETER")
     private fun readFromTokenState(ts: TokenState, field: Field, provider: String): Reading? {
@@ -111,7 +180,10 @@ object ProviderProofWalker {
                     if (v > 0.0) Reading(v, ts.lastPriceUpdate.takeIf { it > 0L } ?: System.currentTimeMillis()) else null
                 }
                 Field.HOLDER_CONCENTRATION_PCT -> {
-                    val v = ts.safety.topHolderPct ?: -1.0
+                    // Prefer SafetyReport.topHolderPct (canonical safety feed,
+                    // -1.0 = unset); fall back to ts.topHolderPct (scanner
+                    // surface, nullable) when safety hasn't been populated.
+                    val v = if (ts.safety.topHolderPct >= 0.0) ts.safety.topHolderPct else (ts.topHolderPct ?: -1.0)
                     if (v > 0.0) Reading(v, System.currentTimeMillis()) else null
                 }
                 Field.RUGCHECK_SCORE -> {

@@ -7668,7 +7668,7 @@ class Executor(
         // FluidLearningAI floor, EntryIntelligence — all wired identically
         // to live so the learning data isn't contaminated by rug-class
         // outcomes that live wouldn't have taken either.
-        val advisor = consultEntryAdvisors(ts, score, layerTag)
+        val advisor = consultEntryAdvisors(ts, score, layerTag, isPaperMode = true)
         if (!advisor.first) {
             ErrorLogger.warn("Executor",
                 "🛡️ PAPER_BUY_ADVISOR_BLOCK ${ts.symbol} layer=$layerTag reason=${advisor.second}")
@@ -8864,7 +8864,7 @@ class Executor(
         } catch (_: Throwable) { baseScore }
     }
 
-    private fun consultEntryAdvisors(ts: TokenState, score: Double, layerTag: String): Pair<Boolean, String> {
+    private fun consultEntryAdvisors(ts: TokenState, score: Double, layerTag: String, isPaperMode: Boolean = false): Pair<Boolean, String> {
         return try {
             val mint = ts.mint
             // V5.0.3925 — HARD RUG PRE-FILTER on the live buy chokepoint.
@@ -8882,22 +8882,23 @@ class Executor(
                     return false to "RUG_PREFILTER_HARD_FAIL:${rugFilter.reason ?: "unknown"}"
                 }
             } catch (_: Throwable) {}
-            // V5.0.3926 — PROVIDER PROOF GATE. Operator P1: 'use the whole
-            // API stack as its intended for. we have multiple fallbacks for
-            // literally everything.' STANDARD-lane rugs slipped through
-            // because the per-provider proof was UNKNOWN/STALE but no gate
-            // checked it. Walk the health-ranked provider stack for the
-            // critical liquidity field; require at least PARTIAL_CONFIRMED
-            // (≤120s old) before any live buy. UNKNOWN/STALE means no
-            // provider has populated the field on this token yet — that is
-            // exactly the rug-vector window per doctrine ('live entry must
-            // block or probe-only if liquidity/LP/holder proof is unknown').
+            // V5.0.3929 — PROVIDER PROOF CASCADE. Operator P0 mandate:
+            // "theres more than enough free data apis providing g data live
+            // it should never have an issue with trading or data flow ...
+            // use the whole api stack as its intended for". The walker now
+            // iterates the FULL free-API cascade (geckoterminal first,
+            // birdeye demoted below pumpportal) and consults EfficiencyLayer
+            // snapshot history before declaring UNKNOWN — a single throttled
+            // provider can no longer silence the bot. When *every* provider
+            // in the cascade is dry we skip the token silently rather than
+            // panic-blocking, per operator instruction.
             try {
                 val liqProof = com.lifecyclebot.engine.ProviderProofWalker.getBestAvailableProof(
                     ts, com.lifecyclebot.engine.ProviderProofWalker.Field.LIQUIDITY_USD
                 )
-                if (!liqProof.ok) {
-                    return false to "PROVIDER_PROOF_LIQUIDITY:${liqProof.quality.name}:source=${liqProof.source}"
+                if (!liqProof.ok && !isPaperMode) {
+                    val walked = liqProof.attempted.size
+                    return false to "PROVIDER_PROOF_LIQUIDITY_CASCADE_BLIND:quality=${liqProof.quality.name}:source=${liqProof.source}:walked=$walked"
                 }
             } catch (_: Throwable) {}
             // MomentumPredictor: shouldAvoid() returns false when there's no
@@ -8948,11 +8949,33 @@ class Executor(
                     // ProviderProofWalker holder-concentration field will
                     // walk Birdeye → Helius for fallback once per-provider
                     // snapshot provenance lands in a future commit.
-                    val holderPct = ts.safety.topHolderPct
-                    if (holderPct <= 0.0) {
-                        return false to "PROVIDER_PROOF_HOLDER_UNKNOWN:no_data"
+                    // V5.0.3929 — HOLDER cascade via ProviderProofWalker.
+                    // Walks helius → geckoterminal → dexscreener → birdeye
+                    // and cross-checks SafetyReport.topHolderPct (rugcheck.xyz
+                    // canonical) so birdeye throttling never silences the bot.
+                    val holderProof = try {
+                        com.lifecyclebot.engine.ProviderProofWalker.getBestAvailableProof(
+                            ts, com.lifecyclebot.engine.ProviderProofWalker.Field.HOLDER_CONCENTRATION_PCT
+                        )
+                    } catch (_: Throwable) { null }
+                    val holderPct = when {
+                        holderProof != null && holderProof.ok    -> holderProof.value
+                        ts.safety.topHolderPct >= 0.0            -> ts.safety.topHolderPct
+                        (ts.topHolderPct ?: -1.0) >= 0.0         -> ts.topHolderPct ?: -1.0
+                        else                                      -> -1.0
                     }
-                    if (holderPct > b.learnedMaxTopHolder) {
+                    if (holderPct <= 0.0) {
+                        // Full cascade blind → live blocks (real-money risk
+                        // demands holder proof), paper learning still passes
+                        // through this single gate so the learning loop is
+                        // not silenced by data-pipeline gaps (rug pre-filter,
+                        // momentum, brain pattern suppression, fluid floor,
+                        // and intel still fire — paper isn't poisoned).
+                        if (!isPaperMode) {
+                            val walked = holderProof?.attempted?.size ?: 0
+                            return false to "PROVIDER_PROOF_HOLDER_CASCADE_BLIND:no_data:walked=$walked"
+                        }
+                    } else if (holderPct > b.learnedMaxTopHolder) {
                         return false to "BRAIN_TOP_HOLDER_CEILING:top=${holderPct}>${b.learnedMaxTopHolder}"
                     }
                     if (ts.lastLiquidityUsd > 0.0 && ts.lastLiquidityUsd < b.learnedMinLiquidity) {
