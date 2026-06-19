@@ -923,6 +923,7 @@ class ExecutionAuthorityInvariantTest {
         TradeAuthorizer.reset()
         LaneExecutionCoordinator.resetForTests()
         val mint = "MintStaleAuthCore111111111111111111"
+        ExecutableOpenGate.recordV3(mint, "STALEAUTH", "EXECUTE", "DECISION_EXECUTE", "BUY", 90)
         ExecutableOpenGate.recordFdg(
             mint = mint,
             symbol = "STALEAUTH",
@@ -950,6 +951,7 @@ class ExecutionAuthorityInvariantTest {
         TradeAuthorizer.forceAgeOpenLockForTests(mint, TradeAuthorizer.ExecutionBook.CORE)
         assertFalse("stale live auth lock with no wallet/accounting open must prune itself", TradeAuthorizer.hasOpenPositionInBook(mint, TradeAuthorizer.ExecutionBook.CORE))
         LaneExecutionCoordinator.resetForTests()
+        ExecutableOpenGate.recordV3(mint, "STALEAUTH", "EXECUTE", "DECISION_EXECUTE", "BUY", 90)
         ExecutableOpenGate.recordFdg(
             mint = mint,
             symbol = "STALEAUTH",
