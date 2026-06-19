@@ -7337,7 +7337,15 @@ class Executor(
         // shrink to its 0.10 safety floor — that brake is intentional and
         // protects against regime-shift drawdown bleed.
         val liveFloorMult = if (dumpRegimeLive) 0.10 else maxOf(0.18, 0.50)
-        val multiplierProduct = sizeMult * labMult * laneEvMult * regimeMult * laneSizeCap
+        // V5.0.3925 — BotBrain.getRiskAdjustedSizeMultiplier wired into the
+        // multiplier product. Brain learns per (phase, emaFan, source)
+        // tuple which contexts have produced sustained drawdowns and
+        // shrinks size accordingly. Defaults to 1.0 when brain is null or
+        // context has no history — bootstrap-safe.
+        val brainSizeMult = try {
+            brain?.getRiskAdjustedSizeMultiplier(ts.phase, ts.meta.emafanAlignment, ts.source) ?: 1.0
+        } catch (_: Throwable) { 1.0 }
+        val multiplierProduct = sizeMult * labMult * laneEvMult * regimeMult * laneSizeCap * brainSizeMult
         val effSolRaw = (sol * multiplierProduct).coerceIn(sol * liveFloorMult, sol * 1.75)
         if (dumpRegimeLive) {
             try { ForensicLogger.lifecycle("DUMP_REGIME_LIVE_SIZE_SHAPED", "mint=${ts.mint.take(10)} symbol=${ts.symbol} lane=$laneTag regimeMult=$regimeMult laneCap=$laneSizeCap floor=$liveFloorMult raw=${effSolRaw.fmt(4)}") } catch (_: Throwable) {}
@@ -8834,6 +8842,21 @@ class Executor(
     private fun consultEntryAdvisors(ts: TokenState, score: Double, layerTag: String): Pair<Boolean, String> {
         return try {
             val mint = ts.mint
+            // V5.0.3925 — HARD RUG PRE-FILTER on the live buy chokepoint.
+            // Operator dump V5.0.3928 still showed live -100% rugs (Insider
+            // lane, fresh launches). HardRugPreFilter exists and is called in
+            // the scanning pipeline (BotService:15737) but its result is
+            // softened by ModeLeniency.useLenientGates for proven-edge live
+            // runs — that bypass let rug patterns reach liveBuy(). Force
+            // STRICT-mode evaluation here regardless of lenient-mode setting
+            // so live buys can never skip the rug pre-filter. HARD_FAIL is
+            // a definitive block. SOFT_FAIL still passes (with telemetry).
+            try {
+                val rugFilter = com.lifecyclebot.engine.HardRugPreFilter.filter(ts, isPaperMode = false)
+                if (!rugFilter.pass && rugFilter.severity == com.lifecyclebot.engine.HardRugPreFilter.FilterSeverity.HARD_FAIL) {
+                    return false to "RUG_PREFILTER_HARD_FAIL:${rugFilter.reason ?: "unknown"}"
+                }
+            } catch (_: Throwable) {}
             // MomentumPredictor: shouldAvoid() returns false when there's no
             // data for this mint, so this won't fire on fresh launches.
             if (com.lifecyclebot.engine.MomentumPredictorAI.shouldAvoid(mint)) {
