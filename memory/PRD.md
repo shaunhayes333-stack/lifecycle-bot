@@ -6,6 +6,23 @@ NO local compiler. Multi-lane architecture (Memes [9 sub-lanes], Crypto/Alts,
 Stocks, Markets, Tokenized Stocks, Forex, Metals, Commodities). Foreground
 Service with a 50+ AI-module pipeline gated through processTokenCycle.
 
+## V5.0.3926 (Feb 2026) — P0+P1 SURGICAL: rug-close accuracy + tracker desync fix + live grace tightening + ProviderProofWalker — CI ✅ (build AATE_v5.0.3930)
+
+**Operator dump V5.0.3929 surfaced 4 distinct issues. All addressed in one tight commit.**
+
+1. **Rug-close accuracy** (`StartupReconciler`): `JOURNAL_XREF_EXTERNAL_CLOSE` was marking wallet-zero positions with `pnlPct=0 / realizedSol=0` — corrupting WR math (rugs appearing as scratch trades). Now records `-100%` pnlPct, `-buyRow.sol` realized loss, AND writes a synthesized `SELL` row via `TradeHistoryStore.recordTrade` with reason `EXTERNAL_RUG_CLOSE`.
+
+2. **Tracker desync false-positives** (`InvariantGuardian`): `LIVE_BUY_CONFIRMED_NOT_VISIBLE_CRITICAL` + `TRACKER_OPEN_DESYNC_CRITICAL` fired whenever `canonicalOpen > 0 && (liveOpen == 0 || hostTrackerOpen == 0)` — normal state during `BUY_PENDING_BALANCE` (confirmed buy waiting for wallet proof, ≤90s). Added `pendingProofInFlight = TokenLifecycleTracker.confirmedPendingCount > 0` guard — both faults silent during legitimate confirmation window. Genuine stale case still handled by `BUY_PENDING_BALANCE_PROOF_STALE`.
+
+3. **Live grace tightening** (`HardRugPreFilter`): Grace-period auto-pass let STANDARD-lane live buys fire during first 60s of a token's life with no liquidity proof — direct cause of Dig2ougb -96.9% rug. PAPER mode keeps grace pass (learning); LIVE mode now HARD_FAILs as `GRACE_PERIOD_DATA_UNAVAILABLE_LIVE`.
+
+4. **ProviderProofWalker** (NEW): `getBestAvailableProof(ts, field)` iterates providers in current `ApiHealthMonitor` success-rate order for LIQUIDITY_USD / MCAP_USD / HOLDER_CONCENTRATION_PCT / RUGCHECK_SCORE. Hot-path safe (no new HTTP). Wired into `consultEntryAdvisors` — every live buy now requires LIQUIDITY_USD at REAL_CONFIRMED (≤30s) or PARTIAL_CONFIRMED (≤120s). UNKNOWN/STALE blocks with `PROVIDER_PROOF_LIQUIDITY:<quality>:source=<who>`.
+
+**Sibling audit:** Brace/paren balance clean on all 5 files. Existing `DataOrchestrator` (token events class) untouched — new walker named `ProviderProofWalker` to avoid collision. No GoldenTape regressions.
+
+**CI:** run 27832690943 → SUCCESS → APK `AATE_v5.0.3930` published.
+
+
 ## V5.0.3925 (Feb 2026) — HardRugPreFilter STRICT on liveBuy + BotBrain size multiplier wired — CI ✅ (build AATE_v5.0.3929)
 
 **Operator dump on V5.0.3928:** *"bot is still getting rugged… not good enough"* — screenshot showed Insider-lane position at -100% (rug). 3924 wiring (brain, fluid floor, fluid lane scoring) wasn't catching it.
