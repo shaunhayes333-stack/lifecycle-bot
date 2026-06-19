@@ -2730,4 +2730,15 @@ class GoldenTapeRegressionTest {
         assertFalse("CollectiveBrain UI polling must not call uncached TradeHistoryStore.getStats", collective.contains("TradeHistoryStore.getStats()"))
     }
 
+    @Test
+    fun runtime_doctor_uses_recent_worker_timeout_pressure_not_cumulative_debt() {
+        val phc = java.io.File("src/main/kotlin/com/lifecyclebot/engine/PipelineHealthCollector.kt").readText()
+        val guardian = java.io.File("src/main/kotlin/com/lifecyclebot/engine/InvariantGuardian.kt").readText()
+
+        assertTrue("PipelineHealthCollector must expose bounded recent event counts", phc.contains("fun recentEventCount(tag: String") && phc.contains("ring.count { it.tsMs >= cutoff && it.tag == tag }"))
+        assertTrue("Runtime fault must key supervisor worker disease off recent pressure", guardian.contains("workerTimeoutRecent2m") && guardian.contains("recentEventCount("LIFECYCLE/SUPERVISOR_WORKER_TIMEOUT", 120_000L)") && guardian.contains("workerTimeoutRecent2m > 15L"))
+        assertTrue("Report must show cumulative and recent supervisor timeouts separately", phc.contains("WORKER_TIMEOUT_RECENT") && phc.contains("recent2m=$supTimeoutRecent2m") && phc.contains("cumulative=$supTimeout"))
+        assertFalse("Cumulative workerTimeout >100 must not directly trigger EXIT_SWEEP_UNSTABLE", guardian.contains("workerTimeout > 100L"))
+    }
+
 }

@@ -909,6 +909,11 @@ object PipelineHealthCollector {
     fun anrHintCountNow(): Int = anrHintCount.get()
     fun maxFrameGapMsNow(): Long = maxFrameGapMs.get()
 
+    fun recentEventCount(tag: String, windowMs: Long = 120_000L): Long {
+        val cutoff = System.currentTimeMillis() - windowMs.coerceAtLeast(1L)
+        return try { ring.count { it.tsMs >= cutoff && it.tag == tag }.toLong() } catch (_: Throwable) { 0L }
+    }
+
     fun scannerRecentlyActive(windowMs: Long = 15_000L): Boolean {
         val cutoff = System.currentTimeMillis() - windowMs
         return try {
@@ -1044,12 +1049,13 @@ object PipelineHealthCollector {
         try {
             val anrCount = s.anrHints
             val supTimeout = s.labelCounts["SUPERVISOR_WORKER_TIMEOUT"] ?: 0L
+            val supTimeoutRecent2m = recentEventCount("LIFECYCLE/SUPERVISOR_WORKER_TIMEOUT", 120_000L)
             val v3 = com.lifecyclebot.engine.runtime.V3VerdictContract.snapshot()
             val exec = com.lifecyclebot.engine.runtime.ExecutionCounterContract.snapshot()
             val v3Unaccounted = v3.unaccounted
             val rootCauses = mutableListOf<String>()
             if (anrCount > 20) rootCauses.add("UI_MAIN_THREAD (ANR_HINTS=$anrCount)")
-            if (supTimeout > 50) rootCauses.add("WORKER_TIMEOUT (supervisor workerTimeouts=$supTimeout)")
+            if (supTimeoutRecent2m > 15) rootCauses.add("WORKER_TIMEOUT_RECENT (recent2m=$supTimeoutRecent2m cumulative=$supTimeout)")
             if (v3.entries > 0 && v3Unaccounted > 0) rootCauses.add("V3_ACCOUNTING_GAP (entries=${v3.entries} unaccounted=$v3Unaccounted)")
             val txCount = (exec["paper_sell_success"] ?: 0L) + (exec["live_sell_success"] ?: 0L)
             val journalSell = exec["journal_sell_records"] ?: 0L
@@ -1177,6 +1183,7 @@ object PipelineHealthCollector {
         val supSat = lc("SUPERVISOR_POOL_SATURATED_NO_RESET")
         val supExpired = lc("SUPERVISOR_LEASE_EXPIRED")
         val supTimeout = lc("SUPERVISOR_WORKER_TIMEOUT")
+        val supTimeoutRecent2m = recentEventCount("LIFECYCLE/SUPERVISOR_WORKER_TIMEOUT", 120_000L)
         val paperSoftHold = lc("PAPER_SOFT_LOSS_MIN_HOLD")
         val uiInactiveSkip = lc("MAIN_UPDATE_SKIPPED_INACTIVE")
         if (exStart + exDone + exSkip + exTimeout + exReset + slStart + slDone + slSkip + slTimeout + slReset + supCap + supSat + supExpired + supTimeout + paperSoftHold + uiInactiveSkip > 0L) {
@@ -1184,7 +1191,7 @@ object PipelineHealthCollector {
             sb.append(line("Exit sweep start/done:", "$exStart / $exDone", "late=$exLate skip=$exSkip timeout=$exTimeout reset=$exReset")).append('\n')
             sb.append(line("Universal SL start/done:", "$slStart / $slDone", "late=$slLate skip=$slSkip timeout=$slTimeout reset=$slReset")).append('\n')
             sb.append(line("ExitCoordinator stale resets:", exitStaleReset, "EXIT_COORDINATOR_STALE_RESET (should be ~0 in steady state; see event fields for lock age)")).append('\n')
-            sb.append(line("Supervisor cap/sat:", "$supCap / $supSat", "expiredLeases=$supExpired workerTimeout=$supTimeout")).append('\n')
+            sb.append(line("Supervisor cap/sat:", "$supCap / $supSat", "expiredLeases=$supExpired workerTimeout=$supTimeout recent2m=$supTimeoutRecent2m")).append('\n')
             sb.append(line("Paper soft-loss holds:", paperSoftHold, "1086 gate delaying fake instant paper losses")).append('\n')
             sb.append(line("UI inactive skips:", uiInactiveSkip, "should be near zero while Main is visible")).append('\n')
             if (exStart > 0 && exDone == 0L && exTimeout == 0L && exReset == 0L)

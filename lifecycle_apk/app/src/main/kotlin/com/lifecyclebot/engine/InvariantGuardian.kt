@@ -169,8 +169,17 @@ object InvariantGuardian {
         // not as an automatic global pause from this semantic mismatch.
         val exitReset = pipe?.labelCounts?.get("LIFECYCLE/EXIT_SWEEP_RESET") ?: 0L
         val exitTimeout = pipe?.labelCounts?.get("LIFECYCLE/EXIT_SWEEP_TIMEOUT") ?: 0L
-        val workerTimeout = pipe?.labelCounts?.get("LIFECYCLE/SUPERVISOR_WORKER_TIMEOUT") ?: 0L
-        if (exitReset > 10L || exitTimeout > 0L || workerTimeout > 100L) out += Fault(FaultCode.EXIT_SWEEP_UNSTABLE, "HIGH", "exitReset=$exitReset exitTimeout=$exitTimeout workerTimeout=$workerTimeout")
+        val workerTimeoutCumulative = pipe?.labelCounts?.get("LIFECYCLE/SUPERVISOR_WORKER_TIMEOUT") ?: 0L
+        val workerTimeoutRecent2m = try { PipelineHealthCollector.recentEventCount("LIFECYCLE/SUPERVISOR_WORKER_TIMEOUT", 120_000L) } catch (_: Throwable) { 0L }
+        // V5.0.3898 — workerTimeout is cumulative session debt. Treating cumulative
+        // >100 as active EXIT_SWEEP_UNSTABLE kept the Doctor in MECHANICAL_FAULT after
+        // the scheduler recovered (report: exitReset=0, exitTimeout=0, last cycles ~5s,
+        // but old workerTimeout=692). Current fault detection must use recent pressure.
+        if (exitReset > 10L || exitTimeout > 0L || workerTimeoutRecent2m > 15L) out += Fault(
+            FaultCode.EXIT_SWEEP_UNSTABLE,
+            "HIGH",
+            "exitReset=$exitReset exitTimeout=$exitTimeout workerTimeoutRecent2m=$workerTimeoutRecent2m workerTimeoutCumulative=$workerTimeoutCumulative",
+        )
         val actualBuys = (s.exec).coerceAtLeast(0L)
         val execRatio = if (actualBuys > 0) (s.exec.toDouble() / actualBuys) else 0.0
         if (actualBuys > 0 && execRatio > 5.0) out += Fault(FaultCode.EXEC_REQUEST_INFLATION, "HIGH", "execOpenRequest/actualBuys=${"%.2f".format(execRatio)}")
