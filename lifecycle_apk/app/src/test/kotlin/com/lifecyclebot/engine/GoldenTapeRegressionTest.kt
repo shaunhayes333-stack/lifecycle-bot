@@ -564,9 +564,9 @@ class GoldenTapeRegressionTest {
     @Test
     fun live_pending_rc_one_is_not_hard_finality_block() {
         val openGate = java.io.File("src/main/kotlin/com/lifecyclebot/engine/ExecutableOpenGate.kt").readText()
-        assertTrue(openGate.contains("score 1 is RC_PENDING"))
-        assertTrue(openGate.contains("rugScore in 2..10"))
-        assertTrue(openGate.contains("rug in 2..10"))
+        assertTrue(openGate.contains("hard-block residue purge"))
+        assertFalse("low nonzero RC must not be recordFdg hardNo", openGate.contains("rugScore in 2..10"))
+        assertFalse("low nonzero RC must not be final-open hard block", openGate.contains("rug in 2..10"))
         assertFalse("RC_SCORE_1 must not be reintroduced as a live hardNo in recordFdg", openGate.contains("rugScore in 1..10"))
         assertFalse("RC_SCORE_1 must not be reintroduced as a live hardNo in final open", openGate.contains("rug in 1..10"))
         val moon = java.io.File("src/main/kotlin/com/lifecyclebot/v3/scoring/MoonshotTraderAI.kt").readText()
@@ -712,9 +712,9 @@ class GoldenTapeRegressionTest {
         assertFalse("Pending holder data alone must not hard-block every live buy", gate.contains("return block(ts, \"HOLDER_DATA_PENDING\""))
         assertFalse("Critical pending proof must not emit PRETRADE_HARD_BLOCK anymore", gate.contains("return block(ts, \"CRITICAL_SAFETY_PROOF_UNKNOWN\""))
         assertFalse("RugCheck pending alone must not recreate RC=1 live choke", gate.contains("return block(ts, \"RUGCHECK_PENDING_OR_UNKNOWN\""))
-        assertTrue(gate.contains("SINGLE HOLDER"))
-        assertTrue(gate.contains("UNVERIFIED TOKEN"))
-        assertTrue(gate.contains("TOP 10"))
+        assertFalse("Holder warning text must not be a pre-submit hard block", gate.contains("SINGLE HOLDER") && gate.contains("return block"))
+        assertFalse("Unverified-token text must not be a pre-submit hard block", gate.contains("UNVERIFIED TOKEN") && gate.contains("return block"))
+        assertFalse("Top-10 holder warning text must not be a pre-submit hard block", gate.contains("TOP 10") && gate.contains("return block"))
         val exec = java.io.File("src/main/kotlin/com/lifecyclebot/engine/Executor.kt").readText()
         val liveGateIdx = exec.indexOf("LiveBuyAdmissionGate.requireApprovedLiveBuy")
         val preTradeIdx = exec.indexOf("PreTradeHardGate.requireLiveBuyAllowed", liveGateIdx.coerceAtLeast(0))
@@ -2721,8 +2721,8 @@ class GoldenTapeRegressionTest {
         val pre = java.io.File("src/main/kotlin/com/lifecyclebot/engine/PreTradeHardGate.kt").readText()
         val exec = java.io.File("src/main/kotlin/com/lifecyclebot/engine/Executor.kt").readText()
 
-        assertTrue("Live buy must defer until holder distribution is actually proven", pre.contains("HOLDER_DISTRIBUTION_PROOF_REQUIRED") && pre.contains("!ts.holderDataResolved || topHolder < 0.0") && pre.contains("deferSafetyProof"))
-        assertTrue("Wallet/Phantom holder warning text must be fatal in live pretrade", listOf("ONE USER HOLDS", "LARGE AMOUNT OF THE TOKEN SUPPLY", "UNVERIFIED TOKEN", "MORE THAN 50%").all { pre.contains(it) })
+        assertTrue("Live holder distribution uncertainty must be penalty/size-clamp, not terminal defer", pre.contains("HOLDER_DISTRIBUTION_PENDING_SIZE_CLAMP") && pre.contains("decision=PENALTY_ONLY"))
+        assertFalse("Wallet/Phantom holder warning text must not be fatal pre-submit", listOf("ONE USER HOLDS", "LARGE AMOUNT OF THE TOKEN SUPPLY", "UNVERIFIED TOKEN", "MORE THAN 50%").any { pre.contains(it) })
         assertTrue("Ultra live runners must bank before normal partial cadence", exec.contains("ULTRA-RUNNER PANIC BANK") && exec.contains("ULTRA_RUNNER_BANK_TRIGGERED") && exec.contains("gainMultiple >= 50.0") && exec.contains("peakGainPct >= 5_000.0") && exec.contains("executeProfitLockSell(ts, wallet, sellFraction, \"ultra_runner_bank_"))
     }
 

@@ -489,26 +489,6 @@ object ExecutableOpenGate {
             // always showed verdicts produced=0 despite FDG running. phase() bumps phaseCounts;
             // decision() bumps verdictCounts — both are needed.
             val executableFdg = canExecute && finalHardNo.isEmpty() && (finalVerdict == "BUY" || finalVerdict == "PROBE_ONLY")
-            if (executableFdg) {
-                val ticketLane = canonicalLane(lane)
-                val ticketId = canonicalExecutionKey(mint, mode = if (paperRuntime) "PAPER" else "LIVE", side = "BUY", lane = ticketLane, candidateVersion = candidateVersion)
-                publishTicket(
-                    ExecutionTicket(
-                        attemptId = ticketId,
-                        mint = mint,
-                        symbol = symbol,
-                        lane = ticketLane,
-                        mode = if (paperRuntime) "PAPER" else "LIVE",
-                        candidateVersion = candidateVersion,
-                        fdgReason = reason,
-                        signal = signal,
-                        safetyTier = safetyTier,
-                        liquidityUsd = liquidityUsd,
-                        rugScore = rugScore,
-                        hardNoReasons = finalHardNo,
-                    )
-                )
-            }
             val verdictLabel = if (executableFdg) finalVerdict else "BLOCK"
             try { ForensicLogger.decision(ForensicLogger.PHASE.FDG, symbol, verdictLabel, 0, 0, reason ?: finalHardNo.firstOrNull() ?: verdictLabel) } catch (_: Throwable) {}
             if (executableFdg) {
@@ -946,7 +926,7 @@ object ExecutableOpenGate {
         // V5.9.1504 — RUG-CONTEXT STRICT FALLBACK (master throughput unblock).
         // Operator forensics 14:40: EVERY live candidate (incl. a 95%-pnl KNOWN
         // WINNER that FDG itself flagged "FAST APPROVE") was hard-blocked here
-        // with PRE_FDG_RUG_CONTEXT_MISSING → 0/35 open, nothing could buy live.
+        // with missing rug context → 0/35 open, nothing could buy live.
         // Cause: rugcheck.xyz returns -1 (PENDING/no-report-yet) for essentially
         // every FRESH meme mint, and this gate treated rug<0 as an unconditional
         // LIVE hard-no — STRICTER than FDG, which already approves pending-rug
@@ -959,21 +939,14 @@ object ExecutableOpenGate {
         if (rug == 0 && modeUpper == "LIVE") {
             return blocked("EXEC_OPEN_BLOCKED_CONFIRMED_RUG", "PRE_FDG_CONFIRMED_RUG_SCORE_0", shadow = false)
         }
-        if (rug < 0 && modeUpper == "LIVE" && immutableTicket == null) {
-            // PENDING rugcheck (-1). Apply the same STRICT fallback FDG uses.
-            val sEntry = state?.entryScore ?: -1
-            val tierKnown = !safetyTier.equals("UNKNOWN", true)
-            // Floor: real DEX liquidity AND (a resolved safety tier OR a strong
-            // V3 entry score). $8K liq matches FDG's weak-fallback liq floor.
-            val passesStrictFallback = liquidityUsd >= 8_000.0 && (tierKnown || sEntry >= 50)
-            if (!passesStrictFallback) {
-                return blocked("EXEC_OPEN_BLOCKED_RUG_CONTEXT_MISSING", "PRE_FDG_RUG_CONTEXT_MISSING", shadow = false)
-            }
+        if (rug < 0 && modeUpper == "LIVE") {
             try {
-                ForensicLogger.lifecycle("PRE_FDG_RUG_PENDING_FALLBACK_PASS",
-                    "symbol=$symbol mint=${mint.take(10)} liq=${liquidityUsd.toInt()} tier=$safetyTier entry=$sEntry → routed to FDG")
+                ForensicLogger.lifecycle(
+                    "LIVE_PENDING_RUG_CONTEXT_SOFT_ALLOWED",
+                    "attemptId=$attemptId symbol=$symbol mint=${mint.take(10)} lane=$lane liq=${liquidityUsd.toInt()} safety=$safetyTier fdgCan=$fdgCan ticket=${immutableTicket != null}"
+                )
+                PipelineHealthCollector.labelInc("LIVE_PENDING_RUG_CONTEXT_SOFT_ALLOWED")
             } catch (_: Throwable) {}
-            // fall through — FDG downstream makes the final allow/block call.
         }
         if (liquidityUsd <= 0.0) {
             // V5.9.1336 — ZERO LIQUIDITY IS UNCONDITIONAL, EVEN IN PAPER.
@@ -1059,6 +1032,24 @@ object ExecutableOpenGate {
         try {
             allowedAttempts[laneAttemptKey] = execKey to System.currentTimeMillis()
             allowedAttempts[mint.trim()] = execKey to System.currentTimeMillis()
+            if (executionTickets[execKey] == null) {
+                publishTicket(
+                    ExecutionTicket(
+                        attemptId = execKey,
+                        mint = mint,
+                        symbol = symbol,
+                        lane = canonicalLane(lane),
+                        mode = modeUpper,
+                        candidateVersion = candidateVersion,
+                        fdgReason = fdgReason,
+                        signal = signal,
+                        safetyTier = safetyTier,
+                        liquidityUsd = liquidityUsd,
+                        rugScore = rug,
+                        hardNoReasons = hardNoReasons,
+                    )
+                )
+            }
         } catch (_: Throwable) {}
         val allowedVerdict = OpenVerdict(
             true,

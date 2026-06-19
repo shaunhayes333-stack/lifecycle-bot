@@ -748,7 +748,7 @@ class ExecutionAuthorityInvariantTest {
     }
 
     @Test
-    fun live_missing_rug_context_remains_blocked() {
+    fun live_missing_rug_context_after_fdg_allow_is_penalty_not_finality_block() {
         resetAuthorities(paper = false)
         val mint = "MintMissingRcLive111111111111111111"
         ExecutableOpenGate.recordFdg(
@@ -770,9 +770,8 @@ class ExecutionAuthorityInvariantTest {
             lane = "TREASURY",
             source = "test",
         )
-        assertFalse(v.allowed)
-        assertEquals("EXEC_OPEN_DROPPED_PRE_FDG_NOT_BUY", v.logName)
-        assertEquals("HARD_NO_BUY", v.reason)
+        assertTrue("live missing rug context after FDG allow must be penalty/ticket compatible", v.allowed)
+        assertEquals("EXEC_OPEN_ALLOWED", v.logName)
     }
 
     @Test
@@ -830,7 +829,7 @@ class ExecutionAuthorityInvariantTest {
     }
 
     @Test
-    fun live_low_rc_score_six_remains_finality_blocked() {
+    fun live_low_rc_score_six_after_fdg_allow_is_penalty_not_finality_block() {
         resetAuthorities(paper = false)
         val mint = "MintRcSixLive1111111111111111111111"
         ExecutableOpenGate.recordFdg(
@@ -852,9 +851,8 @@ class ExecutionAuthorityInvariantTest {
             lane = "SHITCOIN",
             source = "test",
         )
-        assertFalse(v.allowed)
-        assertEquals("EXEC_OPEN_DROPPED_PRE_FDG_NOT_BUY", v.logName)
-        assertEquals("HARD_NO_BUY", v.reason)
+        assertTrue("live low nonzero RC after FDG allow must remain executable with penalty, not hard finality", v.allowed)
+        assertEquals("EXEC_OPEN_ALLOWED", v.logName)
     }
 
     @Test
