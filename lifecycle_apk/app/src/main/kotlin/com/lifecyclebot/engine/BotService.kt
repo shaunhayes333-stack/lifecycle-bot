@@ -20556,12 +20556,12 @@ if (hotExitHandledSweep) {
                         // accepted probes; it must not execute rows the gate labelled
                         // terminal.
                         // ═════════════════════════════════════════════════════
-                        val isTerminalV3Reject = result.reason.contains("SCORE_TOO_LOW", ignoreCase = true) ||
-                            result.reason.contains("ZERO_LIQUIDITY", ignoreCase = true) ||
-                            result.reason.contains("LOW_LIQUIDITY", ignoreCase = true) ||
-                            result.reason.contains("INELIGIBLE", ignoreCase = true) ||
-                            result.reason.contains("TOO_OLD", ignoreCase = true) ||
-                            result.reason.contains("NO_PAIR", ignoreCase = true)
+                        val isTerminalV3Reject = result.reason.contains("SCORE_TOO_LOW", ignoreCase = true)
+                            || result.reason.contains("ZERO_LIQUIDITY", ignoreCase = true)
+                            || result.reason.contains("LOW_LIQUIDITY", ignoreCase = true)
+                            || result.reason.contains("INELIGIBLE", ignoreCase = true)
+                            || result.reason.contains("TOO_OLD", ignoreCase = true)
+                            || result.reason.contains("NO_PAIR", ignoreCase = true)
                         if (v3ControlsExecution) {
                             addLog("⚡ V3 REJECT: ${identity.symbol} | ${result.reason}", mint)
                             useV3Decision = false

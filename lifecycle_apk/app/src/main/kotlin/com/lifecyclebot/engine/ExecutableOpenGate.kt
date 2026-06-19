@@ -829,6 +829,12 @@ object ExecutableOpenGate {
         val pause = ToxicModeCircuitBreaker.currentEntryPause()
         if (pause.active && modeUpper == "LIVE") {
             ToxicModeCircuitBreaker.emitExecutionStateBlockedIfDue(symbol, "ExecutableOpenGate")
+            // V5.0.3918 — revoke the FDG-stage ticket so recentAllowedAttemptId
+            // returns null when the live circuit breaker blocks the open. Matches
+            // RuntimePipelineGatesTest::live_circuit_breaker_blocks_before_
+            // executable_open_allowed which asserts no allowed-attempt residue
+            // survives a downstream blocking gate.
+            try { allowedAttempts.remove(laneKey(mint, lane)) } catch (_: Throwable) {}
             return blocked("EXEC_OPEN_BLOCKED_CIRCUIT_BREAKER", pause.reason.ifBlank { "CIRCUIT_BREAKER" })
         }
         if (pause.active && modeUpper == "PAPER") {
