@@ -6,6 +6,63 @@ NO local compiler. Multi-lane architecture (Memes [9 sub-lanes], Crypto/Alts,
 Stocks, Markets, Tokenized Stocks, Forex, Metals, Commodities). Foreground
 Service with a 50+ AI-module pipeline gated through processTokenCycle.
 
+## V5.0.3919 (Feb 2026) — PROVIDER-BACKOFF SOURCE FIX + DAMPENER FLOOR + FEE THRESHOLD + ANR MITIGATION — CI ✅ (build AATE_v5.0.3922)
+
+**Operator report:** SELL_ONLY_SAFE_MODE blocking live buys even though
+PumpPortal/Helius were healthy; live trades landing at ~$0.005 where
+fees + network costs ate the edge; 0.5% trading fees not reaching the
+two fee wallets; MainActivity.onCreate showing 2600ms+ frame gaps and
+4.4% uptime stalls.
+
+**Root cause and fixes:**
+
+1. **`SellOnlySafeMode.providerBackoffActive()` — SOURCE FIX.** Pre-3919
+   keys (`pumpportal.fun`, `pump.fun`, `mainnet.helius-rpc.com`,
+   `api.mainnet-beta.solana.com`) never matched the SHORT labels that
+   HealthAwareHttp + SolanaMarketScanner actually write via
+   `ApiBackoff.markFailure` (`pumpfun`, `pumpportal`, `helius`,
+   `solana_rpc`, plus scanner-only labels). The check was dead code,
+   AND any future writer using the long form would have parked the
+   entire live buy path on a scanner-only outage. New explicit
+   `executionProviderLabels = arrayOf("pumpportal", "pumpfun",
+   "helius", "solana_rpc")` allowlist scopes the check strictly to
+   execution venues. Scanner-only labels (dexscreener / geckoterminal /
+   birdeye / coingecko / pyth) and quote-API/LLM labels (jupiter / groq /
+   gemini) can NEVER block live buys. `providerBackoff=<host>` reason
+   line now names the offending venue for forensics.
+
+2. **`Executor.kt` cumulative dampener floor.** `sizeMult × labMult ×
+   laneEvMult × regimeMult × laneSizeCap` was compounding below the
+   0.18 floor's grip — clamp to ≥0.5× of base in NORMAL regime; DUMP
+   regime keeps its 0.10 safety floor.
+
+3. **`Executor.sendFeeSplit()` FEE_SEND_MIN_SOL lowered 0.0001 → 0.000005
+   SOL.** The 0.0001 per-share floor silently dropped fees whenever a
+   dampened live trade was ≲0.04 SOL. All 8 `feeAmount*  >= 0.0001` call
+   sites in Executor.kt now use the shared constant.
+
+4. **`MainActivity.onCreate`** — defer `setupOperatorDiagnosticTiles` +
+   `showFirstTimeDisclaimer` past first frame (postDelayed 220ms) so
+   they no longer steal main-thread budget during the layout-inflate
+   storm. (`setupChart`, `setupSettings`, `setupQuickActionButtons`,
+   `requestNotifPermission`, etc. were already deferred.)
+
+**3919b / 3919c — GoldenTape repair (sibling audit):**
+The provider-backoff source fix tripped `live_buy_admission_does_not_global_safe_mode_on_jupiter_fallback_backoff`
+because the assertion was a NAIVE substring search over the whole
+SellOnlySafeMode.kt file and matched the doc comment that listed the
+scanner-only labels as NEGATIVE examples. Tightened the assertion to
+extract the `executionProviderLabels = arrayOf(…)` block via regex and
+assert ONLY against the array literal — bulletproof against any future
+comment text. Doc comment rewritten to avoid literal quoted labels.
+
+**Acceptance:**
+- `executionProviderLabels` contains exactly `pumpportal/pumpfun/helius/solana_rpc`
+- Scanner-only + Jupiter/Groq/Gemini labels NOT in the allowlist
+- GoldenTape `live_buy_admission_does_not_global_safe_mode_on_jupiter_fallback_backoff` PASSES
+- CI run 27822766636 → SUCCESS → APK `AATE_v5.0.3922` published.
+
+
 ## V5.0.3746 (Feb 2026) — BALANCE_UNKNOWN REQUEUE LOOP / CLOSE LEASE LEAK FIX
 
 **Operator dump V5.0.3744:** `EXEC_LIVE_SELL_OK=0`, `noSig=220`,
