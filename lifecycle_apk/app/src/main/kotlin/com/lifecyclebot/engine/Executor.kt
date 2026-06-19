@@ -8780,6 +8780,58 @@ class Executor(
         return true
     }
 
+    // V5.0.3923 — DORMANT-AI ENTRY ADVISOR GATE. Operator audit (3922)
+    // found that EntryIntelligence + MomentumPredictorAI were marked
+    // LIVE_ELIGIBLE in the UI but never consulted before live BUYs. This
+    // gate runs them on every live buy with PERMISSIVE thresholds (block
+    // only on STRONG negative signals; default-allow when learning data
+    // is sparse so the bot never chokes itself out). All 9 sub-lane BUY
+    // routes flow through liveBuy(), so this single insertion covers
+    // SHITCOIN, MOONSHOT, MANIPULATED, EXPRESS, QUALITY, BLUECHIP,
+    // TREASURY, DIP_HUNTER, PROJECT_SNIPER. Any internal failure of an
+    // advisor returns ALLOW (never choke on the advisor itself).
+    private fun consultEntryAdvisors(ts: TokenState, layerTag: String): Pair<Boolean, String> {
+        return try {
+            val mint = ts.mint
+            // MomentumPredictor: shouldAvoid() returns false when there's no
+            // data for this mint, so this won't fire on fresh launches.
+            if (com.lifecyclebot.engine.MomentumPredictorAI.shouldAvoid(mint)) {
+                val pred = com.lifecyclebot.engine.MomentumPredictorAI.getMomentum(mint)?.prediction?.name ?: "UNKNOWN"
+                return false to "MOMENTUM_AVOID:$pred"
+            }
+            // EntryIntelligence: only enforce once the AI has been trained on
+            // ≥40 closed trades AND the verdict is AVOID with score < 25.
+            // Below 40 trades we don't trust the weights yet. AVOID alone is
+            // not enough — we need both labels to align.
+            val intelTrades = try { com.lifecyclebot.engine.EntryIntelligence.getTotalTrades() } catch (_: Throwable) { 0 }
+            if (intelTrades >= 40) {
+                val conditions = com.lifecyclebot.engine.EntryIntelligence.EntryConditions(
+                    buyPressure = ts.meta.pressScore,
+                    volumeScore = ts.meta.volScore,
+                    priceVsEma = ts.meta.posInRange - 50.0,
+                    rsi = ts.meta.rsi,
+                    momentum = ts.entryScore.toDouble(),
+                    hourOfDay = java.util.Calendar.getInstance(java.util.TimeZone.getTimeZone("UTC"))
+                        .get(java.util.Calendar.HOUR_OF_DAY),
+                    volatility = ts.meta.avgAtr,
+                    liquidityUsd = ts.lastLiquidityUsd,
+                    topHolderPct = ts.safety.topHolderPct,
+                    isNearSupport = ts.meta.posInRange < 25.0,
+                    isNearResistance = ts.meta.posInRange > 75.0,
+                    candlePattern = "none",
+                )
+                val intel = com.lifecyclebot.engine.EntryIntelligence.scoreEntry(conditions)
+                if (intel.recommendation == com.lifecyclebot.engine.EntryIntelligence.EntryRecommendation.AVOID && intel.score < 25) {
+                    return false to "ENTRY_INTEL_AVOID:score=${intel.score}|${intel.reasons.firstOrNull() ?: ""}"
+                }
+            }
+            true to "ENTRY_ADVISORS_PASS:intelTrades=$intelTrades"
+        } catch (e: Throwable) {
+            // Any failure → ALLOW (never choke on the advisor itself)
+            true to "ENTRY_ADVISORS_SOFT_PASS:${e.javaClass.simpleName}"
+        }
+    }
+
     private fun liveBuy(ts: TokenState, sol: Double, score: Double,
                         wallet: SolanaWallet, walletSol: Double,
                         identity: TradeIdentity? = null,
@@ -8789,6 +8841,22 @@ class Executor(
                         layerTagEmoji: String = "",
                         finalityPrechecked: Boolean = false,
                         attemptId: String = ""): Boolean {    // V5.9.386 — matching emoji
+
+        // V5.0.3923 — consult dormant entry-quality AIs before any execution
+        // work begins. Must run BEFORE ExecutionAttemptLease.acquire below so
+        // an advisor-block does not leak a lease. Permissive by design — see
+        // consultEntryAdvisors() header for thresholds.
+        val advisor = consultEntryAdvisors(ts, layerTag)
+        if (!advisor.first) {
+            ErrorLogger.warn("Executor",
+                "🛡️ LIVE_BUY_ADVISOR_BLOCK ${ts.symbol} layer=$layerTag reason=${advisor.second}")
+            try {
+                ForensicLogger.lifecycle("LIVE_BUY_ADVISOR_BLOCK",
+                    "mint=${ts.mint.take(10)} symbol=${ts.symbol} layer=$layerTag reason=${advisor.second}")
+            } catch (_: Throwable) {}
+            try { PipelineHealthCollector.labelInc("LIVE_BUY_ADVISOR_BLOCK") } catch (_: Throwable) {}
+            return false
+        }
 
         // V5.0.3908 — universal approved-handoff recovery for LIVE buys.
         // Some older/direct callers reach liveBuy() without the lane attemptId even
