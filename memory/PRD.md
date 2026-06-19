@@ -6,6 +6,28 @@ NO local compiler. Multi-lane architecture (Memes [9 sub-lanes], Crypto/Alts,
 Stocks, Markets, Tokenized Stocks, Forex, Metals, Commodities). Foreground
 Service with a 50+ AI-module pipeline gated through processTokenCycle.
 
+## V5.0.3927 (Feb 2026) — RUGCHECK POLARITY AUDITED + HOLDER-UNKNOWN LIVE GATE — CI ✅ (build AATE_v5.0.3931)
+
+**Operator hypothesis: "rug prevention scoring is flipped".** Audited at producer:
+- `TokenSafetyChecker.kt:503/563/569` confirms HIGHER = SAFER (rugcheck.xyz `score_normalised` convention). `rcScore==0` HARD BLOCKS as confirmed rug; `2-4` very risky; `5-9` risky; `61` legitimately safe.
+- `BotBrain.learnedRugcheckThreshold` consumer semantics match: "block when rcScore ≤ threshold" = "block when score is low/risky". **Polarity NOT flipped.**
+
+**Real root cause of the RICHTROLL/SolanaTrack-flagged rug:**
+- Rugcheck.xyz returned a clean score, BUT holder-concentration / single-owner / verified-status checks were silently skipped because pre-3927 guard required `topHolderPct > 0.0` before checking. Birdeye in EMERGENCY CONSERVATION (1 call/day) means holder data often hadn't landed for fresh-launch tokens → check auto-passed.
+
+**Fix in `Executor.consultEntryAdvisors()`:**
+- Replaced `topHolderPct > 0.0 && ... > learnedMaxTopHolder` (silent skip on unknown) with `topHolderPct <= 0.0 → block PROVIDER_PROOF_HOLDER_UNKNOWN`; `> learnedMaxTopHolder → block BRAIN_TOP_HOLDER_CEILING`. Live BUYs now REQUIRE populated holder data per doctrine.
+- Paper mode unchanged (advisor only fires in `liveBuy()`).
+
+**Sibling audit:** `ts.safety.topHolderPct` is non-nullable Double; 0.0 default = no data sentinel. No GoldenTape regressions. Brace/paren balance clean.
+
+**Deferred to next session** (operator items #3 + #4, need fresh context budget):
+- 🔴 P1: LANE_FANOUT regression-guard-aware dedup (touches `BotService.shouldRunBuyLaneForCycle` + GoldenTape `fanout_suppression_never_…` guard — can't half-ship).
+- 🔴 P1: Per-provider snapshot provenance refactor (every scanner writer site for Birdeye / GeckoTerminal / DexScreener / Helius / CoinGecko / Pyth needs to write to its own slot AND the canonical field — too risky to attempt without missing a site).
+
+**CI:** run 27834729764 → SUCCESS → APK `AATE_v5.0.3931` published.
+
+
 ## V5.0.3926 (Feb 2026) — P0+P1 SURGICAL: rug-close accuracy + tracker desync fix + live grace tightening + ProviderProofWalker — CI ✅ (build AATE_v5.0.3930)
 
 **Operator dump V5.0.3929 surfaced 4 distinct issues. All addressed in one tight commit.**
