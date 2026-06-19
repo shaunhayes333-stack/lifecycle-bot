@@ -19334,13 +19334,24 @@ if (hotExitHandledSweep) {
                                     buyPressure = ts.lastBuyPressurePct,
                                 )
                                 
+                                // V5.0.3924 — fluid TP/SL via LaneExitTuner.
+                                // Replaces hardcoded 35/-12 with per-lane
+                                // values that the tuner has learned from the
+                                // last 60 PROJECT_SNIPER closes (clamped
+                                // tpMult[0.60-1.40], slMult[0.70-1.30]).
+                                val sniperTpMult = try {
+                                    com.lifecyclebot.engine.learning.LaneExitTuner.getTpMult("PROJECT_SNIPER")
+                                } catch (_: Throwable) { 1.0 }
+                                val sniperSlMult = try {
+                                    com.lifecyclebot.engine.learning.LaneExitTuner.getSlMult("PROJECT_SNIPER")
+                                } catch (_: Throwable) { 1.0 }
                                 // Execute buy
                                 executor.shitCoinBuy(
                                     ts = ts,
                                     sizeSol = assessment.positionSizeSol,
                                     walletSol = effectiveBalance,
-                                    takeProfitPct = 35.0,
-                                    stopLossPct = -12.0,
+                                    takeProfitPct = 35.0 * sniperTpMult,
+                                    stopLossPct = -12.0 * sniperSlMult,
                                     wallet = wallet,
                                     isPaper = com.lifecyclebot.engine.RuntimeModeAuthority.isPaper(),  // V5.9.1563 — runtime authority, not stale cfg
                                     launchPlatform = com.lifecyclebot.v3.scoring.ShitCoinTraderAI.detectPlatform(ts.source),

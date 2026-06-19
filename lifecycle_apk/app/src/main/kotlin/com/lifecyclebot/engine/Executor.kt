@@ -8548,11 +8548,14 @@ class Executor(
             "mcap=\$${(ts.lastMcap/1_000_000).fmt(2)}M | " +
             "attemptId=${preflight.attemptId} | ${sizeSol.fmt(3)} SOL | TP=${takeProfitPct}% SL=${stopLossPct}%")
         
+        // V5.0.3924 — fluid lane score (brain.effectiveEntryThreshold +
+        // phase/source boosts) replacing hardcoded 85.0.
+        val laneScore = brainAdjustedLaneScore(85.0, ts)
         if (isPaper) {
             paperBuy(
                 ts = ts,
                 sol = sizeSol,
-                score = 85.0,
+                score = laneScore,
                 identity = identity,
                 quality = "BLUE_CHIP",
                 skipGraduated = true,
@@ -8570,7 +8573,7 @@ class Executor(
             val liveOpened = liveBuy(
                 ts = ts,
                 sol = sizeSol,
-                score = 85.0,
+                score = laneScore,
                 wallet = wallet,
                 walletSol = walletSol,
                 identity = identity,
@@ -8656,11 +8659,14 @@ class Executor(
             "risk=${riskLevel.emoji}${riskLevel.name} | " +
             "attemptId=${preflight.attemptId} | ${sizeSol.fmt(3)} SOL | TP=${takeProfitPct}% SL=${stopLossPct}%")
         
+        // V5.0.3924 — fluid lane score (brain.effectiveEntryThreshold +
+        // phase/source boosts) replacing hardcoded 70.0.
+        val laneScore = brainAdjustedLaneScore(70.0, ts)
         if (isPaper) {
             paperBuy(
                 ts = ts,
                 sol = sizeSol,
-                score = 70.0,
+                score = laneScore,
                 identity = identity,
                 quality = "SHITCOIN",
                 skipGraduated = true,
@@ -8678,7 +8684,7 @@ class Executor(
             val liveOpened = liveBuy(
                 ts = ts,
                 sol = sizeSol,
-                score = 70.0,
+                score = laneScore,
                 wallet = wallet,
                 walletSol = walletSol,
                 identity = identity,
@@ -8790,7 +8796,42 @@ class Executor(
     // SHITCOIN, MOONSHOT, MANIPULATED, EXPRESS, QUALITY, BLUECHIP,
     // TREASURY, DIP_HUNTER, PROJECT_SNIPER. Any internal failure of an
     // advisor returns ALLOW (never choke on the advisor itself).
-    private fun consultEntryAdvisors(ts: TokenState, layerTag: String): Pair<Boolean, String> {
+    //
+    // V5.0.3924 — STACK-WIRING EXPANSION. Operator audit confirmed the
+    // intelligence stack is BUILT and LEARNING but liveBuy() was ignoring
+    // most of it. Wired in the following pre-existing LEARNED signals
+    // (NOT new fixed thresholds — these adapt as the bot trades):
+    //   • BotBrain.shouldSkipTrade()  — hard-suppressed pattern registry
+    //   • BotBrain.learnedRugcheckThreshold  — adaptive (5-40) rug floor
+    //   • BotBrain.learnedMinBuyPressure     — adaptive (10-35%) press floor
+    //   • BotBrain.learnedMaxTopHolder       — adaptive (40-80%) holder ceiling
+    //   • BotBrain.learnedMinLiquidity       — adaptive ($100 default) liq floor
+    //   • FluidLearningAI.getExecuteFloor()  — fluid score floor that lerps
+    //     from BOOTSTRAP (5) → MATURE (35+) as live trade count grows.
+    // The brain reference is the Executor's existing var (line 736). Every
+    // check is guarded so that null-brain or sparse-safety-data does NOT
+    // choke the bot. Brain returns its own learned safety defaults
+    // (intentionally permissive on bootstrap) until experience adjusts them.
+    // V5.0.3924 — fluid lane-base score helper. Operator: "the overall
+    // scoring for entry isnt meant to be a fixed score anywhere — its
+    // meant to be a fluid learnt value in each lane trader or trading
+    // tool adjusted thru the learning, brain, education, sentience and
+    // intelligence stack." This routes any sub-lane's hard-coded base
+    // score through BotBrain's adaptive entry threshold + per-phase +
+    // per-source boosts so the value actually moves as the bot learns.
+    // Returns the original baseScore unchanged when brain is null
+    // (bootstrap / unit-test) so behaviour stays sane on cold start.
+    private fun brainAdjustedLaneScore(baseScore: Double, ts: TokenState): Double {
+        val b = brain ?: return baseScore
+        return try {
+            val adjusted = b.effectiveEntryThreshold(baseScore)
+            val phaseBoost = b.getPhaseBoost(ts.entryPhase)
+            val sourceBoost = b.getSourceBoost(ts.source)
+            (adjusted + phaseBoost + sourceBoost).coerceIn(0.0, 100.0)
+        } catch (_: Throwable) { baseScore }
+    }
+
+    private fun consultEntryAdvisors(ts: TokenState, score: Double, layerTag: String): Pair<Boolean, String> {
         return try {
             val mint = ts.mint
             // MomentumPredictor: shouldAvoid() returns false when there's no
@@ -8799,6 +8840,45 @@ class Executor(
                 val pred = com.lifecyclebot.engine.MomentumPredictorAI.getMomentum(mint)?.prediction?.name ?: "UNKNOWN"
                 return false to "MOMENTUM_AVOID:$pred"
             }
+            // BotBrain: hard-suppressed pattern check. shouldSkipTrade() reads
+            // the learned suppression registry — patterns that have produced
+            // repeated losses are flagged after the brain has observed them.
+            // Default-allow when registry is empty (bootstrap).
+            val b = brain
+            if (b != null) {
+                try {
+                    if (b.shouldSkipTrade(ts.entryPhase, ts.meta.emafanAlignment, ts.source, score)) {
+                        return false to "BRAIN_PATTERN_SUPPRESSED:phase=${ts.entryPhase}|source=${ts.source}"
+                    }
+                } catch (_: Throwable) {}
+                // Learned safety thresholds. Only enforce when the token has
+                // a real safety reading (>0) — unknown safety on a brand-new
+                // pool is checked elsewhere (HardRugPreFilter / blacklist).
+                try {
+                    if (ts.safety.rugcheckScore > 0 && ts.safety.rugcheckScore <= b.learnedRugcheckThreshold) {
+                        return false to "BRAIN_RUGCHECK_FLOOR:score=${ts.safety.rugcheckScore}<=${b.learnedRugcheckThreshold}"
+                    }
+                    if (ts.meta.pressScore > 0.0 && ts.meta.pressScore < b.learnedMinBuyPressure) {
+                        return false to "BRAIN_BUY_PRESSURE_FLOOR:press=${ts.meta.pressScore}<${b.learnedMinBuyPressure}"
+                    }
+                    if (ts.safety.topHolderPct > 0.0 && ts.safety.topHolderPct > b.learnedMaxTopHolder) {
+                        return false to "BRAIN_TOP_HOLDER_CEILING:top=${ts.safety.topHolderPct}>${b.learnedMaxTopHolder}"
+                    }
+                    if (ts.lastLiquidityUsd > 0.0 && ts.lastLiquidityUsd < b.learnedMinLiquidity) {
+                        return false to "BRAIN_LIQUIDITY_FLOOR:liq=${ts.lastLiquidityUsd}<${b.learnedMinLiquidity}"
+                    }
+                } catch (_: Throwable) {}
+            }
+            // FluidLearningAI execute floor — adaptive score gate that lerps
+            // from bootstrap (~5) to mature (~35+) as the bot accumulates
+            // live closes. Stays low during early learning so the bot can
+            // still trade; rises as the brain demands stronger signals.
+            try {
+                val fluidFloor = com.lifecyclebot.v3.scoring.FluidLearningAI.getExecuteFloor().toDouble()
+                if (score > 0.0 && score < fluidFloor) {
+                    return false to "FLUID_EXECUTE_FLOOR:score=$score<$fluidFloor"
+                }
+            } catch (_: Throwable) {}
             // EntryIntelligence: only enforce once the AI has been trained on
             // ≥40 closed trades AND the verdict is AVOID with score < 25.
             // Below 40 trades we don't trust the weights yet. AVOID alone is
@@ -8846,7 +8926,9 @@ class Executor(
         // work begins. Must run BEFORE ExecutionAttemptLease.acquire below so
         // an advisor-block does not leak a lease. Permissive by design — see
         // consultEntryAdvisors() header for thresholds.
-        val advisor = consultEntryAdvisors(ts, layerTag)
+        // V5.0.3924 — score parameter passed through so FluidLearningAI's
+        // execute floor can be compared against the actual incoming score.
+        val advisor = consultEntryAdvisors(ts, score, layerTag)
         if (!advisor.first) {
             ErrorLogger.warn("Executor",
                 "🛡️ LIVE_BUY_ADVISOR_BLOCK ${ts.symbol} layer=$layerTag reason=${advisor.second}")
