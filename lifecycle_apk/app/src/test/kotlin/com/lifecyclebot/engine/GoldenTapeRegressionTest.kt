@@ -2768,8 +2768,9 @@ class GoldenTapeRegressionTest {
         val safe = java.io.File("src/main/kotlin/com/lifecyclebot/engine/sell/SellOnlySafeMode.kt").readText()
         val exec = java.io.File("src/main/kotlin/com/lifecyclebot/engine/Executor.kt").readText()
 
-        assertTrue("Pump-first live buy admission must still respect pump/finality provider backoff", safe.contains("pumpportal.fun") && safe.contains("pump.fun") && safe.contains("mainnet.helius-rpc.com") && safe.contains("api.mainnet-beta.solana.com"))
-        assertFalse("Jupiter fallback backoff must not globally trigger SELL_ONLY_SAFE_MODE while Pump-first is healthy", safe.contains("quote-api.jup.ag") || safe.contains("jup.ag"))
+        assertTrue("Pump-first live buy admission must still respect pump/finality provider backoff", safe.contains("\"pumpportal\"") && safe.contains("\"pumpfun\"") && safe.contains("\"helius\"") && safe.contains("\"solana_rpc\""))
+        assertFalse("Jupiter fallback backoff must not globally trigger SELL_ONLY_SAFE_MODE while Pump-first is healthy", safe.contains("\"jupiter\"") || safe.contains("quote-api.jup.ag") || safe.contains("jup.ag"))
+        assertFalse("Scanner-only labels must never park live buys via SELL_ONLY_SAFE_MODE", safe.contains("\"dexscreener\"") || safe.contains("\"geckoterminal\"") || safe.contains("\"birdeye\"") || safe.contains("\"coingecko\"") || safe.contains("\"pyth\"") || safe.contains("\"groq\"") || safe.contains("\"gemini\""))
         assertTrue("Outer live buy caller must preserve inner terminal fail authority", exec.contains("NO_OPEN_COMMITTED_AFTER_LIVEBUY_OBSERVED") && exec.contains("action=observe_only_inner_reason_authority"))
         assertTrue("Finality-block telemetry must include the normalized finality reason", exec.contains("FINALITY_BLOCK:${'$'}{executableOpen.reason.take(72).replace(' ', '_')}"))
     }
