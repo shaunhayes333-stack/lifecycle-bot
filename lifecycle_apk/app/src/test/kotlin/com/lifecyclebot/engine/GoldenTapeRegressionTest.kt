@@ -2943,8 +2943,8 @@ class GoldenTapeRegressionTest {
         val pre = java.io.File("src/main/kotlin/com/lifecyclebot/engine/PreTradeHardGate.kt").readText()
         val exec = java.io.File("src/main/kotlin/com/lifecyclebot/engine/Executor.kt").readText()
 
-        assertTrue("Live holder distribution uncertainty must be penalty/size-clamp, not terminal defer", pre.contains("HOLDER_DISTRIBUTION_PENDING_SIZE_CLAMP") && pre.contains("decision=PENALTY_ONLY"))
-        assertFalse("Wallet/Phantom holder warning text must not be fatal pre-submit", listOf("ONE USER HOLDS", "LARGE AMOUNT OF THE TOKEN SUPPLY", "UNVERIFIED TOKEN", "MORE THAN 50%").any { pre.contains(it) })
+        assertTrue("Live holder distribution uncertainty must hydrate/defer, not spend real SOL", pre.contains("HOLDER_DISTRIBUTION_PENDING") && pre.contains("LIVE_CRITICAL_PROOF_PENDING"))
+        assertTrue("Wallet/Phantom holder warning text must be fatal pre-submit", pre.contains("FATAL_WALLET_RISK_TEXT") && listOf("SINGLE HOLDER", "UNVERIFIED TOKEN", "TOP 10").all { pre.contains(it) })
         assertTrue("Ultra live runners must bank before normal partial cadence", exec.contains("ULTRA-RUNNER PANIC BANK") && exec.contains("ULTRA_RUNNER_BANK_TRIGGERED") && exec.contains("gainMultiple >= 50.0") && exec.contains("peakGainPct >= 5_000.0") && exec.contains("executeProfitLockSell(ts, wallet, sellFraction, \"ultra_runner_bank_"))
     }
 
@@ -3271,7 +3271,7 @@ class GoldenTapeRegressionTest {
         val exec = java.io.File("src/main/kotlin/com/lifecyclebot/engine/Executor.kt").readText()
         val doctrine = java.io.File("src/main/kotlin/com/lifecyclebot/engine/LiveGrowthDoctrine.kt").readText()
         assertTrue("Positive expectancy winners need a larger max boost than legacy 1.75x", exec.contains("winnerMaxBoost") && exec.contains("laneEvMult > 1.0") && exec.contains("sol * winnerMaxBoost"))
-        assertTrue("Growth doctrine must raise winner lane wallet allocation", doctrine.contains("2–5x") && doctrine.contains("MOONSHOT") && doctrine.contains("0.165") && doctrine.contains("absoluteCap"))
+        assertTrue("Growth doctrine must raise winner lane wallet allocation", doctrine.contains("AGGRESSIVE_2X_5X_LIVE_WALLET_GROWTH") && doctrine.contains("MOONSHOT") && doctrine.contains("0.35") && doctrine.contains("absoluteCap"))
         assertTrue("Bleeder lanes remain lower allocation than winner lanes", doctrine.contains(""""EXPRESS" -> 0.72""") && doctrine.contains(""""SHITCOIN" -> 0.78"""))
         assertTrue("Safety/route gates remain upstream", doctrine.contains("never bypasses route") && exec.contains("realisticLiveEntrySize"))
     }
