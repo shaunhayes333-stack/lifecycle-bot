@@ -2241,6 +2241,12 @@ class Executor(
         val minRealistic = growthPolicy.minExecutableSol.coerceAtMost(cap)
         val desired = maxOf(requestedSol, walletTarget, minRealistic).coerceAtMost(cap)
         val out = desired.coerceAtLeast(minOf(requestedSol, cap)).coerceAtMost(spendable)
+        try {
+            ForensicLogger.lifecycle(
+                "GROWTH_MODE_TRACE",
+                "mint=${ts.mint.take(10)} symbol=${ts.symbol} source=$source lane=$laneKey requested=${requestedSol.fmt(4)} walletTarget=${walletTarget.fmt(4)} out=${out.fmt(4)} wallet=${walletSol.fmt(4)} spendable=${spendable.fmt(4)} liqUsd=${liqUsd.toInt()} liquidityCap=${liquidityCapSol.fmt(4)} walletCap=${walletCapSol.fmt(4)} cap=${cap.fmt(4)} minExec=${minRealistic.fmt(4)} score=${score.fmt(1)} growth=${growthPolicy.reason}",
+            )
+        } catch (_: Throwable) {}
         if (kotlin.math.abs(out - requestedSol) >= 0.0005) {
             try {
                 ForensicLogger.lifecycle(

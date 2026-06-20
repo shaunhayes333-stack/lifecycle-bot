@@ -53,7 +53,7 @@ object LiveBreakEvenGuard {
                 .filter { it.mode.equals("paper", true) }
                 .filter { aliases.contains(BleederMemoryRouter.canon(it.tradingMode.ifBlank { it.reason })) }
                 .takeLast(250)
-            edgeFromRows(rows, minRows = 25, minWr = 52.0, minNetSol = 0.0, cap = 35.0)
+            edgeFromRows(rows, minRows = 15, minWr = 45.0, minNetSol = 0.0, cap = 55.0)
         } catch (_: Throwable) { 0.0 }
         // V5.0.3972 — LIVE TRUST REBASE.
         // Paper memory can suggest, never dominate. If live has no positive
@@ -64,7 +64,10 @@ object LiveBreakEvenGuard {
         return if (liveTerminalEdge > 0.0) {
             maxOf(scorePrior, leaderboardEdge, liveTerminalEdge + (paperAdvisoryEdge * 0.35)).coerceIn(0.0, 180.0)
         } else {
-            maxOf(scorePrior, minOf(leaderboardEdge, 25.0), minOf(paperAdvisoryEdge, 15.0)).coerceIn(0.0, 45.0)
+            // V5.0.3986 — correspondence rebase. With clean live safety proof,
+            // paper winners must be allowed to bootstrap executable live samples;
+            // otherwise dirty early live losses self-starve the edge loop forever.
+            maxOf(scorePrior, minOf(leaderboardEdge, 35.0), minOf(paperAdvisoryEdge, 28.0)).coerceIn(0.0, 60.0)
         }
     }
 

@@ -9036,10 +9036,24 @@ class BotService : Service() {
             val ownerPool = com.lifecyclebot.engine.LaneToxicityGuard.filterNonToxic(rawOwnerPool, scoreForToxicity).ifEmpty { rawOwnerPool }
             val rot = try { (System.currentTimeMillis() / 3_000L).toInt() } catch (_: Throwable) { 0 }
             val ownerLane = ownerPool[((ts.mint.hashCode() xor rot) and 0x7fffffff) % ownerPool.size]
+            // V5.0.3986 — LIVE PROFITABLE-FANOUT REPAIR. Owner rotation prevents
+            // FDG storms, but a strict single owner starves the quality lanes the
+            // operator expects to make money. In LIVE, allow bounded affinity/
+            // character-confirmed quality rescue lanes in addition to the owner;
+            // the actual lane must still emit BUY intent and pass FDG/executor.
+            val profitableRescue = RuntimeModeAuthority.isLive() && l in setOf("QUALITY", "TREASURY", "BLUECHIP", "MOONSHOT", "PROJECT_SNIPER") && (
+                affinity.contains(l) ||
+                l == primaryLane.uppercase() ||
+                (classification.tradeType == ModeRouter.TradeType.WHALE_ACCUMULATION && (l == "QUALITY" || l == "BLUECHIP")) ||
+                (classification.tradeType == ModeRouter.TradeType.TREND_PULLBACK && (l == "QUALITY" || l == "TREASURY")) ||
+                ((classification.tradeType == ModeRouter.TradeType.BREAKOUT_CONTINUATION || classification.tradeType == ModeRouter.TradeType.GRADUATION) && l == "MOONSHOT")
+            )
             if (l in fullMemeTraderRing) {
-                val allowed = l == ownerLane
+                val allowed = l == ownerLane || profitableRescue
                 if (allowed) {
-                    try { ForensicLogger.lifecycle("MEMETRADER_OWNER_LANE", "lane=$l primary=$primaryLane symbol=${ts.symbol} mint=${ts.mint.take(10)} pool=${ownerPool.joinToString("+")}") } catch (_: Throwable) {}
+                    try { ForensicLogger.lifecycle("MEMETRADER_OWNER_LANE", "lane=$l primary=$primaryLane owner=$ownerLane rescue=$profitableRescue symbol=${ts.symbol} mint=${ts.mint.take(10)} pool=${ownerPool.joinToString("+")}") } catch (_: Throwable) {}
+                } else {
+                    try { ForensicLogger.lifecycle("LANE_SUPPRESSED_BY_OWNER_ROTATION", "lane=$l primary=$primaryLane owner=$ownerLane symbol=${ts.symbol} mint=${ts.mint.take(10)}") } catch (_: Throwable) {}
                 }
                 return allowed
             }
@@ -16992,9 +17006,12 @@ if (hotExitHandledSweep) {
                             symbol = ts.symbol,
                             currentPrice = ts.ref,
                             liquidityUsd = ts.lastLiquidityUsd,
-                            // V4.0 FIX: Default to 20% (safe) instead of 50% (fails threshold)
-                            // Many tokens don't have topHolderPct data early on
-                            topHolderPct = ts.topHolderPct ?: 20.0,
+                            // V5.0.3986 — live profitability/safety fix. Missing
+                            // holder data is NOT safe. In live it must hydrate/defer
+                            // at PreTradeHardGate; scorer receives a neutral/failure
+                            // value so Treasury/CashGen does not over-score unknown
+                            // high-holder tokens as cashflow candidates.
+                            topHolderPct = ts.topHolderPct ?: if (com.lifecyclebot.engine.RuntimeModeAuthority.isLive()) 50.0 else 20.0,
                             buyPressurePct = ts.lastBuyPressurePct,
                             v3Score = v3Score,
                             v3Confidence = v3Confidence,
@@ -17205,7 +17222,7 @@ if (hotExitHandledSweep) {
                                     candidate = laneQualifiedBuyDecision(decision, "TREASURY", confidenceFloor = treasurySignal.confidence.toDouble(), liquidityUsd = ts.lastLiquidityUsd, mintForProbe = ts.mint),
                                     laneScore = treasurySignal.confidence.toDouble(),
                                     config = cfg,
-                                    proposedSizeSol = treasurySignal.positionSizeSol,
+                                    proposedSizeSol = adjustedSize,
                                     brain = executor.brain,
                                     tradingModeTag = try { ModeSpecificGates.fromTradingMode("TREASURY") } catch (_: Exception) { null },
                                 )
@@ -17468,7 +17485,7 @@ if (hotExitHandledSweep) {
                             buyPressure = ts.lastBuyPressurePct.toInt(),
                             tokenAgeMinutes = qualityTokenAgeMinutes,
                             holderCount = qualityHolderCount,
-                            topHolderPct = ts.topHolderPct ?: 20.0,
+                            topHolderPct = ts.topHolderPct ?: if (com.lifecyclebot.engine.RuntimeModeAuthority.isLive()) 50.0 else 20.0,
                             v3Score = v3Score,
                             isMeme = false,
                         )
@@ -17651,7 +17668,7 @@ if (hotExitHandledSweep) {
                             currentPrice = ts.ref,
                             marketCapUsd = ts.lastMcap,
                             liquidityUsd = ts.lastLiquidityUsd,
-                            topHolderPct = ts.topHolderPct ?: 20.0,
+                            topHolderPct = ts.topHolderPct ?: if (com.lifecyclebot.engine.RuntimeModeAuthority.isLive()) 50.0 else 20.0,
                             buyPressurePct = ts.lastBuyPressurePct,
                             v3Score = v3Score,
                             v3Confidence = v3Confidence,
@@ -17920,7 +17937,7 @@ if (hotExitHandledSweep) {
                                 volumeUsd = ts.lastLiquidityUsd * 0.05,
                                 liquidityUsd = ts.lastLiquidityUsd,
                                 holderCount = ts.history.lastOrNull()?.holderCount ?: 0,
-                                topHolderPct = ts.topHolderPct ?: ts.safety.topHolderPct.takeIf { it >= 0 } ?: 20.0,
+                                topHolderPct = ts.topHolderPct ?: ts.safety.topHolderPct.takeIf { it >= 0 } ?: if (com.lifecyclebot.engine.RuntimeModeAuthority.isLive()) 50.0 else 20.0,
                                 holderGrowthRate = ts.holderGrowthRate,
                                 rugcheckScore = ts.safety.rugcheckScore.toDouble(),
                                 baseEntryScore = moonshotScore.score.toDouble(),
@@ -18355,7 +18372,7 @@ if (hotExitHandledSweep) {
                             currentPrice = ts.ref,
                             marketCapUsd = ts.lastMcap,
                             liquidityUsd = ts.lastLiquidityUsd,
-                            topHolderPct = ts.topHolderPct ?: ts.safety.topHolderPct.takeIf { it >= 0 } ?: 20.0,
+                            topHolderPct = ts.topHolderPct ?: ts.safety.topHolderPct.takeIf { it >= 0 } ?: if (com.lifecyclebot.engine.RuntimeModeAuthority.isLive()) 50.0 else 20.0,
                             buyPressurePct = ts.lastBuyPressurePct,
                             momentum = ts.momentum ?: 0.0,
                             volatility = ts.volatility ?: 0.0,
@@ -18420,7 +18437,7 @@ if (hotExitHandledSweep) {
                             volumeUsd = ts.lastLiquidityUsd * 0.05,
                             liquidityUsd = ts.lastLiquidityUsd,
                             holderCount = ts.history.lastOrNull()?.holderCount ?: 0,
-                            topHolderPct = ts.topHolderPct ?: ts.safety.topHolderPct.takeIf { it >= 0 } ?: 20.0,
+                            topHolderPct = ts.topHolderPct ?: ts.safety.topHolderPct.takeIf { it >= 0 } ?: if (com.lifecyclebot.engine.RuntimeModeAuthority.isLive()) 50.0 else 20.0,
                             holderGrowthRate = ts.holderGrowthRate,
                             rugcheckScore = ts.safety.rugcheckScore.toDouble(),
                             baseEntryScore = shitCoinSignal.entryScore.toDouble(),

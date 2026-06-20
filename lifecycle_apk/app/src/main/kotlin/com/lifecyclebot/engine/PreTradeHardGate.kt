@@ -55,6 +55,23 @@ object PreTradeHardGate {
     }
 
     private fun allowWithPendingProof(ts: TokenState, pending: List<String>, callSite: String): Verdict {
+        // V5.0.3986 — live hard-safety/parity fix. Pending *non-fatal* proof may
+        // be allowed only when no live-critical proof gap remains. Holder unknown,
+        // mint/freeze active/unknown, and wallet-style risk warnings are not
+        // "penalty only" for real SOL; they are hydrate/defer or hard block above.
+        val liveCritical = pending.firstOrNull {
+            it.contains("HOLDER", true) ||
+            it.contains("MINT_AUTHORITY", true) ||
+            it.contains("FREEZE_AUTHORITY", true) ||
+            it.contains("SAFETY_PROOF", true) ||
+            it.contains("SINGLE_HOLDER", true) ||
+            it.contains("TOP10", true) ||
+            it.contains("HIGH_OWNERSHIP", true) ||
+            it.contains("UNVERIFIED_TOKEN", true)
+        }
+        if (liveCritical != null) {
+            return deferSafetyProof(ts, "LIVE_CRITICAL_PROOF_PENDING", listOf(liveCritical), callSite)
+        }
         if (pending.isNotEmpty()) {
             try {
                 val detail = pending.joinToString("|").take(180)
@@ -85,12 +102,8 @@ object PreTradeHardGate {
             pendingProofs.add("SAFETY_PROOF_STALE_OR_MISSING:checkedAt=$safetyAt ageMs=$safetyAge")
         }
         if (safety.tier == SafetyTier.HARD_BLOCK || safety.isBlocked) {
-            val detail = safety.hardBlockReasons.joinToString("|").ifBlank { safety.summary }
-            if (!TokenBlacklist.isSoftPenaltyOnlyReason(detail)) {
-                return block(ts, "SAFETY_HARD_BLOCK", detail)
-            }
-            pendingProofs.add("SAFETY_SHADOW_PENALTY_ONLY:${detail.take(80)}")
-            try { ForensicLogger.lifecycle("BUY_GATE_DECISION", "mint=${ts.mint.take(10)} symbol=${ts.symbol} decision=PENALTY_ONLY reason=SAFETY_SHADOW source=PreTradeHardGate liveEligible=true") } catch (_: Throwable) {}
+            val detail = safety.hardBlockReasons.joinToString("|").ifBlank { safety.summary.ifBlank { "safety_hard_block" } }
+            return block(ts, "SAFETY_HARD_BLOCK", detail)
         }
 
         val rcStatus = safety.rugcheckStatus.uppercase()
@@ -103,18 +116,12 @@ object PreTradeHardGate {
         if (safety.rugcheckScore == 0) return block(ts, "RUGCHECK_CONFIRMED_RUG", "score=0")
 
         when (safety.mintAuthorityDisabled) {
-            false -> {
-                pendingProofs.add("MINT_AUTHORITY_ACTIVE_SIZE_CLAMP")
-                try { ForensicLogger.lifecycle("BUY_GATE_DECISION", "mint=${ts.mint.take(10)} symbol=${ts.symbol} decision=PENALTY_ONLY reason=MINT_AUTHORITY_ACTIVE source=PreTradeHardGate liveEligible=true") } catch (_: Throwable) {}
-            }
+            false -> return block(ts, "MINT_AUTHORITY_ACTIVE", "mint authority still active")
             null -> pendingProofs.add("MINT_AUTHORITY_UNKNOWN")
             true -> Unit
         }
         when (safety.freezeAuthorityDisabled) {
-            false -> {
-                pendingProofs.add("FREEZE_AUTHORITY_ACTIVE_ROUTE_CHECK")
-                try { ForensicLogger.lifecycle("BUY_GATE_DECISION", "mint=${ts.mint.take(10)} symbol=${ts.symbol} decision=PENALTY_ONLY reason=FREEZE_AUTHORITY_ACTIVE source=PreTradeHardGate liveEligible=true") } catch (_: Throwable) {}
-            }
+            false -> return block(ts, "FREEZE_AUTHORITY_ACTIVE", "freeze authority still active")
             null -> pendingProofs.add("FREEZE_AUTHORITY_UNKNOWN")
             true -> Unit
         }
@@ -129,29 +136,19 @@ object PreTradeHardGate {
         if (!ts.holderDataResolved) pendingProofs.add("HOLDER_DATA_PENDING")
         val topHolder = listOfNotNull(ts.topHolderPct, safety.topHolderPct.takeIf { it >= 0.0 }).maxOrNull() ?: -1.0
         if (topHolder < 0.0) pendingProofs.add("HOLDER_DATA_UNKNOWN")
-        // V5.0.3896 — Phantom-style holder risk is live-critical, not enrichment.
-        // The wallet warning class shown by the operator — Single holder ownership,
-        // Unverified token, top 10 holders >50% — must never reach real spend. If
-        // holder distribution is unresolved/unknown, live buy must hydrate/defer;
-        // paper can still learn via the normal non-live path outside this gate.
+        // V5.0.3986 — operator screenshot breach: single-holder/high-ownership/
+        // top10/unverified token risk must never spend real SOL. Unknown holder
+        // distribution is a live hydration defer; confirmed concentration is a
+        // hard block. Paper learning can still sample outside this live-only gate.
         if (!ts.holderDataResolved || topHolder < 0.0) {
-            pendingProofs.add("HOLDER_DISTRIBUTION_PENDING_SIZE_CLAMP")
-            try { ForensicLogger.lifecycle("BUY_GATE_DECISION", "mint=${ts.mint.take(10)} symbol=${ts.symbol} decision=PENALTY_ONLY reason=HOLDER_DISTRIBUTION_PENDING source=PreTradeHardGate liveEligible=true") } catch (_: Throwable) {}
+            pendingProofs.add("HOLDER_DISTRIBUTION_PENDING")
         }
-        // V5.0.3892 — pending safety proof is a HYDRATION DEFER, not a terminal
-        // live-buy failure. The old CRITICAL_SAFETY_PROOF_UNKNOWN hard block fired
-        // after FDG/EXEC allowed the candidate, so live sessions showed hundreds of
-        // BUY_FAIL rows while mint/freeze/holder data was merely not loaded yet.
-        // Preserve true hard blocks above (active mint/freeze, confirmed rug, zero
-        // liquidity, fatal holder concentration), but defer this exact unknown-proof
-        // shape and let Executor queue a forced safety refresh before re-admission.
         val criticalProofUnknown = pendingProofs.contains("MINT_AUTHORITY_UNKNOWN") &&
             pendingProofs.contains("FREEZE_AUTHORITY_UNKNOWN") &&
             pendingProofs.contains("HOLDER_DATA_UNKNOWN")
-        if (criticalProofUnknown) pendingProofs.add("CRITICAL_SAFETY_PROOF_UNKNOWN_SIZE_CLAMP")
+        if (criticalProofUnknown) pendingProofs.add("CRITICAL_SAFETY_PROOF_UNKNOWN")
         if (topHolder >= TOP_HOLDER_FATAL_PCT) {
-            pendingProofs.add("TOP_HOLDER_SIZE_CLAMP:topHolderPct=$topHolder")
-            try { ForensicLogger.lifecycle("BUY_GATE_DECISION", "mint=${ts.mint.take(10)} symbol=${ts.symbol} decision=PENALTY_ONLY reason=TOP_HOLDER_CONCENTRATION source=PreTradeHardGate liveEligible=true") } catch (_: Throwable) {}
+            return block(ts, "TOP_HOLDER_CONCENTRATION", "topHolderPct=$topHolder max=$TOP_HOLDER_FATAL_PCT")
         }
 
         val text = buildString {
@@ -165,9 +162,12 @@ object PreTradeHardGate {
         // are still hydrating. LIVE must treat those as pre-broadcast fatal.
         val fatalNeedles = listOf(
             "HONEYPOT", "CANNOT_SELL", "CONFIRMED_RUG", "KNOWN_RUGGER", "BLACKLIST", "BANNED",
+            "SINGLE HOLDER", "SINGLE_HOLDER", "HIGH OWNERSHIP", "HIGH_OWNERSHIP",
+            "TOP 10", "TOP10", "TOP_10", "UNVERIFIED TOKEN", "UNVERIFIED_TOKEN",
+            "TOP 10 HOLDERS", "TOP10 HOLDERS", "TOP10HOLDER", "TOP 10 USERS HOLD"
         )
         val fatal = fatalNeedles.firstOrNull { text.contains(it) }
-        if (fatal != null) return block(ts, "FATAL_SAFETY_TEXT", fatal)
+        if (fatal != null) return block(ts, "FATAL_WALLET_RISK_TEXT", fatal)
 
         return allowWithPendingProof(ts, pendingProofs.distinct(), callSite)
     }

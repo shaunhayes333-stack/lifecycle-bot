@@ -73,11 +73,11 @@ object LiveGrowthDoctrine {
     fun sizePolicy(lane: String, score: Double, walletSol: Double, spendableSol: Double, movement: MovementPatternSignal.Signal? = null): SizePolicy {
         val c = canonicalLane(lane)
         val baseWalletPct = when {
-            score >= 85.0 -> 0.145
-            score >= 70.0 -> 0.120
-            score >= 50.0 -> 0.090
-            score >= 25.0 -> 0.060
-            else -> 0.035
+            score >= 85.0 -> 0.240
+            score >= 70.0 -> 0.190
+            score >= 50.0 -> 0.130
+            score >= 25.0 -> 0.080
+            else -> 0.040
         }
         val laneMult = when (c) {
             "MOONSHOT" -> 1.55
@@ -103,22 +103,23 @@ object LiveGrowthDoctrine {
             else -> 0.0045
         }
         val maxWalletPct = when (c) {
-            "MOONSHOT" -> 0.22
-            "QUALITY", "BLUECHIP" -> 0.18
-            "PROJECT_SNIPER", "WHALE_FOLLOW" -> 0.165
-            "COPY_TRADE", "DIP_HUNTER", "CYCLIC", "TREASURY" -> 0.10
-            else -> 0.075
+            "MOONSHOT" -> 0.35
+            "QUALITY", "BLUECHIP" -> 0.28
+            "PROJECT_SNIPER", "WHALE_FOLLOW" -> 0.26
+            "TREASURY" -> 0.16
+            "COPY_TRADE", "DIP_HUNTER", "CYCLIC" -> 0.14
+            else -> 0.10
         }
         val absoluteCap = when {
-            walletSol < 0.25 -> 0.040
-            walletSol < 1.0 -> 0.120
-            walletSol < 2.0 -> 0.240
-            walletSol < 10.0 -> 0.750
-            else -> 1.500
+            walletSol < 0.25 -> 0.050
+            walletSol < 1.0 -> 0.180
+            walletSol < 2.0 -> 0.360
+            walletSol < 10.0 -> 1.250
+            else -> 3.000
         }
         val minExec = when {
-            spendableSol >= 1.0 -> 0.035
-            spendableSol >= 0.5 -> 0.024
+            spendableSol >= 1.0 -> 0.040
+            spendableSol >= 0.5 -> 0.026
             else -> 0.012
         }
         val moveSize = movement?.sizeMult ?: 1.0
@@ -133,7 +134,7 @@ object LiveGrowthDoctrine {
             maxWalletPct = maxWalletPct,
             absoluteCapSol = absoluteCap,
             minExecutableSol = minExec,
-            reason = "$VERSION 2–5x_live_wallet_growth lane=$c score=${score.toInt()} walletPct=${"%.3f".format(adjustedWalletPct)} laneMult=${"%.2f".format(adjustedLaneMult)} liqPct=${"%.4f".format(adjustedLiqPct)} maxWalletPct=${"%.3f".format(maxWalletPct)} cap=${"%.3f".format(absoluteCap)} movement=${movement?.pattern ?: "none"} moveConf=${movement?.confidence?.toInt() ?: 0} hold×=${"%.2f".format(moveHold)} timing=${movement?.timing ?: "n/a"}",
+            reason = "$VERSION AGGRESSIVE_2X_5X_LIVE_WALLET_GROWTH lane=$c score=${score.toInt()} walletPct=${"%.3f".format(adjustedWalletPct)} laneMult=${"%.2f".format(adjustedLaneMult)} liqPct=${"%.4f".format(adjustedLiqPct)} maxWalletPct=${"%.3f".format(maxWalletPct)} cap=${"%.3f".format(absoluteCap)} movement=${movement?.pattern ?: "none"} moveConf=${movement?.confidence?.toInt() ?: 0} hold×=${"%.2f".format(moveHold)} timing=${movement?.timing ?: "n/a"}",
         )
     }
 

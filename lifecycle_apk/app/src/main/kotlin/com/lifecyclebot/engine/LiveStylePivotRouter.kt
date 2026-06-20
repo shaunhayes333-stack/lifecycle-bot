@@ -97,7 +97,8 @@ object LiveStylePivotRouter {
             val t = BleederMemoryRouter.canon(targetLane)
             val targetAllowed = t in setOf("MOONSHOT", "LIQUIDITY_DEPTH_QUALITY", "PULLBACK_RECLAIM", "PRESALE_SNIPE", "TREASURY", "BLUECHIP", "WALLET_RECOVERED", "QUALITY")
             val hostileBleederNoProof = lane in setOf("EXPRESS", "CYCLIC", "COPYTRADE", "WHALE_FOLLOW") && !qualityProof
-            return liveAdaptive && targetAllowed && !hostileBleederNoProof && basisTrusted && routeTrusted && rugProof && providerProof && liq >= 1_000.0 && score >= 55.0
+            val cleanHighConfidenceBootstrap = score >= 70.0 && targetAllowed && basisTrusted && routeTrusted && rugProof && providerProof && liq >= 1_000.0
+            return (liveAdaptive || cleanHighConfidenceBootstrap) && targetAllowed && !hostileBleederNoProof && basisTrusted && routeTrusted && rugProof && providerProof && liq >= 1_000.0 && score >= 55.0
         }
         fun pivotThinDepthToQuality(reason: String, maxMult: Double = 0.45): Boolean {
             val target = bestQualityLane()
@@ -162,6 +163,7 @@ object LiveStylePivotRouter {
             "MOONSHOT" -> {
                 if (scoreBand == "S41-60") {
                     if (bestQualityLane() == "LIQUIDITY_DEPTH_QUALITY" && highQualityProof) promoteQuality("LIQUIDITY_DEPTH_QUALITY", "LIQUIDITY_DEPTH_QUALITY", 0.75, "MOONSHOT_S41_60_QUALITY_PROMOTION")
+                    else if (score >= 55.0 && highQualityProof && canLiveAdaptiveRelease("MOONSHOT")) promoteQuality("MOONSHOT", "MOONSHOT", 0.65, "MOONSHOT_S55_60_CLEAN_PROOF_MICRO_RELEASE")
                     else defer("MOONSHOT_S41_60_DANGER_DEFER")
                 } else if (score >= 61.0 && routeTrusted && basisTrusted) { mult = maxOf(mult, 1.0); reasons += "MOONSHOT_NATIVE_CONFIRMED" }
             }
