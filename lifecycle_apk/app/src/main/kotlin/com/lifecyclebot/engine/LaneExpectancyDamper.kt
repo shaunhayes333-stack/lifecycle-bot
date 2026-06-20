@@ -27,7 +27,8 @@ package com.lifecyclebot.engine
 object LaneExpectancyDamper {
 
     // Only act on lanes with enough closed trades to be real signal, not noise.
-    private const val MIN_TRADES = 20
+    private const val MIN_TRADES = 8
+    private const val WINNER_MIN_TRADES = 8
 
     // A lane is a "bleeder" once its mean PnL% is this negative (below the -15%
     // hard-floor magnitude is deep red; -12% is a confirmed structural loss).
@@ -36,7 +37,7 @@ object LaneExpectancyDamper {
     // Damper never sizes below this for a NORMAL bleeder (keep a probe alive so
     // the lane can recover and the learning loop keeps getting samples —
     // throughput-before-cleverness).
-    private const val MIN_MULT = 0.50
+    private const val MIN_MULT = 0.18
 
     // V5.9.1298 — CATASTROPHIC tier. A lane that is BOTH deep-negative EV AND
     // near-zero WR with a solid sample size is not "a bit weak", it's a confirmed
@@ -48,8 +49,8 @@ object LaneExpectancyDamper {
     // only shrinks size on statistically-overwhelming evidence.
     private const val CATASTROPHIC_MEAN_PCT = -20.0   // mean PnL% this deep …
     private const val CATASTROPHIC_WR_PCT   = 8.0     // … AND WR below this …
-    private const val CATASTROPHIC_MIN_TRADES = 40    // … AND this many closes.
-    private const val CATASTROPHIC_MIN_MULT = 0.20    // deeper probe floor
+    private const val CATASTROPHIC_MIN_TRADES = 20    // … AND this many closes.
+    private const val CATASTROPHIC_MIN_MULT = 0.08    // deeper probe floor
 
     // Worst-case mean PnL% that maps to MIN_MULT. Between BLEEDER_MEAN_PCT and
     // this, the haircut scales linearly.
@@ -59,8 +60,11 @@ object LaneExpectancyDamper {
     // mean-based check misses). A lane losing money with non-positive per-trade
     // edge starts at PF_START_MULT and scales toward MIN_MULT as the edge
     // (pp/trade) gets more negative, reaching MIN_MULT at -PF_FLOOR_PP.
-    private const val PF_START_MULT = 0.85   // gentle first touch — still a probe
+    private const val PF_START_MULT = 0.65   // capital allocator first touch — still a probe
     private const val PF_FLOOR_PP = 8.0      // edge this negative ⇒ full haircut
+
+    private const val WINNER_START_MULT = 1.12
+    private const val WINNER_MAX_MULT = 1.45
 
     // Cheap cache so we don't recompute the leaderboard on every single entry in
     // a hot scan burst. Refresh window keeps it live without thrashing.
@@ -69,8 +73,9 @@ object LaneExpectancyDamper {
     @Volatile private var cached: Map<String, Double> = emptyMap()
 
     /**
-     * Returns a size multiplier in [MIN_MULT .. 1.0] for the given lane.
-     * 1.0 = no change (lane is fine, unknown, or too few samples).
+     * Returns a capital-allocation multiplier for the given lane.
+     * <1.0 = shrink proven bleeders to probes; >1.0 = press proven winners.
+     * 1.0 = no change (unknown or too few samples).
      * Fail-open: any error → 1.0.
      */
     fun sizeMultiplier(lane: String?): Double {
@@ -113,6 +118,22 @@ object LaneExpectancyDamper {
         val out = HashMap<String, Double>()
         for (m in board) {
             if (m.trades < MIN_TRADES) continue
+
+            // V5.0.3956 — WALLET GROWTH ALLOCATOR.
+            // Before this, live execution bypassed this organ and, even when enabled,
+            // it could only shrink to ~half-size. That is incompatible with the
+            // operator's 2–5x/day wallet-growth target: negative-SOL lanes must become
+            // cheap learning probes, while positive PF/WR lanes get more capital.
+            val winner = m.trades >= WINNER_MIN_TRADES &&
+                m.totalSolPnl > 0.0 && m.winRatePct >= 50.0 && m.pfExpectancyPp > 0.0
+            if (winner) {
+                val edge = (m.pfExpectancyPp / 30.0).coerceIn(0.0, 1.0)
+                val wrEdge = ((m.winRatePct - 50.0) / 35.0).coerceIn(0.0, 1.0)
+                val solEdge = (m.totalSolPnl / 1.0).coerceIn(0.0, 1.0)
+                val boost = (WINNER_START_MULT + (edge * 0.18) + (wrEdge * 0.10) + (solEdge * 0.05)).coerceIn(1.0, WINNER_MAX_MULT)
+                out[m.strategy.trim().uppercase()] = maxOf(out[m.strategy.trim().uppercase()] ?: 1.0, boost)
+                continue
+            }
 
             // V5.9.1489 — TWO-SIGNAL BLEEDER DETECTION (source fix for the
             // skew-masked bleeder). The old check used meanPnlPct alone, but a

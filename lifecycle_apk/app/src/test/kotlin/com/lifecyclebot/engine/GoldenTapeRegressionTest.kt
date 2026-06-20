@@ -3035,6 +3035,18 @@ class GoldenTapeRegressionTest {
 
 
 
+
+    @Test
+    fun live_wallet_growth_allocator_applies_strategy_expectancy_to_real_size() {
+        val exec = java.io.File("src/main/kotlin/com/lifecyclebot/engine/Executor.kt").readText()
+        val damper = java.io.File("src/main/kotlin/com/lifecyclebot/engine/LaneExpectancyDamper.kt").readText()
+        assertFalse("Live must not bypass LaneExpectancyDamper anymore", exec.contains("LIVE_EXPECTANCY_SIZE_BYPASSED"))
+        assertTrue("Live must apply strategy expectancy sizing", exec.contains("LIVE_EXPECTANCY_SIZE_APPLIED") && exec.contains("LIVE_WALLET_GROWTH_ALLOCATOR"))
+        assertTrue("Live floor must allow bleeders to become cheap probes", exec.contains("laneEvMult < 0.50") && exec.contains("-> 0.08"))
+        assertTrue("LaneExpectancyDamper must press proven winners, not only shrink losers", damper.contains("WALLET GROWTH ALLOCATOR") && damper.contains("WINNER_MAX_MULT") && damper.contains("m.totalSolPnl > 0.0") && damper.contains("m.winRatePct >= 50.0"))
+        assertTrue("Bleeder floor must be materially below half-size for wallet growth", damper.contains("private const val MIN_MULT = 0.18") && damper.contains("CATASTROPHIC_MIN_MULT = 0.08"))
+    }
+
     @Test
     fun runtime_3955_finality_orphan_and_balance_wait_faults_are_source_scoped() {
         val gate = java.io.File("src/main/kotlin/com/lifecyclebot/engine/ExecutableOpenGate.kt").readText()

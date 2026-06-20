@@ -7266,18 +7266,22 @@ class Executor(
         // Lane key resolved the same way finalityLane is (layerTag→identity.source),
         // so the haircut targets the same bin StrategyTelemetry reports.
         val laneEvMult = try {
-            val raw = com.lifecyclebot.engine.LaneExpectancyDamper.sizeMultiplier(
-                identity?.source ?: ts.source
-            )
-            // V5.0.3847 — live micro-probe doctrine: trade expectancy is not a
-            // live entry-size authority. It can report/learn and shape paper, but
-            // live entries are deliberately tiny and must be governed by common-
-            // sense token/route safety, wallet/rent, and actual quote execution.
-            // Otherwise a healthy live candidate gets dust-sized before quote.
-            if (RuntimeModeAuthority.isLive()) {
-                if (raw < 1.0) try { ForensicLogger.lifecycle("LIVE_EXPECTANCY_SIZE_BYPASSED", "mint=${ts.mint.take(10)} symbol=${ts.symbol} layer=LaneExpectancyDamper rawMult=$raw applied=1.0") } catch (_: Throwable) {}
-                1.0
-            } else raw
+            val laneForExpectancy = listOf(
+                ts.position.tradingMode,
+                identity?.source ?: "",
+                ts.source,
+            ).firstOrNull { it.isNotBlank() } ?: ts.source
+            val raw = com.lifecyclebot.engine.LaneExpectancyDamper.sizeMultiplier(laneForExpectancy)
+            // V5.0.3956 — LIVE WALLET-GROWTH ALLOCATION.
+            // The old code explicitly bypassed LaneExpectancyDamper in live mode,
+            // making strategy telemetry report-only while real SOL kept flowing into
+            // EXPRESS/CYCLIC/SHITCOIN bleeders. Apply the size-only allocator live:
+            // losers become cheap probes, winners get pressed. No veto, no zero.
+            if (RuntimeModeAuthority.isLive() && raw != 1.0) {
+                try { ForensicLogger.lifecycle("LIVE_EXPECTANCY_SIZE_APPLIED", "mint=${ts.mint.take(10)} symbol=${ts.symbol} lane=$laneForExpectancy mult=$raw") } catch (_: Throwable) {}
+                try { PipelineHealthCollector.labelInc("LIVE_EXPECTANCY_SIZE_APPLIED") } catch (_: Throwable) {}
+            }
+            raw
         } catch (_: Throwable) { 1.0 }
         // V5.9.1329 — GLOBAL REGIME SIZE BRAKE (live snapshot 5.0.3297 fix).
         // RegimeDetector.sizeMultiplier() was COMPUTED and shown in the health snapshot
@@ -7328,7 +7332,11 @@ class Executor(
         // ≥0.5× of base size in NORMAL regime. DUMP regime is allowed to
         // shrink to its 0.10 safety floor — that brake is intentional and
         // protects against regime-shift drawdown bleed.
-        val liveFloorMult = if (dumpRegimeLive) 0.10 else maxOf(0.18, 0.50)
+        val liveFloorMult = when {
+            dumpRegimeLive -> 0.08
+            RuntimeModeAuthority.isLive() && (laneEvMult < 0.50 || laneSizeCap < 0.50) -> 0.08
+            else -> 0.30
+        }
         // V5.0.3925 — BotBrain.getRiskAdjustedSizeMultiplier wired into the
         // multiplier product. Brain learns per (phase, emaFan, source)
         // tuple which contexts have produced sustained drawdowns and
@@ -7338,6 +7346,9 @@ class Executor(
             brain?.getRiskAdjustedSizeMultiplier(ts.phase, ts.meta.emafanAlignment, ts.source) ?: 1.0
         } catch (_: Throwable) { 1.0 }
         val multiplierProduct = sizeMult * labMult * laneEvMult * regimeMult * laneSizeCap * brainSizeMult
+        if (RuntimeModeAuthority.isLive() && (laneEvMult != 1.0 || laneSizeCap < 1.0)) {
+            try { ForensicLogger.lifecycle("LIVE_WALLET_GROWTH_ALLOCATOR", "mint=${ts.mint.take(10)} symbol=${ts.symbol} lane=$laneTag laneEvMult=$laneEvMult laneCap=$laneSizeCap regimeMult=$regimeMult brainMult=$brainSizeMult product=$multiplierProduct floor=$liveFloorMult") } catch (_: Throwable) {}
+        }
         val effSolRaw = (sol * multiplierProduct).coerceIn(sol * liveFloorMult, sol * 1.75)
         if (dumpRegimeLive) {
             try { ForensicLogger.lifecycle("DUMP_REGIME_LIVE_SIZE_SHAPED", "mint=${ts.mint.take(10)} symbol=${ts.symbol} lane=$laneTag regimeMult=$regimeMult laneCap=$laneSizeCap floor=$liveFloorMult raw=${effSolRaw.fmt(4)}") } catch (_: Throwable) {}
