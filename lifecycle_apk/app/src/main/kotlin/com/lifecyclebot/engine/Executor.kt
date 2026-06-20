@@ -33,14 +33,16 @@ data class MintEntryMarketSnapshot(
 ) {
     val valid: Boolean get() = priceUsd.isFinite() && priceUsd > 0.0 &&
         // V5.0.3976 — mcap is learning/report metadata, not executable basis.
-        // Under Birdeye conservation / fresh-pool APIs, price+liquidity+pool can be
-        // fully executable while market cap is absent. Requiring mcap>0 here created
-        // a silent live-buy choke after LIVE_BUY_ATTEMPT. Preserve accounting safety
-        // by keeping price/liquidity/pool/source mandatory and storing mcap=0 as
-        // unknown metadata; downstream UI already renders unknown mcap as n/a.
+        // Under Birdeye conservation / fresh-pool APIs, price+liquidity can be
+        // fully executable while market cap or a concrete pool address is absent.
+        // Requiring mcap>0 created a silent live-buy choke in 3976; requiring a
+        // pool address resurfaced the same choke in 3982 as
+        // ENTRY_MARKET_SNAPSHOT_MISSING_DEFERRED. Accounting basis needs a real
+        // price + liquidity + source; pool/route id is route metadata and may be
+        // filled by a mint-route sentinel until Jupiter/executor proves the swap.
         marketCapUsd.isFinite() && marketCapUsd >= 0.0 &&
         liquidityUsd.isFinite() && liquidityUsd > 0.0 &&
-        poolAddress.isNotBlank() && priceSource.isNotBlank()
+        priceSource.isNotBlank()
 }
 
 /**
@@ -7722,10 +7724,23 @@ class Executor(
             ?: ts.lastFdv.takeIf { it.isFinite() && it > 0.0 }
             ?: 0.0
         val liq = ts.lastLiquidityUsd.takeIf { it.isFinite() && it > 0.0 } ?: return null
-        val pool = ts.lastPricePoolAddr.ifBlank { ts.pairAddress }
         val source = ts.lastPriceSource.ifBlank { ts.source.ifBlank { "UNKNOWN" } }
-        val dex = ts.lastPriceDex.ifBlank { "UNKNOWN" }
-        return MintEntryMarketSnapshot(price, mcap, liq, pool, source, dex).takeIf { it.valid }
+        val rawPool = ts.lastPricePoolAddr.ifBlank { ts.pairAddress }
+        // V5.0.3983 — do not let optional pool metadata kill real live entries.
+        // A mint-level Jupiter route can still execute with price+liquidity+source;
+        // the eventual tx/quote is the hard route proof. Stamp an explicit sentinel
+        // instead of leaving the field blank so journal/persistence can distinguish
+        // "mint route, pool pending" from a lost field.
+        val pool = rawPool.ifBlank { "MINT_ROUTE:${ts.mint.take(12)}" }
+        val dex = ts.lastPriceDex.ifBlank { if (rawPool.isBlank()) "MINT_ROUTE" else "UNKNOWN" }
+        val snap = MintEntryMarketSnapshot(price, mcap, liq, pool, source, dex)
+        if (rawPool.isBlank() && snap.valid) {
+            try {
+                ForensicLogger.lifecycle("MINT_ENTRY_MARKET_SNAPSHOT_POOL_SENTINEL", "mint=${ts.mint.take(10)} symbol=${ts.symbol} price=$price liq=$liq source=$source action=pool_metadata_optional")
+                PipelineHealthCollector.labelInc("MINT_ENTRY_MARKET_SNAPSHOT_POOL_SENTINEL")
+            } catch (_: Throwable) {}
+        }
+        return snap.takeIf { it.valid }
     }
 
     private fun persistMintEntryMarketSnapshot(ts: TokenState, snap: MintEntryMarketSnapshot, reason: String) {
