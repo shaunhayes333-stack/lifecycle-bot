@@ -2258,6 +2258,17 @@ class GoldenTapeRegressionTest {
 
 
 
+
+    @Test
+    fun meme_runtime_authority_activates_all_internal_layers_without_market_fanout() {
+        val auth = java.io.File("src/main/kotlin/com/lifecyclebot/engine/EnabledTraderAuthority.kt").readText()
+        val bot = java.io.File("src/main/kotlin/com/lifecyclebot/engine/BotService.kt").readText()
+        assertTrue("Authority enum must expose every internal meme layer", listOf("SHITCOIN", "MOONSHOT", "EXPRESS", "QUALITY", "TREASURY", "CASHGEN", "BLUECHIP", "MANIPULATED", "DIP_HUNTER", "PROJECT_SNIPER", "CYCLIC").all { auth.contains(it) })
+        assertTrue("Meme-only publish must include full internal specialist set", listOf("Trader.QUALITY", "Trader.TREASURY", "Trader.CASHGEN", "Trader.BLUECHIP", "Trader.PROJECT_SNIPER", "Trader.DIP_HUNTER", "Trader.MANIPULATED").all { bot.contains(it) })
+        assertTrue("Internal specialists must be ignored by isMemeLiveOnly so markets/perps remain isolated", auth.contains("internalMemeLayers") && auth.contains("Trader.PROJECT_SNIPER") && auth.contains("set - Trader.CRYPTO_ALT - internalMemeLayers"))
+        assertTrue("Runtime report should no longer collapse to MEME,CYCLIC only", bot.contains("FULL INTERNAL MEME LAYER ACTIVATION"))
+    }
+
     @Test
     fun live_style_pivot_router_promotes_bleeders_to_quality_not_defensive_probes() {
         val router = java.io.File("src/main/kotlin/com/lifecyclebot/engine/LiveStylePivotRouter.kt").readText()
@@ -2266,11 +2277,12 @@ class GoldenTapeRegressionTest {
         val exec = java.io.File("src/main/kotlin/com/lifecyclebot/engine/Executor.kt").readText()
 
         assertTrue("LiveStylePivotRouter component must exist and return final lane/style/size/proof decision", router.contains("object LiveStylePivotRouter") && router.contains("finalLane") && router.contains("finalStyle") && router.contains("sizeMultiplier") && router.contains("confirmationRequirement"))
-        assertFalse("Live mode must not route to defensive probes", router.contains("DEFENSIVE_PROBE") || router.contains("decision = "PROBE"") || router.contains("BREAK_EVEN_PROBE_ALLOWED_BELOW_COST_MODEL"))
+        assertFalse("Live mode must not route to defensive probes", router.contains("DEFENSIVE_PROBE") || router.contains("decision = \"PROBE\"") || router.contains("BREAK_EVEN_PROBE_ALLOWED_BELOW_COST_MODEL"))
         assertTrue("EXPRESS bleeder must promote to learned quality, not native express/probe", router.contains("EXPRESS_BLEEDER_QUALITY_PROMOTION") && router.contains("EXPRESS_BLEEDER_AWAIT_QUALITY_PROOF"))
+        assertTrue("Treasury/CashGen must be an active quality promotion target", router.contains("TREASURY_CASHGEN_QUALITY_PROMOTED") && breakEven.contains(""CASHGEN" -> setOf("TREASURY")"))
         assertTrue("CYCLIC bleeder must promote to pullback/quality only with proof", router.contains("CYCLIC_PULLBACK_RECLAIM_QUALITY_PROMOTION") && router.contains("CYCLIC_BLEEDER_QUALITY_PROMOTION") && router.contains("CYCLIC_BLEEDER_AWAIT_QUALITY_PROOF"))
         assertTrue("WHALE/COPY cannot direct-trigger full live; only wallet recovered or quality promotion", router.contains("WHALE_COPY_QUALITY_PROMOTION_NO_DIRECT_TRIGGER") && router.contains("WALLET_RECOVERED_PROVEN_PROMOTION") && router.contains("WHALE_COPY_AWAIT_REPEAT_WIN_AND_PROOF"))
-        assertTrue("MOONSHOT S41-60 must not native-live buy", router.contains("MOONSHOT_S41_60_QUALITY_PROMOTION") && router.contains("MOONSHOT_S41_60_DANGER_DEFER") && router.contains("scoreBand == "S41-60""))
+        assertTrue("MOONSHOT S41-60 must not native-live buy", router.contains("MOONSHOT_S41_60_QUALITY_PROMOTION") && router.contains("MOONSHOT_S41_60_DANGER_DEFER") && router.contains("scoreBand == \"S41-60\""))
         assertTrue("SHITCOIN must be fee/slippage/giveback aware and thin-depth deferred", router.contains("SHITCOIN_FEE_GIVEBACK_AWARE_SIZE") && router.contains("SHITCOIN_THIN_ROUTE_DEPTH"))
         assertTrue("LiveBreakEvenGuard must include learned paper/live winner edge", breakEven.contains("paperLiveWinnerEdge") && breakEven.contains("TradeHistoryStore.getRecentValidClosedTrades") && breakEven.contains("LIQUIDITY_DEPTH_QUALITY") && breakEven.contains("PULLBACK_RECLAIM"))
         assertTrue("LiveBreakEvenGuard must calculate all-in required edge", breakEven.contains("buySlippagePct") && breakEven.contains("expectedSellSlippagePct") && breakEven.contains("priorityFeePct") && breakEven.contains("platformFeePct") && breakEven.contains("givebackBufferPct") && breakEven.contains("minProfitBufferPct"))

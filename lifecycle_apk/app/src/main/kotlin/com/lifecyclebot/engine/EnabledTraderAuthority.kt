@@ -34,7 +34,24 @@ import java.util.concurrent.atomic.AtomicReference
  */
 object EnabledTraderAuthority {
 
-    enum class Trader { MEME, CRYPTO_ALT, MARKETS_STOCKS, PERPS, PROJECT_SNIPER, CYCLIC, SHADOW_PAPER }
+    enum class Trader {
+        MEME,
+        SHITCOIN,
+        MOONSHOT,
+        EXPRESS,
+        QUALITY,
+        TREASURY,
+        CASHGEN,
+        BLUECHIP,
+        MANIPULATED,
+        DIP_HUNTER,
+        PROJECT_SNIPER,
+        CYCLIC,
+        CRYPTO_ALT,
+        MARKETS_STOCKS,
+        PERPS,
+        SHADOW_PAPER,
+    }
 
     // V5.9.1446 — STOCKS/FOREX QUARANTINE (operator directive 2026-06-09).
     // 5.0.3448 expectancy: Stocks n=82 WR=0% PnL=-12,381 SOL, Forex n=6 WR=0%.
@@ -103,12 +120,18 @@ object EnabledTraderAuthority {
      */
     fun isMemeLiveOnly(): Boolean {
         val set = enabled.get()
-        // V5.0.3750/3818 — CRYPTO_ALT and CYCLIC are isolated sidecar engines.
-        // They must not make the meme-lane fanout predicate false, otherwise
-        // explicitly enabling a sidecar re-opens ProjectSniper/markets/perps
-        // leakage into meme FDG. CYCLIC is the internal compound ring and ticks
-        // separately through maybeTickCyclicTradeEngine().
-        val laneSet = set - Trader.CRYPTO_ALT - Trader.CYCLIC
+        // V5.0.3969 — internal meme specialists are part of the MEME runtime,
+        // not external markets/perps leakage. Publishing QUALITY/TREASURY/
+        // BLUECHIP/etc makes them visible/activated and opens top-level gates
+        // such as PROJECT_SNIPER, but must NOT make isMemeLiveOnly() false and
+        // reopen market/perp fanout. Strip internal meme layers before testing
+        // whether the external runtime is still MEME-only.
+        val internalMemeLayers = setOf(
+            Trader.SHITCOIN, Trader.MOONSHOT, Trader.EXPRESS, Trader.QUALITY,
+            Trader.TREASURY, Trader.CASHGEN, Trader.BLUECHIP, Trader.MANIPULATED,
+            Trader.DIP_HUNTER, Trader.PROJECT_SNIPER, Trader.CYCLIC,
+        )
+        val laneSet = set - Trader.CRYPTO_ALT - internalMemeLayers
         return laneSet.size == 1 && Trader.MEME in laneSet
     }
 }

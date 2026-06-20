@@ -1751,22 +1751,45 @@ class BotService : Service() {
                 // True meme runtime keeps meme lane isolated, but CRYPTO_ALT is an
                 // isolated sidecar engine when explicitly enabled; it does not fan
                 // out meme FDG/lane evaluation.
-                mutableSetOf(com.lifecyclebot.engine.EnabledTraderAuthority.Trader.MEME).apply {
+                mutableSetOf(
+                    com.lifecyclebot.engine.EnabledTraderAuthority.Trader.MEME,
+                    com.lifecyclebot.engine.EnabledTraderAuthority.Trader.SHITCOIN,
+                    com.lifecyclebot.engine.EnabledTraderAuthority.Trader.MOONSHOT,
+                    com.lifecyclebot.engine.EnabledTraderAuthority.Trader.EXPRESS,
+                    com.lifecyclebot.engine.EnabledTraderAuthority.Trader.QUALITY,
+                    com.lifecyclebot.engine.EnabledTraderAuthority.Trader.TREASURY,
+                    com.lifecyclebot.engine.EnabledTraderAuthority.Trader.CASHGEN,
+                    com.lifecyclebot.engine.EnabledTraderAuthority.Trader.BLUECHIP,
+                    com.lifecyclebot.engine.EnabledTraderAuthority.Trader.MANIPULATED,
+                    com.lifecyclebot.engine.EnabledTraderAuthority.Trader.DIP_HUNTER,
+                    com.lifecyclebot.engine.EnabledTraderAuthority.Trader.PROJECT_SNIPER,
+                ).apply {
                     if (cryptoSidecarOn) add(com.lifecyclebot.engine.EnabledTraderAuthority.Trader.CRYPTO_ALT)
-                    // V5.0.3818 — CYCLIC_INTERNAL_SIDECAR_FIX. CYCLIC is the
-                    // self-contained compound ring over the MEME watchlist, not a
-                    // markets/perps lane. Keeping it out of MEME authority made
-                    // maybeTickCyclicTradeEngine() unreachable, so the trader was
-                    // "always-on" internally but never ticked. Enable it as an
-                    // isolated sidecar; EnabledTraderAuthority.isMemeLiveOnly()
-                    // explicitly ignores CYCLIC so this does not reopen full lane fanout.
+                    // V5.0.3969 — FULL INTERNAL MEME LAYER ACTIVATION.
+                    // Quality, CashGen/Treasury, BlueChip, ProjectSniper, Dip,
+                    // Manipulated, Express, Moonshot, ShitCoin are all internal
+                    // MEME-layer participants. They must remain active and pivot
+                    // when they bleed, not disappear from runtime authority. CYCLIC
+                    // is still config-controlled as a sidecar compound engine.
                     if (cfg.cyclicTradeEnabled) add(com.lifecyclebot.engine.EnabledTraderAuthority.Trader.CYCLIC)
                 }.toSet()
             } else {
                 // Markets-only mode: respect per-lane toggles, but exclude
                 // quarantined market lanes and forced-off Crypto when markets-OFF.
                 val s = mutableSetOf<com.lifecyclebot.engine.EnabledTraderAuthority.Trader>()
-                if (memeOn) s += com.lifecyclebot.engine.EnabledTraderAuthority.Trader.MEME
+                if (memeOn) {
+                    s += com.lifecyclebot.engine.EnabledTraderAuthority.Trader.MEME
+                    s += com.lifecyclebot.engine.EnabledTraderAuthority.Trader.SHITCOIN
+                    s += com.lifecyclebot.engine.EnabledTraderAuthority.Trader.MOONSHOT
+                    s += com.lifecyclebot.engine.EnabledTraderAuthority.Trader.EXPRESS
+                    s += com.lifecyclebot.engine.EnabledTraderAuthority.Trader.QUALITY
+                    s += com.lifecyclebot.engine.EnabledTraderAuthority.Trader.TREASURY
+                    s += com.lifecyclebot.engine.EnabledTraderAuthority.Trader.CASHGEN
+                    s += com.lifecyclebot.engine.EnabledTraderAuthority.Trader.BLUECHIP
+                    s += com.lifecyclebot.engine.EnabledTraderAuthority.Trader.MANIPULATED
+                    s += com.lifecyclebot.engine.EnabledTraderAuthority.Trader.DIP_HUNTER
+                    s += com.lifecyclebot.engine.EnabledTraderAuthority.Trader.PROJECT_SNIPER
+                }
                 if (cryptoSidecarOn) s += com.lifecyclebot.engine.EnabledTraderAuthority.Trader.CRYPTO_ALT
                 if (marketsOn && (cfg.stocksEnabled || cfg.commoditiesEnabled || cfg.metalsEnabled || cfg.forexEnabled)
                     && !com.lifecyclebot.engine.EnabledTraderAuthority.MARKET_LANES_QUARANTINED) {
