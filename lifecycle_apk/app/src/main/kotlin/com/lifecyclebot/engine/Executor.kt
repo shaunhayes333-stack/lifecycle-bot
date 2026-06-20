@@ -10780,6 +10780,22 @@ class Executor(
         // V5.9.1411 — Settle-in and duplicate-suppress guards moved into doSell()
         // so that direct doSell() calls from riskCheck/UltraFastRugDetector are caught too.
 
+        // V5.0.3941 — maintenance requeue guard. RECONCILER_REQUEUE is NOT a
+        // strategy exit; it is only allowed when tracker state says an exit/recovery
+        // lifecycle already exists. A healthy wallet-held live position must be held
+        // for its lane/style exit logic, not sold by reconciliation maintenance.
+        if (isLivePositionEarly && reason.equals("RECONCILER_REQUEUE", ignoreCase = true)) {
+            val trackerStatus = try { HostWalletTokenTracker.getEntry(ts.mint)?.status?.name ?: "UNKNOWN" } catch (_: Throwable) { "UNKNOWN" }
+            val exitLifecycle = trackerStatus in setOf("EXIT_SIGNALLED", "SELL_PENDING", "SELL_VERIFYING", "RECOVERY_SELL_REQUIRED", "SELL_REPRICE_OR_SPLIT_REQUIRED")
+            if (!exitLifecycle) {
+                try {
+                    ForensicLogger.lifecycle("RECONCILER_REQUEUE_SUPPRESSED_HEALTHY_HOLD", "mint=${ts.mint.take(10)} symbol=${ts.symbol} status=$trackerStatus reason=$reason")
+                    PipelineHealthCollector.labelInc("RECONCILER_REQUEUE_SUPPRESSED_HEALTHY_HOLD")
+                } catch (_: Throwable) {}
+                return SellResult.WAITING_BALANCE_PROOF
+            }
+        }
+
         // V5.0.3746 — operator spec items 1, 4, 7: WAITING_BALANCE_PROOF short-circuit.
         // If the mint is already in proof-wait, ExitCoordinator / Universal exit /
         // strict-SL MUST NOT spawn another sell worker. We merge the desired exit

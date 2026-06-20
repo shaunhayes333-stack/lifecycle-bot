@@ -88,21 +88,24 @@ object LiveBuyAdmissionGate {
         onLog: (String, String) -> Unit = { _, _ -> },
         onNotify: (String, String, NotificationHistory.NotifEntry.NotifType) -> Unit = { _, _, _ -> },
     ): Decision {
-        // V5.9.1527 — SELL SOURCE FIX (spec item 10): PAUSE NEW LIVE BUYS while
-        // any live close is pending. Operator forensics showed wallet SOL draining
-        // during a stuck sell loop while the sell qty never moved — buying into a
-        // stuck-exit state compounds the bleed and starves the exit of SOL for
-        // priority fees. Scanners/watchlist keep running (this gate only governs
-        // BUY admission), so we lose no discovery; we simply prioritise finishing
-        // the open close(s) first. Self-clears the instant the lease releases.
-        // V5.9.1533 — SELL-ONLY SAFE MODE (spec item 1) is the FIRST authority. It
-        // hard-blocks new live buys whenever pending sells, orphan live positions,
-        // provider backoff, a worker-timeout storm, host/store open-count mismatch,
-        // closed-with-nondust balance, or a stale live-price exit storm is present.
-        // This supersedes the narrower close-pending pause below.
-        val safeModeReason = try { com.lifecyclebot.engine.sell.SellOnlySafeMode.blockLiveBuyReason() } catch (_: Throwable) { null }
+        // V5.0.3941 — NO GLOBAL SELL-ONLY BUY KILL-SWITCH.
+        // Runtime 3940: BUY ok=20 but fail=77, with 66 fails from
+        // ADMISSION_GATE:SELL_ONLY_SAFE_MODE. That mode is useful telemetry, but as
+        // a global hard buy veto it contradicts live throughput doctrine and prevents
+        // style/hold-time learning from accumulating. Keep same-mint close-lease
+        // protection below; convert SellOnlySafeMode to warning/label only.
+        val safeModeReason = try {
+            val sm = com.lifecyclebot.engine.sell.SellOnlySafeMode
+            if (sm.active) "SELL_ONLY_SAFE_MODE active: ${sm.lastReasons.joinToString(",")}" else null
+        } catch (_: Throwable) { null }
         if (safeModeReason != null) {
-            return Decision.Blocked("SELL_ONLY_SAFE_MODE", safeModeReason)
+            try {
+                ForensicLogger.lifecycle(
+                    "SELL_ONLY_SAFE_MODE_SOFT_ALLOW",
+                    "mint=${ts.mint.take(10)} symbol=${ts.symbol} reason=${safeModeReason.take(160)} action=allow_buy",
+                )
+                com.lifecyclebot.engine.PipelineHealthCollector.labelInc("SELL_ONLY_SAFE_MODE_SOFT_ALLOW")
+            } catch (_: Throwable) {}
         }
 
         // V5.9.1539 — ROOT FIX (operator buy-handoff regression, build 5.0.3554):

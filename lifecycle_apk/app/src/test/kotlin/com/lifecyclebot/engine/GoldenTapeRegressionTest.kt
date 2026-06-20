@@ -2949,6 +2949,20 @@ class GoldenTapeRegressionTest {
         assertTrue("live report must expose advisor soft-shapes", pipe.contains("Advisor soft-shapes") && pipe.contains("LIVE_BUY_ENTERED"))
     }
 
+
+    @Test
+    fun sell_only_safe_mode_is_telemetry_not_global_live_buy_veto() {
+        val gate = java.io.File("src/main/kotlin/com/lifecyclebot/engine/sell/LiveBuyAdmissionGate.kt").readText()
+        val reconciler = java.io.File("src/main/kotlin/com/lifecyclebot/engine/sell/SellReconciler.kt").readText()
+        val exec = java.io.File("src/main/kotlin/com/lifecyclebot/engine/Executor.kt").readText()
+        assertTrue("SellOnlySafeMode must remain visible as soft allow telemetry", gate.contains("SELL_ONLY_SAFE_MODE_SOFT_ALLOW"))
+        assertFalse("SellOnlySafeMode must not hard-block live buy admission", gate.contains("Decision.Blocked(\"SELL_ONLY_SAFE_MODE\""))
+        assertFalse("soft allow must not increment blockedBuyCount", gate.contains("blockLiveBuyReason()"))
+        assertTrue("same-mint close lease protection remains", gate.contains("CLOSE_PENDING_SAME_MINT"))
+        assertTrue("reconciler must monitor healthy holds instead of selling them", reconciler.contains("RECONCILER_HEALTHY_HOLD_MONITORED") && reconciler.contains("action=no_sell_requeue"))
+        assertTrue("maintenance RECONCILER_REQUEUE must be suppressed on healthy holds", exec.contains("RECONCILER_REQUEUE_SUPPRESSED_HEALTHY_HOLD") && exec.contains("HostWalletTokenTracker.getEntry"))
+    }
+
     @Test
     fun live_auth_locks_are_truth_pruned_not_permanent_open_positions() {
         val auth = java.io.File("src/main/kotlin/com/lifecyclebot/engine/TradeAuthorizer.kt").readText()
