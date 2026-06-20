@@ -30,7 +30,7 @@ object LiveBreakEvenGuard {
         val canon = BleederMemoryRouter.canon(lane)
         val scorePrior = ((score - 40.0) * 1.25).coerceIn(0.0, 45.0)
         val leaderboardEdge = try {
-            val m = StrategyTelemetry.computeLeaderboard().firstOrNull { it.strategy.equals(canon, true) }
+            val m = StrategyTelemetry.computeLiveTerminalLeaderboard().firstOrNull { it.strategy.equals(canon, true) }
             // StrategyTelemetry is useful context but may include partial/paper-heavy
             // rows. Cap its authority so it cannot override live terminal bleed.
             if (m != null && m.trades >= 8 && m.totalSolPnl > 0.0 && m.winRatePct >= 45.0)

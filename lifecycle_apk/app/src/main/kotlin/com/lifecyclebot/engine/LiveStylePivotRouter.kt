@@ -107,7 +107,7 @@ object LiveStylePivotRouter {
                 }
             }
             "COPYTRADE", "WHALE_FOLLOW" -> {
-                val repeatWin = try { StrategyTelemetry.computeLeaderboard().any { it.strategy == "WALLET_RECOVERED" && it.trades >= 5 && it.totalSolPnl > 0.0 && it.winRatePct >= 50.0 } } catch (_: Throwable) { false }
+                val repeatWin = try { StrategyTelemetry.computeLiveTerminalLeaderboard().any { it.strategy == "WALLET_RECOVERED" && it.trades >= 5 && it.totalSolPnl > 0.0 && it.winRatePct >= 50.0 } } catch (_: Throwable) { false }
                 if (repeatWin && routeTrusted && holderProof && rugProof && basisTrusted) promoteQuality("WALLET_RECOVERED", "WALLET_RECOVERED", 1.0, "WALLET_RECOVERED_PROVEN_PROMOTION")
                 else if (highQualityProof) promoteQuality("LIQUIDITY_DEPTH_QUALITY", "LIQUIDITY_DEPTH_QUALITY", 0.75, "WHALE_COPY_QUALITY_PROMOTION_NO_DIRECT_TRIGGER")
                 else defer("WHALE_COPY_AWAIT_REPEAT_WIN_AND_PROOF")

@@ -1655,7 +1655,8 @@ class GoldenTapeRegressionTest {
         val tuner = java.io.File("src/main/kotlin/com/lifecyclebot/engine/learning/LaneExitTuner.kt").readText()
         assertTrue(tuner.contains("low-WR/no-runner bleed fix"))
         assertTrue(tuner.contains("wr < 0.20 && avgReal < 0.0 && avgPeak < 15.0 -> sl -= STEP * 2.0"))
-        assertTrue(tuner.contains("val slCap = if (wr < 0.20 && avgReal < 0.0 && avgPeak < 15.0) 1.0 else SL_MAX"))
+        assertTrue(tuner.contains("val stopLeakClamp = slHitRate >= 0.35 && avgLoss <= -20.0"))
+        assertTrue(tuner.contains("val slCap = if ((wr < 0.20 && avgReal < 0.0 && avgPeak < 15.0) || stopLeakClamp) 1.0 else SL_MAX"))
         assertFalse("low-WR no-runner lanes must not widen stops", tuner.contains("slHitRate >= 0.50 && avgPeak < 8.0 -> sl += STEP"))
     }
 
@@ -2261,6 +2262,22 @@ class GoldenTapeRegressionTest {
 
 
 
+
+
+    @Test
+    fun decision_facing_expectancy_uses_live_terminal_not_paper_or_partials() {
+        val telemetry = java.io.File("src/main/kotlin/com/lifecyclebot/engine/StrategyTelemetry.kt").readText()
+        val damper = java.io.File("src/main/kotlin/com/lifecyclebot/engine/LaneExpectancyDamper.kt").readText()
+        val breakEven = java.io.File("src/main/kotlin/com/lifecyclebot/engine/LiveBreakEvenGuard.kt").readText()
+        val router = java.io.File("src/main/kotlin/com/lifecyclebot/engine/LiveStylePivotRouter.kt").readText()
+        val exec = java.io.File("src/main/kotlin/com/lifecyclebot/engine/Executor.kt").readText()
+        assertTrue("StrategyTelemetry must expose an explicit paper/live boundary", telemetry.contains("PAPER/LIVE BOUNDARY CONTRACT") && telemetry.contains("computeLiveTerminalLeaderboard") && telemetry.contains("computePaperTerminalLeaderboard"))
+        assertTrue("live terminal leaderboard must filter mode=live and exclude partials", telemetry.contains("environment = \"live\", includePartials = false") && telemetry.contains("it.mode.equals(env"))
+        assertTrue("LaneExpectancyDamper must use live terminal expectancy only", damper.contains("StrategyTelemetry.computeLiveTerminalLeaderboard()") && !damper.contains("StrategyTelemetry.computeLeaderboard()"))
+        assertTrue("LiveBreakEvenGuard must use live terminal leaderboard for live edge", breakEven.contains("StrategyTelemetry.computeLiveTerminalLeaderboard()"))
+        assertTrue("LiveStylePivotRouter repeat-win authority must use live terminal leaderboard", router.contains("StrategyTelemetry.computeLiveTerminalLeaderboard()"))
+        assertTrue("learned live exit rungs must not shape from mixed paper/live StrategyTelemetry", exec.contains("StrategyTelemetry.computeLiveTerminalLeaderboard().firstOrNull") && !exec.contains("StrategyTelemetry.computeLeaderboard().firstOrNull { it.strategy.equals(key, true) }"))
+    }
 
     @Test
     fun live_sub_lane_closes_do_not_pollute_generic_meme_learning() {

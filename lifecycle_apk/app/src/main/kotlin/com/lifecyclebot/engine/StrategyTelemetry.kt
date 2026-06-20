@@ -52,16 +52,27 @@ object StrategyTelemetry {
     }
 
     /**
-     * Aggregate all close trades (SELL + PARTIAL_SELL; both carry realised pnlPct)
-     * by their `tradingMode` field. BUYs are excluded — they have pnlPct=0.0 by
-     * definition and would skew the EV calculation.
+     * Aggregate close trades by their `tradingMode` field. BUYs are excluded — they
+     * have pnlPct=0.0 by definition and would skew EV.
+     *
+     * V5.0.3974 — PAPER/LIVE BOUNDARY CONTRACT.
+     * Default behavior remains report-compatible (all environments + partials), but
+     * any decision-facing caller must use computeLiveTerminalLeaderboard(). Paper is
+     * hypothesis data only; it must never directly authorize live expectancy, live
+     * size dampening, or live runner/exit shaping.
      */
-    fun computeLeaderboard(): List<StrategyMetric> {
-        val all = try { TradeHistoryStore.getRecentValidClosedTrades(limit = 2_500, includePartials = true) } catch (_: Throwable) { emptyList() }
+    fun computeLeaderboard(
+        environment: String? = null,
+        includePartials: Boolean = true,
+        limit: Int = 2_500,
+    ): List<StrategyMetric> {
+        val all = try { TradeHistoryStore.getRecentValidClosedTrades(limit = limit, includePartials = includePartials) } catch (_: Throwable) { emptyList() }
         if (all.isEmpty()) return emptyList()
+        val env = environment?.trim()?.lowercase()?.takeIf { it.isNotBlank() }
 
         val sellsByStrategy: Map<String, List<Trade>> = all
             .asSequence()
+            .filter { env == null || it.mode.equals(env, ignoreCase = true) }
             .filter { LearningPnlSanitizer.inspectTrade(it, "StrategyTelemetry", emit = false).ok }
             // V5.9.1043 — also collapse legacy bin names at read time so
             // historical trades recorded before V5.9.1038's choke-point
@@ -148,6 +159,14 @@ object StrategyTelemetry {
             )
         }
     }
+
+    /** Decision-facing live authority: LIVE terminal SELL rows only, no partials, no paper. */
+    fun computeLiveTerminalLeaderboard(limit: Int = 2_500): List<StrategyMetric> =
+        computeLeaderboard(environment = "live", includePartials = false, limit = limit)
+
+    /** Paper-only report/audit view. Paper may propose hypotheses, not live authority. */
+    fun computePaperTerminalLeaderboard(limit: Int = 2_500): List<StrategyMetric> =
+        computeLeaderboard(environment = "paper", includePartials = false, limit = limit)
 
     /** Top-N by mean PnL%, restricted to strategies with ≥5 trades (avoids
      *  "+47% EV on 1 trade" noise dominating the leaderboard). */
