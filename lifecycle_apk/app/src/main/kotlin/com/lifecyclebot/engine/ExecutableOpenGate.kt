@@ -270,8 +270,8 @@ object ExecutableOpenGate {
             // WATCH/PROBE/PROBE_ONLY/BUY with no hardNo.
             val verdictAllowedByFdg = state?.fdgCan == true && verdictUpper in setOf("BUY", "PROBE_ONLY", "WATCH", "PROBE")
             val latestAllows = (currentStateVersion || mode.equals("LIVE", true)) && verdictAllowedByFdg
-            val safetyOk = currentStateVersion && (currentSafetyTier.equals("SAFE", true) || currentSafetyTier.equals("CAUTION", true) ||
-                state?.safetyTier.equals("SAFE", true) || state?.safetyTier.equals("CAUTION", true))
+            val safetyOk = currentSafetyTier.equals("SAFE", true) || currentSafetyTier.equals("CAUTION", true) ||
+                state?.safetyTier.equals("SAFE", true) || state?.safetyTier.equals("CAUTION", true)
             // V5.9.1559 — LIVE finality restore must use the CURRENT candidate
             // liquidity, not the stale EntryState liquidity. Operator log showed
             // current liq=$1599 but cached finality liq=0 → preFdg WATCH dropped
@@ -282,7 +282,7 @@ object ExecutableOpenGate {
                 try {
                     ForensicLogger.lifecycle(
                         "LIVE_RESTORE_STALE_WATCH_SOFT_ALLOW",
-                        "mint=${mint.take(10)} symbol=$symbol preFdg=$preFdgVerdict fdgCan=${state?.fdgCan} stateLiq=${(state?.liquidityUsd ?: 0.0).toInt()} currentLiq=${currentLiquidityUsd.toInt()} penalty=WATCH_FINALITY_SOFT_ALLOW"
+                        "mint=${mint.take(10)} symbol=$symbol preFdg=$preFdgVerdict fdgCan=${state?.fdgCan} stateVersion=${state?.candidateVersion} currentVersion=$currentVersion stateLiq=${(state?.liquidityUsd ?: 0.0).toInt()} currentLiq=${currentLiquidityUsd.toInt()} currentSafety=$currentSafetyTier stateSafety=${state?.safetyTier} penalty=WATCH_FINALITY_SOFT_ALLOW"
                     )
                 } catch (_: Throwable) {}
                 return null

@@ -10792,7 +10792,7 @@ class Executor(
     }
 
     private fun liveHoldDelayIfNeeded(ts: TokenState, reason: String): LiveHoldDelay? {
-        if (reason.equals("RECONCILER_REQUEUE", ignoreCase = true)) return null
+        if (reason.startsWith("RECONCILER_REQUEUE", ignoreCase = true)) return null
         if (ts.position.isPaperPosition) return null
         val pos = ts.position
         if (pos.entryTime <= 0L || pos.qtyToken <= 0.0) return null
@@ -10868,7 +10868,7 @@ class Executor(
         // strategy exit; it is only allowed when tracker state says an exit/recovery
         // lifecycle already exists. A healthy wallet-held live position must be held
         // for its lane/style exit logic, not sold by reconciliation maintenance.
-        if (isLivePositionEarly && reason.equals("RECONCILER_REQUEUE", ignoreCase = true)) {
+        if (isLivePositionEarly && reason.startsWith("RECONCILER_REQUEUE", ignoreCase = true)) {
             val trackerStatus = try { HostWalletTokenTracker.getEntry(ts.mint)?.status?.name ?: "UNKNOWN" } catch (_: Throwable) { "UNKNOWN" }
             val exitLifecycle = trackerStatus in setOf("EXIT_SIGNALLED", "SELL_PENDING", "SELL_VERIFYING", "RECOVERY_SELL_REQUIRED", "SELL_REPRICE_OR_SPLIT_REQUIRED")
             if (!exitLifecycle) {
