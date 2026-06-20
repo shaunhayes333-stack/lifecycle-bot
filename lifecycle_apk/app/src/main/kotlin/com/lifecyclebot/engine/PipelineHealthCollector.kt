@@ -1378,7 +1378,7 @@ object PipelineHealthCollector {
         val advisorSoft = s.labelCounts.filterKeys { it.startsWith("LIVE_BUY_ADVISOR_SOFT_") }
         if (advisorSoft.isNotEmpty()) {
             sb.append("  Advisor soft-shapes:  ")
-            sb.append(advisorSoft.entries.sortedByDescending { it.value.get() }.take(6).joinToString(" · ") { it.key.removePrefix("LIVE_BUY_ADVISOR_SOFT_") + "=" + it.value.get() })
+            sb.append(advisorSoft.entries.sortedByDescending { it.value }.take(6).joinToString(" · ") { it.key.removePrefix("LIVE_BUY_ADVISOR_SOFT_") + "=" + it.value })
             sb.append("\n")
         }
         sb.append("  BUY ok/fail:          ${execLiveBuyOk.get()} / ${execLiveBuyFail.get()}\n")
