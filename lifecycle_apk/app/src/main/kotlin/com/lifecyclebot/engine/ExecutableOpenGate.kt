@@ -277,7 +277,13 @@ object ExecutableOpenGate {
             // current liq=$1599 but cached finality liq=0 → preFdg WATCH dropped
             // a lane-approved live candidate.
             val effectiveLiq = maxOf(currentLiquidityUsd, state?.liquidityUsd ?: 0.0)
-            val liqOk = effectiveLiq >= 1200.0
+            // V5.0.3952 — LOW-LIQ WATCH RESTORE ALIGNMENT.
+            // Low but nonzero liquidity is a sizing/quote penalty, not an
+            // executable-open finality block. Runtime 3951 still showed one
+            // FINALITY_BLOCK:WATCH while TokenSafetyChecker correctly emitted
+            // LOW_LIQUIDITY_SIZE_REDUCED. Restore the FDG-approved WATCH and let
+            // LiveRestoreExecutionPolicy/realisticLiveEntrySize clamp size.
+            val liqOk = effectiveLiq > 0.0
             if (mode.equals("LIVE", true) && latestAllows && safetyOk && liqOk && effectiveHardNoReasons.isEmpty()) {
                 try {
                     ForensicLogger.lifecycle(
@@ -301,7 +307,7 @@ object ExecutableOpenGate {
             val latestAllows = false // V5.0.3861: stale candidate restore disabled for LIVE; current FDG must re-approve.
             val safetyOk = false
             val effectiveLiq = maxOf(currentLiquidityUsd, state?.liquidityUsd ?: 0.0)
-            if (mode.equals("LIVE", true) && latestAllows && safetyOk && effectiveLiq >= 1200.0) {
+            if (mode.equals("LIVE", true) && latestAllows && safetyOk && effectiveLiq > 0.0) {
                 try {
                     ForensicLogger.lifecycle(
                         "LIVE_RESTORE_STALE_CANDIDATE_SOFT_ALLOW",
@@ -699,7 +705,7 @@ object ExecutableOpenGate {
         var restorePenalty = LiveRestoreExecutionPolicy.fromRuntimeDrift(liquidityUsd)
         val staleApprovedVerdict = mode.equals("LIVE", true) &&
             preFdgVerdict.uppercase() in setOf("WATCH", "PROBE", "NO_BUY") &&
-            fdgCan == true && hardNoReasons.isEmpty() && liquidityUsd >= 1200.0
+            fdgCan == true && hardNoReasons.isEmpty() && liquidityUsd > 0.0
         if (staleApprovedVerdict) {
             restorePenalty = restorePenalty.combine(LiveRestoreExecutionPolicy.fromStaleWatch(liquidityUsd))
         }
@@ -1002,7 +1008,7 @@ object ExecutableOpenGate {
             return blocked("EXEC_OPEN_BLOCKED_ZERO_LIQUIDITY", "ZERO_LIQUIDITY", shadow = false)
         }
         if (!signal.equals("BUY", true) && !signal.equals("EXECUTE", true)) {
-            if (modeUpper == "LIVE" && fdgCan == true && hardNoReasons.isEmpty() && liquidityUsd >= 1200.0) {
+            if (modeUpper == "LIVE" && fdgCan == true && hardNoReasons.isEmpty() && liquidityUsd > 0.0) {
                 restorePenalty = restorePenalty.combine(LiveRestoreExecutionPolicy.fromStaleWatch(liquidityUsd))
                 try { ForensicLogger.lifecycle("LIVE_RESTORE_SIGNAL_SOFT_ALLOW", "symbol=$symbol mint=${mint.take(10)} signal=$signal fdgCan=true liq=${liquidityUsd.toInt()}") } catch (_: Throwable) {}
             } else {
@@ -1013,7 +1019,7 @@ object ExecutableOpenGate {
             return blocked("EXEC_OPEN_BLOCKED_FDG_FINAL", fdgReason, shadow = mode == "PAPER")
         }
         if (signal.isNotBlank() && !signal.equals("UNKNOWN", true) && !signal.equals("BUY", true) && !signal.equals("EXECUTE", true)) {
-            if (modeUpper == "LIVE" && fdgCan == true && hardNoReasons.isEmpty() && liquidityUsd >= 1200.0) {
+            if (modeUpper == "LIVE" && fdgCan == true && hardNoReasons.isEmpty() && liquidityUsd > 0.0) {
                 restorePenalty = restorePenalty.combine(LiveRestoreExecutionPolicy.fromStaleWatch(liquidityUsd))
                 try { ForensicLogger.lifecycle("LIVE_RESTORE_SIGNAL_SOFT_ALLOW", "symbol=$symbol mint=${mint.take(10)} signal=$signal fdgCan=true liq=${liquidityUsd.toInt()}") } catch (_: Throwable) {}
             } else {
