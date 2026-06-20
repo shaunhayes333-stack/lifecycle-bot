@@ -2264,6 +2264,16 @@ class GoldenTapeRegressionTest {
 
 
 
+
+    @Test
+    fun birdeye_provider_conservation_must_not_be_stale_hardcoded_pause() {
+        val gate = java.io.File("src/main/kotlin/com/lifecyclebot/engine/BirdeyeBudgetGate.kt").readText()
+        assertTrue("Birdeye monthly cap must match current 6M dashboard quota", gate.contains("MONTHLY_CAP = 6_000_000L"))
+        assertTrue("Birdeye emergency conservation must not be permanently hardcoded on", gate.contains("EMERGENCY_CONSERVATION_MODE = false"))
+        assertTrue("real Birdeye protection must remain via counters/throttles/lockdown", gate.contains("DAILY_SCANNER_THROTTLE_PCT") && gate.contains("MONTHLY_LOCKDOWN_PCT") && gate.contains("isLockedDown()"))
+        assertFalse("stale 300% over-quota comment must not keep future builds in false emergency", gate.contains("300% monthly"))
+    }
+
     @Test
     fun decision_facing_expectancy_uses_live_terminal_not_paper_or_partials() {
         val telemetry = java.io.File("src/main/kotlin/com/lifecyclebot/engine/StrategyTelemetry.kt").readText()
