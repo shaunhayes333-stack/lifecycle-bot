@@ -9294,7 +9294,14 @@ class Executor(
         }
         emitLiveEntryDecision()
         if (liveEntryDecision.decision == "DEFER") {
-            emitLiveBuyFail(ts, sol, "LIVE_ENTRY_DEFERRED_BY_STYLE_PIVOT", liveEntryDecision.reasons.joinToString("|"))
+            val pivotReasonBucket = liveEntryDecision.reasons.firstOrNull()
+                ?.substringBefore(":")
+                ?.uppercase()
+                ?.replace(Regex("[^A-Z0-9_]+"), "_")
+                ?.take(56)
+                ?.ifBlank { null } ?: "UNSPECIFIED"
+            try { PipelineHealthCollector.labelInc("LIVE_ENTRY_DEFERRED_BY_STYLE_PIVOT_REASON_$pivotReasonBucket") } catch (_: Throwable) {}
+            emitLiveBuyFail(ts, sol, "LIVE_ENTRY_DEFERRED_BY_STYLE_PIVOT_$pivotReasonBucket", liveEntryDecision.reasons.joinToString("|"))
             return false
         }
         val routedLaneTag = liveEntryDecision.finalLane.ifBlank { originalLaneForPivot }

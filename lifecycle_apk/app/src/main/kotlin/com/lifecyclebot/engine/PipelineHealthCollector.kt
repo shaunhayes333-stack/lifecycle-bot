@@ -1070,16 +1070,19 @@ object PipelineHealthCollector {
             try {
                 val perf = com.lifecyclebot.engine.PerformanceAnalytics.lastSnapshotOrNull()
                 if (perf != null && perf.totalTrades >= 20) {
-                    // True persisted lifetime close count (survives the 1000-row analyze cap).
-                    val lifetime = try { com.lifecyclebot.engine.TradeHistoryStore.getLifetimeStats().totalSells } catch (_: Throwable) { com.lifecyclebot.engine.PerformanceAnalytics.lifetimeClosedCount() }
-                    val mature = lifetime >= 5000
-                    val wrFloor = if (mature) 50.0 else 20.0
-                    val phaseTag = if (mature) "MATURE" else "BOOTSTRAP"
+                    // V5.0.3984 — live trading maturity must be based on LIVE terminal
+                    // closes, not mixed lifetime/paper progress. >=500 live closes exits
+                    // bootstrap-neutral behaviour and becomes LIVE_ADAPTIVE.
+                    val liveMaturity = com.lifecyclebot.engine.LiveMaturityAuthority.snapshot()
+                    val lifetime = liveMaturity.lifetimeCloses
+                    val mature = liveMaturity.mature
+                    val wrFloor = liveMaturity.wrFloorPct
+                    val phaseTag = liveMaturity.phase
                     if (perf.winRate < wrFloor) {
-                        rootCauses.add("WR_BELOW_FLOOR ($phaseTag wr=${"%.1f".format(perf.winRate)}% < floor=${wrFloor.toInt()}% n=${perf.totalTrades} lifetime=$lifetime)")
+                        rootCauses.add("WR_BELOW_FLOOR ($phaseTag wr=${"%.1f".format(perf.winRate)}% < floor=${wrFloor.toInt()}% n=${perf.totalTrades} live=${liveMaturity.liveTerminalCloses} lifetime=$lifetime)")
                     }
-                    // Negative P&L is only a "broken strategy" verdict in the mature
-                    // phase; bootstrap is expected to pay tuition.
+                    // Negative P&L is only a "broken strategy" verdict in the full mature
+                    // phase; LIVE_ADAPTIVE should tune aggressively without panic-resetting.
                     if (mature && perf.totalPnlSol < 0.0) {
                         rootCauses.add("NEGATIVE_PNL_MATURE (pnl=${"%.4f".format(perf.totalPnlSol)} SOL pf=${"%.2f".format(perf.profitFactor)})")
                     }
@@ -1604,14 +1607,13 @@ object PipelineHealthCollector {
                         append(com.lifecyclebot.engine.PerformanceAnalytics.formatSummary(stats))
                         appendLine()
                         try {
-                            val lifetime = try { com.lifecyclebot.engine.TradeHistoryStore.getLifetimeStats().totalSells } catch (_: Throwable) { stats.totalTrades }
-                            val mature = lifetime >= 5000
-                            val phaseTag = if (mature) "MATURE" else "BOOTSTRAP"
-                            val floor = if (mature) "50-89%" else "20-35%"
+                            val liveMaturity = com.lifecyclebot.engine.LiveMaturityAuthority.snapshot()
+                            val phaseTag = liveMaturity.phase
+                            val floor = liveMaturity.doctrineFloorLabel
                             appendLine("===== Separated WR metrics (V5.9.1378) =====")
-                            appendLine("  Phase:        $phaseTag  (lifetime closes=$lifetime; doctrine floor=$floor)")
+                            appendLine("  Phase:        $phaseTag  (live terminal closes=${liveMaturity.liveTerminalCloses}; lifetime closes=${liveMaturity.lifetimeCloses}; doctrine floor=$floor)")
                             appendLine("  Blended WR:   ${"%.1f".format(stats.winRate)}%  (n=${stats.totalTrades} in window)")
-                            val onFloor = if (mature) stats.winRate >= 50.0 else stats.winRate >= 20.0
+                            val onFloor = stats.winRate >= liveMaturity.wrFloorPct
                             appendLine("  Floor status: ${if (onFloor) "✅ within band" else "🔴 BELOW $phaseTag floor"}")
                             val byPhase = stats.winRateByPhase
                             val cntByPhase = stats.tradeCountByPhase

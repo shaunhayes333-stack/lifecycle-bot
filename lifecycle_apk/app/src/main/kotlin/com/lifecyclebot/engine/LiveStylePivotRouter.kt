@@ -50,10 +50,16 @@ object LiveStylePivotRouter {
         var confirm = "QUALITY_ROUTE_LIQ_HOLDER_RUG_BASIS_PROOF"
         var decision = "BUY"
 
-        val routeTrusted = ts.lastPrice > 0.0 && ts.lastLiquidityUsd > 0.0 && (ts.lastPricePoolAddr.isNotBlank() || ts.pairAddress.isNotBlank())
+        val providerProof = ts.lastPriceSource.isNotBlank() || ts.source.isNotBlank()
+        // V5.0.3984 — align style-router proof with MintEntryMarketSnapshot.
+        // 3983 correctly made concrete pool metadata optional for live mint-route
+        // execution; keeping pool as mandatory here converted the same condition
+        // into LIVE_ENTRY_DEFERRED_BY_STYLE_PIVOT/ROUTE_PROOF_MISSING. Route proof
+        // for pre-quote strategy selection is real price + liquidity + provider;
+        // Jupiter/executor remains the hard route authority later.
+        val routeTrusted = ts.lastPrice > 0.0 && ts.lastLiquidityUsd > 0.0 && providerProof
         val holderProof = try { ts.safety.topHolderPct > 0.0 || ts.holderGrowthRate != 0.0 || ts.peakHolderCount > 0 } catch (_: Throwable) { false }
         val rugProof = try { ts.safety.hardBlockReasons.isEmpty() && !ts.safety.isBlocked } catch (_: Throwable) { false }
-        val providerProof = ts.lastPriceSource.isNotBlank() || ts.source.isNotBlank()
         val liq = ts.lastLiquidityUsd
         val scoreBand = scoreBand(score)
         val bleeder = BleederMemoryRouter.statsFor(lane)
@@ -82,7 +88,23 @@ object LiveStylePivotRouter {
             lane == "WALLET_RECOVERED" && basisTrusted && routeTrusted && rugProof -> "WALLET_RECOVERED"
             score >= 61.0 && qualityProof -> "MOONSHOT"
             highQualityProof -> "LIQUIDITY_DEPTH_QUALITY"
+            qualityProof && score >= 55.0 -> "QUALITY"
             else -> ""
+        }
+        val liveMaturity = try { LiveMaturityAuthority.snapshot() } catch (_: Throwable) { null }
+        val liveAdaptive = liveMaturity?.adaptive == true
+        fun canLiveAdaptiveRelease(targetLane: String): Boolean {
+            val t = BleederMemoryRouter.canon(targetLane)
+            val targetAllowed = t in setOf("MOONSHOT", "LIQUIDITY_DEPTH_QUALITY", "PULLBACK_RECLAIM", "PRESALE_SNIPE", "TREASURY", "BLUECHIP", "WALLET_RECOVERED", "QUALITY")
+            val hostileBleederNoProof = lane in setOf("EXPRESS", "CYCLIC", "COPYTRADE", "WHALE_FOLLOW") && !qualityProof
+            return liveAdaptive && targetAllowed && !hostileBleederNoProof && basisTrusted && routeTrusted && rugProof && providerProof && liq >= 1_000.0 && score >= 55.0
+        }
+        fun pivotThinDepthToQuality(reason: String, maxMult: Double = 0.45): Boolean {
+            val target = bestQualityLane()
+            return if (target.isNotBlank() && canLiveAdaptiveRelease(target)) {
+                promoteQuality(target, target, maxMult, reason)
+                true
+            } else false
         }
 
         if (!basisTrusted) defer("BASIS_UNTRUSTED")
@@ -114,7 +136,15 @@ object LiveStylePivotRouter {
             }
             "SHITCOIN" -> {
                 val s = BleederMemoryRouter.statsFor("SHITCOIN")
-                if (liq < 5_000.0 || !routeTrusted) defer("SHITCOIN_THIN_ROUTE_DEPTH")
+                if (liq < 1_000.0 || !routeTrusted) defer("SHITCOIN_THIN_ROUTE_DEPTH")
+                else if (liq < 5_000.0) {
+                    // V5.0.3984 — LIVE_ADAPTIVE tuning. After >=500 live terminal
+                    // closes, 1k-5k fresh launches should no longer be treated as
+                    // bootstrap data starvation or hard-deferred by default. If proof
+                    // is clean, pivot to quality at micro size; true sub-1k/route-missing
+                    // still defers.
+                    if (!pivotThinDepthToQuality("SHITCOIN_THIN_ROUTE_DEPTH_LIVE_ADAPTIVE_MICRO", 0.45)) defer("SHITCOIN_THIN_ROUTE_DEPTH")
+                }
                 // V5.0.3973 — IF IT BLEEDS, IT PIVOTS.
                 // Report 3971: SHITCOIN had positive-looking % expectancy but net SOL
                 // was still negative. The old path merely shrank native SHITCOIN to 0.35×,
@@ -124,9 +154,9 @@ object LiveStylePivotRouter {
                     val target = bestQualityLane()
                     if (target.isNotBlank() && target != "SHITCOIN") promoteQuality(target, target, 0.65, "SHITCOIN_LIVE_BLEED_QUALITY_PROMOTION")
                     else defer("SHITCOIN_LIVE_BLEED_AWAIT_QUALITY_PROOF")
-                } else if (s.n50 < 10) {
-                    mult = minOf(mult, 0.35)
-                    reasons += "SHITCOIN_BOOTSTRAP_FEE_GIVEBACK_AWARE_SIZE"
+                } else if (s.n50 < 10 && decision != "DEFER") {
+                    mult = minOf(mult, if (liveAdaptive) 0.50 else 0.35)
+                    reasons += if (liveAdaptive) "SHITCOIN_LIVE_ADAPTIVE_FEE_GIVEBACK_AWARE_SIZE" else "SHITCOIN_BOOTSTRAP_FEE_GIVEBACK_AWARE_SIZE"
                 }
             }
             "MOONSHOT" -> {
@@ -162,9 +192,22 @@ object LiveStylePivotRouter {
             PipelineHealthCollector.labelInc("LIVE_BREAK_EVEN_CHECK")
         } catch (_: Throwable) {}
         if (!be.pass) {
-            decision = "DEFER"
-            mult = 0.0
-            reasons += "BREAK_EVEN_DEFER_QUALITY_EDGE_NOT_CONFIRMED"
+            val release = canLiveAdaptiveRelease(finalLane) &&
+                be.expectedEdgePct >= (be.requiredEdgePct * 0.55) &&
+                (score >= 61.0 || liq >= 5_000.0 || finalLane in setOf("WALLET_RECOVERED", "BLUECHIP", "PRESALE_SNIPE", "TREASURY", "QUALITY"))
+            if (release) {
+                // LIVE_ADAPTIVE throughput release: after >=500 live terminal closes,
+                // do not keep applying bootstrap-neutral starvation. Clean proof +
+                // quality target + bounded edge gap becomes a micro live entry so the
+                // live policy keeps adapting from real closes.
+                decision = "BUY"
+                mult = minOf(if (mult <= 0.0) 0.35 else mult, 0.45).coerceAtLeast(0.35)
+                reasons += "BREAK_EVEN_LIVE_ADAPTIVE_THROUGHPUT_RELEASE"
+            } else {
+                decision = "DEFER"
+                mult = 0.0
+                reasons += "BREAK_EVEN_DEFER_QUALITY_EDGE_NOT_CONFIRMED"
+            }
         }
         return finish(lane, style, finalLane, finalStyle, mult, confirm, be, basisTrusted, routeTrusted, holderProof, rugProof, liq, providerProof, reasons.ifEmpty { listOf("NATIVE_QUALITY_ALLOWED") }, decision)
     }
