@@ -137,14 +137,19 @@ object InvariantGuardian {
             val execLiveSellOk = pipe?.labelCounts?.get("LIFECYCLE/EXEC_LIVE_SELL_FINALIZED") ?: 0L
             val dupSuppressed = try { com.lifecyclebot.engine.sell.CloseLease.duplicateCloseAttemptsSuppressed } catch (_: Throwable) { 0L }
             val waitStateSize = try { com.lifecyclebot.engine.sell.BalanceProofWaitState.size().toLong() } catch (_: Throwable) { 0L }
+            // V5.0.3955 — balance-proof waits are not corrupt sell finality.
+            // A mint in BalanceProofWaitState has no active sell route by design; it is
+            // waiting for owner-balance proof. Do not count those waits as actionable
+            // no-signature failures unless noSig exceeds the number of active waits.
+            val actionableNoSig = (noSig - waitStateSize).coerceAtLeast(0L)
             // Subfault A — proof-waits leaking into the active retry queue.
             val balanceUnknownRequeueLoop =
                 waitingProof > 0L && retryTempOnly > 0L && closeBlocking > 0L &&
-                execLiveSellOk == 0L && noSig > 0L
+                execLiveSellOk == 0L && actionableNoSig > 0L
             // Subfault B — leases held after a no-signature route failure.
             val closeLeaseLeakAfterNoSignature =
-                noSig > 0L && closeBlocking > 0L
-            if (noSig > 0L || slip > 0L || falseClosed > 0L || (closeBlocking > 0L && noSig > 0L) ||
+                actionableNoSig > 0L && closeBlocking > 0L
+            if (actionableNoSig > 0L || slip > 0L || falseClosed > 0L || (closeBlocking > 0L && actionableNoSig > 0L) ||
                 balanceUnknownRequeueLoop || closeLeaseLeakAfterNoSignature) {
                 val subfaults = buildList {
                     if (balanceUnknownRequeueLoop) add("BALANCE_UNKNOWN_REQUEUE_LOOP")
@@ -153,7 +158,7 @@ object InvariantGuardian {
                 out += Fault(
                     FaultCode.LIVE_SELL_NO_FINALITY,
                     "CRITICAL",
-                    "live sell finality missing/corrupt: noSig=$noSig cumulativeNoSig=$cumulativeNoSig slippageOr1788=$slip " +
+                    "live sell finality missing/corrupt: noSig=$actionableNoSig rawNoSig=$noSig cumulativeNoSig=$cumulativeNoSig slippageOr1788=$slip " +
                         "close_lease_active=$closeActive close_lease_blocking=$closeBlocking " +
                         "falseTxParseClosed=$falseClosed waitingBalanceProof=$waitingProof " +
                         "retryTempOnly=$retryTempOnly execLiveSellOk=$execLiveSellOk " +

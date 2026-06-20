@@ -72,6 +72,11 @@ object BalanceProofWaitState {
      */
     fun markWaiting(mint: String, symbol: String, reason: String, runtimeGeneration: Long = 0L): Boolean {
         if (mint.isBlank()) return false
+        // V5.0.3955 — proof-wait owns this mint and must not coexist with an
+        // active/blocking close lease. Runtime 3954 showed BALANCE_PROOF_STILL_UNKNOWN
+        // attempt=10 while Doctor reported close_lease_blocking=1. Release any
+        // residual lease before/while entering wait state.
+        try { CloseLease.release(mint, "BALANCE_PROOF_WAIT_NO_ACTIVE_CLOSE") } catch (_: Throwable) {}
         val now = System.currentTimeMillis()
         val newPriority = priorityFor(reason)
         val existing = waits[mint]
