@@ -2753,15 +2753,22 @@ class Executor(
                         val holdTimeMs = if (_fanoutEntryTime > 0) System.currentTimeMillis() - _fanoutEntryTime else 0L
                         val _fluidTm = _fanoutTradingMode
                         val isMemeBaseClose = _fluidTm.isBlank() || _fluidTm !in setOf(
-                            "SHITCOIN", "SHITCOIN_EXPRESS", "SHITCOINEXPRESS",
-                            "QUALITY", "BLUECHIP", "BLUE_CHIP", "MOONSHOT", "TREASURY"
+                            "SHITCOIN", "SHITCOIN_EXPRESS", "SHITCOINEXPRESS", "EXPRESS", "CYCLIC",
+                            "QUALITY", "BLUECHIP", "BLUE_CHIP", "MOONSHOT", "TREASURY", "CASHGEN",
+                            "PRESALE_SNIPE", "PROJECT_SNIPER", "MANIPULATED", "DIP_HUNTER",
+                            "WHALE_FOLLOW", "COPYTRADE", "WALLET_RECOVERED"
                         )
                         val _behAsset = when (_fluidTm) {
                             "SHITCOIN", "SHITCOIN_EXPRESS", "SHITCOINEXPRESS" -> "SHITCOIN"
+                            "EXPRESS"                                         -> "EXPRESS"
+                            "CYCLIC"                                          -> "CYCLIC"
                             "QUALITY"                                         -> "QUALITY"
                             "BLUECHIP", "BLUE_CHIP"                           -> "BLUECHIP"
                             "MOONSHOT"                                        -> "MOONSHOT"
-                            "TREASURY"                                        -> "TREASURY"
+                            "TREASURY", "CASHGEN"                             -> "TREASURY"
+                            "PRESALE_SNIPE", "PROJECT_SNIPER"                 -> "PRESALE_SNIPE"
+                            "MANIPULATED"                                     -> "MANIPULATED"
+                            "DIP_HUNTER"                                      -> "DIP_HUNTER"
                             else                                              -> "MEME"
                         }
                         // ── MetaCognitionAI ───────────────────────────────────
@@ -7718,7 +7725,7 @@ class Executor(
         if (snap != null) { persistMintEntryMarketSnapshot(ts, snap, reason); return snap }
         try {
             ForensicLogger.lifecycle("ENTRY_MARKET_SNAPSHOT_MISSING_DEFERRED", "mint=${ts.mint.take(10)} symbol=${ts.symbol} reason=$reason price=${ts.lastPrice} mcap=${ts.lastMcap} liq=${ts.lastLiquidityUsd} pool=${ts.lastPricePoolAddr.ifBlank { ts.pairAddress }.take(16)} source=${ts.lastPriceSource.ifBlank { ts.source }} action=no_entry_no_fake_basis")
-            ForensicLogger.lifecycle("LIVE_ENTRY_DECISION", "mint=${ts.mint.take(10)} symbol=${ts.symbol} originalLane=UNKNOWN originalStyle=UNKNOWN finalLane=DEFENSIVE_PROBE finalStyle=BASIS_PROOF_WAIT score=0 scoreBand=UNKNOWN sizeSol=0 sizeMultiplier=0 expectedEdgePct=0 requiredEdgePct=999 basisTrusted=false routeTrusted=false holderProof=false rugProof=false liquidityUsd=${ts.lastLiquidityUsd.toInt()} providerProof=${ts.lastPriceSource.isNotBlank()} pivotApplied=true pivotReasons=BASIS_MISSING decision=DEFER")
+            ForensicLogger.lifecycle("LIVE_ENTRY_DECISION", "mint=${ts.mint.take(10)} symbol=${ts.symbol} originalLane=UNKNOWN originalStyle=UNKNOWN finalLane=QUALITY_PROOF_DEFER finalStyle=BASIS_PROOF_WAIT score=0 scoreBand=UNKNOWN sizeSol=0 sizeMultiplier=0 expectedEdgePct=0 requiredEdgePct=999 basisTrusted=false routeTrusted=false holderProof=false rugProof=false liquidityUsd=${ts.lastLiquidityUsd.toInt()} providerProof=${ts.lastPriceSource.isNotBlank()} pivotApplied=true pivotReasons=BASIS_MISSING decision=DEFER")
             PipelineHealthCollector.labelInc("ENTRY_MARKET_SNAPSHOT_MISSING_DEFERRED")
             PipelineHealthCollector.labelInc("LIVE_ENTRY_DECISION")
         } catch (_: Throwable) {}
@@ -9196,7 +9203,7 @@ class Executor(
                     "mint=${ts.mint.take(10)} symbol=${ts.symbol} layer=$layerTag reason=${advisor.second}")
             } catch (_: Throwable) {}
             try {
-                ForensicLogger.lifecycle("LIVE_ENTRY_DECISION", "mint=${ts.mint.take(10)} symbol=${ts.symbol} originalLane=${layerTag.ifBlank { "UNKNOWN" }} originalStyle=${layerTag.ifBlank { "UNKNOWN" }} finalLane=DEFENSIVE_PROBE finalStyle=ADVISOR_BLOCK score=${score.fmt(1)} scoreBand=${LiveStylePivotRouter.scoreBand(score)} sizeSol=${sol.fmt(4)} sizeMultiplier=0.00 expectedEdgePct=0 requiredEdgePct=999 basisTrusted=false routeTrusted=false holderProof=false rugProof=false liquidityUsd=${ts.lastLiquidityUsd.toInt()} providerProof=${ts.lastPriceSource.isNotBlank()} pivotApplied=true pivotReasons=ADVISOR_BLOCK:${advisor.second.take(48)} decision=DEFER")
+                ForensicLogger.lifecycle("LIVE_ENTRY_DECISION", "mint=${ts.mint.take(10)} symbol=${ts.symbol} originalLane=${layerTag.ifBlank { "UNKNOWN" }} originalStyle=${layerTag.ifBlank { "UNKNOWN" }} finalLane=QUALITY_PROOF_DEFER finalStyle=ADVISOR_BLOCK score=${score.fmt(1)} scoreBand=${LiveStylePivotRouter.scoreBand(score)} sizeSol=${sol.fmt(4)} sizeMultiplier=0.00 expectedEdgePct=0 requiredEdgePct=999 basisTrusted=false routeTrusted=false holderProof=false rugProof=false liquidityUsd=${ts.lastLiquidityUsd.toInt()} providerProof=${ts.lastPriceSource.isNotBlank()} pivotApplied=true pivotReasons=ADVISOR_BLOCK:${advisor.second.take(48)} decision=DEFER")
                 PipelineHealthCollector.labelInc("LIVE_ENTRY_DECISION")
             } catch (_: Throwable) {}
             try { PipelineHealthCollector.labelInc("LIVE_BUY_ADVISOR_BLOCK") } catch (_: Throwable) {}
@@ -13098,9 +13105,10 @@ class Executor(
         // pollute them. Computed once up-front, gated below.
         val _psTm = (ts.position.tradingMode ?: "").uppercase()
         val _psIsMemeBase = _psTm.isBlank() || _psTm !in setOf(
-            "SHITCOIN", "SHITCOIN_EXPRESS", "SHITCOINEXPRESS",
+            "SHITCOIN", "SHITCOIN_EXPRESS", "SHITCOINEXPRESS", "EXPRESS", "CYCLIC",
             "QUALITY", "BLUECHIP", "BLUE_CHIP",
-            "MOONSHOT", "TREASURY"
+            "MOONSHOT", "TREASURY", "CASHGEN", "PRESALE_SNIPE", "PROJECT_SNIPER",
+            "MANIPULATED", "DIP_HUNTER", "WHALE_FOLLOW", "COPYTRADE", "WALLET_RECOVERED"
         )
         if (_psIsMemeBase) {
         EntryIntelligence.learnFromOutcome(tradeId.mint, pnlP, holdMinutes.toInt())
@@ -15532,9 +15540,10 @@ class Executor(
         // V5.9.83: guard against unset entryTime
         val liveEntryTimeSafe = if (ts.position.entryTime > 1_000_000_000_000L) ts.position.entryTime else System.currentTimeMillis()
         val holdMinutesLive = ((System.currentTimeMillis() - liveEntryTimeSafe) / 60000).toInt()
-        EntryIntelligence.learnFromOutcome(tradeId.mint, pnlP, holdMinutesLive)
-        ExitIntelligence.learnFromExit(tradeId.mint, reason, pnlP, holdMinutesLive)
-        ExitIntelligence.resetPosition(tradeId.mint)
+        // V5.0.3973 — moved generic Entry/Exit learning behind _lsIsMemeBase.
+        // Source bug: live sub-lane closes (EXPRESS/CYCLIC/PRESALE/etc) were
+        // polluting generic EntryIntelligence/ExitIntelligence before the gate
+        // below even though the rest of this block was guarded.
 
         // V5.9.390 — meme-only learning gate for the LIVE sell path. Sub-trader
         // live closes must not pollute BehaviorLearning / Whale / Regime /
@@ -15542,10 +15551,17 @@ class Executor(
         // TokenWinMemory. Computed once; each downstream try-block checks it.
         val _lsTm = (ts.position.tradingMode ?: "").uppercase()
         val _lsIsMemeBase = _lsTm.isBlank() || _lsTm !in setOf(
-            "SHITCOIN", "SHITCOIN_EXPRESS", "SHITCOINEXPRESS",
+            "SHITCOIN", "SHITCOIN_EXPRESS", "SHITCOINEXPRESS", "EXPRESS", "CYCLIC",
             "QUALITY", "BLUECHIP", "BLUE_CHIP",
-            "MOONSHOT", "TREASURY"
+            "MOONSHOT", "TREASURY", "CASHGEN", "PRESALE_SNIPE", "PROJECT_SNIPER",
+            "MANIPULATED", "DIP_HUNTER", "WHALE_FOLLOW", "COPYTRADE", "WALLET_RECOVERED"
         )
+
+        if (_lsIsMemeBase) {
+            EntryIntelligence.learnFromOutcome(tradeId.mint, pnlP, holdMinutesLive)
+            ExitIntelligence.learnFromExit(tradeId.mint, reason, pnlP, holdMinutesLive)
+            ExitIntelligence.resetPosition(tradeId.mint)
+        }
 
         // V5.9.320 FIX: EdgeLearning was NEVER called in live path (paper-only).
         // Now mirrors the paper doSell path so EdgeLearning's threshold

@@ -2260,6 +2260,27 @@ class GoldenTapeRegressionTest {
 
 
 
+
+
+    @Test
+    fun live_sub_lane_closes_do_not_pollute_generic_meme_learning() {
+        val exec = java.io.File("src/main/kotlin/com/lifecyclebot/engine/Executor.kt").readText()
+        listOf("EXPRESS", "CYCLIC", "PRESALE_SNIPE", "PROJECT_SNIPER", "MANIPULATED", "DIP_HUNTER", "WHALE_FOLLOW", "COPYTRADE", "WALLET_RECOVERED", "CASHGEN").forEach {
+            assertTrue("internal live lane $it must be excluded from generic meme-base learning", exec.contains("\"$it\""))
+        }
+        assertTrue("live Entry/Exit intelligence must be behind _lsIsMemeBase gate", exec.contains("moved generic Entry/Exit learning behind _lsIsMemeBase") && exec.indexOf("val _lsIsMemeBase") < exec.indexOf("EntryIntelligence.learnFromOutcome(tradeId.mint, pnlP, holdMinutesLive)"))
+        assertTrue("EXPRESS/CYCLIC should have explicit attribution aliases, not collapse silently", exec.contains("\"EXPRESS\"                                         -> \"EXPRESS\"") && exec.contains("\"CYCLIC\"                                          -> \"CYCLIC\""))
+    }
+
+    @Test
+    fun lane_exit_tuner_keeps_bleeder_exit_buckets_separate_and_clamps_stop_leakage() {
+        val tuner = java.io.File("src/main/kotlin/com/lifecyclebot/engine/learning/LaneExitTuner.kt").readText()
+        assertTrue("EXPRESS must not be folded into SHITCOIN exit learning", tuner.contains("u.contains(\"EXPRESS\")") && !tuner.contains("u.contains(\"SHITCOIN\") || u.contains(\"EXPRESS\")"))
+        assertTrue("CYCLIC must not fall through to STANDARD exit learning", tuner.contains("u.contains(\"CYCLIC\")"))
+        assertTrue("PRESALE/SNIPER should share their own profitable bucket", tuner.contains("PRESALE_SNIPE"))
+        assertTrue("deep stop-loss leakage must clamp stop widening", tuner.contains("STOP-LOSS LEAK CLAMP") && tuner.contains("stopLeakClamp") && tuner.contains("avgLoss <= -20.0") && tuner.contains("slCap"))
+    }
+
     @Test
     fun confirmed_live_buy_creates_host_tracker_liability_at_tx_confirm_source() {
         val exec = java.io.File("src/main/kotlin/com/lifecyclebot/engine/Executor.kt").readText()
@@ -2301,8 +2322,9 @@ class GoldenTapeRegressionTest {
         assertTrue("CYCLIC bleeder must promote to pullback/quality only with proof", router.contains("CYCLIC_PULLBACK_RECLAIM_QUALITY_PROMOTION") && router.contains("CYCLIC_BLEEDER_QUALITY_PROMOTION") && router.contains("CYCLIC_BLEEDER_AWAIT_QUALITY_PROOF"))
         assertTrue("WHALE/COPY cannot direct-trigger full live; only wallet recovered or quality promotion", router.contains("WHALE_COPY_QUALITY_PROMOTION_NO_DIRECT_TRIGGER") && router.contains("WALLET_RECOVERED_PROVEN_PROMOTION") && router.contains("WHALE_COPY_AWAIT_REPEAT_WIN_AND_PROOF"))
         assertTrue("MOONSHOT S41-60 must not native-live buy", router.contains("MOONSHOT_S41_60_QUALITY_PROMOTION") && router.contains("MOONSHOT_S41_60_DANGER_DEFER") && router.contains("scoreBand == \"S41-60\""))
-        assertTrue("SHITCOIN must be fee/slippage/giveback aware and thin-depth deferred", router.contains("SHITCOIN_FEE_GIVEBACK_AWARE_SIZE") && router.contains("SHITCOIN_THIN_ROUTE_DEPTH"))
-        assertTrue("LiveBreakEvenGuard must include learned paper/live winner edge", breakEven.contains("paperLiveWinnerEdge") && breakEven.contains("TradeHistoryStore.getRecentValidClosedTrades") && breakEven.contains("LIQUIDITY_DEPTH_QUALITY") && breakEven.contains("PULLBACK_RECLAIM"))
+        assertTrue("SHITCOIN must pivot/defer when live net SOL is bleeding, not merely downsize native SHITCOIN", router.contains("SHITCOIN_LIVE_BLEED_QUALITY_PROMOTION") && router.contains("SHITCOIN_LIVE_BLEED_AWAIT_QUALITY_PROOF") && router.contains("SHITCOIN_THIN_ROUTE_DEPTH"))
+        assertTrue("Low-score QUALITY and thin PRESALE/TREASURY live entries must defer at source", router.contains("QUALITY_LOW_SCORE_LIVE_DEFER") && router.contains("PRESALE_AWAIT_MIN_DEPTH_AND_PROOF") && router.contains("TREASURY_CASHGEN_AWAIT_DEPTH_SCORE_PROOF"))
+        assertTrue("LiveBreakEvenGuard must use live-first terminal edge with capped paper advisory", breakEven.contains("liveTerminalEdge") && breakEven.contains("paperAdvisoryEdge") && breakEven.contains("TradeHistoryStore.getRecentValidClosedTrades") && breakEven.contains("LIQUIDITY_DEPTH_QUALITY") && breakEven.contains("PULLBACK_RECLAIM"))
         assertTrue("LiveBreakEvenGuard must calculate all-in required edge", breakEven.contains("buySlippagePct") && breakEven.contains("expectedSellSlippagePct") && breakEven.contains("priorityFeePct") && breakEven.contains("platformFeePct") && breakEven.contains("givebackBufferPct") && breakEven.contains("minProfitBufferPct"))
         assertTrue("Router must emit required live break-even decision log", router.contains("LIVE_BREAK_EVEN_CHECK") && router.contains("expectedEdge") && router.contains("requiredEdge") && router.contains("pivotReason"))
         assertTrue("Below-cost routes must defer for real quality edge instead of probe", router.contains("BREAK_EVEN_DEFER_QUALITY_EDGE_NOT_CONFIRMED"))
