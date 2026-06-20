@@ -508,18 +508,40 @@ object SellReconciler {
         val locked = SellJobRegistry.isLockedAndFresh(pos.mint)
         if (locked) return  // genuinely in-flight, leave it alone
 
-        // Case 3: wallet has balance, NO fresh lock. Re-queue so the bot
-        // loop's exit path picks the position up again on its next tick.
+        // Case 3: wallet has balance, NO fresh lock. This is usually a HEALTHY
+        // held live position and must NOT be sold merely because the reconciler saw
+        // it. Runtime 5.0.3940 showed live buys landing, then immediate
+        // RECONCILER_REQUEUE sells; root cause was this unconditional sellTrigger.
+        // Requeue only rows that are already in a sell/recovery lifecycle. Plain
+        // OPEN_TRACKING / OPEN_LIVE_CONFIRMED / HELD_IN_WALLET are monitored only
+        // so strategy style, hold-time, TP/SL, and expectancy logic remain the exit
+        // authority.
+        val statusName = pos.status.name
+        val needsExitRequeue = statusName in setOf(
+            "EXIT_SIGNALLED",
+            "SELL_PENDING",
+            "SELL_VERIFYING",
+            "RECOVERY_SELL_REQUIRED",
+            "SELL_REPRICE_OR_SPLIT_REQUIRED",
+        ) || !pos.activeSellAttemptId.isNullOrBlank()
+        if (!needsExitRequeue) {
+            try {
+                ForensicLogger.lifecycle(
+                    "RECONCILER_HEALTHY_HOLD_MONITORED",
+                    "mint=${pos.mint.take(10)} symbol=${pos.symbol} balance=$balance trackerStatus=$statusName action=no_sell_requeue",
+                )
+                com.lifecyclebot.engine.PipelineHealthCollector.labelInc("RECONCILER_HEALTHY_HOLD_MONITORED")
+            } catch (_: Throwable) {}
+            return
+        }
+
         try {
             ForensicLogger.lifecycle(
                 "RECONCILER_EXIT_REQUEUED",
-                "mint=${pos.mint.take(10)} symbol=${pos.symbol} balance=$balance",
+                "mint=${pos.mint.take(10)} symbol=${pos.symbol} balance=$balance trackerStatus=$statusName activeAttempt=${pos.activeSellAttemptId != null}",
             )
         } catch (_: Throwable) {}
-        // V5.9.779 — also invoke the sellTrigger callback so the bot
-        // loop doesn't need to find the mint in status.tokens. BotService
-        // wires this to executor.requestSell with a TokenState rehydrated
-        // from HostWalletTokenTracker if needed.
+        // V5.9.779 — invoke the sellTrigger only for rows already in exit/recovery.
         try {
             sellTrigger?.invoke(pos.mint, pos.symbol ?: "?", balance)
         } catch (e: Throwable) {
