@@ -9965,6 +9965,15 @@ class Executor(
                 try {
                     TokenLifecycleTracker.onBuyPending(ts.mint, ts.symbol, pumpVenue, effectiveSol)
                     TokenLifecycleTracker.onBuyConfirmed(ts.mint, sig)
+                    // V5.0.3972 — source fix for LIVE_BUY_CONFIRMED_NOT_VISIBLE.
+                    // A confirmed buy is live wallet liability immediately. Do not
+                    // wait for later price/journal/verifier branches to create the
+                    // host-tracker row; any exception between TX_CONFIRMED and the
+                    // old later recordBuyPending left canonicalOpen=1 while
+                    // hostTrackerOpen/liveOpen=0.
+                    HostWalletTokenTracker.recordBuyPending(ts.mint, ts.symbol, sig)
+                    try { PipelineHealthCollector.labelInc("HOST_BUY_PENDING_AT_TX_CONFIRMED") } catch (_: Throwable) {}
+                    try { ForensicLogger.lifecycle("HOST_BUY_PENDING_AT_TX_CONFIRMED", "mint=${ts.mint.take(10)} symbol=${ts.symbol} route=PUMPPORTAL sig=${sig.take(16)}") } catch (_: Throwable) {}
                 } catch (_: Throwable) {}
                 priceImpactPct = 0.0  // PumpPortal does not surface impact
                 routerLabel = "PUMP_DIRECT [$pumpVenue]"
@@ -9994,8 +10003,14 @@ class Executor(
                 // once the tx signature is on-chain. The wallet reconciler
                 // then verifies token arrival → onTokenLanded → HELD.
                 try {
-                    TokenLifecycleTracker.onBuyPending(ts.mint, ts.symbol, "pump.fun", sol)
+                    TokenLifecycleTracker.onBuyPending(ts.mint, ts.symbol, "jupiter", sol)
                     TokenLifecycleTracker.onBuyConfirmed(ts.mint, sig)
+                    // V5.0.3972 — source fix for LIVE_BUY_CONFIRMED_NOT_VISIBLE.
+                    // Jupiter confirmed buys must create host-tracker fresh-buy
+                    // liability at the same source point as lifecycle confirmation.
+                    HostWalletTokenTracker.recordBuyPending(ts.mint, ts.symbol, sig)
+                    try { PipelineHealthCollector.labelInc("HOST_BUY_PENDING_AT_TX_CONFIRMED") } catch (_: Throwable) {}
+                    try { ForensicLogger.lifecycle("HOST_BUY_PENDING_AT_TX_CONFIRMED", "mint=${ts.mint.take(10)} symbol=${ts.symbol} route=${q.router} sig=${sig.take(16)}") } catch (_: Throwable) {}
                 } catch (_: Throwable) {}
                 priceImpactPct = q.priceImpactPct
                 routerLabel = q.router
