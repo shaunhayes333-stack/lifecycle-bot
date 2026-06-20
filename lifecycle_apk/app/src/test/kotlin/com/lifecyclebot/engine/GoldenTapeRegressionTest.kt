@@ -2993,6 +2993,26 @@ class GoldenTapeRegressionTest {
     }
 
 
+
+    @Test
+    fun live_growth_doctrine_is_core_source_for_all_lanes_tools_and_sizing() {
+        val doctrine = java.io.File("src/main/kotlin/com/lifecyclebot/engine/LiveGrowthDoctrine.kt").readText()
+        val router = java.io.File("src/main/kotlin/com/lifecyclebot/engine/AgenticStyleRouter.kt").readText()
+        val exec = java.io.File("src/main/kotlin/com/lifecyclebot/engine/Executor.kt").readText()
+        val fdg = java.io.File("src/main/kotlin/com/lifecyclebot/engine/FinalDecisionGate.kt").readText()
+        listOf("STANDARD", "QUALITY", "BLUECHIP", "TREASURY", "MOONSHOT", "SHITCOIN", "MANIPULATED", "DIP_HUNTER", "PROJECT_SNIPER", "EXPRESS", "CYCLIC", "PRESALE", "WHALE", "COPY").forEach {
+            assertTrue("LiveGrowthDoctrine must enumerate lane/trader $it", doctrine.contains(it))
+        }
+        listOf("PUMP_FUN", "RAYDIUM", "JUPITER", "METIS", "MFE_TRAIL", "SMART_CHART", "COPY_TRADE", "WHALE_WALLET", "JITO", "DEFENSIVE_PROBE").forEach {
+            assertTrue("LiveGrowthDoctrine must enumerate trading tool $it", doctrine.contains(it))
+        }
+        assertTrue("AgenticStyleRouter must pull lane/tool fallbacks from LiveGrowthDoctrine", router.contains("LiveGrowthDoctrine.growthLaneFallback") && router.contains("LiveGrowthDoctrine.growthToolFallback"))
+        assertTrue("Final live sizing authority must consume LiveGrowthDoctrine", exec.contains("LiveGrowthDoctrine.sizePolicy") && exec.contains("growthPolicy.reason") && exec.contains("doBuy.final") && exec.contains("liveBuy.final"))
+        assertFalse("COPY_TRADE must not be a live hard confidence veto", fdg.contains("COPY_TRADE_LIVE_LOW_CONFIDENCE"))
+        assertFalse("WHALE_FOLLOW must not be live-disabled at FDG", fdg.contains("WHALE_FOLLOW_LIVE_DISABLED"))
+        assertTrue("COPY/WHALE must become live-growth probes", fdg.contains("copy_trade_live_micro_probe") && fdg.contains("whale_follow_live_growth_probe"))
+    }
+
     @Test
     fun live_growth_doctrine_low_confidence_and_pumpportal_skips_do_not_choke_execution() {
         val fdg = java.io.File("src/main/kotlin/com/lifecyclebot/engine/FinalDecisionGate.kt").readText()

@@ -81,7 +81,8 @@ object AgenticStyleRouter {
         val styleLaneList = style.lanes.filter { it.isNotBlank() }
         val primary = LaneToxicityGuard.chooseNonToxicLane(mint, styleLaneList, score) ?: styleLaneList.firstOrNull()
         if (!primary.isNullOrBlank()) out += primary
-        val alternatesRaw = (style.lanes.drop(1) + base).filter { it.isNotBlank() && it !in out }.distinct()
+        val growthFallback = LiveGrowthDoctrine.growthLaneFallback(mint, out + base + style.lanes)?.let { listOf(it) } ?: emptyList()
+        val alternatesRaw = (style.lanes.drop(1) + base + growthFallback).filter { it.isNotBlank() && it !in out }.distinct()
         val alternates = LaneToxicityGuard.filterNonToxic(alternatesRaw, score).ifEmpty { alternatesRaw }
         if (alternates.isNotEmpty()) out += alternates[stablePick(mint, alternates.size)]
         return out
@@ -91,7 +92,8 @@ object AgenticStyleRouter {
         val out = linkedSetOf<String>()
         val primary = style.tools.firstOrNull()
         if (!primary.isNullOrBlank()) out += primary
-        val alternates = (style.tools.drop(1) + base).filter { it.isNotBlank() && it !in out }.distinct()
+        val growthFallback = LiveGrowthDoctrine.growthToolFallback(mint, out + base + style.tools)?.let { listOf(it) } ?: emptyList()
+        val alternates = (style.tools.drop(1) + base + growthFallback).filter { it.isNotBlank() && it !in out }.distinct()
         if (alternates.isNotEmpty()) out += alternates[stablePick("tool:$mint", alternates.size)]
         return out
     }

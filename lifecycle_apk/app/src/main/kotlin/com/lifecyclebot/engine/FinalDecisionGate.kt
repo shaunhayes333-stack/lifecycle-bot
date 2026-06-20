@@ -1081,51 +1081,23 @@ object FinalDecisionGate {
 
         val tradingModeStr = tradingModeTag?.name ?: ""
 
-        // V5.9.1055 — COPY_TRADE re-enabled. Copy trade follows smart money wallet signals;
-        // it is a valid learning strategy. Allow in paper mode always; live mode requires
-        // confidence >= 50 (same as WHALE_FOLLOW). No permanent ban.
+        // V5.0.3947 — COPY/WHALE live growth alignment. These modes are part
+        // of the 14+ trader surface and must not be live-disabled at FDG just
+        // because confidence is soft. Confidence/whale weakness is now handled
+        // by the common low-confidence micro-probe and LiveGrowthDoctrine sizing
+        // downstream; true route/safety impossibilities still block elsewhere.
         if (tradingModeStr.uppercase().contains("COPY")) {
             if (mode == TradeMode.LIVE && candidate.aiConfidence < 50.0) {
-                ErrorLogger.info("FDG", "⚠️ COPY_TRADE live blocked: confidence=${candidate.aiConfidence.toInt()}% < 50%")
-                return FinalDecision(
-                    shouldTrade = false, mode = mode,
-                    approvalClass = ApprovalClass.BLOCKED,
-                    quality = candidate.setupQuality, confidence = candidate.aiConfidence,
-                    edge = EdgeVerdict.SKIP, blockReason = "COPY_TRADE_LIVE_LOW_CONFIDENCE",
-                    blockLevel = BlockLevel.HARD, sizeSol = 0.0,
-                    tags = listOf("copy_trade_live_conf"), mint = ts.mint, symbol = ts.symbol,
-                    approvalReason = "COPY_TRADE_LOW_CONF_LIVE",
-                    gateChecks = listOf(GateCheck("copy_conf", false, "conf=${candidate.aiConfidence.toInt()}% < 50%"))
-                )
+                tags.add("copy_trade_live_micro_probe")
+                checks.add(GateCheck("copy_conf", true, "LIVE COPY low confidence → micro-probe sizing, not hard block"))
             }
-            // Paper always allowed — copy trade must learn
-            ErrorLogger.info("FDG", "✅ COPY_TRADE: ${ts.symbol} | mode=$tradingModeStr | allowed for learning")
+            ErrorLogger.info("FDG", "✅ COPY_TRADE: ${ts.symbol} | mode=$tradingModeStr | allowed for live-growth learning")
         }
 
         if (tradingModeStr.uppercase().contains("WHALE")) {
-            ErrorLogger.warn("FDG", "⚠️ WHALE_FOLLOW: ${ts.symbol} | mode=$tradingModeStr | MICRO_SIZE_ONLY → Restricted after repeated losses")
-
-            return FinalDecision(
-                shouldTrade = mode == TradeMode.PAPER,
-                mode = mode,
-                approvalClass = if (mode == TradeMode.PAPER) ApprovalClass.PAPER_EXPLORATION else ApprovalClass.BLOCKED,
-                quality = candidate.setupQuality,
-                confidence = candidate.aiConfidence,
-                edge = when (candidate.edgeQuality) {
-                    "A" -> EdgeVerdict.STRONG
-                    "B" -> EdgeVerdict.WEAK
-                    "C" -> EdgeVerdict.WEAK
-                    else -> EdgeVerdict.SKIP
-                },
-                blockReason = if (mode == TradeMode.LIVE) "WHALE_FOLLOW_LIVE_DISABLED" else null,
-                blockLevel = if (mode == TradeMode.LIVE) BlockLevel.HARD else null,
-                sizeSol = config.smallBuySol * 0.5,
-                tags = listOf("whale_follow_restricted", "micro_size_only"),
-                mint = ts.mint,
-                symbol = ts.symbol,
-                approvalReason = "WHALE_FOLLOW restricted to PAPER + MICRO after repeated losses",
-                gateChecks = listOf(GateCheck("whale_follow_restriction", mode == TradeMode.PAPER, "WHALE_FOLLOW restricted"))
-            )
+            tags.add("whale_follow_live_growth_probe")
+            checks.add(GateCheck("whale_follow_growth", true, "WHALE_FOLLOW allowed through shared growth doctrine; no live-only hard disable"))
+            ErrorLogger.info("FDG", "🐋 WHALE_FOLLOW: ${ts.symbol} | mode=$tradingModeStr | shared live-growth sizing")
         }
 
         val learningProgress = FluidLearningAI.getLearningProgress()
