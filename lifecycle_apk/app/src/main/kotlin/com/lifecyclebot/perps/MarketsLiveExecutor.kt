@@ -479,45 +479,39 @@ object MarketsLiveExecutor {
             val feeWallet1 = feeAmountSol * 0.5
             val feeWallet2 = feeAmountSol * 0.5
 
-            // V5.9.309: Pre-check wallet has SOL for the fee transfer + tx fee.
-            // Without this, FeeRetryQueue exhaustion (22+ dropped fees observed)
-            // because a fee send right after a swap can race the swap's own SOL
-            // settlement and find the wallet temporarily empty.
-            val walletSol = try { wallet.getSolBalance() } catch (_: Exception) { 0.0 }
-            val FEE_TX_RESERVE_SOL = 0.005  // tx fee + small buffer
-            if (walletSol < (feeAmountSol + FEE_TX_RESERVE_SOL)) {
-                ErrorLogger.warn(TAG, "  Fee deferred ($symbol): wallet=${walletSol.fmt(6)} SOL < need=${(feeAmountSol + FEE_TX_RESERVE_SOL).fmt(6)} SOL — enqueuing for retry")
-                try {
-                    com.lifecyclebot.engine.FeeRetryQueue.enqueue(FEE_WALLET_1, feeWallet1, "markets_${tradeAction}_w1")
-                    com.lifecyclebot.engine.FeeRetryQueue.enqueue(FEE_WALLET_2, feeWallet2, "markets_${tradeAction}_w2")
-                } catch (_: Exception) {}
-                return
-            }
-
-            // Send to wallet 1
+            // V5.0.3946 — CORE FEE POOL ALIGNMENT.
+            // Markets/perps used to send each fee share immediately, or enqueue
+            // failed/tiny sends directly into FeeRetryQueue. That bypassed the
+            // V5.0.3920 pooled-fee architecture used by meme trades and recreated
+            // the exact micro-transfer problem the accumulator was built to solve.
+            // Accrue both shares into the shared per-destination FeeAccumulator;
+            // BotService flushes buckets once per live scan cycle when they cross
+            // the threshold. This makes all live trading tools/traders use the
+            // same pooled-send path instead of per-trade fee TX spam.
+            var accruedAny = false
             if (feeWallet1 >= MIN_FEE_SOL) {
                 try {
-                    wallet.sendSol(FEE_WALLET_1, feeWallet1)
-                    ErrorLogger.debug(TAG, "  Fee sent to wallet 1: ${feeWallet1.fmt(6)} SOL")
+                    com.lifecyclebot.engine.FeeAccumulator.accrue(FEE_WALLET_1, feeWallet1, "markets_${tradeAction}_w1")
+                    accruedAny = true
                 } catch (e: Exception) {
-                    ErrorLogger.warn(TAG, "  Fee wallet 1 send failed: ${e.message}")
-                    try { com.lifecyclebot.engine.FeeRetryQueue.enqueue(FEE_WALLET_1, feeWallet1, "markets_${tradeAction}_w1") } catch (_: Exception) {}
+                    ErrorLogger.warn(TAG, "  Fee wallet 1 pool failed: ${e.message}")
+                    try { com.lifecyclebot.engine.FeeRetryQueue.enqueue(FEE_WALLET_1, feeWallet1, "markets_${tradeAction}_w1_pool_fail") } catch (_: Exception) {}
                 }
             }
-
-            // Send to wallet 2
             if (feeWallet2 >= MIN_FEE_SOL) {
                 try {
-                    wallet.sendSol(FEE_WALLET_2, feeWallet2)
-                    ErrorLogger.debug(TAG, "  Fee sent to wallet 2: ${feeWallet2.fmt(6)} SOL")
+                    com.lifecyclebot.engine.FeeAccumulator.accrue(FEE_WALLET_2, feeWallet2, "markets_${tradeAction}_w2")
+                    accruedAny = true
                 } catch (e: Exception) {
-                    ErrorLogger.warn(TAG, "  Fee wallet 2 send failed: ${e.message}")
-                    try { com.lifecyclebot.engine.FeeRetryQueue.enqueue(FEE_WALLET_2, feeWallet2, "markets_${tradeAction}_w2") } catch (_: Exception) {}
+                    ErrorLogger.warn(TAG, "  Fee wallet 2 pool failed: ${e.message}")
+                    try { com.lifecyclebot.engine.FeeRetryQueue.enqueue(FEE_WALLET_2, feeWallet2, "markets_${tradeAction}_w2_pool_fail") } catch (_: Exception) {}
                 }
             }
-            
-            totalFeesCollectedSol += feeAmountSol
-            ErrorLogger.info(TAG, "💸 MARKETS FEE ($tradeAction $symbol): ${feeAmountSol.fmt(6)} SOL collected")
+            if (accruedAny) {
+                try { com.lifecyclebot.engine.PipelineHealthCollector.labelInc("MARKETS_FEE_ACCUMULATED") } catch (_: Throwable) {}
+                totalFeesCollectedSol += feeAmountSol
+                ErrorLogger.info(TAG, "💸 MARKETS FEE POOLED ($tradeAction $symbol): ${feeAmountSol.fmt(6)} SOL accrued for batched flush")
+            }
             
         } catch (e: Exception) {
             ErrorLogger.warn(TAG, "Fee collection error: ${e.message}")
