@@ -9725,6 +9725,7 @@ class BotService : Service() {
                             if (cached.lastFdv > 0.0) fresh.lastFdv = cached.lastFdv
                             if (cached.lastPriceDex.isNotBlank()) fresh.lastPriceDex = cached.lastPriceDex
                             if (cached.lastPricePoolAddr.isNotBlank()) fresh.lastPricePoolAddr = cached.lastPricePoolAddr
+                            if (cached.lastPriceSource.isNotBlank()) fresh.lastPriceSource = cached.lastPriceSource
                         }
                         if (cached == null && hiveForIntake != null) {
                             if (hiveForIntake.lastMcapUsd > 0.0) fresh.lastMcap = hiveForIntake.lastMcapUsd
@@ -9750,6 +9751,7 @@ class BotService : Service() {
                     if (ts.lastFdv <= 0.0 && cachedForIntake.lastFdv > 0.0) ts.lastFdv = cachedForIntake.lastFdv
                     if (ts.lastPriceDex.isBlank() && cachedForIntake.lastPriceDex.isNotBlank()) ts.lastPriceDex = cachedForIntake.lastPriceDex
                     if (ts.lastPricePoolAddr.isBlank() && cachedForIntake.lastPricePoolAddr.isNotBlank()) ts.lastPricePoolAddr = cachedForIntake.lastPricePoolAddr
+                    if (ts.lastPriceSource.isBlank() && cachedForIntake.lastPriceSource.isNotBlank()) ts.lastPriceSource = cachedForIntake.lastPriceSource
                 } else if (hiveForIntake != null) {
                     if (ts.logoUrl.isBlank() && hiveForIntake.logoUrl.isNotBlank()) ts.logoUrl = hiveForIntake.logoUrl
                     if (ts.lastMcap <= 0.0 && hiveForIntake.lastMcapUsd > 0.0) ts.lastMcap = hiveForIntake.lastMcapUsd

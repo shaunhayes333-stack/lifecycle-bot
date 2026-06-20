@@ -2272,6 +2272,8 @@ class GoldenTapeRegressionTest {
         assertTrue("Birdeye emergency conservation must not be permanently hardcoded on", gate.contains("EMERGENCY_CONSERVATION_MODE = false"))
         assertTrue("real Birdeye protection must remain via counters/throttles/lockdown", gate.contains("DAILY_SCANNER_THROTTLE_PCT") && gate.contains("MONTHLY_LOCKDOWN_PCT") && gate.contains("isLockedDown()"))
         assertFalse("stale 300% over-quota comment must not keep future builds in false emergency", gate.contains("300% monthly"))
+        val pipe = java.io.File("src/main/kotlin/com/lifecyclebot/engine/PipelineHealthCollector.kt").readText()
+        assertTrue("Birdeye report denominator must come from BirdeyeBudgetGate snapshot, not stale hardcoded 5M", gate.contains("monthlyCap = MONTHLY_CAP") && pipe.contains("bsnap.monthlyCap") && !pipe.contains("/5,000,000"))
     }
 
     @Test
@@ -2369,6 +2371,8 @@ class GoldenTapeRegressionTest {
         assertTrue("mcap must be optional metadata, not a live-buy executable-basis choke", exec.contains("mcap is learning/report metadata, not executable basis") && exec.contains("marketCapUsd >= 0.0") && exec.contains("MINT_ENTRY_MARKET_SNAPSHOT_MCAP_UNKNOWN"))
         assertTrue("liveBuy must emit a BUY fail reason if the executable market snapshot is truly missing", exec.contains("ENTRY_MARKET_SNAPSHOT_MISSING_DEFERRED") && exec.contains("""emitLiveBuyFail(ts, sol, "ENTRY_MARKET_SNAPSHOT_MISSING_DEFERRED"""))
         assertTrue("valid entry snapshots must be stored into TokenState and TokenMetaCache", exec.contains("MINT_ENTRY_MARKET_SNAPSHOT_STORED") && exec.contains("TokenMetaCache.get(ctx).register") && exec.contains("if (snap.marketCapUsd > 0.0) ts.lastMcap = snap.marketCapUsd") && exec.contains("lastLiquidityUsd = snap.liquidityUsd"))
+        assertTrue("liveBuy must rehydrate executable snapshot fields from TokenMetaCache before deferring", exec.contains("hydrateMintEntryMarketSnapshotFromCache") && exec.contains("MINT_ENTRY_MARKET_SNAPSHOT_CACHE_HYDRATED") && exec.contains("cached.lastPriceSource") && exec.contains("TOKEN_META_CACHE"))
+        assertTrue("intake cache hydration must restore cached price source as well as price/pool/dex", bot.contains("fresh.lastPriceSource = cached.lastPriceSource") && bot.contains("cachedForIntake.lastPriceSource"))
         assertTrue("live Position and BUY journal rows must stamp snapshot mcap/liquidity/source/pool", exec.contains("entryMcap    = entryMarketSnapshot.marketCapUsd") && exec.contains("entryLiquidityUsd = entryMarketSnapshot.liquidityUsd") && exec.contains("entryMcapUsd = entryMarketSnapshot.marketCapUsd") && exec.contains("entryPriceSource = entryMarketSnapshot.priceSource") && exec.contains("entryPoolAddress = entryMarketSnapshot.poolAddress"))
         assertTrue("UI must not repair open-position basis from current refs/journal fallbacks", main.contains("UI is not a price-basis authority") && main.contains("OPEN_POSITION_UI_BASIS_WAIT") && main.contains("action=no_ui_repair"))
         assertFalse("UI recovery must not mutate entryPrice from recoveredEntry anymore", main.contains("ts.position = p0.copy") && main.contains("entryPrice = recoveredEntry"))

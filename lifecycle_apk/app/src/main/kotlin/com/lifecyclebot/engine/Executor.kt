@@ -7680,7 +7680,40 @@ class Executor(
         }
     }
 
+    private fun hydrateMintEntryMarketSnapshotFromCache(ts: TokenState): Boolean {
+        val ctx = try { com.lifecyclebot.AATEApp.appContextOrNull() } catch (_: Throwable) { null } ?: return false
+        val cached = try { TokenMetaCache.get(ctx).lookup(ts.mint) } catch (_: Throwable) { null } ?: return false
+        var changed = false
+        if (ts.lastPrice <= 0.0 && cached.lastPrice > 0.0) { ts.lastPrice = cached.lastPrice; changed = true }
+        if (ts.lastMcap <= 0.0 && cached.lastMcap > 0.0) { ts.lastMcap = cached.lastMcap; changed = true }
+        if (ts.lastLiquidityUsd <= 0.0 && cached.lastLiquidityUsd > 0.0) { ts.lastLiquidityUsd = cached.lastLiquidityUsd; changed = true }
+        if (ts.lastFdv <= 0.0 && cached.lastFdv > 0.0) { ts.lastFdv = cached.lastFdv; changed = true }
+        if (ts.lastPriceDex.isBlank() && cached.lastPriceDex.isNotBlank()) { ts.lastPriceDex = cached.lastPriceDex; changed = true }
+        val cachedPool = cached.lastPricePoolAddr.ifBlank { cached.pairAddress }
+        if (ts.lastPricePoolAddr.isBlank() && cachedPool.isNotBlank()) { ts.lastPricePoolAddr = cachedPool; changed = true }
+        if (ts.lastPriceSource.isBlank()) {
+            when {
+                cached.lastPriceSource.isNotBlank() -> { ts.lastPriceSource = cached.lastPriceSource; changed = true }
+                cached.lastPrice > 0.0 && cachedPool.isNotBlank() -> { ts.lastPriceSource = "TOKEN_META_CACHE"; changed = true }
+            }
+        }
+        if (changed) {
+            ts.lastPriceUpdate = System.currentTimeMillis()
+            try {
+                ForensicLogger.lifecycle(
+                    "MINT_ENTRY_MARKET_SNAPSHOT_CACHE_HYDRATED",
+                    "mint=${ts.mint.take(10)} symbol=${ts.symbol} price=${ts.lastPrice} mcap=${ts.lastMcap} liq=${ts.lastLiquidityUsd} pool=${ts.lastPricePoolAddr.take(16)} source=${ts.lastPriceSource} dex=${ts.lastPriceDex}"
+                )
+                PipelineHealthCollector.labelInc("MINT_ENTRY_MARKET_SNAPSHOT_CACHE_HYDRATED")
+            } catch (_: Throwable) {}
+        }
+        return changed
+    }
+
     private fun mintEntryMarketSnapshot(ts: TokenState): MintEntryMarketSnapshot? {
+        if (ts.lastPrice <= 0.0 || ts.lastLiquidityUsd <= 0.0 || ts.lastPricePoolAddr.isBlank() || ts.lastPriceSource.isBlank()) {
+            hydrateMintEntryMarketSnapshotFromCache(ts)
+        }
         val price = ts.lastPrice.takeIf { it.isFinite() && it > 0.0 }
             ?: ts.history.lastOrNull { it.priceUsd.isFinite() && it.priceUsd > 0.0 }?.priceUsd
             ?: return null
