@@ -7357,7 +7357,13 @@ class Executor(
         if (RuntimeModeAuthority.isLive() && (laneEvMult != 1.0 || laneSizeCap < 1.0)) {
             try { ForensicLogger.lifecycle("LIVE_WALLET_GROWTH_ALLOCATOR", "mint=${ts.mint.take(10)} symbol=${ts.symbol} lane=$laneTag laneEvMult=$laneEvMult laneCap=$laneSizeCap regimeMult=$regimeMult brainMult=$brainSizeMult product=$multiplierProduct floor=$liveFloorMult") } catch (_: Throwable) {}
         }
-        val effSolRaw = (sol * multiplierProduct).coerceIn(sol * liveFloorMult, sol * 1.75)
+        // V5.0.3958 — MEGA-PROFIT COMPOUNDING CAP. Once the live expectancy
+        // allocator marks a lane as positive edge, let the final size stack press
+        // it harder than the legacy 1.75× ceiling. Route, wallet, liquidity,
+        // reserve, zero-liq, and rug safety remain enforced by realisticLiveEntrySize
+        // and upstream gates.
+        val winnerMaxBoost = if (RuntimeModeAuthority.isLive() && laneEvMult > 1.0) 2.35 else 1.75
+        val effSolRaw = (sol * multiplierProduct).coerceIn(sol * liveFloorMult, sol * winnerMaxBoost)
         if (dumpRegimeLive) {
             try { ForensicLogger.lifecycle("DUMP_REGIME_LIVE_SIZE_SHAPED", "mint=${ts.mint.take(10)} symbol=${ts.symbol} lane=$laneTag regimeMult=$regimeMult laneCap=$laneSizeCap floor=$liveFloorMult raw=${effSolRaw.fmt(4)}") } catch (_: Throwable) {}
             try { PipelineHealthCollector.labelInc("DUMP_REGIME_LIVE_SIZE_SHAPED") } catch (_: Throwable) {}

@@ -73,46 +73,48 @@ object LiveGrowthDoctrine {
     fun sizePolicy(lane: String, score: Double, walletSol: Double, spendableSol: Double, movement: MovementPatternSignal.Signal? = null): SizePolicy {
         val c = canonicalLane(lane)
         val baseWalletPct = when {
-            score >= 85.0 -> 0.115
-            score >= 70.0 -> 0.095
-            score >= 50.0 -> 0.075
-            score >= 25.0 -> 0.055
+            score >= 85.0 -> 0.145
+            score >= 70.0 -> 0.120
+            score >= 50.0 -> 0.090
+            score >= 25.0 -> 0.060
             else -> 0.035
         }
         val laneMult = when (c) {
-            "MOONSHOT" -> 1.35
-            "QUALITY" -> 1.30
-            "BLUECHIP" -> 1.25
-            "PROJECT_SNIPER" -> 1.18
+            "MOONSHOT" -> 1.55
+            "QUALITY" -> 1.42
+            "BLUECHIP" -> 1.40
+            "PROJECT_SNIPER" -> 1.34
             "WHALE_FOLLOW" -> 1.16
-            "COPY_TRADE" -> 1.12
+            "COPY_TRADE" -> 0.96
             "DIP_HUNTER" -> 1.08
-            "CYCLIC" -> 1.05
+            "CYCLIC" -> 0.82
             "TREASURY" -> 1.02
-            "SHITCOIN" -> 0.98
-            "MANIPULATED" -> 0.92
-            "EXPRESS" -> 0.90
+            "SHITCOIN" -> 0.78
+            "MANIPULATED" -> 0.82
+            "EXPRESS" -> 0.72
             "ARBITRAGE" -> 0.88
             else -> 1.00
         }
         val liqPct = when (c) {
-            "QUALITY", "BLUECHIP", "MOONSHOT", "WHALE_FOLLOW", "COPY_TRADE" -> 0.0060
-            "PROJECT_SNIPER", "DIP_HUNTER", "CYCLIC" -> 0.0048
-            "SHITCOIN", "MANIPULATED", "EXPRESS", "ARBITRAGE" -> 0.0040
+            "QUALITY", "BLUECHIP", "MOONSHOT" -> 0.0080
+            "PROJECT_SNIPER", "WHALE_FOLLOW" -> 0.0060
+            "DIP_HUNTER", "CYCLIC", "COPY_TRADE" -> 0.0044
+            "SHITCOIN", "MANIPULATED", "EXPRESS", "ARBITRAGE" -> 0.0035
             else -> 0.0045
         }
         val maxWalletPct = when (c) {
-            "MOONSHOT", "QUALITY", "BLUECHIP" -> 0.14
-            "PROJECT_SNIPER", "WHALE_FOLLOW", "COPY_TRADE" -> 0.12
-            "DIP_HUNTER", "CYCLIC", "TREASURY" -> 0.10
-            else -> 0.085
+            "MOONSHOT" -> 0.22
+            "QUALITY", "BLUECHIP" -> 0.18
+            "PROJECT_SNIPER", "WHALE_FOLLOW" -> 0.165
+            "COPY_TRADE", "DIP_HUNTER", "CYCLIC", "TREASURY" -> 0.10
+            else -> 0.075
         }
         val absoluteCap = when {
-            walletSol < 0.25 -> 0.030
-            walletSol < 1.0 -> 0.085
-            walletSol < 2.0 -> 0.160
-            walletSol < 10.0 -> 0.420
-            else -> 0.900
+            walletSol < 0.25 -> 0.040
+            walletSol < 1.0 -> 0.120
+            walletSol < 2.0 -> 0.240
+            walletSol < 10.0 -> 0.750
+            else -> 1.500
         }
         val minExec = when {
             spendableSol >= 1.0 -> 0.035
@@ -131,7 +133,7 @@ object LiveGrowthDoctrine {
             maxWalletPct = maxWalletPct,
             absoluteCapSol = absoluteCap,
             minExecutableSol = minExec,
-            reason = "$VERSION lane=$c score=${score.toInt()} walletPct=${"%.3f".format(adjustedWalletPct)} laneMult=${"%.2f".format(adjustedLaneMult)} liqPct=${"%.4f".format(adjustedLiqPct)} maxWalletPct=${"%.3f".format(maxWalletPct)} cap=${"%.3f".format(absoluteCap)} movement=${movement?.pattern ?: "none"} moveConf=${movement?.confidence?.toInt() ?: 0} hold×=${"%.2f".format(moveHold)} timing=${movement?.timing ?: "n/a"}",
+            reason = "$VERSION 2–5x_live_wallet_growth lane=$c score=${score.toInt()} walletPct=${"%.3f".format(adjustedWalletPct)} laneMult=${"%.2f".format(adjustedLaneMult)} liqPct=${"%.4f".format(adjustedLiqPct)} maxWalletPct=${"%.3f".format(maxWalletPct)} cap=${"%.3f".format(absoluteCap)} movement=${movement?.pattern ?: "none"} moveConf=${movement?.confidence?.toInt() ?: 0} hold×=${"%.2f".format(moveHold)} timing=${movement?.timing ?: "n/a"}",
         )
     }
 

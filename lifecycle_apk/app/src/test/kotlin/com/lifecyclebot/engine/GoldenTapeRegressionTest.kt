@@ -2668,16 +2668,17 @@ class GoldenTapeRegressionTest {
 
 
     @Test
-    fun live_micro_probe_entry_bypasses_expectancy_and_break_even_sizing() {
+    fun live_micro_probe_entry_applies_expectancy_but_bypasses_break_even_sizing() {
         val executor = java.io.File("src/main/kotlin/com/lifecyclebot/engine/Executor.kt").readText()
         val scoreExpectancy = java.io.File("src/main/kotlin/com/lifecyclebot/engine/ScoreExpectancyTracker.kt").readText()
         val liveRestore = java.io.File("src/main/kotlin/com/lifecyclebot/engine/LiveRestoreExecutionPolicy.kt").readText()
 
-        assertTrue("Live entry must bypass LaneExpectancyDamper sizing", executor.contains("LIVE_EXPECTANCY_SIZE_BYPASSED") && executor.contains("if (RuntimeModeAuthority.isLive())") && executor.contains("applied=1.0"))
+        assertFalse("Live entry must not bypass LaneExpectancyDamper sizing anymore", executor.contains("LIVE_EXPECTANCY_SIZE_BYPASSED"))
+        assertTrue("Live entry must apply wallet-growth expectancy allocator", executor.contains("LIVE_EXPECTANCY_SIZE_APPLIED") && executor.contains("LIVE_WALLET_GROWTH_ALLOCATOR"))
         assertTrue("Live entry must bypass break-even economics and defer them to sell side", executor.contains("LIVE_ENTRY_BREAK_EVEN_BYPASSED_TO_SELL") && executor.contains("sellSideBreakEvenOk"))
         assertFalse("liveBuy entry must not call breakEvenCheck before route quote", executor.contains("val breakEven = LiveRestoreExecutionPolicy.breakEvenCheck(ts, sol, restorePenalty"))
         assertTrue("Score expectancy reject must be neutral in live", scoreExpectancy.contains("LIVE_EXPECTANCY_REJECT_BYPASSED") && scoreExpectancy.contains("RuntimeModeAuthority.isLive()") && scoreExpectancy.contains("return false"))
-        assertTrue("Score expectancy size multiplier must be neutral in live", scoreExpectancy.contains("do not dust-size live probes") && scoreExpectancy.contains("return 1.0"))
+        assertTrue("Score expectancy reject remains neutral in live; lane allocator owns live sizing", scoreExpectancy.contains("do not dust-size live probes") && scoreExpectancy.contains("return 1.0"))
         assertTrue("Break-even logic remains available for sell-side profit discipline", liveRestore.contains("sellSideBreakEvenOk") && liveRestore.contains("breakEvenCheck(ts, ts.position.costSol"))
     }
 
@@ -3038,12 +3039,22 @@ class GoldenTapeRegressionTest {
 
 
     @Test
+    fun live_mega_profit_compounding_caps_press_winners_without_safety_bypass() {
+        val exec = java.io.File("src/main/kotlin/com/lifecyclebot/engine/Executor.kt").readText()
+        val doctrine = java.io.File("src/main/kotlin/com/lifecyclebot/engine/LiveGrowthDoctrine.kt").readText()
+        assertTrue("Positive expectancy winners need a larger max boost than legacy 1.75x", exec.contains("winnerMaxBoost") && exec.contains("laneEvMult > 1.0") && exec.contains("sol * winnerMaxBoost"))
+        assertTrue("Growth doctrine must raise winner lane wallet allocation", doctrine.contains("2–5x") && doctrine.contains("MOONSHOT") && doctrine.contains("0.165") && doctrine.contains("absoluteCap"))
+        assertTrue("Bleeder lanes remain lower allocation than winner lanes", doctrine.contains(""""EXPRESS" -> 0.72""") && doctrine.contains(""""SHITCOIN" -> 0.78"""))
+        assertTrue("Safety/route gates remain upstream", doctrine.contains("never bypasses route") && exec.contains("realisticLiveEntrySize"))
+    }
+
+    @Test
     fun live_wallet_growth_releases_caps_for_proven_winner_lanes() {
         val exec = java.io.File("src/main/kotlin/com/lifecyclebot/engine/Executor.kt").readText()
-        assertFalse("MOONSHOT must not be permanently capped at 0.55 while it is the top SOL winner", exec.contains("laneTag.contains("MOONSHOT")    -> if ((wr ?: 0.0) > 0.0)  0.55 else 0.55"))
-        assertTrue("MOONSHOT cap must release when expectancy allocator says winner", exec.contains("laneTag.contains("MOONSHOT")") && exec.contains("laneEvMult >= 1.0") && exec.contains("WALLET GROWTH CAP RELEASE"))
-        assertTrue("PRESALE/PROJECT_SNIPER and BLUECHIP winner caps must release too", exec.contains("laneTag.contains("PRESALE") || laneTag.contains("PROJECT_SNIPER")") && exec.contains("laneTag.contains("BLUECHIP")"))
-        assertTrue("SHITCOIN must shrink harder when expectancy is negative", exec.contains("laneTag.contains("SHITCOIN")    -> if (laneEvMult < 1.0) 0.35 else 0.65"))
+        assertFalse("MOONSHOT must not be permanently capped at 0.55 while it is the top SOL winner", exec.contains("""laneTag.contains("MOONSHOT")    -> if ((wr ?: 0.0) > 0.0)  0.55 else 0.55"""))
+        assertTrue("MOONSHOT cap must release when expectancy allocator says winner", exec.contains("""laneTag.contains("MOONSHOT")""") && exec.contains("laneEvMult >= 1.0") && exec.contains("WALLET GROWTH CAP RELEASE"))
+        assertTrue("PRESALE/PROJECT_SNIPER and BLUECHIP winner caps must release too", exec.contains("""laneTag.contains("PRESALE") || laneTag.contains("PROJECT_SNIPER")""") && exec.contains("""laneTag.contains("BLUECHIP")"""))
+        assertTrue("SHITCOIN must shrink harder when expectancy is negative", exec.contains("""laneTag.contains("SHITCOIN")    -> if (laneEvMult < 1.0) 0.35 else 0.65"""))
     }
 
     @Test
