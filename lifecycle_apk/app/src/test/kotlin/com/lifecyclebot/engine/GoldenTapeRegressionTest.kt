@@ -638,6 +638,17 @@ class GoldenTapeRegressionTest {
     }
 
 
+
+    @Test
+    fun journal_stats_preserve_accounting_basis_and_rug_safety_net_does_not_clip_green_holds() {
+        val journal = java.io.File("src/main/kotlin/com/lifecyclebot/engine/TradeJournal.kt").readText()
+        val exec = java.io.File("src/main/kotlin/com/lifecyclebot/engine/Executor.kt").readText()
+        assertTrue("TradeJournal stats must validate JournalEntry rows with entry basis fields", journal.contains("JournalEntry→Trade validation") && journal.contains("entryPriceSnapshot = e.entryPrice") && journal.contains("entryCostSol = e.entryCostSol") && journal.contains("price = if (sellLike) e.exitPrice else e.entryPrice"))
+        assertFalse("TradeJournal stats must not synthesize sell Trade price from entryPrice only", journal.contains("price = e.entryPrice,"))
+        assertTrue("Generic RUG_SAFETY_NET should not bypass min-hold unless raw pnl breached hard floor or rug is confirmed", exec.contains("confirmedRugByReason") && exec.contains("RUGCHECK_CONFIRMED") && exec.contains("CONFIRMED_RUG") && !exec.contains("""return r.contains("RUG")"""))
+        assertTrue("Strict/rug exits still bypass when raw market loss hits hard floor", exec.contains("if (rawPnlPct <= -15.0) return true"))
+    }
+
     @Test
     fun partial_sell_alerts_and_reports_include_precise_realized_pnl() {
         val exec = java.io.File("src/main/kotlin/com/lifecyclebot/engine/Executor.kt").readText()

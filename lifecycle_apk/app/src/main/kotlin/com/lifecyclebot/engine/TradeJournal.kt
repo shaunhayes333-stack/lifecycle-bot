@@ -41,11 +41,17 @@ class TradeJournal(private val ctx: Context) {
 
     private fun isInvalidAccounting(e: JournalEntry): Boolean {
         if (!isSellLike(e.side)) return false
+        // V5.0.3961 — JournalEntry→Trade validation must preserve the same
+        // accounting basis fields used by TradeHistoryStore. The old synthetic
+        // row omitted entryCostSol/entryPriceSnapshot and used entryPrice as the
+        // sell price, so getStatsFiltered()/exports rejected valid rows and the
+        // Journal header showed $0 / 0% while rows rendered underneath.
+        val sellLike = isSellLike(e.side)
         val t = Trade(
             side = e.side,
             mode = e.mode,
             sol = e.solAmount,
-            price = e.entryPrice,
+            price = if (sellLike) e.exitPrice else e.entryPrice,
             ts = e.ts,
             reason = e.reason,
             pnlSol = e.pnlSol,
@@ -56,6 +62,18 @@ class TradeJournal(private val ctx: Context) {
             tradingMode = e.tradingMode,
             tradingModeEmoji = e.tradingModeEmoji,
             mint = e.mint,
+            proofState = e.proofState,
+            positionId = e.positionId,
+            entryTsMs = e.entryTsMs,
+            entryPriceSnapshot = e.entryPrice,
+            entryMcapUsd = e.entryMcapUsd,
+            entryQtyToken = e.entryQtyToken,
+            entryCostSol = e.entryCostSol,
+            entryDecimals = e.entryDecimals,
+            soldQtyToken = e.soldQtyToken,
+            remainingQtyToken = e.remainingQtyToken,
+            entryPriceSource = e.entryPriceSource,
+            entryPoolAddress = e.entryPoolAddress,
         )
         return !TradeHistoryStore.isValidAccountingTrade(t)
     }
