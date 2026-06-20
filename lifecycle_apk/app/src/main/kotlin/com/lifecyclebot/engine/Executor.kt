@@ -10791,12 +10791,13 @@ class Executor(
 
     private fun liveHoldBypassReason(reason: String, rawPnlPct: Double): Boolean {
         val r = reason.uppercase()
-        // True catastrophic exits still bypass style/hold. STRICT_SL alone does
-        // NOT bypass unless raw market PnL has breached the unconditional -15%
-        // hard floor; this prevents STRICT_SL_-10 from cutting fresh live entries
-        // before hold-time/expectancy can be sampled.
+        // True catastrophic exits still bypass style/hold. STRICT_SL and generic
+        // RUG_SAFETY_NET alone do NOT bypass unless raw market PnL has breached
+        // the unconditional -15% hard floor; this prevents green/flat fresh live
+        // entries from being clipped before hold-time/expectancy can be sampled.
         if (rawPnlPct <= -15.0) return true
-        return r.contains("RUG") ||
+        val confirmedRugByReason = r.contains("RUGCHECK_CONFIRMED") || r.contains("CONFIRMED_RUG") || r.contains("HONEYPOT") || r.contains("CANNOT_SELL")
+        return confirmedRugByReason ||
             r.contains("CATASTROPHE") ||
             r.contains("HARD_FLOOR") ||
             r.contains("RAPID_HARD_FLOOR") ||
