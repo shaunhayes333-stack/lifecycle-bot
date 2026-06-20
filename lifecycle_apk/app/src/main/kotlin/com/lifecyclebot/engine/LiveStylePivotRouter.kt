@@ -3,11 +3,13 @@ package com.lifecyclebot.engine
 import com.lifecyclebot.data.TokenState
 
 /**
- * V5.0.3965 — profitability-aware live style pivot router.
+ * V5.0.3968 — profitability-aware live style pivot router.
  *
- * Never disables lanes. It changes the execution style, size multiplier,
- * confirmation/proof requirements, or defers for recheck when all-in edge is
- * below costs even after pivoting.
+ * No defensive probes. Live mode is for real quality winning setups. Native
+ * bleeder contexts are not disabled, but they must be promoted into proven
+ * winner styles (BLUECHIP / PRESALE_SNIPE / WALLET_RECOVERED / high-confidence
+ * MOONSHOT / LIQUIDITY_DEPTH_QUALITY / PULLBACK_RECLAIM) with full basis, route,
+ * rug, and liquidity proof, or deferred for a better setup.
  */
 object LiveStylePivotRouter {
     data class Decision(
@@ -27,7 +29,7 @@ object LiveStylePivotRouter {
         val providerProof: Boolean,
         val pivotApplied: Boolean,
         val reasons: List<String>,
-        val decision: String, // BUY / DEFER / PROBE
+        val decision: String, // BUY / DEFER only. No defensive live probes.
     )
 
     fun route(
@@ -45,7 +47,7 @@ object LiveStylePivotRouter {
         var finalLane = lane
         var finalStyle = style
         var mult = 1.0
-        var confirm = "ROUTE_PROOF"
+        var confirm = "QUALITY_ROUTE_LIQ_HOLDER_RUG_BASIS_PROOF"
         var decision = "BUY"
 
         val routeTrusted = ts.lastPrice > 0.0 && ts.lastLiquidityUsd > 0.0 && (ts.lastPricePoolAddr.isNotBlank() || ts.pairAddress.isNotBlank())
@@ -55,99 +57,95 @@ object LiveStylePivotRouter {
         val liq = ts.lastLiquidityUsd
         val scoreBand = scoreBand(score)
         val bleeder = BleederMemoryRouter.statsFor(lane)
+        val qualityProof = basisTrusted && routeTrusted && rugProof && providerProof && liq >= 1_000.0
+        val highQualityProof = qualityProof && (holderProof || liq >= 15_000.0 || score >= 61.0)
 
-        fun defensive(max: Double, reason: String) {
-            finalLane = "DEFENSIVE_PROBE"
-            finalStyle = "DEFENSIVE_PROBE"
-            mult = minOf(mult, max)
-            confirm = "SECOND_CYCLE_ROUTE_LIQ_HOLDER_PROOF"
-            decision = "PROBE"
+        fun defer(reason: String) {
+            decision = "DEFER"
+            mult = 0.0
+            confirm = "DEFER_RECHECK_WITH_FULL_PROOF"
             reasons += reason
         }
-        fun liquidityDepth(max: Double, reason: String) {
-            finalLane = "LIQUIDITY_DEPTH"
-            finalStyle = "LIQUIDITY_DEPTH"
-            mult = minOf(mult, max)
-            confirm = "ROUTE_LIQ_HOLDER_PROOF"
-            decision = "PROBE"
+        fun promoteQuality(targetLane: String, targetStyle: String, maxMult: Double, reason: String) {
+            finalLane = targetLane
+            finalStyle = targetStyle
+            mult = minOf(mult, maxMult).coerceAtLeast(0.35)
+            decision = "BUY"
+            confirm = "QUALITY_ROUTE_LIQ_HOLDER_RUG_BASIS_PROOF"
             reasons += reason
         }
+        fun bestQualityLane(): String = when {
+            lane == "BLUECHIP" && qualityProof -> "BLUECHIP"
+            lane == "PRESALE_SNIPE" && qualityProof -> "PRESALE_SNIPE"
+            lane == "PROJECT_SNIPER" && qualityProof -> "PRESALE_SNIPE"
+            lane == "WALLET_RECOVERED" && basisTrusted && routeTrusted && rugProof -> "WALLET_RECOVERED"
+            score >= 61.0 && qualityProof -> "MOONSHOT"
+            highQualityProof -> "LIQUIDITY_DEPTH_QUALITY"
+            else -> ""
+        }
 
-        if (!basisTrusted) defensive(0.10, "BASIS_UNTRUSTED")
-        if (!routeTrusted) defensive(0.10, "ROUTE_PROOF_MISSING")
-        if (!rugProof) defensive(0.10, "RUG_PROOF_NOT_CLEAN")
+        if (!basisTrusted) defer("BASIS_UNTRUSTED")
+        if (!routeTrusted) defer("ROUTE_PROOF_MISSING")
+        if (!rugProof) defer("RUG_PROOF_NOT_CLEAN")
 
         when (lane) {
             "EXPRESS" -> {
-                if (bleeder.provenBleeder || bleeder.n50 == 0 || bleeder.wr50 < 25.0 || bleeder.ev50Pct < 0.0) liquidityDepth(0.15, "EXPRESS_BLEEDER_NATIVE_PIVOT")
-                if (!holderProof || !routeTrusted || liq <= 0.0) defensive(0.15, "EXPRESS_REQUIRES_LIQ_ROUTE_HOLDER_PROOF")
+                if (bleeder.provenBleeder || bleeder.n50 == 0 || bleeder.wr50 < 25.0 || bleeder.ev50Pct < 0.0) {
+                    val target = bestQualityLane()
+                    if (target.isNotBlank()) promoteQuality(target, target, 0.85, "EXPRESS_BLEEDER_QUALITY_PROMOTION")
+                    else defer("EXPRESS_BLEEDER_AWAIT_QUALITY_PROOF")
+                }
             }
             "CYCLIC" -> {
-                if (bleeder.provenBleeder || bleeder.wr50 < 25.0 || bleeder.ev50Pct < 0.0) defensive(0.15, "CYCLIC_BLEEDER_NATIVE_PIVOT")
                 val trendVolumeConfirms = ts.meta.momScore >= 55.0 && (ts.history.lastOrNull()?.vol ?: ts.meta.volScore) > 0.0
-                if (trendVolumeConfirms && routeTrusted) { finalLane = "PULLBACK_RECLAIM"; finalStyle = "PULLBACK_RECLAIM"; reasons += "CYCLIC_TREND_VOLUME_CONFIRMED" }
+                if (bleeder.provenBleeder || bleeder.wr50 < 25.0 || bleeder.ev50Pct < 0.0) {
+                    val target = bestQualityLane()
+                    if (trendVolumeConfirms && highQualityProof) promoteQuality("PULLBACK_RECLAIM", "PULLBACK_RECLAIM", 0.85, "CYCLIC_PULLBACK_RECLAIM_QUALITY_PROMOTION")
+                    else if (target.isNotBlank()) promoteQuality(target, target, 0.85, "CYCLIC_BLEEDER_QUALITY_PROMOTION")
+                    else defer("CYCLIC_BLEEDER_AWAIT_QUALITY_PROOF")
+                }
             }
             "COPYTRADE", "WHALE_FOLLOW" -> {
                 val repeatWin = try { StrategyTelemetry.computeLeaderboard().any { it.strategy == "WALLET_RECOVERED" && it.trades >= 5 && it.totalSolPnl > 0.0 && it.winRatePct >= 50.0 } } catch (_: Throwable) { false }
-                if (repeatWin && routeTrusted && holderProof && rugProof && basisTrusted) { finalLane = "WALLET_RECOVERED"; finalStyle = "WALLET_RECOVERED"; mult = minOf(mult, 1.0); reasons += "WALLET_RECOVERED_PROVEN_PROMOTION" }
-                else defensive(0.15, "WHALE_COPY_NO_DIRECT_FULL_LIVE")
+                if (repeatWin && routeTrusted && holderProof && rugProof && basisTrusted) promoteQuality("WALLET_RECOVERED", "WALLET_RECOVERED", 1.0, "WALLET_RECOVERED_PROVEN_PROMOTION")
+                else if (highQualityProof) promoteQuality("LIQUIDITY_DEPTH_QUALITY", "LIQUIDITY_DEPTH_QUALITY", 0.75, "WHALE_COPY_QUALITY_PROMOTION_NO_DIRECT_TRIGGER")
+                else defer("WHALE_COPY_AWAIT_REPEAT_WIN_AND_PROOF")
             }
             "SHITCOIN" -> {
-                if (liq < 5_000.0 || !routeTrusted) defensive(0.20, "SHITCOIN_THIN_ROUTE_DEPTH")
                 val s = BleederMemoryRouter.statsFor("SHITCOIN")
+                if (liq < 5_000.0 || !routeTrusted) defer("SHITCOIN_THIN_ROUTE_DEPTH")
                 if (s.n50 < 10 || s.netPnl50Sol <= 0.0) { mult = minOf(mult, 0.35); reasons += "SHITCOIN_FEE_GIVEBACK_AWARE_SIZE" }
             }
             "MOONSHOT" -> {
-                if (scoreBand == "S41-60") defensive(0.20, "MOONSHOT_S41_60_DANGER_PIVOT")
-                else if (score >= 61.0 && routeTrusted && basisTrusted) reasons += "MOONSHOT_NATIVE_CONFIRMED"
+                if (scoreBand == "S41-60") {
+                    if (bestQualityLane() == "LIQUIDITY_DEPTH_QUALITY" && highQualityProof) promoteQuality("LIQUIDITY_DEPTH_QUALITY", "LIQUIDITY_DEPTH_QUALITY", 0.75, "MOONSHOT_S41_60_QUALITY_PROMOTION")
+                    else defer("MOONSHOT_S41_60_DANGER_DEFER")
+                } else if (score >= 61.0 && routeTrusted && basisTrusted) { mult = maxOf(mult, 1.0); reasons += "MOONSHOT_NATIVE_CONFIRMED" }
             }
-            "BLUECHIP" -> { if (routeTrusted) { mult = maxOf(mult, 1.0); reasons += "BLUECHIP_ROUTE_PROOF_PROMOTED" } }
-            "PRESALE_SNIPE", "PROJECT_SNIPER" -> { if (routeTrusted && liq > 0.0) { mult = maxOf(mult, 1.0); reasons += "PRESALE_ROUTE_LIQ_PROMOTED" } }
-            "WALLET_RECOVERED" -> { if (!basisTrusted) defensive(0.10, "WALLET_RECOVERED_REQUIRES_TRUSTED_BASIS") else reasons += "WALLET_RECOVERED_TRUSTED_BASIS" }
+            "BLUECHIP" -> { if (routeTrusted && basisTrusted && rugProof) { mult = maxOf(mult, 1.0); reasons += "BLUECHIP_ROUTE_PROOF_PROMOTED" } }
+            "PRESALE_SNIPE", "PROJECT_SNIPER" -> { if (routeTrusted && liq > 0.0 && basisTrusted && rugProof) { finalLane = "PRESALE_SNIPE"; finalStyle = "PRESALE_SNIPE"; mult = maxOf(mult, 1.0); reasons += "PRESALE_ROUTE_LIQ_PROMOTED" } }
+            "WALLET_RECOVERED" -> { if (!basisTrusted) defer("WALLET_RECOVERED_REQUIRES_TRUSTED_BASIS") else reasons += "WALLET_RECOVERED_TRUSTED_BASIS" }
         }
 
-        if (bleeder.noWinsOverEight) defensive(0.10, "ZERO_WINS_OVER_8")
-        if (bleeder.repeatedDeepLoss) defensive(0.10, "THREE_DEEP_LOSSES_LAST50")
-        if (bleeder.failedBasisCount > 0 || bleeder.orphanCount > 0) defensive(0.10, "BASIS_OR_ORPHAN_RECENT")
+        val targetAfterLane = bestQualityLane()
+        if (bleeder.noWinsOverEight && targetAfterLane.isBlank()) defer("ZERO_WINS_OVER_8_AWAIT_QUALITY_PROOF")
+        if (bleeder.repeatedDeepLoss && targetAfterLane.isBlank()) defer("THREE_DEEP_LOSSES_LAST50_AWAIT_QUALITY_PROOF")
+        if ((bleeder.failedBasisCount > 0 || bleeder.orphanCount > 0) && !basisTrusted) defer("BASIS_OR_ORPHAN_RECENT_AWAIT_BASIS")
 
         val be = LiveBreakEvenGuard.check(ts, finalLane, finalStyle, score, buySlippageBps, plannedSizeSol * mult)
         try {
             ForensicLogger.lifecycle(
                 "LIVE_BREAK_EVEN_CHECK",
-                "mint=${ts.mint.take(10)} lane=$finalLane style=$finalStyle expectedEdge=${"%.1f".format(be.expectedEdgePct)} requiredEdge=${"%.1f".format(be.requiredEdgePct)} decision=${if (be.pass) "PASS" else "PIVOT_OR_DEFER"} pivotReason=${reasons.joinToString("|")}"
+                "mint=${ts.mint.take(10)} lane=$finalLane style=$finalStyle expectedEdge=${"%.1f".format(be.expectedEdgePct)} requiredEdge=${"%.1f".format(be.requiredEdgePct)} decision=${if (be.pass) "PASS" else "DEFER_QUALITY_EDGE"} pivotReason=${reasons.joinToString("|")}"
             )
             PipelineHealthCollector.labelInc("LIVE_BREAK_EVEN_CHECK")
         } catch (_: Throwable) {}
         if (!be.pass) {
-            if (decision == "BUY") {
-                finalLane = "DEFENSIVE_PROBE"
-                finalStyle = "DEFENSIVE_PROBE"
-                mult = minOf(mult, 0.15)
-                decision = "PROBE"
-                reasons += "BREAK_EVEN_NATIVE_PIVOT"
-            }
-            val recheck = LiveBreakEvenGuard.check(ts, finalLane, finalStyle, score, buySlippageBps, plannedSizeSol * mult)
-            // V5.0.3967 — DO NOT convert every pivot into a hard defer. 3966
-            // correctly identified bleeders, but then `BREAK_EVEN_DEFER_RECHECK`
-            // vetoed 100/100 live attempts because defensive probes inherit the
-            // original lane's low expected edge while also carrying intentionally
-            // conservative cost buffers. That turns "pivot, don't disable" into
-            // a global live shutdown. If entry basis, route, liquidity, and rug
-            // proof are usable, let the probe execute at reduced size; quote,
-            // slippage, and executor mechanics remain downstream authorities.
-            val hardProofMissing = !basisTrusted || !routeTrusted || !rugProof || liq <= 0.0 || plannedSizeSol <= 0.0
-            if (!recheck.pass && hardProofMissing) {
-                decision = "DEFER"
-                reasons += "BREAK_EVEN_DEFER_RECHECK_PROOF_MISSING"
-            } else if (!recheck.pass) {
-                decision = "PROBE"
-                mult = minOf(mult, 0.15)
-                reasons += "BREAK_EVEN_PROBE_ALLOWED_BELOW_COST_MODEL"
-                try { PipelineHealthCollector.labelInc("LIVE_STYLE_PIVOT_PROBE_ALLOWED_BELOW_BE") } catch (_: Throwable) {}
-            }
-            return finish(lane, style, finalLane, finalStyle, mult, confirm, recheck, basisTrusted, routeTrusted, holderProof, rugProof, liq, providerProof, reasons, decision)
+            decision = "DEFER"
+            mult = 0.0
+            reasons += "BREAK_EVEN_DEFER_QUALITY_EDGE_NOT_CONFIRMED"
         }
-        return finish(lane, style, finalLane, finalStyle, mult, confirm, be, basisTrusted, routeTrusted, holderProof, rugProof, liq, providerProof, reasons.ifEmpty { listOf("NATIVE_ALLOWED") }, decision)
+        return finish(lane, style, finalLane, finalStyle, mult, confirm, be, basisTrusted, routeTrusted, holderProof, rugProof, liq, providerProof, reasons.ifEmpty { listOf("NATIVE_QUALITY_ALLOWED") }, decision)
     }
 
     fun scoreBand(score: Double): String = when {
@@ -163,5 +161,12 @@ object LiveStylePivotRouter {
         mult: Double, confirm: String, be: LiveBreakEvenGuard.Result,
         basisTrusted: Boolean, routeTrusted: Boolean, holderProof: Boolean, rugProof: Boolean,
         liq: Double, providerProof: Boolean, reasons: List<String>, decision: String,
-    ) = Decision(originalLane, originalStyle, finalLane, finalStyle, mult.coerceIn(0.05, 1.25), confirm, be.expectedEdgePct, be.requiredEdgePct, basisTrusted, routeTrusted, holderProof, rugProof, liq, providerProof, finalLane != originalLane || finalStyle != originalStyle || mult < 0.999 || reasons.any { it.contains("PIVOT", true) }, reasons.distinct(), decision)
+    ) = Decision(
+        originalLane, originalStyle, finalLane, finalStyle,
+        if (decision == "DEFER") 0.0 else mult.coerceIn(0.35, 1.25),
+        confirm, be.expectedEdgePct, be.requiredEdgePct, basisTrusted, routeTrusted,
+        holderProof, rugProof, liq, providerProof,
+        finalLane != originalLane || finalStyle != originalStyle || mult < 0.999 || reasons.any { it.contains("PROMOTION", true) || it.contains("PIVOT", true) },
+        reasons.distinct(), decision,
+    )
 }
