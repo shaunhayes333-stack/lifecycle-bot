@@ -2354,6 +2354,15 @@ class GoldenTapeRegressionTest {
     }
 
 
+
+    @Test
+    fun sell_finality_pending_retry_lease_survives_residue_reaper_non_blocking() {
+        val lease = java.io.File("src/main/kotlin/com/lifecyclebot/engine/sell/CloseLease.kt").readText()
+        assertTrue("Pending finality must keep retry metadata alive", lease.contains("finalityPending") && lease.contains("SELL_FINALITY_PENDING_RETRY"))
+        assertTrue("Residue reaper must not prune unresolved finality proof leases", lease.contains("!l.finalityPending && pastBackoff && idleMs >= RESIDUE_REAP_MS"))
+        assertTrue("Pending finality lease remains non-blocking because activeBlockingLeaseCount only counts inFlight", lease.contains("&& l.inFlight"))
+    }
+
     @Test
     fun live_sell_pending_finality_has_own_pipeline_counter() {
         val collector = java.io.File("src/main/kotlin/com/lifecyclebot/engine/PipelineHealthCollector.kt").readText()

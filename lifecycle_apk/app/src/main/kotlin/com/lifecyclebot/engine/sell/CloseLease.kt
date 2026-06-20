@@ -50,6 +50,11 @@ object CloseLease {
         // Retryable failures keep the lease but flip this false so a later tick
         // can reuse the lease after backoff instead of waiting for 10m TTL.
         @Volatile var inFlight: Boolean = true,
+        // V5.0.3996 — atomic sell-finality contract. Pending finality is NOT an
+        // active buy-blocking lease, but it must keep retry metadata alive until
+        // proof arrives or the hard TTL clears it. Generic residue reaping may
+        // prune route-failure leases, never unresolved finality proof leases.
+        @Volatile var finalityPending: Boolean = false,
     )
 
     private val leases = ConcurrentHashMap<String, Lease>()
@@ -106,7 +111,7 @@ object CloseLease {
             val l = e.value
             val idleMs = now - l.acquiredMs
             val pastBackoff = now >= l.nextEligibleMs
-            if (!l.inFlight && pastBackoff && idleMs >= RESIDUE_REAP_MS) {
+            if (!l.inFlight && !l.finalityPending && pastBackoff && idleMs >= RESIDUE_REAP_MS) {
                 it.remove()
                 try {
                     ForensicLogger.lifecycle(
@@ -125,6 +130,7 @@ object CloseLease {
         val l = leases[mint] ?: return null
         if (System.currentTimeMillis() - l.acquiredMs >= LEASE_TTL_MS) {
             leases.remove(mint)
+            l.finalityPending = false
             try {
                 ForensicLogger.lifecycle("SELL_LEASE_STALE_CLEARED",
                     "mint=${mint.take(10)} ageMs=${System.currentTimeMillis() - l.acquiredMs} attempts=${l.closeAttemptCount}")
@@ -192,6 +198,7 @@ object CloseLease {
         val l = current(mint) ?: return 0
         l.closeAttemptCount += 1
         l.lastCloseFailureCode = failureCode
+        if (failureCode.contains("SELL_FINALITY_PENDING_RETRY", ignoreCase = true)) l.finalityPending = true
         val now = System.currentTimeMillis()
         l.lastTouchMs = now
         l.inFlight = false
