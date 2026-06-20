@@ -8471,10 +8471,19 @@ class BotService : Service() {
                         val pos = ts.position
                         val entryPx = pos.entryPrice
                         if (pos.isOpen && entryPx > 0.0) {
-                            val isMeme = (pos.isShitCoinPosition || pos.tradingMode == "MOONSHOT")
-                            // Skip BlueChip/Treasury — they manage their own tighter exits.
-                            val excludedLane = pos.isBlueChipPosition || pos.isTreasuryPosition
-                            if (isMeme && !excludedLane) {
+                            val modeUpperForTickLock = pos.tradingMode.uppercase()
+                            val isMeme = (pos.isShitCoinPosition || modeUpperForTickLock.contains("MOONSHOT") || modeUpperForTickLock.contains("SHITCOIN"))
+                            // V5.0.3988 — LIVE RUNNER CAPTURE PARITY. The old tick-time
+                            // peak/giveback lock only protected cleanly stamped meme lanes and
+                            // explicitly excluded BlueChip/Treasury. Mis-stamped live runners or
+                            // quality/project-sniper winners could give back MFE before the slower
+                            // lane-specific exit path saw them. All LIVE positions now receive the
+                            // same fast hard-floor + peak-giveback shell; paper remains meme-only.
+                            val tickProfitLockEligible = (!pos.isPaperPosition) || isMeme
+                            if (!tickProfitLockEligible) {
+                                try { ForensicLogger.lifecycle("TICK_PROFIT_LOCK_SKIPPED_LANE", "mint=${ts.mint.take(10)} symbol=${ts.symbol} mode=${pos.tradingMode} paper=${pos.isPaperPosition}") } catch (_: Throwable) {}
+                            }
+                            if (tickProfitLockEligible) {
                                 val pnlPctNow = (priceUsd - entryPx) / entryPx * 100.0
                                 // V5.9.1562 — RATCHET peakGainPct BEFORE the lock check.
                                 // Operator MFE forensic 5.0.3659 (MOONSHOT avgPeak +630% but
