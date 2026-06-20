@@ -7,7 +7,7 @@ import com.lifecyclebot.data.TokenState
  *
  * No defensive probes. Live mode is for real quality winning setups. Native
  * bleeder contexts are not disabled, but they must be promoted into proven
- * winner styles (BLUECHIP / PRESALE_SNIPE / WALLET_RECOVERED / high-confidence
+ * winner styles (BLUECHIP / PRESALE_SNIPE / TREASURY-CASHGEN / WALLET_RECOVERED / high-confidence
  * MOONSHOT / LIQUIDITY_DEPTH_QUALITY / PULLBACK_RECLAIM) with full basis, route,
  * rug, and liquidity proof, or deferred for a better setup.
  */
@@ -78,6 +78,7 @@ object LiveStylePivotRouter {
             lane == "BLUECHIP" && qualityProof -> "BLUECHIP"
             lane == "PRESALE_SNIPE" && qualityProof -> "PRESALE_SNIPE"
             lane == "PROJECT_SNIPER" && qualityProof -> "PRESALE_SNIPE"
+            (lane == "TREASURY" || lane == "CASHGEN") && qualityProof -> "TREASURY"
             lane == "WALLET_RECOVERED" && basisTrusted && routeTrusted && rugProof -> "WALLET_RECOVERED"
             score >= 61.0 && qualityProof -> "MOONSHOT"
             highQualityProof -> "LIQUIDITY_DEPTH_QUALITY"
@@ -124,6 +125,7 @@ object LiveStylePivotRouter {
             }
             "BLUECHIP" -> { if (routeTrusted && basisTrusted && rugProof) { mult = maxOf(mult, 1.0); reasons += "BLUECHIP_ROUTE_PROOF_PROMOTED" } }
             "PRESALE_SNIPE", "PROJECT_SNIPER" -> { if (routeTrusted && liq > 0.0 && basisTrusted && rugProof) { finalLane = "PRESALE_SNIPE"; finalStyle = "PRESALE_SNIPE"; mult = maxOf(mult, 1.0); reasons += "PRESALE_ROUTE_LIQ_PROMOTED" } }
+            "TREASURY", "CASHGEN" -> { if (routeTrusted && liq > 0.0 && basisTrusted && rugProof) { finalLane = "TREASURY"; finalStyle = "TREASURY_CASHGEN"; mult = maxOf(mult, 1.0); reasons += "TREASURY_CASHGEN_QUALITY_PROMOTED" } }
             "WALLET_RECOVERED" -> { if (!basisTrusted) defer("WALLET_RECOVERED_REQUIRES_TRUSTED_BASIS") else reasons += "WALLET_RECOVERED_TRUSTED_BASIS" }
         }
 

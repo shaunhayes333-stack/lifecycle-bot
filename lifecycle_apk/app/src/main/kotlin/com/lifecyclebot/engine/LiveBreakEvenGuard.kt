@@ -34,8 +34,9 @@ object LiveBreakEvenGuard {
         } catch (_: Throwable) { 0.0 }
         val paperLiveWinnerEdge = try {
             val aliases = when (canon) {
-                "LIQUIDITY_DEPTH_QUALITY" -> setOf("BLUECHIP", "PRESALE_SNIPE", "MOONSHOT", "WALLET_RECOVERED", "QUALITY")
-                "PULLBACK_RECLAIM" -> setOf("BLUECHIP", "PRESALE_SNIPE", "MOONSHOT", "STANDARD", "QUALITY")
+                "LIQUIDITY_DEPTH_QUALITY" -> setOf("BLUECHIP", "PRESALE_SNIPE", "MOONSHOT", "WALLET_RECOVERED", "QUALITY", "TREASURY")
+                "PULLBACK_RECLAIM" -> setOf("BLUECHIP", "PRESALE_SNIPE", "MOONSHOT", "STANDARD", "QUALITY", "TREASURY")
+                "CASHGEN" -> setOf("TREASURY")
                 else -> setOf(canon)
             }
             val rows = TradeHistoryStore.getRecentValidClosedTrades(limit = 1_500, includePartials = true)
@@ -78,6 +79,7 @@ object LiveBreakEvenGuard {
         val minProfitBufferPct = when {
             lane.contains("BLUECHIP", true) -> 3.0
             lane.contains("PRESALE", true) || lane.contains("SNIPER", true) -> 5.0
+            lane.contains("TREASURY", true) || lane.contains("CASHGEN", true) -> 5.0
             lane.contains("MOONSHOT", true) && score >= 61.0 -> 8.0
             lane.contains("SHITCOIN", true) -> 12.0
             lane.contains("EXPRESS", true) || lane.contains("CYCLIC", true) -> 15.0
