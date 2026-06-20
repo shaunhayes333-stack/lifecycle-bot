@@ -986,11 +986,12 @@ class ExecutionAuthorityInvariantTest {
     }
 
     @Test
-    fun daily_budget_exhaustion_bypasses_paper_entry_but_live_remains_strict() {
-        resetAuthorities(paper = true)
+    fun daily_birdeye_budget_exhaustion_throttles_provider_calls_not_live_entries() {
+        resetAuthorities(paper = false)
         BirdeyeBudgetGate.resetForTests(dailyCapOverride = 25L)
         BirdeyeBudgetGate.recordCalls(1)
-        assertTrue("configured daily cap exhausted", BirdeyeBudgetGate.isEntryBudgetLockedDown())
+        assertFalse("daily Birdeye cap must not become a global executable-entry kill switch", BirdeyeBudgetGate.isEntryBudgetLockedDown())
+        assertFalse("normal Birdeye calls should still be throttled once the daily CU call budget is exhausted", BirdeyeBudgetGate.canAfford(1))
         ExecutableOpenGate.recordFdg(
             mint = "MintBudget111111111111111111111111111",
             symbol = "BUD",
@@ -1006,11 +1007,13 @@ class ExecutionAuthorityInvariantTest {
             mint = "MintBudget111111111111111111111111111",
             symbol = "BUD",
             rugScore = 90,
-            mode = "PAPER",
+            mode = "LIVE",
             lane = "QUALITY",
             source = "test",
+            liquidityUsd = 2500.0,
+            safetyTier = "SAFE",
         )
-        assertTrue("PAPER training must bypass API budget lockdown; LIVE remains strict", v.allowed)
+        assertTrue("LIVE execution must continue via non-Birdeye/free route proof when only the app-local daily Birdeye cap is exhausted", v.allowed)
         assertEquals("EXEC_OPEN_ALLOWED", v.logName)
     }
 
