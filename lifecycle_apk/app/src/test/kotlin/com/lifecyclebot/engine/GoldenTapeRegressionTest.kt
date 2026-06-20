@@ -3375,6 +3375,7 @@ class GoldenTapeRegressionTest {
         assertTrue("confirmed live BUY must journal after tx confirmation", exec.indexOf("TX_CONFIRMED") < exec.indexOf("BUY_JOURNALED") && exec.contains("recordTrade(ts, trade)"))
         assertTrue("live hard-safety residues must be terminal or hydrate-defer, not penalty-only", pre.contains("MINT_AUTHORITY_ACTIVE") && pre.contains("TOP_HOLDER_CONCENTRATION") && pre.contains("FATAL_WALLET_RISK_TEXT") && pre.contains("LIVE_CRITICAL_PROOF_PENDING"))
         assertFalse("active authority/high-holder live risks must not remain size-clamp penalty-only", pre.contains("MINT_AUTHORITY_ACTIVE_SIZE_CLAMP") || pre.contains("TOP_HOLDER_SIZE_CLAMP"))
+        assertTrue("live outcome learning must not treat unknown top-holder as safe zero", exec.contains("if (ts.position.isPaperPosition) 0.0 else 50.0") && exec.contains("if (pos.isPaperPosition) 0.0 else 50.0"))
         assertTrue("V3 terminal early return must keep only mechanical hard reasons", bot.contains("NO_EXECUTABLE_ROUTE") && bot.contains("NO_SELL_ROUTE") && !bot.contains("""result.reason.contains("SCORE_TOO_LOW", ignoreCase = true) ||"""))
     }
 
