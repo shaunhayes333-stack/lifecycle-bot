@@ -1461,7 +1461,7 @@ class Executor(
             // V5.9.967 — z43-D SellSpamGuard: suppress duplicate blocked-log
             // floods. Higher-priority reasons (rug/manual/hard_stop) punch
             // through immediately; lower-priority (trail/partial) cool down 30s.
-            if (com.lifecyclebot.engine.sell.SellSpamGuard.shouldLogBlocked(ts.mint, reason)) {
+            if (com.lifecyclebot.engine.sell.SellSpamGuard.shouldLogBlocked(ts.mint, requestReason)) {
                 LiveTradeLogStore.log(
                     tradeKey ?: LiveTradeLogStore.keyFor(ts.mint, ts.position.entryTime),
                     ts.mint, ts.symbol, "SELL", LiveTradeLogStore.Phase.SELL_VERIFY_INCONCLUSIVE_PENDING,
@@ -1481,7 +1481,7 @@ class Executor(
         if (com.lifecyclebot.engine.sell.SellExecutionLocks.isLocked(ts.mint)) {
             val ageMs = com.lifecyclebot.engine.sell.SellExecutionLocks.ageMs(ts.mint) ?: 0L
             // V5.9.967 — z43-D SellSpamGuard wrap.
-            if (com.lifecyclebot.engine.sell.SellSpamGuard.shouldLogBlocked(ts.mint, reason)) {
+            if (com.lifecyclebot.engine.sell.SellSpamGuard.shouldLogBlocked(ts.mint, requestReason)) {
                 LiveTradeLogStore.log(
                     tradeKey ?: LiveTradeLogStore.keyFor(ts.mint, ts.position.entryTime),
                     ts.mint, ts.symbol, "SELL", LiveTradeLogStore.Phase.SELL_VERIFY_INCONCLUSIVE_PENDING,
@@ -3907,7 +3907,7 @@ class Executor(
                 }
             } else {
                 onLog("⏸️ SELL_WAITING_BALANCE_PROOF: ${ts.symbol} RPC empty/unknown — no cached qty sell.", ts.mint)
-                try { ForensicLogger.lifecycle("SELL_WAITING_BALANCE_PROOF", "mint=${ts.mint.take(10)} symbol=${ts.symbol} reason=$reason") } catch (_: Throwable) {}
+                try { ForensicLogger.lifecycle("SELL_WAITING_BALANCE_PROOF", "mint=${ts.mint.take(10)} symbol=${ts.symbol} reason=$requestReason") } catch (_: Throwable) {}
                 try { com.lifecyclebot.engine.sell.CloseLease.release(ts.mint, "BALANCE_UNKNOWN_NO_SIGNATURE") } catch (_: Throwable) {}
                 try { HostWalletTokenTracker.markSellWaitingBalanceProof(ts.mint, ts.symbol, "BALANCE_UNKNOWN") } catch (_: Throwable) {}
                 // V5.0.3746 — profit-lock BALANCE_UNKNOWN must also hand off to
@@ -4026,7 +4026,7 @@ class Executor(
         if (blockIfSellInFlight(ts, reason, sellTradeKey)) return
         if (!com.lifecyclebot.engine.sell.SellExecutionLocks.tryAcquire(ts.mint)) {
             // V5.9.967 — z43-D SellSpamGuard wrap.
-            if (com.lifecyclebot.engine.sell.SellSpamGuard.shouldLogBlocked(ts.mint, reason))
+            if (com.lifecyclebot.engine.sell.SellSpamGuard.shouldLogBlocked(ts.mint, requestReason))
             LiveTradeLogStore.log(
                 sellTradeKey, ts.mint, ts.symbol, "SELL",
                 LiveTradeLogStore.Phase.SELL_VERIFY_INCONCLUSIVE_PENDING,
@@ -10829,13 +10829,18 @@ class Executor(
     }
     
     fun requestSell(ts: TokenState, reason: String, wallet: SolanaWallet?, walletSol: Double): SellResult {
+        val requestReason = if (reason.isBlank() || reason.equals("exit", ignoreCase = true)) {
+            val trackerStatus = try { HostWalletTokenTracker.getEntry(ts.mint)?.status?.name ?: "UNKNOWN" } catch (_: Throwable) { "UNKNOWN" }
+            val closeState = try { com.lifecyclebot.engine.sell.LivePositionCloseAuthority.stateOf(ts.mint)?.name ?: "OPEN" } catch (_: Throwable) { "OPEN" }
+            "EXIT_ROUTE_RETRY_${trackerStatus}_${closeState}"
+        } else reason
         // V5.0.3801 — PAPER source guard before any executor activity.
         // requestSell() has many upstream callers (main loop, backup sweeps,
         // stale/rug escape paths). If a paper mint already has CLOSE_REQUESTED /
         // CLOSING / CLOSED / ledger closeId, return before TokenLifecycleTracker,
         // sell locks, cooldown re-arm, EXEC_TRACE_SELL, or journal activity.
         if (ts.position.isPaperPosition) {
-            val guard = try { PaperPositionCloseAuthority.preSellGuard("PAPER", ts.mint, ts.symbol, reason) } catch (_: Throwable) { null }
+            val guard = try { PaperPositionCloseAuthority.preSellGuard("PAPER", ts.mint, ts.symbol, requestReason) } catch (_: Throwable) { null }
             if (guard?.blocked == true) {
                 return SellResult.ALREADY_CLOSED
             }
@@ -10850,12 +10855,12 @@ class Executor(
         // deferred hold does not create sell-only drain mode or lock the mint. Only
         // true catastrophic hard-floor/rug/manual-emergency exits bypass.
         if (isLivePositionEarly) {
-            val holdDelay = liveHoldDelayIfNeeded(ts, reason)
+            val holdDelay = liveHoldDelayIfNeeded(ts, requestReason)
             if (holdDelay != null) {
                 try {
                     ForensicLogger.lifecycle(
                         "LIVE_STYLE_MIN_HOLD_EXIT_DEFERRED",
-                        "mint=${ts.mint.take(10)} symbol=${ts.symbol} reason=${reason.take(80)} lane=${holdDelay.lane} style=${holdDelay.styleHint} ageMs=${holdDelay.ageMs} minHoldMs=${holdDelay.minHoldMs} rawPnl=${"%.1f".format(holdDelay.rawPnlPct)} action=no_sell_lock",
+                        "mint=${ts.mint.take(10)} symbol=${ts.symbol} reason=${requestReason.take(80)} lane=${holdDelay.lane} style=${holdDelay.styleHint} ageMs=${holdDelay.ageMs} minHoldMs=${holdDelay.minHoldMs} rawPnl=${"%.1f".format(holdDelay.rawPnlPct)} action=no_sell_lock",
                     )
                     PipelineHealthCollector.labelInc("LIVE_STYLE_MIN_HOLD_EXIT_DEFERRED")
                     PipelineHealthCollector.labelInc("LIVE_STYLE_MIN_HOLD_${holdDelay.styleHint}")
@@ -10868,12 +10873,12 @@ class Executor(
         // strategy exit; it is only allowed when tracker state says an exit/recovery
         // lifecycle already exists. A healthy wallet-held live position must be held
         // for its lane/style exit logic, not sold by reconciliation maintenance.
-        if (isLivePositionEarly && reason.startsWith("RECONCILER_REQUEUE", ignoreCase = true)) {
+        if (isLivePositionEarly && requestReason.startsWith("RECONCILER_REQUEUE", ignoreCase = true)) {
             val trackerStatus = try { HostWalletTokenTracker.getEntry(ts.mint)?.status?.name ?: "UNKNOWN" } catch (_: Throwable) { "UNKNOWN" }
             val exitLifecycle = trackerStatus in setOf("EXIT_SIGNALLED", "SELL_PENDING", "SELL_VERIFYING", "RECOVERY_SELL_REQUIRED", "SELL_REPRICE_OR_SPLIT_REQUIRED")
             if (!exitLifecycle) {
                 try {
-                    ForensicLogger.lifecycle("RECONCILER_REQUEUE_SUPPRESSED_HEALTHY_HOLD", "mint=${ts.mint.take(10)} symbol=${ts.symbol} status=$trackerStatus reason=$reason")
+                    ForensicLogger.lifecycle("RECONCILER_REQUEUE_SUPPRESSED_HEALTHY_HOLD", "mint=${ts.mint.take(10)} symbol=${ts.symbol} status=$trackerStatus reason=$requestReason")
                     PipelineHealthCollector.labelInc("RECONCILER_REQUEUE_SUPPRESSED_HEALTHY_HOLD")
                 } catch (_: Throwable) {}
                 return SellResult.WAITING_BALANCE_PROOF
@@ -10897,17 +10902,17 @@ class Executor(
             }
         }
         if (isLivePositionEarly && com.lifecyclebot.engine.sell.BalanceProofWaitState.isWaiting(ts.mint)) {
-            val waitProof = try { wallet?.let { com.lifecyclebot.engine.sell.SellAmountAuthority.resolveForExit(ts.mint, it, reason) } } catch (_: Throwable) { null }
+            val waitProof = try { wallet?.let { com.lifecyclebot.engine.sell.SellAmountAuthority.resolveForExit(ts.mint, it, requestReason) } } catch (_: Throwable) { null }
             val waitConfirmed = waitProof as? com.lifecyclebot.engine.sell.SellAmountAuthority.Resolution.Confirmed
             if (waitConfirmed != null && waitConfirmed.rawAmount.signum() > 0) {
-                ExecutionRootCauseTrace.authority("SELL", "REQUEST_SELL_BALANCE_WAIT_PROOF_READY", ts, "reason=$reason raw=${waitConfirmed.rawAmount} decimals=${waitConfirmed.decimals} source=${waitConfirmed.source} action=clear_wait_and_sell")
+                ExecutionRootCauseTrace.authority("SELL", "REQUEST_SELL_BALANCE_WAIT_PROOF_READY", ts, "reason=$requestReason raw=${waitConfirmed.rawAmount} decimals=${waitConfirmed.decimals} source=${waitConfirmed.source} action=clear_wait_and_sell")
                 try { com.lifecyclebot.engine.sell.BalanceProofWaitState.clear(ts.mint, "PROOF_READY_REQUESTSELL") } catch (_: Throwable) {}
                 // Fall through to acquire the normal sell lease and route now.
             } else {
                 val waitProofTrace = waitProof?.javaClass?.simpleName ?: "none"
-                ExecutionRootCauseTrace.authority("SELL", "REQUEST_SELL_BALANCE_WAIT_MERGE", ts, "reason=$reason alreadyWaiting=true proof=$waitProofTrace action=merge_no_new_lease")
+                ExecutionRootCauseTrace.authority("SELL", "REQUEST_SELL_BALANCE_WAIT_MERGE", ts, "reason=$requestReason alreadyWaiting=true proof=$waitProofTrace action=merge_no_new_lease")
                 com.lifecyclebot.engine.sell.BalanceProofWaitState.markWaiting(
-                    ts.mint, ts.symbol ?: "?", reason,
+                    ts.mint, ts.symbol ?: "?", requestReason,
                     runtimeGeneration = try { BotRuntimeController.currentGeneration() } catch (_: Throwable) { 0L },
                 )
                 return SellResult.WAITING_BALANCE_PROOF
@@ -10928,7 +10933,7 @@ class Executor(
         // are NOT leased.
         val isLivePosition = !ts.position.isPaperPosition
         if (isLivePosition) {
-            val lease = com.lifecyclebot.engine.sell.CloseLease.acquire(ts.mint, ts.symbol ?: "?", reason)
+            val lease = com.lifecyclebot.engine.sell.CloseLease.acquire(ts.mint, ts.symbol ?: "?", requestReason)
             if (lease == null) {
                 // A fresh close is already in flight for this mint — suppress the
                 // duplicate. The owning close job will complete or terminally fail.
@@ -10996,7 +11001,7 @@ class Executor(
                 throw t
             }
         }
-        return doSell(ts, reason, wallet, walletSol)
+        return doSell(ts, requestReason, wallet, walletSol)
     }
     
     fun requestPartialSell(
@@ -11187,7 +11192,7 @@ class Executor(
                 if (blockIfSellInFlight(ts, reason, lockTradeKeyPre)) return
                 if (!com.lifecyclebot.engine.sell.SellExecutionLocks.tryAcquire(ts.mint)) {
                     // V5.9.967 — z43-D SellSpamGuard wrap.
-                    if (com.lifecyclebot.engine.sell.SellSpamGuard.shouldLogBlocked(ts.mint, reason))
+                    if (com.lifecyclebot.engine.sell.SellSpamGuard.shouldLogBlocked(ts.mint, requestReason))
                         LiveTradeLogStore.log(lockTradeKeyPre, ts.mint, ts.symbol, "SELL",
                             LiveTradeLogStore.Phase.SELL_VERIFY_INCONCLUSIVE_PENDING,
                             "SELL_BLOCKED_ALREADY_IN_PROGRESS partial reason=$reason", traderTag = "MEME")
@@ -11567,7 +11572,7 @@ class Executor(
                        identity: TradeIdentity? = null): SellResult {
         val paperCloseAuthorityActive = ts.position.isPaperPosition
         if (paperCloseAuthorityActive) {
-            val guard = PaperPositionCloseAuthority.preSellGuard("PAPER", ts.mint, ts.symbol, reason)
+            val guard = PaperPositionCloseAuthority.preSellGuard("PAPER", ts.mint, ts.symbol, requestReason)
             if (guard.blocked) {
                 return SellResult.ALREADY_CLOSED
             }
@@ -11687,13 +11692,13 @@ class Executor(
                 com.lifecyclebot.engine.NotificationHistory.NotifEntry.NotifType.INFO)
             onToast("🚨 Reconnect wallet to sell ${ts.symbol}!")
             
-            PendingSellQueue.add(ts.mint, ts.symbol, reason)
+            PendingSellQueue.add(ts.mint, ts.symbol, requestReason)
             return SellResult.NO_WALLET
         }
         
         if (isPaper) {
             onLog("📄 Routing to paperSell (paperMode=$isPaper)", tradeId.mint)
-            return paperSell(ts, reason, tradeId)
+            return paperSell(ts, requestReason, tradeId)
         } else if (wallet == null) {
             ErrorLogger.error("Executor", "🚨 LIVE MODE SELL BLOCKED: Wallet is NULL!")
             onLog("🚨 LIVE SELL BLOCKED: ${ts.symbol} | No wallet - position NOT cleared", tradeId.mint)
@@ -11703,29 +11708,29 @@ class Executor(
             onToast("🚨 Cannot sell ${ts.symbol} - reconnect wallet!")
             return SellResult.NO_WALLET
         } else {
-            if (blockIfSellInFlight(ts, reason, LiveTradeLogStore.keyFor(ts.mint, ts.position.entryTime))) {
+            if (blockIfSellInFlight(ts, requestReason, LiveTradeLogStore.keyFor(ts.mint, ts.position.entryTime))) {
                 return SellResult.FAILED_RETRYABLE
             }
             if (!com.lifecyclebot.engine.sell.SellExecutionLocks.tryAcquire(ts.mint)) {
                 // V5.9.967 — z43-D SellSpamGuard wrap.
-                if (com.lifecyclebot.engine.sell.SellSpamGuard.shouldLogBlocked(ts.mint, reason))
+                if (com.lifecyclebot.engine.sell.SellSpamGuard.shouldLogBlocked(ts.mint, requestReason))
                     LiveTradeLogStore.log(
                         LiveTradeLogStore.keyFor(ts.mint, ts.position.entryTime), ts.mint, ts.symbol, "SELL",
                         LiveTradeLogStore.Phase.SELL_VERIFY_INCONCLUSIVE_PENDING,
-                        "SELL_BLOCKED_ALREADY_IN_PROGRESS full reason=$reason", traderTag = "MEME")
+                        "SELL_BLOCKED_ALREADY_IN_PROGRESS full reason=$requestReason", traderTag = "MEME")
                 return SellResult.FAILED_RETRYABLE
             }
             onLog("💰 Routing to liveSell", tradeId.mint)
-            val result = liveSell(ts, reason, wallet, walletSol, tradeId)
+            val result = liveSell(ts, requestReason, wallet, walletSol, tradeId)
             // V5.7.7 FIX: Auto-requeue on retryable failure so SL/TP never gets silently dropped
             if (result == SellResult.FAILED_RETRYABLE) {
                 val nonRouteWait = isNonRouteSellWait(ts)
                 if (nonRouteWait) {
                     onLog("⏸️ Sell retry suppressed for ${ts.symbol}: existing finality/proof worker owns this mint; no PendingSellQueue/no noSig.", tradeId.mint)
-                    try { ForensicLogger.lifecycle("SELL_RETRY_SUPPRESSED_NON_ROUTE_WAIT", "mint=${ts.mint.take(12)} symbol=${ts.symbol} reason=$reason proofWait=${com.lifecyclebot.engine.sell.BalanceProofWaitState.isWaiting(ts.mint)} activeSig=${TradeVerifier.activeSellSig(ts.mint)?.take(12) ?: "none"}") } catch (_: Throwable) {}
+                    try { ForensicLogger.lifecycle("SELL_RETRY_SUPPRESSED_NON_ROUTE_WAIT", "mint=${ts.mint.take(12)} symbol=${ts.symbol} reason=$requestReason proofWait=${com.lifecyclebot.engine.sell.BalanceProofWaitState.isWaiting(ts.mint)} activeSig=${TradeVerifier.activeSellSig(ts.mint)?.take(12) ?: "none"}") } catch (_: Throwable) {}
                 } else {
-                    PendingSellQueue.add(ts.mint, ts.symbol, reason)
-                    onLog("🔄 Sell auto-queued for retry: ${ts.symbol} | reason=$reason", tradeId.mint)
+                    PendingSellQueue.add(ts.mint, ts.symbol, requestReason)
+                    onLog("🔄 Sell auto-queued for retry: ${ts.symbol} | reason=$requestReason", tradeId.mint)
                     ErrorLogger.warn("Executor", "🔄 SELL REQUEUED: ${ts.symbol} — will retry when wallet/RPC recovers")
                     // Only true route/no-signature failures emit this. Active sigs,
                     // balance-proof waits, close-authority guards, and failure-history
@@ -11733,11 +11738,11 @@ class Executor(
                     try {
                         ForensicLogger.lifecycle(
                             "SELL_NO_CURRENT_HELD_PROOF_NOT_RETRIED",
-                            "mint=${ts.mint.take(12)} symbol=${ts.symbol} reason=$reason no_close=true route_retry=true"
+                            "mint=${ts.mint.take(12)} symbol=${ts.symbol} reason=$requestReason no_close=true route_retry=true"
                         )
                         com.lifecyclebot.engine.sell.SellForensics.inc(
                             com.lifecyclebot.engine.sell.SellForensics.EXEC_LIVE_SELL_ROUTE_FAILED_NO_SIGNATURE,
-                            "mint=${ts.mint.take(10)} symbol=${ts.symbol} reason=$reason"
+                            "mint=${ts.mint.take(10)} symbol=${ts.symbol} reason=$requestReason"
                         )
                     } catch (_: Throwable) {}
                 }
@@ -11925,7 +11930,7 @@ class Executor(
         // Without this, a crash mid-sell leaves the lock set forever, causing
         // bot-stop closeAllPositions() to see ALREADY_CLOSED and skip the position.
         try {
-        try { ForensicLogger.lifecycle("PAPER_SELL_START", "mint=${ts.mint.take(10)} symbol=${ts.symbol} reason=$reason") } catch (_: Throwable) {}
+        try { ForensicLogger.lifecycle("PAPER_SELL_START", "mint=${ts.mint.take(10)} symbol=${ts.symbol} reason=$requestReason") } catch (_: Throwable) {}
         // FIX: these were missing and caused your compile failure
         // V5.9.83: guard against unset entryTime (would make holdTime = now-epoch = 56 yrs).
         val entryTimeSafe = if (pos.entryTime > 1_000_000_000_000L) pos.entryTime else System.currentTimeMillis()
@@ -12130,7 +12135,7 @@ class Executor(
                 ) } catch (_: Throwable) {}
             }
         }
-        try { ForensicLogger.lifecycle("PAPER_SELL_LEARNING_ASYNC_QUEUED", "mint=${ts.mint.take(10)} symbol=${ts.symbol} reason=$reason") } catch (_: Throwable) {}
+        try { ForensicLogger.lifecycle("PAPER_SELL_LEARNING_ASYNC_QUEUED", "mint=${ts.mint.take(10)} symbol=${ts.symbol} reason=$requestReason") } catch (_: Throwable) {}
         
         EmergentGuardrails.unregisterPosition(tradeId.mint)
         // V5.9.385 — match the BUY-side registerPosition by closing the
@@ -13199,7 +13204,7 @@ class Executor(
         
         // V5.9.248: stamp cooldown so universal gate blocks immediate re-entry
         com.lifecyclebot.engine.BotService.recentlyClosedMs[ts.mint] = System.currentTimeMillis()
-        try { ForensicLogger.lifecycle("PAPER_SELL_DONE", "mint=${ts.mint.take(10)} symbol=${ts.symbol} reason=$reason") } catch (_: Throwable) {}
+        try { ForensicLogger.lifecycle("PAPER_SELL_DONE", "mint=${ts.mint.take(10)} symbol=${ts.symbol} reason=$requestReason") } catch (_: Throwable) {}
 
         return SellResult.PAPER_CONFIRMED
         } finally {
@@ -13209,7 +13214,7 @@ class Executor(
                 try { PaperPositionCloseAuthority.markFailed("PAPER", ts.mint, ts.symbol, "PAPER_SELL_EXITED_WITHOUT_CLOSE:$reason") } catch (_: Throwable) {}
             }
             releasePaperSellLock(ts.mint)
-            try { ForensicLogger.lifecycle("PAPER_SELL_LOCK_RELEASED", "mint=${ts.mint.take(10)} symbol=${ts.symbol} reason=$reason") } catch (_: Throwable) {}
+            try { ForensicLogger.lifecycle("PAPER_SELL_LOCK_RELEASED", "mint=${ts.mint.take(10)} symbol=${ts.symbol} reason=$requestReason") } catch (_: Throwable) {}
         }
     }
 
