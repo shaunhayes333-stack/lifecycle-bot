@@ -1,6 +1,8 @@
 package com.lifecyclebot.engine.sell
 
 import com.lifecyclebot.engine.ErrorLogger
+import com.lifecyclebot.engine.ForensicLogger
+import com.lifecyclebot.engine.PipelineHealthCollector
 import com.lifecyclebot.engine.TokenLifecycleTracker
 import java.math.BigInteger
 
@@ -30,6 +32,8 @@ object SellFinalizationCoordinator {
         val realizedPnl: RealizedPnLCalculator.Result,
         val sellAmountViolation: Boolean,
         val freshWalletSol: Double,
+        val finality: TxMetaSellFinalizer.SellFinalityResult,
+        val pendingRetry: Boolean,
     )
 
     /**
@@ -60,13 +64,60 @@ object SellFinalizationCoordinator {
     ): Result {
         // (2) chain-meta-driven final state + consumed amount
         val fin = TxMetaSellFinalizer.finalize(
+            mint = intent.mint,
+            signature = sellSig,
+            previousRawQty = intent.entryTokenRaw.takeIf { it.signum() > 0 } ?: intent.confirmedWalletRaw,
             preTokenBalanceRaw = preTokenBalanceRaw,
             postTokenBalanceRaw = postTokenBalanceRaw,
             walletPollRaw = walletPollRaw,
             solReceivedLamports = solReceivedLamports,
+            txSlot = 0L,
+            routedQuoteSettlementProof = sellSolReceived > 0.0,
         )
         val actualConsumedRaw = fin.actualConsumedRaw
         val remainingRaw = fin.remainingRaw
+
+        if (fin.finality is TxMetaSellFinalizer.SellFinalityResult.PendingRetry) {
+            try {
+                ForensicLogger.lifecycle(
+                    "SELL_FINALITY_PENDING_RETRY",
+                    "mint=${intent.mint.take(10)} symbol=${intent.symbol} reason=${fin.finality.reason} sig=${fin.finality.signature?.take(12) ?: ""} prev=${fin.finality.previousRawQty} action=no_close_no_journal_no_learning_keep_lease",
+                )
+                PipelineHealthCollector.labelInc("SELL_FINALITY_PENDING_RETRY")
+                PipelineHealthCollector.labelInc("SELL_FINALITY_PENDING_RETRY_${fin.finality.reason}")
+                CloseLease.recordRetry(intent.mint, "SELL_FINALITY_PENDING_RETRY_${fin.finality.reason}")
+                SellReconciler.requestUrgentTick("SELL_FINALITY_PENDING_RETRY_${fin.finality.reason}")
+            } catch (_: Throwable) {}
+            return Result(
+                finalState = fin.finalState,
+                actualConsumedRaw = actualConsumedRaw,
+                remainingRaw = remainingRaw,
+                solReceived = sellSolReceived,
+                realizedPnl = RealizedPnLCalculator.calculate(intent.entrySolSpent, intent.entryTokenRaw, BigInteger.ZERO, 0.0, 0.0),
+                sellAmountViolation = false,
+                freshWalletSol = 0.0,
+                finality = fin.finality,
+                pendingRetry = true,
+            )
+        }
+        if (fin.finality is TxMetaSellFinalizer.SellFinalityResult.FailedWithProof) {
+            try {
+                ForensicLogger.lifecycle("SELL_FINALITY_FAILED_WITH_PROOF", "mint=${intent.mint.take(10)} symbol=${intent.symbol} reason=${fin.finality.reason} sig=${fin.finality.signature?.take(12) ?: ""} action=no_close")
+                PipelineHealthCollector.labelInc("SELL_FINALITY_FAILED_WITH_PROOF")
+                CloseLease.recordRetry(intent.mint, "SELL_FINALITY_FAILED_WITH_PROOF_${fin.finality.reason}")
+            } catch (_: Throwable) {}
+            return Result(
+                finalState = fin.finalState,
+                actualConsumedRaw = actualConsumedRaw,
+                remainingRaw = remainingRaw,
+                solReceived = sellSolReceived,
+                realizedPnl = RealizedPnLCalculator.calculate(intent.entrySolSpent, intent.entryTokenRaw, BigInteger.ZERO, 0.0, 0.0),
+                sellAmountViolation = true,
+                freshWalletSol = 0.0,
+                finality = fin.finality,
+                pendingRetry = true,
+            )
+        }
 
         // (1) audit actual consumed vs requested. Locks the mint on violation.
         val pass = SellAmountAuditor.audit(intent, actualConsumedRaw)
@@ -128,6 +179,8 @@ object SellFinalizationCoordinator {
             realizedPnl = pnl,
             sellAmountViolation = violation,
             freshWalletSol = fresh,
+            finality = fin.finality,
+            pendingRetry = false,
         )
     }
 }

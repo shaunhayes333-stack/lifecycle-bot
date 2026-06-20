@@ -192,12 +192,38 @@ class SellExecutionOverhaulTest {
         assertEquals(TxMetaSellFinalizer.FinalState.PARTIAL_SELL, partial.finalState)
         assertEquals(BigInteger.valueOf(500_000L), partial.actualConsumedRaw)
 
-        // RPC blip: walletPollRaw and postTokenBalanceRaw both null → INDETERMINATE.
+        // RPC/proof blip: missing tx/post/proceeds proof → PendingRetry, not normal success.
         val indet = TxMetaSellFinalizer.finalize(
-            preTokenBalanceRaw = null, postTokenBalanceRaw = null,
-            walletPollRaw = null, solReceivedLamports = 0L,
+            mint = "MINT_TEST_A",
+            signature = "SigPending111",
+            previousRawQty = BigInteger.valueOf(1_000_000L),
+            preTokenBalanceRaw = null,
+            postTokenBalanceRaw = null,
+            walletPollRaw = null,
+            solReceivedLamports = 0L,
+            txSlot = 123L,
         )
         assertEquals(TxMetaSellFinalizer.FinalState.INDETERMINATE, indet.finalState)
+        assertTrue(indet.finality is TxMetaSellFinalizer.SellFinalityResult.PendingRetry)
+        assertEquals("MISSING_PRE_TOKEN_BALANCE", (indet.finality as TxMetaSellFinalizer.SellFinalityResult.PendingRetry).reason)
+    }
+
+
+    @Test
+    fun missing_proceeds_or_route_settlement_is_pending_retry() {
+        val r = TxMetaSellFinalizer.finalize(
+            mint = "MINT_TEST_PROCEEDS",
+            signature = "SigNoProceeds111",
+            previousRawQty = BigInteger.valueOf(1_000_000L),
+            preTokenBalanceRaw = BigInteger.valueOf(1_000_000L),
+            postTokenBalanceRaw = BigInteger.ZERO,
+            walletPollRaw = BigInteger.ZERO,
+            solReceivedLamports = 0L,
+            txSlot = 456L,
+            routedQuoteSettlementProof = false,
+        )
+        assertTrue(r.finality is TxMetaSellFinalizer.SellFinalityResult.PendingRetry)
+        assertEquals("MISSING_PROCEEDS_OR_ROUTE_SETTLEMENT", (r.finality as TxMetaSellFinalizer.SellFinalityResult.PendingRetry).reason)
     }
 
     // ── Item 7 ──────────────────────────────────────────────────────────

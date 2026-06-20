@@ -2323,6 +2323,53 @@ class GoldenTapeRegressionTest {
         assertTrue("confirmed invisible buy doctor fault must be prevented at source", exec.contains("canonicalOpen=1") && exec.contains("hostTrackerOpen/liveOpen=0"))
     }
 
+
+
+
+    @Test
+    fun deep_launch_token_prices_must_not_round_to_zero_in_ui() {
+        val main = java.io.File("src/main/kotlin/com/lifecyclebot/ui/MainActivity.kt").readText()
+        val cur = java.io.File("src/main/kotlin/com/lifecyclebot/engine/CurrencyManager.kt").readText()
+        assertTrue("Main meme UI price formatter must support 10-12 decimal launch prices", main.contains("fmtTokenPrice") && main.contains("0.0000000001") && main.contains("fmtTokenPrice(10)") && main.contains("fmtTokenPrice(12)"))
+        assertTrue("Manual sell preview must use adaptive fmtPrice for Entry/Now", main.contains("val nowTxt = if (currentPrice != null && currentPrice > 0.0) currentPrice.fmtPrice()") && main.contains("val entryTxt = if (pos.entryPrice > 0.0) pos.entryPrice.fmtPrice()"))
+        assertFalse("Manual sell preview must not use fixed six-decimal hasPrice formatter", main.contains("val nowTxt = if (hasPrice)") && main.contains("%.6f"))
+        assertTrue("CurrencyManager small price formatting must support 12 decimal places", cur.contains("12 -> 1_000_000_000_000L") && cur.contains("fixed(v, 12)"))
+    }
+
+    @Test
+    fun manual_sell_preview_must_not_show_phantom_zero_basis_pnl() {
+        val main = java.io.File("src/main/kotlin/com/lifecyclebot/ui/MainActivity.kt").readText()
+        assertTrue("Manual sell preview must use OpenPnlSanity, not raw entry/current division", main.contains("OpenPnlSanity.inspect(ts") && main.contains("MainActivity.manualSell") && main.contains("BASIS UNTRUSTED") && main.contains("pnlVerdict.reason"))
+        val manualBlock = main.substringAfter("private fun onManualSellClicked()").substringBefore("private fun updateGlobalDecisionLog")
+        assertFalse("Manual sell preview must not calculate fantasy PnL directly from currentPrice-entryPrice", manualBlock.contains("currentPrice!! - pos.entryPrice"))
+        assertTrue("Open position card must suppress untrusted phantom PnL", main.contains("MainActivity.renderRow") && main.contains("basis wait") && main.contains("basisTrusted"))
+    }
+
+
+    @Test
+    fun zombie_catastrophe_must_not_fake_local_close() {
+        val bot = java.io.File("src/main/kotlin/com/lifecyclebot/engine/BotService.kt").readText()
+        val block = bot.substringAfter("ZOMBIE_CATASTROPHE_PENDING_RETRY").substringBefore("DEEP_CATASTROPHE_NET")
+        assertTrue("Zombie catastrophe must become pending retry, not fake local close", block.contains("CloseLease.recordRetry") && block.contains("SellReconciler.requestUrgentTick") && block.contains("action=no_local_close_no_slot_release"))
+        assertFalse("Zombie catastrophe must not zero qty or release slot as closed without proof", block.contains("copy(qtyToken = 0.0") || block.contains("confirmZeroBalanceClose") || block.contains("markLanded"))
+    }
+
+    @Test
+    fun live_sell_finality_is_atomic_no_degraded_success() {
+        val tx = java.io.File("src/main/kotlin/com/lifecyclebot/engine/sell/TxMetaSellFinalizer.kt").readText()
+        val coord = java.io.File("src/main/kotlin/com/lifecyclebot/engine/sell/SellFinalizationCoordinator.kt").readText()
+        val exec = java.io.File("src/main/kotlin/com/lifecyclebot/engine/Executor.kt").readText()
+        assertTrue("TxMetaSellFinalizer must expose sealed finality outcomes", tx.contains("sealed class SellFinalityResult") && tx.contains("data class Finalized") && tx.contains("data class PartialFinalized") && tx.contains("data class PendingRetry") && tx.contains("data class FailedWithProof"))
+        assertTrue("Missing live sell proof must become SELL_FINALITY_PENDING_RETRY", tx.contains("MISSING_SIGNATURE") && tx.contains("MISSING_PRE_TOKEN_BALANCE") && tx.contains("MISSING_POST_BALANCE_PROOF") && tx.contains("MISSING_PROCEEDS_OR_ROUTE_SETTLEMENT"))
+        val pendingIdx = coord.indexOf("if (fin.finality is TxMetaSellFinalizer.SellFinalityResult.PendingRetry)")
+        val landedIdx = coord.indexOf("SellForensicsWriter.writeSellLanded(")
+        val settledIdx = coord.indexOf("TokenLifecycleTracker.onSellSettled(")
+        assertTrue("Coordinator must not lifecycle-settle or write landed rows on PendingRetry", pendingIdx >= 0 && coord.contains("action=no_close_no_journal_no_learning_keep_lease") && pendingIdx < landedIdx && pendingIdx < settledIdx)
+        assertTrue("Pending finality must keep close lease retryable and trigger reconciler", coord.contains("CloseLease.recordRetry") && coord.contains("SellReconciler.requestUrgentTick"))
+        assertTrue("Executor must not trust RPC empty-map or no SOL delta as normal sell success", exec.contains("RPC empty-map is not post-balance proof") && exec.contains("SELL_FINALITY_PENDING_RETRY_NO_PROCEEDS") && exec.contains("No normal SELL journal row"))
+        assertFalse("No degraded finality fallback may mark LIVE_SELL_OK or CLOSED", exec.contains("HELIUS_DEGRADED") || exec.contains("finalize-degraded"))
+    }
+
     @Test
     fun live_break_even_uses_live_first_trust_rebase_not_paper_override() {
         val be = java.io.File("src/main/kotlin/com/lifecyclebot/engine/LiveBreakEvenGuard.kt").readText()
