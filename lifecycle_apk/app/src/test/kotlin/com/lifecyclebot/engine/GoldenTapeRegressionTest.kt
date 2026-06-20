@@ -2373,9 +2373,9 @@ class GoldenTapeRegressionTest {
     fun live_break_even_uses_live_first_trust_rebase_not_paper_override() {
         val be = java.io.File("src/main/kotlin/com/lifecyclebot/engine/LiveBreakEvenGuard.kt").readText()
         assertTrue("live trust rebase must exist", be.contains("LIVE TRUST REBASE") && be.contains("liveTerminalEdge") && be.contains("paperAdvisoryEdge"))
-        assertTrue("paper memory may only be advisory/capped", be.contains("paperAdvisoryEdge * 0.35") && be.contains("minOf(paperAdvisoryEdge, 15.0)") && be.contains("includePartials = false"))
+        assertTrue("paper memory may only be advisory/capped, but clean proof may bootstrap executable live samples", be.contains("paperAdvisoryEdge * 0.35") && be.contains("minOf(paperAdvisoryEdge, 28.0)") && be.contains("includePartials = false"))
         assertTrue("live terminal rows must be read separately from paper", be.contains("it.mode.equals(\"live\", true)") && be.contains("it.mode.equals(\"paper\", true)"))
-        assertTrue("StrategyTelemetry must be capped so partial/paper-heavy leaderboards cannot dominate", be.contains("coerceAtMost(60.0)") && be.contains("minOf(leaderboardEdge, 25.0)"))
+        assertTrue("StrategyTelemetry must be capped so partial/paper-heavy leaderboards cannot dominate", be.contains("coerceIn(0.0, 60.0)") && be.contains("minOf(leaderboardEdge, 35.0)"))
     }
 
     @Test
