@@ -21,7 +21,7 @@ object LiveBreakEvenGuard {
     ): Result {
         val canonLane = BleederMemoryRouter.canon(lane.ifBlank { style })
         val expectedEdge = expectedEdgePct(canonLane, score)
-        val required = requiredEdgePct(ts, canonLane, style, buySlippageBps, sizeSol)
+        val required = requiredEdgePct(ts, canonLane, style, buySlippageBps, sizeSol, score)
         return Result(expectedEdge, required, expectedEdge > required, if (expectedEdge > required) "EDGE_CLEARS_COST" else "EDGE_BELOW_ROUNDTRIP_COST")
     }
 
@@ -34,7 +34,7 @@ object LiveBreakEvenGuard {
         } catch (_: Throwable) { ((score - 40.0) * 1.25).coerceIn(0.0, 60.0) }
     }
 
-    fun requiredEdgePct(ts: TokenState, lane: String, style: String, buySlippageBps: Int, sizeSol: Double): Double {
+    fun requiredEdgePct(ts: TokenState, lane: String, style: String, buySlippageBps: Int, sizeSol: Double, score: Double): Double {
         val buySlippagePct = (buySlippageBps.coerceAtLeast(0) / 100.0).coerceIn(0.0, 20.0)
         val expectedSellSlippagePct = try {
             com.lifecyclebot.v3.scoring.ExecutionCostPredictorAI.expectedExtraSlipPct(ts.lastLiquidityUsd)
