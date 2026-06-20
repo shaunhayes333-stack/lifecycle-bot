@@ -70,7 +70,7 @@ object LiveGrowthDoctrine {
         }
     }
 
-    fun sizePolicy(lane: String, score: Double, walletSol: Double, spendableSol: Double): SizePolicy {
+    fun sizePolicy(lane: String, score: Double, walletSol: Double, spendableSol: Double, movement: MovementPatternSignal.Signal? = null): SizePolicy {
         val c = canonicalLane(lane)
         val baseWalletPct = when {
             score >= 85.0 -> 0.115
@@ -119,14 +119,19 @@ object LiveGrowthDoctrine {
             spendableSol >= 0.5 -> 0.024
             else -> 0.012
         }
+        val moveSize = movement?.sizeMult ?: 1.0
+        val moveHold = movement?.holdMult ?: 1.0
+        val adjustedWalletPct = (baseWalletPct * moveSize).coerceIn(0.015, maxWalletPct)
+        val adjustedLaneMult = (laneMult * moveSize).coerceIn(0.35, 1.75)
+        val adjustedLiqPct = (liqPct * moveSize.coerceIn(0.55, 1.35)).coerceIn(0.0025, 0.0080)
         return SizePolicy(
-            walletPct = baseWalletPct,
-            laneMult = laneMult,
-            liquidityImpactPct = liqPct,
+            walletPct = adjustedWalletPct,
+            laneMult = adjustedLaneMult,
+            liquidityImpactPct = adjustedLiqPct,
             maxWalletPct = maxWalletPct,
             absoluteCapSol = absoluteCap,
             minExecutableSol = minExec,
-            reason = "$VERSION lane=$c score=${score.toInt()} walletPct=${"%.3f".format(baseWalletPct)} laneMult=${"%.2f".format(laneMult)} liqPct=${"%.4f".format(liqPct)} maxWalletPct=${"%.3f".format(maxWalletPct)} cap=${"%.3f".format(absoluteCap)}",
+            reason = "$VERSION lane=$c score=${score.toInt()} walletPct=${"%.3f".format(adjustedWalletPct)} laneMult=${"%.2f".format(adjustedLaneMult)} liqPct=${"%.4f".format(adjustedLiqPct)} maxWalletPct=${"%.3f".format(maxWalletPct)} cap=${"%.3f".format(absoluteCap)} movement=${movement?.pattern ?: "none"} moveConf=${movement?.confidence?.toInt() ?: 0} hold×=${"%.2f".format(moveHold)} timing=${movement?.timing ?: "n/a"}",
         )
     }
 

@@ -138,6 +138,7 @@ object ToolkitSignalSheet {
                 try { PipelineHealthCollector.labelInc("TOOLKIT_SIGNAL_SHEET_REFRESHED") } catch (_: Throwable) {}
                 try { PipelineHealthCollector.labelInc("TOOLKIT_SETUP_${built.setup.name}") } catch (_: Throwable) {}
                 try { PipelineHealthCollector.labelInc("TOOLKIT_CHART_${built.chartPattern.uppercase().take(48)}") } catch (_: Throwable) {}
+        try { PipelineHealthCollector.labelInc("TOOLKIT_MOVEMENT_${built.chartPattern.uppercase().take(48)}") } catch (_: Throwable) {}
             } catch (_: Throwable) {
                 try { PipelineHealthCollector.labelInc("TOOLKIT_SIGNAL_SHEET_REFRESH_FAILED") } catch (_: Throwable) {}
             } finally {
@@ -175,6 +176,7 @@ object ToolkitSignalSheet {
         val v3 = (ts.lastV3Score ?: ts.entryScore.toInt()).coerceIn(-100, 150).toDouble()
         val tt = classification?.tradeType ?: try { ModeRouter.classify(ts).tradeType } catch (_: Throwable) { ModeRouter.TradeType.UNKNOWN }
         val regime = try { RegimeDetector.current() } catch (_: Throwable) { null }
+        val movementSignal = try { MovementPatternSignal.from(ts) } catch (_: Throwable) { null }
 
         val move5 = pctMove(prices.takeLast(6))
         val move12 = pctMove(prices.takeLast(13))
@@ -208,6 +210,41 @@ object ToolkitSignalSheet {
         val candidates = mutableListOf<Candidate>()
 
         fun add(c: Candidate) { if (c.score > 0.0) candidates += c }
+
+        // Core movement signal: operator-grade chart-pattern-to-movement recognition.
+        // This runs on the same in-memory history as the rest of the sheet and makes
+        // movement patterns visible to style routing immediately, not only after the
+        // async SmartChart scanner warms the cache.
+        movementSignal?.let { ms ->
+            add(Candidate(
+                setup = when (ms.pattern) {
+                    "BREAKOUT_CONTINUATION" -> Setup.CHART_BREAKOUT
+                    "PULLBACK_RECLAIM" -> Setup.CHART_PULLBACK_RECLAIM
+                    "ACCUMULATION_COMPRESSION" -> Setup.LIQUIDITY_DEPTH_QUALITY
+                    "EXHAUSTION_CHASE" -> Setup.EXHAUSTION_QUICK_FLIP
+                    "VOLUME_IGNITION" -> Setup.VOLUME_IGNITION_SCALP
+                    "FREEFALL_NO_RECLAIM" -> Setup.REGIME_DEFENSIVE_PROBE
+                    else -> Setup.NONE
+                },
+                score = ms.confidence,
+                chart = ms.pattern.lowercase(),
+                entry = ms.timing,
+                exit = "movement_aware_hold_and_trail",
+                hold = ms.holdMult,
+                size = ms.sizeMult,
+                tp = if (ms.holdMult > 1.4) 1.25 else 0.92,
+                lanes = when (ms.pattern) {
+                    "BREAKOUT_CONTINUATION" -> setOf("MOONSHOT", "QUALITY", "PROJECT_SNIPER")
+                    "PULLBACK_RECLAIM" -> setOf("DIP_HUNTER", "QUALITY", "TREASURY")
+                    "ACCUMULATION_COMPRESSION" -> setOf("QUALITY", "BLUECHIP", "WHALE_FOLLOW")
+                    "EXHAUSTION_CHASE" -> setOf("EXPRESS", "MANIPULATED", "SHITCOIN")
+                    "VOLUME_IGNITION" -> setOf("EXPRESS", "SHITCOIN", "MOONSHOT")
+                    else -> setOf("SHITCOIN", "PROJECT_SNIPER")
+                },
+                tools = setOf("SMART_CHART", "PATTERN_CLASSIFIER", "MFE_TRAIL", "MOVEMENT_PATTERN"),
+                reasons = listOf("movement=${ms.pattern}", "conf=${ms.confidence.toInt()}", ms.reason)
+            ))
+        }
 
         // Diamond hands / runner: strong structure, high confidence, near highs, not a scalp.
         add(Candidate(
