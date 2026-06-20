@@ -22,6 +22,21 @@ import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withTimeoutOrNull
 import java.util.concurrent.ConcurrentHashMap
 
+data class MintEntryMarketSnapshot(
+    val priceUsd: Double,
+    val marketCapUsd: Double,
+    val liquidityUsd: Double,
+    val poolAddress: String,
+    val priceSource: String,
+    val dex: String,
+    val capturedAtMs: Long = System.currentTimeMillis(),
+) {
+    val valid: Boolean get() = priceUsd.isFinite() && priceUsd > 0.0 &&
+        marketCapUsd.isFinite() && marketCapUsd > 0.0 &&
+        liquidityUsd.isFinite() && liquidityUsd > 0.0 &&
+        poolAddress.isNotBlank() && priceSource.isNotBlank()
+}
+
 /**
  * FIX #3: Rugged contracts blacklist - stores by mint address (not ticker)
  * Persists across restarts. No rebuy after -33% loss.
@@ -7652,6 +7667,62 @@ class Executor(
         }
     }
 
+    private fun mintEntryMarketSnapshot(ts: TokenState): MintEntryMarketSnapshot? {
+        val price = ts.lastPrice.takeIf { it.isFinite() && it > 0.0 }
+            ?: ts.history.lastOrNull { it.priceUsd.isFinite() && it.priceUsd > 0.0 }?.priceUsd
+            ?: return null
+        val mcap = ts.lastMcap.takeIf { it.isFinite() && it > 0.0 }
+            ?: ts.history.lastOrNull { it.marketCap.isFinite() && it.marketCap > 0.0 }?.marketCap
+            ?: return null
+        val liq = ts.lastLiquidityUsd.takeIf { it.isFinite() && it > 0.0 } ?: return null
+        val pool = ts.lastPricePoolAddr.ifBlank { ts.pairAddress }
+        val source = ts.lastPriceSource.ifBlank { ts.source.ifBlank { "UNKNOWN" } }
+        val dex = ts.lastPriceDex.ifBlank { "UNKNOWN" }
+        return MintEntryMarketSnapshot(price, mcap, liq, pool, source, dex).takeIf { it.valid }
+    }
+
+    private fun persistMintEntryMarketSnapshot(ts: TokenState, snap: MintEntryMarketSnapshot, reason: String) {
+        ts.lastPrice = snap.priceUsd
+        ts.lastMcap = snap.marketCapUsd
+        ts.lastLiquidityUsd = snap.liquidityUsd
+        ts.lastPricePoolAddr = snap.poolAddress
+        ts.lastPriceSource = snap.priceSource
+        ts.lastPriceDex = snap.dex
+        ts.lastPriceUpdate = snap.capturedAtMs
+        try {
+            val ctx = com.lifecyclebot.AATEApp.appContextOrNull()
+            if (ctx != null) TokenMetaCache.get(ctx).register(
+                mint = ts.mint,
+                symbol = ts.symbol,
+                name = ts.name,
+                pairAddress = ts.pairAddress.ifBlank { snap.poolAddress },
+                pairUrl = ts.pairUrl,
+                logoUrl = ts.logoUrl,
+                lastPriceSource = snap.priceSource,
+                lastPricePoolAddr = snap.poolAddress,
+                lastPriceDex = snap.dex,
+                lastPrice = snap.priceUsd,
+                lastMcap = snap.marketCapUsd,
+                lastLiquidityUsd = snap.liquidityUsd,
+                lastFdv = ts.lastFdv.takeIf { it > 0.0 } ?: snap.marketCapUsd,
+            )
+        } catch (_: Throwable) {}
+        try {
+            ForensicLogger.lifecycle("MINT_ENTRY_MARKET_SNAPSHOT_STORED", "mint=${ts.mint.take(10)} symbol=${ts.symbol} reason=$reason price=${snap.priceUsd} mcap=${snap.marketCapUsd} liq=${snap.liquidityUsd} pool=${snap.poolAddress.take(16)} source=${snap.priceSource} dex=${snap.dex}")
+            PipelineHealthCollector.labelInc("MINT_ENTRY_MARKET_SNAPSHOT_STORED")
+        } catch (_: Throwable) {}
+    }
+
+    private fun requireMintEntryMarketSnapshot(ts: TokenState, reason: String): MintEntryMarketSnapshot? {
+        val snap = mintEntryMarketSnapshot(ts)
+        if (snap != null) { persistMintEntryMarketSnapshot(ts, snap, reason); return snap }
+        try {
+            ForensicLogger.lifecycle("ENTRY_MARKET_SNAPSHOT_MISSING_DEFERRED", "mint=${ts.mint.take(10)} symbol=${ts.symbol} reason=$reason price=${ts.lastPrice} mcap=${ts.lastMcap} liq=${ts.lastLiquidityUsd} pool=${ts.lastPricePoolAddr.ifBlank { ts.pairAddress }.take(16)} source=${ts.lastPriceSource.ifBlank { ts.source }} action=no_entry_no_fake_basis")
+            PipelineHealthCollector.labelInc("ENTRY_MARKET_SNAPSHOT_MISSING_DEFERRED")
+        } catch (_: Throwable) {}
+        return null
+    }
+
     fun paperBuy(ts: TokenState, sol: Double, score: Double, identity: TradeIdentity? = null, 
                  quality: String = "C", skipGraduated: Boolean = false,
                  wallet: SolanaWallet? = null, walletSol: Double = 0.0,
@@ -7986,6 +8057,8 @@ class Executor(
             ) am.copyTriggerWallet else ""
         } catch (_: Throwable) { "" }
 
+        val entryMarketSnapshot = mintEntryMarketSnapshot(ts)
+        if (entryMarketSnapshot != null) persistMintEntryMarketSnapshot(ts, entryMarketSnapshot, "paperBuy")
         ts.position = Position(
             qtyToken     = effectiveSol / maxOf(effectivePrice, 1e-12),
             entryPrice   = effectivePrice,
@@ -7994,8 +8067,8 @@ class Executor(
             highestPrice = effectivePrice,
             entryPhase   = ts.phase,
             entryScore   = score,
-            entryLiquidityUsd = ts.lastLiquidityUsd,
-            entryMcap    = ts.lastMcap,
+            entryLiquidityUsd = entryMarketSnapshot?.liquidityUsd ?: ts.lastLiquidityUsd,
+            entryMcap    = entryMarketSnapshot?.marketCapUsd ?: ts.lastMcap,
             isPaperPosition = true,
             // V5.9.1109 — stamp paper entry pricing basis too. LiveBuy already
             // did this, but paperBuy left entryPriceSource blank; the shared
@@ -8004,11 +8077,11 @@ class Executor(
             // universal fallback safety path read raw ts.lastPrice and printed
             // fake -24%..-87% orphan losses seconds after BUY. Persisting the
             // source/pool/dex contract here makes paper exits comparable.
-            entryPriceSource = ts.lastPriceSource.ifBlank { "UNKNOWN" },
-            entryPoolAddress = ts.lastPricePoolAddr.ifBlank { ts.pairAddress },
-            entryDex         = ts.lastPriceDex.ifBlank { "UNKNOWN" },
-            entrySupplyAssumed = if (ts.lastPriceSource == "PUMP_FUN_BC_SYNTHETIC" ||
-                                      ts.lastPriceSource == "PUMP_FUN_FRONTEND_API")
+            entryPriceSource = entryMarketSnapshot?.priceSource ?: ts.lastPriceSource.ifBlank { "UNKNOWN" },
+            entryPoolAddress = entryMarketSnapshot?.poolAddress ?: ts.lastPricePoolAddr.ifBlank { ts.pairAddress },
+            entryDex         = entryMarketSnapshot?.dex ?: ts.lastPriceDex.ifBlank { "UNKNOWN" },
+            entrySupplyAssumed = if ((entryMarketSnapshot?.priceSource ?: ts.lastPriceSource) == "PUMP_FUN_BC_SYNTHETIC" ||
+                                      (entryMarketSnapshot?.priceSource ?: ts.lastPriceSource) == "PUMP_FUN_FRONTEND_API")
                 1_000_000_000.0 else 0.0,
             // V5.9.969 — finalMode picks the richer HoldingLogicLayer label
             // when no sub-trader tag is set and would otherwise be STANDARD.
@@ -9124,6 +9197,8 @@ class Executor(
             return false
         }
 
+        val entryMarketSnapshot = requireMintEntryMarketSnapshot(ts, "liveBuy") ?: return false
+
         // V5.0.3908 — universal approved-handoff recovery for LIVE buys.
         // Some older/direct callers reach liveBuy() without the lane attemptId even
         // after TradeAuthorizer/ExecutableOpenGate already approved a specialist lane.
@@ -9930,8 +10005,8 @@ class Executor(
                 highestPrice = price,
                 entryPhase   = ts.phase,
                 entryScore   = score,
-                entryLiquidityUsd = ts.lastLiquidityUsd,
-                entryMcap    = ts.lastMcap,
+                entryLiquidityUsd = entryMarketSnapshot.liquidityUsd,
+                entryMcap    = entryMarketSnapshot.marketCapUsd,
                 isPaperPosition = false,
                 // V5.9.386 — sub-trader tag carries through live buy too.
                 tradingMode  = if (layerTag.isNotBlank()) layerTag else currentMode.name,
@@ -9948,11 +10023,11 @@ class Executor(
                 // produces real-money phantom-PnL prints. Snapshot + rebase
                 // logic in getActualPrice keeps PnL honest across the BC→pool
                 // graduation jump.
-                entryPriceSource = ts.lastPriceSource.ifBlank { "UNKNOWN" },
-                entryPoolAddress = ts.lastPricePoolAddr.ifBlank { ts.pairAddress },
-                entryDex         = ts.lastPriceDex.ifBlank { "UNKNOWN" },
-                entrySupplyAssumed = if (ts.lastPriceSource == "PUMP_FUN_BC_SYNTHETIC" ||
-                                          ts.lastPriceSource == "PUMP_FUN_FRONTEND_API")
+                entryPriceSource = entryMarketSnapshot.priceSource,
+                entryPoolAddress = entryMarketSnapshot.poolAddress,
+                entryDex         = entryMarketSnapshot.dex,
+                entrySupplyAssumed = if (entryMarketSnapshot.priceSource == "PUMP_FUN_BC_SYNTHETIC" ||
+                                          entryMarketSnapshot.priceSource == "PUMP_FUN_FRONTEND_API")
                     1_000_000_000.0 else 0.0,
             )
             val trade = Trade(
@@ -9966,6 +10041,13 @@ class Executor(
                 // V5.9.386 — sub-trader tag in journal
                 tradingMode = if (layerTag.isNotBlank()) layerTag else currentMode.name,
                 tradingModeEmoji = if (layerTagEmoji.isNotBlank()) layerTagEmoji else currentMode.emoji,
+                entryPriceSnapshot = price,
+                entryMcapUsd = entryMarketSnapshot.marketCapUsd,
+                entryCostSol = sol,
+                entryQtyToken = if (price > 0.0) sol / price else 0.0,
+                remainingQtyToken = if (price > 0.0) sol / price else 0.0,
+                entryPriceSource = entryMarketSnapshot.priceSource,
+                entryPoolAddress = entryMarketSnapshot.poolAddress,
             )
             recordTrade(ts, trade)
             buyPhase("BUY_JOURNALED")

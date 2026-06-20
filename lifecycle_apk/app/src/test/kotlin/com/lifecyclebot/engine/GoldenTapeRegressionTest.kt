@@ -2256,6 +2256,20 @@ class GoldenTapeRegressionTest {
     }
 
 
+
+    @Test
+    fun live_entries_require_persisted_mint_market_snapshot_before_commit() {
+        val exec = java.io.File("src/main/kotlin/com/lifecyclebot/engine/Executor.kt").readText()
+        val main = java.io.File("src/main/kotlin/com/lifecyclebot/ui/MainActivity.kt").readText()
+        assertTrue("Executor must define a mint entry market snapshot containing price/mcap/liquidity/pool/source", exec.contains("data class MintEntryMarketSnapshot") && exec.contains("marketCapUsd") && exec.contains("liquidityUsd") && exec.contains("poolAddress") && exec.contains("priceSource"))
+        assertTrue("liveBuy must defer before commit if the mint market snapshot is missing", exec.contains("""requireMintEntryMarketSnapshot(ts, "liveBuy") ?: return false""") && exec.contains("ENTRY_MARKET_SNAPSHOT_MISSING_DEFERRED"))
+        assertTrue("valid entry snapshots must be stored into TokenState and TokenMetaCache", exec.contains("MINT_ENTRY_MARKET_SNAPSHOT_STORED") && exec.contains("TokenMetaCache.get(ctx).register") && exec.contains("lastMcap = snap.marketCapUsd") && exec.contains("lastLiquidityUsd = snap.liquidityUsd"))
+        assertTrue("live Position and BUY journal rows must stamp snapshot mcap/liquidity/source/pool", exec.contains("entryMcap    = entryMarketSnapshot.marketCapUsd") && exec.contains("entryLiquidityUsd = entryMarketSnapshot.liquidityUsd") && exec.contains("entryMcapUsd = entryMarketSnapshot.marketCapUsd") && exec.contains("entryPriceSource = entryMarketSnapshot.priceSource") && exec.contains("entryPoolAddress = entryMarketSnapshot.poolAddress"))
+        assertTrue("UI must not repair open-position basis from current refs/journal fallbacks", main.contains("UI is not a price-basis authority") && main.contains("OPEN_POSITION_UI_BASIS_WAIT") && main.contains("action=no_ui_repair"))
+        assertFalse("UI recovery must not mutate entryPrice from recoveredEntry anymore", main.contains("ts.position = p0.copy") && main.contains("entryPrice = recoveredEntry"))
+        assertFalse("UI must not use ts.ref/current fallback as recovered current price", main.contains("existing?.ref, recoveredEntry"))
+    }
+
     @Test
     fun open_position_pnl_must_use_price_basis_authority() {
         val authority = java.io.File("src/main/kotlin/com/lifecyclebot/engine/OpenPnlSanity.kt").readText()
@@ -2609,7 +2623,7 @@ class GoldenTapeRegressionTest {
         assertTrue("AATE XML chrome must read like an institutional product, not emoji-labeled consumer crypto UI", activityLayouts.all { layout -> val xml = layout.readText(); consumerEmojiChrome.none { token -> xml.contains("android:text=\"$token") || xml.contains("$token ") } })
         assertTrue("Main runtime chrome must render institutional readiness/trader copy", !main.contains("🚀 Live Readiness") && !main.contains("🧠 All Traders") && !main.contains("📊 ${'$'}perAssetLine") && !main.contains("🛡 Guards") && !main.contains("🏆 Top-3") && main.contains("LIVE READINESS · MEME") && main.contains("ALL TRADERS ·"))
         assertTrue("Paper hero must not sanitize/delete the headline balance", !main.contains("PAPER_HERO_BANKROLL_DISPLAY_SANITIZED") && !main.contains("rawBankrollSol > sanePaperCeiling"))
-        assertTrue("Open-position UI must recover missing entry/current pricing from journal/token sources", main.contains("recoverRenderablePricing") && main.contains("journalEntryPrice") && main.contains("OPEN_POSITION_PRICE_RECOVERED_FOR_UI"))
+        assertTrue("Open-position UI must wait on executor-stamped mint market snapshots, not repair basis itself", main.contains("recoverRenderablePricing") && main.contains("UI is not a price-basis authority") && main.contains("OPEN_POSITION_UI_BASIS_WAIT") && !main.contains("OPEN_POSITION_PRICE_RECOVERED_FOR_UI"))
         assertTrue("Open-position UI must not invent entry basis from current price/ref/lastPrice", !main.contains("journalEntryPrice(buy), ts.lastPrice, ts.ref") && !main.contains("journalEntryPrice(buy), currentPrice, existing?.lastPrice") && main.contains("OPEN_POSITION_UI_BASIS_WAIT"))
         assertTrue("Main UI panels must use shared current-price authority", main.contains("mainUiCurrentPrice") && main.contains("shared Main UI current-price authority"))
         assertTrue("Main UI must show pricing wait instead of fake zero entry", main.contains("pricing wait") && main.contains("basis wait") && !main.contains("if (ref > 0.0) ref else pos.entryPrice") && !main.contains("ts.lastPrice - pos.entryPrice"))
