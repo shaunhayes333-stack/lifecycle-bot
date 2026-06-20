@@ -2353,6 +2353,14 @@ class GoldenTapeRegressionTest {
         assertFalse("Zombie catastrophe must not zero qty or release slot as closed without proof", block.contains("copy(qtyToken = 0.0") || block.contains("confirmZeroBalanceClose") || block.contains("markLanded"))
     }
 
+
+    @Test
+    fun live_sell_pending_finality_has_own_pipeline_counter() {
+        val collector = java.io.File("src/main/kotlin/com/lifecyclebot/engine/PipelineHealthCollector.kt").readText()
+        assertTrue("Sell pending finality must not be hidden under sell ok/fail", collector.contains("execLiveSellPendingFinality") && collector.contains("SELL_FINALITY_PENDING_RETRY") && collector.contains("EXEC_LIVE_SELL_PENDING_FINALITY"))
+        assertTrue("Operator report must show ok/fail/pending triple", collector.contains("SELL ok/fail/pending"))
+    }
+
     @Test
     fun live_sell_finality_is_atomic_no_degraded_success() {
         val tx = java.io.File("src/main/kotlin/com/lifecyclebot/engine/sell/TxMetaSellFinalizer.kt").readText()

@@ -129,6 +129,7 @@ object PipelineHealthCollector {
         execLiveBuyFail.set(0L)
         execLiveSellOk.set(0L)
         execLiveSellFail.set(0L)
+        execLiveSellPendingFinality.set(0L)
         execPaperBuyOk.set(0L)
         execPaperSellOk.set(0L)
         execPaperPartialOk.set(0L)
@@ -156,6 +157,7 @@ object PipelineHealthCollector {
     fun execLiveSellOkCount(): Long = execLiveSellOk.get()
     private val execLiveSellOk   = AtomicLong(0L)
     private val execLiveSellFail = AtomicLong(0L)
+    private val execLiveSellPendingFinality = AtomicLong(0L)
     private val execPaperBuyOk   = AtomicLong(0L)
     private val execPaperSellOk  = AtomicLong(0L)
     private val execPaperPartialOk = AtomicLong(0L)
@@ -543,6 +545,7 @@ object PipelineHealthCollector {
             "MEME_LIVE_EXEC_ENTRY" -> execLiveAttempt.incrementAndGet()
             "LIVE_BUY_LANDED", "BUY_CONFIRMED", "LIVE_POSITION_CONFIRMED_FROM_WALLET", "LIVE_POSITION_CONFIRMED_FROM_SIGNATURE" -> execLiveBuyOk.incrementAndGet()
             "SELL_FINALIZED_ONCE", "SELL_FINALIZED", "EXEC_LIVE_SELL_ZERO_BALANCE_CONFIRMED", "SELL_SIG_CONFIRMED" -> execLiveSellOk.incrementAndGet()
+            "SELL_FINALITY_PENDING_RETRY", "SELL_VERIFY_INCONCLUSIVE_PENDING" -> execLiveSellPendingFinality.incrementAndGet()
         }
         // V5.9.1046 — V3 reject reason histogram. Extract the normalised
         // V3 reason key from fields like 'mint=… sym=… v3=Rejected
@@ -1392,7 +1395,7 @@ object PipelineHealthCollector {
             sb.append("\n")
         }
         sb.append("  BUY ok/fail:          ${execLiveBuyOk.get()} / ${execLiveBuyFail.get()}\n")
-        sb.append("  SELL ok/fail:         ${execLiveSellOk.get()} / ${execLiveSellFail.get()}\n")
+        sb.append("  SELL ok/fail/pending: ${execLiveSellOk.get()} / ${execLiveSellFail.get()} / ${execLiveSellPendingFinality.get()}\n")
         val topLiveBuyFailReasons = s.liveBuyFailReasonCounts.entries.sortedByDescending { it.value }.take(8)
         if (topLiveBuyFailReasons.isNotEmpty()) {
             sb.append("  Top BUY fail reasons: ")
@@ -1756,7 +1759,7 @@ object PipelineHealthCollector {
             sb.append(s.liveBuyFailReasonCounts.entries.sortedByDescending { it.value }.take(8).joinToString(" · ") { "${it.key}:${it.value}" })
             sb.append("\n")
         }
-        sb.append("    EXEC_LIVE_SELL_OK=${execLiveSellOk.get()}  EXEC_LIVE_SELL_FAIL=${execLiveSellFail.get()}\n")
+        sb.append("    EXEC_LIVE_SELL_OK=${execLiveSellOk.get()}  EXEC_LIVE_SELL_FAIL=${execLiveSellFail.get()}  EXEC_LIVE_SELL_PENDING_FINALITY=${execLiveSellPendingFinality.get()}\n")
         sb.append("    EXEC_PAPER_BUY_OK=${execPaperBuyOk.get()}  EXEC_PAPER_SELL_OK=${execPaperSellOk.get()}  EXEC_PAPER_PARTIAL_OK=${execPaperPartialOk.get()}\n")
         sb.append("    PAPER_JOURNAL_ROWS=$paperJournalRows  PAPER_QUARANTINED_ROWS=$paperQuarantinedRows\n")
         if (modeSnapshot == "LIVE" && fdgLiveBlock.get() > 0 && fdgLiveAllow.get() == 0L) {
