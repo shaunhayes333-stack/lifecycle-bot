@@ -58,12 +58,14 @@ object LaneExitTuner {
         return when {
             u.contains("MOONSHOT")                          -> "MOONSHOT"
             u.contains("MANIPUL")                           -> "MANIPULATED"
-            u.contains("SHITCOIN") || u.contains("EXPRESS") -> "SHITCOIN"
+            u.contains("EXPRESS")                            -> "EXPRESS"
+            u.contains("SHITCOIN")                           -> "SHITCOIN"
+            u.contains("CYCLIC")                             -> "CYCLIC"
             u.contains("TREASURY") || u.contains("CASH")    -> "TREASURY"
-            u.contains("SNIPER")                            -> "SNIPER"
-            u.contains("QUALITY")                           -> "QUALITY"
-            u.contains("BLUE")                              -> "BLUECHIP"
-            u.contains("DIP")                               -> "DIP_HUNTER"
+            u.contains("PRESALE") || u.contains("SNIPER")   -> "PRESALE_SNIPE"
+            u.contains("QUALITY")                            -> "QUALITY"
+            u.contains("BLUE")                               -> "BLUECHIP"
+            u.contains("DIP")                                -> "DIP_HUNTER"
             else                                            -> "STANDARD"
         }
     }
@@ -163,14 +165,22 @@ object LaneExitTuner {
             // until it proves it can produce peaks/wins again. Runner lanes are still
             // protected above by the TP/giveBack logic and by the avgPeak guard here.
             wr < 0.20 && avgReal < 0.0 && avgPeak < 15.0 -> sl -= STEP * 2.0
+            // V5.0.3973 — STOP-LOSS LEAK CLAMP. If a lane's stop rows are
+            // repeatedly deep red, do not widen its stop just because some peak
+            // evidence exists elsewhere. The 3971 report showed STOP_LOSS rows
+            // around -25% to -34% across several lanes; widening those stops
+            // directly leaks live wallet. Keep runner preservation via TP/trails,
+            // but cap SL at neutral until stop leakage improves.
+            slHitRate >= 0.50 && avgLoss <= -20.0 -> sl -= STEP
             slHitRate >= 0.50 && avgPeak < 8.0 && wr >= 0.30 -> sl += STEP
             slHitRate < 0.25 && avgLoss <= -10.0 -> sl -= STEP
         }
-        val slCap = if (wr < 0.20 && avgReal < 0.0 && avgPeak < 15.0) 1.0 else SL_MAX
+        val stopLeakClamp = slHitRate >= 0.35 && avgLoss <= -20.0
+        val slCap = if ((wr < 0.20 && avgReal < 0.0 && avgPeak < 15.0) || stopLeakClamp) 1.0 else SL_MAX
         // RUNNER-LANE FLOOR: never let the stop tighten below 1.0× when wins
         // dwarf losses by ≥10×. Widens further if existing tuner logic
         // already raised it; never pulls it back below neutral.
-        val slFloor = if (runnerLane) maxOf(SL_MIN, 1.0) else SL_MIN
+        val slFloor = if (runnerLane && !stopLeakClamp) maxOf(SL_MIN, 1.0) else SL_MIN
         st.slMult = sl.coerceIn(slFloor, slCap)
     }
 
