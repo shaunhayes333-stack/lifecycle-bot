@@ -72,11 +72,11 @@ object WrRecoveryPartial {
     private const val MODERATE_THRESHOLD = 0.95
     private const val FLUID_THRESHOLD    = 1.00
     private const val PREDICTIVE_THRESHOLD = 0.90
-    // V5.9.868 — operator instruction (active rules): "9% trigger for the
-    // first partial sell only" when currentWR < phaseTargetWR * 0.85. Old
-    // floor of 12.0 was inadvertently capping the operator-mandated 9% at 12%
-    // in deep WR-recovery. Restored to spec.
-    private const val MIN_PARTIAL_GAIN_PCT = 9.0
+    // V5.0.3963 — learned live-profit floor. The old 9% WR-recovery rung
+    // created sub-fee scrap exits (+0.2%/+1%/+9%) that do not compound the
+    // live wallet and amputate runners. This is only a floor: actual bands
+    // below are fluid and expectancy/MFE-driven per lane.
+    private const val MIN_PARTIAL_GAIN_PCT = 50.0
 
     // V5.9.1473 — PERFORMING: the bot is AT or ABOVE its phase WR target.
     // Pre-1473, this state mapped to Band.OFF, which reverted the partial
@@ -131,12 +131,10 @@ object WrRecoveryPartial {
         // wheels FROM trade 1, then graduate to lifetime-WR logic once we
         // have a meaningful sample.
         //
-        // New bootstrap policy:
-        //   total < 25  → AGGRESSIVE (tightest: +18/+35/+60% rungs, only A/A+ entries)
-        //   total < 50  → MODERATE   (mid: +25/+45/+80% rungs, A/A+ entries)
-        //   total ≥ 50  → fall through to lifetime-WR band selection
-        // Net effect: discovery happens, but losses are tiny per trade and
-        // winners ladder out properly from trade 1.
+        // New bootstrap policy still selects the protection band early, but
+        // V5.0.3963 no longer maps that to tiny +9/+35/+60% scraps. The band
+        // feeds learnedExitRungs(), which applies the same StrategyTelemetry
+        // expectancy/MFE table shown in reports and floors first profit at +50%.
         if (total < 25.0) {
             return State(Band.AGGRESSIVE, 0.0, 0.0, total.toInt(), -1.0, false)
         }
@@ -199,29 +197,36 @@ object WrRecoveryPartial {
         Band.AGGRESSIVE -> Band.AGGRESSIVE
     }
 
-    /** Three rung trigger pcts for the active band. */
+    /** Base three-rung trigger pcts before learned lane shaping. */
     private fun rungsFor(band: Band): Triple<Double, Double, Double> = when (band) {
-        // V5.9.956 — operator active instruction: "Activate WrRecoveryPartial
-        // logic when currentWR < phaseTargetWR * 0.85, using a 9% trigger for
-        // the first partial sell only." The old 18% rung1 was a spec
-        // violation that left a deep-deficit bot bleeding past +9% into
-        // micro-cap chop without ever locking the first win tick.
-        // Forensic 2026-05-19 17:35: PTROLL +9.3% sat open with no partial
-        // sell — exactly the scenario operator wrote the rule for.
-        // R2/R3 unchanged (35/60) so the ladder still spaces out properly.
-        // V5.9.1556 — TUNING ONLY from console MFE replay:
-        // UNKNOWN/FLOOR_-15_LETRUN replay beat CURRENT_ACTUAL hard, while
-        // partial ladder was realizing too little of peak. Keep WR recovery
-        // protection, but sell less and later so runners keep enough tail.
-        Band.AGGRESSIVE -> Triple(9.0, 45.0, 90.0)
-        Band.MODERATE   -> Triple(30.0, 70.0, 140.0)
-        Band.FLUID      -> Triple(60.0, 150.0, 300.0)
-        // V5.9.1558 — restore baseline dynamic partials in healthy mode.
-        // 1556 pushed PERFORMING to 100/500/2000, which made a profitable bot
-        // ride normal +10..+60% wins naked until terminal stops/TP. Keep runner
-        // tail via smaller fractions, not by disabling early rungs.
-        Band.PERFORMING -> Triple(12.0, 30.0, 60.0)
+        Band.AGGRESSIVE -> Triple(50.0, 150.0, 1000.0)
+        Band.MODERATE   -> Triple(50.0, 250.0, 1500.0)
+        Band.FLUID      -> Triple(50.0, 500.0, 3000.0)
+        Band.PERFORMING -> Triple(50.0, 1000.0, 10000.0)
         Band.OFF        -> Triple(Double.POSITIVE_INFINITY, Double.POSITIVE_INFINITY, Double.POSITIVE_INFINITY)
+    }
+
+    /**
+     * V5.0.3963 — expectancy/MFE-linked profit bands.
+     * Uses StrategyTelemetry (same expectancy table shown in reports) so exit
+     * levels respond to what each lane actually realizes. Floor prevents scrap
+     * exits; runner lanes expand toward 1000%/10000% instead of being hardcoded
+     * for every lane. Fail-open to base bands.
+     */
+    fun learnedExitRungs(lane: String, band: Band = stateNow().band): Triple<Double, Double, Double> {
+        val base = rungsFor(band)
+        return try {
+            val key = try { TradeHistoryStore.normalizeTradeModeName(lane).ifBlank { lane.uppercase() } } catch (_: Throwable) { lane.uppercase() }
+            val m = StrategyTelemetry.computeLeaderboard().firstOrNull { it.strategy.equals(key, true) }
+            if (m == null || m.trades < 5) return base
+            val pf = m.pfExpectancyPp
+            val avgWin = m.avgWinPct.coerceAtLeast(0.0)
+            val runner = m.totalSolPnl > 0.0 && (avgWin >= 75.0 || pf >= 15.0 || m.meanPnlPct >= 25.0)
+            val first = maxOf(MIN_PARTIAL_GAIN_PCT, if (runner) avgWin * 0.20 else base.first).coerceIn(50.0, 250.0)
+            val secondBase = if (runner) maxOf(base.second, avgWin * 1.50, 1000.0) else maxOf(base.second, avgWin * 0.75)
+            val thirdBase = if (runner) maxOf(base.third, avgWin * 6.0, 10000.0) else maxOf(base.third, avgWin * 2.5)
+            Triple(first, secondBase.coerceIn(first + 50.0, 5000.0), thirdBase.coerceIn(secondBase + 250.0, 50000.0))
+        } catch (_: Throwable) { base }
     }
 
     /**
@@ -258,12 +263,12 @@ object WrRecoveryPartial {
      *     and -15% hard floor catching dumpers.
      */
     private fun fractionFor(band: Band): Double = when (band) {
-        // V5.9.1558 — smaller than old recovery chunks, but visible enough to
-        // actually realize profit. PERFORMING must not be effectively disabled.
-        Band.AGGRESSIVE -> 0.10
-        Band.MODERATE   -> 0.08
-        Band.FLUID      -> 0.06
-        Band.PERFORMING -> 0.08
+        // Meaningful first split, but preserve moonbag. 15-20% sold leaves
+        // 80%+ riding into learned 1000%/10000% bands.
+        Band.AGGRESSIVE -> 0.20
+        Band.MODERATE   -> 0.18
+        Band.FLUID      -> 0.15
+        Band.PERFORMING -> 0.15
         Band.OFF        -> 1.0  // pass-through; caller multiplies by config fraction
     }
 
@@ -276,15 +281,15 @@ object WrRecoveryPartial {
      * ceiling (recovery can only LOWER a trigger, never raise it — operator's
      * Settings / LLM tuner remain authoritative).
      */
-    fun effectiveTrigger(normalTrigger: Double, gainPct: Double, partialLevel: Int, profitLockTriggered: Boolean): Double {
+    fun effectiveTrigger(normalTrigger: Double, gainPct: Double, partialLevel: Int, profitLockTriggered: Boolean, lane: String = "STANDARD"): Double {
         if (partialLevel != 0) return normalTrigger
         if (profitLockTriggered) return normalTrigger
 
         val state = stateNow()
         if (!state.active) return normalTrigger
 
-        val (rung1, _, _) = rungsFor(state.band)
-        val effective = rung1.coerceAtLeast(MIN_PARTIAL_GAIN_PCT).coerceAtMost(normalTrigger)
+        val (rung1, _, _) = learnedExitRungs(lane, state.band)
+        val effective = rung1.coerceAtLeast(MIN_PARTIAL_GAIN_PCT)
         if (gainPct >= effective) {
             ErrorLogger.info(
                 "WrRecovery",
@@ -294,20 +299,20 @@ object WrRecoveryPartial {
         return effective
     }
 
-    fun effectiveSecondTrigger(normalTrigger: Double): Double {
+    fun effectiveSecondTrigger(normalTrigger: Double, lane: String = "STANDARD"): Double {
         val s = stateNow()
         if (!s.active) return normalTrigger
-        return rungsFor(s.band).second.coerceAtMost(normalTrigger)
+        return learnedExitRungs(lane, s.band).second
     }
-    fun effectiveThirdTrigger(normalTrigger: Double): Double {
+    fun effectiveThirdTrigger(normalTrigger: Double, lane: String = "STANDARD"): Double {
         val s = stateNow()
         if (!s.active) return normalTrigger
-        return rungsFor(s.band).third.coerceAtMost(normalTrigger)
+        return learnedExitRungs(lane, s.band).third
     }
     fun effectiveSellFraction(baseFraction: Double): Double {
         val s = stateNow()
         if (!s.active) return baseFraction
-        return fractionFor(s.band).coerceAtMost(baseFraction)
+        return maxOf(baseFraction, fractionFor(s.band)).coerceAtMost(0.25)
     }
 
     // ─────────────────────────────────────────────────────────────────────
@@ -3558,8 +3563,13 @@ class Executor(
         capitalRecoveryMultiple *= combinedAdjustment
         profitLockMultiple *= combinedAdjustment
         
-        capitalRecoveryMultiple = capitalRecoveryMultiple.coerceIn(1.3, 4.0)
-        profitLockMultiple = profitLockMultiple.coerceIn(2.5, 10.0)
+        val learnedRungs = try { WrRecoveryPartial.learnedExitRungs(pos.tradingMode.ifBlank { "STANDARD" }) } catch (_: Throwable) { Triple(50.0, 1000.0, 10000.0) }
+        val learnedCapitalRecovery = 1.0 + (learnedRungs.second / 100.0)
+        val learnedProfitLock = 1.0 + (learnedRungs.third / 100.0)
+        // V5.0.3963 — profit exits follow learned expectancy bands. Never let
+        // capital recovery at 1.3x or profit-lock at 2.5x amputate a live runner.
+        capitalRecoveryMultiple = maxOf(capitalRecoveryMultiple, learnedCapitalRecovery).coerceIn(1.5, 50.0)
+        profitLockMultiple = maxOf(profitLockMultiple, learnedProfitLock).coerceIn(3.0, 500.0)
         
         return Pair(capitalRecoveryMultiple, profitLockMultiple)
     }
@@ -4937,9 +4947,12 @@ class Executor(
                         } catch (_: Throwable) { 20.0 }
                     }
                 }
-                if (pnlPct >= tpPct) {
-                    onLog("🎯 SWEEP_TAKE_PROFIT: ${ts.symbol} pnl=${pnlPct.toInt()}% ≥ tp=${tpPct.toInt()}%", ts.mint)
-                    doSell(ts, "SWEEP_TAKE_PROFIT_${tpPct.toInt()}", wallet, walletSol)
+                val laneKey = ts.position.tradingMode.ifBlank { "STANDARD" }
+                val learnedTpFloor = try { WrRecoveryPartial.learnedExitRungs(laneKey).first } catch (_: Throwable) { 50.0 }
+                val liveGrowthTpPct = maxOf(tpPct, learnedTpFloor)
+                if (pnlPct >= liveGrowthTpPct) {
+                    onLog("🎯 SWEEP_TAKE_PROFIT: ${ts.symbol} pnl=${pnlPct.toInt()}% ≥ learnedTp=${liveGrowthTpPct.toInt()}%", ts.mint)
+                    doSell(ts, "SWEEP_TAKE_PROFIT_${liveGrowthTpPct.toInt()}", wallet, walletSol)
                     return
                 }
             }
@@ -4966,21 +4979,22 @@ class Executor(
         val soldPct = pos.partialSoldPct
 
         val partialLevel = (soldPct / (c.partialSellFraction * 100.0)).toInt()
+        val laneKey = pos.tradingMode.ifBlank { if (pos.isShitCoinPosition) "SHITCOIN" else if (pos.isBlueChipPosition) "BLUECHIP" else if (pos.isTreasuryPosition) "TREASURY" else "STANDARD" }
         
-        // V5.9.722 — WR-recovery partial: lower the first milestone when WR is below phase target.
-        // V5.9.796 — operator audit: rungs 2 + 3 ALSO recovery-aware. Old behaviour left them at
-        // the config defaults (+500% / +2000%) which never fire on real meme trajectories — so the
-        // bot was effectively single-partial. New WrRecoveryPartial.effectiveSecondTrigger /
-        // effectiveThirdTrigger give us the proper +35% / +60% rungs when recovery is active,
-        // and pass the config defaults through untouched when it isn't.
+        // V5.0.3963 — learned profit-exit ladder. Old WR-recovery lowered
+        // partials into +9..+60% scraps. That boosted cosmetic WR but did not
+        // cover fees/splits or compound live wallet. Rungs now come from the
+        // StrategyTelemetry expectancy table, with a +50% first-profit floor
+        // and runner lanes expanding toward +1000%/+10000%.
         val firstTrigger = WrRecoveryPartial.effectiveTrigger(
             normalTrigger      = c.partialSellTriggerPct,
             gainPct            = gainPct,
             partialLevel       = partialLevel,
             profitLockTriggered = pos.profitLocked,
+            lane = laneKey,
         )
-        val secondTrigger = WrRecoveryPartial.effectiveSecondTrigger(c.partialSellSecondTriggerPct)
-        val thirdTrigger  = WrRecoveryPartial.effectiveThirdTrigger(c.partialSellThirdTriggerPct)
+        val secondTrigger = WrRecoveryPartial.effectiveSecondTrigger(c.partialSellSecondTriggerPct, laneKey)
+        val thirdTrigger  = WrRecoveryPartial.effectiveThirdTrigger(c.partialSellThirdTriggerPct, laneKey)
         val milestones = listOf(
             firstTrigger,
             secondTrigger,
@@ -10826,6 +10840,32 @@ class Executor(
         return LiveHoldDelay(ageMs, minHoldMs, lane, rawPnlPct, styleHint)
     }
 
+    private fun learnedMinProfitExitPct(ts: TokenState): Double {
+        val lane = ts.position.tradingMode.ifBlank { if (ts.position.isShitCoinPosition) "SHITCOIN" else if (ts.position.isBlueChipPosition) "BLUECHIP" else if (ts.position.isTreasuryPosition) "TREASURY" else "STANDARD" }
+        return try { WrRecoveryPartial.learnedExitRungs(lane).first } catch (_: Throwable) { 50.0 }
+    }
+
+    private fun liveProfitDustExitShouldDefer(ts: TokenState, reason: String): Boolean {
+        if (ts.position.isPaperPosition) return false
+        val pos = ts.position
+        if (!pos.isOpen || pos.entryPrice <= 0.0) return false
+        val r = reason.uppercase()
+        val hardSafety = r.contains("CATASTROPHE") || r.contains("HARD_FLOOR") ||
+            r.contains("RAPID_HARD_FLOOR") || r.contains("RUGCHECK_CONFIRMED") ||
+            r.contains("CONFIRMED_RUG") || r.contains("HONEYPOT") || r.contains("CANNOT_SELL") ||
+            r.contains("MANUAL_EMERGENCY") || r.contains("EMERGENCY_LIQUIDATE") ||
+            r.contains("KILL_SWITCH") || r.contains("WALLET_BALANCE_ZERO") ||
+            r.contains("SELL_SIG_CONFIRMED")
+        if (hardSafety) return false
+        val px = ts.lastPrice.takeIf { it > 0.0 } ?: pos.entryPrice
+        val pnlPct = ((px - pos.entryPrice) / pos.entryPrice) * 100.0
+        val minProfit = learnedMinProfitExitPct(ts)
+        val terminalOrMaintenance = r.startsWith("RECONCILER_REQUEUE") ||
+            r.contains("TAKE_PROFIT") || r.contains("PROFIT") ||
+            r.contains("TRAIL") || r == "EXIT" || r.contains("EXIT_ROUTE_RETRY")
+        return terminalOrMaintenance && pnlPct in 0.0..(minProfit - 0.001)
+    }
+
     enum class SellResult {
         CONFIRMED,
         FAILED_RETRYABLE,
@@ -10867,6 +10907,19 @@ class Executor(
         // V5.9.1411 — Settle-in and duplicate-suppress guards moved into doSell()
         // so that direct doSell() calls from riskCheck/UltraFastRugDetector are caught too.
         val isLivePositionEarly = !ts.position.isPaperPosition
+
+        // V5.0.3963 — no scrap-profit terminal sells. This is learned, not a
+        // fixed moonshot table: per-lane expectancy/MFE provides the first
+        // meaningful-profit floor; hard safety exits bypass.
+        if (isLivePositionEarly && liveProfitDustExitShouldDefer(ts, requestReason)) {
+            try {
+                val px = ts.lastPrice.takeIf { it > 0.0 } ?: ts.position.entryPrice
+                val pnl = if (ts.position.entryPrice > 0.0) ((px - ts.position.entryPrice) / ts.position.entryPrice) * 100.0 else 0.0
+                ForensicLogger.lifecycle("LIVE_TINY_PROFIT_EXIT_DEFERRED", "mint=${ts.mint.take(10)} symbol=${ts.symbol} reason=${requestReason.take(80)} pnl=${"%.1f".format(pnl)} minProfitPct=${"%.1f".format(learnedMinProfitExitPct(ts))} action=no_sell_lock")
+                PipelineHealthCollector.labelInc("LIVE_TINY_PROFIT_EXIT_DEFERRED")
+            } catch (_: Throwable) {}
+            return SellResult.FAILED_RETRYABLE
+        }
 
         // V5.0.3942 — LIVE STYLE/HOLD ANTI-CHURN GATE. This sits before
         // TokenLifecycleTracker.onSellPending, CloseLease, and PendingSellQueue so a
