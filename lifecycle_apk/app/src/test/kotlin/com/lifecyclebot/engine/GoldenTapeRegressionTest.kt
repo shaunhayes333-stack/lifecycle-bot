@@ -3036,6 +3036,16 @@ class GoldenTapeRegressionTest {
 
 
 
+
+    @Test
+    fun live_wallet_growth_releases_caps_for_proven_winner_lanes() {
+        val exec = java.io.File("src/main/kotlin/com/lifecyclebot/engine/Executor.kt").readText()
+        assertFalse("MOONSHOT must not be permanently capped at 0.55 while it is the top SOL winner", exec.contains("laneTag.contains("MOONSHOT")    -> if ((wr ?: 0.0) > 0.0)  0.55 else 0.55"))
+        assertTrue("MOONSHOT cap must release when expectancy allocator says winner", exec.contains("laneTag.contains("MOONSHOT")") && exec.contains("laneEvMult >= 1.0") && exec.contains("WALLET GROWTH CAP RELEASE"))
+        assertTrue("PRESALE/PROJECT_SNIPER and BLUECHIP winner caps must release too", exec.contains("laneTag.contains("PRESALE") || laneTag.contains("PROJECT_SNIPER")") && exec.contains("laneTag.contains("BLUECHIP")"))
+        assertTrue("SHITCOIN must shrink harder when expectancy is negative", exec.contains("laneTag.contains("SHITCOIN")    -> if (laneEvMult < 1.0) 0.35 else 0.65"))
+    }
+
     @Test
     fun live_wallet_growth_allocator_applies_strategy_expectancy_to_real_size() {
         val exec = java.io.File("src/main/kotlin/com/lifecyclebot/engine/Executor.kt").readText()
