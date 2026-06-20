@@ -3007,7 +3007,7 @@ class GoldenTapeRegressionTest {
         assertTrue("final live size must consume movement-aware growth policy", exec.contains("MovementPatternSignal.from(ts)") && exec.contains("LiveGrowthDoctrine.sizePolicy(laneKey, score, walletSol, spendable, movementSignal)"))
         assertTrue("live hold minimum must be movement-aware to avoid instant shutdown of runners", exec.contains("movement_${'$'}{movementSignal.pattern.lowercase()}") && exec.contains("movementSignal?.holdMult"))
         val pcHook = exec.substring(exec.indexOf("PatternClassifier hooks"), exec.indexOf("reset BotBrain", exec.indexOf("PatternClassifier hooks")))
-        assertTrue("PatternClassifier must still learn live terminal sells", pcHook.contains("trade.side == "SELL"") && pcHook.contains("isLive = trade.mode.equals("live""))
+        assertTrue("PatternClassifier must still learn live terminal sells", pcHook.contains("trade.side == \"SELL\"") && pcHook.contains("isLive = trade.mode.equals(\"live\""))
         assertFalse("PatternClassifier must not consume entry on PARTIAL_SELL before terminal movement outcome", pcHook.contains("PARTIAL_SELL") && pcHook.contains("PatternClassifier.noteExit"))
         assertTrue("ToolkitSignalSheet must expose movement patterns as SMART_CHART/PATTERN_CLASSIFIER tool votes", sheet.contains("MovementPatternSignal.from(ts)") && sheet.contains("MOVEMENT_PATTERN") && sheet.contains("TOOLKIT_MOVEMENT"))
         assertTrue("LiveGrowthDoctrine reason must surface movement pattern/timing", doctrine.contains("movement=${'$'}{movement?.pattern") && doctrine.contains("timing=${'$'}{movement?.timing"))
