@@ -10744,6 +10744,75 @@ class Executor(
         return true
     }
     
+    private data class LiveHoldDelay(val ageMs: Long, val minHoldMs: Long, val lane: String, val rawPnlPct: Double, val styleHint: String)
+
+    private fun liveHoldMinMsForPosition(ts: TokenState): Pair<Long, String> {
+        val pos = ts.position
+        val lane = pos.tradingMode.ifBlank {
+            when {
+                pos.isTreasuryPosition -> "TREASURY"
+                pos.isShitCoinPosition -> "SHITCOIN"
+                pos.isBlueChipPosition -> "BLUECHIP"
+                else -> "STANDARD"
+            }
+        }.uppercase()
+        // V5.0.3942 — central style/hold intent. AgenticStyleRouter already
+        // selects style/hold×, but most positions do not persist style fields, so
+        // exits cannot enforce it. Use lane/archetype as the durable proxy until
+        // full style persistence lands. These are MINIMUM anti-churn holds only;
+        // hard rug/floor exits still bypass below.
+        val minMs = when {
+            lane.contains("TREASURY") || lane.contains("EXPRESS") || lane.contains("MANIP") -> 45_000L
+            lane.contains("SHITCOIN") || lane.contains("PRESALE") || lane.contains("SNIPER") -> 75_000L
+            lane.contains("MOONSHOT") || lane.contains("QUALITY") || lane.contains("BLUECHIP") || lane.contains("BLUE_CHIP") -> 180_000L
+            lane.contains("COPY") || lane.contains("WHALE") || lane.contains("STANDARD") -> 150_000L
+            else -> 90_000L
+        }
+        val styleHint = when {
+            lane.contains("MOONSHOT") || lane.contains("QUALITY") || lane.contains("BLUE") -> "runner_hold"
+            lane.contains("TREASURY") || lane.contains("EXPRESS") || lane.contains("MANIP") -> "quick_flip_min_hold"
+            lane.contains("SHITCOIN") || lane.contains("SNIPER") -> "degen_snipe_min_hold"
+            else -> "standard_min_hold"
+        }
+        return minMs to styleHint
+    }
+
+    private fun liveHoldBypassReason(reason: String, rawPnlPct: Double): Boolean {
+        val r = reason.uppercase()
+        // True catastrophic exits still bypass style/hold. STRICT_SL alone does
+        // NOT bypass unless raw market PnL has breached the unconditional -15%
+        // hard floor; this prevents STRICT_SL_-10 from cutting fresh live entries
+        // before hold-time/expectancy can be sampled.
+        if (rawPnlPct <= -15.0) return true
+        return r.contains("RUG") ||
+            r.contains("CATASTROPHE") ||
+            r.contains("HARD_FLOOR") ||
+            r.contains("RAPID_HARD_FLOOR") ||
+            r.contains("MANUAL_EMERGENCY") ||
+            r.contains("EMERGENCY_LIQUIDATE") ||
+            r.contains("KILL_SWITCH") ||
+            r.contains("ULTRA_RUNNER_BANK") ||
+            r.contains("WALLET_BALANCE_ZERO") ||
+            r.contains("SELL_SIG_CONFIRMED")
+    }
+
+    private fun liveHoldDelayIfNeeded(ts: TokenState, reason: String): LiveHoldDelay? {
+        if (reason.equals("RECONCILER_REQUEUE", ignoreCase = true)) return null
+        if (ts.position.isPaperPosition) return null
+        val pos = ts.position
+        if (pos.entryTime <= 0L || pos.qtyToken <= 0.0) return null
+        val now = System.currentTimeMillis()
+        val ageMs = (now - pos.entryTime).coerceAtLeast(0L)
+        val entry = pos.entryPrice
+        val px = ts.lastPrice.takeIf { it > 0.0 } ?: pos.entryPrice
+        val rawPnlPct = if (entry > 0.0 && px > 0.0) ((px - entry) / entry) * 100.0 else 0.0
+        if (liveHoldBypassReason(reason, rawPnlPct)) return null
+        val (minHoldMs, styleHint) = liveHoldMinMsForPosition(ts)
+        if (ageMs >= minHoldMs) return null
+        val lane = pos.tradingMode.ifBlank { if (pos.isShitCoinPosition) "SHITCOIN" else if (pos.isBlueChipPosition) "BLUECHIP" else if (pos.isTreasuryPosition) "TREASURY" else "STANDARD" }
+        return LiveHoldDelay(ageMs, minHoldMs, lane, rawPnlPct, styleHint)
+    }
+
     enum class SellResult {
         CONFIRMED,
         FAILED_RETRYABLE,
@@ -10779,6 +10848,26 @@ class Executor(
 
         // V5.9.1411 — Settle-in and duplicate-suppress guards moved into doSell()
         // so that direct doSell() calls from riskCheck/UltraFastRugDetector are caught too.
+        val isLivePositionEarly = !ts.position.isPaperPosition
+
+        // V5.0.3942 — LIVE STYLE/HOLD ANTI-CHURN GATE. This sits before
+        // TokenLifecycleTracker.onSellPending, CloseLease, and PendingSellQueue so a
+        // deferred hold does not create sell-only drain mode or lock the mint. Only
+        // true catastrophic hard-floor/rug/manual-emergency exits bypass.
+        if (isLivePositionEarly) {
+            val holdDelay = liveHoldDelayIfNeeded(ts, reason)
+            if (holdDelay != null) {
+                try {
+                    ForensicLogger.lifecycle(
+                        "LIVE_STYLE_MIN_HOLD_EXIT_DEFERRED",
+                        "mint=${ts.mint.take(10)} symbol=${ts.symbol} reason=${reason.take(80)} lane=${holdDelay.lane} style=${holdDelay.styleHint} ageMs=${holdDelay.ageMs} minHoldMs=${holdDelay.minHoldMs} rawPnl=${"%.1f".format(holdDelay.rawPnlPct)} action=no_sell_lock",
+                    )
+                    PipelineHealthCollector.labelInc("LIVE_STYLE_MIN_HOLD_EXIT_DEFERRED")
+                    PipelineHealthCollector.labelInc("LIVE_STYLE_MIN_HOLD_${holdDelay.styleHint}")
+                } catch (_: Throwable) {}
+                return SellResult.FAILED_RETRYABLE
+            }
+        }
 
         // V5.0.3941 — maintenance requeue guard. RECONCILER_REQUEUE is NOT a
         // strategy exit; it is only allowed when tracker state says an exit/recovery
@@ -10801,7 +10890,6 @@ class Executor(
         // strict-SL MUST NOT spawn another sell worker. We merge the desired exit
         // reason (highest priority wins) and return WAITING_BALANCE_PROOF — NO lease,
         // NO PendingSellQueue ACTIVE_SELL_READY job, NO duplicate-suppressed metric.
-        val isLivePositionEarly = !ts.position.isPaperPosition
         if (isLivePositionEarly) {
             val closeGuard = try { com.lifecyclebot.engine.sell.LivePositionCloseAuthority.preSellGuard(ts.mint, ts.symbol ?: "?", wallet) } catch (_: Throwable) { null }
             if (closeGuard?.blocked == true) {

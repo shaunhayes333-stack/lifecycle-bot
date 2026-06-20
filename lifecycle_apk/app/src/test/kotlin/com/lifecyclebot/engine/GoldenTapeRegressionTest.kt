@@ -2963,6 +2963,22 @@ class GoldenTapeRegressionTest {
         assertTrue("maintenance RECONCILER_REQUEUE must be suppressed on healthy holds", exec.contains("RECONCILER_REQUEUE_SUPPRESSED_HEALTHY_HOLD") && exec.contains("HostWalletTokenTracker.getEntry"))
     }
 
+
+    @Test
+    fun live_style_min_hold_defers_soft_exits_before_sell_locks() {
+        val exec = java.io.File("src/main/kotlin/com/lifecyclebot/engine/Executor.kt").readText()
+        val pipe = java.io.File("src/main/kotlin/com/lifecyclebot/engine/PipelineHealthCollector.kt").readText()
+        val reqIdx = exec.indexOf("fun requestSell")
+        val holdIdx = exec.indexOf("LIVE_STYLE_MIN_HOLD_EXIT_DEFERRED", reqIdx)
+        val lifecycleIdx = exec.indexOf("try { TokenLifecycleTracker.onSellPending", reqIdx)
+        val leaseIdx = exec.indexOf("CloseLease.acquire", reqIdx)
+        assertTrue("live min-hold must run before sell pending lifecycle and close lease", reqIdx >= 0 && holdIdx in reqIdx until lifecycleIdx && holdIdx < leaseIdx)
+        assertTrue("strict SL must not bypass min-hold unless raw hard floor breached", exec.contains("STRICT_SL alone does") && exec.contains("rawPnlPct <= -15.0"))
+        assertTrue("live min-hold must not enqueue pending sells", exec.contains("action=no_sell_lock") && exec.contains("return SellResult.FAILED_RETRYABLE"))
+        assertTrue("maintenance requeue uses its own healthy-hold suppressor", exec.contains("if (reason.equals("RECONCILER_REQUEUE", ignoreCase = true)) return null"))
+        assertTrue("report must expose live style hold deferrals", pipe.contains("styleHoldDeferred") && pipe.contains("LIVE_STYLE_MIN_HOLD_EXIT_DEFERRED"))
+    }
+
     @Test
     fun live_auth_locks_are_truth_pruned_not_permanent_open_positions() {
         val auth = java.io.File("src/main/kotlin/com/lifecyclebot/engine/TradeAuthorizer.kt").readText()
