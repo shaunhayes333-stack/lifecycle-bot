@@ -4358,27 +4358,15 @@ for legal compliance.
         )
         fun recoverRenderablePricing(ts: com.lifecyclebot.data.TokenState) {
             val p0 = ts.position
-            if (p0.entryPrice > 0.0 && ts.lastPrice > 0.0 && p0.qtyToken > 0.0) return
-            val buy = latestBuy(ts.mint)
-            val recoveredEntry = firstPositive(p0.entryPrice, journalEntryPrice(buy))
-            if (recoveredEntry <= 0.0) return
-            val recoveredCurrent = firstPositive(ts.lastPrice, ts.ref, recoveredEntry)
-            val recoveredCost = firstPositive(p0.costSol, buy?.entryCostSol, buy?.sol)
-            val recoveredQty = firstPositive(p0.qtyToken, buy?.entryQtyToken, if (recoveredEntry > 0.0 && recoveredCost > 0.0) recoveredCost / recoveredEntry else 0.0)
-            ts.position = p0.copy(
-                entryPrice = recoveredEntry,
-                qtyToken = recoveredQty,
-                costSol = recoveredCost.takeIf { it > 0.0 } ?: p0.costSol,
-                highestPrice = firstPositive(p0.highestPrice, recoveredCurrent, recoveredEntry),
-                entryPriceSource = p0.entryPriceSource.ifBlank { buy?.entryPriceSource ?: "UI_RECOVERED_JOURNAL" },
-                entryPoolAddress = p0.entryPoolAddress.ifBlank { buy?.entryPoolAddress ?: "" },
-            )
-            if (ts.lastPrice <= 0.0 && recoveredCurrent > 0.0) {
-                ts.lastPrice = recoveredCurrent
-                ts.lastPriceUpdate = System.currentTimeMillis()
-                ts.lastPriceSource = ts.lastPriceSource.ifBlank { "UI_RECOVERED" }
-            }
-            try { com.lifecyclebot.engine.PipelineHealthCollector.labelInc("OPEN_POSITION_PRICE_RECOVERED_FOR_UI") } catch (_: Throwable) {}
+            // V5.0.3964 — UI is not a price-basis authority. Do not mutate an
+            // open position from current refs or journal fallbacks; that created
+            // entry=$0 / mega-PnL screenshots when the real mint snapshot was
+            // missing. The executor must stamp/persist basis before buy commit.
+            if (p0.entryPrice > 0.0 && ts.lastPrice > 0.0 && p0.qtyToken > 0.0 &&
+                p0.entryMcap > 0.0 && p0.entryLiquidityUsd > 0.0 &&
+                p0.entryPriceSource.isNotBlank() && p0.entryPoolAddress.isNotBlank()) return
+            try { com.lifecyclebot.engine.PipelineHealthCollector.labelInc("OPEN_POSITION_UI_BASIS_WAIT") } catch (_: Throwable) {}
+            try { com.lifecyclebot.engine.ForensicLogger.lifecycle("OPEN_POSITION_UI_BASIS_WAIT", "mint=${ts.mint.take(10)} symbol=${ts.symbol} entry=${p0.entryPrice} price=${ts.lastPrice} mcap=${p0.entryMcap} liq=${p0.entryLiquidityUsd} source=${p0.entryPriceSource} pool=${p0.entryPoolAddress.take(16)} action=no_ui_repair") } catch (_: Throwable) {}
         }
 
         fun upsert(mint: String, symbol: String, layer: String, emoji: String,
@@ -4388,9 +4376,14 @@ for legal compliance.
             val existing = state.tokens[mint] ?: merged.firstOrNull { it.mint == mint }
             val buy = latestBuy(mint)
             val recoveredEntry = firstPositive(entryPrice, existing?.position?.entryPrice, journalEntryPrice(buy))
-            val recoveredCurrent = firstPositive(currentPrice, existing?.lastPrice, existing?.ref, recoveredEntry)
+            val recoveredCurrent = firstPositive(currentPrice, existing?.lastPrice)
             val recoveredCost = firstPositive(entrySol, existing?.position?.costSol, buy?.entryCostSol, buy?.sol)
-            if (recoveredEntry <= 0.0 || recoveredCost <= 0.0) {
+            val existingPos = existing?.position
+            val hasMintMarketSnapshot = (existingPos?.entryMcap ?: 0.0) > 0.0 &&
+                (existingPos?.entryLiquidityUsd ?: 0.0) > 0.0 &&
+                !(existingPos?.entryPriceSource).isNullOrBlank() &&
+                !(existingPos?.entryPoolAddress).isNullOrBlank()
+            if (recoveredEntry <= 0.0 || recoveredCost <= 0.0 || recoveredCurrent <= 0.0 || !hasMintMarketSnapshot) {
                 try { com.lifecyclebot.engine.PipelineHealthCollector.labelInc("OPEN_POSITION_UI_BASIS_WAIT") } catch (_: Throwable) {}
                 return
             }
@@ -4410,6 +4403,11 @@ for legal compliance.
                 tradingMode     = layer,
                 tradingModeEmoji = emoji,
                 peakGainPct     = peakPct,
+                entryLiquidityUsd = existingPos?.entryLiquidityUsd ?: 0.0,
+                entryMcap = existingPos?.entryMcap ?: 0.0,
+                entryPriceSource = existingPos?.entryPriceSource ?: "",
+                entryPoolAddress = existingPos?.entryPoolAddress ?: "",
+                entryDex = existingPos?.entryDex ?: "",
                 isShitCoinPosition = (layer == "SHITCOIN"),
                 isBlueChipPosition = (layer == "BLUE_CHIP"),
                 isTreasuryPosition = (layer == "TREASURY"),
