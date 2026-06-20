@@ -2979,6 +2979,23 @@ class GoldenTapeRegressionTest {
         assertTrue("report must expose live style hold deferrals", pipe.contains("styleHoldDeferred") && pipe.contains("LIVE_STYLE_MIN_HOLD_EXIT_DEFERRED"))
     }
 
+
+    @Test
+    fun live_growth_doctrine_low_confidence_and_pumpportal_skips_do_not_choke_execution() {
+        val fdg = java.io.File("src/main/kotlin/com/lifecyclebot/engine/FinalDecisionGate.kt").readText()
+        val exec = java.io.File("src/main/kotlin/com/lifecyclebot/engine/Executor.kt").readText()
+        val lowConfStart = fdg.indexOf("LIVE now follows")
+        val lowConfEnd = fdg.indexOf("} else if (blockReason == null)", lowConfStart)
+        val lowConfBlock = fdg.substring(lowConfStart, lowConfEnd)
+        assertTrue("live low confidence must become a micro-probe, not a hard block", lowConfBlock.contains("LOW-CONF MICRO-PROBE") && lowConfBlock.contains("live_low_conf_micro_probe"))
+        assertFalse("live low confidence must not set blockReason", lowConfBlock.contains("blockReason =") && lowConfBlock.contains("LOW_CONFIDENCE"))
+        val pumpSkipStart = exec.indexOf("PumpPortal skipped for partial/profit")
+        val pumpSkipEnd = exec.indexOf("return null", pumpSkipStart)
+        val pumpSkipBlock = exec.substring(pumpSkipStart, pumpSkipEnd)
+        assertFalse("skipping PumpPortal partial route is not a PumpPortal attempt and must not trip kill switch", pumpSkipBlock.contains("PumpPortalKillSwitch.recordPartialAttempt"))
+        assertTrue("skipped PumpPortal route must be telemetry only", pumpSkipBlock.contains("PUMPPORTAL_PARTIAL_ROUTE_SKIPPED_NOT_ATTEMPTED"))
+    }
+
     @Test
     fun live_auth_locks_are_truth_pruned_not_permanent_open_positions() {
         val auth = java.io.File("src/main/kotlin/com/lifecyclebot/engine/TradeAuthorizer.kt").readText()
