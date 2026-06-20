@@ -32,7 +32,13 @@ data class MintEntryMarketSnapshot(
     val capturedAtMs: Long = System.currentTimeMillis(),
 ) {
     val valid: Boolean get() = priceUsd.isFinite() && priceUsd > 0.0 &&
-        marketCapUsd.isFinite() && marketCapUsd > 0.0 &&
+        // V5.0.3976 — mcap is learning/report metadata, not executable basis.
+        // Under Birdeye conservation / fresh-pool APIs, price+liquidity+pool can be
+        // fully executable while market cap is absent. Requiring mcap>0 here created
+        // a silent live-buy choke after LIVE_BUY_ATTEMPT. Preserve accounting safety
+        // by keeping price/liquidity/pool/source mandatory and storing mcap=0 as
+        // unknown metadata; downstream UI already renders unknown mcap as n/a.
+        marketCapUsd.isFinite() && marketCapUsd >= 0.0 &&
         liquidityUsd.isFinite() && liquidityUsd > 0.0 &&
         poolAddress.isNotBlank() && priceSource.isNotBlank()
 }
@@ -7680,7 +7686,8 @@ class Executor(
             ?: return null
         val mcap = ts.lastMcap.takeIf { it.isFinite() && it > 0.0 }
             ?: ts.history.lastOrNull { it.marketCap.isFinite() && it.marketCap > 0.0 }?.marketCap
-            ?: return null
+            ?: ts.lastFdv.takeIf { it.isFinite() && it > 0.0 }
+            ?: 0.0
         val liq = ts.lastLiquidityUsd.takeIf { it.isFinite() && it > 0.0 } ?: return null
         val pool = ts.lastPricePoolAddr.ifBlank { ts.pairAddress }
         val source = ts.lastPriceSource.ifBlank { ts.source.ifBlank { "UNKNOWN" } }
@@ -7690,7 +7697,7 @@ class Executor(
 
     private fun persistMintEntryMarketSnapshot(ts: TokenState, snap: MintEntryMarketSnapshot, reason: String) {
         ts.lastPrice = snap.priceUsd
-        ts.lastMcap = snap.marketCapUsd
+        if (snap.marketCapUsd > 0.0) ts.lastMcap = snap.marketCapUsd
         ts.lastLiquidityUsd = snap.liquidityUsd
         ts.lastPricePoolAddr = snap.poolAddress
         ts.lastPriceSource = snap.priceSource
@@ -7709,7 +7716,7 @@ class Executor(
                 lastPricePoolAddr = snap.poolAddress,
                 lastPriceDex = snap.dex,
                 lastPrice = snap.priceUsd,
-                lastMcap = snap.marketCapUsd,
+                lastMcap = snap.marketCapUsd.takeIf { it > 0.0 } ?: ts.lastMcap,
                 lastLiquidityUsd = snap.liquidityUsd,
                 lastFdv = ts.lastFdv.takeIf { it > 0.0 } ?: snap.marketCapUsd,
             )
@@ -7717,6 +7724,7 @@ class Executor(
         try {
             ForensicLogger.lifecycle("MINT_ENTRY_MARKET_SNAPSHOT_STORED", "mint=${ts.mint.take(10)} symbol=${ts.symbol} reason=$reason price=${snap.priceUsd} mcap=${snap.marketCapUsd} liq=${snap.liquidityUsd} pool=${snap.poolAddress.take(16)} source=${snap.priceSource} dex=${snap.dex}")
             PipelineHealthCollector.labelInc("MINT_ENTRY_MARKET_SNAPSHOT_STORED")
+            if (snap.marketCapUsd <= 0.0) PipelineHealthCollector.labelInc("MINT_ENTRY_MARKET_SNAPSHOT_MCAP_UNKNOWN")
         } catch (_: Throwable) {}
     }
 
@@ -9210,7 +9218,11 @@ class Executor(
             return false
         }
 
-        val entryMarketSnapshot = requireMintEntryMarketSnapshot(ts, "liveBuy") ?: return false
+        val entryMarketSnapshot = requireMintEntryMarketSnapshot(ts, "liveBuy")
+        if (entryMarketSnapshot == null) {
+            emitLiveBuyFail(ts, sol, "ENTRY_MARKET_SNAPSHOT_MISSING_DEFERRED", "price=${ts.lastPrice} mcap=${ts.lastMcap} liq=${ts.lastLiquidityUsd} pool=${ts.lastPricePoolAddr.ifBlank { ts.pairAddress }.take(16)} source=${ts.lastPriceSource.ifBlank { ts.source }}")
+            return false
+        }
 
         val originalLaneForPivot = layerTag.ifBlank { identity?.source?.takeIf { it.isNotBlank() } ?: ts.position.tradingMode.ifBlank { ts.source.ifBlank { "STANDARD" } } }
         val originalStyleForPivot = originalLaneForPivot
