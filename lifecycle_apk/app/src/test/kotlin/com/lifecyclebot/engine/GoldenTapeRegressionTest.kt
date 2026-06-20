@@ -2257,6 +2257,27 @@ class GoldenTapeRegressionTest {
 
 
 
+
+    @Test
+    fun live_style_pivot_router_shapes_bleeders_without_disabling_lanes() {
+        val router = java.io.File("src/main/kotlin/com/lifecyclebot/engine/LiveStylePivotRouter.kt").readText()
+        val breakEven = java.io.File("src/main/kotlin/com/lifecyclebot/engine/LiveBreakEvenGuard.kt").readText()
+        val bleeder = java.io.File("src/main/kotlin/com/lifecyclebot/engine/BleederMemoryRouter.kt").readText()
+        val exec = java.io.File("src/main/kotlin/com/lifecyclebot/engine/Executor.kt").readText()
+
+        assertTrue("LiveStylePivotRouter component must exist and return final lane/style/size/proof decision", router.contains("object LiveStylePivotRouter") && router.contains("finalLane") && router.contains("finalStyle") && router.contains("sizeMultiplier") && router.contains("confirmationRequirement"))
+        assertTrue("EXPRESS bleeder must pivot, not disable", router.contains("EXPRESS_BLEEDER_NATIVE_PIVOT") && router.contains("LIQUIDITY_DEPTH") && router.contains("0.15"))
+        assertTrue("CYCLIC bleeder must pivot, not disable", router.contains("CYCLIC_BLEEDER_NATIVE_PIVOT") && router.contains("PULLBACK_RECLAIM") && router.contains("DEFENSIVE_PROBE"))
+        assertTrue("WHALE/COPY cannot direct full-live trigger", router.contains("WHALE_COPY_NO_DIRECT_FULL_LIVE") && router.contains("WALLET_RECOVERED_PROVEN_PROMOTION") && router.contains("0.15"))
+        assertTrue("MOONSHOT S41-60 must pivot to defensive probe", router.contains("MOONSHOT_S41_60_DANGER_PIVOT") && router.contains("scoreBand == \"S41-60\""))
+        assertTrue("SHITCOIN must be fee/slippage/giveback aware", router.contains("SHITCOIN_FEE_GIVEBACK_AWARE_SIZE") && router.contains("SHITCOIN_THIN_ROUTE_DEPTH"))
+        assertTrue("LiveBreakEvenGuard must calculate all-in required edge", breakEven.contains("buySlippagePct") && breakEven.contains("expectedSellSlippagePct") && breakEven.contains("priorityFeePct") && breakEven.contains("platformFeePct") && breakEven.contains("givebackBufferPct") && breakEven.contains("minProfitBufferPct"))
+        assertTrue("Router must emit required live break-even decision log", router.contains("LIVE_BREAK_EVEN_CHECK") && router.contains("expectedEdge") && router.contains("requiredEdge") && router.contains("pivotReason"))
+        assertTrue("BleederMemoryRouter must use live-only recent closed rows", bleeder.contains("mode.equals(\"live\"") && bleeder.contains("n20") && bleeder.contains("n50") && bleeder.contains("n100") && bleeder.contains("deepLosses50") && bleeder.contains("failedBasisCount") && bleeder.contains("orphanCount"))
+        assertTrue("liveBuy must emit decision before lease/quote and apply pivot size", exec.contains("LIVE_ENTRY_DECISION") && exec.contains("LiveStylePivotRouter.route") && exec.contains("LIVE_STYLE_PIVOT_SIZE_APPLIED") && exec.contains("LIVE_ENTRY_DEFERRED_BY_STYLE_PIVOT"))
+        assertTrue("live journal mode should use pivoted lane", exec.contains("tradingMode  = routedLaneTag") && exec.contains("tradingMode = routedLaneTag"))
+    }
+
     @Test
     fun live_entries_require_persisted_mint_market_snapshot_before_commit() {
         val exec = java.io.File("src/main/kotlin/com/lifecyclebot/engine/Executor.kt").readText()

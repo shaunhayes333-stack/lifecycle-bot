@@ -7718,7 +7718,9 @@ class Executor(
         if (snap != null) { persistMintEntryMarketSnapshot(ts, snap, reason); return snap }
         try {
             ForensicLogger.lifecycle("ENTRY_MARKET_SNAPSHOT_MISSING_DEFERRED", "mint=${ts.mint.take(10)} symbol=${ts.symbol} reason=$reason price=${ts.lastPrice} mcap=${ts.lastMcap} liq=${ts.lastLiquidityUsd} pool=${ts.lastPricePoolAddr.ifBlank { ts.pairAddress }.take(16)} source=${ts.lastPriceSource.ifBlank { ts.source }} action=no_entry_no_fake_basis")
+            ForensicLogger.lifecycle("LIVE_ENTRY_DECISION", "mint=${ts.mint.take(10)} symbol=${ts.symbol} originalLane=UNKNOWN originalStyle=UNKNOWN finalLane=DEFENSIVE_PROBE finalStyle=BASIS_PROOF_WAIT score=0 scoreBand=UNKNOWN sizeSol=0 sizeMultiplier=0 expectedEdgePct=0 requiredEdgePct=999 basisTrusted=false routeTrusted=false holderProof=false rugProof=false liquidityUsd=${ts.lastLiquidityUsd.toInt()} providerProof=${ts.lastPriceSource.isNotBlank()} pivotApplied=true pivotReasons=BASIS_MISSING decision=DEFER")
             PipelineHealthCollector.labelInc("ENTRY_MARKET_SNAPSHOT_MISSING_DEFERRED")
+            PipelineHealthCollector.labelInc("LIVE_ENTRY_DECISION")
         } catch (_: Throwable) {}
         return null
     }
@@ -9193,11 +9195,43 @@ class Executor(
                 ForensicLogger.lifecycle("LIVE_BUY_ADVISOR_BLOCK",
                     "mint=${ts.mint.take(10)} symbol=${ts.symbol} layer=$layerTag reason=${advisor.second}")
             } catch (_: Throwable) {}
+            try {
+                ForensicLogger.lifecycle("LIVE_ENTRY_DECISION", "mint=${ts.mint.take(10)} symbol=${ts.symbol} originalLane=${layerTag.ifBlank { "UNKNOWN" }} originalStyle=${layerTag.ifBlank { "UNKNOWN" }} finalLane=DEFENSIVE_PROBE finalStyle=ADVISOR_BLOCK score=${score.fmt(1)} scoreBand=${LiveStylePivotRouter.scoreBand(score)} sizeSol=${sol.fmt(4)} sizeMultiplier=0.00 expectedEdgePct=0 requiredEdgePct=999 basisTrusted=false routeTrusted=false holderProof=false rugProof=false liquidityUsd=${ts.lastLiquidityUsd.toInt()} providerProof=${ts.lastPriceSource.isNotBlank()} pivotApplied=true pivotReasons=ADVISOR_BLOCK:${advisor.second.take(48)} decision=DEFER")
+                PipelineHealthCollector.labelInc("LIVE_ENTRY_DECISION")
+            } catch (_: Throwable) {}
             try { PipelineHealthCollector.labelInc("LIVE_BUY_ADVISOR_BLOCK") } catch (_: Throwable) {}
             return false
         }
 
         val entryMarketSnapshot = requireMintEntryMarketSnapshot(ts, "liveBuy") ?: return false
+
+        val originalLaneForPivot = layerTag.ifBlank { identity?.source?.takeIf { it.isNotBlank() } ?: ts.position.tradingMode.ifBlank { ts.source.ifBlank { "STANDARD" } } }
+        val originalStyleForPivot = originalLaneForPivot
+        val liveEntryDecision = LiveStylePivotRouter.route(
+            ts = ts,
+            originalLaneRaw = originalLaneForPivot,
+            originalStyleRaw = originalStyleForPivot,
+            score = score,
+            plannedSizeSol = sol,
+            buySlippageBps = cfg().slippageBps,
+            basisTrusted = entryMarketSnapshot.valid,
+        )
+        fun emitLiveEntryDecision(decisionLabel: String = liveEntryDecision.decision) {
+            try {
+                ForensicLogger.lifecycle(
+                    "LIVE_ENTRY_DECISION",
+                    "mint=${ts.mint.take(10)} symbol=${ts.symbol} originalLane=${liveEntryDecision.originalLane} originalStyle=${liveEntryDecision.originalStyle} finalLane=${liveEntryDecision.finalLane} finalStyle=${liveEntryDecision.finalStyle} score=${score.fmt(1)} scoreBand=${LiveStylePivotRouter.scoreBand(score)} sizeSol=${sol.fmt(4)} sizeMultiplier=${liveEntryDecision.sizeMultiplier.fmt(2)} expectedEdgePct=${liveEntryDecision.expectedEdgePct.fmt(1)} requiredEdgePct=${liveEntryDecision.requiredEdgePct.fmt(1)} basisTrusted=${liveEntryDecision.basisTrusted} routeTrusted=${liveEntryDecision.routeTrusted} holderProof=${liveEntryDecision.holderProof} rugProof=${liveEntryDecision.rugProof} liquidityUsd=${liveEntryDecision.liquidityUsd.toInt()} providerProof=${liveEntryDecision.providerProof} pivotApplied=${liveEntryDecision.pivotApplied} pivotReasons=${liveEntryDecision.reasons.joinToString("|")} decision=$decisionLabel"
+                )
+                PipelineHealthCollector.labelInc("LIVE_ENTRY_DECISION")
+            } catch (_: Throwable) {}
+        }
+        emitLiveEntryDecision()
+        if (liveEntryDecision.decision == "DEFER") {
+            emitLiveBuyFail(ts, sol, "LIVE_ENTRY_DEFERRED_BY_STYLE_PIVOT", liveEntryDecision.reasons.joinToString("|"))
+            return false
+        }
+        val routedLaneTag = liveEntryDecision.finalLane.ifBlank { originalLaneForPivot }
+        val routedStyleTag = liveEntryDecision.finalStyle.ifBlank { routedLaneTag }
 
         // V5.0.3908 — universal approved-handoff recovery for LIVE buys.
         // Some older/direct callers reach liveBuy() without the lane attemptId even
@@ -9209,7 +9243,7 @@ class Executor(
         // finality. Hard safety is preserved because allowedAttempts are written only
         // by canOpenExecutablePosition() after the finality gate has already allowed.
         val recoveredLiveAttemptId = attemptId.ifBlank {
-            val preferredLane = layerTag.ifBlank { ts.position.tradingMode.ifBlank { identity?.source?.takeIf { it.isNotBlank() } ?: "STANDARD" } }
+            val preferredLane = routedLaneTag.ifBlank { ts.position.tradingMode.ifBlank { identity?.source?.takeIf { it.isNotBlank() } ?: "STANDARD" } }
             ExecutableOpenGate.recentAllowedAttemptId(ts.mint, preferredLane)
                 ?: ExecutableOpenGate.recentAllowedAttemptIdAnyLane(ts.mint)
                 ?: ""
@@ -9229,7 +9263,7 @@ class Executor(
         // serializes wallet spend; it does NOT stop one bad mint from retrying on
         // every scanner/lane pass. This lease makes every BUY plan terminal and
         // applies backoff before route/build/submit work begins.
-        val buyLeaseProcessor = layerTag.ifBlank { "MEME_LIVE_BUY" }
+        val buyLeaseProcessor = routedLaneTag.ifBlank { "MEME_LIVE_BUY" }
         val buyLeaseGeneration = try { BotRuntimeController.currentGeneration() } catch (_: Throwable) { 0L }
         val buyLease = ExecutionAttemptLease.acquire(
             side = "BUY",
@@ -9342,9 +9376,9 @@ class Executor(
             val executableOpen = ExecutableOpenGate.canOpenExecutablePosition(
                 ts = ts,
                 mode = "LIVE",
-                lane = layerTag.ifBlank { ts.position.tradingMode.ifBlank { identity?.source?.takeIf { it.isNotBlank() } ?: "STANDARD" } },  // V5.9.1331 lane attribution
+                lane = routedLaneTag.ifBlank { ts.position.tradingMode.ifBlank { identity?.source?.takeIf { it.isNotBlank() } ?: "STANDARD" } },  // V5.9.1331 lane attribution
                 source = "Executor.liveBuy",
-                attemptId = recoveredLiveAttemptId.ifBlank { ExecutableOpenGate.nextAttemptId(ts.mint, layerTag.ifBlank { "UNKNOWN" }) },
+                attemptId = recoveredLiveAttemptId.ifBlank { ExecutableOpenGate.nextAttemptId(ts.mint, routedLaneTag.ifBlank { "UNKNOWN" }) },
             )
             if (!executableOpen.allowed) {
                 ExecutionRootCauseTrace.finality("BUY", "LIVE_BUY_FINALITY_BLOCK", ts, "attemptId=${executableOpen.attemptId} reason=${executableOpen.reason}")
@@ -9370,6 +9404,11 @@ class Executor(
             ErrorLogger.info("Executor", "🩹 WR_RECOVERY_SIZE_DAMP (live): ${ts.symbol} | sol=${sol.fmt(4)} × ${"%.2f".format(wrSizeMult)} → ${damped.fmt(4)} (band=${WrRecoveryPartial.stateNow().band.name})")
             damped
         } else sol
+        if (liveEntryDecision.sizeMultiplier < 0.999 || liveEntryDecision.sizeMultiplier > 1.001) {
+            val beforePivotSol = sol
+            sol = (sol * liveEntryDecision.sizeMultiplier).coerceAtLeast(0.0)
+            try { ForensicLogger.lifecycle("LIVE_STYLE_PIVOT_SIZE_APPLIED", "mint=${ts.mint.take(10)} symbol=${ts.symbol} from=${beforePivotSol.fmt(4)} to=${sol.fmt(4)} mult=${liveEntryDecision.sizeMultiplier.fmt(2)} finalLane=$routedLaneTag finalStyle=$routedStyleTag reasons=${liveEntryDecision.reasons.joinToString("|")}") } catch (_: Throwable) {}
+        }
 
         // V5.9.751 — Base44 ticket item #3: USDC / WSOL / USDT / mSOL / etc.
         // must NEVER be entered as a meme-target buy. Forensic report
@@ -10009,7 +10048,7 @@ class Executor(
                 entryMcap    = entryMarketSnapshot.marketCapUsd,
                 isPaperPosition = false,
                 // V5.9.386 — sub-trader tag carries through live buy too.
-                tradingMode  = if (layerTag.isNotBlank()) layerTag else currentMode.name,
+                tradingMode  = routedLaneTag.ifBlank { if (layerTag.isNotBlank()) layerTag else currentMode.name },
                 tradingModeEmoji = if (layerTagEmoji.isNotBlank()) layerTagEmoji else currentMode.emoji,
                 // V5.9.602 — ALL live buys, including Pump-first, remain
                 // pending until tx/wallet verification proves token arrival.
@@ -10039,7 +10078,7 @@ class Executor(
                 score = score, 
                 sig = sig,
                 // V5.9.386 — sub-trader tag in journal
-                tradingMode = if (layerTag.isNotBlank()) layerTag else currentMode.name,
+                tradingMode = routedLaneTag.ifBlank { if (layerTag.isNotBlank()) layerTag else currentMode.name },
                 tradingModeEmoji = if (layerTagEmoji.isNotBlank()) layerTagEmoji else currentMode.emoji,
                 entryPriceSnapshot = price,
                 entryMcapUsd = entryMarketSnapshot.marketCapUsd,
