@@ -2363,6 +2363,15 @@ class GoldenTapeRegressionTest {
         assertTrue("Pending finality lease remains non-blocking because activeBlockingLeaseCount only counts inFlight", lease.contains("&& l.inFlight"))
     }
 
+
+    @Test
+    fun wallet_rehydration_rejects_extreme_dust_basis_but_allows_sane_recovered_basis() {
+        val bot = java.io.File("src/main/kotlin/com/lifecyclebot/engine/BotService.kt").readText()
+        assertTrue("Rehydration must prefer TokenLifecycle live proof metadata over stale host tracker price", bot.contains("TokenLifecycleTracker.getEntryMetadata(mint)") && bot.contains("LIVE_PROOF_COST_BASIS_REHYDRATED"))
+        assertTrue("Recovered host tracker basis must be sanity bounded before becoming comparable", bot.contains("HOST_WALLET_TRACKER_REHYDRATED_SANITY_OK") && bot.contains("ratio in 0.0001..5_000.0") && bot.contains("priceBasisRescaled = useMetaBasis || useTrackerBasis"))
+        assertTrue("Extreme recovered dust basis must lock recovery instead of feeding fake open PnL", bot.contains("TOKEN_STATE_REHYDRATED_BASIS_LOCKED") && bot.contains("HOST_WALLET_TRACKER_BASIS_UNKNOWN") && bot.contains("RecoveryLockTracker.lock"))
+    }
+
     @Test
     fun live_sell_pending_finality_has_own_pipeline_counter() {
         val collector = java.io.File("src/main/kotlin/com/lifecyclebot/engine/PipelineHealthCollector.kt").readText()

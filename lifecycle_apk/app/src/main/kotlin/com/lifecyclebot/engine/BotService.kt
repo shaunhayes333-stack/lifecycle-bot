@@ -5996,16 +5996,49 @@ class BotService : Service() {
                 return null
             }
             val ts = com.lifecyclebot.data.TokenState(mint = mint, symbol = sym, name = sym)
+            val meta = try { com.lifecyclebot.engine.TokenLifecycleTracker.getEntryMetadata(mint) } catch (_: Throwable) { null }
+            val metaEntryUsd = meta?.entryPriceUsd?.takeIf { it.isFinite() && it > 0.0 } ?: 0.0
+            val metaCostSol = meta?.entrySolSpent?.takeIf { it.isFinite() && it > 0.0 } ?: 0.0
+            val trackerEntryUsd = tracked?.entryPriceUsd?.takeIf { it.isFinite() && it > 0.0 } ?: 0.0
+            val trackerCostSol = tracked?.entrySol?.takeIf { it.isFinite() && it > 0.0 } ?: 0.0
+            val currentUsd = tracked?.currentPriceUsd?.takeIf { it.isFinite() && it > 0.0 } ?: 0.0
+            fun saneRecoveredBasis(entryUsd: Double): Boolean {
+                if (entryUsd <= 0.0 || !entryUsd.isFinite()) return false
+                if (currentUsd <= 0.0) return true
+                val ratio = currentUsd / entryUsd
+                return ratio.isFinite() && ratio in 0.0001..5_000.0
+            }
+            val useMetaBasis = metaEntryUsd > 0.0 && metaCostSol > 0.0 && saneRecoveredBasis(metaEntryUsd)
+            val useTrackerBasis = !useMetaBasis && trackerEntryUsd > 0.0 && trackerCostSol > 0.0 && saneRecoveredBasis(trackerEntryUsd)
+            val recoveredEntryUsd = when {
+                useMetaBasis -> metaEntryUsd
+                useTrackerBasis -> trackerEntryUsd
+                else -> 0.0
+            }
+            val recoveredCostSol = when {
+                useMetaBasis -> metaCostSol
+                useTrackerBasis -> trackerCostSol
+                else -> 0.0
+            }
+            val recoveredSource = when {
+                useMetaBasis -> "LIVE_PROOF_COST_BASIS_REHYDRATED"
+                useTrackerBasis -> "HOST_WALLET_TRACKER_REHYDRATED_SANITY_OK"
+                else -> "HOST_WALLET_TRACKER_BASIS_UNKNOWN"
+            }
             ts.position = com.lifecyclebot.data.Position(
                 qtyToken = qty,
-                entryPrice = tracked?.entryPriceUsd ?: 0.0,
-                costSol = tracked?.entrySol ?: 0.0,
+                entryPrice = recoveredEntryUsd,
+                costSol = recoveredCostSol,
                 entryTime = tracked?.buyTimeMs ?: System.currentTimeMillis(),
                 isPaperPosition = false,
-                entryPriceSource = if ((tracked?.entryPriceUsd ?: 0.0) > 0.0 && (tracked?.entrySol ?: 0.0) > 0.0) "HOST_WALLET_TRACKER" else "HOST_WALLET_TRACKER_BASIS_UNKNOWN",
+                entryPriceSource = recoveredSource,
+                priceBasisRescaled = useMetaBasis || useTrackerBasis,
             )
             if (ts.position.entryPrice <= 0.0 || ts.position.costSol <= 0.0) {
                 try { com.lifecyclebot.engine.sell.RecoveryLockTracker.lock(mint = mint, symbol = sym, reason = "HOST_WALLET_TRACKER_BASIS_UNKNOWN") } catch (_: Throwable) {}
+                try { ForensicLogger.lifecycle("TOKEN_STATE_REHYDRATED_BASIS_LOCKED", "mint=${mint.take(10)} symbol=$sym trackerEntry=$trackerEntryUsd metaEntry=$metaEntryUsd current=$currentUsd qty=$qty source=$recoveredSource") } catch (_: Throwable) {}
+            } else {
+                try { ForensicLogger.lifecycle("TOKEN_STATE_REHYDRATED_BASIS_TRUSTED", "mint=${mint.take(10)} symbol=$sym source=$recoveredSource entry=$recoveredEntryUsd cost=$recoveredCostSol current=$currentUsd") } catch (_: Throwable) {}
             }
             ts.source = "WALLET_RESTORED_LIVE_POSITION"
             ts.addedToWatchlistAt = System.currentTimeMillis()
