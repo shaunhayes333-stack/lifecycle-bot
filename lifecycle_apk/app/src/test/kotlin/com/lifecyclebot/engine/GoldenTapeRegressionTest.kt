@@ -3042,11 +3042,11 @@ class GoldenTapeRegressionTest {
         val zeroBlock = fdg.substring(fdg.indexOf("ZERO-CONF SOURCE ALIGNMENT"), fdg.indexOf("val earlyMemoryScore", fdg.indexOf("ZERO-CONF SOURCE ALIGNMENT")))
         assertTrue("live zero-confidence must become a micro-probe tag", zeroBlock.contains("live_zero_conf_micro_probe") && zeroBlock.contains("conf=0% → LIVE micro-probe"))
         assertFalse("live zero-confidence must not return a FinalDecision before the micro-probe path", zeroBlock.contains("return FinalDecision"))
-        val watchRestore = gate.substring(gate.indexOf("verdictAllowedByFdg"), gate.indexOf("return "EXEC_OPEN_DROPPED_PRE_FDG_NOT_BUY"", gate.indexOf("verdictAllowedByFdg")))
+        val watchRestore = gate.substring(gate.indexOf("verdictAllowedByFdg"), gate.indexOf("""return "EXEC_OPEN_DROPPED_PRE_FDG_NOT_BUY"""", gate.indexOf("verdictAllowedByFdg")))
         assertTrue("FDG-approved WATCH restore must use current live safety/liquidity", watchRestore.contains("currentSafetyTier.equals") && watchRestore.contains("currentLiq") && watchRestore.contains("LIVE_RESTORE_STALE_WATCH_SOFT_ALLOW"))
         assertFalse("WATCH restore safetyOk must not require currentStateVersion equality", watchRestore.contains("currentStateVersion && (currentSafetyTier"))
-        assertTrue("reconciler-triggered sells must carry tracker lifecycle reason, not generic learning poison", bot.contains("RECONCILER_REQUEUE_${'$'}{trackerStatus}") && bot.contains("trackerStatus=") && bot.contains("reason=$") && bot.contains("requeueReason"))
-        assertTrue("executor suppressor must cover prefixed reconciler maintenance reasons", exec.contains("reason.startsWith("RECONCILER_REQUEUE", ignoreCase = true)"))
+        assertTrue("reconciler-triggered sells must carry tracker lifecycle reason, not generic learning poison", bot.contains("RECONCILER_REQUEUE_${'$'}{trackerStatus}") && bot.contains("trackerStatus=") && bot.contains("reason=${'$'}") && bot.contains("requeueReason"))
+        assertTrue("executor suppressor must cover prefixed reconciler maintenance reasons", exec.contains("""reason.startsWith("RECONCILER_REQUEUE", ignoreCase = true)"""))
     }
 
     @Test
