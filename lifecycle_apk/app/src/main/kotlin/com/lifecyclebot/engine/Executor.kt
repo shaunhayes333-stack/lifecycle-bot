@@ -8870,6 +8870,15 @@ class Executor(
     private fun consultEntryAdvisors(ts: TokenState, score: Double, layerTag: String, isPaperMode: Boolean = false): Pair<Boolean, String> {
         return try {
             val mint = ts.mint
+            fun softAdvisor(label: String, detail: String = "") {
+                try {
+                    ForensicLogger.lifecycle(
+                        "LIVE_BUY_ADVISOR_SOFT_SHAPE",
+                        "mint=${ts.mint.take(10)} symbol=${ts.symbol} layer=$layerTag reason=$label ${detail.take(120)}".trim(),
+                    )
+                    PipelineHealthCollector.labelInc("LIVE_BUY_ADVISOR_SOFT_$label")
+                } catch (_: Throwable) {}
+            }
             // V5.0.3925 — HARD RUG PRE-FILTER on the live buy chokepoint.
             // Operator dump V5.0.3928 still showed live -100% rugs (Insider
             // lane, fresh launches). HardRugPreFilter exists and is called in
@@ -8905,14 +8914,14 @@ class Executor(
                         ForensicLogger.exec("LIVE_BUY_PREATTEMPT_SUPPRESSED", ts.symbol, "mint=${ts.mint.take(10)} reason=PROVIDER_PROOF_LIQUIDITY_CASCADE_BLIND quality=${liqProof.quality.name} source=${liqProof.source} walked=$walked")
                         PipelineHealthCollector.labelInc("LIVE_BUY_PREATTEMPT_PROVIDER_PROOF_BLIND")
                     } catch (_: Throwable) {}
-                    return false to "PROVIDER_PROOF_LIQUIDITY_CASCADE_BLIND:quality=${liqProof.quality.name}:source=${liqProof.source}:walked=$walked"
+                    softAdvisor("PROVIDER_PROOF_LIQUIDITY_CASCADE_BLIND", "quality=${liqProof.quality.name} source=${liqProof.source} walked=$walked")
                 }
             } catch (_: Throwable) {}
             // MomentumPredictor: shouldAvoid() returns false when there's no
             // data for this mint, so this won't fire on fresh launches.
             if (com.lifecyclebot.engine.MomentumPredictorAI.shouldAvoid(mint)) {
                 val pred = com.lifecyclebot.engine.MomentumPredictorAI.getMomentum(mint)?.prediction?.name ?: "UNKNOWN"
-                return false to "MOMENTUM_AVOID:$pred"
+                softAdvisor("MOMENTUM_AVOID", pred)
             }
             // BotBrain: hard-suppressed pattern check. shouldSkipTrade() reads
             // the learned suppression registry — patterns that have produced
@@ -8926,7 +8935,7 @@ class Executor(
                             ForensicLogger.exec("LIVE_BUY_PREATTEMPT_SUPPRESSED", ts.symbol, "mint=${ts.mint.take(10)} reason=BRAIN_PATTERN_SUPPRESSED phase=${ts.phase} source=${ts.source}")
                             PipelineHealthCollector.labelInc("LIVE_BUY_PREATTEMPT_BRAIN_PATTERN_SUPPRESSED")
                         } catch (_: Throwable) {}
-                        return false to "BRAIN_PATTERN_SUPPRESSED:phase=${ts.phase}|source=${ts.source}"
+                        softAdvisor("BRAIN_PATTERN_SUPPRESSED", "phase=${ts.phase}|source=${ts.source}")
                     }
                 } catch (_: Throwable) {}
                 // Learned safety thresholds. Only enforce when the token has
@@ -8934,10 +8943,10 @@ class Executor(
                 // pool is checked elsewhere (HardRugPreFilter / blacklist).
                 try {
                     if (ts.safety.rugcheckScore > 0 && ts.safety.rugcheckScore <= b.learnedRugcheckThreshold) {
-                        return false to "BRAIN_RUGCHECK_FLOOR:score=${ts.safety.rugcheckScore}<=${b.learnedRugcheckThreshold}"
+                        softAdvisor("BRAIN_RUGCHECK_FLOOR", "score=${ts.safety.rugcheckScore}<=${b.learnedRugcheckThreshold}")
                     }
                     if (ts.meta.pressScore > 0.0 && ts.meta.pressScore < b.learnedMinBuyPressure) {
-                        return false to "BRAIN_BUY_PRESSURE_FLOOR:press=${ts.meta.pressScore}<${b.learnedMinBuyPressure}"
+                        softAdvisor("BRAIN_BUY_PRESSURE_FLOOR", "press=${ts.meta.pressScore}<${b.learnedMinBuyPressure}")
                     }
                     // V5.0.3927 — TOP-HOLDER POLARITY-AGNOSTIC GATE. Operator
                     // dump V5.0.3930 showed RICHTROLL bought live despite a
@@ -8984,13 +8993,13 @@ class Executor(
                         // and intel still fire — paper isn't poisoned).
                         if (!isPaperMode) {
                             val walked = holderProof?.attempted?.size ?: 0
-                            return false to "PROVIDER_PROOF_HOLDER_CASCADE_BLIND:no_data:walked=$walked"
+                            softAdvisor("PROVIDER_PROOF_HOLDER_CASCADE_BLIND", "no_data walked=$walked")
                         }
                     } else if (holderPct > b.learnedMaxTopHolder) {
-                        return false to "BRAIN_TOP_HOLDER_CEILING:top=${holderPct}>${b.learnedMaxTopHolder}"
+                        softAdvisor("BRAIN_TOP_HOLDER_CEILING", "top=${holderPct}>${b.learnedMaxTopHolder}")
                     }
                     if (ts.lastLiquidityUsd > 0.0 && ts.lastLiquidityUsd < b.learnedMinLiquidity) {
-                        return false to "BRAIN_LIQUIDITY_FLOOR:liq=${ts.lastLiquidityUsd}<${b.learnedMinLiquidity}"
+                        softAdvisor("BRAIN_LIQUIDITY_FLOOR", "liq=${ts.lastLiquidityUsd}<${b.learnedMinLiquidity}")
                     }
                 } catch (_: Throwable) {}
             }
@@ -9001,7 +9010,7 @@ class Executor(
             try {
                 val fluidFloor = com.lifecyclebot.v3.scoring.FluidLearningAI.getExecuteFloor().toDouble()
                 if (score > 0.0 && score < fluidFloor) {
-                    return false to "FLUID_EXECUTE_FLOOR:score=$score<$fluidFloor"
+                    softAdvisor("FLUID_EXECUTE_FLOOR", "score=$score<$fluidFloor")
                 }
             } catch (_: Throwable) {}
             // EntryIntelligence: only enforce once the AI has been trained on
@@ -9027,7 +9036,7 @@ class Executor(
                 )
                 val intel = com.lifecyclebot.engine.EntryIntelligence.scoreEntry(conditions)
                 if (intel.recommendation == com.lifecyclebot.engine.EntryIntelligence.EntryRecommendation.AVOID && intel.score < 25) {
-                    return false to "ENTRY_INTEL_AVOID:score=${intel.score}|${intel.reasons.firstOrNull() ?: ""}"
+                    softAdvisor("ENTRY_INTEL_AVOID", "score=${intel.score}|${intel.reasons.firstOrNull() ?: ""}")
                 }
             }
             true to "ENTRY_ADVISORS_PASS:intelTrades=$intelTrades"
@@ -9046,6 +9055,25 @@ class Executor(
                         layerTagEmoji: String = "",
                         finalityPrechecked: Boolean = false,
                         attemptId: String = ""): Boolean {    // V5.9.386 — matching emoji
+
+        // V5.0.3939 — TRUE LIVE ATTEMPT BOUNDARY.
+        // Runtime 3938 showed FDG live allow > 0, global EXEC > 0, but
+        // LIVE EXEC attempt=0 because the attempt marker lived AFTER advisor,
+        // lease, route, invalid-size, and blacklist preflight returns. Entering
+        // liveBuy() is the live executor attempt; downstream blocks must report
+        // as BUY fail/defer reasons, not disappear as zero attempts.
+        try {
+            ForensicLogger.exec(
+                "LIVE_BUY_ATTEMPT",
+                ts.symbol,
+                "mint=${ts.mint.take(10)} sol=${"%.4f".format(sol)} score=${"%.1f".format(score)} q=$quality layer=$layerTag src=liveBuy.enter",
+            )
+            ForensicLogger.lifecycle(
+                "MEME_LIVE_EXEC_ENTRY",
+                "mint=${ts.mint.take(10)} symbol=${ts.symbol} sol=${"%.4f".format(sol)} layer=$layerTag callSite=liveBuy.enter",
+            )
+            PipelineHealthCollector.labelInc("LIVE_BUY_ENTERED")
+        } catch (_: Throwable) {}
 
         // V5.0.3923 — consult dormant entry-quality AIs before any execution
         // work begins. Must run BEFORE ExecutionAttemptLease.acquire below so
@@ -9199,22 +9227,6 @@ class Executor(
             return false
         }
 
-        // V5.9.1586 — canonical live attempt boundary restored to 3501 semantics.
-        // Entering liveBuy() with a valid live route is an EXEC attempt. Downstream
-        // finality/admission/break-even may fail, but they must not hide that the
-        // live executor was reached (3659 showed EXEC_LIVE_ATTEMPT=0 while aborting
-        // later in restore/break-even chains).
-        try {
-            ForensicLogger.exec(
-                "LIVE_BUY_ATTEMPT",
-                ts.symbol,
-                "mint=${ts.mint.take(10)} sol=${"%.4f".format(sol)} score=${"%.1f".format(score)} q=$quality src=liveBuy.entry",
-            )
-            ForensicLogger.lifecycle(
-                "MEME_LIVE_EXEC_ENTRY",
-                "mint=${ts.mint.take(10)} symbol=${ts.symbol} sol=${"%.4f".format(sol)} callSite=liveBuy.entry",
-            )
-        } catch (_: Throwable) {}
         PipelineTracer.executorStart(ts.symbol, ts.mint, "LIVE", sol)
 
         var finalityVerdict: ExecutableOpenGate.OpenVerdict? = if (recoveredFinalityPrechecked && recoveredLiveAttemptId.isNotBlank()) {

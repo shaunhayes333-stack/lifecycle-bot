@@ -2930,6 +2930,25 @@ class GoldenTapeRegressionTest {
 
 
 
+
+    @Test
+    fun live_buy_attempt_boundary_precedes_advisors_and_advisors_soft_shape_only() {
+        val exec = java.io.File("src/main/kotlin/com/lifecyclebot/engine/Executor.kt").readText()
+        val pipe = java.io.File("src/main/kotlin/com/lifecyclebot/engine/PipelineHealthCollector.kt").readText()
+        val fnStart = exec.indexOf("private fun liveBuy")
+        val advisorIdx = exec.indexOf("consultEntryAdvisors(ts, score, layerTag)", fnStart)
+        val attemptIdx = exec.indexOf("LIVE_BUY_ATTEMPT", fnStart)
+        assertTrue("liveBuy must count the attempt before advisor/route preflight can return", fnStart >= 0 && attemptIdx in fnStart until advisorIdx)
+        val advisorStart = exec.indexOf("private fun consultEntryAdvisors")
+        val advisorEnd = exec.indexOf("private fun liveBuy", advisorStart)
+        val advisor = exec.substring(advisorStart, advisorEnd)
+        assertTrue("advisor stack must expose soft-shape telemetry", advisor.contains("LIVE_BUY_ADVISOR_SOFT_SHAPE") && advisor.contains("softAdvisor("))
+        val hardReturns = Regex("return false to").findAll(advisor).count()
+        assertEquals("only confirmed hard rug prefilter may hard-block before live buy", 1, hardReturns)
+        assertTrue(advisor.contains("RUG_PREFILTER_HARD_FAIL"))
+        assertTrue("live report must expose advisor soft-shapes", pipe.contains("Advisor soft-shapes") && pipe.contains("LIVE_BUY_ENTERED"))
+    }
+
     @Test
     fun live_auth_locks_are_truth_pruned_not_permanent_open_positions() {
         val auth = java.io.File("src/main/kotlin/com/lifecyclebot/engine/TradeAuthorizer.kt").readText()

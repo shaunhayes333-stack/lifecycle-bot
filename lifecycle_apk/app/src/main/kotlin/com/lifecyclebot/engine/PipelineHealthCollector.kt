@@ -1375,6 +1375,12 @@ object PipelineHealthCollector {
         sb.append("===== LIVE execution telemetry (event-attributed) =====\n")
         sb.append("  FDG allow/block:      ${fdgLiveAllow.get()} / ${fdgLiveBlock.get()}\n")
         sb.append("  EXEC attempt:         ${execLiveAttempt.get()}\n")
+        val advisorSoft = s.labelCounts.filterKeys { it.startsWith("LIVE_BUY_ADVISOR_SOFT_") }
+        if (advisorSoft.isNotEmpty()) {
+            sb.append("  Advisor soft-shapes:  ")
+            sb.append(advisorSoft.entries.sortedByDescending { it.value.get() }.take(6).joinToString(" · ") { it.key.removePrefix("LIVE_BUY_ADVISOR_SOFT_") + "=" + it.value.get() })
+            sb.append("\n")
+        }
         sb.append("  BUY ok/fail:          ${execLiveBuyOk.get()} / ${execLiveBuyFail.get()}\n")
         sb.append("  SELL ok/fail:         ${execLiveSellOk.get()} / ${execLiveSellFail.get()}\n")
         val topLiveBuyFailReasons = s.liveBuyFailReasonCounts.entries.sortedByDescending { it.value }.take(8)
@@ -2018,7 +2024,8 @@ object PipelineHealthCollector {
                 sb.append("  REGRESSION_GUARDS_FAIL: TX_CONFIRMED_WITHOUT_BUY_JOURNALED txConfirmed=${lc("TX_CONFIRMED")} journaled=${lc("BUY_JOURNALED")}\n")
             }
             sb.append("  Buy fail buckets: finality=${lc("BUY_FAILED_FINALITY")} route=${lc("BUY_FAILED_ROUTE")} staleTicket=${lc("BUY_FAILED_STALE_TICKET")} safety=${lc("BUY_FAILED_SAFETY")}\n")
-            sb.append("  Pre-attempt suppressions: providerProofBlind=${lc("LIVE_BUY_PREATTEMPT_PROVIDER_PROOF_BLIND")} brainPattern=${lc("LIVE_BUY_PREATTEMPT_BRAIN_PATTERN_SUPPRESSED")} staleAuthPruned=${lc("STALE_AUTH_LOCK_PRUNED")}\n")
+            val advisorSoftKinds = labelCounts.keys.count { it.startsWith("LIVE_BUY_ADVISOR_SOFT_") }
+            sb.append("  Pre-attempt suppressions: providerProofBlind=${lc("LIVE_BUY_PREATTEMPT_PROVIDER_PROOF_BLIND")} brainPattern=${lc("LIVE_BUY_PREATTEMPT_BRAIN_PATTERN_SUPPRESSED")} staleAuthPruned=${lc("STALE_AUTH_LOCK_PRUNED")} liveEntered=${lc("LIVE_BUY_ENTERED")} advisorSoft=$advisorSoftKinds\n")
             sb.append("  Live lane policy: CYCLIC=liveSoftSized MEME_RING=liveOwnerCollapsed MANIPULATED=dumpSoftSized TREASURY=dumpSoftSized ownerCollapse=${lc("LIVE_RING_OWNER_COLLAPSE")} ownerLane=${lc("MEMETRADER_OWNER_LANE")} dumpSizeEvents=${lc("DUMP_REGIME_LIVE_SIZE_SHAPED")} noPairHeldHot=${lc("INTAKE_NO_PAIR_HELD_HOT_FOR_HYDRATION")}\n")
         } catch (_: Throwable) { /* capability report never fails dumpText */ }
 
