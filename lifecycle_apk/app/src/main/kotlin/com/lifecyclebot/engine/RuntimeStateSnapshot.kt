@@ -136,19 +136,26 @@ data class RuntimeStateSnapshot(
                     paperOpen
                 }
             } catch (_: Throwable) { 0 }
+            val positionReconSnapshot = try { com.lifecyclebot.engine.execution.PositionWalletReconciler.snapshot() } catch (_: Throwable) { null }
+            val reconcilerGrace = positionReconSnapshot?.grace ?: 0
             val orphanLive = try {
                 if (isPaperRuntime) 0
-                // V5.0.3685 — P0: (walletHeld - liveOpen) can be 1 during the normal
-                // RPC-confirm delay after a buy lands on-chain but before position state
-                // propagates. A difference of 1 fires SellOnlySafeMode.orphanLive > 0
-                // which hard-blocks the NEXT live buy. Require > 1 delta before calling
-                // it an orphan — a genuine orphan is 2+ positions the store doesn't know about.
-                else ((walletHeld - liveOpen) - 1).coerceAtLeast(0)
+                else {
+                    // V5.0.3955 — ORPHAN GRACE MUST FOLLOW THE RECONCILER.
+                    // Runtime 3954 showed Recon grace=4 while RuntimeDoctor still
+                    // computed orphanLive=2 from raw walletHeld-liveOpen. Those mints
+                    // are explicitly inside the position-wallet reconciler's adoption
+                    // grace window, not mechanical orphans. Subtract the larger of the
+                    // historical one-mint buy propagation grace and the current recon
+                    // GRACE bucket before raising ORPHAN_LIVE_POSITIONS.
+                    val graceAllowance = maxOf(1, reconcilerGrace)
+                    ((walletHeld - liveOpen) - graceAllowance).coerceAtLeast(0)
+                }
             } catch (_: Throwable) { 0 }
 
             val reconcilerChecked = try {
                 maxOf(
-                    com.lifecyclebot.engine.execution.PositionWalletReconciler.snapshot().totalChecked,
+                    positionReconSnapshot?.totalChecked ?: 0,
                     try { com.lifecyclebot.engine.sell.SellReconciler.totalChecked.toInt() } catch (_: Throwable) { 0 },
                     try { com.lifecyclebot.engine.sell.LiveWalletReconciler.totalChecked() } catch (_: Throwable) { 0 },
                 )
