@@ -2975,7 +2975,7 @@ class GoldenTapeRegressionTest {
         assertTrue("live min-hold must run before sell pending lifecycle and close lease", reqIdx >= 0 && holdIdx in reqIdx until lifecycleIdx && holdIdx < leaseIdx)
         assertTrue("strict SL must not bypass min-hold unless raw hard floor breached", exec.contains("STRICT_SL alone does") && exec.contains("rawPnlPct <= -15.0"))
         assertTrue("live min-hold must not enqueue pending sells", exec.contains("action=no_sell_lock") && exec.contains("return SellResult.FAILED_RETRYABLE"))
-        assertTrue("maintenance requeue uses its own healthy-hold suppressor", exec.contains("if (reason.equals("RECONCILER_REQUEUE", ignoreCase = true)) return null"))
+        assertTrue("maintenance requeue uses its own healthy-hold suppressor", exec.contains("RECONCILER_REQUEUE") && exec.contains("return null") && exec.contains("RECONCILER_REQUEUE_SUPPRESSED_HEALTHY_HOLD"))
         assertTrue("report must expose live style hold deferrals", pipe.contains("styleHoldDeferred") && pipe.contains("LIVE_STYLE_MIN_HOLD_EXIT_DEFERRED"))
     }
 
