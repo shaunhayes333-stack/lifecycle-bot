@@ -217,6 +217,14 @@ object SellReconciler {
     }
 
     /** Single reconciliation pass. Public for unit-tests / manual nudges. */
+    fun requestUrgentTick(reason: String = "urgent") {
+        try {
+            ForensicLogger.lifecycle("SELL_RECONCILER_URGENT_TICK_REQUESTED", "reason=$reason")
+            val sc = loopScope ?: return
+            sc.launch { try { tickOnce() } catch (_: Throwable) {} }
+        } catch (_: Throwable) {}
+    }
+
     suspend fun tickOnce() {
         if (paperMode) return
         val w = wallet ?: return

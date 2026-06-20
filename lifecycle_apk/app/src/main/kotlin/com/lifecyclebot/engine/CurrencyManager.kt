@@ -263,6 +263,7 @@ class CurrencyManager(private val ctx: Context) {
             6 -> 1_000_000L
             8 -> 100_000_000L
             10 -> 10_000_000_000L
+            12 -> 1_000_000_000_000L
             else -> 10.0.pow(d).toLong().coerceAtLeast(1L)
         }
         val rounded = (kotlin.math.abs(v) * scale).roundToLong()
@@ -293,9 +294,10 @@ class CurrencyManager(private val ctx: Context) {
     private fun formatInt(v: Double)  = comma0(v)
 
     private fun formatSmallPrice(v: Double): String = when {
-        v >= 1.0    -> fixed(v, 4)
-        v >= 0.01   -> fixed(v, 6)
-        v >= 0.0001 -> fixed(v, 8)
-        else        -> fixed(v, 10)
+        v >= 1.0          -> fixed(v, 4)
+        v >= 0.01         -> fixed(v, 6)
+        v >= 0.0001       -> fixed(v, 8)
+        v >= 0.0000000001 -> fixed(v, 10)
+        else              -> fixed(v, 12)
     }
 }

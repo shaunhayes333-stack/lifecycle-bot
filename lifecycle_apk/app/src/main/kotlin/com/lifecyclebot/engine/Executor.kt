@@ -8177,7 +8177,7 @@ class Executor(
             mode = if (routeIsShadow) "shadow" else "paper",
             sol = actualSol, 
             price = price, 
-            ts = System.currentTimeMillis(), 
+            ts = System.currentTimeMillis(),
             score = score,
             // V5.9.386 — sub-trader tag overrides ExtendedMode when provided
             // so Journal shows SHITCOIN/QUALITY/BLUE_CHIP/MOONSHOT/TREASURY
@@ -12361,9 +12361,9 @@ class Executor(
             // into CanonicalLearning.exitSol = trade.sol — corrupt learning.
             sol = value,
             price = price,
-            ts = System.currentTimeMillis(), 
-            reason = reason, 
-            pnlSol = pnl, 
+            ts = System.currentTimeMillis(),
+            reason = reason,
+            pnlSol = pnl,
             pnlPct = pnlP,
             // V5.9.1205 — close rows must preserve entry score for
             // LosingPatternMemory. Default 0 made normal ShitCoin/Quality
@@ -12741,7 +12741,7 @@ class Executor(
                     phase = ph, 
                     emaFan = fanName, 
                     source = src, 
-                    pnlPct = pnlP, 
+                    pnlPct = pnlP,
                     mint = ts.mint,
                     rugcheckScore = ts.safety.rugcheckScore,
                     buyPressure = ts.meta.pressScore,
@@ -12817,7 +12817,7 @@ class Executor(
                     phase = ph, 
                     emaFan = fanName, 
                     source = src, 
-                    pnlPct = pnlP, 
+                    pnlPct = pnlP,
                     mint = ts.mint,
                     rugcheckScore = ts.safety.rugcheckScore,
                     buyPressure = ts.meta.pressScore,
@@ -14786,19 +14786,21 @@ class Executor(
                         entrySolSpent = entrySolSpent.coerceAtLeast(0.0),
                         entryTokenRaw = entryTokenRaw.max(java.math.BigInteger.ONE),
                     )
-                    com.lifecyclebot.engine.sell.SellFinalizationCoordinator.finalize(
-                        intent = intent,
-                        preTokenBalanceRaw = preTokenRaw,
-                        postTokenBalanceRaw = postTokenRaw,
-                        walletPollRaw = walletPollRaw,
-                        solReceivedLamports = 0L,           // unknown here; coordinator will use sellSolReceived
-                        sellSolReceived = 0.0,              // realised SOL is logged elsewhere; pass 0 to mark degenerate
-                        feesSol = 0.0,
-                        decimals = decimals,
-                        slippageUsedBps = 0,
-                        sellSig = sig,
-                        traderTag = "MEME",
-                    )
+                    if (postSellMapEmpty) {
+                        try {
+                            ForensicLogger.lifecycle("SELL_FINALITY_PENDING_RETRY", "mint=${ts.mint.take(10)} symbol=${ts.symbol} reason=MISSING_POST_BALANCE_PROOF sig=${sig.take(16)} action=no_close_no_journal_no_learning_keep_lease")
+                            com.lifecyclebot.engine.sell.CloseLease.recordRetry(ts.mint, "SELL_FINALITY_PENDING_RETRY_MISSING_POST_BALANCE_PROOF")
+                            com.lifecyclebot.engine.sell.SellReconciler.requestUrgentTick("SELL_FINALITY_PENDING_RETRY_MISSING_POST_BALANCE_PROOF")
+                        } catch (_: Throwable) {}
+                        onLog("⏳ SELL_FINALITY_PENDING_RETRY: ${ts.symbol} missing post-sell wallet proof — no close/journal/learning yet", tradeId.mint)
+                        LiveTradeLogStore.log(
+                            sellTradeKey, ts.mint, ts.symbol, "SELL",
+                            LiveTradeLogStore.Phase.SELL_VERIFY_INCONCLUSIVE_PENDING,
+                            "⏳ SELL finality pending retry — missing post-balance proof. No normal SELL_OK/journal close.",
+                            sig = sig, traderTag = "MEME",
+                        )
+                        return SellResult.FAILED_RETRYABLE
+                    }
                 } catch (e: Throwable) {
                     com.lifecyclebot.engine.ErrorLogger.warn("Executor",
                         "SellFinalizationCoordinator.finalize threw (non-fatal): ${e.message}")
@@ -14806,27 +14808,19 @@ class Executor(
 
                 val originalTokens = pos.qtyToken
                 if (postSellMapEmpty) {
-                    // V5.9.495w — operator triage 06 May 2026: SHELTERCOIN
-                    // sell DID succeed on-chain (coins left wallet, SOL
-                    // returned), but my V5.9.495t threw RuntimeException
-                    // here on RPC empty-map → bot retried a sell that had
-                    // already settled. Reverse the polarity: when the
-                    // broadcast signature has already been logged as
-                    // SELL_CONFIRMED (sig != null, came back from
-                    // tryPumpPortalSell), we TRUST the sig and let the
-                    // async watchdog reconcile in the background.
-                    // Throwing on empty-map produced false SELL_FAILED +
-                    // SELL_STUCK forensics on a real on-chain success.
-                    onLog("⚠️ POST-SELL VERIFY: RPC empty-map — trusting confirmed sig (async watchdog will reconcile)", tradeId.mint)
+                    // V5.0.3985 — atomic finality: a signature alone is not a
+                    // close. RPC empty-map is not post-balance proof, and must not
+                    // fall through to normal SELL_OK/journal/slot release.
+                    onLog("⏳ SELL_FINALITY_PENDING_RETRY: RPC empty-map after confirmed sig — awaiting post-balance proof", tradeId.mint)
                     LiveTradeLogStore.log(
                         sellTradeKey, ts.mint, ts.symbol, "SELL",
                         LiveTradeLogStore.Phase.WARNING,
-                        "⚠️ POST-SELL: RPC empty-map blip — trusting SELL_CONFIRMED sig optimistically. Async watchdog continues.",
+                        "⏳ SELL finality pending retry: RPC empty-map after confirmed sig. No normal close until post-balance/proceeds proof arrives.",
                         traderTag = "MEME",
                     )
-                    // Fall through to normal success path. If the chain
-                    // really didn't settle, the async watchdog logs the
-                    // gap and PendingSellQueue retries naturally.
+                    try { com.lifecyclebot.engine.sell.CloseLease.recordRetry(ts.mint, "SELL_FINALITY_PENDING_RETRY_RPC_EMPTY_MAP") } catch (_: Throwable) {}
+                    try { com.lifecyclebot.engine.sell.SellReconciler.requestUrgentTick("SELL_FINALITY_PENDING_RETRY_RPC_EMPTY_MAP") } catch (_: Throwable) {}
+                    return SellResult.FAILED_RETRYABLE
                 } else if (originalTokens > 0 && remainingTokens > originalTokens * 0.01) {
                     val remainingPct = (remainingTokens / originalTokens * 100).toInt()
                     onLog("🚨 SELL INCOMPLETE: Still holding ${remainingPct}% of tokens!", tradeId.mint)
@@ -15001,30 +14995,42 @@ class Executor(
                     onLog("📊 SELL PnL (actual): received=${delta.fmt(6)} SOL | quoted=$quotedDisp SOL", tradeId.mint)
                     delta  // wallet SOL delta is proceeds from the sell, not cost+proceeds
                 } else {
-                    // V5.9.495x — no on-chain SOL delta after 15s. Refuse
-                    // to trust the inflated `quote.outAmount`; record as
-                    // SCRATCH so the journal isn't poisoned by phantom
-                    // wins/losses on tx that didn't actually settle.
-                    onLog("📊 SELL PnL: no SOL delta after 15s retry — recording as SCRATCH (no quote-inflation in journal)", tradeId.mint)
+                    // V5.0.3985 — no proceeds proof means no finality. Do not
+                    // record SCRATCH and do not journal/train/close; keep retrying
+                    // until tx meta/proceeds or routed settlement proof exists.
+                    onLog("⏳ SELL_FINALITY_PENDING_RETRY: no SOL/proceeds delta after 15s — no normal journal close", tradeId.mint)
                     LiveTradeLogStore.log(
                         sellTradeKey, ts.mint, ts.symbol, "SELL",
-                        LiveTradeLogStore.Phase.WARNING,
-                        "📊 SELL PnL=SCRATCH: no on-chain SOL delta after 15s retry. Journal entry will show 0% — refusing to use inflated quote.outAmount.",
-                        traderTag = "MEME",
+                        LiveTradeLogStore.Phase.SELL_VERIFY_INCONCLUSIVE_PENDING,
+                        "⏳ SELL finality pending retry: no SOL/proceeds delta after 15s. No normal SELL journal row.",
+                        sig = sig, traderTag = "MEME",
                     )
-                    pos.costSol  // SCRATCH: solBack == costSol → 0% PnL
+                    try { com.lifecyclebot.engine.sell.CloseLease.recordRetry(ts.mint, "SELL_FINALITY_PENDING_RETRY_NO_PROCEEDS") } catch (_: Throwable) {}
+                    try { com.lifecyclebot.engine.sell.SellReconciler.requestUrgentTick("SELL_FINALITY_PENDING_RETRY_NO_PROCEEDS") } catch (_: Throwable) {}
+                    return SellResult.FAILED_RETRYABLE
                 }
             } catch (balEx: Exception) {
-                // Even SOL balance read failed entirely — record SCRATCH
-                // rather than gamble with the quote.
-                onLog("📊 SELL PnL: balance read failed (${balEx.message?.take(40)}) — recording as SCRATCH", tradeId.mint)
-                pos.costSol
+                // Even SOL balance read failed entirely — pending retry, not scratch.
+                onLog("⏳ SELL_FINALITY_PENDING_RETRY: SOL balance read failed (${balEx.message?.take(40)})", tradeId.mint)
+                try { com.lifecyclebot.engine.sell.CloseLease.recordRetry(ts.mint, "SELL_FINALITY_PENDING_RETRY_SOL_READ_FAILED") } catch (_: Throwable) {}
+                try { com.lifecyclebot.engine.sell.SellReconciler.requestUrgentTick("SELL_FINALITY_PENDING_RETRY_SOL_READ_FAILED") } catch (_: Throwable) {}
+                return SellResult.FAILED_RETRYABLE
             }
             val terminalAcct = liveSellAccountingAuthority(ts, pos.costSol, solBack, reason, "liveSell.terminal")
             pnl = terminalAcct.pnlSol
             pnlP = terminalAcct.pnlPct
             val netPnl = terminalAcct.netPnlSol
             val feeSol = terminalAcct.feeSol
+            val finalSellReason = run {
+                val rU = reason.uppercase()
+                val stopLike = rU.contains("STOP") || rU.contains("STRICT_SL") || rU.contains("HARD_FLOOR")
+                val configuredStop = Regex("-?\\d+").find(rU)?.value?.toDoubleOrNull()?.let { kotlin.math.abs(it) } ?: 10.0
+                val catastrophicAllowance = -(configuredStop + 20.0).coerceAtLeast(30.0)
+                if (stopLike && pnlP <= catastrophicAllowance) {
+                    try { ForensicLogger.lifecycle("STOP_LOSS_OVERRUN_CATASTROPHIC", "mint=${ts.mint.take(10)} symbol=${ts.symbol} originalReason=$reason pnl=${pnlP.fmt(2)} configuredStop=${configuredStop.fmt(1)} action=journal_catastrophic_not_normal_sl") } catch (_: Throwable) {}
+                    "CATASTROPHIC_STOP_LOSS_OVERRUN_${pnlP.toInt()}pct_FROM_${reason}"
+                } else reason
+            }
 
             // V5.9.357 — feed real Jupiter quote-vs-realized slip into
             // ExecutionCostPredictorAI so its per-liquidity-band history
@@ -15076,10 +15082,22 @@ class Executor(
                         .max(java.math.BigInteger.ONE)
                 val preTokenRawFinal = java.math.BigDecimal(pos.qtyToken)
                     .movePointRight(decFinal).toBigInteger().max(java.math.BigInteger.ONE)
+                val postUiFinal = try { wallet.getTokenAccountsWithDecimalsBounded()[ts.mint]?.first ?: 0.0 } catch (_: Throwable) { -1.0 }
+                if (postUiFinal < 0.0) {
+                    try {
+                        ForensicLogger.lifecycle("SELL_FINALITY_PENDING_RETRY", "mint=${ts.mint.take(10)} symbol=${ts.symbol} reason=MISSING_POST_BALANCE_PROOF_FINAL sig=${sig.take(16)} action=no_close_no_journal_no_learning_keep_lease")
+                        com.lifecyclebot.engine.sell.CloseLease.recordRetry(ts.mint, "SELL_FINALITY_PENDING_RETRY_MISSING_POST_BALANCE_PROOF_FINAL")
+                        com.lifecyclebot.engine.sell.SellReconciler.requestUrgentTick("SELL_FINALITY_PENDING_RETRY_MISSING_POST_BALANCE_PROOF_FINAL")
+                    } catch (_: Throwable) {}
+                    return SellResult.FAILED_RETRYABLE
+                }
+                val postTokenRawFinal = try {
+                    java.math.BigDecimal(postUiFinal.coerceAtLeast(0.0)).movePointRight(decFinal).toBigInteger()
+                } catch (_: Throwable) { java.math.BigInteger.ZERO }
                 val intentFinal = com.lifecyclebot.engine.sell.SellIntent.build(
                     mint = ts.mint,
                     symbol = ts.symbol,
-                    reason = com.lifecyclebot.engine.sell.SellReasonClassifier.fullExitFromString(reason),
+                    reason = com.lifecyclebot.engine.sell.SellReasonClassifier.fullExitFromString(finalSellReason),
                     requestedFractionBps = 10_000,
                     confirmedWalletRaw = preTokenRawFinal,
                     decimals = decFinal,
@@ -15088,11 +15106,11 @@ class Executor(
                     entrySolSpent = entrySolSpentFinal.coerceAtLeast(0.0),
                     entryTokenRaw = entryTokenRawFinal,
                 )
-                com.lifecyclebot.engine.sell.SellFinalizationCoordinator.finalize(
+                val finality = com.lifecyclebot.engine.sell.SellFinalizationCoordinator.finalize(
                     intent = intentFinal,
                     preTokenBalanceRaw = preTokenRawFinal,
-                    postTokenBalanceRaw = java.math.BigInteger.ZERO,
-                    walletPollRaw = java.math.BigInteger.ZERO,
+                    postTokenBalanceRaw = postTokenRawFinal,
+                    walletPollRaw = postTokenRawFinal,
                     solReceivedLamports = (solBack * 1_000_000_000.0).toLong().coerceAtLeast(0L),
                     sellSolReceived = solBack,
                     feesSol = feeSol,
@@ -15101,6 +15119,7 @@ class Executor(
                     sellSig = sig,
                     traderTag = "MEME",
                 )
+                if (finality.pendingRetry) return SellResult.FAILED_RETRYABLE
             } catch (e: Throwable) {
                 com.lifecyclebot.engine.ErrorLogger.warn("Executor",
                     "SellFinalizationCoordinator [final] threw (non-fatal): ${e.message}")
@@ -15125,25 +15144,22 @@ class Executor(
                         ForensicLogger.lifecycle("SELL_FINALIZE_BALANCE", "mint=${ts.mint.take(12)} pre=$tokenUnits post=$postRaw dust=$postUi")
                         val pnlPctInt = try { pnlP.toInt() } catch (_: Throwable) { 0 }
                         val cid = com.lifecyclebot.engine.PositionCloseLedger.markClosedFull(
-                            mint = ts.mint, reason = reason, pnlPct = pnlPctInt, sellSig = fSig,
+                            mint = ts.mint, reason = finalSellReason, pnlPct = pnlPctInt, sellSig = fSig,
                             soldQtyRaw = tokenUnits, remainingQtyRaw = postRaw, dustAmount = postUi,
                             realizedSol = solBack, realizedPnl = pnl, source = "HELIUS",
                         )
-                        try { HostWalletTokenTracker.recordSellConfirmed(ts.mint, ts.symbol, price, pnlP, reason) } catch (_: Throwable) {}
+                        try { HostWalletTokenTracker.recordSellConfirmed(ts.mint, ts.symbol, price, pnlP, finalSellReason) } catch (_: Throwable) {}
                         try { com.lifecyclebot.engine.sell.SellJobRegistry.markLanded(ts.mint, fSig) } catch (_: Throwable) {}
                         try { com.lifecyclebot.engine.sell.RecoveryLockTracker.forceUnlock(ts.mint) } catch (_: Throwable) {}
-                        try { ForensicLogger.exec("LIVE_SELL_OK", ts.symbol, "sig=${fSig.take(16)} pnlSol=${"%.4f".format(pnl)} reason=$reason") } catch (_: Throwable) {}
+                        try { ForensicLogger.exec("LIVE_SELL_OK", ts.symbol, "sig=${fSig.take(16)} pnlSol=${"%.4f".format(pnl)} reason=$finalSellReason") } catch (_: Throwable) {}
                         ForensicLogger.lifecycle("SELL_FINALIZED", "mint=${ts.mint.take(12)} sig=${fSig.take(16)} closed=true dust=$postUi source=HELIUS closeId=$cid")
                     } catch (finEx: Throwable) {
                         try {
-                            val cid = com.lifecyclebot.engine.PositionCloseLedger.markClosedFull(
-                                mint = ts.mint, reason = reason, pnlPct = (try { pnlP.toInt() } catch (_: Throwable) { 0 }),
-                                sellSig = fSig, soldQtyRaw = tokenUnits, remainingQtyRaw = 0L,
-                                dustAmount = 0.0, realizedSol = solBack, realizedPnl = pnl, source = "HELIUS_DEGRADED",
-                            )
-                            try { ForensicLogger.exec("LIVE_SELL_OK", ts.symbol, "sig=${fSig.take(16)} (finalize-degraded)") } catch (_: Throwable) {}
-                            ForensicLogger.lifecycle("SELL_FINALIZED", "mint=${ts.mint.take(12)} sig=${fSig.take(16)} closed=true dust=unknown source=HELIUS_DEGRADED closeId=$cid err=${finEx.message?.take(60)}")
+                            ForensicLogger.lifecycle("SELL_FINALITY_PENDING_RETRY", "mint=${ts.mint.take(12)} sig=${fSig.take(16)} reason=FINALIZE_EXCEPTION_${finEx.javaClass.simpleName} action=no_degraded_close_no_live_sell_ok")
+                            com.lifecyclebot.engine.sell.CloseLease.recordRetry(ts.mint, "SELL_FINALITY_PENDING_RETRY_FINALIZE_EXCEPTION")
+                            com.lifecyclebot.engine.sell.SellReconciler.requestUrgentTick("SELL_FINALITY_PENDING_RETRY_FINALIZE_EXCEPTION")
                         } catch (_: Throwable) {}
+                        return SellResult.FAILED_RETRYABLE
                     }
                 }
             }
@@ -15160,12 +15176,12 @@ class Executor(
                 // proceeds), which is what the field should represent.
                 sol = solBack,
                 price = price,
-                ts = System.currentTimeMillis(), 
-                reason = reason, 
-                pnlSol = pnl, 
-                pnlPct = pnlP, 
+                ts = System.currentTimeMillis(),
+                reason = finalSellReason,
+                pnlSol = pnl,
+                pnlPct = pnlP,
                 sig = sig,
-                feeSol = feeSol, 
+                feeSol = feeSol,
                 netPnlSol = netPnl,
                 tradingMode = pos.tradingMode,
                 tradingModeEmoji = pos.tradingModeEmoji,
@@ -15402,7 +15418,7 @@ class Executor(
                     phase = ph, 
                     emaFan = fanName, 
                     source = src, 
-                    pnlPct = pnlP, 
+                    pnlPct = pnlP,
                     mint = ts.mint,
                     rugcheckScore = ts.safety.rugcheckScore,
                     buyPressure = ts.meta.pressScore,
@@ -15443,7 +15459,7 @@ class Executor(
                     phase = ph, 
                     emaFan = fanName, 
                     source = src, 
-                    pnlPct = pnlP, 
+                    pnlPct = pnlP,
                     mint = ts.mint,
                     rugcheckScore = ts.safety.rugcheckScore,
                     buyPressure = ts.meta.pressScore,

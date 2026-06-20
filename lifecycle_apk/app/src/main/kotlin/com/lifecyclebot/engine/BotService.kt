@@ -7717,21 +7717,25 @@ class BotService : Service() {
                         // wallet read required (the wallet RPC is the thing that's broken).
                         val zombieAttempts = try { com.lifecyclebot.engine.sell.CloseLease.attemptCount(ts.mint) } catch (_: Throwable) { 0 }
                         if (posAgeForNet > 30 * 60_000L && pnlPct <= -30.0 && ts.position.isOpen) {
+                            // V5.0.3985 — FINALITY DOCTRINE FIX.
+                            // This used to force a LOCAL close (zero qty, release CloseLease,
+                            // mark SellJob landed, confirm tracker zero) when an old catastrophe
+                            // position had repeated sell trouble. That unblocked buys, but it also
+                            // created fake terminal state without chain proof — exactly the
+                            // LIVE_SELL_NO_FINALITY/accounting corruption class. Never locally
+                            // close a live bag from stale UI/wallet state. Keep it open, mark the
+                            // close lease retryable/non-terminal, and wake the reconciler/sell path.
                             ErrorLogger.warn("BotService",
-                                "🧟 ZOMBIE_FORCE_TERMINATE: ${ts.symbol} pnl=${pnlPct.toInt()}% age=${posAgeForNet/1000}s attempts=$zombieAttempts — sell route dead; force LOCAL close to unblock buys")
-                            // isOpen is a computed getter (qtyToken<=0 => closed) and
-                            // pendingVerify is an immutable val — mutate via copy() exactly
-                            // like WalletReconciler does. Zeroing qtyToken makes isOpen=false
-                            // so this catastrophe loop stops re-entering on the dead mint.
-                            try { ts.position = ts.position.copy(qtyToken = 0.0, pendingVerify = false) } catch (_: Throwable) {}
-                            try { com.lifecyclebot.engine.sell.CloseLease.release(ts.mint, "ZOMBIE_FORCE_TERMINATE") } catch (_: Throwable) {}
-                            try { com.lifecyclebot.engine.sell.SellJobRegistry.markLanded(ts.mint, signature = null) } catch (_: Throwable) {}
+                                "⏳ ZOMBIE_CATASTROPHE_PENDING_RETRY: ${ts.symbol} pnl=${pnlPct.toInt()}% age=${posAgeForNet/1000}s attempts=$zombieAttempts — no local close without sell finality proof")
+                            try { com.lifecyclebot.engine.sell.CloseLease.recordRetry(ts.mint, "ZOMBIE_CATASTROPHE_PENDING_RETRY") } catch (_: Throwable) {}
+                            try { com.lifecyclebot.engine.sell.SellReconciler.requestUrgentTick("ZOMBIE_CATASTROPHE_PENDING_RETRY") } catch (_: Throwable) {}
+                            try { com.lifecyclebot.engine.PipelineHealthCollector.labelInc("ZOMBIE_CATASTROPHE_PENDING_RETRY") } catch (_: Throwable) {}
+                            try { com.lifecyclebot.engine.ForensicLogger.lifecycle("ZOMBIE_CATASTROPHE_PENDING_RETRY", "mint=${ts.mint.take(10)} symbol=${ts.symbol} ageMs=$posAgeForNet pnl=${pnlPct.toInt()} attempts=$zombieAttempts action=no_local_close_no_slot_release") } catch (_: Throwable) {}
                             try {
-                                val trackerHasSellSig = !com.lifecyclebot.engine.HostWalletTokenTracker.getEntry(ts.mint)?.sellSignature.isNullOrBlank()
-                                com.lifecyclebot.engine.HostWalletTokenTracker.confirmZeroBalanceClose(ts.mint, hasConfirmedSellSig = trackerHasSellSig, reason = "ZOMBIE_FORCE_TERMINATE")
-                            } catch (_: Throwable) {}
-                            try { com.lifecyclebot.engine.ForensicLogger.lifecycle("ZOMBIE_POSITION_FORCE_TERMINATED", "mint=${ts.mint.take(10)} symbol=${ts.symbol} ageMs=$posAgeForNet pnl=${pnlPct.toInt()} attempts=$zombieAttempts") } catch (_: Throwable) {}
-                            try { TradeStateMachine.startCatastropheCooldown(ts.mint, pnlPct) } catch (_: Throwable) {}
+                                executor.requestSell(ts = ts, reason = "ZOMBIE_CATASTROPHE_PENDING_RETRY", wallet = wallet, walletSol = effectiveBalance)
+                            } catch (e: Throwable) {
+                                ErrorLogger.warn("BotService", "ZOMBIE_CATASTROPHE_PENDING_RETRY sell retry error: ${e.message?.take(50)}")
+                            }
                             continue
                         }
                         if (posAgeForNet > 60_000L && pnlPct <= -30.0 && ts.position.isOpen) {

@@ -37,6 +37,7 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.text.SimpleDateFormat
 import java.util.*
+import kotlin.math.pow
 
 class MainActivity : AppCompatActivity() {
 
@@ -6030,7 +6031,7 @@ for legal compliance.
                 val hm = (System.currentTimeMillis() - pos.entryTime) / 60000
                 val col = if (!hasPrice) muted else if (p >= 0) 0xFF10B981.toInt() else 0xFFEF4444.toInt()
                 llMoonshotPositions.findViewWithTag<android.widget.TextView>("msentry_${pos.mint}")
-                    ?.setTextIfChanged(if (hasPrice) "${String.format("%.6f", pos.entryPrice)} → ${String.format("%.6f", cp)}" else "${String.format("%.6f", pos.entryPrice)} → pricing wait")
+                    ?.setTextIfChanged(if (hasPrice) "${pos.entryPrice.fmtPrice()} → ${cp!!.fmtPrice()}" else "${pos.entryPrice.fmtPrice()} → pricing wait")
                 llMoonshotPositions.findViewWithTag<android.widget.TextView>("mspnl_${pos.mint}")
                     ?.let { it.setTextIfChanged("${if (p >= 0) "+" else ""}${String.format("%.1f", p)}%"); it.setTextColor(col) }
                 llMoonshotPositions.findViewWithTag<android.widget.TextView>("mshold_${pos.mint}")
@@ -6106,7 +6107,7 @@ for legal compliance.
             // Entry / Current
             val tvEntry = TextView(this).apply {
                 tag = "msentry_${pos.mint}"   // V5.9.1458 recycle target
-                text = if (currentPrice != null) "${String.format("%.6f", pos.entryPrice)} → ${String.format("%.6f", currentPrice)}" else "${String.format("%.6f", pos.entryPrice)} → pricing wait"
+                text = if (currentPrice != null) "${pos.entryPrice.fmtPrice()} → ${currentPrice!!.fmtPrice()}" else "${pos.entryPrice.fmtPrice()} → pricing wait"
                 setTextColor(0xFF6B7280.toInt())
                 textSize = resources.getDimension(R.dimen.trade_sub_text) / resources.displayMetrics.scaledDensity
                 typeface = android.graphics.Typeface.create("monospace", android.graphics.Typeface.NORMAL)
@@ -8185,11 +8186,13 @@ This cannot be undone!
 
         val pos = ts.position
         val currentPrice = mainUiCurrentPrice(mint, ts.lastPrice)
-        val hasPrice = currentPrice != null && pos.entryPrice > 0.0
-        val pnlPct = if (hasPrice) ((currentPrice!! - pos.entryPrice) / pos.entryPrice) * 100.0 else 0.0
-        val pnlSol = if (hasPrice) pos.costSol * pnlPct / 100.0 else 0.0
-        val nowTxt = if (hasPrice) "$${"%.6f".format(currentPrice)}" else "pricing wait"
-        val pnlTxt = if (hasPrice) "%+.2f%%".format(pnlPct) else "basis wait"
+        val pnlVerdict = try { com.lifecyclebot.engine.OpenPnlSanity.inspect(ts, "MainActivity.manualSell/${ts.symbol}/${ts.mint.take(8)}", emit = true) } catch (_: Throwable) { com.lifecyclebot.engine.OpenPnlSanity.Verdict(false, reason = "INSPECT_THROW") }
+        val basisTrusted = pnlVerdict.ok && currentPrice != null && pos.entryPrice > 0.0
+        val pnlPct = if (basisTrusted) pnlVerdict.pnlPct else 0.0
+        val pnlSol = if (basisTrusted) pos.costSol * pnlPct / 100.0 else 0.0
+        val nowTxt = if (currentPrice != null && currentPrice > 0.0) currentPrice.fmtPrice() else "pricing wait"
+        val entryTxt = if (pos.entryPrice > 0.0) pos.entryPrice.fmtPrice() else "pricing wait"
+        val pnlTxt = if (basisTrusted) "%+.2f%%  (${"%+.4f".format(pnlSol)} SOL)" else "BASIS UNTRUSTED (${pnlVerdict.reason.ifBlank { "entry/current price proof missing" }})"
 
         val cfg = com.lifecyclebot.data.ConfigStore.load(this)
         val modeLabel = if (cfg.paperMode) "PAPER" else "LIVE"
@@ -8199,9 +8202,9 @@ This cannot be undone!
             .setMessage(
                 "Close position now?\n\n" +
                 "Qty: ${"%.4f".format(pos.qtyToken)}\n" +
-                "Entry: $${"%.6f".format(pos.entryPrice)}\n" +
+                "Entry: $entryTxt\n" +
                 "Now:   $nowTxt\n" +
-                "PnL:   $pnlTxt  (${"%+.4f".format(pnlSol)} SOL)"
+                "PnL:   $pnlTxt"
             )
             .setPositiveButton("SELL") { _, _ ->
                 // V5.9.495m — ANR FIX: manualSell now triggers wallet RPC
@@ -12412,11 +12415,22 @@ private fun Double.fastSigned(decimals: Int): String = (if (this >= 0.0) "+" els
 private fun Double.fastWhole(): String = kotlin.math.round(this).toLong().toString()
 private fun Double.fmtRef(): String = this.fastFixed(4)
 
+private fun Double.fmtTokenPrice(decimals: Int): String {
+    if (!this.isFinite() || this <= 0.0) return "—"
+    val d = decimals.coerceIn(0, 12)
+    val scale = 10.0.pow(d)
+    val rounded = kotlin.math.round(this * scale) / scale
+    val raw = "%.${d}f".format(java.util.Locale.US, rounded)
+    return "$" + raw
+}
+
 private fun Double.fmtPrice(): String = when {
-    this <= 0       -> "—"
-    this >= 1.0     -> "$%.4f".format(this)
-    this >= 0.001   -> "$%.6f".format(this)
-    else            -> "$%.8f".format(this)
+    this <= 0.0      -> "—"
+    this >= 1.0      -> this.fmtTokenPrice(4)
+    this >= 0.001    -> this.fmtTokenPrice(6)
+    this >= 0.000001 -> this.fmtTokenPrice(8)
+    this >= 0.0000000001 -> this.fmtTokenPrice(10)
+    else             -> this.fmtTokenPrice(12)
 }
 
 private fun Double.fmtMcap(): String = when {
