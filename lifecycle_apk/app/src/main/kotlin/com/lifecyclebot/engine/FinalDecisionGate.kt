@@ -2881,39 +2881,29 @@ object FinalDecisionGate {
                 //    paper mode, not a hard block, unless route/liquidity is
                 //    impossible."
                 // Route/liquidity safety is unchanged (TokenSafetyChecker still
-                // owns the hard floor + UNKNOWN block). In LIVE mode the
-                // confidence floor remains a hard block as before.
-                if (mode == TradeMode.PAPER) {
-                    val dustMult = when {
-                        adjustedConfidence < 5  -> 0.20
-                        adjustedConfidence < 12 -> 0.30
-                        else                    -> 0.45
-                    }
-                    sizeMultiplier *= dustMult
-                    checks.add(
-                        GateCheck(
-                            "confidence",
-                            true,
-                            "PAPER DUST PROBE: conf=${adjustedConfidence.toInt()}% < ${confidenceThreshold.toInt()}% → size×${dustMult.format(2)} (no hard block)"
-                        )
-                    )
-                    tags.add("paper_low_conf_dust_probe")
-                    if (isBootstrap) tags.add("bootstrap_phase")
-                    ErrorLogger.info("FDG", "🔬 PAPER LOW-CONF DUST PROBE: ${ts.symbol} | conf=${adjustedConfidence.toInt()}% < ${confidenceThreshold.toInt()}% → size×${dustMult.format(2)}")
-                } else {
-                    blockReason = "LOW_CONFIDENCE_${adjustedConfidence.toInt()}%$bootstrapTag$narrativeTag$orthoTag"
-                    blockLevel = BlockLevel.CONFIDENCE
-                    checks.add(
-                        GateCheck(
-                            "confidence",
-                            false,
-                            "conf=${confidence.toInt()}%+nar=$narrativeAdjustment+ortho=$orthogonalBonus=${adjustedConfidence.toInt()}% < ${confidenceThreshold.toInt()}%$bootstrapTag (adaptive)"
-                        )
-                    )
-                    tags.add("low_confidence")
-                    tags.add("adaptive_conf:${confidenceThreshold.toInt()}")
-                    if (isBootstrap) tags.add("bootstrap_phase")
+                // owns the hard floor + UNKNOWN block). V5.0.3945: LIVE now follows
+                // the same train-first doctrine as paper. Low confidence means a
+                // micro-probe size/score penalty, not a hard veto, unless a true
+                // mechanical route/liquidity/safety block exists elsewhere. This is
+                // required for the live 2x–5x daily-wallet-growth doctrine: uncertainty
+                // should gather samples at tiny size, not starve the live edge.
+                val dustMult = when {
+                    adjustedConfidence < 5  -> if (mode == TradeMode.PAPER) 0.20 else 0.12
+                    adjustedConfidence < 12 -> if (mode == TradeMode.PAPER) 0.30 else 0.18
+                    else                    -> if (mode == TradeMode.PAPER) 0.45 else 0.30
                 }
+                sizeMultiplier *= dustMult
+                checks.add(
+                    GateCheck(
+                        "confidence",
+                        true,
+                        "${if (mode == TradeMode.PAPER) "PAPER" else "LIVE"} LOW-CONF MICRO-PROBE: conf=${adjustedConfidence.toInt()}% < ${confidenceThreshold.toInt()}% → size×${dustMult.format(2)} (no hard block)"
+                    )
+                )
+                tags.add(if (mode == TradeMode.PAPER) "paper_low_conf_dust_probe" else "live_low_conf_micro_probe")
+                tags.add("adaptive_conf:${confidenceThreshold.toInt()}")
+                if (isBootstrap) tags.add("bootstrap_phase")
+                ErrorLogger.info("FDG", "🔬 ${if (mode == TradeMode.PAPER) "PAPER" else "LIVE"} LOW-CONF MICRO-PROBE: ${ts.symbol} | conf=${adjustedConfidence.toInt()}% < ${confidenceThreshold.toInt()}% → size×${dustMult.format(2)}")
             }
         } else if (blockReason == null) {
             checks.add(

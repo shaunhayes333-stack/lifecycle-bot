@@ -16398,9 +16398,7 @@ class Executor(
                     "PumpPortal skipped for partial/profit label=$labelTag — continue Jupiter/Metis exact-in with verified amount.",
                     traderTag = traderTag,
                 )
-                com.lifecyclebot.engine.sell.PumpPortalKillSwitch.recordPartialAttempt(
-                    mint = ts.mint, symbol = ts.symbol, labelTag = labelTag,
-                )
+                try { PipelineHealthCollector.labelInc("PUMPPORTAL_PARTIAL_ROUTE_SKIPPED_NOT_ATTEMPTED") } catch (_: Throwable) {}
                 return null
             }
             // V5.9.495z43 operator spec item B — even for "full exit" labels,
@@ -16438,10 +16436,7 @@ class Executor(
                             "(${pctTimes100}%) < 95% — continue Jupiter exact-in only.",
                             traderTag = traderTag,
                         )
-                        com.lifecyclebot.engine.sell.PumpPortalKillSwitch.recordPartialAttempt(
-                            mint = ts.mint, symbol = ts.symbol,
-                            labelTag = "${labelTag}_FRACTION_${pctTimes100}",
-                        )
+                        try { PipelineHealthCollector.labelInc("PUMPPORTAL_FRACTION_ROUTE_SKIPPED_NOT_ATTEMPTED") } catch (_: Throwable) {}
                         return null
                     }
                 }
