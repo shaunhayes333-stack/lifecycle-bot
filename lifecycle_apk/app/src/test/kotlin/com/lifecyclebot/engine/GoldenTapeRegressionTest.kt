@@ -2366,6 +2366,7 @@ class GoldenTapeRegressionTest {
     @Test
     fun live_entries_require_persisted_mint_market_snapshot_before_commit() {
         val exec = java.io.File("src/main/kotlin/com/lifecyclebot/engine/Executor.kt").readText()
+        val bot = java.io.File("src/main/kotlin/com/lifecyclebot/engine/BotService.kt").readText()
         val main = java.io.File("src/main/kotlin/com/lifecyclebot/ui/MainActivity.kt").readText()
         assertTrue("Executor must define a mint entry market snapshot containing price/mcap/liquidity/pool/source", exec.contains("data class MintEntryMarketSnapshot") && exec.contains("marketCapUsd") && exec.contains("liquidityUsd") && exec.contains("poolAddress") && exec.contains("priceSource"))
         assertTrue("mcap must be optional metadata, not a live-buy executable-basis choke", exec.contains("mcap is learning/report metadata, not executable basis") && exec.contains("marketCapUsd >= 0.0") && exec.contains("MINT_ENTRY_MARKET_SNAPSHOT_MCAP_UNKNOWN"))
