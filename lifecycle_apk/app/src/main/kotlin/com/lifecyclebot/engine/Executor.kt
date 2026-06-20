@@ -232,7 +232,7 @@ object WrRecoveryPartial {
         val base = rungsFor(band)
         return try {
             val key = try { TradeHistoryStore.normalizeTradeModeName(lane).ifBlank { lane.uppercase() } } catch (_: Throwable) { lane.uppercase() }
-            val m = StrategyTelemetry.computeLeaderboard().firstOrNull { it.strategy.equals(key, true) }
+            val m = StrategyTelemetry.computeLiveTerminalLeaderboard().firstOrNull { it.strategy.equals(key, true) }
             if (m == null || m.trades < 5) return base
             val pf = m.pfExpectancyPp
             val avgWin = m.avgWinPct.coerceAtLeast(0.0)
