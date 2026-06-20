@@ -1563,6 +1563,19 @@ class GoldenTapeRegressionTest {
     }
 
 
+
+    @Test
+    fun all_live_trading_fee_paths_pool_before_sending() {
+        val exec = java.io.File("src/main/kotlin/com/lifecyclebot/engine/Executor.kt").readText()
+        val markets = java.io.File("src/main/kotlin/com/lifecyclebot/perps/MarketsLiveExecutor.kt").readText()
+        val bot = java.io.File("src/main/kotlin/com/lifecyclebot/engine/BotService.kt").readText()
+        assertTrue("meme fee helper must accrue to FeeAccumulator, not send every micro fee", exec.contains("FeeAccumulator.accrue") && exec.contains("FEE ACCUMULATOR"))
+        assertTrue("markets/perps fee collection must use the same pooled accumulator", markets.contains("CORE FEE POOL ALIGNMENT") && markets.contains("FeeAccumulator.accrue") && markets.contains("MARKETS_FEE_ACCUMULATED"))
+        val marketsFeeFn = markets.substring(markets.indexOf("private suspend fun collectTradingFee"), markets.indexOf("totalFeesCollectedSol", markets.indexOf("private suspend fun collectTradingFee")))
+        assertFalse("markets/perps fee collection must not send micro-fee transfers directly", marketsFeeFn.contains("wallet.sendSol"))
+        assertTrue("bot loop must drain retry queue and flush accumulated fee buckets in live mode", bot.contains("FeeRetryQueue.drainFeeQueue(liveWallet)") && bot.contains("FeeAccumulator.tryFlush(liveWallet)"))
+    }
+
     @Test
     fun live_transaction_fee_authority_uses_dynamic_sender_floor_everywhere() {
         val exec = java.io.File("src/main/kotlin/com/lifecyclebot/engine/Executor.kt").readText()
