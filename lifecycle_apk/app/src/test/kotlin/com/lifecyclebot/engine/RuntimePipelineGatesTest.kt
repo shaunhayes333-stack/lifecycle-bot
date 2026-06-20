@@ -1010,8 +1010,6 @@ class ExecutionAuthorityInvariantTest {
             mode = "LIVE",
             lane = "QUALITY",
             source = "test",
-            liquidityUsd = 2500.0,
-            safetyTier = "SAFE",
         )
         assertTrue("LIVE execution must continue via non-Birdeye/free route proof when only the app-local daily Birdeye cap is exhausted", v.allowed)
         assertEquals("EXEC_OPEN_ALLOWED", v.logName)
