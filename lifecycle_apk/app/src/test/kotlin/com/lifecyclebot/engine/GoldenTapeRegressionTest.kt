@@ -2998,7 +2998,7 @@ class GoldenTapeRegressionTest {
         val lifecycleIdx = exec.indexOf("try { TokenLifecycleTracker.onSellPending", reqIdx)
         val leaseIdx = exec.indexOf("CloseLease.acquire", reqIdx)
         assertTrue("live min-hold must run before sell pending lifecycle and close lease", reqIdx >= 0 && holdIdx in reqIdx until lifecycleIdx && holdIdx < leaseIdx)
-        assertTrue("strict SL must not bypass min-hold unless raw hard floor breached", exec.contains("STRICT_SL alone does") && exec.contains("rawPnlPct <= -15.0"))
+        assertTrue("strict SL and generic rug-safety must not bypass min-hold unless raw hard floor breached", exec.contains("STRICT_SL and generic") && exec.contains("RUG_SAFETY_NET alone do NOT bypass") && exec.contains("rawPnlPct <= -15.0"))
         assertTrue("live min-hold must not enqueue pending sells", exec.contains("action=no_sell_lock") && exec.contains("return SellResult.FAILED_RETRYABLE"))
         assertTrue("maintenance requeue uses its own healthy-hold suppressor", exec.contains("RECONCILER_REQUEUE") && exec.contains("return null") && exec.contains("RECONCILER_REQUEUE_SUPPRESSED_HEALTHY_HOLD"))
         assertTrue("report must expose live style hold deferrals", pipe.contains("styleHoldDeferred") && pipe.contains("LIVE_STYLE_MIN_HOLD_EXIT_DEFERRED"))
