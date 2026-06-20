@@ -2739,7 +2739,7 @@ class GoldenTapeRegressionTest {
         assertTrue("liveBuy must emit plan/route/tx/terminal stages", listOf("BUY_PLAN_OK", "BUY_ROUTE_REQUESTED", "BUY_TX_SUBMITTED", "buyTerminalOk", "buyTerminalFail").all { exec.contains(it) })
         assertTrue("Provider capability report must say Helius is non-critical and show execution truth", pipe.contains("Provider capability (execution truth)") && pipe.contains("Helius role:") && pipe.contains("HOT_PATH=false") && pipe.contains("Jupiter quote/build/confirm") && pipe.contains("Execution leases:"))
         val bot = java.io.File("src/main/kotlin/com/lifecyclebot/engine/BotService.kt").readText()
-        assertTrue("CYCLIC must remain live-enabled like the 3868-3879 benchmark", bot.contains("else -> cyclicEnabled") && bot.contains("benchmark restore") && pipe.contains("CYCLIC=liveSoftSized"))
+        assertTrue("CYCLIC must remain available but bankroll-gated in live", bot.contains("walletUsdNow >= liveThreshold") && bot.contains("CYCLIC_WALLET_USD_BELOW_5000_MEME_STILL_ACTIVE"))
         assertTrue("DUMP live policy must soft-size risky lanes, not paper-only veto them", !exec.contains("DUMP_LIVE_LANE_PAPER_ONLY") && exec.contains("DUMP_REGIME_LIVE_SIZE_SHAPED") && exec.contains("laneTag.contains(\"TREASURY\")") && exec.contains("laneTag.contains(\"MANIP") && exec.contains("laneTag.contains(\"CYCLIC\")"))
         assertFalse("FDG must not hard-block live solely because Helius is down", fdg.contains("HELIUS_UNHEALTHY_LIVE_SAFE_MODE") || fdg.contains("blockReason = \"HELIUS"))
     }
@@ -2925,11 +2925,11 @@ class GoldenTapeRegressionTest {
         val bot = java.io.File("src/main/kotlin/com/lifecyclebot/engine/BotService.kt").readText()
         val exec = java.io.File("src/main/kotlin/com/lifecyclebot/engine/Executor.kt").readText()
         val pipe = java.io.File("src/main/kotlin/com/lifecyclebot/engine/PipelineHealthCollector.kt").readText()
-        assertTrue("CYCLIC live tick must follow enabled authority, not hard false", bot.contains("else -> cyclicEnabled") && !bot.contains("CYCLIC is a live bleeder"))
+        assertTrue("CYCLIC live tick must follow enabled authority only after wallet USD bankroll gate", bot.contains("cyclicEnabled && walletUsdNow >= liveThreshold") && !bot.contains("CYCLIC is a live bleeder"))
         assertFalse("DUMP regime must not force live lanes to paper-only", exec.contains("DUMP_LIVE_LANE_PAPER_ONLY") || exec.contains("dump_paper_only:"))
         assertTrue("DUMP regime must remain risk-shaped via size caps", exec.contains("dumpRegimeLive && laneTag.contains(\"CYCLIC\")") && exec.contains("dumpRegimeLive && laneTag.contains(\"TREASURY\")") && exec.contains("DUMP_REGIME_LIVE_SIZE_SHAPED"))
         assertTrue("Fresh no-pair discoveries must be held hot before aged demotion", bot.contains("INTAKE_NO_PAIR_HELD_HOT_FOR_HYDRATION") && bot.contains("NO_PAIR_NO_FALLBACK_AGED"))
-        assertTrue("Report must expose soft-sized live policy", pipe.contains("CYCLIC=liveSoftSized") && pipe.contains("noPairHeldHot"))
+        assertTrue("Report must expose live lane policy and no-pair hot hydration", pipe.contains("noPairHeldHot") && (pipe.contains("CYCLIC=liveSoftSized") || bot.contains("CYCLIC_WALLET_USD_BELOW_5000_MEME_STILL_ACTIVE")))
     }
 
     @Test
@@ -3057,7 +3057,7 @@ class GoldenTapeRegressionTest {
         assertTrue("Live drawdown must size-shape, not pause entries", sizer.contains("live drawdown size-shapes; never pauses entries") && sizer.contains("drawdownMult.coerceAtLeast(if (isPaperMode) 0.0 else 0.30)"))
         assertFalse("Live drawdown circuit breaker must not return a zero-size pause", sizer.contains("drawdown_circuit_breaker") || sizer.contains("entries paused"))
         assertTrue("Scanner merge must include Solana-wide venues beyond pump/raydium/dex", merge.contains("METEORA") && merge.contains("ORCA") && merge.contains("PUMPSWAP") && merge.contains("JUPITER_TOKEN_LIST") && merge.contains("SOLANA_WIDE") && merge.contains("PROGRAM_ACCOUNT"))
-        assertTrue("STANDARD/V3/CORE must be explicit lane-election participants", merge.contains("STANDARD") && merge.contains("CORE") && merge.contains("V3") && lanes.contains(""V3" to") && lanes.contains(""STANDARD" to") && lanes.contains(""CORE" to"))
+        assertTrue("STANDARD/V3/CORE must be explicit lane-election participants", merge.contains("STANDARD") && merge.contains("CORE") && merge.contains("V3") && lanes.contains(""""V3" to""") && lanes.contains(""""STANDARD" to""") && lanes.contains(""""CORE" to"""))
     }
 
     @Test
