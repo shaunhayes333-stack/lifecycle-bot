@@ -7317,8 +7317,16 @@ class Executor(
                 dumpRegimeLive && laneTag.contains("EXPRESS") -> 0.10
                 dumpRegimeLive && laneTag.contains("SHITCOIN") -> 0.10
                 laneTag.contains("MANIPULATED") -> if ((wr ?: 0.0) > 0.18) 1.0 else 0.30   // spec 3: 0.25-0.35 until WR>18%
-                laneTag.contains("MOONSHOT")    -> if ((wr ?: 0.0) > 0.0)  0.55 else 0.55   // spec 4: 0.50-0.65 until EV+ (size-capped regardless until recovery)
-                laneTag.contains("SHITCOIN")    -> 0.65                                       // spec 5: smaller initial probe (lifetime EV+ so least restrictive)
+                // V5.0.3957 — WALLET GROWTH CAP RELEASE.
+                // Runtime 3954: MOONSHOT is the largest SOL contributor (+6.5 SOL),
+                // but this legacy cap forced every MOONSHOT to 0.55× forever. That
+                // directly prevents 2–5x/day compounding. If live expectancy allocator
+                // says the lane is winning (laneEvMult >= 1), release the cap; otherwise
+                // keep probe-size until it recovers.
+                laneTag.contains("MOONSHOT")    -> if (laneEvMult >= 1.0 || (wr ?: 0.0) >= 0.45) 1.0 else 0.55
+                laneTag.contains("PRESALE") || laneTag.contains("PROJECT_SNIPER") -> if (laneEvMult >= 1.0) 1.0 else 0.75
+                laneTag.contains("BLUECHIP")    -> if (laneEvMult >= 1.0) 1.0 else 0.85
+                laneTag.contains("SHITCOIN")    -> if (laneEvMult < 1.0) 0.35 else 0.65          // bleeder probes, winner still capped
                 else                            -> 1.0
             }
         } catch (_: Throwable) { 1.0 }
