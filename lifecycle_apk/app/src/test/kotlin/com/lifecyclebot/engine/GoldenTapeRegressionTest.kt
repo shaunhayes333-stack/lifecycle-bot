@@ -3119,7 +3119,7 @@ class GoldenTapeRegressionTest {
     @Test
     fun live_profit_exit_doctrine_is_learned_expectancy_not_scrap_or_hardcoded() {
         val exec = java.io.File("src/main/kotlin/com/lifecyclebot/engine/Executor.kt").readText()
-        assertTrue("profit bands must be driven by StrategyTelemetry expectancy", exec.contains("fun learnedExitRungs") && exec.contains("StrategyTelemetry.computeLeaderboard") && exec.contains("pfExpectancyPp") && exec.contains("avgWinPct"))
+        assertTrue("profit bands must be driven by LIVE-terminal StrategyTelemetry expectancy, not mixed paper/partials", exec.contains("fun learnedExitRungs") && exec.contains("StrategyTelemetry.computeLiveTerminalLeaderboard") && exec.contains("pfExpectancyPp") && exec.contains("avgWinPct"))
         assertTrue("first live profit exit must floor away sub-fee scraps", exec.contains("MIN_PARTIAL_GAIN_PCT = 50.0") && exec.contains("LIVE_TINY_PROFIT_EXIT_DEFERRED"))
         assertFalse("old 9% WR recovery scrap floor must not survive", exec.contains("MIN_PARTIAL_GAIN_PCT = 9.0") || exec.contains("Triple(9.0"))
         assertTrue("runner lanes should expand toward 1000/10000 bands through learned expectancy", exec.contains("1000.0") && exec.contains("10000.0") && exec.contains("runner"))
