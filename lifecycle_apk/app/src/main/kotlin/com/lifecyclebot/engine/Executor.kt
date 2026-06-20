@@ -9652,10 +9652,8 @@ class Executor(
                 "↩ FALLBACK → Jupiter Ultra (v2) primary, v6 Metis secondary | ladder=${slippageLadder.joinToString("/")}bps",
                 solAmount = sol, traderTag = "MEME",
             )
-            if (ExecutionEndpointHealth.isDisabled("JUPITER_QUOTE", ts.mint)) {
-                val disabledReason = ExecutionEndpointHealth.reason("JUPITER_QUOTE", ts.mint)
-                throw Exception("PROVIDER_DISABLED:JUPITER_QUOTE $disabledReason")
-            }
+            // V5.0.3959 — Jupiter quote must never be silent/disabled. Always try it;
+            // transient provider errors fail only this quote attempt/candidate.
             for (slip in slippageLadder) {
                 buyPhase("QUOTE_REQUESTED")
                 LiveTradeLogStore.log(
@@ -9693,12 +9691,7 @@ class Executor(
                 } catch (e: Exception) {
                     lastQuoteError = e
                     val msg = e.message ?: "unknown"
-                    val deterministicProviderFailure = msg.contains("PROVIDER_DISABLED:JUPITER_QUOTE", true) ||
-                        msg.contains("Jupiter GET 503", true) || msg.contains("Jupiter GET 429", true) ||
-                        msg.contains("Jupiter GET 4", true)
-                    if (deterministicProviderFailure) {
-                        try { ExecutionEndpointHealth.disable("JUPITER_QUOTE", msg, 30_000L, ts.mint) } catch (_: Throwable) {}
-                    }
+                    val deterministicProviderFailure = false // Jupiter quote never disables/backoff-rotates; exhaust local ladder only.
                     onLog("BUY: quote ${slip}bps failed — ${msg.take(50)}", ts.mint)
                     LiveTradeLogStore.log(
                         tradeKey, ts.mint, ts.symbol, "BUY",
@@ -9706,7 +9699,6 @@ class Executor(
                         "Quote ${slip}bps FAILED: ${msg.take(80)}${if (deterministicProviderFailure) " | rotate_provider_no_ladder_burn" else ""}",
                         slippageBps = slip, traderTag = "MEME",
                     )
-                    if (deterministicProviderFailure) break
                     Thread.sleep(250)
                 }
             }
@@ -9725,7 +9717,7 @@ class Executor(
                     "mint=${ts.mint.take(10)} sol=$sol reason=QUOTE_EXHAUSTED",
                 ) } catch (_: Throwable) {}
                 try { PipelineHealthCollector.labelInc("JUPITER_QUOTE_FAIL") } catch (_: Throwable) {}
-                val terminal = if ((lastQuoteError?.message ?: "").contains("PROVIDER_DISABLED", true)) "PROVIDER_DISABLED:JUPITER_QUOTE" else "NO_QUOTE:JUPITER_QUOTE_EXHAUSTED"
+                val terminal = "NO_QUOTE:JUPITER_QUOTE_EXHAUSTED"
                 buyTerminalFail("BUY_TERMINAL_ROUTE_FAIL:$terminal")
                 return false
             }
