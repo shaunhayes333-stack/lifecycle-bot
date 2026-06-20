@@ -42,8 +42,14 @@ object TokenMergeQueue {
         "V3_PREMIUM" to 60,
         "COINGECKO_TRENDING" to 58,
         "GECKO_TRENDING" to 58,
-        "METEORA" to 58,
-        "BIRDEYE_TRENDING" to 56,
+        "METEORA" to 66,
+        "ORCA" to 64,
+        "PUMPSWAP" to 63,
+        "JUPITER_TOKEN_LIST" to 62,
+        "JUPITER_TRENDING" to 62,
+        "BIRDEYE_TRENDING" to 60,
+        "HELIUS_PROGRAM" to 59,
+        "SOLANA_RPC_PROGRAM" to 59,
         "WHALE_COPY" to 55,
         "DATA_ORCHESTRATOR" to 50,
         "V3_SCANNER" to 48,
@@ -298,7 +304,8 @@ object TokenMergeQueue {
         val out = linkedSetOf<String>()
         if (src.contains("PUMP") || src.contains("PORTAL")) out += listOf("SHITCOIN", "MOONSHOT", "MANIPULATED", "PROJECT_SNIPER")
         if (src.contains("RAYDIUM") || src.contains("NEW_POOL")) out += listOf("MOONSHOT", "SHITCOIN", "MANIPULATED", "DIP_HUNTER")
-        if (src.contains("DEX_BOOSTED") || src.contains("DEX_TRENDING") || src.contains("COINGECKO")) out += listOf("QUALITY", "BLUECHIP", "TREASURY")
+        if (src.contains("METEORA") || src.contains("ORCA") || src.contains("PUMPSWAP") || src.contains("JUPITER") || src.contains("HELIUS") || src.contains("SOLANA_RPC")) out += listOf("MOONSHOT", "PROJECT_SNIPER", "QUALITY", "BLUECHIP", "STANDARD", "CORE", "V3")
+        if (src.contains("DEX_BOOSTED") || src.contains("DEX_TRENDING") || src.contains("COINGECKO") || src.contains("BIRDEYE")) out += listOf("QUALITY", "BLUECHIP", "TREASURY", "STANDARD", "CORE", "V3")
         if (src.contains("WHALE")) out += listOf("QUALITY", "BLUECHIP", "TREASURY")
         if (marketCapUsd in 75_000.0..1_000_000.0) out += "QUALITY"
         if (marketCapUsd >= 1_000_000.0 || liquidityUsd >= 75_000.0) out += "BLUECHIP"
@@ -311,8 +318,13 @@ object TokenMergeQueue {
         val out = linkedSetOf<String>()
         if (src.contains("PUMP") || src.contains("PORTAL")) out += listOf("PUMP_FUN", "MEME", "SNIPER")
         if (src.contains("RAYDIUM") || src.contains("NEW_POOL")) out += listOf("RAYDIUM", "NEW_POOL", "MEME")
+        if (src.contains("METEORA")) out += listOf("METEORA", "DLMM", "MEME")
+        if (src.contains("ORCA")) out += listOf("ORCA", "WHIRLPOOL", "MEME")
+        if (src.contains("PUMPSWAP")) out += listOf("PUMPSWAP", "MEME")
+        if (src.contains("JUPITER")) out += listOf("JUPITER", "ROUTE_GRAPH", "SOLANA_WIDE")
+        if (src.contains("HELIUS") || src.contains("SOLANA_RPC")) out += listOf("PROGRAM_ACCOUNT", "SOLANA_WIDE")
         if (src.contains("DEX")) out += "DEX"
-        if (src.contains("COINGECKO")) out += "TRENDING"
+        if (src.contains("COINGECKO") || src.contains("BIRDEYE")) out += "TRENDING"
         if (marketCapUsd >= 75_000.0 || liquidityUsd >= 25_000.0) out += "QUALITY_DEPTH"
         return out
     }

@@ -513,20 +513,17 @@ object SmartSizer {
             val recovery = walletSol / perf.sessionPeakSol
             ErrorLogger.debug("SmartSizer", "📊 LIVE Drawdown check: wallet=$walletSol peak=${perf.sessionPeakSol} recovery=${(recovery*100).toInt()}%")
             when {
-                recovery < 0.40 -> 0.0   // circuit breaker
+                recovery < 0.40 -> 0.30  // V5.0.3959: live drawdown size-shapes; never pauses entries
                 recovery < 0.60 -> 0.50
                 recovery < 0.80 -> 0.75
                 else            -> 1.0
             }
         } else 1.0
 
-        if (drawdownMult == 0.0) {
-            ErrorLogger.error("SmartSizer", "❌ BLOCKED: drawdown circuit breaker | paper=$isPaperMode | wallet=$walletSol | peak=${perf.sessionPeakSol}")
-            return SizeResult(0.0, tier, basePct, aiScoreMult, perfMult, 0.0, 1.0, treasuryMult, houseMoneyBonus,
-                "drawdown_circuit_breaker",
-                "LIVE wallet ($walletSol SOL) down 60%+ from session peak (${perf.sessionPeakSol.fmt(2)} SOL) — entries paused. Switch to paper or wait for recovery.")
+        if (drawdownMult <= 0.0) {
+            ErrorLogger.warn("SmartSizer", "⚠ DRAWNDOWN_SHAPE_FAILSAFE: drawdownMult<=0 corrected to 0.30 | paper=$isPaperMode | wallet=$walletSol | peak=${perf.sessionPeakSol}")
         }
-        size *= drawdownMult
+        size *= drawdownMult.coerceAtLeast(if (isPaperMode) 0.0 else 0.30)
 
         // ── Concurrent position scaling ────────────────────────────────
         val concMult = 1.0  // no penalty

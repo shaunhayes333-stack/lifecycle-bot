@@ -5879,7 +5879,7 @@ class BotService : Service() {
      * V5.9.780a — extracted from botLoop to keep the suspend state machine
      * under the JVM 64 KB method-size limit. Identical semantics:
      *   PAPER mode → tick if CYCLIC is enabled
-     *   LIVE  mode → tick only if CYCLIC enabled AND walletUsd >= $1500
+     *   LIVE  mode → tick only if CYCLIC enabled AND walletUsd >= $5000
      */
     private fun maybeTickCyclicTradeEngine(wallet: SolanaWallet?) {
         try {
@@ -5891,15 +5891,13 @@ class BotService : Service() {
             val cyclicEnabled = com.lifecyclebot.engine.EnabledTraderAuthority.isEnabled(
                 com.lifecyclebot.engine.EnabledTraderAuthority.Trader.CYCLIC
             )
-            val liveThreshold = 1500.0
+            val liveThreshold = 5000.0
             val allowTick = when {
                 isPaperRuntime -> cyclicEnabled
-                // V5.0.3913 — benchmark restore: 3868-3879 traded live with
-                // CYCLIC enabled in live and relied on wallet/FDG/executor safety.
-                // A hard config-disable made UI enabled=MEME,CYCLIC lie while no
-                // CYCLIC live candidates could ever reach execution. Keep live
-                // throughput; risk is soft-shaped downstream, not vetoed here.
-                else -> cyclicEnabled
+                // V5.0.3959 — CYCLIC bankroll gate. CYCLIC is a separate
+                // compounding ring and must NOT engage the live wallet until the
+                // actual wallet balance exceeds $5000 USD. MEME lanes remain live.
+                else -> cyclicEnabled && walletUsdNow >= liveThreshold
             }
             if (allowTick) {
                 // V5.9.1238 — snapshot cheap state on the loop thread, then run the
@@ -5948,7 +5946,7 @@ class BotService : Service() {
                 try {
                     ForensicLogger.lifecycle(
                         "CYCLIC_TICK_SKIPPED",
-                        "mode=${if (isPaperRuntime) "PAPER" else "LIVE"} cyclicEnabled=$cyclicEnabled agenicAlwaysOn=true cfgEnabled=${cfgNow.cyclicTradeEnabled} liveOptIn=${cfgNow.cyclicTradeLiveEnabled} walletUsd=${"%.2f".format(walletUsdNow)} threshold=$liveThreshold",
+                        "mode=${if (isPaperRuntime) "PAPER" else "LIVE"} cyclicEnabled=$cyclicEnabled agenicAlwaysOn=true cfgEnabled=${cfgNow.cyclicTradeEnabled} liveOptIn=${cfgNow.cyclicTradeLiveEnabled} walletUsd=${"%.2f".format(walletUsdNow)} threshold=$liveThreshold reason=${if (!isPaperRuntime && walletUsdNow < liveThreshold) "CYCLIC_WALLET_USD_BELOW_5000_MEME_STILL_ACTIVE" else "disabled_or_in_flight"}",
                     )
                 } catch (_: Throwable) {}
             }
@@ -13310,11 +13308,11 @@ if (hotExitHandledSweep) {
             try { markProgress("POST_SUPERVISOR/PERSIST_DISPATCHED") } catch (_: Throwable) {}
             
             // ═══════════════════════════════════════════════════════════════════
-            // CYCLIC TRADE ENGINE — $500 USD compound ring
+            // CYCLIC TRADE ENGINE — $5000 USD wallet-gated compound ring
             // V5.9.780a — extracted into maybeTickCyclicTradeEngine() so the
             // botLoop suspend state machine stays under the JVM 64 KB method
             // size limit. Gate logic identical: PAPER → tick if CYCLIC enabled;
-            // LIVE → tick only if CYCLIC enabled AND walletUsd >= $1500.
+            // LIVE → tick only if CYCLIC enabled AND walletUsd >= $5000.
             // ═══════════════════════════════════════════════════════════════════
             if (loopCount % 10 == 0) {
                 maybeTickCyclicTradeEngine(wallet)

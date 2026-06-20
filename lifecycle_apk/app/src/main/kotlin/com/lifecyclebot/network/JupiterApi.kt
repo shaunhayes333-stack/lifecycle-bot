@@ -806,9 +806,9 @@ class JupiterApi(private val apiKey: String = "") {
 
     private fun getOrThrow(url: String): String {
         val endpoint = "JUPITER_QUOTE"
-        if (com.lifecyclebot.engine.ExecutionEndpointHealth.isDisabled(endpoint)) {
-            throw RuntimeException("PROVIDER_DISABLED:$endpoint ${com.lifecyclebot.engine.ExecutionEndpointHealth.reason(endpoint)}")
-        }
+        // V5.0.3959 — Jupiter quote is core Solana routing and must never be
+        // endpoint-disabled. Transient 429/503s are retried/fail this candidate,
+        // not cached as a global/silent provider backoff.
         val reqBuilder = Request.Builder()
             .url(url)
             .header("User-Agent", "lifecycle-bot-android/6.0")
@@ -829,14 +829,12 @@ class JupiterApi(private val apiKey: String = "") {
                     val body = resp.body?.string()
                     if (code == 429) {
                         val msg = "Jupiter GET $code: ${body?.take(300) ?: "no body"}"
-                        com.lifecyclebot.engine.ExecutionEndpointHealth.disable(endpoint, msg, 30_000L)
                         lastErr = RuntimeException(msg)
                         return@use
                     }
                     if (!resp.isSuccessful) {
                         if (code == 401) throw RuntimeException("Jupiter API 401: API key required")
                         val msg = "Jupiter GET $code: ${body?.take(300) ?: "no body"}"
-                        if (code == 503 || code in 400..499) com.lifecyclebot.engine.ExecutionEndpointHealth.disable(endpoint, msg, 30_000L)
                         throw RuntimeException(msg)
                     }
                     if (body.isNullOrBlank()) throw RuntimeException("Empty Jupiter GET response")
@@ -855,9 +853,9 @@ class JupiterApi(private val apiKey: String = "") {
 
     private fun postOrThrow(url: String, json: String): String {
         val endpoint = if (url.contains("/execute", true)) "JUPITER_SEND" else "JUPITER_SWAP_BUILD"
-        if (com.lifecyclebot.engine.ExecutionEndpointHealth.isDisabled(endpoint)) {
-            throw RuntimeException("PROVIDER_DISABLED:$endpoint ${com.lifecyclebot.engine.ExecutionEndpointHealth.reason(endpoint)}")
-        }
+        // V5.0.3959 — Jupiter quote is core Solana routing and must never be
+        // endpoint-disabled. Transient 429/503s are retried/fail this candidate,
+        // not cached as a global/silent provider backoff.
         val reqBuilder = Request.Builder()
             .url(url)
             .header("User-Agent", "lifecycle-bot-android/6.0")
@@ -879,14 +877,12 @@ class JupiterApi(private val apiKey: String = "") {
                     val body = resp.body?.string()
                     if (code == 429) {
                         val msg = "Jupiter POST $code: ${body?.take(300) ?: "no body"}"
-                        com.lifecyclebot.engine.ExecutionEndpointHealth.disable(endpoint, msg, 30_000L)
                         lastErr = RuntimeException(msg)
                         return@use
                     }
                     if (!resp.isSuccessful) {
                         if (code == 401) throw RuntimeException("Jupiter API 401: API key required")
                         val msg = "Jupiter POST $code: ${body?.take(300) ?: "no body"}"
-                        if (code == 503 || code in 400..499) com.lifecyclebot.engine.ExecutionEndpointHealth.disable(endpoint, msg, 30_000L)
                         throw RuntimeException(msg)
                     }
                     if (body.isNullOrBlank()) throw RuntimeException("Empty Jupiter POST response")

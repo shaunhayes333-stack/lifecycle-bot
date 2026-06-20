@@ -9,7 +9,14 @@ object ExecutionEndpointHealth {
     private fun now() = System.currentTimeMillis()
     private fun key(endpoint: String, mint: String = ""): String = endpoint.uppercase() + if (mint.isBlank()) "" else ":${mint.take(10)}"
 
+    private fun neverDisable(endpoint: String): Boolean = endpoint.equals("JUPITER_QUOTE", ignoreCase = true)
+
     fun disable(endpoint: String, reason: String, cooldownMs: Long = 30_000L, mint: String = "") {
+        if (neverDisable(endpoint)) {
+            try { PipelineHealthCollector.labelInc("JUPITER_QUOTE_NEVER_DISABLED") } catch (_: Throwable) {}
+            try { ForensicLogger.lifecycle("EXEC_ENDPOINT_DISABLE_IGNORED", "endpoint=${endpoint.uppercase()} mint=${mint.take(10)} reason=${reason.take(120)} policy=jupiter_quote_never_disabled") } catch (_: Throwable) {}
+            return
+        }
         val k = key(endpoint, mint)
         val old = disabled[k]
         val failures = (old?.failures ?: 0) + 1
@@ -20,6 +27,7 @@ object ExecutionEndpointHealth {
     }
 
     fun isDisabled(endpoint: String, mint: String = ""): Boolean {
+        if (neverDisable(endpoint)) return false
         val n = now()
         val keys = if (mint.isBlank()) listOf(key(endpoint)) else listOf(key(endpoint, mint), key(endpoint))
         var locked = false
@@ -36,6 +44,7 @@ object ExecutionEndpointHealth {
     }
 
     fun reason(endpoint: String, mint: String = ""): String {
+        if (neverDisable(endpoint)) return ""
         val n = now()
         val keys = if (mint.isBlank()) listOf(key(endpoint)) else listOf(key(endpoint, mint), key(endpoint))
         for (k in keys) {

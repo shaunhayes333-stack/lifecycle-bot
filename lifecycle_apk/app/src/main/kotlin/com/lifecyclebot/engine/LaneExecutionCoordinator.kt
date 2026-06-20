@@ -54,6 +54,8 @@ object LaneExecutionCoordinator {
         "CRYPTO" to 75,
         "QUALITY" to 70,
         "BLUECHIP" to 60,
+        "V3" to 58,
+        "STANDARD" to 56,
         "CORE" to 55,
         "TREASURY" to 40,
         "SHADOW" to 10,

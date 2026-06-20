@@ -2818,10 +2818,10 @@ class GoldenTapeRegressionTest {
         assertFalse("generic NO_FINAL_BUY_CANDIDATE must not be emitted as final reason", gate.contains("\"NO_FINAL_BUY_CANDIDATE\""))
         assertTrue("missing final candidate must be source-specific TOKEN_STATE_CHANGED", gate.contains("TOKEN_STATE_CHANGED_NO_FINAL_CANDIDATE"))
 
-        assertTrue("execution endpoint health must exist and disable by endpoint/mint", endpoint.contains("object ExecutionEndpointHealth") && endpoint.contains("EXEC_ENDPOINT_DISABLED") && endpoint.contains("endpoint.uppercase()"))
+        assertTrue("execution endpoint health must exist and disable non-core endpoints by endpoint/mint", endpoint.contains("object ExecutionEndpointHealth") && endpoint.contains("EXEC_ENDPOINT_DISABLED") && endpoint.contains("endpoint.uppercase()"))
         assertTrue("Jupiter quote/build/send/RPC health must be endpoint split", jupiter.contains("JUPITER_QUOTE") && jupiter.contains("JUPITER_SWAP_BUILD") && jupiter.contains("JUPITER_SEND") && jupiter.contains("helius_rpc") && jupiter.contains("jupiter_quote"))
-        assertTrue("Jupiter quote 503/4xx must disable quote endpoint only", jupiter.contains("ExecutionEndpointHealth.disable(endpoint") && jupiter.contains("code == 503 || code in 400..499"))
-        assertTrue("Jupiter quote deterministic failure must rotate without burning full slippage ladder", exec.contains("rotate_provider_no_ladder_burn") && exec.contains("PROVIDER_DISABLED:JUPITER_QUOTE") && exec.contains("NO_QUOTE:JUPITER_QUOTE_EXHAUSTED"))
+        assertTrue("Jupiter quote must never be endpoint-disabled", endpoint.contains("neverDisable(endpoint)") && endpoint.contains("JUPITER_QUOTE_NEVER_DISABLED") && !jupiter.contains("ExecutionEndpointHealth.disable(endpoint"))
+        assertTrue("Jupiter quote failures must stay local to candidate/slippage ladder", exec.contains("NO_QUOTE:JUPITER_QUOTE_EXHAUSTED") && !exec.contains("PROVIDER_DISABLED:JUPITER_QUOTE"))
 
         assertTrue("Pump Direct build health must be endpoint-specific", pump.contains("pump_direct_build") && pump.contains("PUMP_DIRECT_BUILD"))
         assertTrue("Pump Direct 0x1788 must disable Pump route for mint and rotate", exec.contains("PUMP_DIRECT_SIM_0X1788") && exec.contains("PUMP_DIRECT_0X1788_ROUTE_DISABLED") && exec.contains("MemeVenueRouter.markPumpRouteInvalid(ts.mint)"))
@@ -3037,6 +3037,28 @@ class GoldenTapeRegressionTest {
 
 
 
+
+
+    @Test
+    fun live_policy_3959_cyclic_jupiter_drawdown_and_solana_coverage() {
+        val bot = java.io.File("src/main/kotlin/com/lifecyclebot/engine/BotService.kt").readText()
+        val endpoint = java.io.File("src/main/kotlin/com/lifecyclebot/engine/ExecutionEndpointHealth.kt").readText()
+        val exec = java.io.File("src/main/kotlin/com/lifecyclebot/engine/Executor.kt").readText()
+        val jupiter = java.io.File("src/main/kotlin/com/lifecyclebot/network/JupiterApi.kt").readText()
+        val sizer = java.io.File("src/main/kotlin/com/lifecyclebot/engine/SmartSizer.kt").readText()
+        val merge = java.io.File("src/main/kotlin/com/lifecyclebot/engine/TokenMergeQueue.kt").readText()
+        val lanes = java.io.File("src/main/kotlin/com/lifecyclebot/engine/LaneExecutionCoordinator.kt").readText()
+        assertTrue("CYCLIC must not tick live until actual wallet USD is >= 5000", bot.contains("val liveThreshold = 5000.0") && bot.contains("walletUsdNow >= liveThreshold") && bot.contains("CYCLIC_WALLET_USD_BELOW_5000_MEME_STILL_ACTIVE"))
+        assertFalse("CYCLIC live threshold must not remain 1500", bot.contains("val liveThreshold = 1500.0") || bot.contains("walletUsd >= ${'$'}1500"))
+        assertTrue("Jupiter quote endpoint must never be disabled", endpoint.contains("neverDisable(endpoint)") && endpoint.contains("JUPITER_QUOTE_NEVER_DISABLED") && endpoint.contains("return false"))
+        assertFalse("Executor must not pre-throw PROVIDER_DISABLED for Jupiter quote", exec.contains("""throw Exception("PROVIDER_DISABLED:JUPITER_QUOTE"""))
+        assertFalse("JupiterApi must not disable JUPITER_QUOTE on 429/503/4xx", jupiter.contains("ExecutionEndpointHealth.disable(endpoint"))
+        assertTrue("Jupiter local ladder should fail as quote exhausted, not provider disabled", exec.contains("NO_QUOTE:JUPITER_QUOTE_EXHAUSTED") && !exec.contains("val terminal = if ((lastQuoteError"))
+        assertTrue("Live drawdown must size-shape, not pause entries", sizer.contains("live drawdown size-shapes; never pauses entries") && sizer.contains("drawdownMult.coerceAtLeast(if (isPaperMode) 0.0 else 0.30)"))
+        assertFalse("Live drawdown circuit breaker must not return a zero-size pause", sizer.contains("drawdown_circuit_breaker") || sizer.contains("entries paused"))
+        assertTrue("Scanner merge must include Solana-wide venues beyond pump/raydium/dex", merge.contains("METEORA") && merge.contains("ORCA") && merge.contains("PUMPSWAP") && merge.contains("JUPITER_TOKEN_LIST") && merge.contains("SOLANA_WIDE") && merge.contains("PROGRAM_ACCOUNT"))
+        assertTrue("STANDARD/V3/CORE must be explicit lane-election participants", merge.contains("STANDARD") && merge.contains("CORE") && merge.contains("V3") && lanes.contains(""V3" to") && lanes.contains(""STANDARD" to") && lanes.contains(""CORE" to"))
+    }
 
     @Test
     fun live_mega_profit_compounding_caps_press_winners_without_safety_bypass() {
