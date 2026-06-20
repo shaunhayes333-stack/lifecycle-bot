@@ -1198,12 +1198,6 @@ object PipelineHealthCollector {
             if (healthyHoldMon > 0L || healthyRequeueSupp > 0L || sellOnlySoftAllow > 0L || styleHoldDeferred > 0L) {
                 sb.append("  Live buy/hold guards: sellOnlySoftAllow=$sellOnlySoftAllow styleHoldDeferred=$styleHoldDeferred reconcilerHoldMonitored=$healthyHoldMon requeueSuppressed=$healthyRequeueSupp\n")
             }
-            val healthyHoldMon = lc("RECONCILER_HEALTHY_HOLD_MONITORED")
-            val healthyRequeueSupp = lc("RECONCILER_REQUEUE_SUPPRESSED_HEALTHY_HOLD")
-            val sellOnlySoftAllow = lc("SELL_ONLY_SAFE_MODE_SOFT_ALLOW")
-            if (healthyHoldMon > 0L || healthyRequeueSupp > 0L || sellOnlySoftAllow > 0L) {
-                sb.append("  Live buy/hold guards: sellOnlySoftAllow=$sellOnlySoftAllow reconcilerHoldMonitored=$healthyHoldMon requeueSuppressed=$healthyRequeueSupp\n")
-            }
             sb.append(line("Supervisor cap/sat:", "$supCap / $supSat", "expiredLeases=$supExpired workerTimeout=$supTimeout recent2m=$supTimeoutRecent2m")).append('\n')
             sb.append(line("Paper soft-loss holds:", paperSoftHold, "1086 gate delaying fake instant paper losses")).append('\n')
             sb.append(line("UI inactive skips:", uiInactiveSkip, "should be near zero while Main is visible")).append('\n')
