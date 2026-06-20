@@ -166,30 +166,28 @@ object BirdeyeBudgetGate {
 
     private fun isProviderLockedDown(): Boolean {
         val pct = cuThisMonth.get().toDouble() / MONTHLY_CAP
-        val cap = if (EMERGENCY_CONSERVATION_MODE) EMERGENCY_DAILY_CAP else dailyCap
-        val dailyPct = if (cap > 0) cuToday.get().toDouble() / cap else 0.0
-        return pct >= MONTHLY_LOCKDOWN_PCT || dailyPct >= 1.0
+        return EMERGENCY_CONSERVATION_MODE || pct >= MONTHLY_LOCKDOWN_PCT
     }
 
     /**
      * V5.9.1129 — executable-entry budget invariant.
      *
-     * Do NOT use provider conservation as a global buy kill-switch or the bot goes
-     * to zero volume whenever Birdeye is conserved. New entries are hard-paused
-     * only when the configured daily/monthly CU counters themselves are exhausted.
+     * Do NOT use provider conservation or the app-local daily call budget as a
+     * global buy kill-switch or the bot goes to zero volume while free/Dex/Jupiter
+     * routes are still viable. Daily exhaustion throttles Birdeye calls via
+     * canAfford(); live entries are hard-paused only on monthly/provider exhaustion.
      */
     fun isEntryBudgetLockedDown(): Boolean {
         rolloverIfNeeded()
-        val configuredDailyPct = if (dailyCap > 0) cuToday.get().toDouble() / dailyCap else 0.0
         val monthlyPct = cuThisMonth.get().toDouble() / MONTHLY_CAP
-        return configuredDailyPct >= 1.0 || monthlyPct >= MONTHLY_LOCKDOWN_PCT
+        return EMERGENCY_CONSERVATION_MODE || monthlyPct >= MONTHLY_LOCKDOWN_PCT
     }
 
     fun isLockedDown(): Boolean {
         val pct = cuThisMonth.get().toDouble() / MONTHLY_CAP
         val cap = if (EMERGENCY_CONSERVATION_MODE) EMERGENCY_DAILY_CAP else dailyCap
         val dailyPct = if (cap > 0) cuToday.get().toDouble() / cap else 0.0
-        val locked = EMERGENCY_CONSERVATION_MODE || pct >= MONTHLY_LOCKDOWN_PCT || dailyPct >= 1.0
+        val locked = EMERGENCY_CONSERVATION_MODE || pct >= MONTHLY_LOCKDOWN_PCT
         if (locked) {
             val now = System.currentTimeMillis()
             if (now - lastLockdownLogMs > 300_000L) {
@@ -234,7 +232,7 @@ object BirdeyeBudgetGate {
             monthlyPctUsed = monthlyPct * 100.0,
             lockedDown = entryLocked,
             providerConservation = EMERGENCY_CONSERVATION_MODE,
-            providerLockedDown = monthlyPct >= MONTHLY_LOCKDOWN_PCT || effectiveDailyPct >= 1.0,
+            providerLockedDown = EMERGENCY_CONSERVATION_MODE || monthlyPct >= MONTHLY_LOCKDOWN_PCT,
         )
     }
 

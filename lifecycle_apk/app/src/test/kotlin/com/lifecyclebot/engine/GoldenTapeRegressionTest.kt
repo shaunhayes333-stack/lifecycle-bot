@@ -2274,6 +2274,8 @@ class GoldenTapeRegressionTest {
         assertFalse("stale 300% over-quota comment must not keep future builds in false emergency", gate.contains("300% monthly"))
         val pipe = java.io.File("src/main/kotlin/com/lifecyclebot/engine/PipelineHealthCollector.kt").readText()
         assertTrue("Birdeye report denominator must come from BirdeyeBudgetGate snapshot, not stale hardcoded 5M", gate.contains("monthlyCap = MONTHLY_CAP") && pipe.contains("bsnap.monthlyCap") && !pipe.contains("/5,000,000"))
+        assertTrue("Birdeye daily cap must throttle provider calls, not globally block live entries", gate.contains("live entries are hard-paused only on monthly/provider exhaustion") && gate.contains("return EMERGENCY_CONSERVATION_MODE || monthlyPct >= MONTHLY_LOCKDOWN_PCT") && !gate.contains("return configuredDailyPct >= 1.0 || monthlyPct >= MONTHLY_LOCKDOWN_PCT"))
+        assertTrue("Provider lockdown report must not mark provider locked solely because daily app-local CU cap is hit", gate.contains("providerLockedDown = EMERGENCY_CONSERVATION_MODE || monthlyPct >= MONTHLY_LOCKDOWN_PCT"))
     }
 
     @Test
