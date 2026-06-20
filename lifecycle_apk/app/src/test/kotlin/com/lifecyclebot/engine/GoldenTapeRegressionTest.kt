@@ -2994,6 +2994,25 @@ class GoldenTapeRegressionTest {
 
 
 
+
+    @Test
+    fun live_learning_and_growth_use_terminal_movement_patterns_not_partial_noise() {
+        val movement = java.io.File("src/main/kotlin/com/lifecyclebot/engine/MovementPatternSignal.kt").readText()
+        val exec = java.io.File("src/main/kotlin/com/lifecyclebot/engine/Executor.kt").readText()
+        val sheet = java.io.File("src/main/kotlin/com/lifecyclebot/engine/ToolkitSignalSheet.kt").readText()
+        val doctrine = java.io.File("src/main/kotlin/com/lifecyclebot/engine/LiveGrowthDoctrine.kt").readText()
+        listOf("BREAKOUT_CONTINUATION", "PULLBACK_RECLAIM", "ACCUMULATION_COMPRESSION", "EXHAUSTION_CHASE", "FREEFALL_NO_RECLAIM", "VOLUME_IGNITION").forEach {
+            assertTrue("MovementPatternSignal must classify $it", movement.contains(it))
+        }
+        assertTrue("final live size must consume movement-aware growth policy", exec.contains("MovementPatternSignal.from(ts)") && exec.contains("LiveGrowthDoctrine.sizePolicy(laneKey, score, walletSol, spendable, movementSignal)"))
+        assertTrue("live hold minimum must be movement-aware to avoid instant shutdown of runners", exec.contains("movement_${'$'}{movementSignal.pattern.lowercase()}") && exec.contains("movementSignal?.holdMult"))
+        val pcHook = exec.substring(exec.indexOf("PatternClassifier hooks"), exec.indexOf("reset BotBrain", exec.indexOf("PatternClassifier hooks")))
+        assertTrue("PatternClassifier must still learn live terminal sells", pcHook.contains("trade.side == "SELL"") && pcHook.contains("isLive = trade.mode.equals("live""))
+        assertFalse("PatternClassifier must not consume entry on PARTIAL_SELL before terminal movement outcome", pcHook.contains("PARTIAL_SELL") && pcHook.contains("PatternClassifier.noteExit"))
+        assertTrue("ToolkitSignalSheet must expose movement patterns as SMART_CHART/PATTERN_CLASSIFIER tool votes", sheet.contains("MovementPatternSignal.from(ts)") && sheet.contains("MOVEMENT_PATTERN") && sheet.contains("TOOLKIT_MOVEMENT"))
+        assertTrue("LiveGrowthDoctrine reason must surface movement pattern/timing", doctrine.contains("movement=${'$'}{movement?.pattern") && doctrine.contains("timing=${'$'}{movement?.timing"))
+    }
+
     @Test
     fun live_growth_doctrine_is_core_source_for_all_lanes_tools_and_sizing() {
         val doctrine = java.io.File("src/main/kotlin/com/lifecyclebot/engine/LiveGrowthDoctrine.kt").readText()

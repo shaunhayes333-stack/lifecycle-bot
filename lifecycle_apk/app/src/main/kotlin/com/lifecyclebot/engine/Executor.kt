@@ -2194,7 +2194,9 @@ class Executor(
         // doBuy.final and liveBuy.final. This is not a downstream lane patch:
         // every live execution path that reaches this chokepoint gets the same
         // wallet-growth policy while route/safety/wallet gates remain upstream.
-        val growthPolicy = LiveGrowthDoctrine.sizePolicy(laneKey, score, walletSol, spendable)
+        val movementSignal = try { MovementPatternSignal.from(ts) } catch (_: Throwable) { null }
+        val growthPolicy = LiveGrowthDoctrine.sizePolicy(laneKey, score, walletSol, spendable, movementSignal)
+        try { if (movementSignal != null) PipelineHealthCollector.labelInc("MOVEMENT_PATTERN_${movementSignal.pattern.take(48)}") } catch (_: Throwable) {}
         val walletPct = growthPolicy.walletPct
         val laneMult = growthPolicy.laneMult
         val walletTarget = spendable * walletPct * laneMult
@@ -2665,7 +2667,12 @@ class Executor(
                 try {
                     com.lifecyclebot.learning.LayerVoteSampler.captureAllMemeVotes(ts)
                 } catch (_: Exception) {}
-            } else if ((trade.side == "SELL" || trade.side == "PARTIAL_SELL") && ledgerAllowsClosedLearning && accountingTrainable) {
+            } else if (trade.side == "SELL" && ledgerAllowsClosedLearning && accountingTrainable) {
+                // V5.0.3948 — train chart/movement pattern classifier on terminal
+                // outcomes only. Partial sells are useful accounting, but they are
+                // not the final movement result; consuming the pending entry on the
+                // first partial made live learning miss the runner/round-trip label
+                // and made the bot feel like it never learned the real move.
                 PatternClassifier.noteExit(
                     mint = ts.mint,
                     pnlPct = trade.pnlPct,
@@ -10746,14 +10753,17 @@ class Executor(
         // exits cannot enforce it. Use lane/archetype as the durable proxy until
         // full style persistence lands. These are MINIMUM anti-churn holds only;
         // hard rug/floor exits still bypass below.
-        val minMs = when {
+        val movementSignal = try { MovementPatternSignal.from(ts) } catch (_: Throwable) { null }
+        val baseMinMs = when {
             lane.contains("TREASURY") || lane.contains("EXPRESS") || lane.contains("MANIP") -> 45_000L
             lane.contains("SHITCOIN") || lane.contains("PRESALE") || lane.contains("SNIPER") -> 75_000L
             lane.contains("MOONSHOT") || lane.contains("QUALITY") || lane.contains("BLUECHIP") || lane.contains("BLUE_CHIP") -> 180_000L
             lane.contains("COPY") || lane.contains("WHALE") || lane.contains("STANDARD") -> 150_000L
             else -> 90_000L
         }
+        val minMs = (baseMinMs * (movementSignal?.holdMult ?: 1.0)).toLong().coerceIn(45_000L, 420_000L)
         val styleHint = when {
+            movementSignal != null && movementSignal.pattern != "NEUTRAL_STRUCTURE" -> "movement_${movementSignal.pattern.lowercase()}"
             lane.contains("MOONSHOT") || lane.contains("QUALITY") || lane.contains("BLUE") -> "runner_hold"
             lane.contains("TREASURY") || lane.contains("EXPRESS") || lane.contains("MANIP") -> "quick_flip_min_hold"
             lane.contains("SHITCOIN") || lane.contains("SNIPER") -> "degen_snipe_min_hold"
