@@ -285,8 +285,9 @@ data class TokenState(
     // tick because the prev→new jump exceeds 100x or drops below 0.01x, we
     // bump this. After N consecutive rejects at the same anchor, the anchor
     // itself is the glitch (basis-switch, stale BC quote, etc.) and we must
-    // accept the new tick as truth. Without this, a position can be frozen
-    // forever at a stale lastPrice while every fresh quote gets rejected.
+    // accept the new tick as truth. For LIVE downward crash rejects, BotService
+    // does not treat the reject as safe/normal; it routes an emergency sell
+    // proof attempt while still refusing to settle from UI price alone.
     var wsTickRejectStreak: Int = 0,
     var lastMcap: Double = 0.0,
     var lastLiquidityUsd: Double = 0.0,    // USD liquidity from Dexscreener — key for exit risk

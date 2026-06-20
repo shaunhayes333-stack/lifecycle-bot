@@ -8348,9 +8348,37 @@ class BotService : Service() {
                                 ts.wsTickRejectStreak = 0
                                 // fall through to accept the new price
                             } else {
-                                ErrorLogger.warn("BotService",
-                                    "🚫 WS_TICK_FILTER rejected ${ts.symbol} OPEN: prev=$prev → new=$priceUsd " +
-                                    "(jump=${"%.1f".format(jumpMult)}x streak=${ts.wsTickRejectStreak}) — feed glitch, position holds")
+                                val liveOpenCrashTick = ts.position.isOpen && !ts.position.isPaperPosition && jumpMult < 0.01
+                                if (liveOpenCrashTick) {
+                                    ErrorLogger.warn("BotService",
+                                        "🚨 WS_TICK_FILTER_CRASH_PROOF ${ts.symbol}: prev=$prev → new=$priceUsd " +
+                                        "(jump=${"%.4f".format(jumpMult)}x streak=${ts.wsTickRejectStreak}) — rejected tick is NOT safe; forcing emergency sell proof route")
+                                    try {
+                                        ForensicLogger.lifecycle(
+                                            "WS_TICK_FILTER_CRASH_PROOF_ROUTE",
+                                            "mint=${ts.mint.take(10)} symbol=${ts.symbol} prev=$prev new=$priceUsd jump=${"%.6f".format(jumpMult)} streak=${ts.wsTickRejectStreak} action=request_sell_no_ui_settlement",
+                                        )
+                                    } catch (_: Throwable) {}
+                                    try { com.lifecyclebot.engine.sell.SellReconciler.requestUrgentTick("WS_TICK_FILTER_CRASH_PROOF_ROUTE") } catch (_: Throwable) {}
+                                    try {
+                                        val cfgTick = ConfigStore.load(applicationContext)
+                                        val walletTick = walletManager.getWallet()
+                                        val balTick = status.getEffectiveBalance(cfgTick.paperMode)
+                                        executor.requestSell(
+                                            ts,
+                                            "WS_TICK_FILTER_CRASH_PROOF_${(jumpMult * 10000.0).toInt()}BPS",
+                                            walletTick,
+                                            balTick,
+                                        )
+                                    } catch (e: Throwable) {
+                                        try { com.lifecyclebot.engine.sell.CloseLease.recordRetry(ts.mint, "WS_TICK_FILTER_CRASH_PROOF_ROUTE_SUBMIT_FAILED") } catch (_: Throwable) {}
+                                        ErrorLogger.warn("BotService", "WS_TICK_FILTER_CRASH_PROOF sell route failed to submit: ${e.message}")
+                                    }
+                                } else {
+                                    ErrorLogger.warn("BotService",
+                                        "🚫 WS_TICK_FILTER rejected ${ts.symbol} OPEN: prev=$prev → new=$priceUsd " +
+                                        "(jump=${"%.1f".format(jumpMult)}x streak=${ts.wsTickRejectStreak}) — feed glitch, position holds")
+                                }
                                 continue
                             }
                         } else {

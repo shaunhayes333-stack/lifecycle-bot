@@ -2938,6 +2938,17 @@ class GoldenTapeRegressionTest {
         assertFalse("FDG must not hard-block live solely because Helius is down", fdg.contains("HELIUS_UNHEALTHY_LIVE_SAFE_MODE") || fdg.contains("blockReason = \"HELIUS"))
     }
 
+
+    @Test
+    fun ws_tick_filter_rejected_live_crash_forces_emergency_sell_proof_not_safe_hold() {
+        val bot = java.io.File("src/main/kotlin/com/lifecyclebot/engine/BotService.kt").readText()
+        val models = java.io.File("src/main/kotlin/com/lifecyclebot/data/Models.kt").readText()
+        assertTrue("Rejected live crash ticks must be emergency-proof routed, not normal safe holds", bot.contains("WS_TICK_FILTER_CRASH_PROOF") && bot.contains("liveOpenCrashTick") && bot.contains("jumpMult < 0.01") && bot.contains("request_sell_no_ui_settlement"))
+        assertTrue("Crash-proof route must trigger executor sell and urgent reconciler without UI settlement", bot.contains("executor.requestSell") && bot.contains("SellReconciler.requestUrgentTick(\"WS_TICK_FILTER_CRASH_PROOF_ROUTE\")") && bot.contains("WS_TICK_FILTER_CRASH_PROOF_ROUTE_SUBMIT_FAILED"))
+        assertFalse("Crash-proof route must not pre-stamp retry before requestSell lease acquisition", bot.contains("CloseLease.recordRetry(ts.mint, \"WS_TICK_FILTER_CRASH_PROOF_ROUTE\")"))
+        assertTrue("TokenState documentation must preserve no UI-price settlement doctrine", models.contains("emergency sell") && models.contains("refusing to settle from UI price alone"))
+    }
+
     @Test
     fun live_holder_risk_requires_distribution_proof_and_ultra_runner_banks_immediately() {
         val pre = java.io.File("src/main/kotlin/com/lifecyclebot/engine/PreTradeHardGate.kt").readText()
