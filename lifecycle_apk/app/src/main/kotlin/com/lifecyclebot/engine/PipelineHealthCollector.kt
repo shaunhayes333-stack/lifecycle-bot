@@ -1976,15 +1976,15 @@ object PipelineHealthCollector {
             sb.append("  Read: ghost>0 or forced>20 => buys defer (EXEC_DEFERRED_SLOT_HEALTH) until cleanup; never a permanent block.\n")
         } catch (_: Throwable) { /* best-effort telemetry */ }
 
-        // V5.9.952 — Birdeye budget surfacing. Operator burned 5M Starter cap
-        // in 19 days because 5 of 7 call sites bypassed the gate. This section
+        // V5.9.952 — Birdeye budget surfacing. Use BirdeyeBudgetGate.snapshot()
+        // as the denominator authority so reports cannot drift from plan quota.
         // makes the burn rate visible so it never happens silently again.
         try {
             val bsnap = com.lifecyclebot.engine.BirdeyeBudgetGate.snapshot()
             sb.append("\n===== Birdeye budget (V5.9.952) =====\n")
             sb.append("  daily calls:     ${bsnap.callsToday}\n")
             sb.append("  daily CU:        ${bsnap.cuToday}/${bsnap.dailyCap} (${"%.1f".format(bsnap.pctUsed)}%)\n")
-            sb.append("  monthly CU:      ${bsnap.cuThisMonth}/5,000,000 (${"%.1f".format(bsnap.monthlyPctUsed)}%)\n")
+            sb.append("  monthly CU:      ${bsnap.cuThisMonth}/${"%,d".format(bsnap.monthlyCap)} (${"%.1f".format(bsnap.monthlyPctUsed)}%)\n")
             sb.append("  entry lockdown:  ${if (bsnap.lockedDown) "🛑 ACTIVE — entries blocked by CU exhaustion" else "✅ off"}\n")
             sb.append("  provider mode:   ${if (bsnap.providerConservation) "🟡 EMERGENCY CONSERVATION — non-emergency Birdeye paused" else if (bsnap.providerLockedDown) "🛑 PROVIDER LOCKDOWN" else "✅ normal"}\n")
             if (bsnap.monthlyPctUsed >= 60.0 && !bsnap.lockedDown && !bsnap.providerConservation) {
