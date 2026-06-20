@@ -168,6 +168,9 @@ object StrategyTelemetry {
     fun computePaperTerminalLeaderboard(limit: Int = 2_500): List<StrategyMetric> =
         computeLeaderboard(environment = "paper", includePartials = false, limit = limit)
 
+    /** Live terminal close count used by LiveMaturityAuthority; never counts paper or partials. */
+    fun liveTerminalCloseCount(limit: Int = 10_000): Int = LiveMaturityAuthority.liveTerminalCloseCount(limit)
+
     /** Top-N by mean PnL%, restricted to strategies with ≥5 trades (avoids
      *  "+47% EV on 1 trade" noise dominating the leaderboard). */
     fun winners(n: Int = 5): List<StrategyMetric> =
