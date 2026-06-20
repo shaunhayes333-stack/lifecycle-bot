@@ -871,16 +871,18 @@ class BotService : Service() {
                             if (ts != null) {
                                 val curWallet = WalletManager.getWallet()
                                 val curSol = walletManager.state.value.solBalance
+                                val trackerStatus = try { com.lifecyclebot.engine.HostWalletTokenTracker.getEntry(mint)?.status?.name ?: "UNKNOWN" } catch (_: Throwable) { "UNKNOWN" }
+                                val requeueReason = "RECONCILER_REQUEUE_${trackerStatus}"
                                 executor.requestSell(
                                     ts,
-                                    "RECONCILER_REQUEUE",
+                                    requeueReason,
                                     curWallet,
                                     curSol,
                                 )
                                 try {
                                     ForensicLogger.lifecycle(
                                         "RECONCILER_SELL_TRIGGERED",
-                                        "mint=${mint.take(10)} symbol=$symbol balance=$balance rehydrated=${existing == null} async=downstream",
+                                        "mint=${mint.take(10)} symbol=$symbol balance=$balance trackerStatus=$trackerStatus reason=$requeueReason rehydrated=${existing == null} async=downstream",
                                     )
                                 } catch (_: Throwable) {}
                             }

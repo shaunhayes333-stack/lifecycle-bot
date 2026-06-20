@@ -1009,34 +1009,21 @@ object FinalDecisionGate {
         }
 
         if (candidate.aiConfidence <= 0.0) {
-            // V5.9.311: Zero-confidence hard block now LIVE-only.
-            // In paper mode, EdgeOptimizer.calculateConfidence floors at 8.0,
-            // so a true 0.0 here means a malformed/null candidate — still skip
-            // it but no longer cripple the entire learning loop.
+            // V5.0.3950 — ZERO-CONF SOURCE ALIGNMENT.
+            // Runtime 3949 still showed FDG/LOW_CONFIDENCE_0% even after the
+            // low-confidence block below was converted to live micro-probes. This
+            // early return bypassed that new doctrine. A 0% confidence candidate
+            // with route/liquidity/safety still gets shaped to a tiny live probe;
+            // malformed/mechanical failures are blocked by the real safety/route
+            // gates downstream, not by this confidence shortcut.
             if (mode == TradeMode.LIVE) {
-                ErrorLogger.info("FDG", "🚫 ZERO_CONF_BLOCK (LIVE): ${ts.symbol} | quality=${candidate.setupQuality} edge=${candidate.edgeQuality} conf=0% → SHADOW ONLY")
-
-                return FinalDecision(
-                    shouldTrade = false,
-                    mode = mode,
-                    approvalClass = ApprovalClass.BLOCKED,
-                    quality = candidate.setupQuality,
-                    confidence = 0.0,
-                    edge = EdgeVerdict.SKIP,
-                    blockReason = "LOW_CONFIDENCE_0%",
-                    blockLevel = BlockLevel.CONFIDENCE,
-                    sizeSol = 0.0,
-                    tags = listOf("zero_confidence", "shadow_only"),
-                    mint = ts.mint,
-                    symbol = ts.symbol,
-                    approvalReason = "ZERO_CONFIDENCE_BLOCK",
-                    gateChecks = listOf(GateCheck("confidence", false, "conf=0% → SHADOW ONLY"))
-                )
+                tags.add("live_zero_conf_micro_probe")
+                checks.add(GateCheck("confidence", true, "conf=0% → LIVE micro-probe sizing, not hard block"))
+                ErrorLogger.info("FDG", "🔬 ZERO_CONF_MICRO_PROBE (LIVE): ${ts.symbol} | quality=${candidate.setupQuality} edge=${candidate.edgeQuality} conf=0%")
+            } else {
+                ErrorLogger.info("FDG", "ℹ️ ZERO_CONF_PASSTHRU (PAPER): ${ts.symbol} | quality=${candidate.setupQuality} edge=${candidate.edgeQuality} → continue with min-size for learning")
+                tags.add("zero_conf_paper_learn")
             }
-            // PAPER: tag and continue — let downstream sizing/penalty decide.
-            // This restores V5.9.198-era learning volume (1000+ trades/day).
-            ErrorLogger.info("FDG", "ℹ️ ZERO_CONF_PASSTHRU (PAPER): ${ts.symbol} | quality=${candidate.setupQuality} edge=${candidate.edgeQuality} → continue with min-size for learning")
-            tags.add("zero_conf_paper_learn")
         }
 
         val earlyMemoryScore = try {
