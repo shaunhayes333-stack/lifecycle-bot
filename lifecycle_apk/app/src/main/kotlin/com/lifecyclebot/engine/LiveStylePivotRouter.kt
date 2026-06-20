@@ -119,9 +119,32 @@ object LiveStylePivotRouter {
             PipelineHealthCollector.labelInc("LIVE_BREAK_EVEN_CHECK")
         } catch (_: Throwable) {}
         if (!be.pass) {
-            if (decision == "BUY") { finalLane = "DEFENSIVE_PROBE"; finalStyle = "DEFENSIVE_PROBE"; mult = minOf(mult, 0.15); decision = "PROBE"; reasons += "BREAK_EVEN_NATIVE_PIVOT" }
+            if (decision == "BUY") {
+                finalLane = "DEFENSIVE_PROBE"
+                finalStyle = "DEFENSIVE_PROBE"
+                mult = minOf(mult, 0.15)
+                decision = "PROBE"
+                reasons += "BREAK_EVEN_NATIVE_PIVOT"
+            }
             val recheck = LiveBreakEvenGuard.check(ts, finalLane, finalStyle, score, buySlippageBps, plannedSizeSol * mult)
-            if (!recheck.pass) { decision = "DEFER"; reasons += "BREAK_EVEN_DEFER_RECHECK" }
+            // V5.0.3967 — DO NOT convert every pivot into a hard defer. 3966
+            // correctly identified bleeders, but then `BREAK_EVEN_DEFER_RECHECK`
+            // vetoed 100/100 live attempts because defensive probes inherit the
+            // original lane's low expected edge while also carrying intentionally
+            // conservative cost buffers. That turns "pivot, don't disable" into
+            // a global live shutdown. If entry basis, route, liquidity, and rug
+            // proof are usable, let the probe execute at reduced size; quote,
+            // slippage, and executor mechanics remain downstream authorities.
+            val hardProofMissing = !basisTrusted || !routeTrusted || !rugProof || liq <= 0.0 || plannedSizeSol <= 0.0
+            if (!recheck.pass && hardProofMissing) {
+                decision = "DEFER"
+                reasons += "BREAK_EVEN_DEFER_RECHECK_PROOF_MISSING"
+            } else if (!recheck.pass) {
+                decision = "PROBE"
+                mult = minOf(mult, 0.15)
+                reasons += "BREAK_EVEN_PROBE_ALLOWED_BELOW_COST_MODEL"
+                try { PipelineHealthCollector.labelInc("LIVE_STYLE_PIVOT_PROBE_ALLOWED_BELOW_BE") } catch (_: Throwable) {}
+            }
             return finish(lane, style, finalLane, finalStyle, mult, confirm, recheck, basisTrusted, routeTrusted, holderProof, rugProof, liq, providerProof, reasons, decision)
         }
         return finish(lane, style, finalLane, finalStyle, mult, confirm, be, basisTrusted, routeTrusted, holderProof, rugProof, liq, providerProof, reasons.ifEmpty { listOf("NATIVE_ALLOWED") }, decision)
