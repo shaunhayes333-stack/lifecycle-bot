@@ -2957,6 +2957,7 @@ class GoldenTapeRegressionTest {
         assertTrue("Live holder distribution uncertainty must hydrate/defer, not spend real SOL", pre.contains("HOLDER_DISTRIBUTION_PENDING") && pre.contains("LIVE_CRITICAL_PROOF_PENDING"))
         assertTrue("Wallet/Phantom holder warning text must be fatal pre-submit", pre.contains("FATAL_WALLET_RISK_TEXT") && listOf("SINGLE HOLDER", "UNVERIFIED TOKEN", "TOP 10").all { pre.contains(it) })
         assertTrue("Ultra live runners must bank before normal partial cadence", exec.contains("ULTRA-RUNNER PANIC BANK") && exec.contains("ULTRA_RUNNER_BANK_TRIGGERED") && exec.contains("gainMultiple >= 50.0") && exec.contains("peakGainPct >= 5_000.0") && exec.contains("executeProfitLockSell(ts, wallet, sellFraction, \"ultra_runner_bank_"))
+        assertTrue("Catastrophic stop overruns must not be hidden as normal STRICT_SL in alerts/reports", exec.contains("STOP_LOSS_OVERRUN_CATASTROPHIC") && exec.contains("CATASTROPHIC_STOP_LOSS_OVERRUN_") && exec.contains("TradeAlerts.onSell(cfg(), ts.symbol, pnl, pnlP, finalSellReason") && exec.contains("${'$'}finalSellReason  PnL"))
     }
 
     @Test

@@ -15247,13 +15247,13 @@ class Executor(
                 }
             }
 
-            onLog("✅ LIVE SELL COMPLETE @ ${price.fmt()} | $reason | pnl ${pnl.fmt(4)} SOL " +
+            onLog("✅ LIVE SELL COMPLETE @ ${price.fmt()} | $finalSellReason | pnl ${pnl.fmt(4)} SOL " +
                   "(${pnlP.fmtPct()}) | sig=${sig.take(16)}…", ts.mint)
             onNotify("✅ Live Sell",
-                "${ts.symbol}  $reason  PnL ${pnlP.fmtPct()}",
+                "${ts.symbol}  $finalSellReason  PnL ${pnlP.fmtPct()}",
                 com.lifecyclebot.engine.NotificationHistory.NotifEntry.NotifType.INFO)
             
-            TradeAlerts.onSell(cfg(), ts.symbol, pnl, pnlP, reason, isPaper = false)
+            TradeAlerts.onSell(cfg(), ts.symbol, pnl, pnlP, finalSellReason, isPaper = false)
             
             if (pnlP >= 20.0) {
                 TradeAlerts.onBigWin(cfg(), ts.symbol, pnl, pnlP, isPaper = false)
