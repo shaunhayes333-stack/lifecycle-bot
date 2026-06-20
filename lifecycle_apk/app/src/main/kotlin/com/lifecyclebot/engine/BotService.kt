@@ -9044,9 +9044,9 @@ class BotService : Service() {
             val profitableRescue = RuntimeModeAuthority.isLive() && l in setOf("QUALITY", "TREASURY", "BLUECHIP", "MOONSHOT", "PROJECT_SNIPER") && (
                 affinity.contains(l) ||
                 l == primaryLane.uppercase() ||
-                (classification.tradeType == ModeRouter.TradeType.WHALE_ACCUMULATION && (l == "QUALITY" || l == "BLUECHIP")) ||
-                (classification.tradeType == ModeRouter.TradeType.TREND_PULLBACK && (l == "QUALITY" || l == "TREASURY")) ||
-                ((classification.tradeType == ModeRouter.TradeType.BREAKOUT_CONTINUATION || classification.tradeType == ModeRouter.TradeType.GRADUATION) && l == "MOONSHOT")
+                (scoreForToxicity >= 55 && l in setOf("QUALITY", "TREASURY", "BLUECHIP", "MOONSHOT")) ||
+                (ts.lastLiquidityUsd >= 15_000.0 && l in setOf("QUALITY", "BLUECHIP")) ||
+                (ts.meta.momScore >= 60.0 && l == "MOONSHOT")
             )
             if (l in fullMemeTraderRing) {
                 val allowed = l == ownerLane || profitableRescue
