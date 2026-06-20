@@ -1398,7 +1398,7 @@ class GoldenTapeRegressionTest {
         assertTrue(bot.contains("cryptoSidecarOn) add(com.lifecyclebot.engine.EnabledTraderAuthority.Trader.CRYPTO_ALT)"))
         assertTrue(bot.contains("CryptoAltTrader.start"))
         assertTrue(bot.contains("CryptoAltTrader.setEnabled(cryptoUniverseOn"))
-        assertTrue(auth.contains("val laneSet = set - Trader.CRYPTO_ALT - Trader.CYCLIC"))
+        assertTrue(auth.contains("internalMemeLayers") && auth.contains("set - Trader.CRYPTO_ALT - internalMemeLayers") && auth.contains("Trader.CYCLIC") && auth.contains("Trader.QUALITY") && auth.contains("Trader.TREASURY"))
         assertTrue(auth.contains("return laneSet.size == 1 && Trader.MEME in laneSet"))
         assertTrue(crypto.contains("operatorExplicitlyEnabled"))
         assertTrue(crypto.contains("cfg.cryptoAltsEnabled && cfg.marketsTraderEnabled"))
