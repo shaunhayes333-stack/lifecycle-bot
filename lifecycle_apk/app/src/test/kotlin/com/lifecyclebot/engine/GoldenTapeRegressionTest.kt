@@ -603,7 +603,7 @@ class GoldenTapeRegressionTest {
         val openGate = java.io.File("src/main/kotlin/com/lifecyclebot/engine/ExecutableOpenGate.kt").readText()
         assertTrue(openGate.contains("LIVE_RESTORE_STALE_CANDIDATE_SOFT_ALLOW"))
         assertTrue(openGate.contains("EXEC_GATE_ALLOW>0 but EXEC_LIVE_ATTEMPT=0"))
-        assertTrue(openGate.contains("latestAllows && safetyOk && effectiveLiq >= 1200.0"))
+        assertTrue(openGate.contains("latestAllows && safetyOk && liqOk") && openGate.contains("val liqOk = effectiveLiq > 0.0"))
     }
 
     @Test
@@ -3041,7 +3041,7 @@ class GoldenTapeRegressionTest {
         assertTrue("FDG-approved WATCH restore must allow nonzero low liquidity", gate.contains("val liqOk = effectiveLiq > 0.0") && gate.contains("LOW-LIQ WATCH RESTORE ALIGNMENT"))
         assertFalse("ExecutableOpenGate must not require USD 1200 liquidity for FDG-approved WATCH restore", gate.contains("latestAllows && safetyOk && effectiveLiq >= 1200.0") || gate.contains("liquidityUsd >= 1200.0"))
         assertTrue("thin-liq restored entries must still be clamped economically", gate.contains("LiveRestoreExecutionPolicy.fromRuntimeDrift") && exec.contains("realisticLiveEntrySize"))
-        assertTrue("generic exit reasons must be canonicalized before queue/journal poisoning", exec.contains("EXIT_ROUTE_RETRY_${'$'}{trackerStatus}_${'$'}{closeState}") && exec.contains("requestReason") && exec.contains("PendingSellQueue.add(ts.mint, ts.symbol, requestReason)"))
+        assertTrue("generic exit reasons must be canonicalized before queue/journal poisoning", exec.contains("EXIT_ROUTE_RETRY_${'$'}{trackerStatus}_${'$'}{closeState}") && exec.contains("requestReason") && exec.contains("return doSell(ts, requestReason, wallet, walletSol)") && exec.contains("PendingSellQueue.add(ts.mint, ts.symbol, reason)"))
     }
 
     @Test
