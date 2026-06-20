@@ -2259,6 +2259,24 @@ class GoldenTapeRegressionTest {
 
 
 
+
+    @Test
+    fun confirmed_live_buy_creates_host_tracker_liability_at_tx_confirm_source() {
+        val exec = java.io.File("src/main/kotlin/com/lifecyclebot/engine/Executor.kt").readText()
+        assertTrue("tx-confirmed live buys must immediately create host tracker liability", exec.contains("HOST_BUY_PENDING_AT_TX_CONFIRMED") && exec.contains("HostWalletTokenTracker.recordBuyPending(ts.mint, ts.symbol, sig)"))
+        assertTrue("pump and jupiter lifecycle confirmation must both be paired with host pending", exec.indexOf("TokenLifecycleTracker.onBuyConfirmed(ts.mint, sig)") < exec.indexOf("HOST_BUY_PENDING_AT_TX_CONFIRMED"))
+        assertTrue("confirmed invisible buy doctor fault must be prevented at source", exec.contains("canonicalOpen=1") && exec.contains("hostTrackerOpen/liveOpen=0"))
+    }
+
+    @Test
+    fun live_break_even_uses_live_first_trust_rebase_not_paper_override() {
+        val be = java.io.File("src/main/kotlin/com/lifecyclebot/engine/LiveBreakEvenGuard.kt").readText()
+        assertTrue("live trust rebase must exist", be.contains("LIVE TRUST REBASE") && be.contains("liveTerminalEdge") && be.contains("paperAdvisoryEdge"))
+        assertTrue("paper memory may only be advisory/capped", be.contains("paperAdvisoryEdge * 0.35") && be.contains("minOf(paperAdvisoryEdge, 15.0)") && be.contains("includePartials = false"))
+        assertTrue("live terminal rows must be read separately from paper", be.contains("it.mode.equals(\"live\", true)") && be.contains("it.mode.equals(\"paper\", true)"))
+        assertTrue("StrategyTelemetry must be capped so partial/paper-heavy leaderboards cannot dominate", be.contains("coerceAtMost(60.0)") && be.contains("minOf(leaderboardEdge, 25.0)"))
+    }
+
     @Test
     fun meme_runtime_authority_activates_all_internal_layers_without_market_fanout() {
         val auth = java.io.File("src/main/kotlin/com/lifecyclebot/engine/EnabledTraderAuthority.kt").readText()
