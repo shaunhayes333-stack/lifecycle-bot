@@ -33,18 +33,18 @@ object BirdeyeBudgetGate {
     private const val TAG = "BirdeyeBudget"
     private const val DEFAULT_DAILY_CAP = 150_000L
 
-    // V5.9.952 — monthly soft caps (Starter plan = 5M CU/mo)
-    private const val MONTHLY_CAP = 5_000_000L
+    // V5.0.3977 — monthly soft caps. Birdeye dashboard now shows 6M CU/month.
+    private const val MONTHLY_CAP = 6_000_000L
     private const val MONTHLY_LOCKDOWN_PCT = 0.80
     private const val MONTHLY_SCANNER_THROTTLE_PCT = 0.75
     private const val DAILY_SCANNER_THROTTLE_PCT = 0.10
 
-    // V5.9.1123 — emergency conservation mode. Operator reported real
-    // Birdeye account usage at ~300% monthly. The app-local monthly counter
-    // can reset across reinstalls/builds, so do not trust it as the source of
-    // truth while the provider account is over quota. Default: block all
-    // non-emergency Birdeye traffic. Free Dex/Pump/Gecko/Helius paths continue.
-    private const val EMERGENCY_CONSERVATION_MODE = true
+    // V5.0.3977 — provider conservation is NOT a permanent compile-time state.
+    // Operator's Birdeye dashboard (2026-06-20) shows ~3.97K / 6.00M CU used, so
+    // the old hardcoded true value was stale and falsely paused non-emergency
+    // Birdeye, starving metadata/provider proof. Real protection remains via
+    // daily/monthly counters, scanner throttles, and isLockedDown().
+    private const val EMERGENCY_CONSERVATION_MODE = false
     private const val EMERGENCY_DAILY_CAP = 2_500L       // ~100 calls/day max
     private const val EMERGENCY_OPEN_POS_CALLS_PER_HOUR = 12L
 
@@ -150,9 +150,6 @@ object BirdeyeBudgetGate {
      */
     fun canAffordSafety(): Boolean {
         rolloverIfNeeded()
-        // Token security is useful, but not worth burning provider quota while
-        // the account is already 300% over monthly. Safety remains fail-open and
-        // is covered by RugCheck/Helius/Dex heuristics.
         if (EMERGENCY_CONSERVATION_MODE) return false
         return !isLockedDown()
     }
@@ -177,9 +174,7 @@ object BirdeyeBudgetGate {
     /**
      * V5.9.1129 — executable-entry budget invariant.
      *
-     * isLockedDown() intentionally returns true during emergency conservation so
-     * Birdeye callers stop burning CU while free-source trading can continue.
-     * Do NOT use that provider lock as a global buy kill-switch or the bot goes
+     * Do NOT use provider conservation as a global buy kill-switch or the bot goes
      * to zero volume whenever Birdeye is conserved. New entries are hard-paused
      * only when the configured daily/monthly CU counters themselves are exhausted.
      */
