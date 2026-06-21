@@ -9,7 +9,7 @@ package com.lifecyclebot.engine
  * mature/super-AGI sample band from the performance doctrine.
  */
 object LiveMaturityAuthority {
-    const val LIVE_ADAPTIVE_MIN_CLOSES = 500
+    const val LIVE_ADAPTIVE_MIN_CLOSES = 1
     const val LIVE_MATURE_MIN_CLOSES = 5_000
 
     data class Snapshot(
@@ -26,11 +26,14 @@ object LiveMaturityAuthority {
         val liveCloses = liveTerminalCloseCount()
         val lifetime = try { TradeHistoryStore.getLifetimeStats().totalSells } catch (_: Throwable) { liveCloses }
         val mature = liveCloses >= LIVE_MATURE_MIN_CLOSES
+        // V5.0.4021 — real capital has no bootstrap grace period. From the
+        // first clean live terminal close, live sizing/routing must consume
+        // live-only feedback. There is no live bootstrap behavior.
         val adaptive = liveCloses >= LIVE_ADAPTIVE_MIN_CLOSES
         val phase = when {
             mature -> "LIVE_MATURE"
             adaptive -> "LIVE_ADAPTIVE"
-            else -> "LIVE_BOOTSTRAP"
+            else -> "LIVE_ADAPTIVE_FROM_TRADE_1"
         }
         val floor = when {
             mature -> 50.0

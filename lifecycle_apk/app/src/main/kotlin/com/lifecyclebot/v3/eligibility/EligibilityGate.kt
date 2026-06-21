@@ -185,7 +185,7 @@ class ExposureGuard(
         // downstream SmartSizer/CashGen already capped orders to wallet-reserve.
         // Keep the slot-count guard (real capacity), but do not make percentage
         // exposure a terminal V3 reject. Lane/FDG/Executor size caps still shape risk.
-        if (com.lifecyclebot.engine.FreeRangeMode.isWideOpen()) return false
+        if (com.lifecyclebot.engine.RuntimeModeAuthority.isPaper() && com.lifecyclebot.engine.FreeRangeMode.isWideOpen()) return false
         return openMints.size >= maxOpenPositions
     }
 

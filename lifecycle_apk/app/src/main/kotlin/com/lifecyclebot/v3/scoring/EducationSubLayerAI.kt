@@ -1695,19 +1695,16 @@ object EducationSubLayerAI {
     
     /**
      * Force a diagnostic check of all layers.
-     * V5.9.168: during bootstrap (learningProgress < 0.40) every registered
-     * layer is considered ACTIVE — they're all voting at full weight since
-     * V5.9.161 (auto-mute removed), they just don't have enough recorded
-     * outcomes yet to flip `isLearning=true`. Without this, a fresh session
-     * shows 0 ACTIVE / 41 DORMANT which misleadingly reads as "everything
-     * is broken". Post-bootstrap we go back to the real isLearning gate so
-     * actually-unused layers can still surface.
+     * V5.0.4021: paper bootstrap may consider every registered layer ACTIVE
+     * for learning visibility, but LIVE diagnostics must reflect real layer
+     * learning state from trade 1. Otherwise the AI stack status lies to live
+     * sizing/routing audits.
      */
     fun runDiagnostics(): Map<String, Boolean> {
         val learningProgress = try {
             com.lifecyclebot.v3.scoring.FluidLearningAI.getLearningProgress()
         } catch (_: Exception) { 1.0 }
-        val isBootstrap = learningProgress < 0.40
+        val isBootstrap = try { com.lifecyclebot.engine.RuntimeModeAuthority.isPaper() && learningProgress < 0.40 } catch (_: Exception) { false }
         return REGISTERED_LAYERS.associateWith { name ->
             if (isBootstrap) true
             else layerPerformance[name]?.isLearning ?: false

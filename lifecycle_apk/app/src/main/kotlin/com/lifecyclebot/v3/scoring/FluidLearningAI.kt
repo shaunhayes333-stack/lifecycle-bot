@@ -345,7 +345,7 @@ object FluidLearningAI {
         // so Treasury/bridge had no force-entry path despite WR < target.
         // Keep paper assist alive while FreeRangeMode says the bot still needs
         // exposure. Live remains on the original stricter 1000-trade cutoff.
-        val freeRangeLearning = try { com.lifecyclebot.engine.FreeRangeMode.isWideOpen() } catch (_: Throwable) { false }
+        val freeRangeLearning = try { com.lifecyclebot.engine.RuntimeModeAuthority.isPaper() && com.lifecyclebot.engine.FreeRangeMode.isWideOpen() } catch (_: Throwable) { false }
         if (!isPaper && rawTotalTrades >= BOOTSTRAP_PHASE_END) return false
         if (isPaper && !freeRangeLearning && rawTotalTrades >= BOOTSTRAP_PHASE_END) return false
         if (!freeRangeLearning && getLearningProgress() >= 0.60) return false           // secondary progress check
@@ -474,7 +474,7 @@ object FluidLearningAI {
     fun shouldBlockBootstrapTrade(score: Int): Boolean {
         // V5.9.408 — free-range learning mode: never block a candidate
         // during the first 3000 trades (and up to 5000 if not yet healthy).
-        if (com.lifecyclebot.engine.FreeRangeMode.isWideOpen()) return false
+        if (com.lifecyclebot.engine.RuntimeModeAuthority.isPaper() && com.lifecyclebot.engine.FreeRangeMode.isWideOpen()) return false
 
         val totalTrades = getTotalTradeCount()
 

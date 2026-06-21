@@ -186,9 +186,9 @@ object FinalExecutionPermit {
             return false
         }
 
-        // V5.9.408 — Free-range: skip pending-exec lockout so overlapping
-        // layers (Treasury + ShitCoin + BlueChip etc) can all fire.
-        val wideOpen = FreeRangeMode.isWideOpen()
+        // V5.0.4021 — Free-range permit bypass is paper-only. Live cannot skip
+        // pending-exec lockout and stack overlapping layer buys on one mint.
+        val wideOpen = RuntimeModeAuthority.isPaper() && FreeRangeMode.isWideOpen()
 
         // Check if another execution is pending
         val existing = pendingExecutions[mint]
@@ -248,9 +248,9 @@ object FinalExecutionPermit {
             )
         }
 
-        // V5.9.408 — Free-range mode: let every layer fire. Only position-open
-        // is still honored (can't stack duplicate positions on one mint).
-        if (FreeRangeMode.isWideOpen()) {
+        // V5.0.4021 — Free-range mode is paper-only. Live still honors pending
+        // execution/position permit discipline.
+        if (RuntimeModeAuthority.isPaper() && FreeRangeMode.isWideOpen()) {
             if (hasOpenPosition) {
                 return PermitResult(
                     allowed = false,

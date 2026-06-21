@@ -74,7 +74,8 @@ object TradeStateMachine {
     private const val WATCH_TIMEOUT_MS = 60_000L        // 1 minute max in WATCH state
 
     private fun isBootstrapPhase(): Boolean = try {
-        com.lifecyclebot.v3.scoring.FluidLearningAI.getLearningProgress() < 0.40
+        com.lifecyclebot.engine.RuntimeModeAuthority.isPaper() &&
+            com.lifecyclebot.v3.scoring.FluidLearningAI.getLearningProgress() < 0.40
     } catch (_: Exception) { false }
 
     private fun effectiveCooldownMs(): Long =

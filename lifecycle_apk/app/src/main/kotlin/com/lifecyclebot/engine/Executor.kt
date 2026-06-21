@@ -6220,13 +6220,10 @@ class Executor(
             
             val tradeState = TradeStateMachine.getState(ts.mint)
             val isPaperMode = isPaperRT()
-            // V5.9.46: Proven-edge inheritance — once the user has demonstrated
-            // paper performance, live mode drops the extra cooldown + pattern
-            // strictness (which otherwise makes the live scanner look dead).
-            val provenEdge = try {
-                TradeHistoryStore.getProvenEdgeCached().hasProvenEdge
-            } catch (_: Exception) { false }
-            val lenientMode = isPaperMode || provenEdge
+            // V5.0.4021 — proven-edge cooldown leniency is paper-only. Live
+            // may size/route from proven edge, but it must not skip cooldown/
+            // state-machine safeties and still buy.
+            val lenientMode = isPaperMode
 
             if (!lenientMode && TradeStateMachine.isInCooldown(ts.mint)) {
                 val lastTrade = ts.trades.lastOrNull()
@@ -9990,21 +9987,25 @@ class Executor(
         }
         if (livePendingProofPenalty) {
             val old = sol
-            sol = minOf(sol, liveMinExecutableBuySol, maxSpendableSol).coerceAtLeast(0.0)
+            val shaped = (sol * 0.35).coerceAtMost(maxSpendableSol).coerceAtLeast(0.0)
+            sol = if (!liveCfg.allowLiveMicroProbe && shaped < liveMinExecutableBuySol) liveMinExecutableBuySol else shaped
             try {
                 ForensicLogger.lifecycle(
-                    "LIVE_PENDING_PROOF_MICRO_CAP",
-                    "mint=${ts.mint.take(10)} symbol=${ts.symbol} requested=$old capped=$sol microFloor=$liveMinExecutableBuySol detail=${livePendingProofPenaltyDetail.take(120)}"
+                    "LIVE_PENDING_PROOF_LEARNED_RISK_CLAMP",
+                    "mint=${ts.mint.take(10)} symbol=${ts.symbol} requested=$old shaped=$sol detail=${livePendingProofPenaltyDetail.take(120)}"
                 )
-                PipelineHealthCollector.labelInc("LIVE_PENDING_PROOF_MICRO_CAP")
+                PipelineHealthCollector.labelInc("LIVE_PENDING_PROOF_LEARNED_RISK_CLAMP")
             } catch (_: Throwable) {}
         }
-        val realisticSolRaw = if (livePendingProofPenalty) sol else realisticLiveEntrySize(ts, sol, walletSol, score, layerTag.ifBlank { identity?.source ?: ts.source }, "liveBuy.final")
+        val baseRealisticSol = realisticLiveEntrySize(ts, sol, walletSol, score, layerTag.ifBlank { identity?.source ?: ts.source }, "liveBuy.final")
+        // Unknown proof lowers confidence and learned risk until proof arrives;
+        // it does not force every live buy into a fixed micro cap.
+        val realisticSolRaw = if (livePendingProofPenalty) baseRealisticSol * 0.35 else baseRealisticSol
         val realisticSol = if (!liveCfg.allowLiveMicroProbe && realisticSolRaw < liveMinExecutableBuySol) liveMinExecutableBuySol else realisticSolRaw
-        if (livePendingProofPenalty && realisticSol > liveMinExecutableBuySol) {
-            val old = realisticSol
-            sol = liveMinExecutableBuySol.coerceAtMost(maxSpendableSol).coerceAtLeast(0.0)
-            try { ForensicLogger.lifecycle("LIVE_PENDING_PROOF_REALISTIC_SIZE_SUPPRESSED", "mint=${ts.mint.take(10)} symbol=${ts.symbol} requested=$old capped=$sol") } catch (_: Throwable) {}
+        if (livePendingProofPenalty && realisticSol < baseRealisticSol) {
+            val old = baseRealisticSol
+            sol = realisticSol.coerceAtMost(maxSpendableSol).coerceAtLeast(0.0)
+            try { ForensicLogger.lifecycle("LIVE_PENDING_PROOF_REALISTIC_SIZE_RISK_SHAPED", "mint=${ts.mint.take(10)} symbol=${ts.symbol} requested=$old shaped=$sol detail=${livePendingProofPenaltyDetail.take(120)}") } catch (_: Throwable) {}
         } else if (realisticSol > maxSpendableSol) {
             val old = realisticSol
             sol = maxSpendableSol

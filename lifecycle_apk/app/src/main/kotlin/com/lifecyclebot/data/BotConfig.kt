@@ -312,7 +312,7 @@ val BotConfig.targetCompoundingRiskPct: Double get() = 0.08
 val BotConfig.maxPoolImpactPct: Double get() = 0.75
 val BotConfig.maxWalletRiskPerTradePct: Double get() = 0.18
 val BotConfig.allowLiveMicroProbe: Boolean get() = true
-val BotConfig.capitalMode: String get() = "MICRO_COMPOUNDING"
+val BotConfig.capitalMode: String get() = "ADAPTIVE_LEARNED_COMPOUNDING"
 
 object ConfigStore {
 

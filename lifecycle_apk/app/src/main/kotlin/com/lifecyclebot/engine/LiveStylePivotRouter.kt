@@ -194,7 +194,7 @@ object LiveStylePivotRouter {
                     defer("SHITCOIN_LIVE_BLEED_QUARANTINE")
                 } else if (s.n50 < 10 && decision != "DEFER") {
                     mult = minOf(mult, if (liveAdaptive) 0.50 else 0.35)
-                    reasons += if (liveAdaptive) "SHITCOIN_LIVE_ADAPTIVE_FEE_GIVEBACK_AWARE_SIZE" else "SHITCOIN_BOOTSTRAP_FEE_GIVEBACK_AWARE_SIZE"
+                    reasons += "SHITCOIN_LIVE_ADAPTIVE_FEE_GIVEBACK_AWARE_SIZE"
                 }
             }
             "MOONSHOT" -> {

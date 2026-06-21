@@ -179,7 +179,8 @@ object TradeLifecycle {
     private const val BLOCKED_STATE_EXPIRE_MS_BOOTSTRAP = 3_000L     // V5.9.165: was 10s — hot tokens shouldn't lock out
 
     private fun isBootstrap(): Boolean = try {
-        com.lifecyclebot.v3.scoring.FluidLearningAI.getLearningProgress() < 0.40
+        com.lifecyclebot.engine.RuntimeModeAuthority.isPaper() &&
+            com.lifecyclebot.v3.scoring.FluidLearningAI.getLearningProgress() < 0.40
     } catch (_: Exception) { false }
 
     private fun effectiveMinProposalIntervalMs(): Long =

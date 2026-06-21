@@ -192,7 +192,7 @@ class BotOrchestrator(
         } catch (_: Exception) {
             0.0
         }
-        val isBootstrap = learningProgress < 0.40  // V5.9.165: aligned to global 0.40 threshold
+        val isBootstrap = ctx.mode != V3BotMode.LIVE && learningProgress < 0.40  // V5.0.4021: paper-only; live adapts from trade 1
 
         val looperResult = checkLooper(
             candidate = candidate,

@@ -1423,7 +1423,7 @@ class LifecycleStrategy(
         val learned = brain?.getLearnedThresholds()
         
         // Check if we're in bootstrap phase (< 30 trades) - be more lenient
-        val isBootstrap = (brain?.getTotalTradeCount() ?: 0) < 30
+        val isBootstrap = isPaperMode && (brain?.getTotalTradeCount() ?: 0) < 30
         
         // PAPER MODE: SKIP ALL HARD BLOCKS - We want MAXIMUM trades for learning
         // The AI learns from losses too, so let bad trades happen in paper mode
@@ -1438,13 +1438,10 @@ class LifecycleStrategy(
         
         // LIVE MODE ONLY BELOW THIS POINT
 
-        // V5.9.41/43: "Proven edge" escape hatch — live mode inherits paper
-        // leniency once the bot has proven itself. V5.9.43 uses the cached
-        // accessor (prior version ran full getStats() per token and starved
-        // the scanner).
-        val provenEdge = com.lifecyclebot.engine.TradeHistoryStore.getProvenEdgeCached()
-        val hasProvenEdge = provenEdge.hasProvenEdge
-        val isLenient = isBootstrap || hasProvenEdge
+        // V5.0.4021: Strategy safety leniency is paper-only. Proven live edge
+        // may shape tactics/size, but must not lower rugcheck/safety thresholds.
+        val hasProvenEdge = false
+        val isLenient = isBootstrap
 
         // 1. RUGCHECK BLOCKED - Score too low (dangerous token)
         // V5.9.495z5 — operator triage 06 May 2026 (live forensics screenshot):
@@ -1466,8 +1463,8 @@ class LifecycleStrategy(
         val rugIsPending = (safety.rugcheckScore == 1)
         if (!rugIsPending && safety.rugcheckScore in 0..rugcheckThreshold) {
             val mode = when {
-                isBootstrap -> "bootstrap"
-                hasProvenEdge -> "proven-edge"
+                isBootstrap -> "paper_bootstrap"
+                hasProvenEdge -> "paper-proven-edge"
                 else -> "live"
             }
             return "Rugcheck score ${safety.rugcheckScore}/100 (threshold=$rugcheckThreshold [$mode])"

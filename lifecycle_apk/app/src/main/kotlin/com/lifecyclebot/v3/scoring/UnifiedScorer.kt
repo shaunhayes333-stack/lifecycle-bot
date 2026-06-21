@@ -444,7 +444,7 @@ class UnifiedScorer(
         val learningProgress = try {
             com.lifecyclebot.v3.scoring.FluidLearningAI.getLearningProgress()
         } catch (_: Exception) { 0.0 }
-        val bootstrapBypass = learningProgress < 0.40
+        val bootstrapBypass = ctx.mode != com.lifecyclebot.v3.core.V3BotMode.LIVE && learningProgress < 0.40
 
         val newLayerNegScale = (0.10 + learningProgress * 0.90).coerceIn(0.10, 1.0)
         val newLayerNames = setOf(
@@ -1006,7 +1006,7 @@ class UnifiedScorer(
         val learningProgress = try {
             com.lifecyclebot.v3.scoring.FluidLearningAI.getLearningProgress()
         } catch (_: Exception) { 0.0 }
-        val bootstrapBypass = learningProgress < 0.40
+        val bootstrapBypass = ctx.mode != com.lifecyclebot.v3.core.V3BotMode.LIVE && learningProgress < 0.40
 
         // ─── PHASE 1: RAW VOTES (44 layers) ────────────────────────────────
         val classic20Raw = listOf(

@@ -556,7 +556,7 @@ object FinalDecisionGate {
         val adaptive = getAdaptiveConfidence(isPaperMode)
         val diff = adaptive - fluidBase
         val sign = if (diff >= 0) "+" else ""
-        val isBootstrap = learningProgress < 0.40  // V5.9.165: aligned to global 0.40 threshold
+        val isBootstrap = isPaperMode && learningProgress < 0.40  // V5.0.4021: paper-only bootstrap display; live adapts from trade 1
 
         val tierLabel = try {
             val solPrice = WalletManager.lastKnownSolPrice
@@ -597,7 +597,7 @@ object FinalDecisionGate {
             totalTradesLearned = totalTrades,
             paperConfThreshold = paperConf.toInt(),
             liveConfThreshold = liveConf.toInt(),
-            isBootstrap = learningProgress < 0.40,  // V5.9.165: aligned
+            isBootstrap = false,  // V5.0.4021: no live bootstrap status; live adapts from trade 1
             fluidBase = lerp(CONF_FLOOR_BOOTSTRAP, CONF_FLOOR_MATURE, learningProgress).toInt()
         )
     }
@@ -1094,9 +1094,11 @@ object FinalDecisionGate {
         // When UnifiedScorer.classicMode=true the user wants the bot to behave
         // like builds #1920-#1947: isBootstrapPhase < 0.25 (not 0.40) so the
         // bootstrap bypass window lines up with golden learning velocity.
-        val classicMode = try { com.lifecyclebot.v3.scoring.UnifiedScorer.classicMode } catch (_: Exception) { true }
-        val isBootstrapPhase = if (classicMode) learningProgress < 0.25 else learningProgress < 0.40  // V5.9.341 classic / V5.9.165 modern
         val isPaperMode = mode == TradeMode.PAPER
+        val classicMode = try { com.lifecyclebot.v3.scoring.UnifiedScorer.classicMode } catch (_: Exception) { true }
+        // V5.0.4021 — bootstrap phase is paper-only. Live mode is real capital
+        // from trade 1 and must not get confidence-floor bypass from global learning progress.
+        val isBootstrapPhase = isPaperMode && (if (classicMode) learningProgress < 0.25 else learningProgress < 0.40)
         // V5.9.616 — UNCHOKE BRIDGE.
         // The confidence-floor bypass must STAY TRUE in any of these cases:
         //   1. We're still inside bootstrap (learningProgress < 0.40) — the
@@ -1132,12 +1134,12 @@ object FinalDecisionGate {
         val lowWrBypass = false  // V5.9.809: revoked (was: systemWrForBypass < 0.30)
 
         val canBypassConfidenceFloors = isBootstrapPhase ||
-            totalTradesForBypass < 500 ||  // V5.9.809: 3000→500 (operator mandate: short cold-start, not wide-open through learning)
+            (isPaperMode && totalTradesForBypass < 500) ||  // V5.0.4021: cold-start bypass is paper-only; live adapts from trade 1
             antiChokeRelaxing ||
             adaptiveRelaxationActive ||
             lowWrBypass
         // V5.9.683-FIX + V5.9.721: surface bypass state so operator can audit 22%-floor trips
-        ErrorLogger.debug("FDG", "FDG_BYPASS=${canBypassConfidenceFloors}: bypass=$totalTradesForBypass/500 bootstrap=$isBootstrapPhase antiChoke=$antiChokeRelaxing adaptive=$adaptiveRelaxationActive lowWR=${(systemWrForBypass*100).toInt()}%(revoked)")
+        ErrorLogger.debug("FDG", "FDG_BYPASS=${canBypassConfidenceFloors}: bypass=$totalTradesForBypass/500 paperBootstrap=$isBootstrapPhase liveAdaptiveFromTrade1=${!isPaperMode} antiChoke=$antiChokeRelaxing adaptive=$adaptiveRelaxationActive lowWR=${(systemWrForBypass*100).toInt()}%(revoked)")
 
         // ══════════════════════════════════════════════════════════════════════
         // V5.6: ML Engine Prediction Check
@@ -2237,7 +2239,7 @@ object FinalDecisionGate {
         // expert phase (>3000 settled trades AND progress >= 0.60) so the bot can
         // still enter, at reduced size, during hours the time-AI thinks are bad —
         // letting it either disprove the heuristic or learn to avoid them naturally.
-        val isEarlyLearningPhase = isBootstrapPhase || learningProgress < 0.60 || totalTradesForBypass < 3000
+        val isEarlyLearningPhase = isPaperMode && (isBootstrapPhase || learningProgress < 0.60 || totalTradesForBypass < 3000)
 
         var dangerZonePenalty = 0
         if (blockReason == null) {
@@ -2258,7 +2260,7 @@ object FinalDecisionGate {
                         isProbeCandidate = true
                         checks.add(GateCheck("time_danger", true, "DANGER_ZONE → PENALTY (bootstrap: -${dangerZonePenalty}pts, size×0.25)"))
                         tags.add("time_danger_penalized")
-                        tags.add("bootstrap_probe")
+                        tags.add("paper_bootstrap_probe")
                         ErrorLogger.info("FDG", "⚠️ DANGER ZONE PENALTY: ${ts.symbol} | -${dangerZonePenalty}pts, size×0.25 (bootstrap learning)")
                     } else {
                         val shouldBypass = shouldBypassSoftBlock("DANGER_ZONE_TIME")
@@ -2543,7 +2545,7 @@ object FinalDecisionGate {
                     softPenaltyScore += 15
                     sizeMultiplier *= 0.25
                     isProbeCandidate = true
-                    checks.add(GateCheck("edge", true, "BOOTSTRAP PROBE: DISTRIBUTION (edge=${candidate.edgeQuality}) → -15pts, size×0.25"))
+                    checks.add(GateCheck("edge", true, "PAPER BOOTSTRAP PROBE: DISTRIBUTION (edge=${candidate.edgeQuality}) → -15pts, size×0.25"))
                     tags.add("edge_distribution_probe")
                 } else {
                     softPenaltyScore += 5
@@ -2773,8 +2775,8 @@ object FinalDecisionGate {
         // ModeLeniency so proven-edge live runs get the same leniency.
         val fdgLenient = ModeLeniency.useLenientGates(config.paperMode)
         val confidenceThreshold = getAdaptiveConfidence(fdgLenient, ts)
-        val isBootstrap = currentConditions.totalSessionTrades < 30
-        val bootstrapTag = if (isBootstrap) " [BOOTSTRAP]" else ""
+        val isBootstrap = isPaperMode && currentConditions.totalSessionTrades < 30
+        val bootstrapTag = if (isBootstrap) " [PAPER_BOOTSTRAP]" else ""
         val adjustedConfidence = ((confidence + narrativeAdjustment + orthogonalBonus) * wrRecoveryQualityPenaltyMult).coerceIn(0.0, 100.0)
         val narrativeTag = if (narrativeAdjustment != 0) " [NAR:$narrativeAdjustment]" else ""
         val orthoTag = if (orthogonalBonus != 0) " [ORTHO:$orthogonalBonus]" else ""
@@ -2807,7 +2809,7 @@ object FinalDecisionGate {
             val hasNoHardBlocks = blockReason == null
             val hasMinLiquidity = ts.lastLiquidityUsd >= 3000.0
 
-            if (isBootstrap && fdgLenient && hasNoHardBlocks && hasMinLiquidity && (isRepeatWinner || hasPositiveMemory)) {
+            if (isPaperMode && isBootstrap && fdgLenient && hasNoHardBlocks && hasMinLiquidity && (isRepeatWinner || hasPositiveMemory)) {
                 confidenceProbe = true
                 isProbeCandidate = true
 
@@ -2824,13 +2826,13 @@ object FinalDecisionGate {
                     GateCheck(
                         "confidence",
                         true,
-                        "BOOTSTRAP PROBE: conf=${adjustedConfidence.toInt()}% < ${confidenceThreshold.toInt()}% BUT $probeReason → size×${confidenceProbeSizeMultiplier.format(2)}"
+                        "PAPER BOOTSTRAP PROBE: conf=${adjustedConfidence.toInt()}% < ${confidenceThreshold.toInt()}% BUT $probeReason → size×${confidenceProbeSizeMultiplier.format(2)}"
                     )
                 )
-                tags.add("bootstrap_confidence_probe")
+                tags.add("paper_bootstrap_confidence_probe")
                 tags.add("probe_reason:$probeReason")
 
-                ErrorLogger.info("FDG", "🔬 BOOTSTRAP PROBE: ${ts.symbol} | conf=${adjustedConfidence.toInt()}% | $probeReason | size×${confidenceProbeSizeMultiplier.format(2)}")
+                ErrorLogger.info("FDG", "🔬 PAPER BOOTSTRAP PROBE: ${ts.symbol} | conf=${adjustedConfidence.toInt()}% | $probeReason | size×${confidenceProbeSizeMultiplier.format(2)}")
             } else {
                 // V5.0.3676 — operator TUNING patch (recovery). LOW_CONFIDENCE in
                 // PAPER mode is now a SIZE/SCORE PENALTY (dust probe), not a
@@ -2856,13 +2858,13 @@ object FinalDecisionGate {
                     GateCheck(
                         "confidence",
                         true,
-                        "${if (mode == TradeMode.PAPER) "PAPER" else "LIVE"} LOW-CONF MICRO-PROBE: conf=${adjustedConfidence.toInt()}% < ${confidenceThreshold.toInt()}% → size×${dustMult.format(2)} (no hard block)"
+                        "${if (mode == TradeMode.PAPER) "PAPER" else "LIVE"} LOW-CONF ADAPTIVE_SIZE: conf=${adjustedConfidence.toInt()}% < ${confidenceThreshold.toInt()}% → size×${dustMult.format(2)} (no hard block)"
                     )
                 )
-                tags.add(if (mode == TradeMode.PAPER) "paper_low_conf_dust_probe" else "live_low_conf_micro_probe")
+                tags.add(if (mode == TradeMode.PAPER) "paper_low_conf_dust_probe" else "live_low_conf_adaptive_size")
                 tags.add("adaptive_conf:${confidenceThreshold.toInt()}")
-                if (isBootstrap) tags.add("bootstrap_phase")
-                ErrorLogger.info("FDG", "🔬 ${if (mode == TradeMode.PAPER) "PAPER" else "LIVE"} LOW-CONF MICRO-PROBE: ${ts.symbol} | conf=${adjustedConfidence.toInt()}% < ${confidenceThreshold.toInt()}% → size×${dustMult.format(2)}")
+                if (isBootstrap) tags.add("paper_bootstrap_phase")
+                ErrorLogger.info("FDG", "🔬 ${if (mode == TradeMode.PAPER) "PAPER" else "LIVE"} LOW-CONF ADAPTIVE_SIZE: ${ts.symbol} | conf=${adjustedConfidence.toInt()}% < ${confidenceThreshold.toInt()}% → size×${dustMult.format(2)}")
             }
         } else if (blockReason == null) {
             checks.add(
@@ -2872,7 +2874,7 @@ object FinalDecisionGate {
                     "conf=${confidence.toInt()}%+nar=$narrativeAdjustment+ortho=$orthogonalBonus=${adjustedConfidence.toInt()}% >= ${confidenceThreshold.toInt()}%$bootstrapTag (adaptive)"
                 )
             )
-            if (isBootstrap) tags.add("bootstrap_phase")
+            if (isBootstrap) tags.add("paper_bootstrap_phase")
         }
 
         if (blockReason == null && !config.paperMode) {

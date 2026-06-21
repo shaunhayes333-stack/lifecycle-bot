@@ -88,7 +88,8 @@ object GlobalTradeRegistry {
     private const val PROCESS_COOLDOWN_MS_BOOTSTRAP = 1_000L
 
     private fun isBootstrapPhase(): Boolean = try {
-        com.lifecyclebot.v3.scoring.FluidLearningAI.getLearningProgress() < 0.40
+        com.lifecyclebot.engine.RuntimeModeAuthority.isPaper() &&
+            com.lifecyclebot.v3.scoring.FluidLearningAI.getLearningProgress() < 0.40
     } catch (_: Exception) { false }
 
     private fun effectiveDuplicateCooldownMs(): Long =
@@ -515,20 +516,16 @@ object GlobalTradeRegistry {
         // ═══════════════════════════════════════════════════════════════════
         // PROBATION ROUTING DECISION
         // V5.2: Paper mode is MUCH more lenient for maximum learning exposure
-        // V5.9.46: Proven-edge live runs inherit paper leniency — same logic
-        // as the BotService promotion gate. Prevents "scanner looks dead in
-        // live" symptom after the bot has demonstrated paper performance.
+        // V5.0.4021: Probation leniency is paper-only. Live proven edge may
+        // shape size/routing, but it must not bypass probation/safety intake.
         // ═══════════════════════════════════════════════════════════════════
-        val provenEdge = try {
-            com.lifecyclebot.engine.TradeHistoryStore.getProvenEdgeCached().hasProvenEdge
-        } catch (_: Exception) { false }
-        val lenientMode = isPaperMode || provenEdge
+        val lenientMode = isPaperMode
         val confThreshold = if (lenientMode) PROBATION_CONF_THRESHOLD_PAPER else PROBATION_CONF_THRESHOLD
 
         val needsProbation = when {
             // USER_ADDED always bypasses probation
             addedBy == "USER_ADDED" || addedBy == "USER" || addedBy == "CONFIG" -> false
-            // Paper or proven-edge live mode - bypass probation for fast learning
+            // Paper mode - bypass probation for fast learning
             lenientMode && confidence >= confThreshold -> false
             // Multi-source tokens with sufficient confidence bypass
             isMultiSource && confidence >= confThreshold -> false

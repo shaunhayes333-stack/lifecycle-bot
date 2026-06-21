@@ -731,7 +731,7 @@ object SmartSizer {
         // one source of truth for the WR-sensitive size sift.
         val lanePhaseMult = if (laneMode.isNotBlank()) {
             try {
-                val laneWr = TradeHistoryStore.getLaneWinRate(laneMode, minTrades = 10)
+                val laneWr = TradeHistoryStore.getLaneWinRate(laneMode, minTrades = 1)
                 FreeRangeMode.laneSizeMultiplier(laneWr)
             } catch (_: Throwable) { 1.0 }
         } else 1.0
@@ -743,19 +743,17 @@ object SmartSizer {
             ErrorLogger.info("SmartSizer", "📉 Lane phase mult: $laneMode → ${lanePhaseMult.fmt1}x (size now ${size.fmt(4)} SOL)")
         }
 
-        // ── V5.9.1334 EXPLORATION-PHASE SIZE RAMP (black-hole fix) ───────
-        // Bet SMALLEST when we know least. During wide-open exploration (<500
-        // lifetime trades) the bot buys deliberately-unfiltered noise; sizing it
-        // full-size is what created the unrecoverable P&L hole. This soft-shapes
-        // exploration stakes down (floor 0.20×) and ramps to 1.0× by trade 500,
-        // then disengages. Throughput unchanged (same trades, smaller); never a
-        // veto; scanner pool untouched. Fail-open → 1.0.
-        val exploreMult = try { FreeRangeMode.explorationSizeMultiplier() } catch (_: Throwable) { 1.0 }
+        // ── V5.0.4021 LIVE-ADAPTIVE SIZE DOCTRINE ────────────────────────
+        // No live bootstrap/exploration size ramp. Live size is sample-weighted
+        // from lane feedback from trade 1 plus wallet, confidence, regime, and
+        // liquidity. This avoids silently dust-sizing real entries under a global
+        // learning-progress multiplier.
+        val exploreMult = 1.0
         if (exploreMult < 1.0) {
             size *= exploreMult
             val dustFloor3 = if (isPaperMode) 0.001 else 0.01
             if (size < dustFloor3) size = dustFloor3
-            ErrorLogger.info("SmartSizer", "🔬 Exploration size ramp: ${exploreMult.fmt1}x (learning phase, size now ${size.fmt(4)} SOL)")
+            ErrorLogger.info("SmartSizer", "🔬 Paper exploration size ramp: ${exploreMult.fmt1}x (size now ${size.fmt(4)} SOL)")
         }
 
         // ── V5.9.1381 COLD-STREAK DAMPER (audit fix: dead-edge revival) ──

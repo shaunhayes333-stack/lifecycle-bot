@@ -8825,7 +8825,7 @@ class BotService : Service() {
     // very trades that would teach the lane its sweet spot were the ones being
     // killed. This whitelist marks the SOFT reasons that bootstrap may probe
     // through (tiny size); every genuine safety/integrity reason stays a hard veto.
-    private fun isBootstrapProbeableFdgBlock(reason: String?): Boolean {
+    private fun isPaperBootstrapProbeableFdgBlock(reason: String?): Boolean {
         if (reason.isNullOrBlank()) return false
         val r = reason.lowercase()
         // Hard safety / integrity — NEVER probe through these (FDG stays hard veto).
@@ -9483,13 +9483,12 @@ class BotService : Service() {
             // (PROBATION ROUTING, line 400) is "paper mode is MUCH more lenient
             // for maximum learning exposure". Restore it: the cold-quarantine
             // applies in LIVE only (where bandwidth/risk justify it). In paper
-            // or proven-edge, fresh graduates flow straight to the watchlist so
+            // only, fresh graduates flow straight to the watchlist so
             // the lanes can actually evaluate + trade them. Scanner pool stays
             // protected; this UN-chokes intake, it does not prune it.
             val lenientIntake = try {
-                com.lifecyclebot.engine.RuntimeModeAuthority.isPaper() ||
-                    com.lifecyclebot.engine.TradeHistoryStore.getProvenEdgeCached().hasProvenEdge
-            } catch (_: Throwable) { true }   // fail-open to lenient = trade, never starve
+                com.lifecyclebot.engine.RuntimeModeAuthority.isPaper()
+            } catch (_: Throwable) { false }   // fail-closed in live: no safety/intake bypass on uncertainty
             val pressureDecision = try {
                 // V5.9.1548b — source-neutral pressure diversion. This is NOT
                 // pump.fun-only: DexScreener/CoinGecko/CMC-backed/Raydium/etc
@@ -17167,13 +17166,13 @@ if (hotExitHandledSweep) {
                         // what's a real dump vs launch noise. Above 40%
                         // learning the original hard veto re-engages.
                         val dumpBootstrapBypass = try {
-                            com.lifecyclebot.v3.scoring.FluidLearningAI.getLearningProgress() < 0.40
+                            com.lifecyclebot.engine.RuntimeModeAuthority.isPaper() && com.lifecyclebot.v3.scoring.FluidLearningAI.getLearningProgress() < 0.40
                         } catch (_: Exception) { false }
                         val dumpBlocks = hasDumpSignal && !dumpBootstrapBypass
                         // V5.9: Terminal V3 rejects are globally binding — Treasury cannot override them.
                         // Previously v3HardReject only gated forceBootstrapEntry, not treasurySignal.shouldEnter.
                         // TOO_OLD / INELIGIBLE / ZERO_LIQUIDITY rejections from V3|ELIGIBILITY must block all layers.
-                        var shouldEnter = !v3HardReject && !dumpBlocks && (treasurySignal.shouldEnter || forceBootstrapEntry)
+                        var shouldEnter = !v3HardReject && !dumpBlocks && (treasurySignal.shouldEnter || (com.lifecyclebot.engine.RuntimeModeAuthority.isPaper() && forceBootstrapEntry))
                         var treasuryBlockedReason: String? = null
 
                         // V5.9.1091 — Treasury is only ONE lane. Its private skip
@@ -17183,17 +17182,18 @@ if (hotExitHandledSweep) {
 
                         // V5.9: Post-close cooldown — prevent immediate re-entry after a close
                         val closedAgoMs = System.currentTimeMillis() - (BotService.recentlyClosedMs[ts.mint] ?: 0L)
-                        if (!FreeRangeMode.isWideOpen() && closedAgoMs < BotService.RE_ENTRY_COOLDOWN_MS) {
+                        if (!(com.lifecyclebot.engine.RuntimeModeAuthority.isPaper() && FreeRangeMode.isWideOpen()) && closedAgoMs < BotService.RE_ENTRY_COOLDOWN_MS) {
                             treasuryBlockedReason = "COOLDOWN_${closedAgoMs/1000}s"
                             ErrorLogger.debug("BotService", "💰 [TREASURY] ${ts.symbol} | COOLDOWN | closed ${closedAgoMs/1000}s ago (min ${BotService.RE_ENTRY_COOLDOWN_MS/1000}s) — yielding to other lanes")
                             shouldEnter = false
                         }
                         
-                        // V5.7.7: Bootstrap score gate - during first 50 trades, require score >= 75
-                        if (shouldEnter && !FreeRangeMode.isWideOpen() &&
+                        // V5.0.4021 — bootstrap score gate is paper-only. Live adapts
+                        // from trade 1 via live feedback and deterministic proof.
+                        if (shouldEnter && com.lifecyclebot.engine.RuntimeModeAuthority.isPaper() && !FreeRangeMode.isWideOpen() &&
                             com.lifecyclebot.v3.scoring.FluidLearningAI.shouldBlockBootstrapTrade(treasurySignal.confidence)) {
-                            treasuryBlockedReason = "BOOTSTRAP_BLOCKED_score_${treasurySignal.confidence}"
-                            ErrorLogger.debug("BotService", "💰 [TREASURY] ${ts.symbol} | BOOTSTRAP BLOCKED | score=${treasurySignal.confidence} | ${com.lifecyclebot.v3.scoring.FluidLearningAI.getBootstrapStatus()} — yielding to other lanes")
+                            treasuryBlockedReason = "PAPER_BOOTSTRAP_BLOCKED_score_${treasurySignal.confidence}"
+                            ErrorLogger.debug("BotService", "💰 [TREASURY] ${ts.symbol} | PAPER_BOOTSTRAP_BLOCKED | score=${treasurySignal.confidence} | ${com.lifecyclebot.v3.scoring.FluidLearningAI.getBootstrapStatus()} — yielding to other lanes")
                             shouldEnter = false
                         }
 
@@ -17241,8 +17241,9 @@ if (hotExitHandledSweep) {
                         }
 
                         if (shouldEnter) {
-                            // V4.1: Apply bootstrap size multiplier for micro-positions
-                            val bootstrapMultiplier = com.lifecyclebot.v3.scoring.FluidLearningAI.getBootstrapSizeMultiplier()
+                            // V5.0.4021 — bootstrap size multiplier is paper-only; live
+                            // sizing stays fluid/adaptive from SmartSizer + lane/market proof.
+                            val bootstrapMultiplier = if (com.lifecyclebot.engine.RuntimeModeAuthority.isPaper()) com.lifecyclebot.v3.scoring.FluidLearningAI.getBootstrapSizeMultiplier() else 1.0
                             // V5.9.1246 — SOFT-SHAPE matured TREASURY death buckets.
                             // V5.9.1068 downgraded the danger-zone HARD BLOCK to
                             // telemetry-only and claimed "SmartSizer/SL tightening
@@ -17423,7 +17424,7 @@ if (hotExitHandledSweep) {
                                 )
                                 
                                 if (canExecute) {
-                                val bootstrapTag = if (forceBootstrapEntry) " [BOOTSTRAP OVERRIDE]" else ""
+                                val bootstrapTag = if (com.lifecyclebot.engine.RuntimeModeAuthority.isPaper() && forceBootstrapEntry) " [PAPER_BOOTSTRAP OVERRIDE]" else ""
                                 
                                 // V5.2 FIX: Capture Treasury's OWN entry price BEFORE paperBuy applies slippage!
                                 // Treasury is a separate trading layer - it tracks its own entry independent of the position
@@ -17507,7 +17508,7 @@ if (hotExitHandledSweep) {
                                 // V4.1: Record trade for learning
                                 com.lifecyclebot.v3.scoring.FluidLearningAI.recordTradeStart()
                                 
-                                val bootstrapLabel = if (forceBootstrapEntry) " [BOOTSTRAP]" else ""
+                                val bootstrapLabel = if (com.lifecyclebot.engine.RuntimeModeAuthority.isPaper() && forceBootstrapEntry) " [PAPER_BOOTSTRAP]" else ""
                                 addLog("💰 TREASURY BUY$bootstrapLabel: ${ts.symbol} | ${adjustedSize.fmt(3)} SOL | " +
                                     "${if (cfg.paperMode) "PAPER" else "LIVE"}", ts.mint)
                                 } // end canFundLive else block
@@ -18635,7 +18636,7 @@ if (hotExitHandledSweep) {
                         // Keep exploratory bootstrap for neutral threshold misses;
                         // do not force through empirically bad buckets.
                         val shitRejectReasonUpper = shitCoinSignal.reason.uppercase()
-                        val forceBootstrapAllowed = forceBootstrapEntry &&
+                        val forceBootstrapAllowed = com.lifecyclebot.engine.RuntimeModeAuthority.isPaper() && forceBootstrapEntry &&
                             !shitRejectReasonUpper.contains("S0_10_BLEED_GUARD") &&
                             !shitRejectReasonUpper.contains("SHITCOIN_DANGER_BUCKET_GUARD") &&
                             !shitRejectReasonUpper.contains("EXPECTANCY_REJECT") &&
@@ -18643,7 +18644,7 @@ if (hotExitHandledSweep) {
                         if (forceBootstrapEntry && !forceBootstrapAllowed) {
                             try {
                                 ForensicLogger.lifecycle(
-                                    "SHITCOIN_BOOTSTRAP_FORCE_SUPPRESSED",
+                                    "SHITCOIN_LIVE_ADAPTIVE_FORCE_SUPPRESSED",
                                     "symbol=${ts.symbol} mint=${ts.mint.take(10)} reason=${shitCoinSignal.reason.take(120)} rawScore=$rawShitcoinScore score=${shitCoinSignal.entryScore}"
                                 )
                             } catch (_: Throwable) {}
@@ -18662,9 +18663,10 @@ if (hotExitHandledSweep) {
                             ErrorLogger.info("BotService", "💩 [SHITCOIN] ${ts.symbol} | VETOED | $blockReason (shitCoinSignal wanted entry)")
                         }
                         
-                        // V5.7.7: Bootstrap score gate - during first 50 trades, require score >= 75
-                        if (com.lifecyclebot.v3.scoring.FluidLearningAI.shouldBlockBootstrapTrade(shitCoinSignal.confidence)) {
-                            ErrorLogger.debug("BotService", "💩 [SHITCOIN] ${ts.symbol} | BOOTSTRAP BLOCKED | score=${shitCoinSignal.confidence} | ${com.lifecyclebot.v3.scoring.FluidLearningAI.getBootstrapStatus()}")
+                        // V5.0.4021 — bootstrap score gate is paper-only. Live adapts
+                        // from trade 1 via clean live outcome feedback and deterministic proof.
+                        if (com.lifecyclebot.engine.RuntimeModeAuthority.isPaper() && com.lifecyclebot.v3.scoring.FluidLearningAI.shouldBlockBootstrapTrade(shitCoinSignal.confidence)) {
+                            ErrorLogger.debug("BotService", "💩 [SHITCOIN] ${ts.symbol} | PAPER_BOOTSTRAP_BLOCKED | score=${shitCoinSignal.confidence} | ${com.lifecyclebot.v3.scoring.FluidLearningAI.getBootstrapStatus()}")
                             return
                         }
                         
@@ -18678,8 +18680,9 @@ if (hotExitHandledSweep) {
                                 ErrorLogger.info("BotService", "💩 [SHITCOIN] ${ts.symbol} | DISTRUST PAUSE | $why")
                                 return
                             }
-                            // V4.1: Apply bootstrap size multiplier for micro-positions
-                            val bootstrapMultiplier = com.lifecyclebot.v3.scoring.FluidLearningAI.getBootstrapSizeMultiplier()
+                            // V5.0.4021 — bootstrap size multiplier is paper-only; live
+                            // sizing stays fluid/adaptive from SmartSizer + lane/market proof.
+                            val bootstrapMultiplier = if (com.lifecyclebot.engine.RuntimeModeAuthority.isPaper()) com.lifecyclebot.v3.scoring.FluidLearningAI.getBootstrapSizeMultiplier() else 1.0
                             // V5.9.619 — apply MemeEdgeAI size multiplier (bounded 0.70..1.40).
                             val edgeSizeMult = shitCoinEdge.sizeMultiplier
                             // V5.9.1257 — calibration-aware shrink (net-negative band).
@@ -18738,8 +18741,8 @@ if (hotExitHandledSweep) {
                                 // sweet spot. FDG remains a hard veto for every real risk; we
                                 // only stop "we have no data yet" from killing the trades that
                                 // would generate the data. Probe is wide-open-phase only.
-                                val wideOpenBootstrap = try { com.lifecyclebot.engine.FreeRangeMode.isWideOpen() } catch (_: Throwable) { false }
-                                val scProbeable = wideOpenBootstrap && isBootstrapProbeableFdgBlock(scBlock)
+                                val wideOpenBootstrap = try { com.lifecyclebot.engine.RuntimeModeAuthority.isPaper() && com.lifecyclebot.engine.FreeRangeMode.isWideOpen() } catch (_: Throwable) { false }
+                                val scProbeable = com.lifecyclebot.engine.RuntimeModeAuthority.isPaper() && wideOpenBootstrap && isPaperBootstrapProbeableFdgBlock(scBlock)
                                 if (!scProbeable) {
                                     ErrorLogger.info("BotService", "🚫 FDG HARD VETO on SHITCOIN: ${ts.symbol} | $scBlock")
                                     try {
@@ -18754,7 +18757,7 @@ if (hotExitHandledSweep) {
                                 }
                                 // Soft block in wide-open bootstrap → tiny learning probe.
                                 adjustedSize = (adjustedSize * 0.25).coerceAtLeast(0.01)
-                                ErrorLogger.info("BotService", "🧪 FDG BOOTSTRAP PROBE on SHITCOIN: ${ts.symbol} | $scBlock | probeSize=${adjustedSize.fmt(3)} SOL")
+                                ErrorLogger.info("BotService", "🧪 FDG PAPER BOOTSTRAP PROBE on SHITCOIN: ${ts.symbol} | $scBlock | probeSize=${adjustedSize.fmt(3)} SOL")
                                 try {
                                     ForensicLogger.lifecycle(
                                         "SHITCOIN_FDG_BOOTSTRAP_PROBE",
@@ -18806,7 +18809,7 @@ if (hotExitHandledSweep) {
                                 if (canExecute) {
                                 val gradLabel = if (shitCoinSignal.graduationImminent) " [GRAD IMMINENT!]" else ""
                                 val bundleLabel = if (shitCoinSignal.bundleWarning) " [BUNDLE!]" else ""
-                                val bootstrapTag = if (forceBootstrapEntry) " [BOOTSTRAP]" else ""
+                                val bootstrapTag = if (com.lifecyclebot.engine.RuntimeModeAuthority.isPaper() && forceBootstrapEntry) " [PAPER_BOOTSTRAP]" else ""
                                 
                                 ErrorLogger.info("BotService", "💩 [SHITCOIN] ${ts.symbol} | ENTER$bootstrapTag | " +
                                     "${shitCoinSignal.launchPlatform.emoji} ${shitCoinSignal.launchPlatform.displayName} | " +
@@ -18902,7 +18905,7 @@ if (hotExitHandledSweep) {
                                 // V4.1: Record trade for learning
                                 com.lifecyclebot.v3.scoring.FluidLearningAI.recordTradeStart()
                                 
-                                val bootstrapLabel = if (forceBootstrapEntry) " [BOOTSTRAP]" else ""
+                                val bootstrapLabel = if (com.lifecyclebot.engine.RuntimeModeAuthority.isPaper() && forceBootstrapEntry) " [PAPER_BOOTSTRAP]" else ""
                                 // V5.9.709 — wire EXEC forensic counter for ShitCoin lane
                                 // (was only wired in MEME_SPINE path, leaving EXEC=0 when ShitCoin ran)
                                 try {
@@ -19747,9 +19750,11 @@ if (hotExitHandledSweep) {
             when (val result = v3Decision) {
                 is com.lifecyclebot.v3.V3Decision.Execute -> {
                     // V5.9.199: StrategyTrust gate — skip execute if DISTRUSTED, don't return
-                    // V5.9.408: free-range mode bypasses the trust gate entirely.
+                    // V5.0.4021 — free-range trust bypass is paper-only. Live
+                    // must not buy through a DISTRUSTED strategy just because
+                    // the global learning system is wide-open.
                     val memeMode = ts.position.tradingMode.ifBlank { identity.phase.ifBlank { "SHITCOIN" } }
-                    val trustAllowed = FreeRangeMode.isWideOpen() ||
+                    val trustAllowed = (com.lifecyclebot.engine.RuntimeModeAuthority.isPaper() && FreeRangeMode.isWideOpen()) ||
                         com.lifecyclebot.v4.meta.StrategyTrustAI.isStrategyAllowed(memeMode)
                     if (!trustAllowed) {
                         ErrorLogger.warn("BotService", "🚫 [TRUST GATE] ${identity.symbol} | mode=$memeMode DISTRUSTED — skipping execute")
@@ -20310,7 +20315,7 @@ if (hotExitHandledSweep) {
     val learningProgress = try {
         com.lifecyclebot.v3.scoring.FluidLearningAI.getLearningProgress()
     } catch (_: Exception) { 0.0 }
-    val isBootstrap = learningProgress < 0.40  // V5.9.165: aligned to global 0.40 threshold
+    val isBootstrap = com.lifecyclebot.engine.RuntimeModeAuthority.isPaper() && learningProgress < 0.40  // V5.0.4021: paper-only skip allowance; live adapts from trade 1
 
     // V5.9.31 FLUID: the bot chooses its own conf floor via FluidLearningAI.
     // Bootstrap (0%): ~15 — wide open, gather data.
@@ -20328,8 +20333,10 @@ if (hotExitHandledSweep) {
     val meaningfulCount = provenEdge.meaningfulTrades
     val hasProvenEdge   = provenEdge.hasProvenEdge
 
-    val allowSkipForLearning = isBootstrap || hasProvenEdge
-    val pre5000LearningOpen = try { com.lifecyclebot.engine.FreeRangeMode.isWideOpen() } catch (_: Throwable) { false }
+    // V5.0.4021 — SKIP/learning-open bypasses are paper-only. Proven live edge
+    // can shape size/tactic, but it cannot override safety-ish SKIP admission.
+    val allowSkipForLearning = isBootstrap
+    val pre5000LearningOpen = try { com.lifecyclebot.engine.RuntimeModeAuthority.isPaper() && com.lifecyclebot.engine.FreeRangeMode.isWideOpen() } catch (_: Throwable) { false }
     val minBootstrapConf = com.lifecyclebot.v3.scoring.FluidLearningAI.getPaperConfidenceFloor().toInt()
 
     // V5.0.3831 — operator P0/P1 from the 06-17 22:11 operational dump:
@@ -20338,7 +20345,7 @@ if (hotExitHandledSweep) {
     //       [V3|SKIP_OVERRIDE] X | LEARNING_OPEN_PRE5000 |
     //         edge=SKIP conf=8 learning=0% | allowing through
     //
-    // pre5000LearningOpen (FreeRangeMode.isWideOpen, lifetime sells < 500)
+    // pre5000LearningOpen (paper-only FreeRangeMode.isWideOpen, lifetime sells < 500)
     // currently makes the whole SKIP / conf-floor gate below disappear, so
     // EntryAI=88-but-V3=SKIP+conf=8 candidates buy on $116 liquidity tokens
     // and immediately lose. The operator's doctrine — "the meme trader
@@ -20428,7 +20435,7 @@ if (hotExitHandledSweep) {
     if ((allowSkipForLearning || pre5000LearningOpen) && edgeVerdictStr == "SKIP") {
         val reason = when {
             pre5000LearningOpen -> "LEARNING_OPEN_PRE5000"
-            hasProvenEdge -> "PROVEN_EDGE (wr=${provenWinRate.toInt()}% n=$meaningfulCount)"
+            hasProvenEdge && com.lifecyclebot.engine.RuntimeModeAuthority.isPaper() -> "PAPER_PROVEN_EDGE (wr=${provenWinRate.toInt()}% n=$meaningfulCount)"
             else -> "BOOTSTRAP"
         }
         ErrorLogger.info("BotService", "[V3|SKIP_OVERRIDE] ${identity.symbol} | $reason | " +
@@ -20442,15 +20449,14 @@ if (hotExitHandledSweep) {
     val isCGrade = decision.setupQuality == "C" || decision.setupQuality == "D"
     val fluidCGradeConfFloor = try {
         val learningProgress = com.lifecyclebot.v3.scoring.FluidLearningAI.getLearningProgress()
-        // V5.9.291 FIX: Route through ModeLeniency — proven-edge live runs get same
-        // leniency as paper. Previously live was hard-coded to 12->25 which made the
-        // bot behave like a virgin the moment the switch was flipped to live.
+        // V5.0.4021: Mode leniency is paper-only. Proven live edge can shape
+        // size/tactic, but must not lower C-grade safety/admission floors.
         val lenient = com.lifecyclebot.engine.ModeLeniency.useLenientGates(cfg.paperMode)
         if (lenient) {
-            // Paper OR proven-edge live: very low floor to maximise trading volume
+            // Paper only: very low floor to maximise learning volume
             (1 + (learningProgress * 5.0)).toInt().coerceIn(1, 10)
         } else {
-            // Strict-live only (no proven edge yet): moderate floor
+            // Live: moderate floor from trade 1
             (5 + (learningProgress * 8.0)).toInt().coerceIn(5, 13)
         }
     } catch (_: Exception) { if (cfg.paperMode) 1 else 5 }
@@ -20761,7 +20767,7 @@ if (hotExitHandledSweep) {
                         // look. If it says shouldEnter we override V3 with
                         // a small position. Live mode still defers to V3.
                         // ═════════════════════════════════════════════════════
-                        val bridgeAllowed = !useV3Decision && !isTerminalV3Reject && (cfg.paperMode || pre5000LearningOpen || hasProvenEdge)
+                        val bridgeAllowed = !useV3Decision && !isTerminalV3Reject && cfg.paperMode
                         if (bridgeAllowed) {
                             try {
                                 val verdict = com.lifecyclebot.v3.MemeUnifiedScorerBridge.scoreForEntry(ts)

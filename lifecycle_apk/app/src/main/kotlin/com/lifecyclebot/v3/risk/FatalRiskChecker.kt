@@ -106,7 +106,7 @@ class FatalRiskChecker(
         // blocks but keep the truly un-tradeable ones (liquidity collapse,
         // unsellable, invalid pair, confirmed fatal suppression).
         val wideOpen = try {
-            com.lifecyclebot.engine.FreeRangeMode.isWideOpen()
+            com.lifecyclebot.engine.RuntimeModeAuthority.isPaper() && com.lifecyclebot.engine.FreeRangeMode.isWideOpen()
         } catch (_: Throwable) { false }
 
         // ═══════════════════════════════════════════════════════════════════

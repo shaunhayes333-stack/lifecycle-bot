@@ -254,8 +254,9 @@ object TradingCopilot {
             // the bot MUST keep trading to accumulate data. The WR < 25% gate was
             // permanently locking it into PROTECT because 24% WR with 74 trades is
             // normal for early learning — not a disaster requiring handbraking.
-            val bootstrapProg = try { com.lifecyclebot.v3.scoring.FluidLearningAI.getLearningProgress() } catch (_: Exception) { 0.0 }
-            val isBootstrap = bootstrapProg < 0.70
+            // V5.0.4021 — no live bootstrap thresholds. Mood protection starts
+            // from trade 1 using observed live window stats, not global FluidLearning.
+            val isBootstrap = false
 
             // V5.9.716 — bootstrap thresholds dramatically relaxed.
             // At 2% WR the 30-trade window is nearly all losses → streak always >= 12 → permanent brake.
@@ -263,10 +264,10 @@ object TradingCopilot {
             // LifecycleStrategy now passes copilotBrake through only for !isPaperMode || !copilotBootstrap,
             // so this threshold is effectively a LIVE-only guard during bootstrap anyway.
             // We raise it high enough that even a bad LIVE bootstrap session keeps some entry volume.
-            val emergencySteakThresh = if (isBootstrap) 40 else 7
-            val protectStreakThresh  = if (isBootstrap) 20 else 4
-            val protectWrThresh      = if (isBootstrap) 12.0 else 25.0   // bootstrap: only brake on truly disastrous WR
-            val protectWrMinTrades   = if (isBootstrap) 30 else 8         // bootstrap: need more trades before WR gate fires
+            val emergencySteakThresh = 7
+            val protectStreakThresh  = 4
+            val protectWrThresh      = 25.0
+            val protectWrMinTrades   = 8
 
             val mood = when {
                 // V5.9.452 — require loss-streak confirmation alongside deep loss.
@@ -283,7 +284,7 @@ object TradingCopilot {
                     // cadence — don't punish with an EMERGENCY_BRAKE that needs
                     // a 10-win streak to unwind. During bootstrap require a
                     // deeper loss AND a longer active streak. Mature: unchanged.
-                    (streakWindowLoss <= (if (isBootstrap) -80.0 else -60.0) && lossStreak >= (if (isBootstrap) 10 else 3)) -> TradeMood.EMERGENCY_BRAKE
+                    (streakWindowLoss <= -60.0 && lossStreak >= 3) -> TradeMood.EMERGENCY_BRAKE
                 lossStreak >= protectStreakThresh || (wrPct < protectWrThresh && tradesObserved >= protectWrMinTrades) -> TradeMood.PROTECT
                 winStreak >= 4 && wrPct >= 55 && learningHealth == LearningHealth.EXCELLENT -> TradeMood.AGGRESSIVE_HUNT
                 else -> TradeMood.NORMAL
@@ -296,8 +297,8 @@ object TradingCopilot {
             // NORMAL:          8%  always
             // AGGRESSIVE_HUNT: 5%  always
             val recMinConf = when (mood) {
-                TradeMood.EMERGENCY_BRAKE -> if (isBootstrap) 15.0 else 25.0
-                TradeMood.PROTECT -> if (isBootstrap) 8.0 else 15.0
+                TradeMood.EMERGENCY_BRAKE -> 25.0
+                TradeMood.PROTECT -> 15.0
                 TradeMood.NORMAL -> 8.0
                 TradeMood.AGGRESSIVE_HUNT -> 5.0
             }
@@ -305,8 +306,8 @@ object TradingCopilot {
             // ─── 6. SIZING MULTIPLIER ─────────────────────────────────────
             // Bootstrap: PROTECT only trims 25% (not 50%) — paper sizing is symbolic anyway
             val sizing = when (mood) {
-                TradeMood.EMERGENCY_BRAKE -> if (isBootstrap) 0.5 else 0.25
-                TradeMood.PROTECT -> if (isBootstrap) 0.75 else 0.5
+                TradeMood.EMERGENCY_BRAKE -> 0.25
+                TradeMood.PROTECT -> 0.5
                 TradeMood.NORMAL -> 1.0
                 TradeMood.AGGRESSIVE_HUNT -> 1.30
             }
@@ -404,7 +405,7 @@ object TradingCopilot {
             return
         }
         if (now - poisonedSinceMs < POISON_DWELL_MS) return
-        if (tradesObserved < 50) return  // don't fire during early bootstrap
+        if (tradesObserved < 1) return  // V5.0.4021: no live bootstrap delay; shake only needs one observed trade
 
         // V5.9.356: Adaptive shake severity + cooldown.
         // When the brain is severely lost (avg accuracy < 40% over 200+
@@ -448,7 +449,7 @@ object TradingCopilot {
         return when (mood) {
             TradeMood.EMERGENCY_BRAKE ->
                 // V5.9.716: Actual sizing in bootstrap is 0.5x (not 0.25x); live mature is 0.25x
-                "🛑 Emergency brake: $lossStreak-loss streak, deepest=${bigLoss.toInt()}%. Sizing×${if (isBootstrap) "0.50" else "0.25"}, conf≥${recMinConf.toInt()}% only — let the storm pass."
+                "🛑 Emergency brake: $lossStreak-loss streak, deepest=${bigLoss.toInt()}%. Sizing×0.25, conf≥${recMinConf.toInt()}% only — let the storm pass."
             TradeMood.PROTECT ->
                 "🟠 Protect: WR=${wr.toInt()}% over $n trades. Tightening to conf≥15%, size×0.5. Wait for clean A-quality setups."
             TradeMood.AGGRESSIVE_HUNT ->
