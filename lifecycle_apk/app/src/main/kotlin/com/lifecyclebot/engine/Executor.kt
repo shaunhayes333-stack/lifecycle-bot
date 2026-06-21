@@ -6214,6 +6214,7 @@ class Executor(
             if (RuggedContracts.isBlacklisted(ts.mint)) {
                 ErrorLogger.info("Executor", "🚫 ${ts.symbol} BLACKLISTED: Previously rugged")
                 onLog("💀 ${ts.symbol}: Blacklisted contract", ts.mint)
+                if (!isPaper) livePreAttemptHardReject(ts, 0.0, "LIVE_BUY_REJECTED_HARD_BLOCK_BLACKLIST", "RuggedContracts.maybeAct")
                 return
             }
             
@@ -6238,6 +6239,7 @@ class Executor(
                     TradeStateMachine.clearCooldown(ts.mint)
                 } else {
                     onLog("⏸️ ${ts.symbol}: In cooldown, skipping", ts.mint)
+                    livePreAttemptHardReject(ts, 0.0, "LIVE_BUY_REJECTED_HARD_BLOCK_COOLDOWN", "TradeStateMachine.maybeAct")
                     return
                 }
             }
@@ -6428,6 +6430,7 @@ class Executor(
             if (size < 0.001) {
                 ErrorLogger.debug("Executor", "🪫 ${ts.symbol} SIZE TOO SMALL: $size | wallet=$walletSol | paper=$isPaperMode | liq=${ts.lastLiquidityUsd}")
                 onLog("Insufficient capacity for new position on ${ts.symbol} (size=$size)", ts.mint)
+                if (!isPaperMode) livePreAttemptHardReject(ts, size, "LIVE_ENTRY_REJECTED_SIZE_TOO_THIN_FOR_NON_MICRO_TRADE", "maybeAct.size=$size wallet=$walletSol liq=${ts.lastLiquidityUsd}")
                 return
             }
             
@@ -6742,16 +6745,20 @@ class Executor(
             "conf=${decision.aiConfidence.toInt()}% | penalty=${decision.qualityPenalty} | " +
             "paper=$isPaper | autoTrade=${cfg().autoTrade}")
 
-        // V5.9.91: SmartChart veto. If the multi-timeframe scanner reads >=80%
-        // bearish with >=70 confidence in the last 2 min, skip the LONG entry.
-        // This fixes the contradictory log pattern where SmartChart said
-        // "BEARISH (100%)" and V3 still ran EXECUTE_AGGRESSIVE on the same tick.
+        // V5.0.4009 — SmartChart is advisory in LIVE after FDG/EXEC allow.
+        // It may shape/log momentum risk, but it must not silently return before
+        // doBuy/liveBuy; otherwise reports show FDG/EXEC allow with BUY 0/0.
         run {
             val bearish = SmartChartCache.getBearishConfidence(ts.mint)
             if (bearish != null && bearish >= 80.0) {
-                ErrorLogger.info("Executor", "🚫 SMARTCHART_BLOCK: ${ts.symbol} | bearish=${bearish.toInt()}% — skipping LONG entry")
-                onLog("🚫 ${ts.symbol}: SmartChart ${bearish.toInt()}% bearish — skip entry", ts.mint)
-                return
+                if (!isPaper) {
+                    ErrorLogger.info("Executor", "📉 SMARTCHART_ADVISORY: ${ts.symbol} | bearish=${bearish.toInt()}% — live FDG-approved path continues with downstream hard gates")
+                    liveAdvisoryNotTerminal(ts, "MOMENTUM_AVOID", "smartChartBearish=${bearish.toInt()}")
+                } else {
+                    ErrorLogger.info("Executor", "🚫 SMARTCHART_BLOCK: ${ts.symbol} | bearish=${bearish.toInt()}% — skipping LONG entry")
+                    onLog("🚫 ${ts.symbol}: SmartChart ${bearish.toInt()}% bearish — skip entry", ts.mint)
+                    return
+                }
             }
         }
         
@@ -6763,9 +6770,14 @@ class Executor(
                 val velocityPct = ((priceEnd - priceStart) / priceStart) * 100
                 
                 if (velocityPct < -5.0) {
-                    ErrorLogger.debug("Executor", "⚡ ${ts.symbol} VELOCITY BLOCK: Price dropping ${velocityPct.toInt()}% rapidly")
-                    onLog("⚡ ${ts.symbol}: Price dropping ${velocityPct.toInt()}% - waiting for stabilization", ts.mint)
-                    return
+                    if (!isPaper) {
+                        ErrorLogger.debug("Executor", "⚡ ${ts.symbol} VELOCITY_ADVISORY: Price dropping ${velocityPct.toInt()}% rapidly — live FDG-approved path continues")
+                        liveAdvisoryNotTerminal(ts, "MOMENTUM_AVOID", "velocityPct=${velocityPct.fmt(2)}")
+                    } else {
+                        ErrorLogger.debug("Executor", "⚡ ${ts.symbol} VELOCITY BLOCK: Price dropping ${velocityPct.toInt()}% rapidly")
+                        onLog("⚡ ${ts.symbol}: Price dropping ${velocityPct.toInt()}% - waiting for stabilization", ts.mint)
+                        return
+                    }
                 }
             }
         }
@@ -6773,11 +6785,13 @@ class Executor(
         if (RuggedContracts.isBlacklisted(ts.mint)) {
             ErrorLogger.info("Executor", "🚫 ${ts.symbol} BLACKLISTED: Previously rugged")
             onLog("💀 ${ts.symbol}: Blacklisted contract", ts.mint)
+            if (!isPaper) livePreAttemptHardReject(ts, 0.0, "LIVE_BUY_REJECTED_HARD_BLOCK_BLACKLIST", "RuggedContracts")
             return
         }
         
         if (!isPaper && TradeStateMachine.isInCooldown(ts.mint)) {
             onLog("⏸️ ${ts.symbol}: In cooldown, skipping", ts.mint)
+            livePreAttemptHardReject(ts, 0.0, "LIVE_BUY_REJECTED_HARD_BLOCK_COOLDOWN", "TradeStateMachine")
             return
         }
         
@@ -6813,8 +6827,8 @@ class Executor(
         if (!isPaper) {
             brain?.let { b ->
                 if (b.shouldSkipTrade(decision.phase, decision.meta.emafanAlignment, ts.source, decision.entryScore)) {
-                    onLog("🧠 Brain SKIP: ${ts.symbol} — too many risk factors", ts.mint)
-                    return
+                    onLog("🧠 Brain advisory: ${ts.symbol} — risk factors shaped, not terminal", ts.mint)
+                    liveAdvisoryNotTerminal(ts, "BRAIN_PATTERN_SUPPRESSED", "phase=${decision.phase} ema=${decision.meta.emafanAlignment} source=${ts.source} score=${decision.entryScore}")
                 }
             }
         }
@@ -6822,6 +6836,7 @@ class Executor(
         if (size < 0.001) {
             ErrorLogger.debug("Executor", "🪫 ${ts.symbol} SIZE TOO SMALL: $size | quality=${decision.finalQuality}")
             onLog("Insufficient capacity for ${ts.symbol} (size=$size)", ts.mint)
+            if (!isPaper) livePreAttemptHardReject(ts, size, "LIVE_ENTRY_REJECTED_SIZE_TOO_THIN_FOR_NON_MICRO_TRADE", "maybeActWithDecision.size=$size")
             return
         }
         
@@ -7206,6 +7221,27 @@ class Executor(
         try { PipelineHealthCollector.labelInc(label) } catch (_: Throwable) {}
     }
 
+    private fun livePreAttemptHardReject(ts: TokenState, sol: Double, reason: String, detail: String = "") {
+        try {
+            ForensicLogger.lifecycle(
+                "LIVE_PREATTEMPT_HARD_REJECT",
+                "mint=${ts.mint.take(10)} symbol=${ts.symbol} sol=${"%.4f".format(sol)} reason=$reason ${detail.take(160)}".trim(),
+            )
+            PipelineHealthCollector.labelInc("LIVE_PREATTEMPT_HARD_REJECT_$reason")
+        } catch (_: Throwable) {}
+        emitLiveBuyFail(ts, sol, reason, detail)
+    }
+
+    private fun liveAdvisoryNotTerminal(ts: TokenState, label: String, detail: String = "") {
+        try {
+            ForensicLogger.lifecycle(
+                "LIVE_ADVISORY_NOT_TERMINAL",
+                "mint=${ts.mint.take(10)} symbol=${ts.symbol} reason=$label ${detail.take(160)} action=continue_to_live_buy",
+            )
+            PipelineHealthCollector.labelInc("LIVE_ADVISORY_NOT_TERMINAL_$label")
+        } catch (_: Throwable) {}
+    }
+
     private fun emitLiveBuyFail(ts: TokenState, sol: Double, reason: String, detail: String = "") {
         try {
             val r = reason.uppercase()
@@ -7461,6 +7497,7 @@ class Executor(
                     "symbol=${ts.symbol} mint=${ts.mint.take(10)} sol=$effSol reason=wallet_null"
                 )
             } catch (_: Throwable) {}
+            livePreAttemptHardReject(ts, effSol, "LIVE_BUY_REJECTED_HARD_BLOCK_WALLET_NULL", "doBuy.final")
             onLog("🚫 Live buy blocked: ${ts.symbol} — wallet disconnected. Reconnect to resume live trading.", tradeId.mint)
             onNotify("🚫 Wallet Disconnected",
                 "Cannot execute live buy on ${ts.symbol} — wallet is not connected. Paper-trade fallback refused.",
@@ -7488,6 +7525,7 @@ class Executor(
                     sounds?.playBlockSound()
                     if (guard.fatal) onNotify("🛑 Bot Halted", guard.reason, com.lifecyclebot.engine.NotificationHistory.NotifEntry.NotifType.INFO)
                     
+                    livePreAttemptHardReject(ts, effSol, "LIVE_BUY_REJECTED_HARD_BLOCK_SECURITY_GUARD", guard.reason)
                     if (cfg().shadowPaperEnabled) {
                         runShadowPaperBuy(ts, effSol, score, quality, "blocked:${guard.reason.take(20)}", safeWallet, walletSol)
                     }
@@ -7503,6 +7541,7 @@ class Executor(
                             try { ForensicLogger.lifecycle("LIVE_RESTORE_LANE_CAP_SOFT_ALLOW", "symbol=${ts.symbol} mint=${ts.mint.take(10)} from=${effSol.fmt(4)} to=${liveSol.fmt(4)} penalty=${laneCapPenalty.reason}") } catch (_: Throwable) {}
                         } else {
                             onLog("🔒 Exposure cap: ${ts.symbol} blocked (wallet ${WalletPositionLock.getExposurePct(walletSol).toInt()}% deployed)", tradeId.mint)
+                            livePreAttemptHardReject(ts, effSol, "LIVE_BUY_REJECTED_HARD_BLOCK_EXPOSURE_CAP", "walletExposurePct=${WalletPositionLock.getExposurePct(walletSol).toInt()}")
                             if (cfg().shadowPaperEnabled) {
                                 runShadowPaperBuy(ts, effSol, score, quality, "exposure_cap", safeWallet, walletSol)
                             }

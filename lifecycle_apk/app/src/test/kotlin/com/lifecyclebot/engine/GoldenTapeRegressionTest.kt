@@ -2420,6 +2420,35 @@ class GoldenTapeRegressionTest {
 
 
 
+
+    @Test
+    fun live_preattempt_advisories_cannot_silently_disappear_before_live_buy() {
+        val exec = java.io.File("src/main/kotlin/com/lifecyclebot/engine/Executor.kt").readText()
+        assertTrue(
+            "Live advisory gates before doBuy/liveBuy must log and continue, not return silently",
+            exec.contains("LIVE_ADVISORY_NOT_TERMINAL") &&
+                exec.contains("SMARTCHART_ADVISORY") &&
+                exec.contains("VELOCITY_ADVISORY") &&
+                exec.contains("Brain advisory") &&
+                exec.contains("action=continue_to_live_buy")
+        )
+        assertTrue(
+            "SmartChart hard block must be paper-only while live continues as advisory",
+            exec.contains("SMARTCHART_ADVISORY") &&
+                exec.contains("if (!isPaper)") &&
+                exec.contains("} else {") &&
+                exec.contains("SMARTCHART_BLOCK")
+        )
+        assertTrue(
+            "Hard preattempt returns must be counted as live buy hard rejects instead of BUY 0/0 silence",
+            exec.contains("LIVE_PREATTEMPT_HARD_REJECT") &&
+                exec.contains("LIVE_ENTRY_REJECTED_SIZE_TOO_THIN_FOR_NON_MICRO_TRADE") &&
+                exec.contains("LIVE_BUY_REJECTED_HARD_BLOCK_SECURITY_GUARD") &&
+                exec.contains("LIVE_BUY_REJECTED_HARD_BLOCK_EXPOSURE_CAP") &&
+                exec.contains("LIVE_BUY_REJECTED_HARD_BLOCK_WALLET_NULL")
+        )
+    }
+
     @Test
     fun live_route_guard_does_not_convert_pending_safety_into_no_executable_route() {
         val guard = java.io.File("src/main/kotlin/com/lifecyclebot/engine/ExecutionRouteGuard.kt").readText()
