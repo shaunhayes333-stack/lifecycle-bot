@@ -3055,7 +3055,7 @@ class GoldenTapeRegressionTest {
         assertFalse("Executor must not write repeated-losses into BannedTokens", executor.contains("BannedTokens.ban(ts.mint, \"2+ losses"))
         assertTrue("Repeated-loss learning must emit penalty-only proof", executor.contains("decision=PENALTY_ONLY reason=2+_losses"))
 
-        assertTrue("Zero liquidity remains hard block", safety.contains("ZERO LIQUIDITY") && preTrade.contains("ZERO_LIQUIDITY"))
+        assertTrue("Raw zero liquidity is TokenMap-pending; only TRUE_ZERO_LIQUIDITY hard-blocks after provider quorum", safety.contains("LIQUIDITY_UNKNOWN_PENDING_TOKEN_MAP") && preTrade.contains("TRUE_ZERO_LIQUIDITY") && !safety.contains("ZERO LIQUIDITY — no executable route"))
         assertTrue("Low but nonzero liquidity must be quote/size penalty, not static hard block", safety.contains("LOW_LIQUIDITY_SIZE_REDUCED") && preTrade.contains("LOW_LIQUIDITY_SIZE_REDUCED"))
         assertFalse("Static liquidity min must not hard-block live buys", preTrade.contains("return block(ts, \"LIQUIDITY_BELOW_LIVE_MIN"))
         assertFalse("Missing/stale safety must not hard-block by itself", preTrade.contains("return block(ts, \"SAFETY_PROOF_STALE_OR_MISSING"))

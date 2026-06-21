@@ -284,7 +284,7 @@ class LaneExecutionCoordinatorSmokeTest {
 
 class QuarantineAndOutcomeLedgerSmokeTest {
     @Test
-    fun quarantine_blocks_blacklisted_and_zero_liquidity_before_watchlist() {
+    fun quarantine_does_not_block_raw_zero_liquidity_before_token_map_quorum() {
         QuarantineStore.resetForTests()
         val zero = QuarantineStore.evaluate(
             mint = "MintZero111111111111111111111111111111",
@@ -293,9 +293,9 @@ class QuarantineAndOutcomeLedgerSmokeTest {
             liquidityUsd = 0.0,
             marketCapUsd = 1000.0,
         )
-        assertTrue(zero.quarantined)
-        assertEquals("ZERO_LIQUIDITY", zero.reason)
-        assertTrue(QuarantineStore.isQuarantined("MintZero111111111111111111111111111111"))
+        assertFalse(zero.quarantined)
+        assertEquals(null, zero.reason)
+        assertFalse(QuarantineStore.isQuarantined("MintZero111111111111111111111111111111"))
     }
 
 @Test
