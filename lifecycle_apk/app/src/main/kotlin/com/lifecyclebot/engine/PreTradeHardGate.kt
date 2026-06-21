@@ -55,34 +55,37 @@ object PreTradeHardGate {
     }
 
     private fun allowWithPendingProof(ts: TokenState, pending: List<String>, callSite: String): Verdict {
-        // V5.0.3986 — live hard-safety/parity fix. Pending *non-fatal* proof may
-        // be allowed only when no live-critical proof gap remains. Holder unknown,
-        // mint/freeze active/unknown, and wallet-style risk warnings are not
-        // "penalty only" for real SOL; they are hydrate/defer or hard block above.
-        val liveCritical = pending.firstOrNull {
-            it.contains("HOLDER", true) ||
-            it.contains("MINT_AUTHORITY", true) ||
-            it.contains("FREEZE_AUTHORITY", true) ||
-            it.contains("SAFETY_PROOF", true) ||
-            it.contains("SINGLE_HOLDER", true) ||
-            it.contains("TOP10", true) ||
-            it.contains("HIGH_OWNERSHIP", true) ||
-            it.contains("UNVERIFIED_TOKEN", true)
+        // V5.0.4019 — taxonomy/source fix: pending proof is a penalty/telemetry
+        // condition, not a live-buy terminal failure. 4018 runtime showed
+        // BUY ok=0 / SAFETY_PROOF_INCOMPLETE=505 while confirmed hard-safety was
+        // already protected above (SAFETY_HARD_BLOCK, active mint/freeze,
+        // TRUE_ZERO_LIQUIDITY, fatal holder concentration, fatal wallet text).
+        // Keep only route/liquidity unknown as hydrate-defer because there may be
+        // no executable market. Unknown holder/mint/freeze/rugcheck proof now
+        // soft-allows with explicit telemetry so sizing/advisors can penalize
+        // without choking 500-1000/day live throughput.
+        val routeOrLiquidityPending = pending.firstOrNull {
+            it.contains("LIQUIDITY_UNKNOWN_PENDING_TOKEN_MAP", true) ||
+            it.contains("TOKEN_MAP_PENDING", true)
         }
-        if (liveCritical != null) {
-            return deferSafetyProof(ts, "LIVE_CRITICAL_PROOF_PENDING", listOf(liveCritical), callSite)
+        if (routeOrLiquidityPending != null) {
+            return deferSafetyProof(ts, "LIVE_ROUTE_LIQUIDITY_PROOF_PENDING", listOf(routeOrLiquidityPending), callSite)
         }
         if (pending.isNotEmpty()) {
             try {
                 val detail = pending.joinToString("|").take(180)
                 ForensicLogger.lifecycle(
-                    "PRETRADE_PENDING_PROOF_SOFT_ALLOW",
-                    "mint=${ts.mint.take(10)} symbol=${ts.symbol} pending=$detail"
+                    "PRETRADE_PENDING_PROOF_PENALTY_ALLOW",
+                    "mint=${ts.mint.take(10)} symbol=${ts.symbol} pending=$detail taxonomy=pending_penalty liveEligible=true"
                 )
-                PipelineHealthCollector.labelInc("PRETRADE_PENDING_PROOF_SOFT_ALLOW")
+                ForensicLogger.lifecycle(
+                    "BUY_GATE_DECISION",
+                    "mint=${ts.mint.take(10)} symbol=${ts.symbol} decision=PENALTY_ONLY reason=PENDING_PROOF source=PreTradeHardGate liveEligible=true detail=$detail",
+                )
+                PipelineHealthCollector.labelInc("PRETRADE_PENDING_PROOF_PENALTY_ALLOW")
             } catch (_: Throwable) {}
         }
-        return Verdict(true, "ALLOW", "site=$callSite" + if (pending.isNotEmpty()) " pending=${pending.joinToString("|")}" else "")
+        return Verdict(true, "ALLOW", "site=$callSite" + if (pending.isNotEmpty()) " pending_penalty=${pending.joinToString("|")}" else "")
     }
 
     fun requireLiveBuyAllowed(ts: TokenState, callSite: String): Verdict {
