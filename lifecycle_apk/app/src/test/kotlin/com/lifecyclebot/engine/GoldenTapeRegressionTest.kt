@@ -3599,4 +3599,22 @@ class GoldenTapeRegressionTest {
         assertTrue("V3 terminal early return must keep only mechanical hard reasons", bot.contains("NO_EXECUTABLE_ROUTE") && bot.contains("NO_SELL_ROUTE") && !bot.contains("""result.reason.contains("SCORE_TOO_LOW", ignoreCase = true) ||"""))
     }
 
+    @Test
+    fun token_map_is_authoritative_before_zero_liquidity_blocks() {
+        val models = java.io.File("src/main/kotlin/com/lifecyclebot/data/Models.kt").readText()
+        val authority = java.io.File("src/main/kotlin/com/lifecyclebot/engine/TokenMapAuthority.kt").readText()
+        val preTrade = java.io.File("src/main/kotlin/com/lifecyclebot/engine/PreTradeHardGate.kt").readText()
+        val execGate = java.io.File("src/main/kotlin/com/lifecyclebot/engine/ExecutableOpenGate.kt").readText()
+        val executor = java.io.File("src/main/kotlin/com/lifecyclebot/engine/Executor.kt").readText()
+        assertTrue("TokenState must carry one authoritative CanonicalTokenMap from discovery", models.contains("data class CanonicalTokenMap") && models.contains("var tokenMap: CanonicalTokenMap"))
+        assertTrue("Source labels must never become identity", authority.contains("SOURCE_LABELS") && authority.contains("DEX_BOOSTED") && authority.contains("RAYDIUM_NEW_POOL") && authority.contains("SOURCE_IDENTITY_BAD"))
+        assertTrue("Missing route/provider data must be TOKEN_MAP_PENDING, not ZERO_LIQUIDITY", authority.contains("LIQUIDITY_UNKNOWN_PENDING_TOKEN_MAP") && authority.contains("TOKEN_MAP_PENDING:missing_pair_route_liquidity_or_quote"))
+        assertTrue("Pump.fun active curve must count as executable liquidity", authority.contains("PUMPFUN_BONDING_CURVE_EXECUTABLE") && authority.contains("tm.pumpFunExecutable = true"))
+        assertTrue("DEX/Jupiter route with expectedOut must count as executable", authority.contains("DEX_ROUTABLE") && authority.contains("tm.dexRouteOk = true") && authority.contains("expectedOutAmount"))
+        assertTrue("Hard zero requires completed hydration and provider quorum", authority.contains("tm.hydrationComplete && tm.routeStatus == \"NO_ROUTE\"") && authority.contains("tm.providerAttempts >= 2"))
+        assertTrue("PreTradeHardGate must not raw-block lastLiquidityUsd==0", !preTrade.contains("if (ts.lastLiquidityUsd == 0.0) return block(ts, \"ZERO_LIQUIDITY\"") && preTrade.contains("TokenMapAuthority.liquidityVerdict(ts)") && preTrade.contains("TRUE_ZERO_LIQUIDITY"))
+        assertTrue("ExecutableOpenGate must defer token-map pending instead of terminal zero", execGate.contains("EXEC_OPEN_DEFERRED_TOKEN_MAP") && execGate.contains("LIQUIDITY_UNKNOWN_PENDING_TOKEN_MAP") && !execGate.contains("EXEC_OPEN_BLOCKED_ZERO_LIQUIDITY"))
+        assertTrue("Executor must assert executable TokenMap before live spend", executor.contains("TokenMapAuthority.executableForLiveBuy(ts)") && executor.contains("LIVE_BUY_DEFERRED_TOKEN_MAP") && executor.contains("no_live_buy_fail=true"))
+    }
+
 }

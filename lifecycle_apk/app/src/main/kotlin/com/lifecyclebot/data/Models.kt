@@ -249,6 +249,62 @@ data class StrategyResult(
     val meta: StrategyMeta,
 )
 
+
+/**
+ * V5.0.4012 — canonical discovery TokenMap.
+ *
+ * This is the authoritative identity + route hydration record produced at token
+ * discovery and consumed by intake, safety, V3/FDG, and executor. Missing pair /
+ * route / provider data is represented as PENDING, never as fake zero-liquidity.
+ */
+data class CanonicalTokenMap(
+    var canonicalTargetMint: String = "",
+    var symbol: String = "",
+    var name: String = "",
+    var sourceScanner: String = "",
+    var pairAddress: String = "",
+    var poolAddress: String = "",
+    var baseMint: String = "",
+    var quoteMint: String = "",
+    var targetSide: String = "UNKNOWN", // BASE | QUOTE | UNKNOWN
+    var baseIsSystemQuote: Boolean = false,
+    var quoteIsSystemQuote: Boolean = false,
+    var dexId: String = "UNKNOWN",
+    var venue: String = "UNKNOWN",
+    var pumpFunBondingCurveAddress: String = "",
+    var pumpFunBondingCurveStatus: String = "UNKNOWN",
+    var pumpFunExecutable: Boolean = false,
+    var migratedOrGraduated: Boolean = false,
+    var jupiterQuoteOk: Boolean = false,
+    var dexRouteOk: Boolean = false,
+    var routeStatus: String = "LIQUIDITY_UNKNOWN_PENDING_TOKEN_MAP",
+    var expectedOutAmount: Double = 0.0,
+    var liquidityUsd: Double? = null,
+    var liquiditySol: Double? = null,
+    var virtualSolReserves: Double? = null,
+    var realSolReserves: Double? = null,
+    var priceUsd: Double? = null,
+    var marketCap: Double? = null,
+    var fdv: Double? = null,
+    var volume5mUsd: Double? = null,
+    var volume1hUsd: Double? = null,
+    var volume24hUsd: Double? = null,
+    var poolAgeMs: Long? = null,
+    var creatorOrDevWallet: String = "",
+    var mintAuthority: String? = null,
+    var freezeAuthority: String? = null,
+    var token2022: Boolean = false,
+    var decimals: Int? = null,
+    var topHolderConcentrationPct: Double? = null,
+    var providerTimestamps: MutableMap<String, Long> = mutableMapOf(),
+    var hydrationConfidence: Double = 0.0,
+    var hydrationComplete: Boolean = false,
+    var hydrationFailureReasons: MutableList<String> = mutableListOf(),
+    var providerAttempts: Int = 0,
+    var buyAttemptId: String = "",
+    var updatedAtMs: Long = 0L,
+)
+
 data class TokenState(
     val mint: String,
     val symbol: String = "",
@@ -338,7 +394,26 @@ data class TokenState(
     // MemeUnifiedScorerBridge agrees an entry is good. Read by ShitCoin/Moonshot
     // evaluators as a small additive confidence bonus. Pure advisory — never blocks.
     var bridgeAdvisoryAgrees: Boolean = false,
+    var tokenMap: CanonicalTokenMap = CanonicalTokenMap(),
 ) {
+    init {
+        if (tokenMap.canonicalTargetMint.isBlank()) {
+            tokenMap.canonicalTargetMint = mint
+            tokenMap.symbol = symbol
+            tokenMap.name = name
+            tokenMap.sourceScanner = source
+            tokenMap.pairAddress = pairAddress
+            tokenMap.poolAddress = lastPricePoolAddr.ifBlank { pairAddress }
+            tokenMap.dexId = lastPriceDex.ifBlank { source }
+            tokenMap.venue = tokenMap.dexId
+            tokenMap.liquidityUsd = lastLiquidityUsd.takeIf { it > 0.0 }
+            tokenMap.priceUsd = lastPrice.takeIf { it > 0.0 }
+            tokenMap.marketCap = lastMcap.takeIf { it > 0.0 }
+            tokenMap.fdv = lastFdv.takeIf { it > 0.0 }
+            tokenMap.updatedAtMs = System.currentTimeMillis()
+        }
+    }
+
     // CRITICAL FIX: ref should return PRICE, not market cap!
     // Market cap was causing astronomical P&L calculations (+98 billion %)
     val ref get() = lastPrice  // Always return actual price

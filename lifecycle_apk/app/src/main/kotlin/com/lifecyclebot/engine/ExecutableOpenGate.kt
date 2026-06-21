@@ -27,6 +27,10 @@ object ExecutableOpenGate {
         val selectedLane: String = "UNKNOWN",
         val preFdgVerdict: String = "WATCH",
         val hardNoReasons: List<String> = emptyList(),
+        val tokenMapRouteStatus: String = "LIQUIDITY_UNKNOWN_PENDING_TOKEN_MAP",
+        val tokenMapHydrationComplete: Boolean = false,
+        val tokenMapExpectedOut: Double = 0.0,
+        val tokenMapProviderAttempts: Int = 0,
         val entryScore: Int = -1,  // V5.9.1373 — for SHADOW_TRAIN_ONLY bucket lookup
         val candidateVersion: Long = 0L,
         val updatedAtMs: Long = System.currentTimeMillis(),
@@ -118,8 +122,8 @@ object ExecutableOpenGate {
 
     private fun trueHardTicketKill(reason: String): Boolean {
         val r = reason.uppercase()
-        return r.contains("ZERO_LIQUIDITY") || r.contains("NO_EXECUTABLE_ROUTE") ||
-            r.contains("NO_SELL_ROUTE") || r.contains("BASE_OR_QUOTE_MINT_AS_TARGET") ||
+        return r.contains("TRUE_ZERO_LIQUIDITY") || r.contains("NO_EXECUTABLE_ROUTE") ||
+            r.contains("NO_SELL_ROUTE") || r.contains("SOURCE_IDENTITY_BAD") ||
             r.contains("DUPLICATE_OPEN") || r.contains("CONFIRMED_RUG") ||
             r.contains("RUGCHECK_100") || r.contains("RC_SCORE_0") ||
             r.contains("TRUE_DUPLICATE_OPEN")
@@ -210,7 +214,7 @@ object ExecutableOpenGate {
             // safety reason is present. Missing-state restore has no FDG state to
             // prove provider-blind approval, so UNKNOWN safety remains blocked.
             val restoredHardNoReasons = hardNoReasons.filterNot { hn ->
-                (hn.equals("ZERO_LIQUIDITY", true) && currentLiquidityUsd > 0.0) ||
+                ((hn.equals("ZERO_LIQUIDITY", true) || hn.equals("TRUE_ZERO_LIQUIDITY", true) || hn.equals("LIQUIDITY_UNKNOWN_PENDING_TOKEN_MAP", true)) && currentLiquidityUsd > 0.0) ||
                     (hn.equals("PRE_FDG_SAFETY_CONTEXT_MISSING", true) &&
                         currentSafetyTier.isNotBlank() && !currentSafetyTier.equals("UNKNOWN", true))
             }
@@ -234,7 +238,7 @@ object ExecutableOpenGate {
         // after the current candidate proves the context is valid. This strips
         // only derived context labels; real rug/fatal hardNo reasons remain.
         val effectiveHardNoReasons = hardNoReasons.filterNot { hn ->
-            (hn.equals("ZERO_LIQUIDITY", true) && currentLiquidityUsd > 0.0) ||
+            ((hn.equals("ZERO_LIQUIDITY", true) || hn.equals("TRUE_ZERO_LIQUIDITY", true) || hn.equals("LIQUIDITY_UNKNOWN_PENDING_TOKEN_MAP", true)) && currentLiquidityUsd > 0.0) ||
                 (hn.equals("PRE_FDG_SAFETY_CONTEXT_MISSING", true) &&
                     currentSafetyTier.isNotBlank() && !currentSafetyTier.equals("UNKNOWN", true))
         }
@@ -377,7 +381,8 @@ object ExecutableOpenGate {
         val r = reason.uppercase()
         return when {
             log.contains("RUNTIME") || r.contains("CIRCUIT") || r.contains("LOCKDOWN") -> 120_000L
-            log.contains("FATAL_V3") || r.contains("EXTREME_RUG") || r.contains("ZERO_LIQUIDITY") -> 10 * 60_000L
+            log.contains("FATAL_V3") || r.contains("EXTREME_RUG") || r.contains("TRUE_ZERO_LIQUIDITY") -> 10 * 60_000L
+            r.contains("LIQUIDITY_UNKNOWN_PENDING_TOKEN_MAP") || r.contains("TOKEN_MAP_PENDING") -> 30_000L
             r.contains("WAIT") -> 60_000L
             r.contains("INSUFFICIENT") -> 30_000L
             r.contains("LOW_LIQUIDITY") || r.contains("LIQUIDITY_BELOW") -> 60_000L
@@ -459,10 +464,19 @@ object ExecutableOpenGate {
         preFdgVerdict: String = if (canExecute) "BUY" else "NO_BUY",
         candidateVersion: Long = LaneExecutionCoordinator.candidateVersionFor(mint),
         entryScore: Int = -1,  // V5.9.1373 — drives SHADOW_TRAIN_ONLY gate
+        tokenMapRouteStatus: String = "",
+        tokenMapHydrationComplete: Boolean = false,
+        tokenMapExpectedOut: Double = 0.0,
+        tokenMapProviderAttempts: Int = 0,
     ) {
         val paperRuntime = try { RuntimeModeAuthority.isPaper() } catch (_: Throwable) { false }
+        val tokenRouteUpper = tokenMapRouteStatus.uppercase()
+        val tokenMapExecutable = tokenRouteUpper == "PUMPFUN_BONDING_CURVE_EXECUTABLE" || tokenRouteUpper == "DEX_ROUTABLE"
+        val tokenMapNoRoute = tokenRouteUpper in setOf("NO_ROUTE", "TRUE_ZERO_LIQUIDITY")
+        val tokenMapTrueZero = tokenMapHydrationComplete && tokenMapNoRoute && tokenMapExpectedOut <= 0.0 && tokenMapProviderAttempts >= 2
         val finalHardNo = hardNoReasons.toMutableList().apply {
-            if (liquidityUsd <= 0.0) add("ZERO_LIQUIDITY")
+            if (liquidityUsd <= 0.0 && tokenMapTrueZero) add("TRUE_ZERO_LIQUIDITY")
+            if (liquidityUsd <= 0.0 && !tokenMapTrueZero && !tokenMapExecutable) add("LIQUIDITY_UNKNOWN_PENDING_TOKEN_MAP")
             // V5.0.3915 — hard-block residue purge. FDG/ticket hardNo may only
             // encode mechanical impossibility / confirmed rug. Missing safety, pending
             // RC, low-but-nonzero RC, LP/mint/dev/holder warnings are penalty/size
@@ -521,6 +535,10 @@ object ExecutableOpenGate {
                 candidateVersion = candidateVersion,
                 entryScore = if (entryScore >= 0) entryScore else old?.entryScore ?: -1,
                 liquidityUsd = if (liquidityUsd > 0.0) liquidityUsd else old?.liquidityUsd ?: 0.0,
+                tokenMapRouteStatus = tokenMapRouteStatus.ifBlank { old?.tokenMapRouteStatus ?: "LIQUIDITY_UNKNOWN_PENDING_TOKEN_MAP" },
+                tokenMapHydrationComplete = tokenMapHydrationComplete || old?.tokenMapHydrationComplete == true,
+                tokenMapExpectedOut = if (tokenMapExpectedOut > 0.0) tokenMapExpectedOut else old?.tokenMapExpectedOut ?: 0.0,
+                tokenMapProviderAttempts = if (tokenMapProviderAttempts > 0) tokenMapProviderAttempts else old?.tokenMapProviderAttempts ?: 0,
                 rugScore = if (rugScore >= 0) rugScore else old?.rugScore ?: -1,
                 safetyTier = if (safetyTier.isNotBlank() && !safetyTier.equals("UNKNOWN", true)) safetyTier else old?.safetyTier ?: "UNKNOWN",
                 updatedAtMs = System.currentTimeMillis(),
@@ -936,7 +954,11 @@ object ExecutableOpenGate {
             val ticketHardNo = immutableTicket.hardNoReasons.firstOrNull { trueHardTicketKill(it) }
             if (ticketExpired) return blocked("EXEC_OPEN_BLOCKED_STALE_TICKET", "TICKET_TTL_EXPIRED")
             if (ticketHardNo != null) return blocked("EXEC_OPEN_BLOCKED_TICKET_HARD_SAFETY", ticketHardNo)
-            if (liquidityUsd <= 0.0 && immutableTicket.liquidityUsd <= 0.0) return blocked("EXEC_OPEN_BLOCKED_ZERO_LIQUIDITY", "ZERO_LIQUIDITY")
+            val ticketRouteUpper = tokenMapRouteStatus.uppercase()
+            val ticketNoRoute = ticketRouteUpper in setOf("NO_ROUTE", "TRUE_ZERO_LIQUIDITY")
+            val ticketExecutableRoute = ticketRouteUpper in setOf("PUMPFUN_BONDING_CURVE_EXECUTABLE", "DEX_ROUTABLE")
+            if (liquidityUsd <= 0.0 && immutableTicket.liquidityUsd <= 0.0 && tokenMapHydrationComplete && ticketNoRoute && tokenMapProviderAttempts >= 2) return blocked("EXEC_OPEN_BLOCKED_TRUE_ZERO_LIQUIDITY", "TRUE_ZERO_LIQUIDITY")
+            if (liquidityUsd <= 0.0 && immutableTicket.liquidityUsd <= 0.0 && !ticketExecutableRoute) return blocked("EXEC_OPEN_DEFERRED_TOKEN_MAP", "LIQUIDITY_UNKNOWN_PENDING_TOKEN_MAP", shadow = true)
             try {
                 ForensicLogger.lifecycle(
                     "EXEC_TICKET_RESTORED_IMMUTABLE",
@@ -1033,19 +1055,23 @@ object ExecutableOpenGate {
             } catch (_: Throwable) {}
         }
         if (liquidityUsd <= 0.0) {
-            // V5.9.1336 — ZERO LIQUIDITY IS UNCONDITIONAL, EVEN IN PAPER.
-            // Previously shadow=PAPER let liq=$0 tokens execute in paper "to learn".
-            // But a $0-liquidity mint is STRUCTURALLY UNTRADEABLE: no buyer exists,
-            // so any paper fill is fictional and every modelled stop-loss is a max
-            // loss that could never fill at that price in live. The live snapshot
-            // showed BODEN/RUGS (liq=$0) walking through V3 vol_gate soft-shaping
-            // straight into EXEC, then dying on SHITCOIN_STOP_LOSS — the dominant
-            // source of the 12.9% WR / 45-loss cold streak. This is INVALID DATA,
-            // not a -EV judgement, so the Train-First policy (1321) explicitly
-            // permits hard-blocking it. Upstream learning surfaces still SEE the
-            // token (intake/V3/danger-bucket training are untouched); we just stop
-            // manufacturing impossible fills that poison the WR signal.
-            return blocked("EXEC_OPEN_BLOCKED_ZERO_LIQUIDITY", "ZERO_LIQUIDITY", shadow = false)
+            val routeUpper = tokenMapRouteStatus.uppercase()
+            val executableTokenMap = routeUpper == "PUMPFUN_BONDING_CURVE_EXECUTABLE" || routeUpper == "DEX_ROUTABLE"
+            val routeNoRoute = routeUpper in setOf("NO_ROUTE", "TRUE_ZERO_LIQUIDITY")
+            val trueZeroTokenMap = tokenMapHydrationComplete && routeNoRoute && tokenMapExpectedOut <= 0.0 && tokenMapProviderAttempts >= 2
+            if (!trueZeroTokenMap && !executableTokenMap) {
+                try {
+                    ForensicLogger.lifecycle(
+                        "TOKEN_MAP_PENDING",
+                        "attemptId=$attemptId mint=${mint.take(10)} symbol=$symbol stage=ExecutableOpenGate route=$tokenMapRouteStatus providers=$tokenMapProviderAttempts expectedOut=$tokenMapExpectedOut action=defer_not_zero_liquidity",
+                    )
+                    PipelineHealthCollector.labelInc("TOKEN_MAP_PENDING")
+                } catch (_: Throwable) {}
+                return blocked("EXEC_OPEN_DEFERRED_TOKEN_MAP", "LIQUIDITY_UNKNOWN_PENDING_TOKEN_MAP", shadow = true)
+            }
+            if (trueZeroTokenMap) {
+                return blocked("EXEC_OPEN_BLOCKED_TRUE_ZERO_LIQUIDITY", "TRUE_ZERO_LIQUIDITY", shadow = false)
+            }
         }
         if (!signal.equals("BUY", true) && !signal.equals("EXECUTE", true)) {
             if (modeUpper == "LIVE" && fdgCan == true && hardNoReasons.isEmpty() && liquidityUsd > 0.0) {

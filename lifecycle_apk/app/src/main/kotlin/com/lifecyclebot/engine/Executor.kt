@@ -8471,6 +8471,10 @@ class Executor(
                 candidateVersion = effectiveAttemptId.substringAfterLast(":").toLongOrNull()
                     ?: LaneExecutionCoordinator.candidateVersionFor(ts.mint),
                 entryScore = v3Score,
+                tokenMapRouteStatus = TokenMapAuthority.ensureDiscoveryTokenMap(ts, ts.source).routeStatus,
+                tokenMapHydrationComplete = ts.tokenMap.hydrationComplete,
+                tokenMapExpectedOut = ts.tokenMap.expectedOutAmount,
+                tokenMapProviderAttempts = ts.tokenMap.providerAttempts,
             )
         } catch (_: Throwable) {}
 
@@ -9754,6 +9758,32 @@ class Executor(
             )
         } catch (_: Throwable) {}
         
+        // V5.0.4012 — TokenMap is authoritative before live spend.
+        run {
+            val routeOk = try { TokenMapAuthority.executableForLiveBuy(ts) } catch (_: Throwable) { false }
+            if (!routeOk) {
+                val verdict = try { TokenMapAuthority.liquidityVerdict(ts) } catch (_: Throwable) { null }
+                if (verdict?.hardZero == true || verdict?.sourceIdentityBad == true) {
+                    try {
+                        ForensicLogger.lifecycle("EXEC_OPEN_ABORT_TERMINAL", "attemptId=${ts.tokenMap.buyAttemptId} mint=${ts.mint.take(10)} symbol=${ts.symbol} stage=TokenMapAuthority reason=${verdict.status} detail=${verdict.reason.take(120)}")
+                        PipelineHealthCollector.labelInc("LIVE_BUY_BLOCKED_${verdict.status}")
+                    } catch (_: Throwable) {}
+                    emitLiveBuyFail(ts, sol, "PRETRADE_HARD_BLOCK", verdict.status)
+                    buyTerminalFail("BUY_TERMINAL_NO_EXECUTABLE_ROUTE:TOKEN_MAP_${verdict.status}")
+                    return false
+                }
+                try {
+                    TokenMapAuthority.ensureDiscoveryTokenMap(ts, ts.source)
+                    ForensicLogger.lifecycle("EXEC_OPEN_DEFERRED_TOKEN_MAP", "attemptId=${ts.tokenMap.buyAttemptId} mint=${ts.mint.take(10)} symbol=${ts.symbol} route=${ts.tokenMap.routeStatus} expectedOut=${ts.tokenMap.expectedOutAmount} ageMs=${System.currentTimeMillis() - ts.tokenMap.updatedAtMs} action=hydrate_then_retry no_live_buy_fail=true")
+                    PipelineHealthCollector.labelInc("LIVE_BUY_DEFERRED_TOKEN_MAP")
+                    ForensicLogger.exec("LIVE_BUY_DEFERRED", ts.symbol, "attemptId=${ts.tokenMap.buyAttemptId} mint=${ts.mint.take(10)} sol=$sol reason=TOKEN_MAP_ROUTE_NOT_EXECUTABLE route=${ts.tokenMap.routeStatus}")
+                } catch (_: Throwable) {}
+                try { ExecutionAttemptLease.releaseNonTerminal(buyLease.key, "BUY", ts.mint, ts.symbol, "DEFERRED_TOKEN_MAP_PENDING") } catch (_: Throwable) {}
+                buyTerminalRecorded = true
+                return false
+            }
+        }
+
         // V5.9.756 — extracted to LiveBuyAdmissionGate (Emergent CRITICAL ticket).
         // The V5.9.753 inline gate was only wired into liveBuy. liveTopUp
         // (which routes through tryPumpPortalBuy at line 4523) bypassed it,
@@ -9799,22 +9829,26 @@ class Executor(
             if (!preTrade.allowed) {
                 if (preTrade.reason == "DEFER_SAFETY_PROOF") {
                     try { SafetyRefreshQueue.request(ts.mint) } catch (_: Throwable) {}
+                    val tokenMapPending = preTrade.detail.contains("LIQUIDITY_UNKNOWN_PENDING_TOKEN_MAP", ignoreCase = true) || preTrade.detail.contains("TOKEN_MAP_PENDING", ignoreCase = true)
+                    if (tokenMapPending) {
+                        try { TokenMapAuthority.ensureDiscoveryTokenMap(ts, ts.source) } catch (_: Throwable) {}
+                    }
                     // V5.0.3894 — do NOT zero lastSafetyCheck here. BotService now
                     // consumes SafetyRefreshQueue synchronously before FDG. Resetting
                     // timestamps created SAFETY_NOT_READY_MISSING noise and could route
                     // current-structure live candidates into a missing-safety loop.
                     try {
-                        PipelineHealthCollector.labelInc("LIVE_BUY_DEFERRED_SAFETY_PROOF")
+                        PipelineHealthCollector.labelInc(if (tokenMapPending) "LIVE_BUY_DEFERRED_TOKEN_MAP" else "LIVE_BUY_DEFERRED_SAFETY_PROOF")
                         ForensicLogger.lifecycle(
-                            "EXEC_OPEN_DEFERRED_SAFETY_PROOF",
-                            "mint=${ts.mint.take(10)} symbol=${ts.symbol} stage=PreTradeHardGate detail=${preTrade.detail.take(120)} action=refresh_then_retry no_live_buy_fail=true",
+                            if (tokenMapPending) "EXEC_OPEN_DEFERRED_TOKEN_MAP" else "EXEC_OPEN_DEFERRED_SAFETY_PROOF",
+                            "attemptId=${ts.tokenMap.buyAttemptId} mint=${ts.mint.take(10)} symbol=${ts.symbol} stage=PreTradeHardGate detail=${preTrade.detail.take(160)} action=hydrate_then_retry no_live_buy_fail=true",
                         )
                         ForensicLogger.exec(
                             "LIVE_BUY_DEFERRED", ts.symbol,
-                            "mint=${ts.mint.take(10)} sol=$sol reason=SAFETY_PROOF_HYDRATION detail=${preTrade.detail.take(80)}",
+                            "attemptId=${ts.tokenMap.buyAttemptId} mint=${ts.mint.take(10)} sol=$sol reason=${if (tokenMapPending) "TOKEN_MAP_HYDRATION" else "SAFETY_PROOF_HYDRATION"} detail=${preTrade.detail.take(80)}",
                         )
                     } catch (_: Throwable) {}
-                    try { ExecutionAttemptLease.releaseNonTerminal(buyLease.key, "BUY", ts.mint, ts.symbol, "DEFERRED_PROOF_PENDING") } catch (_: Throwable) {}
+                    try { ExecutionAttemptLease.releaseNonTerminal(buyLease.key, "BUY", ts.mint, ts.symbol, if (tokenMapPending) "DEFERRED_TOKEN_MAP_PENDING" else "DEFERRED_PROOF_PENDING") } catch (_: Throwable) {}
                     buyTerminalRecorded = true
                     return false
                 }

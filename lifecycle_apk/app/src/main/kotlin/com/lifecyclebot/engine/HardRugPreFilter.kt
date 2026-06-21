@@ -126,12 +126,16 @@ object HardRugPreFilter {
         val lenient = ModeLeniency.useLenientGates(isPaperMode)
         if (lenient) {
             // Hard-fail: literally zero liquidity (can't execute even in paper)
-            if (ts.lastLiquidityUsd <= 0) {
+            val lenientTokenMapLiquidity = TokenMapAuthority.liquidityVerdict(ts)
+            if (lenientTokenMapLiquidity.hardZero) {
                 return PreFilterResult(
                     pass = false,
-                    reason = "ZERO_LIQUIDITY (${ModeLeniency.label(isPaperMode).lowercase()})",
+                    reason = "TRUE_ZERO_LIQUIDITY (${ModeLeniency.label(isPaperMode).lowercase()})",
                     severity = FilterSeverity.HARD_FAIL,
                 )
+            }
+            if (lenientTokenMapLiquidity.pending) {
+                try { ForensicLogger.lifecycle("TOKEN_MAP_PENDING", "mint=${ts.mint.take(10)} symbol=${ts.symbol} stage=HardRugPreFilter lenient=true reason=${lenientTokenMapLiquidity.reason.take(160)}") } catch (_: Throwable) {}
             }
             // Run all the strict checks and collect telemetry labels for any
             // that would have failed. Don't block — emit PASS with labels.
@@ -173,11 +177,20 @@ object HardRugPreFilter {
             else -> com.lifecyclebot.v3.scoring.FluidLearningAI.getRugFilterLiqEstablished()
         }
         
-        if (liq <= 0) {
+        val tokenMapLiquidity = TokenMapAuthority.liquidityVerdict(ts)
+        if (tokenMapLiquidity.hardZero) {
             return PreFilterResult(
                 pass = false,
-                reason = "ZERO_LIQUIDITY",
+                reason = "TRUE_ZERO_LIQUIDITY",
                 severity = FilterSeverity.HARD_FAIL,
+            )
+        }
+        if (liq <= 0 && tokenMapLiquidity.pending) {
+            try { ForensicLogger.lifecycle("TOKEN_MAP_PENDING", "mint=${ts.mint.take(10)} symbol=${ts.symbol} stage=HardRugPreFilter reason=${tokenMapLiquidity.reason.take(160)} action=soft_penalty_no_zero_liq") } catch (_: Throwable) {}
+            return PreFilterResult(
+                pass = true,
+                reason = "TOKEN_MAP_PENDING:${tokenMapLiquidity.reason.take(120)}",
+                severity = FilterSeverity.PASS,
             )
         }
         

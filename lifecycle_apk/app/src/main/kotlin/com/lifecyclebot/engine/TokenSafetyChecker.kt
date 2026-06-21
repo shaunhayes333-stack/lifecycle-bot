@@ -738,9 +738,10 @@ class TokenSafetyChecker(private val cfg: () -> BotConfig) {
             val MIN_EXECUTABLE_LIQ_USD = 150.0
             when {
                 currentLiquidityUsd == 0.0 -> {
-                    hard.add("ZERO LIQUIDITY — no executable route")
-                    ErrorLogger.error(TAG, "🚫 ZERO-LIQ HARD BLOCK (live): $symbol")
-                    try { ForensicLogger.lifecycle("BUY_GATE_DECISION", "mint=${mint.take(10)} symbol=$symbol decision=HARD_BLOCK reason=ZERO_LIQUIDITY source=TokenSafetyChecker liveEligible=false") } catch (_: Throwable) {}
+                    soft.add("Liquidity unknown pending canonical TokenMap hydration — no hard zero until provider quorum" to 10)
+                    penalty += 10
+                    ErrorLogger.warn(TAG, "⏳ TOKEN_MAP_PENDING (live): $symbol raw liq=0.0 — hydrate route before classifying zero liquidity")
+                    try { ForensicLogger.lifecycle("BUY_GATE_DECISION", "mint=${mint.take(10)} symbol=$symbol decision=PENDING reason=LIQUIDITY_UNKNOWN_PENDING_TOKEN_MAP source=TokenSafetyChecker liveEligible=false action=hydrate_not_zero_liquidity") } catch (_: Throwable) {}
                 }
                 currentLiquidityUsd > 0.0 && currentLiquidityUsd < MIN_EXECUTABLE_LIQ_USD -> {
                     soft.add("Low but nonzero liquidity \$${currentLiquidityUsd.toInt()} — quote/size validation required" to 12)

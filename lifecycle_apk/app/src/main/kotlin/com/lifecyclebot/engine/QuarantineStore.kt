@@ -134,7 +134,10 @@ object QuarantineStore {
             try { TokenBlacklist.isBlocked(mint) } catch (_: Throwable) { false }
         if (blacklisted) return quarantine(mint, symbol, "BLACKLISTED_TOKEN")
 
-        if (liqKnown && liquidityUsd <= 0.0) return quarantine(mint, symbol, "ZERO_LIQUIDITY")
+        if (liqKnown && liquidityUsd <= 0.0) {
+            try { ForensicLogger.lifecycle("TOKEN_MAP_PENDING", "mint=${mint.take(10)} symbol=$symbol stage=QuarantineStore action=no_quarantine_raw_zero_liquidity") } catch (_: Throwable) {}
+            return false
+        }
 
         if (rugcheckScore != null && rugcheckScore in 0..10) {
             return quarantine(mint, symbol, "RUGCHECK_${rugcheckScore}")
@@ -143,7 +146,10 @@ object QuarantineStore {
         val isRestore = src.contains("MEME_REGISTRY_RESTORE") || src.contains("RESTORE")
         if (isRestore) {
             if (priceDropPct != null && priceDropPct <= -60.0) return quarantine(mint, symbol, "RESTORE_RUG_DROP_${priceDropPct.toInt()}")
-            if (liqKnown && liquidityUsd <= 0.0) return quarantine(mint, symbol, "RESTORE_ZERO_LIQUIDITY")
+            if (liqKnown && liquidityUsd <= 0.0) {
+                try { ForensicLogger.lifecycle("TOKEN_MAP_PENDING", "mint=${mint.take(10)} symbol=$symbol stage=QuarantineStore.restore action=no_quarantine_raw_zero_liquidity") } catch (_: Throwable) {}
+                return false
+            }
             if (mcapKnown && marketCapUsd <= 0.0 && liqKnown && liquidityUsd <= 0.0) return quarantine(mint, symbol, "RESTORE_NO_MARKET")
             if (restoredLosses >= 2 && !hasExternalLiquidityProof) return quarantine(mint, symbol, "RESTORE_LOSSY_NO_LIQ_PROOF")
         }

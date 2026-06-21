@@ -91,8 +91,9 @@ object PreTradeHardGate {
         val now = System.currentTimeMillis()
         val pendingProofs = mutableListOf<String>()
 
+        TokenMapAuthority.ensureDiscoveryTokenMap(ts, ts.source)
         if (mint.isBlank() || mint.length < 30) return block(ts, "INVALID_EXACT_MINT", "mint=${mint.take(12)} site=$callSite")
-        if (MintIntegrityGate.isSystemOrStablecoinMint(mint)) return block(ts, "BASE_OR_QUOTE_MINT_AS_TARGET", mint)
+        if (MintIntegrityGate.isSystemOrStablecoinMint(mint) || TokenMapAuthority.isSourceLabel(mint)) return block(ts, "SOURCE_IDENTITY_BAD", "canonical target invalid mint=$mint route=${ts.tokenMap.routeStatus}")
         if (TokenBlacklist.isBlocked(mint)) return block(ts, "EXACT_MINT_BLACKLISTED", TokenBlacklist.getBlockReason(mint))
         if (QuarantineStore.isQuarantined(mint)) return block(ts, "EXACT_MINT_QUARANTINED", mint.take(12))
 
@@ -126,8 +127,14 @@ object PreTradeHardGate {
             true -> Unit
         }
 
-        if (ts.lastLiquidityUsd == 0.0) return block(ts, "ZERO_LIQUIDITY", "liq=0")
-        if (!safety.liqConfirmed) pendingProofs.add("LIQUIDITY_PROOF_PENDING")
+        val tokenMapLiquidity = TokenMapAuthority.liquidityVerdict(ts)
+        when {
+            tokenMapLiquidity.sourceIdentityBad -> return block(ts, "SOURCE_IDENTITY_BAD", tokenMapLiquidity.reason)
+            tokenMapLiquidity.hardZero -> return block(ts, "TRUE_ZERO_LIQUIDITY", tokenMapLiquidity.reason)
+            tokenMapLiquidity.pending -> pendingProofs.add("LIQUIDITY_UNKNOWN_PENDING_TOKEN_MAP:${tokenMapLiquidity.reason}")
+            tokenMapLiquidity.executable -> Unit
+        }
+        if (!safety.liqConfirmed && !tokenMapLiquidity.executable) pendingProofs.add("LIQUIDITY_PROOF_PENDING")
         if (ts.lastLiquidityUsd > 0.0 && ts.lastLiquidityUsd < MIN_LIVE_LIQ_USD) {
             pendingProofs.add("LOW_LIQUIDITY_SIZE_REDUCED:liq=${ts.lastLiquidityUsd} min=$MIN_LIVE_LIQ_USD")
             try { ForensicLogger.lifecycle("BUY_GATE_DECISION", "mint=${ts.mint.take(10)} symbol=${ts.symbol} decision=PENALTY_ONLY reason=LOW_LIQUIDITY_SIZE_REDUCED source=PreTradeHardGate liveEligible=true") } catch (_: Throwable) {}
