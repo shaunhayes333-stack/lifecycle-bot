@@ -45,6 +45,10 @@ object LearningPnlSanitizer {
         if (side != "SELL" && side != "PARTIAL_SELL") return Verdict(true, t.pnlPct)
         if (t.entryCostSol <= 0.0 || !t.entryCostSol.isFinite()) return reject("MISSING_ENTRY_COST_BASIS", t.pnlPct, context, emit = emit)
         if (t.entryPriceSnapshot <= 0.0 || !t.entryPriceSnapshot.isFinite()) return reject("MISSING_ENTRY_PRICE_BASIS", t.pnlPct, context, emit = emit)
+        val labelVerdict = try { CloseOutcomeLabelSanitizer.inspect(t) } catch (_: Throwable) { null }
+        if (labelVerdict?.dirty == true && side == "PARTIAL_SELL") {
+            return reject(labelVerdict.dirtyReason.ifBlank { "DIRTY_PARTIAL_LABEL" }, t.pnlPct, context, emit = emit)
+        }
         val realizedSol = t.netPnlSol.takeIf { it != 0.0 } ?: t.pnlSol
         return inspectPct(
             pnlPct = t.pnlPct,

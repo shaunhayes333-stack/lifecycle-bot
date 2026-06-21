@@ -735,7 +735,11 @@ object TradeHistoryStore {
 
         val normalizedProof = normalizeProofState(trade)
         val normalizedTrade = if (normalizedMode != trade.tradingMode || normalizedProof != trade.proofState) trade.copy(tradingMode = normalizedMode, proofState = normalizedProof) else trade
-        val tradeToStore = enrichJournalLinkage(normalizedTrade)
+        // V5.0.4024 — outcome labels must agree with realized PnL before the row
+        // reaches journal persistence, lifetime counters, or canonical learning.
+        // This repairs rows like TAKE_PROFIT at -95% and partial_15pct at -93%
+        // without changing accounting/PnL/lane/proof data.
+        val tradeToStore = CloseOutcomeLabelSanitizer.canonicalize(enrichJournalLinkage(normalizedTrade))
         if (!isValidAccountingTrade(tradeToStore)) {
             try {
                 ErrorLogger.warn(
@@ -899,7 +903,12 @@ object TradeHistoryStore {
         // must never reach UI totals, WR, avg win, lane tuners, or learning consumers.
         // recordTrade() now quarantines future invalid rows; this read filter protects
         // existing legacy rows already present in memory/SQLite before the fix.
-        return synchronized(lock) { trades.filter { isValidAccountingTrade(it) }.toList() }
+        return synchronized(lock) {
+            trades.asSequence()
+                .map { CloseOutcomeLabelSanitizer.canonicalize(it, emit = false) }
+                .filter { isValidAccountingTrade(it) }
+                .toList()
+        }
     }
 
 
@@ -911,6 +920,7 @@ object TradeHistoryStore {
         val cap = limit.coerceAtLeast(1)
         return synchronized(lock) {
             trades.asReversed().asSequence()
+                .map { CloseOutcomeLabelSanitizer.canonicalize(it, emit = false) }
                 .filter { isValidAccountingTrade(it) }
                 .take(cap)
                 .toList()
@@ -923,6 +933,7 @@ object TradeHistoryStore {
         val cap = limit.coerceAtLeast(1)
         return synchronized(lock) {
             trades.asReversed().asSequence()
+                .map { CloseOutcomeLabelSanitizer.canonicalize(it, emit = false) }
                 .filter { if (includePartials) isJournalSellLike(it.side) else it.side.equals("SELL", true) }
                 .filter { isValidAccountingTrade(it) }
                 .take(cap)
@@ -1074,7 +1085,12 @@ object TradeHistoryStore {
         if (database == null) {
             // DB not open yet — fall back to in-memory list (may be empty on first open)
             ensureInitialized()
-            return synchronized(lock) { trades.filter { isValidAccountingTrade(it) }.toList() }
+            return synchronized(lock) {
+            trades.asSequence()
+                .map { CloseOutcomeLabelSanitizer.canonicalize(it, emit = false) }
+                .filter { isValidAccountingTrade(it) }
+                .toList()
+        }
         }
         val loaded = mutableListOf<Trade>()
         try {
@@ -1112,7 +1128,8 @@ object TradeHistoryStore {
                         entryPriceSource = c.stringOrBlank("entry_price_source"),
                         entryPoolAddress = c.stringOrBlank("entry_pool_address"),
                     )
-                    if (isValidAccountingTrade(row)) loaded.add(row)
+                    val displayRow = CloseOutcomeLabelSanitizer.canonicalize(row, emit = false)
+                    if (isValidAccountingTrade(displayRow)) loaded.add(displayRow)
                     else try { ErrorLogger.warn("TradeHistoryStore", "TRADE_ACCOUNTING_LEGACY_ROW_FILTERED mint=${row.mint.take(8)} side=${row.side} pnlPct=${row.pnlPct} pnl=${row.pnlSol} reason=${row.reason}") } catch (_: Throwable) {}
                 }
             }
@@ -1123,7 +1140,12 @@ object TradeHistoryStore {
             // Fall back to in-memory list on any DB error, but still apply the
             // canonical accounting quarantine so legacy decimal-corrupt rows never
             // reappear in the journal/header.
-            return synchronized(lock) { trades.filter { isValidAccountingTrade(it) }.toList() }
+            return synchronized(lock) {
+            trades.asSequence()
+                .map { CloseOutcomeLabelSanitizer.canonicalize(it, emit = false) }
+                .filter { isValidAccountingTrade(it) }
+                .toList()
+        }
         }
         return loaded
     }

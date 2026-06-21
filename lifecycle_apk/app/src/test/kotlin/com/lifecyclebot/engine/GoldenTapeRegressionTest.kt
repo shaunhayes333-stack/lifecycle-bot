@@ -989,7 +989,7 @@ class GoldenTapeRegressionTest {
         assertTrue(store.contains("LearningPnlSanitizer.inspectTrade(t, \"TradeHistoryStore.isValidAccountingTrade\", emit = false)"))
         assertFalse("canonical accounting must not keep the obsolete +100000% poison ceiling", store.contains("t.pnlPct > 100_000.0"))
         assertTrue(store.contains("TRADE_ACCOUNTING_QUARANTINED"))
-        assertTrue(store.contains("return synchronized(lock) { trades.filter { isValidAccountingTrade(it) }.toList() }"))
+        assertTrue(store.contains("CloseOutcomeLabelSanitizer.canonicalize(it, emit = false)") && store.contains("filter { isValidAccountingTrade(it) }"))
         assertTrue(store.contains("TRADE_ACCOUNTING_LEGACY_ROW_FILTERED"))
         assertTrue(store.contains("TRADE_ACCOUNTING_BULK_QUARANTINED"))
         assertTrue(store.contains("TRADE_ACCOUNTING_DB_INIT_FILTERED"))
@@ -2170,7 +2170,7 @@ class GoldenTapeRegressionTest {
         val paperClose = java.io.File("src/main/kotlin/com/lifecyclebot/engine/PaperPositionCloseAuthority.kt").readText()
 
         val partialStart = exec.indexOf("fun checkPartialSell")
-        val partialChunk = exec.substring(partialStart, minOf(exec.length, partialStart + 8000))
+        val partialChunk = exec.substring(partialStart, minOf(exec.length, partialStart + 12000))
         val paperIdx = partialChunk.indexOf("if (pos.isPaperPosition)")
         val liveProofIdx = partialChunk.indexOf("SellAmountAuthority.resolveForExit")
         val liveWaitIdx = partialChunk.indexOf("SELL_WAITING_BALANCE_PROOF")
@@ -2998,7 +2998,7 @@ class GoldenTapeRegressionTest {
         assertTrue("BUY_NOT_OPENED must release execution permit and lane primary", exec.contains("FinalExecutionPermit.releaseExecution(ts.mint)") && exec.contains("LaneExecutionCoordinator.releaseIfPrimary"))
 
         val learning = java.io.File("src/main/kotlin/com/lifecyclebot/engine/CanonicalLearning.kt").readText()
-        assertTrue("Stop-loss label conflicting with positive signed PnL must not train", learning.contains("LEARNING_LABEL_SIGN_CONFLICT_QUARANTINED") && learning.contains("labelLooksStopLoss && learningPnlVerdict.pnlPct > 0.5"))
+        assertTrue("Close label/PnL conflicts must not train", learning.contains("LEARNING_LABEL_SIGN_CONFLICT_QUARANTINED") && learning.contains("CloseOutcomeLabelSanitizer.inspect(trade)") && learning.contains("TRAINING_ROW_EXCLUDED_REASON_"))
     }
 
 
@@ -3695,6 +3695,23 @@ class GoldenTapeRegressionTest {
         assertTrue("AgenticStyleRouter must expose tuned size/tp/hold multipliers", router.contains("tunedSizeMult") && router.contains("tunedTpMult") && router.contains("tunedHoldMult") && router.contains("LiveStrategyTuner.adjustment"))
         assertTrue("Executor must raise live TP/partial patience from LiveStrategyTuner", exec.contains("LIVE_STRATEGY_TUNER_TP_RAISED") && exec.contains("LiveStrategyTuner.livePartialProfitFloorPct") && exec.contains("PARTIAL_BLOCKED_BELOW_BREAKEVEN"))
         assertTrue("Operational report must surface LiveStrategyTuner state", reporting.contains("live_strategy_tuner") && reporting.contains("LiveStrategyTuner.statusLine"))
+    }
+
+
+    @Test
+    fun close_outcome_labels_are_sanitized_before_journal_and_learning() {
+        val sanitizer = java.io.File("src/main/kotlin/com/lifecyclebot/engine/CloseOutcomeLabelSanitizer.kt").readText()
+        val store = java.io.File("src/main/kotlin/com/lifecyclebot/engine/TradeHistoryStore.kt").readText()
+        val learning = java.io.File("src/main/kotlin/com/lifecyclebot/engine/CanonicalLearning.kt").readText()
+        val pnl = java.io.File("src/main/kotlin/com/lifecyclebot/engine/LearningPnlSanitizer.kt").readText()
+
+        assertTrue("close sanitizer must rewrite negative take-profit/profit-lock labels", sanitizer.contains("REALIZED_LOSS_AFTER_PROFIT_SIGNAL") && sanitizer.contains("PROFIT_LABEL_NEGATIVE_PNL"))
+        assertTrue("close sanitizer must rewrite risk labels that closed green/scratch", sanitizer.contains("REALIZED_WIN_AFTER_RISK_EXIT_SIGNAL") && sanitizer.contains("REALIZED_SCRATCH_AFTER_RISK_EXIT_SIGNAL"))
+        assertTrue("below-floor partial rows must be marked dirty, not trained as profit distribution", sanitizer.contains("PARTIAL_BELOW_PROFIT_FLOOR") && sanitizer.contains("PARTIAL_PROFIT_FLOOR_PCT = 8.0"))
+        assertTrue("journal write path must canonicalize labels before persistence/fanout", store.contains("CloseOutcomeLabelSanitizer.canonicalize(enrichJournalLinkage"))
+        assertTrue("legacy SQLite and in-memory journal reads must canonicalize labels for UI/reporting", store.contains("val displayRow = CloseOutcomeLabelSanitizer.canonicalize(row, emit = false)") && store.contains("map { CloseOutcomeLabelSanitizer.canonicalize(it, emit = false) }"))
+        assertTrue("canonical learning must quarantine dirty label contradictions", learning.contains("CloseOutcomeLabelSanitizer.inspect(trade)") && learning.contains("LEARNING_LABEL_SIGN_CONFLICT_QUARANTINED") && learning.contains("TRAINING_ROW_EXCLUDED_REASON_"))
+        assertTrue("partial dirty rows must be excluded from learning-facing PnL sanitizer", pnl.contains("side == \"PARTIAL_SELL\"") && pnl.contains("labelVerdict.dirtyReason"))
     }
 
 }

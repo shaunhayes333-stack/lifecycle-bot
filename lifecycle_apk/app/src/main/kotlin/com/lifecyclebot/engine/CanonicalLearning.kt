@@ -928,12 +928,11 @@ object CanonicalOutcomeBus {
             // Journal/accounting row remains stored; only strategy-learning fanout is suppressed.
             return
         }
-        val labelLooksStopLoss = trade.reason.contains("STOP", ignoreCase = true) ||
-            trade.reason.contains("SL", ignoreCase = true) ||
-            trade.reason.contains("HARD_FLOOR", ignoreCase = true)
-        if (labelLooksStopLoss && learningPnlVerdict.pnlPct > 0.5) {
+        val labelVerdict = try { CloseOutcomeLabelSanitizer.inspect(trade) } catch (_: Throwable) { null }
+        if (labelVerdict?.dirty == true) {
             try { PipelineHealthCollector.labelInc("LEARNING_LABEL_SIGN_CONFLICT_QUARANTINED") } catch (_: Throwable) {}
-            try { ForensicLogger.lifecycle("LEARNING_LABEL_SIGN_CONFLICT_QUARANTINED", "mint=${trade.mint.take(10)} reason=${trade.reason.take(48)} pnlPct=${"%.2f".format(learningPnlVerdict.pnlPct)}") } catch (_: Throwable) {}
+            try { PipelineHealthCollector.labelInc("TRAINING_ROW_EXCLUDED_REASON_${labelVerdict.dirtyReason}") } catch (_: Throwable) {}
+            try { ForensicLogger.lifecycle("LEARNING_LABEL_SIGN_CONFLICT_QUARANTINED", "mint=${trade.mint.take(10)} reason=${trade.reason.take(48)} canonical=${labelVerdict.canonicalReason} dirty=${labelVerdict.dirtyReason} pnlPct=${"%.2f".format(learningPnlVerdict.pnlPct)}") } catch (_: Throwable) {}
             return
         }
         val executionResult = if (trade.sig.isNotBlank() || env == TradeEnvironment.PAPER)
