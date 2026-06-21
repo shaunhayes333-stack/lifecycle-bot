@@ -53,11 +53,19 @@ object ExecutionRouteGuard {
     ): Verdict {
         val modeLive = RuntimeModeAuthority.isLive()
         val walletConnected = try { BotService.walletManager.state.value.connectionState == WalletConnectionState.CONNECTED } catch (_: Throwable) { wallet != null }
-        val safetyFresh = try { ts.safety.rugcheckScore >= 0 } catch (_: Throwable) { true }
-        val allowed = modeLive && liveTradingEnabled && wallet != null && walletConnected && walletSol > 0.0 && safetyFresh
+        // V5.0.4007 — route authority is not safety finality.
+        // Runtime 4006 showed FDG/EXEC_GATE green but LIVE buys dying as
+        // LIVE_BUY_REJECTED_HARD_BLOCK_NO_EXECUTABLE_ROUTE because fresh meme
+        // candidates often carry rugcheckScore=-1 while proof hydration is still
+        // pending. That is not a missing live route; it belongs to
+        // ExecutableOpenGate/PreTradeHardGate/SafetyRefreshQueue, which can defer
+        // non-terminal or hard-block true rugs. Keep this guard mechanical only:
+        // live mode, live enabled, wallet present/connected, and spendable SOL.
+        val safetyPending = try { ts.safety.rugcheckScore < 0 } catch (_: Throwable) { false }
+        val allowed = modeLive && liveTradingEnabled && wallet != null && walletConnected && walletSol > 0.0
         return if (allowed) {
             liveAllowed.incrementAndGet()
-            Verdict(true, Route.LIVE, "LIVE_ALLOWED")
+            Verdict(true, Route.LIVE, if (safetyPending) "LIVE_ALLOWED_SAFETY_PENDING_DOWNSTREAM_GATE" else "LIVE_ALLOWED")
         } else {
             liveBlocked.incrementAndGet()
             val reason = listOfNotNull(
@@ -66,7 +74,6 @@ object ExecutionRouteGuard {
                 if (wallet == null) "WALLET_NULL" else null,
                 if (!walletConnected) "WALLET_NOT_CONNECTED" else null,
                 if (walletSol <= 0.0) "WALLET_BALANCE_ZERO" else null,
-                if (!safetyFresh) "SAFETY_NOT_FRESH" else null,
             ).joinToString("+").ifBlank { "LIVE_ROUTE_BLOCKED" }
             Verdict(false, Route.LIVE, reason)
         }

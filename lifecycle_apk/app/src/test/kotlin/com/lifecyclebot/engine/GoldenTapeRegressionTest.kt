@@ -2419,6 +2419,31 @@ class GoldenTapeRegressionTest {
 
 
 
+
+    @Test
+    fun live_route_guard_does_not_convert_pending_safety_into_no_executable_route() {
+        val guard = java.io.File("src/main/kotlin/com/lifecyclebot/engine/ExecutionRouteGuard.kt").readText()
+        val exec = java.io.File("src/main/kotlin/com/lifecyclebot/engine/Executor.kt").readText()
+        assertTrue(
+            "ExecutionRouteGuard must stay mechanical; safety/rugcheck pending belongs to downstream safety gates, not NO_EXECUTABLE_ROUTE",
+            guard.contains("route authority is not safety finality") &&
+                guard.contains("val safetyPending") &&
+                guard.contains("LIVE_ALLOWED_SAFETY_PENDING_DOWNSTREAM_GATE") &&
+                guard.contains("walletSol > 0.0") &&
+                !guard.contains("&& safetyFresh") &&
+                !guard.contains("SAFETY_NOT_FRESH")
+        )
+        assertTrue(
+            "Executor must still run provider/pretrade/finality after live route selection",
+            exec.contains("LIVE_ROUTE_SELECTED") &&
+                exec.contains("LIVE_PROVIDER_QUORUM") &&
+                exec.contains("PreTradeHardGate.check") &&
+                exec.contains("ExecutableOpenGate.canOpenExecutablePosition") &&
+                exec.contains("LIVE_BUY_REJECTED_HARD_BLOCK_ROUTE_") &&
+                !exec.contains("LIVE_BUY_REJECTED_HARD_BLOCK_NO_EXECUTABLE_ROUTE")
+        )
+    }
+
     @Test
     fun live_advisory_shape_preserves_executable_lane_without_buy_fail_choke() {
         val exec = java.io.File("src/main/kotlin/com/lifecyclebot/engine/Executor.kt").readText()

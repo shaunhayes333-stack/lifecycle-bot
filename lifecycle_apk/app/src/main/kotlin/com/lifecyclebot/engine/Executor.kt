@@ -9481,8 +9481,9 @@ class Executor(
         if (!liveRoute.allowed) {
             try { ForensicLogger.lifecycle("LIVE_ROUTE_BLOCKED", "symbol=${ts.symbol} mint=${ts.mint.take(10)} sol=$sol reason=${liveRoute.reason}") } catch (_: Throwable) {}
             ErrorLogger.warn("Executor", "🚫 LIVE_ROUTE_BLOCKED: ${ts.symbol} | ${liveRoute.reason}")
-            emitLiveBuyFail(ts, sol, "LIVE_BUY_REJECTED_HARD_BLOCK_NO_EXECUTABLE_ROUTE", liveRoute.reason)
-            buyTerminalFail("BUY_TERMINAL_NO_EXECUTABLE_ROUTE:${liveRoute.reason.take(80)}")
+            val routeFailBucket = "LIVE_BUY_REJECTED_HARD_BLOCK_ROUTE_${liveRoute.reason.take(72).replace(' ', '_').replace('+', '_')}"
+            emitLiveBuyFail(ts, sol, routeFailBucket, liveRoute.reason)
+            buyTerminalFail("BUY_TERMINAL_ROUTE_AUTHORITY:${liveRoute.reason.take(80)}")
             return false
         }
         try {
