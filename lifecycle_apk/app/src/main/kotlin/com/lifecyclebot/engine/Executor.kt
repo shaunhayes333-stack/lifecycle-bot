@@ -2238,7 +2238,7 @@ class Executor(
         // price and live liquidity to prevent unrealistic impact, but don't mistake
         // low-but-exitable liquidity for a dust-only probe.
         val liquidityCapSol = if (liqUsd > 0.0) {
-            ((liqUsd * growthPolicy.liquidityImpactPct) / solPx).coerceIn(0.012, spendable)
+            ((liqUsd * growthPolicy.liquidityImpactPct) / solPx).coerceIn(0.005, spendable)
         } else {
             spendable * (growthPolicy.maxWalletPct * 0.65)
         }
@@ -9878,6 +9878,9 @@ class Executor(
             }
         }
 
+        var livePendingProofPenalty = false
+        var livePendingProofPenaltyDetail = ""
+
         // V5.0.3706 — RESTORE FINAL LIVE PRE-BROADCAST RUG DEFENSE.
         // This was added in 3692 and removed by the rollback to 3690 parity.
         // LiveBuyAdmissionGate only proves a safety report exists/fresh/not HARD_BLOCK;
@@ -9886,6 +9889,8 @@ class Executor(
         // This gate is immediately before live spend/broadcast and is LIVE-only.
         run {
             val preTrade = PreTradeHardGate.requireLiveBuyAllowed(ts, "Executor.liveBuy.main")
+            livePendingProofPenalty = preTrade.allowed && preTrade.detail.contains("pending_penalty", ignoreCase = true)
+            if (livePendingProofPenalty) livePendingProofPenaltyDetail = preTrade.detail.take(180)
             if (!preTrade.allowed) {
                 if (preTrade.reason == "DEFER_SAFETY_PROOF") {
                     try { SafetyRefreshQueue.request(ts.mint) } catch (_: Throwable) {}
@@ -9983,9 +9988,24 @@ class Executor(
             sol = liveMinExecutableBuySol
             try { ForensicLogger.lifecycle("LIVE_BUY_SIZE_RAISED_TO_MIN_NON_MICRO", "mint=${ts.mint.take(10)} symbol=${ts.symbol} requested=$old raised=$sol walletSol=$walletSol spendable=$maxSpendableSol allowMicro=${liveCfg.allowLiveMicroProbe}") } catch (_: Throwable) {}
         }
-        val realisticSolRaw = realisticLiveEntrySize(ts, sol, walletSol, score, layerTag.ifBlank { identity?.source ?: ts.source }, "liveBuy.final")
+        if (livePendingProofPenalty) {
+            val old = sol
+            sol = minOf(sol, liveMinExecutableBuySol, maxSpendableSol).coerceAtLeast(0.0)
+            try {
+                ForensicLogger.lifecycle(
+                    "LIVE_PENDING_PROOF_MICRO_CAP",
+                    "mint=${ts.mint.take(10)} symbol=${ts.symbol} requested=$old capped=$sol microFloor=$liveMinExecutableBuySol detail=${livePendingProofPenaltyDetail.take(120)}"
+                )
+                PipelineHealthCollector.labelInc("LIVE_PENDING_PROOF_MICRO_CAP")
+            } catch (_: Throwable) {}
+        }
+        val realisticSolRaw = if (livePendingProofPenalty) sol else realisticLiveEntrySize(ts, sol, walletSol, score, layerTag.ifBlank { identity?.source ?: ts.source }, "liveBuy.final")
         val realisticSol = if (!liveCfg.allowLiveMicroProbe && realisticSolRaw < liveMinExecutableBuySol) liveMinExecutableBuySol else realisticSolRaw
-        if (realisticSol > maxSpendableSol) {
+        if (livePendingProofPenalty && realisticSol > liveMinExecutableBuySol) {
+            val old = realisticSol
+            sol = liveMinExecutableBuySol.coerceAtMost(maxSpendableSol).coerceAtLeast(0.0)
+            try { ForensicLogger.lifecycle("LIVE_PENDING_PROOF_REALISTIC_SIZE_SUPPRESSED", "mint=${ts.mint.take(10)} symbol=${ts.symbol} requested=$old capped=$sol") } catch (_: Throwable) {}
+        } else if (realisticSol > maxSpendableSol) {
             val old = realisticSol
             sol = maxSpendableSol
             try { ForensicLogger.lifecycle("LIVE_REALISTIC_SIZE_CLAMPED_TO_SPENDABLE", "mint=${ts.mint.take(10)} symbol=${ts.symbol} requested=$old spendable=$maxSpendableSol walletSol=$walletSol") } catch (_: Throwable) {}

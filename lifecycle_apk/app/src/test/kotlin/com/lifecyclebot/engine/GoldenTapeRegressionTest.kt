@@ -2545,8 +2545,11 @@ class GoldenTapeRegressionTest {
     fun no_micro_live_trade_unless_enabled() {
         val cfg = java.io.File("src/main/kotlin/com/lifecyclebot/data/BotConfig.kt").readText()
         val exec = java.io.File("src/main/kotlin/com/lifecyclebot/engine/Executor.kt").readText()
-        assertTrue("Config must default live buys to non-micro tickets", cfg.contains("val BotConfig.minLiveBuySol: Double get() = 0.10") && cfg.contains("val BotConfig.allowLiveMicroProbe: Boolean get() = false"))
-        assertTrue("Live buy path must reject below-min non-micro tickets instead of silently buying 0.01 SOL", exec.contains("LIVE_ENTRY_REJECTED_SIZE_TOO_THIN_FOR_NON_MICRO_TRADE") && exec.contains("LIVE_BUY_SIZE_RAISED_TO_MIN_NON_MICRO") && !exec.contains("LIVE_BUY_SIZE_RAISED_TO_MIN_EXECUTABLE"))
+        val growth = java.io.File("src/main/kotlin/com/lifecyclebot/engine/LiveGrowthDoctrine.kt").readText()
+        assertTrue("Config must allow sub-0.10 SOL live micro-compounding tickets while keeping wallet/pool risk gates", cfg.contains("val BotConfig.minLiveBuySol: Double get() = 0.005") && cfg.contains("val BotConfig.allowLiveMicroProbe: Boolean get() = true") && cfg.contains("MICRO_COMPOUNDING"))
+        assertTrue("Growth doctrine hidden floors must not re-inflate small-wallet live tickets back to >=0.10", growth.contains("V5.0.4020_MICRO_BOOTSTRAP_GROWTH_CORE") && growth.contains("else -> 0.005") && growth.contains("spendableSol >= 0.5 -> 0.010"))
+        assertTrue("Pending-proof buys must be micro-capped so unknown proof can sample without full-size rug exposure", exec.contains("LIVE_PENDING_PROOF_MICRO_CAP") && exec.contains("livePendingProofPenalty") && exec.contains("if (livePendingProofPenalty) sol else realisticLiveEntrySize"))
+        assertTrue("Live buy path keeps explicit below-floor telemetry while allowing configured micro probes", exec.contains("LIVE_ENTRY_REJECTED_SIZE_TOO_THIN_FOR_NON_MICRO_TRADE") && exec.contains("LIVE_BUY_SIZE_RAISED_TO_MIN_NON_MICRO") && !exec.contains("LIVE_BUY_SIZE_RAISED_TO_MIN_EXECUTABLE"))
     }
 
     @Test

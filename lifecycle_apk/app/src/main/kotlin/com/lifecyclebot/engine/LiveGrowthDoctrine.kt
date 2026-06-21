@@ -19,7 +19,7 @@ package com.lifecyclebot.engine
  * after a candidate has survived source-level safety and execution gates.
  */
 object LiveGrowthDoctrine {
-    const val VERSION = "V5.0.3947_LIVE_GROWTH_CORE"
+    const val VERSION = "V5.0.4020_MICRO_BOOTSTRAP_GROWTH_CORE"
 
     val growthLaneUniverse: Set<String> = linkedSetOf(
         "STANDARD", "QUALITY", "BLUECHIP", "BLUE_CHIP", "TREASURY",
@@ -117,10 +117,15 @@ object LiveGrowthDoctrine {
             walletSol < 10.0 -> 1.250
             else -> 3.000
         }
+        // V5.0.4020 — micro-bootstrap wallet floor. Previous hidden floors
+        // (0.012/0.026/0.040) fought BotConfig.minLiveBuySol=0.005 and kept
+        // forcing ≥0.10-ish tickets once growth sizing/wallet caps interacted.
+        // Let small wallets sample below 0.10; wallet %, impact, and pending-
+        // proof micro caps still bound risk.
         val minExec = when {
-            spendableSol >= 1.0 -> 0.040
-            spendableSol >= 0.5 -> 0.026
-            else -> 0.012
+            spendableSol >= 1.0 -> 0.020
+            spendableSol >= 0.5 -> 0.010
+            else -> 0.005
         }
         val moveSize = movement?.sizeMult ?: 1.0
         val moveHold = movement?.holdMult ?: 1.0

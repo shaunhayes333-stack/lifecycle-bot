@@ -301,13 +301,18 @@ data class BotConfig(
 // execution doctrine (non-micro live tickets, quality compounding caps) without
 // adding primary-constructor slots to BotConfig, whose Kotlin default constructor
 // is already near JVM limits.
-val BotConfig.minLiveBuySol: Double get() = 0.10
+// V5.0.4020 — live wallet bootstrap must trade below 0.10 SOL. Runtime
+// 4019 showed repeated LIVE_ENTRY_REJECTED_SIZE_TOO_THIN_FOR_NON_MICRO_TRADE
+// with wallet≈0.34 SOL and spendable≈0.061 SOL because minLiveBuySol was
+// hardwired to 0.10 and micro probes were disabled. Keep wallet-risk and
+// pool-impact caps in Executor; lower only the notional floor.
+val BotConfig.minLiveBuySol: Double get() = 0.005
 val BotConfig.maxLiveBuySol: Double get() = 2.00
 val BotConfig.targetCompoundingRiskPct: Double get() = 0.08
 val BotConfig.maxPoolImpactPct: Double get() = 0.75
 val BotConfig.maxWalletRiskPerTradePct: Double get() = 0.18
-val BotConfig.allowLiveMicroProbe: Boolean get() = false
-val BotConfig.capitalMode: String get() = "QUALITY_COMPOUNDING"
+val BotConfig.allowLiveMicroProbe: Boolean get() = true
+val BotConfig.capitalMode: String get() = "MICRO_COMPOUNDING"
 
 object ConfigStore {
 
