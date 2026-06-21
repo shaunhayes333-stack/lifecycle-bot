@@ -2444,7 +2444,7 @@ class GoldenTapeRegressionTest {
     fun no_micro_live_trade_unless_enabled() {
         val cfg = java.io.File("src/main/kotlin/com/lifecyclebot/data/BotConfig.kt").readText()
         val exec = java.io.File("src/main/kotlin/com/lifecyclebot/engine/Executor.kt").readText()
-        assertTrue("Config must default live buys to non-micro tickets", cfg.contains("val minLiveBuySol: Double = 0.10") && cfg.contains("val allowLiveMicroProbe: Boolean = false"))
+        assertTrue("Config must default live buys to non-micro tickets", cfg.contains("val BotConfig.minLiveBuySol: Double get() = 0.10") && cfg.contains("val BotConfig.allowLiveMicroProbe: Boolean get() = false"))
         assertTrue("Live buy path must reject below-min non-micro tickets instead of silently buying 0.01 SOL", exec.contains("LIVE_ENTRY_REJECTED_SIZE_TOO_THIN_FOR_NON_MICRO_TRADE") && exec.contains("LIVE_BUY_SIZE_RAISED_TO_MIN_NON_MICRO") && !exec.contains("LIVE_BUY_SIZE_RAISED_TO_MIN_EXECUTABLE"))
     }
 
