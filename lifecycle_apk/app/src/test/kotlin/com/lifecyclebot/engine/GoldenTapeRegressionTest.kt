@@ -2430,10 +2430,10 @@ class GoldenTapeRegressionTest {
                 !exec.contains("return observeOnlyLiveEntry(\"OBSERVE_ONLY_NOT_LIVE_EXECUTABLE\", liveEntryDecision.finalLane.ifBlank { originalLaneForPivot }, \"ADVISORY_SHAPE\")")
         )
         assertTrue(
-            "Only unresolved non-executable lanes may observe-only before BUY_PLAN_OK / EXEC_LEASE_SET",
+            "Only unresolved non-executable lanes may observe-only before the actual BUY lease acquisition",
             exec.contains("LIVE_ENTRY_OBSERVED_ONLY") &&
                 exec.contains("OBSERVE_ONLY_CANON_LANE_UNRESOLVED") &&
-                exec.indexOf("return observeOnlyLiveEntry(\"OBSERVE_ONLY_CANON_LANE_UNRESOLVED\"") < exec.indexOf("ExecutionAttemptLease.acquire") &&
+                exec.indexOf("return observeOnlyLiveEntry(\"OBSERVE_ONLY_CANON_LANE_UNRESOLVED\"") < exec.indexOf("val buyLease = ExecutionAttemptLease.acquire") &&
                 exec.contains("val buyLeaseProcessor = canonicalRoutedLane") &&
                 exec.contains("lane = canonicalRoutedLane") &&
                 exec.contains("source = \"Executor.liveBuy.canonicalLane\"")
