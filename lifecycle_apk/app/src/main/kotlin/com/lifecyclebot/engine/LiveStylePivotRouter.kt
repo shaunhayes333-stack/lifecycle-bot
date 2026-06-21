@@ -110,11 +110,26 @@ object LiveStylePivotRouter {
             val hostileBleederNoProof = lane in setOf("EXPRESS", "CYCLIC", "COPYTRADE", "WHALE_FOLLOW") && !qualityProof
             return targetAllowed && !hostileBleederNoProof && basisTrusted && routeTrusted && rugProof && providerProof && liq >= 1_000.0 && score >= 55.0
         }
+        fun qualityReleaseMultiplier(targetLane: String): Double {
+            val t = BleederMemoryRouter.canon(targetLane)
+            val base = when (t) {
+                "BLUECHIP", "PRESALE_SNIPE", "TREASURY", "WALLET_RECOVERED" -> 1.00
+                "MOONSHOT" -> if (score >= 70.0 && liq >= 5_000.0) 1.00 else 0.85
+                "LIQUIDITY_DEPTH_QUALITY", "PULLBACK_RECLAIM", "QUALITY" -> 0.85
+                else -> 0.75
+            }
+            // Low-liq is still size-reduction by doctrine, never a hard block.
+            return when {
+                liq < 2_500.0 -> minOf(base, 0.65)
+                liq < 5_000.0 -> minOf(base, 0.75)
+                else -> base
+            }
+        }
         fun canLiveAdaptiveRelease(targetLane: String): Boolean {
             val cleanHighConfidenceBootstrap = score >= 70.0 && cleanProofForRelease(targetLane)
             return (liveAdaptive || cleanHighConfidenceBootstrap) && cleanProofForRelease(targetLane)
         }
-        fun canBootstrapThroughputRelease(targetLane: String, be: LiveBreakEvenGuard.Result): Boolean {
+        fun canGreenBootstrapFullQualityRelease(targetLane: String, be: LiveBreakEvenGuard.Result): Boolean {
             if (!bootstrapGreen || !cleanProofForRelease(targetLane)) return false
             if (decision == "DEFER" && reasons.any { it.contains("BASIS", true) || it.contains("ROUTE_PROOF_MISSING", true) || it.contains("RUG", true) }) return false
             val qualityTarget = BleederMemoryRouter.canon(targetLane) in setOf("MOONSHOT", "LIQUIDITY_DEPTH_QUALITY", "PULLBACK_RECLAIM", "PRESALE_SNIPE", "TREASURY", "BLUECHIP", "WALLET_RECOVERED", "QUALITY")
@@ -164,9 +179,9 @@ object LiveStylePivotRouter {
                     // V5.0.3984 — LIVE_ADAPTIVE tuning. After >=500 live terminal
                     // closes, 1k-5k fresh launches should no longer be treated as
                     // bootstrap data starvation or hard-deferred by default. If proof
-                    // is clean, pivot to quality at micro size; true sub-1k/route-missing
+                    // is clean, pivot to quality with liquidity-aware reduced size; true sub-1k/route-missing
                     // still defers.
-                    if (!pivotThinDepthToQuality("SHITCOIN_THIN_ROUTE_DEPTH_LIVE_ADAPTIVE_MICRO", 0.45)) defer("SHITCOIN_THIN_ROUTE_DEPTH")
+                    if (!pivotThinDepthToQuality("SHITCOIN_THIN_ROUTE_DEPTH_LIVE_ADAPTIVE_REDUCED_QUALITY", 0.45)) defer("SHITCOIN_THIN_ROUTE_DEPTH")
                 }
                 // V5.0.3973 — IF IT BLEEDS, IT PIVOTS.
                 // Report 3971: SHITCOIN had positive-looking % expectancy but net SOL
@@ -185,7 +200,7 @@ object LiveStylePivotRouter {
             "MOONSHOT" -> {
                 if (scoreBand == "S41-60") {
                     if (bestQualityLane() == "LIQUIDITY_DEPTH_QUALITY" && highQualityProof) promoteQuality("LIQUIDITY_DEPTH_QUALITY", "LIQUIDITY_DEPTH_QUALITY", 0.75, "MOONSHOT_S41_60_QUALITY_PROMOTION")
-                    else if (score >= 55.0 && highQualityProof && canLiveAdaptiveRelease("MOONSHOT")) promoteQuality("MOONSHOT", "MOONSHOT", 0.65, "MOONSHOT_S55_60_CLEAN_PROOF_MICRO_RELEASE")
+                    else if (score >= 55.0 && highQualityProof && canLiveAdaptiveRelease("MOONSHOT")) promoteQuality("MOONSHOT", "MOONSHOT", 0.65, "MOONSHOT_S55_60_CLEAN_PROOF_QUALITY_RELEASE")
                     else defer("MOONSHOT_S41_60_DANGER_DEFER")
                 } else if (score >= 61.0 && routeTrusted && basisTrusted) { mult = maxOf(mult, 1.0); reasons += "MOONSHOT_NATIVE_CONFIRMED" }
             }
@@ -219,16 +234,17 @@ object LiveStylePivotRouter {
             val adaptiveRelease = canLiveAdaptiveRelease(finalLane) &&
                 be.expectedEdgePct >= (be.requiredEdgePct * 0.55) &&
                 (score >= 61.0 || liq >= 5_000.0 || finalLane in setOf("WALLET_RECOVERED", "BLUECHIP", "PRESALE_SNIPE", "TREASURY", "QUALITY"))
-            val bootstrapRelease = canBootstrapThroughputRelease(finalLane, be)
+            val bootstrapRelease = canGreenBootstrapFullQualityRelease(finalLane, be)
             if (adaptiveRelease || bootstrapRelease) {
-                // LIVE throughput release: do not let a green live-bootstrap system
+                // LIVE quality release: do not let a green live-bootstrap system
                 // self-starve because lane-local edge samples are still sparse. Clean
-                // proof + quality target + bounded edge gap becomes a micro live entry
-                // so the live policy keeps learning from real closes. This is NOT a
-                // safety bypass: basis/route/rug/provider proof remain mandatory above.
+                // proof + quality target + bounded edge gap returns to real quality
+                // sizing, so the live policy can compound from real closes. This is NOT
+                // a safety bypass: basis/route/rug/provider proof remain mandatory above.
                 decision = "BUY"
-                mult = minOf(if (mult <= 0.0) 0.35 else mult, if (bootstrapRelease) 0.35 else 0.45).coerceAtLeast(0.35)
-                reasons += if (bootstrapRelease) "BREAK_EVEN_GREEN_BOOTSTRAP_MICRO_RELEASE" else "BREAK_EVEN_LIVE_ADAPTIVE_THROUGHPUT_RELEASE"
+                val qualityMult = qualityReleaseMultiplier(finalLane)
+                mult = maxOf(if (mult <= 0.0) qualityMult else mult, qualityMult).coerceIn(0.65, 1.00)
+                reasons += if (bootstrapRelease) "BREAK_EVEN_GREEN_BOOTSTRAP_FULL_QUALITY_RELEASE" else "BREAK_EVEN_LIVE_ADAPTIVE_FULL_QUALITY_RELEASE"
             } else {
                 decision = "DEFER"
                 mult = 0.0
