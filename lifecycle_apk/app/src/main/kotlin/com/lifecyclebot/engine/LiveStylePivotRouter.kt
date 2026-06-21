@@ -93,12 +93,34 @@ object LiveStylePivotRouter {
         }
         val liveMaturity = try { LiveMaturityAuthority.snapshot() } catch (_: Throwable) { null }
         val liveAdaptive = liveMaturity?.adaptive == true
-        fun canLiveAdaptiveRelease(targetLane: String): Boolean {
+        fun liveBootstrapGreen(): Boolean = try {
+            val rows = TradeHistoryStore.getRecentValidClosedTrades(limit = 250, includePartials = false)
+                .filter { it.side.equals("SELL", true) }
+                .filter { it.mode.equals("live", true) || it.tradingMode.equals("live", true) || !it.mode.equals("paper", true) }
+                .takeLast(80)
+            val decisive = rows.filter { it.pnlPct >= 0.5 || it.pnlPct <= -2.0 }
+            val wr = if (decisive.isNotEmpty()) decisive.count { it.pnlPct >= 0.5 } * 100.0 / decisive.size else 0.0
+            val net = rows.sumOf { if (it.netPnlSol != 0.0) it.netPnlSol else it.pnlSol }
+            rows.size >= 25 && wr >= 35.0 && net > 0.0
+        } catch (_: Throwable) { false }
+        val bootstrapGreen = liveBootstrapGreen()
+        fun cleanProofForRelease(targetLane: String): Boolean {
             val t = BleederMemoryRouter.canon(targetLane)
             val targetAllowed = t in setOf("MOONSHOT", "LIQUIDITY_DEPTH_QUALITY", "PULLBACK_RECLAIM", "PRESALE_SNIPE", "TREASURY", "BLUECHIP", "WALLET_RECOVERED", "QUALITY")
             val hostileBleederNoProof = lane in setOf("EXPRESS", "CYCLIC", "COPYTRADE", "WHALE_FOLLOW") && !qualityProof
-            val cleanHighConfidenceBootstrap = score >= 70.0 && targetAllowed && basisTrusted && routeTrusted && rugProof && providerProof && liq >= 1_000.0
-            return (liveAdaptive || cleanHighConfidenceBootstrap) && targetAllowed && !hostileBleederNoProof && basisTrusted && routeTrusted && rugProof && providerProof && liq >= 1_000.0 && score >= 55.0
+            return targetAllowed && !hostileBleederNoProof && basisTrusted && routeTrusted && rugProof && providerProof && liq >= 1_000.0 && score >= 55.0
+        }
+        fun canLiveAdaptiveRelease(targetLane: String): Boolean {
+            val cleanHighConfidenceBootstrap = score >= 70.0 && cleanProofForRelease(targetLane)
+            return (liveAdaptive || cleanHighConfidenceBootstrap) && cleanProofForRelease(targetLane)
+        }
+        fun canBootstrapThroughputRelease(targetLane: String, be: LiveBreakEvenGuard.Result): Boolean {
+            if (!bootstrapGreen || !cleanProofForRelease(targetLane)) return false
+            if (decision == "DEFER" && reasons.any { it.contains("BASIS", true) || it.contains("ROUTE_PROOF_MISSING", true) || it.contains("RUG", true) }) return false
+            val qualityTarget = BleederMemoryRouter.canon(targetLane) in setOf("MOONSHOT", "LIQUIDITY_DEPTH_QUALITY", "PULLBACK_RECLAIM", "PRESALE_SNIPE", "TREASURY", "BLUECHIP", "WALLET_RECOVERED", "QUALITY")
+            val edgeCloseEnough = be.expectedEdgePct >= maxOf(8.0, be.requiredEdgePct * 0.25)
+            val strongContext = score >= 62.0 || liq >= 5_000.0 || holderProof
+            return qualityTarget && edgeCloseEnough && strongContext
         }
         fun pivotThinDepthToQuality(reason: String, maxMult: Double = 0.45): Boolean {
             val target = bestQualityLane()
@@ -194,17 +216,19 @@ object LiveStylePivotRouter {
             PipelineHealthCollector.labelInc("LIVE_BREAK_EVEN_CHECK")
         } catch (_: Throwable) {}
         if (!be.pass) {
-            val release = canLiveAdaptiveRelease(finalLane) &&
+            val adaptiveRelease = canLiveAdaptiveRelease(finalLane) &&
                 be.expectedEdgePct >= (be.requiredEdgePct * 0.55) &&
                 (score >= 61.0 || liq >= 5_000.0 || finalLane in setOf("WALLET_RECOVERED", "BLUECHIP", "PRESALE_SNIPE", "TREASURY", "QUALITY"))
-            if (release) {
-                // LIVE_ADAPTIVE throughput release: after >=500 live terminal closes,
-                // do not keep applying bootstrap-neutral starvation. Clean proof +
-                // quality target + bounded edge gap becomes a micro live entry so the
-                // live policy keeps adapting from real closes.
+            val bootstrapRelease = canBootstrapThroughputRelease(finalLane, be)
+            if (adaptiveRelease || bootstrapRelease) {
+                // LIVE throughput release: do not let a green live-bootstrap system
+                // self-starve because lane-local edge samples are still sparse. Clean
+                // proof + quality target + bounded edge gap becomes a micro live entry
+                // so the live policy keeps learning from real closes. This is NOT a
+                // safety bypass: basis/route/rug/provider proof remain mandatory above.
                 decision = "BUY"
-                mult = minOf(if (mult <= 0.0) 0.35 else mult, 0.45).coerceAtLeast(0.35)
-                reasons += "BREAK_EVEN_LIVE_ADAPTIVE_THROUGHPUT_RELEASE"
+                mult = minOf(if (mult <= 0.0) 0.35 else mult, if (bootstrapRelease) 0.35 else 0.45).coerceAtLeast(0.35)
+                reasons += if (bootstrapRelease) "BREAK_EVEN_GREEN_BOOTSTRAP_MICRO_RELEASE" else "BREAK_EVEN_LIVE_ADAPTIVE_THROUGHPUT_RELEASE"
             } else {
                 decision = "DEFER"
                 mult = 0.0
