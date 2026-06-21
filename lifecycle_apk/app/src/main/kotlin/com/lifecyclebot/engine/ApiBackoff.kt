@@ -42,8 +42,9 @@ object ApiBackoff {
 
     private val state = ConcurrentHashMap<String, State>()
 
-    /** Backoff schedule (ms). Index = consecutiveFailures-1, clamped. */
-    private val backoffSchedule = longArrayOf(
+    /** Backoff schedule for HARD rate-limit / auth signals (429, 403).
+     *  Index = consecutiveFailures-1, clamped. */
+    private val hardBackoffSchedule = longArrayOf(
         5_000L,      // 1st failure → 5s
         15_000L,     // 2nd → 15s
         30_000L,     // 3rd → 30s
@@ -51,6 +52,25 @@ object ApiBackoff {
         120_000L,    // 5th → 2 min
         300_000L,    // 6th+ → 5 min cap
     )
+
+    /** V5.0.4020 — SOFT backoff schedule for TRANSIENT codes (5xx / 408
+     *  Request Timeout / 425 Too Early). The previous schedule treated a
+     *  flaky upstream the same as a paid-tier 429, which left dexscreener
+     *  and geckoterminal stuck in 5-min lockouts after a single boot
+     *  hiccup (snapshot sr=0% with only 5-17 attempts). Per operator P0
+     *  doctrine "use the whole api stack as its intended for", a single
+     *  503 must not silence a non-rate-limited provider for 5 minutes.
+     *  Soft schedule caps at 30s. */
+    private val softBackoffSchedule = longArrayOf(
+        2_000L,
+        5_000L,
+        10_000L,
+        20_000L,
+        30_000L,
+    )
+
+    /** Legacy alias for any code reading the old `backoffSchedule`. */
+    private val backoffSchedule get() = hardBackoffSchedule
 
     private fun key(host: String): String = host.trim().lowercase()
     private fun stateFor(host: String): State =
@@ -72,13 +92,19 @@ object ApiBackoff {
             val s = stateFor(host)
             val n = s.consecutiveFailures.incrementAndGet()
             s.lastFailureCode.set(code)
-            val idx = (n - 1).coerceIn(0, backoffSchedule.size - 1)
-            val delayMs = backoffSchedule[idx]
-            // 429 and 403 are the strongest signals → use max delay
-            // (skip ahead on the schedule on first occurrence of these).
+            // V5.0.4020 — code-aware schedule selection.
+            //   429 / 403            → HARD schedule (5s..300s)
+            //   401 / 404            → MILD; treat as 1-step hard but cap at 30s
+            //   5xx / 408 / 425      → SOFT schedule (2s..30s, never 5min)
+            //   other 4xx            → SOFT to keep the provider in rotation
+            val isHard = (code == 429 || code == 403)
+            val schedule = if (isHard) hardBackoffSchedule else softBackoffSchedule
+            val idx = (n - 1).coerceIn(0, schedule.size - 1)
+            val baseDelay = schedule[idx]
             val effectiveDelayMs = when (code) {
-                429, 403 -> maxOf(delayMs, 30_000L)
-                else -> delayMs
+                429, 403 -> maxOf(baseDelay, 30_000L)
+                401, 404 -> minOf(baseDelay, 30_000L)
+                else     -> baseDelay
             }
             val until = System.currentTimeMillis() + effectiveDelayMs
             s.lockoutUntilMs.set(until)
@@ -87,7 +113,7 @@ object ApiBackoff {
                 try {
                     ForensicLogger.lifecycle(
                         "API_BACKOFF_ARMED",
-                        "host=${key(host)} code=$code n=$n untilSec=${effectiveDelayMs / 1000}"
+                        "host=${key(host)} code=$code n=$n untilSec=${effectiveDelayMs / 1000} mode=${if (isHard) "HARD" else "SOFT"}"
                     )
                 } catch (_: Throwable) {}
             }
@@ -112,11 +138,44 @@ object ApiBackoff {
         } catch (_: Throwable) { /* fail-open */ }
     }
 
-    /** True if the host is currently in backoff lockout. */
+    /** True if the host is currently in backoff lockout.
+     *
+     *  V5.0.4020 — HALF-OPEN PROBE. When the lockout has been in effect
+     *  for ≥30s AND the schedule index suggests we're in the SOFT range,
+     *  return `false` for ONE call (the next caller) so a recovering
+     *  provider gets a chance to prove itself instead of staying frozen
+     *  for 5 minutes after a single transient blip. Hard (429/403) holds
+     *  always honor the full lockout. */
     fun isLockedOut(host: String): Boolean {
         return try {
             val s = state[key(host)] ?: return false
-            System.currentTimeMillis() < s.lockoutUntilMs.get()
+            val until = s.lockoutUntilMs.get()
+            val now = System.currentTimeMillis()
+            if (now >= until) return false
+            val remaining = until - now
+            val lastCode = s.lastFailureCode.get()
+            // Hard signals (429/403) — honor full lockout.
+            if (lastCode == 429 || lastCode == 403) return true
+            // Soft signals — once the lockout has been live > 30s AND
+            // > 10s of remaining time, allow ONE probe by atomically
+            // clearing the lockout marker. The caller will record
+            // success/failure and the state will re-arm accordingly.
+            val totalDuration = remaining + 30_000L
+            if (remaining > 10_000L && totalDuration > 30_000L) {
+                // Use compareAndSet on the until value to ensure only one
+                // probe slips through. If we lose the race, stay locked.
+                if (s.lockoutUntilMs.compareAndSet(until, now + 5_000L)) {
+                    try {
+                        ForensicLogger.lifecycle(
+                            "API_BACKOFF_HALF_OPEN_PROBE",
+                            "host=${key(host)} lastCode=$lastCode remainingMs=$remaining"
+                        )
+                    } catch (_: Throwable) {}
+                    return false
+                }
+                return true
+            }
+            true
         } catch (_: Throwable) { false }
     }
 

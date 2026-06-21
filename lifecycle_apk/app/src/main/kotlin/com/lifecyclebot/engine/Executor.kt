@@ -9993,14 +9993,49 @@ class Executor(
             sol = realisticSol
         }
         val assumedSolUsd = 200.0
-        val impactPct = if (ts.lastLiquidityUsd > 0.0) ((sol * assumedSolUsd) / ts.lastLiquidityUsd) * 100.0 else 999.0
+        // V5.0.4020 — IMPACT CALC LIQUIDITY CASCADE (operator P0: "stabilise
+        // our data providers AND fix this issue at the source"). The previous
+        // line read ts.lastLiquidityUsd directly and fell to 999% impact
+        // whenever the field was 0/NaN — which is exactly what happens for
+        // fresh PumpPortal mints when dexscreener/geckoterminal are in
+        // backoff (snapshot: dex sr=0% gt sr=0%). That misclassified every
+        // unknown-liquidity token as "SIZE_TOO_THIN_FOR_NON_MICRO_TRADE" and
+        // turned 217 of 229 BUY attempts into terminal rejects.
+        //
+        // Fix: when ts.lastLiquidityUsd is missing/NaN, consult the full
+        // ProviderProofWalker cascade (Geckoterminal → DexScreener →
+        // PumpPortal → PumpFun → Helius → CoinGecko → Jupiter → Birdeye,
+        // cross-checked against EfficiencyLayer fused snapshots). Only fall
+        // to 999% when every provider AND the fused history is dry — which
+        // is the genuine "we don't know if this is liquid enough" state.
+        val tsLiq = ts.lastLiquidityUsd
+        val liqForImpact: Double = if (tsLiq > 0.0 && !tsLiq.isNaN() && !tsLiq.isInfinite()) {
+            tsLiq
+        } else {
+            try {
+                val proof = com.lifecyclebot.engine.ProviderProofWalker.getBestAvailableProof(
+                    ts, com.lifecyclebot.engine.ProviderProofWalker.Field.LIQUIDITY_USD
+                )
+                val v = proof.value
+                if (v > 0.0 && !v.isNaN() && !v.isInfinite()) {
+                    try {
+                        ForensicLogger.lifecycle(
+                            "LIVE_IMPACT_LIQ_CASCADE_RESOLVED",
+                            "mint=${ts.mint.take(10)} symbol=${ts.symbol} tsLiq=$tsLiq cascadeLiq=$v source=${proof.source} quality=${proof.quality.name} walked=${proof.attempted.size}"
+                        )
+                    } catch (_: Throwable) {}
+                    v
+                } else 0.0
+            } catch (_: Throwable) { 0.0 }
+        }
+        val impactPct = if (liqForImpact > 0.0) ((sol * assumedSolUsd) / liqForImpact) * 100.0 else 999.0
         if (!liveCfg.allowLiveMicroProbe && sol < minNonMicroLiveBuySol) {
             emitLiveBuyFail(ts, sol, "LIVE_ENTRY_REJECTED_SIZE_TOO_THIN_FOR_NON_MICRO_TRADE", "finalSol=$sol minLiveBuySol=$minNonMicroLiveBuySol allowMicro=false")
             buyTerminalFail("BUY_TERMINAL_MIN_NOTIONAL_AFTER_FEES:SIZE_TOO_THIN_FOR_NON_MICRO_TRADE")
             return false
         }
         if (impactPct > liveCfg.maxPoolImpactPct) {
-            emitLiveBuyFail(ts, sol, "LIVE_ENTRY_REJECTED_SIZE_TOO_THIN_FOR_NON_MICRO_TRADE", "finalSol=$sol impactPct=${impactPct.fmt(3)} maxPoolImpactPct=${liveCfg.maxPoolImpactPct} liquidityUsd=${ts.lastLiquidityUsd}")
+            emitLiveBuyFail(ts, sol, "LIVE_ENTRY_REJECTED_SIZE_TOO_THIN_FOR_NON_MICRO_TRADE", "finalSol=$sol impactPct=${impactPct.fmt(3)} maxPoolImpactPct=${liveCfg.maxPoolImpactPct} liquidityUsd=${ts.lastLiquidityUsd} liqForImpact=$liqForImpact cascadeUsed=${liqForImpact != ts.lastLiquidityUsd}")
             buyTerminalFail("BUY_TERMINAL_MIN_NOTIONAL_AFTER_FEES:POOL_IMPACT_TOO_HIGH_FOR_NON_MICRO_TRADE")
             return false
         }
