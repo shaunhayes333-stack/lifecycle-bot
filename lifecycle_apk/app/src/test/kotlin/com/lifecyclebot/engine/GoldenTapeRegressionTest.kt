@@ -2427,6 +2427,7 @@ class GoldenTapeRegressionTest {
                 gate.contains("TOKEN_STATE_CHANGED_NO_FINAL_CANDIDATE") &&
                 gate.contains("state_missing_after_fdg_allow") &&
                 gate.contains("currentLiquidityUsd > 0.0") &&
+                gate.contains("currentSafetyOk") &&
                 gate.contains("restoredHardNoReasons.none { trueHardTicketKill(it) }")
         )
         assertTrue(

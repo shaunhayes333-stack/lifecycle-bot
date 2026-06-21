@@ -206,14 +206,17 @@ object ExecutableOpenGate {
             // BUY fail=90 with TOKEN_STATE_CHANGED_NO_FINAL_CANDIDATE. That is not
             // market rejection; it is missing transient state after an approved ticket.
             // Restore ONLY when the caller carries a real execution lane, current
-            // liquidity is positive, and no true-hard safety reason is present.
+            // liquidity is positive, SAFE/CAUTION safety is present, and no true-hard
+            // safety reason is present. Missing-state restore has no FDG state to
+            // prove provider-blind approval, so UNKNOWN safety remains blocked.
             val restoredHardNoReasons = hardNoReasons.filterNot { hn ->
                 (hn.equals("ZERO_LIQUIDITY", true) && currentLiquidityUsd > 0.0) ||
                     (hn.equals("PRE_FDG_SAFETY_CONTEXT_MISSING", true) &&
                         currentSafetyTier.isNotBlank() && !currentSafetyTier.equals("UNKNOWN", true))
             }
+            val currentSafetyOk = currentSafetyTier.equals("SAFE", true) || currentSafetyTier.equals("CAUTION", true)
             val liveExecutableContext = mode.equals("LIVE", true) && isRealExecutionLane(selected) &&
-                currentLiquidityUsd > 0.0 && restoredHardNoReasons.none { trueHardTicketKill(it) } &&
+                currentLiquidityUsd > 0.0 && currentSafetyOk && restoredHardNoReasons.none { trueHardTicketKill(it) } &&
                 preFdgVerdict.uppercase() in setOf("BUY", "PROBE_ONLY", "WATCH", "PROBE")
             if (liveExecutableContext) {
                 try {
@@ -330,6 +333,8 @@ object ExecutableOpenGate {
         if (effectiveHardNoReasons.isNotEmpty()) return "EXEC_OPEN_DROPPED_HARD_NO_BUY" to effectiveHardNoReasons.joinToString("+")
         if (candidateVersion != currentVersion) {
             // V5.0.4003 — restore approved live handoff across version churn.
+            // Historical invariant: EXEC_GATE_ALLOW>0 but EXEC_LIVE_ATTEMPT=0 must
+            // not recur from approved candidate-version churn.
             // 5.0.3861 disabled this with literal false/false, which was safe for
             // preventing stale buys but fatal under current scanner churn: tickets age
             // out as STALE_CANDIDATE_VERSION even though the same mint still has an
@@ -341,7 +346,8 @@ object ExecutableOpenGate {
                 state.safetyTier.equals("SAFE", true) || state.safetyTier.equals("CAUTION", true) ||
                 (mode.equals("LIVE", true) && state.fdgCan == true && effectiveHardNoReasons.none { trueHardTicketKill(it) })
             val effectiveLiq = maxOf(currentLiquidityUsd, state.liquidityUsd)
-            if (latestAllows && safetyOk && effectiveLiq > 0.0 && effectiveHardNoReasons.none { trueHardTicketKill(it) }) {
+            val liqOk = effectiveLiq > 0.0
+            if (latestAllows && safetyOk && liqOk && effectiveHardNoReasons.none { trueHardTicketKill(it) }) {
                 try {
                     ForensicLogger.lifecycle(
                         "LIVE_RESTORE_STALE_CANDIDATE_SOFT_ALLOW",
