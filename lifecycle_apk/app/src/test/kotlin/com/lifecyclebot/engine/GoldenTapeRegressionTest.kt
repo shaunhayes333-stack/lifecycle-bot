@@ -3678,4 +3678,23 @@ class GoldenTapeRegressionTest {
         assertTrue("Bleeding SHITCOIN/PRESALE live lanes must not continue as size-shaped live buys", executor.contains("SHITCOIN_NEGATIVE_EV") || router.contains("SHITCOIN_LIVE_BLEED_QUARANTINE"))
     }
 
+
+    @Test
+    fun live_strategy_tuner_uses_cached_live_terminal_metrics_and_lets_winners_ride() {
+        val tuner = java.io.File("src/main/kotlin/com/lifecyclebot/engine/LiveStrategyTuner.kt").readText()
+        val doctrine = java.io.File("src/main/kotlin/com/lifecyclebot/engine/LiveGrowthDoctrine.kt").readText()
+        val router = java.io.File("src/main/kotlin/com/lifecyclebot/engine/AgenticStyleRouter.kt").readText()
+        val exec = java.io.File("src/main/kotlin/com/lifecyclebot/engine/Executor.kt").readText()
+        val reporting = java.io.File("src/main/kotlin/com/lifecyclebot/engine/ReportingHub.kt").readText()
+
+        assertTrue("LiveStrategyTuner must consume live terminal StrategyTelemetry only", tuner.contains("StrategyTelemetry.computeLiveTerminalLeaderboard") && !tuner.contains("computeLeaderboard("))
+        assertTrue("LiveStrategyTuner must be cached for hot paths", tuner.contains("CACHE_MS") && tuner.contains("cached") && tuner.contains("cacheAtMs"))
+        assertTrue("LiveStrategyTuner must be soft-shape only, not a veto/zero-size authority", tuner.contains("Soft-shape only") && !tuner.contains("return false") && !tuner.contains("sizeMult = 0.0"))
+        assertTrue("LiveStrategyTuner must bias proven live winners toward runner patience", tuner.contains("runner_press") && tuner.contains("partialTriggerMult") && tuner.contains("holdMult = (1.18") && tuner.contains("tpMult = (1.10"))
+        assertTrue("LiveGrowthDoctrine must consume LiveStrategyTuner in the final live growth envelope", doctrine.contains("LiveStrategyTuner.adjustment") && doctrine.contains("strategyTune.compact") && doctrine.contains("tunedMaxWalletPct"))
+        assertTrue("AgenticStyleRouter must expose tuned size/tp/hold multipliers", router.contains("tunedSizeMult") && router.contains("tunedTpMult") && router.contains("tunedHoldMult") && router.contains("LiveStrategyTuner.adjustment"))
+        assertTrue("Executor must raise live TP/partial patience from LiveStrategyTuner", exec.contains("LIVE_STRATEGY_TUNER_TP_RAISED") && exec.contains("LiveStrategyTuner.livePartialProfitFloorPct") && exec.contains("PARTIAL_BLOCKED_BELOW_BREAKEVEN"))
+        assertTrue("Operational report must surface LiveStrategyTuner state", reporting.contains("live_strategy_tuner") && reporting.contains("LiveStrategyTuner.statusLine"))
+    }
+
 }

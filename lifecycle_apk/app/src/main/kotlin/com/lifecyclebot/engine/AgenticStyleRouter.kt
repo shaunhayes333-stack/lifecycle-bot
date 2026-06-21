@@ -64,6 +64,9 @@ object AgenticStyleRouter {
         val confidence: Double,
         val reason: String,
         val toolkit: ToolkitSignalSheet.Sheet,
+        val tunedSizeMult: Double = style.sizeMult,
+        val tunedTpMult: Double = style.tpMult,
+        val tunedHoldMult: Double = style.holdMult,
     ) {
         val lanes: Set<String> get() = style.lanes
         val tools: Set<String> get() = style.tools
@@ -195,13 +198,21 @@ object AgenticStyleRouter {
             classification.tradeType == ModeRouter.TradeType.SENTIMENT_IGNITION -> Style.QUICK_FLIP
             else -> if (ddAgg < 0.80) Style.DEFENSIVE_PROBE else Style.LAB_EXPLORATION
         }
+        val tuneLane = laneHint.ifBlank { style.lanes.firstOrNull().orEmpty() }.ifBlank { classification.tradeType.name }
+        val strategyTune = try { LiveStrategyTuner.adjustment(tuneLane) } catch (_: Throwable) { LiveStrategyTuner.adjustment("STANDARD") }
+        val tunedSize = (style.sizeMult * strategyTune.sizeMult).coerceIn(0.25, 1.95)
+        val tunedTp = (style.tpMult * strategyTune.tpMult).coerceIn(0.65, 2.15)
+        val tunedHold = (style.holdMult * strategyTune.holdMult).coerceIn(0.35, 4.00)
         return Decision(
             style = style,
             tactic = tactic,
             tradeType = classification.tradeType,
             confidence = maxOf(classification.confidence, sheet.confidence),
-            reason = "type=${classification.tradeType} tactic=$tactic toolkit=${sheet.setup} chart=${sheet.chartPattern} entry=${sheet.entryStyle} exit=${sheet.exitStyle} hold×=${"%.2f".format(sheet.holdMult)} size×=${"%.2f".format(sheet.sizeMult)} tp×=${"%.2f".format(sheet.tpMult)} dd=${"%.2f".format(ddAgg)} age=${"%.1f".format(ageMin)} liq=${ts.lastLiquidityUsd.toInt()} bp=${ts.lastBuyPressurePct.toInt()} why=${sheet.compactReason}",
+            reason = "type=${classification.tradeType} tactic=$tactic toolkit=${sheet.setup} chart=${sheet.chartPattern} entry=${sheet.entryStyle} exit=${sheet.exitStyle} hold×=${"%.2f".format(sheet.holdMult)} size×=${"%.2f".format(sheet.sizeMult)} tp×=${"%.2f".format(sheet.tpMult)} tunedSize×=${"%.2f".format(tunedSize)} tunedTp×=${"%.2f".format(tunedTp)} tunedHold×=${"%.2f".format(tunedHold)} tune=${strategyTune.compact} dd=${"%.2f".format(ddAgg)} age=${"%.1f".format(ageMin)} liq=${ts.lastLiquidityUsd.toInt()} bp=${ts.lastBuyPressurePct.toInt()} why=${sheet.compactReason}",
             toolkit = sheet,
+            tunedSizeMult = tunedSize,
+            tunedTpMult = tunedTp,
+            tunedHoldMult = tunedHold,
         )
     }
 

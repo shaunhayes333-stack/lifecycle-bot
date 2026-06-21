@@ -251,10 +251,16 @@ object WrRecoveryPartial {
             val pf = m.pfExpectancyPp
             val avgWin = m.avgWinPct.coerceAtLeast(0.0)
             val runner = m.totalSolPnl > 0.0 && (avgWin >= 75.0 || pf >= 15.0 || m.meanPnlPct >= 25.0)
-            val first = maxOf(MIN_PARTIAL_GAIN_PCT, if (runner) avgWin * 0.20 else base.first).coerceIn(50.0, 250.0)
-            val secondBase = if (runner) maxOf(base.second, avgWin * 1.50, 1000.0) else maxOf(base.second, avgWin * 0.75)
-            val thirdBase = if (runner) maxOf(base.third, avgWin * 6.0, 10000.0) else maxOf(base.third, avgWin * 2.5)
-            Triple(first, secondBase.coerceIn(first + 50.0, 5000.0), thirdBase.coerceIn(secondBase + 250.0, 50000.0))
+            val tune = try { LiveStrategyTuner.adjustment(key) } catch (_: Throwable) { LiveStrategyTuner.adjustment("STANDARD") }
+            // V5.0.4023 — let profitable live lanes ride. The old runner math
+            // could still take first profit near +50%; reports showed the bot made
+            // more SOL by holding MOONSHOT/BLUECHIP winners longer. Tune raises
+            // partial rungs using cached live-terminal StrategyTelemetry only.
+            val firstBase = if (runner) maxOf(base.first, avgWin * 0.35, 80.0) else base.first
+            val first = maxOf(MIN_PARTIAL_GAIN_PCT, firstBase * tune.partialTriggerMult).coerceIn(50.0, 400.0)
+            val secondBase = if (runner) maxOf(base.second, avgWin * 2.00, 1500.0) else maxOf(base.second, avgWin * 0.75)
+            val thirdBase = if (runner) maxOf(base.third, avgWin * 8.0, 15000.0) else maxOf(base.third, avgWin * 2.5)
+            Triple(first, (secondBase * tune.partialTriggerMult).coerceIn(first + 50.0, 7500.0), (thirdBase * tune.partialTriggerMult).coerceIn(secondBase + 250.0, 75000.0))
         } catch (_: Throwable) { base }
     }
 
@@ -4996,7 +5002,11 @@ class Executor(
                 }
                 val laneKey = ts.position.tradingMode.ifBlank { "STANDARD" }
                 val learnedTpFloor = try { WrRecoveryPartial.learnedExitRungs(laneKey).first } catch (_: Throwable) { 50.0 }
-                val liveGrowthTpPct = maxOf(tpPct, learnedTpFloor)
+                val tune = try { LiveStrategyTuner.adjustment(laneKey) } catch (_: Throwable) { LiveStrategyTuner.adjustment("STANDARD") }
+                val liveGrowthTpPct = maxOf(tpPct, learnedTpFloor) * tune.tpMult
+                if (RuntimeModeAuthority.isLive() && tune.tpMult > 1.0) {
+                    try { ForensicLogger.lifecycle("LIVE_STRATEGY_TUNER_TP_RAISED", "mint=${ts.mint.take(10)} symbol=${ts.symbol} lane=$laneKey baseTp=${tpPct.toInt()} learned=${learnedTpFloor.toInt()} tuned=${liveGrowthTpPct.toInt()} tune=${tune.compact}") } catch (_: Throwable) {}
+                }
                 if (pnlPct >= liveGrowthTpPct) {
                     onLog("🎯 SWEEP_TAKE_PROFIT: ${ts.symbol} pnl=${pnlPct.toInt()}% ≥ learnedTp=${liveGrowthTpPct.toInt()}%", ts.mint)
                     doSell(ts, "SWEEP_TAKE_PROFIT_${liveGrowthTpPct.toInt()}", wallet, walletSol)
@@ -5052,6 +5062,11 @@ class Executor(
         
         val nextMilestone = milestones.getOrNull(partialLevel)
         val shouldPartial = nextMilestone != null && gainPct >= nextMilestone
+        if (RuntimeModeAuthority.isLive() && shouldPartial && gainPct < LiveStrategyTuner.livePartialProfitFloorPct()) {
+            try { ForensicLogger.lifecycle("PARTIAL_BLOCKED_BELOW_BREAKEVEN", "mint=${ts.mint.take(10)} symbol=${ts.symbol} lane=$laneKey gain=${"%.2f".format(gainPct)} floor=${LiveStrategyTuner.livePartialProfitFloorPct()} level=$partialLevel milestone=$nextMilestone") } catch (_: Throwable) {}
+            try { PipelineHealthCollector.labelInc("PARTIAL_BLOCKED_BELOW_BREAKEVEN") } catch (_: Throwable) {}
+            return false
+        }
         
         val isThirdOrLater = partialLevel >= 2
         if (!shouldPartial) return false
@@ -11711,6 +11726,12 @@ class Executor(
             val isForcedRiskCut = r.contains("RISK") || r.contains("LIQUIDITY") ||
                 r.contains("STOP") || r.contains("RUG") || r.contains("RECOVERY") ||
                 r.contains("CATASTROPHE") || r.contains("DRAIN")
+            if (!isPaper && pnlPct < LiveStrategyTuner.livePartialProfitFloorPct() && !isForcedRiskCut) {
+                try { ForensicLogger.lifecycle("PARTIAL_BLOCKED_BELOW_BREAKEVEN",
+                    "mint=${ts.mint.take(10)} symbol=${ts.symbol} pnl=${"%.2f".format(pnlPct)} floor=${LiveStrategyTuner.livePartialProfitFloorPct()} reqPct=${(pct*100).toInt()} reason=$reason action=hold_runner") } catch (_: Throwable) {}
+                try { PipelineHealthCollector.labelInc("PARTIAL_BLOCKED_BELOW_BREAKEVEN") } catch (_: Throwable) {}
+                return
+            }
             if (pnlPct <= -15.0 && !isForcedRiskCut) {
                 try { ForensicLogger.lifecycle("PARTIAL_COLLAPSED_TO_RISK_EXIT",
                     "mint=${ts.mint.take(10)} symbol=${ts.symbol} pnl=${pnlPct.toInt()}% reqPct=${(pct*100).toInt()} reason=$reason") } catch (_: Throwable) {}

@@ -18090,12 +18090,12 @@ if (hotExitHandledSweep) {
                                 val style = AgenticStyleRouter.decide(ts, modeClassification, "MOONSHOT")
                                 if (moonshotScore.eligible) {
                                     moonshotScore = moonshotScore.copy(
-                                        suggestedSizeSol = (moonshotScore.suggestedSizeSol * style.style.sizeMult).coerceIn(0.01, 0.60),
-                                        takeProfitPct = (moonshotScore.takeProfitPct * style.style.tpMult).coerceAtLeast(20.0),
+                                        suggestedSizeSol = (moonshotScore.suggestedSizeSol * style.tunedSizeMult).coerceIn(0.01, 0.60),
+                                        takeProfitPct = (moonshotScore.takeProfitPct * style.tunedTpMult).coerceAtLeast(20.0),
                                     )
                                     ForensicLogger.lifecycle(
                                         "AGENTIC_STYLE_APPLIED",
-                                        "lane=MOONSHOT symbol=${ts.symbol} style=${style.style.label} size×=${"%.2f".format(style.style.sizeMult)} tp×=${"%.2f".format(style.style.tpMult)} hold×=${"%.2f".format(style.style.holdMult)} reason=${style.reason.take(120)}"
+                                        "lane=MOONSHOT symbol=${ts.symbol} style=${style.style.label} size×=${"%.2f".format(style.tunedSizeMult)} tp×=${"%.2f".format(style.tunedTpMult)} hold×=${"%.2f".format(style.tunedHoldMult)} reason=${style.reason.take(120)}"
                                     )
                                 }
                             } catch (_: Throwable) {}

@@ -129,17 +129,23 @@ object LiveGrowthDoctrine {
         }
         val moveSize = movement?.sizeMult ?: 1.0
         val moveHold = movement?.holdMult ?: 1.0
-        val adjustedWalletPct = (baseWalletPct * moveSize).coerceIn(0.015, maxWalletPct)
-        val adjustedLaneMult = (laneMult * moveSize).coerceIn(0.35, 1.75)
-        val adjustedLiqPct = (liqPct * moveSize.coerceIn(0.55, 1.35)).coerceIn(0.0025, 0.0080)
+        // V5.0.4023 — LiveStrategyTuner is cached/live-terminal-only and
+        // soft-shapes the growth envelope. It cannot veto, zero-size, or call
+        // LLM/API; it just biases real-wallet capital toward lanes that have
+        // actually closed profitably live and gives runners more room.
+        val strategyTune = try { LiveStrategyTuner.adjustment(c) } catch (_: Throwable) { LiveStrategyTuner.adjustment("STANDARD") }
+        val tunedMaxWalletPct = (maxWalletPct * strategyTune.maxWalletMult).coerceIn(0.055, 0.42)
+        val adjustedWalletPct = (baseWalletPct * moveSize * strategyTune.sizeMult).coerceIn(0.012, tunedMaxWalletPct)
+        val adjustedLaneMult = (laneMult * moveSize * strategyTune.sizeMult).coerceIn(0.25, 1.95)
+        val adjustedLiqPct = (liqPct * moveSize.coerceIn(0.55, 1.35) * strategyTune.liquidityImpactMult).coerceIn(0.0020, 0.0090)
         return SizePolicy(
             walletPct = adjustedWalletPct,
             laneMult = adjustedLaneMult,
             liquidityImpactPct = adjustedLiqPct,
-            maxWalletPct = maxWalletPct,
+            maxWalletPct = tunedMaxWalletPct,
             absoluteCapSol = absoluteCap,
             minExecutableSol = minExec,
-            reason = "$VERSION AGGRESSIVE_2X_5X_LIVE_WALLET_GROWTH lane=$c score=${score.toInt()} walletPct=${"%.3f".format(adjustedWalletPct)} laneMult=${"%.2f".format(adjustedLaneMult)} liqPct=${"%.4f".format(adjustedLiqPct)} maxWalletPct=${"%.3f".format(maxWalletPct)} cap=${"%.3f".format(absoluteCap)} movement=${movement?.pattern ?: "none"} moveConf=${movement?.confidence?.toInt() ?: 0} hold×=${"%.2f".format(moveHold)} timing=${movement?.timing ?: "n/a"}",
+            reason = "$VERSION AGGRESSIVE_2X_5X_LIVE_WALLET_GROWTH lane=$c score=${score.toInt()} walletPct=${"%.3f".format(adjustedWalletPct)} laneMult=${"%.2f".format(adjustedLaneMult)} liqPct=${"%.4f".format(adjustedLiqPct)} maxWalletPct=${"%.3f".format(tunedMaxWalletPct)} cap=${"%.3f".format(absoluteCap)} movement=${movement?.pattern ?: "none"} moveConf=${movement?.confidence?.toInt() ?: 0} hold×=${"%.2f".format(moveHold)} timing=${movement?.timing ?: "n/a"} tune=${strategyTune.compact}",
         )
     }
 
