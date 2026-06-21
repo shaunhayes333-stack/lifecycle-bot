@@ -2477,10 +2477,12 @@ class GoldenTapeRegressionTest {
     fun live_advisory_shape_preserves_executable_lane_without_buy_fail_choke() {
         val exec = java.io.File("src/main/kotlin/com/lifecyclebot/engine/Executor.kt").readText()
         assertTrue(
-            "ADVISORY_SHAPE must not freeze FDG-approved executable lanes; it should preserve pre-pivot executable lane authority",
+            "ADVISORY_SHAPE must not freeze FDG-approved executable lanes; it preserves pre-pivot authority unless proof-backed quality promotion is executable",
             exec.contains("action=preserve_executable_lane") &&
                 exec.contains("val prePivotExecutableLane") &&
-                exec.contains("val canonicalRoutedLane = if (stylePivotAdvisory) prePivotExecutableLane") &&
+                exec.contains("val canonicalRoutedLane = when") &&
+                exec.contains("stylePivotAdvisory && qualityPromotionLane && pivotHasExecutionProof -> postPivotExecutableLane") &&
+                exec.contains("stylePivotAdvisory -> prePivotExecutableLane") &&
                 !exec.contains("return observeOnlyLiveEntry(\"OBSERVE_ONLY_NOT_LIVE_EXECUTABLE\", liveEntryDecision.finalLane.ifBlank { originalLaneForPivot }, \"ADVISORY_SHAPE\")")
         )
         assertTrue(
