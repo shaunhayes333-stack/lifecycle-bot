@@ -9309,6 +9309,32 @@ class Executor(
                 PipelineHealthCollector.labelInc("LIVE_ENTRY_DECISION")
             } catch (_: Throwable) {}
         }
+        fun canonicalExecutableLane(raw: String): String {
+            val r = raw.uppercase().trim().replace('-', '_').replace(' ', '_')
+            return when (r) {
+                "BLUE_CHIP" -> "BLUECHIP"
+                "SHIT_COIN" -> "SHITCOIN"
+                "MANIP" -> "MANIPULATED"
+                "DIP" -> "DIP_HUNTER"
+                "PROJECT", "SNIPER" -> "PROJECT_SNIPER"
+                "CASHGEN", "CASH_GENERATION" -> "TREASURY"
+                "CORE", "V3" -> "STANDARD"
+                else -> r
+            }
+        }
+        val executableLaneSet = setOf("PROJECT_SNIPER", "MOONSHOT", "SHITCOIN", "EXPRESS", "QUALITY", "BLUECHIP", "TREASURY", "STANDARD", "MANIPULATED", "DIP_HUNTER", "CASHGEN")
+        fun observeOnlyLiveEntry(reason: String, laneRaw: String, decisionLabel: String): Boolean {
+            try {
+                val canon = canonicalExecutableLane(laneRaw)
+                ForensicLogger.lifecycle(
+                    "LIVE_ENTRY_OBSERVED_ONLY",
+                    "mint=${ts.mint.take(10)} symbol=${ts.symbol} reason=$reason source=${ts.source} requestedLane=$laneRaw canonicalLane=$canon decision=$decisionLabel no_buy_plan=true no_exec_lease=true no_buy_failed=true",
+                )
+                PipelineHealthCollector.labelInc("LIVE_ENTRY_OBSERVED_ONLY")
+                PipelineHealthCollector.labelInc(reason)
+            } catch (_: Throwable) {}
+            return false
+        }
         val stylePivotAdvisory = liveEntryDecision.decision == "DEFER"
         if (stylePivotAdvisory) {
             val pivotReasonBucket = liveEntryDecision.reasons.firstOrNull()
@@ -9317,15 +9343,11 @@ class Executor(
                 ?.replace(Regex("[^A-Z0-9_]+"), "_")
                 ?.take(56)
                 ?.ifBlank { null } ?: "UNSPECIFIED"
-            // V5.0.4001 — STYLE PIVOT IS ADVISORY, NOT EXECUTION FINALITY.
-            // FDG/EXEC_GATE allowed candidates must not become BUY_FAILED merely
-            // because break-even/style confidence wants more proof. Hard route,
-            // safety, ledger, wallet, and size gates below remain terminal.
             try {
                 PipelineHealthCollector.labelInc("STYLE_PIVOT_ADVISORY_REASON_$pivotReasonBucket")
                 ForensicLogger.lifecycle(
                     "STYLE_PIVOT_ADVISORY",
-                    "mint=${ts.mint.take(10)} symbol=${ts.symbol} originalLane=${liveEntryDecision.originalLane} finalLane=${liveEntryDecision.finalLane} reason=$pivotReasonBucket detail=${liveEntryDecision.reasons.joinToString("|").take(180)} no_live_buy_fail=true",
+                    "mint=${ts.mint.take(10)} symbol=${ts.symbol} originalLane=${liveEntryDecision.originalLane} finalLane=${liveEntryDecision.finalLane} reason=$pivotReasonBucket detail=${liveEntryDecision.reasons.joinToString("|").take(180)} no_live_buy_fail=true no_exec_lease=false observe_only=false action=preserve_executable_lane",
                 )
             } catch (_: Throwable) {}
             emitLiveEntryDecision("ADVISORY_SHAPE")
@@ -9333,10 +9355,22 @@ class Executor(
             emitLiveEntryDecision()
         }
         val effectiveStyleSizeMultiplier = if (stylePivotAdvisory) 1.0 else liveEntryDecision.sizeMultiplier
-        val routedLaneTag = liveEntryDecision.finalLane.ifBlank { originalLaneForPivot }
-        val routedStyleTag = liveEntryDecision.finalStyle.ifBlank { routedLaneTag }
+        val prePivotExecutableLane = listOf(
+            layerTag,
+            liveEntryDecision.originalLane,
+            originalLaneForPivot,
+            ts.position.tradingMode,
+            identity?.source ?: "",
+        ).map { canonicalExecutableLane(it) }.firstOrNull { it in executableLaneSet }.orEmpty()
+        val postPivotExecutableLane = canonicalExecutableLane(liveEntryDecision.finalLane.ifBlank { originalLaneForPivot }).takeIf { it in executableLaneSet }.orEmpty()
+        val canonicalRoutedLane = if (stylePivotAdvisory) prePivotExecutableLane else postPivotExecutableLane.ifBlank { prePivotExecutableLane }
+        val routedLaneTag = canonicalRoutedLane.ifBlank { if (stylePivotAdvisory) originalLaneForPivot else liveEntryDecision.finalLane.ifBlank { originalLaneForPivot } }
+        val routedStyleTag = if (stylePivotAdvisory) originalStyleForPivot else liveEntryDecision.finalStyle.ifBlank { routedLaneTag }
+        if (canonicalRoutedLane !in executableLaneSet) {
+            return observeOnlyLiveEntry("OBSERVE_ONLY_CANON_LANE_UNRESOLVED", routedLaneTag, liveEntryDecision.decision)
+        }
         run {
-            val capitalLane = BleederMemoryRouter.canon(routedLaneTag)
+            val capitalLane = BleederMemoryRouter.canon(canonicalRoutedLane)
             val st = try { BleederMemoryRouter.statsFor(capitalLane) } catch (_: Throwable) { null }
             val toxicShitcoin = capitalLane == "SHITCOIN" && st != null && st.n50 >= 5 && (st.netPnl50Sol <= 0.0 || st.ev50Pct < 0.0 || st.wr50 < 25.0)
             val toxicPresale = capitalLane == "PRESALE_SNIPE" && st != null && st.n20 >= 3 && (st.wr20 <= 0.0 || st.ev20Pct < 0.0)
@@ -9358,7 +9392,7 @@ class Executor(
         // finality. Hard safety is preserved because allowedAttempts are written only
         // by canOpenExecutablePosition() after the finality gate has already allowed.
         val recoveredLiveAttemptId = attemptId.ifBlank {
-            val preferredLane = routedLaneTag.ifBlank { ts.position.tradingMode.ifBlank { identity?.source?.takeIf { it.isNotBlank() } ?: "STANDARD" } }
+            val preferredLane = canonicalRoutedLane.ifBlank { ts.position.tradingMode.ifBlank { identity?.source?.takeIf { it.isNotBlank() } ?: "STANDARD" } }
             ExecutableOpenGate.recentAllowedAttemptId(ts.mint, preferredLane)
                 ?: ExecutableOpenGate.recentAllowedAttemptIdAnyLane(ts.mint)
                 ?: ""
@@ -9378,7 +9412,7 @@ class Executor(
         // serializes wallet spend; it does NOT stop one bad mint from retrying on
         // every scanner/lane pass. This lease makes every BUY plan terminal and
         // applies backoff before route/build/submit work begins.
-        val buyLeaseProcessor = routedLaneTag.ifBlank { "MEME_LIVE_BUY" }
+        val buyLeaseProcessor = canonicalRoutedLane.ifBlank { "MEME_LIVE_BUY" }
         val buyLeaseGeneration = try { BotRuntimeController.currentGeneration() } catch (_: Throwable) { 0L }
         val buyLease = ExecutionAttemptLease.acquire(
             side = "BUY",
@@ -9413,7 +9447,7 @@ class Executor(
         try { ForensicLogger.lifecycle("BUY_PLAN_OK", "mint=${ts.mint.take(10)} symbol=${ts.symbol} sol=$sol processor=$buyLeaseProcessor") } catch (_: Throwable) {}
         try { PipelineHealthCollector.labelInc("BUY_PLAN_OK") } catch (_: Throwable) {}
         try {
-            ForensicLogger.lifecycle("LIVE_ENTRY_APPROVED", "mint=${ts.mint.take(10)} symbol=${ts.symbol} requestedSol=${sol.fmt(4)} lane=$routedLaneTag style=$routedStyleTag")
+            ForensicLogger.lifecycle("LIVE_ENTRY_APPROVED", "mint=${ts.mint.take(10)} symbol=${ts.symbol} requestedSol=${sol.fmt(4)} lane=$canonicalRoutedLane style=$routedStyleTag")
             PipelineHealthCollector.labelInc("LIVE_ENTRY_APPROVED")
         } catch (_: Throwable) {}
         var providerQuorumSizeMultiplier = 1.0
@@ -9511,14 +9545,29 @@ class Executor(
             val executableOpen = ExecutableOpenGate.canOpenExecutablePosition(
                 ts = ts,
                 mode = "LIVE",
-                lane = routedLaneTag.ifBlank { ts.position.tradingMode.ifBlank { identity?.source?.takeIf { it.isNotBlank() } ?: "STANDARD" } },  // V5.9.1331 lane attribution
-                source = "Executor.liveBuy",
-                attemptId = recoveredLiveAttemptId.ifBlank { ExecutableOpenGate.nextAttemptId(ts.mint, routedLaneTag.ifBlank { "UNKNOWN" }) },
+                lane = canonicalRoutedLane,  // V5.0.4005: canonical executable lane authority; never source/watchlist/advisory label
+                source = "Executor.liveBuy.canonicalLane",
+                attemptId = recoveredLiveAttemptId.ifBlank { ExecutableOpenGate.nextAttemptId(ts.mint, canonicalRoutedLane.ifBlank { "UNKNOWN" }) },
             )
             if (!executableOpen.allowed) {
                 ExecutionRootCauseTrace.finality("BUY", "LIVE_BUY_FINALITY_BLOCK", ts, "attemptId=${executableOpen.attemptId} reason=${executableOpen.reason}")
                 ErrorLogger.warn("Executor", "🚫 LIVE_BUY_BLOCKED_FINALITY: ${ts.symbol} | attemptId=${executableOpen.attemptId} | ${executableOpen.reason}")
-                val failBucket = if (executableOpen.reason.contains("STALE", true) || executableOpen.reason.contains("TICKET", true) || executableOpen.reason.contains("TOKEN_STATE_CHANGED", true)) "STALE_TICKET:${executableOpen.reason.take(72).replace(' ', '_')}" else "FINALITY_BLOCK:${executableOpen.reason.take(72).replace(' ', '_')}"
+                val reasonUpper = executableOpen.reason.uppercase()
+                if (reasonUpper.contains("WATCH") || reasonUpper.contains("UNKNOWN") || reasonUpper.contains("CANON_LANE_UNRESOLVED")) {
+                    try { ExecutionAttemptLease.releaseNonTerminal(buyLease.key, "BUY", ts.mint, ts.symbol, "OBSERVE_ONLY_NOT_LIVE_EXECUTABLE") } catch (_: Throwable) {}
+                    buyTerminalRecorded = true
+                    return observeOnlyLiveEntry("OBSERVE_ONLY_NOT_LIVE_EXECUTABLE", canonicalRoutedLane, executableOpen.reason)
+                }
+                if (reasonUpper.contains("STALE") || reasonUpper.contains("TICKET") || reasonUpper.contains("TOKEN_STATE_CHANGED")) {
+                    try {
+                        ForensicLogger.lifecycle("DEFERRED_REQUOTE_REQUIRED", "mint=${ts.mint.take(10)} symbol=${ts.symbol} lane=$canonicalRoutedLane attemptId=${executableOpen.attemptId} reason=${executableOpen.reason.take(120)} no_buy_failed=true release_lease=true")
+                        PipelineHealthCollector.labelInc("DEFERRED_REQUOTE_REQUIRED")
+                    } catch (_: Throwable) {}
+                    try { ExecutionAttemptLease.releaseNonTerminal(buyLease.key, "BUY", ts.mint, ts.symbol, "DEFERRED_REQUOTE_REQUIRED") } catch (_: Throwable) {}
+                    buyTerminalRecorded = true
+                    return false
+                }
+                val failBucket = "FINALITY_BLOCK:${executableOpen.reason.take(72).replace(' ', '_')}"
                 emitLiveBuyFail(ts, sol, failBucket, executableOpen.reason)
                 buyTerminalFail("BUY_TERMINAL_NO_EXECUTABLE_ROUTE:FINALITY_${executableOpen.reason.take(60)}")
                 return false
@@ -9699,7 +9748,8 @@ class Executor(
                             "mint=${ts.mint.take(10)} sol=$sol reason=SAFETY_PROOF_HYDRATION detail=${preTrade.detail.take(80)}",
                         )
                     } catch (_: Throwable) {}
-                    buyTerminalFail("BUY_TERMINAL_NO_EXECUTABLE_ROUTE:SAFETY_PROOF_HYDRATION")
+                    try { ExecutionAttemptLease.releaseNonTerminal(buyLease.key, "BUY", ts.mint, ts.symbol, "DEFERRED_PROOF_PENDING") } catch (_: Throwable) {}
+                    buyTerminalRecorded = true
                     return false
                 }
                 try {

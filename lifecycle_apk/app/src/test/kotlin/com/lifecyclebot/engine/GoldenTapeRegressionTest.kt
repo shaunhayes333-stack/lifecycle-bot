@@ -2418,6 +2418,28 @@ class GoldenTapeRegressionTest {
 
 
 
+
+    @Test
+    fun live_advisory_shape_preserves_executable_lane_without_buy_fail_choke() {
+        val exec = java.io.File("src/main/kotlin/com/lifecyclebot/engine/Executor.kt").readText()
+        assertTrue(
+            "ADVISORY_SHAPE must not freeze FDG-approved executable lanes; it should preserve pre-pivot executable lane authority",
+            exec.contains("action=preserve_executable_lane") &&
+                exec.contains("val prePivotExecutableLane") &&
+                exec.contains("val canonicalRoutedLane = if (stylePivotAdvisory) prePivotExecutableLane") &&
+                !exec.contains("return observeOnlyLiveEntry(\"OBSERVE_ONLY_NOT_LIVE_EXECUTABLE\", liveEntryDecision.finalLane.ifBlank { originalLaneForPivot }, \"ADVISORY_SHAPE\")")
+        )
+        assertTrue(
+            "Only unresolved non-executable lanes may observe-only before BUY_PLAN_OK / EXEC_LEASE_SET",
+            exec.contains("LIVE_ENTRY_OBSERVED_ONLY") &&
+                exec.contains("OBSERVE_ONLY_CANON_LANE_UNRESOLVED") &&
+                exec.indexOf("return observeOnlyLiveEntry(\"OBSERVE_ONLY_CANON_LANE_UNRESOLVED\"") < exec.indexOf("ExecutionAttemptLease.acquire") &&
+                exec.contains("val buyLeaseProcessor = canonicalRoutedLane") &&
+                exec.contains("lane = canonicalRoutedLane") &&
+                exec.contains("source = \"Executor.liveBuy.canonicalLane\"")
+        )
+    }
+
     @Test
     fun live_fdg_allow_survives_missing_final_candidate_and_version_churn() {
         val gate = java.io.File("src/main/kotlin/com/lifecyclebot/engine/ExecutableOpenGate.kt").readText()
