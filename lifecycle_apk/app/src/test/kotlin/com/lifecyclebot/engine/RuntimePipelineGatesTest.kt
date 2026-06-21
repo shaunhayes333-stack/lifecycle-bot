@@ -294,7 +294,7 @@ class QuarantineAndOutcomeLedgerSmokeTest {
             marketCapUsd = 1000.0,
         )
         assertFalse(zero.quarantined)
-        assertEquals(null, zero.reason)
+        assertEquals("TOKEN_MAP_PENDING_RAW_ZERO_LIQUIDITY", zero.reason)
         assertFalse(QuarantineStore.isQuarantined("MintZero111111111111111111111111111111"))
     }
 
