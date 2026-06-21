@@ -2437,7 +2437,7 @@ class GoldenTapeRegressionTest {
             "Executor must still run provider/pretrade/finality after live route selection",
             exec.contains("LIVE_ROUTE_SELECTED") &&
                 exec.contains("LIVE_PROVIDER_QUORUM") &&
-                exec.contains("PreTradeHardGate.check") &&
+                exec.contains("PreTradeHardGate.requireLiveBuyAllowed") &&
                 exec.contains("ExecutableOpenGate.canOpenExecutablePosition") &&
                 exec.contains("LIVE_BUY_REJECTED_HARD_BLOCK_ROUTE_") &&
                 !exec.contains("LIVE_BUY_REJECTED_HARD_BLOCK_NO_EXECUTABLE_ROUTE")
