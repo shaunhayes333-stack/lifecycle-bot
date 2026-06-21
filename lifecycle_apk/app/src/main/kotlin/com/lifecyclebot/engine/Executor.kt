@@ -2998,6 +2998,8 @@ class Executor(
                     } catch (_: Throwable) { "" }
                     val (candFeatures, isIncomplete) = com.lifecyclebot.engine.CanonicalFeaturesBuilder
                         .fromTokenState(ts, trade, modeEnum, sourceEnum, envEnum, symVerdict)
+                    val canonicalEntrySizeSol = ts.position.costSol.takeIf { it > 0.0 }
+                    val canonicalRealizedPnlSol = tradeWithMint.netPnlSol.takeIf { it != 0.0 } ?: tradeWithMint.pnlSol
                     val rich = com.lifecyclebot.engine.CanonicalTradeOutcome(
                         tradeId = tradeId,
                         mint = ts.mint,
@@ -3010,9 +3012,12 @@ class Executor(
                         exitTimeMs = tradeWithMint.ts,
                         entryPrice = ts.position.entryPrice,
                         exitPrice = tradeWithMint.price,
-                        entrySol = ts.position.costSol.takeIf { it > 0.0 },
+                        entrySol = canonicalEntrySizeSol,
+                        entrySizeSol = canonicalEntrySizeSol,
+                        sizeBucket = com.lifecyclebot.engine.CanonicalSizeContext.bucket(canonicalEntrySizeSol),
+                        solWeightedReturn = com.lifecyclebot.engine.CanonicalSizeContext.solWeightedReturn(canonicalEntrySizeSol, canonicalRealizedPnlSol, pnl),
                         exitSol = tradeWithMint.sol,
-                        realizedPnlSol = tradeWithMint.netPnlSol.takeIf { it != 0.0 } ?: tradeWithMint.pnlSol,
+                        realizedPnlSol = canonicalRealizedPnlSol,
                         realizedPnlPct = pnl,  // V5.9.1509 — net-of-fee (pnl is now netPnlPct)
                         maxGainPct = if (ts.position.entryPrice > 0 && ts.position.highestPrice > 0)
                             ((ts.position.highestPrice - ts.position.entryPrice) / ts.position.entryPrice) * 100.0 else null,

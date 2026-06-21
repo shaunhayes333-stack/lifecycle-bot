@@ -110,6 +110,7 @@ object CanonicalFeaturesBuilder {
             else -> "STANDARD"     // V3 / default — still trainable
         }
 
+        val entrySizeSol = ts.position.costSol.takeIf { it > 0.0 } ?: trade.entryCostSol.takeIf { it > 0.0 } ?: trade.sol.takeIf { it > 0.0 }
         val cand = CandidateFeatures(
             assetClass = when (source) {
                 TradeSource.SHITCOIN, TradeSource.MOONSHOT, TradeSource.MANIP,
@@ -138,6 +139,7 @@ object CanonicalFeaturesBuilder {
             mintAuthority = mintAuthority,
             freezeAuthority = freezeAuthority,
             slippageBucket = "",   // not captured in TokenState — Push 6 wiring
+            sizeBucket = CanonicalSizeContext.bucket(entrySizeSol),
             entryPattern = ts.phase.ifBlank { "STANDARD" },
             bubbleClusterPattern = ts.safety.bundleType.ifBlank { "CLEAN" },
             fdgReasonFamily = ts.signal.ifBlank { "STANDARD" },
@@ -156,6 +158,7 @@ object CanonicalFeaturesBuilder {
             if (cand.liqBucket.isBlank()) add("liq")
             if (cand.mcapBucket.isBlank()) add("mcap")
             if (cand.runtimeMode.isBlank()) add("runtime")
+            if (cand.sizeBucket.isBlank() || cand.sizeBucket == "SIZE_UNKNOWN") add("size")
         }
         // V5.9.789 — operator audit Critical Fix 8: feed/lifecycle-driven exits
         // are NOT strategy outcomes. Even when features are technically populated,

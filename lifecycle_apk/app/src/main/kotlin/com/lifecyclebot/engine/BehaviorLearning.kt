@@ -1072,6 +1072,7 @@ object BehaviorLearning {
             append(f.volVelocity.ifBlank { "?" }); append('|')
             append(f.holderConcentration.ifBlank { "?" }); append('|')
             append(f.safetyTier.ifBlank { f.rugTier.ifBlank { "?" } }); append('|')
+            append(f.sizeBucket.ifBlank { "SIZE_UNKNOWN" }); append('|')
             append(f.entryPattern.ifBlank { "?" })
         }
     }
@@ -1085,6 +1086,7 @@ object BehaviorLearning {
             append(f.trader.ifBlank { "?" }); append('|')
             append(f.venue.ifBlank { "?" }); append('|')
             append(f.route.ifBlank { "?" }); append('|')
+            append(f.sizeBucket.ifBlank { "SIZE_UNKNOWN" }); append('|')
             append(f.liqBucket.ifBlank { "?" })
         }
     }

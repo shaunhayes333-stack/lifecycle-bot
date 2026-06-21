@@ -138,9 +138,11 @@ object CanonicalPublishHelper {
                     holderConcentration = holderConcentrationBucket,
                     safetyTier = safetyTier,
                     fdgReasonFamily = closeReason?.takeIf { it.isNotBlank() } ?: "",
+                    sizeBucket = CanonicalSizeContext.bucket(entrySol.takeIf { it > 0.0 }),
                 )
             } else null
 
+            val entrySizeSol = entrySol.takeIf { it > 0.0 }
             val rich = CanonicalTradeOutcome(
                 tradeId          = tradeId,
                 mint             = mint,
@@ -153,7 +155,10 @@ object CanonicalPublishHelper {
                 exitTimeMs       = exitTimeMs,
                 entryPrice       = entryPrice,
                 exitPrice        = exitPrice,
-                entrySol         = entrySol.takeIf { it > 0.0 },
+                entrySol         = entrySizeSol,
+                entrySizeSol     = entrySizeSol,
+                sizeBucket       = CanonicalSizeContext.bucket(entrySizeSol),
+                solWeightedReturn = CanonicalSizeContext.solWeightedReturn(entrySizeSol, realizedPnlSol, realizedPnlPct),
                 exitSol          = exitSol,
                 realizedPnlSol   = realizedPnlSol,
                 realizedPnlPct   = realizedPnlPct,

@@ -171,6 +171,7 @@ data class CandidateFeatures(
 
     // Entry shape
     val slippageBucket: String = "",            // SLIP_LOW / SLIP_MED / SLIP_HIGH
+    val sizeBucket: String = "",                // DUST_SIZE / PROBE_SIZE / REDUCED_SIZE / QUALITY_SIZE / CONVICTION_SIZE
     val entryPattern: String = "",              // BREAKOUT / PULLBACK / VERTICAL_GREEN_THEN_PULLBACK / DIP / …
     val bubbleClusterPattern: String = "",      // CLEAN / CLUSTERED / BUNDLED
 
@@ -197,6 +198,14 @@ data class CanonicalTradeOutcome(
     val entryPrice: Double?,
     val exitPrice: Double?,
     val entrySol: Double?,
+    // V5.0.4000 — real-size learning context. The bot cannot learn live
+    // compounding from dust/probe-sized samples as if they were full quality
+    // trades. These fields travel with every canonical outcome so downstream
+    // learners can separate REAL_SIZE / QUALITY_SIZE / DUST probes and weight
+    // edge by realized SOL, not just percent/count.
+    val entrySizeSol: Double? = null,
+    val sizeBucket: String = "",
+    val solWeightedReturn: Double? = null,
     val exitSol: Double?,
     val realizedPnlSol: Double?,
     val realizedPnlPct: Double?,
@@ -239,6 +248,36 @@ data class CanonicalTradeOutcome(
     val invalidReason: String? = null,
     val timestampMs: Long = System.currentTimeMillis(),
 )
+
+// ─────────────────────────────────────────────────────────────────────
+// Real-size learning context (V5.0.4000)
+// ─────────────────────────────────────────────────────────────────────
+object CanonicalSizeContext {
+    fun bucket(entrySol: Double?): String {
+        val s = entrySol?.takeIf { it.isFinite() && it > 0.0 } ?: return "SIZE_UNKNOWN"
+        return when {
+            s < 0.01 -> "DUST_SIZE"
+            s < 0.03 -> "PROBE_SIZE"
+            s < 0.08 -> "REDUCED_SIZE"
+            s < 0.20 -> "QUALITY_SIZE"
+            s < 0.50 -> "CONVICTION_SIZE"
+            else -> "WHALE_SIZE"
+        }
+    }
+
+    fun solWeightedReturn(entrySol: Double?, realizedPnlSol: Double?, realizedPnlPct: Double?): Double? {
+        val size = entrySol?.takeIf { it.isFinite() && it > 0.0 } ?: return null
+        val pnlSol = realizedPnlSol?.takeIf { it.isFinite() }
+        if (pnlSol != null) return pnlSol
+        val pct = realizedPnlPct?.takeIf { it.isFinite() } ?: return null
+        return size * (pct / 100.0)
+    }
+
+    fun isRealLearningSize(entrySol: Double?): Boolean {
+        val b = bucket(entrySol)
+        return b in setOf("REDUCED_SIZE", "QUALITY_SIZE", "CONVICTION_SIZE", "WHALE_SIZE")
+    }
+}
 
 // ─────────────────────────────────────────────────────────────────────
 // Normalizer (operator spec items 2, 4, 7)
@@ -918,6 +957,8 @@ object CanonicalOutcomeBus {
         // when Trade.tradingMode is blank/garbage) stay incomplete.
         val (liteCandidate, liteIncomplete) = buildLiteLegacyCandidate(trade, mode, source, assetClass, env)
 
+        val legacyEntrySizeSol = (trade.entryCostSol.takeIf { it > 0.0 } ?: trade.sol.takeIf { it > 0.0 })
+        val legacyRealizedPnlSol = trade.netPnlSol.takeIf { it != 0.0 } ?: trade.pnlSol
         val outcome = CanonicalTradeOutcome(
             tradeId = tradeId,
             mint = trade.mint,
@@ -938,9 +979,12 @@ object CanonicalOutcomeBus {
                 if (ex > 0.0) (ex / (1.0 + p / 100.0)).takeIf { it.isFinite() && it > 0.0 } else null
             },
             exitPrice = trade.price,
-            entrySol = null,
+            entrySol = legacyEntrySizeSol,
+            entrySizeSol = legacyEntrySizeSol,
+            sizeBucket = CanonicalSizeContext.bucket(legacyEntrySizeSol),
+            solWeightedReturn = CanonicalSizeContext.solWeightedReturn(legacyEntrySizeSol, legacyRealizedPnlSol, learningPnlVerdict.pnlPct),
             exitSol = trade.sol,
-            realizedPnlSol = trade.netPnlSol.takeIf { it != 0.0 } ?: trade.pnlSol,
+            realizedPnlSol = legacyRealizedPnlSol,
             realizedPnlPct = learningPnlVerdict.pnlPct,
             maxGainPct = null,
             maxDrawdownPct = null,
@@ -1018,6 +1062,7 @@ object CanonicalOutcomeBus {
             mintAuthority = "",
             freezeAuthority = "",
             slippageBucket = "",
+            sizeBucket = CanonicalSizeContext.bucket(trade.entryCostSol.takeIf { it > 0.0 } ?: trade.sol.takeIf { it > 0.0 }),
             entryPattern = "LEGACY_LITE",
             bubbleClusterPattern = "",
             fdgReasonFamily = "",

@@ -2414,6 +2414,20 @@ class GoldenTapeRegressionTest {
         assertTrue("Runtime report should no longer collapse to MEME,CYCLIC only", bot.contains("FULL INTERNAL MEME LAYER ACTIVATION"))
     }
 
+
+    @Test
+    fun canonical_learning_carries_real_trade_size_context() {
+        val canonical = java.io.File("src/main/kotlin/com/lifecyclebot/engine/CanonicalLearning.kt").readText()
+        val builder = java.io.File("src/main/kotlin/com/lifecyclebot/engine/CanonicalFeaturesBuilder.kt").readText()
+        val helper = java.io.File("src/main/kotlin/com/lifecyclebot/engine/CanonicalPublishHelper.kt").readText()
+        val exec = java.io.File("src/main/kotlin/com/lifecyclebot/engine/Executor.kt").readText()
+        val behavior = java.io.File("src/main/kotlin/com/lifecyclebot/engine/BehaviorLearning.kt").readText()
+        assertTrue("Canonical outcome must carry real entry size, bucket, and SOL-weighted return", canonical.contains("entrySizeSol") && canonical.contains("sizeBucket") && canonical.contains("solWeightedReturn") && canonical.contains("object CanonicalSizeContext"))
+        assertTrue("Real-size buckets must separate dust/probe/reduced/quality/conviction samples", canonical.contains("DUST_SIZE") && canonical.contains("PROBE_SIZE") && canonical.contains("REDUCED_SIZE") && canonical.contains("QUALITY_SIZE") && canonical.contains("CONVICTION_SIZE"))
+        assertTrue("CandidateFeatures must include sizeBucket so strategy signatures can learn real sizing", canonical.contains("val sizeBucket: String") && builder.contains("sizeBucket = CanonicalSizeContext.bucket(entrySizeSol)") && builder.contains("add(\"size\")") && behavior.contains("f.sizeBucket.ifBlank"))
+        assertTrue("All canonical producers must publish size context", helper.contains("entrySizeSol") && helper.contains("CanonicalSizeContext.bucket") && exec.contains("canonicalEntrySizeSol") && exec.contains("CanonicalSizeContext.solWeightedReturn") && canonical.contains("legacyEntrySizeSol"))
+    }
+
     @Test
     fun live_style_pivot_router_promotes_bleeders_to_quality_not_defensive_probes() {
         val router = java.io.File("src/main/kotlin/com/lifecyclebot/engine/LiveStylePivotRouter.kt").readText()
