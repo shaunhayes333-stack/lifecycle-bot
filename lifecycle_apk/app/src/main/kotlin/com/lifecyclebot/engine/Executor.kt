@@ -9327,9 +9327,17 @@ class Executor(
         val runtimePaper = try { RuntimeModeAuthority.isPaper() } catch (_: Throwable) { cfg().paperMode }
         if (!runtimePaper && execCtx.execMode != ExecMode.LIVE) return liveAbortDesync("runtime.paperMode=false execMode=${execCtx.execMode}")
         if (execCtx.execMode == ExecMode.LIVE) {
-            val paperFlag = try { ts.position.isPaperPosition } catch (_: Throwable) { false }
-            val shadowFlag = try { ts.position.tradingMode.equals("SHADOW", true) || layerTag.equals("SHADOW", true) } catch (_: Throwable) { false }
-            if (runtimePaper || paperFlag || shadowFlag) return liveAbortDesync("mode=LIVE runtimePaper=$runtimePaper positionPaper=$paperFlag shadow=$shadowFlag")
+            // V5.0.4017 — pre-open TokenState.position is a placeholder whose
+            // Position.isPaperPosition default is true. 4016 incorrectly treated
+            // that default as live/paper desync and rejected every live BUY before
+            // spend (LIVE_MODE_DESYNC=140, BUY ok=0). Only an already-open
+            // position can be authoritative about its mode; fresh entry candidates
+            // are governed by ExecutionContext + RuntimeModeAuthority until the
+            // live position is stamped after tx confirmation.
+            val alreadyOpenPosition = try { ts.position.isOpen && (ts.position.qtyToken > 0.0 || ts.position.costSol > 0.0 || ts.position.entryTime > 0L) } catch (_: Throwable) { false }
+            val paperFlag = try { alreadyOpenPosition && ts.position.isPaperPosition } catch (_: Throwable) { false }
+            val shadowFlag = try { (alreadyOpenPosition && ts.position.tradingMode.equals("SHADOW", true)) || layerTag.equals("SHADOW", true) } catch (_: Throwable) { false }
+            if (runtimePaper || paperFlag || shadowFlag) return liveAbortDesync("mode=LIVE runtimePaper=$runtimePaper alreadyOpen=$alreadyOpenPosition positionPaper=$paperFlag shadow=$shadowFlag")
         }
         liveStage("LIVE_BUY_ENTRY", "sol=${"%.4f".format(sol)} score=${"%.1f".format(score)} quality=$quality")
 
