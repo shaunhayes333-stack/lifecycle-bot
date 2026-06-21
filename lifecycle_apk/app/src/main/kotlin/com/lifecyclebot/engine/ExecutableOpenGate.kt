@@ -909,6 +909,10 @@ object ExecutableOpenGate {
         }
         val currentCandidateVersion = LaneExecutionCoordinator.candidateVersionFor(mint)
         val immutableTicket = ticketForAttempt(attemptId)
+        val stateTokenMapRouteStatus = state?.tokenMapRouteStatus ?: "LIQUIDITY_UNKNOWN_PENDING_TOKEN_MAP"
+        val stateTokenMapHydrationComplete = state?.tokenMapHydrationComplete == true
+        val stateTokenMapExpectedOut = state?.tokenMapExpectedOut ?: 0.0
+        val stateTokenMapProviderAttempts = state?.tokenMapProviderAttempts ?: 0
 
         if (BirdeyeBudgetGate.isEntryBudgetLockedDown()) {
             // V5.9.1568 — budget exhaustion must not halt PAPER learning. Paid
@@ -954,10 +958,10 @@ object ExecutableOpenGate {
             val ticketHardNo = immutableTicket.hardNoReasons.firstOrNull { trueHardTicketKill(it) }
             if (ticketExpired) return blocked("EXEC_OPEN_BLOCKED_STALE_TICKET", "TICKET_TTL_EXPIRED")
             if (ticketHardNo != null) return blocked("EXEC_OPEN_BLOCKED_TICKET_HARD_SAFETY", ticketHardNo)
-            val ticketRouteUpper = tokenMapRouteStatus.uppercase()
+            val ticketRouteUpper = stateTokenMapRouteStatus.uppercase()
             val ticketNoRoute = ticketRouteUpper in setOf("NO_ROUTE", "TRUE_ZERO_LIQUIDITY")
             val ticketExecutableRoute = ticketRouteUpper in setOf("PUMPFUN_BONDING_CURVE_EXECUTABLE", "DEX_ROUTABLE")
-            if (liquidityUsd <= 0.0 && immutableTicket.liquidityUsd <= 0.0 && tokenMapHydrationComplete && ticketNoRoute && tokenMapProviderAttempts >= 2) return blocked("EXEC_OPEN_BLOCKED_TRUE_ZERO_LIQUIDITY", "TRUE_ZERO_LIQUIDITY")
+            if (liquidityUsd <= 0.0 && immutableTicket.liquidityUsd <= 0.0 && stateTokenMapHydrationComplete && ticketNoRoute && stateTokenMapProviderAttempts >= 2) return blocked("EXEC_OPEN_BLOCKED_TRUE_ZERO_LIQUIDITY", "TRUE_ZERO_LIQUIDITY")
             if (liquidityUsd <= 0.0 && immutableTicket.liquidityUsd <= 0.0 && !ticketExecutableRoute) return blocked("EXEC_OPEN_DEFERRED_TOKEN_MAP", "LIQUIDITY_UNKNOWN_PENDING_TOKEN_MAP", shadow = true)
             try {
                 ForensicLogger.lifecycle(
@@ -1055,15 +1059,15 @@ object ExecutableOpenGate {
             } catch (_: Throwable) {}
         }
         if (liquidityUsd <= 0.0) {
-            val routeUpper = tokenMapRouteStatus.uppercase()
+            val routeUpper = stateTokenMapRouteStatus.uppercase()
             val executableTokenMap = routeUpper == "PUMPFUN_BONDING_CURVE_EXECUTABLE" || routeUpper == "DEX_ROUTABLE"
             val routeNoRoute = routeUpper in setOf("NO_ROUTE", "TRUE_ZERO_LIQUIDITY")
-            val trueZeroTokenMap = tokenMapHydrationComplete && routeNoRoute && tokenMapExpectedOut <= 0.0 && tokenMapProviderAttempts >= 2
+            val trueZeroTokenMap = stateTokenMapHydrationComplete && routeNoRoute && stateTokenMapExpectedOut <= 0.0 && stateTokenMapProviderAttempts >= 2
             if (!trueZeroTokenMap && !executableTokenMap) {
                 try {
                     ForensicLogger.lifecycle(
                         "TOKEN_MAP_PENDING",
-                        "attemptId=$attemptId mint=${mint.take(10)} symbol=$symbol stage=ExecutableOpenGate route=$tokenMapRouteStatus providers=$tokenMapProviderAttempts expectedOut=$tokenMapExpectedOut action=defer_not_zero_liquidity",
+                        "attemptId=$attemptId mint=${mint.take(10)} symbol=$symbol stage=ExecutableOpenGate route=$stateTokenMapRouteStatus providers=$stateTokenMapProviderAttempts expectedOut=$stateTokenMapExpectedOut action=defer_not_zero_liquidity",
                     )
                     PipelineHealthCollector.labelInc("TOKEN_MAP_PENDING")
                 } catch (_: Throwable) {}

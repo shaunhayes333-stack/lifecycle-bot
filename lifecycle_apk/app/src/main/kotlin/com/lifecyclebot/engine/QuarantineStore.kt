@@ -136,7 +136,7 @@ object QuarantineStore {
 
         if (liqKnown && liquidityUsd <= 0.0) {
             try { ForensicLogger.lifecycle("TOKEN_MAP_PENDING", "mint=${mint.take(10)} symbol=$symbol stage=QuarantineStore action=no_quarantine_raw_zero_liquidity") } catch (_: Throwable) {}
-            return false
+            return Verdict(false, "TOKEN_MAP_PENDING_RAW_ZERO_LIQUIDITY")
         }
 
         if (rugcheckScore != null && rugcheckScore in 0..10) {
@@ -148,7 +148,7 @@ object QuarantineStore {
             if (priceDropPct != null && priceDropPct <= -60.0) return quarantine(mint, symbol, "RESTORE_RUG_DROP_${priceDropPct.toInt()}")
             if (liqKnown && liquidityUsd <= 0.0) {
                 try { ForensicLogger.lifecycle("TOKEN_MAP_PENDING", "mint=${mint.take(10)} symbol=$symbol stage=QuarantineStore.restore action=no_quarantine_raw_zero_liquidity") } catch (_: Throwable) {}
-                return false
+                return Verdict(false, "TOKEN_MAP_PENDING_RESTORE_RAW_ZERO_LIQUIDITY")
             }
             if (mcapKnown && marketCapUsd <= 0.0 && liqKnown && liquidityUsd <= 0.0) return quarantine(mint, symbol, "RESTORE_NO_MARKET")
             if (restoredLosses >= 2 && !hasExternalLiquidityProof) return quarantine(mint, symbol, "RESTORE_LOSSY_NO_LIQ_PROOF")
