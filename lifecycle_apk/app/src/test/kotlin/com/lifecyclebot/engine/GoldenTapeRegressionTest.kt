@@ -2558,13 +2558,26 @@ class GoldenTapeRegressionTest {
     @Test
     fun quality_owner_requires_quality_liquidity() {
         val service = java.io.File("src/main/kotlin/com/lifecyclebot/engine/BotService.kt").readText()
-        assertTrue("QUALITY owner must require liquidity/mcap/holder/route proof", service.contains("qualityLaneProofOk") && service.contains("ts.lastLiquidityUsd >= 15_000.0") && service.contains("ts.lastMcap >= 25_000.0") && service.contains("QUALITY_OWNER_PROOF_REJECTED") && service.contains("QUALITY_PRIMARY_PROOF_REJECTED"))
+        assertTrue("QUALITY owner must require route/liquidity/mcap/safety proof while holder-blind proof soft-allows into downstream size shaping", service.contains("qualityLaneProofOk") && service.contains("qualityStructure = routeProof && safeEnough && ts.lastLiquidityUsd >= 15_000.0 && ts.lastMcap >= 25_000.0") && service.contains("QUALITY_OWNER_HOLDER_PROOF_BLIND_SOFT_ALLOW") && service.contains("QUALITY_OWNER_PROOF_REJECTED") && service.contains("QUALITY_PRIMARY_PROOF_REJECTED"))
+    }
+
+
+    @Test
+    fun style_pivot_quality_promotion_can_be_executable_with_proof() {
+        val exec = java.io.File("src/main/kotlin/com/lifecyclebot/engine/Executor.kt").readText()
+        assertTrue(
+            "Style-pivot advisory must preserve throughput by routing proof-backed quality promotions to the promoted executable lane",
+            exec.contains("STYLE_PIVOT_QUALITY_PROMOTION_EXECUTABLE") &&
+                exec.contains("qualityPromotionLane") &&
+                exec.contains("pivotHasExecutionProof") &&
+                exec.contains("stylePivotAdvisory && qualityPromotionLane && pivotHasExecutionProof -> postPivotExecutableLane")
+        )
     }
 
     @Test
     fun negative_ev_lane_no_compounding_size() {
         val exec = java.io.File("src/main/kotlin/com/lifecyclebot/engine/Executor.kt").readText()
-        assertTrue("Negative-EV SHITCOIN/PRESALE must not receive full-size compounding live allocation", exec.contains("SHITCOIN_NEGATIVE_EV_NO_COMPOUNDING_SIZE") && exec.contains("PRESALE_SNIPE_NEGATIVE_EV_SHADOW_ONLY") && exec.contains("LIVE_LANE_CAPITAL_RESTRICTED") && exec.contains("LIVE_BUY_REJECTED_HARD_BLOCK_NEGATIVE_EV_LANE"))
+        assertTrue("Negative-EV SHITCOIN/PRESALE must be size-shaped, not hard-blocked before quality throughput", exec.contains("SHITCOIN_NEGATIVE_EV_SIZE_SHAPED") && exec.contains("PRESALE_SNIPE_NEGATIVE_EV_SIZE_SHAPED") && exec.contains("LIVE_LANE_CAPITAL_SHAPED") && exec.contains("LIVE_LANE_CAPITAL_SIZE_APPLIED") && !exec.contains("LIVE_BUY_REJECTED_HARD_BLOCK_NEGATIVE_EV_LANE"))
     }
 
     @Test

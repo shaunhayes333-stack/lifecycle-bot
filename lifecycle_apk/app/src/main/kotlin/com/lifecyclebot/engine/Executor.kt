@@ -9402,22 +9402,43 @@ class Executor(
             identity?.source ?: "",
         ).map { canonicalExecutableLane(it) }.firstOrNull { it in executableLaneSet }.orEmpty()
         val postPivotExecutableLane = canonicalExecutableLane(liveEntryDecision.finalLane.ifBlank { originalLaneForPivot }).takeIf { it in executableLaneSet }.orEmpty()
-        val canonicalRoutedLane = if (stylePivotAdvisory) prePivotExecutableLane else postPivotExecutableLane.ifBlank { prePivotExecutableLane }
+        val qualityPromotionLane = postPivotExecutableLane in setOf("QUALITY", "TREASURY", "BLUECHIP", "MOONSHOT", "PROJECT_SNIPER")
+        val pivotHasExecutionProof = liveEntryDecision.basisTrusted && liveEntryDecision.routeTrusted && liveEntryDecision.providerProof && liveEntryDecision.liquidityUsd > 0.0
+        val canonicalRoutedLane = when {
+            stylePivotAdvisory && qualityPromotionLane && pivotHasExecutionProof -> postPivotExecutableLane
+            stylePivotAdvisory -> prePivotExecutableLane
+            else -> postPivotExecutableLane.ifBlank { prePivotExecutableLane }
+        }
+        if (stylePivotAdvisory && qualityPromotionLane && pivotHasExecutionProof && canonicalRoutedLane == postPivotExecutableLane) {
+            try {
+                ForensicLogger.lifecycle(
+                    "STYLE_PIVOT_QUALITY_PROMOTION_EXECUTABLE",
+                    "mint=${ts.mint.take(10)} symbol=${ts.symbol} from=$prePivotExecutableLane to=$postPivotExecutableLane basis=${liveEntryDecision.basisTrusted} route=${liveEntryDecision.routeTrusted} provider=${liveEntryDecision.providerProof} liq=${liveEntryDecision.liquidityUsd.toInt()} action=quality_lane_authority",
+                )
+                PipelineHealthCollector.labelInc("STYLE_PIVOT_QUALITY_PROMOTION_EXECUTABLE")
+            } catch (_: Throwable) {}
+        }
         val routedLaneTag = canonicalRoutedLane.ifBlank { if (stylePivotAdvisory) originalLaneForPivot else liveEntryDecision.finalLane.ifBlank { originalLaneForPivot } }
-        val routedStyleTag = if (stylePivotAdvisory) originalStyleForPivot else liveEntryDecision.finalStyle.ifBlank { routedLaneTag }
+        val routedStyleTag = if (stylePivotAdvisory && canonicalRoutedLane == postPivotExecutableLane && postPivotExecutableLane.isNotBlank()) liveEntryDecision.finalStyle.ifBlank { routedLaneTag } else if (stylePivotAdvisory) originalStyleForPivot else liveEntryDecision.finalStyle.ifBlank { routedLaneTag }
         if (canonicalRoutedLane !in executableLaneSet) {
             return observeOnlyLiveEntry("OBSERVE_ONLY_CANON_LANE_UNRESOLVED", routedLaneTag, liveEntryDecision.decision)
         }
+        var laneCapitalSizeMultiplier = 1.0
         run {
             val capitalLane = BleederMemoryRouter.canon(canonicalRoutedLane)
             val st = try { BleederMemoryRouter.statsFor(capitalLane) } catch (_: Throwable) { null }
             val toxicShitcoin = capitalLane == "SHITCOIN" && st != null && st.n50 >= 5 && (st.netPnl50Sol <= 0.0 || st.ev50Pct < 0.0 || st.wr50 < 25.0)
             val toxicPresale = capitalLane == "PRESALE_SNIPE" && st != null && st.n20 >= 3 && (st.wr20 <= 0.0 || st.ev20Pct < 0.0)
             if (toxicShitcoin || toxicPresale) {
-                val reason = if (toxicShitcoin) "SHITCOIN_NEGATIVE_EV_NO_COMPOUNDING_SIZE" else "PRESALE_SNIPE_NEGATIVE_EV_SHADOW_ONLY"
-                try { ForensicLogger.lifecycle("LIVE_LANE_CAPITAL_RESTRICTED", "mint=${ts.mint.take(10)} symbol=${ts.symbol} lane=$capitalLane reason=$reason n50=${st?.n50} wr50=${st?.wr50} ev50=${st?.ev50Pct} net50=${st?.netPnl50Sol}") } catch (_: Throwable) {}
-                emitLiveBuyFail(ts, sol, "LIVE_BUY_REJECTED_HARD_BLOCK_NEGATIVE_EV_LANE", reason)
-                return false
+                val reason = if (toxicShitcoin) "SHITCOIN_NEGATIVE_EV_SIZE_SHAPED" else "PRESALE_SNIPE_NEGATIVE_EV_SIZE_SHAPED"
+                laneCapitalSizeMultiplier = if (toxicShitcoin) 0.35 else 0.25
+                try {
+                    ForensicLogger.lifecycle(
+                        "LIVE_LANE_CAPITAL_SHAPED",
+                        "mint=${ts.mint.take(10)} symbol=${ts.symbol} lane=$capitalLane reason=$reason mult=${laneCapitalSizeMultiplier.fmt(2)} n50=${st?.n50} wr50=${st?.wr50} ev50=${st?.ev50Pct} net50=${st?.netPnl50Sol} action=continue_to_live_buy",
+                    )
+                    PipelineHealthCollector.labelInc("LIVE_LANE_CAPITAL_SHAPED")
+                } catch (_: Throwable) {}
             }
         }
 
@@ -9637,6 +9658,11 @@ class Executor(
             val beforeProviderSol = sol
             sol = (sol * providerQuorumSizeMultiplier).coerceAtLeast(0.0)
             try { ForensicLogger.lifecycle("LIVE_PROVIDER_QUORUM_SIZE_APPLIED", "mint=${ts.mint.take(10)} symbol=${ts.symbol} from=${beforeProviderSol.fmt(4)} to=${sol.fmt(4)} mult=${providerQuorumSizeMultiplier.fmt(2)}") } catch (_: Throwable) {}
+        }
+        if (laneCapitalSizeMultiplier < 0.999) {
+            val beforeCapitalSol = sol
+            sol = (sol * laneCapitalSizeMultiplier).coerceAtLeast(0.0)
+            try { ForensicLogger.lifecycle("LIVE_LANE_CAPITAL_SIZE_APPLIED", "mint=${ts.mint.take(10)} symbol=${ts.symbol} from=${beforeCapitalSol.fmt(4)} to=${sol.fmt(4)} mult=${laneCapitalSizeMultiplier.fmt(2)} lane=$canonicalRoutedLane") } catch (_: Throwable) {}
         }
 
         // V5.9.751 — Base44 ticket item #3: USDC / WSOL / USDT / mSOL / etc.

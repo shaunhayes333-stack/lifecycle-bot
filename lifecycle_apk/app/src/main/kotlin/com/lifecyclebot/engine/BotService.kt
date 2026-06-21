@@ -9056,7 +9056,17 @@ class BotService : Service() {
             val routeProof = ts.lastPrice > 0.0 && (ts.lastPriceSource.isNotBlank() || ts.source.isNotBlank())
             val holderProof = try { ts.safety.topHolderPct > 0.0 || ts.peakHolderCount > 0 || ts.holderGrowthRate != 0.0 } catch (_: Throwable) { false }
             val safeEnough = try { !ts.safety.isBlocked && ts.safety.hardBlockReasons.isEmpty() } catch (_: Throwable) { false }
-            return routeProof && holderProof && safeEnough && ts.lastLiquidityUsd >= 15_000.0 && ts.lastMcap >= 25_000.0
+            val qualityStructure = routeProof && safeEnough && ts.lastLiquidityUsd >= 15_000.0 && ts.lastMcap >= 25_000.0
+            if (qualityStructure && !holderProof) {
+                try {
+                    ForensicLogger.lifecycle(
+                        "QUALITY_OWNER_HOLDER_PROOF_BLIND_SOFT_ALLOW",
+                        "symbol=${ts.symbol} mint=${ts.mint.take(10)} liq=${ts.lastLiquidityUsd.toInt()} mcap=${ts.lastMcap.toInt()} src=${ts.lastPriceSource.ifBlank { ts.source }} holder=${ts.safety.topHolderPct} action=size_shape_downstream_not_owner_starve",
+                    )
+                    PipelineHealthCollector.labelInc("QUALITY_OWNER_HOLDER_PROOF_BLIND_SOFT_ALLOW")
+                } catch (_: Throwable) {}
+            }
+            return qualityStructure
         }
         // (1) Regression guard — must remain literally these tokens.
         if (l == "STANDARD" || l == "CORE" || l == "V3") return true
