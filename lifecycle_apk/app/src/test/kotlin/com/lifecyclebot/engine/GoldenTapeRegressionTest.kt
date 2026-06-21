@@ -1522,11 +1522,12 @@ class GoldenTapeRegressionTest {
 
 
     @Test
-    fun live_buy_clamps_to_wallet_and_min_executable_before_insufficient_balance() {
+    fun live_buy_clamps_to_wallet_and_min_non_micro_before_insufficient_balance() {
         val exec = java.io.File("src/main/kotlin/com/lifecyclebot/engine/Executor.kt").readText()
         assertTrue(exec.contains("LIVE_BUY_SIZE_CLAMPED_TO_WALLET"))
-        assertTrue(exec.contains("LIVE_BUY_SIZE_RAISED_TO_MIN_EXECUTABLE"))
-        assertTrue(exec.contains("liveMinExecutableBuySol = 0.005"))
+        assertTrue(exec.contains("LIVE_BUY_SIZE_RAISED_TO_MIN_NON_MICRO"))
+        assertTrue(exec.contains("minNonMicroLiveBuySol"))
+        assertTrue(exec.contains("LIVE_ENTRY_REJECTED_SIZE_TOO_THIN_FOR_NON_MICRO_TRADE"))
         assertTrue(exec.contains("liveRentReserveSol = 0.012"))
         assertFalse("Live buy must not reject walletSol < sol before rent-reserve clamp", exec.contains("if (walletSol < sol)"))
         assertTrue(exec.indexOf("maxSpendableSol") < exec.indexOf("val lamports = (effectiveSol"))
@@ -2415,6 +2416,58 @@ class GoldenTapeRegressionTest {
     }
 
 
+
+    @Test
+    fun live_fdg_exec_allow_submits_buy_when_no_hard_block() {
+        val exec = java.io.File("src/main/kotlin/com/lifecyclebot/engine/Executor.kt").readText()
+        assertTrue("Style-pivot defer must be advisory after FDG/EXEC allow, not terminal BUY_FAILED", exec.contains("STYLE_PIVOT_ADVISORY") && exec.contains("ADVISORY_SHAPE") && exec.contains("no_live_buy_fail=true") && !exec.contains("LIVE_ENTRY_DEFERRED_BY_STYLE_PIVOT_$"))
+        assertTrue("Approved no-hard-block path must progress into route/provider/order state machine", exec.contains("LIVE_ENTRY_APPROVED") && exec.contains("LIVE_ROUTE_SELECTED") && exec.contains("LIVE_PROVIDER_QUORUM") && exec.contains("LIVE_BUY_SUBMITTED"))
+    }
+
+    @Test
+    fun style_pivot_is_advisory_not_terminal() {
+        val exec = java.io.File("src/main/kotlin/com/lifecyclebot/engine/Executor.kt").readText()
+        val bad = "emitLiveBuyFail(ts, sol, \"LIVE_ENTRY_DEFERRED_BY_STYLE_PIVOT_"
+        assertFalse("Style-pivot advisory must not emit live buy failure", exec.contains(bad))
+        assertTrue("Style pivot advisory must use neutral size multiplier, never zero-size terminal defer", exec.contains("val effectiveStyleSizeMultiplier = if (stylePivotAdvisory) 1.0 else liveEntryDecision.sizeMultiplier"))
+    }
+
+    @Test
+    fun provider_degraded_quorum_fallback() {
+        val quorum = java.io.File("src/main/kotlin/com/lifecyclebot/engine/LiveProviderQuorum.kt").readText()
+        val exec = java.io.File("src/main/kotlin/com/lifecyclebot/engine/Executor.kt").readText()
+        assertTrue("Provider quorum must allow DexScreener/PumpFun/CoinGecko fallback without Birdeye/Gecko hostage mode", quorum.contains("DEXSCREENER") && quorum.contains("PUMPFUN") && quorum.contains("BIRDEYE") && quorum.contains("GECKOTERMINAL") && quorum.contains("COINGECKO_SOL_CONTEXT") && quorum.contains("marketCount >= 2"))
+        assertTrue("Executor must hard-block only when quorum is actually insufficient", exec.contains("LIVE_PROVIDER_QUORUM_OK") && exec.contains("LIVE_BUY_REJECTED_HARD_BLOCK_PROVIDER_QUORUM"))
+    }
+
+    @Test
+    fun no_micro_live_trade_unless_enabled() {
+        val cfg = java.io.File("src/main/kotlin/com/lifecyclebot/data/BotConfig.kt").readText()
+        val exec = java.io.File("src/main/kotlin/com/lifecyclebot/engine/Executor.kt").readText()
+        assertTrue("Config must default live buys to non-micro tickets", cfg.contains("val minLiveBuySol: Double = 0.10") && cfg.contains("val allowLiveMicroProbe: Boolean = false"))
+        assertTrue("Live buy path must reject below-min non-micro tickets instead of silently buying 0.01 SOL", exec.contains("LIVE_ENTRY_REJECTED_SIZE_TOO_THIN_FOR_NON_MICRO_TRADE") && exec.contains("LIVE_BUY_SIZE_RAISED_TO_MIN_NON_MICRO") && !exec.contains("LIVE_BUY_SIZE_RAISED_TO_MIN_EXECUTABLE"))
+    }
+
+    @Test
+    fun live_sell_reconciler_must_start() {
+        val service = java.io.File("src/main/kotlin/com/lifecyclebot/engine/BotService.kt").readText()
+        val recon = java.io.File("src/main/kotlin/com/lifecyclebot/engine/sell/SellReconciler.kt").readText()
+        assertTrue("Live startup must expose sell reconciler health", service.contains("SELL_RECONCILER") && service.contains("SELL_RECONCILER_LIVE_STARTUP_HARD_FAIL"))
+        assertTrue("Sell reconciler must expose running/tick/age state", recon.contains("isStarted") && recon.contains("totalTicks") && recon.contains("lastTickAtMs") && recon.contains("isLiveAlive"))
+    }
+
+    @Test
+    fun quality_owner_requires_quality_liquidity() {
+        val service = java.io.File("src/main/kotlin/com/lifecyclebot/engine/BotService.kt").readText()
+        assertTrue("QUALITY owner must require liquidity/mcap/holder/route proof", service.contains("qualityLaneProofOk") && service.contains("ts.lastLiquidityUsd >= 15_000.0") && service.contains("ts.lastMcap >= 25_000.0") && service.contains("QUALITY_OWNER_PROOF_REJECTED") && service.contains("QUALITY_PRIMARY_PROOF_REJECTED"))
+    }
+
+    @Test
+    fun negative_ev_lane_no_compounding_size() {
+        val exec = java.io.File("src/main/kotlin/com/lifecyclebot/engine/Executor.kt").readText()
+        assertTrue("Negative-EV SHITCOIN/PRESALE must not receive full-size compounding live allocation", exec.contains("SHITCOIN_NEGATIVE_EV_NO_COMPOUNDING_SIZE") && exec.contains("PRESALE_SNIPE_NEGATIVE_EV_SHADOW_ONLY") && exec.contains("LIVE_LANE_CAPITAL_RESTRICTED") && exec.contains("LIVE_BUY_REJECTED_HARD_BLOCK_NEGATIVE_EV_LANE"))
+    }
+
     @Test
     fun canonical_learning_carries_real_trade_size_context() {
         val canonical = java.io.File("src/main/kotlin/com/lifecyclebot/engine/CanonicalLearning.kt").readText()
@@ -2455,7 +2508,7 @@ class GoldenTapeRegressionTest {
         assertTrue("Final live sizing must emit full growth/cap telemetry", exec.contains("GROWTH_MODE_TRACE") && exec.contains("liquidityCap") && exec.contains("walletCap") && exec.contains("minExec"))
         assertTrue("All live lanes must receive tick-time runner/hard-floor protection", bot.contains("LIVE RUNNER CAPTURE PARITY") && bot.contains("tickProfitLockEligible") && bot.contains("TICK_PROFIT_LOCK_SKIPPED_LANE"))
         assertTrue("BleederMemoryRouter must use live-only recent closed rows", bleeder.contains("mode.equals(\"live\"") && bleeder.contains("n20") && bleeder.contains("n50") && bleeder.contains("n100") && bleeder.contains("deepLosses50") && bleeder.contains("failedBasisCount") && bleeder.contains("orphanCount"))
-        assertTrue("liveBuy must emit decision before lease/quote, apply pivot size, and bucket pivot defer reasons", exec.contains("LIVE_ENTRY_DECISION") && exec.contains("LiveStylePivotRouter.route") && exec.contains("LIVE_STYLE_PIVOT_SIZE_APPLIED") && exec.contains("LIVE_ENTRY_DEFERRED_BY_STYLE_PIVOT_") && exec.contains("LIVE_ENTRY_DEFERRED_BY_STYLE_PIVOT_REASON_"))
+        assertTrue("liveBuy must emit decision before lease/quote, apply pivot size, and bucket style-pivot advisory reasons", exec.contains("LIVE_ENTRY_DECISION") && exec.contains("LiveStylePivotRouter.route") && exec.contains("LIVE_STYLE_PIVOT_SIZE_APPLIED") && exec.contains("STYLE_PIVOT_ADVISORY") && exec.contains("STYLE_PIVOT_ADVISORY_REASON_"))
         assertTrue("live journal mode should use pivoted lane", exec.contains("tradingMode  = routedLaneTag") && exec.contains("tradingMode = routedLaneTag"))
     }
 

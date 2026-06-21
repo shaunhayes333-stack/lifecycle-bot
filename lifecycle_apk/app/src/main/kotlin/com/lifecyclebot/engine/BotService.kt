@@ -940,6 +940,26 @@ class BotService : Service() {
                 },
             )
             BotRuntimeController.markSellReconcilerStarted(runtimeGeneration, com.lifecyclebot.engine.sell.SellReconciler.isStarted)
+            try {
+                val r = com.lifecyclebot.engine.sell.SellReconciler
+                val age = if (r.lastTickAtMs > 0L) System.currentTimeMillis() - r.lastTickAtMs else -1L
+                ForensicLogger.lifecycle("SELL_RECONCILER", "running=${r.isStarted} ticks=${r.totalTicks} lastTickAgeMs=$age paperMode=${cfg.paperMode} gen=$runtimeGeneration")
+                PipelineHealthCollector.labelInc(if (r.isStarted) "SELL_RECONCILER_RUNNING" else "SELL_RECONCILER_NOT_STARTED")
+            } catch (_: Throwable) {}
+            if (!cfg.paperMode) {
+                scope.launch(kotlinx.coroutines.Dispatchers.IO) {
+                    try { kotlinx.coroutines.delay(12_000L) } catch (_: Throwable) {}
+                    val r = com.lifecyclebot.engine.sell.SellReconciler
+                    val age = if (r.lastTickAtMs > 0L) System.currentTimeMillis() - r.lastTickAtMs else Long.MAX_VALUE
+                    val healthy = r.isStarted && r.totalTicks > 0L && age < 30_000L
+                    if (!healthy) {
+                        try {
+                            ForensicLogger.lifecycle("SELL_RECONCILER_LIVE_STARTUP_HARD_FAIL", "running=${r.isStarted} ticks=${r.totalTicks} lastTickAgeMs=$age gen=$runtimeGeneration")
+                            PipelineHealthCollector.labelInc("SELL_RECONCILER_LIVE_STARTUP_HARD_FAIL")
+                        } catch (_: Throwable) {}
+                    }
+                }
+            }
         } catch (e: Throwable) {
             BotRuntimeController.markSellReconcilerStarted(runtimeGeneration, false)
             ErrorLogger.warn("BotService", "SellReconciler start failed: ${e.message}")
@@ -1049,6 +1069,10 @@ class BotService : Service() {
         if (now - reconcilerWatchdogLastMs < 3_000L) return
 
         val recon = com.lifecyclebot.engine.sell.SellReconciler
+        try {
+            val age = if (recon.lastTickAtMs > 0L) System.currentTimeMillis() - recon.lastTickAtMs else -1L
+            ForensicLogger.lifecycle("SELL_RECONCILER", "running=${recon.isStarted} ticks=${recon.totalTicks} lastTickAgeMs=$age pending=${recon.pendingLiveStart}")
+        } catch (_: Throwable) {}
         val walletHeld = try { HostWalletTokenTracker.getActuallyHeldCount() } catch (_: Throwable) { 0 }
         val activeJobs = try { com.lifecyclebot.engine.sell.SellJobRegistry.snapshot().size } catch (_: Throwable) { 0 }
         val zombie = try { recon.isLiveZombie(activeJobs) } catch (_: Throwable) { false }
@@ -9028,6 +9052,12 @@ class BotService : Service() {
         //      lane shapes — but we still cap fanout per the operator P1 spec:
         //      "primary lane + at most one rescue lane".
         val l = lane.uppercase()
+        fun qualityLaneProofOk(): Boolean {
+            val routeProof = ts.lastPrice > 0.0 && (ts.lastPriceSource.isNotBlank() || ts.source.isNotBlank())
+            val holderProof = try { ts.safety.topHolderPct > 0.0 || ts.peakHolderCount > 0 || ts.holderGrowthRate != 0.0 } catch (_: Throwable) { false }
+            val safeEnough = try { !ts.safety.isBlocked && ts.safety.hardBlockReasons.isEmpty() } catch (_: Throwable) { false }
+            return routeProof && holderProof && safeEnough && ts.lastLiquidityUsd >= 15_000.0 && ts.lastMcap >= 25_000.0
+        }
         // (1) Regression guard — must remain literally these tokens.
         if (l == "STANDARD" || l == "CORE" || l == "V3") return true
         // (2) Primary normally evaluates, except catastrophic paper S0-10
@@ -9035,6 +9065,10 @@ class BotService : Service() {
         // primary from bypassing the bounded rescue cap during a sub-bootstrap
         // WR collapse while preserving meme-family training volume.
         if (l.equals(primaryLane, ignoreCase = true)) {
+            if (l in setOf("QUALITY", "BLUECHIP", "TREASURY") && !qualityLaneProofOk()) {
+                try { ForensicLogger.lifecycle("QUALITY_PRIMARY_PROOF_REJECTED", "lane=$l symbol=${ts.symbol} mint=${ts.mint.take(10)} liq=${ts.lastLiquidityUsd.toInt()} mcap=${ts.lastMcap.toInt()} src=${ts.lastPriceSource.ifBlank { ts.source }} holder=${ts.safety.topHolderPct}") } catch (_: Throwable) {}
+                return false
+            }
             if (catastrophicPaperLowScoreSpecialistBleed(ts, l)) {
                 try { ForensicLogger.lifecycle("LANE_PRIMARY_SUPPRESSED_CATASTROPHIC_PAPER_BLEED", "lane=$l symbol=${ts.symbol} mint=${ts.mint.take(10)} score=${ts.lastV3Score ?: ts.entryScore.toInt()}") } catch (_: Throwable) {}
                 return false
@@ -9101,8 +9135,15 @@ class BotService : Service() {
                 "SHITCOIN", "MOONSHOT", "EXPRESS", "PROJECT_SNIPER",
                 "MANIPULATED", "QUALITY", "DIP_HUNTER", "TREASURY", "BLUECHIP"
             )
+            val qualityEligible = qualityLaneProofOk()
             val affinityRanked = affinity.filter { it in fullMemeTraderRing }.sorted()
-            val rawOwnerPool = (listOf(primaryLane.uppercase()) + affinityRanked + fullMemeTraderRing).distinct()
+            val rawOwnerPool0 = (listOf(primaryLane.uppercase()) + affinityRanked + fullMemeTraderRing).distinct()
+            val rawOwnerPool = rawOwnerPool0.filter { laneName ->
+                laneName !in setOf("QUALITY", "BLUECHIP", "TREASURY") || qualityEligible
+            }.ifEmpty { rawOwnerPool0.filter { it !in setOf("QUALITY", "BLUECHIP", "TREASURY") }.ifEmpty { rawOwnerPool0 } }
+            if (!qualityEligible && rawOwnerPool0.any { it in setOf("QUALITY", "BLUECHIP", "TREASURY") }) {
+                try { ForensicLogger.lifecycle("QUALITY_OWNER_PROOF_REJECTED", "symbol=${ts.symbol} mint=${ts.mint.take(10)} liq=${ts.lastLiquidityUsd.toInt()} mcap=${ts.lastMcap.toInt()} src=${ts.lastPriceSource.ifBlank { ts.source }} holder=${ts.safety.topHolderPct} primary=$primaryLane") } catch (_: Throwable) {}
+            }
             val ownerPool = com.lifecyclebot.engine.LaneToxicityGuard.filterNonToxic(rawOwnerPool, scoreForToxicity).ifEmpty { rawOwnerPool }
             val rot = try { (System.currentTimeMillis() / 3_000L).toInt() } catch (_: Throwable) { 0 }
             val ownerLane = ownerPool[((ts.mint.hashCode() xor rot) and 0x7fffffff) % ownerPool.size]
@@ -9112,11 +9153,9 @@ class BotService : Service() {
             // character-confirmed quality rescue lanes in addition to the owner;
             // the actual lane must still emit BUY intent and pass FDG/executor.
             val profitableRescue = RuntimeModeAuthority.isLive() && l in setOf("QUALITY", "TREASURY", "BLUECHIP", "MOONSHOT", "PROJECT_SNIPER") && (
-                affinity.contains(l) ||
-                l == primaryLane.uppercase() ||
-                (scoreForToxicity >= 55 && l in setOf("QUALITY", "TREASURY", "BLUECHIP", "MOONSHOT")) ||
-                (ts.lastLiquidityUsd >= 15_000.0 && l in setOf("QUALITY", "BLUECHIP")) ||
-                (ts.meta.momScore >= 60.0 && l == "MOONSHOT")
+                (l in setOf("QUALITY", "TREASURY", "BLUECHIP") && qualityEligible && (affinity.contains(l) || l == primaryLane.uppercase() || scoreForToxicity >= 55 || ts.lastLiquidityUsd >= 15_000.0)) ||
+                (l == "MOONSHOT" && (affinity.contains(l) || l == primaryLane.uppercase() || scoreForToxicity >= 55 || ts.meta.momScore >= 60.0)) ||
+                (l == "PROJECT_SNIPER" && qualityEligible && affinity.contains(l))
             )
             if (l in fullMemeTraderRing) {
                 val allowed = l == ownerLane || profitableRescue

@@ -37,6 +37,16 @@ data class BotConfig(
     val minSecondsBetweenLiveBuys: Int = 0,
     val maxPendingBuyVerifications: Int = 16,
     val maxPendingSellVerifications: Int = 24,
+    // V5.0.4001 — live quality compounding controls. Live must learn from
+    // real executable size, not dust probes. Defaults are conservative but
+    // non-micro; UI/settings may override.
+    val minLiveBuySol: Double = 0.10,
+    val maxLiveBuySol: Double = 2.00,
+    val targetCompoundingRiskPct: Double = 0.08,
+    val maxPoolImpactPct: Double = 0.75,
+    val maxWalletRiskPerTradePct: Double = 0.18,
+    val allowLiveMicroProbe: Boolean = false,
+    val capitalMode: String = "QUALITY_COMPOUNDING",
     val hotPathTimeoutMs: Long = 10_000L,
     val walletReconcileTimeoutMs: Long = 12_000L,
     val skipSlowBackgroundScansWhenLiveBusy: Boolean = true,
@@ -352,6 +362,13 @@ object ConfigStore {
             putInt    ("ht_min_seconds_between_buys",   cfg.minSecondsBetweenLiveBuys)
             putInt    ("ht_max_pending_buy_verif",      cfg.maxPendingBuyVerifications)
             putInt    ("ht_max_pending_sell_verif",     cfg.maxPendingSellVerifications)
+            putFloat  ("min_live_buy_sol",              cfg.minLiveBuySol.toFloat())
+            putFloat  ("max_live_buy_sol",              cfg.maxLiveBuySol.toFloat())
+            putFloat  ("target_compounding_risk_pct",   cfg.targetCompoundingRiskPct.toFloat())
+            putFloat  ("max_pool_impact_pct",           cfg.maxPoolImpactPct.toFloat())
+            putFloat  ("max_wallet_risk_per_trade_pct", cfg.maxWalletRiskPerTradePct.toFloat())
+            putBoolean("allow_live_micro_probe",         cfg.allowLiveMicroProbe)
+            putString ("capital_mode",                   cfg.capitalMode)
             putLong   ("ht_hot_path_timeout_ms",        cfg.hotPathTimeoutMs)
             putLong   ("ht_wallet_reconcile_timeout_ms", cfg.walletReconcileTimeoutMs)
             putBoolean("ht_skip_slow_scans_when_busy",  cfg.skipSlowBackgroundScansWhenLiveBusy)
@@ -505,6 +522,13 @@ object ConfigStore {
             minSecondsBetweenLiveBuys   = p.getInt    ("ht_min_seconds_between_buys", 0),
             maxPendingBuyVerifications  = p.getInt    ("ht_max_pending_buy_verif", 16),
             maxPendingSellVerifications = p.getInt    ("ht_max_pending_sell_verif", 24),
+            minLiveBuySol               = p.getFloat  ("min_live_buy_sol", 0.10f).toDouble().coerceAtLeast(0.0),
+            maxLiveBuySol               = p.getFloat  ("max_live_buy_sol", 2.00f).toDouble().coerceAtLeast(0.0),
+            targetCompoundingRiskPct    = p.getFloat  ("target_compounding_risk_pct", 0.08f).toDouble().coerceIn(0.0, 1.0),
+            maxPoolImpactPct            = p.getFloat  ("max_pool_impact_pct", 0.75f).toDouble().coerceIn(0.05, 25.0),
+            maxWalletRiskPerTradePct    = p.getFloat  ("max_wallet_risk_per_trade_pct", 0.18f).toDouble().coerceIn(0.0, 1.0),
+            allowLiveMicroProbe         = p.getBoolean("allow_live_micro_probe", false),
+            capitalMode                 = p.getString ("capital_mode", "QUALITY_COMPOUNDING") ?: "QUALITY_COMPOUNDING",
             hotPathTimeoutMs            = p.getLong   ("ht_hot_path_timeout_ms", 10_000L),
             walletReconcileTimeoutMs    = p.getLong   ("ht_wallet_reconcile_timeout_ms", 12_000L),
             skipSlowBackgroundScansWhenLiveBusy = p.getBoolean("ht_skip_slow_scans_when_busy", true),

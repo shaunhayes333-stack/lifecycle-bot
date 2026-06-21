@@ -9303,20 +9303,44 @@ class Executor(
                 PipelineHealthCollector.labelInc("LIVE_ENTRY_DECISION")
             } catch (_: Throwable) {}
         }
-        emitLiveEntryDecision()
-        if (liveEntryDecision.decision == "DEFER") {
+        val stylePivotAdvisory = liveEntryDecision.decision == "DEFER"
+        if (stylePivotAdvisory) {
             val pivotReasonBucket = liveEntryDecision.reasons.firstOrNull()
                 ?.substringBefore(":")
                 ?.uppercase()
                 ?.replace(Regex("[^A-Z0-9_]+"), "_")
                 ?.take(56)
                 ?.ifBlank { null } ?: "UNSPECIFIED"
-            try { PipelineHealthCollector.labelInc("LIVE_ENTRY_DEFERRED_BY_STYLE_PIVOT_REASON_$pivotReasonBucket") } catch (_: Throwable) {}
-            emitLiveBuyFail(ts, sol, "LIVE_ENTRY_DEFERRED_BY_STYLE_PIVOT_$pivotReasonBucket", liveEntryDecision.reasons.joinToString("|"))
-            return false
+            // V5.0.4001 — STYLE PIVOT IS ADVISORY, NOT EXECUTION FINALITY.
+            // FDG/EXEC_GATE allowed candidates must not become BUY_FAILED merely
+            // because break-even/style confidence wants more proof. Hard route,
+            // safety, ledger, wallet, and size gates below remain terminal.
+            try {
+                PipelineHealthCollector.labelInc("STYLE_PIVOT_ADVISORY_REASON_$pivotReasonBucket")
+                ForensicLogger.lifecycle(
+                    "STYLE_PIVOT_ADVISORY",
+                    "mint=${ts.mint.take(10)} symbol=${ts.symbol} originalLane=${liveEntryDecision.originalLane} finalLane=${liveEntryDecision.finalLane} reason=$pivotReasonBucket detail=${liveEntryDecision.reasons.joinToString("|").take(180)} no_live_buy_fail=true",
+                )
+            } catch (_: Throwable) {}
+            emitLiveEntryDecision("ADVISORY_SHAPE")
+        } else {
+            emitLiveEntryDecision()
         }
+        val effectiveStyleSizeMultiplier = if (stylePivotAdvisory) 1.0 else liveEntryDecision.sizeMultiplier
         val routedLaneTag = liveEntryDecision.finalLane.ifBlank { originalLaneForPivot }
         val routedStyleTag = liveEntryDecision.finalStyle.ifBlank { routedLaneTag }
+        run {
+            val capitalLane = BleederMemoryRouter.canon(routedLaneTag)
+            val st = try { BleederMemoryRouter.statsFor(capitalLane) } catch (_: Throwable) { null }
+            val toxicShitcoin = capitalLane == "SHITCOIN" && st != null && st.n50 >= 5 && (st.netPnl50Sol <= 0.0 || st.ev50Pct < 0.0 || st.wr50 < 25.0)
+            val toxicPresale = capitalLane == "PRESALE_SNIPE" && st != null && st.n20 >= 3 && (st.wr20 <= 0.0 || st.ev20Pct < 0.0)
+            if (toxicShitcoin || toxicPresale) {
+                val reason = if (toxicShitcoin) "SHITCOIN_NEGATIVE_EV_NO_COMPOUNDING_SIZE" else "PRESALE_SNIPE_NEGATIVE_EV_SHADOW_ONLY"
+                try { ForensicLogger.lifecycle("LIVE_LANE_CAPITAL_RESTRICTED", "mint=${ts.mint.take(10)} symbol=${ts.symbol} lane=$capitalLane reason=$reason n50=${st?.n50} wr50=${st?.wr50} ev50=${st?.ev50Pct} net50=${st?.netPnl50Sol}") } catch (_: Throwable) {}
+                emitLiveBuyFail(ts, sol, "LIVE_BUY_REJECTED_HARD_BLOCK_NEGATIVE_EV_LANE", reason)
+                return false
+            }
+        }
 
         // V5.0.3908 — universal approved-handoff recovery for LIVE buys.
         // Some older/direct callers reach liveBuy() without the lane attemptId even
@@ -9382,6 +9406,11 @@ class Executor(
         }
         try { ForensicLogger.lifecycle("BUY_PLAN_OK", "mint=${ts.mint.take(10)} symbol=${ts.symbol} sol=$sol processor=$buyLeaseProcessor") } catch (_: Throwable) {}
         try { PipelineHealthCollector.labelInc("BUY_PLAN_OK") } catch (_: Throwable) {}
+        try {
+            ForensicLogger.lifecycle("LIVE_ENTRY_APPROVED", "mint=${ts.mint.take(10)} symbol=${ts.symbol} requestedSol=${sol.fmt(4)} lane=$routedLaneTag style=$routedStyleTag")
+            PipelineHealthCollector.labelInc("LIVE_ENTRY_APPROVED")
+        } catch (_: Throwable) {}
+        var providerQuorumSizeMultiplier = 1.0
 
         // V5.0.3910 — do NOT hold the wallet mutex while doing finality,
         // admission, sizing, or other non-wallet checks. Operator 3909 live report:
@@ -9412,10 +9441,25 @@ class Executor(
         if (!liveRoute.allowed) {
             try { ForensicLogger.lifecycle("LIVE_ROUTE_BLOCKED", "symbol=${ts.symbol} mint=${ts.mint.take(10)} sol=$sol reason=${liveRoute.reason}") } catch (_: Throwable) {}
             ErrorLogger.warn("Executor", "🚫 LIVE_ROUTE_BLOCKED: ${ts.symbol} | ${liveRoute.reason}")
-            emitLiveBuyFail(ts, sol, "LIVE_ROUTE_BLOCKED", liveRoute.reason)
+            emitLiveBuyFail(ts, sol, "LIVE_BUY_REJECTED_HARD_BLOCK_NO_EXECUTABLE_ROUTE", liveRoute.reason)
             buyTerminalFail("BUY_TERMINAL_NO_EXECUTABLE_ROUTE:${liveRoute.reason.take(80)}")
             return false
         }
+        try {
+            ForensicLogger.lifecycle("LIVE_ROUTE_SELECTED", "mint=${ts.mint.take(10)} symbol=${ts.symbol} sol=${sol.fmt(4)} route=${liveRoute.reason.take(120)}")
+            PipelineHealthCollector.labelInc("LIVE_ROUTE_SELECTED")
+        } catch (_: Throwable) {}
+        val providerQuorum = LiveProviderQuorum.evaluate(ts, routeAllowed = true, cfg = cfg())
+        try {
+            ForensicLogger.lifecycle("LIVE_PROVIDER_QUORUM", "mint=${ts.mint.take(10)} symbol=${ts.symbol} ${providerQuorum.summary()}")
+            PipelineHealthCollector.labelInc(if (providerQuorum.allowed) "LIVE_PROVIDER_QUORUM_OK" else "LIVE_PROVIDER_QUORUM_HARD_BLOCK")
+        } catch (_: Throwable) {}
+        if (!providerQuorum.allowed) {
+            emitLiveBuyFail(ts, sol, "LIVE_BUY_REJECTED_HARD_BLOCK_PROVIDER_QUORUM", providerQuorum.reason)
+            buyTerminalFail("BUY_TERMINAL_NO_EXECUTABLE_ROUTE:${providerQuorum.reason.take(80)}")
+            return false
+        }
+        providerQuorumSizeMultiplier = providerQuorum.multiplier.coerceIn(0.50, 1.0)
         
         ExecutionRootCauseTrace.buy("LIVE_BUY_ENTRY", ts, "sol=$sol walletSol=$walletSol score=$score quality=$quality layer=$layerTag attemptId=$recoveredLiveAttemptId finalityPrechecked=$recoveredFinalityPrechecked autoTrade=${cfg().autoTrade}")
         if (sol <= 0 || sol.isNaN() || sol.isInfinite()) {
@@ -9489,10 +9533,15 @@ class Executor(
             ErrorLogger.info("Executor", "🩹 WR_RECOVERY_SIZE_DAMP (live): ${ts.symbol} | sol=${sol.fmt(4)} × ${"%.2f".format(wrSizeMult)} → ${damped.fmt(4)} (band=${WrRecoveryPartial.stateNow().band.name})")
             damped
         } else sol
-        if (liveEntryDecision.sizeMultiplier < 0.999 || liveEntryDecision.sizeMultiplier > 1.001) {
+        if (effectiveStyleSizeMultiplier < 0.999 || effectiveStyleSizeMultiplier > 1.001) {
             val beforePivotSol = sol
-            sol = (sol * liveEntryDecision.sizeMultiplier).coerceAtLeast(0.0)
-            try { ForensicLogger.lifecycle("LIVE_STYLE_PIVOT_SIZE_APPLIED", "mint=${ts.mint.take(10)} symbol=${ts.symbol} from=${beforePivotSol.fmt(4)} to=${sol.fmt(4)} mult=${liveEntryDecision.sizeMultiplier.fmt(2)} finalLane=$routedLaneTag finalStyle=$routedStyleTag reasons=${liveEntryDecision.reasons.joinToString("|")}") } catch (_: Throwable) {}
+            sol = (sol * effectiveStyleSizeMultiplier).coerceAtLeast(0.0)
+            try { ForensicLogger.lifecycle("LIVE_STYLE_PIVOT_SIZE_APPLIED", "mint=${ts.mint.take(10)} symbol=${ts.symbol} from=${beforePivotSol.fmt(4)} to=${sol.fmt(4)} mult=${effectiveStyleSizeMultiplier.fmt(2)} finalLane=$routedLaneTag finalStyle=$routedStyleTag reasons=${liveEntryDecision.reasons.joinToString("|")}") } catch (_: Throwable) {}
+        }
+        if (providerQuorumSizeMultiplier < 0.999) {
+            val beforeProviderSol = sol
+            sol = (sol * providerQuorumSizeMultiplier).coerceAtLeast(0.0)
+            try { ForensicLogger.lifecycle("LIVE_PROVIDER_QUORUM_SIZE_APPLIED", "mint=${ts.mint.take(10)} symbol=${ts.symbol} from=${beforeProviderSol.fmt(4)} to=${sol.fmt(4)} mult=${providerQuorumSizeMultiplier.fmt(2)}") } catch (_: Throwable) {}
         }
 
         // V5.9.751 — Base44 ticket item #3: USDC / WSOL / USDT / mSOL / etc.
@@ -9692,27 +9741,32 @@ class Executor(
         // sub-min probes to the minimum executable size when capacity exists. If
         // capacity does not exist, reject once with a truthful low-capacity reason.
         val liveRentReserveSol = 0.012
-        val liveMinExecutableBuySol = 0.005
-        val maxSpendableSol = walletSol - liveRentReserveSol
+        val liveCfg = cfg()
+        val minNonMicroLiveBuySol = liveCfg.minLiveBuySol.coerceAtLeast(0.0)
+        val liveMinExecutableBuySol = if (liveCfg.allowLiveMicroProbe) 0.005 else minNonMicroLiveBuySol
+        val maxConfigLiveBuySol = liveCfg.maxLiveBuySol.takeIf { it > 0.0 } ?: Double.MAX_VALUE
+        val walletRiskCapSol = (walletSol * liveCfg.maxWalletRiskPerTradePct.coerceIn(0.0, 1.0)).takeIf { it > 0.0 } ?: Double.MAX_VALUE
+        val maxSpendableSol = minOf(walletSol - liveRentReserveSol, maxConfigLiveBuySol, walletRiskCapSol)
         if (maxSpendableSol < liveMinExecutableBuySol) {
-            onLog("⚠️ ${ts.symbol}: skipping buy — wallet too low after rent reserve (${walletSol.fmt(4)}◎ spendable=${maxSpendableSol.fmt(4)}◎)", ts.mint)
-            PipelineTracer.executorFailed(ts.symbol, ts.mint, "LIVE", "RENT_RESERVE_TOO_LOW")
-            PipelineTracer.noBuy(ts.symbol, ts.mint, PipelineTracer.NoBuyReason.WALLET_BALANCE_ZERO, "rent_reserve spendable=${maxSpendableSol}SOL")
-            emitLiveBuyFail(ts, maxOf(maxSpendableSol, 0.0), "RENT_RESERVE_TOO_LOW", "walletSol=$walletSol spendable=$maxSpendableSol")
-            buyTerminalFail("BUY_TERMINAL_MIN_NOTIONAL_AFTER_FEES:RENT_RESERVE_TOO_LOW")
+            onLog("⚠️ ${ts.symbol}: skipping buy — wallet too low for non-micro live ticket (${walletSol.fmt(4)}◎ spendable=${maxSpendableSol.fmt(4)}◎ min=${liveMinExecutableBuySol.fmt(4)}◎)", ts.mint)
+            PipelineTracer.executorFailed(ts.symbol, ts.mint, "LIVE", "LIVE_ENTRY_REJECTED_SIZE_TOO_THIN_FOR_NON_MICRO_TRADE")
+            PipelineTracer.noBuy(ts.symbol, ts.mint, PipelineTracer.NoBuyReason.WALLET_BALANCE_ZERO, "non_micro_min spendable=${maxSpendableSol}SOL min=${liveMinExecutableBuySol}SOL")
+            emitLiveBuyFail(ts, maxOf(maxSpendableSol, 0.0), "LIVE_ENTRY_REJECTED_SIZE_TOO_THIN_FOR_NON_MICRO_TRADE", "walletSol=$walletSol spendable=$maxSpendableSol minLiveBuySol=$liveMinExecutableBuySol allowMicro=${liveCfg.allowLiveMicroProbe}")
+            buyTerminalFail("BUY_TERMINAL_MIN_NOTIONAL_AFTER_FEES:SIZE_TOO_THIN_FOR_NON_MICRO_TRADE")
             return false
         }
         if (sol > maxSpendableSol) {
             val old = sol
             sol = maxSpendableSol
-            try { ForensicLogger.lifecycle("LIVE_BUY_SIZE_CLAMPED_TO_WALLET", "mint=${ts.mint.take(10)} symbol=${ts.symbol} requested=$old spendable=$maxSpendableSol walletSol=$walletSol rentReserve=$liveRentReserveSol") } catch (_: Throwable) {}
+            try { ForensicLogger.lifecycle("LIVE_BUY_SIZE_CLAMPED_TO_WALLET", "mint=${ts.mint.take(10)} symbol=${ts.symbol} requested=$old spendable=$maxSpendableSol walletSol=$walletSol rentReserve=$liveRentReserveSol maxConfig=$maxConfigLiveBuySol walletRiskCap=$walletRiskCapSol") } catch (_: Throwable) {}
         }
         if (sol < liveMinExecutableBuySol) {
             val old = sol
             sol = liveMinExecutableBuySol
-            try { ForensicLogger.lifecycle("LIVE_BUY_SIZE_RAISED_TO_MIN_EXECUTABLE", "mint=${ts.mint.take(10)} symbol=${ts.symbol} requested=$old raised=$sol walletSol=$walletSol spendable=$maxSpendableSol") } catch (_: Throwable) {}
+            try { ForensicLogger.lifecycle("LIVE_BUY_SIZE_RAISED_TO_MIN_NON_MICRO", "mint=${ts.mint.take(10)} symbol=${ts.symbol} requested=$old raised=$sol walletSol=$walletSol spendable=$maxSpendableSol allowMicro=${liveCfg.allowLiveMicroProbe}") } catch (_: Throwable) {}
         }
-        val realisticSol = realisticLiveEntrySize(ts, sol, walletSol, score, layerTag.ifBlank { identity?.source ?: ts.source }, "liveBuy.final")
+        val realisticSolRaw = realisticLiveEntrySize(ts, sol, walletSol, score, layerTag.ifBlank { identity?.source ?: ts.source }, "liveBuy.final")
+        val realisticSol = if (!liveCfg.allowLiveMicroProbe && realisticSolRaw < liveMinExecutableBuySol) liveMinExecutableBuySol else realisticSolRaw
         if (realisticSol > maxSpendableSol) {
             val old = realisticSol
             sol = maxSpendableSol
@@ -9720,6 +9774,22 @@ class Executor(
         } else {
             sol = realisticSol
         }
+        val assumedSolUsd = 200.0
+        val impactPct = if (ts.lastLiquidityUsd > 0.0) ((sol * assumedSolUsd) / ts.lastLiquidityUsd) * 100.0 else 999.0
+        if (!liveCfg.allowLiveMicroProbe && sol < minNonMicroLiveBuySol) {
+            emitLiveBuyFail(ts, sol, "LIVE_ENTRY_REJECTED_SIZE_TOO_THIN_FOR_NON_MICRO_TRADE", "finalSol=$sol minLiveBuySol=$minNonMicroLiveBuySol allowMicro=false")
+            buyTerminalFail("BUY_TERMINAL_MIN_NOTIONAL_AFTER_FEES:SIZE_TOO_THIN_FOR_NON_MICRO_TRADE")
+            return false
+        }
+        if (impactPct > liveCfg.maxPoolImpactPct) {
+            emitLiveBuyFail(ts, sol, "LIVE_ENTRY_REJECTED_SIZE_TOO_THIN_FOR_NON_MICRO_TRADE", "finalSol=$sol impactPct=${impactPct.fmt(3)} maxPoolImpactPct=${liveCfg.maxPoolImpactPct} liquidityUsd=${ts.lastLiquidityUsd}")
+            buyTerminalFail("BUY_TERMINAL_MIN_NOTIONAL_AFTER_FEES:POOL_IMPACT_TOO_HIGH_FOR_NON_MICRO_TRADE")
+            return false
+        }
+        try {
+            ForensicLogger.lifecycle("LIVE_ENTRY_SIZED", "mint=${ts.mint.take(10)} symbol=${ts.symbol} finalSol=${sol.fmt(4)} minLiveBuySol=${minNonMicroLiveBuySol.fmt(4)} impactPct=${impactPct.fmt(3)} maxImpact=${liveCfg.maxPoolImpactPct.fmt(2)} capitalMode=${liveCfg.capitalMode}")
+            PipelineHealthCollector.labelInc("LIVE_ENTRY_SIZED")
+        } catch (_: Throwable) {}
 
         // V5.9.611 — LiveExecutionGate is now settlement-pressure only.
         // Daily quota / concurrent ceiling / min spacing are NOT buy blockers:
@@ -9827,6 +9897,12 @@ class Executor(
             )
             try { ForensicLogger.lifecycle("BUY_ROUTE_REQUESTED", "mint=${ts.mint.take(10)} symbol=${ts.symbol} route=PUMPPORTAL_FIRST sol=${pumpBuyPlan?.solAmount ?: effectiveSol}") } catch (_: Throwable) {}
             try { PipelineHealthCollector.labelInc("BUY_ROUTE_REQUESTED") } catch (_: Throwable) {}
+            if (pumpBuyPlan != null) {
+                try {
+                    ForensicLogger.lifecycle("LIVE_BUY_SUBMITTED", "mint=${ts.mint.take(10)} symbol=${ts.symbol} route=PUMPPORTAL requestedSol=${effectiveSol.fmt(4)} finalSol=${pumpBuyPlan.solAmount.fmt(4)} priorityFee=0.0001 quorumMult=${providerQuorumSizeMultiplier.fmt(2)}")
+                    PipelineHealthCollector.labelInc("LIVE_BUY_SUBMITTED")
+                } catch (_: Throwable) {}
+            }
             val pumpFirstResult: Pair<String, Double>? = if (pumpBuyPlan == null) null else tryPumpPortalBuy(
                 ts = ts,
                 wallet = wallet,
@@ -10041,7 +10117,8 @@ class Executor(
                 qty = pumpFirstResult.second
                 buyPhase("TX_SIGNED")
                 try { ForensicLogger.lifecycle("BUY_TX_SUBMITTED", "mint=${ts.mint.take(10)} symbol=${ts.symbol} route=PUMPPORTAL sig=${sig.take(16)}") } catch (_: Throwable) {}
-                try { PipelineHealthCollector.labelInc("BUY_TX_SUBMITTED") } catch (_: Throwable) {}
+                try { ForensicLogger.lifecycle("LIVE_BUY_CONFIRMED", "mint=${ts.mint.take(10)} symbol=${ts.symbol} route=PUMPPORTAL signature=${sig.take(16)} finalSol=${effectiveSol.fmt(4)}") } catch (_: Throwable) {}
+                try { PipelineHealthCollector.labelInc("BUY_TX_SUBMITTED"); PipelineHealthCollector.labelInc("LIVE_BUY_CONFIRMED") } catch (_: Throwable) {}
                 buyPhase("TX_SUBMITTED")
                 buyPhase("TX_CONFIRMED")
                 // V5.9.602 — Pump-first gets the same lifecycle ledger as
@@ -10068,10 +10145,15 @@ class Executor(
                 val tx = txResult!!
                 val ultraReqId = if (q.isUltra) tx.requestId else null
                 try { PipelineHealthCollector.labelInc("JUPITER_SWAP_BUILD_OK") } catch (_: Throwable) {}
+                try {
+                    ForensicLogger.lifecycle("LIVE_BUY_SUBMITTED", "mint=${ts.mint.take(10)} symbol=${ts.symbol} route=${q.router} requestedSol=${effectiveSol.fmt(4)} finalSol=${sol.fmt(4)} slippageBps=$buyBaseSlippage priorityFee=0 quorumMult=${providerQuorumSizeMultiplier.fmt(2)}")
+                    PipelineHealthCollector.labelInc("LIVE_BUY_SUBMITTED")
+                } catch (_: Throwable) {}
                 sig = wallet.signSendAndConfirm(tx.txBase64, useJito, jitoTip, ultraReqId, c.jupiterApiKey, tx.isRfqRoute, tx.senderCompatible)
                 buyPhase("TX_SIGNED")
                 try { ForensicLogger.lifecycle("BUY_TX_SUBMITTED", "mint=${ts.mint.take(10)} symbol=${ts.symbol} route=${q.router} sig=${sig.take(16)}") } catch (_: Throwable) {}
-                try { PipelineHealthCollector.labelInc("BUY_TX_SUBMITTED") } catch (_: Throwable) {}
+                try { ForensicLogger.lifecycle("LIVE_BUY_CONFIRMED", "mint=${ts.mint.take(10)} symbol=${ts.symbol} route=${q.router} signature=${sig.take(16)} finalSol=${sol.fmt(4)}") } catch (_: Throwable) {}
+                try { PipelineHealthCollector.labelInc("BUY_TX_SUBMITTED"); PipelineHealthCollector.labelInc("LIVE_BUY_CONFIRMED") } catch (_: Throwable) {}
                 buyPhase("TX_SUBMITTED")
                 try { PipelineHealthCollector.labelInc("JUPITER_CONFIRM_OK") } catch (_: Throwable) {}
                 buyPhase("TX_CONFIRMED")
@@ -10189,6 +10271,10 @@ class Executor(
                 entryPoolAddress = entryMarketSnapshot.poolAddress,
             )
             recordTrade(ts, trade)
+            try {
+                ForensicLogger.lifecycle("LIVE_POSITION_STAMPED", "mint=${ts.mint.take(10)} symbol=${ts.symbol} positionId=${trade.positionId.ifBlank { tradeId.mint.take(10) }} finalSol=${sol.fmt(4)} route=$routerLabel signature=${sig.take(16)}")
+                PipelineHealthCollector.labelInc("LIVE_POSITION_STAMPED")
+            } catch (_: Throwable) {}
             buyPhase("BUY_JOURNALED")
             security.recordTrade(trade)
 
