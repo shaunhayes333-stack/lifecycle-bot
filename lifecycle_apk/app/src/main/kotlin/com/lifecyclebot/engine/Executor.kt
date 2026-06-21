@@ -9283,7 +9283,8 @@ class Executor(
                         layerTag: String = "",           // V5.9.386 — sub-trader journal tag
                         layerTagEmoji: String = "",
                         finalityPrechecked: Boolean = false,
-                        attemptId: String = ""): Boolean {    // V5.9.386 — matching emoji
+                        attemptId: String = "",
+                        executionContext: ExecutionContext? = null): Boolean {    // V5.9.386 — matching emoji
 
         // V5.0.3939 — TRUE LIVE ATTEMPT BOUNDARY.
         // Runtime 3938 showed FDG live allow > 0, global EXEC > 0, but
@@ -9304,6 +9305,34 @@ class Executor(
             PipelineHealthCollector.labelInc("LIVE_BUY_ENTERED")
         } catch (_: Throwable) {}
 
+        val execCtx = executionContext ?: ExecutionContext(
+            execMode = ExecMode.LIVE,
+            attemptId = attemptId.ifBlank { "live_${ts.mint.take(8)}_${System.currentTimeMillis()}" },
+            source = "Executor.liveBuy.default",
+        )
+        var liveBuyLastStage = "LIVE_BUY_ENTRY"
+        fun liveStage(stage: String, detail: String = "") {
+            liveBuyLastStage = stage
+            try {
+                ForensicLogger.lifecycle(stage, "attemptId=${execCtx.attemptId} execMode=${execCtx.execMode} mint=${ts.mint.take(10)} symbol=${ts.symbol} lane=$layerTag $detail".trim())
+                PipelineHealthCollector.labelInc(stage)
+            } catch (_: Throwable) {}
+        }
+        fun liveAbortDesync(reason: String): Boolean {
+            liveStage("LIVE_BUY_ABORTED", "reason=LIVE_MODE_DESYNC detail=$reason")
+            try { emitLiveBuyFail(ts, sol, "LIVE_MODE_DESYNC", reason) } catch (_: Throwable) {}
+            try { PipelineHealthCollector.labelInc("LIVE_MODE_DESYNC") } catch (_: Throwable) {}
+            return false
+        }
+        val runtimePaper = try { RuntimeModeAuthority.isPaper() } catch (_: Throwable) { cfg().paperMode }
+        if (!runtimePaper && execCtx.execMode != ExecMode.LIVE) return liveAbortDesync("runtime.paperMode=false execMode=${execCtx.execMode}")
+        if (execCtx.execMode == ExecMode.LIVE) {
+            val paperFlag = try { ts.position.isPaperPosition } catch (_: Throwable) { false }
+            val shadowFlag = try { ts.position.tradingMode.equals("SHADOW", true) || layerTag.equals("SHADOW", true) } catch (_: Throwable) { false }
+            if (runtimePaper || paperFlag || shadowFlag) return liveAbortDesync("mode=LIVE runtimePaper=$runtimePaper positionPaper=$paperFlag shadow=$shadowFlag")
+        }
+        liveStage("LIVE_BUY_ENTRY", "sol=${"%.4f".format(sol)} score=${"%.1f".format(score)} quality=$quality")
+
         // V5.0.3923 — consult dormant entry-quality AIs before any execution
         // work begins. Must run BEFORE ExecutionAttemptLease.acquire below so
         // an advisor-block does not leak a lease. Permissive by design — see
@@ -9323,6 +9352,8 @@ class Executor(
                 PipelineHealthCollector.labelInc("LIVE_ENTRY_DECISION")
             } catch (_: Throwable) {}
             try { PipelineHealthCollector.labelInc("LIVE_BUY_ADVISOR_BLOCK") } catch (_: Throwable) {}
+            liveStage("LIVE_BUY_ABORTED", "reason=ADVISOR_BLOCK detail=${advisor.second.take(120)}")
+            try { emitLiveBuyFail(ts, sol, "LIVE_BUY_ABORTED", "ADVISOR_BLOCK:${advisor.second}") } catch (_: Throwable) {}
             return false
         }
 
@@ -9508,10 +9539,33 @@ class Executor(
                 ExecutionAttemptLease.terminalOk(buyLease.key, "BUY", ts.mint, ts.symbol, reason)
             }
         }
-        try { ForensicLogger.lifecycle("BUY_PLAN_OK", "mint=${ts.mint.take(10)} symbol=${ts.symbol} sol=$sol processor=$buyLeaseProcessor") } catch (_: Throwable) {}
+        fun missingTokenMapFields(): String {
+            val tm = ts.tokenMap
+            val miss = mutableListOf<String>()
+            if (tm.canonicalTargetMint.isBlank() && ts.mint.isBlank()) miss += "targetMint"
+            if (tm.routeStatus.isBlank() || tm.routeStatus == "LIQUIDITY_UNKNOWN_PENDING_TOKEN_MAP") miss += "routeType"
+            if (tm.pairAddress.isBlank() && tm.poolAddress.isBlank() && !tm.pumpFunExecutable) miss += "pairAddress/poolAddress"
+            if ((tm.liquidityUsd ?: 0.0) <= 0.0 && ts.lastLiquidityUsd <= 0.0) miss += "liquidityUsd"
+            if (!tm.dexRouteOk && !tm.pumpFunExecutable && tm.expectedOutAmount <= 0.0) miss += "executableQuote"
+            return miss.distinct().joinToString(",").ifBlank { "route_not_executable" }
+        }
+        liveStage("TOKEN_MAP_START", "source=${ts.source.take(80)}")
+        try { TokenMapAuthority.ensureDiscoveryTokenMap(ts, ts.source) } catch (_: Throwable) {}
+        val prePlanRouteOk = try { TokenMapAuthority.executableForLiveBuy(ts) } catch (_: Throwable) { false }
+        if (!prePlanRouteOk) {
+            val missing = missingTokenMapFields()
+            liveStage("LIVE_BUY_FAILED", "reason=TOKEN_MAP_INCOMPLETE missing=$missing route=${ts.tokenMap.routeStatus}")
+            emitLiveBuyFail(ts, sol, "TOKEN_MAP_INCOMPLETE", "missing=$missing route=${ts.tokenMap.routeStatus}")
+            buyTerminalFail("BUY_TERMINAL_ROUTE_FAIL:TOKEN_MAP_INCOMPLETE_$missing")
+            return false
+        }
+        liveStage("TOKEN_MAP_OK", "route=${ts.tokenMap.routeStatus} pair=${ts.tokenMap.pairAddress.take(12)} pool=${ts.tokenMap.poolAddress.take(12)} expectedOut=${ts.tokenMap.expectedOutAmount}")
+        try { ForensicLogger.lifecycle("QUOTE_OK", "attemptId=${execCtx.attemptId} mint=${ts.mint.take(10)} symbol=${ts.symbol} stage=preplan_route_quote route=${ts.tokenMap.routeStatus} executableQuote=true") } catch (_: Throwable) {}
+        try { PipelineHealthCollector.labelInc("QUOTE_OK") } catch (_: Throwable) {}
+        try { ForensicLogger.lifecycle("BUY_PLAN_OK", "attemptId=${execCtx.attemptId} mint=${ts.mint.take(10)} symbol=${ts.symbol} sol=$sol processor=$buyLeaseProcessor tokenMapOk=true quoteOk=true") } catch (_: Throwable) {}
         try { PipelineHealthCollector.labelInc("BUY_PLAN_OK") } catch (_: Throwable) {}
         try {
-            ForensicLogger.lifecycle("LIVE_ENTRY_APPROVED", "mint=${ts.mint.take(10)} symbol=${ts.symbol} requestedSol=${sol.fmt(4)} lane=$canonicalRoutedLane style=$routedStyleTag")
+            ForensicLogger.lifecycle("LIVE_ENTRY_APPROVED", "attemptId=${execCtx.attemptId} mint=${ts.mint.take(10)} symbol=${ts.symbol} requestedSol=${sol.fmt(4)} lane=$canonicalRoutedLane style=$routedStyleTag")
             PipelineHealthCollector.labelInc("LIVE_ENTRY_APPROVED")
         } catch (_: Throwable) {}
         var providerQuorumSizeMultiplier = 1.0
@@ -9619,8 +9673,9 @@ class Executor(
                 ErrorLogger.warn("Executor", "🚫 LIVE_BUY_BLOCKED_FINALITY: ${ts.symbol} | attemptId=${executableOpen.attemptId} | ${executableOpen.reason}")
                 val reasonUpper = executableOpen.reason.uppercase()
                 if (reasonUpper.contains("WATCH") || reasonUpper.contains("UNKNOWN") || reasonUpper.contains("CANON_LANE_UNRESOLVED")) {
-                    try { ExecutionAttemptLease.releaseNonTerminal(buyLease.key, "BUY", ts.mint, ts.symbol, "OBSERVE_ONLY_NOT_LIVE_EXECUTABLE") } catch (_: Throwable) {}
-                    buyTerminalRecorded = true
+                    liveStage("LIVE_BUY_ABORTED", "reason=OBSERVE_ONLY_NOT_LIVE_EXECUTABLE detail=${executableOpen.reason.take(120)}")
+                    emitLiveBuyFail(ts, sol, "LIVE_BUY_ABORTED", executableOpen.reason)
+                    buyTerminalFail("BUY_TERMINAL_ABORTED:OBSERVE_ONLY_NOT_LIVE_EXECUTABLE")
                     return observeOnlyLiveEntry("OBSERVE_ONLY_NOT_LIVE_EXECUTABLE", canonicalRoutedLane, executableOpen.reason)
                 }
                 if (reasonUpper.contains("STALE") || reasonUpper.contains("TICKET") || reasonUpper.contains("TOKEN_STATE_CHANGED")) {
@@ -9628,8 +9683,9 @@ class Executor(
                         ForensicLogger.lifecycle("DEFERRED_REQUOTE_REQUIRED", "mint=${ts.mint.take(10)} symbol=${ts.symbol} lane=$canonicalRoutedLane attemptId=${executableOpen.attemptId} reason=${executableOpen.reason.take(120)} no_buy_failed=true release_lease=true")
                         PipelineHealthCollector.labelInc("DEFERRED_REQUOTE_REQUIRED")
                     } catch (_: Throwable) {}
-                    try { ExecutionAttemptLease.releaseNonTerminal(buyLease.key, "BUY", ts.mint, ts.symbol, "DEFERRED_REQUOTE_REQUIRED") } catch (_: Throwable) {}
-                    buyTerminalRecorded = true
+                    liveStage("LIVE_BUY_ABORTED", "reason=DEFERRED_REQUOTE_REQUIRED detail=${executableOpen.reason.take(120)}")
+                    emitLiveBuyFail(ts, sol, "LIVE_BUY_ABORTED", "DEFERRED_REQUOTE_REQUIRED:${executableOpen.reason}")
+                    buyTerminalFail("BUY_TERMINAL_ABORTED:DEFERRED_REQUOTE_REQUIRED")
                     return false
                 }
                 val failBucket = "FINALITY_BLOCK:${executableOpen.reason.take(72).replace(' ', '_')}"
@@ -9772,14 +9828,10 @@ class Executor(
                     buyTerminalFail("BUY_TERMINAL_NO_EXECUTABLE_ROUTE:TOKEN_MAP_${verdict.status}")
                     return false
                 }
-                try {
-                    TokenMapAuthority.ensureDiscoveryTokenMap(ts, ts.source)
-                    ForensicLogger.lifecycle("EXEC_OPEN_DEFERRED_TOKEN_MAP", "attemptId=${ts.tokenMap.buyAttemptId} mint=${ts.mint.take(10)} symbol=${ts.symbol} route=${ts.tokenMap.routeStatus} expectedOut=${ts.tokenMap.expectedOutAmount} ageMs=${System.currentTimeMillis() - ts.tokenMap.updatedAtMs} action=hydrate_then_retry no_live_buy_fail=true")
-                    PipelineHealthCollector.labelInc("LIVE_BUY_DEFERRED_TOKEN_MAP")
-                    ForensicLogger.exec("LIVE_BUY_DEFERRED", ts.symbol, "attemptId=${ts.tokenMap.buyAttemptId} mint=${ts.mint.take(10)} sol=$sol reason=TOKEN_MAP_ROUTE_NOT_EXECUTABLE route=${ts.tokenMap.routeStatus}")
-                } catch (_: Throwable) {}
-                try { ExecutionAttemptLease.releaseNonTerminal(buyLease.key, "BUY", ts.mint, ts.symbol, "DEFERRED_TOKEN_MAP_PENDING") } catch (_: Throwable) {}
-                buyTerminalRecorded = true
+                val missing = missingTokenMapFields()
+                liveStage("LIVE_BUY_FAILED", "reason=TOKEN_MAP_INCOMPLETE_LATE missing=$missing route=${ts.tokenMap.routeStatus}")
+                emitLiveBuyFail(ts, sol, "TOKEN_MAP_INCOMPLETE", "late missing=$missing route=${ts.tokenMap.routeStatus}")
+                buyTerminalFail("BUY_TERMINAL_ROUTE_FAIL:TOKEN_MAP_INCOMPLETE_LATE_$missing")
                 return false
             }
         }
@@ -9848,8 +9900,10 @@ class Executor(
                             "attemptId=${ts.tokenMap.buyAttemptId} mint=${ts.mint.take(10)} sol=$sol reason=${if (tokenMapPending) "TOKEN_MAP_HYDRATION" else "SAFETY_PROOF_HYDRATION"} detail=${preTrade.detail.take(80)}",
                         )
                     } catch (_: Throwable) {}
-                    try { ExecutionAttemptLease.releaseNonTerminal(buyLease.key, "BUY", ts.mint, ts.symbol, if (tokenMapPending) "DEFERRED_TOKEN_MAP_PENDING" else "DEFERRED_PROOF_PENDING") } catch (_: Throwable) {}
-                    buyTerminalRecorded = true
+                    val abortReason = if (tokenMapPending) "TOKEN_MAP_INCOMPLETE" else "SAFETY_PROOF_INCOMPLETE"
+                    liveStage("LIVE_BUY_ABORTED", "reason=$abortReason detail=${preTrade.detail.take(120)}")
+                    emitLiveBuyFail(ts, sol, abortReason, preTrade.detail)
+                    buyTerminalFail("BUY_TERMINAL_ABORTED:$abortReason")
                     return false
                 }
                 try {
@@ -10007,8 +10061,9 @@ class Executor(
                     "mint=${ts.mint.take(10)} symbol=${ts.symbol} sol=${"%.4f".format(sol)} stage=wallet_spend_boundary")
                 PipelineHealthCollector.labelInc("LIVE_BUY_MUTEX_DEFERRED_NON_TERMINAL")
             } catch (_: Throwable) {}
-            ExecutionAttemptLease.releaseNonTerminal(buyLease.key, "BUY", ts.mint, ts.symbol, "MUTEX_BUSY_DEFERRED")
-            buyTerminalRecorded = true
+            liveStage("LIVE_BUY_TIMEOUT", "reason=MUTEX_BUSY_DEFERRED lastStage=$liveBuyLastStage")
+            emitLiveBuyFail(ts, sol, "LIVE_BUY_TIMEOUT", "MUTEX_BUSY_DEFERRED")
+            buyTerminalFail("BUY_TERMINAL_TIMEOUT:MUTEX_BUSY_DEFERRED")
             return false
         }
         liveBuyMutexAcquired = true
@@ -10268,11 +10323,14 @@ class Executor(
             val priceImpactPct: Double
             val routerLabel: String
             if (pumpFirstResult != null) {
+                liveStage("TX_SUBMIT_START", "route=PUMPPORTAL")
                 // V5.9.495 — PUMP-FIRST landed; skip the entire Jupiter pipeline.
                 sig = pumpFirstResult.first
                 qty = pumpFirstResult.second
                 buyPhase("TX_SIGNED")
-                try { ForensicLogger.lifecycle("BUY_TX_SUBMITTED", "mint=${ts.mint.take(10)} symbol=${ts.symbol} route=PUMPPORTAL sig=${sig.take(16)}") } catch (_: Throwable) {}
+                try { ForensicLogger.lifecycle("BUY_TX_SUBMITTED", "attemptId=${execCtx.attemptId} mint=${ts.mint.take(10)} symbol=${ts.symbol} route=PUMPPORTAL sig=${sig.take(16)}") } catch (_: Throwable) {}
+                liveStage("TX_SUBMITTED", "route=PUMPPORTAL signature=${sig.take(16)}")
+                liveStage("FINALITY_CONFIRMED", "route=PUMPPORTAL signature=${sig.take(16)}")
                 try { ForensicLogger.lifecycle("LIVE_BUY_CONFIRMED", "mint=${ts.mint.take(10)} symbol=${ts.symbol} route=PUMPPORTAL signature=${sig.take(16)} finalSol=${effectiveSol.fmt(4)}") } catch (_: Throwable) {}
                 try { PipelineHealthCollector.labelInc("BUY_TX_SUBMITTED"); PipelineHealthCollector.labelInc("LIVE_BUY_CONFIRMED") } catch (_: Throwable) {}
                 buyPhase("TX_SUBMITTED")
@@ -10305,9 +10363,12 @@ class Executor(
                     ForensicLogger.lifecycle("LIVE_BUY_SUBMITTED", "mint=${ts.mint.take(10)} symbol=${ts.symbol} route=${q.router} requestedSol=${effectiveSol.fmt(4)} finalSol=${sol.fmt(4)} slippageBps=$buyBaseSlippage priorityFee=0 quorumMult=${providerQuorumSizeMultiplier.fmt(2)}")
                     PipelineHealthCollector.labelInc("LIVE_BUY_SUBMITTED")
                 } catch (_: Throwable) {}
+                liveStage("TX_SUBMIT_START", "route=${q.router}")
                 sig = wallet.signSendAndConfirm(tx.txBase64, useJito, jitoTip, ultraReqId, c.jupiterApiKey, tx.isRfqRoute, tx.senderCompatible)
                 buyPhase("TX_SIGNED")
-                try { ForensicLogger.lifecycle("BUY_TX_SUBMITTED", "mint=${ts.mint.take(10)} symbol=${ts.symbol} route=${q.router} sig=${sig.take(16)}") } catch (_: Throwable) {}
+                try { ForensicLogger.lifecycle("BUY_TX_SUBMITTED", "attemptId=${execCtx.attemptId} mint=${ts.mint.take(10)} symbol=${ts.symbol} route=${q.router} sig=${sig.take(16)}") } catch (_: Throwable) {}
+                liveStage("TX_SUBMITTED", "route=${q.router} signature=${sig.take(16)}")
+                liveStage("FINALITY_CONFIRMED", "route=${q.router} signature=${sig.take(16)}")
                 try { ForensicLogger.lifecycle("LIVE_BUY_CONFIRMED", "mint=${ts.mint.take(10)} symbol=${ts.symbol} route=${q.router} signature=${sig.take(16)} finalSol=${sol.fmt(4)}") } catch (_: Throwable) {}
                 try { PipelineHealthCollector.labelInc("BUY_TX_SUBMITTED"); PipelineHealthCollector.labelInc("LIVE_BUY_CONFIRMED") } catch (_: Throwable) {}
                 buyPhase("TX_SUBMITTED")
@@ -10427,8 +10488,9 @@ class Executor(
                 entryPoolAddress = entryMarketSnapshot.poolAddress,
             )
             recordTrade(ts, trade)
+            liveStage("JOURNAL_WRITE_OK", "signature=${sig.take(16)} lane=${trade.tradingMode}")
             try {
-                ForensicLogger.lifecycle("LIVE_POSITION_STAMPED", "mint=${ts.mint.take(10)} symbol=${ts.symbol} positionId=${trade.positionId.ifBlank { tradeId.mint.take(10) }} finalSol=${sol.fmt(4)} route=$routerLabel signature=${sig.take(16)}")
+                ForensicLogger.lifecycle("LIVE_POSITION_STAMPED", "attemptId=${execCtx.attemptId} mint=${ts.mint.take(10)} symbol=${ts.symbol} positionId=${trade.positionId.ifBlank { tradeId.mint.take(10) }} finalSol=${sol.fmt(4)} route=$routerLabel signature=${sig.take(16)}")
                 PipelineHealthCollector.labelInc("LIVE_POSITION_STAMPED")
             } catch (_: Throwable) {}
             buyPhase("BUY_JOURNALED")
@@ -11059,6 +11121,7 @@ class Executor(
             // route returned a confirmed signature, ts.position was created,
             // the trade was recorded, and verifier/reconciler was queued. Later
             // wallet proof still emits LIVE_BUY_OK or phantom cleanup.
+            liveStage("POSITION_TRACKED", "signature=${sig.take(16)} pendingVerify=${ts.position.pendingVerify}")
             buyTerminalOk("BUY_TERMINAL_OK:TX_CONFIRMED_PENDING_WALLET_DELTA")
             return true
 
@@ -11074,7 +11137,7 @@ class Executor(
                 com.lifecyclebot.engine.ForensicLogger.exec(
                     "LIVE_BUY_FAIL",
                     tradeId.symbol,
-                    "mint=${tradeId.mint.take(10)} sol=$sol reason=THROWN:${safe.take(80)}",
+                    "attemptId=${execCtx.attemptId} execMode=${execCtx.execMode} mint=${tradeId.mint.take(10)} sol=$sol reason=THROWN:${safe.take(80)} lastStage=$liveBuyLastStage exception=${e.javaClass.simpleName}",
                 )
             } catch (_: Throwable) {}
             ErrorLogger.error("Trade", "Live buy FAILED for ${tradeId.symbol}: $safe", e)
@@ -11087,11 +11150,14 @@ class Executor(
             )
             onNotify("⚠️ Buy Failed", "${tradeId.symbol}: ${safe.take(80)}", com.lifecyclebot.engine.NotificationHistory.NotifEntry.NotifType.INFO)
             onToast("❌ BUY FAILED: ${tradeId.symbol}\n${safe.take(50)}")
+            liveStage("LIVE_BUY_FAILED", "reason=THROWN exception=${e.javaClass.simpleName} message=${safe.take(100)} lastStage=$liveBuyLastStage")
             buyTerminalFail("BUY_TERMINAL_SUBMIT_FAIL:THROWN_${safe.take(60)}")
             return false
         }
         } finally {
             if (!buyTerminalRecorded) {
+                liveStage("LIVE_BUY_TIMEOUT", "lastStage=$liveBuyLastStage reason=NO_TERMINAL_EVENT")
+                try { emitLiveBuyFail(ts, sol, "LIVE_BUY_TIMEOUT", "lastStage=$liveBuyLastStage") } catch (_: Throwable) {}
                 buyTerminalFail("BUY_TERMINAL_LEASE_EXPIRED_REQUEUED:NON_TERMINAL_EXIT")
             }
             // V5.9.778/V5.0.3910 — release MEME_LIVE_BUY_MUTEX only if this

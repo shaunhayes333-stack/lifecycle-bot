@@ -2610,7 +2610,7 @@ class GoldenTapeRegressionTest {
         assertTrue("CYCLIC bleeder must promote to pullback/quality only with proof", router.contains("CYCLIC_PULLBACK_RECLAIM_QUALITY_PROMOTION") && router.contains("CYCLIC_BLEEDER_QUALITY_PROMOTION") && router.contains("CYCLIC_BLEEDER_AWAIT_QUALITY_PROOF"))
         assertTrue("WHALE/COPY cannot direct-trigger full live; only wallet recovered or quality promotion", router.contains("WHALE_COPY_QUALITY_PROMOTION_NO_DIRECT_TRIGGER") && router.contains("WALLET_RECOVERED_PROVEN_PROMOTION") && router.contains("WHALE_COPY_AWAIT_REPEAT_WIN_AND_PROOF"))
         assertTrue("MOONSHOT S41-60 must not native-live buy", router.contains("MOONSHOT_S41_60_QUALITY_PROMOTION") && router.contains("MOONSHOT_S41_60_DANGER_DEFER") && router.contains("scoreBand == \"S41-60\""))
-        assertTrue("SHITCOIN must pivot/defer when live net SOL is bleeding, not merely downsize native SHITCOIN", router.contains("SHITCOIN_LIVE_BLEED_QUALITY_PROMOTION") && router.contains("SHITCOIN_LIVE_BLEED_AWAIT_QUALITY_PROOF") && router.contains("SHITCOIN_THIN_ROUTE_DEPTH"))
+        assertTrue("SHITCOIN live bleed must quarantine/defer, not rename itself into quality", router.contains("SHITCOIN_LIVE_BLEED_QUARANTINE") && !router.contains("SHITCOIN_LIVE_BLEED_QUALITY_PROMOTION") && router.contains("SHITCOIN_THIN_ROUTE_DEPTH"))
         assertTrue("Fresh 1k-5k SHITCOIN depth must become live-adaptive or clean high-confidence reduced quality routing", router.contains("SHITCOIN_THIN_ROUTE_DEPTH_LIVE_ADAPTIVE_REDUCED_QUALITY") && router.contains("pivotThinDepthToQuality") && router.contains("LiveMaturityAuthority.snapshot()") && router.contains("cleanHighConfidenceBootstrap"))
         assertTrue("Low-score QUALITY and thin PRESALE/TREASURY live entries must defer at source", router.contains("QUALITY_LOW_SCORE_LIVE_DEFER") && router.contains("PRESALE_AWAIT_MIN_DEPTH_AND_PROOF") && router.contains("TREASURY_CASHGEN_AWAIT_DEPTH_SCORE_PROOF"))
         assertTrue("LiveBreakEvenGuard must use live-first terminal edge with capped paper advisory", breakEven.contains("liveTerminalEdge") && breakEven.contains("paperAdvisoryEdge") && breakEven.contains("TradeHistoryStore.getRecentValidClosedTrades") && breakEven.contains("LIQUIDITY_DEPTH_QUALITY") && breakEven.contains("PULLBACK_RECLAIM"))
@@ -3314,10 +3314,9 @@ class GoldenTapeRegressionTest {
         val lease = java.io.File("src/main/kotlin/com/lifecyclebot/engine/ExecutionAttemptLease.kt").readText()
         val mutexIdx = exec.indexOf("MEME_LIVE_BUY_MUTEX.tryAcquire")
         val busyBlock = exec.substring(mutexIdx, exec.indexOf("liveBuyMutexAcquired = true", mutexIdx))
-        assertTrue("mutex busy must be reported as deferred, not terminal buy failure", busyBlock.contains("LIVE_BUY_DEFERRED") && busyBlock.contains("MUTEX_BUSY_DEFERRED") && busyBlock.contains("releaseNonTerminal"))
-        assertFalse("mutex contention must not increment LIVE_BUY_FAIL", busyBlock.contains("emitLiveBuyFail"))
-        assertFalse("mutex contention must not call buyTerminalFail", busyBlock.contains("buyTerminalFail"))
-        assertTrue("lease must expose non-terminal release for retryable contention", lease.contains("fun releaseNonTerminal") && lease.contains("terminal=NON_TERMINAL"))
+        assertTrue("mutex busy must be visible as a terminal timeout/fail event, not a silent deferred attempt", busyBlock.contains("LIVE_BUY_TIMEOUT") && busyBlock.contains("MUTEX_BUSY_DEFERRED") && busyBlock.contains("emitLiveBuyFail") && busyBlock.contains("buyTerminalFail"))
+        assertFalse("mutex contention must not silently release the lease non-terminal", busyBlock.contains("releaseNonTerminal"))
+        assertTrue("lease may still expose non-terminal release for non-live-attempt paths, but live buy uses terminal telemetry", lease.contains("fun releaseNonTerminal") && lease.contains("terminal=NON_TERMINAL"))
         assertTrue("live finality must synthesize a current direct-lane candidate when state is missing but safety/liquidity are present", gate.contains("""modeUpper in setOf("PAPER", "LIVE")""") && gate.contains("LIVE_SYNTHETIC_FINAL_CANDIDATE") && gate.contains("LIVE_EXEC_OPEN_SYNTHETIC_FINAL_CANDIDATE"))
     }
 
@@ -3614,7 +3613,34 @@ class GoldenTapeRegressionTest {
         assertTrue("Hard zero requires completed hydration and provider quorum", authority.contains("tm.hydrationComplete && tm.routeStatus == \"NO_ROUTE\"") && authority.contains("tm.providerAttempts >= 2"))
         assertTrue("PreTradeHardGate must not raw-block lastLiquidityUsd==0", !preTrade.contains("if (ts.lastLiquidityUsd == 0.0) return block(ts, \"ZERO_LIQUIDITY\"") && preTrade.contains("TokenMapAuthority.liquidityVerdict(ts)") && preTrade.contains("TRUE_ZERO_LIQUIDITY"))
         assertTrue("ExecutableOpenGate must defer token-map pending instead of terminal zero", execGate.contains("EXEC_OPEN_DEFERRED_TOKEN_MAP") && execGate.contains("LIQUIDITY_UNKNOWN_PENDING_TOKEN_MAP") && !execGate.contains("EXEC_OPEN_BLOCKED_ZERO_LIQUIDITY"))
-        assertTrue("Executor must assert executable TokenMap before live spend", executor.contains("TokenMapAuthority.executableForLiveBuy(ts)") && executor.contains("LIVE_BUY_DEFERRED_TOKEN_MAP") && executor.contains("no_live_buy_fail=true"))
+        assertTrue("Executor must assert executable TokenMap before live spend", executor.contains("TokenMapAuthority.executableForLiveBuy(ts)") && executor.contains("TOKEN_MAP_INCOMPLETE") && executor.contains("BUY_TERMINAL_ROUTE_FAIL:TOKEN_MAP_INCOMPLETE"))
+    }
+
+    @Test
+    fun live_execution_attempts_have_immutable_mode_tokenmap_first_and_terminal_events() {
+        val execMode = java.io.File("src/main/kotlin/com/lifecyclebot/engine/ExecMode.kt").readText()
+        val executor = java.io.File("src/main/kotlin/com/lifecyclebot/engine/Executor.kt").readText()
+        assertTrue("ExecMode enum must be the immutable attempt authority", execMode.contains("enum class ExecMode") && execMode.contains("PAPER") && execMode.contains("LIVE") && execMode.contains("SHADOW") && execMode.contains("data class ExecutionContext"))
+        assertTrue("liveBuy must carry ExecutionContext, not paper Boolean flags", executor.contains("executionContext: ExecutionContext?") && !executor.contains("private fun liveBuy(ts: TokenState, sol: Double, score: Double, paper"))
+        assertTrue("LIVE mode desync must abort/fail explicitly", executor.contains("LIVE_MODE_DESYNC") && executor.contains("execCtx.execMode != ExecMode.LIVE") && executor.contains("positionPaper"))
+        assertFalse("No live EXEC_TRACE_BUY telemetry may hardcode paper=true", executor.contains("EXEC_TRACE_BUY") && executor.contains("paper=true"))
+        val liveBuyBodyStart = executor.indexOf("private fun liveBuy")
+        val tokenMapIdx = executor.indexOf("TOKEN_MAP_START", liveBuyBodyStart)
+        val quoteOkIdx = executor.indexOf("QUOTE_OK", tokenMapIdx)
+        val buyPlanIdx = executor.indexOf("BUY_PLAN_OK", quoteOkIdx)
+        assertTrue("TokenMap and quote proof must be before BUY_PLAN_OK", liveBuyBodyStart >= 0 && tokenMapIdx in (liveBuyBodyStart + 1) until quoteOkIdx && quoteOkIdx < buyPlanIdx)
+        assertTrue("TokenMap incomplete must produce a BUY fail terminal, not silent lane release", executor.contains("LIVE_BUY_FAILED") && executor.contains("TOKEN_MAP_INCOMPLETE") && executor.contains("BUY_TERMINAL_ROUTE_FAIL:TOKEN_MAP_INCOMPLETE"))
+        assertTrue("Former non-terminal release branches must now emit terminal abort/timeout", executor.contains("LIVE_BUY_ABORTED") && executor.contains("DEFERRED_REQUOTE_REQUIRED") && executor.contains("LIVE_BUY_TIMEOUT") && executor.contains("MUTEX_BUSY_DEFERRED"))
+        assertTrue("Submit/finality/journal stages must be in the live attempt chain", listOf("TX_SUBMIT_START", "TX_SUBMITTED", "FINALITY_CONFIRMED", "POSITION_TRACKED", "JOURNAL_WRITE_OK").all { executor.contains(it) })
+    }
+
+    @Test
+    fun strategy_bleed_cannot_promote_bad_lanes_to_live_quality() {
+        val router = java.io.File("src/main/kotlin/com/lifecyclebot/engine/LiveStylePivotRouter.kt").readText()
+        val executor = java.io.File("src/main/kotlin/com/lifecyclebot/engine/Executor.kt").readText()
+        assertTrue("SHITCOIN live bleed must quarantine/paper-route, not quality-promote", router.contains("SHITCOIN_LIVE_BLEED_QUARANTINE") && !router.contains("SHITCOIN_LIVE_BLEED_QUALITY_PROMOTION"))
+        assertTrue("PRESALE_SNIPE live bleed must quarantine/paper-route", router.contains("PRESALE_SNIPE_LIVE_BLEED_QUARANTINE"))
+        assertTrue("Bleeding SHITCOIN/PRESALE live lanes must not continue as size-shaped live buys", executor.contains("SHITCOIN_NEGATIVE_EV") || router.contains("SHITCOIN_LIVE_BLEED_QUARANTINE"))
     }
 
 }

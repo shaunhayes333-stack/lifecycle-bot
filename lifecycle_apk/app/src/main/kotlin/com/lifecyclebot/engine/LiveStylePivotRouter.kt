@@ -183,15 +183,15 @@ object LiveStylePivotRouter {
                     // still defers.
                     if (!pivotThinDepthToQuality("SHITCOIN_THIN_ROUTE_DEPTH_LIVE_ADAPTIVE_REDUCED_QUALITY", 0.45)) defer("SHITCOIN_THIN_ROUTE_DEPTH")
                 }
-                // V5.0.3973 — IF IT BLEEDS, IT PIVOTS.
-                // Report 3971: SHITCOIN had positive-looking % expectancy but net SOL
-                // was still negative. The old path merely shrank native SHITCOIN to 0.35×,
-                // which still bought the same bad archetype live. Live-negative native
-                // SHITCOIN must promote into a proven quality target or defer.
+                // V5.0.4016 — IF IT BLEEDS, IT QUARANTINES/PAPER-ROUTES.
+                // Bleed handling is not promotion authority. A bad SHITCOIN
+                // candidate must never be renamed into MOONSHOT/QUALITY merely
+                // because SHITCOIN is bleeding; quality lanes require their own
+                // independent admission before bleed handling runs.
                 if (s.n50 >= 10 && s.netPnl50Sol <= 0.0) {
-                    val target = bestQualityLane()
-                    if (target.isNotBlank() && target != "SHITCOIN") promoteQuality(target, target, 0.65, "SHITCOIN_LIVE_BLEED_QUALITY_PROMOTION")
-                    else defer("SHITCOIN_LIVE_BLEED_AWAIT_QUALITY_PROOF")
+                    finalLane = "SHITCOIN"
+                    finalStyle = "SHITCOIN"
+                    defer("SHITCOIN_LIVE_BLEED_QUARANTINE")
                 } else if (s.n50 < 10 && decision != "DEFER") {
                     mult = minOf(mult, if (liveAdaptive) 0.50 else 0.35)
                     reasons += if (liveAdaptive) "SHITCOIN_LIVE_ADAPTIVE_FEE_GIVEBACK_AWARE_SIZE" else "SHITCOIN_BOOTSTRAP_FEE_GIVEBACK_AWARE_SIZE"
@@ -210,7 +210,10 @@ object LiveStylePivotRouter {
             }
             "BLUECHIP" -> { if (routeTrusted && basisTrusted && rugProof) { mult = maxOf(mult, 1.0); reasons += "BLUECHIP_ROUTE_PROOF_PROMOTED" } }
             "PRESALE_SNIPE", "PROJECT_SNIPER" -> {
-                if (routeTrusted && liq >= 5_000.0 && basisTrusted && rugProof) { finalLane = "PRESALE_SNIPE"; finalStyle = "PRESALE_SNIPE"; mult = maxOf(mult, 1.0); reasons += "PRESALE_ROUTE_LIQ_PROMOTED" }
+                val ps = BleederMemoryRouter.statsFor("PRESALE_SNIPE")
+                val presaleBleeding = ps.n20 >= 3 && (ps.wr20 <= 0.0 || ps.ev20Pct < 0.0 || ps.netPnl50Sol <= 0.0)
+                if (presaleBleeding) { finalLane = "PRESALE_SNIPE"; finalStyle = "PRESALE_SNIPE"; defer("PRESALE_SNIPE_LIVE_BLEED_QUARANTINE") }
+                else if (routeTrusted && liq >= 5_000.0 && basisTrusted && rugProof) { finalLane = "PRESALE_SNIPE"; finalStyle = "PRESALE_SNIPE"; mult = maxOf(mult, 1.0); reasons += "PRESALE_ROUTE_LIQ_PROMOTED" }
                 else defer("PRESALE_AWAIT_MIN_DEPTH_AND_PROOF")
             }
             "TREASURY", "CASHGEN" -> { if (routeTrusted && liq >= 5_000.0 && basisTrusted && rugProof && score >= 40.0) { finalLane = "TREASURY"; finalStyle = "TREASURY_CASHGEN"; mult = maxOf(mult, 1.0); reasons += "TREASURY_CASHGEN_QUALITY_PROMOTED" } else defer("TREASURY_CASHGEN_AWAIT_DEPTH_SCORE_PROOF") }
