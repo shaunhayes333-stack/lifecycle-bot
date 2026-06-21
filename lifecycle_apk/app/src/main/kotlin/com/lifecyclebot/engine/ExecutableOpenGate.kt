@@ -197,9 +197,36 @@ object ExecutableOpenGate {
         currentLiquidityUsd: Double = 0.0,
         currentSafetyTier: String = "UNKNOWN",
     ): Pair<String, String>? {
-        if (state == null) return "EXEC_OPEN_DROPPED_TOKEN_STATE_CHANGED" to "TOKEN_STATE_CHANGED_NO_FINAL_CANDIDATE"
         val selected = canonicalLane(selectedLane)
         val requested = canonicalLane(requestedLane)
+        if (state == null) {
+            // V5.0.4003 — SOURCE FIX: final-candidate state can be swept or
+            // overwritten between FDG_ALLOW and liveBuy handoff during scanner storms.
+            // Runtime 5.0.4002: FDG allow=110, EXEC_GATE allow=586, BUY ok=0,
+            // BUY fail=90 with TOKEN_STATE_CHANGED_NO_FINAL_CANDIDATE. That is not
+            // market rejection; it is missing transient state after an approved ticket.
+            // Restore ONLY when the caller carries a real execution lane, current
+            // liquidity is positive, and no true-hard safety reason is present.
+            val restoredHardNoReasons = hardNoReasons.filterNot { hn ->
+                (hn.equals("ZERO_LIQUIDITY", true) && currentLiquidityUsd > 0.0) ||
+                    (hn.equals("PRE_FDG_SAFETY_CONTEXT_MISSING", true) &&
+                        currentSafetyTier.isNotBlank() && !currentSafetyTier.equals("UNKNOWN", true))
+            }
+            val liveExecutableContext = mode.equals("LIVE", true) && isRealExecutionLane(selected) &&
+                currentLiquidityUsd > 0.0 && restoredHardNoReasons.none { trueHardTicketKill(it) } &&
+                preFdgVerdict.uppercase() in setOf("BUY", "PROBE_ONLY", "WATCH", "PROBE")
+            if (liveExecutableContext) {
+                try {
+                    ForensicLogger.lifecycle(
+                        "LIVE_RESTORE_MISSING_FINAL_CANDIDATE_SOFT_ALLOW",
+                        "mint=${mint.take(10)} symbol=$symbol selected=$selected requested=$requested preFdg=$preFdgVerdict currentVersion=$currentVersion liq=${currentLiquidityUsd.toInt()} safety=$currentSafetyTier reason=state_missing_after_fdg_allow"
+                    )
+                    PipelineHealthCollector.labelInc("LIVE_RESTORE_MISSING_FINAL_CANDIDATE_SOFT_ALLOW")
+                } catch (_: Throwable) {}
+                return null
+            }
+            return "EXEC_OPEN_DROPPED_TOKEN_STATE_CHANGED" to "TOKEN_STATE_CHANGED_NO_FINAL_CANDIDATE"
+        }
         // V5.9.1559 — live unchoke: stale context hardNos must not survive
         // after the current candidate proves the context is valid. This strips
         // only derived context labels; real rug/fatal hardNo reasons remain.
@@ -302,21 +329,23 @@ object ExecutableOpenGate {
         }
         if (effectiveHardNoReasons.isNotEmpty()) return "EXEC_OPEN_DROPPED_HARD_NO_BUY" to effectiveHardNoReasons.joinToString("+")
         if (candidateVersion != currentVersion) {
-            // V5.9.1579 — LIVE approved-handoff restore. Operator 5.0.3641
-            // snapshot showed EXEC_GATE_ALLOW>0 but EXEC_LIVE_ATTEMPT=0 with
-            // EXEC_OPEN_DROPPED_STALE_CANDIDATE / PRE_FDG_NOT_BUY. The version
-            // bucket can roll between FDG approval and executor handoff; if the
-            // current state is still an FDG-approved BUY/PROBE, safety is known,
-            // liquidity is real, and no hardNo remains, this is not a terminal
-            // stale candidate — it is the exact approved handoff we must execute.
-            val latestAllows = false // V5.0.3861: stale candidate restore disabled for LIVE; current FDG must re-approve.
-            val safetyOk = false
-            val effectiveLiq = maxOf(currentLiquidityUsd, state?.liquidityUsd ?: 0.0)
-            if (mode.equals("LIVE", true) && latestAllows && safetyOk && effectiveLiq > 0.0) {
+            // V5.0.4003 — restore approved live handoff across version churn.
+            // 5.0.3861 disabled this with literal false/false, which was safe for
+            // preventing stale buys but fatal under current scanner churn: tickets age
+            // out as STALE_CANDIDATE_VERSION even though the same mint still has an
+            // FDG-approved BUY/PROBE, real liquidity, and no true hard safety kill.
+            val verdictUpper = preFdgVerdict.uppercase()
+            val latestAllows = mode.equals("LIVE", true) && state.fdgCan == true &&
+                verdictUpper in setOf("BUY", "PROBE_ONLY", "WATCH", "PROBE")
+            val safetyOk = currentSafetyTier.equals("SAFE", true) || currentSafetyTier.equals("CAUTION", true) ||
+                state.safetyTier.equals("SAFE", true) || state.safetyTier.equals("CAUTION", true) ||
+                (mode.equals("LIVE", true) && state.fdgCan == true && effectiveHardNoReasons.none { trueHardTicketKill(it) })
+            val effectiveLiq = maxOf(currentLiquidityUsd, state.liquidityUsd)
+            if (latestAllows && safetyOk && effectiveLiq > 0.0 && effectiveHardNoReasons.none { trueHardTicketKill(it) }) {
                 try {
                     ForensicLogger.lifecycle(
                         "LIVE_RESTORE_STALE_CANDIDATE_SOFT_ALLOW",
-                        "mint=${mint.take(10)} symbol=$symbol candidateVersion=$candidateVersion currentVersion=$currentVersion liq=${effectiveLiq.toInt()}"
+                        "mint=${mint.take(10)} symbol=$symbol candidateVersion=$candidateVersion currentVersion=$currentVersion stateVersion=${state.candidateVersion} liq=${effectiveLiq.toInt()} safety=$currentSafetyTier stateSafety=${state.safetyTier} reason=approved_handoff_version_churn"
                     )
                     PipelineHealthCollector.labelInc("LIVE_RESTORE_STALE_CANDIDATE_SOFT_ALLOW")
                 } catch (_: Throwable) {}

@@ -2417,6 +2417,28 @@ class GoldenTapeRegressionTest {
 
 
 
+
+    @Test
+    fun live_fdg_allow_survives_missing_final_candidate_and_version_churn() {
+        val gate = java.io.File("src/main/kotlin/com/lifecyclebot/engine/ExecutableOpenGate.kt").readText()
+        assertTrue(
+            "FDG-approved live handoff must soft-restore when transient final candidate state is missing, instead of BUY_FAIL stale-ticket TOKEN_STATE_CHANGED spam",
+            gate.contains("LIVE_RESTORE_MISSING_FINAL_CANDIDATE_SOFT_ALLOW") &&
+                gate.contains("TOKEN_STATE_CHANGED_NO_FINAL_CANDIDATE") &&
+                gate.contains("state_missing_after_fdg_allow") &&
+                gate.contains("currentLiquidityUsd > 0.0") &&
+                gate.contains("restoredHardNoReasons.none { trueHardTicketKill(it) }")
+        )
+        assertTrue(
+            "Stale candidate version restore must not be hard-disabled with latestAllows=false; live approved handoff may restore across scanner version churn",
+            gate.contains("LIVE_RESTORE_STALE_CANDIDATE_SOFT_ALLOW") &&
+                gate.contains("approved_handoff_version_churn") &&
+                gate.contains("state.fdgCan == true") &&
+                !gate.contains("val latestAllows = false") &&
+                !gate.contains("val safetyOk = false")
+        )
+    }
+
     @Test
     fun live_fdg_exec_allow_submits_buy_when_no_hard_block() {
         val exec = java.io.File("src/main/kotlin/com/lifecyclebot/engine/Executor.kt").readText()
