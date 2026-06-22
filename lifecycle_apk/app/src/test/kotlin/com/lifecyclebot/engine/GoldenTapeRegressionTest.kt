@@ -3743,7 +3743,7 @@ class GoldenTapeRegressionTest {
         val gradle = java.io.File("build.gradle.kts").readText()
         val workflow = java.io.File("../.github/workflows/build.yml").readText()
         val version = java.io.File("../AATE_VERSION").readText().trim()
-        assertEquals("5.0.4051", version)
+        assertEquals("5.0.4052", version)
         assertTrue("Gradle must prefer explicit AATE version authority", gradle.contains("aateVersionName") && gradle.contains("AATE_VERSION"))
         assertTrue("Workflow must pass explicit AATE version into Gradle", workflow.contains("-PaateVersionName=\$AATE_VERSION_NAME"))
         assertFalse("Artifact patch identity must not be derived from CI run number", workflow.contains("VERSION_NAME=\"5.0.\${BUILD_NUMBER}\""))
@@ -3971,6 +3971,20 @@ class GoldenTapeRegressionTest {
             relaxer.contains("dumpRegimeNoRelax") && relaxer.contains("RegimeDetector.Regime.DUMP") &&
             relaxer.contains("MOONSHOT") && relaxer.contains("SHITCOIN") &&
             relaxer.contains("metric.winRatePct < 35.0") && relaxer.contains("return 1.0"))
+    }
+
+
+    @Test
+    fun toolkit_hostile_dump_bias_pivots_away_from_degen_fresh_pool_flow() {
+        val sheet = java.io.File("src/main/kotlin/com/lifecyclebot/engine/ToolkitSignalSheet.kt").readText()
+        assertTrue("InternetEdge hostile must be treated as defensive risk, not neutral",
+            sheet.contains("riskMode=hostile") || sheet.contains("equals("hostile", ignoreCase = true)"))
+        assertTrue("DUMP regime must sharply penalize degen/fresh-pool setups and prefer depth/reclaim/recovery setups",
+            sheet.contains("RegimeDetector.Regime.DUMP) -48.0") &&
+            sheet.contains("RegimeDetector.Regime.DUMP) -36.0") &&
+            sheet.contains("RegimeDetector.Regime.DUMP) 18.0") &&
+            sheet.contains("SMART_WALLET_COPY_FOLLOW") &&
+            sheet.contains("bias only — no veto"))
     }
 
 }

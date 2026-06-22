@@ -444,12 +444,15 @@ object ToolkitSignalSheet {
         ))
 
         val internetRiskMode = try { InternetEdgeDesk.snapshot().riskMode } catch (_: Throwable) { "unknown" }
-        val riskOff = internetRiskMode.equals("risk_off", ignoreCase = true)
-        val best = candidates.maxByOrNull { it.score + InternetEdgeDesk.setupScoreBias(it.setup.name) + regimeSetupBias(it.setup, regime) + riskOffSetupBias(it.setup, riskOff) } ?: Candidate(
+        // V5.0.4052 — report showed InternetEdge riskMode=hostile while degen_micro_snipe
+        // and fresh_pool_momentum still dominated setup selection. Treat HOSTILE as a
+        // defensive/risk-off state and combine it with DUMP regime bias before choosing.
+        val defensiveRisk = internetRiskMode.equals("risk_off", ignoreCase = true) || internetRiskMode.equals("hostile", ignoreCase = true)
+        val best = candidates.maxByOrNull { it.score + InternetEdgeDesk.setupScoreBias(it.setup.name) + regimeSetupBias(it.setup, regime) + riskOffSetupBias(it.setup, defensiveRisk) } ?: Candidate(
             setup = Setup.NONE, score = 0.0, chart = "none", entry = "none", exit = "default", hold = 1.0, size = 1.0, tp = 1.0,
             lanes = emptySet(), tools = emptySet(), reasons = listOf("no_toolkit_setup")
         )
-        val finalBias = InternetEdgeDesk.setupScoreBias(best.setup.name) + regimeSetupBias(best.setup, regime) + riskOffSetupBias(best.setup, riskOff)
+        val finalBias = InternetEdgeDesk.setupScoreBias(best.setup.name) + regimeSetupBias(best.setup, regime) + riskOffSetupBias(best.setup, defensiveRisk)
         val boundedConf = (best.score + finalBias).coerceIn(0.0, 100.0)
         return Sheet(
             setup = if (boundedConf >= 25.0) best.setup else Setup.NONE,
@@ -462,7 +465,7 @@ object ToolkitSignalSheet {
             tpMult = best.tp.coerceIn(0.60, 1.70),
             laneVotes = best.lanes,
             toolVotes = best.tools,
-            reasons = best.reasons + listOf("internetBias=${InternetEdgeDesk.setupScoreBias(best.setup.name).toInt()}", "regimeBias=${regimeSetupBias(best.setup, regime).toInt()}", "riskOffBias=${riskOffSetupBias(best.setup, riskOff).toInt()}", "regime=${regime?.regime ?: "unknown"}", internetRiskMode),
+            reasons = best.reasons + listOf("internetBias=${InternetEdgeDesk.setupScoreBias(best.setup.name).toInt()}", "regimeBias=${regimeSetupBias(best.setup, regime).toInt()}", "riskOffBias=${riskOffSetupBias(best.setup, defensiveRisk).toInt()}", "regime=${regime?.regime ?: "unknown"}", internetRiskMode),
         )
     }
 
@@ -491,19 +494,22 @@ object ToolkitSignalSheet {
         val weakChop = (r == RegimeDetector.Regime.CHOP && regime.recentWrPct < 25.0) || r == RegimeDetector.Regime.DUMP
         if (!weakChop) return 0.0
         return when (setup) {
-            // Current report: CHOP wr=19.3%, toolkit selected DEGEN_MICRO_SNIPE 128/201,
-            // EXPRESS 0% WR. Pivot away from fresh-pool scalps during weak chop.
-            Setup.DEGEN_MICRO_SNIPE -> -18.0
-            Setup.PUMP_GRADUATION_SNIPE -> -12.0
-            Setup.VOLUME_IGNITION_SCALP -> -10.0
-            Setup.EXHAUSTION_QUICK_FLIP -> -8.0
-            Setup.ARB_FLOW_IMBALANCE -> -8.0
-            // Prefer structures that survive chop instead of pure birth momentum.
-            Setup.CHART_PULLBACK_RECLAIM -> 10.0
-            Setup.PANIC_REVERSION_BOUNCE -> 8.0
-            Setup.LIQUIDITY_DEPTH_QUALITY -> 8.0
-            Setup.MAINSTREAM_CRYPTO_SWING -> 6.0
-            Setup.REGIME_DEFENSIVE_PROBE -> 6.0
+            // 4052 report: DUMP wr=6.4%, meanPnl=-28.72%, toolkit still selected
+            // degen_micro_snipe/fresh_pool_momentum. In DUMP, pure birth momentum must
+            // lose to depth/reclaim/recovery structures. This is bias only — no veto.
+            Setup.DEGEN_MICRO_SNIPE -> if (r == RegimeDetector.Regime.DUMP) -48.0 else -18.0
+            Setup.PUMP_GRADUATION_SNIPE -> if (r == RegimeDetector.Regime.DUMP) -36.0 else -12.0
+            Setup.VOLUME_IGNITION_SCALP -> if (r == RegimeDetector.Regime.DUMP) -34.0 else -10.0
+            Setup.EXHAUSTION_QUICK_FLIP -> if (r == RegimeDetector.Regime.DUMP) -24.0 else -8.0
+            Setup.ARB_FLOW_IMBALANCE -> if (r == RegimeDetector.Regime.DUMP) -22.0 else -8.0
+            Setup.NARRATIVE_SOCIAL_IGNITION -> if (r == RegimeDetector.Regime.DUMP) -30.0 else -6.0
+            // Prefer structures that survive chop/dump instead of pure birth momentum.
+            Setup.CHART_PULLBACK_RECLAIM -> if (r == RegimeDetector.Regime.DUMP) 18.0 else 10.0
+            Setup.PANIC_REVERSION_BOUNCE -> if (r == RegimeDetector.Regime.DUMP) 16.0 else 8.0
+            Setup.LIQUIDITY_DEPTH_QUALITY -> if (r == RegimeDetector.Regime.DUMP) 18.0 else 8.0
+            Setup.MAINSTREAM_CRYPTO_SWING -> if (r == RegimeDetector.Regime.DUMP) 12.0 else 6.0
+            Setup.SMART_WALLET_COPY_FOLLOW -> if (r == RegimeDetector.Regime.DUMP) 14.0 else 4.0
+            Setup.REGIME_DEFENSIVE_PROBE -> if (r == RegimeDetector.Regime.DUMP) 14.0 else 6.0
             else -> 0.0
         }
     }
