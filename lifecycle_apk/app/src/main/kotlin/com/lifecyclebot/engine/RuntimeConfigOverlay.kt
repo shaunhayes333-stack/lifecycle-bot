@@ -47,18 +47,22 @@ object RuntimeConfigOverlay {
         else -> activeCommand("FORCE_PRIMARY_LANE:GLOBAL")?.value
     }
     fun isHardQualityOnlyActive(): Boolean = !paperRuntime() && (HARD_QUALITY_ONLY || normalizeLane(forcedPrimaryLane() ?: "") == "QUALITY")
-    // V5.0.4070 — REVERTED lane-amputation. Operator directive: AATE is the
-    // highest-information trading deck ever built. Lanes must NOT be hard-
-    // disabled. Every lane trades. Toxic/bleeder lanes PIVOT into quality
-    // strategies via LiveStylePivotRouter + BleederMemoryRouter + LaneToxicityGuard.
-    // The system's AI stack routes and sizes — it does not amputate.
-    // V5.9.1405 "never amputate lanes" doctrine RESTORED.
+    // V5.0.4073 — V5.9.1405 "never amputate lanes" doctrine FULLY restored.
+    // Operator directive: AATE is the highest-information trading deck ever
+    // built. Lanes must NOT be hard-disabled. Every lane trades. Toxic/bleeder
+    // lanes PIVOT into quality strategies via LiveStylePivotRouter +
+    // BleederMemoryRouter + LaneToxicityGuard. The AI stack routes and sizes.
+    // RuntimeMitigationBus.DisableLane commands remain as telemetry/audit
+    // records but MUST NOT amputate execution lanes. The overlay tracks them
+    // for PipelineHealthCollector reporting, but isLaneDisabled always returns
+    // false so lanes keep trading, learning, and pivoting.
     fun isLaneDisabled(lane: String): Boolean {
-        val normalized = normalizeLane(lane)
-        // Paper mode: never disable lanes — keep learning.
-        if (paperRuntime()) return false
-        // Runtime mitigation overlay (existing path — short-TTL emergency only).
-        return active("DISABLE_LANE:$normalized")
+        // V5.9.1405 — autonomous agenic doctrine: runtime mitigations may not
+        // amputate trader lanes. Bad lanes must size-shape / learn / pivot, not
+        // disappear. Scanner/API mitigations can still protect infrastructure,
+        // and FDG/hard safety can still veto toxic tokens, but lane disable is
+        // never an execution answer.
+        return false
     }
     fun isPreAuthDisabled(): Boolean = !paperRuntime() && active("DISABLE_PREAUTH:GLOBAL")
     fun isScannerSourceDisabled(source: String): Boolean = active("DISABLE_SCANNER_SOURCE:${source.uppercase()}") || active("QUARANTINE_SOURCE:${source.uppercase()}")

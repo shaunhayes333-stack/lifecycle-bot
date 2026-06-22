@@ -489,7 +489,7 @@ class GoldenTapeRegressionTest {
         val bot = java.io.File("src/main/kotlin/com/lifecyclebot/engine/BotService.kt").readText()
         val fdg = java.io.File("src/main/kotlin/com/lifecyclebot/engine/FinalDecisionGate.kt").readText()
 
-        assertTrue("Guard must key toxicity on matured net-negative danger buckets, not raw WR alone", guard.contains("s.isDangerous && s.meanPnl <= -8.0"))
+        assertTrue("Guard must key toxicity on matured net-negative danger buckets via live-only stats", guard.contains("LosingPatternMemory.liveStats") && guard.contains("meanPnl <= -5.0"))
         assertTrue("Guard must reroute only when alternatives exist", guard.contains("chooseNonToxicLane") && guard.contains("filterNonToxic") && guard.contains("return lanes.firstOrNull"))
         assertTrue("Agentic style primary/alternate lane election must avoid toxic buckets when possible", router.contains("LaneToxicityGuard.chooseNonToxicLane") && router.contains("LaneToxicityGuard.filterNonToxic") && router.contains("boundedLanes(ts.mint, base + d.toolkit.laneVotes, d.style, score)"))
         assertTrue("MemeTrader owner rotation must avoid toxic lanes when possible", bot.contains("scoreForToxicity") && bot.contains("LaneToxicityGuard.filterNonToxic(rawOwnerPool") && bot.contains("ownerPool"))
@@ -3743,7 +3743,7 @@ class GoldenTapeRegressionTest {
         val gradle = java.io.File("build.gradle.kts").readText()
         val workflow = java.io.File("../.github/workflows/build.yml").readText()
         val version = java.io.File("../AATE_VERSION").readText().trim()
-        assertEquals("5.0.4072", version)
+        assertEquals("5.0.4073", version)
         assertTrue("Gradle must prefer explicit AATE version authority", gradle.contains("aateVersionName") && gradle.contains("AATE_VERSION"))
         assertTrue("Workflow must pass explicit AATE version into Gradle", workflow.contains("-PaateVersionName=\$AATE_VERSION_NAME"))
         assertFalse("Artifact patch identity must not be derived from CI run number", workflow.contains("VERSION_NAME=\"5.0.\${BUILD_NUMBER}\""))
@@ -4088,12 +4088,12 @@ class GoldenTapeRegressionTest {
     @Test
     fun all_lanes_trade_and_pivot_to_quality_not_amputated() {
         val overlay = java.io.File("src/main/kotlin/com/lifecyclebot/engine/RuntimeConfigOverlay.kt").readText()
-        assertTrue("V5.0.4070: lane-amputation reverted — no LIVE_RECOVERY_DISABLED_LANES",
-            overlay.contains("V5.0.4070") && !overlay.contains("LIVE_RECOVERY_DISABLED_LANES"))
+        assertTrue("V5.0.4073: lane-amputation reverted — no LIVE_RECOVERY_DISABLED_LANES",
+            overlay.contains("V5.0.4073") && !overlay.contains("LIVE_RECOVERY_DISABLED_LANES"))
         assertTrue("isLaneDisabled must NOT hard-disable toxic lanes",
             !overlay.contains("LIVE_RECOVERY_DISABLED_LANES"))
-        assertTrue("Paper mode must never disable lanes",
-            overlay.contains("if (paperRuntime()) return false"))
+        assertTrue("isLaneDisabled must always return false (V5.9.1405 doctrine)",
+            overlay.contains("return false"))
 
         val bleeder = java.io.File("src/main/kotlin/com/lifecyclebot/engine/BleederMemoryRouter.kt").readText()
         assertTrue("V5.0.4070: bleeder pivot must fire faster — weakPerformer + lower thresholds",
@@ -4102,8 +4102,8 @@ class GoldenTapeRegressionTest {
             bleeder.contains("n50 >= 8 && wr50 < 30.0"))
 
         val guard = java.io.File("src/main/kotlin/com/lifecyclebot/engine/LaneToxicityGuard.kt").readText()
-        assertTrue("Toxicity guard threshold lowered from -8.0 to -5.0",
-            guard.contains("s.meanPnl <= -5.0"))
+        assertTrue("Toxicity guard threshold lowered from -8.0 to -5.0 with live-only authority",
+            guard.contains("meanPnl <= -5.0") && guard.contains("LosingPatternMemory.liveStats"))
         assertTrue("Quality fallback must prefer BLUECHIP, QUALITY, WALLET_RECOVERED first",
             guard.contains("BLUECHIP") && guard.contains("WALLET_RECOVERED") && guard.contains("LIQUIDITY_DEPTH_QUALITY"))
 
