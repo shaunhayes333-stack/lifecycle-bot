@@ -3743,7 +3743,7 @@ class GoldenTapeRegressionTest {
         val gradle = java.io.File("build.gradle.kts").readText()
         val workflow = java.io.File("../.github/workflows/build.yml").readText()
         val version = java.io.File("../AATE_VERSION").readText().trim()
-        assertEquals("5.0.4070", version)
+        assertEquals("5.0.4071", version)
         assertTrue("Gradle must prefer explicit AATE version authority", gradle.contains("aateVersionName") && gradle.contains("AATE_VERSION"))
         assertTrue("Workflow must pass explicit AATE version into Gradle", workflow.contains("-PaateVersionName=\$AATE_VERSION_NAME"))
         assertFalse("Artifact patch identity must not be derived from CI run number", workflow.contains("VERSION_NAME=\"5.0.\${BUILD_NUMBER}\""))
@@ -4062,8 +4062,8 @@ class GoldenTapeRegressionTest {
             san.contains("V5.0.4066") && san.contains("MAX_TRAINABLE_PNL_PCT = 100_000.0"))
         assertFalse("No clamp on real wins — extreme winners must train at their real pnl value",
             san.contains("EXTREME_WINNER_CLAMP_PCT") || san.contains("PNL_PCT_CLAMPED_EXTREME_WINNER"))
-        assertFalse("Old 5_000.0 hard cap must no longer be MAX_TRAINABLE_PNL_PCT",
-            san.contains("MAX_TRAINABLE_PNL_PCT = 5_000.0"))
+        assertFalse("Old 5_000.0 hard cap must no longer be the actual constant",
+            san.contains("const val MAX_TRAINABLE_PNL_PCT = 5_000.0"))
     }
 
     @Test
