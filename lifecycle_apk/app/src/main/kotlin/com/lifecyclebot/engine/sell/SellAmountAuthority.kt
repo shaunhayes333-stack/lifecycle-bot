@@ -338,9 +338,29 @@ object SellAmountAuthority {
             return true
         }
         val cached = txParseCache[mint]
+        val emergencyOrProtect = isEmergencyExitReason(reason) || isProfitProtectExitReason(reason)
+        val maxAgeMs = when {
+            isEmergencyExitReason(reason) -> EMERGENCY_TX_PARSE_MS
+            isProfitProtectExitReason(reason) -> PROFIT_PROTECT_TX_PARSE_MS
+            else -> FRESH_TX_PARSE_MS
+        }
+        val ageMs = cached?.let { System.currentTimeMillis() - it.capturedAtMs } ?: Long.MAX_VALUE
+        val sizeOk = requestedRawAmount == null || (cached != null && requestedRawAmount <= cached.rawAmount)
+        if (cached != null && emergencyOrProtect && ageMs <= maxAgeMs && cached.rawAmount.signum() > 0 && sizeOk) {
+            try {
+                com.lifecyclebot.engine.ForensicLogger.lifecycle(
+                    "EXEC_TRACE_AUTHORITY",
+                    "side=SELL stage=BROADCAST_AUTH_ALLOW_TX_META_EMERGENCY mint=${mint.take(10)} reason=$reason " +
+                        "source=BUY_TIED_OWNER_DELTA ageMs=$ageMs cachedRaw=${cached.rawAmount} requestedRaw=${requestedRawAmount ?: "-"} sig=${cached.txSignature.take(12)}",
+                )
+            } catch (_: Throwable) {}
+            ErrorLogger.warn(TAG,
+                "BALANCE_PROOF_EMERGENCY_BROADCAST_ALLOW reason=$reason mint=${mint.take(8)}… raw=${cached.rawAmount} ageSec=${ageMs / 1000} sig=${cached.txSignature.take(8)}…")
+            return true
+        }
         if (cached != null) {
             ErrorLogger.warn(TAG,
-                "BALANCE_PROOF_REJECTED reason=TX_PARSE_CACHE_NOT_RESOLVED_FOR_REASON mint=${mint.take(8)}… reason=$reason sig=${cached.txSignature.take(8)}…")
+                "BALANCE_PROOF_REJECTED reason=TX_PARSE_CACHE_NOT_ELIGIBLE_FOR_BROADCAST mint=${mint.take(8)}… exitReason=$reason ageMs=$ageMs maxAgeMs=$maxAgeMs sizeOk=$sizeOk sig=${cached.txSignature.take(8)}…")
         }
         try { com.lifecyclebot.engine.ForensicLogger.lifecycle("EXEC_TRACE_AUTHORITY", "side=SELL stage=BROADCAST_AUTH_BLOCK mint=${mint.take(10)} reason=$reason source=${balanceSource(resolution)} requestedRaw=${requestedRawAmount ?: "-"}") } catch (_: Throwable) {}
         return false

@@ -3743,7 +3743,7 @@ class GoldenTapeRegressionTest {
         val gradle = java.io.File("build.gradle.kts").readText()
         val workflow = java.io.File("../.github/workflows/build.yml").readText()
         val version = java.io.File("../AATE_VERSION").readText().trim()
-        assertEquals("5.0.4049", version)
+        assertEquals("5.0.4050", version)
         assertTrue("Gradle must prefer explicit AATE version authority", gradle.contains("aateVersionName") && gradle.contains("AATE_VERSION"))
         assertTrue("Workflow must pass explicit AATE version into Gradle", workflow.contains("-PaateVersionName=\$AATE_VERSION_NAME"))
         assertFalse("Artifact patch identity must not be derived from CI run number", workflow.contains("VERSION_NAME=\"5.0.\${BUILD_NUMBER}\""))
@@ -3942,6 +3942,21 @@ class GoldenTapeRegressionTest {
             builder.contains("SLIP_LOW") && builder.contains("SLIP_MED") && builder.contains("SLIP_HIGH") && builder.contains("SLIP_UNKNOWN"))
         assertFalse("Canonical slippageBucket must not remain the old empty placeholder",
             builder.contains("""slippageBucket = "",   // not captured in TokenState"""))
+    }
+
+
+    @Test
+    fun emergency_owner_delta_can_broadcast_only_through_bounded_emergency_helper() {
+        val authority = java.io.File("src/main/kotlin/com/lifecyclebot/engine/sell/SellAmountAuthority.kt").readText()
+        assertTrue("Emergency/profit-protect exits must be able to use buy-tied owner-delta cache when wallet proof is temporarily indeterminate",
+            authority.contains("BROADCAST_AUTH_ALLOW_TX_META_EMERGENCY") &&
+            authority.contains("isEmergencyExitReason(reason) || isProfitProtectExitReason(reason)") &&
+            authority.contains("ageMs <= maxAgeMs") &&
+            authority.contains("requestedRawAmount == null") && authority.contains("requestedRawAmount <= cached.rawAmount"))
+        assertTrue("TX_META owner delta must remain UNKNOWN as a balance source; helper is an emergency broadcast exception, not wallet authority",
+            authority.contains("Source.TX_META_OWNER_DELTA -> BalanceSource.UNKNOWN"))
+        assertFalse("Emergency helper must not return tx-meta as confirmed wallet balance",
+            authority.contains("Resolution.Confirmed(cached.rawAmount, cached.decimals, Source.TX_META_OWNER_DELTA)"))
     }
 
 }
