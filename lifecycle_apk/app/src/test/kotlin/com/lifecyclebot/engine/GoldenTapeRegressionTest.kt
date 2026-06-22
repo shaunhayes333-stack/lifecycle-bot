@@ -3694,7 +3694,7 @@ class GoldenTapeRegressionTest {
         assertTrue("LiveStrategyTuner must be soft-shape only, not a veto/zero-size authority", tuner.contains("Soft-shape only") && !tuner.contains("return false") && !tuner.contains("sizeMult = 0.0"))
         assertTrue("LiveStrategyTuner must bias proven live winners toward compounding runner patience", tuner.contains("compounding_runner") && tuner.contains("partialTriggerMult") && tuner.contains("holdMult = (1.25") && tuner.contains("tpMult = (1.16"))
         assertTrue("LiveStrategyTuner must gate capital winners by hit-rate while preserving asymmetric probes", tuner.contains("hit-rate gated net-SOL doctrine") && tuner.contains("hitRateHealthy") && tuner.contains("low_wr_asymmetric_probe") && tuner.contains("avgWinEdge"))
-        assertTrue("Bleeder tuning must bank earlier, not delay partials", tuner.contains("partialTriggerMult = (0.92 - depth * 0.32).coerceIn(0.60, 0.95)"))
+        assertTrue("Bleeder tuning must pivot playbook: small size, longer hold, later partials so rare runners can pay for churn losses", tuner.contains("toxic_runner_pivot") && tuner.contains("bleeder_runner_pivot") && tuner.contains("holdMult = (1.18 + depth * 0.72).coerceIn(1.12, 1.90)") && tuner.contains("partialTriggerMult = (1.18 + depth * 0.72).coerceIn(1.12, 1.90)"))
         assertTrue("LiveGrowthDoctrine must consume LiveStrategyTuner in the final live growth envelope", doctrine.contains("LiveStrategyTuner.adjustment") && doctrine.contains("strategyTune.compact") && doctrine.contains("tunedMaxWalletPct"))
         assertTrue("AgenticStyleRouter must expose tuned size/tp/hold multipliers", router.contains("tunedSizeMult") && router.contains("tunedTpMult") && router.contains("tunedHoldMult") && router.contains("LiveStrategyTuner.adjustment"))
         assertTrue("Executor must raise live TP/partial patience from LiveStrategyTuner", exec.contains("LIVE_STRATEGY_TUNER_TP_RAISED") && exec.contains("LiveStrategyTuner.livePartialProfitFloorPct") && exec.contains("PARTIAL_BLOCKED_BELOW_BREAKEVEN"))
@@ -3743,7 +3743,7 @@ class GoldenTapeRegressionTest {
         val gradle = java.io.File("build.gradle.kts").readText()
         val workflow = java.io.File("../.github/workflows/build.yml").readText()
         val version = java.io.File("../AATE_VERSION").readText().trim()
-        assertEquals("5.0.4059", version)
+        assertEquals("5.0.4060", version)
         assertTrue("Gradle must prefer explicit AATE version authority", gradle.contains("aateVersionName") && gradle.contains("AATE_VERSION"))
         assertTrue("Workflow must pass explicit AATE version into Gradle", workflow.contains("-PaateVersionName=\$AATE_VERSION_NAME"))
         assertFalse("Artifact patch identity must not be derived from CI run number", workflow.contains("VERSION_NAME=\"5.0.\${BUILD_NUMBER}\""))
@@ -3798,7 +3798,7 @@ class GoldenTapeRegressionTest {
         assertTrue("LiveProbabilityEngine must cap low hit-rate lanes below neutral even with positive SOL/PnL", prob.contains("lowHitRateCap") && prob.contains("maxOf(pWin, lanePWin) < 0.35 -> 0.68") && prob.contains("minOf(rawMult, lowHitRateCap)"))
         assertTrue("LiveStrategyTuner must require healthy live WR before winner sizing", tuner.contains("hitRateHealthy") && tuner.contains("wr >= 45.0") && tuner.contains("wr >= 35.0 && pf > 0.0"))
         assertTrue("Low-WR positive-SOL lanes must be asymmetric probes, not runner_press winners", tuner.contains("low_wr_asymmetric_probe") && tuner.contains("wr < 35.0 && sol > 0.0") && tuner.contains("sizeMult = (0.78"))
-        assertTrue("Toxic bleeders must be allowed to shrink below the old 0.25 router floor", tuner.contains("val sizeFloor = if (toxicBleed) 0.12 else 0.35") && router.contains("strategyTune.label == \"toxic_probe\"") && router.contains("0.08"))
+        assertTrue("Toxic bleeders must be allowed to shrink below the old 0.25 router floor while pivoting into runner patience", tuner.contains("val sizeFloor = if (toxicBleed) 0.12 else 0.35") && tuner.contains("toxic_runner_pivot") && router.contains("strategyTune.label == \"toxic_runner_pivot\"") && router.contains("0.08"))
     }
 
 

@@ -137,8 +137,11 @@ object LiveStrategyTuner {
             )
         }
 
-        // Negative live expectancy: do not turn into vetoes; reduce posture and
-        // bank faster when it finally has a real profit. LaneExpectancyDamper may
+        // Negative live expectancy is NOT a command to churn faster. Runtime
+        // 5.0.4059 showed the bot losing from scratch/flat/fast exits while the
+        // rare winners paid 100-287% when held. Failure pivots playbook: keep
+        // entry size tiny, but extend hold/TP/partial patience so asymmetric
+        // runners can pay for the loser distribution. LaneExpectancyDamper may
         // apply a deeper capital haircut at the executor, still non-zero.
         val lowWrPositiveSolLottery = n >= 20 && wr < 35.0 && sol > 0.0
         if (lowWrPositiveSolLottery) {
@@ -179,13 +182,14 @@ object LiveStrategyTuner {
                 pfExpectancyPp = pf,
                 meanPnlPct = mean,
                 sizeMult = (0.78 - depth * 0.66).coerceIn(sizeFloor, 0.82),
-                tpMult = (0.98 - depth * 0.20).coerceIn(0.76, 0.98),
-                holdMult = (0.90 - depth * 0.44).coerceIn(0.42, 0.94),
+                tpMult = (1.06 + depth * 0.34).coerceIn(1.04, 1.42),
+                holdMult = (1.18 + depth * 0.72).coerceIn(1.12, 1.90),
                 maxWalletMult = (0.90 - depth * 0.44).coerceIn(0.42, 0.96),
                 liquidityImpactMult = (0.94 - depth * 0.24).coerceIn(0.58, 0.96),
-                // Bleeders bank earlier; values <1 lower learned partial rungs.
-                partialTriggerMult = (0.92 - depth * 0.32).coerceIn(0.60, 0.95),
-                label = if (toxicBleed) "toxic_probe" else "bleeder_probe",
+                // Bleeders do not bank earlier anymore; they size down and wait
+                // for asymmetric runner proof. Values >1 raise learned partial rungs.
+                partialTriggerMult = (1.18 + depth * 0.72).coerceIn(1.12, 1.90),
+                label = if (toxicBleed) "toxic_runner_pivot" else "bleeder_runner_pivot",
             )
         }
 

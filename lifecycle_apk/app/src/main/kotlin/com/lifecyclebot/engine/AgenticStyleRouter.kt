@@ -229,7 +229,7 @@ object AgenticStyleRouter {
         }
         val tuneLane = laneHint.ifBlank { style.lanes.firstOrNull().orEmpty() }.ifBlank { classification.tradeType.name }
         val strategyTune = try { LiveStrategyTuner.adjustment(tuneLane) } catch (_: Throwable) { LiveStrategyTuner.adjustment("STANDARD") }
-        val tunedSizeFloor = if (strategyTune.label == "toxic_probe") 0.08 else 0.18
+        val tunedSizeFloor = if (strategyTune.label == "toxic_probe" || strategyTune.label == "toxic_runner_pivot") 0.08 else 0.18
         val tunedSize = (style.sizeMult * strategyTune.sizeMult).coerceIn(tunedSizeFloor, 1.95)
         val tunedTp = (style.tpMult * strategyTune.tpMult).coerceIn(0.65, 2.15)
         val tunedHold = (style.holdMult * strategyTune.holdMult).coerceIn(0.35, 4.00)
