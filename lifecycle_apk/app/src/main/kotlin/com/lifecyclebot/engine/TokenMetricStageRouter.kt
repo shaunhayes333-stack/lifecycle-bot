@@ -17,7 +17,7 @@ import kotlin.math.min
 object TokenMetricStageRouter {
     const val VERSION = "V5.0.4033_TOKEN_METRIC_STAGE_ROUTER"
 
-    enum class Stage { BASE_START, MID_ACCUMULATION, CONTROLLED_MARKUP, PEAK_EXHAUSTION, DUMPING, RUG_PRONE, UNKNOWN }
+    enum class Stage { FRESH_LAUNCH, BASE_START, MID_ACCUMULATION, CONTROLLED_MARKUP, PEAK_EXHAUSTION, DUMPING, RUG_PRONE, UNKNOWN }
 
     data class Snapshot(
         val stage: Stage,
@@ -66,6 +66,22 @@ object TokenMetricStageRouter {
         val baseStart = ageMin <= 12.0 && runup <= 45.0 && dd <= 18.0 && bp >= 54.0 && sp <= 50.0 && liq >= 3_000.0
         val midAccum = currentVsPeak in 0.45..0.82 && dd in 8.0..35.0 && bp >= 50.0 && sp <= 54.0 && liq >= 8_000.0
         val markup = currentVsPeak in 0.68..0.92 && runup in 25.0..120.0 && bp >= 55.0 && sp <= 50.0 && liq >= 6_000.0
+        // V5.0.4076 — FRESH_LAUNCH stage. Operator P0: bot starves on
+        // pump.fun firehose because the classifier requires price history
+        // bands that simply do not exist for age=0-2m tokens. peakPos always
+        // returns 1.0 for a token that hasn't moved yet, killing every
+        // peakPos-based check. Snapshot ground truth showed entries like:
+        //   age=0m peakPos=1.00 dd=0% runup=0% bp=50 sp=50 liq=$245-$5297
+        // The full FRESH_LAUNCH gate accepts: very young (<= 3 min), no
+        // meaningful peak yet (history < 3 ticks OR peakPos >= 0.98), and
+        // minimum survivable liquidity ($800 floor — below this the
+        // HardRugPreFilter / PROVIDER_PROOF gates take over). Routes only
+        // to fast-cycle meme lanes (SHITCOIN / PROJECT_SNIPER / EXPRESS /
+        // MOONSHOT). Never routes to BLUECHIP/QUALITY/TREASURY which need
+        // real price history to size correctly.
+        val freshLaunch = !baseStart && !midAccum && !markup &&
+            ageMin <= 3.0 && (hist.size < 3 || currentVsPeak >= 0.98) &&
+            liq >= 800.0 && sp <= 70.0
         val stage = when {
             rugProne -> Stage.RUG_PRONE
             peakExhaustion -> Stage.PEAK_EXHAUSTION
@@ -73,9 +89,10 @@ object TokenMetricStageRouter {
             baseStart -> Stage.BASE_START
             midAccum -> Stage.MID_ACCUMULATION
             markup -> Stage.CONTROLLED_MARKUP
+            freshLaunch -> Stage.FRESH_LAUNCH
             else -> Stage.UNKNOWN
         }
-        Snapshot(stage, ageMin, currentVsPeak, dd, runup, bp, sp, liq, mcap, mcapToLiq, top, reasonFor(stage, rugProne, peakExhaustion, dumping, baseStart, midAccum, markup))
+        Snapshot(stage, ageMin, currentVsPeak, dd, runup, bp, sp, liq, mcap, mcapToLiq, top, reasonFor(stage, rugProne, peakExhaustion, dumping, baseStart, midAccum, markup, freshLaunch))
     } catch (t: Throwable) {
         Snapshot(Stage.UNKNOWN, 999.0, 0.0, 0.0, 0.0, 50.0, 50.0, 0.0, 0.0, 9999.0, -1.0, "stage_error=${t.javaClass.simpleName}")
     }
@@ -83,6 +100,12 @@ object TokenMetricStageRouter {
     fun preferredPrimaryLane(ts: TokenState, fallback: String): String {
         val s = snapshot(ts)
         return when (s.stage) {
+            Stage.FRESH_LAUNCH -> when {
+                s.liquidityUsd >= 5_000.0 && s.buyPressurePct >= 56.0 -> "MOONSHOT"
+                s.liquidityUsd >= 2_500.0 -> "PROJECT_SNIPER"
+                s.liquidityUsd >= 1_500.0 -> "EXPRESS"
+                else -> "SHITCOIN"
+            }
             Stage.BASE_START -> if (s.liquidityUsd >= 8_000.0 && s.buyPressurePct >= 58.0) "PROJECT_SNIPER" else "SHITCOIN"
             Stage.MID_ACCUMULATION -> if (s.liquidityUsd >= 20_000.0) "BLUECHIP" else "QUALITY"
             Stage.CONTROLLED_MARKUP -> "MOONSHOT"
@@ -99,6 +122,7 @@ object TokenMetricStageRouter {
             Stage.RUG_PRONE -> false
             Stage.PEAK_EXHAUSTION -> lane in setOf("DIP_HUNTER", "QUALITY") && s.drawdownFromPeakPct >= 12.0 && s.buyPressurePct >= 54.0
             Stage.DUMPING -> lane == "DIP_HUNTER" && s.drawdownFromPeakPct >= 25.0 && s.buyPressurePct >= 55.0
+            Stage.FRESH_LAUNCH -> lane in setOf("SHITCOIN", "PROJECT_SNIPER", "EXPRESS", "MOONSHOT", "STANDARD", "CORE", "V3")
             Stage.BASE_START -> lane in setOf("SHITCOIN", "PROJECT_SNIPER", "EXPRESS", "STANDARD", "CORE", "V3")
             Stage.MID_ACCUMULATION -> lane in setOf("QUALITY", "BLUECHIP", "TREASURY", "STANDARD", "CORE", "V3")
             Stage.CONTROLLED_MARKUP -> lane in setOf("MOONSHOT", "QUALITY", "STANDARD", "CORE", "V3")
@@ -107,10 +131,11 @@ object TokenMetricStageRouter {
         return LaneFit(allowed, lane, s.stage, s.compact)
     }
 
-    fun reasonFor(stage: Stage, rug: Boolean, peak: Boolean, dump: Boolean, base: Boolean, mid: Boolean, markup: Boolean): String = when (stage) {
+    fun reasonFor(stage: Stage, rug: Boolean, peak: Boolean, dump: Boolean, base: Boolean, mid: Boolean, markup: Boolean, fresh: Boolean = false): String = when (stage) {
         Stage.RUG_PRONE -> "rugProne=$rug topHeavy/liquidityAir/thinRunup"
         Stage.PEAK_EXHAUSTION -> "peakExhaustion=$peak nearHigh+extended+sellPressure"
         Stage.DUMPING -> "dumping=$dump drawdown+weakBP"
+        Stage.FRESH_LAUNCH -> "freshLaunch=$fresh ageBelow3m+noHistoryYet+minSurvivableLiq"
         Stage.BASE_START -> "baseStart=$base early+notExtended+buyPressure"
         Stage.MID_ACCUMULATION -> "midAccum=$mid pullbackBand+liq+controlledSP"
         Stage.CONTROLLED_MARKUP -> "markup=$markup controlledRunup+bp+liq"
