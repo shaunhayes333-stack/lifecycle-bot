@@ -3743,7 +3743,7 @@ class GoldenTapeRegressionTest {
         val gradle = java.io.File("build.gradle.kts").readText()
         val workflow = java.io.File("../.github/workflows/build.yml").readText()
         val version = java.io.File("../AATE_VERSION").readText().trim()
-        assertEquals("5.0.4045", version)
+        assertEquals("5.0.4046", version)
         assertTrue("Gradle must prefer explicit AATE version authority", gradle.contains("aateVersionName") && gradle.contains("AATE_VERSION"))
         assertTrue("Workflow must pass explicit AATE version into Gradle", workflow.contains("-PaateVersionName=\$AATE_VERSION_NAME"))
         assertFalse("Artifact patch identity must not be derived from CI run number", workflow.contains("VERSION_NAME=\"5.0.\${BUILD_NUMBER}\""))
@@ -3876,8 +3876,9 @@ class GoldenTapeRegressionTest {
         val builder = java.io.File("src/main/kotlin/com/lifecyclebot/engine/CanonicalFeaturesBuilder.kt").readText()
         assertTrue("Canonical learning must use TokenMap liquidity/mcap/top-holder fallbacks when TokenState display fields lag",
             builder.contains("ts.tokenMap.liquidityUsd") && builder.contains("ts.tokenMap.marketCap") && builder.contains("ts.tokenMap.fdv") && builder.contains("ts.tokenMap.topHolderConcentrationPct"))
-        assertFalse("Canonical learning must not rely only on ts.lastLiquidityUsd/ts.lastMcap for feature completeness",
-            builder.contains("val liqUsd = ts.lastLiquidityUsd") && builder.contains("val mcapUsd = ts.lastMcap"))
+        assertFalse("Canonical learning must not rely on the old two-line display-field-only market snapshot",
+            builder.contains("""val liqUsd = ts.lastLiquidityUsd
+        val mcapUsd = ts.lastMcap"""))
     }
 
 
