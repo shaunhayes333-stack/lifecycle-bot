@@ -3743,7 +3743,7 @@ class GoldenTapeRegressionTest {
         val gradle = java.io.File("build.gradle.kts").readText()
         val workflow = java.io.File("../.github/workflows/build.yml").readText()
         val version = java.io.File("../AATE_VERSION").readText().trim()
-        assertEquals("5.0.4042", version)
+        assertEquals("5.0.4043", version)
         assertTrue("Gradle must prefer explicit AATE version authority", gradle.contains("aateVersionName") && gradle.contains("AATE_VERSION"))
         assertTrue("Workflow must pass explicit AATE version into Gradle", workflow.contains("-PaateVersionName=\$AATE_VERSION_NAME"))
         assertFalse("Artifact patch identity must not be derived from CI run number", workflow.contains("VERSION_NAME=\"5.0.\${BUILD_NUMBER}\""))
@@ -3899,6 +3899,17 @@ class GoldenTapeRegressionTest {
             builder.contains("ts.tokenMap.volume5mUsd") && builder.contains("ts.tokenMap.volume1hUsd") && builder.contains("ts.tokenMap.volume24hUsd") && builder.contains("h.last().vol"))
         assertFalse("volVelocity must not use price candle bodies as a fake volume proxy",
             builder.contains("last.priceUsd - last.openUsd") || builder.contains("velLast ="))
+    }
+
+
+    @Test
+    fun canonical_features_authority_uses_token_map_fallback_when_safety_unknown() {
+        val builder = java.io.File("src/main/kotlin/com/lifecyclebot/engine/CanonicalFeaturesBuilder.kt").readText()
+        assertTrue("Canonical learning must use TokenMap mint/freeze authority fallback when SafetyReport authority is UNKNOWN",
+            builder.contains("authorityState(ts.safety.mintAuthorityDisabled, ts.tokenMap.mintAuthority)") &&
+            builder.contains("authorityState(ts.safety.freezeAuthorityDisabled, ts.tokenMap.freezeAuthority)"))
+        assertTrue("Authority fallback must bucket raw authority into RENOUNCED/RETAINED/UNKNOWN for learner signatures",
+            builder.contains("private fun authorityState") && builder.contains("RENOUNCED") && builder.contains("RETAINED"))
     }
 
 }

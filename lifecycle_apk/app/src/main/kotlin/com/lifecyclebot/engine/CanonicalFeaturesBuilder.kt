@@ -63,16 +63,11 @@ object CanonicalFeaturesBuilder {
             SafetyTier.CAUTION -> "CAUTION"
             SafetyTier.HARD_BLOCK -> "DANGER"
         }
-        val mintAuthority = when (ts.safety.mintAuthorityDisabled) {
-            true -> "RENOUNCED"
-            false -> "RETAINED"
-            else -> "UNKNOWN"
-        }
-        val freezeAuthority = when (ts.safety.freezeAuthorityDisabled) {
-            true -> "RENOUNCED"
-            false -> "RETAINED"
-            else -> "UNKNOWN"
-        }
+        // V5.0.4043 — TokenMap authority fallback for learning.
+        // SafetyReport can be UNKNOWN while TokenMap already captured raw authority.
+        // Keep this as learning-feature enrichment only; hard safety remains upstream.
+        val mintAuthority = authorityState(ts.safety.mintAuthorityDisabled, ts.tokenMap.mintAuthority)
+        val freezeAuthority = authorityState(ts.safety.freezeAuthorityDisabled, ts.tokenMap.freezeAuthority)
         val (venueDirect, routeDirect, bondingCurveActive, migrated) = inferVenueRoute(ts)
 
         // V5.9.789 — operator audit Critical Fix 1+6: SOURCE-DERIVED FALLBACKS.
@@ -250,6 +245,18 @@ object CanonicalFeaturesBuilder {
         val d: Boolean,
     )
 
+
+
+    private fun authorityState(disabled: Boolean?, rawAuthority: String?): String {
+        disabled?.let { return if (it) "RENOUNCED" else "RETAINED" }
+        val raw = rawAuthority?.trim().orEmpty()
+        if (raw.isBlank()) return "UNKNOWN"
+        val u = raw.uppercase()
+        return when {
+            u == "NULL" || u == "NONE" || u == "RENOUNCED" || u == "DISABLED" -> "RENOUNCED"
+            else -> "RETAINED"
+        }
+    }
 
     private fun estimateTokenAgeAtEntryMs(ts: TokenState): Long {
         return try {
