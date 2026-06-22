@@ -3743,7 +3743,7 @@ class GoldenTapeRegressionTest {
         val gradle = java.io.File("build.gradle.kts").readText()
         val workflow = java.io.File("../.github/workflows/build.yml").readText()
         val version = java.io.File("../AATE_VERSION").readText().trim()
-        assertEquals("5.0.4054", version)
+        assertEquals("5.0.4055", version)
         assertTrue("Gradle must prefer explicit AATE version authority", gradle.contains("aateVersionName") && gradle.contains("AATE_VERSION"))
         assertTrue("Workflow must pass explicit AATE version into Gradle", workflow.contains("-PaateVersionName=\$AATE_VERSION_NAME"))
         assertFalse("Artifact patch identity must not be derived from CI run number", workflow.contains("VERSION_NAME=\"5.0.\${BUILD_NUMBER}\""))
@@ -3985,6 +3985,18 @@ class GoldenTapeRegressionTest {
             sheet.contains("RegimeDetector.Regime.DUMP) 18.0") &&
             sheet.contains("SMART_WALLET_COPY_FOLLOW") &&
             sheet.contains("bias only — no veto"))
+    }
+
+
+    @Test
+    fun meme_registry_restore_refills_live_watchlist_without_pump_source_monopoly() {
+        val bot = java.io.File("src/main/kotlin/com/lifecyclebot/engine/BotService.kt").readText()
+        assertTrue("Meme registry cold-start restore must no longer be hard capped at 40 when live throughput needs a larger active pool",
+            bot.contains("V5.0.4055") && bot.contains("maxOf(preScanCfg.maxWatchlistSize, 120).coerceAtMost(160)") && bot.contains("30 * 60 * 1000L"))
+        assertTrue("Restore hydrate must source-balance registry rows so pump/fun sources do not monopolize the first watchlist window",
+            bot.contains("sourceBuckets") && bot.contains("groupBy { it.source.ifBlank") && bot.contains("keys = sourceBuckets.keys.sorted()") && bot.contains("while (recent.size < hydrateCap"))
+        assertFalse("Restore hydrate must not resurrect the old 500+ ghost-token minimum",
+            bot.contains("hydrateCap = preScanCfg.maxWatchlistSize.coerceAtLeast(500)"))
     }
 
 }

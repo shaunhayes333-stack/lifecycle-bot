@@ -4618,14 +4618,34 @@ class BotService : Service() {
             // but are not force-admitted to the watchlist; the scanner
             // re-discovers them organically when fresh activity arrives.
             val nowMs = System.currentTimeMillis()
-            val recentCutoffMs = 10 * 60 * 1000L  // 10 minutes (was 60min)
-            val hydrateCap = preScanCfg.maxWatchlistSize.coerceAtLeast(30).coerceAtMost(40)
-            val recent = restoredMemeMints
+            // V5.0.4055 — live throughput refill. 40 restored mints was safe for the
+            // old zero-liq ghost era, but the runtime report showed a tiny cold-start
+            // universe (MEME_REGISTRY_RESTORE=40 + scanner≈38 in 3min) while doctrine
+            // needs a protected ~500-token active pool. Keep stale protection, but
+            // restore a bigger recent slice and source-balance it so PumpPortal/pump.fun
+            // does not monopolize the first hot watchlist window.
+            val recentCutoffMs = 30 * 60 * 1000L  // was 10min; still far below old 60min ghost window
+            val hydrateCap = maxOf(preScanCfg.maxWatchlistSize, 120).coerceAtMost(160)
+            val recentCandidates = restoredMemeMints
                 .asSequence()
+                .filter { it.mint.isNotBlank() }
                 .filter { (nowMs - it.lastSeenMs) < recentCutoffMs }
-                .sortedByDescending { it.lastSeenMs }
-                .take(hydrateCap)
+                .sortedWith(compareByDescending<com.lifecyclebot.engine.MemeMintRegistry.MemeMint> { it.sightings }.thenByDescending { it.lastSeenMs })
                 .toList()
+            val sourceBuckets = recentCandidates
+                .groupBy { it.source.ifBlank { "restored" }.uppercase() }
+                .mapValues { (_, rows) -> rows.sortedWith(compareByDescending<com.lifecyclebot.engine.MemeMintRegistry.MemeMint> { it.sightings }.thenByDescending { it.lastSeenMs }) }
+            val recent = mutableListOf<com.lifecyclebot.engine.MemeMintRegistry.MemeMint>()
+            val keys = sourceBuckets.keys.sorted()
+            var offset = 0
+            while (recent.size < hydrateCap && keys.any { (sourceBuckets[it]?.size ?: 0) > offset }) {
+                for (k in keys) {
+                    val row = sourceBuckets[k]?.getOrNull(offset) ?: continue
+                    recent.add(row)
+                    if (recent.size >= hydrateCap) break
+                }
+                offset++
+            }
             for (m in recent) {
                 if (m.mint.isBlank()) continue
                 val ok = admitProtectedMemeIntake(
