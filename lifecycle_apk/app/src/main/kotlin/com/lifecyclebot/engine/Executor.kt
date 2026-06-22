@@ -5617,6 +5617,42 @@ class Executor(
         }
         val gainPct  = pct(pos.entryPrice, price)
         val heldSecs = (System.currentTimeMillis() - pos.entryTime) / 1000.0
+        val peakPctForSymbolic = try {
+            val hp = pos.highestPrice.takeIf { it > 0.0 } ?: price
+            pct(pos.entryPrice, hp)
+        } catch (_: Throwable) { gainPct }
+        val symbolicExitAssessment = try {
+            SymbolicExitReasoner.assess(
+                currentPnlPct = gainPct,
+                peakPnlPct = peakPctForSymbolic,
+                entryConfidence = pos.entryScore.coerceIn(0.0, 100.0),
+                tradingMode = pos.tradingMode.ifBlank { ts.source.ifBlank { "STANDARD" } },
+                holdTimeSec = heldSecs.toLong(),
+                priceVelocity = 0.0,
+                volumeRatio = 1.0,
+                symbol = ts.symbol,
+                mint = ts.mint,
+            )
+        } catch (_: Throwable) { null }
+        fun symbolicWantsPatience(): Boolean {
+            val a = symbolicExitAssessment ?: return false
+            return a.suggestedAction == SymbolicExitReasoner.Action.HOLD || a.suggestedAction == SymbolicExitReasoner.Action.TIGHTEN
+        }
+        fun softExitProtectedBySymbolicPatience(reason: String, critical: Boolean = false): Boolean {
+            if (critical) return false
+            val r = reason.uppercase()
+            if (r.contains("REFLEX") || r.contains("LIQ") || r.contains("RUG") || r.contains("CATASTROPHIC") || r.contains("EMERGENCY")) return false
+            if (gainPct <= -12.0) return false
+            if (!symbolicWantsPatience()) return false
+            try {
+                ForensicLogger.lifecycle(
+                    "SYMBOLIC_PATIENCE_SOFT_EXIT_VETO",
+                    "mint=${ts.mint.take(10)} symbol=${ts.symbol} reason=${reason.take(80)} pnl=${"%.2f".format(gainPct)} peak=${"%.2f".format(peakPctForSymbolic)} action=${symbolicExitAssessment?.suggestedAction} conviction=${"%.3f".format(symbolicExitAssessment?.conviction ?: 0.0)} primary=${symbolicExitAssessment?.primarySignal ?: "unknown"}",
+                )
+                PipelineHealthCollector.labelInc("SYMBOLIC_PATIENCE_SOFT_EXIT_VETO")
+            } catch (_: Throwable) {}
+            return true
+        }
 
         val hitMilestones = milestonesHit.getOrPut(ts.mint) { mutableSetOf() }
         listOf(50, 100, 200).forEach { threshold ->
@@ -5666,9 +5702,14 @@ class Executor(
             ExitIntelligence.ExitAction.FULL_EXIT -> {
                 if (exitAiDecision.urgency == ExitIntelligence.Urgency.HIGH || 
                     exitAiDecision.urgency == ExitIntelligence.Urgency.CRITICAL) {
+                    val aiReason = "ai_exit_${exitAiDecision.reasons.firstOrNull()?.take(15)?.replace(" ", "_") ?: "signal"}"
+                    if (softExitProtectedBySymbolicPatience(aiReason, critical = exitAiDecision.urgency == ExitIntelligence.Urgency.CRITICAL)) {
+                        onLog("🧠 HOLD OVERRIDE: ${ts.symbol} symbolic patience vetoed ExitAI full-exit", ts.mint)
+                        return null
+                    }
                     onLog("🤖⚠️ EXIT AI: ${ts.symbol} FULL EXIT | ${exitAiDecision.reasons.firstOrNull()}", ts.mint)
                     TradeStateMachine.startCooldown(ts.mint)
-                    return "ai_exit_${exitAiDecision.reasons.firstOrNull()?.take(15)?.replace(" ", "_") ?: "signal"}"
+                    return aiReason
                 }
             }
             else -> {}
@@ -5689,6 +5730,10 @@ class Executor(
                     when (geminiAdvice.exitUrgency) {
                         "IMMEDIATE" -> {
                             if (geminiAdvice.confidenceScore >= 70) {
+                                if (softExitProtectedBySymbolicPatience("gemini_immediate_exit", critical = false)) {
+                                    onLog("🧠 HOLD OVERRIDE: ${ts.symbol} symbolic patience vetoed Gemini immediate exit", ts.mint)
+                                    return null
+                                }
                                 onLog("🤖🚨 GEMINI EXIT: ${ts.symbol} IMMEDIATE | ${geminiAdvice.reasoning.take(60)}", ts.mint)
                                 TradeStateMachine.startCooldown(ts.mint)
                                 return "gemini_immediate_exit"
@@ -5696,6 +5741,10 @@ class Executor(
                         }
                         "SOON" -> {
                             if (geminiAdvice.confidenceScore >= 80 && gainPct >= 30) {
+                                if (softExitProtectedBySymbolicPatience("gemini_exit_soon", critical = false)) {
+                                    onLog("🧠 HOLD OVERRIDE: ${ts.symbol} symbolic patience vetoed Gemini soon exit", ts.mint)
+                                    return null
+                                }
                                 onLog("🤖⚠️ GEMINI EXIT: ${ts.symbol} SOON | ${geminiAdvice.reasoning.take(60)}", ts.mint)
                                 TradeStateMachine.startCooldown(ts.mint)
                                 return "gemini_exit_soon"
@@ -5730,9 +5779,14 @@ class Executor(
                 PrecisionExitLogic.Urgency.MEDIUM -> "📊"
                 else -> "ℹ️"
             }
+            val v8Reason = "v8_${exitSignal.reason.lowercase()}"
+            if (softExitProtectedBySymbolicPatience(v8Reason, critical = exitSignal.urgency == PrecisionExitLogic.Urgency.CRITICAL)) {
+                onLog("🧠 HOLD OVERRIDE: ${ts.symbol} symbolic patience vetoed V8 soft exit | ${exitSignal.reason}", ts.mint)
+                return null
+            }
             onLog("$urgencyEmoji V8 EXIT: ${ts.symbol} | ${exitSignal.reason} | ${exitSignal.details}", ts.mint)
             TradeStateMachine.startCooldown(ts.mint)
-            return "v8_${exitSignal.reason.lowercase()}"
+            return v8Reason
         }
 
         // V5.9.794 — operator audit Item 7 fresh-meme HARD_FLOOR.

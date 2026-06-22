@@ -3743,7 +3743,7 @@ class GoldenTapeRegressionTest {
         val gradle = java.io.File("build.gradle.kts").readText()
         val workflow = java.io.File("../.github/workflows/build.yml").readText()
         val version = java.io.File("../AATE_VERSION").readText().trim()
-        assertEquals("5.0.4060", version)
+        assertEquals("5.0.4061", version)
         assertTrue("Gradle must prefer explicit AATE version authority", gradle.contains("aateVersionName") && gradle.contains("AATE_VERSION"))
         assertTrue("Workflow must pass explicit AATE version into Gradle", workflow.contains("-PaateVersionName=\$AATE_VERSION_NAME"))
         assertFalse("Artifact patch identity must not be derived from CI run number", workflow.contains("VERSION_NAME=\"5.0.\${BUILD_NUMBER}\""))
@@ -4024,6 +4024,20 @@ class GoldenTapeRegressionTest {
         assertTrue("Lane toxicity guard must not fall back to first toxic lane in weak DUMP when quality/reclaim alternatives are possible",
             guard.contains("V5.0.4057") && guard.contains("RegimeDetector.Regime.DUMP") && guard.contains("QUALITY") && guard.contains("DIP_HUNTER"))
         assertFalse("Fast toxic pivot must remain soft route-shape, not a hard trade block", router.contains("shouldTrade = false") || router.contains("BLOCK_") || guard.contains("return null"))
+    }
+
+
+    @Test
+    fun symbolic_exit_reasoner_can_veto_soft_exit_churn_without_touching_hard_safety() {
+        val exec = java.io.File("src/main/kotlin/com/lifecyclebot/engine/Executor.kt").readText()
+        assertTrue("Executor riskCheck must consult SymbolicExitReasoner before soft ExitAI/Gemini/V8 exits so the agentic stack can self-correct hold policy",
+            exec.contains("SymbolicExitReasoner.assess") && exec.contains("symbolicWantsPatience") && exec.contains("softExitProtectedBySymbolicPatience"))
+        assertTrue("Symbolic patience must become an observable soft-exit veto, not just report-only sentience",
+            exec.contains("SYMBOLIC_PATIENCE_SOFT_EXIT_VETO") && exec.contains("HOLD OVERRIDE"))
+        assertTrue("Symbolic patience must not override reflex/liquidity/rug/catastrophic/emergency exits or the -12% live danger zone",
+            exec.contains("r.contains("REFLEX")") && exec.contains("r.contains("LIQ")") && exec.contains("r.contains("RUG")") && exec.contains("r.contains("CATASTROPHIC")") && exec.contains("gainPct <= -12.0"))
+        assertTrue("V8 critical exits must still bypass symbolic hold veto",
+            exec.contains("critical = exitSignal.urgency == PrecisionExitLogic.Urgency.CRITICAL"))
     }
 
 }
