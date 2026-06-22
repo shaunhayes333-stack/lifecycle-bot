@@ -53,7 +53,12 @@ object AgenticStyleRouter {
         PULLBACK_RECLAIM("pullback_reclaim", setOf("DIP_HUNTER", "QUALITY", "TREASURY"), setOf("PULLBACK", "DIP_RECLAIM", "DEX"), 0.85, 1.05, 1.25),
         WHALE_FOLLOW("whale_follow", setOf("BLUECHIP", "QUALITY", "MOONSHOT"), setOf("WHALE", "QUALITY_DEPTH", "HOLD"), 0.90, 1.20, 1.80),
         REACCUMULATION("reaccumulation", setOf("QUALITY", "TREASURY", "MOONSHOT"), setOf("REACCUMULATION", "SWING", "TRENDING"), 0.80, 1.10, 1.50),
-        DEFENSIVE_PROBE("defensive_probe", setOf("SHITCOIN", "PROJECT_SNIPER", "MOONSHOT"), setOf("PROBE", "SNIPER", "MEME"), 0.35, 0.75, 0.55),
+        // V5.0.4057 — faster toxic-regime pivot. DEFENSIVE_PROBE is what weak
+        // DUMP/CHOP pivots choose after rejecting degen/fresh-pool styles; if it
+        // only advertises SHITCOIN/MOONSHOT, the toxicity guard can still fall back
+        // into the exact bleeding lanes. Lead with quality/reclaim lanes, keep one
+        // meme probe as fallback for throughput. Soft route-shape only, no veto.
+        DEFENSIVE_PROBE("defensive_probe", setOf("QUALITY", "DIP_HUNTER", "TREASURY", "PROJECT_SNIPER"), setOf("PROBE", "QUALITY_DEPTH", "DIP_RECLAIM", "TOXIC_GUARD"), 0.35, 0.75, 0.55),
         LAB_EXPLORATION("lab_exploration", setOf("SHITCOIN", "MOONSHOT", "MANIPULATED", "PROJECT_SNIPER"), setOf("LAB", "HYPOTHESIS", "MEME"), 0.50, 1.00, 1.00),
     }
 
@@ -81,14 +86,38 @@ object AgenticStyleRouter {
         // rotating ONE alternate style lane deterministically per mint, instead
         // of evaluating the whole toolbox on every tick.
         val out = linkedSetOf<String>()
-        val styleLaneList = style.lanes.filter { it.isNotBlank() }
+        val rapidPivot = rapidToxicRegimePivot(style, score)
+        val styleLaneList = (rapidPivot + style.lanes).filter { it.isNotBlank() }.distinct()
         val primary = LaneToxicityGuard.chooseNonToxicLane(mint, styleLaneList, score) ?: styleLaneList.firstOrNull()
         if (!primary.isNullOrBlank()) out += primary
         val growthFallback = LiveGrowthDoctrine.growthLaneFallback(mint, out + base + style.lanes)?.let { listOf(it) } ?: emptyList()
-        val alternatesRaw = (style.lanes.drop(1) + base + growthFallback).filter { it.isNotBlank() && it !in out }.distinct()
+        val alternatesRaw = (styleLaneList.drop(1) + rapidPivot + base + growthFallback).filter { it.isNotBlank() && it !in out }.distinct()
         val alternates = LaneToxicityGuard.filterNonToxic(alternatesRaw, score).ifEmpty { alternatesRaw }
         if (alternates.isNotEmpty()) out += alternates[stablePick(mint, alternates.size)]
         return out
+    }
+
+    private fun rapidToxicRegimePivot(style: Style, score: Int): List<String> {
+        val weak = try {
+            val r = RegimeDetector.current()
+            r.regime == RegimeDetector.Regime.DUMP || (r.regime == RegimeDetector.Regime.CHOP && r.recentWrPct < 25.0)
+        } catch (_: Throwable) { false }
+        if (!weak) return emptyList()
+        val toxicMemeScoreBand = score in 41..60 ||
+            LaneToxicityGuard.isNetNegativeDanger("MOONSHOT", score) ||
+            LaneToxicityGuard.isNetNegativeDanger("SHITCOIN", score)
+        if (!toxicMemeScoreBand) return emptyList()
+        return when (style) {
+            Style.DEFENSIVE_PROBE,
+            Style.REGIME_DEFENSIVE_PROBE,
+            Style.LAB_EXPLORATION,
+            Style.DIAMOND_HANDS_RUNNER,
+            Style.BREAKOUT_RUNNER,
+            Style.SWING_HOLD,
+            Style.MICRO_SNIPE,
+            Style.QUICK_FLIP -> listOf("QUALITY", "DIP_HUNTER", "TREASURY", "BLUECHIP")
+            else -> emptyList()
+        }
     }
 
     private fun boundedTools(mint: String, base: Set<String>, style: Style): Set<String> {

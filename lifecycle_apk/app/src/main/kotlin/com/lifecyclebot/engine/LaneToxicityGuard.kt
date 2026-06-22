@@ -22,6 +22,18 @@ object LaneToxicityGuard {
     fun chooseNonToxicLane(mint: String, lanes: List<String>, score: Int): String? {
         val clean = lanes.filter { it.isNotBlank() && !isNetNegativeDanger(it, score) }.distinct()
         if (clean.isNotEmpty()) return clean[((mint.hashCode() and 0x7fffffff) % clean.size)]
+        // V5.0.4057 — pivot faster in DUMP/weak CHOP. If every offered style lane
+        // is toxic, do not blindly fall back to MOONSHOT/SHITCOIN score buckets
+        // that are already bleeding. Pick a quality/reclaim lane when available.
+        val weak = try {
+            val r = RegimeDetector.current()
+            r.regime == RegimeDetector.Regime.DUMP || (r.regime == RegimeDetector.Regime.CHOP && r.recentWrPct < 25.0)
+        } catch (_: Throwable) { false }
+        if (weak) {
+            val fallback = listOf("QUALITY", "DIP_HUNTER", "TREASURY", "BLUECHIP")
+                .firstOrNull { lanes.any { offered -> offered.equals(it, ignoreCase = true) } || !isNetNegativeDanger(it, score) }
+            if (fallback != null) return fallback
+        }
         return lanes.firstOrNull { it.isNotBlank() }
     }
 
