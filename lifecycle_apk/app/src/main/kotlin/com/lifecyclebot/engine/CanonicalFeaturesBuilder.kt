@@ -41,9 +41,13 @@ object CanonicalFeaturesBuilder {
         symbolicVerdict: String = "",
     ): Pair<CandidateFeatures, Boolean> {
 
-        val liqUsd = ts.lastLiquidityUsd
-        val mcapUsd = ts.lastMcap
-        val topHolderPct = ts.topHolderPct ?: ts.safety.topHolderPct
+        // V5.0.4040 — TokenMap fallback for feature completeness.
+        // Scanner/TokenMap often hydrates liquidity/mcap/top-holder before the mutable
+        // TokenState display fields catch up. Learning should use that authoritative
+        // discovery snapshot instead of marking otherwise-rich outcomes incomplete.
+        val liqUsd = ts.lastLiquidityUsd.takeIf { it > 0.0 } ?: ts.tokenMap.liquidityUsd ?: 0.0
+        val mcapUsd = ts.lastMcap.takeIf { it > 0.0 } ?: ts.tokenMap.marketCap ?: ts.tokenMap.fdv ?: ts.lastFdv
+        val topHolderPct = ts.topHolderPct ?: ts.safety.topHolderPct.takeIf { it >= 0.0 } ?: ts.tokenMap.topHolderConcentrationPct
         // V5.0.4038 — entry token-age feature fix.
         // CandidateFeatures.ageBucket is supposed to describe token/pool age at ENTRY.
         // The old code used now-entryTime, which is hold time at close and duplicates
