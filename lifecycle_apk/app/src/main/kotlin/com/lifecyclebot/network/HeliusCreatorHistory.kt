@@ -222,9 +222,12 @@ class HeliusCreatorHistory(private val apiKey: String) {
         private val sharedCache =
             java.util.concurrent.ConcurrentHashMap<String, CreatorReport>()
 
+        private const val EXPORT_MAX_ROWS = 750
+
         fun exportState(): String {
             val arr = org.json.JSONArray()
-            for ((wallet, r) in sharedCache) {
+            val snapshot = try { sharedCache.entries.sortedByDescending { it.value.checkedAt }.take(EXPORT_MAX_ROWS) } catch (_: Throwable) { sharedCache.entries.take(EXPORT_MAX_ROWS) }
+            for ((wallet, r) in snapshot) {
                 arr.put(org.json.JSONObject().apply {
                     put("wallet", wallet)
                     put("tokens", r.tokensCreated)

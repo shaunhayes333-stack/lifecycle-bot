@@ -14,12 +14,13 @@ import java.util.concurrent.atomic.AtomicLong
  * through degraded routes (Jupiter 503/429, Pump 0x1787, Jito decode-fail) while
  * opening NEW buys into the bleed.
  *
- * Single authority deciding whether the runtime is healthy enough to admit NEW live
- * buys. When ANY danger condition is true we enter SELL_ONLY_SAFE_MODE: new live buys
- * are hard-blocked, existing positions may only drain through the controlled sell
- * path. Scanners/watchlist keep running (no discovery loss) — only BUY admission is
- * gated. Self-clearing: reflects live signal state every evaluation, not a sticky
- * latch. A worker-timeout storm (item 9) freezes scanners via the same gate.
+ * V5.0.4028 — LIVE GROWTH DOCTRINE CHANGE.
+ * This object is now TELEMETRY ONLY. It can report sell/reconciler pressure, but it
+ * must never be buy-admission authority. The old sell-only mode repeatedly became
+ * a global live-entry choke from stale activeJobs/pending queues, directly opposing
+ * the live wallet compounding target. Hard safety remains elsewhere: remote kill,
+ * manual halt, startup wallet floor, token/rug/liquidity hard gates, and sell
+ * finality proof.
  */
 object SellOnlySafeMode {
 
@@ -184,20 +185,23 @@ object SellOnlySafeMode {
         }
         if (providerBackoffActive()) reasons += "providerBackoff=${_lastProviderBackoffHost ?: "unknown"}"
 
-        val nowActive = reasons.isNotEmpty()
-        if (nowActive && !_active) {
+        val telemetryActive = reasons.isNotEmpty()
+        if (telemetryActive && !_active) {
             _enterCount.incrementAndGet()
-            try { ForensicLogger.lifecycle("SELL_ONLY_SAFE_MODE_ENTER", "reasons=${reasons.joinToString(",")}") } catch (_: Throwable) {}
-        } else if (!nowActive && _active) {
-            try { ForensicLogger.lifecycle("SELL_ONLY_SAFE_MODE_CLEAR", "drainComplete=true") } catch (_: Throwable) {}
+            try { ForensicLogger.lifecycle("SELL_PRESSURE_TELEMETRY", "formerSellOnlySafeMode=true buyBlock=false reasons=${reasons.joinToString(",")}") } catch (_: Throwable) {}
+        } else if (!telemetryActive && _active) {
+            try { ForensicLogger.lifecycle("SELL_PRESSURE_CLEAR", "buyBlock=false") } catch (_: Throwable) {}
         }
-        _active = nowActive
+        // Hard rule: sell-only safe mode is dead as a buy choke. Preserve the
+        // reasons for reporting/debugging, but active=false means admission cannot
+        // block on this object ever again.
+        _active = false
         _lastReasons = reasons
     }
 
     fun blockLiveBuyReason(): String? {
-        if (!_active) return null
-        _blockedBuys.incrementAndGet()
-        return "SELL_ONLY_SAFE_MODE active: ${_lastReasons.joinToString(",")}"
+        // V5.0.4028 — intentionally dead. Do not resurrect this as a live-buy
+        // gate; use real hard-safety authorities instead.
+        return null
     }
 }

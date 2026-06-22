@@ -3348,9 +3348,9 @@ class GoldenTapeRegressionTest {
         val lease = java.io.File("src/main/kotlin/com/lifecyclebot/engine/ExecutionAttemptLease.kt").readText()
         val mutexIdx = exec.indexOf("MEME_LIVE_BUY_MUTEX.tryAcquire")
         val busyBlock = exec.substring(mutexIdx, exec.indexOf("liveBuyMutexAcquired = true", mutexIdx))
-        assertTrue("mutex busy must be visible as a terminal timeout/fail event, not a silent deferred attempt", busyBlock.contains("LIVE_BUY_TIMEOUT") && busyBlock.contains("MUTEX_BUSY_DEFERRED") && busyBlock.contains("emitLiveBuyFail") && busyBlock.contains("buyTerminalFail"))
-        assertFalse("mutex contention must not silently release the lease non-terminal", busyBlock.contains("releaseNonTerminal"))
-        assertTrue("lease may still expose non-terminal release for non-live-attempt paths, but live buy uses terminal telemetry", lease.contains("fun releaseNonTerminal") && lease.contains("terminal=NON_TERMINAL"))
+        assertTrue("mutex busy must be visible as a non-terminal deferred attempt", busyBlock.contains("liveBuyDeferred") && busyBlock.contains("MUTEX_BUSY_DEFERRED"))
+        assertFalse("mutex busy must not poison BUY_FAILED/backoff telemetry", busyBlock.contains("emitLiveBuyFail") || busyBlock.contains("buyTerminalFail") || busyBlock.contains("LIVE_BUY_TIMEOUT"))
+        assertTrue("lease may still expose non-terminal release for non-live-attempt paths", lease.contains("fun releaseNonTerminal") && lease.contains("terminal=NON_TERMINAL"))
         assertTrue("live finality must synthesize a current direct-lane candidate when state is missing but safety/liquidity are present", gate.contains("""modeUpper in setOf("PAPER", "LIVE")""") && gate.contains("LIVE_SYNTHETIC_FINAL_CANDIDATE") && gate.contains("LIVE_EXEC_OPEN_SYNTHETIC_FINAL_CANDIDATE"))
     }
 
@@ -3665,7 +3665,7 @@ class GoldenTapeRegressionTest {
         val buyPlanIdx = executor.indexOf("BUY_PLAN_OK", quoteOkIdx)
         assertTrue("TokenMap and quote proof must be before BUY_PLAN_OK", liveBuyBodyStart >= 0 && tokenMapIdx in (liveBuyBodyStart + 1) until quoteOkIdx && quoteOkIdx < buyPlanIdx)
         assertTrue("TokenMap incomplete must produce a BUY fail terminal, not silent lane release", executor.contains("LIVE_BUY_FAILED") && executor.contains("TOKEN_MAP_INCOMPLETE") && executor.contains("BUY_TERMINAL_ROUTE_FAIL:TOKEN_MAP_INCOMPLETE"))
-        assertTrue("Former non-terminal release branches must now emit terminal abort/timeout", executor.contains("LIVE_BUY_ABORTED") && executor.contains("DEFERRED_REQUOTE_REQUIRED") && executor.contains("LIVE_BUY_TIMEOUT") && executor.contains("MUTEX_BUSY_DEFERRED"))
+        assertTrue("Deferred/live-busy branches must be non-terminal instead of timeout poisoning", executor.contains("LIVE_BUY_DEFERRED_NON_TERMINAL") && executor.contains("DEFERRED_REQUOTE_REQUIRED") && executor.contains("MUTEX_BUSY_DEFERRED"))
         assertTrue("Submit/finality/journal stages must be in the live attempt chain", listOf("TX_SUBMIT_START", "TX_SUBMITTED", "FINALITY_CONFIRMED", "POSITION_TRACKED", "JOURNAL_WRITE_OK").all { executor.contains(it) })
     }
 
@@ -3741,7 +3741,7 @@ class GoldenTapeRegressionTest {
         val gradle = java.io.File("build.gradle.kts").readText()
         val workflow = java.io.File("../.github/workflows/build.yml").readText()
         val version = java.io.File("../AATE_VERSION").readText().trim()
-        assertEquals("5.0.4027", version)
+        assertEquals("5.0.4028", version)
         assertTrue("Gradle must prefer explicit AATE version authority", gradle.contains("aateVersionName") && gradle.contains("AATE_VERSION"))
         assertTrue("Workflow must pass explicit AATE version into Gradle", workflow.contains("-PaateVersionName=\$AATE_VERSION_NAME"))
         assertFalse("Artifact patch identity must not be derived from CI run number", workflow.contains("VERSION_NAME=\"5.0.\${BUILD_NUMBER}\""))
@@ -3758,6 +3758,21 @@ class GoldenTapeRegressionTest {
         assertTrue("Probability facade must be soft-shape only, no veto or zero sizing", prob.contains("Soft-shape only") && !prob.contains("return false") && !prob.contains("sizeMult = 0.0"))
         assertTrue("SmartSizer must consume LiveProbabilityEngine instead of raw scattered probability", sizer.contains("LiveProbabilityEngine.forecast") && sizer.contains("PROBABILITY-GATED size"))
         assertTrue("Reports must surface the unified probability edge", reporting.contains("LiveProbabilityEngine.statusLine"))
+    }
+
+
+    @Test
+    fun live_growth_chokes_are_non_terminal_and_sell_only_is_dead() {
+        val sellOnly = java.io.File("src/main/kotlin/com/lifecyclebot/engine/sell/SellOnlySafeMode.kt").readText()
+        val exec = java.io.File("src/main/kotlin/com/lifecyclebot/engine/Executor.kt").readText()
+        val jupiter = java.io.File("src/main/kotlin/com/lifecyclebot/network/JupiterApi.kt").readText()
+        val heliusCreator = java.io.File("src/main/kotlin/com/lifecyclebot/network/HeliusCreatorHistory.kt").readText()
+        assertTrue("SellOnlySafeMode must be telemetry only", sellOnly.contains("TELEMETRY ONLY") && sellOnly.contains("return null"))
+        assertFalse("SellOnlySafeMode must not set active=true as buy authority", sellOnly.contains("_active = nowActive"))
+        assertTrue("Mutex/no-terminal buy states must defer without BUY_FAILED/backoff", exec.contains("liveBuyDeferred") && exec.contains("NO_TERMINAL_EVENT_REQUEUED") && exec.contains("no_buy_failed=true no_backoff=true"))
+        assertFalse("Mutex busy must not emit LIVE_BUY_TIMEOUT", exec.contains("liveStage(\"LIVE_BUY_TIMEOUT\", \"reason=MUTEX_BUSY_DEFERRED"))
+        assertTrue("Jupiter v6 quote must adapt route params instead of one-shot 4xx failing", jupiter.contains("adaptive fallbacks") && jupiter.contains("restrictIntermediateTokens=false") && jupiter.contains("onlyDirectRoutes=true"))
+        assertTrue("Helius creator export must cap rows and avoid exporting bulky previousTokens", heliusCreator.contains("EXPORT_MAX_ROWS") && heliusCreator.contains("take(EXPORT_MAX_ROWS)") && heliusCreator.contains("previousTokens omitted"))
     }
 
 }

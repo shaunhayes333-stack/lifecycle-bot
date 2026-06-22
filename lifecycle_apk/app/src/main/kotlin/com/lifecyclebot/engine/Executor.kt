@@ -7254,6 +7254,22 @@ class Executor(
         } catch (_: Throwable) {}
     }
 
+
+    private fun liveBuyDeferred(ts: TokenState, sol: Double, reason: String, detail: String = "") {
+        try {
+            ForensicLogger.exec(
+                "LIVE_BUY_DEFERRED",
+                ts.symbol,
+                "mint=${ts.mint.take(10)} sol=${"%.4f".format(sol)} reason=$reason ${detail.take(140)}".trim(),
+            )
+            ForensicLogger.lifecycle(
+                "LIVE_BUY_DEFERRED_NON_TERMINAL",
+                "mint=${ts.mint.take(10)} symbol=${ts.symbol} reason=$reason ${detail.take(160)} no_buy_failed=true no_backoff=true",
+            )
+            PipelineHealthCollector.labelInc("LIVE_BUY_DEFERRED_$reason")
+        } catch (_: Throwable) {}
+    }
+
     private fun emitLiveBuyFail(ts: TokenState, sol: Double, reason: String, detail: String = "") {
         try {
             val r = reason.uppercase()
@@ -10140,9 +10156,7 @@ class Executor(
                     "mint=${ts.mint.take(10)} symbol=${ts.symbol} sol=${"%.4f".format(sol)} stage=wallet_spend_boundary")
                 PipelineHealthCollector.labelInc("LIVE_BUY_MUTEX_DEFERRED_NON_TERMINAL")
             } catch (_: Throwable) {}
-            liveStage("LIVE_BUY_TIMEOUT", "reason=MUTEX_BUSY_DEFERRED lastStage=$liveBuyLastStage")
-            emitLiveBuyFail(ts, sol, "LIVE_BUY_TIMEOUT", "MUTEX_BUSY_DEFERRED")
-            buyTerminalFail("BUY_TERMINAL_TIMEOUT:MUTEX_BUSY_DEFERRED")
+            liveBuyDeferred(ts, sol, "MUTEX_BUSY_DEFERRED", "lastStage=$liveBuyLastStage")
             return false
         }
         liveBuyMutexAcquired = true
@@ -11235,9 +11249,8 @@ class Executor(
         }
         } finally {
             if (!buyTerminalRecorded) {
-                liveStage("LIVE_BUY_TIMEOUT", "lastStage=$liveBuyLastStage reason=NO_TERMINAL_EVENT")
-                try { emitLiveBuyFail(ts, sol, "LIVE_BUY_TIMEOUT", "lastStage=$liveBuyLastStage") } catch (_: Throwable) {}
-                buyTerminalFail("BUY_TERMINAL_LEASE_EXPIRED_REQUEUED:NON_TERMINAL_EXIT")
+                liveBuyDeferred(ts, sol, "NO_TERMINAL_EVENT_REQUEUED", "lastStage=$liveBuyLastStage")
+                buyTerminalRecorded = true
             }
             // V5.9.778/V5.0.3910 — release MEME_LIVE_BUY_MUTEX only if this
             // invocation actually acquired it at the wallet-spend boundary.

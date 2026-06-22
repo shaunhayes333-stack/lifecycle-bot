@@ -356,19 +356,37 @@ class JupiterApi(private val apiKey: String = "") {
     ): SwapQuote {
         val startMs = System.currentTimeMillis()
 
-        val url = buildString {
+        val baseUrl = buildString {
             append(BASE_V6)
             append("/quote?inputMint=").append(inputMint)
             append("&outputMint=").append(outputMint)
             append("&amount=").append(amountRaw)
-            append("&slippageBps=").append(slippageBps)
         }
-
-        log("📊 V6 QUOTE: ${shortMint(inputMint)} -> ${shortMint(outputMint)} | amountRaw=$amountRaw")
-
-        val body = getOrThrow(url)
+        val attempts = listOf(
+            "slippageBps=${slippageBps.coerceIn(50, 2500)}&restrictIntermediateTokens=true",
+            "slippageBps=${maxOf(slippageBps, 1500).coerceIn(50, 5000)}&restrictIntermediateTokens=false",
+            "slippageBps=${maxOf(slippageBps, 2500).coerceIn(50, 8000)}&onlyDirectRoutes=true",
+        )
+        var lastErr: Exception? = null
+        var body: String? = null
+        var picked = ""
+        for (params in attempts) {
+            val url = "$baseUrl&$params"
+            try {
+                log("📊 V6 QUOTE: ${shortMint(inputMint)} -> ${shortMint(outputMint)} | amountRaw=$amountRaw params=$params")
+                body = getOrThrow(url)
+                picked = params
+                break
+            } catch (e: Exception) {
+                lastErr = e
+                val msg = e.message.orEmpty()
+                log("⚠️ V6 quote attempt failed params=$params err=${msg.take(100)}")
+                // 4xx from route constraints is often recoverable by changing route params;
+                // keep trying the adaptive ladder. Network/5xx also gets the next attempt.
+            }
+        }
         val elapsed = System.currentTimeMillis() - startMs
-        val json = JSONObject(body)
+        val json = JSONObject(body ?: throw RuntimeException("Jupiter v6 quote exhausted adaptive fallbacks: ${lastErr?.message}"))
 
         if (json.has("error")) {
             val error = json.optString("error", "unknown")
@@ -382,7 +400,7 @@ class JupiterApi(private val apiKey: String = "") {
 
         val priceImpactPct = parseDoubleSafely(json.opt("priceImpactPct"))
 
-        log("✅ V6 QUOTE OK: out=$outAmount impact=${fmt2(priceImpactPct)}% (${elapsed}ms)")
+        log("✅ V6 QUOTE OK: out=$outAmount impact=${fmt2(priceImpactPct)}% params=$picked (${elapsed}ms)")
 
         return SwapQuote(
             raw = json,
