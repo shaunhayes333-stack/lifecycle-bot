@@ -1247,6 +1247,7 @@ class BotService : Service() {
             ErrorLogger.init(applicationContext)
             FeeRetryQueue.init(applicationContext)  // V5.9.226: Bug #7 — fee retry queue
             FeeAccumulator.init(applicationContext)  // V5.0.3920 — fee accumulator (batched flush)
+            ScannerHardRejectStore.init(applicationContext)  // V5.0.4036 — durable hard-reject scanner quarantine
             // V5.9.666 — install Choreographer-based ANR / long-frame
             // detector so the in-app Pipeline Health panel captures
             // every main-thread stutter with elapsed delta. onCreate
@@ -9370,6 +9371,15 @@ class BotService : Service() {
             return false
         }
 
+        if (ScannerHardRejectStore.isRejected(mint)) {
+            val hardReason = ScannerHardRejectStore.reason(mint)
+            try {
+                ForensicLogger.lifecycle("INTAKE_HARD_REJECT_SKIPPED", "symbol=${symbol.ifBlank { mint.take(6) }} mint=${mint.take(10)} src=$source reason=${hardReason.take(100)} no_watchlist=true no_probation=true")
+                PipelineHealthCollector.labelInc("INTAKE_HARD_REJECT_SKIPPED")
+            } catch (_: Throwable) {}
+            return false
+        }
+
         // V5.9.1440 — P0 BASE/QUOTE/STABLE MINT QUARANTINE (data-integrity).
         // The USDC mint EPjFWdd5… reached SHITCOIN as a TARGET and fabricated a
         // +8722 SOL / +$587k row that poisoned expectancy, the lane tuner, the
@@ -9381,6 +9391,7 @@ class BotService : Service() {
             ForensicLogger.gate(ForensicLogger.PHASE.INTAKE, symbol.ifBlank { mint.take(6) },
                 allow=false, reason="${com.lifecyclebot.engine.guard.BaseQuoteMintGuard.REJECT_REASON} mint=${mint.take(8)} src=$source")
             ErrorLogger.warn("BotService", "🛑 BASE_QUOTE_QUARANTINE: ${symbol.ifBlank{mint.take(8)}} mint=${mint.take(12)} src=$source — rejected pre-intake (no learn/journal/PnL)")
+            ScannerHardRejectStore.mark(mint, symbol, com.lifecyclebot.engine.guard.BaseQuoteMintGuard.REJECT_REASON, source)
             return false
         }
 
@@ -9468,6 +9479,7 @@ class BotService : Service() {
                     "symbol=$symbol mint=${mint.take(10)} src=$source no_watchlist=true",
                 )
             } catch (_: Throwable) {}
+            ScannerHardRejectStore.mark(mint, symbol, "BLOCKED_SYMBOL_FINAL", source)
             return false
         }
 
@@ -15817,6 +15829,8 @@ if (hotExitHandledSweep) {
                         val isTransientLiquidityBlock = reason.startsWith("Liquidity ", ignoreCase = true) && pair.liquidity <= 0.0
                         if (!isTransientLiquidityBlock) {
                             TokenBlacklist.block(mint, "Safety: $reason")
+                            ScannerHardRejectStore.mark(mint, ts.symbol, "Safety: $reason", "SAFETY_ASYNC")
+                            try { GlobalTradeRegistry.registerRejection(mint, ts.symbol, "Safety: $reason", "SAFETY_ASYNC_HARD") } catch (_: Throwable) {}
                         }
                         if (reason.contains("rug", ignoreCase = true) ||
                             reason.contains("honeypot", ignoreCase = true) ||
@@ -15858,6 +15872,8 @@ if (hotExitHandledSweep) {
                         val isTransientLiquidityBlock = reason.startsWith("Liquidity ", ignoreCase = true) && pair.liquidity <= 0.0
                         if (!isTransientLiquidityBlock) {
                             TokenBlacklist.block(mint, "Safety: $reason")
+                            ScannerHardRejectStore.mark(mint, ts.symbol, "Safety: $reason", "SAFETY_ASYNC")
+                            try { GlobalTradeRegistry.registerRejection(mint, ts.symbol, "Safety: $reason", "SAFETY_ASYNC_HARD") } catch (_: Throwable) {}
                         }
                         if (reason.contains("rug", ignoreCase = true) ||
                             reason.contains("honeypot", ignoreCase = true) ||

@@ -1588,7 +1588,7 @@ class GoldenTapeRegressionTest {
         val bot = java.io.File("src/main/kotlin/com/lifecyclebot/engine/BotService.kt").readText()
         val accumulator = java.io.File("src/main/kotlin/com/lifecyclebot/engine/FeeAccumulator.kt").readText()
         assertTrue("meme fee helper must accrue to FeeAccumulator, not send every micro fee", exec.contains("FeeAccumulator.accrue") && exec.contains("FEE ACCUMULATOR"))
-        assertTrue("fee accumulator must hold until the intended 1 SOL destination-bucket threshold", accumulator.contains("DEFAULT_FLUSH_THRESHOLD_SOL = 1.0") && accumulator.contains("accrued < flushThresholdSol") && accumulator.contains("operator-intended batched accrual"))
+        assertTrue("fee accumulator must hold until the intended 1 SOL total onboard threshold", accumulator.contains("DEFAULT_FLUSH_THRESHOLD_SOL = 1.0") && accumulator.contains("val totalPending") && accumulator.contains("totalPending < flushThresholdSol") && accumulator.contains("every destination bucket is flushed/distributed"))
         assertTrue("markets/perps fee collection must use the same pooled accumulator", markets.contains("CORE FEE POOL ALIGNMENT") && markets.contains("FeeAccumulator.accrue") && markets.contains("MARKETS_FEE_ACCUMULATED"))
         val marketsFeeFn = markets.substring(markets.indexOf("private suspend fun collectTradingFee"), markets.indexOf("totalFeesCollectedSol", markets.indexOf("private suspend fun collectTradingFee")))
         assertFalse("markets/perps fee collection must not send micro-fee transfers directly", marketsFeeFn.contains("wallet.sendSol"))
@@ -3743,7 +3743,7 @@ class GoldenTapeRegressionTest {
         val gradle = java.io.File("build.gradle.kts").readText()
         val workflow = java.io.File("../.github/workflows/build.yml").readText()
         val version = java.io.File("../AATE_VERSION").readText().trim()
-        assertEquals("5.0.4034", version)
+        assertEquals("5.0.4036", version)
         assertTrue("Gradle must prefer explicit AATE version authority", gradle.contains("aateVersionName") && gradle.contains("AATE_VERSION"))
         assertTrue("Workflow must pass explicit AATE version into Gradle", workflow.contains("-PaateVersionName=\$AATE_VERSION_NAME"))
         assertFalse("Artifact patch identity must not be derived from CI run number", workflow.contains("VERSION_NAME=\"5.0.\${BUILD_NUMBER}\""))
@@ -3824,6 +3824,20 @@ class GoldenTapeRegressionTest {
         assertTrue("V3 trunk must also obey metric-stage fit", bot.contains("V3_TOKEN_METRIC_STAGE_DEFERRED") && bot.contains("TokenMetricStageRouter.laneFit(ts, \"V3\")"))
         assertTrue("Primary lane election must be metric-aware, not only style/source aware", bot.contains("TokenMetricStageRouter.preferredPrimaryLane") && bot.contains("TOKEN_METRIC_STAGE_PRIMARY"))
         assertTrue("ModeRouter must not reward extended near-high peak chasing as breakout", mode.contains("BREAKOUT_REJECT: peak exhaustion") && mode.contains("controlled approach below local high"))
+    }
+
+
+    @Test
+    fun scanner_hard_rejects_do_not_enter_watchlist_or_rescan_loop() {
+        val store = java.io.File("src/main/kotlin/com/lifecyclebot/engine/ScannerHardRejectStore.kt").readText()
+        val bot = java.io.File("src/main/kotlin/com/lifecyclebot/engine/BotService.kt").readText()
+        val reg = java.io.File("src/main/kotlin/com/lifecyclebot/engine/GlobalTradeRegistry.kt").readText()
+        val scanner = java.io.File("src/main/kotlin/com/lifecyclebot/engine/SolanaMarketScanner.kt").readText()
+        assertTrue("hard rejects must persist in an onboard scanner quarantine", store.contains("scanner_hard_rejects") && store.contains("isRejected") && store.contains("SCANNER_HARD_REJECT_STAMPED"))
+        assertTrue("canonical protected intake must reject hard-stamped mints before probation/watchlist", bot.contains("INTAKE_HARD_REJECT_SKIPPED") && bot.indexOf("ScannerHardRejectStore.isRejected(mint)") < bot.indexOf("GlobalTradeRegistry.addToProbationOnly"))
+        assertTrue("registry paths must not admit hard rejects into watchlist/probation/promotion", reg.contains("SCANNER_HARD_REJECT") && reg.contains("probation.remove(mint)") && reg.contains("watchlist.remove(mint)"))
+        assertTrue("scanner local loop must skip hard rejects before seen/rejected cooldown repair", scanner.contains("ScannerHardRejectStore.isRejected(mint)") && scanner.contains("telemetryRugRejects++"))
+        assertTrue("scanner breadth must be wider than the old RAW≈50 shallow bench", scanner.contains("offset in listOf(0, 50, 100, 150, 200, 250)") && scanner.contains("totalEmitted >= 120") && scanner.contains("take(10_000)"))
     }
 
 }

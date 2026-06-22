@@ -23,7 +23,8 @@ import org.json.JSONObject
  * One transfer per ~hundreds of trades, base fee is then <0.05% of the
  * batched amount, and no fees are ever silently lost.
  *
- * FLUSH_THRESHOLD = 1.0 SOL (operator-intended batched accrual before sending).
+ * FLUSH_THRESHOLD = 1.0 SOL total across all destination buckets. Once the
+ * onboard ledger reaches 1 SOL, every destination bucket is flushed/distributed.
  * The accumulator is consulted on every fee retry queue drain (already
  * runs once per scan cycle in BotService), so live fees flush automatically
  * with no extra threading.
@@ -33,7 +34,7 @@ object FeeAccumulator {
     private const val PREFS_NAME = "fee_accumulator"
     private const val KEY_BUCKETS = "pending_buckets"
 
-    /** Default flush threshold per destination wallet. Tune via setFlushThresholdSol(). */
+    /** Default flush threshold for TOTAL pending fees across all destination wallets. */
     private const val DEFAULT_FLUSH_THRESHOLD_SOL = 1.0
     /** Wallet must keep this much SOL after a flush (rent + gas headroom). */
     private const val MIN_WALLET_RESERVE_SOL = 0.005
@@ -90,9 +91,12 @@ object FeeAccumulator {
         var changed = false
 
         val keys = buckets.keys().asSequence().toList()
+        val totalPending = keys.sumOf { buckets.optDouble(it, 0.0).coerceAtLeast(0.0) }
+        if (totalPending < flushThresholdSol) return 0.0
+
         for (dest in keys) {
             val accrued = buckets.optDouble(dest, 0.0)
-            if (accrued < flushThresholdSol) continue
+            if (accrued <= 0.0) continue
 
             // Self-loop guard — accrue() should already prevent this, but
             // double-check in case the configured fee wallet was rotated.
@@ -109,7 +113,7 @@ object FeeAccumulator {
             try {
                 wallet.sendSol(dest, accrued)
                 ErrorLogger.warn("FeeAccumulator",
-                    "✅ Flushed ${accrued.fmt(5)} SOL → $dest (threshold=${flushThresholdSol} SOL; operator target=1 SOL)")
+                    "✅ Flushed ${accrued.fmt(5)} SOL → $dest (totalPending=${totalPending.fmt(5)} SOL threshold=${flushThresholdSol} SOL)")
                 buckets.remove(dest)
                 balance -= accrued
                 totalSent += accrued

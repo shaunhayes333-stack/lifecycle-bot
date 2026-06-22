@@ -344,6 +344,11 @@ object GlobalTradeRegistry {
 
         val now = System.currentTimeMillis()
 
+        if (ScannerHardRejectStore.isRejected(mint)) {
+            PipelineTracer.registryRejected(symbol, mint, "SCANNER_HARD_REJECT:${ScannerHardRejectStore.reason(mint).take(80)}")
+            return AddResult(false, "SCANNER_HARD_REJECT", probation = false)
+        }
+
         // Check if already in watchlist
         val existing = watchlist[mint]
         if (existing != null) {
@@ -480,6 +485,11 @@ object GlobalTradeRegistry {
         }
 
         val now = System.currentTimeMillis()
+
+        if (ScannerHardRejectStore.isRejected(mint)) {
+            PipelineTracer.registryRejected(symbol, mint, "SCANNER_HARD_REJECT:${ScannerHardRejectStore.reason(mint).take(80)}")
+            return AddResult(false, "SCANNER_HARD_REJECT", probation = false)
+        }
 
         // Check if already in watchlist
         if (watchlist.containsKey(mint)) {
@@ -717,6 +727,7 @@ object GlobalTradeRegistry {
         toolAffinity: Set<String> = emptySet(),
     ): AddResult {
         if (mint.isBlank() || mint.length < 30) return AddResult(false, "INVALID_MINT")
+        if (ScannerHardRejectStore.isRejected(mint)) return AddResult(false, "SCANNER_HARD_REJECT", probation = false)
         if (watchlist.containsKey(mint)) return AddResult(false, "DUPLICATE: already in watchlist")
         probation[mint]?.let { existing ->
             existing.additionalScanners.add(addedBy)
@@ -989,6 +1000,13 @@ object GlobalTradeRegistry {
             reason = reason,
             rejectedBy = rejectedBy,
         )
+        val r = reason.uppercase()
+        val by = rejectedBy.uppercase()
+        if (by.contains("SAFETY") || r.contains("CONFIRMED RUG") || r.contains("HONEYPOT") || r.contains("SCAM") || r.contains("BASE_OR_QUOTE") || r.contains("BLOCKED_SYMBOL")) {
+            ScannerHardRejectStore.mark(mint, symbol, reason, rejectedBy)
+            probation.remove(mint)
+            watchlist.remove(mint)
+        }
 
         // V5.9.624 — PROTECTED MEME INTAKE.
         // Rejection memory may block EXECUTION, but it must not amputate the

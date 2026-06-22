@@ -1426,8 +1426,8 @@ class SolanaMarketScanner(
         try {
             val profiles = if (body.trim().startsWith("[")) JSONArray(body) else return
             var found = 0
-            for (i in 0 until minOf(profiles.length(), 80)) {
-                if (found >= 30) break
+            for (i in 0 until minOf(profiles.length(), 220)) {
+                if (found >= 100) break
                 val profile = profiles.optJSONObject(i) ?: continue
                 if (profile.optString("chainId", "") != "solana") continue
                 val mint = profile.optString("tokenAddress", "")
@@ -1488,8 +1488,8 @@ class SolanaMarketScanner(
             var found = 0
             var checked = 0
 
-            for (i in 0 until minOf(profiles.length(), 100)) {
-                if (found >= 50) break
+            for (i in 0 until minOf(profiles.length(), 250)) {
+                if (found >= 120) break
 
                 val profile = profiles.optJSONObject(i) ?: continue
                 if (profile.optString("chainId", "") != "solana") continue
@@ -2196,8 +2196,8 @@ class SolanaMarketScanner(
             var found = 0
             var checked = 0
 
-            for (i in 0 until minOf(profiles.length(), 80)) {
-                if (found >= 30) break
+            for (i in 0 until minOf(profiles.length(), 220)) {
+                if (found >= 100) break
 
                 val profile = profiles.optJSONObject(i) ?: continue
                 if (profile.optString("chainId", "") != "solana") continue
@@ -2471,8 +2471,8 @@ class SolanaMarketScanner(
      *   - SKIP if base is in known-stable allowlist (USDC/USDT/USDH/etc)
      *   - SKIP if liquidity < \$5000 (too thin)
      *
-     * Pagination: pulls 2 pages (offset 0, 50) = up to 100 markets/cycle.
-     * Cap of 40 emissions per cycle to avoid swamping downstream queues.
+     * Pagination: pulls 6 pages (offset 0..250, 50 each) = up to 300 markets/cycle.
+     * Cap of 120 emissions per cycle; source-balanced supervisor selection bounds hot work.
      *
      * Velocity is plumbed via the new ScannedToken.tradeVelocity24h /
      * walletVelocity24h fields, then consumed inside emit() as a
@@ -2499,9 +2499,9 @@ class SolanaMarketScanner(
         var skippedThin = 0
 
         try {
-            // Two pages × 50 markets = 100 per cycle
-            for (offset in listOf(0, 50)) {
-                if (totalEmitted >= 40) break
+            // Six pages × 50 markets = 300 per cycle for broader Solana network coverage.
+            for (offset in listOf(0, 50, 100, 150, 200, 250)) {
+                if (totalEmitted >= 120) break
                 val url = "https://public-api.birdeye.so/defi/v2/markets?" +
                     "sort_type=desc&sort_by=liquidity&offset=$offset&limit=50"
                 com.lifecyclebot.engine.BirdeyeBudgetGate.recordCalls(1)
@@ -2513,7 +2513,7 @@ class SolanaMarketScanner(
                 pageScanned += items.length()
 
                 for (i in 0 until items.length()) {
-                    if (totalEmitted >= 40) break
+                    if (totalEmitted >= 120) break
                     val item = items.optJSONObject(i) ?: continue
 
                     val baseObj = item.optJSONObject("base") ?: continue
@@ -3370,6 +3370,7 @@ class SolanaMarketScanner(
         if (scamPatterns.any { sym.contains(it) || name.contains(it) }) {
             onLog("🚫 BLOCK: ${token.symbol} - scam pattern")
             ErrorLogger.info("Scanner", "FILTER REJECT ${token.symbol}: scam pattern detected")
+            ScannerHardRejectStore.mark(token.mint, token.symbol, "SCANNER_SCAM_PATTERN", token.source.name)
             return false
         }
         
@@ -3379,6 +3380,7 @@ class SolanaMarketScanner(
         if (symLower in blockedSymbols) {
             onLog("🚫 BLOCK: ${token.symbol} - reserved symbol")
             ErrorLogger.info("Scanner", "FILTER REJECT ${token.symbol}: blocked symbol '$symLower'")
+            ScannerHardRejectStore.mark(token.mint, token.symbol, "SCANNER_RESERVED_SYMBOL_$symLower", token.source.name)
             return false
         }
         
@@ -3392,6 +3394,7 @@ class SolanaMarketScanner(
             if (nameLower == infra || nameLower.startsWith("$infra ")) {
                 onLog("🚫 BLOCK: ${token.symbol} - impersonates $infra")
                 ErrorLogger.info("Scanner", "FILTER REJECT ${token.symbol}: impersonates '$infra' (name='${token.name}')")
+                ScannerHardRejectStore.mark(token.mint, token.symbol, "SCANNER_INFRA_IMPERSONATION_$infra", token.source.name)
                 return false
             }
         }
@@ -3441,6 +3444,11 @@ class SolanaMarketScanner(
 
     private fun isSeen(mint: String): Boolean {
         val now = System.currentTimeMillis()
+        if (ScannerHardRejectStore.isRejected(mint)) {
+            recordCooldownHit(mint)
+            telemetryRugRejects++
+            return true
+        }
         val registryHasMint = try { GlobalTradeRegistry.isWatching(mint) } catch (_: Throwable) { false }
 
         if (isSaturated(mint)) {
@@ -3533,15 +3541,15 @@ class SolanaMarketScanner(
             onLog("🧹 Map cleanup: seen=${seenMints.size} rejected=${rejectedMints.size} sat=${saturatedMints.size}")
         }
 
-        if (seenMints.size > 10_000) {
-            val toKeep = seenMints.entries.sortedByDescending { it.value }.take(50).map { it.key }
+        if (seenMints.size > 50_000) {
+            val toKeep = seenMints.entries.sortedByDescending { it.value }.take(10_000).map { it.key }
             seenMints.keys.retainAll(toKeep.toSet())
             ErrorLogger.warn("Scanner", "Aggressive seen cleanup: reduced to ${seenMints.size}")
             onLog("⚠️ Seen map trimmed to ${seenMints.size}")
         }
 
-        if (rejectedMints.size > 2_000) {
-            val toKeep = rejectedMints.entries.sortedByDescending { it.value }.take(100).map { it.key }
+        if (rejectedMints.size > 20_000) {
+            val toKeep = rejectedMints.entries.sortedByDescending { it.value }.take(5_000).map { it.key }
             rejectedMints.keys.retainAll(toKeep.toSet())
             ErrorLogger.warn("Scanner", "Aggressive rejected cleanup: reduced to ${rejectedMints.size}")
             onLog("⚠️ Rejected map trimmed to ${rejectedMints.size}")
