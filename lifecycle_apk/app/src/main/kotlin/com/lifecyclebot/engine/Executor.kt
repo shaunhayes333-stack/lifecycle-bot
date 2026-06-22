@@ -4883,13 +4883,41 @@ class Executor(
                 doSell(ts, "STRICT_SL_${hardFloor.toInt()}", wallet, walletSol)
                 return
             }
-            // V5.9.495z5 forensics — when SL would have fired but the price
-            // resolution failed, surface it so we can fix the data path
-            // instead of silently bleeding.
+            // V5.0.4079 — STRICT_SL STALE-PRICE BACKSTOP (operator P0: -48% leak
+            // on STRICT_SL_-10 because the feed went silent during the dump).
+            // Pre-V5.0.4079 we silently skipped the SL on currentPrice==0 and
+            // waited for the "next price resolve" — which on a rugging mint can
+            // be minutes away, by which point the position has drained 38%
+            // beyond the configured floor. Now:
+            //   1. If currentPrice<=0 but ts.lastPrice has a cached value, use
+            //      it to check the floor. Old prices are still better than no
+            //      prices for an SL decision — we are protecting capital, not
+            //      taking profits.
+            //   2. If both are stale AND position age >= 60s AND last cached
+            //      update is older than 90s, force-exit with STALE_PRICE_FORCED
+            //      to avoid silent catastrophic overruns.
             if (currentPrice <= 0.0 && pos.entryPrice > 0.0) {
+                val cachedPx = ts.lastPrice
+                val cachedAgeMs = (System.currentTimeMillis() - ts.lastPriceUpdate).coerceAtLeast(0L)
+                val posAgeMs = (System.currentTimeMillis() - pos.entryTime).coerceAtLeast(0L)
+                if (cachedPx > 0.0) {
+                    val cachedPnl = ((cachedPx - pos.entryPrice) / pos.entryPrice) * 100.0
+                    if (cachedPnl <= hardFloor) {
+                        try { ForensicLogger.lifecycle("STRICT_SL_CACHED_PRICE_BACKSTOP", "mint=${ts.mint.take(10)} sym=${ts.symbol} cachedPx=${cachedPx} entry=${pos.entryPrice} cachedPnl=${cachedPnl.fmt(2)} hardFloor=${hardFloor.fmt(2)} cachedAgeMs=$cachedAgeMs") } catch (_: Throwable) {}
+                        onLog("🛑 STRICT SL (cached): ${ts.symbol} cachedPnl=${cachedPnl.toInt()}% ≤ ${hardFloor.toInt()}% — live feed dark, force-exit on cache", ts.mint)
+                        doSell(ts, "STRICT_SL_${hardFloor.toInt()}_CACHED", wallet, walletSol)
+                        return
+                    }
+                }
+                if (cachedAgeMs > 90_000L && posAgeMs > 60_000L) {
+                    try { ForensicLogger.lifecycle("STRICT_SL_STALE_PRICE_FORCED_EXIT", "mint=${ts.mint.take(10)} sym=${ts.symbol} cachedAgeMs=$cachedAgeMs posAgeMs=$posAgeMs entry=${pos.entryPrice} lastCached=${ts.lastPrice}") } catch (_: Throwable) {}
+                    onLog("⚠ STRICT SL STALE: ${ts.symbol} feed dark ${cachedAgeMs/1000}s, posAge ${posAgeMs/1000}s — force-exit to prevent overrun", ts.mint)
+                    doSell(ts, "STALE_PRICE_FORCED_EXIT_AGE_${cachedAgeMs/1000}s", wallet, walletSol)
+                    return
+                }
                 ErrorLogger.debug(
                     "Executor",
-                    "⚠ STRICT SL skipped on ${ts.symbol}: currentPrice=$currentPrice (no live tick) — relying on next price resolve"
+                    "⚠ STRICT SL skipped on ${ts.symbol}: currentPrice=$currentPrice cachedPx=$cachedPx cachedAgeMs=$cachedAgeMs — within stale tolerance, relying on next resolve"
                 )
             }
         }
