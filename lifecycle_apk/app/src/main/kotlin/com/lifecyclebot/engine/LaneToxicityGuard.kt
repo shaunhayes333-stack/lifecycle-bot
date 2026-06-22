@@ -14,9 +14,11 @@ package com.lifecyclebot.engine
  * micro/size shaping still owns execution.
  */
 object LaneToxicityGuard {
+    // V5.0.4070 — lower danger threshold so lanes pivot into quality routes
+    // earlier. Was -8.0 meanPnl; now -5.0 so marginal bleeders redirect faster.
     fun isNetNegativeDanger(lane: String, score: Int): Boolean = try {
         val s = LosingPatternMemory.stats(lane, score)
-        s.isDangerous && s.meanPnl <= -8.0
+        s.isDangerous && s.meanPnl <= -5.0
     } catch (_: Throwable) { false }
 
     fun chooseNonToxicLane(mint: String, lanes: List<String>, score: Int): String? {
@@ -30,7 +32,9 @@ object LaneToxicityGuard {
             r.regime == RegimeDetector.Regime.DUMP || (r.regime == RegimeDetector.Regime.CHOP && r.recentWrPct < 25.0)
         } catch (_: Throwable) { false }
         if (weak) {
-            val fallback = listOf("QUALITY", "DIP_HUNTER", "TREASURY", "BLUECHIP")
+            // V5.0.4070 — prefer quality lanes harder in weak regimes. Add
+            // WALLET_RECOVERED and LIQUIDITY_DEPTH_QUALITY as preferred pivots.
+            val fallback = listOf("BLUECHIP", "QUALITY", "WALLET_RECOVERED", "LIQUIDITY_DEPTH_QUALITY", "TREASURY", "DIP_HUNTER")
                 .firstOrNull { lanes.any { offered -> offered.equals(it, ignoreCase = true) } || !isNetNegativeDanger(it, score) }
             if (fallback != null) return fallback
         }

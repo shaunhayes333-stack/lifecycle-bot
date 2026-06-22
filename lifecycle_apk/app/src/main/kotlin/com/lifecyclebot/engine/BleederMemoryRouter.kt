@@ -24,10 +24,14 @@ object BleederMemoryRouter {
         val failedBasisCount: Int,
         val orphanCount: Int,
     ) {
-        val provenBleeder: Boolean get() = n50 >= 10 && wr50 < 25.0 && ev50Pct < 0.0
-        val noWinsOverEight: Boolean get() = n20 >= 8 && zeroWinsRecent
-        val repeatedDeepLoss: Boolean get() = deepLosses50 >= 3
-        val requiresDefensiveProbe: Boolean get() = provenBleeder || noWinsOverEight || repeatedDeepLoss || failedBasisCount > 0 || orphanCount > 0
+        // V5.0.4070 — faster pivot thresholds. Operator: "pivot correctly into
+        // the right strategies earlier". Lower the bleeder detection thresholds
+        // so lanes redirect into quality routes before they bleed out.
+        val provenBleeder: Boolean get() = n50 >= 8 && wr50 < 30.0 && ev50Pct < 0.0
+        val weakPerformer: Boolean get() = n20 >= 5 && wr20 < 35.0 && ev20Pct < 0.0
+        val noWinsOverEight: Boolean get() = n20 >= 6 && zeroWinsRecent
+        val repeatedDeepLoss: Boolean get() = deepLosses50 >= 2
+        val requiresDefensiveProbe: Boolean get() = provenBleeder || weakPerformer || noWinsOverEight || repeatedDeepLoss || failedBasisCount > 0 || orphanCount > 0
     }
 
     private const val CACHE_MS = 5_000L

@@ -47,32 +47,19 @@ object RuntimeConfigOverlay {
         else -> activeCommand("FORCE_PRIMARY_LANE:GLOBAL")?.value
     }
     fun isHardQualityOnlyActive(): Boolean = !paperRuntime() && (HARD_QUALITY_ONLY || normalizeLane(forcedPrimaryLane() ?: "") == "QUALITY")
-    // V5.0.4068 — LIVE RECOVERY LANE DISABLE. Operator directive overrides
-    // the V5.9.1405 "never amputate lanes" doctrine. During live recovery
-    // (WR < 45%, DUMP regime, negative expectancy), toxic lanes must be
-    // hard-disabled in LIVE mode. Paper/shadow trading continues for learning.
-    // Lanes re-enable automatically when their rolling live WR/PF/PnL recover
-    // (checked by LaneReenableChecker).
-    private val LIVE_RECOVERY_DISABLED_LANES = setOf(
-        "MOONSHOT", "SHITCOIN", "EXPRESS", "MANIPULATED",
-        "PRESALE_SNIPE", "PROJECT_SNIPER", "DIP_HUNTER", "CASHGEN", "CYCLIC",
-    )
-
+    // V5.0.4070 — REVERTED lane-amputation. Operator directive: AATE is the
+    // highest-information trading deck ever built. Lanes must NOT be hard-
+    // disabled. Every lane trades. Toxic/bleeder lanes PIVOT into quality
+    // strategies via LiveStylePivotRouter + BleederMemoryRouter + LaneToxicityGuard.
+    // The system's AI stack routes and sizes — it does not amputate.
+    // V5.9.1405 "never amputate lanes" doctrine RESTORED.
     fun isLaneDisabled(lane: String): Boolean {
         val normalized = normalizeLane(lane)
         // Paper mode: never disable lanes — keep learning.
         if (paperRuntime()) return false
-        // Live recovery: hard-disable toxic lanes.
-        if (normalized in LIVE_RECOVERY_DISABLED_LANES) {
-            // Check if the lane has earned re-enablement via LaneReenableChecker.
-            if (try { LaneReenableChecker.isReenabled(normalized) } catch (_: Throwable) { false }) return false
-            return true
-        }
-        // Runtime mitigation overlay (existing path).
+        // Runtime mitigation overlay (existing path — short-TTL emergency only).
         return active("DISABLE_LANE:$normalized")
     }
-
-    fun liveRecoveryDisabledLanes(): Set<String> = LIVE_RECOVERY_DISABLED_LANES
     fun isPreAuthDisabled(): Boolean = !paperRuntime() && active("DISABLE_PREAUTH:GLOBAL")
     fun isScannerSourceDisabled(source: String): Boolean = active("DISABLE_SCANNER_SOURCE:${source.uppercase()}") || active("QUARANTINE_SOURCE:${source.uppercase()}")
     fun isTradingPaused(): Boolean = !paperRuntime() && active("PAUSE_TRADING:GLOBAL")

@@ -3743,7 +3743,7 @@ class GoldenTapeRegressionTest {
         val gradle = java.io.File("build.gradle.kts").readText()
         val workflow = java.io.File("../.github/workflows/build.yml").readText()
         val version = java.io.File("../AATE_VERSION").readText().trim()
-        assertEquals("5.0.4069", version)
+        assertEquals("5.0.4070", version)
         assertTrue("Gradle must prefer explicit AATE version authority", gradle.contains("aateVersionName") && gradle.contains("AATE_VERSION"))
         assertTrue("Workflow must pass explicit AATE version into Gradle", workflow.contains("-PaateVersionName=\$AATE_VERSION_NAME"))
         assertFalse("Artifact patch identity must not be derived from CI run number", workflow.contains("VERSION_NAME=\"5.0.\${BUILD_NUMBER}\""))
@@ -4086,23 +4086,30 @@ class GoldenTapeRegressionTest {
     }
 
     @Test
-    fun live_recovery_disables_toxic_lanes_with_reenable_path() {
+    fun all_lanes_trade_and_pivot_to_quality_not_amputated() {
         val overlay = java.io.File("src/main/kotlin/com/lifecyclebot/engine/RuntimeConfigOverlay.kt").readText()
-        assertTrue("V5.0.4068: isLaneDisabled must check LIVE_RECOVERY_DISABLED_LANES in live mode",
-            overlay.contains("V5.0.4068") && overlay.contains("LIVE_RECOVERY_DISABLED_LANES"))
-        assertTrue("Toxic lanes must include MOONSHOT, SHITCOIN, EXPRESS, MANIPULATED, PRESALE_SNIPE",
-            overlay.contains("MOONSHOT") && overlay.contains("SHITCOIN") && overlay.contains("EXPRESS") &&
-            overlay.contains("MANIPULATED") && overlay.contains("PRESALE_SNIPE"))
+        assertTrue("V5.0.4070: lane-amputation reverted — no LIVE_RECOVERY_DISABLED_LANES",
+            overlay.contains("V5.0.4070") && !overlay.contains("LIVE_RECOVERY_DISABLED_LANES"))
+        assertTrue("isLaneDisabled must NOT hard-disable toxic lanes",
+            !overlay.contains("LIVE_RECOVERY_DISABLED_LANES"))
         assertTrue("Paper mode must never disable lanes",
             overlay.contains("if (paperRuntime()) return false"))
-        assertTrue("LaneReenableChecker must be consulted before disabling",
-            overlay.contains("LaneReenableChecker.isReenabled"))
 
-        val checker = java.io.File("src/main/kotlin/com/lifecyclebot/engine/LaneReenableChecker.kt").readText()
-        assertTrue("Reenable checker must require WR >= 42 and PF >= 1.25",
-            checker.contains("42.0") && checker.contains("1.25"))
-        assertTrue("EXPRESS and MANIPULATED must require WR >= 50",
-            checker.contains("50.0"))
+        val bleeder = java.io.File("src/main/kotlin/com/lifecyclebot/engine/BleederMemoryRouter.kt").readText()
+        assertTrue("V5.0.4070: bleeder pivot must fire faster — weakPerformer + lower thresholds",
+            bleeder.contains("V5.0.4070") && bleeder.contains("weakPerformer"))
+        assertTrue("provenBleeder threshold lowered from n50>=10/wr<25 to n50>=8/wr<30",
+            bleeder.contains("n50 >= 8 && wr50 < 30.0"))
+
+        val guard = java.io.File("src/main/kotlin/com/lifecyclebot/engine/LaneToxicityGuard.kt").readText()
+        assertTrue("Toxicity guard threshold lowered from -8.0 to -5.0",
+            guard.contains("s.meanPnl <= -5.0"))
+        assertTrue("Quality fallback must prefer BLUECHIP, QUALITY, WALLET_RECOVERED first",
+            guard.contains("BLUECHIP") && guard.contains("WALLET_RECOVERED") && guard.contains("LIQUIDITY_DEPTH_QUALITY"))
+
+        // LaneReenableChecker must be deleted — no amputation means no re-enable needed
+        assertFalse("LaneReenableChecker must not exist (no lane amputation)",
+            java.io.File("src/main/kotlin/com/lifecyclebot/engine/LaneReenableChecker.kt").exists())
     }
 
     @Test
