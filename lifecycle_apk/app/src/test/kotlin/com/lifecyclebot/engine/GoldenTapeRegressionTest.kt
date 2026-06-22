@@ -3743,7 +3743,7 @@ class GoldenTapeRegressionTest {
         val gradle = java.io.File("build.gradle.kts").readText()
         val workflow = java.io.File("../.github/workflows/build.yml").readText()
         val version = java.io.File("../AATE_VERSION").readText().trim()
-        assertEquals("5.0.4047", version)
+        assertEquals("5.0.4048", version)
         assertTrue("Gradle must prefer explicit AATE version authority", gradle.contains("aateVersionName") && gradle.contains("AATE_VERSION"))
         assertTrue("Workflow must pass explicit AATE version into Gradle", workflow.contains("-PaateVersionName=\$AATE_VERSION_NAME"))
         assertFalse("Artifact patch identity must not be derived from CI run number", workflow.contains("VERSION_NAME=\"5.0.\${BUILD_NUMBER}\""))
@@ -3930,6 +3930,18 @@ class GoldenTapeRegressionTest {
             builder.contains("rugTier = rugTier(ts, safetyTier)") && builder.contains("safetyTier = safetyTier") && builder.contains("ts.safety.rugcheckScore"))
         assertTrue("Rug tier learning buckets must keep DANGER/UNSAFE/CAUTION/SAFE without adding a gate",
             builder.contains("score < 40 -> \"DANGER\"") && builder.contains("score < 55 -> \"UNSAFE\"") && builder.contains("score < 70 -> \"CAUTION\"") && builder.contains("else -> \"SAFE\"") && builder.contains("no gate change"))
+    }
+
+
+    @Test
+    fun canonical_features_slippage_bucket_uses_token_map_route_friction_proxy() {
+        val builder = java.io.File("src/main/kotlin/com/lifecyclebot/engine/CanonicalFeaturesBuilder.kt").readText()
+        assertTrue("Canonical slippageBucket must no longer be blank; it should use TokenMap route/liquidity friction signals for learning only",
+            builder.contains("slippageBucket = slippageBucket(ts)") && builder.contains("private fun slippageBucket") &&
+            builder.contains("tm.expectedOutAmount") && builder.contains("tm.liquiditySol") && builder.contains("tm.realSolReserves") &&
+            builder.contains("SLIP_LOW") && builder.contains("SLIP_MED") && builder.contains("SLIP_HIGH") && builder.contains("SLIP_UNKNOWN"))
+        assertFalse("Canonical slippageBucket must not remain the old empty placeholder",
+            builder.contains("slippageBucket = "",   // not captured in TokenState"))
     }
 
 }

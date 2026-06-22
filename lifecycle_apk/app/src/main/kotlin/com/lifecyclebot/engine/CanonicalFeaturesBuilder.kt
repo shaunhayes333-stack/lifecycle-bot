@@ -139,7 +139,7 @@ object CanonicalFeaturesBuilder {
             safetyTier = safetyTier,
             mintAuthority = mintAuthority,
             freezeAuthority = freezeAuthority,
-            slippageBucket = "",   // not captured in TokenState — Push 6 wiring
+            slippageBucket = slippageBucket(ts),
             sizeBucket = CanonicalSizeContext.bucket(entrySizeSol),
             entryPattern = ts.phase.ifBlank { "STANDARD" },
             bubbleClusterPattern = bubbleClusterPattern(ts),
@@ -248,6 +248,25 @@ object CanonicalFeaturesBuilder {
 
 
 
+
+
+    private fun slippageBucket(ts: TokenState): String {
+        // V5.0.4048 — canonical route-friction proxy for learning only.
+        // TokenState does not store exact quote slippage here, but TokenMap carries
+        // executable route/liquidity/reserve signals. Do not gate on this; use it so
+        // learners can separate thin/high-friction routes from deep executable routes.
+        val tm = ts.tokenMap
+        val liqUsd = ts.lastLiquidityUsd.takeIf { it > 0.0 } ?: tm.liquidityUsd ?: 0.0
+        val liqSol = tm.liquiditySol ?: tm.realSolReserves ?: tm.virtualSolReserves ?: 0.0
+        val expectedOut = tm.expectedOutAmount
+        return when {
+            !tm.pumpFunExecutable && !tm.jupiterQuoteOk && !tm.dexRouteOk && expectedOut <= 0.0 -> "SLIP_UNKNOWN"
+            liqUsd >= 100_000.0 || liqSol >= 500.0 -> "SLIP_LOW"
+            liqUsd >= 25_000.0 || liqSol >= 125.0 -> "SLIP_MED"
+            liqUsd > 0.0 || liqSol > 0.0 || expectedOut > 0.0 -> "SLIP_HIGH"
+            else -> "SLIP_UNKNOWN"
+        }
+    }
 
     private fun rugTier(ts: TokenState, safetyTier: String): String {
         // V5.0.4047 — preserve coarse safetyTier, but let canonical rugTier carry
