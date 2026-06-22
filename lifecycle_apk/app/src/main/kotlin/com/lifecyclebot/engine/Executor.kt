@@ -705,8 +705,8 @@ class Executor(
          * persisted per-destination bucket. The next FeeRetryQueue drain
          * (once per scan cycle) calls FeeAccumulator.tryFlush(wallet)
          * which sends the WHOLE bucket as a single tx once it crosses
-         * 0.01 SOL (~$1.50). Result: one tx per ~hundreds of trades, base
-         * fee is <0.05% of the batched amount, no fees silently lost.
+         * 1.0 SOL (operator-intended accrual threshold). Result: large batched
+         * transfers, no micro-fee tx spam, no fees silently lost.
          */
         private const val FEE_SEND_MIN_SOL = 0.000005
         private fun sendFeeSplit(
