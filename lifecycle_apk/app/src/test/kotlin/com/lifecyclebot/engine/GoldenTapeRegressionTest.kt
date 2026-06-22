@@ -3743,7 +3743,7 @@ class GoldenTapeRegressionTest {
         val gradle = java.io.File("build.gradle.kts").readText()
         val workflow = java.io.File("../.github/workflows/build.yml").readText()
         val version = java.io.File("../AATE_VERSION").readText().trim()
-        assertEquals("5.0.4050", version)
+        assertEquals("5.0.4051", version)
         assertTrue("Gradle must prefer explicit AATE version authority", gradle.contains("aateVersionName") && gradle.contains("AATE_VERSION"))
         assertTrue("Workflow must pass explicit AATE version into Gradle", workflow.contains("-PaateVersionName=\$AATE_VERSION_NAME"))
         assertFalse("Artifact patch identity must not be derived from CI run number", workflow.contains("VERSION_NAME=\"5.0.\${BUILD_NUMBER}\""))
@@ -3957,6 +3957,20 @@ class GoldenTapeRegressionTest {
             authority.contains("Source.TX_META_OWNER_DELTA -> BalanceSource.UNKNOWN"))
         assertFalse("Emergency helper must not return tx-meta as confirmed wallet balance",
             authority.contains("Resolution.Confirmed(cached.rawAmount, cached.decimals, Source.TX_META_OWNER_DELTA)"))
+    }
+
+
+    @Test
+    fun live_gate_relaxer_uses_strategy_telemetry_counts_and_no_relax_in_dump_for_toxic_meme_lanes() {
+        val relaxer = java.io.File("src/main/kotlin/com/lifecyclebot/engine/LiveLayerGateRelaxer.kt").readText()
+        assertTrue("Relaxer maturity must fallback to StrategyTelemetry live-terminal counts so journal-proven lanes do not print n=0",
+            relaxer.contains("StrategyTelemetry.computeLiveTerminalLeaderboard") &&
+            relaxer.contains("maxOf(busCounts[k] ?: 0, m.trades)") &&
+            relaxer.contains("canonicalLaneKey(it.mode.name)") && relaxer.contains("canonicalLaneKey(m.strategy)"))
+        assertTrue("DUMP regime must cancel cold-start relaxation for toxic meme lanes instead of lowering floors while the wallet is bleeding",
+            relaxer.contains("dumpRegimeNoRelax") && relaxer.contains("RegimeDetector.Regime.DUMP") &&
+            relaxer.contains("MOONSHOT") && relaxer.contains("SHITCOIN") &&
+            relaxer.contains("metric.winRatePct < 35.0") && relaxer.contains("return 1.0"))
     }
 
 }

@@ -73,22 +73,59 @@ object LiveLayerGateRelaxer {
         val now = System.currentTimeMillis()
         if (now - laneCacheStampMs > LANE_CACHE_TTL_MS) {
             laneLiveCountCache = try {
-                CanonicalOutcomeBus.recentSnapshot()
+                val busCounts = CanonicalOutcomeBus.recentSnapshot()
                     .asSequence()
                     .filter { it.environment == TradeEnvironment.LIVE }
                     .filter { it.realizedPnlPct != null }
-                    .groupingBy { it.mode.name.uppercase() }
+                    .groupingBy { canonicalLaneKey(it.mode.name) }
                     .eachCount()
+                    .toMutableMap()
+                // V5.0.4051 — mux fix: reports/journal proved MOONSHOT/SHITCOIN had
+                // hundreds of LIVE closes while the relaxer printed n=0/1 because
+                // CanonicalOutcomeBus mode labels were not aligned with journal
+                // strategy bins. Fallback to StrategyTelemetry's live-terminal
+                // leaderboard so cold-start relaxation cannot keep poisoning a
+                // matured bleeding lane with lower entry floors.
+                StrategyTelemetry.computeLiveTerminalLeaderboard(limit = 1_500).forEach { m ->
+                    val k = canonicalLaneKey(m.strategy)
+                    busCounts[k] = maxOf(busCounts[k] ?: 0, m.trades)
+                }
+                busCounts
             } catch (_: Throwable) { laneLiveCountCache }
             laneCacheStampMs = now
         }
-        return laneLiveCountCache[traderTag.uppercase()] ?: 0
+        return laneLiveCountCache[canonicalLaneKey(traderTag)] ?: 0
+    }
+
+    private fun canonicalLaneKey(raw: String?): String {
+        val r = raw?.trim()?.uppercase()?.takeIf { it.isNotBlank() } ?: return "STANDARD"
+        return when (r) {
+            "BLUE_CHIP" -> "BLUECHIP"
+            "MANIP" -> "MANIPULATED"
+            "COPYTRADE", "COPY_TRADE", "WALLET_COPY", "WALLET_RECOVERED" -> "WALLET_RECOVERED"
+            else -> r
+        }
+    }
+
+    private fun dumpRegimeNoRelax(traderTag: String): Boolean {
+        val lane = canonicalLaneKey(traderTag)
+        if (lane !in setOf("MOONSHOT", "SHITCOIN", "EXPRESS", "MANIPULATED", "PRESALE_SNIPE")) return false
+        val dump = try { RegimeDetector.currentRegime() == RegimeDetector.Regime.DUMP } catch (_: Throwable) { false }
+        if (!dump) return false
+        val metric = try {
+            StrategyTelemetry.computeLiveTerminalLeaderboard(limit = 1_500)
+                .firstOrNull { canonicalLaneKey(it.strategy) == lane }
+        } catch (_: Throwable) { null }
+        val toxicByTelemetry = metric != null && metric.trades >= 5 &&
+            (metric.winRatePct < 35.0 || metric.totalSolPnl < 0.0 || metric.meanPnlPct < -3.0)
+        return metric == null || toxicByTelemetry
     }
 
     /** EFFECTIVE multiplier after the maturity fade. */
     private fun effectiveMultiplier(traderTag: String): Double {
         if (!enabled) return 1.0
-        val base = perLaneMultiplier[traderTag.uppercase()] ?: 1.0
+        if (dumpRegimeNoRelax(traderTag)) return 1.0
+        val base = perLaneMultiplier[canonicalLaneKey(traderTag)] ?: perLaneMultiplier[traderTag.uppercase()] ?: 1.0
         if (base >= 1.0) return 1.0  // never relaxed → nothing to fade
         val liveN = liveCountForLane(traderTag)
         return when {
@@ -114,7 +151,7 @@ object LiveLayerGateRelaxer {
     }
 
     fun setMultiplier(traderTag: String, multiplier: Double) {
-        perLaneMultiplier[traderTag.uppercase()] = multiplier.coerceIn(0.5, 1.5)
+        perLaneMultiplier[canonicalLaneKey(traderTag)] = multiplier.coerceIn(0.5, 1.5)
     }
 
     fun summaryLine(): String {
