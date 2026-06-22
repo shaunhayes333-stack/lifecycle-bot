@@ -498,14 +498,19 @@ class FinalDecisionEngine(
         val smallConfFloor       = maxOf(effectiveCGradeConf, 15)
 
         val rawBand = when {
-            // V5.9.1586 — AGE_0_15m probe restore. Low/unknown data is not a
-            // directional negative. Let fresh launches produce executable probe
-            // candidates when confidence is at least weakly present; FDG/safety and
-            // live sizing still decide actual risk.
-            isFreshLaunchProbe && score >= -5 && effectiveConf >= 20 -> DecisionBand.EXECUTE_SMALL
+            // V5.0.4077 — V3 NEGATIVE-SCORE GUARD (operator P0: "we win when we
+            // hold"). The previous `score >= -5` cut for fresh-launch probes was
+            // executing buys on tokens the AI had already SCORED negative — that
+            // directly produced the V5.0.4075 STANDARD-lane bleeder (0W/5L,
+            // EV=-13%). A negative final score is an active warning, not an
+            // unknown. We still let fresh launches probe (score==0 / very small
+            // positive is fine — confidence floor 20% still applies), but never
+            // on an AI-negative signal. Other bands already required positive
+            // floors via effectiveMinScore.
+            isFreshLaunchProbe && score >= 0 && effectiveConf >= 20 -> DecisionBand.EXECUTE_SMALL
             hasMomentumOrVolume && score >= aggressiveScoreFloor && effectiveConf >= aggressiveConfFloor -> DecisionBand.EXECUTE_AGGRESSIVE
             hasMomentumOrVolume && score >= effectiveMinScore && effectiveConf >= standardConfFloor -> DecisionBand.EXECUTE_STANDARD
-            hasMomentumOrVolume && score >= (effectiveMinScore * 0.7).toInt() && effectiveConf >= smallConfFloor -> DecisionBand.EXECUTE_SMALL
+            hasMomentumOrVolume && score >= (effectiveMinScore * 0.7).toInt() && effectiveConf >= smallConfFloor && score >= 0 -> DecisionBand.EXECUTE_SMALL
             score >= config.watchScoreMin -> DecisionBand.WATCH
             else -> DecisionBand.REJECT
         }
