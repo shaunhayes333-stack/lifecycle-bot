@@ -3743,7 +3743,7 @@ class GoldenTapeRegressionTest {
         val gradle = java.io.File("build.gradle.kts").readText()
         val workflow = java.io.File("../.github/workflows/build.yml").readText()
         val version = java.io.File("../AATE_VERSION").readText().trim()
-        assertEquals("5.0.4048", version)
+        assertEquals("5.0.4049", version)
         assertTrue("Gradle must prefer explicit AATE version authority", gradle.contains("aateVersionName") && gradle.contains("AATE_VERSION"))
         assertTrue("Workflow must pass explicit AATE version into Gradle", workflow.contains("-PaateVersionName=\$AATE_VERSION_NAME"))
         assertFalse("Artifact patch identity must not be derived from CI run number", workflow.contains("VERSION_NAME=\"5.0.\${BUILD_NUMBER}\""))
@@ -3941,7 +3941,7 @@ class GoldenTapeRegressionTest {
             builder.contains("tm.expectedOutAmount") && builder.contains("tm.liquiditySol") && builder.contains("tm.realSolReserves") &&
             builder.contains("SLIP_LOW") && builder.contains("SLIP_MED") && builder.contains("SLIP_HIGH") && builder.contains("SLIP_UNKNOWN"))
         assertFalse("Canonical slippageBucket must not remain the old empty placeholder",
-            builder.contains("slippageBucket = "",   // not captured in TokenState"))
+            builder.contains("""slippageBucket = "",   // not captured in TokenState"""))
     }
 
 }
