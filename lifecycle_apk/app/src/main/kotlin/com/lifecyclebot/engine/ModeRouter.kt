@@ -304,11 +304,20 @@ object ModeRouter {
             score += 10.0
         }
         
-        // Price near local high (ready to break)
+        // V5.0.4033 — do not confuse peak-chasing with a valid breakout.
+        // Near-high is only a continuation signal when it is not already an
+        // extended/sell-pressure exhaustion top. Extended near-highs are handled
+        // by TokenMetricStageRouter as PEAK_EXHAUSTION and must not feed MOONSHOT.
         val currentPrice = prices.lastOrNull() ?: 0.0
-        if (currentPrice > recentHigh * 0.95) {
+        val currentVsHigh = if (recentHigh > 0.0) currentPrice / recentHigh else 0.0
+        val extended = impulsePct >= 70.0 && currentVsHigh >= 0.92
+        val sellPressure = ts.lastSellPressurePct >= 52.0 || ts.lastBuyPressurePct < 52.0
+        if (currentVsHigh in 0.82..0.94 && !extended && !sellPressure) {
             score += 15.0
-            reasons.add("BREAKOUT: near local high")
+            reasons.add("BREAKOUT: controlled approach below local high")
+        } else if (extended && sellPressure) {
+            score -= 25.0
+            reasons.add("BREAKOUT_REJECT: peak exhaustion, not continuation")
         }
         
         // Holder concentration stable

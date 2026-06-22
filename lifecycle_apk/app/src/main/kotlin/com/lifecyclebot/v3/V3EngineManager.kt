@@ -561,7 +561,10 @@ object V3EngineManager {
                 mint = ts.mint,
                 symbol = ts.symbol,
                 sizeSol = sizeSol,
-                isBuy = true
+                isBuy = true,
+                score = ts.lastV3Score,
+                confidence = ts.lastV3Confidence,
+                band = null,
             )
             val result = callback.invoke(request)
 
@@ -980,14 +983,17 @@ object V3EngineManager {
     }
 
     private fun wireTradeExecutorCallbackLocked() {
-        com.lifecyclebot.v3.execution.TradeExecutor.executeCallback = { candidate, size, _, _ ->
+        com.lifecyclebot.v3.execution.TradeExecutor.executeCallback = { candidate, size, decision, _ ->
             val callback = onExecuteCallback
 
             val request = ExecuteRequest(
                 mint = candidate.mint,
                 symbol = candidate.symbol,
                 sizeSol = size.sizeSol,
-                isBuy = true
+                isBuy = true,
+                score = decision.finalScore,
+                confidence = decision.effectiveConfidence,
+                band = decision.band.name,
             )
 
             val result = try {
@@ -1096,7 +1102,12 @@ data class ExecuteRequest(
     val mint: String,
     val symbol: String,
     val sizeSol: Double,
-    val isBuy: Boolean
+    val isBuy: Boolean,
+    // V5.0.4032 — carry decision metadata across the V3→Executor bridge so
+    // live execution cannot mask score=0/conf=0 as score=50 quality=V3.
+    val score: Int? = null,
+    val confidence: Int? = null,
+    val band: String? = null,
 )
 
 /**

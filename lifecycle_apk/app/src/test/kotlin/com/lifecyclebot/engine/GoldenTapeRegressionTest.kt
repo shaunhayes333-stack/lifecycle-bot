@@ -3741,7 +3741,7 @@ class GoldenTapeRegressionTest {
         val gradle = java.io.File("build.gradle.kts").readText()
         val workflow = java.io.File("../.github/workflows/build.yml").readText()
         val version = java.io.File("../AATE_VERSION").readText().trim()
-        assertEquals("5.0.4031", version)
+        assertEquals("5.0.4033", version)
         assertTrue("Gradle must prefer explicit AATE version authority", gradle.contains("aateVersionName") && gradle.contains("AATE_VERSION"))
         assertTrue("Workflow must pass explicit AATE version into Gradle", workflow.contains("-PaateVersionName=\$AATE_VERSION_NAME"))
         assertFalse("Artifact patch identity must not be derived from CI run number", workflow.contains("VERSION_NAME=\"5.0.\${BUILD_NUMBER}\""))
@@ -3797,6 +3797,31 @@ class GoldenTapeRegressionTest {
         assertTrue("LiveStrategyTuner must require healthy live WR before winner sizing", tuner.contains("hitRateHealthy") && tuner.contains("wr >= 45.0") && tuner.contains("wr >= 35.0 && pf > 0.0"))
         assertTrue("Low-WR positive-SOL lanes must be asymmetric probes, not runner_press winners", tuner.contains("low_wr_asymmetric_probe") && tuner.contains("wr < 35.0 && sol > 0.0") && tuner.contains("sizeMult = (0.78"))
         assertTrue("Toxic bleeders must be allowed to shrink below the old 0.25 router floor", tuner.contains("val sizeFloor = if (toxicBleed) 0.12 else 0.35") && router.contains("strategyTune.label == \"toxic_probe\"") && router.contains("0.08"))
+    }
+
+
+    @Test
+    fun live_zero_signal_v3_execute_cannot_bypass_as_standard_buy() {
+        val bot = java.io.File("src/main/kotlin/com/lifecyclebot/engine/BotService.kt").readText()
+        val v3 = java.io.File("src/main/kotlin/com/lifecyclebot/v3/V3EngineManager.kt").readText()
+        assertTrue("laneQualifiedBuyDecision must defer zero-score/zero-conf live capital", bot.contains("ZERO_SIGNAL_DEFERRED_NO_LIVE_CAPITAL") && bot.contains("LANE_WAIT_OVERRIDE_ZERO_SIGNAL_DEFERRED") && !bot.contains("LANE_WAIT_OVERRIDE_ZERO_SIGNAL_PROBE"))
+        assertTrue("V3 ExecuteRequest must carry score/conf/band metadata", v3.contains("val score: Int? = null") && v3.contains("val confidence: Int? = null") && v3.contains("val band: String? = null") && v3.contains("score = decision.finalScore") && v3.contains("confidence = decision.effectiveConfidence"))
+        val v3ExecBlock = bot.substring(bot.indexOf("fun runV3Execution"), bot.indexOf("fun manualBuy"))
+        assertTrue("runV3Execution must block live zero-signal before doBuy", v3ExecBlock.contains("V3_ZERO_SIGNAL_EXEC_DEFERRED") && v3ExecBlock.contains("reqScore <= 0 && reqConf <= 10") && v3ExecBlock.contains("V3_ZERO_SIGNAL_DEFERRED_NO_LIVE_CAPITAL") && v3ExecBlock.contains("executor.doBuy("))
+        assertTrue("V3 bridge must pass real score/band into Executor instead of hardcoded score=50 quality=V3", bot.contains("score = (req.score ?: ts.lastV3Score ?: 50).toDouble()") && bot.contains("quality = req.band ?: \"V3\""))
+    }
+
+
+    @Test
+    fun token_metric_stage_router_blocks_peak_and_rug_prone_live_entries() {
+        val router = java.io.File("src/main/kotlin/com/lifecyclebot/engine/TokenMetricStageRouter.kt").readText()
+        val bot = java.io.File("src/main/kotlin/com/lifecyclebot/engine/BotService.kt").readText()
+        val mode = java.io.File("src/main/kotlin/com/lifecyclebot/engine/ModeRouter.kt").readText()
+        assertTrue("Stage router must identify base/mid/markup/peak/dump/rug states", router.contains("BASE_START") && router.contains("MID_ACCUMULATION") && router.contains("CONTROLLED_MARKUP") && router.contains("PEAK_EXHAUSTION") && router.contains("RUG_PRONE"))
+        assertTrue("Peak/rug-prone stage must reject live lane exposure before FDG", bot.contains("TOKEN_METRIC_STAGE_LANE_REJECTED") && bot.contains("TokenMetricStageRouter.laneFit(ts, l)") && bot.indexOf("TOKEN_METRIC_STAGE_LANE_REJECTED") < bot.indexOf("if (l == \"STANDARD\" || l == \"CORE\" || l == \"V3\")"))
+        assertTrue("V3 trunk must also obey metric-stage fit", bot.contains("V3_TOKEN_METRIC_STAGE_DEFERRED") && bot.contains("TokenMetricStageRouter.laneFit(ts, \"V3\")"))
+        assertTrue("Primary lane election must be metric-aware, not only style/source aware", bot.contains("TokenMetricStageRouter.preferredPrimaryLane") && bot.contains("TOKEN_METRIC_STAGE_PRIMARY"))
+        assertTrue("ModeRouter must not reward extended near-high peak chasing as breakout", mode.contains("BREAKOUT_REJECT: peak exhaustion") && mode.contains("controlled approach below local high"))
     }
 
 }

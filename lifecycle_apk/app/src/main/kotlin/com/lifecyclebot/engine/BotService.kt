@@ -3279,7 +3279,27 @@ class BotService : Service() {
 
         // Live preflight: wallet present + adequate SOL with fee buffer.
         if (!isPaper) {
+            val v3StageFit = try { TokenMetricStageRouter.laneFit(ts, "V3") } catch (_: Throwable) { TokenMetricStageRouter.LaneFit(true, "V3", TokenMetricStageRouter.Stage.UNKNOWN, "fit_error") }
+            if (!v3StageFit.allowed) {
+                try {
+                    PipelineHealthCollector.labelInc("V3_TOKEN_METRIC_STAGE_DEFERRED_${v3StageFit.stage.name}")
+                    ForensicLogger.lifecycle("V3_TOKEN_METRIC_STAGE_DEFERRED", "mint=${ts.mint.take(10)} symbol=${ts.symbol} ${v3StageFit.reason}")
+                } catch (_: Throwable) {}
+                return com.lifecyclebot.v3.ExecuteResult(success = false, error = "V3_TOKEN_METRIC_STAGE_DEFERRED_${v3StageFit.stage.name}")
+            }
             if (w == null) return com.lifecyclebot.v3.ExecuteResult(success = false, error = "live wallet not connected")
+            // V5.0.4032 — V3 must not hide blind score/conf behind executor.doBuy(score=50).
+            // If the V3 request has no usable score/conf metadata, fall back to the token's
+            // latest V3 fields. Zero-signal live candidates are observed/deferred, not bought.
+            val reqScore = (req.score ?: ts.lastV3Score ?: ts.entryScore.toInt()).coerceIn(-100, 150)
+            val reqConf = (req.confidence ?: ts.lastV3Confidence ?: 0).coerceIn(0, 100)
+            if (reqScore <= 0 && reqConf <= 10) {
+                try {
+                    PipelineHealthCollector.labelInc("V3_ZERO_SIGNAL_EXEC_DEFERRED")
+                    ForensicLogger.lifecycle("V3_ZERO_SIGNAL_EXEC_DEFERRED", "mint=${ts.mint.take(10)} symbol=${ts.symbol} score=$reqScore conf=$reqConf band=${req.band ?: "UNKNOWN"} action=no_live_capital")
+                } catch (_: Throwable) {}
+                return com.lifecyclebot.v3.ExecuteResult(success = false, error = "V3_ZERO_SIGNAL_DEFERRED_NO_LIVE_CAPITAL")
+            }
             if (walletSol < req.sizeSol + 0.01) {
                 return com.lifecyclebot.v3.ExecuteResult(success = false, error = "insufficient wallet SOL: ${"%.4f".format(walletSol)} < ${"%.4f".format(req.sizeSol + 0.01)}")
             }
@@ -3299,11 +3319,11 @@ class BotService : Service() {
             executor.doBuy(
                 ts = ts,
                 sol = req.sizeSol,
-                score = 50.0,
+                score = (req.score ?: ts.lastV3Score ?: 50).toDouble(),
                 wallet = w,
                 walletSol = walletSol,
                 identity = null,
-                quality = "V3",
+                quality = req.band ?: "V3",
                 skipGraduated = false,
             )
             val didOpen = executor.positionDidOpen(ts)
@@ -8913,19 +8933,22 @@ class BotService : Service() {
             }
             val zeroSignal = base.entryScore <= 0.0 && base.aiConfidence <= 10.0
             if (zeroSignal) {
-                // liquidity OK but zero signal → dust learning probe (never a normal buy)
+                // V5.0.4032 — ZERO-SIGNAL LIVE CAPITAL STOP.
+                // Report 4031: CALVIN reached FDG_ALLOW/EXEC as STANDARD with
+                // score=0/conf=0 via V3_EXECUTE. That is not useful learning while
+                // the live wallet is in 44% drawdown; it is capital leak. Keep the
+                // token observable, but do not convert blind WAIT into executable BUY.
                 try {
-                    PipelineHealthCollector.labelInc("LANE_WAIT_OVERRIDE_ZERO_SIGNAL_PROBE")
+                    PipelineHealthCollector.labelInc("LANE_WAIT_OVERRIDE_ZERO_SIGNAL_DEFERRED")
                     PipelineHealthCollector.labelInc("FDG_ZERO_SCORE_BUY_REJECTED")
+                    ForensicLogger.lifecycle("LANE_WAIT_OVERRIDE_ZERO_SIGNAL_DEFERRED",
+                        "lane=$lane score=${"%.0f".format(base.entryScore)} conf=${"%.0f".format(base.aiConfidence)} liqUsd=${"%.0f".format(liquidityUsd)} action=no_live_capital")
                 } catch (_: Throwable) {}
                 return base.copy(
-                    signal = "BUY", finalSignal = "BUY", shouldTrade = true,
-                    blockReason = "PROBE_ONLY",
-                    edgeVeto = false,
-                    edgeQuality = if (base.edgeQuality == "SKIP") "C" else base.edgeQuality,
+                    signal = "WAIT", finalSignal = "WAIT", shouldTrade = false,
+                    blockReason = "ZERO_SIGNAL_DEFERRED_NO_LIVE_CAPITAL",
+                    edgeVeto = true,
                     finalQuality = "C",
-                    qualityPenalty = resolveProbeSizeMult(mintForProbe, liquidityUsd),
-                    aiConfidence = base.aiConfidence.coerceAtLeast(confidenceFloor),
                 )
             }
             // Liquidity OK but still weak → DUST-PROBE only (explicit + tiny size).
@@ -8995,7 +9018,14 @@ class BotService : Service() {
         return try {
             val forced = RuntimeConfigOverlay.forcedPrimaryLane()?.takeIf { it.isNotBlank() }
             val styleLanes = AgenticStyleRouter.lanesFor(ts, classification, laneAffinityForTradeType(classification.tradeType)).toList()
-            RuntimeConfigOverlay.normalizeLane(forced ?: styleLanes.firstOrNull() ?: ts.laneAffinity.firstOrNull() ?: "SHITCOIN")
+            val stylePrimary = RuntimeConfigOverlay.normalizeLane(forced ?: styleLanes.firstOrNull() ?: ts.laneAffinity.firstOrNull() ?: "SHITCOIN")
+            val metricPrimary = TokenMetricStageRouter.preferredPrimaryLane(ts, stylePrimary)
+            try {
+                val snap = TokenMetricStageRouter.snapshot(ts)
+                ForensicLogger.lifecycle("TOKEN_METRIC_STAGE_PRIMARY", "symbol=${ts.symbol} mint=${ts.mint.take(10)} stylePrimary=$stylePrimary metricPrimary=$metricPrimary ${snap.compact}")
+                PipelineHealthCollector.labelInc("TOKEN_METRIC_STAGE_${snap.stage.name}")
+            } catch (_: Throwable) {}
+            RuntimeConfigOverlay.normalizeLane(forced ?: metricPrimary)
         } catch (_: Throwable) { "SHITCOIN" }
     }
 
@@ -9052,6 +9082,14 @@ class BotService : Service() {
         //      lane shapes — but we still cap fanout per the operator P1 spec:
         //      "primary lane + at most one rescue lane".
         val l = lane.uppercase()
+        val metricFit = try { TokenMetricStageRouter.laneFit(ts, l) } catch (_: Throwable) { TokenMetricStageRouter.LaneFit(true, l, TokenMetricStageRouter.Stage.UNKNOWN, "fit_error") }
+        if (RuntimeModeAuthority.isLive() && !metricFit.allowed) {
+            try {
+                ForensicLogger.lifecycle("TOKEN_METRIC_STAGE_LANE_REJECTED", "lane=$l primary=$primaryLane symbol=${ts.symbol} mint=${ts.mint.take(10)} ${metricFit.reason}")
+                PipelineHealthCollector.labelInc("TOKEN_METRIC_STAGE_LANE_REJECTED_${metricFit.stage.name}")
+            } catch (_: Throwable) {}
+            return false
+        }
         fun qualityLaneProofOk(): Boolean {
             val routeProof = ts.lastPrice > 0.0 && (ts.lastPriceSource.isNotBlank() || ts.source.isNotBlank())
             val holderProof = try { ts.safety.topHolderPct > 0.0 || ts.peakHolderCount > 0 || ts.holderGrowthRate != 0.0 } catch (_: Throwable) { false }
