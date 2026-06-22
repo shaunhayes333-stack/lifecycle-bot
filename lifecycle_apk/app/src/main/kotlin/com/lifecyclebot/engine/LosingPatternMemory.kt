@@ -46,7 +46,10 @@ object LosingPatternMemory {
         val isEmergingDanger: Boolean get() = losses >= 5 && sample in 8..19 && (losses.toDouble() / sample) >= 0.80 && meanPnl <= -4.0
     }
 
+    // V5.0.4072 — split live-only danger cache. Paper patterns must NOT
+    // pollute live strategy learning. Combined cache stays for paper learning.
     @Volatile private var cache: Map<String, BucketStats> = emptyMap()
+    @Volatile private var liveCache: Map<String, BucketStats> = emptyMap()
     @Volatile private var cacheBuiltAtMs: Long = 0L
     private const val CACHE_TTL_MS = 60_000L
 
@@ -67,7 +70,9 @@ object LosingPatternMemory {
         val now = System.currentTimeMillis()
         if (cache.isNotEmpty() && (now - cacheBuiltAtMs) < CACHE_TTL_MS) return
 
-        val acc = ConcurrentHashMap<String, IntArray>(64)  // [losses, wins, sumPnlx1000]
+        // V5.0.4072 — build both combined and live-only caches.
+        val acc = ConcurrentHashMap<String, IntArray>(64)
+        val liveAcc = ConcurrentHashMap<String, IntArray>(64)
         try {
             val sells = TradeHistoryStore.getRecentValidClosedTrades(limit = 2_000, includePartials = false)
 
@@ -77,9 +82,17 @@ object LosingPatternMemory {
                 if (t.pnlPct <= -5.0) cell[0]++
                 else if (t.pnlPct >= 1.0) cell[1]++
                 cell[2] += (t.pnlPct * 1000).toInt()
+
+                // V5.0.4072 — live-only cache. Filter by mode=live.
+                val isLive = t.mode.equals("live", true) || (!t.mode.equals("paper", true) && t.sig.isNotBlank())
+                if (isLive) {
+                    val lc = liveAcc.getOrPut(key) { IntArray(3) }
+                    if (t.pnlPct <= -5.0) lc[0]++
+                    else if (t.pnlPct >= 1.0) lc[1]++
+                    lc[2] += (t.pnlPct * 1000).toInt()
+                }
             }
         } catch (_: Throwable) {
-            // tolerate journal read errors; fall back to whatever cache we have
         }
 
         val fresh = HashMap<String, BucketStats>(acc.size)
@@ -89,6 +102,14 @@ object LosingPatternMemory {
             fresh[k] = BucketStats(losses = v[0], wins = v[1], meanPnl = mean)
         }
         cache = fresh
+        // V5.0.4072 — build live-only cache.
+        val liveFresh = HashMap<String, BucketStats>(liveAcc.size)
+        for ((k, v) in liveAcc) {
+            val sample = v[0] + v[1]
+            val mean = if (sample > 0) v[2].toDouble() / 1000.0 / sample else 0.0
+            liveFresh[k] = BucketStats(losses = v[0], wins = v[1], meanPnl = mean)
+        }
+        liveCache = liveFresh
         cacheBuiltAtMs = now
     }
 
@@ -100,6 +121,14 @@ object LosingPatternMemory {
         refreshIfStale()
         val key = bucketKey(tradingMode, v3Score)
         return cache[key] ?: BucketStats(0, 0, 0.0)
+    }
+
+    // V5.0.4072 — live-only stats. Authoritative danger signal for live
+    // routing/sizing. Paper losses do not pollute this cache.
+    fun liveStats(tradingMode: String, v3Score: Int): BucketStats {
+        refreshIfStale()
+        val key = bucketKey(tradingMode, v3Score)
+        return liveCache[key] ?: BucketStats(0, 0, 0.0)
     }
 
     fun isDangerZone(tradingMode: String, v3Score: Int): Boolean = stats(tradingMode, v3Score).isDangerous
