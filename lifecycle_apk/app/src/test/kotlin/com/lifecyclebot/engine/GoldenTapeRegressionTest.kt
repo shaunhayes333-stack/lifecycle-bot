@@ -3743,7 +3743,7 @@ class GoldenTapeRegressionTest {
         val gradle = java.io.File("build.gradle.kts").readText()
         val workflow = java.io.File("../.github/workflows/build.yml").readText()
         val version = java.io.File("../AATE_VERSION").readText().trim()
-        assertEquals("5.0.4055", version)
+        assertEquals("5.0.4056", version)
         assertTrue("Gradle must prefer explicit AATE version authority", gradle.contains("aateVersionName") && gradle.contains("AATE_VERSION"))
         assertTrue("Workflow must pass explicit AATE version into Gradle", workflow.contains("-PaateVersionName=\$AATE_VERSION_NAME"))
         assertFalse("Artifact patch identity must not be derived from CI run number", workflow.contains("VERSION_NAME=\"5.0.\${BUILD_NUMBER}\""))
@@ -3963,10 +3963,11 @@ class GoldenTapeRegressionTest {
     @Test
     fun live_gate_relaxer_uses_strategy_telemetry_counts_and_no_relax_in_dump_for_toxic_meme_lanes() {
         val relaxer = java.io.File("src/main/kotlin/com/lifecyclebot/engine/LiveLayerGateRelaxer.kt").readText()
-        assertTrue("Relaxer maturity must fallback to StrategyTelemetry live-terminal counts so journal-proven lanes do not print n=0",
+        assertTrue("Relaxer maturity must fallback to StrategyTelemetry live-terminal counts so journal-proven lanes do not print n=0, but only via async stale cache",
             relaxer.contains("StrategyTelemetry.computeLiveTerminalLeaderboard") &&
             relaxer.contains("maxOf(busCounts[k] ?: 0, m.trades)") &&
-            relaxer.contains("canonicalLaneKey(it.mode.name)") && relaxer.contains("canonicalLaneKey(m.strategy)"))
+            relaxer.contains("refreshLaneCacheIfStale") && relaxer.contains("refreshInFlight") &&
+            relaxer.contains("AATE-live-layer-relaxer-refresh"))
         assertTrue("DUMP regime must cancel cold-start relaxation for toxic meme lanes instead of lowering floors while the wallet is bleeding",
             relaxer.contains("dumpRegimeNoRelax") && relaxer.contains("RegimeDetector.Regime.DUMP") &&
             relaxer.contains("MOONSHOT") && relaxer.contains("SHITCOIN") &&
@@ -3997,6 +3998,18 @@ class GoldenTapeRegressionTest {
             bot.contains("sourceBuckets") && bot.contains("groupBy { it.source.ifBlank") && bot.contains("keys = sourceBuckets.keys.sorted()") && bot.contains("while (recent.size < hydrateCap"))
         assertFalse("Restore hydrate must not resurrect the old 500+ ghost-token minimum",
             bot.contains("hydrateCap = preScanCfg.maxWatchlistSize.coerceAtLeast(500)"))
+    }
+
+
+    @Test
+    fun live_layer_relaxer_does_not_scan_trade_history_on_ui_report_thread() {
+        val relaxer = java.io.File("src/main/kotlin/com/lifecyclebot/engine/LiveLayerGateRelaxer.kt").readText()
+        val summaryBody = relaxer.substringAfter("fun summaryLine()").take(900)
+        val dumpBody = relaxer.substringAfter("private fun dumpRegimeNoRelax").substringBefore("/** EFFECTIVE multiplier")
+        assertTrue("Relaxer must refresh journal-backed StrategyTelemetry on a background stale cache, not inline from reporting/UI",
+            relaxer.contains("Thread({") && relaxer.contains("AATE-live-layer-relaxer-refresh") && relaxer.contains("laneToxicCache"))
+        assertFalse("summaryLine must not directly scan StrategyTelemetry/TradeHistoryStore", summaryBody.contains("StrategyTelemetry.compute") || summaryBody.contains("TradeHistoryStore"))
+        assertFalse("dumpRegimeNoRelax must not directly scan StrategyTelemetry/TradeHistoryStore", dumpBody.contains("StrategyTelemetry.compute") || dumpBody.contains("TradeHistoryStore"))
     }
 
 }

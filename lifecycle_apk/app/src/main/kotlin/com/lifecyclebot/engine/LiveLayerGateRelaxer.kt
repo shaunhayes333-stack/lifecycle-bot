@@ -64,15 +64,21 @@ object LiveLayerGateRelaxer {
         "MARKETS"    to 0.90,
     )
 
-    // cheap cached per-lane LIVE trade counts (refreshed at most every 30s)
+    // cheap cached per-lane LIVE trade counts. V5.0.4056: refresh is async/stale-only
+    // because StrategyTelemetry reads TradeHistoryStore; report/UI calls must never block
+    // the main thread and steal trading loop cycles.
     @Volatile private var laneLiveCountCache: Map<String, Int> = emptyMap()
+    @Volatile private var laneToxicCache: Map<String, Boolean> = emptyMap()
     @Volatile private var laneCacheStampMs: Long = 0L
     private const val LANE_CACHE_TTL_MS = 30_000L
+    private val refreshInFlight = java.util.concurrent.atomic.AtomicBoolean(false)
 
-    private fun liveCountForLane(traderTag: String): Int {
+    private fun refreshLaneCacheIfStale() {
         val now = System.currentTimeMillis()
-        if (now - laneCacheStampMs > LANE_CACHE_TTL_MS) {
-            laneLiveCountCache = try {
+        if (now - laneCacheStampMs <= LANE_CACHE_TTL_MS) return
+        if (!refreshInFlight.compareAndSet(false, true)) return
+        Thread({
+            try {
                 val busCounts = CanonicalOutcomeBus.recentSnapshot()
                     .asSequence()
                     .filter { it.environment == TradeEnvironment.LIVE }
@@ -80,20 +86,29 @@ object LiveLayerGateRelaxer {
                     .groupingBy { canonicalLaneKey(it.mode.name) }
                     .eachCount()
                     .toMutableMap()
-                // V5.0.4051 — mux fix: reports/journal proved MOONSHOT/SHITCOIN had
-                // hundreds of LIVE closes while the relaxer printed n=0/1 because
-                // CanonicalOutcomeBus mode labels were not aligned with journal
-                // strategy bins. Fallback to StrategyTelemetry's live-terminal
-                // leaderboard so cold-start relaxation cannot keep poisoning a
-                // matured bleeding lane with lower entry floors.
+                val toxic = mutableMapOf<String, Boolean>()
+                // V5.0.4051 mux fix retained, but offloaded: reports/journal proved
+                // MOONSHOT/SHITCOIN had hundreds of LIVE closes while the relaxer printed
+                // n=0/1. StrategyTelemetry is journal-backed, so only this background
+                // refresher may touch it.
                 StrategyTelemetry.computeLiveTerminalLeaderboard(limit = 1_500).forEach { m ->
                     val k = canonicalLaneKey(m.strategy)
                     busCounts[k] = maxOf(busCounts[k] ?: 0, m.trades)
+                    toxic[k] = m.trades >= 5 && (m.winRatePct < 35.0 || m.totalSolPnl < 0.0 || m.meanPnlPct < -3.0)
                 }
-                busCounts
-            } catch (_: Throwable) { laneLiveCountCache }
-            laneCacheStampMs = now
-        }
+                laneLiveCountCache = busCounts
+                laneToxicCache = toxic
+                laneCacheStampMs = System.currentTimeMillis()
+            } catch (_: Throwable) {
+                laneCacheStampMs = System.currentTimeMillis()
+            } finally {
+                refreshInFlight.set(false)
+            }
+        }, "AATE-live-layer-relaxer-refresh").apply { isDaemon = true; start() }
+    }
+
+    private fun liveCountForLane(traderTag: String): Int {
+        refreshLaneCacheIfStale()
         return laneLiveCountCache[canonicalLaneKey(traderTag)] ?: 0
     }
 
@@ -112,13 +127,10 @@ object LiveLayerGateRelaxer {
         if (lane !in setOf("MOONSHOT", "SHITCOIN", "EXPRESS", "MANIPULATED", "PRESALE_SNIPE")) return false
         val dump = try { RegimeDetector.currentRegime() == RegimeDetector.Regime.DUMP } catch (_: Throwable) { false }
         if (!dump) return false
-        val metric = try {
-            StrategyTelemetry.computeLiveTerminalLeaderboard(limit = 1_500)
-                .firstOrNull { canonicalLaneKey(it.strategy) == lane }
-        } catch (_: Throwable) { null }
-        val toxicByTelemetry = metric != null && metric.trades >= 5 &&
-            (metric.winRatePct < 35.0 || metric.totalSolPnl < 0.0 || metric.meanPnlPct < -3.0)
-        return metric == null || toxicByTelemetry
+        refreshLaneCacheIfStale()
+        // If the cache has not warmed yet, be conservative in DUMP: no cold-start relax
+        // for toxic-prone meme lanes. This is a floor multiplier reset, not a veto.
+        return laneToxicCache[lane] ?: true
     }
 
     /** EFFECTIVE multiplier after the maturity fade. */
