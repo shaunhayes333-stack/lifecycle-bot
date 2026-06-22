@@ -16,7 +16,7 @@ package com.lifecyclebot.engine
  *    terminal and unconditional.
  */
 object LiveStrategyTuner {
-    const val VERSION = "V5.0.4026_LIVE_STRATEGY_TUNER"
+    const val VERSION = "V5.0.4030_LIVE_STRATEGY_TUNER"
 
     data class Adjustment(
         val lane: String,
@@ -104,16 +104,15 @@ object LiveStrategyTuner {
         val mean = m.meanPnlPct
         val n = m.trades
 
-        // V5.0.4026 — net-SOL first live growth doctrine.
-        // The report showed BLUECHIP/MOONSHOT/QUALITY/WALLET_RECOVERED making
-        // real SOL while some had noisy/low WR windows. For a 2x→5x daily target,
-        // positive net live SOL and asymmetric avg-win profile must press harder
-        // than cosmetic WR. Still soft-shape only: no veto, no zero sizing.
+        // V5.0.4030 — hit-rate gated net-SOL doctrine.
+        // Positive net SOL is still the north star, but a lane with <35% live WR
+        // cannot be called a capital winner from outliers alone. It may keep tiny
+        // asymmetric probes/runner patience; it may not receive >1× entry size.
         val avgWin = m.avgWinPct.coerceAtLeast(0.0)
         val asymmetric = avgWin >= 50.0 || mean >= 20.0 || pf >= 8.0
-        val winner = n >= MIN_WINNER_TRADES && sol > 0.0 &&
-            (pf > 0.0 || asymmetric || sol >= 0.05) &&
-            (wr >= 28.0 || asymmetric || sol >= 0.10)
+        val hitRateHealthy = wr >= 45.0 || (wr >= 35.0 && pf > 0.0 && sol > 0.0)
+        val winner = n >= MIN_WINNER_TRADES && sol > 0.0 && hitRateHealthy &&
+            (pf > 0.0 || asymmetric || sol >= 0.05)
         if (winner) {
             val wrEdge = ((wr - 28.0) / 42.0).coerceIn(0.0, 1.0)
             val pfEdge = (pf / 35.0).coerceIn(0.0, 1.0)
@@ -141,6 +140,26 @@ object LiveStrategyTuner {
         // Negative live expectancy: do not turn into vetoes; reduce posture and
         // bank faster when it finally has a real profit. LaneExpectancyDamper may
         // apply a deeper capital haircut at the executor, still non-zero.
+        val lowWrPositiveSolLottery = n >= 20 && wr < 35.0 && sol > 0.0
+        if (lowWrPositiveSolLottery) {
+            val wrDepth = ((35.0 - wr) / 35.0).coerceIn(0.0, 1.0)
+            return Adjustment(
+                lane = lane,
+                trades = n,
+                winRatePct = wr,
+                totalSolPnl = sol,
+                pfExpectancyPp = pf,
+                meanPnlPct = mean,
+                sizeMult = (0.78 - wrDepth * 0.28).coerceIn(0.45, 0.78),
+                tpMult = (1.05 + (avgWin / 250.0).coerceIn(0.0, 0.45)).coerceIn(1.00, 1.50),
+                holdMult = (1.02 + (avgWin / 300.0).coerceIn(0.0, 0.45)).coerceIn(0.95, 1.45),
+                maxWalletMult = 0.72,
+                liquidityImpactMult = 0.86,
+                partialTriggerMult = 1.15,
+                label = "low_wr_asymmetric_probe",
+            )
+        }
+
         val pfBleed = sol < 0.0 && pf <= 0.0
         val wrBleed = n >= 8 && wr < 35.0 && sol <= 0.0
         val meanBleed = sol <= 0.0 && mean <= -8.0
@@ -151,7 +170,7 @@ object LiveStrategyTuner {
             val solDepth = ((-sol) / 0.50).coerceIn(0.0, 1.0)
             val meanDepth = ((-mean) / 25.0).coerceIn(0.0, 1.0)
             val depth = maxOf(wrDepth, pfDepth, solDepth, meanDepth)
-            val sizeFloor = if (toxicBleed) 0.30 else 0.50
+            val sizeFloor = if (toxicBleed) 0.12 else 0.35
             return Adjustment(
                 lane = lane,
                 trades = n,
@@ -159,7 +178,7 @@ object LiveStrategyTuner {
                 totalSolPnl = sol,
                 pfExpectancyPp = pf,
                 meanPnlPct = mean,
-                sizeMult = (0.88 - depth * 0.58).coerceIn(sizeFloor, 0.92),
+                sizeMult = (0.78 - depth * 0.66).coerceIn(sizeFloor, 0.82),
                 tpMult = (0.98 - depth * 0.20).coerceIn(0.76, 0.98),
                 holdMult = (0.90 - depth * 0.44).coerceIn(0.42, 0.94),
                 maxWalletMult = (0.90 - depth * 0.44).coerceIn(0.42, 0.96),

@@ -3741,7 +3741,7 @@ class GoldenTapeRegressionTest {
         val gradle = java.io.File("build.gradle.kts").readText()
         val workflow = java.io.File("../.github/workflows/build.yml").readText()
         val version = java.io.File("../AATE_VERSION").readText().trim()
-        assertEquals("5.0.4029", version)
+        assertEquals("5.0.4030", version)
         assertTrue("Gradle must prefer explicit AATE version authority", gradle.contains("aateVersionName") && gradle.contains("AATE_VERSION"))
         assertTrue("Workflow must pass explicit AATE version into Gradle", workflow.contains("-PaateVersionName=\$AATE_VERSION_NAME"))
         assertFalse("Artifact patch identity must not be derived from CI run number", workflow.contains("VERSION_NAME=\"5.0.\${BUILD_NUMBER}\""))
@@ -3785,6 +3785,18 @@ class GoldenTapeRegressionTest {
         assertFalse("doSell wrapper must not emit SELL_NO_CURRENT_HELD_PROOF_NOT_RETRIED for pre-broadcast route retry", exec.contains("route_retry=true"))
         assertTrue("NO_SIGNATURE route exhaustion must be documented as non-finality transport failure", exec.contains("not a sell-finality fault") && exec.contains("not a PendingSellQueue latch"))
         assertTrue("Doctor must exclude route_retry/pre-broadcast from finality noSig", doctor.contains("Pre-broadcast route exhaustion/no-signature is not corrupt") && doctor.contains("!ev.message.contains(\"route_retry=true\""))
+    }
+
+
+    @Test
+    fun low_win_rate_live_lanes_cannot_receive_boosted_capital_from_outlier_pnl() {
+        val prob = java.io.File("src/main/kotlin/com/lifecyclebot/engine/LiveProbabilityEngine.kt").readText()
+        val tuner = java.io.File("src/main/kotlin/com/lifecyclebot/engine/LiveStrategyTuner.kt").readText()
+        val router = java.io.File("src/main/kotlin/com/lifecyclebot/engine/AgenticStyleRouter.kt").readText()
+        assertTrue("LiveProbabilityEngine must cap low hit-rate lanes below neutral even with positive SOL/PnL", prob.contains("lowHitRateCap") && prob.contains("maxOf(pWin, lanePWin) < 0.35 -> 0.68") && prob.contains("minOf(rawMult, lowHitRateCap)"))
+        assertTrue("LiveStrategyTuner must require healthy live WR before winner sizing", tuner.contains("hitRateHealthy") && tuner.contains("wr >= 45.0") && tuner.contains("wr >= 35.0 && pf > 0.0"))
+        assertTrue("Low-WR positive-SOL lanes must be asymmetric probes, not runner_press winners", tuner.contains("low_wr_asymmetric_probe") && tuner.contains("wr < 35.0 && sol > 0.0") && tuner.contains("sizeMult = (0.78"))
+        assertTrue("Toxic bleeders must be allowed to shrink below the old 0.25 router floor", tuner.contains("val sizeFloor = if (toxicBleed) 0.12 else 0.35") && router.contains("strategyTune.label == \"toxic_probe\"") && router.contains("0.08"))
     }
 
 }

@@ -17,7 +17,7 @@ package com.lifecyclebot.engine
  *  - Bootstrap-safe: neutral until evidence exists.
  */
 object LiveProbabilityEngine {
-    const val VERSION = "V5.0.4027_LIVE_PROBABILITY_ENGINE"
+    const val VERSION = "V5.0.4030_LIVE_PROBABILITY_ENGINE"
 
     data class Edge(
         val lane: String,
@@ -96,20 +96,33 @@ object LiveProbabilityEngine {
             val policyW = if (UnifiedPolicyHead.formatForPipelineDump().contains("bootstrap")) 0.0 else 0.20
             val pWin = ((pBase * (1.0 - policyW)) + (policyP * policyW)).coerceIn(0.02, 0.98)
 
-            val probabilityEdge = (pWin - 0.50) * 1.35
-            val pnlEdge = (eBase / 120.0).coerceIn(-0.35, 0.45)
-            val solEdge = (laneSol / 0.40).coerceIn(-0.30, 0.35)
+            val probabilityEdge = (pWin - 0.50) * 1.55
+            // V5.0.4030 — HIT-RATE AUTHORITY. The screenshot/report showed the
+            // wallet down ~44% with ~22% WR while STANDARD still got size×>1
+            // because positive mean PnL/SOL overpowered low pWin. That is a
+            // capital-allocation bug: outlier winners may justify tiny probes and
+            // runner patience, but they must not authorize larger entries until
+            // live hit-rate is at least bootstrap-healthy.
+            val lowHitRateCap = when {
+                maxOf(pWin, lanePWin) < 0.28 -> 0.42
+                maxOf(pWin, lanePWin) < 0.35 -> 0.68
+                maxOf(pWin, lanePWin) < 0.42 -> 0.92
+                else -> 1.60
+            }
+            val pnlEdge = if (maxOf(pWin, lanePWin) >= 0.35) (eBase / 140.0).coerceIn(-0.35, 0.35) else (eBase / 220.0).coerceIn(-0.25, 0.10)
+            val solEdge = if (maxOf(pWin, lanePWin) >= 0.35) (laneSol / 0.55).coerceIn(-0.30, 0.28) else (laneSol / 0.85).coerceIn(-0.25, 0.08)
             val rugPenalty = fwd.pRug.coerceIn(0.0, 0.80) * 0.75
             val uncertaintyPenalty = (fwd.dispersion / 180.0).coerceIn(0.0, 0.22)
-            val mult = (1.0 + probabilityEdge + pnlEdge + solEdge - rugPenalty - uncertaintyPenalty)
-                .coerceIn(0.55, 1.60)
+            val rawMult = (1.0 + probabilityEdge + pnlEdge + solEdge - rugPenalty - uncertaintyPenalty)
+                .coerceIn(0.40, 1.60)
+            val mult = minOf(rawMult, lowHitRateCap).coerceIn(0.40, 1.60)
 
             val src = listOfNotNull(
                 if (fwdWeight > 0.0) "fwd:${fwd.source}" else null,
                 if (laneWeight > 0.0) "lane" else null,
                 if (policyW > 0.0) "policy" else null,
             ).joinToString("+").ifBlank { "bootstrap" }
-            Edge(lane, pWin, fwd.pRug, eBase, fwd.dispersion, maxOf(fwd.samples, laneSamples), src, mult, if (laneSol > 0.0) "netSOL=${"%+.3f".format(laneSol)}" else "")
+            Edge(lane, pWin, fwd.pRug, eBase, fwd.dispersion, maxOf(fwd.samples, laneSamples), src, mult, (if (laneSol > 0.0) "netSOL=${"%+.3f".format(laneSol)} " else "") + "hitCap=${"%.2f".format(lowHitRateCap)}")
         } catch (_: Throwable) {
             Edge(lane, 0.5, 0.0, 0.0, 0.0, 0L, "failopen", 1.0, "")
         }
