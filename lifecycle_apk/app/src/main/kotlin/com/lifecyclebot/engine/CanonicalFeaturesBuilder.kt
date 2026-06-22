@@ -142,7 +142,7 @@ object CanonicalFeaturesBuilder {
             slippageBucket = "",   // not captured in TokenState — Push 6 wiring
             sizeBucket = CanonicalSizeContext.bucket(entrySizeSol),
             entryPattern = ts.phase.ifBlank { "STANDARD" },
-            bubbleClusterPattern = ts.safety.bundleType.ifBlank { "CLEAN" },
+            bubbleClusterPattern = bubbleClusterPattern(ts),
             fdgReasonFamily = ts.signal.ifBlank { "STANDARD" },
             symbolicVerdict = symbolicVerdict,  // V5.9.810 — Push 6 finally landed
             exitReasonFamily = trade.reason.ifBlank { "" },
@@ -246,6 +246,25 @@ object CanonicalFeaturesBuilder {
     )
 
 
+
+
+    private fun bubbleClusterPattern(ts: TokenState): String {
+        // V5.0.4044 — expose bundle/first-block alpha to canonical learning.
+        // Bundle telemetry was collected by safety, but canonical learning mostly saw
+        // only bundleType/CLEAN. This lets entries learn HIGH/MEDIUM bundle and heavy
+        // first-block concentration without adding a new gate.
+        val risk = ts.safety.bundleRisk.uppercase()
+        val type = ts.safety.bundleType.uppercase().ifBlank { "CLEAN" }
+        val firstBlock = ts.safety.firstBlockSupplyPct
+        return when {
+            risk == "HIGH" -> "BUNDLE_HIGH_${type}"
+            risk == "MEDIUM" -> "BUNDLE_MED_${type}"
+            firstBlock >= 35.0 -> "FIRST_BLOCK_EXTREME_${type}"
+            firstBlock >= 20.0 -> "FIRST_BLOCK_HEAVY_${type}"
+            type.isBlank() || type == "UNKNOWN" -> "CLEAN"
+            else -> type
+        }
+    }
 
     private fun authorityState(disabled: Boolean?, rawAuthority: String?): String {
         disabled?.let { return if (it) "RENOUNCED" else "RETAINED" }

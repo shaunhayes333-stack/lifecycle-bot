@@ -3743,7 +3743,7 @@ class GoldenTapeRegressionTest {
         val gradle = java.io.File("build.gradle.kts").readText()
         val workflow = java.io.File("../.github/workflows/build.yml").readText()
         val version = java.io.File("../AATE_VERSION").readText().trim()
-        assertEquals("5.0.4043", version)
+        assertEquals("5.0.4044", version)
         assertTrue("Gradle must prefer explicit AATE version authority", gradle.contains("aateVersionName") && gradle.contains("AATE_VERSION"))
         assertTrue("Workflow must pass explicit AATE version into Gradle", workflow.contains("-PaateVersionName=\$AATE_VERSION_NAME"))
         assertFalse("Artifact patch identity must not be derived from CI run number", workflow.contains("VERSION_NAME=\"5.0.\${BUILD_NUMBER}\""))
@@ -3910,6 +3910,16 @@ class GoldenTapeRegressionTest {
             builder.contains("authorityState(ts.safety.freezeAuthorityDisabled, ts.tokenMap.freezeAuthority)"))
         assertTrue("Authority fallback must bucket raw authority into RENOUNCED/RETAINED/UNKNOWN for learner signatures",
             builder.contains("private fun authorityState") && builder.contains("RENOUNCED") && builder.contains("RETAINED"))
+    }
+
+
+    @Test
+    fun canonical_features_bubble_cluster_uses_bundle_risk_and_first_block_alpha() {
+        val builder = java.io.File("src/main/kotlin/com/lifecyclebot/engine/CanonicalFeaturesBuilder.kt").readText()
+        assertTrue("Canonical bubbleClusterPattern must expose bundleRisk and firstBlockSupplyPct, not only bundleType/CLEAN",
+            builder.contains("bubbleClusterPattern = bubbleClusterPattern(ts)") &&
+            builder.contains("ts.safety.bundleRisk") && builder.contains("ts.safety.firstBlockSupplyPct") &&
+            builder.contains("BUNDLE_HIGH_") && builder.contains("FIRST_BLOCK_HEAVY_"))
     }
 
 }
