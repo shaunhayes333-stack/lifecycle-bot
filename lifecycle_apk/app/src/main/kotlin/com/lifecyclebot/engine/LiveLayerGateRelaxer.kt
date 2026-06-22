@@ -133,9 +133,38 @@ object LiveLayerGateRelaxer {
         return laneToxicCache[lane] ?: true
     }
 
-    /** EFFECTIVE multiplier after the maturity fade. */
+    // V5.0.4067 — LIVE WR GATE. Operator directive: relaxer must not loosen
+    // lanes while live WR is below the 45% doctrine floor. Below 35% = emergency
+    // quality-only (all relaxation disabled). In DUMP regime = zero relaxation.
+    @Volatile private var cachedLiveWrPct: Double = 100.0
+    @Volatile private var liveWrCacheStampMs: Long = 0L
+    private const val LIVE_WR_CACHE_TTL_MS = 30_000L
+
+    private fun refreshLiveWrCache(): Double {
+        val now = System.currentTimeMillis()
+        if (now - liveWrCacheStampMs <= LIVE_WR_CACHE_TTL_MS) return cachedLiveWrPct
+        liveWrCacheStampMs = now
+        val wr = try {
+            val leaderboard = StrategyTelemetry.computeLiveTerminalLeaderboard(limit = 2_500)
+            val allLive = leaderboard.filter { it.isStatisticallyMeaningful }
+            if (allLive.isEmpty()) 100.0  // no data → don't choke cold start
+            else {
+                val totalTrades = allLive.sumOf { it.trades }
+                val totalWins = allLive.sumOf { it.wins }
+                if (totalTrades > 0) (totalWins.toDouble() / totalTrades) * 100.0 else 100.0
+            }
+        } catch (_: Throwable) { 100.0 }
+        cachedLiveWrPct = wr
+        return wr
+    }
+
+    /** EFFECTIVE multiplier after the maturity fade and WR-gate. */
     private fun effectiveMultiplier(traderTag: String): Double {
         if (!enabled) return 1.0
+        // V5.0.4067 — WR-gated hard disable. No relaxation below doctrine floor.
+        val liveWr = refreshLiveWrCache()
+        if (liveWr < 35.0) return 1.0  // EMERGENCY: quality-only, no relaxation anywhere
+        if (liveWr < 45.0) return 1.0  // below doctrine floor: no relaxation
         if (dumpRegimeNoRelax(traderTag)) return 1.0
         val base = perLaneMultiplier[canonicalLaneKey(traderTag)] ?: perLaneMultiplier[traderTag.uppercase()] ?: 1.0
         if (base >= 1.0) return 1.0  // never relaxed → nothing to fade
@@ -168,13 +197,15 @@ object LiveLayerGateRelaxer {
 
     fun summaryLine(): String {
         if (!enabled) return "🔓 GATE RELAXER: disabled"
+        val liveWr = refreshLiveWrCache()
+        if (liveWr < 45.0) return "🔒 GATE RELAXER: DISABLED (live WR=${"%.1f".format(liveWr)}% < 45% floor)"
         val parts = perLaneMultiplier.keys
             .map { it to effectiveMultiplier(it) }
             .filter { it.second < 1.0 }
             .joinToString(" · ") { (tag, m) ->
                 "$tag ×${"%.2f".format(m)}(n=${liveCountForLane(tag)})"
             }
-        return if (parts.isEmpty()) "🔓 GATE RELAXER: all lanes matured → 1.00× (earned floors)"
-        else                        "🔓 GATE RELAXER (WR-aware fade): $parts"
+        return if (parts.isEmpty()) "🔓 GATE RELAXER: all lanes matured → 1.00× (earned floors) liveWR=${"%.1f".format(liveWr)}%"
+        else                        "🔓 GATE RELAXER (WR-aware fade): $parts liveWR=${"%.1f".format(liveWr)}%"
     }
 }

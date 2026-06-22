@@ -3743,7 +3743,7 @@ class GoldenTapeRegressionTest {
         val gradle = java.io.File("build.gradle.kts").readText()
         val workflow = java.io.File("../.github/workflows/build.yml").readText()
         val version = java.io.File("../AATE_VERSION").readText().trim()
-        assertEquals("5.0.4066", version)
+        assertEquals("5.0.4067", version)
         assertTrue("Gradle must prefer explicit AATE version authority", gradle.contains("aateVersionName") && gradle.contains("AATE_VERSION"))
         assertTrue("Workflow must pass explicit AATE version into Gradle", workflow.contains("-PaateVersionName=\$AATE_VERSION_NAME"))
         assertFalse("Artifact patch identity must not be derived from CI run number", workflow.contains("VERSION_NAME=\"5.0.\${BUILD_NUMBER}\""))
@@ -4064,6 +4064,25 @@ class GoldenTapeRegressionTest {
             san.contains("EXTREME_WINNER_CLAMP_PCT") || san.contains("PNL_PCT_CLAMPED_EXTREME_WINNER"))
         assertFalse("Old 5_000.0 hard cap must no longer be MAX_TRAINABLE_PNL_PCT",
             san.contains("MAX_TRAINABLE_PNL_PCT = 5_000.0"))
+    }
+
+    @Test
+    fun relaxer_disabled_below_45_wr_and_dump_regime_tightened() {
+        val relaxer = java.io.File("src/main/kotlin/com/lifecyclebot/engine/LiveLayerGateRelaxer.kt").readText()
+        assertTrue("V5.0.4067: relaxer must check live WR < 35 and < 45 to hard-disable",
+            relaxer.contains("V5.0.4067") && relaxer.contains("liveWr < 35.0") && relaxer.contains("liveWr < 45.0"))
+        assertTrue("Relaxer must compute live WR from StrategyTelemetry",
+            relaxer.contains("computeLiveTerminalLeaderboard") && relaxer.contains("refreshLiveWrCache"))
+
+        val regime = java.io.File("src/main/kotlin/com/lifecyclebot/engine/RegimeDetector.kt").readText()
+        assertTrue("DUMP scoreFloorDelta must be +20 (was +15)",
+            regime.contains("Regime.DUMP         -> +20"))
+        assertTrue("DUMP sizeMultiplier must be 0.10 (was 0.40)",
+            regime.contains("Regime.DUMP         -> 0.10"))
+        assertTrue("CHOP scoreFloorDelta must be +10 (was +5)",
+            regime.contains("Regime.CHOP         -> +10"))
+        assertTrue("CHOP sizeMultiplier must be 0.35 (was 0.65)",
+            regime.contains("Regime.CHOP         -> 0.35"))
     }
 
 }

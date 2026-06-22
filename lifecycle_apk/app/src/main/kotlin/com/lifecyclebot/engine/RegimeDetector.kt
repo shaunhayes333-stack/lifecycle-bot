@@ -100,11 +100,13 @@ object RegimeDetector {
      * BULL_RIPPING relaxes (more permissive — the bot is winning, let it run).
      * DUMP tightens hard (the bot is bleeding — quality only).
      */
+    // V5.0.4067 — operator recovery directive: tighten DUMP/CHOP harder.
+    // DUMP +20 (was +15), CHOP +10 (was +5) to force quality-only entries.
     fun scoreFloorDelta(): Int = when (currentRegime()) {
         Regime.BULL_RIPPING -> -10
         Regime.NORMAL       ->   0
-        Regime.CHOP         -> +5
-        Regime.DUMP         -> +15
+        Regime.CHOP         -> +10  // was +5 — CHOP is where most bleed happens
+        Regime.DUMP         -> +20  // was +15 — bleeding hard, quality only
         Regime.DEAD         ->   0
     }
 
@@ -113,16 +115,14 @@ object RegimeDetector {
      * dampener. Conservative — in DUMP we halve, in BULL we let it ride
      * at 1.0 (sub-trader sizing already handles upside on its own).
      */
+    // V5.0.4067 — operator recovery directive: DUMP 0.10 (was 0.40),
+    // CHOP 0.35 (was 0.65). Near-minimum bets in hostile regimes.
     fun sizeMultiplier(): Double = when (currentRegime()) {
         Regime.BULL_RIPPING -> 1.0
         Regime.NORMAL       -> 1.0
-        // V5.9.1352 troubleshoot — CHOP is where the bulk of the bleed happens
-        // (regime=CHOP wr=16.7% and most trades land here). 0.85 was too soft;
-        // tighten to 0.65 so we keep sampling (doctrine: throughput) but stop
-        // overbetting a regime the detector ALREADY knows is unprofitable.
-        Regime.CHOP         -> 0.65   // was 0.85
-        Regime.DUMP         -> 0.40   // was 0.50 — bleeding hard, near-minimum bets
-        Regime.DEAD         -> 0.70   // was 0.85 — no signal, stay tiny
+        Regime.CHOP         -> 0.35   // was 0.65 — most bleed happens here
+        Regime.DUMP         -> 0.10   // was 0.40 — bleeding hard, minimum bets only
+        Regime.DEAD         -> 0.50   // was 0.70 — no signal, stay tiny
     }
 
     fun formatForPipelineDump(): String {
