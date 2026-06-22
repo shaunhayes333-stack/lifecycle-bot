@@ -291,21 +291,48 @@ object CanonicalFeaturesBuilder {
         else -> "MCAP_LARGE"
     }
     private fun volVelocity(ts: TokenState): String {
-        // Crude proxy: compare last 3 candles' bodies if available.
+        // V5.0.4042 — true volume velocity for canonical learning.
+        // This field was named volVelocity but used candle price bodies, so learners
+        // confused green candles with actual liquidity/attention expansion.
         return try {
+            val tm5 = ts.tokenMap.volume5mUsd
+            val tm1h = ts.tokenMap.volume1hUsd
+            val tm24h = ts.tokenMap.volume24hUsd
+            if ((tm5 ?: 0.0) > 0.0 && (tm1h ?: 0.0) > 0.0) {
+                val expected5m = (tm1h!! / 12.0).coerceAtLeast(1.0)
+                val ratio = (tm5!! / expected5m).coerceIn(0.0, 50.0)
+                return when {
+                    ratio >= 6.0 -> "VERTICAL"
+                    ratio >= 2.5 -> "RISING_FAST"
+                    ratio >= 1.2 -> "RISING_SLOW"
+                    ratio < 0.45 -> "FALLING"
+                    else -> "FLAT"
+                }
+            }
+            if ((tm1h ?: 0.0) > 0.0 && (tm24h ?: 0.0) > 0.0) {
+                val expected1h = (tm24h!! / 24.0).coerceAtLeast(1.0)
+                val ratio = (tm1h!! / expected1h).coerceIn(0.0, 50.0)
+                return when {
+                    ratio >= 5.0 -> "VERTICAL"
+                    ratio >= 2.0 -> "RISING_FAST"
+                    ratio >= 1.1 -> "RISING_SLOW"
+                    ratio < 0.55 -> "FALLING"
+                    else -> "FLAT"
+                }
+            }
             val h = ts.history
             if (h.size < 3) return "FLAT"
-            val last = h.last()
-            val prev = h.elementAt(h.size - 2)
-            val pp = h.elementAt(h.size - 3)
-            val velLast = last.priceUsd - last.openUsd
-            val velPrev = prev.priceUsd - prev.openUsd
-            val velPP = pp.priceUsd - pp.openUsd
+            val last = h.last().vol
+            val prev = h.elementAt(h.size - 2).vol.coerceAtLeast(1.0)
+            val pp = h.elementAt(h.size - 3).vol.coerceAtLeast(1.0)
+            val r1 = last / prev
+            val r2 = prev / pp
             when {
-                velLast > 0 && velPrev > 0 && velPP > 0 && velLast > velPrev -> "RISING_FAST"
-                velLast > 0 && velPrev > 0 -> "RISING_SLOW"
-                velLast > 0 -> "FLAT"
-                else -> "FALLING"
+                r1 >= 3.0 && r2 >= 1.2 -> "VERTICAL"
+                r1 >= 1.8 && r2 >= 1.0 -> "RISING_FAST"
+                r1 >= 1.15 -> "RISING_SLOW"
+                r1 < 0.65 -> "FALLING"
+                else -> "FLAT"
             }
         } catch (_: Throwable) { "FLAT" }
     }

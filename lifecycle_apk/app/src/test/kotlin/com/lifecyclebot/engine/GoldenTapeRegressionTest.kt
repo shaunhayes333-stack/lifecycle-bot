@@ -3743,7 +3743,7 @@ class GoldenTapeRegressionTest {
         val gradle = java.io.File("build.gradle.kts").readText()
         val workflow = java.io.File("../.github/workflows/build.yml").readText()
         val version = java.io.File("../AATE_VERSION").readText().trim()
-        assertEquals("5.0.4041", version)
+        assertEquals("5.0.4042", version)
         assertTrue("Gradle must prefer explicit AATE version authority", gradle.contains("aateVersionName") && gradle.contains("AATE_VERSION"))
         assertTrue("Workflow must pass explicit AATE version into Gradle", workflow.contains("-PaateVersionName=\$AATE_VERSION_NAME"))
         assertFalse("Artifact patch identity must not be derived from CI run number", workflow.contains("VERSION_NAME=\"5.0.\${BUILD_NUMBER}\""))
@@ -3889,6 +3889,16 @@ class GoldenTapeRegressionTest {
             builder.contains("p >= 60.0 -> \"STRONG\"") && builder.contains("p <= 40.0 -> \"WEAK\""))
         assertFalse("Sell pressure bucket must not use the old inverse-buy-pressure mapping",
             builder.contains("p <= 40.0 -> \"STRONG\""))
+    }
+
+
+    @Test
+    fun canonical_features_vol_velocity_uses_volume_not_price_body_proxy() {
+        val builder = java.io.File("src/main/kotlin/com/lifecyclebot/engine/CanonicalFeaturesBuilder.kt").readText()
+        assertTrue("volVelocity must consume TokenMap/candle volume acceleration",
+            builder.contains("ts.tokenMap.volume5mUsd") && builder.contains("ts.tokenMap.volume1hUsd") && builder.contains("ts.tokenMap.volume24hUsd") && builder.contains("h.last().vol"))
+        assertFalse("volVelocity must not use price candle bodies as a fake volume proxy",
+            builder.contains("last.priceUsd - last.openUsd") || builder.contains("velLast ="))
     }
 
 }
