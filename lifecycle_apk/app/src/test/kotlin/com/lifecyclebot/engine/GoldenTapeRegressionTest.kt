@@ -3743,7 +3743,7 @@ class GoldenTapeRegressionTest {
         val gradle = java.io.File("build.gradle.kts").readText()
         val workflow = java.io.File("../.github/workflows/build.yml").readText()
         val version = java.io.File("../AATE_VERSION").readText().trim()
-        assertEquals("5.0.4061", version)
+        assertEquals("5.0.4062", version)
         assertTrue("Gradle must prefer explicit AATE version authority", gradle.contains("aateVersionName") && gradle.contains("AATE_VERSION"))
         assertTrue("Workflow must pass explicit AATE version into Gradle", workflow.contains("-PaateVersionName=\$AATE_VERSION_NAME"))
         assertFalse("Artifact patch identity must not be derived from CI run number", workflow.contains("VERSION_NAME=\"5.0.\${BUILD_NUMBER}\""))
@@ -4035,7 +4035,7 @@ class GoldenTapeRegressionTest {
         assertTrue("Symbolic patience must become an observable soft-exit veto, not just report-only sentience",
             exec.contains("SYMBOLIC_PATIENCE_SOFT_EXIT_VETO") && exec.contains("HOLD OVERRIDE"))
         assertTrue("Symbolic patience must not override reflex/liquidity/rug/catastrophic/emergency exits or the -12% live danger zone",
-            exec.contains("r.contains("REFLEX")") && exec.contains("r.contains("LIQ")") && exec.contains("r.contains("RUG")") && exec.contains("r.contains("CATASTROPHIC")") && exec.contains("gainPct <= -12.0"))
+            exec.contains("""r.contains("REFLEX")""") && exec.contains("""r.contains("LIQ")""") && exec.contains("""r.contains("RUG")""") && exec.contains("""r.contains("CATASTROPHIC")""") && exec.contains("gainPct <= -12.0"))
         assertTrue("V8 critical exits must still bypass symbolic hold veto",
             exec.contains("critical = exitSignal.urgency == PrecisionExitLogic.Urgency.CRITICAL"))
     }
