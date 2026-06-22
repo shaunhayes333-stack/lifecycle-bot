@@ -135,7 +135,7 @@ object CanonicalFeaturesBuilder {
             sellPressure = sellPressure(ts.lastSellPressurePct),
             holderGrowth = holderGrowth(ts.holderGrowthRate),
             holderConcentration = holderConcentration(topHolderPct ?: 0.0),
-            rugTier = safetyTier,
+            rugTier = rugTier(ts, safetyTier),
             safetyTier = safetyTier,
             mintAuthority = mintAuthority,
             freezeAuthority = freezeAuthority,
@@ -247,6 +247,22 @@ object CanonicalFeaturesBuilder {
 
 
 
+
+
+    private fun rugTier(ts: TokenState, safetyTier: String): String {
+        // V5.0.4047 — preserve coarse safetyTier, but let canonical rugTier carry
+        // numeric rugcheck alpha. Higher rugcheckScore is cleaner; negative means unknown.
+        // Learning only: no new hard block, no gate change.
+        val score = ts.safety.rugcheckScore
+        if (safetyTier == "DANGER") return "DANGER"
+        return when {
+            score < 0 -> safetyTier
+            score < 40 -> "DANGER"
+            score < 55 -> "UNSAFE"
+            score < 70 -> "CAUTION"
+            else -> "SAFE"
+        }
+    }
 
     private fun bubbleClusterPattern(ts: TokenState): String {
         // V5.0.4044 — expose bundle/first-block alpha to canonical learning.
