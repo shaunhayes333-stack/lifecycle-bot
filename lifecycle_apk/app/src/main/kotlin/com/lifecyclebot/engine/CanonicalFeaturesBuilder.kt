@@ -197,28 +197,46 @@ object CanonicalFeaturesBuilder {
         return cand to isIncomplete
     }
 
-    /** Map TokenState.lastPriceDex / .lastPriceSource into venue + route + curve status. */
+    /** Map authoritative TokenMap route first, then TokenState.lastPriceDex/source fallback. */
     private fun inferVenueRoute(ts: TokenState): Tuple4 {
+        // V5.0.4039 — TokenMap authority for learning features.
+        // Canonical TokenMap already resolves Pump bonding vs migrated AMM/Jupiter route.
+        // Learning should not fall back to stale price-source guesses when TokenMap knows
+        // the executable venue/route/hydration state.
+        val tm = ts.tokenMap
+        val tmDex = tm.dexId.uppercase()
+        val tmVenue = tm.venue.uppercase()
+        val tmRoute = tm.routeStatus.uppercase()
         val dex = ts.lastPriceDex.uppercase()
         val src = ts.lastPriceSource.uppercase()
-        val isBondingCurve = src.contains("PUMP_FUN_BC") || src.contains("PUMP_PORTAL")
-        val isMigrated = dex.contains("RAYDIUM") || dex.contains("BONK") || dex.contains("METEORA")
+        val source = ts.source.uppercase()
+        val bondingDirect = src.contains("PUMP_FUN_BC") || src.contains("PUMP_PORTAL")
+        val migratedDirect = dex.contains("RAYDIUM") || dex.contains("BONK") || dex.contains("METEORA")
         val venue = when {
-            isBondingCurve && !isMigrated -> "PUMP_FUN_BONDING"
+            tmVenue.contains("RAYDIUM") || tmDex.contains("RAYDIUM") || tmRoute.contains("RAYDIUM") -> "RAYDIUM"
+            tmVenue.contains("METEORA") || tmDex.contains("METEORA") || tmRoute.contains("METEORA") -> "METEORA"
+            tmVenue.contains("ORCA") || tmDex.contains("ORCA") || tmRoute.contains("ORCA") -> "ORCA"
+            tmVenue.contains("BONK") || tmDex.contains("BONK") || tmRoute.contains("BONK") -> "BONK"
+            tm.pumpFunExecutable || tm.pumpFunBondingCurveStatus.equals("ACTIVE", ignoreCase = true) -> "PUMP_FUN_BONDING"
+            tm.jupiterQuoteOk || tm.dexRouteOk || tmRoute.contains("JUPITER") || tmRoute.contains("ROUTE_OK") -> "JUPITER"
+            bondingDirect && !migratedDirect -> "PUMP_FUN_BONDING"
             dex.contains("PUMP") -> "PUMPSWAP"
-            dex.contains("RAYDIUM") -> "RAYDIUM"
-            dex.contains("METEORA") -> "METEORA"
-            dex.contains("ORCA") -> "ORCA"
+            dex.contains("RAYDIUM") || source.contains("RAYDIUM") -> "RAYDIUM"
+            dex.contains("METEORA") || source.contains("METEORA") -> "METEORA"
+            dex.contains("ORCA") || source.contains("ORCA") -> "ORCA"
             dex.contains("BONK") -> "BONK"
             dex.isNotBlank() -> dex
             else -> "UNKNOWN"
         }
         val route = when {
-            isBondingCurve && !isMigrated -> "PUMP_NATIVE"
+            tm.pumpFunExecutable || venue == "PUMP_FUN_BONDING" -> "PUMP_NATIVE"
             venue == "PUMPSWAP" -> "PUMPPORTAL"
-            venue == "JUPITER" || venue == "RAYDIUM" || venue == "ORCA" || venue == "METEORA" -> "JUPITER"
+            tm.jupiterQuoteOk || venue == "JUPITER" || venue == "RAYDIUM" || venue == "ORCA" || venue == "METEORA" -> "JUPITER"
+            tm.dexRouteOk -> "DEX_DIRECT"
             else -> "UNKNOWN"
         }
+        val isBondingCurve = tm.pumpFunExecutable || (venue == "PUMP_FUN_BONDING")
+        val isMigrated = tm.migratedOrGraduated || migratedDirect || source.contains("GRADUATE") || source.contains("MIGRATED")
         return Tuple4(venue, route, isBondingCurve, isMigrated)
     }
     private data class Tuple4(
