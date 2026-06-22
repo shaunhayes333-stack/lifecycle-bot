@@ -5,35 +5,34 @@ import kotlin.math.abs
 import kotlin.math.max
 
 /**
- * V5.0.4065 — canonical trainable-PnL contract.
+ * V5.0.4066 — canonical trainable-PnL contract.
  *
  * Accounting/journal storage may retain very loose historical runner bounds, but
  * adaptive learning must never train from fabricated percentage math. This helper
  * is deliberately soft at runtime: it does not block execution or journal writes;
  * it only decides whether an outcome is safe for learning/hive/expectancy views.
  *
- * V5.0.4065 — EXTREME WINNER FIX.
- * The previous MAX_TRAINABLE_PNL_PCT = 5_000.0 hard-rejected real moonshot outcomes
- * like +207,248% as "fabricated." These are real compounding wins that must flow into
- * WR, TokenWinMemory, StrategyTelemetry, PatternClassifier, and CanonicalOutcomeBus.
- * Fix: replace the hard-reject above 5,000% with a soft CLAMP to EXTREME_WINNER_CLAMP_PCT.
- * The clamp preserves the win signal and correct win/loss classification while preventing
- * extreme outlier pnl% from dominating linear averaging in downstream models.
- * A distinct forensic label PNL_PCT_CLAMPED_EXTREME_WINNER tracks every occurrence.
+ * V5.0.4066 — REAL WINS TRAIN AT REAL VALUES.
+ * Previous MAX_TRAINABLE_PNL_PCT = 5_000.0 hard-rejected real moonshot outcomes
+ * like +207,248% as "fabricated." That silently discarded the exact compounding
+ * wins the bot is built to capture — they never trained TokenWinMemory,
+ * StrategyTelemetry, PatternClassifier, CanonicalOutcomeBus, or WR/expectancy.
  *
- * The hard accounting validity gate in TradeHistoryStore (100,000%) and the SOL
- * notional cap (5,000 SOL proceeds) are unchanged — those catch fabricated rows.
+ * Fix: raise MAX_TRAINABLE_PNL_PCT to 100_000.0 (same order as the accounting
+ * validity gate). NO CLAMP. A real +207,248% live win trains at +207,248%.
+ * The fabrication guard is the SOL-basis mismatch check below: if pnlPct doesn't
+ * match (pnlSol / sol) * 100 within tolerance, it's rejected as fabricated.
+ * Real on-chain live sells have real pnlSol and real sol, so they pass. Fake rows
+ * (USDC → +8722 SOL) don't, because the math doesn't reconcile.
+ *
+ * The accounting validity gate in TradeHistoryStore and the SOL notional cap
+ * (5,000 SOL proceeds) are unchanged — those catch fabricated rows at storage.
  */
 object LearningPnlSanitizer {
     const val MIN_TRAINABLE_PNL_PCT = -100.0001
-    // V5.0.4065: raised from 5_000 to 100_000 so the validity range spans all
-    // realistic meme runners. Extreme wins above EXTREME_WINNER_CLAMP_PCT are
-    // clamped (not rejected) so models receive bounded signal without outlier blowup.
+    // V5.0.4066: raised from 5_000 to 100_000. Real meme runners can hit 200k%+.
+    // The SOL-basis mismatch check is the fabrication guard, not this ceiling.
     const val MAX_TRAINABLE_PNL_PCT = 100_000.0
-    // Clamp ceiling for learner contribution of extreme winners.
-    // A +207,248% win trains exactly like a +50,000% win — both are "massive win."
-    // Downstream averaging won't be dominated by a single outlier.
-    private const val EXTREME_WINNER_CLAMP_PCT = 50_000.0
     private const val ABS_PCT_MISMATCH_TOLERANCE = 50.0
     private const val REL_PCT_MISMATCH_TOLERANCE = 0.35
 
@@ -47,16 +46,6 @@ object LearningPnlSanitizer {
         if (!pnlPct.isFinite()) return reject("PNL_PCT_NOT_FINITE", pnlPct, context, emit = emit)
         if (pnlPct < MIN_TRAINABLE_PNL_PCT) return reject("PNL_PCT_BELOW_TOTAL_LOSS", pnlPct, context, emit = emit)
         if (pnlPct > MAX_TRAINABLE_PNL_PCT) return reject("PNL_PCT_ABOVE_TRAINABLE_MAX", pnlPct, context, emit = emit)
-        // V5.0.4065 — soft clamp: extreme winners are real; cap their pnl contribution
-        // to prevent single-outlier dominance in linear models, but pass ok=true.
-        if (pnlPct > EXTREME_WINNER_CLAMP_PCT) {
-            if (emit) {
-                try { PipelineHealthCollector.labelInc("PNL_PCT_CLAMPED_EXTREME_WINNER") } catch (_: Throwable) {}
-                try { ForensicLogger.lifecycle("PNL_PCT_CLAMPED_EXTREME_WINNER",
-                    "raw=${"%.0f".format(pnlPct)} clamped=${"%.0f".format(EXTREME_WINNER_CLAMP_PCT)} context=${context.take(80)}") } catch (_: Throwable) {}
-            }
-            return Verdict(true, EXTREME_WINNER_CLAMP_PCT, "PNL_PCT_CLAMPED_EXTREME_WINNER")
-        }
         val s = sol?.takeIf { it.isFinite() && it > 0.0 }
         val p = pnlSol?.takeIf { it.isFinite() }
         if (s != null && p != null) {

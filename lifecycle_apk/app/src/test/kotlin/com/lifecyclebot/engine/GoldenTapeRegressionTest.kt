@@ -3743,7 +3743,7 @@ class GoldenTapeRegressionTest {
         val gradle = java.io.File("build.gradle.kts").readText()
         val workflow = java.io.File("../.github/workflows/build.yml").readText()
         val version = java.io.File("../AATE_VERSION").readText().trim()
-        assertEquals("5.0.4065", version)
+        assertEquals("5.0.4066", version)
         assertTrue("Gradle must prefer explicit AATE version authority", gradle.contains("aateVersionName") && gradle.contains("AATE_VERSION"))
         assertTrue("Workflow must pass explicit AATE version into Gradle", workflow.contains("-PaateVersionName=\$AATE_VERSION_NAME"))
         assertFalse("Artifact patch identity must not be derived from CI run number", workflow.contains("VERSION_NAME=\"5.0.\${BUILD_NUMBER}\""))
@@ -4056,13 +4056,12 @@ class GoldenTapeRegressionTest {
     }
 
     @Test
-    fun extreme_winner_pnl_is_clamped_not_rejected_by_learning_sanitizer() {
+    fun extreme_winner_pnl_trains_at_real_value_not_rejected_or_clamped() {
         val san = java.io.File("src/main/kotlin/com/lifecyclebot/engine/LearningPnlSanitizer.kt").readText()
-        assertTrue("V5.0.4065: MAX_TRAINABLE_PNL_PCT must be 100_000 so real moonshot wins above 5000% are not rejected",
-            san.contains("V5.0.4065") && san.contains("MAX_TRAINABLE_PNL_PCT = 100_000.0"))
-        assertTrue("Extreme winners above EXTREME_WINNER_CLAMP_PCT must return ok=true with clamped pnl, not rejected",
-            san.contains("EXTREME_WINNER_CLAMP_PCT") && san.contains("PNL_PCT_CLAMPED_EXTREME_WINNER") &&
-            san.contains("return Verdict(true, EXTREME_WINNER_CLAMP_PCT"))
+        assertTrue("V5.0.4066: MAX_TRAINABLE_PNL_PCT must be 100_000 so real moonshot wins above 5000% are not rejected",
+            san.contains("V5.0.4066") && san.contains("MAX_TRAINABLE_PNL_PCT = 100_000.0"))
+        assertFalse("No clamp on real wins — extreme winners must train at their real pnl value",
+            san.contains("EXTREME_WINNER_CLAMP_PCT") || san.contains("PNL_PCT_CLAMPED_EXTREME_WINNER"))
         assertFalse("Old 5_000.0 hard cap must no longer be MAX_TRAINABLE_PNL_PCT",
             san.contains("MAX_TRAINABLE_PNL_PCT = 5_000.0"))
     }
