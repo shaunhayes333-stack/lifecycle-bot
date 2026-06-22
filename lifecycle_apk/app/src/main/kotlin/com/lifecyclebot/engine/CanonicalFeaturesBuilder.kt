@@ -315,8 +315,10 @@ object CanonicalFeaturesBuilder {
         else -> "NEUTRAL"
     }
     private fun sellPressure(p: Double): String = when {
-        p <= 40.0 -> "STRONG"
-        p >= 60.0 -> "WEAK"
+        // V5.0.4041 — p is actual sell pressure %, not inverse buy pressure.
+        // High sells = STRONG distribution pressure; low sells = WEAK sell pressure.
+        p >= 60.0 -> "STRONG"
+        p <= 40.0 -> "WEAK"
         else -> "NEUTRAL"
     }
     private fun holderGrowth(g: Double): String = when {

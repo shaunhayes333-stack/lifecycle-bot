@@ -3743,7 +3743,7 @@ class GoldenTapeRegressionTest {
         val gradle = java.io.File("build.gradle.kts").readText()
         val workflow = java.io.File("../.github/workflows/build.yml").readText()
         val version = java.io.File("../AATE_VERSION").readText().trim()
-        assertEquals("5.0.4040", version)
+        assertEquals("5.0.4041", version)
         assertTrue("Gradle must prefer explicit AATE version authority", gradle.contains("aateVersionName") && gradle.contains("AATE_VERSION"))
         assertTrue("Workflow must pass explicit AATE version into Gradle", workflow.contains("-PaateVersionName=\$AATE_VERSION_NAME"))
         assertFalse("Artifact patch identity must not be derived from CI run number", workflow.contains("VERSION_NAME=\"5.0.\${BUILD_NUMBER}\""))
@@ -3879,6 +3879,16 @@ class GoldenTapeRegressionTest {
         assertFalse("Canonical learning must not rely only on ts.lastLiquidityUsd/ts.lastMcap for feature completeness",
             builder.contains("val liqUsd = ts.lastLiquidityUsd
         val mcapUsd = ts.lastMcap"))
+    }
+
+
+    @Test
+    fun canonical_features_sell_pressure_bucket_is_not_inverted() {
+        val builder = java.io.File("src/main/kotlin/com/lifecyclebot/engine/CanonicalFeaturesBuilder.kt").readText()
+        assertTrue("Actual sellPressurePct >=60 must bucket as STRONG distribution pressure",
+            builder.contains("p >= 60.0 -> \"STRONG\"") && builder.contains("p <= 40.0 -> \"WEAK\""))
+        assertFalse("Sell pressure bucket must not use the old inverse-buy-pressure mapping",
+            builder.contains("p <= 40.0 -> \"STRONG\""))
     }
 
 }
