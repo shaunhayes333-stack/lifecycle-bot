@@ -3743,7 +3743,7 @@ class GoldenTapeRegressionTest {
         val gradle = java.io.File("build.gradle.kts").readText()
         val workflow = java.io.File("../.github/workflows/build.yml").readText()
         val version = java.io.File("../AATE_VERSION").readText().trim()
-        assertEquals("5.0.4037", version)
+        assertEquals("5.0.4038", version)
         assertTrue("Gradle must prefer explicit AATE version authority", gradle.contains("aateVersionName") && gradle.contains("AATE_VERSION"))
         assertTrue("Workflow must pass explicit AATE version into Gradle", workflow.contains("-PaateVersionName=\$AATE_VERSION_NAME"))
         assertFalse("Artifact patch identity must not be derived from CI run number", workflow.contains("VERSION_NAME=\"5.0.\${BUILD_NUMBER}\""))
@@ -3848,6 +3848,16 @@ class GoldenTapeRegressionTest {
             builder.contains("sellPressure = sellPressure(ts.lastSellPressurePct)"))
         assertFalse("Canonical learning must not mirror buy pressure into sellPressure",
             builder.contains("sellPressure = sellPressure(ts.lastBuyPressurePct)"))
+    }
+
+
+    @Test
+    fun canonical_features_age_bucket_uses_token_age_at_entry_not_hold_time() {
+        val builder = java.io.File("src/main/kotlin/com/lifecyclebot/engine/CanonicalFeaturesBuilder.kt").readText()
+        assertTrue("ageBucket must use token/pool age at entry, not now-entry hold duration",
+            builder.contains("estimateTokenAgeAtEntryMs(ts)") && builder.contains("ts.tokenMap.poolAgeMs") && builder.contains("ts.addedToWatchlistAt"))
+        assertFalse("ageBucket must not be computed from System.currentTimeMillis() - ts.position.entryTime; holdBucket already handles hold time",
+            builder.contains("val ageMs = if (ts.position.entryTime > 0)"))
     }
 
 }

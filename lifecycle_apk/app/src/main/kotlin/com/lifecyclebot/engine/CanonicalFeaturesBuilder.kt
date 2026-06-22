@@ -44,10 +44,12 @@ object CanonicalFeaturesBuilder {
         val liqUsd = ts.lastLiquidityUsd
         val mcapUsd = ts.lastMcap
         val topHolderPct = ts.topHolderPct ?: ts.safety.topHolderPct
-        val ageMs = if (ts.position.entryTime > 0) {
-            System.currentTimeMillis() - ts.position.entryTime
-        } else 0L
-        val ageMins = ageMs.toDouble() / 60_000.0
+        // V5.0.4038 — entry token-age feature fix.
+        // CandidateFeatures.ageBucket is supposed to describe token/pool age at ENTRY.
+        // The old code used now-entryTime, which is hold time at close and duplicates
+        // holdBucket below. That poisoned early-launch vs stale-token learning.
+        val entryTokenAgeMs = estimateTokenAgeAtEntryMs(ts)
+        val ageMins = entryTokenAgeMs.toDouble() / 60_000.0
         val holdSec = if (ts.position.entryTime > 0) {
             (System.currentTimeMillis() - ts.position.entryTime) / 1000
         } else 0L
@@ -225,6 +227,23 @@ object CanonicalFeaturesBuilder {
         val c: Boolean,
         val d: Boolean,
     )
+
+
+    private fun estimateTokenAgeAtEntryMs(ts: TokenState): Long {
+        return try {
+            val entryAt = ts.position.entryTime.takeIf { it > 0L } ?: System.currentTimeMillis()
+            val now = System.currentTimeMillis()
+            val poolAgeNow = ts.tokenMap.poolAgeMs?.takeIf { it > 0L }
+            when {
+                poolAgeNow != null -> {
+                    val createdAt = now - poolAgeNow
+                    (entryAt - createdAt).coerceAtLeast(0L)
+                }
+                ts.addedToWatchlistAt > 0L -> (entryAt - ts.addedToWatchlistAt).coerceAtLeast(0L)
+                else -> 0L
+            }
+        } catch (_: Throwable) { 0L }
+    }
 
     private fun ageBucket(ageMins: Double): String = when {
         ageMins < 2.0 -> "UNDER_2M"
