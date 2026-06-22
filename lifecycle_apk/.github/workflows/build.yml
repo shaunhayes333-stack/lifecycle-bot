@@ -31,7 +31,7 @@ jobs:
         id: aate_build
         run: |
           BUILD_NUMBER=$((GITHUB_RUN_NUMBER + 1))
-          VERSION_NAME="5.0.${BUILD_NUMBER}"
+          VERSION_NAME="$(cat AATE_VERSION)"
           echo "AATE_BUILD_NUMBER=$BUILD_NUMBER" >> "$GITHUB_ENV"
           echo "AATE_VERSION_NAME=$VERSION_NAME" >> "$GITHUB_ENV"
           echo "build_number=$BUILD_NUMBER" >> "$GITHUB_OUTPUT"
@@ -50,7 +50,7 @@ jobs:
           echo "Building AATE v${{ steps.aate_build.outputs.version_name }}"
           echo "versionCode = $((500 + AATE_BUILD_NUMBER))"
           echo "========================================"
-          ./gradlew clean assembleRelease --no-daemon --stacktrace -PbuildNumber=$AATE_BUILD_NUMBER
+          ./gradlew clean assembleRelease --no-daemon --stacktrace -PbuildNumber=$AATE_BUILD_NUMBER -PaateVersionName=$AATE_VERSION_NAME
           echo "Built APK:"
           ls -la app/build/outputs/apk/release/
           # Rename APK to include build number

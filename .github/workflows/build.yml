@@ -36,7 +36,7 @@ jobs:
         id: aate_build
         run: |
           BUILD_NUMBER=$((GITHUB_RUN_NUMBER + 1))
-          VERSION_NAME="5.0.${BUILD_NUMBER}"
+          VERSION_NAME="$(cat AATE_VERSION)"
           echo "AATE_BUILD_NUMBER=$BUILD_NUMBER" >> "$GITHUB_ENV"
           echo "AATE_VERSION_NAME=$VERSION_NAME" >> "$GITHUB_ENV"
           echo "build_number=$BUILD_NUMBER" >> "$GITHUB_OUTPUT"
@@ -68,8 +68,8 @@ jobs:
           # V5.9.495z42 P1 — run unit tests before release build.
           # SellExecutionOverhaulTest (10 cases) + existing harness.
           # Tests must pass for the build to succeed; failure fails CI.
-          ./gradlew testReleaseUnitTest --no-daemon --stacktrace -PbuildNumber=$AATE_BUILD_NUMBER
-          ./gradlew assembleRelease --no-daemon -PbuildNumber=$AATE_BUILD_NUMBER
+          ./gradlew testReleaseUnitTest --no-daemon --stacktrace -PbuildNumber=$AATE_BUILD_NUMBER -PaateVersionName=$AATE_VERSION_NAME
+          ./gradlew assembleRelease --no-daemon -PbuildNumber=$AATE_BUILD_NUMBER -PaateVersionName=$AATE_VERSION_NAME
           echo "Built APK:"
           ls -la app/build/outputs/apk/release/
           # APK is already named AATE_v5.0.{buildNumber}.apk by gradle

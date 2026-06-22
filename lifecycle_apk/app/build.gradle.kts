@@ -10,14 +10,18 @@ val baseVersionCode = 500
 val ciBuildNumber = (project.findProperty("buildNumber") as String?)?.toIntOrNull() ?: 0
 val finalVersionCode = baseVersionCode + ciBuildNumber
 
-// V5.0: If no build number provided, use epoch minutes for unique filename
+// V5.0.4025: explicit patch version authority. CI run numbers drifted from
+// operator patch numbers, so APK artifacts/reports showed 5.0.4023 while the
+// code was already 4024. Prefer -PaateVersionName, then checked-in AATE_VERSION,
+// then timestamp fallback for ad-hoc local builds.
+val explicitVersionName = (project.findProperty("aateVersionName") as String?)
+    ?: rootProject.file("AATE_VERSION").takeIf { it.exists() }?.readText()?.trim()?.takeIf { it.isNotBlank() }
 val timestampSuffix = if (ciBuildNumber == 0) {
-    // Use epoch minutes (smaller number than millis, still unique per minute)
     (System.currentTimeMillis() / 60000).toString().takeLast(6)
 } else {
     ciBuildNumber.toString()
 }
-val finalVersionName = "5.0.$timestampSuffix"
+val finalVersionName = explicitVersionName ?: "5.0.$timestampSuffix"
 
 // Debug: Print version info during build
 println("========================================")

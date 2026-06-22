@@ -1275,3 +1275,34 @@ class ExecutionAuthorityInvariantTest {
     }
 
 }
+
+class LiveGrowthDrawdownDoctrineTest {
+    @Test
+    fun session_drawdown_pressure_does_not_trip_live_safety_breaker() {
+        LiveSafetyCircuitBreaker.reset()
+        LiveSafetyCircuitBreaker.beginSession(1.0)
+        LiveSafetyCircuitBreaker.recordTradeResult(-0.25)
+
+        assertFalse(
+            "V5.0.4025: session drawdown must be adaptive pressure, not a global live-entry halt",
+            LiveSafetyCircuitBreaker.isTripped()
+        )
+        assertTrue(
+            "drawdown pressure should remain visible to sizing/reporting",
+            LiveSafetyCircuitBreaker.isSessionDrawdownPressureActive()
+        )
+        assertTrue(LiveSafetyCircuitBreaker.sessionDrawdownPressureReason().contains("SOFT", ignoreCase = true))
+    }
+
+    @Test
+    fun startup_wallet_floor_remains_hard_live_safety_breaker() {
+        LiveSafetyCircuitBreaker.reset()
+        LiveSafetyCircuitBreaker.beginSession(0.01)
+
+        assertTrue(
+            "V5.0.4025 keeps catastrophic wallet-floor protection intact",
+            LiveSafetyCircuitBreaker.isTripped()
+        )
+        assertTrue(LiveSafetyCircuitBreaker.trippedReason().contains("STARTUP_FLOOR"))
+    }
+}

@@ -21,10 +21,10 @@ import java.util.concurrent.atomic.AtomicLong
  *      stay locked all session until a full restart even though the wallet
  *      was now well above the floor.
  *
- *   2) SESSION DRAWDOWN — if cumulative live PnL since this session
- *      started drops by more than `MAX_SESSION_DRAWDOWN_PCT` (default
- *      10%), trip the breaker and reject all further live executions
- *      until `reset()` is called (e.g. next startBot()).
+ *   2) SESSION DRAWDOWN PRESSURE — cumulative live PnL drawdown is tracked
+ *      and surfaced, but no longer trips a global live-entry halt. V5.0.4025
+ *      aligns this with the operator's 2x→5x daily growth doctrine: drawdown
+ *      should shape aggression/sizing, not freeze lifecycle and create ghosts.
  *
  * Paper mode is never affected. Every trip also logs a human-readable
  * reason so the UI can surface it.
@@ -41,6 +41,8 @@ object LiveSafetyCircuitBreaker {
     private val tripped = AtomicBoolean(false)
     @Volatile private var trippedReason: String = ""
     @Volatile private var trippedByStartupFloor: Boolean = false   // V5.9.283
+    @Volatile private var sessionDrawdownPressure: Boolean = false  // V5.0.4025 telemetry-only
+    @Volatile private var sessionDrawdownReason: String = ""
     @Volatile private var sessionStartSol: Double = 0.0
     @Volatile private var sessionStartedAt: Long = 0L
     private val cumulativePnlMicroSol = AtomicLong(0)  // micro-SOL for precision
@@ -50,6 +52,8 @@ object LiveSafetyCircuitBreaker {
     fun sessionStartSol(): Double = sessionStartSol
     fun sessionStartedAt(): Long = sessionStartedAt
     fun sessionPnlSol(): Double = cumulativePnlMicroSol.get() / 1_000_000.0
+    fun isSessionDrawdownPressureActive(): Boolean = sessionDrawdownPressure
+    fun sessionDrawdownPressureReason(): String = sessionDrawdownReason
 
     /**
      * Call at the start of every live session (after wallet connects).
@@ -61,6 +65,8 @@ object LiveSafetyCircuitBreaker {
         sessionStartedAt = System.currentTimeMillis()
         cumulativePnlMicroSol.set(0)
         trippedByStartupFloor = false
+        sessionDrawdownPressure = false
+        sessionDrawdownReason = ""
 
         if (initialBalanceSol < MIN_LIVE_SOL) {
             val reason = "STARTUP_FLOOR: wallet=${"%.4f".format(initialBalanceSol)} SOL < ${MIN_LIVE_SOL} SOL minimum"
@@ -87,6 +93,8 @@ object LiveSafetyCircuitBreaker {
             tripped.set(false)
             trippedReason = ""
             trippedByStartupFloor = false
+            sessionDrawdownPressure = false
+            sessionDrawdownReason = ""
             // Reseed the session start balance so drawdown calc is correct
             sessionStartSol = currentBalanceSol
             sessionStartedAt = System.currentTimeMillis()
@@ -104,12 +112,18 @@ object LiveSafetyCircuitBreaker {
 
         val pnl = sessionPnlSol()
         val drawdownPct = if (sessionStartSol > 0.0) (-pnl / sessionStartSol) * 100.0 else 0.0
-        if (!tripped.get() && drawdownPct >= MAX_SESSION_DRAWDOWN_PCT) {
-            val reason = "SESSION_DRAWDOWN: PnL=${"%.4f".format(pnl)} SOL (${"%.1f".format(-drawdownPct)}%) exceeds ${MAX_SESSION_DRAWDOWN_PCT}% halt"
-            tripped.set(true)
-            trippedReason = reason
-            trippedByStartupFloor = false
-            ErrorLogger.warn(TAG, "🚨 $reason — live trades disabled until reset")
+        if (drawdownPct >= MAX_SESSION_DRAWDOWN_PCT) {
+            val reason = "SESSION_DRAWDOWN_PRESSURE: PnL=${"%.4f".format(pnl)} SOL (${"%.1f".format(-drawdownPct)}%) exceeds ${MAX_SESSION_DRAWDOWN_PCT}% — soft pressure, live entries remain enabled"
+            sessionDrawdownPressure = true
+            sessionDrawdownReason = reason
+            // Do NOT set tripped=true here. Only startup wallet floor remains a
+            // global live-entry breaker. Drawdown recovery requires throughput.
+            try { PipelineHealthCollector.labelInc("SESSION_DRAWDOWN_PRESSURE_SOFT_ALLOW") } catch (_: Throwable) {}
+            ErrorLogger.warn(TAG, "⚠️ $reason")
+        } else if (sessionDrawdownPressure && drawdownPct < (MAX_SESSION_DRAWDOWN_PCT * 0.5)) {
+            sessionDrawdownPressure = false
+            sessionDrawdownReason = ""
+            ErrorLogger.info(TAG, "✅ SESSION_DRAWDOWN_PRESSURE cleared: drawdown=${"%.1f".format(drawdownPct)}%")
         }
     }
 
@@ -121,6 +135,8 @@ object LiveSafetyCircuitBreaker {
         tripped.set(false)
         trippedReason = ""
         trippedByStartupFloor = false
+        sessionDrawdownPressure = false
+        sessionDrawdownReason = ""
         sessionStartSol = 0.0
         sessionStartedAt = 0L
         cumulativePnlMicroSol.set(0)
@@ -134,6 +150,8 @@ object LiveSafetyCircuitBreaker {
         "sessionStartSol" to sessionStartSol,
         "sessionPnlSol" to sessionPnlSol(),
         "sessionStartedAt" to sessionStartedAt,
+        "sessionDrawdownPressure" to sessionDrawdownPressure,
+        "sessionDrawdownReason" to sessionDrawdownReason,
         "minLiveSol" to MIN_LIVE_SOL,
         "maxDrawdownPct" to MAX_SESSION_DRAWDOWN_PCT,
     )

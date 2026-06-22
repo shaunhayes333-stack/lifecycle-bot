@@ -910,9 +910,9 @@ class GoldenTapeRegressionTest {
         val nestedWorkflow = java.io.File("../.github/workflows/build.yml").readText()
         for (workflow in listOf(activeRootWorkflow, nestedWorkflow)) {
             assertTrue(workflow.contains("id: aate_build"))
-            assertTrue(workflow.contains("BUILD_NUMBER=$((GITHUB_RUN_NUMBER + 1))"))
+            assertTrue(workflow.contains("VERSION_NAME=\"$(cat AATE_VERSION)\""))
             assertTrue(workflow.contains("version_name=\$VERSION_NAME"))
-            assertTrue(workflow.contains("-PbuildNumber=\$AATE_BUILD_NUMBER"))
+            assertTrue(workflow.contains("-PbuildNumber=\$AATE_BUILD_NUMBER -PaateVersionName=\$AATE_VERSION_NAME"))
             assertTrue(workflow.contains("AATE_v\${{ steps.aate_build.outputs.version_name }}"))
             assertFalse("APK version must not lag one behind operator patch number", workflow.contains("AATE_v5.0.\${{ github.run_number }}"))
             assertFalse("Gradle buildNumber must not use raw GitHub run number", workflow.contains("-PbuildNumber=\${{ github.run_number }}"))
@@ -3712,6 +3712,37 @@ class GoldenTapeRegressionTest {
         assertTrue("legacy SQLite and in-memory journal reads must canonicalize labels for UI/reporting", store.contains("val displayRow = CloseOutcomeLabelSanitizer.canonicalize(row, emit = false)") && store.contains("map { CloseOutcomeLabelSanitizer.canonicalize(it, emit = false) }"))
         assertTrue("canonical learning must quarantine dirty label contradictions", learning.contains("CloseOutcomeLabelSanitizer.inspect(trade)") && learning.contains("LEARNING_LABEL_SIGN_CONFLICT_QUARANTINED") && learning.contains("TRAINING_ROW_EXCLUDED_REASON_"))
         assertTrue("partial dirty rows must be excluded from learning-facing PnL sanitizer", pnl.contains("side == \"PARTIAL_SELL\"") && pnl.contains("labelVerdict.dirtyReason"))
+    }
+
+
+    @Test
+    fun daily_drawdown_is_growth_pressure_not_global_halt() {
+        val guard = java.io.File("src/main/kotlin/com/lifecyclebot/engine/SecurityGuard.kt").readText()
+        val liveCb = java.io.File("src/main/kotlin/com/lifecyclebot/engine/LiveSafetyCircuitBreaker.kt").readText()
+        val authorizer = java.io.File("src/main/kotlin/com/lifecyclebot/engine/TradeAuthorizer.kt").readText()
+
+        assertFalse("Daily loss must not call halt(); it strands live lifecycle and creates ghost-position drift",
+            guard.contains("halt(\"Daily loss limit reached"))
+        assertFalse("Daily loss must not return a fatal GuardResult",
+            guard.contains("Daily loss limit hit") && guard.contains("fatal = true"))
+        assertTrue("Daily drawdown should be visible adaptive pressure",
+            guard.contains("DAILY_DRAWDOWN_PRESSURE_SOFT_ALLOW"))
+        assertTrue("Session drawdown must be telemetry pressure, not LiveSafetyCB tripped=true",
+            liveCb.contains("SESSION_DRAWDOWN_PRESSURE") && liveCb.contains("Do NOT set tripped=true"))
+        assertTrue("Startup floor remains the hard breaker consumed by TradeAuthorizer",
+            liveCb.contains("STARTUP_FLOOR") && authorizer.contains("LiveSafetyCircuitBreaker.isTripped()"))
+    }
+
+
+    @Test
+    fun apk_version_uses_explicit_aate_patch_version_not_ci_run_drift() {
+        val gradle = java.io.File("build.gradle.kts").readText()
+        val workflow = java.io.File("../.github/workflows/build.yml").readText()
+        val version = java.io.File("../AATE_VERSION").readText().trim()
+        assertEquals("5.0.4025", version)
+        assertTrue("Gradle must prefer explicit AATE version authority", gradle.contains("aateVersionName") && gradle.contains("AATE_VERSION"))
+        assertTrue("Workflow must pass explicit AATE version into Gradle", workflow.contains("-PaateVersionName=\$AATE_VERSION_NAME"))
+        assertFalse("Artifact patch identity must not be derived from CI run number", workflow.contains("VERSION_NAME=\"5.0.\${BUILD_NUMBER}\""))
     }
 
 }

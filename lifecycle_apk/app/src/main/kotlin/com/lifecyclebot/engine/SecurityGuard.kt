@@ -119,27 +119,34 @@ class SecurityGuard(
             return GuardResult.Block("BOT HALTED: ${cbState.haltReason}", fatal = true)
         }
 
-        // ── 2. Circuit breaker paused ─────────────────────────────────
-        // V5.9.173 — paper mode bypasses the pause so learning never stops.
-        // Live mode still respects the pause because real money is at stake.
+        // ── 2. Circuit breaker pressure ────────────────────────────────
+        // V5.0.4025 — GROWTH DOCTRINE FIX.
+        // Consecutive-loss/daily-loss state is telemetry/adaptive pressure only.
+        // It must NEVER globally pause live buys, because a global pause strands
+        // lifecycle state, lets exits/reconciler drift into ghost positions, and
+        // chokes the 2x→5x daily live-wallet growth objective. True hard safety
+        // remains above/below this path: remote kill, manual halt, wallet floor,
+        // key integrity, fatal mint/rug/liquidity blocks, and sell hard floors.
         if (cbState.isPaused && !cfg().paperMode) {
-            return GuardResult.Block(
-                "Circuit breaker active — ${cbState.pauseRemainingSecs}s remaining"
-            )
+            audit("CIRCUIT_BREAKER_PRESSURE_OBSERVED",
+                "loss_streak=${cbState.consecutiveLosses} remaining=${cbState.pauseRemainingSecs}s — live entries not halted")
+            try { PipelineHealthCollector.labelInc("DAILY_DRAWDOWN_PRESSURE_SOFT_ALLOW") } catch (_: Throwable) {}
         }
 
-        // ── 3. Daily loss limit ───────────────────────────────────────
-        // V5.7.8: Skip daily loss limit in paper mode
+        // ── 3. Daily loss pressure ─────────────────────────────────────
+        // V5.7.8: Skip daily loss accounting in paper mode.
+        // V5.0.4025: live daily loss does not call halt() and does not return a
+        // fatal GuardResult. Sizing/FDG/SmartSizer may adapt, but lifecycle must
+        // keep buying/selling so the wallet can recover instead of freezing.
         resetDailyCountersIfNeeded()
         val c = cfg()
         if (!c.paperMode) {
             val dailyLimitSol = walletSol * (DAILY_LOSS_LIMIT_PCT / 100.0)
-            if (cbState.dailyLossSol >= dailyLimitSol) {
-                halt("Daily loss limit reached: ${cbState.dailyLossSol.fmt(4)} SOL lost today")
-                return GuardResult.Block(
-                    "Daily loss limit hit (${DAILY_LOSS_LIMIT_PCT}% = ${dailyLimitSol.fmt(4)} SOL)",
-                    fatal = true
-                )
+            if (dailyLimitSol > 0.0 && cbState.dailyLossSol >= dailyLimitSol) {
+                val msg = "Daily drawdown pressure: ${cbState.dailyLossSol.fmt(4)} SOL >= ${DAILY_LOSS_LIMIT_PCT}% (${dailyLimitSol.fmt(4)} SOL) — soft-allow for growth recovery"
+                audit("DAILY_DRAWDOWN_PRESSURE_SOFT_ALLOW", msg)
+                onLog("⚠️ $msg")
+                try { PipelineHealthCollector.labelInc("DAILY_DRAWDOWN_PRESSURE_SOFT_ALLOW") } catch (_: Throwable) {}
             }
         }
 
@@ -318,8 +325,9 @@ class SecurityGuard(
             // Pre-fix: paper trades incremented dailyLossSol and
             // consecutiveLosses globally; when the operator switched to live,
             // checkBuy() read the polluted dailyLossSol against the live
-            // wallet and tripped halt("Daily loss limit reached") on the
-            // first buy attempt → 0 live trades executed.
+            // wallet and tripped the old daily-loss full halt on the
+            // first buy attempt → 0 live trades executed. V5.0.4025 removes
+            // that full-halt behavior entirely; daily loss is pressure only.
             //
             // Determine paper-ness from the trade itself (authoritative)
             // rather than cfg().paperMode (which can drift mid-trade if the
@@ -348,13 +356,13 @@ class SecurityGuard(
                     )
 
                     if (shouldPause) {
-                        val msg = "Circuit breaker: $newLosses consecutive losses — pausing ${PAUSE_DURATION_MS / 60_000} min"
-                        audit("CIRCUIT_BREAKER_PAUSE", msg)
+                        val msg = "Circuit breaker pressure: $newLosses consecutive losses — telemetry only, live entries stay enabled"
+                        audit("CIRCUIT_BREAKER_PRESSURE", msg)
                         onLog("⚠️ $msg")
-                        onAlert("Circuit Breaker", msg)
+                        try { PipelineHealthCollector.labelInc("LOSS_STREAK_PRESSURE_SOFT_ALLOW") } catch (_: Throwable) {}
                     }
 
-                    audit("LOSS_RECORDED", "pnl=${pnl.fmt(4)} SOL consecutive=$newLosses daily=${newDaily.fmt(4)} paper=false (live-only)")
+                    audit("LOSS_RECORDED", "pnl=${pnl.fmt(4)} SOL consecutive=$newLosses daily=${newDaily.fmt(4)} paper=false live_halt=false")
                 } else {
                     // Win — reset consecutive loss counter
                     cbState = cbState.copy(consecutiveLosses = 0)
