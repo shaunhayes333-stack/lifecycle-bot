@@ -112,6 +112,7 @@ object LosingPatternMemory {
     fun bustCache() {
         cacheBuiltAtMs = 0L
         cache = emptyMap()
+        liveCache = emptyMap()
     }
 
     /**
