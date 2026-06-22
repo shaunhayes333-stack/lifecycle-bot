@@ -3743,7 +3743,7 @@ class GoldenTapeRegressionTest {
         val gradle = java.io.File("build.gradle.kts").readText()
         val workflow = java.io.File("../.github/workflows/build.yml").readText()
         val version = java.io.File("../AATE_VERSION").readText().trim()
-        assertEquals("5.0.4058", version)
+        assertEquals("5.0.4059", version)
         assertTrue("Gradle must prefer explicit AATE version authority", gradle.contains("aateVersionName") && gradle.contains("AATE_VERSION"))
         assertTrue("Workflow must pass explicit AATE version into Gradle", workflow.contains("-PaateVersionName=\$AATE_VERSION_NAME"))
         assertFalse("Artifact patch identity must not be derived from CI run number", workflow.contains("VERSION_NAME=\"5.0.\${BUILD_NUMBER}\""))
@@ -3968,10 +3968,10 @@ class GoldenTapeRegressionTest {
             relaxer.contains("maxOf(busCounts[k] ?: 0, m.trades)") &&
             relaxer.contains("refreshLaneCacheIfStale") && relaxer.contains("refreshInFlight") &&
             relaxer.contains("AATE-live-layer-relaxer-refresh"))
-        assertTrue("DUMP regime must cancel cold-start relaxation for toxic meme lanes instead of lowering floors while the wallet is bleeding",
+        assertTrue("DUMP regime must cancel cold-start relaxation for toxic meme lanes without scanning StrategyTelemetry inline",
             relaxer.contains("dumpRegimeNoRelax") && relaxer.contains("RegimeDetector.Regime.DUMP") &&
             relaxer.contains("MOONSHOT") && relaxer.contains("SHITCOIN") &&
-            relaxer.contains("metric.winRatePct < 35.0") && relaxer.contains("return 1.0"))
+            relaxer.contains("laneToxicCache[lane] ?: true") && relaxer.contains("return 1.0"))
     }
 
 
