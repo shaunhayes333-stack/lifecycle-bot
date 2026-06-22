@@ -136,10 +136,22 @@ object LiveLayerGateRelaxer {
     /** EFFECTIVE multiplier after the maturity fade and WR-gate. */
     private fun effectiveMultiplier(traderTag: String): Double {
         if (!enabled) return 1.0
-        // V5.0.4067 — WR-gated hard disable. No relaxation below doctrine floor.
+        // V5.0.4078 — BOOTSTRAP-aware WR floor. Operator P0: "must fix bleed
+        // immediately and push for profits". The legacy V5.0.4067 floor was a
+        // flat 45% — when the journal is wiped or the bot has < ~20 lifetime
+        // live closes, this locks GATE_RELAXER off forever (WR=0% < 45%),
+        // forcing the meme lanes to operate at FULL original floors during
+        // the rebuild window. Result: zero entries → zero learning → bleed.
+        // Solution: during cold-start (fewer than BOOTSTRAP_SAMPLE_THRESHOLD
+        // live terminal closes), use a lower 25% WR floor so the relaxer
+        // can fire its normal 0.85x lane fade and let the bot earn samples.
         val liveWr = refreshLiveWrCache()
-        if (liveWr < 35.0) return 1.0  // EMERGENCY: quality-only, no relaxation anywhere
-        if (liveWr < 45.0) return 1.0  // below doctrine floor: no relaxation
+        val sampleSize = refreshLiveSampleCountCache()
+        val isBootstrap = sampleSize < BOOTSTRAP_SAMPLE_THRESHOLD
+        val emergencyFloor = if (isBootstrap) 15.0 else 35.0
+        val doctrineFloor  = if (isBootstrap) 25.0 else 45.0
+        if (liveWr < emergencyFloor) return 1.0  // EMERGENCY: quality-only
+        if (liveWr < doctrineFloor) return 1.0   // below floor: no relaxation
         if (dumpRegimeNoRelax(traderTag)) return 1.0
         val base = perLaneMultiplier[canonicalLaneKey(traderTag)] ?: perLaneMultiplier[traderTag.uppercase()] ?: 1.0
         if (base >= 1.0) return 1.0  // never relaxed → nothing to fade
@@ -173,15 +185,40 @@ object LiveLayerGateRelaxer {
     fun summaryLine(): String {
         if (!enabled) return "🔓 GATE RELAXER: disabled"
         val liveWr = refreshLiveWrCache()
-        if (liveWr < 45.0) return "🔒 GATE RELAXER: DISABLED (live WR=${"%.1f".format(liveWr)}% < 45% floor)"
+        val sampleSize = refreshLiveSampleCountCache()
+        val isBootstrap = sampleSize < BOOTSTRAP_SAMPLE_THRESHOLD
+        val doctrineFloor = if (isBootstrap) 25.0 else 45.0
+        if (liveWr < doctrineFloor) {
+            val tag = if (isBootstrap) "BOOTSTRAP" else "DOCTRINE"
+            return "🔒 GATE RELAXER: DISABLED (live WR=${"%.1f".format(liveWr)}% < ${doctrineFloor.toInt()}% $tag floor · n=$sampleSize)"
+        }
         val parts = perLaneMultiplier.keys
             .map { it to effectiveMultiplier(it) }
             .filter { it.second < 1.0 }
             .joinToString(" · ") { (tag, m) ->
                 "$tag ×${"%.2f".format(m)}(n=${liveCountForLane(tag)})"
             }
-        return if (parts.isEmpty()) "🔓 GATE RELAXER: all lanes matured → 1.00× (earned floors) liveWR=${"%.1f".format(liveWr)}%"
-        else                        "🔓 GATE RELAXER (WR-aware fade): $parts liveWR=${"%.1f".format(liveWr)}%"
+        val phaseTag = if (isBootstrap) "BOOTSTRAP n=$sampleSize" else "MATURE"
+        return if (parts.isEmpty()) "🔓 GATE RELAXER: all lanes matured → 1.00× (earned floors) [$phaseTag] liveWR=${"%.1f".format(liveWr)}%"
+        else                        "🔓 GATE RELAXER (WR-aware fade) [$phaseTag]: $parts liveWR=${"%.1f".format(liveWr)}%"
+    }
+
+    // V5.0.4078 — BOOTSTRAP sample threshold. Bot operates with the lower
+    // 25%/15% WR floors until this many live terminal closes accumulate.
+    // Past this, normal 45%/35% doctrine floors apply.
+    private const val BOOTSTRAP_SAMPLE_THRESHOLD = 20
+    @Volatile private var cachedLiveSampleCount: Int = 0
+    @Volatile private var liveSampleCountStampMs: Long = 0L
+    private fun refreshLiveSampleCountCache(): Int {
+        val now = System.currentTimeMillis()
+        if (now - liveSampleCountStampMs <= LIVE_WR_CACHE_TTL_MS) return cachedLiveSampleCount
+        liveSampleCountStampMs = now
+        val n = try {
+            val leaderboard = StrategyTelemetry.computeLiveTerminalLeaderboard(limit = 2_500)
+            leaderboard.sumOf { it.trades }
+        } catch (_: Throwable) { 0 }
+        cachedLiveSampleCount = n
+        return n
     }
 
     // V5.0.4067 — LIVE WR GATE. Operator directive: relaxer must not loosen

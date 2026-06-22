@@ -163,9 +163,18 @@ object LiveStrategyTuner {
             )
         }
 
-        val pfBleed = sol < 0.0 && pf <= 0.0
+        // V5.0.4078 — BOOTSTRAP SAMPLE GUARD (operator P0: "we win when we
+        // hold ... must fix bleed immediately and push for profits"). The
+        // legacy pfBleed and meanBleed fired with n=1 — a single losing
+        // trade was enough to dampen the entire lane to size×=0.35 for the
+        // remaining rebuild window, killing volume during exactly the phase
+        // when the bot needs to earn samples. Match the wrBleed floor:
+        // require n >= 8 closed live trades before any bleeder pivot fires.
+        // Below n=8 we stay neutral so meme lanes can probe at full size
+        // and find their runners. Once n >= 8, the original logic resumes.
+        val pfBleed = n >= 8 && sol < 0.0 && pf <= 0.0
         val wrBleed = n >= 8 && wr < 35.0 && sol <= 0.0
-        val meanBleed = sol <= 0.0 && mean <= -8.0
+        val meanBleed = n >= 8 && sol <= 0.0 && mean <= -8.0
         val toxicBleed = n >= 20 && wr <= 28.0 && sol < 0.0
         if (pfBleed || wrBleed || meanBleed || toxicBleed) {
             val wrDepth = ((35.0 - wr) / 35.0).coerceIn(0.0, 1.0)
