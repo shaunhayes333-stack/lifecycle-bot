@@ -20,11 +20,14 @@ object LaneToxicityGuard {
     // V5.0.4070 — lower threshold from -8.0 to -5.0 for faster pivot.
     fun isNetNegativeDanger(lane: String, score: Int): Boolean = try {
         val liveOnly = LosingPatternMemory.liveStats(lane, score)
-        if (liveOnly.isDangerous && liveOnly.meanPnl <= -5.0) return true
-        if (liveOnly.sample < 8) {
-            val combined = LosingPatternMemory.stats(lane, score)
-            combined.isDangerous && combined.meanPnl <= -5.0
-        } else false
+        when {
+            liveOnly.isDangerous && liveOnly.meanPnl <= -5.0 -> true
+            liveOnly.sample < 8 -> {
+                val combined = LosingPatternMemory.stats(lane, score)
+                combined.isDangerous && combined.meanPnl <= -5.0
+            }
+            else -> false
+        }
     } catch (_: Throwable) { false }
 
     fun chooseNonToxicLane(mint: String, lanes: List<String>, score: Int): String? {
