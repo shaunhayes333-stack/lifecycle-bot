@@ -12430,18 +12430,18 @@ class Executor(
                     PendingSellQueue.add(ts.mint, ts.symbol, reason)
                     onLog("🔄 Sell auto-queued for retry: ${ts.symbol} | reason=$reason", tradeId.mint)
                     ErrorLogger.warn("Executor", "🔄 SELL REQUEUED: ${ts.symbol} — will retry when wallet/RPC recovers")
-                    // Only true route/no-signature failures emit this. Active sigs,
-                    // balance-proof waits, close-authority guards, and failure-history
-                    // holds are not noSig finality faults.
+                    // V5.0.4029 — generic retryable sells are NOT sell-finality
+                    // corruption. Pre-broadcast route exhaustion/dust/no-wallet-route
+                    // must never emit SELL_NO_CURRENT_HELD_PROOF_NOT_RETRIED because
+                    // the doctor interprets that as a missing/corrupt landed sell.
+                    // Typed route failures are handled inside liveSell() as
+                    // ROUTE_FAILED_NO_SIGNATURE and are non-blocking/non-closing.
                     try {
                         ForensicLogger.lifecycle(
-                            "SELL_NO_CURRENT_HELD_PROOF_NOT_RETRIED",
-                            "mint=${ts.mint.take(12)} symbol=${ts.symbol} reason=$reason no_close=true route_retry=true"
+                            "SELL_RETRY_ENQUEUED_NO_FINALITY_FAULT",
+                            "mint=${ts.mint.take(12)} symbol=${ts.symbol} reason=$reason no_close=true retry=true noSig=false"
                         )
-                        com.lifecyclebot.engine.sell.SellForensics.inc(
-                            com.lifecyclebot.engine.sell.SellForensics.EXEC_LIVE_SELL_ROUTE_FAILED_NO_SIGNATURE,
-                            "mint=${ts.mint.take(10)} symbol=${ts.symbol} reason=$reason"
-                        )
+                        PipelineHealthCollector.labelInc("SELL_RETRY_ENQUEUED_NO_FINALITY_FAULT")
                     } catch (_: Throwable) {}
                 }
             }
@@ -14455,7 +14455,10 @@ class Executor(
                     "DUST+DEEP_LOSS — balance=${"%.4f".format(actualBalanceUi)} (~${"%.6f".format(currentValueEstimate)} SOL), Jupiter can't route. Tokens remain on-chain.",
                     tokenAmount = actualBalanceUi, traderTag = "MEME",
                 )
-                return SellResult.FAILED_RETRYABLE
+                try { PendingSellQueue.remove(ts.mint) } catch (_: Throwable) {}
+                try { com.lifecyclebot.engine.sell.CloseLease.release(ts.mint, "DUST_NO_BROADCAST_NO_SIGNATURE") } catch (_: Throwable) {}
+                try { com.lifecyclebot.engine.HostWalletTokenTracker.clearSellInFlight(ts.mint, "DUST_NO_BROADCAST_NO_SIGNATURE") } catch (_: Throwable) {}
+                return SellResult.ROUTE_FAILED_NO_SIGNATURE
             }
             
             val multiplier = 10.0.pow(actualDecimals.toDouble())
@@ -14505,7 +14508,10 @@ class Executor(
                         tokenAmount = actualBalanceUi, traderTag = "MEME",
                     )
                 } catch (_: Throwable) {}
-                return SellResult.FAILED_RETRYABLE
+                try { PendingSellQueue.remove(ts.mint) } catch (_: Throwable) {}
+                try { com.lifecyclebot.engine.sell.CloseLease.release(ts.mint, "DUST_RAW_ZERO_NO_SIGNATURE") } catch (_: Throwable) {}
+                try { com.lifecyclebot.engine.HostWalletTokenTracker.clearSellInFlight(ts.mint, "DUST_RAW_ZERO_NO_SIGNATURE") } catch (_: Throwable) {}
+                return SellResult.ROUTE_FAILED_NO_SIGNATURE
             }
             // V5.9.764 — EMERGENT CRITICAL item E: qty-shrink safety assertion.
             // Operator forensics_20260515_151634.json showed HIM emergency
@@ -15020,9 +15026,9 @@ class Executor(
 
             if (sig == null) {
                 // All in-line slippage tiers exhausted — re-throw to outer
-                // catch so we get a classified SELL_FAILED + PendingSellQueue
-                // hand-off so it retries again in seconds (V5.9.478 also
-                // bumps the queue from %10 → %1 so it's almost immediate).
+                // catch so we get a classified route failure. V5.0.4029 keeps
+                // this as non-closing/non-blocking ROUTE_FAILED_NO_SIGNATURE,
+                // not a sell-finality fault and not a PendingSellQueue latch.
                 throw lastBroadcastException ?: RuntimeException(
                     "NO_SIGNATURE: ${ts.symbol}: all providers exhausted without broadcast signature at ${broadcastSlipLadder.last()}bps")
             }

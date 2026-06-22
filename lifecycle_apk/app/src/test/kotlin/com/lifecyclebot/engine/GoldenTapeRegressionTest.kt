@@ -1782,7 +1782,7 @@ class GoldenTapeRegressionTest {
         assertTrue(tracker.contains("no_signature_counter=false"))
         assertTrue("Non-route sell waits must not auto-queue or emit noSig", executor.contains("isNonRouteSellWait") && executor.contains("SELL_RETRY_SUPPRESSED_NON_ROUTE_WAIT") && executor.contains("ACTIVE_SELL_SIG_IN_FLIGHT") && executor.contains("FAILURE_HISTORY_RECONCILER_WAIT"))
         val retryBlock = executor.substring(executor.indexOf("if (result == SellResult.FAILED_RETRYABLE)"), executor.indexOf("if (result == SellResult.WAITING_BALANCE_PROOF)"))
-        assertTrue("PendingSellQueue/noSig must only run in the route-retry branch", retryBlock.contains("val nonRouteWait = isNonRouteSellWait(ts)") && retryBlock.indexOf("if (nonRouteWait)") < retryBlock.indexOf("else {") && retryBlock.indexOf("else {") < retryBlock.indexOf("PendingSellQueue.add") && retryBlock.indexOf("else {") < retryBlock.indexOf("SELL_NO_CURRENT_HELD_PROOF_NOT_RETRIED"))
+        assertTrue("Generic retry branch may enqueue, but must not emit noSig finality marker", retryBlock.contains("val nonRouteWait = isNonRouteSellWait(ts)") && retryBlock.indexOf("if (nonRouteWait)") < retryBlock.indexOf("else {") && retryBlock.indexOf("else {") < retryBlock.indexOf("PendingSellQueue.add") && !retryBlock.contains("SELL_NO_CURRENT_HELD_PROOF_NOT_RETRIED"))
     }
 
     @Test
@@ -3741,7 +3741,7 @@ class GoldenTapeRegressionTest {
         val gradle = java.io.File("build.gradle.kts").readText()
         val workflow = java.io.File("../.github/workflows/build.yml").readText()
         val version = java.io.File("../AATE_VERSION").readText().trim()
-        assertEquals("5.0.4028", version)
+        assertEquals("5.0.4029", version)
         assertTrue("Gradle must prefer explicit AATE version authority", gradle.contains("aateVersionName") && gradle.contains("AATE_VERSION"))
         assertTrue("Workflow must pass explicit AATE version into Gradle", workflow.contains("-PaateVersionName=\$AATE_VERSION_NAME"))
         assertFalse("Artifact patch identity must not be derived from CI run number", workflow.contains("VERSION_NAME=\"5.0.\${BUILD_NUMBER}\""))
@@ -3773,6 +3773,18 @@ class GoldenTapeRegressionTest {
         assertFalse("Mutex busy must not emit LIVE_BUY_TIMEOUT", exec.contains("liveStage(\"LIVE_BUY_TIMEOUT\", \"reason=MUTEX_BUSY_DEFERRED"))
         assertTrue("Jupiter v6 quote must adapt route params instead of one-shot 4xx failing", jupiter.contains("adaptive fallbacks") && jupiter.contains("restrictIntermediateTokens=false") && jupiter.contains("onlyDirectRoutes=true"))
         assertTrue("Helius creator export must cap rows and avoid exporting bulky previousTokens", heliusCreator.contains("EXPORT_MAX_ROWS") && heliusCreator.contains("take(EXPORT_MAX_ROWS)") && heliusCreator.contains("previousTokens omitted"))
+    }
+
+
+    @Test
+    fun pre_broadcast_sell_route_failures_are_not_live_sell_finality_faults() {
+        val exec = java.io.File("src/main/kotlin/com/lifecyclebot/engine/Executor.kt").readText()
+        val doctor = java.io.File("src/main/kotlin/com/lifecyclebot/engine/InvariantGuardian.kt").readText()
+        assertTrue("Dust/no-broadcast sell paths must return typed route failure", exec.contains("DUST_NO_BROADCAST_NO_SIGNATURE") && exec.contains("DUST_RAW_ZERO_NO_SIGNATURE") && exec.contains("return SellResult.ROUTE_FAILED_NO_SIGNATURE"))
+        assertTrue("Generic retryable sell queue must not emit noSig finality marker", exec.contains("SELL_RETRY_ENQUEUED_NO_FINALITY_FAULT") && exec.contains("noSig=false"))
+        assertFalse("doSell wrapper must not emit SELL_NO_CURRENT_HELD_PROOF_NOT_RETRIED for pre-broadcast route retry", exec.contains("route_retry=true"))
+        assertTrue("NO_SIGNATURE route exhaustion must be documented as non-finality transport failure", exec.contains("not a sell-finality fault") && exec.contains("not a PendingSellQueue latch"))
+        assertTrue("Doctor must exclude route_retry/pre-broadcast from finality noSig", doctor.contains("Pre-broadcast route exhaustion/no-signature is not corrupt") && doctor.contains("!ev.message.contains(\"route_retry=true\""))
     }
 
 }

@@ -119,11 +119,15 @@ object InvariantGuardian {
         // while sell routing has no-signature/slippage failures, blocking leases, or
         // false CLOSED rows based on TX_PARSE/zero/no sell signature.
         if (s.mode == "LIVE") {
+            // V5.0.4029 — count only true post-broadcast/post-finality no-proof
+            // markers. Pre-broadcast route exhaustion/no-signature is not corrupt
+            // sell finality; it is a transport route failure with no tx to finalize.
             val cumulativeNoSig = pipe?.labelCounts?.get("LIFECYCLE/SELL_NO_CURRENT_HELD_PROOF_NOT_RETRIED") ?: 0L
             val recentCutoffMs = System.currentTimeMillis() - 120_000L
             val noSig = pipe?.recentEvents?.count { ev ->
                 ev.tsMs >= recentCutoffMs &&
-                    (ev.tag == "LIFECYCLE/SELL_NO_CURRENT_HELD_PROOF_NOT_RETRIED" || ev.message.contains("SELL_NO_CURRENT_HELD_PROOF_NOT_RETRIED", true))
+                    (ev.tag == "LIFECYCLE/SELL_NO_CURRENT_HELD_PROOF_NOT_RETRIED" || ev.message.contains("SELL_NO_CURRENT_HELD_PROOF_NOT_RETRIED", true)) &&
+                    !ev.message.contains("route_retry=true", true) && !ev.message.contains("pre_broadcast", true)
             }?.toLong() ?: 0L
             val slip = (pipe?.labelCounts?.get("LIFECYCLE/SLIPPAGE_EXCEEDED") ?: 0L) +
                 (pipe?.recentEvents?.count { it.message.contains("0x1788", true) || it.message.contains("SLIPPAGE_EXCEEDED", true) } ?: 0)
