@@ -1966,6 +1966,67 @@ object FinalDecisionGate {
             checks.add(GateCheck("freeze_auth", true, null))
         }
 
+        // ═══════════════════════════════════════════════════════════════════════════
+        // V5.0.4069 — LIVE RECOVERY ENTRY HARD BLOCKS (operator directive)
+        // These are LIVE-only hard blocks that prevent execution when critical
+        // entry data is missing or incomplete. Paper mode bypasses for learning.
+        // ═══════════════════════════════════════════════════════════════════════════
+        if (blockReason == null && !config.paperMode) {
+            // Token map completeness — pair/pool address must be present
+            val tm = ts.tokenMap
+            val tokenMapIncomplete = tm.pairAddress.isBlank() || tm.poolAddress.isBlank()
+            if (tokenMapIncomplete) {
+                blockReason = "HARD_BLOCK_TOKEN_MAP_INCOMPLETE"
+                blockLevel = BlockLevel.HARD
+                checks.add(GateCheck("token_map", false, "pair=${tm.pairAddress.isBlank()} pool=${tm.poolAddress.isBlank()}"))
+                tags.add("token_map_incomplete")
+            }
+        }
+
+        if (blockReason == null && !config.paperMode) {
+            // Liquidity floor — 25k USD minimum for live entries
+            if (ts.lastLiquidityUsd < 25_000.0 && ts.lastLiquidityUsd > 0.0) {
+                blockReason = "HARD_BLOCK_LIQUIDITY_BELOW_25K"
+                blockLevel = BlockLevel.HARD
+                checks.add(GateCheck("liquidity_25k", false, "liq=\$${ts.lastLiquidityUsd.toInt()} < \$25K"))
+                tags.add("low_liquidity_25k")
+            }
+        }
+
+        if (blockReason == null && !config.paperMode) {
+            // mcap/liq ratio — if mcap is more than 8x liquidity, the token is
+            // extremely thin relative to its valuation (rug-prone exit risk).
+            val mcap = ts.lastMcap.takeIf { it > 0.0 }
+            val liq = ts.lastLiquidityUsd.takeIf { it > 0.0 }
+            if (mcap != null && liq != null && mcap / liq > 8.0) {
+                blockReason = "HARD_BLOCK_MCAP_LIQ_RATIO_${(mcap / liq).toInt()}X"
+                blockLevel = BlockLevel.HARD
+                checks.add(GateCheck("mcap_liq_ratio", false, "mcap/liq=${(mcap / liq).toInt()}x > 8x"))
+                tags.add("thin_mcap_liq_ratio")
+            }
+        }
+
+        if (blockReason == null && !config.paperMode) {
+            // Rugcheck PENDING / UNKNOWN / FAILED — must have a confirmed rugcheck
+            val rcStatus = ts.safety.rugcheckStatus
+            if (rcStatus in setOf("PENDING", "UNKNOWN", "FAILED")) {
+                blockReason = "HARD_BLOCK_RUGCHECK_${rcStatus}"
+                blockLevel = BlockLevel.HARD
+                checks.add(GateCheck("rugcheck_status", false, "status=$rcStatus (live requires CONFIRMED)"))
+                tags.add("rugcheck_$rcStatus".lowercase())
+            }
+        }
+
+        if (blockReason == null && !config.paperMode) {
+            // Entry price / entry SOL must be known and positive
+            if (ts.lastPrice <= 0.0) {
+                blockReason = "HARD_BLOCK_ENTRY_PRICE_UNKNOWN"
+                blockLevel = BlockLevel.HARD
+                checks.add(GateCheck("entry_price", false, "lastPrice=${ts.lastPrice}"))
+                tags.add("entry_price_unknown")
+            }
+        }
+
         var baseSignalMismatchIgnoredForLane = false
         if (blockReason == null && candidate.blockReason.isNotEmpty()) {
             val laneNameForBaseSignal = tradingModeTag?.name

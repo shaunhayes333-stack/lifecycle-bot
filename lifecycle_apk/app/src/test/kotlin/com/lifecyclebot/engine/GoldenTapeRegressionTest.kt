@@ -3743,7 +3743,7 @@ class GoldenTapeRegressionTest {
         val gradle = java.io.File("build.gradle.kts").readText()
         val workflow = java.io.File("../.github/workflows/build.yml").readText()
         val version = java.io.File("../AATE_VERSION").readText().trim()
-        assertEquals("5.0.4068", version)
+        assertEquals("5.0.4069", version)
         assertTrue("Gradle must prefer explicit AATE version authority", gradle.contains("aateVersionName") && gradle.contains("AATE_VERSION"))
         assertTrue("Workflow must pass explicit AATE version into Gradle", workflow.contains("-PaateVersionName=\$AATE_VERSION_NAME"))
         assertFalse("Artifact patch identity must not be derived from CI run number", workflow.contains("VERSION_NAME=\"5.0.\${BUILD_NUMBER}\""))
@@ -4103,6 +4103,23 @@ class GoldenTapeRegressionTest {
             checker.contains("42.0") && checker.contains("1.25"))
         assertTrue("EXPRESS and MANIPULATED must require WR >= 50",
             checker.contains("50.0"))
+    }
+
+    @Test
+    fun live_recovery_entry_hard_blocks_present() {
+        val fdg = java.io.File("src/main/kotlin/com/lifecyclebot/engine/FinalDecisionGate.kt").readText()
+        assertTrue("V5.0.4069: must have TOKEN_MAP_INCOMPLETE hard block",
+            fdg.contains("V5.0.4069") && fdg.contains("HARD_BLOCK_TOKEN_MAP_INCOMPLETE"))
+        assertTrue("Must have 25K liquidity floor hard block",
+            fdg.contains("HARD_BLOCK_LIQUIDITY_BELOW_25K"))
+        assertTrue("Must have mcap/liq ratio > 8x hard block",
+            fdg.contains("HARD_BLOCK_MCAP_LIQ_RATIO") && fdg.contains("> 8.0"))
+        assertTrue("Must have rugcheck PENDING/UNKNOWN/FAILED hard block",
+            fdg.contains("HARD_BLOCK_RUGCHECK_") && fdg.contains("PENDING") && fdg.contains("UNKNOWN"))
+        assertTrue("Must have entry price unknown hard block",
+            fdg.contains("HARD_BLOCK_ENTRY_PRICE_UNKNOWN"))
+        assertTrue("All new hard blocks must be LIVE-only (paperMode bypass)",
+            fdg.contains("!config.paperMode"))
     }
 
 }
