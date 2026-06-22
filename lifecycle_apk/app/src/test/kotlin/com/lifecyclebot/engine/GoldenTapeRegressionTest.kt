@@ -3743,7 +3743,7 @@ class GoldenTapeRegressionTest {
         val gradle = java.io.File("build.gradle.kts").readText()
         val workflow = java.io.File("../.github/workflows/build.yml").readText()
         val version = java.io.File("../AATE_VERSION").readText().trim()
-        assertEquals("5.0.4036", version)
+        assertEquals("5.0.4037", version)
         assertTrue("Gradle must prefer explicit AATE version authority", gradle.contains("aateVersionName") && gradle.contains("AATE_VERSION"))
         assertTrue("Workflow must pass explicit AATE version into Gradle", workflow.contains("-PaateVersionName=\$AATE_VERSION_NAME"))
         assertFalse("Artifact patch identity must not be derived from CI run number", workflow.contains("VERSION_NAME=\"5.0.\${BUILD_NUMBER}\""))
@@ -3838,6 +3838,16 @@ class GoldenTapeRegressionTest {
         assertTrue("registry paths must not admit hard rejects into watchlist/probation/promotion", reg.contains("SCANNER_HARD_REJECT") && reg.contains("probation.remove(mint)") && reg.contains("watchlist.remove(mint)"))
         assertTrue("scanner local loop must skip hard rejects before seen/rejected cooldown repair", scanner.contains("ScannerHardRejectStore.isRejected(mint)") && scanner.contains("telemetryRugRejects++"))
         assertTrue("scanner breadth must be wider than the old RAW≈50 shallow bench", scanner.contains("offset in listOf(0, 50, 100, 150, 200, 250)") && scanner.contains("totalEmitted >= 120") && scanner.contains("take(10_000)"))
+    }
+
+
+    @Test
+    fun canonical_features_use_real_sell_pressure_not_buy_pressure_mirror() {
+        val builder = java.io.File("src/main/kotlin/com/lifecyclebot/engine/CanonicalFeaturesBuilder.kt").readText()
+        assertTrue("Canonical learning must use lastSellPressurePct for sell pressure; mirroring buy pressure poisons distribution/dump labels",
+            builder.contains("sellPressure = sellPressure(ts.lastSellPressurePct)"))
+        assertFalse("Canonical learning must not mirror buy pressure into sellPressure",
+            builder.contains("sellPressure = sellPressure(ts.lastBuyPressurePct)"))
     }
 
 }

@@ -131,7 +131,7 @@ object CanonicalFeaturesBuilder {
             mcapBucket = mcapBucket(mcapUsd),
             volVelocity = volVelocity(ts),
             buyPressure = buyPressure(ts.lastBuyPressurePct),
-            sellPressure = sellPressure(ts.lastBuyPressurePct),
+            sellPressure = sellPressure(ts.lastSellPressurePct),
             holderGrowth = holderGrowth(ts.holderGrowthRate),
             holderConcentration = holderConcentration(topHolderPct ?: 0.0),
             rugTier = safetyTier,
