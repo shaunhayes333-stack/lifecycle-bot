@@ -1782,7 +1782,7 @@ class GoldenTapeRegressionTest {
         assertTrue(tracker.contains("no_signature_counter=false"))
         assertTrue("Non-route sell waits must not auto-queue or emit noSig", executor.contains("isNonRouteSellWait") && executor.contains("SELL_RETRY_SUPPRESSED_NON_ROUTE_WAIT") && executor.contains("ACTIVE_SELL_SIG_IN_FLIGHT") && executor.contains("FAILURE_HISTORY_RECONCILER_WAIT"))
         val retryBlock = executor.substring(executor.indexOf("if (result == SellResult.FAILED_RETRYABLE)"), executor.indexOf("if (result == SellResult.WAITING_BALANCE_PROOF)"))
-        assertTrue("Generic retry branch may enqueue, but must not emit noSig finality marker", retryBlock.contains("val nonRouteWait = isNonRouteSellWait(ts)") && retryBlock.indexOf("if (nonRouteWait)") < retryBlock.indexOf("else {") && retryBlock.indexOf("else {") < retryBlock.indexOf("PendingSellQueue.add") && !retryBlock.contains("SELL_NO_CURRENT_HELD_PROOF_NOT_RETRIED"))
+        assertTrue("Generic retry branch may enqueue, but must not emit runtime noSig finality side effects", retryBlock.contains("val nonRouteWait = isNonRouteSellWait(ts)") && retryBlock.indexOf("if (nonRouteWait)") < retryBlock.indexOf("else {") && retryBlock.indexOf("else {") < retryBlock.indexOf("PendingSellQueue.add") && retryBlock.contains("SELL_RETRY_ENQUEUED_NO_FINALITY_FAULT") && !retryBlock.contains("SellForensics.inc("))
     }
 
     @Test
@@ -3691,7 +3691,7 @@ class GoldenTapeRegressionTest {
         assertTrue("LiveStrategyTuner must be cached for hot paths", tuner.contains("CACHE_MS") && tuner.contains("cached") && tuner.contains("cacheAtMs"))
         assertTrue("LiveStrategyTuner must be soft-shape only, not a veto/zero-size authority", tuner.contains("Soft-shape only") && !tuner.contains("return false") && !tuner.contains("sizeMult = 0.0"))
         assertTrue("LiveStrategyTuner must bias proven live winners toward compounding runner patience", tuner.contains("compounding_runner") && tuner.contains("partialTriggerMult") && tuner.contains("holdMult = (1.25") && tuner.contains("tpMult = (1.16"))
-        assertTrue("LiveStrategyTuner must prioritize net live SOL over cosmetic WR for asymmetric winners", tuner.contains("net-SOL first live growth doctrine") && tuner.contains("sol >= 0.10") && tuner.contains("avgWinEdge"))
+        assertTrue("LiveStrategyTuner must gate capital winners by hit-rate while preserving asymmetric probes", tuner.contains("hit-rate gated net-SOL doctrine") && tuner.contains("hitRateHealthy") && tuner.contains("low_wr_asymmetric_probe") && tuner.contains("avgWinEdge"))
         assertTrue("Bleeder tuning must bank earlier, not delay partials", tuner.contains("partialTriggerMult = (0.92 - depth * 0.32).coerceIn(0.60, 0.95)"))
         assertTrue("LiveGrowthDoctrine must consume LiveStrategyTuner in the final live growth envelope", doctrine.contains("LiveStrategyTuner.adjustment") && doctrine.contains("strategyTune.compact") && doctrine.contains("tunedMaxWalletPct"))
         assertTrue("AgenticStyleRouter must expose tuned size/tp/hold multipliers", router.contains("tunedSizeMult") && router.contains("tunedTpMult") && router.contains("tunedHoldMult") && router.contains("LiveStrategyTuner.adjustment"))
@@ -3741,7 +3741,7 @@ class GoldenTapeRegressionTest {
         val gradle = java.io.File("build.gradle.kts").readText()
         val workflow = java.io.File("../.github/workflows/build.yml").readText()
         val version = java.io.File("../AATE_VERSION").readText().trim()
-        assertEquals("5.0.4030", version)
+        assertEquals("5.0.4031", version)
         assertTrue("Gradle must prefer explicit AATE version authority", gradle.contains("aateVersionName") && gradle.contains("AATE_VERSION"))
         assertTrue("Workflow must pass explicit AATE version into Gradle", workflow.contains("-PaateVersionName=\$AATE_VERSION_NAME"))
         assertFalse("Artifact patch identity must not be derived from CI run number", workflow.contains("VERSION_NAME=\"5.0.\${BUILD_NUMBER}\""))
