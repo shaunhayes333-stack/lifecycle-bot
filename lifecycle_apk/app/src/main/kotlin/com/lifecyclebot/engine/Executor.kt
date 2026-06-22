@@ -2592,21 +2592,6 @@ class Executor(
         // longer wedges the sell path. Snapshot inputs into immutable locals
         // BEFORE launch so the coroutine has stable values (no race on ts).
         try {
-            // V5.0.4063 — SYMBOLIC EXIT FINAL VERDICT WIRING.
-            // SymbolicExitReasoner already tracked pending rule fires, but no real
-            // terminal SELL path called gradeRulesOnClose(), so rules mostly learned
-            // only from noisy mid-flight ticks. Grade accepted terminal closes here;
-            // partials remain excluded because they are not the final hold/exit verdict.
-            if (tradeWithMint.side == "SELL" && ledgerAllowsClosedLearning && accountingTrainable) {
-                try {
-                    SymbolicExitReasoner.gradeRulesOnClose(tradeWithMint.mint, tradeWithMint.pnlPct)
-                    ForensicLogger.lifecycle(
-                        "SYMBOLIC_EXIT_RULES_GRADED_ON_CLOSE",
-                        "mint=${tradeWithMint.mint.take(10)} symbol=${tradeWithMint.symbol} pnl=${"%.2f".format(tradeWithMint.pnlPct)} reason=${tradeWithMint.reason.take(80)}",
-                    )
-                    PipelineHealthCollector.labelInc("SYMBOLIC_EXIT_RULES_GRADED_ON_CLOSE")
-                } catch (_: Throwable) {}
-            }
             if ((tradeWithMint.side == "SELL" || tradeWithMint.side == "PARTIAL_SELL") && ledgerAllowsClosedLearning && accountingTrainable) {
                 val tradeSnap     = tradeWithMint
                 val recentSnap    = ts.history.takeLast(30).toList()

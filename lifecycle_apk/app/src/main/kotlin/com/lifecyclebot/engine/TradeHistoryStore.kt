@@ -1362,10 +1362,20 @@ object TradeHistoryStore {
                 emaAlignment       = emaAlignment,
                 wasRug             = wasRug,
             )
-            // V5.9.1255 — authoritative grading of any symbolic rules that fired on
-            // this mint, against the TRUE final P&L (the verdict that can't be fooled
-            // by intra-trade noise; also guarantees fires never leak ungraded).
-            try { com.lifecyclebot.engine.SymbolicExitReasoner.gradeRulesOnClose(trade.mint, trade.pnlPct) } catch (_: Throwable) {}
+            // V5.0.4064 — authoritative symbolic grading is TERMINAL SELL only.
+            // recordTradeForML is invoked for SELL and PARTIAL_SELL; grading on a
+            // partial teaches the exit rules from an incomplete hold-vs-exit verdict.
+            // Keep the verdict at the ML close bridge, but gate it to final SELL rows.
+            if (trade.side.equals("SELL", ignoreCase = true)) {
+                try {
+                    com.lifecyclebot.engine.SymbolicExitReasoner.gradeRulesOnClose(trade.mint, trade.pnlPct)
+                    com.lifecyclebot.engine.ForensicLogger.lifecycle(
+                        "SYMBOLIC_EXIT_RULES_GRADED_ON_CLOSE",
+                        "mint=${trade.mint.take(10)} pnl=${"%.2f".format(trade.pnlPct)} reason=${trade.reason.take(80)}",
+                    )
+                    com.lifecyclebot.engine.PipelineHealthCollector.labelInc("SYMBOLIC_EXIT_RULES_GRADED_ON_CLOSE")
+                } catch (_: Throwable) {}
+            }
             ErrorLogger.debug("TradeHistoryStore",
                 "🧠 ML TRAINING: Recorded trade for ${trade.mint.take(8)}... | pnl=${trade.pnlPct.toInt()}%")
         } catch (e: Exception) {

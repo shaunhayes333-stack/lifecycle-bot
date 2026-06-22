@@ -3743,7 +3743,7 @@ class GoldenTapeRegressionTest {
         val gradle = java.io.File("build.gradle.kts").readText()
         val workflow = java.io.File("../.github/workflows/build.yml").readText()
         val version = java.io.File("../AATE_VERSION").readText().trim()
-        assertEquals("5.0.4063", version)
+        assertEquals("5.0.4064", version)
         assertTrue("Gradle must prefer explicit AATE version authority", gradle.contains("aateVersionName") && gradle.contains("AATE_VERSION"))
         assertTrue("Workflow must pass explicit AATE version into Gradle", workflow.contains("-PaateVersionName=\$AATE_VERSION_NAME"))
         assertFalse("Artifact patch identity must not be derived from CI run number", workflow.contains("VERSION_NAME=\"5.0.\${BUILD_NUMBER}\""))
@@ -4043,13 +4043,16 @@ class GoldenTapeRegressionTest {
 
     @Test
     fun symbolic_exit_rules_are_authoritatively_graded_on_terminal_close_not_partials() {
+        val store = java.io.File("src/main/kotlin/com/lifecyclebot/engine/TradeHistoryStore.kt").readText()
         val exec = java.io.File("src/main/kotlin/com/lifecyclebot/engine/Executor.kt").readText()
-        assertTrue("Terminal SELL learning must grade pending SymbolicExitReasoner rules on authoritative final PnL",
-            exec.contains("V5.0.4063") && exec.contains("SymbolicExitReasoner.gradeRulesOnClose(tradeWithMint.mint, tradeWithMint.pnlPct)") &&
-            exec.contains("SYMBOLIC_EXIT_RULES_GRADED_ON_CLOSE"))
+        assertTrue("Terminal SELL learning must grade pending SymbolicExitReasoner rules on authoritative final PnL at the ML close bridge",
+            store.contains("V5.0.4064") && store.contains("SymbolicExitReasoner.gradeRulesOnClose(trade.mint, trade.pnlPct)") &&
+            store.contains("SYMBOLIC_EXIT_RULES_GRADED_ON_CLOSE"))
         assertTrue("Symbolic final grading must be terminal-only; partial sells are not the final hold-vs-exit verdict",
-            exec.contains("""tradeWithMint.side == "SELL" && ledgerAllowsClosedLearning && accountingTrainable""") &&
-            exec.indexOf("SymbolicExitReasoner.gradeRulesOnClose") < exec.indexOf("""tradeWithMint.side == "SELL" || tradeWithMint.side == "PARTIAL_SELL"""))
+            store.contains("""trade.side.equals("SELL", ignoreCase = true)""") &&
+            store.indexOf("trade.side.equals") < store.indexOf("SymbolicExitReasoner.gradeRulesOnClose"))
+        assertFalse("Executor must not duplicate symbolic close grading or reference non-existent Trade.symbol",
+            exec.contains("SymbolicExitReasoner.gradeRulesOnClose(tradeWithMint.mint, tradeWithMint.pnlPct)") || exec.contains("tradeWithMint.symbol"))
     }
 
 }
