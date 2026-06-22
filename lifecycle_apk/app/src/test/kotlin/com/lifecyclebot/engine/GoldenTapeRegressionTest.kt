@@ -3743,7 +3743,7 @@ class GoldenTapeRegressionTest {
         val gradle = java.io.File("build.gradle.kts").readText()
         val workflow = java.io.File("../.github/workflows/build.yml").readText()
         val version = java.io.File("../AATE_VERSION").readText().trim()
-        assertEquals("5.0.4057", version)
+        assertEquals("5.0.4058", version)
         assertTrue("Gradle must prefer explicit AATE version authority", gradle.contains("aateVersionName") && gradle.contains("AATE_VERSION"))
         assertTrue("Workflow must pass explicit AATE version into Gradle", workflow.contains("-PaateVersionName=\$AATE_VERSION_NAME"))
         assertFalse("Artifact patch identity must not be derived from CI run number", workflow.contains("VERSION_NAME=\"5.0.\${BUILD_NUMBER}\""))
@@ -4018,9 +4018,9 @@ class GoldenTapeRegressionTest {
         val router = java.io.File("src/main/kotlin/com/lifecyclebot/engine/AgenticStyleRouter.kt").readText()
         val guard = java.io.File("src/main/kotlin/com/lifecyclebot/engine/LaneToxicityGuard.kt").readText()
         assertTrue("DEFENSIVE_PROBE must lead with quality/reclaim lanes, not only SHITCOIN/MOONSHOT, otherwise weak-DUMP pivots still bleed",
-            router.contains("V5.0.4057") && router.contains("DEFENSIVE_PROBE("defensive_probe", setOf("QUALITY", "DIP_HUNTER", "TREASURY", "PROJECT_SNIPER")"))
+            router.contains("V5.0.4057") && router.contains("""DEFENSIVE_PROBE("defensive_probe", setOf("QUALITY", "DIP_HUNTER", "TREASURY", "PROJECT_SNIPER")"""))
         assertTrue("Router must prepend rapid toxic-regime pivot lanes for MOONSHOT|S41-60 / SHITCOIN danger before lane election",
-            router.contains("rapidToxicRegimePivot") && router.contains("score in 41..60") && router.contains("listOf("QUALITY", "DIP_HUNTER", "TREASURY", "BLUECHIP")"))
+            router.contains("rapidToxicRegimePivot") && router.contains("score in 41..60") && router.contains("""listOf("QUALITY", "DIP_HUNTER", "TREASURY", "BLUECHIP")"""))
         assertTrue("Lane toxicity guard must not fall back to first toxic lane in weak DUMP when quality/reclaim alternatives are possible",
             guard.contains("V5.0.4057") && guard.contains("RegimeDetector.Regime.DUMP") && guard.contains("QUALITY") && guard.contains("DIP_HUNTER"))
         assertFalse("Fast toxic pivot must remain soft route-shape, not a hard trade block", router.contains("shouldTrade = false") || router.contains("BLOCK_") || guard.contains("return null"))
