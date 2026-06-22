@@ -267,18 +267,18 @@ object SmartSizer {
         // Proven-expectancy gate: ask the learned outcome surface whether THIS
         // signature has actually been winning. If proven-negative, cancel the
         // conviction boost down toward a floor; if proven-positive, restore it.
-        val expectancyGate: Double = try {
+        val probabilityEdge = try {
             val regimeLbl = try { com.lifecyclebot.engine.RegimeDetector.currentRegime().name } catch (_: Throwable) { "NORMAL" }
-            val fc = com.lifecyclebot.engine.ForwardOutcomeModel.forecast(
-                laneMode.ifBlank { "STANDARD" }, entryScore.toInt().coerceIn(0, 100),
-                setupQuality.take(1).uppercase(), regimeLbl, "UNKNOWN",
+            com.lifecyclebot.engine.LiveProbabilityEngine.forecast(
+                rawLane = laneMode.ifBlank { "STANDARD" },
+                score = entryScore.toInt().coerceIn(0, 100),
+                quality = setupQuality.take(1).uppercase(),
+                regime = regimeLbl,
+                edgePhase = "SMART_SIZER",
+                candidateConfidence = (entryScore / 100.0).coerceIn(0.0, 1.0),
             )
-            if (fc.samples >= 10L) {
-                // pWin 0.5 + E≈0 → neutral 1.0; proven-bad → toward 0.80; proven-good → toward 1.15
-                val edge = (fc.pWin - 0.5) + (fc.expectedPnl / 200.0).coerceIn(-0.25, 0.15)
-                (1.0 + edge).coerceIn(0.80, 1.15)
-            } else 1.0  // bootstrap: don't penalise unproven signatures (need sample size)
-        } catch (_: Throwable) { 1.0 }
+        } catch (_: Throwable) { com.lifecyclebot.engine.LiveProbabilityEngine.Edge(laneMode.ifBlank { "STANDARD" }, 0.5, 0.0, 0.0, 0.0, 0L, "failopen", 1.0, "") }
+        val expectancyGate: Double = if (probabilityEdge.samples >= 8L) probabilityEdge.sizeMult else 1.0
 
         // Apply flattened raw curve, then bend it by proven expectancy. When the
         // signature is proven-bad, expectancyGate (<1) pulls the boost back out.
@@ -290,7 +290,7 @@ object SmartSizer {
         size *= aiScoreMult
         try {
             ErrorLogger.info("SmartSizer",
-                "📐 EXPECTANCY-GATED size: rawMult=${"%.2f".format(rawScoreMult)} gate=${"%.2f".format(expectancyGate)} → mult=${"%.2f".format(aiScoreMult)} lane=$laneMode score=${entryScore.toInt()}")
+                "📐 PROBABILITY-GATED size: rawMult=${"%.2f".format(rawScoreMult)} probGate=${"%.2f".format(expectancyGate)} → mult=${"%.2f".format(aiScoreMult)} ${probabilityEdge.compact} score=${entryScore.toInt()}")
         } catch (_: Throwable) {}
 
         // ── BotBrain Source/Phase Adjustment ─────────────────────────

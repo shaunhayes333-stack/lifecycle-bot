@@ -3741,10 +3741,23 @@ class GoldenTapeRegressionTest {
         val gradle = java.io.File("build.gradle.kts").readText()
         val workflow = java.io.File("../.github/workflows/build.yml").readText()
         val version = java.io.File("../AATE_VERSION").readText().trim()
-        assertEquals("5.0.4026", version)
+        assertEquals("5.0.4027", version)
         assertTrue("Gradle must prefer explicit AATE version authority", gradle.contains("aateVersionName") && gradle.contains("AATE_VERSION"))
         assertTrue("Workflow must pass explicit AATE version into Gradle", workflow.contains("-PaateVersionName=\$AATE_VERSION_NAME"))
         assertFalse("Artifact patch identity must not be derived from CI run number", workflow.contains("VERSION_NAME=\"5.0.\${BUILD_NUMBER}\""))
+    }
+
+
+    @Test
+    fun live_probability_engine_unifies_forward_policy_and_sizer_probability() {
+        val prob = java.io.File("src/main/kotlin/com/lifecyclebot/engine/LiveProbabilityEngine.kt").readText()
+        val sizer = java.io.File("src/main/kotlin/com/lifecyclebot/engine/SmartSizer.kt").readText()
+        val reporting = java.io.File("src/main/kotlin/com/lifecyclebot/engine/ReportingHub.kt").readText()
+        assertTrue("Probability facade must expose pWin/pRug/E/uncertainty/samples/soft size", prob.contains("pWin") && prob.contains("pRug") && prob.contains("expectedPnlPct") && prob.contains("uncertaintyPct") && prob.contains("sizeMult"))
+        assertTrue("Probability facade must blend ForwardOutcomeModel + UnifiedPolicyHead + live terminal lane priors", prob.contains("ForwardOutcomeModel.forecast") && prob.contains("UnifiedPolicyHead.predictWinProb") && prob.contains("StrategyTelemetry.computeLiveTerminalLeaderboard"))
+        assertTrue("Probability facade must be soft-shape only, no veto or zero sizing", prob.contains("Soft-shape only") && !prob.contains("return false") && !prob.contains("sizeMult = 0.0"))
+        assertTrue("SmartSizer must consume LiveProbabilityEngine instead of raw scattered probability", sizer.contains("LiveProbabilityEngine.forecast") && sizer.contains("PROBABILITY-GATED size"))
+        assertTrue("Reports must surface the unified probability edge", reporting.contains("LiveProbabilityEngine.statusLine"))
     }
 
 }
