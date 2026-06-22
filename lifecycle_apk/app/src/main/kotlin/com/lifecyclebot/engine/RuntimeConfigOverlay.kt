@@ -47,14 +47,32 @@ object RuntimeConfigOverlay {
         else -> activeCommand("FORCE_PRIMARY_LANE:GLOBAL")?.value
     }
     fun isHardQualityOnlyActive(): Boolean = !paperRuntime() && (HARD_QUALITY_ONLY || normalizeLane(forcedPrimaryLane() ?: "") == "QUALITY")
+    // V5.0.4068 — LIVE RECOVERY LANE DISABLE. Operator directive overrides
+    // the V5.9.1405 "never amputate lanes" doctrine. During live recovery
+    // (WR < 45%, DUMP regime, negative expectancy), toxic lanes must be
+    // hard-disabled in LIVE mode. Paper/shadow trading continues for learning.
+    // Lanes re-enable automatically when their rolling live WR/PF/PnL recover
+    // (checked by LaneReenableChecker).
+    private val LIVE_RECOVERY_DISABLED_LANES = setOf(
+        "MOONSHOT", "SHITCOIN", "EXPRESS", "MANIPULATED",
+        "PRESALE_SNIPE", "PROJECT_SNIPER", "DIP_HUNTER", "CASHGEN", "CYCLIC",
+    )
+
     fun isLaneDisabled(lane: String): Boolean {
-        // V5.9.1405 — autonomous agenic doctrine: runtime mitigations may not
-        // amputate trader lanes. Bad lanes must size-shape / learn / pivot, not
-        // disappear. Scanner/API mitigations can still protect infrastructure,
-        // and FDG/hard safety can still veto toxic tokens, but lane disable is
-        // never an execution answer.
-        return false
+        val normalized = normalizeLane(lane)
+        // Paper mode: never disable lanes — keep learning.
+        if (paperRuntime()) return false
+        // Live recovery: hard-disable toxic lanes.
+        if (normalized in LIVE_RECOVERY_DISABLED_LANES) {
+            // Check if the lane has earned re-enablement via LaneReenableChecker.
+            if (try { LaneReenableChecker.isReenabled(normalized) } catch (_: Throwable) { false }) return false
+            return true
+        }
+        // Runtime mitigation overlay (existing path).
+        return active("DISABLE_LANE:$normalized")
     }
+
+    fun liveRecoveryDisabledLanes(): Set<String> = LIVE_RECOVERY_DISABLED_LANES
     fun isPreAuthDisabled(): Boolean = !paperRuntime() && active("DISABLE_PREAUTH:GLOBAL")
     fun isScannerSourceDisabled(source: String): Boolean = active("DISABLE_SCANNER_SOURCE:${source.uppercase()}") || active("QUARANTINE_SOURCE:${source.uppercase()}")
     fun isTradingPaused(): Boolean = !paperRuntime() && active("PAUSE_TRADING:GLOBAL")

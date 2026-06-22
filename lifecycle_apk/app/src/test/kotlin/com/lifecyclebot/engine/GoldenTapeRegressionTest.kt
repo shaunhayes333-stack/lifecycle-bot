@@ -3743,7 +3743,7 @@ class GoldenTapeRegressionTest {
         val gradle = java.io.File("build.gradle.kts").readText()
         val workflow = java.io.File("../.github/workflows/build.yml").readText()
         val version = java.io.File("../AATE_VERSION").readText().trim()
-        assertEquals("5.0.4067", version)
+        assertEquals("5.0.4068", version)
         assertTrue("Gradle must prefer explicit AATE version authority", gradle.contains("aateVersionName") && gradle.contains("AATE_VERSION"))
         assertTrue("Workflow must pass explicit AATE version into Gradle", workflow.contains("-PaateVersionName=\$AATE_VERSION_NAME"))
         assertFalse("Artifact patch identity must not be derived from CI run number", workflow.contains("VERSION_NAME=\"5.0.\${BUILD_NUMBER}\""))
@@ -4083,6 +4083,26 @@ class GoldenTapeRegressionTest {
             regime.contains("Regime.CHOP         -> +10"))
         assertTrue("CHOP sizeMultiplier must be 0.35 (was 0.65)",
             regime.contains("Regime.CHOP         -> 0.35"))
+    }
+
+    @Test
+    fun live_recovery_disables_toxic_lanes_with_reenable_path() {
+        val overlay = java.io.File("src/main/kotlin/com/lifecyclebot/engine/RuntimeConfigOverlay.kt").readText()
+        assertTrue("V5.0.4068: isLaneDisabled must check LIVE_RECOVERY_DISABLED_LANES in live mode",
+            overlay.contains("V5.0.4068") && overlay.contains("LIVE_RECOVERY_DISABLED_LANES"))
+        assertTrue("Toxic lanes must include MOONSHOT, SHITCOIN, EXPRESS, MANIPULATED, PRESALE_SNIPE",
+            overlay.contains("MOONSHOT") && overlay.contains("SHITCOIN") && overlay.contains("EXPRESS") &&
+            overlay.contains("MANIPULATED") && overlay.contains("PRESALE_SNIPE"))
+        assertTrue("Paper mode must never disable lanes",
+            overlay.contains("if (paperRuntime()) return false"))
+        assertTrue("LaneReenableChecker must be consulted before disabling",
+            overlay.contains("LaneReenableChecker.isReenabled"))
+
+        val checker = java.io.File("src/main/kotlin/com/lifecyclebot/engine/LaneReenableChecker.kt").readText()
+        assertTrue("Reenable checker must require WR >= 42 and PF >= 1.25",
+            checker.contains("42.0") && checker.contains("1.25"))
+        assertTrue("EXPRESS and MANIPULATED must require WR >= 50",
+            checker.contains("50.0"))
     }
 
 }
