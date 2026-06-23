@@ -60,7 +60,13 @@ class CoinGeckoSolanaTopMcap {
 
     @Volatile private var establishedCache: List<EstablishedToken> = emptyList()
     @Volatile private var establishedFetchedAt: Long = 0L
-    private val MARKETS_TTL_MS = 30L * 60 * 1000  // 30 min
+    private val MARKETS_TTL_MS = 8L * 60 * 1000  // V5.0.4108 — 8min refresh (was 30min) so SOL-wide fresh data lands faster
+
+    /** Eager prime — call from BotService init so the cache populates
+     *  on bot start instead of waiting for the first scanner pass. */
+    fun primeOnStart() {
+        try { refresh() } catch (_: Throwable) { }
+    }
 
     /** Returns top-N Solana ecosystem tokens by mcap with mint addresses
      *  (only those that resolved successfully via the platform map). */

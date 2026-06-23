@@ -5131,6 +5131,16 @@ class BotService : Service() {
         // V5.0.4097 — ScannerSourceBrain (per-source intake AGI brain)
         ScannerSourceBrain.init(applicationContext)
         addLog("🧠 ${ScannerSourceBrain.summary().lineSequence().first()}")
+
+        // V5.0.4108 — eager prime SOL-wide established-asset feeders so the
+        // scanner has data on first pass instead of waiting for cache miss.
+        Thread {
+            try {
+                com.lifecyclebot.network.CoinGeckoSolanaTopMcap().primeOnStart()
+                com.lifecyclebot.network.JupiterStrictTokenList().primeOnStart()
+                addLog("🌐 SOL-wide feeders primed (CG-established + Jupiter-strict)")
+            } catch (_: Throwable) {}
+        }.apply { isDaemon = true; name = "SOL-feeder-prime" }.start()
         
         // Initialize ModeLearning for per-mode learning instances
         ModeLearning.init(applicationContext)
