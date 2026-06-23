@@ -14012,6 +14012,11 @@ class Executor(
             try { com.lifecyclebot.engine.ForwardOutcomeModel.recordOutcome(ts.mint, pnlP) } catch (_: Throwable) {}
             try { com.lifecyclebot.engine.SignalQualityTracker.recordOutcome(ts.mint, pnlP) } catch (_: Throwable) {}
             try { com.lifecyclebot.engine.UnifiedPolicyHead.recordOutcome(ts.mint, pnlP) } catch (_: Throwable) {}
+            // V5.0.4095 — train per-lane exit brain. exitWasOptimal heuristic:
+            // exit didn't catastrophically overrun (pnl > -5%) AND wasn't a
+            // capitulation (we banked something, not zeroed). The exit brain
+            // learns when "exit now" vs "hold longer" was the right call.
+            try { com.lifecyclebot.engine.UnifiedExitPolicyHead.recordOutcome(ts.mint, pnlP > -5.0) } catch (_: Throwable) {}
             try { com.lifecyclebot.engine.StrategyHypothesisEngine.recordOutcome(ts.mint, pnlP) } catch (_: Throwable) {}
             ErrorLogger.info("Executor", "🎓 HARVARD BRAIN: Recorded outcome for ${ts.symbol} | PnL=${pnlP.toInt()}% | Active layers will increase")
         } catch (e: Exception) {
@@ -16504,6 +16509,11 @@ class Executor(
             try { com.lifecyclebot.engine.ForwardOutcomeModel.recordOutcome(ts.mint, pnlP) } catch (_: Throwable) {}
             try { com.lifecyclebot.engine.SignalQualityTracker.recordOutcome(ts.mint, pnlP) } catch (_: Throwable) {}
             try { com.lifecyclebot.engine.UnifiedPolicyHead.recordOutcome(ts.mint, pnlP) } catch (_: Throwable) {}
+            // V5.0.4095 — train per-lane exit brain. exitWasOptimal heuristic:
+            // exit didn't catastrophically overrun (pnl > -5%) AND wasn't a
+            // capitulation (we banked something, not zeroed). The exit brain
+            // learns when "exit now" vs "hold longer" was the right call.
+            try { com.lifecyclebot.engine.UnifiedExitPolicyHead.recordOutcome(ts.mint, pnlP > -5.0) } catch (_: Throwable) {}
             try { com.lifecyclebot.engine.StrategyHypothesisEngine.recordOutcome(ts.mint, pnlP) } catch (_: Throwable) {}
             ErrorLogger.info("Executor", "🎓 HARVARD BRAIN (LIVE): Recorded outcome for ${ts.symbol} | PnL=${pnlP.toInt()}%")
         } catch (e: Exception) {
