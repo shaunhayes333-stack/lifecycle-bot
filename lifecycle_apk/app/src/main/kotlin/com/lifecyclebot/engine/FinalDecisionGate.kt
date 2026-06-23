@@ -2005,13 +2005,34 @@ object FinalDecisionGate {
         // entry data is missing or incomplete. Paper mode bypasses for learning.
         // ═══════════════════════════════════════════════════════════════════════════
         if (blockReason == null && !config.paperMode) {
-            // Token map completeness — pair/pool address must be present
+            // V5.0.4105 — Wave E (lane unchoke): operator op-report 5.0.4102
+            // shows HARD_BLOCK_TOKEN_MAP_INCOMPLETE = 24/25 FDG decisions
+            // (96% of FDG live blocks). Root cause: gate required BOTH
+            // pairAddress AND poolAddress, but pump.fun pre-migration tokens
+            // legitimately have only the bonding curve route, and Raydium
+            // fresh pools sometimes only populate poolAddress before the
+            // DexScreener pair address surfaces.
+            //
+            // Doctrine (operator P0 patch §6): hard-block ONLY when the
+            // sell/balance authority would be unsafe — i.e. when there is
+            // no usable execution route at all. Accept any of:
+            //   • DexScreener pair address (Raydium/Orca/migrated)
+            //   • Pool address (canonical AMM pool)
+            //   • Pump.fun bonding curve with pumpFunExecutable=true
+            // If none of those exist → genuine no-route → keep hard block.
             val tm = ts.tokenMap
-            val tokenMapIncomplete = tm.pairAddress.isBlank() || tm.poolAddress.isBlank()
-            if (tokenMapIncomplete) {
+            val hasPair = tm.pairAddress.isNotBlank()
+            val hasPool = tm.poolAddress.isNotBlank()
+            val hasPumpBondingRoute = tm.pumpFunBondingCurveAddress.isNotBlank() &&
+                tm.pumpFunExecutable && !tm.migratedOrGraduated
+            val hasAnyRoute = hasPair || hasPool || hasPumpBondingRoute
+            if (!hasAnyRoute) {
                 blockReason = "HARD_BLOCK_TOKEN_MAP_INCOMPLETE"
                 blockLevel = BlockLevel.HARD
-                checks.add(GateCheck("token_map", false, "pair=${tm.pairAddress.isBlank()} pool=${tm.poolAddress.isBlank()}"))
+                checks.add(GateCheck(
+                    "token_map", false,
+                    "noRoute pair=${hasPair} pool=${hasPool} pumpBondingExec=${hasPumpBondingRoute} routeStatus=${tm.routeStatus}"
+                ))
                 tags.add("token_map_incomplete")
             }
         }
