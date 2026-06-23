@@ -339,6 +339,43 @@ object ErrorLogger {
         }
     }
 
+    // V5.0.4088 — COMPACT ERROR-LOG TABLE (operator: "the error log needs to be
+    // truncated at the end into a much more condensed table. heaps of good info
+    // is cut off"). Drops the verbose 3-line-per-entry format in favour of a
+    // single-line table that fits ~40-50 entries in the same ~3.2KB budget the
+    // verbose version chewed through with ~12 entries — and prepends a level +
+    // component frequency rollup so the operator can spot patterns at a glance.
+    fun exportToCompactTable(limit: Int = 80, msgMax: Int = 96): String {
+        val logs = getRecentLogs(limit)
+        if (logs.isEmpty()) return "(no log entries captured)"
+        val levelHist = LinkedHashMap<String, Int>()
+        val componentHist = LinkedHashMap<String, Int>()
+        for (log in logs) {
+            levelHist.merge(log.level, 1) { a, b -> a + b }
+            componentHist.merge(log.component, 1) { a, b -> a + b }
+        }
+        return buildString {
+            appendLine("Session: $sessionId · entries: ${logs.size} (newest first)")
+            val byLevel = levelHist.entries.sortedByDescending { it.value }
+                .joinToString(" · ") { "${it.key}=${it.value}" }
+            appendLine("By level: $byLevel")
+            val byComp = componentHist.entries.sortedByDescending { it.value }
+                .take(8)
+                .joinToString(" · ") { "${it.key}=${it.value}" }
+            appendLine("Top components: $byComp")
+            appendLine()
+            appendLine("TIME     LVL  COMPONENT          MESSAGE")
+            for (log in logs) {
+                val time = log.timeFormatted.takeLast(8) // HH:MM:SS
+                val lvl = log.level.padEnd(4).take(4)
+                val comp = log.component.padEnd(18).take(18)
+                val msg = log.message.replace('\n', ' ').replace('\r', ' ').trim()
+                    .let { if (it.length > msgMax) it.take(msgMax - 1) + "…" else it }
+                appendLine("$time $lvl $comp $msg")
+            }
+        }
+    }
+
     // ── Cleanup ───────────────────────────────────────────────────────
 
     fun cleanup() {

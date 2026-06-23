@@ -184,7 +184,7 @@ object ReportingHub {
         addBoundedSection("LEARNING + TUNING STATE", 7_200) { buildLearningTuningSummary() }
         addBoundedSection("TRADE JOURNAL SUMMARY", 5_200) { buildJournalSummary() }
         addBoundedSection("FORENSIC SUMMARY", 2_800) { buildForensicSummary() }
-        addBoundedSection("ERROR LOGS — RECENT", 3_200) { ErrorLogger.exportToText(limit = 25) }
+        addBoundedSection("ERROR LOGS — RECENT", 3_200) { ErrorLogger.exportToCompactTable(limit = 60) }
 
         val text = out.toString().trimEnd()
         return if (text.length <= budget) text else text.take(budget - 180) + "\n\n[REPORT_TRUNCATED hardCap=$budget chars — sections above are priority-ordered and internally condensed]"
@@ -312,7 +312,7 @@ object ReportingHub {
             "===== LIVE execution telemetry", "===== PAPER execution telemetry", "===== ANR / main-thread health", "===== ANR top blocking call sites",
             "===== Strategy expectancy", "===== Regime detector",
             "===== Performance analytics", "===== Separated WR metrics", "===== Throughput choke audit", "===== Token meta cache", "===== Slot health / close ledger",
-            "===== Birdeye budget", "===== API health", "===== Key verdicts"
+            "===== Birdeye budget", "===== Trading fee accumulator", "===== API health", "===== Key verdicts"
         )
         val sections = splitSections(raw)
         val out = StringBuilder(14 * 1024)
@@ -352,6 +352,7 @@ object ReportingHub {
             "Performance analytics" in header -> 14
             "Throughput choke" in header -> 18
             "Pipeline funnel" in header -> 12
+            "Trading fee accumulator" in header -> 6
             else -> 7
         }
         return body.lineSequence()
