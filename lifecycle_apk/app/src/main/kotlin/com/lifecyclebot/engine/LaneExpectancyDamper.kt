@@ -72,6 +72,16 @@ object LaneExpectancyDamper {
     // WR — the variance is the cost of the upside.
     private const val RUNNER_MEAN_PCT = 20.0
 
+    // V5.0.4085 — WR-based RUNNER exemption gate (operator P0 ops snapshot:
+    // MOONSHOT n=141, WR=36%, gross-EV +80%/trade, but realized mean ≈ -0.02%
+    // because Birdeye TP cuts + slippage shaved gross down to net-flat. The
+    // mean-only RUNNER_MEAN_PCT exemption never fires for these strategies,
+    // so the damper read MOONSHOT as a bleeder and crushed sizing to ×0.18.
+    // WR + sample count is a better profitability proxy than realized mean
+    // for asymmetric runners. Exempt lanes meeting EITHER condition.
+    private const val WR_RUNNER_MIN_TRADES = 30
+    private const val WR_RUNNER_MIN_PCT = 35.0
+
     // Cheap cache so we don't recompute the leaderboard on every single entry in
     // a hot scan burst. Refresh window keeps it live without thrashing.
     private const val CACHE_MS = 5_000L
@@ -140,6 +150,16 @@ object LaneExpectancyDamper {
             // mean-PnL >= +20% over a meaningful sample is NEVER damped.
             // Variance is the price of the asymmetric upside, not a defect.
             if (m.trades >= MIN_TRADES && m.meanPnlPct >= RUNNER_MEAN_PCT) {
+                out[m.strategy.trim().uppercase()] = 1.0
+                continue
+            }
+
+            // V5.0.4085 — WR-BASED RUNNER EXEMPTION (operator P0: MOONSHOT
+            // n=141 WR=36% had gross EV +80%/trade but realized mean ≈ flat
+            // due to TP cuts + slippage. The mean-only gate above never
+            // fires; switch to WR + sample-count which actually reflects
+            // the strategy's profitability profile. Exempt entirely.
+            if (m.trades >= WR_RUNNER_MIN_TRADES && m.winRatePct >= WR_RUNNER_MIN_PCT) {
                 out[m.strategy.trim().uppercase()] = 1.0
                 continue
             }

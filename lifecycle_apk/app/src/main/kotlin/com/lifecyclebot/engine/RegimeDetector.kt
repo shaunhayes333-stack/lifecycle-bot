@@ -93,7 +93,15 @@ object RegimeDetector {
         val regime = when {
             wr >= 45.0 && meanPnl >= 3.0 && (v3Median < 0 || v3Median >= 35) -> Regime.BULL_RIPPING
             wr in 25.0..44.99 && abs(meanPnl) < 3.0                         -> Regime.NORMAL
-            wr in 15.0..24.99                                                -> Regime.CHOP
+            // V5.0.4085 — ASYMMETRIC-RUNNER EXEMPTION (operator P0: meme/MOONSHOT
+            // profiles run sub-25% WR by design — frequent small losses paid by
+            // fat-tail winners. Pre-V5.0.4085 the CHOP gate fired on WR<25 alone
+            // and crushed sizing by ×0.35 even when the book was net-positive in
+            // SOL terms. WR-only is the wrong signal for runner regimes; require
+            // a non-positive realized mean before declaring CHOP. Likewise DUMP
+            // already gates on meanPnl <= -3.0, so the new CHOP gate just adds
+            // the symmetric "mean must be losing" requirement.
+            wr in 15.0..24.99 && meanPnl < 0.0                              -> Regime.CHOP
             wr < 15.0 && meanPnl <= -3.0                                     -> Regime.DUMP
             else                                                              -> Regime.NORMAL
         }

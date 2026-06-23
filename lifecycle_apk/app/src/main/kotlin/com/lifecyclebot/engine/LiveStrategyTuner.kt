@@ -182,20 +182,16 @@ object LiveStrategyTuner {
         // of frequent small losses. Mirror the LaneExpectancyDamper fix:
         // if mean-PnL >= +20% over MIN_TRADES, exempt entirely. The big-tail
         // wins are what pay; variance is the cost, not a defect.
-        if (n >= 8 && mean >= 20.0) {
+        // V5.0.4085 — WR-based RUNNER exemption (operator P0: snapshot showed
+        // MOONSHOT n=141 wr=36% getting damped because tuner reads NET-realized
+        // mean (-0.018%/trade), not gross EV (+80%/trade). Switch to WR + sample
+        // gate which actually reflects the lane's profitability profile.
+        if ((n >= 30 && wr >= 40.0) || (n >= 8 && mean >= 20.0)) {
             return Adjustment(
-                lane = lane,
-                trades = n,
-                winRatePct = wr,
-                totalSolPnl = sol,
-                pfExpectancyPp = pf,
-                meanPnlPct = mean,
-                sizeMult = 1.0,
-                tpMult = 1.20,    // still let winners run further
-                holdMult = 1.40,  // hold longer for asymmetric upside
-                maxWalletMult = 1.0,
-                liquidityImpactMult = 1.0,
-                partialTriggerMult = 1.30,
+                lane = lane, trades = n, winRatePct = wr, totalSolPnl = sol,
+                pfExpectancyPp = pf, meanPnlPct = mean, sizeMult = 1.0,
+                tpMult = 1.20, holdMult = 1.40, maxWalletMult = 1.0,
+                liquidityImpactMult = 1.0, partialTriggerMult = 1.30,
                 label = "asymmetric_runner_exempt",
             )
         }
