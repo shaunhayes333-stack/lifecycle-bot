@@ -489,7 +489,7 @@ class GoldenTapeRegressionTest {
         val bot = java.io.File("src/main/kotlin/com/lifecyclebot/engine/BotService.kt").readText()
         val fdg = java.io.File("src/main/kotlin/com/lifecyclebot/engine/FinalDecisionGate.kt").readText()
 
-        assertTrue("Guard must key toxicity on matured net-negative danger buckets via live-only stats", guard.contains("LosingPatternMemory.liveStats") && guard.contains("meanPnl <= -5.0"))
+        assertTrue("Guard must key toxicity on matured net-negative danger buckets via live-only stats", guard.contains("LosingPatternMemory.liveStats") && guard.contains("meanPnl <= -2.0"))
         assertTrue("Guard must reroute only when alternatives exist", guard.contains("chooseNonToxicLane") && guard.contains("filterNonToxic") && guard.contains("return lanes.firstOrNull"))
         assertTrue("Agentic style primary/alternate lane election must avoid toxic buckets when possible", router.contains("LaneToxicityGuard.chooseNonToxicLane") && router.contains("LaneToxicityGuard.filterNonToxic") && router.contains("boundedLanes(ts.mint, base + d.toolkit.laneVotes, d.style, score)"))
         assertTrue("MemeTrader owner rotation must avoid toxic lanes when possible", bot.contains("scoreForToxicity") && bot.contains("LaneToxicityGuard.filterNonToxic(rawOwnerPool") && bot.contains("ownerPool"))
@@ -4106,8 +4106,8 @@ class GoldenTapeRegressionTest {
             bleeder.contains("n50 >= 8 && wr50 < 30.0"))
 
         val guard = java.io.File("src/main/kotlin/com/lifecyclebot/engine/LaneToxicityGuard.kt").readText()
-        assertTrue("Toxicity guard threshold lowered from -8.0 to -5.0 with live-only authority",
-            guard.contains("meanPnl <= -5.0") && guard.contains("LosingPatternMemory.liveStats"))
+        assertTrue("V5.0.4089: toxicity guard threshold lowered -5.0→-2.0 + loss-rate trigger for slow bleeders",
+            guard.contains("meanPnl <= -2.0") && guard.contains("LosingPatternMemory.liveStats") && guard.contains("lossRateLive >= 0.75"))
         assertTrue("Quality fallback must prefer BLUECHIP, QUALITY, WALLET_RECOVERED first",
             guard.contains("BLUECHIP") && guard.contains("WALLET_RECOVERED") && guard.contains("LIQUIDITY_DEPTH_QUALITY"))
 
