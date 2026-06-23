@@ -10620,9 +10620,22 @@ class Executor(
                 else rawTokenAmountToUiAmount(ts, quote!!.outAmount, solAmount = sol, priceUsd = price)
 
             if (ts.position.isOpen) {
-                onLog("⚠ Position opened during confirmation wait — aborting duplicate", ts.mint)
-                emitLiveBuyFail(ts, sol, "POSITION_OPENED_DURING_CONFIRMATION_WAIT")
-                return false
+                // V5.0.4100 — Wave 3: treat 'position opened during confirmation
+                // wait' as a successful buy (idempotency), not a failure. The
+                // token account exists, the wallet balance reflects the buy,
+                // re-buying would double up and risk a duplicate-fill bug.
+                // Reclassify as BUY_OK_LATE_CONFIRMED so the strategy doesn't
+                // count this as a failure when training. Doctrine: do not let
+                // confirmation-wait races shrink entry size or train as loss.
+                onLog("✅ Position opened during confirmation wait — late-confirm success (idempotent)", ts.mint)
+                try {
+                    com.lifecyclebot.engine.PipelineHealthCollector.labelInc("BUY_OK_LATE_CONFIRMED")
+                    com.lifecyclebot.engine.ForensicLogger.lifecycle(
+                        "BUY_OK_LATE_CONFIRMED",
+                        "symbol=${ts.symbol} mint=${ts.mint.take(8)} reason=POSITION_ALREADY_OPEN_AT_CONFIRM"
+                    )
+                } catch (_: Throwable) { }
+                return true
             }
 
             val tokenAgeMs = System.currentTimeMillis() - ts.addedToWatchlistAt
@@ -13481,7 +13494,8 @@ class Executor(
                         pnlPct = pnlP
                     )
                 } catch (_: Throwable) { }
-                
+                // (Paper closes intentionally do NOT feed LiveSizingProfile.
+                //  Daily ramp is fed from LIVE closes only — see LIVE close path.)
                 val tradingMode = ts.position.tradingMode.ifEmpty { "STANDARD" }
                 val hourOfDayForMode = java.util.Calendar.getInstance().get(java.util.Calendar.HOUR_OF_DAY)
                 val holdTimeMs = System.currentTimeMillis() - ts.position.entryTime
@@ -16129,6 +16143,20 @@ class Executor(
                     ScannerSourceBrain.recordOutcome(
                         source = ts.source.ifEmpty { "UNKNOWN" },
                         pnlPct = pnlP
+                    )
+                } catch (_: Throwable) { }
+                // V5.0.4100 — Wave 3: feed realized LIVE close into LiveSizingProfile
+                // daily ramp. pnl is already in SOL (livePnlSol). Realized-only —
+                // RESTORED basis closures are flagged so they never feed
+                // compounding authority (doctrine).
+                try {
+                    val restoredUnknownBasis =
+                        ts.source.contains("RESTORED", ignoreCase = true) ||
+                        ts.position.costSol <= 0.0
+                    LiveSizingProfile.recordRealizedClose(
+                        walletNowSol = 0.0,  // anchor refreshes via SmartSizer tick
+                        pnlSol = pnl,
+                        restoredUnknownBasis = restoredUnknownBasis,
                     )
                 } catch (_: Throwable) { }
             }
