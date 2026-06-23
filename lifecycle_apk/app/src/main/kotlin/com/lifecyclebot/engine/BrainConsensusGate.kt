@@ -170,7 +170,24 @@ object BrainConsensusGate {
         }
 
         return ConsensusReport(
-            verdict     = if (provenDead && verdict == Verdict.ALLOW) Verdict.SOFT_BLOCK else verdict,
+            // V5.0.4092 — PROVEN-DEAD = HARD BLOCK at the source (operator P0:
+            // 'fix it now properly at the source of the issue. no patches at the
+            // top of the chain. it must lift the bot towards our daily compound
+            // goals'). Pre-4092 the proven-dead 'normalEntryBlocked' path only
+            // produced a SOFT_BLOCK, which FDG then dust-shaped to 0.02 SOL but
+            // STILL EXECUTED THE TRADE. Real-world MOONSHOT|S41-60 at -68% mean
+            // × 0.02 SOL × 24 non-probe ticks = guaranteed -0.33 SOL bleed per
+            // learning cycle. The probe cadence was nominal, not enforced. Now:
+            // normalEntryBlocked → HARD_BLOCK (trade does not open at all);
+            // probeAllowed → SOFT_BLOCK (passes through, dust-sized to 0.02 by
+            // FDG for re-education). This is the 1-in-25 cadence as designed:
+            // 1 of 25 trades actually fires for learning, 24 do not. The bucket
+            // remains alive and CAN heal because the probe keeps it learning.
+            verdict     = when {
+                provenDead && normalEntryBlocked -> Verdict.HARD_BLOCK
+                provenDead && verdict == Verdict.ALLOW -> Verdict.SOFT_BLOCK
+                else -> verdict
+            },
             objections  = objections,
             mood        = mood,
             regime      = regime.name,
