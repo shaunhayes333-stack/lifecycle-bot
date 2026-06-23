@@ -66,6 +66,12 @@ object LaneExpectancyDamper {
     private const val WINNER_START_MULT = 1.12
     private const val WINNER_MAX_MULT = 1.45
 
+    // V5.0.4082 — RUNNER threshold for asymmetric-strategy exemption.
+    // Any lane with mean-PnL/trade at or above this value is treated as an
+    // asymmetric runner and never damped, regardless of total SOL pnl or
+    // WR — the variance is the cost of the upside.
+    private const val RUNNER_MEAN_PCT = 20.0
+
     // Cheap cache so we don't recompute the leaderboard on every single entry in
     // a hot scan burst. Refresh window keeps it live without thrashing.
     private const val CACHE_MS = 5_000L
@@ -124,6 +130,20 @@ object LaneExpectancyDamper {
             // it could only shrink to ~half-size. That is incompatible with the
             // operator's 2–5x/day wallet-growth target: negative-SOL lanes must become
             // cheap learning probes, while positive PF/WR lanes get more capital.
+            // V5.0.4082 — ASYMMETRIC-RUNNER EXEMPTION (operator P0: "we win
+            // when we hold"). A lane with high mean-PnL but low WR is the
+            // exact signature of meme-runner strategy — frequent small losses
+            // paid for by a few asymmetric 50×+ winners. The pre-V5.0.4082
+            // damper was EV-blind: it saw MOONSHOT (EV=+80%/trade, WR=45%,
+            // net SOL barely positive) and damped to ×0.18, strangling the
+            // exact lane that pays. The runner doctrine: any lane with
+            // mean-PnL >= +20% over a meaningful sample is NEVER damped.
+            // Variance is the price of the asymmetric upside, not a defect.
+            if (m.trades >= MIN_TRADES && m.meanPnlPct >= RUNNER_MEAN_PCT) {
+                out[m.strategy.trim().uppercase()] = 1.0
+                continue
+            }
+
             val winner = m.trades >= WINNER_MIN_TRADES &&
                 m.totalSolPnl > 0.0 && m.winRatePct >= 50.0 && m.pfExpectancyPp > 0.0
             if (winner) {
