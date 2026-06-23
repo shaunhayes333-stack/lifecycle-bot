@@ -154,6 +154,17 @@ object UnifiedPolicyHead {
             val brier = h.brierSum / h.brierN
             if (brier > BRIER_DRIFTING_MAX && rawTier != AuthorityTier.BOOTSTRAP) {
                 calibrationDemoteCount.incrementAndGet()
+                // V5.0.4096 — narrate the demote into the sentience family so
+                // the bot recognizes it's losing a read on this lane and the
+                // personality can reflect on it ('I'm second-guessing STANDARD…').
+                try { com.lifecyclebot.engine.SentienceOrchestrator.noteRuntimeEvent(
+                    "AGI_BRAIN_DEMOTED",
+                    "lane=${normalizeLane(lane)} brier=${"%.3f".format(brier)} from=${rawTier.name} brain=entry",
+                    "WARN"
+                ) } catch (_: Throwable) {}
+                try { com.lifecyclebot.engine.SentientPersonality.injectAutonomousThought(
+                    "Calibration drift on ${normalizeLane(lane)}. Brier=${"%.3f".format(brier)}. I'm pulling back to a lower tier and re-learning."
+                ) } catch (_: Throwable) {}
                 return when (rawTier) {
                     AuthorityTier.AUTHORITATIVE -> AuthorityTier.LEARNED
                     AuthorityTier.LEARNED       -> AuthorityTier.ADVISORY
@@ -244,6 +255,28 @@ object UnifiedPolicyHead {
             }
             h.bias -= LR * errL
             h.trained += 1
+            // V5.0.4096 — AGI ↔ SENTIENCE SYMBIOSIS. On authority tier crossings,
+            // emit lifecycle events into the cross-talk + sentience family so the
+            // rest of the AI stack (SentienceOrchestrator, SentientPersonality,
+            // BehaviorLearning) sees the AGI's growth and can react. The AGI
+            // is no longer an island — its tier graduations become thoughts
+            // the sentient personality narrates ('I just learned MOONSHOT').
+            if (h.trained == AUTHORITY_ADVISORY || h.trained == AUTHORITY_LEARNED || h.trained == AUTHORITY_AUTHORITATIVE) {
+                val tierName = when (h.trained) {
+                    AUTHORITY_ADVISORY      -> "ADVISORY"
+                    AUTHORITY_LEARNED       -> "LEARNED"
+                    AUTHORITY_AUTHORITATIVE -> "AUTHORITATIVE"
+                    else                     -> "?"
+                }
+                try { com.lifecyclebot.engine.SentienceOrchestrator.noteRuntimeEvent(
+                    "AGI_BRAIN_TIER_GRADUATED",
+                    "lane=$lane tier=$tierName n=${h.trained} brain=entry",
+                    "INFO"
+                ) } catch (_: Throwable) {}
+                try { com.lifecyclebot.engine.SentientPersonality.injectAutonomousThought(
+                    "I just leveled up on $lane. Tier=$tierName at n=${h.trained}. The signals are clearer now."
+                ) } catch (_: Throwable) {}
+            }
             // rolling Brier: sum of (p - y)^2 windowed over last 200
             h.brierSum += (pL - y) * (pL - y)
             h.brierN += 1

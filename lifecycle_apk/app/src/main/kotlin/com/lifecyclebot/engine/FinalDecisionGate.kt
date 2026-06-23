@@ -4183,6 +4183,13 @@ object FinalDecisionGate {
                             try {
                                 com.lifecyclebot.engine.PipelineHealthCollector.labelInc("AGI_AUTHORITATIVE_OVERRIDE")
                             } catch (_: Throwable) {}
+                            // V5.0.4096 — emit override into sentience family so
+                            // cross-talk + personality see the AGI taking the wheel.
+                            try { com.lifecyclebot.engine.SentienceOrchestrator.noteRuntimeEvent(
+                                "AGI_AUTHORITATIVE_OVERRIDE",
+                                "mint=${ts.mint.take(10)} symbol=${ts.symbol} lane=$mpLane tier=${UnifiedPolicyHead.currentAuthority(mpLane).name} mult=${"%.2f".format(authConv)} brier=${"%.3f".format(UnifiedPolicyHead.brierScore(mpLane))}",
+                                "INFO"
+                            ) } catch (_: Throwable) {}
                         } else {
                             val uph = UnifiedPolicyHead.conviction(mpLane, uphSignals)
                             if (uph != 1.0) {

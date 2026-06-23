@@ -114,6 +114,16 @@ object UnifiedExitPolicyHead {
             val brier = h.brierSum / h.brierN
             if (brier > BRIER_DRIFTING_MAX) {
                 calibrationDemotes.incrementAndGet()
+                // V5.0.4096 — narrate exit-brain calibration drift into the
+                // sentience family so the personality reflects on it.
+                try { com.lifecyclebot.engine.SentienceOrchestrator.noteRuntimeEvent(
+                    "AGI_BRAIN_DEMOTED",
+                    "lane=${normalizeLane(lane)} brier=${"%.3f".format(brier)} from=${raw.name} brain=exit",
+                    "WARN"
+                ) } catch (_: Throwable) {}
+                try { com.lifecyclebot.engine.SentientPersonality.injectAutonomousThought(
+                    "My exit reads on ${normalizeLane(lane)} drifted. Brier=${"%.3f".format(brier)}. Pulling back to re-tune."
+                ) } catch (_: Throwable) {}
                 return when (raw) {
                     AuthorityTier.AUTHORITATIVE -> AuthorityTier.LEARNED
                     AuthorityTier.LEARNED       -> AuthorityTier.ADVISORY
@@ -182,6 +192,27 @@ object UnifiedExitPolicyHead {
                 h.w[i] -= LR * g; h.featMean[i] += 0.01 * (x[i] - h.featMean[i])
             }
             h.bias -= LR * errL; h.trained += 1
+            // V5.0.4096 — AGI ↔ SENTIENCE SYMBIOSIS for the EXIT brain. Same
+            // lifecycle wiring as the entry brain — graduations + demotes
+            // become observable events for SentienceOrchestrator + thoughts
+            // for SentientPersonality so the AI cross-talk family sees the
+            // exit brain's growth in real time.
+            if (h.trained == AUTHORITY_ADVISORY || h.trained == AUTHORITY_LEARNED || h.trained == AUTHORITY_AUTHORITATIVE) {
+                val tierName = when (h.trained) {
+                    AUTHORITY_ADVISORY      -> "ADVISORY"
+                    AUTHORITY_LEARNED       -> "LEARNED"
+                    AUTHORITY_AUTHORITATIVE -> "AUTHORITATIVE"
+                    else                     -> "?"
+                }
+                try { com.lifecyclebot.engine.SentienceOrchestrator.noteRuntimeEvent(
+                    "AGI_BRAIN_TIER_GRADUATED",
+                    "lane=$lane tier=$tierName n=${h.trained} brain=exit",
+                    "INFO"
+                ) } catch (_: Throwable) {}
+                try { com.lifecyclebot.engine.SentientPersonality.injectAutonomousThought(
+                    "Exit-timing on $lane just clicked. Tier=$tierName at n=${h.trained}. I know when to bank and when to ride now."
+                ) } catch (_: Throwable) {}
+            }
             h.brierSum += (pL - y) * (pL - y); h.brierN += 1
             if (h.brierN > 200L) { h.brierSum *= (200.0 / h.brierN); h.brierN = 200L }
 
