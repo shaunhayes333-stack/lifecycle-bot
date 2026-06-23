@@ -1690,3 +1690,71 @@ CSV EXPORT REWRITE (TradeJournal.kt)
   • LIVE Net Realized / PAPER Simulated Net broken out separately —
     paper rows can never pollute tax math.
 
+
+═══════════════════════════════════════════════════════════════════════════
+V5.0.4097 — V5.0.4105 — SUPER AGI WAVES (lane starvation kill + aggressive
+compound + sell-failure P0 patch + TOKEN_MAP unchoke)
+                                                              2026-06-24
+═══════════════════════════════════════════════════════════════════════════
+
+V5.0.4097  KILL LANE STARVATION
+  • new CoinGeckoSolanaTopMcap feeder (top-100 mcap Solana tokens, 30min cache)
+  • TokenSource.COINGECKO_ESTABLISHED + scanCoinGeckoEstablished
+  • new ScannerSourceBrain — per-source intake AGI (BOOTSTRAP→AUTHORITATIVE)
+  • starvation detector: BLUECHIP+DIP_HUNTER+QUALITY ≤5 → 60s 1.5x boost
+  • intakeMultiplier shapes scanner emit() score multiplicatively
+
+V5.0.4098  AGGRESSIVE COMPOUND sizing floor (Wave 1)
+  • LiveSizingProfile — central config: floors 0.025/0.040/0.070/0.120 SOL,
+    walletPct 2/4/7.5%, max-initial 10%, gas reserve 0.075
+  • SmartSizer.calculate end-stage compound floor lift (LIVE only, paper
+    untouched). Conviction tiers from (entryScore, setupQuality).
+
+V5.0.4099  Gate→Size soft-shape + lane-aware compound (Wave 2)
+  • Convert FDG C_GRADE_CONFIDENCE_FLOOR_27% from HARD_KILL → soft ×0.65
+  • Convert FDG CIRCUIT_BREAKER (non-emergency) → soft ×0.55
+  • Lane-aware floors: MOONSHOT/STANDARD/WALLET_RECOVERED/established
+  • Per-mint thread-local pendingShape consumed by SmartSizer
+
+V5.0.4100  Daily realized-PnL ramp + buy idempotency (Wave 3)
+  • LiveSizingProfile.recordRealizedClose wired into LIVE close path
+    (paper closes excluded). RESTORED-basis closures excluded from ramp.
+  • Daily mults: ≥10% → 1.15x, ≥25% → 1.30x, ≥50% → 1.50x. UTC reset.
+  • POSITION_OPENED_DURING_CONFIRMATION_WAIT reclassified as
+    BUY_OK_LATE_CONFIRMED (idempotent, never trains as fail).
+
+V5.0.4101  P0 Wave A — strict ExitIntentClassifier
+  • new sell/ExitIntentClassifier — FULL_EXIT / PARTIAL_PROFIT / etc.
+  • Replace 7-keyword skip-blob in tryPumpPortalSell. EXIT-RESCUE,
+    ORPHAN-SWEEP, RECOVERED, STRICT_SL, RUG_EXIT all reach PumpPortal again.
+
+V5.0.4102  P0 Wave B — provider circuit breakers
+  • new sell/ExitProviderHealth — Jupiter sell-side 503 cooldown (90s after
+    2x in 30s, probe-once on expiry). Pump direct 0x1788 per-mint
+    suppression (60s after 2nd strike, route-cache invalidation).
+  • Wired into Jupiter quote ladder (skip when degraded) + 0x1788 sim
+    failure + Pump rescue branch (skip if suppressed).
+
+V5.0.4103  P0 Wave C — punch-through expansion + severity table
+  • new sell/SellIntentSeverity — 100/90/80/70/60/50/40/30/10 tiers.
+  • blockIfSellInFlight punch-through reasons extended:
+    + STRICT_SL, HARD_STOP, STOP_LOSS, EXIT-RESCUE, EXIT_RESCUE,
+      EXIT-DRAIN-RESCUE, RAPID_CATASTROPHE, LIQUIDITY_REMOVED,
+      WALLET_DRAIN, HONEYPOT, DEV_DUMP, DEV_SELL.
+  • Punch-through also calls CloseLease.raiseIntent so workers read
+    the new emergency reason.
+
+V5.0.4104  P0 Wave D — RecoveredHoldGuard 15-min hold-grace
+  • new RecoveredHoldGuard — operator §4+§13 spec.
+  • markRecovered(mint) wired into WalletReconciler.recoverOrphanPosition.
+  • shouldSuppress gate at top of blockIfSellInFlight — non-emergency
+    sells held during the 15-min window. Emergency reasons override.
+
+V5.0.4105  P0 Wave E — TOKEN_MAP_INCOMPLETE unchoke
+  • Live forensic showed FDG block 24/25 = 96% on TOKEN_MAP_INCOMPLETE.
+  • Was: required BOTH pairAddress AND poolAddress (broke pump.fun
+    pre-migration tokens which only have bonding curve route).
+  • Now: hard-block ONLY when no usable route at all. Accepts
+    pairAddress OR poolAddress OR (pumpFunBondingCurveAddress +
+    pumpFunExecutable + !migratedOrGraduated).
+
