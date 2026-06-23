@@ -80,7 +80,7 @@ object TokenMetricStageRouter {
         // MOONSHOT). Never routes to BLUECHIP/QUALITY/TREASURY which need
         // real price history to size correctly.
         val freshLaunch = !baseStart && !midAccum && !markup &&
-            ageMin <= 3.0 && (hist.size < 3 || currentVsPeak >= 0.98) &&
+            ageMin <= 5.0 && (hist.size < 5 || currentVsPeak >= 0.92) &&
             liq >= 800.0 && sp <= 70.0
         val stage = when {
             rugProne -> Stage.RUG_PRONE

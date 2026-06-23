@@ -172,6 +172,33 @@ object LiveStrategyTuner {
         // require n >= 8 closed live trades before any bleeder pivot fires.
         // Below n=8 we stay neutral so meme lanes can probe at full size
         // and find their runners. Once n >= 8, the original logic resumes.
+        //
+        // V5.0.4084 — ASYMMETRIC-RUNNER EXEMPTION (operator P0 "entry
+        // sizing is too small to make big enough gains"). A lane with high
+        // mean-PnL (asymmetric runner profile) is the same signature this
+        // tuner already labels positively as low_wr_asymmetric_probe — yet
+        // the bleeder pivot below would then size it down to 0.35x because
+        // its total SOL pnl is near-zero or slightly negative on the back
+        // of frequent small losses. Mirror the LaneExpectancyDamper fix:
+        // if mean-PnL >= +20% over MIN_TRADES, exempt entirely. The big-tail
+        // wins are what pay; variance is the cost, not a defect.
+        if (n >= 8 && mean >= 20.0) {
+            return Adjustment(
+                lane = lane,
+                trades = n,
+                winRatePct = wr,
+                totalSolPnl = sol,
+                pfExpectancyPp = pf,
+                meanPnlPct = mean,
+                sizeMult = 1.0,
+                tpMult = 1.20,    // still let winners run further
+                holdMult = 1.40,  // hold longer for asymmetric upside
+                maxWalletMult = 1.0,
+                liquidityImpactMult = 1.0,
+                partialTriggerMult = 1.30,
+                label = "asymmetric_runner_exempt",
+            )
+        }
         val pfBleed = n >= 8 && sol < 0.0 && pf <= 0.0
         val wrBleed = n >= 8 && wr < 35.0 && sol <= 0.0
         val meanBleed = n >= 8 && sol <= 0.0 && mean <= -8.0
