@@ -17413,7 +17413,7 @@ class Executor(
                 LiveTradeLogStore.log(
                     sellTradeKey, ts.mint, ts.symbol, "SELL",
                     LiveTradeLogStore.Phase.SELL_ROUTE_SKIPPED,
-                    "PumpPortal skipped for partial-profit label=$labelTag (fraction=${"%.3f".format(requestedFraction)}) — Jupiter/Metis exact-in.",
+                    "PumpPortal skipped for partial/profit label=$labelTag (fraction=${"%.3f".format(requestedFraction)}) — Jupiter/Metis exact-in.",
                     traderTag = traderTag,
                 )
                 try { PipelineHealthCollector.labelInc("PUMPPORTAL_PARTIAL_ROUTE_SKIPPED_NOT_ATTEMPTED") } catch (_: Throwable) {}
