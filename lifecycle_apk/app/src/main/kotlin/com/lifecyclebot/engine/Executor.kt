@@ -14743,8 +14743,27 @@ class Executor(
             // while letting genuinely volatile pump.fun memes complete after 2-3
             // 0x1788 retries.
             val slippageLevels = com.lifecyclebot.engine.sell.SellSafetyPolicy.ladder(reason)
-            
-            for (slipLevel in slippageLevels) {
+
+            // V5.0.4102 — Wave B: GLOBAL Jupiter sell-side circuit breaker.
+            // If two 503s landed in the last 30s, skip the Jupiter quote ladder
+            // entirely (90s cooldown) and let execution fall through to the
+            // PumpPortal/Helius direct route below. Probe-once on cooldown
+            // expiry; a successful Jupiter call clears the breaker.
+            val jupiterCircuitOpen = com.lifecyclebot.engine.sell.ExitProviderHealth.isJupiterExitDegraded()
+            if (jupiterCircuitOpen) {
+                LiveTradeLogStore.log(
+                    sellTradeKey, ts.mint, ts.symbol, "SELL",
+                    LiveTradeLogStore.Phase.SELL_QUOTE_FAIL,
+                    "JUPITER_CIRCUIT_OPEN — skipping Jupiter ladder, going direct (PumpPortal/Helius). cooldownRemainMs=${com.lifecyclebot.engine.sell.ExitProviderHealth.jupiterCooldownRemainingMs()}",
+                    traderTag = "MEME",
+                )
+                try {
+                    ForensicLogger.lifecycle("JUPITER_LADDER_SKIPPED_CIRCUIT_OPEN",
+                        "mint=${ts.mint.take(10)} cooldownRemainMs=${com.lifecyclebot.engine.sell.ExitProviderHealth.jupiterCooldownRemainingMs()}")
+                } catch (_: Throwable) {}
+            }
+
+            for (slipLevel in if (jupiterCircuitOpen) emptyList() else slippageLevels) {
                 for (attempt in 1..2) {
                     try {
                         onLog("SELL: Quote attempt slippage=${slipLevel}bps try=$attempt...", tradeId.mint)
@@ -14790,10 +14809,26 @@ class Executor(
                             slippageBps = slipLevel,
                             traderTag = "MEME",
                         )
+                        // V5.0.4102 — Wave B: feed 503 / unavailable into the
+                        // global circuit breaker. recordJupiterSell503 only
+                        // opens the breaker after 2x in 30s.
+                        try {
+                            val em = (e.message ?: "").lowercase()
+                            if (em.contains("503") || em.contains("unavailable") ||
+                                em.contains("temporarily") || em.contains("bad gateway") ||
+                                em.contains("502") || em.contains("504") || em.contains("gateway timeout")) {
+                                com.lifecyclebot.engine.sell.ExitProviderHealth.recordJupiterSell503()
+                            }
+                        } catch (_: Throwable) {}
                         if (attempt < 2) Thread.sleep(300)
                     }
                 }
-                if (quote != null) break
+                if (quote != null) {
+                    // V5.0.4102 — successful Jupiter sell quote clears the breaker.
+                    try { com.lifecyclebot.engine.sell.ExitProviderHealth.recordJupiterSellOk() }
+                    catch (_: Throwable) {}
+                    break
+                }
             }
             
             // V5.9.72 CRITICAL FIX: If ALL quote attempts failed, KEEP the
@@ -15129,6 +15164,14 @@ class Executor(
                         "SLIPPAGE @ ${currentSlip}bps (in-line attempt $broadcastAttempts) — escalating",
                         slippageBps = currentSlip, traderTag = "MEME",
                     )
+                    // V5.0.4102 — Wave B: 0x1788 invalidates the Pump route
+                    // cache for this mint and after a second strike suppresses
+                    // Pump direct for 60s (per operator spec). Per-mint only —
+                    // a different mint can still try Pump direct.
+                    if (safe.contains("0x1788", ignoreCase = true)) {
+                        try { com.lifecyclebot.engine.sell.ExitProviderHealth.recordPump1788(ts.mint) }
+                        catch (_: Throwable) {}
+                    }
                     // Loop continues to next slippage tier
                 }
             }
@@ -15178,6 +15221,23 @@ class Executor(
                 val rescueSlip = 5  // V5.9.1524 — 5% live sell cap (was 90/50; builder also caps)
                 val rescueJito = c.jitoEnabled
                 val rescueTip = effectiveJitoTipLamports(c, urgent = isDrainExit)
+                // V5.0.4102 — Wave B: skip Pump rescue if the mint is currently
+                // in 60s Pump-direct suppression after 2x 0x1788 strikes. The
+                // rescue will be re-attempted on a later tick once cooldown
+                // elapses; the sell lease persists, so the position stays
+                // intent-preserved.
+                val pumpSuppressed = try {
+                    com.lifecyclebot.engine.sell.ExitProviderHealth.isPumpDirectSuppressed(ts.mint)
+                } catch (_: Throwable) { false }
+                if (pumpSuppressed) {
+                    LiveTradeLogStore.log(
+                        sellTradeKey, ts.mint, ts.symbol, "SELL",
+                        LiveTradeLogStore.Phase.SELL_ROUTE_SKIPPED,
+                        "PUMP_RESCUE_SKIPPED — mint is in 0x1788 suppression cooldown.",
+                        traderTag = "MEME",
+                    )
+                    try { ForensicLogger.lifecycle("PUMP_RESCUE_SKIPPED_SUPPRESSED", "mint=${ts.mint.take(10)}") } catch (_: Throwable) {}
+                } else {
                 sig = tryPumpPortalSell(
                     ts = ts,
                     wallet = wallet,
@@ -15197,6 +15257,12 @@ class Executor(
                     traderTag = "MEME",
                     labelTag = if (isDrainExit) "EXIT-DRAIN-RESCUE" else "EXIT-RESCUE",
                 )
+                // V5.0.4102 — successful Pump rescue clears the suppression for this mint.
+                if (sig != null) {
+                    try { com.lifecyclebot.engine.sell.ExitProviderHealth.recordPumpSellOk(ts.mint) }
+                    catch (_: Throwable) {}
+                }
+                }  // end else (Pump rescue allowed branch)
             }
 
             if (sig == null) {
