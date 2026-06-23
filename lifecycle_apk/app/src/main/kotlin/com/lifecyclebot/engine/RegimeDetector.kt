@@ -75,16 +75,13 @@ object RegimeDetector {
         } catch (_: Throwable) { -1 }
 
         if (recentSells.size < 10) {
-            // V5.0.4078 — BOOTSTRAP regime (operator P0: "wiped learning,
-            // back to 0"). The legacy DEAD fallback applied sizeMult=0.50
-            // and triggered GATE_RELAXER cold-start lockout, producing a
-            // self-fulfilling bleed where day-1 trades were sized at ~17%
-            // of normal and the bot could never earn enough wins to climb
-            // out. BOOTSTRAP keeps regime detection honest (we don't know
-            // yet) while preserving full sizing and zero score-floor delta
-            // so the meme stack can actually trade for profit during the
-            // rebuild window.
-            return RegimeSnapshot(Regime.BOOTSTRAP, 0.0, 0.0, v3Median, recentSells.size, now)
+            // V5.0.4081 — NO BOOTSTRAP IN LIVE (operator P0). Real money
+            // pipeline does NOT get a free pass for being early. When sample
+            // is thin we report NORMAL semantics (sizeMult=1.0, scoreFloor
+            // delta=0) — quality drives sizing, not newness. The lane-level
+            // tuners (LiveStrategyTuner, LaneExpectancyDamper, LaneExitTuner)
+            // already adapt per-lane on their own sample timelines.
+            return RegimeSnapshot(Regime.NORMAL, 0.0, 0.0, v3Median, recentSells.size, now)
         }
 
         val wins = recentSells.count { it.pnlPct > 1.0 }
@@ -117,7 +114,7 @@ object RegimeDetector {
         Regime.CHOP         -> +10  // was +5 — CHOP is where most bleed happens
         Regime.DUMP         -> +20  // was +15 — bleeding hard, quality only
         Regime.DEAD         ->   0
-        Regime.BOOTSTRAP    ->   0  // V5.0.4078 — cold-start, no penalty
+        Regime.BOOTSTRAP    ->   0  // V5.0.4081 — retained for binary compat; no longer emitted by detect()
     }
 
     /**

@@ -136,22 +136,17 @@ object LiveLayerGateRelaxer {
     /** EFFECTIVE multiplier after the maturity fade and WR-gate. */
     private fun effectiveMultiplier(traderTag: String): Double {
         if (!enabled) return 1.0
-        // V5.0.4078 — BOOTSTRAP-aware WR floor. Operator P0: "must fix bleed
-        // immediately and push for profits". The legacy V5.0.4067 floor was a
-        // flat 45% — when the journal is wiped or the bot has < ~20 lifetime
-        // live closes, this locks GATE_RELAXER off forever (WR=0% < 45%),
-        // forcing the meme lanes to operate at FULL original floors during
-        // the rebuild window. Result: zero entries → zero learning → bleed.
-        // Solution: during cold-start (fewer than BOOTSTRAP_SAMPLE_THRESHOLD
-        // live terminal closes), use a lower 25% WR floor so the relaxer
-        // can fire its normal 0.85x lane fade and let the bot earn samples.
+        // V5.0.4081 — NO BOOTSTRAP IN LIVE (operator P0). Live trading uses
+        // real money: sample-count handholding is a paper-mode concept that
+        // leaks bleed-protection into a real-money pipeline. The V5.0.4078
+        // bootstrap branch incorrectly tied the WR floor to lifetime sample
+        // count, producing a 45% MATURE cliff at n=20 that locked the relaxer
+        // off for the rebuild window. Now the floors are FLAT and quality-
+        // based: relax fires whenever live WR clears 30%, emergency only
+        // below 20%. Quality drives sizing, not newness.
         val liveWr = refreshLiveWrCache()
-        val sampleSize = refreshLiveSampleCountCache()
-        val isBootstrap = sampleSize < BOOTSTRAP_SAMPLE_THRESHOLD
-        val emergencyFloor = if (isBootstrap) 15.0 else 35.0
-        val doctrineFloor  = if (isBootstrap) 25.0 else 45.0
-        if (liveWr < emergencyFloor) return 1.0  // EMERGENCY: quality-only
-        if (liveWr < doctrineFloor) return 1.0   // below floor: no relaxation
+        if (liveWr < EMERGENCY_FLOOR_PCT) return 1.0   // quality-only, no relaxation
+        if (liveWr < DOCTRINE_FLOOR_PCT)  return 1.0   // below floor: no relaxation
         if (dumpRegimeNoRelax(traderTag)) return 1.0
         val base = perLaneMultiplier[canonicalLaneKey(traderTag)] ?: perLaneMultiplier[traderTag.uppercase()] ?: 1.0
         if (base >= 1.0) return 1.0  // never relaxed → nothing to fade
@@ -185,12 +180,8 @@ object LiveLayerGateRelaxer {
     fun summaryLine(): String {
         if (!enabled) return "🔓 GATE RELAXER: disabled"
         val liveWr = refreshLiveWrCache()
-        val sampleSize = refreshLiveSampleCountCache()
-        val isBootstrap = sampleSize < BOOTSTRAP_SAMPLE_THRESHOLD
-        val doctrineFloor = if (isBootstrap) 25.0 else 45.0
-        if (liveWr < doctrineFloor) {
-            val tag = if (isBootstrap) "BOOTSTRAP" else "DOCTRINE"
-            return "🔒 GATE RELAXER: DISABLED (live WR=${"%.1f".format(liveWr)}% < ${doctrineFloor.toInt()}% $tag floor · n=$sampleSize)"
+        if (liveWr < DOCTRINE_FLOOR_PCT) {
+            return "🔒 GATE RELAXER: DISABLED (live WR=${"%.1f".format(liveWr)}% < ${DOCTRINE_FLOOR_PCT.toInt()}% floor)"
         }
         val parts = perLaneMultiplier.keys
             .map { it to effectiveMultiplier(it) }
@@ -198,28 +189,16 @@ object LiveLayerGateRelaxer {
             .joinToString(" · ") { (tag, m) ->
                 "$tag ×${"%.2f".format(m)}(n=${liveCountForLane(tag)})"
             }
-        val phaseTag = if (isBootstrap) "BOOTSTRAP n=$sampleSize" else "MATURE"
-        return if (parts.isEmpty()) "🔓 GATE RELAXER: all lanes matured → 1.00× (earned floors) [$phaseTag] liveWR=${"%.1f".format(liveWr)}%"
-        else                        "🔓 GATE RELAXER (WR-aware fade) [$phaseTag]: $parts liveWR=${"%.1f".format(liveWr)}%"
+        return if (parts.isEmpty()) "🔓 GATE RELAXER: all lanes matured → 1.00× (earned floors) liveWR=${"%.1f".format(liveWr)}%"
+        else                        "🔓 GATE RELAXER (WR-aware fade): $parts liveWR=${"%.1f".format(liveWr)}%"
     }
 
-    // V5.0.4078 — BOOTSTRAP sample threshold. Bot operates with the lower
-    // 25%/15% WR floors until this many live terminal closes accumulate.
-    // Past this, normal 45%/35% doctrine floors apply.
-    private const val BOOTSTRAP_SAMPLE_THRESHOLD = 20
-    @Volatile private var cachedLiveSampleCount: Int = 0
-    @Volatile private var liveSampleCountStampMs: Long = 0L
-    private fun refreshLiveSampleCountCache(): Int {
-        val now = System.currentTimeMillis()
-        if (now - liveSampleCountStampMs <= LIVE_WR_CACHE_TTL_MS) return cachedLiveSampleCount
-        liveSampleCountStampMs = now
-        val n = try {
-            val leaderboard = StrategyTelemetry.computeLiveTerminalLeaderboard(limit = 2_500)
-            leaderboard.sumOf { it.trades }
-        } catch (_: Throwable) { 0 }
-        cachedLiveSampleCount = n
-        return n
-    }
+    // V5.0.4081 — FLAT QUALITY-BASED FLOORS (no bootstrap in live). The
+    // relaxer fires whenever live WR clears 30%; emergency lockdown only
+    // below 20%. These thresholds match the operator doctrine "we trade
+    // for profit, not for samples".
+    private const val EMERGENCY_FLOOR_PCT = 20.0
+    private const val DOCTRINE_FLOOR_PCT  = 30.0
 
     // V5.0.4067 — LIVE WR GATE. Operator directive: relaxer must not loosen
     // lanes while live WR is below the 45% doctrine floor. Below 35% = emergency
