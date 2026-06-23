@@ -7,6 +7,26 @@ Stocks, Markets, Tokenized Stocks, Forex, Metals, Commodities). Foreground
 Service with a 50+ AI-module pipeline gated through processTokenCycle.
 
 
+## V5.0.4089 (Feb 2026) — RE-EDUCATE the bleeders (STANDARD/SHITCOIN/etc) — never disable — CI ✅
+
+**Operator:** *"sort out the trading logic. get the rest of the traders thinking and making the right entries. sick of losing money. dont disable pivot - re-educate and succeed. 2x-5x daily wallet growth target."*
+
+**Audit:** the re-education machinery (`LosingPatternMemory` danger buckets, `1-in-25 PROVEN_DEAD` probe cadence, `LaneToxicityGuard` routing pivot) was already wired correctly but the THRESHOLDS were tuned for catastrophic buckets, not slow bleeders. From ops snapshot — `STANDARD|S0-10 losses=32 wins=7 lossRate=82% meanPnl=-3.58%` was hemorrhaging -0.035 SOL at full size because:
+- `isProvenDead` required `wins<=1` → STANDARD had 7 wins → never fired
+- `LaneToxicityGuard` required `mean<=-5%` → STANDARD was -3.58% → never fired
+- BCG SOFT_BLOCK damp was 0.90 → barely any size cut
+
+**Fix:** three coordinated changes that preserve the 1-in-25 probe cadence (re-educate, not disable):
+1. `BrainConsensusGate.isProvenDead`: ALSO catch mature bleeders (n≥20, lossRate≥75%, mean≤-1.0). Severe catastrophic gate retained as upper tier.
+2. `LaneToxicityGuard.isNetNegativeDanger`: lower threshold -5.0→-2.0 + add loss-rate trigger (n≥20 AND lossRate≥75% AND mean≤-0.5).
+3. `FDG` BCG SOFT_BLOCK damp: danger objections now trigger hard 0.50× (was 0.90×); deep deficit + danger = 0.25×.
+
+**Expected outcome:** STANDARD lane stops eating full-size losses on known losing score bands. The bucket trades 1-in-25 dust probes that keep the WR counter alive so the bucket can heal back to full sizing when its real-world performance turns positive. MOONSHOT and other healthy lanes entirely unaffected — they don't hit the danger-bucket criteria.
+
+**CI:** commit `55cf9d706` → Build APK ✅ + Runtime Smoke Test ✅. AATE_VERSION=5.0.4089. (Hit 1 transient — GoldenTape assertions needed -2.0 threshold update; fixed in `55cf9d706`.)
+
+
+
 ## V5.0.4087 (Feb 2026) — surface trading fee accumulator status in pipeline health snapshot — CI ✅
 
 **Operator:** *"can you make sure that the trading fees are accumulating to be sent please"*
