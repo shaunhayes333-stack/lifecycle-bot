@@ -6,6 +6,21 @@ NO local compiler. Multi-lane architecture (Memes [9 sub-lanes], Crypto/Alts,
 Stocks, Markets, Tokenized Stocks, Forex, Metals, Commodities). Foreground
 Service with a 50+ AI-module pipeline gated through processTokenCycle.
 
+
+## V5.0.4085 (Feb 2026) — WR-based RUNNER exemption (LiveStrategyTuner + LaneExpectancyDamper + RegimeDetector) — CI ✅
+
+**Operator:** ops snapshot showed MOONSHOT n=141 wr=36% gross-EV +80%/trade getting damped to ~5% sizing. Three different organs (LiveStrategyTuner, LaneExpectancyDamper, RegimeDetector) all keyed exemption gates on NET-realized mean (-0.018%/trade after TP cuts + slippage), not gross EV. Mean-only exemption never fires for asymmetric runners → lane reads as bleeder → triple-stacked size haircut.
+
+**Fix:** Switch exemption signals from mean-PnL to Win Rate + sample count:
+- `LiveStrategyTuner.kt`: exempt when `n>=30 && wr>=40` OR existing `n>=8 && mean>=20`.
+- `LaneExpectancyDamper.kt`: add `WR_RUNNER` gate (`n>=30 && wr>=35`) alongside `RUNNER_MEAN_PCT`.
+- `RegimeDetector.kt`: CHOP now requires BOTH low WR AND negative meanPnl (was WR-only) — runner profiles with low WR but positive mean stay NORMAL, skip the global ×0.35 CHOP haircut.
+
+**CI:** commit `e7868a465` → Build AATE APK ✅ + Runtime Smoke Test ✅. AATE_VERSION=5.0.4085, GoldenTape assertion bumped.
+
+**Pending verification:** awaiting fresh ops report to confirm MOONSHOT sizeMult ≈ 1.0 in live.
+
+
 ## V5.0.3928 (Feb 2026) — PAPER ADVISOR GATE: de-poisons learning — CI ✅ (build AATE_v5.0.3932)
 
 **Operator:** *"same logic now needs to be applied to paper learning. it must not buy rugs in paper mode either. the entire learning system is basically poisoned currently."*
