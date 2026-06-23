@@ -2023,29 +2023,15 @@ object FinalDecisionGate {
             val tm = ts.tokenMap
             val hasPair = tm.pairAddress.isNotBlank()
             val hasPool = tm.poolAddress.isNotBlank()
-            // V5.0.4106 — accept ANY pump.fun bonding curve hint, not only
-            // pumpFunExecutable=true. Live forensic V5.0.4105 op-report:
-            // 22 fresh pump.fun mints still hard-blocked because async route
-            // resolution sets pumpFunExecutable=true LATER than the FDG sees
-            // them. The bonding-curve address is the routing primary key —
-            // if it's populated, we can build a sell instruction; downstream
-            // sim will catch genuine 'curve complete / no liquidity' cases
-            // via the slippage abort path that's already wired.
             val hasPumpBondingRoute = tm.pumpFunBondingCurveAddress.isNotBlank() &&
-                !tm.migratedOrGraduated
-            // V5.0.4106 — also recognise scanner-tagged dex routes that
-            // simply haven't been re-resolved yet (e.g. ScannedToken.dexId =
-            // 'raydium' arriving from RAYDIUM_NEW_POOL feeder). The pool
-            // address resolves on first quote attempt.
-            val hasDexHint = tm.dexId.isNotBlank() && tm.dexId != "UNKNOWN" &&
-                tm.dexId != "unknown"
-            val hasAnyRoute = hasPair || hasPool || hasPumpBondingRoute || hasDexHint
+                tm.pumpFunExecutable && !tm.migratedOrGraduated
+            val hasAnyRoute = hasPair || hasPool || hasPumpBondingRoute
             if (!hasAnyRoute) {
                 blockReason = "HARD_BLOCK_TOKEN_MAP_INCOMPLETE"
                 blockLevel = BlockLevel.HARD
                 checks.add(GateCheck(
                     "token_map", false,
-                    "noRoute pair=${hasPair} pool=${hasPool} pumpBonding=${hasPumpBondingRoute} dexHint=${hasDexHint} routeStatus=${tm.routeStatus}"
+                    "noRoute pair=${hasPair} pool=${hasPool} pumpBondingExec=${hasPumpBondingRoute} routeStatus=${tm.routeStatus}"
                 ))
                 tags.add("token_map_incomplete")
             }

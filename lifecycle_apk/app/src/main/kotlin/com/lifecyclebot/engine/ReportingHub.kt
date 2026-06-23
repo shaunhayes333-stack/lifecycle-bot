@@ -300,27 +300,11 @@ object ReportingHub {
                 Triple(w, l, pnl)
             }
             .entries.sortedByDescending { it.value.third }.take(10)
-        // V5.0.4106 — operator queued: WALLET_RECOVERED is a position
-        // SOURCE/STATE, not a trading lane. Display it under a separate
-        // 'Recovered Inventory' line so it never shows up as 'best lane'
-        // and stops polluting lane attribution stats.
-        val (recoveredBuckets, laneBuckets) = byMode.partition { (mode, _) ->
-            val m = mode.uppercase()
-            m.contains("WALLET_RECOVERED") || m.contains("RECOVERED") || m.contains("ORPHAN")
-        }
         appendLine("By lane/mode (top pnl):")
-        laneBuckets.forEach { (mode, t) ->
+        byMode.forEach { (mode, t) ->
             val n = t.first + t.second
             val wr = if (n > 0) t.first * 100.0 / n else 0.0
             appendLine("  $mode n=$n W/L=${t.first}/${t.second} WR=${wr.fmt1()}% PnL=${t.third.fmt4()} SOL")
-        }
-        if (recoveredBuckets.isNotEmpty()) {
-            appendLine("Recovered Inventory (position-source, NOT a lane):")
-            recoveredBuckets.forEach { (mode, t) ->
-                val n = t.first + t.second
-                val wr = if (n > 0) t.first * 100.0 / n else 0.0
-                appendLine("  $mode n=$n W/L=${t.first}/${t.second} WR=${wr.fmt1()}% PnL=${t.third.fmt4()} SOL ⚠ source/state — excluded from lane attribution")
-            }
         }
         appendLine("Recent closes:")
         allSells.asReversed().take(10).forEach { t ->
