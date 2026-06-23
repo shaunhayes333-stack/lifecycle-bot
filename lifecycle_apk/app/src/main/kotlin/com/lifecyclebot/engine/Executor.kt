@@ -1125,6 +1125,27 @@ class Executor(
     // V5.7.8: Track zero-balance sell retries — force close after 5 attempts
     private val zeroBalanceRetries = ConcurrentHashMap<String, Int>()
 
+    // V5.0.4091 — SELL-SIDE SLIPPAGE ABORT (operator P0: rounds out the SL
+    // safety story alongside V5.0.4090 entry liquidity floor). When Jupiter
+    // returns a sell quote with priceImpactPct > SELL_SLIPPAGE_ABORT_PCT
+    // (e.g. >25% impact on a thin/dying pool), defer the sell for one tick
+    // and re-quote rather than broadcasting into a death-spiral. Per-mint
+    // counter caps the retry at SELL_SLIPPAGE_ABORT_MAX so we never stick a
+    // position permanently — if the pool stays thin after 2 retries, force-
+    // proceed and accept whatever fill the pool can give (better to realize
+    // the loss than carry a permanently-stuck position). Emergency exits
+    // (RUG/HONEYPOT/SHUTDOWN/EMERGENCY/MAX_HOLD/STALE) bypass the abort
+    // entirely — those MUST broadcast at any cost.
+    private const val SELL_SLIPPAGE_ABORT_PCT = 25.0
+    private const val SELL_SLIPPAGE_ABORT_MAX = 2
+    private val sellSlippageAborts = ConcurrentHashMap<String, java.util.concurrent.atomic.AtomicInteger>()
+    private fun isEmergencySellReason(reason: String): Boolean {
+        val r = reason.uppercase()
+        return r.contains("RUG") || r.contains("HONEYPOT") || r.contains("EMERGENCY") ||
+            r.contains("SHUTDOWN") || r.contains("PHANTOM") || r.contains("STALE") ||
+            r.contains("MAX_HOLD") || r.contains("MUST_SELL") || r.contains("CATASTROPHIC")
+    }
+
     private fun buildPriceVariants(rawPrice: Double, decimals: Int): List<Double> {
         if (!rawPrice.isFinite() || rawPrice <= 0.0) return emptyList()
 
@@ -14784,6 +14805,38 @@ class Executor(
                 val qGuard = security.validateQuote(quote!!, isBuy = false, inputSol = pos.costSol)
                 if (qGuard is GuardResult.Block) {
                     onLog("⚠ Sell quote warning: ${qGuard.reason} — proceeding anyway", ts.mint)
+                }
+                // V5.0.4091 — SELL-SIDE SLIPPAGE ABORT: defer the sell if the
+                // quote shows catastrophic price impact (>25%), giving the pool
+                // a chance to thicken on the next exit tick. Caps at 2 retries
+                // per mint so a genuinely-rugging position still gets liquidated
+                // rather than carried forever. Emergency exits bypass.
+                if (quote!!.priceImpactPct > SELL_SLIPPAGE_ABORT_PCT && !isEmergencySellReason(reason)) {
+                    val counter = sellSlippageAborts.computeIfAbsent(ts.mint) { java.util.concurrent.atomic.AtomicInteger(0) }
+                    val n = counter.incrementAndGet()
+                    if (n <= SELL_SLIPPAGE_ABORT_MAX) {
+                        onLog("🛑 SELL DEFERRED: priceImpact=${"%.1f".format(quote!!.priceImpactPct)}% > ${SELL_SLIPPAGE_ABORT_PCT.toInt()}% (retry ${n}/${SELL_SLIPPAGE_ABORT_MAX}). Re-queueing for next exit tick — pool may thicken.", ts.mint)
+                        try {
+                            LiveTradeLogStore.log(
+                                sellTradeKey, ts.mint, ts.symbol, "SELL",
+                                LiveTradeLogStore.Phase.SELL_QUOTE_FAIL,
+                                "SELL_SLIPPAGE_ABORT impact=${"%.1f".format(quote!!.priceImpactPct)}% threshold=${SELL_SLIPPAGE_ABORT_PCT.toInt()}% retry=${n}/${SELL_SLIPPAGE_ABORT_MAX} reason='$reason' → defer to next tick",
+                                traderTag = "MEME",
+                            )
+                            ForensicLogger.lifecycle("SELL_SLIPPAGE_ABORT_DEFER",
+                                "mint=${ts.mint.take(10)} symbol=${ts.symbol} impact=${"%.1f".format(quote!!.priceImpactPct)} threshold=${SELL_SLIPPAGE_ABORT_PCT} retry=$n max=$SELL_SLIPPAGE_ABORT_MAX reason=${reason.take(40)}")
+                        } catch (_: Throwable) {}
+                        return SellResult.FAILED_RETRYABLE
+                    } else {
+                        onLog("⚠ SELL FORCE-PROCEED: priceImpact=${"%.1f".format(quote!!.priceImpactPct)}% above ${SELL_SLIPPAGE_ABORT_PCT.toInt()}% after ${SELL_SLIPPAGE_ABORT_MAX} retries — accepting fill to avoid stuck position.", ts.mint)
+                        try {
+                            ForensicLogger.lifecycle("SELL_SLIPPAGE_ABORT_FORCE",
+                                "mint=${ts.mint.take(10)} symbol=${ts.symbol} impact=${"%.1f".format(quote!!.priceImpactPct)} retries=$n reason=${reason.take(40)}")
+                        } catch (_: Throwable) {}
+                        sellSlippageAborts.remove(ts.mint)
+                    }
+                } else if (quote!!.priceImpactPct <= SELL_SLIPPAGE_ABORT_PCT) {
+                    sellSlippageAborts.remove(ts.mint)
                 }
             }
 

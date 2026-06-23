@@ -99,6 +99,22 @@ object TokenMetricStageRouter {
 
     fun preferredPrimaryLane(ts: TokenState, fallback: String): String {
         val s = snapshot(ts)
+        // V5.0.4091 — ESTABLISHED-TOKEN BLUECHIP OVERRIDE (operator P0: intake
+        // starvation. BLUECHIP/DIP_HUNTER/MANIPULATED/CYCLIC show 0 lane evals
+        // because the stage-only routing never elevated real established tokens
+        // — BLUECHIP fired only on MID_ACCUMULATION + liq>=\$20K which fresh
+        // pump.fun-heavy scanners never produce). Pre-check: if a token has
+        // mcap>=\$5M AND liq>=\$50K AND age>=60min, it IS an established asset
+        // regardless of metric stage classification. Route to BLUECHIP so the
+        // established-token half of the universe starts generating samples for
+        // the 2x-5x daily wallet-growth target. Memes don't accidentally hit
+        // this gate because pump.fun launches rarely have \$5M mcap + \$50K liq
+        // + 60min age all at once.
+        if (s.mcapUsd >= 5_000_000.0 && s.liquidityUsd >= 50_000.0 && s.ageMin >= 60.0 &&
+            s.stage != Stage.RUG_PRONE && s.stage != Stage.PEAK_EXHAUSTION && s.stage != Stage.DUMPING) {
+            // Dip-buyable established tokens go to DIP_HUNTER, otherwise BLUECHIP.
+            return if (s.drawdownFromPeakPct >= 15.0 && s.buyPressurePct >= 50.0) "DIP_HUNTER" else "BLUECHIP"
+        }
         return when (s.stage) {
             Stage.FRESH_LAUNCH -> when {
                 s.liquidityUsd >= 5_000.0 && s.buyPressurePct >= 56.0 -> "MOONSHOT"
@@ -118,6 +134,19 @@ object TokenMetricStageRouter {
     fun laneFit(ts: TokenState, laneRaw: String): LaneFit {
         val lane = laneRaw.uppercase()
         val s = snapshot(ts)
+        // V5.0.4091 — established-token lane-fit override mirrors the primary
+        // routing override above. Without this, the primary picks BLUECHIP but
+        // the per-stage laneFit allowlist rejects it (e.g. CONTROLLED_MARKUP
+        // only allows MOONSHOT/QUALITY/STANDARD/CORE/V3) and the trade gets
+        // re-routed back to memes, defeating the purpose. An established asset
+        // is fit for BLUECHIP/DIP_HUNTER/QUALITY/TREASURY at any non-toxic
+        // stage.
+        val isEstablished = s.mcapUsd >= 5_000_000.0 && s.liquidityUsd >= 50_000.0 && s.ageMin >= 60.0
+        if (isEstablished && s.stage != Stage.RUG_PRONE && s.stage != Stage.PEAK_EXHAUSTION) {
+            if (lane in setOf("BLUECHIP", "DIP_HUNTER", "QUALITY", "TREASURY", "STANDARD", "CORE", "V3")) {
+                return LaneFit(true, lane, s.stage, s.compact)
+            }
+        }
         val allowed = when (s.stage) {
             Stage.RUG_PRONE -> false
             Stage.PEAK_EXHAUSTION -> lane in setOf("DIP_HUNTER", "QUALITY") && s.drawdownFromPeakPct >= 12.0 && s.buyPressurePct >= 54.0
