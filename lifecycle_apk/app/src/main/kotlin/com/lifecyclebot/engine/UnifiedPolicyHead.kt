@@ -36,9 +36,40 @@ object UnifiedPolicyHead {
     private const val MIN_SAMPLES = 40
     private const val LR          = 0.03
     private const val L2          = 1e-4
+    // V5.0.4093 — AGI AUTHORITY GRADUATION (operator: 'super agi intelligence
+    // stack for solana then the rest of crypto then the world'). The learned
+    // head graduates from advisory to authoritative as its training sample
+    // grows. In each tier the conviction range widens, giving the AGI more
+    // power over sizing. At AUTHORITATIVE level the head can OVERRIDE the
+    // rule-stack soft damps via authoritativeConviction() — the gate stack
+    // demotes to fallback for low-confidence contexts only.
+    private const val AUTHORITY_ADVISORY        = 40L
+    private const val AUTHORITY_LEARNED         = 100L
+    private const val AUTHORITY_AUTHORITATIVE   = 250L
     private const val MULT_FLOOR  = 0.60
     private const val MULT_CAP    = 1.40
+    private const val MULT_FLOOR_AUTH = 0.30
+    private const val MULT_CAP_AUTH   = 1.80
     private const val NF          = 6   // feature count
+    private val authoritativeOverrideCount = java.util.concurrent.atomic.AtomicLong(0)
+    private val advisoryUsageCount = java.util.concurrent.atomic.AtomicLong(0)
+
+    enum class AuthorityTier(val minSamples: Long) {
+        BOOTSTRAP(0L),
+        ADVISORY(AUTHORITY_ADVISORY),
+        LEARNED(AUTHORITY_LEARNED),
+        AUTHORITATIVE(AUTHORITY_AUTHORITATIVE),
+    }
+
+    fun currentAuthority(): AuthorityTier = when {
+        trained >= AUTHORITY_AUTHORITATIVE -> AuthorityTier.AUTHORITATIVE
+        trained >= AUTHORITY_LEARNED       -> AuthorityTier.LEARNED
+        trained >= AUTHORITY_ADVISORY      -> AuthorityTier.ADVISORY
+        else                                -> AuthorityTier.BOOTSTRAP
+    }
+
+    fun authoritativeOverrideHits(): Long = authoritativeOverrideCount.get()
+    fun advisoryUsageHits(): Long = advisoryUsageCount.get()
 
     // weights[0..NF-1] + bias
     private val w = DoubleArray(NF) { 0.0 }
@@ -84,8 +115,35 @@ object UnifiedPolicyHead {
         return try {
             if (trained < MIN_SAMPLES) return 1.0
             val p = rawProb(s.toArray())
+            advisoryUsageCount.incrementAndGet()
             (1.0 + (p - 0.5) * 1.6).coerceIn(MULT_FLOOR, MULT_CAP)
         } catch (_: Throwable) { 1.0 }
+    }
+
+    /**
+     * V5.0.4093 — AUTHORITATIVE conviction. When the learned head has earned
+     * its authority (>= AUTHORITY_LEARNED samples) it gets a WIDER multiplier
+     * range and the right to REPLACE (not compound with) the rule-stack soft
+     * damps. Returns null when the head is still in BOOTSTRAP/ADVISORY (so
+     * the caller falls back to the rule stack). Returns a multiplier in
+     * [0.60, 1.40] for LEARNED and [0.30, 1.80] for AUTHORITATIVE — wider
+     * range = more sizing authority. The caller should multiply this with
+     * the base size and SKIP the rule-stack soft damps when this is non-null.
+     */
+    fun authoritativeConviction(s: Signals): Double? {
+        return try {
+            val auth = currentAuthority()
+            if (auth == AuthorityTier.BOOTSTRAP || auth == AuthorityTier.ADVISORY) return null
+            val p = rawProb(s.toArray())
+            // Aggression scales with confidence: LEARNED uses the classic 1.6×
+            // slope, AUTHORITATIVE uses 2.6× to express stronger conviction.
+            val slope = if (auth == AuthorityTier.AUTHORITATIVE) 2.6 else 1.6
+            val (floor, cap) = if (auth == AuthorityTier.AUTHORITATIVE)
+                MULT_FLOOR_AUTH to MULT_CAP_AUTH
+            else MULT_FLOOR to MULT_CAP
+            authoritativeOverrideCount.incrementAndGet()
+            (1.0 + (p - 0.5) * slope).coerceIn(floor, cap)
+        } catch (_: Throwable) { null }
     }
 
     /** Stamp the signals at decision time so the settled outcome trains the head. */
@@ -141,8 +199,16 @@ object UnifiedPolicyHead {
         return try {
             if (trained < 1) return ""
             val names = listOf("mlConf","symGreen","evRatio","metaConv","fwdPWin","candConf")
-            val sb = StringBuilder("\n===== Unified Policy Head (V5.9.1262) — learned signal weighting =====\n")
-            sb.append("  trained=$trained  bias=${"%+.2f".format(bias)}  ${if (trained < MIN_SAMPLES) "(bootstrap — neutral until $MIN_SAMPLES)" else "(active)"}\n  ")
+            val auth = currentAuthority()
+            val tag = when (auth) {
+                AuthorityTier.AUTHORITATIVE -> "AUTHORITATIVE — head drives sizing, rule stack demoted"
+                AuthorityTier.LEARNED       -> "LEARNED — head drives sizing within ±40%, rule-stack damps superseded"
+                AuthorityTier.ADVISORY      -> "ADVISORY — head shapes size ±40%, runs alongside rule stack"
+                AuthorityTier.BOOTSTRAP     -> "bootstrap — neutral until ${AUTHORITY_ADVISORY} (advisory) / ${AUTHORITY_LEARNED} (learned) / ${AUTHORITY_AUTHORITATIVE} (authoritative)"
+            }
+            val sb = StringBuilder("\n===== Unified Policy Head (V5.9.1262, AGI authority V5.0.4093) — learned signal weighting =====\n")
+            sb.append("  trained=$trained  bias=${"%+.2f".format(bias)}  authority=${auth.name}  (${tag})\n")
+            sb.append("  authority hits: advisoryUsage=${advisoryUsageCount.get()}  authoritativeOverrides=${authoritativeOverrideCount.get()}\n  ")
             for (i in 0 until NF) sb.append("${names[i]}=${"%+.2f".format(w[i])}  ")
             sb.append("\n")
             sb.toString()

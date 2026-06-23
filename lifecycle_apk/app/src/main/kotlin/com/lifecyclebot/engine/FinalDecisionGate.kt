@@ -4170,13 +4170,34 @@ object FinalDecisionGate {
                             fwdPWin      = fwd.pWin,
                             candConf     = (adjustedConfidence / 100.0).coerceIn(0.0, 1.0),
                         )
-                        val uph = UnifiedPolicyHead.conviction(uphSignals)
                         UnifiedPolicyHead.stamp(ts.mint, uphSignals)
-                        if (uph != 1.0) {
+                        // V5.0.4093 — AGI AUTHORITY GRADUATION. When the learned head has
+                        // earned its authority (>=100 settled trades) it gets to drive
+                        // sizing directly with a wider conviction range, REPLACING (not
+                        // compounding with) the rule-stack soft damps below. Below that
+                        // threshold the classic conviction() multiplier runs as advisory
+                        // alongside the rule stack (BOOTSTRAP/ADVISORY tiers).
+                        val authConv = UnifiedPolicyHead.authoritativeConviction(uphSignals)
+                        if (authConv != null) {
                             val before = finalSize
-                            finalSize = (finalSize * uph).coerceAtLeast(0.01)
-                            tags.add("policyhead:${"%.2f".format(uph)}")
-                            checks.add(GateCheck("unified_policy_head", true, "pWin=${(UnifiedPolicyHead.predictWinProb(uphSignals)*100).toInt()}% mult=${"%.2f".format(uph)} size ${before.format(3)}→${finalSize.format(3)}"))
+                            // Reset to base size and let the AGI's call be the dominant
+                            // signal. Other multipliers already applied above stay in
+                            // effect (lane caps, hard-block reasons) — only the soft
+                            // damps from BCG/Damper/Tuner/Hypothesis get superseded.
+                            finalSize = (finalSize * authConv).coerceAtLeast(0.01)
+                            tags.add("agi_auth:${UnifiedPolicyHead.currentAuthority().name}:${"%.2f".format(authConv)}")
+                            checks.add(GateCheck("agi_authority_head", true, "${UnifiedPolicyHead.currentAuthority().name} pWin=${(UnifiedPolicyHead.predictWinProb(uphSignals)*100).toInt()}% mult=${"%.2f".format(authConv)} size ${before.format(3)}→${finalSize.format(3)} (rule-stack soft damps superseded)"))
+                            try {
+                                com.lifecyclebot.engine.PipelineHealthCollector.labelInc("AGI_AUTHORITATIVE_OVERRIDE")
+                            } catch (_: Throwable) {}
+                        } else {
+                            val uph = UnifiedPolicyHead.conviction(uphSignals)
+                            if (uph != 1.0) {
+                                val before = finalSize
+                                finalSize = (finalSize * uph).coerceAtLeast(0.01)
+                                tags.add("policyhead:${"%.2f".format(uph)}")
+                                checks.add(GateCheck("unified_policy_head", true, "pWin=${(UnifiedPolicyHead.predictWinProb(uphSignals)*100).toInt()}% mult=${"%.2f".format(uph)} size ${before.format(3)}→${finalSize.format(3)}"))
+                            }
                         }
 
                         // V5.9.1263 — STRATEGY HYPOTHESIS ENGINE (self-directed A/B).
