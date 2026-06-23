@@ -56,9 +56,26 @@ object BrainConsensusGate {
     // V5.9.1355 P1 — 1-in-25 probe cadence per proven-dead context.
     private const val PROBE_EVERY = 25
     private val deadContextCounter = java.util.concurrent.ConcurrentHashMap<String, java.util.concurrent.atomic.AtomicLong>()
+    // V5.0.4089 — RE-EDUCATE THE BLEEDERS (operator: "don't disable, re-educate
+    // and succeed. 2x-5x daily wallet growth target"). Pre-4089 the proven-dead
+    // gate required wins<=1 which only catches catastrophic buckets. Real-world
+    // bleeders like STANDARD|S0-10 (losses=32 wins=7 meanPnl=-3.58%) carry a
+    // handful of token-pumps that fool the wins<=1 gate but still hemorrhage
+    // money (-0.035 SOL realized). Relax to: ANY mature (n>=20) bucket with a
+    // 75%+ loss rate AND non-trivially negative mean is "proven dead" for
+    // normal-size purposes — the 1-in-25 dust-probe cadence kicks in so the
+    // bucket keeps learning at minimum size and CAN heal back to full sizing
+    // when WR improves. This is the operator's "re-educate" doctrine.
     private fun isProvenDead(tradingMode: String, v3: Int): Boolean = try {
         val b = LosingPatternMemory.stats(tradingMode, v3)
-        b.isDangerous && b.meanPnl < 0.0 && b.losses >= 20 && b.wins <= 1
+        val mature = b.losses + b.wins >= 20
+        if (!mature || b.meanPnl >= 0.0) false
+        else {
+            val lossRate = if ((b.losses + b.wins) > 0) b.losses.toDouble() / (b.losses + b.wins) else 0.0
+            val severe = b.losses >= 20 && b.wins <= 1            // V5.9.1355 original
+            val bleedingMature = b.losses >= 15 && lossRate >= 0.75 && b.meanPnl <= -1.0  // V5.0.4089 widened
+            severe || bleedingMature
+        }
     } catch (_: Throwable) { false }
 
     fun evaluate(

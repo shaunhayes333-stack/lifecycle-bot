@@ -18,13 +18,27 @@ object LaneToxicityGuard {
     // losses must not pollute live danger detection. Falls back to combined
     // stats when live sample is too small (<8) to be statistically meaningful.
     // V5.0.4070 — lower threshold from -8.0 to -5.0 for faster pivot.
+    // V5.0.4089 — RE-EDUCATE doctrine (operator: "2x-5x daily wallet growth").
+    // -5.0 mean threshold misses the slow-bleed buckets that quietly cost SOL.
+    // Example from operator snapshot: STANDARD|S0-10 has 32 losses vs 7 wins
+    // (loss rate 82%) yet meanPnl=-3.58% sneaks under the -5.0 trigger because
+    // the rare wins partially mask the bleed. Drop threshold to -2.0 AND add
+    // a loss-rate trigger so a clearly-losing bucket gets pivoted away from
+    // even when the mean is only mildly negative — the routing still re-routes
+    // to non-toxic alternatives, the bucket is not disabled.
     fun isNetNegativeDanger(lane: String, score: Int): Boolean = try {
         val liveOnly = LosingPatternMemory.liveStats(lane, score)
+        val decisive = liveOnly.losses + liveOnly.wins
+        val lossRateLive = if (decisive > 0) liveOnly.losses.toDouble() / decisive else 0.0
         when {
-            liveOnly.isDangerous && liveOnly.meanPnl <= -5.0 -> true
+            liveOnly.isDangerous && liveOnly.meanPnl <= -2.0 -> true
+            liveOnly.isDangerous && decisive >= 20 && lossRateLive >= 0.75 && liveOnly.meanPnl <= -0.5 -> true
             liveOnly.sample < 8 -> {
                 val combined = LosingPatternMemory.stats(lane, score)
-                combined.isDangerous && combined.meanPnl <= -5.0
+                val decisiveC = combined.losses + combined.wins
+                val lossRateC = if (decisiveC > 0) combined.losses.toDouble() / decisiveC else 0.0
+                (combined.isDangerous && combined.meanPnl <= -2.0) ||
+                    (combined.isDangerous && decisiveC >= 20 && lossRateC >= 0.75 && combined.meanPnl <= -0.5)
             }
             else -> false
         }

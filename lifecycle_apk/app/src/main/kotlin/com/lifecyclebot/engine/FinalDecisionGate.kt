@@ -3971,10 +3971,21 @@ object FinalDecisionGate {
                         tags.add("bcg_objections:${report.objections.size}")
                         val hasDanger = report.objections.any { it.contains("LOSING_PATTERN_DANGER_ZONE") }
                         val originalSize = finalSize
+                        // V5.0.4089 — RE-EDUCATE damp (operator: "don't disable,
+                        // re-educate, 2x-5x daily wallet growth"). Pre-4089 the
+                        // non-deficit + danger damp was 0.90 (a token 10% cut)
+                        // which let bleeders keep eating wallet. Real-world
+                        // STANDARD|S0-10 (32L/7W mean -3.58%) lost -0.035 SOL on
+                        // full-ish size. Strong damp on any danger objection
+                        // forces the lane to learn from much smaller bets while
+                        // remaining alive (proven-dead probe cadence below still
+                        // catches catastrophic buckets at 0.02 dust). Never
+                        // disables — the bucket keeps trading and re-educating.
                         val damp = when {
-                            deepLearningDeficit && hasDanger -> 0.50
-                            moderateLearningDeficit -> 0.75
-                            else -> 0.90
+                            deepLearningDeficit && hasDanger -> 0.25
+                            hasDanger                        -> 0.50
+                            moderateLearningDeficit          -> 0.75
+                            else                             -> 0.90
                         }
                         if (damp < 1.0) {
                             finalSize = (finalSize * damp).coerceAtLeast(0.01)
