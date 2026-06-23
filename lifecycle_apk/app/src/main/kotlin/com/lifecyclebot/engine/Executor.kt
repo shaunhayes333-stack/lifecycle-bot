@@ -1509,9 +1509,28 @@ class Executor(
         // -50%/-97% while a prior sell attempt's lock was stuck). These reasons
         // additionally clear the stale marker so the fresh stop proceeds now.
         val rU = reason.uppercase()
+        // V5.0.4103 — Wave C: full-exit + stop-loss class punches through too.
+        // Operator severity table (P0 patch): RUG=100, RAPID_CATASTROPHE=90,
+        // STRICT_SL/HARD_FLOOR=80, EXIT_RESCUE=70 — anything ≥70 must punch
+        // through a stale in-flight block per "NO_SIGNATURE must always
+        // clear or downgrade sell locks deterministically". The existing
+        // SellExecutionLocks 60s TTL still backstops, but waiting up to 60s
+        // for a high-severity exit is exactly the bug the operator hit.
         val isUnconditionalSafety = rU.contains("HARD_FLOOR") || rU.contains("CATASTROPHE") ||
-            rU.contains("RUG") || rU.contains("DRAIN") || rU.contains("SHUTDOWN") || rU.contains("MANUAL")
+            rU.contains("RUG") || rU.contains("DRAIN") || rU.contains("SHUTDOWN") || rU.contains("MANUAL") ||
+            rU.contains("HONEYPOT") || rU.contains("DEV_DUMP") || rU.contains("DEV_SELL") ||
+            rU.contains("STRICT_SL") || rU.contains("HARD_STOP") || rU.contains("STOP_LOSS") ||
+            rU.contains("EXIT-RESCUE") || rU.contains("EXIT_RESCUE") ||
+            rU.contains("EXIT-DRAIN-RESCUE") || rU.contains("RAPID_CATASTROPHE") ||
+            rU.contains("LIQUIDITY_REMOVED") || rU.contains("WALLET_DRAIN")
         if (stateReason != null && isUnconditionalSafety) {
+            // V5.0.4103 — also raise the lease intent priority so any active
+            // worker switching context (route refresh / retry pick) reads the
+            // new emergency reason instead of an older trail/partial.
+            try {
+                val severity = com.lifecyclebot.engine.sell.SellIntentSeverity.forReason(reason)
+                com.lifecyclebot.engine.sell.CloseLease.raiseIntent(ts.mint, reason, severity)
+            } catch (_: Throwable) {}
             try { HostWalletTokenTracker.clearSellInFlight(ts.mint, "PUNCH_THROUGH_$rU") } catch (_: Throwable) {}
             try { com.lifecyclebot.engine.sell.SellExecutionLocks.release(ts.mint) } catch (_: Throwable) {}
             try { ForensicLogger.lifecycle("SELL_INFLIGHT_PUNCH_THROUGH", "mint=${ts.mint.take(10)} symbol=${ts.symbol} reason=$reason staleState=$stateReason") } catch (_: Throwable) {}
