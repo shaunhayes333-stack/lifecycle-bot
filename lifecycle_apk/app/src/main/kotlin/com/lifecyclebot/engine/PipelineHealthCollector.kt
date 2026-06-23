@@ -1997,6 +1997,24 @@ object PipelineHealthCollector {
             }
         } catch (_: Throwable) { /* best-effort telemetry */ }
 
+        // V5.0.4087 — Trading fee accumulator status (operator: "make sure that
+        // the trading fees are accumulating to be sent please"). Always emit so
+        // the operator can verify fees are batching toward the 1.0 SOL flush
+        // threshold rather than being lost in failed micro-tx attempts.
+        try {
+            val accruedSol = com.lifecyclebot.engine.FeeAccumulator.totalPendingSol()
+            val threshold = com.lifecyclebot.engine.FeeAccumulator.getFlushThresholdSol()
+            val buckets = com.lifecyclebot.engine.FeeAccumulator.snapshot()
+            val retryPending = com.lifecyclebot.engine.FeeRetryQueue.pendingCount()
+            val pct = if (threshold > 0.0) (accruedSol / threshold * 100.0) else 0.0
+            val readyToFlush = accruedSol >= threshold
+            sb.append("\n===== Trading fee accumulator (V5.0.3920) =====\n")
+            sb.append("  accrued (on-device): ${"%.5f".format(accruedSol)} / ${"%.2f".format(threshold)} SOL (${"%.1f".format(pct)}%)\n")
+            sb.append("  buckets:             $buckets\n")
+            sb.append("  retry queue pending: $retryPending\n")
+            sb.append("  flush status:        ${if (readyToFlush) "🟢 READY — next bot-loop cycle will flush in live mode" else "🟡 accruing — flush when total ≥ ${"%.2f".format(threshold)} SOL"}\n")
+        } catch (_: Throwable) { /* best-effort telemetry */ }
+
         try {
             val apiSnap = ApiHealthMonitor.snapshot()
             if (apiSnap.isNotEmpty()) {
