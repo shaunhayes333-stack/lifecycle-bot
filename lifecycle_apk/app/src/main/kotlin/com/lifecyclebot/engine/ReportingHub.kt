@@ -265,6 +265,8 @@ object ReportingHub {
         appendLine(safe("scanner_source_brain") { ScannerSourceBrain.summary().trim() }.ifBlank { "ScannerSourceBrain: bootstrap" })
         // V5.0.4102 — ExitProviderHealth (Jupiter 503 + Pump 0x1788 circuit breakers)
         appendLine(safe("exit_provider_health") { com.lifecyclebot.engine.sell.ExitProviderHealth.summary().trim() }.ifBlank { "ExitProviderHealth: ok" })
+        // V5.0.4104 — RecoveredHoldGuard
+        appendLine(safe("recovered_hold_guard") { RecoveredHoldGuard.summary().trim() }.ifBlank { "RecoveredHoldGuard: idle" })
         appendLine(safe("live_probability_engine") { LiveProbabilityEngine.statusLine() })
         appendLine(safe("strategy_hypothesis") { StrategyHypothesisEngine.formatForPipelineDump().trim() }.ifBlank { "Strategy Hypothesis Engine: no active/promoted experiments" })
         appendLine(safe("lane_exit_tuner") { com.lifecyclebot.engine.learning.LaneExitTuner.formatForPipelineDump().trim() }.ifBlank { "Lane Exit Tuner: no lane tuning snapshot" })

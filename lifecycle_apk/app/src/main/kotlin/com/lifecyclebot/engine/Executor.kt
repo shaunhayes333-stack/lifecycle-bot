@@ -1502,6 +1502,29 @@ class Executor(
     }
 
     private fun blockIfSellInFlight(ts: TokenState, reason: String, tradeKey: String? = null): Boolean {
+        // V5.0.4104 — Wave D: recovered hold-grace gate. Wallet-recovered
+        // inventory gets a 15-min hold window during which non-emergency
+        // exits are suppressed (operator P0 patch §4 + §13). Hard rug /
+        // dev-dump / liquidity-removed / manual / shutdown / hard-floor
+        // override the grace; everything else is held.
+        try {
+            if (RecoveredHoldGuard.shouldSuppress(ts.mint, reason)) {
+                LiveTradeLogStore.log(
+                    tradeKey ?: LiveTradeLogStore.keyFor(ts.mint, ts.position.entryTime),
+                    ts.mint, ts.symbol, "SELL", LiveTradeLogStore.Phase.SELL_VERIFY_INCONCLUSIVE_PENDING,
+                    "HOLD_PROTECTED_EXIT_SUPPRESSED reason=$reason graceRemainMs=${RecoveredHoldGuard.graceRemainingMs(ts.mint)}",
+                    traderTag = "MEME",
+                )
+                ForensicLogger.lifecycle(
+                    "HOLD_PROTECTED_EXIT_SUPPRESSED",
+                    "mint=${ts.mint.take(10)} symbol=${ts.symbol} reason=$reason " +
+                    "remainMs=${RecoveredHoldGuard.graceRemainingMs(ts.mint)} cause=RECOVERED_HOLD_GRACE"
+                )
+                PipelineHealthCollector.labelInc("HOLD_PROTECTED_EXIT_SUPPRESSED")
+                return true   // BLOCK the sell — held by recovered grace
+            }
+        } catch (_: Throwable) { }
+
         val stateReason = HostWalletTokenTracker.sellBlockReason(ts.mint)
         // V5.9.1522 — unconditional safety reasons PUNCH THROUGH a stale in-flight
         // block. A -15% hard floor / catastrophe / rug exit must never wait behind

@@ -206,6 +206,10 @@ object WalletReconciler {
             pendingVerify = false,
         )
         knownMints.add(mint)
+        // V5.0.4104 — Wave D: 15-min recovered-hold-grace per operator spec.
+        // Suppresses non-emergency sells while the bot gathers price proof
+        // and decides whether to manage or exit the recovered inventory.
+        try { RecoveredHoldGuard.markRecovered(mint) } catch (_: Throwable) { }
         LiveTradeLogStore.log(
             tradeKey = "RECONCILE_${mint.take(16)}",
             mint = mint, symbol = ts.symbol, side = "BUY",
