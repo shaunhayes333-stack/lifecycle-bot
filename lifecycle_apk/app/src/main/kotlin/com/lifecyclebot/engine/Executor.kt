@@ -13474,6 +13474,13 @@ class Executor(
                     ageHours = tokenAgeHours,
                     isWin = shouldLearnAsWin
                 )
+                // V5.0.4097 — ScannerSourceBrain (parallel AGI head)
+                try {
+                    ScannerSourceBrain.recordOutcome(
+                        source = ts.source.ifEmpty { "UNKNOWN" },
+                        pnlPct = pnlP
+                    )
+                } catch (_: Throwable) { }
                 
                 val tradingMode = ts.position.tradingMode.ifEmpty { "STANDARD" }
                 val hourOfDayForMode = java.util.Calendar.getInstance().get(java.util.Calendar.HOUR_OF_DAY)
@@ -16117,6 +16124,13 @@ class Executor(
                     ageHours = tokenAgeHours2,
                     isWin = shouldLearnAsWin
                 )
+                // V5.0.4097 — ScannerSourceBrain (parallel AGI head)
+                try {
+                    ScannerSourceBrain.recordOutcome(
+                        source = ts.source.ifEmpty { "UNKNOWN" },
+                        pnlPct = pnlP
+                    )
+                } catch (_: Throwable) { }
             }
         } catch (e: Exception) {
             ErrorLogger.debug("AdaptiveLearning", "Feature capture error: ${e.message}")

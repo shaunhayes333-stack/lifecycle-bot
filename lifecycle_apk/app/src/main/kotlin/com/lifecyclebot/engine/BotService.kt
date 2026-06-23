@@ -5127,6 +5127,10 @@ class BotService : Service() {
         // Initialize ScannerLearning for source/liquidity/age performance tracking
         ScannerLearning.init(applicationContext)
         addLog("📊 ${ScannerLearning.getStats()}")
+
+        // V5.0.4097 — ScannerSourceBrain (per-source intake AGI brain)
+        ScannerSourceBrain.init(applicationContext)
+        addLog("🧠 ${ScannerSourceBrain.summary().lineSequence().first()}")
         
         // Initialize ModeLearning for per-mode learning instances
         ModeLearning.init(applicationContext)

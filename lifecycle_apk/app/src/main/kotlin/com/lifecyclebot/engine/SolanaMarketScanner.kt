@@ -675,6 +675,7 @@ class SolanaMarketScanner(
         BIRDEYE_MARKETS,      // V5.9.907 — birdeye v2 markets, no API key required, exposes trade+wallet velocity
         BIRDEYE_NEW_LISTING,  // V5.9.908 — birdeye v2 new_listing, no API key required, earliest possible signal
         COINGECKO_TRENDING,
+        COINGECKO_ESTABLISHED,  // V5.0.4097 — top-mcap Solana ecosystem feeder for BLUECHIP/DIP_HUNTER/QUALITY lanes
         JUPITER_NEW,
         RAYDIUM_NEW_POOL,
         NARRATIVE_SCAN,
@@ -745,6 +746,8 @@ class SolanaMarketScanner(
 
     private val dex = DexscreenerApi()
     private val coingecko = CoinGeckoTrending()
+    // V5.0.4097 — top-mcap Solana ecosystem feeder. Refreshes every 30 min.
+    private val coingeckoEstablished = com.lifecyclebot.network.CoinGeckoSolanaTopMcap()
 
     // ═══════════════════════════════════════════════════════════════════════
     // V5.9.1307 — GECKOTERMINAL RATE GOVERNOR (broad-network feed revival).
@@ -1316,6 +1319,25 @@ class SolanaMarketScanner(
                 // and the watchlist reflects the FULL Solana network, not just pump.fun.
                 onLog("🔍 Scanning ALL Solana sources (EQUAL-WEIGHT PARALLEL DEEP SCAN)...")
                 if (!backpressure || true) {
+                    // V5.0.4097 — starvation detector for established lanes.
+                    // If BLUECHIP/DIP_HUNTER/QUALITY produced ≤5 lane evals in
+                    // the last cycle window, signal the ScannerSourceBrain so
+                    // established-asset feeders get a 1.5x intake boost for the
+                    // next 60s. Soft-shape only — no source ever disabled.
+                    try {
+                        val laneStats = PipelineHealthCollector.snapshot().laneEvalCounts
+                        val established = (laneStats["BLUECHIP"] ?: 0L) +
+                            (laneStats["DIP_HUNTER"] ?: 0L) +
+                            (laneStats["QUALITY"] ?: 0L)
+                        val memes = (laneStats["MOONSHOT"] ?: 0L) +
+                            (laneStats["SHITCOIN"] ?: 0L) +
+                            (laneStats["EXPRESS"] ?: 0L) +
+                            (laneStats["PROJECT_SNIPER"] ?: 0L)
+                        if (established <= 5L && memes >= 30L) {
+                            ScannerSourceBrain.signalStarvation(established = true)
+                        }
+                    } catch (_: Throwable) { /* fail-open */ }
+
                     val birdeyeOk = com.lifecyclebot.engine.BirdeyeBudgetGate.canAffordScannerLane()
                     val deepScans = mutableListOf<Pair<String, suspend () -> Unit>>(
                         "scanPumpFunDirect" to { scanPumpFunDirect() },
@@ -1332,6 +1354,7 @@ class SolanaMarketScanner(
                         "scanGeckoTopPoolsByVolume" to { scanGeckoTopPoolsByVolume() },
                         "scanMeteoraPoolsViaGecko" to { scanMeteoraPoolsViaGecko() },
                         "scanCoinGeckoTrending" to { scanCoinGeckoTrending() },
+                        "scanCoinGeckoEstablished" to { scanCoinGeckoEstablished() },
                     )
                     if (birdeyeOk) {
                         deepScans += "scanBirdeyeTrending" to { scanBirdeyeTrending() }
@@ -2322,6 +2345,82 @@ class SolanaMarketScanner(
             ErrorLogger.debug("Scanner", "scanCoinGeckoTrending error: ${e.message}")
         }
     }
+
+    /**
+     * V5.0.4097 — COINGECKO SOLANA TOP-MCAP ESTABLISHED FEEDER.
+     *
+     * Operator P0: lane-eval starvation. The deepScan batch was dominated
+     * by pump.fun / raydium-new-pool / dex-boosted sources, all of which
+     * surface fresh-launch / sub-microcap memes. BLUECHIP / DIP_HUNTER /
+     * QUALITY lanes saw 0–1 lane evals per cycle in the V5.0.4096 op
+     * report because no scanner was actually feeding established Solana
+     * mid/large-cap assets. This feeder hits CoinGecko's
+     * /coins/markets?category=solana-ecosystem (free, no key) and
+     * resolves Solana mint addresses via the platform map. Routes the
+     * top 100 by mcap into the pipeline so TokenMetricStageRouter's
+     * established-token override actually has tokens to work with.
+     *
+     * Each emitted token is tagged source=COINGECKO_ESTABLISHED so
+     * ScannerSourceBrain learns its win rate over time and the AGI
+     * feedback loop closes.
+     */
+    private suspend fun scanCoinGeckoEstablished() {
+        try {
+            val tokens = withContext(Dispatchers.IO) { coingeckoEstablished.getEstablished() }
+            if (tokens.isEmpty()) {
+                ErrorLogger.debug("Scanner", "scanCoinGeckoEstablished: empty (cache or API)")
+                return
+            }
+            var found = 0
+            // Limit to top 60 per cycle so we don't blow the watchlist with all 100
+            // every scan; the cache rotates internally so coverage is broad anyway.
+            for (t in tokens.take(60)) {
+                if (found >= 30) break
+                if (isSeen(t.mint)) continue
+                if (t.symbol.uppercase() in listOf("SOL", "WSOL", "USDC", "USDT", "USDH")) continue
+                // Liquidity not directly available from CG markets endpoint.
+                // Established tokens with mcap≥$1M and 24h vol≥$100K virtually
+                // always have ≥$50K real on-chain liquidity. Use a conservative
+                // estimate (10% of mcap, capped sensibly) so the safety/sizing
+                // floors don't reject these on missing-liq grounds while live
+                // pricing is enriched downstream by the Dexscreener / Jupiter
+                // resolver path that other scanners already use.
+                val estLiq = (t.marketCapUsd * 0.10).coerceAtLeast(50_000.0).coerceAtMost(5_000_000.0)
+                val pairAgeHours = 24.0 * 30  // safe established-token stamp; downstream re-resolves real age
+                val token = ScannedToken(
+                    mint = t.mint,
+                    symbol = t.symbol.ifBlank { t.coinGeckoId.uppercase() },
+                    name = t.name,
+                    source = TokenSource.COINGECKO_ESTABLISHED,
+                    liquidityUsd = estLiq,
+                    volumeH1 = t.volume24hUsd / 24.0,
+                    mcapUsd = t.marketCapUsd,
+                    pairCreatedHoursAgo = pairAgeHours,
+                    dexId = "raydium",
+                    priceChangeH1 = t.priceChange24hPct / 24.0,
+                    txCountH1 = 0,
+                    score = scoreToken(estLiq, t.volume24hUsd / 24.0, 0, t.marketCapUsd, 0.0, pairAgeHours),
+                )
+                if (passesFilter(token)) {
+                    emitWithRugcheck(token)
+                    found++
+                    ErrorLogger.info(
+                        "Scanner",
+                        "📈 CG-ESTABLISHED: ${token.symbol} | mcapRank=${t.mcapRank} | mcap=\$${(t.marketCapUsd / 1_000_000).toInt()}M | vol24h=\$${(t.volume24hUsd / 1000).toInt()}K"
+                    )
+                }
+            }
+            if (found > 0) {
+                ErrorLogger.info("Scanner", "scanCoinGeckoEstablished: found $found established Solana tokens")
+                onLog("📈 Established: $found top-mcap Solana tokens fed to BLUECHIP/DIP_HUNTER")
+            }
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            ErrorLogger.debug("Scanner", "scanCoinGeckoEstablished error: ${e.message}")
+        }
+    }
+
 
     /**
      * V5.9.906 — BIRDEYE v3 MEME LIST (no API key required).
@@ -3614,7 +3713,16 @@ class SolanaMarketScanner(
         }
 
         val totalBoost = aiBoost + scannerLearningBoost + velocityBoost
-        val adjustedScore = (token.score + totalBoost).coerceIn(0.0, 100.0)
+        // V5.0.4097 — ScannerSourceBrain multiplier (per-source AGI head).
+        // Authority graduates from BOOTSTRAP (×1.0) to AUTHORITATIVE (×0.4‒1.8)
+        // as the brain learns which sources actually produce winners. Applied
+        // as a multiplicative shape on top of the additive boosts, but clamped
+        // so a poor brain can never zero a score (doctrine: soft-shape only).
+        val brainMult = try {
+            ScannerSourceBrain.intakeMultiplier(token.source.name)
+        } catch (_: Throwable) { 1.0 }
+        val brainShaped = (token.score + totalBoost) * brainMult
+        val adjustedScore = brainShaped.coerceIn(0.0, 100.0)
         val adjustedToken = token.copy(score = adjustedScore)
 
         seenMints[token.mint] = System.currentTimeMillis()
