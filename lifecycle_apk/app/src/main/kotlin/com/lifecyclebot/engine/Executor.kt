@@ -1136,8 +1136,8 @@ class Executor(
     // the loss than carry a permanently-stuck position). Emergency exits
     // (RUG/HONEYPOT/SHUTDOWN/EMERGENCY/MAX_HOLD/STALE) bypass the abort
     // entirely — those MUST broadcast at any cost.
-    private const val SELL_SLIPPAGE_ABORT_PCT = 25.0
-    private const val SELL_SLIPPAGE_ABORT_MAX = 2
+    private val SELL_SLIPPAGE_ABORT_PCT = 25.0
+    private val SELL_SLIPPAGE_ABORT_MAX = 2
     private val sellSlippageAborts = ConcurrentHashMap<String, java.util.concurrent.atomic.AtomicInteger>()
     private fun isEmergencySellReason(reason: String): Boolean {
         val r = reason.uppercase()

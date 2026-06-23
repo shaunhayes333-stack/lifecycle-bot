@@ -110,7 +110,7 @@ object TokenMetricStageRouter {
         // the 2x-5x daily wallet-growth target. Memes don't accidentally hit
         // this gate because pump.fun launches rarely have \$5M mcap + \$50K liq
         // + 60min age all at once.
-        if (s.mcapUsd >= 5_000_000.0 && s.liquidityUsd >= 50_000.0 && s.ageMin >= 60.0 &&
+        if (s.marketCapUsd >= 5_000_000.0 && s.liquidityUsd >= 50_000.0 && s.ageMin >= 60.0 &&
             s.stage != Stage.RUG_PRONE && s.stage != Stage.PEAK_EXHAUSTION && s.stage != Stage.DUMPING) {
             // Dip-buyable established tokens go to DIP_HUNTER, otherwise BLUECHIP.
             return if (s.drawdownFromPeakPct >= 15.0 && s.buyPressurePct >= 50.0) "DIP_HUNTER" else "BLUECHIP"
@@ -141,7 +141,7 @@ object TokenMetricStageRouter {
         // re-routed back to memes, defeating the purpose. An established asset
         // is fit for BLUECHIP/DIP_HUNTER/QUALITY/TREASURY at any non-toxic
         // stage.
-        val isEstablished = s.mcapUsd >= 5_000_000.0 && s.liquidityUsd >= 50_000.0 && s.ageMin >= 60.0
+        val isEstablished = s.marketCapUsd >= 5_000_000.0 && s.liquidityUsd >= 50_000.0 && s.ageMin >= 60.0
         if (isEstablished && s.stage != Stage.RUG_PRONE && s.stage != Stage.PEAK_EXHAUSTION) {
             if (lane in setOf("BLUECHIP", "DIP_HUNTER", "QUALITY", "TREASURY", "STANDARD", "CORE", "V3")) {
                 return LaneFit(true, lane, s.stage, s.compact)
