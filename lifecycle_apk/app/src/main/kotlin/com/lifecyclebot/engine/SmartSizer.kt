@@ -791,22 +791,36 @@ object SmartSizer {
         }
 
         // ════════════════════════════════════════════════════════════════
-        // V5.0.4098 — AGGRESSIVE COMPOUND FLOOR (LIVE ONLY)
-        // Lift the final size to the wallet-percent compound floor when
-        // running live. Doctrine: never reduces a higher base, never
-        // breaches MAX_INITIAL_WALLET_PCT cap, never engages in paper.
-        // True hard-blocks (size==0) are passed through unchanged so
-        // real safety failures still stop the trade.
+        // V5.0.4099 — WAVE 2: gate-soft-shape consumer + lane-aware floor.
+        //  • If FDG converted a hard-block to a soft-shape for this mint
+        //    (C_GRADE_CONFIDENCE_FLOOR / CIRCUIT_BREAKER / MOMENTUM_AVOID
+        //    / BRAIN_PATTERN_SUPPRESSED / PROVIDER_PROOF_*_BLIND /
+        //    FLUID_EXECUTE_FLOOR), apply the sizing penalty here instead
+        //    of the upstream block. Always preserve the compound floor
+        //    afterward so we never collapse below MIN_ENTRY_SOL on a
+        //    soft-shape (doctrine).
+        //  • Lane-aware compound floor uses per-lane tiers when laneMode
+        //    is recognised (MOONSHOT / STANDARD / WALLET_RECOVERED /
+        //    BLUECHIP+DIP_HUNTER+QUALITY), falls back to global tiers
+        //    otherwise so siblings stay safe.
         // ════════════════════════════════════════════════════════════════
         val finalSize = if (size > 0.0 && !isPaperMode && LiveSizingProfile.enabled) {
             try {
                 val conviction = LiveSizingProfile.convictionFromScore(entryScore, setupQuality)
-                LiveSizingProfile.applyCompoundFloor(
-                    baseSol = size,
+                // 1) raw output
+                var v = size
+                // 2) consume any gate-soft-shape multiplier set by FDG (per-thread)
+                val gateMult = LiveSizingProfile.consumeGateSoftShape("")
+                if (gateMult < 0.999) v *= gateMult
+                // 3) apply lane-aware compound floor (lifts to floor, caps to walletPct)
+                v = LiveSizingProfile.laneCompoundFloor(
+                    lane = laneMode,
+                    baseSol = v,
                     walletSol = effectiveWallet,
                     conviction = conviction,
                     isPaperMode = false,
                 )
+                v
             } catch (_: Throwable) { size }
         } else size
 

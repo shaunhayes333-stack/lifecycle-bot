@@ -196,4 +196,107 @@ object LiveSizingProfile {
             else                                            -> 1.0
         }
     }
+
+    // ─────────────────────────────────────────────────────────────────
+    // Per-mint pending gate-soft-shape multiplier (Wave 2). FDG writes
+    // here when it converts a hard-block to a soft-shape; SmartSizer
+    // reads & clears at the end of calculate(). 5s TTL fail-safe so a
+    // stale mult never leaks across cycles.
+    // ─────────────────────────────────────────────────────────────────
+
+    private data class PendingShape(val mult: Double, val whenMs: Long)
+
+    private val pendingShapes = java.util.concurrent.ConcurrentHashMap<String, PendingShape>()
+    private const val PENDING_TTL_MS = 5_000L
+
+    fun markGateSoftShape(mint: String, blockReason: String) {
+        if (mint.isBlank()) return
+        val mult = gateSizeMult(blockReason)
+        if (mult >= 0.999) return
+        pendingShapes[mint] = PendingShape(mult, System.currentTimeMillis())
+        threadLocalMult.set(mult)
+        try {
+            ErrorLogger.info(
+                "LiveSizingProfile",
+                "🪄 GATE→SIZE: ${mint.take(6)}… reason=$blockReason mult=${"%.2f".format(mult)}"
+            )
+            PipelineHealthCollector.labelInc("GATE_TO_SIZE_SHAPE")
+        } catch (_: Throwable) { }
+    }
+
+    fun consumeGateSoftShape(mint: String): Double {
+        if (mint.isBlank()) return consumeThreadLocal()
+        val p = pendingShapes.remove(mint) ?: return consumeThreadLocal()
+        val age = System.currentTimeMillis() - p.whenMs
+        threadLocalMult.remove()
+        return if (age < PENDING_TTL_MS) p.mult else 1.0
+    }
+
+    private val threadLocalMult = ThreadLocal<Double?>()
+    private fun consumeThreadLocal(): Double {
+        val v = threadLocalMult.get() ?: return 1.0
+        threadLocalMult.remove()
+        return v
+    }
+
+    // ─────────────────────────────────────────────────────────────────
+    // Per-lane sizing overrides (Wave 2 / 4099)
+    //   MOONSHOT          : initial 2.0% / strong 3.5% / alpha 6.0% / max-total 16%
+    //   STANDARD          : minEntry 0.025, score-band sizing
+    //   WALLET_RECOVERED  : minEntry 0.040, alpha 0.150, proof-state-aware
+    //   BLUECHIP/QUALITY  : medium-conviction sizing (default tiers retained)
+    // Exposed via laneCompoundFloor(); applyCompoundFloor() falls back to
+    // the global tiers when the lane is unknown so siblings stay safe.
+    // ─────────────────────────────────────────────────────────────────
+
+    fun laneCompoundFloor(
+        lane: String,
+        baseSol: Double,
+        walletSol: Double,
+        conviction: Conviction,
+        isPaperMode: Boolean,
+    ): Double {
+        if (!enabled || isPaperMode || baseSol <= 0.0) return baseSol
+        if (walletSol <= GAS_RESERVE_SOL) return baseSol
+        val L = lane.uppercase()
+
+        // (initialPct, strongPct, alphaPct, minSol, defaultSol, strongSol, alphaSol, maxInitialWalletPct)
+        val (lP, dS) = when (L) {
+            "MOONSHOT", "SHITCOIN" -> Triple(
+                listOf(0.020, 0.035, 0.060), listOf(0.025, 0.040, 0.070, 0.110), 0.080
+            ) to "moonshot"
+            "STANDARD" -> Triple(
+                listOf(0.020, 0.035, 0.055), listOf(0.025, 0.035, 0.060, 0.100), 0.075
+            ) to "standard"
+            "WALLET_RECOVERED" -> Triple(
+                listOf(0.030, 0.060, 0.100), listOf(0.040, 0.080, 0.120, 0.150), 0.100
+            ) to "wallet_recovered"
+            "BLUECHIP", "DIP_HUNTER", "QUALITY" -> Triple(
+                listOf(0.022, 0.040, 0.065), listOf(0.030, 0.040, 0.070, 0.115), 0.085
+            ) to "established"
+            else -> Triple(
+                listOf(BASE_WALLET_PCT, STRONG_WALLET_PCT, ALPHA_WALLET_PCT),
+                listOf(MIN_ENTRY_SOL, DEFAULT_ENTRY_SOL, STRONG_ENTRY_SOL, ALPHA_ENTRY_SOL),
+                MAX_INITIAL_WALLET_PCT
+            ) to "default"
+        }
+        val pcts = lP.first
+        val sols = lP.second
+        val maxInitialPct = lP.third
+
+        val (absoluteFloor, walletPct) = when (conviction) {
+            Conviction.ALPHA  -> sols[3] to pcts[2]
+            Conviction.STRONG -> sols[2] to pcts[1]
+            Conviction.BASE   -> sols[1] to pcts[0]
+        }
+        val minSol = sols[0]
+        val pctFloor = walletSol * walletPct
+        val targetFloor = max(minSol, max(absoluteFloor, pctFloor))
+        val rampedFloor = targetFloor * dailyRampMultiplier()
+        val hardCap = walletSol * maxInitialPct
+        val lifted = max(baseSol, rampedFloor)
+        val capped = min(lifted, hardCap)
+        val maxSpendable = (walletSol - GAS_RESERVE_SOL).coerceAtLeast(0.0)
+        return min(capped, maxSpendable)
+    }
 }

@@ -1352,24 +1352,39 @@ object FinalDecisionGate {
         }
 
         if (confidence < 27.0 && isCGrade && !canBypassConfidenceFloors) {
-            ErrorLogger.warn("FDG", "🚫 HARD_KILL: ${ts.symbol} | conf=${confidence.toInt()}% + quality=${candidate.setupQuality} | C_GRADE_CONFIDENCE_FLOOR_VIOLATED")
-
-            return FinalDecision(
-                shouldTrade = false,
-                mode = mode,
-                approvalClass = ApprovalClass.BLOCKED,
-                quality = candidate.setupQuality,
-                confidence = confidence,
-                edge = EdgeVerdict.SKIP,
-                blockReason = "C_GRADE_CONFIDENCE_FLOOR_27%",
-                blockLevel = BlockLevel.CONFIDENCE,
-                sizeSol = 0.0,
-                tags = listOf("c_grade_confidence_floor", "hard_kill"),
-                mint = ts.mint,
-                symbol = ts.symbol,
-                approvalReason = "C-GRADE + conf < 27% = REJECT",
-                gateChecks = listOf(GateCheck("c_grade_conf_floor", false, "C-grade requires conf >= 27%"))
-            )
+            // V5.0.4099 — gate→size: convert C_GRADE_CONFIDENCE_FLOOR_27%
+            // from HARD_KILL to soft-shape. Trade is allowed but the
+            // SmartSizer applies a 0.65× sizing multiplier downstream
+            // (see LiveSizingProfile.consumeGateSoftShape). Hard safety
+            // failures (LP/rug/route) stay hard-blocked — they don't
+            // route through this path.
+            if (LiveSizingProfile.cGradeAction == LiveSizingProfile.GateAction.SIZE_ONLY) {
+                ErrorLogger.info(
+                    "FDG",
+                    "🪄 C_GRADE→SIZE_ONLY: ${ts.symbol} conf=${confidence.toInt()}% q=${candidate.setupQuality} → ×0.65"
+                )
+                LiveSizingProfile.markGateSoftShape(ts.mint, "C_GRADE_CONFIDENCE_FLOOR_27%")
+                try { PipelineHealthCollector.labelInc("C_GRADE_SOFT_ALLOW") } catch (_: Throwable) { }
+                // fall through — let the rest of the FDG continue evaluating
+            } else {
+                ErrorLogger.warn("FDG", "🚫 HARD_KILL: ${ts.symbol} | conf=${confidence.toInt()}% + quality=${candidate.setupQuality} | C_GRADE_CONFIDENCE_FLOOR_VIOLATED")
+                return FinalDecision(
+                    shouldTrade = false,
+                    mode = mode,
+                    approvalClass = ApprovalClass.BLOCKED,
+                    quality = candidate.setupQuality,
+                    confidence = confidence,
+                    edge = EdgeVerdict.SKIP,
+                    blockReason = "C_GRADE_CONFIDENCE_FLOOR_27%",
+                    blockLevel = BlockLevel.CONFIDENCE,
+                    sizeSol = 0.0,
+                    tags = listOf("c_grade_confidence_floor", "hard_kill"),
+                    mint = ts.mint,
+                    symbol = ts.symbol,
+                    approvalReason = "C-GRADE + conf < 27% = REJECT",
+                    gateChecks = listOf(GateCheck("c_grade_conf_floor", false, "C-grade requires conf >= 27%"))
+                )
+            }
         }
 
         // V5.8: In paper mode, bypass AI_DEGRADED confidence floor.
@@ -1684,6 +1699,24 @@ object FinalDecisionGate {
                         )
                         com.lifecyclebot.engine.PipelineHealthCollector.labelInc(if (circuitPaperMode) "PAPER_CIRCUIT_SOFT_ALLOW" else "LIVE_CIRCUIT_SOFT_ALLOW")
                     } catch (_: Throwable) {}
+                } else if (LiveSizingProfile.circuitBreakerAction == LiveSizingProfile.GateAction.SIZE_ONLY &&
+                           !circuitBlockReason.contains("EMERGENCY_STOP", ignoreCase = true)) {
+                    // V5.0.4099 — gate→size: convert CIRCUIT_BREAKER from HARD_KILL
+                    // to soft-shape (×0.55) for non-emergency cases. Emergency stop
+                    // still hard-blocks (see else branch below).
+                    try {
+                        com.lifecyclebot.engine.ForensicLogger.lifecycle(
+                            "CIRCUIT_SOFT_SHAPE",
+                            "symbol=${ts.symbol} reason=$circuitBlockReason action=SIZE_ONLY mult=0.55"
+                        )
+                        ErrorLogger.info(
+                            "FDG",
+                            "🪄 CIRCUIT→SIZE_ONLY: ${ts.symbol} reason=$circuitBlockReason → ×0.55"
+                        )
+                        LiveSizingProfile.markGateSoftShape(ts.mint, "CIRCUIT_BREAKER")
+                        com.lifecyclebot.engine.PipelineHealthCollector.labelInc("CIRCUIT_SOFT_SHAPE")
+                    } catch (_: Throwable) { }
+                    // fall through
                 } else {
                     return FinalDecision(
                     shouldTrade = false,
