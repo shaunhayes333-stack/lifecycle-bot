@@ -1,58 +1,81 @@
 package com.lifecyclebot.engine
 
 import android.content.Context
+import org.json.JSONArray
 import org.json.JSONObject
 import kotlin.math.exp
-import kotlin.math.ln
 
 /**
- * UnifiedPolicyHead — V5.9.1262  (Roadmap STEP 3: one learned policy head)
+ * UnifiedPolicyHead — V5.0.4094 (AGI multi-head per-lane learning)
  * ════════════════════════════════════════════════════════════════════════════
- * The decision today is a COMMITTEE: ML conf, symbolic green-light, EV, meta-
- * policy conviction, forward-model pWin each shape the verdict independently.
- * That's an ensemble of votes with hand-set weights. This layer learns ONE
- * coherent weighting OVER those committee outputs — a single online logistic
- * head whose inputs are the other brains' signals and whose target is the real
- * trade outcome (win=1/loss=0). It answers: "given what all my sub-brains say,
- * what's the probability THIS trade wins, and how should that move my size?"
+ * V5.9.1262 — single online logistic head over committee signals (entry).
+ * V5.0.4093 — authority tiers (BOOTSTRAP / ADVISORY / LEARNED / AUTHORITATIVE)
+ *             with widening conviction range as trained samples accumulate.
+ * V5.0.4094 — PER-LANE HEADS. Each lane (MOONSHOT, STANDARD, BLUECHIP, ...)
+ *             gets its OWN weight vector + bias + training counter + feature
+ *             means. Warm-started from the global head so a new lane inherits
+ *             the average of what worked elsewhere, then specialises. Brier
+ *             score per lane → calibration-aware authority: a head with bad
+ *             calibration gets pulled back to ADVISORY tier until it earns
+ *             trust back.
  *
- * WHY SURGICAL (not a rip-and-replace of the committee): replacing the voting
- * stack wholesale is butterfly-prone and would regress months of tuned gates.
- * Instead the committee keeps computing exactly as-is; the head sits at the END
- * as a learned META-AGGREGATOR. It owns HOW the signals combine, learned from
- * outcomes, and emits a soft size multiplier. Over time it can dominate the
- * hand-set per-signal multipliers because it's trained on ground truth.
- *
- * MODEL: online logistic regression, 6 features + bias, SGD with the same
- * pattern as OnDeviceMLEngine. Calibrated probability → conviction multiplier.
+ * MODEL: online logistic regression, NF features + bias, SGD per-lane.
  *
  * DOCTRINE COMPLIANCE:
- *   • SOFT-SHAPE ONLY — multiplier in [0.6, 1.4]; never veto, never zero.
- *   • Bootstrap-safe — neutral 1.0 until >= MIN_SAMPLES trained.
- *   • Persisted weights, fail-open.
+ *   • Per-lane sub-head + global head still update together. Global serves
+ *     as warm-start for new lanes AND as fallback when a lane head fails.
+ *   • Soft-shape only — multiplier in [0.60, 1.40] (LEARNED) or [0.30, 1.80]
+ *     (AUTHORITATIVE). Never veto, never zero.
+ *   • Bootstrap-safe — neutral 1.0 until per-lane head crosses ADVISORY (40).
+ *   • Persisted per-lane weights, fail-open.
+ *   • Brier-calibrated — bad calibration demotes authority but never disables.
  */
 object UnifiedPolicyHead {
 
-    private const val MIN_SAMPLES = 40
-    private const val LR          = 0.03
-    private const val L2          = 1e-4
-    // V5.0.4093 — AGI AUTHORITY GRADUATION (operator: 'super agi intelligence
-    // stack for solana then the rest of crypto then the world'). The learned
-    // head graduates from advisory to authoritative as its training sample
-    // grows. In each tier the conviction range widens, giving the AGI more
-    // power over sizing. At AUTHORITATIVE level the head can OVERRIDE the
-    // rule-stack soft damps via authoritativeConviction() — the gate stack
-    // demotes to fallback for low-confidence contexts only.
-    private const val AUTHORITY_ADVISORY        = 40L
-    private const val AUTHORITY_LEARNED         = 100L
-    private const val AUTHORITY_AUTHORITATIVE   = 250L
-    private const val MULT_FLOOR  = 0.60
-    private const val MULT_CAP    = 1.40
+    private const val LR             = 0.03
+    private const val L2             = 1e-4
+    private const val NF             = 6
+    private const val MULT_FLOOR     = 0.60
+    private const val MULT_CAP       = 1.40
     private const val MULT_FLOOR_AUTH = 0.30
     private const val MULT_CAP_AUTH   = 1.80
-    private const val NF          = 6   // feature count
-    private val authoritativeOverrideCount = java.util.concurrent.atomic.AtomicLong(0)
+    private const val AUTHORITY_ADVISORY      = 40L
+    private const val AUTHORITY_LEARNED       = 100L
+    private const val AUTHORITY_AUTHORITATIVE = 250L
+    // V5.0.4094 — calibration thresholds. Brier score (mean squared err of
+    // pWin vs outcome) below this is "well-calibrated"; above is "drifting".
+    // Random guessing scores ~0.25; a calibrated head should be below 0.22.
+    private const val BRIER_HEALTHY_MAX = 0.22
+    private const val BRIER_DRIFTING_MAX = 0.27
+
+    // Global head (warm-start source + fallback)
+    private val w = DoubleArray(NF) { 0.0 }
+    @Volatile private var bias = 0.0
+    @Volatile private var trained = 0L
+    private val featMean = DoubleArray(NF) { 0.5 }
+
+    // V5.0.4094 — per-lane state
+    private data class LaneHead(
+        val w: DoubleArray = DoubleArray(NF) { 0.0 },
+        var bias: Double = 0.0,
+        var trained: Long = 0L,
+        val featMean: DoubleArray = DoubleArray(NF) { 0.5 },
+        // Brier accumulator: running sum of (p - y)^2 across recent trades
+        var brierSum: Double = 0.0,
+        var brierN: Long = 0L,
+    )
+
+    private val laneHeads = java.util.concurrent.ConcurrentHashMap<String, LaneHead>()
+    private val pending = java.util.concurrent.ConcurrentHashMap<String, Pair<String, DoubleArray>>()
     private val advisoryUsageCount = java.util.concurrent.atomic.AtomicLong(0)
+    private val authoritativeOverrideCount = java.util.concurrent.atomic.AtomicLong(0)
+    private val calibrationDemoteCount = java.util.concurrent.atomic.AtomicLong(0)
+    @Volatile private var appContext: Context? = null
+
+    fun trainedCount(): Long = trained
+    fun advisoryUsageHits(): Long = advisoryUsageCount.get()
+    fun authoritativeOverrideHits(): Long = authoritativeOverrideCount.get()
+    fun calibrationDemoteHits(): Long = calibrationDemoteCount.get()
 
     enum class AuthorityTier(val minSamples: Long) {
         BOOTSTRAP(0L),
@@ -61,33 +84,13 @@ object UnifiedPolicyHead {
         AUTHORITATIVE(AUTHORITY_AUTHORITATIVE),
     }
 
-    fun currentAuthority(): AuthorityTier = when {
-        trained >= AUTHORITY_AUTHORITATIVE -> AuthorityTier.AUTHORITATIVE
-        trained >= AUTHORITY_LEARNED       -> AuthorityTier.LEARNED
-        trained >= AUTHORITY_ADVISORY      -> AuthorityTier.ADVISORY
-        else                                -> AuthorityTier.BOOTSTRAP
-    }
-
-    fun authoritativeOverrideHits(): Long = authoritativeOverrideCount.get()
-    fun advisoryUsageHits(): Long = advisoryUsageCount.get()
-
-    // weights[0..NF-1] + bias
-    private val w = DoubleArray(NF) { 0.0 }
-    @Volatile private var bias = 0.0
-    @Volatile private var trained = 0L
-    fun trainedCount(): Long = trained  // V5.9.1355 P0.5 audit
-    @Volatile private var appContext: Context? = null
-    // running feature means for centring (stabilises SGD)
-    private val featMean = DoubleArray(NF) { 0.5 }
-
-    /** Feature vector, all roughly normalised to ~[0,1]. */
     data class Signals(
-        val mlEntryConf: Double,     // OnDeviceMLEngine entryConfidence [0,1]
-        val symGreenLight: Double,   // SymbolicContext green-light [0,1]
-        val evRatio: Double,         // EV multiplier centred: clamp((ev-0.8)/0.8,0,1)
-        val metaConviction: Double,  // AutonomousMetaPolicy conviction → map [0.55,1.45]→[0,1]
-        val fwdPWin: Double,         // ForwardOutcomeModel pWin [0,1]
-        val candConf: Double,        // candidate adjustedConfidence/100 [0,1]
+        val mlEntryConf: Double,
+        val symGreenLight: Double,
+        val evRatio: Double,
+        val metaConviction: Double,
+        val fwdPWin: Double,
+        val candConf: Double,
     ) {
         fun toArray() = doubleArrayOf(
             mlEntryConf.coerceIn(0.0,1.0), symGreenLight.coerceIn(0.0,1.0),
@@ -98,45 +101,104 @@ object UnifiedPolicyHead {
 
     private fun sigmoid(z: Double) = 1.0 / (1.0 + exp(-z.coerceIn(-30.0, 30.0)))
 
-    private fun rawProb(x: DoubleArray): Double {
+    private fun rawProbGlobal(x: DoubleArray): Double {
         var z = bias
         for (i in 0 until NF) z += w[i] * (x[i] - featMean[i])
         return sigmoid(z)
     }
 
-    /** Predicted win-probability for a candidate given the committee signals. */
-    fun predictWinProb(s: Signals): Double = try { rawProb(s.toArray()) } catch (_: Throwable) { 0.5 }
+    private fun rawProbLane(h: LaneHead, x: DoubleArray): Double {
+        var z = h.bias
+        for (i in 0 until NF) z += h.w[i] * (x[i] - h.featMean[i])
+        return sigmoid(z)
+    }
 
-    /**
-     * Conviction multiplier from the learned head. Neutral until trained enough.
-     * pWin 0.5 → 1.0 ; pWin 0.8 → lean in ; pWin 0.2 → damp (floored).
-     */
-    fun conviction(s: Signals): Double {
+    private fun normalizeLane(lane: String): String = lane.trim().uppercase().ifBlank { "STANDARD" }
+
+    /** Lazily create a per-lane head, warm-started from the GLOBAL head's weights. */
+    private fun getOrCreateLaneHead(lane: String): LaneHead {
+        return laneHeads.computeIfAbsent(lane) {
+            LaneHead().also { h ->
+                for (i in 0 until NF) { h.w[i] = w[i]; h.featMean[i] = featMean[i] }
+                h.bias = bias
+            }
+        }
+    }
+
+    /** Predicted win-probability given lane + committee signals. */
+    fun predictWinProb(s: Signals): Double = predictWinProb("STANDARD", s)
+    fun predictWinProb(lane: String, s: Signals): Double = try {
+        val h = laneHeads[normalizeLane(lane)]
+        if (h != null && h.trained >= 8L) rawProbLane(h, s.toArray()) else rawProbGlobal(s.toArray())
+    } catch (_: Throwable) { 0.5 }
+
+    /** Brier score for a lane (mean squared error of predicted pWin vs outcome). */
+    fun brierScore(lane: String): Double {
+        val h = laneHeads[normalizeLane(lane)] ?: return 0.25
+        return if (h.brierN > 0L) h.brierSum / h.brierN else 0.25
+    }
+
+    fun currentAuthority(): AuthorityTier = currentAuthority("STANDARD")
+    /** Per-lane authority tier — calibration-aware. A miscalibrated head is
+     *  pulled back to a lower tier until it earns trust back. */
+    fun currentAuthority(lane: String): AuthorityTier {
+        val h = laneHeads[normalizeLane(lane)] ?: return globalAuthority()
+        val rawTier = when {
+            h.trained >= AUTHORITY_AUTHORITATIVE -> AuthorityTier.AUTHORITATIVE
+            h.trained >= AUTHORITY_LEARNED       -> AuthorityTier.LEARNED
+            h.trained >= AUTHORITY_ADVISORY      -> AuthorityTier.ADVISORY
+            else                                  -> AuthorityTier.BOOTSTRAP
+        }
+        // Calibration demote: if Brier score is bad, drop one tier.
+        if (h.brierN >= 20L) {
+            val brier = h.brierSum / h.brierN
+            if (brier > BRIER_DRIFTING_MAX && rawTier != AuthorityTier.BOOTSTRAP) {
+                calibrationDemoteCount.incrementAndGet()
+                return when (rawTier) {
+                    AuthorityTier.AUTHORITATIVE -> AuthorityTier.LEARNED
+                    AuthorityTier.LEARNED       -> AuthorityTier.ADVISORY
+                    AuthorityTier.ADVISORY      -> AuthorityTier.BOOTSTRAP
+                    AuthorityTier.BOOTSTRAP     -> AuthorityTier.BOOTSTRAP
+                }
+            }
+        }
+        return rawTier
+    }
+
+    private fun globalAuthority(): AuthorityTier = when {
+        trained >= AUTHORITY_AUTHORITATIVE -> AuthorityTier.AUTHORITATIVE
+        trained >= AUTHORITY_LEARNED       -> AuthorityTier.LEARNED
+        trained >= AUTHORITY_ADVISORY      -> AuthorityTier.ADVISORY
+        else                                -> AuthorityTier.BOOTSTRAP
+    }
+
+    /** Advisory conviction (still runs alongside rule stack at low authority). */
+    fun conviction(s: Signals): Double = conviction("STANDARD", s)
+    fun conviction(lane: String, s: Signals): Double {
         return try {
-            if (trained < MIN_SAMPLES) return 1.0
-            val p = rawProb(s.toArray())
+            val laneKey = normalizeLane(lane)
+            val h = laneHeads[laneKey]
+            val auth = currentAuthority(laneKey)
+            if (auth == AuthorityTier.BOOTSTRAP) return 1.0
+            val p = if (h != null && h.trained >= 8L) rawProbLane(h, s.toArray()) else rawProbGlobal(s.toArray())
             advisoryUsageCount.incrementAndGet()
             (1.0 + (p - 0.5) * 1.6).coerceIn(MULT_FLOOR, MULT_CAP)
         } catch (_: Throwable) { 1.0 }
     }
 
     /**
-     * V5.0.4093 — AUTHORITATIVE conviction. When the learned head has earned
-     * its authority (>= AUTHORITY_LEARNED samples) it gets a WIDER multiplier
-     * range and the right to REPLACE (not compound with) the rule-stack soft
-     * damps. Returns null when the head is still in BOOTSTRAP/ADVISORY (so
-     * the caller falls back to the rule stack). Returns a multiplier in
-     * [0.60, 1.40] for LEARNED and [0.30, 1.80] for AUTHORITATIVE — wider
-     * range = more sizing authority. The caller should multiply this with
-     * the base size and SKIP the rule-stack soft damps when this is non-null.
+     * Authoritative conviction — null when lane head is still in BOOTSTRAP/ADVISORY
+     * (caller falls back to rule stack). Non-null at LEARNED+; AUTHORITATIVE gets
+     * the widest range. Calibration check already applied via currentAuthority.
      */
-    fun authoritativeConviction(s: Signals): Double? {
+    fun authoritativeConviction(s: Signals): Double? = authoritativeConviction("STANDARD", s)
+    fun authoritativeConviction(lane: String, s: Signals): Double? {
         return try {
-            val auth = currentAuthority()
+            val laneKey = normalizeLane(lane)
+            val auth = currentAuthority(laneKey)
             if (auth == AuthorityTier.BOOTSTRAP || auth == AuthorityTier.ADVISORY) return null
-            val p = rawProb(s.toArray())
-            // Aggression scales with confidence: LEARNED uses the classic 1.6×
-            // slope, AUTHORITATIVE uses 2.6× to express stronger conviction.
+            val h = laneHeads[laneKey]
+            val p = if (h != null && h.trained >= 8L) rawProbLane(h, s.toArray()) else rawProbGlobal(s.toArray())
             val slope = if (auth == AuthorityTier.AUTHORITATIVE) 2.6 else 1.6
             val (floor, cap) = if (auth == AuthorityTier.AUTHORITATIVE)
                 MULT_FLOOR_AUTH to MULT_CAP_AUTH
@@ -146,37 +208,71 @@ object UnifiedPolicyHead {
         } catch (_: Throwable) { null }
     }
 
-    /** Stamp the signals at decision time so the settled outcome trains the head. */
-    private val pending = java.util.concurrent.ConcurrentHashMap<String, DoubleArray>()
-    fun stamp(mint: String, s: Signals) { try { pending[mint] = s.toArray() } catch (_: Throwable) {} }
+    /** Stamp the signals + lane at decision time so the settled outcome trains
+     *  both the per-lane head AND the global head. */
+    fun stamp(mint: String, s: Signals) { stamp(mint, "STANDARD", s) }
+    fun stamp(mint: String, lane: String, s: Signals) {
+        try { pending[mint] = normalizeLane(lane) to s.toArray() } catch (_: Throwable) {}
+    }
 
-    /** Train on settled outcome: target = win(1)/loss(0). */
+    /** Train both the per-lane head and the global head on a settled outcome. */
     fun recordOutcome(mint: String, pnlPct: Double) {
         try {
-            val x = pending.remove(mint) ?: return
+            val rec = pending.remove(mint) ?: return
+            val (lane, x) = rec
             val y = if (pnlPct > 0.0) 1.0 else 0.0
-            val p = rawProb(x)
-            val err = p - y                       // dL/dz for logistic
+
+            // ── Train global head (warm-start authority for new lanes) ──
+            val pG = rawProbGlobal(x)
+            val errG = pG - y
             for (i in 0 until NF) {
-                val g = err * (x[i] - featMean[i]) + L2 * w[i]
+                val g = errG * (x[i] - featMean[i]) + L2 * w[i]
                 w[i] -= LR * g
-                // update running feature mean slowly
                 featMean[i] += 0.01 * (x[i] - featMean[i])
             }
-            bias -= LR * err
+            bias -= LR * errG
             trained += 1
+
+            // ── Train per-lane head + accumulate Brier score ──
+            val h = getOrCreateLaneHead(lane)
+            val pL = rawProbLane(h, x)
+            val errL = pL - y
+            for (i in 0 until NF) {
+                val g = errL * (x[i] - h.featMean[i]) + L2 * h.w[i]
+                h.w[i] -= LR * g
+                h.featMean[i] += 0.01 * (x[i] - h.featMean[i])
+            }
+            h.bias -= LR * errL
+            h.trained += 1
+            // rolling Brier: sum of (p - y)^2 windowed over last 200
+            h.brierSum += (pL - y) * (pL - y)
+            h.brierN += 1
+            if (h.brierN > 200L) {
+                h.brierSum *= (200.0 / h.brierN)
+                h.brierN = 200L
+            }
+
             if (trained % 25L == 0L) appContext?.let { save(it) }
         } catch (_: Throwable) {}
     }
 
-    // ── Persistence ──────────────────────────────────────────────────────
     fun attachContext(context: Context) { try { appContext = context.applicationContext; load(context) } catch (_: Throwable) {} }
 
     fun exportState(): String = try {
         JSONObject().apply {
             put("trained", trained); put("bias", bias)
-            put("w", org.json.JSONArray().also { for (v in w) it.put(v) })
-            put("fm", org.json.JSONArray().also { for (v in featMean) it.put(v) })
+            put("w", JSONArray().also { for (v in w) it.put(v) })
+            put("fm", JSONArray().also { for (v in featMean) it.put(v) })
+            put("lanes", JSONObject().also { ls ->
+                for ((lane, h) in laneHeads) {
+                    ls.put(lane, JSONObject().apply {
+                        put("trained", h.trained); put("bias", h.bias)
+                        put("w", JSONArray().also { for (v in h.w) it.put(v) })
+                        put("fm", JSONArray().also { for (v in h.featMean) it.put(v) })
+                        put("brierSum", h.brierSum); put("brierN", h.brierN)
+                    })
+                }
+            })
         }.toString()
     } catch (_: Throwable) { "{}" }
 
@@ -187,6 +283,18 @@ object UnifiedPolicyHead {
             trained = o.optLong("trained", 0L); bias = o.optDouble("bias", 0.0)
             o.optJSONArray("w")?.let { for (i in 0 until minOf(NF, it.length())) w[i] = it.optDouble(i, 0.0) }
             o.optJSONArray("fm")?.let { for (i in 0 until minOf(NF, it.length())) featMean[i] = it.optDouble(i, 0.5) }
+            val lanes = o.optJSONObject("lanes") ?: return
+            val keys = lanes.keys()
+            while (keys.hasNext()) {
+                val key = keys.next()
+                val lo = lanes.optJSONObject(key) ?: continue
+                val h = LaneHead()
+                h.trained = lo.optLong("trained", 0L); h.bias = lo.optDouble("bias", 0.0)
+                lo.optJSONArray("w")?.let { for (i in 0 until minOf(NF, it.length())) h.w[i] = it.optDouble(i, 0.0) }
+                lo.optJSONArray("fm")?.let { for (i in 0 until minOf(NF, it.length())) h.featMean[i] = it.optDouble(i, 0.5) }
+                h.brierSum = lo.optDouble("brierSum", 0.0); h.brierN = lo.optLong("brierN", 0L)
+                laneHeads[key] = h
+            }
         } catch (_: Throwable) {}
     }
 
@@ -197,20 +305,26 @@ object UnifiedPolicyHead {
 
     fun formatForPipelineDump(): String {
         return try {
-            if (trained < 1) return ""
+            if (trained < 1 && laneHeads.isEmpty()) return ""
             val names = listOf("mlConf","symGreen","evRatio","metaConv","fwdPWin","candConf")
-            val auth = currentAuthority()
-            val tag = when (auth) {
-                AuthorityTier.AUTHORITATIVE -> "AUTHORITATIVE — head drives sizing, rule stack demoted"
-                AuthorityTier.LEARNED       -> "LEARNED — head drives sizing within ±40%, rule-stack damps superseded"
-                AuthorityTier.ADVISORY      -> "ADVISORY — head shapes size ±40%, runs alongside rule stack"
-                AuthorityTier.BOOTSTRAP     -> "bootstrap — neutral until ${AUTHORITY_ADVISORY} (advisory) / ${AUTHORITY_LEARNED} (learned) / ${AUTHORITY_AUTHORITATIVE} (authoritative)"
-            }
-            val sb = StringBuilder("\n===== Unified Policy Head (V5.9.1262, AGI authority V5.0.4093) — learned signal weighting =====\n")
-            sb.append("  trained=$trained  bias=${"%+.2f".format(bias)}  authority=${auth.name}  (${tag})\n")
-            sb.append("  authority hits: advisoryUsage=${advisoryUsageCount.get()}  authoritativeOverrides=${authoritativeOverrideCount.get()}\n  ")
+            val sb = StringBuilder("\n===== Unified Policy Head (V5.9.1262, multi-head AGI V5.0.4094) — per-lane learned signal weighting =====\n")
+            sb.append("  global: trained=$trained  bias=${"%+.2f".format(bias)}  authority=${globalAuthority().name}\n  ")
             for (i in 0 until NF) sb.append("${names[i]}=${"%+.2f".format(w[i])}  ")
             sb.append("\n")
+            sb.append("  authority hits: advisoryUsage=${advisoryUsageCount.get()}  authoritativeOverrides=${authoritativeOverrideCount.get()}  calibrationDemotes=${calibrationDemoteCount.get()}\n")
+            if (laneHeads.isNotEmpty()) {
+                sb.append("  per-lane heads:\n")
+                laneHeads.entries.sortedByDescending { it.value.trained }.forEach { (lane, h) ->
+                    val brier = if (h.brierN > 0L) h.brierSum / h.brierN else 0.25
+                    val brierTag = when {
+                        h.brierN < 20L          -> "(warming)"
+                        brier <= BRIER_HEALTHY_MAX -> "(calibrated)"
+                        brier <= BRIER_DRIFTING_MAX -> "(monitoring)"
+                        else                     -> "(drifting → demoted)"
+                    }
+                    sb.append("    $lane  n=${h.trained}  auth=${currentAuthority(lane).name}  bias=${"%+.2f".format(h.bias)}  brier=${"%.3f".format(brier)} $brierTag\n")
+                }
+            }
             sb.toString()
         } catch (_: Throwable) { "" }
     }
