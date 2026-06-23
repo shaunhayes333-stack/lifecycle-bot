@@ -351,7 +351,7 @@ object ErrorLogger {
         val levelHist = LinkedHashMap<String, Int>()
         val componentHist = LinkedHashMap<String, Int>()
         for (log in logs) {
-            levelHist.merge(log.level, 1) { a, b -> a + b }
+            levelHist.merge(log.level.name, 1) { a, b -> a + b }
             componentHist.merge(log.component, 1) { a, b -> a + b }
         }
         return buildString {
@@ -367,7 +367,7 @@ object ErrorLogger {
             appendLine("TIME     LVL  COMPONENT          MESSAGE")
             for (log in logs) {
                 val time = log.timeFormatted.takeLast(8) // HH:MM:SS
-                val lvl = log.level.padEnd(4).take(4)
+                val lvl = log.level.name.padEnd(4).take(4)
                 val comp = log.component.padEnd(18).take(18)
                 val msg = log.message.replace('\n', ' ').replace('\r', ' ').trim()
                     .let { if (it.length > msgMax) it.take(msgMax - 1) + "…" else it }
