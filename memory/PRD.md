@@ -7,6 +7,37 @@ Stocks, Markets, Tokenized Stocks, Forex, Metals, Commodities). Foreground
 Service with a 50+ AI-module pipeline gated through processTokenCycle.
 
 
+## V5.0.4087 (Feb 2026) — surface trading fee accumulator status in pipeline health snapshot — CI ✅
+
+**Operator:** *"can you make sure that the trading fees are accumulating to be sent please"*
+
+**Audit result:** `FeeAccumulator` (V5.0.3920) is wired correctly end-to-end. `init()` at `BotService:1249`; `accrue()` called from `Executor.sendFeeSplit()` and `MarketsLiveExecutor`; `tryFlush()` called every bot-loop cycle in live mode when total accrued ≥ 1.0 SOL. All 5 fee-emitting sites in `Executor` (profit_lock, partial_sell, partial_sell_v2, buy_fee, sell_fee) route through `sendFeeSplit()` which writes to the per-destination buckets. Self-loop protection in place on both `accrue()` and `tryFlush()`. Dust < 0.000005 SOL drops silently as expected.
+
+**Fix:** Added operator-visible "Trading fee accumulator" section to `PipelineHealthCollector.dumpText()` (between Birdeye budget and API health). Surfaces: total accrued SOL, flush threshold, per-destination bucket map, retry queue depth, and a 🟢 READY / 🟡 accruing flush indicator. The next ops report dump will now confirm fees are batching toward the 1.0 SOL flush instead of being silently lost in micro-tx attempts.
+
+**CI:** commit `d7359429a` → Build AATE APK ✅ + Runtime Smoke Test ✅. AATE_VERSION=5.0.4087.
+
+## V5.0.4086 (Feb 2026) — UNCHOKE meme trader (triple-stack damper exemption) — CI ✅
+
+**Operator ops snapshot @ V5.0.4085 confirmed MOONSHOT was triple-stack-damped to ~0.35% of normal size:**
+- `LaneExpectancyDamper × 0.18` — fired because WR threshold 35 boundary missed (display rounds 34.x → 35)
+- `RegimeDetector × 0.10` — global DUMP haircut applied to ALL lanes including the meme trader
+- `LiveStrategyTuner × 0.35` — bleeder_runner_pivot fired (my 4085 threshold was 40, actual WR 35%)
+- `laneSizeCap × 0.55` — MOONSHOT cap because `laneEvMult < 1.0`
+
+**Operator P0 mandate:** *"the meme trader should maintain really good volume once learnt. it should never ever be allowed to choke itself out."*
+
+**Fix:** HARD EXEMPT runner lanes (MOONSHOT/SHITCOIN/MEME/EXPRESS/MANIP/PRESALE/PROJECT_SNIPER/DIP_HUNTER) from all three global dampers once n≥30. Runner lanes already get their own per-lane TP/SL/hold tuning via `LiveStrategyTuner.runner_lane_exempt` + `LaneExitTuner`; the global dampers were structurally written for mean-stable STANDARD/BLUECHIP lanes and mis-classify asymmetric runners as bleeders.
+
+- `LaneExpectancyDamper.compute()`: skip runner lanes entirely (no entry in map).
+- `LiveStrategyTuner.buildAdjustment()`: early-return `runner_lane_exempt` for runner lanes at n≥30 (1.0× size, +20% TP, +40% hold, +30% partial).
+- `Executor.kt` (sizing path): `regimeMult = 1.0` for runner lanes (skip global `RegimeDetector.sizeMultiplier()`).
+
+Non-runner lanes (STANDARD/BLUECHIP) keep all three brakes unchanged. Failing exits remain governed by `LaneExitTuner` + `StrictSL` + `ExitCoordinator`, NOT by sizing.
+
+**CI:** commit `3a6a0e553` → Build AATE APK ✅ + Runtime Smoke Test ✅.
+
+
 ## V5.0.4085 (Feb 2026) — WR-based RUNNER exemption (LiveStrategyTuner + LaneExpectancyDamper + RegimeDetector) — CI ✅
 
 **Operator:** ops snapshot showed MOONSHOT n=141 wr=36% gross-EV +80%/trade getting damped to ~5% sizing. Three different organs (LiveStrategyTuner, LaneExpectancyDamper, RegimeDetector) all keyed exemption gates on NET-realized mean (-0.018%/trade after TP cuts + slippage), not gross EV. Mean-only exemption never fires for asymmetric runners → lane reads as bleeder → triple-stacked size haircut.
