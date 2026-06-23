@@ -17310,22 +17310,44 @@ class Executor(
             val pumpVenue = if (com.lifecyclebot.network.PumpFunDirectApi.isPumpFunMint(ts.mint))
                 "pump.fun" else "universal-auto"
 
-            if (labelTag.contains("PROFIT", ignoreCase = true) ||
-                labelTag.contains("PARTIAL", ignoreCase = true) ||
-                labelTag.contains("RESCUE", ignoreCase = true) ||
-                labelTag.contains("TREASURY", ignoreCase = true) ||
-                labelTag.contains("RECOVERY", ignoreCase = true) ||
-                labelTag.contains("TAKE_PROFIT", ignoreCase = true) ||
-                labelTag.contains("SWEEP", ignoreCase = true)) {
-                // V5.9.495z43 operator spec item B — PumpPortal partial sell
-                // hard ban. Forensics 20260508_071749 showed Winston/Goldie/
-                // GREMLIN consumed 547k–1.25M tokens on supposed 25% sweeps.
-                // Until exact-amount semantics are proven, ALL non-full-exit
-                // sells route Jupiter exact-in only.
+            // V5.0.4101 — Wave A of P0 sell-failure patch.
+            // BEFORE: keyword-blob test that lumped EXIT-RESCUE / ORPHAN-SWEEP
+            //         / RECOVERY / TREASURY in with PARTIAL/PROFIT and
+            //         skipped PumpPortal for all of them.
+            // NOW   : strict ExitIntentClassifier — only genuine
+            //         PARTIAL_PROFIT / TRAILING_PROFIT / DUST_SWEEP labels
+            //         skip PumpPortal. Full exits, rescues, orphan sweeps,
+            //         stop-losses, rug exits ALL reach PumpPortal/native
+            //         routes again (the operator's primary complaint).
+            // The 95%-of-wallet PumpPortal fraction check below remains
+            // the actual safety against the original over-consumption bug,
+            // independent of label.
+            val requestedFraction: Double = try {
+                if (tokenUnits != null && tokenUnits > 0L) {
+                    val verifiedRaw: java.math.BigInteger = try {
+                        val bal = wallet.getTokenAccountsWithDecimalsBounded()[ts.mint]
+                        val ui = bal?.first ?: 0.0
+                        val dec = bal?.second ?: 9
+                        if (ui > 0.0) java.math.BigDecimal(ui).movePointRight(dec).toBigInteger() else java.math.BigInteger.ZERO
+                    } catch (_: Throwable) { java.math.BigInteger.ZERO }
+                    if (verifiedRaw.signum() > 0) {
+                        java.math.BigDecimal(tokenUnits)
+                            .divide(java.math.BigDecimal(verifiedRaw), 6, java.math.RoundingMode.HALF_UP)
+                            .toDouble()
+                    } else 1.0
+                } else 1.0
+            } catch (_: Throwable) { 1.0 }
+
+            if (com.lifecyclebot.engine.sell.ExitIntentClassifier
+                    .shouldSkipPumpPortalForPartialProfit(labelTag, requestedFraction)) {
+                // Genuine PARTIAL_PROFIT / TRAILING_PROFIT / DUST — historical
+                // operator spec V5.9.495z43: route Jupiter exact-in only until
+                // PumpPortal exact-amount semantics are proven. Full exits
+                // (RESCUE / RECOVERY / SWEEP / STOP / RUG) bypass this skip.
                 LiveTradeLogStore.log(
                     sellTradeKey, ts.mint, ts.symbol, "SELL",
                     LiveTradeLogStore.Phase.SELL_ROUTE_SKIPPED,
-                    "PumpPortal skipped for partial/profit label=$labelTag — continue Jupiter/Metis exact-in with verified amount.",
+                    "PumpPortal skipped for partial-profit label=$labelTag (fraction=${"%.3f".format(requestedFraction)}) — Jupiter/Metis exact-in.",
                     traderTag = traderTag,
                 )
                 try { PipelineHealthCollector.labelInc("PUMPPORTAL_PARTIAL_ROUTE_SKIPPED_NOT_ATTEMPTED") } catch (_: Throwable) {}
