@@ -790,7 +790,27 @@ object SmartSizer {
             if (cappedBy != "none") append(" [cap:$cappedBy]")
         }
 
-        return SizeResult(size, tier, basePct, aiScoreMult, perfMult,
+        // ════════════════════════════════════════════════════════════════
+        // V5.0.4098 — AGGRESSIVE COMPOUND FLOOR (LIVE ONLY)
+        // Lift the final size to the wallet-percent compound floor when
+        // running live. Doctrine: never reduces a higher base, never
+        // breaches MAX_INITIAL_WALLET_PCT cap, never engages in paper.
+        // True hard-blocks (size==0) are passed through unchanged so
+        // real safety failures still stop the trade.
+        // ════════════════════════════════════════════════════════════════
+        val finalSize = if (size > 0.0 && !isPaperMode && LiveSizingProfile.enabled) {
+            try {
+                val conviction = LiveSizingProfile.convictionFromScore(entryScore, setupQuality)
+                LiveSizingProfile.applyCompoundFloor(
+                    baseSol = size,
+                    walletSol = effectiveWallet,
+                    conviction = conviction,
+                    isPaperMode = false,
+                )
+            } catch (_: Throwable) { size }
+        } else size
+
+        return SizeResult(finalSize, tier, basePct, aiScoreMult, perfMult,
                           drawdownMult, concMult, treasuryMult, houseMoneyBonus, cappedBy, explanation)
     }
 
