@@ -1141,9 +1141,8 @@ class Executor(
     private val sellSlippageAborts = ConcurrentHashMap<String, java.util.concurrent.atomic.AtomicInteger>()
     private fun isEmergencySellReason(reason: String): Boolean {
         val r = reason.uppercase()
-        return r.contains("RUG") || r.contains("HONEYPOT") || r.contains("EMERGENCY") ||
-            r.contains("SHUTDOWN") || r.contains("PHANTOM") || r.contains("STALE") ||
-            r.contains("MAX_HOLD") || r.contains("MUST_SELL") || r.contains("CATASTROPHIC")
+        val emergencyKeys = listOf("RUG", "HONEYPOT", "EMERGENCY", "SHUTDOWN", "PHANTOM", "STALE", "MAX_HOLD", "MUST_SELL", "CATASTROPHIC")
+        return emergencyKeys.any { r.contains(it) }
     }
 
     private fun buildPriceVariants(rawPrice: Double, decimals: Int): List<Double> {
