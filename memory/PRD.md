@@ -7,6 +7,20 @@ Stocks, Markets, Tokenized Stocks, Forex, Metals, Commodities). Foreground
 Service with a 50+ AI-module pipeline gated through processTokenCycle.
 
 
+## V5.0.4090 (Feb 2026) — \$500 absolute liquidity hard-floor — CI ✅
+
+**Operator P0:** *"CATASTROPHIC_STOP_LOSS_OVERRUN_-47% still pending. lane-aware entry liquidity floor (dont let STANDARD touch <\$2K liq tokens)."*
+
+**Root cause:** STANDARD lane entered POLARIS at \$192 liquidity. STRICT_SL_-10 fired at -10% observed price, but by sell-time the pool had collapsed → realized exit -47% = **-0.146 SOL single-trade loss**. No SL band survives a pool too thin to absorb the exit.
+
+**Fix:** `MIN_LIVE_LIQ_HARD_FLOOR_USD = \$500` absolute hard-block in `PreTradeHardGate.requireLiveBuyAllowed()`, applied to ALL lanes. Sub-\$500 pools cannot safely execute any meaningful exit, regardless of lane. \$500 (not \$2K) was chosen to preserve MOONSHOT/SHITCOIN's hunting ground while catching the catastrophic case (POLARIS was \$192). The existing \$500-\$1500 soft tier (`LOW_LIQUIDITY_SIZE_REDUCED` penalty) remains for size-shaping above the floor.
+
+**Forensic trail:** `PRETRADE_HARD_BLOCK_LIQUIDITY_BELOW_EXIT_SAFE_FLOOR` counter visible in pipeline health snapshot.
+
+**CI:** commit `0788044cb` → Build ✅ + Smoke ✅. AATE_VERSION=5.0.4090.
+
+
+
 ## V5.0.4089 (Feb 2026) — RE-EDUCATE the bleeders (STANDARD/SHITCOIN/etc) — never disable — CI ✅
 
 **Operator:** *"sort out the trading logic. get the rest of the traders thinking and making the right entries. sick of losing money. dont disable pivot - re-educate and succeed. 2x-5x daily wallet growth target."*
