@@ -149,11 +149,24 @@ object ProviderProofWalker {
         )
     }
 
-    /** Reorders the static provider list by current ApiHealthMonitor success-rate. */
+    /** Reorders the static provider list by current ApiHealthMonitor success-rate.
+     *  V5.0.4083 — BIRDEYE COST RELIEF. When Birdeye daily CU usage clears the
+     *  cost-pressure threshold, force-demote it to LAST position regardless of
+     *  success rate — the budget is finite and the cascade has equally healthy
+     *  alternatives (DexScreener, GeckoTerminal, Helius, PumpPortal). Preserves
+     *  Birdeye for cases where it's the only source, but stops the scanner from
+     *  burning CU when other providers can serve the same data. */
     private fun healthRankedOrder(field: Field): List<String> {
         val base = providersForField[field].orEmpty()
         return try {
-            base.sortedByDescending { p -> ApiHealthMonitor.successRate(p) }
+            val birdeyePressured = try {
+                val snap = com.lifecyclebot.engine.BirdeyeBudgetGate.snapshot()
+                snap.pctUsed >= 70.0 || snap.lockedDown || snap.providerLockedDown
+            } catch (_: Throwable) { false }
+            val sorted = base.sortedByDescending { p -> ApiHealthMonitor.successRate(p) }
+            if (birdeyePressured && sorted.contains("birdeye")) {
+                sorted.filter { it != "birdeye" } + "birdeye"
+            } else sorted
         } catch (_: Throwable) { base }
     }
 
