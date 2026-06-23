@@ -19,6 +19,16 @@ object PreTradeHardGate {
     data class Verdict(val allowed: Boolean, val reason: String, val detail: String = "")
 
     private const val MIN_LIVE_LIQ_USD = 1_500.0
+    // V5.0.4090 — ABSOLUTE LIQUIDITY HARD-FLOOR for ALL live entries (operator
+    // P0: CATASTROPHIC_STOP_LOSS_OVERRUN_-47pct cost the wallet -0.146 SOL on a
+    // single STANDARD trade with $192 entry liquidity. STRICT_SL fired at -10%
+    // but realized exit was -47% because the pool was too thin to absorb the
+    // sell at anywhere near the SL price). Below ~$500 the pool cannot safely
+    // execute any meaningful exit — slippage will catastrophically overrun any
+    // stop loss. This is independent of lane: even MOONSHOT (which expects to
+    // trade thin variance) cannot exit safely from a sub-$500 pool. Soft
+    // MIN_LIVE_LIQ_USD penalty above this remains for size-shaping.
+    private const val MIN_LIVE_LIQ_HARD_FLOOR_USD = 500.0
     private const val TOP_HOLDER_FATAL_PCT = 35.0
     private const val TOP10_HOLDER_FATAL_PCT = 50.0
     private const val SAFETY_FRESH_MS = 120_000L
@@ -138,6 +148,13 @@ object PreTradeHardGate {
             tokenMapLiquidity.executable -> Unit
         }
         if (!safety.liqConfirmed && !tokenMapLiquidity.executable) pendingProofs.add("LIQUIDITY_PROOF_PENDING")
+        if (ts.lastLiquidityUsd > 0.0 && ts.lastLiquidityUsd < MIN_LIVE_LIQ_HARD_FLOOR_USD) {
+            // V5.0.4090 — UN-TRADEABLE THIN-POOL HARD BLOCK. Any sell into a sub-$500
+            // pool will catastrophically slip past its stop loss (operator data point:
+            // STANDARD entry at $192 liq → STRICT_SL_-10 fired → realized -47% =
+            // -0.146 SOL single-trade loss). No lane survives this safely.
+            return block(ts, "LIQUIDITY_BELOW_EXIT_SAFE_FLOOR", "liq=\$${ts.lastLiquidityUsd.toInt()} min=\$${MIN_LIVE_LIQ_HARD_FLOOR_USD.toInt()}")
+        }
         if (ts.lastLiquidityUsd > 0.0 && ts.lastLiquidityUsd < MIN_LIVE_LIQ_USD) {
             pendingProofs.add("LOW_LIQUIDITY_SIZE_REDUCED:liq=${ts.lastLiquidityUsd} min=$MIN_LIVE_LIQ_USD")
             try { ForensicLogger.lifecycle("BUY_GATE_DECISION", "mint=${ts.mint.take(10)} symbol=${ts.symbol} decision=PENALTY_ONLY reason=LOW_LIQUIDITY_SIZE_REDUCED source=PreTradeHardGate liveEligible=true") } catch (_: Throwable) {}
