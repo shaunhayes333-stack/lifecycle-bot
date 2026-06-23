@@ -7,6 +7,52 @@ Stocks, Markets, Tokenized Stocks, Forex, Metals, Commodities). Foreground
 Service with a 50+ AI-module pipeline gated through processTokenCycle.
 
 
+## V5.0.4096 (Feb 2026) — AGI ↔ SENTIENCE SYMBIOSIS: brains wired into the AI family
+
+**Operator:** *"do the new agi brains need to be wired into the ai cross talk system, education, sentience, symbiosis, behaviour, metacognition cognition etc etc."* + *"keep going bro everything new always should be wired through. 0 exceptions."*
+
+**Audit gap:** the 26 brains shipped in V5.0.4094-4095 (13 lanes × entry+exit) were ISLANDS — they trained, decided, and overrode but did not speak to `SentienceOrchestrator`, `SentientPersonality`, `AICrossTalk`, `BehaviorLearning`, or `AutonomousMetaPolicy`.
+
+**Wired three lifecycle moments from BOTH new brains:**
+1. **Tier graduation** (BOOTSTRAP→ADVISORY→LEARNED→AUTHORITATIVE) → `SentienceOrchestrator.noteRuntimeEvent('AGI_BRAIN_TIER_GRADUATED', INFO)` + `SentientPersonality.injectAutonomousThought("I just leveled up on $lane.")`. The bot literally narrates each AGI maturation.
+2. **Calibration demote** (Brier > 0.27) → `SentienceOrchestrator.noteRuntimeEvent('AGI_BRAIN_DEMOTED', WARN)` + thought injection ("Calibration drift on $lane. Pulling back to re-tune."). Self-awareness of cognitive drift.
+3. **Authoritative override** (LEARNED+ tier replaces rule-stack damps) → `SentienceOrchestrator.noteRuntimeEvent('AGI_AUTHORITATIVE_OVERRIDE', INFO)` per trade.
+
+Coverage: BOTH brains wired at all three moments. 0 exceptions.
+
+**Deferred for V5.0.4097:** AICrossTalk.getSizeMultiplier as 7th AGI input feature; AutonomousMetaPolicy ↔ AGI conviction blending at FDG; BehaviorLearning richSignature including per-lane authority tier.
+
+
+## V5.0.4093–4095 (Feb 2026) — AGI BRAIN STACK: per-lane multi-head learning across 13 lanes × 2 decision types
+
+**Operator vision:** *"aate isnt meant to be a series of gates - it's meant to be a super agi intelligence stack for solana, then the rest of crypto, then the world... brainsssssss."*
+
+The gate stack was scar tissue — every gate a place where a human hard-coded a threshold that should have been a learned signal. V5.0.4093–4095 graduates the learned heads from advisory voters in a chain to authoritative AGI brains that drive sizing AND exit timing per-lane.
+
+### V5.0.4093 — AGI Authority Graduation
+- `UnifiedPolicyHead.authoritativeConviction()` returns wider multiplier range as `trained` count grows: BOOTSTRAP (<40, neutral) → ADVISORY (40–99, ±40%) → LEARNED (100–249, REPLACES rule-stack damps) → AUTHORITATIVE (250+, ±70%, slope 2.6×).
+- FDG demotes rule-stack soft damps to fallback when authoritative tier active.
+
+### V5.0.4094 — Multi-Head Per-Lane Brains
+- 13-lane brain stack: each lane (MOONSHOT, STANDARD, BLUECHIP, SHITCOIN, EXPRESS, PROJECT_SNIPER, DIP_HUNTER, WALLET_RECOVERED, MANIPULATED, CYCLIC, QUALITY, TREASURY, CASHGEN) gets its own logistic-regression brain over 6 committee features.
+- New lane heads warm-start from global head's weights, then specialise via SGD.
+- Per-lane authority graduation — MOONSHOT can hit AUTHORITATIVE before BLUECHIP even reaches ADVISORY.
+- **Brier-score self-calibration:** each brain accumulates prediction-vs-outcome MSE over rolling 200-trade window. Brier > 0.27 (drifting) → demoted one tier until calibration recovers. Never disabled, just put back on training wheels.
+- Persisted per-lane state in SharedPreferences `unified_policy_head`.
+
+### V5.0.4095 — Exit Brains (brains for everyone)
+- Sister `UnifiedExitPolicyHead` mirroring the multi-head pattern but trained on EXIT-timing signals.
+- 6 exit features: pnlPct, maxPnlPct, ageNorm, momentumDn, liquidityErode, sellPressure.
+- Output: exitBias multiplier in [0.70, 1.40] (LEARNED) or [0.55, 1.65] (AUTHORITATIVE). Soft-modulates rule-stack TP/SL/HOLD timing — never forces or blocks an exit. Hard exits (rug/honeypot/strict-SL) bypass entirely.
+- Trained from existing `Executor.recordOutcome` paths. exitWasOptimal heuristic = pnl > -5% (didn't catastrophically overrun, didn't capitulate to zero).
+- Per-lane authority graduation independent from entry brain.
+
+**Result:** 26 active brains (13 lanes × 2 decision types). Doctrine compliance preserved — soft-shape only, never veto, hard gates remain non-negotiable safety. As samples grow, the gate stack atrophies into fallback while the AGI swarm earns authority.
+
+**Ops report sections added:** "Unified Policy Head (multi-head AGI)" and "Unified Exit Policy Head" — each shows global state + per-lane brain table with sample count, current authority tier, bias, Brier score, and calibration status.
+
+
+
 ## V5.0.4090 (Feb 2026) — \$500 absolute liquidity hard-floor — CI ✅
 
 **Operator P0:** *"CATASTROPHIC_STOP_LOSS_OVERRUN_-47% still pending. lane-aware entry liquidity floor (dont let STANDARD touch <\$2K liq tokens)."*
