@@ -72,15 +72,32 @@ object LaneExpectancyDamper {
     // WR — the variance is the cost of the upside.
     private const val RUNNER_MEAN_PCT = 20.0
 
-    // V5.0.4085 — WR-based RUNNER exemption gate (operator P0 ops snapshot:
-    // MOONSHOT n=141, WR=36%, gross-EV +80%/trade, but realized mean ≈ -0.02%
-    // because Birdeye TP cuts + slippage shaved gross down to net-flat. The
-    // mean-only RUNNER_MEAN_PCT exemption never fires for these strategies,
-    // so the damper read MOONSHOT as a bleeder and crushed sizing to ×0.18.
-    // WR + sample count is a better profitability proxy than realized mean
-    // for asymmetric runners. Exempt lanes meeting EITHER condition.
+    // V5.0.4085/4086 — WR-based RUNNER exemption gate. ops snapshot @ 5.0.4085
+    // showed MOONSHOT n=176 WR=35%(rounded) still getting damped to ×0.18 — my
+    // 4085 threshold of 35 missed because tuner saw ~34.x% which rounds to 35
+    // for display only. Lower to 30 to keep the asymmetric runner exempt with
+    // headroom; the operator mandate is "meme trader must never choke once
+    // learnt".
     private const val WR_RUNNER_MIN_TRADES = 30
-    private const val WR_RUNNER_MIN_PCT = 35.0
+    private const val WR_RUNNER_MIN_PCT = 30.0
+
+    // V5.0.4086 — HARD RUNNER-LANE EXEMPTION (operator P0: stop the choke).
+    // These lanes are asymmetric by design — frequent small losses paid by
+    // rare huge winners — and have their own per-lane tuners (LiveStrategyTuner
+    // + LaneExitTuner) that already control risk. The global LaneExpectancyDamper
+    // was originally built for BLUECHIP/STANDARD-style mean-stable bleeders and
+    // is structurally wrong for runner profiles. Skip these entirely so the
+    // damper cannot stack-damp the lanes the operator depends on for upside.
+    private val RUNNER_LANE_KEYS = arrayOf(
+        "MOONSHOT", "SHITCOIN", "MEME", "EXPRESS",
+        "MANIPULATED", "MANIP", "PRESALE", "PROJECT_SNIPER", "DIP_HUNTER",
+    )
+
+    private fun isRunnerLane(strategy: String?): Boolean {
+        val s = strategy?.trim()?.uppercase() ?: return false
+        for (k in RUNNER_LANE_KEYS) if (s.contains(k)) return true
+        return false
+    }
 
     // Cheap cache so we don't recompute the leaderboard on every single entry in
     // a hot scan burst. Refresh window keeps it live without thrashing.
@@ -134,6 +151,11 @@ object LaneExpectancyDamper {
         val out = HashMap<String, Double>()
         for (m in board) {
             if (m.trades < MIN_TRADES) continue
+
+            // V5.0.4086 — HARD RUNNER-LANE EXEMPTION (operator P0). Skip the
+            // bleeder math entirely for asymmetric-runner lanes; their per-lane
+            // tuners (LiveStrategyTuner + LaneExitTuner) already control risk.
+            if (isRunnerLane(m.strategy)) continue
 
             // V5.0.3956 — WALLET GROWTH ALLOCATOR.
             // Before this, live execution bypassed this organ and, even when enabled,

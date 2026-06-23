@@ -7500,7 +7500,22 @@ class Executor(
         // trades funnel through. Size-only, fail-open, never a veto. Meme lanes included by
         // design (operator: regime-aware sizing is the doctrine, not a per-lane hack); the
         // protected 500-token scanner pool and FDG veto whitelist are untouched.
-        val regimeMult = try { com.lifecyclebot.engine.RegimeDetector.sizeMultiplier() } catch (_: Throwable) { 1.0 }
+        // V5.0.4086 — RUNNER LANE EXEMPTION FROM GLOBAL REGIME (operator P0:
+        // ops snapshot showed MOONSHOT triple-stack-damped to ~0.35% of normal
+        // size: LaneExpectancyDamper×0.18 × RegimeDetector×0.10 × LiveStrategyTuner×0.35.
+        // Runner lanes already get their own per-lane tuning (LiveStrategyTuner,
+        // LaneExitTuner) and the lane-specific size cap below; stacking the global
+        // DUMP haircut on top is the actual choke. Skip the regime brake for
+        // runner lanes — the meme trader is built for asymmetric variance, the
+        // global regime signal is for mean-stable lanes. Non-runner lanes
+        // (STANDARD, BLUECHIP, etc.) keep the regime brake unchanged.
+        val laneTagForRegime = (identity?.source ?: ts.source).uppercase()
+        val isRunnerLaneForRegime = laneTagForRegime.contains("MOONSHOT") ||
+            laneTagForRegime.contains("SHITCOIN") || laneTagForRegime.contains("MEME") ||
+            laneTagForRegime.contains("EXPRESS") || laneTagForRegime.contains("MANIP") ||
+            laneTagForRegime.contains("PRESALE") || laneTagForRegime.contains("PROJECT_SNIPER") ||
+            laneTagForRegime.contains("DIP_HUNTER")
+        val regimeMult = if (isRunnerLaneForRegime) 1.0 else try { com.lifecyclebot.engine.RegimeDetector.sizeMultiplier() } catch (_: Throwable) { 1.0 }
         // V5.9.1464 — LANE EXECUTABLE-SIZE CAP (operator strategy spec items 3/4/5).
         // Per-lane size ceiling on the PROVEN bleeders until their rolling WR recovers.
         // Soft-shape only — NEVER a veto, the lane stays fully executable + trainable,

@@ -104,6 +104,31 @@ object LiveStrategyTuner {
         val mean = m.meanPnlPct
         val n = m.trades
 
+        // V5.0.4086 — HARD RUNNER-LANE EXEMPTION (operator P0: "the meme trader
+        // should maintain really good volume once learnt. it should never ever
+        // be allowed to choke itself out."). Asymmetric-runner lanes have their
+        // own per-lane tuners (LaneExitTuner) plus the lane-specific entry size
+        // controls; this global bleeder/runner pivot was originally written for
+        // STANDARD/BLUECHIP-style mean-stable strategies and consistently
+        // mis-classifies runner profiles as bleeders. Once a runner lane has
+        // earned its sample (n>=30), it stays at full sizing — variance is the
+        // cost of the upside, not a defect. Failing exits/SL are governed by
+        // LaneExitTuner + StrictSL + ExitCoordinator, NOT by sizing.
+        val laneKey = lane.uppercase()
+        val isRunnerLane = laneKey.contains("MOONSHOT") || laneKey.contains("SHITCOIN") ||
+            laneKey.contains("MEME") || laneKey.contains("EXPRESS") ||
+            laneKey.contains("MANIP") || laneKey.contains("PRESALE") ||
+            laneKey.contains("PROJECT_SNIPER") || laneKey.contains("DIP_HUNTER")
+        if (isRunnerLane && n >= 30) {
+            return Adjustment(
+                lane = lane, trades = n, winRatePct = wr, totalSolPnl = sol,
+                pfExpectancyPp = pf, meanPnlPct = mean, sizeMult = 1.0,
+                tpMult = 1.20, holdMult = 1.40, maxWalletMult = 1.0,
+                liquidityImpactMult = 1.0, partialTriggerMult = 1.30,
+                label = "runner_lane_exempt",
+            )
+        }
+
         // V5.0.4030 — hit-rate gated net-SOL doctrine.
         // Positive net SOL is still the north star, but a lane with <35% live WR
         // cannot be called a capital winner from outliers alone. It may keep tiny
