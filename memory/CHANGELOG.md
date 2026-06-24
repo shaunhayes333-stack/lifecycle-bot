@@ -6,6 +6,61 @@ statement + architecture; this file is the working log of fixes & decisions.
 
 ═══════════════════════════════════════════════════════════════════════════════
 
+## V5.0.4116 — fix unresolved PARTIAL_TP → TAKE_PROFIT_CHUNK (Feb 2026)
+V5.0.4115 build failed: `ExitReason.PARTIAL_TP` does not exist. The
+canonical partial-take-profit enum is `TAKE_PROFIT_CHUNK`. Swapped the
+4 MONSTER_LOCK tiers (T1–T4) to use the correct enum. Full-exit tier
+keeps `TAKE_PROFIT_FULL`. CI: Build ✅.
+
+═══════════════════════════════════════════════════════════════════════════════
+
+## V5.0.4115 — fix-forward V5.0.4114 + take-wins cascade + UI price (Feb 2026)
+
+**V5.0.4114 went red** because the `liveBuy` parameter rename to `solIn`
+broke named-argument callers (`sol = ` at 5 sites). Reverted to `sol`
+and applied the last-mile floor INSIDE the existing `var sol` chain
+(after all multipliers, before broadcast).
+
+### GUARANTEED PROFIT-LOCK CASCADE (operator: "take wins have to fire")
+
+Journal evidence: a position hit peak +30,075,290% and exited at -13.7%
+— the trail let the moonshot round-trip to a loss. CHUNGUS in operator
+screenshot stayed at +24,570% without firing TP.
+
+`AdvancedExitManager.evaluateExit` now layers a hard partial-exit ladder
+ABOVE TP and BELOW the trail, once-per-tier (alreadySoldPct gates):
+- +500%   → sell 25% (lock initial capital × 1.25)
+- +1,500% → sell to 50% total (lock 7.5× initial)
+- +5,000% → sell to 75% total (lock 37.5× initial)
+- +15,000% → sell to 90% total (lock 135× initial)
+- +30,000% → FULL EXIT (capture before round-trip)
+
+### OPEN-POSITION UI PRICE FALLBACK
+
+`MainActivity.mainUiCurrentPrice` extended fallback chain: when
+`status.tokens[mint]` is empty for a held position, cascade into
+`HostWalletTokenTracker.getEntry(mint)?.currentPriceUsd` before giving
+up. Combined with V5.0.4113 held-token immunity, the tile shows real
+price as long as the wallet tracker has seen it.
+
+### LiveSizingProfile bumps (carried from V5.0.4114)
+- `MIN_ENTRY_SOL`: 0.025 → 0.040
+- `BASE/STRONG/ALPHA wallet%`: 2/4/7.5 → 3/6/10
+- `GAS_RESERVE_SOL`: 0.075 → 0.030 (lets small wallets enforce the floor)
+- New `lastMileEntryFloor()` applied at the SINGLE choke point inside
+  `liveBuy()`, AFTER every size-multiplier (wrRecovery × style ×
+  providerQuorum × laneCapital), guaranteeing live entries are at least
+  `max(MIN_ENTRY_SOL, walletSol × BASE_WALLET_PCT)` whenever the wallet
+  is > 0.030 SOL.
+
+Operator mandate: "if it catching huge wins it needs to make big wins."
+Next +24,570% runner now converts to ~10 SOL realized (≈\$1,400) rather
+than \$0.33.
+
+
+
+═══════════════════════════════════════════════════════════════════════════════
+
 ## V5.0.4113 — LayerBrain compile fix + HELD-TOKEN WATCHLIST IMMUNITY (Feb 2026)
 
 V5.0.4111 build failed with `'internal' function exposes its 'private-in-class'
