@@ -39,6 +39,10 @@ object HoldTimeOptimizerAI {
     
     private const val TAG = "HoldTimeAI"
 
+    // V5.0.4121 — LayerBrain integration: online learning for hold-time signals.
+    private val brain = com.lifecyclebot.engine.LayerBrain.register("HoldTimeOptimizerAI", nFeatures = 3)
+
+
     // V5.9.83: 7 days is an extremely generous upper bound — anything higher is
     // almost certainly a raw-epoch-leak bug upstream, not a real hold time.
     private const val MAX_SANE_HOLD_MINUTES = 60 * 24 * 7  // 10 080
@@ -534,9 +538,17 @@ object HoldTimeOptimizerAI {
             entryScore = candidate.extraInt("totalEntryScore")
         )
         
+        // V5.0.4121 — apply learned bias and stamp for outcome training
+        val feats = doubleArrayOf(
+            (recommendation.entryBoost / 15.0).coerceIn(-1.0, 1.0),
+            (candidate.liquidityUsd / 50_000.0).coerceIn(0.0, 1.0),
+            when (setupQuality) { "A" -> 1.0; "B" -> 0.5; "C" -> 0.0; "D" -> -0.5; else -> -1.0 }
+        )
+        val biasedValue = brain.applyBias(recommendation.entryBoost.toDouble(), feats).toInt()
+        try { brain.stamp(candidate.mint, feats) } catch (_: Throwable) {}
         return ScoreComponent(
             name = "holdtime",
-            value = recommendation.entryBoost,
+            value = biasedValue,
             reason = recommendation.reason
         )
     }

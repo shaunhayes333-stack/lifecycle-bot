@@ -36,6 +36,9 @@ import java.util.concurrent.ConcurrentHashMap
 object SmartMoneyDivergenceAI {
     
     private const val TAG = "SmartMoneyAI"
+
+    // V5.0.4121 — LayerBrain integration: online learning for smart money signals.
+    private val brain = com.lifecyclebot.engine.LayerBrain.register("SmartMoneyDivergenceAI", nFeatures = 3)
     
     // ═══════════════════════════════════════════════════════════════════════════
     // DATA STRUCTURES
@@ -499,9 +502,17 @@ object SmartMoneyDivergenceAI {
             holderCountChange
         )
         
+        // V5.0.4121 — apply learned bias and stamp for outcome training
+        val feats = doubleArrayOf(
+            (holderPctChange / 20.0).coerceIn(-1.0, 1.0),
+            (holderCountChange / 50.0).coerceIn(-1.0, 1.0),
+            when (whaleRec) { "STRONG_BUY" -> 1.0; "BUY" -> 0.5; "SELL" -> -0.5; "STRONG_SELL" -> -1.0; else -> 0.0 }
+        )
+        val biasedValue = brain.applyBias(signal.entryBoost.toDouble(), feats).toInt()
+        try { brain.stamp(candidate.mint, feats) } catch (_: Throwable) {}
         return ScoreComponent(
             name = "smartmoney",
-            value = signal.entryBoost,
+            value = biasedValue,
             reason = signal.reason
         )
     }
