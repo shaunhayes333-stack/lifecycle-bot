@@ -539,6 +539,40 @@ object TokenWinMemory {
         }
     }
 
+    /**
+     * V5.0.4123 — Pattern-based entry score from name/symbol themes.
+     * Returns 0-100 where 50 = neutral (no pattern data or unreliable).
+     * Uses the WR of matched name/symbol patterns to shape the score:
+     *   theme_space 83% WR → ~83
+     *   theme_musk 0% WR → ~0
+     *   name_medium 54% WR → ~54
+     * Only uses reliable patterns (>=5 samples). Unreliable = neutral 50.
+     */
+    fun patternScoreForToken(name: String, symbol: String): Double {
+        val namePatterns = extractNamePatterns(name.lowercase())
+        val symPatterns = extractSymbolPatterns(symbol.uppercase())
+        val allPatterns = namePatterns + symPatterns
+
+        var weightedSum = 0.0
+        var totalWeight = 0.0
+
+        for (pattern in allPatterns) {
+            // Search both "name_contains" and "symbol_contains" type buckets
+            for ((type, typeMap) in patterns) {
+                val stats = typeMap[pattern] ?: continue
+                if (!sanePatternStats(stats) || !stats.isReliable) continue
+                val wr = stats.winRate  // 0.0 to 1.0
+                val n = stats.wins + stats.losses
+                // Weight by sample count (more samples = more confidence)
+                val weight = n.toDouble().coerceAtMost(50.0)
+                weightedSum += wr * 100.0 * weight
+                totalWeight += weight
+            }
+        }
+
+        return if (totalWeight > 0.0) (weightedSum / totalWeight).coerceIn(0.0, 100.0) else 50.0
+    }
+
     fun exportPatternAggregates(limit: Int = 250): List<ExportedPatternAggregate> {
         return patterns.flatMap { (type, typePatterns) ->
             typePatterns.map { (value, stats) ->

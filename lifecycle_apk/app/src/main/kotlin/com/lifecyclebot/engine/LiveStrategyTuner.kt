@@ -119,7 +119,14 @@ object LiveStrategyTuner {
             laneKey.contains("MEME") || laneKey.contains("EXPRESS") ||
             laneKey.contains("MANIP") || laneKey.contains("PRESALE") ||
             laneKey.contains("PROJECT_SNIPER") || laneKey.contains("DIP_HUNTER")
-        if (isRunnerLane && n >= 30) {
+        // V5.0.4123 — DATA-DRIVEN GATE: runner_lane_exempt was firing
+        // unconditionally for runner lanes with n>=30, regardless of WR or
+        // PnL. Operator report 5.0.4122 shows MOONSHOT n=166 WR=22% PnL=-0.691
+        // SOL getting sizeMult=1.0 because this exempt short-circuits BEFORE
+        // the toxicBleed logic. A 22% WR lane bleeding -0.69 SOL must NOT be
+        // exempt from bleeder penalties.
+        // Gate: only exempt if the lane is actually profitable or has decent WR.
+        if (isRunnerLane && n >= 30 && (wr >= 35.0 || sol > 0.0 || mean >= 20.0)) {
             return Adjustment(
                 lane = lane, trades = n, winRatePct = wr, totalSolPnl = sol,
                 pfExpectancyPp = pf, meanPnlPct = mean, sizeMult = 1.0,

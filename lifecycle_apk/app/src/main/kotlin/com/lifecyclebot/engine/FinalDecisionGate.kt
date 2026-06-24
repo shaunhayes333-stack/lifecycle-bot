@@ -2851,7 +2851,9 @@ object FinalDecisionGate {
                     whaleSignal = null,
                     timeScore = null,
                     narrativeScore = unifiedNarrative?.score ?: (50.0 + narrativeAdjustment * 5).coerceIn(0.0, 100.0),
-                    patternMatchScore = null,
+                    patternMatchScore = try {
+                        com.lifecyclebot.engine.TokenWinMemory.patternScoreForToken(ts.name ?: "", ts.symbol ?: "")
+                    } catch (_: Throwable) { null },
                     marketRegimeScore = null,
                     topHolderPcts = emptyList(),
                     tokenReturns = ts.history.takeLast(10).zipWithNext { a, b ->

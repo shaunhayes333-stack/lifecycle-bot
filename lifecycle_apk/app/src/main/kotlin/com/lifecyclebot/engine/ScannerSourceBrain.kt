@@ -119,7 +119,7 @@ object ScannerSourceBrain {
         val (floor, cap) = when (authority(key)) {
             AuthorityTier.AUTHORITATIVE -> 0.40 to 1.80
             AuthorityTier.LEARNED       -> 0.60 to 1.40
-            AuthorityTier.ADVISORY      -> 0.80 to 1.20
+            AuthorityTier.ADVISORY      -> 0.40 to 1.20  // V5.0.4123: was 0.80 floor, too generous for 4% WR sources
             AuthorityTier.BOOTSTRAP     -> 1.00 to 1.00
         }
         val raw = 1.0 + centred * 0.6
