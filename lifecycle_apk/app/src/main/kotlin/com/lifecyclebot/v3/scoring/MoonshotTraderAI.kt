@@ -1455,12 +1455,25 @@ object MoonshotTraderAI {
         // (peak < +8%). Once a play has popped past +8% it earns the full -15% floor
         // and the runner-capture machinery. Honors LosingPatternMemory's even-tighter
         // predictive floor when present (never widens it).
+        //
+        // V5.0.4129 — PATTERN GOLDEN GOOSE EXIT PROTECTION. Tokens matching a GOLD
+        // pattern (verified high-WR signature like theme_space 82%) are exempted
+        // from the early-tight-stop and hold-bucket cuts so they can ride to their
+        // statistical mean win (+47% for theme_space). HARD_FLOOR -15% backstop
+        // still applies — only the early tight stop is relaxed.
+        val gooseExitVerdict = try {
+            com.lifecyclebot.engine.PatternGoldenGoose.edge("", pos.symbol).verdict
+        } catch (_: Throwable) { com.lifecyclebot.engine.TokenWinMemory.Verdict.NEUTRAL }
+        val goldenExitProtected = gooseExitVerdict == com.lifecyclebot.engine.TokenWinMemory.Verdict.GOLD
         run {
             val earlyTightStop = minOf(-5.0, effectiveHardFloor)  // never looser than -5, respects predictive
-            if (pos.peakPnlPct < 8.0 && pnlPct <= earlyTightStop) {
+            if (!goldenExitProtected && pos.peakPnlPct < 8.0 && pnlPct <= earlyTightStop) {
                 ErrorLogger.warn(TAG, "🚀✂️ EARLY_TIGHT_STOP(-5): ${pos.symbol} | ${pnlPct.fmt(1)}% ≤ ${"%.0f".format(earlyTightStop)}% " +
                     "(peak +${pos.peakPnlPct.fmt(1)}% < +8% — no upside shown; backtest edge MOONSHOT/TIGHT_STOP_-5)")
                 return ExitSignal.STOP_LOSS
+            }
+            if (goldenExitProtected && pos.peakPnlPct < 8.0 && pnlPct <= earlyTightStop) {
+                ErrorLogger.info(TAG, "🦢 GOLD_EXIT_PROTECT: ${pos.symbol} | ${pnlPct.fmt(1)}% spared early-tight-stop (gold pattern; HARD_FLOOR -15% still active)")
             }
         }
 
@@ -1597,7 +1610,8 @@ object MoonshotTraderAI {
 
         // V5.9.437 — LIVE HOLD-BUCKET GATE. Cut flat stale Moonshot bags
         // whose hold-duration bucket has proven net-losing expectancy.
-        if (com.lifecyclebot.engine.OutcomeGates.earlyExitByHoldBucket(
+        // V5.0.4129 — Gold-pattern tokens exempt (let proven-winner signatures ride).
+        if (!goldenExitProtected && com.lifecyclebot.engine.OutcomeGates.earlyExitByHoldBucket(
                 layer = "MOONSHOT", holdMinutes = holdMinutes, pnlPct = pnlPct)) {
             ErrorLogger.info(TAG, "🧠⏱️ HOLD-BUCKET EARLY EXIT: ${pos.symbol} | ${pnlPct.fmt(1)}% after ${holdMinutes}min — bucket history bleeds")
             return ExitSignal.FLAT_EXIT

@@ -163,6 +163,47 @@ object LiveLayerGateRelaxer {
 
     fun floorMultiplier(traderTag: String): Double = effectiveMultiplier(traderTag)
 
+    /**
+     * V5.0.4129 — Per-token golden-goose override.
+     * When live WR is below the doctrine floor (death-spiral state), the relaxer
+     * globally disables. That locks lanes out of the very tokens that COULD
+     * recover the WR — including PROVEN winning patterns (theme_space 82% WR,
+     * theme_ai 50% WR, etc.). This override lets the relaxer still relax FOR
+     * THE SPECIFIC TOKEN when PatternGoldenGoose says GOLD or WINNER.
+     *
+     * Non-veto, fail-open: if the goose has no opinion, falls through to the
+     * standard global floorMultiplier(). Only GOLD/WINNER verdicts grant the
+     * override; TOXIC/CATASTROPHIC verdicts return 1.0 (no relax) regardless.
+     */
+    fun floorMultiplierForToken(traderTag: String, name: String, symbol: String): Double {
+        if (!enabled) return 1.0
+        val verdict = try {
+            com.lifecyclebot.engine.PatternGoldenGoose.edge(name, symbol).verdict
+        } catch (_: Throwable) { com.lifecyclebot.engine.TokenWinMemory.Verdict.NEUTRAL }
+        // Toxic/catastrophic patterns NEVER get a relax — extra protection layer.
+        if (verdict == com.lifecyclebot.engine.TokenWinMemory.Verdict.TOXIC ||
+            verdict == com.lifecyclebot.engine.TokenWinMemory.Verdict.CATASTROPHIC) {
+            return 1.0
+        }
+        // Gold/winner pattern: bypass the global WR-floor and DUMP-regime locks.
+        // Apply the configured per-lane multiplier with the maturity fade only.
+        if (verdict == com.lifecyclebot.engine.TokenWinMemory.Verdict.GOLD ||
+            verdict == com.lifecyclebot.engine.TokenWinMemory.Verdict.WINNER) {
+            val base = perLaneMultiplier[canonicalLaneKey(traderTag)] ?: perLaneMultiplier[traderTag.uppercase()] ?: 1.0
+            if (base >= 1.0) return 1.0
+            val liveN = liveCountForLane(traderTag)
+            return when {
+                liveN < WARM_MIN   -> base
+                liveN >= WARM_FULL -> 1.0
+                else -> {
+                    val t = (liveN - WARM_MIN).toDouble() / (WARM_FULL - WARM_MIN).toDouble()
+                    base + (1.0 - base) * t
+                }
+            }
+        }
+        return effectiveMultiplier(traderTag)
+    }
+
     fun relaxFloor(originalFloor: Double, traderTag: String, isLiveMode: Boolean): Double {
         if (!isLiveMode) return originalFloor
         return originalFloor * floorMultiplier(traderTag)

@@ -9036,13 +9036,18 @@ class BotService : Service() {
     // Birdeye, Dex, CoinGecko, Raydium, Solana scanner, smart-money). Additive:
     // merged onto existing affinity, never amputates a lane (doctrine #105).
     private fun laneAffinityForTradeType(tt: ModeRouter.TradeType): Set<String> = when (tt) {
-        ModeRouter.TradeType.FRESH_LAUNCH        -> setOf("SHITCOIN", "PROJECT_SNIPER")   // quick snipe
-        ModeRouter.TradeType.BREAKOUT_CONTINUATION -> setOf("MOONSHOT")                    // runner
-        ModeRouter.TradeType.GRADUATION          -> setOf("MOONSHOT")                      // runner (chaos→structure)
-        ModeRouter.TradeType.WHALE_ACCUMULATION  -> setOf("QUALITY", "BLUECHIP")           // diamond hand / smart money
-        ModeRouter.TradeType.REVERSAL_RECLAIM    -> setOf("DIP_HUNTER")                    // dip reclaim
-        ModeRouter.TradeType.TREND_PULLBACK      -> setOf("QUALITY", "TREASURY")           // orderly uptrend
-        ModeRouter.TradeType.SENTIMENT_IGNITION  -> setOf("MANIPULATED", "SHITCOIN")       // narrative burst
+        // V5.0.4129 — STARVED-LANE WAKEUP. Original mapping only fed 6 of 12 enabled
+        // lanes (CASHGEN, CYCLIC, MANIPULATED, MEME, DIP_HUNTER, EXPRESS were silent).
+        // AgenticStyleRouter.boundedLanes still caps each token to 2 lanes (primary +
+        // one alternate via stablePick), so this broadens the CANDIDATE pool — it
+        // doesn't explode lane_eval. Variety rotates over cycles.
+        ModeRouter.TradeType.FRESH_LAUNCH        -> setOf("SHITCOIN", "PROJECT_SNIPER", "EXPRESS", "MANIPULATED")  // quick snipe
+        ModeRouter.TradeType.BREAKOUT_CONTINUATION -> setOf("MOONSHOT", "CYCLIC", "EXPRESS")                       // runner
+        ModeRouter.TradeType.GRADUATION          -> setOf("MOONSHOT", "MANIPULATED", "CYCLIC")                     // chaos→structure
+        ModeRouter.TradeType.WHALE_ACCUMULATION  -> setOf("QUALITY", "BLUECHIP", "CYCLIC")                         // smart money
+        ModeRouter.TradeType.REVERSAL_RECLAIM    -> setOf("DIP_HUNTER", "CASHGEN", "TREASURY")                     // dip reclaim
+        ModeRouter.TradeType.TREND_PULLBACK      -> setOf("QUALITY", "TREASURY", "CYCLIC", "CASHGEN")              // orderly uptrend
+        ModeRouter.TradeType.SENTIMENT_IGNITION  -> setOf("MANIPULATED", "SHITCOIN", "CASHGEN")                    // narrative burst
         else                                     -> emptySet()
     }
 
@@ -9271,11 +9276,18 @@ class BotService : Service() {
         // strategy fanout. 1575's AgenticStyleRouter now expands/ranks lanes
         // once character is known. If raw source already adds 3-4 lanes here,
         // every token pays FDG for the whole toolbox before style selection.
-        if (tags.contains("PUMP") || tags.contains("PORTAL")) out += listOf("SHITCOIN", "PROJECT_SNIPER")
-        if (tags.contains("RAYDIUM") || tags.contains("NEW_POOL")) out += listOf("MOONSHOT", "DIP_HUNTER")
-        if (tags.contains("DEX_BOOSTED") || tags.contains("DEX_TRENDING") || tags.contains("COINGECKO")) out += listOf("QUALITY", "TREASURY")
+        // V5.0.4129 — extend seed pool so CASHGEN/CYCLIC/MANIPULATED can also be
+        // candidates from intake; boundedLanes still caps to 2 per token.
+        if (tags.contains("PUMP") || tags.contains("PORTAL")) out += listOf("SHITCOIN", "PROJECT_SNIPER", "EXPRESS")
+        if (tags.contains("RAYDIUM") || tags.contains("NEW_POOL")) out += listOf("MOONSHOT", "DIP_HUNTER", "CYCLIC")
+        if (tags.contains("DEX_BOOSTED") || tags.contains("DEX_TRENDING") || tags.contains("COINGECKO")) out += listOf("QUALITY", "TREASURY", "CASHGEN")
         if (marketCapUsd in 75_000.0..1_000_000.0) out += "QUALITY"
         if (marketCapUsd >= 1_000_000.0 || liquidityUsd >= 75_000.0) out += "BLUECHIP"
+        // V5.0.4129 — feed the manipulated lane when liquidity is thin but the
+        // source is a pump-style feed (classic manipulation signature).
+        if ((tags.contains("PUMP") || tags.contains("PORTAL")) && liquidityUsd in 1_000.0..15_000.0) {
+            out += "MANIPULATED"
+        }
         if (out.isEmpty()) out += listOf("SHITCOIN", "MOONSHOT")
         return out
     }

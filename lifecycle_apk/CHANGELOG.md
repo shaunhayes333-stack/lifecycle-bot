@@ -4,6 +4,52 @@ All notable changes to the Autonomous AI Trading Engine.
 
 ---
 
+## [5.0.4129] - 2026-02 — MEME-TRADER MONEY-PRINTER PASS (P0 trio)
+
+### Fix 1 — Sizing cascade absolute floor + goose override (Executor.kt)
+- `doBuy` was applying `liveFloorMult × sol`, a RELATIVE floor. When upstream
+  SmartSizer multipliers had already collapsed `sol` to dust (0.003 SOL),
+  the floor became 0.0009 SOL (relative to dust input). Result: +24,570% wins
+  paying $0.33.
+- Now: `effSolRaw` clamps to `max(relMin, absMin)` where `absMin` is an
+  ABSOLUTE entry floor sourced from `LiveSizingProfile` tiers (MIN/DEFAULT/STRONG)
+  and gated on wallet adequacy.
+- PatternGoldenGoose verdict override:
+  - GOLD → absolute floor lifted to STRONG_ENTRY_SOL (0.110 SOL) + max boost 3.00×
+  - WINNER → DEFAULT_ENTRY_SOL (0.060 SOL) + 2.35×
+  - TOXIC/CATASTROPHIC → no absolute lift (size shrinks as before)
+- Telemetry: `LIVE_ABS_FLOOR_LIFT_<verdict>` label + forensic `LIVE_ABS_FLOOR_LIFT_V4129`.
+
+### Fix 2 — Goose exit protection on MOONSHOT (MoonshotTraderAI.kt)
+- GOLD pattern tokens now bypass:
+  - `EARLY_TIGHT_STOP` (-5% cut when peak < +8%)
+  - `HOLD_BUCKET_EARLY_EXIT`
+- Hard floor -15% STILL applies — only the early-cut layers are relaxed.
+- Lets proven-winner signatures (theme_space 82% WR, theme_ai 50% WR) ride to
+  their statistical mean (+47% for theme_space).
+
+### Fix 3 — GateRelaxer per-token golden-goose override (LiveLayerGateRelaxer.kt)
+- New `floorMultiplierForToken(traderTag, name, symbol)`: when live WR < 30%
+  doctrine floor (death-spiral lock), the global relaxer disables. This now
+  bypasses the lock FOR THE SPECIFIC TOKEN if the goose says GOLD/WINNER.
+- TOXIC/CATASTROPHIC verdicts NEVER get a relax (extra protection).
+
+### Fix 4 — Starved-lane wakeup (BotService.kt)
+- `laneAffinityForTradeType` and `inferIntakeLaneAffinity` expanded to seed
+  CASHGEN, CYCLIC, MANIPULATED, EXPRESS, DIP_HUNTER into the candidate pool.
+- Pre-fix: 6 of 12 enabled lanes silent (0 evals). Post-fix: every enabled lane
+  is a candidate from intake.
+- `AgenticStyleRouter.boundedLanes` still caps to 2 lanes per token via
+  `stablePick` — broader candidate pool, no eval explosion. Variety rotates.
+
+### Why
+Operator: "theres literally no action from most of the trading layers still live.
+strategy scoring or data supply issues are starving the lanes either at discovery
+or classification." Fix 4 addresses the structural starvation. Fixes 1-3 address
+the size collapse + clipping that prevented winners from paying out.
+
+---
+
 ## [5.0.4128] - 2026-02 — PATTERN GOLDEN GOOSE
 
 ### Added

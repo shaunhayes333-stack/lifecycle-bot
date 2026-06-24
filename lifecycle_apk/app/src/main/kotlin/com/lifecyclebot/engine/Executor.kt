@@ -7799,7 +7799,38 @@ class Executor(
         // reserve, zero-liq, and rug safety remain enforced by realisticLiveEntrySize
         // and upstream gates.
         val winnerMaxBoost = if (RuntimeModeAuthority.isLive() && laneEvMult > 1.0) 2.35 else 1.75
-        val effSolRaw = (sol * multiplierProduct).coerceIn(sol * liveFloorMult, sol * winnerMaxBoost)
+        // V5.0.4129 — ABSOLUTE FLOOR + PATTERN GOLDEN GOOSE SIZE OVERRIDE.
+        // Operator: "+24,570% generated only $0.33 due to tiny entry size." The
+        // previous relative floor (liveFloorMult × sol) couldn't recover absolute
+        // size when SmartSizer's own dampers had already collapsed `sol` to dust.
+        // Now: live entries clamped to an ABSOLUTE entry floor (matched to
+        // LiveSizingProfile tiers), AND tokens that match a GOLD pattern bypass
+        // the entire compound damper cascade by lifting the floor to STRONG.
+        // Floor is wallet-aware (skipped if wallet too small to honor it).
+        val gooseVerdict4129 = try {
+            com.lifecyclebot.engine.PatternGoldenGoose.edge("", ts.symbol).verdict
+        } catch (_: Throwable) { com.lifecyclebot.engine.TokenWinMemory.Verdict.NEUTRAL }
+        val (absEntryFloor4129, effMaxBoost4129) = when (gooseVerdict4129) {
+            com.lifecyclebot.engine.TokenWinMemory.Verdict.GOLD ->
+                com.lifecyclebot.engine.LiveSizingProfile.STRONG_ENTRY_SOL to 3.00
+            com.lifecyclebot.engine.TokenWinMemory.Verdict.WINNER ->
+                com.lifecyclebot.engine.LiveSizingProfile.DEFAULT_ENTRY_SOL to 2.35
+            else ->
+                com.lifecyclebot.engine.LiveSizingProfile.MIN_ENTRY_SOL to winnerMaxBoost
+        }
+        val absMinSol4129 = if (RuntimeModeAuthority.isLive() &&
+                                walletSol > absEntryFloor4129 * 2.5 &&
+                                gooseVerdict4129 != com.lifecyclebot.engine.TokenWinMemory.Verdict.TOXIC &&
+                                gooseVerdict4129 != com.lifecyclebot.engine.TokenWinMemory.Verdict.CATASTROPHIC) {
+            absEntryFloor4129
+        } else 0.0
+        val relMinSol4129 = sol * liveFloorMult
+        val relMaxSol4129 = sol * effMaxBoost4129
+        val effSolRaw = (sol * multiplierProduct).coerceIn(maxOf(relMinSol4129, absMinSol4129), relMaxSol4129)
+        if (absMinSol4129 > 0.0 && (sol * multiplierProduct) < absMinSol4129) {
+            try { ForensicLogger.lifecycle("LIVE_ABS_FLOOR_LIFT_V4129", "symbol=${ts.symbol} lane=$laneTag goose=${gooseVerdict4129.name} raw=${(sol*multiplierProduct).fmt(4)} → lift=${absMinSol4129.fmt(4)} wallet=${walletSol.fmt(3)}") } catch (_: Throwable) {}
+            try { PipelineHealthCollector.labelInc("LIVE_ABS_FLOOR_LIFT_${gooseVerdict4129.name}") } catch (_: Throwable) {}
+        }
         if (dumpRegimeLive) {
             try { ForensicLogger.lifecycle("DUMP_REGIME_LIVE_SIZE_SHAPED", "mint=${ts.mint.take(10)} symbol=${ts.symbol} lane=$laneTag regimeMult=$regimeMult laneCap=$laneSizeCap floor=$liveFloorMult raw=${effSolRaw.fmt(4)}") } catch (_: Throwable) {}
             try { PipelineHealthCollector.labelInc("DUMP_REGIME_LIVE_SIZE_SHAPED") } catch (_: Throwable) {}
