@@ -4,6 +4,43 @@ All notable changes to the Autonomous AI Trading Engine.
 
 ---
 
+## [5.0.4130] - 2026-02 — PROFIT-BOOSTER TRIO (no volume loss)
+
+### Fix 1 — ultra_runner_bank current-price sanity gate (Executor.kt)
+- `peakGainPct >= 5_000.0` triggered the panic-banker indefinitely after a
+  position ever peaked at 50x, EVEN after the price collapsed back through
+  entry. Journal showed banker selling at -29% / -66% PnL because
+  `qty × price / costSol` still read 50x on a stale-peak basis.
+- Added: `currentValue >= pos.costSol * 1.5` — only banks when the position
+  is ACTUALLY a runner right now. Maintains volume (winners still bank);
+  eliminates the loss-exit cascade.
+
+### Fix 2 — FDG TOKEN_MAP_INCOMPLETE goose downgrade (FinalDecisionGate.kt)
+- Op report: 9 of 11 FDG verdicts blocked here (transient route-data lag on
+  fresh launches, mostly Raydium/pump migration).
+- GOLD/WINNER pattern verdicts: downgrade from HARD_BLOCK to advisory,
+  apply soft-shape via `LiveSizingProfile.markGateSoftShape("FLUID_EXECUTE_FLOOR")`,
+  let the executor's fallback routing (Jupiter Ultra / PumpSwap / Raydium probe)
+  do its job. Unknown / TOXIC / CATASTROPHIC still hard-block.
+- Volume impact: NEUTRAL+ (unblocks tokens already KNOWN to convert at 50-82% WR).
+
+### Fix 3 — DUMP-regime goose bypass (Executor.kt)
+- `RegimeDetector.sizeMultiplier()` returns 0.10 in DUMP — crushed every entry
+  to 10% of base regardless of asset-level edge.
+- GOLD verdict → bypass to 1.00× (full size).
+- WINNER verdict → 0.60× floor.
+- Other verdicts → standard regime brake unchanged.
+- Telemetry: `REGIME_GOOSE_BYPASS_<verdict>` label + forensic log.
+- Volume impact: NEUTRAL (same trades, real size when goose confirms quality).
+
+### Composition — all three boost profit WITHOUT cutting volume
+- Fix 1: prevents giving back gains (loss-exits gone)
+- Fix 2: unblocks pattern-confirmed entries previously vetoed by data-lag
+- Fix 3: lets pattern-confirmed entries get REAL size in dump regimes
+- Quality protection: TOXIC/CATASTROPHIC verdicts never bypass anything.
+
+---
+
 ## [5.0.4129] - 2026-02 — MEME-TRADER MONEY-PRINTER PASS (P0 trio)
 
 ### Fix 1 — Sizing cascade absolute floor + goose override (Executor.kt)

@@ -3840,8 +3840,17 @@ class Executor(
         // path bypasses normal capital-recovery/profit-lock cadence, but still uses
         // executeProfitLockSell so wallet proof/route/finality/journal authority stays
         // centralized. Paper keeps normal ladder so learning data remains comparable.
+        // V5.0.4130 — SANITY GATE. The peakGainPct >= 5000% trigger fires forever
+        // once a position EVER peaked at 50x, even after the price collapses back
+        // through entry. Operator journal showed banker selling at -29% / -66% pnl
+        // because qty * price / costSol still read 50x while CURRENT price was
+        // below entry. Require current value ≥ 1.5× cost basis so we only bank
+        // when the position is ACTUALLY a runner right now, not historically.
         val peakGainPct = try { pos.peakGainPct.coerceAtLeast(gainPct) } catch (_: Throwable) { gainPct }
-        val ultraRunnerLiveBank = !pos.isPaperPosition && (gainMultiple >= 50.0 || peakGainPct >= 5_000.0)
+        val currentValueAboveBasis4130 = currentValue >= pos.costSol * 1.5
+        val ultraRunnerLiveBank = !pos.isPaperPosition &&
+            (gainMultiple >= 50.0 || peakGainPct >= 5_000.0) &&
+            currentValueAboveBasis4130
         if (ultraRunnerLiveBank) {
             if (wallet == null) {
                 ErrorLogger.warn("Executor", "🚫 ULTRA_RUNNER_BANK_DEFERRED: ${ts.symbol} @ ${gainMultiple.fmt(1)}x peak=${peakGainPct.toInt()}% — wallet=null")
@@ -7694,6 +7703,25 @@ class Executor(
             m != null && m.totalSolPnl > 0.0
         } catch (_: Throwable) { true }
         val regimeMult = if (isRunnerLaneForRegime && runnerLaneProfitable) 1.0 else try { com.lifecyclebot.engine.RegimeDetector.sizeMultiplier() } catch (_: Throwable) { 1.0 }
+        // V5.0.4130 — PATTERN GOLDEN GOOSE BYPASSES DUMP-REGIME BRAKE.
+        // RegimeDetector.sizeMultiplier() returns 0.10 in DUMP regime, crushing
+        // entries to 10% of base. Operator: "make winners get real size." GOLD
+        // pattern tokens (theme_space 82% WR n=75 etc.) have demonstrated edge
+        // strong enough to override the macro regime — they're the asset-level
+        // signal, not the market-wide signal. WINNER lifts to 0.60 minimum.
+        // CATASTROPHIC/TOXIC/NEUTRAL remain on the standard brake.
+        val gooseRegimeVerdict4130 = try {
+            com.lifecyclebot.engine.PatternGoldenGoose.edge("", ts.symbol).verdict
+        } catch (_: Throwable) { com.lifecyclebot.engine.TokenWinMemory.Verdict.NEUTRAL }
+        val regimeMultGoosed = when (gooseRegimeVerdict4130) {
+            com.lifecyclebot.engine.TokenWinMemory.Verdict.GOLD    -> maxOf(regimeMult, 1.00)  // full bypass
+            com.lifecyclebot.engine.TokenWinMemory.Verdict.WINNER  -> maxOf(regimeMult, 0.60)  // partial bypass
+            else                                                    -> regimeMult
+        }
+        if (regimeMultGoosed > regimeMult) {
+            try { ForensicLogger.lifecycle("REGIME_GOOSE_BYPASS_V4130", "symbol=${ts.symbol} verdict=${gooseRegimeVerdict4130.name} regimeMult=$regimeMult → $regimeMultGoosed") } catch (_: Throwable) {}
+            try { PipelineHealthCollector.labelInc("REGIME_GOOSE_BYPASS_${gooseRegimeVerdict4130.name}") } catch (_: Throwable) {}
+        }
         // V5.9.1464 — LANE EXECUTABLE-SIZE CAP (operator strategy spec items 3/4/5).
         // Per-lane size ceiling on the PROVEN bleeders until their rolling WR recovers.
         // Soft-shape only — NEVER a veto, the lane stays fully executable + trainable,
@@ -7787,7 +7815,7 @@ class Executor(
             )
             UnifiedPolicyHead.conviction(laneKeyForAgi, signals)
         } catch (_: Throwable) { 1.0 }
-        val multiplierProduct = sizeMult * labMult * laneEvMult * regimeMult * laneSizeCap * brainSizeMult *
+        val multiplierProduct = sizeMult * labMult * laneEvMult * regimeMultGoosed * laneSizeCap * brainSizeMult *
             strategyTunerSizeMult * sourceBrainSizeMult * uphConvictionMult
         if (RuntimeModeAuthority.isLive() && (laneEvMult != 1.0 || laneSizeCap < 1.0 || strategyTunerSizeMult != 1.0 || uphConvictionMult != 1.0)) {
             try { ForensicLogger.lifecycle("LIVE_WALLET_GROWTH_ALLOCATOR", "mint=${ts.mint.take(10)} symbol=${ts.symbol} lane=$laneTag laneEvMult=$laneEvMult laneCap=$laneSizeCap regimeMult=$regimeMult brainMult=$brainSizeMult stratTuner=$strategyTunerSizeMult sourceBrain=$sourceBrainSizeMult uph=$uphConvictionMult product=$multiplierProduct floor=$liveFloorMult") } catch (_: Throwable) {}

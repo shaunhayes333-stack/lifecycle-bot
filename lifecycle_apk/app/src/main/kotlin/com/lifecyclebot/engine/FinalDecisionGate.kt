@@ -2027,13 +2027,37 @@ object FinalDecisionGate {
                 tm.pumpFunExecutable && !tm.migratedOrGraduated
             val hasAnyRoute = hasPair || hasPool || hasPumpBondingRoute
             if (!hasAnyRoute) {
-                blockReason = "HARD_BLOCK_TOKEN_MAP_INCOMPLETE"
-                blockLevel = BlockLevel.HARD
-                checks.add(GateCheck(
-                    "token_map", false,
-                    "noRoute pair=${hasPair} pool=${hasPool} pumpBondingExec=${hasPumpBondingRoute} routeStatus=${tm.routeStatus}"
-                ))
-                tags.add("token_map_incomplete")
+                // V5.0.4130 — PATTERN GOLDEN GOOSE OVERRIDE on TOKEN_MAP_INCOMPLETE.
+                // The operational report shows 9 of 11 FDG verdicts hard-blocked
+                // here. For tokens that match a GOLD/WINNER pattern, give the
+                // executor's fallback routing (Jupiter Ultra / PumpSwap / Raydium
+                // probe) a chance — gold-pattern tokens historically convert at
+                // 50-82% WR and many lose route data only transiently between
+                // launch and DexScreener indexing. CATASTROPHIC/TOXIC still hard-block.
+                val gooseVerdictFdg = try {
+                    com.lifecyclebot.engine.PatternGoldenGoose.edge("", ts.symbol).verdict
+                } catch (_: Throwable) { com.lifecyclebot.engine.TokenWinMemory.Verdict.NEUTRAL }
+                val goldenRouteOverride = gooseVerdictFdg == com.lifecyclebot.engine.TokenWinMemory.Verdict.GOLD ||
+                                          gooseVerdictFdg == com.lifecyclebot.engine.TokenWinMemory.Verdict.WINNER
+                if (goldenRouteOverride) {
+                    checks.add(GateCheck(
+                        "token_map_goose_override", true,
+                        "noRoute_advisory verdict=${gooseVerdictFdg.name} pair=${hasPair} pool=${hasPool} pumpBondingExec=${hasPumpBondingRoute}"
+                    ))
+                    tags.add("token_map_goose_override")
+                    try {
+                        com.lifecyclebot.engine.LiveSizingProfile.markGateSoftShape(ts.mint, "FLUID_EXECUTE_FLOOR")
+                        com.lifecyclebot.engine.PipelineHealthCollector.labelInc("FDG_TOKEN_MAP_GOOSE_OVERRIDE_${gooseVerdictFdg.name}")
+                    } catch (_: Throwable) {}
+                } else {
+                    blockReason = "HARD_BLOCK_TOKEN_MAP_INCOMPLETE"
+                    blockLevel = BlockLevel.HARD
+                    checks.add(GateCheck(
+                        "token_map", false,
+                        "noRoute pair=${hasPair} pool=${hasPool} pumpBondingExec=${hasPumpBondingRoute} routeStatus=${tm.routeStatus}"
+                    ))
+                    tags.add("token_map_incomplete")
+                }
             }
         }
 
