@@ -7870,6 +7870,33 @@ class Executor(
         val gooseVerdict4129 = try {
             com.lifecyclebot.engine.PatternGoldenGoose.edge("", ts.symbol).verdict
         } catch (_: Throwable) { com.lifecyclebot.engine.TokenWinMemory.Verdict.NEUTRAL }
+        // V5.0.4132 — DISCIPLINE PASS at the size chokepoint.
+        // (a) PAUSE BUTTON: if global rolling WR < 25% (DEFENSIVE), only GOLD/WINNER
+        //     verdicts trade. Lower lanes get sized DOWN via laneSizeTilt; top
+        //     performers get sized UP. Capital re-routes toward what's working.
+        // (b) LANE TIMEOUT: if this lane's rolling 30-trade WR < 20%, only GOLD/WINNER
+        //     verdicts trade IN THIS LANE. (Hysteresis: exits at 35%.)
+        val isHighEdge4132 = gooseVerdict4129 == com.lifecyclebot.engine.TokenWinMemory.Verdict.GOLD ||
+                              gooseVerdict4129 == com.lifecyclebot.engine.TokenWinMemory.Verdict.WINNER
+        val pauseDefensive4132 = try { com.lifecyclebot.engine.LivePauseButton.isDefensive() } catch (_: Throwable) { false }
+        val laneTimedOut4132 = try { com.lifecyclebot.engine.LaneTimeoutGate.isTimedOut(laneTag) } catch (_: Throwable) { false }
+        if (RuntimeModeAuthority.isLive() && !isHighEdge4132 && (pauseDefensive4132 || laneTimedOut4132)) {
+            val reason4132 = when {
+                pauseDefensive4132 && laneTimedOut4132 -> "discipline_pause_and_lane_timeout"
+                pauseDefensive4132                      -> "discipline_pause_global"
+                else                                    -> "discipline_lane_timeout"
+            }
+            try { ForensicLogger.lifecycle("DISCIPLINE_VETO_V4132", "symbol=${ts.symbol} lane=$laneTag reason=$reason4132 goose=${gooseVerdict4129.name} pause=${runCatching { com.lifecyclebot.engine.LivePauseButton.tag() }.getOrDefault("?")} laneState=${runCatching { com.lifecyclebot.engine.LaneTimeoutGate.tag(laneTag) }.getOrDefault("?")}") } catch (_: Throwable) {}
+            try { PipelineHealthCollector.labelInc("DISCIPLINE_VETO_${reason4132.uppercase()}") } catch (_: Throwable) {}
+            onLog("🛑 Discipline veto: $reason4132 ${ts.symbol} (goose=${gooseVerdict4129.name})", "discipline")
+            return
+        }
+        // (c) PERFORMING-LANE TILT: in DEFENSIVE mode, scale entries up for top
+        //     lanes (×1.30 / ×1.15) and down for unranked (×0.70). NORMAL mode = ×1.0.
+        val laneTilt4132 = try { com.lifecyclebot.engine.LivePauseButton.laneSizeTilt(laneTag) } catch (_: Throwable) { 1.0 }
+        // (d) SCANNER-LANE BRIDGE: additive score-style bias from (source, lane) brain.
+        val bridgeBias4132 = try { com.lifecyclebot.engine.ScannerLaneBridge.affinityBias(ts.source, laneTag) } catch (_: Throwable) { 0 }
+        val bridgeMult4132 = (1.0 + bridgeBias4132 / 100.0).coerceIn(0.70, 1.30)
         val absEntryFloor4129 = when (gooseVerdict4129) {
             com.lifecyclebot.engine.TokenWinMemory.Verdict.GOLD ->
                 com.lifecyclebot.engine.LiveSizingProfile.STRONG_ENTRY_SOL
@@ -7891,7 +7918,7 @@ class Executor(
         } else 0.0
         val relMinSol4129 = sol * liveFloorMult
         val upperCap4129 = sol * winnerMaxBoost * gooseUpperMult4129
-        val effSolRaw = (sol * multiplierProduct).coerceIn(maxOf(relMinSol4129, absMinSol4129), upperCap4129)
+        val effSolRaw = (sol * multiplierProduct * laneTilt4132 * bridgeMult4132).coerceIn(maxOf(relMinSol4129, absMinSol4129), upperCap4129 * laneTilt4132)
         if (absMinSol4129 > 0.0 && (sol * multiplierProduct) < absMinSol4129) {
             try { ForensicLogger.lifecycle("LIVE_ABS_FLOOR_LIFT_V4129", "symbol=${ts.symbol} lane=$laneTag goose=${gooseVerdict4129.name} raw=${(sol*multiplierProduct).fmt(4)} → lift=${absMinSol4129.fmt(4)} wallet=${walletSol.fmt(3)}") } catch (_: Throwable) {}
             try { PipelineHealthCollector.labelInc("LIVE_ABS_FLOOR_LIFT_${gooseVerdict4129.name}") } catch (_: Throwable) {}
@@ -16955,6 +16982,19 @@ class Executor(
             try { com.lifecyclebot.engine.UnifiedExitPolicyHead.recordOutcome(ts.mint, pnlP > -5.0) } catch (_: Throwable) {}
             try { com.lifecyclebot.engine.LayerBrain.recordOutcomeAll(ts.mint, pnlP) } catch (_: Throwable) {}  // V5.0.4111
             try { com.lifecyclebot.engine.StrategyHypothesisEngine.recordOutcome(ts.mint, pnlP) } catch (_: Throwable) {}
+            // V5.0.4132 — DISCIPLINE-PASS FEEDBACK LOOP
+            // Train the rolling-WR pause button, lane-timeout gate, scanner-lane
+            // bridge brain, and seed the rug blacklist. All four self-tune from
+            // closed-trade outcomes; no separate training pass needed.
+            try {
+                val laneTag4132 = (pos.tradingMode ?: ts.tradingMode ?: "MEME").uppercase()
+                val srcTag4132  = (ts.source ?: "UNKNOWN").uppercase()
+                val holdMs4132  = try { (System.currentTimeMillis() - pos.entryTimeMs).coerceAtLeast(0L) } catch (_: Throwable) { 0L }
+                com.lifecyclebot.engine.LivePauseButton.recordOutcome(laneTag4132, pnlP)
+                com.lifecyclebot.engine.LaneTimeoutGate.recordOutcome(laneTag4132, pnlP)
+                com.lifecyclebot.engine.ScannerLaneBridge.recordOutcome(srcTag4132, laneTag4132, pnlP)
+                com.lifecyclebot.engine.RugMintBlacklist.recordClose(ts.mint, pnlP, holdMs4132)
+            } catch (_: Throwable) {}
             ErrorLogger.info("Executor", "🎓 HARVARD BRAIN (LIVE): Recorded outcome for ${ts.symbol} | PnL=${pnlP.toInt()}%")
         } catch (e: Exception) {
             ErrorLogger.warn("Executor", "🎓 Harvard Brain recording failed: ${e.message}")

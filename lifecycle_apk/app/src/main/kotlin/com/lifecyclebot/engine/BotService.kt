@@ -1636,7 +1636,13 @@ class BotService : Service() {
             com.lifecyclebot.v3.scoring.BlueChipTraderAI.init(applicationContext)
             com.lifecyclebot.v3.scoring.QualityTraderAI.init(applicationContext)
             com.lifecyclebot.v3.scoring.ProjectSniperAI.init(applicationContext)
-            ErrorLogger.info("BotService", "All layer AI persistence initialized")
+            // V5.0.4132 — DISCIPLINE PASS modules (rolling-WR pause, lane timeout,
+            // rug-mint blacklist, scanner-lane bridge brain).
+            com.lifecyclebot.engine.LivePauseButton.init(applicationContext)
+            com.lifecyclebot.engine.LaneTimeoutGate.init(applicationContext)
+            com.lifecyclebot.engine.RugMintBlacklist.init(applicationContext)
+            com.lifecyclebot.engine.ScannerLaneBridge.init(applicationContext)
+            ErrorLogger.info("BotService", "All layer AI persistence initialized | pause=${com.lifecyclebot.engine.LivePauseButton.tag()} rugBL=${com.lifecyclebot.engine.RugMintBlacklist.size()}")
         } catch (e: Exception) {
             ErrorLogger.error("BotService", "Layer AI init error: ${e.message}", e)
         }
@@ -4796,20 +4802,44 @@ class BotService : Service() {
                             // CryptoAlt/Markets stayed alive. A raw scanner hit must hydrate
                             // GlobalTradeRegistry + status.tokens immediately so the Meme trader has
                             // candidates to process even if merge/probation/telemetry layers wobble.
-                            val immediateAdmitted = admitProtectedMemeIntake(
-                                mint = identity.mint,
-                                symbol = identity.symbol,
-                                name = name.ifBlank { identity.symbol },
-                                source = "SCANNER_DIRECT_${source.name}",
-                                marketCapUsd = liquidityUsd * 10.0,
-                                liquidityUsd = liquidityUsd,
-                                volumeH1 = volumeH1,
-                                confidence = score.toInt().coerceIn(1, 100),
-                                allSources = setOf(source.name, "SCANNER_DIRECT"),
-                                playSound = false,
-                                operatorLog = false,
-                                expectedRuntimeGeneration = startBotScannerGen,
-                            )
+                            // V5.0.4132 — DISCIPLINE FILTERS at the fast intake path.
+                            // FDG is the smart gate but most live trades come through THIS
+                            // path which previously had NO quality filter. Apply BEFORE
+                            // admission so the registry never even sees toxic tokens:
+                            //   1. RugMintBlacklist veto — same mint that rugged us ≤24h ago
+                            //   2. PatternGoldenGoose catastrophic veto
+                            //   3. ScannerLaneBridge.shouldRoute — proven-toxic (src→lane) pair
+                            // None of these veto unknown tokens — they only block KNOWN bad.
+                            val v4132_rug = try { com.lifecyclebot.engine.RugMintBlacklist.isBlacklisted(identity.mint) } catch (_: Throwable) { false }
+                            val v4132_gooseCata = try { com.lifecyclebot.engine.PatternGoldenGoose.isCatastrophic(name.ifBlank { identity.symbol }, identity.symbol) } catch (_: Throwable) { false }
+                            val v4132_toxicPair = try { !com.lifecyclebot.engine.ScannerLaneBridge.shouldRoute(source.name, "MEME") } catch (_: Throwable) { false }
+                            val v4132_veto = v4132_rug || v4132_gooseCata || v4132_toxicPair
+                            val v4132_vetoTag = when {
+                                v4132_rug         -> "rug_blacklist"
+                                v4132_gooseCata   -> "goose_catastrophic"
+                                v4132_toxicPair   -> "scanner_lane_pair_toxic"
+                                else              -> ""
+                            }
+                            val immediateAdmitted = if (v4132_veto) {
+                                try { com.lifecyclebot.engine.PipelineHealthCollector.labelInc("MEME_DIRECT_INTAKE_VETO_${v4132_vetoTag.uppercase()}") } catch (_: Throwable) {}
+                                ErrorLogger.warn("BotService", "🛑 MEME_DIRECT_INTAKE_VETO: ${identity.symbol} reason=$v4132_vetoTag mint=${identity.mint.take(10)} src=${source.name}")
+                                false
+                            } else {
+                                admitProtectedMemeIntake(
+                                    mint = identity.mint,
+                                    symbol = identity.symbol,
+                                    name = name.ifBlank { identity.symbol },
+                                    source = "SCANNER_DIRECT_${source.name}",
+                                    marketCapUsd = liquidityUsd * 10.0,
+                                    liquidityUsd = liquidityUsd,
+                                    volumeH1 = volumeH1,
+                                    confidence = score.toInt().coerceIn(1, 100),
+                                    allSources = setOf(source.name, "SCANNER_DIRECT"),
+                                    playSound = false,
+                                    operatorLog = false,
+                                    expectedRuntimeGeneration = startBotScannerGen,
+                                )
+                            }
                             if (immediateAdmitted) {
                                 ErrorLogger.info("BotService", "🟢 MEME_DIRECT_INTAKE: ${identity.symbol} | src=${source.name} | liq=\$${liquidityUsd.toInt()} | score=$score | watch=${GlobalTradeRegistry.size()}")
                             }

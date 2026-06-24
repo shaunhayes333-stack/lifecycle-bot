@@ -4,6 +4,60 @@ All notable changes to the Autonomous AI Trading Engine.
 
 ---
 
+## [5.0.4132] - 2026-02 — DISCIPLINE PASS + SCANNER-LANE BRAIN
+
+Operator mandate: WR was slipping under every "intelligence" layer (37→33→23→22%).
+The fix is NOT more aggression — it's DISCIPLINE. Five new modules ship together.
+
+### NEW: LivePauseButton (capital redirect to performing lanes)
+Tracks rolling 30-trade WR globally. If WR < 25% (PAUSE_FLOOR) → DEFENSIVE mode:
+- Only GOLD/WINNER verdict tokens trade
+- Top-1 lane by recent WR → size ×1.30
+- Top-2 → ×1.15
+- Top-3 → ×1.00
+- Unranked → ×0.70 (sized DOWN, not blocked)
+Exits DEFENSIVE when rolling WR climbs back above 35% (hysteresis prevents flap).
+Capital actively re-routes toward what's working.
+
+### NEW: LaneTimeoutGate (per-lane circuit breaker)
+Each lane tracks its OWN rolling 30-trade WR. When < 20% → TIMEOUT (only GOLD/WINNER
+verdicts trade in that lane). Recovery at 35%. MOONSHOT goes into timeout
+immediately given the 14.3% WR data.
+
+### NEW: RugMintBlacklist (don't re-buy rugs)
+Closes ≤ -50% within 10 minutes of entry → blacklist that mint for 24h. Operator
+data showed USWR -100% × 5 re-entries on the same mint. Killed.
+
+### NEW: ScannerLaneBridge (per-source × per-lane brain)
+Records win rate per `(scanner_source, lane)` pair. Surfaces:
+- `affinityBias(src, lane)` → ±12 score bias from learned compatibility
+- `shouldRoute(src, lane)` → veto on proven-toxic pairs (≥16 samples, WR≤5%, mean≤-40%)
+- `bestLaneFor(src)` → best historical lane for a given scanner source
+Each scanner source now learns which downstream lane converts its candidates best.
+
+### WIRED:
+- `BotService.onCreate` — inits all 4 modules at boot, restores from SharedPreferences
+- `BotService.MEME_DIRECT_INTAKE` (fast path) — BEFORE admission, applies:
+  RugBlacklist + GooseCatastrophic + ScannerLaneBridge.shouldRoute vetoes.
+  Closes the "dumb path bypasses smart gate" leak from V5.0.4126-4130.
+- `Executor.doBuy` — discipline veto if (DEFENSIVE || LaneTimedOut) AND verdict
+  not GOLD/WINNER. Else applies `laneTilt` + `bridgeBias` into the sizing pipeline.
+- `Executor.liveSell` close hook — feeds outcomes to all 4 modules so the bot
+  self-tunes from its own trade history.
+
+### Doctrine
+- All 4 modules fail open (unknown patterns/lanes/mints get NORMAL treatment).
+- TOXIC/CATASTROPHIC verdicts NEVER bypass any safety.
+- GOLD/WINNER bypass only the DISCIPLINE vetoes (the proven-quality escape hatch).
+
+### Why this is different from V5.0.4126-4130
+Previous fixes ADDED intelligence layers (goose, gate-override, regime-bypass).
+This pass ADDS DISCIPLINE — circuit breakers, cooldowns, and memory of past
+failures. The bot now stops trading garbage in dump regimes; doesn't re-buy rugs;
+and routes capital toward provably-winning lane-source combinations.
+
+---
+
 ## [5.0.4131] - 2026-02 — REAL-SIZE ENTRIES (liquidity-cap fix)
 
 ### Root cause
