@@ -7880,6 +7880,21 @@ class Executor(
                               gooseVerdict4129 == com.lifecyclebot.engine.TokenWinMemory.Verdict.WINNER
         val pauseDefensive4132 = try { com.lifecyclebot.engine.LivePauseButton.isDefensive() } catch (_: Throwable) { false }
         val laneTimedOut4132 = try { com.lifecyclebot.engine.LaneTimeoutGate.isTimedOut(laneTag) } catch (_: Throwable) { false }
+        // V5.0.4132b — UNIVERSAL SCANNER-LANE BRAIN VETO. Applies to every trader
+        // (STANDARD, BLUECHIP, SHITCOIN, QUALITY, SHITCOIN_EXPRESS, MOONSHOT,
+        // MANIPULATED, DIP_HUNTER, PROJECT_SNIPER, CYCLIC, CASHGEN, TREASURY).
+        // doBuy is the universal chokepoint — placing the veto here makes EVERY
+        // buy across EVERY lane consult the scanner→lane bridge brain.
+        // GOLD/WINNER verdicts bypass (proven edge can override learned aversion).
+        val bridgeToxic4132 = try {
+            !com.lifecyclebot.engine.ScannerLaneBridge.shouldRoute(ts.source ?: "UNKNOWN", laneTag)
+        } catch (_: Throwable) { false }
+        if (RuntimeModeAuthority.isLive() && bridgeToxic4132 && !isHighEdge4132) {
+            try { ForensicLogger.lifecycle("SCANNER_BRIDGE_VETO_V4132", "symbol=${ts.symbol} lane=$laneTag src=${ts.source} bridge=${runCatching { com.lifecyclebot.engine.ScannerLaneBridge.tag(ts.source ?: "UNKNOWN", laneTag) }.getOrDefault("?")}") } catch (_: Throwable) {}
+            try { PipelineHealthCollector.labelInc("SCANNER_BRIDGE_VETO") } catch (_: Throwable) {}
+            onLog("🛑 Scanner-bridge veto: ${ts.symbol} src→lane proven toxic (lane=$laneTag)", "discipline")
+            return
+        }
         if (RuntimeModeAuthority.isLive() && !isHighEdge4132 && (pauseDefensive4132 || laneTimedOut4132)) {
             val reason4132 = when {
                 pauseDefensive4132 && laneTimedOut4132 -> "discipline_pause_and_lane_timeout"
@@ -16987,9 +17002,9 @@ class Executor(
             // bridge brain, and seed the rug blacklist. All four self-tune from
             // closed-trade outcomes; no separate training pass needed.
             try {
-                val laneTag4132 = (pos.tradingMode ?: ts.tradingMode ?: "MEME").uppercase()
+                val laneTag4132 = (ts.tradingMode ?: "MEME").uppercase()
                 val srcTag4132  = (ts.source ?: "UNKNOWN").uppercase()
-                val holdMs4132  = try { (System.currentTimeMillis() - pos.entryTimeMs).coerceAtLeast(0L) } catch (_: Throwable) { 0L }
+                val holdMs4132  = try { (System.currentTimeMillis() - pos.entryTime).coerceAtLeast(0L) } catch (_: Throwable) { 0L }
                 com.lifecyclebot.engine.LivePauseButton.recordOutcome(laneTag4132, pnlP)
                 com.lifecyclebot.engine.LaneTimeoutGate.recordOutcome(laneTag4132, pnlP)
                 com.lifecyclebot.engine.ScannerLaneBridge.recordOutcome(srcTag4132, laneTag4132, pnlP)
