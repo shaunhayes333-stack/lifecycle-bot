@@ -342,16 +342,16 @@ object LiveSizingProfile {
         val hardCap = walletSol * MAX_INITIAL_WALLET_PCT
         val maxSpendable = (walletSol - GAS_RESERVE_SOL).coerceAtLeast(0.0)
         val lifted = max(baseSol, targetFloor)
-        val final = min(min(lifted, hardCap), maxSpendable)
-        if (final > baseSol * 1.01) {
+        val result = min(min(lifted, hardCap), maxSpendable)
+        if (result > baseSol * 1.01) {
             try {
                 ErrorLogger.info(
                     "LiveSizingProfile",
-                    "🛡️ LAST_MILE_FLOOR: base=${"%.4f".format(baseSol)} → ${"%.4f".format(final)} (wallet=${"%.3f".format(walletSol)})"
+                    "🛡️ LAST_MILE_FLOOR: base=${"%.4f".format(baseSol)} → ${"%.4f".format(result)} (wallet=${"%.3f".format(walletSol)})"
                 )
                 com.lifecyclebot.engine.PipelineHealthCollector.labelInc("LAST_MILE_ENTRY_FLOOR_LIFTED")
             } catch (_: Throwable) {}
         }
-        return final
+        return result
     }
 }

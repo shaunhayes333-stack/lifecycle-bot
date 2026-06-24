@@ -384,6 +384,45 @@ object AdvancedExitManager {
                 "[$symbol] Liquidity collapsed: ${currentLiquidity.toInt()} < ${(entryLiquidity * targets.liquidityCollapseThreshold).toInt()}")
         }
 
+        // 1a. V5.0.4114 — GUARANTEED PROFIT-LOCK CASCADE.
+        // Operator screenshot: CHUNGUS hit +24,570% but the take-profit
+        // never fired. Journal evidence: 3GQx19NL hit peak +30,075,290% and
+        // exited at -13.7% — the trailing stop let a monster round-trip to
+        // a loss. The user's mandate: "the take wins have to fire".
+        //
+        // Layer a cascade of HARD partial-exit triggers ABOVE the standard
+        // TP and BELOW any trail logic. These are tier-based snapshots of
+        // realized PnL the bot MUST bank as it climbs, independent of the
+        // trail % from HWM. Triggers are once-per-tier (alreadySoldPct
+        // gates), so they ladder up cleanly without rapid re-fire.
+        //
+        // Tier ladder:
+        //   +500%   → sell 25% (lock initial capital × 1.25)
+        //   +1500%  → sell to 50% total (lock 7.5× initial)
+        //   +5000%  → sell to 75% total (lock 37.5× initial)
+        //   +15000% → sell to 90% total (lock 135× initial)
+        //   +30000% → FULL EXIT (capture the moonshot before it round-trips)
+        if (pnlPct >= 30_000.0 && alreadySoldPct < 90) {
+            return ExitDecision(true, 100, ExitReason.TAKE_PROFIT_FULL, ExitUrgency.HIGH,
+                "[$symbol] MONSTER_LOCK_FULL: pnl=${pnlPct.toInt()}% — full exit before round-trip")
+        }
+        if (pnlPct >= 15_000.0 && alreadySoldPct < 75) {
+            return ExitDecision(true, 100, ExitReason.PARTIAL_TP, ExitUrgency.HIGH,
+                "[$symbol] MONSTER_LOCK_T4: pnl=${pnlPct.toInt()}% sell→90% total")
+        }
+        if (pnlPct >= 5_000.0 && alreadySoldPct < 50) {
+            return ExitDecision(true, 100, ExitReason.PARTIAL_TP, ExitUrgency.HIGH,
+                "[$symbol] MONSTER_LOCK_T3: pnl=${pnlPct.toInt()}% sell→75% total")
+        }
+        if (pnlPct >= 1_500.0 && alreadySoldPct < 25) {
+            return ExitDecision(true, 100, ExitReason.PARTIAL_TP, ExitUrgency.MEDIUM,
+                "[$symbol] MONSTER_LOCK_T2: pnl=${pnlPct.toInt()}% sell→50% total")
+        }
+        if (pnlPct >= 500.0 && alreadySoldPct < 1) {
+            return ExitDecision(true, 100, ExitReason.PARTIAL_TP, ExitUrgency.MEDIUM,
+                "[$symbol] MONSTER_LOCK_T1: pnl=${pnlPct.toInt()}% sell→25% (lock initial capital)")
+        }
+
         // 1b. V5.0.4110 — CONFIRMED LOSS CUT (WR booster).
         // Only fires when ALL THREE death-confirmations align:
         //   (a) past the wick-survival window (>1 min hold)

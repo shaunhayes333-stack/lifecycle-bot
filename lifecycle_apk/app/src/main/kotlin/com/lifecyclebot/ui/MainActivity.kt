@@ -5177,10 +5177,17 @@ for legal compliance.
     private fun mainUiCurrentPrice(mint: String, vararg laneCandidates: Double?): Double? {
         fun good(v: Double?): Double? = v?.takeIf { it.isFinite() && it > 0.0 }
         val ts = try { com.lifecyclebot.engine.BotService.status.tokens[mint] } catch (_: Throwable) { null }
+        // V5.0.4114 — strengthen fallback chain. Operator: "the open
+        // position window has to actually show real price data". For
+        // wallet-recovered or long-held positions, status.tokens may have
+        // been evicted (now protected by V5.0.4113 immunity) — leaving the
+        // tile flat at +0.0%. Cascade into the HostWalletTokenTracker
+        // entry's last-seen price before giving up.
         return good(ts?.lastPrice)
             ?: good(ts?.ref)
             ?: good(ts?.history?.lastOrNull()?.priceUsd)
             ?: laneCandidates.firstNotNullOfOrNull { good(it) }
+            ?: good(try { com.lifecyclebot.engine.HostWalletTokenTracker.getEntry(mint)?.currentPriceUsd } catch (_: Throwable) { null })
     }
 
     private fun mainUiPriceFresh(mint: String, maxAgeMs: Long = 90_000L): Boolean {

@@ -9556,7 +9556,7 @@ class Executor(
         }
     }
 
-    private fun liveBuy(ts: TokenState, solIn: Double, score: Double,
+    private fun liveBuy(ts: TokenState, sol: Double, score: Double,
                         wallet: SolanaWallet, walletSol: Double,
                         identity: TradeIdentity? = null,
                         quality: String = "C",
@@ -9566,25 +9566,6 @@ class Executor(
                         finalityPrechecked: Boolean = false,
                         attemptId: String = "",
                         executionContext: ExecutionContext? = null): Boolean {    // V5.9.386 — matching emoji
-
-        // V5.0.4114 — LAST-MILE ENTRY FLOOR.
-        // Operator screenshot: CHUNGUS hit +24,570% but only netted +\$0.33
-        // because the entry was dust (5380 tokens × \$0.0000002518 ≈
-        // \$0.0014). Cause: multiple entry paths bypass SmartSizer's
-        // compound floor (network-signal auto-buy, manual buy,
-        // wallet_recovered add-in, social-velocity bridge) AND several
-        // post-SmartSizer multipliers can collapse the result below the
-        // floor. Apply a single last-mile floor here for live entries.
-        val sol: Double = run {
-            val lifted = try {
-                com.lifecyclebot.engine.LiveSizingProfile.lastMileEntryFloor(
-                    baseSol = solIn,
-                    walletSol = walletSol,
-                    isPaperMode = false,
-                )
-            } catch (_: Throwable) { solIn }
-            lifted
-        }
 
         // V5.0.3939 — TRUE LIVE ATTEMPT BOUNDARY.
         // Runtime 3938 showed FDG live allow > 0, global EXEC > 0, but
@@ -10031,6 +10012,29 @@ class Executor(
             val beforeCapitalSol = sol
             sol = (sol * laneCapitalSizeMultiplier).coerceAtLeast(0.0)
             try { ForensicLogger.lifecycle("LIVE_LANE_CAPITAL_SIZE_APPLIED", "mint=${ts.mint.take(10)} symbol=${ts.symbol} from=${beforeCapitalSol.fmt(4)} to=${sol.fmt(4)} mult=${laneCapitalSizeMultiplier.fmt(2)} lane=$canonicalRoutedLane") } catch (_: Throwable) {}
+        }
+
+        // V5.0.4114 — LAST-MILE ENTRY FLOOR (final guard).
+        // Operator screenshot: CHUNGUS hit +24,570% but only netted +\$0.33
+        // because the entry was dust. After all the size multipliers
+        // (wrRecovery × styleMult × providerQuorum × laneCapital × earlier
+        // SmartSizer cuts), a base 0.025 SOL can collapse to 0.003 SOL.
+        // Re-apply the live entry floor here as the SINGLE last-mile
+        // guard. Pass-through on hard block (sol==0). Operator mandate:
+        // "if it catching huge wins it needs to make big wins".
+        if (sol > 0.0) {
+            val beforeFloor = sol
+            sol = try {
+                com.lifecyclebot.engine.LiveSizingProfile.lastMileEntryFloor(
+                    baseSol = sol, walletSol = walletSol, isPaperMode = false,
+                )
+            } catch (_: Throwable) { sol }
+            if (sol > beforeFloor * 1.01) {
+                try { ForensicLogger.lifecycle(
+                    "LIVE_LAST_MILE_FLOOR_LIFTED",
+                    "mint=${ts.mint.take(10)} symbol=${ts.symbol} from=${beforeFloor.fmt(4)} to=${sol.fmt(4)} wallet=${walletSol.fmt(3)}",
+                ) } catch (_: Throwable) {}
+            }
         }
 
         // V5.9.751 — Base44 ticket item #3: USDC / WSOL / USDT / mSOL / etc.
