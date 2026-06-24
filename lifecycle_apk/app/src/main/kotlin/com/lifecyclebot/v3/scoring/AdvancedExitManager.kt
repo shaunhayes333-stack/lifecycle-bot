@@ -384,6 +384,23 @@ object AdvancedExitManager {
                 "[$symbol] Liquidity collapsed: ${currentLiquidity.toInt()} < ${(entryLiquidity * targets.liquidityCollapseThreshold).toInt()}")
         }
 
+        // 1b. V5.0.4110 — CONFIRMED LOSS CUT (WR booster).
+        // Only fires when ALL THREE death-confirmations align:
+        //   (a) past the wick-survival window (>1 min hold)
+        //   (b) already in real loss (pnl <= -3%)
+        //   (c) active selling pressure (momentum < -8)
+        //   (d) liquidity drained at least 15% from entry (real distribution)
+        // This is intentionally a high-precision rule — three independent
+        // signals must agree before cutting. Won't fire on noise / wicks, won't
+        // choke entries (operator mandate). Cuts losers fast in the regime
+        // where current shape grinds them to -10% baseSL repeatedly, which is
+        // the bulk of the WR drag in current journals.
+        if (holdMinutes >= 1 && pnlPct <= -3.0 && currentMomentum < -8.0 && entryLiquidity > 0.0
+            && currentLiquidity < entryLiquidity * 0.85) {
+            return ExitDecision(true, 100, ExitReason.MOMENTUM_EXIT, ExitUrgency.HIGH,
+                "[$symbol] Confirmed loss cut: pnl=${pnlPct.toInt()}% mom=${currentMomentum.toInt()} liqDrop=${((1.0 - currentLiquidity/entryLiquidity)*100).toInt()}%")
+        }
+
         // 2. Hard stop loss (with time-multiplier looseness in first 2 min to survive wicks)
         val earlyHoldMultiplier = when {
             holdMinutes < 2  -> 1.4
