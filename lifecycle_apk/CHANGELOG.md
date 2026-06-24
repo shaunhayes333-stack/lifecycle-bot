@@ -4,6 +4,29 @@ All notable changes to the Autonomous AI Trading Engine.
 
 ---
 
+## [5.0.4127] - 2026-02 — RUNNER PROTECTION (U-SHAPED TRAIL)
+
+### Changed
+- **AdvancedExitManager.calculateProgressiveTrailingStop**: Converted the
+  trail curve from monotonic-tighten to a U-shape so monster runners can
+  compound through the MONSTER_LOCK ladder.
+  - Below +500%: unchanged (tighten progressively, protect from giveback).
+  - +500% → trail = base × 0.55 (was 0.30 — gives room to reach T2 +1500%).
+  - +1000% → trail = base × 0.75.
+  - +3000% → trail = base × 0.95.
+  - +10000% → trail = base × 1.20 (wider than base — monster compounds to T4/T5).
+  - Clamp ceiling raised from 25.0 → 35.0 so monster trails aren't capped.
+
+### Why
+Operator: "we have to have a huge huge win in the next 24 hours". With the
+old curve, a runner at +1000%+ trailing at base×0.3 ≈ 6% would round-trip on
+a normal pullback BEFORE the MONSTER_LOCK_T2 (+1500%) tier could fire. The
+lock-ladder already banks realized $ at +500/+1500/+5000/+15000/+30000%, so
+the trail can afford to widen above +500% — the dollars are already in the
+bank; the trail's only job above that is to catch a true round-trip giveback.
+
+---
+
 ## [5.0.4126] - 2026-02 — MOONSHOT FLUID PIVOT
 
 ### Added

@@ -275,16 +275,27 @@ object AdvancedExitManager {
     ): Double {
         if (currentPnlPct <= 0 || highWaterMarkPrice <= 0.0) return 0.0
 
+        // V5.0.4127 — RUNNER PROTECTION (U-shaped trail).
+        // Below +500% we tighten monotonically to protect from giveback on
+        // ordinary wins. ABOVE +500% we deliberately RE-LOOSEN so monster
+        // runners compound through the MONSTER_LOCK ladder (+500/+1500/+5000
+        // /+15000/+30000%). The lock ladder banks realized $ along the way,
+        // so the trail can afford to be wide — a 2-6% trail at +1000% would
+        // clip a runner before T2 (+1500%) ever fires.
         val effectiveTrailingPct = when {
-            currentPnlPct >= 200 -> baseTrailingPct * 0.3  // V2.0: extra tier for big runners
-            currentPnlPct >= 100 -> baseTrailingPct * 0.4
-            currentPnlPct >= 75  -> baseTrailingPct * 0.5
-            currentPnlPct >= 50  -> baseTrailingPct * 0.6
-            currentPnlPct >= 30  -> baseTrailingPct * 0.75
-            currentPnlPct >= 20  -> baseTrailingPct * 0.85
-            currentPnlPct >= 10  -> baseTrailingPct * 0.95
-            else                 -> baseTrailingPct
-        }.coerceIn(2.0, 25.0)
+            currentPnlPct >= 10_000 -> baseTrailingPct * 1.20  // monster: wider than base; ride to T4/T5
+            currentPnlPct >= 3_000  -> baseTrailingPct * 0.95  // big runner: near base; compound to T3/T4
+            currentPnlPct >= 1_000  -> baseTrailingPct * 0.75  // serious runner: room to reach T2/T3
+            currentPnlPct >= 500    -> baseTrailingPct * 0.55  // runner: room to reach T2
+            currentPnlPct >= 200    -> baseTrailingPct * 0.35
+            currentPnlPct >= 100    -> baseTrailingPct * 0.40
+            currentPnlPct >= 75     -> baseTrailingPct * 0.50
+            currentPnlPct >= 50     -> baseTrailingPct * 0.60
+            currentPnlPct >= 30     -> baseTrailingPct * 0.75
+            currentPnlPct >= 20     -> baseTrailingPct * 0.85
+            currentPnlPct >= 10     -> baseTrailingPct * 0.95
+            else                    -> baseTrailingPct
+        }.coerceIn(2.0, 35.0)  // 35.0 ceiling (was 25.0) so monster trails aren't capped
 
         return highWaterMarkPrice * (1.0 - effectiveTrailingPct / 100.0)
     }
