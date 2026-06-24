@@ -573,6 +573,110 @@ object TokenWinMemory {
         return if (totalWeight > 0.0) (weightedSum / totalWeight).coerceIn(0.0, 100.0) else 50.0
     }
 
+    // ═══════════════════════════════════════════════════════════════════════
+    // V5.0.4128 — PATTERN GOLDEN GOOSE EDGE
+    // Asymmetric edge detector. Where patternScoreForToken blends matches into
+    // a single 0-100 score (and tends to cluster near 50 because positives and
+    // negatives partly cancel), this returns the SHARPEST positive and
+    // SHARPEST negative pattern matched independently — so a token that hits
+    // theme_space (82% WR n=75) and theme_inu (0% WR n=13) is correctly read
+    // as "GOLD AND TOXIC at the same time → net TOXIC" by the goose, not as
+    // a blurred ~40% score.
+    // ═══════════════════════════════════════════════════════════════════════
+
+    enum class Verdict { CATASTROPHIC, TOXIC, NEUTRAL, WINNER, GOLD }
+
+    data class PatternEdge(
+        val verdict: Verdict,
+        val scoreBias: Int,         // additive to lane score (already asymmetric: toxic > gold)
+        val bestPattern: String?,   // e.g. "name_contains:theme_space"
+        val bestWr: Double,         // 0..1
+        val bestN: Int,
+        val worstPattern: String?,  // e.g. "name_contains:theme_musk"
+        val worstWr: Double,        // 0..1
+        val worstN: Int,
+    ) {
+        val tag: String
+            get() {
+                val parts = mutableListOf<String>()
+                bestPattern?.let { parts.add("+${it.substringAfter(':').take(14)}=${(bestWr*100).toInt()}%n$bestN") }
+                worstPattern?.let { parts.add("-${it.substringAfter(':').take(14)}=${(worstWr*100).toInt()}%n$worstN") }
+                if (parts.isEmpty()) parts.add("no_pattern")
+                return "${verdict.name}_${parts.joinToString("|")}_bias${if (scoreBias >= 0) "+" else ""}$scoreBias"
+            }
+    }
+
+    /**
+     * Hot path: returns sharp asymmetric edge for a token name/symbol.
+     * Reliability gate: requires n >= 10 (golden goose is sharper than the
+     * `isReliable` n >= 5 floor — we only act on patterns we've seen play out
+     * at least 10 times). Veto-grade is gated to n >= 15.
+     *
+     * Asymmetric reaction: a TOXIC bias (negative) is stronger than a GOLD
+     * bias (positive) for the same WR delta — the bot tilts AWAY from losers
+     * harder than it leans toward winners. Bleed-stop > moonshot capture.
+     */
+    fun patternEdgeForToken(name: String, symbol: String): PatternEdge {
+        val namePatterns = extractNamePatterns(name.lowercase())
+        val symPatterns = extractSymbolPatterns(symbol.uppercase())
+        // Also let the symbol's lowercased text match `theme_*` themes — a
+        // SPACE-symbol with no name field should still hit theme_space.
+        val symThemes = extractNamePatterns(symbol.lowercase())
+        val all = (namePatterns + symPatterns + symThemes).toSet().toList()
+
+        var bestPattern: String? = null
+        var bestWr = 0.0
+        var bestN = 0
+        var worstPattern: String? = null
+        var worstWr = 1.0
+        var worstN = 0
+
+        for (pat in all) {
+            for ((type, typeMap) in patterns) {
+                val stats = typeMap[pat] ?: continue
+                if (!sanePatternStats(stats)) continue
+                val n = stats.wins + stats.losses
+                if (n < 10) continue
+                val wr = stats.winRate
+                if (wr > bestWr || (wr == bestWr && n > bestN)) {
+                    bestWr = wr; bestN = n; bestPattern = "$type:$pat"
+                }
+                if (wr < worstWr || (wr == worstWr && n > worstN)) {
+                    worstWr = wr; worstN = n; worstPattern = "$type:$pat"
+                }
+            }
+        }
+
+        if (bestPattern == null && worstPattern == null) {
+            return PatternEdge(Verdict.NEUTRAL, 0, null, 0.0, 0, null, 0.0, 0)
+        }
+
+        // Resolve verdict + bias. Toxic dominates gold (asymmetric tilt).
+        val goldHit  = bestPattern != null  && bestWr >= 0.70 && bestN  >= 10
+        val winHit   = bestPattern != null  && bestWr >= 0.55 && bestN  >= 10
+        val toxicHit = worstPattern != null && worstWr <= 0.10 && worstN >= 10
+        val cataHit  = worstPattern != null && worstWr <= 0.05 && worstN >= 15
+
+        val verdict = when {
+            cataHit  -> Verdict.CATASTROPHIC
+            toxicHit -> Verdict.TOXIC
+            goldHit  -> Verdict.GOLD
+            winHit   -> Verdict.WINNER
+            else     -> Verdict.NEUTRAL
+        }
+
+        // Bias: tuned so toxic veto is roughly 2× gold lift.
+        val bias = when (verdict) {
+            Verdict.CATASTROPHIC -> -35  // effective hard reject when combined with min score
+            Verdict.TOXIC        -> -22
+            Verdict.GOLD         -> +16
+            Verdict.WINNER       -> +6
+            Verdict.NEUTRAL      -> 0
+        }
+
+        return PatternEdge(verdict, bias, bestPattern, bestWr, bestN, worstPattern, worstWr, worstN)
+    }
+
     fun exportPatternAggregates(limit: Int = 250): List<ExportedPatternAggregate> {
         return patterns.flatMap { (type, typePatterns) ->
             typePatterns.map { (value, stats) ->

@@ -1311,6 +1311,33 @@ object ShitCoinTraderAI {
         // of its FluidLearningAI threshold. FLUID/OFF bands return 0 and
         // change nothing for healthy WR.
         val wrFloor = try { com.lifecyclebot.engine.WrRecoveryPartial.minScoreFloor() } catch (_: Throwable) { 0 }
+        // V5.0.4128 — PATTERN GOLDEN GOOSE. Sharp asymmetric edge applied to
+        // the lane score itself (additive, ±35 bounded). Catastrophic
+        // verdict (n≥15, WR≤5%) → hard reject. Same goose used by Moonshot
+        // so both meme-traders learn the same pattern leverage.
+        val gooseEdge = try { com.lifecyclebot.engine.PatternGoldenGoose.edge("", symbol) } catch (_: Throwable) { null }
+        if (gooseEdge?.verdict == com.lifecyclebot.engine.TokenWinMemory.Verdict.CATASTROPHIC) {
+            return ShitCoinSignal(
+                shouldEnter = false,
+                positionSizeSol = 0.0,
+                takeProfitPct = 0.0,
+                stopLossPct = 0.0,
+                confidence = shitConfidence,
+                reason = "PATTERN_CATASTROPHIC_VETO: ${gooseEdge.tag}",
+                mode = mode,
+                isPaperMode = isPaperMode,
+                launchPlatform = launchPlatform,
+                riskLevel = riskLevel,
+                socialScore = socialBonus,
+                bundleWarning = bundleWarning,
+                graduationImminent = graduationImminent,
+            )
+        }
+        val gooseBias = gooseEdge?.scoreBias ?: 0
+        if (gooseBias != 0) {
+            shitScore = (shitScore + gooseBias).coerceAtLeast(0)
+            scoreReasons.add("goose${if (gooseBias >= 0) "+" else ""}$gooseBias")
+        }
         val effectiveMinScore = maxOf(minScore, wrFloor) + personalityFloorBias
         val passesScore = shitScore >= effectiveMinScore
         val passesConf = shitConfidence >= minConf

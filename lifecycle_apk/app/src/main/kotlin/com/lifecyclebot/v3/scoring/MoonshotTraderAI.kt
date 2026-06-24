@@ -678,13 +678,29 @@ object MoonshotTraderAI {
         val moonshotAdaptiveBias = try {
             com.lifecyclebot.engine.MoonshotAdaptiveGate.scoreFloorBias()
         } catch (_: Throwable) { 0 }
+        // V5.0.4128 — PATTERN GOLDEN GOOSE. Sharp asymmetric bias from
+        // TokenWinMemory pattern data (e.g. theme_space 82% WR n=75 = GOLD;
+        // theme_musk 0% WR n=11 = TOXIC). Bias is applied to the SCORE
+        // itself (additive, ±35 bounded) so a marginal gold-pattern token
+        // can clear the floor and a strong-but-toxic token gets pushed
+        // below. Catastrophic verdict (n≥15, WR≤5%) → hard reject.
+        val gooseEdge = try { com.lifecyclebot.engine.PatternGoldenGoose.edge("", symbol) } catch (_: Throwable) { null }
+        if (gooseEdge?.verdict == com.lifecyclebot.engine.TokenWinMemory.Verdict.CATASTROPHIC) {
+            return MoonshotScore(false, score, 0.0,
+                "pattern_catastrophic_veto_${gooseEdge.tag}")
+        }
+        val gooseBias = gooseEdge?.scoreBias ?: 0
+        if (gooseBias != 0) {
+            score = (score + gooseBias).coerceAtLeast(0)
+        }
         val effectiveMinScore = (maxOf(minScore, wrFloor) + personalityFloorBias + moonshotAdaptiveBias)
             .coerceAtLeast(0)
         if (score < effectiveMinScore) {
             val gateTag = try { com.lifecyclebot.engine.MoonshotAdaptiveGate.phaseTag() } catch (_: Throwable) { "gate_off" }
+            val gooseTag = gooseEdge?.tag ?: "no_goose"
             val tag = if (wrFloor > 0 && score < wrFloor) "wr_recovery_score_floor" else "score"
             return MoonshotScore(false, score, 0.0,
-                "${tag}_${score}_below_${effectiveMinScore}_(base=${minScore}_wr=${wrFloor}_gate=${gateTag})")
+                "${tag}_${score}_below_${effectiveMinScore}_(base=${minScore}_wr=${wrFloor}_gate=${gateTag}_goose=${gooseTag})")
         }
 
         // V5.9.436 — SCORE-EXPECTANCY SOFT GATE (per-layer).

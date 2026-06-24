@@ -4,6 +4,39 @@ All notable changes to the Autonomous AI Trading Engine.
 
 ---
 
+## [5.0.4128] - 2026-02 — PATTERN GOLDEN GOOSE
+
+### Added
+- **TokenWinMemory.patternEdgeForToken** — sharp asymmetric pattern edge:
+  enumerates a token's matched name/symbol patterns and returns the BEST
+  and WORST independently (rather than blending). Verdict ladder:
+  CATASTROPHIC / TOXIC / NEUTRAL / WINNER / GOLD.
+- **PatternGoldenGoose** — thin facade that exposes the edge as a lane
+  score-bias (-35..+16, asymmetric: toxic dominates gold) plus a
+  `isCatastrophic` veto hook.
+
+### Changed
+- **MoonshotTraderAI.scoreToken** — applies `PatternGoldenGoose` score
+  bias to the lane score itself (additive, not floor). CATASTROPHIC
+  verdict short-circuits to hard reject; rejection reasons now carry the
+  goose tag (e.g. `goose=TOXIC_-theme_inu=0%n13_bias-22`).
+- **ShitCoinTraderAI.evaluate** — same pattern wiring as Moonshot so
+  both meme-traders share the same golden-goose leverage.
+
+### Why
+Operator: "find the data golden goose for each lane and traders switching
+the bot into a money printer. half of its still silent re the meme trader."
+The bot already records sharp pattern data (theme_space 82% WR n=75,
+theme_musk 0% WR n=11). Until now this only contributed ±5 via
+OrthogonalSignals — nowhere near what the data deserves. The goose:
+  - Lifts marginal gold-pattern tokens over the score floor (+16).
+  - Sinks strong-but-toxic tokens below the floor (-22).
+  - Hard rejects catastrophic patterns (n≥15, WR≤5%).
+Asymmetric tilt by design: toxic veto is ~2× gold lift — bleed-stop
+matters more than moonshot capture in the current regime.
+
+---
+
 ## [5.0.4127] - 2026-02 — RUNNER PROTECTION (U-SHAPED TRAIL)
 
 ### Changed
