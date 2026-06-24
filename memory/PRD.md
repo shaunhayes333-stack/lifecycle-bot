@@ -7,6 +7,49 @@ Stocks, Markets, Tokenized Stocks, Forex, Metals, Commodities). Foreground
 Service with a 50+ AI-module pipeline gated through processTokenCycle.
 
 
+## V5.0.4109–4110 (Feb 2026) — DEADLOCK FIX P0 + WR booster
+
+### V5.0.4109 — Supervisor / Exit-Coordinator Deadlock root-caused & fixed
+**Operator:** *"it had over a thousand anr issues in 6 hours and completely froze."*
+
+**Root cause:** `HoldingLogicLayer.evaluatePosition()` was a `suspend fun`
+wrapped in `kotlinx.coroutines.sync.Mutex().withLock { ... }` but its body
+had ZERO real suspending calls (pure compute). `Executor.kt` called it via
+`runBlocking { evaluatePosition(...) }` per-token loop with no timeout.
+Every concurrent token serialized through one coroutine mutex while parking
+its host worker thread on `Unsafe.park`. With 20+ tokens evaluated
+concurrently the IO dispatcher pool drained → supervisor froze.
+
+**Fix:**
+- Removed the coroutine Mutex entirely (function is pure compute, nothing
+  to synchronize).
+- Converted `evaluatePosition` from `suspend fun` to plain `fun`.
+- `Executor.kt` calls it directly (no `runBlocking`).
+- New `LockDiagnosticsTracker` (`engine/diagnostics/`) instruments critical
+  sections; emits forensic `LOCK_LONG_HOLD` (>2s) and `LOCK_ALERT_HOLD`
+  (>10s) with owner thread + held ms so any surviving contention surfaces
+  in the next operator dump.
+- Defensive `withTimeoutOrNull(1500-2000ms)` on remaining unbounded
+  `runBlocking { price-fetch }` sites in `FluidLearning` and `BotService`.
+
+CI: Build ✅ + Runtime Smoke Test ✅.
+
+### V5.0.4110 — WR booster: high-precision Confirmed Loss Cut
+**Operator:** *"need winrate improvements as well still losing money."*
+
+Added a SINGLE high-precision early-exit inside
+`AdvancedExitManager.evaluateExit()`. Fires ONLY when ALL FOUR
+death-confirmations align: holdMinutes ≥ 1, pnl ≤ -3%, momentum < -8,
+liquidity drop ≥ 15%. Three independent signals must agree before
+cutting — won't fire on wicks, won't gate entries, won't violate the
+operator mandate ("meme trader never choke itself out"). Targets the
+bleed-by-thousand-cuts regime where positions grind through -3..-8%
+with collapsing momentum until base SL fires.
+
+CI: Build ✅.
+
+
+
 ## V5.0.4096 (Feb 2026) — AGI ↔ SENTIENCE SYMBIOSIS: brains wired into the AI family
 
 **Operator:** *"do the new agi brains need to be wired into the ai cross talk system, education, sentience, symbiosis, behaviour, metacognition cognition etc etc."* + *"keep going bro everything new always should be wired through. 0 exceptions."*

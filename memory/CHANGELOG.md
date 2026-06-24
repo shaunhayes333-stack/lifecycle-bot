@@ -6,6 +6,64 @@ statement + architecture; this file is the working log of fixes & decisions.
 
 ═══════════════════════════════════════════════════════════════════════════════
 
+## V5.0.4110 — WR booster: high-precision Confirmed Loss Cut (Feb 2026)
+
+Bot at ~42% WR with PF=1.00 (barely positive). Journals show recurring
+pattern: positions grind through the wick-survival window, then sit at
+-3% to -8% with collapsing momentum + falling liquidity until base SL
+(~10%) finally fires, eating R:R and bleeding net PnL.
+
+Added a SINGLE high-precision early-exit gate inside
+`AdvancedExitManager.evaluateExit()` — fires ONLY when ALL FOUR
+death-confirmations align:
+  (a) `holdMinutes >= 1` (past wick-survival window)
+  (b) `pnl <= -3%` (real loss, not noise)
+  (c) `momentum < -8` (active selling pressure)
+  (d) `liq drop >= 15%` (real distribution, not chart wobble)
+
+Three independent signals must agree before cutting. Will not fire on
+isolated wicks, will not gate entries, will not interfere with the meme
+trader's volume mandate ("never choke itself out"). Targets the
+bleed-by-thousand-cuts regime dragging WR.
+
+CI: Build ✅ success.
+
+═══════════════════════════════════════════════════════════════════════════════
+
+## V5.0.4109 — DEADLOCK FIX P0 + LockDiagnosticsTracker (Feb 2026)
+
+Operator reported 1000+ ANRs in 6 hours with the app "completely froze."
+Stack frames showed classic `jdk.internal.misc.Unsafe.park` — kotlinx
+coroutine Mutex + runBlocking deadlock pattern.
+
+**Root cause:** `HoldingLogicLayer.evaluatePosition()` was a `suspend fun`
+wrapped in `kotlinx.coroutines.sync.Mutex().withLock { ... }`, BUT its
+body had zero real suspending calls (no I/O, no delay — pure compute on
+inputs). `Executor.kt` called it as `runBlocking { evaluatePosition(...) }`
+per-token with NO timeout. Every concurrent token evaluation serialized
+through one coroutine mutex while parking its host worker thread on
+`Unsafe.park`. With 20+ tokens evaluated concurrently the IO dispatcher
+pool drained and the supervisor / exit coordinator threads froze.
+
+**Fix:**
+  * `HoldingLogicLayer.evaluatePosition`: dropped the coroutine Mutex,
+    converted to regular synchronous `fun` (no behavior change — body is
+    pure compute).
+  * `Executor.kt`: call `evaluatePosition()` directly (removed `runBlocking`).
+  * `LockDiagnosticsTracker`: new lightweight telemetry that wraps critical
+    sections and emits `LOCK_LONG_HOLD` / `LOCK_ALERT_HOLD` forensics with
+    owner thread + hold ms so the next operator dump pinpoints any surviving
+    contention site (warn >2s, alert >10s, rate-limited).
+  * Defensive: added `withTimeoutOrNull(1500-2000ms)` to remaining unbounded
+    `runBlocking { ... }` price fetches in `FluidLearning` + `BotService` so
+    a hung RPC can never park a caller thread indefinitely.
+  * Bump GoldenTapeRegressionTest version assertion to 5.0.4109/5.0.4110.
+
+CI: Build ✅ success. Runtime Smoke Test ✅ success.
+
+
+═══════════════════════════════════════════════════════════════════════════════
+
 ## V5.9.1067 — Fix MainActivity recreation cascade + double-collector ANR + journal diagnostic (Feb 2026)
 
 Triage-agent RCA after operator V5.9.1065 panic snapshot: 28 ANR samples on
