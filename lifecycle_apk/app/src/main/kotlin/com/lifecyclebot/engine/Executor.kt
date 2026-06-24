@@ -17002,8 +17002,8 @@ class Executor(
             // bridge brain, and seed the rug blacklist. All four self-tune from
             // closed-trade outcomes; no separate training pass needed.
             try {
-                val laneTag4132 = (ts.tradingMode ?: "MEME").uppercase()
-                val srcTag4132  = (ts.source ?: "UNKNOWN").uppercase()
+                val laneTag4132 = (pos.tradingMode.ifBlank { "MEME" }).uppercase()
+                val srcTag4132  = (ts.source.ifBlank { "UNKNOWN" }).uppercase()
                 val holdMs4132  = try { (System.currentTimeMillis() - pos.entryTime).coerceAtLeast(0L) } catch (_: Throwable) { 0L }
                 com.lifecyclebot.engine.LivePauseButton.recordOutcome(laneTag4132, pnlP)
                 com.lifecyclebot.engine.LaneTimeoutGate.recordOutcome(laneTag4132, pnlP)
