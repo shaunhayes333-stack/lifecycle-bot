@@ -23039,7 +23039,9 @@ if (hotExitHandledSweep) {
         if (ts.lastPrice <= 0 || (System.currentTimeMillis() - ts.lastPriceUpdate) > 120_000L) {
             try {
                 val priceUsd = kotlinx.coroutines.runBlocking {
-                    com.lifecyclebot.perps.DexScreenerOracle.getPriceByAddress(mint)
+                    kotlinx.coroutines.withTimeoutOrNull(2000L) {
+                        com.lifecyclebot.perps.DexScreenerOracle.getPriceByAddress(mint)
+                    }
                 }
                 if (priceUsd != null && priceUsd > 0) {
                     synchronized(ts) {
@@ -23060,7 +23062,9 @@ if (hotExitHandledSweep) {
         if (ts.lastPrice <= 0 || (System.currentTimeMillis() - ts.lastPriceUpdate) > 120_000L) {
             try {
                 val priceUsd = kotlinx.coroutines.runBlocking {
-                    com.lifecyclebot.perps.BirdeyeOracle.getPriceByAddress(mint)
+                    kotlinx.coroutines.withTimeoutOrNull(2000L) {
+                        com.lifecyclebot.perps.BirdeyeOracle.getPriceByAddress(mint)
+                    }
                 }
                 if (priceUsd != null && priceUsd > 0) {
                     synchronized(ts) {

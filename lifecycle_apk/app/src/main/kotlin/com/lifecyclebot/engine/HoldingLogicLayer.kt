@@ -6,8 +6,7 @@ import com.lifecyclebot.data.Position
 import com.lifecyclebot.data.TokenState
 import com.lifecyclebot.v3.scoring.AdvancedExitManager
 import com.lifecyclebot.v3.scoring.FluidLearningAI
-import kotlinx.coroutines.sync.Mutex
-import kotlinx.coroutines.sync.withLock
+import com.lifecyclebot.engine.diagnostics.LockDiagnosticsTracker
 import kotlin.math.abs
 
 /**
@@ -32,7 +31,26 @@ object HoldingLogicLayer {
     private const val PREFS_NAME = "holding_logic_prefs"
     
     private lateinit var prefs: SharedPreferences
-    private val mutex = Mutex()
+
+    // V5.0.4109 — DEADLOCK FIX (P0).
+    // Previous implementation wrapped this entire function in a
+    // `kotlinx.coroutines.sync.Mutex().withLock { ... }`. Operator forensics
+    // showed `jdk.internal.misc.Unsafe.park` ANRs at >1000 in 6 hours.
+    //
+    // Why it deadlocked:
+    //   - evaluatePosition() has ZERO real suspension points inside the lock
+    //     (no I/O, no delay, just compute + reads from immutable inputs).
+    //   - It was called via runBlocking { evaluatePosition(...) } from
+    //     Executor.kt per-token loop (no timeout). Every token coroutine
+    //     serialized through ONE coroutine mutex while parking its host
+    //     worker thread on Unsafe.park.
+    //   - With 20+ tokens evaluated concurrently, the IO dispatcher pool
+    //     drained and the supervisor's worker threads froze.
+    //
+    // Fix:
+    //   - The function body is pure compute; there is nothing to protect.
+    //     Remove the mutex entirely and make the function non-suspending.
+    //   - Executor.kt updated to call it directly (no runBlocking).
     
     // ═══════════════════════════════════════════════════════════════════════════
     // MODE SWITCH RECOMMENDATION
@@ -135,13 +153,15 @@ object HoldingLogicLayer {
      * @param isPaperMode Whether this is paper trading
      * @return HoldEvaluation with recommended action
      */
-    suspend fun evaluatePosition(
+    fun evaluatePosition(
         position: Position,
         ts: TokenState,
         currentPnlPct: Double,
         isPaperMode: Boolean,
-    ): HoldEvaluation = mutex.withLock {
+    ): HoldEvaluation {
+        val _hldAcq = LockDiagnosticsTracker.acquired("HoldingLogicLayer.evaluatePosition")
         try {
+            try {
             val mode = position.tradingMode
             val params = MODE_PARAMS[mode] ?: MODE_PARAMS["STANDARD"]!!
             
@@ -202,7 +222,7 @@ object HoldingLogicLayer {
                         else                                     -> Urgency.NORMAL
                     }
                     ErrorLogger.info(TAG, "[AEM] ${ts.symbol} EXIT: ${aemDecision.exitReason} | ${aemDecision.logMessage}")
-                    return@withLock HoldEvaluation(
+                    return HoldEvaluation(
                         action     = if (aemDecision.sellPct < 100) HoldAction.SCALE_OUT else HoldAction.EXIT_NOW,
                         reason     = "${aemDecision.exitReason}: ${aemDecision.logMessage}",
                         confidence = 92.0,
@@ -218,7 +238,7 @@ object HoldingLogicLayer {
             
             // Stop loss hit
             if (currentPnlPct <= params.stopLossPct) {
-                return@withLock HoldEvaluation(
+                return HoldEvaluation(
                     action = HoldAction.EXIT_NOW,
                     reason = "Stop loss triggered: ${currentPnlPct.toInt()}% <= ${params.stopLossPct.toInt()}%",
                     confidence = 95.0,
@@ -230,7 +250,7 @@ object HoldingLogicLayer {
             if (position.peakGainPct > params.targetProfitPct * 0.5) {
                 val trailingStop = position.peakGainPct - params.trailingStopPct
                 if (currentPnlPct < trailingStop) {
-                    return@withLock HoldEvaluation(
+                    return HoldEvaluation(
                         action = HoldAction.EXIT_NOW,
                         reason = "Trailing stop: ${currentPnlPct.toInt()}% < peak-trail (${position.peakGainPct.toInt()}%-${params.trailingStopPct.toInt()}%)",
                         confidence = 90.0,
@@ -241,7 +261,7 @@ object HoldingLogicLayer {
             
             // V5.2: Fluid max hold time exceeded (layer-specific, learning-aware)
             if (holdTimeMinutes > fluidMaxHold) {
-                return@withLock HoldEvaluation(
+                return HoldEvaluation(
                     action = HoldAction.EXIT_NOW,
                     reason = "Fluid hold time exceeded: ${holdTimeMinutes}min > ${fluidMaxHold.toInt()}min [$layer]",
                     confidence = 75.0 + (holdTimeUrgency * 20.0),
@@ -251,7 +271,7 @@ object HoldingLogicLayer {
             
             // Legacy max hold time fallback
             if (holdTimeMs > params.maxHoldTimeMs) {
-                return@withLock HoldEvaluation(
+                return HoldEvaluation(
                     action = HoldAction.EXIT_NOW,
                     reason = "Max hold time exceeded: ${holdTimeMinutes}min > ${params.maxHoldTimeMs / 60000}min",
                     confidence = 75.0,
@@ -271,7 +291,7 @@ object HoldingLogicLayer {
             } else null
             
             if (modeSwitchRec?.shouldSwitch == true && modeSwitchRec.confidence >= 40.0) {
-                return@withLock HoldEvaluation(
+                return HoldEvaluation(
                     action = HoldAction.SWITCH_MODE,
                     reason = "Mode switch recommended: ${position.tradingMode} → ${modeSwitchRec.newMode}",
                     confidence = modeSwitchRec.confidence,
@@ -288,7 +308,7 @@ object HoldingLogicLayer {
             if (!isTooEarly) {
                 for (scaleOutLevel in params.scaleOutAt) {
                     if (currentPnlPct >= scaleOutLevel && position.partialSoldPct < scaleOutLevel) {
-                        return@withLock HoldEvaluation(
+                        return HoldEvaluation(
                             action = HoldAction.SCALE_OUT,
                             reason = "Scale-out target hit: ${currentPnlPct.toInt()}% >= ${scaleOutLevel.toInt()}%",
                             confidence = 40.0,
@@ -307,7 +327,7 @@ object HoldingLogicLayer {
                 // Token is slightly profitable and momentum is building
                 val hasGoodMomentum = ts.meta.momScore > 30 && ts.meta.volScore > 25
                 if (hasGoodMomentum && holdTimeMinutes > 2) {
-                    return@withLock HoldEvaluation(
+                    return HoldEvaluation(
                         action = HoldAction.ADD_MORE,
                         reason = "Confirmed move with momentum (pnl=${currentPnlPct.toInt()}%, mom=${ts.meta.momScore.toInt()})",
                         confidence = 35.0,
@@ -322,7 +342,7 @@ object HoldingLogicLayer {
             
             if (currentPnlPct > params.targetProfitPct * 0.7) {
                 val tighterStop = currentPnlPct - (params.trailingStopPct * 0.6)
-                return@withLock HoldEvaluation(
+                return HoldEvaluation(
                     action = HoldAction.HOLD_TIGHTER,
                     reason = "Near target, tightening stop to ${tighterStop.toInt()}%",
                     confidence = 45.0,
@@ -335,7 +355,7 @@ object HoldingLogicLayer {
             // 6. DEFAULT: CONTINUE HOLDING
             // ─────────────────────────────────────────────────────────────────
             
-            return@withLock HoldEvaluation(
+            return HoldEvaluation(
                 action = HoldAction.HOLD,
                 reason = "Holding: pnl=${currentPnlPct.toInt()}%, target=${params.targetProfitPct.toInt()}%, time=${holdTimeMinutes}min",
                 confidence = 50.0,
@@ -345,12 +365,15 @@ object HoldingLogicLayer {
             
         } catch (e: Exception) {
             ErrorLogger.error(TAG, "Error evaluating position: ${e.message}")
-            return@withLock HoldEvaluation(
+            return HoldEvaluation(
                 action = HoldAction.HOLD,
                 reason = "Evaluation error, defaulting to hold",
                 confidence = 30.0,
                 urgency = Urgency.NORMAL,
             )
+        }
+        } finally {
+            LockDiagnosticsTracker.released("HoldingLogicLayer.evaluatePosition", _hldAcq)
         }
     }
     

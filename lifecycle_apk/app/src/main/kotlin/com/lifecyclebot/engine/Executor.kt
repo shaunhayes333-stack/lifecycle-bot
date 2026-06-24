@@ -6664,14 +6664,19 @@ class Executor(
         if (ts.position.isOpen) {
             try {
                 val currentPnlPct = ((getActualPrice(ts) - ts.position.entryPrice) / ts.position.entryPrice) * 100
-                val holdEval = kotlinx.coroutines.runBlocking {
-                    HoldingLogicLayer.evaluatePosition(
-                        position = ts.position,
-                        ts = ts,
-                        currentPnlPct = currentPnlPct,
-                        isPaperMode = isPaperRT(),
-                    )
-                }
+                // V5.0.4109 — DEADLOCK FIX. Previously this was a
+                // runBlocking { HoldingLogicLayer.evaluatePosition(...) } call
+                // that parked the worker thread on a coroutines Mutex inside a
+                // suspend function whose body had no real suspension points.
+                // With 20+ tokens evaluated concurrently the IO dispatcher
+                // drained and the supervisor hung on Unsafe.park. The function
+                // is now a regular synchronous fun; call directly.
+                val holdEval = HoldingLogicLayer.evaluatePosition(
+                    position = ts.position,
+                    ts = ts,
+                    currentPnlPct = currentPnlPct,
+                    isPaperMode = isPaperRT(),
+                )
                 
                 if (holdEval.action == HoldingLogicLayer.HoldAction.SWITCH_MODE && 
                     holdEval.modeSwitchRecommendation?.shouldSwitch == true) {

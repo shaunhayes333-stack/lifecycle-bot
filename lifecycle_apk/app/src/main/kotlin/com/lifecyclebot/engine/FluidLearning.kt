@@ -64,7 +64,7 @@ object FluidLearning {
      */
     fun recordPriceImpact(mint: String, solAmount: Double, liquidityUsd: Double, isBuy: Boolean) {
         val safeLiquidity = liquidityUsd.coerceAtLeast(1.0)
-        val solPrice = try { kotlinx.coroutines.runBlocking { PriceAggregator.getPrice("SOL")?.price } ?: 140.0 } catch (_: Exception) { 140.0 } // V5.9: live price
+        val solPrice = try { kotlinx.coroutines.runBlocking { kotlinx.coroutines.withTimeoutOrNull(1500L) { PriceAggregator.getPrice("SOL")?.price } } ?: 140.0 } catch (_: Exception) { 140.0 } // V5.0.4109: bounded runBlocking — prevent worker-thread parking deadlock
         val tradeUsd = solAmount * solPrice
 
         val impactPct = when {
