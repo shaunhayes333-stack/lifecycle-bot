@@ -7731,10 +7731,46 @@ class Executor(
         val brainSizeMult = try {
             brain?.getRiskAdjustedSizeMultiplier(ts.phase, ts.meta.emafanAlignment, ts.source) ?: 1.0
         } catch (_: Throwable) { 1.0 }
-        val multiplierProduct = sizeMult * labMult * laneEvMult * regimeMult * laneSizeCap * brainSizeMult
-        if (RuntimeModeAuthority.isLive() && (laneEvMult != 1.0 || laneSizeCap < 1.0)) {
-            try { ForensicLogger.lifecycle("LIVE_WALLET_GROWTH_ALLOCATOR", "mint=${ts.mint.take(10)} symbol=${ts.symbol} lane=$laneTag laneEvMult=$laneEvMult laneCap=$laneSizeCap regimeMult=$regimeMult brainMult=$brainSizeMult product=$multiplierProduct floor=$liveFloorMult") } catch (_: Throwable) {}
+        // V5.0.4117 — WIRE AGI STACK INTO BUY SIZING.
+        // LiveStrategyTuner.sizeMult was computed per-lane but never applied
+        // to entry size (only TP rungs). ScannerSourceBrain.intakeMultiplier
+        // shaped scanner priority but not buy size. UnifiedPolicyHead.conviction
+        // only ran inside FDG, which most volume lanes bypass. All three are
+        // fail-open (1.0 in BOOTSTRAP/error) and soft-shape only — no veto.
+        val laneKeyForAgi = ts.position.tradingMode.ifBlank { "STANDARD" }
+        val strategyTunerSizeMult = try {
+            LiveStrategyTuner.sizeMultiplier(laneKeyForAgi)
+        } catch (_: Throwable) { 1.0 }
+        val sourceBrainSizeMult = try {
+            ScannerSourceBrain.intakeMultiplier(ts.source)
+        } catch (_: Throwable) { 1.0 }
+        // Construct minimal Signals from available context for UPH conviction.
+        // In BOOTSTRAP, conviction() returns 1.0 — no effect. Once the head
+        // graduates to ADVISORY/LEARNED, it shapes size by learned pWin.
+        val uphConvictionMult = try {
+            val signals = UnifiedPolicyHead.Signals(
+                mlEntryConf = (score / 100.0).coerceIn(0.0, 1.0),
+                symGreenLight = 0.5,
+                evRatio = 0.5,
+                metaConviction = 0.5,
+                fwdPWin = try {
+                    com.lifecyclebot.engine.LiveProbabilityEngine.forecast(
+                        rawLane = laneKeyForAgi,
+                        score = score.toInt().coerceIn(0, 100),
+                        quality = quality.take(1).uppercase(),
+                        regime = try { com.lifecyclebot.engine.RegimeDetector.currentRegime().name } catch (_: Throwable) { "NORMAL" },
+                    ).pWin
+                } catch (_: Throwable) { 0.5 },
+                candConf = (score / 100.0).coerceIn(0.0, 1.0),
+            )
+            UnifiedPolicyHead.conviction(laneKeyForAgi, signals)
+        } catch (_: Throwable) { 1.0 }
+        val multiplierProduct = sizeMult * labMult * laneEvMult * regimeMult * laneSizeCap * brainSizeMult *
+            strategyTunerSizeMult * sourceBrainSizeMult * uphConvictionMult
+        if (RuntimeModeAuthority.isLive() && (laneEvMult != 1.0 || laneSizeCap < 1.0 || strategyTunerSizeMult != 1.0 || uphConvictionMult != 1.0)) {
+            try { ForensicLogger.lifecycle("LIVE_WALLET_GROWTH_ALLOCATOR", "mint=${ts.mint.take(10)} symbol=${ts.symbol} lane=$laneTag laneEvMult=$laneEvMult laneCap=$laneSizeCap regimeMult=$regimeMult brainMult=$brainSizeMult stratTuner=$strategyTunerSizeMult sourceBrain=$sourceBrainSizeMult uph=$uphConvictionMult product=$multiplierProduct floor=$liveFloorMult") } catch (_: Throwable) {}
         }
+        try { PipelineHealthCollector.labelInc("AGI_SIZE_STACK_APPLIED") } catch (_: Throwable) {}
         // V5.0.3958 — MEGA-PROFIT COMPOUNDING CAP. Once the live expectancy
         // allocator marks a lane as positive edge, let the final size stack press
         // it harder than the legacy 1.75× ceiling. Route, wallet, liquidity,
