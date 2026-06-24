@@ -23,6 +23,10 @@ object OrderbookImbalancePulseAI {
     private const val WINDOW_MS = 30_000L
     private const val MAX_SAMPLES = 60
 
+    // V5.0.4111 — promoted to learning brain. Features: pulse-magnitude
+    // normalized, buyPressure level, sample-count (warmup signal).
+    private val brain = com.lifecyclebot.engine.LayerBrain.register("OrderbookImbalancePulseAI", nFeatures = 3)
+
     private data class Sample(val ts: Long, val buyPressurePct: Double)
 
     private val history = ConcurrentHashMap<String, ArrayDeque<Sample>>()
@@ -78,7 +82,14 @@ object OrderbookImbalancePulseAI {
             pulse < -10.0 -> -2
             else          -> 0
         }
-        return ScoreComponent("OrderbookImbalancePulseAI", value,
+        val feats = doubleArrayOf(
+            ((pulse + 50.0) / 100.0).coerceIn(0.0, 1.0),
+            (candidate.buyPressurePct / 100.0).coerceIn(0.0, 1.0),
+            (samples.toDouble() / MAX_SAMPLES).coerceIn(0.0, 1.0),
+        )
+        val biased = brain.applyBias(value.toDouble(), feats).toInt()
+        try { brain.stamp(candidate.mint, feats) } catch (_: Throwable) {}
+        return ScoreComponent("OrderbookImbalancePulseAI", biased,
             "📊 pulse=${"%.1f".format(pulse)}pts/30s")
     }
 }

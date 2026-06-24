@@ -43,6 +43,11 @@ object CorrelationHedgeAI {
 
     private const val TAG = "CorrHedge"
 
+    // V5.0.4111 — learning brain. Features: peer-count normalized, total-open
+    // normalized. Learns whether cluster co-occupancy is actually predictive
+    // of bad trades (operator anecdotally: yes, but the magnitude is unclear).
+    private val brain = com.lifecyclebot.engine.LayerBrain.register("CorrelationHedgeAI", nFeatures = 2)
+
     // mint -> clusterId, updated as positions open/close
     private val openPositionClusters = ConcurrentHashMap<String, String>()
 
@@ -95,7 +100,13 @@ object CorrelationHedgeAI {
             } else {
                 "⚠️ CLUSTER_HOT: $cluster has $peersInCluster peers open (penalty=$value)"
             }
-            ScoreComponent(name = "CorrelationHedgeAI", value = value, reason = reason)
+            val feats = doubleArrayOf(
+                (peersInCluster.toDouble() / 6.0).coerceIn(0.0, 1.0),
+                (totalOpen.toDouble() / 30.0).coerceIn(0.0, 1.0),
+            )
+            val biased = brain.applyBias(value.toDouble(), feats).toInt()
+            try { brain.stamp(candidate.mint, feats) } catch (_: Throwable) {}
+            ScoreComponent(name = "CorrelationHedgeAI", value = biased, reason = reason)
         } catch (e: Exception) {
             ErrorLogger.debug(TAG, "score failed: ${e.message}")
             ScoreComponent(name = "CorrelationHedgeAI", value = 0, reason = "NO_DATA")

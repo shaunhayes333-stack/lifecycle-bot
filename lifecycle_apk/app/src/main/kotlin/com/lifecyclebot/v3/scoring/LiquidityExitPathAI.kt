@@ -28,6 +28,11 @@ object LiquidityExitPathAI {
     private const val TAG = "LiqExitPath"
     private const val DEFAULT_TP_PCT = 30.0
 
+    // V5.0.4111 — learning brain. Features: round-trip slippage / TP fraction,
+    // log-pool-size normalized. Learns whether the slippage estimate predicts
+    // real round-trip cost.
+    private val brain = com.lifecyclebot.engine.LayerBrain.register("LiquidityExitPathAI", nFeatures = 2)
+
     /**
      * Estimate round-trip slippage (entry + exit) for an intended position.
      * Returns % slippage cost. Constant-product approximation.
@@ -60,7 +65,13 @@ object LiquidityExitPathAI {
                 else -> -10
             }
             val reason = "🚪 EXIT_SLIP: ${"%.1f".format(slipPct)}%% roundtrip on \$${plannedUsd.toInt()} into \$${liq.toInt()} pool → score=$value"
-            ScoreComponent("LiquidityExitPathAI", value, reason)
+            val feats = doubleArrayOf(
+                (slipPct / 40.0).coerceIn(0.0, 1.0),
+                (kotlin.math.ln(liq.coerceAtLeast(1.0)) / 20.0).coerceIn(0.0, 1.0),
+            )
+            val biased = brain.applyBias(value.toDouble(), feats).toInt()
+            try { brain.stamp(candidate.mint, feats) } catch (_: Throwable) {}
+            ScoreComponent("LiquidityExitPathAI", biased, reason)
         } catch (e: Exception) {
             ErrorLogger.debug(TAG, "score failed: ${e.message}")
             ScoreComponent("LiquidityExitPathAI", 0, "NO_DATA")

@@ -39,6 +39,9 @@ class FearGreedAI : ScoringModule {
         private const val TAG = "FearGreedAI"
         private const val API_URL = "https://api.alternative.me/fng/?limit=1"
         private const val CACHE_DURATION_MS = 5 * 60 * 1000L  // 5 minutes
+
+        // V5.0.4111 — class-level learning brain.
+        private val brain = com.lifecyclebot.engine.LayerBrain.register("FearGreedAI", nFeatures = 3)
         
         private val client = SharedHttpClient.builder()
             .connectTimeout(5, TimeUnit.SECONDS)
@@ -198,8 +201,20 @@ class FearGreedAI : ScoringModule {
         
         return ScoreComponent(
             name = name,
-            value = score.coerceIn(-10, 10),
+            value = brain.applyBias(score.coerceIn(-10, 10).toDouble(), doubleArrayOf(
+                (fgValue.toDouble() / 100.0).coerceIn(0.0, 1.0),
+                (internalSentiment.toDouble() / 100.0).coerceIn(0.0, 1.0),
+                if (isGoodSetup) 1.0 else if (isWeakSetup) 0.0 else 0.5,
+            )).toInt(),
             reason = reason
-        )
+        ).also {
+            try {
+                brain.stamp(candidate.mint, doubleArrayOf(
+                    (fgValue.toDouble() / 100.0).coerceIn(0.0, 1.0),
+                    (internalSentiment.toDouble() / 100.0).coerceIn(0.0, 1.0),
+                    if (isGoodSetup) 1.0 else if (isWeakSetup) 0.0 else 0.5,
+                ))
+            } catch (_: Throwable) {}
+        }
     }
 }

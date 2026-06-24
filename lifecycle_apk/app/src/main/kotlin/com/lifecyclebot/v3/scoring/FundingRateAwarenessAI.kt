@@ -24,6 +24,9 @@ object FundingRateAwarenessAI {
 
     private const val TAG = "FundRate"
 
+    // V5.0.4111 — learning brain. Features: APR magnitude, side polarity.
+    private val brain = com.lifecyclebot.engine.LayerBrain.register("FundingRateAwarenessAI", nFeatures = 2)
+
     // symbol → annualised funding rate (0.10 = 10% APR)
     private val fundingRatesApr = ConcurrentHashMap<String, Double>()
 
@@ -67,8 +70,14 @@ object FundingRateAwarenessAI {
         val apr = fundingRatesApr[candidate.symbol.uppercase()]
             ?: return ScoreComponent("FundingRateAwarenessAI", 0, "💸 no funding data")
         val v = bias(candidate.symbol, side = +1)
-        return ScoreComponent("FundingRateAwarenessAI", v,
-            "💸 fundingAPR=${"%.2f".format(apr)} (long bias=$v)")
+        val feats = doubleArrayOf(
+            ((apr + 1.0) / 2.0).coerceIn(0.0, 1.0),
+            1.0,  // side=+1 for candidate-style entries
+        )
+        val biased = brain.applyBias(v.toDouble(), feats).toInt()
+        try { brain.stamp(candidate.mint, feats) } catch (_: Throwable) {}
+        return ScoreComponent("FundingRateAwarenessAI", biased,
+            "💸 fundingAPR=${"%.2f".format(apr)} (long bias=$biased)")
     }
 
     /**

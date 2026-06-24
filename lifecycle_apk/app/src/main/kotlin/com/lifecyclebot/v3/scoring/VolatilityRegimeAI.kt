@@ -37,6 +37,9 @@ import kotlin.math.sqrt
 object VolatilityRegimeAI {
     
     private const val TAG = "VolatilityAI"
+
+    // V5.0.4111 — learning brain. Features: entryBoost normalized, sample density.
+    private val brain = com.lifecyclebot.engine.LayerBrain.register("VolatilityRegimeAI", nFeatures = 2)
     
     // ═══════════════════════════════════════════════════════════════════════════
     // DATA STRUCTURES
@@ -398,9 +401,15 @@ object VolatilityRegimeAI {
         
         val signal = analyze(candidate.mint, candidate.symbol, recentHighs, recentLows, recentCloses)
         
+        val feats = doubleArrayOf(
+            ((signal.entryBoost + 15.0) / 30.0).coerceIn(0.0, 1.0),
+            (recentCloses.size.toDouble() / 30.0).coerceIn(0.0, 1.0),
+        )
+        val biased = brain.applyBias(signal.entryBoost.toDouble(), feats).toInt()
+        try { brain.stamp(candidate.mint, feats) } catch (_: Throwable) {}
         return ScoreComponent(
             name = "volatility",
-            value = signal.entryBoost,
+            value = biased,
             reason = signal.reason
         )
     }

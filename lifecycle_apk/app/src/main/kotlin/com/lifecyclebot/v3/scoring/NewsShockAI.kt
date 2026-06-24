@@ -22,6 +22,9 @@ object NewsShockAI {
 
     private const val TAG = "NewsShock"
 
+    // V5.0.4111 — learning brain. Features: sentiment score, 15m slope.
+    private val brain = com.lifecyclebot.engine.LayerBrain.register("NewsShockAI", nFeatures = 2)
+
     data class SentimentSnapshot(val score: Double, val slope15m: Double, val capturedAtMs: Long)
 
     private val snap = AtomicReference<SentimentSnapshot?>(null)
@@ -49,7 +52,13 @@ object NewsShockAI {
             slope < -0.2 -> -4
             else         -> 0
         }
-        return ScoreComponent("NewsShockAI", value,
+        val feats = doubleArrayOf(
+            ((s.score + 1.0) / 2.0).coerceIn(0.0, 1.0),
+            ((slope + 2.0) / 4.0).coerceIn(0.0, 1.0),
+        )
+        val biased = brain.applyBias(value.toDouble(), feats).toInt()
+        try { brain.stamp(candidate.mint, feats) } catch (_: Throwable) {}
+        return ScoreComponent("NewsShockAI", biased,
             "📰 sent=${"%.2f".format(s.score)} slope=${"%.2f".format(slope)}")
     }
 }

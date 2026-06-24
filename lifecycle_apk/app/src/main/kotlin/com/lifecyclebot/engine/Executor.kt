@@ -14085,6 +14085,7 @@ class Executor(
             // capitulation (we banked something, not zeroed). The exit brain
             // learns when "exit now" vs "hold longer" was the right call.
             try { com.lifecyclebot.engine.UnifiedExitPolicyHead.recordOutcome(ts.mint, pnlP > -5.0) } catch (_: Throwable) {}
+            try { com.lifecyclebot.engine.LayerBrain.recordOutcomeAll(ts.mint, pnlP) } catch (_: Throwable) {}  // V5.0.4111
             try { com.lifecyclebot.engine.StrategyHypothesisEngine.recordOutcome(ts.mint, pnlP) } catch (_: Throwable) {}
             ErrorLogger.info("Executor", "🎓 HARVARD BRAIN: Recorded outcome for ${ts.symbol} | PnL=${pnlP.toInt()}% | Active layers will increase")
         } catch (e: Exception) {
@@ -16669,6 +16670,7 @@ class Executor(
             // capitulation (we banked something, not zeroed). The exit brain
             // learns when "exit now" vs "hold longer" was the right call.
             try { com.lifecyclebot.engine.UnifiedExitPolicyHead.recordOutcome(ts.mint, pnlP > -5.0) } catch (_: Throwable) {}
+            try { com.lifecyclebot.engine.LayerBrain.recordOutcomeAll(ts.mint, pnlP) } catch (_: Throwable) {}  // V5.0.4111
             try { com.lifecyclebot.engine.StrategyHypothesisEngine.recordOutcome(ts.mint, pnlP) } catch (_: Throwable) {}
             ErrorLogger.info("Executor", "🎓 HARVARD BRAIN (LIVE): Recorded outcome for ${ts.symbol} | PnL=${pnlP.toInt()}%")
         } catch (e: Exception) {

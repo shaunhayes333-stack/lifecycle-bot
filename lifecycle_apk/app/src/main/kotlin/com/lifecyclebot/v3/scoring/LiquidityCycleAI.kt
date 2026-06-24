@@ -38,6 +38,10 @@ import java.util.concurrent.atomic.AtomicReference
 object LiquidityCycleAI {
     
     private const val TAG = "LiquidityCycleAI"
+
+    // V5.0.4111 — learning brain. Features: market phase boost normalized,
+    // token relative-strength, fresh-launch flag.
+    private val brain = com.lifecyclebot.engine.LayerBrain.register("LiquidityCycleAI", nFeatures = 3)
     
     // ═══════════════════════════════════════════════════════════════════════════
     // DATA STRUCTURES
@@ -445,9 +449,21 @@ object LiquidityCycleAI {
         
         return ScoreComponent(
             name = "liquiditycycle",
-            value = boost.coerceIn(-15, 12),
+            value = brain.applyBias(boost.coerceIn(-15, 12).toDouble(), doubleArrayOf(
+                ((state.entryBoost + 15.0) / 27.0).coerceIn(0.0, 1.0),
+                if (avgLiq > 0.0) ((tokenLiq / avgLiq) / 3.0).coerceIn(0.0, 1.0) else 0.5,
+                if (isFreshLaunch) 1.0 else 0.0,
+            )).toInt(),
             reason = if (isFreshLaunch) "${state.reason} [fresh-launch exempt]" else state.reason
-        )
+        ).also {
+            try {
+                brain.stamp(candidate.mint, doubleArrayOf(
+                    ((state.entryBoost + 15.0) / 27.0).coerceIn(0.0, 1.0),
+                    if (avgLiq > 0.0) ((tokenLiq / avgLiq) / 3.0).coerceIn(0.0, 1.0) else 0.5,
+                    if (isFreshLaunch) 1.0 else 0.0,
+                ))
+            } catch (_: Throwable) {}
+        }
     }
     
     // ═══════════════════════════════════════════════════════════════════════════

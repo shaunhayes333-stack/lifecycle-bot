@@ -21,6 +21,11 @@ import com.lifecyclebot.v3.scanner.CandidateSnapshot
  */
 object MEVDetectionAI {
 
+    // V5.0.4111 — promoted from heuristic to learning brain. Soft-shape only:
+    // multiplies the heuristic suspicion penalty by a Brier-calibrated bias
+    // factor. Features: buyPressure (0..1), shallowness (0..1 of $100k cap).
+    private val brain = com.lifecyclebot.engine.LayerBrain.register("MEVDetectionAI", nFeatures = 2)
+
     fun score(candidate: CandidateSnapshot, @Suppress("UNUSED_PARAMETER") ctx: TradingContext): ScoreComponent {
         return try {
             // CandidateSnapshot has buyPressurePct (0..100) not raw buy/sell counts.
@@ -35,8 +40,14 @@ object MEVDetectionAI {
                 bp < 10.0 && liq < 30_000   -> -4    // sells stacking into shallow = dump in progress
                 else                        -> 0
             }
-            val reason = "🥪 MEV_PROBE: buyP=${bp.toInt()}%% liq=\$${liq.toInt()} → $suspicious"
-            ScoreComponent("MEVDetectionAI", suspicious, reason)
+            val feats = doubleArrayOf(
+                (bp / 100.0).coerceIn(0.0, 1.0),
+                (1.0 - (liq / 100_000.0)).coerceIn(0.0, 1.0),
+            )
+            val biased = brain.applyBias(suspicious.toDouble(), feats).toInt()
+            try { brain.stamp(candidate.mint, feats) } catch (_: Throwable) {}
+            val reason = "🥪 MEV_PROBE: buyP=${bp.toInt()}%% liq=\$${liq.toInt()} → $biased"
+            ScoreComponent("MEVDetectionAI", biased, reason)
         } catch (e: Exception) {
             ErrorLogger.debug("MEVDet", "score failed: ${e.message}")
             ScoreComponent("MEVDetectionAI", 0, "NO_DATA")

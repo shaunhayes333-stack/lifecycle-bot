@@ -35,6 +35,10 @@ class SocialVelocityAI : ScoringModule {
         private const val TAG = "SocialVelocityAI"
         private const val BOOSTED_API = "https://api.dexscreener.com/token-boosts/top/v1"
         private const val CACHE_DURATION_MS = 2 * 60 * 1000L  // 2 minutes
+
+        // V5.0.4111 — class-level learning brain (single instance shared across
+        // every SocialVelocityAI invocation; LayerBrain.register is idempotent).
+        private val brain = com.lifecyclebot.engine.LayerBrain.register("SocialVelocityAI", nFeatures = 3)
         
         private val client = SharedHttpClient.builder()
             .connectTimeout(5, TimeUnit.SECONDS)
@@ -170,8 +174,20 @@ class SocialVelocityAI : ScoringModule {
         
         return ScoreComponent(
             name = name,
-            value = score.coerceIn(-8, 12),
+            value = brain.applyBias(score.coerceIn(-8, 12).toDouble(), doubleArrayOf(
+                (socialCount.toDouble() / 3.0).coerceIn(0.0, 1.0),
+                (boostAmount.toDouble() / 1000.0).coerceIn(0.0, 1.0),
+                (1.0 - (ageMinutes / 240.0)).coerceIn(0.0, 1.0),
+            )).toInt(),
             reason = reasons.ifEmpty { listOf("Neutral social") }.joinToString(", ")
-        )
+        ).also {
+            try {
+                brain.stamp(candidate.mint, doubleArrayOf(
+                    (socialCount.toDouble() / 3.0).coerceIn(0.0, 1.0),
+                    (boostAmount.toDouble() / 1000.0).coerceIn(0.0, 1.0),
+                    (1.0 - (ageMinutes / 240.0)).coerceIn(0.0, 1.0),
+                ))
+            } catch (_: Throwable) {}
+        }
     }
 }

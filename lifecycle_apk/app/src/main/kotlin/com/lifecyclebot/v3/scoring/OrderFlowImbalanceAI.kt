@@ -38,6 +38,10 @@ import java.util.concurrent.ConcurrentHashMap
 object OrderFlowImbalanceAI {
     
     private const val TAG = "OrderFlowAI"
+
+    // V5.0.4111 — learning brain. Features: entryBoost normalized, buy/sell
+    // volume ratio, sample density.
+    private val brain = com.lifecyclebot.engine.LayerBrain.register("OrderFlowImbalanceAI", nFeatures = 3)
     
     // ═══════════════════════════════════════════════════════════════════════════
     // DATA STRUCTURES
@@ -450,9 +454,19 @@ object OrderFlowImbalanceAI {
         
         val signal = analyze(candidate.mint, candidate.symbol, buyVolumes, sellVolumes, prices)
         
+        val totalBuy = buyVolumes.sum()
+        val totalSell = sellVolumes.sum()
+        val totalVol = totalBuy + totalSell
+        val feats = doubleArrayOf(
+            ((signal.entryBoost + 20.0) / 40.0).coerceIn(0.0, 1.0),
+            if (totalVol > 0.0) (totalBuy / totalVol).coerceIn(0.0, 1.0) else 0.5,
+            (buyVolumes.size.toDouble() / 30.0).coerceIn(0.0, 1.0),
+        )
+        val biased = brain.applyBias(signal.entryBoost.toDouble(), feats).toInt()
+        try { brain.stamp(candidate.mint, feats) } catch (_: Throwable) {}
         return ScoreComponent(
             name = "orderflow",
-            value = signal.entryBoost,
+            value = biased,
             reason = signal.reason
         )
     }

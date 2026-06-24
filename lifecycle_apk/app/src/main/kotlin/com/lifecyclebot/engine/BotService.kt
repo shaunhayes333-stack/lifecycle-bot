@@ -1493,6 +1493,7 @@ class BotService : Service() {
             try { com.lifecyclebot.engine.SignalQualityTracker.attachContext(applicationContext) } catch (_: Throwable) {}  // V5.9.1271
             try { com.lifecyclebot.engine.UnifiedPolicyHead.attachContext(applicationContext) } catch (_: Throwable) {}  // V5.9.1262
             try { com.lifecyclebot.engine.UnifiedExitPolicyHead.attachContext(applicationContext) } catch (_: Throwable) {}  // V5.0.4095
+            try { com.lifecyclebot.engine.LayerBrain.attachContext(applicationContext) } catch (_: Throwable) {}  // V5.0.4111 — per-layer learning
             try { com.lifecyclebot.engine.StrategyHypothesisEngine.attachContext(applicationContext) } catch (_: Throwable) {}  // V5.9.1263
             ErrorLogger.info("BotService", "🧠 ML Engine initialized | ${com.lifecyclebot.ml.OnDeviceMLEngine.getStatus()}")
         } catch (e: Exception) {

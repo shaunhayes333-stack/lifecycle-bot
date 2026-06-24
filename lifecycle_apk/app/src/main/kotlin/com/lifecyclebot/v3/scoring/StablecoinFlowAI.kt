@@ -23,6 +23,9 @@ object StablecoinFlowAI {
 
     private const val TAG = "StableFlow"
 
+    // V5.0.4111 — learning brain. Features: USDC delta, USDT delta normalized.
+    private val brain = com.lifecyclebot.engine.LayerBrain.register("StablecoinFlowAI", nFeatures = 2)
+
     data class FlowSnapshot(
         val usdcDeltaPct24h: Double,
         val usdtDeltaPct24h: Double,
@@ -63,6 +66,13 @@ object StablecoinFlowAI {
         val value = (bias * 5.0).toInt()
         val reason = if (snapshot.get() == null) "🌊 NO_MACRO_DATA"
         else "🌊 MACRO ${if (bias >= 0) "RISK_ON" else "RISK_OFF"} bias=${"%.2f".format(bias)}"
-        return ScoreComponent("StablecoinFlowAI", value, reason)
+        val snap = snapshot.get()
+        val feats = doubleArrayOf(
+            ((snap?.usdcDeltaPct24h ?: 0.0) / 3.0 + 0.5).coerceIn(0.0, 1.0),
+            ((snap?.usdtDeltaPct24h ?: 0.0) / 3.0 + 0.5).coerceIn(0.0, 1.0),
+        )
+        val biased = brain.applyBias(value.toDouble(), feats).toInt()
+        try { brain.stamp(candidate.mint, feats) } catch (_: Throwable) {}
+        return ScoreComponent("StablecoinFlowAI", biased, reason)
     }
 }

@@ -29,6 +29,9 @@ object DrawdownCircuitAI {
     private const val TAG = "DDCircuit"
     private const val WINDOW_MS = 4L * 3600_000L   // 4 hours
 
+    // V5.0.4111 — learning brain. Features: aggression level, lifetime-maturity.
+    private val brain = com.lifecyclebot.engine.LayerBrain.register("DrawdownCircuitAI", nFeatures = 2)
+
     private data class PnlSample(val ts: Long, val balance: Double)
 
     private val samples = ArrayDeque<PnlSample>()
@@ -198,7 +201,14 @@ object DrawdownCircuitAI {
             agg >= 0.40 -> -10  // 6-10% DD: -10 (was -5) — should mostly block new entries
             else        -> -20  // 10%+ DD: -20 (was -10) — near-total halt
         }
-        return ScoreComponent("DrawdownCircuitAI", value,
-            "📉 aggression=${"%.2f".format(agg)} (gate=$value; ${diagnosticLine()})")
+        val lifetime = try {
+            (com.lifecyclebot.engine.TradeHistoryStore.getLifetimeStats().totalSells.toDouble() /
+                DD_CIRCUIT_BOOTSTRAP_LIFETIME).coerceIn(0.0, 1.0)
+        } catch (_: Throwable) { 0.5 }
+        val feats = doubleArrayOf(agg.coerceIn(0.0, 1.0), lifetime)
+        val biased = brain.applyBias(value.toDouble(), feats).toInt()
+        try { brain.stamp(candidate.mint, feats) } catch (_: Throwable) {}
+        return ScoreComponent("DrawdownCircuitAI", biased,
+            "📉 aggression=${"%.2f".format(agg)} (gate=$biased; ${diagnosticLine()})")
     }
 }
