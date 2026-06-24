@@ -208,6 +208,47 @@ object LiveStylePivotRouter {
                 if (score < 50.0) defer("QUALITY_LOW_SCORE_LIVE_DEFER")
                 else if (routeTrusted && basisTrusted && rugProof) { mult = maxOf(mult, 0.85); reasons += "QUALITY_SCORE50_PLUS_PROMOTED" }
             }
+            // V5.0.4118 — MISSING LANE PIVOTS. Operator: "all lanes return to
+            // trader and pivot correctly into the right strategies." STANDARD,
+            // MANIPULATED, and DIP_HUNTER had NO when-branch — they fell through
+            // with no promotion path, starving volume. Now each pivots into its
+            // correct AgenticStyleRouter strategy when proof is clean.
+            "STANDARD" -> {
+                // STANDARD is the default lane for most volume. If proof is clean,
+                // let it trade native. If bleeder stats are poor, pivot to quality.
+                if (bleeder.provenBleeder || bleeder.weakPerformer) {
+                    val target = bestQualityLane()
+                    if (target.isNotBlank()) promoteQuality(target, target, 0.85, "STANDARD_BLEEDER_QUALITY_PROMOTION")
+                    else { mult = maxOf(mult, 0.65); reasons += "STANDARD_BLEEDER_SIZE_SHAPED_NATIVE" }
+                } else if (routeTrusted && basisTrusted && rugProof) {
+                    mult = maxOf(mult, 1.0); reasons += "STANDARD_NATIVE_CONFIRMED"
+                }
+            }
+            "MANIPULATED" -> {
+                // MANIPULATED pivots into VOLUME_IGNITION_SCALP or NARRATIVE_SOCIAL
+                // when proof confirms; size-shapes when bleeder, but never killed.
+                if (bleeder.provenBleeder || bleeder.wr50 < 25.0) {
+                    val target = bestQualityLane()
+                    if (target.isNotBlank() && highQualityProof) promoteQuality(target, target, 0.75, "MANIPULATED_BLEEDER_QUALITY_PROMOTION")
+                    else { mult = minOf(mult, 0.55); reasons += "MANIPULATED_BLEEDER_SIZE_SHAPED_NATIVE" }
+                } else if (routeTrusted && basisTrusted && rugProof && liq >= 2_000.0) {
+                    mult = maxOf(mult, 0.85); reasons += "MANIPULATED_NATIVE_VOLUME_IGNITION_CONFIRMED"
+                } else if (!routeTrusted || liq < 2_000.0) {
+                    mult = minOf(mult, 0.50); reasons += "MANIPULATED_THIN_DEPTH_SIZE_SHAPED"
+                }
+            }
+            "DIP_HUNTER" -> {
+                // DIP_HUNTER pivots into PULLBACK_RECLAIM or PANIC_REVERSION
+                // when trend/volume confirms; size-shapes when bleeder.
+                val trendVolumeConfirms = ts.meta.momScore >= 45.0
+                if (bleeder.provenBleeder || bleeder.wr50 < 25.0) {
+                    if (trendVolumeConfirms && highQualityProof) promoteQuality("PULLBACK_RECLAIM", "PULLBACK_RECLAIM", 0.80, "DIP_HUNTER_BLEEDER_PULLBACK_RECLAIM_PROMOTION")
+                    else { mult = minOf(mult, 0.55); reasons += "DIP_HUNTER_BLEEDER_SIZE_SHAPED_NATIVE" }
+                } else if (routeTrusted && basisTrusted && rugProof) {
+                    if (trendVolumeConfirms && liq >= 3_000.0) { mult = maxOf(mult, 0.90); reasons += "DIP_HUNTER_PULLBACK_RECLAIM_CONFIRMED" }
+                    else { mult = maxOf(mult, 0.75); reasons += "DIP_HUNTER_NATIVE_CONFIRMED" }
+                }
+            }
             "BLUECHIP" -> { if (routeTrusted && basisTrusted && rugProof) { mult = maxOf(mult, 1.0); reasons += "BLUECHIP_ROUTE_PROOF_PROMOTED" } }
             "PRESALE_SNIPE", "PROJECT_SNIPER" -> {
                 val ps = BleederMemoryRouter.statsFor("PRESALE_SNIPE")
