@@ -16112,6 +16112,12 @@ if (hotExitHandledSweep) {
             modeClassification.confidence >= 50.0) {
             val baseCharLanes = laneAffinityForTradeType(modeClassification.tradeType)
             val styleDecision = AgenticStyleRouter.decide(ts, modeClassification)
+            // V5.0.4125 — Persist style TP/hold multipliers on TokenState so ALL
+            // downstream buy paths (paperBuy, liveBuy, treasuryBuy, blueChipBuy,
+            // shitCoinBuy, dipHunterBuy, v3Buy) can apply them at Position creation.
+            // Previously only MOONSHOT at line ~18180 used the style decision.
+            ts.styleTpMult = styleDecision.tunedTpMult
+            ts.styleHoldMult = styleDecision.tunedHoldMult
             val charLanes = AgenticStyleRouter.lanesFor(ts, modeClassification, baseCharLanes)
             val charTools = AgenticStyleRouter.toolsFor(ts, modeClassification, emptySet())
             if (charLanes.isNotEmpty() || charTools.isNotEmpty()) {

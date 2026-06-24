@@ -111,6 +111,11 @@ data class Position(
     var shitCoinTakeProfit: Double = 0.0,  // Target profit % for shitcoin trades
     var shitCoinStopLoss: Double = 0.0,    // Stop loss % for shitcoin trades
     var isShitCoinPosition: Boolean = false, // True if this is a shitcoin position
+    // V5.0.4124 — STYLE-AWARE TP. AgenticStyleRouter computes a tuned tpMult
+    // (e.g. DIAMOND_HANDS_RUNNER = 2.80x) at entry time. Without persisting
+    // the final TP to the position, the exit path falls back to the generic
+    // fluid TP (15-20%), cutting runners that should run to 50-100%+.
+    var entryTakeProfitPct: Double = 0.0,
     // Top-up tracking
     val topUpCount: Int = 0,
     val topUpCostSol: Double = 0.0,
@@ -395,6 +400,16 @@ data class TokenState(
     // evaluators as a small additive confidence bonus. Pure advisory — never blocks.
     var bridgeAdvisoryAgrees: Boolean = false,
     var tokenMap: CanonicalTokenMap = CanonicalTokenMap(),
+    // V5.0.4125 — AGI style multipliers from AgenticStyleRouter.decide().
+    // Set once per scan pass at BotService:16114, read by paperBuy/liveBuy
+    // Position creation to set entryTakeProfitPct, and by Executor exit paths
+    // to scale max-hold time. This is the bridge that connects the AGI stack's
+    // style decisions (DIAMOND_HANDS_RUNNER, EXHAUSTION_QUICK_FLIP, etc.) to
+    // actual exit behavior. Without this, all lanes get the same 15-20% fluid
+    // TP and 120min max-hold, making the bot a flat scalper regardless of what
+    // the super-AGI scoring stack decided.
+    var styleTpMult: Double = 1.0,
+    var styleHoldMult: Double = 1.0,
 ) {
     init {
         if (tokenMap.canonicalTargetMint.isBlank()) {

@@ -4164,4 +4164,48 @@ class GoldenTapeRegressionTest {
             fdg.contains("!config.paperMode"))
     }
 
+    @Test
+    fun v4125_agi_style_tp_hold_wire() {
+        val models = java.io.File("src/main/kotlin/com/lifecyclebot/data/Models.kt").readText()
+        val bs = java.io.File("src/main/kotlin/com/lifecyclebot/engine/BotService.kt").readText()
+        val exec = java.io.File("src/main/kotlin/com/lifecyclebot/engine/Executor.kt").readText()
+
+        // TokenState must have style multiplier fields
+        assertTrue("V5.0.4125: TokenState must have styleTpMult field",
+            models.contains("var styleTpMult: Double = 1.0"))
+        assertTrue("V5.0.4125: TokenState must have styleHoldMult field",
+            models.contains("var styleHoldMult: Double = 1.0"))
+
+        // BotService must set style multipliers from AgenticStyleRouter.decide
+        assertTrue("V5.0.4125: BotService must persist styleDecision.tunedTpMult to ts.styleTpMult",
+            bs.contains("ts.styleTpMult = styleDecision.tunedTpMult"))
+        assertTrue("V5.0.4125: BotService must persist styleDecision.tunedHoldMult to ts.styleHoldMult",
+            bs.contains("ts.styleHoldMult = styleDecision.tunedHoldMult"))
+
+        // Executor paperBuy must set entryTakeProfitPct from fluidTP * styleTpMult
+        assertTrue("V5.0.4125: paperBuy Position must set entryTakeProfitPct from styleTpMult",
+            exec.contains("baseFluidTp * ts.styleTpMult"))
+
+        // Executor exit TP when-block must check entryTakeProfitPct FIRST
+        val tpBlockStart = exec.indexOf("val tpPct = when {")
+        assertTrue("V5.0.4125: must find TP when-block", tpBlockStart > 0)
+        val tpBlock = exec.substring(tpBlockStart, tpBlockStart + 600)
+        val entryTpIdx = tpBlock.indexOf("entryTakeProfitPct > 0.0")
+        val shitcoinIdx = tpBlock.indexOf("isShitCoinPosition")
+        assertTrue("V5.0.4125: entryTakeProfitPct must be checked BEFORE lane-specific TPs",
+            entryTpIdx > 0 && shitcoinIdx > 0 && entryTpIdx < shitcoinIdx)
+
+        // Executor must apply styleHoldMult to both max-hold paths
+        assertTrue("V5.0.4125: primary max-hold must multiply by ts.styleHoldMult",
+            exec.contains("_regimeHoldMult * ts.styleHoldMult.coerceIn(0.25, 5.0)"))
+        assertTrue("V5.0.4125: secondary max-hold must multiply by ts.styleHoldMult",
+            exec.contains("regimeHoldMult2 * ts.styleHoldMult.coerceIn(0.25, 5.0)"))
+
+        // isLongHold must bypass time exit in both paths
+        assertTrue("V5.0.4125: primary max-hold must have isLongHold bypass",
+            exec.contains("ts.position.isLongHold         -> false"))
+        assertTrue("V5.0.4125: secondary max-hold must have isLongHold bypass",
+            exec.contains("ts.position.isLongHold        -> false"))
+    }
+
 }

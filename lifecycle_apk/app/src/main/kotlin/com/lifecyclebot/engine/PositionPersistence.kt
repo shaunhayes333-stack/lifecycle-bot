@@ -101,6 +101,8 @@ object PositionPersistence {
         val isTreasuryPosition: Boolean,
         val isBlueChipPosition: Boolean,
         val isShitCoinPosition: Boolean,
+        // V5.0.4124
+        val entryTakeProfitPct: Double = 0.0,
         val isLongHold: Boolean,
         
         // Profit lock state
@@ -303,6 +305,7 @@ object PositionPersistence {
                 isTreasuryPosition = saved.isTreasuryPosition,
                 isBlueChipPosition = saved.isBlueChipPosition,
                 isShitCoinPosition = saved.isShitCoinPosition,
+                entryTakeProfitPct = saved.entryTakeProfitPct,
                 isLongHold = saved.isLongHold,
                 capitalRecovered = saved.capitalRecovered,
                 capitalRecoveredSol = saved.capitalRecoveredSol,
@@ -463,6 +466,7 @@ object PositionPersistence {
             isTreasuryPosition = pos.isTreasuryPosition,
             isBlueChipPosition = pos.isBlueChipPosition,
             isShitCoinPosition = pos.isShitCoinPosition,
+            entryTakeProfitPct = pos.entryTakeProfitPct,
             isLongHold = pos.isLongHold,
             capitalRecovered = pos.capitalRecovered,
             capitalRecoveredSol = pos.capitalRecoveredSol,
@@ -536,6 +540,7 @@ object PositionPersistence {
                 put("isTreasuryPosition", pos.isTreasuryPosition)
                 put("isBlueChipPosition", pos.isBlueChipPosition)
                 put("isShitCoinPosition", pos.isShitCoinPosition)
+                put("entryTakeProfitPct", pos.entryTakeProfitPct)
                 put("isLongHold", pos.isLongHold)
                 put("capitalRecovered", pos.capitalRecovered)
                 putPrice("capitalRecoveredSol", pos.capitalRecoveredSol)
@@ -623,6 +628,7 @@ object PositionPersistence {
                     isTreasuryPosition = obj.optBoolean("isTreasuryPosition", false),
                     isBlueChipPosition = obj.optBoolean("isBlueChipPosition", false),
                     isShitCoinPosition = obj.optBoolean("isShitCoinPosition", false),
+                    entryTakeProfitPct = obj.optDouble("entryTakeProfitPct", 0.0),
                     isLongHold = obj.optBoolean("isLongHold", false),
                     capitalRecovered = obj.optBoolean("capitalRecovered", false),
                     capitalRecoveredSol = obj.getPrice("capitalRecoveredSol"),

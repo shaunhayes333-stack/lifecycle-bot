@@ -5164,6 +5164,14 @@ class Executor(
             // no sub-trader TP was ever stored.
             if (currentPrice > 0.0) {
                 val tpPct = when {
+                    // V5.0.4125 — style-adjusted TP takes PRIORITY over lane-specific TPs.
+                    // The AGI stack's style decision (DIAMOND_HANDS_RUNNER, SWING_HOLD, etc.)
+                    // should override the lane's default TP. This is what makes the bot
+                    // a multi-strategy machine instead of a flat scalper.
+                    // Lane TPs (shitCoin/blueChip/treasury) are still used as fallback
+                    // when no style TP was set (e.g. manual buys, restored positions).
+                    ts.position.entryTakeProfitPct > 0.0 ->
+                        ts.position.entryTakeProfitPct
                     ts.position.isShitCoinPosition && ts.position.shitCoinTakeProfit > 0.0 ->
                         ts.position.shitCoinTakeProfit
                     ts.position.isBlueChipPosition && ts.position.blueChipTakeProfit > 0.0 ->
@@ -6338,7 +6346,11 @@ class Executor(
             val _regimeHoldMult = try {
                 com.lifecyclebot.engine.MarketRegimeAI.getHoldTimeMultiplier().coerceIn(0.5, 2.0)
             } catch (_: Throwable) { 1.0 }
-            val _effectiveMaxHold = modeConfig.maxHoldMins * _tf * _regimeHoldMult
+            // V5.0.4125 — Apply AGI style hold multiplier. DIAMOND_HANDS_RUNNER
+            // (holdMult=2.80) extends 120min → 336min. EXHAUSTION_QUICK_FLIP
+            // (holdMult=0.38) shortens 120min → 45min. This lets the AGI stack
+            // control hold time per-trade, not just per-lane.
+            val _effectiveMaxHold = modeConfig.maxHoldMins * _tf * _regimeHoldMult * ts.styleHoldMult.coerceIn(0.25, 5.0)
             // V5.9.901 — RUNNER BYPASS for mode_maxhold.
             // PRE-FIX: SNIPE=30min, COPY=20min, DEFENSIVE=45min etc capped
             // every winner at mode-specific time even if +200% and still
@@ -6357,6 +6369,7 @@ class Executor(
             val _hardCeiling = _effectiveMaxHold * 4.0
             val _shouldForceExit = when {
                 _held > _hardCeiling           -> true   // zombie catch
+                ts.position.isLongHold         -> false  // V5.0.4125 — long-hold bypasses time exit
                 _runnerBypass                  -> false  // keep riding
                 _held > _effectiveMaxHold      -> true   // legacy cap
                 else                            -> false
@@ -6872,7 +6885,8 @@ class Executor(
                 val regimeHoldMult2 = try {
                     com.lifecyclebot.engine.MarketRegimeAI.getHoldTimeMultiplier().coerceIn(0.5, 2.0)
                 } catch (_: Throwable) { 1.0 }
-                val effectiveMaxHold2 = modeConfig.maxHoldMins * tf * regimeHoldMult2
+                // V5.0.4125 — Apply AGI style hold multiplier (sibling of primary path)
+                val effectiveMaxHold2 = modeConfig.maxHoldMins * tf * regimeHoldMult2 * ts.styleHoldMult.coerceIn(0.25, 5.0)
                 // V5.9.901 — SIBLING-DRIFT FIX (memory #3 rule 8): mirror the
                 // runner bypass applied to the primary mode_maxhold gate at
                 // ~line 4865. Without this, the v3 decision path would still
@@ -6887,6 +6901,7 @@ class Executor(
                 val _hardCeiling2 = effectiveMaxHold2 * 4.0
                 val _shouldForceExit2 = when {
                     held > _hardCeiling2          -> true
+                    ts.position.isLongHold        -> false  // V5.0.4125 — long-hold bypasses time exit
                     _runnerBypass2                -> false
                     held > effectiveMaxHold2      -> true
                     else                           -> false
@@ -7671,7 +7686,14 @@ class Executor(
             laneTagForRegime.contains("EXPRESS") || laneTagForRegime.contains("MANIP") ||
             laneTagForRegime.contains("PRESALE") || laneTagForRegime.contains("PROJECT_SNIPER") ||
             laneTagForRegime.contains("DIP_HUNTER")
-        val regimeMult = if (isRunnerLaneForRegime) 1.0 else try { com.lifecyclebot.engine.RegimeDetector.sizeMultiplier() } catch (_: Throwable) { 1.0 }
+        // V5.0.4124 — gate runner regime exemption on actual profitability.
+        // Blanket exemption let bleeding MOONSHOT bypass DUMP regime brake.
+        val runnerLaneProfitable = try {
+            val board = StrategyTelemetry.computeLiveTerminalLeaderboard()
+            val m = board.firstOrNull { it.strategy.equals(laneTagForRegime, true) }
+            m != null && m.totalSolPnl > 0.0
+        } catch (_: Throwable) { true }
+        val regimeMult = if (isRunnerLaneForRegime && runnerLaneProfitable) 1.0 else try { com.lifecyclebot.engine.RegimeDetector.sizeMultiplier() } catch (_: Throwable) { 1.0 }
         // V5.9.1464 — LANE EXECUTABLE-SIZE CAP (operator strategy spec items 3/4/5).
         // Per-lane size ceiling on the PROVEN bleeders until their rolling WR recovers.
         // Soft-shape only — NEVER a veto, the lane stays fully executable + trainable,
@@ -8529,6 +8551,16 @@ class Executor(
             targetBuildSol = targetBuild,
             // V5.9.996 — copy-trade attribution for CopyTradeEngine.recordResult
             copyWallet   = copyWalletAtEntry,
+            // V5.0.4125 — Apply AGI style TP multiplier at position creation.
+            // fluidTP * styleTpMult = actual exit target. DIAMOND_HANDS_RUNNER
+            // (2.80x) → 42% bootstrap TP instead of 15%. EXHAUSTION_QUICK_FLIP
+            // (0.38x) → 5.7% fast scalp TP. This is the bridge between the
+            // super-AGI scoring stack and actual exit behavior.
+            entryTakeProfitPct = try {
+                val baseFluidTp = com.lifecyclebot.v3.scoring.FluidLearningAI
+                    .getFluidTakeProfit(cfg().exitScoreThreshold.coerceAtLeast(20.0))
+                (baseFluidTp * ts.styleTpMult).coerceIn(5.0, 500.0)
+            } catch (_: Throwable) { 0.0 },
         )
         // V5.9.123 — register in CorrelationHedgeAI so other new-entry scoring
         // sees this position as cluster peer pressure.
@@ -10885,6 +10917,13 @@ class Executor(
                 entrySupplyAssumed = if (entryMarketSnapshot.priceSource == "PUMP_FUN_BC_SYNTHETIC" ||
                                           entryMarketSnapshot.priceSource == "PUMP_FUN_FRONTEND_API")
                     1_000_000_000.0 else 0.0,
+                // V5.0.4125 — Apply AGI style TP multiplier at live position creation.
+                // Same bridge as paperBuy: fluidTP * styleTpMult = exit target.
+                entryTakeProfitPct = try {
+                    val baseFluidTp = com.lifecyclebot.v3.scoring.FluidLearningAI
+                        .getFluidTakeProfit(cfg().exitScoreThreshold.coerceAtLeast(20.0))
+                    (baseFluidTp * ts.styleTpMult).coerceIn(5.0, 500.0)
+                } catch (_: Throwable) { 0.0 },
             )
             val trade = Trade(
                 side = "BUY", 

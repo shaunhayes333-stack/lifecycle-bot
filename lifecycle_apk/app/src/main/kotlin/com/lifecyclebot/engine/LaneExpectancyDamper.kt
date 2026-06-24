@@ -152,10 +152,15 @@ object LaneExpectancyDamper {
         for (m in board) {
             if (m.trades < MIN_TRADES) continue
 
-            // V5.0.4086 — HARD RUNNER-LANE EXEMPTION (operator P0). Skip the
-            // bleeder math entirely for asymmetric-runner lanes; their per-lane
-            // tuners (LiveStrategyTuner + LaneExitTuner) already control risk.
-            if (isRunnerLane(m.strategy)) continue
+            // V5.0.4124 — DATA-DRIVEN RUNNER EXEMPTION. The blanket isRunnerLane
+            // exemption was letting MOONSHOT (n=166, WR=22%, SOL=-0.69) bypass the
+            // bleeder math entirely, forcing laneEvMult=1.0. This cascaded to
+            // laneSizeCap=1.0 (Executor line 7701 checks laneEvMult>=1.0) and
+            // regimeMult=1.0, meaning THREE sizing slots did nothing for a
+            // catastrophically bleeding lane. Gate the exemption: only exempt
+            // runner lanes that are actually profitable (net SOL > 0) or have
+            // decent hit rate (WR >= 35%). Bleeding runners get the damper.
+            if (isRunnerLane(m.strategy) && (m.totalSolPnl > 0.0 || m.winRatePct >= 35.0)) continue
 
             // V5.0.3956 — WALLET GROWTH ALLOCATOR.
             // Before this, live execution bypassed this organ and, even when enabled,
