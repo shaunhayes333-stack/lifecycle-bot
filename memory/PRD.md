@@ -7,6 +7,68 @@ Stocks, Markets, Tokenized Stocks, Forex, Metals, Commodities). Foreground
 Service with a 50+ AI-module pipeline gated through processTokenCycle.
 
 
+## V5.0.4126 – 4130 (Feb 2026) — MEME-TRADER MONEY-PRINTER ARC
+
+### V5.0.4126 — MoonshotAdaptiveGate (fluid lane pivot)
+Per-lane recency-weighted WR steering gate. Newest 50 closes count 2.0× , prior 50 count 1.0×.
+Bounded score-floor bias [-5, +20]: tightens on bleed, loosens on win.
+Phase tags: COLD_START / AGGRESSIVE / NEUTRAL / DEFENSIVE / EMERGENCY.
+Auto-recovers as WR climbs; never a veto. Closes the death-spiral loop without disabling.
+
+### V5.0.4127 — Runner Protection (U-shaped trail)
+Trail curve flipped from monotonic-tighten to U-shape so monster runners can compound
+through the MONSTER_LOCK ladder. +500% → 0.55× base, +1000% → 0.75×, +3000% → 0.95×,
++10000% → 1.20×. Lock ladder still banks $; trail catches round-trip giveback only.
+
+### V5.0.4128 — Pattern Golden Goose
+Asymmetric edge detector on TokenWinMemory patterns. Enumerates best/worst matched
+patterns independently. Verdict ladder: CATASTROPHIC / TOXIC / NEUTRAL / WINNER / GOLD.
+Bias [-35..+16] applied additively to lane score. Asymmetric tilt — toxic dominates gold
+~2×. Wired into MoonshotTraderAI + ShitCoinTraderAI scoreToken.
+
+### V5.0.4129 — Money-Printer P0 trio + lane wakeup
+**Fix 1**: Executor.doBuy absolute floor + goose size override. Was relative floor on
+collapsed `sol` (dust on dust). Now wallet-aware absolute floor; GOLD → STRONG_ENTRY_SOL
++ 1.5× upper cap.
+**Fix 2**: MoonshotTraderAI goose exit protection. GOLD bypasses EARLY_TIGHT_STOP and
+HOLD_BUCKET_EARLY_EXIT (hard floor -15% still applies).
+**Fix 3**: LiveLayerGateRelaxer.floorMultiplierForToken — per-token bypass of the
+WR<30% global lock for GOLD/WINNER tokens.
+**Fix 4**: BotService.inferIntakeLaneAffinity + laneAffinityForTradeType broadened
+to seed CASHGEN/CYCLIC/MANIPULATED/EXPRESS/DIP_HUNTER. Pre: 6 of 12 lanes silent.
+Post: every enabled lane is a candidate.
+
+Operator-observed effect: ANR 25→0, max cycle 162s→9.7s, cache hit 11.7%→44.2%,
+Birdeye CU 100%→22%, BUY OK 2 → 29 in 186s.
+
+### V5.0.4130 — Profit Booster Trio
+**Fix 1**: ultra_runner_bank current-price sanity gate. Was: panic-banker fired forever
+once a position EVER peaked at 50x. Journal showed banker selling at -29% / -66% PnL.
+Now: requires currentValue ≥ costSol × 1.5.
+**Fix 2**: FDG TOKEN_MAP_INCOMPLETE goose downgrade. GOLD/WINNER → advisory + soft-shape,
+let executor fallback routing handle it. Unblocks the 50% of FDG verdicts previously
+hard-blocked on transient route-data lag.
+**Fix 3**: DUMP-regime goose bypass in Executor. GOLD → 1.00 (full bypass),
+WINNER → 0.60 floor. Other verdicts unchanged.
+
+All three compose: only quality-confirmed verdicts unlock boosts; TOXIC/CATASTROPHIC
+never bypass safety. Volume preserved or expanded; quality preserved or improved.
+
+CI: all five builds GREEN.
+
+## Backlog (P2/P3)
+
+- "Ladder" status pill at top of Memes tab
+- Strategy Leaderboard tile (live top-3 by expectancy)
+- Brain Health pill next to sentiment badge
+- 24h PnL drift alert
+- Tune History UI tab
+- /positions backup export
+- Real bridge / CEX adapters (deBridge/Mayan, Coinbase/Kraken)
+- LEDGER_DRIFT investigation (canonicalOpen vs walletHeld 0.034 SOL diff)
+- PatternAutoTuner LIFT side (currently only NERFs; phases with positive expectancy never get >1.0×)
+- Visibility gap audit: ~200 strategies internal vs ~20 surfaced in operational report
+
 ## V5.0.4109–4110 (Feb 2026) — DEADLOCK FIX P0 + WR booster
 
 ### V5.0.4109 — Supervisor / Exit-Coordinator Deadlock root-caused & fixed
