@@ -442,7 +442,27 @@ object TreasuryManager {
                 "🪙 75/25 SPLIT skipped: profit=${realizedProfitSol.fmtSol()}◎ < ${if (isPaper) "paper" else "live"} dust floor ${floor}◎")
             return 0.0
         }
-        val contribSol = realizedProfitSol * MEME_SELL_TREASURY_PCT
+        // V5.0.4112 — COMPOUND-AWARE SPLIT RATIO.
+        // Operator: "treasury split is dragging the sustainability down,
+        // especially with such tiny returns." Below ~$50 USD trading wallet
+        // the 25% cut starves compounding (the bot needs every basis-point
+        // to scale the position floor / aggression ramp). Above ~$500 the
+        // standard 25% applies; in between we ramp linearly. This lets the
+        // bot compound out of the dust regime fast, then siphon profits
+        // normally once it has real capital to protect.
+        val splitPct: Double = try {
+            val walletSolNow = com.lifecyclebot.engine.WalletManager.cachedSolBalance()
+            val px = if (solPrice > 0.0) solPrice else 0.0
+            val walletUsd = walletSolNow * px
+            when {
+                walletUsd <= 0.0   -> MEME_SELL_TREASURY_PCT       // unknown → safe default
+                walletUsd < 50.0   -> 0.05                          // microcap: keep 95% to compound
+                walletUsd < 150.0  -> 0.10
+                walletUsd < 500.0  -> 0.15
+                else               -> MEME_SELL_TREASURY_PCT       // 25% normal regime
+            }
+        } catch (_: Throwable) { MEME_SELL_TREASURY_PCT }
+        val contribSol = realizedProfitSol * splitPct
         // V5.9.425 — removed the 0.0001 SOL floor so small wins still accumulate;
         // negligible rounding (<1e-6) is the only thing skipped.
         if (contribSol < 1e-6) return 0.0
@@ -455,13 +475,13 @@ object TreasuryManager {
         treasuryUsd += contribUsd
         lifetimeLocked += contribSol
         ErrorLogger.info("Treasury",
-            "🪙 75/25 SPLIT: profit=${realizedProfitSol.fmtSol()}◎ → treasury +${contribSol.fmtSol()}◎ " +
-            "(25%) | balance=${treasurySol.fmtSol()}◎"
+            "🪙 PROFIT SPLIT (V5.0.4112 compound-aware): profit=${realizedProfitSol.fmtSol()}◎ → treasury +${contribSol.fmtSol()}◎ " +
+            "(${(splitPct * 100).toInt()}%) | balance=${treasurySol.fmtSol()}◎"
         )
         addEvent(TreasuryEvent(
             type = TreasuryEventType.PROFIT_LOCKED,
             amountSol = contribSol,
-            description = "75/25 split: locked 25% of +${realizedProfitSol.fmtSol()}◎ realized",
+            description = "${(splitPct * 100).toInt()}% split: locked of +${realizedProfitSol.fmtSol()}◎ realized",
             walletUsd = peakWalletUsd,
             solPrice = safePx,
         ))

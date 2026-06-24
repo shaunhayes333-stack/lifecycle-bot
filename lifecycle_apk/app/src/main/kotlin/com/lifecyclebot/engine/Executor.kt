@@ -2239,6 +2239,36 @@ class Executor(
     ): LiveSellAccounting {
         val safeCost = allocatedCostSol.takeIf { it.isFinite() && it > 0.0 } ?: 0.0
         val safeProceeds = proceedsSol.takeIf { it.isFinite() && it >= 0.0 } ?: 0.0
+        // V5.0.4112 — PHANTOM_PNL_FIX (P0). When the cost basis is unknown
+        // (e.g. WALLET_RECOVERED orphan: WalletReconciler sets costSol=0
+        // because we don't know what the operator originally paid), the rest
+        // of this function would compute pnlSol = proceeds - 0 = proceeds
+        // and downstream `pct(0, proceeds)` returned 0% but the journal
+        // normalizer (≈line 2540 below) then falls back to `sol` (proceeds)
+        // as the basis, producing `netPct = proceeds / proceeds ≈ 100%` for
+        // EVERY recovered sell — explaining the cluster of +99.6/8/9% wins
+        // and the phantom STANDARD:compounding_runner WR=100% n=25 line in
+        // the leaderboard, which inflated live size×=1.41 against REAL
+        // negative-EV STANDARD trades and bled the wallet.
+        //
+        // Recovered positions have NO accountable PnL. Record them as
+        // pnlSol=0 / pnlPct=0 (scratch) so the wallet still credits the
+        // SOL we got, but the learning + sizing stack is not poisoned.
+        val isUnknownCost = safeCost <= 0.0
+        val tm = (ts.position.tradingMode ?: "").uppercase()
+        val isRecovered = tm == "WALLET_RECOVERED" || ts.position.entryPhase == "WALLET_RECOVERED" ||
+            reason.uppercase().contains("WALLET_RECOVERED") || reason.uppercase().contains("DEAD_TOKEN_NO_PRICE")
+        if (isUnknownCost && isRecovered) {
+            try {
+                ForensicLogger.lifecycle(
+                    "RECOVERED_SCRATCH_FORCED",
+                    "mint=${ts.mint.take(10)} symbol=${ts.symbol} reason=$reason context=$context " +
+                        "proceeds=${safeProceeds.fmt(6)} → pnl=0/scratch (phantom-pnl fix V5.0.4112)",
+                )
+            } catch (_: Throwable) {}
+            try { PipelineHealthCollector.labelInc("RECOVERED_SCRATCH_FORCED") } catch (_: Throwable) {}
+            return LiveSellAccounting(pnlSol = 0.0, pnlPct = 0.0, netPnlSol = 0.0, feeSol = 0.0)
+        }
         var pnlSol = safeProceeds - safeCost
         var pnlPct = pct(safeCost, safeProceeds)
         val r = reason.uppercase()
@@ -2539,11 +2569,32 @@ class Executor(
         // that live fees/slippage turn red.
         if (tradeWithMint.side.equals("SELL", true) || tradeWithMint.side.equals("PARTIAL_SELL", true)) {
             val isPartialClose = tradeWithMint.side.equals("PARTIAL_SELL", true)
+            // V5.0.4112 — PHANTOM_PNL_FIX. The previous fallback to
+            // `tradeWithMint.sol` (proceeds) as cost basis caused the
+            // +99% recovered-sell win cluster: when both entryCostSol AND
+            // position.costSol were 0 (WALLET_RECOVERED orphan), we used the
+            // sell PROCEEDS as the "cost", producing pnlPct = (net/proceeds) =
+            // ≈100% for every recovered close. We now refuse to use proceeds
+            // as basis. Recovered closes with no real cost must surface as
+            // pnlPct=0 / pnlSol=0 — they are accounting-unsafe SCRATCHES, not
+            // wins. Real partials with no entryCostSol still allow the sol
+            // fallback because partial SELL rows store the sold-leg cost in
+            // `sol`, which is genuine cost basis, not proceeds.
+            val tmU = (ts.position.tradingMode ?: "").uppercase()
+            val isRecoveredRow = tmU == "WALLET_RECOVERED" ||
+                ts.position.entryPhase == "WALLET_RECOVERED" ||
+                tradeWithMint.reason.uppercase().contains("WALLET_RECOVERED") ||
+                tradeWithMint.reason.uppercase().contains("DEAD_TOKEN_NO_PRICE")
             val basis = if (isPartialClose) {
                 // Partial SELL rows use sol as the sold-leg cost basis; using full
                 // position cost would dilute/lie about partial edge.
                 tradeWithMint.sol.takeIf { it.isFinite() && it > 0.0 }
                     ?: tradeWithMint.entryCostSol.takeIf { it.isFinite() && it > 0.0 }
+                    ?: 0.0
+            } else if (isRecoveredRow) {
+                // Recovered terminal closes: do not invent a basis. 0 → SCRATCH.
+                tradeWithMint.entryCostSol.takeIf { it.isFinite() && it > 0.0 }
+                    ?: ts.position.costSol.takeIf { it.isFinite() && it > 0.0 }
                     ?: 0.0
             } else {
                 tradeWithMint.entryCostSol.takeIf { it.isFinite() && it > 0.0 }
@@ -2552,11 +2603,18 @@ class Executor(
                     ?: 0.0
             }
             val realizedNet = when {
+                isRecoveredRow && (basis <= 0.0) -> 0.0     // explicit scratch
                 tradeWithMint.netPnlSol.isFinite() && tradeWithMint.netPnlSol != 0.0 -> tradeWithMint.netPnlSol
                 tradeWithMint.feeSol.isFinite() && tradeWithMint.feeSol > 0.0 -> tradeWithMint.pnlSol - tradeWithMint.feeSol
                 else -> tradeWithMint.pnlSol
             }
-            if (basis > 0.0 && realizedNet.isFinite()) {
+            if (isRecoveredRow && basis <= 0.0) {
+                // Force the recovered row to scratch end-to-end.
+                if (tradeWithMint.pnlPct != 0.0 || tradeWithMint.pnlSol != 0.0) {
+                    try { PipelineHealthCollector.labelInc("RECOVERED_PHANTOM_PNL_NORMALIZED") } catch (_: Throwable) {}
+                    tradeWithMint = tradeWithMint.copy(pnlPct = 0.0, pnlSol = 0.0, netPnlSol = 0.0)
+                }
+            } else if (basis > 0.0 && realizedNet.isFinite()) {
                 val netPct = (realizedNet / basis) * 100.0
                 if (netPct.isFinite() && kotlin.math.abs(netPct - tradeWithMint.pnlPct) > 0.01) {
                     try { PipelineHealthCollector.labelInc("PAPER_LIVE_TRANSFER_NET_PCT_NORMALIZED") } catch (_: Throwable) {}
