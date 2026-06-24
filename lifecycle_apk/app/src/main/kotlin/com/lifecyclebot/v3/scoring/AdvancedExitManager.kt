@@ -407,19 +407,19 @@ object AdvancedExitManager {
                 "[$symbol] MONSTER_LOCK_FULL: pnl=${pnlPct.toInt()}% — full exit before round-trip")
         }
         if (pnlPct >= 15_000.0 && alreadySoldPct < 75) {
-            return ExitDecision(true, 100, ExitReason.PARTIAL_TP, ExitUrgency.HIGH,
+            return ExitDecision(true, 100, ExitReason.TAKE_PROFIT_CHUNK, ExitUrgency.HIGH,
                 "[$symbol] MONSTER_LOCK_T4: pnl=${pnlPct.toInt()}% sell→90% total")
         }
         if (pnlPct >= 5_000.0 && alreadySoldPct < 50) {
-            return ExitDecision(true, 100, ExitReason.PARTIAL_TP, ExitUrgency.HIGH,
+            return ExitDecision(true, 100, ExitReason.TAKE_PROFIT_CHUNK, ExitUrgency.HIGH,
                 "[$symbol] MONSTER_LOCK_T3: pnl=${pnlPct.toInt()}% sell→75% total")
         }
         if (pnlPct >= 1_500.0 && alreadySoldPct < 25) {
-            return ExitDecision(true, 100, ExitReason.PARTIAL_TP, ExitUrgency.MEDIUM,
+            return ExitDecision(true, 100, ExitReason.TAKE_PROFIT_CHUNK, ExitUrgency.MEDIUM,
                 "[$symbol] MONSTER_LOCK_T2: pnl=${pnlPct.toInt()}% sell→50% total")
         }
         if (pnlPct >= 500.0 && alreadySoldPct < 1) {
-            return ExitDecision(true, 100, ExitReason.PARTIAL_TP, ExitUrgency.MEDIUM,
+            return ExitDecision(true, 100, ExitReason.TAKE_PROFIT_CHUNK, ExitUrgency.MEDIUM,
                 "[$symbol] MONSTER_LOCK_T1: pnl=${pnlPct.toInt()}% sell→25% (lock initial capital)")
         }
 
