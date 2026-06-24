@@ -9556,7 +9556,7 @@ class Executor(
         }
     }
 
-    private fun liveBuy(ts: TokenState, sol: Double, score: Double,
+    private fun liveBuy(ts: TokenState, solIn: Double, score: Double,
                         wallet: SolanaWallet, walletSol: Double,
                         identity: TradeIdentity? = null,
                         quality: String = "C",
@@ -9566,6 +9566,25 @@ class Executor(
                         finalityPrechecked: Boolean = false,
                         attemptId: String = "",
                         executionContext: ExecutionContext? = null): Boolean {    // V5.9.386 — matching emoji
+
+        // V5.0.4114 — LAST-MILE ENTRY FLOOR.
+        // Operator screenshot: CHUNGUS hit +24,570% but only netted +\$0.33
+        // because the entry was dust (5380 tokens × \$0.0000002518 ≈
+        // \$0.0014). Cause: multiple entry paths bypass SmartSizer's
+        // compound floor (network-signal auto-buy, manual buy,
+        // wallet_recovered add-in, social-velocity bridge) AND several
+        // post-SmartSizer multipliers can collapse the result below the
+        // floor. Apply a single last-mile floor here for live entries.
+        val sol: Double = run {
+            val lifted = try {
+                com.lifecyclebot.engine.LiveSizingProfile.lastMileEntryFloor(
+                    baseSol = solIn,
+                    walletSol = walletSol,
+                    isPaperMode = false,
+                )
+            } catch (_: Throwable) { solIn }
+            lifted
+        }
 
         // V5.0.3939 — TRUE LIVE ATTEMPT BOUNDARY.
         // Runtime 3938 showed FDG live allow > 0, global EXEC > 0, but

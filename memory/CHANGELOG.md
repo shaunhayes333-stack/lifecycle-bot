@@ -6,6 +6,112 @@ statement + architecture; this file is the working log of fixes & decisions.
 
 ═══════════════════════════════════════════════════════════════════════════════
 
+## V5.0.4113 — LayerBrain compile fix + HELD-TOKEN WATCHLIST IMMUNITY (Feb 2026)
+
+V5.0.4111 build failed with `'internal' function exposes its 'private-in-class'
+parameter type Brain`. The fix bumps the nested `Brain` class from `private` to
+`internal` so the `Handle` constructor signature stops leaking a stricter type.
+
+### HELD-TOKEN IMMUNITY (operator mandate)
+> "the watchlist isnt meant to drop held tokens ever. maybe consider a separate
+> held tokens lane that only flushes from the watchlist if its sold not pruned
+> via the time ticker"
+
+Root cause of the WALLET_RECOVERED phantom-PnL cluster (fixed in V5.0.4112)
+traced upstream: when SAFETY / RUG / HONEYPOT / SCAM verdicts fired,
+`GlobalTradeRegistry.registerRejection` silently nuked the mint from the
+watchlist (line 1008) with NO active-position guard. Once evicted, price
+polling died, the WalletReconciler later "recovered" it as orphan with
+`costSol=0`, and the +99% phantom-win loop began.
+
+New canonical helper `GlobalTradeRegistry.isMintHeldAnywhere(mint)` consults
+THREE orthogonal sources — any one = held:
+- `activePositions` (registry fast path)
+- `BotService.status.tokens[mint].position.isOpen` (in-memory truth)
+- `HostWalletTokenTracker.hasOpenPosition(mint)` (wallet truth)
+
+Wired into every eviction path:
+- `removeFromWatchlist`  (escalated from activePositions-only)
+- `removeFromWatchlistForced`  (was UNGUARDED — bug)
+- `registerRejection` initial guard
+- the SAFETY / CONFIRMED RUG / HONEYPOT branch (now skips watchlist removal
+  if held, while still recording the rejection memory for execution gating)
+
+### TUNING-DATA POISONING CONTAINMENT
+> "with the journal data being compromised reconsider tuning data. because
+> its currently skewed towards things as winners but are literally just
+> recovered dropped tokens"
+
+Even with V5.0.4112 forcing `pnl=0` on recovered closes, downstream tuners
+(LiveStrategyTuner, LaneExitTuner, PatternAutoTuner, MetaCognition,
+SessionEdgeAI, KillSwitch, OnDeviceMLEngine, behavior learners) would still
+ingest the row and inflate sample / EV denominators — explaining the
+`STANDARD:compounding_runner WR=100% n=25 size×=1.41` line in the
+leaderboard which was UP-sizing real negative-EV trades.
+
+`Executor.recordTrade` now computes `isRecoveredScratch = (tradingMode |
+entryPhase | reason ∈ WALLET_RECOVERED family) && (costSol ≤ 0 &&
+entryCostSol ≤ 0)`. For these rows `accountingTrainable` is forced `false`,
+gating every downstream learning fan-out site (Executor.kt lines 2746, 2801,
+2842, 2867). Recovered closes still journal for audit but are INVISIBLE to
+learning. Forensic emit: `LEARNING_EXCLUDED_RECOVERED_SCRATCH`.
+
+CI: Build ✅ success.
+
+═══════════════════════════════════════════════════════════════════════════════
+
+## V5.0.4112 — PHANTOM PnL FIX + compound-aware treasury split (Feb 2026)
+
+Operator: *"are the returns being calculated correctly or is it calculating
+the investment return... you got 96% of what you invested or is it
+displaying the actual profit?"*
+
+### Phantom PnL — confirmed bug + fix
+- `WalletReconciler.recoverOrphanPosition` sets `costSol=0.0` (unknown cost).
+- `Executor.liveSellAccountingAuthority` then computed
+  `pnlSol = proceeds - 0 = proceeds` — the entire sell amount became profit.
+- `Executor.recordTrade` journal normalizer fallback chain used
+  `tradeWithMint.sol` (proceeds) as basis, giving `netPct = proceeds/proceeds
+  ≈ 100%` for every recovered close. This is the +99.6/8/9% cluster.
+
+Fix:
+- `liveSellAccountingAuthority`: cost ≤ 0 + recovered → force `pnlSol=0,
+  pnlPct=0`, scratch.
+- Journal normalizer: refuse to use proceeds as basis on recovered rows;
+  emit `RECOVERED_PHANTOM_PNL_NORMALIZED`.
+
+### Compound-aware treasury split
+Operator: *"treasury split is dragging the sustainability down, especially
+with such tiny returns"*. Scale `MEME_SELL_TREASURY_PCT` by wallet USD:
+- `<$50`  → 5% (microcap: keep 95% to compound)
+- `<$150` → 10%
+- `<$500` → 15%
+- `≥$500` → 25% (standard regime)
+
+CI: Build failed (inherited V5.0.4111 LayerBrain compile error) — fixed
+forward in V5.0.4113.
+
+═══════════════════════════════════════════════════════════════════════════════
+
+## V5.0.4111 — LayerBrain framework + 13 heuristic AIs promoted (Feb 2026)
+
+Generic, allocation-cheap, NEVER-LOCKING per-layer online-learning
+framework (`engine/LayerBrain.kt`). 4-tier authority (BOOTSTRAP →
+ADVISORY@40 → LEARNED@100 → AUTHORITATIVE@250) with Brier-calibrated
+demote and soft-shape multiplicative bias.
+
+Promoted 13 of ~19 heuristic AIs: MEVDetectionAI · OrderbookImbalancePulseAI ·
+FundingRateAwarenessAI · NewsShockAI · StablecoinFlowAI · CorrelationHedgeAI ·
+LiquidityExitPathAI · SocialVelocityAI · FearGreedAI · DrawdownCircuitAI ·
+OrderFlowImbalanceAI · LiquidityCycleAI · VolatilityRegimeAI.
+
+CI: Build FAILED — Kotlin `'internal' function exposes its 'private-in-class'
+parameter type Brain`. Fixed forward in V5.0.4113.
+
+
+
+═══════════════════════════════════════════════════════════════════════════════
+
 ## V5.0.4110 — WR booster: high-precision Confirmed Loss Cut (Feb 2026)
 
 Bot at ~42% WR with PF=1.00 (barely positive). Journals show recurring

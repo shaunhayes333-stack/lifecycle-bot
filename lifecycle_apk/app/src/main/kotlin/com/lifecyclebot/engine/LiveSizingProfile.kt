@@ -35,19 +35,28 @@ object LiveSizingProfile {
     @Volatile var compoundFromRealizedWalletBalance: Boolean = true
 
     // ── Absolute SOL floors (never below in live mode unless hard safety) ──
-    const val MIN_ENTRY_SOL: Double = 0.025
-    const val DEFAULT_ENTRY_SOL: Double = 0.040
-    const val STRONG_ENTRY_SOL: Double = 0.070
-    const val ALPHA_ENTRY_SOL: Double = 0.120
+    // V5.0.4114 — bumped 50-65% to convert big winners into real dollars.
+    // Operator screenshot: CHUNGUS hit +24,570% but only netted +$0.33
+    // because the entry was 0.0000 SOL of dust. On a $80 wallet (~0.57 SOL)
+    // the previous BASE=0.025 floor was 4.4% of wallet — fine — but post-
+    // SmartSizer multipliers (cold-streak 0.35×, prob-engine 0.48×, etc.)
+    // were collapsing entries to 0.003–0.006 SOL, which is what the user
+    // observed in the journal. We now (a) raise the absolute floors and
+    // (b) clamp every live buy at the broadcast site so multipliers cannot
+    // drop below the floor.
+    const val MIN_ENTRY_SOL: Double = 0.040     // was 0.025
+    const val DEFAULT_ENTRY_SOL: Double = 0.060 // was 0.040
+    const val STRONG_ENTRY_SOL: Double = 0.110  // was 0.070
+    const val ALPHA_ENTRY_SOL: Double = 0.180   // was 0.120
 
     // ── Wallet-percent sizing tiers ──
-    const val BASE_WALLET_PCT: Double = 0.020   // 2.0% on a normal entry
-    const val STRONG_WALLET_PCT: Double = 0.040 // 4.0%
-    const val ALPHA_WALLET_PCT: Double = 0.075  // 7.5%
-    const val MAX_INITIAL_WALLET_PCT: Double = 0.100 // 10% on strongest entries
-    const val MAX_TOTAL_TOKEN_WALLET_PCT: Double = 0.180 // after add-ins
-    const val MAX_DEPLOYED_WALLET_PCT: Double = 0.600 // active open exposure target
-    const val GAS_RESERVE_SOL: Double = 0.075
+    const val BASE_WALLET_PCT: Double = 0.030      // was 0.020 (3.0%)
+    const val STRONG_WALLET_PCT: Double = 0.060    // was 0.040 (6.0%)
+    const val ALPHA_WALLET_PCT: Double = 0.100     // was 0.075 (10.0%)
+    const val MAX_INITIAL_WALLET_PCT: Double = 0.120 // was 0.100
+    const val MAX_TOTAL_TOKEN_WALLET_PCT: Double = 0.220 // was 0.180
+    const val MAX_DEPLOYED_WALLET_PCT: Double = 0.700 // was 0.600
+    const val GAS_RESERVE_SOL: Double = 0.030      // was 0.075 (let small wallets enforce floor too)
 
     enum class Conviction { BASE, STRONG, ALPHA }
 
@@ -260,19 +269,22 @@ object LiveSizingProfile {
         if (walletSol <= GAS_RESERVE_SOL) return baseSol
         val L = lane.uppercase()
 
-        // (initialPct, strongPct, alphaPct, minSol, defaultSol, strongSol, alphaSol, maxInitialWalletPct)
+        // V5.0.4114 — lane tiers bumped in lockstep with global tiers so
+        // multipliers cannot collapse entries to dust on the user's small
+        // wallets. (initialPct, strongPct, alphaPct, minSol, defaultSol,
+        // strongSol, alphaSol, maxInitialWalletPct)
         val (lP, dS) = when (L) {
             "MOONSHOT", "SHITCOIN" -> Triple(
-                listOf(0.020, 0.035, 0.060), listOf(0.025, 0.040, 0.070, 0.110), 0.080
+                listOf(0.030, 0.055, 0.090), listOf(0.040, 0.060, 0.110, 0.170), 0.110
             ) to "moonshot"
             "STANDARD" -> Triple(
-                listOf(0.020, 0.035, 0.055), listOf(0.025, 0.035, 0.060, 0.100), 0.075
+                listOf(0.030, 0.055, 0.085), listOf(0.040, 0.055, 0.090, 0.150), 0.100
             ) to "standard"
             "WALLET_RECOVERED" -> Triple(
-                listOf(0.030, 0.060, 0.100), listOf(0.040, 0.080, 0.120, 0.150), 0.100
+                listOf(0.040, 0.080, 0.130), listOf(0.060, 0.110, 0.170, 0.220), 0.130
             ) to "wallet_recovered"
             "BLUECHIP", "DIP_HUNTER", "QUALITY" -> Triple(
-                listOf(0.022, 0.040, 0.065), listOf(0.030, 0.040, 0.070, 0.115), 0.085
+                listOf(0.035, 0.065, 0.100), listOf(0.045, 0.060, 0.110, 0.170), 0.110
             ) to "established"
             else -> Triple(
                 listOf(BASE_WALLET_PCT, STRONG_WALLET_PCT, ALPHA_WALLET_PCT),
@@ -298,5 +310,48 @@ object LiveSizingProfile {
         val capped = min(lifted, hardCap)
         val maxSpendable = (walletSol - GAS_RESERVE_SOL).coerceAtLeast(0.0)
         return min(capped, maxSpendable)
+    }
+
+    /**
+     * V5.0.4114 — LAST-MILE BROADCAST FLOOR.
+     * Called from doBuy() at the very last step before broadcast. Cleans up
+     * the edge cases where the size came from a non-SmartSizer path
+     * (network-signal auto-buy, manual buy, wallet_recovered add-in,
+     * social-velocity bridge, etc.) or where post-SmartSizer multipliers
+     * (Executor's score-band cuts, anti-choke scalers, expectancy-gate)
+     * collapsed the result below the floor.
+     *
+     * Behaviour:
+     *  - Paper / disabled / non-finite → pass-through.
+     *  - Wallet ≤ GAS_RESERVE_SOL → pass-through (defensive: don't lift on
+     *    a near-empty wallet, the original size is already coerced upstream).
+     *  - Hard-block (baseSol ≤ 0) → pass-through (must remain 0).
+     *  - Otherwise: lift to max(MIN_ENTRY_SOL, walletSol × BASE_WALLET_PCT)
+     *    capped by walletSol × MAX_INITIAL_WALLET_PCT and (wallet - reserve).
+     *
+     * This guarantees that on a wallet ≥ 0.10 SOL the bot CAN NEVER enter
+     * with less than ~0.04 SOL ($5.60 at $140 SOL). Operator mandate:
+     * "if it catching huge wins it needs to make big wins".
+     */
+    fun lastMileEntryFloor(baseSol: Double, walletSol: Double, isPaperMode: Boolean): Double {
+        if (!enabled || isPaperMode) return baseSol
+        if (!baseSol.isFinite() || baseSol <= 0.0) return baseSol
+        if (!walletSol.isFinite() || walletSol <= GAS_RESERVE_SOL) return baseSol
+        val pctFloor = walletSol * BASE_WALLET_PCT
+        val targetFloor = max(MIN_ENTRY_SOL, pctFloor)
+        val hardCap = walletSol * MAX_INITIAL_WALLET_PCT
+        val maxSpendable = (walletSol - GAS_RESERVE_SOL).coerceAtLeast(0.0)
+        val lifted = max(baseSol, targetFloor)
+        val final = min(min(lifted, hardCap), maxSpendable)
+        if (final > baseSol * 1.01) {
+            try {
+                ErrorLogger.info(
+                    "LiveSizingProfile",
+                    "🛡️ LAST_MILE_FLOOR: base=${"%.4f".format(baseSol)} → ${"%.4f".format(final)} (wallet=${"%.3f".format(walletSol)})"
+                )
+                com.lifecyclebot.engine.PipelineHealthCollector.labelInc("LAST_MILE_ENTRY_FLOOR_LIFTED")
+            } catch (_: Throwable) {}
+        }
+        return final
     }
 }
