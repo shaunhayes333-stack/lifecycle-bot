@@ -945,6 +945,40 @@ object GlobalTradeRegistry {
     }
 
     /**
+     * V5.0.4112 — CANONICAL HELD-TOKEN CHECK.
+     * Operator mandate: "the watchlist isnt meant to drop held tokens ever.
+     * maybe consider a separate held tokens lane that only flushes from the
+     * watchlist if its sold not pruned via the time ticker".
+     *
+     * Single source of truth answering "do we currently hold this mint?".
+     * Three orthogonal signals — any of them = HELD:
+     *   1. activePositions registered with this registry (canonical fast path).
+     *   2. BotService.status.tokens[mint].position.isOpen (in-memory live state).
+     *   3. HostWalletTokenTracker.hasOpenPosition(mint) (wallet truth — catches
+     *      orphaned recoveries before they round-trip back to the journal).
+     *
+     * Every watchlist eviction path must consult this. Failing to do so was the
+     * upstream cause of the WALLET_RECOVERED phantom-PnL cluster: a held mint
+     * got pruned by SAFETY/RUG flag → price polling died → WalletReconciler
+     * later "recovered" it as orphan with costSol=0 → phantom +99% wins.
+     */
+    fun isMintHeldAnywhere(mint: String): Boolean {
+        if (mint.isBlank()) return false
+        if (activePositions.containsKey(mint)) return true
+        try {
+            val st = com.lifecyclebot.engine.BotService.status
+            synchronized(st.tokens) {
+                val ts = st.tokens[mint]
+                if (ts != null && ts.position.isOpen) return true
+            }
+        } catch (_: Throwable) {}
+        try {
+            if (com.lifecyclebot.engine.HostWalletTokenTracker.hasOpenPosition(mint)) return true
+        } catch (_: Throwable) {}
+        return false
+    }
+
+    /**
      * Remove a token from the watchlist.
      * V5.9.369 — never evict a mint that has an active position. Eviction
      * while a position is open orphans the token from price polling and
@@ -954,8 +988,12 @@ object GlobalTradeRegistry {
      * removeFromWatchlistForced(mint, reason).
      */
     fun removeFromWatchlist(mint: String, reason: String = "MANUAL"): Boolean {
-        if (activePositions.containsKey(mint)) {
-            ErrorLogger.debug(TAG, "🛡️ removeFromWatchlist BLOCKED for $mint — active position open (reason was: $reason)")
+        // V5.0.4112 — escalated guard: also block if held anywhere (in-memory
+        // status.tokens / wallet tracker), not just activePositions. Held
+        // positions getting silently evicted was orphaning price polling and
+        // causing the WALLET_RECOVERED phantom-PnL cluster.
+        if (isMintHeldAnywhere(mint)) {
+            ErrorLogger.debug(TAG, "🛡️ removeFromWatchlist BLOCKED for $mint — token still held (reason was: $reason)")
             return false
         }
         val removed = watchlist.remove(mint)
@@ -971,8 +1009,18 @@ object GlobalTradeRegistry {
      * V5.9.369 — explicit forced-removal escape hatch. ONLY for trader
      * close paths that have already closed the position. Bypasses the
      * active-position guard. Do not use from rejection / cleanup paths.
+     *
+     * V5.0.4112 — even "forced" callers must NOT silently nuke a token we
+     * still hold. The trader-close path closes the position FIRST, so this
+     * guard is benign there. From cleanup paths (AntiChoke, sweepers, etc.)
+     * it now correctly refuses to orphan a held mint.
      */
     fun removeFromWatchlistForced(mint: String, reason: String = "FORCED"): Boolean {
+        if (isMintHeldAnywhere(mint)) {
+            ErrorLogger.warn(TAG, "🛡️ removeFromWatchlistForced REFUSED for $mint — token still held (reason was: $reason)")
+            try { com.lifecyclebot.engine.PipelineHealthCollector.labelInc("FORCED_REMOVE_REFUSED_TOKEN_HELD") } catch (_: Throwable) {}
+            return false
+        }
         val removed = watchlist.remove(mint)
         if (removed != null) {
             totalTokensRemoved.incrementAndGet()
@@ -986,11 +1034,10 @@ object GlobalTradeRegistry {
      * Register that a token was rejected (so it won't be re-added).
      */
     fun registerRejection(mint: String, symbol: String, reason: String, rejectedBy: String) {
-        // V5.9.369 — don't reject a mint we currently hold. The position
-        // sticks around regardless; rejecting/removing the watchlist
-        // entry would orphan price polling.
-        if (activePositions.containsKey(mint)) {
-            ErrorLogger.debug(TAG, "🛡️ registerRejection BLOCKED for $symbol — active position open (would-be reason: $reason)")
+        // V5.0.4112 — escalated guard: don't reject a mint we currently hold
+        // through ANY lane (canonical isMintHeldAnywhere check).
+        if (isMintHeldAnywhere(mint)) {
+            ErrorLogger.debug(TAG, "🛡️ registerRejection BLOCKED for $symbol — token still held (would-be reason: $reason)")
             return
         }
         rejectedTokens[mint] = RejectionEntry(
@@ -1005,7 +1052,20 @@ object GlobalTradeRegistry {
         if (by.contains("SAFETY") || r.contains("CONFIRMED RUG") || r.contains("HONEYPOT") || r.contains("SCAM") || r.contains("BASE_OR_QUOTE") || r.contains("BLOCKED_SYMBOL")) {
             ScannerHardRejectStore.mark(mint, symbol, reason, rejectedBy)
             probation.remove(mint)
-            watchlist.remove(mint)
+            // V5.0.4112 — DO NOT silently evict from watchlist if the mint
+            // is currently held. The bot must keep polling price & exits;
+            // dropping the watchlist entry orphans it and lets the
+            // WalletReconciler later "recover" the position with costSol=0,
+            // producing phantom +99% wins. Tag the entry instead — the
+            // exit/SL logic will still see the safety verdict via
+            // rejectedTokens, but the price-poll lane keeps the entry alive.
+            if (!isMintHeldAnywhere(mint)) {
+                watchlist.remove(mint)
+            } else {
+                ErrorLogger.warn(TAG,
+                    "🛡️ Safety/rug rejection recorded for HELD mint $symbol — watchlist entry PRESERVED for exit polling | reason=$reason")
+                try { com.lifecyclebot.engine.PipelineHealthCollector.labelInc("SAFETY_REJECTION_DEFERRED_TOKEN_HELD") } catch (_: Throwable) {}
+            }
         }
 
         // V5.9.624 — PROTECTED MEME INTAKE.

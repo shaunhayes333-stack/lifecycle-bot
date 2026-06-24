@@ -78,8 +78,12 @@ object LayerBrain {
     /**
      * The internal brain state. One instance per registered layer.
      * All fields are concurrency-safe under our lock-free update model.
+     *
+     * NOTE: declared `internal` (not `private`) because [Handle] exposes it
+     * via its `internal constructor` — the Kotlin compiler rejects a
+     * private-in-class type leaking through an internal-visible signature.
      */
-    private class Brain(val name: String, val nFeatures: Int) {
+    internal class Brain(val name: String, val nFeatures: Int) {
         val w = DoubleArray(nFeatures) { 0.0 }
         @Volatile var bias: Double = 0.0
         @Volatile var trained: Long = 0L

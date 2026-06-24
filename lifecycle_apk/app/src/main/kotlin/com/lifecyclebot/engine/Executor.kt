@@ -2623,6 +2623,34 @@ class Executor(
             }
         }
 
+        // V5.0.4112 — RECOVERED-SCRATCH LEARNING EXCLUSION.
+        // Even after we force pnl=0 on recovered rows, downstream tuners
+        // (LiveStrategyTuner, LaneExitTuner, PatternAutoTuner, MetaCognition,
+        // SessionEdgeAI, KillSwitch, etc.) would still ingest the row and
+        // count it toward sample-size + EV-bin denominators, biasing future
+        // sizing and exit profiles. The operator audit identified the
+        // STANDARD:compounding_runner WR=100% n=25 line as direct evidence
+        // that these recovered closes were corrupting the live tuners.
+        //
+        // For recovered closes we journal the row (audit), but we DO NOT
+        // fan it out into learning paths. The row will not appear in
+        // strategy expectancy tables, in size×/tp×/sl× tuners, or in the
+        // probability-engine EV bins. It is invisible to learning.
+        val isRecoveredScratch = (
+            (ts.position.tradingMode ?: "").uppercase() == "WALLET_RECOVERED" ||
+            ts.position.entryPhase == "WALLET_RECOVERED" ||
+            tradeWithMint.reason.uppercase().contains("WALLET_RECOVERED") ||
+            tradeWithMint.reason.uppercase().contains("DEAD_TOKEN_NO_PRICE")
+        ) && (ts.position.costSol <= 0.0 && tradeWithMint.entryCostSol <= 0.0)
+        if (isRecoveredScratch && (tradeWithMint.side.equals("SELL", true) || tradeWithMint.side.equals("PARTIAL_SELL", true))) {
+            try { PipelineHealthCollector.labelInc("LEARNING_EXCLUDED_RECOVERED_SCRATCH") } catch (_: Throwable) {}
+            try { ForensicLogger.lifecycle(
+                "LEARNING_EXCLUDED_RECOVERED_SCRATCH",
+                "mint=${ts.mint.take(10)} symbol=${ts.symbol} reason=${tradeWithMint.reason} " +
+                    "tradingMode=${ts.position.tradingMode} action=skip_learning_fanout",
+            ) } catch (_: Throwable) {}
+        }
+
         // V5.9.1100 — canonical execution/outcome idempotency.
         // BUY records register a canonical PositionId. Terminal SELL records
         // must acquire exactly one TradeOutcomeId before any closed-trade
@@ -2663,6 +2691,9 @@ class Executor(
 
         val accountingTrainable: Boolean = try {
             if (!tradeWithMint.side.equals("SELL", true) && !tradeWithMint.side.equals("PARTIAL_SELL", true)) true
+            // V5.0.4112 — recovered scratches are NEVER trainable. They have
+            // no real cost basis and represent inventory cleanup, not edge.
+            else if (isRecoveredScratch) false
             else {
                 val proceeds = tradeWithMint.sol + (tradeWithMint.netPnlSol.takeIf { it != 0.0 } ?: tradeWithMint.pnlSol)
                 tradeWithMint.price > 0.0 && tradeWithMint.sol > 0.0 && proceeds >= -0.0000001
