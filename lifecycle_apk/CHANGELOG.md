@@ -4,6 +4,44 @@ All notable changes to the Autonomous AI Trading Engine.
 
 ---
 
+## [5.0.4131] - 2026-02 — REAL-SIZE ENTRIES (liquidity-cap fix)
+
+### Root cause
+Operator journal showed live entries of ~0.01–0.03 SOL ($1–$3) despite the
+V5.0.4129 absolute floor in `doBuy`. The leak was downstream in
+`realisticLiveEntrySize` (`Executor.kt:2308`) where the **liquidity-impact
+cap** (2% of pool size in SOL terms) was crushing entries on low-liq
+pump.fun newborns:
+  - liqUsd=$100 → cap = (100 × 0.02) / $104/SOL = **0.0096 SOL** (dust)
+  - liqUsd=$500 → cap = **0.048 SOL**
+  - liqUsd=$1000 → cap = 0.19 SOL
+This cap was bypassing my doBuy absolute floor because line 2347
+(`out.coerceAtLeast(minOf(requestedSol, cap))`) selects `cap` when
+`requestedSol > cap`.
+
+### Fix 1 — Pattern Golden Goose impact tolerance
+- GOLD verdict → impact tolerance × 4 (allows ~8% pool impact)
+- WINNER verdict → impact tolerance × 2.5 (~5% impact)
+- NEUTRAL/TOXIC/CATASTROPHIC → unchanged (~2% impact)
+- Rationale: theme_space pattern wins 82.7% with 47% avg gain — accepting 8%
+  slippage on a 47% expected return is a strictly winning trade.
+
+### Fix 2 — Absolute floor at the final size-authority
+- After all caps, if `walletHealthy` (spendable > MIN_ENTRY × 3) AND
+  `liquidityAdequate` (≥$500 = exitable) → lift to `MIN_ENTRY_SOL` (0.040 SOL).
+- TOXIC/CATASTROPHIC verdicts SKIP this lift (don't size up bad patterns).
+
+### Impact
+- Healthy wallets + adequate liquidity → entries floor at 0.040 SOL (~$4) instead of dust
+- Known-edge (GOLD/WINNER) tokens → up to 4× higher liquidity-impact ceiling
+- Quality-confirmed scaling preserved end-to-end across the size pipeline
+
+### Telemetry
+- `LIVE_ABS_FLOOR_LIFT_V4131` label + forensic `LIVE_ABS_FLOOR_LIFT_V4131` log
+- `GROWTH_MODE_TRACE` now includes goose verdict
+
+---
+
 ## [5.0.4130] - 2026-02 — PROFIT-BOOSTER TRIO (no volume loss)
 
 ### Fix 1 — ultra_runner_bank current-price sanity gate (Executor.kt)

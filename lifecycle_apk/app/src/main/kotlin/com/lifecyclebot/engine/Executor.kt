@@ -2329,6 +2329,20 @@ class Executor(
         val movementSignal = try { MovementPatternSignal.from(ts) } catch (_: Throwable) { null }
         val growthPolicy = LiveGrowthDoctrine.sizePolicy(laneKey, score, walletSol, spendable, movementSignal)
         try { if (movementSignal != null) PipelineHealthCollector.labelInc("MOVEMENT_PATTERN_${movementSignal.pattern.take(48)}") } catch (_: Throwable) {}
+        // V5.0.4131 — PATTERN GOLDEN GOOSE IMPACT TOLERANCE.
+        // For known-edge tokens (GOLD/WINNER patterns) accept more price impact
+        // since expected return on these signatures historically dwarfs slippage
+        // (theme_space 47% avg win, name_medium 237%). For unknown tokens keep
+        // the conservative 2% impact cap. TOXIC/CATASTROPHIC use the standard
+        // floor — they shouldn't be sized up.
+        val gooseImpactVerdict4131 = try {
+            com.lifecyclebot.engine.PatternGoldenGoose.edge("", ts.symbol).verdict
+        } catch (_: Throwable) { com.lifecyclebot.engine.TokenWinMemory.Verdict.NEUTRAL }
+        val impactMult4131 = when (gooseImpactVerdict4131) {
+            com.lifecyclebot.engine.TokenWinMemory.Verdict.GOLD    -> 4.0  // 8% impact OK
+            com.lifecyclebot.engine.TokenWinMemory.Verdict.WINNER  -> 2.5  // 5% impact OK
+            else                                                    -> 1.0  // standard 2%
+        }
         val walletPct = growthPolicy.walletPct
         val laneMult = growthPolicy.laneMult
         val walletTarget = spendable * walletPct * laneMult
@@ -2336,7 +2350,7 @@ class Executor(
         // price and live liquidity to prevent unrealistic impact, but don't mistake
         // low-but-exitable liquidity for a dust-only probe.
         val liquidityCapSol = if (liqUsd > 0.0) {
-            ((liqUsd * growthPolicy.liquidityImpactPct) / solPx).coerceIn(0.005, spendable)
+            ((liqUsd * growthPolicy.liquidityImpactPct * impactMult4131) / solPx).coerceIn(0.005, spendable)
         } else {
             spendable * (growthPolicy.maxWalletPct * 0.65)
         }
@@ -2345,21 +2359,38 @@ class Executor(
         val minRealistic = growthPolicy.minExecutableSol.coerceAtMost(cap)
         val desired = maxOf(requestedSol, walletTarget, minRealistic).coerceAtMost(cap)
         val out = desired.coerceAtLeast(minOf(requestedSol, cap)).coerceAtMost(spendable)
+        // V5.0.4131 — ABSOLUTE FLOOR. The user's mandate: "literally everything is
+        // basically .01 sol buys" — unsustainable. When the wallet is healthy AND
+        // the token has at least minimum exitable liquidity ($500), guarantee a
+        // floor of MIN_ENTRY_SOL (0.040 SOL ≈ $4). TOXIC/CATASTROPHIC verdicts
+        // bypass this floor (they shouldn't be sized up).
+        val absFloor4131 = com.lifecyclebot.engine.LiveSizingProfile.MIN_ENTRY_SOL
+        val walletHealthy = spendable > absFloor4131 * 3.0   // 3× headroom for fees + slippage
+        val liquidityAdequate = liqUsd >= 500.0               // exitable
+        val skipFloorForToxic = gooseImpactVerdict4131 == com.lifecyclebot.engine.TokenWinMemory.Verdict.TOXIC ||
+                                 gooseImpactVerdict4131 == com.lifecyclebot.engine.TokenWinMemory.Verdict.CATASTROPHIC
+        val outWithFloor = if (walletHealthy && liquidityAdequate && !skipFloorForToxic) {
+            maxOf(out, absFloor4131).coerceAtMost(spendable)
+        } else out
+        if (outWithFloor > out + 0.0005) {
+            try { ForensicLogger.lifecycle("LIVE_ABS_FLOOR_LIFT_V4131", "symbol=${ts.symbol} lane=$laneKey out=${out.fmt(4)} → ${outWithFloor.fmt(4)} (goose=${gooseImpactVerdict4131.name} liq=${liqUsd.toInt()} wallet=${walletSol.fmt(3)})") } catch (_: Throwable) {}
+            try { PipelineHealthCollector.labelInc("LIVE_ABS_FLOOR_LIFT_V4131") } catch (_: Throwable) {}
+        }
         try {
             ForensicLogger.lifecycle(
                 "GROWTH_MODE_TRACE",
-                "mint=${ts.mint.take(10)} symbol=${ts.symbol} source=$source lane=$laneKey requested=${requestedSol.fmt(4)} walletTarget=${walletTarget.fmt(4)} out=${out.fmt(4)} wallet=${walletSol.fmt(4)} spendable=${spendable.fmt(4)} liqUsd=${liqUsd.toInt()} liquidityCap=${liquidityCapSol.fmt(4)} walletCap=${walletCapSol.fmt(4)} cap=${cap.fmt(4)} minExec=${minRealistic.fmt(4)} score=${score.fmt(1)} growth=${growthPolicy.reason}",
+                "mint=${ts.mint.take(10)} symbol=${ts.symbol} source=$source lane=$laneKey requested=${requestedSol.fmt(4)} walletTarget=${walletTarget.fmt(4)} out=${outWithFloor.fmt(4)} wallet=${walletSol.fmt(4)} spendable=${spendable.fmt(4)} liqUsd=${liqUsd.toInt()} liquidityCap=${liquidityCapSol.fmt(4)} walletCap=${walletCapSol.fmt(4)} cap=${cap.fmt(4)} minExec=${minRealistic.fmt(4)} score=${score.fmt(1)} growth=${growthPolicy.reason} goose=${gooseImpactVerdict4131.name}",
             )
         } catch (_: Throwable) {}
-        if (kotlin.math.abs(out - requestedSol) >= 0.0005) {
+        if (kotlin.math.abs(outWithFloor - requestedSol) >= 0.0005) {
             try {
                 ForensicLogger.lifecycle(
                     "LIVE_REALISTIC_SIZE_AUTHORITY",
-                    "mint=${ts.mint.take(10)} symbol=${ts.symbol} source=$source lane=$laneKey requested=${requestedSol.fmt(4)} target=${walletTarget.fmt(4)} out=${out.fmt(4)} wallet=${walletSol.fmt(4)} spendable=${spendable.fmt(4)} liqUsd=${liqUsd.toInt()} cap=${cap.fmt(4)} score=${score.fmt(1)} growth=${growthPolicy.reason}",
+                    "mint=${ts.mint.take(10)} symbol=${ts.symbol} source=$source lane=$laneKey requested=${requestedSol.fmt(4)} target=${walletTarget.fmt(4)} out=${outWithFloor.fmt(4)} wallet=${walletSol.fmt(4)} spendable=${spendable.fmt(4)} liqUsd=${liqUsd.toInt()} cap=${cap.fmt(4)} score=${score.fmt(1)} growth=${growthPolicy.reason}",
                 )
             } catch (_: Throwable) {}
         }
-        return out
+        return outWithFloor
     }
 
     private fun applyKellyCap(size: Double, walletSol: Double, confidence: Double): Double {
