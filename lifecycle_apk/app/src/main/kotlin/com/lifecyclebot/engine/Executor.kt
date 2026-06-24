@@ -5165,7 +5165,7 @@ class Executor(
             if (currentPrice > 0.0) {
                 val tpPct = when {
                     // V5.0.4125 — style-adjusted TP takes PRIORITY over lane-specific TPs.
-                    // The AGI stack's style decision (DIAMOND_HANDS_RUNNER, SWING_HOLD, etc.)
+                    // The AGI stack's style decision (DH_RUNNER, SWING_HOLD, etc.)
                     // should override the lane's default TP. This is what makes the bot
                     // a multi-strategy machine instead of a flat scalper.
                     // Lane TPs (shitCoin/blueChip/treasury) are still used as fallback
@@ -6346,7 +6346,7 @@ class Executor(
             val _regimeHoldMult = try {
                 com.lifecyclebot.engine.MarketRegimeAI.getHoldTimeMultiplier().coerceIn(0.5, 2.0)
             } catch (_: Throwable) { 1.0 }
-            // V5.0.4125 — Apply AGI style hold multiplier. DIAMOND_HANDS_RUNNER
+            // V5.0.4125 — Apply AGI style hold multiplier. DH_RUNNER
             // (holdMult=2.80) extends 120min → 336min. EXHAUSTION_QUICK_FLIP
             // (holdMult=0.38) shortens 120min → 45min. This lets the AGI stack
             // control hold time per-trade, not just per-lane.
@@ -8552,7 +8552,7 @@ class Executor(
             // V5.9.996 — copy-trade attribution for CopyTradeEngine.recordResult
             copyWallet   = copyWalletAtEntry,
             // V5.0.4125 — Apply AGI style TP multiplier at position creation.
-            // fluidTP * styleTpMult = actual exit target. DIAMOND_HANDS_RUNNER
+            // fluidTP * styleTpMult = actual exit target. DH_RUNNER
             // (2.80x) → 42% bootstrap TP instead of 15%. EXHAUSTION_QUICK_FLIP
             // (0.38x) → 5.7% fast scalp TP. This is the bridge between the
             // super-AGI scoring stack and actual exit behavior.

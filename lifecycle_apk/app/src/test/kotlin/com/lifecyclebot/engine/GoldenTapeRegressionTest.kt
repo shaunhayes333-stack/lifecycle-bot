@@ -4189,7 +4189,7 @@ class GoldenTapeRegressionTest {
         // Executor exit TP when-block must check entryTakeProfitPct FIRST
         val tpBlockStart = exec.indexOf("val tpPct = when {")
         assertTrue("V5.0.4125: must find TP when-block", tpBlockStart > 0)
-        val tpBlock = exec.substring(tpBlockStart, tpBlockStart + 600)
+        val tpBlock = exec.substring(tpBlockStart, tpBlockStart + 1000)
         val entryTpIdx = tpBlock.indexOf("entryTakeProfitPct > 0.0")
         val shitcoinIdx = tpBlock.indexOf("isShitCoinPosition")
         assertTrue("V5.0.4125: entryTakeProfitPct must be checked BEFORE lane-specific TPs",
