@@ -201,6 +201,15 @@ object LiveStylePivotRouter {
                 if (scoreBand == "S41-60") {
                     if (bestQualityLane() == "LIQUIDITY_DEPTH_QUALITY" && highQualityProof) promoteQuality("LIQUIDITY_DEPTH_QUALITY", "LIQUIDITY_DEPTH_QUALITY", 0.75, "MOONSHOT_S41_60_QUALITY_PROMOTION")
                     else if (score >= 55.0 && highQualityProof && canLiveAdaptiveRelease("MOONSHOT")) promoteQuality("MOONSHOT", "MOONSHOT", 0.65, "MOONSHOT_S55_60_CLEAN_PROOF_QUALITY_RELEASE")
+                    // V5.0.4119 — allow score 55-60 MOONSHOT to trade native with
+                    // size-shaped multiplier instead of hard deferring. The break-even
+                    // guard still filters bad edges. Opens up a major volume band.
+                    else if (score >= 55.0 && routeTrusted && basisTrusted && rugProof) {
+                        mult = minOf(mult, 0.55); reasons += "MOONSHOT_S55_60_NATIVE_SIZE_SHAPED"
+                    }
+                    else if (score >= 48.0 && highQualityProof) {
+                        mult = minOf(mult, 0.45); reasons += "MOONSHOT_S48_60_HIGH_QUALITY_SIZE_SHAPED"
+                    }
                     else defer("MOONSHOT_S41_60_DANGER_DEFER")
                 } else if (score >= 61.0 && routeTrusted && basisTrusted) { mult = maxOf(mult, 1.0); reasons += "MOONSHOT_NATIVE_CONFIRMED" }
             }

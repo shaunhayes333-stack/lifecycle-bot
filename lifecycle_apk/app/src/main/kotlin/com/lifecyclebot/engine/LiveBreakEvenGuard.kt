@@ -107,7 +107,10 @@ object LiveBreakEvenGuard {
         val givebackBufferPct = when (BleederMemoryRouter.canon(lane)) {
             "SHITCOIN", "EXPRESS", "CYCLIC", "COPYTRADE" -> 5.0
             "MOONSHOT" -> 4.0
-            else -> 2.5
+            // V5.0.4119 — reduced from 2.5 to 1.5 for STANDARD/default.
+            // The exit ladder already protects against downside; the break-even
+            // guard was over-conservative, starving mid-score volume.
+            else -> 1.5
         }
         val minProfitBufferPct = when {
             lane.contains("BLUECHIP", true) -> 3.0
@@ -117,7 +120,10 @@ object LiveBreakEvenGuard {
             lane.contains("SHITCOIN", true) -> 12.0
             lane.contains("EXPRESS", true) || lane.contains("CYCLIC", true) -> 15.0
             lane.contains("WHALE", true) || lane.contains("COPY", true) -> 15.0
-            else -> 5.0
+            // V5.0.4119 — reduced from 5.0 to 2.0 for STANDARD/default lanes.
+            // Opens up score 53+ instead of 58+ for bootstrap-phase entries.
+            // Exit ladder and hard SL still protect capital.
+            else -> 2.0
         }
         return buySlippagePct + expectedSellSlippagePct + priorityFeePct + platformFeePct + spreadPct + mevBufferPct + givebackBufferPct + minProfitBufferPct
     }
