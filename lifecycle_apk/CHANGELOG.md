@@ -4,6 +4,21 @@ All notable changes to the Autonomous AI Trading Engine.
 
 ---
 
+## [5.0.4132-fix2] - 2026-02 — CI GREEN, DISCIPLINE PACK DEPLOYED
+
+`Executor.kt:17005` was reading `tradingMode` off `TokenState` where it actually
+lives on `Position`. Switched to `pos.tradingMode` (matching the block ~30
+lines above that already reads `pos.tradingMode` for `traderSource`). Also
+swapped the `?: "MEME"` elvis on the (non-nullable) field for `ifBlank{}`.
+
+**No behaviour change.** Pure compile-fix that finally unblocks V5.0.4132's
+Discipline Pack — LivePauseButton + LaneTimeoutGate + ScannerLaneBridge +
+RugMintBlacklist outcome wiring is now live.
+
+CI: GREEN ✅ (run 28124765075).
+
+---
+
 ## [5.0.4132] - 2026-02 — DISCIPLINE PASS + SCANNER-LANE BRAIN
 
 Operator mandate: WR was slipping under every "intelligence" layer (37→33→23→22%).

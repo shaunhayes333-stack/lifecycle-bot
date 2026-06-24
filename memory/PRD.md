@@ -7,6 +7,36 @@ Stocks, Markets, Tokenized Stocks, Forex, Metals, Commodities). Foreground
 Service with a 50+ AI-module pipeline gated through processTokenCycle.
 
 
+## V5.0.4131 – 4132-fix2 (Feb 2026) — DISCIPLINE-FIRST PASS
+
+### V5.0.4131 — Real-Size Entries
+Removed a liquidity-cap dust trap in `realisticLiveEntrySize` that was floor-clamping
+buys to ~0.01 SOL on most live entries. Restores realistic entry sizing under the
+existing safety envelopes.
+
+### V5.0.4132 → -fix2 — Discipline Pack + Universal Scanner Bridge
+Pivot from "smarter overrides" to "hard discipline" after WR slid from 37% → 15.8%
+during a DUMP regime. The previous "bypass filters for high-score tokens" path was
+inadvertently buying garbage at larger sizes. Four new gates + brain were added:
+
+- **LivePauseButton**: rolling per-lane WR brake. Pauses a lane that breaches a
+  short-window WR floor; auto-recovers on subsequent green closes. Trained from
+  every live close via `Executor.recordOutcome`.
+- **LaneTimeoutGate**: cooldown gate per lane after consecutive losses; learns from
+  closed trades.
+- **RugMintBlacklist**: seeds + reinforces per-mint blacklist on rapid heavy-loss
+  closes (mint, pnl, holdMs).
+- **ScannerLaneBridge**: scanner-source × lane brain. Records source/lane outcomes
+  and vetoes high-toxicity (source, lane) pairs universally.
+- **Executor outcome wiring**: live-sell PnL feeds all four discipline modules in
+  a single try/catch block at the same site as the existing learning fan-out.
+
+CI: V5.0.4132 + -fix1 failed on Kotlin reference errors. **-fix2 GREEN** —
+`Executor.kt:17005` was reading `tradingMode` from `TokenState` where it actually
+lives on `Position`. Switched to `pos.tradingMode` (matching the block ~30 lines
+above that already reads `pos.tradingMode` for `traderSource`). No behaviour
+change beyond the compile.
+
 ## V5.0.4126 – 4130 (Feb 2026) — MEME-TRADER MONEY-PRINTER ARC
 
 ### V5.0.4126 — MoonshotAdaptiveGate (fluid lane pivot)
