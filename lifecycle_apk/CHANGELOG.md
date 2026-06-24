@@ -4,6 +4,41 @@ All notable changes to the Autonomous AI Trading Engine.
 
 ---
 
+## [5.0.4126] - 2026-02 — MOONSHOT FLUID PIVOT
+
+### Added
+- **MoonshotAdaptiveGate**: New lane-specific brain that fluidly pivots the
+  MOONSHOT entry quality bar based on its own recent outcomes.
+  - Hybrid recency-weighted WR over a 100-trade rolling window (newest 50
+    trades count 2.0×, prior 50 count 1.0×).
+  - Returns a bounded score-floor bias in [-5, +20]:
+    - EMERGENCY (wr < 15%) → +20 (tighten hard)
+    - DEFENSIVE (wr 15-25%) → +12
+    - NEUTRAL (wr 25-50%) → +6 below target, 0 above
+    - AGGRESSIVE (wr >= 50%) → -5 (let it breathe)
+  - Never a hard veto — only nudges the score floor. Auto-loosens as WR
+    recovers so the lane self-heals.
+  - Persists rolling history across reboots via SharedPreferences.
+
+### Changed
+- **MoonshotTraderAI.scoreToken**: `effectiveMinScore` now includes
+  `MoonshotAdaptiveGate.scoreFloorBias()` (additive after `personalityFloorBias`).
+  Rejection messages surface the live phase tag (e.g. `gate=DEFENSIVE_wr22_n67_bias+12`).
+- **MoonshotTraderAI.closePosition**: Now calls
+  `MoonshotAdaptiveGate.recordOutcome(pnlPct)` so the gate trains live, and
+  also calls `LayerBrain.recordOutcomeAll(mint, pnlPct)` (previously skipped
+  because Moonshot bypasses `Executor.recordTrade`).
+
+### Why
+Operator: "its meant to fluidly pivot bro! not disable. each lane has a brain
+specifically for that lane use it not disabled the lane!!!" The lane was
+bleeding (-0.85 SOL, 24.6% WR over 248 trades). Existing learned gates
+(`ScoreExpectancyTracker.shouldReject`, `LosingPatternMemory.recommendedSlPct`)
+are paper-only or per-bucket — none responded to global lane WR sliding in
+LIVE. This gate closes that loop without disabling anything.
+
+---
+
 ## [5.2.11] - 2026-04-02
 
 ### Fixed

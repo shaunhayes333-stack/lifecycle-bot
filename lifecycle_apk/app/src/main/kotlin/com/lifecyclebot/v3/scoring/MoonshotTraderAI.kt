@@ -277,7 +277,9 @@ object MoonshotTraderAI {
     fun init(context: android.content.Context) {
         prefs = context.getSharedPreferences("moonshot_trader_ai", android.content.Context.MODE_PRIVATE)
         restore()
-        ErrorLogger.info(TAG, "🚀 MoonshotTraderAI persistence initialized")
+        // V5.0.4126 — fluid lane pivot. Loads recent-trade window + recomputes phase.
+        try { com.lifecyclebot.engine.MoonshotAdaptiveGate.init(context) } catch (_: Throwable) {}
+        ErrorLogger.info(TAG, "🚀 MoonshotTraderAI persistence initialized | gate=${runCatching { com.lifecyclebot.engine.MoonshotAdaptiveGate.phaseTag() }.getOrDefault("init_fail")}")
     }
     
     /**
@@ -668,10 +670,21 @@ object MoonshotTraderAI {
         val personalityFloorBias = try {
             com.lifecyclebot.engine.PersonalityTraitMultipliers.scoreFloorBias()
         } catch (_: Throwable) { 0 }
-        val effectiveMinScore = maxOf(minScore, wrFloor) + personalityFloorBias
+        // V5.0.4126 — MOONSHOT ADAPTIVE GATE. Lane-specific fluid pivot:
+        // hybrid recency-weighted WR steers the entry bar tighter when the
+        // lane is bleeding (up to +20) and looser when it's winning (down
+        // to -5). Cannot veto; only nudges the score floor. Auto-loosens
+        // as WR recovers so the lane self-heals without intervention.
+        val moonshotAdaptiveBias = try {
+            com.lifecyclebot.engine.MoonshotAdaptiveGate.scoreFloorBias()
+        } catch (_: Throwable) { 0 }
+        val effectiveMinScore = (maxOf(minScore, wrFloor) + personalityFloorBias + moonshotAdaptiveBias)
+            .coerceAtLeast(0)
         if (score < effectiveMinScore) {
+            val gateTag = try { com.lifecyclebot.engine.MoonshotAdaptiveGate.phaseTag() } catch (_: Throwable) { "gate_off" }
             val tag = if (wrFloor > 0 && score < wrFloor) "wr_recovery_score_floor" else "score"
-            return MoonshotScore(false, score, 0.0, "${tag}_${score}_below_${effectiveMinScore}_(base=${minScore}_wr=${wrFloor})")
+            return MoonshotScore(false, score, 0.0,
+                "${tag}_${score}_below_${effectiveMinScore}_(base=${minScore}_wr=${wrFloor}_gate=${gateTag})")
         }
 
         // V5.9.436 — SCORE-EXPECTANCY SOFT GATE (per-layer).
@@ -1216,6 +1229,14 @@ object MoonshotTraderAI {
         
         // Update local learning progress
         updateLearning(pnlPct, isWin)
+
+        // V5.0.4126 — MOONSHOT ADAPTIVE GATE: feed lane outcome so the
+        // hybrid recency-weighted WR can fluidly pivot the entry floor.
+        try { com.lifecyclebot.engine.MoonshotAdaptiveGate.recordOutcome(pnlPct) } catch (_: Throwable) {}
+        // V5.0.4126 — also feed LayerBrain so any per-layer brain that stamped
+        // this mint gets trained (Moonshot sub-trader bypasses Executor.recordTrade,
+        // so its LayerBrain feedback would otherwise never fire).
+        try { com.lifecyclebot.engine.LayerBrain.recordOutcomeAll(mint, pnlPct) } catch (_: Throwable) {}
         
         // V5.2 FIX: Moonshot trades NOW contribute to FluidLearningAI maturity!
         // This was MISSING before - Moonshot layer was isolated from central learning
