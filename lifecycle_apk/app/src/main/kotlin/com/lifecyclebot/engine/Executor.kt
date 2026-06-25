@@ -9920,13 +9920,22 @@ class Executor(
         )
 
         // V5.0.4151 — BUY DECISION LEASE FRESHNESS.
-        // No buy may be signed from a decision older than 5s without re-score.
-        // Route proof older than 8s is refreshed from local route-truth sources.
+        // V5.0.4165 — WINDOW BUMPED 5s → 15s.
+        // Operator dump on V5.0.4165 (preceding build) showed avg cycle=5827ms
+        // with peaks of 21603ms during Jupiter slowness (jupiter avg=3378ms).
+        // With cycle times that high, a 5s lease window guaranteed mass
+        // EXEC_LEASE_PRUNED_EXPIRED events — 1712 EXEC_GATE allows collapsed
+        // to only 10 BUY ok because every decision aged past 5s before the
+        // executor could sign it inside the same cycle. troubleshoot_agent
+        // RCA confirmed this as the dominant buy-throughput choke. 15s
+        // gives ~70% headroom over the worst observed cycle (21.6s) while
+        // still rejecting genuinely stale decisions. Route proof older than
+        // 8s is still refreshed from local route-truth sources.
         // Statistical timeout/defer is not a strategy loss.
         run {
             val nowLease = System.currentTimeMillis()
             val decisionAgeMs = nowLease - execCtx.createdAtMs
-            if (decisionAgeMs > 5_000L) {
+            if (decisionAgeMs > 15_000L) {
                 try { PipelineHealthCollector.labelInc("BUY_DECISION_EXPIRED_RESCORE") } catch (_: Throwable) {}
                 try { PipelineHealthCollector.labelInc("BUY_STALE_LEASE_CANCELLED") } catch (_: Throwable) {}
                 try { PipelineHealthCollector.labelInc("BUY_TIMEOUT_NOT_STRATEGY_FAILURE") } catch (_: Throwable) {}

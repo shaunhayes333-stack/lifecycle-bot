@@ -4,6 +4,37 @@ All notable changes to the Autonomous AI Trading Engine.
 
 ---
 
+## [5.0.4165] - 2026-06 — BUY LEASE WINDOW 5s → 15s (volume restore)
+
+Operator on V5.0.4165 reported "bot isn't trading". Dump showed
+EXEC_GATE allow=1712 but BUY ok=10 — a **99.4% buy-throughput collapse**.
+Forensic feed flooded with `EXEC_LEASE_PRUNED_EXPIRED` events.
+
+`troubleshoot_agent` RCA pinpointed the dominant choke:
+
+- Cycle times: `avg=5827ms max=21603ms` (Jupiter `avg=3378ms` was
+  dragging the loop end-to-end).
+- BUY_DECISION lease freshness window at `Executor.kt:9929` was **5
+  seconds**.
+- Every cycle that takes >5s = every buy decision in that cycle
+  staling out → `BUY_DECISION_EXPIRED_RESCORE` → defer → re-score next
+  cycle → stales out again. Endless loop, zero volume.
+
+V5.0.4162–4164 (parallel work by Vex) addressed Jupiter-quote-vs-send
+health split, MemeTrader lane truth, suppressor telemetry, sell-defer
+wall-clock cap, and zero-signal probes. None of those touched the
+5s lease window, so the buy-throughput collapse remained.
+
+**Fix**: lease freshness 5s → 15s at `Executor.kt:9929`. 15s gives ~70%
+headroom over the worst observed cycle (21.6s) while still rejecting
+genuinely stale decisions. Routes proof still re-hydrates at 8s.
+
+Volume / meme-trader promise: restores the executor's ability to
+sign decisions inside the SAME cycle they were made in, even when
+Jupiter latency drags cycles to 5–7s in steady state.
+
+---
+
 ## [5.0.4161] - 2026-06 — EXECUTION-HEALTH GUARD (jupiter-blackout defense)
 
 Operator dump 2026-06-26 (running V5.0.4160/4161) revealed two more
