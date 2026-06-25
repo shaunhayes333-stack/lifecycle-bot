@@ -4,6 +4,25 @@ All notable changes to the Autonomous AI Trading Engine.
 
 ---
 
+## [5.0.4146] - 2026-02 — APK AUTO-BUMP FROM CI RUN NUMBER
+
+Operator: "its not bumping the build number the last 4 have had the same number."
+
+Four consecutive shipping builds came out as `AATE_v5.0.4132` because the
+`AATE_VERSION` file was static.
+
+**Fix**: `AATE_VERSION` now holds the major.minor prefix only (`5.0`); both
+build.yml and release.yml workflows compose `VERSION_NAME="${BASE}.${BUILD_NUMBER}"`
+where `BUILD_NUMBER = GITHUB_RUN_NUMBER + 1`. Every push now produces a
+uniquely-named APK aligned with the CI run number.
+
+Two GoldenTape regression tests inverted (one previously *prohibited* the
+exact pattern the operator is now requesting).
+
+CI: GREEN ✅ (run 28147335468 → AATE_v5.0.4146).
+
+---
+
 ## [5.0.4134] - 2026-02 — DUMP REGIME KILL SWITCH + UNIVERSAL liveBuy() VETO
 
 Operator: "bot is still going backwards winrate under 20%. unacceptable."

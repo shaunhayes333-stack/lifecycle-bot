@@ -7,6 +7,37 @@ Stocks, Markets, Tokenized Stocks, Forex, Metals, Commodities). Foreground
 Service with a 50+ AI-module pipeline gated through processTokenCycle.
 
 
+## V5.0.4146 (Feb 2026) — APK VERSION AUTO-BUMPS FROM CI RUN NUMBER
+
+Operator: *"its not bumping the build number the last 4 have had the same
+number. align with the git run number."*
+
+V5.0.4131 / 4132 / 4133 / 4134 all shipped as artifact `AATE_v5.0.4132`
+because the `AATE_VERSION` file held the literal patch number and the
+workflow read it verbatim.
+
+### Fix
+- `AATE_VERSION` now holds the major.minor prefix only: **`5.0`**
+- Both `build.yml` (nested + root) and `release.yml` workflows compose
+  `VERSION_NAME="${BASE}.${BUILD_NUMBER}"` where
+  `BUILD_NUMBER = GITHUB_RUN_NUMBER + 1`
+- Every push now produces a uniquely-named APK aligned with the CI run
+  number (e.g. this run = 4145 → artifact `AATE_v5.0.4146`)
+
+### Tests inverted (GoldenTapeRegressionTest)
+- `apk_version_uses_explicit_aate_patch_version_not_ci_run_drift` was an
+  OLD invariant from a prior session that EXPLICITLY PROHIBITED this
+  exact pattern. Renamed/inverted to
+  `apk_version_patch_derived_from_ci_run_number`.
+- `ci_apk_version_name_matches_operator_patch_sequence` updated to match
+  the new `BASE + BUILD_NUMBER` composition.
+
+**Going forward** the "V5.0.41XX" labels in commit messages and PRD
+entries are narrative tags only — the real APK version is whatever the
+CI produces. Operator can read it from the artifact filename.
+
+CI: GREEN ✅ (run 28147335468 → AATE_v5.0.4146).
+
 ## V5.0.4134 (Feb 2026) — DUMP REGIME KILL SWITCH + UNIVERSAL `liveBuy()` VETO
 
 Operator pushback after V5.0.4133: *"bot is still going backwards winrate
