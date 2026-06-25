@@ -2020,13 +2020,17 @@ object FinalDecisionGate {
             //   • Pool address (canonical AMM pool)
             //   • Pump.fun bonding curve with pumpFunExecutable=true
             // If none of those exist → genuine no-route → keep hard block.
+            val routeTruth = try { RouteTruthHydrator.hydrate(ts) } catch (_: Throwable) { RouteTruthHydrator.Result(false, "ERROR", "hydrator_failed") }
             val tm = ts.tokenMap
             val hasPair = tm.pairAddress.isNotBlank()
             val hasPool = tm.poolAddress.isNotBlank()
             val hasPumpBondingRoute = tm.pumpFunBondingCurveAddress.isNotBlank() &&
                 tm.pumpFunExecutable && !tm.migratedOrGraduated
-            val hasAnyRoute = hasPair || hasPool || hasPumpBondingRoute
+            val hasJupiterRoute = tm.jupiterQuoteOk || tm.expectedOutAmount > 0.0 || tm.dexRouteOk
+            val hasProviderRouteTruth = routeTruth.hasRoute && routeTruth.source in setOf("HELIUS", "JUPITER", "DEX", "POOL", "PUMP")
+            val hasAnyRoute = hasPair || hasPool || hasPumpBondingRoute || hasJupiterRoute || hasProviderRouteTruth
             if (!hasAnyRoute) {
+                try { PipelineHealthCollector.labelInc("FDG_SKIPPED_ROUTE_UNKNOWN_PRECHECK") } catch (_: Throwable) {}
                 // V5.0.4130 — PATTERN GOLDEN GOOSE OVERRIDE on TOKEN_MAP_INCOMPLETE.
                 // The operational report shows 9 of 11 FDG verdicts hard-blocked
                 // here. For tokens that match a GOLD/WINNER pattern, give the
@@ -2050,13 +2054,13 @@ object FinalDecisionGate {
                         com.lifecyclebot.engine.PipelineHealthCollector.labelInc("FDG_TOKEN_MAP_GOOSE_OVERRIDE_${gooseVerdictFdg.name}")
                     } catch (_: Throwable) {}
                 } else {
-                    blockReason = "HARD_BLOCK_TOKEN_MAP_INCOMPLETE"
-                    blockLevel = BlockLevel.HARD
+                    blockReason = "WATCH_PROBATION_ROUTE_UNKNOWN"
+                    blockLevel = BlockLevel.CONFIDENCE
                     checks.add(GateCheck(
-                        "token_map", false,
-                        "noRoute pair=${hasPair} pool=${hasPool} pumpBondingExec=${hasPumpBondingRoute} routeStatus=${tm.routeStatus}"
+                        "route_truth_precheck", false,
+                        "watch_probation noRoute pair=${hasPair} pool=${hasPool} pumpBondingExec=${hasPumpBondingRoute} jupiter=${hasJupiterRoute} hydrated=${routeTruth.source}:${routeTruth.reason} routeStatus=${tm.routeStatus}"
                     ))
-                    tags.add("token_map_incomplete")
+                    tags.add("watch_probation_route_unknown")
                 }
             }
         }

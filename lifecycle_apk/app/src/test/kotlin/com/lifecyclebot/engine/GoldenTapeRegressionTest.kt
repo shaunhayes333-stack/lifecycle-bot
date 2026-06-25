@@ -4160,8 +4160,8 @@ class GoldenTapeRegressionTest {
     @Test
     fun live_recovery_entry_hard_blocks_present() {
         val fdg = java.io.File("src/main/kotlin/com/lifecyclebot/engine/FinalDecisionGate.kt").readText()
-        assertTrue("V5.0.4069: must have TOKEN_MAP_INCOMPLETE hard block",
-            fdg.contains("V5.0.4069") && fdg.contains("HARD_BLOCK_TOKEN_MAP_INCOMPLETE"))
+        assertTrue("V5.0.4151: token-map incomplete must hydrate route truth before watch-probation, not hard-block transient no-route",
+            fdg.contains("RouteTruthHydrator.hydrate(ts)") && fdg.contains("WATCH_PROBATION_ROUTE_UNKNOWN") && fdg.contains("FDG_SKIPPED_ROUTE_UNKNOWN_PRECHECK"))
         assertTrue("Must have 25K liquidity floor hard block",
             fdg.contains("HARD_BLOCK_LIQUIDITY_BELOW_25K"))
         assertTrue("Must have mcap/liq ratio > 8x hard block",
@@ -4216,6 +4216,31 @@ class GoldenTapeRegressionTest {
             exec.contains("ts.position.isLongHold         -> false"))
         assertTrue("V5.0.4125: secondary max-hold must have isLongHold bypass",
             exec.contains("ts.position.isLongHold        -> false"))
+    }
+
+
+    @Test
+    fun v4151_route_truth_moonshot_timeout_and_strict_stop_contracts() {
+        val route = java.io.File("src/main/kotlin/com/lifecyclebot/engine/RouteTruthHydrator.kt").readText()
+        val moon = java.io.File("src/main/kotlin/com/lifecyclebot/engine/MoonshotPivotArbiter.kt").readText()
+        val pivot = java.io.File("src/main/kotlin/com/lifecyclebot/engine/LiveStylePivotRouter.kt").readText()
+        val fdg = java.io.File("src/main/kotlin/com/lifecyclebot/engine/FinalDecisionGate.kt").readText()
+        val exec = java.io.File("src/main/kotlin/com/lifecyclebot/engine/Executor.kt").readText()
+
+        assertTrue("V5.0.4151: RouteTruthHydrator must use pump/pool/dex/jupiter/provider route truth before FDG route miss",
+            route.contains("""hit("PUMP""") && route.contains("""hit("POOL""") && route.contains("""hit("DEX""") && route.contains("""hit("JUPITER""") && route.contains("""Result(true, "HELIUS"""))
+        assertTrue("V5.0.4151: FDG route unknown must become watch probation, not HARD_BLOCK_TOKEN_MAP_INCOMPLETE",
+            fdg.contains("WATCH_PROBATION_ROUTE_UNKNOWN") && fdg.contains("BlockLevel.CONFIDENCE") && fdg.contains("FDG_SKIPPED_ROUTE_UNKNOWN_PRECHECK"))
+        assertTrue("V5.0.4151: MOONSHOT must pivot/micro/watch instead of disable normal-size DUMP bleed",
+            moon.contains("MOONSHOT_PIVOT_MICRO") && moon.contains("SHITCOIN_MICRO_RECLASSIFIED") && moon.contains("WATCH_PROBATION") && moon.contains("LosingPatternMemory.liveStats"))
+        assertTrue("V5.0.4151: LiveStylePivotRouter must allow micro multipliers below old 0.35 floor",
+            pivot.contains("MoonshotPivotArbiter.decide") && pivot.contains("mult.coerceIn(0.001, 1.25)"))
+        assertTrue("V5.0.4151: DUMP fresh launches need route/liquidity/momentum/volume/pressure proof or watch probation",
+            pivot.contains("DUMP_FRESH_LAUNCH_NO_PROOF") && pivot.contains("WATCH_PROBATION_DUMP_FRESH_RECHECK") && pivot.contains("DUMP_FRESH_LAUNCH_MICRO_PROOF_ONLY"))
+        assertTrue("V5.0.4151: stale buy decisions must cancel/rescore and not train as strategy failures",
+            exec.contains("BUY_DECISION_EXPIRED_RESCORE") && exec.contains("BUY_STALE_LEASE_CANCELLED") && exec.contains("BUY_TIMEOUT_NOT_STRATEGY_FAILURE"))
+        assertTrue("V5.0.4151: strict SL/catastrophe must bypass recovered hold/profit-lock suppression",
+            exec.contains("STRICT_SL_OVERRIDE_HOLD") && exec.contains("CATASTROPHE_OVERRIDE_PROFIT_LOCK") && exec.contains("RUG_UNSELLABLE_ROUTE_GONE"))
     }
 
 }

@@ -927,8 +927,8 @@ object TradeHistoryStore {
         }
     }
 
-    /** Newest-first bounded close rows (SELL + PARTIAL_SELL by default). */
-    fun getRecentValidClosedTrades(limit: Int = 1000, includePartials: Boolean = true): List<Trade> {
+    /** Newest-first bounded RAW close rows (SELL + PARTIAL_SELL by default). */
+    fun getRecentValidClosedTradesRaw(limit: Int = 1000, includePartials: Boolean = true): List<Trade> {
         ensureInitialized()
         val cap = limit.coerceAtLeast(1)
         return synchronized(lock) {
@@ -940,6 +940,26 @@ object TradeHistoryStore {
                 .toList()
         }
     }
+
+    /**
+     * V5.0.4151 — strategy-clean terminal close rows. This is the default
+     * learning/strategy stream: terminal SELL only unless caller explicitly asks
+     * for raw rows via getRecentValidClosedTradesRaw(). Recovered inventory,
+     * duplicate terminal rows, partial exits and bad-entry rows are excluded by
+     * StrategyTruthLedger so canonical WR/PnL cannot be polluted by restored
+     * wallet inventory or repeated close fanout.
+     */
+    fun getRecentValidClosedTrades(limit: Int = 1000, includePartials: Boolean = true): List<Trade> {
+        val raw = getRecentValidClosedTradesRaw(limit = (limit * 4).coerceAtLeast(limit), includePartials = includePartials)
+        if (includePartials) return raw
+        return StrategyTruthLedger.cleanedTerminalRows(raw, limit)
+    }
+
+    fun getRecentCleanStrategyTerminalTrades(limit: Int = 1000): List<Trade> =
+        StrategyTruthLedger.cleanedTerminalRows(
+            getRecentValidClosedTradesRaw(limit = (limit * 4).coerceAtLeast(limit), includePartials = false),
+            limit,
+        )
 
     /** Latest BUY row per mint, bounded newest-first so MainActivity never copies the whole journal. */
     fun getLatestBuyByMintSnapshot(limit: Int = 2_000): Map<String, Trade> {

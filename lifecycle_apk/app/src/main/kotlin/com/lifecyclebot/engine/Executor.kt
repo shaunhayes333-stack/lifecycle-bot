@@ -1502,13 +1502,21 @@ class Executor(
     }
 
     private fun blockIfSellInFlight(ts: TokenState, reason: String, tradeKey: String? = null): Boolean {
-        // V5.0.4104 — Wave D: recovered hold-grace gate. Wallet-recovered
-        // inventory gets a 15-min hold window during which non-emergency
-        // exits are suppressed (operator P0 patch §4 + §13). Hard rug /
-        // dev-dump / liquidity-removed / manual / shutdown / hard-floor
-        // override the grace; everything else is held.
+        val rU = reason.uppercase()
+        val isUnconditionalSafety = rU.contains("HARD_FLOOR") || rU.contains("CATASTROPHE") ||
+            rU.contains("RUG") || rU.contains("DRAIN") || rU.contains("SHUTDOWN") || rU.contains("MANUAL") ||
+            rU.contains("HONEYPOT") || rU.contains("DEV_DUMP") || rU.contains("DEV_SELL") ||
+            rU.contains("STRICT_SL") || rU.contains("HARD_STOP") || rU.contains("STOP_LOSS") ||
+            rU.contains("EXIT-RESCUE") || rU.contains("EXIT_RESCUE") ||
+            rU.contains("EXIT-DRAIN-RESCUE") || rU.contains("RAPID_CATASTROPHE") ||
+            rU.contains("LIQUIDITY_REMOVED") || rU.contains("WALLET_DRAIN")
+
+        // V5.0.4151 — strict/catastrophe exits override recovered-hold grace.
+        // Previously RecoveredHoldGuard ran before the safety punch-through and
+        // could return true for STRICT_SL/CATASTROPHE, creating -98% MOONSHOT
+        // stop rows. Safety exits must always continue to sell route selection.
         try {
-            if (RecoveredHoldGuard.shouldSuppress(ts.mint, reason)) {
+            if (RecoveredHoldGuard.shouldSuppress(ts.mint, reason) && !isUnconditionalSafety) {
                 LiveTradeLogStore.log(
                     tradeKey ?: LiveTradeLogStore.keyFor(ts.mint, ts.position.entryTime),
                     ts.mint, ts.symbol, "SELL", LiveTradeLogStore.Phase.SELL_VERIFY_INCONCLUSIVE_PENDING,
@@ -1524,6 +1532,11 @@ class Executor(
                 return true   // BLOCK the sell — held by recovered grace
             }
         } catch (_: Throwable) { }
+        if (isUnconditionalSafety) {
+            try {
+                PipelineHealthCollector.labelInc(if (rU.contains("CATASTROPHE")) "CATASTROPHE_OVERRIDE_PROFIT_LOCK" else "STRICT_SL_OVERRIDE_HOLD")
+            } catch (_: Throwable) {}
+        }
 
         val stateReason = HostWalletTokenTracker.sellBlockReason(ts.mint)
         // V5.9.1522 — unconditional safety reasons PUNCH THROUGH a stale in-flight
@@ -1531,21 +1544,9 @@ class Executor(
         // a leaked SELL_BLOCKED_ALREADY_IN_PROGRESS (operator: positions bled to
         // -50%/-97% while a prior sell attempt's lock was stuck). These reasons
         // additionally clear the stale marker so the fresh stop proceeds now.
-        val rU = reason.uppercase()
-        // V5.0.4103 — Wave C: full-exit + stop-loss class punches through too.
-        // Operator severity table (P0 patch): RUG=100, RAPID_CATASTROPHE=90,
-        // STRICT_SL/HARD_FLOOR=80, EXIT_RESCUE=70 — anything ≥70 must punch
-        // through a stale in-flight block per "NO_SIGNATURE must always
-        // clear or downgrade sell locks deterministically". The existing
-        // SellExecutionLocks 60s TTL still backstops, but waiting up to 60s
-        // for a high-severity exit is exactly the bug the operator hit.
-        val isUnconditionalSafety = rU.contains("HARD_FLOOR") || rU.contains("CATASTROPHE") ||
-            rU.contains("RUG") || rU.contains("DRAIN") || rU.contains("SHUTDOWN") || rU.contains("MANUAL") ||
-            rU.contains("HONEYPOT") || rU.contains("DEV_DUMP") || rU.contains("DEV_SELL") ||
-            rU.contains("STRICT_SL") || rU.contains("HARD_STOP") || rU.contains("STOP_LOSS") ||
-            rU.contains("EXIT-RESCUE") || rU.contains("EXIT_RESCUE") ||
-            rU.contains("EXIT-DRAIN-RESCUE") || rU.contains("RAPID_CATASTROPHE") ||
-            rU.contains("LIQUIDITY_REMOVED") || rU.contains("WALLET_DRAIN")
+        // V5.0.4103 / V5.0.4151 — full-exit + stop-loss class punches through too.
+        // isUnconditionalSafety is computed before recovered-hold suppression so
+        // hold/profit-lock grace cannot suppress STRICT_SL/RAPID_CATASTROPHE.
         if (stateReason != null && isUnconditionalSafety) {
             // V5.0.4103 — also raise the lease intent priority so any active
             // worker switching context (route refresh / retry pick) reads the
@@ -9825,6 +9826,27 @@ class Executor(
             source = "Executor.liveBuy.default",
         )
 
+        // V5.0.4151 — BUY DECISION LEASE FRESHNESS.
+        // No buy may be signed from a decision older than 5s without re-score.
+        // Route proof older than 8s is refreshed from local route-truth sources.
+        // Statistical timeout/defer is not a strategy loss.
+        run {
+            val nowLease = System.currentTimeMillis()
+            val decisionAgeMs = nowLease - execCtx.createdAtMs
+            if (decisionAgeMs > 5_000L) {
+                try { PipelineHealthCollector.labelInc("BUY_DECISION_EXPIRED_RESCORE") } catch (_: Throwable) {}
+                try { PipelineHealthCollector.labelInc("BUY_STALE_LEASE_CANCELLED") } catch (_: Throwable) {}
+                try { PipelineHealthCollector.labelInc("BUY_TIMEOUT_NOT_STRATEGY_FAILURE") } catch (_: Throwable) {}
+                liveBuyDeferred(ts, sol, "BUY_DECISION_EXPIRED_RESCORE", "ageMs=$decisionAgeMs lane=$layerTag attempt=${execCtx.attemptId}")
+                return false
+            }
+            val routeProofAtMs = maxOf(ts.tokenMap.updatedAtMs, ts.lastPriceUpdate)
+            if (routeProofAtMs > 0L && nowLease - routeProofAtMs > 8_000L) {
+                try { RouteTruthHydrator.hydrate(ts) } catch (_: Throwable) {}
+                try { PipelineHealthCollector.labelInc("BUY_ROUTE_REFRESH_BEFORE_SIGN") } catch (_: Throwable) {}
+            }
+        }
+
         // V5.0.4134 — UNIVERSAL LIVE-BUY DISCIPLINE VETO + DUMP REGIME KILL SWITCH.
         //
         // V5.0.4133 added rug-blacklist + discipline veto at doBuy(), but at least one
@@ -9884,10 +9906,10 @@ class Executor(
                 val laneWr4134 = laneMetric4134?.winRatePct ?: 100.0
                 val laneN4134 = laneMetric4134?.trades ?: 0
                 if (laneN4134 >= 12 && laneWr4134 < 25.0) {
-                    try { ForensicLogger.lifecycle("REGIME_KILL_VETO_V4134", "symbol=${ts.symbol} mint=$mintShort4134 lane=$laneTag4134 regime=DUMP laneWr=${"%.1f".format(laneWr4134)} n=$laneN4134 path=liveBuy.enter") } catch (_: Throwable) {}
-                    try { PipelineHealthCollector.labelInc("REGIME_KILL_VETO") } catch (_: Throwable) {}
-                    try { emitLiveBuyFail(ts, sol, "REGIME_KILL_DUMP", "regime=DUMP laneWr=${"%.1f".format(laneWr4134)}% n=$laneN4134 (defensive lanes exempted)") } catch (_: Throwable) {}
-                    onLog("🔪 DUMP kill switch: ${ts.symbol} lane=$laneTag4134 wr=${"%.0f".format(laneWr4134)}% n=$laneN4134", "discipline")
+                    try { ForensicLogger.lifecycle("REGIME_PIVOT_MICRO_V4151", "symbol=${ts.symbol} mint=$mintShort4134 lane=$laneTag4134 regime=DUMP laneWr=${"%.1f".format(laneWr4134)} n=$laneN4134 path=liveBuy.enter action=defer_to_rescore_not_strategy_failure") } catch (_: Throwable) {}
+                    try { PipelineHealthCollector.labelInc("REGIME_PIVOT_MICRO") } catch (_: Throwable) {}
+                    try { PipelineHealthCollector.labelInc("BUY_TIMEOUT_NOT_STRATEGY_FAILURE") } catch (_: Throwable) {}
+                    liveBuyDeferred(ts, sol, "REGIME_PIVOT_REASSESS", "regime=DUMP laneWr=${"%.1f".format(laneWr4134)}% n=$laneN4134 rescore_to_micro_or_watch")
                     return false
                 }
             } else if (regimeDump4134 && defensiveLane4149) {
@@ -9931,8 +9953,9 @@ class Executor(
                 }
                 try { ForensicLogger.lifecycle("DISCIPLINE_VETO_V4148", "symbol=${ts.symbol} mint=$mintShort4134 lane=$laneTag4134 reason=$reasonTag4134 pause=${pauseDefensive4134} topLane=${laneTopPerformer4148} timeout=${laneTimedOut4134} bridge=${bridgeToxic4134} path=liveBuy.enter") } catch (_: Throwable) {}
                 try { PipelineHealthCollector.labelInc("DISCIPLINE_VETO_$reasonTag4134") } catch (_: Throwable) {}
-                try { emitLiveBuyFail(ts, sol, reasonTag4134, "discipline veto (lane=$laneTag4134 goose=${gooseVerdict4134.name} topLane=${laneTopPerformer4148})") } catch (_: Throwable) {}
-                onLog("🛡 LIVE $reasonTag4134: ${ts.symbol} lane=$laneTag4134", "discipline")
+                try { PipelineHealthCollector.labelInc("BUY_TIMEOUT_NOT_STRATEGY_FAILURE") } catch (_: Throwable) {}
+                liveBuyDeferred(ts, sol, "${reasonTag4134}_RESCORE", "discipline rescore (lane=$laneTag4134 goose=${gooseVerdict4134.name} topLane=${laneTopPerformer4148})")
+                onLog("🛡 LIVE $reasonTag4134 rescore: ${ts.symbol} lane=$laneTag4134", "discipline")
                 return false
             }
             if (pauseDefensive4134 && laneTopPerformer4148) {
@@ -16524,6 +16547,17 @@ class Executor(
             onToast("SELL FAILED: ${ts.symbol} ($failureClass · attempt $broadcastRetries)")
 
             if (routeCls == com.lifecyclebot.engine.sell.SellRouteErrorClassifier.Class.NO_SIGNATURE) {
+                val pnlNowForUnsellable = try {
+                    val pxNowUnsellable = getActualPrice(ts)
+                    if (pos.entryPrice > 0.0 && pxNowUnsellable > 0.0) ((pxNowUnsellable - pos.entryPrice) / pos.entryPrice) * 100.0 else 0.0
+                } catch (_: Throwable) { 0.0 }
+                val hardLossExit = reason.uppercase().let { rr -> rr.contains("STRICT_SL") || rr.contains("CATASTROPHE") || rr.contains("HARD_FLOOR") || rr.contains("STOP_LOSS") }
+                if (hardLossExit && pnlNowForUnsellable <= -30.0) {
+                    try { PipelineHealthCollector.labelInc("RUG_UNSELLABLE_ROUTE_GONE") } catch (_: Throwable) {}
+                    try { PipelineHealthCollector.labelInc("STOP_FAILED_UNSELLABLE") } catch (_: Throwable) {}
+                    try { RugMintBlacklist.recordClose(ts.mint, pnlNowForUnsellable, System.currentTimeMillis() - pos.entryTime) } catch (_: Throwable) {}
+                    try { ForensicLogger.lifecycle("RUG_UNSELLABLE_ROUTE_GONE", "mint=${ts.mint.take(10)} symbol=${ts.symbol} pnl=${"%.1f".format(pnlNowForUnsellable)} reason=$reason failure=${safe.take(96)}") } catch (_: Throwable) {}
+                }
                 try { PendingSellQueue.remove(ts.mint) } catch (_: Throwable) {}
                 try { com.lifecyclebot.engine.sell.CloseLease.release(ts.mint, "ROUTE_FAILED_${routeCls.name}_NO_BLOCKING_RETRY") } catch (_: Throwable) {}
                 try { com.lifecyclebot.engine.HostWalletTokenTracker.clearSellInFlight(ts.mint, "ROUTE_FAILED_${routeCls.name}_NO_BLOCKING_RETRY") } catch (_: Throwable) {}

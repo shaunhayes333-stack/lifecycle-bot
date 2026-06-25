@@ -239,6 +239,48 @@ object DashboardDataProvider {
         }
     }
 
+
+    // ═══════════════════════════════════════════════════════════════════
+    // STRATEGY TRUTH / INVENTORY SEPARATION
+    // ═══════════════════════════════════════════════════════════════════
+
+    data class StrategyTruthCard(
+        val cleanCloses: Int = 0,
+        val cleanWinRate: Double = 0.0,
+        val cleanPnlSol: Double = 0.0,
+        val inventoryPositions: Int = 0,
+        val inventoryPnlSol: Double = 0.0,
+        val duplicateTerminalRemoved: Int = 0,
+        val recoveredExcluded: Int = 0,
+        val partialNotTerminal: Int = 0,
+        val badEntryExcluded: Int = 0,
+    )
+
+    fun getStrategyTruthCard(limit: Int = 2_500): StrategyTruthCard = try {
+        val raw = TradeHistoryStore.getRecentValidClosedTradesRaw(limit = limit, includePartials = true)
+        val clean = StrategyTruthLedger.clean(raw, limit)
+        val rows = clean.rows
+        val wins = rows.count { it.pnlPct >= 0.5 || (it.netPnlSol.takeIf { v -> v != 0.0 } ?: it.pnlSol) > 0.0 }
+        val losses = rows.count { it.pnlPct <= -2.0 || (it.netPnlSol.takeIf { v -> v != 0.0 } ?: it.pnlSol) < 0.0 }
+        val wr = if (wins + losses > 0) wins.toDouble() * 100.0 / (wins + losses).toDouble() else 0.0
+        val pnl = rows.sumOf { it.netPnlSol.takeIf { v -> v != 0.0 } ?: it.pnlSol }
+        val inv = StrategyTruthLedger.inventoryRecoveryRows(raw)
+        StrategyTruthCard(
+            cleanCloses = rows.size,
+            cleanWinRate = normalizeRate(wr),
+            cleanPnlSol = normalizeMoney(pnl),
+            inventoryPositions = inv.size,
+            inventoryPnlSol = normalizeMoney(inv.sumOf { it.netPnlSol.takeIf { v -> v != 0.0 } ?: it.pnlSol }),
+            duplicateTerminalRemoved = clean.audit.deduped,
+            recoveredExcluded = clean.audit.recoveryExcluded,
+            partialNotTerminal = clean.audit.partialNotTerminal,
+            badEntryExcluded = clean.audit.badEntryExcluded,
+        )
+    } catch (e: Exception) {
+        ErrorLogger.debug(TAG, "getStrategyTruthCard error: ${e.message}")
+        StrategyTruthCard()
+    }
+
     // ═══════════════════════════════════════════════════════════════════
     // SERIALIZATION
     // ═══════════════════════════════════════════════════════════════════
@@ -265,6 +307,21 @@ object DashboardDataProvider {
         root.put("treasuryBalance", dashboard.treasuryBalance)
         root.put("treasuryPnl", dashboard.treasuryPnl)
         root.put("lastUpdate", dashboard.lastUpdateMs)
+
+        try {
+            val truth = getStrategyTruthCard()
+            root.put("strategyTruth", JSONObject().apply {
+                put("cleanCloses", truth.cleanCloses)
+                put("cleanWinRate", truth.cleanWinRate)
+                put("cleanPnlSol", truth.cleanPnlSol)
+                put("inventoryPositions", truth.inventoryPositions)
+                put("inventoryPnlSol", truth.inventoryPnlSol)
+                put("duplicateTerminalRemoved", truth.duplicateTerminalRemoved)
+                put("recoveredExcluded", truth.recoveredExcluded)
+                put("partialNotTerminal", truth.partialNotTerminal)
+                put("badEntryExcluded", truth.badEntryExcluded)
+            })
+        } catch (_: Exception) {}
 
         val patternArray = JSONArray()
         dashboard.topPatterns.forEach { p ->

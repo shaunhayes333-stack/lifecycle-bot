@@ -149,6 +149,47 @@ object LiveStylePivotRouter {
         if (!routeTrusted) defer("ROUTE_PROOF_MISSING")
         if (!rugProof) defer("RUG_PROOF_NOT_CLEAN")
 
+        // V5.0.4151 — DUMP REGIME FRESH-LAUNCH PROOF GATE.
+        // score>=0/confidence alone cannot authorize a <=15m fresh launch in DUMP.
+        // This is WATCH_PROBATION, not a permanent block: scanner keeps tracking and
+        // this router re-evaluates when route, volume, reclaim, or smart-wallet proof arrives.
+        try {
+            val regimeNow = try { RegimeDetector.currentRegime().name } catch (_: Throwable) { "NORMAL" }
+            val ageMinutes = ((System.currentTimeMillis() - ts.addedToWatchlistAt).coerceAtLeast(0L) / 60_000.0)
+            val sourceBrainMult = try { ScannerSourceBrain.intakeMultiplier(ts.source) } catch (_: Throwable) { 1.0 }
+            val sourceCleanWrOk = try {
+                val src = ts.source.uppercase()
+                StrategyTelemetry.computeLiveTerminalLeaderboard(limit = 1_500)
+                    .filter { it.trades >= 10 }
+                    .any { it.strategy.uppercase().contains(src) && it.winRatePct >= 35.0 }
+            } catch (_: Throwable) { false }
+            val exitCapacityOk = liq > 0.0 || ts.tokenMap.pumpFunExecutable
+            val microLiqOk = liq >= 5_000.0
+            val normalLiqOk = liq >= 25_000.0
+            val momentumOk = (ts.meta.momScore >= 6.0 || (ts.momentum ?: 0.0) >= 6.0)
+            val volumeOk = ts.meta.volScore >= 6.0
+            val pressureOk = ts.lastBuyPressurePct >= 55.0 || ((ts.history.lastOrNull()?.buyRatio ?: 0.0) * 100.0) >= 55.0
+            val sourceOk = sourceBrainMult >= 0.75 || sourceCleanWrOk
+            val noHardSafety = rugProof && try { ts.safety.hardBlockReasons.isEmpty() && !ts.safety.isBlocked } catch (_: Throwable) { true }
+            val dumpFresh = ageMinutes <= 15.0 && regimeNow.equals("DUMP", true)
+            val hasDumpProof = routeTrusted && microLiqOk && exitCapacityOk && momentumOk && volumeOk && pressureOk && noHardSafety && sourceOk
+            if (dumpFresh && !hasDumpProof) {
+                decision = "DEFER"
+                mult = 0.0
+                finalLane = "WATCH_PROBATION"
+                finalStyle = "WATCH_PROBATION"
+                confirm = "WATCH_PROBATION_DUMP_FRESH_RECHECK"
+                reasons += "DUMP_FRESH_LAUNCH_NO_PROOF"
+                reasons += "age=${"%.1f".format(ageMinutes)}m route=$routeTrusted liq=${liq.toInt()} exit=$exitCapacityOk mom=${ts.meta.momScore.toInt()} vol=${ts.meta.volScore.toInt()} buy=${ts.lastBuyPressurePct.toInt()} srcMult=${"%.2f".format(sourceBrainMult)}"
+                try { PipelineHealthCollector.labelInc("DUMP_FRESH_LAUNCH_NO_PROOF") } catch (_: Throwable) {}
+            } else if (dumpFresh && normalLiqOk) {
+                reasons += "DUMP_FRESH_LAUNCH_PROOF_NORMAL_READY"
+            } else if (dumpFresh) {
+                mult = minOf(mult, 0.35)
+                reasons += "DUMP_FRESH_LAUNCH_MICRO_PROOF_ONLY"
+            }
+        } catch (_: Throwable) { /* fail-open: route/safety gates above still apply */ }
+
         when (lane) {
             "EXPRESS" -> {
                 if (bleeder.provenBleeder || bleeder.n50 == 0 || bleeder.wr50 < 25.0 || bleeder.ev50Pct < 0.0) {
@@ -269,6 +310,40 @@ object LiveStylePivotRouter {
             "WALLET_RECOVERED" -> { if (!basisTrusted) defer("WALLET_RECOVERED_REQUIRES_TRUSTED_BASIS") else reasons += "WALLET_RECOVERED_TRUSTED_BASIS" }
         }
 
+        // V5.0.4151 — MOONSHOT PIVOT-NOT-DISABLE arbiter. This runs before
+        // break-even so toxic MOONSHOT contexts are converted to micro/retrain
+        // or watch-probation with explicit pivot telemetry instead of being
+        // normal-size/live-paused/disabled.
+        if (lane == "MOONSHOT") {
+            val regime = try { RegimeDetector.currentRegime().name } catch (_: Throwable) { "NORMAL" }
+            val arb = MoonshotPivotArbiter.decide(
+                ts = ts,
+                lane = lane,
+                regime = regime,
+                score = score,
+                routeProof = routeTrusted,
+                basisTrusted = basisTrusted,
+                rugProof = rugProof,
+                holderProof = holderProof,
+                liquidityUsd = liq,
+                plannedSizeSol = plannedSizeSol,
+            )
+            reasons += arb.reasons
+            reasons += "MOONSHOT_CLEAN_WR=${"%.1f".format(arb.cleanWrPct)}"
+            reasons += "MOONSHOT_CLEAN_PNL=${"%+.4f".format(arb.cleanPnlSol)}"
+            finalLane = arb.finalLane
+            finalStyle = arb.finalStyle
+            if (!arb.allowBuy) {
+                decision = "DEFER"
+                mult = 0.0
+                confirm = "WATCH_PROBATION_RECHECK_ROUTE_RECLAIM"
+            } else if (arb.sizeCapSol != null) {
+                val capMult = (arb.sizeCapSol / plannedSizeSol.coerceAtLeast(0.000001)).coerceIn(0.001, 1.0)
+                mult = minOf(mult, capMult)
+                confirm = "MICRO_RETRAIN_ROUTE_PROOF"
+            }
+        }
+
         val targetAfterLane = bestQualityLane()
         if (bleeder.noWinsOverEight && targetAfterLane.isBlank()) defer("ZERO_WINS_OVER_8_AWAIT_QUALITY_PROOF")
         if (bleeder.repeatedDeepLoss && targetAfterLane.isBlank()) defer("THREE_DEEP_LOSSES_LAST50_AWAIT_QUALITY_PROOF")
@@ -321,7 +396,7 @@ object LiveStylePivotRouter {
         liq: Double, providerProof: Boolean, reasons: List<String>, decision: String,
     ) = Decision(
         originalLane, originalStyle, finalLane, finalStyle,
-        if (decision == "DEFER") 0.0 else mult.coerceIn(0.35, 1.25),
+        if (decision == "DEFER") 0.0 else mult.coerceIn(0.001, 1.25),
         confirm, be.expectedEdgePct, be.requiredEdgePct, basisTrusted, routeTrusted,
         holderProof, rugProof, liq, providerProof,
         finalLane != originalLane || finalStyle != originalStyle || mult < 0.999 || reasons.any { it.contains("PROMOTION", true) || it.contains("PIVOT", true) },

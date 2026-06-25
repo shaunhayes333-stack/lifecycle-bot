@@ -288,7 +288,17 @@ object ReportingHub {
         val lifetime = safeSnapshot { TradeHistoryStore.getLifetimeStats() }
         val stats = safeSnapshot { TradeHistoryStore.getStatsCached() }
         val sells24 = safeSnapshot { TradeHistoryStore.getSells24h() } ?: emptyList()
-        val allSells = safeSnapshot { TradeHistoryStore.getRecentValidClosedTrades(limit = 2_500, includePartials = true) } ?: emptyList()
+        val allSells = safeSnapshot { TradeHistoryStore.getRecentValidClosedTradesRaw(limit = 2_500, includePartials = true) } ?: emptyList()
+        val truth = safeSnapshot { StrategyTruthLedger.clean(allSells, 2_500) }
+        if (truth != null) {
+            val clean = truth.rows
+            val cw = clean.count { isJournalWin(it) }; val cl = clean.count { isJournalLoss(it) }
+            val cpnl = clean.sumOf { if (it.netPnlSol != 0.0) it.netPnlSol else it.pnlSol }
+            val inv = StrategyTruthLedger.inventoryRecoveryRows(allSells)
+            appendLine("Strategy Clean: closes=${clean.size} W/L=$cw/$cl WR=${(if (cw + cl > 0) cw * 100.0 / (cw + cl) else 0.0).fmt1()}% PnL=${cpnl.fmt4()} SOL")
+            appendLine("Inventory Recovery: positions=${inv.size} realised/unrealised=${inv.sumOf { if (it.netPnlSol != 0.0) it.netPnlSol else it.pnlSol }.fmt4()} SOL")
+            appendLine("Excluded From Strategy: recovered=${truth.audit.recoveryExcluded} duplicateTerminal=${truth.audit.deduped} partialNotTerminal=${truth.audit.partialNotTerminal} badEntry=${truth.audit.badEntryExcluded}")
+        }
         if (totals != null) appendLine("Canonical totals: closes=${totals.trades} W/L=${totals.wins}/${totals.losses} WR=${totals.winRatePct().fmt1()}% PnL=${totals.pnlSol.fmt4()} SOL")
         if (lifetime != null) appendLine("Lifetime persisted: sells=${lifetime.totalSells} wins=${lifetime.totalWins} losses=${lifetime.totalLosses} pnl=${lifetime.realizedPnlSol.fmt4()} SOL")
         if (stats != null) appendLine("Store stats cache: trades=${stats.totalStoredTrades} WR=${stats.winRate.fmt1()}% avgHold=${stats.avgHoldTimeMinutes.toDouble().fmt1()}m")
