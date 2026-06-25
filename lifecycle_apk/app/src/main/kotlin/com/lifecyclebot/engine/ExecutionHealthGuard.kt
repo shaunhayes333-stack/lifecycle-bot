@@ -83,14 +83,23 @@ object ExecutionHealthGuard {
                 val lastSuccessMs = snap.lastSuccessMs.get()
                 val freshSuccess = lastSuccessMs > 0L &&
                     (System.currentTimeMillis() - lastSuccessMs) <= JUPITER_FRESH_SUCCESS_WINDOW_MS
-                return sr >= JUPITER_HEALTHY_SR || freshSuccess
+                if (sr >= JUPITER_HEALTHY_SR || freshSuccess) return true
+
+                // V5.0.4164 — do not globally park buys on token-specific Jupiter
+                // quote 4xxs. 4xx proves the endpoint is reachable; it usually means
+                // this mint/amount has no route. The executor can rotate/fail per-token.
+                // Only network/5xx health collapse should freeze new entries globally.
+                val http4xxOnly = snap.failures4xx.get() > 0 &&
+                    snap.failures5xx.get() == 0 && snap.networkErrors.get() == 0
+                if (http4xxOnly) return true
+                return false
             }
 
             // V5.0.4162 — split execution health from token-list/general health.
             // Operator runtime showed `jupiter sr=0` due tokens.jup.ag DNS while
             // `jupiter_quote` was still healthy enough. New buys only need the
-            // unwind/execution path to be alive (quote/send). A dead token-list
-            // endpoint must not freeze MemeTrader entries.
+            // unwind/execution path to be reachable (quote/send). Token-specific
+            // quote 4xxs and dead token-list endpoints must not freeze MemeTrader entries.
             val quoteHealthy = healthy("jupiter_quote")
             val sendHealthy = healthy("jupiter_send")
             if (quoteHealthy != null || sendHealthy != null) {

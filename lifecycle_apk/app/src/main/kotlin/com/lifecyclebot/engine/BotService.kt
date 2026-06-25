@@ -3281,6 +3281,9 @@ class BotService : Service() {
             livePreflightWalletSol(w)
         }
 
+        var v3ZeroSignalProbe = false
+        var execSol = req.sizeSol
+
         // Live preflight: wallet present + adequate SOL with fee buffer.
         if (!isPaper) {
             val v3StageFit = try { TokenMetricStageRouter.laneFit(ts, "V3") } catch (_: Throwable) { TokenMetricStageRouter.LaneFit(true, "V3", TokenMetricStageRouter.Stage.UNKNOWN, "fit_error") }
@@ -3294,24 +3297,26 @@ class BotService : Service() {
             if (w == null) return com.lifecyclebot.v3.ExecuteResult(success = false, error = "live wallet not connected")
             // V5.0.4032 — V3 must not hide blind score/conf behind executor.doBuy(score=50).
             // If the V3 request has no usable score/conf metadata, fall back to the token's
-            // latest V3 fields. Zero-signal live candidates are observed/deferred, not bought.
+            // latest V3 fields. Zero-signal live candidates are probe-only, not normal capital.
             val reqScore = (req.score ?: ts.lastV3Score ?: ts.entryScore.toInt()).coerceIn(-100, 150)
             val reqConf = (req.confidence ?: ts.lastV3Confidence ?: 0).coerceIn(0, 100)
-            if (reqScore <= 0 && reqConf <= 10) {
+            v3ZeroSignalProbe = reqScore <= 0 && reqConf <= 10
+            execSol = if (v3ZeroSignalProbe) {
+                val probeSol = req.sizeSol.coerceAtMost(0.003).coerceAtLeast(0.001)
                 try {
-                    PipelineHealthCollector.labelInc("V3_ZERO_SIGNAL_EXEC_DEFERRED")
-                    ForensicLogger.lifecycle("V3_ZERO_SIGNAL_EXEC_DEFERRED", "mint=${ts.mint.take(10)} symbol=${ts.symbol} score=$reqScore conf=$reqConf band=${req.band ?: "UNKNOWN"} action=no_live_capital")
+                    PipelineHealthCollector.labelInc("V3_ZERO_SIGNAL_DUST_PROBE_4164")
+                    ForensicLogger.lifecycle("V3_ZERO_SIGNAL_DUST_PROBE_4164", "mint=${ts.mint.take(10)} symbol=${ts.symbol} score=$reqScore conf=$reqConf band=${req.band ?: "UNKNOWN"} requested=${"%.4f".format(req.sizeSol)} exec=${"%.4f".format(probeSol)} action=probe_only_live_learning")
                 } catch (_: Throwable) {}
-                return com.lifecyclebot.v3.ExecuteResult(success = false, error = "V3_ZERO_SIGNAL_DEFERRED_NO_LIVE_CAPITAL")
-            }
-            if (walletSol < req.sizeSol + 0.01) {
-                return com.lifecyclebot.v3.ExecuteResult(success = false, error = "insufficient wallet SOL: ${"%.4f".format(walletSol)} < ${"%.4f".format(req.sizeSol + 0.01)}")
+                probeSol
+            } else req.sizeSol
+            if (walletSol < execSol + 0.01) {
+                return com.lifecyclebot.v3.ExecuteResult(success = false, error = "insufficient wallet SOL: ${"%.4f".format(walletSol)} < ${"%.4f".format(execSol + 0.01)}")
             }
         }
 
         return try {
             ErrorLogger.info("BotService",
-                "⚡ V3_EXEC ${ts.symbol} | ${"%.4f".format(req.sizeSol)} SOL | mode=${if (isPaper) "PAPER" else "LIVE"}")
+                "⚡ V3_EXEC ${ts.symbol} | ${"%.4f".format(if (!isPaper && v3ZeroSignalProbe) execSol else req.sizeSol)} SOL | mode=${if (isPaper) "PAPER" else "LIVE"}${if (!isPaper && v3ZeroSignalProbe) " | PROBE_ONLY_ZERO_SIGNAL" else ""}")
             // V5.9.1475 (spec item 1/2) — capture open-state BEFORE the buy so we
             // can detect whether doBuy actually committed an open or bailed at a
             // finality/veto gate. doBuy returns Unit and bails silently on
@@ -3322,7 +3327,7 @@ class BotService : Service() {
             val wasOpenBefore = executor.positionDidOpen(ts)
             executor.doBuy(
                 ts = ts,
-                sol = req.sizeSol,
+                sol = if (!isPaper && v3ZeroSignalProbe) execSol else req.sizeSol,
                 score = (req.score ?: ts.lastV3Score ?: 50).toDouble(),
                 wallet = w,
                 walletSol = walletSol,
@@ -3351,7 +3356,7 @@ class BotService : Service() {
                 com.lifecyclebot.v3.ExecuteResult(
                     success = true,
                     txSignature = null,
-                    executedSol = req.sizeSol,
+                    executedSol = if (!isPaper && v3ZeroSignalProbe) execSol else req.sizeSol,
                     executedPrice = if (lastPrice > 0.0) lastPrice else null,
                 )
             }
@@ -9025,23 +9030,16 @@ class BotService : Service() {
             }
             val zeroSignal = base.entryScore <= 0.0 && base.aiConfidence <= 10.0
             if (zeroSignal) {
-                // V5.0.4032 — ZERO-SIGNAL LIVE CAPITAL STOP.
-                // Report 4031: CALVIN reached FDG_ALLOW/EXEC as STANDARD with
-                // score=0/conf=0 via V3_EXECUTE. That is not useful learning while
-                // the live wallet is in 44% drawdown; it is capital leak. Keep the
-                // token observable, but do not convert blind WAIT into executable BUY.
+                // V5.0.4164 — zero-signal is not full live capital, but it must not park
+                // the meme trader. If liquidity is exitable, send it through the existing
+                // PROBE_ONLY tiny-size path so learning gets real outcomes without spraying
+                // normal size. Thin liquidity stayed blocked above.
                 try {
-                    PipelineHealthCollector.labelInc("LANE_WAIT_OVERRIDE_ZERO_SIGNAL_DEFERRED")
-                    PipelineHealthCollector.labelInc("FDG_ZERO_SCORE_BUY_REJECTED")
-                    ForensicLogger.lifecycle("LANE_WAIT_OVERRIDE_ZERO_SIGNAL_DEFERRED",
-                        "lane=$lane score=${"%.0f".format(base.entryScore)} conf=${"%.0f".format(base.aiConfidence)} liqUsd=${"%.0f".format(liquidityUsd)} action=no_live_capital")
+                    PipelineHealthCollector.labelInc("LANE_WAIT_OVERRIDE_ZERO_SIGNAL_DUST_PROBE_4164")
+                    PipelineHealthCollector.labelInc("FDG_ZERO_SCORE_DUST_PROBE_4164")
+                    ForensicLogger.lifecycle("LANE_WAIT_OVERRIDE_ZERO_SIGNAL_DUST_PROBE_4164",
+                        "lane=$lane score=${"%.0f".format(base.entryScore)} conf=${"%.0f".format(base.aiConfidence)} liqUsd=${"%.0f".format(liquidityUsd)} action=probe_only_live_learning")
                 } catch (_: Throwable) {}
-                return base.copy(
-                    signal = "WAIT", finalSignal = "WAIT", shouldTrade = false,
-                    blockReason = "ZERO_SIGNAL_DEFERRED_NO_LIVE_CAPITAL",
-                    edgeVeto = true,
-                    finalQuality = "C",
-                )
             }
             // Liquidity OK but still weak → DUST-PROBE only (explicit + tiny size).
             try {

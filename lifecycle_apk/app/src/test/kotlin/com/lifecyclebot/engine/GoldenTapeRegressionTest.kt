@@ -3310,6 +3310,8 @@ class GoldenTapeRegressionTest {
 
         assertTrue("execution endpoint health must exist and disable non-core endpoints by endpoint/mint", endpoint.contains("object ExecutionEndpointHealth") && endpoint.contains("EXEC_ENDPOINT_DISABLED") && endpoint.contains("endpoint.uppercase()"))
         assertTrue("Jupiter quote/build/send/RPC health must be endpoint split", jupiter.contains("JUPITER_QUOTE") && jupiter.contains("JUPITER_SWAP_BUILD") && jupiter.contains("JUPITER_SEND") && jupiter.contains("helius_rpc") && jupiter.contains("jupiter_quote"))
+        val execHealth = java.io.File("src/main/kotlin/com/lifecyclebot/engine/ExecutionHealthGuard.kt").readText()
+        assertTrue("Jupiter 4xx quote misses must not globally park buys; only network/5xx collapse freezes entries", execHealth.contains("http4xxOnly") && execHealth.contains("return true") && execHealth.contains("Only network/5xx health collapse should freeze new entries globally"))
         assertTrue("Jupiter quote must never be endpoint-disabled", endpoint.contains("neverDisable(endpoint)") && endpoint.contains("JUPITER_QUOTE_NEVER_DISABLED") && !jupiter.contains("ExecutionEndpointHealth.disable(endpoint"))
         assertTrue("Jupiter quote failures must stay local to candidate/slippage ladder", exec.contains("NO_QUOTE:JUPITER_QUOTE_EXHAUSTED") && !exec.contains("PROVIDER_DISABLED:JUPITER_QUOTE"))
 
@@ -3857,10 +3859,10 @@ class GoldenTapeRegressionTest {
     fun live_zero_signal_v3_execute_cannot_bypass_as_standard_buy() {
         val bot = java.io.File("src/main/kotlin/com/lifecyclebot/engine/BotService.kt").readText()
         val v3 = java.io.File("src/main/kotlin/com/lifecyclebot/v3/V3EngineManager.kt").readText()
-        assertTrue("laneQualifiedBuyDecision must defer zero-score/zero-conf live capital", bot.contains("ZERO_SIGNAL_DEFERRED_NO_LIVE_CAPITAL") && bot.contains("LANE_WAIT_OVERRIDE_ZERO_SIGNAL_DEFERRED") && !bot.contains("LANE_WAIT_OVERRIDE_ZERO_SIGNAL_PROBE"))
+        assertTrue("laneQualifiedBuyDecision must convert zero-score/zero-conf with exitable liquidity into PROBE_ONLY, not park live", bot.contains("LANE_WAIT_OVERRIDE_ZERO_SIGNAL_DUST_PROBE_4164") && bot.contains("FDG_ZERO_SCORE_DUST_PROBE_4164") && bot.contains("""blockReason = "PROBE_ONLY"""") && !bot.contains("ZERO_SIGNAL_DEFERRED_NO_LIVE_CAPITAL"))
         assertTrue("V3 ExecuteRequest must carry score/conf/band metadata", v3.contains("val score: Int? = null") && v3.contains("val confidence: Int? = null") && v3.contains("val band: String? = null") && v3.contains("score = decision.finalScore") && v3.contains("confidence = decision.effectiveConfidence"))
         val v3ExecBlock = bot.substring(bot.indexOf("fun runV3Execution"), bot.indexOf("fun manualBuy"))
-        assertTrue("runV3Execution must block live zero-signal before doBuy", v3ExecBlock.contains("V3_ZERO_SIGNAL_EXEC_DEFERRED") && v3ExecBlock.contains("reqScore <= 0 && reqConf <= 10") && v3ExecBlock.contains("V3_ZERO_SIGNAL_DEFERRED_NO_LIVE_CAPITAL") && v3ExecBlock.contains("executor.doBuy("))
+        assertTrue("runV3Execution must clamp live zero-signal into dust-probe before doBuy", v3ExecBlock.contains("V3_ZERO_SIGNAL_DUST_PROBE_4164") && v3ExecBlock.contains("v3ZeroSignalProbe = reqScore <= 0 && reqConf <= 10") && v3ExecBlock.contains("probeSol = req.sizeSol.coerceAtMost(0.003).coerceAtLeast(0.001)") && v3ExecBlock.contains("sol = if (!isPaper && v3ZeroSignalProbe) execSol else req.sizeSol"))
         assertTrue("V3 bridge must pass real score/band into Executor instead of hardcoded score=50 quality=V3", bot.contains("score = (req.score ?: ts.lastV3Score ?: 50).toDouble()") && bot.contains("quality = req.band ?: \"V3\""))
     }
 
