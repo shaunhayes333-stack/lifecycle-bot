@@ -1347,23 +1347,16 @@ object FinalDecisionGate {
                 try { PipelineHealthCollector.labelInc("C_GRADE_SOFT_ALLOW") } catch (_: Throwable) { }
                 // fall through — let the rest of the FDG continue evaluating
             } else {
-                ErrorLogger.warn("FDG", "🚫 HARD_KILL: ${ts.symbol} | conf=${confidence.toInt()}% + quality=${candidate.setupQuality} | C_GRADE_CONFIDENCE_FLOOR_VIOLATED")
-                return FinalDecision(
-                    shouldTrade = false,
-                    mode = mode,
-                    approvalClass = ApprovalClass.BLOCKED,
-                    quality = candidate.setupQuality,
-                    confidence = confidence,
-                    edge = EdgeVerdict.SKIP,
-                    blockReason = "C_GRADE_CONFIDENCE_FLOOR_27%",
-                    blockLevel = BlockLevel.CONFIDENCE,
-                    sizeSol = 0.0,
-                    tags = listOf("c_grade_confidence_floor", "hard_kill"),
-                    mint = ts.mint,
-                    symbol = ts.symbol,
-                    approvalReason = "C-GRADE + conf < 27% = REJECT",
-                    gateChecks = listOf(GateCheck("c_grade_conf_floor", false, "C-grade requires conf >= 27%"))
-                )
+                // V5.0.4162 — C-grade confidence is size-only. This branch used
+                // to hard-kill even though the sibling branch above explicitly says
+                // C_GRADE→SIZE_ONLY. Keep volume/sample flow; hard safety remains
+                // downstream in rug/LP/route/executor gates.
+                ErrorLogger.info("FDG", "🟡 C_GRADE_CONFIDENCE_SOFT: ${ts.symbol} | conf=${confidence.toInt()}% + quality=${candidate.setupQuality} | soft-size, continue")
+                tags.add("c_grade_confidence_soft")
+                try {
+                    LiveSizingProfile.markGateSoftShape(ts.mint, "C_GRADE_CONFIDENCE_FLOOR_27%")
+                    PipelineHealthCollector.labelInc("C_GRADE_CONFIDENCE_SOFT_4162")
+                } catch (_: Throwable) {}
             }
         }
 

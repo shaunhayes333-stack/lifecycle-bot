@@ -9182,10 +9182,15 @@ class BotService : Service() {
         val metricFit = try { TokenMetricStageRouter.laneFit(ts, l) } catch (_: Throwable) { TokenMetricStageRouter.LaneFit(true, l, TokenMetricStageRouter.Stage.UNKNOWN, "fit_error") }
         if (RuntimeModeAuthority.isLive() && !metricFit.allowed) {
             try {
-                ForensicLogger.lifecycle("TOKEN_METRIC_STAGE_LANE_REJECTED", "lane=$l primary=$primaryLane symbol=${ts.symbol} mint=${ts.mint.take(10)} ${metricFit.reason}")
-                PipelineHealthCollector.labelInc("TOKEN_METRIC_STAGE_LANE_REJECTED_${metricFit.stage.name}")
+                ForensicLogger.lifecycle("TOKEN_METRIC_STAGE_LANE_SOFT_MISMATCH_4162", "lane=$l primary=$primaryLane symbol=${ts.symbol} mint=${ts.mint.take(10)} ${metricFit.reason}")
+                PipelineHealthCollector.labelInc("TOKEN_METRIC_STAGE_LANE_SOFT_MISMATCH_${metricFit.stage.name}")
             } catch (_: Throwable) {}
-            return false
+            // V5.0.4162 — stage mismatch is not a lane veto. Runtime showed
+            // DIP_HUNTER primaries suppressing every other MemeTrader lane before
+            // FDG/intent, so all-lanes-enabled was cosmetic. Keep true rug-prone
+            // stage as hard safety; otherwise let the lane express intent and let
+            // FDG/sizing handle risk.
+            if (metricFit.stage == TokenMetricStageRouter.Stage.RUG_PRONE) return false
         }
         fun qualityLaneProofOk(): Boolean {
             val routeProof = ts.lastPrice > 0.0 && (ts.lastPriceSource.isNotBlank() || ts.source.isNotBlank())

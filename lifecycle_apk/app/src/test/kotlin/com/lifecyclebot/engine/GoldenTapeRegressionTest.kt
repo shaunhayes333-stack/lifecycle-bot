@@ -3871,7 +3871,7 @@ class GoldenTapeRegressionTest {
         val bot = java.io.File("src/main/kotlin/com/lifecyclebot/engine/BotService.kt").readText()
         val mode = java.io.File("src/main/kotlin/com/lifecyclebot/engine/ModeRouter.kt").readText()
         assertTrue("Stage router must identify base/mid/markup/peak/dump/rug states", router.contains("BASE_START") && router.contains("MID_ACCUMULATION") && router.contains("CONTROLLED_MARKUP") && router.contains("PEAK_EXHAUSTION") && router.contains("RUG_PRONE"))
-        assertTrue("Peak/rug-prone stage must reject live lane exposure before FDG", bot.contains("TOKEN_METRIC_STAGE_LANE_REJECTED") && bot.contains("TokenMetricStageRouter.laneFit(ts, l)") && bot.indexOf("TOKEN_METRIC_STAGE_LANE_REJECTED") < bot.indexOf("if (l == \"STANDARD\" || l == \"CORE\" || l == \"V3\")"))
+        assertTrue("Metric-stage mismatch must be soft telemetry while RUG_PRONE remains hard safety", bot.contains("TOKEN_METRIC_STAGE_LANE_SOFT_MISMATCH_4162") && bot.contains("TokenMetricStageRouter.laneFit(ts, l)") && bot.contains("metricFit.stage == TokenMetricStageRouter.Stage.RUG_PRONE") && bot.indexOf("TOKEN_METRIC_STAGE_LANE_SOFT_MISMATCH_4162") < bot.indexOf("if (l == \"STANDARD\" || l == \"CORE\" || l == \"V3\")"))
         assertTrue("V3 trunk must also obey metric-stage fit", bot.contains("V3_TOKEN_METRIC_STAGE_DEFERRED") && bot.contains("TokenMetricStageRouter.laneFit(ts, \"V3\")"))
         assertTrue("Primary lane election must be metric-aware, not only style/source aware", bot.contains("TokenMetricStageRouter.preferredPrimaryLane") && bot.contains("TOKEN_METRIC_STAGE_PRIMARY"))
         assertTrue("ModeRouter must not reward extended near-high peak chasing as breakout", mode.contains("BREAKOUT_REJECT: peak exhaustion") && mode.contains("controlled approach below local high"))
@@ -4086,7 +4086,7 @@ class GoldenTapeRegressionTest {
         assertTrue("Symbolic patience must become an observable soft-exit veto, not just report-only sentience",
             exec.contains("SYMBOLIC_PATIENCE_SOFT_EXIT_VETO") && exec.contains("HOLD OVERRIDE"))
         assertTrue("Symbolic patience must not override reflex/liquidity/rug/catastrophic/emergency exits or the -12% live danger zone",
-            exec.contains("""r.contains("REFLEX")""") && exec.contains("""r.contains("LIQ")""") && exec.contains("""r.contains("RUG")""") && exec.contains("""r.contains("CATASTROPHIC")""") && exec.contains("gainPct <= -12.0"))
+            exec.contains("""r.contains("REFLEX")""") && exec.contains("""r.contains("LIQUIDITY_COLLAPSE")""") && exec.contains("""r.contains("LIQUIDITY_DRAIN")""") && exec.contains("""r.contains("NO_LIQUIDITY_EXIT")""") && exec.contains("""r.contains("RUG")""") && exec.contains("""r.contains("CATASTROPHIC")""") && exec.contains("gainPct <= -12.0"))
         assertTrue("V8 critical exits must still bypass symbolic hold veto",
             exec.contains("critical = exitSignal.urgency == PrecisionExitLogic.Urgency.CRITICAL"))
     }

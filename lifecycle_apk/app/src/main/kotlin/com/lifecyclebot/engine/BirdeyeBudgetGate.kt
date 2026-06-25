@@ -37,7 +37,8 @@ object BirdeyeBudgetGate {
     private const val MONTHLY_CAP = 6_000_000L
     private const val MONTHLY_LOCKDOWN_PCT = 0.80
     private const val MONTHLY_SCANNER_THROTTLE_PCT = 0.75
-    private const val DAILY_SCANNER_THROTTLE_PCT = 0.10
+    private const val DAILY_SCANNER_THROTTLE_PCT = 0.60
+    private const val DAILY_SCANNER_HARD_STOP_PCT = 0.90
 
     // V5.0.3977 — provider conservation is NOT a permanent compile-time state.
     // Operator's Birdeye dashboard (2026-06-20) shows ~3.97K / 6.00M CU used, so
@@ -119,11 +120,13 @@ object BirdeyeBudgetGate {
 
         val dailyPct = if (dailyCap > 0) cuToday.get().toDouble() / dailyCap else 0.0
         val monthlyPct = cuThisMonth.get().toDouble() / MONTHLY_CAP
-        // V5.9.1119 — scanner-side Birdeye is a luxury lane. 3085 burned
-        // 150k/150k daily CU while free Dex/Gecko/Pump sources were already
-        // supplying diverse intake. Hard-stop Birdeye scanner lanes at 25%
-        // daily so safety/exit fallbacks keep budget. Free sources remain on.
-        if (dailyPct >= 0.25) return false
+        // V5.0.4162 — source-balance recovery. The comment contract for this
+        // gate says scanner-side Birdeye throttles when burn is high (>60%), but
+        // code was throttling at 10% and hard-stopping at 25%. Runtime showed
+        // daily=47.7%, which silently removed all Birdeye scanner lanes while
+        // MemeTrader needed metadata/source diversity. Keep real budget safety:
+        // throttle at 60%, hard-stop only near the daily cap.
+        if (dailyPct >= DAILY_SCANNER_HARD_STOP_PCT) return false
         val throttle = dailyPct >= DAILY_SCANNER_THROTTLE_PCT ||
                        monthlyPct >= MONTHLY_SCANNER_THROTTLE_PCT
 

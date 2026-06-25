@@ -62,7 +62,8 @@ object ExecutionHealthGuard {
     private val EMERGENCY_REASON_KEYS = listOf(
         "RUG", "HONEYPOT", "EMERGENCY", "SHUTDOWN", "PHANTOM",
         "STALE", "MAX_HOLD", "MUST_SELL", "CATASTROPHIC",
-        "STEALTH_MINT", "DRAIN", "PANIC", "REFLEX", "LIQ"
+        "STEALTH_MINT", "DRAIN", "PANIC", "REFLEX", "LIQUIDITY_COLLAPSE",
+        "LIQUIDITY_DRAIN", "NO_LIQUIDITY_EXIT"
     )
 
     /** True iff the reason should always broadcast, never defer. */
@@ -74,14 +75,29 @@ object ExecutionHealthGuard {
     /** Snapshot Jupiter health. Returns true when Jupiter is alive enough. */
     fun isJupiterHealthy(): Boolean {
         return try {
-            val snap = ApiHealthMonitor.snapshot()["jupiter"] ?: return true
-            val sr = snap.successRate()
-            val lastSuccessMs = snap.lastSuccessMs.get()
-            val freshSuccess = lastSuccessMs > 0L &&
-                (System.currentTimeMillis() - lastSuccessMs) <= JUPITER_FRESH_SUCCESS_WINDOW_MS
-            // Healthy if EITHER the rolling success rate is up OR Jupiter
-            // logged a success in the recent window. Fail-open on no samples.
-            sr >= JUPITER_HEALTHY_SR || freshSuccess
+            val all = ApiHealthMonitor.snapshot()
+            fun healthy(key: String): Boolean? {
+                val snap = all[key] ?: return null
+                val sr = snap.successRate()
+                val lastSuccessMs = snap.lastSuccessMs.get()
+                val freshSuccess = lastSuccessMs > 0L &&
+                    (System.currentTimeMillis() - lastSuccessMs) <= JUPITER_FRESH_SUCCESS_WINDOW_MS
+                return sr >= JUPITER_HEALTHY_SR || freshSuccess
+            }
+
+            // V5.0.4162 — split execution health from token-list/general health.
+            // Operator runtime showed `jupiter sr=0` due tokens.jup.ag DNS while
+            // `jupiter_quote` was still healthy enough. New buys only need the
+            // unwind/execution path to be alive (quote/send). A dead token-list
+            // endpoint must not freeze MemeTrader entries.
+            val quoteHealthy = healthy("jupiter_quote")
+            val sendHealthy = healthy("jupiter_send")
+            if (quoteHealthy != null || sendHealthy != null) {
+                return (quoteHealthy != false) && (sendHealthy != false)
+            }
+
+            // Fallback for older telemetry builds that only emit generic `jupiter`.
+            healthy("jupiter") ?: true
         } catch (_: Throwable) { true /* fail-open: never block on health-monitor failure */ }
     }
 

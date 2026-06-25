@@ -2463,6 +2463,47 @@ class Executor(
     }
     
     /**
+     * V5.0.4162 — canonical execution-lane resolver.
+     *
+     * Root fix: source labels (PUMP_FUN_NEW / DATA_ORCHESTRATOR /
+     * MEME_REGISTRY_RESTORE) were being used as lane keys inside the universal
+     * doBuy() size/discipline choke. That poisoned LanePolicy, LaneTimeoutGate,
+     * LiveStrategyTuner, UnifiedPolicyHead, ScannerLaneBridge, and journal/close
+     * attribution by training/scaling SOURCE buckets instead of real MemeTrader
+     * lanes. This resolver returns only canonical lane names; discovery source
+     * stays a separate dimension.
+     */
+    private fun normalizeExecutionLane(raw: String?): String {
+        val u0 = raw?.trim()?.uppercase().orEmpty()
+        if (u0.isBlank()) return ""
+        val u = u0.replace('-', '_').replace(' ', '_')
+        return when {
+            u == "BLUE_CHIP" || u == "BLUE_CHIPS" || u == "BLUECHIPS" -> "BLUECHIP"
+            u == "SHITCOIN_EXPRESS" || u == "SHITCOINEXPRESS" -> "EXPRESS"
+            u.startsWith("MOONSHOT_") -> "MOONSHOT"
+            u in setOf(
+                "STANDARD", "CORE", "V3", "MEME", "SHITCOIN", "MOONSHOT", "EXPRESS",
+                "QUALITY", "BLUECHIP", "TREASURY", "CASHGEN", "CYCLIC", "MANIPULATED",
+                "DIP_HUNTER", "PROJECT_SNIPER", "PRESALE_SNIPE", "WHALE_FOLLOW",
+                "COPYTRADE", "NETWORK_SIGNAL", "WALLET_RECOVERED"
+            ) -> u
+            else -> ""
+        }
+    }
+
+    private fun resolveExecutionLane(ts: TokenState, identity: TradeIdentity? = null, fallback: String = "STANDARD"): String {
+        val fromPosition = normalizeExecutionLane(ts.position.tradingMode)
+        if (fromPosition.isNotBlank()) return fromPosition
+        val fromIdentity = normalizeExecutionLane(identity?.source)
+        if (fromIdentity.isNotBlank()) return fromIdentity
+        val fromSource = normalizeExecutionLane(ts.source)
+        if (fromSource.isNotBlank()) return fromSource
+        return try {
+            normalizeExecutionLane(com.lifecyclebot.engine.TokenMetricStageRouter.preferredPrimaryLane(ts, fallback)).ifBlank { fallback }
+        } catch (_: Throwable) { fallback }
+    }
+
+    /**
      * Record a trade to both TokenState and persistent TradeHistoryStore
      */
     private fun recordTrade(ts: TokenState, trade: Trade) {
@@ -5904,7 +5945,7 @@ class Executor(
                 currentPnlPct = gainPct,
                 peakPnlPct = peakPctForSymbolic,
                 entryConfidence = pos.entryScore.coerceIn(0.0, 100.0),
-                tradingMode = pos.tradingMode.ifBlank { ts.source.ifBlank { "STANDARD" } },
+                tradingMode = resolveExecutionLane(ts, fallback = "STANDARD"),
                 holdTimeSec = heldSecs.toLong(),
                 priceVelocity = 0.0,
                 volumeRatio = 1.0,
@@ -5919,7 +5960,7 @@ class Executor(
         fun softExitProtectedBySymbolicPatience(reason: String, critical: Boolean = false): Boolean {
             if (critical) return false
             val r = reason.uppercase()
-            if (r.contains("REFLEX") || r.contains("LIQ") || r.contains("RUG") || r.contains("CATASTROPHIC") || r.contains("EMERGENCY")) return false
+            if (r.contains("REFLEX") || r.contains("LIQUIDITY_COLLAPSE") || r.contains("LIQUIDITY_DRAIN") || r.contains("NO_LIQUIDITY_EXIT") || r.contains("RUG") || r.contains("CATASTROPHIC") || r.contains("EMERGENCY")) return false
             if (gainPct <= -12.0) return false
             if (!symbolicWantsPatience()) return false
             try {
@@ -7735,11 +7776,7 @@ class Executor(
         // Lane key resolved the same way finalityLane is (layerTag→identity.source),
         // so the haircut targets the same bin StrategyTelemetry reports.
         val laneEvMult = try {
-            val laneForExpectancy = listOf(
-                ts.position.tradingMode,
-                identity?.source ?: "",
-                ts.source,
-            ).firstOrNull { it.isNotBlank() } ?: ts.source
+            val laneForExpectancy = resolveExecutionLane(ts, identity)
             val raw = com.lifecyclebot.engine.LaneExpectancyDamper.sizeMultiplier(laneForExpectancy)
             // V5.0.3956 — LIVE WALLET-GROWTH ALLOCATION.
             // The old code explicitly bypassed LaneExpectancyDamper in live mode,
@@ -7811,7 +7848,11 @@ class Executor(
         // to smaller executable size" lever the spec asks for, on top of the 1460/1461
         // learning weight. As LanePolicy.rollingWr climbs past the recovery threshold the
         // cap lifts back to 1.0 automatically (fluid recovery, consistent with doctrine).
-        val laneTag = (identity?.source ?: ts.source).uppercase()
+        val laneTag = resolveExecutionLane(ts, identity)
+        if (normalizeExecutionLane(ts.position.tradingMode).isBlank() && laneTag != "STANDARD") {
+            ts.position.tradingMode = laneTag
+            try { ForensicLogger.lifecycle("EXECUTION_LANE_STAMPED_4162", "mint=${ts.mint.take(10)} symbol=${ts.symbol} lane=$laneTag src=${ts.source.take(60)} identitySource=${identity?.source ?: ""}") } catch (_: Throwable) {}
+        }
         val currentRegimeForLivePolicy = try { com.lifecyclebot.engine.RegimeDetector.currentRegime() } catch (_: Throwable) { com.lifecyclebot.engine.RegimeDetector.Regime.NORMAL }
         val dumpRegimeLive = RuntimeModeAuthority.isLive() && currentRegimeForLivePolicy == com.lifecyclebot.engine.RegimeDetector.Regime.DUMP
         // V5.0.3913 — benchmark restore: 3868-3879 traded live in high-risk
@@ -7869,7 +7910,7 @@ class Executor(
         // shaped scanner priority but not buy size. UnifiedPolicyHead.conviction
         // only ran inside FDG, which most volume lanes bypass. All three are
         // fail-open (1.0 in BOOTSTRAP/error) and soft-shape only — no veto.
-        val laneKeyForAgi = ts.position.tradingMode.ifBlank { "STANDARD" }
+        val laneKeyForAgi = laneTag
         val strategyTunerSizeMult = try {
             LiveStrategyTuner.sizeMultiplier(laneKeyForAgi)
         } catch (_: Throwable) { 1.0 }
@@ -9425,7 +9466,7 @@ class Executor(
         // so ts.position.tradingMode reflects the correct layer from the start.
         ts.position.tradingMode = layerTag
         ts.position.tradingModeEmoji = layerTagEmoji
-        ts.position.isBlueChipPosition = (layerTag == "BLUE_CHIP")
+        ts.position.isBlueChipPosition = (normalizeExecutionLane(layerTag) == "BLUECHIP")
         
         ts.position.blueChipTakeProfit = takeProfitPct
         ts.position.blueChipStopLoss = stopLossPct
@@ -9611,7 +9652,8 @@ class Executor(
             return false
         }
 
-        ts.position.tradingMode = "MOONSHOT_$spaceModeName"
+        ts.position.tradingMode = "MOONSHOT"
+        try { ForensicLogger.lifecycle("MOONSHOT_SUBSTYLE_CANONICALIZED_4162", "mint=${ts.mint.take(10)} symbol=${ts.symbol} substyle=MOONSHOT_$spaceModeName lane=MOONSHOT") } catch (_: Throwable) {}
         ts.position.tradingModeEmoji = spaceModeEmoji
         return true
     }
