@@ -9812,6 +9812,90 @@ class Executor(
             attemptId = attemptId.ifBlank { "live_${ts.mint.take(8)}_${System.currentTimeMillis()}" },
             source = "Executor.liveBuy.default",
         )
+
+        // V5.0.4134 — UNIVERSAL LIVE-BUY DISCIPLINE VETO + DUMP REGIME KILL SWITCH.
+        //
+        // V5.0.4133 added rug-blacklist + discipline veto at doBuy(), but at least one
+        // path (MOONSHOT shadow-to-live handoff at Executor.kt:8115) calls liveBuy()
+        // directly, bypassing doBuy() entirely. Since the comment above (line 8101) is
+        // the project's source-of-truth that "liveBuy() is the single executor entry
+        // point [for live]", this is where the universal veto belongs.
+        //
+        // Additionally — operator's 2026-06-25 dump showed:
+        //   regime=DUMP wr=7.9% meanPnl=-68.15% n=45
+        //   MOONSHOT: pWin=15% E=-76.5% lane×0.18 (all brains screaming KILL)
+        // …yet trades kept firing because LaneExpectancyDamper only SIZES DOWN, the
+        // discipline gates were bypassed by GOLD/WINNER goose verdicts, and
+        // RugMintBlacklist was unconsulted. Net effect: small size × negative EV =
+        // slow, certain bleed. Per operator: "winrate under 20%. unacceptable."
+        //
+        // The kill switch fires when BOTH are true:
+        //   1. RegimeDetector.currentRegime() == DUMP
+        //   2. Lane WR (StrategyTelemetry live-terminal leaderboard) < 25% with n≥12
+        // …and CANNOT be bypassed by GOLD/WINNER. Pattern verdict is irrelevant when
+        // the regime AND retrospective WR both agree this lane is dead.
+        run {
+            val isLive4134 = try { RuntimeModeAuthority.isLive() } catch (_: Throwable) { false }
+            if (!isLive4134) return@run
+            val mintShort4134 = ts.mint.take(10)
+            val laneRaw4134 = layerTag.ifBlank { ts.position?.tradingMode ?: "STANDARD" }
+            val laneTag4134 = laneRaw4134.uppercase()
+
+            // (a) Rug-blacklist — non-negotiable, runs ahead of any pattern bypass.
+            val rugBL4134 = try { com.lifecyclebot.engine.RugMintBlacklist.isBlacklisted(ts.mint) } catch (_: Throwable) { false }
+            if (rugBL4134) {
+                try { ForensicLogger.lifecycle("RUG_BLACKLIST_VETO_V4134", "symbol=${ts.symbol} mint=$mintShort4134 lane=$laneTag4134 path=liveBuy.enter") } catch (_: Throwable) {}
+                try { PipelineHealthCollector.labelInc("RUG_BLACKLIST_VETO_LIVEBUY") } catch (_: Throwable) {}
+                try { emitLiveBuyFail(ts, sol, "RUG_BLACKLIST", "mint blacklisted ≤24h ago") } catch (_: Throwable) {}
+                onLog("🛑 LIVE rug-blacklist veto: ${ts.symbol}", "discipline")
+                return false
+            }
+
+            // (b) DUMP-regime kill switch — pattern-verdict-immune.
+            val regimeDump4134 = try {
+                com.lifecyclebot.engine.RegimeDetector.currentRegime() == com.lifecyclebot.engine.RegimeDetector.Regime.DUMP
+            } catch (_: Throwable) { false }
+            if (regimeDump4134) {
+                // Use the same telemetry source LiveProbabilityEngine reads from, so the
+                // kill-switch sees identical lane WR to the rest of the brain stack.
+                val laneMetric4134 = try {
+                    com.lifecyclebot.engine.StrategyTelemetry.computeLiveTerminalLeaderboard(limit = 1_500)
+                        .firstOrNull { it.strategy.equals(laneTag4134, ignoreCase = true) }
+                } catch (_: Throwable) { null }
+                val laneWr4134 = laneMetric4134?.winRatePct ?: 100.0
+                val laneN4134 = laneMetric4134?.trades ?: 0
+                if (laneN4134 >= 12 && laneWr4134 < 25.0) {
+                    try { ForensicLogger.lifecycle("REGIME_KILL_VETO_V4134", "symbol=${ts.symbol} mint=$mintShort4134 lane=$laneTag4134 regime=DUMP laneWr=${"%.1f".format(laneWr4134)} n=$laneN4134 path=liveBuy.enter") } catch (_: Throwable) {}
+                    try { PipelineHealthCollector.labelInc("REGIME_KILL_VETO") } catch (_: Throwable) {}
+                    try { emitLiveBuyFail(ts, sol, "REGIME_KILL_DUMP", "regime=DUMP laneWr=${"%.1f".format(laneWr4134)}% n=$laneN4134 (no GOLD/WINNER bypass)") } catch (_: Throwable) {}
+                    onLog("🔪 DUMP kill switch: ${ts.symbol} lane=$laneTag4134 wr=${"%.0f".format(laneWr4134)}% n=$laneN4134", "discipline")
+                    return false
+                }
+            }
+
+            // (c) Standard discipline veto — pause/timeout/scanner. GOLD/WINNER still
+            //     bypasses these in non-DUMP regimes (per V5.0.4132 design), but the
+            //     rug-blacklist + DUMP kill above are immune to it.
+            val pauseDefensive4134 = try { com.lifecyclebot.engine.LivePauseButton.isDefensive() } catch (_: Throwable) { false }
+            val laneTimedOut4134 = try { com.lifecyclebot.engine.LaneTimeoutGate.isTimedOut(laneTag4134) } catch (_: Throwable) { false }
+            val srcTag4134 = ts.source.ifBlank { "UNKNOWN" }.uppercase()
+            val bridgeToxic4134 = try { !com.lifecyclebot.engine.ScannerLaneBridge.shouldRoute(srcTag4134, laneTag4134) } catch (_: Throwable) { false }
+            val gooseVerdict4134 = try { com.lifecyclebot.engine.PatternGoldenGoose.edge("", ts.symbol).verdict } catch (_: Throwable) { com.lifecyclebot.engine.TokenWinMemory.Verdict.NEUTRAL }
+            val isHighEdge4134 = gooseVerdict4134 == com.lifecyclebot.engine.TokenWinMemory.Verdict.GOLD || gooseVerdict4134 == com.lifecyclebot.engine.TokenWinMemory.Verdict.WINNER
+            if (!isHighEdge4134 && (pauseDefensive4134 || laneTimedOut4134 || bridgeToxic4134)) {
+                val reasonTag4134 = when {
+                    pauseDefensive4134 -> "LIVE_PAUSE_DEFENSIVE"
+                    laneTimedOut4134   -> "LANE_TIMEOUT"
+                    else               -> "SCANNER_BRIDGE_VETO"
+                }
+                try { ForensicLogger.lifecycle("DISCIPLINE_VETO_V4134", "symbol=${ts.symbol} mint=$mintShort4134 lane=$laneTag4134 reason=$reasonTag4134 pause=${pauseDefensive4134} timeout=${laneTimedOut4134} bridge=${bridgeToxic4134} path=liveBuy.enter") } catch (_: Throwable) {}
+                try { PipelineHealthCollector.labelInc("DISCIPLINE_VETO_$reasonTag4134") } catch (_: Throwable) {}
+                try { emitLiveBuyFail(ts, sol, reasonTag4134, "discipline veto (lane=$laneTag4134 goose=${gooseVerdict4134.name})") } catch (_: Throwable) {}
+                onLog("🛡 LIVE $reasonTag4134: ${ts.symbol} lane=$laneTag4134", "discipline")
+                return false
+            }
+        }
+
         var liveBuyLastStage = "LIVE_BUY_ENTRY"
         fun liveStage(stage: String, detail: String = "") {
             liveBuyLastStage = stage
