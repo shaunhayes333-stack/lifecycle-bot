@@ -7911,15 +7911,27 @@ class Executor(
             return
         }
         if (RuntimeModeAuthority.isLive() && !isHighEdge4132 && (pauseDefensive4132 || laneTimedOut4132)) {
-            val reason4132 = when {
-                pauseDefensive4132 && laneTimedOut4132 -> "discipline_pause_and_lane_timeout"
-                pauseDefensive4132                      -> "discipline_pause_global"
-                else                                    -> "discipline_lane_timeout"
+            // V5.0.4148 — TOP-PERFORMING-LANE BYPASS for the GLOBAL pause button
+            // (mirrors the liveBuy-entry bypass; see liveBuy() doc for rationale).
+            // Per-lane LaneTimeoutGate is unchanged — broken lanes stay locked.
+            val laneTopPerformer4148 = try { com.lifecyclebot.engine.LivePauseButton.isTopPerformingLane(laneTag) } catch (_: Throwable) { false }
+            val effectivePause4148 = pauseDefensive4132 && !laneTopPerformer4148
+            if (!effectivePause4148 && !laneTimedOut4132) {
+                if (pauseDefensive4132) {
+                    try { ForensicLogger.lifecycle("TOP_LANE_BYPASS_V4148", "symbol=${ts.symbol} lane=$laneTag globalPause=DEFENSIVE laneIsTopPerformer=true path=doBuy") } catch (_: Throwable) {}
+                    try { PipelineHealthCollector.labelInc("TOP_LANE_BYPASS_DOBUY") } catch (_: Throwable) {}
+                }
+            } else {
+                val reason4132 = when {
+                    effectivePause4148 && laneTimedOut4132 -> "discipline_pause_and_lane_timeout"
+                    effectivePause4148                     -> "discipline_pause_global"
+                    else                                    -> "discipline_lane_timeout"
+                }
+                try { ForensicLogger.lifecycle("DISCIPLINE_VETO_V4132", "symbol=${ts.symbol} lane=$laneTag reason=$reason4132 goose=${gooseVerdict4129.name} topLane=${laneTopPerformer4148} pause=${runCatching { com.lifecyclebot.engine.LivePauseButton.tag() }.getOrDefault("?")} laneState=${runCatching { com.lifecyclebot.engine.LaneTimeoutGate.tag(laneTag) }.getOrDefault("?")}") } catch (_: Throwable) {}
+                try { PipelineHealthCollector.labelInc("DISCIPLINE_VETO_${reason4132.uppercase()}") } catch (_: Throwable) {}
+                onLog("🛑 Discipline veto: $reason4132 ${ts.symbol} (goose=${gooseVerdict4129.name})", "discipline")
+                return
             }
-            try { ForensicLogger.lifecycle("DISCIPLINE_VETO_V4132", "symbol=${ts.symbol} lane=$laneTag reason=$reason4132 goose=${gooseVerdict4129.name} pause=${runCatching { com.lifecyclebot.engine.LivePauseButton.tag() }.getOrDefault("?")} laneState=${runCatching { com.lifecyclebot.engine.LaneTimeoutGate.tag(laneTag) }.getOrDefault("?")}") } catch (_: Throwable) {}
-            try { PipelineHealthCollector.labelInc("DISCIPLINE_VETO_${reason4132.uppercase()}") } catch (_: Throwable) {}
-            onLog("🛑 Discipline veto: $reason4132 ${ts.symbol} (goose=${gooseVerdict4129.name})", "discipline")
-            return
         }
         // (c) PERFORMING-LANE TILT: in DEFENSIVE mode, scale entries up for top
         //     lanes (×1.30 / ×1.15) and down for unranked (×0.70). NORMAL mode = ×1.0.
@@ -9876,23 +9888,46 @@ class Executor(
             // (c) Standard discipline veto — pause/timeout/scanner. GOLD/WINNER still
             //     bypasses these in non-DUMP regimes (per V5.0.4132 design), but the
             //     rug-blacklist + DUMP kill above are immune to it.
+            //
+            // V5.0.4148 — TOP-PERFORMING-LANE BYPASS for the GLOBAL pause button.
+            // Operator dump (2026-06-25 18:34, build 5.0.4147 +115s uptime):
+            //   STANDARD lane: WR=38.5% EV=+5.37%/trade  (PROFITABLE, n=15)
+            //   MOONSHOT lane: WR=10.5% EV=-24.44%/trade (BLEEDER, n=117)
+            //   Global WR=14.7% (dragged down by MOONSHOT's 117 trades)
+            // LivePauseButton.isDefensive() is GLOBAL — when global WR<30%, ALL
+            // lanes were vetoed, including the profitable STANDARD lane. With
+            // STANDARD locked out, the bot couldn't trade its way out of
+            // DEFENSIVE because no new outcomes were being recorded. Deadlock.
+            //
+            // Fix: when a lane appears in LivePauseButton.topLanes (top-3 by WR
+            // with n≥3), it bypasses the GLOBAL pause veto only. LaneTimeoutGate
+            // (per-lane), ScannerLaneBridge (per source/lane), the rug-blacklist
+            // and the DUMP regime kill switch are unchanged — broken lanes stay
+            // blocked. STANDARD now keeps trading and seeds fresh WR data;
+            // MOONSHOT stays locked by its own per-lane timeout.
             val pauseDefensive4134 = try { com.lifecyclebot.engine.LivePauseButton.isDefensive() } catch (_: Throwable) { false }
+            val laneTopPerformer4148 = try { com.lifecyclebot.engine.LivePauseButton.isTopPerformingLane(laneTag4134) } catch (_: Throwable) { false }
+            val effectivePause4148 = pauseDefensive4134 && !laneTopPerformer4148
             val laneTimedOut4134 = try { com.lifecyclebot.engine.LaneTimeoutGate.isTimedOut(laneTag4134) } catch (_: Throwable) { false }
             val srcTag4134 = ts.source.ifBlank { "UNKNOWN" }.uppercase()
             val bridgeToxic4134 = try { !com.lifecyclebot.engine.ScannerLaneBridge.shouldRoute(srcTag4134, laneTag4134) } catch (_: Throwable) { false }
             val gooseVerdict4134 = try { com.lifecyclebot.engine.PatternGoldenGoose.edge("", ts.symbol).verdict } catch (_: Throwable) { com.lifecyclebot.engine.TokenWinMemory.Verdict.NEUTRAL }
             val isHighEdge4134 = gooseVerdict4134 == com.lifecyclebot.engine.TokenWinMemory.Verdict.GOLD || gooseVerdict4134 == com.lifecyclebot.engine.TokenWinMemory.Verdict.WINNER
-            if (!isHighEdge4134 && (pauseDefensive4134 || laneTimedOut4134 || bridgeToxic4134)) {
+            if (!isHighEdge4134 && (effectivePause4148 || laneTimedOut4134 || bridgeToxic4134)) {
                 val reasonTag4134 = when {
-                    pauseDefensive4134 -> "LIVE_PAUSE_DEFENSIVE"
+                    effectivePause4148 -> "LIVE_PAUSE_DEFENSIVE"
                     laneTimedOut4134   -> "LANE_TIMEOUT"
                     else               -> "SCANNER_BRIDGE_VETO"
                 }
-                try { ForensicLogger.lifecycle("DISCIPLINE_VETO_V4134", "symbol=${ts.symbol} mint=$mintShort4134 lane=$laneTag4134 reason=$reasonTag4134 pause=${pauseDefensive4134} timeout=${laneTimedOut4134} bridge=${bridgeToxic4134} path=liveBuy.enter") } catch (_: Throwable) {}
+                try { ForensicLogger.lifecycle("DISCIPLINE_VETO_V4148", "symbol=${ts.symbol} mint=$mintShort4134 lane=$laneTag4134 reason=$reasonTag4134 pause=${pauseDefensive4134} topLane=${laneTopPerformer4148} timeout=${laneTimedOut4134} bridge=${bridgeToxic4134} path=liveBuy.enter") } catch (_: Throwable) {}
                 try { PipelineHealthCollector.labelInc("DISCIPLINE_VETO_$reasonTag4134") } catch (_: Throwable) {}
-                try { emitLiveBuyFail(ts, sol, reasonTag4134, "discipline veto (lane=$laneTag4134 goose=${gooseVerdict4134.name})") } catch (_: Throwable) {}
+                try { emitLiveBuyFail(ts, sol, reasonTag4134, "discipline veto (lane=$laneTag4134 goose=${gooseVerdict4134.name} topLane=${laneTopPerformer4148})") } catch (_: Throwable) {}
                 onLog("🛡 LIVE $reasonTag4134: ${ts.symbol} lane=$laneTag4134", "discipline")
                 return false
+            }
+            if (pauseDefensive4134 && laneTopPerformer4148) {
+                try { ForensicLogger.lifecycle("TOP_LANE_BYPASS_V4148", "symbol=${ts.symbol} mint=$mintShort4134 lane=$laneTag4134 globalPause=DEFENSIVE laneIsTopPerformer=true path=liveBuy.enter") } catch (_: Throwable) {}
+                try { PipelineHealthCollector.labelInc("TOP_LANE_BYPASS") } catch (_: Throwable) {}
             }
         }
 
