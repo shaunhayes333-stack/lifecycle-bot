@@ -7,6 +7,44 @@ Stocks, Markets, Tokenized Stocks, Forex, Metals, Commodities). Foreground
 Service with a 50+ AI-module pipeline gated through processTokenCycle.
 
 
+## V5.0.4148 (Feb 2026) — TOP-PERFORMING-LANE BYPASS (DEADLOCK FIX)
+
+Operator dump (2026-06-25 18:34, build 5.0.4147 +115s uptime, post-V5.0.4134):
+- `BUY ok/fail: 0 / 65` → V5.0.4134 was working **perfectly**, vetoing every
+  buy attempt with `LIVE_PAUSE_DEFENSIVE`. Zero new bleed in 115 seconds.
+- But the lifetime numbers were stuck: WR=14.7%, -1.58 SOL — accumulated
+  **before** V5.0.4134 deployed.
+- Lane breakdown showed `STANDARD WR=38.5% EV=+5.37%` (profitable!) and
+  `MOONSHOT WR=10.5% EV=-24.44%` (bleeder). STANDARD was the recovery path
+  but was being paused along with everything else because
+  `LivePauseButton.isDefensive()` is GLOBAL.
+
+### The deadlock
+Global WR (14.7%) was dragged below the 30% pause floor by MOONSHOT's 117
+trades. DEFENSIVE engaged → all lanes vetoed → STANDARD couldn't trade →
+no new outcomes → rolling-30 window never refreshes → DEFENSIVE permanent.
+
+### Fix — top-lane bypass at BOTH veto chokepoints (`doBuy` + `liveBuy`)
+`LivePauseButton` already maintains `topLanes` (top-3 by WR with n≥3) for
+the existing `laneSizeTilt` feature. Use it as a bypass condition:
+
+  `effectivePause = pauseDefensive && !LivePauseButton.isTopPerformingLane(lane)`
+
+Lanes in the top-3 keep trading even during DEFENSIVE. STANDARD seeds
+fresh outcomes; global WR eventually crosses the 45% recover floor.
+
+### NOT changed (broken lanes stay locked)
+- Rug-blacklist (V5.0.4133) — universal
+- DUMP regime kill switch (V5.0.4134) — bypass-immune; STANDARD@38.5% > 25%
+  threshold so doesn't trigger anyway
+- LaneTimeoutGate — per-lane; MOONSHOT stays timed out
+- ScannerLaneBridge — per (source, lane)
+
+Forensic: `TOP_LANE_BYPASS_V4148` (success), `DISCIPLINE_VETO_V4148`
+(still-blocked non-top lanes).
+
+CI: GREEN ✅ (run 28157804365 → AATE_v5.0.4148).
+
 ## V5.0.4146 (Feb 2026) — APK VERSION AUTO-BUMPS FROM CI RUN NUMBER
 
 Operator: *"its not bumping the build number the last 4 have had the same

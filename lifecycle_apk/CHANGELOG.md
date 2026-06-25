@@ -4,6 +4,24 @@ All notable changes to the Autonomous AI Trading Engine.
 
 ---
 
+## [5.0.4148] - 2026-02 — TOP-PERFORMING-LANE BYPASS (DEADLOCK FIX)
+
+V5.0.4134's discipline pack was working perfectly (0/65 buys allowed in
+115s on operator's dump) but created a deadlock: global WR < 30% pause
+floor → ALL lanes vetoed → profitable STANDARD lane (38.5% WR) locked
+out → no new outcomes → rolling window never refreshes → DEFENSIVE
+permanent.
+
+**Fix**: `effectivePause = pauseDefensive && !isTopPerformingLane(lane)`
+applied at both `doBuy` and `liveBuy` veto chokepoints. STANDARD keeps
+trading and rebuilds WR; MOONSHOT stays locked by its per-lane
+LaneTimeoutGate + DUMP regime kill switch (V5.0.4134) which are
+unchanged and bypass-immune.
+
+CI: GREEN ✅ (run 28157804365 → AATE_v5.0.4148).
+
+---
+
 ## [5.0.4146] - 2026-02 — APK AUTO-BUMP FROM CI RUN NUMBER
 
 Operator: "its not bumping the build number the last 4 have had the same number."
