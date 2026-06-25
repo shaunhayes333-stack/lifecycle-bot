@@ -382,6 +382,12 @@ object CryptoAltTrader {
         // AIs so the eager-load path under CryptoBrainState can complete with
         // a warm prefs cache, but BEFORE any scan cycle uses the brain.
         try { com.lifecyclebot.perps.crypto.brain.CryptoBrain.init(context.applicationContext) } catch (e: Exception) { ErrorLogger.debug(TAG, "CryptoBrain: ${e.message}") }
+        // V5.0.4151 — Isolated crypto discipline pack init (parity with meme
+        // engine.RugMintBlacklist/LivePauseButton/LaneTimeoutGate/ScannerLaneBridge).
+        try { com.lifecyclebot.perps.crypto.brain.CryptoRugMintBlacklist.init(context.applicationContext) } catch (e: Exception) { ErrorLogger.debug(TAG, "CryptoRugMintBlacklist: ${e.message}") }
+        try { com.lifecyclebot.perps.crypto.brain.CryptoLivePauseButton.init(context.applicationContext) } catch (e: Exception) { ErrorLogger.debug(TAG, "CryptoLivePauseButton: ${e.message}") }
+        try { com.lifecyclebot.perps.crypto.brain.CryptoLaneTimeoutGate.init(context.applicationContext) } catch (e: Exception) { ErrorLogger.debug(TAG, "CryptoLaneTimeoutGate: ${e.message}") }
+        try { com.lifecyclebot.perps.crypto.brain.CryptoScannerLaneBridge.init(context.applicationContext) } catch (e: Exception) { ErrorLogger.debug(TAG, "CryptoScannerLaneBridge: ${e.message}") }
         try { StrategyTrustAI.init() }                             catch (e: Exception) { ErrorLogger.debug(TAG, "StrategyTrustAI: ${e.message}") }
         try { NarrativeFlowAI.init() }                             catch (e: Exception) { ErrorLogger.debug(TAG, "NarrativeFlowAI: ${e.message}") }
         try { RunTracker30D.init(context.applicationContext) }     catch (e: Exception) { ErrorLogger.debug(TAG, "RunTracker30D: ${e.message}") }
@@ -1723,6 +1729,46 @@ object CryptoAltTrader {
     }
 
     private fun authorizeCryptoFinalCandidate(candidate: CryptoFinalBuyCandidate): TradeAuthorizer.AuthorizationResult? {
+        // V5.0.4151 — CRYPTO DISCIPLINE PACK (isolated). Mirrors the meme
+        // Executor.kt liveBuy() veto stack (V5.0.4133/4134/4148/4149) but
+        // uses fully isolated persistence + state so crypto closes NEVER
+        // touch meme discipline state. Vetoes run BEFORE EXEC_GATE/auth.
+        run {
+            val assetKey4151 = candidate.assetKey.ifBlank { candidate.symbol }
+            // Lane tag must match the recorder side (CryptoAltTrader close path)
+            // — CRYPTO_SPOT for SPOT/TOKENIZED, CRYPTO_LEV for PERP. This keeps
+            // the per-lane WR windows in CryptoLivePauseButton/LaneTimeoutGate
+            // partitioned by leverage class so one mode can timeout without
+            // locking the other.
+            val lane4151 = when (candidate.assetType) {
+                CryptoFinalBuyCandidate.AssetType.PERP -> "CRYPTO_LEV"
+                else                                    -> "CRYPTO_SPOT"
+            }
+            val srcTag4151 = candidate.universe.ifBlank { "CRYPTO" }.uppercase()
+            // (a) Rug-blacklist — non-negotiable, immune to all bypasses.
+            if (com.lifecyclebot.perps.crypto.brain.CryptoRugMintBlacklist.isBlacklisted(assetKey4151)) {
+                try { ForensicLogger.lifecycle("CRYPTO_RUG_BLACKLIST_VETO_V4151", "symbol=${candidate.symbol} assetKey=$assetKey4151 lane=$lane4151 src=$srcTag4151") } catch (_: Throwable) {}
+                return null
+            }
+            // (b) Per-lane timeout. Crypto-specific lane WR memory.
+            val laneTimedOut4151 = com.lifecyclebot.perps.crypto.brain.CryptoLaneTimeoutGate.isTimedOut(lane4151)
+            // (c) Global pause button with top-performing-lane bypass.
+            val pauseDefensive4151 = com.lifecyclebot.perps.crypto.brain.CryptoLivePauseButton.isDefensive()
+            val topLane4151 = com.lifecyclebot.perps.crypto.brain.CryptoLivePauseButton.isTopPerformingLane(lane4151)
+            val effectivePause4151 = pauseDefensive4151 && !topLane4151
+            // (d) Scanner→lane bridge toxicity veto.
+            val bridgeToxic4151 = !com.lifecyclebot.perps.crypto.brain.CryptoScannerLaneBridge.shouldRoute(srcTag4151, lane4151)
+            if (effectivePause4151 || laneTimedOut4151 || bridgeToxic4151) {
+                val reasonTag4151 = when {
+                    effectivePause4151 -> "CRYPTO_PAUSE_DEFENSIVE"
+                    laneTimedOut4151   -> "CRYPTO_LANE_TIMEOUT"
+                    else               -> "CRYPTO_SCANNER_BRIDGE_VETO"
+                }
+                try { ForensicLogger.lifecycle("CRYPTO_DISCIPLINE_VETO_V4151", "symbol=${candidate.symbol} assetKey=$assetKey4151 lane=$lane4151 src=$srcTag4151 reason=$reasonTag4151 pause=$pauseDefensive4151 topLane=$topLane4151 timeout=$laneTimedOut4151 bridge=$bridgeToxic4151") } catch (_: Throwable) {}
+                return null
+            }
+        }
+
         try {
             ErrorLogger.info(TAG, "CRYPTO_FINAL_CANDIDATE_CREATED universe=${candidate.universe} symbol=${candidate.symbol} marketCapLane=${candidate.marketCapLane} selectedLane=${candidate.selectedLane} selectedSpecialist=${candidate.selectedSpecialist} preFdgVerdict=${candidate.preFdgVerdict} hardNo=${candidate.hardNoReasons} routeQuality=${candidate.routeQuality} adapter=${candidate.executionAdapter} liquidityUsd=${candidate.liquidityUsd.toInt()} spread=${candidate.spread} size=${candidate.finalSize} candidateVersion=${candidate.candidateVersion}")
             ForensicLogger.lifecycle("CRYPTO_FINAL_CANDIDATE_CREATED", "universe=${candidate.universe} symbol=${candidate.symbol} assetKey=${candidate.assetKey} marketCapLane=${candidate.marketCapLane} selectedLane=${candidate.selectedLane} preFdg=${candidate.preFdgVerdict} hardNo=${candidate.hardNoReasons.joinToString(prefix="[", postfix="]")} routeType=${candidate.routeQuality} adapter=${candidate.executionAdapter} liq=${candidate.liquidityUsd.toInt()} spread=${candidate.spread} size=${candidate.finalSize} version=${candidate.candidateVersion}")
@@ -2670,6 +2716,25 @@ object CryptoAltTrader {
                 // are completely untouched.
                 scratchTrades.incrementAndGet()
             }
+        }
+
+        // V5.0.4151 — feed the isolated crypto discipline pack on every live
+        // close. recordOutcome is keyed on assetKey/lane so the rolling-30
+        // WR windows + per-(src,lane) PnL memory live in the crypto-only
+        // SharedPreferences (no meme contamination). Lane tag is coarse —
+        // CRYPTO_SPOT vs CRYPTO_LEV — so the LaneTimeoutGate can timeout one
+        // mode without locking the other.
+        if (!isPaperMode.get()) {
+            try {
+                val assetKey4151 = pos.marketSymbol
+                val lane4151 = if (pos.isSpot) "CRYPTO_SPOT" else "CRYPTO_LEV"
+                val src4151 = "CRYPTO"
+                val holdMs4151 = (System.currentTimeMillis() - pos.openTime).coerceAtLeast(0L)
+                com.lifecyclebot.perps.crypto.brain.CryptoRugMintBlacklist.recordClose(assetKey4151, pnlPctForWin, holdMs4151)
+                com.lifecyclebot.perps.crypto.brain.CryptoLivePauseButton.recordOutcome(lane4151, pnlPctForWin)
+                com.lifecyclebot.perps.crypto.brain.CryptoLaneTimeoutGate.recordOutcome(lane4151, pnlPctForWin)
+                com.lifecyclebot.perps.crypto.brain.CryptoScannerLaneBridge.recordOutcome(src4151, lane4151, pnlPctForWin)
+            } catch (_: Throwable) {}
         }
 
         if (isPaperMode.get()) {
