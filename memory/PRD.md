@@ -7,6 +7,51 @@ Stocks, Markets, Tokenized Stocks, Forex, Metals, Commodities). Foreground
 Service with a 50+ AI-module pipeline gated through processTokenCycle.
 
 
+## V5.0.4150 (Feb 2026) — REGIME-PIVOT INTAKE + DEFENSIVE-LANE ADMIT
+
+Operator: *"its doing nothing mate. its not meant to disable its meant to
+pivot to the right strategy."*
+
+### Root cause
+`AgenticStyleRouter` already had the right pivot logic (`weakChopStylePivot`,
+`rapidToxicRegimePivot`) — but it ran AFTER intake had already locked the
+watchlist entry's `laneAffinity` to source-driven degen lanes (MOONSHOT,
+SHITCOIN, PROJECT_SNIPER). Defensive lanes never got tokens to evaluate.
+
+Operator dump (2026-06-25 19:18, regime=DUMP wr=4.0% n=100):
+```
+LANE_EVAL: PROJECT_SNIPER=18  MOONSHOT=9  SHITCOIN=7  EXPRESS=7
+           QUALITY=0  DIP_HUNTER=0  TREASURY=0  CASHGEN=0
+```
+
+### Fix 1 — `inferIntakeLaneAffinity` is now regime-aware
+When `RegimeDetector.currentRegime() == DUMP`, the function prepends
+`DIP_HUNTER/QUALITY/TREASURY/CASHGEN` to the lane affinity. Degen lanes
+kept as fallbacks (STANDARD-mode V3 throughput preserved). The watchlist
+entry now carries regime-appropriate lanes FIRST.
+
+Forensic: `REGIME_PIVOT_INTAKE_V4149`.
+
+### Fix 2 — Defensive lanes exempt from DUMP kill switch
+V5.0.4134 killed ALL lanes <25% WR in DUMP. But `DIP_HUNTER/QUALITY/
+TREASURY/CASHGEN/BLUECHIP/STANDARD` are the lanes that SHOULD trade in a
+DUMP (their tactics — panic_reversion, pullback_reclaim — are regime-
+appropriate). Now the DUMP kill only fires for degen lanes (MOONSHOT,
+SHITCOIN, EXPRESS, PROJECT_SNIPER, CYCLIC, MANIPULATED).
+
+Forensic: `REGIME_PIVOT_LANE_ADMIT_V4149`.
+
+### Net behavior in DUMP
+1. Intake routes new tokens to defensive lanes first
+2. AgenticStyleRouter picks PANIC_REVERSION / DEFENSIVE_PROBE styles (existing)
+3. DUMP kill switch exempts defensive lanes (admits them)
+4. LivePauseButton top-lane bypass (V5.0.4148) lets top-WR lanes through
+5. MOONSHOT/SHITCOIN/EXPRESS stay locked by LaneTimeoutGate + DUMP kill
+
+The bot **pivots** instead of shutting down — exactly as operator demanded.
+
+CI: GREEN ✅ (run 28160343993 → AATE_v5.0.4150).
+
 ## V5.0.4148 (Feb 2026) — TOP-PERFORMING-LANE BYPASS (DEADLOCK FIX)
 
 Operator dump (2026-06-25 18:34, build 5.0.4147 +115s uptime, post-V5.0.4134):
