@@ -4,6 +4,32 @@ All notable changes to the Autonomous AI Trading Engine.
 
 ---
 
+## [5.0.4133] - 2026-02 — RUG-BLACKLIST UNIVERSAL VETO + TIGHTER FLOORS
+
+Operator dump showed the same mint `EnsVnDQ3` rugging 6 times at -98.6% in the
+last 10 closes — 22% of the lifetime bleed from a single mint the blacklist
+should have caught after incident #1.
+
+**Root cause**: `RugMintBlacklist.recordClose` was wired in V5.0.4132 but
+`isBlacklisted()` was only consulted in `BotService.kt:4813` (one MEME path).
+Every other lane skipped the check.
+
+### Fix 1 — Universal `Executor.doBuy` rug-blacklist veto
+Added at line ~7873, BEFORE the GOLD/WINNER goose bypass. Pattern verdict
+cannot override per-mint 24h cooldown. Forensic: `RUG_BLACKLIST_VETO_V4133`.
+
+### Fix 2 — LivePauseButton thresholds 25/35 → 30/45
+Global WR was sitting at 24.4% — just below the 25% floor — flapping at the
+boundary. Tighter entry + 15-point recovery gap.
+
+### Fix 3 — LaneTimeoutGate thresholds 20/35 → 25/45
+MOONSHOT at 24-25% WR with EV=-76% was sitting just above the 20% timeout
+floor. Tighter entry + 20-point recovery gap.
+
+CI: GREEN ✅ (run 28143456053).
+
+---
+
 ## [5.0.4132-fix2] - 2026-02 — CI GREEN, DISCIPLINE PACK DEPLOYED
 
 `Executor.kt:17005` was reading `tradingMode` off `TokenState` where it actually

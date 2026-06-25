@@ -7,6 +7,46 @@ Stocks, Markets, Tokenized Stocks, Forex, Metals, Commodities). Foreground
 Service with a 50+ AI-module pipeline gated through processTokenCycle.
 
 
+## V5.0.4133 (Feb 2026) — RUG-BLACKLIST UNIVERSAL VETO + TIGHTER DISCIPLINE FLOORS
+
+Operator dump (2026-06-25, V5.0.4132 post-restart, 344s uptime) — same mint
+`EnsVnDQ3` appeared 6× in last 10 closes at identical -98.6% / -0.0215 SOL,
+reason `MOONSHOT_STOP_LOSS`. That single rug accounted for ~22% of the
+-0.5868 SOL lifetime bleed because the blacklist was never being consulted
+at buy time.
+
+### Fix 1 — RugMintBlacklist universal veto at `Executor.doBuy`
+`recordClose()` was wired in V5.0.4132's live-sell path so the data structure
+was populating, but `isBlacklisted()` was only consulted in
+`BotService.kt:4813` — one MEME-lane buy path. Every other lane (MOONSHOT,
+SHITCOIN, QUALITY, BLUECHIP, EXPRESS, CASHGEN, TREASURY, MANIPULATED,
+DIP_HUNTER, PROJECT_SNIPER, CYCLIC) skipped the check. Veto now runs at the
+universal `doBuy` chokepoint, **BEFORE** the GOLD/WINNER goose bypass — a
+pattern verdict cannot override "this exact mint rugged us within the last
+24h". Forensic: `RUG_BLACKLIST_VETO_V4133`.
+
+### Fix 2 — LivePauseButton 25/35 → 30/45
+Global WR was sitting at 24.4% — just below the 25% pause floor — but the
+gates were flapping at the boundary. Tightened entry to 30% / recovery to
+45% (15-point gap vs prior 10-point). Discipline now engages decisively in
+DUMP regimes without flap-on-flap-off.
+
+### Fix 3 — LaneTimeoutGate 20/35 → 25/45
+MOONSHOT lane WR at 24-25% with EV=-76%, pWin=15% — still just above the
+20% timeout floor. Tightened entry to 25% / recovery to 45%. Broken lanes
+now actually enter timeout.
+
+### Not fixed (intentional)
+- Journal "duplication" (6× EnsVnDQ3 rows): on re-investigation these are
+  6 *separate* buy/sell cycles on the same rug, not write amplification.
+  Existing 1500ms cross-path dedupe is correct; bumping it risks dropping
+  legitimate partial sells (operator confirmed 3-27s spacing). Root cause
+  is fixed by Fix 1.
+- Wallet disconnect (7/9 post-restart buy fails): needs fresh dump from
+  this build; likely network blip during forced restart.
+
+CI: GREEN ✅ (run 28143456053).
+
 ## V5.0.4131 – 4132-fix2 (Feb 2026) — DISCIPLINE-FIRST PASS
 
 ### V5.0.4131 — Real-Size Entries
