@@ -7,6 +7,58 @@ Stocks, Markets, Tokenized Stocks, Forex, Metals, Commodities). Foreground
 Service with a 50+ AI-module pipeline gated through processTokenCycle.
 
 
+## V5.0.4165 (Jun 2026) — BUY LEASE WINDOW 5s → 15s (volume restore)
+
+Operator escalated: *"bot isn't trading find the source and fix the issue!!!"*.
+Runtime dump showed `EXEC_GATE allow=1712` but `BUY ok=10` — a **99.4%
+buy-throughput collapse**. Forensic feed flooded with `EXEC_LEASE_PRUNED_EXPIRED`.
+CI: ✅ GREEN (run #4165).
+
+### `troubleshoot_agent` RCA (10-step investigation)
+- Cycle times: `avg=5827ms max=21603ms` (Jupiter `avg=3378ms` dragging the loop).
+- `BUY_DECISION` lease freshness window at `Executor.kt:9929` was **5 seconds**.
+- Every cycle taking >5s = every buy decision in that cycle staling out
+  → `BUY_DECISION_EXPIRED_RESCORE` → defer → re-score next cycle → stales
+  out again. Endless loop, zero volume.
+
+V5.0.4162–4164 (parallel work by Vex) had already addressed:
+- `jupiter_quote` vs `jupiter_send` health split (4162/4164).
+- MemeTrader lane truth (canonical lane resolver, prevents source labels
+  from poisoning lane buckets).
+- Suppressor telemetry + 30s wall-clock cap on sell-defers (4163).
+- Zero-signal probe unparking (4164).
+
+None of those touched the 5s lease window — so the buy-throughput
+collapse persisted.
+
+### Fix
+Lease freshness `5_000L` → `15_000L` at `Executor.kt:9929`. 15s gives
+~70% headroom over the worst observed cycle (21.6s) while still rejecting
+genuinely stale decisions. Route proof still re-hydrates at 8s.
+
+Restores the executor's ability to sign decisions inside the SAME cycle
+they were made in, even at 5–7s steady-state cycle latency.
+
+
+## V5.0.4161 (Jun 2026) — EXECUTION-HEALTH GUARD (jupiter-blackout defense)
+
+Operator dump 2026-06-26 running V5.0.4160 still showed two catastrophic
+closes (`385j195R pnl=-71.4%`, `BHXt2heo pnl=-58.8%`) labelled
+`CATASTROPHIC_STOP_LOSS_OVERRUN_-Xpct_FROM_STRICT_SL_-10`. V5.0.4160's
+detect-side backstop fires correctly, but it calls the SAME `doSell()`
+pipeline — when Jupiter is dead (DNS-fail on `tokens.jup.ag`) the executor
+falls through to the PUMP/HELIUS direct route with no slippage projection
+and bleeds catastrophically.
+
+New module `engine/ExecutionHealthGuard` — three volume-preserving rules:
+1. `shouldDeferBuy()` at `liveBuy()` top — defer buys when Jupiter is dead.
+2. `shouldDeferDirectRouteSell()` inside the `jupiterQuoteUnavailable`
+   branch — defer non-emergency direct-route sells up to 5 ticks / 30s
+   wall-clock (V5.0.4163 wall-clock cap added by Vex).
+3. `recordSlippageOutcome()` post-execution alarm — logs
+   `EXECUTION_SLIPPAGE_VIOLATION` when realized SOL >20% worse than quoted.
+
+
 ## V5.0.4160 (Jun 2026) — SCRATCH-STREAK BUTTERFLY SWEEP + CATASTROPHIC -25% BACKSTOP
 
 Two operator P0s shipped together. CI: ✅ GREEN.
