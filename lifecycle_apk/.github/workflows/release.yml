@@ -38,7 +38,9 @@ jobs:
         id: aate_build
         run: |
           BUILD_NUMBER=$((GITHUB_RUN_NUMBER + 1))
-          VERSION_NAME="$(cat AATE_VERSION)"
+          # V5.0.4135 — Patch derived from CI run number (see build.yml comment).
+          BASE="$(cat AATE_VERSION)"
+          VERSION_NAME="${BASE}.${BUILD_NUMBER}"
           echo "AATE_BUILD_NUMBER=$BUILD_NUMBER" >> "$GITHUB_ENV"
           echo "AATE_VERSION_NAME=$VERSION_NAME" >> "$GITHUB_ENV"
           echo "build_number=$BUILD_NUMBER" >> "$GITHUB_OUTPUT"

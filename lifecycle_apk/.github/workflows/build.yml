@@ -31,7 +31,12 @@ jobs:
         id: aate_build
         run: |
           BUILD_NUMBER=$((GITHUB_RUN_NUMBER + 1))
-          VERSION_NAME="$(cat AATE_VERSION)"
+          # V5.0.4135 — Patch version is now derived from the CI run number so
+          # every push produces a uniquely-named APK (operator-mandated 2026-06-25
+          # after four consecutive builds shipped as v5.0.4132 because the file
+          # was static). AATE_VERSION now holds the major.minor prefix only.
+          BASE="$(cat AATE_VERSION)"
+          VERSION_NAME="${BASE}.${BUILD_NUMBER}"
           echo "AATE_BUILD_NUMBER=$BUILD_NUMBER" >> "$GITHUB_ENV"
           echo "AATE_VERSION_NAME=$VERSION_NAME" >> "$GITHUB_ENV"
           echo "build_number=$BUILD_NUMBER" >> "$GITHUB_OUTPUT"
