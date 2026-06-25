@@ -5564,11 +5564,11 @@ class Executor(
                 val netPnl: Double
                 val livePnl: Double
                 val liveScore: Double
+                val livePartialReason = if (newSoldPct >= 99.9) "FULL_EXIT_100PCT" else "partial_${newSoldPct.toInt().coerceAtMost(100)}pct"
                 if (pumpSig != null) {
                     sig = pumpSig
                     // Estimate solBack from current mark + sold quantity.
                     solBack = sellQty * actualPrice
-                    val livePartialReason = if (newSoldPct >= 99.9) "FULL_EXIT_100PCT" else "partial_${newSoldPct.toInt().coerceAtMost(100)}pct"
                     val partialAcct = liveSellAccountingAuthority(ts, pos.costSol * sellFraction, solBack, livePartialReason, "partial.pump")
                     livePnl = partialAcct.pnlSol
                     liveScore = partialAcct.pnlPct
@@ -5624,7 +5624,6 @@ class Executor(
                     // V5.9.495k — PHANTOM-aware solBack: zero out fake gains
                     // when the rescue helper returned a PHANTOM_* sentinel sig.
                     solBack = if (sig.startsWith("PHANTOM_")) 0.0 else quote.outAmount / 1_000_000_000.0
-                    val livePartialReason = if (newSoldPct >= 99.9) "FULL_EXIT_100PCT" else "partial_${newSoldPct.toInt().coerceAtMost(100)}pct"
                     val partialAcct = liveSellAccountingAuthority(ts, pos.costSol * sellFraction, solBack, livePartialReason, "partial.jupiter")
                     livePnl = partialAcct.pnlSol
                     liveScore = partialAcct.pnlPct
@@ -12484,7 +12483,7 @@ class Executor(
                 sol              = soldValueSol,
                 price            = currentPrice,
                 ts               = System.currentTimeMillis(),
-                reason           = if (paperDustClosed || newSoldPct >= 99.9) "FULL_EXIT_100PCT" else "partial_${newSoldPct.toInt().coerceAtMost(100)}pct",
+                reason           = if (newSoldPct >= 99.9) "FULL_EXIT_100PCT" else "partial_${newSoldPct.toInt().coerceAtMost(100)}pct",
                 pnlSol           = profitSol,
                 pnlPct           = pnlPct.coerceAtLeast(-100.0),
                 feeSol           = partialSellFee,
