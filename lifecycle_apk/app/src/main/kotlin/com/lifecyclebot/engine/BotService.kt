@@ -9319,6 +9319,46 @@ class BotService : Service() {
             out += "MANIPULATED"
         }
         if (out.isEmpty()) out += listOf("SHITCOIN", "MOONSHOT")
+
+        // V5.0.4149 — REGIME-AWARE INTAKE PIVOT.
+        // Operator: 'its not meant to disable its meant to pivot to the right strategy'
+        //
+        // The previous source-only affinity locks intake into MOONSHOT/SHITCOIN/
+        // PROJECT_SNIPER during a DUMP regime — exactly the lanes that are
+        // bleeding. AgenticStyleRouter.weakChopStylePivot DOES later try to push
+        // toward QUALITY/DIP_HUNTER, but by then the watchlist entry's
+        // laneAffinity is already locked to the degen seed and the defensive
+        // lanes (DIP_HUNTER/TREASURY/CASHGEN) get NO evaluations.
+        //
+        // Operator dump (2026-06-25 19:18, regime=DUMP n=100 wr=4.0%):
+        //   LANE_EVAL by lane:  PROJECT_SNIPER=18  MOONSHOT=9  SHITCOIN=7
+        //   EXPRESS=7  QUALITY=0  DIP_HUNTER=0  TREASURY=0  CASHGEN=0
+        //
+        // Fix: during DUMP regime, prepend the defensive-regime lanes to the
+        // output (preserves the existing degen lanes as fallbacks for variety
+        // & to keep STANDARD-mode V3 evaluations alive) so the watchlist
+        // affinity carries the regime-appropriate options FIRST. boundedLanes
+        // in AgenticStyleRouter still caps the per-token fanout downstream.
+        try {
+            val regime = com.lifecyclebot.engine.RegimeDetector.currentRegime()
+            if (regime == com.lifecyclebot.engine.RegimeDetector.Regime.DUMP) {
+                val defensive = linkedSetOf("QUALITY", "DIP_HUNTER", "TREASURY", "CASHGEN", "BLUECHIP")
+                // PROJECT_SNIPER may still be useful in DUMP for sniping panic-reversion
+                // launches; keep it but de-prioritize. MOONSHOT/SHITCOIN/EXPRESS get
+                // demoted to fallback positions.
+                val degen = out.filter { it !in defensive }
+                val pivoted = linkedSetOf<String>().apply {
+                    addAll(defensive.filter { it == "QUALITY" || it == "DIP_HUNTER" || it == "TREASURY" || it == "CASHGEN" || it in out })
+                    addAll(degen)
+                }
+                if (pivoted != out) {
+                    try { ForensicLogger.lifecycle("REGIME_PIVOT_INTAKE_V4149", "regime=DUMP src=$source liq=$liquidityUsd mcap=$marketCapUsd before=${out.joinToString("+")} after=${pivoted.joinToString("+")}") } catch (_: Throwable) {}
+                    try { PipelineHealthCollector.labelInc("REGIME_PIVOT_INTAKE_DUMP") } catch (_: Throwable) {}
+                    out.clear(); out.addAll(pivoted)
+                }
+            }
+        } catch (_: Throwable) {}
+
         return out
     }
 

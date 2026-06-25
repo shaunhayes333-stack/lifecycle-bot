@@ -9864,10 +9864,17 @@ class Executor(
             }
 
             // (b) DUMP-regime kill switch — pattern-verdict-immune.
+            // V5.0.4149 — Operator override: "its not meant to disable its meant
+            // to pivot to the right strategy." During DUMP, defensive lanes
+            // (DIP_HUNTER, QUALITY, TREASURY, CASHGEN, BLUECHIP) are the
+            // CORRECT pivot — let them trade. Only kill DUMP-mismatched degen
+            // lanes (MOONSHOT, SHITCOIN, EXPRESS, PROJECT_SNIPER, CYCLIC,
+            // MANIPULATED) that are bleeding.
+            val defensiveLane4149 = laneTag4134 in setOf("DIP_HUNTER", "QUALITY", "TREASURY", "CASHGEN", "BLUECHIP", "STANDARD")
             val regimeDump4134 = try {
                 com.lifecyclebot.engine.RegimeDetector.currentRegime() == com.lifecyclebot.engine.RegimeDetector.Regime.DUMP
             } catch (_: Throwable) { false }
-            if (regimeDump4134) {
+            if (regimeDump4134 && !defensiveLane4149) {
                 // Use the same telemetry source LiveProbabilityEngine reads from, so the
                 // kill-switch sees identical lane WR to the rest of the brain stack.
                 val laneMetric4134 = try {
@@ -9879,10 +9886,13 @@ class Executor(
                 if (laneN4134 >= 12 && laneWr4134 < 25.0) {
                     try { ForensicLogger.lifecycle("REGIME_KILL_VETO_V4134", "symbol=${ts.symbol} mint=$mintShort4134 lane=$laneTag4134 regime=DUMP laneWr=${"%.1f".format(laneWr4134)} n=$laneN4134 path=liveBuy.enter") } catch (_: Throwable) {}
                     try { PipelineHealthCollector.labelInc("REGIME_KILL_VETO") } catch (_: Throwable) {}
-                    try { emitLiveBuyFail(ts, sol, "REGIME_KILL_DUMP", "regime=DUMP laneWr=${"%.1f".format(laneWr4134)}% n=$laneN4134 (no GOLD/WINNER bypass)") } catch (_: Throwable) {}
+                    try { emitLiveBuyFail(ts, sol, "REGIME_KILL_DUMP", "regime=DUMP laneWr=${"%.1f".format(laneWr4134)}% n=$laneN4134 (defensive lanes exempted)") } catch (_: Throwable) {}
                     onLog("🔪 DUMP kill switch: ${ts.symbol} lane=$laneTag4134 wr=${"%.0f".format(laneWr4134)}% n=$laneN4134", "discipline")
                     return false
                 }
+            } else if (regimeDump4134 && defensiveLane4149) {
+                try { ForensicLogger.lifecycle("REGIME_PIVOT_LANE_ADMIT_V4149", "symbol=${ts.symbol} mint=$mintShort4134 lane=$laneTag4134 regime=DUMP path=liveBuy.enter") } catch (_: Throwable) {}
+                try { PipelineHealthCollector.labelInc("REGIME_PIVOT_LANE_ADMIT") } catch (_: Throwable) {}
             }
 
             // (c) Standard discipline veto — pause/timeout/scanner. GOLD/WINNER still
