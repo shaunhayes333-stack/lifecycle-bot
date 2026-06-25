@@ -7870,6 +7870,21 @@ class Executor(
         val gooseVerdict4129 = try {
             com.lifecyclebot.engine.PatternGoldenGoose.edge("", ts.symbol).verdict
         } catch (_: Throwable) { com.lifecyclebot.engine.TokenWinMemory.Verdict.NEUTRAL }
+        // V5.0.4133 — RUG-MINT BLACKLIST UNIVERSAL VETO (root cause of EnsVnDQ3-style replays).
+        // RugMintBlacklist.recordClose was wired in the live-sell path (V5.0.4132) but
+        // isBlacklisted() was ONLY consulted in BotService.kt:4813 (one MEME lane). Every
+        // other lane (MOONSHOT, SHITCOIN, QUALITY, BLUECHIP, etc.) re-bought the same
+        // mints minutes after they rugged us at -50% to -98%, multiplying the bleed.
+        // The veto runs BEFORE the GOLD/WINNER goose bypass because a pattern verdict
+        // CANNOT override "this exact mint rugged us within the last 24h". The cooldown
+        // is per-mint (24h TTL); other tokens with the same pattern still trade freely.
+        val rugBlacklisted4133 = try { com.lifecyclebot.engine.RugMintBlacklist.isBlacklisted(ts.mint) } catch (_: Throwable) { false }
+        if (RuntimeModeAuthority.isLive() && rugBlacklisted4133) {
+            try { ForensicLogger.lifecycle("RUG_BLACKLIST_VETO_V4133", "symbol=${ts.symbol} mint=${ts.mint.take(10)} lane=$laneTag goose=${gooseVerdict4129.name} blSize=${runCatching { com.lifecyclebot.engine.RugMintBlacklist.size() }.getOrDefault(-1)}") } catch (_: Throwable) {}
+            try { PipelineHealthCollector.labelInc("RUG_BLACKLIST_VETO") } catch (_: Throwable) {}
+            onLog("🛑 Rug-blacklist veto: ${ts.symbol} (rugged ≤24h ago)", "discipline")
+            return
+        }
         // V5.0.4132 — DISCIPLINE PASS at the size chokepoint.
         // (a) PAUSE BUTTON: if global rolling WR < 25% (DEFENSIVE), only GOLD/WINNER
         //     verdicts trade. Lower lanes get sized DOWN via laneSizeTilt; top

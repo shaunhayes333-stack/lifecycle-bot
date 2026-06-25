@@ -21,8 +21,12 @@ object LaneTimeoutGate {
     private const val PREFS_NAME = "lane_timeout_gate"
     private const val WINDOW = 30
     private const val MIN_SAMPLES = 12          // need data before timing out
-    private const val TIMEOUT_FLOOR_PCT = 20.0   // engage timeout below this
-    private const val RECOVER_FLOOR_PCT = 35.0   // exit timeout above this
+    // V5.0.4133 — operator-mandated tightening. V5.0.4132 ran 20/35; live data
+    // showed MOONSHOT lane WR at 24-25% (EV=-76%, pWin=15%) yet sitting just
+    // above the timeout floor. Tighter floors with a wider recovery gap (20 pts)
+    // ensure broken lanes actually enter timeout instead of bleeding at boundary.
+    private const val TIMEOUT_FLOOR_PCT = 25.0   // engage timeout below this
+    private const val RECOVER_FLOOR_PCT = 45.0   // exit timeout above this
 
     enum class Status { COLD_START, NORMAL, TIMEOUT }
 

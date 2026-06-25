@@ -27,8 +27,13 @@ object LivePauseButton {
     private const val KEY_LANES = "recent_lanes"
     private const val WINDOW = 30
     private const val MIN_SAMPLES = 10           // need at least N closes to engage
-    private const val PAUSE_FLOOR_PCT = 25.0      // engage DEFENSIVE below this
-    private const val RECOVER_FLOOR_PCT = 35.0    // exit DEFENSIVE above this (hysteresis)
+    // V5.0.4133 — operator-mandated tightening. V5.0.4132 ran 25/35; live data
+    // showed WR sitting at 24.4% (just below the entry floor) but the lane-level
+    // bleed continued because the global pause was flapping at the boundary.
+    // Tighter floors with a wider recovery gap (15 pts) give discipline more
+    // headroom to actually engage during DUMP regimes without flap-on-flap-off.
+    private const val PAUSE_FLOOR_PCT = 30.0      // engage DEFENSIVE below this
+    private const val RECOVER_FLOOR_PCT = 45.0    // exit DEFENSIVE above this (hysteresis)
 
     enum class Mode { NORMAL, DEFENSIVE }
 
