@@ -5434,8 +5434,9 @@ class Executor(
             // exporter never zeroes Net Gain on paper partials.
             val paperPartialFee = partialCostBasisSol * MEME_TRADING_FEE_PERCENT
             val paperPartialNetPnl = paperPnlSol - paperPartialFee
+            val paperPartialReason = if (paperDustClosed || newSoldPct >= 99.9) "FULL_EXIT_100PCT" else "partial_${newSoldPct.toInt().coerceAtMost(100)}pct"
             val trade   = Trade("PARTIAL_SELL", "paper", partialCostBasisSol, actualPrice,
-                              System.currentTimeMillis(), "partial_${newSoldPct.toInt().coerceAtMost(100)}pct",
+                              System.currentTimeMillis(), paperPartialReason,
                               paperPnlSol, pct(partialCostBasisSol, sellQty * actualPrice),
                               feeSol = paperPartialFee, netPnlSol = paperPartialNetPnl,
                               tradingMode = pos.tradingMode, tradingModeEmoji = pos.tradingModeEmoji, mint = ts.mint)
@@ -5567,7 +5568,8 @@ class Executor(
                     sig = pumpSig
                     // Estimate solBack from current mark + sold quantity.
                     solBack = sellQty * actualPrice
-                    val partialAcct = liveSellAccountingAuthority(ts, pos.costSol * sellFraction, solBack, "partial_${(sellFraction*100).toInt()}pct", "partial.pump")
+                    val livePartialReason = if (newSoldPct >= 99.9) "FULL_EXIT_100PCT" else "partial_${newSoldPct.toInt().coerceAtMost(100)}pct"
+                    val partialAcct = liveSellAccountingAuthority(ts, pos.costSol * sellFraction, solBack, livePartialReason, "partial.pump")
                     livePnl = partialAcct.pnlSol
                     liveScore = partialAcct.pnlPct
                     netPnl = partialAcct.netPnlSol
@@ -5622,7 +5624,8 @@ class Executor(
                     // V5.9.495k — PHANTOM-aware solBack: zero out fake gains
                     // when the rescue helper returned a PHANTOM_* sentinel sig.
                     solBack = if (sig.startsWith("PHANTOM_")) 0.0 else quote.outAmount / 1_000_000_000.0
-                    val partialAcct = liveSellAccountingAuthority(ts, pos.costSol * sellFraction, solBack, "partial_${(sellFraction*100).toInt()}pct", "partial.jupiter")
+                    val livePartialReason = if (newSoldPct >= 99.9) "FULL_EXIT_100PCT" else "partial_${newSoldPct.toInt().coerceAtMost(100)}pct"
+                    val partialAcct = liveSellAccountingAuthority(ts, pos.costSol * sellFraction, solBack, livePartialReason, "partial.jupiter")
                     livePnl = partialAcct.pnlSol
                     liveScore = partialAcct.pnlPct
                     netPnl = partialAcct.netPnlSol
@@ -5631,7 +5634,7 @@ class Executor(
                 ts.position = pos.copy(qtyToken = newQty, costSol = newCost, partialSoldPct = newSoldPct)
                 val livePartialCostBasisSol = pos.costSol * sellFraction
                 val liveTrade = Trade("PARTIAL_SELL", "live", livePartialCostBasisSol, actualPrice,
-                    System.currentTimeMillis(), "partial_${newSoldPct.toInt().coerceAtMost(100)}pct",
+                    System.currentTimeMillis(), livePartialReason,
                     livePnl, liveScore, sig = sig, feeSol = feeSol, netPnlSol = netPnl,
                     mint = ts.mint, tradingMode = pos.tradingMode, tradingModeEmoji = pos.tradingModeEmoji)
                 recordTrade(ts, liveTrade); security.recordTrade(liveTrade)
@@ -12481,7 +12484,7 @@ class Executor(
                 sol              = soldValueSol,
                 price            = currentPrice,
                 ts               = System.currentTimeMillis(),
-                reason           = "partial_${newSoldPct.toInt().coerceAtMost(100)}pct",
+                reason           = if (paperDustClosed || newSoldPct >= 99.9) "FULL_EXIT_100PCT" else "partial_${newSoldPct.toInt().coerceAtMost(100)}pct",
                 pnlSol           = profitSol,
                 pnlPct           = pnlPct.coerceAtLeast(-100.0),
                 feeSol           = partialSellFee,
@@ -12819,7 +12822,7 @@ class Executor(
                     
                     val livePartialCostBasisSol = pos.costSol * pct
                     val liveTrade = Trade("PARTIAL_SELL", "live", livePartialCostBasisSol, currentPrice,
-                        System.currentTimeMillis(), "partial_${newSoldPct.toInt().coerceAtMost(100)}pct",
+                        System.currentTimeMillis(), if (newSoldPct >= 99.9) "FULL_EXIT_100PCT" else "partial_${newSoldPct.toInt().coerceAtMost(100)}pct",
                         livePnl, liveScore, sig = finalSig, feeSol = feeSol, netPnlSol = netPnl,
                         mint = ts.mint, tradingMode = pos.tradingMode, tradingModeEmoji = pos.tradingModeEmoji)
                     

@@ -240,17 +240,18 @@ object LiveStylePivotRouter {
             }
             "MOONSHOT" -> {
                 if (scoreBand == "S41-60") {
-                    if (bestQualityLane() == "LIQUIDITY_DEPTH_QUALITY" && highQualityProof) promoteQuality("LIQUIDITY_DEPTH_QUALITY", "LIQUIDITY_DEPTH_QUALITY", 0.75, "MOONSHOT_S41_60_QUALITY_PROMOTION")
-                    else if (score >= 55.0 && highQualityProof && canLiveAdaptiveRelease("MOONSHOT")) promoteQuality("MOONSHOT", "MOONSHOT", 0.65, "MOONSHOT_S55_60_CLEAN_PROOF_QUALITY_RELEASE")
-                    // GT:MOONSHOT_S48_60_HIGH_QUALITY_SIZE_SHAPED (kept for GT compat)
-                    // V5.0.4124 — DATA-DRIVEN TIGHTENING. Operator data shows
-                    // MOONSHOT S41-60 has 85% loss rate. S48-54 was opened in 4119
-                    // but the data says it bleeds. Tighten to S55+ only with
-                    // clean proof. S48-54 now defers like S41-47.
-                    else if (score >= 55.0 && routeTrusted && basisTrusted && rugProof) {
-                        mult = minOf(mult, 0.35); reasons += "MOONSHOT_S55_60_NATIVE_SIZE_SHAPED_V4124" /* GT:MOONSHOT_S55_60_NATIVE_SIZE_SHAPED */
+                    // V5.0.4153 — SOURCE FIX: MOONSHOT S41-60 is live-toxic.
+                    // Operator 22:16 snapshot: losses=49 wins=1 meanPnL=-94.95%,
+                    // lane WR=10%, net=-2.114 SOL. Earlier builds kept S55-60 native
+                    // release paths alive, so the read-only danger report screamed but
+                    // execution still bled. No native MOONSHOT exposure in S41-60 now.
+                    // Only independent liquidity-depth quality proof may rescue it into
+                    // a DIFFERENT quality lane; otherwise defer/train off executed closes.
+                    if (bestQualityLane() == "LIQUIDITY_DEPTH_QUALITY" && highQualityProof) {
+                        promoteQuality("LIQUIDITY_DEPTH_QUALITY", "LIQUIDITY_DEPTH_QUALITY", 0.50, "MOONSHOT_S41_60_ONLY_LDQ_QUALITY_RESCUE_V4153")
+                    } else {
+                        defer("MOONSHOT_S41_60_LIVE_TOXIC_DEFER_V4153")
                     }
-                    else defer("MOONSHOT_S48_60_DANGER_DEFER_V4124") // GT:MOONSHOT_S41_60_DANGER_DEFER
                 } else if (score >= 61.0 && routeTrusted && basisTrusted) { mult = maxOf(mult, 1.0); reasons += "MOONSHOT_NATIVE_CONFIRMED" }
             }
             "QUALITY" -> {

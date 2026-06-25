@@ -8656,7 +8656,26 @@ class BotService : Service() {
                                 try { ForensicLogger.lifecycle("TICK_PROFIT_LOCK_SKIPPED_LANE", "mint=${ts.mint.take(10)} symbol=${ts.symbol} mode=${pos.tradingMode} paper=${pos.isPaperPosition}") } catch (_: Throwable) {}
                             }
                             if (tickProfitLockEligible) {
-                                val pnlPctNow = (priceUsd - entryPx) / entryPx * 100.0
+                                val rawTickPnlPctNow = (priceUsd - entryPx) / entryPx * 100.0
+                                // V5.0.4152 — UI/EXEC HIGH-LOCK PARITY.
+                                // Operator screenshot: TARGET Peak +2600% / lock +2600%,
+                                // but position stayed open. Root cause: the UI displayed
+                                // FluidLearningAI.getDynamicFluidStop() while this hot exit
+                                // path used an older loose peak-ratio floor and raw tick PnL.
+                                // Resolve through Executor's executable price normalizer, then
+                                // compare against the SAME fluid lock floor the UI shows.
+                                val execPxForTickLock = try {
+                                    executor.getActualPricePublic(ts).takeIf { it.isFinite() && it > 0.0 }
+                                } catch (_: Throwable) { null }
+                                val entryPxForTickLock = pos.entryPrice.takeIf { it.isFinite() && it > 0.0 } ?: entryPx
+                                val execPnlPctNow = if (execPxForTickLock != null && entryPxForTickLock > 0.0)
+                                    ((execPxForTickLock - entryPxForTickLock) / entryPxForTickLock) * 100.0
+                                else rawTickPnlPctNow
+                                val pnlPctNow = execPnlPctNow
+                                if (kotlin.math.abs(execPnlPctNow - rawTickPnlPctNow) >= 5.0) {
+                                    try { PipelineHealthCollector.labelInc("TICK_PROFIT_LOCK_EXEC_PRICE_REBASE") } catch (_: Throwable) {}
+                                    try { ForensicLogger.lifecycle("TICK_PROFIT_LOCK_EXEC_PRICE_REBASE", "mint=${ts.mint.take(10)} symbol=${ts.symbol} raw=${"%.1f".format(rawTickPnlPctNow)} exec=${"%.1f".format(execPnlPctNow)} peak=${"%.1f".format(pos.peakGainPct)} src=${ts.lastPriceSource}") } catch (_: Throwable) {}
+                                }
                                 // V5.9.1562 — RATCHET peakGainPct BEFORE the lock check.
                                 // Operator MFE forensic 5.0.3659 (MOONSHOT avgPeak +630% but
                                 // avgRealized -1.4% — runner cut catastrophically): root
@@ -8701,19 +8720,22 @@ class BotService : Service() {
                                             walletTick, balTick)
                                     } catch (_: Throwable) {}
                                 } else {
-                                    // ─── Guard 2: TICK_PROFIT_LOCK (peak give-back) ───
-                                    // Peak-tier give-back ratios — let runners run but
-                                    // never give back a 1000% ride.
-                                    val giveBackRatio = when {
-                                        peakPct >= 500.0 -> 0.30   // 5x+ : lock 70% of peak
-                                        peakPct >= 200.0 -> 0.40   // 2x+ : lock 60% of peak
-                                        peakPct >= 100.0 -> 0.50   // 1x+ : lock 50% of peak
-                                        peakPct >=  30.0 -> 0.60   // +30%+ modest runners: lock 40%
-                                        else -> Double.NaN
-                                    }
-                                    if (!giveBackRatio.isNaN()) {
-                                        val lockedFloor = peakPct - (peakPct * giveBackRatio)
-                                        if (pnlPctNow < lockedFloor && pnlPctNow > 0.0) {
+                                    // ─── Guard 2: TICK_PROFIT_LOCK (UI high-lock parity) ───
+                                    // Use FluidLearningAI's high-lock floor — the same value
+                                    // rendered as "lock +X%" in the open-position card.
+                                    val lockedFloor = try {
+                                        com.lifecyclebot.v3.scoring.FluidLearningAI.getDynamicFluidStop(
+                                            modeDefaultStop = 20.0,
+                                            currentPnlPct = pnlPctNow,
+                                            peakPnlPct = peakPct,
+                                            holdTimeSeconds = ((System.currentTimeMillis() - pos.entryTime) / 1000.0).coerceAtLeast(0.0),
+                                            volatility = ts.volatility ?: 50.0,
+                                        )
+                                    } catch (_: Throwable) { Double.NaN }
+                                    if (!lockedFloor.isNaN() && lockedFloor > 0.0) {
+                                        val highLockImmediate = peakPct >= 200.0 && pnlPctNow >= lockedFloor
+                                        val lockBreached = pnlPctNow < lockedFloor && pnlPctNow > 0.0
+                                        if (highLockImmediate || lockBreached) {
                                             // V5.9.1566 — doctrine: never bank a positive
                                             // pnl that doesn't beat cost + treasury feed.
                                             // Stop-loss path is unaffected (this branch
@@ -8721,7 +8743,7 @@ class BotService : Service() {
                                             val isPaperRt = try { com.lifecyclebot.engine.RuntimeModeAuthority.isPaper() } catch (_: Throwable) { false }
                                             val beOk = com.lifecyclebot.engine.LiveRestoreExecutionPolicy.sellSideBreakEvenOk(ts, pnlPctNow, isPaperRt)
                                             if (!beOk) {
-                                                // hold for more upside — peak-lock will fire on next deeper give-back
+                                                // hold for more upside — high-lock will retry on next tick
                                             } else {
                                             ErrorLogger.warn("BotService",
                                                 "🔒 TICK_PROFIT_LOCK ${ts.symbol} " +
@@ -15054,7 +15076,8 @@ if (hotExitHandledSweep) {
         // This Part-0 runs BEFORE Treasury + V3 manage and is a pure safety
         // net: regardless of which lane owns the position, force-close when
         // (a) pnl% has fallen below the universal hard floor (-20%), OR
-        // (b) the position peaked ≥+30% and has given back ≥50% of that peak.
+        // (b) the position peaked enough to expose a positive FluidLearningAI
+        //     high-lock floor and current executable PnL is at/through that floor.
         //
         // No new pause/disable/cap. Just enforces faster EXIT on positions
         // that the per-lane SL/trail demonstrably failed to close.
@@ -15074,12 +15097,24 @@ if (hotExitHandledSweep) {
                     if (entry <= 0.0) return@forEach
                     val last = ts.lastPrice
                     if (last <= 0.0) return@forEach
-                    val pnlPct = ((last - entry) / entry) * 100.0
-                    val peakPct = ts.position.peakGainPct
+                    val rawPnlPct = ((last - entry) / entry) * 100.0
+                    val execPx = try { executor.getActualPricePublic(ts).takeIf { it.isFinite() && it > 0.0 } } catch (_: Throwable) { null }
+                    val entryForExec = ts.position.entryPrice.takeIf { it.isFinite() && it > 0.0 } ?: entry
+                    val pnlPct = if (execPx != null && entryForExec > 0.0) ((execPx - entryForExec) / entryForExec) * 100.0 else rawPnlPct
+                    val peakPct = kotlin.math.max(ts.position.peakGainPct, pnlPct)
                     val hardFloor = pnlPct <= -20.0
-                    val peakDrawdown = peakPct >= 30.0 &&
-                        peakPct > 0.0 &&
-                        ((peakPct - pnlPct) / peakPct) >= 0.50
+                    val fluidLockFloor = try {
+                        com.lifecyclebot.v3.scoring.FluidLearningAI.getDynamicFluidStop(
+                            modeDefaultStop = 20.0,
+                            currentPnlPct = pnlPct,
+                            peakPnlPct = peakPct,
+                            holdTimeSeconds = (posAgeMs / 1000.0).coerceAtLeast(0.0),
+                            volatility = ts.volatility ?: 50.0,
+                        )
+                    } catch (_: Throwable) { Double.NaN }
+                    val highLockImmediate = peakPct >= 200.0 && fluidLockFloor.isFinite() && fluidLockFloor > 0.0 && pnlPct >= fluidLockFloor
+                    val lockBreached = peakPct >= 30.0 && fluidLockFloor.isFinite() && fluidLockFloor > 0.0 && pnlPct < fluidLockFloor && pnlPct > 0.0
+                    val peakDrawdown = highLockImmediate || lockBreached
                     if (!hardFloor && !peakDrawdown) return@forEach
                     val reason = if (hardFloor)
                         "UNIVERSAL_HARD_FLOOR_${pnlPct.toInt()}PCT"
