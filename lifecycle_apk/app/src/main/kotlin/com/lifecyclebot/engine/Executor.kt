@@ -2337,7 +2337,7 @@ class Executor(
         // the conservative 2% impact cap. TOXIC/CATASTROPHIC use the standard
         // floor — they shouldn't be sized up.
         val gooseImpactVerdict4131 = try {
-            com.lifecyclebot.engine.PatternGoldenGoose.edge("", ts.symbol).verdict
+            com.lifecyclebot.engine.PatternGoldenGoose.edge(ts.name, ts.symbol).verdict
         } catch (_: Throwable) { com.lifecyclebot.engine.TokenWinMemory.Verdict.NEUTRAL }
         val impactMult4131 = when (gooseImpactVerdict4131) {
             com.lifecyclebot.engine.TokenWinMemory.Verdict.GOLD    -> 4.0  // 8% impact OK
@@ -7652,6 +7652,7 @@ class Executor(
                 "mint=${ts.mint.take(10)} symbol=${ts.symbol} reason=$reason ${detail.take(160)} no_buy_failed=true no_backoff=true",
             )
             PipelineHealthCollector.labelInc("LIVE_BUY_DEFERRED_$reason")
+            PipelineHealthCollector.labelInc("ENTRY_SUPPRESSOR_$reason")
         } catch (_: Throwable) {}
     }
 
@@ -7830,7 +7831,7 @@ class Executor(
         // signal, not the market-wide signal. WINNER lifts to 0.60 minimum.
         // CATASTROPHIC/TOXIC/NEUTRAL remain on the standard brake.
         val gooseRegimeVerdict4130 = try {
-            com.lifecyclebot.engine.PatternGoldenGoose.edge("", ts.symbol).verdict
+            com.lifecyclebot.engine.PatternGoldenGoose.edge(ts.name, ts.symbol).verdict
         } catch (_: Throwable) { com.lifecyclebot.engine.TokenWinMemory.Verdict.NEUTRAL }
         val regimeMultGoosed = when (gooseRegimeVerdict4130) {
             com.lifecyclebot.engine.TokenWinMemory.Verdict.GOLD    -> maxOf(regimeMult, 1.00)  // full bypass
@@ -7960,7 +7961,7 @@ class Executor(
         // The legacy `sol * winnerMaxBoost` upper cap is preserved as the
         // baseline; GOLD/WINNER verdicts apply an ADDITIONAL multiplier on top.
         val gooseVerdict4129 = try {
-            com.lifecyclebot.engine.PatternGoldenGoose.edge("", ts.symbol).verdict
+            com.lifecyclebot.engine.PatternGoldenGoose.edge(ts.name, ts.symbol).verdict
         } catch (_: Throwable) { com.lifecyclebot.engine.TokenWinMemory.Verdict.NEUTRAL }
         // V5.0.4133 — RUG-MINT BLACKLIST UNIVERSAL VETO (root cause of EnsVnDQ3-style replays).
         // RugMintBlacklist.recordClose was wired in the live-sell path (V5.0.4132) but
@@ -10062,7 +10063,7 @@ class Executor(
             val laneTimedOut4134 = try { com.lifecyclebot.engine.LaneTimeoutGate.isTimedOut(laneTag4134) } catch (_: Throwable) { false }
             val srcTag4134 = ts.source.ifBlank { "UNKNOWN" }.uppercase()
             val bridgeToxic4134 = try { !com.lifecyclebot.engine.ScannerLaneBridge.shouldRoute(srcTag4134, laneTag4134) } catch (_: Throwable) { false }
-            val gooseVerdict4134 = try { com.lifecyclebot.engine.PatternGoldenGoose.edge("", ts.symbol).verdict } catch (_: Throwable) { com.lifecyclebot.engine.TokenWinMemory.Verdict.NEUTRAL }
+            val gooseVerdict4134 = try { com.lifecyclebot.engine.PatternGoldenGoose.edge(ts.name, ts.symbol).verdict } catch (_: Throwable) { com.lifecyclebot.engine.TokenWinMemory.Verdict.NEUTRAL }
             val isHighEdge4134 = gooseVerdict4134 == com.lifecyclebot.engine.TokenWinMemory.Verdict.GOLD || gooseVerdict4134 == com.lifecyclebot.engine.TokenWinMemory.Verdict.WINNER
             if (!isHighEdge4134 && (effectivePause4148 || laneTimedOut4134 || bridgeToxic4134)) {
                 val reasonTag4134 = when {
@@ -15527,24 +15528,25 @@ class Executor(
                 //
                 // Emergency reasons (RUG, HONEYPOT, CATASTROPHIC,
                 // STEALTH_MINT, STALE, MAX_HOLD, MUST_SELL, EMERGENCY,
-                // SHUTDOWN, PHANTOM, DRAIN, PANIC, REFLEX, LIQ) ALWAYS
+                // SHUTDOWN, PHANTOM, DRAIN, PANIC, REFLEX, explicit LIQUIDITY_* emergencies) ALWAYS
                 // broadcast — they'd rather take a -50% fill than be
                 // stuck in a rug.
                 if (com.lifecyclebot.engine.ExecutionHealthGuard.shouldDeferDirectRouteSell(ts.mint, reason)) {
                     val n = com.lifecyclebot.engine.ExecutionHealthGuard.directRouteDeferCount(ts.mint)
-                    onLog("🛑 SELL DEFERRED (jupiter dead, non-emergency): ${ts.symbol} reason='$reason' (defer ${n}/5) — re-queue, retry on next exit tick", ts.mint)
+                    val ageMs = com.lifecyclebot.engine.ExecutionHealthGuard.directRouteDeferAgeMs(ts.mint)
+                    onLog("🛑 SELL DEFERRED (jupiter dead, non-emergency): ${ts.symbol} reason='$reason' (defer ${n}/5 age=${ageMs}ms cap=30000ms) — re-queue, retry on next exit tick", ts.mint)
                     try {
                         LiveTradeLogStore.log(
                             sellTradeKey, ts.mint, ts.symbol, "SELL",
                             LiveTradeLogStore.Phase.SELL_QUOTE_FAIL,
-                            "SELL_DIRECT_ROUTE_FREEZE_4161 jupiter=dead reason='$reason' defer=$n/5 — waiting for jupiter recovery before broadcasting direct route",
+                            "SELL_DIRECT_ROUTE_FREEZE_4163 jupiter=dead reason='$reason' defer=$n/5 age=${ageMs}ms cap=30000ms — waiting briefly for jupiter recovery before broadcasting direct route",
                             traderTag = "MEME",
                         )
                         ForensicLogger.lifecycle(
                             "SELL_DIRECT_ROUTE_FREEZE",
-                            "mint=${ts.mint.take(10)} symbol=${ts.symbol} reason=${reason.take(40)} defer=$n/5 jupiter=dead action=defer_pending_recovery"
+                            "mint=${ts.mint.take(10)} symbol=${ts.symbol} reason=${reason.take(40)} defer=$n/5 ageMs=$ageMs jupiter=dead action=defer_pending_recovery"
                         )
-                        PipelineHealthCollector.labelInc("SELL_DIRECT_ROUTE_FREEZE_4161")
+                        PipelineHealthCollector.labelInc("SELL_DIRECT_ROUTE_FREEZE_4163")
                     } catch (_: Throwable) {}
                     return SellResult.FAILED_RETRYABLE
                 }

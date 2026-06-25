@@ -51,8 +51,9 @@ object ExecutionHealthGuard {
     /** Treat Jupiter as dead if no success within this many ms. */
     private const val JUPITER_FRESH_SUCCESS_WINDOW_MS = 60_000L
 
-    /** Cap on direct-route sell defers per mint (5 ticks ≈ 30s of patience). */
+    /** Cap on direct-route sell defers per mint; wall-clock cap is the real authority. */
     private const val DIRECT_ROUTE_DEFER_MAX = 5
+    private const val DIRECT_ROUTE_DEFER_MAX_MS = 30_000L
 
     // ─── Slippage alarm ──────────────────────────────────────────────────
     /** A realized-vs-quoted gap larger than this fraction triggers the alarm. */
@@ -112,6 +113,7 @@ object ExecutionHealthGuard {
     fun shouldDeferBuy(): Boolean = !isJupiterHealthy()
 
     private val directRouteDeferCounts = ConcurrentHashMap<String, AtomicInteger>()
+    private val directRouteFirstDeferMs = ConcurrentHashMap<String, Long>()
 
     /**
      * Sell-side gate. Returns true when we should defer a NON-emergency
@@ -127,12 +129,16 @@ object ExecutionHealthGuard {
             // Jupiter is alive again — clear any prior defers so we don't
             // carry stale state once recovery happens.
             directRouteDeferCounts.remove(mint)
+            directRouteFirstDeferMs.remove(mint)
             return false
         }
+        val now = System.currentTimeMillis()
+        val firstMs = directRouteFirstDeferMs.getOrPut(mint) { now }
         val counter = directRouteDeferCounts.getOrPut(mint) { AtomicInteger(0) }
         val n = counter.incrementAndGet()
-        if (n > DIRECT_ROUTE_DEFER_MAX) {
+        if (n > DIRECT_ROUTE_DEFER_MAX || now - firstMs >= DIRECT_ROUTE_DEFER_MAX_MS) {
             directRouteDeferCounts.remove(mint)
+            directRouteFirstDeferMs.remove(mint)
             return false // force-proceed to avoid permanent freeze
         }
         return true
@@ -142,9 +148,15 @@ object ExecutionHealthGuard {
     fun directRouteDeferCount(mint: String): Int =
         directRouteDeferCounts[mint]?.get() ?: 0
 
+    fun directRouteDeferAgeMs(mint: String): Long {
+        val first = directRouteFirstDeferMs[mint] ?: return 0L
+        return (System.currentTimeMillis() - first).coerceAtLeast(0L)
+    }
+
     /** Clear the defer counter for a mint after a successful sell. */
     fun clearDirectRouteDefer(mint: String) {
         directRouteDeferCounts.remove(mint)
+        directRouteFirstDeferMs.remove(mint)
     }
 
     // ─── Slippage violation alarm ────────────────────────────────────────

@@ -16479,7 +16479,13 @@ if (hotExitHandledSweep) {
     }
 
     // In PAUSED mode: no new entries (existing positions still managed)
-    if (modeConf?.mode == AutoModeEngine.BotMode.PAUSED && !ts.position.isOpen) return
+    if (modeConf?.mode == AutoModeEngine.BotMode.PAUSED && !ts.position.isOpen) {
+        try {
+            PipelineHealthCollector.labelInc("ENTRY_SUPPRESSOR_AUTOMODE_PAUSED_4163")
+            ForensicLogger.lifecycle("ENTRY_SUPPRESSOR_AUTOMODE_PAUSED_4163", "mint=${mint.take(10)} symbol=${ts.symbol} source=${ts.source.take(80)}")
+        } catch (_: Throwable) {}
+        return
+    }
 
     // ═══════════════════════════════════════════════════════════════════
     // V5.9.1270 — REVIVE RegimeTransitionAI (dead-intelligence fix).

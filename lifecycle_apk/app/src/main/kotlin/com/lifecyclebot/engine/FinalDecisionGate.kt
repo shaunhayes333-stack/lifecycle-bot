@@ -2012,7 +2012,7 @@ object FinalDecisionGate {
                 // 50-82% WR and many lose route data only transiently between
                 // launch and DexScreener indexing. CATASTROPHIC/TOXIC still hard-block.
                 val gooseVerdictFdg = try {
-                    com.lifecyclebot.engine.PatternGoldenGoose.edge("", ts.symbol).verdict
+                    com.lifecyclebot.engine.PatternGoldenGoose.edge(ts.name, ts.symbol).verdict
                 } catch (_: Throwable) { com.lifecyclebot.engine.TokenWinMemory.Verdict.NEUTRAL }
                 val goldenRouteOverride = gooseVerdictFdg == com.lifecyclebot.engine.TokenWinMemory.Verdict.GOLD ||
                                           gooseVerdictFdg == com.lifecyclebot.engine.TokenWinMemory.Verdict.WINNER
