@@ -7,6 +7,41 @@ Stocks, Markets, Tokenized Stocks, Forex, Metals, Commodities). Foreground
 Service with a 50+ AI-module pipeline gated through processTokenCycle.
 
 
+## V5.0.4134 (Feb 2026) — DUMP REGIME KILL SWITCH + UNIVERSAL `liveBuy()` VETO
+
+Operator pushback after V5.0.4133: *"bot is still going backwards winrate
+under 20%. unacceptable."*
+
+### Root cause discovered
+- V5.0.4133's rug-blacklist veto sat at `doBuy()` — but MOONSHOT
+  shadow-to-live handoff calls `liveBuy()` *directly* at
+  `Executor.kt:8115`, **bypassing `doBuy()` entirely**. Plausibly the
+  cyclic/network-signal auto-buy paths do the same.
+- Even when discipline gates ran, the V5.0.4132/4133 GOLD/WINNER goose
+  bypass let pattern-flagged tokens through — which is precisely how the
+  same rug-pattern mint kept getting re-bought.
+- `LaneExpectancyDamper` (size ×0.18) is a damper, not a brake. Tiny
+  size × negative EV × dozens of trades = slow certain bleed.
+
+### Fix — three-layer veto stack at the TRUE single live entry point
+`liveBuy()` is the documented single live executor entry point (see
+comment line 8101). The three-layer veto sits at the head:
+
+1. **Rug-blacklist** — universal, immune to all bypasses. Forensic:
+   `RUG_BLACKLIST_VETO_V4134`.
+2. **DUMP-regime kill switch** — fires when BOTH
+   `RegimeDetector.currentRegime() == DUMP` AND lane WR < 25% with n≥12
+   (via `StrategyTelemetry.computeLiveTerminalLeaderboard` — same data
+   source `LiveProbabilityEngine` reads). **Cannot be bypassed by
+   GOLD/WINNER**. Auto-recovers when regime exits DUMP or lane WR climbs
+   back. Forensic: `REGIME_KILL_VETO_V4134`.
+3. **Standard discipline veto** — pause / timeout / scanner-bridge
+   mirrored from `doBuy` so non-`doBuy` callers also see it. GOLD/WINNER
+   bypasses these (per V5.0.4132 design); rug-BL + DUMP kill are immune.
+   Forensic: `DISCIPLINE_VETO_V4134`.
+
+CI: GREEN ✅ (run 28146223234).
+
 ## V5.0.4133 (Feb 2026) — RUG-BLACKLIST UNIVERSAL VETO + TIGHTER DISCIPLINE FLOORS
 
 Operator dump (2026-06-25, V5.0.4132 post-restart, 344s uptime) — same mint

@@ -4,6 +4,27 @@ All notable changes to the Autonomous AI Trading Engine.
 
 ---
 
+## [5.0.4134] - 2026-02 — DUMP REGIME KILL SWITCH + UNIVERSAL liveBuy() VETO
+
+Operator: "bot is still going backwards winrate under 20%. unacceptable."
+
+**Root cause**: V5.0.4133's veto sat at `doBuy()`, but MOONSHOT
+shadow-to-live (Executor.kt:8115) calls `liveBuy()` directly, bypassing
+`doBuy()` entirely. Plus GOLD/WINNER goose verdicts kept bypassing the
+discipline pack.
+
+**Fix**: Three-layer veto at `liveBuy()` head (the TRUE single live entry):
+- (a) Rug-blacklist — universal, immune to all bypasses
+- (b) **DUMP-regime kill switch** — `regime==DUMP` AND lane WR <25% (n≥12)
+  via `StrategyTelemetry.computeLiveTerminalLeaderboard`. Pattern-verdict-
+  immune. No GOLD/WINNER bypass.
+- (c) Pause/timeout/scanner-bridge — mirrored from `doBuy` so non-`doBuy`
+  callers also see them.
+
+CI: GREEN ✅ (run 28146223234).
+
+---
+
 ## [5.0.4133] - 2026-02 — RUG-BLACKLIST UNIVERSAL VETO + TIGHTER FLOORS
 
 Operator dump showed the same mint `EnsVnDQ3` rugging 6 times at -98.6% in the
