@@ -101,7 +101,7 @@ object PositionCloseLedger {
     /** Spec rehydration rule: hard-closed = CLOSED in ledger AND fresh wallet balance
      *  is dust. null balance = unknown → NOT hard-closed (never hide a genuinely-held
      *  bag on an RPC blip). */
-    fun isHardClosed(mint: String, walletBalanceUi: Double?, dustUi: Double = 0.000001): Boolean {
+    fun isHardClosed(mint: String, walletBalanceUi: Double?, dustUi: Double = 1.0): Boolean {
         if (!isClosed(mint)) return false
         if (walletBalanceUi == null) return false
         return walletBalanceUi <= dustUi

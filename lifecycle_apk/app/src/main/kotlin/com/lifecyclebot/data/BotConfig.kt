@@ -291,7 +291,7 @@ data class BotConfig(
     val perpsEnabled: Boolean = true,           // SOL Perps trader
 
     // ═══ Cyclic Trade Ring ($500 USD compound ring) ═══
-    val cyclicTradeEnabled: Boolean = true,         // V5.9.222: Always on by default — paper runs permanently
+    val cyclicTradeEnabled: Boolean = false,        // V5.0.4155: operator requested CYCLIC disabled; all other meme lanes active
     val cyclicTradeLiveEnabled: Boolean = false,     // Force live execution (overrides treasury threshold)
 )
 
@@ -695,7 +695,7 @@ object ConfigStore {
             metalsEnabled               = p.getBoolean("metals_enabled", true),
             forexEnabled                = p.getBoolean("forex_enabled", true),
             perpsEnabled                = p.getBoolean("perps_enabled", true),
-            cyclicTradeEnabled          = p.getBoolean("cyclic_trade_enabled", true),  // V5.9.222: default on
+            cyclicTradeEnabled          = p.getBoolean("cyclic_trade_enabled", false), // V5.0.4155: default off; no CYCLIC slot/fanout choke
             cyclicTradeLiveEnabled      = p.getBoolean("cyclic_trade_live_enabled", false),
             // V5.9.326: classic scoring mode (default true = build ~1920 pipeline)
             classicScoringMode          = p.getBoolean("classic_scoring_mode", false),  // V5.9.957: default flipped

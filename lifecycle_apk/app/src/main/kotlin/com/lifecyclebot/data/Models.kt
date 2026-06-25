@@ -161,7 +161,10 @@ data class Position(
     // single source of truth: only false when the verify coroutine OR the
     // BotService watchdog has confirmed real on-chain state.
     val isOpen get(): Boolean {
-        if (qtyToken <= 0.0) return false
+        // V5.0.4155 — terminal SPL dust: a literal one-token remnant is not a tradable
+        // position. Treat qty<=1 as closed/dust so status/open-slot/exit loops do not
+        // keep managing wallet crumbs forever.
+        if (qtyToken <= 1.0) return false
         // V5.0.3760 — confirmed live buys must be visible/sell-managed while
         // wallet token indexing catches up. pendingVerify means qty authority is
         // ESTIMATED_PENDING_WALLET_PROOF, not invisible. Ghost protection now
@@ -171,7 +174,7 @@ data class Position(
     }
     // True when tokens exist on-chain regardless of verify state — used for
     // fee accounting and capital exposure calculations.
-    val hasTokens get() = qtyToken > 0.0
+    val hasTokens get() = qtyToken > 1.0
     val initialCostSol get() = costSol - topUpCostSol  // original entry size
     val avgEntryCost get() = if (qtyToken > 0) costSol else 0.0
     val isFullyBuilt get() = buildPhase >= 3 || targetBuildSol <= 0 || costSol >= targetBuildSol * 0.95

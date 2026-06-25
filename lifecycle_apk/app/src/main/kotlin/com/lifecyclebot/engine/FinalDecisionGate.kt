@@ -2066,36 +2066,66 @@ object FinalDecisionGate {
         }
 
         if (blockReason == null && !config.paperMode) {
-            // Liquidity floor — 25k USD minimum for live entries
-            if (ts.lastLiquidityUsd < 25_000.0 && ts.lastLiquidityUsd > 0.0) {
-                blockReason = "HARD_BLOCK_LIQUIDITY_BELOW_25K"
+            // V5.0.4155 — fluid gate doctrine. Report 5.0.4154 showed FDG 0/48
+            // allowed because every candidate hit the static <$25K liquidity hard
+            // veto. Gates start soft and tighten only after the learning/AGI stack
+            // has enough live evidence; low liquidity is a size/route-risk shaper,
+            // not a universal hard block. Keep only true dust liquidity <$2.5K as
+            // hard safety, then let LiveSizingProfile reduce exposure up to $25K.
+            val liveLiq = ts.lastLiquidityUsd
+            if (liveLiq in 0.000001..2_500.0) {
+                blockReason = "HARD_BLOCK_LIQUIDITY_BELOW_2_5K"
                 blockLevel = BlockLevel.HARD
-                checks.add(GateCheck("liquidity_25k", false, "liq=\$${ts.lastLiquidityUsd.toInt()} < \$25K"))
-                tags.add("low_liquidity_25k")
+                checks.add(GateCheck("liquidity_2_5k", false, "liq=\$${liveLiq.toInt()} < \$2.5K"))
+                tags.add("low_liquidity_dust_floor")
+            } else if (liveLiq in 2_500.0..25_000.0) {
+                checks.add(GateCheck("liquidity_25k_soft", true, "liq=\$${liveLiq.toInt()} < \$25K — soft-size, not veto"))
+                tags.add("low_liquidity_size_reduction")
+                try {
+                    com.lifecyclebot.engine.LiveSizingProfile.markGateSoftShape(ts.mint, "LOW_LIQUIDITY_SIZE_REDUCTION")
+                    com.lifecyclebot.engine.PipelineHealthCollector.labelInc("FDG_LOW_LIQUIDITY_SOFT_SHAPED")
+                } catch (_: Throwable) {}
             }
         }
 
         if (blockReason == null && !config.paperMode) {
-            // mcap/liq ratio — if mcap is more than 8x liquidity, the token is
-            // extremely thin relative to its valuation (rug-prone exit risk).
+            // V5.0.4155 — fluid thin-liquidity valuation gate. >8x mcap/liquidity
+            // is real exit risk, but in early bootstrap it should reduce size and
+            // let AGI/lane brains collect evidence. Only extreme >20x remains hard.
             val mcap = ts.lastMcap.takeIf { it > 0.0 }
             val liq = ts.lastLiquidityUsd.takeIf { it > 0.0 }
-            if (mcap != null && liq != null && mcap / liq > 8.0) {
-                blockReason = "HARD_BLOCK_MCAP_LIQ_RATIO_${(mcap / liq).toInt()}X"
+            val mcapLiqRatio = if (mcap != null && liq != null) mcap / liq else 0.0
+            if (mcapLiqRatio > 20.0) {
+                blockReason = "HARD_BLOCK_MCAP_LIQ_RATIO_${mcapLiqRatio.toInt()}X"
                 blockLevel = BlockLevel.HARD
-                checks.add(GateCheck("mcap_liq_ratio", false, "mcap/liq=${(mcap / liq).toInt()}x > 8x"))
-                tags.add("thin_mcap_liq_ratio")
+                checks.add(GateCheck("mcap_liq_ratio_extreme", false, "mcap/liq=${mcapLiqRatio.toInt()}x > 20x"))
+                tags.add("extreme_thin_mcap_liq_ratio")
+            } else if (mcapLiqRatio > 8.0) {
+                checks.add(GateCheck("mcap_liq_ratio_soft", true, "mcap/liq=${mcapLiqRatio.toInt()}x > 8x — soft-size, not veto"))
+                tags.add("thin_mcap_liq_size_reduction")
+                try {
+                    com.lifecyclebot.engine.LiveSizingProfile.markGateSoftShape(ts.mint, "MCAP_LIQ_RATIO_SIZE_REDUCTION")
+                    com.lifecyclebot.engine.PipelineHealthCollector.labelInc("FDG_MCAP_LIQ_RATIO_SOFT_SHAPED")
+                } catch (_: Throwable) {}
             }
         }
 
         if (blockReason == null && !config.paperMode) {
-            // Rugcheck PENDING / UNKNOWN / FAILED — must have a confirmed rugcheck
+            // V5.0.4155 — gate taxonomy: pending/unknown is a penalty, failed is a
+            // hard safety reject. The AGI deck starts broad, learns, then tightens.
             val rcStatus = ts.safety.rugcheckStatus
-            if (rcStatus in setOf("PENDING", "UNKNOWN", "FAILED")) {
-                blockReason = "HARD_BLOCK_RUGCHECK_${rcStatus}"
+            if (rcStatus == "FAILED") {
+                blockReason = "HARD_BLOCK_RUGCHECK_FAILED"
                 blockLevel = BlockLevel.HARD
-                checks.add(GateCheck("rugcheck_status", false, "status=$rcStatus (live requires CONFIRMED)"))
-                tags.add("rugcheck_$rcStatus".lowercase())
+                checks.add(GateCheck("rugcheck_status", false, "status=$rcStatus (confirmed failure)"))
+                tags.add("rugcheck_failed")
+            } else if (rcStatus in setOf("PENDING", "UNKNOWN")) {
+                checks.add(GateCheck("rugcheck_status_soft", true, "status=$rcStatus — pending/unknown penalty, not veto"))
+                tags.add("rugcheck_${rcStatus.lowercase()}_penalty")
+                try {
+                    com.lifecyclebot.engine.LiveSizingProfile.markGateSoftShape(ts.mint, "RUGCHECK_PENDING_PENALTY")
+                    com.lifecyclebot.engine.PipelineHealthCollector.labelInc("FDG_RUGCHECK_PENDING_SOFT_SHAPED")
+                } catch (_: Throwable) {}
             }
         }
 

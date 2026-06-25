@@ -1798,13 +1798,10 @@ class BotService : Service() {
                     com.lifecyclebot.engine.EnabledTraderAuthority.Trader.PROJECT_SNIPER,
                 ).apply {
                     if (cryptoSidecarOn) add(com.lifecyclebot.engine.EnabledTraderAuthority.Trader.CRYPTO_ALT)
-                    // V5.0.3969 — FULL INTERNAL MEME LAYER ACTIVATION.
-                    // Quality, CashGen/Treasury, BlueChip, ProjectSniper, Dip,
-                    // Manipulated, Express, Moonshot, ShitCoin are all internal
-                    // MEME-layer participants. They must remain active and pivot
-                    // when they bleed, not disappear from runtime authority. CYCLIC
-                    // is still config-controlled as a sidecar compound engine.
-                    if (cfg.cyclicTradeEnabled) add(com.lifecyclebot.engine.EnabledTraderAuthority.Trader.CYCLIC)
+                    // V5.0.4155 — all internal MEME lanes stay active, but CYCLIC is
+                    // intentionally excluded from live authority per operator. It is a
+                    // sidecar compound ring, not part of the current all-lanes meme pass.
+                    // Do not add Trader.CYCLIC here even if a stale persisted toggle is true.
                 }.toSet()
             } else {
                 // Markets-only mode: respect per-lane toggles, but exclude
@@ -1829,11 +1826,9 @@ class BotService : Service() {
                     s += com.lifecyclebot.engine.EnabledTraderAuthority.Trader.MARKETS_STOCKS
                 }
                 if (marketsOn && cfg.perpsEnabled) s += com.lifecyclebot.engine.EnabledTraderAuthority.Trader.PERPS
-                // PROJECT_SNIPER / CYCLIC / SHADOW_PAPER off by default in mixed mode
-                // too unless the operator explicitly opted in via their toggles.
-                if (cfg.cyclicTradeEnabled) {
-                    s += com.lifecyclebot.engine.EnabledTraderAuthority.Trader.CYCLIC
-                }
+                // V5.0.4155 — CYCLIC remains excluded; all other enabled traders/lanes
+                // are allowed to work. Avoid stale persisted cyclic toggle re-entering
+                // runtime authority and choking the meme executor.
                 if (cfg.shadowPaperEnabled && !memeOnlyUiMode) {
                     s += com.lifecyclebot.engine.EnabledTraderAuthority.Trader.SHADOW_PAPER
                 }
@@ -6099,7 +6094,11 @@ class BotService : Service() {
             val tracked = com.lifecyclebot.engine.HostWalletTokenTracker.getEntry(mint)
             val sym = (tracked?.symbol?.takeIf { it.isNotBlank() }) ?: symbolHint.takeIf { it.isNotBlank() } ?: "?"
             val qty = tracked?.uiAmount?.takeIf { it > 0.0 } ?: balanceHint
-            if (qty <= 0.0) return null
+            if (qty <= 1.0) {
+                try { ForensicLogger.lifecycle("TOKEN_STATE_REHYDRATE_SKIPPED_TERMINAL_DUST", "mint=${mint.take(12)} qty=$qty") } catch (_: Throwable) {}
+                try { purgeGhostLivePosition(mint, "REHYDRATE_TERMINAL_TOKEN_DUST") } catch (_: Throwable) {}
+                return null
+            }
             // V5.9.1530 — REHYDRATION GUARD: a CLOSED+dust mint must NOT be resurrected.
             // Only a confirmed NON-dust on-chain balance overrides a close stamp.
             if (com.lifecyclebot.engine.PositionCloseLedger.isHardClosed(mint, qty)) {
@@ -6193,7 +6192,11 @@ class BotService : Service() {
                 val tracked = HostWalletTokenTracker.getEntry(mint)
                 val sym = tracked?.symbol?.takeIf { it.isNotBlank() } ?: mint.take(6)
                 val bal = tracked?.uiAmount ?: 0.0
-                if (bal <= 0.000001) continue   // dust / not really held
+                if (bal <= 1.0) {
+                    try { ForensicLogger.lifecycle("POSITION_AUTO_HEAL_SKIPPED_TERMINAL_DUST", "mint=${mint.take(12)} qty=$bal") } catch (_: Throwable) {}
+                    try { purgeGhostLivePosition(mint, "AUTO_HEAL_TERMINAL_TOKEN_DUST") } catch (_: Throwable) {}
+                    continue   // terminal token dust / not economically held
+                }
                 // V5.9.1530 — AUTOHEAL GUARD: never autoheal a CLOSED+dust mint back to OPEN.
                 if (com.lifecyclebot.engine.PositionCloseLedger.isHardClosed(mint, bal)) {
                     try { ForensicLogger.lifecycle("SELL_REHYDRATE_BLOCKED_CLOSED_LEDGER", "mint=${mint.take(12)} qty=$bal source=autoheal") } catch (_: Throwable) {}

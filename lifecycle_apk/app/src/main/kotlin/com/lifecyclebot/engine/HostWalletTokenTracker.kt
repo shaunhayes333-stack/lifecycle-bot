@@ -48,6 +48,9 @@ object HostWalletTokenTracker {
     private const val FILE_NAME = "host_wallet_token_tracker.json"
     /** Token raw amounts strictly below this are dust — ignored for open/close decisions. */
     private const val DUST_RAW = 1L
+    // V5.0.4155 — literal one-token wallet remnants are terminal dust for MEME
+    // position accounting. Fresh buy liability is still protected separately by TTL.
+    private const val TERMINAL_DUST_UI = 1.0
     /** SOL native mint — always excluded from the tracker. */
     private const val SOL_MINT = "So11111111111111111111111111111111111111112"
 
@@ -193,10 +196,17 @@ object HostWalletTokenTracker {
     private fun rawAmountBig(p: TrackedTokenPosition): BigInteger =
         runCatching { BigInteger(p.rawAmount.trim().ifBlank { "0" }) }.getOrDefault(BigInteger.ZERO)
 
+    private fun isTerminalDust(p: TrackedTokenPosition): Boolean {
+        val proofRaw = p.balanceProof?.amountRaw ?: BigInteger.ZERO
+        val raw = rawAmountBig(p)
+        return (p.uiAmount.isFinite() && p.uiAmount in 0.0..TERMINAL_DUST_UI) ||
+            (p.uiAmount <= 0.0 && raw <= BigInteger.valueOf(DUST_RAW) && proofRaw <= BigInteger.valueOf(DUST_RAW))
+    }
+
     private fun hasLastPositiveRaw(p: TrackedTokenPosition): Boolean =
         rawAmountBig(p) > BigInteger.valueOf(DUST_RAW) ||
             (p.balanceProof?.amountRaw ?: BigInteger.ZERO) > BigInteger.valueOf(DUST_RAW) ||
-            p.uiAmount > 0.000001
+            p.uiAmount > TERMINAL_DUST_UI
 
     // V5.0.3780 — CAP TRUTH SPLIT.
     // Historical positives (rawAmount/uiAmount/TX_META_OWNER_DELTA) are useful for
@@ -217,7 +227,7 @@ object HostWalletTokenTracker {
 
     private fun currentHeldSnapshot(p: TrackedTokenPosition, now: Long = System.currentTimeMillis()): WalletAuthoritySnapshot.HELD? {
         val snap = walletAuthority[p.mint] as? WalletAuthoritySnapshot.HELD ?: return null
-        return snap.takeIf { it.raw > BigInteger.valueOf(DUST_RAW) && (now - it.observedAtMs) <= CAP_WALLET_PROOF_TTL_MS }
+        return snap.takeIf { it.raw > BigInteger.valueOf(DUST_RAW) && it.uiAmount > TERMINAL_DUST_UI && (now - it.observedAtMs) <= CAP_WALLET_PROOF_TTL_MS }
     }
 
     private fun hasCurrentWalletPositiveProof(p: TrackedTokenPosition, now: Long = System.currentTimeMillis()): Boolean =
@@ -244,6 +254,7 @@ object HostWalletTokenTracker {
         if (!p.sellSignature.isNullOrBlank() && p.status.priority >= PositionStatus.SELL_VERIFYING.priority) return false
         val botBought = p.source == PositionSource.BOT_BUY || p.source == PositionSource.TX_PARSE || !p.buySignature.isNullOrBlank()
         if (!botBought) return false
+        if (isTerminalDust(p)) return false
         if (!hasLastPositiveRaw(p)) return false
         val anchor = maxOf(p.balanceAuthorityObservedAtMs, p.buyTimeMs ?: 0L, p.firstSeenWalletMs, p.lastSeenWalletMs)
         // Keep current-session bot-bought rows visible through RPC outages, but do
@@ -1217,7 +1228,7 @@ object HostWalletTokenTracker {
 
     /** Snapshot of every tracked position (open + closed) — diagnostics. */
     /** Count positions with current wallet-token proof above dust; stale raw/TX-meta does not count. */
-    fun getActuallyHeldCount(): Int = positions.values.count { hasCurrentWalletPositiveProof(it) || hasBotBoughtPositiveLiability(it) }
+    fun getActuallyHeldCount(): Int = positions.values.count { !isTerminalDust(it) && (hasCurrentWalletPositiveProof(it) || hasBotBoughtPositiveLiability(it)) }
 
     /** Physical wallet-held set plus current-session bot-bought positive liabilities.
      *  During RPC/Helius 429 storms Phantom can show tokens while current wallet proof
@@ -1225,7 +1236,7 @@ object HostWalletTokenTracker {
      *  finality proves otherwise. */
     fun getActuallyHeldMints(): Set<String> =
         positions.values.asSequence()
-            .filter { hasCurrentWalletPositiveProof(it) || hasBotBoughtPositiveLiability(it) }
+            .filter { !isTerminalDust(it) && (hasCurrentWalletPositiveProof(it) || hasBotBoughtPositiveLiability(it)) }
             .map { it.mint }
             .toCollection(HashSet())
 
@@ -1276,7 +1287,7 @@ object HostWalletTokenTracker {
             if (p.status !in OPEN_STATUSES) continue
             val pair = walletMints[p.mint]
             val held = pair?.first
-            if (held != null && held > 0.000001) {
+            if (held != null && held > TERMINAL_DUST_UI) {
                 // genuinely held — keep it, refresh wallet truth.
                 p.uiAmount = held
                 p.lastSeenWalletMs = System.currentTimeMillis()
@@ -1334,6 +1345,31 @@ object HostWalletTokenTracker {
         var reaped = 0
         for (p in positions.values.toList()) {
             if (p.status !in OPEN_STATUSES) continue
+            if (isTerminalDust(p) && !hasFreshBuyLiability(p, now)) {
+                p.status = PositionStatus.CLOSED
+                p.uiAmount = 0.0
+                p.rawAmount = "0"
+                p.activeSellAttemptId = null
+                p.sellAttemptStartedMs = 0L
+                p.notes.add("terminal dust close: ui<=1 token or raw<=1 atom")
+                try { com.lifecyclebot.engine.PositionCloseLedger.markClosed(p.mint, "CLOSED_BY_TERMINAL_TOKEN_DUST", 0) } catch (_: Throwable) {}
+                try { com.lifecyclebot.engine.sell.SellExecutionLocks.release(p.mint) } catch (_: Throwable) {}
+                try { com.lifecyclebot.engine.sell.CloseLease.release(p.mint, "CLOSED_BY_TERMINAL_TOKEN_DUST") } catch (_: Throwable) {}
+                try {
+                    val fam = (p.symbol ?: "").uppercase().trim().filter { it.isLetterOrDigit() }.take(8)
+                    com.lifecyclebot.engine.ReEntryLockout.onClose(p.mint, fam, "TERMINAL_TOKEN_DUST", 0.0)
+                } catch (_: Throwable) {}
+                try {
+                    for (ln in listOf("SHITCOIN","MOONSHOT","QUALITY","EXPRESS","CYCLIC","BLUE_CHIP","MANIPULATED","CORE","V3","DIP_HUNTER","PROJECT_SNIPER")) {
+                        com.lifecyclebot.engine.LaneExecutionCoordinator.releaseIfPrimary(p.mint, ln, "TERMINAL_TOKEN_DUST_FREE_SLOT")
+                    }
+                } catch (_: Throwable) {}
+                try { com.lifecyclebot.engine.BotService.purgeGhostLivePosition(p.mint, "CLOSED_BY_TERMINAL_TOKEN_DUST") } catch (_: Throwable) {}
+                emitForensic(LiveTradeLogStore.Phase.POSITION_COUNT_RECONCILED, p.mint, p.symbol, null,
+                    "REAP_CLOSED_TERMINAL_TOKEN_DUST ${p.symbol ?: p.mint.take(6)} ui<=1")
+                reaped++
+                continue
+            }
             if (hasCurrentWalletPositiveProof(p)) continue                  // wallet-truth holds tokens — real
             if (hasLastPositiveRaw(p)) {
                 markNoCurrentHeldProof(p, "HISTORICAL_RAW_NOT_CURRENT_HELD_PROOF")
@@ -1495,7 +1531,7 @@ object HostWalletTokenTracker {
         // is fresher than the tracker's cached uiAmount. Update wallet truth first;
         // otherwise OPEN_TRACKING rows with stale uiAmount keep hostLive=1 forever
         // and poison buys with HOST_TRACKER_DESYNC / ORPHAN_LIVE_POSITIONS.
-        if (p.uiAmount > 0.000001 && !hasConfirmedSellSig && !p.zeroBalanceConfirmedByTwoProviders) {
+        if (p.uiAmount > TERMINAL_DUST_UI && !hasConfirmedSellSig && !p.zeroBalanceConfirmedByTwoProviders) {
             markNoCurrentHeldProof(p, "ZERO_CLOSE_REJECTED_POSITIVE_CACHE_NO_INDEPENDENT_FINALITY:$reason")
             save()
             return null

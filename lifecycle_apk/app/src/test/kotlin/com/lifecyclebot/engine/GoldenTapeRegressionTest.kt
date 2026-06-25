@@ -1406,7 +1406,8 @@ class GoldenTapeRegressionTest {
         assertTrue(bot.contains("cryptoSidecarOn) add(com.lifecyclebot.engine.EnabledTraderAuthority.Trader.CRYPTO_ALT)"))
         assertTrue(bot.contains("CryptoAltTrader.start"))
         assertTrue(bot.contains("CryptoAltTrader.setEnabled(cryptoUniverseOn"))
-        assertTrue(auth.contains("internalMemeLayers") && auth.contains("set - Trader.CRYPTO_ALT - internalMemeLayers") && auth.contains("Trader.CYCLIC") && auth.contains("Trader.QUALITY") && auth.contains("Trader.TREASURY"))
+        assertTrue("V5.0.4155: internal meme authority must include all specialist lanes except CYCLIC sidecar",
+            auth.contains("internalMemeLayers") && auth.contains("set - Trader.CRYPTO_ALT - internalMemeLayers") && auth.contains("Trader.QUALITY") && auth.contains("Trader.TREASURY") && auth.contains("Trader.PROJECT_SNIPER") && !auth.substringAfter("val internalMemeLayers = setOf(").substringBefore(")").contains("Trader.CYCLIC"))
         assertTrue(auth.contains("return laneSet.size == 1 && Trader.MEME in laneSet"))
         assertTrue(crypto.contains("operatorExplicitlyEnabled"))
         assertTrue(crypto.contains("cfg.cryptoAltsEnabled && cfg.marketsTraderEnabled"))
@@ -4169,12 +4170,12 @@ class GoldenTapeRegressionTest {
         val fdg = java.io.File("src/main/kotlin/com/lifecyclebot/engine/FinalDecisionGate.kt").readText()
         assertTrue("V5.0.4151: token-map incomplete must hydrate route truth before watch-probation, not hard-block transient no-route",
             fdg.contains("RouteTruthHydrator.hydrate(ts)") && fdg.contains("WATCH_PROBATION_ROUTE_UNKNOWN") && fdg.contains("FDG_SKIPPED_ROUTE_UNKNOWN_PRECHECK"))
-        assertTrue("Must have 25K liquidity floor hard block",
-            fdg.contains("HARD_BLOCK_LIQUIDITY_BELOW_25K"))
-        assertTrue("Must have mcap/liq ratio > 8x hard block",
-            fdg.contains("HARD_BLOCK_MCAP_LIQ_RATIO") && fdg.contains("> 8.0"))
-        assertTrue("Must have rugcheck PENDING/UNKNOWN/FAILED hard block",
-            fdg.contains("HARD_BLOCK_RUGCHECK_") && fdg.contains("PENDING") && fdg.contains("UNKNOWN"))
+        assertTrue("V5.0.4155: 25K liquidity gate must be fluid soft-shaping, with only true <$2.5K dust liquidity hard-blocked",
+            fdg.contains("FDG_LOW_LIQUIDITY_SOFT_SHAPED") && fdg.contains("LOW_LIQUIDITY_SIZE_REDUCTION") && fdg.contains("HARD_BLOCK_LIQUIDITY_BELOW_2_5K") && !fdg.contains("HARD_BLOCK_LIQUIDITY_BELOW_25K"))
+        assertTrue("V5.0.4155: mcap/liq >8x must soft-shape until extreme >20x hard safety",
+            fdg.contains("FDG_MCAP_LIQ_RATIO_SOFT_SHAPED") && fdg.contains("MCAP_LIQ_RATIO_SIZE_REDUCTION") && fdg.contains("> 20.0"))
+        assertTrue("V5.0.4155: rugcheck PENDING/UNKNOWN must be penalty/soft-shape; FAILED remains hard",
+            fdg.contains("FDG_RUGCHECK_PENDING_SOFT_SHAPED") && fdg.contains("RUGCHECK_PENDING_PENALTY") && fdg.contains("HARD_BLOCK_RUGCHECK_FAILED") && !fdg.contains("HARD_BLOCK_RUGCHECK_PENDING") && !fdg.contains("HARD_BLOCK_RUGCHECK_UNKNOWN"))
         assertTrue("Must have entry price unknown hard block",
             fdg.contains("HARD_BLOCK_ENTRY_PRICE_UNKNOWN"))
         assertTrue("All new hard blocks must be LIVE-only (paperMode bypass)",

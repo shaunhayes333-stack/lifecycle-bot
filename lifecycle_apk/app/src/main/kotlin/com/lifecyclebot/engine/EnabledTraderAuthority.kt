@@ -129,7 +129,7 @@ object EnabledTraderAuthority {
         val internalMemeLayers = setOf(
             Trader.SHITCOIN, Trader.MOONSHOT, Trader.EXPRESS, Trader.QUALITY,
             Trader.TREASURY, Trader.CASHGEN, Trader.BLUECHIP, Trader.MANIPULATED,
-            Trader.DIP_HUNTER, Trader.PROJECT_SNIPER, Trader.CYCLIC,
+            Trader.DIP_HUNTER, Trader.PROJECT_SNIPER,
         )
         val laneSet = set - Trader.CRYPTO_ALT - internalMemeLayers
         return laneSet.size == 1 && Trader.MEME in laneSet
