@@ -421,6 +421,8 @@ object BlueChipTraderAI {
 
         // V5.9.318: Feed outcome into TradingCopilot for life-coach state.
         try { com.lifecyclebot.engine.TradingCopilot.recordTradeForAsset(pnlPct, pos.isPaper, assetClass = "BLUECHIP") } catch (_: Exception) {}
+        // V5.0.4160 — feed shared ScratchStreakRegistry (butterfly sweep).
+        try { com.lifecyclebot.engine.ScratchStreakRegistry.recordOutcome("BLUECHIP", pnlPct) } catch (_: Throwable) {}
         // V5.9.1437 — ROUTE LANE CLOSES INTO BehaviorAI. V3 sub-traders
         // bypass Executor.recordTrade (V5.9.434), so the BehaviorAI fanout
         // at Executor:2465 NEVER fired for lane trades → Neural Personality
@@ -566,6 +568,8 @@ object BlueChipTraderAI {
 
         // V5.9.437 — LIVE HOLD-BUCKET GATE. Cut flat stale BlueChip bags
         // whose hold-duration bucket has proven net-losing expectancy.
+        // V5.0.4160 — scratch-trap suppression now lives inside OutcomeGates
+        // itself (centralised across all lanes), so per-caller checks removed.
         if (com.lifecyclebot.engine.OutcomeGates.earlyExitByHoldBucket(
                 layer = "BLUECHIP", holdMinutes = holdMinutes, pnlPct = pnlPct)) {
             ErrorLogger.info(TAG, "🔵🧠 HOLD-BUCKET EARLY EXIT: ${pos.symbol} | ${pnlPct.toInt()}% after ${holdMinutes}min — history bleeds")

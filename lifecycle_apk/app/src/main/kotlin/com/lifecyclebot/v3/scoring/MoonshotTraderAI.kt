@@ -140,11 +140,6 @@ object MoonshotTraderAI {
     
     @Volatile var isPaperMode: Boolean = true
     private val isEnabled = AtomicBoolean(true)
-    // V5.0.4159 — Scratch-streak counter. Increments on every close where
-    // |pnlPct| < 1.0% ("scratch"), resets to 0 on any clear win or loss.
-    // Used by the FLAT_EXIT gate to detect the scratch-loop trap and extend
-    // the exit window so trades get more time to find direction.
-    private val consecutiveScratchStreak = AtomicInteger(0)
     
     // Daily tracking
     private val dailyPnlSolBps = AtomicLong(0)
@@ -1254,15 +1249,9 @@ object MoonshotTraderAI {
         // V5.0.4126 — MOONSHOT ADAPTIVE GATE: feed lane outcome so the
         // hybrid recency-weighted WR can fluidly pivot the entry floor.
         try { com.lifecyclebot.engine.MoonshotAdaptiveGate.recordOutcome(pnlPct) } catch (_: Throwable) {}
-        // V5.0.4159 — Scratch-streak counter. Detects the "all-scratch" trap
-        // and lets the FLAT_EXIT gate extend its window to break the loop.
-        try {
-            if (kotlin.math.abs(pnlPct) < 1.0) {
-                consecutiveScratchStreak.incrementAndGet()
-            } else {
-                consecutiveScratchStreak.set(0)
-            }
-        } catch (_: Throwable) {}
+        // V5.0.4160 — feed the shared ScratchStreakRegistry so the FLAT_EXIT
+        // gate can detect the scratch-loop trap and extend its window.
+        try { com.lifecyclebot.engine.ScratchStreakRegistry.recordOutcome("MOONSHOT", pnlPct) } catch (_: Throwable) {}
         // V5.0.4126 — also feed LayerBrain so any per-layer brain that stamped
         // this mint gets trained (Moonshot sub-trader bypasses Executor.recordTrade,
         // so its LayerBrain feedback would otherwise never fire).
@@ -1625,6 +1614,8 @@ object MoonshotTraderAI {
         // V5.9.437 — LIVE HOLD-BUCKET GATE. Cut flat stale Moonshot bags
         // whose hold-duration bucket has proven net-losing expectancy.
         // V5.0.4129 — Gold-pattern tokens exempt (let proven-winner signatures ride).
+        // V5.0.4160 — scratch-trap suppression now lives inside OutcomeGates
+        // itself (centralised across all lanes), so per-caller check removed.
         if (!goldenExitProtected && com.lifecyclebot.engine.OutcomeGates.earlyExitByHoldBucket(
                 layer = "MOONSHOT", holdMinutes = holdMinutes, pnlPct = pnlPct)) {
             ErrorLogger.info(TAG, "🧠⏱️ HOLD-BUCKET EARLY EXIT: ${pos.symbol} | ${pnlPct.fmt(1)}% after ${holdMinutes}min — bucket history bleeds")
@@ -1642,25 +1633,15 @@ object MoonshotTraderAI {
         // V5.9.437 — extend window for winners when FLAT_EXIT historically bleeds this lane.
         val flatExitExt = com.lifecyclebot.engine.OutcomeGates.timeExitExtensionMult(
             layer = "MOONSHOT", exitReason = "FLAT_EXIT", pnlPct = pnlPct)
-        // V5.0.4159 — SCRATCH-STREAK GUARD (operator: "meme traders basically
-        // stopped trading. completely. its never meant to stop trading.. just
-        // find the right ways to trade.")
-        //
-        // Operator dump 2026-06-26 01:02 showed MOONSHOT lane with 17 trades
-        // all SCRATCH (W/L/S=0/0/17). Root cause was this exact FLAT_EXIT gate:
-        // half-maxHold (~15 min) + pnl in [-2%, +5%] → scratch. Memes need
-        // more runway than 15 min to develop, so every trade was being cut
-        // before any momentum could emerge — a self-reinforcing scratch loop.
-        //
-        // Fix: when the lane has logged ≥4 consecutive scratches (counter
-        // updated in updateLearning), 2x the FLAT_EXIT window so trades
-        // actually have a chance to find direction. Streak resets on any
-        // non-scratch close, so this is self-correcting — once the lane
-        // discovers a winning style it reverts to the normal cadence.
-        val scratchStreak4159 = consecutiveScratchStreak.get()
+        // V5.0.4160 — SCRATCH-STREAK GUARD (now via shared ScratchStreakRegistry)
+        // See V5.0.4159 commit message for the full root-cause analysis. The
+        // streak counter now lives in engine/ScratchStreakRegistry so siblings
+        // (ShitCoin/Express/BlueChip/Quality/Manipulated/Crypto) share the
+        // same trap-detection mechanism with isolated per-lane state.
+        val scratchStreak4159 = com.lifecyclebot.engine.ScratchStreakRegistry.streakFor("MOONSHOT")
         val flatExitMinsRaw = ((pos.spaceMode.maxHold / 2) * flatExitExt).toLong()
         val flatExitMins = if (scratchStreak4159 >= 4) {
-            (flatExitMinsRaw * 2L).coerceAtMost(pos.spaceMode.maxHold)
+            (flatExitMinsRaw * 2L).coerceAtMost(pos.spaceMode.maxHold.toLong())
         } else {
             flatExitMinsRaw
         }

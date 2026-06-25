@@ -5023,6 +5023,54 @@ class Executor(
         // untouched — real slippage IS the real cost. Other stops (RAPID
         // trailing, fluid floor, profit-lock) remain active throughout
         // the settle-in so we still catch genuine rugs via those paths.
+
+        // ═══════════════════════════════════════════════════════════════════
+        // V5.0.4160 — CATASTROPHIC -25% HARD EMERGENCY BACKSTOP
+        // ═══════════════════════════════════════════════════════════════════
+        // Operator P0 (2026-06-25): runtime dump showed trades closing at
+        // -71% and -58% even though configured STRICT_SL was -10%. Root
+        // cause was a Jupiter DNS blackout (`tokens.jup.ag` unresolvable)
+        // that stalled live quotes; both the live and cached SL paths
+        // skipped firing because the feed simply stopped ticking before
+        // the price ever reached the configured floor, and by the time
+        // maxHold finally cut the bag the realized fill was catastrophic.
+        //
+        // This block is the LAST-LINE BACKSTOP. It runs BEFORE any other
+        // gate (paper settle-in, fluid SL coercion, fluid stops, profit
+        // locks) and BEFORE STRICT_SL. If EITHER the live price OR the
+        // most recent cached price shows pnl <= -25%, we force-exit
+        // immediately, regardless of quote freshness, learning state,
+        // or trader settle-in. There is no scenario where holding a
+        // -25% bag through a quote outage is correct behaviour.
+        run {
+            val pos = ts.position
+            if (!pos.isOpen || pos.entryPrice <= 0.0) return@run
+            val livePnl = if (currentPrice > 0.0)
+                ((currentPrice - pos.entryPrice) / pos.entryPrice) * 100.0
+            else Double.NaN
+            val cachedPx = ts.lastPrice
+            val cachedPnl = if (cachedPx > 0.0)
+                ((cachedPx - pos.entryPrice) / pos.entryPrice) * 100.0
+            else Double.NaN
+            val candidates = listOf(livePnl, cachedPnl).filter { it.isFinite() }
+            if (candidates.isEmpty()) return@run
+            val worstPnl = candidates.min()
+            if (worstPnl <= -25.0) {
+                try {
+                    ForensicLogger.lifecycle(
+                        "CATASTROPHIC_HARD_BACKSTOP_25",
+                        "mint=${ts.mint.take(10)} sym=${ts.symbol} worstPnl=${worstPnl.fmt(2)} livePnl=${if (livePnl.isFinite()) livePnl.fmt(2) else "NaN"} cachedPnl=${if (cachedPnl.isFinite()) cachedPnl.fmt(2) else "NaN"} entry=${pos.entryPrice} currentPx=${currentPrice} cachedPx=${cachedPx}"
+                    )
+                } catch (_: Throwable) {}
+                onLog(
+                    "☠ CATASTROPHIC -25% BACKSTOP: ${ts.symbol} worstPnl=${worstPnl.toInt()}% — last-line force-exit (quote freshness ignored)",
+                    ts.mint
+                )
+                doSell(ts, "CATASTROPHIC_HARD_BACKSTOP_-25", wallet, walletSol)
+                return
+            }
+        }
+
         val paperSettleInActive = run {
             if (!isPaperRT()) return@run false
             val entryMs = ts.position.entryTime

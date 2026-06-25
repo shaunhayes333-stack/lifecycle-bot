@@ -4,6 +4,45 @@ All notable changes to the Autonomous AI Trading Engine.
 
 ---
 
+## [5.0.4160] - 2026-06 — SCRATCH-STREAK BUTTERFLY SWEEP + CATASTROPHIC -25% BACKSTOP
+
+Two operator P0s shipped together:
+
+**1. Scratch-Streak Guard (butterfly sweep across all lanes)**
+V5.0.4159 introduced a per-lane scratch counter in MOONSHOT to detect
+the "all-scratch trap" (17 trades, W/L/S = 0/0/17). Operator: "meme
+traders basically stopped trading. completely. it needs that fix
+everywhere bro! you need to do siblings, traders, upstream downstream,
+butterfly sweeps!!!"
+
+The counter has been lifted into `engine/ScratchStreakRegistry` (lane-
+keyed, fully isolated) and wired into every meme + crypto lane:
+MOONSHOT, SHITCOIN, EXPRESS, BLUECHIP, QUALITY, MANIPULATED, CRYPTO_ALT.
+The shared `OutcomeGates.earlyExitByHoldBucket` now consults the
+registry centrally so any lane that crosses the 4-scratch trap
+threshold gets its FLAT_EXIT window extended (typically 2×) before
+flat-cutting. Self-correcting — any non-scratch close resets the
+counter.
+
+**2. Catastrophic -25% Hard Emergency Backstop (Executor.kt)**
+Operator dump showed trades closing at -71% and -58% despite STRICT_SL
+configured at -10%. Root cause was a Jupiter DNS blackout
+(`tokens.jup.ag` unresolvable) that stalled live quotes; both live
+and cached SL paths skipped firing because the feed stopped ticking
+before price ever reached the configured floor.
+
+New last-line backstop runs BEFORE paper settle-in, fluid SL coercion,
+profit locks, and STRICT_SL. If EITHER the live price OR the most
+recent cached price shows pnl ≤ -25%, the position is force-exited
+immediately with reason `CATASTROPHIC_HARD_BACKSTOP_-25` — regardless
+of quote freshness, learning state, or trader settle-in. There is no
+scenario where holding a -25% bag through a quote outage is correct.
+
+Also fixes the V5.0.4159 CI compile error (`Type mismatch: Int but
+Long expected` at `MoonshotTraderAI.kt:1663` from `pos.spaceMode.maxHold`).
+
+---
+
 ## [5.0.4148] - 2026-02 — TOP-PERFORMING-LANE BYPASS (DEADLOCK FIX)
 
 V5.0.4134's discipline pack was working perfectly (0/65 buys allowed in

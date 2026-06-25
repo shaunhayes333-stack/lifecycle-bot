@@ -593,6 +593,8 @@ object ManipulatedTraderAI {
         } catch (e: Exception) { com.lifecyclebot.engine.ErrorLogger.debug("ManipulatedTraderAI", "trade_record skip: ${e.message}") }
         val _isWin = pnlPct > 0.0  // V5.9.408: restored pre-225 win-threshold
         try { com.lifecyclebot.engine.SmartSizer.recordTrade(_isWin, isPaperMode = pos.isPaper) } catch (e: Exception) { com.lifecyclebot.engine.ErrorLogger.debug("ManipulatedTraderAI", "smartsizer skip: ${e.message}") }
+        // V5.0.4160 — feed shared ScratchStreakRegistry (butterfly sweep).
+        try { com.lifecyclebot.engine.ScratchStreakRegistry.recordOutcome("MANIPULATED", pnlPct) } catch (_: Throwable) {}
         if (pos.isPaper) try { com.lifecyclebot.engine.FluidLearning.recordPaperSell(pos.symbol, pos.entrySol, pnlSol, reason.name, "MANIP") } catch (e: Exception) { com.lifecyclebot.engine.ErrorLogger.debug("ManipulatedTraderAI", "fluid_learning skip: ${e.message}") }
 
         // V5.9.495z17 — operator-mandated 70/30 profit split + missing

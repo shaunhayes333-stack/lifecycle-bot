@@ -807,6 +807,9 @@ object ShitCoinExpress {
         val pnlBps = (pnlSol * 100).toLong()
         dailyPnlSolBps.addAndGet(pnlBps)
 
+        // V5.0.4160 — feed shared ScratchStreakRegistry (butterfly sweep).
+        try { com.lifecyclebot.engine.ScratchStreakRegistry.recordOutcome("EXPRESS", pnlPct) } catch (_: Throwable) {}
+
         // V5.9.495z17 — operator-mandated 70/30 profit split + missing
         // sentience hook (Express was 1 of 4/8 not feeding sentience).
         if (pnlSol > 0.0) {

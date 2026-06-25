@@ -580,6 +580,9 @@ object ShitCoinTraderAI {
 
         // V5.9.318: Feed outcome into TradingCopilot for life-coach state.
         try { com.lifecyclebot.engine.TradingCopilot.recordTradeForAsset(pnlPct, pos.isPaper, assetClass = "SHITCOIN") } catch (_: Exception) {}
+        // V5.0.4160 — feed shared ScratchStreakRegistry so the timeExitMaxHold
+        // gate can extend its window when this lane falls into a scratch loop.
+        try { com.lifecyclebot.engine.ScratchStreakRegistry.recordOutcome("SHITCOIN", pnlPct) } catch (_: Throwable) {}
         // V5.9.1437 — ROUTE LANE CLOSES INTO BehaviorAI. V3 sub-traders
         // bypass Executor.recordTrade (V5.9.434), so the BehaviorAI fanout
         // at Executor:2465 NEVER fired for lane trades → Neural Personality
@@ -1950,6 +1953,12 @@ object ShitCoinTraderAI {
         val timeExitMaxMult = com.lifecyclebot.engine.OutcomeGates.timeExitExtensionMult(
             layer = "SHITCOIN", exitReason = "TIME_EXIT", pnlPct = pnlPct,
         )
+        // V5.0.4160 — Scratch-streak butterfly sweep. If SHITCOIN has logged
+        // ≥4 consecutive scratches, double the 60-min flat-cap so trades get
+        // a chance to actually find direction instead of being chopped at the
+        // ceiling. Self-resets on any clear win or loss.
+        val scratchStreakSc4160 = com.lifecyclebot.engine.ScratchStreakRegistry.streakFor("SHITCOIN")
+        val scratchMult4160 = if (scratchStreakSc4160 >= com.lifecyclebot.engine.ScratchStreakRegistry.TRAP_STREAK_THRESHOLD) 2.0 else 1.0
         val timeExitEarlyBad  = holdMinutes >= 7  && pnlPct < -5.0    // V5.9.449: revert V5.9.446 → V5.9.293 build-1941 levels
         val timeExitDeepLoss  = holdMinutes >= 5  && pnlPct < -6.0    // V5.9.449: revert V5.9.446 → V5.9.293 build-1941 levels
         // V5.9.618 — WR-killer relaxation: was 35min/-0.5% which converted ~30-40%
@@ -1958,7 +1967,7 @@ object ShitCoinTraderAI {
         // flat cap still exists as a backstop but stops crystallising recoverable bags.
         // SL/HARD_FLOOR/RUG paths still handle real losers; this only relaxes the
         // soft-flat branch. Net effect: more time, more wins, fewer bleed exits.
-        val timeExitMaxHold   = holdMinutes >= (60 * timeExitMaxMult).toLong() && pnlPct < -3.0    // V5.9.618: relaxed flat cap
+        val timeExitMaxHold   = holdMinutes >= (60 * timeExitMaxMult * scratchMult4160).toLong() && pnlPct < -3.0    // V5.9.618+V5.0.4160
         if (timeExitDeepLoss || timeExitEarlyBad || timeExitMaxHold) {
             val tier = when {
                 timeExitDeepLoss -> "DEEP(${pnlPct.toInt()}%@${holdMinutes.toInt()}m)"

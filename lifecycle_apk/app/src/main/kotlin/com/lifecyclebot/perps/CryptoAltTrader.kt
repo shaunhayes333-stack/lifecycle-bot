@@ -2734,6 +2734,10 @@ object CryptoAltTrader {
                 com.lifecyclebot.perps.crypto.brain.CryptoLivePauseButton.recordOutcome(lane4151, pnlPctForWin)
                 com.lifecyclebot.perps.crypto.brain.CryptoLaneTimeoutGate.recordOutcome(lane4151, pnlPctForWin)
                 com.lifecyclebot.perps.crypto.brain.CryptoScannerLaneBridge.recordOutcome(src4151, lane4151, pnlPctForWin)
+                // V5.0.4160 — feed shared ScratchStreakRegistry (butterfly sweep).
+                // Lane tags CRYPTO_SPOT / CRYPTO_LEV never collide with meme
+                // lane tags, so isolation is preserved by key-space partition.
+                com.lifecyclebot.engine.ScratchStreakRegistry.recordOutcome(lane4151, pnlPctForWin)
             } catch (_: Throwable) {}
         }
 

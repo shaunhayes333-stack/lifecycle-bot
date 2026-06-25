@@ -57,6 +57,14 @@ object OutcomeGates {
      *   - we're in the flat zone (SL/TP not firing on their own)
      *   - AND this (layer, hold-bucket) has proven net-losing expectancy
      *     with ≥25 closed samples.
+     *
+     * V5.0.4160 — SCRATCH-TRAP SUPPRESSION (centralised). If the caller's
+     * lane has crossed the consecutive-scratch threshold in
+     * ScratchStreakRegistry, return false unconditionally. The "history
+     * bleeds" signal that this gate consumes is precisely what gets
+     * polluted by a scratch loop (all flat closes look like "lane bleeds"),
+     * so suppressing the gate during the trap is what breaks the loop.
+     * Streak resets on any non-scratch close, so the gate auto-restores.
      */
     fun earlyExitByHoldBucket(
         layer: String,
@@ -64,6 +72,7 @@ object OutcomeGates {
         pnlPct: Double,
     ): Boolean {
         if (pnlPct <= FLAT_LO || pnlPct >= FLAT_HI) return false
+        if (ScratchStreakRegistry.isInTrap(layer)) return false
         val mean = HoldDurationTracker.bucketMean(layer, holdMinutes) ?: return false
         return mean < LOSING_BUCKET_PNL
     }

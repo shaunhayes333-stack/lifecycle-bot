@@ -747,6 +747,8 @@ object QualityTraderAI {
 
         // V5.9.318: Feed outcome into TradingCopilot for life-coach state.
         try { com.lifecyclebot.engine.TradingCopilot.recordTradeForAsset(pnlPct, isPaperMode, assetClass = "QUALITY") } catch (e: Exception) { com.lifecyclebot.engine.ErrorLogger.debug("QualityTraderAI", "copilot skip: ${e.message}") }
+        // V5.0.4160 — feed shared ScratchStreakRegistry (butterfly sweep).
+        try { com.lifecyclebot.engine.ScratchStreakRegistry.recordOutcome("QUALITY", pnlPct) } catch (_: Throwable) {}
         // V5.9.1437 — ROUTE LANE CLOSES INTO BehaviorAI. V3 sub-traders
         // bypass Executor.recordTrade (V5.9.434), so the BehaviorAI fanout
         // at Executor:2465 NEVER fired for lane trades → Neural Personality
