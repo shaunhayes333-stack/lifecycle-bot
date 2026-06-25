@@ -1306,24 +1306,14 @@ object FinalDecisionGate {
                 tags.add("bootstrap_floor_paper_bypass")
                 // fall through to normal scoring
             } else {
-                ErrorLogger.debug("FDG", "🚫 BOOTSTRAP_FLOOR: ${ts.symbol} | conf=${confidence.toInt()}% < 3% | TOO_LOW_EVEN_FOR_LEARNING")
-
-                return FinalDecision(
-                    shouldTrade = false,
-                    mode = mode,
-                    approvalClass = ApprovalClass.BLOCKED,
-                    quality = candidate.setupQuality,
-                    confidence = confidence,
-                    edge = EdgeVerdict.SKIP,
-                    blockReason = "BOOTSTRAP_MIN_CONFIDENCE_3%",
-                    blockLevel = BlockLevel.CONFIDENCE,
-                    sizeSol = 0.0,
-                    tags = listOf("bootstrap_floor_3", "too_low_to_learn"),
-                    mint = ts.mint,
-                    symbol = ts.symbol,
-                    approvalReason = "BOOTSTRAP_MIN: conf=${confidence.toInt()}% < 3% (even learning has standards)",
-                    gateChecks = listOf(GateCheck("bootstrap_min_conf", false, "conf < 3% is garbage even for learning"))
-                )
+                // V5.0.4157 — fluid gate doctrine: bootstrap confidence is a size
+                // penalty while the AGI/lane brains are compiling, not a hard freezer.
+                ErrorLogger.info("FDG", "🟡 BOOTSTRAP_MIN_CONFIDENCE_SOFT: ${ts.symbol} | conf=${confidence.toInt()}% < ${BOOTSTRAP_MIN_CONFIDENCE.toInt()}% | soft-size, continue")
+                tags.add("bootstrap_min_confidence_soft")
+                try {
+                    com.lifecyclebot.engine.LiveSizingProfile.markGateSoftShape(ts.mint, "BOOTSTRAP_MIN_CONFIDENCE_SOFT")
+                    com.lifecyclebot.engine.PipelineHealthCollector.labelInc("FDG_BOOTSTRAP_MIN_CONFIDENCE_SOFT_SHAPED")
+                } catch (_: Throwable) {}
             }
         }
 
@@ -1331,24 +1321,14 @@ object FinalDecisionGate {
             ErrorLogger.info("FDG", "🎓 BOOTSTRAP_OVERRIDE: ${ts.symbol} | conf=${confidence.toInt()}% | Bypassing confidence floor for learning (progress=${(learningProgress * 100).toInt()}%)")
             tags.add("bootstrap_learning")
         } else if (confidence < 22.0) {
-            ErrorLogger.warn("FDG", "🚫 HARD_KILL: ${ts.symbol} | conf=${confidence.toInt()}% < 22% | CONFIDENCE_FLOOR_VIOLATED")
-
-            return FinalDecision(
-                shouldTrade = false,
-                mode = mode,
-                approvalClass = ApprovalClass.BLOCKED,
-                quality = candidate.setupQuality,
-                confidence = confidence,
-                edge = EdgeVerdict.SKIP,
-                blockReason = "CONFIDENCE_FLOOR_22%",
-                blockLevel = BlockLevel.CONFIDENCE,
-                sizeSol = 0.0,
-                tags = listOf("confidence_floor_22", "hard_kill"),
-                mint = ts.mint,
-                symbol = ts.symbol,
-                approvalReason = "HARD_CONFIDENCE_FLOOR: conf=${confidence.toInt()}% < 22%",
-                gateChecks = listOf(GateCheck("confidence_floor_22", false, "conf < 22% is garbage"))
-            )
+            // V5.0.4157 — confidence <22 is a bootstrap/adaptive penalty, not a hard
+            // veto. True hard safety still happens in rug/LP/route/entry-price checks.
+            ErrorLogger.info("FDG", "🟡 CONFIDENCE_FLOOR_22_SOFT: ${ts.symbol} | conf=${confidence.toInt()}% < 22% | soft-size, continue")
+            tags.add("confidence_floor_22_soft")
+            try {
+                com.lifecyclebot.engine.LiveSizingProfile.markGateSoftShape(ts.mint, "CONFIDENCE_FLOOR_22_SOFT")
+                com.lifecyclebot.engine.PipelineHealthCollector.labelInc("FDG_CONFIDENCE_FLOOR_22_SOFT_SHAPED")
+            } catch (_: Throwable) {}
         }
 
         if (confidence < 27.0 && isCGrade && !canBypassConfidenceFloors) {

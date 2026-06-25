@@ -884,16 +884,35 @@ object HostWalletTokenTracker {
             if (mint == SOL_MINT) continue
             val (uiAmount, decimals) = pair
             val rawApprox = (uiAmount * Math.pow(10.0, decimals.toDouble())).toLong()
+            val walletHasTradableUi = uiAmount.isFinite() && uiAmount > TERMINAL_DUST_UI
+            val walletHasTradableRaw = rawApprox > DUST_RAW && walletHasTradableUi
             val existing = positions[mint]
             if (existing != null) {
                 // V5.9.1496 — balance returned → cancel any pending zero-close debounce.
-                if (uiAmount > 0.000001) existing.consecutiveZeroConfirms = 0
+                if (walletHasTradableUi) existing.consecutiveZeroConfirms = 0
                 existing.uiAmount = uiAmount
                 existing.decimals = decimals
                 existing.rawAmount = rawApprox.toString()
                 existing.lastSeenWalletMs = now
                 existing.lastWalletReconcileMs = now
-                if (rawApprox > DUST_RAW) {
+                if (!walletHasTradableUi) {
+                    walletAuthority[mint] = WalletAuthoritySnapshot.NO_CURRENT_HELD_PROOF(mint, "TERMINAL_TOKEN_DUST_WALLET_SNAPSHOT", now)
+                    if (existing.status in OPEN_STATUSES && !hasFreshBuyLiability(existing, now)) {
+                        existing.status = PositionStatus.CLOSED_DUST_UNROUTABLE
+                        existing.activeSellAttemptId = null
+                        existing.sellAttemptStartedMs = 0L
+                        existing.zeroBalanceConfirmedByTwoProviders = true
+                        existing.notes.add("wallet snapshot terminal dust ignored qty=$uiAmount raw=$rawApprox")
+                        try { com.lifecyclebot.engine.PositionCloseLedger.markClosed(mint, "CLOSED_BY_TERMINAL_TOKEN_DUST", 0) } catch (_: Throwable) {}
+                        try { com.lifecyclebot.engine.sell.SellExecutionLocks.release(mint) } catch (_: Throwable) {}
+                        try { com.lifecyclebot.engine.sell.CloseLease.release(mint, "CLOSED_BY_TERMINAL_TOKEN_DUST") } catch (_: Throwable) {}
+                        try { com.lifecyclebot.engine.BotService.purgeGhostLivePosition(mint, "CLOSED_BY_TERMINAL_TOKEN_DUST") } catch (_: Throwable) {}
+                        emitForensic(LiveTradeLogStore.Phase.POSITION_COUNT_RECONCILED, mint, existing.symbol, null,
+                            "WALLET_TERMINAL_DUST_IGNORED ${existing.symbol ?: mint.take(6)} qty=$uiAmount raw=$rawApprox")
+                    }
+                    continue
+                }
+                if (walletHasTradableRaw) {
                     walletAuthority[mint] = WalletAuthoritySnapshot.HELD(
                         mint = mint,
                         raw = BigInteger.valueOf(rawApprox.coerceAtLeast(0L)),
@@ -906,7 +925,7 @@ object HostWalletTokenTracker {
                     existing.balanceAuthorityObservedAtMs = now
                     existing.balanceAuthoritySignature = null
                 }
-                if (rawApprox > DUST_RAW && existing.status == PositionStatus.SELL_VERIFYING && existing.sellSignature.isNullOrBlank()) {
+                if (walletHasTradableRaw && existing.status == PositionStatus.SELL_VERIFYING && existing.sellSignature.isNullOrBlank()) {
                     // V5.9.607 — SELL_VERIFYING is only valid after a real tx
                     // signature exists. Forensics showed stuck rows with
                     // last_sell_signature="" while wallet_uiAmount was still
@@ -916,7 +935,7 @@ object HostWalletTokenTracker {
                     existing.activeSellAttemptId = null
                     emitForensic(LiveTradeLogStore.Phase.TOKEN_TRACKER_OPEN_TRACKING, mint, existing.symbol, null,
                         "SELL_VERIFYING without signature + wallet still holds qty=$uiAmount → not open")
-                } else if (rawApprox > DUST_RAW && existing.status == PositionStatus.SELL_VERIFYING && !existing.sellSignature.isNullOrBlank()) {
+                } else if (walletHasTradableRaw && existing.status == PositionStatus.SELL_VERIFYING && !existing.sellSignature.isNullOrBlank()) {
                     val started = existing.lastExitCheckMs ?: now
                     if (now - started > 120_000L) {
                         existing.status = PositionStatus.OPEN_TRACKING
@@ -924,7 +943,7 @@ object HostWalletTokenTracker {
                         emitForensic(LiveTradeLogStore.Phase.WARNING, mint, existing.symbol, existing.sellSignature,
                             "SELL_VERIFYING_TIMEOUT wallet still holds qty=$uiAmount after ${(now-started)/1000}s → not open")
                     }
-                } else if (rawApprox > DUST_RAW &&
+                } else if (walletHasTradableRaw &&
                     existing.status in setOf(
                         PositionStatus.CLOSED,
                         PositionStatus.CLOSED_SOLD_BY_AATE,
@@ -955,7 +974,7 @@ object HostWalletTokenTracker {
                     } catch (_: Throwable) {}
                     // Release any terminal sell-job + close-lease so the lifecycle can restart.
                     try { com.lifecyclebot.engine.sell.SellExecutionLocks.release(mint) } catch (_: Throwable) {}
-                } else if (rawApprox > DUST_RAW &&
+                } else if (walletHasTradableRaw &&
                     existing.status in setOf(
                         PositionStatus.BUY_PENDING,
                         PositionStatus.CONFIRMED_PENDING_BALANCE,
@@ -978,7 +997,7 @@ object HostWalletTokenTracker {
                 }
                 continue
             }
-            if (rawApprox <= DUST_RAW) continue
+            if (!walletHasTradableUi || rawApprox <= DUST_RAW) continue
             // V5.0.3788 — orphan recovery disabled by operator. A wallet token the
             // bot never bought is ignored: it never enters the position book, never
             // consumes a slot, and never spawns a sell. Emit a forensic so it is
@@ -1541,7 +1560,7 @@ object HostWalletTokenTracker {
             save()
             return null
         }
-        if (p.uiAmount > 0.000001 && (hasConfirmedSellSig || p.zeroBalanceConfirmedByTwoProviders)) {
+        if (p.uiAmount > TERMINAL_DUST_UI && (hasConfirmedSellSig || p.zeroBalanceConfirmedByTwoProviders)) {
             p.uiAmount = 0.0
             p.rawAmount = "0"
             p.lastWalletReconcileMs = System.currentTimeMillis()
@@ -1630,7 +1649,7 @@ object HostWalletTokenTracker {
         for (p in positions.values) {
             val isClosedStatus = p.status == PositionStatus.CLOSED ||
                 p.status == PositionStatus.CLOSED_SOLD_BY_AATE
-            if (isClosedStatus && p.uiAmount > 0.000001) nonDust++
+            if (isClosedStatus && p.uiAmount > TERMINAL_DUST_UI) nonDust++
             // sell-claimed close (AATE sold it) must carry a signature
             if (p.status == PositionStatus.CLOSED_SOLD_BY_AATE && p.sellSignature.isNullOrBlank()) noSig++
             if (p.status in OPEN_STATUSES) {
