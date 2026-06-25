@@ -9897,6 +9897,33 @@ class Executor(
             }
         }
 
+        // V5.0.4161 — EXECUTION-HEALTH BUY GATE.
+        // ═════════════════════════════════════════════════════════════════
+        // Operator dump 2026-06-26 showed Jupiter sr=0% with DNS-fail
+        // (`Unable to resolve host "tokens.jup.ag"`) while two trades bled
+        // to -71% / -58% on the sell side. The detect-side STRICT_SL /
+        // CATASTROPHIC_HARD_BACKSTOP_-25 (V5.0.4160) fired correctly but
+        // the SAME doSell pipeline can't broadcast at a clean price when
+        // Jupiter is dead — direct route fills at catastrophic loss.
+        //
+        // Rule: do NOT acquire new bags we cannot safely unwind. If the
+        // execution layer is currently dead, defer the buy. This is
+        // VOLUME-PRESERVING — `isJupiterHealthy` flips back to true on
+        // the FIRST Jupiter success (sr threshold OR fresh-success window),
+        // so the meme trader resumes immediately when execution recovers.
+        // Self-correcting, no permanent throttle.
+        if (com.lifecyclebot.engine.ExecutionHealthGuard.shouldDeferBuy()) {
+            try { PipelineHealthCollector.labelInc("BUY_DEFERRED_JUPITER_DEAD_4161") } catch (_: Throwable) {}
+            try {
+                ForensicLogger.lifecycle(
+                    "BUY_DEFERRED_JUPITER_DEAD",
+                    "mint=${ts.mint.take(10)} symbol=${ts.symbol} lane=$layerTag sol=${"%.4f".format(sol)} reason=jupiter_unhealthy_no_safe_unwind"
+                )
+            } catch (_: Throwable) {}
+            liveBuyDeferred(ts, sol, "JUPITER_EXECUTION_LAYER_DEAD", "lane=$layerTag — defer until jupiter recovers (self-clears on next success)")
+            return false
+        }
+
         // V5.0.4134 — UNIVERSAL LIVE-BUY DISCIPLINE VETO + DUMP REGIME KILL SWITCH.
         //
         // V5.0.4133 added rug-blacklist + discipline veto at doBuy(), but at least one
@@ -15441,6 +15468,44 @@ class Executor(
             // position OPEN_TRACKING with its single pending sell intent (lease).
             val jupiterQuoteUnavailable = (quote == null)
             if (jupiterQuoteUnavailable) {
+                // V5.0.4161 — DIRECT-ROUTE SELL FREEZE for non-emergency reasons.
+                // ═════════════════════════════════════════════════════════
+                // Operator dump 2026-06-26 showed trades bleeding to -71% /
+                // -58% when Jupiter DNS died: quote came back null, the
+                // executor fell straight through to the PUMP/HELIUS direct
+                // route, which fills into dying liquidity with no slippage
+                // projection. For a STRICT_SL_-10 exit, that turned into
+                // -71% realized loss.
+                //
+                // Rule: when Jupiter is dead AND the reason is NOT a true
+                // emergency, defer for up to ~30s (5 ticks) hoping Jupiter
+                // recovers. The defer is per-mint and capped — after the
+                // cap, we MUST force-proceed (better a bad fill than a
+                // permanently stuck position).
+                //
+                // Emergency reasons (RUG, HONEYPOT, CATASTROPHIC,
+                // STEALTH_MINT, STALE, MAX_HOLD, MUST_SELL, EMERGENCY,
+                // SHUTDOWN, PHANTOM, DRAIN, PANIC, REFLEX, LIQ) ALWAYS
+                // broadcast — they'd rather take a -50% fill than be
+                // stuck in a rug.
+                if (com.lifecyclebot.engine.ExecutionHealthGuard.shouldDeferDirectRouteSell(ts.mint, reason)) {
+                    val n = com.lifecyclebot.engine.ExecutionHealthGuard.directRouteDeferCount(ts.mint)
+                    onLog("🛑 SELL DEFERRED (jupiter dead, non-emergency): ${ts.symbol} reason='$reason' (defer ${n}/5) — re-queue, retry on next exit tick", ts.mint)
+                    try {
+                        LiveTradeLogStore.log(
+                            sellTradeKey, ts.mint, ts.symbol, "SELL",
+                            LiveTradeLogStore.Phase.SELL_QUOTE_FAIL,
+                            "SELL_DIRECT_ROUTE_FREEZE_4161 jupiter=dead reason='$reason' defer=$n/5 — waiting for jupiter recovery before broadcasting direct route",
+                            traderTag = "MEME",
+                        )
+                        ForensicLogger.lifecycle(
+                            "SELL_DIRECT_ROUTE_FREEZE",
+                            "mint=${ts.mint.take(10)} symbol=${ts.symbol} reason=${reason.take(40)} defer=$n/5 jupiter=dead action=defer_pending_recovery"
+                        )
+                        PipelineHealthCollector.labelInc("SELL_DIRECT_ROUTE_FREEZE_4161")
+                    } catch (_: Throwable) {}
+                    return SellResult.FAILED_RETRYABLE
+                }
                 LiveTradeLogStore.log(
                     sellTradeKey, ts.mint, ts.symbol, "SELL",
                     LiveTradeLogStore.Phase.SELL_QUOTE_FAIL,
@@ -16299,8 +16364,22 @@ class Executor(
                         quotedPxUsd = quotedSol,
                         realizedPxUsd = solBack,
                     )
+                    // V5.0.4161 — slippage violation alarm: when realized
+                    // SOL is >20% worse than quoted, log EXECUTION_SLIPPAGE_VIOLATION
+                    // so the catastrophic-fill failure mode is visible in
+                    // telemetry. Observability only — no control-flow change.
+                    com.lifecyclebot.engine.ExecutionHealthGuard.recordSlippageOutcome(
+                        mint = ts.mint,
+                        symbol = ts.symbol,
+                        quotedSol = quotedSol,
+                        realizedSol = solBack,
+                        reason = reason,
+                    )
                 }
             } catch (_: Exception) {}
+
+            // V5.0.4161 — clear any direct-route defer state on confirmed sell.
+            try { com.lifecyclebot.engine.ExecutionHealthGuard.clearDirectRouteDefer(ts.mint) } catch (_: Throwable) {}
 
             // V5.9.72: clear retry counters on a genuine successful swap so
             // the mint starts fresh next time.

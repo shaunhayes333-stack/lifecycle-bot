@@ -4,6 +4,48 @@ All notable changes to the Autonomous AI Trading Engine.
 
 ---
 
+## [5.0.4161] - 2026-06 — EXECUTION-HEALTH GUARD (jupiter-blackout defense)
+
+Operator dump 2026-06-26 (running V5.0.4160/4161) revealed two more
+catastrophic closes: `385j195R pnl=-71.4%` and `BHXt2heo pnl=-58.8%`,
+both labelled `CATASTROPHIC_STOP_LOSS_OVERRUN_-Xpct_FROM_STRICT_SL_-10`.
+
+Root cause: V5.0.4160's `CATASTROPHIC_HARD_BACKSTOP_-25` correctly
+DETECTS the bleed but calls the same `doSell()` pipeline. With Jupiter
+dead (`sr=0%, Unable to resolve host "tokens.jup.ag"`) the executor
+falls through to the PUMP/HELIUS direct route with no slippage
+projection — a STRICT_SL_-10 fires correctly at -10% but fills at
+-71%. Detect-side guards are useless when execution itself is broken.
+
+New module `engine/ExecutionHealthGuard` — three surgical, **volume-
+preserving** rules:
+
+1. **`shouldDeferBuy()`** wired at `liveBuy()` top. When Jupiter is
+   unhealthy (sr<25% AND no success in 60s window), defer the buy.
+   We do not acquire bags we cannot safely unwind. Self-resets on
+   the very next Jupiter success — no permanent throttle.
+
+2. **`shouldDeferDirectRouteSell()`** wired inside the `jupiterQuoteUnavailable`
+   branch in `liveSell()`. When Jupiter is dead AND the reason is
+   non-emergency, defer up to 5 ticks (~30s) hoping Jupiter recovers.
+   After the cap, force-proceed (better a bad fill than a stuck bag).
+   Emergency reasons (RUG, HONEYPOT, CATASTROPHIC, STEALTH_MINT,
+   STALE, MAX_HOLD, MUST_SELL, EMERGENCY, SHUTDOWN, PHANTOM, DRAIN,
+   PANIC, REFLEX, LIQ) ALWAYS broadcast — never frozen.
+
+3. **`recordSlippageOutcome()`** post-execution alarm. When realized
+   SOL is >20% worse than the original quote, log `EXECUTION_SLIPPAGE_VIOLATION`
+   so the failure mode becomes visible in telemetry and the daily
+   "Catastrophic backstops fired today" UI counter can surface it.
+
+Profit / volume / meme-trader stance:
+- Buys self-resume on first Jupiter success (typically seconds).
+- Sells force-broadcast after 5 defers — no permanent freeze.
+- Emergencies bypass everything.
+- State is in-memory, self-clears, zero persistence.
+
+---
+
 ## [5.0.4160] - 2026-06 — SCRATCH-STREAK BUTTERFLY SWEEP + CATASTROPHIC -25% BACKSTOP
 
 Two operator P0s shipped together:
