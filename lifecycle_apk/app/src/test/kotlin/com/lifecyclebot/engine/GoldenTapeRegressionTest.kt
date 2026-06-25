@@ -1917,7 +1917,8 @@ class GoldenTapeRegressionTest {
         assertTrue(tracker.contains("hasCurrentWalletPositiveProof"))
         assertTrue(tracker.contains("hasFreshBuyLiability"))
         assertTrue(tracker.contains("hasLiveSellInFlightForCap"))
-        assertTrue(tracker.contains("getActuallyHeldCount(): Int = positions.values.count { hasCurrentWalletPositiveProof(it) || hasBotBoughtPositiveLiability(it) }"))
+        assertTrue("V5.0.4155: held count must exclude terminal one-token dust before cap/accounting predicates",
+            tracker.contains("getActuallyHeldCount(): Int = positions.values.count { !isTerminalDust(it) && (hasCurrentWalletPositiveProof(it) || hasBotBoughtPositiveLiability(it)) }"))
         assertFalse("stale raw alone must not make a row open/cap-countable",
             tracker.contains("hasLastPositiveRaw(p) ||\n            p.status in SELL_IN_FLIGHT_STATUSES"))
 
@@ -1977,7 +1978,8 @@ class GoldenTapeRegressionTest {
         assertTrue(tracker.contains("BUY_TX_META_AWAITING_CURRENT_WALLET_HELD"))
         assertTrue(tracker.contains("WalletAuthoritySnapshot.HELD"))
         assertTrue(tracker.contains("currentHeldSnapshot"))
-        assertTrue(tracker.contains("getActuallyHeldCount(): Int = positions.values.count { hasCurrentWalletPositiveProof(it) || hasBotBoughtPositiveLiability(it) }"))
+        assertTrue("V5.0.4155: TX-meta liability remains managed, but terminal dust cannot inflate held count",
+            tracker.contains("getActuallyHeldCount(): Int = positions.values.count { !isTerminalDust(it) && (hasCurrentWalletPositiveProof(it) || hasBotBoughtPositiveLiability(it)) }"))
         assertTrue(tracker.contains("getActuallyHeldMints(): Set<String>"))
         assertFalse("TX-meta owner delta must not promote directly to open tracking",
             tracker.contains("p.status = PositionStatus.OPEN_TRACKING\n        p.source = when (proof.source)"))
@@ -2421,10 +2423,10 @@ class GoldenTapeRegressionTest {
     fun meme_runtime_authority_activates_all_internal_layers_without_market_fanout() {
         val auth = java.io.File("src/main/kotlin/com/lifecyclebot/engine/EnabledTraderAuthority.kt").readText()
         val bot = java.io.File("src/main/kotlin/com/lifecyclebot/engine/BotService.kt").readText()
-        assertTrue("Authority enum must expose every internal meme layer", listOf("SHITCOIN", "MOONSHOT", "EXPRESS", "QUALITY", "TREASURY", "CASHGEN", "BLUECHIP", "MANIPULATED", "DIP_HUNTER", "PROJECT_SNIPER", "CYCLIC").all { auth.contains(it) })
-        assertTrue("Meme-only publish must include full internal specialist set", listOf("Trader.QUALITY", "Trader.TREASURY", "Trader.CASHGEN", "Trader.BLUECHIP", "Trader.PROJECT_SNIPER", "Trader.DIP_HUNTER", "Trader.MANIPULATED").all { bot.contains(it) })
-        assertTrue("Internal specialists must be ignored by isMemeLiveOnly so markets/perps remain isolated", auth.contains("internalMemeLayers") && auth.contains("Trader.PROJECT_SNIPER") && auth.contains("set - Trader.CRYPTO_ALT - internalMemeLayers"))
-        assertTrue("Runtime report should no longer collapse to MEME,CYCLIC only", bot.contains("FULL INTERNAL MEME LAYER ACTIVATION"))
+        assertTrue("Authority enum must expose every internal meme layer except disabled CYCLIC sidecar", listOf("SHITCOIN", "MOONSHOT", "EXPRESS", "QUALITY", "TREASURY", "CASHGEN", "BLUECHIP", "MANIPULATED", "DIP_HUNTER", "PROJECT_SNIPER").all { auth.contains(it) })
+        assertTrue("Meme-only publish must include full internal specialist set except CYCLIC", listOf("Trader.QUALITY", "Trader.TREASURY", "Trader.CASHGEN", "Trader.BLUECHIP", "Trader.PROJECT_SNIPER", "Trader.DIP_HUNTER", "Trader.MANIPULATED").all { bot.contains(it) } && !bot.contains("add(com.lifecyclebot.engine.EnabledTraderAuthority.Trader.CYCLIC)"))
+        assertTrue("Internal specialists must be ignored by isMemeLiveOnly so markets/perps remain isolated; CYCLIC must not be an internal meme layer", auth.contains("internalMemeLayers") && auth.contains("Trader.PROJECT_SNIPER") && auth.contains("set - Trader.CRYPTO_ALT - internalMemeLayers") && !auth.substringAfter("val internalMemeLayers = setOf(").substringBefore(")").contains("Trader.CYCLIC"))
+        assertTrue("Runtime report should expose all active meme lanes while CYCLIC stays excluded", bot.contains("all internal MEME lanes stay active") && bot.contains("CYCLIC remains excluded"))
     }
 
 
