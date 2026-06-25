@@ -7,6 +7,52 @@ Stocks, Markets, Tokenized Stocks, Forex, Metals, Commodities). Foreground
 Service with a 50+ AI-module pipeline gated through processTokenCycle.
 
 
+## V5.0.4160 (Jun 2026) — SCRATCH-STREAK BUTTERFLY SWEEP + CATASTROPHIC -25% BACKSTOP
+
+Two operator P0s shipped together. CI: ✅ GREEN.
+
+### P0 #1 — Scratch-streak guard, lifted into a shared registry
+V5.0.4159 first introduced a per-lane scratch counter inside `MoonshotTraderAI`
+to detect the "all-scratch trap" (operator dump showed 17 trades with
+W/L/S=0/0/17, every close pinned in [-2%, +5%]). Operator response:
+*"meme traders basically stopped trading. completely. it needs that fix
+everywhere bro! siblings, traders, upstream downstream, butterfly sweeps!!!"*
+
+The counter has been extracted into `engine/ScratchStreakRegistry`:
+- Lane-keyed (`MOONSHOT`, `SHITCOIN`, `EXPRESS`, `BLUECHIP`, `QUALITY`,
+  `MANIPULATED`, `CRYPTO_ALT`) — zero cross-lane contamination.
+- `recordOutcome(lane, pnlPct)` — increments on |pnlPct|<1% (scratch),
+  resets to 0 on any clear win/loss. Self-correcting.
+- `streakFor(lane)` / `isInTrap(lane)` — consumed by every lane's
+  FLAT_EXIT path. Trap threshold = 4 consecutive scratches.
+
+Wired into every meme + crypto trader (MoonshotTraderAI, ShitCoinTraderAI,
+ShitCoinExpress, BlueChipTraderAI, QualityTraderAI, ManipulatedTraderAI,
+CryptoAltTrader). The shared `OutcomeGates.earlyExitByHoldBucket` now
+consults the registry centrally so any lane crossing the trap threshold
+gets its flat-exit window extended (2× cap) before flat-cutting.
+
+### P0 #2 — Catastrophic -25% Hard Emergency Backstop (Executor.kt)
+Operator dump showed trades closing at -71% and -58% despite STRICT_SL
+configured at -10%. Root cause: a Jupiter DNS blackout (`tokens.jup.ag`
+unresolvable) stalled live quotes; both live and cached SL paths skipped
+firing because the feed stopped ticking before price ever reached the
+configured floor. By the time maxHold finally cut the bag, the realized
+fill was catastrophic.
+
+New last-line backstop in `Executor.kt runManageOnly`:
+- Runs BEFORE paper settle-in, fluid SL coercion, profit locks, STRICT_SL.
+- If EITHER the live price OR the most recent cached price shows
+  pnl ≤ -25%, force-exits immediately with reason
+  `CATASTROPHIC_HARD_BACKSTOP_-25`.
+- Quote freshness, learning state, and settle-in cannot suppress it —
+  there is no scenario where holding a -25% bag through a quote outage
+  is correct behaviour.
+
+Also fixes V5.0.4159 CI failure (`Type mismatch: Int but Long expected`
+at `MoonshotTraderAI.kt:1663`, from `pos.spaceMode.maxHold`).
+
+
 ## V5.0.4158 (Feb 2026) — CRYPTO UNIVERSE DISCIPLINE PARITY (isolated)
 
 Operator: *"isolated crypto universe power up, upgrade and meme trader
