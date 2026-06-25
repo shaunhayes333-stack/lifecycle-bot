@@ -7,6 +7,57 @@ Stocks, Markets, Tokenized Stocks, Forex, Metals, Commodities). Foreground
 Service with a 50+ AI-module pipeline gated through processTokenCycle.
 
 
+## V5.0.4158 (Feb 2026) — CRYPTO UNIVERSE DISCIPLINE PARITY (isolated)
+
+Operator: *"isolated crypto universe power up, upgrade and meme trader
+structure match up. remember do not contaminate the meme trader."*
+
+### What shipped — four NEW crypto-isolated discipline modules
+Under `perps/crypto/brain/`:
+- `CryptoRugMintBlacklist`  — prefs: `crypto_rug_mint_blacklist`
+- `CryptoLivePauseButton`   — prefs: `crypto_live_pause_button`
+- `CryptoLaneTimeoutGate`   — prefs: `crypto_lane_timeout_gate`
+- `CryptoScannerLaneBridge` — prefs: `crypto_scanner_lane_bridge`
+
+Each is a 1:1 algorithmic mirror of its meme counterpart
+(`engine/RugMintBlacklist`, `engine/LivePauseButton`, `engine/LaneTimeoutGate`,
+`engine/ScannerLaneBridge`) — same thresholds, same hysteresis, same API
+surface — but with a **separate SharedPreferences file** and **zero shared
+state**. Meme close events update meme prefs only; crypto close events
+update crypto prefs only.
+
+### Wiring at the crypto buy chokepoint
+`authorizeCryptoFinalCandidate` (in `CryptoAltTrader.kt`) now runs the
+four-veto stack BEFORE EXEC_GATE/TradeAuthorizer:
+1. `CryptoRugMintBlacklist.isBlacklisted(assetKey)` → veto
+2. `CryptoLaneTimeoutGate.isTimedOut(lane)` → veto
+3. `CryptoLivePauseButton.isDefensive()` with `isTopPerformingLane` bypass → veto
+4. `CryptoScannerLaneBridge.shouldRoute(src, lane)` → veto
+
+Forensic stamps: `CRYPTO_RUG_BLACKLIST_VETO_V4151`, `CRYPTO_DISCIPLINE_VETO_V4151`.
+
+### Wiring at the crypto close path
+Live closes feed all four discipline modules with `pnlPct` + `holdMs`.
+Lane tags partition by leverage class (`CRYPTO_SPOT` vs `CRYPTO_LEV`)
+derived from `candidate.assetType` and `position.isSpot` — so one mode
+can enter `TIMEOUT` without locking the other.
+
+### Isolation guarantee — files NOT touched
+- `engine/Executor.kt`, `engine/BotService.kt`
+- `engine/RugMintBlacklist.kt`, `engine/LivePauseButton.kt`,
+  `engine/LaneTimeoutGate.kt`, `engine/ScannerLaneBridge.kt`
+- All of `v3/scoring/*` (meme scorers untouched)
+
+SharedPreferences: zero key overlap between meme + crypto.
+
+### Deferred — scorer decouple is a follow-up
+`CryptoAltTrader` still calls `ShitCoinTraderAI.evaluate`,
+`MoonshotTraderAI.scoreToken`, etc. for SCORING. These are READ-ONLY
+inferences (don't write to meme state — recording uses Alts-specific
+methods). Full scorer decouple is a separate refactor.
+
+CI: GREEN ✅ (run 28177542230 → AATE_v5.0.4158).
+
 ## V5.0.4150 (Feb 2026) — REGIME-PIVOT INTAKE + DEFENSIVE-LANE ADMIT
 
 Operator: *"its doing nothing mate. its not meant to disable its meant to
