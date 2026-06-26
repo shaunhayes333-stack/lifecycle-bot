@@ -55,6 +55,13 @@ object BirdeyeMetaDataProvider {
         val now = System.currentTimeMillis()
         val existing = cache[mint]
         if (existing != null && (now - existing.ts) < CACHE_TTL_MS) return
+        // V5.0.4186 — BIRDEYE = BACKUP. DexScreener already provides
+        // socials/websites via seedFromFreeSource — Birdeye metadata is
+        // non-essential when scanner-lane budget is throttled.
+        if (!com.lifecyclebot.engine.BirdeyeBudgetGate.canAffordScannerLane()) {
+            try { com.lifecyclebot.engine.PipelineHealthCollector.labelInc("BIRDEYE_METADATA_SKIPPED_BUDGET") } catch (_: Throwable) {}
+            return
+        }
         if (inFlight.putIfAbsent(mint, true) != null) return
 
         try {

@@ -52,6 +52,13 @@ object BirdeyeCreationInfoProvider {
         val existing = cache[mint]
         val now = System.currentTimeMillis()
         if (existing != null && (now - existing.ts) < CACHE_TTL_MS) return
+        // V5.0.4186 — BIRDEYE = BACKUP. DexScreener already provides
+        // createdAtMs via seedFromFreeSource — Birdeye creation info is
+        // non-essential when scanner-lane budget is throttled.
+        if (!com.lifecyclebot.engine.BirdeyeBudgetGate.canAffordScannerLane()) {
+            try { com.lifecyclebot.engine.PipelineHealthCollector.labelInc("BIRDEYE_CREATION_INFO_SKIPPED_BUDGET") } catch (_: Throwable) {}
+            return
+        }
         if (inFlight.putIfAbsent(mint, true) != null) return
 
         try {

@@ -95,6 +95,14 @@ object BirdeyeTradeDataProvider {
         val existing = cache[mint]
         if (existing != null && (now - existing.timestamp) < CACHE_TTL_MS) return
 
+        // V5.0.4186 — BIRDEYE = BACKUP. Trade data (volume/buys/sells/wallets)
+        // can be derived from PumpFun WS + DexScreener for the watchlist
+        // universe. Skip Birdeye when scanner-lane budget is throttled.
+        if (!com.lifecyclebot.engine.BirdeyeBudgetGate.canAffordScannerLane()) {
+            try { com.lifecyclebot.engine.PipelineHealthCollector.labelInc("BIRDEYE_TRADE_DATA_SKIPPED_BUDGET") } catch (_: Throwable) {}
+            return
+        }
+
         if (inFlight.putIfAbsent(mint, true) != null) return
 
         try {

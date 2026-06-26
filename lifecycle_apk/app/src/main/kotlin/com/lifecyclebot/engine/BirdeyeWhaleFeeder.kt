@@ -44,6 +44,13 @@ object BirdeyeWhaleFeeder {
         if (now < circuitOpenUntilMs) return
         val last = lastFetched[mint]
         if (last != null && (now - last.timestampMs) < CACHE_TTL_MS) return
+        // V5.0.4186 — BIRDEYE = BACKUP. Whale top-traders data is
+        // enrichment only — when scanner-lane budget is throttled,
+        // skip and let HeliusWS / on-chain monitors provide whale signal.
+        if (!com.lifecyclebot.engine.BirdeyeBudgetGate.canAffordScannerLane()) {
+            try { com.lifecyclebot.engine.PipelineHealthCollector.labelInc("BIRDEYE_WHALE_FEED_SKIPPED_BUDGET") } catch (_: Throwable) {}
+            return
+        }
         if (inFlight.putIfAbsent(mint, true) != null) return
 
         try {

@@ -174,6 +174,32 @@ class DataOrchestrator(
         val ts = status.tokens[mint] ?: return
         var seeded = 0
 
+        // V5.0.4186 — BIRDEYE = BACKUP, not primary. Operator P0 mandate:
+        // "we can get the data birdeye provides free. its meant to be
+        // deprioritised to basically just be a back up". This seed function
+        // hits Birdeye 3-4 times per new watchlist token (1m + 5m + 15m +
+        // optional 4H candles). With 500+ pump.fun firehose tokens per
+        // session that's ~2,000 Birdeye calls just for seeding — the dominant
+        // CU sink that pushes the daily budget past the lockdown threshold
+        // and silences the bot's whole data layer. Solution: gate every
+        // Birdeye seed call behind canAffordScannerLane(). When the budget
+        // is tight, SKIP seeding entirely — real-time DexScreener/PumpFun WS
+        // feeds will populate ts.history naturally on their first tick.
+        val budgetOk = try {
+            com.lifecyclebot.engine.BirdeyeBudgetGate.canAffordScannerLane()
+        } catch (_: Throwable) { true }
+        if (!budgetOk) {
+            try {
+                com.lifecyclebot.engine.PipelineHealthCollector.labelInc("BIRDEYE_SEED_SKIPPED_BUDGET")
+                com.lifecyclebot.engine.ForensicLogger.lifecycle(
+                    "BIRDEYE_SEED_SKIPPED_BUDGET",
+                    "mint=${mint.take(10)} symbol=$symbol reason=birdeye_scanner_throttled — will populate from WS",
+                )
+            } catch (_: Throwable) {}
+            onLog("$symbol: skipping Birdeye seed (budget throttled, using WS data)", mint)
+            return
+        }
+
         // Seed 1m candles (primary strategy timeframe)
         // For very new tokens (no 4H history yet) 1m is always correct.
         // For established tokens DataOrchestrator checks if 4H data exists

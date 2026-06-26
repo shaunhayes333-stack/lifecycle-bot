@@ -64,6 +64,14 @@ object BirdeyePriceStatsProvider {
         if (now < circuitOpenUntilMs) return
         val existing = cache[mint]
         if (existing != null && (now - existing.ts) < CACHE_TTL_MS) return
+        // V5.0.4186 — BIRDEYE = BACKUP. Operator P0: Birdeye is to be a
+        // last-resort fallback only. PriceStats is non-essential metadata
+        // — skip when scanner-lane budget is throttled. Real-time price
+        // history still comes from WS feeds.
+        if (!BirdeyeBudgetGate.canAffordScannerLane()) {
+            try { PipelineHealthCollector.labelInc("BIRDEYE_PRICESTATS_SKIPPED_BUDGET") } catch (_: Throwable) {}
+            return
+        }
         if (inFlight.putIfAbsent(mint, true) != null) return
 
         try {
