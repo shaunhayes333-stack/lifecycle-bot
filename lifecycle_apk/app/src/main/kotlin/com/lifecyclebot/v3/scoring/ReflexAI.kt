@@ -2,6 +2,8 @@ package com.lifecyclebot.v3.scoring
 
 import com.lifecyclebot.data.TokenState
 import com.lifecyclebot.engine.ErrorLogger
+import org.json.JSONArray
+import org.json.JSONObject
 
 /**
  * V5.9.123 — ReflexAI
@@ -165,4 +167,64 @@ object ReflexAI {
     private fun clearDrainHit(mint: String) {
         drainHits.remove(mint)
     }
+
+    fun exportState(): String = try {
+        val now = System.currentTimeMillis()
+        val root = JSONObject()
+        val samples = JSONObject()
+        liquiditySamples.forEach { (mint, q) ->
+            val arr = JSONArray()
+            synchronized(q) {
+                while (q.isNotEmpty() && (now - q.peekFirst().ts) > (DRAIN_WINDOW_MS + 5_000L)) q.pollFirst()
+                q.forEach { s -> arr.put(JSONObject().put("ts", s.ts).put("liqUsd", s.liqUsd)) }
+            }
+            if (arr.length() > 0) samples.put(mint, arr)
+        }
+        val hits = JSONObject()
+        drainHits.forEach { (mint, hit) ->
+            synchronized(hit) {
+                if ((now - hit.lastTs) <= HIT_DECAY_MS && hit.count > 0) {
+                    hits.put(mint, JSONObject().put("count", hit.count).put("lastTs", hit.lastTs))
+                }
+            }
+        }
+        root.put("liquiditySamples", samples)
+        root.put("drainHits", hits)
+        root.toString()
+    } catch (_: Throwable) { "{}" }
+
+    fun importState(json: String) {
+        try {
+            val now = System.currentTimeMillis()
+            val root = JSONObject(json)
+            liquiditySamples.clear(); drainHits.clear()
+            val samples = root.optJSONObject("liquiditySamples") ?: JSONObject()
+            val keys = samples.keys()
+            while (keys.hasNext()) {
+                val mint = keys.next()
+                val arr = samples.optJSONArray(mint)
+                if (arr == null) continue
+                val q = java.util.ArrayDeque<LiqSample>()
+                for (i in 0 until arr.length()) {
+                    val o = arr.optJSONObject(i)
+                    if (o == null) continue
+                    val ts = o.optLong("ts", 0L)
+                    val liq = o.optDouble("liqUsd", 0.0)
+                    if (ts > 0L && liq > 0.0 && (now - ts) <= (DRAIN_WINDOW_MS + 5_000L)) q.addLast(LiqSample(ts, liq))
+                }
+                if (q.isNotEmpty()) liquiditySamples[mint] = q
+            }
+            val hits = root.optJSONObject("drainHits") ?: JSONObject()
+            val hKeys = hits.keys()
+            while (hKeys.hasNext()) {
+                val mint = hKeys.next()
+                val o = hits.optJSONObject(mint)
+                if (o == null) continue
+                val lastTs = o.optLong("lastTs", 0L)
+                val count = o.optInt("count", 0)
+                if (count > 0 && lastTs > 0L && (now - lastTs) <= HIT_DECAY_MS) drainHits[mint] = DrainHit(count, lastTs)
+            }
+        } catch (_: Throwable) {}
+    }
+
 }

@@ -169,6 +169,7 @@ object LearningPersistence {
             try { putBlob("CULT_MOMENTUM", com.lifecyclebot.v3.scoring.CultMomentumAI.exportState()) } catch (_: Throwable) {}
             try { putBlob("SELL_OPTIMIZATION", com.lifecyclebot.v3.scoring.SellOptimizationAI.exportState()) } catch (_: Throwable) {}
             try { putBlob("REGIME_TRANSITION", com.lifecyclebot.v3.scoring.RegimeTransitionAI.exportState()) } catch (_: Throwable) {}
+            try { putBlob("REFLEX_AI", com.lifecyclebot.v3.scoring.ReflexAI.exportState()) } catch (_: Throwable) {}
 
             // V5.9.988 — final amnesia close: 5 learners (Doctrine #25)
             // SentienceHooks + NetworkSignalAutoBuyer are SAFETY-FIRST per
@@ -242,6 +243,7 @@ object LearningPersistence {
         try { getBlob("CULT_MOMENTUM")?.let { com.lifecyclebot.v3.scoring.CultMomentumAI.importState(it) } } catch (_: Throwable) {}
         try { getBlob("SELL_OPTIMIZATION")?.let { com.lifecyclebot.v3.scoring.SellOptimizationAI.importState(it) } } catch (_: Throwable) {}
         try { getBlob("REGIME_TRANSITION")?.let { com.lifecyclebot.v3.scoring.RegimeTransitionAI.importState(it) } } catch (_: Throwable) {}
+        try { getBlob("REFLEX_AI")?.let { com.lifecyclebot.v3.scoring.ReflexAI.importState(it) } } catch (_: Throwable) {}
 
         // V5.9.988 — SAFETY-FIRST restore order (Doctrine #3.36):
         // Pause list + daily auto-buy budget restored BEFORE other learners
