@@ -9014,7 +9014,7 @@ class Executor(
             score = score,
             plannedSol = sol,
             finalSol = actualSol,
-            reasons = listOf("paperBuy", quality, buildPhase),
+            reasons = listOf("paperBuy", quality.toString(), buildPhase.toString()),
             extra = "entryTp=${ts.styleTpMult.fmt(2)} hold=${ts.styleHoldMult.fmt(2)}",
         )
         ts.lastPolicySnapshot = paperPolicySnapshot
@@ -12558,7 +12558,53 @@ class Executor(
         val peakGainPct: Double,
         val givebackFromPeak: Double,
         val normalizedReason: String,
+        val advancedExitReason: String = "",
     )
+
+    private fun advancedExitProfileForLane(lane: String): com.lifecyclebot.v3.scoring.AdvancedExitManager.ExitProfile {
+        val l = lane.uppercase()
+        return when {
+            l.contains("SHITCOIN") || l.contains("PRESALE") || l.contains("SNIPER") -> com.lifecyclebot.v3.scoring.AdvancedExitManager.ExitProfile.SHITCOIN
+            l.contains("EXPRESS") || l.contains("MANIP") -> com.lifecyclebot.v3.scoring.AdvancedExitManager.ExitProfile.EXPRESS
+            l.contains("BLUE") || l.contains("QUALITY") -> com.lifecyclebot.v3.scoring.AdvancedExitManager.ExitProfile.BLUE_CHIP
+            l.contains("DIP") -> com.lifecyclebot.v3.scoring.AdvancedExitManager.ExitProfile.DIP_HUNTER
+            l.contains("TREASURY") || l.contains("CASH") -> com.lifecyclebot.v3.scoring.AdvancedExitManager.ExitProfile.TREASURY
+            l.contains("MOONSHOT") || l.contains("MEME") -> com.lifecyclebot.v3.scoring.AdvancedExitManager.ExitProfile.MOONSHOT
+            else -> com.lifecyclebot.v3.scoring.AdvancedExitManager.ExitProfile.V3_STANDARD
+        }
+    }
+
+    private fun advancedExitAdvisory(ts: TokenState): com.lifecyclebot.v3.scoring.AdvancedExitManager.ExitDecision? {
+        val pos = ts.position
+        if (!pos.isOpen || pos.entryPrice <= 0.0 || pos.qtyToken <= 0.0) return null
+        val px = ts.lastPrice.takeIf { it > 0.0 } ?: return null
+        val lane = resolveExecutionLane(ts, fallback = pos.tradingMode.ifBlank { "STANDARD" })
+        val holdMinutes = ((System.currentTimeMillis() - pos.entryTime).coerceAtLeast(0L) / 60_000L).toInt()
+        return try {
+            val decision = com.lifecyclebot.v3.scoring.AdvancedExitManager.evaluateExit(
+                profile = advancedExitProfileForLane(lane),
+                entryPrice = pos.entryPrice,
+                currentPrice = px,
+                highWaterMarkPrice = pos.highestPrice.takeIf { it > 0.0 } ?: px,
+                holdMinutes = holdMinutes,
+                entryScore = pos.entryScore.toInt().coerceIn(0, 100),
+                currentMomentum = ts.momentum ?: ts.meta.momScore,
+                currentLiquidity = ts.lastLiquidityUsd.takeIf { it > 0.0 } ?: pos.entryLiquidityUsd,
+                entryLiquidity = pos.entryLiquidityUsd,
+                marketRegime = try { com.lifecyclebot.engine.RegimeDetector.currentRegime().name } catch (_: Throwable) { "UNKNOWN" },
+                volatility = ts.volatility ?: 0.0,
+                alreadySoldPct = pos.partialSoldPct.toInt().coerceIn(0, 100),
+                symbol = ts.symbol,
+            )
+            if (decision.shouldExit) {
+                try {
+                    ForensicLogger.lifecycle("ADVANCED_EXIT_MANAGER_ADVISORY_4194", "mint=${ts.mint.take(10)} symbol=${ts.symbol} lane=$lane reason=${decision.exitReason} urgency=${decision.urgency} sellPct=${decision.sellPct} msg=${decision.logMessage.take(120)}")
+                    PipelineHealthCollector.labelInc("ADVANCED_EXIT_MANAGER_ADVISORY_4194_${decision.exitReason}")
+                } catch (_: Throwable) {}
+            }
+            decision
+        } catch (_: Throwable) { null }
+    }
 
     private fun classifyLiveExitIntent(ts: TokenState, reason: String): LiveExitIntent {
         val pos = ts.position
@@ -12570,12 +12616,21 @@ class Executor(
         val r = reason.uppercase()
         val confirmedRugByReason = r.contains("RUGCHECK_CONFIRMED") || r.contains("CONFIRMED_RUG") ||
             r.contains("HONEYPOT") || r.contains("CANNOT_SELL")
-        val hardSafety = rawPnlPct <= -15.0 || confirmedRugByReason ||
+        val advanced = advancedExitAdvisory(ts)
+        val advancedCritical = advanced?.shouldExit == true && advanced.urgency.ordinal >= com.lifecyclebot.v3.scoring.AdvancedExitManager.ExitUrgency.HIGH.ordinal
+        val advancedHardSafety = advancedCritical && (advanced?.exitReason == com.lifecyclebot.v3.scoring.AdvancedExitManager.ExitReason.STOP_LOSS ||
+            advanced?.exitReason == com.lifecyclebot.v3.scoring.AdvancedExitManager.ExitReason.LIQUIDITY_EXIT ||
+            advanced?.exitReason == com.lifecyclebot.v3.scoring.AdvancedExitManager.ExitReason.MOMENTUM_EXIT)
+        val advancedRunnerProtect = advanced?.shouldExit == true && (advanced.exitReason == com.lifecyclebot.v3.scoring.AdvancedExitManager.ExitReason.TRAILING_STOP ||
+            advanced.exitReason == com.lifecyclebot.v3.scoring.AdvancedExitManager.ExitReason.TAKE_PROFIT_FULL ||
+            advanced.exitReason == com.lifecyclebot.v3.scoring.AdvancedExitManager.ExitReason.TAKE_PROFIT_CHUNK ||
+            advanced.exitReason == com.lifecyclebot.v3.scoring.AdvancedExitManager.ExitReason.TIME_EXIT)
+        val hardSafety = rawPnlPct <= -15.0 || confirmedRugByReason || advancedHardSafety ||
             r.contains("CATASTROPHE") || r.contains("HARD_FLOOR") ||
             r.contains("RAPID_HARD_FLOOR") || r.contains("MANUAL_EMERGENCY") ||
             r.contains("EMERGENCY_LIQUIDATE") || r.contains("KILL_SWITCH") ||
             r.contains("WALLET_BALANCE_ZERO") || r.contains("SELL_SIG_CONFIRMED")
-        val runnerProtect = (peakGainPct >= 20.0 && givebackFromPeak >= 25.0) ||
+        val runnerProtect = (peakGainPct >= 20.0 && givebackFromPeak >= 25.0) || advancedRunnerProtect ||
             r.contains("ULTRA_RUNNER_BANK") || r.contains("PEAK_GIVEBACK") ||
             r.contains("DRAWDOWN_FROM_PEAK") || r.contains("TRAIL_STOP_PEAK") ||
             r.contains("PROFIT_LOCK")
@@ -12587,7 +12642,7 @@ class Executor(
             profit -> LiveExitSeverity.PROFIT
             else -> LiveExitSeverity.CHURN
         }
-        return LiveExitIntent(severity, rawPnlPct, peakGainPct, givebackFromPeak, r)
+        return LiveExitIntent(severity, rawPnlPct, peakGainPct, givebackFromPeak, r, advancedExitReason = advanced?.exitReason?.name ?: "")
     }
 
     private fun liveHoldMinMsForPosition(ts: TokenState): Pair<Long, String> {

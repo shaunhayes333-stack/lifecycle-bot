@@ -3505,6 +3505,7 @@ class GoldenTapeRegressionTest {
         assertTrue("V5.0.4193: paper and live buys must stamp the actual applied policy snapshot", exec.contains("val paperPolicySnapshot = buildTradePolicySnapshot") && exec.contains("entryPolicySnapshot = paperPolicySnapshot") && exec.contains("val livePolicySnapshot = buildTradePolicySnapshot") && exec.contains("entryPolicySnapshot = livePolicySnapshot"))
         assertTrue("V5.0.4193: policy snapshot must include lane/style/source/score/planned/final/size multiplier",
             exec.contains("""lane=${'$'}safeLane""") && exec.contains("""style=${'$'}safeStyle""") && exec.contains("""scanner=${'$'}scannerSource""") && exec.contains("""planned=${'$'}{plannedSol.fmt(4)}""") && exec.contains("""final=${'$'}{finalSol.fmt(4)}""") && exec.contains("""sizeMult=${'$'}{mult.fmt(3)}"""))
+        assertTrue("V5.0.4194: AdvancedExitManager must be wired as advisory severity input, not a parallel direct sell authority", exec.contains("advancedExitAdvisory") && exec.contains("AdvancedExitManager.evaluateExit") && exec.contains("ADVANCED_EXIT_MANAGER_ADVISORY_4194") && exec.contains("advancedHardSafety") && exec.contains("advancedRunnerProtect"))
     }
 
 
