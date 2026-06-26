@@ -1916,20 +1916,40 @@ object FinalDecisionGate {
                 // indicators; volume becomes a tie-breaker. We keep the
                 // gate strict enough that an obviously-illiquid or
                 // unsupported token still blocks.
-                val hasStrongBuyers = ts.meta.pressScore >= 60.0
-                val hasGoodLiquidity = ts.lastLiquidityUsd >= 5_000.0
+                //
+                // V5.0.4185 — OPERATOR P0 RUGCHECK UNCHOKE.
+                // V5.0.4184 dump: 29 BUYs in first minute then DEAD silent.
+                // 110/119 (92%) of FDG blocks were RUGCHECK_PENDING_REVIEW_WEAK_
+                // because (a) hasGoodLiquidity required >=$5K but the pump.fun
+                // firehose lives at $2-5K, and (b) Birdeye at 90.9% CU /
+                // sr=19% causes rugcheck to keep timing out, so the data
+                // layer was dark for nearly EVERY new mint. Three fixes:
+                //   1) Lower liquidity bar to $2.5K (matches FDG's existing
+                //      LIQUIDITY_BELOW_WATCHLIST hard floor + lane bars).
+                //   2) Lower press bar to >=45 (was 60) — fresh pump.fun
+                //      tokens rarely show press>=60 in their first minute.
+                //   3) Allow 1-of-3 admission when EITHER signal is
+                //      individually strong (press>=70 OR liq>=$10K) —
+                //      preserves the "obviously thin/dead = block" rule
+                //      while admitting tokens with one decisive signal.
+                val hasStrongBuyers = ts.meta.pressScore >= 45.0
+                val hasGoodLiquidity = ts.lastLiquidityUsd >= 2_500.0
                 val hasGoodVolume = (ts.history.lastOrNull()?.volumeH1 ?: 0.0) >= 1_000.0
                 val signalsMet = listOf(hasStrongBuyers, hasGoodLiquidity, hasGoodVolume).count { it }
+                // V5.0.4185 — single-strong-signal admission. Allows pump.fun
+                // tokens with strong press OR strong liq to slip through even
+                // when rugcheck data is dark (Birdeye throttled).
+                val hasSingleStrong = ts.meta.pressScore >= 70.0 || ts.lastLiquidityUsd >= 10_000.0
                 // Hard fail only if BOTH press AND liquidity are weak —
                 // those are the two non-substitutable signals. Otherwise,
-                // 2-of-3 (or 1-of-3 with strong press) admits as probe.
+                // 2-of-3 (or 1-of-3 with single strong) admits as probe.
                 val criticalBothWeak = !hasStrongBuyers && !hasGoodLiquidity
-                val shouldBlock = criticalBothWeak || signalsMet < 2
+                val shouldBlock = criticalBothWeak || (signalsMet < 2 && !hasSingleStrong)
 
                 if (!shouldBlock) {
                     ErrorLogger.info(
                         "FDG",
-                        "Rugcheck $rugcheckStatus for ${ts.symbol}, allowing as PROBE (2-of-3 fallback): buy%=${ts.meta.pressScore.toInt()} liq=\$${ts.lastLiquidityUsd.toInt()} vol=\$${(ts.history.lastOrNull()?.volumeH1 ?: 0.0).toInt()} signals=$signalsMet/3"
+                        "Rugcheck $rugcheckStatus for ${ts.symbol}, allowing as PROBE (relaxed 4185 fallback): buy%=${ts.meta.pressScore.toInt()} liq=\$${ts.lastLiquidityUsd.toInt()} vol=\$${(ts.history.lastOrNull()?.volumeH1 ?: 0.0).toInt()} signals=$signalsMet/3 singleStrong=$hasSingleStrong"
                     )
                     tags.add("rugcheck_timeout_fallback")
                     tags.add("rc_timeout_live_probe")
