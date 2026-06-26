@@ -3532,6 +3532,9 @@ class GoldenTapeRegressionTest {
         val botService4206 = java.io.File("src/main/kotlin/com/lifecyclebot/engine/BotService.kt").readText()
         assertTrue("V5.0.4206: ChopFilter must be revived as FDG score shaping, not intake hard veto", botService4206.contains("CHOP_FILTER_SOFT_SHAPED_4206") && botService4206.contains("laneQualifiedBuyDecision") && botService4206.contains("base.copy(entryScore = (base.entryScore - chopPenalty).coerceAtLeast(0.0))") && botService4206.contains("val sourceForChop = try { status.tokens[mintForProbe]?.source"))
         assertTrue("V5.0.4206: ChopFilter must not hard-return or purge candidates from intake", botService4206.contains("action=fdg_score_penalty") && botService4206.contains("no purge, no slot removal"))
+        val executor4207 = java.io.File("src/main/kotlin/com/lifecyclebot/engine/Executor.kt").readText()
+        assertTrue("V5.0.4207: SellOptimizationAI recordExitOutcome must be fed from terminal trade finality", executor4207.contains("SellOptimizationAI.recordExitOutcome") && executor4207.contains("ledgerAllowsClosedLearning && accountingTrainable") && executor4207.contains("SELL_OPTIMIZATION_OUTCOME_LEARNED_4207"))
+        assertTrue("V5.0.4207: SellOptimizationAI outcome learning must stay off the hot path", executor4207.contains("GlobalScope.launch(AppDispatchers.sideEffect)") && executor4207.contains("wouldHaveBeenProxy"))
     }
 
 

@@ -2816,6 +2816,58 @@ class Executor(
         TradeHistoryStore.recordTrade(tradeWithMint)
 
         // V5.9.994 — ML TRAINING LOOP (Doctrine #4 — mature WR requires the
+        // V5.0.4207 — SellOptimizationAI.recordExitOutcome was a dead feedback edge.
+        // registerPosition/evaluate/closePosition were wired, but the strategy win-rate
+        // learner never received terminal outcomes. Feed it from the same idempotent
+        // closed-learning gate used by ML/KillSwitch: terminal SELL only, not partials,
+        // not recovered scratch, not invalid accounting. `wouldHaveBeen` is a bounded
+        // excursion proxy (peak for winners, low-water for losers) until a delayed +5m
+        // labeler exists; this is advisory learning only and never blocks exit finality.
+        try {
+            if (tradeWithMint.side.equals("SELL", true) && ledgerAllowsClosedLearning && accountingTrainable) {
+                val sellOptTrade = tradeWithMint
+                val posEntryPrice = ts.position.entryPrice
+                val posPeakPrice = ts.position.highestPrice
+                val posLowPrice = ts.position.lowestPrice
+                val holdMins = if (sellOptTrade.entryTsMs > 0L) ((sellOptTrade.ts - sellOptTrade.entryTsMs) / 60_000L).toInt().coerceAtLeast(0) else 0
+                val wouldHaveBeenProxy = try {
+                    when {
+                        sellOptTrade.pnlPct >= 0.0 && posEntryPrice > 0.0 && posPeakPrice > 0.0 -> {
+                            val peakPct = ((posPeakPrice - posEntryPrice) / posEntryPrice) * 100.0
+                            maxOf(sellOptTrade.pnlPct, peakPct)
+                        }
+                        sellOptTrade.pnlPct < 0.0 && posEntryPrice > 0.0 && posLowPrice > 0.0 -> {
+                            val lowPct = ((posLowPrice - posEntryPrice) / posEntryPrice) * 100.0
+                            minOf(sellOptTrade.pnlPct, lowPct)
+                        }
+                        else -> sellOptTrade.pnlPct
+                    }
+                } catch (_: Throwable) { sellOptTrade.pnlPct }
+                val sellOptStrategy = when {
+                    sellOptTrade.reason.contains("stop", true) || sellOptTrade.reason.contains("risk", true) || sellOptTrade.reason.contains("rug", true) -> com.lifecyclebot.v3.scoring.SellOptimizationAI.ExitStrategy.STOP_LOSS
+                    sellOptTrade.reason.contains("profit_lock", true) || sellOptTrade.reason.contains("trailing", true) || sellOptTrade.reason.contains("runner", true) -> com.lifecyclebot.v3.scoring.SellOptimizationAI.ExitStrategy.TRAILING_LOCK
+                    sellOptTrade.reason.contains("time", true) || sellOptTrade.reason.contains("stale", true) || sellOptTrade.reason.contains("maxhold", true) -> com.lifecyclebot.v3.scoring.SellOptimizationAI.ExitStrategy.TIME_DECAY_EXIT
+                    sellOptTrade.reason.contains("whale", true) -> com.lifecyclebot.v3.scoring.SellOptimizationAI.ExitStrategy.WHALE_EXIT
+                    sellOptTrade.reason.contains("learn", true) || sellOptTrade.reason.contains("fluid", true) -> com.lifecyclebot.v3.scoring.SellOptimizationAI.ExitStrategy.LEARNED_EXIT
+                    sellOptTrade.reason.contains("momentum", true) || sellOptTrade.reason.contains("take_profit", true) || sellOptTrade.reason.contains("sweep", true) -> com.lifecyclebot.v3.scoring.SellOptimizationAI.ExitStrategy.MOMENTUM_EXIT
+                    else -> com.lifecyclebot.v3.scoring.SellOptimizationAI.ExitStrategy.FULL_EXIT
+                }
+                GlobalScope.launch(AppDispatchers.sideEffect) {
+                    try {
+                        com.lifecyclebot.v3.scoring.SellOptimizationAI.recordExitOutcome(
+                            strategy = sellOptStrategy,
+                            exitPnlPct = sellOptTrade.pnlPct,
+                            wouldHaveBeen = wouldHaveBeenProxy,
+                            tokenType = sellOptTrade.tradingMode.ifBlank { "STANDARD" },
+                            holdTimeMinutes = holdMins,
+                        )
+                        try { PipelineHealthCollector.labelInc("SELL_OPTIMIZATION_OUTCOME_LEARNED_4207") } catch (_: Throwable) {}
+                    } catch (_: Throwable) {}
+                }
+            }
+        } catch (_: Throwable) {}
+
+        // V5.9.994 — ML TRAINING LOOP (Doctrine #4 — mature WR requires the
         // learners actually learn). Audit (V5.9.962→994 sweep) found
         // OnDeviceMLEngine.predict() was called by FinalDecisionGate on every
         // entry, but OnDeviceMLEngine.recordTrade() / TradeHistoryStore.
