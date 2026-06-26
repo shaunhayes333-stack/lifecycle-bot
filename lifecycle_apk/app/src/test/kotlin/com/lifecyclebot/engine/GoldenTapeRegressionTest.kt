@@ -3514,6 +3514,9 @@ class GoldenTapeRegressionTest {
         val safety4199 = java.io.File("src/main/kotlin/com/lifecyclebot/engine/TokenSafetyChecker.kt").readText()
         assertTrue("V5.0.4199: live risk overlay must hard-block LP-unlocked + low-liq/holder/provider rug sheets even when numeric lpLockedPct is missing", safety4199.contains("LIVE_RUG_OVERLAY_BLOCK_4199") && safety4199.contains("lpUnlockedRugCombo") && safety4199.contains("lpLockPct = 0.0") && safety4199.contains("""hard.add("LP unlocked with low liquidity/holder/provider risk"""))
         assertTrue("V5.0.4199: canonical scanner intake must reject hard safety/rug-overlay candidates before watchlist or probation admission", bot.contains("INTAKE_SAFETY_HARD_REJECT_4199") && bot.contains("no_watchlist=true no_probation=true") && bot.contains("""ScannerHardRejectStore.mark(mint, symbol, "INTAKE_SAFETY_HARD_REJECT_4199""") && bot.indexOf("INTAKE_SAFETY_HARD_REJECT_4199") < bot.indexOf("INTAKE_PROBATION_ONLY"))
+        assertTrue("V5.0.4200: take-win/full-profit exits must bypass settle-in before the silent grace return", exec.contains("trySweepTakeProfitExit") && exec.contains("SWEEP_TAKE_PROFIT_SETTLE_BYPASS_4200") && exec.indexOf("SWEEP_TAKE_PROFIT_SETTLE_BYPASS_4200") < exec.indexOf("silent grace for softer fluid path"))
+        assertTrue("V5.0.4200: live style min-hold must not delay take-win/profit exits", exec.contains("intent.severity == LiveExitSeverity.PROFIT") && exec.contains("Tiny") && exec.contains("liveProfitDustExitShouldDefer"))
+        assertTrue("V5.0.4200: paper settle-in must bypass take-win/full-profit exits", exec.contains("PAPER_TAKE_WIN_MIN_HOLD_BYPASS_4200") && !exec.contains("PAPER_PROFIT_MIN_HOLD"))
     }
 
 

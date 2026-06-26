@@ -4975,6 +4975,59 @@ class Executor(
      * nothing should rip 35% out of us!' — this guarantees they fire
      * even when DexScreener misses a tick.
      */
+    private fun trySweepTakeProfitExit(
+        ts: TokenState,
+        currentPrice: Double,
+        wallet: SolanaWallet?,
+        walletSol: Double,
+        settleBypass: Boolean = false,
+    ): Boolean {
+        if (!ts.position.isOpen || currentPrice <= 0.0) return false
+        val pnlPct = if (ts.position.entryPrice > 0)
+            ((currentPrice - ts.position.entryPrice) / ts.position.entryPrice) * 100
+        else 0.0
+        val tpPct = when {
+            // V5.0.4125 — style-adjusted TP takes PRIORITY over lane-specific TPs.
+            ts.position.entryTakeProfitPct > 0.0 ->
+                ts.position.entryTakeProfitPct
+            ts.position.isShitCoinPosition && ts.position.shitCoinTakeProfit > 0.0 ->
+                ts.position.shitCoinTakeProfit
+            ts.position.isBlueChipPosition && ts.position.blueChipTakeProfit > 0.0 ->
+                ts.position.blueChipTakeProfit
+            ts.position.isTreasuryPosition && ts.position.treasuryTakeProfit > 0.0 ->
+                ts.position.treasuryTakeProfit
+            else -> {
+                // Generic meme: use fluid TP — lerps from 15% bootstrap to
+                // cfg default as learning matures.
+                try {
+                    com.lifecyclebot.v3.scoring.FluidLearningAI
+                        .getFluidTakeProfit(cfg().exitScoreThreshold.coerceAtLeast(20.0))
+                } catch (_: Throwable) { 20.0 }
+            }
+        }
+        val laneKey = ts.position.tradingMode.ifBlank { "STANDARD" }
+        val learnedTpFloor = try { WrRecoveryPartial.learnedExitRungs(laneKey).first } catch (_: Throwable) { 50.0 }
+        val tune = try { LiveStrategyTuner.adjustment(laneKey) } catch (_: Throwable) { LiveStrategyTuner.adjustment("STANDARD") }
+        val liveGrowthTpPct = maxOf(tpPct, learnedTpFloor) * tune.tpMult
+        if (RuntimeModeAuthority.isLive() && tune.tpMult > 1.0) {
+            try { ForensicLogger.lifecycle("LIVE_STRATEGY_TUNER_TP_RAISED", "mint=${ts.mint.take(10)} symbol=${ts.symbol} lane=$laneKey baseTp=${tpPct.toInt()} learned=${learnedTpFloor.toInt()} tuned=${liveGrowthTpPct.toInt()} tune=${tune.compact}") } catch (_: Throwable) {}
+        }
+        if (pnlPct >= liveGrowthTpPct) {
+            val tag = if (settleBypass) "SWEEP_TAKE_PROFIT_SETTLE_BYPASS_4200" else "SWEEP_TAKE_PROFIT"
+            try {
+                ForensicLogger.lifecycle(
+                    tag,
+                    "mint=${ts.mint.take(10)} symbol=${ts.symbol} pnl=${pnlPct.toInt()} learnedTp=${liveGrowthTpPct.toInt()} settleBypass=$settleBypass action=sell_now",
+                )
+                if (settleBypass) PipelineHealthCollector.labelInc("SWEEP_TAKE_PROFIT_SETTLE_BYPASS_4200")
+            } catch (_: Throwable) {}
+            onLog("🎯 $tag: ${ts.symbol} pnl=${pnlPct.toInt()}% ≥ learnedTp=${liveGrowthTpPct.toInt()}%", ts.mint)
+            doSell(ts, "SWEEP_TAKE_PROFIT_${liveGrowthTpPct.toInt()}${if (settleBypass) "_SETTLE_BYPASS" else ""}", wallet, walletSol)
+            return true
+        }
+        return false
+    }
+
     fun runManageOnly(ts: TokenState, wallet: SolanaWallet?, walletSol: Double) {
         if (!ts.position.isOpen) return
         val currentPrice = getActualPrice(ts)
@@ -5307,14 +5360,18 @@ class Executor(
             }
         } catch (_: Throwable) { /* fail-open — MintBurn is advisory */ }
 
-        // V5.9.495i — POST-BUY SETTLE-IN GRACE for the FLUID exit predicates
-        // (partial-sell, profit-lock unlock, fluid floor). Operator: "it
-        // buys them then 5 seconds later it sells them". 45s breathing room
-        // for fluid logic only — strict SL above already enforced tightly.
+        // V5.0.4200 — take-win/profit-lock must bypass settle-in.
+        // The 45s settle window exists to prevent fake churn/soft-loss exits,
+        // not to hold a winner hostage. Dynamic profit lock and learned take-win
+        // are profit-protection actions, so they fire before settle-in exactly
+        // like hard safety above. Partial ladder / dead-feed / fluid floor can
+        // still wait for the normal post-buy breathing room.
         val posAgeMs = System.currentTimeMillis() - ts.position.entryTime
         val SETTLE_IN_MS = 45_000L
         if (posAgeMs < SETTLE_IN_MS) {
-            return  // silent grace for fluid path — strict SL already ran
+            if (checkProfitLock(ts, wallet, walletSol)) return
+            if (trySweepTakeProfitExit(ts, currentPrice, wallet, walletSol, settleBypass = true)) return
+            return  // silent grace for softer fluid path — strict SL and take-win already ran
         }
 
         // V5.9.723 — DEAD_TOKEN_EARLY_EXIT
@@ -5358,53 +5415,10 @@ class Executor(
                 ((currentPrice - ts.position.entryPrice) / ts.position.entryPrice) * 100
             else 0.0
 
-            // V5.9.684 — SWEEP TAKE-PROFIT.
-            // checkProfitLock handles partial milestone locks but never fires a
-            // full-position TP exit. Sub-trader TP fields (shitCoinTakeProfit,
-            // blueChipTakeProfit, treasuryTakeProfit) are stored on the position
-            // but only checked inside processTokenCycle when the token has a
-            // fresh scanner tick. If the scanner skips the mint (deferred,
-            // cooldown, no fresh pair) the TP fires here instead.
-            // Falls back to cfg.exitScoreThreshold-driven default TP (20%) if
-            // no sub-trader TP was ever stored.
-            if (currentPrice > 0.0) {
-                val tpPct = when {
-                    // V5.0.4125 — style-adjusted TP takes PRIORITY over lane-specific TPs.
-                    // The AGI stack's style decision (DH_RUNNER, SWING_HOLD, etc.)
-                    // should override the lane's default TP. This is what makes the bot
-                    // a multi-strategy machine instead of a flat scalper.
-                    // Lane TPs (shitCoin/blueChip/treasury) are still used as fallback
-                    // when no style TP was set (e.g. manual buys, restored positions).
-                    ts.position.entryTakeProfitPct > 0.0 ->
-                        ts.position.entryTakeProfitPct
-                    ts.position.isShitCoinPosition && ts.position.shitCoinTakeProfit > 0.0 ->
-                        ts.position.shitCoinTakeProfit
-                    ts.position.isBlueChipPosition && ts.position.blueChipTakeProfit > 0.0 ->
-                        ts.position.blueChipTakeProfit
-                    ts.position.isTreasuryPosition && ts.position.treasuryTakeProfit > 0.0 ->
-                        ts.position.treasuryTakeProfit
-                    else -> {
-                        // Generic meme: use fluid TP — lerps from 15% bootstrap to
-                        // cfg default as learning matures.
-                        try {
-                            com.lifecyclebot.v3.scoring.FluidLearningAI
-                                .getFluidTakeProfit(cfg().exitScoreThreshold.coerceAtLeast(20.0))
-                        } catch (_: Throwable) { 20.0 }
-                    }
-                }
-                val laneKey = ts.position.tradingMode.ifBlank { "STANDARD" }
-                val learnedTpFloor = try { WrRecoveryPartial.learnedExitRungs(laneKey).first } catch (_: Throwable) { 50.0 }
-                val tune = try { LiveStrategyTuner.adjustment(laneKey) } catch (_: Throwable) { LiveStrategyTuner.adjustment("STANDARD") }
-                val liveGrowthTpPct = maxOf(tpPct, learnedTpFloor) * tune.tpMult
-                if (RuntimeModeAuthority.isLive() && tune.tpMult > 1.0) {
-                    try { ForensicLogger.lifecycle("LIVE_STRATEGY_TUNER_TP_RAISED", "mint=${ts.mint.take(10)} symbol=${ts.symbol} lane=$laneKey baseTp=${tpPct.toInt()} learned=${learnedTpFloor.toInt()} tuned=${liveGrowthTpPct.toInt()} tune=${tune.compact}") } catch (_: Throwable) {}
-                }
-                if (pnlPct >= liveGrowthTpPct) {
-                    onLog("🎯 SWEEP_TAKE_PROFIT: ${ts.symbol} pnl=${pnlPct.toInt()}% ≥ learnedTp=${liveGrowthTpPct.toInt()}%", ts.mint)
-                    doSell(ts, "SWEEP_TAKE_PROFIT_${liveGrowthTpPct.toInt()}", wallet, walletSol)
-                    return
-                }
-            }
+            // V5.9.684 / V5.0.4200 — learned take-profit is now shared with
+            // the settle-bypass path above so scanner-missed winners can bank
+            // immediately instead of waiting for settle/min-hold.
+            if (trySweepTakeProfitExit(ts, currentPrice, wallet, walletSol)) return
 
             // Fluid stop floor — already wired but make the log more visible
             val floor = try {
@@ -12507,20 +12521,19 @@ class Executor(
             // Otherwise, it's a fake catastrophe caused by the paper tax. Fall through and delay.
         }
 
-        // V5.9.1097 — prevent instant full-close paper churn. Prior code put
-        // TAKE_PROFIT/PROFIT in the unconditional immediate whitelist, so a
-        // paper position could open and full-close seconds later as
-        // RAPID_TAKE_PROFIT_23. Partial/profit-lock/rug/hard-floor exits still
-        // bypass; this only delays full profit exits long enough to avoid fake
-        // open-close churn while preserving winners.
-        if (isPaperFullProfitExit && pnlPct > 0.0 && ageMs < 15_000L) {
+        // V5.0.4200 — take-win is allowed at any age. This mirrors dynamic
+        // profit-lock: once the position is genuinely green enough for a
+        // TAKE_PROFIT/FULL_PROFIT/RAPID_TAKE_PROFIT label, paper settle-in is
+        // no longer allowed to hold it hostage. Soft red/flat exits below still
+        // use settle-in; hard safety and profit protection bypass.
+        if (isPaperFullProfitExit && pnlPct > 0.0) {
             try {
                 ForensicLogger.lifecycle(
-                    "PAPER_PROFIT_MIN_HOLD",
-                    "mint=${ts.mint.take(10)} symbol=${ts.symbol} reason=${reason.take(80)} pnl=${"%.1f".format(pnlPct)} ageMs=$ageMs minHoldMs=15000 action=delay"
+                    "PAPER_TAKE_WIN_MIN_HOLD_BYPASS_4200",
+                    "mint=${ts.mint.take(10)} symbol=${ts.symbol} reason=${reason.take(80)} pnl=${"%.1f".format(pnlPct)} ageMs=$ageMs action=sell_now"
                 )
             } catch (_: Throwable) {}
-            return true
+            return false
         }
         if (r.contains("PROFIT") && !isPaperFullProfitExit) return false
 
@@ -12739,10 +12752,13 @@ class Executor(
     }
 
     private fun liveHoldBypassReason(intent: LiveExitIntent): Boolean {
-        // True safety + runner-protection exits bypass style/min-hold. Min-hold is
-        // anti-churn only; it must not override profit lockers, peak-giveback locks,
-        // hard floor, confirmed rugs, wallet-zero cleanup, or sell finality cleanup.
-        return intent.severity.ordinal >= LiveExitSeverity.RUNNER_PROTECT.ordinal
+        // True safety + runner-protection + take-win exits bypass style/min-hold.
+        // Min-hold is anti-churn only; it must not override profit lockers,
+        // TAKE_PROFIT/full-profit winners, peak-giveback locks, hard floor,
+        // confirmed rugs, wallet-zero cleanup, or sell finality cleanup. Tiny
+        // profit dust still gets caught earlier by liveProfitDustExitShouldDefer().
+        return intent.severity.ordinal >= LiveExitSeverity.RUNNER_PROTECT.ordinal ||
+            intent.severity == LiveExitSeverity.PROFIT
     }
 
     private fun liveHoldDelayIfNeeded(ts: TokenState, reason: String): LiveHoldDelay? {
