@@ -9740,7 +9740,28 @@ class BotService : Service() {
                     supervisorLiveCap = supervisorEffectiveCap(),
                 )
             } catch (_: Throwable) { com.lifecyclebot.engine.ProtectedIntakeAdmissionGate.Decision(false, "gate_error_fail_open") }
-            val coldPump = (!lenientIntake && isPumpPortalWs && !isUserAdded && !isRestoredVetted && volumeH1 <= 0.0 && liquidityUsd < 5_000.0) || pressureDecision.probationOnly
+            // V5.0.4195 — wire ScannerSourceBrain into admission pressure, not just
+            // downstream size/reporting. This remains soft-shape only: weak learned
+            // single-source feeds go probation; strong learned or multi-source feeds
+            // can avoid generic pressure quarantine. No source is hard-blocked.
+            val sourceBrainMult = try {
+                (allSources + source).map { ScannerSourceBrain.intakeMultiplier(it) }.maxOrNull() ?: 1.0
+            } catch (_: Throwable) { 1.0 }
+            val multiSourceConfirmed = allSources.size >= 2 || allSources.any { hasNonPumpConfirmationTag(it) }
+            val sourceBrainProbationOnly = !lenientIntake && !isUserAdded && !isRestoredVetted && !multiSourceConfirmed &&
+                sourceBrainMult < 0.65 && liquidityUsd < 7_500.0 && volumeH1 <= 0.0
+            val sourceBrainHotRescue = sourceBrainMult >= 1.25 && (multiSourceConfirmed || liquidityUsd >= 10_000.0 || volumeH1 > 0.0)
+            val coldPumpBase = !lenientIntake && isPumpPortalWs && !isUserAdded && !isRestoredVetted && volumeH1 <= 0.0 && liquidityUsd < 5_000.0
+            val coldPump = coldPumpBase || sourceBrainProbationOnly || (pressureDecision.probationOnly && !sourceBrainHotRescue)
+            if (sourceBrainProbationOnly || sourceBrainHotRescue) {
+                try {
+                    ForensicLogger.lifecycle(
+                        "SCANNER_SOURCE_BRAIN_ADMISSION_SHAPED_4195",
+                        "symbol=${symbol.ifBlank { mint.take(6) }} mint=${mint.take(10)} src=$source mult=${"%.2f".format(sourceBrainMult)} probation=$sourceBrainProbationOnly hotRescue=$sourceBrainHotRescue multi=$multiSourceConfirmed liq=${liquidityUsd.toInt()} vol1h=${volumeH1.toInt()} pressure=${pressureDecision.probationOnly}:${pressureDecision.reason}"
+                    )
+                    PipelineHealthCollector.labelInc(if (sourceBrainProbationOnly) "SCANNER_SOURCE_BRAIN_PROBATION_4195" else "SCANNER_SOURCE_BRAIN_HOT_RESCUE_4195")
+                } catch (_: Throwable) {}
+            }
             if (coldPump) {
                 val laneAffinity = inferIntakeLaneAffinity(source, allSources, marketCapUsd, liquidityUsd)
                 val toolAffinity = inferIntakeToolAffinity(source, allSources, marketCapUsd, liquidityUsd)
@@ -9763,7 +9784,7 @@ class BotService : Service() {
                     val probationResult = added?.reason ?: "err"
                     ForensicLogger.lifecycle(
                         "INTAKE_PROBATION_ONLY",
-                        "symbol=${symbol.ifBlank { mint.take(6) }} mint=${mint.take(10)} src=$source liq=${liquidityUsd.toInt()} mcap=${marketCapUsd.toInt()} vol1h=${volumeH1.toInt()} sourceNeutralPressure=${pressureDecision.probationOnly} pressureReason=${pressureDecision.reason} result=$probationResult"
+                        "symbol=${symbol.ifBlank { mint.take(6) }} mint=${mint.take(10)} src=$source liq=${liquidityUsd.toInt()} mcap=${marketCapUsd.toInt()} vol1h=${volumeH1.toInt()} sourceNeutralPressure=${pressureDecision.probationOnly} pressureReason=${pressureDecision.reason} sourceBrainMult=${"%.2f".format(sourceBrainMult)} sourceBrainProbation=$sourceBrainProbationOnly result=$probationResult"
                     )
                 } catch (_: Throwable) {}
                 return added?.probation == true || added?.reason?.contains("PROBATION", ignoreCase = true) == true
