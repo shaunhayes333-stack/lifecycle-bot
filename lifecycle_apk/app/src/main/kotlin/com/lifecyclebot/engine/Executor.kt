@@ -2411,26 +2411,46 @@ class Executor(
     }
 
     /**
-     * V5.9.1518 — PATCH ITEM 5: cap LIVE buy size while the ledger is drifting.
-     * Until the position↔wallet ledger has converged (orphanLive==0, no
-     * canonicalOpen-vs-walletHeld drift) we hard-limit any LIVE buy to
-     * LEDGER_DRIFT_MAX_LIVE_SOL so a state-drifted runtime cannot scale risk.
-     * Paper sizing is untouched. Once the reconciler is healthy, normal sizing
-     * (Kelly-capped) flows through unchanged.
+     * V5.9.1518 / V5.0.4202 — cap LIVE buy size only for REAL unresolved ledger drift.
+     * Runtime 4199/4201 pictures showed InvariantGuardian/LLM reporting
+     * reconciler.totalChecked=0 while LiveWalletReconciler logs had checked=2.
+     * Root pattern: the sizing cap read PositionWalletReconciler only, while
+     * RuntimeStateSnapshot uses the effective reconciler truth across position,
+     * sell, and live-wallet reconcilers. That stale surface silently dust-capped
+     * live buys even when wallet truth was being checked.
+     *
+     * Keep catastrophic protection, but do not throttle growth for a single
+     * canonical>wallet drift when an active sell/lease is already resolving it
+     * and any reconciler has checked wallet/position truth.
      */
     private fun applyLedgerDriftCap(size: Double): Double {
         return try {
             if (isPaperRT()) return size
             val snap = com.lifecyclebot.engine.execution.PositionWalletReconciler.snapshot()
+            val positionChecked = snap.totalChecked
+            val sellChecked = try { com.lifecyclebot.engine.sell.SellReconciler.totalChecked.toInt() } catch (_: Throwable) { 0 }
+            val liveWalletChecked = try { com.lifecyclebot.engine.sell.LiveWalletReconciler.totalChecked() } catch (_: Throwable) { 0 }
+            val effectiveChecked = maxOf(positionChecked, sellChecked, liveWalletChecked)
             val canonical = try { com.lifecyclebot.engine.HostWalletTokenTracker.getOpenCount() } catch (_: Throwable) { 0 }
             val walletHeld = try { com.lifecyclebot.engine.HostWalletTokenTracker.getActuallyHeldCount() } catch (_: Throwable) { 0 }
-            val drift = (canonical - walletHeld) > 0
-            val reconcilerStalled = snap.totalChecked == 0 && canonical > 0
-            if ((drift || reconcilerStalled) && size > LEDGER_DRIFT_MAX_LIVE_SOL) {
-                onLog("🛡 LedgerDriftCap: ${"%.4f".format(size)} → ${"%.4f".format(LEDGER_DRIFT_MAX_LIVE_SOL)} SOL (canonical=$canonical walletHeld=$walletHeld checked=${snap.totalChecked})", "sizing")
-                try { com.lifecyclebot.engine.ForensicLogger.lifecycle("LIVE_SIZE_CAPPED_LEDGER_DRIFT", "size=${"%.4f".format(size)} cap=$LEDGER_DRIFT_MAX_LIVE_SOL canonical=$canonical walletHeld=$walletHeld checked=${snap.totalChecked}") } catch (_: Throwable) {}
+            val driftCount = (canonical - walletHeld).coerceAtLeast(0)
+            val activeSellResolution = try {
+                com.lifecyclebot.engine.sell.CloseLease.activeBlockingLeaseCount() +
+                    com.lifecyclebot.engine.sell.SellJobRegistry.activeCount()
+            } catch (_: Throwable) { 0 }
+            val benignSingleDriftResolving = driftCount <= 1 && effectiveChecked > 0 && activeSellResolution > 0
+            val reconcilerStalled = effectiveChecked == 0 && canonical > 0
+            val unresolvedDrift = driftCount > 0 && !benignSingleDriftResolving
+            if ((unresolvedDrift || reconcilerStalled) && size > LEDGER_DRIFT_MAX_LIVE_SOL) {
+                onLog("🛡 LedgerDriftCap: ${"%.4f".format(size)} → ${"%.4f".format(LEDGER_DRIFT_MAX_LIVE_SOL)} SOL (canonical=$canonical walletHeld=$walletHeld drift=$driftCount checked=$effectiveChecked pos=$positionChecked sell=$sellChecked live=$liveWalletChecked activeSell=$activeSellResolution)", "sizing")
+                try { com.lifecyclebot.engine.ForensicLogger.lifecycle("LIVE_SIZE_CAPPED_LEDGER_DRIFT", "size=${"%.4f".format(size)} cap=$LEDGER_DRIFT_MAX_LIVE_SOL canonical=$canonical walletHeld=$walletHeld drift=$driftCount checked=$effectiveChecked posChecked=$positionChecked sellChecked=$sellChecked liveWalletChecked=$liveWalletChecked activeSell=$activeSellResolution") } catch (_: Throwable) {}
                 LEDGER_DRIFT_MAX_LIVE_SOL
-            } else size
+            } else {
+                if (benignSingleDriftResolving) {
+                    try { com.lifecyclebot.engine.ForensicLogger.lifecycle("LIVE_LEDGER_DRIFT_CAP_BYPASS_RESOLVING_4202", "canonical=$canonical walletHeld=$walletHeld drift=$driftCount checked=$effectiveChecked activeSell=$activeSellResolution action=size_normal") } catch (_: Throwable) {}
+                }
+                size
+            }
         } catch (_: Throwable) { size }
     }
 

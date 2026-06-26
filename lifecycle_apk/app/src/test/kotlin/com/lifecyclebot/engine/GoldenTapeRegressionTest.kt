@@ -3521,6 +3521,8 @@ class GoldenTapeRegressionTest {
         val persistent4201 = java.io.File("src/main/kotlin/com/lifecyclebot/engine/PersistentLearning.kt").readText()
         assertTrue("V5.0.4201: EntryIntelligence must consume holdTimeMinutes as learned duration buckets", entryIntel4201.contains("holdTimeBucket(holdTimeMinutes)") && entryIntel4201.contains("holdTimeWinRates") && entryIntel4201.contains("HoldProfile:") && entryIntel4201.contains("holdProfileNudge"))
         assertTrue("V5.0.4201: EntryIntelligence hold-time buckets must persist through PersistentLearning", entryIntel4201.contains("holdTimeWinRates = weights.holdTimeWinRates") && persistent4201.contains("holdTimeBuckets") && persistent4201.contains("holdTimeTradeCount"))
+        assertTrue("V5.0.4202: live ledger drift cap must use effective reconciler truth, not PositionWalletReconciler alone", exec.contains("effectiveChecked = maxOf(positionChecked, sellChecked, liveWalletChecked)") && exec.contains("LiveWalletReconciler.totalChecked()") && exec.contains("SellReconciler.totalChecked") && exec.contains("LIVE_LEDGER_DRIFT_CAP_BYPASS_RESOLVING_4202"))
+        assertTrue("V5.0.4202: benign one-mint drift with active sell resolution must not dust-cap live growth", exec.contains("benignSingleDriftResolving") && exec.contains("activeSellResolution") && exec.contains("action=size_normal"))
     }
 
 
