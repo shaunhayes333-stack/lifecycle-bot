@@ -3550,6 +3550,9 @@ class GoldenTapeRegressionTest {
         val insider4211 = java.io.File("src/main/kotlin/com/lifecyclebot/v3/scoring/InsiderTrackerAI.kt").readText()
         val learningPersistence4211 = java.io.File("src/main/kotlin/com/lifecyclebot/engine/LearningPersistence.kt").readText()
         assertTrue("V5.0.4211: InsiderTracker custom wallets must persist without replaying recent signals", insider4211.contains("customWallets") && insider4211.contains("Do not persist recentSignals") && learningPersistence4211.contains("INSIDER_TRACKER"))
+        val executor4212 = java.io.File("src/main/kotlin/com/lifecyclebot/engine/Executor.kt").readText()
+        assertTrue("V5.0.4212: meme paper/live opens must register PortfolioHeatAI exposure", executor4212.contains("PortfolioHeatAI.addPosition") && executor4212.contains("PORTFOLIO_HEAT_MEME_POSITION_REGISTERED_4212") && executor4212.contains("market = \"MEME\""))
+        assertTrue("V5.0.4212: terminal close paths must remove PortfolioHeatAI exposure", executor4212.contains("PortfolioHeatAI.removePosition(tradeId.mint)") && executor4212.contains("PortfolioHeatAI.removePosition(ts.mint)"))
     }
 
 

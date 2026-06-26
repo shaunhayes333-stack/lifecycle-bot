@@ -5674,6 +5674,7 @@ class Executor(
             if (paperDustClosed) {
                 try { PositionPersistence.removePosition(ts.mint) } catch (_: Throwable) {}
                 try { GlobalTradeRegistry.closePosition(ts.mint) } catch (_: Throwable) {}
+                try { com.lifecyclebot.v4.meta.PortfolioHeatAI.removePosition(ts.mint) } catch (_: Throwable) {}
                 try { PositionCloseLedger.markClosed(ts.mint, "PAPER_PARTIAL_DUST_CLOSED", gainPct.toInt()) } catch (_: Throwable) {}
                 try { PaperPositionCloseAuthority.markClosed("PAPER", ts.mint, ts.symbol, "PAPER_PARTIAL_DUST_CLOSED") } catch (_: Throwable) {}
                 try { ForensicLogger.lifecycle("PAPER_CLOSE_CONFIRMED_LEDGER_ONLY", "mint=${ts.mint.take(10)} symbol=${ts.symbol} reason=PARTIAL_DUST") } catch (_: Throwable) {}
@@ -9183,6 +9184,19 @@ class Executor(
                 mint = ts.mint, entryPrice = effectivePrice, sizeSol = actualSol
             )
         } catch (_: Exception) {}
+        try {
+            com.lifecyclebot.v4.meta.PortfolioHeatAI.addPosition(
+                id = ts.mint,
+                symbol = ts.symbol.ifBlank { ts.mint.take(6) },
+                market = "MEME",
+                sector = currentLayer,
+                direction = "LONG",
+                sizeSol = actualSol,
+                leverage = 1.0,
+                narrative = "${ts.source}:${ts.phase}",
+            )
+            PipelineHealthCollector.labelInc("PORTFOLIO_HEAT_MEME_POSITION_REGISTERED_4212")
+        } catch (_: Throwable) {}
         val trade = Trade(
             side = "BUY", 
             mode = if (routeIsShadow) "shadow" else "paper",
@@ -12275,6 +12289,19 @@ class Executor(
                                 sizeSol = sol
                             )
                         } catch (_: Exception) {}
+                        try {
+                            com.lifecyclebot.v4.meta.PortfolioHeatAI.addPosition(
+                                id = verifyTradeMint,
+                                symbol = verifyTradeSymbol.ifBlank { verifyTradeMint.take(6) },
+                                market = "MEME",
+                                sector = verifyCurrentLayer,
+                                direction = "LONG",
+                                sizeSol = sol,
+                                leverage = 1.0,
+                                narrative = "${ts.source}:${ts.phase}",
+                            )
+                            PipelineHealthCollector.labelInc("PORTFOLIO_HEAT_MEME_POSITION_REGISTERED_4212")
+                        } catch (_: Throwable) {}
                         try { TokenLifecycleTracker.onTokenLanded(verifyMint, verifiedQty) } catch (_: Throwable) {}
                         try {
                             val decimals = proof.decimals
@@ -13187,6 +13214,7 @@ class Executor(
                 ts.lastExitWasWin = pnlPct >= 1.0
                 try { PositionPersistence.removePosition(ts.mint) } catch (_: Exception) {}
                 try { GlobalTradeRegistry.closePosition(ts.mint) } catch (_: Exception) {}
+                try { com.lifecyclebot.v4.meta.PortfolioHeatAI.removePosition(ts.mint) } catch (_: Throwable) {}
                 try { BotService.recentlyClosedMs[ts.mint] = System.currentTimeMillis() } catch (_: Throwable) {}
                 try { ForensicLogger.lifecycle("PAPER_SELL_POSITION_CLOSED", "mint=${ts.mint.take(10)} symbol=${ts.symbol} pnlPct=${pnlPct.toInt()} reason=partial_finalize_${cumulativeSoldPct.toInt()}pct stage=partial_cumulative persisted=removed") } catch (_: Throwable) {}
             } else {
@@ -14238,6 +14266,7 @@ class Executor(
         try {
             com.lifecyclebot.engine.GlobalTradeRegistry.closePosition(tradeId.mint)
         } catch (_: Exception) { /* non-critical */ }
+        try { com.lifecyclebot.v4.meta.PortfolioHeatAI.removePosition(tradeId.mint) } catch (_: Throwable) {}
         // V5.9.1470 (spec item 1) — ATOMIC CLOSE STAMP. Record the canonical close
         // identity so every later exit pass / slot tracker / forcedOpen scan sees this
         // mint as CLOSED and cannot re-sell it or hold its slot. Stamped here, inside
@@ -14440,6 +14469,7 @@ class Executor(
         try { BotService.recentlyClosedMs[ts.mint] = System.currentTimeMillis() } catch (_: Throwable) {}
         try { GlobalTradeRegistry.closePosition(tradeId.mint) } catch (_: Exception) {}
         try { EmergentGuardrails.unregisterPosition(tradeId.mint) } catch (_: Exception) {}
+        try { com.lifecyclebot.v4.meta.PortfolioHeatAI.removePosition(tradeId.mint) } catch (_: Throwable) {}
         
         try {
             TradeAuthorizer.releasePosition(
@@ -14470,6 +14500,7 @@ class Executor(
             tradeId.closed(price, pnlP, pnl, reason)
             try { GlobalTradeRegistry.closePosition(tradeId.mint) } catch (_: Exception) {}
             try { EmergentGuardrails.unregisterPosition(tradeId.mint) } catch (_: Exception) {}
+            try { com.lifecyclebot.v4.meta.PortfolioHeatAI.removePosition(tradeId.mint) } catch (_: Throwable) {}
             ts.position      = Position()
             ts.lastExitTs    = System.currentTimeMillis()
             ts.lastExitPrice = price
@@ -17177,6 +17208,7 @@ class Executor(
             try {
                 com.lifecyclebot.engine.GlobalTradeRegistry.closePosition(tradeId.mint)
             } catch (_: Exception) { /* non-critical */ }
+            try { com.lifecyclebot.v4.meta.PortfolioHeatAI.removePosition(tradeId.mint) } catch (_: Throwable) {}
 
             SmartSizer.recordTrade(netPnl > 0, isPaperMode = false)
             LiveSafetyCircuitBreaker.recordTradeResult(netPnl)  // V5.9.105 session drawdown halt
