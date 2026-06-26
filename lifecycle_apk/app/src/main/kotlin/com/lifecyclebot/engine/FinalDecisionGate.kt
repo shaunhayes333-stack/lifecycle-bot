@@ -1446,10 +1446,23 @@ object FinalDecisionGate {
         // minimum for STANDARD/MOONSHOT so the candidates that pass can
         // actually be exited cleanly when SL fires. Auto-restores when WR
         // recovers (the floor will return to FluidLearningAI's normal lerp).
+        //
+        // V5.0.4182 — LANE-AWARE LIFT (operator V5.0.4181 dump: FDG
+        // allow/block = 0/29, with 22/29 blocks tagged
+        // LIQUIDITY_BELOW_WATCHLIST_FLOOR — the $8K WR-weak lift was
+        // choking 76% of FDG decisions because the pump.fun firehose
+        // arrives in the $2-5K band). SHITCOIN already has its own
+        // EXECUTION_FLOOR lerp ($500-$1.5K) which is appropriate for the
+        // bonding-curve universe it scans; lifting the watchlist floor
+        // on top of it is a redundant double-gate that brought the bot
+        // to a standstill. Keep the lift for STANDARD/MOONSHOT/BLUECHIP
+        // (where catastrophic slippage IS the dominant risk) but DO NOT
+        // lift for SHITCOIN — its own lane gate suffices.
         val WATCHLIST_FLOOR = try {
             val wr = com.lifecyclebot.engine.LiveLayerGateRelaxer.currentLiveWrPct()
             val isWeakWr = wr < 30.0
-            val lifted = if (isWeakWr) maxOf(WATCHLIST_FLOOR_RAW, 8_000.0) else WATCHLIST_FLOOR_RAW
+            val isShitCoinLane = tradingModeTag == ModeSpecificGates.TradingModeTag.SHITCOIN
+            val lifted = if (isWeakWr && !isShitCoinLane) maxOf(WATCHLIST_FLOOR_RAW, 8_000.0) else WATCHLIST_FLOOR_RAW
             lifted
         } catch (_: Throwable) { WATCHLIST_FLOOR_RAW }
         // V5.9.696 — Per-trader execution floor override.

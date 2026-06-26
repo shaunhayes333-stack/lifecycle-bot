@@ -3930,6 +3930,31 @@ class Executor(
                 try { ForensicLogger.lifecycle("ULTRA_RUNNER_BANK_DEFERRED", "mint=${ts.mint.take(10)} symbol=${ts.symbol} gain=${gainMultiple.fmt(2)}x peakPct=${peakGainPct.toInt()} reason=wallet_null") } catch (_: Throwable) {}
                 return false
             }
+            // V5.0.4182 — REAL PRICE LOCK on ULTRA_RUNNER_BANK trigger.
+            // Operator V5.0.4181 dump: piss banked at gain=67x while the
+            // realized sell only returned 19.4% PnL — meaning the runner
+            // signal was driven by a phantom price that didn't survive the
+            // actual Jupiter route. Meme moonshots CAN do 100x+; the issue
+            // is verifying that the high gainMultiple is REAL before banking.
+            // Force a Jupiter route quote refresh — if the route confirms a
+            // current value ≥ costSol × 1.5 within tolerance, the gain is
+            // genuine and we bank. If route disagrees, defer one cycle so
+            // the freshened price gets into the next decision pass.
+            val priceReal = try {
+                com.lifecyclebot.engine.RealPriceLock.verifyUltraRunnerBank(
+                    ts, gainMultiple, currentValue, pos.costSol,
+                )
+            } catch (_: Throwable) { true }  // never block on verifier failure
+            if (!priceReal) {
+                try {
+                    ForensicLogger.lifecycle(
+                        "ULTRA_RUNNER_BANK_DEFERRED_PRICE_UNREAL",
+                        "mint=${ts.mint.take(10)} symbol=${ts.symbol} gain=${gainMultiple.fmt(2)}x peakPct=${peakGainPct.toInt()} reason=jupiter_route_disagrees — refresh next cycle",
+                    )
+                    PipelineHealthCollector.labelInc("ULTRA_RUNNER_BANK_DEFERRED_PRICE_UNREAL")
+                } catch (_: Throwable) {}
+                return false
+            }
             val remainingFraction = (100.0 - pos.partialSoldPct).coerceAtLeast(0.0) / 100.0
             val sellFraction = when {
                 peakGainPct >= 10_000.0 || gainMultiple >= 100.0 -> 0.95
@@ -5670,7 +5695,11 @@ class Executor(
                 val feeSol: Double
                 val netPnl: Double
                 val livePnl: Double
-                val liveScore: Double
+                // V5.0.4180/4182 — was `val`, must be `var` because the
+                // sell-side phantom guard below may demote liveScore (line ~5842)
+                // when an absurd booked pct on a tiny cost basis is detected.
+                // CI red on 4181: "Val cannot be reassigned" at Executor.kt:5842.
+                var liveScore: Double
                 val livePartialReason = if (newSoldPct >= 99.9) "FULL_EXIT_100PCT" else "partial_${newSoldPct.toInt().coerceAtMost(100)}pct"
                 if (pumpSig != null) {
                     sig = pumpSig

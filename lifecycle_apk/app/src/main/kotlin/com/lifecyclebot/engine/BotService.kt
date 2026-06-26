@@ -8099,14 +8099,35 @@ class BotService : Service() {
                                 } catch (_: Throwable) { 20.0 }
                             }
                             if (pnlPct >= tpPct) {
-                                ErrorLogger.info("BotService",
-                                    "🎯 RAPID TAKE_PROFIT_DELEGATE: ${ts.symbol} pnl=${pnlPct.toInt()}% ≥ tp=${tpPct.toInt()}% — manage-only partial/profit-lock first")
-                                addLog("🎯 RAPID TP: ${ts.symbol} +${pnlPct.toInt()}% — checking dynamic partial/profit-lock first", ts.mint)
-                                // V5.9.1558 — do NOT full-close winners from rapid monitor.
-                                // Delegate to Executor's manage-only path, which now returns
-                                // immediately after any dynamic partial. If no partial applies,
-                                // its existing TP logic may still close normally.
-                                executor.runManageOnly(ts, wallet, effectiveBalance)
+                                // V5.0.4182 — REAL PRICE LOCK on rapid TP delegate.
+                                // Operator V5.0.4181 dump: `🎯 RAPID TAKE_PROFIT_DELEGATE: piss pnl=98181004%`.
+                                // Meme moonshots CAN legitimately do 10,000x+ — we
+                                // want to bank those profits. The phantom risk is
+                                // when ts.lastPrice came from a stale oracle blip
+                                // that won't survive a real swap. For any high-PnL
+                                // trigger, force a Jupiter route verification of
+                                // ts.lastPrice BEFORE delegating to runManageOnly.
+                                // If Jupiter confirms the price within tolerance,
+                                // the gain is REAL — bank it. If Jupiter disagrees,
+                                // refresh ts.lastPrice from Jupiter and re-evaluate
+                                // next tick. NEVER cap or block on PnL magnitude.
+                                val priceReal = if (pnlPct >= 500.0) {
+                                    try {
+                                        com.lifecyclebot.engine.RealPriceLock.verifyTakeProfitPrice(
+                                            ts, pnlPct, tpPct,
+                                        )
+                                    } catch (_: Throwable) { true }  // never block on verifier failure
+                                } else true
+                                if (priceReal) {
+                                    ErrorLogger.info("BotService",
+                                        "🎯 RAPID TAKE_PROFIT_DELEGATE: ${ts.symbol} pnl=${pnlPct.toInt()}% ≥ tp=${tpPct.toInt()}% — manage-only partial/profit-lock first")
+                                    addLog("🎯 RAPID TP: ${ts.symbol} +${pnlPct.toInt()}% — checking dynamic partial/profit-lock first", ts.mint)
+                                    // V5.9.1558 — do NOT full-close winners from rapid monitor.
+                                    // Delegate to Executor's manage-only path, which now returns
+                                    // immediately after any dynamic partial. If no partial applies,
+                                    // its existing TP logic may still close normally.
+                                    executor.runManageOnly(ts, wallet, effectiveBalance)
+                                }
                             }
                         }
                         
