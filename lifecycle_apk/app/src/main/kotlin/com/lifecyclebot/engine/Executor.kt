@@ -11326,8 +11326,8 @@ class Executor(
                         } catch (_: Throwable) { null }
                         if (jupSanityQuote != null) {
                             val jupImpact = jupSanityQuote.priceImpactPct
-                            val pumpOut = quote?.outAmount?.toDoubleOrNull() ?: 0.0
-                            val jupOut = jupSanityQuote.outAmount.toDoubleOrNull() ?: 0.0
+                            val pumpOut = (quote?.outAmount ?: 0L).toDouble()
+                            val jupOut = jupSanityQuote.outAmount.toDouble()
                             val divergencePct = if (pumpOut > 0.0 && jupOut > 0.0) {
                                 kotlin.math.abs(pumpOut - jupOut) / pumpOut * 100.0
                             } else 0.0
