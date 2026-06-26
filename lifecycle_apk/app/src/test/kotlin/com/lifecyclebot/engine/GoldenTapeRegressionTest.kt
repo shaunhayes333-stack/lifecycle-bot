@@ -3526,6 +3526,9 @@ class GoldenTapeRegressionTest {
         val edge4204 = java.io.File("src/main/kotlin/com/lifecyclebot/engine/EdgeLearning.kt").readText()
         assertTrue("V5.0.4204/A10: EdgeLearning must consume exitPrice for outcome-basis validation", edge4204.contains("val priceDerivedPnl") && edge4204.contains("exitPrice/PnL contradiction") && edge4204.contains("validatedPnl"))
         assertTrue("V5.0.4204/A10: EdgeLearning threshold updates must be exit-quality weighted", edge4204.contains("exitQualityWeight") && edge4204.contains("signalWeight") && edge4204.contains("coerceIn(0.5, 1.5)"))
+        val learningPersistence4205 = java.io.File("src/main/kotlin/com/lifecyclebot/engine/LearningPersistence.kt").readText()
+        assertTrue("V5.0.4205: live v3 scorer brains with saveToJson hooks must be persisted", learningPersistence4205.contains("HOLD_TIME_OPTIMIZER") && learningPersistence4205.contains("ORDER_FLOW_IMBALANCE") && learningPersistence4205.contains("SMART_MONEY_DIVERGENCE") && learningPersistence4205.contains("VOLATILITY_REGIME") && learningPersistence4205.contains("LIQUIDITY_CYCLE"))
+        assertTrue("V5.0.4205: v3 scorer brains must restore via loadFromJson from LearningPersistence blobs", learningPersistence4205.contains("HoldTimeOptimizerAI.loadFromJson(JSONObject(it))") && learningPersistence4205.contains("OrderFlowImbalanceAI.loadFromJson(JSONObject(it))") && learningPersistence4205.contains("SmartMoneyDivergenceAI.loadFromJson(JSONObject(it))"))
     }
 
 

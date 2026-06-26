@@ -152,6 +152,17 @@ object LearningPersistence {
             try { putBlob("DIP_HUNTER",     com.lifecyclebot.v3.scoring.DipHunterAI.exportState()) } catch (_: Throwable) {}
             try { putBlob("SOLANA_ARB",     com.lifecyclebot.v3.scoring.SolanaArbAI.exportState()) } catch (_: Throwable) {}
 
+            // V5.0.4205 — Tier 2A amnesia close for live v3 scorer brains.
+            // These classes had saveToJson/loadFromJson hooks but no callers,
+            // while their analyze()/score() outputs now feed UnifiedScorer and
+            // AICrossTalk. Persist them here so restart does not erase order
+            // flow, smart-money, volatility, liquidity-cycle, or hold-time edge.
+            try { putBlob("HOLD_TIME_OPTIMIZER", com.lifecyclebot.v3.scoring.HoldTimeOptimizerAI.saveToJson().toString()) } catch (_: Throwable) {}
+            try { putBlob("ORDER_FLOW_IMBALANCE", com.lifecyclebot.v3.scoring.OrderFlowImbalanceAI.saveToJson().toString()) } catch (_: Throwable) {}
+            try { putBlob("SMART_MONEY_DIVERGENCE", com.lifecyclebot.v3.scoring.SmartMoneyDivergenceAI.saveToJson().toString()) } catch (_: Throwable) {}
+            try { putBlob("VOLATILITY_REGIME", com.lifecyclebot.v3.scoring.VolatilityRegimeAI.saveToJson().toString()) } catch (_: Throwable) {}
+            try { putBlob("LIQUIDITY_CYCLE", com.lifecyclebot.v3.scoring.LiquidityCycleAI.saveToJson().toString()) } catch (_: Throwable) {}
+
             // V5.9.988 — final amnesia close: 5 learners (Doctrine #25)
             // SentienceHooks + NetworkSignalAutoBuyer are SAFETY-FIRST per
             // Doctrine #3.36 (paused-strategy list + daily auto-buy budget
@@ -211,6 +222,13 @@ object LearningPersistence {
         try { getBlob("COLLECTIVE_INTEL")?.let { com.lifecyclebot.v3.scoring.CollectiveIntelligenceAI.importState(it) } } catch (_: Throwable) {}
         try { getBlob("DIP_HUNTER")?.let     { com.lifecyclebot.v3.scoring.DipHunterAI.importState(it) } } catch (_: Throwable) {}
         try { getBlob("SOLANA_ARB")?.let     { com.lifecyclebot.v3.scoring.SolanaArbAI.importState(it) } } catch (_: Throwable) {}
+
+        // V5.0.4205 — restore v3 scorer-brain blobs before runtime scoring.
+        try { getBlob("HOLD_TIME_OPTIMIZER")?.let { com.lifecyclebot.v3.scoring.HoldTimeOptimizerAI.loadFromJson(JSONObject(it)) } } catch (_: Throwable) {}
+        try { getBlob("ORDER_FLOW_IMBALANCE")?.let { com.lifecyclebot.v3.scoring.OrderFlowImbalanceAI.loadFromJson(JSONObject(it)) } } catch (_: Throwable) {}
+        try { getBlob("SMART_MONEY_DIVERGENCE")?.let { com.lifecyclebot.v3.scoring.SmartMoneyDivergenceAI.loadFromJson(JSONObject(it)) } } catch (_: Throwable) {}
+        try { getBlob("VOLATILITY_REGIME")?.let { com.lifecyclebot.v3.scoring.VolatilityRegimeAI.loadFromJson(JSONObject(it)) } } catch (_: Throwable) {}
+        try { getBlob("LIQUIDITY_CYCLE")?.let { com.lifecyclebot.v3.scoring.LiquidityCycleAI.loadFromJson(JSONObject(it)) } } catch (_: Throwable) {}
 
         // V5.9.988 — SAFETY-FIRST restore order (Doctrine #3.36):
         // Pause list + daily auto-buy budget restored BEFORE other learners
