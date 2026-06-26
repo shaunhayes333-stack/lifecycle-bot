@@ -4,6 +4,41 @@ All notable changes to the Autonomous AI Trading Engine.
 
 ---
 
+## [5.0.4180] - 2026-06 — PHANTOM-WIN GUARD (root cause of bleed)
+
+**Smoking gun in field notifications:**
+```
+2nd partial — Apollo:  PnL +210,425.3% (+6.0490 SOL)   ← PHANTOM
+2nd partial — WEEKEND: PnL +242,342.9% (+6.9665 SOL)   ← PHANTOM
+Live Partial — Apollo: PnL -31.75%     (-0.0012 SOL)   ← REAL
+```
+
+Canonical wallet PnL: -0.282 SOL. The +6 SOL & +7 SOL "wins" never landed.
+
+**Root cause:** `solBack = quote.outAmount/1e9` uses the OPTIMISTIC Jupiter
+quote as the post-tx swap result. Sandwiches / thin-pool prints / failed
+routes inflate `quote.outAmount`; the actual wallet delta is tiny or
+negative. Bot books the phantom +210,425% win → writes to TokenWinMemory +
+PatternMemory → bot learns to chase ghost patterns → real fills are dust.
+
+**F6 (this push) — partial-sell phantom guard:**
+When booked `liveScore > 1000%` AND `livePartialCostBasisSol < 0.01 SOL`
+(real win on tiny size = tiny SOL, not multi-SOL), the trade still closes
+on-chain (can't undo the swap) but the booked pct is demoted to +50% so
+TokenWinMemory / PatternMemory / journal / notification see a sanitised
+value. New `PHANTOM_SELL_DETECTED` forensic event + counter.
+File: `engine/Executor.kt` (~line 5790 — auto partial-sell path).
+
+**F7 (pending next push) — retroactive phantom purge:**
+TokenWinMemory has 422 "winners" mostly poisoned. One-time startup sweep
+to demote entries with `claimed_pct > 1000%` AND `realized_sol < 0.05`.
+PatternMemory rebuilds on real data.
+
+**Second partial-sell path (requestPartialSell, ~line 13086) — pending.**
+Same guard should be applied; documented for next push.
+
+---
+
 ## [5.0.4179] - 2026-06 — LIFT THE BOT (5-fix surgical wound-seal)
 
 **Operator audit directive**: "do all 5 now. this must lift the fucking bot!!!"

@@ -5789,6 +5789,33 @@ class Executor(
                 }
                 try { ForensicLogger.lifecycle("PARTIAL_SELL_ACCOUNTING",
                     "mode=live mint=${ts.mint.take(10)} symbol=${ts.symbol} soldPct=${(sellFraction*100).fmt(1)} cost=${livePartialCostBasisSol.fmtSol()} gross=${solBack.fmtSol()} pnl=${livePnl.fmtSignedSol()} net=${netPnl.fmtSignedSol()} pct=${liveScore.fmtPctPrecise()} reason=${liveTrade.reason} sig=${sig.take(16)}") } catch (_: Throwable) {}
+                // V5.0.4180 — F6: SELL-SIDE PHANTOM GUARD.
+                // Field notifications showed +210,425% (+6.049 SOL) and +242,342%
+                // (+6.966 SOL) "wins" that never landed in the wallet (canonical
+                // PnL stayed -0.282 SOL). Root cause: quote.outAmount used as
+                // solBack is the OPTIMISTIC Jupiter quote, not the realized
+                // post-tx wallet delta. Sandwiches / thin-pool prints / failed
+                // routes inflate quote.outAmount → bot books a phantom win →
+                // TokenWinMemory + PatternMemory poisoned with ghost data →
+                // bot chases the phantom pattern → real fills are dust.
+                //
+                // Guard: if booked PnL pct is absurd (>1000%) AND the position
+                // cost basis was tiny (<0.01 SOL — i.e. real win would be tiny
+                // in absolute SOL), demote the booked values. The trade still
+                // closes (we can't undo the on-chain swap), but the LEARNING
+                // signals get the sanitized values. Sane 10x+ wins on real
+                // size are preserved (large position + large pct = legit).
+                val isPhantomSuspect = liveScore.toDouble() > 1000.0 &&
+                    livePartialCostBasisSol < 0.01
+                if (isPhantomSuspect) {
+                    try { ForensicLogger.lifecycle("PHANTOM_SELL_DETECTED",
+                        "mint=${ts.mint.take(10)} symbol=${ts.symbol} bookedPct=${liveScore.fmtPctPrecise()} bookedNetSol=${netPnl.fmtSignedSol()} cost=${livePartialCostBasisSol.fmtSol()} reason=ABSURD_PCT_TINY_COST action=demote_for_learning") } catch (_: Throwable) {}
+                    try { PipelineHealthCollector.labelInc("PHANTOM_SELL_DETECTED") } catch (_: Throwable) {}
+                    // Demote to a sanitised "tiny win" so downstream learning
+                    // sees something believable: cap pct at +50% (typical
+                    // partial bank), keep the SOL number as-is (audit trail).
+                    liveScore = 50.0
+                }
                 onLog("LIVE PARTIAL SELL ${(sellFraction*100).toInt()}% @ ${liveScore.fmtPctPrecise()} | " +
                       "cost=${livePartialCostBasisSol.fmtSol()} gross=${solBack.fmtSol()} pnl=${livePnl.fmtSignedSol()} net=${netPnl.fmtSignedSol()} | sig=${sig.take(16)}…", ts.mint)
                 onNotify("💰 Live Partial Sell",

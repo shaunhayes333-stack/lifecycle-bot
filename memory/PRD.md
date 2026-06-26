@@ -3,91 +3,92 @@
 
 ### Original problem statement (verbatim user direction)
 
-Upgrading a Native Kotlin Android Solana trading bot to V5.x. Building a
-super smart SOL Perps / Leverage trading system that reuses existing AI
-infrastructure, adding tokenized stocks, multi-asset trading, an Insider
-wallet tracker, a live readiness gauge, and a continuous auto-replay
-learning system.
-
-Core product requirements:
-1. SOL Perps / Leverage mode leveraging existing bot infrastructure.
-2. Expand asset coverage to 150+ instruments.
-3. Upgrade AI layers to learn from perps and tokenized stocks via a neural bridge.
-4. Seamless cross-trader balance sharing and live trading capability.
-5. Sentient AI personality + fully fluid/symbolic exit reasoning.
-6. "LLM Lab" sandbox mini-universe where the LLM safely invents and tests strategies.
+Upgrading a Native Kotlin Android Solana trading bot. SOL Perps + tokenized
+stocks, Insider wallet tracker, live readiness gauge, continuous auto-replay
+learning. "The meme trader is meant to be a money printer."
 
 ### Hard infrastructure constraints
 
-* **NO LOCAL COMPILER.** All builds go through GitHub Actions CI via `git push`.
-* Brace / paren balance **MUST** be verified with `grep -o '{' | wc -l` (or
-  git-diff counter) before every push — recurring source of red CI builds.
-* **MEME TRADER MUST NOT BE CHOKED.** Every new filter / brownout / damper
-  must explicitly exempt open positions and high-conviction signals.
-* Hot reload + supervisor convention does not apply — this is an Android APK,
-  not a server.
+* **NO LOCAL COMPILER.** Builds go through GitHub Actions CI via `git push`.
+* Brace/paren balance MUST be verified via `git diff` counter before push.
+* MEME TRADER MUST NOT BE CHOKED.
+* Operator philosophy: **fewer better trades at proper size**, ruthlessly
+  kill losing strategies/lanes — *not* dust-probe more candidates.
 
 ---
 
-## Implemented (this session)
+## Implemented this session (Feb 2026 fork)
 
-| Version | Push | What it fixed |
-|---|---|---|
-| 5.0.4173 | gzip transparent decode hotfix | Bot revival: every Solana RPC was returning garbled bytes because V5.0.4170's manual `Accept-Encoding: gzip` disabled OkHttp BridgeInterceptor's transparent decompression. Restored wallet + scanners + rugcheck. |
-| 5.0.4174 | Jupiter Tokens V1 → V2 migration | `tokens.jup.ag` was deprecated 30 Sep 2025 (NXDOMAIN). Migrated to `lite-api.jup.ag/tokens/v2/tag?query=verified` (4,307 verified tokens, free tier). |
-| 5.0.4175 | 4-way unchoke (A+B+C+D) | A. SOURCE_SCAN_TIMEOUT 6→5s, SCAN_BATCH_BUDGET 14→8s. B. PROBATION_MAX_TIME 120→90s. C. BirdeyeBudgetGate.canAffordSafety() brownout at ≥98% daily CU. D. BOT_LOOP_CYCLE_OVERRUN forensic + bucketed counters at 20-90s band. |
-
-Field validation:
-* Before 4173: 0 SOL RPC reads, scanners blind, bot dead.
-* After 4173: intake jumped 208 → 464, FDG 187 → 187 (rebalanced), EXEC 5 → 1073, LIVE BUYs 22 in 293s.
-* After 4174: bot continued live trading, but cycle-bloat choke emerged
-  (20 BUYs in 1394s = 0.86/min, cycle 17-48s, 22× EXIT_COORDINATOR_STALE_RESET,
-  Birdeye CU at 100.1%).
-* 4175 awaiting field validation.
+| Version | What |
+|---|---|
+| 5.0.4173 | gzip transparent decode hotfix. Bot revival from total RPC death. |
+| 5.0.4174 | Jupiter Tokens V1→V2 (`tokens.jup.ag` deprecated). |
+| 5.0.4175 | 4-way cycle-bloat unchoke (SCAN_BATCH 14→8s, PROBATION 120→90s, Birdeye CU brownout at ≥98%, cycle-overrun forensic). |
+| 5.0.4177 | (Wrong philosophy) 4-way WR-feedback unchoke — reverted next push. |
+| 5.0.4178 | Selectivity-first reset. Reverted 4177 L1/L2, tightened lane bias ×1.40/×0.50, L5 strategy pivot accel (toxic threshold n>=10), L7 worst-lane suppression while WR<45%. |
+| 5.0.4179 | Lift the bot — F1 slip-aware entry sizing, F2 predictive SL, F3 high-conviction size ceiling 1.5×, F4 UnifiedPolicyHead graduation accel (20/60/150 tiers), F5 WATCHLIST_FLOOR lifted to $8K while WR<30%. CI build #4180 green. |
 
 ---
 
-## Pending / Backlog (operator-facing UI ideas)
+## 🚨 P0 BLOCKER (newest finding, not yet fixed): PHANTOM-WIN POISONING
 
-P2:
-* "Ladder" status pill at the top of the Memes tab (e.g. `🟡 TIER 2 · target 24.6% · actual 10.6%`).
-* "Strategy Leaderboard Tile" showing live top-3 strategies by current expectancy.
-* "🛡 Guards: 4 streak-blocks · 2 distrust pauses..." status strip on Behavior screen.
-* "Brain Health" pill next to sentiment badge (STEADY / DRIFTING / POISONED / EXCELLENT).
+**Evidence from field notifications:**
 
-P3:
-* 24h-PnL drift alert at top of UI: "⚠ 24h PnL lags proof-run by -1.2%".
-* "Tune History" UI tab under Behavior.
-* `/positions backup` export button (dumps PerpsPositionStore JSON to file for device migration).
+```
+2nd partial — Apollo:   sold 25% | PnL +210425.3% (+6.0490 SOL)   ← PHANTOM
+2nd partial — WEEKEND:  sold 25% | PnL +242342.9% (+6.9665 SOL)   ← PHANTOM
+Live Partial — Apollo:  sold 25% | PnL -31.75%   (-0.0012 SOL)   ← REAL
+Live Partial — WEEKEND: sold 25% | PnL -66.98%   (-0.0026 SOL)   ← REAL
+```
 
-## Known chronic issues (not blockers)
+Wallet says -0.282 SOL canonical PnL. The +6 SOL / +7 SOL "wins" never
+landed. The bot's partial-sell PnL uses oracle price (which spikes on
+sandwiches/thin-pool prints), not actual Jupiter swap output.
 
-* WR=22% below 45% adaptive floor → multiple size dampers stacking
-  (regime CHOP×0.35, LiveStrategyTuner×0.35, LiveProbabilityEngine×0.40-0.70).
-  Operator explicitly does **not** want these touched without explicit ask.
-* `jupiter_quote` 4xx storm = Ultra v2 endpoint requires API key; bot falls
-  back to v6 successfully. UX noise, not a real choke. Could be silenced by
-  skipping v2 when apiKey is blank.
-* PumpFun rate-limits us periodically (scanner timeout streaks). Self-heals.
+`PHANTOM_MULTIPLE_GUARD` exists and works at ENTRY (`raw=70× >> priceMove=1.02×`
+→ blocked). Same guard is NOT applied at SELL-side PnL booking. Result:
+TokenWinMemory has 422 "winners" but most are likely phantoms. Pattern
+memory's `theme_space 81.6% WR avgWin=47.5%` is phantom-poisoned. Bot
+learns to chase ghosts → real fills are dust → bleed.
+
+**Pending P0 fix (V5.0.4180):**
+* **F6 — SELL-SIDE PHANTOM GUARD.** Compare oracle PnL vs realized SOL
+  delta on every partial/full sell. If `oraclePnL > 1000%` AND
+  `realized < 0.10 SOL`, override booked PnL with realized delta, tag
+  journal `PHANTOM_SELL_PRICE_SUPPRESSED`, suppress phantom notification,
+  do NOT write to TokenWinMemory/PatternMemory as winner.
+* **F7 — Retroactive purge of phantom winners.** Startup pass: demote any
+  TokenWinMemory entry with `claimed_pnl_pct > 1000%` AND `realized_sol
+  < 0.05 SOL`. PatternMemory rebuilds on real data.
+
+---
+
+## Pending audit findings (lower priority)
+
+* `jupiter_quote` 4xx storm — Ultra v2 endpoint requires API key; bot falls
+  back to v6 OK. UX noise only.
+* PumpFun rate-limits us periodically — self-heals.
+* Backlog UI items: Ladder pill, Strategy Leaderboard, Brain Health pill,
+  `/positions backup` export, Tune History tab.
+
+---
 
 ## File map (most-touched this session)
 
 ```
 app/src/main/kotlin/com/lifecyclebot/
 ├── engine/
-│   ├── BotService.kt                 (23.7K lines — core engine + emitBotLoopTick)
-│   ├── SolanaMarketScanner.kt        (scanner with parallel batch + timeouts)
-│   ├── BirdeyeBudgetGate.kt          (daily/monthly CU budget gate)
-│   ├── GlobalTradeRegistry.kt        (watchlist + probation)
-│   ├── Executor.kt                   (BUY/SELL execution; live + paper)
-│   ├── FinalDecisionGate.kt          (HARD_BLOCK_* enforcement)
-│   ├── ExecutionHealthGuard.kt       (Jupiter DNS blackout protection)
-│   ├── TokenMetaCache.kt             (cache, currently under-leveraged)
-│   └── PipelineHealthCollector.kt    (snapshot generator)
+│   ├── BotService.kt                 (23.7K lines, L7 lane suppression)
+│   ├── Executor.kt                   (F1, F2, F3 sizing + slip-aware SL)
+│   ├── FinalDecisionGate.kt          (F5 floor lift, rugcheck HARD restore)
+│   ├── BirdeyeBudgetGate.kt          (V5.0.4175 brownout)
+│   ├── GlobalTradeRegistry.kt        (PROBATION 90s)
+│   ├── LiveLayerGateRelaxer.kt       (DOCTRINE_FLOOR 30, public WR accessor)
+│   ├── LiveStrategyTuner.kt          (toxic threshold n>=10)
+│   ├── TokenSafetyChecker.kt         (RUGCHECK_TIMEOUT_PENALTY=14)
+│   ├── UnifiedPolicyHead.kt          (graduation 20/60/150)
+│   └── SolanaMarketScanner.kt        (SCAN_BATCH 8s)
 └── network/
     ├── SharedHttpClient.kt           (gzip transparent decode V5.0.4173)
-    ├── JupiterApi.kt                 (lite-api.jup.ag/swap/v1)
-    ├── JupiterStrictTokenList.kt     (lite-api.jup.ag/tokens/v2 — V5.0.4174)
-    ├── HostCircuitInterceptor.kt     (NXDOMAIN cooldown, 5xx cooldown)
-    └── CloudflareDns.kt              (DoH prewarm)
+    └── JupiterStrictTokenList.kt     (V2 endpoint V5.0.4174)
 ```
