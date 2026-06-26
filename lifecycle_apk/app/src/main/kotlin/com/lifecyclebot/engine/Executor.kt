@@ -8398,7 +8398,18 @@ class Executor(
                     sounds?.playMilestone(100.0)
                     
                     val tradeId = TradeIdentityManager.getOrCreate(ts.mint, ts.symbol, ts.source)
-                    liveBuy(ts, sol, score, wallet, walletSol, tradeId, quality)
+                    val shadowLiveLane = resolveExecutionLane(ts, tradeId).ifBlank { "MOONSHOT" }
+                    liveBuy(
+                        ts = ts,
+                        sol = sol,
+                        score = score,
+                        wallet = wallet,
+                        walletSol = walletSol,
+                        identity = tradeId,
+                        quality = quality,
+                        layerTag = shadowLiveLane.takeIf { it.isNotBlank() && it != "STANDARD" } ?: "MOONSHOT",
+                        layerTagEmoji = "🚀",
+                    )
                     return
                 }
             }
@@ -9296,6 +9307,7 @@ class Executor(
                 identity = identity,
                 quality = v3Band,
                 skipGraduated = true,
+                layerTag = resolveExecutionLane(ts, identity).takeIf { it.isNotBlank() && it != "STANDARD" } ?: "",
                 finalityPrechecked = effectiveFinalityPrechecked,
                 attemptId = effectiveAttemptId,
             )
@@ -10335,7 +10347,8 @@ class Executor(
             return false
         }
 
-        val originalLaneForPivot = layerTag.ifBlank { identity?.source?.takeIf { it.isNotBlank() } ?: ts.position.tradingMode.ifBlank { ts.source.ifBlank { "STANDARD" } } }
+        val resolvedInputLaneForPivot = resolveExecutionLane(ts, identity).ifBlank { "STANDARD" }
+        val originalLaneForPivot = layerTag.ifBlank { ts.position.tradingMode.ifBlank { resolvedInputLaneForPivot } }
         val originalStyleForPivot = originalLaneForPivot
         val liveEntryDecision = LiveStylePivotRouter.route(
             ts = ts,
@@ -10459,7 +10472,7 @@ class Executor(
         // finality. Hard safety is preserved because allowedAttempts are written only
         // by canOpenExecutablePosition() after the finality gate has already allowed.
         val recoveredLiveAttemptId = attemptId.ifBlank {
-            val preferredLane = canonicalRoutedLane.ifBlank { ts.position.tradingMode.ifBlank { identity?.source?.takeIf { it.isNotBlank() } ?: "STANDARD" } }
+            val preferredLane = canonicalRoutedLane.ifBlank { ts.position.tradingMode.ifBlank { resolvedInputLaneForPivot.ifBlank { "STANDARD" } } }
             ExecutableOpenGate.recentAllowedAttemptId(ts.mint, preferredLane)
                 ?: ExecutableOpenGate.recentAllowedAttemptIdAnyLane(ts.mint)
                 ?: ""
@@ -12468,6 +12481,44 @@ class Executor(
     }
     
     private data class LiveHoldDelay(val ageMs: Long, val minHoldMs: Long, val lane: String, val rawPnlPct: Double, val styleHint: String)
+    private enum class LiveExitSeverity { CHURN, PROFIT, RUNNER_PROTECT, HARD_SAFETY }
+    private data class LiveExitIntent(
+        val severity: LiveExitSeverity,
+        val rawPnlPct: Double,
+        val peakGainPct: Double,
+        val givebackFromPeak: Double,
+        val normalizedReason: String,
+    )
+
+    private fun classifyLiveExitIntent(ts: TokenState, reason: String): LiveExitIntent {
+        val pos = ts.position
+        val entry = pos.entryPrice
+        val px = ts.lastPrice.takeIf { it > 0.0 } ?: pos.entryPrice
+        val rawPnlPct = if (entry > 0.0 && px > 0.0) ((px - entry) / entry) * 100.0 else 0.0
+        val peakGainPct = maxOf(pos.peakGainPct, rawPnlPct)
+        val givebackFromPeak = peakGainPct - rawPnlPct
+        val r = reason.uppercase()
+        val confirmedRugByReason = r.contains("RUGCHECK_CONFIRMED") || r.contains("CONFIRMED_RUG") ||
+            r.contains("HONEYPOT") || r.contains("CANNOT_SELL")
+        val hardSafety = rawPnlPct <= -15.0 || confirmedRugByReason ||
+            r.contains("CATASTROPHE") || r.contains("HARD_FLOOR") ||
+            r.contains("RAPID_HARD_FLOOR") || r.contains("MANUAL_EMERGENCY") ||
+            r.contains("EMERGENCY_LIQUIDATE") || r.contains("KILL_SWITCH") ||
+            r.contains("WALLET_BALANCE_ZERO") || r.contains("SELL_SIG_CONFIRMED")
+        val runnerProtect = (peakGainPct >= 20.0 && givebackFromPeak >= 25.0) ||
+            r.contains("ULTRA_RUNNER_BANK") || r.contains("PEAK_GIVEBACK") ||
+            r.contains("DRAWDOWN_FROM_PEAK") || r.contains("TRAIL_STOP_PEAK") ||
+            r.contains("PROFIT_LOCK")
+        val profit = r.contains("TAKE_PROFIT") || r.contains("PROFIT") ||
+            r.contains("TRAIL") || r.contains("BANK") || r.contains("PARTIAL")
+        val severity = when {
+            hardSafety -> LiveExitSeverity.HARD_SAFETY
+            runnerProtect -> LiveExitSeverity.RUNNER_PROTECT
+            profit -> LiveExitSeverity.PROFIT
+            else -> LiveExitSeverity.CHURN
+        }
+        return LiveExitIntent(severity, rawPnlPct, peakGainPct, givebackFromPeak, r)
+    }
 
     private fun liveHoldMinMsForPosition(ts: TokenState): Pair<Long, String> {
         val pos = ts.position
@@ -12503,24 +12554,11 @@ class Executor(
         return minMs to styleHint
     }
 
-    private fun liveHoldBypassReason(reason: String, rawPnlPct: Double): Boolean {
-        val r = reason.uppercase()
-        // True catastrophic exits still bypass style/hold. STRICT_SL and generic
-        // RUG_SAFETY_NET alone do NOT bypass unless raw market PnL has breached
-        // the unconditional -15% hard floor; this prevents green/flat fresh live
-        // entries from being clipped before hold-time/expectancy can be sampled.
-        if (rawPnlPct <= -15.0) return true
-        val confirmedRugByReason = r.contains("RUGCHECK_CONFIRMED") || r.contains("CONFIRMED_RUG") || r.contains("HONEYPOT") || r.contains("CANNOT_SELL")
-        return confirmedRugByReason ||
-            r.contains("CATASTROPHE") ||
-            r.contains("HARD_FLOOR") ||
-            r.contains("RAPID_HARD_FLOOR") ||
-            r.contains("MANUAL_EMERGENCY") ||
-            r.contains("EMERGENCY_LIQUIDATE") ||
-            r.contains("KILL_SWITCH") ||
-            r.contains("ULTRA_RUNNER_BANK") ||
-            r.contains("WALLET_BALANCE_ZERO") ||
-            r.contains("SELL_SIG_CONFIRMED")
+    private fun liveHoldBypassReason(intent: LiveExitIntent): Boolean {
+        // True safety + runner-protection exits bypass style/min-hold. Min-hold is
+        // anti-churn only; it must not override profit lockers, peak-giveback locks,
+        // hard floor, confirmed rugs, wallet-zero cleanup, or sell finality cleanup.
+        return intent.severity.ordinal >= LiveExitSeverity.RUNNER_PROTECT.ordinal
     }
 
     private fun liveHoldDelayIfNeeded(ts: TokenState, reason: String): LiveHoldDelay? {
@@ -12530,31 +12568,27 @@ class Executor(
         if (pos.entryTime <= 0L || pos.qtyToken <= 0.0) return null
         val now = System.currentTimeMillis()
         val ageMs = (now - pos.entryTime).coerceAtLeast(0L)
-        val entry = pos.entryPrice
-        val px = ts.lastPrice.takeIf { it > 0.0 } ?: pos.entryPrice
-        val rawPnlPct = if (entry > 0.0 && px > 0.0) ((px - entry) / entry) * 100.0 else 0.0
-        val peakGainPct = maxOf(pos.peakGainPct, rawPnlPct)
-        val givebackFromPeak = peakGainPct - rawPnlPct
-        // V5.0.4190 — min-hold is anti-churn only; it must never override runner
-        // protection. Runtime 4189 showed LIVE_STYLE_MIN_HOLD_EXIT_DEFERRED while
-        // a position gave back from +2407% to ~0%, converting a live runner into
-        // scratch/rug risk. If a position has proven a real peak and an exit signal
-        // arrives after major giveback, let the sell through immediately.
-        if (peakGainPct >= 20.0 && givebackFromPeak >= 25.0) {
-            try {
-                ForensicLogger.lifecycle(
-                    "LIVE_STYLE_MIN_HOLD_PEAK_GIVEBACK_BYPASS_4190",
-                    "mint=${ts.mint.take(10)} symbol=${ts.symbol} reason=${reason.take(80)} rawPnl=${"%.1f".format(rawPnlPct)} peak=${"%.1f".format(peakGainPct)} giveback=${"%.1f".format(givebackFromPeak)} action=sell_now"
-                )
-                PipelineHealthCollector.labelInc("LIVE_STYLE_MIN_HOLD_PEAK_GIVEBACK_BYPASS_4190")
-            } catch (_: Throwable) {}
+        val intent = classifyLiveExitIntent(ts, reason)
+        // V5.0.4192 — central severity ladder. Runtime 4189 showed
+        // LIVE_STYLE_MIN_HOLD_EXIT_DEFERRED while a position gave back from +2407%
+        // to ~0%. The shared classifier makes min-hold subordinate to runner
+        // protection and hard-safety across sibling defer paths.
+        if (liveHoldBypassReason(intent)) {
+            if (intent.severity == LiveExitSeverity.RUNNER_PROTECT) {
+                try {
+                    ForensicLogger.lifecycle(
+                        "LIVE_STYLE_MIN_HOLD_PEAK_GIVEBACK_BYPASS_4192",
+                        "mint=${ts.mint.take(10)} symbol=${ts.symbol} reason=${reason.take(80)} rawPnl=${"%.1f".format(intent.rawPnlPct)} peak=${"%.1f".format(intent.peakGainPct)} giveback=${"%.1f".format(intent.givebackFromPeak)} severity=${intent.severity} action=sell_now"
+                    )
+                    PipelineHealthCollector.labelInc("LIVE_STYLE_MIN_HOLD_PEAK_GIVEBACK_BYPASS_4192")
+                } catch (_: Throwable) {}
+            }
             return null
         }
-        if (liveHoldBypassReason(reason, rawPnlPct)) return null
         val (minHoldMs, styleHint) = liveHoldMinMsForPosition(ts)
         if (ageMs >= minHoldMs) return null
         val lane = pos.tradingMode.ifBlank { if (pos.isShitCoinPosition) "SHITCOIN" else if (pos.isBlueChipPosition) "BLUECHIP" else if (pos.isTreasuryPosition) "TREASURY" else "STANDARD" }
-        return LiveHoldDelay(ageMs, minHoldMs, lane, rawPnlPct, styleHint)
+        return LiveHoldDelay(ageMs, minHoldMs, lane, intent.rawPnlPct, styleHint)
     }
 
     private fun learnedMinProfitExitPct(ts: TokenState): Double {
@@ -12566,21 +12600,14 @@ class Executor(
         if (ts.position.isPaperPosition) return false
         val pos = ts.position
         if (!pos.isOpen || pos.entryPrice <= 0.0) return false
-        val r = reason.uppercase()
-        val hardSafety = r.contains("CATASTROPHE") || r.contains("HARD_FLOOR") ||
-            r.contains("RAPID_HARD_FLOOR") || r.contains("RUGCHECK_CONFIRMED") ||
-            r.contains("CONFIRMED_RUG") || r.contains("HONEYPOT") || r.contains("CANNOT_SELL") ||
-            r.contains("MANUAL_EMERGENCY") || r.contains("EMERGENCY_LIQUIDATE") ||
-            r.contains("KILL_SWITCH") || r.contains("WALLET_BALANCE_ZERO") ||
-            r.contains("SELL_SIG_CONFIRMED")
-        if (hardSafety) return false
-        val px = ts.lastPrice.takeIf { it > 0.0 } ?: pos.entryPrice
-        val pnlPct = ((px - pos.entryPrice) / pos.entryPrice) * 100.0
+        val intent = classifyLiveExitIntent(ts, reason)
+        if (intent.severity.ordinal >= LiveExitSeverity.RUNNER_PROTECT.ordinal) return false
         val minProfit = learnedMinProfitExitPct(ts)
-        val terminalOrMaintenance = r.startsWith("RECONCILER_REQUEUE") ||
-            r.contains("TAKE_PROFIT") || r.contains("PROFIT") ||
-            r.contains("TRAIL") || r == "EXIT" || r.contains("EXIT_ROUTE_RETRY")
-        return terminalOrMaintenance && pnlPct in 0.0..(minProfit - 0.001)
+        val terminalOrMaintenance = intent.normalizedReason.startsWith("RECONCILER_REQUEUE") ||
+            intent.normalizedReason.contains("TAKE_PROFIT") || intent.normalizedReason.contains("PROFIT") ||
+            intent.normalizedReason.contains("TRAIL") || intent.normalizedReason == "EXIT" ||
+            intent.normalizedReason.contains("EXIT_ROUTE_RETRY")
+        return terminalOrMaintenance && intent.rawPnlPct in 0.0..(minProfit - 0.001)
     }
 
     enum class SellResult {

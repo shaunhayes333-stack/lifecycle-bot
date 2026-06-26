@@ -1264,7 +1264,8 @@ class GoldenTapeRegressionTest {
         assertTrue("generic meme spine must call liveBuy with named args so laneTag survives into live lane/journal stamping",
             exec.contains("val liveOpened = liveBuy(") &&
                 exec.contains("sol = liveSol") &&
-                exec.contains("layerTag = laneTag.takeIf { it.isNotBlank() && it != \"STANDARD\" } ?: \"\""))
+                exec.contains("layerTag = laneTag.takeIf { it.isNotBlank() && it != \"STANDARD\" } ?: \"\"") &&
+                exec.contains("resolvedInputLaneForPivot = resolveExecutionLane(ts, identity)"))
         assertTrue(exec.contains("LIVE_OPEN_COMMITTED_LOCK_RECORDED"))
         assertTrue(exec.contains("pendingLiveCommit"))
         assertTrue(exec.contains("if (liveOpened || positionDidOpen(ts) || pendingLiveCommit)"))
@@ -3490,12 +3491,16 @@ class GoldenTapeRegressionTest {
         val lifecycleIdx = exec.indexOf("try { TokenLifecycleTracker.onSellPending", reqIdx)
         val leaseIdx = exec.indexOf("CloseLease.acquire", reqIdx)
         assertTrue("live min-hold must run before sell pending lifecycle and close lease", reqIdx >= 0 && holdIdx in reqIdx until lifecycleIdx && holdIdx < leaseIdx)
-        assertTrue("strict SL and generic rug-safety must not bypass min-hold unless raw hard floor breached", exec.contains("STRICT_SL and generic") && exec.contains("RUG_SAFETY_NET alone do NOT bypass") && exec.contains("rawPnlPct <= -15.0"))
+        assertTrue("V5.0.4192: live exit severity classifier must make min-hold subordinate to hard safety and runner protection", exec.contains("private enum class LiveExitSeverity") && exec.contains("classifyLiveExitIntent") && exec.contains("rawPnlPct <= -15.0") && exec.contains("peakGainPct >= 20.0 && givebackFromPeak >= 25.0") && exec.contains("intent.severity.ordinal >= LiveExitSeverity.RUNNER_PROTECT.ordinal"))
         assertTrue("live min-hold must not enqueue pending sells", exec.contains("action=no_sell_lock") && exec.contains("return SellResult.FAILED_RETRYABLE"))
         assertTrue("maintenance requeue uses its own healthy-hold suppressor", exec.contains("RECONCILER_REQUEUE") && exec.contains("return null") && exec.contains("RECONCILER_REQUEUE_SUPPRESSED_HEALTHY_HOLD"))
         assertTrue("report must expose live style hold deferrals", pipe.contains("styleHoldDeferred") && pipe.contains("LIVE_STYLE_MIN_HOLD_EXIT_DEFERRED"))
-        assertTrue("V5.0.4190: live style min-hold must bypass on peak giveback so runners don't round-trip", exec.contains("LIVE_STYLE_MIN_HOLD_PEAK_GIVEBACK_BYPASS_4190") && exec.contains("peakGainPct >= 20.0 && givebackFromPeak >= 25.0"))
-        assertTrue("V5.0.4190: generic meme liveBuy handoff must carry resolved laneTag into live lane/journal stamping", exec.contains("layerTag = laneTag.takeIf { it.isNotBlank() && it != \"STANDARD\" } ?: \"\"") && exec.contains("EXECUTION_LANE_STAMPED_4162"))
+        assertTrue("V5.0.4192: live style min-hold must bypass on peak giveback so runners don't round-trip", exec.contains("LIVE_STYLE_MIN_HOLD_PEAK_GIVEBACK_BYPASS_4192") && exec.contains("classifyLiveExitIntent") && exec.contains("peakGainPct >= 20.0 && givebackFromPeak >= 25.0"))
+        assertTrue("V5.0.4192: tiny-profit defer must reuse the same live exit severity classifier", exec.contains("liveProfitDustExitShouldDefer") && exec.contains("val intent = classifyLiveExitIntent(ts, reason)") && exec.contains("intent.severity.ordinal >= LiveExitSeverity.RUNNER_PROTECT.ordinal"))
+        assertTrue("V5.0.4192: generic meme liveBuy handoff must carry resolved laneTag into live lane/journal stamping", exec.contains("layerTag = laneTag.takeIf { it.isNotBlank() && it != \"STANDARD\" } ?: \"\"") && exec.contains("EXECUTION_LANE_STAMPED_4162"))
+        assertTrue("V5.0.4192: generic V3 liveBuy handoff must carry resolved execution laneTag", exec.contains("layerTag = resolveExecutionLane(ts, identity).takeIf { it.isNotBlank() && it != \"STANDARD\" } ?: \"\"") && exec.contains("resolvedInputLaneForPivot = resolveExecutionLane(ts, identity)"))
+        assertTrue("V5.0.4192: shadow-to-live handoff must stamp MOONSHOT/laneTag instead of positional source collapse", exec.contains("val shadowLiveLane = resolveExecutionLane(ts, tradeId).ifBlank { \"MOONSHOT\" }") && exec.contains("layerTag = shadowLiveLane.takeIf { it.isNotBlank() && it != \"STANDARD\" } ?: \"MOONSHOT\""))
+        assertFalse("V5.0.4192: liveBuy pivot must not use identity.source/scanner source ahead of resolved lane", exec.contains("identity?.source?.takeIf { it.isNotBlank() } ?: ts.position.tradingMode"))
     }
 
 
