@@ -646,7 +646,7 @@ class GoldenTapeRegressionTest {
         assertTrue("TradeJournal stats must validate JournalEntry rows with entry basis fields", journal.contains("JournalEntry→Trade validation") && journal.contains("entryPriceSnapshot = e.entryPrice") && journal.contains("entryCostSol = e.entryCostSol") && journal.contains("price = if (sellLike) e.exitPrice else e.entryPrice"))
         assertFalse("TradeJournal stats must not synthesize sell Trade price from entryPrice only", journal.contains("price = e.entryPrice,"))
         assertTrue("Generic RUG_SAFETY_NET should not bypass min-hold unless raw pnl breached hard floor or rug is confirmed", exec.contains("confirmedRugByReason") && exec.contains("RUGCHECK_CONFIRMED") && exec.contains("CONFIRMED_RUG") && !exec.contains("""return r.contains("RUG")"""))
-        assertTrue("Strict/rug exits still bypass when raw market loss hits hard floor", exec.contains("if (rawPnlPct <= -15.0) return true"))
+        assertTrue("Strict/rug exits still bypass when raw market loss hits hard floor through the shared severity classifier", exec.contains("private enum class LiveExitSeverity") && exec.contains("val hardSafety = rawPnlPct <= -15.0") && exec.contains("hardSafety -> LiveExitSeverity.HARD_SAFETY"))
     }
 
     @Test
@@ -3501,6 +3501,10 @@ class GoldenTapeRegressionTest {
         assertTrue("V5.0.4192: generic V3 liveBuy handoff must carry resolved execution laneTag", exec.contains("layerTag = resolveExecutionLane(ts, identity).takeIf { it.isNotBlank() && it != \"STANDARD\" } ?: \"\"") && exec.contains("resolvedInputLaneForPivot = resolveExecutionLane(ts, identity)"))
         assertTrue("V5.0.4192: shadow-to-live handoff must stamp MOONSHOT/laneTag instead of positional source collapse", exec.contains("val shadowLiveLane = resolveExecutionLane(ts, tradeId).ifBlank { \"MOONSHOT\" }") && exec.contains("layerTag = shadowLiveLane.takeIf { it.isNotBlank() && it != \"STANDARD\" } ?: \"MOONSHOT\""))
         assertFalse("V5.0.4192: liveBuy pivot must not use identity.source/scanner source ahead of resolved lane", exec.contains("identity?.source?.takeIf { it.isNotBlank() } ?: ts.position.tradingMode"))
+        assertTrue("V5.0.4193: applied policy snapshot must be persisted on Position and TokenState for paper/live parity", java.io.File("src/main/kotlin/com/lifecyclebot/data/Models.kt").readText().contains("entryPolicySnapshot") && java.io.File("src/main/kotlin/com/lifecyclebot/data/Models.kt").readText().contains("lastPolicySnapshot") && exec.contains("private fun buildTradePolicySnapshot"))
+        assertTrue("V5.0.4193: paper and live buys must stamp the actual applied policy snapshot", exec.contains("val paperPolicySnapshot = buildTradePolicySnapshot") && exec.contains("entryPolicySnapshot = paperPolicySnapshot") && exec.contains("val livePolicySnapshot = buildTradePolicySnapshot") && exec.contains("entryPolicySnapshot = livePolicySnapshot"))
+        assertTrue("V5.0.4193: policy snapshot must include lane/style/source/score/planned/final/size multiplier",
+            exec.contains("""lane=${'$'}safeLane""") && exec.contains("""style=${'$'}safeStyle""") && exec.contains("""scanner=${'$'}scannerSource""") && exec.contains("""planned=${'$'}{plannedSol.fmt(4)}""") && exec.contains("""final=${'$'}{finalSol.fmt(4)}""") && exec.contains("""sizeMult=${'$'}{mult.fmt(3)}"""))
     }
 
 

@@ -91,6 +91,10 @@ data class Position(
     // ═══════════════════════════════════════════════════════════════════
     var tradingMode: String = "STANDARD",  // ExtendedMode name (e.g., "MOONSHOT", "PUMP_SNIPER")
     var tradingModeEmoji: String = "📈",   // Emoji for display
+    // V5.0.4193 — compact applied policy snapshot captured at entry.
+    // This is the contract that proves which lane/style/source/sizing tools actually
+    // reached capital, instead of merely being available in reports.
+    var entryPolicySnapshot: String = "",
     var modeHistory: String = "",           // Track mode switches: "PUMP_SNIPER>MOMENTUM_SWING"
     // ═══════════════════════════════════════════════════════════════════
     // TREASURY MODE - Quick scalp exits
@@ -413,6 +417,7 @@ data class TokenState(
     // the super-AGI scoring stack decided.
     var styleTpMult: Double = 1.0,
     var styleHoldMult: Double = 1.0,
+    var lastPolicySnapshot: String = "",
 ) {
     init {
         if (tokenMap.canonicalTargetMint.isBlank()) {

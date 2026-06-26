@@ -8527,6 +8527,43 @@ class Executor(
         }
     }
 
+    private fun buildTradePolicySnapshot(
+        ts: TokenState,
+        mode: String,
+        lane: String,
+        style: String,
+        score: Double,
+        plannedSol: Double,
+        finalSol: Double,
+        reasons: List<String> = emptyList(),
+        extra: String = "",
+    ): String {
+        val safeLane = normalizeExecutionLane(lane).ifBlank { "STANDARD" }
+        val safeStyle = style.ifBlank { safeLane }
+        val scannerSource = ts.source.ifBlank { ts.tokenMap.sourceScanner.ifBlank { "UNKNOWN" } }
+        val source = ts.lastPriceSource.ifBlank { scannerSource }
+        val mult = if (plannedSol > 0.0) (finalSol / plannedSol).coerceIn(0.0, 50.0) else 1.0
+        val reasonText = reasons.filter { it.isNotBlank() }.joinToString("|").take(240)
+        return listOf(
+            "v=4193",
+            "mode=$mode",
+            "lane=$safeLane",
+            "style=$safeStyle",
+            "scanner=$scannerSource",
+            "source=$source",
+            "score=${score.fmt(1)}",
+            "planned=${plannedSol.fmt(4)}",
+            "final=${finalSol.fmt(4)}",
+            "sizeMult=${mult.fmt(3)}",
+            "styleTp=${ts.styleTpMult.fmt(2)}",
+            "styleHold=${ts.styleHoldMult.fmt(2)}",
+            "liq=${ts.lastLiquidityUsd.toInt()}",
+            "mcap=${ts.lastMcap.toInt()}",
+            "reasons=$reasonText",
+            extra.take(200),
+        ).filter { it.isNotBlank() }.joinToString(";")
+    }
+
     private fun hydrateMintEntryMarketSnapshotFromCache(ts: TokenState): Boolean {
         val ctx = try { com.lifecyclebot.AATEApp.appContextOrNull() } catch (_: Throwable) { null } ?: return false
         val cached = try { TokenMetaCache.get(ctx).lookup(ts.mint) } catch (_: Throwable) { null } ?: return false
@@ -8969,6 +9006,18 @@ class Executor(
 
         val entryMarketSnapshot = mintEntryMarketSnapshot(ts)
         if (entryMarketSnapshot != null) persistMintEntryMarketSnapshot(ts, entryMarketSnapshot, "paperBuy")
+        val paperPolicySnapshot = buildTradePolicySnapshot(
+            ts = ts,
+            mode = "PAPER",
+            lane = if (routeIsShadow) "SHADOW_$finalMode" else finalMode,
+            style = finalMode,
+            score = score,
+            plannedSol = sol,
+            finalSol = actualSol,
+            reasons = listOf("paperBuy", quality, buildPhase),
+            extra = "entryTp=${ts.styleTpMult.fmt(2)} hold=${ts.styleHoldMult.fmt(2)}",
+        )
+        ts.lastPolicySnapshot = paperPolicySnapshot
         ts.position = Position(
             qtyToken     = effectiveSol / maxOf(effectivePrice, 1e-12),
             entryPrice   = effectivePrice,
@@ -8997,6 +9046,7 @@ class Executor(
             // when no sub-trader tag is set and would otherwise be STANDARD.
             tradingMode  = if (routeIsShadow) "SHADOW_$finalMode" else finalMode,
             tradingModeEmoji = finalEmoji,
+            entryPolicySnapshot = paperPolicySnapshot,
             buildPhase   = buildPhase,
             targetBuildSol = targetBuild,
             // V5.9.996 — copy-trade attribution for CopyTradeEngine.recordResult
@@ -10683,6 +10733,7 @@ class Executor(
         buyPhase("EXEC_SELECTED")
         try { ForensicLogger.lifecycle("EXEC_SELECTED", "mint=${ts.mint.take(10)} symbol=${ts.symbol} lane=$layerTag attemptId=$recoveredLiveAttemptId") } catch (_: Throwable) {}
 
+        val requestedSolForPolicy = sol
         // V5.9.801 — operator audit Fix D: WR recovery entry-size dampener (live).
         // Same dampener applied in paperBuy(); duplicated here so the
         // live and paper paths cannot drift. AGGRESSIVE → 0.5×,
@@ -11613,6 +11664,23 @@ class Executor(
                 catch (_: Exception) { UnifiedModeOrchestrator.ExtendedMode.STANDARD }
             }
 
+            val livePolicySnapshot = buildTradePolicySnapshot(
+                ts = ts,
+                mode = "LIVE",
+                lane = routedLaneTag,
+                style = routedStyleTag,
+                score = score,
+                plannedSol = requestedSolForPolicy,
+                finalSol = sol,
+                reasons = liveEntryDecision.reasons + listOf(
+                    "wr=${wrSizeMult.fmt(2)}",
+                    "style=${effectiveStyleSizeMultiplier.fmt(2)}",
+                    "provider=${providerQuorumSizeMultiplier.fmt(2)}",
+                    "laneCap=${laneCapitalSizeMultiplier.fmt(2)}",
+                ),
+                extra = "decision=${liveEntryDecision.decision};attempt=${recoveredLiveAttemptId.ifBlank { finalityVerdict?.attemptId ?: "" }}",
+            )
+            ts.lastPolicySnapshot = livePolicySnapshot
             ts.position = Position(
                 qtyToken     = finalQty,
                 entryPrice   = price,
@@ -11627,6 +11695,7 @@ class Executor(
                 // V5.9.386 — sub-trader tag carries through live buy too.
                 tradingMode  = routedLaneTag.ifBlank { if (layerTag.isNotBlank()) layerTag else currentMode.name },
                 tradingModeEmoji = if (layerTagEmoji.isNotBlank()) layerTagEmoji else currentMode.emoji,
+                entryPolicySnapshot = livePolicySnapshot,
                 // V5.9.602 — ALL live buys, including Pump-first, remain
                 // pending until tx/wallet verification proves token arrival.
                 // A submitted/confirmed signature alone is not enough; Solana
@@ -11675,8 +11744,9 @@ class Executor(
             recordTrade(ts, trade)
             liveStage("JOURNAL_WRITE_OK", "signature=${sig.take(16)} lane=${trade.tradingMode}")
             try {
-                ForensicLogger.lifecycle("LIVE_POSITION_STAMPED", "attemptId=${execCtx.attemptId} mint=${ts.mint.take(10)} symbol=${ts.symbol} positionId=${trade.positionId.ifBlank { tradeId.mint.take(10) }} finalSol=${sol.fmt(4)} route=$routerLabel signature=${sig.take(16)}")
+                ForensicLogger.lifecycle("LIVE_POSITION_STAMPED", "attemptId=${execCtx.attemptId} mint=${ts.mint.take(10)} symbol=${ts.symbol} positionId=${trade.positionId.ifBlank { tradeId.mint.take(10) }} finalSol=${sol.fmt(4)} route=$routerLabel signature=${sig.take(16)} policy=${livePolicySnapshot.take(220)}")
                 PipelineHealthCollector.labelInc("LIVE_POSITION_STAMPED")
+                PipelineHealthCollector.labelInc("TRADE_POLICY_SNAPSHOT_STAMPED_4193")
             } catch (_: Throwable) {}
             buyPhase("BUY_JOURNALED")
             security.recordTrade(trade)
