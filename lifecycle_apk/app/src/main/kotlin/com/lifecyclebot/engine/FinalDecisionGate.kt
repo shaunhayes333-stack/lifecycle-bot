@@ -1875,21 +1875,43 @@ object FinalDecisionGate {
                 false
             }
             (rugcheckStatus == "TIMEOUT" || rugcheckStatus == "PENDING_REVIEW") && !config.paperMode -> {
+                // V5.0.4167 — RUGCHECK FALLBACK RELAX (volume restore).
+                // Operator dump on V5.0.4166 showed 168 buys blocked by
+                // HARD_BLOCK_RUGCHECK_PENDING_REVIEW_WEAK_FALLBACK while
+                // Birdeye CU was 100% exhausted (150050/150000). The
+                // rugcheck TIMEOUT is largely caused by our OWN exhausted
+                // data budget — not by a token being suspicious. Requiring
+                // 3-of-3 fallback signals when the data layer itself is
+                // dark is brittle and the dominant choke after the V5.0.4165
+                // lease-window fix.
+                //
+                // Change: weighted 2-of-3 admission with a lower liquidity
+                // floor that mirrors the global $2.5K hard floor + safety
+                // margin. Press AND liquidity are the two highest-signal
+                // indicators; volume becomes a tie-breaker. We keep the
+                // gate strict enough that an obviously-illiquid or
+                // unsupported token still blocks.
                 val hasStrongBuyers = ts.meta.pressScore >= 60.0
-                val hasGoodLiquidity = ts.lastLiquidityUsd >= 8000.0
-                val hasGoodVolume = (ts.history.lastOrNull()?.volumeH1 ?: 0.0) >= 2000.0
-                val shouldBlock = !(hasStrongBuyers && hasGoodLiquidity && hasGoodVolume)
+                val hasGoodLiquidity = ts.lastLiquidityUsd >= 5_000.0
+                val hasGoodVolume = (ts.history.lastOrNull()?.volumeH1 ?: 0.0) >= 1_000.0
+                val signalsMet = listOf(hasStrongBuyers, hasGoodLiquidity, hasGoodVolume).count { it }
+                // Hard fail only if BOTH press AND liquidity are weak —
+                // those are the two non-substitutable signals. Otherwise,
+                // 2-of-3 (or 1-of-3 with strong press) admits as probe.
+                val criticalBothWeak = !hasStrongBuyers && !hasGoodLiquidity
+                val shouldBlock = criticalBothWeak || signalsMet < 2
 
                 if (!shouldBlock) {
                     ErrorLogger.info(
                         "FDG",
-                        "Rugcheck $rugcheckStatus for ${ts.symbol}, allowing with STRICT safety fallback: buy%=${ts.meta.pressScore.toInt()} liq=\$${ts.lastLiquidityUsd.toInt()} vol=\$${(ts.history.lastOrNull()?.volumeH1 ?: 0.0).toInt()}"
+                        "Rugcheck $rugcheckStatus for ${ts.symbol}, allowing as PROBE (2-of-3 fallback): buy%=${ts.meta.pressScore.toInt()} liq=\$${ts.lastLiquidityUsd.toInt()} vol=\$${(ts.history.lastOrNull()?.volumeH1 ?: 0.0).toInt()} signals=$signalsMet/3"
                     )
                     tags.add("rugcheck_timeout_fallback")
+                    tags.add("rc_timeout_live_probe")
                 } else {
                     ErrorLogger.warn(
                         "FDG",
-                        "Rugcheck $rugcheckStatus BLOCKED for ${ts.symbol}: weak fallback signals (buy%=${ts.meta.pressScore.toInt()} liq=\$${ts.lastLiquidityUsd.toInt()} - need 60%+ buy, \$8K+ liq, \$2K+ vol)"
+                        "Rugcheck $rugcheckStatus BLOCKED for ${ts.symbol}: weak fallback (buy%=${ts.meta.pressScore.toInt()} liq=\$${ts.lastLiquidityUsd.toInt()} vol=\$${(ts.history.lastOrNull()?.volumeH1 ?: 0.0).toInt()} signals=$signalsMet/3 critBothWeak=$criticalBothWeak)"
                     )
                 }
                 shouldBlock

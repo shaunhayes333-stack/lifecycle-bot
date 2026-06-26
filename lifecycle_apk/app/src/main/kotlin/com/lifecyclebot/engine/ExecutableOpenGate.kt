@@ -915,18 +915,29 @@ object ExecutableOpenGate {
         val stateTokenMapProviderAttempts = state?.tokenMapProviderAttempts ?: 0
 
         if (BirdeyeBudgetGate.isEntryBudgetLockedDown()) {
-            // V5.9.1568 — budget exhaustion must not halt PAPER learning. Paid
-            // endpoint lockdown should reduce enrichment quality, not stop the
-            // simulator from generating labelled outcomes. LIVE remains blocked
-            // conservatively until budget/API health recovers.
-            if (modeUpper == "PAPER") {
-                try {
-                    ForensicLogger.lifecycle("PAPER_API_BUDGET_LOCKDOWN_BYPASSED", "symbol=$symbol lane=$lane source=$source")
-                    PipelineHealthCollector.labelInc("PAPER_API_BUDGET_LOCKDOWN_BYPASSED")
-                } catch (_: Throwable) {}
-            } else {
-                return blocked("EXEC_OPEN_BLOCKED_API_BUDGET_LOCKDOWN", "BIRDEYE_LOCKDOWN")
-            }
+            // V5.0.4167 — BIRDEYE LOCKDOWN MUST NEVER HALT TRADING.
+            // Operator mandate (2026-06-26): "birdeye should not stop trading.
+            // ever. we have more than enough data to cover birdeye." We have
+            // DexScreener (96% sr), Helius (100% sr), Pyth, GeckoTerminal,
+            // Jupiter quote, PumpPortal, and on-device caches as data
+            // fallbacks for every metric Birdeye provides (price, liq, vol,
+            // holders, security). Halting LIVE entry on a paid-API budget
+            // event is a self-inflicted choke — soft-tag and proceed.
+            // BirdeyeBudgetGate still throttles the SCANNER lane (saves CU)
+            // and ProviderProofWalker still deprioritizes birdeye in
+            // cascades — those remain active and are the correct way to
+            // conserve budget. This gate is the ENTRY chokepoint and was
+            // turning a budget event into a trading halt.
+            try {
+                ForensicLogger.lifecycle(
+                    "ENTRY_BIRDEYE_LOCKDOWN_BYPASSED_4167",
+                    "mode=$modeUpper symbol=$symbol lane=$lane source=$source — fallback data sources (dexscreener/helius/pyth/geckoterminal) provide coverage"
+                )
+                PipelineHealthCollector.labelInc(
+                    if (modeUpper == "PAPER") "PAPER_BIRDEYE_LOCKDOWN_BYPASSED"
+                    else "LIVE_BIRDEYE_LOCKDOWN_BYPASSED_4167"
+                )
+            } catch (_: Throwable) {}
         }
         // V5.9.1230/V5.9.1568 — RC=1 is RugCheck PENDING/UNKNOWN, not a
         // confirmed rug. Upstream paper policy allows RC=1 so learning can
