@@ -27,6 +27,8 @@ learning. "The meme trader is meant to be a money printer."
 | 5.0.4177 | (Wrong philosophy) 4-way WR-feedback unchoke — reverted next push. |
 | 5.0.4178 | Selectivity-first reset. Reverted 4177 L1/L2, tightened lane bias ×1.40/×0.50, L5 strategy pivot accel (toxic threshold n>=10), L7 worst-lane suppression while WR<45%. |
 | 5.0.4179 | Lift the bot — F1 slip-aware entry sizing, F2 predictive SL, F3 high-conviction size ceiling 1.5×, F4 UnifiedPolicyHead graduation accel (20/60/150 tiers), F5 WATCHLIST_FLOOR lifted to $8K while WR<30%. CI build #4180 green. |
+| 5.0.4180 | F6 sell-side PHANTOM_WIN guard on partial sells (Executor.kt:5817+). CI red on 4181 — `Val cannot be reassigned`. |
+| **5.0.4182** | **REAL PRICE LOCK (new) + CI red fix.** liveScore val→var (unblocks 4180 phantom guard). New `RealPriceLock.kt`: for any TP delegate >+500% or runner-bank >20x, issue a Jupiter quote on 1% of position and compare implied gain vs claimed gain (≥40% ratio = real, bank; below = phantom, defer). Failure-soft (never blocks real winners on Jupiter errors). FDG WATCHLIST_FLOOR lift made lane-aware (don't lift to $8K for SHITCOIN — its own $500-1.5K floor suffices; lift was choking 76% of FDG decisions per V5.0.4181 dump). CI #4182 GREEN. |
 
 ---
 
@@ -60,6 +62,43 @@ learns to chase ghosts → real fills are dust → bleed.
 * **F7 — Retroactive purge of phantom winners.** Startup pass: demote any
   TokenWinMemory entry with `claimed_pnl_pct > 1000%` AND `realized_sol
   < 0.05 SOL`. PatternMemory rebuilds on real data.
+
+---
+
+## ✅ V5.0.4182 — REAL PRICE LOCK landed (verification pending)
+
+**Operator mandate (V5.0.4181 dump response):** "meme coins absurd gains
+CAN be realised. I just want real pricing data locked in so if it
+happens it's legit and the bot takes the profits."
+
+**Approach:** No PnL caps. Real meme moonshots can do 1000x+ — we want
+to BANK those. Phantom signals come from oracle blips that don't
+survive a real swap (V5.0.4181: bot saw 45x gain, Jupiter route only
+filled +19.4%). New `RealPriceLock` issues a tiny Jupiter probe on 1%
+of position to verify implied gain matches claimed gain before banking.
+
+**Trigger points wired through RealPriceLock:**
+* `BotService.rapidStopLossMonitor` — for `RAPID TAKE_PROFIT_DELEGATE`
+  when claimed PnL ≥ +500%
+* `Executor.checkRapidProfitLock` — for `ULTRA_RUNNER_BANK` when
+  gainMultiple ≥ 20x
+
+**Failure-soft contract:** any Jupiter error returns `true` → bank.
+The phantom-cost is one missed cycle. The real-cost would be missing
+a 100x moonshot. Per-mint 3s cache prevents Jupiter spam.
+
+**FDG floor lane-aware:** V5.0.4181 dump showed 22/29 FDG blocks were
+LIQUIDITY_BELOW_WATCHLIST_FLOOR. The $8K WR-weak lift was choking
+SHITCOIN (which scans pump.fun's $2-5K firehose). Lift no longer
+applies to SHITCOIN — its own EXECUTION_FLOOR ($500-$1.5K) is the
+proper gate for that lane.
+
+**Pending user verification:** install V5.0.4182, share next unified
+operational report. Look for:
+1. `REAL_PRICE_LOCK_CONFIRMED` / `REAL_PRICE_LOCK_REJECT` forensics
+2. No more `ultra_runner_bank_45.2x` style closes that realize +19% PnL
+3. FDG allow/block ratio recovering above 0/29
+4. WR drifting back above the 30% gate-relaxer floor
 
 ---
 
