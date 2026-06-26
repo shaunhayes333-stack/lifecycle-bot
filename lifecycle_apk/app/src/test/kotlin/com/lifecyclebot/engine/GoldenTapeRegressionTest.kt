@@ -1261,7 +1261,10 @@ class GoldenTapeRegressionTest {
         assertTrue(exec.contains("private fun liveBuy"))
         assertTrue(exec.contains("): Boolean {    // V5.9.386"))
         assertTrue(exec.contains("committed live-open source truth"))
-        assertTrue(exec.contains("val liveOpened = liveBuy(ts, liveSol"))
+        assertTrue("generic meme spine must call liveBuy with named args so laneTag survives into live lane/journal stamping",
+            exec.contains("val liveOpened = liveBuy(") &&
+                exec.contains("sol = liveSol") &&
+                exec.contains("layerTag = laneTag.takeIf { it.isNotBlank() && it != \"STANDARD\" } ?: \"\""))
         assertTrue(exec.contains("LIVE_OPEN_COMMITTED_LOCK_RECORDED"))
         assertTrue(exec.contains("pendingLiveCommit"))
         assertTrue(exec.contains("if (liveOpened || positionDidOpen(ts) || pendingLiveCommit)"))
