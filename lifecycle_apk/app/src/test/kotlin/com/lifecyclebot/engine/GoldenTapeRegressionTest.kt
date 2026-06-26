@@ -3523,6 +3523,9 @@ class GoldenTapeRegressionTest {
         assertTrue("V5.0.4201: EntryIntelligence hold-time buckets must persist through PersistentLearning", entryIntel4201.contains("holdTimeWinRates = weights.holdTimeWinRates") && persistent4201.contains("holdTimeBuckets") && persistent4201.contains("holdTimeTradeCount"))
         assertTrue("V5.0.4202: live ledger drift cap must use effective reconciler truth, not PositionWalletReconciler alone", exec.contains("effectiveChecked = maxOf(positionChecked, sellChecked, liveWalletChecked)") && exec.contains("LiveWalletReconciler.totalChecked()") && exec.contains("SellReconciler.totalChecked") && exec.contains("LIVE_LEDGER_DRIFT_CAP_BYPASS_RESOLVING_4202"))
         assertTrue("V5.0.4202: benign one-mint drift with active sell resolution must not dust-cap live growth", exec.contains("benignSingleDriftResolving") && exec.contains("activeSellResolution") && exec.contains("action=size_normal"))
+        val edge4204 = java.io.File("src/main/kotlin/com/lifecyclebot/engine/EdgeLearning.kt").readText()
+        assertTrue("V5.0.4204/A10: EdgeLearning must consume exitPrice for outcome-basis validation", edge4204.contains("val priceDerivedPnl") && edge4204.contains("exitPrice/PnL contradiction") && edge4204.contains("validatedPnl"))
+        assertTrue("V5.0.4204/A10: EdgeLearning threshold updates must be exit-quality weighted", edge4204.contains("exitQualityWeight") && edge4204.contains("signalWeight") && edge4204.contains("coerceIn(0.5, 1.5)"))
     }
 
 

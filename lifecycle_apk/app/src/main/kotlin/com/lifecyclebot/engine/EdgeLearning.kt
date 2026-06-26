@@ -1,6 +1,7 @@
 package com.lifecyclebot.engine
 
 import java.util.concurrent.ConcurrentHashMap
+import kotlin.math.abs
 
 /**
  * EdgeLearning - Adaptive threshold learning for Edge optimizer
@@ -145,15 +146,47 @@ object EdgeLearning {
         wasExecuted: Boolean,
     ) {
         val snapshot = entrySnapshots.remove(mint) ?: return
+
+        // V5.0.4204 / A10 — exitPrice is now part of Edge learning truth.
+        // Previously learnFromOutcome accepted exitPrice but ignored it, so a bad
+        // PnL feed, fee/slippage basis mismatch, or impossible exit math could
+        // tighten/loosen thresholds exactly like a clean realized outcome. Use
+        // exitPrice to validate the PnL basis and to weight clean high-magnitude
+        // outcomes without adding any new veto/gate.
+        val priceDerivedPnl = if (snapshot.entryPrice > 0.0 && exitPrice > 0.0) {
+            ((exitPrice - snapshot.entryPrice) / snapshot.entryPrice) * 100.0
+        } else null
+        val validatedPnl = if (priceDerivedPnl != null) {
+            val mismatch = abs(priceDerivedPnl - pnlPercent)
+            val signsDisagree = (priceDerivedPnl > 1.0 && pnlPercent < -1.0) || (priceDerivedPnl < -1.0 && pnlPercent > 1.0)
+            when {
+                signsDisagree && mismatch > 2.0 -> {
+                    ErrorLogger.warn("EdgeLearning", "${snapshot.symbol}: exitPrice/PnL contradiction price=${"%.1f".format(priceDerivedPnl)}% reported=${"%.1f".format(pnlPercent)}% — quarantine as scratch")
+                    0.0
+                }
+                mismatch > 25.0 -> {
+                    val conservative = if (abs(priceDerivedPnl) < abs(pnlPercent)) priceDerivedPnl else pnlPercent
+                    ErrorLogger.warn("EdgeLearning", "${snapshot.symbol}: exitPrice/PnL basis mismatch price=${"%.1f".format(priceDerivedPnl)}% reported=${"%.1f".format(pnlPercent)}% using conservative=${"%.1f".format(conservative)}%")
+                    conservative
+                }
+                else -> (pnlPercent * 0.70) + (priceDerivedPnl * 0.30)
+            }
+        } else pnlPercent
+        val exitQualityWeight = when {
+            abs(validatedPnl) >= 25.0 -> 1.50
+            abs(validatedPnl) >= 10.0 -> 1.25
+            abs(validatedPnl) >= 3.0  -> 1.10
+            else -> 1.00
+        }
         
-        val isWin = pnlPercent >= 1.0      // V5.9.8: was 5% — 1% is a real win
-        val isLoss = pnlPercent <= -1.0    // V5.9.8: was -5% — -1% is a real loss
+        val isWin = validatedPnl >= 1.0      // V5.9.8: was 5% — 1% is a real win
+        val isLoss = validatedPnl <= -1.0    // V5.9.8: was -5% — -1% is a real loss
         val isScratch = !isWin && !isLoss  // Insignificant outcome
         
         // Skip scratch trades for learning (no clear signal)
         if (isScratch) {
             ErrorLogger.debug("EdgeLearning", 
-                "${snapshot.symbol}: Scratch trade (${pnlPercent.toInt()}%) - no learning")
+                "${snapshot.symbol}: Scratch trade (${validatedPnl.toInt()}%) - no learning")
             return
         }
         
@@ -165,30 +198,30 @@ object EdgeLearning {
             if (isWin) {
                 stats.vetoedWouldWin++
                 // Edge was WRONG to veto - loosen thresholds
-                adjustThresholds(snapshot, wasCorrect = false, wasVeto = true)
+                adjustThresholds(snapshot, wasCorrect = false, wasVeto = true, signalWeight = exitQualityWeight)
                 ErrorLogger.info("EdgeLearning", 
-                    "📈 ${snapshot.symbol}: Veto was WRONG (+${pnlPercent.toInt()}%) → loosening thresholds")
+                    "📈 ${snapshot.symbol}: Veto was WRONG (+${validatedPnl.toInt()}%, weight=${"%.2f".format(exitQualityWeight)}) → loosening thresholds")
             } else {
                 stats.vetoedWouldLose++
                 // Edge was RIGHT to veto - reinforce
-                adjustThresholds(snapshot, wasCorrect = true, wasVeto = true)
+                adjustThresholds(snapshot, wasCorrect = true, wasVeto = true, signalWeight = exitQualityWeight)
                 ErrorLogger.info("EdgeLearning", 
-                    "✅ ${snapshot.symbol}: Veto was CORRECT (${pnlPercent.toInt()}%) → reinforcing")
+                    "✅ ${snapshot.symbol}: Veto was CORRECT (${validatedPnl.toInt()}%, weight=${"%.2f".format(exitQualityWeight)}) → reinforcing")
             }
         } else if (wasExecuted) {
             // Trade was approved and executed
             if (isWin) {
                 stats.approvedWon++
                 // Edge was RIGHT to approve - reinforce
-                adjustThresholds(snapshot, wasCorrect = true, wasVeto = false)
+                adjustThresholds(snapshot, wasCorrect = true, wasVeto = false, signalWeight = exitQualityWeight)
                 ErrorLogger.info("EdgeLearning", 
-                    "✅ ${snapshot.symbol}: Approval was CORRECT (+${pnlPercent.toInt()}%) → reinforcing")
+                    "✅ ${snapshot.symbol}: Approval was CORRECT (+${validatedPnl.toInt()}%, weight=${"%.2f".format(exitQualityWeight)}) → reinforcing")
             } else {
                 stats.approvedLost++
                 // Edge was WRONG to approve - tighten thresholds
-                adjustThresholds(snapshot, wasCorrect = false, wasVeto = false)
+                adjustThresholds(snapshot, wasCorrect = false, wasVeto = false, signalWeight = exitQualityWeight)
                 ErrorLogger.info("EdgeLearning", 
-                    "📉 ${snapshot.symbol}: Approval was WRONG (${pnlPercent.toInt()}%) → tightening thresholds")
+                    "📉 ${snapshot.symbol}: Approval was WRONG (${validatedPnl.toInt()}%, weight=${"%.2f".format(exitQualityWeight)}) → tightening thresholds")
             }
         }
         
@@ -204,8 +237,8 @@ object EdgeLearning {
     // THRESHOLD ADJUSTMENT LOGIC
     // ═══════════════════════════════════════════════════════════════════════
     
-    private fun adjustThresholds(snapshot: EdgeSnapshot, wasCorrect: Boolean, wasVeto: Boolean) {
-        val adjustAmount = 1.0  // Small incremental adjustments
+    private fun adjustThresholds(snapshot: EdgeSnapshot, wasCorrect: Boolean, wasVeto: Boolean, signalWeight: Double = 1.0) {
+        val adjustAmount = signalWeight.coerceIn(0.5, 1.5)  // Small incremental adjustments, exit-quality weighted
 
         // V5.9.495z12 — FLUID MATURITY GATE.
         // Operator mandate: gates must be soft early and only TIGHTEN once
