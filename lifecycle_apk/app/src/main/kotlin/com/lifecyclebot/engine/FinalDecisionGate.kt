@@ -1928,7 +1928,20 @@ object FinalDecisionGate {
                 else -> "HARD_BLOCK_RUGCHECK_$rugcheckScore"
             }
             blockReason = blockReasonDetail
-            blockLevel = BlockLevel.HARD
+            // V5.0.4177 — operator directive (4-way unchoke option 5). Rugcheck
+            // TIMEOUT/PENDING_REVIEW weak-fallback was the #1 FDG hard-blocker
+            // (50× in 204s, 43% of all FDG decisions). The Rugcheck API is
+            // slow under load — not actually flagging these tokens as rugs.
+            // TokenSafetyChecker / FDG safety layer still run independently
+            // (top-holder, freeze authority, LP locked, etc). Downgrade ONLY
+            // the rugcheck timeout/pending fallback path from HARD → SOFT so
+            // the bot probes with reduced size instead of hard-rejecting.
+            // CONFIRMED-but-low-score still gets HARD_BLOCK (rugcheck
+            // explicitly said it's risky).
+            blockLevel = when (rugcheckStatus) {
+                "TIMEOUT", "PENDING_REVIEW" -> BlockLevel.SOFT
+                else -> BlockLevel.HARD
+            }
 
             val checkReason = when (rugcheckStatus) {
                 "TIMEOUT", "PENDING_REVIEW" ->

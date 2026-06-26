@@ -7943,8 +7943,29 @@ class Executor(
             )
             UnifiedPolicyHead.conviction(laneKeyForAgi, signals)
         } catch (_: Throwable) { 1.0 }
-        val multiplierProduct = sizeMult * labMult * laneEvMult * regimeMultGoosed * laneSizeCap * brainSizeMult *
+        val multiplierProductRaw = sizeMult * labMult * laneEvMult * regimeMultGoosed * laneSizeCap * brainSizeMult *
             strategyTunerSizeMult * sourceBrainSizeMult * uphConvictionMult
+        // V5.0.4177 — operator directive (4-way unchoke options 3+4).
+        //
+        // Option 3 (DECOMPOUND FLOOR): regime (CHOP×0.35 / DUMP×0.10) ×
+        // LiveStrategyTuner (×0.12 STANDARD) × LiveProbabilityEngine (×0.40)
+        // × LaneExpectancyDamper (×0.20 MOONSHOT / ×0.47 STANDARD) was
+        // compounding to 0.0048× base = trades getting crushed below the
+        // minimum executable size. Field 4176: only 2 positions held, every
+        // win was sub-$1. Cap the multiplier compound at a 0.25× FLOOR so
+        // good candidates still get meaningful exposure even when every
+        // damper layer fires. Upper bound (`winnerMaxBoost` below) is
+        // unchanged; this only lifts the lower bound.
+        //
+        // Option 4 (LANE PRIORITY BIAS): MOONSHOT WR=22.7% / STANDARD
+        // WR=23.8% are the bot's two best lanes. Apply a small +20% boost
+        // to those two and -15% to the rest so the wallet allocates more
+        // to what's working without restructuring lane election.
+        val laneBiasMult = when (laneTag.uppercase()) {
+            "MOONSHOT", "STANDARD" -> 1.20
+            else -> 0.85
+        }
+        val multiplierProduct = (multiplierProductRaw * laneBiasMult).coerceAtLeast(0.25)
         if (RuntimeModeAuthority.isLive() && (laneEvMult != 1.0 || laneSizeCap < 1.0 || strategyTunerSizeMult != 1.0 || uphConvictionMult != 1.0)) {
             try { ForensicLogger.lifecycle("LIVE_WALLET_GROWTH_ALLOCATOR", "mint=${ts.mint.take(10)} symbol=${ts.symbol} lane=$laneTag laneEvMult=$laneEvMult laneCap=$laneSizeCap regimeMult=$regimeMult brainMult=$brainSizeMult stratTuner=$strategyTunerSizeMult sourceBrain=$sourceBrainSizeMult uph=$uphConvictionMult product=$multiplierProduct floor=$liveFloorMult") } catch (_: Throwable) {}
         }

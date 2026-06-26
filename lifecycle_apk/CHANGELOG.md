@@ -4,6 +4,65 @@ All notable changes to the Autonomous AI Trading Engine.
 
 ---
 
+## [5.0.4177] - 2026-06 — 4-WAY WR-FEEDBACK-LOOP UNCHOKE (operator option 5)
+
+**Symptom (V5.0.4176 field 204s session):** cycle was unchoked (5-7s, no
+EXIT_COORDINATOR stalls) but only 2 live positions held. Operator: "its
+not uncooked tho! only 2 live positions being held? why isnt the scanner
+and lane brains all finding candidates?"
+
+**Root cause:** WR-defensive feedback loop, not infrastructure.
+  * `🔒 GATE RELAXER: DISABLED (live WR=11.6% < 30% floor)` — relaxer
+    refused to fire because WR was below the doctrine floor.
+  * `regime=DUMP → scoreFloorDelta=+20, sizeMult=0.10`.
+  * `LiveStrategyTuner STANDARD size×=0.12, MOONSHOT size×=0.46`.
+  * `LiveProbabilityEngine STANDARD size×=0.40`.
+  * Compound: 0.10 × 0.12 × 0.40 = **0.0048× base** for STANDARD lane.
+  * 50× HARD_BLOCK_RUGCHECK_PENDING_REVIEW_WEAK_FALLBACK (43% of FDG
+    decisions blocked because Rugcheck API was just slow).
+
+**4-way fix (operator option 5 = "all"):**
+
+  * **L1 — Rugcheck pending/timeout HARD → SOFT block.** The Rugcheck
+    weak-fallback path in `FinalDecisionGate` (rugcheckStatus = TIMEOUT
+    or PENDING_REVIEW) was hard-blocking 50 candidates this session.
+    TokenSafetyChecker / FDG safety layer still run independently
+    (top-holder, freeze authority, LP locked, etc) — Rugcheck slowness
+    isn't evidence of a rug. Downgrade to SOFT so the bot probes with
+    reduced size. CONFIRMED-but-low-score still gets HARD_BLOCK.
+    Live timeout penalty 18 → 10.
+    File: `engine/FinalDecisionGate.kt`, `engine/TokenSafetyChecker.kt`
+
+  * **L2 — Gate relaxer DOCTRINE_FLOOR_PCT 30 → 15.** Lets the relaxer
+    fire while WR is in the chronic 15-30% band; without this the
+    score floors stay elevated forever and candidate flow chokes.
+    Emergency floor 20 → 10 keeps a safety net below 10% WR.
+    File: `engine/LiveLayerGateRelaxer.kt`
+
+  * **L3 — Multiplier compound 0.25× floor.** The size-damper stack
+    (`sizeMult * labMult * laneEvMult * regimeMultGoosed * laneSizeCap
+    * brainSizeMult * strategyTunerSizeMult * sourceBrainSizeMult *
+    uphConvictionMult`) was crushing trades to 0.005× base in DUMP+CHOP
+    regimes. New `coerceAtLeast(0.25)` ensures good candidates still
+    get meaningful exposure. Upper bound (winnerMaxBoost 1.75/2.35×)
+    unchanged.
+    File: `engine/Executor.kt`
+
+  * **L4 — Lane priority bias.** MOONSHOT (WR=22.7%) and STANDARD
+    (WR=23.8%) are the bot's two best lanes; everything else is
+    worse. Bias size ×1.20 for these two, ×0.85 for the rest. Doesn't
+    restructure lane election — just allocates more capital to what's
+    working.
+    File: `engine/Executor.kt`
+
+**Risk:** every losing trade now also gets the 25× floor + 20% bias.
+Operator was explicitly informed of this trade-off and chose Option 5.
+
+**Verification:** brace/paren git-diff deltas balanced on all four files
+(0/0). Live WR will be re-evaluated after the next field session.
+
+---
+
 ## [5.0.4175] - 2026-06 — UNCHOKE: 4-WAY CYCLE BLOAT ATTACK
 
 **Symptom (V5.0.4174 field 1394s session):** bot traded fast for ~5 min then
