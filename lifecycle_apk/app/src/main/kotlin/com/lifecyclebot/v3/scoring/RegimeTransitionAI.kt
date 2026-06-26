@@ -3,6 +3,8 @@ package com.lifecyclebot.v3.scoring
 import android.util.Log
 import java.util.concurrent.ConcurrentHashMap
 import kotlin.math.abs
+import org.json.JSONArray
+import org.json.JSONObject
 
 /**
  * RegimeTransitionAI - Cross-Regime Arbitrage Detection
@@ -683,4 +685,94 @@ object RegimeTransitionAI {
         val activeCount = transitionCache.count { it.value.confidence > 50 }
         return "RegimeTransitionAI: tracking=${regimeHistory.size} | active_transitions=$activeCount"
     }
+
+    fun exportState(): String = try {
+        val root = JSONObject()
+        val histories = JSONObject()
+        regimeHistory.forEach { (mint, list) ->
+            val arr = JSONArray()
+            synchronized(list) {
+                list.takeLast(MAX_HISTORY_PER_TOKEN).forEach { snap ->
+                    arr.put(JSONObject()
+                        .put("regime", snap.regime)
+                        .put("liquidity", snap.liquidity)
+                        .put("volatility", snap.volatility)
+                        .put("momentum", snap.momentum)
+                        .put("holderCount", snap.holderCount)
+                        .put("volume24h", snap.volume24h)
+                        .put("timestamp", snap.timestamp))
+                }
+            }
+            if (arr.length() > 0) histories.put(mint, arr)
+        }
+        val transitions = JSONObject()
+        transitionCache.forEach { (mint, sig) ->
+            val signalsArr = JSONArray()
+            sig.signals.take(16).forEach { signalsArr.put(it) }
+            transitions.put(mint, JSONObject()
+                .put("type", sig.type.name)
+                .put("confidence", sig.confidence)
+                .put("fromRegime", sig.fromRegime)
+                .put("toRegime", sig.toRegime)
+                .put("signals", signalsArr)
+                .put("recommendedAction", sig.recommendedAction)
+                .put("timeHorizon", sig.timeHorizon)
+                .put("timestamp", sig.timestamp))
+        }
+        root.put("regimeHistory", histories)
+        root.put("transitionCache", transitions)
+        root.toString()
+    } catch (_: Throwable) { "{}" }
+
+    fun importState(json: String) {
+        try {
+            val root = JSONObject(json)
+            regimeHistory.clear(); transitionCache.clear()
+            val histories = root.optJSONObject("regimeHistory") ?: JSONObject()
+            val keys = histories.keys()
+            while (keys.hasNext()) {
+                val mint = keys.next()
+                val arr = histories.optJSONArray(mint)
+                if (arr == null) continue
+                val list = mutableListOf<RegimeSnapshot>()
+                for (i in 0 until arr.length()) {
+                    val o = arr.optJSONObject(i)
+                    if (o == null) continue
+                    list.add(RegimeSnapshot(
+                        regime = o.optString("regime", "UNKNOWN"),
+                        liquidity = o.optDouble("liquidity", 0.0),
+                        volatility = o.optDouble("volatility", 0.0),
+                        momentum = o.optDouble("momentum", 0.0),
+                        holderCount = o.optInt("holderCount", 0),
+                        volume24h = o.optDouble("volume24h", 0.0),
+                        timestamp = o.optLong("timestamp", System.currentTimeMillis()),
+                    ))
+                }
+                if (list.isNotEmpty()) regimeHistory[mint] = list.takeLast(MAX_HISTORY_PER_TOKEN).toMutableList()
+            }
+            val transitions = root.optJSONObject("transitionCache") ?: JSONObject()
+            val tKeys = transitions.keys()
+            while (tKeys.hasNext()) {
+                val mint = tKeys.next()
+                val o = transitions.optJSONObject(mint)
+                if (o == null) continue
+                val type = try { TransitionType.valueOf(o.optString("type", "REGIME_STABLE")) } catch (_: Throwable) { TransitionType.REGIME_STABLE }
+                val sigArr = o.optJSONArray("signals") ?: JSONArray()
+                val sigs = mutableListOf<String>()
+                for (i in 0 until sigArr.length()) sigs.add(sigArr.optString(i, ""))
+                val signal = TransitionSignal(
+                    type = type,
+                    confidence = o.optDouble("confidence", 0.0),
+                    fromRegime = o.optString("fromRegime", "UNKNOWN"),
+                    toRegime = o.optString("toRegime", "UNKNOWN"),
+                    signals = sigs.filter { it.isNotBlank() },
+                    recommendedAction = o.optString("recommendedAction", "HOLD"),
+                    timeHorizon = o.optString("timeHorizon", "unknown"),
+                    timestamp = o.optLong("timestamp", System.currentTimeMillis()),
+                )
+                if (System.currentTimeMillis() - signal.timestamp < CACHE_TTL_MS) transitionCache[mint] = signal
+            }
+        } catch (_: Throwable) {}
+    }
+
 }

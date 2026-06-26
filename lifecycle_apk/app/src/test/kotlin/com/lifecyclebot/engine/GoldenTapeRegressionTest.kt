@@ -3541,6 +3541,9 @@ class GoldenTapeRegressionTest {
         val cult4208 = java.io.File("src/main/kotlin/com/lifecyclebot/v3/scoring/CultMomentumAI.kt").readText()
         assertTrue("V5.0.4208: narrative and exit learners must persist through LearningPersistence", learningPersistence4208.contains("MEME_NARRATIVE") && learningPersistence4208.contains("CULT_MOMENTUM") && learningPersistence4208.contains("SELL_OPTIMIZATION"))
         assertTrue("V5.0.4208: learner classes must expose export/import state hooks", sellOpt4208.contains("fun exportState(): String") && sellOpt4208.contains("fun importState(json: String)") && narrative4208.contains("fun exportState(): String") && cult4208.contains("fun importState(json: String)"))
+        val regimeTransition4209 = java.io.File("src/main/kotlin/com/lifecyclebot/v3/scoring/RegimeTransitionAI.kt").readText()
+        val learningPersistence4209 = java.io.File("src/main/kotlin/com/lifecyclebot/engine/LearningPersistence.kt").readText()
+        assertTrue("V5.0.4209: RegimeTransitionAI history and transition cache must persist", regimeTransition4209.contains("fun exportState(): String") && regimeTransition4209.contains("regimeHistory") && regimeTransition4209.contains("transitionCache") && learningPersistence4209.contains("REGIME_TRANSITION"))
     }
 
 
