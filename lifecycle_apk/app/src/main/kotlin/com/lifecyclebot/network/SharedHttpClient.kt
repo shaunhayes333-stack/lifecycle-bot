@@ -66,6 +66,28 @@ object SharedHttpClient {
         .connectTimeout(10, TimeUnit.SECONDS)
         .readTimeout(15, TimeUnit.SECONDS)
         .writeTimeout(15, TimeUnit.SECONDS)
+        // V5.0.4170 — HOST CIRCUIT INTERCEPTOR.
+        // Every HTTP call across the app routes through SharedHttpClient
+        // (BotBrain, BirdeyeSecurityProvider, TokenSafetyChecker, etc.).
+        // Adding the circuit here saves bandwidth on EVERY request without
+        // touching the 36+ callers individually. Short-circuits NXDOMAIN
+        // and 5xx/429 storms with a 599 synthetic response — zero TLS,
+        // zero TCP, zero DNS during cool-down.
+        .addInterceptor(com.lifecyclebot.network.HostCircuitInterceptor)
+        // V5.0.4170 — EXPLICIT GZIP request. OkHttp's BridgeInterceptor
+        // already adds this when the caller hasn't set it, but many of our
+        // call sites set custom Accept headers without Accept-Encoding —
+        // some servers only gzip when explicitly asked. Sets gzip on every
+        // request unless the caller already specified Accept-Encoding.
+        // JSON payloads compress 60–80% — this is one of the highest
+        // bandwidth-to-effort wins in the codebase.
+        .addInterceptor { chain ->
+            val req = chain.request()
+            val r = if (req.header("Accept-Encoding") == null)
+                req.newBuilder().header("Accept-Encoding", "gzip").build()
+            else req
+            chain.proceed(r)
+        }
         // NOTE: deliberately NO callTimeout on the BASE client — ~36 callers
         // inherit this builder and several legitimately need long calls (LLM 30-60s,
         // Jito/Markets live execution 30s). callTimeout is applied PER-CALLER on the

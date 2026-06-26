@@ -102,8 +102,16 @@ object GlobalTradeRegistry {
         if (isBootstrapPhase()) PROCESS_COOLDOWN_MS_BOOTSTRAP else PROCESS_COOLDOWN_MS
 
     // V5.0 Probation constants
-    private const val PROBATION_MIN_TIME_MS = 60_000L       // 1 minute minimum probation
-    private const val PROBATION_MAX_TIME_MS = 300_000L      // 5 minutes max probation before auto-reject
+    // V5.0.4170 — PROBATION TIGHTENING (mobile data conservation).
+    // Operator dump showed PROBATION=3753 intakes per session. Dust mints
+    // that never graduate sit in probation for up to 5 minutes burning
+    // refresh/enrichment cycles for the whole window. Tightening MAX
+    // 5min → 2min and MIN 60s → 30s evicts statistically-dead candidates
+    // sooner without affecting tokens that actually mature (the bot's
+    // typical promotion happens in 15–90 s based on PROBATION_RESULT
+    // forensic data). Net: ~60% less probation-window refresh waste.
+    private const val PROBATION_MIN_TIME_MS = 30_000L       // 30s minimum probation (was 60s)
+    private const val PROBATION_MAX_TIME_MS = 120_000L      // 2 minutes max (was 5 minutes)
     private const val STALE_POSITION_MS = 30 * 60_000L     // V5.9.1506 — ghost-prune cutoff (far beyond any meme hold)
     private const val PROBATION_CONF_THRESHOLD = 50         // Confidence below this = probation
     private const val PROBATION_CONF_THRESHOLD_PAPER = 22   // V5.9.266: moderate (was 18 at V5.9.263)
