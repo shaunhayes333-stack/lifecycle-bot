@@ -929,14 +929,16 @@ object ExecutableOpenGate {
             // conserve budget. This gate is the ENTRY chokepoint and was
             // turning a budget event into a trading halt.
             try {
-                ForensicLogger.lifecycle(
-                    "ENTRY_BIRDEYE_LOCKDOWN_BYPASSED_4167",
-                    "mode=$modeUpper symbol=$symbol lane=$lane source=$source — fallback data sources (dexscreener/helius/pyth/geckoterminal) provide coverage"
-                )
-                PipelineHealthCollector.labelInc(
-                    if (modeUpper == "PAPER") "PAPER_BIRDEYE_LOCKDOWN_BYPASSED"
-                    else "LIVE_BIRDEYE_LOCKDOWN_BYPASSED_4167"
-                )
+                if (modeUpper == "PAPER") {
+                    ForensicLogger.lifecycle("PAPER_API_BUDGET_LOCKDOWN_BYPASSED", "symbol=$symbol lane=$lane source=$source")
+                    PipelineHealthCollector.labelInc("PAPER_API_BUDGET_LOCKDOWN_BYPASSED")
+                } else {
+                    ForensicLogger.lifecycle(
+                        "LIVE_BIRDEYE_LOCKDOWN_BYPASSED_4167",
+                        "symbol=$symbol lane=$lane source=$source — fallback data (dexscreener/helius/pyth/geckoterminal) provides coverage"
+                    )
+                    PipelineHealthCollector.labelInc("LIVE_BIRDEYE_LOCKDOWN_BYPASSED_4167")
+                }
             } catch (_: Throwable) {}
         }
         // V5.9.1230/V5.9.1568 — RC=1 is RugCheck PENDING/UNKNOWN, not a

@@ -1876,14 +1876,14 @@ object FinalDecisionGate {
             }
             (rugcheckStatus == "TIMEOUT" || rugcheckStatus == "PENDING_REVIEW") && !config.paperMode -> {
                 // V5.0.4167 — RUGCHECK FALLBACK RELAX (volume restore).
-                // Operator dump on V5.0.4166 showed 168 buys blocked by
-                // HARD_BLOCK_RUGCHECK_PENDING_REVIEW_WEAK_FALLBACK while
+                // Operator dump on V5.0.4166 showed 168 buys hard-blocked by
+                // the rugcheck timeout/pending-review fallback gate while
                 // Birdeye CU was 100% exhausted (150050/150000). The
-                // rugcheck TIMEOUT is largely caused by our OWN exhausted
+                // rugcheck timeout is largely caused by our OWN exhausted
                 // data budget — not by a token being suspicious. Requiring
                 // 3-of-3 fallback signals when the data layer itself is
-                // dark is brittle and the dominant choke after the V5.0.4165
-                // lease-window fix.
+                // dark is brittle and was the dominant choke after the
+                // V5.0.4165 lease-window fix.
                 //
                 // Change: weighted 2-of-3 admission with a lower liquidity
                 // floor that mirrors the global $2.5K hard floor + safety
