@@ -7975,9 +7975,12 @@ class Executor(
             (1.0 / (1.0 + expectedSlipPct / 10.0)).coerceIn(0.30, 1.0)
         } else 1.0
         if (expectedSlipPct >= 18.0) {
-            try { ForensicLogger.lifecycle("F1_SLIP_HARD_REJECT", "mint=${ts.mint.take(10)} symbol=${ts.symbol} expectedSlip=${expectedSlipPct.fmt(1)}% liq=${ts.lastLiquidityUsd.toInt()} action=hard_reject") } catch (_: Throwable) {}
+            try { ForensicLogger.lifecycle("F1_SLIP_HARD_REJECT", "mint=${ts.mint.take(10)} symbol=${ts.symbol} expectedSlip=${expectedSlipPct.fmt(1)}% liq=${ts.lastLiquidityUsd.toInt()} action=hard_reject reason=BUY_REJECTED_PREDICTED_SLIP_${expectedSlipPct.toInt()}PCT") } catch (_: Throwable) {}
             try { PipelineHealthCollector.labelInc("F1_SLIP_HARD_REJECT") } catch (_: Throwable) {}
-            buyTerminalFail("BUY_REJECTED_PREDICTED_SLIP_${expectedSlipPct.toInt()}PCT")
+            // V5.0.4179b — buyTerminalFail is a local fun declared later in
+            // this 2.7K-line method (line ~10369) so it's not in scope here.
+            // Early-return without calling it; the forensic event + counter
+            // above carry the rejection reason.
             return
         }
 
