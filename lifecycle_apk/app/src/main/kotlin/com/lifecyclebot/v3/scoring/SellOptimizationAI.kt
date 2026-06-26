@@ -6,6 +6,8 @@ import com.lifecyclebot.engine.ErrorLogger
 import com.lifecyclebot.engine.TradeHistoryStore
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.atomic.AtomicInteger
+import org.json.JSONArray
+import org.json.JSONObject
 
 /**
  * SellOptimizationAI - Layer 24: Intelligent Exit Strategy
@@ -586,4 +588,58 @@ object SellOptimizationAI {
             append("Locked: ${state.totalLockedProfit.let { "%.3f".format(it) }}SOL")
         }
     }
+
+    fun exportState(): String = try {
+        val root = JSONObject()
+        val hist = JSONObject()
+        exitHistory.forEach { (strategy, outcomes) ->
+            val arr = JSONArray()
+            outcomes.takeLast(200).forEach { o ->
+                arr.put(JSONObject()
+                    .put("entryPnlPct", o.entryPnlPct)
+                    .put("finalPnlPct", o.finalPnlPct)
+                    .put("wasOptimal", o.wasOptimal)
+                    .put("tokenType", o.tokenType)
+                    .put("holdTimeMinutes", o.holdTimeMinutes)
+                    .put("timestamp", o.timestamp))
+            }
+            hist.put(strategy.name, arr)
+        }
+        val rates = JSONObject()
+        strategyWinRates.forEach { (strategy, wr) -> rates.put(strategy.name, wr) }
+        root.put("exitHistory", hist)
+        root.put("strategyWinRates", rates)
+        root.toString()
+    } catch (_: Throwable) { "{}" }
+
+    fun importState(json: String) {
+        try {
+            val root = JSONObject(json)
+            exitHistory.clear(); strategyWinRates.clear()
+            val hist = root.optJSONObject("exitHistory") ?: JSONObject()
+            ExitStrategy.values().forEach { strategy ->
+                val arr = hist.optJSONArray(strategy.name) ?: return@forEach
+                val list = mutableListOf<ExitOutcome>()
+                for (i in 0 until arr.length()) {
+                    val o = arr.optJSONObject(i)
+                    if (o == null) continue
+                    list.add(ExitOutcome(
+                        strategy = strategy,
+                        entryPnlPct = o.optDouble("entryPnlPct", 0.0),
+                        finalPnlPct = o.optDouble("finalPnlPct", 0.0),
+                        wasOptimal = o.optBoolean("wasOptimal", false),
+                        tokenType = o.optString("tokenType", "STANDARD"),
+                        holdTimeMinutes = o.optInt("holdTimeMinutes", 0),
+                        timestamp = o.optLong("timestamp", System.currentTimeMillis()),
+                    ))
+                }
+                if (list.isNotEmpty()) exitHistory[strategy] = list
+            }
+            val rates = root.optJSONObject("strategyWinRates") ?: JSONObject()
+            ExitStrategy.values().forEach { strategy ->
+                if (rates.has(strategy.name)) strategyWinRates[strategy] = rates.optDouble(strategy.name, 0.0)
+            }
+        } catch (_: Throwable) {}
+    }
+
 }

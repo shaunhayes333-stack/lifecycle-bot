@@ -163,6 +163,12 @@ object LearningPersistence {
             try { putBlob("VOLATILITY_REGIME", com.lifecyclebot.v3.scoring.VolatilityRegimeAI.saveToJson().toString()) } catch (_: Throwable) {}
             try { putBlob("LIQUIDITY_CYCLE", com.lifecyclebot.v3.scoring.LiquidityCycleAI.saveToJson().toString()) } catch (_: Throwable) {}
 
+            // V5.0.4208 — compact persistence for narrative/exit learners that
+            // now influence entry/exit scoring but previously reset on restart.
+            try { putBlob("MEME_NARRATIVE", com.lifecyclebot.v3.scoring.MemeNarrativeAI.exportState()) } catch (_: Throwable) {}
+            try { putBlob("CULT_MOMENTUM", com.lifecyclebot.v3.scoring.CultMomentumAI.exportState()) } catch (_: Throwable) {}
+            try { putBlob("SELL_OPTIMIZATION", com.lifecyclebot.v3.scoring.SellOptimizationAI.exportState()) } catch (_: Throwable) {}
+
             // V5.9.988 — final amnesia close: 5 learners (Doctrine #25)
             // SentienceHooks + NetworkSignalAutoBuyer are SAFETY-FIRST per
             // Doctrine #3.36 (paused-strategy list + daily auto-buy budget
@@ -229,6 +235,11 @@ object LearningPersistence {
         try { getBlob("SMART_MONEY_DIVERGENCE")?.let { com.lifecyclebot.v3.scoring.SmartMoneyDivergenceAI.loadFromJson(JSONObject(it)) } } catch (_: Throwable) {}
         try { getBlob("VOLATILITY_REGIME")?.let { com.lifecyclebot.v3.scoring.VolatilityRegimeAI.loadFromJson(JSONObject(it)) } } catch (_: Throwable) {}
         try { getBlob("LIQUIDITY_CYCLE")?.let { com.lifecyclebot.v3.scoring.LiquidityCycleAI.loadFromJson(JSONObject(it)) } } catch (_: Throwable) {}
+
+        // V5.0.4208 — restore narrative/exit learner state.
+        try { getBlob("MEME_NARRATIVE")?.let { com.lifecyclebot.v3.scoring.MemeNarrativeAI.importState(it) } } catch (_: Throwable) {}
+        try { getBlob("CULT_MOMENTUM")?.let { com.lifecyclebot.v3.scoring.CultMomentumAI.importState(it) } } catch (_: Throwable) {}
+        try { getBlob("SELL_OPTIMIZATION")?.let { com.lifecyclebot.v3.scoring.SellOptimizationAI.importState(it) } } catch (_: Throwable) {}
 
         // V5.9.988 — SAFETY-FIRST restore order (Doctrine #3.36):
         // Pause list + daily auto-buy budget restored BEFORE other learners

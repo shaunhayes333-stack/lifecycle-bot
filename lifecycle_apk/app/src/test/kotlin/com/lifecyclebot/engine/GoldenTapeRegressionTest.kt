@@ -3535,6 +3535,12 @@ class GoldenTapeRegressionTest {
         val executor4207 = java.io.File("src/main/kotlin/com/lifecyclebot/engine/Executor.kt").readText()
         assertTrue("V5.0.4207: SellOptimizationAI recordExitOutcome must be fed from terminal trade finality", executor4207.contains("SellOptimizationAI.recordExitOutcome") && executor4207.contains("ledgerAllowsClosedLearning && accountingTrainable") && executor4207.contains("SELL_OPTIMIZATION_OUTCOME_LEARNED_4207"))
         assertTrue("V5.0.4207: SellOptimizationAI outcome learning must stay off the hot path", executor4207.contains("GlobalScope.launch(AppDispatchers.sideEffect)") && executor4207.contains("wouldHaveBeenProxy"))
+        val learningPersistence4208 = java.io.File("src/main/kotlin/com/lifecyclebot/engine/LearningPersistence.kt").readText()
+        val sellOpt4208 = java.io.File("src/main/kotlin/com/lifecyclebot/v3/scoring/SellOptimizationAI.kt").readText()
+        val narrative4208 = java.io.File("src/main/kotlin/com/lifecyclebot/v3/scoring/MemeNarrativeAI.kt").readText()
+        val cult4208 = java.io.File("src/main/kotlin/com/lifecyclebot/v3/scoring/CultMomentumAI.kt").readText()
+        assertTrue("V5.0.4208: narrative and exit learners must persist through LearningPersistence", learningPersistence4208.contains("MEME_NARRATIVE") && learningPersistence4208.contains("CULT_MOMENTUM") && learningPersistence4208.contains("SELL_OPTIMIZATION"))
+        assertTrue("V5.0.4208: learner classes must expose export/import state hooks", sellOpt4208.contains("fun exportState(): String") && sellOpt4208.contains("fun importState(json: String)") && narrative4208.contains("fun exportState(): String") && cult4208.contains("fun importState(json: String)"))
     }
 
 

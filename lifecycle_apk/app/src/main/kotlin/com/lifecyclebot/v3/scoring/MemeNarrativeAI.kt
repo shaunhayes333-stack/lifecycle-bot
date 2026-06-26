@@ -2,6 +2,7 @@ package com.lifecyclebot.v3.scoring
 
 import com.lifecyclebot.engine.ErrorLogger
 import java.util.concurrent.ConcurrentHashMap
+import org.json.JSONObject
 
 /**
  * V5.9.404 — NarrativeAI
@@ -182,4 +183,37 @@ object MemeNarrativeAI {
             else      -> 1.30
         }
     }
+
+    fun exportState(): String = try {
+        val root = JSONObject()
+        Cluster.values().forEach { c ->
+            if (c != Cluster.UNKNOWN) {
+                val obj = JSONObject()
+                obj.put("trades", clusterTrades[c] ?: 0)
+                obj.put("wins", clusterWins[c] ?: 0)
+                obj.put("pnlPct", clusterPnlPct[c] ?: 0.0)
+                root.put(c.name, obj)
+            }
+        }
+        root.toString()
+    } catch (_: Throwable) { "{}" }
+
+    fun importState(json: String) {
+        try {
+            val root = JSONObject(json)
+            clusterTrades.clear(); clusterWins.clear(); clusterPnlPct.clear()
+            Cluster.values().forEach { c ->
+                if (c != Cluster.UNKNOWN && root.has(c.name)) {
+                    val obj = root.optJSONObject(c.name) ?: return@forEach
+                    val trades = obj.optInt("trades", 0)
+                    val wins = obj.optInt("wins", 0)
+                    val pnl = obj.optDouble("pnlPct", 0.0)
+                    if (trades > 0) clusterTrades[c] = trades
+                    if (wins > 0) clusterWins[c] = wins
+                    if (pnl != 0.0) clusterPnlPct[c] = pnl
+                }
+            }
+        } catch (_: Throwable) {}
+    }
+
 }

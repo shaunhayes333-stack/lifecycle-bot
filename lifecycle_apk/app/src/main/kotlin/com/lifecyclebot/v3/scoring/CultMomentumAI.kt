@@ -3,6 +3,8 @@ package com.lifecyclebot.v3.scoring
 import com.lifecyclebot.engine.ErrorLogger
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.atomic.AtomicLong
+import org.json.JSONArray
+import org.json.JSONObject
 
 /**
  * V5.9.404 — CultMomentumAI
@@ -83,4 +85,35 @@ object CultMomentumAI {
             list.removeAt(list.size - 1)
         }
     }
+
+    fun exportState(): String = try {
+        val root = JSONObject()
+        opens.forEach { (cluster, list) ->
+            val arr = JSONArray()
+            synchronized(list) {
+                evictExpired(list)
+                list.take(32).forEach { arr.put(it) }
+            }
+            if (arr.length() > 0) root.put(cluster.name, arr)
+        }
+        root.toString()
+    } catch (_: Throwable) { "{}" }
+
+    fun importState(json: String) {
+        try {
+            val root = JSONObject(json)
+            opens.clear()
+            MemeNarrativeAI.Cluster.values().forEach { cluster ->
+                val arr = root.optJSONArray(cluster.name) ?: return@forEach
+                val list = mutableListOf<Long>()
+                for (i in 0 until arr.length()) {
+                    val ts = arr.optLong(i, 0L)
+                    if (ts > 0L) list.add(ts)
+                }
+                evictExpired(list)
+                if (list.isNotEmpty()) opens[cluster] = list
+            }
+        } catch (_: Throwable) {}
+    }
+
 }
