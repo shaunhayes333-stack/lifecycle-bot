@@ -8033,6 +8033,14 @@ class Executor(
         if (expectedSlipPct >= 18.0) {
             try { ForensicLogger.lifecycle("F1_SLIP_HARD_REJECT", "mint=${ts.mint.take(10)} symbol=${ts.symbol} expectedSlip=${expectedSlipPct.fmt(1)}% liq=${ts.lastLiquidityUsd.toInt()} action=hard_reject reason=BUY_REJECTED_PREDICTED_SLIP_${expectedSlipPct.toInt()}PCT") } catch (_: Throwable) {}
             try { PipelineHealthCollector.labelInc("F1_SLIP_HARD_REJECT") } catch (_: Throwable) {}
+            // V5.0.4184 — VISIBILITY (operator V5.0.4183 dump: 188 EXEC attempts,
+            // 0 BUY ok, ZERO trades because F1_SLIP_HARD_REJECT was silent in
+            // the in-app log stream. Forensic-only rejections meant operator
+            // couldn't see WHY buys never happened). Surface to the live
+            // addLog + label increment per liq band so a future choke is
+            // immediately visible without grepping forensics.
+            try { onLog("🚫 F1_SLIP_REJECT ${ts.symbol} expectedSlip=${expectedSlipPct.fmt(1)}% liq=\$${ts.lastLiquidityUsd.toInt()} — predictor data poisoned? See PHANTOM_SLIP_BAND_PURGE", ts.mint) } catch (_: Throwable) {}
+            try { PipelineHealthCollector.labelInc("F1_SLIP_HARD_REJECT_LIQ_${if (ts.lastLiquidityUsd < 5_000) "0_5K" else if (ts.lastLiquidityUsd < 25_000) "5_25K" else if (ts.lastLiquidityUsd < 100_000) "25_100K" else "100K_PLUS"}") } catch (_: Throwable) {}
             // V5.0.4179b — buyTerminalFail is a local fun declared later in
             // this 2.7K-line method (line ~10369) so it's not in scope here.
             // Early-return without calling it; the forensic event + counter
