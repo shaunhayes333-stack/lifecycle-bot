@@ -9177,6 +9177,24 @@ class BotService : Service() {
         //      lane shapes — but we still cap fanout per the operator P1 spec:
         //      "primary lane + at most one rescue lane".
         val l = lane.uppercase()
+        // V5.0.4178 — L7 WORST-LANE SUPPRESSION (operator directive).
+        // SHITCOIN / EXPRESS / MANIPULATED / DIP_HUNTER all bleed (0% WR in
+        // journal). While the bot is below the 45% LIVE_ADAPTIVE doctrine
+        // floor, suppress these from EVALUATING entirely so capital + cycle
+        // budget concentrate on MOONSHOT / STANDARD (the two ≥22% WR
+        // performers). Auto-resumes when WR recovers above the floor.
+        // Primary-lane override and STANDARD/CORE/V3 trunk are always allowed
+        // (regression guard handled below at line ~9210).
+        if (l in setOf("SHITCOIN", "EXPRESS", "MANIPULATED", "DIP_HUNTER")
+            && !l.equals(primaryLane, ignoreCase = true)) {
+            try {
+                val wr = com.lifecyclebot.engine.LiveLayerGateRelaxer.currentLiveWrPct()
+                if (wr < 45.0) {
+                    PipelineHealthCollector.labelInc("L7_LANE_SUPPRESSED_LOW_WR_$l")
+                    return false
+                }
+            } catch (_: Throwable) {}
+        }
         val metricFit = try { TokenMetricStageRouter.laneFit(ts, l) } catch (_: Throwable) { TokenMetricStageRouter.LaneFit(true, l, TokenMetricStageRouter.Stage.UNKNOWN, "fit_error") }
         if (RuntimeModeAuthority.isLive() && !metricFit.allowed) {
             try {

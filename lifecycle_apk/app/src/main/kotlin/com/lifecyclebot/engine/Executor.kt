@@ -7957,13 +7957,15 @@ class Executor(
         // damper layer fires. Upper bound (`winnerMaxBoost` below) is
         // unchanged; this only lifts the lower bound.
         //
-        // Option 4 (LANE PRIORITY BIAS): MOONSHOT WR=22.7% / STANDARD
-        // WR=23.8% are the bot's two best lanes. Apply a small +20% boost
-        // to those two and -15% to the rest so the wallet allocates more
-        // to what's working without restructuring lane election.
+        // Option 4/L8 (LANE PRIORITY BIAS — TIGHTENED V5.0.4178): MOONSHOT
+        // (WR=22.7%) / STANDARD (WR=23.8%) are the bot's two best lanes.
+        // V5.0.4177 used ×1.20 / ×0.85 (too tepid). V5.0.4178 ramps to
+        // ×1.40 / ×0.50 — capital concentrates HARD on what's working,
+        // losers get half-size or sleep entirely (see L7 lane suppression
+        // in BotService.shouldRunBuyLaneForCycle).
         val laneBiasMult = when (laneTag.uppercase()) {
-            "MOONSHOT", "STANDARD" -> 1.20
-            else -> 0.85
+            "MOONSHOT", "STANDARD" -> 1.40
+            else -> 0.50
         }
         val multiplierProduct = (multiplierProductRaw * laneBiasMult).coerceAtLeast(0.25)
         if (RuntimeModeAuthority.isLive() && (laneEvMult != 1.0 || laneSizeCap < 1.0 || strategyTunerSizeMult != 1.0 || uphConvictionMult != 1.0)) {

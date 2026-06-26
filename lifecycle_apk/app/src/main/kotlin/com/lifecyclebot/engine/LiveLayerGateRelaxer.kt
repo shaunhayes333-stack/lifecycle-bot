@@ -238,13 +238,11 @@ object LiveLayerGateRelaxer {
     // relaxer fires whenever live WR clears 30%; emergency lockdown only
     // below 20%. These thresholds match the operator doctrine "we trade
     // for profit, not for samples".
-    // V5.0.4177 — operator directive (4-way unchoke option 5). With WR
-    // chronically 21-25% the relaxer was STAYING DISABLED, holding the
-    // score-floor elevated which choked candidate flow. Doctrine floor
-    // 30 → 15 lets the relaxer kick in earlier so the bot can earn back
-    // samples. Emergency floor 20 → 10 keeps a safety net at sub-10%.
-    private const val EMERGENCY_FLOOR_PCT = 10.0
-    private const val DOCTRINE_FLOOR_PCT  = 15.0
+    // V5.0.4178 — operator directive: V5.0.4177's lowering of the floor
+    // was the WRONG philosophy. Operator wants TIGHTER quality when WR
+    // is bad, not looser entries. Restored to 30/20.
+    private const val EMERGENCY_FLOOR_PCT = 20.0
+    private const val DOCTRINE_FLOOR_PCT  = 30.0
 
     // V5.0.4067 — LIVE WR GATE. Operator directive: relaxer must not loosen
     // lanes while live WR is below the 45% doctrine floor. Below 35% = emergency
@@ -272,4 +270,14 @@ object LiveLayerGateRelaxer {
         cachedLiveWrPct = wr
         return wr
     }
+
+    /**
+     * V5.0.4178 — public live WR accessor.
+     * Exposes the cached live WR % so other call sites (e.g.
+     * BotService.shouldRunBuyLaneForCycle for L7 lane suppression) can
+     * gate behaviour on live performance without duplicating the
+     * StrategyTelemetry leaderboard computation. TTL is 30s, identical
+     * to the cache used by the relaxer itself.
+     */
+    fun currentLiveWrPct(): Double = refreshLiveWrCache()
 }

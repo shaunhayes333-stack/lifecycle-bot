@@ -155,15 +155,9 @@ class TokenSafetyChecker(private val cfg: () -> BotConfig) {
         private const val RC_DEFER_RECHECK_MS: Long = 30_000L  // re-check every 30s
         private const val RUGCHECK_PENDING_PENALTY = 12
         // V5.0.4177 — operator directive (4-way unchoke option 5). Live
-        // timeout penalty 18 → 10. Field 4176 log: 50× HARD_BLOCK_RUGCHECK_
-        // _PENDING_REVIEW_WEAK_FALLBACK in 204s (43% of all FDG decisions).
-        // The Rugcheck API is just slow under load, not flagging actual
-        // rugs — the TokenSafetyChecker / FDG safety layer still runs
-        // independently. Lower penalty lets more probes through; the rugcheck
-        // weak-fallback path in FDG is also down-graded from HARD to SOFT
-        // in V5.0.4177 so the bot probes with reduced size instead of
-        // hard-rejecting.
-        private const val RUGCHECK_TIMEOUT_PENALTY = 10
+        // timeout penalty 18 → 10. V5.0.4178 reverted to 14 — keep penalty
+        // tighter so weak-fallback path actually blocks, not just downsizes.
+        private const val RUGCHECK_TIMEOUT_PENALTY = 14
         private const val RUGCHECK_UNKNOWN_MAX_SIZE_MULT = 0.35
         private const val RUGCHECK_PENDING_TTL_MS: Long = 90_000L
         // INFLIGHT_WAIT_MS bounds how long a concurrent caller waits

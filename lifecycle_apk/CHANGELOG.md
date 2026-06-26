@@ -4,6 +4,65 @@ All notable changes to the Autonomous AI Trading Engine.
 
 ---
 
+## [5.0.4178] - 2026-06 — SELECTIVITY-FIRST PIVOT (operator philosophy reset)
+
+**Operator directive (overriding V5.0.4177's philosophy):** "I dont really
+want downsized probe learning. they become dust sized trades!!! it needs
+to pivot and the lane brains need to switch strategies faster. find the
+right tokens to trade".
+
+V5.0.4177 had the wrong philosophy — it loosened gates to let more dust
+probes through. Operator wants the opposite: **fewer, better trades at
+full size, with the bot ruthlessly killing losing strategies and lanes.**
+
+**Reverted from V5.0.4177:**
+
+  * **L1 reverted** — Rugcheck weak-fallback `BlockLevel.SIZE` → back to
+    `BlockLevel.HARD`. No more dust-probe trades on slow-rugcheck tokens.
+    `RUGCHECK_TIMEOUT_PENALTY` 10 → 14 (was 18; kept tighter than 4177 but
+    not fully back to 18 — Rugcheck slowness is real, not always rug
+    signal).
+  * **L2 reverted** — `DOCTRINE_FLOOR_PCT` 15.0 → 30.0,
+    `EMERGENCY_FLOOR_PCT` 10.0 → 20.0. Don't loosen entry quality when WR
+    is low; tighten it.
+
+**Kept from V5.0.4177:**
+
+  * **L3 kept** — `multiplierProduct.coerceAtLeast(0.25)`. This is the
+    anti-dust guard. Compound never crushes below 25% of base.
+  * **L4 tightened (was lane bias ×1.20/×0.85, now ×1.40/×0.50)** —
+    MOONSHOT/STANDARD get +40%, every other lane halved. Capital
+    concentrates on what works.
+    File: `engine/Executor.kt`
+
+**New in V5.0.4178:**
+
+  * **L5 — Strategy pivot acceleration** in `LiveStrategyTuner`. Toxic
+    bleed threshold `n >= 20` → `n >= 10`. Lanes get force-pivoted to
+    `toxic_runner_pivot` (sizeFloor 0.12) within 10 closes instead of 20.
+    File: `engine/LiveStrategyTuner.kt`
+
+  * **L7 — Worst-lane suppression while WR < 45%.** SHITCOIN, EXPRESS,
+    MANIPULATED, DIP_HUNTER all bleed (≈0% WR in journal). While the bot
+    is below the LIVE_ADAPTIVE doctrine floor (45%), these lanes are
+    skipped entirely in `shouldRunBuyLaneForCycle` — capital + cycle
+    budget concentrate on MOONSHOT / STANDARD. Auto-resumes when WR
+    recovers. Primary-lane override + STANDARD/CORE/V3 trunk are always
+    allowed (regression guard). New `LiveLayerGateRelaxer.currentLiveWrPct()`
+    public accessor used to read the cached live WR without re-computing
+    the leaderboard per call.
+    Files: `engine/BotService.kt`, `engine/LiveLayerGateRelaxer.kt`
+
+**Philosophy summary:**
+  - Fewer trades, but each at proper size (L3 floor + L4 bias).
+  - Bad lanes get killed fast (L5 + L7).
+  - Bad tokens stay hard-blocked (L1 reverted, L2 reverted).
+  - The bot earns its way back to lane re-enablement by recovering WR.
+
+Brace/paren git-diff deltas balanced on all six files (0/0).
+
+---
+
 ## [5.0.4177] - 2026-06 — 4-WAY WR-FEEDBACK-LOOP UNCHOKE (operator option 5)
 
 **Symptom (V5.0.4176 field 204s session):** cycle was unchoked (5-7s, no

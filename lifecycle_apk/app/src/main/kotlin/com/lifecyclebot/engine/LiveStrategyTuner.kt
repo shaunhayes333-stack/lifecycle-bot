@@ -227,10 +227,18 @@ object LiveStrategyTuner {
                 label = "asymmetric_runner_exempt",
             )
         }
+        // V5.0.4178 — L5 STRATEGY PIVOT ACCELERATION (operator directive).
+        // toxicBleed threshold n>=20 → n>=10. wrBleed threshold n>=8 stays.
+        // Operator: "lane brains need to switch strategies faster". 4172/4176
+        // logs showed STANDARD lane at n=20 wr=6% PnL=-0.075 still on
+        // bleeder_runner_pivot (sizeFloor 0.35) — should have pivoted to
+        // toxic_runner_pivot (sizeFloor 0.12) at n=10 or even paused. Faster
+        // toxic gate lets the bot abandon proven-bad lanes within 10 closes
+        // instead of 20.
         val pfBleed = n >= 8 && sol < 0.0 && pf <= 0.0
         val wrBleed = n >= 8 && wr < 35.0 && sol <= 0.0
         val meanBleed = n >= 8 && sol <= 0.0 && mean <= -8.0
-        val toxicBleed = n >= 20 && wr <= 28.0 && sol < 0.0
+        val toxicBleed = n >= 10 && wr <= 28.0 && sol < 0.0
         if (pfBleed || wrBleed || meanBleed || toxicBleed) {
             val wrDepth = ((35.0 - wr) / 35.0).coerceIn(0.0, 1.0)
             val pfDepth = ((-pf) / 16.0).coerceIn(0.0, 1.0)
