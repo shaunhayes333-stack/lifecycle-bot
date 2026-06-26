@@ -8317,7 +8317,17 @@ class Executor(
                         }
                     }
                     ErrorLogger.info("Executor", "🧬 MEME_SPINE LIVE_PRECHECK_ALLOW ${ts.symbol} | size=${liveSol.fmt(4)} | wallet=${walletSol.fmt(4)}")
-                    val liveOpened = liveBuy(ts, liveSol, score, safeWallet, walletSol, tradeId, quality, skipGraduated)
+                    val liveOpened = liveBuy(
+                        ts = ts,
+                        sol = liveSol,
+                        score = score,
+                        wallet = safeWallet,
+                        walletSol = walletSol,
+                        identity = tradeId,
+                        quality = quality,
+                        skipGraduated = skipGraduated,
+                        layerTag = laneTag.takeIf { it.isNotBlank() && it != "STANDARD" } ?: "",
+                    )
                     val pendingLiveCommit = try {
                         !ts.position.isPaperPosition && ts.position.pendingVerify && ts.position.qtyToken > 0.0 && ts.position.costSol > 0.0
                     } catch (_: Throwable) { false }
@@ -12523,6 +12533,23 @@ class Executor(
         val entry = pos.entryPrice
         val px = ts.lastPrice.takeIf { it > 0.0 } ?: pos.entryPrice
         val rawPnlPct = if (entry > 0.0 && px > 0.0) ((px - entry) / entry) * 100.0 else 0.0
+        val peakGainPct = maxOf(pos.peakGainPct, rawPnlPct)
+        val givebackFromPeak = peakGainPct - rawPnlPct
+        // V5.0.4190 — min-hold is anti-churn only; it must never override runner
+        // protection. Runtime 4189 showed LIVE_STYLE_MIN_HOLD_EXIT_DEFERRED while
+        // a position gave back from +2407% to ~0%, converting a live runner into
+        // scratch/rug risk. If a position has proven a real peak and an exit signal
+        // arrives after major giveback, let the sell through immediately.
+        if (peakGainPct >= 20.0 && givebackFromPeak >= 25.0) {
+            try {
+                ForensicLogger.lifecycle(
+                    "LIVE_STYLE_MIN_HOLD_PEAK_GIVEBACK_BYPASS_4190",
+                    "mint=${ts.mint.take(10)} symbol=${ts.symbol} reason=${reason.take(80)} rawPnl=${"%.1f".format(rawPnlPct)} peak=${"%.1f".format(peakGainPct)} giveback=${"%.1f".format(givebackFromPeak)} action=sell_now"
+                )
+                PipelineHealthCollector.labelInc("LIVE_STYLE_MIN_HOLD_PEAK_GIVEBACK_BYPASS_4190")
+            } catch (_: Throwable) {}
+            return null
+        }
         if (liveHoldBypassReason(reason, rawPnlPct)) return null
         val (minHoldMs, styleHint) = liveHoldMinMsForPosition(ts)
         if (ageMs >= minHoldMs) return null

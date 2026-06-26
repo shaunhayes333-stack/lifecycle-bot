@@ -3491,6 +3491,8 @@ class GoldenTapeRegressionTest {
         assertTrue("live min-hold must not enqueue pending sells", exec.contains("action=no_sell_lock") && exec.contains("return SellResult.FAILED_RETRYABLE"))
         assertTrue("maintenance requeue uses its own healthy-hold suppressor", exec.contains("RECONCILER_REQUEUE") && exec.contains("return null") && exec.contains("RECONCILER_REQUEUE_SUPPRESSED_HEALTHY_HOLD"))
         assertTrue("report must expose live style hold deferrals", pipe.contains("styleHoldDeferred") && pipe.contains("LIVE_STYLE_MIN_HOLD_EXIT_DEFERRED"))
+        assertTrue("V5.0.4190: live style min-hold must bypass on peak giveback so runners don't round-trip", exec.contains("LIVE_STYLE_MIN_HOLD_PEAK_GIVEBACK_BYPASS_4190") && exec.contains("peakGainPct >= 20.0 && givebackFromPeak >= 25.0"))
+        assertTrue("V5.0.4190: generic meme liveBuy handoff must carry resolved laneTag into live lane/journal stamping", exec.contains("layerTag = laneTag.takeIf { it.isNotBlank() && it != \"STANDARD\" } ?: \"\"") && exec.contains("EXECUTION_LANE_STAMPED_4162"))
     }
 
 
@@ -4183,12 +4185,12 @@ class GoldenTapeRegressionTest {
         val fdg = java.io.File("src/main/kotlin/com/lifecyclebot/engine/FinalDecisionGate.kt").readText()
         assertTrue("V5.0.4151: token-map incomplete must hydrate route truth before watch-probation, not hard-block transient no-route",
             fdg.contains("RouteTruthHydrator.hydrate(ts)") && fdg.contains("WATCH_PROBATION_ROUTE_UNKNOWN") && fdg.contains("FDG_SKIPPED_ROUTE_UNKNOWN_PRECHECK"))
-        assertTrue("V5.0.4155: 25K liquidity gate must be fluid soft-shaping, with only true <$2.5K dust liquidity hard-blocked",
-            fdg.contains("FDG_LOW_LIQUIDITY_SOFT_SHAPED") && fdg.contains("LOW_LIQUIDITY_SIZE_REDUCTION") && fdg.contains("HARD_BLOCK_LIQUIDITY_BELOW_2_5K") && !fdg.contains("HARD_BLOCK_LIQUIDITY_BELOW_25K"))
+        assertTrue("V5.0.4190: liquidity gate must be fluid soft-shaping, with only true <$500 non-exitable dust hard-blocked",
+            fdg.contains("FDG_LOW_LIQUIDITY_SOFT_SHAPED") && fdg.contains("LOW_LIQUIDITY_SIZE_REDUCTION") && fdg.contains("HARD_BLOCK_LIQUIDITY_BELOW_500") && !fdg.contains("HARD_BLOCK_LIQUIDITY_BELOW_2_5K") && !fdg.contains("HARD_BLOCK_LIQUIDITY_BELOW_25K"))
         assertTrue("V5.0.4155: mcap/liq >8x must soft-shape until extreme >20x hard safety",
             fdg.contains("FDG_MCAP_LIQ_RATIO_SOFT_SHAPED") && fdg.contains("MCAP_LIQ_RATIO_SIZE_REDUCTION") && fdg.contains("> 20.0"))
-        assertTrue("V5.0.4155: rugcheck PENDING/UNKNOWN must be penalty/soft-shape; FAILED remains hard",
-            fdg.contains("FDG_RUGCHECK_PENDING_SOFT_SHAPED") && fdg.contains("RUGCHECK_PENDING_PENALTY") && fdg.contains("HARD_BLOCK_RUGCHECK_FAILED") && !fdg.contains("HARD_BLOCK_RUGCHECK_PENDING") && !fdg.contains("HARD_BLOCK_RUGCHECK_UNKNOWN"))
+        assertTrue("V5.0.4190: rugcheck pending/timeout weak fallback must size-shape, not hard-veto; confirmed score 0 remains hard",
+            fdg.contains("FDG_RUGCHECK_PENDING_WEAK_SIZE_SHAPED_4190") && fdg.contains("RUGCHECK_PENDING_WEAK_SIZE_SHAPE_4190") && fdg.contains("rugcheck_pending_weak_size_shape") && fdg.contains("rugcheckScore == 0 -> true") && !fdg.contains("HARD_BLOCK_RUGCHECK_PENDING_REVIEW_WEAK") && !fdg.contains("HARD_BLOCK_RUGCHECK_TIMEOUT_WEAK"))
         assertTrue("Must have entry price unknown hard block",
             fdg.contains("HARD_BLOCK_ENTRY_PRICE_UNKNOWN"))
         assertTrue("All new hard blocks must be LIVE-only (paperMode bypass)",

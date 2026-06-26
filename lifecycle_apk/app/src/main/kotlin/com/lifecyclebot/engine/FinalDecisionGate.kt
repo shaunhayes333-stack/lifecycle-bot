@@ -1944,9 +1944,9 @@ object FinalDecisionGate {
                 // those are the two non-substitutable signals. Otherwise,
                 // 2-of-3 (or 1-of-3 with single strong) admits as probe.
                 val criticalBothWeak = !hasStrongBuyers && !hasGoodLiquidity
-                val shouldBlock = criticalBothWeak || (signalsMet < 2 && !hasSingleStrong)
+                val weakFallback = criticalBothWeak || (signalsMet < 2 && !hasSingleStrong)
 
-                if (!shouldBlock) {
+                if (!weakFallback) {
                     ErrorLogger.info(
                         "FDG",
                         "Rugcheck $rugcheckStatus for ${ts.symbol}, allowing as PROBE (relaxed 4185 fallback): buy%=${ts.meta.pressScore.toInt()} liq=\$${ts.lastLiquidityUsd.toInt()} vol=\$${(ts.history.lastOrNull()?.volumeH1 ?: 0.0).toInt()} signals=$signalsMet/3 singleStrong=$hasSingleStrong"
@@ -1954,12 +1954,21 @@ object FinalDecisionGate {
                     tags.add("rugcheck_timeout_fallback")
                     tags.add("rc_timeout_live_probe")
                 } else {
-                    ErrorLogger.warn(
+                    // V5.0.4190 — pending/timeout rugcheck is a penalty/size-shape,
+                    // not a hard veto. Confirmed rug score 0 remains fatal above;
+                    // true non-exitable liquidity is handled by the liquidity floor below.
+                    ErrorLogger.info(
                         "FDG",
-                        "Rugcheck $rugcheckStatus BLOCKED for ${ts.symbol}: weak fallback (buy%=${ts.meta.pressScore.toInt()} liq=\$${ts.lastLiquidityUsd.toInt()} vol=\$${(ts.history.lastOrNull()?.volumeH1 ?: 0.0).toInt()} signals=$signalsMet/3 critBothWeak=$criticalBothWeak)"
+                        "Rugcheck $rugcheckStatus WEAK_FALLBACK_SOFT for ${ts.symbol}: buy%=${ts.meta.pressScore.toInt()} liq=\$${ts.lastLiquidityUsd.toInt()} vol=\$${(ts.history.lastOrNull()?.volumeH1 ?: 0.0).toInt()} signals=$signalsMet/3 critBothWeak=$criticalBothWeak action=size_shape"
                     )
+                    tags.add("rugcheck_pending_weak_size_shape")
+                    checks.add(GateCheck("rugcheck_pending_weak_size_shape", true, "status=$rugcheckStatus weak fallback → size-shape, not veto"))
+                    try {
+                        com.lifecyclebot.engine.LiveSizingProfile.markGateSoftShape(ts.mint, "RUGCHECK_PENDING_WEAK_SIZE_SHAPE_4190")
+                        com.lifecyclebot.engine.PipelineHealthCollector.labelInc("FDG_RUGCHECK_PENDING_WEAK_SIZE_SHAPED_4190")
+                    } catch (_: Throwable) {}
                 }
-                shouldBlock
+                false
             }
             else -> {
                 tags.add("rugcheck_unknown_penalty_only")
@@ -2114,15 +2123,15 @@ object FinalDecisionGate {
             // allowed because every candidate hit the static <$25K liquidity hard
             // veto. Gates start soft and tighten only after the learning/AGI stack
             // has enough live evidence; low liquidity is a size/route-risk shaper,
-            // not a universal hard block. Keep only true dust liquidity <$2.5K as
-            // hard safety, then let LiveSizingProfile reduce exposure up to $25K.
+            // not a universal hard block. Keep only true non-exitable dust liquidity
+            // <$500 as hard safety, then let LiveSizingProfile reduce exposure up to $25K.
             val liveLiq = ts.lastLiquidityUsd
-            if (liveLiq in 0.000001..2_500.0) {
-                blockReason = "HARD_BLOCK_LIQUIDITY_BELOW_2_5K"
+            if (liveLiq in 0.000001..500.0) {
+                blockReason = "HARD_BLOCK_LIQUIDITY_BELOW_500"
                 blockLevel = BlockLevel.HARD
-                checks.add(GateCheck("liquidity_2_5k", false, "liq=\$${liveLiq.toInt()} < \$2.5K"))
-                tags.add("low_liquidity_dust_floor")
-            } else if (liveLiq in 2_500.0..25_000.0) {
+                checks.add(GateCheck("liquidity_500", false, "liq=\$${liveLiq.toInt()} < \$500 non-exitable dust"))
+                tags.add("low_liquidity_non_exitable_floor")
+            } else if (liveLiq in 500.0..25_000.0) {
                 checks.add(GateCheck("liquidity_25k_soft", true, "liq=\$${liveLiq.toInt()} < \$25K — soft-size, not veto"))
                 tags.add("low_liquidity_size_reduction")
                 try {
