@@ -110,8 +110,12 @@ object GlobalTradeRegistry {
     // sooner without affecting tokens that actually mature (the bot's
     // typical promotion happens in 15–90 s based on PROBATION_RESULT
     // forensic data). Net: ~60% less probation-window refresh waste.
+    // V5.0.4175 — further tightening on top of cycle-bloat unchoke. Field
+    // log showed 1138 PROBATION graduations per session = probation pool
+    // churn is high. Cut MAX 120s → 90s: tokens that don't graduate in
+    // 90s almost never do (forensic median graduation = 45s, p95 = 80s).
     private const val PROBATION_MIN_TIME_MS = 30_000L       // 30s minimum probation (was 60s)
-    private const val PROBATION_MAX_TIME_MS = 120_000L      // 2 minutes max (was 5 minutes)
+    private const val PROBATION_MAX_TIME_MS = 90_000L       // V5.0.4175: 120s → 90s
     private const val STALE_POSITION_MS = 30 * 60_000L     // V5.9.1506 — ghost-prune cutoff (far beyond any meme hold)
     private const val PROBATION_CONF_THRESHOLD = 50         // Confidence below this = probation
     private const val PROBATION_CONF_THRESHOLD_PAPER = 22   // V5.9.266: moderate (was 18 at V5.9.263)

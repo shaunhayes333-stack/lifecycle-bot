@@ -867,7 +867,11 @@ class SolanaMarketScanner(
     // 12.5s. Healthy sources respond in 300-1000ms (birdeye 466 / dex 379 / cg 344),
     // so a 6s ceiling never truncates a live source but halves the cycle when one is
     // dead. Doctrine: serves volume (more cycles/min) with zero quality cost.
-    private val SOURCE_SCAN_TIMEOUT_MS = 6_000L
+    // V5.0.4175 — 6_000 -> 5_000. Field log 20:53:57 showed simultaneous timeout
+    // streak (scanPumpFunDirect streak=27, four other sources streak=3-9) burning
+    // ~30s of cycle time. Healthy sources finish in 300–1500ms; trimming 1s off the
+    // per-source ceiling cuts ~5s off worst-case parallel cycles when 5 sources hang.
+    private val SOURCE_SCAN_TIMEOUT_MS = 5_000L
 
     // V5.9.1497 — SCANNER LOOP BUDGET (spec 5.0.3502 §2). Hard wall-clock
     // ceiling for the whole parallel deep-scan batch. Even if several sources
@@ -875,7 +879,12 @@ class SolanaMarketScanner(
     // permit, the batch CANNOT exceed this — the cycle returns and the loop
     // continues. Target: avg cycle <10s, no cycle >30s. Healthy sources finish
     // in 300-1000ms so this never truncates a good cycle.
-    private val SCAN_BATCH_BUDGET_MS = 14_000L
+    // V5.0.4175 — 14_000 -> 8_000. Field snapshot 20:53:57 showed cycle 17–48s
+    // with all five poll sources timing out simultaneously (streak=27/9/4/4/3),
+    // dragging avg cycle to 7288ms and triggering EXIT_COORDINATOR_STALE_RESET
+    // (22× in 1394s session). 8s is still 1.6× the slowest healthy source —
+    // PumpPortal WS firehose runs on a separate path and is NOT affected.
+    private val SCAN_BATCH_BUDGET_MS = 8_000L
     // Per-source consecutive-timeout history → adaptive deprioritization. A
     // source that times out repeatedly is SKIPPED on a rotating basis (1 in N
     // cycles) so it stops eating the batch budget, but is NEVER permanently

@@ -150,11 +150,27 @@ object BirdeyeBudgetGate {
 
     /**
      * V5.9.952 — safety-critical calls. Always allow unless full lockdown.
+     * V5.0.4175 — added DAILY-CAP BROWNOUT. When daily CU is already at/past
+     * the cap, every Birdeye call returns 5xx (rate-limited). Field log
+     * 20:53:57: birdeye sr=57% with 328× 5xx + 23× net errors AFTER hitting
+     * 150125/150000 CU = 100.1%. We were burning latency + bandwidth on calls
+     * the provider was guaranteed to reject. Brown out at ≥98% of daily cap:
+     * skip the call immediately instead of round-tripping for a 429. Monthly
+     * lockdown path unchanged. NOTE: this does NOT block trading — open
+     * positions still use canAffordOpenPositionEmergency() which has its own
+     * cap headroom.
      */
     fun canAffordSafety(): Boolean {
         rolloverIfNeeded()
         if (EMERGENCY_CONSERVATION_MODE) return false
-        return !isLockedDown()
+        if (isLockedDown()) return false
+        // V5.0.4175 — daily-cap brownout. Stops the 5xx storm once the
+        // daily CU bucket is empty.
+        if (dailyCap > 0L) {
+            val dailyPct = cuToday.get().toDouble() / dailyCap
+            if (dailyPct >= 0.98) return false
+        }
+        return true
     }
 
     fun recordCalls(calls: Int) {

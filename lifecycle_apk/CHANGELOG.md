@@ -4,6 +4,59 @@ All notable changes to the Autonomous AI Trading Engine.
 
 ---
 
+## [5.0.4175] - 2026-06 — UNCHOKE: 4-WAY CYCLE BLOAT ATTACK
+
+**Symptom (V5.0.4174 field 1394s session):** bot traded fast for ~5 min then
+visibly choked. 20 BUYs total (0.86/min), cycle time 17–48s (target 5–9s),
+22× EXIT_COORDINATOR_STALE_RESET, scanner sources timing out in streaks
+(scanPumpFunDirect streak=27), Birdeye daily CU exhausted at 150125/150000
+= 100.1% with 328× 5xx + 23× net errors AFTER the cap was blown.
+
+**Root cause:** classic provider-degradation cascade:
+  1. PumpFun rate-limits us → scanner sources block for full timeout.
+  2. With 5 sources hung in parallel, scan batch eats 14s of every cycle.
+  3. Birdeye daily CU blows; safety/refresh callers still try → 5xx storm
+     → another 1s+ of latency per call.
+  4. Cycle bloats to 20–48s → exit lock can't be grabbed in time →
+     EXIT_COORDINATOR_STALE_RESET fires → exit machinery resurrects but
+     trade opportunities are already stale.
+
+**4-way fix:**
+
+  * **A (highest impact) — SCAN_BATCH_BUDGET_MS 14_000 → 8_000** plus
+    SOURCE_SCAN_TIMEOUT_MS 6_000 → 5_000. Worst-case scan cost drops from
+    14s to 8s per cycle. PumpPortal WS firehose is on a separate path and
+    untouched — meme trader keeps its real-time intake.
+    File: `engine/SolanaMarketScanner.kt`
+
+  * **B — PROBATION_MAX_TIME_MS 120s → 90s.** Tokens that don't graduate in
+    90s almost never do (forensic median = 45s, p95 = 80s). Frees probation
+    enrichment cycles for candidates that actually mature.
+    File: `engine/GlobalTradeRegistry.kt`
+
+  * **C — Birdeye safety-call brownout at ≥98% daily CU.**
+    `BirdeyeBudgetGate.canAffordSafety()` now returns false when daily CU
+    is essentially exhausted. Stops the 5xx storm + bandwidth burn on calls
+    the provider was guaranteed to reject. Monthly-lockdown path unchanged;
+    open-position emergency calls have their own headroom check.
+    File: `engine/BirdeyeBudgetGate.kt`
+
+  * **D — Cycle-overrun forensic alarm + PipelineHealthCollector counters.**
+    Any cycle in the 20s–90s band emits `BOT_LOOP_CYCLE_OVERRUN` (sub-Doze
+    band — Doze detector still owns >90s) and increments bucketed counters
+    (20s+ / 30s+ / 40s+ / 60s+). No hard-cancel of the loop body (too risky
+    in the 23K-line method — could interrupt a buy/sell mid-flight); pure
+    observability so future regressions surface immediately in the snapshot.
+    File: `engine/BotService.kt`
+
+**Safety:**
+  * Meme trader path (PumpPortal WS, direct scan, fluid scoring) untouched.
+  * Brace/paren deltas verified balanced (0/0 on all four files).
+  * Open positions retain their dedicated `canAffordOpenPositionEmergency`
+    headroom — they never get brownout-suppressed.
+
+---
+
 ## [5.0.4174] - 2026-06 — JUPITER TOKENS API V1 → V2 MIGRATION
 
 **Symptom**: API health monitor showed `🔴 jupiter sr=0% net=1 last_err:

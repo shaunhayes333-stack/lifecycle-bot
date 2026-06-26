@@ -10681,6 +10681,32 @@ class BotService : Service() {
                     }
                 } catch (_: Throwable) {}
             }
+            // V5.0.4175 — CYCLE OVERRUN ALARM (Fix D, partner to scan-batch cut).
+            // Field 4175 log: cycle 17–48s (avg 7288ms, max 48693ms) with 22
+            // EXIT_COORDINATOR_STALE_RESETs in 1394s because exits couldn't grab
+            // their lock between bloated cycles. We don't hard-cancel the loop
+            // body (too risky in this 23K-line method — could interrupt a buy
+            // or sell mid-flight), but we DO surface every overrun + bump the
+            // PipelineHealthCollector counter so the snapshot exposes the
+            // pattern. Threshold 20s is well below the Doze detector's 90s
+            // gate and above normal worst-case (~10s) with the V5.0.4175 scan
+            // cuts. Sub-Doze gap (20s–90s) is the new diagnostic band.
+            if (prevCycleMs in 20_000L..90_000L && loopCount > 1) {
+                try {
+                    ForensicLogger.lifecycle(
+                        "BOT_LOOP_CYCLE_OVERRUN",
+                        "cycleMs=$prevCycleMs loop=$loopCount threshold=20000 — cycle slow but not Doze; check scanner timeouts / Birdeye 5xx / supervisor worker timeouts",
+                    )
+                    com.lifecyclebot.engine.PipelineHealthCollector.labelInc("BOT_LOOP_CYCLE_OVERRUN")
+                    val bucket = when {
+                        prevCycleMs >= 60_000L -> "60s+"
+                        prevCycleMs >= 40_000L -> "40s+"
+                        prevCycleMs >= 30_000L -> "30s+"
+                        else -> "20s+"
+                    }
+                    com.lifecyclebot.engine.PipelineHealthCollector.labelInc("BOT_LOOP_CYCLE_OVERRUN_$bucket")
+                } catch (_: Throwable) {}
+            }
             // V5.9.1310 — surface BOTH watchlist counters so the operator can see
             // they measure different things (was read as a "counters disagree" bug):
             //   localTokens = status.tokens   (BotService's in-memory token map; superset,
