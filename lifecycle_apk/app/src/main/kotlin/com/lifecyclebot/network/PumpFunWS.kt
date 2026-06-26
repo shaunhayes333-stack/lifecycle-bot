@@ -94,11 +94,20 @@ object PumpFunWS {
                         val symbol = j.optString("symbol", "?")
                         val name = j.optString("name", "?")
                         val marketCapSol = j.optDouble("marketCapSol", 0.0)
-                        if (mint.isNotBlank()) onNewTokenCb?.invoke(mint, symbol, name, marketCapSol)
+                        if (mint.isBlank()) return
+                        // V5.0.4168 — PumpPortal WS adaptive throttle. Drops
+                        // dust-mcap creates BEFORE they trigger the cascade
+                        // (provider proofs, rugcheck, Birdeye/DexScreener
+                        // enrichment) that drives the bulk of mobile-data
+                        // burn. Threshold rises when watchlist saturates.
+                        if (!com.lifecyclebot.engine.PumpPortalThrottle.allowCreate(marketCapSol)) return
+                        onNewTokenCb?.invoke(mint, symbol, name, marketCapSol)
                     }
                     txType == "migrate" || j.optString("event", "") == "migration" -> {
                         val mint = j.optString("mint", j.optString("address", ""))
-                        if (mint.isNotBlank()) onMigrationCb?.invoke(mint)
+                        if (mint.isBlank()) return
+                        com.lifecyclebot.engine.PumpPortalThrottle.allowMigrate()
+                        onMigrationCb?.invoke(mint)
                     }
                 }
             } catch (e: Exception) {

@@ -125,10 +125,14 @@ class PumpFunWebSocket(
                     val symbol    = msg.optString("symbol", "")
                     val name      = msg.optString("name", "")
                     val devWallet = msg.optString("traderPublicKey", "")
-                    if (mint.isNotBlank()) {
-                        onLog("🆕 New token: $symbol ($name) mint=${mint.take(12)}…")
-                        onNewToken(mint, symbol, name, devWallet)
-                    }
+                    val marketCapSol = msg.optDouble("marketCapSol", 0.0)
+                    if (mint.isBlank()) return
+                    // V5.0.4168 — PumpPortal WS adaptive throttle. Drops
+                    // dust-mcap creates before they trigger the downstream
+                    // provider/rugcheck cascade (the actual bandwidth cost).
+                    if (!com.lifecyclebot.engine.PumpPortalThrottle.allowCreate(marketCapSol)) return
+                    onLog("🆕 New token: $symbol ($name) mint=${mint.take(12)}…")
+                    onNewToken(mint, symbol, name, devWallet)
                 }
 
                 "buy", "sell" -> {
@@ -137,9 +141,13 @@ class PumpFunWebSocket(
                     val rawSol = msg.optDouble("solAmount", 0.0)
                     val sol    = normalizeSolAmount(rawSol)
                     val wallet = msg.optString("traderPublicKey", "")
-                    if (mint.isNotBlank() && sol != null) {
-                        onTrade(mint, isBuy, sol, wallet)
-                    }
+                    if (mint.isBlank() || sol == null) return
+                    // V5.0.4168 — trade firehose is the largest bandwidth
+                    // driver. Drop trades on mints we don't track; the
+                    // scoring pipeline only acts on watchlist members
+                    // anyway, so processing other mints is pure waste.
+                    if (!com.lifecyclebot.engine.PumpPortalThrottle.allowTrade(mint)) return
+                    onTrade(mint, isBuy, sol, wallet)
                 }
 
                 else -> {
