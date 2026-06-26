@@ -80,6 +80,13 @@ object EntryIntelligence {
         // Pattern success rates
         var patternWinRates: MutableMap<String, Double> = mutableMapOf(),
         var patternTradeCount: MutableMap<String, Int> = mutableMapOf(),
+
+        // V5.0.4201 — A4 audit: hold-time outcome profile. learnFromOutcome()
+        // accepted holdTimeMinutes but dropped it, so EntryIntelligence could not
+        // distinguish fast pumps from slow-builder winners. Buckets are learned
+        // from CLOSED trades and softly nudge future entries by expected style.
+        var holdTimeWinRates: MutableMap<String, Double> = mutableMapOf(),
+        var holdTimeTradeCount: MutableMap<String, Int> = mutableMapOf(),
         
         // Optimal ranges learned from wins
         var optimalBuyPressureMin: Double = 50.0,
@@ -93,6 +100,20 @@ object EntryIntelligence {
     )
     
     private var weights = LearnedWeights()
+
+    private fun holdTimeBucket(holdTimeMinutes: Int): String = when {
+        holdTimeMinutes < 5 -> "SCALP_0_5M"
+        holdTimeMinutes < 15 -> "FAST_5_15M"
+        holdTimeMinutes < 60 -> "MID_15_60M"
+        else -> "RUNNER_60M_PLUS"
+    }
+
+    private fun dominantHoldTimeBucket(): Triple<String, Double, Int>? {
+        return weights.holdTimeWinRates.entries
+            .map { (bucket, rate) -> Triple(bucket, rate, weights.holdTimeTradeCount[bucket] ?: 0) }
+            .filter { it.third >= 8 }
+            .maxWithOrNull(compareBy<Triple<String, Double, Int>> { it.second }.thenBy { it.third })
+    }
     
     // Track entries for learning
     private val pendingEntries = ConcurrentHashMap<String, EntryConditions>()
@@ -216,6 +237,33 @@ object EntryIntelligence {
         // Calculate final score (0-100)
         val rawScore = ((totalScore / maxScore) * 100).toInt().coerceIn(0, 100)
 
+        // V5.0.4201 — A4 hold-time learning consumer. This is intentionally a
+        // small nudge: EntryIntelligence is legacy/deprecated but still gates
+        // several Executor paths, so learned fast-vs-runner outcomes should help
+        // without overpowering V3 scoring. Fast winners reward momentum/chase
+        // confirmation; runner winners reward support/clean base entries.
+        val holdProfileNudge = try {
+            val dom = dominantHoldTimeBucket()
+            if (dom != null) {
+                val (bucket, winRate, count) = dom
+                val nudge = when {
+                    bucket.startsWith("SCALP") || bucket.startsWith("FAST") -> when {
+                        conditions.momentum in 5.0..50.0 && conditions.buyPressure >= 50.0 -> +4
+                        conditions.momentum > 60.0 -> -2
+                        else -> 0
+                    }
+                    bucket.startsWith("RUNNER") -> when {
+                        conditions.isNearSupport && conditions.buyPressure >= 45.0 && conditions.rsi <= 70.0 -> +4
+                        conditions.isNearResistance || conditions.rsi > 78.0 -> -3
+                        else -> 0
+                    }
+                    else -> 0
+                }
+                if (nudge != 0) reasons.add("HoldProfile:$bucket ${if (nudge > 0) "+" else ""}$nudge (${(winRate * 100).toInt()}%/$count)")
+                nudge
+            } else 0
+        } catch (_: Throwable) { 0 }
+
         // V5.9.212: Symbolic pressure — now uses full 24-channel composite
         // Base mood nudge + green-light scaling + circuit/regime/leadlag gates
         val symNudge = try {
@@ -240,7 +288,7 @@ object EntryIntelligence {
             val leadPenalty     = if (sc.isLeadLagWarning()) -3 else 0
             moodBase + greenNudge + circuitPenalty + transPenalty + leadPenalty
         } catch (_: Exception) { 0 }
-        val finalScore = (rawScore + symNudge).coerceIn(0, 100)
+        val finalScore = (rawScore + holdProfileNudge + symNudge).coerceIn(0, 100)
         if (symNudge != 0) reasons.add("Symbolic: ${if (symNudge > 0) "+" else ""}$symNudge (24ch universe)")
 
         // Determine recommendation
@@ -370,6 +418,16 @@ object EntryIntelligence {
         weights.patternWinRates[pattern] = newPatternWinRate
         weights.patternTradeCount[pattern] = newPatternCount
         
+        // V5.0.4201 — A4: learn the closed trade's hold-duration bucket.
+        // This finally consumes holdTimeMinutes instead of treating a 90-second
+        // scalp and a 90-minute runner as identical entry feedback.
+        val holdBucket = holdTimeBucket(holdTimeMinutes)
+        val holdWinRate = weights.holdTimeWinRates[holdBucket] ?: 0.5
+        val holdCount = weights.holdTimeTradeCount[holdBucket] ?: 0
+        val newHoldCount = holdCount + 1
+        weights.holdTimeWinRates[holdBucket] = ((holdWinRate * holdCount) + if (isWin) 1.0 else 0.0) / newHoldCount
+        weights.holdTimeTradeCount[holdBucket] = newHoldCount
+
         // Adjust optimal ranges based on outcomes
         if (isWin) {
             // Winning trade - move optimal ranges toward these conditions
@@ -377,7 +435,12 @@ object EntryIntelligence {
             weights.optimalBuyPressureMax = (weights.optimalBuyPressureMax * 0.9 + conditions.buyPressure * 0.1).coerceIn(65.0, 85.0)
             weights.optimalMomentumMin = (weights.optimalMomentumMin * 0.9 + conditions.momentum * 0.1).coerceIn(0.0, 20.0)
             
-            ErrorLogger.info(TAG, "✅ WIN learned: hour=$hour pattern=$pattern buy%=${conditions.buyPressure.toInt()}")
+            if (holdBucket == "SCALP_0_5M" || holdBucket == "FAST_5_15M") {
+                weights.momentumWeight = (weights.momentumWeight * 1.02).coerceAtMost(1.5)
+            } else if (holdBucket == "RUNNER_60M_PLUS") {
+                weights.supportResistanceWeight = (weights.supportResistanceWeight * 1.02).coerceAtMost(1.5)
+            }
+            ErrorLogger.info(TAG, "✅ WIN learned: hour=$hour pattern=$pattern hold=$holdBucket buy%=${conditions.buyPressure.toInt()}")
         } else if (isLoss) {
             // Losing trade - move away from these conditions
             if (conditions.buyPressure < weights.optimalBuyPressureMin) {
@@ -390,7 +453,10 @@ object EntryIntelligence {
                 weights.rsiWeight = (weights.rsiWeight * 1.05).coerceAtMost(1.5)
             }
             
-            ErrorLogger.info(TAG, "❌ LOSS learned: hour=$hour pattern=$pattern rsi=${conditions.rsi.toInt()}")
+            if ((holdBucket == "SCALP_0_5M" || holdBucket == "FAST_5_15M") && conditions.momentum > 40.0) {
+                weights.momentumWeight = (weights.momentumWeight * 0.98).coerceAtLeast(0.5)
+            }
+            ErrorLogger.info(TAG, "❌ LOSS learned: hour=$hour pattern=$pattern hold=$holdBucket rsi=${conditions.rsi.toInt()}")
         }
         
         // Log learning progress periodically
@@ -411,6 +477,7 @@ object EntryIntelligence {
             putFloat("volumeWeight", weights.volumeWeight.toFloat())
             putFloat("momentumWeight", weights.momentumWeight.toFloat())
             putFloat("rsiWeight", weights.rsiWeight.toFloat())
+            putFloat("supportResistanceWeight", weights.supportResistanceWeight.toFloat())
             putFloat("optimalBuyPressureMin", weights.optimalBuyPressureMin.toFloat())
             putFloat("optimalBuyPressureMax", weights.optimalBuyPressureMax.toFloat())
             putFloat("optimalMomentumMin", weights.optimalMomentumMin.toFloat())
@@ -428,6 +495,12 @@ object EntryIntelligence {
                 putFloat("patternWinRate_$pattern", rate.toFloat())
                 putInt("patternCount_$pattern", weights.patternTradeCount[pattern] ?: 0)
             }
+
+            // Save hold-time profile buckets.
+            weights.holdTimeWinRates.forEach { (bucket, rate) ->
+                putFloat("holdTimeWinRate_$bucket", rate.toFloat())
+                putInt("holdTimeCount_$bucket", weights.holdTimeTradeCount[bucket] ?: 0)
+            }
             
             apply()
         }
@@ -438,6 +511,7 @@ object EntryIntelligence {
             volumeWeight = weights.volumeWeight,
             momentumWeight = weights.momentumWeight,
             rsiWeight = weights.rsiWeight,
+            supportResistanceWeight = weights.supportResistanceWeight,
             optimalBuyPressureMin = weights.optimalBuyPressureMin,
             optimalBuyPressureMax = weights.optimalBuyPressureMax,
             optimalMomentumMin = weights.optimalMomentumMin,
@@ -447,6 +521,8 @@ object EntryIntelligence {
             hourlyTradeCount = weights.hourlyTradeCount,
             patternWinRates = weights.patternWinRates,
             patternTradeCount = weights.patternTradeCount,
+            holdTimeWinRates = weights.holdTimeWinRates,
+            holdTimeTradeCount = weights.holdTimeTradeCount,
         )
         
         ErrorLogger.info(TAG, "💾 Entry AI weights saved")
@@ -464,6 +540,7 @@ object EntryIntelligence {
                 volumeWeight = persistent["volumeWeight"] as Double,
                 momentumWeight = persistent["momentumWeight"] as Double,
                 rsiWeight = persistent["rsiWeight"] as Double,
+                supportResistanceWeight = (persistent["supportResistanceWeight"] as? Double) ?: 1.0,
                 optimalBuyPressureMin = persistent["optimalBuyPressureMin"] as Double,
                 optimalBuyPressureMax = persistent["optimalBuyPressureMax"] as Double,
                 optimalMomentumMin = persistent["optimalMomentumMin"] as Double,
@@ -473,6 +550,8 @@ object EntryIntelligence {
                 hourlyTradeCount = (persistent["hourlyTradeCount"] as Map<Int, Int>).toMutableMap(),
                 patternWinRates = (persistent["patternWinRates"] as Map<String, Double>).toMutableMap(),
                 patternTradeCount = (persistent["patternTradeCount"] as Map<String, Int>).toMutableMap(),
+                holdTimeWinRates = ((persistent["holdTimeWinRates"] as? Map<String, Double>) ?: emptyMap()).toMutableMap(),
+                holdTimeTradeCount = ((persistent["holdTimeTradeCount"] as? Map<String, Int>) ?: emptyMap()).toMutableMap(),
             )
             
             val winRate = if (weights.totalTrades > 0) (weights.winningTrades.toDouble() / weights.totalTrades * 100).toInt() else 0
@@ -484,6 +563,7 @@ object EntryIntelligence {
                 volumeWeight = prefs.getFloat("volumeWeight", 1.0f).toDouble(),
                 momentumWeight = prefs.getFloat("momentumWeight", 1.0f).toDouble(),
                 rsiWeight = prefs.getFloat("rsiWeight", 1.0f).toDouble(),
+                supportResistanceWeight = prefs.getFloat("supportResistanceWeight", 1.0f).toDouble(),
                 optimalBuyPressureMin = prefs.getFloat("optimalBuyPressureMin", 50.0f).toDouble(),
                 optimalBuyPressureMax = prefs.getFloat("optimalBuyPressureMax", 75.0f).toDouble(),
                 optimalMomentumMin = prefs.getFloat("optimalMomentumMin", 5.0f).toDouble(),
@@ -510,6 +590,16 @@ object EntryIntelligence {
                     weights.patternTradeCount[pattern] = count
                 }
             }
+
+            // Load hold-time profile buckets.
+            listOf("SCALP_0_5M", "FAST_5_15M", "MID_15_60M", "RUNNER_60M_PLUS").forEach { bucket ->
+                val rate = prefs.getFloat("holdTimeWinRate_$bucket", -1f)
+                val count = prefs.getInt("holdTimeCount_$bucket", 0)
+                if (rate >= 0 && count > 0) {
+                    weights.holdTimeWinRates[bucket] = rate.toDouble()
+                    weights.holdTimeTradeCount[bucket] = count
+                }
+            }
             
             val winRate = if (weights.totalTrades > 0) (weights.winningTrades.toDouble() / weights.totalTrades * 100).toInt() else 0
             ErrorLogger.info(TAG, "📂 Entry AI loaded: ${weights.totalTrades} trades, ${winRate}% win rate")
@@ -518,7 +608,8 @@ object EntryIntelligence {
     
     fun getStats(): String {
         val winRate = if (weights.totalTrades > 0) (weights.winningTrades.toDouble() / weights.totalTrades * 100).toInt() else 0
-        return "EntryAI: ${weights.totalTrades} trades, ${winRate}% win, buy%=${weights.optimalBuyPressureMin.toInt()}-${weights.optimalBuyPressureMax.toInt()}"
+        val holdProfile = dominantHoldTimeBucket()?.let { " hold=${it.first}:${(it.second * 100).toInt()}%/${it.third}" } ?: ""
+        return "EntryAI: ${weights.totalTrades} trades, ${winRate}% win, buy%=${weights.optimalBuyPressureMin.toInt()}-${weights.optimalBuyPressureMax.toInt()}$holdProfile"
     }
     
     /**

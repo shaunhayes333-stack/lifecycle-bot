@@ -3517,6 +3517,10 @@ class GoldenTapeRegressionTest {
         assertTrue("V5.0.4200: take-win/full-profit exits must bypass settle-in before the silent grace return", exec.contains("trySweepTakeProfitExit") && exec.contains("SWEEP_TAKE_PROFIT_SETTLE_BYPASS_4200") && exec.indexOf("SWEEP_TAKE_PROFIT_SETTLE_BYPASS_4200") < exec.indexOf("silent grace for softer fluid path"))
         assertTrue("V5.0.4200: live style min-hold must not delay take-win/profit exits", exec.contains("intent.severity == LiveExitSeverity.PROFIT") && exec.contains("Tiny") && exec.contains("liveProfitDustExitShouldDefer"))
         assertTrue("V5.0.4200: paper settle-in must bypass take-win/full-profit exits", exec.contains("PAPER_TAKE_WIN_MIN_HOLD_BYPASS_4200") && !exec.contains("PAPER_PROFIT_MIN_HOLD"))
+        val entryIntel4201 = java.io.File("src/main/kotlin/com/lifecyclebot/engine/EntryIntelligence.kt").readText()
+        val persistent4201 = java.io.File("src/main/kotlin/com/lifecyclebot/engine/PersistentLearning.kt").readText()
+        assertTrue("V5.0.4201: EntryIntelligence must consume holdTimeMinutes as learned duration buckets", entryIntel4201.contains("holdTimeBucket(holdTimeMinutes)") && entryIntel4201.contains("holdTimeWinRates") && entryIntel4201.contains("HoldProfile:") && entryIntel4201.contains("holdProfileNudge"))
+        assertTrue("V5.0.4201: EntryIntelligence hold-time buckets must persist through PersistentLearning", entryIntel4201.contains("holdTimeWinRates = weights.holdTimeWinRates") && persistent4201.contains("holdTimeBuckets") && persistent4201.contains("holdTimeTradeCount"))
     }
 
 

@@ -136,6 +136,7 @@ object PersistentLearning {
         volumeWeight: Double,
         momentumWeight: Double,
         rsiWeight: Double,
+        supportResistanceWeight: Double = 1.0,
         optimalBuyPressureMin: Double,
         optimalBuyPressureMax: Double,
         optimalMomentumMin: Double,
@@ -145,6 +146,8 @@ object PersistentLearning {
         hourlyTradeCount: Map<Int, Int>,
         patternWinRates: Map<String, Double>,
         patternTradeCount: Map<String, Int>,
+        holdTimeWinRates: Map<String, Double> = emptyMap(),
+        holdTimeTradeCount: Map<String, Int> = emptyMap(),
     ): Boolean {
         val hourlyJson = JSONObject().apply {
             hourlyWinRates.forEach { (hour, rate) ->
@@ -160,12 +163,20 @@ object PersistentLearning {
             }
         }
 
+        val holdTimeJson = JSONObject().apply {
+            holdTimeWinRates.forEach { (bucket, rate) ->
+                put("rate_$bucket", rate)
+                put("count_$bucket", holdTimeTradeCount[bucket] ?: 0)
+            }
+        }
+
         val json = JSONObject().apply {
             putMeta(this)
             put("buyPressureWeight", buyPressureWeight)
             put("volumeWeight", volumeWeight)
             put("momentumWeight", momentumWeight)
             put("rsiWeight", rsiWeight)
+            put("supportResistanceWeight", supportResistanceWeight)
             put("optimalBuyPressureMin", optimalBuyPressureMin)
             put("optimalBuyPressureMax", optimalBuyPressureMax)
             put("optimalMomentumMin", optimalMomentumMin)
@@ -173,6 +184,7 @@ object PersistentLearning {
             put("winningTrades", winningTrades)
             put("hourly", hourlyJson)
             put("patterns", patternsJson)
+            put("holdTimeBuckets", holdTimeJson)
         }
 
         return writeJsonFile("entry_intelligence.json", json)
@@ -212,11 +224,30 @@ object PersistentLearning {
             }
         }
 
+        val holdTimeWinRates = mutableMapOf<String, Double>()
+        val holdTimeTradeCount = mutableMapOf<String, Int>()
+        json.optJSONObject("holdTimeBuckets")?.let { hold ->
+            val keys = hold.keys()
+            while (keys.hasNext()) {
+                val key = keys.next()
+                if (key.startsWith("rate_")) {
+                    val bucket = key.removePrefix("rate_")
+                    val rate = hold.optDouble(key, -1.0)
+                    val count = hold.optInt("count_$bucket", 0)
+                    if (rate >= 0.0 && count > 0) {
+                        holdTimeWinRates[bucket] = rate
+                        holdTimeTradeCount[bucket] = count
+                    }
+                }
+            }
+        }
+
         return mapOf(
             "buyPressureWeight" to json.optDouble("buyPressureWeight", 1.0),
             "volumeWeight" to json.optDouble("volumeWeight", 1.0),
             "momentumWeight" to json.optDouble("momentumWeight", 1.0),
             "rsiWeight" to json.optDouble("rsiWeight", 1.0),
+            "supportResistanceWeight" to json.optDouble("supportResistanceWeight", 1.0),
             "optimalBuyPressureMin" to json.optDouble("optimalBuyPressureMin", 50.0),
             "optimalBuyPressureMax" to json.optDouble("optimalBuyPressureMax", 75.0),
             "optimalMomentumMin" to json.optDouble("optimalMomentumMin", 5.0),
@@ -226,6 +257,8 @@ object PersistentLearning {
             "hourlyTradeCount" to hourlyTradeCount,
             "patternWinRates" to patternWinRates,
             "patternTradeCount" to patternTradeCount,
+            "holdTimeWinRates" to holdTimeWinRates,
+            "holdTimeTradeCount" to holdTimeTradeCount,
         )
     }
 
