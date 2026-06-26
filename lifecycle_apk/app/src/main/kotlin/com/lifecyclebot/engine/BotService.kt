@@ -8999,6 +8999,30 @@ class BotService : Service() {
             base.setupQuality.isNotBlank() && base.setupQuality != "SKIP" -> base.setupQuality
             else -> "C"
         }
+        // V5.0.4206 — revive ChopFilter as a SOFT FDG candidate shaper.
+        // The audit item asked for intake use, but hard intake rejection would
+        // contradict throughput doctrine and hide samples. laneQualifiedBuyDecision
+        // is the shared pre-FDG choke point for all meme lanes, so apply the
+        // chop penalty once here by lowering candidate entryScore only. No return,
+        // no purge, no slot removal; high-quality chop-source candidates can still
+        // pass if their score clears the raised bar.
+        val sourceForChop = try { status.tokens[mintForProbe]?.source ?: "" } catch (_: Throwable) { "" }
+        val chopPenalty = try {
+            if (com.lifecyclebot.engine.ChopFilter.shouldRejectAsChop(
+                    source = sourceForChop,
+                    phase = base.phase,
+                    score = base.entryScore.toInt().coerceIn(0, 100),
+                    minScore = confidenceFloor.toInt().coerceIn(0, 100),
+                )
+            ) com.lifecyclebot.engine.ChopFilter.chopPenalty() else 0
+        } catch (_: Throwable) { 0 }
+        val laneBase = if (chopPenalty > 0) {
+            try {
+                PipelineHealthCollector.labelInc("CHOP_FILTER_SOFT_SHAPED_4206")
+                ForensicLogger.lifecycle("CHOP_FILTER_SOFT_SHAPED_4206", "lane=$lane source=$sourceForChop phase=${base.phase} score=${base.entryScore.toInt()} penalty=$chopPenalty action=fdg_score_penalty")
+            } catch (_: Throwable) {}
+            base.copy(entryScore = (base.entryScore - chopPenalty).coerceAtLeast(0.0))
+        } else base
         // V5.9.1296 — NOTE: we deliberately do NOT overwrite entryScore here.
         // entryScore feeds two FDG entry gates (unknown-phase conviction @ ~2331
         // and the LIVE edge override @ ~2394); inflating it would loosen entry and
@@ -9015,10 +9039,10 @@ class BotService : Service() {
         // NOT promote to a normal buy — at most we allow a labelled dust-probe
         // (tiny size via qualityPenalty) so the bucket can still learn, and only
         // when liquidity clears the execution floor.
-        val baseBlock = base.blockReason
-        val weakWait = base.finalSignal.equals("WAIT", ignoreCase = true) ||
-            base.entryScore <= 0.0 ||
-            base.aiConfidence <= 10.0 ||
+        val baseBlock = laneBase.blockReason
+        val weakWait = laneBase.finalSignal.equals("WAIT", ignoreCase = true) ||
+            laneBase.entryScore <= 0.0 ||
+            laneBase.aiConfidence <= 10.0 ||
             baseBlock.contains("Insufficient data", ignoreCase = true) ||
             baseBlock.contains("thin", ignoreCase = true) ||
             baseBlock.contains("unknown h1", ignoreCase = true) ||
@@ -9042,14 +9066,14 @@ class BotService : Service() {
                     PipelineHealthCollector.labelInc("LANE_WAIT_OVERRIDE_BLOCKED")
                     PipelineHealthCollector.labelInc("FDG_THIN_LIQ_BUY_REJECTED")
                     ForensicLogger.lifecycle("LANE_WAIT_OVERRIDE_BLOCKED",
-                        "lane=$lane score=${"%.0f".format(base.entryScore)} conf=${"%.0f".format(base.aiConfidence)} liqUsd=${"%.0f".format(liquidityUsd)} reason=thin_liq block=${baseBlock.take(50)}")
+                        "lane=$lane score=${"%.0f".format(laneBase.entryScore)} conf=${"%.0f".format(laneBase.aiConfidence)} liqUsd=${"%.0f".format(liquidityUsd)} reason=thin_liq block=${baseBlock.take(50)}")
                 } catch (_: Throwable) {}
-                return base.copy(
+                return laneBase.copy(
                     signal = "WAIT", finalSignal = "WAIT", shouldTrade = false,
                     blockReason = if (baseBlock.isBlank()) "WAIT_OVERRIDE_BLOCKED_THIN_LIQ" else baseBlock,
                 )
             }
-            val zeroSignal = base.entryScore <= 0.0 && base.aiConfidence <= 10.0
+            val zeroSignal = laneBase.entryScore <= 0.0 && laneBase.aiConfidence <= 10.0
             if (zeroSignal) {
                 // V5.0.4164 — zero-signal is not full live capital, but it must not park
                 // the meme trader. If liquidity is exitable, send it through the existing
@@ -9059,39 +9083,39 @@ class BotService : Service() {
                     PipelineHealthCollector.labelInc("LANE_WAIT_OVERRIDE_ZERO_SIGNAL_DUST_PROBE_4164")
                     PipelineHealthCollector.labelInc("FDG_ZERO_SCORE_DUST_PROBE_4164")
                     ForensicLogger.lifecycle("LANE_WAIT_OVERRIDE_ZERO_SIGNAL_DUST_PROBE_4164",
-                        "lane=$lane score=${"%.0f".format(base.entryScore)} conf=${"%.0f".format(base.aiConfidence)} liqUsd=${"%.0f".format(liquidityUsd)} action=probe_only_live_learning")
+                        "lane=$lane score=${"%.0f".format(laneBase.entryScore)} conf=${"%.0f".format(laneBase.aiConfidence)} liqUsd=${"%.0f".format(liquidityUsd)} action=probe_only_live_learning")
                 } catch (_: Throwable) {}
             }
             // Liquidity OK but still weak → DUST-PROBE only (explicit + tiny size).
             try {
                 PipelineHealthCollector.labelInc("LANE_WAIT_OVERRIDE_DUST_PROBE")
                 ForensicLogger.lifecycle("LANE_WAIT_OVERRIDE_DUST_PROBE",
-                    "lane=$lane score=${"%.0f".format(base.entryScore)} conf=${"%.0f".format(base.aiConfidence)} liqUsd=${"%.0f".format(liquidityUsd)}")
+                    "lane=$lane score=${"%.0f".format(laneBase.entryScore)} conf=${"%.0f".format(laneBase.aiConfidence)} liqUsd=${"%.0f".format(liquidityUsd)}")
             } catch (_: Throwable) {}
-            return base.copy(
+            return laneBase.copy(
                 signal = "BUY", finalSignal = "BUY", shouldTrade = true,
                 blockReason = "PROBE_ONLY",
                 edgeVeto = false,
-                edgeQuality = if (base.edgeQuality == "SKIP") "C" else base.edgeQuality,
+                edgeQuality = if (laneBase.edgeQuality == "SKIP") "C" else laneBase.edgeQuality,
                 finalQuality = "C",
                 qualityPenalty = resolveProbeSizeMult(mintForProbe, liquidityUsd),
-                aiConfidence = base.aiConfidence.coerceAtLeast(confidenceFloor),
+                aiConfidence = laneBase.aiConfidence.coerceAtLeast(confidenceFloor),
             )
         }
-        return base.copy(
+        return laneBase.copy(
             signal = "BUY",
             finalSignal = "BUY",
             shouldTrade = true,
             blockReason = "",
             edgeVeto = false,
-            edgeQuality = if (base.edgeQuality == "SKIP") "C" else base.edgeQuality,
+            edgeQuality = if (laneBase.edgeQuality == "SKIP") "C" else laneBase.edgeQuality,
             finalQuality = cleanQuality,
-            aiConfidence = base.aiConfidence.coerceAtLeast(confidenceFloor),
+            aiConfidence = laneBase.aiConfidence.coerceAtLeast(confidenceFloor),
         ).also {
             try {
                 ForensicLogger.lifecycle(
                     "LANE_BUY_INTENT_OVERRIDES_BASE_WAIT",
-                    "lane=$lane baseSignal=${base.signal} baseFinal=${base.finalSignal} baseBlock=${base.blockReason.take(80)}"
+                    "lane=$lane baseSignal=${laneBase.signal} baseFinal=${laneBase.finalSignal} baseBlock=${laneBase.blockReason.take(80)}"
                 )
             } catch (_: Throwable) {}
         }

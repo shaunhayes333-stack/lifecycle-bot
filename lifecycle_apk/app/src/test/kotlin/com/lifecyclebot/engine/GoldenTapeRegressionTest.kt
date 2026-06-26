@@ -3529,6 +3529,9 @@ class GoldenTapeRegressionTest {
         val learningPersistence4205 = java.io.File("src/main/kotlin/com/lifecyclebot/engine/LearningPersistence.kt").readText()
         assertTrue("V5.0.4205: live v3 scorer brains with saveToJson hooks must be persisted", learningPersistence4205.contains("HOLD_TIME_OPTIMIZER") && learningPersistence4205.contains("ORDER_FLOW_IMBALANCE") && learningPersistence4205.contains("SMART_MONEY_DIVERGENCE") && learningPersistence4205.contains("VOLATILITY_REGIME") && learningPersistence4205.contains("LIQUIDITY_CYCLE"))
         assertTrue("V5.0.4205: v3 scorer brains must restore via loadFromJson from LearningPersistence blobs", learningPersistence4205.contains("HoldTimeOptimizerAI.loadFromJson(JSONObject(it))") && learningPersistence4205.contains("OrderFlowImbalanceAI.loadFromJson(JSONObject(it))") && learningPersistence4205.contains("SmartMoneyDivergenceAI.loadFromJson(JSONObject(it))"))
+        val botService4206 = java.io.File("src/main/kotlin/com/lifecyclebot/engine/BotService.kt").readText()
+        assertTrue("V5.0.4206: ChopFilter must be revived as FDG score shaping, not intake hard veto", botService4206.contains("CHOP_FILTER_SOFT_SHAPED_4206") && botService4206.contains("laneQualifiedBuyDecision") && botService4206.contains("base.copy(entryScore = (base.entryScore - chopPenalty).coerceAtLeast(0.0))") && botService4206.contains("val sourceForChop = try { status.tokens[mintForProbe]?.source"))
+        assertTrue("V5.0.4206: ChopFilter must not hard-return or purge candidates from intake", botService4206.contains("action=fdg_score_penalty") && botService4206.contains("no purge, no slot removal"))
     }
 
 
