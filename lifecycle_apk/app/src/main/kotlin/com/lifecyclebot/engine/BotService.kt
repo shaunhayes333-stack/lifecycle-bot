@@ -9580,6 +9580,46 @@ class BotService : Service() {
             return false
         }
 
+        // V5.0.4199 — scanner-intake rug-sheet block. The operator screenshot
+        // showed a token with LP unlocked + low liquidity + low holders/few LP
+        // providers reaching the trading surface. That class must not merely be
+        // blocked at FDG/liveBuy; it should never consume hot watchlist or
+        // probation slots. Run a narrow, live-only safety precheck before any
+        // registry/probation admission for low-liq scanner candidates. Paper is
+        // still allowed to learn; user/restored paths keep explicit intent.
+        run {
+            val isUserAdded = source == "USER" || source.contains("USER_ADDED", ignoreCase = true)
+            val isRestoredVetted = source == "MEME_REGISTRY_RESTORE" || source == "PROBATION"
+            val liveMode = try { !com.lifecyclebot.engine.RuntimeModeAuthority.isPaper() } catch (_: Throwable) { true }
+            val lowLiqScannerRisk = liquidityUsd in 0.0..5_000.0 || confidence < 45 || source.contains("SCANNER", ignoreCase = true) || source.contains("PUMP", ignoreCase = true)
+            if (liveMode && !isUserAdded && !isRestoredVetted && lowLiqScannerRisk && this::safetyChecker.isInitialized) {
+                val intakeSafety = try {
+                    safetyChecker.check(
+                        mint = mint,
+                        symbol = symbol.ifBlank { mint.take(6) },
+                        name = name.ifBlank { symbol.ifBlank { mint.take(6) } },
+                        currentLiquidityUsd = liquidityUsd,
+                        score = confidence.coerceIn(0, 100),
+                    )
+                } catch (e: Throwable) {
+                    try { ForensicLogger.lifecycle("INTAKE_SAFETY_PRECHECK_FAILED_4199", "symbol=${symbol.ifBlank { mint.take(6) }} mint=${mint.take(10)} src=$source err=${e.javaClass.simpleName}:${e.message?.take(80)} action=fail_open_to_later_safety") } catch (_: Throwable) {}
+                    null
+                }
+                if (intakeSafety?.hardBlockReasons?.isNotEmpty() == true) {
+                    val reason = intakeSafety.hardBlockReasons.joinToString("|").take(160)
+                    try {
+                        ForensicLogger.lifecycle(
+                            "INTAKE_SAFETY_HARD_REJECT_4199",
+                            "symbol=${symbol.ifBlank { mint.take(6) }} mint=${mint.take(10)} src=$source liq=${liquidityUsd.toInt()} conf=$confidence reason=$reason no_watchlist=true no_probation=true",
+                        )
+                        PipelineHealthCollector.labelInc("INTAKE_SAFETY_HARD_REJECT_4199")
+                    } catch (_: Throwable) {}
+                    ScannerHardRejectStore.mark(mint, symbol, "INTAKE_SAFETY_HARD_REJECT_4199:$reason", source)
+                    return false
+                }
+            }
+        }
+
         // ═══════════════════════════════════════════════════════════════════
         // V5.9.1310 — HARD STOP-STATE GUARD (single canonical authority).
         // OPERATOR REGRESSION: pressed Stop, ACTION_STOP/LIFECYCLE_STOP_ACCEPTED

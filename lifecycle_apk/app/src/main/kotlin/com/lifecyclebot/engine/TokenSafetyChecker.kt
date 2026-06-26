@@ -422,6 +422,10 @@ class TokenSafetyChecker(private val cfg: () -> BotConfig) {
             // Risk flags and numeric score are SEPARATE in the rugcheck API — both must gate.
             // If >= 5 DANGER-level risks are present, hard block regardless of numeric score.
             var redFlagCount = 0
+            var lpUnlockedRisk = false
+            var lowLiquidityRisk = false
+            var lowHolderRisk = false
+            var lowLpProviderRisk = false
             if (risks != null) {
                 for (i in 0 until risks.length()) {
                     val risk = risks.optJSONObject(i) ?: continue
@@ -434,8 +438,30 @@ class TokenSafetyChecker(private val cfg: () -> BotConfig) {
                         rName.contains("mint") && rName.contains("disabled") -> mintDisabled = true
                         rName.contains("freeze") && rName.contains("disabled") -> freezeDisabled = true
                     }
+                    if (rName.contains("lp") && rName.contains("unlock")) lpUnlockedRisk = true
+                    if (rName.contains("low") && rName.contains("liquid")) lowLiquidityRisk = true
+                    if (rName.contains("low") && rName.contains("holder")) lowHolderRisk = true
+                    if (rName.contains("low") && rName.contains("lp") && rName.contains("provider")) lowLpProviderRisk = true
                     // Count DANGER-level flags (red icons in the UI)
                     if (rLevel == "danger" || rLevel == "high") redFlagCount++
+                }
+                // V5.0.4199 — wallet/Dex risk-overlay hardening. The runtime was
+                // still buying tokens matching the exact red-sheet class shown by
+                // the operator: "Large Amount of LP Unlocked" + low liquidity +
+                // low holders / few LP providers. RugCheck sometimes exposes those
+                // as named risk flags while omitting numeric markets[0].lpLockedPct,
+                // so the later LP-lock hard block never fires and the generic
+                // redFlagCount gate was softened whenever a route existed. In LIVE,
+                // this combo is not merely unknown metadata — it is executable rug
+                // authority. Hard-block it at the source; paper still learns.
+                if (lpUnlockedRisk && lpLockPct < 0.0) lpLockPct = 0.0
+                val lpUnlockedRugCombo = lpUnlockedRisk &&
+                    (lowLiquidityRisk || currentLiquidityUsd in 0.0..2_500.0) &&
+                    (lowHolderRisk || lowLpProviderRisk || redFlagCount >= 4)
+                if (lpUnlockedRugCombo && !isPaperMode) {
+                    hard.add("LP unlocked with low liquidity/holder/provider risk — live rug overlay block")
+                    ErrorLogger.error(TAG, "🚫 LIVE_RUG_OVERLAY_BLOCK_4199: $symbol LP-unlocked + low-liq/holders/providers risk flags")
+                    try { ForensicLogger.lifecycle("LIVE_RUG_OVERLAY_BLOCK_4199", "mint=${mint.take(10)} symbol=$symbol redFlags=$redFlagCount lpUnlocked=$lpUnlockedRisk lowLiq=$lowLiquidityRisk lowHolders=$lowHolderRisk lowLpProviders=$lowLpProviderRisk liq=${currentLiquidityUsd.toInt()} action=hard_block_live") } catch (_: Throwable) {}
                 }
                 if (redFlagCount >= 5) {
                     // V5.9.648 — operator override: in PAPER mode, never hard-block on
