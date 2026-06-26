@@ -9,6 +9,7 @@ import java.util.concurrent.TimeUnit
 
 /**
  * JupiterStrictTokenList — V5.0.4108 (SOL-wide scanner expansion)
+ *                          V5.0.4174 — TOKENS API V2 MIGRATION.
  * ════════════════════════════════════════════════════════════════════════════
  *
  * Operator P0: 'the scanner!! its meant to be sol wide!!! more candidates
@@ -19,9 +20,18 @@ import java.util.concurrent.TimeUnit
  * Returns thousands of established tokens; scanner picks the freshest /
  * trending subset to enqueue per cycle.
  *
- *   GET https://tokens.jup.ag/tokens?tags=verified
+ * V5.0.4174 — `tokens.jup.ag` (Tokens V1) was deprecated 30 Sep 2025 and is
+ * now NXDOMAIN (field log: `Unable to resolve host "tokens.jup.ag"`). New
+ * free-tier endpoint: `https://lite-api.jup.ag/tokens/v2/tag?query=verified`.
+ * Schema changed:
+ *   • address → id
+ *   • daily_volume → stats24h.buyVolume + stats24h.sellVolume
+ *   • returns liquidity, mcap, fdv, holderCount, organicScore for free
  *
- * Response: array of {address, name, symbol, decimals, daily_volume, ...}
+ *   GET https://lite-api.jup.ag/tokens/v2/tag?query=verified
+ *
+ * Response: array of { id, symbol, name, decimals, liquidity, mcap, fdv,
+ *                      stats24h: { buyVolume, sellVolume, ... }, ... }
  * Cached 60 minutes — universe of verified Solana tokens doesn't churn
  * faster than that.
  */
@@ -56,17 +66,34 @@ class JupiterStrictTokenList {
     }
 
     fun refresh(): List<JupVerifiedToken> {
-        val body = get("https://tokens.jup.ag/tokens?tags=verified") ?: return cache
+        // V5.0.4174 — migrated from dead `https://tokens.jup.ag/tokens?tags=verified`
+        // to Tokens API V2 free tier at `lite-api.jup.ag/tokens/v2/tag?query=verified`.
+        // The old host is NXDOMAIN; field log: `Unable to resolve host
+        // "tokens.jup.ag"`. Schema changed (address→id, daily_volume→
+        // stats24h.buyVolume+sellVolume); parser below handles V2 fields and
+        // falls back to V1 keys if the operator's network ever serves an old
+        // cached shape.
+        val body = get("https://lite-api.jup.ag/tokens/v2/tag?query=verified") ?: return cache
         return try {
             val arr = JSONArray(body)
             val list = mutableListOf<JupVerifiedToken>()
             for (i in 0 until arr.length()) {
                 val obj = arr.optJSONObject(i) ?: continue
-                val mint = obj.optString("address", "")
+                // V2 calls the mint `id`; V1 called it `address`.
+                val mint = obj.optString("id", "").ifBlank { obj.optString("address", "") }
                 if (mint.isBlank() || mint.length !in 32..64) continue
                 val sym = obj.optString("symbol", "").uppercase()
                 if (sym in setOf("SOL", "WSOL", "USDC", "USDT", "USDH", "JITOSOL", "MSOL", "BSOL")) continue
-                val vol = obj.optDouble("daily_volume", 0.0)
+                // V2 splits volume into buy + sell under stats24h. V1 had
+                // a flat `daily_volume` field. Use whichever is present.
+                val vol = run {
+                    val s24 = obj.optJSONObject("stats24h")
+                    if (s24 != null) {
+                        s24.optDouble("buyVolume", 0.0) + s24.optDouble("sellVolume", 0.0)
+                    } else {
+                        obj.optDouble("daily_volume", 0.0)
+                    }
+                }
                 if (vol < 5_000.0) continue   // floor — established but liquid
                 list.add(
                     JupVerifiedToken(
@@ -84,7 +111,7 @@ class JupiterStrictTokenList {
             fetchedAt = System.currentTimeMillis()
             ErrorLogger.info(
                 "JupiterStrict",
-                "✅ verified Solana token list cached: ${sorted.size} tokens (vol>=\$5K)"
+                "✅ verified Solana token list cached: ${sorted.size} tokens (vol>=\$5K) via lite-api.jup.ag/tokens/v2"
             )
             sorted
         } catch (e: Exception) {

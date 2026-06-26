@@ -4,6 +4,34 @@ All notable changes to the Autonomous AI Trading Engine.
 
 ---
 
+## [5.0.4174] - 2026-06 — JUPITER TOKENS API V1 → V2 MIGRATION
+
+**Symptom**: API health monitor showed `🔴 jupiter sr=0% net=1 last_err:
+Unable to resolve host "tokens.jup.ag"`. Persistent NXDOMAIN across every
+session, regardless of carrier / VPN. The HostCircuitInterceptor's 5-min
+NXDOMAIN cool-down was masking the failure but the SOL-wide verified token
+universe (~4,300 tokens) never loaded, starving the scanner of an entire
+class of established candidates.
+
+**Root cause**: `tokens.jup.ag` (Jupiter Tokens API V1) was **deprecated
+30 September 2025** and has now been retired. The host is genuinely gone.
+
+**Fix**: Migrated `JupiterStrictTokenList` to the new free-tier endpoint
+`https://lite-api.jup.ag/tokens/v2/tag?query=verified`. Schema changed:
+
+  * `address` → `id` (mint pubkey)
+  * `daily_volume` → `stats24h.buyVolume + stats24h.sellVolume`
+
+Parser is defensive — reads V2 keys first, falls back to V1 keys if any
+upstream cache ever serves an older shape. Verified live: V2 endpoint
+returns 4307 verified tokens, schema matches expected fields.
+
+**File**: `app/src/main/kotlin/com/lifecyclebot/network/JupiterStrictTokenList.kt`
+Brace/paren balance verified (20/20, 59/59) before push. DNS prewarm for
+`lite-api.jup.ag` was already in place from V5.9.28.
+
+---
+
 ## [5.0.4173] - 2026-06 — HOTFIX: TRANSPARENT GZIP DECODE (bot revival)
 
 **Symptom (V5.0.4172/4173 field snapshot)**: bot fully dead — STOPPING
