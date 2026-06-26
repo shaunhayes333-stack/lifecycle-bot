@@ -3547,6 +3547,9 @@ class GoldenTapeRegressionTest {
         val reflex4210 = java.io.File("src/main/kotlin/com/lifecyclebot/v3/scoring/ReflexAI.kt").readText()
         val learningPersistence4210 = java.io.File("src/main/kotlin/com/lifecyclebot/engine/LearningPersistence.kt").readText()
         assertTrue("V5.0.4210: ReflexAI liquidity drain confirmation memory must persist", reflex4210.contains("fun exportState(): String") && reflex4210.contains("liquiditySamples") && reflex4210.contains("drainHits") && learningPersistence4210.contains("REFLEX_AI"))
+        val insider4211 = java.io.File("src/main/kotlin/com/lifecyclebot/v3/scoring/InsiderTrackerAI.kt").readText()
+        val learningPersistence4211 = java.io.File("src/main/kotlin/com/lifecyclebot/engine/LearningPersistence.kt").readText()
+        assertTrue("V5.0.4211: InsiderTracker custom wallets must persist without replaying recent signals", insider4211.contains("customWallets") && insider4211.contains("Do not persist recentSignals") && learningPersistence4211.contains("INSIDER_TRACKER"))
     }
 
 

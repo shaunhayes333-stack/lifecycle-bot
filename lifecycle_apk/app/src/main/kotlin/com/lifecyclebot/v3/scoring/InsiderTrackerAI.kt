@@ -470,6 +470,50 @@ object InsiderTrackerAI {
     fun removeCustomWallet(address: String): Boolean {
         return customWallets.remove(address) != null
     }
+
+    fun exportState(): String = try {
+        val root = JSONObject()
+        val wallets = JSONArray()
+        customWallets.values.forEach { w ->
+            wallets.put(JSONObject()
+                .put("address", w.address)
+                .put("label", w.label)
+                .put("category", w.category.name)
+                .put("riskLevel", w.riskLevel.name)
+                .put("notes", w.notes)
+                .put("twitterHandle", w.twitterHandle ?: "")
+                .put("isActive", w.isActive))
+        }
+        root.put("customWallets", wallets)
+        // Do not persist recentSignals: restoring them would duplicate copy-buy
+        // fanout through InsiderCopyEngine after a restart.
+        root.toString()
+    } catch (_: Throwable) { "{}" }
+
+    fun importState(json: String) {
+        try {
+            val root = JSONObject(json)
+            val wallets = root.optJSONArray("customWallets") ?: JSONArray()
+            customWallets.clear()
+            for (i in 0 until wallets.length()) {
+                val o = wallets.optJSONObject(i)
+                if (o == null) continue
+                val address = o.optString("address", "")
+                if (address.length < 32) continue
+                val category = try { WalletCategory.valueOf(o.optString("category", "WHALE")) } catch (_: Throwable) { WalletCategory.WHALE }
+                val risk = try { RiskLevel.valueOf(o.optString("riskLevel", "MEDIUM")) } catch (_: Throwable) { RiskLevel.MEDIUM }
+                customWallets[address] = TrackedWallet(
+                    address = address,
+                    label = o.optString("label", address.take(8)),
+                    category = category,
+                    riskLevel = risk,
+                    notes = o.optString("notes", ""),
+                    twitterHandle = o.optString("twitterHandle", "").takeIf { it.isNotBlank() },
+                    isActive = o.optBoolean("isActive", true),
+                )
+            }
+        } catch (_: Throwable) {}
+    }
     
     // ═══════════════════════════════════════════════════════════════════════════
     // MAIN SCAN LOGIC
