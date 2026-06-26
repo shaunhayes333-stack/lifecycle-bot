@@ -7,6 +7,51 @@ Stocks, Markets, Tokenized Stocks, Forex, Metals, Commodities). Foreground
 Service with a 50+ AI-module pipeline gated through processTokenCycle.
 
 
+## V5.0.4167 (Jun 2026) — BIRDEYE NEVER HALTS TRADING + RUGCHECK FALLBACK RELAX
+
+Operator mandate (2026-06-26): *"birdeye should not stop trading. ever.
+we have more than enough data to cover birdeye."*
+
+Dump on V5.0.4166 showed `BUY ok=46` (was 10 — V5.0.4165 lease fix paid off)
+but still "barely trading". Two new dominant chokes emerged:
+
+### 1. `FDG/HARD_BLOCK_RUGCHECK_PENDING_REVIEW_WEAK_FALLBACK` = 168 blocks
+**(62% of FDG blocks).** When Birdeye CU is exhausted, rugcheck times out
+and `FinalDecisionGate.kt:1877` required ALL 3 fallback signals (press≥60%,
+liq≥$8K, vol≥$2K). A 3-of-3 AND on a data layer that is itself dark due
+to our OWN exhausted budget — self-inflicted.
+
+**Fix**: weighted **2-of-3** admission. Lowered liquidity floor to $5K
+(mirrors global $2.5K floor + safety margin). Volume threshold to $1K.
+Hard fail only if BOTH press AND liquidity are weak (the two
+non-substitutable signals). Otherwise admit as PROBE.
+
+### 2. `ExecutableOpenGate.kt:917` returned `blocked("BIRDEYE_LOCKDOWN")` for LIVE
+when monthly Birdeye CU ≥ 80%. We have **DexScreener** (96% sr), **Helius**
+(100% sr), **Pyth**, **GeckoTerminal**, **Jupiter quote**, **PumpPortal**,
+and on-device caches as data fallbacks for every metric Birdeye provides
+(price, liq, vol, holders, security).
+
+**Fix**: removed the LIVE block. Soft-tag and proceed.
+`BirdeyeBudgetGate` still throttles the SCANNER lane (saves CU) and
+`ProviderProofWalker` still deprioritizes birdeye in cascades — those
+remain active and are the correct way to conserve budget. This gate
+was the ENTRY chokepoint turning a budget event into a trading halt.
+
+### New telemetry counters
+- `LIVE_BIRDEYE_LOCKDOWN_BYPASSED_4167` — fires when LIVE entry proceeds despite Birdeye lockdown.
+- `PAPER_API_BUDGET_LOCKDOWN_BYPASSED` — fires for PAPER (label preserved for golden-tape compat).
+- `rc_timeout_live_probe` — fires when rugcheck timeout admits as probe-mode.
+
+### Golden tape compliance
+Two `GoldenTapeRegressionTest` assertions broke on the first 4167 push;
+fixed in `4167-fix1`:
+- comment text accidentally contained literal `HARD_BLOCK_RUGCHECK_PENDING` (forbidden substring) — rephrased.
+- preserved `PAPER_API_BUDGET_LOCKDOWN_BYPASSED` label.
+
+CI Build APK ✅ GREEN (run #4167).
+
+
 ## V5.0.4165 (Jun 2026) — BUY LEASE WINDOW 5s → 15s (volume restore)
 
 Operator escalated: *"bot isn't trading find the source and fix the issue!!!"*.
