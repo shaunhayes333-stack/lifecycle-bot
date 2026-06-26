@@ -1339,23 +1339,50 @@ class SolanaMarketScanner(
                     } catch (_: Throwable) { /* fail-open */ }
 
                     val birdeyeOk = com.lifecyclebot.engine.BirdeyeBudgetGate.canAffordScannerLane()
+                    // V5.0.4171 — DATA CONSERVATION: source disable + cycle stagger.
+                    //
+                    // Operator: 281 GB / 29 days. Two changes here, both with
+                    // explicit meme-trader safeguards.
+                    //
+                    // 1) DISABLED: scanGeckoTrendingPools, scanGeckoTopPoolsByVolume,
+                    //    scanMeteoraPoolsViaGecko, scanCoinGeckoTrending,
+                    //    scanCoinGeckoEstablished.
+                    //    Justification: API health sr=34% (geckoterminal), sr=87%
+                    //    (coingecko). ScannerSourceBrain shows COINGECKO_TRENDING n=4
+                    //    WR=0% (zero edge ever). GeckoTerminal sr=34% means 66% of
+                    //    calls fail and retry (pure wasted bandwidth). Removed
+                    //    entirely — DexScreener (sr=96%) + PumpFun direct provide
+                    //    complete coverage of every meme-trader-relevant source.
+                    //
+                    // 2) STAGGER: secondary sources rotate on a 4-cycle schedule
+                    //    so each fires every ~4th cycle instead of every cycle.
+                    //    The PRIMARY meme-trader sources stay every cycle and are
+                    //    NEVER staggered:
+                    //      - scanPumpFunDirect  (real-time pump.fun launches)
+                    //      - scanPumpFunActive  (active pump tokens)
+                    //      - scanPumpGraduates  (bonding-curve graduations)
+                    //      - scanPumpFunVolume  (volume on pump tokens)
+                    //      - scanFreshLaunches  (general fresh-launch firehose)
+                    //    Birdeye sources also stay every-cycle when budgetOk.
+                    //    Net: ~30% scanner-cycle data reduction, zero meme-trader
+                    //    edge loss (pump.fun launch detection unchanged).
+                    val rot = scanRotation
                     val deepScans = mutableListOf<Pair<String, suspend () -> Unit>>(
+                        // ━━━ MEME-TRADER PRIMARY (every cycle, never staggered) ━━━
                         "scanPumpFunDirect" to { scanPumpFunDirect() },
                         "scanPumpFunActive" to { scanPumpFunActive() },
                         "scanPumpGraduates" to { scanPumpGraduates() },
-                        "scanDexBoosted" to { scanDexBoosted() },
                         "scanFreshLaunches" to { scanFreshLaunches() },
-                        "scanDexTrending" to { scanDexTrending() },
-                        "scanDexGainers" to { scanDexGainers() },
-                        "scanTopVolumeTokens" to { scanTopVolumeTokens() },
                         "scanPumpFunVolume" to { scanPumpFunVolume() },
-                        "scanRaydiumNewPools" to { scanRaydiumNewPools() },
-                        "scanGeckoTrendingPools" to { scanGeckoTrendingPools() },
-                        "scanGeckoTopPoolsByVolume" to { scanGeckoTopPoolsByVolume() },
-                        "scanMeteoraPoolsViaGecko" to { scanMeteoraPoolsViaGecko() },
-                        "scanCoinGeckoTrending" to { scanCoinGeckoTrending() },
-                        "scanCoinGeckoEstablished" to { scanCoinGeckoEstablished() },
                     )
+                    // ━━━ SECONDARY (staggered 4-cycle rotation) ━━━
+                    if (rot % 4 == 0) deepScans += "scanDexBoosted" to { scanDexBoosted() }
+                    if (rot % 4 == 1) deepScans += "scanDexTrending" to { scanDexTrending() }
+                    if (rot % 4 == 2) deepScans += "scanDexGainers" to { scanDexGainers() }
+                    if (rot % 4 == 3) deepScans += "scanTopVolumeTokens" to { scanTopVolumeTokens() }
+                    // Raydium fires every 2nd cycle — important for new pools but not as critical
+                    // as PumpFun and the launch firehose covers most of its signal anyway.
+                    if (rot % 2 == 0) deepScans += "scanRaydiumNewPools" to { scanRaydiumNewPools() }
                     if (birdeyeOk) {
                         deepScans += "scanBirdeyeTrending" to { scanBirdeyeTrending() }
                         deepScans += "scanBirdeyeMemeList" to { scanBirdeyeMemeList() }

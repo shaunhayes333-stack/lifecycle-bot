@@ -10918,7 +10918,21 @@ class BotService : Service() {
         // starves the scanner (<50 active tokens). Restore the protected 500-token
         // intake pool while keeping round-robin per-cycle work bounded.
         val STALE_AGE_MS = 30L * 60_000L             // 30 minutes since last touch
-        val MAX_ACTIVE_WATCHLIST = 500
+        // V5.0.4171 — WATCHLIST CAP TIGHTENED 500 → 300.
+        // Operator dump: 281 GB / 29 days. Watchlist of 500 evict-eligible
+        // entries was burning per-cycle refresh on tokens that mostly
+        // never moved (WATCHLIST_FAMILY_DEDUPE collapsed 500 → 261 unique
+        // families anyway). 300 keeps the meme-trader idle-pool target
+        // (≥100) intact, plus 200 headroom for fresh and high-conviction
+        // intakes, while cutting cold-tail refresh waste ~40%.
+        //
+        // MEME-TRADER SAFETY: eviction NEVER touches:
+        //   - forcedOpenMints (any open position)
+        //   - isHighConvictionUnseen (high-score candidates)
+        //   - fresh-60s window (newly-arrived tokens)
+        // Cap only evicts the oldest stale cold-tail entries. Verified
+        // at the eviction site below (filterNot lines 11159–11160).
+        val MAX_ACTIVE_WATCHLIST = 300
 
         val entriesByMint: Map<String, com.lifecyclebot.engine.GlobalTradeRegistry.WatchlistEntry> = try {
             com.lifecyclebot.engine.GlobalTradeRegistry.getWatchlistEntries()
