@@ -56,7 +56,19 @@ class DexScreenerWebSocket(
     val isConnected get() = ws != null && running
 
     fun connect() {
+        // V5.0.4169 — DEMAND-DRIVEN MODE.
+        // The DexScreener firehose at wss://io.dexscreener.com streams
+        // every Solana pair update over 24h — hundreds of events per
+        // second — and we filter client-side. When no tokens are
+        // subscribed, holding the socket open is pure waste (operator
+        // saw 281 GB / 29 days driven largely by this stream). We now
+        // defer the socket open until at least one subscribeToken()
+        // call lands, and reconnect lazily as new subscriptions arrive.
         if (running) return
+        if (subscribedPairs.isEmpty()) {
+            running = true  // mark "would-be-running" so subscribeToken can open it
+            return
+        }
         running = true
         doConnect()
     }
@@ -73,13 +85,24 @@ class DexScreenerWebSocket(
      */
     fun subscribeToken(mint: String, pairAddress: String) {
         if (pairAddress.isBlank()) return
+        val firstSub = subscribedPairs.isEmpty()
         subscribedPairs[mint] = pairAddress
+        // V5.0.4169 — first subscription opens the deferred connection.
+        if (running && ws == null && firstSub) {
+            doConnect()
+        }
         sendSubscribe(pairAddress)
     }
 
     fun unsubscribeToken(mint: String) {
         val pair = subscribedPairs.remove(mint) ?: return
         sendUnsubscribe(pair)
+        // V5.0.4169 — when the last subscription drops, close the
+        // firehose. It'll re-open on the next subscribeToken().
+        if (subscribedPairs.isEmpty()) {
+            ws?.close(1000, "No active subscriptions")
+            ws = null
+        }
     }
 
     private fun doConnect() {

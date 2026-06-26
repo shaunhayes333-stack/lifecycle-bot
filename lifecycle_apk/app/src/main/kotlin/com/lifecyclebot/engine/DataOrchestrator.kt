@@ -55,14 +55,28 @@ class DataOrchestrator(
 
     fun start() {
         val c = cfg()
-        startPumpFunWebSocket()
+        // V5.0.4169 — DUPLICATE PUMP WS REMOVED.
+        // BotService.kt:7242 already starts the primary PumpFunWS client.
+        // DataOrchestrator was starting a SECOND connection to the same
+        // wss://pumpportal.fun/api/data endpoint (PumpFunWebSocket),
+        // which doubled WS bandwidth for every pump.fun create/buy/sell
+        // event the bot received. Operator confirmed 281 GB of mobile
+        // data in 29 days — most of which was redundant WS streaming.
+        // The primary PumpFunWS path is sufficient for new-token intake;
+        // BuyTradeStreamFollower / dev-wallet monitoring previously
+        // bridged here re-bind to the primary WS path via BotService.
+        // startPumpFunWebSocket()  // disabled in V5.0.4169
         startHeliusWebSocket(c.heliusApiKey)
-        startDexScreenerWebSocket()  // V5.6: Real-time price feed for all tokens
+        // V5.0.4169 — DexScreener WS now starts in DEMAND-ONLY mode:
+        // it opens the wss firehose only when at least one token is
+        // actively subscribed. Idle connection (which still received
+        // the full Solana pair stream every second) is closed.
+        startDexScreenerWebSocket()
         if (c.heliusApiKey.isNotBlank()) {
             creatorChecker = HeliusCreatorHistory(c.heliusApiKey)
         }
         startDevWalletMonitor()
-        onLog("DataOrchestrator started (Pump+Helius+DexScreener WS)", "")
+        onLog("DataOrchestrator started (Helius+DexScreener WS — PumpFun handled by BotService primary)", "")
     }
 
     fun stop() {
