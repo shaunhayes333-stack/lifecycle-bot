@@ -39,9 +39,18 @@ object UnifiedPolicyHead {
     private const val MULT_CAP       = 1.40
     private const val MULT_FLOOR_AUTH = 0.30
     private const val MULT_CAP_AUTH   = 1.80
-    private const val AUTHORITY_ADVISORY      = 40L
-    private const val AUTHORITY_LEARNED       = 100L
-    private const val AUTHORITY_AUTHORITATIVE = 250L
+    // V5.0.4179 — F4 force-graduate. Operator directive: bot has been stuck
+    // BOOTSTRAP with trained=25 for too long. With trades coming in 6/min
+    // post-unchoke the head should grow authority WAY faster than the old
+    // 40/100/250 doctrine ("we need 250 samples before we trust the head"
+    // = months of live trading). Lower threshold lets the policy signals
+    // actually influence decisions at realistic sample sizes:
+    //   • ADVISORY at 20 (was 40)  — signals start contributing
+    //   • LEARNED at 60 (was 100)   — signals get authority weighting
+    //   • AUTHORITATIVE at 150 (was 250) — full authority
+    private const val AUTHORITY_ADVISORY      = 20L
+    private const val AUTHORITY_LEARNED       = 60L
+    private const val AUTHORITY_AUTHORITATIVE = 150L
     // V5.0.4094 — calibration thresholds. Brier score (mean squared err of
     // pWin vs outcome) below this is "well-calibrated"; above is "drifting".
     // Random guessing scores ~0.25; a calibrated head should be below 0.22.

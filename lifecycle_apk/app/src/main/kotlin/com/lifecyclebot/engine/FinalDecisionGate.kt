@@ -1439,7 +1439,19 @@ object FinalDecisionGate {
             tags.add("bootstrap_toxic_bypass")
         }
 
-        val WATCHLIST_FLOOR = FluidLearningAI.getWatchlistFloor()
+        val WATCHLIST_FLOOR_RAW = FluidLearningAI.getWatchlistFloor()
+        // V5.0.4179 — F5: LIQUIDITY FLOOR LIFT when WR < 30%.
+        // Field journal showed catastrophic exit slippage on $1.6K-$7K liq
+        // tokens. While the bot is below its WR floor, gate harder at $8K
+        // minimum for STANDARD/MOONSHOT so the candidates that pass can
+        // actually be exited cleanly when SL fires. Auto-restores when WR
+        // recovers (the floor will return to FluidLearningAI's normal lerp).
+        val WATCHLIST_FLOOR = try {
+            val wr = com.lifecyclebot.engine.LiveLayerGateRelaxer.currentLiveWrPct()
+            val isWeakWr = wr < 30.0
+            val lifted = if (isWeakWr) maxOf(WATCHLIST_FLOOR_RAW, 8_000.0) else WATCHLIST_FLOOR_RAW
+            lifted
+        } catch (_: Throwable) { WATCHLIST_FLOOR_RAW }
         // V5.9.696 — Per-trader execution floor override.
         // FluidLearningAI.getExecutionFloor() lerps $800→$10000 as learning progresses.
         // At ~35% learning it reaches ~$4480, which hard-blocks 94% of fresh pump.fun/

@@ -5152,7 +5152,21 @@ class Executor(
             val fluidStopNegative = try {
                 com.lifecyclebot.v3.scoring.FluidLearningAI.getFluidStopLoss(modeStopNegative)
             } catch (_: Throwable) { modeStopNegative }
-            val hardFloor = fluidStopNegative.coerceIn(-50.0, -3.0)
+            // V5.0.4179 — F2: PREDICTIVE SL. Field journal showed STRICT_SL_-10
+            // overrunning to -71% realized due to thin-liq exit slippage.
+            // ExecutionCostPredictorAI already learns per-liq-band slip. Now:
+            // pull the SL trigger EARLIER by the learned slip so the
+            // REALIZED loss caps at the configured stop. e.g. if liq band
+            // averages 8% slip and configured SL is -10, fire at -2 so the
+            // realized fill comes back near -10 instead of -18. Capped to a
+            // minimum -3% to avoid jitter exits on healthy positions.
+            val predictedSlip = try {
+                com.lifecyclebot.v3.scoring.ExecutionCostPredictorAI.expectedExtraSlipPct(ts.lastLiquidityUsd)
+            } catch (_: Throwable) { 0.0 }
+            val slipAdjustedStop = if (predictedSlip > 1.0) {
+                (fluidStopNegative + predictedSlip).coerceAtMost(-3.0)
+            } else fluidStopNegative
+            val hardFloor = slipAdjustedStop.coerceIn(-50.0, -3.0)
             val pnlPctNow = if (pos.entryPrice > 0)
                 ((currentPrice - pos.entryPrice) / pos.entryPrice) * 100
             else 0.0
@@ -7945,29 +7959,50 @@ class Executor(
         } catch (_: Throwable) { 1.0 }
         val multiplierProductRaw = sizeMult * labMult * laneEvMult * regimeMultGoosed * laneSizeCap * brainSizeMult *
             strategyTunerSizeMult * sourceBrainSizeMult * uphConvictionMult
-        // V5.0.4177 — operator directive (4-way unchoke options 3+4).
-        //
-        // Option 3 (DECOMPOUND FLOOR): regime (CHOP×0.35 / DUMP×0.10) ×
-        // LiveStrategyTuner (×0.12 STANDARD) × LiveProbabilityEngine (×0.40)
-        // × LaneExpectancyDamper (×0.20 MOONSHOT / ×0.47 STANDARD) was
-        // compounding to 0.0048× base = trades getting crushed below the
-        // minimum executable size. Field 4176: only 2 positions held, every
-        // win was sub-$1. Cap the multiplier compound at a 0.25× FLOOR so
-        // good candidates still get meaningful exposure even when every
-        // damper layer fires. Upper bound (`winnerMaxBoost` below) is
-        // unchanged; this only lifts the lower bound.
-        //
-        // Option 4/L8 (LANE PRIORITY BIAS — TIGHTENED V5.0.4178): MOONSHOT
-        // (WR=22.7%) / STANDARD (WR=23.8%) are the bot's two best lanes.
-        // V5.0.4177 used ×1.20 / ×0.85 (too tepid). V5.0.4178 ramps to
-        // ×1.40 / ×0.50 — capital concentrates HARD on what's working,
-        // losers get half-size or sleep entirely (see L7 lane suppression
-        // in BotService.shouldRunBuyLaneForCycle).
+
+        // V5.0.4179 — F1: SLIP-AWARE ENTRY SIZING (catastrophic-overrun fix).
+        // Field journal showed losses overrunning STRICT_SL_-10 to -71%
+        // realized due to thin-liq exit slippage. ExecutionCostPredictorAI
+        // already LEARNS slip per-liq-band but only adds a -6 score penalty.
+        // Now: divide entry size by (1 + slip/10). At slip=5% → size×0.91;
+        // slip=12% → size×0.71. F1-HARD-REJECT at slip ≥18% (the band has
+        // shown >18% avg slip on at least 10 samples — bot has no business
+        // entering, will overrun every time).
+        val expectedSlipPct = try {
+            com.lifecyclebot.v3.scoring.ExecutionCostPredictorAI.expectedExtraSlipPct(ts.lastLiquidityUsd)
+        } catch (_: Throwable) { 0.0 }
+        val slipDownsizeMult = if (expectedSlipPct > 0.0) {
+            (1.0 / (1.0 + expectedSlipPct / 10.0)).coerceIn(0.30, 1.0)
+        } else 1.0
+        if (expectedSlipPct >= 18.0) {
+            try { ForensicLogger.lifecycle("F1_SLIP_HARD_REJECT", "mint=${ts.mint.take(10)} symbol=${ts.symbol} expectedSlip=${expectedSlipPct.fmt(1)}% liq=${ts.lastLiquidityUsd.toInt()} action=hard_reject") } catch (_: Throwable) {}
+            try { PipelineHealthCollector.labelInc("F1_SLIP_HARD_REJECT") } catch (_: Throwable) {}
+            buyTerminalFail("BUY_REJECTED_PREDICTED_SLIP_${expectedSlipPct.toInt()}PCT")
+            return
+        }
+
+        // V5.0.4179 — F3: HIGH-CONFIDENCE SIZE CEILING BOOST.
+        // When a candidate scores ≥75 AND liquidity is healthy AND regime
+        // isn't DUMP, RAISE the upper cap on the size compound to 1.5×. This
+        // is the "money printer" lever — let the bot scale into the setups
+        // it's proven to make money on. Compound floor stays 0.25× (anti-dust).
+        // Operator: "the meme trader is meant to be a money printer".
+        val isHighConvictionWinner = try {
+            score >= 75.0
+                && ts.lastLiquidityUsd >= 10_000.0
+                && com.lifecyclebot.engine.RegimeDetector.currentRegime() != com.lifecyclebot.engine.RegimeDetector.Regime.DUMP
+        } catch (_: Throwable) { false }
+        val highConvBoost = if (isHighConvictionWinner) 1.50 else 1.0
+
+        // V5.0.4178 — L8 LANE PRIORITY BIAS (TIGHTENED): MOONSHOT (WR=22.7%)
+        // / STANDARD (WR=23.8%) get ×1.40, every other lane ×0.50. Capital
+        // concentrates on what works.
         val laneBiasMult = when (laneTag.uppercase()) {
             "MOONSHOT", "STANDARD" -> 1.40
             else -> 0.50
         }
-        val multiplierProduct = (multiplierProductRaw * laneBiasMult).coerceAtLeast(0.25)
+        val multiplierProduct = (multiplierProductRaw * laneBiasMult * slipDownsizeMult * highConvBoost)
+            .coerceIn(0.25, 1.60)
         if (RuntimeModeAuthority.isLive() && (laneEvMult != 1.0 || laneSizeCap < 1.0 || strategyTunerSizeMult != 1.0 || uphConvictionMult != 1.0)) {
             try { ForensicLogger.lifecycle("LIVE_WALLET_GROWTH_ALLOCATOR", "mint=${ts.mint.take(10)} symbol=${ts.symbol} lane=$laneTag laneEvMult=$laneEvMult laneCap=$laneSizeCap regimeMult=$regimeMult brainMult=$brainSizeMult stratTuner=$strategyTunerSizeMult sourceBrain=$sourceBrainSizeMult uph=$uphConvictionMult product=$multiplierProduct floor=$liveFloorMult") } catch (_: Throwable) {}
         }

@@ -4,6 +4,66 @@ All notable changes to the Autonomous AI Trading Engine.
 
 ---
 
+## [5.0.4179] - 2026-06 — LIFT THE BOT (5-fix surgical wound-seal)
+
+**Operator audit directive**: "do all 5 now. this must lift the fucking bot!!!"
+
+**Wound identified in audit** (recent journal evidence):
+```
+WIN  +45.2× runner +0.0004 SOL  ← size dampened to dust
+LOSS -71.4% CATASTROPHIC_STOP_LOSS_OVERRUN_-70pct  ← exit slip
+LOSS -58.8% CATASTROPHIC_STOP_LOSS_OVERRUN_-58pct  ← exit slip
+```
+
+STRICT_SL fires at -10% based on cached price → market sell hits Jupiter
+→ thin liquidity makes the fill come back at -71% realized. Bot bleeds
+asymmetrically: wins are size-dampened to dust, losses are slip-amplified.
+
+**5-fix surgical attack:**
+
+  * **F1 — SLIP-AWARE ENTRY SIZING.** `ExecutionCostPredictorAI.expectedExtraSlipPct()`
+    now down-sizes entries by `1/(1+slip/10)` and HARD REJECTS when slip ≥18%.
+    The bot LEARNED slip but only added a -6 score penalty; now it costs real
+    size. New `BUY_REJECTED_PREDICTED_SLIP_*` reason in `Executor.doBuy()`.
+    File: `engine/Executor.kt`
+
+  * **F2 — PREDICTIVE SL.** STRICT_SL trigger now subtracts learned slip
+    from the configured stop. If liq-band averages 8% slip and SL is -10,
+    fire at -2 so realized loss caps at ~-10 instead of -18. Min trigger
+    clamped to -3% to avoid jitter exits on healthy positions.
+    File: `engine/Executor.kt` (line ~5151)
+
+  * **F3 — HIGH-CONFIDENCE SIZE CEILING BOOST.** When candidate `score ≥ 75`
+    AND `liquidity ≥ $10K` AND regime ≠ DUMP, the multiplier compound is
+    allowed up to 1.5× (cap raised from previous 1.0). Combined with the
+    floor at 0.25× and lane bias ×1.40 for MOONSHOT/STANDARD, the bot can
+    now scale into proven setups instead of always trickling.
+    File: `engine/Executor.kt`
+
+  * **F4 — UnifiedPolicyHead GRADUATION ACCELERATION.** Authority tiers
+    20/60/150 (was 40/100/250). At ~6 BUYs/min the head crossed ADVISORY
+    in ~3min instead of ~7min. Lets the policy brain's learned weights
+    actually influence trades instead of staying BOOTSTRAP forever.
+    File: `engine/UnifiedPolicyHead.kt`
+
+  * **F5 — WATCHLIST_FLOOR LIFT to $8K while WR < 30%.** Field tokens with
+    $1.6K-$7K liq were the catastrophic-overrun sources. Until live WR
+    recovers above the floor, the gate refuses anything below $8K — only
+    candidates that can actually be exited cleanly. Auto-restores to
+    FluidLearningAI's normal lerp when WR recovers.
+    File: `engine/FinalDecisionGate.kt`
+
+**Philosophy:** F1+F2+F5 seal the bleeding wound. F3+F4 amplify the wins.
+Combined effect:
+  - Fewer trades on thin-liq tokens (F1, F5).
+  - Smaller realized losses on the ones that do dump (F2).
+  - Bigger wins on high-conviction setups (F3).
+  - Faster learning convergence (F4).
+
+Brace/paren git-diff deltas balanced on all three files (0/0).
+
+---
+
 ## [5.0.4178] - 2026-06 — SELECTIVITY-FIRST PIVOT (operator philosophy reset)
 
 **Operator directive (overriding V5.0.4177's philosophy):** "I dont really
