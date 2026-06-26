@@ -5125,6 +5125,38 @@ class Executor(
             val candidates = listOf(livePnl, cachedPnl).filter { it.isFinite() }
             if (candidates.isEmpty()) return@run
             val worstPnl = candidates.min()
+
+            // V5.0.4187 — THIN-LIQ EARLY RUG GUARD (Fix B2). Operator V5.0.4186
+            // dump: BCLiquFq lost -96.1% (reason=CATASTROPHIC_STOP_LOSS_OVERRUN_-95pct_FROM_RAPID).
+            // The existing -25% backstop fires correctly but post-rug
+            // exits realise at -90% to -96% because liquidity is already
+            // gone by the time we broadcast. Mitigation: for tokens with
+            // thin liquidity (< $5K) in their first 60s on the book,
+            // fire HARD-EXIT at -10%. Thin-liq fresh tokens are the
+            // rug-prone class; cutting losses at -10% rather than -25%
+            // saves 2-3x on each rug while having near-zero false-positive
+            // cost on legit runners (a legit runner that dips 10% in the
+            // first minute on $5K liq isn't a high-conviction trade anyway).
+            run earlyRug@{
+                val liqUsd = try { ts.lastLiquidityUsd } catch (_: Throwable) { 0.0 }
+                val ageMs = try { System.currentTimeMillis() - pos.entryTime } catch (_: Throwable) { Long.MAX_VALUE }
+                if (liqUsd > 0.0 && liqUsd < 5_000.0 && ageMs in 0..60_000L && worstPnl <= -10.0) {
+                    try {
+                        ForensicLogger.lifecycle(
+                            "THIN_LIQ_EARLY_RUG_BACKSTOP_10",
+                            "mint=${ts.mint.take(10)} sym=${ts.symbol} worstPnl=${worstPnl.fmt(2)} liqUsd=${liqUsd.toInt()} ageMs=$ageMs reason=thin_liq_fresh_token — cut losses early before realised slippage compounds",
+                        )
+                        PipelineHealthCollector.labelInc("THIN_LIQ_EARLY_RUG_BACKSTOP_10")
+                    } catch (_: Throwable) {}
+                    onLog(
+                        "☠ EARLY-RUG -10% BACKSTOP: ${ts.symbol} worstPnl=${worstPnl.toInt()}% liq=\$${liqUsd.toInt()} — thin-liq fresh token, cutting NOW",
+                        ts.mint
+                    )
+                    doSell(ts, "THIN_LIQ_EARLY_RUG_BACKSTOP_-10", wallet, walletSol)
+                    return
+                }
+            }
+
             if (worstPnl <= -25.0) {
                 try {
                     ForensicLogger.lifecycle(
@@ -10686,12 +10718,18 @@ class Executor(
             } catch (_: Throwable) {}
             PipelineTracer.executorFailed(ts.symbol, ts.mint, "LIVE", "WRONG_TARGET_MINT")
             emitLiveBuyFail(ts, sol, "WRONG_TARGET_MINT")
+            // V5.0.4187 — LEASE ORPHAN FIX (A1). V5.0.4186 dump showed 25+
+            // EXEC_LEASE_PRUNED_EXPIRED for BUYs. Each silent early-return
+            // after lease acquire holds the slot for 30s, choking volume.
+            buyTerminalFail("BUY_TERMINAL_WRONG_TARGET_MINT")
             return false
         }
 
         if (score < 0 || score.isNaN()) {
             ErrorLogger.warn("Executor", "[EXECUTION/INVALID] Live buy skipped: invalid score $score for ${ts.symbol}")
             emitLiveBuyFail(ts, sol, "INVALID_SCORE")
+            // V5.0.4187 — LEASE ORPHAN FIX (A2).
+            buyTerminalFail("BUY_TERMINAL_INVALID_SCORE")
             return false
         }
 
@@ -10736,11 +10774,15 @@ class Executor(
                 LiveRestoreExecutionPolicy.logBreakEven(ts, be, restorePenalty)
                 try { ForensicLogger.lifecycle("LIVE_RESTORE_SAFETY_TIER_SKIP", "symbol=${ts.symbol} mint=${ts.mint.take(10)} tier=${ts.safety.tier.name} penalty=${restorePenalty.reason}") } catch (_: Throwable) {}
                 emitLiveBuyFail(ts, sol, "RESTORE_SAFETY_TIER_SKIP", restorePenalty.reason)
+                // V5.0.4187 — LEASE ORPHAN FIX (A3).
+                buyTerminalFail("BUY_TERMINAL_RESTORE_SAFETY_TIER_SKIP:${restorePenalty.reason.take(40)}")
                 return false
             }
             if (LiveRestoreExecutionPolicy.mintActuallyOpen(ts.mint, ts)) {
                 try { ForensicLogger.lifecycle("TRUE_DUPLICATE_OPEN", "symbol=${ts.symbol} mint=${ts.mint.take(10)} penalty=${restorePenalty.reason}") } catch (_: Throwable) {}
                 emitLiveBuyFail(ts, sol, "TRUE_DUPLICATE_OPEN", restorePenalty.reason)
+                // V5.0.4187 — LEASE ORPHAN FIX (A4).
+                buyTerminalFail("BUY_TERMINAL_TRUE_DUPLICATE_OPEN")
                 return false
             }
         }
@@ -10809,6 +10851,9 @@ class Executor(
                     "LIVE_BUY_FAIL", ts.symbol,
                     "mint=${ts.mint.take(10)} sol=$sol reason=ADMISSION_GATE:${decision.reasonCode}",
                 ) } catch (_: Throwable) {}
+                // V5.0.4187 — LEASE ORPHAN FIX (A7). Admission-gate block is
+                // a terminal decision for this attempt; release the lease.
+                buyTerminalFail("BUY_TERMINAL_ADMISSION_GATE:${decision.reasonCode.take(40)}")
                 return false
             }
         }
@@ -10885,6 +10930,12 @@ class Executor(
                 "LIVE_BUY_FAIL", ts.symbol,
                 "mint=${ts.mint.take(10)} sol=$sol reason=WALLET_BALANCE_ZERO bal=$walletSol",
             ) } catch (_: Throwable) {}
+            // V5.0.4187 — LEASE ORPHAN FIX (A5). Wallet balance is transient
+            // (waiting for sell to settle / refund). Use non-terminal release
+            // so the bot can immediately retry once wallet rehydrates instead
+            // of orphaning the slot for 30s.
+            ExecutionAttemptLease.releaseNonTerminal(buyLease.key, "BUY", ts.mint, ts.symbol, "WALLET_BALANCE_ZERO_TRANSIENT")
+            buyTerminalRecorded = true
             return false
         }
 
@@ -11064,6 +11115,11 @@ class Executor(
                 PipelineHealthCollector.labelInc("LIVE_BUY_MUTEX_DEFERRED_NON_TERMINAL")
             } catch (_: Throwable) {}
             liveBuyDeferred(ts, sol, "MUTEX_BUSY_DEFERRED", "lastStage=$liveBuyLastStage")
+            // V5.0.4187 — LEASE ORPHAN FIX (A6). Mutex deferral is transient
+            // — non-terminal release lets the bot retry immediately once
+            // the current wallet spend completes, instead of 30s orphan.
+            ExecutionAttemptLease.releaseNonTerminal(buyLease.key, "BUY", ts.mint, ts.symbol, "MUTEX_BUSY_DEFERRED_TRANSIENT")
+            buyTerminalRecorded = true
             return false
         }
         liveBuyMutexAcquired = true
@@ -11239,6 +11295,78 @@ class Executor(
                 try { PipelineHealthCollector.labelInc("JUPITER_QUOTE_REJECTED") } catch (_: Throwable) {}
                 buyTerminalFail("BUY_TERMINAL_ROUTE_FAIL:QUOTE_REJECTED_${qGuard.reason.take(40)}")
                 return false
+            }
+
+            // V5.0.4187 — REAL PRICE LOCK on BUY (Fix B1). Operator V5.0.4186
+            // dump: bought BCLiquFq, lost -96.1% on the way out. The quote
+            // appeared fine at buy time because PumpPortal/PumpFunDirect
+            // does NOT surface priceImpactPct (Executor.kt:11358 explicitly
+            // sets it to 0.0 for those routers) — so SecurityGuard's
+            // MAX_PRICE_IMPACT_PCT=3% guard is bypassed entirely for the
+            // bonding-curve universe where most rugs happen. Mitigation:
+            // when the primary quote's router is PumpPortal/PumpFunDirect
+            // AND priceImpactPct == 0.0 (unsurfaced), request a Jupiter
+            // sanity quote on the same notional. If Jupiter (which DOES
+            // surface impact) reports impact > 8% on the same buy, abort —
+            // the pool liquidity is thinner than the bonding curve claims.
+            run {
+                val routerStr = try { quote?.router?.uppercase() ?: "" } catch (_: Throwable) { "" }
+                val impactUnsurfaced = (quote?.priceImpactPct ?: 0.0) == 0.0
+                val isPumpRouter = routerStr.contains("PUMP")
+                if (quote != null && impactUnsurfaced && isPumpRouter) {
+                    val lamports = try { (effectiveSol * 1_000_000_000L).toLong() } catch (_: Throwable) { 0L }
+                    if (lamports > 0L) {
+                        val jupSanityQuote = try {
+                            jupiter.getQuote(
+                                inputMint = JupiterApi.SOL_MINT,
+                                outputMint = ts.mint,
+                                amountRaw = lamports,
+                                slippageBps = 300,
+                            )
+                        } catch (_: Throwable) { null }
+                        if (jupSanityQuote != null) {
+                            val jupImpact = jupSanityQuote.priceImpactPct
+                            val pumpOut = quote?.outAmount?.toDoubleOrNull() ?: 0.0
+                            val jupOut = jupSanityQuote.outAmount.toDoubleOrNull() ?: 0.0
+                            val divergencePct = if (pumpOut > 0.0 && jupOut > 0.0) {
+                                kotlin.math.abs(pumpOut - jupOut) / pumpOut * 100.0
+                            } else 0.0
+                            val impactTooHigh = jupImpact > 8.0
+                            val divergedTooFar = divergencePct > 25.0
+                            if (impactTooHigh || divergedTooFar) {
+                                try {
+                                    ForensicLogger.lifecycle(
+                                        "REAL_PRICE_LOCK_BUY_REJECT",
+                                        "mint=${ts.mint.take(10)} symbol=${ts.symbol} router=$routerStr jupImpact=${jupImpact.fmt(2)}% divergence=${divergencePct.fmt(1)}% reason=${if (impactTooHigh) "IMPACT_>8PCT" else "OUT_DIVERGE_>25PCT"} — refusing rug-prone buy",
+                                    )
+                                    PipelineHealthCollector.labelInc("REAL_PRICE_LOCK_BUY_REJECT")
+                                } catch (_: Throwable) {}
+                                onLog("🛡 REAL_PRICE_LOCK BUY: ${ts.symbol} jupImpact=${jupImpact.fmt(1)}% div=${divergencePct.fmt(1)}% — rug-prone, aborting", ts.mint)
+                                LiveTradeLogStore.log(
+                                    tradeKey, ts.mint, ts.symbol, "BUY",
+                                    LiveTradeLogStore.Phase.BUY_FAILED,
+                                    "RealPriceLock rejected: jupImpact=${jupImpact.fmt(2)}% divergence=${divergencePct.fmt(1)}%",
+                                    traderTag = "MEME",
+                                )
+                                buyTerminalFail("BUY_TERMINAL_REAL_PRICE_LOCK:${if (impactTooHigh) "IMPACT" else "DIVERGE"}")
+                                return false
+                            } else {
+                                try {
+                                    ForensicLogger.lifecycle(
+                                        "REAL_PRICE_LOCK_BUY_CONFIRMED",
+                                        "mint=${ts.mint.take(10)} symbol=${ts.symbol} router=$routerStr jupImpact=${jupImpact.fmt(2)}% divergence=${divergencePct.fmt(1)}% — gain real, proceeding",
+                                    )
+                                    PipelineHealthCollector.labelInc("REAL_PRICE_LOCK_BUY_CONFIRMED")
+                                } catch (_: Throwable) {}
+                            }
+                        } else {
+                            // Jupiter quote unavailable — can't sanity check.
+                            // Failure-soft: allow the buy (consistent with sell-side
+                            // RealPriceLock policy). Counter logs for visibility.
+                            try { PipelineHealthCollector.labelInc("REAL_PRICE_LOCK_BUY_JUP_UNAVAILABLE") } catch (_: Throwable) {}
+                        }
+                    }
+                }
             }
 
             val txResultLocal = buildTxWithRetry(
