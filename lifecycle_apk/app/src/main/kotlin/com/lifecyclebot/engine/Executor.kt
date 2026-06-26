@@ -12559,7 +12559,32 @@ class Executor(
         val givebackFromPeak: Double,
         val normalizedReason: String,
         val advancedExitReason: String = "",
+        val exitPolicyBias: Double = 1.0,
     )
+
+    private fun unifiedExitLaneFor(ts: TokenState): String {
+        return resolveExecutionLane(ts, fallback = ts.position.tradingMode.ifBlank { "STANDARD" })
+    }
+
+    private fun unifiedExitSignalsFor(ts: TokenState, rawPnlPct: Double, peakGainPct: Double): UnifiedExitPolicyHead.ExitSignals {
+        val pos = ts.position
+        val ageMs = (System.currentTimeMillis() - pos.entryTime).coerceAtLeast(0L)
+        val (minHoldMs, _) = liveHoldMinMsForPosition(ts)
+        val ageNorm = if (minHoldMs > 0L) ageMs.toDouble() / minHoldMs.toDouble() else 0.0
+        val liqErode = if (pos.entryLiquidityUsd > 0.0 && ts.lastLiquidityUsd > 0.0) {
+            ((pos.entryLiquidityUsd - ts.lastLiquidityUsd) / pos.entryLiquidityUsd).coerceIn(0.0, 1.0)
+        } else 0.0
+        val momentumDn = (-(ts.momentum ?: ts.meta.momScore.minus(50.0)) / 100.0).coerceIn(0.0, 1.0)
+        val sellPressure = maxOf(liqErode, momentumDn, ((ts.meta.pressScore - 50.0) / 100.0).coerceIn(0.0, 1.0))
+        return UnifiedExitPolicyHead.ExitSignals(
+            pnlPct = (rawPnlPct / 100.0).coerceIn(0.0, 1.0),
+            maxPnlPct = (peakGainPct / 100.0).coerceIn(0.0, 1.0),
+            ageNorm = ageNorm.coerceIn(0.0, 1.0),
+            momentumDn = momentumDn,
+            liquidityErode = liqErode,
+            sellPressure = sellPressure,
+        )
+    }
 
     private fun advancedExitProfileForLane(lane: String): com.lifecyclebot.v3.scoring.AdvancedExitManager.ExitProfile {
         val l = lane.uppercase()
@@ -12625,24 +12650,38 @@ class Executor(
             advanced.exitReason == com.lifecyclebot.v3.scoring.AdvancedExitManager.ExitReason.TAKE_PROFIT_FULL ||
             advanced.exitReason == com.lifecyclebot.v3.scoring.AdvancedExitManager.ExitReason.TAKE_PROFIT_CHUNK ||
             advanced.exitReason == com.lifecyclebot.v3.scoring.AdvancedExitManager.ExitReason.TIME_EXIT)
+        val exitPolicyLane = unifiedExitLaneFor(ts)
+        val exitPolicySignals = unifiedExitSignalsFor(ts, rawPnlPct, peakGainPct)
+        val exitPolicyBias = try {
+            UnifiedExitPolicyHead.stamp(ts.mint, exitPolicyLane, exitPolicySignals)
+            UnifiedExitPolicyHead.exitBias(exitPolicyLane, exitPolicySignals)
+        } catch (_: Throwable) { 1.0 }
+        val exitPolicyBankSoon = exitPolicyBias < 0.85 && rawPnlPct > 0.5
+        val exitPolicyLetRun = exitPolicyBias > 1.20 && rawPnlPct >= 0.0 && givebackFromPeak < 10.0
+        if (exitPolicyBankSoon || exitPolicyLetRun) {
+            try {
+                ForensicLogger.lifecycle("UNIFIED_EXIT_POLICY_HEAD_SHAPED_4196", "mint=${ts.mint.take(10)} symbol=${ts.symbol} lane=$exitPolicyLane bias=${"%.2f".format(exitPolicyBias)} bankSoon=$exitPolicyBankSoon letRun=$exitPolicyLetRun raw=${"%.1f".format(rawPnlPct)} peak=${"%.1f".format(peakGainPct)} reason=${reason.take(80)}")
+                PipelineHealthCollector.labelInc(if (exitPolicyBankSoon) "UNIFIED_EXIT_POLICY_HEAD_BANK_SOON_4196" else "UNIFIED_EXIT_POLICY_HEAD_LET_RUN_4196")
+            } catch (_: Throwable) {}
+        }
         val hardSafety = rawPnlPct <= -15.0 || confirmedRugByReason || advancedHardSafety ||
             r.contains("CATASTROPHE") || r.contains("HARD_FLOOR") ||
             r.contains("RAPID_HARD_FLOOR") || r.contains("MANUAL_EMERGENCY") ||
             r.contains("EMERGENCY_LIQUIDATE") || r.contains("KILL_SWITCH") ||
             r.contains("WALLET_BALANCE_ZERO") || r.contains("SELL_SIG_CONFIRMED")
-        val runnerProtect = (peakGainPct >= 20.0 && givebackFromPeak >= 25.0) || advancedRunnerProtect ||
+        val runnerProtect = (peakGainPct >= 20.0 && givebackFromPeak >= 25.0) || advancedRunnerProtect || exitPolicyBankSoon ||
             r.contains("ULTRA_RUNNER_BANK") || r.contains("PEAK_GIVEBACK") ||
             r.contains("DRAWDOWN_FROM_PEAK") || r.contains("TRAIL_STOP_PEAK") ||
             r.contains("PROFIT_LOCK")
-        val profit = r.contains("TAKE_PROFIT") || r.contains("PROFIT") ||
-            r.contains("TRAIL") || r.contains("BANK") || r.contains("PARTIAL")
+        val profit = !exitPolicyLetRun && (r.contains("TAKE_PROFIT") || r.contains("PROFIT") ||
+            r.contains("TRAIL") || r.contains("BANK") || r.contains("PARTIAL"))
         val severity = when {
             hardSafety -> LiveExitSeverity.HARD_SAFETY
             runnerProtect -> LiveExitSeverity.RUNNER_PROTECT
             profit -> LiveExitSeverity.PROFIT
             else -> LiveExitSeverity.CHURN
         }
-        return LiveExitIntent(severity, rawPnlPct, peakGainPct, givebackFromPeak, r, advancedExitReason = advanced?.exitReason?.name ?: "")
+        return LiveExitIntent(severity, rawPnlPct, peakGainPct, givebackFromPeak, r, advancedExitReason = advanced?.exitReason?.name ?: "", exitPolicyBias = exitPolicyBias)
     }
 
     private fun liveHoldMinMsForPosition(ts: TokenState): Pair<Long, String> {

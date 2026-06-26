@@ -3508,6 +3508,7 @@ class GoldenTapeRegressionTest {
         assertTrue("V5.0.4194: AdvancedExitManager must be wired as advisory severity input, not a parallel direct sell authority", exec.contains("advancedExitAdvisory") && exec.contains("AdvancedExitManager.evaluateExit") && exec.contains("ADVANCED_EXIT_MANAGER_ADVISORY_4194") && exec.contains("advancedHardSafety") && exec.contains("advancedRunnerProtect"))
         val bot = java.io.File("src/main/kotlin/com/lifecyclebot/engine/BotService.kt").readText()
         assertTrue("V5.0.4195: ScannerSourceBrain must shape protected intake admission, not only reports/sizing", bot.contains("ScannerSourceBrain.intakeMultiplier") && bot.contains("sourceBrainProbationOnly") && bot.contains("sourceBrainHotRescue") && bot.contains("SCANNER_SOURCE_BRAIN_ADMISSION_SHAPED_4195"))
+        assertTrue("V5.0.4196: UnifiedExitPolicyHead must shape live exit severity instead of report-only learning", exec.contains("unifiedExitSignalsFor") && exec.contains("UnifiedExitPolicyHead.stamp") && exec.contains("UnifiedExitPolicyHead.exitBias") && exec.contains("UNIFIED_EXIT_POLICY_HEAD_SHAPED_4196") && exec.contains("exitPolicyBankSoon") && exec.contains("exitPolicyLetRun"))
     }
 
 
