@@ -3510,6 +3510,7 @@ class GoldenTapeRegressionTest {
         assertTrue("V5.0.4195: ScannerSourceBrain must shape protected intake admission, not only reports/sizing", bot.contains("ScannerSourceBrain.intakeMultiplier") && bot.contains("sourceBrainProbationOnly") && bot.contains("sourceBrainHotRescue") && bot.contains("SCANNER_SOURCE_BRAIN_ADMISSION_SHAPED_4195"))
         assertTrue("V5.0.4196: UnifiedExitPolicyHead must shape live exit severity instead of report-only learning", exec.contains("unifiedExitSignalsFor") && exec.contains("UnifiedExitPolicyHead.stamp") && exec.contains("UnifiedExitPolicyHead.exitBias") && exec.contains("UNIFIED_EXIT_POLICY_HEAD_SHAPED_4196") && exec.contains("exitPolicyBankSoon") && exec.contains("exitPolicyLetRun"))
         assertTrue("V5.0.4197: StrategyHypothesisEngine size A/B must shape Executor AGI size stack, not FDG-only", exec.contains("hypothesisSizeMult") && exec.contains("StrategyHypothesisEngine.getSizeBias") && exec.contains("STRATEGY_HYPOTHESIS_EXECUTOR_SIZE_SHAPED_4197") && exec.contains("uphConvictionMult * hypothesisSizeMult"))
+        assertTrue("V5.0.4198: V3 personality/LLM veto must soft-shape size instead of hard-returning before execution", bot.contains("personalitySizeMult") && bot.contains("V3_PERSONALITY_SOFT_SHAPE_4198") && bot.contains("personalitySizeMult *") && !bot.contains("V3_PERSONALITY_VETO_PREBUY"))
     }
 
 
@@ -3684,7 +3685,7 @@ class GoldenTapeRegressionTest {
         val bot = java.io.File("src/main/kotlin/com/lifecyclebot/engine/BotService.kt").readText()
         assertTrue("TradeAuthorizer must prune stale live auth locks against wallet/accounting truth", auth.contains("STALE_AUTH_LOCK_PRUNED") && auth.contains("LIVE_AUTH_LOCK_GRACE_MS") && auth.contains("getOpenForAccountingMints") && auth.contains("getActuallyHeldMints"))
         assertTrue("same-book and cross-book duplicate checks must use authoritative lock validation", auth.contains("isAuthoritativeOpenLock(sameBookLock, isPaperMode)") && auth.contains("lock != null && isAuthoritativeOpenLock(lock, isPaperMode)"))
-        assertTrue("post-auth pre-buy CORE aborts must release auth locks", bot.contains("V3_SYMBOLIC_BLOCK_PREBUY") && bot.contains("V3_PERSONALITY_VETO_PREBUY") && bot.contains("TradeAuthorizer.releasePosition(ts.mint"))
+        assertTrue("post-auth hard CORE aborts must release auth locks; personality veto is soft-shaped", bot.contains("V3_SYMBOLIC_BLOCK_PREBUY") && bot.contains("TradeAuthorizer.releasePosition(ts.mint") && bot.contains("V3_PERSONALITY_SOFT_SHAPE_4198") && !bot.contains("V3_PERSONALITY_VETO_PREBUY"))
         val exec = java.io.File("src/main/kotlin/com/lifecyclebot/engine/Executor.kt").readText()
         assertTrue("v3 live pre-open no-wallet abort must release auth lock", exec.contains("V3_LIVE_BUY_NO_WALLET_PREOPEN") && exec.contains("LIVE_BUY_PREOPEN_RELEASE_NO_WALLET"))
     }

@@ -20273,15 +20273,21 @@ if (hotExitHandledSweep) {
                                     regime = regimeHint,
                                 )
                             } catch (_: Throwable) { false }
+                            val personalitySizeMult = if (personalityVeto) 0.72 else 1.0
                             if (personalityVeto) {
+                                // V5.0.4198 — personality/LLM filters are advisory only.
+                                // Runtime 4188 showed "LLM VETO suggested" during a V3/FDG
+                                // choke. The LLM hook itself is async/fail-open, but this
+                                // callsite still turned a cached persona match into a hard
+                                // prebuy return. Preserve the signal by trimming size instead
+                                // of releasing the lane and starving throughput.
                                 ErrorLogger.info(
                                     "BotService",
-                                    "🧠 [V3|PERSONALITY_VETO] ${identity.symbol} | regime=$regimeHint — user persona said skip"
+                                    "🧠 [V3|PERSONALITY_SOFT_SHAPE] ${identity.symbol} | regime=$regimeHint size×=${"%.2f".format(personalitySizeMult)}"
                                 )
-                                addLog("🧠 PERSONA VETO: ${identity.symbol} (regime=$regimeHint)", ts.mint)
-                                try { TradeAuthorizer.releasePosition(ts.mint, "V3_PERSONALITY_VETO_PREBUY", TradeAuthorizer.ExecutionBook.CORE) } catch (_: Throwable) {}
-                                try { LaneExecutionCoordinator.releaseIfPrimary(ts.mint, "CORE", "V3_PERSONALITY_VETO_PREBUY") } catch (_: Throwable) {}
-                                return
+                                addLog("🧠 PERSONA SOFT-SHAPE: ${identity.symbol} ×${"%.2f".format(personalitySizeMult)} (regime=$regimeHint)", ts.mint)
+                                try { PipelineHealthCollector.labelInc("V3_PERSONALITY_SOFT_SHAPE_4198") } catch (_: Throwable) {}
+                                try { ForensicLogger.lifecycle("V3_PERSONALITY_SOFT_SHAPE_4198", "mint=${ts.mint.take(10)} symbol=${identity.symbol} regime=$regimeHint sizeMult=${"%.2f".format(personalitySizeMult)} action=continue_no_hard_veto") } catch (_: Throwable) {}
                             }
 
                             // Apply the size cascade FDG would have applied:
@@ -20321,6 +20327,7 @@ if (hotExitHandledSweep) {
                                 modeMultipliers.positionSizeMultiplier *
                                 symSizeAdj *
                                 llmSizeMult *
+                                personalitySizeMult *
                                 ladderSizeMult
                             // V5.9.495z3 — operator: 'stupidly slow paper, 2 open'.
                             // Lift the paper-mode floor 0.60→0.75 so each entry is
@@ -20336,6 +20343,7 @@ if (hotExitHandledSweep) {
                                     "mode=${"%.2f".format(modeMultipliers.positionSizeMultiplier)} × " +
                                     "sym=${"%.2f".format(symSizeAdj)} × " +
                                     "llm=${"%.2f".format(llmSizeMult)} × " +
+                                    "persona=${"%.2f".format(personalitySizeMult)} × " +
                                     "ladder=${"%.2f".format(ladderSizeMult)} = ${"%.2f".format(rawProduct)}" +
                                     (if (rawProduct < cascadeFloor) " [floored→${"%.2f".format(cascadeFloor)}]" else "") +
                                     " → ${proposedSize.fmt(4)}◎ " +
