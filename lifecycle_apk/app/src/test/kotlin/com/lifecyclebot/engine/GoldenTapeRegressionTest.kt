@@ -3509,6 +3509,7 @@ class GoldenTapeRegressionTest {
         val bot = java.io.File("src/main/kotlin/com/lifecyclebot/engine/BotService.kt").readText()
         assertTrue("V5.0.4195: ScannerSourceBrain must shape protected intake admission, not only reports/sizing", bot.contains("ScannerSourceBrain.intakeMultiplier") && bot.contains("sourceBrainProbationOnly") && bot.contains("sourceBrainHotRescue") && bot.contains("SCANNER_SOURCE_BRAIN_ADMISSION_SHAPED_4195"))
         assertTrue("V5.0.4196: UnifiedExitPolicyHead must shape live exit severity instead of report-only learning", exec.contains("unifiedExitSignalsFor") && exec.contains("UnifiedExitPolicyHead.stamp") && exec.contains("UnifiedExitPolicyHead.exitBias") && exec.contains("UNIFIED_EXIT_POLICY_HEAD_SHAPED_4196") && exec.contains("exitPolicyBankSoon") && exec.contains("exitPolicyLetRun"))
+        assertTrue("V5.0.4197: StrategyHypothesisEngine size A/B must shape Executor AGI size stack, not FDG-only", exec.contains("hypothesisSizeMult") && exec.contains("StrategyHypothesisEngine.getSizeBias") && exec.contains("STRATEGY_HYPOTHESIS_EXECUTOR_SIZE_SHAPED_4197") && exec.contains("uphConvictionMult * hypothesisSizeMult"))
     }
 
 

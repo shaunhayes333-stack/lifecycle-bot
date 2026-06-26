@@ -8055,8 +8055,28 @@ class Executor(
             )
             UnifiedPolicyHead.conviction(laneKeyForAgi, signals)
         } catch (_: Throwable) { 1.0 }
+        // V5.0.4197 — StrategyHypothesisEngine must shape the executor-side
+        // AGI size stack too. FDG already consumes getSizeBias(), but the high-
+        // throughput meme lanes often enter through executor-side sizing after
+        // FDG/bypass handoff. Without this, the self-directed A/B learner could
+        // show active hypotheses while most live volume never received the tested
+        // size mutation. Soft bounded [0.85,1.20], fail-open, no veto.
+        val hypothesisSizeMult = try {
+            StrategyHypothesisEngine.getSizeBias(
+                laneKeyForAgi,
+                score.toInt().coerceIn(0, 100),
+                try { com.lifecyclebot.engine.RegimeDetector.currentRegime().name } catch (_: Throwable) { "NORMAL" },
+                ts.mint,
+            )
+        } catch (_: Throwable) { 1.0 }
+        if (hypothesisSizeMult != 1.0) {
+            try {
+                ForensicLogger.lifecycle("STRATEGY_HYPOTHESIS_EXECUTOR_SIZE_SHAPED_4197", "mint=${ts.mint.take(10)} symbol=${ts.symbol} lane=$laneKeyForAgi score=${score.toInt()} mult=${hypothesisSizeMult.fmt(2)} source=${ts.source}")
+                PipelineHealthCollector.labelInc("STRATEGY_HYPOTHESIS_EXECUTOR_SIZE_SHAPED_4197")
+            } catch (_: Throwable) {}
+        }
         val multiplierProductRaw = sizeMult * labMult * laneEvMult * regimeMultGoosed * laneSizeCap * brainSizeMult *
-            strategyTunerSizeMult * sourceBrainSizeMult * uphConvictionMult
+            strategyTunerSizeMult * sourceBrainSizeMult * uphConvictionMult * hypothesisSizeMult
 
         // V5.0.4179 — F1: SLIP-AWARE ENTRY SIZING (catastrophic-overrun fix).
         // Field journal showed losses overrunning STRICT_SL_-10 to -71%
