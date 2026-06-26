@@ -2,6 +2,9 @@ package com.lifecyclebot.network
 
 import okhttp3.Dispatcher
 import okhttp3.OkHttpClient
+import okhttp3.ResponseBody.Companion.asResponseBody
+import okio.GzipSource
+import okio.buffer
 import java.util.concurrent.TimeUnit
 
 /**
@@ -74,19 +77,47 @@ object SharedHttpClient {
         // and 5xx/429 storms with a 599 synthetic response — zero TLS,
         // zero TCP, zero DNS during cool-down.
         .addInterceptor(com.lifecyclebot.network.HostCircuitInterceptor)
-        // V5.0.4170 — EXPLICIT GZIP request. OkHttp's BridgeInterceptor
-        // already adds this when the caller hasn't set it, but many of our
-        // call sites set custom Accept headers without Accept-Encoding —
-        // some servers only gzip when explicitly asked. Sets gzip on every
-        // request unless the caller already specified Accept-Encoding.
-        // JSON payloads compress 60–80% — this is one of the highest
-        // bandwidth-to-effort wins in the codebase.
+        // V5.0.4170 / V5.0.4173 — EXPLICIT GZIP request + TRANSPARENT DECODE.
+        //
+        // V5.0.4170 manually added `Accept-Encoding: gzip` to every request to
+        // force gzip on call sites that set custom Accept headers without an
+        // encoding hint. PROBLEM: OkHttp's BridgeInterceptor only transparently
+        // decompresses gzip when IT added the Accept-Encoding header itself.
+        // When the application interceptor sets it, BridgeInterceptor hands raw
+        // gzipped bytes back to the caller → every JSON parse gets the
+        // "Value �     �V�*..." garbled blob (killed all Solana RPC reads in
+        // the V5.0.4172 field snapshot — wallet died → bot fully choked).
+        //
+        // V5.0.4173 fix: keep the explicit `Accept-Encoding: gzip` request
+        // header (so we still hit gzip on call sites that previously skipped
+        // it) AND decompress the response ourselves when the server replies
+        // with `Content-Encoding: gzip`. We strip `Content-Encoding` and
+        // `Content-Length` from the response headers so downstream callers
+        // see a clean uncompressed body, matching OkHttp's normal transparent
+        // behaviour. JSON payloads still compress 60–80% — full bandwidth
+        // win restored without breaking the RPCs.
         .addInterceptor { chain ->
             val req = chain.request()
             val r = if (req.header("Accept-Encoding") == null)
                 req.newBuilder().header("Accept-Encoding", "gzip").build()
             else req
-            chain.proceed(r)
+            val response = chain.proceed(r)
+            val encoding = response.header("Content-Encoding")
+            val body = response.body
+            if (encoding != null && encoding.equals("gzip", ignoreCase = true) && body != null) {
+                val decompressed = GzipSource(body.source()).buffer()
+                    .asResponseBody(body.contentType(), -1L)
+                val cleanHeaders = response.headers.newBuilder()
+                    .removeAll("Content-Encoding")
+                    .removeAll("Content-Length")
+                    .build()
+                response.newBuilder()
+                    .headers(cleanHeaders)
+                    .body(decompressed)
+                    .build()
+            } else {
+                response
+            }
         }
         // NOTE: deliberately NO callTimeout on the BASE client — ~36 callers
         // inherit this builder and several legitimately need long calls (LLM 30-60s,

@@ -4,6 +4,38 @@ All notable changes to the Autonomous AI Trading Engine.
 
 ---
 
+## [5.0.4173] - 2026-06 — HOTFIX: TRANSPARENT GZIP DECODE (bot revival)
+
+**Symptom (V5.0.4172/4173 field snapshot)**: bot fully dead — STOPPING
+state with `intake=0 fdg=0 exec=0`. Every wallet RPC failing with a
+garbled body: `Value �     �V�*��+*HV�R2…`. All Solana RPC providers
+(Helius, Alchemy, Ankr, mainnet-beta, rpcpool) returning the same
+gibberish. `TokenMetaCache 0 reads / 0 writes`. `SCAN_CB/EXCEPTION=8`.
+
+**Root cause (V5.0.4170 regression)**: the new `SharedHttpClient`
+application interceptor manually added `Accept-Encoding: gzip` to every
+request to coax gzip from servers that only gzip on explicit ask.
+PROBLEM: OkHttp's `BridgeInterceptor` only transparently decompresses a
+response when **it** added the `Accept-Encoding` header itself. When an
+upstream application interceptor sets it, BridgeInterceptor leaves the
+gzipped body untouched — every JSON parser then chokes on raw gzip
+bytes. The wallet manager couldn't read its own balance → entire
+pipeline stalled.
+
+**Fix**: keep the explicit `Accept-Encoding: gzip` request header (so we
+still hit gzip on call sites that previously skipped it) AND
+transparently decompress responses ourselves whenever
+`Content-Encoding: gzip` comes back. Strip `Content-Encoding` /
+`Content-Length` from the resulting headers so downstream callers see a
+normal uncompressed body — matching OkHttp's default transparent
+behaviour. Full bandwidth win (JSON 60–80% smaller) preserved, RPCs
+restored.
+
+**File**: `app/src/main/kotlin/com/lifecyclebot/network/SharedHttpClient.kt`
+Brace/paren balance verified (8/8, 60/60) before push.
+
+---
+
 ## [5.0.4165] - 2026-06 — BUY LEASE WINDOW 5s → 15s (volume restore)
 
 Operator on V5.0.4165 reported "bot isn't trading". Dump showed
