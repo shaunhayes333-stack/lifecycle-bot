@@ -7,6 +7,72 @@ Stocks, Markets, Tokenized Stocks, Forex, Metals, Commodities). Foreground
 Service with a 50+ AI-module pipeline gated through processTokenCycle.
 
 
+## V5.0.4172 (Jun 2026) — Adaptive Refresh Policy foundation (A + B + 5)
+
+Operator: 281 GB / 29 days. Architecture mandate: *"once discovered we
+only need to monitor things that move. not the whole token metrics."*
+
+New module **`engine/TokenRefreshPolicy`** — single decision gate for
+"should this mint refresh its dynamic data?". Four-tier classification:
+
+| Tier | Conditions | Refresh interval |
+|---|---|---|
+| ACTIVE | open position OR score ≥ 70 OR firstSeen < 60s | every cycle (~6s) |
+| WATCHLIST | in registry, not active | 30s |
+| COLD | no activity ≥ 5 min | 5 min |
+| DORMANT | no activity ≥ 30 min | never auto-refresh |
+
+**Meme-trader safety guarantees:**
+- Open positions always ACTIVE → exits seen every cycle
+- First 60s post-intake always ACTIVE → pump.fun launch edge intact
+- Score ≥ 70 always ACTIVE → high-conviction candidates stay hot
+- `forceRefresh()` bypass for pre-buy quote / post-sell paths
+
+Plus **`engine/WalletAccountCache`** — Helius `getTokenAccountsByOwner`
+result cached 10s with `bustNow()` on confirmed trade. Saves ~430 MB/day
+of wallet-state re-reads.
+
+Foundation-only push. Call-site wiring follows incrementally in V5.0.4173+
+to avoid big-bang risk to meme-trader paths.
+
+
+## V5.0.4171 (Jun 2026) — disabled dead sources + scanner stagger + watchlist cap
+
+Three surgical data-saving changes from operator picks 1, 2, 10, 11:
+
+1. **DISABLED entirely**: `scanGeckoTrendingPools`, `scanGeckoTopPoolsByVolume`,
+   `scanMeteoraPoolsViaGecko`, `scanCoinGeckoTrending`, `scanCoinGeckoEstablished`.
+   geckoterminal sr=34% (66% failure→retry waste), coingecko sr=87% with
+   COINGECKO_TRENDING WR=0% (zero edge ever).
+
+2. **STAGGER non-critical scanners on 4-cycle rotation**: scanDexBoosted /
+   scanDexTrending / scanDexGainers / scanTopVolumeTokens each fire every
+   4th cycle. scanRaydiumNewPools every 2nd. **ALL FIVE PumpFun sources
+   stay every cycle** (meme firehose intact).
+
+3. **Watchlist cap 500 → 300** in BotService. Eviction logic already
+   exempts forcedOpenMints, isHighConvictionUnseen, fresh-60s.
+
+
+## V5.0.4170 (Jun 2026) — quick-win data conservation (C + E + H)
+
+- **HostCircuitInterceptor** (new) — NXDOMAIN cool-down 5min, 3× 5xx/429 → 90s cool-down. Wired globally via SharedHttpClient.
+- Explicit `Accept-Encoding: gzip` on every request (60–80% JSON compression).
+- Probation MIN 60s→30s, MAX 5min→2min.
+
+
+## V5.0.4169 (Jun 2026) — killed duplicate Pump WS + DexScreener demand-driven
+
+- Disabled DataOrchestrator's PumpFunWebSocket (duplicate of BotService's PumpFunWS).
+- DexScreener WS connection deferred until first subscribe, closes when subscriptions drop to zero.
+
+
+## V5.0.4168 (Jun 2026) — PumpPortalThrottle
+
+- Drops dust-mcap pump.fun creates (< 10 SOL floor, 25 SOL when watchlist > 200).
+- Drops trade events for mints not in our watchlist.
+
+
 ## V5.0.4167 (Jun 2026) — BIRDEYE NEVER HALTS TRADING + RUGCHECK FALLBACK RELAX
 
 Operator mandate (2026-06-26): *"birdeye should not stop trading. ever.
