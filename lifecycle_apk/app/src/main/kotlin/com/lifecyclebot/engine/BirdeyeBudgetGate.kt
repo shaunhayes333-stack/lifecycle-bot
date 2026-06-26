@@ -94,6 +94,7 @@ object BirdeyeBudgetGate {
     fun canAffordOpenPositionEmergency(estimatedCalls: Int = 1): Boolean {
         rolloverIfNeeded()
         if (isProviderLockedDown()) return false
+        if (isProviderBrownoutActive()) return false
         val estCu = estimatedCalls * 25L
         val cap = if (EMERGENCY_CONSERVATION_MODE) EMERGENCY_DAILY_CAP else dailyCap
         if (cap > 0L && cuToday.get() + estCu > cap) return false
@@ -116,6 +117,7 @@ object BirdeyeBudgetGate {
         rolloverIfNeeded()
         if (EMERGENCY_CONSERVATION_MODE) return false
         if (isLockedDown()) return false
+        if (isProviderBrownoutActive()) return false
         if (!canAfford(1)) return false
 
         val dailyPct = if (dailyCap > 0) cuToday.get().toDouble() / dailyCap else 0.0
@@ -164,6 +166,7 @@ object BirdeyeBudgetGate {
         rolloverIfNeeded()
         if (EMERGENCY_CONSERVATION_MODE) return false
         if (isLockedDown()) return false
+        if (isProviderBrownoutActive()) return false
         // V5.0.4175 — daily-cap brownout. Stops the 5xx storm once the
         // daily CU bucket is empty.
         if (dailyCap > 0L) {
@@ -182,6 +185,26 @@ object BirdeyeBudgetGate {
     }
 
     private val hourlyEmergencyCalls = java.util.concurrent.ConcurrentHashMap<String, Long>()
+    private var lastProviderBrownoutLogMs: Long = 0L
+
+    private fun isProviderBrownoutActive(): Boolean {
+        val st = try { ApiHealthMonitor.snapshot()["birdeye"] } catch (_: Throwable) { null } ?: return false
+        val successes = st.successes.get()
+        val hardFails = st.failures5xx.get() + st.networkErrors.get()
+        val total = successes + st.failures4xx.get() + hardFails
+        val brownout = total >= 20 && hardFails >= 10 && st.successRate() < 0.50
+        if (brownout) {
+            val now = System.currentTimeMillis()
+            if (now - lastProviderBrownoutLogMs > 60_000L) {
+                lastProviderBrownoutLogMs = now
+                try {
+                    ErrorLogger.warn(TAG, "BIRDEYE PROVIDER BROWNOUT — sr=${(st.successRate()*100).toInt()}% hardFails=$hardFails total=$total; skipping Birdeye hot-path calls fail-open")
+                    PipelineHealthCollector.labelInc("BIRDEYE_PROVIDER_BROWNOUT_4189")
+                } catch (_: Throwable) {}
+            }
+        }
+        return brownout
+    }
 
     private fun isProviderLockedDown(): Boolean {
         val pct = cuThisMonth.get().toDouble() / MONTHLY_CAP

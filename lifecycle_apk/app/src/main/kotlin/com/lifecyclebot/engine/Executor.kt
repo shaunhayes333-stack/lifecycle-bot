@@ -7797,19 +7797,26 @@ class Executor(
                       skipGraduated: Boolean = false) {
         val tradeId = identity ?: TradeIdentityManager.getOrCreate(ts.mint, ts.symbol, ts.source)
 
-        // V5.9.401 — Sentience hook #1: LLM second-opinion veto (cached, fail-open).
-        if (!com.lifecyclebot.engine.SentienceHooks.preTradeVeto(
+        // V5.0.4189 — Sentience pre-trade is ADVISORY ONLY.
+        // Cached LLM vetoes were able to return before any live buy, violating the
+        // no-hot-path-LLM/no-new-hard-veto doctrine and parking otherwise-executable
+        // meme flow. Keep the signal for learning/telemetry; never let it kill entry.
+        val sentienceAllowed4189 = try {
+            com.lifecyclebot.engine.SentienceHooks.preTradeVeto(
                 symbol = ts.symbol, score = score.toInt(), conf = quality.hashCode().rem(100),
-                reasons = "src=${ts.source} liq=${ts.lastLiquidityUsd.toInt()}")) {
-            onLog("🛑 LLM SENTIENCE VETO: ${ts.symbol} blocked by pre-trade LLM check", tradeId.mint)
-            return
+                reasons = "src=${ts.source} liq=${ts.lastLiquidityUsd.toInt()}")
+        } catch (_: Throwable) { true }
+        if (!sentienceAllowed4189) {
+            try {
+                onLog("🧠 LLM SENTIENCE ADVISORY: ${ts.symbol} veto suggested but ignored for live-throughput doctrine", tradeId.mint)
+                com.lifecyclebot.engine.PipelineHealthCollector.labelInc("SENTIENCE_VETO_ADVISORY_4189")
+                com.lifecyclebot.engine.ForensicLogger.lifecycle("SENTIENCE_VETO_ADVISORY_4189", "mint=${ts.mint.take(10)} symbol=${ts.symbol} source=${ts.source.take(80)} action=ignored_no_hard_veto")
+            } catch (_: Throwable) {}
         }
 
-        // V5.9.485 — Final pre-trade gate via EmergentLlmClient (Claude
-        // Sonnet 4.5). OPT-IN: only fires when operator pasted a personal
-        // sk-ant-… key into BotConfig.geminiApiKey; otherwise this whole
-        // block is a no-op (`isEnabled() == false` → "PROCEED"). Calls have
-        // an 8s read timeout so a slow LLM response cannot stall the bot.
+        // V5.0.4189 — Emergent LLM validation is advisory only. No external LLM
+        // may return before a live buy on the hot path; hard safety remains in
+        // deterministic gates. Calls are still bounded/fail-open and only feed logs.
         try {
             if (com.lifecyclebot.network.EmergentLlmClient.isEnabled()) {
                 val recentPnl = try {
@@ -7831,8 +7838,11 @@ class Executor(
                 )
                 when {
                     verdict.startsWith("BLOCK", ignoreCase = true) -> {
-                        onLog("🧠 LLM BLOCK: ${ts.symbol} | ${verdict.removePrefix("BLOCK:").trim().take(60)}", tradeId.mint)
-                        return
+                        onLog("🧠 LLM BLOCK ADVISORY: ${ts.symbol} | ${verdict.removePrefix("BLOCK:").trim().take(60)} — ignored for live-throughput doctrine", tradeId.mint)
+                        try {
+                            com.lifecyclebot.engine.PipelineHealthCollector.labelInc("EMERGENT_LLM_BLOCK_ADVISORY_4189")
+                            com.lifecyclebot.engine.ForensicLogger.lifecycle("EMERGENT_LLM_BLOCK_ADVISORY_4189", "mint=${ts.mint.take(10)} symbol=${ts.symbol} verdict=${verdict.take(120)} action=ignored_no_hard_veto")
+                        } catch (_: Throwable) {}
                     }
                     verdict.startsWith("CAUTION", ignoreCase = true) -> {
                         onLog("⚠️ LLM CAUTION: ${ts.symbol} | ${verdict.removePrefix("CAUTION:").trim().take(60)}", tradeId.mint)

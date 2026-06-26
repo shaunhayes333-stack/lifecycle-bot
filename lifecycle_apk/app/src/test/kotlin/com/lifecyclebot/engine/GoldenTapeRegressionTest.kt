@@ -2290,6 +2290,7 @@ class GoldenTapeRegressionTest {
         assertTrue("Birdeye report denominator must come from BirdeyeBudgetGate snapshot, not stale hardcoded 5M", gate.contains("monthlyCap = MONTHLY_CAP") && pipe.contains("bsnap.monthlyCap") && !pipe.contains("/5,000,000"))
         assertTrue("Birdeye daily cap must throttle provider calls, not globally block live entries", gate.contains("live entries are hard-paused only on monthly/provider exhaustion") && gate.contains("return EMERGENCY_CONSERVATION_MODE || monthlyPct >= MONTHLY_LOCKDOWN_PCT") && !gate.contains("return configuredDailyPct >= 1.0 || monthlyPct >= MONTHLY_LOCKDOWN_PCT"))
         assertTrue("Provider lockdown report must not mark provider locked solely because daily app-local CU cap is hit", gate.contains("providerLockedDown = EMERGENCY_CONSERVATION_MODE || monthlyPct >= MONTHLY_LOCKDOWN_PCT"))
+        assertTrue("Birdeye 5xx/network provider brownout must skip Birdeye hot-path calls fail-open instead of burning latency", gate.contains("isProviderBrownoutActive") && gate.contains("failures5xx.get() + st.networkErrors.get()") && gate.contains("BIRDEYE_PROVIDER_BROWNOUT_4189") && gate.contains("if (isProviderBrownoutActive()) return false"))
     }
 
     @Test
@@ -2461,6 +2462,14 @@ class GoldenTapeRegressionTest {
                 exec.contains("LIVE_BUY_REJECTED_HARD_BLOCK_EXPOSURE_CAP") &&
                 exec.contains("LIVE_BUY_REJECTED_HARD_BLOCK_WALLET_NULL")
         )
+    }
+
+    @Test
+    fun external_llm_must_be_advisory_not_hard_buy_veto() {
+        val exec = java.io.File("src/main/kotlin/com/lifecyclebot/engine/Executor.kt").readText()
+        val buyBlock = exec.substring(exec.indexOf("internal fun doBuy"), exec.indexOf("// V5.9.401 — Sentience hook #7"))
+        assertTrue("Sentience pre-trade veto must be advisory telemetry only", buyBlock.contains("SENTIENCE_VETO_ADVISORY_4189") && buyBlock.contains("ignored_no_hard_veto") && !buyBlock.contains("LLM SENTIENCE VETO"))
+        assertTrue("Emergent LLM BLOCK must not return before live buy", buyBlock.contains("EMERGENT_LLM_BLOCK_ADVISORY_4189") && buyBlock.contains("LLM BLOCK ADVISORY") && !buyBlock.contains("🧠 LLM BLOCK: ${'$'}{ts.symbol}"))
     }
 
     @Test
