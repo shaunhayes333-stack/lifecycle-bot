@@ -88,11 +88,29 @@ object PumpPortalThrottle {
             droppedTrades.incrementAndGet()
             return false
         }
+        // V5.0.4173 — TRADE SCOPING (pick 3): the meme trader only needs
+        // trade events for tokens it ACTUALLY HOLDS (to react to dumps
+        // and bank winners). Watchlist candidates have score-driven entry
+        // logic that doesn't depend on the trade firehose. This cuts the
+        // largest single bandwidth source (every pump.fun trade on every
+        // subscribed mint) down to just trades on our open bags.
+        //
+        // SAFETY: fail-open on any registry error so we never lose a
+        // trade event we genuinely need.
         val tracked = try {
-            // Watchlist is bounded at ~500, so a linear any() is cheap and
-            // avoids exposing a new public API on GlobalTradeRegistry.
-            GlobalTradeRegistry.getWatchlistEntries().any { it.mint == mint }
-        } catch (_: Throwable) { true /* fail-open: never lose a trade event due to registry error */ }
+            val hasOpenPosition = GlobalTradeRegistry.getOpenPositions().any { it.mint == mint }
+            if (hasOpenPosition) {
+                true
+            } else {
+                // Still allow for the first 60s of a watchlist entry's
+                // life — that's the meme trader's "decide whether to
+                // buy" window where trade flow IS informative.
+                val entry = GlobalTradeRegistry.getWatchlistEntries().firstOrNull { it.mint == mint }
+                val freshWindow = entry != null &&
+                    (System.currentTimeMillis() - entry.addedAt) < 60_000L
+                freshWindow
+            }
+        } catch (_: Throwable) { true /* fail-open */ }
         if (tracked) passedTrades.incrementAndGet() else droppedTrades.incrementAndGet()
         return tracked
     }

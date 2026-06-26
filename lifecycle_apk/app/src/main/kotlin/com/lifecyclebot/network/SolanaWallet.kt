@@ -758,6 +758,18 @@ class SolanaWallet(privateKeyB58: String, val rpcUrl: String) {
      * failure must not poison an otherwise successful SPL wallet snapshot.
      */
     fun getTokenAccountsWithDecimalsStrict(): Map<String, Pair<Double, Int>> {
+        // V5.0.4173 — WALLET CACHE 5s. Operator dump: 281 GB / 29 days.
+        // This RPC fires every cycle (~6s) returning the full wallet SPL
+        // state (5–100 KB payload) — across a day that's ~14,400 calls
+        // × ~30 KB = ~430 MB/day re-reading state that almost never
+        // changes mid-cycle. 5s TTL is conservative (half the 10s default)
+        // to keep wallet reads fresh enough for the meme trader's exit
+        // timing while still cutting traffic ~80% on this path.
+        //
+        // Cache is BUSTED by sell/buy post-broadcast paths via
+        // WalletAccountCache.bustNow(), so confirmed trades never stale.
+        com.lifecyclebot.engine.WalletAccountCache.snapshot(ttlMs = 5_000L)?.let { return it }
+
         val TOKEN_PROGRAM    = "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA"
         val TOKEN_2022_PROG  = "TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb"
         val out = mutableMapOf<String, Pair<Double, Int>>()
@@ -814,6 +826,9 @@ class SolanaWallet(privateKeyB58: String, val rpcUrl: String) {
             try { com.lifecyclebot.engine.ForensicLogger.lifecycle("WALLET_TOKEN_2022_OPTIONAL_FAILED", "action=continue_with_spl successPrograms=1/2 failures=${failures.joinToString(";").take(180)}") } catch (_: Throwable) {}
         }
         try { com.lifecyclebot.engine.ForensicLogger.lifecycle("WALLET_TOKENS_ROBUST_OK", "spl=true token2022=$token2022Ok count=${out.size}") } catch (_: Throwable) {}
+        // V5.0.4173 — populate the wallet snapshot cache so subsequent
+        // reads within 5s skip the RPC entirely.
+        try { com.lifecyclebot.engine.WalletAccountCache.put(out.toMap()) } catch (_: Throwable) {}
         return out
     }
 

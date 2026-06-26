@@ -193,7 +193,7 @@ object WalletAccountCache {
     private const val DEFAULT_TTL_MS = 10_000L
 
     @Volatile private var cachedAtMs: Long = 0L
-    @Volatile private var cachedSnapshotJson: String? = null
+    @Volatile private var cachedTokens: Map<String, Pair<Double, Int>>? = null
 
     private val hits = AtomicLong(0L)
     private val misses = AtomicLong(0L)
@@ -203,10 +203,10 @@ object WalletAccountCache {
      * Returns cached snapshot if within TTL, null otherwise.
      * Callers fetch from RPC on null and call [put] with the result.
      */
-    fun snapshot(ttlMs: Long = DEFAULT_TTL_MS): String? {
+    fun snapshot(ttlMs: Long = DEFAULT_TTL_MS): Map<String, Pair<Double, Int>>? {
         val now = System.currentTimeMillis()
         val ageMs = now - cachedAtMs
-        val snap = cachedSnapshotJson
+        val snap = cachedTokens
         return if (snap != null && ageMs < ttlMs) {
             hits.incrementAndGet()
             snap
@@ -217,15 +217,15 @@ object WalletAccountCache {
     }
 
     /** Store a fresh snapshot. */
-    fun put(json: String) {
-        cachedSnapshotJson = json
+    fun put(tokens: Map<String, Pair<Double, Int>>) {
+        cachedTokens = tokens
         cachedAtMs = System.currentTimeMillis()
     }
 
     /** Force-invalidate. Called by sell/buy post-broadcast paths. */
     fun bustNow() {
         cachedAtMs = 0L
-        cachedSnapshotJson = null
+        cachedTokens = null
         busts.incrementAndGet()
     }
 

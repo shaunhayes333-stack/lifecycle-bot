@@ -4873,6 +4873,10 @@ class Executor(
                         mint = ts.mint, sig = finalSig,
                         solReceived = solBack, walletTokenAfter = walletAfter,
                     )
+                    // V5.0.4173 — bust wallet account cache after live-sell
+                    // settlement so the next wallet read shows the position
+                    // gone immediately (no 5s lag).
+                    try { com.lifecyclebot.engine.WalletAccountCache.bustNow() } catch (_: Throwable) {}
                     val phase = when {
                         walletAfter == null -> LiveTradeLogStore.Phase.SELL_STUCK
                         walletAfter > 0.000_001 -> LiveTradeLogStore.Phase.SELL_VERIFY_TOKEN_GONE  // misleading legacy name; partial
@@ -11212,6 +11216,10 @@ class Executor(
                 try {
                     TokenLifecycleTracker.onBuyPending(ts.mint, ts.symbol, pumpVenue, effectiveSol)
                     TokenLifecycleTracker.onBuyConfirmed(ts.mint, sig)
+                    // V5.0.4173 — bust the wallet account cache so the next
+                    // wallet read sees the new bag (cache TTL is 5s; this
+                    // bust makes the new position visible immediately).
+                    com.lifecyclebot.engine.WalletAccountCache.bustNow()
                     // V5.0.3972 — source fix for LIVE_BUY_CONFIRMED_NOT_VISIBLE.
                     // A confirmed buy is live wallet liability immediately. Do not
                     // wait for later price/journal/verifier branches to create the
