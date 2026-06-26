@@ -1934,12 +1934,14 @@ object FinalDecisionGate {
             // slow under load — not actually flagging these tokens as rugs.
             // TokenSafetyChecker / FDG safety layer still run independently
             // (top-holder, freeze authority, LP locked, etc). Downgrade ONLY
-            // the rugcheck timeout/pending fallback path from HARD → SOFT so
+            // the rugcheck timeout/pending fallback path from HARD → SIZE so
             // the bot probes with reduced size instead of hard-rejecting.
             // CONFIRMED-but-low-score still gets HARD_BLOCK (rugcheck
-            // explicitly said it's risky).
+            // explicitly said it's risky). BlockLevel.SIZE is the existing
+            // downsize-probe level used by the FDG (HARD/EDGE/CONFIDENCE/MODE/
+            // SIZE are the five legal levels).
             blockLevel = when (rugcheckStatus) {
-                "TIMEOUT", "PENDING_REVIEW" -> BlockLevel.SOFT
+                "TIMEOUT", "PENDING_REVIEW" -> BlockLevel.SIZE
                 else -> BlockLevel.HARD
             }
 
