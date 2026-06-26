@@ -23,6 +23,12 @@ jobs:
       - uses: android-actions/setup-android@v3
         with:
           accept-android-sdk-licenses: true
+          # V5.0.4203 — build job does not need the Android Emulator.
+          # setup-android's broad default package install can fetch emulator
+          # zips; 4202 failed before compile on a corrupt emulator archive
+          # ("ZipFile unknown archive"). Install only the SDK packages required
+          # for compileSdk/targetSdk 34 so APK CI stops depending on emulator CDN.
+          packages: 'platform-tools platforms;android-34 build-tools;34.0.0'
 
       # CI infra hardening: cache the Gradle distribution + deps so a transient
       # outage on the gradle-distributions CDN (observed: repeated HTTP 504 /
