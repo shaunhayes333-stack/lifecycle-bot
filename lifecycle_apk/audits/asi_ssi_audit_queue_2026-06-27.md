@@ -162,6 +162,7 @@ North star: realized live wallet growth toward the operator's daily 2x-5x compou
 - Expected impact: improves loop heartbeat frequency and reduces runtime “frozen” false impressions.
 
 ### A30 — Capital Efficiency Feedback Loop
+- Status: implemented in V5.0.4281 as `CapitalEfficiencyBrain`, terminal SELL pnlSol/SOL-minute learner with bounded sizing multiplier.
 - Add a realized-capital-efficiency metric: pnlSol per SOL-minute, per lane/source/size band.
 - Feed AutoCompound/SmartSizer as a bounded preference for faster-capital-turnover winners, while preserving runner exceptions.
 - Expected impact: better daily wallet growth, not just higher WR.

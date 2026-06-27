@@ -3142,6 +3142,7 @@ class Executor(
             val _fanoutIsPaper    = isPaperRT()
             val _fanoutEntryTime  = ts.position.entryTime
             val _fanoutTradingMode = (ts.position.tradingMode ?: "").uppercase()
+            val _fanoutSource     = ts.source
             val _fanoutEntryPrice = ts.position.entryPrice
             val _fanoutExitPrice  = trade.price
             val _fanoutEntryScore = ts.entryScore
@@ -3163,6 +3164,7 @@ class Executor(
                         } catch (_: Exception) {}
                     }
                     if (_fanoutSide == "SELL") {
+                        try { CapitalEfficiencyBrain.recordTerminalTrade(trade, _fanoutTradingMode, _fanoutSource) } catch (_: Throwable) {}
                         val holdTimeMs = if (_fanoutEntryTime > 0) System.currentTimeMillis() - _fanoutEntryTime else 0L
                         val _fluidTm = _fanoutTradingMode
                         val isMemeBaseClose = _fluidTm.isBlank() || _fluidTm !in setOf(
@@ -8322,8 +8324,12 @@ class Executor(
                 PipelineHealthCollector.labelInc("REGIME_VOL_EXECUTOR_SIZE_SHAPED_4268")
             } catch (_: Throwable) {}
         }
+        val capitalEfficiencySizeMult = try { CapitalEfficiencyBrain.sizeMultiplier(laneKeyForAgi, ts.source, isRunnerCandidate = laneKeyForAgi.contains("MOON") || score >= 75.0) } catch (_: Throwable) { 1.0 }
+        if (capitalEfficiencySizeMult != 1.0) {
+            try { ForensicLogger.lifecycle("CAPITAL_EFFICIENCY_SIZE_SHAPED_4281", "mint=${ts.mint.take(10)} symbol=${ts.symbol} lane=$laneKeyForAgi source=${ts.source} mult=${capitalEfficiencySizeMult.fmt(3)}") } catch (_: Throwable) {}
+        }
         val multiplierProductRaw = sizeMult * labMult * laneEvMult * regimeMultGoosed * laneSizeCap * brainSizeMult *
-            strategyTunerSizeMult * sourceBrainSizeMult * uphConvictionMult * hypothesisSizeMult * paperLiveBridgeMult * shadowVariantSizeMult * superBrainSizeMult * metaCognitionSizeMult * regimeVolSizeMult
+            strategyTunerSizeMult * sourceBrainSizeMult * uphConvictionMult * hypothesisSizeMult * paperLiveBridgeMult * shadowVariantSizeMult * superBrainSizeMult * metaCognitionSizeMult * regimeVolSizeMult * capitalEfficiencySizeMult
         try {
             MultiplierAttributionLedger.recordEntry(
                 mode = if (RuntimeModeAuthority.isPaper()) "paper" else "live",

@@ -4773,4 +4773,14 @@ class GoldenTapeRegressionTest {
         assertTrue("V5.0.4280: A29 UI/ANR patch must not touch executor or ledger authority", !main.contains("requestSell(") && !main.contains("executeBuy("))
     }
 
+    @Test
+    fun capitalEfficiencyBrain4281PersistsAndSoftShapesSizingOnly() {
+        val brain = java.io.File("src/main/kotlin/com/lifecyclebot/engine/CapitalEfficiencyBrain.kt").readText()
+        val exec = java.io.File("src/main/kotlin/com/lifecyclebot/engine/Executor.kt").readText()
+        val persistence = java.io.File("src/main/kotlin/com/lifecyclebot/engine/LearningPersistence.kt").readText()
+        assertTrue("V5.0.4281: CapitalEfficiencyBrain must learn pnlSol per SOL-minute from terminal SELL outcomes", brain.contains("pnl / (sol * holdMin") && exec.contains("CapitalEfficiencyBrain.recordTerminalTrade"))
+        assertTrue("V5.0.4281: capital-efficiency sizing must stay bounded and runner-safe", brain.contains("coerceIn(0.92, 1.08)") && brain.contains("isRunnerCandidate") && exec.contains("CAPITAL_EFFICIENCY_SIZE_SHAPED_4281"))
+        assertTrue("V5.0.4281: CapitalEfficiencyBrain state must persist through LearningPersistence", brain.contains("exportState") && brain.contains("importState") && persistence.contains("CAPITAL_EFFICIENCY"))
+    }
+
 }
