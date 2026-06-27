@@ -4458,4 +4458,13 @@ class GoldenTapeRegressionTest {
         assertTrue("V5.0.4238: SemanticPatternGraph must persist through LearningPersistence", graph.contains("exportState") && graph.contains("importState") && persistence.contains("SEMANTIC_PATTERN_GRAPH"))
     }
 
+    @Test
+    fun counterfactualReplay4239IsOfflinePersistentExitAlternativeMemory() {
+        val replay = java.io.File("src/main/kotlin/com/lifecyclebot/engine/CounterfactualReplayEngine.kt").readText()
+        val persistence = java.io.File("src/main/kotlin/com/lifecyclebot/engine/LearningPersistence.kt").readText()
+        assertTrue("V5.0.4239: CounterfactualReplayEngine must define terminal-trade replay alternatives", replay.contains("object CounterfactualReplayEngine") && replay.contains("ReplayAlternative") && replay.contains("BANK_25") && replay.contains("TRAIL_RUNNER") && replay.contains("HARD_STOP_15"))
+        assertTrue("V5.0.4239: Counterfactual replay must remain offline-only and never rewrite journal truth", replay.contains("recordTerminalTrade") && replay.contains("offline_only=true") && !replay.contains("recordTrade(") && !replay.contains("doSell("))
+        assertTrue("V5.0.4239: CounterfactualReplayEngine must persist through LearningPersistence", replay.contains("exportState") && replay.contains("importState") && persistence.contains("COUNTERFACTUAL_REPLAY"))
+    }
+
 }

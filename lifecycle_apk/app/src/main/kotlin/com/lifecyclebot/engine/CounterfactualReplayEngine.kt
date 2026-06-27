@@ -1,0 +1,118 @@
+package com.lifecyclebot.engine
+
+import org.json.JSONArray
+import org.json.JSONObject
+import java.util.concurrent.CopyOnWriteArrayList
+import kotlin.math.max
+import kotlin.math.min
+
+/** V5.0.4239 — offline counterfactual exit replay. */
+object CounterfactualReplayEngine {
+    enum class AlternativeKind { BANK_25, BANK_50, TRAIL_RUNNER, HARD_STOP_15, HOLD_TO_PEAK_HALF }
+
+    data class ReplayAlternative(
+        val kind: AlternativeKind,
+        val hypotheticalPnlPct: Double,
+        val deltaVsRealizedPct: Double,
+        val note: String,
+    )
+
+    data class ReplayCase(
+        val id: String,
+        val lane: String,
+        val exitReason: String,
+        val realizedPnlPct: Double,
+        val peakGainPct: Double,
+        val maxLossPct: Double,
+        val holdSeconds: Long,
+        val alternatives: List<ReplayAlternative>,
+        val createdAtMs: Long = System.currentTimeMillis(),
+    )
+
+    private const val MAX_CASES = 500
+    private val cases = CopyOnWriteArrayList<ReplayCase>()
+
+    fun recordTerminalTrade(lane: String, exitReason: String, realizedPnlPct: Double, peakGainPct: Double, maxLossPct: Double = 0.0, holdSeconds: Long = 0L): String {
+        val realized = realizedPnlPct.coerceIn(-500.0, 100_000.0)
+        val peak = peakGainPct.coerceIn(-100.0, 250_000.0)
+        val loss = maxLossPct.coerceIn(-500.0, 0.0)
+        val alternatives = buildAlternatives(realized, peak, loss)
+        if (alternatives.isEmpty()) return ""
+        val id = stableId(lane, exitReason, realized, peak, loss, holdSeconds)
+        val replay = ReplayCase(id, lane.uppercase().take(32), exitReason.uppercase().take(96), realized, peak, loss, holdSeconds.coerceAtLeast(0L), alternatives)
+        synchronized(cases) {
+            cases.removeAll { it.id == id }
+            cases.add(replay)
+            while (cases.size > MAX_CASES) cases.removeAt(0)
+        }
+        return id
+    }
+
+    fun bestMissedAlternatives(lane: String = "", limit: Int = 12): List<ReplayCase> = synchronized(cases) {
+        cases.asSequence()
+            .filter { lane.isBlank() || it.lane.equals(lane, ignoreCase = true) }
+            .filter { c -> c.alternatives.any { it.deltaVsRealizedPct >= 8.0 } }
+            .sortedByDescending { c -> c.alternatives.maxOfOrNull { it.deltaVsRealizedPct } ?: 0.0 }
+            .take(limit.coerceIn(1, 50))
+            .toList()
+    }
+
+    fun policyHints(lane: String = ""): String = synchronized(cases) {
+        val sample = bestMissedAlternatives(lane, 20)
+        if (sample.isEmpty()) return@synchronized "CounterfactualReplayEngine: no missed exit alternatives"
+        val grouped = sample.flatMap { it.alternatives.filter { a -> a.deltaVsRealizedPct >= 8.0 } }
+            .groupBy { it.kind }
+            .mapValues { (_, alts) -> alts.map { it.deltaVsRealizedPct }.average() }
+            .entries.sortedByDescending { it.value }
+        val top = grouped.take(3).joinToString { entry -> entry.key.name + ':' + String.format(java.util.Locale.US, "%.1f", entry.value) }
+        "CounterfactualReplayEngine: cases=${cases.size} top=$top offline_only=true"
+    }
+
+    fun reset() { synchronized(cases) { cases.clear() } }
+
+    fun exportState(): String = synchronized(cases) {
+        val arr = JSONArray()
+        cases.takeLast(MAX_CASES).forEach { c ->
+            val alts = JSONArray()
+            c.alternatives.forEach { a -> alts.put(JSONObject().put("kind", a.kind.name).put("hypo", a.hypotheticalPnlPct).put("delta", a.deltaVsRealizedPct).put("note", a.note)) }
+            arr.put(JSONObject().put("id", c.id).put("lane", c.lane).put("exitReason", c.exitReason).put("realized", c.realizedPnlPct).put("peak", c.peakGainPct).put("loss", c.maxLossPct).put("holdSeconds", c.holdSeconds).put("createdAt", c.createdAtMs).put("alternatives", alts))
+        }
+        JSONObject().put("cases", arr).toString()
+    }
+
+    fun importState(raw: String?) {
+        if (raw.isNullOrBlank()) return
+        try {
+            val arr = JSONObject(raw).optJSONArray("cases") ?: JSONArray()
+            val restored = mutableListOf<ReplayCase>()
+            for (i in 0 until arr.length()) {
+                val c = arr.optJSONObject(i) ?: continue
+                val altsJson = c.optJSONArray("alternatives") ?: JSONArray()
+                val alts = mutableListOf<ReplayAlternative>()
+                for (j in 0 until altsJson.length()) {
+                    val a = altsJson.optJSONObject(j) ?: continue
+                    val kind = runCatching { AlternativeKind.valueOf(a.optString("kind")) }.getOrDefault(AlternativeKind.TRAIL_RUNNER)
+                    alts.add(ReplayAlternative(kind, a.optDouble("hypo", 0.0), a.optDouble("delta", 0.0), a.optString("note")))
+                }
+                restored.add(ReplayCase(c.optString("id"), c.optString("lane"), c.optString("exitReason"), c.optDouble("realized", 0.0), c.optDouble("peak", 0.0), c.optDouble("loss", 0.0), c.optLong("holdSeconds", 0L), alts, c.optLong("createdAt", System.currentTimeMillis())))
+            }
+            synchronized(cases) { cases.clear(); cases.addAll(restored.filter { it.id.isNotBlank() && it.alternatives.isNotEmpty() }.takeLast(MAX_CASES)) }
+        } catch (_: Throwable) {}
+    }
+
+    private fun buildAlternatives(realized: Double, peak: Double, loss: Double): List<ReplayAlternative> {
+        val out = mutableListOf<ReplayAlternative>()
+        fun add(kind: AlternativeKind, hypo: Double, note: String) { val h = hypo.coerceIn(-500.0, 250_000.0); out.add(ReplayAlternative(kind, h, h - realized, note)) }
+        if (peak >= 25.0) add(AlternativeKind.BANK_25, 25.0, "Bank fixed 25% once available")
+        if (peak >= 50.0) add(AlternativeKind.BANK_50, 50.0, "Bank fixed 50% once available")
+        if (peak >= 100.0) add(AlternativeKind.TRAIL_RUNNER, max(35.0, peak * 0.38), "Trail runner instead of full giveback")
+        if (realized < -15.0 || loss <= -15.0) add(AlternativeKind.HARD_STOP_15, -15.0, "Respect unconditional hard floor")
+        if (peak > realized + 20.0) add(AlternativeKind.HOLD_TO_PEAK_HALF, min(peak * 0.5, peak - 5.0), "Capture half of observed peak excursion")
+        return out.sortedByDescending { it.deltaVsRealizedPct }.take(5)
+    }
+
+    private fun stableId(vararg parts: Any): String {
+        val raw = parts.joinToString("|") { it.toString().take(80) }
+        return "cfreplay_" + java.lang.Long.toUnsignedString(raw.hashCode().toLong() xor raw.length.toLong())
+    }
+}
