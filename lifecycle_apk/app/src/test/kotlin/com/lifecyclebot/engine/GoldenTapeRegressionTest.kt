@@ -4429,4 +4429,13 @@ class GoldenTapeRegressionTest {
         assertTrue("V5.0.4235: symbolic source contracts must all pass: ${failed.joinToString { it.id + ":" + it.detail }}", failed.isEmpty())
     }
 
+    @Test
+    fun asyncStrategyLab4236IsPersistentAndBackgroundOnly() {
+        val lab = java.io.File("src/main/kotlin/com/lifecyclebot/engine/AsyncStrategyLab.kt").readText()
+        val persistence = java.io.File("src/main/kotlin/com/lifecyclebot/engine/LearningPersistence.kt").readText()
+        assertTrue("V5.0.4236: AsyncStrategyLab must support free-tier provider abstraction without direct hot-path API calls", lab.contains("enum class Provider") && lab.contains("GEMINI_FREE") && lab.contains("GROQ_FREE") && lab.contains("backgroundOnly") && lab.contains("looksHotPath"))
+        assertTrue("V5.0.4236: AsyncStrategyLab learned proposal queue must persist", lab.contains("exportState") && lab.contains("importState") && persistence.contains("ASYNC_STRATEGY_LAB"))
+        assertTrue("V5.0.4236: AsyncStrategyLab must feed hypotheses only as reviewable proposals", lab.contains("submitBackgroundHypothesis") && lab.contains("rollbackCondition") && lab.contains("symbolicChecked") && !lab.contains("executeBuy") && !lab.contains("FinalDecisionGate.evaluate("))
+    }
+
 }
