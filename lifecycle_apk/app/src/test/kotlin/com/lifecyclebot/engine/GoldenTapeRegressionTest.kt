@@ -4516,4 +4516,12 @@ class GoldenTapeRegressionTest {
         assertFalse("V5.0.4245: reviewed lab bias must not introduce hard veto or zero sizing", lab.contains("return 0.0") || hyp.contains("return 0.0"))
     }
 
+    @Test
+    fun asyncStrategyLab4246CanPromoteExistingHypothesisAfterSymbolicReview() {
+        val lab = java.io.File("src/main/kotlin/com/lifecyclebot/engine/AsyncStrategyLab.kt").readText()
+        assertTrue("V5.0.4246: AsyncStrategyLab must expose symbolic review promotion for stored hypotheses", lab.contains("fun markSymbolicReviewed") && lab.contains("copy(") && lab.contains("symbolicChecked = true") && lab.contains("proofDetail"))
+        assertTrue("V5.0.4246: symbolic review promotion must keep hot-path guard and background-only invariant", lab.contains("it.id == id && it.backgroundOnly") && lab.contains("looksHotPath(h.proposal)") && lab.contains("markLatestSymbolicReviewed"))
+        assertFalse("V5.0.4246: symbolic review promotion must not auto-execute buys or FDG decisions", lab.contains("executeBuy") || lab.contains("FinalDecisionGate.evaluate("))
+    }
+
 }

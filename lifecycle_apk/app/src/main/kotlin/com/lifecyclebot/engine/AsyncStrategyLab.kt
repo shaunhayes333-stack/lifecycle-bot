@@ -110,6 +110,32 @@ object AsyncStrategyLab {
     }
 
     /**
+     * V5.0.4246 — symbolic review promotion hook.
+     * Reviewers/provers can promote an existing stored hypothesis into the tiny
+     * reviewedSizeBias apply layer without mutating scanner/FDG/executor paths.
+     */
+    fun markSymbolicReviewed(id: String, proofDetail: String = "symbolic_review_passed"): Boolean = synchronized(accepted) {
+        try {
+            val idx = accepted.indexOfFirst { it.id == id && it.backgroundOnly }
+            if (idx < 0) return@synchronized false
+            val h = accepted[idx]
+            if (looksHotPath(h.proposal) || looksHotPath(h.expectedMetric) || looksHotPath(h.rollbackCondition)) return@synchronized false
+            val reviewed = h.copy(
+                symbolicChecked = true,
+                rollbackCondition = (h.rollbackCondition + " | proof=" + proofDetail.take(120)).take(400),
+            )
+            accepted[idx] = reviewed
+            true
+        } catch (_: Throwable) { false }
+    }
+
+    fun markLatestSymbolicReviewed(lane: String, proofDetail: String = "symbolic_review_passed"): Boolean = synchronized(accepted) {
+        val laneKey = lane.uppercase().take(24)
+        val item = accepted.lastOrNull { it.backgroundOnly && !it.symbolicChecked && (it.lane == laneKey || it.lane == "ALL") } ?: return@synchronized false
+        markSymbolicReviewed(item.id, proofDetail)
+    }
+
+    /**
      * V5.0.4245 — reviewed proposal apply layer.
      * Only symbolic-checked, background-only, lane-matched hypotheses may add a
      * tiny size multiplier. Unreviewed provider/GEPA proposals remain stored for
