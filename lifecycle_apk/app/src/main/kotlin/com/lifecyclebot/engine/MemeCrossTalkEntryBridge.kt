@@ -17,6 +17,10 @@ object MemeCrossTalkEntryBridge {
         val confDelta = signal.confidenceBoost.coerceIn(-8.0, 8.0)
         val shapedConfidence = (confidenceFloor + confDelta).coerceIn(0.0, 100.0)
         val sizeMult = signal.sizeMultiplier.coerceIn(0.72, 1.18)
+        // V5.0.4304 — stamp the exact cross-talk signal that shaped entry so
+        // terminal learning credits the right teacher instead of recomputing a
+        // different signal at close.
+        try { AICrossTalk.stampEntrySignal(ts.mint, lane, signal) } catch (_: Throwable) {}
         return EntryShape(
             lane = lane.uppercase().take(32),
             confidenceFloor = shapedConfidence,

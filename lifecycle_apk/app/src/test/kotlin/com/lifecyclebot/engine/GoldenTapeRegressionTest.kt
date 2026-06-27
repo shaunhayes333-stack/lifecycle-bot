@@ -4985,4 +4985,15 @@ class GoldenTapeRegressionTest {
         assertTrue("V5.0.4303: meme-specific registered Harvard layers must not default to generic lane learning", lanes.contains("V5.0.4303") && lanes.contains("\"QualityTraderAI\"             to MEME") && lanes.contains("\"ProjectSniperAI\"             to MEME") && lanes.contains("\"ShitCoinExpress\"             to MEME"))
     }
 
+
+    @Test
+    fun crossTalk4304CreditsEntrySignalNotCloseTimeRecompute() {
+        val xt = java.io.File("src/main/kotlin/com/lifecyclebot/engine/AICrossTalk.kt").readText()
+        val bridge = java.io.File("src/main/kotlin/com/lifecyclebot/engine/MemeCrossTalkEntryBridge.kt").readText()
+        val exec = java.io.File("src/main/kotlin/com/lifecyclebot/engine/Executor.kt").readText()
+        assertTrue("V5.0.4304: cross-talk must stamp event-local entry signal keyed by mint+lane", xt.contains("V5.0.4304") && xt.contains("entrySignalByMintLane") && xt.contains("entryStampKey") && xt.contains("stampEntrySignal"))
+        assertTrue("V5.0.4304: meme entry bridge must stamp the exact signal that shaped entry", bridge.contains("stampEntrySignal(ts.mint, lane, signal)") && bridge.contains("terminal learning credits the right teacher"))
+        assertTrue("V5.0.4304: terminal learning must credit stamped entry signal, not recompute AICrossTalk at close", exec.contains("recordStampedEntryOutcome(ts.mint") && exec.contains("credits the wrong teacher") && !exec.contains("val crossTalkSignal = AICrossTalk.analyzeCrossTalk(ts, isOpenPosition = false)"))
+    }
+
 }

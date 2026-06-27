@@ -58,6 +58,14 @@ object AICrossTalk {
 
     private data class CachedCrossTalk(val signal: CrossTalkSignal, val timestamp: Long)
 
+    private data class EntryCrossTalkStamp(
+        val signalType: SignalType,
+        val lane: String,
+        val confidenceBoost: Double,
+        val sizeMultiplier: Double,
+        val timestamp: Long,
+    )
+
     private data class SignalCandidate(
         val signal: CrossTalkSignal,
         val priority: Int,
@@ -78,7 +86,12 @@ object AICrossTalk {
     private var metaCognitionWeight = 1.2
 
     private val crossTalkCache = ConcurrentHashMap<String, CachedCrossTalk>()
+    // V5.0.4304 — event-local cross-talk attribution. Entry shaping must be
+    // credited using the signal that actually influenced the buy, not a new
+    // close-time analysis after the market regime/liquidity/narrative changed.
+    private val entrySignalByMintLane = ConcurrentHashMap<String, EntryCrossTalkStamp>()
     private const val CACHE_TTL_MS = 5000L
+    private const val ENTRY_SIGNAL_TTL_MS = 6L * 60L * 60L * 1000L
 
     fun analyzeCrossTalk(mint: String, symbol: String, isOpenPosition: Boolean): CrossTalkSignal =
         analyzeCrossTalk(mint = mint, symbol = symbol, isOpenPosition = isOpenPosition, lane = null)
@@ -812,6 +825,49 @@ object AICrossTalk {
         )
     }
 
+
+
+    private fun entryStampKey(mint: String, lane: String): String = "${mint}:${lane.uppercase().take(32)}"
+
+    fun stampEntrySignal(mint: String, lane: String, signal: CrossTalkSignal) {
+        if (mint.isBlank() || signal.signalType == SignalType.NO_CORRELATION) return
+        val laneKey = lane.uppercase().take(32)
+        entrySignalByMintLane[entryStampKey(mint, laneKey)] = EntryCrossTalkStamp(
+            signalType = signal.signalType,
+            lane = laneKey,
+            confidenceBoost = signal.confidenceBoost,
+            sizeMultiplier = signal.sizeMultiplier,
+            timestamp = System.currentTimeMillis(),
+        )
+        try {
+            ErrorLogger.info("CrossTalk", "🔗📌 CROSSTALK_ENTRY_STAMP_4304: mint=${mint.take(10)} lane=${lane.uppercase().take(32)} signal=${signal.signalType} conf=${signal.confidenceBoost.toInt()} size=${"%.2f".format(signal.sizeMultiplier)}")
+        } catch (_: Throwable) {}
+    }
+
+    fun recordStampedEntryOutcome(mint: String, pnlPct: Double, wasProfit: Boolean, lane: String = ""): Boolean {
+        if (mint.isBlank()) return false
+        val laneKey = lane.uppercase().take(32)
+        val exactStamp = if (laneKey.isNotBlank()) {
+            entrySignalByMintLane.remove(entryStampKey(mint, laneKey))
+        } else null
+        val fallbackStamp = if (exactStamp == null) {
+            entrySignalByMintLane.entries.firstOrNull { it.key.startsWith("$mint:") }?.let { e ->
+                entrySignalByMintLane.remove(e.key)
+            }
+        } else null
+        val stamped = exactStamp ?: fallbackStamp ?: return false
+        val ageMs = System.currentTimeMillis() - stamped.timestamp
+        if (ageMs > ENTRY_SIGNAL_TTL_MS) {
+            try { ErrorLogger.debug("CrossTalk", "CROSSTALK_ENTRY_STAMP_EXPIRED_4304 mint=${mint.take(10)} signal=${stamped.signalType} ageMs=$ageMs") } catch (_: Throwable) {}
+            return false
+        }
+        recordOutcome(stamped.signalType, pnlPct, wasProfit)
+        try {
+            ErrorLogger.info("CrossTalk", "🔗🎓 CROSSTALK_ENTRY_OUTCOME_4304: mint=${mint.take(10)} lane=${stamped.lane} signal=${stamped.signalType} pnl=${pnlPct.toInt()}% win=$wasProfit")
+        } catch (_: Throwable) {}
+        return true
+    }
+
     fun shouldCheckModeSwitch(
         mint: String,
         mcapChange: Double,
@@ -899,6 +955,9 @@ object AICrossTalk {
         val now = System.currentTimeMillis()
         crossTalkCache.entries.removeIf { (_, cached) ->
             (now - cached.timestamp) > CACHE_TTL_MS * 2
+        }
+        entrySignalByMintLane.entries.removeIf { (_, stamped) ->
+            (now - stamped.timestamp) > ENTRY_SIGNAL_TTL_MS
         }
     }
 }

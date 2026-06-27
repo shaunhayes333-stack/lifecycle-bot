@@ -15336,10 +15336,9 @@ class Executor(
         } catch (_: Exception) {}
         
         try {
-            val crossTalkSignal = AICrossTalk.analyzeCrossTalk(ts, isOpenPosition = false)
-            if (crossTalkSignal.signalType != AICrossTalk.SignalType.NO_CORRELATION) {
-                AICrossTalk.recordOutcome(crossTalkSignal.signalType, pnlP, pnlP > 0)
-            }
+            // V5.0.4304 — credit the entry-time cross-talk signal that actually
+            // shaped the trade. Recomputing at close credits the wrong teacher.
+            AICrossTalk.recordStampedEntryOutcome(ts.mint, pnlP, pnlP > 0, ts.position.tradingMode)
         } catch (_: Exception) {}
         } // end _psIsMemeBase gate (V5.9.390)
         
@@ -18037,10 +18036,9 @@ class Executor(
         try { LiquidityDepthAI.clearEntryLiquidity(ts.mint) } catch (_: Exception) {}
         
         try {
-            val crossTalkSignal = AICrossTalk.analyzeCrossTalk(ts, isOpenPosition = false)
-            if (crossTalkSignal.signalType != AICrossTalk.SignalType.NO_CORRELATION) {
-                AICrossTalk.recordOutcome(crossTalkSignal.signalType, pnlP, pnl > 0)  // V5.9.195: was 3x
-            }
+            // V5.0.4304 — credit the entry-time cross-talk signal that actually
+            // shaped the trade. Recomputing at close credits the wrong teacher.
+            AICrossTalk.recordStampedEntryOutcome(ts.mint, pnlP, pnl > 0, ts.position.tradingMode)
         } catch (_: Exception) {}
         
         // V5.9.1056 — TokenWinMemory.recordTradeOutcome also in ESL below — removed.

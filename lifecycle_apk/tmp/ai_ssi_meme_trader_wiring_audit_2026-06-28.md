@@ -87,6 +87,25 @@ Risk:
 Patch:
 - 4302 makes profit-lock beat warmup and makes Executor entry-lock hold only negative stops (`dynamicStopPct <= 0.0`).
 
+
+### F5 — AI CrossTalk credited close-time recomputation instead of entry-time signal
+
+Confirmed files:
+- `AICrossTalk.kt`
+- `MemeCrossTalkEntryBridge.kt`
+- `Executor.kt`
+
+Evidence:
+- Entry cross-talk bridge shaped confidence/size from `AICrossTalk.analyzeCrossTalk(...)`, but did not stamp which signal influenced the entry.
+- Terminal sell fanout recomputed `AICrossTalk.analyzeCrossTalk(ts, isOpenPosition=false)` at close, then recorded outcome against that newly computed signal.
+
+Risk:
+- Cross-talk could punish/reward the wrong teacher because liquidity/regime/narrative/whale state at close is different from entry.
+- This breaks signal quality and makes cross-talk self-training noisy instead of profitable.
+
+Patch:
+- 4304 stamps entry cross-talk by `mint:lane` and terminal fanout credits `recordStampedEntryOutcome(...)` using the executed lane.
+
 ## Candidate risks requiring next pass
 
 ### C1 — Synthetic score components may be tracked poorly or treated as generic theatre
