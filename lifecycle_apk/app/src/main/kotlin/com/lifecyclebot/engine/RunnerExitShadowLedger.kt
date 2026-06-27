@@ -19,7 +19,7 @@ object RunnerExitShadowLedger {
         shadows.addFirst(Shadow(lane.uppercase().take(32), exitReason.take(72), realized, peak, giveback, holdSeconds.coerceAtLeast(0L)))
         while (shadows.size > MAX_SHADOWS) shadows.pollLast()
         try {
-            ForensicLogger.lifecycle("RUNNER_EXIT_SHADOW_LEDGER_4289", "lane=$lane reason=${exitReason.take(48)} realized=${realized.fmt(2)} peak=${peak.fmt(2)} giveback=${giveback.fmt(2)} holdSec=$holdSeconds offline_only=true")
+            ForensicLogger.lifecycle("RUNNER_EXIT_SHADOW_LEDGER_4289", "lane=$lane reason=${exitReason.take(48)} realized=${realized.fmtLocal(2)} peak=${peak.fmtLocal(2)} giveback=${giveback.fmtLocal(2)} holdSec=$holdSeconds offline_only=true")
             PipelineHealthCollector.labelInc("RUNNER_EXIT_SHADOW_LEDGER_4289")
         } catch (_: Throwable) {}
     }
@@ -30,7 +30,7 @@ object RunnerExitShadowLedger {
         val avgGiveback = snap.map { it.givebackPct }.average()
         val avgPeak = snap.map { it.peakGainPct }.average()
         val byLane = snap.groupBy { it.lane }.entries.sortedByDescending { it.value.size }.take(6).joinToString(",") { "${it.key}:${it.value.size}" }
-        return "RunnerExitShadowLedger: cases=${snap.size} avgGiveback=${avgGiveback.fmt(2)} avgPeak=${avgPeak.fmt(2)} lanes=$byLane offline_only=true"
+        return "RunnerExitShadowLedger: cases=${snap.size} avgGiveback=${avgGiveback.fmtLocal(2)} avgPeak=${avgPeak.fmtLocal(2)} lanes=$byLane offline_only=true"
     }
 
     fun exportState(): String = JSONArray().also { a -> shadows.take(MAX_SHADOWS).forEach { s -> a.put(JSONObject().put("lane", s.lane).put("reason", s.exitReason).put("realized", s.realizedPnlPct).put("peak", s.peakGainPct).put("giveback", s.givebackPct).put("hold", s.holdSeconds).put("createdAt", s.createdAtMs)) } }.toString()
@@ -40,3 +40,5 @@ object RunnerExitShadowLedger {
     }
     fun reset() { shadows.clear() }
 }
+
+private fun Double.fmtLocal(decimals: Int): String = try { java.lang.String.format(java.util.Locale.US, "%.${decimals}f", this) } catch (_: Throwable) { this.toString() }

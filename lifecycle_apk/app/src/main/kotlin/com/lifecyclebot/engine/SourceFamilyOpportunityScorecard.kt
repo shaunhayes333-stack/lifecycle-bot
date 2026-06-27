@@ -25,7 +25,7 @@ object SourceFamilyOpportunityScorecard {
     fun snapshot(): String = stats.entries.sortedByDescending { it.value.closed + it.value.opened }.take(12).joinToString(" | ") { (k, s) ->
         val pf = if (s.closed <= 0) 0.0 else s.pnlSol / s.closed.toDouble()
         val wr = if (s.closed <= 0) 0.0 else 100.0 * s.wins / s.closed.toDouble()
-        "$k d=${s.discovered} a=${s.admitted} o=${s.opened} c=${s.closed} wr=${wr.fmt(1)} avgPnl=${pf.fmt(5)} cost=${s.costSol.fmt(5)} rug=${s.rugOverlay}"
+        "$k d=${s.discovered} a=${s.admitted} o=${s.opened} c=${s.closed} wr=${wr.fmtLocal(1)} avgPnl=${pf.fmtLocal(5)} cost=${s.costSol.fmtLocal(5)} rug=${s.rugOverlay}"
     }
 
     fun maybeReport() {
@@ -59,3 +59,5 @@ object SourceFamilyOpportunityScorecard {
         else -> source.uppercase().take(32)
     }
 }
+
+private fun Double.fmtLocal(decimals: Int): String = try { java.lang.String.format(java.util.Locale.US, "%.${decimals}f", this) } catch (_: Throwable) { this.toString() }

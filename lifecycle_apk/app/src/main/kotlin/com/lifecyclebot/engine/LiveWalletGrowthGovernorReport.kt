@@ -45,7 +45,7 @@ object LiveWalletGrowthGovernorReport {
         val s = days[day] ?: return "LIVE_WALLET_GROWTH_GOVERNOR_4290 day=$day no_live_events report_only=true"
         val idleOpenApprox = (s.openedSol - s.closedProceedsSol).coerceAtLeast(0.0)
         val avgSlip = if (s.sells <= 0) 0.0 else s.quoteDragAbsPct / s.sells.toDouble()
-        return "LIVE_WALLET_GROWTH_GOVERNOR_4290 day=$day buys=${s.buys} sells=${s.sells} realizedNetSol=${s.realizedPnlSol.fmt(6)} openedSol=${s.openedSol.fmt(6)} closedProceedsSol=${s.closedProceedsSol.fmt(6)} feesSol=${s.feesSol.fmt(6)} avgQuoteDragPct=${avgSlip.fmt(3)} dustCleanupSol=${s.dustCleanupSol.fmt(6)} compoundingReinvestedSol=${s.compoundingReinvestedSol.fmt(6)} idleOpenApproxSol=${idleOpenApprox.fmt(6)} report_only=true no_phantom_pnl=true"
+        return "LIVE_WALLET_GROWTH_GOVERNOR_4290 day=$day buys=${s.buys} sells=${s.sells} realizedNetSol=${s.realizedPnlSol.fmtLocal(6)} openedSol=${s.openedSol.fmtLocal(6)} closedProceedsSol=${s.closedProceedsSol.fmtLocal(6)} feesSol=${s.feesSol.fmtLocal(6)} avgQuoteDragPct=${avgSlip.fmtLocal(3)} dustCleanupSol=${s.dustCleanupSol.fmtLocal(6)} compoundingReinvestedSol=${s.compoundingReinvestedSol.fmtLocal(6)} idleOpenApproxSol=${idleOpenApprox.fmtLocal(6)} report_only=true no_phantom_pnl=true"
     }
 
     fun maybeEmit() { try { ForensicLogger.lifecycle("LIVE_WALLET_GROWTH_GOVERNOR_4290", report().take(900)); PipelineHealthCollector.labelInc("LIVE_WALLET_GROWTH_GOVERNOR_4290") } catch (_: Throwable) {} }
@@ -53,3 +53,5 @@ object LiveWalletGrowthGovernorReport {
     fun importState(raw: String?) { if (raw.isNullOrBlank()) return; try { val a = JSONArray(raw); days.clear(); for (i in 0 until a.length().coerceAtMost(MAX_DAYS)) { val o = a.optJSONObject(i) ?: continue; val d = o.optString("d"); if (d.isNotBlank()) days[d] = DayStat(o.optInt("b"), o.optInt("se"), o.optDouble("o"), o.optDouble("cp"), o.optDouble("p"), o.optDouble("f"), o.optDouble("q"), o.optDouble("cr"), o.optDouble("du")) } } catch (_: Throwable) {} }
     fun reset() { days.clear() }
 }
+
+private fun Double.fmtLocal(decimals: Int): String = try { java.lang.String.format(java.util.Locale.US, "%.${decimals}f", this) } catch (_: Throwable) { this.toString() }

@@ -36,8 +36,10 @@ object TerminalOutcomeQualityGate {
 
     fun report(trade: Trade, lane: String, source: String, verdict: Verdict) {
         try {
-            ForensicLogger.lifecycle("TERMINAL_OUTCOME_QUALITY_4286", "quality=${verdict.quality} trainable=${verdict.trainable} reason=${verdict.reason} mode=${trade.mode} lane=$lane source=$source mint=${trade.mint.take(10)} positionId=${trade.positionId.take(18)} proof=${trade.proofState} pnlSol=${trade.pnlSol.fmt(5)} pnlPct=${trade.pnlPct.fmt(2)}")
+            ForensicLogger.lifecycle("TERMINAL_OUTCOME_QUALITY_4286", "quality=${verdict.quality} trainable=${verdict.trainable} reason=${verdict.reason} mode=${trade.mode} lane=$lane source=$source mint=${trade.mint.take(10)} positionId=${trade.positionId.take(18)} proof=${trade.proofState} pnlSol=${trade.pnlSol.fmtLocal(5)} pnlPct=${trade.pnlPct.fmtLocal(2)}")
             PipelineHealthCollector.labelInc("TERMINAL_OUTCOME_QUALITY_4286_${verdict.quality.name}")
         } catch (_: Throwable) {}
     }
 }
+
+private fun Double.fmtLocal(decimals: Int): String = try { java.lang.String.format(java.util.Locale.US, "%.${decimals}f", this) } catch (_: Throwable) { this.toString() }
