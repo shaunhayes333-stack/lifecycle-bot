@@ -5186,4 +5186,10 @@ class GoldenTapeRegressionTest {
         assertTrue("V5.0.4331: LearningPersistence must save/load/reset UltimateEdgeEngine", persistence.contains("ULTIMATE_EDGE_ENGINE") && persistence.contains("UltimateEdgeEngine.exportState") && persistence.contains("UltimateEdgeEngine.importState") && persistence.contains("UltimateEdgeEngine.reset"))
     }
 
+    @Test
+    fun operatorKpi4332ExposesUltimateEdgeAndChokeReliefHelpers() {
+        val report = java.io.File("src/main/kotlin/com/lifecyclebot/engine/OperatorKpiCloseoutReport.kt").readText()
+        assertTrue("V5.0.4332: operator KPI report must expose UltimateEdge and ChokeRelief helper health", report.contains("OPERATOR_KPI_CLOSEOUT_REPORT_4332") && report.contains("UltimateEdgeEngine.status") && report.contains("ChokeReliefBus.status") && report.contains("ultimate_edge=UltimateEdgeEngine") && report.contains("choke_relief=ChokeReliefBus"))
+    }
+
 }
