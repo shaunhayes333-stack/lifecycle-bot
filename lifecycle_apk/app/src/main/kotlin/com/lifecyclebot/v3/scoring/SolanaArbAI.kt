@@ -293,19 +293,21 @@ object SolanaArbAI {
         
         val opportunities = mutableListOf<ArbOpportunity>()
         val now = System.currentTimeMillis()
+        val freshFeeds = priceFeeds.values.filter { !it.isStale }
+        val executableFeeds = freshFeeds.filter { it.exchange.executable }
+        if (freshFeeds.size < 2) {
+            return ArbSignal(false, null, "SOL_ARB_FEED_STARVED_4336: need_2_fresh_feeds have_${freshFeeds.size}")
+        }
+        if (executableFeeds.size < 2) {
+            return ArbSignal(false, null, "SOL_ARB_EXEC_FEED_STARVED_4336: need_2_executable_dex_feeds have_${executableFeeds.size} refs_${freshFeeds.size - executableFeeds.size}")
+        }
         
-        // Only scan Solana DEXes we can actually trade on
-        val tradableExchanges = listOf(Exchange.JUPITER, Exchange.RAYDIUM, Exchange.ORCA)
-        
-        for (buyExchange in tradableExchanges) {
-            for (sellExchange in tradableExchanges) {
-                if (buyExchange == sellExchange) continue
-                
-                val buyFeed = priceFeeds[buyExchange] ?: continue
-                val sellFeed = priceFeeds[sellExchange] ?: continue
-                
-                // Check freshness
-                if (buyFeed.isStale || sellFeed.isStale) continue
+        // Only scan Solana DEX feeds we can actually trade on.
+        for (buyFeed in executableFeeds) {
+            for (sellFeed in executableFeeds) {
+                if (buyFeed.exchange == sellFeed.exchange) continue
+                val buyExchange = buyFeed.exchange
+                val sellExchange = sellFeed.exchange
                 
                 // Calculate spread (buy at ask, sell at bid)
                 val buyPrice = buyFeed.askPrice
