@@ -109,6 +109,37 @@ object AsyncStrategyLab {
         accepted.takeLast(limit.coerceIn(1, MAX_ACCEPTED))
     }
 
+    /**
+     * V5.0.4245 — reviewed proposal apply layer.
+     * Only symbolic-checked, background-only, lane-matched hypotheses may add a
+     * tiny size multiplier. Unreviewed provider/GEPA proposals remain stored for
+     * human/validator review and return neutral 1.0.
+     */
+    fun reviewedSizeBias(lane: String, score: Int, regime: String): Double = synchronized(accepted) {
+        try {
+            val laneKey = lane.uppercase().take(24)
+            val scoreBand = when {
+                score >= 80 -> "S80"; score >= 60 -> "S60"; score >= 40 -> "S40"; score >= 20 -> "S20"; else -> "S00"
+            }
+            val candidates = accepted.asSequence()
+                .filter { it.backgroundOnly && it.symbolicChecked }
+                .filter { it.lane == laneKey || it.lane == "ALL" || laneKey.contains(it.lane) || it.lane.contains(laneKey) }
+                .filter { !looksHotPath(it.proposal) && !looksHotPath(it.expectedMetric) && !looksHotPath(it.rollbackCondition) }
+                .toList()
+            if (candidates.isEmpty()) return@synchronized 1.0
+            var bias = 1.0
+            candidates.takeLast(4).forEach { h ->
+                val text = (h.expectedMetric + " " + h.proposal + " " + regime + " " + scoreBand).uppercase()
+                bias *= when {
+                    text.contains("SIZE_DOWN") || text.contains("RISK_DOWN") || text.contains("DRAWDOWN") -> 0.97
+                    text.contains("SIZE_UP") || text.contains("COMPOUND") || text.contains("RUNNER_CAPTURE") -> 1.03
+                    else -> 1.0
+                }
+            }
+            bias.coerceIn(0.92, 1.08)
+        } catch (_: Throwable) { 1.0 }
+    }
+
     fun reset() { synchronized(accepted) { accepted.clear() } }
 
     fun exportState(): String = synchronized(accepted) {

@@ -163,7 +163,11 @@ object StrategyHypothesisEngine {
             val variant = isVariant(mint)
             pending[mint] = ctx to variant
             val bias = if (variant) h.variantSizeBias else (baseline[ctx] ?: 1.0)
-            bias.coerceIn(SIZE_BIAS_MIN, SIZE_BIAS_MAX)
+            val reviewedLabBias = try { AsyncStrategyLab.reviewedSizeBias(lane, score, regime) } catch (_: Throwable) { 1.0 }
+            if (reviewedLabBias != 1.0) {
+                try { PipelineHealthCollector.labelInc("ASYNC_STRATEGY_LAB_REVIEWED_SIZE_BIAS_4245") } catch (_: Throwable) {}
+            }
+            (bias * reviewedLabBias).coerceIn(SIZE_BIAS_MIN, SIZE_BIAS_MAX)
         } catch (_: Throwable) { 1.0 }
     }
 

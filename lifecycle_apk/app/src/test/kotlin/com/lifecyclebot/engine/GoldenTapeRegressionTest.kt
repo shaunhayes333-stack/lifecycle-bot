@@ -4507,4 +4507,13 @@ class GoldenTapeRegressionTest {
         assertTrue("V5.0.4244: GEPA terminal reflection must stay under terminal SELL closed-learning/accounting trainable gate", executor.contains("tradeWithMint.side.equals("SELL", true) && ledgerAllowsClosedLearning && accountingTrainable") && executor.contains("GlobalScope.launch(AppDispatchers.sideEffect)"))
     }
 
+    @Test
+    fun asyncStrategyLab4245ReviewedApplyLayerIsBoundedSoftSizeOnly() {
+        val lab = java.io.File("src/main/kotlin/com/lifecyclebot/engine/AsyncStrategyLab.kt").readText()
+        val hyp = java.io.File("src/main/kotlin/com/lifecyclebot/engine/StrategyHypothesisEngine.kt").readText()
+        assertTrue("V5.0.4245: AsyncStrategyLab reviewed apply layer must require symbolicChecked background-only hypotheses", lab.contains("fun reviewedSizeBias") && lab.contains("it.backgroundOnly && it.symbolicChecked") && lab.contains("bias.coerceIn(0.92, 1.08)"))
+        assertTrue("V5.0.4245: StrategyHypothesisEngine must consume reviewed lab bias as soft multiplier only", hyp.contains("AsyncStrategyLab.reviewedSizeBias") && hyp.contains("ASYNC_STRATEGY_LAB_REVIEWED_SIZE_BIAS_4245") && hyp.contains("(bias * reviewedLabBias).coerceIn(SIZE_BIAS_MIN, SIZE_BIAS_MAX)"))
+        assertFalse("V5.0.4245: reviewed lab bias must not introduce hard veto or zero sizing", lab.contains("return 0.0") || hyp.contains("return 0.0"))
+    }
+
 }
