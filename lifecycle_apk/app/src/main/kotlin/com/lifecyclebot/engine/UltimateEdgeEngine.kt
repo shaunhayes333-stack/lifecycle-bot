@@ -84,7 +84,7 @@ object UltimateEdgeEngine {
                 )
             )
         } catch (_: Throwable) { null }
-        val routeSummary = coverage?.let { "supported=${it.supported} unsupported=${it.unsupported} adapterGaps=${it.adapterGaps} senderGaps=${it.senderGaps}" } ?: "route:unavailable"
+        val routeSummary = coverage?.let { "supported=${it.supportedProviderNames} unsupported=${it.unsupportedProviderNames} adapterGaps=${it.adapterGapProviderNames} senderGaps=${it.adapterGapSenderNames}" } ?: "route:unavailable"
         val sourceSummary = try { SourceFamilyOpportunityScorecard.snapshot().ifBlank { "source_scorecard:empty" }.take(320) } catch (_: Throwable) { "source_scorecard:error" }
         val researchHint = try { ResearchScout.riskHint(mint).take(220) } catch (_: Throwable) { "ResearchScout:error" }
         val adapterPenalty = if ((coverage?.adapterGaps?.size ?: 0) >= 6) 0.98 else 1.0
