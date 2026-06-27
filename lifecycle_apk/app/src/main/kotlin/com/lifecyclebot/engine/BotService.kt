@@ -12507,6 +12507,11 @@ class BotService : Service() {
                 status.getEffectiveBalance(cfg.paperMode)
             }
             com.lifecyclebot.v3.scoring.CashGenerationAI.updateWalletBalance(walletBalanceForTreasury)
+            try {
+                val arbTreasurySol4335 = com.lifecyclebot.v3.scoring.CashGenerationAI.getTreasuryBalance(cfg.paperMode)
+                val arbSolPrice4335 = WalletManager.lastKnownSolPrice.takeIf { it > 0.0 } ?: 150.0
+                com.lifecyclebot.v3.scoring.SolanaArbAI.syncTreasuryUsd(cfg.paperMode, arbTreasurySol4335 * arbSolPrice4335)
+            } catch (_: Throwable) { }
             
             // V5.0: Advance TradeAuthorizer epoch for decision tracking
             TradeAuthorizer.advanceEpoch()

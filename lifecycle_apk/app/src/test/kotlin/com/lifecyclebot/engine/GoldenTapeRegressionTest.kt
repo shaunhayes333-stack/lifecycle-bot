@@ -5202,4 +5202,12 @@ class GoldenTapeRegressionTest {
         assertTrue("V5.0.4334: Treasury/ShitCoin/Express must consume arb deck cache without running models", cash.contains("TREASURY_ARB_DECK_CACHE_SHAPE_4334") && shit.contains("SHITCOIN_ARB_DECK_CACHE_SHAPE_4334") && express.contains("EXPRESS_ARB_DECK_CACHE_SHAPE_4334") && listOf(cash, shit, express).all { it.contains("ArbScannerAI.cachedOpportunity(mint)") })
     }
 
+    @Test
+    fun solanaArb4335DynamicallyReEnablesWhenTreasuryGrows() {
+        val arb = java.io.File("src/main/kotlin/com/lifecyclebot/v3/scoring/SolanaArbAI.kt").readText()
+        val bot = java.io.File("src/main/kotlin/com/lifecyclebot/engine/BotService.kt").readText()
+        assertTrue("V5.0.4335: SolanaArbAI must sync dynamic treasury eligibility instead of one-shot disable", arb.contains("SOLANA_ARB_DYNAMIC_ELIGIBILITY_4335") && arb.contains("fun syncTreasuryUsd") && arb.contains("lastTreasuryUsd") && arb.contains("isEnabled = lastTreasuryUsd >= MIN_TREASURY_USD"))
+        assertTrue("V5.0.4335: BotService loop must refresh SolanaArbAI treasury USD eligibility", bot.contains("SolanaArbAI.syncTreasuryUsd") && bot.contains("CashGenerationAI.getTreasuryBalance(cfg.paperMode)") && bot.contains("WalletManager.lastKnownSolPrice"))
+    }
+
 }

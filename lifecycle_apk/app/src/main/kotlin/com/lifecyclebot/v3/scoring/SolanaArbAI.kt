@@ -85,6 +85,7 @@ object SolanaArbAI {
     
     @Volatile var isEnabled: Boolean = false
     @Volatile var isPaperMode: Boolean = true
+    @Volatile private var lastTreasuryUsd: Double = 0.0  // V5.0.4335 dynamic eligibility
     
     private val dailyPnlUsdBps = AtomicLong(0)
     private val dailyTrades = AtomicInteger(0)
@@ -177,10 +178,7 @@ object SolanaArbAI {
             return
         }
         
-        isPaperMode = paperMode
-        
-        // Check if treasury meets minimum
-        isEnabled = treasuryUsd >= MIN_TREASURY_USD
+        syncTreasuryUsd(paperMode, treasuryUsd, fromInit = true)
         
         initialized = true
         if (isEnabled) {
@@ -201,6 +199,23 @@ object SolanaArbAI {
         if (isPaperMode != paperMode) {
             isPaperMode = paperMode
             ErrorLogger.info(TAG, "💰⚡ mode switched → ${if (paperMode) "PAPER" else "LIVE"}")
+        }
+    }
+
+    /**
+     * V5.0.4335 — dynamic treasury eligibility.
+     * init() is one-shot, so a boot-time sub-$500 treasury permanently disabled
+     * this arb lane even after CashGen/AutoCompound grew the wallet. Keep it
+     * report/execution-safe: only flips eligibility from current treasury USD.
+     */
+    fun syncTreasuryUsd(paperMode: Boolean, treasuryUsd: Double, fromInit: Boolean = false) {
+        isPaperMode = paperMode
+        val oldEnabled = isEnabled
+        lastTreasuryUsd = treasuryUsd.coerceAtLeast(0.0)
+        isEnabled = lastTreasuryUsd >= MIN_TREASURY_USD
+        if (fromInit || oldEnabled != isEnabled) {
+            val state = if (isEnabled) "ENABLED" else "DISABLED"
+            ErrorLogger.info(TAG, "💰⚡ SOLANA_ARB_DYNAMIC_ELIGIBILITY_4335 $state treasury=\$${lastTreasuryUsd.toInt()} min=\$${MIN_TREASURY_USD.toInt()} mode=${if (paperMode) "PAPER" else "LIVE"}")
         }
     }
     
@@ -549,6 +564,7 @@ object SolanaArbAI {
         o.put("dailyWins",        dailyWins.get())
         o.put("dailyLosses",      dailyLosses.get())
         o.put("consecutiveLosses", consecutiveLosses.get())
+        o.put("lastTreasuryUsd", lastTreasuryUsd)
         o.toString()
     } catch (_: Throwable) { "{}" }
 
@@ -560,6 +576,8 @@ object SolanaArbAI {
             dailyWins.set(o.optInt("dailyWins", 0))
             dailyLosses.set(o.optInt("dailyLosses", 0))
             consecutiveLosses.set(o.optInt("consecutiveLosses", 0))
+            lastTreasuryUsd = o.optDouble("lastTreasuryUsd", 0.0)
+            isEnabled = lastTreasuryUsd >= MIN_TREASURY_USD
         } catch (_: Throwable) { /* corrupt — start fresh */ }
     }
 }
