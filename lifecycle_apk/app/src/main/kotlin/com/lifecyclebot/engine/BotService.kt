@@ -18916,9 +18916,9 @@ if (hotExitHandledSweep) {
                             // ShitCoin's score floors are already calibrated low so
                             // this won't choke entries — it just stops feeding noise
                             // into AdaptiveLearningEngine pattern weights.
-                            hasWebsite = false,
-                            hasTwitter = false,
-                            hasTelegram = false,
+                            hasWebsite = ts.pairUrl.isNotBlank(),
+                            hasTwitter = ts.sentiment.xMentions > 0,
+                            hasTelegram = ts.sentiment.telegramMentions > 0,
                             hasGithub = false,
                             isDexBoosted = isDexBoosted,
                             dexTrendingRank = dexTrendingRank,
@@ -19236,6 +19236,8 @@ if (hotExitHandledSweep) {
                                     riskLevel = shitCoinSignal.riskLevel,
                                     finalityPrechecked = true,
                                     attemptId = shitcoinAttemptId,
+                                    entryScore = shitCoinSignal.entryScore,
+                                    entryConfidence = shitCoinSignal.confidence,
                                 )
                                 if (!shitCoinOpened) {
                                     ErrorLogger.warn("BotService", "SHITCOIN ${ts.symbol} | BUY_NOT_OPENED | release auth/permit; no lane registration")
@@ -19268,6 +19270,9 @@ if (hotExitHandledSweep) {
                                 // Correct check: qtyToken > 0 (paper) OR pendingVerify=true (live, awaiting confirm).
                                 if (ts.position.qtyToken > 0.0 || ts.position.pendingVerify) {
                                     val actualEntryPrice = ts.position.entryPrice.takeIf { it > 0 } ?: ts.ref
+                                    val shitDevWalletRaw4232 = ts.tokenMap.creatorOrDevWallet.ifBlank { ts.tokenMap.mintAuthority.orEmpty() }
+                                    val shitDevWallet4232 = shitDevWalletRaw4232.takeIf { it.isNotBlank() }
+                                    if (shitDevWallet4232 != null) try { PipelineHealthCollector.labelInc("SHITCOIN_DEV_WALLET_WIRED_4232") } catch (_: Throwable) {}
                                     com.lifecyclebot.v3.scoring.ShitCoinTraderAI.addPosition(
                                         com.lifecyclebot.v3.scoring.ShitCoinTraderAI.ShitCoinPosition(
                                             mint = ts.mint,
@@ -19281,7 +19286,7 @@ if (hotExitHandledSweep) {
                                             takeProfitPct = shitcoinEffectiveTpPct,
                                             stopLossPct = shitcoinEffectiveSlPct,
                                             launchPlatform = shitCoinSignal.launchPlatform,
-                                            devWallet = null,
+                                            devWallet = shitDevWallet4232,
                                             bundlePct = bundlePct,
                                             socialScore = shitCoinSignal.socialScore,
                                             // V5.9.435 — preserve entry score for outcome attribution
@@ -19292,6 +19297,7 @@ if (hotExitHandledSweep) {
                                             entryHolderCount = ts.history.lastOrNull()?.holderCount ?: 0,
                                             entryTopHolderPct = ts.topHolderPct ?: ts.safety.topHolderPct.takeIf { it >= 0 } ?: 0.0,
                                             entryRugcheckScore = ts.safety.rugcheckScore.toDouble(),
+                                            entryEmaFanState = ts.meta.emafanAlignment.ifBlank { ts.phase },
                                             entryHolderGrowthRate = ts.holderGrowthRate,
                                             entryVolumeUsd = ts.lastLiquidityUsd * 0.05,  // 5% L estimate (real volume not always plumbed)
                                             entryMomentum = ts.momentum ?: 0.0,
@@ -19496,6 +19502,8 @@ if (hotExitHandledSweep) {
                                 riskLevel = com.lifecyclebot.v3.scoring.ShitCoinTraderAI.RiskLevel.EXTREME,
                                 finalityPrechecked = true,
                                 attemptId = manipAttemptId,
+                                entryScore = manipSignal.manipScore,
+                                entryConfidence = manipSignal.manipScore,
                             )
 
   
@@ -19763,6 +19771,8 @@ if (hotExitHandledSweep) {
                                     riskLevel = com.lifecyclebot.v3.scoring.ShitCoinTraderAI.RiskLevel.EXTREME,
                                     finalityPrechecked = true,
                                     attemptId = expressAttemptId,
+                                    entryScore = expressSignal.confidence,
+                                    entryConfidence = expressSignal.confidence,
                                 )
                                 if (!expressOpened) {
                                     ErrorLogger.warn("BotService", "EXPRESS ${ts.symbol} | BUY_NOT_OPENED | release auth/permit; no lane registration")
@@ -19929,6 +19939,8 @@ if (hotExitHandledSweep) {
                                     riskLevel = com.lifecyclebot.v3.scoring.ShitCoinTraderAI.RiskLevel.EXTREME,
                                     finalityPrechecked = true,
                                     attemptId = projectSniperAttemptId,
+                                    entryScore = assessment.confidence,
+                                    entryConfidence = assessment.confidence,
                                 )
 
                                 if (!sniperOpened) {
@@ -23502,6 +23514,15 @@ if (hotExitHandledSweep) {
         // Boost for trending tokens
         if (ts.source.contains("TRENDING", ignoreCase = true)) score += 25
         if (ts.source.contains("BOOSTED", ignoreCase = true)) score += 20
+        // V5.0.4232 — real cached social alpha. This consumes existing sentiment
+        // fields only; no scanner/executor hot-path API calls.
+        if (!ts.sentiment.isStale) {
+            if (ts.sentiment.xMentions > 0) score += (ts.sentiment.xMentions * 2).coerceAtMost(25)
+            if (ts.sentiment.telegramMentions > 0) score += (ts.sentiment.telegramMentions * 2).coerceAtMost(20)
+            if (ts.sentiment.decayedScore > 20.0) score += 15
+            if (ts.sentiment.decayedScore < -20.0) score -= 15
+            if (ts.sentiment.blocked) score -= 30
+        }
         
         // Boost for tokens from recognized platforms
         if (ts.source.contains("PUMP_FUN", ignoreCase = true)) score += 15

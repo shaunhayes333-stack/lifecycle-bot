@@ -4388,4 +4388,14 @@ class GoldenTapeRegressionTest {
         assertTrue("V5.0.4231: ShitCoin intelligence soft shape must flow into returned position size", shit.contains("positionSol * dangerBucketSoftSize * intelligenceGateSizeMult4231"))
     }
 
+    @Test
+    fun shitcoin4232RealEntryContextAndCollectiveScoreWiring() {
+        val bot = java.io.File("src/main/kotlin/com/lifecyclebot/engine/BotService.kt").readText()
+        val exec = java.io.File("src/main/kotlin/com/lifecyclebot/engine/Executor.kt").readText()
+        assertTrue("V5.0.4232: ShitCoin dev wallet memory must consume TokenMap creator/mint authority", bot.contains("SHITCOIN_DEV_WALLET_WIRED_4232") && bot.contains("shitDevWalletRaw4232") && bot.contains("ts.tokenMap.creatorOrDevWallet") && bot.contains("devWallet = shitDevWallet4232"))
+        assertTrue("V5.0.4232: ShitCoin AdaptiveLearning must receive entry EMA fan state", bot.contains("entryEmaFanState = ts.meta.emafanAlignment.ifBlank { ts.phase }"))
+        assertTrue("V5.0.4232: ShitCoin social score must use cached X/Telegram sentiment without hot-path API calls", bot.contains("ts.sentiment.xMentions") && bot.contains("ts.sentiment.telegramMentions") && bot.contains("ts.sentiment.decayedScore"))
+        assertTrue("V5.0.4232: ShitCoin collective BUY upload must carry real lane score/confidence", exec.contains("entryScore: Int = 70") && exec.contains("entryConfidence: Int = 70") && exec.contains("entryScore = entryScore.coerceIn(0, 100)") && exec.contains("confidence = entryConfidence.coerceIn(0, 100)"))
+    }
+
 }

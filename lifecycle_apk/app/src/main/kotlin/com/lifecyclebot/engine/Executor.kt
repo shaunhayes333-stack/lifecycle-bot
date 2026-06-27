@@ -9872,6 +9872,8 @@ class Executor(
         riskLevel: com.lifecyclebot.v3.scoring.ShitCoinTraderAI.RiskLevel,
         finalityPrechecked: Boolean = false,
         attemptId: String = "",
+        entryScore: Int = 70,
+        entryConfidence: Int = 70,
     ): Boolean {
         val preflight = if (finalityPrechecked) ExecutableOpenGate.OpenVerdict(true, "prechecked", attemptId = attemptId)
             else preflightExecutableOpen(ts, isPaper, "SHITCOIN", "Executor.shitCoinBuy", attemptId)
@@ -9955,8 +9957,8 @@ class Executor(
                     source = ts.source.ifBlank { "SHITCOIN_SCAN" },
                     liquidityUsd = ts.lastLiquidityUsd,
                     marketSentiment = marketSentiment,
-                    entryScore = 70,
-                    confidence = 70,
+                    entryScore = entryScore.coerceIn(0, 100),
+                    confidence = entryConfidence.coerceIn(0, 100),
                     pnlPct = 0.0,
                     holdMins = 0.0,
                     isWin = false,
