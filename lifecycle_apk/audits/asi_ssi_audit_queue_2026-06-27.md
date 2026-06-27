@@ -204,3 +204,27 @@ North star: realized live wallet growth toward the operator's daily 2x-5x compou
 - Add a daily live-wallet growth report that decomposes net SOL change into realized PnL, open exposure, fees/slip, dust/burn cleanup, compounding reinvestment, and idle capital.
 - Must be report-only and must never fake PnL or use phantom positions.
 - Expected impact: aligns operator decisions with the 2x–5x live-wallet daily growth doctrine.
+
+## Bundle I — Audit closeout / self-reporting
+
+### A37 — ASI/SSI Audit Closeout Manifest
+- Status: implemented in V5.0.4292 as `AsiSsiAuditCloseoutManifest` and build-gate summary closeout pointer.
+- Add a source-level manifest that lists implemented ASI/SSI audit bundles and exposes a compact status string for operator/build summaries.
+- Must be report-only and must not influence scanner, FDG, sizing, or execution.
+- Expected impact: prevents lost context after long build-ahead sequences and makes “what is left?” answerable from source.
+
+### A38 — AI State Persistence Sentinel
+- Add a read-only source-contract sentinel that lists every learned/AI helper with export/import/reset expectations and surfaces omissions in Golden Tape.
+- Expected impact: prevents new AGI/SSI helpers from becoming amnesiac after restart.
+
+### A39 — Hot-Path Provider Call Sentinel
+- Add source-contract coverage that scans entry/FDG/executor hot paths for direct LLM/API provider calls from new intelligence layers.
+- Expected impact: preserves throughput doctrine while ASI stack grows.
+
+### A40 — Learning Fanout Mux Sentinel
+- Add source-contract coverage for terminal-learning fanout to require event-local mode/lane/source/positionId and no mutable TokenState reads inside background coroutines.
+- Expected impact: prevents live-vs-paper mux drift and learner poisoning.
+
+### A41 — Operator KPI Closeout Report
+- Add report-only KPI summary for the audit sequence: volume, live/paper drift, realized net SOL, runner giveback, source-family PF, sizing stack warnings, and build status.
+- Expected impact: ties the whole ASI/SSI audit back to live wallet growth instead of abstract infrastructure.

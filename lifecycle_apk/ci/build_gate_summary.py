@@ -24,6 +24,7 @@ summary = [
     f"- production files touched: {len(prod)}",
     *(f"  - `{f}`" for f in prod[:12]),
     f"- Golden Tape touched: {'yes' if gt else 'no'}",
+    "- A37 closeout manifest: src/main/kotlin/com/lifecyclebot/engine/AsiSsiAuditCloseoutManifest.kt",
     f"- latest audit bundles marked implemented: {', '.join('5.0.'+x for x in latest_closed) if latest_closed else 'none'}",
     "- inherited known failures: older superseded red builds may remain in Actions history; latest SHA is authoritative",
 ]

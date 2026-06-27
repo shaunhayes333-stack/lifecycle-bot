@@ -4848,4 +4848,15 @@ class GoldenTapeRegressionTest {
         assertTrue("V5.0.4290: live growth report must persist and explicitly avoid phantom PnL", persistence.contains("LIVE_WALLET_GROWTH_GOVERNOR") && report.contains("report_only=true") && report.contains("no_phantom_pnl=true") && !report.contains("requestSell("))
     }
 
+    @Test
+    fun asiSsiAuditCloseoutManifest4292ReportsImplementedAndPendingOnly() {
+        val manifest = java.io.File("src/main/kotlin/com/lifecyclebot/engine/AsiSsiAuditCloseoutManifest.kt").readText()
+        val summary = java.io.File("ci/build_gate_summary.py").readText()
+        val audit = java.io.File("audits/asi_ssi_audit_queue_2026-06-27.md").readText()
+        assertTrue("V5.0.4292: closeout manifest must report implemented A13-A36 and pending A37-A41", manifest.contains("A36 live wallet growth governor") && manifest.contains("A37 closeout manifest self-report") && manifest.contains("report_only=true"))
+        assertTrue("V5.0.4292: build summary must surface closeout manifest for operator context", summary.contains("A37 closeout manifest"))
+        assertTrue("V5.0.4292: audit queue must include Bundle I closeout items", audit.contains("Bundle I") && audit.contains("A41 — Operator KPI Closeout Report"))
+        assertFalse("V5.0.4292: closeout manifest must not influence execution", manifest.contains("executeBuy(") || manifest.contains("requestSell(") || manifest.contains("FinalDecisionGate.evaluate("))
+    }
+
 }
