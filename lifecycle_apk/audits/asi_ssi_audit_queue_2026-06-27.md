@@ -113,6 +113,7 @@ North star: realized live wallet growth toward the operator's daily 2x-5x compou
 ## Bundle G — Next boost candidates discovered during 4264-4269 full-audit closure
 
 ### A22 — Live/Paper Drift Sentinel 2.0
+- Status: implemented in V5.0.4271 as `LivePaperDriftSentinel`, terminal-sell-only and report-only.
 - Build a tiny runtime sentinel that compares paper and live lane shape over rolling windows: entry count, accepted score band, size multiplier product, exit reason mix, avg hold time, WR/PF where available.
 - Emit a single clear drift label when live diverges from paper beyond tolerance, keyed by lane and latest build.
 - Must be read-only/report-only first; no pause/zero-size behavior.

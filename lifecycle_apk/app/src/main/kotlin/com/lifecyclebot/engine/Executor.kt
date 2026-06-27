@@ -2814,6 +2814,11 @@ class Executor(
 
         ts.trades.add(tradeWithMint)
         TradeHistoryStore.recordTrade(tradeWithMint)
+        try {
+            if (tradeWithMint.side.equals("SELL", true) && ledgerAllowsClosedLearning && accountingTrainable) {
+                LivePaperDriftSentinel.onTerminalClose(tradeWithMint)
+            }
+        } catch (_: Throwable) {}
 
         // V5.9.994 — ML TRAINING LOOP (Doctrine #4 — mature WR requires the
         // V5.0.4207 — SellOptimizationAI.recordExitOutcome was a dead feedback edge.

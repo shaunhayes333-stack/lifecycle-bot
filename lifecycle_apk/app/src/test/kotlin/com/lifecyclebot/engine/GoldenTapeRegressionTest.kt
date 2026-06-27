@@ -4701,4 +4701,13 @@ class GoldenTapeRegressionTest {
         assertTrue("V5.0.4269: original full Meme Trader audit Pass A-J must be closed; open=${open.joinToString { it.id + ":" + it.detail }}", open.isEmpty())
     }
 
+    @Test
+    fun livePaperDriftSentinel4271IsReportOnlyAndTerminalOnly() {
+        val sentinel = java.io.File("src/main/kotlin/com/lifecyclebot/engine/LivePaperDriftSentinel.kt").readText()
+        val exec = java.io.File("src/main/kotlin/com/lifecyclebot/engine/Executor.kt").readText()
+        assertTrue("V5.0.4271: live/paper drift sentinel must be report-only and debounced", sentinel.contains("LIVE_PAPER_DRIFT_SENTINEL_4271") && sentinel.contains("report_only_no_pause_no_size_change") && sentinel.contains("DEBOUNCE_MS"))
+        assertTrue("V5.0.4271: sentinel must compare event-local journal rows by paper/live mode and lane", sentinel.contains("it.mode.equals("paper"") && sentinel.contains("it.mode.equals("live"") && sentinel.contains("TradeHistoryStore.normalizeTradeModeName"))
+        assertTrue("V5.0.4271: Executor may call sentinel only after terminal trainable SELL is recorded", exec.contains("TradeHistoryStore.recordTrade(tradeWithMint)") && exec.contains("LivePaperDriftSentinel.onTerminalClose") && exec.contains("ledgerAllowsClosedLearning && accountingTrainable"))
+    }
+
 }
