@@ -1409,6 +1409,11 @@ class BotService : Service() {
 
         // V5.9.438 — durable outcome-learning trackers across restarts.
         try { LearningPersistence.init(applicationContext) } catch (_: Exception) {}
+        // V5.0.4307 — report-only runtime proof for smart/dormant-system registry
+        // and closeout sentinels. No scanner, FDG, sizing, routing, wallet, or
+        // execution authority; this only makes theatre-vs-runtime visible.
+        try { SmartSystemRuntimeRegistry.emitStartupProof() } catch (_: Throwable) {}
+
 
         // V5.9.69: Initialize PatternClassifier — online logistic-regression
         // pattern brain that learns from every closed trade.

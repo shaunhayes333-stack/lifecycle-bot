@@ -5011,4 +5011,14 @@ class GoldenTapeRegressionTest {
         assertTrue("V5.0.4306: getBoostAmount/isBoosted must not call blocking refresh directly", src.contains("fun getBoostAmount") && src.contains("fun isBoosted") && !src.contains("fun getBoostAmount(mint: String): Long {\n            refreshBoostedTokens()"))
     }
 
+    @Test
+    fun smartSystemRuntimeRegistry4307ProvesDormantSweepIsRuntimeVisible() {
+        val registry = java.io.File("src/main/kotlin/com/lifecyclebot/engine/SmartSystemRuntimeRegistry.kt").readText()
+        val bot = java.io.File("src/main/kotlin/com/lifecyclebot/engine/BotService.kt").readText()
+        assertTrue("V5.0.4307: smart system registry must be report-only with no execution authority", registry.contains("SMART_SYSTEM_RUNTIME_REGISTRY_4307") && registry.contains("report_only=true") && registry.contains("no_execution_authority=true"))
+        assertTrue("V5.0.4307: route providers from dormant sweep must be classified for proof", listOf("RaydiumDirectProvider", "OrcaDirectProvider", "MeteoraDirectProvider", "PumpFunDirectProvider", "PumpSwapDirectProvider", "JupiterUltraProvider", "JupiterMetisProvider", "JitoSenderProvider", "HeliusSenderProvider").all { registry.contains(it) })
+        assertTrue("V5.0.4307: arb deck dormant candidates must be classified before activation", listOf("ArbCoordinator", "ArbScannerAI", "ArbLearning", "VenueLagModel", "FlowImbalanceModel", "PanicReversionModel", "SourceTimingRegistry").all { registry.contains(it) })
+        assertTrue("V5.0.4307: existing sentinels must emit at startup, not only exist for Golden Tape", registry.contains("AiStatePersistenceSentinel.emit()") && registry.contains("HotPathProviderCallSentinel.emit()") && bot.contains("SmartSystemRuntimeRegistry.emitStartupProof()"))
+    }
+
 }
