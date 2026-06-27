@@ -1562,8 +1562,27 @@ object ShitCoinTraderAI {
         val currentBalance = getCurrentBalance()
         val walletBasedSize = currentBalance * WALLET_SCALE_FACTOR
         var positionSol = maxOf(BASE_POSITION_SOL, walletBasedSize)
+        // V5.0.4324 — consume cache-only UltimateEdgeEngine lane card.
+        // No refresh/enqueue here: entry hot path only reads the latest background
+        // card built from open/close fanout. This keeps edge coordination useful
+        // without introducing scanner/FDG/executor API calls or hard gates.
+        var ultimateEdgeSizeMult4324 = 1.0
+        try {
+            val edgeCard4324 = com.lifecyclebot.engine.UltimateEdgeEngine.cached(mint, "SHITCOIN")
+            if (edgeCard4324 != null) {
+                val edgeBias4324 = edgeCard4324.scoreBias.coerceIn(0, 5)
+                if (edgeBias4324 > 0) {
+                    shitScore = (shitScore + edgeBias4324).coerceAtLeast(0)
+                    scoreReasons.add("uee+$edgeBias4324")
+                }
+                ultimateEdgeSizeMult4324 = edgeCard4324.sizeMult.coerceIn(0.90, 1.08)
+                if (ultimateEdgeSizeMult4324 != 1.0) {
+                    ErrorLogger.debug(TAG, "💩🧠 ULTIMATE_EDGE_SHITCOIN_CACHE_SHAPE_4324: $symbol score+$edgeBias4324 size×${ultimateEdgeSizeMult4324.fmt(3)} ${edgeCard4324.semanticReason.take(90)}")
+                }
+            }
+        } catch (_: Throwable) { ultimateEdgeSizeMult4324 = 1.0 }
         // V5.9.1329 / V5.0.4231 — apply learned soft-size multipliers.
-        positionSol = (positionSol * dangerBucketSoftSize * intelligenceGateSizeMult4231 * semanticEntrySizeMult4255).coerceAtLeast(0.01)
+        positionSol = (positionSol * dangerBucketSoftSize * intelligenceGateSizeMult4231 * semanticEntrySizeMult4255 * ultimateEdgeSizeMult4324).coerceAtLeast(0.01)
         if (pausedRecoveryProbe4314) {
             positionSol *= 0.35
             try { com.lifecyclebot.engine.PipelineHealthCollector.labelInc("SHITCOIN_DAILY_LOSS_RECOVERY_PROBE_4314") } catch (_: Throwable) {}

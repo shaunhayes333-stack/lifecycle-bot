@@ -5126,4 +5126,11 @@ class GoldenTapeRegressionTest {
         assertTrue("V5.0.4321: ShitCoin open/close matrix must enqueue edge-card refreshes", shit.contains("UltimateEdgeEngine.enqueueRefresh") && shit.contains("UltimateEdgeEngine.status"))
     }
 
+    @Test
+    fun shitCoin4324ConsumesUltimateEdgeCardsCacheOnlyAsSoftShape() {
+        val shit = java.io.File("src/main/kotlin/com/lifecyclebot/v3/scoring/ShitCoinTraderAI.kt").readText()
+        assertTrue("V5.0.4324: ShitCoin must consume cached UltimateEdgeEngine cards as bounded soft shaping", shit.contains("ULTIMATE_EDGE_SHITCOIN_CACHE_SHAPE_4324") && shit.contains("UltimateEdgeEngine.cached(mint, \"SHITCOIN\")") && shit.contains("ultimateEdgeSizeMult4324 = edgeCard4324.sizeMult.coerceIn(0.90, 1.08)") && shit.contains("semanticEntrySizeMult4255 * ultimateEdgeSizeMult4324"))
+        assertFalse("V5.0.4324: ShitCoin entry hot path must not enqueue edge refresh or provider work", shit.contains("UltimateEdgeEngine.enqueueRefresh(mint, symbol, \"SHITCOIN\"") )
+    }
+
 }
