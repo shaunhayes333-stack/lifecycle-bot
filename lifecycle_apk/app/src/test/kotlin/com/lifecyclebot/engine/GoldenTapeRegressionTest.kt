@@ -5210,4 +5210,12 @@ class GoldenTapeRegressionTest {
         assertTrue("V5.0.4335: BotService loop must refresh SolanaArbAI treasury USD eligibility", bot.contains("SolanaArbAI.syncTreasuryUsd") && bot.contains("CashGenerationAI.getTreasuryBalance(cfg.paperMode)") && bot.contains("WalletManager.lastKnownSolPrice"))
     }
 
+    @Test
+    fun solanaArb4336ReportsFeedStarvationAndRequiresExecutableVenues() {
+        val arb = java.io.File("src/main/kotlin/com/lifecyclebot/v3/scoring/SolanaArbAI.kt").readText()
+        val report = java.io.File("src/main/kotlin/com/lifecyclebot/engine/OperatorKpiCloseoutReport.kt").readText()
+        assertTrue("V5.0.4336: SolanaArbAI must distinguish executable DEX feeds from reference feeds", arb.contains("val executable: Boolean") && arb.contains("SOL_ARB_EXEC_FEED_STARVED_4336") && arb.contains("for (buyFeed in executableFeeds)") && arb.contains("for (sellFeed in executableFeeds)"))
+        assertTrue("V5.0.4336: operator KPI must expose SolanaArbAI feed starvation", arb.contains("fun feedStatus()") && report.contains("SOL_ARB_FEEDS_4336") && report.contains("sol_arb=SolanaArbAI"))
+    }
+
 }

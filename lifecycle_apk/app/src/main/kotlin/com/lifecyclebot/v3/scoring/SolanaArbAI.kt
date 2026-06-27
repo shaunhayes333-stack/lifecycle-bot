@@ -116,13 +116,13 @@ object SolanaArbAI {
         val isStale get() = System.currentTimeMillis() - timestamp > PRICE_FRESHNESS_MS
     }
     
-    enum class Exchange(val feeBps: Int, val displayName: String) {
-        JUPITER(5, "Jupiter"),
-        RAYDIUM(25, "Raydium"),
-        ORCA(30, "Orca"),
-        BINANCE(10, "Binance"),    // Reference only
-        COINBASE(50, "Coinbase"),  // Reference only
-        KRAKEN(26, "Kraken"),      // Reference only
+    enum class Exchange(val feeBps: Int, val displayName: String, val executable: Boolean = true) {
+        JUPITER(5, "Jupiter", true),
+        RAYDIUM(25, "Raydium", true),
+        ORCA(30, "Orca", true),
+        BINANCE(10, "Binance", false),    // Reference only
+        COINBASE(50, "Coinbase", false),  // Reference only
+        KRAKEN(26, "Kraken", false),      // Reference only
     }
     
     data class ArbOpportunity(
@@ -536,6 +536,13 @@ object SolanaArbAI {
         val circuitBreakerTripped: Boolean,
     )
     
+    fun feedStatus(): String {
+        val fresh = priceFeeds.values.filter { !it.isStale }
+        val exec = fresh.count { it.exchange.executable }
+        val refs = fresh.size - exec
+        return "SOL_ARB_FEEDS_4336 fresh=${fresh.size} executable=$exec reference=$refs total=${priceFeeds.size} enabled=$isEnabled treasuryUsd=${lastTreasuryUsd.fmt(0)} report_only=true"
+    }
+
     fun getStats(): ArbStats {
         val totalTrades = dailyWins.get() + dailyLosses.get()
         return ArbStats(

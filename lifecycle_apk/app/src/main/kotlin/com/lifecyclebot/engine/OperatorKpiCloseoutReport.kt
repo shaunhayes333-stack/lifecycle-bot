@@ -15,13 +15,14 @@ object OperatorKpiCloseoutReport {
         val audit = try { AsiSsiAuditCloseoutManifest.status().take(220) } catch (_: Throwable) { "ASI_SSI_AUDIT_CLOSEOUT_4292 unavailable" }
         val ultimateEdge = try { UltimateEdgeEngine.status(6).take(320) } catch (_: Throwable) { "ULTIMATE_EDGE_ENGINE_4321 unavailable" }
         val chokeRelief = try { ChokeReliefBus.status().take(160) } catch (_: Throwable) { "CHOKE_RELIEF_BUS_4320 unavailable" }
-        return "OPERATOR_KPI_CLOSEOUT_REPORT_4332 volume=TradeHistoryStore live_paper_drift=LivePaperDriftSentinel realized_net_sol=LiveWalletGrowthGovernorReport runner_giveback=RunnerExitShadowLedger source_family_pf=SourceFamilyOpportunityScorecard ultimate_edge=UltimateEdgeEngine choke_relief=ChokeReliefBus sizing_stack_warnings=SizingStackIntegritySentinel build_status=${com.lifecyclebot.BuildConfig.VERSION_NAME} growth=[$growth] runner=[$runner] source=[$source] edge=[$ultimateEdge] choke=[$chokeRelief] audit=[$audit] report_only=true no_phantom_pnl=true no_execution_authority=true"
+        val solArb = try { com.lifecyclebot.v3.scoring.SolanaArbAI.feedStatus().take(180) } catch (_: Throwable) { "SOL_ARB_FEEDS_4336 unavailable" }
+        return "OPERATOR_KPI_CLOSEOUT_REPORT_4336 volume=TradeHistoryStore live_paper_drift=LivePaperDriftSentinel realized_net_sol=LiveWalletGrowthGovernorReport runner_giveback=RunnerExitShadowLedger source_family_pf=SourceFamilyOpportunityScorecard ultimate_edge=UltimateEdgeEngine choke_relief=ChokeReliefBus sol_arb=SolanaArbAI sizing_stack_warnings=SizingStackIntegritySentinel build_status=${com.lifecyclebot.BuildConfig.VERSION_NAME} growth=[$growth] runner=[$runner] source=[$source] edge=[$ultimateEdge] choke=[$chokeRelief] solArb=[$solArb] audit=[$audit] report_only=true no_phantom_pnl=true no_execution_authority=true"
     }
 
     fun emit() {
         try {
-            ForensicLogger.lifecycle("OPERATOR_KPI_CLOSEOUT_REPORT_4332", status().take(1400))
-            PipelineHealthCollector.labelInc("OPERATOR_KPI_CLOSEOUT_REPORT_4332")
+            ForensicLogger.lifecycle("OPERATOR_KPI_CLOSEOUT_REPORT_4336", status().take(1400))
+            PipelineHealthCollector.labelInc("OPERATOR_KPI_CLOSEOUT_REPORT_4336")
         } catch (_: Throwable) {}
     }
 }
