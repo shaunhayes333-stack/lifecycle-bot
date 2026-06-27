@@ -419,17 +419,16 @@ object QualityTraderAI {
             return QualitySignal(false, reason = "Quality score too low: $qualityScore < $minScore (learning=${(learningProgress*100).toInt()}%)", qualityScore = qualityScore)
         }
 
-        // V5.9.436 — SCORE-EXPECTANCY SOFT GATE (per-layer).
+        // V5.0.4317 — learned expectancy is soft shaping, not a terminal
+        // non-safety veto. Quality keeps a small probe for recovery/attribution.
+        var qualityExpectancySoftSize4317 = 1.0
         if (com.lifecyclebot.engine.ScoreExpectancyTracker.shouldReject("QUALITY", qualityScore)) {
             val mean = com.lifecyclebot.engine.ScoreExpectancyTracker.bucketMean("QUALITY", qualityScore)
             val n = com.lifecyclebot.engine.ScoreExpectancyTracker.bucketSamples("QUALITY", qualityScore)
-            ErrorLogger.info(TAG, "⭐📉 EXPECTANCY_REJECT: $symbol | score=$qualityScore | " +
-                "bucket μ=${"%+.1f".format(mean ?: 0.0)}% over n=$n trades — skipping")
-            return QualitySignal(
-                shouldEnter = false,
-                reason = "EXPECTANCY_REJECT: score=$qualityScore bucketMean=${"%+.1f".format(mean ?: 0.0)}% (n=$n)",
-                qualityScore = qualityScore,
-            )
+            qualityExpectancySoftSize4317 = 0.25
+            ErrorLogger.info(TAG, "⭐📉 QUALITY_EXPECTANCY_RECOVERY_PROBE_4317: $symbol | score=$qualityScore | " +
+                "bucket μ=${"%+.1f".format(mean ?: 0.0)}% over n=$n trades — size×0.25")
+            try { com.lifecyclebot.engine.PipelineHealthCollector.labelInc("QUALITY_EXPECTANCY_RECOVERY_PROBE_4317") } catch (_: Throwable) {}
         }
 
         // ── V5.9.1348 — LOSING-PATTERN-MEMORY SOFT-SHAPE (shared-layer parity) ──
@@ -527,7 +526,7 @@ object QualityTraderAI {
         
         return QualitySignal(
             shouldEnter = true,
-            positionSizeSol = positionSize * dangerSoftSize,  // V5.9.1348 danger soft-shape
+            positionSizeSol = positionSize * qualityExpectancySoftSize4317 * dangerSoftSize,  // V5.9.1348 danger soft-shape
             takeProfitPct = tp,
             stopLossPct = sl,
             reason = "Quality setup: score=$qualityScore",

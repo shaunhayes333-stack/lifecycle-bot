@@ -339,11 +339,15 @@ object ManipulatedTraderAI {
         val minScore = getFluidScoreThreshold()
         if (score < minScore) return noEnter("SCORE_TOO_LOW_${score}<${minScore}")
 
-        // V5.9.436 — SCORE-EXPECTANCY SOFT GATE (per-layer).
+        // V5.0.4317 — learned expectancy is soft shaping, not a terminal
+        // non-safety veto. FDG/executor should still see a tiny recovery probe.
+        var manipExpectancySoftSize4317 = 1.0
         if (com.lifecyclebot.engine.ScoreExpectancyTracker.shouldReject("MANIPULATED", score)) {
             val mean = com.lifecyclebot.engine.ScoreExpectancyTracker.bucketMean("MANIPULATED", score)
             val n = com.lifecyclebot.engine.ScoreExpectancyTracker.bucketSamples("MANIPULATED", score)
-            return noEnter("EXPECTANCY_REJECT_score_${score}_μ_${"%+.1f".format(mean ?: 0.0)}%_n_${n}")
+            manipExpectancySoftSize4317 = 0.25
+            ErrorLogger.info(TAG, "☠️ MANIP_EXPECTANCY_RECOVERY_PROBE_4317: $symbol score=$score μ=${"%+.1f".format(mean ?: 0.0)}% n=$n — size×0.25")
+            try { com.lifecyclebot.engine.PipelineHealthCollector.labelInc("MANIP_EXPECTANCY_RECOVERY_PROBE_4317") } catch (_: Throwable) {}
         }
 
         // ── V5.9.1348 — LOSING-PATTERN-MEMORY SOFT-SHAPE (shared-layer parity) ──
@@ -399,7 +403,7 @@ object ManipulatedTraderAI {
             }
         } catch (_: Throwable) { /* fail-open per FDG doctrine */ }
 
-        var positionSizeSol = baseSize * behaviorSizeMult * behaviorGradeMult * dangerSoftSize  // V5.9.1348 danger soft-shape
+        var positionSizeSol = baseSize * behaviorSizeMult * behaviorGradeMult * manipExpectancySoftSize4317 * dangerSoftSize  // V5.9.1348 danger soft-shape
 
         // V5.9.926 — GLOBAL COMPOUND MULTIPLIER (Pass A fix).
         try {

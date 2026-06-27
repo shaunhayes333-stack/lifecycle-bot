@@ -5097,4 +5097,15 @@ class GoldenTapeRegressionTest {
         assertFalse("V5.0.4316: stale Treasury expectancy_reject rejectionReason must not survive", cash.contains("rejectionReasons.add(\"expectancy_reject_score_"))
     }
 
+    @Test
+    fun learnedExpectancy4317IsSoftProbeForManipMoonshotQuality() {
+        val manip = java.io.File("src/main/kotlin/com/lifecyclebot/v3/scoring/ManipulatedTraderAI.kt").readText()
+        val moon = java.io.File("src/main/kotlin/com/lifecyclebot/v3/scoring/MoonshotTraderAI.kt").readText()
+        val quality = java.io.File("src/main/kotlin/com/lifecyclebot/v3/scoring/QualityTraderAI.kt").readText()
+        assertTrue("V5.0.4317: Manipulated expectancy reject must soft-size", manip.contains("MANIP_EXPECTANCY_RECOVERY_PROBE_4317") && manip.contains("manipExpectancySoftSize4317 = 0.25") && manip.contains("manipExpectancySoftSize4317 * dangerSoftSize"))
+        assertTrue("V5.0.4317: Moonshot expectancy reject must soft-size", moon.contains("MOONSHOT_EXPECTANCY_RECOVERY_PROBE_4317") && moon.contains("moonshotExpectancySoftSize4317 = 0.25") && moon.contains("moonshotExpectancySoftSize4317"))
+        assertTrue("V5.0.4317: Quality expectancy reject must soft-size", quality.contains("QUALITY_EXPECTANCY_RECOVERY_PROBE_4317") && quality.contains("qualityExpectancySoftSize4317 = 0.25") && quality.contains("positionSize * qualityExpectancySoftSize4317 * dangerSoftSize"))
+        assertFalse("V5.0.4317: stale expectancy hard-return literals must not survive in these three lanes", manip.contains("EXPECTANCY_REJECT_score_") || moon.contains("expectancy_reject_score_") || quality.contains("reason = \"EXPECTANCY_REJECT: score="))
+    }
+
 }

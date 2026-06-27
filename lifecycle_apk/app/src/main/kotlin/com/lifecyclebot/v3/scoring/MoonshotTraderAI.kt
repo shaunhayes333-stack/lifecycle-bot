@@ -703,14 +703,16 @@ object MoonshotTraderAI {
                 "${tag}_${score}_below_${effectiveMinScore}_(base=${minScore}_wr=${wrFloor}_gate=${gateTag}_goose=${gooseTag})")
         }
 
-        // V5.9.436 — SCORE-EXPECTANCY SOFT GATE (per-layer).
-        // If MOONSHOT trades in this score bucket have been net-losing over
-        // the last 25+ closes, skip. Stays exploratory under-sampled.
+        // V5.0.4317 — learned expectancy is soft shaping, not a terminal
+        // non-safety veto. Keep a tiny probe so the score band can recover
+        // if market regime changes while preserving attribution.
+        var moonshotExpectancySoftSize4317 = 1.0
         if (com.lifecyclebot.engine.ScoreExpectancyTracker.shouldReject("MOONSHOT", score)) {
             val mean = com.lifecyclebot.engine.ScoreExpectancyTracker.bucketMean("MOONSHOT", score)
             val n = com.lifecyclebot.engine.ScoreExpectancyTracker.bucketSamples("MOONSHOT", score)
-            return MoonshotScore(false, score, 0.0,
-                "expectancy_reject_score_${score}_μ_${"%+.1f".format(mean ?: 0.0)}%_n_${n}")
+            moonshotExpectancySoftSize4317 = 0.25
+            ErrorLogger.info(TAG, "🚀 MOONSHOT_EXPECTANCY_RECOVERY_PROBE_4317: score=$score μ=${"%+.1f".format(mean ?: 0.0)}% n=$n — size×0.25")
+            try { com.lifecyclebot.engine.PipelineHealthCollector.labelInc("MOONSHOT_EXPECTANCY_RECOVERY_PROBE_4317") } catch (_: Throwable) {}
         }
         
         // Calculate confidence
@@ -771,7 +773,7 @@ object MoonshotTraderAI {
             }
         } catch (_: Throwable) { /* fail-open per FDG doctrine */ }
 
-        var sizeSol = min(baseSizeAdj * behaviorSizeMult * behaviorGradeMult, MAX_POSITION_SOL)
+        var sizeSol = min(baseSizeAdj * behaviorSizeMult * behaviorGradeMult * moonshotExpectancySoftSize4317, MAX_POSITION_SOL)
 
         // V5.9.1455 — CALIBRATION SIZE SHAPE (parity with Quality/BlueChip/Manip/etc).
         // Moonshot had shouldReject but NOT the graduated calibrationSizeMult, so
