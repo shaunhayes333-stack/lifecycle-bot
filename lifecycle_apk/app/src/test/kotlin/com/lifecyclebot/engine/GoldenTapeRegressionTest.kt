@@ -4406,4 +4406,19 @@ class GoldenTapeRegressionTest {
         assertTrue("V5.0.4233: true V3 hard stops must still terminate ShitCoin", bot.contains("v3Decision is com.lifecyclebot.v3.V3Decision.Blocked") && bot.contains("REJECTED_FATAL_V3"))
     }
 
+    @Test
+    fun autoCompound4234UsesLiveGrowthProfile() {
+        val compound = java.io.File("src/main/kotlin/com/lifecyclebot/engine/AutoCompoundEngine.kt").readText()
+        assertTrue("V5.0.4234: AutoCompound default split must prioritize realized-profit reinvestment for daily wallet growth", compound.contains("val treasuryPct: Double = 20.0") && compound.contains("val compoundPct: Double = 45.0") && compound.contains("val walletPct: Double = 35.0"))
+        assertTrue("V5.0.4234: AutoCompound must lift size faster on small live wallets while keeping a hard max", compound.contains("val compoundThreshold: Double = 0.15") && compound.contains("val maxSizeMultiplier: Double = 3.0") && compound.contains("* 0.45"))
+        assertTrue("V5.0.4234: drawdown reduction safety must remain active", compound.contains("drawdownReduction: Boolean = true") && compound.contains("currentDrawdownPct > 10"))
+    }
+
+    @Test
+    fun asiSsiAuditQueue4234IsTracked() {
+        val audit = java.io.File("audits/asi_ssi_audit_queue_2026-06-27.md").readText()
+        assertTrue("V5.0.4234: ASI/SSI audit queue must track symbolic prover, async strategy lab, GEPA, semantic graph, counterfactual replay, and ResearchScout", audit.contains("A13 — SymbolicInvariantProver") && audit.contains("A15 — AsyncStrategyLab") && audit.contains("A17 — GEPA-style reflective optimizer") && audit.contains("A18 — SemanticPatternGraph") && audit.contains("A19 — CounterfactualReplayEngine") && audit.contains("A20 — Free-API ResearchScout"))
+        assertTrue("V5.0.4234: ASI/SSI queue must forbid hot-path LLM/API calls", audit.contains("Never scanner/FDG/executor hot path") && audit.contains("background-only"))
+    }
+
 }

@@ -45,14 +45,16 @@ object AutoCompoundEngine {
         // getSizeMultiplier() was permanently 1.0, while 8 lanes consumed that
         // dead 1.0x believing they were scaling on profit. Restore a real
         // 25% compound allocation so wins actually grow position size as the
-        // book compounds. Split: 25% treasury / 25% compound / 50% wallet —
-        // wallet still keeps the majority for loss coverage and live safety.
-        val treasuryPct: Double = 25.0,
-        val compoundPct: Double = 25.0,       // was 0.0 — the bug that made the engine do nothing
-        val walletPct: Double = 50.0,
-        val minProfitToCompound: Double = 0.01,  // Min profit before splitting
-        val compoundThreshold: Double = 0.5,  // SOL needed to trigger size increase
-        val maxSizeMultiplier: Double = 2.0,  // Max position size boost
+        // book compounds. V5.0.4234: lift default from slow treasury mode to
+        // live-growth mode for the operator's 2x-5x daily compound target.
+        // Split: 20% treasury / 45% compound / 35% wallet — wallet still keeps
+        // loss coverage, while realized wins push size faster during hot tape.
+        val treasuryPct: Double = 20.0,
+        val compoundPct: Double = 45.0,       // V5.0.4234: aggressive realized-profit reinvestment
+        val walletPct: Double = 35.0,
+        val minProfitToCompound: Double = 0.005,  // Compound small meme wins too
+        val compoundThreshold: Double = 0.15,  // V5.0.4234: faster size lift on small wallets
+        val maxSizeMultiplier: Double = 3.0,  // Bounded; lane-local caps still apply
         val drawdownReduction: Boolean = true, // Reduce compound during drawdown
         val streakBonus: Boolean = true,       // Bonus % on win streaks
     )
@@ -144,7 +146,7 @@ object AutoCompoundEngine {
         val newPool = state.compoundPoolSol + toCompound
         
         // Calculate size multiplier
-        val multiplierBoost = (newPool / config.compoundThreshold) * 0.25
+        val multiplierBoost = (newPool / config.compoundThreshold) * 0.45
         val newMultiplier = min(config.maxSizeMultiplier, 1.0 + multiplierBoost)
 
         // Update state
@@ -193,7 +195,7 @@ object AutoCompoundEngine {
         val newMultiplier = if (newPool < config.compoundThreshold) {
             1.0
         } else {
-            min(config.maxSizeMultiplier, 1.0 + (newPool / config.compoundThreshold) * 0.25)
+            min(config.maxSizeMultiplier, 1.0 + (newPool / config.compoundThreshold) * 0.45)
         }
         
         state = state.copy(
