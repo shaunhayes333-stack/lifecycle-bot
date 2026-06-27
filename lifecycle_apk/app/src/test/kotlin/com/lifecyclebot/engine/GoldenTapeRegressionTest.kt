@@ -4467,4 +4467,13 @@ class GoldenTapeRegressionTest {
         assertTrue("V5.0.4239: CounterfactualReplayEngine must persist through LearningPersistence", replay.contains("exportState") && replay.contains("importState") && persistence.contains("COUNTERFACTUAL_REPLAY"))
     }
 
+    @Test
+    fun researchScout4240IsBackgroundOnlyPersistentFreeApiQueue() {
+        val scout = java.io.File("src/main/kotlin/com/lifecyclebot/engine/ResearchScout.kt").readText()
+        val persistence = java.io.File("src/main/kotlin/com/lifecyclebot/engine/LearningPersistence.kt").readText()
+        assertTrue("V5.0.4240: ResearchScout must model free API request/findings queue", scout.contains("object ResearchScout") && scout.contains("DEXSCREENER_FREE") && scout.contains("GECKOTERMINAL_FREE") && scout.contains("RUGCHECK_FREE") && scout.contains("ResearchFinding"))
+        assertTrue("V5.0.4240: ResearchScout must be background-only and not scanner/FDG/executor hot-path HTTP", scout.contains("BACKGROUND_RESEARCH_SCOUT") && scout.contains("isBackgroundSource") && !scout.contains("OkHttpClient") && !scout.contains("executeBuy"))
+        assertTrue("V5.0.4240: ResearchScout must persist request/finding cache through LearningPersistence", scout.contains("exportState") && scout.contains("importState") && persistence.contains("RESEARCH_SCOUT"))
+    }
+
 }

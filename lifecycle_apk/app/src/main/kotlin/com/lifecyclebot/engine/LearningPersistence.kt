@@ -149,6 +149,7 @@ object LearningPersistence {
             try { putBlob("ASYNC_STRATEGY_LAB", com.lifecyclebot.engine.AsyncStrategyLab.exportState()) } catch (_: Throwable) {}  // V5.0.4236
             try { putBlob("SEMANTIC_PATTERN_GRAPH", com.lifecyclebot.engine.SemanticPatternGraph.exportState()) } catch (_: Throwable) {}  // V5.0.4238
             try { putBlob("COUNTERFACTUAL_REPLAY", com.lifecyclebot.engine.CounterfactualReplayEngine.exportState()) } catch (_: Throwable) {}  // V5.0.4239
+            try { putBlob("RESEARCH_SCOUT", com.lifecyclebot.engine.ResearchScout.exportState()) } catch (_: Throwable) {}  // V5.0.4240
             // V5.9.984 — persist CollectiveIntelligenceAI counters + thresholds.
             try { putBlob("COLLECTIVE_INTEL", com.lifecyclebot.v3.scoring.CollectiveIntelligenceAI.exportState()) } catch (_: Throwable) {}
             // V5.9.985 — close DipHunterAI + SolanaArbAI amnesia.
@@ -228,6 +229,7 @@ object LearningPersistence {
         try { getBlob("ASYNC_STRATEGY_LAB")?.let { com.lifecyclebot.engine.AsyncStrategyLab.importState(it) } } catch (_: Throwable) {}  // V5.0.4236
         try { getBlob("SEMANTIC_PATTERN_GRAPH")?.let { com.lifecyclebot.engine.SemanticPatternGraph.importState(it) } } catch (_: Throwable) {}  // V5.0.4238
         try { getBlob("COUNTERFACTUAL_REPLAY")?.let { com.lifecyclebot.engine.CounterfactualReplayEngine.importState(it) } } catch (_: Throwable) {}  // V5.0.4239
+        try { getBlob("RESEARCH_SCOUT")?.let { com.lifecyclebot.engine.ResearchScout.importState(it) } } catch (_: Throwable) {}  // V5.0.4240
         // V5.9.949 — restore the rest of the brain.
         try { getBlob("BEHAVIOR_LEARNING")?.let { com.lifecyclebot.engine.BehaviorLearning.importState(it) } } catch (_: Throwable) {}
         try { getBlob("LAYER_READINESS")?.let { com.lifecyclebot.engine.LayerReadinessRegistry.importState(it) } } catch (_: Throwable) {}
@@ -384,6 +386,7 @@ object LearningPersistence {
         z("ASYNC_STRATEGY_LAB"){ com.lifecyclebot.engine.AsyncStrategyLab.reset() }
         z("SEMANTIC_PATTERN_GRAPH"){ com.lifecyclebot.engine.SemanticPatternGraph.reset() }
         z("COUNTERFACTUAL_REPLAY"){ com.lifecyclebot.engine.CounterfactualReplayEngine.reset() }
+        z("RESEARCH_SCOUT"){ com.lifecyclebot.engine.ResearchScout.reset() }
         z("COLLECTIVE_INTEL")  { com.lifecyclebot.v3.scoring.CollectiveIntelligenceAI.reset() }
         // UnifiedPolicyHead has no reset(): clear its persisted blob so the next
         // boot re-initialises fresh weights; in-memory weights keep drifting from
