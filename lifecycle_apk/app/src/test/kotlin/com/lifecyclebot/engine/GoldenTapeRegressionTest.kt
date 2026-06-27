@@ -4531,4 +4531,11 @@ class GoldenTapeRegressionTest {
         assertTrue("V5.0.4249: GEPA debounce must keep proposal cache bounded and resettable", gepa.contains("MAX_PROPOSALS") && gepa.contains("lastRunByLaneMs.clear()"))
     }
 
+    @Test
+    fun semanticPatternGraph4250BoundsTerminalFanoutEdgeWork() {
+        val graph = java.io.File("src/main/kotlin/com/lifecyclebot/engine/SemanticPatternGraph.kt").readText()
+        assertTrue("V5.0.4250: SemanticPatternGraph must bound per-terminal edge scan/work to avoid sell-storm churn", graph.contains("MAX_PRIOR_EDGE_SCAN") && graph.contains("MAX_EDGES_PER_NODE") && graph.contains("nodes.takeLast(MAX_PRIOR_EDGE_SCAN)"))
+        assertTrue("V5.0.4250: SemanticPatternGraph must cache node tokens and stop adding edges after the cap", graph.contains("val nodeTokens = tokenSet(node.setup)") && graph.contains("if (added >= MAX_EDGES_PER_NODE) break"))
+    }
+
 }

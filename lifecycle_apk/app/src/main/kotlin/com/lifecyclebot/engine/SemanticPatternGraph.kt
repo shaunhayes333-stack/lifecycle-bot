@@ -39,6 +39,8 @@ object SemanticPatternGraph {
 
     private const val MAX_NODES = 600
     private const val MAX_EDGES = 1600
+    private const val MAX_PRIOR_EDGE_SCAN = 80     // V5.0.4250 — avoid terminal-sell fanout churn
+    private const val MAX_EDGES_PER_NODE = 48
     private val nodes = CopyOnWriteArrayList<PatternNode>()
     private val edges = CopyOnWriteArrayList<PatternEdge>()
 
@@ -68,7 +70,7 @@ object SemanticPatternGraph {
         )
         synchronized(nodes) {
             nodes.removeAll { it.id == id }
-            val prior = nodes.takeLast(160)
+            val prior = nodes.takeLast(MAX_PRIOR_EDGE_SCAN)
             nodes.add(node)
             buildEdgesFor(node, prior)
             while (nodes.size > MAX_NODES) nodes.removeAt(0)
@@ -147,14 +149,22 @@ object SemanticPatternGraph {
     }
 
     private fun buildEdgesFor(node: PatternNode, prior: List<PatternNode>) {
-        prior.forEach { old ->
-            val sim = jaccard(tokenSet(node.setup), tokenSet(old.setup))
-            if (sim >= 0.38) edges.add(PatternEdge(node.id, old.id, EdgeKind.SIMILAR_SETUP, sim.coerceIn(0.0, 1.0)))
-            if (node.deployer.isNotBlank() && node.deployer == old.deployer) edges.add(PatternEdge(node.id, old.id, EdgeKind.SAME_DEPLOYER, 1.0))
-            if (node.exitReason.isNotBlank() && node.exitReason == old.exitReason) edges.add(PatternEdge(node.id, old.id, EdgeKind.SIMILAR_EXIT, 0.75))
-            if (node.source.isNotBlank() && node.source == old.source && node.pnlPct * old.pnlPct < 0.0) edges.add(PatternEdge(node.id, old.id, EdgeKind.SAME_SOURCE_BIAS, 0.55))
-            if (node.failureMode.isNotBlank() && node.failureMode == old.failureMode) edges.add(PatternEdge(node.id, old.id, EdgeKind.SAME_FAILURE_MODE, 0.9))
-            if ((node.peakGainPct >= 100.0 && old.peakGainPct >= 100.0) || (node.pnlPct >= 50.0 && old.pnlPct >= 50.0)) edges.add(PatternEdge(node.id, old.id, EdgeKind.RUNNER_FAMILY, 0.8))
+        val nodeTokens = tokenSet(node.setup)
+        var added = 0
+        fun addEdge(edge: PatternEdge) {
+            if (added >= MAX_EDGES_PER_NODE) return
+            edges.add(edge)
+            added += 1
+        }
+        for (old in prior.asReversed()) {
+            if (added >= MAX_EDGES_PER_NODE) break
+            val sim = jaccard(nodeTokens, tokenSet(old.setup))
+            if (sim >= 0.38) addEdge(PatternEdge(node.id, old.id, EdgeKind.SIMILAR_SETUP, sim.coerceIn(0.0, 1.0)))
+            if (node.deployer.isNotBlank() && node.deployer == old.deployer) addEdge(PatternEdge(node.id, old.id, EdgeKind.SAME_DEPLOYER, 1.0))
+            if (node.exitReason.isNotBlank() && node.exitReason == old.exitReason) addEdge(PatternEdge(node.id, old.id, EdgeKind.SIMILAR_EXIT, 0.75))
+            if (node.source.isNotBlank() && node.source == old.source && node.pnlPct * old.pnlPct < 0.0) addEdge(PatternEdge(node.id, old.id, EdgeKind.SAME_SOURCE_BIAS, 0.55))
+            if (node.failureMode.isNotBlank() && node.failureMode == old.failureMode) addEdge(PatternEdge(node.id, old.id, EdgeKind.SAME_FAILURE_MODE, 0.9))
+            if ((node.peakGainPct >= 100.0 && old.peakGainPct >= 100.0) || (node.pnlPct >= 50.0 && old.pnlPct >= 50.0)) addEdge(PatternEdge(node.id, old.id, EdgeKind.RUNNER_FAMILY, 0.8))
         }
     }
 
