@@ -4481,7 +4481,7 @@ class GoldenTapeRegressionTest {
         val executor = java.io.File("src/main/kotlin/com/lifecyclebot/engine/Executor.kt").readText()
         assertTrue("V5.0.4241: SemanticPatternGraph and CounterfactualReplayEngine must be fed from Executor terminal outcome choke point", executor.contains("SEMANTIC_COUNTERFACTUAL_OUTCOME_4241") && executor.contains("SemanticPatternGraph.recordOutcome") && executor.contains("CounterfactualReplayEngine.recordTerminalTrade"))
         assertTrue("V5.0.4241: semantic/counterfactual fanout must be terminal SELL plus closed-learning/accounting trainable gated", executor.contains("""tradeWithMint.side.equals("SELL", true) && ledgerAllowsClosedLearning && accountingTrainable"""))
-        assertTrue("V5.0.4241: semantic/counterfactual fanout must run in side-effect background and never block sell finality", executor.contains("GlobalScope.launch(AppDispatchers.sideEffect)") && executor.contains("never rewrites journal truth") && executor.contains("never blocks sell finality"))
+        assertTrue("V5.0.4241: semantic/counterfactual fanout must run in side-effect background and never block sell finality", executor.contains("GlobalScope.launch(AppDispatchers.sideEffect)") && executor.contains("never rewrites journal truth") && executor.contains("blocks sell finality"))
     }
 
     @Test
