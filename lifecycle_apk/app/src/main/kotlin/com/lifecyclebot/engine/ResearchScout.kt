@@ -6,7 +6,16 @@ import java.util.concurrent.CopyOnWriteArrayList
 
 /** V5.0.4240 — Free-API ResearchScout queue/cache, background-only first. */
 object ResearchScout {
-    enum class SourceKind { DEXSCREENER_FREE, GECKOTERMINAL_FREE, RUGCHECK_FREE, SOCIAL_FREE, MANUAL_OPERATOR }
+    enum class SourceKind {
+        DEXSCREENER_FREE,
+        GECKOTERMINAL_FREE,
+        RUGCHECK_FREE,
+        JUPITER_QUOTE_FREE,
+        PUMPPORTAL_WS_FREE,
+        COINGECKO_ONCHAIN_FREE,
+        SOCIAL_FREE,
+        MANUAL_OPERATOR,
+    }
     enum class FindingKind { LIQUIDITY_SHIFT, HOLDER_RISK, LP_RISK, SOCIAL_SPIKE, SOURCE_CONTRADICTION, CLEAN_CONFIRMATION }
 
     data class ResearchRequest(
@@ -39,7 +48,7 @@ object ResearchScout {
         mint: String,
         symbol: String = "",
         reason: String = "audit_background_research",
-        requestedSources: Set<SourceKind> = setOf(SourceKind.DEXSCREENER_FREE, SourceKind.GECKOTERMINAL_FREE, SourceKind.RUGCHECK_FREE),
+        requestedSources: Set<SourceKind> = FreeDataSourceRegistry.defaultSources(),
         sourceTag: String = "BACKGROUND_RESEARCH_SCOUT",
     ): String {
         if (!isBackgroundSource(sourceTag)) return ""
@@ -82,6 +91,8 @@ object ResearchScout {
     }
 
     fun pendingRequests(limit: Int = 30): List<ResearchRequest> = synchronized(pending) { pending.takeLast(limit.coerceIn(1, MAX_REQUESTS)) }
+
+    fun freeSourceStatus(): String = FreeDataSourceRegistry.status() + " pending=${pending.size} findings=${findings.size}"
 
 
     /**

@@ -5049,4 +5049,13 @@ class GoldenTapeRegressionTest {
         assertTrue("V5.0.4310: StackCoverage must separate provider names from adapter gaps", stack.contains("adapterGapProviderNames") && stack.contains("adapterGapSenderNames") && stack.contains("adapterGaps="))
     }
 
+    @Test
+    fun freeDataSourceRegistry4311ExpandsResearchScoutBackgroundSources() {
+        val registry = java.io.File("src/main/kotlin/com/lifecyclebot/engine/FreeDataSourceRegistry.kt").readText()
+        val scout = java.io.File("src/main/kotlin/com/lifecyclebot/engine/ResearchScout.kt").readText()
+        assertTrue("V5.0.4311: free data registry must be background-only and never hot-path fetch", registry.contains("FREE_DATA_SOURCE_REGISTRY_4311") && registry.contains("background_only=true") && registry.contains("no_hot_path_fetch=true"))
+        assertTrue("V5.0.4311: registry must include DexScreener, GeckoTerminal, Jupiter quote, PumpPortal WS, RugCheck, and CoinGecko/onchain", listOf("DEXSCREENER_FREE", "GECKOTERMINAL_FREE", "JUPITER_QUOTE_FREE", "PUMPPORTAL_WS_FREE", "RUGCHECK_FREE", "COINGECKO_ONCHAIN_FREE").all { registry.contains(it) && scout.contains(it) })
+        assertTrue("V5.0.4311: ResearchScout default requests must use FreeDataSourceRegistry", scout.contains("FreeDataSourceRegistry.defaultSources()") && scout.contains("freeSourceStatus"))
+    }
+
 }
