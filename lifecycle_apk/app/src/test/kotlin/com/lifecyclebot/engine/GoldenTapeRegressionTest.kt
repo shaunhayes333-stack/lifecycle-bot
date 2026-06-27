@@ -4416,9 +4416,17 @@ class GoldenTapeRegressionTest {
 
     @Test
     fun asiSsiAuditQueue4234IsTracked() {
-        val audit = java.io.File("audits/asi_ssi_audit_queue_2026-06-27.md").readText()
+        val audit = java.io.File("../audits/asi_ssi_audit_queue_2026-06-27.md").readText()
         assertTrue("V5.0.4234: ASI/SSI audit queue must track symbolic prover, async strategy lab, GEPA, semantic graph, counterfactual replay, and ResearchScout", audit.contains("A13 — SymbolicInvariantProver") && audit.contains("A15 — AsyncStrategyLab") && audit.contains("A17 — GEPA-style reflective optimizer") && audit.contains("A18 — SemanticPatternGraph") && audit.contains("A19 — CounterfactualReplayEngine") && audit.contains("A20 — Free-API ResearchScout"))
         assertTrue("V5.0.4234: ASI/SSI queue must forbid hot-path LLM/API calls", audit.contains("Never scanner/FDG/executor hot path") && audit.contains("background-only"))
+    }
+
+    @Test
+    fun symbolicInvariantProver4235ProtectsGrowthContracts() {
+        val prover = java.io.File("src/main/kotlin/com/lifecyclebot/engine/SymbolicInvariantProver.kt").readText()
+        assertTrue("V5.0.4235: SymbolicInvariantProver must define executable source proofs", prover.contains("object SymbolicInvariantProver") && prover.contains("proveSourceContracts") && prover.contains("NO_LEARNED_SHITCOIN_ZERO_SIZE_4235") && prover.contains("ASYNC_AI_NEVER_HOT_PATH_4235"))
+        val failed = SymbolicInvariantProver.proveSourceContracts(java.io.File(".")).filter { !it.passed }
+        assertTrue("V5.0.4235: symbolic source contracts must all pass: ${failed.joinToString { it.id + ":" + it.detail }}", failed.isEmpty())
     }
 
 }
