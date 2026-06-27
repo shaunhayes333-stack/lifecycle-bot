@@ -1142,6 +1142,7 @@ object CashGenerationAI {
         synchronized(activePositions) {
             activePositions[mint] = position
             try { TreasuryCashflowMissionReport.recordOpened(mint, symbol, isPaperMode, positionSol, entryScore) } catch (_: Throwable) {}
+            try { com.lifecyclebot.engine.TreasuryOpportunityEngine.recordDeployment(mint, symbol, positionSol, entryPrice, "TREASURY") } catch (_: Throwable) {}  // V5.0.4339 ledger-only; CashGen executed the buy
             try { com.lifecyclebot.engine.UltimateEdgeEngine.enqueueRefresh(mint, symbol, "TREASURY", "TREASURY_OPEN", entryScore.coerceIn(0, 100), "open_size_${positionSol.fmt(4)}") } catch (_: Throwable) {}
             ErrorLogger.info(
                 TAG,
@@ -1531,6 +1532,7 @@ object CashGenerationAI {
         val pnlPct = (exitPrice - pos.entryPrice) / pos.entryPrice * 100
         val pnlSol = pos.entrySol * pnlPct / 100
         try { TreasuryCashflowMissionReport.recordClosed(mint, pos.symbol, pos.isPaper, pnlSol, exitReason.name) } catch (_: Throwable) {}
+        try { com.lifecyclebot.engine.TreasuryOpportunityEngine.closeDeployment(mint, pos.entrySol + pnlSol, pnlPct) } catch (_: Throwable) {}  // V5.0.4339 ledger-only; CashGen executed the sell
         try { com.lifecyclebot.engine.UltimateEdgeEngine.enqueueRefresh(mint, pos.symbol, "TREASURY", "TREASURY_CLOSE", pnlPct.toInt().coerceIn(-100, 100), "exit_${exitReason.name}_pnl_${pnlPct.fmt(2)}") } catch (_: Throwable) {}
         val holdMinutesLong = (System.currentTimeMillis() - pos.entryTime) / 60_000L
 

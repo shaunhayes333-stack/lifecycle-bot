@@ -5223,7 +5223,14 @@ class GoldenTapeRegressionTest {
         val bot = java.io.File("src/main/kotlin/com/lifecyclebot/engine/BotService.kt").readText()
         val cash = java.io.File("src/main/kotlin/com/lifecyclebot/v3/scoring/CashGenerationAI.kt").readText()
         assertTrue("V5.0.4338: BotService must enable TreasuryOpportunityEngine advisory helper", bot.contains("TreasuryOpportunityEngine.setEnabled(true)") && bot.contains("advisory Treasury deployment helper"))
-        assertTrue("V5.0.4338: CashGenerationAI must consume TreasuryOpportunityEngine without duplicate deployment", cash.contains("TREASURY_OPPORTUNITY_ADVISORY_SHAPE_4338") && cash.contains("TreasuryOpportunityEngine.assessOpportunity") && cash.contains("does NOT recordDeployment") && !cash.contains("TreasuryOpportunityEngine.recordDeployment"))
+        assertTrue("V5.0.4338: CashGenerationAI must consume TreasuryOpportunityEngine as advisory sizing", cash.contains("TREASURY_OPPORTUNITY_ADVISORY_SHAPE_4338") && cash.contains("TreasuryOpportunityEngine.assessOpportunity") && cash.contains("does NOT recordDeployment"))
+    }
+
+
+    @Test
+    fun treasuryOpportunity4339TracksActualCashGenOpenCloseLedgerOnly() {
+        val cash = java.io.File("src/main/kotlin/com/lifecyclebot/v3/scoring/CashGenerationAI.kt").readText()
+        assertTrue("V5.0.4339: CashGen actual open/close must feed TreasuryOpportunityEngine ledger only", cash.contains("TreasuryOpportunityEngine.recordDeployment") && cash.contains("TreasuryOpportunityEngine.closeDeployment") && cash.contains("ledger-only; CashGen executed the buy") && cash.contains("ledger-only; CashGen executed the sell"))
     }
 
 }
