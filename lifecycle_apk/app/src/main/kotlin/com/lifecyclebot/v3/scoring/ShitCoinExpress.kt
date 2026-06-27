@@ -437,14 +437,19 @@ object ShitCoinExpress {
         // V5.9.230 — INTELLIGENCE GATE: MetaCognition + Education + BehaviorAI
         // ═══════════════════════════════════════════════════════════════════
 
+        // V5.0.4325 — Express intelligence warnings are soft shaping, not
+        // lane-amputating non-safety vetoes. True hard safety remains upstream.
+        var expressIntelligenceSoftMult4325 = 1.0
+
         // 1. BehaviorAI tilt protection
         try {
             if (com.lifecyclebot.v3.scoring.BehaviorAI.isTiltProtectionActive()) {
-                return noRide("TILT_BLOCK: BehaviorAI tilt protection active")
+                expressIntelligenceSoftMult4325 = minOf(expressIntelligenceSoftMult4325, 0.35)
+                ErrorLogger.warn(TAG, "💩🚂 EXPRESS_TILT_SOFT_SHAPE_4325: BehaviorAI tilt active — size×0.35, no hard noRide")
             }
         } catch (_: Exception) {}
 
-        // 2. SymbolicExitReasoner — high exit urgency = don't board
+        // 2. SymbolicExitReasoner — high exit urgency = size down, don't amputate
         try {
             val symSnap = com.lifecyclebot.engine.SymbolicExitReasoner.getSignalSnapshot(symbol, mint)
             val urgencySignals = listOfNotNull(
@@ -453,7 +458,9 @@ object ShitCoinExpress {
             )
             val avgUrgency = if (urgencySignals.isNotEmpty()) urgencySignals.average() else 0.0
             if (avgUrgency > 0.80) {
-                return noRide("SYMBOLIC_VETO: exit urgency %.2f > 0.80 — market not ready".format(avgUrgency))
+                val symbolicMult4325 = if (avgUrgency > 0.92) 0.35 else 0.45
+                expressIntelligenceSoftMult4325 = minOf(expressIntelligenceSoftMult4325, symbolicMult4325)
+                ErrorLogger.warn(TAG, "💩🚂 EXPRESS_SYMBOLIC_SOFT_SHAPE_4325: urgency=${avgUrgency.fmt(2)} — size×${symbolicMult4325.fmt(2)}, no hard noRide")
             }
         } catch (_: Exception) {}
 
@@ -693,6 +700,7 @@ object ShitCoinExpress {
         // churn, and expectancy. boardRide owns ride state only; close/learning
         // still flows through exitRide / executor sell paths.
         try { com.lifecyclebot.engine.PipelineHealthCollector.labelInc("EXPRESS_BOARD_STATE_ONLY") } catch (_: Throwable) {}
+        try { com.lifecyclebot.engine.UltimateEdgeEngine.enqueueRefresh(mint, symbol, "EXPRESS", "EXPRESS_BOARD", momentum.toInt().coerceIn(0, 100), "board_buy_${buyPressure.toInt()}_size_${entrySol.fmt(4)}") } catch (_: Throwable) {}
 
         ErrorLogger.info(TAG, "💩🎫 BOARDED: $symbol | " +
             "entry=${entryPrice.fmtPrice()} | " +
@@ -819,6 +827,8 @@ object ShitCoinExpress {
                 holdMinutes = holdMins,
             )
         } catch (_: Exception) {}
+
+        try { com.lifecyclebot.engine.UltimateEdgeEngine.enqueueRefresh(ride.mint, ride.symbol, "EXPRESS", "EXPRESS_CLOSE", pnlPct.toInt().coerceIn(-100, 100), "exit_${exitSignal.name}_pnl_${pnlPct.fmt(2)}") } catch (_: Throwable) {}
 
         // Record P&L
         val pnlBps = (pnlSol * 100).toLong()
