@@ -413,7 +413,7 @@ object PositionPersistence {
                             entryTime = saved.entryTime,
                             takeProfitPct = 14.0,
                             stopLossPct = -11.0,
-                            manipScore = saved.entryScore,
+                            manipScore = saved.entryScore.toInt(),
                             bundlePct = 0.0,
                             buyPressure = 0.0,
                             isPaper = saved.isPaperPosition,
