@@ -3566,6 +3566,8 @@ class GoldenTapeRegressionTest {
         assertTrue("V5.0.4215: restored QUALITY/BLUE_CHIP positions must rehydrate lane active maps", positionPersistence4215.contains("QUALITY_RESTORED_ACTIVE_POSITION_4215") && positionPersistence4215.contains("BLUE_CHIP_RESTORED_ACTIVE_POSITION_4215") && positionPersistence4215.contains("QualityTraderAI.restorePosition") && positionPersistence4215.contains("BlueChipTraderAI.restorePosition"))
         val botService4218 = java.io.File("src/main/kotlin/com/lifecyclebot/engine/BotService.kt").readText()
         assertTrue("V5.0.4218: ProjectSniper missions must engage only after buy opens", botService4218.contains("val sniperOpened = executor.shitCoinBuy") && botService4218.indexOf("val sniperOpened = executor.shitCoinBuy") < botService4218.indexOf("ProjectSniperAI.engageMission") && botService4218.contains("PROJECT_SNIPER_MISSION_AFTER_BUY_4218") && botService4218.contains("lane=PROJECT_SNIPER"))
+        val botService4219 = java.io.File("src/main/kotlin/com/lifecyclebot/engine/BotService.kt").readText()
+        assertTrue("V5.0.4219: Quality TP risk/reward floor must use absolute stop distance", botService4219.contains("kotlin.math.abs(qualitySignal.stopLossPct) * 2.0") && !botService4219.contains("qualitySignal.stopLossPct * 2.0  // Always >= 2x the stop"))
     }
 
 

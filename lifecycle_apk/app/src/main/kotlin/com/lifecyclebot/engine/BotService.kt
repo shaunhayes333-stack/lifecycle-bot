@@ -18072,7 +18072,7 @@ if (hotExitHandledSweep) {
                                 // NOT 4-8% overrides — those make losses > wins structurally
                                 // Risk:reward must be at least 2:1 (TP >= 2x SL)
                                 val qualityTp = qualitySignal.takeProfitPct.coerceAtLeast(
-                                    qualitySignal.stopLossPct * 2.0  // Always >= 2x the stop
+                                    kotlin.math.abs(qualitySignal.stopLossPct) * 2.0  // V5.0.4219: TP floor must use absolute loss distance
                                 )
 
                                 // Execute Quality buy (reuse BlueChip executor pattern)
