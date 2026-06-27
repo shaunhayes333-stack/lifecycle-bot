@@ -5117,4 +5117,13 @@ class GoldenTapeRegressionTest {
         assertTrue("V5.0.4320: matrix reporters must offload non-critical side effects through ChokeReliefBus", sell.contains("ChokeReliefBus.launch") && shit.contains("ChokeReliefBus.launch") && shit.contains("ForensicLogger.lifecycle"))
     }
 
+    @Test
+    fun ultimateEdgeEngine4321IsBotNativeBackgroundLaneCardCoordinator() {
+        val engine = java.io.File("src/main/kotlin/com/lifecyclebot/engine/UltimateEdgeEngine.kt").readText()
+        val shit = java.io.File("src/main/kotlin/com/lifecyclebot/engine/ShitCoinDecisionMatrixReport.kt").readText()
+        assertTrue("V5.0.4321: UltimateEdgeEngine must aggregate semantic/source/route/research edge into cached lane cards", engine.contains("object UltimateEdgeEngine") && engine.contains("LaneEdgeCard") && engine.contains("SemanticPatternGraph.entryDnaBias") && engine.contains("SourceFamilyOpportunityScorecard.snapshot") && engine.contains("MemeExecutionRouteStack.coverage") && engine.contains("ResearchScout.riskHint"))
+        assertTrue("V5.0.4321: UltimateEdgeEngine must be coroutine/background-only through ChokeReliefBus", engine.contains("ChokeReliefBus.launch") && engine.contains("background_only=true") && engine.contains("no_execution_authority=true"))
+        assertTrue("V5.0.4321: ShitCoin open/close matrix must enqueue edge-card refreshes", shit.contains("UltimateEdgeEngine.enqueueRefresh") && shit.contains("UltimateEdgeEngine.status"))
+    }
+
 }

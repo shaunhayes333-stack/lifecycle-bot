@@ -35,6 +35,7 @@ object ShitCoinDecisionMatrixReport {
     fun recordOpened(mint: String, symbol: String, platform: String, isPaper: Boolean, sizeSol: Double, entryScore: Int) {
         opened.incrementAndGet(); inc(platforms, "${if (isPaper) "PAPER" else "LIVE"}/$platform")
         ChokeReliefBus.launch("SHITCOIN_MATRIX_OPEN_4312", mint) { PipelineHealthCollector.labelInc("SHITCOIN_MATRIX_OPEN_4312") }
+        UltimateEdgeEngine.enqueueRefresh(mint, symbol, "SHITCOIN", platform, entryScore, "opened_size_${sizeSol.fmtLocal(4)}")
     }
 
     fun recordClosed(mint: String, symbol: String, isPaper: Boolean, pnlPct: Double, pnlSol: Double, exitReason: String, entryScore: Int) {
@@ -43,6 +44,7 @@ object ShitCoinDecisionMatrixReport {
             PipelineHealthCollector.labelInc("SHITCOIN_MATRIX_CLOSE_4312")
             ForensicLogger.lifecycle("SHITCOIN_MATRIX_CLOSE_4312", "mint=${mint.take(10)} symbol=${symbol.take(16)} paper=$isPaper pnlPct=${pnlPct.fmtLocal(2)} pnlSol=${pnlSol.fmtLocal(5)} reason=$exitReason entryScore=$entryScore report_only=true")
         }
+        UltimateEdgeEngine.enqueueRefresh(mint, symbol, "SHITCOIN", "CLOSE", entryScore, "closed_${exitReason.take(60)}_pnl_${pnlPct.fmtLocal(2)}")
     }
 
     fun status(): String {
@@ -50,7 +52,7 @@ object ShitCoinDecisionMatrixReport {
         val wr = wins.get().toDouble() / total.toDouble() * 100.0
         val topRejects = rejectReasons.entries.sortedByDescending { it.value.get() }.take(6).joinToString("|") { "${it.key}:${it.value.get()}" }
         val topExits = exitReasons.entries.sortedByDescending { it.value.get() }.take(6).joinToString("|") { "${it.key}:${it.value.get()}" }
-        return "SHITCOIN_DECISION_MATRIX_4312 accepted=${accepted.get()} rejected=${rejected.get()} opened=${opened.get()} closed=${closed.get()} wr=${wr.fmtLocal(1)}% rejects=$topRejects exits=$topExits report_only=true no_gate_change=true"
+        return UltimateEdgeEngine.status(4) + " || SHITCOIN_DECISION_MATRIX_4312 accepted=${accepted.get()} rejected=${rejected.get()} opened=${opened.get()} closed=${closed.get()} wr=${wr.fmtLocal(1)}% rejects=$topRejects exits=$topExits report_only=true no_gate_change=true"
     }
 }
 private fun Double.fmtLocal(decimals: Int): String = try { java.lang.String.format(java.util.Locale.US, "% ." + decimals + "f", this).replace(" ", "") } catch (_: Throwable) { this.toString() }
