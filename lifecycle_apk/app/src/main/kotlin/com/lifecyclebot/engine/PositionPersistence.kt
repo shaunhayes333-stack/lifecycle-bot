@@ -495,6 +495,26 @@ object PositionPersistence {
                     )
                     PipelineHealthCollector.labelInc("DIP_HUNTER_RESTORED_ACTIVE_DIP_4221")
                 }
+                if (restoredLayer.equals("EXPRESS", ignoreCase = true) &&
+                    !com.lifecyclebot.v3.scoring.ShitCoinExpress.hasRide(mint)) {
+                    val expressEntry = saved.entryPrice.takeIf { it > 0.0 } ?: saved.lastKnownPrice
+                    val expressHigh = saved.highestPrice.takeIf { it > expressEntry } ?: expressEntry
+                    com.lifecyclebot.v3.scoring.ShitCoinExpress.restoreRide(
+                        com.lifecyclebot.v3.scoring.ShitCoinExpress.ExpressRide(
+                            mint = mint,
+                            symbol = saved.symbol,
+                            entryPrice = expressEntry,
+                            entrySol = saved.costSol,
+                            entryTime = saved.entryTime,
+                            entryMomentum = 0.0,
+                            entryBuyPressure = 0.0,
+                            isPaper = saved.isPaperPosition,
+                            highWaterMark = expressHigh,
+                            peakPnlPct = saved.peakGainPct.coerceAtLeast(0.0),
+                        )
+                    )
+                    PipelineHealthCollector.labelInc("EXPRESS_RESTORED_ACTIVE_RIDE_4223")
+                }
             } catch (_: Throwable) {}
             
             restoredCount++

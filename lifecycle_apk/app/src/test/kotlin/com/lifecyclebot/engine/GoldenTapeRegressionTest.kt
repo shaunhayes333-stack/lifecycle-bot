@@ -3576,6 +3576,10 @@ class GoldenTapeRegressionTest {
         val dipHunter4222 = java.io.File("src/main/kotlin/com/lifecyclebot/v3/scoring/DipHunterAI.kt").readText()
         val sniper4222 = java.io.File("src/main/kotlin/com/lifecyclebot/v3/scoring/ProjectSniperAI.kt").readText()
         assertTrue("V5.0.4222: lane-local daily loss must size-shape DipHunter/Sniper instead of hard-amputing volume", dipHunter4222.contains("DIP_DAILY_LOSS_RECOVERY_PROBE_4222") && dipHunter4222.contains("if (dailyLossRecoveryProbe) positionSol *= 0.35") && !dipHunter4222.contains("return noDip(\"DAILY_LOSS_LIMIT") && sniper4222.contains("SNIPER_DAILY_LOSS_RECOVERY_PROBE_4222") && sniper4222.contains("dailyLossProbeMult") && !sniper4222.contains("return noEngage(\"DAILY_LOSS_CAP"))
+        val express4223 = java.io.File("src/main/kotlin/com/lifecyclebot/v3/scoring/ShitCoinExpress.kt").readText()
+        val botService4223 = java.io.File("src/main/kotlin/com/lifecyclebot/engine/BotService.kt").readText()
+        val positionPersistence4223 = java.io.File("src/main/kotlin/com/lifecyclebot/engine/PositionPersistence.kt").readText()
+        assertTrue("V5.0.4223: Express daily loss and live pendingVerify must preserve ride/exits", express4223.contains("EXPRESS_DAILY_LOSS_RECOVERY_PROBE_4223") && express4223.contains("if (dailyLossRecoveryProbe) positionSol *= 0.35") && express4223.contains("fun restoreRide(ride: ExpressRide)") && !express4223.contains("return noRide(\"DAILY_LOSS_LIMIT") && botService4223.contains("ts.position.qtyToken > 0.0 || ts.position.pendingVerify || ts.position.isOpen) com.lifecyclebot.v3.scoring.ShitCoinExpress.boardRide") && positionPersistence4223.contains("EXPRESS_RESTORED_ACTIVE_RIDE_4223"))
     }
 
 

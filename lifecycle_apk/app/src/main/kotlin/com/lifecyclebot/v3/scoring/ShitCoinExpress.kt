@@ -279,9 +279,13 @@ object ShitCoinExpress {
             return noRide("DAILY_LIMIT: ${dailyRides.get()}/$DAILY_MAX_RIDES rides")
         }
         
+        // V5.0.4223 — lane-local daily loss soft-shapes Express into a
+        // recovery probe instead of hard-amputing the fastest meme lane. Global
+        // SecurityGuard/KillSwitch still owns catastrophic daily drawdown.
         val dailyPnl = dailyPnlSolBps.get() / 100.0
-        if (dailyPnl <= -DAILY_MAX_LOSS_SOL) {
-            return noRide("DAILY_LOSS_LIMIT: ${dailyPnl}◎")
+        val dailyLossRecoveryProbe = dailyPnl <= -DAILY_MAX_LOSS_SOL
+        if (dailyLossRecoveryProbe) {
+            ErrorLogger.warn(TAG, "💩🚂 EXPRESS_DAILY_LOSS_RECOVERY_PROBE_4223: pnl=${dailyPnl.fmt(2)}◎ cap=${DAILY_MAX_LOSS_SOL.fmt(2)}◎ — size×0.35")
         }
         
         // Max concurrent rides
@@ -610,6 +614,8 @@ object ShitCoinExpress {
             }
         } catch (_: Throwable) { /* fail-open */ }
 
+        if (dailyLossRecoveryProbe) positionSol *= 0.35
+
         // Cap at max
         // V5.9.1571 — allow calibration/danger shrink to reach 0.01 probes.
         // EXPRESS is currently WR=0% / net-negative; keep samples, but don't force
@@ -686,6 +692,11 @@ object ShitCoinExpress {
             "entry=${entryPrice.fmtPrice()} | " +
             "size=${entrySol.fmt(4)} SOL | " +
             "mom=${momentum.fmt(1)}% buy=${buyPressure.toInt()}%")
+    }
+
+    fun restoreRide(ride: ExpressRide) {
+        synchronized(activeRides) { activeRides[ride.mint] = ride }
+        ErrorLogger.warn(TAG, "💩🚂 EXPRESS RESTORED: ${ride.symbol} | entry=${ride.entryPrice.fmtPrice()} | mode=${if (ride.isPaper) "PAPER" else "LIVE"}")
     }
     
     fun checkExit(mint: String, currentPrice: Double, currentMomentum: Double): ExitSignal {

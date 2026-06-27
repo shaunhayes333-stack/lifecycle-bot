@@ -19760,10 +19760,14 @@ if (hotExitHandledSweep) {
                                 }
 
 
-                                if (ts.position.isOpen) com.lifecyclebot.v3.scoring.ShitCoinExpress.boardRide(
+                                // V5.0.4223 — live buys can be pendingVerify=true
+                                // while isOpen=false. Board Express state for both paper
+                                // qty opens and live proof-pending opens so checkExit() is
+                                // not blind after a successful live buy.
+                                if (ts.position.qtyToken > 0.0 || ts.position.pendingVerify || ts.position.isOpen) com.lifecyclebot.v3.scoring.ShitCoinExpress.boardRide(
                                     mint = ts.mint,
                                     symbol = ts.symbol,
-                                    entryPrice = ts.ref,
+                                    entryPrice = ts.position.entryPrice.takeIf { it > 0.0 } ?: ts.ref,
                                     entrySol = expressFinalSize,
                                     momentum = ts.momentum ?: 0.0,
                                     buyPressure = ts.lastBuyPressurePct,
