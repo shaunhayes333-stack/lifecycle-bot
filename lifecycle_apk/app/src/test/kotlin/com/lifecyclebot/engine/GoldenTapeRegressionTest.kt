@@ -5178,4 +5178,12 @@ class GoldenTapeRegressionTest {
         assertTrue("V5.0.4330: ProjectSniper must consume/warm cached UltimateEdge cards", sniper.contains("ULTIMATE_EDGE_SNIPER_CACHE_SHAPE_4330") && sniper.contains("UltimateEdgeEngine.cached(ts.mint, \"PROJECT_SNIPER\")") && sniper.contains("UltimateEdgeEngine.enqueueRefresh(mint, symbol, \"PROJECT_SNIPER\"") && sniper.contains("UltimateEdgeEngine.enqueueRefresh(mission.mint, mission.symbol, \"PROJECT_SNIPER\""))
     }
 
+    @Test
+    fun ultimateEdgeEngine4331PersistsLaneCardsThroughLearningPersistence() {
+        val engine = java.io.File("src/main/kotlin/com/lifecyclebot/engine/UltimateEdgeEngine.kt").readText()
+        val persistence = java.io.File("src/main/kotlin/com/lifecyclebot/engine/LearningPersistence.kt").readText()
+        assertTrue("V5.0.4331: UltimateEdgeEngine must export/import/reset lane-card cache", engine.contains("fun exportState(): String") && engine.contains("fun importState(raw: String?)") && engine.contains("fun reset() { cards.clear() }") && engine.contains("JSONArray") && engine.contains("JSONObject"))
+        assertTrue("V5.0.4331: LearningPersistence must save/load/reset UltimateEdgeEngine", persistence.contains("ULTIMATE_EDGE_ENGINE") && persistence.contains("UltimateEdgeEngine.exportState") && persistence.contains("UltimateEdgeEngine.importState") && persistence.contains("UltimateEdgeEngine.reset"))
+    }
+
 }

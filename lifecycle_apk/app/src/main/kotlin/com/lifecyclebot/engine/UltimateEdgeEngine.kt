@@ -1,6 +1,8 @@
 package com.lifecyclebot.engine
 
 import com.lifecyclebot.engine.execution.MemeExecutionRouteStack
+import org.json.JSONArray
+import org.json.JSONObject
 import java.util.concurrent.ConcurrentHashMap
 
 /**
@@ -107,6 +109,41 @@ object UltimateEdgeEngine {
         val recent = cards.values.sortedByDescending { it.generatedAtMs }.take(limit.coerceIn(1, 20))
         if (recent.isEmpty()) return "ULTIMATE_EDGE_ENGINE_4321 cards=0 cache_first=true background_only=true no_execution_authority=true"
         return "ULTIMATE_EDGE_ENGINE_4321 cards=${cards.size} " + recent.joinToString(" | ") { "${it.lane}/${it.source} bias=${it.scoreBias} size=${it.sizeMult.fmtEdgeLocal(3)}" } + " cache_first=true background_only=true no_execution_authority=true"
+    }
+
+    fun exportState(): String = JSONArray().also { a ->
+        cards.values.sortedByDescending { it.generatedAtMs }.take(240).forEach { c ->
+            a.put(JSONObject()
+                .put("mint", c.mint).put("symbol", c.symbol).put("lane", c.lane).put("source", c.source)
+                .put("scoreBias", c.scoreBias).put("sizeMult", c.sizeMult)
+                .put("semanticReason", c.semanticReason).put("sourceSummary", c.sourceSummary)
+                .put("routeSummary", c.routeSummary).put("researchHint", c.researchHint).put("ts", c.generatedAtMs))
+        }
+    }.toString()
+
+    fun importState(raw: String?) {
+        if (raw.isNullOrBlank()) return
+        try {
+            val a = JSONArray(raw)
+            cards.clear()
+            for (i in 0 until a.length().coerceAtMost(240)) {
+                val o = a.optJSONObject(i) ?: continue
+                val card = LaneEdgeCard(
+                    mint = o.optString("mint"),
+                    symbol = o.optString("symbol"),
+                    lane = o.optString("lane"),
+                    source = o.optString("source"),
+                    scoreBias = o.optInt("scoreBias", 0),
+                    sizeMult = o.optDouble("sizeMult", 1.0).coerceIn(0.90, 1.08),
+                    semanticReason = o.optString("semanticReason"),
+                    sourceSummary = o.optString("sourceSummary"),
+                    routeSummary = o.optString("routeSummary"),
+                    researchHint = o.optString("researchHint"),
+                    generatedAtMs = o.optLong("ts", System.currentTimeMillis()),
+                )
+                if (card.mint.isNotBlank() && card.lane.isNotBlank()) cards[key(card.mint, card.lane)] = card
+            }
+        } catch (_: Throwable) {}
     }
 
     fun reset() { cards.clear() }

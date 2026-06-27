@@ -157,6 +157,7 @@ object LearningPersistence {
             try { putBlob("SOURCE_FAMILY_SCORECARD", com.lifecyclebot.engine.SourceFamilyOpportunityScorecard.exportState()) } catch (_: Throwable) {}  // V5.0.4287
             try { putBlob("RUNNER_EXIT_SHADOW_LEDGER", com.lifecyclebot.engine.RunnerExitShadowLedger.exportState()) } catch (_: Throwable) {}  // V5.0.4289
             try { putBlob("LIVE_WALLET_GROWTH_GOVERNOR", com.lifecyclebot.engine.LiveWalletGrowthGovernorReport.exportState()) } catch (_: Throwable) {}  // V5.0.4290
+            try { putBlob("ULTIMATE_EDGE_ENGINE", com.lifecyclebot.engine.UltimateEdgeEngine.exportState()) } catch (_: Throwable) {}  // V5.0.4331
             // V5.9.984 — persist CollectiveIntelligenceAI counters + thresholds.
             try { putBlob("COLLECTIVE_INTEL", com.lifecyclebot.v3.scoring.CollectiveIntelligenceAI.exportState()) } catch (_: Throwable) {}
             // V5.9.985 — close DipHunterAI + SolanaArbAI amnesia.
@@ -244,6 +245,7 @@ object LearningPersistence {
         try { getBlob("SOURCE_FAMILY_SCORECARD")?.let { com.lifecyclebot.engine.SourceFamilyOpportunityScorecard.importState(it) } } catch (_: Throwable) {}  // V5.0.4287
         try { getBlob("RUNNER_EXIT_SHADOW_LEDGER")?.let { com.lifecyclebot.engine.RunnerExitShadowLedger.importState(it) } } catch (_: Throwable) {}  // V5.0.4289
         try { getBlob("LIVE_WALLET_GROWTH_GOVERNOR")?.let { com.lifecyclebot.engine.LiveWalletGrowthGovernorReport.importState(it) } } catch (_: Throwable) {}  // V5.0.4290
+        try { getBlob("ULTIMATE_EDGE_ENGINE")?.let { com.lifecyclebot.engine.UltimateEdgeEngine.importState(it) } } catch (_: Throwable) {}  // V5.0.4331
         // V5.9.949 — restore the rest of the brain.
         try { getBlob("BEHAVIOR_LEARNING")?.let { com.lifecyclebot.engine.BehaviorLearning.importState(it) } } catch (_: Throwable) {}
         try { getBlob("LAYER_READINESS")?.let { com.lifecyclebot.engine.LayerReadinessRegistry.importState(it) } } catch (_: Throwable) {}
@@ -407,6 +409,7 @@ object LearningPersistence {
         z("RUNNER_RETENTION_OPTIMIZER"){ com.lifecyclebot.engine.RunnerRetentionOptimizer.reset() }
         z("CAPITAL_EFFICIENCY"){ com.lifecyclebot.engine.CapitalEfficiencyBrain.reset() }
         z("SOURCE_FAMILY_SCORECARD"){ com.lifecyclebot.engine.SourceFamilyOpportunityScorecard.reset() }
+        z("ULTIMATE_EDGE_ENGINE"){ com.lifecyclebot.engine.UltimateEdgeEngine.reset() }
         z("RUNNER_EXIT_SHADOW_LEDGER"){ com.lifecyclebot.engine.RunnerExitShadowLedger.reset() }
         z("LIVE_WALLET_GROWTH_GOVERNOR"){ com.lifecyclebot.engine.LiveWalletGrowthGovernorReport.reset() }
         z("COLLECTIVE_INTEL")  { com.lifecyclebot.v3.scoring.CollectiveIntelligenceAI.reset() }
