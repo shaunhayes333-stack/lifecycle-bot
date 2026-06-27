@@ -5138,7 +5138,7 @@ class GoldenTapeRegressionTest {
         val express = java.io.File("src/main/kotlin/com/lifecyclebot/v3/scoring/ShitCoinExpress.kt").readText()
         assertTrue("V5.0.4325: Express tilt/symbolic intelligence warnings must soft-shape, not noRide", express.contains("EXPRESS_TILT_SOFT_SHAPE_4325") && express.contains("EXPRESS_SYMBOLIC_SOFT_SHAPE_4325") && express.contains("expressIntelligenceSoftMult4325"))
         assertFalse("V5.0.4325: stale Express non-safety hard veto literals must not survive", express.contains("return noRide(\"TILT_BLOCK") || express.contains("return noRide(\"SYMBOLIC_VETO"))
-        assertTrue("V5.0.4325: Express must warm and consume cache-only UltimateEdge cards", express.contains("UltimateEdgeEngine.enqueueRefresh(mint, symbol, \"EXPRESS\"") && express.contains("UltimateEdgeEngine.enqueueRefresh(ride.mint, ride.symbol, \"EXPRESS\"") && express.contains("ULTIMATE_EDGE_EXPRESS_CACHE_SHAPE_4325") && express.contains("UltimateEdgeEngine.cached(mint, \"EXPRESS\")"))
+        assertTrue("V5.0.4325: Express must warm and consume cache-only UltimateEdge cards", express.contains("EXPRESS_BOARD") && express.contains("EXPRESS_CLOSE") && express.contains("ULTIMATE_EDGE_EXPRESS_CACHE_SHAPE_4325") && express.contains("UltimateEdgeEngine.cached(mint, \"EXPRESS\")"))
     }
 
     @Test

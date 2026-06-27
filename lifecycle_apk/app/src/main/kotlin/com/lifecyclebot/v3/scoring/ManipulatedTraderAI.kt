@@ -435,7 +435,7 @@ object ManipulatedTraderAI {
                 val edgeSize4329 = edgeCard4329.sizeMult.coerceIn(0.90, 1.08)
                 positionSizeSol = (positionSizeSol * edgeSize4329).coerceAtLeast(0.01)
                 if (edgeSize4329 != 1.0) {
-                    ErrorLogger.debug(TAG, "☠️🧠 ULTIMATE_EDGE_MANIP_CACHE_SHAPE_4329: $symbol score+$edgeBias4329 size×${edgeSize4329.fmt(3)} ${edgeCard4329.semanticReason.take(90)}")
+                    ErrorLogger.debug(TAG, "☠️🧠 ULTIMATE_EDGE_MANIP_CACHE_SHAPE_4329: $symbol score+$edgeBias4329 size×${String.format(java.util.Locale.US, "%.3f", edgeSize4329)} ${edgeCard4329.semanticReason.take(90)}")
                 }
             }
         } catch (_: Throwable) { /* fail-open cache read */ }
@@ -462,7 +462,7 @@ object ManipulatedTraderAI {
     fun addPosition(pos: ManipulatedPosition) {
         activePositions[pos.mint] = pos
         _totalManipCaught.incrementAndGet()
-        try { com.lifecyclebot.engine.UltimateEdgeEngine.enqueueRefresh(pos.mint, pos.symbol, "MANIPULATED", "MANIP_OPEN", pos.manipScore.coerceIn(0, 100), "open_size_${pos.entrySol.fmt(4)}") } catch (_: Throwable) {}
+        try { com.lifecyclebot.engine.UltimateEdgeEngine.enqueueRefresh(pos.mint, pos.symbol, "MANIPULATED", "MANIP_OPEN", pos.manipScore.coerceIn(0, 100), "open_size_${String.format(java.util.Locale.US, "%.4f", pos.entrySol)}") } catch (_: Throwable) {}
         ErrorLogger.info(TAG, "☠️ POSITION ADDED: ${pos.symbol} | " +
             "score=${pos.manipScore} | bundle=${pos.bundlePct.toInt()}% | " +
             "bp=${pos.buyPressure.toInt()}% | " +
@@ -593,6 +593,7 @@ object ManipulatedTraderAI {
         } else 0.0
 
         val pnlSol = pos.entrySol * (pnlPct / 100.0)
+        try { com.lifecyclebot.engine.UltimateEdgeEngine.enqueueRefresh(pos.mint, pos.symbol, "MANIPULATED", "MANIP_CLOSE", pnlPct.toInt().coerceIn(-100, 100), "exit_${reason.name}_pnl_${String.format(java.util.Locale.US, "%.2f", pnlPct)}") } catch (_: Throwable) {}
         val pnlBps = (pnlSol * 10_000).toLong()
         _dailyPnlSolBps.addAndGet(pnlBps)
         val holdMinutesLong = (System.currentTimeMillis() - pos.entryTime) / 60_000L
