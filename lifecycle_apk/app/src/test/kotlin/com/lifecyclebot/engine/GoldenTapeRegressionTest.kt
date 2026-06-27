@@ -4574,7 +4574,7 @@ class GoldenTapeRegressionTest {
         val graph = java.io.File("src/main/kotlin/com/lifecyclebot/engine/SemanticPatternGraph.kt").readText()
         val shit = java.io.File("src/main/kotlin/com/lifecyclebot/v3/scoring/ShitCoinTraderAI.kt").readText()
         assertTrue("V5.0.4255: SemanticPatternGraph must expose cached entryBias readback with no API/hot-path provider call", graph.contains("fun entryBias") && graph.contains("querySimilar") && graph.contains("No API, no hard block") && !graph.contains("OkHttpClient"))
-        assertTrue("V5.0.4255: ShitCoin entry must consume semantic readback as bounded score/size soft-shape", shit.contains("SHITCOIN_SEMANTIC_ENTRY_READBACK_4255") && shit.contains("SemanticPatternGraph.entryBias") && shit.contains("semanticEntrySizeMult4255"))
+        assertTrue("V5.0.4255/4278: ShitCoin entry must consume semantic readback as bounded score/size soft-shape", shit.contains("SHITCOIN_DNA_SEMANTIC_ENTRY_READBACK_4278") && shit.contains("SemanticPatternGraph.entryDnaBias") && shit.contains("semanticEntrySizeMult4255"))
         assertTrue("V5.0.4255: semantic negative memory must not create a hard threshold block", graph.contains("avgPnl <= -15.0 -> EntryBias(0.94, 0") && shit.contains("if (semanticBias.scoreDelta > 0)"))
     }
 
@@ -4755,6 +4755,14 @@ class GoldenTapeRegressionTest {
         assertTrue("V5.0.4278: SemanticPatternGraph must expose deployer/source/DNA-aware cached entry readback", semantic.contains("fun entryDnaBias") && semantic.contains("deployerKey") && semantic.contains("sourceKey") && semantic.contains("dnaKey") && semantic.contains("biasFromNodes"))
         assertTrue("V5.0.4278: DNA readback must remain soft score/size shaping only", semantic.contains("EntryBias(raw.sizeMult.coerceIn(0.92, 1.08)") && semantic.contains("raw.scoreDelta.coerceIn(0, 5)") && !semantic.contains("hard veto") && !semantic.contains("return ShitCoinSignal"))
         assertTrue("V5.0.4278: ShitCoin must consume DNA readback with deployer and source context", shit.contains("SemanticPatternGraph.entryDnaBias") && shit.contains("deployer = devWallet.orEmpty()") && shit.contains("dnaKey4278") && shit.contains("SHITCOIN_DNA_SEMANTIC_ENTRY_READBACK_4278"))
+    }
+
+    @Test
+    fun goldenTapeLiteralStaticCompiler4279RunsBeforeGradle() {
+        val script = java.io.File("ci/golden_tape_literal_scan.py").readText()
+        val workflow = java.io.File("../.github/workflows/build.yml").readText()
+        assertTrue("V5.0.4279: Golden Tape literal scan must catch nested unescaped contains quotes", script.contains("nested unescaped quote inside contains()") && script.contains("contains(\"\"") && script.contains("interpolation-like"))
+        assertTrue("V5.0.4279: build workflow must run literal scan before Gradle build", workflow.contains("Golden Tape literal static scan") && workflow.indexOf("Golden Tape literal static scan") < workflow.indexOf("Build Release APK"))
     }
 
 }

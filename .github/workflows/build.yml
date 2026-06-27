@@ -55,6 +55,9 @@ jobs:
         run: |
           yes | $ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager --licenses || true
 
+      - name: Golden Tape literal static scan
+        run: python3 ci/golden_tape_literal_scan.py
+
       - name: Build Release APK
         run: |
           chmod +x gradlew || true

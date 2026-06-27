@@ -150,6 +150,7 @@ North star: realized live wallet growth toward the operator's daily 2x-5x compou
 - Expected impact: catches repeat toxic families and boosts repeat winners without sacrificing exploration.
 
 ### A28 — Golden Tape Literal Static Compiler
+- Status: implemented in V5.0.4279 as `ci/golden_tape_literal_scan.py`.
 - Add a pre-CI static scan specifically for Kotlin `contains("...")` assertions with nested unescaped quotes/interpolation risk.
 - Fails locally before push; automatically suggests raw triple-quoted form.
 - Expected impact: prevents repeated red builds from stale/nested Golden Tape literals.
