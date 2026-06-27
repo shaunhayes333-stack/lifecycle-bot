@@ -4637,7 +4637,7 @@ class GoldenTapeRegressionTest {
         val bridge = java.io.File("src/main/kotlin/com/lifecyclebot/engine/PaperLiveIntelligenceBridge.kt").readText()
         val exec = java.io.File("src/main/kotlin/com/lifecyclebot/engine/Executor.kt").readText()
         val sweeper = java.io.File("src/main/kotlin/com/lifecyclebot/engine/MemeTraderFullAuditSweeper.kt").readText()
-        assertTrue("V5.0.4262: paper/live bridge must compare paper and live closed rows per lane", bridge.contains("TradeHistoryStore.getRecentValidClosedForMode") && bridge.contains("it.mode.equals("paper"") && bridge.contains("it.mode.equals("live""))
+        assertTrue("V5.0.4262: paper/live bridge must compare paper and live closed rows per lane", bridge.contains("TradeHistoryStore.getRecentValidClosedForMode") && bridge.contains("""it.mode.equals("paper""") && bridge.contains("""it.mode.equals("live"""))
         assertTrue("V5.0.4262: paper learning may only shape live softly and must fade as live samples grow", bridge.contains("liveFade") && bridge.contains("coerceIn(0.94, 1.08)") && bridge.contains("insufficient_paper"))
         assertTrue("V5.0.4262: Executor live size stack must consume paper/live bridge without affecting paper mode", exec.contains("PaperLiveIntelligenceBridge.liveSizeMultiplier") && exec.contains("RuntimeModeAuthority.isLive()") && exec.contains("PAPER_LIVE_INTEL_SIZE_SHAPED_4262") && exec.contains("paperLiveBridgeMult"))
         assertTrue("V5.0.4262: full meme audit sweeper must track paper/live intelligence alignment", sweeper.contains("PAPER_LIVE_INTELLIGENCE_ALIGNMENT_4262"))
