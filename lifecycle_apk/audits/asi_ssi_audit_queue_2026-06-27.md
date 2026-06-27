@@ -200,6 +200,7 @@ North star: realized live wallet growth toward the operator's daily 2x-5x compou
 - Expected impact: increases avg_win and reduces premature runner cuts.
 
 ### A36 — Live Wallet Growth Governor Report
+- Status: implemented in V5.0.4290 as `LiveWalletGrowthGovernorReport`, persisted live-only daily growth decomposition.
 - Add a daily live-wallet growth report that decomposes net SOL change into realized PnL, open exposure, fees/slip, dust/burn cleanup, compounding reinvestment, and idle capital.
 - Must be report-only and must never fake PnL or use phantom positions.
 - Expected impact: aligns operator decisions with the 2x–5x live-wallet daily growth doctrine.

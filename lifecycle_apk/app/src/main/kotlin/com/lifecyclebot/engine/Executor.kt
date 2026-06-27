@@ -3164,6 +3164,8 @@ class Executor(
             GlobalScope.launch(AppDispatchers.sideEffect) {
                 try {
                     try {
+                        LiveWalletGrowthGovernorReport.record(trade, _fanoutIsPaper)
+                        if (_fanoutSide == "SELL") LiveWalletGrowthGovernorReport.maybeEmit()
                         if (_fanoutSide == "BUY") SourceFamilyOpportunityScorecard.recordOpened(_fanoutSource)
                         if (_fanoutSide == "SELL") { SourceFamilyOpportunityScorecard.recordClosed(_fanoutSource, trade); SourceFamilyOpportunityScorecard.maybeReport() }
                     } catch (_: Throwable) {}

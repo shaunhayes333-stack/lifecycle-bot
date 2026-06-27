@@ -4838,4 +4838,14 @@ class GoldenTapeRegressionTest {
         assertTrue("V5.0.4289: runner shadow ledger must persist and never call sell authority", persistence.contains("RUNNER_EXIT_SHADOW_LEDGER") && !ledger.contains("requestSell(") && !ledger.contains("executeSell("))
     }
 
+    @Test
+    fun liveWalletGrowthGovernor4290ReportsRealizedDailyDecompositionOnly() {
+        val report = java.io.File("src/main/kotlin/com/lifecyclebot/engine/LiveWalletGrowthGovernorReport.kt").readText()
+        val exec = java.io.File("src/main/kotlin/com/lifecyclebot/engine/Executor.kt").readText()
+        val persistence = java.io.File("src/main/kotlin/com/lifecyclebot/engine/LearningPersistence.kt").readText()
+        assertTrue("V5.0.4290: live wallet growth report must decompose realized net PnL, fees/slip, dust, compounding, and idle/open exposure", report.contains("realizedNetSol") && report.contains("feesSol") && report.contains("avgQuoteDragPct") && report.contains("dustCleanupSol") && report.contains("compoundingReinvestedSol") && report.contains("idleOpenApproxSol"))
+        assertTrue("V5.0.4290: Executor must feed report from event-local live/paper fanout without changing execution", exec.contains("LiveWalletGrowthGovernorReport.record(trade, _fanoutIsPaper)") && exec.contains("LiveWalletGrowthGovernorReport.maybeEmit()"))
+        assertTrue("V5.0.4290: live growth report must persist and explicitly avoid phantom PnL", persistence.contains("LIVE_WALLET_GROWTH_GOVERNOR") && report.contains("report_only=true") && report.contains("no_phantom_pnl=true") && !report.contains("requestSell("))
+    }
+
 }
