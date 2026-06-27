@@ -8265,6 +8265,23 @@ class Executor(
             } catch (_: Throwable) {}
             ShadowLearningEngine.bestVariantSizeBias()
         } catch (_: Throwable) { 1.0 }
+        val superBrainSizeMult = try {
+            try {
+                val signalType = when {
+                    score >= 68.0 -> "BULLISH"
+                    score <= 42.0 -> "BEARISH"
+                    else -> "NEUTRAL"
+                }
+                SuperBrainEnhancements.recordSignal(ts.mint, ts.symbol, "EXECUTOR_ENTRY_SCORE", signalType)
+            } catch (_: Throwable) {}
+            SuperBrainEnhancements.entrySizeMultiplier(ts.mint)
+        } catch (_: Throwable) { 1.0 }
+        if (superBrainSizeMult != 1.0) {
+            try {
+                ForensicLogger.lifecycle("SUPERBRAIN_ENTRY_SIZE_SHAPED_4265", "mint=${ts.mint.take(10)} symbol=${ts.symbol} lane=$laneKeyForAgi score=${score.toInt()} mult=${superBrainSizeMult.fmt(3)}")
+                PipelineHealthCollector.labelInc("SUPERBRAIN_ENTRY_SIZE_SHAPED_4265")
+            } catch (_: Throwable) {}
+        }
         if (shadowVariantSizeMult != 1.0) {
             try {
                 ForensicLogger.lifecycle("SHADOW_VARIANT_SIZE_SHAPED_4263", "mint=${ts.mint.take(10)} symbol=${ts.symbol} lane=$laneKeyForAgi mult=${shadowVariantSizeMult.fmt(3)} mode=${if (RuntimeModeAuthority.isPaper()) "paper" else "live"}")
@@ -8272,7 +8289,7 @@ class Executor(
             } catch (_: Throwable) {}
         }
         val multiplierProductRaw = sizeMult * labMult * laneEvMult * regimeMultGoosed * laneSizeCap * brainSizeMult *
-            strategyTunerSizeMult * sourceBrainSizeMult * uphConvictionMult * hypothesisSizeMult * paperLiveBridgeMult * shadowVariantSizeMult
+            strategyTunerSizeMult * sourceBrainSizeMult * uphConvictionMult * hypothesisSizeMult * paperLiveBridgeMult * shadowVariantSizeMult * superBrainSizeMult
 
         // V5.0.4179 — F1: SLIP-AWARE ENTRY SIZING (catastrophic-overrun fix).
         // Field journal showed losses overrunning STRICT_SL_-10 to -71%

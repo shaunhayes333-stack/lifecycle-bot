@@ -4663,4 +4663,14 @@ class GoldenTapeRegressionTest {
         assertTrue("V5.0.4264: full meme audit sweeper must track Pass H duplicate exit-manager cleanup", sweeper.contains("PASS_H_EXIT_MANAGER_DEDUP_4261") && sweeper.contains("AEM_HOLDING_ADVISORY_ONLY_4264"))
     }
 
+    @Test
+    fun superBrain4265ConsumesEntrySignalsInExecutorSizing() {
+        val superBrain = java.io.File("src/main/kotlin/com/lifecyclebot/engine/SuperBrainEnhancements.kt").readText()
+        val exec = java.io.File("src/main/kotlin/com/lifecyclebot/engine/Executor.kt").readText()
+        val sweeper = java.io.File("src/main/kotlin/com/lifecyclebot/engine/MemeTraderFullAuditSweeper.kt").readText()
+        assertTrue("V5.0.4265: SuperBrain must expose bounded entry size multiplier from aggregate signals/breadth", superBrain.contains("fun entrySizeMultiplier") && superBrain.contains("getAggregatedSignal") && superBrain.contains("coerceIn(0.94, 1.08)"))
+        assertTrue("V5.0.4265: Executor must feed entry score into SuperBrain and consume it in shared paper/live size stack", exec.contains("SuperBrainEnhancements.recordSignal") && exec.contains("SuperBrainEnhancements.entrySizeMultiplier") && exec.contains("SUPERBRAIN_ENTRY_SIZE_SHAPED_4265") && exec.contains("superBrainSizeMult"))
+        assertTrue("V5.0.4265: full meme audit sweeper must close Pass E only with real SuperBrain consumption", sweeper.contains("PASS_E_SUPERBRAIN_CONSUMPTION_4261") && sweeper.contains("SUPERBRAIN_ENTRY_SIZE_SHAPED_4265"))
+    }
+
 }

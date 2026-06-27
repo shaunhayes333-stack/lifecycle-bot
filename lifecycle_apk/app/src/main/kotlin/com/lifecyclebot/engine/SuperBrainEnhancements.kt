@@ -331,6 +331,32 @@ object SuperBrainEnhancements {
         }
     }
     
+
+    /** V5.0.4265 — bounded consumer for real executor entry sizing. */
+    fun entrySizeMultiplier(mint: String): Double {
+        return try {
+            val signal = getAggregatedSignal(mint) ?: return 1.0
+            val signalBias = when (signal.overallBias) {
+                "BULLISH" -> if (signal.confidence >= 60.0) 1.05 else 1.02
+                "BEARISH" -> if (signal.confidence >= 60.0) 0.96 else 0.98
+                else -> 1.0
+            }
+            val breadthBias = when (getCurrentSentiment()) {
+                "STRONG_BULL" -> 1.03
+                "BULL" -> 1.01
+                "STRONG_BEAR" -> 0.97
+                "BEAR" -> 0.99
+                else -> 1.0
+            }
+            val trendBias = when (getBreadthTrend()) {
+                "IMPROVING" -> 1.01
+                "DECLINING" -> 0.99
+                else -> 1.0
+            }
+            (signalBias * breadthBias * trendBias).coerceIn(0.94, 1.08)
+        } catch (_: Throwable) { 1.0 }
+    }
+
     // ═══════════════════════════════════════════════════════════════════
     // DASHBOARD DATA
     // ═══════════════════════════════════════════════════════════════════
