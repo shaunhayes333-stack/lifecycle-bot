@@ -94,3 +94,18 @@ North star: realized live wallet growth toward the operator's daily 2x-5x compou
 5. 4238 — SemanticPatternGraph schema/cache, local-only first.
 6. 4239 — CounterfactualReplayEngine offline replay for exit alternatives.
 7. 4240 — AsyncStrategyLab first read-only reports into hypothesis bank.
+
+## Bundle F — Recursive ASI/SSI re-audit and missed-wiring sweeper
+
+### A21 — Recursive ASI/SSI ReAuditSweeper
+- Continuously re-audit every new ASI/SSI component after it lands, not only before implementation.
+- Check for newly introduced chokes/freeze risks:
+  - scanner/FDG/executor hot-path API/LLM calls
+  - synchronized scans or unbounded list walks in sizing/entry/exit hot paths
+  - terminal sell-storm fanout churn
+  - hard vetoes, zero-size learned strategies, or routing reject becoming terminal reject
+  - event-local mux drift from coroutine reads of mutable TokenState/UI snapshots
+  - missing persistence for learned/hypothesis/semantic/replay state
+  - missed wiring where a built intelligence layer is collecting but not consuming feedback
+- Add source-tree sweeper coverage so future ASI/SSI patches fail contract checks when they bypass critic, semantic readback, replay fanout, compounding, or background-only doctrine.
+- Expected impact: catches missed wiring and regressions while side-building, before runtime performance silently degrades.

@@ -4585,4 +4585,15 @@ class GoldenTapeRegressionTest {
         assertFalse("V5.0.4256: GEPA must not bypass critic by submitting directly to AsyncStrategyLab", gepa.contains("AsyncStrategyLab.submitBackgroundHypothesis"))
     }
 
+    @Test
+    fun asiSsiReauditSweeper4257IsRegisteredAndChecksMissedWiring() {
+        val audit = java.io.File("audits/asi_ssi_audit_queue_2026-06-27.md").readText()
+        val sweeper = java.io.File("src/main/kotlin/com/lifecyclebot/engine/AsiSsiReauditSweeper.kt").readText()
+        val prover = java.io.File("src/main/kotlin/com/lifecyclebot/engine/SymbolicInvariantProver.kt").readText()
+        assertTrue("V5.0.4257: ASI/SSI audit queue must include recursive reaudit item", audit.contains("A21 — Recursive ASI/SSI ReAuditSweeper") && audit.contains("missed wiring") && audit.contains("hot-path API/LLM"))
+        assertTrue("V5.0.4257: ReAuditSweeper must check background-only, critic routing, O(1) lab bias, terminal fanout, semantic readback, and persistence", sweeper.contains("ASI_BACKGROUND_ONLY_NO_HOT_PATH_PROVIDER_4257") && sweeper.contains("GEPA_CRITIC_MEDIATED_NO_DIRECT_BANK_BYPASS_4257") && sweeper.contains("ASYNC_LAB_REVIEWED_BIAS_O1_4257") && sweeper.contains("TERMINAL_FANOUT_EVENT_LOCAL_BOUNDED_4257") && sweeper.contains("SEMANTIC_ENTRY_READBACK_WIRED_SOFT_ONLY_4257") && sweeper.contains("REPLAY_RESEARCH_PERSISTENCE_WIRED_4257"))
+        assertTrue("V5.0.4257: SymbolicInvariantProver must register recursive ASI/SSI reaudit contract", prover.contains("ASI_SSI_REAUDIT_SWEEPER_REGISTERED_4257") && prover.contains("AsiSsiReauditSweeper"))
+        assertTrue("V5.0.4257: source-tree ASI/SSI reaudit must pass on current codebase", AsiSsiReauditSweeper.failed(java.io.File(".")).isEmpty())
+    }
+
 }

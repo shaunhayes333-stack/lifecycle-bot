@@ -83,6 +83,13 @@ object SymbolicInvariantProver {
                 detail = "all major meme/lifecycle lanes must consume AutoCompoundEngine size authority for realized-profit compounding",
             ),
             Proof(
+                id = "ASI_SSI_REAUDIT_SWEEPER_REGISTERED_4257",
+                passed = audit.contains("A21 — Recursive ASI/SSI ReAuditSweeper") &&
+                    src("src/main/kotlin/com/lifecyclebot/engine/AsiSsiReauditSweeper.kt").contains("auditSourceTree") &&
+                    src("src/main/kotlin/com/lifecyclebot/engine/AsiSsiReauditSweeper.kt").contains("GEPA_CRITIC_MEDIATED_NO_DIRECT_BANK_BYPASS_4257"),
+                detail = "recursive ASI/SSI re-audit sweeper must be registered and enforce missed-wiring checks",
+            ),
+            Proof(
                 id = "ASYNC_AI_NEVER_HOT_PATH_4235",
                 passed = audit.contains("Never scanner/FDG/executor hot path") &&
                     audit.contains("background-only") &&
