@@ -2465,10 +2465,18 @@ object FinalDecisionGate {
                             checks.add(GateCheck("time_danger", true, "DANGER ZONE BYPASSED (adaptive: ${getAdaptiveFilterStatus()})"))
                             tags.add("time_danger_bypassed_adaptive")
                         } else {
-                            blockReason = "DANGER_ZONE_TIME"
-                            blockLevel = BlockLevel.MODE
-                            checks.add(GateCheck("time_danger", false, "TimeAI DANGER ZONE"))
-                            tags.add("time_danger_blocked")
+                            // V5.0.4298 — live report showed DANGER_ZONE_TIME as the
+                            // top FDG block after 4297. Time-of-day danger is a learned
+                            // mode filter, not hard safety; shape into probes so the bot
+                            // can disprove or reinforce the heuristic with terminal data.
+                            dangerZonePenalty = 15
+                            val dangerSizeMult4298 = if (config.paperMode) 0.25 else 0.35
+                            sizeMultiplier *= dangerSizeMult4298
+                            softPenaltyScore += dangerZonePenalty
+                            isProbeCandidate = true
+                            checks.add(GateCheck("time_danger", true, "DANGER_ZONE_TIME_SOFT_SHAPE_4298: -${dangerZonePenalty}pts, size×${dangerSizeMult4298.format(2)}"))
+                            tags.add("time_danger_soft_shape_4298")
+                            ErrorLogger.info("FDG", "⏱️ DANGER_ZONE_SOFT_PROBE_4298: ${ts.symbol} | size×${dangerSizeMult4298.format(2)} no_hard_block=true")
                         }
                     }
                 } else {
@@ -2509,10 +2517,18 @@ object FinalDecisionGate {
                             checks.add(GateCheck("memory_negative", true, "MEMORY BLOCK BYPASSED (adaptive: ${getAdaptiveFilterStatus()})"))
                             tags.add("memory_bypassed_adaptive")
                         } else {
-                            blockReason = "MEMORY_NEGATIVE_BLOCK"
-                            blockLevel = BlockLevel.MODE
-                            checks.add(GateCheck("memory_negative", false, "Memory strongly negative (mult=$memoryMult)"))
-                            tags.add("memory_blocked")
+                            // V5.0.4298 — live report showed MEMORY_NEGATIVE_BLOCK as
+                            // the #2 FDG block. Memory is advisory/learned signal; old
+                            // poisoned history must not amputate live exploration. Keep
+                            // the penalty, but allow tiny terminal samples to retrain it.
+                            memoryPenalty = 10
+                            val memorySizeMult4298 = if (config.paperMode) 0.50 else 0.45
+                            sizeMultiplier *= memorySizeMult4298
+                            softPenaltyScore += memoryPenalty
+                            isProbeCandidate = true
+                            checks.add(GateCheck("memory_negative", true, "MEMORY_NEGATIVE_SOFT_SHAPE_4298: mult=$memoryMult, -${memoryPenalty}pts, size×${memorySizeMult4298.format(2)}"))
+                            tags.add("memory_negative_soft_shape_4298")
+                            ErrorLogger.info("FDG", "🧠 MEMORY_NEGATIVE_SOFT_PROBE_4298: ${ts.symbol} | memMult=$memoryMult size×${memorySizeMult4298.format(2)} no_hard_block=true")
                         }
                     }
                 } else if (memoryMult < 0.90) {

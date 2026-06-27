@@ -4921,4 +4921,13 @@ class GoldenTapeRegressionTest {
         assertFalse("V5.0.4297: stale non-safety hard-kill reasons must not return zero-size FinalDecision", fdg.contains("blockReason = \"AI_DEGRADED_CONFIDENCE_FLOOR_") || fdg.contains("blockReason = \"TOXIC_PATTERN_KRIS_RULE\""))
     }
 
+
+    @Test
+    fun fdgLiveReportChokeSweep4298SoftShapesDangerAndMemoryBlocks() {
+        val fdg = java.io.File("src/main/kotlin/com/lifecyclebot/engine/FinalDecisionGate.kt").readText()
+        assertTrue("V5.0.4298: live DANGER_ZONE_TIME must soft-shape instead of blocking the buy deck", fdg.contains("DANGER_ZONE_SOFT_PROBE_4298") && fdg.contains("time_danger_soft_shape_4298") && fdg.contains("DANGER_ZONE_TIME_SOFT_SHAPE_4298"))
+        assertTrue("V5.0.4298: live MEMORY_NEGATIVE_BLOCK must soft-shape so old poisoned memory can retrain", fdg.contains("MEMORY_NEGATIVE_SOFT_PROBE_4298") && fdg.contains("memory_negative_soft_shape_4298") && fdg.contains("MEMORY_NEGATIVE_SOFT_SHAPE_4298"))
+        assertFalse("V5.0.4298: danger/memory mode filters must not assign blockReason anymore", fdg.contains("blockReason = \"DANGER_ZONE_TIME\"") || fdg.contains("blockReason = \"MEMORY_NEGATIVE_BLOCK\""))
+    }
+
 }
