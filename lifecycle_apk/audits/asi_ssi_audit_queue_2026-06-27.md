@@ -156,6 +156,7 @@ North star: realized live wallet growth toward the operator's daily 2x-5x compou
 - Expected impact: prevents repeated red builds from stale/nested Golden Tape literals.
 
 ### A29 — UI/ANR Decoupling Audit
+- Status: implemented in V5.0.4280 by bounding/coalescing MainActivity decision-log TextView work.
 - Revisit MainActivity/TextView/LineBreaker layout pressure and move non-critical log/report formatting off the main thread.
 - Must not touch executor/ledger authority; only reduce UI heartbeat stalls.
 - Expected impact: improves loop heartbeat frequency and reduces runtime “frozen” false impressions.

@@ -343,6 +343,8 @@ class MainActivity : AppCompatActivity() {
     private lateinit var btnManualSell: android.widget.Button
     private val logLines = ArrayDeque<String>(48)
     private var lastDecisionLogTextHash: Int = 0  // V5.9.1497 — skip no-op StaticLayout relayouts
+    private val decisionLogTimeSdf4280 = java.text.SimpleDateFormat("HH:mm:ss", java.util.Locale.US)
+    private val DECISION_LOG_MAX_CHARS_4280 = 2600
 
     // top-up settings
     private lateinit var switchTopUp: android.widget.Switch
@@ -658,6 +660,16 @@ class MainActivity : AppCompatActivity() {
 
     private fun android.widget.TextView.setTextIfChanged(value: CharSequence) {
         if (this.text?.toString() != value.toString()) this.text = value
+    }
+
+    /** V5.0.4280 — bound decision-log TextView layout work; UI-only, no executor authority. */
+    private fun setDecisionLogTextBounded4280(value: String) {
+        val compact = if (value.length <= DECISION_LOG_MAX_CHARS_4280) value else value.take(DECISION_LOG_MAX_CHARS_4280) + "
+… clipped for UI; full engine logs remain internal"
+        val h = compact.hashCode()
+        if (h == lastDecisionLogTextHash) return
+        lastDecisionLogTextHash = h
+        tvDecisionLog.setTextIfChanged(compact)
     }
 
     // V5.9.1332 — ANR STRUCTURAL FIX (not a throttle): re-applying an IDENTICAL
@@ -8265,7 +8277,7 @@ This cannot be undone!
         } else {
             state.logs.takeLast(8).asReversed().joinToString("\n").ifBlank { "Waiting for first priced evaluation…" }
         }
-        tvDecisionLog.text = "$header\n$body"
+        setDecisionLogTextBounded4280("$header\n$body")
     }
 
     private fun updateDecisionLog(ts: TokenState) {
@@ -8353,8 +8365,7 @@ This cannot be undone!
             "wallet=${walletSol.fmtRef()}◎"
 
         // Append a timestamped line to the scrolling log
-        val time = java.text.SimpleDateFormat("HH:mm:ss", java.util.Locale.getDefault())
-            .format(java.util.Date())
+        val time = decisionLogTimeSdf4280.format(java.util.Date())
         val logLine = "$time  ${ts.symbol.padEnd(8)}  ${phase.padEnd(16)}  " +
             "E:${ts.entryScore.toInt().toString().padStart(3)}  " +
             "X:${ts.exitScore.toInt().toString().padStart(3)}  " +
@@ -8371,10 +8382,7 @@ This cannot be undone!
         // Only touch the TextView (which triggers a full StaticLayout relayout)
         // when the rendered text actually changed.
         val joined = logLines.joinToString("\n")
-        if (joined.hashCode() != lastDecisionLogTextHash) {
-            lastDecisionLogTextHash = joined.hashCode()
-            tvDecisionLog.text = joined
-        }
+        setDecisionLogTextBounded4280(joined)
         // Auto-scroll to top (newest entry)
         if (::scrollLog.isInitialized) {
             scrollLog.post { scrollLog.smoothScrollTo(0, 0) }
@@ -8437,7 +8445,7 @@ This cannot be undone!
 
     private fun clearDecisionLog() {
         logLines.clear()
-        tvDecisionLog.text = "Log cleared"
+        setDecisionLogTextBounded4280("Log cleared")
         cardLogScores.visibility = android.view.View.GONE
     }
 

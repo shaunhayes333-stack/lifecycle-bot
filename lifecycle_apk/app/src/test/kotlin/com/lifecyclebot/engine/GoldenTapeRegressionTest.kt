@@ -4765,4 +4765,12 @@ class GoldenTapeRegressionTest {
         assertTrue("V5.0.4279: build workflow must run literal scan before Gradle build", workflow.contains("Golden Tape literal static scan") && workflow.indexOf("Golden Tape literal static scan") < workflow.indexOf("Build Release APK"))
     }
 
+    @Test
+    fun mainActivityDecisionLogAnrDecoupling4280BoundsTextLayoutWork() {
+        val main = java.io.File("src/main/kotlin/com/lifecyclebot/ui/MainActivity.kt").readText()
+        assertTrue("V5.0.4280: decision log must use bounded/coalesced TextView updates instead of raw large text assignment", main.contains("setDecisionLogTextBounded4280") && main.contains("DECISION_LOG_MAX_CHARS_4280") && main.contains("tvDecisionLog.setTextIfChanged(compact)"))
+        assertTrue("V5.0.4280: decision log time formatter must be reused instead of allocated every update", main.contains("decisionLogTimeSdf4280") && !main.contains("""SimpleDateFormat("HH:mm:ss", java.util.Locale.getDefault())"""))
+        assertTrue("V5.0.4280: A29 UI/ANR patch must not touch executor or ledger authority", !main.contains("requestSell(") && !main.contains("executeBuy("))
+    }
+
 }
