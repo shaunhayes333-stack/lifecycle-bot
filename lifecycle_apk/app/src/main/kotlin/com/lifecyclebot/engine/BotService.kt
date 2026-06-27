@@ -18873,12 +18873,22 @@ if (hotExitHandledSweep) {
                             v3RejectedReason.isNotBlank() -> v3RejectedReason
                             else                          -> "(none)"
                         }
-                        val v3FatalIsRug = v3FatalReason.startsWith("V3:RUG_FATAL:") || v3FatalReason.contains("RUG_CRITICAL")
-                        val v3RejectedIsRouting4230 = v3RejectedReason.contains("SHITCOIN_CANDIDATE") || v3RejectedReason.contains("MCAP_TOO_LOW")
-                        val v3HardRejectForShitCoin = !v3RejectedIsRouting4230 && (
-                            v3Decision is com.lifecyclebot.v3.V3Decision.Rejected ||
-                                (v3Decision is com.lifecyclebot.v3.V3Decision.BlockFatal && !(v3IsPaperModeLocal && v3FatalIsRug)) ||
-                                v3Decision is com.lifecyclebot.v3.V3Decision.Blocked)
+                        fun v3RoutingRejectForShitCoin4233(reason: String): Boolean =
+                            reason.contains("SHITCOIN_CANDIDATE") || reason.contains("MCAP_TOO_LOW")
+                        fun v3PaperTrainingRug4233(reason: String): Boolean =
+                            reason.startsWith("V3:RUG_FATAL:") ||
+                                reason.contains("RUG_CRITICAL") ||
+                                reason.contains("EXTREME_RUG", ignoreCase = true)
+                        fun v3HardStopsShitCoin4233(): Boolean {
+                            val routingReject = v3RoutingRejectForShitCoin4233(v3RejectedReason)
+                            val paperTrainingRug = v3PaperTrainingRug4233(v3FatalReason)
+                            return !routingReject && (
+                                v3Decision is com.lifecyclebot.v3.V3Decision.Rejected ||
+                                    (v3Decision is com.lifecyclebot.v3.V3Decision.BlockFatal && !(v3IsPaperModeLocal && paperTrainingRug)) ||
+                                    v3Decision is com.lifecyclebot.v3.V3Decision.Blocked)
+                        }
+                        val v3RejectedIsRouting4230 = v3RoutingRejectForShitCoin4233(v3RejectedReason)
+                        val v3HardRejectForShitCoin = v3HardStopsShitCoin4233()
                         if (v3HardRejectForShitCoin) {
                             try {
                                 com.lifecyclebot.engine.ForensicLogger.lifecycle(
@@ -19011,16 +19021,14 @@ if (hotExitHandledSweep) {
                         // meant a V3 FATAL (EXTREME_RUG_RISK_90) on SPIKE was silently bypassed by the
                         // primary ShitCoin path, as seen in prod logs. Treasury already gates globally
                         // (line 4267); ShitCoin now mirrors that structure.
-                        // V5.9.182: V3 returns Rejected("SHITCOIN_CANDIDATE") by design — routing only.
-                        val v3RejReason = (v3Decision as? com.lifecyclebot.v3.V3Decision.Rejected)?.reason ?: ""
-                        val isRoutingReject = v3RejReason.contains("SHITCOIN_CANDIDATE") || v3RejReason.contains("MCAP_TOO_LOW")
-                        // V5.9.690: paper mode — EXTREME_RUG BlockFatal should not veto ShitCoin
-                        val scBlockFatalReason = (v3Decision as? com.lifecyclebot.v3.V3Decision.BlockFatal)?.reason ?: ""
-                        val scBlockFatalIsRug = scBlockFatalReason.contains("EXTREME_RUG", ignoreCase = true)
-                        val shitCoinV3HardReject = !isRoutingReject && (
-                            v3Decision is com.lifecyclebot.v3.V3Decision.Rejected
-                            || (v3Decision is com.lifecyclebot.v3.V3Decision.BlockFatal && !(cfg.paperMode && scBlockFatalIsRug))
-                            || v3Decision is com.lifecyclebot.v3.V3Decision.Blocked)  // V5.9.187
+                        // V5.0.4233: One local taxonomy owns routing-vs-hard-stop for this branch.
+                        // V3 Rejected("SHITCOIN_CANDIDATE"/"MCAP_TOO_LOW") is routing only;
+                        // true Blocked/Rejected/fatal stays terminal, except paper-only rug training.
+                        val v3RejReason = v3RejectedReason
+                        val isRoutingReject = v3RejectedIsRouting4230
+                        val scBlockFatalReason = v3FatalReason
+                        val scBlockFatalIsRug = v3PaperTrainingRug4233(scBlockFatalReason)
+                        val shitCoinV3HardReject = v3HardStopsShitCoin4233()
                         // V5.9.187: removed duplicate checks that were outside &&-group (was always-true on BlockFatal)
                         @Suppress("UNUSED_EXPRESSION")
                         val shitCoinHasDump = try { AICrossTalk.isCoordinatedDump(ts.mint, ts.symbol) } catch (_: Exception) { false }

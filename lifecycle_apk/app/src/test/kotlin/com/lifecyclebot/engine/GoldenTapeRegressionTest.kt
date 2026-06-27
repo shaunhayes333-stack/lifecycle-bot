@@ -4398,4 +4398,12 @@ class GoldenTapeRegressionTest {
         assertTrue("V5.0.4232: ShitCoin collective BUY upload must carry real lane score/confidence", exec.contains("entryScore: Int = 70") && exec.contains("entryConfidence: Int = 70") && exec.contains("entryScore = entryScore.coerceIn(0, 100)") && exec.contains("confidence = entryConfidence.coerceIn(0, 100)"))
     }
 
+    @Test
+    fun shitcoin4233V3RejectTaxonomyIsSingleSource() {
+        val bot = java.io.File("src/main/kotlin/com/lifecyclebot/engine/BotService.kt").readText()
+        assertTrue("V5.0.4233: ShitCoin V3 routing reject taxonomy must be single-source", bot.contains("fun v3RoutingRejectForShitCoin4233") && bot.contains("val isRoutingReject = v3RejectedIsRouting4230") && bot.contains("val shitCoinV3HardReject = v3HardStopsShitCoin4233()"))
+        assertTrue("V5.0.4233: paper-only rug-training carveout must use same broadened fatal taxonomy", bot.contains("fun v3PaperTrainingRug4233") && bot.contains("""reason.contains("EXTREME_RUG", ignoreCase = true)"""))
+        assertTrue("V5.0.4233: true V3 hard stops must still terminate ShitCoin", bot.contains("v3Decision is com.lifecyclebot.v3.V3Decision.Blocked") && bot.contains("REJECTED_FATAL_V3"))
+    }
+
 }
