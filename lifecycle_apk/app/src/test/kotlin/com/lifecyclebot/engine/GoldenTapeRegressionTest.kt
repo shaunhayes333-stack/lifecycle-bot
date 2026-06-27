@@ -4930,4 +4930,14 @@ class GoldenTapeRegressionTest {
         assertFalse("V5.0.4298: danger/memory mode filters must not assign blockReason anymore", fdg.contains("blockReason = \"DANGER_ZONE_TIME\"") || fdg.contains("blockReason = \"MEMORY_NEGATIVE_BLOCK\""))
     }
 
+
+    @Test
+    fun birdeyePremiumPrefetch4299DoesNotPhantomCountCachedSkips() {
+        val bot = java.io.File("src/main/kotlin/com/lifecyclebot/engine/BotService.kt").readText()
+        assertTrue("V5.0.4299: BotService must document provider-layer Birdeye accounting after report showed 6000 phantom calls", bot.contains("V5.0.4299") && bot.contains("phantom/double accounting") && bot.contains("preserves Birdeye for finalists/exits"))
+        assertFalse("V5.0.4299: SecurityProvider already records real calls; BotService must not double count it", bot.contains("BirdeyeSecurityProvider.getTrust(ts.mint, beKey)\n                        com.lifecyclebot.engine.BirdeyeBudgetGate.recordCalls(1)"))
+        assertFalse("V5.0.4299: maybePrefetch cache/budget skips must not increment Birdeye call counters from BotService", bot.contains("BirdeyeTradeDataProvider.maybePrefetch(ts.mint, beKey)\n                        com.lifecyclebot.engine.BirdeyeBudgetGate.recordCalls(1)") || bot.contains("BirdeyePriceStatsProvider.maybePrefetch(ts.mint, beKey)\n                        com.lifecyclebot.engine.BirdeyeBudgetGate.recordCalls(1)"))
+        assertFalse("V5.0.4299: whale feeder cache/budget skips must not increment Birdeye call counters from BotService", bot.contains("BirdeyeWhaleFeeder.maybeFeed(\n                            mint = ts.mint") && bot.contains("currentPriceUsd = ts.lastPrice,\n                        )\n                        com.lifecyclebot.engine.BirdeyeBudgetGate.recordCalls(1)"))
+    }
+
 }

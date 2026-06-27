@@ -17169,23 +17169,25 @@ if (hotExitHandledSweep) {
             val tradable = liqUsd >= 2_000.0 && mcapUsd >= 5_000.0
             val budgetOk = com.lifecyclebot.engine.BirdeyeBudgetGate.canAfford(4)
             if (beKey.isNotBlank() && tradable && budgetOk) {
+                // V5.0.4299 — provider-budget accounting belongs at the actual
+                // network-call/provider layer, not here. The old code called
+                // recordCalls(1) after every maybePrefetch(), even when the
+                // provider returned from cache, in-flight dedupe, TTL, or budget
+                // skip; SecurityProvider also records internally. Runtime report
+                // 5.0.4297 burned 6000 Birdeye calls / 150K CU in ~10 minutes.
+                // Remove phantom/double accounting so the daily cap reflects real
+                // premium calls and preserves Birdeye for finalists/exits.
                 scope.launch {
-                    try {
-                        com.lifecyclebot.engine.BirdeyeSecurityProvider.getTrust(ts.mint, beKey)
-                        com.lifecyclebot.engine.BirdeyeBudgetGate.recordCalls(1)
-                    } catch (_: Throwable) { /* fail-open */ }
+                    try { com.lifecyclebot.engine.BirdeyeSecurityProvider.getTrust(ts.mint, beKey) }
+                    catch (_: Throwable) { /* fail-open */ }
                 }
                 scope.launch {
-                    try {
-                        com.lifecyclebot.engine.BirdeyeTradeDataProvider.maybePrefetch(ts.mint, beKey)
-                        com.lifecyclebot.engine.BirdeyeBudgetGate.recordCalls(1)
-                    } catch (_: Throwable) { /* fail-open */ }
+                    try { com.lifecyclebot.engine.BirdeyeTradeDataProvider.maybePrefetch(ts.mint, beKey) }
+                    catch (_: Throwable) { /* fail-open */ }
                 }
                 scope.launch {
-                    try {
-                        com.lifecyclebot.engine.BirdeyePriceStatsProvider.maybePrefetch(ts.mint, beKey)
-                        com.lifecyclebot.engine.BirdeyeBudgetGate.recordCalls(1)
-                    } catch (_: Throwable) { /* fail-open */ }
+                    try { com.lifecyclebot.engine.BirdeyePriceStatsProvider.maybePrefetch(ts.mint, beKey) }
+                    catch (_: Throwable) { /* fail-open */ }
                 }
                 scope.launch {
                     try {
@@ -17195,7 +17197,6 @@ if (hotExitHandledSweep) {
                             apiKey = beKey,
                             currentPriceUsd = ts.lastPrice,
                         )
-                        com.lifecyclebot.engine.BirdeyeBudgetGate.recordCalls(1)
                     } catch (_: Throwable) { /* fail-open */ }
                 }
             } else if (beKey.isNotBlank() && !budgetOk) {
