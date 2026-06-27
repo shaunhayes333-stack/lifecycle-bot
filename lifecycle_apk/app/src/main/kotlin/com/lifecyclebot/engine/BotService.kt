@@ -19884,18 +19884,10 @@ if (hotExitHandledSweep) {
                                     "${assessment.threatLevel.emoji} | age=${assessment.tokenAgeSecs}s | " +
                                     "size=${assessment.positionSizeSol.fmt(3)}◎ | conf=${assessment.confidence}%")
                                 
-                                // Engage mission
-                                com.lifecyclebot.v3.scoring.ProjectSniperAI.engageMission(
-                                    mint = ts.mint,
-                                    symbol = ts.symbol,
-                                    entryPrice = ts.ref,
-                                    entrySol = assessment.positionSizeSol,
-                                    assessment = assessment,
-                                    liquidity = ts.lastLiquidityUsd,
-                                    mcap = ts.lastMcap,
-                                    buyPressure = ts.lastBuyPressurePct,
-                                )
-                                
+                                // V5.0.4218 — engage the ProjectSniper mission only AFTER
+                                // executor confirms the buy opened. The old order created ghost
+                                // missions before shitCoinBuy(), so quote/finality/size failures
+                                // could fill the 8-mission cap and block real sniper volume.
                                 // V5.0.3924 — fluid TP/SL via LaneExitTuner.
                                 // Replaces hardcoded 35/-12 with per-lane
                                 // values that the tuner has learned from the
@@ -19907,8 +19899,7 @@ if (hotExitHandledSweep) {
                                 val sniperSlMult = try {
                                     com.lifecyclebot.engine.learning.LaneExitTuner.getSlMult("PROJECT_SNIPER")
                                 } catch (_: Throwable) { 1.0 }
-                                // Execute buy
-                                executor.shitCoinBuy(
+                                val sniperOpened = executor.shitCoinBuy(
                                     ts = ts,
                                     sizeSol = assessment.positionSizeSol,
                                     walletSol = effectiveBalance,
@@ -19921,6 +19912,27 @@ if (hotExitHandledSweep) {
                                     finalityPrechecked = true,
                                     attemptId = projectSniperAttemptId,
                                 )
+
+                                if (!sniperOpened) {
+                                    ErrorLogger.warn("BotService", "🎯 [SNIPER] ${ts.symbol} | BUY_NOT_OPENED | release auth/permit; no mission engaged")
+                                    try { ForensicLogger.lifecycle("LANE_BUY_NOT_OPENED_RELEASED", "lane=PROJECT_SNIPER symbol=${ts.symbol} mint=${ts.mint.take(10)}") } catch (_: Throwable) {}
+                                    try { LaneExecutionCoordinator.releaseIfPrimary(ts.mint, "PROJECT_SNIPER", "BUY_NOT_OPENED") } catch (_: Throwable) {}
+                                    try { FinalExecutionPermit.releaseExecution(ts.mint) } catch (_: Throwable) {}
+                                    try { TradeAuthorizer.releasePosition(ts.mint, "BUY_NOT_OPENED", TradeAuthorizer.ExecutionBook.SHITCOIN) } catch (_: Throwable) {}
+                                    return
+                                }
+
+                                com.lifecyclebot.v3.scoring.ProjectSniperAI.engageMission(
+                                    mint = ts.mint,
+                                    symbol = ts.symbol,
+                                    entryPrice = ts.ref,
+                                    entrySol = assessment.positionSizeSol,
+                                    assessment = assessment,
+                                    liquidity = ts.lastLiquidityUsd,
+                                    mcap = ts.lastMcap,
+                                    buyPressure = ts.lastBuyPressurePct,
+                                )
+                                PipelineHealthCollector.labelInc("PROJECT_SNIPER_MISSION_AFTER_BUY_4218")
                                 
                                 addLog("🎯 SNIPER: ${ts.symbol} | ${assessment.threatLevel.emoji} ENGAGED | " +
                                     "age=${assessment.tokenAgeSecs}s | ${if (cfg.paperMode) "PAPER" else "LIVE"}", ts.mint)

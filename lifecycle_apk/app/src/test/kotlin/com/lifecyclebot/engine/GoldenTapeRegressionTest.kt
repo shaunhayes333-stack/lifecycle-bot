@@ -3564,6 +3564,8 @@ class GoldenTapeRegressionTest {
         val positionPersistence4215 = java.io.File("src/main/kotlin/com/lifecyclebot/engine/PositionPersistence.kt").readText()
         assertTrue("V5.0.4215: Quality/BlueChip must expose mode-correct restore helpers", quality4215.contains("fun restorePosition(position: QualityPosition, isPaper: Boolean)") && blueChip4215.contains("fun restorePosition(position: BlueChipPosition, isPaper: Boolean)"))
         assertTrue("V5.0.4215: restored QUALITY/BLUE_CHIP positions must rehydrate lane active maps", positionPersistence4215.contains("QUALITY_RESTORED_ACTIVE_POSITION_4215") && positionPersistence4215.contains("BLUE_CHIP_RESTORED_ACTIVE_POSITION_4215") && positionPersistence4215.contains("QualityTraderAI.restorePosition") && positionPersistence4215.contains("BlueChipTraderAI.restorePosition"))
+        val botService4218 = java.io.File("src/main/kotlin/com/lifecyclebot/engine/BotService.kt").readText()
+        assertTrue("V5.0.4218: ProjectSniper missions must engage only after buy opens", botService4218.contains("val sniperOpened = executor.shitCoinBuy") && botService4218.indexOf("val sniperOpened = executor.shitCoinBuy") < botService4218.indexOf("ProjectSniperAI.engageMission") && botService4218.contains("PROJECT_SNIPER_MISSION_AFTER_BUY_4218") && botService4218.contains("lane=PROJECT_SNIPER"))
     }
 
 
