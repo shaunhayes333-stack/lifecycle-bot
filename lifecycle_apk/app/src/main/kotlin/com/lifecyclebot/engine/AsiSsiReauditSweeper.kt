@@ -69,7 +69,8 @@ object AsiSsiReauditSweeper {
                 id = "REPLAY_RESEARCH_PERSISTENCE_WIRED_4257",
                 passed = replay.contains("exportState") && research.contains("exportState") &&
                     persistence.contains("COUNTERFACTUAL_REPLAY") && persistence.contains("RESEARCH_SCOUT") &&
-                    executor.contains("CounterfactualReplayEngine.recordTerminalTrade") && executor.contains("ResearchScout.enqueueBackgroundRequest"),
+                    executor.contains("CounterfactualReplayEngine.recordTerminalTrade") && executor.contains("ResearchScout.enqueueBackgroundRequest") &&
+                    research.contains("maybeRunPeriodicBackgroundSweep") && research.contains("MIN_PERIODIC_SWEEP_INTERVAL_MS"),
                 detail = "counterfactual/research state must persist and be fed from terminal outcomes",
             ),
             Finding(

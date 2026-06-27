@@ -4596,4 +4596,14 @@ class GoldenTapeRegressionTest {
         assertTrue("V5.0.4257: source-tree ASI/SSI reaudit must pass on current codebase", AsiSsiReauditSweeper.failed(java.io.File(".")).isEmpty())
     }
 
+    @Test
+    fun researchScout4258HasBoundedPeriodicBackgroundSweep() {
+        val research = java.io.File("src/main/kotlin/com/lifecyclebot/engine/ResearchScout.kt").readText()
+        val executor = java.io.File("src/main/kotlin/com/lifecyclebot/engine/Executor.kt").readText()
+        val sweeper = java.io.File("src/main/kotlin/com/lifecyclebot/engine/AsiSsiReauditSweeper.kt").readText()
+        assertTrue("V5.0.4258: ResearchScout must expose bounded periodic background sweep with interval gating", research.contains("maybeRunPeriodicBackgroundSweep") && research.contains("MIN_PERIODIC_SWEEP_INTERVAL_MS") && research.contains("BACKGROUND_RESEARCH_SCOUT_PERIODIC_4258"))
+        assertTrue("V5.0.4258: terminal fanout may trigger ResearchScout sweep only as side-effect/background telemetry", executor.contains("ResearchScout.maybeRunPeriodicBackgroundSweep") && executor.contains("RESEARCH_SCOUT_PERIODIC_SWEEP_4258"))
+        assertTrue("V5.0.4258: ASI/SSI ReAuditSweeper must include ResearchScout periodic sweep wiring", sweeper.contains("maybeRunPeriodicBackgroundSweep") && sweeper.contains("MIN_PERIODIC_SWEEP_INTERVAL_MS"))
+    }
+
 }

@@ -30,8 +30,10 @@ object ResearchScout {
 
     private const val MAX_REQUESTS = 400
     private const val MAX_FINDINGS = 900
+    private const val MIN_PERIODIC_SWEEP_INTERVAL_MS = 30 * 60 * 1000L  // V5.0.4258 — bounded background-only sweep
     private val pending = CopyOnWriteArrayList<ResearchRequest>()
     private val findings = CopyOnWriteArrayList<ResearchFinding>()
+    @Volatile private var lastPeriodicSweepMs: Long = 0L
 
     fun enqueueBackgroundRequest(
         mint: String,
@@ -81,7 +83,37 @@ object ResearchScout {
 
     fun pendingRequests(limit: Int = 30): List<ResearchRequest> = synchronized(pending) { pending.takeLast(limit.coerceIn(1, MAX_REQUESTS)) }
 
-    fun reset() { synchronized(pending) { pending.clear() }; synchronized(findings) { findings.clear() } }
+
+    /**
+     * V5.0.4258 — bounded periodic background sweep.
+     * This is deliberately conservative: no scanner/FDG/executor hot-path calls,
+     * no trade signal, and no direct entry/exit action. It turns queued requests
+     * into low-confidence research placeholders so the critic/lab/re-audit loop
+     * can see which free-api sources need enrichment without blocking trading.
+     */
+    fun maybeRunPeriodicBackgroundSweep(
+        sourceTag: String = "BACKGROUND_RESEARCH_SCOUT_PERIODIC_4258",
+        nowMs: Long = System.currentTimeMillis(),
+        maxRequests: Int = 8,
+    ): Int {
+        if (!isBackgroundSource(sourceTag)) return 0
+        val prev = lastPeriodicSweepMs
+        if (nowMs - prev < MIN_PERIODIC_SWEEP_INTERVAL_MS) return 0
+        lastPeriodicSweepMs = nowMs
+        val batch = pendingRequests(maxRequests.coerceIn(1, 16))
+        var processed = 0
+        batch.forEach { req ->
+            try {
+                val sources = req.requestedSources.joinToString(",") { source -> source.name }
+                val summary = "periodic_background_sweep_4258 sources=" + sources + " reason=" + req.reason.take(80) + " free_api_enrichment_pending=true"
+                recordFinding(req.id, req.mint, SourceKind.MANUAL_OPERATOR, FindingKind.CLEAN_CONFIRMATION, 0.15, summary)
+                processed += 1
+            } catch (_: Throwable) {}
+        }
+        return processed
+    }
+
+    fun reset() { synchronized(pending) { pending.clear() }; synchronized(findings) { findings.clear() }; lastPeriodicSweepMs = 0L }
 
     fun exportState(): String {
         val reqs = JSONArray()
@@ -96,7 +128,7 @@ object ResearchScout {
                 found.put(JSONObject().put("requestId", f.requestId).put("mint", f.mint).put("source", f.source.name).put("kind", f.kind.name).put("confidence", f.confidence).put("summary", f.summary).put("createdAt", f.createdAtMs))
             }
         }
-        return JSONObject().put("pending", reqs).put("findings", found).toString()
+        return JSONObject().put("pending", reqs).put("findings", found).put("lastPeriodicSweepMs", lastPeriodicSweepMs).toString()
     }
 
     fun importState(raw: String?) {
@@ -122,6 +154,7 @@ object ResearchScout {
             }
             synchronized(pending) { pending.clear(); pending.addAll(reqs.filter { it.id.isNotBlank() && it.mint.isNotBlank() }.takeLast(MAX_REQUESTS)) }
             synchronized(findings) { findings.clear(); findings.addAll(found.filter { it.mint.isNotBlank() && it.summary.isNotBlank() }.takeLast(MAX_FINDINGS)) }
+            lastPeriodicSweepMs = o.optLong("lastPeriodicSweepMs", 0L)
         } catch (_: Throwable) {}
     }
 

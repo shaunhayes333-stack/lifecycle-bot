@@ -2919,6 +2919,12 @@ class Executor(
                             try { PipelineHealthCollector.labelInc("RESEARCH_SCOUT_TERMINAL_EXIT_QUEUED_4242") } catch (_: Throwable) {}
                         }
                         try {
+                            val swept4258 = com.lifecyclebot.engine.ResearchScout.maybeRunPeriodicBackgroundSweep(
+                                sourceTag = "BACKGROUND_RESEARCH_SCOUT_PERIODIC_4258",
+                            )
+                            if (swept4258 > 0) PipelineHealthCollector.labelInc("RESEARCH_SCOUT_PERIODIC_SWEEP_4258")
+                        } catch (_: Throwable) {}
+                        try {
                             if (com.lifecyclebot.engine.ReflectiveOptimizerGEPA.runBackgroundReflection(
                                     lane = graphLane,
                                     sourceTag = "BACKGROUND_GEPA_TERMINAL_OUTCOME_4244",
