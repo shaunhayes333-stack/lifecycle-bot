@@ -5163,4 +5163,11 @@ class GoldenTapeRegressionTest {
         assertTrue("V5.0.4328: BlueChip must consume and warm cached UltimateEdge cards", blue.contains("ULTIMATE_EDGE_BLUECHIP_CACHE_SHAPE_4328") && blue.contains("UltimateEdgeEngine.cached(mint, \"BLUECHIP\")") && blue.contains("UltimateEdgeEngine.enqueueRefresh(position.mint, position.symbol, \"BLUECHIP\"") && blue.contains("UltimateEdgeEngine.enqueueRefresh(pos.mint, pos.symbol, \"BLUECHIP\""))
     }
 
+    @Test
+    fun manipulated4329ConsumesUltimateEdgeCardsCacheOnly() {
+        val manip = java.io.File("src/main/kotlin/com/lifecyclebot/v3/scoring/ManipulatedTraderAI.kt").readText()
+        assertTrue("V5.0.4329: Manipulated must consume cached UltimateEdge cards as bounded soft shaping", manip.contains("ULTIMATE_EDGE_MANIP_CACHE_SHAPE_4329") && manip.contains("UltimateEdgeEngine.cached(mint, \"MANIPULATED\")") && manip.contains("edgeCard4329.sizeMult.coerceIn(0.90, 1.08)"))
+        assertTrue("V5.0.4329: Manipulated open/close must warm UltimateEdge cards", manip.contains("UltimateEdgeEngine.enqueueRefresh(pos.mint, pos.symbol, \"MANIPULATED\"") && manip.contains("MANIP_CLOSE"))
+    }
+
 }

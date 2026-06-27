@@ -425,6 +425,21 @@ object ManipulatedTraderAI {
             }
         } catch (_: Throwable) { /* fail-open */ }
 
+        // V5.0.4329 — cache-only UltimateEdgeEngine readback for Manipulated.
+        // Open/close events warm cards; entry path only consumes cached state.
+        try {
+            val edgeCard4329 = com.lifecyclebot.engine.UltimateEdgeEngine.cached(mint, "MANIPULATED")
+            if (edgeCard4329 != null) {
+                val edgeBias4329 = edgeCard4329.scoreBias.coerceIn(0, 5)
+                if (edgeBias4329 > 0) score = (score + edgeBias4329).coerceAtLeast(0)
+                val edgeSize4329 = edgeCard4329.sizeMult.coerceIn(0.90, 1.08)
+                positionSizeSol = (positionSizeSol * edgeSize4329).coerceAtLeast(0.01)
+                if (edgeSize4329 != 1.0) {
+                    ErrorLogger.debug(TAG, "☠️🧠 ULTIMATE_EDGE_MANIP_CACHE_SHAPE_4329: $symbol score+$edgeBias4329 size×${edgeSize4329.fmt(3)} ${edgeCard4329.semanticReason.take(90)}")
+                }
+            }
+        } catch (_: Throwable) { /* fail-open cache read */ }
+
         val learningPct = (FluidLearningAI.getLearningProgress() * 100).toInt()
 
         ErrorLogger.info(TAG, "☠️ MANIP SIGNAL: $symbol | score=$score (min=$minScore) | " +
@@ -447,6 +462,7 @@ object ManipulatedTraderAI {
     fun addPosition(pos: ManipulatedPosition) {
         activePositions[pos.mint] = pos
         _totalManipCaught.incrementAndGet()
+        try { com.lifecyclebot.engine.UltimateEdgeEngine.enqueueRefresh(pos.mint, pos.symbol, "MANIPULATED", "MANIP_OPEN", pos.manipScore.coerceIn(0, 100), "open_size_${pos.entrySol.fmt(4)}") } catch (_: Throwable) {}
         ErrorLogger.info(TAG, "☠️ POSITION ADDED: ${pos.symbol} | " +
             "score=${pos.manipScore} | bundle=${pos.bundlePct.toInt()}% | " +
             "bp=${pos.buyPressure.toInt()}% | " +
