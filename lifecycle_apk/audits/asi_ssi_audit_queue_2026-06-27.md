@@ -171,3 +171,32 @@ North star: realized live wallet growth toward the operator's daily 2x-5x compou
 - Status: implemented in V5.0.4282 as `ci/build_gate_summary.py`, emitted from CI after assembleRelease.
 - Generate a compact build gate summary after each pushed build: source files touched, Golden Tape assertions updated, CI status, known inherited failures, and whether latest green APK includes each audit bundle.
 - Expected impact: prevents operator confusion during long build-ahead sequences and keeps install/run decisions clean.
+
+## Bundle H — Post-4282 live-growth hardening drafts
+
+### A32 — Sizing Stack Integrity Sentinel
+- Status: implemented in V5.0.4285 as `SizingStackIntegritySentinel`, report-only cumulative multiplier telemetry.
+- Add a report-only sentinel over the full Executor multiplier stack to detect accidental cumulative dust-sizing or runaway boost stacks.
+- Must emit component-local telemetry with mode/lane/source/mint/build context when raw product is extreme, but must not block or zero-size.
+- Should consume MultiplierAttributionLedger-style component names where possible.
+- Expected impact: catches hidden compounding/sizing contradictions before live wallet growth is silently choked.
+
+### A33 — Terminal Outcome Quality Gate
+- Add a terminal SELL outcome-quality classifier that tags trainable vs scratch vs contaminated outcomes using proofState, positionId, source, lane, fee/slip, and basis consistency.
+- Must protect CanonicalOutcomeBus/TradeHistoryStore learning without hiding real PnL from reports.
+- Expected impact: improves learner signal quality and prevents noisy terminal rows from poisoning entry/exit memory.
+
+### A34 — Source Family Opportunity Scorecard
+- Create a compact background scorecard by source family: discovered, admitted, opened, closed, trainable PF, avg hold, avg cost drag, and rug overlay rate.
+- Must preserve source-balanced minimum exposure; scorecard is diagnostic/ordering only.
+- Expected impact: improves scanner quality while preventing PumpPortal/pump.fun dominance.
+
+### A35 — Runner Exit Shadow Ledger
+- Add a runner-only shadow ledger that records hypothetical later exits for positions with peakGainPct above runner thresholds.
+- Must be offline/background-only and feed CounterfactualReplayEngine/RunnerRetentionOptimizer, not direct sell authority.
+- Expected impact: increases avg_win and reduces premature runner cuts.
+
+### A36 — Live Wallet Growth Governor Report
+- Add a daily live-wallet growth report that decomposes net SOL change into realized PnL, open exposure, fees/slip, dust/burn cleanup, compounding reinvestment, and idle capital.
+- Must be report-only and must never fake PnL or use phantom positions.
+- Expected impact: aligns operator decisions with the 2x–5x live-wallet daily growth doctrine.

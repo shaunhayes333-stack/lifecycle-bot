@@ -4791,4 +4791,13 @@ class GoldenTapeRegressionTest {
         assertTrue("V5.0.4282: workflow must emit build gate summary after release build", workflow.contains("ci/build_gate_summary.py") && workflow.indexOf("ci/build_gate_summary.py") > workflow.indexOf("assembleRelease"))
     }
 
+    @Test
+    fun sizingStackIntegritySentinel4285ReportsOnlyNoZeroSizing() {
+        val sentinel = java.io.File("src/main/kotlin/com/lifecyclebot/engine/SizingStackIntegritySentinel.kt").readText()
+        val exec = java.io.File("src/main/kotlin/com/lifecyclebot/engine/Executor.kt").readText()
+        assertTrue("V5.0.4285: sentinel must emit report-only telemetry for dust/runaway cumulative multiplier stacks", sentinel.contains("SIZING_STACK_INTEGRITY_SENTINEL_4285") && sentinel.contains("dust_stack") && sentinel.contains("runaway_stack"))
+        assertTrue("V5.0.4285: Executor must inspect named sizing components without mutating multiplierProductRaw after inspection", exec.contains("sizingStackComponents4285") && exec.contains("SizingStackIntegritySentinel.inspect") && exec.contains("capitalEfficiency"))
+        assertFalse("V5.0.4285: sizing sentinel must not hard block, return zero size, or call execution authority", sentinel.contains("return 0.0") || sentinel.contains("executeBuy(") || sentinel.contains("requestSell("))
+    }
+
 }

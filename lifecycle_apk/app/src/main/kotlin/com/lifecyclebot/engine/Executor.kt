@@ -8328,8 +8328,36 @@ class Executor(
         if (capitalEfficiencySizeMult != 1.0) {
             try { ForensicLogger.lifecycle("CAPITAL_EFFICIENCY_SIZE_SHAPED_4281", "mint=${ts.mint.take(10)} symbol=${ts.symbol} lane=$laneKeyForAgi source=${ts.source} mult=${capitalEfficiencySizeMult.fmt(3)}") } catch (_: Throwable) {}
         }
-        val multiplierProductRaw = sizeMult * labMult * laneEvMult * regimeMultGoosed * laneSizeCap * brainSizeMult *
-            strategyTunerSizeMult * sourceBrainSizeMult * uphConvictionMult * hypothesisSizeMult * paperLiveBridgeMult * shadowVariantSizeMult * superBrainSizeMult * metaCognitionSizeMult * regimeVolSizeMult * capitalEfficiencySizeMult
+        val sizingStackComponents4285 = linkedMapOf(
+            "sizeMult" to sizeMult,
+            "lab" to labMult,
+            "laneEv" to laneEvMult,
+            "regime" to regimeMultGoosed,
+            "laneCap" to laneSizeCap,
+            "brain" to brainSizeMult,
+            "strategyTuner" to strategyTunerSizeMult,
+            "sourceBrain" to sourceBrainSizeMult,
+            "uph" to uphConvictionMult,
+            "hypothesis" to hypothesisSizeMult,
+            "paperLive" to paperLiveBridgeMult,
+            "shadowVariant" to shadowVariantSizeMult,
+            "superBrain" to superBrainSizeMult,
+            "metaCognition" to metaCognitionSizeMult,
+            "regimeVol" to regimeVolSizeMult,
+            "capitalEfficiency" to capitalEfficiencySizeMult,
+        )
+        val multiplierProductRaw = sizingStackComponents4285.values.fold(1.0) { acc, v -> acc * v }
+        try {
+            SizingStackIntegritySentinel.inspect(
+                mode = if (RuntimeModeAuthority.isPaper()) "paper" else "live",
+                lane = laneKeyForAgi,
+                source = ts.source,
+                mint = ts.mint,
+                symbol = ts.symbol,
+                components = sizingStackComponents4285,
+                rawProduct = multiplierProductRaw,
+            )
+        } catch (_: Throwable) {}
         try {
             MultiplierAttributionLedger.recordEntry(
                 mode = if (RuntimeModeAuthority.isPaper()) "paper" else "live",
