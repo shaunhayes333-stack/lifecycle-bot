@@ -8999,6 +8999,18 @@ class BotService : Service() {
             base.setupQuality.isNotBlank() && base.setupQuality != "SKIP" -> base.setupQuality
             else -> "C"
         }
+        val xTalkShape4262 = try {
+            val tsForProbe = mintForProbe.takeIf { it.isNotBlank() }?.let { status.tokens[it] }
+            if (tsForProbe != null) MemeCrossTalkEntryBridge.shapeLaneEntry(lane, tsForProbe, confidenceFloor, isOpenPosition = false) else null
+        } catch (_: Throwable) { null }
+        val shapedConfidenceFloor4262 = xTalkShape4262?.confidenceFloor ?: confidenceFloor
+        val crossTalkSizeMult4262 = xTalkShape4262?.sizeMultiplier ?: 1.0
+        if (xTalkShape4262 != null) {
+            try {
+                PipelineHealthCollector.labelInc("MEME_CROSSTALK_ENTRY_SHAPED_4262")
+                ForensicLogger.lifecycle("MEME_CROSSTALK_ENTRY_SHAPED_4262", "lane=$lane mint=${mintForProbe.take(10)} ${xTalkShape4262.reason}")
+            } catch (_: Throwable) {}
+        }
         // V5.0.4206 — revive ChopFilter as a SOFT FDG candidate shaper.
         // The audit item asked for intake use, but hard intake rejection would
         // contradict throughput doctrine and hide samples. laneQualifiedBuyDecision
@@ -9012,7 +9024,7 @@ class BotService : Service() {
                     source = sourceForChop,
                     phase = base.phase,
                     score = base.entryScore.toInt().coerceIn(0, 100),
-                    minScore = confidenceFloor.toInt().coerceIn(0, 100),
+                    minScore = shapedConfidenceFloor4262.toInt().coerceIn(0, 100),
                 )
             ) com.lifecyclebot.engine.ChopFilter.chopPenalty() else 0
         } catch (_: Throwable) { 0 }
@@ -9098,8 +9110,8 @@ class BotService : Service() {
                 edgeVeto = false,
                 edgeQuality = if (laneBase.edgeQuality == "SKIP") "C" else laneBase.edgeQuality,
                 finalQuality = "C",
-                qualityPenalty = resolveProbeSizeMult(mintForProbe, liquidityUsd),
-                aiConfidence = laneBase.aiConfidence.coerceAtLeast(confidenceFloor),
+                qualityPenalty = (resolveProbeSizeMult(mintForProbe, liquidityUsd) * crossTalkSizeMult4262).coerceIn(0.05, 1.18),
+                aiConfidence = laneBase.aiConfidence.coerceAtLeast(shapedConfidenceFloor4262),
             )
         }
         return laneBase.copy(
@@ -9110,7 +9122,7 @@ class BotService : Service() {
             edgeVeto = false,
             edgeQuality = if (laneBase.edgeQuality == "SKIP") "C" else laneBase.edgeQuality,
             finalQuality = cleanQuality,
-            aiConfidence = laneBase.aiConfidence.coerceAtLeast(confidenceFloor),
+            aiConfidence = laneBase.aiConfidence.coerceAtLeast(shapedConfidenceFloor4262),
         ).also {
             try {
                 ForensicLogger.lifecycle(

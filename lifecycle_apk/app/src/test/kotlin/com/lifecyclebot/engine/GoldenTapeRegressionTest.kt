@@ -4616,4 +4616,20 @@ class GoldenTapeRegressionTest {
         assertTrue("V5.0.4259: ASI/SSI re-audit must check MCTS replay wiring", sweeper.contains("mctsExitPolicyHint") && sweeper.contains("bounded offline MCTS"))
     }
 
+    @Test
+    fun memeTraderFullAuditSweeper4261TracksOriginalPassesAThroughJ() {
+        val sweeper = java.io.File("src/main/kotlin/com/lifecyclebot/engine/MemeTraderFullAuditSweeper.kt").readText()
+        assertTrue("V5.0.4261: full meme trader audit sweeper must track original Pass A-J, not only ShitCoin", sweeper.contains("PASS_A_COMPOUNDING_4261") && sweeper.contains("PASS_B_CROSSTALK_ENTRY_CONSUMPTION_4261") && sweeper.contains("PASS_C_CANONICAL_OUTCOME_BUS_4261") && sweeper.contains("PASS_D_REGIME_VOLATILITY_4261") && sweeper.contains("PASS_E_SUPERBRAIN_CONSUMPTION_4261") && sweeper.contains("PASS_F_EXPRESS_PARITY_4261") && sweeper.contains("PASS_G_SHADOW_LEARNING_4261") && sweeper.contains("PASS_H_EXIT_MANAGER_DEDUP_4261") && sweeper.contains("PASS_I_HOLD_TIME_OPTIMIZER_4261") && sweeper.contains("PASS_J_METACOGNITION_CONSUMPTION_4261"))
+    }
+
+    @Test
+    fun memeCrossTalkEntryBridge4262ShapesCentralLaneQualifiedEntries() {
+        val bridge = java.io.File("src/main/kotlin/com/lifecyclebot/engine/MemeCrossTalkEntryBridge.kt").readText()
+        val bot = java.io.File("src/main/kotlin/com/lifecyclebot/engine/BotService.kt").readText()
+        val sweeper = java.io.File("src/main/kotlin/com/lifecyclebot/engine/MemeTraderFullAuditSweeper.kt").readText()
+        assertTrue("V5.0.4262: cross-talk bridge must consume AICrossTalk and emit bounded entry confidence/size shape", bridge.contains("AICrossTalk.analyzeCrossTalk") && bridge.contains("confidenceBoost.coerceIn(-8.0, 8.0)") && bridge.contains("sizeMultiplier.coerceIn(0.72, 1.18)"))
+        assertTrue("V5.0.4262: central laneQualifiedBuyDecision must apply cross-talk entry shaping to all meme recovery lanes", bot.contains("MemeCrossTalkEntryBridge.shapeLaneEntry") && bot.contains("MEME_CROSSTALK_ENTRY_SHAPED_4262") && bot.contains("shapedConfidenceFloor4262"))
+        assertTrue("V5.0.4262: full meme audit sweeper must track Pass B cross-talk entry consumption", sweeper.contains("PASS_B_CROSSTALK_ENTRY_CONSUMPTION_4261") && sweeper.contains("MemeCrossTalkEntryBridge"))
+    }
+
 }
