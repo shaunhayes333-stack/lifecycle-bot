@@ -441,7 +441,7 @@ object PositionPersistence {
                             peakPnlPct = saved.peakGainPct,
                             lastSeenPrice = saved.lastKnownPrice.takeIf { it > 0.0 } ?: saved.entryPrice,
                             lastPriceUpdateMs = saved.savedAt,
-                            entryScore = saved.entryScore,
+                            entryScore = saved.entryScore.toInt(),
                         ),
                         saved.isPaperPosition,
                     )
@@ -466,7 +466,7 @@ object PositionPersistence {
                             highWaterMark = saved.highestPrice.takeIf { it > 0.0 } ?: saved.entryPrice,
                             peakPnlPct = saved.peakGainPct,
                             lastSeenPrice = saved.lastKnownPrice.takeIf { it > 0.0 } ?: saved.entryPrice,
-                            entryScore = saved.entryScore,
+                            entryScore = saved.entryScore.toInt(),
                         ),
                         saved.isPaperPosition,
                     )
