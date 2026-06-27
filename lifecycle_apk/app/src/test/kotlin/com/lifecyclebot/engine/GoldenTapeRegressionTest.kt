@@ -4996,4 +4996,11 @@ class GoldenTapeRegressionTest {
         assertTrue("V5.0.4304: terminal learning must credit stamped entry signal, not recompute AICrossTalk at close", exec.contains("recordStampedEntryOutcome(ts.mint") && exec.contains("credits the wrong teacher") && !exec.contains("val crossTalkSignal = AICrossTalk.analyzeCrossTalk(ts, isOpenPosition = false)"))
     }
 
+
+    @Test
+    fun strategyHypothesis4305PromotionClockIncrementsOnce() {
+        val src = java.io.File("src/main/kotlin/com/lifecyclebot/engine/StrategyHypothesisEngine.kt").readText()
+        assertTrue("V5.0.4305: hypothesis promotion must increment experiment clock once", src.contains("V5.0.4305") && src.contains("one promotion event must increment") && !src.contains("promotions += 1\n            promotions += 1"))
+    }
+
 }

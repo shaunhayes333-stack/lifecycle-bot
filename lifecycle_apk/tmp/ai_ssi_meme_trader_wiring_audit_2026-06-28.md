@@ -106,6 +106,22 @@ Risk:
 Patch:
 - 4304 stamps entry cross-talk by `mint:lane` and terminal fanout credits `recordStampedEntryOutcome(...)` using the executed lane.
 
+
+### F6 — StrategyHypothesisEngine double-counted one promotion event
+
+Confirmed file:
+- `StrategyHypothesisEngine.kt`
+
+Evidence:
+- The promotion branch had duplicate promotion accounting in the audited source lineage; current patch pins one increment per true promoted variant.
+
+Risk:
+- Corrupts the self-directed experiment clock used for next mutation cadence/dimension alternation.
+- Makes the autonomous learner behave as if two promotions happened, distorting the scientific A/B loop.
+
+Patch:
+- 4305 pins promotion accounting to one increment per true promotion with Golden Tape coverage.
+
 ## Candidate risks requiring next pass
 
 ### C1 — Synthetic score components may be tracked poorly or treated as generic theatre

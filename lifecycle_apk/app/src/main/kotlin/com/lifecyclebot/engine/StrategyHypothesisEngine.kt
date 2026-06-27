@@ -232,6 +232,8 @@ object StrategyHypothesisEngine {
             // variant wins → promote BOTH dimensions to the new baseline, spawn next
             baseline[ctx] = h.variantSizeBias
             stopBaseline[ctx] = h.variantStopMult   // V5.9.1286 — persist proven stop width
+            // V5.0.4305 — one promotion event must increment the experiment
+            // clock once; double-counting distorts next mutation cadence.
             promotions += 1
             active[ctx] = spawn(ctx)
         } else if (t >= PROMOTE_T && !promoteOk) {
