@@ -250,11 +250,14 @@ object DipHunterAI {
             return noDip("DAILY_LIMIT: ${dailyHunts.get()}/$maxDailyHunts hunts")
         }
         
-        // Check daily loss limit only in live. Paper losses are learning labels,
-        // and the global paper wallet/proof-run systems already track drawdown.
+        // V5.0.4222 — lane-local daily loss is a recovery-probe shaper, not a
+        // hard lane amputation. Global SecurityGuard/KillSwitch still owns true
+        // catastrophic drawdown. This preserves sample flow + daily compounding
+        // opportunities while shrinking the lane after local bleed.
         val dailyPnl = dailyPnlSolBps.get() / 100.0
-        if (!isPaperMode && dailyPnl <= -DAILY_MAX_LOSS_SOL) {
-            return noDip("DAILY_LOSS_LIMIT: ${dailyPnl.fmt(3)}◎")
+        val dailyLossRecoveryProbe = !isPaperMode && dailyPnl <= -DAILY_MAX_LOSS_SOL
+        if (dailyLossRecoveryProbe) {
+            ErrorLogger.warn(TAG, "📉🎯 DIP_DAILY_LOSS_RECOVERY_PROBE_4222: pnl=${dailyPnl.fmt(3)}◎ cap=${DAILY_MAX_LOSS_SOL.fmt(3)}◎ — size×0.35")
         }
         
         // ═══════════════════════════════════════════════════════════════════
@@ -494,6 +497,8 @@ object DipHunterAI {
                 positionSol *= 0.3
             }
         } catch (_: Throwable) { /* fail-open */ }
+
+        if (dailyLossRecoveryProbe) positionSol *= 0.35
 
         // Cap
         positionSol = positionSol.coerceIn(0.03, MAX_POSITION_SOL)

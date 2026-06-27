@@ -3573,6 +3573,9 @@ class GoldenTapeRegressionTest {
         val dipHunter4221 = java.io.File("src/main/kotlin/com/lifecyclebot/v3/scoring/DipHunterAI.kt").readText()
         val positionPersistence4221 = java.io.File("src/main/kotlin/com/lifecyclebot/engine/PositionPersistence.kt").readText()
         assertTrue("V5.0.4221: restored DIP_HUNTER positions must rehydrate activeDips", dipHunter4221.contains("fun restoreDip(position: DipPosition)") && positionPersistence4221.contains("DIP_HUNTER_RESTORED_ACTIVE_DIP_4221") && positionPersistence4221.contains("DipHunterAI.restoreDip") && positionPersistence4221.contains("restoredLayer.equals(\"DIP_HUNTER\""))
+        val dipHunter4222 = java.io.File("src/main/kotlin/com/lifecyclebot/v3/scoring/DipHunterAI.kt").readText()
+        val sniper4222 = java.io.File("src/main/kotlin/com/lifecyclebot/v3/scoring/ProjectSniperAI.kt").readText()
+        assertTrue("V5.0.4222: lane-local daily loss must size-shape DipHunter/Sniper instead of hard-amputing volume", dipHunter4222.contains("DIP_DAILY_LOSS_RECOVERY_PROBE_4222") && dipHunter4222.contains("if (dailyLossRecoveryProbe) positionSol *= 0.35") && !dipHunter4222.contains("return noDip(\"DAILY_LOSS_LIMIT") && sniper4222.contains("SNIPER_DAILY_LOSS_RECOVERY_PROBE_4222") && sniper4222.contains("dailyLossProbeMult") && !sniper4222.contains("return noEngage(\"DAILY_LOSS_CAP"))
     }
 
 

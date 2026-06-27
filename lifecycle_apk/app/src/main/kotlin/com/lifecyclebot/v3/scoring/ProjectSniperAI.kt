@@ -217,9 +217,13 @@ object ProjectSniperAI {
             return noEngage("DAILY_LIMIT: ${dailyMissions.get()}/$DAILY_MAX_MISSIONS missions", tokenAgeSecs)
         }
         
+        // V5.0.4222 — lane-local daily loss is a recovery-probe shaper, not a
+        // hard sniper amputation. Global SecurityGuard/KillSwitch remains the
+        // catastrophic drawdown authority; this lane keeps tiny probes flowing.
         val dailyPnl = dailyPnlSolBps.get() / 100.0
-        if (dailyPnl <= -DAILY_MAX_LOSS_SOL) {
-            return noEngage("DAILY_LOSS_CAP: ${dailyPnl.fmt(2)}◎", tokenAgeSecs)
+        val dailyLossRecoveryProbe = dailyPnl <= -DAILY_MAX_LOSS_SOL
+        if (dailyLossRecoveryProbe) {
+            ErrorLogger.warn(TAG, "🎯 SNIPER_DAILY_LOSS_RECOVERY_PROBE_4222: pnl=${dailyPnl.fmt(2)}◎ cap=${DAILY_MAX_LOSS_SOL.fmt(2)}◎ — size×0.35")
         }
         
         // Max concurrent
@@ -441,8 +445,9 @@ object ProjectSniperAI {
             }
         } catch (_: Throwable) { /* fail-open per FDG doctrine */ }
 
-        val composed = BASE_POSITION_SOL * sizeMultiplier * behaviorSizeMult * behaviorGradeMult * sniperSelfDamp
-        var positionSol = composed.coerceIn(BASE_POSITION_SOL * 0.35, MAX_POSITION_SOL)
+        val dailyLossProbeMult = if (dailyLossRecoveryProbe) 0.35 else 1.0
+        val composed = BASE_POSITION_SOL * sizeMultiplier * behaviorSizeMult * behaviorGradeMult * sniperSelfDamp * dailyLossProbeMult
+        var positionSol = composed.coerceIn(BASE_POSITION_SOL * 0.25, MAX_POSITION_SOL)
 
         // V5.9.926 — GLOBAL COMPOUND MULTIPLIER (Pass A fix).
         try {
