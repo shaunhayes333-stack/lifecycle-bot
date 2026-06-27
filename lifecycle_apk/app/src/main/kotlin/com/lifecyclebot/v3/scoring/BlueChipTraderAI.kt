@@ -361,6 +361,7 @@ object BlueChipTraderAI {
             activePositions[position.mint] = position
         }
         dailyTradeCount.incrementAndGet()
+        try { com.lifecyclebot.engine.UltimateEdgeEngine.enqueueRefresh(position.mint, position.symbol, "BLUECHIP", "BLUECHIP_OPEN", position.entryScore.coerceIn(0, 100), "open_size_${position.entrySol.fmt(4)}") } catch (_: Throwable) {}
         
         ErrorLogger.info(TAG, "🔵 BLUE CHIP ENTRY: ${position.symbol} | " +
             "mcap=\$${(position.marketCapUsd/1_000_000).fmt(2)}M | " +
@@ -1028,6 +1029,21 @@ object BlueChipTraderAI {
         } catch (_: Throwable) { /* fail-open */ }
 
         if (dailyLossRecoveryProbe) positionSol *= 0.35
+
+        // V5.0.4328 — cache-only UltimateEdgeEngine readback for BlueChip.
+        // Position open/close warms cards; entry only consumes cached state.
+        try {
+            val edgeCard4328 = com.lifecyclebot.engine.UltimateEdgeEngine.cached(mint, "BLUECHIP")
+            if (edgeCard4328 != null) {
+                val edgeBias4328 = edgeCard4328.scoreBias.coerceIn(0, 5)
+                if (edgeBias4328 > 0) blueChipScore = (blueChipScore + edgeBias4328).coerceAtLeast(0)
+                val edgeSize4328 = edgeCard4328.sizeMult.coerceIn(0.90, 1.08)
+                positionSol *= edgeSize4328
+                if (edgeSize4328 != 1.0) {
+                    ErrorLogger.debug(TAG, "🔵🧠 ULTIMATE_EDGE_BLUECHIP_CACHE_SHAPE_4328: $symbol score+$edgeBias4328 size×${edgeSize4328.fmt(3)} ${edgeCard4328.semanticReason.take(90)}")
+                }
+            }
+        } catch (_: Throwable) { /* fail-open cache read */ }
 
         // Cap at max
         positionSol *= expectancySoftSize4315

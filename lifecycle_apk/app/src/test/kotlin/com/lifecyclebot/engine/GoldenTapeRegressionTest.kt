@@ -5155,4 +5155,12 @@ class GoldenTapeRegressionTest {
         assertTrue("V5.0.4327: Treasury open/close must warm UltimateEdge cards", cash.contains("UltimateEdgeEngine.enqueueRefresh(mint, symbol, \"TREASURY\"") && cash.contains("UltimateEdgeEngine.enqueueRefresh(mint, pos.symbol, \"TREASURY\""))
     }
 
+    @Test
+    fun qualityBlueChip4328ConsumeUltimateEdgeCardsCacheOnly() {
+        val quality = java.io.File("src/main/kotlin/com/lifecyclebot/v3/scoring/QualityTraderAI.kt").readText()
+        val blue = java.io.File("src/main/kotlin/com/lifecyclebot/v3/scoring/BlueChipTraderAI.kt").readText()
+        assertTrue("V5.0.4328: Quality must consume and warm cached UltimateEdge cards", quality.contains("ULTIMATE_EDGE_QUALITY_CACHE_SHAPE_4328") && quality.contains("UltimateEdgeEngine.cached(mint, \"QUALITY\")") && quality.contains("UltimateEdgeEngine.enqueueRefresh(position.mint, position.symbol, \"QUALITY\"") && quality.contains("UltimateEdgeEngine.enqueueRefresh(pos.mint, pos.symbol, \"QUALITY\""))
+        assertTrue("V5.0.4328: BlueChip must consume and warm cached UltimateEdge cards", blue.contains("ULTIMATE_EDGE_BLUECHIP_CACHE_SHAPE_4328") && blue.contains("UltimateEdgeEngine.cached(mint, \"BLUECHIP\")") && blue.contains("UltimateEdgeEngine.enqueueRefresh(position.mint, position.symbol, \"BLUECHIP\"") && blue.contains("UltimateEdgeEngine.enqueueRefresh(pos.mint, pos.symbol, \"BLUECHIP\""))
+    }
+
 }

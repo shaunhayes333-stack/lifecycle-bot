@@ -517,6 +517,21 @@ object QualityTraderAI {
             }
         } catch (_: Throwable) { /* fail-open */ }
 
+        // V5.0.4328 — cache-only UltimateEdgeEngine readback for Quality.
+        // Position open/close warms cards; entry only consumes cached state.
+        var qualityUltimateEdgeSizeMult4328 = 1.0
+        try {
+            val edgeCard4328 = com.lifecyclebot.engine.UltimateEdgeEngine.cached(mint, "QUALITY")
+            if (edgeCard4328 != null) {
+                val edgeBias4328 = edgeCard4328.scoreBias.coerceIn(0, 5)
+                if (edgeBias4328 > 0) qualityScore = (qualityScore + edgeBias4328).coerceAtLeast(0)
+                qualityUltimateEdgeSizeMult4328 = edgeCard4328.sizeMult.coerceIn(0.90, 1.08)
+                if (qualityUltimateEdgeSizeMult4328 != 1.0) {
+                    ErrorLogger.debug(TAG, "📊🧠 ULTIMATE_EDGE_QUALITY_CACHE_SHAPE_4328: $symbol score+$edgeBias4328 size×${qualityUltimateEdgeSizeMult4328.fmt(3)} ${edgeCard4328.semanticReason.take(90)}")
+                }
+            }
+        } catch (_: Throwable) { qualityUltimateEdgeSizeMult4328 = 1.0 }
+
         // Get fluid TP/SL
         val tp = getFluidTakeProfit()
         val sl = getFluidStopLoss()
@@ -526,7 +541,7 @@ object QualityTraderAI {
         
         return QualitySignal(
             shouldEnter = true,
-            positionSizeSol = positionSize * qualityExpectancySoftSize4317 * dangerSoftSize,  // V5.9.1348 danger soft-shape
+            positionSizeSol = positionSize * qualityExpectancySoftSize4317 * dangerSoftSize * qualityUltimateEdgeSizeMult4328,  // V5.9.1348 danger soft-shape
             takeProfitPct = tp,
             stopLossPct = sl,
             reason = "Quality setup: score=$qualityScore",
@@ -707,6 +722,7 @@ object QualityTraderAI {
     
     fun addPosition(position: QualityPosition) {
         activePositions[position.mint] = position
+        try { com.lifecyclebot.engine.UltimateEdgeEngine.enqueueRefresh(position.mint, position.symbol, "QUALITY", "QUALITY_OPEN", position.entryScore.coerceIn(0, 100), "open_size_${position.entrySol.fmt(4)}") } catch (_: Throwable) {}
         ErrorLogger.info(TAG, "📊 QUALITY OPENED: ${position.symbol} | " +
             "entry=${position.entryPrice} | TP=${position.takeProfitPct}% SL=${position.stopLossPct}%")
     }
@@ -734,6 +750,7 @@ object QualityTraderAI {
         val pnlSol = pos.entrySol * pnlPct / 100
         val isWin = pnlPct > 0.0  // V5.9.408: restored pre-225 win-threshold
         val holdMinutesLong = (System.currentTimeMillis() - pos.entryTime) / 60_000L
+        try { com.lifecyclebot.engine.UltimateEdgeEngine.enqueueRefresh(pos.mint, pos.symbol, "QUALITY", "QUALITY_CLOSE", pnlPct.toInt().coerceIn(-100, 100), "exit_${exitSignal.name}_pnl_${pnlPct.fmt(2)}") } catch (_: Throwable) {}
 
         // V5.9.434 — journal every V3 sub-trader close so the persistent
         // Trade Journal reflects ALL trades across the universe.
