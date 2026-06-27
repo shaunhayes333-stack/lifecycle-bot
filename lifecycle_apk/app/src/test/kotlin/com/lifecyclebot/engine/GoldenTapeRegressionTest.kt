@@ -5083,4 +5083,11 @@ class GoldenTapeRegressionTest {
         assertFalse("V5.0.4314: stale PAUSED hard-return reason must not survive", shit.contains("reason = \"PAUSED: Daily loss limit reached\""))
     }
 
+    @Test
+    fun blueChipScoreExpectancy4315IsSoftRecoveryProbeNotHardReject() {
+        val blue = java.io.File("src/main/kotlin/com/lifecyclebot/v3/scoring/BlueChipTraderAI.kt").readText()
+        assertTrue("V5.0.4315: BlueChip expectancy reject must become bounded recovery-probe sizing", blue.contains("BLUECHIP_EXPECTANCY_RECOVERY_PROBE_4315") && blue.contains("expectancySoftSize4315 = 0.25") && blue.contains("positionSol *= expectancySoftSize4315"))
+        assertFalse("V5.0.4315: stale BlueChip hard EXPECTANCY_REJECT zero-size return must not survive", blue.contains("reason = \"EXPECTANCY_REJECT: score="))
+    }
+
 }

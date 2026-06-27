@@ -898,23 +898,18 @@ object BlueChipTraderAI {
             )
         }
 
-        // V5.9.436 — SCORE-EXPECTANCY SOFT GATE (per-layer).
+        // V5.0.4315 — ScoreExpectancy is learned strategy memory, not hard
+        // safety.  It may shrink BlueChip hard, but it must not zero-size the
+        // lane before FDG/executor attribution. Catastrophic safety remains in
+        // the pre-trade safety stack; this is bounded recovery-probe shaping.
+        var expectancySoftSize4315 = 1.0
         if (com.lifecyclebot.engine.ScoreExpectancyTracker.shouldReject("BLUECHIP", blueChipScore)) {
             val mean = com.lifecyclebot.engine.ScoreExpectancyTracker.bucketMean("BLUECHIP", blueChipScore)
             val n = com.lifecyclebot.engine.ScoreExpectancyTracker.bucketSamples("BLUECHIP", blueChipScore)
-            ErrorLogger.info(TAG, "🔵📉 EXPECTANCY_REJECT: $symbol | score=$blueChipScore | " +
-                "bucket μ=${"%+.1f".format(mean ?: 0.0)}% over n=$n trades — skipping")
-            return BlueChipSignal(
-                shouldEnter = false,
-                positionSizeSol = 0.0,
-                takeProfitPct = 0.0,
-                stopLossPct = 0.0,
-                confidence = blueChipConfidence,
-                reason = "EXPECTANCY_REJECT: score=$blueChipScore bucketMean=${"%+.1f".format(mean ?: 0.0)}% (n=$n)",
-                mode = mode,
-                isPaperMode = isPaperMode,
-                entryScore = blueChipScore,
-            )
+            expectancySoftSize4315 = 0.25
+            ErrorLogger.info(TAG, "🔵📉 BLUECHIP_EXPECTANCY_RECOVERY_PROBE_4315: $symbol | score=$blueChipScore | " +
+                "bucket μ=${"%+.1f".format(mean ?: 0.0)}% over n=$n trades — size×0.25, no hard reject")
+            try { com.lifecyclebot.engine.PipelineHealthCollector.labelInc("BLUECHIP_EXPECTANCY_RECOVERY_PROBE_4315") } catch (_: Throwable) {}
         }
 
         // ── V5.9.1348 — LOSING-PATTERN-MEMORY SOFT-SHAPE (shared-layer parity) ──
@@ -1035,6 +1030,7 @@ object BlueChipTraderAI {
         if (dailyLossRecoveryProbe) positionSol *= 0.35
 
         // Cap at max
+        positionSol *= expectancySoftSize4315
         positionSol *= dangerSoftSize  // V5.9.1348 danger soft-shape
         positionSol = positionSol.coerceIn(0.02, MAX_POSITION_SOL)
         
