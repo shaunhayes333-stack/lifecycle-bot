@@ -4739,4 +4739,13 @@ class GoldenTapeRegressionTest {
         assertTrue("V5.0.4275: ExitCostMicrobrain must persist through LearningPersistence", brain.contains("exportState") && brain.contains("importState") && persistence.contains("EXIT_COST_MICROBRAIN"))
     }
 
+    @Test
+    fun runnerRetentionOptimizer4277PromotesOnlyBackgroundSymbolicHoldBias() {
+        val opt = java.io.File("src/main/kotlin/com/lifecyclebot/engine/RunnerRetentionOptimizer.kt").readText()
+        val exec = java.io.File("src/main/kotlin/com/lifecyclebot/engine/Executor.kt").readText()
+        assertTrue("V5.0.4277: RunnerRetentionOptimizer must use counterfactual replay and critic-reviewed background proposals", opt.contains("MultiAgentCriticStack.reviewAndSubmit") && opt.contains("BACKGROUND_RUNNER_RETENTION_4277") && opt.contains("bounded soft hold bias"))
+        assertTrue("V5.0.4277: RunnerRetentionOptimizer must not introduce direct sell authority or hard veto/zero-size commands", opt.contains("no direct exit authority") && opt.contains("no hard veto") && opt.contains("no zero-size") && !opt.contains("requestSell(") && !opt.contains("executeBuy("))
+        assertTrue("V5.0.4277: Executor must feed runner retention from terminal outcome side-effect fanout after counterfactual replay", exec.contains("CounterfactualReplayEngine.recordTerminalTrade") && exec.contains("RunnerRetentionOptimizer.recordTerminalExit") && exec.contains("runnerReplayHint"))
+    }
+
 }

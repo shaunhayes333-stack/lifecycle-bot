@@ -138,6 +138,7 @@ North star: realized live wallet growth toward the operator's daily 2x-5x compou
 - Expected impact: reduces strict-stop overruns and improves avg_loss without killing throughput.
 
 ### A26 — Runner Retention Optimizer
+- Status: implemented in V5.0.4277 as `RunnerRetentionOptimizer`.
 - Use terminal outcomes + CounterfactualReplayEngine to identify when take-profit/min-hold/dynamic-lock is cutting runners too early.
 - Output bounded lane-specific runner-hold hints via StrategyHypothesisEngine and symbolic review.
 - Expected impact: improves avg_win and realized SOL compounding.

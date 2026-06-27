@@ -396,6 +396,7 @@ object LearningPersistence {
         z("REFLECTIVE_OPTIMIZER_GEPA"){ com.lifecyclebot.engine.ReflectiveOptimizerGEPA.reset() }
         z("MULTIPLIER_ATTRIBUTION"){ com.lifecyclebot.engine.MultiplierAttributionLedger.reset() }
         z("EXIT_COST_MICROBRAIN"){ com.lifecyclebot.engine.ExitCostMicrobrain.reset() }
+        z("RUNNER_RETENTION_OPTIMIZER"){ com.lifecyclebot.engine.RunnerRetentionOptimizer.reset() }
         z("COLLECTIVE_INTEL")  { com.lifecyclebot.v3.scoring.CollectiveIntelligenceAI.reset() }
         // UnifiedPolicyHead has no reset(): clear its persisted blob so the next
         // boot re-initialises fresh weights; in-memory weights keep drifting from
