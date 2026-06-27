@@ -2905,6 +2905,16 @@ class Executor(
                             maxLossPct = graphLossPct,
                             holdSeconds = graphHoldSeconds,
                         )
+                        val researchReason = graphTrade.reason.uppercase()
+                        if (graphTrade.pnlPct < -8.0 || researchReason.contains("RUG") || researchReason.contains("LP") || researchReason.contains("HOLDER")) {
+                            com.lifecyclebot.engine.ResearchScout.enqueueBackgroundRequest(
+                                mint = graphTrade.mint.ifBlank { ts.mint },
+                                symbol = ts.symbol,
+                                reason = "terminal_exit_research_4242:${graphTrade.reason.take(80)}",
+                                sourceTag = "BACKGROUND_RESEARCH_SCOUT_TERMINAL_EXIT_4242",
+                            )
+                            try { PipelineHealthCollector.labelInc("RESEARCH_SCOUT_TERMINAL_EXIT_QUEUED_4242") } catch (_: Throwable) {}
+                        }
                         try { PipelineHealthCollector.labelInc("SEMANTIC_COUNTERFACTUAL_OUTCOME_4241") } catch (_: Throwable) {}
                     } catch (_: Throwable) {}
                 }
