@@ -4491,4 +4491,13 @@ class GoldenTapeRegressionTest {
         assertTrue("V5.0.4242: ResearchScout terminal queue must remain inside the terminal closed-learning side-effect fanout", executor.contains("tradeWithMint.side.equals("SELL", true) && ledgerAllowsClosedLearning && accountingTrainable") && executor.contains("BACKGROUND_RESEARCH_SCOUT_TERMINAL_EXIT_4242"))
     }
 
+    @Test
+    fun reflectiveOptimizer4243IsBackgroundOnlyProposalLoop() {
+        val gepa = java.io.File("src/main/kotlin/com/lifecyclebot/engine/ReflectiveOptimizerGEPA.kt").readText()
+        val persistence = java.io.File("src/main/kotlin/com/lifecyclebot/engine/LearningPersistence.kt").readText()
+        assertTrue("V5.0.4243: GEPA optimizer must consume replay/semantic caches and submit reviewable AsyncStrategyLab proposals", gepa.contains("object ReflectiveOptimizerGEPA") && gepa.contains("CounterfactualReplayEngine.policyHints") && gepa.contains("SemanticPatternGraph.summary") && gepa.contains("AsyncStrategyLab.submitBackgroundHypothesis"))
+        assertTrue("V5.0.4243: GEPA optimizer must be background-only and never hard-veto/zero-size live entries", gepa.contains("BACKGROUND_GEPA_REFLECTION") && gepa.contains("no hard veto") && gepa.contains("no zero-size") && !gepa.contains("executeBuy"))
+        assertTrue("V5.0.4243: GEPA proposals must persist through LearningPersistence", gepa.contains("exportState") && gepa.contains("importState") && persistence.contains("REFLECTIVE_OPTIMIZER_GEPA"))
+    }
+
 }
