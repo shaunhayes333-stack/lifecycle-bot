@@ -3583,6 +3583,9 @@ class GoldenTapeRegressionTest {
         val blueChip4224 = java.io.File("src/main/kotlin/com/lifecyclebot/v3/scoring/BlueChipTraderAI.kt").readText()
         val cashGen4224 = java.io.File("src/main/kotlin/com/lifecyclebot/v3/scoring/CashGenerationAI.kt").readText()
         assertTrue("V5.0.4224: BlueChip/CashGen PAUSED must probe-size instead of hard-zeroing entries", blueChip4224.contains("BLUECHIP_DAILY_LOSS_RECOVERY_PROBE_4224") && blueChip4224.contains("if (dailyLossRecoveryProbe) positionSol *= 0.35") && !blueChip4224.contains("reason = \"PAUSED: Daily loss limit reached\"") && cashGen4224.contains("TREASURY_DAILY_LOSS_RECOVERY_PROBE_4224") && cashGen4224.contains("TreasuryMode.PAUSED -> 0.35") && !cashGen4224.contains("PAUSED: Daily loss limit"))
+        val shitCoin4225 = java.io.File("src/main/kotlin/com/lifecyclebot/v3/scoring/ShitCoinTraderAI.kt").readText()
+        val expressEdu4225 = java.io.File("src/main/kotlin/com/lifecyclebot/v3/scoring/ShitCoinExpress.kt").readText()
+        assertTrue("V5.0.4225: education mute must soft-shape ShitCoin/Express instead of no-trade", shitCoin4225.contains("EDU_MUTED_SOFT_SHAPE_4225") && shitCoin4225.contains("eduSizeMult = if (status == \"MUTE\") 0.35 else 0.65") && !shitCoin4225.contains("reason = \"EDU_MUTED: layer muted") && expressEdu4225.contains("EDU_MUTED_SOFT_SHAPE_4225") && expressEdu4225.contains("educSizeMult = if (educStatus == \"MUTE\") 0.35 else 0.65") && !expressEdu4225.contains("return noRide(\"EDU_MUTED"))
     }
 
 

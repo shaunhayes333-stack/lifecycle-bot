@@ -489,13 +489,19 @@ object ShitCoinExpress {
             EducationSubLayerAI.recordEntryScores(mint, harvardComponents)
         } catch (_: Throwable) { /* fail-open per FDG doctrine */ }
 
-        // 4. EducationSubLayerAI — mute/boost on score
+        // 4. EducationSubLayerAI — score/size shaping, never hard mute.
+        // V5.0.4225: Express is the fastest momentum lane; MUTE/SOFT_PENALTY
+        // must become probe sizing, not noRide(), unless true hard safety fires.
+        var educSizeMult = 1.0
         try {
             val (educScore, educMult, educStatus) = com.lifecyclebot.v3.scoring.EducationSubLayerAI.applyMuteBoost("SHITCOIN_EXPRESS", expressScore)
             if (educStatus == "MUTE" || educStatus == "SOFT_PENALTY") {
-                return noRide("EDU_MUTED: EXPRESS layer muted ($educStatus x${"%.2f".format(educMult)})")
+                educSizeMult = if (educStatus == "MUTE") 0.35 else 0.65
+                expressScore = maxOf((expressScore * 0.70).toInt(), educScore.coerceAtLeast(0))
+                ErrorLogger.warn(TAG, "💩🚂 EDU_MUTED_SOFT_SHAPE_4225: status=$educStatus x${educMult.fmt(2)} → size×$educSizeMult score=$expressScore")
+            } else {
+                expressScore = educScore.coerceAtLeast(0)
             }
-            expressScore = educScore.coerceAtLeast(0)
         } catch (_: Exception) {}
 
         // FLUID THRESHOLD CHECK
@@ -536,8 +542,8 @@ object ShitCoinExpress {
         
         var positionSol = BASE_POSITION_SOL
         
-        // Scale by confidence
-        positionSol *= (0.5 + confidence / 100.0)
+        // Scale by confidence + education probe shaping
+        positionSol *= (0.5 + confidence / 100.0) * educSizeMult
         
         // Scale by ride type
         positionSol *= when (rideType) {

@@ -1475,23 +1475,18 @@ object ShitCoinTraderAI {
             ErrorLogger.debug(TAG, "💩 META trust=${clampedTrust.fmt(2)}x → conf=$shitConfidence%")
         } catch (_: Exception) {}
 
-        // 4. EducationSubLayerAI — mute/boost on score
-        // V5.9.336: During bootstrap (<70% progress) NEVER mute ShitCoin — it needs trades to learn.
-        // At 0W/7L the edu layer would mute it immediately, creating a deadlock: no trades = no data
-        // = stays muted forever. Mute/penalty only applies when we have enough history to trust the signal.
+        // 4. EducationSubLayerAI — score/size shaping, never hard mute.
+        // V5.0.4225: MUTE/SOFT_PENALTY used to return shouldEnter=false after
+        // 70% progress, amputating ShitCoin's highest-throughput sample stream.
+        // Keep the learned warning, but turn it into a bounded probe multiplier.
+        var eduSizeMult = 1.0
         try {
             val eduProgress = FluidLearningAI.getLearningProgress()
             val (boostedScore, mult, status) = com.lifecyclebot.v3.scoring.EducationSubLayerAI.applyMuteBoost("SHITCOIN_TRADER", shitScore)
             if (eduProgress >= 0.70 && (status == "MUTE" || status == "SOFT_PENALTY")) {
-                return ShitCoinSignal(
-                    shouldEnter = false, positionSizeSol = 0.0,
-                    takeProfitPct = 0.0, stopLossPct = 0.0,
-                    confidence = shitConfidence,
-                    reason = "EDU_MUTED: layer muted ($status ×${"%.2f".format(mult)}) — edge not proven",
-                    mode = mode, isPaperMode = isPaperMode, launchPlatform = launchPlatform,
-                    riskLevel = riskLevel, socialScore = socialBonus,
-                    bundleWarning = bundleWarning, graduationImminent = graduationImminent,
-                )
+                eduSizeMult = if (status == "MUTE") 0.35 else 0.65
+                shitScore = maxOf((shitScore * 0.70).toInt(), boostedScore.coerceAtLeast(0))
+                ErrorLogger.warn(TAG, "💩 EDU_MUTED_SOFT_SHAPE_4225: status=$status ×${mult.fmt(2)} → size×$eduSizeMult score=$shitScore")
             } else {
                 shitScore = boostedScore.coerceAtLeast(0)
                 ErrorLogger.debug(TAG, "💩 EDU gate=$status ×${mult.fmt(2)} → score=$shitScore (progress=${(eduProgress*100).toInt()}%)")
@@ -1607,7 +1602,7 @@ object ShitCoinTraderAI {
             val minRank  = order[minGrade.uppercase()] ?: 3
             if (candRank < minRank) shitBehaviorGradeMult = 0.7
         } catch (_: Throwable) { /* fail-open */ }
-        positionSol *= (shitBehaviorSizeMult * shitBehaviorGradeMult)
+        positionSol *= (shitBehaviorSizeMult * shitBehaviorGradeMult * eduSizeMult)
         positionSol = positionSol.coerceIn(0.02, MAX_POSITION_SOL)
 
         // V5.9.1455 — CALIBRATION SIZE SHAPE (parity with Quality/BlueChip/Manip/etc).
