@@ -5003,4 +5003,12 @@ class GoldenTapeRegressionTest {
         assertTrue("V5.0.4305: hypothesis promotion must increment experiment clock once", src.contains("V5.0.4305") && src.contains("one promotion event must increment") && !src.contains("promotions += 1\n            promotions += 1"))
     }
 
+
+    @Test
+    fun socialVelocity4306DoesNotBlockScorerOnDexScreener() {
+        val src = java.io.File("src/main/kotlin/com/lifecyclebot/v3/scoring/SocialVelocityAI.kt").readText()
+        assertTrue("V5.0.4306: SocialVelocity scorer must use cached DexScreener boost data and async refresh", src.contains("V5.0.4306") && src.contains("refreshBoostedTokensAsync") && src.contains("refreshScope.launch") && src.contains("refreshBoostedTokensBlocking"))
+        assertTrue("V5.0.4306: getBoostAmount/isBoosted must not call blocking refresh directly", src.contains("fun getBoostAmount") && src.contains("fun isBoosted") && !src.contains("fun getBoostAmount(mint: String): Long {\n            refreshBoostedTokens()"))
+    }
+
 }

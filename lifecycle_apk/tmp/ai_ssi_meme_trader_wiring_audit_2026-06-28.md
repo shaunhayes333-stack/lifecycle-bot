@@ -122,6 +122,22 @@ Risk:
 Patch:
 - 4305 pins promotion accounting to one increment per true promotion with Golden Tape coverage.
 
+
+### F7 — SocialVelocityAI performed synchronous DexScreener HTTP from scorer path
+
+Confirmed file:
+- `SocialVelocityAI.kt`
+
+Evidence:
+- `score()` calls `getBoostAmount()`.
+- Pre-4306 `getBoostAmount()` called `refreshBoostedTokens()`, which executed OkHttp synchronously against DexScreener when cache expired.
+
+Risk:
+- Free DexScreener social/boost alpha is valuable, but a synchronous network fetch inside UnifiedScorer can wedge scanner/FDG flow and reduce throughput.
+
+Patch:
+- 4306 changes score-time reads to cached boost data and kicks stale refresh in a background IO coroutine. Blocking refresh remains only for explicit background/startup callers.
+
 ## Candidate risks requiring next pass
 
 ### C1 — Synthetic score components may be tracked poorly or treated as generic theatre

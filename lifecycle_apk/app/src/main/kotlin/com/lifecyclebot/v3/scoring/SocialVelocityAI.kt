@@ -10,6 +10,11 @@ import okhttp3.Request
 import org.json.JSONObject
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.ConcurrentHashMap
+import java.util.concurrent.atomic.AtomicBoolean
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.launch
 
 /**
  * V3 Social Velocity AI
@@ -47,45 +52,55 @@ class SocialVelocityAI : ScoringModule {
         
         // Cache of boosted/trending tokens
         private val boostedTokens = ConcurrentHashMap<String, Long>()  // mint -> boost amount
-        private var lastBoostedFetchMs = 0L
+        @Volatile private var lastBoostedFetchMs = 0L
+        private val refreshInFlight = AtomicBoolean(false)
+        private val refreshScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
         
         /**
-         * Fetch DexScreener boosted tokens (tokens paying for promotion)
+         * V5.0.4306 — hot-path safe refresh. Scoring must never synchronously
+         * execute DexScreener HTTP; it reads cached boost data and kicks a
+         * background refresh when stale. Free social/boost alpha is useful, but
+         * not if it wedges UnifiedScorer / FDG / scanner flow.
          */
-        fun refreshBoostedTokens() {
+        fun refreshBoostedTokensAsync() {
             val now = System.currentTimeMillis()
             if (now - lastBoostedFetchMs < CACHE_DURATION_MS) return
-            
+            if (!refreshInFlight.compareAndSet(false, true)) return
+            refreshScope.launch {
+                try { refreshBoostedTokensBlocking() }
+                finally { refreshInFlight.set(false) }
+            }
+        }
+
+        /** Blocking refresh kept for explicit startup/background callers only. */
+        fun refreshBoostedTokens() { refreshBoostedTokensBlocking() }
+
+        private fun refreshBoostedTokensBlocking() {
+            val now = System.currentTimeMillis()
+            if (now - lastBoostedFetchMs < CACHE_DURATION_MS) return
             try {
                 val request = Request.Builder()
                     .url(BOOSTED_API)
                     .get()
                     .build()
-                
                 client.newCall(request).execute().use { response ->
                     if (!response.isSuccessful) {
                         ErrorLogger.debug(TAG, "Boosted API error: ${response.code}")
                         return
                     }
-                    
                     val body = response.body?.string() ?: return
                     val json = JSONObject("{\"data\":$body}")  // Wrap array in object
                     val dataArray = json.optJSONArray("data") ?: return
-                    
                     boostedTokens.clear()
-                    
                     for (i in 0 until minOf(dataArray.length(), 100)) {
                         val item = dataArray.optJSONObject(i) ?: continue
                         val tokenAddress = item.optString("tokenAddress", "")
                         val chainId = item.optString("chainId", "")
                         val amount = item.optLong("amount", 0)
-                        
-                        // Only Solana tokens
                         if (chainId == "solana" && tokenAddress.isNotBlank()) {
                             boostedTokens[tokenAddress] = amount
                         }
                     }
-                    
                     lastBoostedFetchMs = now
                     ErrorLogger.debug(TAG, "Refreshed boosted tokens: ${boostedTokens.size}")
                 }
@@ -94,19 +109,15 @@ class SocialVelocityAI : ScoringModule {
             }
         }
         
-        /**
-         * Check if token is currently boosted on DexScreener
-         */
+        /** Check if token is currently boosted on DexScreener using cached data. */
         fun isBoosted(mint: String): Boolean {
-            refreshBoostedTokens()
+            refreshBoostedTokensAsync()
             return boostedTokens.containsKey(mint)
         }
         
-        /**
-         * Get boost amount for token
-         */
+        /** Get boost amount for token using cached data. */
         fun getBoostAmount(mint: String): Long {
-            refreshBoostedTokens()
+            refreshBoostedTokensAsync()
             return boostedTokens[mint] ?: 0L
         }
     }
