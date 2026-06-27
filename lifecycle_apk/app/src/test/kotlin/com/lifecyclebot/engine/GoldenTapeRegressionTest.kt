@@ -4710,4 +4710,14 @@ class GoldenTapeRegressionTest {
         assertTrue("V5.0.4271: Executor may call sentinel only after terminal trainable SELL is recorded", exec.contains("TradeHistoryStore.recordTrade(tradeWithMint)") && exec.contains("LivePaperDriftSentinel.onTerminalClose") && exec.contains("ledgerAllowsClosedLearning && accountingTrainable"))
     }
 
+    @Test
+    fun multiplierAttribution4272PersistsEntrySizingComponents() {
+        val ledger = java.io.File("src/main/kotlin/com/lifecyclebot/engine/MultiplierAttributionLedger.kt").readText()
+        val exec = java.io.File("src/main/kotlin/com/lifecyclebot/engine/Executor.kt").readText()
+        val persistence = java.io.File("src/main/kotlin/com/lifecyclebot/engine/LearningPersistence.kt").readText()
+        assertTrue("V5.0.4272: multiplier attribution ledger must persist event-local mode/lane/source/build and component map", ledger.contains("data class Row") && ledger.contains("buildTag") && ledger.contains("components: Map<String, Double>") && ledger.contains("exportState") && ledger.contains("importState"))
+        assertTrue("V5.0.4272: Executor must record all shared size-stack multipliers before final sizing", exec.contains("MultiplierAttributionLedger.recordEntry") && exec.contains("paperLiveBridgeMult") && exec.contains("shadowVariantSizeMult") && exec.contains("superBrainSizeMult") && exec.contains("regimeVolSizeMult"))
+        assertTrue("V5.0.4272: LearningPersistence must save/restore multiplier attribution state", persistence.contains("MULTIPLIER_ATTRIBUTION") && persistence.contains("MultiplierAttributionLedger.exportState") && persistence.contains("MultiplierAttributionLedger.importState"))
+    }
+
 }

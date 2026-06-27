@@ -120,6 +120,7 @@ North star: realized live wallet growth toward the operator's daily 2x-5x compou
 - Expected impact: catches silent live choke regressions early while preserving paper/live parity doctrine.
 
 ### A23 — Multiplier Attribution Ledger
+- Status: implemented in V5.0.4272 as `MultiplierAttributionLedger`, persisted through LearningPersistence.
 - Persist per-entry multiplier components: AutoCompound, StrategyHypothesis, PaperLiveBridge, ShadowVariant, SuperBrain, MetaCognition, RegimeVol, slip-downsize, source brain, live tuner, lane cap.
 - Store event-local mode/lane/source/positionId/build to prevent mux drift.
 - Expected impact: explains why winners/losers were sized up/down, finds accidental dust-sizing stacks, and improves realized compounding audits.

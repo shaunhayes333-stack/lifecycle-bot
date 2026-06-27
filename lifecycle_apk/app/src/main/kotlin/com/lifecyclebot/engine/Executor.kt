@@ -8310,6 +8310,34 @@ class Executor(
         }
         val multiplierProductRaw = sizeMult * labMult * laneEvMult * regimeMultGoosed * laneSizeCap * brainSizeMult *
             strategyTunerSizeMult * sourceBrainSizeMult * uphConvictionMult * hypothesisSizeMult * paperLiveBridgeMult * shadowVariantSizeMult * superBrainSizeMult * metaCognitionSizeMult * regimeVolSizeMult
+        try {
+            MultiplierAttributionLedger.recordEntry(
+                mode = if (RuntimeModeAuthority.isPaper()) "paper" else "live",
+                lane = laneKeyForAgi,
+                source = ts.source,
+                mint = ts.mint,
+                symbol = ts.symbol,
+                baseSol = sol,
+                rawProduct = multiplierProductRaw,
+                components = linkedMapOf(
+                    "sizeMult" to sizeMult,
+                    "lab" to labMult,
+                    "laneEv" to laneEvMult,
+                    "regime" to regimeMultGoosed,
+                    "laneCap" to laneSizeCap,
+                    "brain" to brainSizeMult,
+                    "strategyTuner" to strategyTunerSizeMult,
+                    "sourceBrain" to sourceBrainSizeMult,
+                    "uph" to uphConvictionMult,
+                    "hypothesis" to hypothesisSizeMult,
+                    "paperLive" to paperLiveBridgeMult,
+                    "shadow" to shadowVariantSizeMult,
+                    "superBrain" to superBrainSizeMult,
+                    "metaCog" to metaCognitionSizeMult,
+                    "regimeVol" to regimeVolSizeMult,
+                ),
+            )
+        } catch (_: Throwable) {}
 
         // V5.0.4179 — F1: SLIP-AWARE ENTRY SIZING (catastrophic-overrun fix).
         // Field journal showed losses overrunning STRICT_SL_-10 to -71%
