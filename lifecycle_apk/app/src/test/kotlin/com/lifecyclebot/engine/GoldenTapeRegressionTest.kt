@@ -4553,4 +4553,11 @@ class GoldenTapeRegressionTest {
         assertTrue("V5.0.4252: side-effect fanout must use event-local snapshots for deployer and ResearchScout request", executor.contains("deployer = graphDeployer") && executor.contains("mint = graphMint") && executor.contains("symbol = graphSymbol"))
     }
 
+    @Test
+    fun symbolicProver4253ProvesAllMajorLanesConsumeAutoCompound() {
+        val prover = java.io.File("src/main/kotlin/com/lifecyclebot/engine/SymbolicInvariantProver.kt").readText()
+        assertTrue("V5.0.4253: SymbolicInvariantProver must prove all major lane consumers use AutoCompoundEngine for compounding", prover.contains("AUTO_COMPOUND_LANE_CONSUMERS_4253") && prover.contains("MoonshotTraderAI.kt") && prover.contains("ShitCoinExpress.kt") && prover.contains("CashGenerationAI.kt"))
+        assertTrue("V5.0.4253: compounding lane proof must require AutoCompoundEngine.getSizeMultiplier across all major lanes", prover.contains("listOf(shit, moon, express, sniper, manipulated, quality, blueChip, treasury)") && prover.contains("AutoCompoundEngine.getSizeMultiplier()"))
+    }
+
 }

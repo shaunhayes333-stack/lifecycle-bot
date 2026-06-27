@@ -27,6 +27,13 @@ object SymbolicInvariantProver {
 
         val bot = src("src/main/kotlin/com/lifecyclebot/engine/BotService.kt")
         val shit = src("src/main/kotlin/com/lifecyclebot/v3/scoring/ShitCoinTraderAI.kt")
+        val moon = src("src/main/kotlin/com/lifecyclebot/v3/scoring/MoonshotTraderAI.kt")
+        val express = src("src/main/kotlin/com/lifecyclebot/v3/scoring/ShitCoinExpress.kt")
+        val sniper = src("src/main/kotlin/com/lifecyclebot/v3/scoring/ProjectSniperAI.kt")
+        val manipulated = src("src/main/kotlin/com/lifecyclebot/v3/scoring/ManipulatedTraderAI.kt")
+        val quality = src("src/main/kotlin/com/lifecyclebot/v3/scoring/QualityTraderAI.kt")
+        val blueChip = src("src/main/kotlin/com/lifecyclebot/v3/scoring/BlueChipTraderAI.kt")
+        val treasury = src("src/main/kotlin/com/lifecyclebot/v3/scoring/CashGenerationAI.kt")
         val compound = src("src/main/kotlin/com/lifecyclebot/engine/AutoCompoundEngine.kt")
         val audit = firstSrc(
             "audits/asi_ssi_audit_queue_2026-06-27.md",
@@ -68,6 +75,12 @@ object SymbolicInvariantProver {
                     compound.contains("drawdownReduction: Boolean = true") &&
                     compound.contains("currentDrawdownPct > 10"),
                 detail = "realized wins must lift size faster while drawdown safety remains active",
+            ),
+            Proof(
+                id = "AUTO_COMPOUND_LANE_CONSUMERS_4253",
+                passed = listOf(shit, moon, express, sniper, manipulated, quality, blueChip, treasury)
+                    .all { it.contains("AutoCompoundEngine.getSizeMultiplier()") },
+                detail = "all major meme/lifecycle lanes must consume AutoCompoundEngine size authority for realized-profit compounding",
             ),
             Proof(
                 id = "ASYNC_AI_NEVER_HOT_PATH_4235",
