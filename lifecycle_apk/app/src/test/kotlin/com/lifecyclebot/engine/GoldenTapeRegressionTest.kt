@@ -4695,4 +4695,10 @@ class GoldenTapeRegressionTest {
         assertTrue("V5.0.4268: full meme audit sweeper must close Pass D only with persistence plus executor consumer", sweeper.contains("PASS_D_REGIME_VOLATILITY_4261") && sweeper.contains("RegimeVolatilityExecutorBridge.sizeShape"))
     }
 
+    @Test
+    fun fullMemeTraderAudit4269OriginalPassesAThroughJAreClosed() {
+        val open = MemeTraderFullAuditSweeper.openItems(java.io.File("."))
+        assertTrue("V5.0.4269: original full Meme Trader audit Pass A-J must be closed; open=${open.joinToString { it.id + ":" + it.detail }}", open.isEmpty())
+    }
+
 }
