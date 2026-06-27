@@ -5170,4 +5170,12 @@ class GoldenTapeRegressionTest {
         assertTrue("V5.0.4329: Manipulated open/close must warm UltimateEdge cards", manip.contains("UltimateEdgeEngine.enqueueRefresh(pos.mint, pos.symbol, \"MANIPULATED\"") && manip.contains("MANIP_CLOSE"))
     }
 
+    @Test
+    fun dipSniper4330ConsumeUltimateEdgeCardsCacheOnly() {
+        val dip = java.io.File("src/main/kotlin/com/lifecyclebot/v3/scoring/DipHunterAI.kt").readText()
+        val sniper = java.io.File("src/main/kotlin/com/lifecyclebot/v3/scoring/ProjectSniperAI.kt").readText()
+        assertTrue("V5.0.4330: DipHunter must consume/warm cached UltimateEdge cards", dip.contains("ULTIMATE_EDGE_DIP_CACHE_SHAPE_4330") && dip.contains("UltimateEdgeEngine.cached(mint, \"DIP_HUNTER\")") && dip.contains("UltimateEdgeEngine.enqueueRefresh(mint, symbol, \"DIP_HUNTER\"") && dip.contains("UltimateEdgeEngine.enqueueRefresh(pos.mint, pos.symbol, \"DIP_HUNTER\""))
+        assertTrue("V5.0.4330: ProjectSniper must consume/warm cached UltimateEdge cards", sniper.contains("ULTIMATE_EDGE_SNIPER_CACHE_SHAPE_4330") && sniper.contains("UltimateEdgeEngine.cached(ts.mint, \"PROJECT_SNIPER\")") && sniper.contains("UltimateEdgeEngine.enqueueRefresh(mint, symbol, \"PROJECT_SNIPER\"") && sniper.contains("UltimateEdgeEngine.enqueueRefresh(mission.mint, mission.symbol, \"PROJECT_SNIPER\""))
+    }
+
 }

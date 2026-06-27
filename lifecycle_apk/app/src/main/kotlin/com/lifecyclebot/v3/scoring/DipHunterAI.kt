@@ -500,6 +500,18 @@ object DipHunterAI {
 
         if (dailyLossRecoveryProbe) positionSol *= 0.35
 
+        // V5.0.4330 — cache-only UltimateEdgeEngine readback for DipHunter.
+        try {
+            val edgeCard4330 = com.lifecyclebot.engine.UltimateEdgeEngine.cached(mint, "DIP_HUNTER")
+            if (edgeCard4330 != null) {
+                val edgeSize4330 = edgeCard4330.sizeMult.coerceIn(0.90, 1.08)
+                positionSol *= edgeSize4330
+                if (edgeSize4330 != 1.0) {
+                    ErrorLogger.debug(TAG, "📉🧠 ULTIMATE_EDGE_DIP_CACHE_SHAPE_4330: $symbol size×${edgeSize4330.fmt(3)} ${edgeCard4330.semanticReason.take(90)}")
+                }
+            }
+        } catch (_: Throwable) { /* fail-open cache read */ }
+
         // Cap
         positionSol = positionSol.coerceIn(0.03, MAX_POSITION_SOL)
         
@@ -575,6 +587,7 @@ object DipHunterAI {
         }
         dailyHunts.incrementAndGet()
         recentDips[mint] = System.currentTimeMillis()
+        try { com.lifecyclebot.engine.UltimateEdgeEngine.enqueueRefresh(mint, symbol, "DIP_HUNTER", "DIP_OPEN", dipDepthPct.toInt().coerceIn(0, 100), "open_dip_${dipDepthPct.fmt(1)}_size_${entrySol.fmt(4)}") } catch (_: Throwable) {}
         
         ErrorLogger.info(TAG, "📉🎯 DIP OPENED: $symbol | " +
             "entry=${entryPrice.fmtPrice()} | " +
@@ -648,6 +661,7 @@ object DipHunterAI {
         
         val pnlPct = (exitPrice - pos.entryPrice) / pos.entryPrice * 100
         val pnlSol = pos.entrySol * pnlPct / 100
+        try { com.lifecyclebot.engine.UltimateEdgeEngine.enqueueRefresh(pos.mint, pos.symbol, "DIP_HUNTER", "DIP_CLOSE", pnlPct.toInt().coerceIn(-100, 100), "exit_${exitSignal.name}_pnl_${pnlPct.fmt(2)}") } catch (_: Throwable) {}
         
         // Record P&L
         val pnlBps = (pnlSol * 100).toLong()

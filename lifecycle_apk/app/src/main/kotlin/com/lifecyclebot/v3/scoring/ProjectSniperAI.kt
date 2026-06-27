@@ -458,6 +458,18 @@ object ProjectSniperAI {
             }
         } catch (_: Throwable) { /* fail-open per FDG doctrine */ }
 
+        // V5.0.4330 — cache-only UltimateEdgeEngine readback for ProjectSniper.
+        try {
+            val edgeCard4330 = com.lifecyclebot.engine.UltimateEdgeEngine.cached(ts.mint, "PROJECT_SNIPER")
+            if (edgeCard4330 != null) {
+                val edgeSize4330 = edgeCard4330.sizeMult.coerceIn(0.90, 1.08)
+                positionSol *= edgeSize4330
+                if (edgeSize4330 != 1.0) {
+                    ErrorLogger.debug(TAG, "🎯🧠 ULTIMATE_EDGE_SNIPER_CACHE_SHAPE_4330: ${ts.symbol} size×${edgeSize4330.fmt(3)} ${edgeCard4330.semanticReason.take(90)}")
+                }
+            }
+        } catch (_: Throwable) { /* fail-open cache read */ }
+
         // V5.9.1305 — calibration-aware shrink (composes with the 1302 self-damp).
         // 1302 damps on loss-COUNT danger buckets + reject flag; this trims on the
         // band's mean RETURN. Keyed on the SAME PRESALE_SNIPE bucket. Soft, fail-open.
@@ -553,6 +565,7 @@ object ProjectSniperAI {
         activeMissions[mint] = mission
         dailyMissions.incrementAndGet()
         recentTargets[mint] = System.currentTimeMillis()
+        try { com.lifecyclebot.engine.UltimateEdgeEngine.enqueueRefresh(mint, symbol, "PROJECT_SNIPER", "SNIPER_OPEN", assessment.confidence.coerceIn(0, 100), "open_age_${assessment.tokenAgeSecs}_size_${entrySol.fmt(4)}") } catch (_: Throwable) {}
         
         ErrorLogger.info(TAG, "🎯 MISSION ENGAGED: $symbol | " +
             "${assessment.threatLevel.emoji} ${assessment.threatLevel.name} | " +
