@@ -1,6 +1,7 @@
 package com.lifecyclebot.v3.scoring
 
 import com.lifecyclebot.engine.AutoCompoundEngine
+import com.lifecyclebot.engine.ShitCoinDecisionMatrixReport
 import com.lifecyclebot.engine.ErrorLogger
 import java.util.concurrent.atomic.AtomicLong
 import java.util.concurrent.atomic.AtomicInteger
@@ -486,6 +487,7 @@ object ShitCoinTraderAI {
         synchronized(activePositions) {
             activePositions[position.mint] = position
         }
+        try { ShitCoinDecisionMatrixReport.recordOpened(position.mint, position.symbol, position.launchPlatform.name, position.isPaper, position.entrySol, position.entryScore) } catch (_: Throwable) {}
         dailyTradeCount.incrementAndGet()
         
         // V4.1.3: Start ultra-fast rug monitoring
@@ -565,6 +567,7 @@ object ShitCoinTraderAI {
 
         val pnlPct = (exitPrice - pos.entryPrice) / pos.entryPrice * 100
         val pnlSol = pos.entrySol * pnlPct / 100
+        try { ShitCoinDecisionMatrixReport.recordClosed(mint, pos.symbol, pos.isPaper, pnlPct, pnlSol, exitReason.name, pos.entryScore) } catch (_: Throwable) {}
         val holdMinutes = (System.currentTimeMillis() - pos.entryTime) / 60_000L
 
         // V5.9.434 — journal every V3 sub-trader close so the persistent
@@ -846,6 +849,7 @@ object ShitCoinTraderAI {
         
         // If paused (hit daily loss), reject everything
         if (mode == ShitCoinMode.PAUSED) {
+            try { ShitCoinDecisionMatrixReport.recordReject("PAUSED", mode.name, launchPlatform.name, isPaperMode) } catch (_: Throwable) {}
             return ShitCoinSignal(
                 shouldEnter = false,
                 positionSizeSol = 0.0,
@@ -1326,6 +1330,7 @@ object ShitCoinTraderAI {
         // so both meme-traders learn the same pattern leverage.
         val gooseEdge = try { com.lifecyclebot.engine.PatternGoldenGoose.edge("", symbol) } catch (_: Throwable) { null }
         if (gooseEdge?.verdict == com.lifecyclebot.engine.TokenWinMemory.Verdict.CATASTROPHIC) {
+            try { ShitCoinDecisionMatrixReport.recordReject("PATTERN_CATASTROPHIC_VETO", mode.name, launchPlatform.name, isPaperMode) } catch (_: Throwable) {}
             return ShitCoinSignal(
                 shouldEnter = false,
                 positionSizeSol = 0.0,
@@ -1376,6 +1381,7 @@ object ShitCoinTraderAI {
         
         if (!passesScore || !passesConf) {
             val failTag = if (wrFloor > 0 && shitScore < wrFloor) "WR_RECOVERY_SCORE_FLOOR" else "THRESHOLD_FAIL"
+            try { ShitCoinDecisionMatrixReport.recordReject("$failTag score=$shitScore<$effectiveMinScore conf=$shitConfidence<$minConf", mode.name, launchPlatform.name, isPaperMode) } catch (_: Throwable) {}
             return ShitCoinSignal(
                 shouldEnter = false,
                 positionSizeSol = 0.0,
@@ -1657,6 +1663,7 @@ object ShitCoinTraderAI {
             "mcap=\$${(marketCapUsd/1_000).fmt(1)}K | " +
             "size=${positionSol.fmt(4)} SOL | " +
             "TP=${takeProfitPct.fmt(0)}% SL=${effectiveStopLoss.toInt()}%")
+        try { ShitCoinDecisionMatrixReport.recordAccepted(scoreReasons.joinToString(","), shitScore, shitConfidence, mode.name, launchPlatform.name, isPaperMode, positionSol) } catch (_: Throwable) {}
         
         return ShitCoinSignal(
             shouldEnter = true,
@@ -1677,6 +1684,7 @@ object ShitCoinTraderAI {
     }
     
     private fun rejectSignal(reason: String, mode: ShitCoinMode, platform: LaunchPlatform): ShitCoinSignal {
+        try { ShitCoinDecisionMatrixReport.recordReject(reason, mode.name, platform.name, isPaperMode) } catch (_: Throwable) {}
         return ShitCoinSignal(
             shouldEnter = false,
             positionSizeSol = 0.0,

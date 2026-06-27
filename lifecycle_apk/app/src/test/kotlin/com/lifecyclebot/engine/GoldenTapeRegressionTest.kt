@@ -5058,4 +5058,13 @@ class GoldenTapeRegressionTest {
         assertTrue("V5.0.4311: ResearchScout default requests must use FreeDataSourceRegistry", scout.contains("FreeDataSourceRegistry.defaultSources()") && scout.contains("freeSourceStatus"))
     }
 
+    @Test
+    fun shitCoinDecisionMatrix4312CapturesCoreRejectAcceptOpenClose() {
+        val report = java.io.File("src/main/kotlin/com/lifecyclebot/engine/ShitCoinDecisionMatrixReport.kt").readText()
+        val shit = java.io.File("src/main/kotlin/com/lifecyclebot/v3/scoring/ShitCoinTraderAI.kt").readText()
+        assertTrue("V5.0.4312: ShitCoin matrix report must be report-only and never change gates", report.contains("SHITCOIN_DECISION_MATRIX_4312") && report.contains("report_only=true") && report.contains("no_gate_change=true"))
+        assertTrue("V5.0.4312: ShitCoin core reject helper and direct rejects must stamp matrix reasons", shit.contains("ShitCoinDecisionMatrixReport.recordReject") && shit.contains("rejectSignal(reason"))
+        assertTrue("V5.0.4312: ShitCoin qualified/open/close paths must stamp matrix telemetry", shit.contains("ShitCoinDecisionMatrixReport.recordAccepted") && shit.contains("ShitCoinDecisionMatrixReport.recordOpened") && shit.contains("ShitCoinDecisionMatrixReport.recordClosed"))
+    }
+
 }
