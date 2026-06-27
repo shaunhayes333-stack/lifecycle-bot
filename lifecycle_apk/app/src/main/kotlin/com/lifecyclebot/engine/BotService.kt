@@ -20089,26 +20089,14 @@ if (hotExitHandledSweep) {
                                     "size=${dipSignal.positionSizeSol.fmt(3)} SOL | " +
                                     "target=+${dipSignal.expectedRecoveryPct.toInt()}%")
                                 
-                                // Open dip position
-                                com.lifecyclebot.v3.scoring.DipHunterAI.openDip(
-                                    mint = ts.mint,
-                                    symbol = ts.symbol,
-                                    entryPrice = ts.ref,
-                                    entrySol = dipSignal.positionSizeSol,
-                                    highPrice = recentHigh,
-                                    dipDepthPct = dipSignal.dipDepthPct,
-                                    marketCapUsd = ts.lastMcap,
-                                    liquidityUsd = ts.lastLiquidityUsd,
-                                    isPaper = com.lifecyclebot.engine.RuntimeModeAuthority.isPaper(),  // V5.9.1563 — runtime authority, not stale cfg
-                                )
-                                
-                                // V5.6.8 FIX: Notify V3 exposure guards
-                                if (ts.position.qtyToken > 0.0 || ts.position.pendingVerify || ts.position.isOpen) com.lifecyclebot.v3.V3EngineManager.onPositionOpened(ts.mint)
-                                
                                 // V5.9.738 — paper-mode leak fix.
                                 // Use the dipHunterBuy router so live mode
                                 // correctly fires a Jupiter swap instead of
                                 // silently routing through paperBuy().
+                                // V5.0.4220 — open DipHunter state only AFTER
+                                // executor confirms the buy opened. The old order
+                                // created ghost activeDips/dailyHunts before failed
+                                // quote/finality/size attempts, choking live volume.
                                 val dipOpened = executor.dipHunterBuy(
                                     ts = ts,
                                     sizeSol = dipSignal.positionSizeSol,
@@ -20128,6 +20116,21 @@ if (hotExitHandledSweep) {
                                     return
                                 }
 
+                                com.lifecyclebot.v3.scoring.DipHunterAI.openDip(
+                                    mint = ts.mint,
+                                    symbol = ts.symbol,
+                                    entryPrice = ts.ref,
+                                    entrySol = dipSignal.positionSizeSol,
+                                    highPrice = recentHigh,
+                                    dipDepthPct = dipSignal.dipDepthPct,
+                                    marketCapUsd = ts.lastMcap,
+                                    liquidityUsd = ts.lastLiquidityUsd,
+                                    isPaper = com.lifecyclebot.engine.RuntimeModeAuthority.isPaper(),  // V5.9.1563 — runtime authority, not stale cfg
+                                )
+                                PipelineHealthCollector.labelInc("DIP_HUNTER_OPEN_AFTER_BUY_4220")
+
+                                // V5.6.8 FIX: Notify V3 exposure guards only after a real/pending open exists.
+                                if (ts.position.qtyToken > 0.0 || ts.position.pendingVerify || ts.position.isOpen) com.lifecyclebot.v3.V3EngineManager.onPositionOpened(ts.mint)
                                 
                                 ts.position.tradingMode = "DIP_HUNTER"
                                 ts.position.tradingModeEmoji = "📉"

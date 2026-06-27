@@ -3568,6 +3568,8 @@ class GoldenTapeRegressionTest {
         assertTrue("V5.0.4218: ProjectSniper missions must engage only after buy opens", botService4218.contains("val sniperOpened = executor.shitCoinBuy") && botService4218.indexOf("val sniperOpened = executor.shitCoinBuy") < botService4218.indexOf("ProjectSniperAI.engageMission") && botService4218.contains("PROJECT_SNIPER_MISSION_AFTER_BUY_4218") && botService4218.contains("lane=PROJECT_SNIPER"))
         val botService4219 = java.io.File("src/main/kotlin/com/lifecyclebot/engine/BotService.kt").readText()
         assertTrue("V5.0.4219: Quality TP risk/reward floor must use absolute stop distance", botService4219.contains("kotlin.math.abs(qualitySignal.stopLossPct) * 2.0") && !botService4219.contains("qualitySignal.stopLossPct * 2.0  // Always >= 2x the stop"))
+        val botService4220 = java.io.File("src/main/kotlin/com/lifecyclebot/engine/BotService.kt").readText()
+        assertTrue("V5.0.4220: DipHunter active state must open only after buy succeeds", botService4220.contains("val dipOpened = executor.dipHunterBuy") && botService4220.indexOf("val dipOpened = executor.dipHunterBuy") < botService4220.indexOf("DipHunterAI.openDip") && botService4220.contains("DIP_HUNTER_OPEN_AFTER_BUY_4220") && botService4220.contains("TradeAuthorizer.releasePosition(ts.mint, \"BUY_NOT_OPENED\", TradeAuthorizer.ExecutionBook.DIP_HUNTER)"))
     }
 
 
