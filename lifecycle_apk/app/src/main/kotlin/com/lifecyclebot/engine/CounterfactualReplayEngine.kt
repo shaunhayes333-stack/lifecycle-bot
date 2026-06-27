@@ -5,6 +5,7 @@ import org.json.JSONObject
 import java.util.concurrent.CopyOnWriteArrayList
 import kotlin.math.max
 import kotlin.math.min
+import kotlin.math.sqrt
 
 /** V5.0.4239 — offline counterfactual exit replay. */
 object CounterfactualReplayEngine {
@@ -27,6 +28,13 @@ object CounterfactualReplayEngine {
         val holdSeconds: Long,
         val alternatives: List<ReplayAlternative>,
         val createdAtMs: Long = System.currentTimeMillis(),
+    )
+
+    data class MctsExitPolicyHint(
+        val policy: AlternativeKind,
+        val expectedDeltaPct: Double,
+        val confidence: Double,
+        val sampleCount: Int,
     )
 
     private const val MAX_CASES = 500
@@ -57,6 +65,31 @@ object CounterfactualReplayEngine {
             .toList()
     }
 
+
+    /** V5.0.4259 — bounded offline MCTS/UCB-style exit policy hint. */
+    fun mctsExitPolicyHint(lane: String = "", maxCases: Int = 40, rollouts: Int = 96): MctsExitPolicyHint? = synchronized(cases) {
+        val sample = cases.asSequence()
+            .filter { lane.isBlank() || it.lane.equals(lane, ignoreCase = true) }
+            .filter { it.alternatives.isNotEmpty() }
+            .toList()
+            .takeLast(maxCases.coerceIn(8, 80))
+        if (sample.size < 6) return@synchronized null
+        val arms = sample.flatMap { it.alternatives }.groupBy { it.kind }
+        if (arms.isEmpty()) return@synchronized null
+        val total = rollouts.coerceIn(16, 256).toDouble()
+        val ranked = arms.map { (kind, alts) ->
+            val pulls = alts.size.coerceAtLeast(1).toDouble()
+            val avg = alts.map { it.deltaVsRealizedPct }.average()
+            val exploration = sqrt(2.0 * kotlin.math.ln(total + 1.0) / pulls)
+            val ucb = avg + exploration
+            kind to Triple(avg, ucb, alts.size)
+        }.sortedByDescending { it.second.second }
+        val best = ranked.first()
+        val avg = best.second.first.coerceIn(-500.0, 250_000.0)
+        val confidence = (best.second.third.toDouble() / sample.size.toDouble()).coerceIn(0.0, 1.0)
+        MctsExitPolicyHint(best.first, avg, confidence, sample.size)
+    }
+
     fun policyHints(lane: String = ""): String = synchronized(cases) {
         val sample = bestMissedAlternatives(lane, 20)
         if (sample.isEmpty()) return@synchronized "CounterfactualReplayEngine: no missed exit alternatives"
@@ -65,7 +98,9 @@ object CounterfactualReplayEngine {
             .mapValues { (_, alts) -> alts.map { it.deltaVsRealizedPct }.average() }
             .entries.sortedByDescending { it.value }
         val top = grouped.take(3).joinToString { entry -> entry.key.name + ':' + String.format(java.util.Locale.US, "%.1f", entry.value) }
-        "CounterfactualReplayEngine: cases=${cases.size} top=$top offline_only=true"
+        val mcts = mctsExitPolicyHint(lane)
+        val mctsText = if (mcts != null) " mcts=${mcts.policy.name}:${String.format(java.util.Locale.US, "%.1f", mcts.expectedDeltaPct)} conf=${String.format(java.util.Locale.US, "%.2f", mcts.confidence)}" else ""
+        "CounterfactualReplayEngine: cases=${cases.size} top=$top$mctsText offline_only=true"
     }
 
     fun reset() { synchronized(cases) { cases.clear() } }

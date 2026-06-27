@@ -70,6 +70,7 @@ object AsiSsiReauditSweeper {
                 passed = replay.contains("exportState") && research.contains("exportState") &&
                     persistence.contains("COUNTERFACTUAL_REPLAY") && persistence.contains("RESEARCH_SCOUT") &&
                     executor.contains("CounterfactualReplayEngine.recordTerminalTrade") && executor.contains("ResearchScout.enqueueBackgroundRequest") &&
+                    replay.contains("mctsExitPolicyHint") && replay.contains("bounded offline MCTS") &&
                     research.contains("maybeRunPeriodicBackgroundSweep") && research.contains("MIN_PERIODIC_SWEEP_INTERVAL_MS"),
                 detail = "counterfactual/research state must persist and be fed from terminal outcomes",
             ),

@@ -4606,4 +4606,13 @@ class GoldenTapeRegressionTest {
         assertTrue("V5.0.4258: ASI/SSI ReAuditSweeper must include ResearchScout periodic sweep wiring", sweeper.contains("maybeRunPeriodicBackgroundSweep") && sweeper.contains("MIN_PERIODIC_SWEEP_INTERVAL_MS"))
     }
 
+    @Test
+    fun counterfactualReplay4259HasBoundedMctsExitPolicyHint() {
+        val replay = java.io.File("src/main/kotlin/com/lifecyclebot/engine/CounterfactualReplayEngine.kt").readText()
+        val sweeper = java.io.File("src/main/kotlin/com/lifecyclebot/engine/AsiSsiReauditSweeper.kt").readText()
+        assertTrue("V5.0.4259: CounterfactualReplayEngine must expose bounded offline MCTS/UCB-style exit policy hint", replay.contains("fun mctsExitPolicyHint") && replay.contains("MctsExitPolicyHint") && replay.contains("rollouts.coerceIn(16, 256)") && replay.contains("sqrt(2.0"))
+        assertTrue("V5.0.4259: policyHints must include mcts policy text for GEPA/critic consumption", replay.contains("mcts=") && replay.contains("mctsExitPolicyHint(lane)"))
+        assertTrue("V5.0.4259: ASI/SSI re-audit must check MCTS replay wiring", sweeper.contains("mctsExitPolicyHint") && sweeper.contains("bounded offline MCTS"))
+    }
+
 }
