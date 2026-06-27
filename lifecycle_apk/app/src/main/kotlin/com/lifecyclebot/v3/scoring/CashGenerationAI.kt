@@ -937,6 +937,23 @@ object CashGenerationAI {
             if (candRank < minRank) treasuryBehaviorGradeMult = 0.7
         } catch (_: Throwable) { /* fail-open */ }
         positionSol *= (treasuryBehaviorSizeMult * treasuryBehaviorGradeMult)
+        // V5.0.4327 — cache-only UltimateEdgeEngine readback for Treasury.
+        // Do not enqueue/refresh here; open/close events warm cards asynchronously.
+        try {
+            val edgeCard4327 = com.lifecyclebot.engine.UltimateEdgeEngine.cached(mint, "TREASURY")
+            if (edgeCard4327 != null) {
+                val edgeBias4327 = edgeCard4327.scoreBias.coerceIn(0, 5)
+                if (edgeBias4327 > 0) {
+                    treasuryScore = (treasuryScore + edgeBias4327).coerceAtLeast(0)
+                    scoreReasons.add("uee+$edgeBias4327")
+                }
+                val edgeSize4327 = edgeCard4327.sizeMult.coerceIn(0.90, 1.08)
+                positionSol *= edgeSize4327
+                if (edgeSize4327 != 1.0) {
+                    ErrorLogger.debug(TAG, "💰🧠 ULTIMATE_EDGE_TREASURY_CACHE_SHAPE_4327: $symbol score+$edgeBias4327 size×${edgeSize4327.fmt(3)} ${edgeCard4327.semanticReason.take(90)}")
+                }
+            }
+        } catch (_: Throwable) { /* fail-open cache read */ }
         positionSol = positionSol.coerceIn(MIN_POSITION_SOL, maxWithCompounding)
 
         val globalMultiplier = AutoCompoundEngine.getSizeMultiplier()
@@ -1086,6 +1103,7 @@ object CashGenerationAI {
         synchronized(activePositions) {
             activePositions[mint] = position
             try { TreasuryCashflowMissionReport.recordOpened(mint, symbol, isPaperMode, positionSol, entryScore) } catch (_: Throwable) {}
+            try { com.lifecyclebot.engine.UltimateEdgeEngine.enqueueRefresh(mint, symbol, "TREASURY", "TREASURY_OPEN", entryScore.coerceIn(0, 100), "open_size_${positionSol.fmt(4)}") } catch (_: Throwable) {}
             ErrorLogger.info(
                 TAG,
                 "💰 TREASURY MAP: Added $symbol | activePositions.size=${activePositions.size} | " +
@@ -1474,6 +1492,7 @@ object CashGenerationAI {
         val pnlPct = (exitPrice - pos.entryPrice) / pos.entryPrice * 100
         val pnlSol = pos.entrySol * pnlPct / 100
         try { TreasuryCashflowMissionReport.recordClosed(mint, pos.symbol, pos.isPaper, pnlSol, exitReason.name) } catch (_: Throwable) {}
+        try { com.lifecyclebot.engine.UltimateEdgeEngine.enqueueRefresh(mint, pos.symbol, "TREASURY", "TREASURY_CLOSE", pnlPct.toInt().coerceIn(-100, 100), "exit_${exitReason.name}_pnl_${pnlPct.fmt(2)}") } catch (_: Throwable) {}
         val holdMinutesLong = (System.currentTimeMillis() - pos.entryTime) / 60_000L
 
         // V5.9.434 — journal every V3 sub-trader close so the persistent
