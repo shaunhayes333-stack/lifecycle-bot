@@ -4569,4 +4569,13 @@ class GoldenTapeRegressionTest {
         assertFalse("V5.0.4254: critic stack must never call FDG or execute trades", critic.contains("FinalDecisionGate.evaluate(") || critic.contains("executeBuy("))
     }
 
+    @Test
+    fun semanticPatternGraph4255FeedsCachedEntryReadbackOnly() {
+        val graph = java.io.File("src/main/kotlin/com/lifecyclebot/engine/SemanticPatternGraph.kt").readText()
+        val shit = java.io.File("src/main/kotlin/com/lifecyclebot/v3/scoring/ShitCoinTraderAI.kt").readText()
+        assertTrue("V5.0.4255: SemanticPatternGraph must expose cached entryBias readback with no API/hot-path provider call", graph.contains("fun entryBias") && graph.contains("querySimilar") && graph.contains("No API, no hard block") && !graph.contains("OkHttpClient"))
+        assertTrue("V5.0.4255: ShitCoin entry must consume semantic readback as bounded score/size soft-shape", shit.contains("SHITCOIN_SEMANTIC_ENTRY_READBACK_4255") && shit.contains("SemanticPatternGraph.entryBias") && shit.contains("semanticEntrySizeMult4255"))
+        assertTrue("V5.0.4255: semantic negative memory must not create a hard threshold block", graph.contains("avgPnl <= -15.0 -> EntryBias(0.94, 0") && shit.contains("if (semanticBias.scoreDelta > 0)"))
+    }
+
 }

@@ -37,6 +37,13 @@ object SemanticPatternGraph {
         val createdAtMs: Long = System.currentTimeMillis(),
     )
 
+
+    data class EntryBias(
+        val sizeMult: Double,
+        val scoreDelta: Int,
+        val reason: String,
+    )
+
     private const val MAX_NODES = 600
     private const val MAX_EDGES = 1600
     private const val MAX_PRIOR_EDGE_SCAN = 80     // V5.0.4250 — avoid terminal-sell fanout churn
@@ -92,6 +99,22 @@ object SemanticPatternGraph {
                 .map { it.first }
                 .toList()
         }
+    }
+
+
+    /** V5.0.4255 — cached entry readback only. No API, no hard block. */
+    fun entryBias(setup: String, lane: String = "", limit: Int = 12): EntryBias {
+        return try {
+            val similar = querySimilar(setup, lane, limit.coerceIn(3, 20))
+            if (similar.isEmpty()) return EntryBias(1.0, 0, "semantic:none")
+            val avgPnl = similar.map { it.pnlPct }.average()
+            val runnerRate = similar.count { it.peakGainPct >= 100.0 || it.pnlPct >= 50.0 }.toDouble() / similar.size.toDouble()
+            when {
+                avgPnl >= 25.0 || runnerRate >= 0.35 -> EntryBias(1.06, 4, "semantic:runner avg=${avgPnl.fmt1()} rr=${runnerRate.fmt1()}")
+                avgPnl <= -15.0 -> EntryBias(0.94, 0, "semantic:weak avg=${avgPnl.fmt1()}")
+                else -> EntryBias(1.0, 0, "semantic:neutral avg=${avgPnl.fmt1()}")
+            }
+        } catch (_: Throwable) { EntryBias(1.0, 0, "semantic:error") }
     }
 
     fun summary(): String = synchronized(nodes) {
@@ -187,4 +210,5 @@ object SemanticPatternGraph {
         val union = a.size + b.size - inter
         return if (union <= 0) 0.0 else inter.toDouble() / union.toDouble()
     }
+    private fun Double.fmt1(): String = try { "%.1f".format(this) } catch (_: Throwable) { this.toString() }
 }

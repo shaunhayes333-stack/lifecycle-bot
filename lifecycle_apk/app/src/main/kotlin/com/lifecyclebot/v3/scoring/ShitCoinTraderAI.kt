@@ -1347,6 +1347,20 @@ object ShitCoinTraderAI {
             shitScore = (shitScore + gooseBias).coerceAtLeast(0)
             scoreReasons.add("goose${if (gooseBias >= 0) "+" else ""}$gooseBias")
         }
+        var semanticEntrySizeMult4255 = 1.0
+        try {
+            val semanticMcap = if (marketCapUsd.isFinite()) marketCapUsd.toLong() else 0L
+            val semanticSetup = "phase=${launchPlatform.name}|ema=unknown|rsi=0|liq=${liquidityUsd.toInt()}|mcap=$semanticMcap|score=$shitScore|source=${launchPlatform.name}"
+            val semanticBias = com.lifecyclebot.engine.SemanticPatternGraph.entryBias(semanticSetup, "SHITCOIN")
+            semanticEntrySizeMult4255 = semanticBias.sizeMult.coerceIn(0.94, 1.06)
+            if (semanticBias.scoreDelta > 0) {
+                shitScore = (shitScore + semanticBias.scoreDelta).coerceAtLeast(0)
+                scoreReasons.add("sem+${semanticBias.scoreDelta}")
+            }
+            if (semanticEntrySizeMult4255 != 1.0) {
+                ErrorLogger.debug(TAG, "💩🧬 SHITCOIN_SEMANTIC_ENTRY_READBACK_4255: $symbol ${semanticBias.reason} score=$shitScore size×${semanticEntrySizeMult4255.fmt(2)}")
+            }
+        } catch (_: Throwable) { semanticEntrySizeMult4255 = 1.0 }
         val effectiveMinScore = maxOf(minScore, wrFloor) + personalityFloorBias
         val passesScore = shitScore >= effectiveMinScore
         val passesConf = shitConfidence >= minConf
@@ -1541,7 +1555,7 @@ object ShitCoinTraderAI {
         val walletBasedSize = currentBalance * WALLET_SCALE_FACTOR
         var positionSol = maxOf(BASE_POSITION_SOL, walletBasedSize)
         // V5.9.1329 / V5.0.4231 — apply learned soft-size multipliers.
-        positionSol = (positionSol * dangerBucketSoftSize * intelligenceGateSizeMult4231).coerceAtLeast(0.01)
+        positionSol = (positionSol * dangerBucketSoftSize * intelligenceGateSizeMult4231 * semanticEntrySizeMult4255).coerceAtLeast(0.01)
         
         // Scale by confidence
         val confScale = shitConfidence / 100.0
