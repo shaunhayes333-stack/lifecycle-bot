@@ -194,6 +194,7 @@ North star: realized live wallet growth toward the operator's daily 2x-5x compou
 - Expected impact: improves scanner quality while preventing PumpPortal/pump.fun dominance.
 
 ### A35 — Runner Exit Shadow Ledger
+- Status: implemented in V5.0.4289 as `RunnerExitShadowLedger`, persisted offline runner giveback ledger.
 - Add a runner-only shadow ledger that records hypothetical later exits for positions with peakGainPct above runner thresholds.
 - Must be offline/background-only and feed CounterfactualReplayEngine/RunnerRetentionOptimizer, not direct sell authority.
 - Expected impact: increases avg_win and reduces premature runner cuts.

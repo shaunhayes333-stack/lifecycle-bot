@@ -4828,4 +4828,14 @@ class GoldenTapeRegressionTest {
         assertTrue("V5.0.4287: source-family scorecard must persist and never block sources", persistence.contains("SOURCE_FAMILY_SCORECARD") && !scorecard.contains("return false") && !scorecard.contains("hard-block"))
     }
 
+    @Test
+    fun runnerExitShadowLedger4289IsOfflineOnlyAndPersistent() {
+        val ledger = java.io.File("src/main/kotlin/com/lifecyclebot/engine/RunnerExitShadowLedger.kt").readText()
+        val exec = java.io.File("src/main/kotlin/com/lifecyclebot/engine/Executor.kt").readText()
+        val persistence = java.io.File("src/main/kotlin/com/lifecyclebot/engine/LearningPersistence.kt").readText()
+        assertTrue("V5.0.4289: runner shadow ledger must record peak-vs-realized giveback for runner exits", ledger.contains("RUNNER_EXIT_SHADOW_LEDGER_4289") && ledger.contains("giveback") && ledger.contains("offline_only=true"))
+        assertTrue("V5.0.4289: Executor must feed runner shadow ledger from terminal event-local replay fanout", exec.contains("RunnerExitShadowLedger.recordTerminalExit") && exec.contains("graphPeakPct") && exec.contains("graphTrade.pnlPct"))
+        assertTrue("V5.0.4289: runner shadow ledger must persist and never call sell authority", persistence.contains("RUNNER_EXIT_SHADOW_LEDGER") && !ledger.contains("requestSell(") && !ledger.contains("executeSell("))
+    }
+
 }

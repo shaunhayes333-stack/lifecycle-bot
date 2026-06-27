@@ -2932,6 +2932,13 @@ class Executor(
                             holdSeconds = graphHoldSeconds,
                             replayHint = runnerReplayHint,
                         )
+                        com.lifecyclebot.engine.RunnerExitShadowLedger.recordTerminalExit(
+                            lane = graphLane,
+                            exitReason = graphTrade.reason,
+                            realizedPnlPct = graphTrade.pnlPct,
+                            peakGainPct = graphPeakPct,
+                            holdSeconds = graphHoldSeconds,
+                        )
                         val researchReason = graphTrade.reason.uppercase()
                         if (graphTrade.pnlPct < -8.0 || researchReason.contains("RUG") || researchReason.contains("LP") || researchReason.contains("HOLDER")) {
                             com.lifecyclebot.engine.ResearchScout.enqueueBackgroundRequest(
