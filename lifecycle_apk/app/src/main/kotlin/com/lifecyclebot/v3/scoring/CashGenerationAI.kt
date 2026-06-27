@@ -787,13 +787,17 @@ object CashGenerationAI {
             }
         }
 
-        // V5.9.436 — SCORE-EXPECTANCY SOFT GATE (per-layer).
-        // Even if all hard gates pass, skip when this score bucket has
-        // been net-losing over the last 25+ closed treasury trades.
+        // V5.0.4316 — ScoreExpectancy is learned strategy memory, not hard
+        // safety. It may heavily shrink Treasury/CashGen, but must not zero-size
+        // a candidate before sizing attribution and FDG/executor flow.
+        var treasuryExpectancySoftSize4316 = 1.0
         if (com.lifecyclebot.engine.ScoreExpectancyTracker.shouldReject("TREASURY", treasuryScore)) {
             val mean = com.lifecyclebot.engine.ScoreExpectancyTracker.bucketMean("TREASURY", treasuryScore)
             val n = com.lifecyclebot.engine.ScoreExpectancyTracker.bucketSamples("TREASURY", treasuryScore)
-            rejectionReasons.add("expectancy_reject_score_${treasuryScore}_μ_${"%+.1f".format(mean ?: 0.0)}%_n_${n}")
+            treasuryExpectancySoftSize4316 = 0.25
+            scoreReasons.add("expectancyProbe4316")
+            ErrorLogger.info(TAG, "💰 TREASURY_EXPECTANCY_RECOVERY_PROBE_4316: $symbol | score=$treasuryScore bucket μ=${"%+.1f".format(mean ?: 0.0)}% n=$n — size×0.25, no hard reject")
+            try { com.lifecyclebot.engine.PipelineHealthCollector.labelInc("TREASURY_EXPECTANCY_RECOVERY_PROBE_4316") } catch (_: Throwable) {}
         }
 
         if (rejectionReasons.isNotEmpty()) {
@@ -898,6 +902,7 @@ object CashGenerationAI {
             TreasuryMode.PAUSED -> 0.35  // V5.0.4224: recovery probe, not lane amputation
         }
         positionSol *= sourceBias4309.sizeMultiplier.coerceIn(0.80, 1.12)
+        positionSol *= treasuryExpectancySoftSize4316
         if (sourceBias4309.sizeMultiplier != 1.0) {
             ErrorLogger.debug(TAG, "💰 TREASURY_SOURCE_ROUTER_4309 ${sourceBias4309.family} size×${sourceBias4309.sizeMultiplier.fmt(2)}")
         }

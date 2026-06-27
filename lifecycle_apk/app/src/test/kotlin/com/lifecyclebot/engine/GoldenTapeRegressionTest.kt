@@ -5090,4 +5090,11 @@ class GoldenTapeRegressionTest {
         assertFalse("V5.0.4315: stale BlueChip hard EXPECTANCY_REJECT zero-size return must not survive", blue.contains("reason = \"EXPECTANCY_REJECT: score="))
     }
 
+    @Test
+    fun treasuryScoreExpectancy4316IsSoftRecoveryProbeNotRejectReason() {
+        val cash = java.io.File("src/main/kotlin/com/lifecyclebot/v3/scoring/CashGenerationAI.kt").readText()
+        assertTrue("V5.0.4316: Treasury expectancy reject must become bounded recovery-probe sizing", cash.contains("TREASURY_EXPECTANCY_RECOVERY_PROBE_4316") && cash.contains("treasuryExpectancySoftSize4316 = 0.25") && cash.contains("positionSol *= treasuryExpectancySoftSize4316"))
+        assertFalse("V5.0.4316: stale Treasury expectancy_reject rejectionReason must not survive", cash.contains("rejectionReasons.add(\"expectancy_reject_score_"))
+    }
+
 }
