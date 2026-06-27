@@ -4976,4 +4976,13 @@ class GoldenTapeRegressionTest {
         assertTrue("V5.0.4302: Executor entry-lock must only hold negative dynamic stops, never positive profit locks", ex.contains("V5.0.4302") && ex.contains("dynamicStopPct <= 0.0") && ex.contains("profit-lock beats entry-lock"))
     }
 
+
+    @Test
+    fun harvardHeadmaster4303CanonicalAliasesCloseMemeLoop() {
+        val edu = java.io.File("src/main/kotlin/com/lifecyclebot/v3/scoring/EducationSubLayerAI.kt").readText()
+        val lanes = java.io.File("src/main/kotlin/com/lifecyclebot/v3/scoring/LayerLaneRegistry.kt").readText()
+        assertTrue("V5.0.4303: Harvard must canonicalize dedicated meme route labels before mute/boost lookup", edu.contains("V5.0.4303") && edu.contains("\"shitcoin_trader\"    -> \"ShitCoinTraderAI\"") && edu.contains("\"shitcoin_express\"   -> \"ShitCoinExpress\"") && edu.contains("val canonicalLayerName = normalizeLayerName(layerName)") && edu.contains("layerPerformance[canonicalLayerName]"))
+        assertTrue("V5.0.4303: meme-specific registered Harvard layers must not default to generic lane learning", lanes.contains("V5.0.4303") && lanes.contains("\"QualityTraderAI\"             to MEME") && lanes.contains("\"ProjectSniperAI\"             to MEME") && lanes.contains("\"ShitCoinExpress\"             to MEME"))
+    }
+
 }

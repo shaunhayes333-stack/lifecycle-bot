@@ -63,6 +63,15 @@ object LayerLaneRegistry {
         "DipHunterAI"                 to MEME_ALT,     // micro-cap dips (memes + alts)
         "CashGenerationAI"            to MEME,         // Treasury runs only on memes
         "BlueChipTraderAI"            to MEME,         // BlueChip = quality memes here
+        // V5.0.4303 — meme-trader registry closure. These registered Harvard
+        // layers were absent here and therefore defaulted to GENERIC. They are
+        // meme-specific heads and should learn from meme outcomes, not unrelated
+        // perps/stocks/forex rows.
+        "QualityTraderAI"             to MEME,
+        "ProjectSniperAI"             to MEME,
+        "ShitCoinExpress"             to MEME,
+        "UltraFastRugDetectorAI"      to MEME,
+        "SocialVelocityAI"            to MEME_ALT,
 
         // ── Stocks / perps / forex / metals lane ────────────────────────
         "CorrelationHedgeAI"          to STOCK_PERP_FOREX,

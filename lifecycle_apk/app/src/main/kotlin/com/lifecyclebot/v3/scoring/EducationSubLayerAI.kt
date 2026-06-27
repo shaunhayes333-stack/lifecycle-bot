@@ -578,6 +578,27 @@ object EducationSubLayerAI {
         "metacognition"      -> "MetaCognitionAI"
         "behavior"           -> "BehaviorLearning"
         "insider_tracker"    -> "InsiderTrackerAI"
+        // V5.0.4303 — Harvard Headmaster alias closure. Dedicated meme lanes
+        // were calling applyMuteBoost with route labels such as SHITCOIN_TRADER
+        // and SHITCOIN_EXPRESS, while outcome learning is stored under the
+        // registered layer names below. Without these aliases, the headmaster
+        // returned NORMAL forever and the loop did not close for those lanes.
+        "shitcoin_trader"    -> "ShitCoinTraderAI"
+        "shitcoin"           -> "ShitCoinTraderAI"
+        "shitcoin_express"   -> "ShitCoinExpress"
+        "express"            -> "ShitCoinExpress"
+        "moonshot"           -> "MoonshotTraderAI"
+        "bluechip"           -> "BlueChipTraderAI"
+        "blue_chip"          -> "BlueChipTraderAI"
+        "quality"            -> "QualityTraderAI"
+        "quality_trader"     -> "QualityTraderAI"
+        "project_sniper"     -> "ProjectSniperAI"
+        "sniper"             -> "ProjectSniperAI"
+        "dip_hunter"         -> "DipHunterAI"
+        "diphunter"          -> "DipHunterAI"
+        "cashgen"            -> "CashGenerationAI"
+        "treasury"           -> "CashGenerationAI"
+        "approval_memory"    -> "EducationSubLayerAI"
         else -> componentName  // V5.9.123 layers already use their class name
     }
 
@@ -1738,7 +1759,8 @@ object EducationSubLayerAI {
      * state.
      */
     fun getLayerAccuracy(layerName: String): Double {
-        val m = layerPerformance[layerName] ?: return 0.5
+        val canonicalLayerName = normalizeLayerName(layerName)
+        val m = layerPerformance[canonicalLayerName] ?: return 0.5
         val alpha = 5.0
         if (m.weightSum > 0.0) {
             return ((m.weightedHits + alpha * 0.5) / (m.weightSum + alpha))
@@ -1753,7 +1775,7 @@ object EducationSubLayerAI {
 
     /** V5.9.138 — mean pnlPct per trade for this layer, or 0 if no history. */
     fun getLayerExpectancyPct(layerName: String): Double =
-        layerPerformance[layerName]?.expectancyPct ?: 0.0
+        layerPerformance[normalizeLayerName(layerName)]?.expectancyPct ?: 0.0
 
     /**
      * V5.9.1274 — asset-class-scoped accuracy. Reads the "$layerName#$assetClass"
@@ -1763,7 +1785,7 @@ object EducationSubLayerAI {
      */
     fun getLayerAccuracy(layerName: String, assetClass: String?): Double {
         if (!assetClass.isNullOrBlank()) {
-            val m = layerPerformance[scopedKey(layerName, assetClass)]
+            val m = layerPerformance[scopedKey(normalizeLayerName(layerName), assetClass)]
             if (m != null && m.totalOutcomesRecorded >= SCOPED_MIN_SAMPLES) {
                 val alpha = 5.0
                 return if (m.weightSum > 0.0) {
@@ -1780,7 +1802,7 @@ object EducationSubLayerAI {
 
     /** V5.9.138 — rough per-trade Sharpe (mean / std of pnlPct). */
     fun getLayerSharpe(layerName: String): Double =
-        layerPerformance[layerName]?.sharpe ?: 0.0
+        layerPerformance[normalizeLayerName(layerName)]?.sharpe ?: 0.0
 
     /**
      * V5.9.144 — BOOTSTRAP RELAXATION.
@@ -1900,7 +1922,8 @@ object EducationSubLayerAI {
         // Bootstrap relaxation: penalty strength scaled by getBootstrapRelaxation()
         // so early learning phase is not over-filtered (< 500 trades: full relaxation).
 
-        val m = layerPerformance[layerName] ?: return Triple(vote, 1.0, "NORMAL")
+        val canonicalLayerName = normalizeLayerName(layerName)
+        val m = layerPerformance[canonicalLayerName] ?: return Triple(vote, 1.0, "NORMAL")
         val trades = m.totalOutcomesRecorded
 
         // V5.9.325: Two-tier MIN_TRADES to prevent outer ring from having priority
@@ -1917,7 +1940,7 @@ object EducationSubLayerAI {
             "TokenDNAClusteringAI", "PeerAlphaVerificationAI", "NewsShockAI",
             "FundingRateAwarenessAI", "OrderbookImbalancePulseAI",
         )
-        val MIN_TRADES = if (layerName in OUTER_RING_LAYERS) 50 else 20
+        val MIN_TRADES = if (canonicalLayerName in OUTER_RING_LAYERS) 50 else 20
 
         // V5.9.325: While outer ring is still warming up (< MIN_TRADES), apply a
         // proportional "newcomer discount" instead of full-strength NORMAL ×1.0.
@@ -1925,7 +1948,7 @@ object EducationSubLayerAI {
         // This ensures outer ring starts with HALF the influence of proven inner layers
         // and earns equal weight only once it has enough data to be fairly evaluated.
         if (trades < MIN_TRADES) {
-            if (layerName in OUTER_RING_LAYERS) {
+            if (canonicalLayerName in OUTER_RING_LAYERS) {
                 val ramp = 0.5 + 0.5 * (trades.toDouble() / MIN_TRADES)  // 0.5..1.0
                 val scaled = (vote * ramp).toInt()
                 return Triple(scaled, ramp, "NEWCOMER")
@@ -1933,7 +1956,7 @@ object EducationSubLayerAI {
             return Triple(vote, 1.0, "NORMAL")
         }
 
-        val edge = getLayerAccuracy(layerName)   // Bayesian-smoothed, 0..1
+        val edge = getLayerAccuracy(canonicalLayerName)   // Bayesian-smoothed, 0..1
         val relaxation = getBootstrapRelaxation() // 0.30..1.00
 
         return when {
@@ -2010,7 +2033,7 @@ object EducationSubLayerAI {
      * LLM-facing display.
      */
     fun getLayerAccuracyRaw(layerName: String): Double {
-        val m = layerPerformance[layerName] ?: return 0.5
+        val m = layerPerformance[normalizeLayerName(layerName)] ?: return 0.5
         if (m.totalOutcomesRecorded <= 0) return 0.5
         return (m.accuracy / 100.0).coerceIn(0.0, 1.0)
     }
@@ -2085,13 +2108,14 @@ object EducationSubLayerAI {
 
     /** Get one layer's maturity snapshot. */
     fun getLayerMaturity(layerName: String): LayerMaturity {
-        val m = layerPerformance[layerName]
+        val canonicalLayerName = normalizeLayerName(layerName)
+        val m = layerPerformance[canonicalLayerName]
         return LayerMaturity(
-            layerName        = layerName,
-            level            = getLayerLevel(layerName),
-            levelProgress    = getLayerLevelProgress(layerName),
+            layerName        = canonicalLayerName,
+            level            = getLayerLevel(canonicalLayerName),
+            levelProgress    = getLayerLevelProgress(canonicalLayerName),
             trades           = m?.totalOutcomesRecorded ?: 0,
-            smoothedAccuracy = getLayerAccuracy(layerName),
+            smoothedAccuracy = getLayerAccuracy(canonicalLayerName),
             isActive         = m?.isLearning ?: false,
             expectancyPct    = m?.expectancyPct ?: 0.0,
             bestPct          = m?.pnlBestPct ?: 0.0,
