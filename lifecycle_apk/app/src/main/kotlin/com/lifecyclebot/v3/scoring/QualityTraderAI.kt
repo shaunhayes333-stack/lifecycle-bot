@@ -711,6 +711,12 @@ object QualityTraderAI {
         ErrorLogger.info(TAG, "📊 QUALITY OPENED: ${position.symbol} | " +
             "entry=${position.entryPrice} | TP=${position.takeProfitPct}% SL=${position.stopLossPct}%")
     }
+
+    fun restorePosition(position: QualityPosition, isPaper: Boolean) {
+        val target = if (isPaper) paperPositions else livePositions
+        target[position.mint] = position
+        ErrorLogger.warn(TAG, "📊 QUALITY RESTORED: ${position.symbol} | mode=${if (isPaper) "PAPER" else "LIVE"} | entry=${position.entryPrice}")
+    }
     
     fun closePosition(mint: String, exitPrice: Double, exitSignal: ExitSignal) {
         // V5.9.457 — mode-orphan fix: fall back to other map.

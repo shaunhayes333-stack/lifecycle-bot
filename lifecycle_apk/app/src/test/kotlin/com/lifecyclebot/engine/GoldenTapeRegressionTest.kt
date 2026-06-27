@@ -3559,6 +3559,11 @@ class GoldenTapeRegressionTest {
         val positionPersistence4214 = java.io.File("src/main/kotlin/com/lifecyclebot/engine/PositionPersistence.kt").readText()
         assertTrue("V5.0.4214: Manipulated lane opens must use achievable 14/-11 geometry", botService4214.contains("takeProfitPct = 14.0") && botService4214.contains("stopLossPct = -11.0") && !botService4214.contains("takeProfitPct = 25.0"))
         assertTrue("V5.0.4214: restored MANIPULATED positions must rehydrate ManipulatedTraderAI active map", positionPersistence4214.contains("MANIPULATED_RESTORED_ACTIVE_POSITION_4214") && positionPersistence4214.contains("ManipulatedTraderAI.addPosition") && positionPersistence4214.contains("restoredLayer.equals(\"MANIPULATED\""))
+        val quality4215 = java.io.File("src/main/kotlin/com/lifecyclebot/v3/scoring/QualityTraderAI.kt").readText()
+        val blueChip4215 = java.io.File("src/main/kotlin/com/lifecyclebot/v3/scoring/BlueChipTraderAI.kt").readText()
+        val positionPersistence4215 = java.io.File("src/main/kotlin/com/lifecyclebot/engine/PositionPersistence.kt").readText()
+        assertTrue("V5.0.4215: Quality/BlueChip must expose mode-correct restore helpers", quality4215.contains("fun restorePosition(position: QualityPosition, isPaper: Boolean)") && blueChip4215.contains("fun restorePosition(position: BlueChipPosition, isPaper: Boolean)"))
+        assertTrue("V5.0.4215: restored QUALITY/BLUE_CHIP positions must rehydrate lane active maps", positionPersistence4215.contains("QUALITY_RESTORED_ACTIVE_POSITION_4215") && positionPersistence4215.contains("BLUE_CHIP_RESTORED_ACTIVE_POSITION_4215") && positionPersistence4215.contains("QualityTraderAI.restorePosition") && positionPersistence4215.contains("BlueChipTraderAI.restorePosition"))
     }
 
 

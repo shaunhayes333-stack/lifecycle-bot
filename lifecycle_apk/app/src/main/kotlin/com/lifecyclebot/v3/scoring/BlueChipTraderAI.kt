@@ -368,6 +368,12 @@ object BlueChipTraderAI {
             "size=${position.entrySol.fmt(4)} SOL | " +
             "TP=${position.takeProfitPct.fmt(0)}% SL=${position.stopLossPct.fmt(0)}%")
     }
+
+    fun restorePosition(position: BlueChipPosition, isPaper: Boolean) {
+        val target = if (isPaper) paperPositions else livePositions
+        synchronized(target) { target[position.mint] = position }
+        ErrorLogger.warn(TAG, "🔵 BLUE CHIP RESTORED: ${position.symbol} | mode=${if (isPaper) "PAPER" else "LIVE"} | entry=${position.entryPrice}")
+    }
     
     fun closePosition(mint: String, exitPrice: Double, exitReason: ExitSignal) {
         // V5.9.457 — mode-orphan fix: if mint isn't in the current-mode

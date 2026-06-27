@@ -423,6 +423,55 @@ object PositionPersistence {
                     )
                     PipelineHealthCollector.labelInc("MANIPULATED_RESTORED_ACTIVE_POSITION_4214")
                 }
+                if (restoredLayer.equals("QUALITY", ignoreCase = true) &&
+                    !com.lifecyclebot.v3.scoring.QualityTraderAI.hasPosition(mint)) {
+                    val qTp = com.lifecyclebot.v3.scoring.QualityTraderAI.getFluidTakeProfit()
+                    val qSl = com.lifecyclebot.v3.scoring.QualityTraderAI.getFluidStopLoss()
+                    com.lifecyclebot.v3.scoring.QualityTraderAI.restorePosition(
+                        com.lifecyclebot.v3.scoring.QualityTraderAI.QualityPosition(
+                            mint = mint,
+                            symbol = saved.symbol,
+                            entryPrice = saved.entryPrice,
+                            entryTime = saved.entryTime,
+                            entrySol = saved.costSol,
+                            entryMcap = saved.entryMcap.takeIf { it > 0.0 } ?: saved.lastKnownMcap,
+                            takeProfitPct = qTp,
+                            stopLossPct = qSl,
+                            highWaterMark = saved.highestPrice.takeIf { it > 0.0 } ?: saved.entryPrice,
+                            peakPnlPct = saved.peakGainPct,
+                            lastSeenPrice = saved.lastKnownPrice.takeIf { it > 0.0 } ?: saved.entryPrice,
+                            lastPriceUpdateMs = saved.savedAt,
+                            entryScore = saved.entryScore,
+                        ),
+                        saved.isPaperPosition,
+                    )
+                    PipelineHealthCollector.labelInc("QUALITY_RESTORED_ACTIVE_POSITION_4215")
+                }
+                if (restoredLayer.equals("BLUE_CHIP", ignoreCase = true) &&
+                    !com.lifecyclebot.v3.scoring.BlueChipTraderAI.hasPosition(mint)) {
+                    val bTp = com.lifecyclebot.v3.scoring.BlueChipTraderAI.getFluidTakeProfit()
+                    val bSl = com.lifecyclebot.v3.scoring.BlueChipTraderAI.getFluidStopLoss()
+                    com.lifecyclebot.v3.scoring.BlueChipTraderAI.restorePosition(
+                        com.lifecyclebot.v3.scoring.BlueChipTraderAI.BlueChipPosition(
+                            mint = mint,
+                            symbol = saved.symbol,
+                            entryPrice = saved.entryPrice,
+                            entrySol = saved.costSol,
+                            entryTime = saved.entryTime,
+                            marketCapUsd = saved.entryMcap.takeIf { it > 0.0 } ?: saved.lastKnownMcap,
+                            liquidityUsd = saved.entryLiquidityUsd.takeIf { it > 0.0 } ?: saved.lastKnownLiquidity,
+                            isPaper = saved.isPaperPosition,
+                            takeProfitPct = bTp,
+                            stopLossPct = bSl,
+                            highWaterMark = saved.highestPrice.takeIf { it > 0.0 } ?: saved.entryPrice,
+                            peakPnlPct = saved.peakGainPct,
+                            lastSeenPrice = saved.lastKnownPrice.takeIf { it > 0.0 } ?: saved.entryPrice,
+                            entryScore = saved.entryScore,
+                        ),
+                        saved.isPaperPosition,
+                    )
+                    PipelineHealthCollector.labelInc("BLUE_CHIP_RESTORED_ACTIVE_POSITION_4215")
+                }
             } catch (_: Throwable) {}
             
             restoredCount++
