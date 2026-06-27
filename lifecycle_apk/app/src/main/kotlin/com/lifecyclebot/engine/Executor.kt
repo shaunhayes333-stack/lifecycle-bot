@@ -8295,8 +8295,16 @@ class Executor(
                 PipelineHealthCollector.labelInc("METACOGNITION_EXECUTOR_SIZE_SHAPED_4267")
             } catch (_: Throwable) {}
         }
+        val regimeVolShape = try { RegimeVolatilityExecutorBridge.sizeShape(ts) } catch (_: Throwable) { RegimeVolatilityExecutorBridge.Shape(1.0, "error") }
+        val regimeVolSizeMult = regimeVolShape.multiplier
+        if (regimeVolSizeMult != 1.0) {
+            try {
+                ForensicLogger.lifecycle("REGIME_VOL_EXECUTOR_SIZE_SHAPED_4268", "mint=${ts.mint.take(10)} symbol=${ts.symbol} lane=$laneKeyForAgi mult=${regimeVolSizeMult.fmt(3)} ${regimeVolShape.reason}")
+                PipelineHealthCollector.labelInc("REGIME_VOL_EXECUTOR_SIZE_SHAPED_4268")
+            } catch (_: Throwable) {}
+        }
         val multiplierProductRaw = sizeMult * labMult * laneEvMult * regimeMultGoosed * laneSizeCap * brainSizeMult *
-            strategyTunerSizeMult * sourceBrainSizeMult * uphConvictionMult * hypothesisSizeMult * paperLiveBridgeMult * shadowVariantSizeMult * superBrainSizeMult * metaCognitionSizeMult
+            strategyTunerSizeMult * sourceBrainSizeMult * uphConvictionMult * hypothesisSizeMult * paperLiveBridgeMult * shadowVariantSizeMult * superBrainSizeMult * metaCognitionSizeMult * regimeVolSizeMult
 
         // V5.0.4179 — F1: SLIP-AWARE ENTRY SIZING (catastrophic-overrun fix).
         // Field journal showed losses overrunning STRICT_SL_-10 to -71%

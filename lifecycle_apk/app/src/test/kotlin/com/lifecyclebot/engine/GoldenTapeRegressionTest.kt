@@ -4683,4 +4683,16 @@ class GoldenTapeRegressionTest {
         assertTrue("V5.0.4267: full meme audit sweeper must close Pass J only with executor-side MetaCognition consumption", sweeper.contains("PASS_J_METACOGNITION_CONSUMPTION_4261") && sweeper.contains("MetaCognitionExecutorBridge.sizeMultiplierForLane"))
     }
 
+    @Test
+    fun regimeVolatility4268FeedsExecutorSizingAndPersistenceContract() {
+        val bridge = java.io.File("src/main/kotlin/com/lifecyclebot/engine/RegimeVolatilityExecutorBridge.kt").readText()
+        val exec = java.io.File("src/main/kotlin/com/lifecyclebot/engine/Executor.kt").readText()
+        val persistence = java.io.File("src/main/kotlin/com/lifecyclebot/engine/LearningPersistence.kt").readText()
+        val sweeper = java.io.File("src/main/kotlin/com/lifecyclebot/engine/MemeTraderFullAuditSweeper.kt").readText()
+        assertTrue("V5.0.4268: regime/vol bridge must consume VolatilityRegimeAI and RegimeTransitionAI from TokenState", bridge.contains("VolatilityRegimeAI.analyze") && bridge.contains("RegimeTransitionAI.analyzeTransition") && bridge.contains("coerceIn(0.90, 1.12)"))
+        assertTrue("V5.0.4268: Executor must consume regime/volatility shape in shared paper/live size stack", exec.contains("RegimeVolatilityExecutorBridge.sizeShape") && exec.contains("REGIME_VOL_EXECUTOR_SIZE_SHAPED_4268") && exec.contains("regimeVolSizeMult"))
+        assertTrue("V5.0.4268: persistence must still retain both regime and volatility AI state", persistence.contains("REGIME_TRANSITION") && persistence.contains("VOLATILITY_REGIME"))
+        assertTrue("V5.0.4268: full meme audit sweeper must close Pass D only with persistence plus executor consumer", sweeper.contains("PASS_D_REGIME_VOLATILITY_4261") && sweeper.contains("RegimeVolatilityExecutorBridge.sizeShape"))
+    }
+
 }
