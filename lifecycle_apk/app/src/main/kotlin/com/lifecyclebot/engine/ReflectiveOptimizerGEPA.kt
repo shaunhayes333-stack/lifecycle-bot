@@ -3,6 +3,7 @@ package com.lifecyclebot.engine
 import org.json.JSONArray
 import org.json.JSONObject
 import java.util.concurrent.CopyOnWriteArrayList
+import java.util.concurrent.ConcurrentHashMap
 
 /** V5.0.4243 — GEPA-style reflective optimizer, proposal-only. */
 object ReflectiveOptimizerGEPA {
@@ -16,17 +17,24 @@ object ReflectiveOptimizerGEPA {
     )
 
     private const val MAX_PROPOSALS = 240
+    private const val MIN_REFLECTION_INTERVAL_MS = 60_000L  // V5.0.4249 — prevent terminal-sell storm churn
     private val proposals = CopyOnWriteArrayList<ReflectionProposal>()
+    private val lastRunByLaneMs = ConcurrentHashMap<String, Long>()
 
     fun runBackgroundReflection(lane: String = "STANDARD", sourceTag: String = "BACKGROUND_GEPA_REFLECTION"): Boolean {
         if (!isBackgroundSource(sourceTag)) return false
+        val laneKey = lane.uppercase().take(32)
+        val now = System.currentTimeMillis()
+        val prev = lastRunByLaneMs[laneKey] ?: 0L
+        if (now - prev < MIN_REFLECTION_INTERVAL_MS) return false
+        lastRunByLaneMs[laneKey] = now
         val replayHint = try { CounterfactualReplayEngine.policyHints(lane) } catch (_: Throwable) { "" }
         val semanticHint = try { SemanticPatternGraph.summary() } catch (_: Throwable) { "" }
         val combined = listOf(replayHint, semanticHint).filter { it.isNotBlank() }.joinToString(" | ")
         if (combined.isBlank() || combined.contains("no missed exit alternatives", ignoreCase = true)) return false
         val proposal = "GEPA_REFLECTION lane=$lane evidence=[$combined] action=prefer bounded exit-policy experiment; no hard veto; no zero-size; background-review only"
         val rollback = "rollback if terminal sample>=40 and delta_capture_or_net_pnl worsens vs prior lane baseline"
-        val item = ReflectionProposal(stableId(lane, proposal), lane.uppercase().take(32), "exit_delta_capture", proposal.take(1000), rollback)
+        val item = ReflectionProposal(stableId(lane, proposal), laneKey, "exit_delta_capture", proposal.take(1000), rollback)
         synchronized(proposals) {
             proposals.removeAll { it.id == item.id }
             proposals.add(item)
@@ -45,7 +53,7 @@ object ReflectiveOptimizerGEPA {
     }
 
     fun recent(limit: Int = 20): List<ReflectionProposal> = synchronized(proposals) { proposals.takeLast(limit.coerceIn(1, MAX_PROPOSALS)) }
-    fun reset() { synchronized(proposals) { proposals.clear() } }
+    fun reset() { synchronized(proposals) { proposals.clear() }; lastRunByLaneMs.clear() }
 
     fun exportState(): String = synchronized(proposals) {
         val arr = JSONArray()

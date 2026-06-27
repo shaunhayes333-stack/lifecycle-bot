@@ -4524,4 +4524,11 @@ class GoldenTapeRegressionTest {
         assertFalse("V5.0.4246: symbolic review promotion must not auto-execute buys or FDG decisions", lab.contains("executeBuy") || lab.contains("FinalDecisionGate.evaluate("))
     }
 
+    @Test
+    fun reflectiveOptimizer4249DebouncesTerminalSellStorms() {
+        val gepa = java.io.File("src/main/kotlin/com/lifecyclebot/engine/ReflectiveOptimizerGEPA.kt").readText()
+        assertTrue("V5.0.4249: GEPA reflection must debounce per lane so terminal sell storms cannot choke side-effect work", gepa.contains("MIN_REFLECTION_INTERVAL_MS") && gepa.contains("lastRunByLaneMs") && gepa.contains("now - prev < MIN_REFLECTION_INTERVAL_MS"))
+        assertTrue("V5.0.4249: GEPA debounce must keep proposal cache bounded and resettable", gepa.contains("MAX_PROPOSALS") && gepa.contains("lastRunByLaneMs.clear()"))
+    }
+
 }
