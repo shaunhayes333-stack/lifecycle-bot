@@ -4546,4 +4546,11 @@ class GoldenTapeRegressionTest {
         assertFalse("V5.0.4251: reviewedSizeBias must not synchronize on accepted", lab.contains("fun reviewedSizeBias(lane: String, score: Int, regime: String): Double = synchronized"))
     }
 
+    @Test
+    fun terminalFanout4252SnapshotsMutableTokenStateBeforeCoroutine() {
+        val executor = java.io.File("src/main/kotlin/com/lifecyclebot/engine/Executor.kt").readText()
+        assertTrue("V5.0.4252: terminal semantic/research fanout must snapshot mint/symbol/deployer before side-effect coroutine", executor.contains("val graphMint = graphTrade.mint.ifBlank { ts.mint }") && executor.contains("val graphSymbol = ts.symbol") && executor.contains("val graphDeployer = ts.tokenMap.creatorOrDevWallet"))
+        assertTrue("V5.0.4252: side-effect fanout must use event-local snapshots for deployer and ResearchScout request", executor.contains("deployer = graphDeployer") && executor.contains("mint = graphMint") && executor.contains("symbol = graphSymbol"))
+    }
+
 }

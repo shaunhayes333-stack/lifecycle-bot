@@ -2885,13 +2885,16 @@ class Executor(
                 val graphPeakPct = try { if (graphEntry > 0.0 && graphPeak > 0.0) ((graphPeak - graphEntry) / graphEntry) * 100.0 else graphTrade.pnlPct } catch (_: Throwable) { graphTrade.pnlPct }
                 val graphLossPct = try { if (graphEntry > 0.0 && graphLow > 0.0) ((graphLow - graphEntry) / graphEntry) * 100.0 else minOf(0.0, graphTrade.pnlPct) } catch (_: Throwable) { minOf(0.0, graphTrade.pnlPct) }
                 val graphHoldSeconds = if (graphTrade.entryTsMs > 0L) ((graphTrade.ts - graphTrade.entryTsMs) / 1000L).coerceAtLeast(0L) else 0L
+                val graphMint = graphTrade.mint.ifBlank { ts.mint }
+                val graphSymbol = ts.symbol
+                val graphDeployer = ts.tokenMap.creatorOrDevWallet
                 GlobalScope.launch(AppDispatchers.sideEffect) {
                     try {
                         com.lifecyclebot.engine.SemanticPatternGraph.recordOutcome(
                             lane = graphLane,
                             source = graphSource,
                             setup = graphSetup,
-                            deployer = ts.tokenMap.creatorOrDevWallet,
+                            deployer = graphDeployer,
                             exitReason = graphTrade.reason,
                             failureMode = if (graphTrade.pnlPct < 0.0) graphTrade.reason else "",
                             pnlPct = graphTrade.pnlPct,
@@ -2908,8 +2911,8 @@ class Executor(
                         val researchReason = graphTrade.reason.uppercase()
                         if (graphTrade.pnlPct < -8.0 || researchReason.contains("RUG") || researchReason.contains("LP") || researchReason.contains("HOLDER")) {
                             com.lifecyclebot.engine.ResearchScout.enqueueBackgroundRequest(
-                                mint = graphTrade.mint.ifBlank { ts.mint },
-                                symbol = ts.symbol,
+                                mint = graphMint,
+                                symbol = graphSymbol,
                                 reason = "terminal_exit_research_4242:${graphTrade.reason.take(80)}",
                                 sourceTag = "BACKGROUND_RESEARCH_SCOUT_TERMINAL_EXIT_4242",
                             )
