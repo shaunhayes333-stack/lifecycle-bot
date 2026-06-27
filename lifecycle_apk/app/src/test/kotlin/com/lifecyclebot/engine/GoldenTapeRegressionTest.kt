@@ -4800,4 +4800,13 @@ class GoldenTapeRegressionTest {
         assertFalse("V5.0.4285: sizing sentinel must not hard block, return zero size, or call execution authority", sentinel.contains("return 0.0") || sentinel.contains("executeBuy(") || sentinel.contains("requestSell("))
     }
 
+    @Test
+    fun terminalOutcomeQualityGate4286ReportsTrainabilityWithoutHidingPnl() {
+        val gate = java.io.File("src/main/kotlin/com/lifecyclebot/engine/TerminalOutcomeQualityGate.kt").readText()
+        val exec = java.io.File("src/main/kotlin/com/lifecyclebot/engine/Executor.kt").readText()
+        assertTrue("V5.0.4286: terminal quality gate must classify proof/position/basis/pnl quality", gate.contains("proofState") && gate.contains("positionId") && gate.contains("entryPriceSnapshot") && gate.contains("TRAINABLE") && gate.contains("CONTAMINATED"))
+        assertTrue("V5.0.4286: Executor must report terminal outcome quality near accountingTrainable gate", exec.contains("TerminalOutcomeQualityGate.classify") && exec.contains("TerminalOutcomeQualityGate.report") && exec.contains("TERMINAL_OUTCOME_QUALITY_4286"))
+        assertFalse("V5.0.4286: terminal quality gate must not hide PnL, block sells, or bypass CanonicalOutcomeBus", gate.contains("return 0.0") || gate.contains("requestSell(") || gate.contains("CanonicalOutcomeBus.publishUnchecked"))
+    }
+
 }

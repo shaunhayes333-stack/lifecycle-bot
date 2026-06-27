@@ -182,6 +182,7 @@ North star: realized live wallet growth toward the operator's daily 2x-5x compou
 - Expected impact: catches hidden compounding/sizing contradictions before live wallet growth is silently choked.
 
 ### A33 — Terminal Outcome Quality Gate
+- Status: implemented in V5.0.4286 as `TerminalOutcomeQualityGate`, report-only trainability classifier near Executor terminal accounting gate.
 - Add a terminal SELL outcome-quality classifier that tags trainable vs scratch vs contaminated outcomes using proofState, positionId, source, lane, fee/slip, and basis consistency.
 - Must protect CanonicalOutcomeBus/TradeHistoryStore learning without hiding real PnL from reports.
 - Expected impact: improves learner signal quality and prevents noisy terminal rows from poisoning entry/exit memory.

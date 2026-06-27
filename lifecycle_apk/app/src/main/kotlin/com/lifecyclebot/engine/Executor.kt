@@ -2802,6 +2802,11 @@ class Executor(
             } catch (_: Throwable) {}
         }
 
+        val terminalOutcomeQuality4286 = if (tradeWithMint.side.equals("SELL", true) || tradeWithMint.side.equals("PARTIAL_SELL", true)) {
+            try { TerminalOutcomeQualityGate.classify(tradeWithMint, ledgerAllowsClosedLearning, accountingTrainable) } catch (_: Throwable) { null }
+        } else null
+        try { terminalOutcomeQuality4286?.let { TerminalOutcomeQualityGate.report(tradeWithMint, ts.position.tradingMode ?: tradeWithMint.tradingMode, ts.source, it) } } catch (_: Throwable) {}
+
         // V5.9.1161 — premark all valid sell-like outcomes, including
         // PARTIAL_SELL, before the legacy TradeHistoryStore bridge runs.
         // Otherwise a valid partial would publish once through the legacy
