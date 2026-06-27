@@ -4869,4 +4869,46 @@ class GoldenTapeRegressionTest {
         assertFalse("V5.0.4292: closeout manifest must not influence execution", manifest.contains("executeBuy(") || manifest.contains("requestSell(") || manifest.contains("FinalDecisionGate.evaluate("))
     }
 
+
+    @Test
+    fun aiStatePersistenceSentinel4295LocksLearnedStateContract() {
+        val sentinel = java.io.File("src/main/kotlin/com/lifecyclebot/engine/AiStatePersistenceSentinel.kt").readText()
+        val persistence = java.io.File("src/main/kotlin/com/lifecyclebot/engine/LearningPersistence.kt").readText()
+        assertTrue("V5.0.4295 A38: AI persistence sentinel must enumerate all closeout learned-state helpers", sentinel.contains("AI_STATE_PERSISTENCE_SENTINEL_4295") && sentinel.contains("ASYNC_STRATEGY_LAB") && sentinel.contains("SEMANTIC_PATTERN_GRAPH") && sentinel.contains("COUNTERFACTUAL_REPLAY") && sentinel.contains("RESEARCH_SCOUT") && sentinel.contains("MULTIPLIER_ATTRIBUTION") && sentinel.contains("EXIT_COST_MICROBRAIN") && sentinel.contains("CAPITAL_EFFICIENCY") && sentinel.contains("SOURCE_FAMILY_SCORECARD") && sentinel.contains("RUNNER_EXIT_SHADOW_LEDGER") && sentinel.contains("LIVE_WALLET_GROWTH_GOVERNOR"))
+        assertTrue("V5.0.4295 A38: LearningPersistence must still save/import/reset every expected AI helper", persistence.contains("ASYNC_STRATEGY_LAB") && persistence.contains("SEMANTIC_PATTERN_GRAPH") && persistence.contains("COUNTERFACTUAL_REPLAY") && persistence.contains("RESEARCH_SCOUT") && persistence.contains("MULTIPLIER_ATTRIBUTION") && persistence.contains("EXIT_COST_MICROBRAIN") && persistence.contains("CAPITAL_EFFICIENCY") && persistence.contains("SOURCE_FAMILY_SCORECARD") && persistence.contains("RUNNER_EXIT_SHADOW_LEDGER") && persistence.contains("LIVE_WALLET_GROWTH_GOVERNOR") && persistence.contains("reset()"))
+        assertFalse("V5.0.4295 A38: persistence sentinel must not affect execution", sentinel.contains("executeBuy(") || sentinel.contains("requestSell(") || sentinel.contains("FinalDecisionGate.evaluate("))
+    }
+
+    @Test
+    fun hotPathProviderCallSentinel4295KeepsProvidersOutOfHotPath() {
+        val sentinel = java.io.File("src/main/kotlin/com/lifecyclebot/engine/HotPathProviderCallSentinel.kt").readText()
+        val async = java.io.File("src/main/kotlin/com/lifecyclebot/engine/AsyncStrategyLab.kt").readText()
+        val research = java.io.File("src/main/kotlin/com/lifecyclebot/engine/ResearchScout.kt").readText()
+        assertTrue("V5.0.4295 A39: provider sentinel must name scanner/FDG/executor hot paths and forbidden provider tokens", sentinel.contains("HOT_PATH_PROVIDER_CALL_SENTINEL_4295") && sentinel.contains("BotService.kt") && sentinel.contains("FinalDecisionGate.kt") && sentinel.contains("Executor.kt") && sentinel.contains("GeminiCopilot.generate") && sentinel.contains("OpenRouter") && sentinel.contains("Groq"))
+        assertTrue("V5.0.4295 A39: provider-using intelligence must remain background-only", sentinel.contains("allowedBackgroundWorkers") && sentinel.contains("AsyncStrategyLab") && sentinel.contains("ResearchScout") && async.contains("AppDispatchers.sideEffect") && research.contains("RESEARCH_SCOUT"))
+        assertFalse("V5.0.4295 A39: provider sentinel must not pause, zero-size, buy, or sell", sentinel.contains("return 0.0") || sentinel.contains("executeBuy(") || sentinel.contains("requestSell(") || sentinel.contains("return false"))
+    }
+
+    @Test
+    fun learningFanoutMuxSentinel4295RequiresEventLocalSnapshots() {
+        val sentinel = java.io.File("src/main/kotlin/com/lifecyclebot/engine/LearningFanoutMuxSentinel.kt").readText()
+        val exec = java.io.File("src/main/kotlin/com/lifecyclebot/engine/Executor.kt").readText()
+        assertTrue("V5.0.4295 A40: mux sentinel must require event-local mode/lane/source/positionId/mint/symbol/timestamp/build", sentinel.contains("LEARNING_FANOUT_MUX_SENTINEL_4295") && sentinel.contains("positionId") && sentinel.contains("timestamp") && sentinel.contains("build") && sentinel.contains("no_mutable_tokenstate_in_background"))
+        assertTrue("V5.0.4295 A40: Executor terminal fanout must snapshot positionId/build before sideEffect launch", exec.contains("val _fanoutPositionId") && exec.contains("val _fanoutBuildTag") && exec.indexOf("val _fanoutPositionId") < exec.indexOf("LearningFanoutMuxSentinel.report"))
+        assertTrue("V5.0.4295 A40: fanout sentinel must be fed only snapshot variables", exec.contains("LearningFanoutMuxSentinel.report") && exec.contains("positionId = _fanoutPositionId") && exec.contains("source = _fanoutSource") && exec.contains("build = _fanoutBuildTag"))
+        assertFalse("V5.0.4295 A40: mux sentinel must not block learning or execution", sentinel.contains("return false") || sentinel.contains("executeBuy(") || sentinel.contains("requestSell("))
+    }
+
+    @Test
+    fun operatorKpiCloseoutReport4295TiesAuditToLiveGrowth() {
+        val report = java.io.File("src/main/kotlin/com/lifecyclebot/engine/OperatorKpiCloseoutReport.kt").readText()
+        val exec = java.io.File("src/main/kotlin/com/lifecyclebot/engine/Executor.kt").readText()
+        val manifest = java.io.File("src/main/kotlin/com/lifecyclebot/engine/AsiSsiAuditCloseoutManifest.kt").readText()
+        val audit = readLifecycleFileFor4280s("audits/asi_ssi_audit_queue_2026-06-27.md")
+        assertTrue("V5.0.4295 A41: operator KPI closeout must cover volume, live/paper drift, realized SOL, runner giveback, source PF, sizing warnings, and build status", report.contains("OPERATOR_KPI_CLOSEOUT_REPORT_4295") && report.contains("volume=TradeHistoryStore") && report.contains("live_paper_drift=LivePaperDriftSentinel") && report.contains("realized_net_sol=LiveWalletGrowthGovernorReport") && report.contains("runner_giveback=RunnerExitShadowLedger") && report.contains("source_family_pf=SourceFamilyOpportunityScorecard") && report.contains("sizing_stack_warnings=SizingStackIntegritySentinel") && report.contains("build_status"))
+        assertTrue("V5.0.4295 A41: Executor must emit operator KPI report only from side-effect terminal fanout", exec.contains("OperatorKpiCloseoutReport.emit()") && exec.contains("if (_fanoutSide == \"SELL\")"))
+        assertTrue("V5.0.4295 closeout: manifest and audit queue must mark A38-A41 complete", manifest.contains("A41 operator KPI closeout report") && manifest.contains("audit_closed=true") && audit.contains("Status: implemented in V5.0.4295 as `OperatorKpiCloseoutReport`"))
+        assertFalse("V5.0.4295 A41: KPI closeout must never own execution authority or fake PnL", report.contains("executeBuy(") || report.contains("requestSell(") || !report.contains("no_phantom_pnl=true") || !report.contains("no_execution_authority=true"))
+    }
+
 }

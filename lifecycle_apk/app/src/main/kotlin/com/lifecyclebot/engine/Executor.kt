@@ -3155,6 +3155,9 @@ class Executor(
             val _fanoutEntryTime  = ts.position.entryTime
             val _fanoutTradingMode = (ts.position.tradingMode ?: "").uppercase()
             val _fanoutSource     = ts.source
+            val _fanoutPositionId = try { trade.positionId.ifBlank { com.lifecyclebot.engine.TradeOutcomeLedger.positionId(ts, trade) } } catch (_: Throwable) { trade.positionId }
+            val _fanoutEventTsMs  = trade.ts.takeIf { it > 0L } ?: System.currentTimeMillis()
+            val _fanoutBuildTag   = try { com.lifecyclebot.BuildConfig.VERSION_NAME } catch (_: Throwable) { "unknown" }
             val _fanoutEntryPrice = ts.position.entryPrice
             val _fanoutExitPrice  = trade.price
             val _fanoutEntryScore = ts.entryScore
@@ -3164,8 +3167,18 @@ class Executor(
             GlobalScope.launch(AppDispatchers.sideEffect) {
                 try {
                     try {
+                        LearningFanoutMuxSentinel.report(
+                            mode = if (_fanoutIsPaper) "paper" else "live",
+                            lane = _fanoutTradingMode,
+                            source = _fanoutSource,
+                            positionId = _fanoutPositionId,
+                            mint = _fanoutMint,
+                            symbol = _fanoutSymbol,
+                            eventTsMs = _fanoutEventTsMs,
+                            build = _fanoutBuildTag,
+                        )
                         LiveWalletGrowthGovernorReport.record(trade, _fanoutIsPaper)
-                        if (_fanoutSide == "SELL") LiveWalletGrowthGovernorReport.maybeEmit()
+                        if (_fanoutSide == "SELL") { LiveWalletGrowthGovernorReport.maybeEmit(); OperatorKpiCloseoutReport.emit() }
                         if (_fanoutSide == "BUY") SourceFamilyOpportunityScorecard.recordOpened(_fanoutSource)
                         if (_fanoutSide == "SELL") { SourceFamilyOpportunityScorecard.recordClosed(_fanoutSource, trade); SourceFamilyOpportunityScorecard.maybeReport() }
                     } catch (_: Throwable) {}

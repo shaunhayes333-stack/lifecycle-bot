@@ -214,17 +214,21 @@ North star: realized live wallet growth toward the operator's daily 2x-5x compou
 - Expected impact: prevents lost context after long build-ahead sequences and makes “what is left?” answerable from source.
 
 ### A38 — AI State Persistence Sentinel
+- Status: implemented in V5.0.4295 as `AiStatePersistenceSentinel`.
 - Add a read-only source-contract sentinel that lists every learned/AI helper with export/import/reset expectations and surfaces omissions in Golden Tape.
 - Expected impact: prevents new AGI/SSI helpers from becoming amnesiac after restart.
 
 ### A39 — Hot-Path Provider Call Sentinel
+- Status: implemented in V5.0.4295 as `HotPathProviderCallSentinel`.
 - Add source-contract coverage that scans entry/FDG/executor hot paths for direct LLM/API provider calls from new intelligence layers.
 - Expected impact: preserves throughput doctrine while ASI stack grows.
 
 ### A40 — Learning Fanout Mux Sentinel
+- Status: implemented in V5.0.4295 as `LearningFanoutMuxSentinel` with Executor event-local positionId/build snapshots.
 - Add source-contract coverage for terminal-learning fanout to require event-local mode/lane/source/positionId and no mutable TokenState reads inside background coroutines.
 - Expected impact: prevents live-vs-paper mux drift and learner poisoning.
 
 ### A41 — Operator KPI Closeout Report
+- Status: implemented in V5.0.4295 as `OperatorKpiCloseoutReport`.
 - Add report-only KPI summary for the audit sequence: volume, live/paper drift, realized net SOL, runner giveback, source-family PF, sizing stack warnings, and build status.
 - Expected impact: ties the whole ASI/SSI audit back to live wallet growth instead of abstract infrastructure.
