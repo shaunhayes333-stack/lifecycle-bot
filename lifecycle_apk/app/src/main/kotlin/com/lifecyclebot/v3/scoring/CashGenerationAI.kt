@@ -3,6 +3,7 @@ package com.lifecyclebot.v3.scoring
 import android.content.Context
 import com.lifecyclebot.engine.AutoCompoundEngine
 import com.lifecyclebot.engine.TreasuryCashflowMissionReport
+import com.lifecyclebot.engine.TreasurySourceRouter
 import com.lifecyclebot.engine.ErrorLogger
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.atomic.AtomicInteger
@@ -484,6 +485,10 @@ object CashGenerationAI {
         v3Confidence: Int,
         momentum: Double,
         volatility: Double,
+        discoverySource: String = "",
+        priceSource: String = "",
+        priceDex: String = "",
+        tokenAgeMinutes: Double = 30.0,
     ): TreasurySignal {
         val mode = getCurrentMode()
 
@@ -589,6 +594,25 @@ object CashGenerationAI {
         treasuryScore += modeBonus
         if (modeBonus != 0) {
             scoreReasons.add("mode${if (modeBonus > 0) "+" else ""}$modeBonus")
+        }
+
+        // V5.0.4309 — source-family soft influence. Treasury is a cashflow
+        // lane; a graduated Raydium/Meteora/Orca pool is not the same pond as
+        // a two-minute PumpPortal newborn.  This never rejects and never calls
+        // an API; it only lets existing source metadata nudge score/conf/size.
+        val sourceBias4309 = try {
+            TreasurySourceRouter.bias(
+                discoverySource = discoverySource,
+                priceSource = priceSource,
+                priceDex = priceDex,
+                liquidityUsd = liquidityUsd,
+                ageMinutes = tokenAgeMinutes,
+            )
+        } catch (_: Throwable) { TreasurySourceRouter.SourceBias("UNKNOWN", 0, 0, 1.0, "source_router_fail_open") }
+        treasuryScore += sourceBias4309.scoreDelta
+        if (sourceBias4309.scoreDelta != 0 || sourceBias4309.confidenceDelta != 0 || sourceBias4309.sizeMultiplier != 1.0) {
+            scoreReasons.add("src_${sourceBias4309.family}_${sourceBias4309.scoreDelta}")
+            try { com.lifecyclebot.engine.PipelineHealthCollector.labelInc("TREASURY_SOURCE_ROUTER_4309/${sourceBias4309.family}") } catch (_: Throwable) {}
         }
 
         val rawTreasuryConfidence = (
@@ -872,6 +896,10 @@ object CashGenerationAI {
             TreasuryMode.AGGRESSIVE -> 1.5  // V5.6.6: Raised from 1.15 - GO BIG
             TreasuryMode.HUNT -> 1.2        // V5.6.6: Raised from 1.0 - hunting = aggressive
             TreasuryMode.PAUSED -> 0.35  // V5.0.4224: recovery probe, not lane amputation
+        }
+        positionSol *= sourceBias4309.sizeMultiplier.coerceIn(0.80, 1.12)
+        if (sourceBias4309.sizeMultiplier != 1.0) {
+            ErrorLogger.debug(TAG, "💰 TREASURY_SOURCE_ROUTER_4309 ${sourceBias4309.family} size×${sourceBias4309.sizeMultiplier.fmt(2)}")
         }
 
         // V5.6.6: Dynamic cap scales with WALLET (not just treasury)

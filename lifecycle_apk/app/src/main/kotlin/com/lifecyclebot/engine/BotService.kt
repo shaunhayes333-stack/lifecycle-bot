@@ -17620,7 +17620,11 @@ if (hotExitHandledSweep) {
                             v3Score = v3Score,
                             v3Confidence = v3Confidence,
                             momentum = ts.momentum ?: 0.0,
-                            volatility = ts.volatility ?: 0.0
+                            volatility = ts.volatility ?: 0.0,
+                            discoverySource = ts.source,
+                            priceSource = ts.lastPriceSource,
+                            priceDex = ts.lastPriceDex,
+                            tokenAgeMinutes = tokenAge,
                         )
                         
                         // V4.1: Enter if Treasury says yes OR bootstrap override triggered

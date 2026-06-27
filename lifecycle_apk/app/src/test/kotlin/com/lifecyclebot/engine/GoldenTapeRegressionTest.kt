@@ -5030,4 +5030,15 @@ class GoldenTapeRegressionTest {
         assertTrue("V5.0.4308: CashGen open/close/feed must stamp wallet-feeder mission telemetry", cash.contains("TreasuryCashflowMissionReport.recordOpened") && cash.contains("TreasuryCashflowMissionReport.recordClosed") && cash.contains("TreasuryCashflowMissionReport.recordTreasuryFeed"))
     }
 
+    @Test
+    fun treasurySourceRouter4309SoftShapesCashGenWithoutNetworkOrRejects() {
+        val router = java.io.File("src/main/kotlin/com/lifecyclebot/engine/TreasurySourceRouter.kt").readText()
+        val cash = java.io.File("src/main/kotlin/com/lifecyclebot/v3/scoring/CashGenerationAI.kt").readText()
+        val bot = java.io.File("src/main/kotlin/com/lifecyclebot/engine/BotService.kt").readText()
+        assertTrue("V5.0.4309: Treasury source router must be soft-only and network-free", router.contains("TREASURY_SOURCE_ROUTER_4309") && router.contains("soft_only=true") && router.contains("no_hard_reject=true") && router.contains("no_network=true"))
+        assertTrue("V5.0.4309: source families must include graduated DEX, boosted/listed, established, pump newborn, and unknown", listOf("GRADUATED_DEX_DEPTH", "DEXSCREENER_BOOSTED_DEPTH", "ESTABLISHED_LIST_DEPTH", "PUMP_NEWBORN", "UNKNOWN").all { router.contains(it) })
+        assertTrue("V5.0.4309: CashGen must consume source bias as score/conf/size influence, not a veto", cash.contains("TreasurySourceRouter.bias") && cash.contains("treasuryScore += sourceBias4309.scoreDelta") && cash.contains("sourceBias4309.confidenceDelta") && cash.contains("positionSol *= sourceBias4309.sizeMultiplier.coerceIn"))
+        assertTrue("V5.0.4309: BotService must pass TokenState source metadata into CashGen", bot.contains("discoverySource = ts.source") && bot.contains("priceSource = ts.lastPriceSource") && bot.contains("priceDex = ts.lastPriceDex") && bot.contains("tokenAgeMinutes = tokenAge"))
+    }
+
 }
