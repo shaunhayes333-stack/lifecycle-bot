@@ -537,6 +537,40 @@ object PositionPersistence {
                     )
                     PipelineHealthCollector.labelInc("PROJECT_SNIPER_RESTORED_ACTIVE_MISSION_4226")
                 }
+                if (restoredLayer.equals("MOONSHOT", ignoreCase = true) &&
+                    !com.lifecyclebot.v3.scoring.MoonshotTraderAI.hasPosition(mint)) {
+                    val moonEntry = saved.entryPrice.takeIf { it > 0.0 } ?: saved.lastKnownPrice
+                    val moonHigh = saved.highestPrice.takeIf { it > moonEntry } ?: moonEntry
+                    val moonMcap = saved.entryMcap.takeIf { it > 0.0 } ?: saved.lastKnownMcap
+                    val moonLiq = saved.entryLiquidityUsd.takeIf { it > 0.0 } ?: saved.lastKnownLiquidity
+                    val moonMode = when {
+                        moonMcap >= 2_000_000.0 -> com.lifecyclebot.v3.scoring.MoonshotTraderAI.SpaceMode.JUPITER
+                        moonMcap >= 500_000.0 -> com.lifecyclebot.v3.scoring.MoonshotTraderAI.SpaceMode.MARS
+                        moonMcap >= 100_000.0 -> com.lifecyclebot.v3.scoring.MoonshotTraderAI.SpaceMode.LUNAR
+                        else -> com.lifecyclebot.v3.scoring.MoonshotTraderAI.SpaceMode.ORBITAL
+                    }
+                    com.lifecyclebot.v3.scoring.MoonshotTraderAI.restorePosition(
+                        com.lifecyclebot.v3.scoring.MoonshotTraderAI.MoonshotPosition(
+                            mint = mint,
+                            symbol = saved.symbol,
+                            entryPrice = moonEntry,
+                            entrySol = saved.costSol,
+                            entryTime = saved.entryTime,
+                            takeProfitPct = moonMode.baseTP,
+                            stopLossPct = moonMode.baseSL,
+                            marketCapUsd = moonMcap,
+                            liquidityUsd = moonLiq,
+                            entryScore = saved.entryScore,
+                            spaceMode = moonMode,
+                            isPaperMode = saved.isPaperPosition,
+                            highWaterMark = moonHigh,
+                            trailingStop = moonEntry * 0.85,
+                            peakPnlPct = saved.peakGainPct.coerceAtLeast(0.0),
+                            lastSeenPrice = saved.lastKnownPrice.takeIf { it > 0.0 } ?: moonEntry,
+                        )
+                    )
+                    PipelineHealthCollector.labelInc("MOONSHOT_RESTORED_ACTIVE_POSITION_4227")
+                }
             } catch (_: Throwable) {}
             
             restoredCount++

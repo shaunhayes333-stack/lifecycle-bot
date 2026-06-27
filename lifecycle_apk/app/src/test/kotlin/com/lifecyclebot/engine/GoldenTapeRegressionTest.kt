@@ -3589,6 +3589,9 @@ class GoldenTapeRegressionTest {
         val sniper4226 = java.io.File("src/main/kotlin/com/lifecyclebot/v3/scoring/ProjectSniperAI.kt").readText()
         val persistence4226 = java.io.File("src/main/kotlin/com/lifecyclebot/engine/PositionPersistence.kt").readText()
         assertTrue("V5.0.4226: restored ProjectSniper rows must rehydrate active missions", sniper4226.contains("fun restoreMission(mission: SniperMission)") && persistence4226.contains("PROJECT_SNIPER_RESTORED_ACTIVE_MISSION_4226") && persistence4226.contains("ProjectSniperAI.restoreMission") && persistence4226.contains("restoredLayer.equals(\"PROJECT_SNIPER\""))
+        val moonshot4227 = java.io.File("src/main/kotlin/com/lifecyclebot/v3/scoring/MoonshotTraderAI.kt").readText()
+        val persistence4227 = java.io.File("src/main/kotlin/com/lifecyclebot/engine/PositionPersistence.kt").readText()
+        assertTrue("V5.0.4227: restored Moonshot rows must rehydrate active runner positions", moonshot4227.contains("fun restorePosition(position: MoonshotPosition)") && persistence4227.contains("MOONSHOT_RESTORED_ACTIVE_POSITION_4227") && persistence4227.contains("MoonshotTraderAI.restorePosition") && persistence4227.contains("restoredLayer.equals(\"MOONSHOT\"") )
     }
 
 
