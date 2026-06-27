@@ -5041,4 +5041,12 @@ class GoldenTapeRegressionTest {
         assertTrue("V5.0.4309: BotService must pass TokenState source metadata into CashGen", bot.contains("discoverySource = ts.source") && bot.contains("priceSource = ts.lastPriceSource") && bot.contains("priceDex = ts.lastPriceDex") && bot.contains("tokenAgeMinutes = tokenAge"))
     }
 
+    @Test
+    fun memeExecutionRouteStack4310ReportsAdapterGapsSeparatelyFromCoverage() {
+        val stack = java.io.File("src/main/kotlin/com/lifecyclebot/engine/execution/MemeExecutionRouteStack.kt").readText()
+        assertTrue("V5.0.4310: declared route providers must expose adapterWired so coverage is not mistaken for executable proof", stack.contains("val adapterWired: Boolean") && stack.contains("declared coverage is not executable adapter proof"))
+        assertTrue("V5.0.4310: route stack must emit provider and sender adapter gap telemetry", stack.contains("EXEC_PROVIDER_ADAPTER_GAP_4310") && stack.contains("EXEC_SENDER_ADAPTER_GAP_4310"))
+        assertTrue("V5.0.4310: StackCoverage must separate provider names from adapter gaps", stack.contains("adapterGapProviderNames") && stack.contains("adapterGapSenderNames") && stack.contains("adapterGaps="))
+    }
+
 }

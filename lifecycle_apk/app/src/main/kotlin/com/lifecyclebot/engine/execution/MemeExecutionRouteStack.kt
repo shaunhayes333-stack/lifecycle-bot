@@ -105,12 +105,14 @@ object MemeExecutionRouteStack {
     interface ExecutionProvider {
         val providerName: String
         fun supports(context: ExecutionRouteContext): Support
+        val adapterWired: Boolean
         fun quoteOrBuild(context: ExecutionRouteContext): BuildResult
         fun failureClass(error: Throwable? = null, result: BuildResult? = null): FailureClass
         fun markMintUnsupported(mint: String, reason: String)
     }
 
     abstract class DeclaredProvider(final override val providerName: String) : ExecutionProvider {
+        final override val adapterWired: Boolean = false // V5.0.4310: declared coverage is not executable adapter proof
         private val unsupportedByMint = java.util.concurrent.ConcurrentHashMap<String, String>()
         override fun markMintUnsupported(mint: String, reason: String) {
             if (mint.isNotBlank()) unsupportedByMint[mint] = reason
@@ -164,6 +166,7 @@ object MemeExecutionRouteStack {
     interface SenderProvider {
         val senderName: String
         fun supports(transaction: ExecutableRouteRequest): Support
+        val adapterWired: Boolean
         fun send(transaction: ExecutableRouteRequest): SenderResult
         fun confirm(signature: String): SenderResult
         fun failureClass(error: Throwable? = null, result: SenderResult? = null): FailureClass
@@ -176,6 +179,7 @@ object MemeExecutionRouteStack {
     }
 
     abstract class DeclaredSender(final override val senderName: String) : SenderProvider {
+        final override val adapterWired: Boolean = false // V5.0.4310: sender declared does not mean broadcast adapter is wired
         override fun send(transaction: ExecutableRouteRequest): SenderResult = SenderResult.Unsupported("sender_adapter_not_yet_wired")
         override fun confirm(signature: String): SenderResult = SenderResult.Unsupported("confirmation_adapter_not_yet_wired")
         override fun failureClass(error: Throwable?, result: SenderResult?): FailureClass = when (result) {
@@ -218,7 +222,9 @@ object MemeExecutionRouteStack {
         val providerNames: List<String>,
         val supportedProviderNames: List<String>,
         val unsupportedProviderNames: List<String>,
+        val adapterGapProviderNames: List<String> = emptyList(),
         val senderNames: List<String>,
+        val adapterGapSenderNames: List<String> = emptyList(),
     ) {
         fun oldThreeRouteCollapse(): Boolean {
             val covered = providerNames.toSet()
@@ -231,8 +237,11 @@ object MemeExecutionRouteStack {
         val support = providers.associateWith { it.supports(context) }
         val supported = support.filterValues { it.supported }.keys.map { it.providerName }
         val unsupported = support.filterValues { !it.supported }.keys.map { it.providerName }
-        val senders = senderOrder().map { it.senderName }
-        return StackCoverage(providers.map { it.providerName }, supported, unsupported, senders)
+        val senderProviders = senderOrder()
+        val senders = senderProviders.map { it.senderName }
+        val adapterGaps = providers.filter { !it.adapterWired }.map { it.providerName }
+        val senderGaps = senderProviders.filter { !it.adapterWired }.map { it.senderName }
+        return StackCoverage(providers.map { it.providerName }, supported, unsupported, adapterGaps, senders, senderGaps)
     }
 
     fun start(context: ExecutionRouteContext): StackCoverage {
@@ -240,19 +249,26 @@ object MemeExecutionRouteStack {
         val support = providers.associateWith { it.supports(context) }
         val supported = support.filterValues { it.supported }.keys.map { it.providerName }
         val unsupported = support.filterValues { !it.supported }.keys.map { it.providerName }
-        val senders = senderOrder().map { it.senderName }
+        val senderProviders = senderOrder()
+        val senders = senderProviders.map { it.senderName }
+        val adapterGaps = providers.filter { !it.adapterWired }.map { it.providerName }
+        val senderGaps = senderProviders.filter { !it.adapterWired }.map { it.senderName }
 
         lifecycle("EXEC_STACK_START", "side=${context.side.name} mint=${context.mint.take(12)} symbol=${context.symbol} reason=${context.reason} urgency=${context.urgency.name} callSite=${context.callSite}")
         lifecycle("EXEC_BALANCE_AUTHORITY_USED", "source=${context.tokenBalanceAuthority} amountIn=${context.amountIn} raw=${context.amountInRaw} walletSol=${context.walletSol} side=${context.side.name}")
         lifecycle("EXEC_ROUTE_INTELLIGENCE_USED", "providers=${context.routeIntelligence.providersUsedForIntel()} liq=${context.routeIntelligence.liquidityDepthUsd} priceConf=${context.routeIntelligence.priceConfidence} recommended=${context.routeIntelligence.recommendedVenues} blocked=${context.routeIntelligence.blockedVenues} unsupported=${context.routeIntelligence.unsupportedVenues}")
         providers.forEach { p ->
             val s = support.getValue(p)
-            lifecycle("EXEC_PROVIDER_TRY", "provider=${p.providerName} side=${context.side.name} supported=${s.supported} reason=${s.reason}")
+            lifecycle("EXEC_PROVIDER_TRY", "provider=${p.providerName} side=${context.side.name} supported=${s.supported} adapterWired=${p.adapterWired} reason=${s.reason}")
+            if (!p.adapterWired) lifecycle("EXEC_PROVIDER_ADAPTER_GAP_4310", "provider=${p.providerName} supported=${s.supported} reason=provider_adapter_not_yet_wired")
             if (!context.sideEffectLight && !s.supported) lifecycle("EXEC_PROVIDER_FAIL", "provider=${p.providerName} reason=UNSUPPORTED:${s.reason}")
         }
-        if (!context.sideEffectLight) senders.forEach { lifecycle("EXEC_SENDER_TRY", "sender=$it planned=true") }
-        lifecycle("EXEC_STACK_COVERAGE", "providers=${providers.joinToString(",") { it.providerName }} supported=$supported unsupported=$unsupported senders=$senders")
-        return StackCoverage(providers.map { it.providerName }, supported, unsupported, senders)
+        if (!context.sideEffectLight) senderProviders.forEach {
+            lifecycle("EXEC_SENDER_TRY", "sender=${it.senderName} planned=true adapterWired=${it.adapterWired}")
+            if (!it.adapterWired) lifecycle("EXEC_SENDER_ADAPTER_GAP_4310", "sender=${it.senderName} reason=sender_adapter_not_yet_wired")
+        }
+        lifecycle("EXEC_STACK_COVERAGE", "providers=${providers.joinToString(",") { it.providerName }} supported=$supported unsupported=$unsupported adapterGaps=$adapterGaps senders=$senders senderGaps=$senderGaps")
+        return StackCoverage(providers.map { it.providerName }, supported, unsupported, adapterGaps, senders, senderGaps)
     }
 
     fun providerFail(providerName: String, failureClass: FailureClass, reason: String) =
