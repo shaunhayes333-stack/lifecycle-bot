@@ -126,6 +126,7 @@ North star: realized live wallet growth toward the operator's daily 2x-5x compou
 - Expected impact: explains why winners/losers were sized up/down, finds accidental dust-sizing stacks, and improves realized compounding audits.
 
 ### A24 — Scanner Diversity Bandit
+- Status: implemented in V5.0.4273 as `ScannerDiversityBandit`, source-family ordering only, no block/zero-size authority.
 - Add a non-blocking source-allocation learner that nudges scanner exposure toward sources/lane-affinities with higher downstream trainable PF, while preserving source-balanced minimum quotas.
 - Never lets PumpPortal/pump.fun dominate; never hard-blocks a source unless true safety.
 - Expected impact: improves candidate quality without choking sample volume.

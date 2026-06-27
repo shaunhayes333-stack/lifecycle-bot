@@ -4720,4 +4720,12 @@ class GoldenTapeRegressionTest {
         assertTrue("V5.0.4272: LearningPersistence must save/restore multiplier attribution state", persistence.contains("MULTIPLIER_ATTRIBUTION") && persistence.contains("MultiplierAttributionLedger.exportState") && persistence.contains("MultiplierAttributionLedger.importState"))
     }
 
+    @Test
+    fun scannerDiversityBandit4273ReordersWithoutBlockingSources() {
+        val bandit = java.io.File("src/main/kotlin/com/lifecyclebot/engine/ScannerDiversityBandit.kt").readText()
+        val bot = java.io.File("src/main/kotlin/com/lifecyclebot/engine/BotService.kt").readText()
+        assertTrue("V5.0.4273: scanner diversity bandit must consume ScannerSourceBrain softly", bandit.contains("ScannerSourceBrain.intakeMultiplier") && bandit.contains("orderedFamilies") && bandit.contains("PUMP") && bandit.contains("OTHER"))
+        assertTrue("V5.0.4273: watchlist source-balanced ordering must use bandit while preserving soft-order-only contract", bot.contains("ScannerDiversityBandit.orderedFamilies") && bot.contains("SCANNER_DIVERSITY_BANDIT_ORDER_4273") && bot.contains("soft_order_only_no_source_block"))
+    }
+
 }

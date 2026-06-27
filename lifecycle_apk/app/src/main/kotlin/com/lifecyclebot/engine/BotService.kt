@@ -11390,9 +11390,16 @@ class BotService : Service() {
         entriesByMint: Map<String, com.lifecyclebot.engine.GlobalTradeRegistry.WatchlistEntry>,
     ): List<String> {
         if (mints.size <= 2) return mints
-        val priority = listOf(
+        val defaultPriority = listOf(
             "DEX", "COINGECKO", "CMC", "RAYDIUM", "BIRDEYE", "SCANNER", "PUMP", "OTHER"
         )
+        val priority = try { ScannerDiversityBandit.orderedFamilies(defaultPriority) } catch (_: Throwable) { defaultPriority }
+        try {
+            if (priority != defaultPriority) {
+                ForensicLogger.lifecycle("SCANNER_DIVERSITY_BANDIT_ORDER_4273", "priority=${priority.joinToString(">")} default=${defaultPriority.joinToString(">")} action=soft_order_only_no_source_block")
+                PipelineHealthCollector.labelInc("SCANNER_DIVERSITY_BANDIT_ORDER_4273")
+            }
+        } catch (_: Throwable) {}
         val buckets = linkedMapOf<String, MutableList<String>>()
         priority.forEach { buckets[it] = mutableListOf() }
         fun bucketFor(mint: String): String {
