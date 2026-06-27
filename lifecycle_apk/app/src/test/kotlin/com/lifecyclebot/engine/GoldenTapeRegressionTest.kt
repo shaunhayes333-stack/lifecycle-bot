@@ -4438,4 +4438,15 @@ class GoldenTapeRegressionTest {
         assertTrue("V5.0.4236: AsyncStrategyLab must feed hypotheses only as reviewable proposals", lab.contains("submitBackgroundHypothesis") && lab.contains("rollbackCondition") && lab.contains("symbolicChecked") && !lab.contains("executeBuy") && !lab.contains("FinalDecisionGate.evaluate("))
     }
 
+    @Test
+    fun asyncStrategyLab4237UsesExistingCopilotOnlyBehindBackgroundGuard() {
+        val lab = java.io.File("src/main/kotlin/com/lifecyclebot/engine/AsyncStrategyLab.kt").readText()
+        val bot = java.io.File("src/main/kotlin/com/lifecyclebot/engine/BotService.kt").readText()
+        val fdg = java.io.File("src/main/kotlin/com/lifecyclebot/engine/FinalDecisionGate.kt").readText()
+        val exec = java.io.File("src/main/kotlin/com/lifecyclebot/engine/Executor.kt").readText()
+        assertTrue("V5.0.4237: AsyncStrategyLab must reuse GeminiCopilot rawText instead of duplicating HTTP provider plumbing", lab.contains("requestBackgroundProviderHypothesis") && lab.contains("GeminiCopilot.rawText") && lab.contains("isBackgroundSource"))
+        assertTrue("V5.0.4237: provider calls must be background-only and proposal-gated", lab.contains("BACKGROUND_ASYNC_STRATEGY_LAB") && lab.contains("submitBackgroundHypothesis") && lab.contains("symbolicChecked = false"))
+        assertFalse("V5.0.4237: scanner/FDG/executor hot paths must not call provider hypothesis requests", bot.contains("requestBackgroundProviderHypothesis") || fdg.contains("requestBackgroundProviderHypothesis") || exec.contains("requestBackgroundProviderHypothesis"))
+    }
+
 }

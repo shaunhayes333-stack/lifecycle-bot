@@ -62,6 +62,49 @@ object AsyncStrategyLab {
         return true
     }
 
+
+    fun requestBackgroundProviderHypothesis(
+        providerHint: Provider,
+        lane: String,
+        expectedMetric: String,
+        tradeSnapshot: String,
+        rollbackCondition: String,
+        sourceTag: String = "BACKGROUND_ASYNC_STRATEGY_LAB",
+    ): Boolean {
+        if (!isBackgroundSource(sourceTag)) return false
+        if (tradeSnapshot.isBlank() || tradeSnapshot.length < 20) return false
+        val systemPrompt = """
+            You are AATE's background-only strategy research lab.
+            Propose one testable, bounded trading hypothesis from closed-trade data.
+            Constraints: no scanner/FDG/executor hot-path calls, no hard trade veto, no learned zero sizing,
+            preserve live/paper parity, include expected metric and rollback logic.
+        """.trimIndent()
+        val userPrompt = """
+            lane=$lane
+            expected_metric=$expectedMetric
+            rollback_condition=$rollbackCondition
+            closed_trade_snapshot:
+            ${tradeSnapshot.take(6000)}
+        """.trimIndent()
+        val proposal = try {
+            GeminiCopilot.rawText(
+                userPrompt = userPrompt,
+                systemPrompt = systemPrompt,
+                temperature = 0.35,
+                maxTokens = 700,
+            )
+        } catch (_: Throwable) { null } ?: return false
+
+        return submitBackgroundHypothesis(
+            provider = providerHint,
+            lane = lane,
+            expectedMetric = expectedMetric,
+            proposal = proposal,
+            rollbackCondition = rollbackCondition,
+            symbolicChecked = false,
+        )
+    }
+
     fun pendingForReview(limit: Int = 20): List<LabHypothesis> = synchronized(accepted) {
         accepted.takeLast(limit.coerceIn(1, MAX_ACCEPTED))
     }
@@ -122,6 +165,11 @@ object AsyncStrategyLab {
                 appendLine("- ${h.provider.name} ${h.lane}: ${h.expectedMetric} :: ${h.proposal.take(120)} rollback=${h.rollbackCondition.take(80)} symbolic=${h.symbolicChecked}")
             }
         }
+    }
+
+    private fun isBackgroundSource(sourceTag: String): Boolean {
+        val u = sourceTag.uppercase()
+        return u.contains("BACKGROUND") && !u.contains("SCANNER") && !u.contains("FDG") && !u.contains("EXECUTOR") && !u.contains("BUY") && !u.contains("SELL")
     }
 
     private fun looksHotPath(s: String): Boolean {
