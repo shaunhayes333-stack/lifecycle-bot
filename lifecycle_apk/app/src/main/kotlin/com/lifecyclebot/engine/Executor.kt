@@ -2867,6 +2867,50 @@ class Executor(
             }
         } catch (_: Throwable) {}
 
+        // V5.0.4241 — ASI/A18/A19 terminal-outcome fanout.
+        // Feed the new SemanticPatternGraph and CounterfactualReplayEngine from
+        // the same terminal SELL + closed-learning + accounting-trainable gate
+        // used by SellOptimizationAI. This is side-effect/background only:
+        // it never rewrites journal truth, never touches entry gates, and never
+        // blocks sell finality.
+        try {
+            if (tradeWithMint.side.equals("SELL", true) && ledgerAllowsClosedLearning && accountingTrainable) {
+                val graphTrade = tradeWithMint
+                val graphLane = graphTrade.tradingMode.ifBlank { "STANDARD" }
+                val graphSource = ts.source.ifBlank { ts.lastPriceSource.ifBlank { "UNKNOWN" } }
+                val graphSetup = "phase=${ts.phase}|ema=${ts.meta.emafanAlignment}|rsi=${ts.meta.rsi}|liq=${ts.lastLiquidityUsd.toInt()}|mcap=${ts.lastMcap.toLong()}|score=${graphTrade.score.toInt()}|source=$graphSource"
+                val graphEntry = ts.position.entryPrice
+                val graphPeak = ts.position.highestPrice
+                val graphLow = ts.position.lowestPrice
+                val graphPeakPct = try { if (graphEntry > 0.0 && graphPeak > 0.0) ((graphPeak - graphEntry) / graphEntry) * 100.0 else graphTrade.pnlPct } catch (_: Throwable) { graphTrade.pnlPct }
+                val graphLossPct = try { if (graphEntry > 0.0 && graphLow > 0.0) ((graphLow - graphEntry) / graphEntry) * 100.0 else minOf(0.0, graphTrade.pnlPct) } catch (_: Throwable) { minOf(0.0, graphTrade.pnlPct) }
+                val graphHoldSeconds = if (graphTrade.entryTsMs > 0L) ((graphTrade.ts - graphTrade.entryTsMs) / 1000L).coerceAtLeast(0L) else 0L
+                GlobalScope.launch(AppDispatchers.sideEffect) {
+                    try {
+                        com.lifecyclebot.engine.SemanticPatternGraph.recordOutcome(
+                            lane = graphLane,
+                            source = graphSource,
+                            setup = graphSetup,
+                            deployer = ts.tokenMap.creatorOrDevWallet,
+                            exitReason = graphTrade.reason,
+                            failureMode = if (graphTrade.pnlPct < 0.0) graphTrade.reason else "",
+                            pnlPct = graphTrade.pnlPct,
+                            peakGainPct = graphPeakPct,
+                        )
+                        com.lifecyclebot.engine.CounterfactualReplayEngine.recordTerminalTrade(
+                            lane = graphLane,
+                            exitReason = graphTrade.reason,
+                            realizedPnlPct = graphTrade.pnlPct,
+                            peakGainPct = graphPeakPct,
+                            maxLossPct = graphLossPct,
+                            holdSeconds = graphHoldSeconds,
+                        )
+                        try { PipelineHealthCollector.labelInc("SEMANTIC_COUNTERFACTUAL_OUTCOME_4241") } catch (_: Throwable) {}
+                    } catch (_: Throwable) {}
+                }
+            }
+        } catch (_: Throwable) {}
+
         // V5.9.994 — ML TRAINING LOOP (Doctrine #4 — mature WR requires the
         // learners actually learn). Audit (V5.9.962→994 sweep) found
         // OnDeviceMLEngine.predict() was called by FinalDecisionGate on every
