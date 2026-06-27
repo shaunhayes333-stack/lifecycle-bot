@@ -3555,6 +3555,10 @@ class GoldenTapeRegressionTest {
         assertTrue("V5.0.4212: terminal close paths must remove PortfolioHeatAI exposure", executor4212.contains("PortfolioHeatAI.removePosition(tradeId.mint)") && executor4212.contains("PortfolioHeatAI.removePosition(ts.mint)"))
         val positionPersistence4213 = java.io.File("src/main/kotlin/com/lifecyclebot/engine/PositionPersistence.kt").readText()
         assertTrue("V5.0.4213: restored positions must rehydrate EmergentGuardrails and PortfolioHeatAI", positionPersistence4213.contains("EmergentGuardrails.registerPosition") && positionPersistence4213.contains("PortfolioHeatAI.addPosition") && positionPersistence4213.contains("PORTFOLIO_HEAT_RESTORED_POSITION_REGISTERED_4213"))
+        val botService4214 = java.io.File("src/main/kotlin/com/lifecyclebot/engine/BotService.kt").readText()
+        val positionPersistence4214 = java.io.File("src/main/kotlin/com/lifecyclebot/engine/PositionPersistence.kt").readText()
+        assertTrue("V5.0.4214: Manipulated lane opens must use achievable 14/-11 geometry", botService4214.contains("takeProfitPct = 14.0") && botService4214.contains("stopLossPct = -11.0") && !botService4214.contains("takeProfitPct = 25.0"))
+        assertTrue("V5.0.4214: restored MANIPULATED positions must rehydrate ManipulatedTraderAI active map", positionPersistence4214.contains("MANIPULATED_RESTORED_ACTIVE_POSITION_4214") && positionPersistence4214.contains("ManipulatedTraderAI.addPosition") && positionPersistence4214.contains("restoredLayer.equals(\"MANIPULATED\""))
     }
 
 

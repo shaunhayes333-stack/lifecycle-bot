@@ -19473,8 +19473,9 @@ if (hotExitHandledSweep) {
                                 ts = ts,
                                 sizeSol = manipSignal.positionSizeSol,
                                 walletSol = effectiveBalance,
-                                takeProfitPct = 25.0,
-                                stopLossPct = -5.0,
+                                // V5.0.4214 — match ManipulatedTraderAI achievable geometry.
+                                takeProfitPct = 14.0,
+                                stopLossPct = -11.0,
                                 wallet = wallet,
                                 isPaper = com.lifecyclebot.engine.RuntimeModeAuthority.isPaper(),  // V5.9.1563 — runtime authority, not stale cfg
                                 launchPlatform = com.lifecyclebot.v3.scoring.ShitCoinTraderAI.detectPlatform(ts.source),
@@ -19500,8 +19501,11 @@ if (hotExitHandledSweep) {
                                     entryPrice = actualManipEntry,
                                     entrySol = manipSignal.positionSizeSol,
                                     entryTime = System.currentTimeMillis(),
-                                    takeProfitPct = 25.0,
-                                    stopLossPct = -5.0,
+                                    // V5.0.4214 — match ManipulatedTraderAI's achievable
+                                    // bounce geometry. Stale 25/-5 here overrode the class-level
+                                    // 14/-11 fix and caused impossible target / noise-tight stops.
+                                    takeProfitPct = 14.0,
+                                    stopLossPct = -11.0,
                                     manipScore = manipSignal.manipScore,
                                     bundlePct = manipBundlePct,
                                     buyPressure = ts.lastBuyPressurePct,

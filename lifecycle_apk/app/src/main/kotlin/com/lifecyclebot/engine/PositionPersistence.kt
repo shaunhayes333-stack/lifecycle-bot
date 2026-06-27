@@ -401,6 +401,29 @@ object PositionPersistence {
                 )
                 PipelineHealthCollector.labelInc("PORTFOLIO_HEAT_RESTORED_POSITION_REGISTERED_4213")
             } catch (_: Throwable) {}
+            try {
+                if (restoredLayer.equals("MANIPULATED", ignoreCase = true) &&
+                    !com.lifecyclebot.v3.scoring.ManipulatedTraderAI.hasPosition(mint)) {
+                    com.lifecyclebot.v3.scoring.ManipulatedTraderAI.addPosition(
+                        com.lifecyclebot.v3.scoring.ManipulatedTraderAI.ManipulatedPosition(
+                            mint = mint,
+                            symbol = saved.symbol,
+                            entryPrice = saved.entryPrice,
+                            entrySol = saved.costSol,
+                            entryTime = saved.entryTime,
+                            takeProfitPct = 14.0,
+                            stopLossPct = -11.0,
+                            manipScore = saved.entryScore,
+                            bundlePct = 0.0,
+                            buyPressure = 0.0,
+                            isPaper = saved.isPaperPosition,
+                            highWaterMark = saved.highestPrice,
+                            peakPnlPct = saved.peakGainPct,
+                        )
+                    )
+                    PipelineHealthCollector.labelInc("MANIPULATED_RESTORED_ACTIVE_POSITION_4214")
+                }
+            } catch (_: Throwable) {}
             
             restoredCount++
         }
