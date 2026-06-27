@@ -18739,17 +18739,29 @@ if (hotExitHandledSweep) {
                 // ShitCoin gives the bot LEARNING exposure on the meme stream
                 // and lets us see actual rejection reasons in the log.
                 // LIVE mode is unchanged — V3 still owns memes there.
-                val v3OwnsMemes = try {
+                val v3ReadyForMemeSpine = try {
                     !cfg.paperMode && cfg.v3EngineEnabled && com.lifecyclebot.v3.V3EngineManager.isReady()
                 } catch (_: Throwable) { false }
+                // V5.0.4230 — live/paper parity: V3 readiness is NOT ownership of the
+                // direct ShitCoin executor lane. Let ShitCoin run through its own FDG +
+                // authorizer path in live too; true V3 fatal safety still terminates the
+                // lane below. This removes the hidden live-volume choke where V3 WATCH /
+                // routing rejects meant ShitCoin never reached executable-open.
+                val v3OwnsMemes = false
+                if (v3ReadyForMemeSpine) {
+                    try { PipelineHealthCollector.labelInc("SHITCOIN_LIVE_V3_PARALLEL_FALLBACK_4230") } catch (_: Throwable) {}
+                    if (ts.position.tradingMode.isBlank()) ts.position.tradingMode = "SHITCOIN"
+                }
                 if (v3OwnsMemes) {
-                    // Tag the token so FDG + cross-talk see the meme lane
-                    // even when V3 handles execution.
-                    if (ts.position.tradingMode.isBlank()) {
-                        ts.position.tradingMode = "SHITCOIN"
-                    }
+                    // Dead branch retained only as a structural guard for stale merge context.
+                    if (ts.position.tradingMode.isBlank()) ts.position.tradingMode = "SHITCOIN"
                 } else {
                 // V5.7.8: ShitCoin runs independently — Treasury positions don't block it
+                fun releaseShitCoinAttempt4230(reason: String, releasePermit: Boolean = true, releaseAuth: Boolean = true) {
+                    try { LaneExecutionCoordinator.releaseIfPrimary(ts.mint, "SHITCOIN", reason) } catch (_: Throwable) {}
+                    if (releasePermit) try { FinalExecutionPermit.releaseExecution(ts.mint) } catch (_: Throwable) {}
+                    if (releaseAuth) try { TradeAuthorizer.releasePosition(ts.mint, reason, TradeAuthorizer.ExecutionBook.SHITCOIN) } catch (_: Throwable) {}
+                }
                 try {
                     // V4.0 FIX: Check execution permit first
                     val permitResult = FinalExecutionPermit.canExecute(
@@ -18862,10 +18874,11 @@ if (hotExitHandledSweep) {
                             else                          -> "(none)"
                         }
                         val v3FatalIsRug = v3FatalReason.startsWith("V3:RUG_FATAL:") || v3FatalReason.contains("RUG_CRITICAL")
-                        val v3HardRejectForShitCoin =
+                        val v3RejectedIsRouting4230 = v3RejectedReason.contains("SHITCOIN_CANDIDATE") || v3RejectedReason.contains("MCAP_TOO_LOW")
+                        val v3HardRejectForShitCoin = !v3RejectedIsRouting4230 && (
                             v3Decision is com.lifecyclebot.v3.V3Decision.Rejected ||
                                 (v3Decision is com.lifecyclebot.v3.V3Decision.BlockFatal && !(v3IsPaperModeLocal && v3FatalIsRug)) ||
-                                v3Decision is com.lifecyclebot.v3.V3Decision.Blocked
+                                v3Decision is com.lifecyclebot.v3.V3Decision.Blocked)
                         if (v3HardRejectForShitCoin) {
                             try {
                                 com.lifecyclebot.engine.ForensicLogger.lifecycle(
@@ -19038,7 +19051,7 @@ if (hotExitHandledSweep) {
                                 )
                             } catch (_: Throwable) {}
                         }
-                        val shouldEnter = !shitCoinV3HardReject && !shitCoinDumpBlocks &&
+                        var shouldEnter = !shitCoinV3HardReject && !shitCoinDumpBlocks &&
                             (shitCoinSignal.shouldEnter || forceBootstrapAllowed)
 
                         // V5.9.27: explicit log so the block is visible when it fires
@@ -19054,9 +19067,11 @@ if (hotExitHandledSweep) {
                         
                         // V5.0.4021 — bootstrap score gate is paper-only. Live adapts
                         // from trade 1 via clean live outcome feedback and deterministic proof.
-                        if (com.lifecyclebot.engine.RuntimeModeAuthority.isPaper() && com.lifecyclebot.v3.scoring.FluidLearningAI.shouldBlockBootstrapTrade(shitCoinSignal.confidence)) {
-                            ErrorLogger.debug("BotService", "💩 [SHITCOIN] ${ts.symbol} | PAPER_BOOTSTRAP_BLOCKED | score=${shitCoinSignal.confidence} | ${com.lifecyclebot.v3.scoring.FluidLearningAI.getBootstrapStatus()}")
-                            return
+                        val paperBootstrapBlocked4230 = com.lifecyclebot.engine.RuntimeModeAuthority.isPaper() && com.lifecyclebot.v3.scoring.FluidLearningAI.shouldBlockBootstrapTrade(shitCoinSignal.confidence)
+                        if (paperBootstrapBlocked4230) {
+                            ErrorLogger.debug("BotService", "💩 [SHITCOIN] ${ts.symbol} | PAPER_BOOTSTRAP_BLOCKED | score=${shitCoinSignal.confidence} | ${com.lifecyclebot.v3.scoring.FluidLearningAI.getBootstrapStatus()} — branch-local skip")
+                            try { ForensicLogger.lifecycle("SHITCOIN_BOOTSTRAP_BRANCH_LOCAL_SKIP_4230", "symbol=${ts.symbol} mint=${ts.mint.take(10)} score=${shitCoinSignal.confidence}") } catch (_: Throwable) {}
+                            shouldEnter = false
                         }
                         
                         if (shouldEnter) {
@@ -19065,10 +19080,11 @@ if (hotExitHandledSweep) {
                             // Prevents the converged-bad-brain from continuing to bleed
                             // through this layer for 10 min at a time.
                             val (paused, why) = BotService.isStrategyPausedByTrust("SHITCOIN")
-                            if (paused) {
-                                ErrorLogger.info("BotService", "💩 [SHITCOIN] ${ts.symbol} | DISTRUST PAUSE | $why")
-                                return
-                            }
+                            val strategyDistrustSizeMult4230 = if (paused) {
+                                ErrorLogger.info("BotService", "💩 [SHITCOIN] ${ts.symbol} | DISTRUST RECOVERY PROBE | $why | sizeMult=0.35")
+                                try { ForensicLogger.lifecycle("SHITCOIN_STRATEGY_DISTRUST_RECOVERY_PROBE_4230", "symbol=${ts.symbol} mint=${ts.mint.take(10)} why=$why") } catch (_: Throwable) {}
+                                0.35
+                            } else 1.0
                             // V5.0.4021 — bootstrap size multiplier is paper-only; live
                             // sizing stays fluid/adaptive from SmartSizer + lane/market proof.
                             val bootstrapMultiplier = if (com.lifecyclebot.engine.RuntimeModeAuthority.isPaper()) com.lifecyclebot.v3.scoring.FluidLearningAI.getBootstrapSizeMultiplier() else 1.0
@@ -19078,7 +19094,7 @@ if (hotExitHandledSweep) {
                             val _shitCalMult = try {
                                 com.lifecyclebot.engine.ScoreExpectancyTracker.calibrationSizeMult("SHITCOIN", shitCoinSignal.entryScore)
                             } catch (_: Throwable) { 1.0 }
-                            var adjustedSize = (shitCoinSignal.positionSizeSol * bootstrapMultiplier * edgeSizeMult * _shitCalMult).coerceAtLeast(0.01)
+                            var adjustedSize = (shitCoinSignal.positionSizeSol * bootstrapMultiplier * edgeSizeMult * _shitCalMult * strategyDistrustSizeMult4230).coerceAtLeast(0.01)
                             
                             // V5.2.8 FIX: If bootstrap override forced entry, use default TP/SL values
                             val shitcoinEffectiveTpPct = if (shitCoinSignal.takeProfitPct <= 0.0) 5.0 else shitCoinSignal.takeProfitPct
@@ -19095,7 +19111,7 @@ if (hotExitHandledSweep) {
                                     candidate = laneQualifiedBuyDecision(decision, "SHITCOIN", confidenceFloor = shitCoinSignal.confidence * 100.0, liquidityUsd = ts.lastLiquidityUsd, mintForProbe = ts.mint),
                                     laneScore = shitCoinSignal.confidence.toDouble(),  // Int 0-100
                                     config = cfg,
-                                    proposedSizeSol = shitCoinSignal.positionSizeSol,
+                                    proposedSizeSol = adjustedSize,
                                     brain = executor.brain,
                                     tradingModeTag = try { ModeSpecificGates.fromTradingMode("SHIT_COIN") } catch (_: Exception) { null },
                                 )
@@ -19141,7 +19157,7 @@ if (hotExitHandledSweep) {
                                         )
                                     } catch (_: Throwable) {}
                                     RejectionTelemetry.record("SHITCOIN_FDG_HARD_VETO", scBlock)
-                                    try { LaneExecutionCoordinator.releaseIfPrimary(ts.mint, "SHITCOIN", "FDG_HARD_VETO") } catch (_: Throwable) {}
+                                    releaseShitCoinAttempt4230("FDG_HARD_VETO", releasePermit = false, releaseAuth = false)
                                     return
                                 }
                                 // Soft block in wide-open bootstrap → tiny learning probe.
@@ -19224,9 +19240,7 @@ if (hotExitHandledSweep) {
                                 if (!shitCoinOpened) {
                                     ErrorLogger.warn("BotService", "SHITCOIN ${ts.symbol} | BUY_NOT_OPENED | release auth/permit; no lane registration")
                                     try { ForensicLogger.lifecycle("LANE_BUY_NOT_OPENED_RELEASED", "lane=SHITCOIN symbol=${ts.symbol} mint=${ts.mint.take(10)}") } catch (_: Throwable) {}
-                                    try { LaneExecutionCoordinator.releaseIfPrimary(ts.mint, "SHITCOIN", "BUY_NOT_OPENED") } catch (_: Throwable) {}
-                                    try { FinalExecutionPermit.releaseExecution(ts.mint) } catch (_: Throwable) {}
-                                    try { TradeAuthorizer.releasePosition(ts.mint, "BUY_NOT_OPENED", TradeAuthorizer.ExecutionBook.SHITCOIN) } catch (_: Throwable) {}
+                                    releaseShitCoinAttempt4230("BUY_NOT_OPENED")
                                     return
                                 }
 
@@ -19324,8 +19338,8 @@ if (hotExitHandledSweep) {
                                         reason = "AUTHZ_RACE another-lane lane=SHITCOIN"
                                     )
                                 } catch (_: Throwable) {}
-                                // Release authorizer lock since we didn't execute
-                                TradeAuthorizer.releasePosition(ts.mint, "PERMIT_BLOCKED")
+                                // Release authorizer/lane locks since we didn't execute
+                                releaseShitCoinAttempt4230("PERMIT_BLOCKED", releasePermit = false, releaseAuth = true)
                             }
                             } // end authResult.isExecutable()
                     }
@@ -19335,7 +19349,7 @@ if (hotExitHandledSweep) {
                 } // close FDG-required else (SHITCOIN V5.9.688)
                 } catch (scEx: Exception) {
                     ErrorLogger.debug("BotService", "💩 [SHITCOIN] ${ts.symbol} | ERROR | ${scEx.message}")
-                    FinalExecutionPermit.releaseExecution(ts.mint)
+                    releaseShitCoinAttempt4230("EXCEPTION")
                 }
                 } // V5.9.409: close else-branch of v3OwnsMemes (ShitCoin legacy path)
             }

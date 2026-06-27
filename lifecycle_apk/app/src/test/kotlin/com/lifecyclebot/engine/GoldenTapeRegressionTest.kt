@@ -4369,4 +4369,14 @@ class GoldenTapeRegressionTest {
             exec.contains("STRICT_SL_OVERRIDE_HOLD") && exec.contains("CATASTROPHE_OVERRIDE_PROFIT_LOCK") && exec.contains("RUG_UNSELLABLE_ROUTE_GONE"))
     }
 
+    @Test
+    fun shitcoin4230LiveVolumeAndReleaseHygiene() {
+        val bot = java.io.File("src/main/kotlin/com/lifecyclebot/engine/BotService.kt").readText()
+        assertTrue("V5.0.4230: live V3 readiness must not suppress direct ShitCoin executor fallback", bot.contains("SHITCOIN_LIVE_V3_PARALLEL_FALLBACK_4230") && bot.contains("val v3OwnsMemes = false") && bot.contains("v3RejectedIsRouting4230"))
+        assertTrue("V5.0.4230: ShitCoin StrategyTrust distrust must recovery-probe, not hard-return", bot.contains("SHITCOIN_STRATEGY_DISTRUST_RECOVERY_PROBE_4230") && bot.contains("strategyDistrustSizeMult4230") && bot.contains("* strategyDistrustSizeMult4230"))
+        assertTrue("V5.0.4230: ShitCoin FDG must evaluate actual adjusted size", bot.contains("proposedSizeSol = adjustedSize"))
+        assertTrue("V5.0.4230: ShitCoin bootstrap block must be branch-local and not abort sibling lanes", bot.contains("paperBootstrapBlocked4230") && bot.contains("SHITCOIN_BOOTSTRAP_BRANCH_LOCAL_SKIP_4230") && bot.contains("shouldEnter = false"))
+        assertTrue("V5.0.4230: ShitCoin failure paths must release lane/permit/auth through one helper", bot.contains("fun releaseShitCoinAttempt4230") && bot.contains("TradeAuthorizer.releasePosition(ts.mint, reason, TradeAuthorizer.ExecutionBook.SHITCOIN)") && bot.contains("""releaseShitCoinAttempt4230("BUY_NOT_OPENED")""") && bot.contains("""releaseShitCoinAttempt4230("EXCEPTION")"""))
+    }
+
 }
