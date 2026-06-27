@@ -8251,8 +8251,28 @@ class Executor(
                 sig.multiplier
             } else 1.0
         } catch (_: Throwable) { 1.0 }
+        val shadowVariantSizeMult = try {
+            try {
+                ShadowLearningEngine.onTradeOpportunity(
+                    mint = ts.mint,
+                    symbol = ts.symbol,
+                    currentPrice = getActualPrice(ts),
+                    liveEntryScore = score.toInt().coerceIn(0, 100),
+                    liveEntryThreshold = score.toInt().coerceIn(0, 100),
+                    liveSizeSol = sol,
+                    phase = ts.phase,
+                )
+            } catch (_: Throwable) {}
+            ShadowLearningEngine.bestVariantSizeBias()
+        } catch (_: Throwable) { 1.0 }
+        if (shadowVariantSizeMult != 1.0) {
+            try {
+                ForensicLogger.lifecycle("SHADOW_VARIANT_SIZE_SHAPED_4263", "mint=${ts.mint.take(10)} symbol=${ts.symbol} lane=$laneKeyForAgi mult=${shadowVariantSizeMult.fmt(3)} mode=${if (RuntimeModeAuthority.isPaper()) "paper" else "live"}")
+                PipelineHealthCollector.labelInc("SHADOW_VARIANT_SIZE_SHAPED_4263")
+            } catch (_: Throwable) {}
+        }
         val multiplierProductRaw = sizeMult * labMult * laneEvMult * regimeMultGoosed * laneSizeCap * brainSizeMult *
-            strategyTunerSizeMult * sourceBrainSizeMult * uphConvictionMult * hypothesisSizeMult * paperLiveBridgeMult
+            strategyTunerSizeMult * sourceBrainSizeMult * uphConvictionMult * hypothesisSizeMult * paperLiveBridgeMult * shadowVariantSizeMult
 
         // V5.0.4179 — F1: SLIP-AWARE ENTRY SIZING (catastrophic-overrun fix).
         // Field journal showed losses overrunning STRICT_SL_-10 to -71%

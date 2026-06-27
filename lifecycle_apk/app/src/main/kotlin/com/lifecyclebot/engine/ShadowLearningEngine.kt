@@ -953,6 +953,16 @@ object ShadowLearningEngine {
             .maxByOrNull { it.totalPnlSol }
     }
 
+
+    /** V5.0.4263 — expose best shadow variant as a tiny executor size bias. */
+    fun bestVariantSizeBias(): Double {
+        val best = getBestVariant() ?: return 1.0
+        val variant = variants[best.variantId] ?: return 1.0
+        if (best.totalTrades < 8) return 1.0
+        if (best.winRate < 45.0 || best.comparedToLive < 8.0) return 1.0
+        return variant.positionSizeMultiplier.coerceIn(0.94, 1.06)
+    }
+
     /**
      * Format status for display/Telegram.
      */

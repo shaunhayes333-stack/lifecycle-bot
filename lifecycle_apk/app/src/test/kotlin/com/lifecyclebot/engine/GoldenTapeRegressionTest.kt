@@ -4643,4 +4643,14 @@ class GoldenTapeRegressionTest {
         assertTrue("V5.0.4262: full meme audit sweeper must track paper/live intelligence alignment", sweeper.contains("PAPER_LIVE_INTELLIGENCE_ALIGNMENT_4262"))
     }
 
+    @Test
+    fun shadowLearning4263RegistersOpportunitiesAndShapesExecutorSizeSoftly() {
+        val shadow = java.io.File("src/main/kotlin/com/lifecyclebot/engine/ShadowLearningEngine.kt").readText()
+        val exec = java.io.File("src/main/kotlin/com/lifecyclebot/engine/Executor.kt").readText()
+        val sweeper = java.io.File("src/main/kotlin/com/lifecyclebot/engine/MemeTraderFullAuditSweeper.kt").readText()
+        assertTrue("V5.0.4263: ShadowLearningEngine must expose best variant as tiny bounded size bias", shadow.contains("fun bestVariantSizeBias") && shadow.contains("positionSizeMultiplier.coerceIn(0.94, 1.06)") && shadow.contains("best.comparedToLive < 8.0"))
+        assertTrue("V5.0.4263: Executor must register trade opportunities and consume shadow variant bias in shared paper/live size stack", exec.contains("ShadowLearningEngine.onTradeOpportunity") && exec.contains("ShadowLearningEngine.bestVariantSizeBias") && exec.contains("SHADOW_VARIANT_SIZE_SHAPED_4263") && exec.contains("shadowVariantSizeMult"))
+        assertTrue("V5.0.4263: full meme audit sweeper must mark Pass G only when shadow variants are consumed", sweeper.contains("PASS_G_SHADOW_LEARNING_4261") && sweeper.contains("bestVariantSizeBias") && sweeper.contains("ShadowLearningEngine.onTradeOpportunity"))
+    }
+
 }
