@@ -21,24 +21,28 @@ object ShitCoinDecisionMatrixReport {
 
     fun recordReject(reason: String, mode: String, platform: String, isPaper: Boolean) {
         rejected.incrementAndGet(); inc(rejectReasons, reason.substringBefore(':').take(64)); inc(platforms, "${if (isPaper) "PAPER" else "LIVE"}/$platform/$mode")
-        try { PipelineHealthCollector.labelInc("SHITCOIN_MATRIX_REJECT_4312") } catch (_: Throwable) {}
+        ChokeReliefBus.launch("SHITCOIN_MATRIX_REJECT_4312") { PipelineHealthCollector.labelInc("SHITCOIN_MATRIX_REJECT_4312") }
     }
 
     fun recordAccepted(reason: String, score: Int, confidence: Int, mode: String, platform: String, isPaper: Boolean, sizeSol: Double) {
         accepted.incrementAndGet(); inc(platforms, "${if (isPaper) "PAPER" else "LIVE"}/$platform/$mode")
-        try { PipelineHealthCollector.labelInc("SHITCOIN_MATRIX_ACCEPT_4312") } catch (_: Throwable) {}
-        try { ForensicLogger.lifecycle("SHITCOIN_MATRIX_ACCEPT_4312", "score=$score conf=$confidence mode=$mode platform=$platform paper=$isPaper size=${sizeSol.fmtLocal(4)} reason=${reason.take(180)} report_only=true") } catch (_: Throwable) {}
+        ChokeReliefBus.launch("SHITCOIN_MATRIX_ACCEPT_4312") {
+            PipelineHealthCollector.labelInc("SHITCOIN_MATRIX_ACCEPT_4312")
+            ForensicLogger.lifecycle("SHITCOIN_MATRIX_ACCEPT_4312", "score=$score conf=$confidence mode=$mode platform=$platform paper=$isPaper size=${sizeSol.fmtLocal(4)} reason=${reason.take(180)} report_only=true")
+        }
     }
 
     fun recordOpened(mint: String, symbol: String, platform: String, isPaper: Boolean, sizeSol: Double, entryScore: Int) {
         opened.incrementAndGet(); inc(platforms, "${if (isPaper) "PAPER" else "LIVE"}/$platform")
-        try { PipelineHealthCollector.labelInc("SHITCOIN_MATRIX_OPEN_4312") } catch (_: Throwable) {}
+        ChokeReliefBus.launch("SHITCOIN_MATRIX_OPEN_4312", mint) { PipelineHealthCollector.labelInc("SHITCOIN_MATRIX_OPEN_4312") }
     }
 
     fun recordClosed(mint: String, symbol: String, isPaper: Boolean, pnlPct: Double, pnlSol: Double, exitReason: String, entryScore: Int) {
         closed.incrementAndGet(); if (pnlPct > 0.0) wins.incrementAndGet() else losses.incrementAndGet(); inc(exitReasons, exitReason)
-        try { PipelineHealthCollector.labelInc("SHITCOIN_MATRIX_CLOSE_4312") } catch (_: Throwable) {}
-        try { ForensicLogger.lifecycle("SHITCOIN_MATRIX_CLOSE_4312", "mint=${mint.take(10)} symbol=${symbol.take(16)} paper=$isPaper pnlPct=${pnlPct.fmtLocal(2)} pnlSol=${pnlSol.fmtLocal(5)} reason=$exitReason entryScore=$entryScore report_only=true") } catch (_: Throwable) {}
+        ChokeReliefBus.launch("SHITCOIN_MATRIX_CLOSE_4312", mint) {
+            PipelineHealthCollector.labelInc("SHITCOIN_MATRIX_CLOSE_4312")
+            ForensicLogger.lifecycle("SHITCOIN_MATRIX_CLOSE_4312", "mint=${mint.take(10)} symbol=${symbol.take(16)} paper=$isPaper pnlPct=${pnlPct.fmtLocal(2)} pnlSol=${pnlSol.fmtLocal(5)} reason=$exitReason entryScore=$entryScore report_only=true")
+        }
     }
 
     fun status(): String {

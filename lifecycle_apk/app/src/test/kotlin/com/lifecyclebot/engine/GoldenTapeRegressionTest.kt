@@ -5108,4 +5108,13 @@ class GoldenTapeRegressionTest {
         assertFalse("V5.0.4317: stale expectancy hard-return literals must not survive in these three lanes", manip.contains("EXPECTANCY_REJECT_score_") || moon.contains("expectancy_reject_score_") || quality.contains("reason = \"EXPECTANCY_REJECT: score="))
     }
 
+    @Test
+    fun chokeReliefBus4320OffloadsReportOnlyMatrixFanout() {
+        val bus = java.io.File("src/main/kotlin/com/lifecyclebot/engine/ChokeReliefBus.kt").readText()
+        val sell = java.io.File("src/main/kotlin/com/lifecyclebot/engine/SellDecisionMatrixReport.kt").readText()
+        val shit = java.io.File("src/main/kotlin/com/lifecyclebot/engine/ShitCoinDecisionMatrixReport.kt").readText()
+        assertTrue("V5.0.4320: ChokeReliefBus must be bounded, report-only, and use sideEffect dispatcher", bus.contains("MAX_IN_FLIGHT = 256") && bus.contains("AppDispatchers.sideEffect") && bus.contains("CHOKE_RELIEF_DROP_4320") && bus.contains("report_only=true"))
+        assertTrue("V5.0.4320: matrix reporters must offload non-critical side effects through ChokeReliefBus", sell.contains("ChokeReliefBus.launch") && shit.contains("ChokeReliefBus.launch") && shit.contains("ForensicLogger.lifecycle"))
+    }
+
 }

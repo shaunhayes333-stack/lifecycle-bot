@@ -15,17 +15,17 @@ object SellDecisionMatrixReport {
 
     fun recordIntent(mint: String, symbol: String, reason: String, isPaper: Boolean, lane: String) {
         intents.incrementAndGet(); inc(byReason, reason.substringBefore('_').substringBefore(':')); inc(byStage, "${if (isPaper) "PAPER" else "LIVE"}/$lane")
-        try { PipelineHealthCollector.labelInc("SELL_MATRIX_INTENT_4313") } catch (_: Throwable) {}
+        ChokeReliefBus.launch("SELL_MATRIX_INTENT_4313", mint) { PipelineHealthCollector.labelInc("SELL_MATRIX_INTENT_4313") }
     }
 
     fun recordPreSellDefer(mint: String, symbol: String, reason: String, stage: String) {
         preSellDefers.incrementAndGet(); inc(byStage, stage); inc(byReason, reason.substringBefore('_').substringBefore(':'))
-        try { PipelineHealthCollector.labelInc("SELL_MATRIX_DEFER_4313/$stage") } catch (_: Throwable) {}
+        ChokeReliefBus.launch("SELL_MATRIX_DEFER_4313", mint) { PipelineHealthCollector.labelInc("SELL_MATRIX_DEFER_4313/$stage") }
     }
 
     fun recordDoSellHandoff(mint: String, symbol: String, reason: String, isPaper: Boolean) {
         doSellHandoffs.incrementAndGet(); inc(byStage, "DO_SELL/${if (isPaper) "PAPER" else "LIVE"}"); inc(byReason, reason.substringBefore('_').substringBefore(':'))
-        try { PipelineHealthCollector.labelInc("SELL_MATRIX_DOSELL_HANDOFF_4313") } catch (_: Throwable) {}
+        ChokeReliefBus.launch("SELL_MATRIX_DOSELL_HANDOFF_4313", mint) { PipelineHealthCollector.labelInc("SELL_MATRIX_DOSELL_HANDOFF_4313") }
     }
 
     fun status(): String {
