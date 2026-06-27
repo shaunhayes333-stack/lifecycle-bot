@@ -561,7 +561,7 @@ object ProjectSniperAI {
 
     fun restoreMission(mission: SniperMission) {
         activeMissions[mission.mint] = mission
-        ErrorLogger.warn(TAG, "🎯 MISSION RESTORED: ${mission.symbol} | entry=${mission.entryPrice.fmtPrice()} | age=${mission.tokenAgeSecs}s")
+        ErrorLogger.warn(TAG, "🎯 MISSION RESTORED: ${mission.symbol} | entry=${mission.entryPrice.fmt(8)} | age=${mission.tokenAgeSecs}s")
     }
     
     // ═══════════════════════════════════════════════════════════════════════════

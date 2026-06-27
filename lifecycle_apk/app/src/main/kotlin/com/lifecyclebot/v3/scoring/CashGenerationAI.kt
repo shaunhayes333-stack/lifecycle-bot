@@ -1060,7 +1060,7 @@ object CashGenerationAI {
     fun restorePosition(position: TreasuryPosition, isPaper: Boolean) {
         val target = if (isPaper) paperPositions else livePositions
         synchronized(target) { target[position.mint] = position }
-        ErrorLogger.warn(TAG, "💰 TREASURY RESTORED: ${position.symbol} | entry=${position.entryPrice.fmtPrice()} | ${if (isPaper) "PAPER" else "LIVE"}")
+        ErrorLogger.warn(TAG, "💰 TREASURY RESTORED: ${position.symbol} | entry=${position.entryPrice.fmt(8)} | ${if (isPaper) "PAPER" else "LIVE"}")
     }
 
     fun getActivePosition(mint: String): TreasuryPosition? {

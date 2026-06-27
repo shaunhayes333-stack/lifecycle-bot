@@ -987,7 +987,7 @@ object MoonshotTraderAI {
 
     fun restorePosition(position: MoonshotPosition) {
         synchronized(activePositions) { activePositions[position.mint] = position }
-        ErrorLogger.warn(TAG, "🌙 MOONSHOT RESTORED: ${position.symbol} | mode=${position.spaceMode.name} | entry=${position.entryPrice.fmtPrice()} | ${if (position.isPaperMode) "PAPER" else "LIVE"}")
+        ErrorLogger.warn(TAG, "🌙 MOONSHOT RESTORED: ${position.symbol} | mode=${position.spaceMode.name} | entry=${position.entryPrice.fmt(8)} | ${if (position.isPaperMode) "PAPER" else "LIVE"}")
     }
 
     /** V5.9.398 — Push a live price (no exit logic). See ShitCoinTraderAI.updateLivePrice. */
