@@ -4885,7 +4885,7 @@ class GoldenTapeRegressionTest {
         val async = java.io.File("src/main/kotlin/com/lifecyclebot/engine/AsyncStrategyLab.kt").readText()
         val research = java.io.File("src/main/kotlin/com/lifecyclebot/engine/ResearchScout.kt").readText()
         assertTrue("V5.0.4295 A39: provider sentinel must name scanner/FDG/executor hot paths and forbidden provider tokens", sentinel.contains("HOT_PATH_PROVIDER_CALL_SENTINEL_4295") && sentinel.contains("BotService.kt") && sentinel.contains("FinalDecisionGate.kt") && sentinel.contains("Executor.kt") && sentinel.contains("GeminiCopilot.generate") && sentinel.contains("OpenRouter") && sentinel.contains("Groq"))
-        assertTrue("V5.0.4295 A39: provider-using intelligence must remain background-only", sentinel.contains("allowedBackgroundWorkers") && sentinel.contains("AsyncStrategyLab") && sentinel.contains("ResearchScout") && async.contains("AppDispatchers.sideEffect") && research.contains("RESEARCH_SCOUT"))
+        assertTrue("V5.0.4295 A39: provider-using intelligence must remain background-only", sentinel.contains("allowedBackgroundWorkers") && sentinel.contains("AsyncStrategyLab") && sentinel.contains("ResearchScout") && async.contains("background_only=true") && research.contains("BACKGROUND_RESEARCH_SCOUT"))
         assertFalse("V5.0.4295 A39: provider sentinel must not pause, zero-size, buy, or sell", sentinel.contains("return 0.0") || sentinel.contains("executeBuy(") || sentinel.contains("requestSell(") || sentinel.contains("return false"))
     }
 
