@@ -577,6 +577,11 @@ object DipHunterAI {
             "dip=${dipDepthPct.fmt(1)}% | " +
             "size=${entrySol.fmt(4)} SOL")
     }
+
+    fun restoreDip(position: DipPosition) {
+        synchronized(activeDips) { activeDips[position.mint] = position }
+        ErrorLogger.warn(TAG, "📉🎯 DIP RESTORED: ${position.symbol} | entry=${position.entryPrice.fmtPrice()} | dip=${position.dipDepthPct.fmt(1)}% | mode=${if (position.isPaper) "PAPER" else "LIVE"}")
+    }
     
     fun checkExit(mint: String, currentPrice: Double, currentLiquidity: Double): DipExitSignal {
         val pos = synchronized(activeDips) { activeDips[mint] } ?: return DipExitSignal.HOLD

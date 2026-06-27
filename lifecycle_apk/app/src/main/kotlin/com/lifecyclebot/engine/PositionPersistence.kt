@@ -472,6 +472,29 @@ object PositionPersistence {
                     )
                     PipelineHealthCollector.labelInc("BLUE_CHIP_RESTORED_ACTIVE_POSITION_4215")
                 }
+                if (restoredLayer.equals("DIP_HUNTER", ignoreCase = true) &&
+                    !com.lifecyclebot.v3.scoring.DipHunterAI.hasDip(mint)) {
+                    val restoredHigh = saved.highestPrice.takeIf { it > saved.entryPrice } ?: saved.entryPrice
+                    val restoredDipDepth = if (restoredHigh > 0.0 && restoredHigh > saved.entryPrice) {
+                        ((restoredHigh - saved.entryPrice) / restoredHigh * 100.0).coerceAtLeast(0.0)
+                    } else 0.0
+                    com.lifecyclebot.v3.scoring.DipHunterAI.restoreDip(
+                        com.lifecyclebot.v3.scoring.DipHunterAI.DipPosition(
+                            mint = mint,
+                            symbol = saved.symbol,
+                            entryPrice = saved.entryPrice,
+                            entrySol = saved.costSol,
+                            entryTime = saved.entryTime,
+                            highPrice = restoredHigh,
+                            dipDepthPct = restoredDipDepth,
+                            entryMcap = saved.entryMcap.takeIf { it > 0.0 } ?: saved.lastKnownMcap,
+                            entryLiquidity = saved.entryLiquidityUsd.takeIf { it > 0.0 } ?: saved.lastKnownLiquidity,
+                            isPaper = saved.isPaperPosition,
+                            recoveryHighPct = saved.peakGainPct.coerceAtLeast(0.0),
+                        )
+                    )
+                    PipelineHealthCollector.labelInc("DIP_HUNTER_RESTORED_ACTIVE_DIP_4221")
+                }
             } catch (_: Throwable) {}
             
             restoredCount++

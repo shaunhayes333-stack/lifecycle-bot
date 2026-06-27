@@ -3570,6 +3570,9 @@ class GoldenTapeRegressionTest {
         assertTrue("V5.0.4219: Quality TP risk/reward floor must use absolute stop distance", botService4219.contains("kotlin.math.abs(qualitySignal.stopLossPct) * 2.0") && !botService4219.contains("qualitySignal.stopLossPct * 2.0  // Always >= 2x the stop"))
         val botService4220 = java.io.File("src/main/kotlin/com/lifecyclebot/engine/BotService.kt").readText()
         assertTrue("V5.0.4220: DipHunter active state must open only after buy succeeds", botService4220.contains("val dipOpened = executor.dipHunterBuy") && botService4220.indexOf("val dipOpened = executor.dipHunterBuy") < botService4220.indexOf("DipHunterAI.openDip") && botService4220.contains("DIP_HUNTER_OPEN_AFTER_BUY_4220") && botService4220.contains("TradeAuthorizer.releasePosition(ts.mint, \"BUY_NOT_OPENED\", TradeAuthorizer.ExecutionBook.DIP_HUNTER)"))
+        val dipHunter4221 = java.io.File("src/main/kotlin/com/lifecyclebot/v3/scoring/DipHunterAI.kt").readText()
+        val positionPersistence4221 = java.io.File("src/main/kotlin/com/lifecyclebot/engine/PositionPersistence.kt").readText()
+        assertTrue("V5.0.4221: restored DIP_HUNTER positions must rehydrate activeDips", dipHunter4221.contains("fun restoreDip(position: DipPosition)") && positionPersistence4221.contains("DIP_HUNTER_RESTORED_ACTIVE_DIP_4221") && positionPersistence4221.contains("DipHunterAI.restoreDip") && positionPersistence4221.contains("restoredLayer.equals(\"DIP_HUNTER\""))
     }
 
 
