@@ -4783,4 +4783,12 @@ class GoldenTapeRegressionTest {
         assertTrue("V5.0.4281: CapitalEfficiencyBrain state must persist through LearningPersistence", brain.contains("exportState") && brain.contains("importState") && persistence.contains("CAPITAL_EFFICIENCY"))
     }
 
+    @Test
+    fun operationalBuildGateDashboard4282RunsInCi() {
+        val script = java.io.File("ci/build_gate_summary.py").readText()
+        val workflow = java.io.File("../.github/workflows/build.yml").readText()
+        assertTrue("V5.0.4282: build gate dashboard must summarize touched production files, Golden Tape, audit bundles, and inherited failures", script.contains("production files touched") && script.contains("Golden Tape touched") && script.contains("latest audit bundles marked implemented") && script.contains("inherited known failures"))
+        assertTrue("V5.0.4282: workflow must emit build gate summary after release build", workflow.contains("ci/build_gate_summary.py") && workflow.indexOf("ci/build_gate_summary.py") > workflow.indexOf("assembleRelease"))
+    }
+
 }

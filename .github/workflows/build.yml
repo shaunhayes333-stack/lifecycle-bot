@@ -82,6 +82,7 @@ jobs:
           # Tests must pass for the build to succeed; failure fails CI.
           ./gradlew testReleaseUnitTest --no-daemon --stacktrace -PbuildNumber=$AATE_BUILD_NUMBER -PaateVersionName=$AATE_VERSION_NAME
           ./gradlew assembleRelease --no-daemon -PbuildNumber=$AATE_BUILD_NUMBER -PaateVersionName=$AATE_VERSION_NAME
+          python3 ci/build_gate_summary.py
           echo "Built APK:"
           ls -la app/build/outputs/apk/release/
           # APK is already named AATE_v5.0.{buildNumber}.apk by gradle

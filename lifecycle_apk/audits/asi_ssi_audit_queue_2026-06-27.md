@@ -168,5 +168,6 @@ North star: realized live wallet growth toward the operator's daily 2x-5x compou
 - Expected impact: better daily wallet growth, not just higher WR.
 
 ### A31 — Operational Build Gate Dashboard
+- Status: implemented in V5.0.4282 as `ci/build_gate_summary.py`, emitted from CI after assembleRelease.
 - Generate a compact build gate summary after each pushed build: source files touched, Golden Tape assertions updated, CI status, known inherited failures, and whether latest green APK includes each audit bundle.
 - Expected impact: prevents operator confusion during long build-ahead sequences and keeps install/run decisions clean.
