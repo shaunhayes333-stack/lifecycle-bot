@@ -1228,6 +1228,10 @@ object FinalDecisionGate {
         // adjustment now; it's the soft mechanism that nudges confidence
         // based on accumulated outcomes from trade 1 onward.
         val confidence = FluidLearningAI.getAdjustedConfidence(rawConfidence, isPaperMode)
+        // V5.0.4297 — final pre-live choke sweep: non-safety confidence/toxic-pattern
+        // failures must shape into tiny probes instead of silently amputating the
+        // buy deck. True safety/rug/route/freeze hard blocks below remain untouched.
+        var preFdgNonSafetySizeMult4297 = 1.0
 
         // V5.9.798 — operator audit: Smart Entry Gate during WR recovery.
         // Operator mandate: 'the bot overall should be working harder and
@@ -1371,24 +1375,10 @@ object FinalDecisionGate {
         //   - 3000+ trades: 32% floor — original rule.
         val aiDegradedFloor = if (totalSettled < 3000) 22.0 else 32.0
         if (confidence < aiDegradedFloor && earlyAIDegraded && !canBypassConfidenceFloors) {
-            ErrorLogger.warn("FDG", "🚫 HARD_KILL: ${ts.symbol} | conf=${confidence.toInt()}% + AI_DEGRADED | floor=${aiDegradedFloor.toInt()}% | DEGRADED_AI_CONFIDENCE_FLOOR_VIOLATED")
-
-            return FinalDecision(
-                shouldTrade = false,
-                mode = mode,
-                approvalClass = ApprovalClass.BLOCKED,
-                quality = candidate.setupQuality,
-                confidence = confidence,
-                edge = EdgeVerdict.SKIP,
-                blockReason = "AI_DEGRADED_CONFIDENCE_FLOOR_${aiDegradedFloor.toInt()}%",
-                blockLevel = BlockLevel.CONFIDENCE,
-                sizeSol = 0.0,
-                tags = listOf("ai_degraded_confidence_floor", "hard_kill"),
-                mint = ts.mint,
-                symbol = ts.symbol,
-                approvalReason = "AI_DEGRADED + conf < ${aiDegradedFloor.toInt()}% = REJECT",
-                gateChecks = listOf(GateCheck("ai_degraded_conf_floor", false, "Degraded AI requires conf >= ${aiDegradedFloor.toInt()}%"))
-            )
+            preFdgNonSafetySizeMult4297 *= 0.45
+            tags.add("ai_degraded_confidence_soft_shape_4297")
+            checks.add(GateCheck("ai_degraded_conf_floor", true, "Degraded AI conf ${confidence.toInt()}% < ${aiDegradedFloor.toInt()}% → 0.45x probe, not hard block"))
+            ErrorLogger.info("FDG", "🧠 AI_DEGRADED_SOFT_PROBE_4297: ${ts.symbol} | conf=${confidence.toInt()}% floor=${aiDegradedFloor.toInt()}% size×0.45 no_hard_block=true")
         }
 
         val toxicPatternFlags = mutableListOf<String>()
@@ -1410,30 +1400,11 @@ object FinalDecisionGate {
         // complained about. At 4/4 it's genuinely toxic: C-grade AND
         // low confidence AND deeply negative memory AND AI degraded.
         if (toxicPatternFlags.size >= 4 && !canBypassConfidenceFloors) {
-            ErrorLogger.warn("FDG", "🚫 HARD_KILL TOXIC PATTERN: ${ts.symbol} | flags=${toxicPatternFlags.joinToString(",")} | KRIS_RULE → REJECT")
-
-            return FinalDecision(
-                shouldTrade = false,
-                mode = mode,
-                approvalClass = ApprovalClass.BLOCKED,
-                quality = candidate.setupQuality,
-                confidence = confidence,
-                edge = EdgeVerdict.SKIP,
-                blockReason = "TOXIC_PATTERN_KRIS_RULE",
-                blockLevel = BlockLevel.HARD,
-                sizeSol = 0.0,
-                tags = listOf("toxic_pattern", "kris_rule", "hard_kill") + toxicPatternFlags,
-                mint = ts.mint,
-                symbol = ts.symbol,
-                approvalReason = "TOXIC_PATTERN: ${toxicPatternFlags.joinToString(" + ")} → REJECT",
-                gateChecks = listOf(
-                    GateCheck(
-                        "toxic_pattern",
-                        false,
-                        "Kris rule: 3+ toxic flags (${toxicPatternFlags.joinToString(",")}) = HARD REJECT"
-                    )
-                )
-            )
+            preFdgNonSafetySizeMult4297 *= 0.25
+            tags.add("toxic_pattern_soft_shape_4297")
+            tags.addAll(toxicPatternFlags.map { "tox_$it" })
+            checks.add(GateCheck("toxic_pattern", true, "Kris 4-flag toxicity (${toxicPatternFlags.joinToString(",")}) → 0.25x probe, true safety still hard-blocks"))
+            ErrorLogger.info("FDG", "☣️ TOXIC_PATTERN_SOFT_PROBE_4297: ${ts.symbol} | flags=${toxicPatternFlags.joinToString(",")} size×0.25 no_hard_block=true")
         } else if (toxicPatternFlags.size >= 4 && canBypassConfidenceFloors) {
             ErrorLogger.info("FDG", "🎓 BOOTSTRAP_OVERRIDE: ${ts.symbol} | Bypassing toxic pattern check for learning (flags=${toxicPatternFlags.joinToString(",")})")
             tags.add("bootstrap_toxic_bypass")
@@ -2256,7 +2227,7 @@ object FinalDecisionGate {
         }
 
         var softPenaltyScore = 0
-        var sizeMultiplier = 1.0
+        var sizeMultiplier = preFdgNonSafetySizeMult4297
         if (rugcheckStatus == "CONFIRMED" && rugcheckScore == 1) {
             softPenaltyScore += if (config.paperMode) 5 else 12
             sizeMultiplier *= if (config.paperMode) 0.70 else 0.35

@@ -4911,4 +4911,14 @@ class GoldenTapeRegressionTest {
         assertFalse("V5.0.4295 A41: KPI closeout must never own execution authority or fake PnL", report.contains("executeBuy(") || report.contains("requestSell(") || !report.contains("no_phantom_pnl=true") || !report.contains("no_execution_authority=true"))
     }
 
+
+    @Test
+    fun fdgFinalPreLiveChokeSweep4297SoftShapesNonSafetyConfidenceKills() {
+        val fdg = java.io.File("src/main/kotlin/com/lifecyclebot/engine/FinalDecisionGate.kt").readText()
+        assertTrue("V5.0.4297: AI_DEGRADED confidence floor must be a soft probe, not a zero-size hard kill", fdg.contains("AI_DEGRADED_SOFT_PROBE_4297") && fdg.contains("preFdgNonSafetySizeMult4297 *= 0.45") && fdg.contains("ai_degraded_confidence_soft_shape_4297"))
+        assertTrue("V5.0.4297: Kris toxic pattern must be a soft probe while true safety hard-blocks remain below", fdg.contains("TOXIC_PATTERN_SOFT_PROBE_4297") && fdg.contains("preFdgNonSafetySizeMult4297 *= 0.25") && fdg.contains("true safety still hard-blocks"))
+        assertTrue("V5.0.4297: non-safety pre-FDG shape must flow into downstream size multiplier", fdg.contains("var sizeMultiplier = preFdgNonSafetySizeMult4297"))
+        assertFalse("V5.0.4297: stale non-safety hard-kill reasons must not return zero-size FinalDecision", fdg.contains("blockReason = \"AI_DEGRADED_CONFIDENCE_FLOOR_") || fdg.contains("blockReason = \"TOXIC_PATTERN_KRIS_RULE\""))
+    }
+
 }
