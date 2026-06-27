@@ -9246,9 +9246,15 @@ class BotService : Service() {
             && !l.equals(primaryLane, ignoreCase = true)) {
             try {
                 val wr = com.lifecyclebot.engine.LiveLayerGateRelaxer.currentLiveWrPct()
-                if (wr < 45.0) {
+                val liveN = com.lifecyclebot.engine.LiveLayerGateRelaxer.currentLiveTerminalCount()
+                // V5.0.4300 — paper learning wins by sampling all layers first.
+                // Do not suppress non-primary meme lanes on a tiny live sample;
+                // let FDG/sizing soft-shape until enough terminal closes exist.
+                if (liveN >= 40 && wr < 45.0) {
                     PipelineHealthCollector.labelInc("L7_LANE_SUPPRESSED_LOW_WR_$l")
                     return false
+                } else if (liveN < 40 && wr < 45.0) {
+                    PipelineHealthCollector.labelInc("L7_LANE_SOFT_START_ALLOWED_4300_$l")
                 }
             } catch (_: Throwable) {}
         }

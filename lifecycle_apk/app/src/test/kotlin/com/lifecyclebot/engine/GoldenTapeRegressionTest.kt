@@ -4940,4 +4940,22 @@ class GoldenTapeRegressionTest {
         assertFalse("V5.0.4299: whale feeder cache/budget skips must not increment Birdeye call counters from BotService", bot.contains("BirdeyeWhaleFeeder.maybeFeed(\n                            mint = ts.mint") && bot.contains("currentPriceUsd = ts.lastPrice,\n                        )\n                        com.lifecyclebot.engine.BirdeyeBudgetGate.recordCalls(1)"))
     }
 
+
+    @Test
+    fun liveSoftStart4300MatchesPaperLearningBeforeHardening() {
+        val relaxer = java.io.File("src/main/kotlin/com/lifecyclebot/engine/LiveLayerGateRelaxer.kt").readText()
+        val bot = java.io.File("src/main/kotlin/com/lifecyclebot/engine/BotService.kt").readText()
+        val fdg = java.io.File("src/main/kotlin/com/lifecyclebot/engine/FinalDecisionGate.kt").readText()
+        assertTrue("V5.0.4300: live relaxer must soft-start before global WR floors harden", relaxer.contains("GLOBAL_SOFT_START_LIVE_CLOSES") && relaxer.contains("applyGlobalWrFloor") && relaxer.contains("soft-start/fade"))
+        assertTrue("V5.0.4300: sibling L7 lane suppression must allow meme lanes during live soft-start", bot.contains("L7_LANE_SOFT_START_ALLOWED_4300") && bot.contains("currentLiveTerminalCount()") && bot.contains("liveN >= 40 && wr < 45.0"))
+        assertTrue("V5.0.4300: FDG weak-WR liquidity lift must wait for meaningful live terminal sample", fdg.contains("val isWeakWr = wr < 30.0 && liveN >= 40") && fdg.contains("currentLiveTerminalCount()"))
+    }
+
+    @Test
+    fun executor4300FallbackResolvesTraderLaneInsteadOfPoisoningStandard() {
+        val ex = java.io.File("src/main/kotlin/com/lifecyclebot/engine/Executor.kt").readText()
+        assertTrue("V5.0.4300: recordTrade fallback must resolve actual meme trader lane before STANDARD fallback", ex.contains("V5.0.4300") && ex.contains("every clean close landing in") && ex.contains("resolveExecutionLane(ts, fallback = \"STANDARD\")"))
+        assertFalse("V5.0.4300: recordTrade must not collapse blank trade/position mode directly to STANDARD", ex.contains("isMeaningfulLaneName(ts.position.tradingMode) -> ts.position.tradingMode\n            else                                          -> \"STANDARD\""))
+    }
+
 }

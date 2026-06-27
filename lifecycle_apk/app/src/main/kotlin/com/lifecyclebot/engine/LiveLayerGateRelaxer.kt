@@ -48,6 +48,11 @@ object LiveLayerGateRelaxer {
      *  Between the two the relaxation fades linearly. */
     private const val WARM_MIN = 15
     private const val WARM_FULL = 40
+    // V5.0.4300 — live must mimic paper's successful learning shape:
+    // start soft across layers, collect terminal samples, then harden/fade
+    // once the trading brains have enough live evidence. A 0% WR over 3-5
+    // closes is bootstrap noise, not a valid global relaxer kill-switch.
+    private const val GLOBAL_SOFT_START_LIVE_CLOSES = 40
 
     /** Per-lane STARVED (cold-start) multiplier when `cfg.paperMode == false`.
      *  1.0 = no relaxation. Fades to 1.00 as the lane matures. */
@@ -145,8 +150,14 @@ object LiveLayerGateRelaxer {
         // based: relax fires whenever live WR clears 30%, emergency only
         // below 20%. Quality drives sizing, not newness.
         val liveWr = refreshLiveWrCache()
-        if (liveWr < EMERGENCY_FLOOR_PCT) return 1.0   // quality-only, no relaxation
-        if (liveWr < DOCTRINE_FLOOR_PCT)  return 1.0   // below floor: no relaxation
+        val liveTerminalN = cachedLiveTerminalCount
+        // V5.0.4300 — soft-start before global WR kill-switch. Paper learning
+        // works because it samples broadly first; live must do the same with
+        // reduced size instead of disabling the relaxer after 3-5 bootstrap
+        // losses. Once enough live terminal closes exist, WR floors harden.
+        val applyGlobalWrFloor = liveTerminalN >= GLOBAL_SOFT_START_LIVE_CLOSES
+        if (applyGlobalWrFloor && liveWr < EMERGENCY_FLOOR_PCT) return 1.0
+        if (applyGlobalWrFloor && liveWr < DOCTRINE_FLOOR_PCT)  return 1.0
         if (dumpRegimeNoRelax(traderTag)) return 1.0
         val base = perLaneMultiplier[canonicalLaneKey(traderTag)] ?: perLaneMultiplier[traderTag.uppercase()] ?: 1.0
         if (base >= 1.0) return 1.0  // never relaxed → nothing to fade
@@ -221,8 +232,9 @@ object LiveLayerGateRelaxer {
     fun summaryLine(): String {
         if (!enabled) return "🔓 GATE RELAXER: disabled"
         val liveWr = refreshLiveWrCache()
-        if (liveWr < DOCTRINE_FLOOR_PCT) {
-            return "🔒 GATE RELAXER: DISABLED (live WR=${"%.1f".format(liveWr)}% < ${DOCTRINE_FLOOR_PCT.toInt()}% floor)"
+        val liveTerminalN = cachedLiveTerminalCount
+        if (liveTerminalN >= GLOBAL_SOFT_START_LIVE_CLOSES && liveWr < DOCTRINE_FLOOR_PCT) {
+            return "🔒 GATE RELAXER: DISABLED (live WR=${"%.1f".format(liveWr)}% < ${DOCTRINE_FLOOR_PCT.toInt()}% floor, n=$liveTerminalN)"
         }
         val parts = perLaneMultiplier.keys
             .map { it to effectiveMultiplier(it) }
@@ -230,8 +242,8 @@ object LiveLayerGateRelaxer {
             .joinToString(" · ") { (tag, m) ->
                 "$tag ×${"%.2f".format(m)}(n=${liveCountForLane(tag)})"
             }
-        return if (parts.isEmpty()) "🔓 GATE RELAXER: all lanes matured → 1.00× (earned floors) liveWR=${"%.1f".format(liveWr)}%"
-        else                        "🔓 GATE RELAXER (WR-aware fade): $parts liveWR=${"%.1f".format(liveWr)}%"
+        return if (parts.isEmpty()) "🔓 GATE RELAXER: all lanes matured → 1.00× (earned floors) liveWR=${"%.1f".format(liveWr)}% n=$liveTerminalN"
+        else                        "🔓 GATE RELAXER (soft-start/fade): $parts liveWR=${"%.1f".format(liveWr)}% n=$liveTerminalN"
     }
 
     // V5.0.4081 — FLAT QUALITY-BASED FLOORS (no bootstrap in live). The
@@ -250,6 +262,7 @@ object LiveLayerGateRelaxer {
     // V5.0.4071 — moved here (after summaryLine) so it's outside the
     // dumpRegimeNoRelax extraction window tested by Golden Tape.
     @Volatile private var cachedLiveWrPct: Double = 100.0
+    @Volatile private var cachedLiveTerminalCount: Int = 0
     @Volatile private var liveWrCacheStampMs: Long = 0L
     private const val LIVE_WR_CACHE_TTL_MS = 30_000L
 
@@ -260,9 +273,10 @@ object LiveLayerGateRelaxer {
         val wr = try {
             val leaderboard = StrategyTelemetry.computeLiveTerminalLeaderboard(limit = 2_500)
             val allLive = leaderboard.filter { it.isStatisticallyMeaningful }
+            val totalTrades = allLive.sumOf { it.trades }
+            cachedLiveTerminalCount = totalTrades
             if (allLive.isEmpty()) 100.0  // no data → don't choke cold start
             else {
-                val totalTrades = allLive.sumOf { it.trades }
                 val totalWins = allLive.sumOf { it.wins }
                 if (totalTrades > 0) (totalWins.toDouble() / totalTrades) * 100.0 else 100.0
             }
@@ -280,4 +294,11 @@ object LiveLayerGateRelaxer {
      * to the cache used by the relaxer itself.
      */
     fun currentLiveWrPct(): Double = refreshLiveWrCache()
+
+    /** V5.0.4300 — expose sample count so sibling gates can avoid disabling
+     * live soft-start before the brains have enough terminal evidence. */
+    fun currentLiveTerminalCount(): Int {
+        refreshLiveWrCache()
+        return cachedLiveTerminalCount
+    }
 }

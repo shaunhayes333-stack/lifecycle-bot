@@ -1431,7 +1431,11 @@ object FinalDecisionGate {
         // lift for SHITCOIN — its own lane gate suffices.
         val WATCHLIST_FLOOR = try {
             val wr = com.lifecyclebot.engine.LiveLayerGateRelaxer.currentLiveWrPct()
-            val isWeakWr = wr < 30.0
+            val liveN = com.lifecyclebot.engine.LiveLayerGateRelaxer.currentLiveTerminalCount()
+            // V5.0.4300 — do not let 3-5 bootstrap losses lift liquidity
+            // floors across non-SHITCOIN lanes. Paper-like learning needs
+            // early soft-start samples; hardening begins once n is meaningful.
+            val isWeakWr = wr < 30.0 && liveN >= 40
             val isShitCoinLane = tradingModeTag == ModeSpecificGates.TradingModeTag.SHITCOIN
             val lifted = if (isWeakWr && !isShitCoinLane) maxOf(WATCHLIST_FLOOR_RAW, 8_000.0) else WATCHLIST_FLOOR_RAW
             lifted

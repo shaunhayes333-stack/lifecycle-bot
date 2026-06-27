@@ -2621,7 +2621,14 @@ class Executor(
         val resolvedTradingMode = when {
             isMeaningfulLaneName(trade.tradingMode)       -> trade.tradingMode
             isMeaningfulLaneName(ts.position.tradingMode) -> ts.position.tradingMode
-            else                                          -> "STANDARD"
+            else -> {
+                // V5.0.4300 — live report showed every clean close landing in
+                // STANDARD while all meme lanes were evaluating/trading. No lane
+                // attribution means no per-trader learning. Use the lane resolver
+                // as the final fallback so SHITCOIN/MOONSHOT/EXPRESS/etc. learn
+                // from their own terminal outcomes instead of poisoning STANDARD.
+                resolveExecutionLane(ts, fallback = "STANDARD")
+            }
         }
         val ledgerPositionId = try { com.lifecyclebot.engine.TradeOutcomeLedger.positionId(ts, trade) } catch (_: Throwable) { "" }
         val entryTsForJournal = ts.position.entryTime.takeIf { it > 0L } ?: if (trade.side.equals("BUY", true)) trade.ts else trade.entryTsMs
