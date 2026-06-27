@@ -78,7 +78,7 @@ object AsiSsiReauditSweeper {
                 id = "COMPOUND_PROVER_AND_REAUDIT_REGISTERED_4257",
                 passed = prover.contains("AUTO_COMPOUND_LANE_CONSUMERS_4253") &&
                     prover.contains("AsiSsiReauditSweeper") &&
-                    src("audits/asi_ssi_audit_queue_2026-06-27.md").contains("A21 — Recursive ASI/SSI ReAuditSweeper"),
+                    (src("audits/asi_ssi_audit_queue_2026-06-27.md") + src("../audits/asi_ssi_audit_queue_2026-06-27.md")).contains("A21 — Recursive ASI/SSI ReAuditSweeper"),
                 detail = "recursive reaudit itself must be registered in symbolic/source contracts",
             ),
         )
