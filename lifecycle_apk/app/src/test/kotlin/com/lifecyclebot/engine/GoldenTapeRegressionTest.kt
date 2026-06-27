@@ -4673,4 +4673,14 @@ class GoldenTapeRegressionTest {
         assertTrue("V5.0.4265: full meme audit sweeper must close Pass E only with real SuperBrain consumption", sweeper.contains("PASS_E_SUPERBRAIN_CONSUMPTION_4261") && sweeper.contains("SUPERBRAIN_ENTRY_SIZE_SHAPED_4265"))
     }
 
+    @Test
+    fun metaCognition4267ShapesExecutorSizingAcrossHighThroughputLanes() {
+        val bridge = java.io.File("src/main/kotlin/com/lifecyclebot/engine/MetaCognitionExecutorBridge.kt").readText()
+        val exec = java.io.File("src/main/kotlin/com/lifecyclebot/engine/Executor.kt").readText()
+        val sweeper = java.io.File("src/main/kotlin/com/lifecyclebot/engine/MemeTraderFullAuditSweeper.kt").readText()
+        assertTrue("V5.0.4267: MetaCognition bridge must consume trust multipliers and map trader lanes", bridge.contains("MetaCognitionAI.getTrustMultiplier") && bridge.contains("SHITCOIN_TRADER") && bridge.contains("MOONSHOT_TRADER") && bridge.contains("coerceIn(0.94, 1.08)"))
+        assertTrue("V5.0.4267: Executor must consume MetaCognition in the shared paper/live size stack", exec.contains("MetaCognitionExecutorBridge.sizeMultiplierForLane") && exec.contains("METACOGNITION_EXECUTOR_SIZE_SHAPED_4267") && exec.contains("metaCognitionSizeMult"))
+        assertTrue("V5.0.4267: full meme audit sweeper must close Pass J only with executor-side MetaCognition consumption", sweeper.contains("PASS_J_METACOGNITION_CONSUMPTION_4261") && sweeper.contains("MetaCognitionExecutorBridge.sizeMultiplierForLane"))
+    }
+
 }
