@@ -664,8 +664,7 @@ class MainActivity : AppCompatActivity() {
 
     /** V5.0.4280 — bound decision-log TextView layout work; UI-only, no executor authority. */
     private fun setDecisionLogTextBounded4280(value: String) {
-        val compact = if (value.length <= DECISION_LOG_MAX_CHARS_4280) value else value.take(DECISION_LOG_MAX_CHARS_4280) + "
-… clipped for UI; full engine logs remain internal"
+        val compact = if (value.length <= DECISION_LOG_MAX_CHARS_4280) value else value.take(DECISION_LOG_MAX_CHARS_4280) + "\n… clipped for UI; full engine logs remain internal"
         val h = compact.hashCode()
         if (h == lastDecisionLogTextHash) return
         lastDecisionLogTextHash = h

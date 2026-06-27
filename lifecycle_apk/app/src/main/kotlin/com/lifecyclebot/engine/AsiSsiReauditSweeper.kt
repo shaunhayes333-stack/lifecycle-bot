@@ -61,7 +61,8 @@ object AsiSsiReauditSweeper {
             ),
             Finding(
                 id = "SEMANTIC_ENTRY_READBACK_WIRED_SOFT_ONLY_4257",
-                passed = semantic.contains("fun entryBias") && shit.contains("SemanticPatternGraph.entryBias") &&
+                passed = semantic.contains("fun entryBias") && semantic.contains("fun entryDnaBias") &&
+                    shit.contains("SemanticPatternGraph.entryDnaBias") && shit.contains("SHITCOIN_DNA_SEMANTIC_ENTRY_READBACK_4278") &&
                     shit.contains("if (semanticBias.scoreDelta > 0)") && semantic.contains("avgPnl <= -15.0 -> EntryBias(0.94, 0"),
                 detail = "semantic memory must be consumed as cached soft-shape, never hard entry rejection",
             ),
