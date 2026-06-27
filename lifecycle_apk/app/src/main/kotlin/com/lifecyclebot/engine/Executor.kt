@@ -13201,7 +13201,7 @@ class Executor(
             val closeState = try { com.lifecyclebot.engine.sell.LivePositionCloseAuthority.stateOf(ts.mint)?.name ?: "OPEN" } catch (_: Throwable) { "OPEN" }
             "EXIT_ROUTE_RETRY_${trackerStatus}_${closeState}"
         } else reason
-        try { SellDecisionMatrixReport.recordIntent(ts.mint, ts.symbol ?: "?", requestReason, ts.position.isPaperPosition, ts.position.tradingMode.ifBlank { ts.position.modeHint }) } catch (_: Throwable) {}
+        try { SellDecisionMatrixReport.recordIntent(ts.mint, ts.symbol ?: "?", requestReason, ts.position.isPaperPosition, ts.position.tradingMode.ifBlank { "UNKNOWN" }) } catch (_: Throwable) {}
         // V5.0.3801 — PAPER source guard before any executor activity.
         // requestSell() has many upstream callers (main loop, backup sweeps,
         // stale/rug escape paths). If a paper mint already has CLOSE_REQUESTED /
