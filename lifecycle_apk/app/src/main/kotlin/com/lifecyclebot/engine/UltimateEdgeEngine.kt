@@ -87,7 +87,7 @@ object UltimateEdgeEngine {
         val routeSummary = coverage?.let { "supported=${it.supportedProviderNames} unsupported=${it.unsupportedProviderNames} adapterGaps=${it.adapterGapProviderNames} senderGaps=${it.adapterGapSenderNames}" } ?: "route:unavailable"
         val sourceSummary = try { SourceFamilyOpportunityScorecard.snapshot().ifBlank { "source_scorecard:empty" }.take(320) } catch (_: Throwable) { "source_scorecard:error" }
         val researchHint = try { ResearchScout.riskHint(mint).take(220) } catch (_: Throwable) { "ResearchScout:error" }
-        val adapterPenalty = if ((coverage?.adapterGaps?.size ?: 0) >= 6) 0.98 else 1.0
+        val adapterPenalty = if ((coverage?.adapterGapProviderNames?.size ?: 0) >= 6) 0.98 else 1.0
         val sizeMult = (semantic.sizeMult * adapterPenalty).coerceIn(0.90, 1.08)
         return LaneEdgeCard(
             mint = mint,
