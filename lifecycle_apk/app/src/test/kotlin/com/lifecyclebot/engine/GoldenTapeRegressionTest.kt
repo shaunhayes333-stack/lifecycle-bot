@@ -4653,4 +4653,14 @@ class GoldenTapeRegressionTest {
         assertTrue("V5.0.4263: full meme audit sweeper must mark Pass G only when shadow variants are consumed", sweeper.contains("PASS_G_SHADOW_LEARNING_4261") && sweeper.contains("bestVariantSizeBias") && sweeper.contains("ShadowLearningEngine.onTradeOpportunity"))
     }
 
+    @Test
+    fun advancedExitManager4264IsAdvisoryOutsideHardSafetyInHoldingLayer() {
+        val holding = java.io.File("src/main/kotlin/com/lifecyclebot/engine/HoldingLogicLayer.kt").readText()
+        val exec = java.io.File("src/main/kotlin/com/lifecyclebot/engine/Executor.kt").readText()
+        val sweeper = java.io.File("src/main/kotlin/com/lifecyclebot/engine/MemeTraderFullAuditSweeper.kt").readText()
+        assertTrue("V5.0.4264: HoldingLogicLayer AEM must only return exit for hard safety", holding.contains("AEM_HARD_SAFETY_4264") && holding.contains("AEM_HOLDING_ADVISORY_ONLY_4264") && holding.contains("action=hold_to_executor_authority"))
+        assertTrue("V5.0.4264: Executor.requestSell remains central sell authority and SellOptimizationAI remains terminal learner", exec.contains("fun requestSell") && exec.contains("SellOptimizationAI.recordExitOutcome"))
+        assertTrue("V5.0.4264: full meme audit sweeper must track Pass H duplicate exit-manager cleanup", sweeper.contains("PASS_H_EXIT_MANAGER_DEDUP_4261") && sweeper.contains("AEM_HOLDING_ADVISORY_ONLY_4264"))
+    }
+
 }

@@ -216,18 +216,27 @@ object HoldingLogicLayer {
                     symbol             = ts.symbol,
                 )
                 if (aemDecision.shouldExit) {
-                    val aemUrgency = when (aemDecision.urgency) {
-                        AdvancedExitManager.ExitUrgency.CRITICAL -> Urgency.CRITICAL
-                        AdvancedExitManager.ExitUrgency.HIGH     -> Urgency.HIGH
-                        else                                     -> Urgency.NORMAL
+                    val aemHardSafety = aemDecision.urgency == AdvancedExitManager.ExitUrgency.CRITICAL &&
+                        (aemDecision.exitReason == AdvancedExitManager.ExitReason.STOP_LOSS ||
+                            aemDecision.exitReason == AdvancedExitManager.ExitReason.LIQUIDITY_EXIT ||
+                            aemDecision.exitReason == AdvancedExitManager.ExitReason.MOMENTUM_EXIT)
+                    if (aemHardSafety) {
+                        ErrorLogger.info(TAG, "[AEM_HARD] ${ts.symbol} EXIT: ${aemDecision.exitReason} | ${aemDecision.logMessage}")
+                        return HoldEvaluation(
+                            action     = if (aemDecision.sellPct < 100) HoldAction.SCALE_OUT else HoldAction.EXIT_NOW,
+                            reason     = "AEM_HARD_SAFETY_4264:${aemDecision.exitReason}: ${aemDecision.logMessage}",
+                            confidence = 92.0,
+                            urgency    = Urgency.CRITICAL,
+                        )
                     }
-                    ErrorLogger.info(TAG, "[AEM] ${ts.symbol} EXIT: ${aemDecision.exitReason} | ${aemDecision.logMessage}")
-                    return HoldEvaluation(
-                        action     = if (aemDecision.sellPct < 100) HoldAction.SCALE_OUT else HoldAction.EXIT_NOW,
-                        reason     = "${aemDecision.exitReason}: ${aemDecision.logMessage}",
-                        confidence = 92.0,
-                        urgency    = aemUrgency,
-                    )
+                    // V5.0.4264 — AdvancedExitManager is advisory here. Executor.requestSell
+                    // is the single sell authority with close leases, live/paper mux, journal,
+                    // and SellOptimizationAI learning. Non-hard AEM suggestions must not create
+                    // a second parallel exit manager firing sells from HoldingLogicLayer.
+                    try {
+                        PipelineHealthCollector.labelInc("AEM_HOLDING_ADVISORY_ONLY_4264")
+                        ForensicLogger.lifecycle("AEM_HOLDING_ADVISORY_ONLY_4264", "symbol=${ts.symbol} reason=${aemDecision.exitReason} urgency=${aemDecision.urgency} sellPct=${aemDecision.sellPct} action=hold_to_executor_authority")
+                    } catch (_: Throwable) {}
                 }
             } catch (aemEx: Exception) {
                 ErrorLogger.debug(TAG, "[AEM] ${ts.symbol} eval error: ${aemEx.message}")
