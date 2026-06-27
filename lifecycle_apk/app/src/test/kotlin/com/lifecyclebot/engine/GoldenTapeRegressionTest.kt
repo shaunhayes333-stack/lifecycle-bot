@@ -3553,6 +3553,8 @@ class GoldenTapeRegressionTest {
         val executor4212 = java.io.File("src/main/kotlin/com/lifecyclebot/engine/Executor.kt").readText()
         assertTrue("V5.0.4212: meme paper/live opens must register PortfolioHeatAI exposure", executor4212.contains("PortfolioHeatAI.addPosition") && executor4212.contains("PORTFOLIO_HEAT_MEME_POSITION_REGISTERED_4212") && executor4212.contains("market = \"MEME\""))
         assertTrue("V5.0.4212: terminal close paths must remove PortfolioHeatAI exposure", executor4212.contains("PortfolioHeatAI.removePosition(tradeId.mint)") && executor4212.contains("PortfolioHeatAI.removePosition(ts.mint)"))
+        val positionPersistence4213 = java.io.File("src/main/kotlin/com/lifecyclebot/engine/PositionPersistence.kt").readText()
+        assertTrue("V5.0.4213: restored positions must rehydrate EmergentGuardrails and PortfolioHeatAI", positionPersistence4213.contains("EmergentGuardrails.registerPosition") && positionPersistence4213.contains("PortfolioHeatAI.addPosition") && positionPersistence4213.contains("PORTFOLIO_HEAT_RESTORED_POSITION_REGISTERED_4213"))
     }
 
 

@@ -374,13 +374,33 @@ object PositionPersistence {
                 try { PipelineHealthCollector.labelInc("RESTORED_LIVE_BASIS_UNKNOWN") } catch (_: Throwable) {}
             }
 
-            // Register with GlobalTradeRegistry
+            // Register restored positions with every open-position observer.
+            // V5.0.4213 — GlobalTradeRegistry was restored here, but sibling
+            // registries used by entry blocking / portfolio heat were cold after
+            // restart. That made restored opens invisible to EmergentGuardrails
+            // multi-layer protection and PortfolioHeatAI downstream exit/persona
+            // reads until a new buy occurred.
+            val restoredLayer = saved.tradingMode.ifBlank { if (saved.isPaperPosition) "PAPER" else "LIVE" }
             GlobalTradeRegistry.registerPosition(
                 mint = mint,
                 symbol = saved.symbol,
-                layer = if (saved.isPaperPosition) "PAPER" else "LIVE",
+                layer = restoredLayer,
                 sizeSol = saved.costSol
             )
+            try { EmergentGuardrails.registerPosition(mint, saved.symbol, restoredLayer, saved.costSol) } catch (_: Throwable) {}
+            try {
+                com.lifecyclebot.v4.meta.PortfolioHeatAI.addPosition(
+                    id = mint,
+                    symbol = saved.symbol.ifBlank { mint.take(6) },
+                    market = "MEME",
+                    sector = restoredLayer,
+                    direction = "LONG",
+                    sizeSol = saved.costSol,
+                    leverage = 1.0,
+                    narrative = "RESTORED:${saved.entryPhase}",
+                )
+                PipelineHealthCollector.labelInc("PORTFOLIO_HEAT_RESTORED_POSITION_REGISTERED_4213")
+            } catch (_: Throwable) {}
             
             restoredCount++
         }
