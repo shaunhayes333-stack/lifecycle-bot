@@ -4780,7 +4780,7 @@ class GoldenTapeRegressionTest {
     fun goldenTapeLiteralStaticCompiler4279RunsBeforeGradle() {
         val script = readLifecycleFileFor4280s("ci/golden_tape_literal_scan.py")
         val workflow = readRootWorkflowFor4280s()
-        assertTrue("V5.0.4279: Golden Tape literal scan must catch nested unescaped contains quotes", script.contains("nested unescaped quote inside contains()") && script.contains("triple-quoted raw strings") && script.contains("interpolation-like"))
+        assertTrue("V5.0.4279: Golden Tape literal scan must catch nested unescaped contains quotes", script.contains("nested unescaped quote inside contains()") && script.contains("triple-quoted strings") && script.contains("interpolation-like"))
         assertTrue("V5.0.4279: root build workflow must run literal scan before release build", workflow.contains("Golden Tape literal static scan") && workflow.contains("golden_tape_literal_scan.py") && workflow.contains("Build Release APK"))
     }
 
