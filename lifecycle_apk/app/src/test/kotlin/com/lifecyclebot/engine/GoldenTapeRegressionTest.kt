@@ -5192,4 +5192,14 @@ class GoldenTapeRegressionTest {
         assertTrue("V5.0.4332: operator KPI report must expose UltimateEdge and ChokeRelief helper health", report.contains("OPERATOR_KPI_CLOSEOUT_REPORT_4332") && report.contains("UltimateEdgeEngine.status") && report.contains("ChokeReliefBus.status") && report.contains("ultimate_edge=UltimateEdgeEngine") && report.contains("choke_relief=ChokeReliefBus"))
     }
 
+    @Test
+    fun arbDeck4334PublishesCachedOpportunitiesIntoMemeCashLanes() {
+        val arb = java.io.File("src/main/kotlin/com/lifecyclebot/v3/arb/ArbScannerAI.kt").readText()
+        val cash = java.io.File("src/main/kotlin/com/lifecyclebot/v3/scoring/CashGenerationAI.kt").readText()
+        val shit = java.io.File("src/main/kotlin/com/lifecyclebot/v3/scoring/ShitCoinTraderAI.kt").readText()
+        val express = java.io.File("src/main/kotlin/com/lifecyclebot/v3/scoring/ShitCoinExpress.kt").readText()
+        assertTrue("V5.0.4334: ArbScannerAI must expose cache-only latest actionable arb opportunity", arb.contains("latestActionable") && arb.contains("fun cachedOpportunity") && arb.contains("ACTIONABLE_TTL_MS"))
+        assertTrue("V5.0.4334: Treasury/ShitCoin/Express must consume arb deck cache without running models", cash.contains("TREASURY_ARB_DECK_CACHE_SHAPE_4334") && shit.contains("SHITCOIN_ARB_DECK_CACHE_SHAPE_4334") && express.contains("EXPRESS_ARB_DECK_CACHE_SHAPE_4334") && listOf(cash, shit, express).all { it.contains("ArbScannerAI.cachedOpportunity(mint)") })
+    }
+
 }

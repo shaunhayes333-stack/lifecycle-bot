@@ -1581,8 +1581,24 @@ object ShitCoinTraderAI {
                 }
             }
         } catch (_: Throwable) { ultimateEdgeSizeMult4324 = 1.0 }
+        var arbDeckSizeMult4334 = 1.0
+        try {
+            val arb4334 = com.lifecyclebot.v3.arb.ArbScannerAI.cachedOpportunity(mint)
+            if (arb4334 != null) {
+                val scoreBoost4334 = (arb4334.score / 25).coerceIn(1, 4)
+                shitScore = (shitScore + scoreBoost4334).coerceAtLeast(0)
+                arbDeckSizeMult4334 = when (arb4334.band) {
+                    com.lifecyclebot.v3.arb.ArbDecisionBand.ARB_STANDARD -> 1.08
+                    com.lifecyclebot.v3.arb.ArbDecisionBand.ARB_MICRO -> 1.04
+                    com.lifecyclebot.v3.arb.ArbDecisionBand.ARB_FAST_EXIT_ONLY -> 1.03
+                    else -> 1.0
+                }
+                scoreReasons.add("arb${arb4334.arbType}+$scoreBoost4334")
+                ErrorLogger.debug(TAG, "💩⚖️ SHITCOIN_ARB_DECK_CACHE_SHAPE_4334: $symbol ${arb4334.arbType}/${arb4334.band} score+$scoreBoost4334 size×${arbDeckSizeMult4334.fmt(2)}")
+            }
+        } catch (_: Throwable) { arbDeckSizeMult4334 = 1.0 }
         // V5.9.1329 / V5.0.4231 — apply learned soft-size multipliers.
-        positionSol = (positionSol * dangerBucketSoftSize * intelligenceGateSizeMult4231 * semanticEntrySizeMult4255 * ultimateEdgeSizeMult4324).coerceAtLeast(0.01)
+        positionSol = (positionSol * dangerBucketSoftSize * intelligenceGateSizeMult4231 * semanticEntrySizeMult4255 * ultimateEdgeSizeMult4324 * arbDeckSizeMult4334).coerceAtLeast(0.01)
         if (pausedRecoveryProbe4314) {
             positionSol *= 0.35
             try { com.lifecyclebot.engine.PipelineHealthCollector.labelInc("SHITCOIN_DAILY_LOSS_RECOVERY_PROBE_4314") } catch (_: Throwable) {}

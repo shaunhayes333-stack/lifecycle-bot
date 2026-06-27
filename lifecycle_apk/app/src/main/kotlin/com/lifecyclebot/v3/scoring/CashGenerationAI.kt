@@ -954,6 +954,24 @@ object CashGenerationAI {
                 }
             }
         } catch (_: Throwable) { /* fail-open cache read */ }
+        // V5.0.4334 — Treasury consumes cached arb opportunity deck.
+        // No model run here; ArbScannerAI.cachedOpportunity is populated upstream.
+        try {
+            val arb4334 = com.lifecyclebot.v3.arb.ArbScannerAI.cachedOpportunity(mint)
+            if (arb4334 != null) {
+                val scoreBoost4334 = (arb4334.score / 20).coerceIn(1, 5)
+                treasuryScore = (treasuryScore + scoreBoost4334).coerceAtLeast(0)
+                val arbSize4334 = when (arb4334.band) {
+                    com.lifecyclebot.v3.arb.ArbDecisionBand.ARB_STANDARD -> 1.08
+                    com.lifecyclebot.v3.arb.ArbDecisionBand.ARB_MICRO -> 1.04
+                    com.lifecyclebot.v3.arb.ArbDecisionBand.ARB_FAST_EXIT_ONLY -> 1.03
+                    else -> 1.0
+                }
+                positionSol *= arbSize4334
+                scoreReasons.add("arb${arb4334.arbType}+$scoreBoost4334")
+                ErrorLogger.debug(TAG, "💰⚖️ TREASURY_ARB_DECK_CACHE_SHAPE_4334: $symbol ${arb4334.arbType}/${arb4334.band} score+$scoreBoost4334 size×${arbSize4334.fmt(2)} exp=${arb4334.expectedMovePct.fmt(1)}%")
+            }
+        } catch (_: Throwable) { /* fail-open cache read */ }
         positionSol = positionSol.coerceIn(MIN_POSITION_SOL, maxWithCompounding)
 
         val globalMultiplier = AutoCompoundEngine.getSizeMultiplier()

@@ -42,7 +42,9 @@ object ArbScannerAI {
     // Recent evaluations cache (for deduplication)
     private data class CachedEval(val eval: ArbEvaluation?, val timestamp: Long)
     private val evalCache = ConcurrentHashMap<String, CachedEval>()
+    private val latestActionable = ConcurrentHashMap<String, CachedEval>()  // V5.0.4334 lane cache readback
     private const val CACHE_TTL_MS = 10_000L  // 10 second cache
+    private const val ACTIONABLE_TTL_MS = 120_000L  // short-window arb conviction cache
     
     // Rejection tracking (avoid repeated evaluations of bad candidates)
     private val recentRejections = ConcurrentHashMap<String, Long>()
@@ -141,6 +143,7 @@ object ArbScannerAI {
             )) {
                 opportunityCount.incrementAndGet()
                 
+                latestActionable[mint] = CachedEval(evaluation, now)
                 // Report to SuperBrain
                 reportToSuperBrain(candidate, evaluation)
             }
@@ -303,6 +306,12 @@ object ArbScannerAI {
         }
     }
     
+    /** V5.0.4334 — cache-only lane readback. Does not run models or call providers. */
+    fun cachedOpportunity(mint: String, ttlMs: Long = ACTIONABLE_TTL_MS): ArbEvaluation? {
+        val cached = latestActionable[mint] ?: return null
+        return if ((System.currentTimeMillis() - cached.timestamp) <= ttlMs) cached.eval else null
+    }
+
     /**
      * Reset all stats.
      */
@@ -311,6 +320,7 @@ object ArbScannerAI {
         opportunityCount.set(0)
         rejectedCount.set(0)
         evalCache.clear()
+        latestActionable.clear()
         recentRejections.clear()
         ArbCoordinator.resetStats()
         SourceTimingRegistry.clear()
