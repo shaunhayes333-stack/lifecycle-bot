@@ -109,3 +109,55 @@ North star: realized live wallet growth toward the operator's daily 2x-5x compou
   - missed wiring where a built intelligence layer is collecting but not consuming feedback
 - Add source-tree sweeper coverage so future ASI/SSI patches fail contract checks when they bypass critic, semantic readback, replay fanout, compounding, or background-only doctrine.
 - Expected impact: catches missed wiring and regressions while side-building, before runtime performance silently degrades.
+
+## Bundle G — Next boost candidates discovered during 4264-4269 full-audit closure
+
+### A22 — Live/Paper Drift Sentinel 2.0
+- Build a tiny runtime sentinel that compares paper and live lane shape over rolling windows: entry count, accepted score band, size multiplier product, exit reason mix, avg hold time, WR/PF where available.
+- Emit a single clear drift label when live diverges from paper beyond tolerance, keyed by lane and latest build.
+- Must be read-only/report-only first; no pause/zero-size behavior.
+- Expected impact: catches silent live choke regressions early while preserving paper/live parity doctrine.
+
+### A23 — Multiplier Attribution Ledger
+- Persist per-entry multiplier components: AutoCompound, StrategyHypothesis, PaperLiveBridge, ShadowVariant, SuperBrain, MetaCognition, RegimeVol, slip-downsize, source brain, live tuner, lane cap.
+- Store event-local mode/lane/source/positionId/build to prevent mux drift.
+- Expected impact: explains why winners/losers were sized up/down, finds accidental dust-sizing stacks, and improves realized compounding audits.
+
+### A24 — Scanner Diversity Bandit
+- Add a non-blocking source-allocation learner that nudges scanner exposure toward sources/lane-affinities with higher downstream trainable PF, while preserving source-balanced minimum quotas.
+- Never lets PumpPortal/pump.fun dominate; never hard-blocks a source unless true safety.
+- Expected impact: improves candidate quality without choking sample volume.
+
+### A25 — Exit Latency / Slippage Microbrain
+- Track quote→broadcast→confirm latency, expected slip, realized slip, and exit reason by liquidity band/lane/source.
+- Feed only bounded sizing/exit urgency hints; no hard rejection except existing catastrophic slip invariant.
+- Expected impact: reduces strict-stop overruns and improves avg_loss without killing throughput.
+
+### A26 — Runner Retention Optimizer
+- Use terminal outcomes + CounterfactualReplayEngine to identify when take-profit/min-hold/dynamic-lock is cutting runners too early.
+- Output bounded lane-specific runner-hold hints via StrategyHypothesisEngine and symbolic review.
+- Expected impact: improves avg_win and realized SOL compounding.
+
+### A27 — Deployer / Cluster DNA Readback
+- Connect SemanticPatternGraph + TokenDNAClustering + dev-wallet memory into an entry readback cache keyed by deployer, mint geometry, holder/LP shape, and source.
+- Positive/negative prior becomes small score/size shaping, not a hard veto unless safety overlay confirms.
+- Expected impact: catches repeat toxic families and boosts repeat winners without sacrificing exploration.
+
+### A28 — Golden Tape Literal Static Compiler
+- Add a pre-CI static scan specifically for Kotlin `contains("...")` assertions with nested unescaped quotes/interpolation risk.
+- Fails locally before push; automatically suggests raw triple-quoted form.
+- Expected impact: prevents repeated red builds from stale/nested Golden Tape literals.
+
+### A29 — UI/ANR Decoupling Audit
+- Revisit MainActivity/TextView/LineBreaker layout pressure and move non-critical log/report formatting off the main thread.
+- Must not touch executor/ledger authority; only reduce UI heartbeat stalls.
+- Expected impact: improves loop heartbeat frequency and reduces runtime “frozen” false impressions.
+
+### A30 — Capital Efficiency Feedback Loop
+- Add a realized-capital-efficiency metric: pnlSol per SOL-minute, per lane/source/size band.
+- Feed AutoCompound/SmartSizer as a bounded preference for faster-capital-turnover winners, while preserving runner exceptions.
+- Expected impact: better daily wallet growth, not just higher WR.
+
+### A31 — Operational Build Gate Dashboard
+- Generate a compact build gate summary after each pushed build: source files touched, Golden Tape assertions updated, CI status, known inherited failures, and whether latest green APK includes each audit bundle.
+- Expected impact: prevents operator confusion during long build-ahead sequences and keeps install/run decisions clean.
