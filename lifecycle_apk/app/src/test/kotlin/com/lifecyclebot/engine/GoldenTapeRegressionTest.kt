@@ -5076,4 +5076,11 @@ class GoldenTapeRegressionTest {
         assertTrue("V5.0.4313: requestSell must stamp doSell handoff", exec.contains("SellDecisionMatrixReport.recordDoSellHandoff") && exec.contains("return doSell(ts, requestReason, wallet, walletSol)"))
     }
 
+    @Test
+    fun shitCoinPausedDailyLoss4314IsRecoveryProbeNotHardReturn() {
+        val shit = java.io.File("src/main/kotlin/com/lifecyclebot/v3/scoring/ShitCoinTraderAI.kt").readText()
+        assertTrue("V5.0.4314: ShitCoin PAUSED must be recovery-probe size shaping, not lane amputation", shit.contains("SHITCOIN_DAILY_LOSS_RECOVERY_PROBE_4314") && shit.contains("pausedRecoveryProbe4314") && shit.contains("positionSol *= 0.35"))
+        assertFalse("V5.0.4314: stale PAUSED hard-return reason must not survive", shit.contains("reason = \"PAUSED: Daily loss limit reached\""))
+    }
+
 }

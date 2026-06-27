@@ -847,21 +847,14 @@ object ShitCoinTraderAI {
         // Check current mode
         val mode = getCurrentMode()
         
-        // If paused (hit daily loss), reject everything
-        if (mode == ShitCoinMode.PAUSED) {
-            try { ShitCoinDecisionMatrixReport.recordReject("PAUSED", mode.name, launchPlatform.name, isPaperMode) } catch (_: Throwable) {}
-            return ShitCoinSignal(
-                shouldEnter = false,
-                positionSizeSol = 0.0,
-                takeProfitPct = 0.0,
-                stopLossPct = 0.0,
-                confidence = 0,
-                reason = "PAUSED: Daily loss limit reached",
-                mode = mode,
-                isPaperMode = isPaperMode,
-                launchPlatform = launchPlatform,
-                riskLevel = RiskLevel.EXTREME,
-            )
+        // V5.0.4314 — lane-local daily-loss PAUSED is a recovery probe,
+        // not a ShitCoin amputation. Global SecurityGuard/KillSwitch remains
+        // catastrophic drawdown authority; this only soft-shapes local lane
+        // exposure so the MemeTrader core keeps learning instead of idling.
+        val pausedRecoveryProbe4314 = mode == ShitCoinMode.PAUSED
+        if (pausedRecoveryProbe4314) {
+            try { ShitCoinDecisionMatrixReport.recordReject("PAUSED_RECOVERY_PROBE", mode.name, launchPlatform.name, isPaperMode) } catch (_: Throwable) {}
+            ErrorLogger.warn(TAG, "💩 SHITCOIN_DAILY_LOSS_RECOVERY_PROBE_4314 — local pause active; size×0.35, no hard return")
         }
         
         // ═══════════════════════════════════════════════════════════════════
@@ -1571,6 +1564,10 @@ object ShitCoinTraderAI {
         var positionSol = maxOf(BASE_POSITION_SOL, walletBasedSize)
         // V5.9.1329 / V5.0.4231 — apply learned soft-size multipliers.
         positionSol = (positionSol * dangerBucketSoftSize * intelligenceGateSizeMult4231 * semanticEntrySizeMult4255).coerceAtLeast(0.01)
+        if (pausedRecoveryProbe4314) {
+            positionSol *= 0.35
+            try { com.lifecyclebot.engine.PipelineHealthCollector.labelInc("SHITCOIN_DAILY_LOSS_RECOVERY_PROBE_4314") } catch (_: Throwable) {}
+        }
         
         // Scale by confidence
         val confScale = shitConfidence / 100.0
