@@ -1028,7 +1028,7 @@ class GoldenTapeRegressionTest {
         val stack = java.io.File("src/main/kotlin/com/lifecyclebot/engine/execution/MemeExecutionRouteStack.kt").readText()
         assertTrue(stack.contains("sideEffectLight: Boolean = true"))
         assertTrue(stack.contains("if (!context.sideEffectLight && !s.supported)"))
-        assertTrue(stack.contains("if (!context.sideEffectLight) senders.forEach"))
+        assertTrue(stack.contains("if (!context.sideEffectLight) senderProviders.forEach") && stack.contains("adapterWired="))
 
         val report = java.io.File("src/main/kotlin/com/lifecyclebot/engine/PipelineHealthCollector.kt").readText()
         assertTrue(report.contains("MODE CONTAMINATION CHECK"))
