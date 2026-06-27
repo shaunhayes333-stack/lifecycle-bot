@@ -188,6 +188,7 @@ North star: realized live wallet growth toward the operator's daily 2x-5x compou
 - Expected impact: improves learner signal quality and prevents noisy terminal rows from poisoning entry/exit memory.
 
 ### A34 — Source Family Opportunity Scorecard
+- Status: implemented in V5.0.4287 as `SourceFamilyOpportunityScorecard`, persisted diagnostic source-family opened/closed scorecard.
 - Create a compact background scorecard by source family: discovered, admitted, opened, closed, trainable PF, avg hold, avg cost drag, and rug overlay rate.
 - Must preserve source-balanced minimum exposure; scorecard is diagnostic/ordering only.
 - Expected impact: improves scanner quality while preventing PumpPortal/pump.fun dominance.

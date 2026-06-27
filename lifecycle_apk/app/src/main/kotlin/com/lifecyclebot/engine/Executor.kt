@@ -3156,6 +3156,10 @@ class Executor(
             val _fanoutConfidence = ts.entryScore.toInt().coerceIn(0, 100)
             GlobalScope.launch(AppDispatchers.sideEffect) {
                 try {
+                    try {
+                        if (_fanoutSide == "BUY") SourceFamilyOpportunityScorecard.recordOpened(_fanoutSource)
+                        if (_fanoutSide == "SELL") { SourceFamilyOpportunityScorecard.recordClosed(_fanoutSource, trade); SourceFamilyOpportunityScorecard.maybeReport() }
+                    } catch (_: Throwable) {}
                     // ── ToxicModeCircuitBreaker ───────────────────────────────
                     if (_fanoutSide == "SELL" && _fanoutPnlPct < 0) {
                         try {

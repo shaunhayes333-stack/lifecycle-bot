@@ -154,6 +154,7 @@ object LearningPersistence {
             try { putBlob("MULTIPLIER_ATTRIBUTION", com.lifecyclebot.engine.MultiplierAttributionLedger.exportState()) } catch (_: Throwable) {}  // V5.0.4272
             try { putBlob("EXIT_COST_MICROBRAIN", com.lifecyclebot.engine.ExitCostMicrobrain.exportState()) } catch (_: Throwable) {}  // V5.0.4275
             try { putBlob("CAPITAL_EFFICIENCY", com.lifecyclebot.engine.CapitalEfficiencyBrain.exportState()) } catch (_: Throwable) {}  // V5.0.4281
+            try { putBlob("SOURCE_FAMILY_SCORECARD", com.lifecyclebot.engine.SourceFamilyOpportunityScorecard.exportState()) } catch (_: Throwable) {}  // V5.0.4287
             // V5.9.984 — persist CollectiveIntelligenceAI counters + thresholds.
             try { putBlob("COLLECTIVE_INTEL", com.lifecyclebot.v3.scoring.CollectiveIntelligenceAI.exportState()) } catch (_: Throwable) {}
             // V5.9.985 — close DipHunterAI + SolanaArbAI amnesia.
@@ -238,6 +239,7 @@ object LearningPersistence {
         try { getBlob("MULTIPLIER_ATTRIBUTION")?.let { com.lifecyclebot.engine.MultiplierAttributionLedger.importState(it) } } catch (_: Throwable) {}  // V5.0.4272
         try { getBlob("EXIT_COST_MICROBRAIN")?.let { com.lifecyclebot.engine.ExitCostMicrobrain.importState(it) } } catch (_: Throwable) {}  // V5.0.4275
         try { getBlob("CAPITAL_EFFICIENCY")?.let { com.lifecyclebot.engine.CapitalEfficiencyBrain.importState(it) } } catch (_: Throwable) {}  // V5.0.4281
+        try { getBlob("SOURCE_FAMILY_SCORECARD")?.let { com.lifecyclebot.engine.SourceFamilyOpportunityScorecard.importState(it) } } catch (_: Throwable) {}  // V5.0.4287
         // V5.9.949 — restore the rest of the brain.
         try { getBlob("BEHAVIOR_LEARNING")?.let { com.lifecyclebot.engine.BehaviorLearning.importState(it) } } catch (_: Throwable) {}
         try { getBlob("LAYER_READINESS")?.let { com.lifecyclebot.engine.LayerReadinessRegistry.importState(it) } } catch (_: Throwable) {}
@@ -400,6 +402,7 @@ object LearningPersistence {
         z("EXIT_COST_MICROBRAIN"){ com.lifecyclebot.engine.ExitCostMicrobrain.reset() }
         z("RUNNER_RETENTION_OPTIMIZER"){ com.lifecyclebot.engine.RunnerRetentionOptimizer.reset() }
         z("CAPITAL_EFFICIENCY"){ com.lifecyclebot.engine.CapitalEfficiencyBrain.reset() }
+        z("SOURCE_FAMILY_SCORECARD"){ com.lifecyclebot.engine.SourceFamilyOpportunityScorecard.reset() }
         z("COLLECTIVE_INTEL")  { com.lifecyclebot.v3.scoring.CollectiveIntelligenceAI.reset() }
         // UnifiedPolicyHead has no reset(): clear its persisted blob so the next
         // boot re-initialises fresh weights; in-memory weights keep drifting from

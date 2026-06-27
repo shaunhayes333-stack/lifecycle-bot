@@ -4809,4 +4809,14 @@ class GoldenTapeRegressionTest {
         assertFalse("V5.0.4286: terminal quality gate must not hide PnL, block sells, or bypass CanonicalOutcomeBus", gate.contains("return 0.0") || gate.contains("requestSell(") || gate.contains("CanonicalOutcomeBus.publishUnchecked"))
     }
 
+    @Test
+    fun sourceFamilyOpportunityScorecard4287IsDiagnosticAndPersistent() {
+        val scorecard = java.io.File("src/main/kotlin/com/lifecyclebot/engine/SourceFamilyOpportunityScorecard.kt").readText()
+        val exec = java.io.File("src/main/kotlin/com/lifecyclebot/engine/Executor.kt").readText()
+        val persistence = java.io.File("src/main/kotlin/com/lifecyclebot/engine/LearningPersistence.kt").readText()
+        assertTrue("V5.0.4287: source-family scorecard must track discovered/admitted/opened/closed/PF-like diagnostics", scorecard.contains("recordDiscovered") && scorecard.contains("recordAdmitted") && scorecard.contains("recordOpened") && scorecard.contains("recordClosed") && scorecard.contains("SOURCE_FAMILY_OPPORTUNITY_SCORECARD_4287"))
+        assertTrue("V5.0.4287: Executor must feed opened/closed source-family events from event-local source", exec.contains("SourceFamilyOpportunityScorecard.recordOpened(_fanoutSource)") && exec.contains("SourceFamilyOpportunityScorecard.recordClosed(_fanoutSource, trade)"))
+        assertTrue("V5.0.4287: source-family scorecard must persist and never block sources", persistence.contains("SOURCE_FAMILY_SCORECARD") && !scorecard.contains("return false") && !scorecard.contains("hard-block"))
+    }
+
 }
