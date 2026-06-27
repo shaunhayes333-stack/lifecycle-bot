@@ -132,6 +132,7 @@ North star: realized live wallet growth toward the operator's daily 2x-5x compou
 - Expected impact: improves candidate quality without choking sample volume.
 
 ### A25 — Exit Latency / Slippage Microbrain
+- Status: implemented in V5.0.4275 as `ExitCostMicrobrain`, terminal SELL cost-drag learner with persisted bounded urgency hints; no hard-block sell authority.
 - Track quote→broadcast→confirm latency, expected slip, realized slip, and exit reason by liquidity band/lane/source.
 - Feed only bounded sizing/exit urgency hints; no hard rejection except existing catastrophic slip invariant.
 - Expected impact: reduces strict-stop overruns and improves avg_loss without killing throughput.

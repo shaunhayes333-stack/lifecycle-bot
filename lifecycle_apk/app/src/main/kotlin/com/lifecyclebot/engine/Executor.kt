@@ -2817,6 +2817,12 @@ class Executor(
         try {
             if (tradeWithMint.side.equals("SELL", true) && ledgerAllowsClosedLearning && accountingTrainable) {
                 LivePaperDriftSentinel.onTerminalClose(tradeWithMint)
+                ExitCostMicrobrain.recordTerminalExit(
+                    trade = tradeWithMint,
+                    liquidityUsd = ts.position.entryLiquidityUsd.takeIf { it > 0.0 } ?: ts.lastLiquidityUsd,
+                    lane = tradeWithMint.tradingMode.ifBlank { resolveExecutionLane(ts, fallback = "STANDARD") },
+                    source = ts.source.ifBlank { ts.lastPriceSource.ifBlank { "UNKNOWN" } },
+                )
             }
         } catch (_: Throwable) {}
 
