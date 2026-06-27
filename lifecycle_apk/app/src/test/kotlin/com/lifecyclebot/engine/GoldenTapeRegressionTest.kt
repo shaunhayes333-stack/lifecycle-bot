@@ -5141,4 +5141,11 @@ class GoldenTapeRegressionTest {
         assertTrue("V5.0.4325: Express must warm and consume cache-only UltimateEdge cards", express.contains("UltimateEdgeEngine.enqueueRefresh(mint, symbol, \"EXPRESS\"") && express.contains("UltimateEdgeEngine.enqueueRefresh(ride.mint, ride.symbol, \"EXPRESS\"") && express.contains("ULTIMATE_EDGE_EXPRESS_CACHE_SHAPE_4325") && express.contains("UltimateEdgeEngine.cached(mint, \"EXPRESS\")"))
     }
 
+    @Test
+    fun moonshot4326ConsumesUltimateEdgeCardsCacheOnly() {
+        val moon = java.io.File("src/main/kotlin/com/lifecyclebot/v3/scoring/MoonshotTraderAI.kt").readText()
+        assertTrue("V5.0.4326: Moonshot must consume cached UltimateEdge cards as bounded soft shaping", moon.contains("ULTIMATE_EDGE_MOONSHOT_CACHE_SHAPE_4326") && moon.contains("UltimateEdgeEngine.cached(mint, \"MOONSHOT\")") && moon.contains("edgeCard4326.sizeMult.coerceIn(0.90, 1.08)"))
+        assertTrue("V5.0.4326: Moonshot open/close must warm UltimateEdge cards", moon.contains("UltimateEdgeEngine.enqueueRefresh(position.mint, position.symbol, \"MOONSHOT\"") && moon.contains("UltimateEdgeEngine.enqueueRefresh(pos.mint, pos.symbol, \"MOONSHOT\""))
+    }
+
 }

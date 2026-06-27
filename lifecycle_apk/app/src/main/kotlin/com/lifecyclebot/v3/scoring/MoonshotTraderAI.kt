@@ -788,6 +788,21 @@ object MoonshotTraderAI {
             }
         } catch (_: Throwable) { /* fail-open per FDG doctrine */ }
 
+        // V5.0.4326 — cache-only UltimateEdgeEngine readback for Moonshot.
+        // Open/close events warm cards; entry sizing only consumes cached state.
+        try {
+            val edgeCard4326 = com.lifecyclebot.engine.UltimateEdgeEngine.cached(mint, "MOONSHOT")
+            if (edgeCard4326 != null) {
+                val edgeBias4326 = edgeCard4326.scoreBias.coerceIn(0, 5)
+                if (edgeBias4326 > 0) score = (score + edgeBias4326).coerceAtLeast(0)
+                val edgeSize4326 = edgeCard4326.sizeMult.coerceIn(0.90, 1.08)
+                sizeSol = (sizeSol * edgeSize4326).coerceAtLeast(0.01)
+                if (edgeSize4326 != 1.0) {
+                    ErrorLogger.debug(TAG, "🚀🧠 ULTIMATE_EDGE_MOONSHOT_CACHE_SHAPE_4326: $symbol score+$edgeBias4326 size×${edgeSize4326.fmt(3)} ${edgeCard4326.semanticReason.take(90)}")
+                }
+            }
+        } catch (_: Throwable) { /* fail-open cache read */ }
+
         // V5.9.926 — GLOBAL COMPOUND MULTIPLIER (Pass A fix).
         // Operator: 5 of 9 lanes were not consuming AutoCompoundEngine.
         // Same upside-only pattern as CashGen / ShitCoin: only boosts on
@@ -1054,6 +1069,7 @@ object MoonshotTraderAI {
         }
         
         dailyTradeCount.incrementAndGet()
+        try { com.lifecyclebot.engine.UltimateEdgeEngine.enqueueRefresh(position.mint, position.symbol, "MOONSHOT", position.spaceMode.name, position.entryScore.toInt().coerceIn(0, 100), "moonshot_open_size_${position.entrySol.fmt(4)}") } catch (_: Throwable) {}
         
         val promoLabel = if (position.promotedFrom != null) "[PROMOTED from ${position.promotedFrom}] " else ""
         
@@ -1121,6 +1137,7 @@ object MoonshotTraderAI {
         
         val pnlPct = (exitPrice - pos.entryPrice) / pos.entryPrice * 100
         val pnlSol = pos.entrySol * (pnlPct / 100)
+        try { com.lifecyclebot.engine.UltimateEdgeEngine.enqueueRefresh(pos.mint, pos.symbol, "MOONSHOT", "MOONSHOT_CLOSE", pnlPct.toInt().coerceIn(-100, 100), "exit_${exitReason.name}_pnl_${pnlPct.fmt(2)}") } catch (_: Throwable) {}
         // V5.9.1509 — NET-OF-FEE WIN (operator: "win alerts but the gain doesn't
         // represent true gains"). pnlPct here is GROSS price move. A live trade pays
         // ~1.6% round-trip (1% bot + 0.6% protocol + gas), so a gross gain below that
