@@ -144,6 +144,7 @@ North star: realized live wallet growth toward the operator's daily 2x-5x compou
 - Expected impact: improves avg_win and realized SOL compounding.
 
 ### A27 — Deployer / Cluster DNA Readback
+- Status: implemented in V5.0.4278 as `SemanticPatternGraph.entryDnaBias`.
 - Connect SemanticPatternGraph + TokenDNAClustering + dev-wallet memory into an entry readback cache keyed by deployer, mint geometry, holder/LP shape, and source.
 - Positive/negative prior becomes small score/size shaping, not a hard veto unless safety overlay confirms.
 - Expected impact: catches repeat toxic families and boosts repeat winners without sacrificing exploration.

@@ -107,14 +107,55 @@ object SemanticPatternGraph {
         return try {
             val similar = querySimilar(setup, lane, limit.coerceIn(3, 20))
             if (similar.isEmpty()) return EntryBias(1.0, 0, "semantic:none")
-            val avgPnl = similar.map { it.pnlPct }.average()
-            val runnerRate = similar.count { it.peakGainPct >= 100.0 || it.pnlPct >= 50.0 }.toDouble() / similar.size.toDouble()
-            when {
-                avgPnl >= 25.0 || runnerRate >= 0.35 -> EntryBias(1.06, 4, "semantic:runner avg=${avgPnl.fmt1()} rr=${runnerRate.fmt1()}")
-                avgPnl <= -15.0 -> EntryBias(0.94, 0, "semantic:weak avg=${avgPnl.fmt1()}")
-                else -> EntryBias(1.0, 0, "semantic:neutral avg=${avgPnl.fmt1()}")
-            }
+            biasFromNodes(similar, "semantic")
         } catch (_: Throwable) { EntryBias(1.0, 0, "semantic:error") }
+    }
+
+    /** V5.0.4278 — deployer/source/DNA readback. Cached local memory only; soft score/size shaping. */
+    fun entryDnaBias(
+        setup: String,
+        lane: String = "",
+        deployer: String = "",
+        source: String = "",
+        dnaKey: String = "",
+        limit: Int = 16,
+    ): EntryBias {
+        return try {
+            val setupTokens = tokenSet(setup + " " + dnaKey)
+            val deployerKey = deployer.lowercase().take(96)
+            val sourceKey = source.uppercase().take(64)
+            val laneKey = lane.uppercase().take(32)
+            val similar = synchronized(nodes) {
+                nodes.asSequence()
+                    .filter { laneKey.isBlank() || it.lane.equals(laneKey, ignoreCase = true) }
+                    .map { node ->
+                        val setupSim = jaccard(setupTokens, tokenSet(node.setup)).coerceIn(0.0, 1.0)
+                        val deployerHit = deployerKey.isNotBlank() && node.deployer == deployerKey
+                        val sourceHit = sourceKey.isNotBlank() && node.source == sourceKey
+                        val dnaHit = dnaKey.isNotBlank() && tokenSet(node.setup).intersect(tokenSet(dnaKey)).isNotEmpty()
+                        val weight = setupSim + (if (deployerHit) 1.20 else 0.0) + (if (sourceHit) 0.20 else 0.0) + (if (dnaHit) 0.25 else 0.0)
+                        node to weight
+                    }
+                    .filter { it.second >= 0.30 }
+                    .sortedByDescending { it.second }
+                    .take(limit.coerceIn(3, 32))
+                    .map { it.first }
+                    .toList()
+            }
+            if (similar.isEmpty()) return EntryBias(1.0, 0, "dna:none")
+            val raw = biasFromNodes(similar, "dna")
+            EntryBias(raw.sizeMult.coerceIn(0.92, 1.08), raw.scoreDelta.coerceIn(0, 5), raw.reason + " n=${similar.size}")
+        } catch (_: Throwable) { EntryBias(1.0, 0, "dna:error") }
+    }
+
+    private fun biasFromNodes(similar: List<PatternNode>, prefix: String): EntryBias {
+        val avgPnl = similar.map { it.pnlPct }.average()
+        val runnerRate = similar.count { it.peakGainPct >= 100.0 || it.pnlPct >= 50.0 }.toDouble() / similar.size.toDouble()
+        return when {
+            avgPnl >= 25.0 || runnerRate >= 0.35 -> EntryBias(1.06, 4, "$prefix:runner avg=${avgPnl.fmt1()} rr=${runnerRate.fmt1()}")
+            avgPnl <= -15.0 -> EntryBias(0.94, 0, "$prefix:weak avg=${avgPnl.fmt1()}")
+            else -> EntryBias(1.0, 0, "$prefix:neutral avg=${avgPnl.fmt1()}")
+        }
     }
 
     fun summary(): String = synchronized(nodes) {

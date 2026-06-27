@@ -1350,15 +1350,24 @@ object ShitCoinTraderAI {
         var semanticEntrySizeMult4255 = 1.0
         try {
             val semanticMcap = if (marketCapUsd.isFinite()) marketCapUsd.toLong() else 0L
-            val semanticSetup = "phase=${launchPlatform.name}|ema=unknown|rsi=0|liq=${liquidityUsd.toInt()}|mcap=$semanticMcap|score=$shitScore|source=${launchPlatform.name}"
-            val semanticBias = com.lifecyclebot.engine.SemanticPatternGraph.entryBias(semanticSetup, "SHITCOIN")
-            semanticEntrySizeMult4255 = semanticBias.sizeMult.coerceIn(0.94, 1.06)
+            val liqBand4278 = when { liquidityUsd < 5_000.0 -> "MICRO"; liquidityUsd < 20_000.0 -> "THIN"; liquidityUsd < 75_000.0 -> "MID"; else -> "DEEP" }
+            val holderBand4278 = when { topHolderPct >= 35.0 -> "TOP_HEAVY"; topHolderPct >= 20.0 -> "CONCENTRATED"; else -> "DISTRIBUTED" }
+            val dnaKey4278 = "liq=$liqBand4278|holders=$holderBand4278|devHold=${devHoldPct.toInt()}|bundle=${bundlePct.toInt()}|platform=${launchPlatform.name}"
+            val semanticSetup = "phase=${launchPlatform.name}|ema=unknown|rsi=0|liq=${liquidityUsd.toInt()}|mcap=$semanticMcap|score=$shitScore|source=${launchPlatform.name}|dna=$dnaKey4278"
+            val semanticBias = com.lifecyclebot.engine.SemanticPatternGraph.entryDnaBias(
+                setup = semanticSetup,
+                lane = "SHITCOIN",
+                deployer = devWallet.orEmpty(),
+                source = launchPlatform.name,
+                dnaKey = dnaKey4278,
+            )
+            semanticEntrySizeMult4255 = semanticBias.sizeMult.coerceIn(0.92, 1.08)
             if (semanticBias.scoreDelta > 0) {
                 shitScore = (shitScore + semanticBias.scoreDelta).coerceAtLeast(0)
                 scoreReasons.add("sem+${semanticBias.scoreDelta}")
             }
             if (semanticEntrySizeMult4255 != 1.0) {
-                ErrorLogger.debug(TAG, "💩🧬 SHITCOIN_SEMANTIC_ENTRY_READBACK_4255: $symbol ${semanticBias.reason} score=$shitScore size×${semanticEntrySizeMult4255.fmt(2)}")
+                ErrorLogger.debug(TAG, "💩🧬 SHITCOIN_DNA_SEMANTIC_ENTRY_READBACK_4278: $symbol ${semanticBias.reason} score=$shitScore size×${semanticEntrySizeMult4255.fmt(2)}")
             }
         } catch (_: Throwable) { semanticEntrySizeMult4255 = 1.0 }
         val effectiveMinScore = maxOf(minScore, wrFloor) + personalityFloorBias

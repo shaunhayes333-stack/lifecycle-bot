@@ -4748,4 +4748,13 @@ class GoldenTapeRegressionTest {
         assertTrue("V5.0.4277: Executor must feed runner retention from terminal outcome side-effect fanout after counterfactual replay", exec.contains("CounterfactualReplayEngine.recordTerminalTrade") && exec.contains("RunnerRetentionOptimizer.recordTerminalExit") && exec.contains("runnerReplayHint"))
     }
 
+    @Test
+    fun deployerClusterDnaReadback4278SoftShapesEntryOnly() {
+        val semantic = java.io.File("src/main/kotlin/com/lifecyclebot/engine/SemanticPatternGraph.kt").readText()
+        val shit = java.io.File("src/main/kotlin/com/lifecyclebot/v3/scoring/ShitCoinTraderAI.kt").readText()
+        assertTrue("V5.0.4278: SemanticPatternGraph must expose deployer/source/DNA-aware cached entry readback", semantic.contains("fun entryDnaBias") && semantic.contains("deployerKey") && semantic.contains("sourceKey") && semantic.contains("dnaKey") && semantic.contains("biasFromNodes"))
+        assertTrue("V5.0.4278: DNA readback must remain soft score/size shaping only", semantic.contains("EntryBias(raw.sizeMult.coerceIn(0.92, 1.08)") && semantic.contains("raw.scoreDelta.coerceIn(0, 5)") && !semantic.contains("hard veto") && !semantic.contains("return ShitCoinSignal"))
+        assertTrue("V5.0.4278: ShitCoin must consume DNA readback with deployer and source context", shit.contains("SemanticPatternGraph.entryDnaBias") && shit.contains("deployer = devWallet.orEmpty()") && shit.contains("dnaKey4278") && shit.contains("SHITCOIN_DNA_SEMANTIC_ENTRY_READBACK_4278"))
+    }
+
 }
