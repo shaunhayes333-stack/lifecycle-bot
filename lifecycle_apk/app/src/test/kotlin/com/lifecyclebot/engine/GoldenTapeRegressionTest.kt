@@ -4379,4 +4379,13 @@ class GoldenTapeRegressionTest {
         assertTrue("V5.0.4230: ShitCoin failure paths must release lane/permit/auth through one helper", bot.contains("fun releaseShitCoinAttempt4230") && bot.contains("TradeAuthorizer.releasePosition(ts.mint, reason, TradeAuthorizer.ExecutionBook.SHITCOIN)") && bot.contains("""releaseShitCoinAttempt4230("BUY_NOT_OPENED")""") && bot.contains("""releaseShitCoinAttempt4230("EXCEPTION")"""))
     }
 
+    @Test
+    fun shitcoin4231NonSafetyGatesAreSoftShapers() {
+        val shit = java.io.File("src/main/kotlin/com/lifecyclebot/v3/scoring/ShitCoinTraderAI.kt").readText()
+        assertTrue("V5.0.4231: ShitCoin score expectancy must soft-shape instead of zero-size veto", shit.contains("SHITCOIN_EXPECTANCY_SOFT_SHAPE_4231") && shit.contains("intelligenceGateSizeMult4231 = minOf(intelligenceGateSizeMult4231, 0.35)"))
+        assertTrue("V5.0.4231: ShitCoin BehaviorAI tilt must soft-shape instead of hard TILT_BLOCK", shit.contains("SHITCOIN_TILT_SOFT_SHAPE_4231") && !shit.contains("TILT_BLOCK: BehaviorAI tilt protection active — skipping entry"))
+        assertTrue("V5.0.4231: ShitCoin SymbolicExitReasoner urgency must soft-shape instead of SYMBOLIC_VETO", shit.contains("SHITCOIN_SYMBOLIC_SOFT_SHAPE_4231") && !shit.contains("SYMBOLIC_VETO: exit urgency"))
+        assertTrue("V5.0.4231: ShitCoin intelligence soft shape must flow into returned position size", shit.contains("positionSol * dangerBucketSoftSize * intelligenceGateSizeMult4231"))
+    }
+
 }

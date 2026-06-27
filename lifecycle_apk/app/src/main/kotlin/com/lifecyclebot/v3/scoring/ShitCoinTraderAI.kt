@@ -1402,31 +1402,19 @@ object ShitCoinTraderAI {
             shitConfidence = (shitConfidence * 0.7).toInt().coerceAtLeast(10)
         }
 
-        // V5.9.435 — SCORE-EXPECTANCY SOFT GATE
-        // Closes the open feedback loop: if this score's bucket has been
-        // bleeding money on average over the last N closed trades, skip.
-        // Stays exploratory until the bucket has 25+ samples (see tracker).
+        // V5.9.435 / V5.0.4231 — SCORE-EXPECTANCY SHAPER.
+        // This is learned/statistical risk, not hard safety. Keep FDG as the
+        // execution authority and convert net-negative buckets into bounded
+        // recovery probes instead of zero-size lane amputation.
+        var intelligenceGateSizeMult4231 = 1.0
         if (com.lifecyclebot.engine.ScoreExpectancyTracker.shouldReject("SHITCOIN", shitScore)) {
             val mean = com.lifecyclebot.engine.ScoreExpectancyTracker.bucketMean("SHITCOIN", shitScore)
             val n = com.lifecyclebot.engine.ScoreExpectancyTracker.bucketSamples("SHITCOIN", shitScore)
-            ErrorLogger.info(TAG, "💩📉 EXPECTANCY_REJECT: $symbol | score=$shitScore | " +
-                "bucket μ=${"%+.1f".format(mean ?: 0.0)}% over n=$n trades — skipping")
-            return ShitCoinSignal(
-                shouldEnter = false,
-                positionSizeSol = 0.0,
-                takeProfitPct = 0.0,
-                stopLossPct = 0.0,
-                confidence = shitConfidence,
-                reason = "EXPECTANCY_REJECT: score=$shitScore bucketMean=${"%+.1f".format(mean ?: 0.0)}% (n=$n)",
-                mode = mode,
-                isPaperMode = isPaperMode,
-                launchPlatform = launchPlatform,
-                riskLevel = riskLevel,
-                socialScore = socialBonus,
-                bundleWarning = bundleWarning,
-                graduationImminent = graduationImminent,
-                entryScore = shitScore,
-            )
+            intelligenceGateSizeMult4231 = minOf(intelligenceGateSizeMult4231, 0.35)
+            shitConfidence = (shitConfidence * 0.85).toInt().coerceAtLeast(10)
+            scoreReasons.add("expectSoft")
+            ErrorLogger.info(TAG, "💩📉 SHITCOIN_EXPECTANCY_SOFT_SHAPE_4231: $symbol | score=$shitScore | " +
+                "bucket μ=${"%+.1f".format(mean ?: 0.0)}% over n=$n trades — size×0.35, routing via FDG")
         }
         
         // ═══════════════════════════════════════════════════════════════════
@@ -1435,18 +1423,13 @@ object ShitCoinTraderAI {
         // All four sentient layers now guard ShitCoin entries, matching V3 quality path.
         // ═══════════════════════════════════════════════════════════════════
 
-        // 1. BehaviorAI tilt protection
+        // 1. BehaviorAI tilt protection — V5.0.4231 soft-shapes instead of hard veto.
         try {
             if (com.lifecyclebot.v3.scoring.BehaviorAI.isTiltProtectionActive()) {
-                return ShitCoinSignal(
-                    shouldEnter = false, positionSizeSol = 0.0,
-                    takeProfitPct = 0.0, stopLossPct = 0.0,
-                    confidence = shitConfidence,
-                    reason = "TILT_BLOCK: BehaviorAI tilt protection active — skipping entry",
-                    mode = mode, isPaperMode = isPaperMode, launchPlatform = launchPlatform,
-                    riskLevel = riskLevel, socialScore = socialBonus,
-                    bundleWarning = bundleWarning, graduationImminent = graduationImminent,
-                )
+                intelligenceGateSizeMult4231 = minOf(intelligenceGateSizeMult4231, 0.35)
+                shitConfidence = (shitConfidence * 0.85).toInt().coerceAtLeast(10)
+                scoreReasons.add("tiltSoft")
+                ErrorLogger.info(TAG, "💩🧠 SHITCOIN_TILT_SOFT_SHAPE_4231: BehaviorAI tilt active — size×0.35, routing via FDG")
             }
         } catch (_: Exception) {}
 
@@ -1459,15 +1442,11 @@ object ShitCoinTraderAI {
             )
             val avgUrgency = if (urgencySignals.isNotEmpty()) urgencySignals.average() else 0.0
             if (avgUrgency > 0.78) {
-                return ShitCoinSignal(
-                    shouldEnter = false, positionSizeSol = 0.0,
-                    takeProfitPct = 0.0, stopLossPct = 0.0,
-                    confidence = shitConfidence,
-                    reason = "SYMBOLIC_VETO: exit urgency %.2f > 0.78 — market conditions unfavourable".format(avgUrgency),
-                    mode = mode, isPaperMode = isPaperMode, launchPlatform = launchPlatform,
-                    riskLevel = riskLevel, socialScore = socialBonus,
-                    bundleWarning = bundleWarning, graduationImminent = graduationImminent,
-                )
+                val symbolicMult4231 = if (avgUrgency > 0.90) 0.35 else 0.45
+                intelligenceGateSizeMult4231 = minOf(intelligenceGateSizeMult4231, symbolicMult4231)
+                shitConfidence = (shitConfidence * 0.90).toInt().coerceAtLeast(10)
+                scoreReasons.add("symbolicSoft")
+                ErrorLogger.info(TAG, "💩🔮 SHITCOIN_SYMBOLIC_SOFT_SHAPE_4231: exitUrgency=${avgUrgency.fmt(2)} — size×${symbolicMult4231.fmt(2)}, routing via FDG")
             }
         } catch (_: Exception) {}
 
@@ -1561,8 +1540,8 @@ object ShitCoinTraderAI {
         val currentBalance = getCurrentBalance()
         val walletBasedSize = currentBalance * WALLET_SCALE_FACTOR
         var positionSol = maxOf(BASE_POSITION_SOL, walletBasedSize)
-        // V5.9.1329 — apply danger-bucket soft-size multiplier
-        positionSol = (positionSol * dangerBucketSoftSize).coerceAtLeast(0.01)
+        // V5.9.1329 / V5.0.4231 — apply learned soft-size multipliers.
+        positionSol = (positionSol * dangerBucketSoftSize * intelligenceGateSizeMult4231).coerceAtLeast(0.01)
         
         // Scale by confidence
         val confScale = shitConfidence / 100.0
