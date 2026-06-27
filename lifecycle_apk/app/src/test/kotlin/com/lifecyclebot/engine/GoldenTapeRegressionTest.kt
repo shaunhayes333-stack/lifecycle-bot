@@ -4958,4 +4958,13 @@ class GoldenTapeRegressionTest {
         assertFalse("V5.0.4300: recordTrade must not collapse blank trade/position mode directly to STANDARD", ex.contains("isMeaningfulLaneName(ts.position.tradingMode) -> ts.position.tradingMode\n            else                                          -> \"STANDARD\""))
     }
 
+
+    @Test
+    fun rapidProfitCapture4301DoesNotDelegateLiveRunnersAndMissPeaks() {
+        val bot = java.io.File("src/main/kotlin/com/lifecyclebot/engine/BotService.kt").readText()
+        assertTrue("V5.0.4301: rapid monitor must force sell when current PnL breaches stored peak-lock", bot.contains("RAPID_PEAK_LOCK_BREACH_4301") && bot.contains("explicitPeakLockFloor4301") && bot.contains("force_sell_before_generic_dynamic_stop"))
+        assertTrue("V5.0.4301: live rapid take-profit must execute immediate sell/partial instead of only delegating to manage-only", bot.contains("RAPID_INSTANT_PROFIT_CAPTURE_4301") && bot.contains("requestPartialSell") && bot.contains("requestSell") && bot.contains("immediate_live_sell_or_partial"))
+        assertTrue("V5.0.4301: extreme live runners must full-capture rather than wait", bot.contains("pnlPct >= 500.0 -> 1.0") && bot.contains("pnlPct >= 200.0 -> 0.75") && bot.contains("pnlPct >= 50.0  -> 0.50"))
+    }
+
 }

@@ -8049,6 +8049,34 @@ class BotService : Service() {
                                 -com.lifecyclebot.v3.scoring.FluidLearningAI.getFluidStopLoss(cfg.stopLossPct)
                             } catch (_: Exception) { -cfg.stopLossPct }
                         }
+
+                        // V5.0.4301 — explicit peak-lock breach sell.
+                        // A basic bot must not watch a live runner print a huge
+                        // peak, show a lock, then sit open after the price falls
+                        // below that lock. This guard is independent of generic
+                        // dynamic-stop semantics and fires even if current PnL
+                        // already gapped below zero between 500ms ticks.
+                        val explicitPeakLockFloor4301 = when {
+                            peakPnlPct >= 100.0 -> peakPnlPct - 12.0
+                            peakPnlPct >= 20.0 -> try {
+                                com.lifecyclebot.v3.scoring.FluidLearningAI.fluidProfitFloor(peakPnlPct, volatility, holdTimeSecs)
+                            } catch (_: Throwable) { peakPnlPct - 8.0 }
+                            else -> Double.NEGATIVE_INFINITY
+                        }
+                        if (explicitPeakLockFloor4301.isFinite() && pnlPct <= explicitPeakLockFloor4301) {
+                            ErrorLogger.warn("BotService", "🚨 RAPID_PEAK_LOCK_BREACH_4301: ${ts.symbol} peak=${peakPnlPct.toInt()}% lock=${explicitPeakLockFloor4301.toInt()}% now=${pnlPct.toInt()}% — force sell")
+                            addLog("🛑 PEAK LOCK BREACH: ${ts.symbol} peak +${peakPnlPct.toInt()}% → now ${pnlPct.toInt()}%", ts.mint)
+                            try { PipelineHealthCollector.labelInc("RAPID_PEAK_LOCK_BREACH_4301") } catch (_: Throwable) {}
+                            try { ForensicLogger.lifecycle("RAPID_PEAK_LOCK_BREACH_4301", "mint=${ts.mint.take(10)} symbol=${ts.symbol} peak=${"%.1f".format(peakPnlPct)} lock=${"%.1f".format(explicitPeakLockFloor4301)} now=${"%.1f".format(pnlPct)} action=force_sell_before_generic_dynamic_stop") } catch (_: Throwable) {}
+                            executor.requestSell(
+                                ts = ts,
+                                reason = "RAPID_PEAK_LOCK_BREACH_4301_peak${peakPnlPct.toInt()}_now${pnlPct.toInt()}",
+                                wallet = wallet,
+                                walletSol = effectiveBalance
+                            )
+                            TradeStateMachine.startCooldown(ts.mint)
+                            continue
+                        }
                         
                         // Dynamic stop is already negative
                         // V5.9.495z27 — was `pnlPct > -HARD_FLOOR_STOP_PCT`,
@@ -8079,6 +8107,7 @@ class BotService : Service() {
                             )
                             
                             TradeStateMachine.startCooldown(ts.mint)
+                            continue
                         }
 
                         // V5.9.684 — RAPID TAKE-PROFIT.
@@ -8119,14 +8148,47 @@ class BotService : Service() {
                                     } catch (_: Throwable) { true }  // never block on verifier failure
                                 } else true
                                 if (priceReal) {
-                                    ErrorLogger.info("BotService",
-                                        "🎯 RAPID TAKE_PROFIT_DELEGATE: ${ts.symbol} pnl=${pnlPct.toInt()}% ≥ tp=${tpPct.toInt()}% — manage-only partial/profit-lock first")
-                                    addLog("🎯 RAPID TP: ${ts.symbol} +${pnlPct.toInt()}% — checking dynamic partial/profit-lock first", ts.mint)
-                                    // V5.9.1558 — do NOT full-close winners from rapid monitor.
-                                    // Delegate to Executor's manage-only path, which now returns
-                                    // immediately after any dynamic partial. If no partial applies,
-                                    // its existing TP logic may still close normally.
-                                    executor.runManageOnly(ts, wallet, effectiveBalance)
+                                    if (!ts.position.isPaperPosition) {
+                                        // V5.0.4301 — live rapid profit capture must ACT, not
+                                        // delegate and wait. Paper learning looked good because it
+                                        // captured/managed many runners; live missed Pride-style
+                                        // instant peaks while the rapid monitor only delegated to
+                                        // manage-only. On live fast pumps, send a sell/partial
+                                        // request immediately from the 500ms monitor.
+                                        val capturePct4301 = when {
+                                            pnlPct >= 500.0 -> 1.0
+                                            pnlPct >= 200.0 -> 0.75
+                                            pnlPct >= 50.0  -> 0.50
+                                            else            -> 0.25
+                                        }
+                                        ErrorLogger.warn("BotService", "⚡ RAPID_INSTANT_PROFIT_CAPTURE_4301: ${ts.symbol} pnl=${pnlPct.toInt()}% tp=${tpPct.toInt()}% capture=${(capturePct4301*100).toInt()}%")
+                                        addLog("⚡ RAPID PROFIT CAPTURE: ${ts.symbol} +${pnlPct.toInt()}% sell ${(capturePct4301*100).toInt()}%", ts.mint)
+                                        try { PipelineHealthCollector.labelInc("RAPID_INSTANT_PROFIT_CAPTURE_4301") } catch (_: Throwable) {}
+                                        try { ForensicLogger.lifecycle("RAPID_INSTANT_PROFIT_CAPTURE_4301", "mint=${ts.mint.take(10)} symbol=${ts.symbol} pnl=${"%.1f".format(pnlPct)} peak=${"%.1f".format(peakPnlPct)} tp=${"%.1f".format(tpPct)} capturePct=${"%.2f".format(capturePct4301)} action=immediate_live_sell_or_partial") } catch (_: Throwable) {}
+                                        if (capturePct4301 >= 0.999) {
+                                            executor.requestSell(
+                                                ts = ts,
+                                                reason = "RAPID_INSTANT_PROFIT_CAPTURE_4301_${pnlPct.toInt()}PCT",
+                                                wallet = wallet,
+                                                walletSol = effectiveBalance
+                                            )
+                                        } else {
+                                            executor.requestPartialSell(
+                                                ts = ts,
+                                                sellPercentage = capturePct4301,
+                                                reason = "RAPID_INSTANT_PROFIT_CAPTURE_4301_${(capturePct4301*100).toInt()}PCT_${pnlPct.toInt()}PCT",
+                                                wallet = wallet,
+                                                walletBalance = effectiveBalance
+                                            )
+                                        }
+                                        TradeStateMachine.startCooldown(ts.mint)
+                                        continue
+                                    } else {
+                                        ErrorLogger.info("BotService",
+                                            "🎯 RAPID TAKE_PROFIT_DELEGATE: ${ts.symbol} pnl=${pnlPct.toInt()}% ≥ tp=${tpPct.toInt()}% — manage-only partial/profit-lock first")
+                                        addLog("🎯 RAPID TP: ${ts.symbol} +${pnlPct.toInt()}% — checking dynamic partial/profit-lock first", ts.mint)
+                                        executor.runManageOnly(ts, wallet, effectiveBalance)
+                                    }
                                 }
                             }
                         }
