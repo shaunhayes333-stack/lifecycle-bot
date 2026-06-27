@@ -5021,4 +5021,13 @@ class GoldenTapeRegressionTest {
         assertTrue("V5.0.4307: existing sentinels must emit at startup, not only exist for Golden Tape", registry.contains("AiStatePersistenceSentinel.emit()") && registry.contains("HotPathProviderCallSentinel.emit()") && bot.contains("SmartSystemRuntimeRegistry.emitStartupProof()"))
     }
 
+    @Test
+    fun treasuryCashflowMissionReport4308IsReportOnlyAndWired() {
+        val report = java.io.File("src/main/kotlin/com/lifecyclebot/engine/TreasuryCashflowMissionReport.kt").readText()
+        val cash = java.io.File("src/main/kotlin/com/lifecyclebot/v3/scoring/CashGenerationAI.kt").readText()
+        assertTrue("V5.0.4308: Treasury cashflow report must be report-only and never change gates", report.contains("TREASURY_CASHFLOW_MISSION_4308") && report.contains("report_only=true") && report.contains("no_gate_change=true"))
+        assertTrue("V5.0.4308: CashGen evaluate funnel must record evaluation, reject, and accept", cash.contains("TreasuryCashflowMissionReport.recordEvaluation") && cash.contains("TreasuryCashflowMissionReport.recordRejected") && cash.contains("TreasuryCashflowMissionReport.recordAccepted"))
+        assertTrue("V5.0.4308: CashGen open/close/feed must stamp wallet-feeder mission telemetry", cash.contains("TreasuryCashflowMissionReport.recordOpened") && cash.contains("TreasuryCashflowMissionReport.recordClosed") && cash.contains("TreasuryCashflowMissionReport.recordTreasuryFeed"))
+    }
+
 }

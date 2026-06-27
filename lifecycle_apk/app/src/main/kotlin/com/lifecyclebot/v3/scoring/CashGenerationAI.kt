@@ -2,6 +2,7 @@ package com.lifecyclebot.v3.scoring
 
 import android.content.Context
 import com.lifecyclebot.engine.AutoCompoundEngine
+import com.lifecyclebot.engine.TreasuryCashflowMissionReport
 import com.lifecyclebot.engine.ErrorLogger
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.atomic.AtomicInteger
@@ -276,6 +277,7 @@ object CashGenerationAI {
         if (sanitizedProfit != profitSol) {
             ErrorLogger.warn(TAG, "💰 TREASURY addToTreasury CLAMPED: ${profitSol.fmt(4)} → ${sanitizedProfit.fmt(4)} SOL (live 50 SOL/call cap)")
         }
+        try { TreasuryCashflowMissionReport.recordTreasuryFeed(sanitizedProfit, isPaper) } catch (_: Throwable) {}
         val bps = (sanitizedProfit * 100).toLong()
 
         // Treasury total cap: live=1000 SOL max, paper=100k SOL max
@@ -509,6 +511,7 @@ object CashGenerationAI {
         // the meme lanes still take these tokens. Fail-open if liquidity unknown (0).
         val treasuryMinLiq = if (isPaperMode) 12_000.0 else 25_000.0
         if (liquidityUsd > 0.0 && liquidityUsd < treasuryMinLiq) {
+            try { TreasuryCashflowMissionReport.recordRejected("treasury_liq_floor_${liquidityUsd.toInt()}_below_${treasuryMinLiq.toInt()}", mode.name, isPaperMode) } catch (_: Throwable) {}
             return TreasurySignal(
                 shouldEnter = false,
                 positionSizeSol = 0.0,
@@ -628,6 +631,19 @@ object CashGenerationAI {
         if (v3Cosign != 0) {
             scoreReasons.add("v3cosign${if (v3Cosign > 0) "+" else ""}$v3Cosign")
         }
+
+        // V5.0.4308 — report-only cashflow funnel: see whether Treasury is
+        // actually getting evaluated/accepted or starving behind its own ponds.
+        try {
+            TreasuryCashflowMissionReport.recordEvaluation(
+                symbol = symbol,
+                mode = mode.name,
+                isPaper = isPaperMode,
+                liquidityUsd = liquidityUsd,
+                score = treasuryScore,
+                confidence = treasuryConfidence,
+            )
+        } catch (_: Throwable) {}
 
         val learningProgress = FluidLearningAI.getLearningProgress()
 
@@ -758,6 +774,7 @@ object CashGenerationAI {
 
         if (rejectionReasons.isNotEmpty()) {
             ErrorLogger.info(TAG, "💰 TREASURY SKIP: $symbol | ${rejectionReasons.joinToString(", ")}")
+            try { TreasuryCashflowMissionReport.recordRejected(rejectionReasons.joinToString(","), mode.name, isPaperMode) } catch (_: Throwable) {}
             return TreasurySignal(
                 shouldEnter = false,
                 positionSizeSol = 0.0,
@@ -981,6 +998,8 @@ object CashGenerationAI {
                 "TP=${takeProfitPct.fmt(1)}% SL=${stopLossPct.fmt(1)}% | mode=$mode | ${if (isPaperMode) "PAPER" else "LIVE"}",
         )
 
+        try { TreasuryCashflowMissionReport.recordAccepted(scoreReasons.joinToString(","), mode.name, isPaperMode, positionSol) } catch (_: Throwable) {}
+
         return TreasurySignal(
             shouldEnter = true,
             positionSizeSol = positionSol,
@@ -1033,6 +1052,7 @@ object CashGenerationAI {
 
         synchronized(activePositions) {
             activePositions[mint] = position
+            try { TreasuryCashflowMissionReport.recordOpened(mint, symbol, isPaperMode, positionSol, entryScore) } catch (_: Throwable) {}
             ErrorLogger.info(
                 TAG,
                 "💰 TREASURY MAP: Added $symbol | activePositions.size=${activePositions.size} | " +
@@ -1420,6 +1440,7 @@ object CashGenerationAI {
 
         val pnlPct = (exitPrice - pos.entryPrice) / pos.entryPrice * 100
         val pnlSol = pos.entrySol * pnlPct / 100
+        try { TreasuryCashflowMissionReport.recordClosed(mint, pos.symbol, pos.isPaper, pnlSol, exitReason.name) } catch (_: Throwable) {}
         val holdMinutesLong = (System.currentTimeMillis() - pos.entryTime) / 60_000L
 
         // V5.9.434 — journal every V3 sub-trader close so the persistent
