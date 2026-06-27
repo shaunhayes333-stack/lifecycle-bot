@@ -4560,4 +4560,13 @@ class GoldenTapeRegressionTest {
         assertTrue("V5.0.4253: compounding lane proof must require AutoCompoundEngine.getSizeMultiplier across all major lanes", prover.contains("listOf(shit, moon, express, sniper, manipulated, quality, blueChip, treasury)") && prover.contains("AutoCompoundEngine.getSizeMultiplier()"))
     }
 
+    @Test
+    fun multiAgentCritic4254IsBackgroundOnlyAcceptedHypothesisStack() {
+        val critic = java.io.File("src/main/kotlin/com/lifecyclebot/engine/MultiAgentCriticStack.kt").readText()
+        assertTrue("V5.0.4254: MultiAgentCriticStack must model summarizer/strategist/skeptic/symbolic judge roles", critic.contains("enum class Role") && critic.contains("SUMMARIZER") && critic.contains("STRATEGIST") && critic.contains("SKEPTIC") && critic.contains("SYMBOLIC_JUDGE"))
+        assertTrue("V5.0.4254: accepted critic outputs must go only into AsyncStrategyLab persistent hypothesis bank", critic.contains("AsyncStrategyLab.submitBackgroundHypothesis") && critic.contains("symbolicChecked = true") && critic.contains("rollbackCondition"))
+        assertTrue("V5.0.4254: critic stack must reject hot-path API, hard veto, zero-size, and trade-command proposals", critic.contains("SCANNER_HOT_PATH_API") && critic.contains("HARD_VETO") && critic.contains("ZERO_SIZE") && critic.contains("EXECUTEBUY"))
+        assertFalse("V5.0.4254: critic stack must never call FDG or execute trades", critic.contains("FinalDecisionGate.evaluate(") || critic.contains("executeBuy("))
+    }
+
 }
