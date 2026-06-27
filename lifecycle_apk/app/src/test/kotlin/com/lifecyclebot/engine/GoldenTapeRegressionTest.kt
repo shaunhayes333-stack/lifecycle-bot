@@ -4500,4 +4500,11 @@ class GoldenTapeRegressionTest {
         assertTrue("V5.0.4243: GEPA proposals must persist through LearningPersistence", gepa.contains("exportState") && gepa.contains("importState") && persistence.contains("REFLECTIVE_OPTIMIZER_GEPA"))
     }
 
+    @Test
+    fun gepa4244RunsOnlyFromTerminalBackgroundOutcomeFanout() {
+        val executor = java.io.File("src/main/kotlin/com/lifecyclebot/engine/Executor.kt").readText()
+        assertTrue("V5.0.4244: GEPA optimizer must run from terminal outcome background fanout after replay/semantic cache updates", executor.contains("GEPA_TERMINAL_REFLECTION_QUEUED_4244") && executor.contains("ReflectiveOptimizerGEPA.runBackgroundReflection") && executor.contains("BACKGROUND_GEPA_TERMINAL_OUTCOME_4244"))
+        assertTrue("V5.0.4244: GEPA terminal reflection must stay under terminal SELL closed-learning/accounting trainable gate", executor.contains("tradeWithMint.side.equals("SELL", true) && ledgerAllowsClosedLearning && accountingTrainable") && executor.contains("GlobalScope.launch(AppDispatchers.sideEffect)"))
+    }
+
 }

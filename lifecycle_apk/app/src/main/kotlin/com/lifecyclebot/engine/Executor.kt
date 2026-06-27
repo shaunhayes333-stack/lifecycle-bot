@@ -2915,6 +2915,15 @@ class Executor(
                             )
                             try { PipelineHealthCollector.labelInc("RESEARCH_SCOUT_TERMINAL_EXIT_QUEUED_4242") } catch (_: Throwable) {}
                         }
+                        try {
+                            if (com.lifecyclebot.engine.ReflectiveOptimizerGEPA.runBackgroundReflection(
+                                    lane = graphLane,
+                                    sourceTag = "BACKGROUND_GEPA_TERMINAL_OUTCOME_4244",
+                                )
+                            ) {
+                                PipelineHealthCollector.labelInc("GEPA_TERMINAL_REFLECTION_QUEUED_4244")
+                            }
+                        } catch (_: Throwable) {}
                         try { PipelineHealthCollector.labelInc("SEMANTIC_COUNTERFACTUAL_OUTCOME_4241") } catch (_: Throwable) {}
                     } catch (_: Throwable) {}
                 }
