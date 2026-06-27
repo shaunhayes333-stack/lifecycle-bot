@@ -4967,4 +4967,13 @@ class GoldenTapeRegressionTest {
         assertTrue("V5.0.4301: extreme live runners must full-capture rather than wait", bot.contains("pnlPct >= 500.0 -> 1.0") && bot.contains("pnlPct >= 200.0 -> 0.75") && bot.contains("pnlPct >= 50.0  -> 0.50"))
     }
 
+
+    @Test
+    fun profitLock4302BeatsWarmupAndEntryLock() {
+        val fluid = java.io.File("src/main/kotlin/com/lifecyclebot/v3/scoring/FluidLearningAI.kt").readText()
+        val ex = java.io.File("src/main/kotlin/com/lifecyclebot/engine/Executor.kt").readText()
+        assertTrue("V5.0.4302: FluidLearningAI entry protection must not override instant profit-lock", fluid.contains("V5.0.4302") && fluid.contains("holdTimeSeconds < 60 && !(currentPnlPct > 0 && peakPnlPct > 3.0)") && fluid.contains("positive trailing/profit-lock branch below"))
+        assertTrue("V5.0.4302: Executor entry-lock must only hold negative dynamic stops, never positive profit locks", ex.contains("V5.0.4302") && ex.contains("dynamicStopPct <= 0.0") && ex.contains("profit-lock beats entry-lock"))
+    }
+
 }

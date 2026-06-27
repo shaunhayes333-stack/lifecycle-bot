@@ -6538,7 +6538,11 @@ class Executor(
         // A genuine in-profit trailing exit is unaffected (peak>5% trailing fires
         // through its own ProfitabilityLayer path above, not here).
         val entryLockActive = heldSecs < 40.0  // V5.9.1430 30s->40s: align Executor entry-lock with 1429 BotService settle-in; closes the 30-60s window that booked entry_protect losses at -10..-13%
-        if (entryLockActive && gainPct <= dynamicStopPct && gainPct > -effectiveHardFloorPct) {
+        // V5.0.4302 — basic crypto invariant: profit-lock beats entry-lock.
+        // The time-lock may hold negative entry-protect/fluid-loss exits, but
+        // must NOT hold a positive dynamicStopPct produced by a live runner.
+        // Instant meme peaks are exactly what the bot is trying to monetize.
+        if (entryLockActive && dynamicStopPct <= 0.0 && gainPct <= dynamicStopPct && gainPct > -effectiveHardFloorPct) {
             try {
                 com.lifecyclebot.engine.ForensicLogger.lifecycle(
                     "ENTRY_PROTECT_TIMELOCK_HOLD",

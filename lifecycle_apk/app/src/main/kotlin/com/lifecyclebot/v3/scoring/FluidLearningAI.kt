@@ -1604,9 +1604,14 @@ object FluidLearningAI {
         // Allow wider stops during entry volatility - tokens often wick
         // down 5-10% before pumping. Don't get shaken out early.
         // ═══════════════════════════════════════════════════════════════
-        if (holdTimeSeconds < 60) {
+        if (holdTimeSeconds < 60 && !(currentPnlPct > 0 && peakPnlPct > 3.0)) {
             // Bootstrap: Even wider entry protection (15%)
             // Mature: Tighter entry protection (12%)
+            // V5.0.4302 — basic crypto invariant: profit-lock beats warmup.
+            // Instant meme pumps are the edge. If a position has already moved
+            // into profit and recorded a peak, do NOT return a negative entry
+            // protection stop just because age <60s; fall through into the
+            // positive trailing/profit-lock branch below.
             val entryProtection = lerp(15.0, 12.0)
             return -entryProtection
         }
