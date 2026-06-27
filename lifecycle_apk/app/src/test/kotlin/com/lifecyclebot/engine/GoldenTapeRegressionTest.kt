@@ -5218,4 +5218,12 @@ class GoldenTapeRegressionTest {
         assertTrue("V5.0.4336: operator KPI must expose SolanaArbAI feed starvation", arb.contains("fun feedStatus()") && report.contains("SOL_ARB_FEEDS_4336") && report.contains("sol_arb=SolanaArbAI"))
     }
 
+    @Test
+    fun treasuryOpportunity4338IsEnabledAndConsumedAsAdvisorySizing() {
+        val bot = java.io.File("src/main/kotlin/com/lifecyclebot/engine/BotService.kt").readText()
+        val cash = java.io.File("src/main/kotlin/com/lifecyclebot/v3/scoring/CashGenerationAI.kt").readText()
+        assertTrue("V5.0.4338: BotService must enable TreasuryOpportunityEngine advisory helper", bot.contains("TreasuryOpportunityEngine.setEnabled(true)") && bot.contains("advisory Treasury deployment helper"))
+        assertTrue("V5.0.4338: CashGenerationAI must consume TreasuryOpportunityEngine without duplicate deployment", cash.contains("TREASURY_OPPORTUNITY_ADVISORY_SHAPE_4338") && cash.contains("TreasuryOpportunityEngine.assessOpportunity") && cash.contains("does NOT recordDeployment") && !cash.contains("TreasuryOpportunityEngine.recordDeployment"))
+    }
+
 }

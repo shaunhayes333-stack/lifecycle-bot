@@ -972,6 +972,27 @@ object CashGenerationAI {
                 ErrorLogger.debug(TAG, "💰⚖️ TREASURY_ARB_DECK_CACHE_SHAPE_4334: $symbol ${arb4334.arbType}/${arb4334.band} score+$scoreBoost4334 size×${arbSize4334.fmt(2)} exp=${arb4334.expectedMovePct.fmt(1)}%")
             }
         } catch (_: Throwable) { /* fail-open cache read */ }
+        // V5.0.4338 — consume TreasuryOpportunityEngine as advisory sizing.
+        // This does NOT recordDeployment or open a second book; CashGenerationAI
+        // remains the execution owner. TreasuryOpportunityEngine contributes a
+        // bounded size target if it sees a compounding deployment setup.
+        try {
+            val opp4338 = com.lifecyclebot.engine.TreasuryOpportunityEngine.assessOpportunity(
+                mint = mint,
+                symbol = symbol,
+                entryScore = treasuryScore.toDouble(),
+                confidence = treasuryConfidence.toDouble(),
+                mode = mode.name,
+                liquidityUsd = liquidityUsd,
+                mcapUsd = marketCapUsd,
+            )
+            if (opp4338 != null) {
+                val advisoryTarget4338 = opp4338.recommendedSizeSol.coerceIn(MIN_POSITION_SOL, maxWithCompounding)
+                positionSol = ((positionSol * 0.70) + (advisoryTarget4338 * 0.30)).coerceIn(MIN_POSITION_SOL, maxWithCompounding)
+                scoreReasons.add("treasuryOpp")
+                ErrorLogger.debug(TAG, "💰💎 TREASURY_OPPORTUNITY_ADVISORY_SHAPE_4338: $symbol mode=${opp4338.mode} conf=${opp4338.confidence.fmt(0)} exp=${opp4338.expectedReturnPct.fmt(1)} sizeTarget=${advisoryTarget4338.fmt(4)} final=${positionSol.fmt(4)}")
+            }
+        } catch (_: Throwable) { /* fail-open advisory only */ }
         positionSol = positionSol.coerceIn(MIN_POSITION_SOL, maxWithCompounding)
 
         val globalMultiplier = AutoCompoundEngine.getSizeMultiplier()

@@ -23073,6 +23073,7 @@ if (hotExitHandledSweep) {
         // Solana Arbitrage
         try {
             val treasuryBalance = com.lifecyclebot.v3.scoring.CashGenerationAI.getTreasuryBalance(cfg.paperMode)
+            try { com.lifecyclebot.engine.TreasuryOpportunityEngine.setEnabled(true) } catch (_: Throwable) {}  // V5.0.4338 advisory Treasury deployment helper
             val solPrice = WalletManager.lastKnownSolPrice.takeIf { it > 0 } ?: 150.0
             val treasuryUsd = treasuryBalance * solPrice
             com.lifecyclebot.v3.scoring.SolanaArbAI.init(cfg.paperMode, treasuryUsd)
