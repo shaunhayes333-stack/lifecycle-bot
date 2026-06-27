@@ -412,6 +412,12 @@ object ShitCoinTraderAI {
         // V5.9.457 — mode-orphan fix: check BOTH maps.
         paperPositions.containsKey(mint) || livePositions.containsKey(mint)
 
+    fun restorePosition(position: ShitCoinPosition, isPaper: Boolean) {
+        val target = if (isPaper) paperPositions else livePositions
+        synchronized(target) { target[position.mint] = position }
+        ErrorLogger.warn(TAG, "💩 SHITCOIN RESTORED: ${position.symbol} | entry=${position.entryPrice.fmtPrice()} | ${if (isPaper) "PAPER" else "LIVE"}")
+    }
+
     /**
      * V5.9.398 — Push a live price into the position without firing exit
      * logic. Called from BotService's price-update hub for every tick so the

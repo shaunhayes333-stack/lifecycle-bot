@@ -1057,6 +1057,12 @@ object CashGenerationAI {
             synchronized(livePositions) { livePositions.containsKey(mint) }
     }
 
+    fun restorePosition(position: TreasuryPosition, isPaper: Boolean) {
+        val target = if (isPaper) paperPositions else livePositions
+        synchronized(target) { target[position.mint] = position }
+        ErrorLogger.warn(TAG, "💰 TREASURY RESTORED: ${position.symbol} | entry=${position.entryPrice.fmtPrice()} | ${if (isPaper) "PAPER" else "LIVE"}")
+    }
+
     fun getActivePosition(mint: String): TreasuryPosition? {
         // V5.9.456 — find the position wherever it lives (either map).
         synchronized(activePositions) { activePositions[mint]?.let { return it } }

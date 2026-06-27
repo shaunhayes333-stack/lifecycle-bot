@@ -571,6 +571,56 @@ object PositionPersistence {
                     )
                     PipelineHealthCollector.labelInc("MOONSHOT_RESTORED_ACTIVE_POSITION_4227")
                 }
+                if (restoredLayer.equals("SHITCOIN", ignoreCase = true) &&
+                    !com.lifecyclebot.v3.scoring.ShitCoinTraderAI.hasPosition(mint)) {
+                    val shitEntry = saved.entryPrice.takeIf { it > 0.0 } ?: saved.lastKnownPrice
+                    val shitHigh = saved.highestPrice.takeIf { it > shitEntry } ?: shitEntry
+                    com.lifecyclebot.v3.scoring.ShitCoinTraderAI.restorePosition(
+                        com.lifecyclebot.v3.scoring.ShitCoinTraderAI.ShitCoinPosition(
+                            mint = mint,
+                            symbol = saved.symbol,
+                            entryPrice = shitEntry,
+                            entrySol = saved.costSol,
+                            entryTime = saved.entryTime,
+                            marketCapUsd = saved.entryMcap.takeIf { it > 0.0 } ?: saved.lastKnownMcap,
+                            liquidityUsd = saved.entryLiquidityUsd.takeIf { it > 0.0 } ?: saved.lastKnownLiquidity,
+                            isPaper = saved.isPaperPosition,
+                            takeProfitPct = 25.0,
+                            stopLossPct = -15.0,
+                            launchPlatform = com.lifecyclebot.v3.scoring.ShitCoinTraderAI.LaunchPlatform.UNKNOWN,
+                            highWaterMark = shitHigh,
+                            peakPnlPct = saved.peakGainPct.coerceAtLeast(0.0),
+                            entryScore = saved.entryScore.toInt(),
+                            lastSeenPrice = saved.lastKnownPrice.takeIf { it > 0.0 } ?: shitEntry,
+                        ),
+                        saved.isPaperPosition,
+                    )
+                    PipelineHealthCollector.labelInc("SHITCOIN_RESTORED_ACTIVE_POSITION_4228")
+                }
+                if ((restoredLayer.equals("TREASURY", ignoreCase = true) || restoredLayer.equals("CASHGEN", ignoreCase = true)) &&
+                    !com.lifecyclebot.v3.scoring.CashGenerationAI.hasPosition(mint)) {
+                    val cashEntry = saved.entryPrice.takeIf { it > 0.0 } ?: saved.lastKnownPrice
+                    val tpPct = 8.0
+                    val slPct = -6.0
+                    com.lifecyclebot.v3.scoring.CashGenerationAI.restorePosition(
+                        com.lifecyclebot.v3.scoring.CashGenerationAI.TreasuryPosition(
+                            mint = mint,
+                            symbol = saved.symbol,
+                            entryPrice = cashEntry,
+                            entrySol = saved.costSol,
+                            entryTime = saved.entryTime,
+                            targetPrice = cashEntry * (1.0 + tpPct / 100.0),
+                            stopPrice = cashEntry * (1.0 + slPct / 100.0),
+                            highWaterMark = saved.highestPrice.takeIf { it > cashEntry } ?: cashEntry,
+                            trailingStop = cashEntry * (1.0 + slPct / 100.0),
+                            isPaper = saved.isPaperPosition,
+                            currentPrice = saved.lastKnownPrice.takeIf { it > 0.0 } ?: cashEntry,
+                            entryScore = saved.entryScore.toInt(),
+                        ),
+                        saved.isPaperPosition,
+                    )
+                    PipelineHealthCollector.labelInc("TREASURY_RESTORED_ACTIVE_POSITION_4228")
+                }
             } catch (_: Throwable) {}
             
             restoredCount++

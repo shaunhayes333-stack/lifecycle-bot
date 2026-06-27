@@ -3592,6 +3592,10 @@ class GoldenTapeRegressionTest {
         val moonshot4227 = java.io.File("src/main/kotlin/com/lifecyclebot/v3/scoring/MoonshotTraderAI.kt").readText()
         val persistence4227 = java.io.File("src/main/kotlin/com/lifecyclebot/engine/PositionPersistence.kt").readText()
         assertTrue("V5.0.4227: restored Moonshot rows must rehydrate active runner positions", moonshot4227.contains("fun restorePosition(position: MoonshotPosition)") && persistence4227.contains("MOONSHOT_RESTORED_ACTIVE_POSITION_4227") && persistence4227.contains("MoonshotTraderAI.restorePosition") && persistence4227.contains("restoredLayer.equals(\"MOONSHOT\"") )
+        val shitRestore4228 = java.io.File("src/main/kotlin/com/lifecyclebot/v3/scoring/ShitCoinTraderAI.kt").readText()
+        val cashRestore4228 = java.io.File("src/main/kotlin/com/lifecyclebot/v3/scoring/CashGenerationAI.kt").readText()
+        val persistence4228 = java.io.File("src/main/kotlin/com/lifecyclebot/engine/PositionPersistence.kt").readText()
+        assertTrue("V5.0.4228: restored ShitCoin/Treasury rows must rehydrate active maps", shitRestore4228.contains("fun restorePosition(position: ShitCoinPosition") && cashRestore4228.contains("fun restorePosition(position: TreasuryPosition") && persistence4228.contains("SHITCOIN_RESTORED_ACTIVE_POSITION_4228") && persistence4228.contains("TREASURY_RESTORED_ACTIVE_POSITION_4228") && persistence4228.contains("ShitCoinTraderAI.restorePosition") && persistence4228.contains("CashGenerationAI.restorePosition"))
     }
 
 
