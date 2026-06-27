@@ -5067,4 +5067,13 @@ class GoldenTapeRegressionTest {
         assertTrue("V5.0.4312: ShitCoin qualified/open/close paths must stamp matrix telemetry", shit.contains("ShitCoinDecisionMatrixReport.recordAccepted") && shit.contains("ShitCoinDecisionMatrixReport.recordOpened") && shit.contains("ShitCoinDecisionMatrixReport.recordClosed"))
     }
 
+    @Test
+    fun sellDecisionMatrix4313CapturesRequestSellDefersAndDoSellHandoff() {
+        val report = java.io.File("src/main/kotlin/com/lifecyclebot/engine/SellDecisionMatrixReport.kt").readText()
+        val exec = java.io.File("src/main/kotlin/com/lifecyclebot/engine/Executor.kt").readText()
+        assertTrue("V5.0.4313: sell matrix must be report-only with no sell authority", report.contains("SELL_DECISION_MATRIX_4313") && report.contains("report_only=true") && report.contains("no_sell_authority=true"))
+        assertTrue("V5.0.4313: requestSell must stamp intent and major pre-sell defers", exec.contains("SellDecisionMatrixReport.recordIntent") && exec.contains("TINY_PROFIT_DUST") && exec.contains("STYLE_MIN_HOLD") && exec.contains("BALANCE_PROOF_WAIT_MERGE"))
+        assertTrue("V5.0.4313: requestSell must stamp doSell handoff", exec.contains("SellDecisionMatrixReport.recordDoSellHandoff") && exec.contains("return doSell(ts, requestReason, wallet, walletSol)"))
+    }
+
 }

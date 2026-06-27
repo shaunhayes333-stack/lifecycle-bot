@@ -13201,6 +13201,7 @@ class Executor(
             val closeState = try { com.lifecyclebot.engine.sell.LivePositionCloseAuthority.stateOf(ts.mint)?.name ?: "OPEN" } catch (_: Throwable) { "OPEN" }
             "EXIT_ROUTE_RETRY_${trackerStatus}_${closeState}"
         } else reason
+        try { SellDecisionMatrixReport.recordIntent(ts.mint, ts.symbol ?: "?", requestReason, ts.position.isPaperPosition, ts.position.tradingMode.ifBlank { ts.position.modeHint }) } catch (_: Throwable) {}
         // V5.0.3801 — PAPER source guard before any executor activity.
         // requestSell() has many upstream callers (main loop, backup sweeps,
         // stale/rug escape paths). If a paper mint already has CLOSE_REQUESTED /
@@ -13227,6 +13228,7 @@ class Executor(
                 ForensicLogger.lifecycle("LIVE_TINY_PROFIT_EXIT_DEFERRED", "mint=${ts.mint.take(10)} symbol=${ts.symbol} reason=${requestReason.take(80)} pnl=${"%.1f".format(pnl)} minProfitPct=${"%.1f".format(learnedMinProfitExitPct(ts))} action=no_sell_lock")
                 PipelineHealthCollector.labelInc("LIVE_TINY_PROFIT_EXIT_DEFERRED")
             } catch (_: Throwable) {}
+            try { SellDecisionMatrixReport.recordPreSellDefer(ts.mint, ts.symbol ?: "?", requestReason, "TINY_PROFIT_DUST") } catch (_: Throwable) {}
             return SellResult.FAILED_RETRYABLE
         }
 
@@ -13245,6 +13247,7 @@ class Executor(
                     PipelineHealthCollector.labelInc("LIVE_STYLE_MIN_HOLD_EXIT_DEFERRED")
                     PipelineHealthCollector.labelInc("LIVE_STYLE_MIN_HOLD_${holdDelay.styleHint}")
                 } catch (_: Throwable) {}
+                try { SellDecisionMatrixReport.recordPreSellDefer(ts.mint, ts.symbol ?: "?", requestReason, "STYLE_MIN_HOLD") } catch (_: Throwable) {}
                 return SellResult.FAILED_RETRYABLE
             }
         }
@@ -13261,6 +13264,7 @@ class Executor(
                     ForensicLogger.lifecycle("RECONCILER_REQUEUE_SUPPRESSED_HEALTHY_HOLD", "mint=${ts.mint.take(10)} symbol=${ts.symbol} status=$trackerStatus reason=$requestReason")
                     PipelineHealthCollector.labelInc("RECONCILER_REQUEUE_SUPPRESSED_HEALTHY_HOLD")
                 } catch (_: Throwable) {}
+                try { SellDecisionMatrixReport.recordPreSellDefer(ts.mint, ts.symbol ?: "?", requestReason, "RECONCILER_HEALTHY_HOLD") } catch (_: Throwable) {}
                 return SellResult.WAITING_BALANCE_PROOF
             }
         }
@@ -13278,6 +13282,7 @@ class Executor(
                     try { ts.position = ts.position.copy(qtyToken = 0.0, pendingVerify = false) } catch (_: Throwable) {}
                     return SellResult.ALREADY_CLOSED
                 }
+                try { SellDecisionMatrixReport.recordPreSellDefer(ts.mint, ts.symbol ?: "?", requestReason, "CLOSE_AUTHORITY_WAIT") } catch (_: Throwable) {}
                 return SellResult.WAITING_BALANCE_PROOF
             }
         }
@@ -13295,6 +13300,7 @@ class Executor(
                     ts.mint, ts.symbol ?: "?", requestReason,
                     runtimeGeneration = try { BotRuntimeController.currentGeneration() } catch (_: Throwable) { 0L },
                 )
+                try { SellDecisionMatrixReport.recordPreSellDefer(ts.mint, ts.symbol ?: "?", requestReason, "BALANCE_PROOF_WAIT_MERGE") } catch (_: Throwable) {}
                 return SellResult.WAITING_BALANCE_PROOF
             }
         }
@@ -13381,6 +13387,7 @@ class Executor(
                 throw t
             }
         }
+        try { SellDecisionMatrixReport.recordDoSellHandoff(ts.mint, ts.symbol ?: "?", requestReason, ts.position.isPaperPosition) } catch (_: Throwable) {}
         return doSell(ts, requestReason, wallet, walletSol)
     }
     
