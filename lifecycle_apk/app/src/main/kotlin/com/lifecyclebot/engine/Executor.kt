@@ -8234,8 +8234,25 @@ class Executor(
                 PipelineHealthCollector.labelInc("STRATEGY_HYPOTHESIS_EXECUTOR_SIZE_SHAPED_4197")
             } catch (_: Throwable) {}
         }
+        // V5.0.4262 — paper/live intelligence alignment. Paper has the high-throughput
+        // samples; live has the capital truth. Let paper shape live size softly while
+        // live evidence is thin, then fade to live-only authority. Never hard-block,
+        // never rewrite live PnL, and keep the multiplier tiny so compounding remains
+        // driven by realized live wins and the existing safety stack.
+        val paperLiveBridgeMult = try {
+            if (RuntimeModeAuthority.isLive()) {
+                val sig = PaperLiveIntelligenceBridge.liveSizeMultiplier(laneKeyForAgi)
+                if (sig.multiplier != 1.0) {
+                    try {
+                        ForensicLogger.lifecycle("PAPER_LIVE_INTEL_SIZE_SHAPED_4262", "mint=${ts.mint.take(10)} symbol=${ts.symbol} lane=$laneKeyForAgi paper=${sig.paperTrades} live=${sig.liveTrades} wr=${sig.paperWinRatePct.fmt(1)} avg=${sig.paperAvgPnlPct.fmt(2)} mult=${sig.multiplier.fmt(3)} reason=${sig.reason}")
+                        PipelineHealthCollector.labelInc("PAPER_LIVE_INTEL_SIZE_SHAPED_4262")
+                    } catch (_: Throwable) {}
+                }
+                sig.multiplier
+            } else 1.0
+        } catch (_: Throwable) { 1.0 }
         val multiplierProductRaw = sizeMult * labMult * laneEvMult * regimeMultGoosed * laneSizeCap * brainSizeMult *
-            strategyTunerSizeMult * sourceBrainSizeMult * uphConvictionMult * hypothesisSizeMult
+            strategyTunerSizeMult * sourceBrainSizeMult * uphConvictionMult * hypothesisSizeMult * paperLiveBridgeMult
 
         // V5.0.4179 — F1: SLIP-AWARE ENTRY SIZING (catastrophic-overrun fix).
         // Field journal showed losses overrunning STRICT_SL_-10 to -71%
