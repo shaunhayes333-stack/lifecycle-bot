@@ -515,6 +515,28 @@ object PositionPersistence {
                     )
                     PipelineHealthCollector.labelInc("EXPRESS_RESTORED_ACTIVE_RIDE_4223")
                 }
+                if (restoredLayer.equals("PROJECT_SNIPER", ignoreCase = true) &&
+                    !com.lifecyclebot.v3.scoring.ProjectSniperAI.hasMission(mint)) {
+                    val sniperEntry = saved.entryPrice.takeIf { it > 0.0 } ?: saved.lastKnownPrice
+                    val sniperHigh = saved.highestPrice.takeIf { it > sniperEntry } ?: sniperEntry
+                    val ageSecs = ((System.currentTimeMillis() - saved.entryTime) / 1000L).coerceAtLeast(0L).coerceAtMost(Int.MAX_VALUE.toLong()).toInt()
+                    com.lifecyclebot.v3.scoring.ProjectSniperAI.restoreMission(
+                        com.lifecyclebot.v3.scoring.ProjectSniperAI.SniperMission(
+                            mint = mint,
+                            symbol = saved.symbol,
+                            entryPrice = sniperEntry,
+                            entrySol = saved.costSol,
+                            entryTime = saved.entryTime,
+                            tokenAgeSecs = ageSecs,
+                            entryLiquidity = saved.entryLiquidityUsd.takeIf { it > 0.0 } ?: saved.lastKnownLiquidity,
+                            entryMcap = saved.entryMcap.takeIf { it > 0.0 } ?: saved.lastKnownMcap,
+                            entryBuyPressure = 0.0,
+                            highestPrice = sniperHigh,
+                            rank = com.lifecyclebot.v3.scoring.ProjectSniperAI.SniperRank.PENDING,
+                        )
+                    )
+                    PipelineHealthCollector.labelInc("PROJECT_SNIPER_RESTORED_ACTIVE_MISSION_4226")
+                }
             } catch (_: Throwable) {}
             
             restoredCount++

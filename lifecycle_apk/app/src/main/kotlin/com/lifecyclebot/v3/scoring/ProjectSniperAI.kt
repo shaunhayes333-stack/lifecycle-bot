@@ -558,6 +558,11 @@ object ProjectSniperAI {
             "${assessment.threatLevel.emoji} ${assessment.threatLevel.name} | " +
             "size=${entrySol.fmt(3)}◎ | conf=${assessment.confidence}%")
     }
+
+    fun restoreMission(mission: SniperMission) {
+        activeMissions[mission.mint] = mission
+        ErrorLogger.warn(TAG, "🎯 MISSION RESTORED: ${mission.symbol} | entry=${mission.entryPrice.fmtPrice()} | age=${mission.tokenAgeSecs}s")
+    }
     
     // ═══════════════════════════════════════════════════════════════════════════
     // EXIT MANAGEMENT

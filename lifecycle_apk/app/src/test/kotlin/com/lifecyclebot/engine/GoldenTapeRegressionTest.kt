@@ -3586,6 +3586,9 @@ class GoldenTapeRegressionTest {
         val shitCoin4225 = java.io.File("src/main/kotlin/com/lifecyclebot/v3/scoring/ShitCoinTraderAI.kt").readText()
         val expressEdu4225 = java.io.File("src/main/kotlin/com/lifecyclebot/v3/scoring/ShitCoinExpress.kt").readText()
         assertTrue("V5.0.4225: education mute must soft-shape ShitCoin/Express instead of no-trade", shitCoin4225.contains("EDU_MUTED_SOFT_SHAPE_4225") && shitCoin4225.contains("eduSizeMult = if (status == \"MUTE\") 0.35 else 0.65") && !shitCoin4225.contains("reason = \"EDU_MUTED: layer muted") && expressEdu4225.contains("EDU_MUTED_SOFT_SHAPE_4225") && expressEdu4225.contains("educSizeMult = if (educStatus == \"MUTE\") 0.35 else 0.65") && !expressEdu4225.contains("return noRide(\"EDU_MUTED"))
+        val sniper4226 = java.io.File("src/main/kotlin/com/lifecyclebot/v3/scoring/ProjectSniperAI.kt").readText()
+        val persistence4226 = java.io.File("src/main/kotlin/com/lifecyclebot/engine/PositionPersistence.kt").readText()
+        assertTrue("V5.0.4226: restored ProjectSniper rows must rehydrate active missions", sniper4226.contains("fun restoreMission(mission: SniperMission)") && persistence4226.contains("PROJECT_SNIPER_RESTORED_ACTIVE_MISSION_4226") && persistence4226.contains("ProjectSniperAI.restoreMission") && persistence4226.contains("restoredLayer.equals(\"PROJECT_SNIPER\""))
     }
 
 
