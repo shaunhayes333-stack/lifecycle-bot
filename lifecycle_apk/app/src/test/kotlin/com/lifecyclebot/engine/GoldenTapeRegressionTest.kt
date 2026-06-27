@@ -4449,4 +4449,13 @@ class GoldenTapeRegressionTest {
         assertFalse("V5.0.4237: scanner/FDG/executor hot paths must not call provider hypothesis requests", bot.contains("requestBackgroundProviderHypothesis") || fdg.contains("requestBackgroundProviderHypothesis") || exec.contains("requestBackgroundProviderHypothesis"))
     }
 
+    @Test
+    fun semanticPatternGraph4238IsLocalOnlyPersistentSimilarityMemory() {
+        val graph = java.io.File("src/main/kotlin/com/lifecyclebot/engine/SemanticPatternGraph.kt").readText()
+        val persistence = java.io.File("src/main/kotlin/com/lifecyclebot/engine/LearningPersistence.kt").readText()
+        assertTrue("V5.0.4238: SemanticPatternGraph must define local setup/outcome node and edge schema", graph.contains("object SemanticPatternGraph") && graph.contains("data class PatternNode") && graph.contains("data class PatternEdge") && graph.contains("SIMILAR_SETUP") && graph.contains("RUNNER_FAMILY"))
+        assertTrue("V5.0.4238: SemanticPatternGraph must be local-only cached similarity memory with no API/embedding hot path", graph.contains("querySimilar") && graph.contains("jaccard") && graph.contains("local_only=true") && !graph.contains("GeminiCopilot.rawText") && !graph.contains("OkHttpClient"))
+        assertTrue("V5.0.4238: SemanticPatternGraph must persist through LearningPersistence", graph.contains("exportState") && graph.contains("importState") && persistence.contains("SEMANTIC_PATTERN_GRAPH"))
+    }
+
 }
