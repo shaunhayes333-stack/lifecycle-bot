@@ -41,13 +41,13 @@ object ReflectiveOptimizerGEPA {
             while (proposals.size > MAX_PROPOSALS) proposals.removeAt(0)
         }
         return try {
-            AsyncStrategyLab.submitBackgroundHypothesis(
-                provider = AsyncStrategyLab.Provider.LOCAL_ONLY,
+            MultiAgentCriticStack.reviewAndSubmit(
                 lane = item.lane,
+                closedTradeSummary = combined.take(1200),
+                candidateProposal = item.proposal,
                 expectedMetric = item.metric,
-                proposal = item.proposal,
                 rollbackCondition = item.rollback,
-                symbolicChecked = false,
+                sourceTag = "BACKGROUND_MULTI_AGENT_CRITIC_GEPA_4256",
             )
         } catch (_: Throwable) { false }
     }

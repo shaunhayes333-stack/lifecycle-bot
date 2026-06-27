@@ -4495,7 +4495,7 @@ class GoldenTapeRegressionTest {
     fun reflectiveOptimizer4243IsBackgroundOnlyProposalLoop() {
         val gepa = java.io.File("src/main/kotlin/com/lifecyclebot/engine/ReflectiveOptimizerGEPA.kt").readText()
         val persistence = java.io.File("src/main/kotlin/com/lifecyclebot/engine/LearningPersistence.kt").readText()
-        assertTrue("V5.0.4243: GEPA optimizer must consume replay/semantic caches and submit reviewable AsyncStrategyLab proposals", gepa.contains("object ReflectiveOptimizerGEPA") && gepa.contains("CounterfactualReplayEngine.policyHints") && gepa.contains("SemanticPatternGraph.summary") && gepa.contains("AsyncStrategyLab.submitBackgroundHypothesis"))
+        assertTrue("V5.0.4243/4256: GEPA optimizer must consume replay/semantic caches and route reviewable proposals through the critic stack", gepa.contains("object ReflectiveOptimizerGEPA") && gepa.contains("CounterfactualReplayEngine.policyHints") && gepa.contains("SemanticPatternGraph.summary") && gepa.contains("MultiAgentCriticStack.reviewAndSubmit"))
         assertTrue("V5.0.4243: GEPA optimizer must be background-only and never hard-veto/zero-size live entries", gepa.contains("BACKGROUND_GEPA_REFLECTION") && gepa.contains("no hard veto") && gepa.contains("no zero-size") && !gepa.contains("executeBuy"))
         assertTrue("V5.0.4243: GEPA proposals must persist through LearningPersistence", gepa.contains("exportState") && gepa.contains("importState") && persistence.contains("REFLECTIVE_OPTIMIZER_GEPA"))
     }
@@ -4576,6 +4576,13 @@ class GoldenTapeRegressionTest {
         assertTrue("V5.0.4255: SemanticPatternGraph must expose cached entryBias readback with no API/hot-path provider call", graph.contains("fun entryBias") && graph.contains("querySimilar") && graph.contains("No API, no hard block") && !graph.contains("OkHttpClient"))
         assertTrue("V5.0.4255: ShitCoin entry must consume semantic readback as bounded score/size soft-shape", shit.contains("SHITCOIN_SEMANTIC_ENTRY_READBACK_4255") && shit.contains("SemanticPatternGraph.entryBias") && shit.contains("semanticEntrySizeMult4255"))
         assertTrue("V5.0.4255: semantic negative memory must not create a hard threshold block", graph.contains("avgPnl <= -15.0 -> EntryBias(0.94, 0") && shit.contains("if (semanticBias.scoreDelta > 0)"))
+    }
+
+    @Test
+    fun gepa4256RoutesProposalsThroughMultiAgentCriticBeforeHypothesisBank() {
+        val gepa = java.io.File("src/main/kotlin/com/lifecyclebot/engine/ReflectiveOptimizerGEPA.kt").readText()
+        assertTrue("V5.0.4256: GEPA proposals must route through MultiAgentCriticStack before AsyncStrategyLab bank acceptance", gepa.contains("MultiAgentCriticStack.reviewAndSubmit") && gepa.contains("BACKGROUND_MULTI_AGENT_CRITIC_GEPA_4256"))
+        assertFalse("V5.0.4256: GEPA must not bypass critic by submitting directly to AsyncStrategyLab", gepa.contains("AsyncStrategyLab.submitBackgroundHypothesis"))
     }
 
 }
