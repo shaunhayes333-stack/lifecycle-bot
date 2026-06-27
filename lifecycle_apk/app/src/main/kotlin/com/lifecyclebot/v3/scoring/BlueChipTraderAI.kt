@@ -634,18 +634,12 @@ object BlueChipTraderAI {
         // Check current mode
         val mode = getCurrentMode()
         
-        // If paused (hit daily loss), reject everything
-        if (mode == BlueChipMode.PAUSED) {
-            return BlueChipSignal(
-                shouldEnter = false,
-                positionSizeSol = 0.0,
-                takeProfitPct = 0.0,
-                stopLossPct = 0.0,
-                confidence = 0,
-                reason = "PAUSED: Daily loss limit reached",
-                mode = mode,
-                isPaperMode = isPaperMode
-            )
+        // V5.0.4224 — lane-local PAUSED is recovery-probe sizing, not a
+        // hard entry amputation. Catastrophic drawdown remains governed by the
+        // global SecurityGuard/KillSwitch; BlueChip keeps tiny quality samples.
+        val dailyLossRecoveryProbe = mode == BlueChipMode.PAUSED
+        if (dailyLossRecoveryProbe) {
+            ErrorLogger.warn(TAG, "🔵 BLUECHIP_DAILY_LOSS_RECOVERY_PROBE_4224 — local loss cap hit; size×0.35")
         }
         
         // ═══════════════════════════════════════════════════════════════════
@@ -1038,9 +1032,11 @@ object BlueChipTraderAI {
             }
         } catch (_: Throwable) { /* fail-open */ }
 
+        if (dailyLossRecoveryProbe) positionSol *= 0.35
+
         // Cap at max
         positionSol *= dangerSoftSize  // V5.9.1348 danger soft-shape
-        positionSol = positionSol.coerceIn(0.05, MAX_POSITION_SOL)
+        positionSol = positionSol.coerceIn(0.02, MAX_POSITION_SOL)
         
         // Get fluid take profit
         val takeProfitPct = getFluidTakeProfit()

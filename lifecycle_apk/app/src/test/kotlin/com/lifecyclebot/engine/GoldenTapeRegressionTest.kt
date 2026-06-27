@@ -3580,6 +3580,9 @@ class GoldenTapeRegressionTest {
         val botService4223 = java.io.File("src/main/kotlin/com/lifecyclebot/engine/BotService.kt").readText()
         val positionPersistence4223 = java.io.File("src/main/kotlin/com/lifecyclebot/engine/PositionPersistence.kt").readText()
         assertTrue("V5.0.4223: Express daily loss and live pendingVerify must preserve ride/exits", express4223.contains("EXPRESS_DAILY_LOSS_RECOVERY_PROBE_4223") && express4223.contains("if (dailyLossRecoveryProbe) positionSol *= 0.35") && express4223.contains("fun restoreRide(ride: ExpressRide)") && !express4223.contains("return noRide(\"DAILY_LOSS_LIMIT") && botService4223.contains("ts.position.qtyToken > 0.0 || ts.position.pendingVerify || ts.position.isOpen) com.lifecyclebot.v3.scoring.ShitCoinExpress.boardRide") && positionPersistence4223.contains("EXPRESS_RESTORED_ACTIVE_RIDE_4223"))
+        val blueChip4224 = java.io.File("src/main/kotlin/com/lifecyclebot/v3/scoring/BlueChipTraderAI.kt").readText()
+        val cashGen4224 = java.io.File("src/main/kotlin/com/lifecyclebot/v3/scoring/CashGenerationAI.kt").readText()
+        assertTrue("V5.0.4224: BlueChip/CashGen PAUSED must probe-size instead of hard-zeroing entries", blueChip4224.contains("BLUECHIP_DAILY_LOSS_RECOVERY_PROBE_4224") && blueChip4224.contains("if (dailyLossRecoveryProbe) positionSol *= 0.35") && !blueChip4224.contains("reason = \"PAUSED: Daily loss limit reached\"") && cashGen4224.contains("TREASURY_DAILY_LOSS_RECOVERY_PROBE_4224") && cashGen4224.contains("TreasuryMode.PAUSED -> 0.35") && !cashGen4224.contains("PAUSED: Daily loss limit"))
     }
 
 

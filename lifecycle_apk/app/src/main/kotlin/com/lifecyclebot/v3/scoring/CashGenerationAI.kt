@@ -485,17 +485,12 @@ object CashGenerationAI {
     ): TreasurySignal {
         val mode = getCurrentMode()
 
-        if (mode == TreasuryMode.PAUSED) {
-            return TreasurySignal(
-                shouldEnter = false,
-                positionSizeSol = 0.0,
-                takeProfitPct = 0.0,
-                stopLossPct = 0.0,
-                confidence = 0,
-                reason = "PAUSED: Daily loss limit (\$50) reached - waiting for reset",
-                mode = mode,
-                isPaperMode = isPaperMode,
-            )
+        // V5.0.4224 — lane-local PAUSED soft-shapes Treasury/CashGen into
+        // recovery probes instead of hard-stopping compounding flow. Global
+        // SecurityGuard/KillSwitch remains catastrophic drawdown authority.
+        val dailyLossRecoveryProbe = mode == TreasuryMode.PAUSED
+        if (dailyLossRecoveryProbe) {
+            ErrorLogger.warn(TAG, "💰 TREASURY_DAILY_LOSS_RECOVERY_PROBE_4224 — local loss cap hit; size×0.35")
         }
 
         var treasuryScore = 0
@@ -859,7 +854,7 @@ object CashGenerationAI {
             TreasuryMode.CRUISE -> 0.8      // Normal operation
             TreasuryMode.AGGRESSIVE -> 1.5  // V5.6.6: Raised from 1.15 - GO BIG
             TreasuryMode.HUNT -> 1.2        // V5.6.6: Raised from 1.0 - hunting = aggressive
-            TreasuryMode.PAUSED -> 0.0
+            TreasuryMode.PAUSED -> 0.35  // V5.0.4224: recovery probe, not lane amputation
         }
 
         // V5.6.6: Dynamic cap scales with WALLET (not just treasury)
