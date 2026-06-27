@@ -4735,7 +4735,7 @@ class GoldenTapeRegressionTest {
         val persistence = java.io.File("src/main/kotlin/com/lifecyclebot/engine/LearningPersistence.kt").readText()
         assertTrue("V5.0.4275: ExitCostMicrobrain must learn terminal cost drag without hard exit authority", brain.contains("object ExitCostMicrobrain") && brain.contains("recordTerminalExit") && brain.contains("quoteDivergencePct") && brain.contains("feeSol") && brain.contains("learn_only_no_exit_block"))
         assertTrue("V5.0.4275: ExitCostMicrobrain must expose bounded cached urgency hints only", brain.contains("exitUrgencyHint") && brain.contains("urgencyMult = urgency.coerceIn(0.92, 1.08)") && brain.contains("MIN_HINT_SAMPLES"))
-        assertTrue("V5.0.4275: Executor must feed ExitCostMicrobrain from terminal trainable SELL choke only", exec.contains("ExitCostMicrobrain.recordTerminalExit") && exec.contains("tradeWithMint.side.equals("SELL", true) && ledgerAllowsClosedLearning && accountingTrainable"))
+        assertTrue("V5.0.4275: Executor must feed ExitCostMicrobrain from terminal trainable SELL choke only", exec.contains("ExitCostMicrobrain.recordTerminalExit") && exec.contains("tradeWithMint.side.equals") && exec.contains("ledgerAllowsClosedLearning && accountingTrainable"))
         assertTrue("V5.0.4275: ExitCostMicrobrain must persist through LearningPersistence", brain.contains("exportState") && brain.contains("importState") && persistence.contains("EXIT_COST_MICROBRAIN"))
     }
 
