@@ -9781,7 +9781,7 @@ class Executor(
             )
         } catch (_: Throwable) {}
 
-        val openedByV3Buy4462 = if (isPaper) {
+        val openedByV3Buy4462: Boolean = if (isPaper) {
             paperBuy(
                 ts = ts,
                 sol = sizeSol,
@@ -9794,6 +9794,7 @@ class Executor(
                 finalityPrechecked = effectiveFinalityPrechecked,
                 attemptId = effectiveAttemptId,
             )
+            true
         } else {
             if (wallet == null) {
                 ErrorLogger.error("Executor", "[V3] ${ts.symbol} | LIVE_BUY_FAILED | no wallet")
