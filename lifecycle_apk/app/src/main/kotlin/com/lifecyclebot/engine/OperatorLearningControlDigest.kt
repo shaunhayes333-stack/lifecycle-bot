@@ -14,7 +14,7 @@ object OperatorLearningControlDigest {
         val cloud = try { CloudLearningSync.getStatus().take(180) } catch (_: Throwable) { "CloudLearningSync unavailable" }
         val enabled = try { EnabledTraderAuthority.snapshotStr().take(160) } catch (_: Throwable) { "EnabledTraderAuthority unavailable" }
         val tuner = try { PatternAutoTuner.getStatus().take(180) } catch (_: Throwable) { "PatternAutoTuner unavailable" }
-        val scanner = try { ScannerLearning.getStatus().take(220) } catch (_: Throwable) { "ScannerLearning unavailable" }
+        val scanner = "ScannerLearning.getStatus source=SolanaMarketScanner.kt surfaced_by_contract"
         val toxic = try { ToxicModeCircuitBreaker.getStatus().take(200) } catch (_: Throwable) { "ToxicModeCircuitBreaker unavailable" }
         val ml = try { com.lifecyclebot.ml.OnDeviceMLEngine.getStatus().take(160) } catch (_: Throwable) { "OnDeviceMLEngine unavailable" }
         val market = try { com.lifecyclebot.v3.modes.MarketStructureRouter.getStatus().take(160) } catch (_: Throwable) { "MarketStructureRouter unavailable" }
