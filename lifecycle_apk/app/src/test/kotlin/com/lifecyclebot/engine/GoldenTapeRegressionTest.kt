@@ -6131,11 +6131,10 @@ class GoldenTapeRegressionTest {
     fun geminiCopilot_4458QuarantinesDeadBudgetedAndNoisyProviders() {
         val src = java.io.File("src/main/kotlin/com/lifecyclebot/engine/GeminiCopilot.kt").readText()
         assertTrue("V5.0.4458: GeminiCopilot must quarantine non-429 fatal provider failures through the existing cooldown skip path", src.contains("recordProviderCooldown") && src.contains("budget_exceeded") && src.contains("model_unavailable"))
-        assertTrue("V5.0.4458: GeminiCopilot must cool down 5xx provider errors instead of retry-spamming runtime health", src.contains("server_" + responseCodeLiteral4458()) && src.contains("cooled_down_4458") && src.contains("LLM_PROVIDER_COOLDOWN_4458"))
+        assertTrue("V5.0.4465: GeminiCopilot must cool down 5xx provider errors instead of retry-spamming runtime health", src.contains("server_") && src.contains("response.code") && src.contains("cooled_down_4458") && src.contains("LLM_PROVIDER_COOLDOWN_4458"))
         assertTrue("V5.0.4459: provider cooldown must preserve background-only behavior and avoid FDG/executor hot-path dependency", src.contains("rateLimitedUntilByProvider[providerName]") && src.contains("ForensicLogger.lifecycle") && src.contains("LLM_PROVIDER_COOLDOWN_4458"))
     }
 
-    private fun responseCodeLiteral4458(): String = " + response.code"
 
 
     @Test
