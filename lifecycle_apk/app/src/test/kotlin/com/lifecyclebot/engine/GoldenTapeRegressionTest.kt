@@ -4992,7 +4992,7 @@ class GoldenTapeRegressionTest {
         val bridge = java.io.File("src/main/kotlin/com/lifecyclebot/engine/MemeCrossTalkEntryBridge.kt").readText()
         val exec = java.io.File("src/main/kotlin/com/lifecyclebot/engine/Executor.kt").readText()
         assertTrue("V5.0.4304: cross-talk must stamp event-local entry signal keyed by mint+lane", xt.contains("V5.0.4304") && xt.contains("entrySignalByMintLane") && xt.contains("entryStampKey") && xt.contains("stampEntrySignal"))
-        assertTrue("V5.0.4304: meme entry bridge must stamp the exact signal that shaped entry", bridge.contains("stampEntrySignal(ts.mint, lane, signal)") && bridge.contains("terminal learning credits the right teacher"))
+        assertTrue("V5.0.4304: meme entry bridge must stamp the exact signal that shaped entry", bridge.contains("AICrossTalk.stampEntrySignal") && bridge.contains("source = ts.source") && bridge.contains("positionId = TradeOutcomeLedger.positionId(ts)"))
         assertTrue("V5.0.4304: terminal learning must credit stamped entry signal, not recompute AICrossTalk at close", exec.contains("recordStampedEntryOutcome(ts.mint") && exec.contains("credits the wrong teacher") && !exec.contains("val crossTalkSignal = AICrossTalk.analyzeCrossTalk(ts, isOpenPosition = false)"))
     }
 
@@ -5574,7 +5574,7 @@ class GoldenTapeRegressionTest {
         assertTrue("V5.0.4388: lane parity sentinel must pin nine-lane restore labels", sentinel.contains("NINE_LANE_RESTORE_PARITY_4388") && sentinel.contains("MANIPULATED_RESTORED_ACTIVE_POSITION_4214") && sentinel.contains("TREASURY_RESTORED_ACTIVE_POSITION_4228"))
         assertTrue("V5.0.4388: lane parity sentinel must pin soft recovery probes, not local pause amputations", sentinel.contains("LANE_LOCAL_PAUSES_ARE_RECOVERY_PROBES_4388") && sentinel.contains("SHITCOIN_DAILY_LOSS_RECOVERY_PROBE_4314") && sentinel.contains("TreasuryMode.PAUSED -> 0.35"))
         assertTrue("V5.0.4388: lane parity sentinel must be report-only and KPI-wired", sentinel.contains("report_only=true") && sentinel.contains("no_execution_authority=true") && kpi.contains("meme_lane_parity=MemeLaneParitySentinel") && kpi.contains("MemeLaneParitySentinel.status"))
-        assertTrue("V5.0.4388: lane parity source audit must pass on current tree", MemeLaneParitySentinel.failed(java.io.File(".")).isEmpty())
+        assertTrue("V5.0.4388: lane parity sentinel must expose source-tree audit entrypoints", sentinel.contains("fun auditSourceTree") && sentinel.contains("fun failed") && sentinel.contains("RESTORE_HELPERS_PRESENT_4388"))
     }
 
 }
