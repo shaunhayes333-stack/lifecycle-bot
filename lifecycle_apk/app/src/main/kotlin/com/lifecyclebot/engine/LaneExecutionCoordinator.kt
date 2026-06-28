@@ -289,23 +289,27 @@ object LaneExecutionCoordinator {
         val mapKey = mapKey(key)
         val current = elections[mapKey]
         if (current == null) {
-            try { PipelineHealthCollector.labelInc("LANE_PRIMARY_RELEASE_FALSE_VISIBLE_4419_MISSING_ELECTION") } catch (_: Throwable) {}
-            try {
-                ForensicLogger.lifecycle(
-                    "LANE_PRIMARY_RELEASE_FALSE_VISIBLE_4419",
-                    "mint=${mint.take(10)} lane=$laneUpper candidateVersion=$candidateVersion reason=$reason outcome=MISSING_ELECTION"
-                )
-            } catch (_: Throwable) {}
+            ChokeReliefBus.launch("LANE_PRIMARY_RELEASE_FALSE_VISIBLE_4421", mint) {
+                try { PipelineHealthCollector.labelInc("LANE_PRIMARY_RELEASE_FALSE_VISIBLE_4419_MISSING_ELECTION") } catch (_: Throwable) {}
+                try {
+                    ForensicLogger.lifecycle(
+                        "LANE_PRIMARY_RELEASE_FALSE_VISIBLE_4419",
+                        "mint=${mint.take(10)} lane=$laneUpper candidateVersion=$candidateVersion reason=$reason outcome=MISSING_ELECTION via=ChokeReliefBus"
+                    )
+                } catch (_: Throwable) {}
+            }
             return false
         }
         if (current.primaryLane != laneUpper) {
-            try { PipelineHealthCollector.labelInc("LANE_PRIMARY_RELEASE_FALSE_VISIBLE_4419_NOT_PRIMARY") } catch (_: Throwable) {}
-            try {
-                ForensicLogger.lifecycle(
-                    "LANE_PRIMARY_RELEASE_FALSE_VISIBLE_4419",
-                    "mint=${mint.take(10)} lane=$laneUpper primary=${current.primaryLane} candidateVersion=${current.key.candidateVersion} reason=$reason outcome=NOT_PRIMARY"
-                )
-            } catch (_: Throwable) {}
+            ChokeReliefBus.launch("LANE_PRIMARY_RELEASE_FALSE_VISIBLE_4421", mint) {
+                try { PipelineHealthCollector.labelInc("LANE_PRIMARY_RELEASE_FALSE_VISIBLE_4419_NOT_PRIMARY") } catch (_: Throwable) {}
+                try {
+                    ForensicLogger.lifecycle(
+                        "LANE_PRIMARY_RELEASE_FALSE_VISIBLE_4419",
+                        "mint=${mint.take(10)} lane=$laneUpper primary=${current.primaryLane} candidateVersion=${current.key.candidateVersion} reason=$reason outcome=NOT_PRIMARY via=ChokeReliefBus"
+                    )
+                } catch (_: Throwable) {}
+            }
             return false
         }
         val removed = elections.remove(mapKey, current)

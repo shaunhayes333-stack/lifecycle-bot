@@ -45,6 +45,6 @@ object OperatorChokeSourceContractSentinel {
     fun status(): String {
         val ids = contracts.joinToString(",") { it.id }
         val butterflies = contracts.joinToString(";") { "${it.id}=${it.protectedButterflies.joinToString("|")}" }
-        return "OPERATOR_CHOKE_SOURCE_CONTRACT_SENTINEL_4416 contracts=${contracts.size} ids=[$ids] butterflies=[$butterflies] report_only=true no_execution_authority=true no_gate_change=true hard_safety_preserved=true release_visibility_required=true fep_false_return_route_visible_4416=true lane_release_false_visible_4419=true cache_first_required=true reject_taxonomy_required=true golden_tape_required=true"
+        return "OPERATOR_CHOKE_SOURCE_CONTRACT_SENTINEL_4416 contracts=${contracts.size} ids=[$ids] butterflies=[$butterflies] report_only=true no_execution_authority=true no_gate_change=true hard_safety_preserved=true release_visibility_required=true fep_false_return_route_visible_4416=true lane_release_false_visible_4419=true choke_visibility_bus_4421=true cache_first_required=true reject_taxonomy_required=true golden_tape_required=true"
     }
 }

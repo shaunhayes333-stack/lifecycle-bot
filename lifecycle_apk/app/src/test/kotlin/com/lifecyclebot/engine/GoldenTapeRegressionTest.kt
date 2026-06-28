@@ -5816,4 +5816,15 @@ class GoldenTapeRegressionTest {
         assertTrue("V5.0.4419: lane release true path must remain unchanged", source.contains("LANE_PRIMARY_RELEASED") && source.contains("return removed"))
     }
 
+
+    @Test
+    fun chokeVisibilityTelemetry_4421UsesBoundedSideEffectBus() {
+        val fep = java.io.File("src/main/kotlin/com/lifecyclebot/engine/FinalExecutionPermit.kt").readText()
+        val lane = java.io.File("src/main/kotlin/com/lifecyclebot/engine/LaneExecutionCoordinator.kt").readText()
+        val sentinel = java.io.File("src/main/kotlin/com/lifecyclebot/engine/OperatorChokeSourceContractSentinel.kt").readText()
+        assertTrue("V5.0.4421: FEP false-return visibility must use ChokeReliefBus instead of inline heavy logging", fep.contains("ChokeReliefBus.launch") && fep.contains("FEP_FALSE_RETURN_ROUTE_VISIBLE_4421") && fep.contains("via=ChokeReliefBus"))
+        assertTrue("V5.0.4421: lane release-false visibility must use ChokeReliefBus instead of inline heavy logging", lane.contains("ChokeReliefBus.launch") && lane.contains("LANE_PRIMARY_RELEASE_FALSE_VISIBLE_4421") && lane.contains("via=ChokeReliefBus"))
+        assertTrue("V5.0.4421: choke source contract must pin bounded bus usage", sentinel.contains("choke_visibility_bus_4421=true") && sentinel.contains("release_visibility_required=true"))
+    }
+
 }
