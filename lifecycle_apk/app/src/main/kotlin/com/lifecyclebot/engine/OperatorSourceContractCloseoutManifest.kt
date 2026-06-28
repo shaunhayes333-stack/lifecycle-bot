@@ -14,5 +14,5 @@ object OperatorSourceContractCloseoutManifest {
         "4451 wallet/pipeline/guardrail source contracts",
         "4453 final residual source-contract sweep"
     )
-    fun status(): String = "OPERATOR_SOURCE_CONTRACT_CLOSEOUT_MANIFEST_4452 closed_tail_batches=${closedTailBatches.size} remaining_source_contract_tail_estimate=0_10_pending_ci next=[fix_ci_if_tail_red update_remaining_estimate_to_zero_when_tail_green] latest=${closedTailBatches.takeLast(3).joinToString("|")} report_only=true no_gate_change=true no_hot_path_change=true"
+    fun status(): String = "OPERATOR_SOURCE_CONTRACT_CLOSEOUT_MANIFEST_4454 closed_tail_batches=${closedTailBatches.size} remaining_source_contract_tail_estimate=0_8_pending_ci next=[fix_ci_if_tail_red update_remaining_estimate_to_zero_when_tail_green] verified_green=[4443 4444 4445 4446] latest=${closedTailBatches.takeLast(3).joinToString("|")} report_only=true no_gate_change=true no_hot_path_change=true"
 }
