@@ -6155,4 +6155,13 @@ class GoldenTapeRegressionTest {
         assertTrue("V5.0.4462: Collective BUY upload must remain after confirmed open, preventing fake BUY learning rows", src.indexOf("V3EngineManager.recordEntry") < src.indexOf("CollectiveLearning.uploadTrade"))
     }
 
+
+    @Test
+    fun finalDecisionGate_4463ConvertsMcapLiqRatioHardBlockToSoftSizeShape() {
+        val src = java.io.File("src/main/kotlin/com/lifecyclebot/engine/FinalDecisionGate.kt").readText()
+        assertTrue("V5.0.4463: FDG mcap/liquidity ratio >20x must soft-shape, not hard-block", src.contains("mcap_liq_ratio_extreme_soft") && src.contains("MCAP_LIQ_RATIO_EXTREME_SIZE_REDUCTION_4463") && !src.contains("HARD_BLOCK_MCAP_LIQ_RATIO_"))
+        assertTrue("V5.0.4463: FDG must report extreme mcap/liquidity soft shaping for runtime block visibility", src.contains("FDG_MCAP_LIQ_RATIO_EXTREME_SOFT_SHAPED_4463") && src.contains("extreme_thin_mcap_liq_size_reduction"))
+        assertTrue("V5.0.4463: true non-exitable liquidity floor remains hard safety", src.contains("HARD_BLOCK_LIQUIDITY_BELOW_500") && src.contains("liq=\$${liveLiq.toInt()} < \$500 non-exitable dust"))
+    }
+
 }

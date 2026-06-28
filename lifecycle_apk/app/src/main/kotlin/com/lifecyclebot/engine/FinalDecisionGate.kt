@@ -2132,17 +2132,22 @@ object FinalDecisionGate {
         }
 
         if (blockReason == null && !config.paperMode) {
-            // V5.0.4155 — fluid thin-liquidity valuation gate. >8x mcap/liquidity
-            // is real exit risk, but in early bootstrap it should reduce size and
-            // let AGI/lane brains collect evidence. Only extreme >20x remains hard.
+            // V5.0.4463 — fluid thin-liquidity valuation gate. Runtime 4449 showed
+            // FDG top block HARD_BLOCK_MCAP_LIQ_RATIO_30X while EXEC_GATE had 0 blocks.
+            // Under the gate taxonomy, mcap/liquidity mismatch is low-liq/exit-risk
+            // sizing pressure, not a true hard-safety veto. True non-exitable dust
+            // liquidity (<$500), LP-unlocked/rug, and explicit safety failures remain
+            // hard elsewhere; ratio risk now soft-shapes exposure and keeps lane samples flowing.
             val mcap = ts.lastMcap.takeIf { it > 0.0 }
             val liq = ts.lastLiquidityUsd.takeIf { it > 0.0 }
             val mcapLiqRatio = if (mcap != null && liq != null) mcap / liq else 0.0
             if (mcapLiqRatio > 20.0) {
-                blockReason = "HARD_BLOCK_MCAP_LIQ_RATIO_${mcapLiqRatio.toInt()}X"
-                blockLevel = BlockLevel.HARD
-                checks.add(GateCheck("mcap_liq_ratio_extreme", false, "mcap/liq=${mcapLiqRatio.toInt()}x > 20x"))
-                tags.add("extreme_thin_mcap_liq_ratio")
+                checks.add(GateCheck("mcap_liq_ratio_extreme_soft", true, "mcap/liq=${mcapLiqRatio.toInt()}x > 20x — extreme soft-size, not veto"))
+                tags.add("extreme_thin_mcap_liq_size_reduction")
+                try {
+                    com.lifecyclebot.engine.LiveSizingProfile.markGateSoftShape(ts.mint, "MCAP_LIQ_RATIO_EXTREME_SIZE_REDUCTION_4463")
+                    com.lifecyclebot.engine.PipelineHealthCollector.labelInc("FDG_MCAP_LIQ_RATIO_EXTREME_SOFT_SHAPED_4463")
+                } catch (_: Throwable) {}
             } else if (mcapLiqRatio > 8.0) {
                 checks.add(GateCheck("mcap_liq_ratio_soft", true, "mcap/liq=${mcapLiqRatio.toInt()}x > 8x — soft-size, not veto"))
                 tags.add("thin_mcap_liq_size_reduction")
