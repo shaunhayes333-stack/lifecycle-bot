@@ -207,3 +207,14 @@ Required check:
 3. Synthetic component accountability: source, v4_crosstalk, approval_memory, fresh_launch_bonus.
 4. Profit-pressure sell authority: balance proof/wallet null/urgent queue behavior.
 5. Full nine-lane meme trader parity: SHITCOIN, EXPRESS, MOONSHOT, QUALITY, BLUECHIP, MANIPULATED, DIP_HUNTER, PROJECT_SNIPER, TREASURY/CASHGEN.
+
+
+## 2026-06-28 C1-C5 implementation closeout
+
+- C1 synthetic component accountability: implemented in V5.0.4378 via `SyntheticComponentAccountability`; UnifiedScorer entry-score paths now annotate synthetic score movers with lane/source/mint/build context before Harvard entry recording. V5.0.4389 fixes Golden Tape interpolation assertions for this contract.
+- C2 cross-talk directional correctness: implemented in V5.0.4380; AICrossTalk entry stamps now carry event-local source/mode/positionId/build and terminal feedback credits the stamped entry signal rather than close-time recomputation.
+- C3 SSI council coherent bus proof: implemented in V5.0.4381 via `SsiCouncilClosedLoopSentinel`; report-only chain documents SemanticPatternGraph + CounterfactualReplay + GEPA/Critic + AsyncStrategyLab reviewed bias + UnifiedPolicy/Exit outcome loops.
+- C4 profit-pressure sell authority: implemented in V5.0.4384; wallet-null live capital recovery/profit lock now enqueues urgent PendingSellQueue recovery, marks BalanceProofWaitState, and emits `PROFIT_PRESSURE_SELL_RECOVERY_ENQUEUED_4384` without fake-closing or paper-booking live exits.
+- C5 nine-lane meme parity: implemented in V5.0.4388 via `MemeLaneParitySentinel`; pins active-map restore coverage and lane-local recovery-probe doctrine across SHITCOIN, EXPRESS, MOONSHOT, QUALITY, BLUECHIP, MANIPULATED, DIP_HUNTER, PROJECT_SNIPER, and TREASURY/CASHGEN.
+
+Next unresolved audit surface should move beyond C1-C5 into the broader mechanism/file queue: dormant low-ref helpers, perps sidecars, UI/ANR decoupling proof, and any KPI-visible report-only status surfaces that remain hidden from OperatorKpiCloseoutReport.
