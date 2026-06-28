@@ -6172,4 +6172,13 @@ class GoldenTapeRegressionTest {
         assertTrue("V5.0.4467: source affinity already seeds CASHGEN, so the owner ring must consume it downstream", src.contains("DEX_BOOSTED") && src.contains("CASHGEN") && src.contains("MEMETRADER_OWNER_LANE"))
     }
 
+
+    @Test
+    fun botService_4469LiveMemeModeEvaluatesAllInternalTraderLanesForLearning() {
+        val src = java.io.File("src/main/kotlin/com/lifecyclebot/engine/BotService.kt").readText()
+        assertTrue("V5.0.4469: live MEME-only lane classifier must evaluate every internal trader lane like paper trader", src.contains("LIVE_ALL_LANE_CONTRIBUTION_4469") && src.contains("action=evaluate_like_paper_trader") && src.contains("return true"))
+        assertTrue("V5.0.4469: owner rotation remains telemetry/owner-selected context, not a live evaluation suppressor", src.contains("ownerSelected=$allowed") && src.contains("MEMETRADER_OWNER_LANE") && src.contains("LANE_SUPPRESSED_BY_OWNER_ROTATION"))
+        assertTrue("V5.0.4469: full internal ring includes every meme trader contributor for live learning", listOf("SHITCOIN", "MOONSHOT", "EXPRESS", "PROJECT_SNIPER", "MANIPULATED", "QUALITY", "DIP_HUNTER", "TREASURY", "CASHGEN", "BLUECHIP").all { src.contains(it) })
+    }
+
 }

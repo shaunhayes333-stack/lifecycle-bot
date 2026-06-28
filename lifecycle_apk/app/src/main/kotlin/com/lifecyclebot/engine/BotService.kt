@@ -9455,6 +9455,13 @@ class BotService : Service() {
             )
             if (l in fullMemeTraderRing) {
                 val allowed = l == ownerLane || profitableRescue
+                if (com.lifecyclebot.engine.RuntimeModeAuthority.isLive()) {
+                    try {
+                        ForensicLogger.lifecycle("LIVE_ALL_LANE_CONTRIBUTION_4469", "lane=$l primary=$primaryLane owner=$ownerLane ownerSelected=$allowed rescue=$profitableRescue symbol=${ts.symbol} mint=${ts.mint.take(10)} pool=${ownerPool.joinToString("+")} action=evaluate_like_paper_trader")
+                        PipelineHealthCollector.labelInc("LIVE_ALL_LANE_CONTRIBUTION_4469_$l")
+                    } catch (_: Throwable) {}
+                    return true
+                }
                 if (allowed) {
                     try { ForensicLogger.lifecycle("MEMETRADER_OWNER_LANE", "lane=$l primary=$primaryLane owner=$ownerLane rescue=$profitableRescue symbol=${ts.symbol} mint=${ts.mint.take(10)} pool=${ownerPool.joinToString("+")}") } catch (_: Throwable) {}
                 } else {
