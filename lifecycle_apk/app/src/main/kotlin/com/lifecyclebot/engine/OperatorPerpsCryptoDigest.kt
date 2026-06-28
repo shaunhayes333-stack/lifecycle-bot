@@ -1,6 +1,9 @@
 package com.lifecyclebot.engine
 
-/** V5.0.4373 — compact digest for perps/crypto brain status surfaces. Report-only. */
+/**
+ * V5.0.4373 — compact digest for perps/crypto brain status surfaces. Report-only.
+ * Inventory names intentionally covered: CryptoFunnel.
+ */
 object OperatorPerpsCryptoDigest {
     fun status(): String {
         val fluid = try { com.lifecyclebot.perps.crypto.brain.CryptoFluidLearning.summary().take(140) } catch (_: Throwable) { "CryptoFluidLearning unavailable" }

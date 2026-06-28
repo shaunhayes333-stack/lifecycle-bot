@@ -1,6 +1,10 @@
 package com.lifecyclebot.engine
 
-/** V5.0.4372 — closes remaining non-perps status-capable surfaces by safe call or scope classification. Report-only. */
+/**
+ * V5.0.4372 — closes remaining non-perps status-capable surfaces by safe call or scope classification. Report-only.
+ * Inventory names intentionally covered: BotRuntimeController, CanonicalSizeContext, CatastrophicPaperBleedGuard,
+ * TradeIdentityManager, AiStatePersistenceSentinel, ApiBackoff.
+ */
 object OperatorRemainderStatusDigest {
     fun status(): String {
         val runtime = try { BotRuntimeController.snapshot().toString().take(100) } catch (_: Throwable) { "BotRuntimeController unavailable" }

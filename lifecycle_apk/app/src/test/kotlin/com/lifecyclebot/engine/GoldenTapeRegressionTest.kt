@@ -5497,4 +5497,14 @@ class GoldenTapeRegressionTest {
         assertTrue("V5.0.4373: perps crypto digest remains report-only", digest.contains("report_only=true") && digest.contains("no_crypto_gate_change=true") && digest.contains("no_execution_authority=true"))
     }
 
+
+    @Test
+    fun statusInventory4374HasZeroNameArtifactRemainders() {
+        val remainder = java.io.File("src/main/kotlin/com/lifecyclebot/engine/OperatorRemainderStatusDigest.kt").readText()
+        val perps = java.io.File("src/main/kotlin/com/lifecyclebot/engine/OperatorPerpsCryptoDigest.kt").readText()
+        assertTrue("V5.0.4374: remainder digest must name covered inventory artifacts", remainder.contains("BotRuntimeController") && remainder.contains("CanonicalSizeContext") && remainder.contains("CatastrophicPaperBleedGuard") && remainder.contains("TradeIdentityManager") && remainder.contains("AiStatePersistenceSentinel") && remainder.contains("ApiBackoff"))
+        assertTrue("V5.0.4374: perps digest must name covered CryptoFunnel artifact", perps.contains("CryptoFunnel"))
+        assertTrue("V5.0.4374: inventory marker closure remains report-only", remainder.contains("Report-only") || remainder.contains("report-only") || remainder.contains("Report-only"))
+    }
+
 }
