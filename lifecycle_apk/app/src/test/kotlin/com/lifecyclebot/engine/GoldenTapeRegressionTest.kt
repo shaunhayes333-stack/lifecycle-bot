@@ -6101,7 +6101,7 @@ class GoldenTapeRegressionTest {
     fun operatorSourceContractCloseoutManifest_4452TracksTailToFinish() {
         val manifest = java.io.File("src/main/kotlin/com/lifecyclebot/engine/OperatorSourceContractCloseoutManifest.kt").readText()
         val kpi = java.io.File("src/main/kotlin/com/lifecyclebot/engine/OperatorKpiCloseoutReport.kt").readText()
-        assertTrue("V5.0.4452: source contract closeout manifest must count closed tail batches", manifest.contains("OPERATOR_SOURCE_CONTRACT_CLOSEOUT_MANIFEST_4452") && manifest.contains("closed_tail_batches=") && manifest.contains("remaining_source_contract_tail_estimate=0_8_pending_ci"))
+        assertTrue("V5.0.4454: source contract closeout manifest must count closed tail batches", manifest.contains("OPERATOR_SOURCE_CONTRACT_CLOSEOUT_MANIFEST_4454") && manifest.contains("closed_tail_batches=") && manifest.contains("remaining_source_contract_tail_estimate=0_8_pending_ci"))
         assertTrue("V5.0.4452: source contract closeout manifest must include latest pin batches", manifest.contains("4449 permit/canonical feature source contracts") && manifest.contains("4450 scanner/education/overlay source contracts") && manifest.contains("4451 wallet/pipeline/guardrail source contracts"))
         assertTrue("V5.0.4452: source contract closeout manifest must be KPI-wired and behavior-neutral", manifest.contains("report_only=true") && manifest.contains("no_gate_change=true") && kpi.contains("source_contract_closeout=OperatorSourceContractCloseoutManifest"))
     }
