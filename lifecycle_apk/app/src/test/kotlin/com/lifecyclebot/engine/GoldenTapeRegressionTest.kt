@@ -5603,7 +5603,7 @@ class GoldenTapeRegressionTest {
     fun operatorLongTailMechanismDigest4396BatchesLowReferenceAuditSurface() {
         val digest = java.io.File("src/main/kotlin/com/lifecyclebot/engine/OperatorLongTailMechanismDigest.kt").readText()
         val kpi = java.io.File("src/main/kotlin/com/lifecyclebot/engine/OperatorKpiCloseoutReport.kt").readText()
-        assertTrue("V5.0.4396: long-tail digest must batch at least twenty low-reference mechanism surfaces", digest.contains("OPERATOR_LONG_TAIL_MECHANISM_DIGEST_4396") && digest.contains("count=${items.size}") && digest.contains("PatchWriterAI") && digest.contains("CryptoUniverseFilter"))
+        assertTrue("V5.0.4396: long-tail digest must batch at least twenty low-reference mechanism surfaces", digest.contains("OPERATOR_LONG_TAIL_MECHANISM_DIGEST_4396") && digest.contains("count=") && digest.contains("items.size") && digest.contains("PatchWriterAI") && digest.contains("CryptoUniverseFilter"))
         assertTrue("V5.0.4396: long-tail digest must classify perps, sentinels, scanner, and sell authority sidecars", digest.contains("perps_sidecar") && digest.contains("sentinel_kpi_visible") && digest.contains("scanner_mode_helper") && digest.contains("sell_authority_sidecar_source_contract"))
         assertTrue("V5.0.4396: long-tail digest must remain report-only and KPI-wired", digest.contains("report_only=true") && digest.contains("no_execution_authority=true") && digest.contains("no_hot_path_provider_calls=true") && kpi.contains("long_tail=OperatorLongTailMechanismDigest") && kpi.contains("OperatorLongTailMechanismDigest.status"))
     }
