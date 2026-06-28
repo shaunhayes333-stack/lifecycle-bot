@@ -4905,7 +4905,7 @@ class GoldenTapeRegressionTest {
         val exec = java.io.File("src/main/kotlin/com/lifecyclebot/engine/Executor.kt").readText()
         val manifest = java.io.File("src/main/kotlin/com/lifecyclebot/engine/AsiSsiAuditCloseoutManifest.kt").readText()
         val audit = readLifecycleFileFor4280s("audits/asi_ssi_audit_queue_2026-06-27.md")
-        assertTrue("V5.0.4295 A41: operator KPI closeout must cover volume, live/paper drift, realized SOL, runner giveback, source PF, sizing warnings, and build status", report.contains("OPERATOR_KPI_CLOSEOUT_REPORT_4355") && report.contains("volume=TradeHistoryStore") && report.contains("live_paper_drift=LivePaperDriftSentinel") && report.contains("realized_net_sol=LiveWalletGrowthGovernorReport") && report.contains("runner_giveback=RunnerExitShadowLedger") && report.contains("source_family_pf=SourceFamilyOpportunityScorecard") && report.contains("sizing_stack_warnings=SizingStackIntegritySentinel") && report.contains("build_status"))
+        assertTrue("V5.0.4295 A41: operator KPI closeout must cover volume, live/paper drift, realized SOL, runner giveback, source PF, sizing warnings, and build status", report.contains("OPERATOR_KPI_CLOSEOUT_REPORT_4357") && report.contains("volume=TradeHistoryStore") && report.contains("live_paper_drift=LivePaperDriftSentinel") && report.contains("realized_net_sol=LiveWalletGrowthGovernorReport") && report.contains("runner_giveback=RunnerExitShadowLedger") && report.contains("source_family_pf=SourceFamilyOpportunityScorecard") && report.contains("sizing_stack_warnings=SizingStackIntegritySentinel") && report.contains("build_status"))
         assertTrue("V5.0.4295 A41: Executor must emit operator KPI report only from side-effect terminal fanout", exec.contains("OperatorKpiCloseoutReport.emit()") && exec.contains("if (_fanoutSide == \"SELL\")"))
         assertTrue("V5.0.4295 closeout: manifest and audit queue must mark A38-A41 complete", manifest.contains("A41 operator KPI closeout report") && manifest.contains("audit_closed=true") && audit.contains("Status: implemented in V5.0.4295 as `OperatorKpiCloseoutReport`"))
         assertFalse("V5.0.4295 A41: KPI closeout must never own execution authority or fake PnL", report.contains("executeBuy(") || report.contains("requestSell(") || !report.contains("no_phantom_pnl=true") || !report.contains("no_execution_authority=true"))
@@ -5189,7 +5189,7 @@ class GoldenTapeRegressionTest {
     @Test
     fun operatorKpi4332ExposesUltimateEdgeAndChokeReliefHelpers() {
         val report = java.io.File("src/main/kotlin/com/lifecyclebot/engine/OperatorKpiCloseoutReport.kt").readText()
-        assertTrue("V5.0.4332: operator KPI report must expose UltimateEdge and ChokeRelief helper health", report.contains("OPERATOR_KPI_CLOSEOUT_REPORT_4355") && report.contains("UltimateEdgeEngine.status(6)") && report.contains("ChokeReliefBus.status()") && report.contains("ultimate_edge=UltimateEdgeEngine") && report.contains("choke_relief=ChokeReliefBus"))
+        assertTrue("V5.0.4332: operator KPI report must expose UltimateEdge and ChokeRelief helper health", report.contains("OPERATOR_KPI_CLOSEOUT_REPORT_4357") && report.contains("UltimateEdgeEngine.status(6)") && report.contains("ChokeReliefBus.status()") && report.contains("ultimate_edge=UltimateEdgeEngine") && report.contains("choke_relief=ChokeReliefBus"))
     }
 
     @Test
@@ -5336,6 +5336,16 @@ class GoldenTapeRegressionTest {
         assertTrue("V5.0.4355: PaperLiveConfidenceWeights must expose compact status", sanity.contains("PAPER_LIVE_CONFIDENCE_WEIGHTS_4355") && sanity.contains("validatedWeight") && sanity.contains("LIVE_VALIDATION_MIN_SAMPLES"))
         assertTrue("V5.0.4355: operator KPI must include paper/live confidence state", kpi.contains("paper_live_confidence=PaperLiveConfidenceWeights") && kpi.contains("PaperLiveConfidenceWeights.status"))
         assertTrue("V5.0.4355: paper/live confidence remains report-only", kpi.contains("report_only=true") && kpi.contains("no_execution_authority=true"))
+    }
+
+
+    @Test
+    fun smartSystemRegistry4357AppearsInOperatorKpiReport() {
+        val kpi = java.io.File("src/main/kotlin/com/lifecyclebot/engine/OperatorKpiCloseoutReport.kt").readText()
+        val registry = java.io.File("src/main/kotlin/com/lifecyclebot/engine/SmartSystemRuntimeRegistry.kt").readText()
+        assertTrue("V5.0.4357: KPI report must expose runtime registry classifications", kpi.contains("smart_system_registry=SmartSystemRuntimeRegistry") && kpi.contains("SmartSystemRuntimeRegistry.status"))
+        assertTrue("V5.0.4357: registry must keep sidecar/future/deprecated systems classified", registry.contains("TelegramBot") && registry.contains("SIDECAR") && registry.contains("PatchWriterAI") && registry.contains("FUTURE") && registry.contains("ProviderHealthGate") && registry.contains("DEPRECATED"))
+        assertTrue("V5.0.4357: registry in KPI remains report-only", kpi.contains("report_only=true") && kpi.contains("no_execution_authority=true"))
     }
 
 }
