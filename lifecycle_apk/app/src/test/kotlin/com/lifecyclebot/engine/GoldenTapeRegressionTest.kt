@@ -6217,7 +6217,7 @@ class GoldenTapeRegressionTest {
     fun botService_4483CashgenLaneCoverageAndProjectSniperSingleGate() {
         val src = java.io.File("src/main/kotlin/com/lifecyclebot/engine/BotService.kt").readText()
         assertTrue("V5.0.4483: CASHGEN must have lane-eval coverage even though execution is shared with Treasury/CashGenerationAI", src.contains("cashgenLaneAllowedThisCycle4483") && src.contains("lane=CASHGEN") && src.contains("TREASURY_CASHGEN_SHARED_EXEC") && src.contains("CASHGEN_ALIAS_LANE_EVAL_4483"))
-        val sniperGateNeedle = "shouldRunBuyLaneForCycle(ts," + " PROJECT_SNIPER".replace(" PROJECT_SNIPER", " ").trim() + ", cyclePrimaryLane)"
+        val sniperGateNeedle = "shouldRunBuyLaneForCycle(ts, " + '"' + "PROJECT_SNIPER" + '"'
         assertTrue("V5.0.4483: ProjectSniper must compute owner admission once per token/cycle, not duplicate shouldRun calls", src.contains("projectSniperLaneAllowedThisCycle4483") && src.contains("singleGate4483=true") && src.indexOf(sniperGateNeedle) == src.lastIndexOf(sniperGateNeedle))
     }
 
