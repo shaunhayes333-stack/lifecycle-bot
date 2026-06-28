@@ -7829,9 +7829,10 @@ class BotService : Service() {
 
                         // Calculate PnL — uses the danger-zone-refreshed mark when it fired,
                         // otherwise the loop's currentPrice (unchanged behaviour).
+                        val rapidExitPrice4481 = walletCorrespondentOpenPrice4481(ts, dzEffectivePrice, "RAPID_MONITOR")
                         val pnlVerdict = com.lifecyclebot.engine.OpenPnlSanity.inspect(
                             entryPrice = entryPrice,
-                            currentPrice = dzEffectivePrice,
+                            currentPrice = rapidExitPrice4481,
                             entrySource = ts.position.entryPriceSource,
                             currentSource = ts.lastPriceSource,
                             entryPool = ts.position.entryPoolAddress,
@@ -8764,8 +8765,9 @@ class BotService : Service() {
                                     executor.getActualPricePublic(ts).takeIf { it.isFinite() && it > 0.0 }
                                 } catch (_: Throwable) { null }
                                 val entryPxForTickLock = pos.entryPrice.takeIf { it.isFinite() && it > 0.0 } ?: entryPx
-                                val execPnlPctNow = if (execPxForTickLock != null && entryPxForTickLock > 0.0)
-                                    ((execPxForTickLock - entryPxForTickLock) / entryPxForTickLock) * 100.0
+                                val safeExecPxForTickLock4481 = walletCorrespondentOpenPrice4481(ts, execPxForTickLock ?: priceUsd, "TICK_PROFIT_LOCK")
+                                val execPnlPctNow = if (safeExecPxForTickLock4481 > 0.0 && entryPxForTickLock > 0.0)
+                                    ((safeExecPxForTickLock4481 - entryPxForTickLock) / entryPxForTickLock) * 100.0
                                 else rawTickPnlPctNow
                                 val pnlPctNow = execPnlPctNow
                                 if (kotlin.math.abs(execPnlPctNow - rawTickPnlPctNow) >= 5.0) {
@@ -9486,6 +9488,35 @@ class BotService : Service() {
         }
         // Default: allow (preserves SHITCOIN/MOONSHOT/MEME side-by-side learning).
         return true
+    }
+
+    private fun walletCorrespondentOpenPrice4481(ts: com.lifecyclebot.data.TokenState, rawPrice: Double, context: String): Double {
+        val pos = ts.position
+        val entry = pos.entryPrice
+        if (entry <= 0.0 || rawPrice <= 0.0 || !entry.isFinite() || !rawPrice.isFinite()) return rawPrice
+        val entryMcap = pos.entryMcap.takeIf { it > 0.0 && it.isFinite() } ?: return rawPrice
+        val currentMcap = ts.lastMcap.takeIf { it > 0.0 && it.isFinite() } ?: return rawPrice
+        val rawGain = ((rawPrice - entry) / entry) * 100.0
+        val mcapGain = ((currentMcap - entryMcap) / entryMcap) * 100.0
+        val contradiction = kotlin.math.abs(rawGain - mcapGain) >= 250.0 && kotlin.math.abs(rawGain) >= 500.0
+        val oppositeSign = (rawGain > 250.0 && mcapGain < 0.0) || (rawGain < -80.0 && mcapGain > 250.0)
+        if (!contradiction && !oppositeSign) return rawPrice
+        val comparable = entry * (currentMcap / entryMcap)
+        if (comparable <= 0.0 || !comparable.isFinite()) return rawPrice
+        try { PipelineHealthCollector.labelInc("EXIT_TRIGGER_BASIS_REBASED_4481") } catch (_: Throwable) {}
+        try {
+            ForensicLogger.lifecycle(
+                "EXIT_TRIGGER_BASIS_REBASED_4481",
+                "context=$context mint=${ts.mint.take(10)} symbol=${ts.symbol} rawGain=${"%.1f".format(rawGain)} mcapGain=${"%.1f".format(mcapGain)} raw=$rawPrice comparable=$comparable entry=$entry entryMcap=${entryMcap.toInt()} currentMcap=${currentMcap.toInt()} action=wallet_correspondent_exit_trigger"
+            )
+        } catch (_: Throwable) {}
+        return comparable
+    }
+
+    private fun walletCorrespondentPnlPct4481(ts: com.lifecyclebot.data.TokenState, rawPrice: Double, context: String): Double {
+        val entry = ts.position.entryPrice
+        val px = walletCorrespondentOpenPrice4481(ts, rawPrice, context)
+        return if (entry > 0.0 && px > 0.0) ((px - entry) / entry) * 100.0 else 0.0
     }
 
     private fun inferIntakeLaneAffinity(source: String, allSources: Set<String>, marketCapUsd: Double, liquidityUsd: Double): Set<String> {
@@ -15379,8 +15410,9 @@ if (hotExitHandledSweep) {
                     if (last <= 0.0) return@forEach
                     val rawPnlPct = ((last - entry) / entry) * 100.0
                     val execPx = try { executor.getActualPricePublic(ts).takeIf { it.isFinite() && it > 0.0 } } catch (_: Throwable) { null }
+                    val exitPx4481 = walletCorrespondentOpenPrice4481(ts, execPx ?: last, "UNIVERSAL_EXIT_SWEEP")
                     val entryForExec = ts.position.entryPrice.takeIf { it.isFinite() && it > 0.0 } ?: entry
-                    val pnlPct = if (execPx != null && entryForExec > 0.0) ((execPx - entryForExec) / entryForExec) * 100.0 else rawPnlPct
+                    val pnlPct = if (exitPx4481 > 0.0 && entryForExec > 0.0) ((exitPx4481 - entryForExec) / entryForExec) * 100.0 else rawPnlPct
                     val peakPct = kotlin.math.max(ts.position.peakGainPct, pnlPct)
                     val hardFloor = pnlPct <= -20.0
                     val fluidLockFloor = try {

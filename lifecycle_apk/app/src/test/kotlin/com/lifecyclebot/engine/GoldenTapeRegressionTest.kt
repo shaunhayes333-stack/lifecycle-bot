@@ -6201,4 +6201,14 @@ class GoldenTapeRegressionTest {
         assertTrue("V5.0.4479: aggregate unrealised PnL must also use the same basis guard", vm.contains("val raw = ts.ref") && vm.contains("OPEN_POSITION_UI_AGG_BASIS_REBASED_4479") && vm.contains("entry * (currentMcap / entryMcap)"))
     }
 
+
+
+    @Test
+    fun botService_4481ExitTriggersUseWalletCorrespondentBasisGuard() {
+        val src = java.io.File("src/main/kotlin/com/lifecyclebot/engine/BotService.kt").readText()
+        assertTrue("V5.0.4481: fast exit triggers must share the wallet-correspondent basis guard", src.contains("walletCorrespondentOpenPrice4481") && src.contains("EXIT_TRIGGER_BASIS_REBASED_4481") && src.contains("wallet_correspondent_exit_trigger"))
+        assertTrue("V5.0.4481: rapid monitor PnL must evaluate the basis-guarded price before stop/take-profit decisions", src.contains("rapidExitPrice4481") && src.contains("context = "BotService.rapidStop") && src.contains("currentPrice = rapidExitPrice4481"))
+        assertTrue("V5.0.4481: universal exit sweep and tick profit lock must not act on raw phantom marks", src.contains("UNIVERSAL_EXIT_SWEEP") && src.contains("safeExecPxForTickLock4481") && src.contains("TICK_PROFIT_LOCK"))
+    }
+
 }
