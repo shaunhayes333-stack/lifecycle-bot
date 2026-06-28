@@ -6296,7 +6296,7 @@ class GoldenTapeRegressionTest {
         val store = java.io.File("src/main/kotlin/com/lifecyclebot/engine/TradeHistoryStore.kt").readText()
         assertTrue("V5.0.4497: Trade Journal data source must include BUY, SELL, and PARTIAL lifecycle rows", ui.contains("getAllValidTradesSnapshot(5_000)") && store.contains("fun getAllValidTradesSnapshot") && store.contains("Includes BUY, SELL, and PARTIAL_SELL rows"))
         assertTrue("V5.0.4497: Trade Journal refresh/render gating must use lifecycle row count, not sell-only count", ui.contains("val lifecycleRowCount = filtered.size") && ui.contains("lastRenderedTradeCount = lifecycleRowCount") && ui.contains("tvJournalCount.text = entries.size.toString()"))
-        val sizeInterpolationFragment = "size " + "${"
+        val sizeInterpolationFragment = "size " + "${'$'}{"
         assertTrue("V5.0.4497: BUY rows must render as entries instead of fake PnL outcomes", ui.contains("val isBuyRow = entry.side.equals") && ui.contains("BUY_ENTRY") && ui.contains(sizeInterpolationFragment) && ui.contains("journal rows"))
     }
 
