@@ -34,10 +34,15 @@ object ScannerHardRejectStore {
         val r = Reject(mint, symbol.ifBlank { mint.take(6) }, cleanReason, source.take(80), System.currentTimeMillis())
         hardRejects[mint] = r
         save()
-        try {
-            ForensicLogger.lifecycle("SCANNER_HARD_REJECT_STAMPED", "mint=${mint.take(10)} symbol=${r.symbol} source=${r.source} reason=${r.reason}")
-            PipelineHealthCollector.labelInc("SCANNER_HARD_REJECT_STAMPED")
-        } catch (_: Throwable) {}
+        val taxonomy = try { RejectTaxonomy.classify(cleanReason, TradeAuthorizer.BlockLevel.HARD) } catch (_: Throwable) { null }
+        ChokeReliefBus.launch("SCANNER_HARD_REJECT_TAXONOMY_4429", mint) {
+            try { if (taxonomy != null) RejectTaxonomyLedger.record(taxonomy, "SCANNER_${r.source}", cleanReason) } catch (_: Throwable) {}
+            try {
+                ForensicLogger.lifecycle("SCANNER_HARD_REJECT_STAMPED", "mint=${mint.take(10)} symbol=${r.symbol} source=${r.source} reason=${r.reason} taxonomy=${taxonomy?.category?.name ?: "UNKNOWN"} ledger=RejectTaxonomyLedger")
+                PipelineHealthCollector.labelInc("SCANNER_HARD_REJECT_STAMPED")
+                if (taxonomy != null) PipelineHealthCollector.labelInc("SCANNER_HARD_REJECT_TAXONOMY_4429_${taxonomy.category.name}")
+            } catch (_: Throwable) {}
+        }
     }
 
     fun snapshot(limit: Int = 12): String {

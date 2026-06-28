@@ -5899,4 +5899,14 @@ class GoldenTapeRegressionTest {
         assertTrue("V5.0.4428: live buy failure emission must remain outside the report-only telemetry bus", exec.contains("emitLiveBuyFail(ts, sol, reason, detail)") && taxonomy.contains("executor_preattempt_consumed_4428=true"))
     }
 
+
+    @Test
+    fun scannerHardRejectTaxonomy_4429FeedsLedgerFromCentralStore() {
+        val store = java.io.File("src/main/kotlin/com/lifecyclebot/engine/ScannerHardRejectStore.kt").readText()
+        val taxonomy = java.io.File("src/main/kotlin/com/lifecyclebot/engine/RejectTaxonomy.kt").readText()
+        assertTrue("V5.0.4429: scanner hard reject store must classify hard-reject reasons", store.contains("SCANNER_HARD_REJECT_TAXONOMY_4429") && store.contains("RejectTaxonomy.classify(cleanReason, TradeAuthorizer.BlockLevel.HARD)"))
+        assertTrue("V5.0.4429: scanner hard reject taxonomy must feed the ledger via ChokeReliefBus", store.contains("ChokeReliefBus.launch") && store.contains("RejectTaxonomyLedger.record") && store.contains("ledger=RejectTaxonomyLedger"))
+        assertTrue("V5.0.4429: scanner hard reject taxonomy consumption must be source-contract pinned", taxonomy.contains("scanner_hard_reject_consumed_4429=true"))
+    }
+
 }
