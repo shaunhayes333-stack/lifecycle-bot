@@ -167,7 +167,19 @@ object StrategyHypothesisEngine {
             if (reviewedLabBias != 1.0) {
                 try { PipelineHealthCollector.labelInc("ASYNC_STRATEGY_LAB_REVIEWED_SIZE_BIAS_4245") } catch (_: Throwable) {}
             }
-            (bias * reviewedLabBias).coerceIn(SIZE_BIAS_MIN, SIZE_BIAS_MAX)
+            val strategyVariantBias4342 = try {
+                val v = com.lifecyclebot.engine.learning.StrategyVariantStore.activeFor(lane)
+                if (v != null) {
+                    try { PipelineHealthCollector.labelInc("STRATEGY_VARIANT_STORE_SIZE_BIAS_4342|${lane.uppercase()}") } catch (_: Throwable) {}
+                    when {
+                        v.state == com.lifecyclebot.engine.learning.StrategyVariantStore.State.PROMOTED -> 1.04
+                        v.expectancy() > 2.0 -> 1.03
+                        v.expectancy() < -5.0 && v.samples.get() >= 10 -> 0.96
+                        else -> 1.0
+                    }
+                } else 1.0
+            } catch (_: Throwable) { 1.0 }
+            (bias * reviewedLabBias * strategyVariantBias4342).coerceIn(SIZE_BIAS_MIN, SIZE_BIAS_MAX)
         } catch (_: Throwable) { 1.0 }
     }
 
@@ -204,6 +216,13 @@ object StrategyHypothesisEngine {
             val h = active[ctx] ?: return
             val pnl = pnlPct.coerceIn(-95.0, 1000.0)
             if (variant) h.variant.update(pnl) else h.control.update(pnl)
+            try {
+                val laneForVariant4342 = ctx.substringBefore("|").uppercase()
+                com.lifecyclebot.engine.learning.StrategyVariantStore.activeFor(laneForVariant4342)?.let { activeVariant4342 ->
+                    com.lifecyclebot.engine.learning.StrategyVariantStore.recordOutcome(activeVariant4342.id, pnl > 0.0, pnl < 0.0, pnl)
+                    PipelineHealthCollector.labelInc("STRATEGY_VARIANT_STORE_OUTCOME_4342|$laneForVariant4342")
+                }
+            } catch (_: Throwable) {}
             maybeResolve(ctx, h)
             if ((promotions + retirements) % 5L == 0L) appContext?.let { save(it) }
         } catch (_: Throwable) {}

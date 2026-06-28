@@ -4512,7 +4512,7 @@ class GoldenTapeRegressionTest {
         val lab = java.io.File("src/main/kotlin/com/lifecyclebot/engine/AsyncStrategyLab.kt").readText()
         val hyp = java.io.File("src/main/kotlin/com/lifecyclebot/engine/StrategyHypothesisEngine.kt").readText()
         assertTrue("V5.0.4245: AsyncStrategyLab reviewed apply layer must require symbolicChecked background-only hypotheses", lab.contains("fun reviewedSizeBias") && lab.contains("it.backgroundOnly && it.symbolicChecked") && lab.contains("bias.coerceIn(0.92, 1.08)"))
-        assertTrue("V5.0.4245: StrategyHypothesisEngine must consume reviewed lab bias as soft multiplier only", hyp.contains("AsyncStrategyLab.reviewedSizeBias") && hyp.contains("ASYNC_STRATEGY_LAB_REVIEWED_SIZE_BIAS_4245") && hyp.contains("(bias * reviewedLabBias).coerceIn(SIZE_BIAS_MIN, SIZE_BIAS_MAX)"))
+        assertTrue("V5.0.4245: StrategyHypothesisEngine must consume reviewed lab bias as soft multiplier only", hyp.contains("AsyncStrategyLab.reviewedSizeBias") && hyp.contains("ASYNC_STRATEGY_LAB_REVIEWED_SIZE_BIAS_4245") && hyp.contains("reviewedLabBias * strategyVariantBias4342") && hyp.contains("coerceIn(SIZE_BIAS_MIN, SIZE_BIAS_MAX)"))
         assertFalse("V5.0.4245: reviewed lab bias must not introduce hard veto or zero sizing", lab.contains("return 0.0") || hyp.contains("return 0.0"))
     }
 
@@ -5245,6 +5245,15 @@ class GoldenTapeRegressionTest {
         val registry = java.io.File("src/main/kotlin/com/lifecyclebot/engine/SmartSystemRuntimeRegistry.kt").readText()
         assertTrue("V5.0.4341: Arb deck should no longer be reported as wholly dormant after cached lane consumers", registry.contains("SMART_SYSTEM_RUNTIME_REGISTRY_4341") && registry.contains("arb_deck_reclassified=true") && registry.contains("ArbScannerAI") && registry.contains("RuntimeClass.ACTIVE") && registry.contains("cachedOpportunity consumed by Treasury/Express/ShitCoin"))
         assertTrue("V5.0.4341: Arb component models should be interface-used, while ArbLearning remains proof-needed", registry.contains("VenueLagModel") && registry.contains("FlowImbalanceModel") && registry.contains("PanicReversionModel") && registry.contains("SourceTimingRegistry") && registry.contains("terminal arb-specific outcome fanout still needs proof"))
+    }
+
+    @Test
+    fun strategyVariantStore4342ShapesAndLearnsThroughStrategyHypothesisEngine() {
+        val hypo = java.io.File("src/main/kotlin/com/lifecyclebot/engine/StrategyHypothesisEngine.kt").readText()
+        val registry = java.io.File("src/main/kotlin/com/lifecyclebot/engine/SmartSystemRuntimeRegistry.kt").readText()
+        assertTrue("V5.0.4342: StrategyVariantStore must shape hot-path sizing only as bounded bias through StrategyHypothesisEngine", hypo.contains("STRATEGY_VARIANT_STORE_SIZE_BIAS_4342") && hypo.contains("StrategyVariantStore.activeFor(lane)") && hypo.contains("strategyVariantBias4342") && hypo.contains("coerceIn(SIZE_BIAS_MIN, SIZE_BIAS_MAX)"))
+        assertTrue("V5.0.4342: StrategyVariantStore must receive terminal outcomes via existing StrategyHypothesisEngine outcome fanout", hypo.contains("STRATEGY_VARIANT_STORE_OUTCOME_4342") && hypo.contains("StrategyVariantStore.recordOutcome(activeVariant4342.id"))
+        assertTrue("V5.0.4342: Registry must no longer treat StrategyVariantStore as pure proof-needed after wiring", registry.contains("StrategyVariantStore") && registry.contains("RuntimeClass.INTERFACE_USED") && registry.contains("terminal outcome fanout"))
     }
 
 }

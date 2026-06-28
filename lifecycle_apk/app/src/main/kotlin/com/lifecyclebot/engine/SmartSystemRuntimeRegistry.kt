@@ -53,7 +53,7 @@ object SmartSystemRuntimeRegistry {
         SmartSystem("PanicReversionModel", RuntimeClass.INTERFACE_USED, "arb_deck", "V5.0.4334 ArbCoordinator evaluates panic reversion into cached opportunity deck"),
         SmartSystem("SourceTimingRegistry", RuntimeClass.INTERFACE_USED, "arb_deck", "V5.0.4334 ArbScannerAI.recordSourceSeen feeds VenueLagModel source timing"),
         SmartSystem("CloudLearningSync", RuntimeClass.NEEDS_RUNTIME_PROOF, "hive_sync", "classified versus CollectiveLearning/Turso path"),
-        SmartSystem("StrategyVariantStore", RuntimeClass.NEEDS_RUNTIME_PROOF, "strategy_genome", "lab/hive/critic consumer or explicit retirement"),
+        SmartSystem("StrategyVariantStore", RuntimeClass.INTERFACE_USED, "strategy_genome", "V5.0.4342 consumed by StrategyHypothesisEngine size bias and terminal outcome fanout"),
         SmartSystem("PatchWriterAI", RuntimeClass.FUTURE, "repair_brain", "operator-only/future bounded repair classification"),
         SmartSystem("HotfixRules", RuntimeClass.FUTURE, "repair_brain", "operator-only/future bounded repair classification"),
         SmartSystem("TelegramBot", RuntimeClass.NEEDS_RUNTIME_PROOF, "operator_channel", "active command channel or superseded marker"),
