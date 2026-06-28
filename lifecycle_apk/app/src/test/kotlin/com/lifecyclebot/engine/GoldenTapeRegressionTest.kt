@@ -6146,4 +6146,13 @@ class GoldenTapeRegressionTest {
         assertTrue("V5.0.4461: true hard-safety gates must remain hard before discipline recovery probes", src.contains("RUG_BLACKLIST_VETO_V4134") && src.contains("emitLiveBuyFail") && src.contains("RUG_BLACKLIST") && src.contains("REGIME_PIVOT_REASSESS"))
     }
 
+
+    @Test
+    fun executorV3Buy_4462SuppressesLearningAndCollectiveWhenBuyDidNotOpen() {
+        val src = java.io.File("src/main/kotlin/com/lifecyclebot/engine/Executor.kt").readText()
+        assertTrue("V5.0.4462: V3 buy path must capture paper/live buy-open result before recording entry", src.contains("val openedByV3Buy4462") && src.contains("if (!openedByV3Buy4462)"))
+        assertTrue("V5.0.4462: deferred/not-open V3 buys must suppress V3EngineManager entry and Collective BUY upload", src.contains("V3_BUY_NOT_OPENED_SUPPRESS_LEARNING_4462") && src.indexOf("if (!openedByV3Buy4462)") < src.indexOf("V3EngineManager.recordEntry") && src.indexOf("if (!openedByV3Buy4462)") < src.indexOf("CollectiveLearning.uploadTrade"))
+        assertTrue("V5.0.4462: Collective BUY upload must remain after confirmed open, preventing fake BUY learning rows", src.indexOf("V3EngineManager.recordEntry") < src.indexOf("CollectiveLearning.uploadTrade"))
+    }
+
 }

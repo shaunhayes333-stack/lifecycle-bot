@@ -9781,7 +9781,7 @@ class Executor(
             )
         } catch (_: Throwable) {}
 
-        if (isPaper) {
+        val openedByV3Buy4462 = if (isPaper) {
             paperBuy(
                 ts = ts,
                 sol = sizeSol,
@@ -9815,6 +9815,11 @@ class Executor(
                 finalityPrechecked = effectiveFinalityPrechecked,
                 attemptId = effectiveAttemptId,
             )
+        }
+        if (!openedByV3Buy4462) {
+            try { PipelineHealthCollector.labelInc("V3_BUY_NOT_OPENED_SUPPRESS_LEARNING_4462") } catch (_: Throwable) {}
+            try { ForensicLogger.lifecycle("V3_BUY_NOT_OPENED_SUPPRESS_LEARNING_4462", "mint=${ts.mint.take(10)} symbol=${ts.symbol} paper=$isPaper lane=${ts.position.tradingMode.ifBlank { v3Band }} attemptId=$effectiveAttemptId") } catch (_: Throwable) {}
+            return
         }
         
         try {
