@@ -6250,4 +6250,13 @@ class GoldenTapeRegressionTest {
         assertTrue("V5.0.4489: V3 core and STANDARD trunk lanes must be visible in lane-eval telemetry without extra FDG fanout", src.contains("V3_CORE_VISIBILITY_4489") && src.contains("CORE_STANDARD_VISIBILITY_4489") && src.contains("lane=V3_CORE") && src.contains("lane=STANDARD") && src.contains("no_extra_fdg=true"))
     }
 
+
+
+    @Test
+    fun pipelineHealth_4492LaneParserPreservesV3AndShadowReadsDoNotTripFanout() {
+        val src = java.io.File("src/main/kotlin/com/lifecyclebot/engine/PipelineHealthCollector.kt").readText()
+        assertTrue("V5.0.4492: lane parser must preserve numeric lanes like V3_CORE instead of reporting V", src.contains("Regex("lane=([A-Z0-9_]+)")") && !src.contains("Regex("lane=([A-Z_]+)")"))
+        assertTrue("V5.0.4492: shadow/read-only lane visibility must not increment executable LANE_EVAL fanout counters", src.contains("shadowLaneEval4482") && src.contains("LANE_EVAL_SHADOW_READ_ONLY_4492") && src.contains("no_extra_fdg=true") && src.contains("no_fdg=true") && src.contains("bump(phaseCounts, phaseTag)"))
+    }
+
 }

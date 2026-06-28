@@ -351,7 +351,7 @@ object PipelineHealthCollector {
     fun onPhase(phaseTag: String, symbol: String, fields: String) {
         if (!attached) return
         if (phaseTag == "LANE_EVAL") {
-            val lane = Regex("lane=([A-Z_]+)").find(fields)?.groupValues?.getOrNull(1) ?: ""
+            val lane = Regex("lane=([A-Z0-9_]+)").find(fields)?.groupValues?.getOrNull(1) ?: ""
             if (lane.isNotBlank() && RuntimeConfigOverlay.isLaneDisabled(lane)) {
                 bump(laneEvalSuppressedCounts, RuntimeConfigOverlay.normalizeLane(lane))
                 bump(labelCounts, "LANE_EVAL_SUPPRESSED_OVERLAY")
@@ -374,7 +374,12 @@ object PipelineHealthCollector {
             }
             if (path.isNotBlank()) bump(fdgPathCounts, RuntimeConfigOverlay.normalizeLane(path))
         }
-        bump(phaseCounts, phaseTag)
+        val shadowLaneEval4482 = phaseTag == "LANE_EVAL" && (fields.contains("no_fdg=true") || fields.contains("no_extra_fdg=true") || fields.contains("shadow="))
+        if (shadowLaneEval4482) {
+            bump(labelCounts, "LANE_EVAL_SHADOW_READ_ONLY_4492")
+        } else {
+            bump(phaseCounts, phaseTag)
+        }
         if (phaseTag == "SCAN_CB" && fields.contains("BOT_LOOP_TICK")) {
             bump(labelCounts, "BOT_LOOP_TICK")
             // V5.9.915 — extract prevCycleMs and record cycle timing.
@@ -391,7 +396,7 @@ object PipelineHealthCollector {
         }
         // V5.9.915 — per-lane eval bump for LANE_EVAL phase events.
         if (phaseTag == "LANE_EVAL") {
-            val laneMatch = Regex("lane=([A-Z_]+)").find(fields)
+            val laneMatch = Regex("lane=([A-Z0-9_]+)").find(fields)
             laneMatch?.groupValues?.get(1)?.let { bump(laneEvalCounts, it) }
         }
         appendEvent(Event(System.currentTimeMillis(), "PHASE/$phaseTag", symbol, fields.take(220)))
@@ -400,7 +405,7 @@ object PipelineHealthCollector {
     fun onGate(phaseTag: String, symbol: String, allow: Boolean, reason: String) {
         if (!attached) return
         if (phaseTag == "LANE_EVAL") {
-            val lane = Regex("lane=([A-Z_]+)").find(reason)?.groupValues?.getOrNull(1) ?: ""
+            val lane = Regex("lane=([A-Z0-9_]+)").find(reason)?.groupValues?.getOrNull(1) ?: ""
             if (lane.isNotBlank() && RuntimeConfigOverlay.isLaneDisabled(lane)) {
                 bump(laneEvalSuppressedCounts, RuntimeConfigOverlay.normalizeLane(lane))
                 bump(labelCounts, "LANE_EVAL_SUPPRESSED_OVERLAY")
@@ -431,7 +436,7 @@ object PipelineHealthCollector {
         // actually evaluating, but only SHITCOIN emitted via phase() while
         // the others emitted via gate() and slipped past the parser.
         if (phaseTag == "LANE_EVAL") {
-            val laneMatch = Regex("lane=([A-Z_]+)").find(reason)
+            val laneMatch = Regex("lane=([A-Z0-9_]+)").find(reason)
             laneMatch?.groupValues?.get(1)?.let { bump(laneEvalCounts, it) }
         }
         if (!allow) {
