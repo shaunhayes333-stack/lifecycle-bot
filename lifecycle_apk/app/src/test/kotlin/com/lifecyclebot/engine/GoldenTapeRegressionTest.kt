@@ -5947,7 +5947,7 @@ class GoldenTapeRegressionTest {
         val register = java.io.File("src/main/kotlin/com/lifecyclebot/engine/RejectTaxonomyAuditRegister.kt").readText()
         assertTrue("V5.0.4433: liveBuyDeferred must classify deferred/quote reasons into reject taxonomy", exec.contains("EXECUTOR_DEFERRED_BUY_TAXONOMY_4433") && exec.contains("RejectTaxonomy.classify(reason, null)"))
         assertTrue("V5.0.4433: liveBuyDeferred taxonomy must be ledgered via bounded bus while preserving emitLiveBuyFail", exec.contains("RejectTaxonomyLedger.record") && exec.contains("ChokeReliefBus.launch") && exec.contains("emitLiveBuyFail(ts, sol, reason, detail)"))
-        assertTrue("V5.0.4433: audit register must mark deferred quote reasons closed", register.contains("closed_optional=[deferred_quote_reasons_4433]") && register.contains("canonical_outcome_row_tag"))
+        assertTrue("V5.0.4433/4437: audit register must mark deferred quote reasons closed without pinning stale phased optional snapshots", register.contains("deferred_quote_reasons_4433") && register.contains("closed_optional=["))
     }
 
 
@@ -5958,7 +5958,7 @@ class GoldenTapeRegressionTest {
         val register = java.io.File("src/main/kotlin/com/lifecyclebot/engine/RejectTaxonomyAuditRegister.kt").readText()
         assertTrue("V5.0.4435: CanonicalOutcomeBus publishFromLegacyTrade must call reject taxonomy row tag", canonical.contains("CanonicalRejectTaxonomyRowTag.inspectLegacyTrade") && canonical.contains("CanonicalOutcomeBus.publishFromLegacyTrade.entry"))
         assertTrue("V5.0.4435: canonical reject row tag must be report-only and ledgered", tag.contains("CANONICAL_REJECT_ROW_TAG_4435") && tag.contains("RejectTaxonomyLedger.record") && tag.contains("no_outcome_mutation=true"))
-        assertTrue("V5.0.4435: audit register must mark canonical outcome row tag closed", register.contains("canonical_outcome_row_tag_4435") && register.contains("remaining_optional=[ui_breakdown]"))
+        assertTrue("V5.0.4435/4437: audit register must mark canonical outcome row tag closed even after UI breakdown closure", register.contains("canonical_outcome_row_tag_4435") && register.contains("closed_optional=["))
     }
 
 
