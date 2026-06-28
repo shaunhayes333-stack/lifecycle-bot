@@ -7,7 +7,7 @@ object OperatorAdaptiveStatusDigest {
         val quality = try { QualityLadder.statusLine().take(120) } catch (_: Throwable) { "QualityLadder unavailable" }
         val laneExpectancy = try { LaneExpectancyDamper.statusLine().take(120) } catch (_: Throwable) { "LaneExpectancyDamper unavailable" }
         val antiChoke = try { AntiChokeManager.statusLine().take(120) } catch (_: Throwable) { "AntiChokeManager unavailable" }
-        val freeRange = try { FreeRangeMode.statusLine().take(120) } catch (_: Throwable) { "FreeRangeMode unavailable" }
+        val freeRange = "FreeRangeMode instance-scoped"
         val sentience = try { SentienceHooks.statusSummary().take(160) } catch (_: Throwable) { "SentienceHooks unavailable" }
         val llmLab = try { com.lifecyclebot.engine.lab.LlmLabEngine.statusLine().take(160) } catch (_: Throwable) { "LlmLabEngine unavailable" }
         val llmStore = try { com.lifecyclebot.engine.lab.LlmLabStore.summary().take(160) } catch (_: Throwable) { "LlmLabStore unavailable" }
