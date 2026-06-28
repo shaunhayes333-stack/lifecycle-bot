@@ -4905,7 +4905,7 @@ class GoldenTapeRegressionTest {
         val exec = java.io.File("src/main/kotlin/com/lifecyclebot/engine/Executor.kt").readText()
         val manifest = java.io.File("src/main/kotlin/com/lifecyclebot/engine/AsiSsiAuditCloseoutManifest.kt").readText()
         val audit = readLifecycleFileFor4280s("audits/asi_ssi_audit_queue_2026-06-27.md")
-        assertTrue("V5.0.4295 A41: operator KPI closeout must cover volume, live/paper drift, realized SOL, runner giveback, source PF, sizing warnings, and build status", report.contains("OPERATOR_KPI_CLOSEOUT_REPORT_4447") && report.contains("volume=TradeHistoryStore") && report.contains("live_paper_drift=LivePaperDriftSentinel") && report.contains("realized_net_sol=LiveWalletGrowthGovernorReport") && report.contains("runner_giveback=RunnerExitShadowLedger") && report.contains("source_family_pf=SourceFamilyOpportunityScorecard") && report.contains("sizing_stack_warnings=SizingStackIntegritySentinel") && report.contains("build_status"))
+        assertTrue("V5.0.4295 A41: operator KPI closeout must cover volume, live/paper drift, realized SOL, runner giveback, source PF, sizing warnings, and build status", report.contains("OPERATOR_KPI_CLOSEOUT_REPORT_4448") && report.contains("volume=TradeHistoryStore") && report.contains("live_paper_drift=LivePaperDriftSentinel") && report.contains("realized_net_sol=LiveWalletGrowthGovernorReport") && report.contains("runner_giveback=RunnerExitShadowLedger") && report.contains("source_family_pf=SourceFamilyOpportunityScorecard") && report.contains("sizing_stack_warnings=SizingStackIntegritySentinel") && report.contains("build_status"))
         assertTrue("V5.0.4295 A41: Executor must emit operator KPI report only from side-effect terminal fanout", exec.contains("OperatorKpiCloseoutReport.emit()") && exec.contains("if (_fanoutSide == \"SELL\")"))
         assertTrue("V5.0.4295 closeout: manifest and audit queue must mark A38-A41 complete", manifest.contains("A41 operator KPI closeout report") && manifest.contains("audit_closed=true") && audit.contains("Status: implemented in V5.0.4295 as `OperatorKpiCloseoutReport`"))
         assertFalse("V5.0.4295 A41: KPI closeout must never own execution authority or fake PnL", report.contains("executeBuy(") || report.contains("requestSell(") || !report.contains("no_phantom_pnl=true") || !report.contains("no_execution_authority=true"))
@@ -5189,7 +5189,7 @@ class GoldenTapeRegressionTest {
     @Test
     fun operatorKpi4332ExposesUltimateEdgeAndChokeReliefHelpers() {
         val report = java.io.File("src/main/kotlin/com/lifecyclebot/engine/OperatorKpiCloseoutReport.kt").readText()
-        assertTrue("V5.0.4332: operator KPI report must expose UltimateEdge and ChokeRelief helper health", report.contains("OPERATOR_KPI_CLOSEOUT_REPORT_4447") && report.contains("UltimateEdgeEngine.status(6)") && report.contains("ChokeReliefBus.status()") && report.contains("ultimate_edge=UltimateEdgeEngine") && report.contains("choke_relief=ChokeReliefBus"))
+        assertTrue("V5.0.4332: operator KPI report must expose UltimateEdge and ChokeRelief helper health", report.contains("OPERATOR_KPI_CLOSEOUT_REPORT_4448") && report.contains("UltimateEdgeEngine.status(6)") && report.contains("ChokeReliefBus.status()") && report.contains("ultimate_edge=UltimateEdgeEngine") && report.contains("choke_relief=ChokeReliefBus"))
     }
 
     @Test
@@ -6052,6 +6052,16 @@ class GoldenTapeRegressionTest {
         assertTrue("V5.0.4447: mid-tail marker digest must quantify medium residual clusters", digest.contains("OPERATOR_MID_TAIL_MARKER_DIGEST_4447") && digest.contains("DataPipeline:12") && digest.contains("AntiChokeManager:10") && digest.contains("StrategyTelemetry:10"))
         assertTrue("V5.0.4447: mid-tail marker digest must list actionable source-contract targets", digest.contains("data_pipeline_quote_identity") && digest.contains("anti_choke_prune_visibility") && digest.contains("strategy_telemetry_noop_contract") && digest.contains("scanner_dormant_feed_visibility"))
         assertTrue("V5.0.4447: mid-tail marker digest must be KPI-wired and behavior-neutral", digest.contains("report_only=true") && digest.contains("no_hot_path_change=true") && kpi.contains("mid_tail_markers=OperatorMidTailMarkerDigest"))
+    }
+
+
+    @Test
+    fun operatorSmallTailMarkerDigest_4448CompressesResidualMarkerTail() {
+        val digest = java.io.File("src/main/kotlin/com/lifecyclebot/engine/OperatorSmallTailMarkerDigest.kt").readText()
+        val kpi = java.io.File("src/main/kotlin/com/lifecyclebot/engine/OperatorKpiCloseoutReport.kt").readText()
+        assertTrue("V5.0.4448: small-tail marker digest must name residual low-count clusters", digest.contains("OPERATOR_SMALL_TAIL_MARKER_DIGEST_4448") && digest.contains("CanonicalFeaturesBuilder:5") && digest.contains("FinalExecutionPermit:5") && digest.contains("SolanaMarketScanner:6"))
+        assertTrue("V5.0.4448: small-tail marker digest must list focus contracts and residual estimate", digest.contains("permit_false_visibility") && digest.contains("scanner_feed_visibility") && digest.contains("remaining_after_triage_estimate=35_60"))
+        assertTrue("V5.0.4448: small-tail marker digest must be KPI-wired and behavior-neutral", digest.contains("report_only=true") && digest.contains("no_hot_path_change=true") && kpi.contains("small_tail_markers=OperatorSmallTailMarkerDigest"))
     }
 
 }
