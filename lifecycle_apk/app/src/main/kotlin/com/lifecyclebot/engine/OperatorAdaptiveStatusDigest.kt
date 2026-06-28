@@ -11,7 +11,7 @@ object OperatorAdaptiveStatusDigest {
         val sentience = try { SentienceHooks.statusSummary().take(160) } catch (_: Throwable) { "SentienceHooks unavailable" }
         val llmLab = try { com.lifecyclebot.engine.lab.LlmLabEngine.statusLine().take(160) } catch (_: Throwable) { "LlmLabEngine unavailable" }
         val llmStore = try { com.lifecyclebot.engine.lab.LlmLabStore.summary().take(160) } catch (_: Throwable) { "LlmLabStore unavailable" }
-        val coldStreak = try { com.lifecyclebot.engine.runtime.ColdStreakDamper.statusLine().take(160) } catch (_: Throwable) { "ColdStreakDamper unavailable" }
+        val coldStreak = "ColdStreakDamper instance-scoped"
         val execCounters = try { com.lifecyclebot.engine.runtime.ExecutionCounterContract.snapshot().toString().take(160) } catch (_: Throwable) { "ExecutionCounterContract unavailable" }
         return "OPERATOR_ADAPTIVE_STATUS_DIGEST_4365 liveProb=[$liveProb] quality=[$quality] laneExpectancy=[$laneExpectancy] antiChoke=[$antiChoke] freeRange=[$freeRange] sentience=[$sentience] llmLab=[$llmLab] llmStore=[$llmStore] coldStreak=[$coldStreak] execCounters=[$execCounters] report_only=true no_gate_change=true no_execution_authority=true"
     }
