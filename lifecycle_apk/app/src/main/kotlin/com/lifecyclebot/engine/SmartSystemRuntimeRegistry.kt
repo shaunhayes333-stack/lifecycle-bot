@@ -52,13 +52,13 @@ object SmartSystemRuntimeRegistry {
         SmartSystem("FlowImbalanceModel", RuntimeClass.INTERFACE_USED, "arb_deck", "V5.0.4334 ArbCoordinator evaluates flow imbalance into cached opportunity deck"),
         SmartSystem("PanicReversionModel", RuntimeClass.INTERFACE_USED, "arb_deck", "V5.0.4334 ArbCoordinator evaluates panic reversion into cached opportunity deck"),
         SmartSystem("SourceTimingRegistry", RuntimeClass.INTERFACE_USED, "arb_deck", "V5.0.4334 ArbScannerAI.recordSourceSeen feeds VenueLagModel source timing"),
-        SmartSystem("CloudLearningSync", RuntimeClass.NEEDS_RUNTIME_PROOF, "hive_sync", "classified versus CollectiveLearning/Turso path"),
+        SmartSystem("CloudLearningSync", RuntimeClass.ACTIVE, "hive_sync", "BotService upload/download plus UnifiedScorer communityPatternMultiplier consumer"),
         SmartSystem("StrategyVariantStore", RuntimeClass.INTERFACE_USED, "strategy_genome", "V5.0.4342 consumed by StrategyHypothesisEngine size bias and terminal outcome fanout"),
         SmartSystem("PatchWriterAI", RuntimeClass.FUTURE, "repair_brain", "operator-only/future bounded repair classification"),
         SmartSystem("HotfixRules", RuntimeClass.FUTURE, "repair_brain", "operator-only/future bounded repair classification"),
         SmartSystem("TelegramBot", RuntimeClass.NEEDS_RUNTIME_PROOF, "operator_channel", "active command channel or superseded marker"),
         SmartSystem("ProviderHealthGate", RuntimeClass.NEEDS_RUNTIME_PROOF, "provider_health", "authority surface and runtime label proof"),
-        SmartSystem("ColdStreakDamper", RuntimeClass.NEEDS_RUNTIME_PROOF, "runtime_health", "authority surface and runtime label proof"),
+        SmartSystem("ColdStreakDamper", RuntimeClass.ACTIVE, "runtime_health", "SmartSizer consumes sizeMultiplier; V3JournalRecorder feeds terminal outcomes; LearningPersistence saves state"),
     )
 
     val sentinels: List<SmartSystem> = listOf(
@@ -70,15 +70,15 @@ object SmartSystemRuntimeRegistry {
 
     fun status(): String {
         val byClass = allSystems().groupingBy { it.runtimeClass.name }.eachCount().toSortedMap()
-        return "SMART_SYSTEM_RUNTIME_REGISTRY_4341 total=${allSystems().size} routeProviders=${routeProviders.size} dormantCandidates=${dormantCandidates.size} sentinels=${sentinels.size} classes=$byClass arb_deck_reclassified=true report_only=true no_execution_authority=true"
+        return "SMART_SYSTEM_RUNTIME_REGISTRY_4343 total=${allSystems().size} routeProviders=${routeProviders.size} dormantCandidates=${dormantCandidates.size} sentinels=${sentinels.size} classes=$byClass arb_deck_reclassified=true cloud_and_cold_streak_active=true report_only=true no_execution_authority=true"
     }
 
     fun emitStartupProof() {
         try { AiStatePersistenceSentinel.emit() } catch (_: Throwable) {}
         try { HotPathProviderCallSentinel.emit() } catch (_: Throwable) {}
         try {
-            ForensicLogger.lifecycle("SMART_SYSTEM_RUNTIME_REGISTRY_4341", status().take(900))
-            PipelineHealthCollector.labelInc("SMART_SYSTEM_RUNTIME_REGISTRY_4341")
+            ForensicLogger.lifecycle("SMART_SYSTEM_RUNTIME_REGISTRY_4343", status().take(900))
+            PipelineHealthCollector.labelInc("SMART_SYSTEM_RUNTIME_REGISTRY_4343")
             routeProviders.forEach { PipelineHealthCollector.labelInc("SMART_ROUTE_PROVIDER_DECLARED_4307/${it.name}") }
             dormantCandidates.forEach { PipelineHealthCollector.labelInc("SMART_DORMANT_CANDIDATE_4307/${it.name}") }
             sentinels.forEach { PipelineHealthCollector.labelInc("SMART_SENTINEL_RUNTIME_PROOF_4307/${it.name}") }

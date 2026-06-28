@@ -5243,7 +5243,7 @@ class GoldenTapeRegressionTest {
     @Test
     fun runtimeRegistry4341ReclassifiesArbDeckAfterActiveConsumers() {
         val registry = java.io.File("src/main/kotlin/com/lifecyclebot/engine/SmartSystemRuntimeRegistry.kt").readText()
-        assertTrue("V5.0.4341: Arb deck should no longer be reported as wholly dormant after cached lane consumers", registry.contains("SMART_SYSTEM_RUNTIME_REGISTRY_4341") && registry.contains("arb_deck_reclassified=true") && registry.contains("ArbScannerAI") && registry.contains("RuntimeClass.ACTIVE") && registry.contains("cachedOpportunity consumed by Treasury/Express/ShitCoin"))
+        assertTrue("V5.0.4341: Arb deck should no longer be reported as wholly dormant after cached lane consumers", registry.contains("SMART_SYSTEM_RUNTIME_REGISTRY_4343") && registry.contains("arb_deck_reclassified=true") && registry.contains("ArbScannerAI") && registry.contains("RuntimeClass.ACTIVE") && registry.contains("cachedOpportunity consumed by Treasury/Express/ShitCoin"))
         assertTrue("V5.0.4341: Arb component models should be interface-used, while ArbLearning remains proof-needed", registry.contains("VenueLagModel") && registry.contains("FlowImbalanceModel") && registry.contains("PanicReversionModel") && registry.contains("SourceTimingRegistry") && registry.contains("terminal arb-specific outcome fanout still needs proof"))
     }
 
@@ -5254,6 +5254,18 @@ class GoldenTapeRegressionTest {
         assertTrue("V5.0.4342: StrategyVariantStore must shape hot-path sizing only as bounded bias through StrategyHypothesisEngine", hypo.contains("STRATEGY_VARIANT_STORE_SIZE_BIAS_4342") && hypo.contains("StrategyVariantStore.activeFor(lane)") && hypo.contains("strategyVariantBias4342") && hypo.contains("coerceIn(SIZE_BIAS_MIN, SIZE_BIAS_MAX)"))
         assertTrue("V5.0.4342: StrategyVariantStore must receive terminal outcomes via existing StrategyHypothesisEngine outcome fanout", hypo.contains("STRATEGY_VARIANT_STORE_OUTCOME_4342") && hypo.contains("StrategyVariantStore.recordOutcome(activeVariant4342.id"))
         assertTrue("V5.0.4342: Registry must no longer treat StrategyVariantStore as pure proof-needed after wiring", registry.contains("StrategyVariantStore") && registry.contains("RuntimeClass.INTERFACE_USED") && registry.contains("terminal outcome fanout"))
+    }
+
+
+    @Test
+    fun runtimeRegistry4343MarksCloudSyncAndColdStreakActiveByCallsite() {
+        val registry = java.io.File("src/main/kotlin/com/lifecyclebot/engine/SmartSystemRuntimeRegistry.kt").readText()
+        val bot = java.io.File("src/main/kotlin/com/lifecyclebot/engine/BotService.kt").readText()
+        val scorer = java.io.File("src/main/kotlin/com/lifecyclebot/v3/scoring/UnifiedScorer.kt").readText()
+        val sizer = java.io.File("src/main/kotlin/com/lifecyclebot/engine/SmartSizer.kt").readText()
+        val journal = java.io.File("src/main/kotlin/com/lifecyclebot/engine/V3JournalRecorder.kt").readText()
+        assertTrue("V5.0.4343: CloudLearningSync must be classified active only if BotService and UnifiedScorer consume it", registry.contains("CloudLearningSync") && registry.contains("RuntimeClass.ACTIVE") && bot.contains("CloudLearningSync.uploadLearnings") && scorer.contains("communityPatternMultiplier"))
+        assertTrue("V5.0.4343: ColdStreakDamper must be classified active only if sizing and outcomes consume it", registry.contains("ColdStreakDamper") && registry.contains("cloud_and_cold_streak_active=true") && sizer.contains("ColdStreakDamper.sizeMultiplier") && journal.contains("ColdStreakDamper.noteOutcome"))
     }
 
 }
