@@ -4905,7 +4905,7 @@ class GoldenTapeRegressionTest {
         val exec = java.io.File("src/main/kotlin/com/lifecyclebot/engine/Executor.kt").readText()
         val manifest = java.io.File("src/main/kotlin/com/lifecyclebot/engine/AsiSsiAuditCloseoutManifest.kt").readText()
         val audit = readLifecycleFileFor4280s("audits/asi_ssi_audit_queue_2026-06-27.md")
-        assertTrue("V5.0.4295 A41: operator KPI closeout must cover volume, live/paper drift, realized SOL, runner giveback, source PF, sizing warnings, and build status", report.contains("OPERATOR_KPI_CLOSEOUT_REPORT_4388") && report.contains("volume=TradeHistoryStore") && report.contains("live_paper_drift=LivePaperDriftSentinel") && report.contains("realized_net_sol=LiveWalletGrowthGovernorReport") && report.contains("runner_giveback=RunnerExitShadowLedger") && report.contains("source_family_pf=SourceFamilyOpportunityScorecard") && report.contains("sizing_stack_warnings=SizingStackIntegritySentinel") && report.contains("build_status"))
+        assertTrue("V5.0.4295 A41: operator KPI closeout must cover volume, live/paper drift, realized SOL, runner giveback, source PF, sizing warnings, and build status", report.contains("OPERATOR_KPI_CLOSEOUT_REPORT_4392") && report.contains("volume=TradeHistoryStore") && report.contains("live_paper_drift=LivePaperDriftSentinel") && report.contains("realized_net_sol=LiveWalletGrowthGovernorReport") && report.contains("runner_giveback=RunnerExitShadowLedger") && report.contains("source_family_pf=SourceFamilyOpportunityScorecard") && report.contains("sizing_stack_warnings=SizingStackIntegritySentinel") && report.contains("build_status"))
         assertTrue("V5.0.4295 A41: Executor must emit operator KPI report only from side-effect terminal fanout", exec.contains("OperatorKpiCloseoutReport.emit()") && exec.contains("if (_fanoutSide == \"SELL\")"))
         assertTrue("V5.0.4295 closeout: manifest and audit queue must mark A38-A41 complete", manifest.contains("A41 operator KPI closeout report") && manifest.contains("audit_closed=true") && audit.contains("Status: implemented in V5.0.4295 as `OperatorKpiCloseoutReport`"))
         assertFalse("V5.0.4295 A41: KPI closeout must never own execution authority or fake PnL", report.contains("executeBuy(") || report.contains("requestSell(") || !report.contains("no_phantom_pnl=true") || !report.contains("no_execution_authority=true"))
@@ -5189,7 +5189,7 @@ class GoldenTapeRegressionTest {
     @Test
     fun operatorKpi4332ExposesUltimateEdgeAndChokeReliefHelpers() {
         val report = java.io.File("src/main/kotlin/com/lifecyclebot/engine/OperatorKpiCloseoutReport.kt").readText()
-        assertTrue("V5.0.4332: operator KPI report must expose UltimateEdge and ChokeRelief helper health", report.contains("OPERATOR_KPI_CLOSEOUT_REPORT_4388") && report.contains("UltimateEdgeEngine.status(6)") && report.contains("ChokeReliefBus.status()") && report.contains("ultimate_edge=UltimateEdgeEngine") && report.contains("choke_relief=ChokeReliefBus"))
+        assertTrue("V5.0.4332: operator KPI report must expose UltimateEdge and ChokeRelief helper health", report.contains("OPERATOR_KPI_CLOSEOUT_REPORT_4392") && report.contains("UltimateEdgeEngine.status(6)") && report.contains("ChokeReliefBus.status()") && report.contains("ultimate_edge=UltimateEdgeEngine") && report.contains("choke_relief=ChokeReliefBus"))
     }
 
     @Test
@@ -5575,6 +5575,17 @@ class GoldenTapeRegressionTest {
         assertTrue("V5.0.4388: lane parity sentinel must pin soft recovery probes, not local pause amputations", sentinel.contains("LANE_LOCAL_PAUSES_ARE_RECOVERY_PROBES_4388") && sentinel.contains("SHITCOIN_DAILY_LOSS_RECOVERY_PROBE_4314") && sentinel.contains("TreasuryMode.PAUSED -> 0.35"))
         assertTrue("V5.0.4388: lane parity sentinel must be report-only and KPI-wired", sentinel.contains("report_only=true") && sentinel.contains("no_execution_authority=true") && kpi.contains("meme_lane_parity=MemeLaneParitySentinel") && kpi.contains("MemeLaneParitySentinel.status"))
         assertTrue("V5.0.4388: lane parity sentinel must expose source-tree audit entrypoints", sentinel.contains("fun auditSourceTree") && sentinel.contains("fun failed") && sentinel.contains("RESTORE_HELPERS_PRESENT_4388"))
+    }
+
+
+    @Test
+    fun uiAnrDecouplingSentinel4392PinsMainActivityTextBoundaries() {
+        val sentinel = java.io.File("src/main/kotlin/com/lifecyclebot/engine/UiAnrDecouplingSentinel.kt").readText()
+        val main = java.io.File("src/main/kotlin/com/lifecyclebot/ui/MainActivity.kt").readText()
+        val kpi = java.io.File("src/main/kotlin/com/lifecyclebot/engine/OperatorKpiCloseoutReport.kt").readText()
+        assertTrue("V5.0.4392: UI ANR sentinel must pin bounded decision-log text", sentinel.contains("UI_DECISION_LOG_BOUNDED_4392") && main.contains("setDecisionLogTextBounded4280") && main.contains("DECISION_LOG_MAX_CHARS_4280"))
+        assertTrue("V5.0.4392: UI ANR sentinel must pin no-op relayout skips", sentinel.contains("UI_DECISION_LOG_NOOP_SKIP_4392") && main.contains("lastDecisionLogTextHash") && main.contains("setTextIfChanged"))
+        assertTrue("V5.0.4392: UI ANR sentinel must be report-only and KPI-wired", sentinel.contains("report_only=true") && sentinel.contains("no_execution_authority=true") && kpi.contains("ui_anr=UiAnrDecouplingSentinel") && kpi.contains("UiAnrDecouplingSentinel.status"))
     }
 
 }
