@@ -75,7 +75,11 @@ object UnifiedPolicyHead {
     )
 
     private val laneHeads = java.util.concurrent.ConcurrentHashMap<String, LaneHead>()
-    private val pending = java.util.concurrent.ConcurrentHashMap<String, Pair<String, DoubleArray>>()
+    // V5.0.4470 — all-lane contribution parity. Pending entry signals must be keyed
+    // by mint AND lane; live now evaluates every internal trader like paper, so a
+    // mint-only stamp lets the last lane overwrite every sibling lane and only one
+    // head learns on terminal close.
+    private val pending = java.util.concurrent.ConcurrentHashMap<String, java.util.concurrent.ConcurrentHashMap<String, DoubleArray>>()
     private val advisoryUsageCount = java.util.concurrent.atomic.AtomicLong(0)
     private val authoritativeOverrideCount = java.util.concurrent.atomic.AtomicLong(0)
     private val calibrationDemoteCount = java.util.concurrent.atomic.AtomicLong(0)
@@ -232,68 +236,68 @@ object UnifiedPolicyHead {
      *  both the per-lane head AND the global head. */
     fun stamp(mint: String, s: Signals) { stamp(mint, "STANDARD", s) }
     fun stamp(mint: String, lane: String, s: Signals) {
-        try { pending[mint] = normalizeLane(lane) to s.toArray() } catch (_: Throwable) {}
+        try {
+            val laneKey = normalizeLane(lane)
+            pending.computeIfAbsent(mint) { java.util.concurrent.ConcurrentHashMap() }[laneKey] = s.toArray()
+        } catch (_: Throwable) {}
     }
 
-    /** Train both the per-lane head and the global head on a settled outcome. */
+    /** Train every stamped per-lane head plus the global head on a settled outcome. */
     fun recordOutcome(mint: String, pnlPct: Double) {
         try {
-            val rec = pending.remove(mint) ?: return
-            val (lane, x) = rec
+            val recs = pending.remove(mint) ?: return
             val y = if (pnlPct > 0.0) 1.0 else 0.0
-
-            // ── Train global head (warm-start authority for new lanes) ──
-            val pG = rawProbGlobal(x)
-            val errG = pG - y
-            for (i in 0 until NF) {
-                val g = errG * (x[i] - featMean[i]) + L2 * w[i]
-                w[i] -= LR * g
-                featMean[i] += 0.01 * (x[i] - featMean[i])
-            }
-            bias -= LR * errG
-            trained += 1
-
-            // ── Train per-lane head + accumulate Brier score ──
-            val h = getOrCreateLaneHead(lane)
-            val pL = rawProbLane(h, x)
-            val errL = pL - y
-            for (i in 0 until NF) {
-                val g = errL * (x[i] - h.featMean[i]) + L2 * h.w[i]
-                h.w[i] -= LR * g
-                h.featMean[i] += 0.01 * (x[i] - h.featMean[i])
-            }
-            h.bias -= LR * errL
-            h.trained += 1
-            // V5.0.4096 — AGI ↔ SENTIENCE SYMBIOSIS. On authority tier crossings,
-            // emit lifecycle events into the cross-talk + sentience family so the
-            // rest of the AI stack (SentienceOrchestrator, SentientPersonality,
-            // BehaviorLearning) sees the AGI's growth and can react. The AGI
-            // is no longer an island — its tier graduations become thoughts
-            // the sentient personality narrates ('I just learned MOONSHOT').
-            if (h.trained == AUTHORITY_ADVISORY || h.trained == AUTHORITY_LEARNED || h.trained == AUTHORITY_AUTHORITATIVE) {
-                val tierName = when (h.trained) {
-                    AUTHORITY_ADVISORY      -> "ADVISORY"
-                    AUTHORITY_LEARNED       -> "LEARNED"
-                    AUTHORITY_AUTHORITATIVE -> "AUTHORITATIVE"
-                    else                     -> "?"
+            for ((lane, x) in recs) {
+                // ── Train global head (warm-start authority for new lanes) ──
+                val pG = rawProbGlobal(x)
+                val errG = pG - y
+                for (i in 0 until NF) {
+                    val g = errG * (x[i] - featMean[i]) + L2 * w[i]
+                    w[i] -= LR * g
+                    featMean[i] += 0.01 * (x[i] - featMean[i])
                 }
-                try { com.lifecyclebot.engine.SentienceOrchestrator.noteRuntimeEvent(
-                    "AGI_BRAIN_TIER_GRADUATED",
-                    "lane=$lane tier=$tierName n=${h.trained} brain=entry",
-                    "INFO"
-                ) } catch (_: Throwable) {}
-                try { com.lifecyclebot.engine.SentientPersonality.injectAutonomousThought(
-                    "I just leveled up on $lane. Tier=$tierName at n=${h.trained}. The signals are clearer now."
-                ) } catch (_: Throwable) {}
-            }
-            // rolling Brier: sum of (p - y)^2 windowed over last 200
-            h.brierSum += (pL - y) * (pL - y)
-            h.brierN += 1
-            if (h.brierN > 200L) {
-                h.brierSum *= (200.0 / h.brierN)
-                h.brierN = 200L
-            }
+                bias -= LR * errG
+                trained += 1
 
+                // ── Train per-lane head + accumulate Brier score ──
+                val h = getOrCreateLaneHead(lane)
+                val pL = rawProbLane(h, x)
+                val errL = pL - y
+                for (i in 0 until NF) {
+                    val g = errL * (x[i] - h.featMean[i]) + L2 * h.w[i]
+                    h.w[i] -= LR * g
+                    h.featMean[i] += 0.01 * (x[i] - h.featMean[i])
+                }
+                h.bias -= LR * errL
+                h.trained += 1
+                // V5.0.4096 — AGI ↔ SENTIENCE SYMBIOSIS. On authority tier crossings,
+                // emit lifecycle events into the cross-talk + sentience family so the
+                // rest of the AI stack sees each lane head mature independently.
+                if (h.trained == AUTHORITY_ADVISORY || h.trained == AUTHORITY_LEARNED || h.trained == AUTHORITY_AUTHORITATIVE) {
+                    val tierName = when (h.trained) {
+                        AUTHORITY_ADVISORY      -> "ADVISORY"
+                        AUTHORITY_LEARNED       -> "LEARNED"
+                        AUTHORITY_AUTHORITATIVE -> "AUTHORITATIVE"
+                        else                     -> "?"
+                    }
+                    try { com.lifecyclebot.engine.SentienceOrchestrator.noteRuntimeEvent(
+                        "AGI_BRAIN_TIER_GRADUATED",
+                        "lane=$lane tier=$tierName n=${h.trained} brain=entry",
+                        "INFO"
+                    ) } catch (_: Throwable) {}
+                    try { com.lifecyclebot.engine.SentientPersonality.injectAutonomousThought(
+                        "I just leveled up on $lane. Tier=$tierName at n=${h.trained}. The signals are clearer now."
+                    ) } catch (_: Throwable) {}
+                }
+                // rolling Brier: sum of (p - y)^2 windowed over last 200
+                h.brierSum += (pL - y) * (pL - y)
+                h.brierN += 1
+                if (h.brierN > 200L) {
+                    h.brierSum *= (200.0 / h.brierN)
+                    h.brierN = 200L
+                }
+            }
+            try { PipelineHealthCollector.labelInc("UNIFIED_POLICY_HEAD_ALL_LANE_OUTCOME_4470") } catch (_: Throwable) {}
             if (trained % 25L == 0L) appContext?.let { save(it) }
         } catch (_: Throwable) {}
     }

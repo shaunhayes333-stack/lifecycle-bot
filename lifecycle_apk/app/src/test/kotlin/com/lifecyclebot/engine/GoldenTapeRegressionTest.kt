@@ -6181,4 +6181,13 @@ class GoldenTapeRegressionTest {
         assertTrue("V5.0.4469: full internal ring includes every meme trader contributor for live learning", listOf("SHITCOIN", "MOONSHOT", "EXPRESS", "PROJECT_SNIPER", "MANIPULATED", "QUALITY", "DIP_HUNTER", "TREASURY", "CASHGEN", "BLUECHIP").all { src.contains(it) })
     }
 
+
+    @Test
+    fun unifiedPolicyHead_4470StoresPendingSignalsPerMintAndLane() {
+        val src = java.io.File("src/main/kotlin/com/lifecyclebot/engine/UnifiedPolicyHead.kt").readText()
+        assertTrue("V5.0.4470: UnifiedPolicyHead pending stamps must store all lanes per mint, not overwrite siblings", src.contains("ConcurrentHashMap<String, java.util.concurrent.ConcurrentHashMap<String, DoubleArray>>") && src.contains("pending.computeIfAbsent(mint)"))
+        assertTrue("V5.0.4470: settled outcome must train every stamped lane head for paper/live contribution parity", src.contains("for ((lane, x) in recs)") && src.contains("UNIFIED_POLICY_HEAD_ALL_LANE_OUTCOME_4470"))
+        assertTrue("V5.0.4470: per-lane heads must still train independently while global warm-start also updates", src.contains("getOrCreateLaneHead(lane)") && src.contains("trained += 1") && src.contains("h.trained += 1"))
+    }
+
 }
