@@ -2133,7 +2133,7 @@ object FinalDecisionGate {
 
         if (blockReason == null && !config.paperMode) {
             // V5.0.4463 — fluid thin-liquidity valuation gate. Runtime 4449 showed
-            // FDG top block HARD_BLOCK_MCAP_LIQ_RATIO_30X while EXEC_GATE had 0 blocks.
+            // FDG top mcap/liquidity-ratio block while EXEC_GATE had 0 blocks.
             // Under the gate taxonomy, mcap/liquidity mismatch is low-liq/exit-risk
             // sizing pressure, not a true hard-safety veto. True non-exitable dust
             // liquidity (<$500), LP-unlocked/rug, and explicit safety failures remain
