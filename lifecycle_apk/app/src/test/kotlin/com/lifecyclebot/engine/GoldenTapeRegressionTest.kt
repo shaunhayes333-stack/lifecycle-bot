@@ -5555,4 +5555,14 @@ class GoldenTapeRegressionTest {
         assertTrue("V5.0.4384: profit-pressure recovery must not fake-close or paper-book live exits", !exec.contains("PROFIT_LOCK_DEFERRED") || exec.contains("Enqueued urgent proof/retry"))
     }
 
+
+    @Test
+    fun moonshotPromotion4386HasSinglePromotedFromArgument() {
+        val moon = java.io.File("src/main/kotlin/com/lifecyclebot/v3/scoring/MoonshotTraderAI.kt").readText()
+        val promotionBlock = moon.substring(moon.indexOf("fun executePromotion"), moon.indexOf("// ═══════════════════════════════════════════════════════════════════════════
+    // COLLECTIVE LEARNING", moon.indexOf("fun executePromotion")))
+        assertEquals("V5.0.4386: Moonshot promotion must not duplicate promotedFrom named argument", 1, Regex("promotedFrom = fromLayer").findAll(promotionBlock).count())
+        assertTrue("V5.0.4386: Moonshot promotion still preserves runner context", promotionBlock.contains("peakPnlPct = currentPnlPct") && promotionBlock.contains("tightSL.coerceAtLeast(HARD_FLOOR_STOP)"))
+    }
+
 }
