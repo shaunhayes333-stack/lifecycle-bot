@@ -820,6 +820,23 @@ class SolanaMarketScanner(
     private val birdeye: BirdeyeApi
         get() = BirdeyeApi(cfg().birdeyeApiKey)
 
+    // V5.0.4350 — revive TokenRefreshPolicy at the scanner fallback source.
+    // Birdeye overview is dynamic/liquidity data; avoid repeated refreshes for
+    // the same mint across overlapping scanners while preserving first-minute
+    // launch refresh and open-position emergency paths.
+    private suspend fun getBirdeyeOverviewIfRefreshDue4350(
+        mint: String,
+        score: Double = 0.0,
+        firstSeenMs: Long = System.currentTimeMillis(),
+        lastActivityMs: Long = System.currentTimeMillis(),
+        hasOpenPosition: Boolean = false,
+    ) = if (TokenRefreshPolicy.shouldRefreshDynamic(mint, firstSeenMs, lastActivityMs, score, hasOpenPosition)) {
+        withContext(Dispatchers.IO) { birdeye.getTokenOverview(mint) }
+    } else {
+        try { PipelineHealthCollector.labelInc("TOKEN_REFRESH_POLICY_OVERVIEW_SKIP_4350") } catch (_: Throwable) {}
+        null
+    }
+
     private val seenMints = ConcurrentHashMap<String, Long>()
     // V5.9.44: Unified TTLs across paper/live. Per V5.9.34 the scanner is
     // meant to be wide open — classification is the decision gate's job.
@@ -1751,7 +1768,7 @@ class SolanaMarketScanner(
 
                 var liq = pair?.liquidity ?: 0.0
                 if (liq <= 0) {
-                    val overview = withContext(Dispatchers.IO) { birdeye.getTokenOverview(mint) }
+                    val overview = getBirdeyeOverviewIfRefreshDue4350(mint, score = 70.0)
                     liq = overview?.liquidity ?: 0.0
                     if (liq <= 0 && pair != null && (pair.fdv > 0 || pair.candle.marketCap > 0)) {
                         val mcap = if (pair.fdv > 0) pair.fdv else pair.candle.marketCap
@@ -1830,7 +1847,7 @@ class SolanaMarketScanner(
 
                 var liq = pair?.liquidity ?: 0.0
                 if (liq <= 0) {
-                    val overview = withContext(Dispatchers.IO) { birdeye.getTokenOverview(mint) }
+                    val overview = getBirdeyeOverviewIfRefreshDue4350(mint, score = 70.0)
                     liq = overview?.liquidity ?: 0.0
                     if (liq <= 0 && pair != null && (pair.fdv > 0 || pair.candle.marketCap > 0)) {
                         val mcap = if (pair.fdv > 0) pair.fdv else pair.candle.marketCap
@@ -1932,7 +1949,7 @@ class SolanaMarketScanner(
 
                 var fallbackLiq = 0.0
                 if (pair.liquidity <= 0) {
-                    val overview = withContext(Dispatchers.IO) { birdeye.getTokenOverview(mint) }
+                    val overview = getBirdeyeOverviewIfRefreshDue4350(mint, score = 70.0)
                     fallbackLiq = overview?.liquidity ?: 0.0
                     if (fallbackLiq <= 0 && (pair.fdv > 0 || pair.candle.marketCap > 0)) {
                         val mcap = if (pair.fdv > 0) pair.fdv else pair.candle.marketCap
@@ -1995,7 +2012,7 @@ class SolanaMarketScanner(
 
                 var liq = pair?.liquidity ?: 0.0
                 if (liq <= 0) {
-                    val overview = withContext(Dispatchers.IO) { birdeye.getTokenOverview(mint) }
+                    val overview = getBirdeyeOverviewIfRefreshDue4350(mint, score = 70.0)
                     liq = overview?.liquidity ?: 0.0
                     if (liq <= 0 && pair != null && (pair.fdv > 0 || pair.candle.marketCap > 0)) {
                         val mcap = if (pair.fdv > 0) pair.fdv else pair.candle.marketCap
@@ -2088,7 +2105,7 @@ class SolanaMarketScanner(
 
                 var fallbackLiq = 0.0
                 if (pair.liquidity <= 0) {
-                    val overview = withContext(Dispatchers.IO) { birdeye.getTokenOverview(mint) }
+                    val overview = getBirdeyeOverviewIfRefreshDue4350(mint, score = 70.0)
                     fallbackLiq = overview?.liquidity ?: 0.0
                     if (fallbackLiq <= 0 && (pair.fdv > 0 || pair.candle.marketCap > 0)) {
                         val mcap = if (pair.fdv > 0) pair.fdv else pair.candle.marketCap
@@ -2136,7 +2153,7 @@ class SolanaMarketScanner(
 
                 var liq = pair.liquidity
                 if (liq <= 0) {
-                    val overview = withContext(Dispatchers.IO) { birdeye.getTokenOverview(mint) }
+                    val overview = getBirdeyeOverviewIfRefreshDue4350(mint, score = 70.0)
                     liq = overview?.liquidity ?: 0.0
                     if (liq <= 0 && (pair.fdv > 0 || pair.candle.marketCap > 0)) {
                         val mcap = if (pair.fdv > 0) pair.fdv else pair.candle.marketCap
@@ -2221,7 +2238,7 @@ class SolanaMarketScanner(
 
                 var fallbackLiq = 0.0
                 if (pair.liquidity <= 0) {
-                    val overview = withContext(Dispatchers.IO) { birdeye.getTokenOverview(mint) }
+                    val overview = getBirdeyeOverviewIfRefreshDue4350(mint, score = 70.0)
                     fallbackLiq = overview?.liquidity ?: 0.0
                     if (fallbackLiq <= 0 && (pair.fdv > 0 || pair.candle.marketCap > 0)) {
                         val mcap = if (pair.fdv > 0) pair.fdv else pair.candle.marketCap

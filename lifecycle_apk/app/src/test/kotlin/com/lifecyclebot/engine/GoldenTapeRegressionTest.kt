@@ -5307,4 +5307,14 @@ class GoldenTapeRegressionTest {
         assertFalse("V5.0.4349: row sanity quarantine must not hide journal/report truth", exec.indexOf("TradeRowSanityCheck.inspect(tradeWithMint)") < exec.indexOf("TradeHistoryStore.recordTrade(tradeWithMint)"))
     }
 
+
+    @Test
+    fun tokenRefreshPolicy4350GatesScannerBirdeyeOverviewFallbacks() {
+        val scanner = java.io.File("src/main/kotlin/com/lifecyclebot/engine/SolanaMarketScanner.kt").readText()
+        val policy = java.io.File("src/main/kotlin/com/lifecyclebot/engine/TokenRefreshPolicy.kt").readText()
+        assertTrue("V5.0.4350: SolanaMarketScanner must route Birdeye overview fallbacks through TokenRefreshPolicy", scanner.contains("getBirdeyeOverviewIfRefreshDue4350") && scanner.contains("TokenRefreshPolicy.shouldRefreshDynamic") && scanner.contains("TOKEN_REFRESH_POLICY_OVERVIEW_SKIP_4350"))
+        assertFalse("V5.0.4350: Scanner should not directly call Birdeye getTokenOverview(mint) outside the refresh helper", scanner.replace("withContext(Dispatchers.IO) { birdeye.getTokenOverview(mint) }", "").contains("birdeye.getTokenOverview(mint)"))
+        assertTrue("V5.0.4350: TokenRefreshPolicy must preserve active first-minute and open-position refresh", policy.contains("ACTIVE_FRESHNESS_MS") && policy.contains("hasOpenPosition") && policy.contains("Tier.ACTIVE"))
+    }
+
 }
