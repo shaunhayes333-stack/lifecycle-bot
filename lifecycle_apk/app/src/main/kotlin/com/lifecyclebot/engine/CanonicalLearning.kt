@@ -815,6 +815,7 @@ object CanonicalOutcomeBus {
     }
 
     fun publishFromLegacyTrade(trade: Trade) {
+        try { CanonicalRejectTaxonomyRowTag.inspectLegacyTrade(trade, "CanonicalOutcomeBus.publishFromLegacyTrade.entry") } catch (_: Throwable) {}
         val isPartialSide = trade.side.equals("PARTIAL_SELL", ignoreCase = true)
         if (!trade.side.equals("SELL", ignoreCase = true) && !isPartialSide) return
         val tradeId = "${trade.mint}_${trade.ts}"
