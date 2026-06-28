@@ -5516,4 +5516,14 @@ class GoldenTapeRegressionTest {
         assertTrue("V5.0.4376: AsiSsiReauditSweeper must protect operator digest report-only no-authority contract", sweeper.contains("OPERATOR_DIGESTS_REPORT_ONLY_NO_AUTHORITY_4376") && sweeper.contains("operatorDigests.all") && sweeper.contains("""kpi.contains("${name}.status")"""))
     }
 
+
+    @Test
+    fun syntheticComponentAccountability4378StampsHarvardEntryRecords() {
+        val acct = java.io.File("src/main/kotlin/com/lifecyclebot/v3/scoring/SyntheticComponentAccountability.kt").readText()
+        val scorer = java.io.File("src/main/kotlin/com/lifecyclebot/v3/scoring/UnifiedScorer.kt").readText()
+        assertTrue("V5.0.4378: synthetic component accountability must cover score-moving theatre names", acct.contains("source") && acct.contains("approval_memory") && acct.contains("v4_crosstalk") && acct.contains("fresh_launch_bonus") && acct.contains("acct=synthetic_component"))
+        assertTrue("V5.0.4378: accountability stamp must preserve score values and add lane/source/mint/build context", acct.contains("comp.copy(reason") && acct.contains("source=${candidate.source.name}") && acct.contains("mint=${candidate.mint.take(10)}") && acct.contains("build=${BuildConfig.VERSION_NAME}"))
+        assertTrue("V5.0.4378: UnifiedScorer Harvard entry records must pass through synthetic accountability on all paths", scorer.contains("SyntheticComponentAccountability.annotate(finalCard.components + shadowOuterRing, candidate, "CLASSIC")") && scorer.contains("SyntheticComponentAccountability.annotate(finalCard.components, candidate, "MODERN")") && scorer.contains("SyntheticComponentAccountability.annotate(fallbackCard.components, candidate, "MODERN_FALLBACK")") && scorer.contains("SyntheticComponentAccountability.annotate(finalCard.components, candidate, "UNIFIED")") && scorer.contains("SyntheticComponentAccountability.annotate(fallbackCard.components, candidate, "UNIFIED_FALLBACK")"))
+    }
+
 }

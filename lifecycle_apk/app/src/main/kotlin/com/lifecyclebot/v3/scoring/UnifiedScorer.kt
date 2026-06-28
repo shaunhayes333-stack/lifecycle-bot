@@ -419,7 +419,7 @@ class UnifiedScorer(
             // ring) so applyRealAccuracyLearning can correlate every layer's
             // prediction with the actual outcome on close.
             try {
-                val learningRecord = finalCard.components + shadowOuterRing
+                val learningRecord = SyntheticComponentAccountability.annotate(finalCard.components + shadowOuterRing, candidate, "CLASSIC")
                 EducationSubLayerAI.recordEntryScores(candidate.mint, learningRecord, candidate)
             } catch (_: Exception) {}
 
@@ -853,7 +853,7 @@ class UnifiedScorer(
             }
 
             val finalCard = ScoreCard(extras)
-            try { EducationSubLayerAI.recordEntryScores(candidate.mint, finalCard.components, candidate) } catch (_: Exception) {}
+            try { EducationSubLayerAI.recordEntryScores(candidate.mint, SyntheticComponentAccountability.annotate(finalCard.components, candidate, "MODERN"), candidate) } catch (_: Exception) {}
 
             try {
                 val totalScore = finalCard.total
@@ -879,7 +879,7 @@ class UnifiedScorer(
         } catch (e: Exception) {
             Log.w("UnifiedScorer", "modernScore error: ${e.message}")
             val fallbackCard = ScoreCard(v59123CappedComponents)
-            try { EducationSubLayerAI.recordEntryScores(candidate.mint, fallbackCard.components, candidate) } catch (_: Exception) {}
+            try { EducationSubLayerAI.recordEntryScores(candidate.mint, SyntheticComponentAccountability.annotate(fallbackCard.components, candidate, "MODERN_FALLBACK"), candidate) } catch (_: Exception) {}
             fallbackCard
         }
     }
@@ -1335,7 +1335,7 @@ class UnifiedScorer(
             val moeComponents = SpecialistMoEGate.apply(gatedComponents, candidate, ctx)
 
             val finalCard = ScoreCard(moeComponents)
-            try { EducationSubLayerAI.recordEntryScores(candidate.mint, finalCard.components, candidate) } catch (_: Exception) {}
+            try { EducationSubLayerAI.recordEntryScores(candidate.mint, SyntheticComponentAccountability.annotate(finalCard.components, candidate, "UNIFIED"), candidate) } catch (_: Exception) {}
 
             // CrossTalk publish (existing behavior — fan-out the unified score)
             try {
@@ -1361,7 +1361,7 @@ class UnifiedScorer(
         } catch (e: Exception) {
             Log.w("UnifiedScorer", "unifiedScore error: ${e.message}")
             val fallbackCard = ScoreCard(allBase)
-            try { EducationSubLayerAI.recordEntryScores(candidate.mint, fallbackCard.components, candidate) } catch (_: Exception) {}
+            try { EducationSubLayerAI.recordEntryScores(candidate.mint, SyntheticComponentAccountability.annotate(fallbackCard.components, candidate, "UNIFIED_FALLBACK"), candidate) } catch (_: Exception) {}
             fallbackCard
         }
     }
