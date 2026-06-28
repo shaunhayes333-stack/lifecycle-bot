@@ -6255,7 +6255,9 @@ class GoldenTapeRegressionTest {
     @Test
     fun pipelineHealth_4492LaneParserPreservesV3AndShadowReadsDoNotTripFanout() {
         val src = java.io.File("src/main/kotlin/com/lifecyclebot/engine/PipelineHealthCollector.kt").readText()
-        assertTrue("V5.0.4492: lane parser must preserve numeric lanes like V3_CORE instead of reporting V", src.contains("Regex("lane=([A-Z0-9_]+)")") && !src.contains("Regex("lane=([A-Z_]+)")"))
+        val numericLaneRegex4492 = "Regex(" + '"' + "lane=([A-Z0-9_]+)" + '"' + ")"
+        val staleLaneRegex4492 = "Regex(" + '"' + "lane=([A-Z_]+)" + '"' + ")"
+        assertTrue("V5.0.4492: lane parser must preserve numeric lanes like V3_CORE instead of reporting V", src.contains(numericLaneRegex4492) && !src.contains(staleLaneRegex4492))
         assertTrue("V5.0.4492: shadow/read-only lane visibility must not increment executable LANE_EVAL fanout counters", src.contains("shadowLaneEval4482") && src.contains("LANE_EVAL_SHADOW_READ_ONLY_4492") && src.contains("no_extra_fdg=true") && src.contains("no_fdg=true") && src.contains("bump(phaseCounts, phaseTag)"))
     }
 
