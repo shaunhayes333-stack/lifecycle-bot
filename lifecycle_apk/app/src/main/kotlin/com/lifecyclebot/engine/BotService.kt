@@ -17590,7 +17590,19 @@ if (hotExitHandledSweep) {
                 )
             }
 
-            if (!v3WillExecuteCore && !ts.position.isOpen && shouldRunBuyLaneForCycle(ts, "TREASURY", cyclePrimaryLane) && com.lifecyclebot.v3.scoring.CashGenerationAI.isEnabled()) {
+            val treasuryLaneAllowedThisCycle4483 = !ts.position.isOpen && shouldRunBuyLaneForCycle(ts, "TREASURY", cyclePrimaryLane)
+            val cashgenLaneAllowedThisCycle4483 = !ts.position.isOpen && shouldRunBuyLaneForCycle(ts, "CASHGEN", cyclePrimaryLane)
+            if (cashgenLaneAllowedThisCycle4483 && com.lifecyclebot.v3.scoring.CashGenerationAI.isEnabled()) {
+                try {
+                    ForensicLogger.phase(
+                        ForensicLogger.PHASE.LANE_EVAL,
+                        ts.symbol,
+                        "lane=CASHGEN paper=${cfg.paperMode} mcap=${ts.lastMcap.toInt()} liq=${ts.lastLiquidityUsd.toInt()} score=${ts.entryScore} alias=TREASURY_CASHGEN_SHARED_EXEC no_fdg=true v3Skip=$v3WillExecuteCore"
+                    )
+                    PipelineHealthCollector.labelInc("CASHGEN_ALIAS_LANE_EVAL_4483")
+                } catch (_: Throwable) {}
+            }
+            if (!v3WillExecuteCore && treasuryLaneAllowedThisCycle4483 && com.lifecyclebot.v3.scoring.CashGenerationAI.isEnabled()) {
                 // V5.9.920 — TREASURY LANE_EVAL emit.
                 try {
                     ForensicLogger.phase(
@@ -19981,18 +19993,19 @@ if (hotExitHandledSweep) {
             val sniperAllowed = com.lifecyclebot.engine.EnabledTraderAuthority.isEnabled(
                 com.lifecyclebot.engine.EnabledTraderAuthority.Trader.PROJECT_SNIPER
             )
+            val projectSniperLaneAllowedThisCycle4483 = !ts.position.isOpen && shouldRunBuyLaneForCycle(ts, "PROJECT_SNIPER", cyclePrimaryLane) && !RuntimeConfigOverlay.isLaneDisabled("PROJECT_SNIPER")
             // V5.9.920 — PROJECT_SNIPER LANE_EVAL emit (before sniperAllowed gate
             // so brain sees skips due to mode/permit too).
-            if (!ts.position.isOpen && shouldRunBuyLaneForCycle(ts, "PROJECT_SNIPER", cyclePrimaryLane) && !RuntimeConfigOverlay.isLaneDisabled("PROJECT_SNIPER")) {
+            if (projectSniperLaneAllowedThisCycle4483) {
                 try {
                     ForensicLogger.phase(
                         ForensicLogger.PHASE.LANE_EVAL,
                         ts.symbol,
-                        "lane=PROJECT_SNIPER paper=${cfg.paperMode} mcap=${ts.lastMcap.toInt()} liq=${ts.lastLiquidityUsd.toInt()} score=${ts.entryScore} sniperAllowed=$sniperAllowed"
+                        "lane=PROJECT_SNIPER paper=${cfg.paperMode} mcap=${ts.lastMcap.toInt()} liq=${ts.lastLiquidityUsd.toInt()} score=${ts.entryScore} sniperAllowed=$sniperAllowed singleGate4483=true"
                     )
                 } catch (_: Throwable) {}
             }
-            if (!ts.position.isOpen && shouldRunBuyLaneForCycle(ts, "PROJECT_SNIPER", cyclePrimaryLane) && sniperAllowed && !RuntimeConfigOverlay.isLaneDisabled("PROJECT_SNIPER")) {
+            if (projectSniperLaneAllowedThisCycle4483 && sniperAllowed) {
                 // Check if we already have a sniper mission on this token
                 if (com.lifecyclebot.v3.scoring.ProjectSniperAI.hasMission(ts.mint)) {
                     // Check exit conditions

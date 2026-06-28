@@ -6211,4 +6211,13 @@ class GoldenTapeRegressionTest {
         assertTrue("V5.0.4481: universal exit sweep and tick profit lock must not act on raw phantom marks", src.contains("UNIVERSAL_EXIT_SWEEP") && src.contains("safeExecPxForTickLock4481") && src.contains("TICK_PROFIT_LOCK"))
     }
 
+
+
+    @Test
+    fun botService_4483CashgenLaneCoverageAndProjectSniperSingleGate() {
+        val src = java.io.File("src/main/kotlin/com/lifecyclebot/engine/BotService.kt").readText()
+        assertTrue("V5.0.4483: CASHGEN must have lane-eval coverage even though execution is shared with Treasury/CashGenerationAI", src.contains("cashgenLaneAllowedThisCycle4483") && src.contains("lane=CASHGEN") && src.contains("TREASURY_CASHGEN_SHARED_EXEC") && src.contains("CASHGEN_ALIAS_LANE_EVAL_4483"))
+        assertTrue("V5.0.4483: ProjectSniper must compute owner admission once per token/cycle, not duplicate shouldRun calls", src.contains("projectSniperLaneAllowedThisCycle4483") && src.contains("singleGate4483=true") && src.indexOf("shouldRunBuyLaneForCycle(ts, "PROJECT_SNIPER"") == src.lastIndexOf("shouldRunBuyLaneForCycle(ts, "PROJECT_SNIPER""))
+    }
+
 }
