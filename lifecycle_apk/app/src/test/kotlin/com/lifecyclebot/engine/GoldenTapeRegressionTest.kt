@@ -365,9 +365,9 @@ class GoldenTapeRegressionTest {
         val sheet = java.io.File("src/main/kotlin/com/lifecyclebot/engine/ToolkitSignalSheet.kt").readText()
 
         assertTrue("Unified report must include a first-class toolkit section near the top", hub.contains("TOOLKIT SIGNAL SHEET") && hub.contains("buildToolkitSignalSummary"))
-        assertTrue("Unified report budgets must fit under chat cap before hard truncation", hub.contains("REPORT BUDGET RECOMPILE") && hub.contains("priority-budgeted before truncation"))
+        assertTrue("Unified report budgets must fit under chat cap before hard truncation", hub.contains("PASTE-SAFE REPORT CONTRACT") && hub.contains("paste-safe hard cap"))
         assertTrue("Pipeline block must be core-only so learning/tuning is not duplicated", hub.contains("PIPELINE HEALTH — CORE") && !hub.contains("PIPELINE HEALTH — CONDENSED", ignoreCase = false))
-        assertTrue("Error logs must be bounded tightly via compact table to avoid eating the report tail", hub.contains("ErrorLogger.exportToCompactTable(limit = 60)"))
+        assertTrue("Error logs must be bounded tightly via compact table to avoid eating the report tail", hub.contains("ErrorLogger.exportToCompactTable(limit = 24)"))
         assertTrue("Toolkit setup/chart counters must feed report visibility", sheet.contains("TOOLKIT_SETUP_${'$'}{built.setup.name}") && sheet.contains("TOOLKIT_CHART_${'$'}{built.chartPattern.uppercase().take(48)}"))
         assertTrue("ANR evidence must remain visible in compact report", hub.contains("===== ANR / main-thread health") && hub.contains("===== ANR top blocking call sites") && hub.contains("ANR top:"))
         assertTrue("Internet edge desk must be visible in toolkit report section", hub.contains("InternetEdgeDesk.summaryLine") && hub.contains("INTERNET_EDGE_REFRESHED"))
@@ -621,7 +621,7 @@ class GoldenTapeRegressionTest {
         assertTrue(hub.contains("object ReportingHub"))
         assertTrue(hub.contains("UNIFIED_HEALTH"))
         assertTrue(hub.contains("TRADE JOURNAL SUMMARY"))
-        assertTrue(hub.contains("raw journal rows excluded"))
+        assertTrue(hub.contains("raw rows are summarized, not dumped"))
         assertTrue(hub.contains("buildMutex"))
         val pipelineUi = java.io.File("src/main/kotlin/com/lifecyclebot/ui/PipelineHealthActivity.kt").readText()
         val errorUi = java.io.File("src/main/kotlin/com/lifecyclebot/ui/ErrorLogActivity.kt").readText()
@@ -2758,7 +2758,7 @@ class GoldenTapeRegressionTest {
     @Test
     fun unified_report_is_compact_and_includes_learning_tuning_journal() {
         val hub = java.io.File("src/main/kotlin/com/lifecyclebot/engine/ReportingHub.kt").readText()
-        assertTrue("Unified report must have a hard chat-size budget", hub.contains("MAX_UNIFIED_REPORT_CHARS = 42_000") && hub.contains("REPORT_TRUNCATED"))
+        assertTrue("Unified report must have a hard chat-size budget", hub.contains("MAX_UNIFIED_REPORT_CHARS = 24_000") && hub.contains("REPORT_TRUNCATED_UNEXPECTED") && hub.contains("PASTE_SAFE_V4487"))
         assertTrue("Unified report scope must include learning/tuning/journal", hub.contains("learning / tuning / journal") && hub.contains("LEARNING + TUNING STATE") && hub.contains("TRADE JOURNAL SUMMARY"))
         assertTrue("Unified report must use compact core pipeline, not raw full dump only", hub.contains("compactPipelineDump(PipelineHealthCollector.dumpText())") && hub.contains("PIPELINE HEALTH — CORE"))
         assertTrue("Learning section must include local and collective memory", hub.contains("TokenWinMemory.getPatternSummary") && hub.contains("LosingPatternMemory.formatForPipelineDump") && hub.contains("CollectiveLearning.getInsightsSummary"))
