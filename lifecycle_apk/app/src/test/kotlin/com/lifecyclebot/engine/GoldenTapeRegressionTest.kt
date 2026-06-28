@@ -5324,7 +5324,8 @@ class GoldenTapeRegressionTest {
         val sanity = java.io.File("src/main/kotlin/com/lifecyclebot/engine/learning/TradeRowSanityCheck.kt").readText()
         assertTrue("V5.0.4351: Executor ML gate must update PaperLiveConfidenceWeights from event-local paper/live state", exec.contains("PaperLiveConfidenceWeights.noteLiveSample") && exec.contains("PaperLiveConfidenceWeights.weight") && exec.contains("PAPER_LIVE_CONFIDENCE_WEIGHT_4351") && exec.contains("isPaperRT()"))
         assertTrue("V5.0.4351: Paper confidence split must preserve live weight and bounded paper bootstrap", sanity.contains("PAPER_BOOTSTRAP_WEIGHT = 0.40") && sanity.contains("LIVE_WEIGHT            = 1.00") && sanity.contains("LIVE_VALIDATION_MIN_SAMPLES"))
-        assertFalse("V5.0.4351: paper confidence telemetry must not drop ML rows", exec.contains("paperLiveWeight4351") && exec.contains("return@launch"))
+        val confidenceBlock = exec.substring(exec.indexOf("val paperLiveWeight4351"), exec.indexOf("TradeHistoryStore.recordTradeForML", exec.indexOf("val paperLiveWeight4351")))
+        assertFalse("V5.0.4351: paper confidence telemetry must not drop ML rows", confidenceBlock.contains("return@launch") || confidenceBlock.contains("return"))
     }
 
 }
