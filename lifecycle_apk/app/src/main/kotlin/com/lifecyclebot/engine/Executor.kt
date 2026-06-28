@@ -8034,19 +8034,24 @@ class Executor(
 
 
     private fun liveBuyDeferred(ts: TokenState, sol: Double, reason: String, detail: String = "") {
-        try {
-            ForensicLogger.exec(
-                "LIVE_BUY_DEFERRED",
-                ts.symbol,
-                "mint=${ts.mint.take(10)} sol=${"%.4f".format(sol)} reason=$reason ${detail.take(140)}".trim(),
-            )
-            ForensicLogger.lifecycle(
-                "LIVE_BUY_DEFERRED_NON_TERMINAL",
-                "mint=${ts.mint.take(10)} symbol=${ts.symbol} reason=$reason ${detail.take(160)} no_buy_failed=true no_backoff=true",
-            )
-            PipelineHealthCollector.labelInc("LIVE_BUY_DEFERRED_$reason")
-            PipelineHealthCollector.labelInc("ENTRY_SUPPRESSOR_$reason")
-        } catch (_: Throwable) {}
+        val taxonomy = try { RejectTaxonomy.classify(reason, null) } catch (_: Throwable) { null }
+        ChokeReliefBus.launch("EXECUTOR_DEFERRED_BUY_TAXONOMY_4433", ts.mint) {
+            try { if (taxonomy != null) RejectTaxonomyLedger.record(taxonomy, "EXECUTOR_DEFERRED", reason) } catch (_: Throwable) {}
+            try {
+                ForensicLogger.exec(
+                    "LIVE_BUY_DEFERRED",
+                    ts.symbol,
+                    "mint=${ts.mint.take(10)} sol=${"%.4f".format(sol)} reason=$reason ${detail.take(140)} taxonomy=${taxonomy?.category?.name ?: "UNKNOWN"} ledger=RejectTaxonomyLedger".trim(),
+                )
+                ForensicLogger.lifecycle(
+                    "LIVE_BUY_DEFERRED_NON_TERMINAL",
+                    "mint=${ts.mint.take(10)} symbol=${ts.symbol} reason=$reason ${detail.take(160)} no_buy_failed=true no_backoff=true taxonomy=${taxonomy?.category?.name ?: "UNKNOWN"}",
+                )
+                PipelineHealthCollector.labelInc("LIVE_BUY_DEFERRED_$reason")
+                PipelineHealthCollector.labelInc("ENTRY_SUPPRESSOR_$reason")
+                if (taxonomy != null) PipelineHealthCollector.labelInc("EXECUTOR_DEFERRED_BUY_TAXONOMY_4433_${taxonomy.category.name}")
+            } catch (_: Throwable) {}
+        }
     }
 
     private fun emitLiveBuyFail(ts: TokenState, sol: Double, reason: String, detail: String = "") {
