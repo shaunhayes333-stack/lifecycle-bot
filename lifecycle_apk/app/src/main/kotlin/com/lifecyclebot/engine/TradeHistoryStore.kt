@@ -928,6 +928,21 @@ object TradeHistoryStore {
         }
     }
 
+    /** V5.0.4497 — bounded full lifecycle valid-trade snapshot for Journal UI.
+     * Includes BUY, SELL, and PARTIAL_SELL rows newest-first. Do not use closed-row
+     * helpers for this screen or the operator loses entry visibility. */
+    fun getAllValidTradesSnapshot(limit: Int = 5_000): List<Trade> {
+        ensureInitialized()
+        val cap = limit.coerceAtLeast(1)
+        return synchronized(lock) {
+            trades.asReversed().asSequence()
+                .map { CloseOutcomeLabelSanitizer.canonicalize(it, emit = false) }
+                .filter { isValidAccountingTrade(it) }
+                .take(cap)
+                .toList()
+        }
+    }
+
     /** Newest-first bounded RAW close rows (SELL + PARTIAL_SELL by default). */
     fun getRecentValidClosedTradesRaw(limit: Int = 1000, includePartials: Boolean = true): List<Trade> {
         ensureInitialized()

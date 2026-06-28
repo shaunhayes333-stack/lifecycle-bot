@@ -53,6 +53,7 @@ class JournalActivity : AppCompatActivity() {
     private val green = 0xFF10B981.toInt()
     private val red = 0xFFEF4444.toInt()
     private val amber = 0xFFF59E0B.toInt()
+    private val buyBlue = 0xFF60A5FA.toInt()
     private val surface = 0xFF111118.toInt()
     private val divider = 0xFF1F2937.toInt()
 
@@ -433,7 +434,12 @@ class JournalActivity : AppCompatActivity() {
                     // Read in-memory first; fall back to SQLite only when memory
                     // is empty (bot stopped / fresh open before init() finished).
                     val rawTrades = run {
-                        val mem = com.lifecyclebot.engine.TradeHistoryStore.getRecentValidTrades(5_000)
+                        // V5.0.4497 — lifecycle journal visibility. Trade Journal must
+                        // show BUY + SELL + PARTIAL rows. getRecentValidTrades() is a
+                        // close-row helper, so using it here hid all BUY entries while
+                        // the bot was running. Read the full valid in-memory ledger and
+                        // fall back to SQLite only when memory is empty.
+                        val mem = com.lifecyclebot.engine.TradeHistoryStore.getAllValidTradesSnapshot(5_000)
                         if (mem.isNotEmpty()) mem
                         else com.lifecyclebot.engine.TradeHistoryStore.getAllTradesFromDb()
                     }
@@ -492,15 +498,16 @@ class JournalActivity : AppCompatActivity() {
                     "paper" -> validEntries.filter { it.mode.equals("paper", ignoreCase = true) }
                     else    -> validEntries
                 }
-                // Skip re-render if sell count unchanged (avoids 90 addView calls every 10s poll)
-                val sellCount = filtered.count { isSellLike(it.side) }
-                if (sellCount == lastRenderedTradeCount && lastRenderedTradeCount >= 0) return@launch
+                // V5.0.4497 — re-render on lifecycle row count, not sell-only count.
+                // BUY rows arriving between sells must show up immediately.
+                val lifecycleRowCount = filtered.size
+                if (lifecycleRowCount == lastRenderedTradeCount && lastRenderedTradeCount >= 0) return@launch
                 val stats = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
                     journal.getStatsFiltered(filtered)
                 }
                 if (isActive) {
-                    lastRenderedTradeCount = sellCount
-                    lastRenderedStoreCount = if (knownStoreCount >= 0) knownStoreCount else try { com.lifecyclebot.engine.TradeHistoryStore.getTotalTradeCount() } catch (_: Throwable) { sellCount }
+                    lastRenderedTradeCount = lifecycleRowCount
+                    lastRenderedStoreCount = if (knownStoreCount >= 0) knownStoreCount else try { com.lifecyclebot.engine.TradeHistoryStore.getTotalTradeCount() } catch (_: Throwable) { lifecycleRowCount }
                     lastRenderedFilter = currentModeFilter
                     renderJournalBody(filtered, stats)
                 }
@@ -522,13 +529,13 @@ class JournalActivity : AppCompatActivity() {
 
     private fun renderJournalBody(filtered: List<com.lifecyclebot.engine.TradeJournal.JournalEntry>, stats: com.lifecyclebot.engine.TradeJournal.JournalStats) {
         val entries = filtered
-        val sellEntries = entries.filter { isSellLike(it.side) }
+        val sellEntries = entries.filter { isSellLike(it.side) } // stats only; visible list is full lifecycle
 
         tvJournalPnl.text = currency.format(stats.totalPnlSol, showPlus = true)
         tvJournalPnl.setTextColor(if (stats.totalPnlSol >= 0.0) green else red)
 
         tvJournalWinRate.text = "${stats.winRate.toInt()}%  (${stats.totalWins}W/${stats.totalLosses}L)"
-        tvJournalCount.text = sellEntries.size.toString()
+        tvJournalCount.text = entries.size.toString()
         tvJournalAvgWin.text = if (stats.totalWins > 0) {
             "%+.1f%%".format(stats.avgWinPct)
         } else {
@@ -538,7 +545,7 @@ class JournalActivity : AppCompatActivity() {
         llJournalTrades.removeAllViews()
         reattachTabBar()  // V5.9.264: keep the filter tabs visible across refreshes
 
-        if (sellEntries.isEmpty()) {
+        if (entries.isEmpty()) {
             showEmptyTradeList()
             return
         }
@@ -546,17 +553,19 @@ class JournalActivity : AppCompatActivity() {
         // V5.9.330 OOM FIX: Only render up to (PAGE_SIZE * currentPage) most-recent
         // trades. "Load More" button below list bumps currentPage by 1.
         // Building 5000+ Views on the main thread every 2s caused OOM crashes.
-        cachedSellEntries = sellEntries
-        // V5.9.701 — takeLast was showing OLDEST trades (tail of descending list). 
-        // Fix: take() shows newest PAGE_SIZE from the head of the descending list.
-        val pagedEntries = sellEntries.take(PAGE_SIZE * currentPage)
+        cachedSellEntries = entries
+        // V5.9.701 — takeLast was showing OLDEST trades (tail of descending list).
+        // V5.0.4497 — page lifecycle rows, not sell-only rows.
+        val pagedEntries = entries.take(PAGE_SIZE * currentPage)
 
         pagedEntries.forEach { entry ->
-            val outcome = classifyOutcome(entry.pnlPct)
-            val pnlColor = when (outcome) {
-                TradeOutcome.WIN -> green
-                TradeOutcome.LOSS -> red
-                TradeOutcome.SCRATCH -> amber
+            val isBuyRow = entry.side.equals("BUY", ignoreCase = true)
+            val outcome = if (isBuyRow) TradeOutcome.SCRATCH else classifyOutcome(entry.pnlPct)
+            val pnlColor = when {
+                isBuyRow -> buyBlue
+                outcome == TradeOutcome.WIN -> green
+                outcome == TradeOutcome.LOSS -> red
+                else -> amber
             }
 
             val row = LinearLayout(this).apply {
@@ -583,7 +592,7 @@ class JournalActivity : AppCompatActivity() {
             }
 
             info.addView(TextView(this).apply {
-                val reasonText = entry.reason.take(22)
+                val reasonText = if (isBuyRow) "BUY_ENTRY" else entry.reason.take(22)
                 text = "${entry.symbol}  ·  $reasonText"
                 textSize = 13f
                 setTextColor(white)
@@ -606,7 +615,11 @@ class JournalActivity : AppCompatActivity() {
             info.addView(TextView(this).apply {
                 val posTail = entry.positionId.takeLast(10).ifBlank { "unlinked" }
                 val proof = entry.proofState.ifBlank { if (entry.mode.equals("paper", true)) "PAPER_SIM" else "LIVE_PROOF?" }
-                val rowKind = if (isPartialSell(entry.side)) "partial" else "terminal"
+                val rowKind = when {
+                    isBuyRow -> "buy"
+                    isPartialSell(entry.side) -> "partial"
+                    else -> "terminal"
+                }
                 text = "id=$posTail · $rowKind · proof=$proof · e=${"%.8f".format(entry.entryPrice)} x=${"%.8f".format(entry.exitPrice)}"
                 textSize = 9f
                 setTextColor(muted)
@@ -622,7 +635,7 @@ class JournalActivity : AppCompatActivity() {
                 })
             }
 
-            if (outcome == TradeOutcome.SCRATCH) {
+            if (!isBuyRow && outcome == TradeOutcome.SCRATCH) {
                 info.addView(TextView(this).apply {
                     text = "SCRATCH"
                     textSize = 10f
@@ -637,7 +650,7 @@ class JournalActivity : AppCompatActivity() {
             }
 
             right.addView(TextView(this).apply {
-                text = "%+.1f%%".format(entry.pnlPct)
+                text = if (isBuyRow) "BUY" else "%+.1f%%".format(entry.pnlPct)
                 textSize = 15f
                 setTextColor(pnlColor)
                 typeface = Typeface.DEFAULT_BOLD
@@ -645,7 +658,7 @@ class JournalActivity : AppCompatActivity() {
             })
 
             right.addView(TextView(this).apply {
-                text = currency.format(entry.pnlSol, showPlus = true)
+                text = if (isBuyRow) "size ${"%.4f".format(entry.solAmount)} SOL" else currency.format(entry.pnlSol, showPlus = true)
                 textSize = 11f
                 setTextColor(pnlColor)
                 typeface = Typeface.MONOSPACE
@@ -670,7 +683,7 @@ class JournalActivity : AppCompatActivity() {
         val totalShowing = PAGE_SIZE * currentPage
         if (cachedSellEntries.size > totalShowing) {
             val loadMoreBtn = TextView(this).apply {
-                text = "⬆️  Load ${minOf(PAGE_SIZE, cachedSellEntries.size - totalShowing)} older trades  (${cachedSellEntries.size - totalShowing} remaining)"
+                text = "⬆️  Load ${minOf(PAGE_SIZE, cachedSellEntries.size - totalShowing)} older journal rows  (${cachedSellEntries.size - totalShowing} remaining)"
                 textSize = 13f
                 setPadding(dp(16), dp(14), dp(16), dp(14))
                 setTextColor(0xFF60A5FA.toInt())
@@ -691,7 +704,7 @@ class JournalActivity : AppCompatActivity() {
         } else if (cachedSellEntries.size > PAGE_SIZE) {
             // All trades loaded — show count label
             llJournalTrades.addView(TextView(this).apply {
-                text = "— all ${cachedSellEntries.size} trades loaded —"
+                text = "— all ${cachedSellEntries.size} journal rows loaded —"
                 textSize = 11f
                 setPadding(dp(16), dp(10), dp(16), dp(10))
                 setTextColor(muted)
