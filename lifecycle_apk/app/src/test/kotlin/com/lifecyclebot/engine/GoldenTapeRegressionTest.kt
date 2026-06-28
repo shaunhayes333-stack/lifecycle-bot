@@ -5827,4 +5827,14 @@ class GoldenTapeRegressionTest {
         assertTrue("V5.0.4421: choke source contract must pin bounded bus usage", sentinel.contains("choke_visibility_bus_4421=true") && sentinel.contains("release_visibility_required=true"))
     }
 
+
+    @Test
+    fun autoModePaused_4422IsRecoveryProbeNotHardChoke() {
+        val source = java.io.File("src/main/kotlin/com/lifecyclebot/engine/AutoModeEngine.kt").readText()
+        val sentinel = java.io.File("src/main/kotlin/com/lifecyclebot/engine/OperatorChokeSourceContractSentinel.kt").readText()
+        assertTrue("V5.0.4422: AutoMode PAUSED must remain a quiet-hour caution mode", source.contains("BotMode.PAUSED") && source.contains("AUTO_PAUSED_RECOVERY_PROBE_4422"))
+        assertTrue("V5.0.4422: AutoMode PAUSED must not hard-amputate entries with 999x/0.0 sizing", !source.contains("entryScoreMultiplier   = 999.0") && !source.contains("positionSizeMultiplier = 0.0"))
+        assertTrue("V5.0.4422: AutoMode PAUSED must use bounded recovery-probe shaping", source.contains("entryScoreMultiplier   = 1.35") && source.contains("positionSizeMultiplier = 0.35") && sentinel.contains("automode_paused_recovery_probe_4422=true"))
+    }
+
 }

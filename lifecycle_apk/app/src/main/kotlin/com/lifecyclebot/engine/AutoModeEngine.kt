@@ -363,11 +363,14 @@ class AutoModeEngine(
         stopLossPct            = fluidStop(8.0),    // FLUID: still exit normally
         trailingStopPct        = fluidTrailing(8.0),
         exitScoreThreshold     = 45.0,
-        entryScoreMultiplier   = 999.0,
-        positionSizeMultiplier = 0.0,
+        // V5.0.4422 — AutoMode PAUSED is lane-local quiet-hour caution, not
+        // catastrophic safety. Keep the entry bar higher and size smaller, but
+        // do not amputate recovery/probe samples with 999x/0.0 hard choke.
+        entryScoreMultiplier   = 1.35,
+        positionSizeMultiplier = 0.35,
         minHoldMins            = 1.0,
         maxHoldMins            = 60.0,
-        reason                 = reason,
+        reason                 = "$reason | AUTO_PAUSED_RECOVERY_PROBE_4422",
     )
 
     private fun utcHour(): Int {
