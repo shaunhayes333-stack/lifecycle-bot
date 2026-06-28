@@ -3020,13 +3020,14 @@ class Executor(
                 val emaSnap  = ts.meta.emafanAlignment
                 val paperLiveWeight4351 = try {
                     val scoreBand4351 = "S" + ((tradeSnap.score.toInt().coerceIn(0, 100) / 10) * 10).toString().padStart(2, '0')
-                    val lane4351 = tradeSnap.tradingMode.ifBlank { _fanoutTradingMode.ifBlank { "STANDARD" } }
-                    if (!_fanoutIsPaper) {
+                    val lane4351 = tradeSnap.tradingMode.ifBlank { ts.position.tradingMode ?: "STANDARD" }
+                    val isPaper4351 = isPaperRT()
+                    if (!isPaper4351) {
                         com.lifecyclebot.engine.learning.PaperLiveConfidenceWeights.noteLiveSample(lane4351, scoreBand4351)
                     }
-                    com.lifecyclebot.engine.learning.PaperLiveConfidenceWeights.weight(lane4351, scoreBand4351, _fanoutIsPaper)
-                } catch (_: Throwable) { if (_fanoutIsPaper) 0.40 else 1.0 }
-                try { PipelineHealthCollector.labelInc("PAPER_LIVE_CONFIDENCE_WEIGHT_4351|${if (_fanoutIsPaper) "paper" else "live"}|${(paperLiveWeight4351 * 100).toInt()}") } catch (_: Throwable) {}
+                    com.lifecyclebot.engine.learning.PaperLiveConfidenceWeights.weight(lane4351, scoreBand4351, isPaper4351)
+                } catch (_: Throwable) { if (isPaperRT()) 0.40 else 1.0 }
+                try { PipelineHealthCollector.labelInc("PAPER_LIVE_CONFIDENCE_WEIGHT_4351|${if (isPaperRT()) "paper" else "live"}|${(paperLiveWeight4351 * 100).toInt()}") } catch (_: Throwable) {}
                 GlobalScope.launch(AppDispatchers.sideEffect) {
                     try {
                         TradeHistoryStore.recordTradeForML(
