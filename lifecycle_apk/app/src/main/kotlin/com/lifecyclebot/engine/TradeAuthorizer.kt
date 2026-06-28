@@ -169,12 +169,38 @@ object TradeAuthorizer {
         val normalizedQuality = quality.trim().uppercase()
         val safeConfidence = confidence.coerceIn(0.0, 100.0)
 
+        fun rejectAuth4424(
+            reason: String,
+            blockLevel: BlockLevel? = null,
+            canRetry: Boolean = false,
+            attemptIdForResult: String = "",
+        ): AuthorizationResult {
+            val result = AuthorizationResult(
+                verdict = ExecutionVerdict.REJECT,
+                reason = reason,
+                blockLevel = blockLevel,
+                canRetry = canRetry,
+                attemptId = attemptIdForResult,
+            )
+            val taxonomy = result.rejectTaxonomy
+            ChokeReliefBus.launch("TRADE_AUTH_REJECT_TAXONOMY_4424", mint) {
+                try { PipelineHealthCollector.labelInc("TRADE_AUTH_REJECT_TAXONOMY_4424_${taxonomy.category.name}") } catch (_: Throwable) {}
+                try {
+                    ForensicLogger.lifecycle(
+                        "TRADE_AUTH_REJECT_TAXONOMY_4424",
+                        "mint=${mint.take(10)} symbol=$symbol lane=${requestedBook.name} reason=${reason.take(90)} taxonomy=${taxonomy.category.name} retry=$canRetry hardSafety=${taxonomy.hardSafety}"
+                    )
+                } catch (_: Throwable) {}
+            }
+            return result
+        }
+
         if (RuntimeConfigOverlay.isTradingPaused()) {
-            return AuthorizationResult(ExecutionVerdict.REJECT, "PREAUTH_BLOCK_RUNTIME_PAUSED", BlockLevel.HARD, canRetry = true)
+            return rejectAuth4424("PREAUTH_BLOCK_RUNTIME_PAUSED", BlockLevel.HARD, canRetry = true)
         }
         if (RuntimeConfigOverlay.isLaneDisabled(requestedBook.name)) {
             try { ForensicLogger.lifecycle("QUALITY_ONLY_PREAUTH_BLOCKED", "lane=${requestedBook.name} symbol=$symbol mint=${mint.take(10)}") } catch (_: Throwable) {}
-            return AuthorizationResult(ExecutionVerdict.REJECT, "PREAUTH_BLOCK_QUALITY_ONLY_${requestedBook.name}", BlockLevel.SOFT, canRetry = true)
+            return rejectAuth4424("PREAUTH_BLOCK_QUALITY_ONLY_${requestedBook.name}", BlockLevel.SOFT, canRetry = true)
         }
 
         // V5.9.1470 (spec item 7) — SLOT-HEALTH ADMISSION. Defer (NOT block) a new
@@ -193,7 +219,7 @@ object TradeAuthorizer {
                     ForensicLogger.lifecycle("EXEC_DEFERRED_SLOT_HEALTH", "mint=${mint.take(10)} symbol=$symbol lane=${requestedBook.name} reason=${sh.reason} highEdge=$highEdge slots=${SlotHealthGate.snapshotLine()}")
                     com.lifecyclebot.engine.PipelineHealthCollector.labelInc("EXEC_DEFERRED_SLOT_HEALTH")
                 } catch (_: Throwable) {}
-                return AuthorizationResult(ExecutionVerdict.REJECT, "DEFER_SLOT_HEALTH_${sh.reason}", BlockLevel.SOFT, canRetry = true)
+                return rejectAuth4424("DEFER_SLOT_HEALTH_${sh.reason}", BlockLevel.SOFT, canRetry = true)
             }
         }
 
@@ -215,8 +241,7 @@ object TradeAuthorizer {
                     "mint=${mint.take(10)} symbol=$symbol lane=${requestedBook.name} primary=${laneElection.primaryLane} candidateVersion=${laneElection.candidateVersion} reason=${laneElection.reason}"
                 )
             } catch (_: Throwable) {}
-            return AuthorizationResult(
-                verdict = ExecutionVerdict.REJECT,
+            return rejectAuth4424(
                 reason = "PREAUTH_${laneElection.reason}",
                 blockLevel = BlockLevel.SOFT,
                 canRetry = false,
@@ -242,11 +267,11 @@ object TradeAuthorizer {
         if (!finality.allowed) {
             ErrorLogger.info(TAG, "❌ REJECT $symbol: FINALITY_${finality.logName} attemptId=${finality.attemptId} reason=${finality.reason}")
             releasePrimaryAfterAuthFailure("FINALITY_${finality.logName}")
-            return AuthorizationResult(
-                verdict = ExecutionVerdict.REJECT,
+            return rejectAuth4424(
                 reason = "FINALITY_${finality.logName}:${finality.reason}",
                 blockLevel = BlockLevel.SOFT,
                 canRetry = false,
+                attemptIdForResult = finality.attemptId,
             )
         }
 
@@ -254,8 +279,7 @@ object TradeAuthorizer {
         if (isBanned || BannedTokens.isBanned(mint)) {
             ErrorLogger.info(TAG, "❌ REJECT $symbol: BANNED")
             releasePrimaryAfterAuthFailure("BANNED")
-            return AuthorizationResult(
-                verdict = ExecutionVerdict.REJECT,
+            return rejectAuth4424(
                 reason = "BANNED",
                 blockLevel = BlockLevel.PERMANENT,
                 canRetry = false,

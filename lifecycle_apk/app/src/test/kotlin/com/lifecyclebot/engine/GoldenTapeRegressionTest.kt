@@ -5848,4 +5848,14 @@ class GoldenTapeRegressionTest {
         assertTrue("V5.0.4423: reject taxonomy must be KPI-wired and hard-safety preserving", kpi.contains("reject_taxonomy=RejectTaxonomy") && kpi.contains("RejectTaxonomy.status") && taxonomy.contains("hard_safety_preserved=true"))
     }
 
+
+    @Test
+    fun tradeAuthorizerRejectTaxonomy_4424IsConsumedViaChokeReliefBus() {
+        val auth = java.io.File("src/main/kotlin/com/lifecyclebot/engine/TradeAuthorizer.kt").readText()
+        val taxonomy = java.io.File("src/main/kotlin/com/lifecyclebot/engine/RejectTaxonomy.kt").readText()
+        assertTrue("V5.0.4424: TradeAuthorizer must consume reject taxonomy through a bounded helper", auth.contains("rejectAuth4424") && auth.contains("TRADE_AUTH_REJECT_TAXONOMY_4424") && auth.contains("ChokeReliefBus.launch"))
+        assertTrue("V5.0.4424: high-choke auth rejects must route through taxonomy helper", auth.contains("PREAUTH_BLOCK_RUNTIME_PAUSED") && auth.contains("DEFER_SLOT_HEALTH_") && auth.contains("PREAUTH_") && auth.contains("FINALITY_"))
+        assertTrue("V5.0.4424: reject taxonomy remains authority-neutral and is marked consumed", taxonomy.contains("trade_authorizer_consumed_4424=true") && taxonomy.contains("no_execution_authority=true"))
+    }
+
 }
