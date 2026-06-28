@@ -5879,4 +5879,14 @@ class GoldenTapeRegressionTest {
         assertTrue("V5.0.4426: reject pressure digest must stay report-only and KPI-wired", digest.contains("report_only=true") && digest.contains("no_execution_authority=true") && digest.contains("no_gate_change=true") && kpi.contains("reject_pressure_digest=OperatorRejectPressureDigest") && kpi.contains("OperatorRejectPressureDigest.status"))
     }
 
+
+    @Test
+    fun finalDecisionGateRejectTaxonomy_4427FeedsLedgerCentrally() {
+        val fdg = java.io.File("src/main/kotlin/com/lifecyclebot/engine/FinalDecisionGate.kt").readText()
+        val taxonomy = java.io.File("src/main/kotlin/com/lifecyclebot/engine/RejectTaxonomy.kt").readText()
+        assertTrue("V5.0.4427: FinalDecision must expose normalized reject taxonomy", fdg.contains("val rejectTaxonomy: RejectTaxonomy.Classification?") && fdg.contains("RejectTaxonomy.classify(blockReason ?: approvalReason, null)"))
+        assertTrue("V5.0.4427: FDG reject taxonomy must be fed through bounded ChokeReliefBus into the ledger", fdg.contains("FDG_REJECT_TAXONOMY_4427") && fdg.contains("ChokeReliefBus.launch") && fdg.contains("RejectTaxonomyLedger.record"))
+        assertTrue("V5.0.4427: zero-liquidity must stay hard safety while generic low-liq maps to size-reduction", taxonomy.contains("ZERO_LIQUIDITY") && taxonomy.contains("zero_liquidity_hard_safety=true") && taxonomy.contains("fdg_consumed_4427=true"))
+    }
+
 }

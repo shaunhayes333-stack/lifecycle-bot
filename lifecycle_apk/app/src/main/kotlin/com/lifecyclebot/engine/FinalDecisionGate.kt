@@ -42,6 +42,21 @@ object FinalDecisionGate {
         // as executable; every other blockReason still vetoes. Size is already dusted
         // upstream via qualityPenalty=LANE_DUST_PROBE_SIZE_MULT, so this respects the
         // P0.7 "no normal-size zero-signal buy" rule — it only frees the TINY probe.
+        val rejectTaxonomy: RejectTaxonomy.Classification?
+            get() = if (!shouldTrade || approvalClass == ApprovalClass.BLOCKED || blockReason != null) {
+                RejectTaxonomy.classify(blockReason ?: approvalReason, null)
+            } else null
+
+        init {
+            val taxonomy = rejectTaxonomy
+            if (taxonomy != null) {
+                ChokeReliefBus.launch("FDG_REJECT_TAXONOMY_4427", mint) {
+                    try { RejectTaxonomyLedger.record(taxonomy, "FDG_${mode.name}", blockReason ?: approvalReason) } catch (_: Throwable) {}
+                    try { PipelineHealthCollector.labelInc("FDG_REJECT_TAXONOMY_4427_${taxonomy.category.name}") } catch (_: Throwable) {}
+                }
+            }
+        }
+
         fun canExecute(): Boolean = shouldTrade && (blockReason == null || blockReason == "PROBE_ONLY")
         fun isBenchmarkQuality(): Boolean = approvalClass in listOf(ApprovalClass.LIVE, ApprovalClass.PAPER_BENCHMARK)
         fun isExploration(): Boolean = approvalClass == ApprovalClass.PAPER_EXPLORATION

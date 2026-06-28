@@ -32,6 +32,7 @@ object RejectTaxonomy {
     fun classify(reason: String, blockLevel: TradeAuthorizer.BlockLevel? = null): Classification {
         val r = reason.uppercase()
         val category = when {
+            r.contains("ZERO_LIQUIDITY") || r.contains("NO_LIQUIDITY") -> Category.HARD_SAFETY
             r.contains("LOW_LIQ") || r.contains("LOW LIQ") || r.contains("LIQUIDITY") || r.startsWith("LIQ=") -> Category.LOW_LIQ_SIZE_REDUCTION
             r.contains("UNPROFITABLE") || r.contains("COST") || r.contains("SLIPPAGE") || r.contains("FEE") -> Category.COST_REJECT
             r.contains("PENDING") || r.contains("DEFER") || r.contains("COOLDOWN") || r.contains("WAIT") -> Category.PENALTY
@@ -50,5 +51,5 @@ object RejectTaxonomy {
         )
     }
 
-    fun status(): String = "REJECT_TAXONOMY_4423 pending=PENALTY low_liq=LOW_LIQ_SIZE_REDUCTION unprofitable=COST_REJECT hard_safety_preserved=true report_only=true no_execution_authority=true trade_authorizer_consumed_4424=true ledger_consumed_4425=true"
+    fun status(): String = "REJECT_TAXONOMY_4423 pending=PENALTY low_liq=LOW_LIQ_SIZE_REDUCTION unprofitable=COST_REJECT hard_safety_preserved=true report_only=true no_execution_authority=true trade_authorizer_consumed_4424=true ledger_consumed_4425=true fdg_consumed_4427=true zero_liquidity_hard_safety=true"
 }
