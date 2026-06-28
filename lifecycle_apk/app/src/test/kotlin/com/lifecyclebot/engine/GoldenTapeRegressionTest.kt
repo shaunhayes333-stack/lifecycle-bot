@@ -6240,4 +6240,13 @@ class GoldenTapeRegressionTest {
         assertTrue("V5.0.4487: recent error rows must be summarized, not dumped at 60 rows", src.contains("ErrorLogger.exportToCompactTable(limit = 24)") && !src.contains("ErrorLogger.exportToCompactTable(limit = 60)"))
     }
 
+
+
+    @Test
+    fun botService_4489QualityMoonshotAndCoreVisibilityCannotDisappear() {
+        val src = java.io.File("src/main/kotlin/com/lifecyclebot/engine/BotService.kt").readText()
+        assertTrue("V5.0.4489: QUALITY and MOONSHOT must keep a live read-floor when owner rotation suppresses FDG", src.contains("LIVE_LANE_READ_FLOOR_4489") && src.contains("LIVE_LANE_READ_FLOOR_4489_$") && src.contains("no_fdg=true") && src.contains("setOf("QUALITY", "MOONSHOT")"))
+        assertTrue("V5.0.4489: V3 core and STANDARD trunk lanes must be visible in lane-eval telemetry without extra FDG fanout", src.contains("V3_CORE_VISIBILITY_4489") && src.contains("CORE_STANDARD_VISIBILITY_4489") && src.contains("lane=V3_CORE") && src.contains("lane=STANDARD") && src.contains("no_extra_fdg=true"))
+    }
+
 }

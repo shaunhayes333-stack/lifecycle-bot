@@ -9467,6 +9467,16 @@ class BotService : Service() {
                         try { ForensicLogger.lifecycle("MEMETRADER_OWNER_LANE", "lane=$l primary=$primaryLane owner=$ownerLane rescue=$profitableRescue symbol=${ts.symbol} mint=${ts.mint.take(10)} pool=${ownerPool.joinToString("+")}") } catch (_: Throwable) {}
                     } else {
                         try { ForensicLogger.lifecycle("LANE_SUPPRESSED_BY_OWNER_ROTATION", "lane=$l primary=$primaryLane owner=$ownerLane symbol=${ts.symbol} mint=${ts.mint.take(10)} reason=bounded_live_all_lane_contribution_no_fdg") } catch (_: Throwable) {}
+                        if (l in setOf("QUALITY", "MOONSHOT")) {
+                            try {
+                                ForensicLogger.phase(
+                                    ForensicLogger.PHASE.LANE_EVAL,
+                                    ts.symbol,
+                                    "lane=$l shadow=LIVE_LANE_READ_FLOOR_4489 no_fdg=true primary=$primaryLane owner=$ownerLane rescue=$profitableRescue mcap=${ts.lastMcap.toInt()} liq=${ts.lastLiquidityUsd.toInt()} score=${ts.entryScore}"
+                                )
+                                PipelineHealthCollector.labelInc("LIVE_LANE_READ_FLOOR_4489_$l")
+                            } catch (_: Throwable) {}
+                        }
                     }
                     return allowed
                 }
@@ -17564,6 +17574,27 @@ if (hotExitHandledSweep) {
                     // No FinalExecutionPermit action for non-final errors/not-ready.
                 }
             }
+            try {
+                val v3CoreDecision4489 = when (v3Decision) {
+                    is com.lifecyclebot.v3.V3Decision.Execute -> "EXECUTE"
+                    is com.lifecyclebot.v3.V3Decision.Rejected -> "REJECTED"
+                    is com.lifecyclebot.v3.V3Decision.Blocked -> "BLOCKED"
+                    is com.lifecyclebot.v3.V3Decision.ShadowOnly -> "SHADOW_ONLY"
+                    else -> "OTHER"
+                }
+                ForensicLogger.phase(
+                    ForensicLogger.PHASE.LANE_EVAL,
+                    ts.symbol,
+                    "lane=V3_CORE shadow=V3_CORE_VISIBILITY_4489 decision=$v3CoreDecision4489 no_extra_fdg=true mcap=${ts.lastMcap.toInt()} liq=${ts.lastLiquidityUsd.toInt()} score=${ts.entryScore}"
+                )
+                ForensicLogger.phase(
+                    ForensicLogger.PHASE.LANE_EVAL,
+                    ts.symbol,
+                    "lane=STANDARD shadow=CORE_STANDARD_VISIBILITY_4489 decision=$v3CoreDecision4489 no_extra_fdg=true mcap=${ts.lastMcap.toInt()} liq=${ts.lastLiquidityUsd.toInt()} score=${ts.entryScore}"
+                )
+                PipelineHealthCollector.labelInc("V3_CORE_VISIBILITY_4489_$v3CoreDecision4489")
+                PipelineHealthCollector.labelInc("CORE_STANDARD_VISIBILITY_4489")
+            } catch (_: Throwable) {}
             
             // ═══════════════════════════════════════════════════════════════════
             // V3.3 FIX: Run Treasury Mode IMMEDIATELY after V3 decision
