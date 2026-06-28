@@ -5189,7 +5189,7 @@ class GoldenTapeRegressionTest {
     @Test
     fun operatorKpi4332ExposesUltimateEdgeAndChokeReliefHelpers() {
         val report = java.io.File("src/main/kotlin/com/lifecyclebot/engine/OperatorKpiCloseoutReport.kt").readText()
-        assertTrue("V5.0.4332: operator KPI report must expose UltimateEdge and ChokeRelief helper health", report.contains("OPERATOR_KPI_CLOSEOUT_REPORT_4336") && report.contains("UltimateEdgeEngine.status") && report.contains("ChokeReliefBus.status") && report.contains("ultimate_edge=UltimateEdgeEngine") && report.contains("choke_relief=ChokeReliefBus"))
+        assertTrue("V5.0.4332: operator KPI report must expose UltimateEdge and ChokeRelief helper health", report.contains("OPERATOR_KPI_CLOSEOUT_REPORT_4336") && report.contains("UltimateEdgeEngine.status(6)") && report.contains("ChokeReliefBus.status()") && report.contains("ultimate_edge=UltimateEdgeEngine") && report.contains("choke_relief=ChokeReliefBus"))
     }
 
     @Test
@@ -5264,7 +5264,7 @@ class GoldenTapeRegressionTest {
         val scorer = java.io.File("src/main/kotlin/com/lifecyclebot/v3/scoring/UnifiedScorer.kt").readText()
         val sizer = java.io.File("src/main/kotlin/com/lifecyclebot/engine/SmartSizer.kt").readText()
         val journal = java.io.File("src/main/kotlin/com/lifecyclebot/engine/V3JournalRecorder.kt").readText()
-        assertTrue("V5.0.4343: CloudLearningSync must be classified active only if BotService and UnifiedScorer consume it", registry.contains("CloudLearningSync") && registry.contains("RuntimeClass.ACTIVE") && bot.contains("CloudLearningSync.uploadLearnings") && scorer.contains("communityPatternMultiplier"))
+        assertTrue("V5.0.4343: CloudLearningSync must be classified active only if BotService and UnifiedScorer consume it", registry.contains("CloudLearningSync") && registry.contains("RuntimeClass.ACTIVE") && bot.contains("CloudLearningSync.init") && bot.contains("CloudLearningSync.downloadCommunityWeights") && scorer.contains("CloudLearningSync") && scorer.contains("downloads community pattern multipliers"))
         assertTrue("V5.0.4343: ColdStreakDamper must be classified active only if sizing and outcomes consume it", registry.contains("ColdStreakDamper") && registry.contains("cloud_and_cold_streak_active=true") && sizer.contains("ColdStreakDamper.sizeMultiplier") && journal.contains("ColdStreakDamper.noteOutcome"))
     }
 
