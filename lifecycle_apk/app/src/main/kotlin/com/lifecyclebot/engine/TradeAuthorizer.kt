@@ -77,6 +77,9 @@ object TradeAuthorizer {
             return verdict == ExecutionVerdict.PAPER_EXECUTE || verdict == ExecutionVerdict.LIVE_EXECUTE
         }
 
+        val rejectTaxonomy: RejectTaxonomy.Classification
+            get() = RejectTaxonomy.classify(reason, blockLevel)
+
         fun isShadowOnly(): Boolean {
             return verdict == ExecutionVerdict.SHADOW_ONLY
         }
