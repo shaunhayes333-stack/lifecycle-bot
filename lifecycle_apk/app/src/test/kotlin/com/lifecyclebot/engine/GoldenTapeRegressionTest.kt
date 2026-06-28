@@ -5807,4 +5807,13 @@ class GoldenTapeRegressionTest {
         assertTrue("V5.0.4418: FEP behavior remains authority-preserving; telemetry records before existing false returns", source.contains("""releasePrimaryAfterPermitFailure("FINALITY_${finality.logName}")""") && source.contains("""recordPermitFalseReturn4416("FINALITY_${finality.logName}")""") && source.contains("return false"))
     }
 
+
+    @Test
+    fun laneExecutionCoordinatorReleaseFalse_4419IsRouteVisible() {
+        val source = java.io.File("src/main/kotlin/com/lifecyclebot/engine/LaneExecutionCoordinator.kt").readText()
+        assertTrue("V5.0.4419: lane primary release false paths must emit visible telemetry", source.contains("LANE_PRIMARY_RELEASE_FALSE_VISIBLE_4419") && source.contains("PipelineHealthCollector.labelInc"))
+        assertTrue("V5.0.4419: lane release false telemetry must cover missing election and non-primary outcomes", source.contains("MISSING_ELECTION") && source.contains("NOT_PRIMARY") && source.contains("return false"))
+        assertTrue("V5.0.4419: lane release true path must remain unchanged", source.contains("LANE_PRIMARY_RELEASED") && source.contains("return removed"))
+    }
+
 }
