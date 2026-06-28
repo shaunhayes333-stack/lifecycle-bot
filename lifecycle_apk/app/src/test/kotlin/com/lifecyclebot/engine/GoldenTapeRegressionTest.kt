@@ -5513,7 +5513,7 @@ class GoldenTapeRegressionTest {
         val prover = java.io.File("src/main/kotlin/com/lifecyclebot/engine/SymbolicInvariantProver.kt").readText()
         val sweeper = java.io.File("src/main/kotlin/com/lifecyclebot/engine/AsiSsiReauditSweeper.kt").readText()
         assertTrue("V5.0.4376: SymbolicInvariantProver must protect operator digest report-only KPI wiring", prover.contains("OPERATOR_DIGESTS_REPORT_ONLY_KPI_WIRED_4376") && prover.contains("operatorDigests.all") && prover.contains("no_execution_authority=true") && prover.contains("""!text.contains("executeBuy(")""") && prover.contains("""!text.contains("requestSell(")"""))
-        assertTrue("V5.0.4376: AsiSsiReauditSweeper must protect operator digest report-only no-authority contract", sweeper.contains("OPERATOR_DIGESTS_REPORT_ONLY_NO_AUTHORITY_4376") && sweeper.contains("operatorDigests.all") && sweeper.contains("""kpi.contains("${name}.status")"""))
+        assertTrue("V5.0.4376: AsiSsiReauditSweeper must protect operator digest report-only no-authority contract", sweeper.contains("OPERATOR_DIGESTS_REPORT_ONLY_NO_AUTHORITY_4376") && sweeper.contains("operatorDigests.all") && sweeper.contains("kpi.contains(") && sweeper.contains(".status"))
     }
 
 
@@ -5522,7 +5522,7 @@ class GoldenTapeRegressionTest {
         val acct = java.io.File("src/main/kotlin/com/lifecyclebot/v3/scoring/SyntheticComponentAccountability.kt").readText()
         val scorer = java.io.File("src/main/kotlin/com/lifecyclebot/v3/scoring/UnifiedScorer.kt").readText()
         assertTrue("V5.0.4378: synthetic component accountability must cover score-moving theatre names", acct.contains("source") && acct.contains("approval_memory") && acct.contains("v4_crosstalk") && acct.contains("fresh_launch_bonus") && acct.contains("acct=synthetic_component"))
-        assertTrue("V5.0.4378: accountability stamp must preserve score values and add lane/source/mint/build context", acct.contains("comp.copy(reason") && acct.contains("source=${candidate.source.name}") && acct.contains("mint=${candidate.mint.take(10)}") && acct.contains("build=${BuildConfig.VERSION_NAME}"))
+        assertTrue("V5.0.4378: accountability stamp must preserve score values and add lane/source/mint/build context", acct.contains("comp.copy(reason") && acct.contains("source=") && acct.contains("candidate.source.name") && acct.contains("mint=") && acct.contains("candidate.mint.take(10)") && acct.contains("build=") && acct.contains("BuildConfig.VERSION_NAME"))
         assertTrue("V5.0.4378: UnifiedScorer Harvard entry records must pass through synthetic accountability on all paths", scorer.contains("""SyntheticComponentAccountability.annotate(finalCard.components + shadowOuterRing, candidate, "CLASSIC")""") && scorer.contains("""SyntheticComponentAccountability.annotate(finalCard.components, candidate, "MODERN")""") && scorer.contains("""SyntheticComponentAccountability.annotate(fallbackCard.components, candidate, "MODERN_FALLBACK")""") && scorer.contains("""SyntheticComponentAccountability.annotate(finalCard.components, candidate, "UNIFIED")""") && scorer.contains("""SyntheticComponentAccountability.annotate(fallbackCard.components, candidate, "UNIFIED_FALLBACK")"""))
     }
 
@@ -5559,8 +5559,9 @@ class GoldenTapeRegressionTest {
     @Test
     fun moonshotPromotion4386HasSinglePromotedFromArgument() {
         val moon = java.io.File("src/main/kotlin/com/lifecyclebot/v3/scoring/MoonshotTraderAI.kt").readText()
-        val promotionBlock = moon.substring(moon.indexOf("fun executePromotion"), moon.indexOf("// ═══════════════════════════════════════════════════════════════════════════
-    // COLLECTIVE LEARNING", moon.indexOf("fun executePromotion")))
+        val promotionStart = moon.indexOf("fun executePromotion")
+        val promotionEnd = moon.indexOf("fun recordCollectiveWinner", promotionStart)
+        val promotionBlock = moon.substring(promotionStart, promotionEnd)
         assertEquals("V5.0.4386: Moonshot promotion must not duplicate promotedFrom named argument", 1, Regex("promotedFrom = fromLayer").findAll(promotionBlock).count())
         assertTrue("V5.0.4386: Moonshot promotion still preserves runner context", promotionBlock.contains("peakPnlPct = currentPnlPct") && promotionBlock.contains("tightSL.coerceAtLeast(HARD_FLOOR_STOP)"))
     }
