@@ -166,7 +166,7 @@ class BotViewModel(app: Application) : AndroidViewModel(app) {
                 totalExposureSol = status.totalExposureSol,
                 totalUnrealisedPnlSol = status.openPositions.sumOf { ts ->
                     val entry = ts.position.entryPrice
-                    val raw = try { com.lifecyclebot.engine.Executor.getActualPricePublic(ts) } catch (_: Throwable) { ts.ref }
+                    val raw = ts.ref
                     val mark = try {
                         val entryMcap = ts.position.entryMcap
                         val currentMcap = ts.lastMcap

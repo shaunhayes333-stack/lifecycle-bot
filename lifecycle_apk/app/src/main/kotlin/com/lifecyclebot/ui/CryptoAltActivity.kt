@@ -471,8 +471,7 @@ class CryptoAltActivity : AppCompatActivity() {
     // being shown as wallet-realizable moments before a quote lands at a loss.
     private fun uiComparableOpenPrice4479(mint: String, entryPrice: Double, entryMcapUsd: Double = 0.0): Double {
         val ts = try { com.lifecyclebot.engine.BotService.status.tokens[mint] } catch (_: Throwable) { null }
-        val raw = try { ts?.let { com.lifecyclebot.engine.Executor.getActualPricePublic(it) }?.takeIf { it > 0.0 && it.isFinite() } } catch (_: Throwable) { null }
-            ?: try { ts?.ref?.takeIf { it > 0.0 && it.isFinite() } } catch (_: Throwable) { null }
+        val raw: Double = try { ts?.ref?.takeIf { it > 0.0 && it.isFinite() } } catch (_: Throwable) { null }
             ?: entryPrice
         if (entryPrice <= 0.0 || raw <= 0.0 || !entryPrice.isFinite() || !raw.isFinite()) return entryPrice
         val currentMcap = try { ts?.lastMcap?.takeIf { it > 0.0 && it.isFinite() } } catch (_: Throwable) { null }
@@ -1094,7 +1093,7 @@ class CryptoAltActivity : AppCompatActivity() {
         val positions = BlueChipTraderAI.getActivePositions()
         val totalRisk = positions.sumOf { it.entrySol }
         val bcTotalPnlSol = positions.sumOf { p ->
-            val cp = uiComparableOpenPrice4479(p.mint, p.entryPrice, p.entryMcap)
+            val cp = uiComparableOpenPrice4479(p.mint, p.entryPrice, p.marketCapUsd)
             p.entrySol * (cp - p.entryPrice) / p.entryPrice
         }
         val tile      = buildTile(blue, "🔵 Blue Chip Trades", "${"%.3f".format(totalRisk)}◎  ${if (bcTotalPnlSol >= 0) "+" else ""}${"%.4f".format(bcTotalPnlSol)}◎", blue)
