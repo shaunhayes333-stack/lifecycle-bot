@@ -1,5 +1,6 @@
 package com.lifecyclebot.engine
 
+import com.lifecyclebot.BuildConfig
 import org.json.JSONObject
 import java.util.concurrent.ConcurrentHashMap
 import kotlin.math.abs
@@ -63,6 +64,10 @@ object AICrossTalk {
         val lane: String,
         val confidenceBoost: Double,
         val sizeMultiplier: Double,
+        val source: String,
+        val mode: String,
+        val positionId: String,
+        val build: String,
         val timestamp: Long,
     )
 
@@ -829,7 +834,15 @@ object AICrossTalk {
 
     private fun entryStampKey(mint: String, lane: String): String = "${mint}:${lane.uppercase().take(32)}"
 
-    fun stampEntrySignal(mint: String, lane: String, signal: CrossTalkSignal) {
+    fun stampEntrySignal(
+        mint: String,
+        lane: String,
+        signal: CrossTalkSignal,
+        source: String = "",
+        mode: String = "",
+        positionId: String = "",
+        build: String = BuildConfig.VERSION_NAME,
+    ) {
         if (mint.isBlank() || signal.signalType == SignalType.NO_CORRELATION) return
         val laneKey = lane.uppercase().take(32)
         entrySignalByMintLane[entryStampKey(mint, laneKey)] = EntryCrossTalkStamp(
@@ -837,10 +850,14 @@ object AICrossTalk {
             lane = laneKey,
             confidenceBoost = signal.confidenceBoost,
             sizeMultiplier = signal.sizeMultiplier,
+            source = source.take(48),
+            mode = mode.take(32),
+            positionId = positionId.take(80),
+            build = build.take(32),
             timestamp = System.currentTimeMillis(),
         )
         try {
-            ErrorLogger.info("CrossTalk", "🔗📌 CROSSTALK_ENTRY_STAMP_4304: mint=${mint.take(10)} lane=${lane.uppercase().take(32)} signal=${signal.signalType} conf=${signal.confidenceBoost.toInt()} size=${"%.2f".format(signal.sizeMultiplier)}")
+            ErrorLogger.info("CrossTalk", "🔗📌 CROSSTALK_ENTRY_STAMP_4380: mint=${mint.take(10)} lane=${lane.uppercase().take(32)} source=${source.take(48)} mode=${mode.take(32)} positionId=${positionId.take(18)} build=${build.take(32)} signal=${signal.signalType} conf=${signal.confidenceBoost.toInt()} size=${"%.2f".format(signal.sizeMultiplier)}")
         } catch (_: Throwable) {}
     }
 
@@ -863,7 +880,7 @@ object AICrossTalk {
         }
         recordOutcome(stamped.signalType, pnlPct, wasProfit)
         try {
-            ErrorLogger.info("CrossTalk", "🔗🎓 CROSSTALK_ENTRY_OUTCOME_4304: mint=${mint.take(10)} lane=${stamped.lane} signal=${stamped.signalType} pnl=${pnlPct.toInt()}% win=$wasProfit")
+            ErrorLogger.info("CrossTalk", "🔗🎓 CROSSTALK_ENTRY_OUTCOME_4380: mint=${mint.take(10)} lane=${stamped.lane} source=${stamped.source} mode=${stamped.mode} positionId=${stamped.positionId.take(18)} build=${stamped.build} signal=${stamped.signalType} pnl=${pnlPct.toInt()}% win=$wasProfit")
         } catch (_: Throwable) {}
         return true
     }

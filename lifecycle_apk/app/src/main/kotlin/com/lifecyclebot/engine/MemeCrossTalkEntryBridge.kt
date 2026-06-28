@@ -20,7 +20,16 @@ object MemeCrossTalkEntryBridge {
         // V5.0.4304 — stamp the exact cross-talk signal that shaped entry so
         // terminal learning credits the right teacher instead of recomputing a
         // different signal at close.
-        try { AICrossTalk.stampEntrySignal(ts.mint, lane, signal) } catch (_: Throwable) {}
+        try {
+            AICrossTalk.stampEntrySignal(
+                mint = ts.mint,
+                lane = lane,
+                signal = signal,
+                source = ts.source,
+                mode = ts.position.tradingMode,
+                positionId = TradeOutcomeLedger.positionId(ts),
+            )
+        } catch (_: Throwable) {}
         return EntryShape(
             lane = lane.uppercase().take(32),
             confidenceFloor = shapedConfidence,
