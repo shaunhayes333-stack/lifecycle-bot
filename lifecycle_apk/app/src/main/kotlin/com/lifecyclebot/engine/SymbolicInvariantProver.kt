@@ -39,6 +39,17 @@ object SymbolicInvariantProver {
             "audits/asi_ssi_audit_queue_2026-06-27.md",
             "../audits/asi_ssi_audit_queue_2026-06-27.md",
         )
+        val kpi = src("src/main/kotlin/com/lifecyclebot/engine/OperatorKpiCloseoutReport.kt")
+        val operatorDigests = listOf(
+            "OperatorAuxiliaryStatusDigest",
+            "OperatorAdaptiveStatusDigest",
+            "OperatorCoreRuntimeDigest",
+            "OperatorSellRuntimeDigest",
+            "OperatorV3ScoringDigest",
+            "OperatorEngineStatusDigest",
+            "OperatorRemainderStatusDigest",
+            "OperatorPerpsCryptoDigest",
+        ).map { it to src("src/main/kotlin/com/lifecyclebot/engine/${it}.kt") }
 
         return listOf(
             Proof(
@@ -88,6 +99,19 @@ object SymbolicInvariantProver {
                     src("src/main/kotlin/com/lifecyclebot/engine/AsiSsiReauditSweeper.kt").contains("auditSourceTree") &&
                     src("src/main/kotlin/com/lifecyclebot/engine/AsiSsiReauditSweeper.kt").contains("GEPA_CRITIC_MEDIATED_NO_DIRECT_BANK_BYPASS_4257"),
                 detail = "recursive ASI/SSI re-audit sweeper must be registered and enforce missed-wiring checks",
+            ),
+
+            Proof(
+                id = "OPERATOR_DIGESTS_REPORT_ONLY_KPI_WIRED_4376",
+                passed = operatorDigests.all { (name, text) ->
+                    text.contains("object $name") &&
+                        text.contains("report_only=true") &&
+                        text.contains("no_execution_authority=true") &&
+                        !text.contains("executeBuy(") &&
+                        !text.contains("requestSell(") &&
+                        kpi.contains("${name}.status")
+                },
+                detail = "operator audit/status digests must stay KPI-wired, report-only, and without buy/sell authority",
             ),
             Proof(
                 id = "ASYNC_AI_NEVER_HOT_PATH_4235",

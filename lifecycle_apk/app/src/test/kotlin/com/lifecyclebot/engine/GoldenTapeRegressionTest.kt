@@ -5507,4 +5507,13 @@ class GoldenTapeRegressionTest {
         assertTrue("V5.0.4374: inventory marker closure remains report-only", remainder.contains("Report-only") || remainder.contains("report-only") || remainder.contains("Report-only"))
     }
 
+
+    @Test
+    fun symbolicAndReauditProveOperatorDigests4376() {
+        val prover = java.io.File("src/main/kotlin/com/lifecyclebot/engine/SymbolicInvariantProver.kt").readText()
+        val sweeper = java.io.File("src/main/kotlin/com/lifecyclebot/engine/AsiSsiReauditSweeper.kt").readText()
+        assertTrue("V5.0.4376: SymbolicInvariantProver must protect operator digest report-only KPI wiring", prover.contains("OPERATOR_DIGESTS_REPORT_ONLY_KPI_WIRED_4376") && prover.contains("operatorDigests.all") && prover.contains("no_execution_authority=true") && prover.contains("!text.contains("executeBuy(")") && prover.contains("!text.contains("requestSell(")"))
+        assertTrue("V5.0.4376: AsiSsiReauditSweeper must protect operator digest report-only no-authority contract", sweeper.contains("OPERATOR_DIGESTS_REPORT_ONLY_NO_AUTHORITY_4376") && sweeper.contains("operatorDigests.all") && sweeper.contains("kpi.contains("${name}.status")"))
+    }
+
 }

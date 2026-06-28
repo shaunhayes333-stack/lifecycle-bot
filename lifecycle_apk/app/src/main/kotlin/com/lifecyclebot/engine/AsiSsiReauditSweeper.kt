@@ -30,7 +30,31 @@ object AsiSsiReauditSweeper {
         val persistence = src("src/main/kotlin/com/lifecyclebot/engine/LearningPersistence.kt")
         val shit = src("src/main/kotlin/com/lifecyclebot/v3/scoring/ShitCoinTraderAI.kt")
         val prover = src("src/main/kotlin/com/lifecyclebot/engine/SymbolicInvariantProver.kt")
+        val kpi = src("src/main/kotlin/com/lifecyclebot/engine/OperatorKpiCloseoutReport.kt")
+        val operatorDigests = listOf(
+            "OperatorAuxiliaryStatusDigest",
+            "OperatorAdaptiveStatusDigest",
+            "OperatorCoreRuntimeDigest",
+            "OperatorSellRuntimeDigest",
+            "OperatorV3ScoringDigest",
+            "OperatorEngineStatusDigest",
+            "OperatorRemainderStatusDigest",
+            "OperatorPerpsCryptoDigest",
+        ).map { it to src("src/main/kotlin/com/lifecyclebot/engine/${it}.kt") }
         return listOf(
+
+            Finding(
+                id = "OPERATOR_DIGESTS_REPORT_ONLY_NO_AUTHORITY_4376",
+                passed = operatorDigests.all { (name, text) ->
+                    text.contains("object $name") &&
+                        text.contains("report_only=true") &&
+                        text.contains("no_execution_authority=true") &&
+                        !text.contains("executeBuy(") &&
+                        !text.contains("requestSell(") &&
+                        kpi.contains("${name}.status")
+                },
+                detail = "operator digest inventory must remain report-only/KPI-only and cannot gain buy/sell authority",
+            ),
             Finding(
                 id = "ASI_BACKGROUND_ONLY_NO_HOT_PATH_PROVIDER_4257",
                 passed = listOf(lab, gepa, critic, research).all { it.contains("BACKGROUND") } &&
