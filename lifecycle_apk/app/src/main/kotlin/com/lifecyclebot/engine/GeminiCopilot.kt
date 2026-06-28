@@ -1035,18 +1035,33 @@ Not one sentence unless the moment truly calls for it.
                                 // call short-circuits at the entry gate instead of burning another RTT.
                                 try { KeyValidator.recordResult("gemini", success = false, httpStatus = response.code, error = errorBody) } catch (_: Throwable) {}
                                 try { ApiHealthMonitor.record("gemini", response.code, errorBody = errorBody) } catch (_: Throwable) {}
+                                recordProviderCooldown(provider.name, "auth_" + response.code, MAX_BACKOFF_MS)
+                                hardFail = true
+                            }
+
+                            400, 404 -> {
+                                lastBlipDiagnostic = provider.name + ":fatal_" + response.code
+                                val fatalLabel = when {
+                                    errorBody.contains("budget", ignoreCase = true) || errorBody.contains("exceeded", ignoreCase = true) -> "budget_exceeded"
+                                    errorBody.contains("model", ignoreCase = true) && (errorBody.contains("does not exist", ignoreCase = true) || errorBody.contains("access", ignoreCase = true)) -> "model_unavailable"
+                                    else -> "http_" + response.code
+                                }
+                                recordProviderCooldown(provider.name, fatalLabel, MAX_BACKOFF_MS)
+                                ErrorLogger.warn(TAG, provider.name + " HTTP " + response.code + " quarantined " + fatalLabel + ": " + errorBody)
                                 hardFail = true
                             }
 
                             in 500..599 -> {
                                 lastTransient = provider.name + ":" + response.code
-                                ErrorLogger.warn(TAG, provider.name + " server error " + response.code + " attempt " + (attempt + 1))
-                                shouldRetry = true
+                                recordProviderCooldown(provider.name, "server_" + response.code, 60_000L)
+                                ErrorLogger.warn(TAG, provider.name + " server error " + response.code + " cooled_down_4458 attempt " + (attempt + 1))
+                                hardFail = true
                             }
 
                             else -> {
                                 lastBlipDiagnostic = provider.name + ":http_" + response.code
-                                ErrorLogger.warn(TAG, provider.name + " HTTP " + response.code + ": " + errorBody)
+                                recordProviderCooldown(provider.name, "http_" + response.code, 120_000L)
+                                ErrorLogger.warn(TAG, provider.name + " HTTP " + response.code + " cooled_down_4458: " + errorBody)
                                 hardFail = true
                             }
                         }
@@ -1195,6 +1210,16 @@ Not one sentence unless the moment truly calls for it.
             TAG,
             "⚠️ " + providerName + " rate limited (" + count + ") - backing off for " + (backoffMs / 1000L) + "s"
         )
+    }
+
+    // V5.0.4458 — provider-error quarantine for non-429 fatal/transient LLM failures.
+    // Reuses the existing rateLimitedUntilByProvider skip path so noisy/budgeted/dead
+    // providers do not keep spamming background analysis or runtime health.
+    private fun recordProviderCooldown(providerName: String, label: String, backoffMs: Long) {
+        val bounded = min(MAX_BACKOFF_MS, max(30_000L, backoffMs))
+        rateLimitedUntilByProvider[providerName] = System.currentTimeMillis() + bounded
+        try { PipelineHealthCollector.labelInc("LLM_PROVIDER_COOLDOWN_4458_" + providerName.uppercase(Locale.US) + "_" + label.uppercase(Locale.US).take(36)) } catch (_: Throwable) {}
+        try { ForensicLogger.lifecycle("LLM_PROVIDER_COOLDOWN_4458", "provider=$providerName label=$label backoffMs=$bounded") } catch (_: Throwable) {}
     }
 
     private fun resetRateLimit(providerName: String) {
