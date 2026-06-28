@@ -4905,7 +4905,7 @@ class GoldenTapeRegressionTest {
         val exec = java.io.File("src/main/kotlin/com/lifecyclebot/engine/Executor.kt").readText()
         val manifest = java.io.File("src/main/kotlin/com/lifecyclebot/engine/AsiSsiAuditCloseoutManifest.kt").readText()
         val audit = readLifecycleFileFor4280s("audits/asi_ssi_audit_queue_2026-06-27.md")
-        assertTrue("V5.0.4295 A41: operator KPI closeout must cover volume, live/paper drift, realized SOL, runner giveback, source PF, sizing warnings, and build status", report.contains("OPERATOR_KPI_CLOSEOUT_REPORT_4373") && report.contains("volume=TradeHistoryStore") && report.contains("live_paper_drift=LivePaperDriftSentinel") && report.contains("realized_net_sol=LiveWalletGrowthGovernorReport") && report.contains("runner_giveback=RunnerExitShadowLedger") && report.contains("source_family_pf=SourceFamilyOpportunityScorecard") && report.contains("sizing_stack_warnings=SizingStackIntegritySentinel") && report.contains("build_status"))
+        assertTrue("V5.0.4295 A41: operator KPI closeout must cover volume, live/paper drift, realized SOL, runner giveback, source PF, sizing warnings, and build status", report.contains("OPERATOR_KPI_CLOSEOUT_REPORT_4381") && report.contains("volume=TradeHistoryStore") && report.contains("live_paper_drift=LivePaperDriftSentinel") && report.contains("realized_net_sol=LiveWalletGrowthGovernorReport") && report.contains("runner_giveback=RunnerExitShadowLedger") && report.contains("source_family_pf=SourceFamilyOpportunityScorecard") && report.contains("sizing_stack_warnings=SizingStackIntegritySentinel") && report.contains("build_status"))
         assertTrue("V5.0.4295 A41: Executor must emit operator KPI report only from side-effect terminal fanout", exec.contains("OperatorKpiCloseoutReport.emit()") && exec.contains("if (_fanoutSide == \"SELL\")"))
         assertTrue("V5.0.4295 closeout: manifest and audit queue must mark A38-A41 complete", manifest.contains("A41 operator KPI closeout report") && manifest.contains("audit_closed=true") && audit.contains("Status: implemented in V5.0.4295 as `OperatorKpiCloseoutReport`"))
         assertFalse("V5.0.4295 A41: KPI closeout must never own execution authority or fake PnL", report.contains("executeBuy(") || report.contains("requestSell(") || !report.contains("no_phantom_pnl=true") || !report.contains("no_execution_authority=true"))
@@ -5189,7 +5189,7 @@ class GoldenTapeRegressionTest {
     @Test
     fun operatorKpi4332ExposesUltimateEdgeAndChokeReliefHelpers() {
         val report = java.io.File("src/main/kotlin/com/lifecyclebot/engine/OperatorKpiCloseoutReport.kt").readText()
-        assertTrue("V5.0.4332: operator KPI report must expose UltimateEdge and ChokeRelief helper health", report.contains("OPERATOR_KPI_CLOSEOUT_REPORT_4373") && report.contains("UltimateEdgeEngine.status(6)") && report.contains("ChokeReliefBus.status()") && report.contains("ultimate_edge=UltimateEdgeEngine") && report.contains("choke_relief=ChokeReliefBus"))
+        assertTrue("V5.0.4332: operator KPI report must expose UltimateEdge and ChokeRelief helper health", report.contains("OPERATOR_KPI_CLOSEOUT_REPORT_4381") && report.contains("UltimateEdgeEngine.status(6)") && report.contains("ChokeReliefBus.status()") && report.contains("ultimate_edge=UltimateEdgeEngine") && report.contains("choke_relief=ChokeReliefBus"))
     }
 
     @Test
@@ -5534,6 +5534,16 @@ class GoldenTapeRegressionTest {
         assertTrue("V5.0.4380: AICrossTalk stamp must retain source/mode/positionId/build with the entry-time signal", cross.contains("source: String") && cross.contains("mode: String") && cross.contains("positionId: String") && cross.contains("build: String") && cross.contains("CROSSTALK_ENTRY_STAMP_4380") && cross.contains("CROSSTALK_ENTRY_OUTCOME_4380"))
         assertTrue("V5.0.4380: MemeCrossTalkEntryBridge must stamp event-local source/mode/positionId instead of close-time recompute metadata", bridge.contains("source = ts.source") && bridge.contains("mode = ts.position.tradingMode") && bridge.contains("positionId = TradeOutcomeLedger.positionId(ts)"))
         assertTrue("V5.0.4380: cross-talk metadata patch must preserve backward compatibility for existing callers", cross.contains("source: String = """) && cross.contains("mode: String = """) && cross.contains("positionId: String = """) && cross.contains("build: String = BuildConfig.VERSION_NAME"))
+    }
+
+
+    @Test
+    fun ssiCouncilClosedLoopSentinel4381ProvesCouncilChain() {
+        val sentinel = java.io.File("src/main/kotlin/com/lifecyclebot/engine/SsiCouncilClosedLoopSentinel.kt").readText()
+        val kpi = java.io.File("src/main/kotlin/com/lifecyclebot/engine/OperatorKpiCloseoutReport.kt").readText()
+        assertTrue("V5.0.4381: SSI council sentinel must name full insight-to-outcome chain", sentinel.contains("SemanticPatternGraph.entryBias") && sentinel.contains("CounterfactualReplayEngine.policyHints") && sentinel.contains("ReflectiveOptimizerGEPA") && sentinel.contains("MultiAgentCriticStack.reviewAndSubmit") && sentinel.contains("AsyncStrategyLab.reviewedSizeBias") && sentinel.contains("UnifiedPolicyHead.stamp/recordOutcome") && sentinel.contains("UnifiedExitPolicyHead.stamp/recordOutcome"))
+        assertTrue("V5.0.4381: SSI council sentinel must remain report-only and provider-safe", sentinel.contains("report_only=true") && sentinel.contains("no_execution_authority=true") && sentinel.contains("no_hot_path_provider=true") && sentinel.contains("no_direct_trade_authority=true"))
+        assertTrue("V5.0.4381: operator KPI must include SSI council status", kpi.contains("ssi_council_status=SsiCouncilClosedLoopSentinel") && kpi.contains("SsiCouncilClosedLoopSentinel.status"))
     }
 
 }
