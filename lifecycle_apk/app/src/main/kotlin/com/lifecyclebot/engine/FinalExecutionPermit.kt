@@ -134,15 +134,26 @@ object FinalExecutionPermit {
         fun releasePrimaryAfterPermitFailure(reason: String) {
             try { LaneExecutionCoordinator.releaseIfPrimary(mint, layer, reason) } catch (_: Throwable) {}
         }
+        fun recordPermitFalseReturn4416(reason: String) {
+            try { PipelineHealthCollector.labelInc("FEP_FALSE_RETURN_ROUTE_VISIBLE_4416_$reason") } catch (_: Throwable) {}
+            try {
+                ForensicLogger.lifecycle(
+                    "FEP_FALSE_RETURN_ROUTE_VISIBLE_4416",
+                    "mint=${mint.take(10)} symbol=$symbol lane=$layer reason=$reason attemptId=$finalityAttemptId"
+                )
+            } catch (_: Throwable) {}
+        }
 
         if (RuntimeConfigOverlay.isTradingPaused()) {
             ErrorLogger.warn(TAG, "🛑 RUNTIME_PAUSED: $symbol | layer=$layer")
             releasePrimaryAfterPermitFailure("RUNTIME_PAUSED")
+            recordPermitFalseReturn4416("RUNTIME_PAUSED")
             return false
         }
         if (RuntimeConfigOverlay.isLaneDisabled(layer)) {
             try { ForensicLogger.lifecycle("LANE_EXECUTION_SUPPRESSED", "mint=${mint.take(10)} symbol=$symbol lane=$layer reason=RUNTIME_OVERLAY_DISABLED") } catch (_: Throwable) {}
             releasePrimaryAfterPermitFailure("RUNTIME_OVERLAY_DISABLED")
+            recordPermitFalseReturn4416("RUNTIME_OVERLAY_DISABLED")
             return false
         }
 
@@ -170,6 +181,7 @@ object FinalExecutionPermit {
             if (!finality.allowed) {
                 ErrorLogger.debug(TAG, "🚫 FINALITY_BLOCK: $symbol | layer=$layer attemptId=${finality.attemptId} reason=${finality.reason}")
                 releasePrimaryAfterPermitFailure("FINALITY_${finality.logName}")
+                recordPermitFalseReturn4416("FINALITY_${finality.logName}")
                 return false
             }
         }
@@ -183,6 +195,7 @@ object FinalExecutionPermit {
                 )
             } catch (_: Throwable) {}
             ErrorLogger.debug(TAG, "🧭 LANE_TELEMETRY_ONLY: $symbol | layer=$layer primary=${laneElection.primaryLane}")
+            recordPermitFalseReturn4416("LANE_TELEMETRY_ONLY")
             return false
         }
 
@@ -197,6 +210,7 @@ object FinalExecutionPermit {
             if (elapsed < EXECUTION_COOLDOWN_MS) {
                 ErrorLogger.debug(TAG, "🔒 BLOCKED: $symbol | $layer blocked by pending ${existing.layer} (${elapsed}ms ago)")
                 releasePrimaryAfterPermitFailure("PENDING_${existing.layer}")
+                recordPermitFalseReturn4416("PENDING_${existing.layer}")
                 return false
             }
         }
