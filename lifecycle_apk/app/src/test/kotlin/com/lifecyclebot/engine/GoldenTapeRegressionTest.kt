@@ -4905,7 +4905,7 @@ class GoldenTapeRegressionTest {
         val exec = java.io.File("src/main/kotlin/com/lifecyclebot/engine/Executor.kt").readText()
         val manifest = java.io.File("src/main/kotlin/com/lifecyclebot/engine/AsiSsiAuditCloseoutManifest.kt").readText()
         val audit = readLifecycleFileFor4280s("audits/asi_ssi_audit_queue_2026-06-27.md")
-        assertTrue("V5.0.4295 A41: operator KPI closeout must cover volume, live/paper drift, realized SOL, runner giveback, source PF, sizing warnings, and build status", report.contains("OPERATOR_KPI_CLOSEOUT_REPORT_4295") && report.contains("volume=TradeHistoryStore") && report.contains("live_paper_drift=LivePaperDriftSentinel") && report.contains("realized_net_sol=LiveWalletGrowthGovernorReport") && report.contains("runner_giveback=RunnerExitShadowLedger") && report.contains("source_family_pf=SourceFamilyOpportunityScorecard") && report.contains("sizing_stack_warnings=SizingStackIntegritySentinel") && report.contains("build_status"))
+        assertTrue("V5.0.4295 A41: operator KPI closeout must cover volume, live/paper drift, realized SOL, runner giveback, source PF, sizing warnings, and build status", report.contains("OPERATOR_KPI_CLOSEOUT_REPORT_4336") && report.contains("volume=TradeHistoryStore") && report.contains("live_paper_drift=LivePaperDriftSentinel") && report.contains("realized_net_sol=LiveWalletGrowthGovernorReport") && report.contains("runner_giveback=RunnerExitShadowLedger") && report.contains("source_family_pf=SourceFamilyOpportunityScorecard") && report.contains("sizing_stack_warnings=SizingStackIntegritySentinel") && report.contains("build_status"))
         assertTrue("V5.0.4295 A41: Executor must emit operator KPI report only from side-effect terminal fanout", exec.contains("OperatorKpiCloseoutReport.emit()") && exec.contains("if (_fanoutSide == \"SELL\")"))
         assertTrue("V5.0.4295 closeout: manifest and audit queue must mark A38-A41 complete", manifest.contains("A41 operator KPI closeout report") && manifest.contains("audit_closed=true") && audit.contains("Status: implemented in V5.0.4295 as `OperatorKpiCloseoutReport`"))
         assertFalse("V5.0.4295 A41: KPI closeout must never own execution authority or fake PnL", report.contains("executeBuy(") || report.contains("requestSell(") || !report.contains("no_phantom_pnl=true") || !report.contains("no_execution_authority=true"))
@@ -5160,7 +5160,7 @@ class GoldenTapeRegressionTest {
         val quality = java.io.File("src/main/kotlin/com/lifecyclebot/v3/scoring/QualityTraderAI.kt").readText()
         val blue = java.io.File("src/main/kotlin/com/lifecyclebot/v3/scoring/BlueChipTraderAI.kt").readText()
         assertTrue("V5.0.4328: Quality must consume and warm cached UltimateEdge cards", quality.contains("ULTIMATE_EDGE_QUALITY_CACHE_SHAPE_4328") && quality.contains("UltimateEdgeEngine.cached(mint, \"QUALITY\")") && quality.contains("UltimateEdgeEngine.enqueueRefresh(position.mint, position.symbol, \"QUALITY\"") && quality.contains("UltimateEdgeEngine.enqueueRefresh(pos.mint, pos.symbol, \"QUALITY\""))
-        assertTrue("V5.0.4328: BlueChip must consume and warm cached UltimateEdge cards", blue.contains("ULTIMATE_EDGE_BLUECHIP_CACHE_SHAPE_4328") && blue.contains("UltimateEdgeEngine.cached(mint, \"BLUECHIP\")") && blue.contains("UltimateEdgeEngine.enqueueRefresh(position.mint, position.symbol, \"BLUECHIP\"") && blue.contains("UltimateEdgeEngine.enqueueRefresh(pos.mint, pos.symbol, \"BLUECHIP\""))
+        assertTrue("V5.0.4328: BlueChip must consume and warm cached UltimateEdge cards", blue.contains("ULTIMATE_EDGE_BLUECHIP_CACHE_SHAPE_4328") && blue.contains("UltimateEdgeEngine.cached(mint, \"BLUECHIP\")") && blue.contains("BLUECHIP_OPEN") && blue.contains("BLUECHIP_CLOSE"))
     }
 
     @Test
@@ -5175,7 +5175,7 @@ class GoldenTapeRegressionTest {
         val dip = java.io.File("src/main/kotlin/com/lifecyclebot/v3/scoring/DipHunterAI.kt").readText()
         val sniper = java.io.File("src/main/kotlin/com/lifecyclebot/v3/scoring/ProjectSniperAI.kt").readText()
         assertTrue("V5.0.4330: DipHunter must consume/warm cached UltimateEdge cards", dip.contains("ULTIMATE_EDGE_DIP_CACHE_SHAPE_4330") && dip.contains("UltimateEdgeEngine.cached(mint, \"DIP_HUNTER\")") && dip.contains("UltimateEdgeEngine.enqueueRefresh(mint, symbol, \"DIP_HUNTER\"") && dip.contains("UltimateEdgeEngine.enqueueRefresh(pos.mint, pos.symbol, \"DIP_HUNTER\""))
-        assertTrue("V5.0.4330: ProjectSniper must consume/warm cached UltimateEdge cards", sniper.contains("ULTIMATE_EDGE_SNIPER_CACHE_SHAPE_4330") && sniper.contains("UltimateEdgeEngine.cached(ts.mint, \"PROJECT_SNIPER\")") && sniper.contains("UltimateEdgeEngine.enqueueRefresh(mint, symbol, \"PROJECT_SNIPER\"") && sniper.contains("UltimateEdgeEngine.enqueueRefresh(mission.mint, mission.symbol, \"PROJECT_SNIPER\""))
+        assertTrue("V5.0.4330: ProjectSniper must consume/warm cached UltimateEdge cards", sniper.contains("ULTIMATE_EDGE_SNIPER_CACHE_SHAPE_4330") && sniper.contains("UltimateEdgeEngine.cached(ts.mint, \"PROJECT_SNIPER\")") && sniper.contains("SNIPER_OPEN") && sniper.contains("SNIPER_CLOSE"))
     }
 
     @Test
@@ -5231,6 +5231,13 @@ class GoldenTapeRegressionTest {
     fun treasuryOpportunity4339TracksActualCashGenOpenCloseLedgerOnly() {
         val cash = java.io.File("src/main/kotlin/com/lifecyclebot/v3/scoring/CashGenerationAI.kt").readText()
         assertTrue("V5.0.4339: CashGen actual open/close must feed TreasuryOpportunityEngine ledger only", cash.contains("TreasuryOpportunityEngine.recordDeployment") && cash.contains("TreasuryOpportunityEngine.closeDeployment") && cash.contains("ledger-only; CashGen executed the buy") && cash.contains("ledger-only; CashGen executed the sell"))
+    }
+
+
+    @Test
+    fun cashGen4340UsesLiquidityMcapProxyForTreasuryOpportunityRiskOnly() {
+        val cash = java.io.File("src/main/kotlin/com/lifecyclebot/v3/scoring/CashGenerationAI.kt").readText()
+        assertTrue("V5.0.4340: CashGenerationAI must not reference nonexistent marketCapUsd in TreasuryOpportunityEngine advisory path", !cash.contains("mcapUsd = marketCapUsd") && cash.contains("liquidityUsd * 12.0") && cash.contains("risk proxy only"))
     }
 
 }

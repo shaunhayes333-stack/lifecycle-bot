@@ -681,6 +681,7 @@ object ProjectSniperAI {
         
         val pnlPct = ((exitPrice - mission.entryPrice) / mission.entryPrice * 100)
         val pnlSol = mission.entrySol * (pnlPct / 100)
+        try { com.lifecyclebot.engine.UltimateEdgeEngine.enqueueRefresh(mission.mint, mission.symbol, "PROJECT_SNIPER", "SNIPER_CLOSE", pnlPct.toInt().coerceIn(-100, 100), "exit_${exitSignal.reason.take(40)}_pnl_${pnlPct.fmt(2)}") } catch (_: Throwable) {}
         
 
         // V5.9.495z17 — operator-mandated 70/30 profit split + missing

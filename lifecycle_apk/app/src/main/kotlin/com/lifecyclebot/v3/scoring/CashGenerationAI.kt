@@ -984,7 +984,7 @@ object CashGenerationAI {
                 confidence = treasuryConfidence.toDouble(),
                 mode = mode.name,
                 liquidityUsd = liquidityUsd,
-                mcapUsd = marketCapUsd,
+                mcapUsd = (liquidityUsd * 12.0).coerceAtLeast(liquidityUsd), // V5.0.4340 evaluator has no direct mcap; risk proxy only
             )
             if (opp4338 != null) {
                 val advisoryTarget4338 = opp4338.recommendedSizeSol.coerceIn(MIN_POSITION_SOL, maxWithCompounding)
