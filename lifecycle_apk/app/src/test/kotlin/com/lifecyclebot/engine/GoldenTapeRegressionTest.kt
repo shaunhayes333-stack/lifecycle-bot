@@ -4905,7 +4905,7 @@ class GoldenTapeRegressionTest {
         val exec = java.io.File("src/main/kotlin/com/lifecyclebot/engine/Executor.kt").readText()
         val manifest = java.io.File("src/main/kotlin/com/lifecyclebot/engine/AsiSsiAuditCloseoutManifest.kt").readText()
         val audit = readLifecycleFileFor4280s("audits/asi_ssi_audit_queue_2026-06-27.md")
-        assertTrue("V5.0.4295 A41: operator KPI closeout must cover volume, live/paper drift, realized SOL, runner giveback, source PF, sizing warnings, and build status", report.contains("OPERATOR_KPI_CLOSEOUT_REPORT_4432") && report.contains("volume=TradeHistoryStore") && report.contains("live_paper_drift=LivePaperDriftSentinel") && report.contains("realized_net_sol=LiveWalletGrowthGovernorReport") && report.contains("runner_giveback=RunnerExitShadowLedger") && report.contains("source_family_pf=SourceFamilyOpportunityScorecard") && report.contains("sizing_stack_warnings=SizingStackIntegritySentinel") && report.contains("build_status"))
+        assertTrue("V5.0.4295 A41: operator KPI closeout must cover volume, live/paper drift, realized SOL, runner giveback, source PF, sizing warnings, and build status", report.contains("OPERATOR_KPI_CLOSEOUT_REPORT_4435") && report.contains("volume=TradeHistoryStore") && report.contains("live_paper_drift=LivePaperDriftSentinel") && report.contains("realized_net_sol=LiveWalletGrowthGovernorReport") && report.contains("runner_giveback=RunnerExitShadowLedger") && report.contains("source_family_pf=SourceFamilyOpportunityScorecard") && report.contains("sizing_stack_warnings=SizingStackIntegritySentinel") && report.contains("build_status"))
         assertTrue("V5.0.4295 A41: Executor must emit operator KPI report only from side-effect terminal fanout", exec.contains("OperatorKpiCloseoutReport.emit()") && exec.contains("if (_fanoutSide == \"SELL\")"))
         assertTrue("V5.0.4295 closeout: manifest and audit queue must mark A38-A41 complete", manifest.contains("A41 operator KPI closeout report") && manifest.contains("audit_closed=true") && audit.contains("Status: implemented in V5.0.4295 as `OperatorKpiCloseoutReport`"))
         assertFalse("V5.0.4295 A41: KPI closeout must never own execution authority or fake PnL", report.contains("executeBuy(") || report.contains("requestSell(") || !report.contains("no_phantom_pnl=true") || !report.contains("no_execution_authority=true"))
@@ -5189,7 +5189,7 @@ class GoldenTapeRegressionTest {
     @Test
     fun operatorKpi4332ExposesUltimateEdgeAndChokeReliefHelpers() {
         val report = java.io.File("src/main/kotlin/com/lifecyclebot/engine/OperatorKpiCloseoutReport.kt").readText()
-        assertTrue("V5.0.4332: operator KPI report must expose UltimateEdge and ChokeRelief helper health", report.contains("OPERATOR_KPI_CLOSEOUT_REPORT_4432") && report.contains("UltimateEdgeEngine.status(6)") && report.contains("ChokeReliefBus.status()") && report.contains("ultimate_edge=UltimateEdgeEngine") && report.contains("choke_relief=ChokeReliefBus"))
+        assertTrue("V5.0.4332: operator KPI report must expose UltimateEdge and ChokeRelief helper health", report.contains("OPERATOR_KPI_CLOSEOUT_REPORT_4435") && report.contains("UltimateEdgeEngine.status(6)") && report.contains("ChokeReliefBus.status()") && report.contains("ultimate_edge=UltimateEdgeEngine") && report.contains("choke_relief=ChokeReliefBus"))
     }
 
     @Test
@@ -5948,6 +5948,17 @@ class GoldenTapeRegressionTest {
         assertTrue("V5.0.4433: liveBuyDeferred must classify deferred/quote reasons into reject taxonomy", exec.contains("EXECUTOR_DEFERRED_BUY_TAXONOMY_4433") && exec.contains("RejectTaxonomy.classify(reason, null)"))
         assertTrue("V5.0.4433: liveBuyDeferred taxonomy must be ledgered via bounded bus while preserving emitLiveBuyFail", exec.contains("RejectTaxonomyLedger.record") && exec.contains("ChokeReliefBus.launch") && exec.contains("emitLiveBuyFail(ts, sol, reason, detail)"))
         assertTrue("V5.0.4433: audit register must mark deferred quote reasons closed", register.contains("closed_optional=[deferred_quote_reasons_4433]") && register.contains("canonical_outcome_row_tag"))
+    }
+
+
+    @Test
+    fun canonicalRejectTaxonomyRowTag_4435InspectsLegacyTradeBeforeOutcomePublish() {
+        val canonical = java.io.File("src/main/kotlin/com/lifecyclebot/engine/CanonicalLearning.kt").readText()
+        val tag = java.io.File("src/main/kotlin/com/lifecyclebot/engine/CanonicalRejectTaxonomyRowTag.kt").readText()
+        val register = java.io.File("src/main/kotlin/com/lifecyclebot/engine/RejectTaxonomyAuditRegister.kt").readText()
+        assertTrue("V5.0.4435: CanonicalOutcomeBus publishFromLegacyTrade must call reject taxonomy row tag", canonical.contains("CanonicalRejectTaxonomyRowTag.inspectLegacyTrade") && canonical.contains("CanonicalOutcomeBus.publishFromLegacyTrade.entry"))
+        assertTrue("V5.0.4435: canonical reject row tag must be report-only and ledgered", tag.contains("CANONICAL_REJECT_ROW_TAG_4435") && tag.contains("RejectTaxonomyLedger.record") && tag.contains("no_outcome_mutation=true"))
+        assertTrue("V5.0.4435: audit register must mark canonical outcome row tag closed", register.contains("canonical_outcome_row_tag_4435") && register.contains("remaining_optional=[ui_breakdown]"))
     }
 
 }
