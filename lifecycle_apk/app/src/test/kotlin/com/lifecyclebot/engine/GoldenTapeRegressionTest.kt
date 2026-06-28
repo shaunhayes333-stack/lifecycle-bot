@@ -5533,7 +5533,7 @@ class GoldenTapeRegressionTest {
         val bridge = java.io.File("src/main/kotlin/com/lifecyclebot/engine/MemeCrossTalkEntryBridge.kt").readText()
         assertTrue("V5.0.4380: AICrossTalk stamp must retain source/mode/positionId/build with the entry-time signal", cross.contains("source: String") && cross.contains("mode: String") && cross.contains("positionId: String") && cross.contains("build: String") && cross.contains("CROSSTALK_ENTRY_STAMP_4380") && cross.contains("CROSSTALK_ENTRY_OUTCOME_4380"))
         assertTrue("V5.0.4380: MemeCrossTalkEntryBridge must stamp event-local source/mode/positionId instead of close-time recompute metadata", bridge.contains("source = ts.source") && bridge.contains("mode = ts.position.tradingMode") && bridge.contains("positionId = TradeOutcomeLedger.positionId(ts)"))
-        assertTrue("V5.0.4380: cross-talk metadata patch must preserve backward compatibility for existing callers", cross.contains("""source: String = """"") && cross.contains("""mode: String = """"") && cross.contains("""positionId: String = """"") && cross.contains("build: String = BuildConfig.VERSION_NAME"))
+        assertTrue("V5.0.4380: cross-talk metadata patch must preserve backward compatibility for existing callers", cross.contains("source: String = ") && cross.contains("mode: String = ") && cross.contains("positionId: String = ") && cross.contains("build: String = BuildConfig.VERSION_NAME"))
     }
 
 
