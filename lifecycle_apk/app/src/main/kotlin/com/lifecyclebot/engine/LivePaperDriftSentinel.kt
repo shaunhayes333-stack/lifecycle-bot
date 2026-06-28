@@ -2,6 +2,7 @@ package com.lifecyclebot.engine
 
 import com.lifecyclebot.data.Trade
 import java.util.concurrent.ConcurrentHashMap
+import java.util.concurrent.atomic.AtomicLong
 import kotlin.math.abs
 
 /** V5.0.4271 — read-only live/paper parity sentinel. Never blocks or sizes trades. */
@@ -11,6 +12,7 @@ object LivePaperDriftSentinel {
     private const val MIN_LIVE = 5
     private const val DEBOUNCE_MS = 5 * 60_000L
     private val lastEmitByLane = ConcurrentHashMap<String, Long>()
+    private val driftCountByLane = ConcurrentHashMap<String, AtomicLong>()
 
     data class Shape(
         val count: Int,
@@ -44,6 +46,7 @@ object LivePaperDriftSentinel {
             val drift = wrGap >= 25.0 || sizeRatio >= 3.0 || sizeRatio <= 0.33 || holdRatio >= 3.0 || holdRatio <= 0.33 || pnlSignDrift
             if (!drift) return
             lastEmitByLane[lane] = now
+            driftCountByLane.computeIfAbsent(lane) { AtomicLong(0L) }.incrementAndGet()
             try {
                 PipelineHealthCollector.labelInc("LIVE_PAPER_DRIFT_SENTINEL_4271")
                 PipelineHealthCollector.labelInc("LIVE_PAPER_DRIFT_SENTINEL_4271_${lane}")
@@ -53,6 +56,11 @@ object LivePaperDriftSentinel {
                 )
             } catch (_: Throwable) {}
         } catch (_: Throwable) {}
+    }
+
+    fun status(limit: Int = 6): String {
+        val rows = driftCountByLane.mapValues { it.value.get() }.entries.sortedByDescending { it.value }.take(limit.coerceAtLeast(1))
+        return "LIVE_PAPER_DRIFT_STATUS_4361 driftEvents=${driftCountByLane.values.sumOf { it.get() }} lanes=${rows.joinToString(";") { it.key + ":" + it.value }} report_only=true no_pause_no_size_change=true"
     }
 
     private fun shape(rows: List<Trade>): Shape {
