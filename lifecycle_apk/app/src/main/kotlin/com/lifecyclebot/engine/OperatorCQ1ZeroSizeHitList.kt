@@ -20,16 +20,16 @@ object OperatorCQ1ZeroSizeHitList {
         Hit(
             file = "CashGenerationAI.kt",
             pattern = "below MIN_POSITION_SOL returns 0.0 and caller skips trade",
-            classification = "CONFIRMED_VOLUME_CHOKE_CANDIDATE",
-            risk = "lane-local treasury recovery/probe trades can disappear instead of being telemetry-shaped",
-            downstream = "Treasury lane -> BotService size handoff -> Executor -> journal volume -> KPI throughput"
+            classification = "CAPITAL_SAFETY_GUARD_REVIEWED",
+            risk = "live wallet-too-small guard prevents the known Treasury fee-drain money leak; do not soften without explicit reserve-aware probe design",
+            downstream = "Treasury lane -> wallet reserve -> Executor fee/slippage safety -> journal/KPI skip reason"
         ),
         Hit(
             file = "LaneStrategyEvaluator.kt",
             pattern = "noTrade transform returns 0.0",
-            classification = "CONFIRMED_POLICY_CHOKE_CANDIDATE",
-            risk = "strategy evaluator can encode no-trade as invisible zero instead of route verdict taxonomy",
-            downstream = "lane policy -> strategy score -> FDG/verdict visibility -> learning labels"
+            classification = "REPLAY_POLICY_CANDIDATE_NOT_DIRECT_EXECUTION",
+            risk = "replay evaluator no-trade zero should be route-visible if ever consumed by live policy",
+            downstream = "replay evaluation -> lane policy proposal -> FDG/verdict visibility -> learning labels"
         ),
         Hit(
             file = "BotBrain.kt",
@@ -62,8 +62,8 @@ object OperatorCQ1ZeroSizeHitList {
     )
 
     fun status(): String {
-        val confirmed = hits.filter { it.classification.contains("CONFIRMED") }.joinToString(",") { it.file }
+        val reviewed = hits.filter { it.classification.contains("REVIEWED") || it.classification.contains("CANDIDATE") }.joinToString(",") { it.file }
         val benign = hits.filter { it.classification.contains("BENIGN") }.joinToString(",") { it.file }
-        return "OPERATOR_CQ1_ZERO_SIZE_HIT_LIST_4412 total=${hits.size} confirmed=[$confirmed] benign=[$benign] report_only=true no_execution_authority=true no_gate_change=true source_fix_first=true false_positives_separated=true butterflies_named=true"
+        return "OPERATOR_CQ1_ZERO_SIZE_HIT_LIST_4413 total=${hits.size} reviewed=[$reviewed] benign=[$benign] report_only=true no_execution_authority=true no_gate_change=true source_fix_first=true false_positives_separated=true capital_safety_preserved=true butterflies_named=true"
     }
 }
