@@ -173,4 +173,10 @@ object PaperLiveConfidenceWeights {
     }
 
     fun snapshot(): Map<String, Long> = liveSamplesByBucket.mapValues { it.value.get() }
+
+    fun status(limit: Int = 6): String {
+        val rows = snapshot().entries.sortedByDescending { it.value }.take(limit.coerceAtLeast(1))
+        val validated = snapshot().values.count { it >= LIVE_VALIDATION_MIN_SAMPLES }
+        return "PAPER_LIVE_CONFIDENCE_WEIGHTS_4355 buckets=${liveSamplesByBucket.size} validated=$validated minLive=$LIVE_VALIDATION_MIN_SAMPLES bootstrap=$PAPER_BOOTSTRAP_WEIGHT validatedWeight=$PAPER_VALIDATED_WEIGHT top=${rows.joinToString(";") { it.key + ":" + it.value }}"
+    }
 }

@@ -5328,4 +5328,14 @@ class GoldenTapeRegressionTest {
         assertFalse("V5.0.4351: paper confidence telemetry must not drop ML rows", confidenceBlock.contains("return@launch") || confidenceBlock.contains("return"))
     }
 
+
+    @Test
+    fun paperLiveConfidence4355AppearsInOperatorKpiReport() {
+        val sanity = java.io.File("src/main/kotlin/com/lifecyclebot/engine/learning/TradeRowSanityCheck.kt").readText()
+        val kpi = java.io.File("src/main/kotlin/com/lifecyclebot/engine/OperatorKpiCloseoutReport.kt").readText()
+        assertTrue("V5.0.4355: PaperLiveConfidenceWeights must expose compact status", sanity.contains("PAPER_LIVE_CONFIDENCE_WEIGHTS_4355") && sanity.contains("validatedWeight") && sanity.contains("LIVE_VALIDATION_MIN_SAMPLES"))
+        assertTrue("V5.0.4355: operator KPI must include paper/live confidence state", kpi.contains("paper_live_confidence=PaperLiveConfidenceWeights") && kpi.contains("PaperLiveConfidenceWeights.status"))
+        assertTrue("V5.0.4355: paper/live confidence remains report-only", kpi.contains("report_only=true") && kpi.contains("no_execution_authority=true"))
+    }
+
 }
