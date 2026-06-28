@@ -415,7 +415,7 @@ class GoldenTapeRegressionTest {
         val bot = java.io.File("src/main/kotlin/com/lifecyclebot/engine/BotService.kt").readText()
         assertTrue("MEME-only should rotate ownership across the full MemeTrader surface", bot.contains("MEMETRADER_CONTRIBUTION_ROTATION") && bot.contains("fullMemeTraderRing") && bot.contains("MEMETRADER_OWNER_LANE"))
         assertTrue("Rotation must include internal lanes that were previously idle", listOf("SHITCOIN", "MOONSHOT", "EXPRESS", "PROJECT_SNIPER", "MANIPULATED", "QUALITY", "DIP_HUNTER", "TREASURY", "CASHGEN", "BLUECHIP").all { bot.contains(it) })
-        assertTrue("V5.0.4473: live contribution now evaluates all internal lanes while owner rotation remains telemetry", bot.contains("LIVE_ALL_LANE_CONTRIBUTION_4469") && bot.contains("action=evaluate_like_paper_trader") && bot.contains("val allowed = l == ownerLane"))
+        assertTrue("V5.0.4478: live contribution considers all internal lanes but bounds FDG/executor to owner/rescue", bot.contains("LIVE_ALL_LANE_CONTRIBUTION_4469") && bot.contains("action=considered_bounded_owner_rotation") && bot.contains("val allowed = l == ownerLane") && bot.contains("return allowed"))
         assertFalse("3914 live full-ring fanout regression must stay dead", bot.contains("LIVE_FULL_RING_LANE_OBSERVE"))
     }
 
@@ -3440,7 +3440,7 @@ class GoldenTapeRegressionTest {
     fun live_meme_mode_must_collapse_to_one_owner_lane_not_full_ring_fanout() {
         val bot = java.io.File("src/main/kotlin/com/lifecyclebot/engine/BotService.kt").readText()
         val pipe = java.io.File("src/main/kotlin/com/lifecyclebot/engine/PipelineHealthCollector.kt").readText()
-        assertTrue("V5.0.4473: live MemeTrader must evaluate all internal trader lanes like paper while preserving owner telemetry", bot.contains("LIVE_RING_OWNER_COLLAPSE") && bot.contains("LIVE_ALL_LANE_CONTRIBUTION_4469") && bot.contains("MEMETRADER_OWNER_LANE") && bot.contains("val allowed = l == ownerLane"))
+        assertTrue("V5.0.4478: live MemeTrader must consider all internal trader lanes while preserving bounded owner telemetry", bot.contains("LIVE_RING_OWNER_COLLAPSE") && bot.contains("LIVE_ALL_LANE_CONTRIBUTION_4469") && bot.contains("MEMETRADER_OWNER_LANE") && bot.contains("val allowed = l == ownerLane"))
         assertFalse("live full-ring observe must not return true before owner rotation", bot.contains("LIVE_FULL_RING_LANE_OBSERVE") || bot.contains("fullRingObserve"))
         assertTrue("V5.0.4474: runtime report must expose live all-lane contribution policy and owner context", pipe.contains("MEME_RING=liveAllLaneContribution") && pipe.contains("LIVE_ALL_LANE_CONTRIBUTION_4469") && pipe.contains("LIVE_RING_OWNER_COLLAPSE") && pipe.contains("MEMETRADER_OWNER_LANE"))
         assertTrue("runtime report must expose pre-attempt live buy suppressions", pipe.contains("Pre-attempt suppressions") && pipe.contains("LIVE_BUY_PREATTEMPT_PROVIDER_PROOF_BLIND") && pipe.contains("STALE_AUTH_LOCK_PRUNED"))
@@ -6176,8 +6176,8 @@ class GoldenTapeRegressionTest {
     @Test
     fun botService_4469LiveMemeModeEvaluatesAllInternalTraderLanesForLearning() {
         val src = java.io.File("src/main/kotlin/com/lifecyclebot/engine/BotService.kt").readText()
-        assertTrue("V5.0.4469: live MEME-only lane classifier must evaluate every internal trader lane like paper trader", src.contains("LIVE_ALL_LANE_CONTRIBUTION_4469") && src.contains("action=evaluate_like_paper_trader") && src.contains("return true"))
-        assertTrue("V5.0.4477: owner rotation remains telemetry/owner-selected context, not a live evaluation suppressor", src.contains("ownerSelected=") && src.contains("owner=") && src.contains("ownerLane") && src.contains("MEMETRADER_OWNER_LANE") && src.contains("LANE_SUPPRESSED_BY_OWNER_ROTATION"))
+        assertTrue("V5.0.4478: live MEME-only lane classifier must consider every internal trader but only owner/rescue reaches FDG", src.contains("LIVE_ALL_LANE_CONTRIBUTION_4469") && src.contains("action=considered_bounded_owner_rotation") && src.contains("return allowed"))
+        assertTrue("V5.0.4478: owner rotation remains the bounded live FDG/executor contract while all lanes are considered", src.contains("ownerSelected=") && src.contains("owner=") && src.contains("ownerLane") && src.contains("LIVE_ALL_LANE_CONTRIBUTION_SUPPRESSED_4478") && src.contains("LANE_SUPPRESSED_BY_OWNER_ROTATION"))
         assertTrue("V5.0.4469: full internal ring includes every meme trader contributor for live learning", listOf("SHITCOIN", "MOONSHOT", "EXPRESS", "PROJECT_SNIPER", "MANIPULATED", "QUALITY", "DIP_HUNTER", "TREASURY", "CASHGEN", "BLUECHIP").all { src.contains(it) })
     }
 
