@@ -6207,7 +6207,7 @@ class GoldenTapeRegressionTest {
     fun botService_4481ExitTriggersUseWalletCorrespondentBasisGuard() {
         val src = java.io.File("src/main/kotlin/com/lifecyclebot/engine/BotService.kt").readText()
         assertTrue("V5.0.4481: fast exit triggers must share the wallet-correspondent basis guard", src.contains("walletCorrespondentOpenPrice4481") && src.contains("EXIT_TRIGGER_BASIS_REBASED_4481") && src.contains("wallet_correspondent_exit_trigger"))
-        assertTrue("V5.0.4481: rapid monitor PnL must evaluate the basis-guarded price before stop/take-profit decisions", src.contains("rapidExitPrice4481") && src.contains("context = "BotService.rapidStop") && src.contains("currentPrice = rapidExitPrice4481"))
+        assertTrue("V5.0.4481: rapid monitor PnL must evaluate the basis-guarded price before stop/take-profit decisions", src.contains("rapidExitPrice4481") && src.contains("BotService.rapidStop") && src.contains("currentPrice = rapidExitPrice4481"))
         assertTrue("V5.0.4481: universal exit sweep and tick profit lock must not act on raw phantom marks", src.contains("UNIVERSAL_EXIT_SWEEP") && src.contains("safeExecPxForTickLock4481") && src.contains("TICK_PROFIT_LOCK"))
     }
 
