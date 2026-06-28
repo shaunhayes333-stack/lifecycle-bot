@@ -5889,4 +5889,14 @@ class GoldenTapeRegressionTest {
         assertTrue("V5.0.4427: zero-liquidity must stay hard safety while generic low-liq maps to size-reduction", taxonomy.contains("ZERO_LIQUIDITY") && taxonomy.contains("zero_liquidity_hard_safety=true") && taxonomy.contains("fdg_consumed_4427=true"))
     }
 
+
+    @Test
+    fun executorPreAttemptRejectTaxonomy_4428FeedsLedgerWithoutBlockingLiveBuyFail() {
+        val exec = java.io.File("src/main/kotlin/com/lifecyclebot/engine/Executor.kt").readText()
+        val taxonomy = java.io.File("src/main/kotlin/com/lifecyclebot/engine/RejectTaxonomy.kt").readText()
+        assertTrue("V5.0.4428: executor live preattempt hard rejects must classify into reject taxonomy", exec.contains("EXECUTOR_PREATTEMPT_REJECT_TAXONOMY_4428") && exec.contains("RejectTaxonomy.classify(reason, TradeAuthorizer.BlockLevel.HARD)"))
+        assertTrue("V5.0.4428: executor reject taxonomy must be ledgered via bounded ChokeReliefBus", exec.contains("ChokeReliefBus.launch") && exec.contains("RejectTaxonomyLedger.record") && exec.contains("ledger=RejectTaxonomyLedger"))
+        assertTrue("V5.0.4428: live buy failure emission must remain outside the report-only telemetry bus", exec.contains("emitLiveBuyFail(ts, sol, reason, detail)") && taxonomy.contains("executor_preattempt_consumed_4428=true"))
+    }
+
 }

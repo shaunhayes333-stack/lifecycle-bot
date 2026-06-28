@@ -8007,13 +8007,18 @@ class Executor(
     }
 
     private fun livePreAttemptHardReject(ts: TokenState, sol: Double, reason: String, detail: String = "") {
-        try {
-            ForensicLogger.lifecycle(
-                "LIVE_PREATTEMPT_HARD_REJECT",
-                "mint=${ts.mint.take(10)} symbol=${ts.symbol} sol=${"%.4f".format(sol)} reason=$reason ${detail.take(160)}".trim(),
-            )
-            PipelineHealthCollector.labelInc("LIVE_PREATTEMPT_HARD_REJECT_$reason")
-        } catch (_: Throwable) {}
+        val taxonomy = try { RejectTaxonomy.classify(reason, TradeAuthorizer.BlockLevel.HARD) } catch (_: Throwable) { null }
+        ChokeReliefBus.launch("EXECUTOR_PREATTEMPT_REJECT_TAXONOMY_4428", ts.mint) {
+            try { if (taxonomy != null) RejectTaxonomyLedger.record(taxonomy, "EXECUTOR_LIVE", reason) } catch (_: Throwable) {}
+            try {
+                ForensicLogger.lifecycle(
+                    "LIVE_PREATTEMPT_HARD_REJECT",
+                    "mint=${ts.mint.take(10)} symbol=${ts.symbol} sol=${"%.4f".format(sol)} reason=$reason ${detail.take(160)} taxonomy=${taxonomy?.category?.name ?: "UNKNOWN"} ledger=RejectTaxonomyLedger".trim(),
+                )
+                PipelineHealthCollector.labelInc("LIVE_PREATTEMPT_HARD_REJECT_$reason")
+                if (taxonomy != null) PipelineHealthCollector.labelInc("EXECUTOR_PREATTEMPT_REJECT_TAXONOMY_4428_${taxonomy.category.name}")
+            } catch (_: Throwable) {}
+        }
         emitLiveBuyFail(ts, sol, reason, detail)
     }
 
