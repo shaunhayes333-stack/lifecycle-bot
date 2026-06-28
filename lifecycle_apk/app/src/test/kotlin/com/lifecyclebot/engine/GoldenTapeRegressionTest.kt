@@ -415,7 +415,7 @@ class GoldenTapeRegressionTest {
         val bot = java.io.File("src/main/kotlin/com/lifecyclebot/engine/BotService.kt").readText()
         assertTrue("MEME-only should rotate ownership across the full MemeTrader surface", bot.contains("MEMETRADER_CONTRIBUTION_ROTATION") && bot.contains("fullMemeTraderRing") && bot.contains("MEMETRADER_OWNER_LANE"))
         assertTrue("Rotation must include internal lanes that were previously idle", listOf("SHITCOIN", "MOONSHOT", "EXPRESS", "PROJECT_SNIPER", "MANIPULATED", "QUALITY", "DIP_HUNTER", "TREASURY", "CASHGEN", "BLUECHIP").all { bot.contains(it) })
-        assertTrue("Contribution fix must remain bounded to one owner lane, not all-lane fanout", bot.contains("val allowed = l == ownerLane") && bot.contains("return allowed"))
+        assertTrue("V5.0.4473: live contribution now evaluates all internal lanes while owner rotation remains telemetry", bot.contains("LIVE_ALL_LANE_CONTRIBUTION_4469") && bot.contains("action=evaluate_like_paper_trader") && bot.contains("val allowed = l == ownerLane"))
         assertFalse("3914 live full-ring fanout regression must stay dead", bot.contains("LIVE_FULL_RING_LANE_OBSERVE"))
     }
 
@@ -842,7 +842,7 @@ class GoldenTapeRegressionTest {
         assertTrue(bot.contains("MEMETRADER_CONTRIBUTION_ROTATION"))
         assertTrue(bot.contains("exactly ONE owner"))
         assertTrue(bot.contains("val allowed = l == ownerLane"))
-        assertTrue(bot.contains("return allowed"))
+        assertTrue(bot.contains("LIVE_ALL_LANE_CONTRIBUTION_4469"))
         assertTrue(bot.contains("val fullMemeTraderRing = listOf"))
         assertFalse("owner rotation must not require pre-existing affinity", bot.contains("nonMemeSpecialist && affinity.contains(l)"))
         val report = java.io.File("src/main/kotlin/com/lifecyclebot/engine/PipelineHealthCollector.kt").readText()
@@ -3440,7 +3440,7 @@ class GoldenTapeRegressionTest {
     fun live_meme_mode_must_collapse_to_one_owner_lane_not_full_ring_fanout() {
         val bot = java.io.File("src/main/kotlin/com/lifecyclebot/engine/BotService.kt").readText()
         val pipe = java.io.File("src/main/kotlin/com/lifecyclebot/engine/PipelineHealthCollector.kt").readText()
-        assertTrue("live MemeTrader must use owner collapse, not all-lane FDG fanout", bot.contains("LIVE_RING_OWNER_COLLAPSE") && bot.contains("MEMETRADER_OWNER_LANE") && bot.contains("val allowed = l == ownerLane"))
+        assertTrue("V5.0.4473: live MemeTrader must evaluate all internal trader lanes like paper while preserving owner telemetry", bot.contains("LIVE_RING_OWNER_COLLAPSE") && bot.contains("LIVE_ALL_LANE_CONTRIBUTION_4469") && bot.contains("MEMETRADER_OWNER_LANE") && bot.contains("val allowed = l == ownerLane"))
         assertFalse("live full-ring observe must not return true before owner rotation", bot.contains("LIVE_FULL_RING_LANE_OBSERVE") || bot.contains("fullRingObserve"))
         assertTrue("runtime report must expose bounded owner-collapse policy", pipe.contains("MEME_RING=liveOwnerCollapsed") && pipe.contains("LIVE_RING_OWNER_COLLAPSE") && pipe.contains("MEMETRADER_OWNER_LANE"))
         assertTrue("runtime report must expose pre-attempt live buy suppressions", pipe.contains("Pre-attempt suppressions") && pipe.contains("LIVE_BUY_PREATTEMPT_PROVIDER_PROOF_BLIND") && pipe.contains("STALE_AUTH_LOCK_PRUNED"))
