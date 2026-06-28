@@ -163,7 +163,7 @@ object ReportingHub {
         out.appendHeader("AATE UNIFIED OPERATIONAL REPORT")
         out.appendLine("Generated: ${stamp()}")
         out.appendLine("Scope: runtime / pipeline / learning / tuning / journal / forensic / errors")
-        out.appendLine("Size budget: ${budget} chars hard-capped for chat delivery; sections are priority-budgeted before truncation; raw journal rows excluded.")
+        out.appendLine("Size budget: ${budget} chars paste-safe hard cap; every major section is represented; raw rows are summarized, not dumped.")
         out.appendLine()
 
         fun addBoundedSection(title: String, maxChars: Int, body: () -> String) {
@@ -174,24 +174,25 @@ object ReportingHub {
             out.appendLine()
         }
 
-        // V5.0.3854 — REPORT BUDGET RECOMPILE.
-        // Previous budgets summed above the hard cap, so the tail (often toolkit proof,
-        // forensic/errors) was still chopped. Keep all sections, but give each a strict
-        // pre-cap budget and remove learning duplication from the pipeline block.
-        addBoundedSection("EXECUTIVE SNAPSHOT", 2_600) { buildExecutiveSnapshot() }
-        addBoundedSection("TOOLKIT SIGNAL SHEET", 2_600) { buildToolkitSignalSummary() }
-        addBoundedSection("PIPELINE HEALTH — CORE", 10_500) { compactPipelineDump(PipelineHealthCollector.dumpText()) }
-        addBoundedSection("LEARNING + TUNING STATE", 7_200) { buildLearningTuningSummary() }
-        addBoundedSection("TRADE JOURNAL SUMMARY", 5_200) { buildJournalSummary() }
-        addBoundedSection("FORENSIC SUMMARY", 2_800) { buildForensicSummary() }
-        addBoundedSection("ERROR LOGS — RECENT", 3_200) { ErrorLogger.exportToCompactTable(limit = 60) }
+        // V5.0.4487 — PASTE-SAFE REPORT CONTRACT.
+        // Operator reports were still too large for chat: downstream channels chopped
+        // the tail even though each section had its own local budget. Keep every major
+        // category, but shrink the global envelope and summarize raw/error rows.
+        addBoundedSection("EXECUTIVE SNAPSHOT", 1_700) { buildExecutiveSnapshot() }
+        addBoundedSection("TOOLKIT SIGNAL SHEET", 1_700) { buildToolkitSignalSummary() }
+        addBoundedSection("PIPELINE HEALTH — CORE", 5_800) { compactPipelineDump(PipelineHealthCollector.dumpText()) }
+        addBoundedSection("LEARNING + TUNING STATE", 3_900) { buildLearningTuningSummary() }
+        addBoundedSection("TRADE JOURNAL SUMMARY", 3_000) { buildJournalSummary() }
+        addBoundedSection("FORENSIC SUMMARY", 1_500) { buildForensicSummary() }
+        addBoundedSection("ERROR LOGS — RECENT", 1_600) { ErrorLogger.exportToCompactTable(limit = 24) }
+        out.appendLine("Report envelope: PASTE_SAFE_V4487 chars=${out.length}/$budget sections=7 errorLimit=24")
 
         val text = out.toString().trimEnd()
         return if (text.length <= budget) text else text.take(budget - 180) + "\n\n[REPORT_TRUNCATED hardCap=$budget chars — sections above are priority-ordered and internally condensed]"
     }
 
 
-    private const val MAX_UNIFIED_REPORT_CHARS = 42_000
+    private const val MAX_UNIFIED_REPORT_CHARS = 24_000
 
     private fun buildExecutiveSnapshot(): String = buildString(3 * 1024) {
         val rt = safeSnapshot { BotRuntimeController.snapshot() }

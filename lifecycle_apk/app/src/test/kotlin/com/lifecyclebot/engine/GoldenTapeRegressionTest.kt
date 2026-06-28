@@ -6230,4 +6230,14 @@ class GoldenTapeRegressionTest {
         assertTrue("V5.0.4484: service toasts should use the shared handler and short duration, not post unlimited long toasts", src.contains("serviceToastHandler4484.post") && src.contains("Toast.LENGTH_SHORT") && !src.contains("android.widget.Toast.LENGTH_LONG"))
     }
 
+
+
+    @Test
+    fun reportingHub_4487UnifiedReportIsPasteSafeAndSectionComplete() {
+        val src = java.io.File("src/main/kotlin/com/lifecyclebot/engine/ReportingHub.kt").readText()
+        assertTrue("V5.0.4487: unified runtime report must fit paste-safe chat envelopes", src.contains("MAX_UNIFIED_REPORT_CHARS = 24_000") && src.contains("PASTE_SAFE_V4487") && src.contains("paste-safe hard cap"))
+        assertTrue("V5.0.4487: unified report must retain all major sections while reducing raw-row payload", listOf("EXECUTIVE SNAPSHOT", "TOOLKIT SIGNAL SHEET", "PIPELINE HEALTH — CORE", "LEARNING + TUNING STATE", "TRADE JOURNAL SUMMARY", "FORENSIC SUMMARY", "ERROR LOGS — RECENT").all { src.contains(it) })
+        assertTrue("V5.0.4487: recent error rows must be summarized, not dumped at 60 rows", src.contains("ErrorLogger.exportToCompactTable(limit = 24)") && !src.contains("ErrorLogger.exportToCompactTable(limit = 60)"))
+    }
+
 }
