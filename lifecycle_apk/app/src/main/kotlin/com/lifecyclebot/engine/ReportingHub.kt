@@ -188,7 +188,7 @@ object ReportingHub {
         out.appendLine("Report envelope: PASTE_SAFE_V4487 chars=${out.length}/$budget sections=7 errorLimit=24")
 
         val text = out.toString().trimEnd()
-        return if (text.length <= budget) text else text.take(budget - 180) + "\n\n[REPORT_TRUNCATED hardCap=$budget chars — sections above are priority-ordered and internally condensed]"
+        return if (text.length <= budget) text else text.take(budget - 180) + "\n\n[REPORT_TRUNCATED_UNEXPECTED hardCap=$budget chars — paste-safe budgets failed; reduce section budgets]"
     }
 
 
