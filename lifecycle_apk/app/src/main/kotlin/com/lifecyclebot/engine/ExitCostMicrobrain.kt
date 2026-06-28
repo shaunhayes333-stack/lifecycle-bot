@@ -110,6 +110,13 @@ object ExitCostMicrobrain {
         } catch (_: Throwable) {}
     }
 
+    fun status(limit: Int = 6): String {
+        val rows = stats.entries.sortedByDescending { (_, s) -> synchronized(s) { s.samples } }.take(limit.coerceAtLeast(1)).joinToString(";") { (k, s) ->
+            synchronized(s) { "$k:n=${s.samples.fmt(0)}:drag=${(if (s.samples > 0.0) s.totalCostDragPct / s.samples else 0.0).fmt(2)}" }
+        }
+        return "EXIT_COST_MICROBRAIN_STATUS_4362 keys=${stats.size} top=$rows cached_hints_only=true no_exit_block=true"
+    }
+
     fun reset() { stats.clear() }
 
     private fun keyFor(lane: String, liquidityUsd: Double, reason: String): String {

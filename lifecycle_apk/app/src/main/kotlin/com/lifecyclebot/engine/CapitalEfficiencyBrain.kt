@@ -58,6 +58,13 @@ object CapitalEfficiencyBrain {
             }
         } catch (_: Throwable) {}
     }
+    fun status(limit: Int = 6): String {
+        val rows = stats.entries.sortedByDescending { kotlin.math.abs(it.value.score) }.take(limit.coerceAtLeast(1)).joinToString(";") { (k, v) ->
+            synchronized(v) { "$k:t=${v.trades}:w=${v.wins}:s=${"%.4f".format(java.util.Locale.US, v.score)}" }
+        }
+        return "CAPITAL_EFFICIENCY_STATUS_4362 lanes=${stats.size} top=$rows bounded_size_only=true runner_safe=true"
+    }
+
     fun reset() { stats.clear() }
     private fun key(lane: String, source: String) = "${lane.uppercase().take(32)}|${source.uppercase().ifBlank { "*" }.take(48)}"
 }

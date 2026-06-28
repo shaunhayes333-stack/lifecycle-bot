@@ -1,8 +1,12 @@
 package com.lifecyclebot.engine
 
+import java.util.concurrent.ConcurrentHashMap
+import java.util.concurrent.atomic.AtomicLong
+
 /** V5.0.4285 — report-only guardrail for cumulative sizing multiplier contradictions. */
 object SizingStackIntegritySentinel {
     data class Finding(val severity: String, val reason: String)
+    private val findingCounts = ConcurrentHashMap<String, AtomicLong>()
 
     fun inspect(
         mode: String,
@@ -28,11 +32,17 @@ object SizingStackIntegritySentinel {
 
     private fun emit(severity: String, reason: String, mode: String, lane: String, source: String, mint: String, symbol: String, rawProduct: Double, components: Map<String, Double>): Finding {
         try {
+            findingCounts.computeIfAbsent("$severity|${reason.take(48)}") { AtomicLong(0L) }.incrementAndGet()
             val compact = components.entries.sortedBy { it.key }.joinToString(",") { "${it.key}=${it.value.fmtLocal(3)}" }.take(420)
             ForensicLogger.lifecycle("SIZING_STACK_INTEGRITY_SENTINEL_4285", "severity=$severity reason=${reason.take(140)} mode=$mode lane=$lane source=$source mint=${mint.take(10)} symbol=$symbol product=${rawProduct.fmtLocal(3)} components=$compact")
             PipelineHealthCollector.labelInc("SIZING_STACK_INTEGRITY_SENTINEL_4285")
         } catch (_: Throwable) {}
         return Finding(severity, reason)
+    }
+
+    fun status(limit: Int = 6): String {
+        val rows = findingCounts.mapValues { it.value.get() }.entries.sortedByDescending { it.value }.take(limit.coerceAtLeast(1))
+        return "SIZING_STACK_INTEGRITY_STATUS_4362 findings=${findingCounts.values.sumOf { it.get() }} top=${rows.joinToString(";") { it.key + ":" + it.value }} report_only=true no_size_mutation=true"
     }
 }
 

@@ -22,13 +22,17 @@ object OperatorKpiCloseoutReport {
         val terminalQuality = try { TerminalOutcomeQualityGate.status(5).take(220) } catch (_: Throwable) { "TERMINAL_OUTCOME_QUALITY_STATUS_4359 unavailable" }
         val muxSentinel = try { LearningFanoutMuxSentinel.status().take(220) } catch (_: Throwable) { "LEARNING_FANOUT_MUX_SENTINEL_4360 unavailable" }
         val smartRegistry = try { SmartSystemRuntimeRegistry.status().take(240) } catch (_: Throwable) { "SMART_SYSTEM_RUNTIME_REGISTRY_4357 unavailable" }
-        return "OPERATOR_KPI_CLOSEOUT_REPORT_4361 volume=TradeHistoryStore live_paper_drift=LivePaperDriftSentinel realized_net_sol=LiveWalletGrowthGovernorReport runner_giveback=RunnerExitShadowLedger source_family_pf=SourceFamilyOpportunityScorecard ultimate_edge=UltimateEdgeEngine choke_relief=ChokeReliefBus sol_arb=SolanaArbAI paper_live_confidence=PaperLiveConfidenceWeights trade_row_sanity=TradeRowSanityCheck terminal_outcome_quality=TerminalOutcomeQualityGate learning_fanout_mux=LearningFanoutMuxSentinel smart_system_registry=SmartSystemRuntimeRegistry sizing_stack_warnings=SizingStackIntegritySentinel build_status=${com.lifecyclebot.BuildConfig.VERSION_NAME} growth=[$growth] livePaperDrift=[$livePaperDrift] runner=[$runner] source=[$source] edge=[$ultimateEdge] choke=[$chokeRelief] solArb=[$solArb] paperLiveConfidence=[$paperLiveConfidence] tradeRowSanity=[$tradeRowSanity] terminalQuality=[$terminalQuality] mux=[$muxSentinel] smartRegistry=[$smartRegistry] audit=[$audit] report_only=true no_phantom_pnl=true no_execution_authority=true"
+        val sizingIntegrity = try { SizingStackIntegritySentinel.status(5).take(200) } catch (_: Throwable) { "SIZING_STACK_INTEGRITY_STATUS_4362 unavailable" }
+        val capitalEfficiency = try { CapitalEfficiencyBrain.status(5).take(220) } catch (_: Throwable) { "CAPITAL_EFFICIENCY_STATUS_4362 unavailable" }
+        val exitCost = try { ExitCostMicrobrain.status(5).take(220) } catch (_: Throwable) { "EXIT_COST_MICROBRAIN_STATUS_4362 unavailable" }
+        val runnerRetention = try { RunnerRetentionOptimizer.status(5).take(180) } catch (_: Throwable) { "RUNNER_RETENTION_STATUS_4362 unavailable" }
+        return "OPERATOR_KPI_CLOSEOUT_REPORT_4362 volume=TradeHistoryStore live_paper_drift=LivePaperDriftSentinel realized_net_sol=LiveWalletGrowthGovernorReport runner_giveback=RunnerExitShadowLedger source_family_pf=SourceFamilyOpportunityScorecard ultimate_edge=UltimateEdgeEngine choke_relief=ChokeReliefBus sol_arb=SolanaArbAI paper_live_confidence=PaperLiveConfidenceWeights trade_row_sanity=TradeRowSanityCheck terminal_outcome_quality=TerminalOutcomeQualityGate learning_fanout_mux=LearningFanoutMuxSentinel smart_system_registry=SmartSystemRuntimeRegistry sizing_stack_warnings=SizingStackIntegritySentinel capital_efficiency=CapitalEfficiencyBrain exit_cost=ExitCostMicrobrain runner_retention=RunnerRetentionOptimizer build_status=${com.lifecyclebot.BuildConfig.VERSION_NAME} growth=[$growth] livePaperDrift=[$livePaperDrift] runner=[$runner] source=[$source] edge=[$ultimateEdge] choke=[$chokeRelief] solArb=[$solArb] paperLiveConfidence=[$paperLiveConfidence] tradeRowSanity=[$tradeRowSanity] terminalQuality=[$terminalQuality] mux=[$muxSentinel] sizing=[$sizingIntegrity] capitalEfficiency=[$capitalEfficiency] exitCost=[$exitCost] runnerRetention=[$runnerRetention] smartRegistry=[$smartRegistry] audit=[$audit] report_only=true no_phantom_pnl=true no_execution_authority=true"
     }
 
     fun emit() {
         try {
-            ForensicLogger.lifecycle("OPERATOR_KPI_CLOSEOUT_REPORT_4361", status().take(1400))
-            PipelineHealthCollector.labelInc("OPERATOR_KPI_CLOSEOUT_REPORT_4361")
+            ForensicLogger.lifecycle("OPERATOR_KPI_CLOSEOUT_REPORT_4362", status().take(1400))
+            PipelineHealthCollector.labelInc("OPERATOR_KPI_CLOSEOUT_REPORT_4362")
         } catch (_: Throwable) {}
     }
 }

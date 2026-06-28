@@ -2,12 +2,15 @@ package com.lifecyclebot.engine
 
 import com.lifecyclebot.data.Trade
 import java.util.concurrent.ConcurrentHashMap
+import java.util.concurrent.atomic.AtomicLong
 
 /** V5.0.4277 — background runner-retention critic feed; no direct exit authority. */
 object RunnerRetentionOptimizer {
     private const val MIN_MISSED_RUNNER_DELTA_PCT = 25.0
     private const val MIN_DEBOUNCE_MS = 10 * 60 * 1000L
     private val lastSubmitByLane = ConcurrentHashMap<String, Long>()
+    private val acceptedByLane = ConcurrentHashMap<String, AtomicLong>()
+    private val rejectedByLane = ConcurrentHashMap<String, AtomicLong>()
 
     fun recordTerminalExit(
         trade: Trade,
@@ -38,13 +41,21 @@ object RunnerRetentionOptimizer {
                 sourceTag = "BACKGROUND_RUNNER_RETENTION_4277",
             )
             try {
+                (if (accepted) acceptedByLane else rejectedByLane).computeIfAbsent(laneKey) { AtomicLong(0L) }.incrementAndGet()
                 PipelineHealthCollector.labelInc(if (accepted) "RUNNER_RETENTION_PROPOSAL_ACCEPTED_4277" else "RUNNER_RETENTION_PROPOSAL_REJECTED_4277")
                 ForensicLogger.lifecycle("RUNNER_RETENTION_OPTIMIZER_4277", "lane=$laneKey accepted=$accepted missedRunnerDelta=${missedRunnerDelta.fmt(2)} peakPct=${peakGainPct.fmt(2)} pnlPct=${trade.pnlPct.fmt(2)} action=background_symbolic_review_only")
             } catch (_: Throwable) {}
         } catch (_: Throwable) {}
     }
 
-    fun reset() { lastSubmitByLane.clear() }
+    fun status(limit: Int = 6): String {
+        val accepted = acceptedByLane.mapValues { it.value.get() }
+        val rejected = rejectedByLane.mapValues { it.value.get() }
+        val lanes = (accepted.keys + rejected.keys).distinct().take(limit.coerceAtLeast(1)).joinToString(";") { "$it:a=${accepted[it] ?: 0}:r=${rejected[it] ?: 0}" }
+        return "RUNNER_RETENTION_STATUS_4362 accepted=${accepted.values.sum()} rejected=${rejected.values.sum()} lanes=$lanes background_review_only=true no_direct_exit_authority=true"
+    }
+
+    fun reset() { lastSubmitByLane.clear(); acceptedByLane.clear(); rejectedByLane.clear() }
 
     private fun Double.fmt(digits: Int): String = try { java.lang.String.format(java.util.Locale.US, "% ." + digits + "f", this).replace(" ", "") } catch (_: Throwable) { toString() }
 }
