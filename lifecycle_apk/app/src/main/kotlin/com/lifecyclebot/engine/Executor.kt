@@ -3204,6 +3204,27 @@ class Executor(
                     if (_fanoutSide == "SELL") {
                         try { CapitalEfficiencyBrain.recordTerminalTrade(trade, _fanoutTradingMode, _fanoutSource) } catch (_: Throwable) {}
                         val holdTimeMs = if (_fanoutEntryTime > 0) System.currentTimeMillis() - _fanoutEntryTime else 0L
+                        try {
+                            val arbEval4348 = com.lifecyclebot.v3.arb.ArbScannerAI.cachedOpportunity(_fanoutMint, ttlMs = 6L * 60L * 60L * 1000L)
+                            if (arbEval4348 != null) {
+                                com.lifecyclebot.v3.arb.ArbLearning.recordOutcome(
+                                    com.lifecyclebot.v3.arb.ArbOutcome(
+                                        mint = _fanoutMint,
+                                        symbol = _fanoutSymbol,
+                                        arbType = arbEval4348.arbType,
+                                        band = arbEval4348.band,
+                                        entryScore = arbEval4348.score.coerceIn(0, 100),
+                                        entryConfidence = _fanoutConfidence,
+                                        holdSeconds = (holdTimeMs / 1000L).toInt().coerceAtLeast(0),
+                                        pnlPct = _fanoutPnlPct,
+                                        isWin = _fanoutPnlPct >= 0.5,
+                                        exitReason = _fanoutReason,
+                                        timestampMs = _fanoutEventTsMs,
+                                    )
+                                )
+                                PipelineHealthCollector.labelInc("ARB_LEARNING_TERMINAL_OUTCOME_4348|${arbEval4348.arbType}")
+                            }
+                        } catch (_: Throwable) {}
                         val _fluidTm = _fanoutTradingMode
                         val isMemeBaseClose = _fluidTm.isBlank() || _fluidTm !in setOf(
                             "SHITCOIN", "SHITCOIN_EXPRESS", "SHITCOINEXPRESS", "EXPRESS", "CYCLIC",

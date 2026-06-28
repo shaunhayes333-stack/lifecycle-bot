@@ -5015,7 +5015,7 @@ class GoldenTapeRegressionTest {
     fun smartSystemRuntimeRegistry4307ProvesDormantSweepIsRuntimeVisible() {
         val registry = java.io.File("src/main/kotlin/com/lifecyclebot/engine/SmartSystemRuntimeRegistry.kt").readText()
         val bot = java.io.File("src/main/kotlin/com/lifecyclebot/engine/BotService.kt").readText()
-        assertTrue("V5.0.4307: smart system registry must be report-only with no execution authority", registry.contains("SMART_SYSTEM_RUNTIME_REGISTRY_4347") && registry.contains("report_only=true") && registry.contains("no_execution_authority=true"))
+        assertTrue("V5.0.4307: smart system registry must be report-only with no execution authority", registry.contains("SMART_SYSTEM_RUNTIME_REGISTRY_4348") && registry.contains("report_only=true") && registry.contains("no_execution_authority=true"))
         assertTrue("V5.0.4307: route providers from dormant sweep must be classified for proof", listOf("RaydiumDirectProvider", "OrcaDirectProvider", "MeteoraDirectProvider", "PumpFunDirectProvider", "PumpSwapDirectProvider", "JupiterUltraProvider", "JupiterMetisProvider", "JitoSenderProvider", "HeliusSenderProvider").all { registry.contains(it) })
         assertTrue("V5.0.4307: arb deck dormant candidates must be classified before activation", listOf("ArbCoordinator", "ArbScannerAI", "ArbLearning", "VenueLagModel", "FlowImbalanceModel", "PanicReversionModel", "SourceTimingRegistry").all { registry.contains(it) })
         assertTrue("V5.0.4307: existing sentinels must emit at startup, not only exist for Golden Tape", registry.contains("AiStatePersistenceSentinel.emit()") && registry.contains("HotPathProviderCallSentinel.emit()") && bot.contains("SmartSystemRuntimeRegistry.emitStartupProof()"))
@@ -5243,8 +5243,8 @@ class GoldenTapeRegressionTest {
     @Test
     fun runtimeRegistry4341ReclassifiesArbDeckAfterActiveConsumers() {
         val registry = java.io.File("src/main/kotlin/com/lifecyclebot/engine/SmartSystemRuntimeRegistry.kt").readText()
-        assertTrue("V5.0.4341: Arb deck should no longer be reported as wholly dormant after cached lane consumers", registry.contains("SMART_SYSTEM_RUNTIME_REGISTRY_4347") && registry.contains("arb_deck_reclassified=true") && registry.contains("ArbScannerAI") && registry.contains("RuntimeClass.ACTIVE") && registry.contains("cachedOpportunity consumed by Treasury/Express/ShitCoin"))
-        assertTrue("V5.0.4341: Arb component models should be interface-used, while ArbLearning remains proof-needed", registry.contains("VenueLagModel") && registry.contains("FlowImbalanceModel") && registry.contains("PanicReversionModel") && registry.contains("SourceTimingRegistry") && registry.contains("terminal arb-specific outcome fanout still needs proof"))
+        assertTrue("V5.0.4341: Arb deck should no longer be reported as wholly dormant after cached lane consumers", registry.contains("SMART_SYSTEM_RUNTIME_REGISTRY_4348") && registry.contains("arb_deck_reclassified=true") && registry.contains("ArbScannerAI") && registry.contains("RuntimeClass.ACTIVE") && registry.contains("cachedOpportunity consumed by Treasury/Express/ShitCoin"))
+        assertTrue("V5.0.4348: Arb component models and ArbLearning should be runtime-active after terminal fanout wiring", registry.contains("VenueLagModel") && registry.contains("FlowImbalanceModel") && registry.contains("PanicReversionModel") && registry.contains("SourceTimingRegistry") && registry.contains("arb_learning_active=true"))
     }
 
     @Test
@@ -5285,6 +5285,16 @@ class GoldenTapeRegressionTest {
         val telegram = java.io.File("src/main/kotlin/com/lifecyclebot/engine/TelegramBot.kt").readText()
         assertTrue("V5.0.4347: TelegramBot must be sidecar/not auto-wired because it sends externally", registry.contains("TelegramBot") && registry.contains("RuntimeClass.SIDECAR") && registry.contains("telegram_sidecar_no_auto_send=true") && registry.contains("external-message side effects require explicit operator config/approval"))
         assertTrue("V5.0.4347: TelegramBot source remains available but init/startPolling are opt-in only", telegram.contains("fun init(token: String, chat: String)") && telegram.contains("fun startPolling") && telegram.contains("if (!enabled) return"))
+    }
+
+
+    @Test
+    fun arbLearning4348TrainsFromTerminalSellFanoutOnlyWithCachedArbEvidence() {
+        val exec = java.io.File("src/main/kotlin/com/lifecyclebot/engine/Executor.kt").readText()
+        val registry = java.io.File("src/main/kotlin/com/lifecyclebot/engine/SmartSystemRuntimeRegistry.kt").readText()
+        assertTrue("V5.0.4348: Executor terminal SELL fanout must train ArbLearning only from cached arb evidence", exec.contains("ARB_LEARNING_TERMINAL_OUTCOME_4348") && exec.contains("ArbScannerAI.cachedOpportunity(_fanoutMint") && exec.contains("ArbLearning.recordOutcome") && exec.contains("ArbOutcome("))
+        assertTrue("V5.0.4348: ArbLearning must no longer be listed as unresolved runtime proof", registry.contains("ArbLearning") && registry.contains("RuntimeClass.ACTIVE") && registry.contains("arb_learning_active=true"))
+        assertFalse("V5.0.4348: ArbLearning fanout must not own execution authority", exec.contains("ARB_LEARNING_TERMINAL_OUTCOME_4348") && (exec.contains("ArbLearning.executeBuy") || exec.contains("ArbLearning.requestSell")))
     }
 
 }
