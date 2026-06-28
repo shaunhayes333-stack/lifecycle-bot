@@ -5015,7 +5015,7 @@ class GoldenTapeRegressionTest {
     fun smartSystemRuntimeRegistry4307ProvesDormantSweepIsRuntimeVisible() {
         val registry = java.io.File("src/main/kotlin/com/lifecyclebot/engine/SmartSystemRuntimeRegistry.kt").readText()
         val bot = java.io.File("src/main/kotlin/com/lifecyclebot/engine/BotService.kt").readText()
-        assertTrue("V5.0.4307: smart system registry must be report-only with no execution authority", registry.contains("SMART_SYSTEM_RUNTIME_REGISTRY_4344") && registry.contains("report_only=true") && registry.contains("no_execution_authority=true"))
+        assertTrue("V5.0.4307: smart system registry must be report-only with no execution authority", registry.contains("SMART_SYSTEM_RUNTIME_REGISTRY_4347") && registry.contains("report_only=true") && registry.contains("no_execution_authority=true"))
         assertTrue("V5.0.4307: route providers from dormant sweep must be classified for proof", listOf("RaydiumDirectProvider", "OrcaDirectProvider", "MeteoraDirectProvider", "PumpFunDirectProvider", "PumpSwapDirectProvider", "JupiterUltraProvider", "JupiterMetisProvider", "JitoSenderProvider", "HeliusSenderProvider").all { registry.contains(it) })
         assertTrue("V5.0.4307: arb deck dormant candidates must be classified before activation", listOf("ArbCoordinator", "ArbScannerAI", "ArbLearning", "VenueLagModel", "FlowImbalanceModel", "PanicReversionModel", "SourceTimingRegistry").all { registry.contains(it) })
         assertTrue("V5.0.4307: existing sentinels must emit at startup, not only exist for Golden Tape", registry.contains("AiStatePersistenceSentinel.emit()") && registry.contains("HotPathProviderCallSentinel.emit()") && bot.contains("SmartSystemRuntimeRegistry.emitStartupProof()"))
@@ -5243,7 +5243,7 @@ class GoldenTapeRegressionTest {
     @Test
     fun runtimeRegistry4341ReclassifiesArbDeckAfterActiveConsumers() {
         val registry = java.io.File("src/main/kotlin/com/lifecyclebot/engine/SmartSystemRuntimeRegistry.kt").readText()
-        assertTrue("V5.0.4341: Arb deck should no longer be reported as wholly dormant after cached lane consumers", registry.contains("SMART_SYSTEM_RUNTIME_REGISTRY_4344") && registry.contains("arb_deck_reclassified=true") && registry.contains("ArbScannerAI") && registry.contains("RuntimeClass.ACTIVE") && registry.contains("cachedOpportunity consumed by Treasury/Express/ShitCoin"))
+        assertTrue("V5.0.4341: Arb deck should no longer be reported as wholly dormant after cached lane consumers", registry.contains("SMART_SYSTEM_RUNTIME_REGISTRY_4347") && registry.contains("arb_deck_reclassified=true") && registry.contains("ArbScannerAI") && registry.contains("RuntimeClass.ACTIVE") && registry.contains("cachedOpportunity consumed by Treasury/Express/ShitCoin"))
         assertTrue("V5.0.4341: Arb component models should be interface-used, while ArbLearning remains proof-needed", registry.contains("VenueLagModel") && registry.contains("FlowImbalanceModel") && registry.contains("PanicReversionModel") && registry.contains("SourceTimingRegistry") && registry.contains("terminal arb-specific outcome fanout still needs proof"))
     }
 
@@ -5276,6 +5276,15 @@ class GoldenTapeRegressionTest {
         val execGuard = java.io.File("src/main/kotlin/com/lifecyclebot/engine/ExecutionHealthGuard.kt").readText()
         assertTrue("V5.0.4344: ProviderHealthGate must not be wired as duplicate breaker while ApiHealthMonitor is canonical", registry.contains("ProviderHealthGate") && registry.contains("RuntimeClass.DEPRECATED") && registry.contains("provider_gate_deprecated=true") && registry.contains("Superseded by ApiHealthMonitor"))
         assertTrue("V5.0.4344: ApiHealthMonitor/HealthAwareHttp/ExecutionHealthGuard are the live provider-health path", healthAware.contains("ApiHealthMonitor.record") && healthAware.contains("recordNetworkError") && execGuard.contains("ApiHealthMonitor.snapshot"))
+    }
+
+
+    @Test
+    fun telegramBot4347IsExplicitSidecarNotAutoExternalSender() {
+        val registry = java.io.File("src/main/kotlin/com/lifecyclebot/engine/SmartSystemRuntimeRegistry.kt").readText()
+        val telegram = java.io.File("src/main/kotlin/com/lifecyclebot/engine/TelegramBot.kt").readText()
+        assertTrue("V5.0.4347: TelegramBot must be sidecar/not auto-wired because it sends externally", registry.contains("TelegramBot") && registry.contains("RuntimeClass.SIDECAR") && registry.contains("telegram_sidecar_no_auto_send=true") && registry.contains("external-message side effects require explicit operator config/approval"))
+        assertTrue("V5.0.4347: TelegramBot source remains available but init/startPolling are opt-in only", telegram.contains("fun init(token: String, chat: String)") && telegram.contains("fun startPolling") && telegram.contains("if (!enabled) return"))
     }
 
 }
