@@ -4905,7 +4905,7 @@ class GoldenTapeRegressionTest {
         val exec = java.io.File("src/main/kotlin/com/lifecyclebot/engine/Executor.kt").readText()
         val manifest = java.io.File("src/main/kotlin/com/lifecyclebot/engine/AsiSsiAuditCloseoutManifest.kt").readText()
         val audit = readLifecycleFileFor4280s("audits/asi_ssi_audit_queue_2026-06-27.md")
-        assertTrue("V5.0.4295 A41: operator KPI closeout must cover volume, live/paper drift, realized SOL, runner giveback, source PF, sizing warnings, and build status", report.contains("OPERATOR_KPI_CLOSEOUT_REPORT_4430") && report.contains("volume=TradeHistoryStore") && report.contains("live_paper_drift=LivePaperDriftSentinel") && report.contains("realized_net_sol=LiveWalletGrowthGovernorReport") && report.contains("runner_giveback=RunnerExitShadowLedger") && report.contains("source_family_pf=SourceFamilyOpportunityScorecard") && report.contains("sizing_stack_warnings=SizingStackIntegritySentinel") && report.contains("build_status"))
+        assertTrue("V5.0.4295 A41: operator KPI closeout must cover volume, live/paper drift, realized SOL, runner giveback, source PF, sizing warnings, and build status", report.contains("OPERATOR_KPI_CLOSEOUT_REPORT_4431") && report.contains("volume=TradeHistoryStore") && report.contains("live_paper_drift=LivePaperDriftSentinel") && report.contains("realized_net_sol=LiveWalletGrowthGovernorReport") && report.contains("runner_giveback=RunnerExitShadowLedger") && report.contains("source_family_pf=SourceFamilyOpportunityScorecard") && report.contains("sizing_stack_warnings=SizingStackIntegritySentinel") && report.contains("build_status"))
         assertTrue("V5.0.4295 A41: Executor must emit operator KPI report only from side-effect terminal fanout", exec.contains("OperatorKpiCloseoutReport.emit()") && exec.contains("if (_fanoutSide == \"SELL\")"))
         assertTrue("V5.0.4295 closeout: manifest and audit queue must mark A38-A41 complete", manifest.contains("A41 operator KPI closeout report") && manifest.contains("audit_closed=true") && audit.contains("Status: implemented in V5.0.4295 as `OperatorKpiCloseoutReport`"))
         assertFalse("V5.0.4295 A41: KPI closeout must never own execution authority or fake PnL", report.contains("executeBuy(") || report.contains("requestSell(") || !report.contains("no_phantom_pnl=true") || !report.contains("no_execution_authority=true"))
@@ -5189,7 +5189,7 @@ class GoldenTapeRegressionTest {
     @Test
     fun operatorKpi4332ExposesUltimateEdgeAndChokeReliefHelpers() {
         val report = java.io.File("src/main/kotlin/com/lifecyclebot/engine/OperatorKpiCloseoutReport.kt").readText()
-        assertTrue("V5.0.4332: operator KPI report must expose UltimateEdge and ChokeRelief helper health", report.contains("OPERATOR_KPI_CLOSEOUT_REPORT_4430") && report.contains("UltimateEdgeEngine.status(6)") && report.contains("ChokeReliefBus.status()") && report.contains("ultimate_edge=UltimateEdgeEngine") && report.contains("choke_relief=ChokeReliefBus"))
+        assertTrue("V5.0.4332: operator KPI report must expose UltimateEdge and ChokeRelief helper health", report.contains("OPERATOR_KPI_CLOSEOUT_REPORT_4431") && report.contains("UltimateEdgeEngine.status(6)") && report.contains("ChokeReliefBus.status()") && report.contains("ultimate_edge=UltimateEdgeEngine") && report.contains("choke_relief=ChokeReliefBus"))
     }
 
     @Test
@@ -5918,6 +5918,16 @@ class GoldenTapeRegressionTest {
         assertTrue("V5.0.4430: learning reject label sentinel must watch reject/defer/block labels", sentinel.contains("LEARNING_REJECT_LABEL_SENTINEL_4430") && sentinel.contains("NO_QUOTE") && sentinel.contains("no_learning_block=true"))
         assertTrue("V5.0.4430: TradeHistoryStore must inspect rows before persistence without changing quarantine", store.contains("LearningRejectLabelSentinel.inspect(tradeToStore") && store.contains("TradeHistoryStore.recordTrade.prePersistence"))
         assertTrue("V5.0.4430: learning reject label sentinel must be KPI-wired", kpi.contains("learning_reject_label_sentinel=LearningRejectLabelSentinel") && kpi.contains("LearningRejectLabelSentinel.status"))
+    }
+
+
+    @Test
+    fun rejectTaxonomyCoverageDigest_4431PinsEndToEndAuditCoverage() {
+        val digest = java.io.File("src/main/kotlin/com/lifecyclebot/engine/RejectTaxonomyCoverageDigest.kt").readText()
+        val kpi = java.io.File("src/main/kotlin/com/lifecyclebot/engine/OperatorKpiCloseoutReport.kt").readText()
+        assertTrue("V5.0.4431: taxonomy coverage digest must pin scanner→FDG→auth→executor→learning coverage", digest.contains("SCANNER_HARD_REJECT") && digest.contains("FDG_FINAL_DECISION") && digest.contains("TRADE_AUTHORIZER") && digest.contains("EXECUTOR_PREATTEMPT") && digest.contains("TRADE_HISTORY_PRE_LEARNING"))
+        assertTrue("V5.0.4431: taxonomy coverage digest must stay report-only", digest.contains("report_only=true") && digest.contains("no_execution_authority=true") && digest.contains("no_learning_mutation=true"))
+        assertTrue("V5.0.4431: taxonomy coverage digest must be KPI-wired", kpi.contains("reject_taxonomy_coverage=RejectTaxonomyCoverageDigest") && kpi.contains("RejectTaxonomyCoverageDigest.status"))
     }
 
 }
