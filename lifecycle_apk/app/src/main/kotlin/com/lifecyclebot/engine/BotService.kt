@@ -8801,20 +8801,27 @@ class BotService : Service() {
                                 //      bad read. Defer to the slow-path sweep / sub-trader.
                                 //   2) require two consecutive sub-floor reads before firing
                                 //      (lastTickPnlBelowFloor must already be true).
-                                val phantomRead = pnlPctNow < -50.0
+                                val execVsRawDelta4485 = kotlin.math.abs(execPnlPctNow - rawTickPnlPctNow)
+                                val catastrophicConfirmed4485 = pnlPctNow <= -50.0 && execPxForTickLock != null && execVsRawDelta4485 <= 20.0
+                                val phantomRead = pnlPctNow < -50.0 && !catastrophicConfirmed4485
                                 val twoStrike = pos.lastTickFloorBreach
-                                // Update the strike flag for the next tick.
+                                // Update the strike flag for the next tick. Confirmed catastrophic
+                                // executable-price reads bypass the old phantom dead-zone immediately.
                                 pos.lastTickFloorBreach = (pnlPctNow <= TICK_HARD_FLOOR_PCT && !phantomRead)
-                                if (pnlPctNow <= TICK_HARD_FLOOR_PCT && !phantomRead && twoStrike) {
+                                if (pnlPctNow <= TICK_HARD_FLOOR_PCT && (catastrophicConfirmed4485 || (!phantomRead && twoStrike))) {
                                     ErrorLogger.warn("BotService",
                                         "🛑 TICK_HARD_FLOOR ${ts.symbol} ${"%.1f".format(pnlPctNow)}% " +
-                                        "≤ ${TICK_HARD_FLOOR_PCT.toInt()}% — immediate exit (peak=${"%.1f".format(peakPct)}%)")
+                                        "≤ ${TICK_HARD_FLOOR_PCT.toInt()}% — immediate exit (peak=${"%.1f".format(peakPct)}% catastrophic=$catastrophicConfirmed4485)")
                                     try {
+                                        if (catastrophicConfirmed4485) {
+                                            PipelineHealthCollector.labelInc("TICK_CATASTROPHIC_CONFIRMED_BYPASS_PHANTOM_4495")
+                                            ForensicLogger.lifecycle("TICK_CATASTROPHIC_CONFIRMED_BYPASS_PHANTOM_4495", "mint=${ts.mint.take(10)} symbol=${ts.symbol} raw=${"%.1f".format(rawTickPnlPctNow)} exec=${"%.1f".format(execPnlPctNow)} delta=${"%.1f".format(execVsRawDelta4485)} peak=${"%.1f".format(peakPct)} action=immediate_sell")
+                                        }
                                         val cfgTick = ConfigStore.load(applicationContext)
                                         val walletTick = walletManager.getWallet()
                                         val balTick = status.getEffectiveBalance(cfgTick.paperMode)
                                         executor.requestSell(ts,
-                                            "TICK_HARD_FLOOR_${pnlPctNow.toInt()}PCT",
+                                            if (catastrophicConfirmed4485) "TICK_CATASTROPHIC_CONFIRMED_${pnlPctNow.toInt()}PCT" else "TICK_HARD_FLOOR_${pnlPctNow.toInt()}PCT",
                                             walletTick, balTick)
                                     } catch (_: Throwable) {}
                                 } else {

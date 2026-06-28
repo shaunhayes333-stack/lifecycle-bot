@@ -6270,4 +6270,13 @@ class GoldenTapeRegressionTest {
         assertTrue("V5.0.4494: duplicate terminal dedupe must remain strategy-read-only and not delete raw journal rows", src.contains("cleanedTerminalRows") && src.contains("getRecentValidClosedTradesRaw") && src.contains("StrategyTruthLedger") && !src.contains("delete"))
     }
 
+
+
+    @Test
+    fun botService_4495ConfirmedCatastropheBypassesTickPhantomDeadZone() {
+        val src = java.io.File("src/main/kotlin/com/lifecyclebot/engine/BotService.kt").readText()
+        assertTrue("V5.0.4495: confirmed executable-price catastrophes must bypass the old below-50 phantom dead zone", src.contains("catastrophicConfirmed4485") && src.contains("execVsRawDelta4485 <= 20.0") && src.contains("TICK_CATASTROPHIC_CONFIRMED_BYPASS_PHANTOM_4495"))
+        assertTrue("V5.0.4495: normal phantom protection must remain for unconfirmed absurd reads", src.contains("val phantomRead = pnlPctNow < -50.0 && !catastrophicConfirmed4485") && src.contains("!phantomRead && twoStrike"))
+    }
+
 }
