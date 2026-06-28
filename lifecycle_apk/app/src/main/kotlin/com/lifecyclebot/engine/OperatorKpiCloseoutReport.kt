@@ -22,8 +22,8 @@ object OperatorKpiCloseoutReport {
 
     fun emit() {
         try {
-            ForensicLogger.lifecycle("OPERATOR_KPI_CLOSEOUT_REPORT_4336", status().take(1400))
-            PipelineHealthCollector.labelInc("OPERATOR_KPI_CLOSEOUT_REPORT_4336")
+            ForensicLogger.lifecycle("OPERATOR_KPI_CLOSEOUT_REPORT_4355", status().take(1400))
+            PipelineHealthCollector.labelInc("OPERATOR_KPI_CLOSEOUT_REPORT_4355")
         } catch (_: Throwable) {}
     }
 }
