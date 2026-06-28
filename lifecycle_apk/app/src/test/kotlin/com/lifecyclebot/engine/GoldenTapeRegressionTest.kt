@@ -6261,4 +6261,13 @@ class GoldenTapeRegressionTest {
         assertTrue("V5.0.4492: shadow/read-only lane visibility must not increment executable LANE_EVAL fanout counters", src.contains("shadowLaneEval4482") && src.contains("LANE_EVAL_SHADOW_READ_ONLY_4492") && src.contains("no_extra_fdg=true") && src.contains("no_fdg=true") && src.contains("bump(phaseCounts, phaseTag)"))
     }
 
+
+
+    @Test
+    fun strategyTruthLedger_4494DedupesSameMintTerminalCloseWindow() {
+        val src = java.io.File("src/main/kotlin/com/lifecyclebot/engine/StrategyTruthLedger.kt").readText()
+        assertTrue("V5.0.4494: strategy-clean WR/PnL must exclude duplicate terminal sell rows for the same mint close burst", src.contains("SAME_MINT_TERMINAL_DEDUP_WINDOW_MS") && src.contains("seenMintCloseWindows") && src.contains("STRATEGY_MINT_CLOSE_WINDOW_DEDUPED_4494"))
+        assertTrue("V5.0.4494: duplicate terminal dedupe must remain strategy-read-only and not delete raw journal rows", src.contains("cleanedTerminalRows") && src.contains("getRecentValidClosedTradesRaw") && src.contains("StrategyTruthLedger") && !src.contains("delete"))
+    }
+
 }

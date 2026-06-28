@@ -36,6 +36,7 @@ object StrategyTruthLedger {
         val newestFirst = rawRows.sortedByDescending { it.ts }
         val seenTerminalKeys = LinkedHashSet<String>()
         val seenGenerationKeys = LinkedHashSet<String>()
+        val seenMintCloseWindows = LinkedHashMap<String, Long>()
         val out = ArrayList<Trade>(limit.coerceAtLeast(1))
         var deduped = 0
         var recovery = 0
@@ -70,11 +71,16 @@ object StrategyTruthLedger {
 
             val terminalKey = terminalKey(row)
             val generationKey = generationKey(row)
-            if (!seenTerminalKeys.add(terminalKey) || !seenGenerationKeys.add(generationKey)) {
+            val mintWindowKey = mintCloseWindowKey(row)
+            val priorCloseTs = seenMintCloseWindows[mintWindowKey]
+            val sameMintCloseDuplicate = priorCloseTs != null && row.ts > 0L && kotlin.math.abs(priorCloseTs - row.ts) <= SAME_MINT_TERMINAL_DEDUP_WINDOW_MS
+            if (!seenTerminalKeys.add(terminalKey) || !seenGenerationKeys.add(generationKey) || sameMintCloseDuplicate) {
                 deduped++
                 inc("STRATEGY_TERMINAL_DEDUPED")
+                if (sameMintCloseDuplicate) inc("STRATEGY_MINT_CLOSE_WINDOW_DEDUPED_4494")
                 continue
             }
+            if (row.ts > 0L) seenMintCloseWindows[mintWindowKey] = row.ts
 
             inc("STRATEGY_CLEAN_TERMINAL_ROWS")
             out += normalizedStrategyRow(row)
@@ -142,6 +148,14 @@ object StrategyTruthLedger {
         val mint = t.mint.ifBlank { "unknown" }
         val pos = t.positionId.ifBlank { "entry:${t.entryTsMs.takeIf { it > 0L } ?: t.ts}" }
         return "$mode|$mint|$pos"
+    }
+
+    private const val SAME_MINT_TERMINAL_DEDUP_WINDOW_MS = 5L * 60_000L
+
+    private fun mintCloseWindowKey(t: Trade): String {
+        val mode = t.mode.ifBlank { "unknown" }.uppercase()
+        val mint = t.mint.ifBlank { "unknown" }
+        return "$mode|$mint"
     }
 
     private fun terminalCloseTimeBucket(ts: Long): Long = if (ts > 0L) ts / 60_000L else 0L
