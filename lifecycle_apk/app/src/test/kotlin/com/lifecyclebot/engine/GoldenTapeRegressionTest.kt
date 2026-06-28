@@ -5240,4 +5240,11 @@ class GoldenTapeRegressionTest {
         assertTrue("V5.0.4340: CashGenerationAI must not reference nonexistent marketCapUsd in TreasuryOpportunityEngine advisory path", !cash.contains("mcapUsd = marketCapUsd") && cash.contains("liquidityUsd * 12.0") && cash.contains("risk proxy only"))
     }
 
+    @Test
+    fun runtimeRegistry4341ReclassifiesArbDeckAfterActiveConsumers() {
+        val registry = java.io.File("src/main/kotlin/com/lifecyclebot/engine/SmartSystemRuntimeRegistry.kt").readText()
+        assertTrue("V5.0.4341: Arb deck should no longer be reported as wholly dormant after cached lane consumers", registry.contains("SMART_SYSTEM_RUNTIME_REGISTRY_4341") && registry.contains("arb_deck_reclassified=true") && registry.contains("ArbScannerAI") && registry.contains("RuntimeClass.ACTIVE") && registry.contains("cachedOpportunity consumed by Treasury/Express/ShitCoin"))
+        assertTrue("V5.0.4341: Arb component models should be interface-used, while ArbLearning remains proof-needed", registry.contains("VenueLagModel") && registry.contains("FlowImbalanceModel") && registry.contains("PanicReversionModel") && registry.contains("SourceTimingRegistry") && registry.contains("terminal arb-specific outcome fanout still needs proof"))
+    }
+
 }

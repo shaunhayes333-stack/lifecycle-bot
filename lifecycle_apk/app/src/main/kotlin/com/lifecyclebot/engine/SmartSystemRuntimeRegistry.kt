@@ -45,13 +45,13 @@ object SmartSystemRuntimeRegistry {
     )
 
     val dormantCandidates: List<SmartSystem> = listOf(
-        SmartSystem("ArbCoordinator", RuntimeClass.DORMANT_CANDIDATE, "arb_deck", "runtime consumer from Treasury/Express/Quality or explicit dormant marker"),
-        SmartSystem("ArbScannerAI", RuntimeClass.DORMANT_CANDIDATE, "arb_deck", "runtime consumer and opportunity counters"),
-        SmartSystem("ArbLearning", RuntimeClass.DORMANT_CANDIDATE, "arb_deck", "opportunity/attempt/executed/missed feedback"),
-        SmartSystem("VenueLagModel", RuntimeClass.DORMANT_CANDIDATE, "arb_deck", "venue lag signal consumed by ArbOpportunityDeck"),
-        SmartSystem("FlowImbalanceModel", RuntimeClass.DORMANT_CANDIDATE, "arb_deck", "flow imbalance signal consumed by ArbOpportunityDeck"),
-        SmartSystem("PanicReversionModel", RuntimeClass.DORMANT_CANDIDATE, "arb_deck", "panic/reversion signal consumed by ArbOpportunityDeck"),
-        SmartSystem("SourceTimingRegistry", RuntimeClass.DORMANT_CANDIDATE, "arb_deck", "source timing signal consumed by ArbOpportunityDeck"),
+        SmartSystem("ArbCoordinator", RuntimeClass.INTERFACE_USED, "arb_deck", "V5.0.4334 ArbScannerAI.evaluate reaches ArbCoordinator; cached opportunity consumed by Treasury/Express/ShitCoin"),
+        SmartSystem("ArbScannerAI", RuntimeClass.ACTIVE, "arb_deck", "V5.0.4334 UnifiedScorer evaluates it; cachedOpportunity consumed by Treasury/Express/ShitCoin"),
+        SmartSystem("ArbLearning", RuntimeClass.NEEDS_RUNTIME_PROOF, "arb_deck", "ArbScanner consults recent losses; terminal arb-specific outcome fanout still needs proof"),
+        SmartSystem("VenueLagModel", RuntimeClass.INTERFACE_USED, "arb_deck", "V5.0.4334 ArbCoordinator evaluates venue lag into cached opportunity deck"),
+        SmartSystem("FlowImbalanceModel", RuntimeClass.INTERFACE_USED, "arb_deck", "V5.0.4334 ArbCoordinator evaluates flow imbalance into cached opportunity deck"),
+        SmartSystem("PanicReversionModel", RuntimeClass.INTERFACE_USED, "arb_deck", "V5.0.4334 ArbCoordinator evaluates panic reversion into cached opportunity deck"),
+        SmartSystem("SourceTimingRegistry", RuntimeClass.INTERFACE_USED, "arb_deck", "V5.0.4334 ArbScannerAI.recordSourceSeen feeds VenueLagModel source timing"),
         SmartSystem("CloudLearningSync", RuntimeClass.NEEDS_RUNTIME_PROOF, "hive_sync", "classified versus CollectiveLearning/Turso path"),
         SmartSystem("StrategyVariantStore", RuntimeClass.NEEDS_RUNTIME_PROOF, "strategy_genome", "lab/hive/critic consumer or explicit retirement"),
         SmartSystem("PatchWriterAI", RuntimeClass.FUTURE, "repair_brain", "operator-only/future bounded repair classification"),
@@ -70,15 +70,15 @@ object SmartSystemRuntimeRegistry {
 
     fun status(): String {
         val byClass = allSystems().groupingBy { it.runtimeClass.name }.eachCount().toSortedMap()
-        return "SMART_SYSTEM_RUNTIME_REGISTRY_4307 total=${allSystems().size} routeProviders=${routeProviders.size} dormantCandidates=${dormantCandidates.size} sentinels=${sentinels.size} classes=$byClass report_only=true no_execution_authority=true"
+        return "SMART_SYSTEM_RUNTIME_REGISTRY_4341 total=${allSystems().size} routeProviders=${routeProviders.size} dormantCandidates=${dormantCandidates.size} sentinels=${sentinels.size} classes=$byClass arb_deck_reclassified=true report_only=true no_execution_authority=true"
     }
 
     fun emitStartupProof() {
         try { AiStatePersistenceSentinel.emit() } catch (_: Throwable) {}
         try { HotPathProviderCallSentinel.emit() } catch (_: Throwable) {}
         try {
-            ForensicLogger.lifecycle("SMART_SYSTEM_RUNTIME_REGISTRY_4307", status().take(900))
-            PipelineHealthCollector.labelInc("SMART_SYSTEM_RUNTIME_REGISTRY_4307")
+            ForensicLogger.lifecycle("SMART_SYSTEM_RUNTIME_REGISTRY_4341", status().take(900))
+            PipelineHealthCollector.labelInc("SMART_SYSTEM_RUNTIME_REGISTRY_4341")
             routeProviders.forEach { PipelineHealthCollector.labelInc("SMART_ROUTE_PROVIDER_DECLARED_4307/${it.name}") }
             dormantCandidates.forEach { PipelineHealthCollector.labelInc("SMART_DORMANT_CANDIDATE_4307/${it.name}") }
             sentinels.forEach { PipelineHealthCollector.labelInc("SMART_SENTINEL_RUNTIME_PROOF_4307/${it.name}") }
