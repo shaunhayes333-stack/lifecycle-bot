@@ -57,7 +57,7 @@ object SmartSystemRuntimeRegistry {
         SmartSystem("PatchWriterAI", RuntimeClass.FUTURE, "repair_brain", "operator-only/future bounded repair classification"),
         SmartSystem("HotfixRules", RuntimeClass.FUTURE, "repair_brain", "operator-only/future bounded repair classification"),
         SmartSystem("TelegramBot", RuntimeClass.NEEDS_RUNTIME_PROOF, "operator_channel", "active command channel or superseded marker"),
-        SmartSystem("ProviderHealthGate", RuntimeClass.NEEDS_RUNTIME_PROOF, "provider_health", "authority surface and runtime label proof"),
+        SmartSystem("ProviderHealthGate", RuntimeClass.DEPRECATED, "provider_health", "Superseded by ApiHealthMonitor + HealthAwareHttp + ExecutionHealthGuard; do not wire duplicate breaker"),
         SmartSystem("ColdStreakDamper", RuntimeClass.ACTIVE, "runtime_health", "SmartSizer consumes sizeMultiplier; V3JournalRecorder feeds terminal outcomes; LearningPersistence saves state"),
     )
 
@@ -70,15 +70,15 @@ object SmartSystemRuntimeRegistry {
 
     fun status(): String {
         val byClass = allSystems().groupingBy { it.runtimeClass.name }.eachCount().toSortedMap()
-        return "SMART_SYSTEM_RUNTIME_REGISTRY_4343 total=${allSystems().size} routeProviders=${routeProviders.size} dormantCandidates=${dormantCandidates.size} sentinels=${sentinels.size} classes=$byClass arb_deck_reclassified=true cloud_and_cold_streak_active=true report_only=true no_execution_authority=true"
+        return "SMART_SYSTEM_RUNTIME_REGISTRY_4344 total=${allSystems().size} routeProviders=${routeProviders.size} dormantCandidates=${dormantCandidates.size} sentinels=${sentinels.size} classes=$byClass arb_deck_reclassified=true cloud_and_cold_streak_active=true provider_gate_deprecated=true report_only=true no_execution_authority=true"
     }
 
     fun emitStartupProof() {
         try { AiStatePersistenceSentinel.emit() } catch (_: Throwable) {}
         try { HotPathProviderCallSentinel.emit() } catch (_: Throwable) {}
         try {
-            ForensicLogger.lifecycle("SMART_SYSTEM_RUNTIME_REGISTRY_4343", status().take(900))
-            PipelineHealthCollector.labelInc("SMART_SYSTEM_RUNTIME_REGISTRY_4343")
+            ForensicLogger.lifecycle("SMART_SYSTEM_RUNTIME_REGISTRY_4344", status().take(900))
+            PipelineHealthCollector.labelInc("SMART_SYSTEM_RUNTIME_REGISTRY_4344")
             routeProviders.forEach { PipelineHealthCollector.labelInc("SMART_ROUTE_PROVIDER_DECLARED_4307/${it.name}") }
             dormantCandidates.forEach { PipelineHealthCollector.labelInc("SMART_DORMANT_CANDIDATE_4307/${it.name}") }
             sentinels.forEach { PipelineHealthCollector.labelInc("SMART_SENTINEL_RUNTIME_PROOF_4307/${it.name}") }

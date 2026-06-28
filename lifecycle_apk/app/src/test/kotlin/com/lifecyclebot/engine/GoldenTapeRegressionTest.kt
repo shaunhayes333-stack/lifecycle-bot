@@ -5243,7 +5243,7 @@ class GoldenTapeRegressionTest {
     @Test
     fun runtimeRegistry4341ReclassifiesArbDeckAfterActiveConsumers() {
         val registry = java.io.File("src/main/kotlin/com/lifecyclebot/engine/SmartSystemRuntimeRegistry.kt").readText()
-        assertTrue("V5.0.4341: Arb deck should no longer be reported as wholly dormant after cached lane consumers", registry.contains("SMART_SYSTEM_RUNTIME_REGISTRY_4343") && registry.contains("arb_deck_reclassified=true") && registry.contains("ArbScannerAI") && registry.contains("RuntimeClass.ACTIVE") && registry.contains("cachedOpportunity consumed by Treasury/Express/ShitCoin"))
+        assertTrue("V5.0.4341: Arb deck should no longer be reported as wholly dormant after cached lane consumers", registry.contains("SMART_SYSTEM_RUNTIME_REGISTRY_4344") && registry.contains("arb_deck_reclassified=true") && registry.contains("ArbScannerAI") && registry.contains("RuntimeClass.ACTIVE") && registry.contains("cachedOpportunity consumed by Treasury/Express/ShitCoin"))
         assertTrue("V5.0.4341: Arb component models should be interface-used, while ArbLearning remains proof-needed", registry.contains("VenueLagModel") && registry.contains("FlowImbalanceModel") && registry.contains("PanicReversionModel") && registry.contains("SourceTimingRegistry") && registry.contains("terminal arb-specific outcome fanout still needs proof"))
     }
 
@@ -5266,6 +5266,16 @@ class GoldenTapeRegressionTest {
         val journal = java.io.File("src/main/kotlin/com/lifecyclebot/engine/V3JournalRecorder.kt").readText()
         assertTrue("V5.0.4343: CloudLearningSync must be classified active only if BotService and UnifiedScorer consume it", registry.contains("CloudLearningSync") && registry.contains("RuntimeClass.ACTIVE") && bot.contains("CloudLearningSync.uploadLearnings") && scorer.contains("communityPatternMultiplier"))
         assertTrue("V5.0.4343: ColdStreakDamper must be classified active only if sizing and outcomes consume it", registry.contains("ColdStreakDamper") && registry.contains("cloud_and_cold_streak_active=true") && sizer.contains("ColdStreakDamper.sizeMultiplier") && journal.contains("ColdStreakDamper.noteOutcome"))
+    }
+
+
+    @Test
+    fun providerHealthGate4344IsDeprecatedInFavorOfApiHealthMonitor() {
+        val registry = java.io.File("src/main/kotlin/com/lifecyclebot/engine/SmartSystemRuntimeRegistry.kt").readText()
+        val healthAware = java.io.File("src/main/kotlin/com/lifecyclebot/engine/HealthAwareHttp.kt").readText()
+        val execGuard = java.io.File("src/main/kotlin/com/lifecyclebot/engine/ExecutionHealthGuard.kt").readText()
+        assertTrue("V5.0.4344: ProviderHealthGate must not be wired as duplicate breaker while ApiHealthMonitor is canonical", registry.contains("ProviderHealthGate") && registry.contains("RuntimeClass.DEPRECATED") && registry.contains("provider_gate_deprecated=true") && registry.contains("Superseded by ApiHealthMonitor"))
+        assertTrue("V5.0.4344: ApiHealthMonitor/HealthAwareHttp/ExecutionHealthGuard are the live provider-health path", healthAware.contains("ApiHealthMonitor.record") && healthAware.contains("recordNetworkError") && execGuard.contains("ApiHealthMonitor.snapshot"))
     }
 
 }
