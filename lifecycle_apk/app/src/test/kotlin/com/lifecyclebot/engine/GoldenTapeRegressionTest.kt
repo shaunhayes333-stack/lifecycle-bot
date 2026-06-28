@@ -6279,4 +6279,13 @@ class GoldenTapeRegressionTest {
         assertTrue("V5.0.4495: normal phantom protection must remain for unconfirmed absurd reads", src.contains("val phantomRead = pnlPctNow < -50.0 && !catastrophicConfirmed4485") && src.contains("!phantomRead && twoStrike"))
     }
 
+
+
+    @Test
+    fun reportingHub_4496ShowsWalletRealizationAgainstJournalPnl() {
+        val src = java.io.File("src/main/kotlin/com/lifecyclebot/engine/ReportingHub.kt").readText()
+        assertTrue("V5.0.4496: operational report must show where journal PnL sits versus live wallet truth", src.contains("Wallet Realization:") && src.contains("liveWallet=") && src.contains("strategyCleanPnL=") && src.contains("rawJournalPnL=") && src.contains("journal_pnl_is_not_wallet_balance"))
+        assertTrue("V5.0.4496: wallet realization must read live wallet state and host open count without touching execution", src.contains("BotService.status.walletSol") && src.contains("HostWalletTokenTracker.getOpenCount()") && src.contains("buildJournalSummary"))
+    }
+
 }

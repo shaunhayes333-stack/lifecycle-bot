@@ -297,6 +297,10 @@ object ReportingHub {
             val cpnl = clean.sumOf { if (it.netPnlSol != 0.0) it.netPnlSol else it.pnlSol }
             val inv = StrategyTruthLedger.inventoryRecoveryRows(allSells)
             appendLine("Strategy Clean: closes=${clean.size} W/L=$cw/$cl WR=${(if (cw + cl > 0) cw * 100.0 / (cw + cl) else 0.0).fmt1()}% PnL=${cpnl.fmt4()} SOL")
+            val liveWalletSol4496 = safeSnapshot { BotService.status.walletSol } ?: 0.0
+            val hostOpen4496 = safeSnapshot { HostWalletTokenTracker.getOpenCount() } ?: 0
+            val rawJournalPnl4496 = allSells.sumOf { if (it.netPnlSol != 0.0) it.netPnlSol else it.pnlSol }
+            appendLine("Wallet Realization: liveWallet=${liveWalletSol4496.fmt4()} SOL strategyCleanPnL=${cpnl.fmt4()} SOL rawJournalPnL=${rawJournalPnl4496.fmt4()} SOL hostOpen=$hostOpen4496 note=journal_pnl_is_not_wallet_balance")
             appendLine("Inventory Recovery: positions=${inv.size} realised/unrealised=${inv.sumOf { if (it.netPnlSol != 0.0) it.netPnlSol else it.pnlSol }.fmt4()} SOL")
             appendLine("Excluded From Strategy: recovered=${truth.audit.recoveryExcluded} duplicateTerminal=${truth.audit.deduped} partialNotTerminal=${truth.audit.partialNotTerminal} badEntry=${truth.audit.badEntryExcluded}")
         }
