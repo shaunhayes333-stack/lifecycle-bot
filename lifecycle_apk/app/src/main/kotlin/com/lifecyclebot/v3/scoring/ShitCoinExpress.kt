@@ -584,6 +584,35 @@ object ShitCoinExpress {
         } catch (_: Throwable) { /* fail-open */ }
         positionSol *= (expressBehaviorSizeMult * expressBehaviorGradeMult)
 
+        // V5.0.4325 / 4334 — cache-only edge + arb deck readback.
+        // Warmed by board/close events; no scanner/executor hot-path API call.
+        var expressUltimateEdgeSizeMult4325 = 1.0
+        try {
+            val edge4325 = com.lifecyclebot.engine.UltimateEdgeEngine.cached(mint, "EXPRESS")
+            if (edge4325 != null) {
+                val scoreBoost4325 = edge4325.scoreBias.coerceIn(0, 4)
+                if (scoreBoost4325 > 0) expressScore = (expressScore + scoreBoost4325).coerceAtLeast(0)
+                expressUltimateEdgeSizeMult4325 = edge4325.sizeMult.coerceIn(0.90, 1.08)
+                ErrorLogger.debug(TAG, "💩🚂🧠 ULTIMATE_EDGE_EXPRESS_CACHE_SHAPE_4325: $symbol score+$scoreBoost4325 size×${expressUltimateEdgeSizeMult4325.fmt(2)}")
+            }
+        } catch (_: Throwable) { expressUltimateEdgeSizeMult4325 = 1.0 }
+        positionSol *= expressUltimateEdgeSizeMult4325
+        try {
+            val arb4334 = com.lifecyclebot.v3.arb.ArbScannerAI.cachedOpportunity(mint)
+            if (arb4334 != null) {
+                val scoreBoost4334 = (arb4334.score / 25).coerceIn(1, 4)
+                expressScore = (expressScore + scoreBoost4334).coerceAtLeast(0)
+                val arbSize4334 = when (arb4334.band) {
+                    com.lifecyclebot.v3.arb.ArbDecisionBand.ARB_STANDARD -> 1.08
+                    com.lifecyclebot.v3.arb.ArbDecisionBand.ARB_MICRO -> 1.04
+                    com.lifecyclebot.v3.arb.ArbDecisionBand.ARB_FAST_EXIT_ONLY -> 1.03
+                    else -> 1.0
+                }
+                positionSol *= arbSize4334
+                ErrorLogger.debug(TAG, "💩🚂⚖️ EXPRESS_ARB_DECK_CACHE_SHAPE_4334: $symbol ${arb4334.arbType}/${arb4334.band} score+$scoreBoost4334 size×${arbSize4334.fmt(2)}")
+            }
+        } catch (_: Throwable) { /* fail-open cache read */ }
+
         // V5.9.989 — Doctrine #87.15: every lane must consume
         // AutoCompoundEngine.getSizeMultiplier(). Express was the only meme
         // lane silently bypassing this — its sizes never reflected lifetime

@@ -5015,7 +5015,7 @@ class GoldenTapeRegressionTest {
     fun smartSystemRuntimeRegistry4307ProvesDormantSweepIsRuntimeVisible() {
         val registry = java.io.File("src/main/kotlin/com/lifecyclebot/engine/SmartSystemRuntimeRegistry.kt").readText()
         val bot = java.io.File("src/main/kotlin/com/lifecyclebot/engine/BotService.kt").readText()
-        assertTrue("V5.0.4307: smart system registry must be report-only with no execution authority", registry.contains("SMART_SYSTEM_RUNTIME_REGISTRY_4307") && registry.contains("report_only=true") && registry.contains("no_execution_authority=true"))
+        assertTrue("V5.0.4307: smart system registry must be report-only with no execution authority", registry.contains("SMART_SYSTEM_RUNTIME_REGISTRY_4344") && registry.contains("report_only=true") && registry.contains("no_execution_authority=true"))
         assertTrue("V5.0.4307: route providers from dormant sweep must be classified for proof", listOf("RaydiumDirectProvider", "OrcaDirectProvider", "MeteoraDirectProvider", "PumpFunDirectProvider", "PumpSwapDirectProvider", "JupiterUltraProvider", "JupiterMetisProvider", "JitoSenderProvider", "HeliusSenderProvider").all { registry.contains(it) })
         assertTrue("V5.0.4307: arb deck dormant candidates must be classified before activation", listOf("ArbCoordinator", "ArbScannerAI", "ArbLearning", "VenueLagModel", "FlowImbalanceModel", "PanicReversionModel", "SourceTimingRegistry").all { registry.contains(it) })
         assertTrue("V5.0.4307: existing sentinels must emit at startup, not only exist for Golden Tape", registry.contains("AiStatePersistenceSentinel.emit()") && registry.contains("HotPathProviderCallSentinel.emit()") && bot.contains("SmartSystemRuntimeRegistry.emitStartupProof()"))
@@ -5189,7 +5189,7 @@ class GoldenTapeRegressionTest {
     @Test
     fun operatorKpi4332ExposesUltimateEdgeAndChokeReliefHelpers() {
         val report = java.io.File("src/main/kotlin/com/lifecyclebot/engine/OperatorKpiCloseoutReport.kt").readText()
-        assertTrue("V5.0.4332: operator KPI report must expose UltimateEdge and ChokeRelief helper health", report.contains("OPERATOR_KPI_CLOSEOUT_REPORT_4332") && report.contains("UltimateEdgeEngine.status") && report.contains("ChokeReliefBus.status") && report.contains("ultimate_edge=UltimateEdgeEngine") && report.contains("choke_relief=ChokeReliefBus"))
+        assertTrue("V5.0.4332: operator KPI report must expose UltimateEdge and ChokeRelief helper health", report.contains("OPERATOR_KPI_CLOSEOUT_REPORT_4336") && report.contains("UltimateEdgeEngine.status") && report.contains("ChokeReliefBus.status") && report.contains("ultimate_edge=UltimateEdgeEngine") && report.contains("choke_relief=ChokeReliefBus"))
     }
 
     @Test
@@ -5199,7 +5199,7 @@ class GoldenTapeRegressionTest {
         val shit = java.io.File("src/main/kotlin/com/lifecyclebot/v3/scoring/ShitCoinTraderAI.kt").readText()
         val express = java.io.File("src/main/kotlin/com/lifecyclebot/v3/scoring/ShitCoinExpress.kt").readText()
         assertTrue("V5.0.4334: ArbScannerAI must expose cache-only latest actionable arb opportunity", arb.contains("latestActionable") && arb.contains("fun cachedOpportunity") && arb.contains("ACTIONABLE_TTL_MS"))
-        assertTrue("V5.0.4334: Treasury/ShitCoin/Express must consume arb deck cache without running models", cash.contains("TREASURY_ARB_DECK_CACHE_SHAPE_4334") && shit.contains("SHITCOIN_ARB_DECK_CACHE_SHAPE_4334") && express.contains("EXPRESS_ARB_DECK_CACHE_SHAPE_4334") && listOf(cash, shit, express).all { it.contains("ArbScannerAI.cachedOpportunity(mint)") })
+        assertTrue("V5.0.4334: Treasury/ShitCoin/Express must consume arb deck cache without running models", cash.contains("TREASURY_ARB_DECK_CACHE_SHAPE_4334") && shit.contains("SHITCOIN_ARB_DECK_CACHE_SHAPE_4334") && express.contains("EXPRESS_ARB_DECK_CACHE_SHAPE_4334") && cash.contains("ArbScannerAI.cachedOpportunity(mint)") && shit.contains("ArbScannerAI.cachedOpportunity(mint)") && express.contains("ArbScannerAI.cachedOpportunity(mint)"))
     }
 
     @Test
