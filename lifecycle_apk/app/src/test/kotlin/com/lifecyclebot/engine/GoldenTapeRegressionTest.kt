@@ -5940,4 +5940,14 @@ class GoldenTapeRegressionTest {
         assertTrue("V5.0.4432: reject taxonomy audit register must be KPI-wired and report-only", register.contains("report_only=true") && register.contains("no_gate_change=true") && register.contains("no_learning_mutation=true") && kpi.contains("reject_taxonomy_audit_register=RejectTaxonomyAuditRegister") && kpi.contains("RejectTaxonomyAuditRegister.status"))
     }
 
+
+    @Test
+    fun executorDeferredBuyTaxonomy_4433ClosesQuoteDeferredOptionalSurface() {
+        val exec = java.io.File("src/main/kotlin/com/lifecyclebot/engine/Executor.kt").readText()
+        val register = java.io.File("src/main/kotlin/com/lifecyclebot/engine/RejectTaxonomyAuditRegister.kt").readText()
+        assertTrue("V5.0.4433: liveBuyDeferred must classify deferred/quote reasons into reject taxonomy", exec.contains("EXECUTOR_DEFERRED_BUY_TAXONOMY_4433") && exec.contains("RejectTaxonomy.classify(reason, null)"))
+        assertTrue("V5.0.4433: liveBuyDeferred taxonomy must be ledgered via bounded bus while preserving emitLiveBuyFail", exec.contains("RejectTaxonomyLedger.record") && exec.contains("ChokeReliefBus.launch") && exec.contains("emitLiveBuyFail(ts, sol, reason, detail)"))
+        assertTrue("V5.0.4433: audit register must mark deferred quote reasons closed", register.contains("closed_optional=[deferred_quote_reasons_4433]") && register.contains("canonical_outcome_row_tag"))
+    }
+
 }
