@@ -464,6 +464,43 @@ class CryptoAltActivity : AppCompatActivity() {
         else             -> "$%.0f".format(usd)
     }
 
+
+    // V5.0.4479 — open-position display/wallet correspondence guard.
+    // Display only. Keeps raw marks unless an extreme feed-price gain
+    // contradicts market-cap basis, preventing phantom +2000% panel gains from
+    // being shown as wallet-realizable moments before a quote lands at a loss.
+    private fun uiComparableOpenPrice4479(mint: String, entryPrice: Double, entryMcapUsd: Double = 0.0): Double {
+        val ts = try { com.lifecyclebot.engine.BotService.status.tokens[mint] } catch (_: Throwable) { null }
+        val raw = try { ts?.let { com.lifecyclebot.engine.Executor.getActualPricePublic(it) }?.takeIf { it > 0.0 && it.isFinite() } } catch (_: Throwable) { null }
+            ?: try { ts?.ref?.takeIf { it > 0.0 && it.isFinite() } } catch (_: Throwable) { null }
+            ?: entryPrice
+        if (entryPrice <= 0.0 || raw <= 0.0 || !entryPrice.isFinite() || !raw.isFinite()) return entryPrice
+        val currentMcap = try { ts?.lastMcap?.takeIf { it > 0.0 && it.isFinite() } } catch (_: Throwable) { null }
+        if (entryMcapUsd > 0.0 && currentMcap != null) {
+            val rawGain = ((raw - entryPrice) / entryPrice) * 100.0
+            val mcapGain = ((currentMcap - entryMcapUsd) / entryMcapUsd) * 100.0
+            val contradiction = kotlin.math.abs(rawGain - mcapGain) >= 250.0 && kotlin.math.abs(rawGain) >= 500.0
+            val oppositeSign = (rawGain > 250.0 && mcapGain < 0.0) || (rawGain < -80.0 && mcapGain > 250.0)
+            if (contradiction || oppositeSign) {
+                val comparable = entryPrice * (currentMcap / entryMcapUsd)
+                if (comparable > 0.0 && comparable.isFinite()) {
+                    try {
+                        com.lifecyclebot.engine.PipelineHealthCollector.labelInc("OPEN_POSITION_UI_BASIS_REBASED_4479")
+                        com.lifecyclebot.engine.ForensicLogger.lifecycle(
+                            "OPEN_POSITION_UI_BASIS_REBASED_4479",
+                            "mint=${mint.take(10)} rawGain=${"%.1f".format(rawGain)} mcapGain=${"%.1f".format(mcapGain)} raw=$raw comparable=$comparable entry=$entryPrice entryMcap=${entryMcapUsd.toInt()} currentMcap=${currentMcap.toInt()} action=display_only_wallet_correspondence"
+                        )
+                    } catch (_: Throwable) {}
+                    return comparable
+                }
+            }
+        }
+        return raw
+    }
+
+    private fun uiGainPct4479(entryPrice: Double, currentPrice: Double): Double =
+        if (entryPrice > 0.0 && currentPrice > 0.0) (currentPrice - entryPrice) / entryPrice * 100.0 else 0.0
+
     private fun buildFullDashboard() {
         llContent.removeAllViews()
         // V5.9.5: each section wrapped so one crash shows error label instead of killing app
@@ -977,10 +1014,8 @@ class CryptoAltActivity : AppCompatActivity() {
         if (positions.isNotEmpty()) {
             tile.addView(thinDivider())
             positions.forEach { pos ->
-                val currentPrice = try {
-                    com.lifecyclebot.engine.BotService.status.tokens[pos.mint]?.ref?.takeIf { it > 0 } ?: pos.entryPrice
-                } catch (_: Exception) { pos.entryPrice }
-                val gainPct = if (pos.entryPrice > 0) (currentPrice - pos.entryPrice) / pos.entryPrice * 100 else 0.0
+                val currentPrice = uiComparableOpenPrice4479(pos.mint, pos.entryPrice, pos.marketCapUsd)
+                val gainPct = uiGainPct4479(pos.entryPrice, currentPrice)
                 val gainCol = if (gainPct >= 0) green else red
                 val pnlSol  = pos.entrySol * gainPct / 100.0
                 val elapsed = (System.currentTimeMillis() - pos.entryTime) / 60_000
@@ -1025,10 +1060,8 @@ class CryptoAltActivity : AppCompatActivity() {
         if (positions.isNotEmpty()) {
             tile.addView(thinDivider())
             positions.forEach { pos ->
-                val currentPrice = try {
-                    com.lifecyclebot.engine.BotService.status.tokens[pos.mint]?.ref?.takeIf { it > 0 } ?: pos.entryPrice
-                } catch (_: Exception) { pos.entryPrice }
-                val gainPct = if (pos.entryPrice > 0) (currentPrice - pos.entryPrice) / pos.entryPrice * 100 else 0.0
+                val currentPrice = uiComparableOpenPrice4479(pos.mint, pos.entryPrice, pos.entryMcap)
+                val gainPct = uiGainPct4479(pos.entryPrice, currentPrice)
                 val gainCol = if (gainPct >= 0) green else red
                 val pnlSol  = pos.entrySol * gainPct / 100.0
                 val elapsed = (System.currentTimeMillis() - pos.entryTime) / 60_000
@@ -1061,7 +1094,7 @@ class CryptoAltActivity : AppCompatActivity() {
         val positions = BlueChipTraderAI.getActivePositions()
         val totalRisk = positions.sumOf { it.entrySol }
         val bcTotalPnlSol = positions.sumOf { p ->
-            val cp = try { com.lifecyclebot.engine.BotService.status.tokens[p.mint]?.ref?.takeIf { it > 0 } ?: p.entryPrice } catch (_: Exception) { p.entryPrice }
+            val cp = uiComparableOpenPrice4479(p.mint, p.entryPrice, p.entryMcap)
             p.entrySol * (cp - p.entryPrice) / p.entryPrice
         }
         val tile      = buildTile(blue, "🔵 Blue Chip Trades", "${"%.3f".format(totalRisk)}◎  ${if (bcTotalPnlSol >= 0) "+" else ""}${"%.4f".format(bcTotalPnlSol)}◎", blue)
@@ -1076,10 +1109,8 @@ class CryptoAltActivity : AppCompatActivity() {
         if (positions.isNotEmpty()) {
             tile.addView(thinDivider())
             positions.forEach { pos ->
-                val currentPrice = try {
-                    com.lifecyclebot.engine.BotService.status.tokens[pos.mint]?.ref?.takeIf { it > 0 } ?: pos.entryPrice
-                } catch (_: Exception) { pos.entryPrice }
-                val gainPct = if (pos.entryPrice > 0) (currentPrice - pos.entryPrice) / pos.entryPrice * 100 else 0.0
+                val currentPrice = uiComparableOpenPrice4479(pos.mint, pos.entryPrice, pos.marketCapUsd)
+                val gainPct = uiGainPct4479(pos.entryPrice, currentPrice)
                 val gainCol = if (gainPct >= 0) green else red
                 val pnlSol  = pos.entrySol * gainPct / 100.0
                 val elapsed = (System.currentTimeMillis() - pos.entryTime) / 60_000
@@ -1123,10 +1154,8 @@ class CryptoAltActivity : AppCompatActivity() {
         if (rides.isNotEmpty()) {
             tile.addView(thinDivider())
             rides.forEach { ride ->
-                val currentPrice = try {
-                    com.lifecyclebot.engine.BotService.status.tokens[ride.mint]?.ref?.takeIf { it > 0 } ?: ride.entryPrice
-                } catch (_: Exception) { ride.entryPrice }
-                val gainPct = if (ride.entryPrice > 0) (currentPrice - ride.entryPrice) / ride.entryPrice * 100 else 0.0
+                val currentPrice = uiComparableOpenPrice4479(ride.mint, ride.entryPrice, 0.0)
+                val gainPct = uiGainPct4479(ride.entryPrice, currentPrice)
                 val gainCol = if (gainPct >= 0) green else red
                 val pnlSol  = ride.entrySol * gainPct / 100.0
                 val elapsed = (System.currentTimeMillis() - ride.entryTime) / 60_000
@@ -1168,10 +1197,8 @@ class CryptoAltActivity : AppCompatActivity() {
         if (positions.isNotEmpty()) {
             tile.addView(thinDivider())
             positions.forEach { pos ->
-                val currentPrice = try {
-                    com.lifecyclebot.engine.BotService.status.tokens[pos.mint]?.ref?.takeIf { it > 0 } ?: pos.entryPrice
-                } catch (_: Exception) { pos.entryPrice }
-                val gainPct = if (pos.entryPrice > 0) (currentPrice - pos.entryPrice) / pos.entryPrice * 100 else 0.0
+                val currentPrice = uiComparableOpenPrice4479(pos.mint, pos.entryPrice, pos.marketCapUsd)
+                val gainPct = uiGainPct4479(pos.entryPrice, currentPrice)
                 val gainCol = if (gainPct >= 0) green else red
                 val pnlSol  = pos.entrySol * gainPct / 100.0
                 val elapsed = (System.currentTimeMillis() - pos.entryTime) / 60_000
@@ -1216,10 +1243,8 @@ class CryptoAltActivity : AppCompatActivity() {
         if (positions.isNotEmpty()) {
             tile.addView(thinDivider())
             positions.forEach { pos ->
-                val currentPrice = try {
-                    com.lifecyclebot.engine.BotService.status.tokens[pos.mint]?.ref?.takeIf { it > 0 } ?: pos.entryPrice
-                } catch (_: Exception) { pos.entryPrice }
-                val gainPct = if (pos.entryPrice > 0) (currentPrice - pos.entryPrice) / pos.entryPrice * 100 else 0.0
+                val currentPrice = uiComparableOpenPrice4479(pos.mint, pos.entryPrice, 0.0)
+                val gainPct = uiGainPct4479(pos.entryPrice, currentPrice)
                 val gainCol = if (gainPct >= 0) green else red
                 val pnlSol  = pos.entrySol * gainPct / 100.0
                 val elapsed = (System.currentTimeMillis() - pos.entryTime) / 60_000

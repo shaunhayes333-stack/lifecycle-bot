@@ -6190,4 +6190,15 @@ class GoldenTapeRegressionTest {
         assertTrue("V5.0.4470: per-lane heads must still train independently while global warm-start also updates", src.contains("getOrCreateLaneHead(lane)") && src.contains("trained += 1") && src.contains("h.trained += 1"))
     }
 
+
+
+    @Test
+    fun openPositionUi_4479UsesBasisGuardedWalletCorrespondentGainDisplay() {
+        val activity = java.io.File("src/main/kotlin/com/lifecyclebot/ui/CryptoAltActivity.kt").readText()
+        val vm = java.io.File("src/main/kotlin/com/lifecyclebot/ui/BotViewModel.kt").readText()
+        assertTrue("V5.0.4479: open-position panels must use a shared basis-guarded display helper, not raw token ref gain math", activity.contains("uiComparableOpenPrice4479") && activity.contains("OPEN_POSITION_UI_BASIS_REBASED_4479") && activity.contains("display_only_wallet_correspondence"))
+        assertTrue("V5.0.4479: open-position gain rows must route through the helper before formatting percent/SOL", activity.contains("uiGainPct4479") && !activity.contains("BotService.status.tokens[pos.mint]?.ref?.takeIf { it > 0 } ?: pos.entryPrice"))
+        assertTrue("V5.0.4479: aggregate unrealised PnL must also use the same basis guard", vm.contains("Executor.getActualPricePublic(ts)") && vm.contains("OPEN_POSITION_UI_AGG_BASIS_REBASED_4479") && vm.contains("entry * (currentMcap / entryMcap)"))
+    }
+
 }

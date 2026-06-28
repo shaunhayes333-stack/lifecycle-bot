@@ -165,9 +165,22 @@ class BotViewModel(app: Application) : AndroidViewModel(app) {
                     ?.copyTradeEngine?.getWallets() ?: emptyList() } catch (_: Exception) { emptyList() },
                 totalExposureSol = status.totalExposureSol,
                 totalUnrealisedPnlSol = status.openPositions.sumOf { ts ->
-                    val ref = ts.ref
-                    if (ts.position.isOpen && ref > 0 && ts.position.entryPrice > 0)
-                        ts.position.costSol * ((ref - ts.position.entryPrice) / ts.position.entryPrice)
+                    val entry = ts.position.entryPrice
+                    val raw = try { com.lifecyclebot.engine.Executor.getActualPricePublic(ts) } catch (_: Throwable) { ts.ref }
+                    val mark = try {
+                        val entryMcap = ts.position.entryMcap
+                        val currentMcap = ts.lastMcap
+                        if (entry > 0.0 && raw > 0.0 && entryMcap > 0.0 && currentMcap > 0.0) {
+                            val rawGain = ((raw - entry) / entry) * 100.0
+                            val mcapGain = ((currentMcap - entryMcap) / entryMcap) * 100.0
+                            if ((kotlin.math.abs(rawGain - mcapGain) >= 250.0 && kotlin.math.abs(rawGain) >= 500.0) || (rawGain > 250.0 && mcapGain < 0.0)) {
+                                try { com.lifecyclebot.engine.PipelineHealthCollector.labelInc("OPEN_POSITION_UI_AGG_BASIS_REBASED_4479") } catch (_: Throwable) {}
+                                entry * (currentMcap / entryMcap)
+                            } else raw
+                        } else raw
+                    } catch (_: Throwable) { raw }
+                    if (ts.position.isOpen && mark > 0 && entry > 0)
+                        ts.position.costSol * ((mark - entry) / entry)
                     else 0.0
                 },
                 circuitBreaker = sg?.getCircuitBreakerState() ?: com.lifecyclebot.engine.CircuitBreakerState(),
