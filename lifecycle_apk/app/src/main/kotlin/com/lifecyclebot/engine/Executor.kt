@@ -2826,8 +2826,11 @@ class Executor(
 
         ts.trades.add(tradeWithMint)
         TradeHistoryStore.recordTrade(tradeWithMint)
+        val rowLearningAdmitted4349 = try {
+            com.lifecyclebot.engine.learning.TradeRowSanityCheck.inspect(tradeWithMint) == com.lifecyclebot.engine.learning.TradeRowSanityCheck.QuarantineReason.OK
+        } catch (_: Throwable) { true }
         try {
-            if (tradeWithMint.side.equals("SELL", true) && ledgerAllowsClosedLearning && accountingTrainable) {
+            if (tradeWithMint.side.equals("SELL", true) && ledgerAllowsClosedLearning && accountingTrainable && rowLearningAdmitted4349) {
                 LivePaperDriftSentinel.onTerminalClose(tradeWithMint)
                 ExitCostMicrobrain.recordTerminalExit(
                     trade = tradeWithMint,
@@ -2847,7 +2850,7 @@ class Executor(
         // excursion proxy (peak for winners, low-water for losers) until a delayed +5m
         // labeler exists; this is advisory learning only and never blocks exit finality.
         try {
-            if (tradeWithMint.side.equals("SELL", true) && ledgerAllowsClosedLearning && accountingTrainable) {
+            if (tradeWithMint.side.equals("SELL", true) && ledgerAllowsClosedLearning && accountingTrainable && rowLearningAdmitted4349) {
                 val sellOptTrade = tradeWithMint
                 val posEntryPrice = ts.position.entryPrice
                 val posPeakPrice = ts.position.highestPrice
@@ -2897,7 +2900,7 @@ class Executor(
         // it never rewrites journal truth, never touches entry gates, and never
         // blocks sell finality.
         try {
-            if (tradeWithMint.side.equals("SELL", true) && ledgerAllowsClosedLearning && accountingTrainable) {
+            if (tradeWithMint.side.equals("SELL", true) && ledgerAllowsClosedLearning && accountingTrainable && rowLearningAdmitted4349) {
                 val graphTrade = tradeWithMint
                 val graphLane = graphTrade.tradingMode.ifBlank { "STANDARD" }
                 val graphSource = ts.source.ifBlank { ts.lastPriceSource.ifBlank { "UNKNOWN" } }
@@ -2998,7 +3001,7 @@ class Executor(
         // longer wedges the sell path. Snapshot inputs into immutable locals
         // BEFORE launch so the coroutine has stable values (no race on ts).
         try {
-            if ((tradeWithMint.side == "SELL" || tradeWithMint.side == "PARTIAL_SELL") && ledgerAllowsClosedLearning && accountingTrainable) {
+            if ((tradeWithMint.side == "SELL" || tradeWithMint.side == "PARTIAL_SELL") && ledgerAllowsClosedLearning && accountingTrainable && rowLearningAdmitted4349) {
                 val tradeSnap     = tradeWithMint
                 val recentSnap    = ts.history.takeLast(30).toList()
                 val entryWindow   = ts.history.takeLast(60).take(30).toList()
@@ -3053,7 +3056,7 @@ class Executor(
         // it added cumulative latency to the bot tick. Async = never blocks
         // the loop, still arms the kill switch in live mode within ms.
         try {
-            if ((tradeWithMint.side == "SELL" || tradeWithMint.side == "PARTIAL_SELL") && ledgerAllowsClosedLearning && accountingTrainable) {
+            if ((tradeWithMint.side == "SELL" || tradeWithMint.side == "PARTIAL_SELL") && ledgerAllowsClosedLearning && accountingTrainable && rowLearningAdmitted4349) {
                 // BotService.instance?.applicationContext — same pattern as
                 // GeminiCopilot.kt:595. solBalance comes from the canonical
                 // WalletManager state — same accessor as BotService.kt:3874
@@ -3119,7 +3122,7 @@ class Executor(
                 try {
                     com.lifecyclebot.learning.LayerVoteSampler.captureAllMemeVotes(ts)
                 } catch (_: Exception) {}
-            } else if (trade.side == "SELL" && ledgerAllowsClosedLearning && accountingTrainable) {
+            } else if (trade.side == "SELL" && ledgerAllowsClosedLearning && accountingTrainable && rowLearningAdmitted4349) {
                 // V5.0.3948 — train chart/movement pattern classifier on terminal
                 // outcomes only. Partial sells are useful accounting, but they are
                 // not the final movement result; consuming the pending entry on the

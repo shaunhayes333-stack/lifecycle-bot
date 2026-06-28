@@ -5297,4 +5297,14 @@ class GoldenTapeRegressionTest {
         assertFalse("V5.0.4348: ArbLearning fanout must not own execution authority", exec.contains("ARB_LEARNING_TERMINAL_OUTCOME_4348") && (exec.contains("ArbLearning.executeBuy") || exec.contains("ArbLearning.requestSell")))
     }
 
+
+    @Test
+    fun tradeRowSanity4349GatesLearningAggregationsButNotJournalTruth() {
+        val exec = java.io.File("src/main/kotlin/com/lifecyclebot/engine/Executor.kt").readText()
+        val sanity = java.io.File("src/main/kotlin/com/lifecyclebot/engine/learning/TradeRowSanityCheck.kt").readText()
+        assertTrue("V5.0.4349: Executor must inspect trade row sanity after journal truth is recorded", exec.contains("TradeHistoryStore.recordTrade(tradeWithMint)") && exec.contains("rowLearningAdmitted4349") && exec.indexOf("TradeHistoryStore.recordTrade(tradeWithMint)") < exec.indexOf("TradeRowSanityCheck.inspect(tradeWithMint)"))
+        assertTrue("V5.0.4349: terminal learning gates must include row sanity admission", exec.contains("ledgerAllowsClosedLearning && accountingTrainable && rowLearningAdmitted4349") && sanity.contains("QuarantineReason.OK"))
+        assertFalse("V5.0.4349: row sanity quarantine must not hide journal/report truth", exec.indexOf("TradeRowSanityCheck.inspect(tradeWithMint)") < exec.indexOf("TradeHistoryStore.recordTrade(tradeWithMint)"))
+    }
+
 }
