@@ -4905,7 +4905,7 @@ class GoldenTapeRegressionTest {
         val exec = java.io.File("src/main/kotlin/com/lifecyclebot/engine/Executor.kt").readText()
         val manifest = java.io.File("src/main/kotlin/com/lifecyclebot/engine/AsiSsiAuditCloseoutManifest.kt").readText()
         val audit = readLifecycleFileFor4280s("audits/asi_ssi_audit_queue_2026-06-27.md")
-        assertTrue("V5.0.4295 A41: operator KPI closeout must cover volume, live/paper drift, realized SOL, runner giveback, source PF, sizing warnings, and build status", report.contains("OPERATOR_KPI_CLOSEOUT_REPORT_4362") && report.contains("volume=TradeHistoryStore") && report.contains("live_paper_drift=LivePaperDriftSentinel") && report.contains("realized_net_sol=LiveWalletGrowthGovernorReport") && report.contains("runner_giveback=RunnerExitShadowLedger") && report.contains("source_family_pf=SourceFamilyOpportunityScorecard") && report.contains("sizing_stack_warnings=SizingStackIntegritySentinel") && report.contains("build_status"))
+        assertTrue("V5.0.4295 A41: operator KPI closeout must cover volume, live/paper drift, realized SOL, runner giveback, source PF, sizing warnings, and build status", report.contains("OPERATOR_KPI_CLOSEOUT_REPORT_4363") && report.contains("volume=TradeHistoryStore") && report.contains("live_paper_drift=LivePaperDriftSentinel") && report.contains("realized_net_sol=LiveWalletGrowthGovernorReport") && report.contains("runner_giveback=RunnerExitShadowLedger") && report.contains("source_family_pf=SourceFamilyOpportunityScorecard") && report.contains("sizing_stack_warnings=SizingStackIntegritySentinel") && report.contains("build_status"))
         assertTrue("V5.0.4295 A41: Executor must emit operator KPI report only from side-effect terminal fanout", exec.contains("OperatorKpiCloseoutReport.emit()") && exec.contains("if (_fanoutSide == \"SELL\")"))
         assertTrue("V5.0.4295 closeout: manifest and audit queue must mark A38-A41 complete", manifest.contains("A41 operator KPI closeout report") && manifest.contains("audit_closed=true") && audit.contains("Status: implemented in V5.0.4295 as `OperatorKpiCloseoutReport`"))
         assertFalse("V5.0.4295 A41: KPI closeout must never own execution authority or fake PnL", report.contains("executeBuy(") || report.contains("requestSell(") || !report.contains("no_phantom_pnl=true") || !report.contains("no_execution_authority=true"))
@@ -5189,7 +5189,7 @@ class GoldenTapeRegressionTest {
     @Test
     fun operatorKpi4332ExposesUltimateEdgeAndChokeReliefHelpers() {
         val report = java.io.File("src/main/kotlin/com/lifecyclebot/engine/OperatorKpiCloseoutReport.kt").readText()
-        assertTrue("V5.0.4332: operator KPI report must expose UltimateEdge and ChokeRelief helper health", report.contains("OPERATOR_KPI_CLOSEOUT_REPORT_4362") && report.contains("UltimateEdgeEngine.status(6)") && report.contains("ChokeReliefBus.status()") && report.contains("ultimate_edge=UltimateEdgeEngine") && report.contains("choke_relief=ChokeReliefBus"))
+        assertTrue("V5.0.4332: operator KPI report must expose UltimateEdge and ChokeRelief helper health", report.contains("OPERATOR_KPI_CLOSEOUT_REPORT_4363") && report.contains("UltimateEdgeEngine.status(6)") && report.contains("ChokeReliefBus.status()") && report.contains("ultimate_edge=UltimateEdgeEngine") && report.contains("choke_relief=ChokeReliefBus"))
     }
 
     @Test
@@ -5401,6 +5401,16 @@ class GoldenTapeRegressionTest {
         assertTrue("V5.0.4362: exit cost microbrain must expose cached-hint-only status", exitCost.contains("EXIT_COST_MICROBRAIN_STATUS_4362") && exitCost.contains("no_exit_block=true"))
         assertTrue("V5.0.4362: runner retention must expose background-review-only status", runner.contains("RUNNER_RETENTION_STATUS_4362") && runner.contains("no_direct_exit_authority=true"))
         assertTrue("V5.0.4362: operator KPI must include all four batch status surfaces", kpi.contains("sizing_stack_warnings=SizingStackIntegritySentinel") && kpi.contains("capital_efficiency=CapitalEfficiencyBrain") && kpi.contains("exit_cost=ExitCostMicrobrain") && kpi.contains("runner_retention=RunnerRetentionOptimizer"))
+    }
+
+
+    @Test
+    fun batchKpiStatus4363ClosesSevenExistingStatusSurfaces() {
+        val kpi = java.io.File("src/main/kotlin/com/lifecyclebot/engine/OperatorKpiCloseoutReport.kt").readText()
+        assertTrue("V5.0.4363: KPI must expose free data registry and treasury source routing", kpi.contains("free_data_registry=FreeDataSourceRegistry") && kpi.contains("treasury_source_router=TreasurySourceRouter") && kpi.contains("FreeDataSourceRegistry.status") && kpi.contains("TreasurySourceRouter.status"))
+        assertTrue("V5.0.4363: KPI must expose ShitCoin/Sell/Treasury decision matrices", kpi.contains("shitcoin_matrix=ShitCoinDecisionMatrixReport") && kpi.contains("sell_matrix=SellDecisionMatrixReport") && kpi.contains("treasury_cashflow=TreasuryCashflowMissionReport"))
+        assertTrue("V5.0.4363: KPI must expose AI persistence and hot-path provider sentinels", kpi.contains("ai_persistence=AiStatePersistenceSentinel") && kpi.contains("hot_path_provider=HotPathProviderCallSentinel") && kpi.contains("AiStatePersistenceSentinel.status") && kpi.contains("HotPathProviderCallSentinel.status"))
+        assertTrue("V5.0.4363: batch KPI surfaces remain report-only", kpi.contains("report_only=true") && kpi.contains("no_execution_authority=true"))
     }
 
 }
