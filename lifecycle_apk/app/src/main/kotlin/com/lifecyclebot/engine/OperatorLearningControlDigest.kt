@@ -19,6 +19,6 @@ object OperatorLearningControlDigest {
         val ml = try { com.lifecyclebot.ml.OnDeviceMLEngine.getStatus().take(160) } catch (_: Throwable) { "OnDeviceMLEngine unavailable" }
         val market = try { com.lifecyclebot.v3.modes.MarketStructureRouter.getStatus().take(160) } catch (_: Throwable) { "MarketStructureRouter unavailable" }
         val regime = try { com.lifecyclebot.v3.scoring.RegimeTransitionAI.getStatus().take(160) } catch (_: Throwable) { "RegimeTransitionAI unavailable" }
-        return "OPERATOR_LEARNING_CONTROL_DIGEST_4393 adaptive=[$adaptive] compound=[$compound] cloud=[$cloud] enabled=[$enabled] tuner=[$tuner] scanner=[$scanner] toxic=[$toxic] ml=[$ml] market=[$market] regime=[$regime] report_only=true no_execution_authority=true no_gate_change=true"
+        return "OPERATOR_LEARNING_CONTROL_DIGEST_4393 adaptive=[$adaptive] compound=[$compound] cloud=[$cloud] enabled=[$enabled] tuner=[$tuner] solana_market_scanner=SolanaMarketScanner scanner=[$scanner] toxic=[$toxic] ml=[$ml] market=[$market] regime=[$regime] report_only=true no_execution_authority=true no_gate_change=true"
     }
 }
