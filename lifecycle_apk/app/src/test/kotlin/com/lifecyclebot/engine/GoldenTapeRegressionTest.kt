@@ -6165,11 +6165,11 @@ class GoldenTapeRegressionTest {
 
 
     @Test
-    fun botService_4467CashgenMustParticipateInLiveLaneOwnerRotation() {
+    fun botService_4468CashgenMustParticipateInLiveLaneOwnerRotation() {
         val src = java.io.File("src/main/kotlin/com/lifecyclebot/engine/BotService.kt").readText()
-        assertTrue("V5.0.4467: CASHGEN must be in the live MemeTrader owner ring, not only enabled cosmetically", src.contains("val fullMemeTraderRing = listOf") && src.contains(""TREASURY", "CASHGEN", "BLUECHIP""))
-        assertTrue("V5.0.4467: CASHGEN must share quality/depth rescue eligibility with TREASURY and BLUECHIP", src.contains("setOf("QUALITY", "TREASURY", "CASHGEN", "BLUECHIP")") && src.contains("setOf("QUALITY", "TREASURY", "CASHGEN", "BLUECHIP", "MOONSHOT", "PROJECT_SNIPER")"))
-        assertTrue("V5.0.4467: source affinity already seeds CASHGEN, so the owner ring must consume it downstream", src.contains("listOf("QUALITY", "TREASURY", "CASHGEN")") && src.contains("MEMETRADER_OWNER_LANE"))
+        assertTrue("V5.0.4468: CASHGEN must be in the live MemeTrader owner ring, not only enabled cosmetically", src.contains("val fullMemeTraderRing = listOf") && src.contains("TREASURY") && src.contains("CASHGEN") && src.contains("BLUECHIP"))
+        assertTrue("V5.0.4468: CASHGEN must share quality/depth rescue eligibility with TREASURY and BLUECHIP", src.contains("QUALITY") && src.contains("TREASURY") && src.contains("CASHGEN") && src.contains("PROJECT_SNIPER"))
+        assertTrue("V5.0.4467: source affinity already seeds CASHGEN, so the owner ring must consume it downstream", src.contains("DEX_BOOSTED") && src.contains("CASHGEN") && src.contains("MEMETRADER_OWNER_LANE"))
     }
 
 }
