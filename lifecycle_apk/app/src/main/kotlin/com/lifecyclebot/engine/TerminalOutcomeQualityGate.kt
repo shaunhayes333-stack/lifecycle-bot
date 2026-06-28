@@ -1,11 +1,16 @@
 package com.lifecyclebot.engine
 
 import com.lifecyclebot.data.Trade
+import java.util.concurrent.ConcurrentHashMap
+import java.util.concurrent.atomic.AtomicLong
 
 /** V5.0.4286 — terminal outcome quality classifier. Report-only: never hides realized PnL. */
 object TerminalOutcomeQualityGate {
     enum class Quality { TRAINABLE, SCRATCH, CONTAMINATED }
     data class Verdict(val quality: Quality, val reason: String, val trainable: Boolean)
+
+    private val qualityCounts = ConcurrentHashMap<String, AtomicLong>()
+    private val reasonCounts = ConcurrentHashMap<String, AtomicLong>()
 
     fun classify(trade: Trade, ledgerAllowsClosedLearning: Boolean, accountingTrainable: Boolean): Verdict {
         if (!trade.side.equals("SELL", ignoreCase = true) && !trade.side.equals("PARTIAL_SELL", ignoreCase = true)) {
@@ -36,9 +41,21 @@ object TerminalOutcomeQualityGate {
 
     fun report(trade: Trade, lane: String, source: String, verdict: Verdict) {
         try {
+            bump(qualityCounts, verdict.quality.name)
+            bump(reasonCounts, verdict.reason.take(80))
             ForensicLogger.lifecycle("TERMINAL_OUTCOME_QUALITY_4286", "quality=${verdict.quality} trainable=${verdict.trainable} reason=${verdict.reason} mode=${trade.mode} lane=$lane source=$source mint=${trade.mint.take(10)} positionId=${trade.positionId.take(18)} proof=${trade.proofState} pnlSol=${trade.pnlSol.fmtLocal(5)} pnlPct=${trade.pnlPct.fmtLocal(2)}")
             PipelineHealthCollector.labelInc("TERMINAL_OUTCOME_QUALITY_4286_${verdict.quality.name}")
         } catch (_: Throwable) {}
+    }
+
+    fun status(limit: Int = 5): String {
+        val q = qualityCounts.mapValues { it.value.get() }.toSortedMap()
+        val reasons = reasonCounts.mapValues { it.value.get() }.entries.sortedByDescending { it.value }.take(limit.coerceAtLeast(1))
+        return "TERMINAL_OUTCOME_QUALITY_STATUS_4359 quality=$q topReasons=${reasons.joinToString(";") { it.key + ":" + it.value }} report_only=true never_hides_realized_pnl=true"
+    }
+
+    private fun bump(map: ConcurrentHashMap<String, AtomicLong>, key: String) {
+        map.computeIfAbsent(key) { AtomicLong(0L) }.incrementAndGet()
     }
 }
 
