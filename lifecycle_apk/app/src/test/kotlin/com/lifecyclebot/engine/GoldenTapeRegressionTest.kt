@@ -4905,7 +4905,7 @@ class GoldenTapeRegressionTest {
         val exec = java.io.File("src/main/kotlin/com/lifecyclebot/engine/Executor.kt").readText()
         val manifest = java.io.File("src/main/kotlin/com/lifecyclebot/engine/AsiSsiAuditCloseoutManifest.kt").readText()
         val audit = readLifecycleFileFor4280s("audits/asi_ssi_audit_queue_2026-06-27.md")
-        assertTrue("V5.0.4295 A41: operator KPI closeout must cover volume, live/paper drift, realized SOL, runner giveback, source PF, sizing warnings, and build status", report.contains("OPERATOR_KPI_CLOSEOUT_REPORT_4393") && report.contains("volume=TradeHistoryStore") && report.contains("live_paper_drift=LivePaperDriftSentinel") && report.contains("realized_net_sol=LiveWalletGrowthGovernorReport") && report.contains("runner_giveback=RunnerExitShadowLedger") && report.contains("source_family_pf=SourceFamilyOpportunityScorecard") && report.contains("sizing_stack_warnings=SizingStackIntegritySentinel") && report.contains("build_status"))
+        assertTrue("V5.0.4295 A41: operator KPI closeout must cover volume, live/paper drift, realized SOL, runner giveback, source PF, sizing warnings, and build status", report.contains("OPERATOR_KPI_CLOSEOUT_REPORT_4396") && report.contains("volume=TradeHistoryStore") && report.contains("live_paper_drift=LivePaperDriftSentinel") && report.contains("realized_net_sol=LiveWalletGrowthGovernorReport") && report.contains("runner_giveback=RunnerExitShadowLedger") && report.contains("source_family_pf=SourceFamilyOpportunityScorecard") && report.contains("sizing_stack_warnings=SizingStackIntegritySentinel") && report.contains("build_status"))
         assertTrue("V5.0.4295 A41: Executor must emit operator KPI report only from side-effect terminal fanout", exec.contains("OperatorKpiCloseoutReport.emit()") && exec.contains("if (_fanoutSide == \"SELL\")"))
         assertTrue("V5.0.4295 closeout: manifest and audit queue must mark A38-A41 complete", manifest.contains("A41 operator KPI closeout report") && manifest.contains("audit_closed=true") && audit.contains("Status: implemented in V5.0.4295 as `OperatorKpiCloseoutReport`"))
         assertFalse("V5.0.4295 A41: KPI closeout must never own execution authority or fake PnL", report.contains("executeBuy(") || report.contains("requestSell(") || !report.contains("no_phantom_pnl=true") || !report.contains("no_execution_authority=true"))
@@ -5189,7 +5189,7 @@ class GoldenTapeRegressionTest {
     @Test
     fun operatorKpi4332ExposesUltimateEdgeAndChokeReliefHelpers() {
         val report = java.io.File("src/main/kotlin/com/lifecyclebot/engine/OperatorKpiCloseoutReport.kt").readText()
-        assertTrue("V5.0.4332: operator KPI report must expose UltimateEdge and ChokeRelief helper health", report.contains("OPERATOR_KPI_CLOSEOUT_REPORT_4393") && report.contains("UltimateEdgeEngine.status(6)") && report.contains("ChokeReliefBus.status()") && report.contains("ultimate_edge=UltimateEdgeEngine") && report.contains("choke_relief=ChokeReliefBus"))
+        assertTrue("V5.0.4332: operator KPI report must expose UltimateEdge and ChokeRelief helper health", report.contains("OPERATOR_KPI_CLOSEOUT_REPORT_4396") && report.contains("UltimateEdgeEngine.status(6)") && report.contains("ChokeReliefBus.status()") && report.contains("ultimate_edge=UltimateEdgeEngine") && report.contains("choke_relief=ChokeReliefBus"))
     }
 
     @Test
@@ -5596,6 +5596,16 @@ class GoldenTapeRegressionTest {
         assertTrue("V5.0.4393: learning/control digest must surface hidden learning/scanner/control statuses", digest.contains("AdaptiveLearningEngine.getStatus") && digest.contains("AutoCompoundEngine.getStatus") && digest.contains("CloudLearningSync.getStatus") && digest.contains("ScannerLearning.getStatus source=SolanaMarketScanner.kt") && digest.contains("SolanaMarketScanner") && digest.contains("PatternAutoTuner.getStatus"))
         assertTrue("V5.0.4393: learning/control digest must include authority, toxic, ML, market, and regime surfaces", digest.contains("EnabledTraderAuthority.snapshotStr") && digest.contains("ToxicModeCircuitBreaker.getStatus") && digest.contains("OnDeviceMLEngine.getStatus") && digest.contains("MarketStructureRouter.getStatus") && digest.contains("RegimeTransitionAI.getStatus"))
         assertTrue("V5.0.4393: learning/control digest must remain report-only and KPI-wired", digest.contains("report_only=true") && digest.contains("no_execution_authority=true") && kpi.contains("learning_control=OperatorLearningControlDigest") && kpi.contains("OperatorLearningControlDigest.status"))
+    }
+
+
+    @Test
+    fun operatorLongTailMechanismDigest4396BatchesLowReferenceAuditSurface() {
+        val digest = java.io.File("src/main/kotlin/com/lifecyclebot/engine/OperatorLongTailMechanismDigest.kt").readText()
+        val kpi = java.io.File("src/main/kotlin/com/lifecyclebot/engine/OperatorKpiCloseoutReport.kt").readText()
+        assertTrue("V5.0.4396: long-tail digest must batch at least twenty low-reference mechanism surfaces", digest.contains("OPERATOR_LONG_TAIL_MECHANISM_DIGEST_4396") && digest.contains("count=${items.size}") && digest.contains("PatchWriterAI") && digest.contains("CryptoUniverseFilter"))
+        assertTrue("V5.0.4396: long-tail digest must classify perps, sentinels, scanner, and sell authority sidecars", digest.contains("perps_sidecar") && digest.contains("sentinel_kpi_visible") && digest.contains("scanner_mode_helper") && digest.contains("sell_authority_sidecar_source_contract"))
+        assertTrue("V5.0.4396: long-tail digest must remain report-only and KPI-wired", digest.contains("report_only=true") && digest.contains("no_execution_authority=true") && digest.contains("no_hot_path_provider_calls=true") && kpi.contains("long_tail=OperatorLongTailMechanismDigest") && kpi.contains("OperatorLongTailMechanismDigest.status"))
     }
 
 }
