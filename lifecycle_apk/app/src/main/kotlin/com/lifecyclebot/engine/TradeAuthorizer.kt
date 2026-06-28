@@ -184,11 +184,12 @@ object TradeAuthorizer {
             )
             val taxonomy = result.rejectTaxonomy
             ChokeReliefBus.launch("TRADE_AUTH_REJECT_TAXONOMY_4424", mint) {
+                try { RejectTaxonomyLedger.record(taxonomy, requestedBook.name, reason) } catch (_: Throwable) {}
                 try { PipelineHealthCollector.labelInc("TRADE_AUTH_REJECT_TAXONOMY_4424_${taxonomy.category.name}") } catch (_: Throwable) {}
                 try {
                     ForensicLogger.lifecycle(
                         "TRADE_AUTH_REJECT_TAXONOMY_4424",
-                        "mint=${mint.take(10)} symbol=$symbol lane=${requestedBook.name} reason=${reason.take(90)} taxonomy=${taxonomy.category.name} retry=$canRetry hardSafety=${taxonomy.hardSafety}"
+                        "mint=${mint.take(10)} symbol=$symbol lane=${requestedBook.name} reason=${reason.take(90)} taxonomy=${taxonomy.category.name} retry=$canRetry hardSafety=${taxonomy.hardSafety} ledger=RejectTaxonomyLedger"
                     )
                 } catch (_: Throwable) {}
             }

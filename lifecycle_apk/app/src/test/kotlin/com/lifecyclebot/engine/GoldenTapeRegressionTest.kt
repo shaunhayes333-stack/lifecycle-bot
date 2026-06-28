@@ -4905,7 +4905,7 @@ class GoldenTapeRegressionTest {
         val exec = java.io.File("src/main/kotlin/com/lifecyclebot/engine/Executor.kt").readText()
         val manifest = java.io.File("src/main/kotlin/com/lifecyclebot/engine/AsiSsiAuditCloseoutManifest.kt").readText()
         val audit = readLifecycleFileFor4280s("audits/asi_ssi_audit_queue_2026-06-27.md")
-        assertTrue("V5.0.4295 A41: operator KPI closeout must cover volume, live/paper drift, realized SOL, runner giveback, source PF, sizing warnings, and build status", report.contains("OPERATOR_KPI_CLOSEOUT_REPORT_4423") && report.contains("volume=TradeHistoryStore") && report.contains("live_paper_drift=LivePaperDriftSentinel") && report.contains("realized_net_sol=LiveWalletGrowthGovernorReport") && report.contains("runner_giveback=RunnerExitShadowLedger") && report.contains("source_family_pf=SourceFamilyOpportunityScorecard") && report.contains("sizing_stack_warnings=SizingStackIntegritySentinel") && report.contains("build_status"))
+        assertTrue("V5.0.4295 A41: operator KPI closeout must cover volume, live/paper drift, realized SOL, runner giveback, source PF, sizing warnings, and build status", report.contains("OPERATOR_KPI_CLOSEOUT_REPORT_4425") && report.contains("volume=TradeHistoryStore") && report.contains("live_paper_drift=LivePaperDriftSentinel") && report.contains("realized_net_sol=LiveWalletGrowthGovernorReport") && report.contains("runner_giveback=RunnerExitShadowLedger") && report.contains("source_family_pf=SourceFamilyOpportunityScorecard") && report.contains("sizing_stack_warnings=SizingStackIntegritySentinel") && report.contains("build_status"))
         assertTrue("V5.0.4295 A41: Executor must emit operator KPI report only from side-effect terminal fanout", exec.contains("OperatorKpiCloseoutReport.emit()") && exec.contains("if (_fanoutSide == \"SELL\")"))
         assertTrue("V5.0.4295 closeout: manifest and audit queue must mark A38-A41 complete", manifest.contains("A41 operator KPI closeout report") && manifest.contains("audit_closed=true") && audit.contains("Status: implemented in V5.0.4295 as `OperatorKpiCloseoutReport`"))
         assertFalse("V5.0.4295 A41: KPI closeout must never own execution authority or fake PnL", report.contains("executeBuy(") || report.contains("requestSell(") || !report.contains("no_phantom_pnl=true") || !report.contains("no_execution_authority=true"))
@@ -5189,7 +5189,7 @@ class GoldenTapeRegressionTest {
     @Test
     fun operatorKpi4332ExposesUltimateEdgeAndChokeReliefHelpers() {
         val report = java.io.File("src/main/kotlin/com/lifecyclebot/engine/OperatorKpiCloseoutReport.kt").readText()
-        assertTrue("V5.0.4332: operator KPI report must expose UltimateEdge and ChokeRelief helper health", report.contains("OPERATOR_KPI_CLOSEOUT_REPORT_4423") && report.contains("UltimateEdgeEngine.status(6)") && report.contains("ChokeReliefBus.status()") && report.contains("ultimate_edge=UltimateEdgeEngine") && report.contains("choke_relief=ChokeReliefBus"))
+        assertTrue("V5.0.4332: operator KPI report must expose UltimateEdge and ChokeRelief helper health", report.contains("OPERATOR_KPI_CLOSEOUT_REPORT_4425") && report.contains("UltimateEdgeEngine.status(6)") && report.contains("ChokeReliefBus.status()") && report.contains("ultimate_edge=UltimateEdgeEngine") && report.contains("choke_relief=ChokeReliefBus"))
     }
 
     @Test
@@ -5856,6 +5856,17 @@ class GoldenTapeRegressionTest {
         assertTrue("V5.0.4424: TradeAuthorizer must consume reject taxonomy through a bounded helper", auth.contains("rejectAuth4424") && auth.contains("TRADE_AUTH_REJECT_TAXONOMY_4424") && auth.contains("ChokeReliefBus.launch"))
         assertTrue("V5.0.4424: high-choke auth rejects must route through taxonomy helper", auth.contains("PREAUTH_BLOCK_RUNTIME_PAUSED") && auth.contains("DEFER_SLOT_HEALTH_") && auth.contains("PREAUTH_") && auth.contains("FINALITY_"))
         assertTrue("V5.0.4424: reject taxonomy remains authority-neutral and is marked consumed", taxonomy.contains("trade_authorizer_consumed_4424=true") && taxonomy.contains("no_execution_authority=true"))
+    }
+
+
+    @Test
+    fun rejectTaxonomyLedger_4425ConsumesTradeAuthorizerCategoriesForReports() {
+        val ledger = java.io.File("src/main/kotlin/com/lifecyclebot/engine/RejectTaxonomyLedger.kt").readText()
+        val auth = java.io.File("src/main/kotlin/com/lifecyclebot/engine/TradeAuthorizer.kt").readText()
+        val kpi = java.io.File("src/main/kotlin/com/lifecyclebot/engine/OperatorKpiCloseoutReport.kt").readText()
+        assertTrue("V5.0.4425: reject taxonomy ledger must count by category and lane without authority", ledger.contains("REJECT_TAXONOMY_LEDGER_4425") && ledger.contains("byCat=") && ledger.contains("topLane=") && ledger.contains("no_execution_authority=true"))
+        assertTrue("V5.0.4425: TradeAuthorizer taxonomy helper must feed the report-side ledger via bounded bus", auth.contains("RejectTaxonomyLedger.record") && auth.contains("ledger=RejectTaxonomyLedger") && auth.contains("ChokeReliefBus.launch"))
+        assertTrue("V5.0.4425: reject taxonomy ledger must be KPI-wired", kpi.contains("reject_taxonomy_ledger=RejectTaxonomyLedger") && kpi.contains("RejectTaxonomyLedger.status"))
     }
 
 }

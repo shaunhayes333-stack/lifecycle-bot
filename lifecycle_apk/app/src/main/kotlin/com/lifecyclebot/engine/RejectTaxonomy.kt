@@ -50,5 +50,5 @@ object RejectTaxonomy {
         )
     }
 
-    fun status(): String = "REJECT_TAXONOMY_4423 pending=PENALTY low_liq=LOW_LIQ_SIZE_REDUCTION unprofitable=COST_REJECT hard_safety_preserved=true report_only=true no_execution_authority=true trade_authorizer_consumed_4424=true"
+    fun status(): String = "REJECT_TAXONOMY_4423 pending=PENALTY low_liq=LOW_LIQ_SIZE_REDUCTION unprofitable=COST_REJECT hard_safety_preserved=true report_only=true no_execution_authority=true trade_authorizer_consumed_4424=true ledger_consumed_4425=true"
 }
