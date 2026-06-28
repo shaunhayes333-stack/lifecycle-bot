@@ -137,6 +137,12 @@ object TradeRowSanityCheck {
     fun totalQuarantined(): Long = quarantineCounts.values.sumOf { it.get() }
     fun totalAdmitted(): Long = passedCount.get()
 
+    fun status(limit: Int = 6): String {
+        val snap = snapshot()
+        val rejects = snap.filterKeys { it != "OK" }.entries.sortedByDescending { it.value }.take(limit.coerceAtLeast(1))
+        return "TRADE_ROW_SANITY_CHECK_4358 admitted=${totalAdmitted()} quarantined=${totalQuarantined()} topRejects=${rejects.joinToString(";") { it.key + ":" + it.value }} journal_truth_preserved=true learning_gate_only=true"
+    }
+
     private fun bump(map: ConcurrentHashMap<String, AtomicLong>, key: String) {
         var c = map[key]
         if (c == null) c = map.computeIfAbsent(key) { AtomicLong(0L) }

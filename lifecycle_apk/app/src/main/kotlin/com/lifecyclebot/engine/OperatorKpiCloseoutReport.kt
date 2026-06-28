@@ -17,14 +17,15 @@ object OperatorKpiCloseoutReport {
         val chokeRelief = try { ChokeReliefBus.status().take(160) } catch (_: Throwable) { "CHOKE_RELIEF_BUS_4320 unavailable" }
         val solArb = try { com.lifecyclebot.v3.scoring.SolanaArbAI.feedStatus().take(180) } catch (_: Throwable) { "SOL_ARB_FEEDS_4336 unavailable" }
         val paperLiveConfidence = try { com.lifecyclebot.engine.learning.PaperLiveConfidenceWeights.status(5).take(220) } catch (_: Throwable) { "PAPER_LIVE_CONFIDENCE_WEIGHTS_4355 unavailable" }
+        val tradeRowSanity = try { com.lifecyclebot.engine.learning.TradeRowSanityCheck.status(5).take(220) } catch (_: Throwable) { "TRADE_ROW_SANITY_CHECK_4358 unavailable" }
         val smartRegistry = try { SmartSystemRuntimeRegistry.status().take(240) } catch (_: Throwable) { "SMART_SYSTEM_RUNTIME_REGISTRY_4357 unavailable" }
-        return "OPERATOR_KPI_CLOSEOUT_REPORT_4357 volume=TradeHistoryStore live_paper_drift=LivePaperDriftSentinel realized_net_sol=LiveWalletGrowthGovernorReport runner_giveback=RunnerExitShadowLedger source_family_pf=SourceFamilyOpportunityScorecard ultimate_edge=UltimateEdgeEngine choke_relief=ChokeReliefBus sol_arb=SolanaArbAI paper_live_confidence=PaperLiveConfidenceWeights smart_system_registry=SmartSystemRuntimeRegistry sizing_stack_warnings=SizingStackIntegritySentinel build_status=${com.lifecyclebot.BuildConfig.VERSION_NAME} growth=[$growth] runner=[$runner] source=[$source] edge=[$ultimateEdge] choke=[$chokeRelief] solArb=[$solArb] paperLiveConfidence=[$paperLiveConfidence] smartRegistry=[$smartRegistry] audit=[$audit] report_only=true no_phantom_pnl=true no_execution_authority=true"
+        return "OPERATOR_KPI_CLOSEOUT_REPORT_4358 volume=TradeHistoryStore live_paper_drift=LivePaperDriftSentinel realized_net_sol=LiveWalletGrowthGovernorReport runner_giveback=RunnerExitShadowLedger source_family_pf=SourceFamilyOpportunityScorecard ultimate_edge=UltimateEdgeEngine choke_relief=ChokeReliefBus sol_arb=SolanaArbAI paper_live_confidence=PaperLiveConfidenceWeights trade_row_sanity=TradeRowSanityCheck smart_system_registry=SmartSystemRuntimeRegistry sizing_stack_warnings=SizingStackIntegritySentinel build_status=${com.lifecyclebot.BuildConfig.VERSION_NAME} growth=[$growth] runner=[$runner] source=[$source] edge=[$ultimateEdge] choke=[$chokeRelief] solArb=[$solArb] paperLiveConfidence=[$paperLiveConfidence] tradeRowSanity=[$tradeRowSanity] smartRegistry=[$smartRegistry] audit=[$audit] report_only=true no_phantom_pnl=true no_execution_authority=true"
     }
 
     fun emit() {
         try {
-            ForensicLogger.lifecycle("OPERATOR_KPI_CLOSEOUT_REPORT_4357", status().take(1400))
-            PipelineHealthCollector.labelInc("OPERATOR_KPI_CLOSEOUT_REPORT_4357")
+            ForensicLogger.lifecycle("OPERATOR_KPI_CLOSEOUT_REPORT_4358", status().take(1400))
+            PipelineHealthCollector.labelInc("OPERATOR_KPI_CLOSEOUT_REPORT_4358")
         } catch (_: Throwable) {}
     }
 }
