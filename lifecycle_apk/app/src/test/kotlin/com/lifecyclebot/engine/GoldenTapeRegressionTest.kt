@@ -5317,4 +5317,14 @@ class GoldenTapeRegressionTest {
         assertTrue("V5.0.4350: TokenRefreshPolicy must preserve active first-minute and open-position refresh", policy.contains("ACTIVE_FRESHNESS_MS") && policy.contains("hasOpenPosition") && policy.contains("Tier.ACTIVE"))
     }
 
+
+    @Test
+    fun paperLiveConfidenceWeights4351AreWiredAtMlGateWithoutDroppingRows() {
+        val exec = java.io.File("src/main/kotlin/com/lifecyclebot/engine/Executor.kt").readText()
+        val sanity = java.io.File("src/main/kotlin/com/lifecyclebot/engine/learning/TradeRowSanityCheck.kt").readText()
+        assertTrue("V5.0.4351: Executor ML gate must update PaperLiveConfidenceWeights from event-local paper/live state", exec.contains("PaperLiveConfidenceWeights.noteLiveSample") && exec.contains("PaperLiveConfidenceWeights.weight") && exec.contains("PAPER_LIVE_CONFIDENCE_WEIGHT_4351") && exec.contains("_fanoutIsPaper"))
+        assertTrue("V5.0.4351: Paper confidence split must preserve live weight and bounded paper bootstrap", sanity.contains("PAPER_BOOTSTRAP_WEIGHT = 0.40") && sanity.contains("LIVE_WEIGHT            = 1.00") && sanity.contains("LIVE_VALIDATION_MIN_SAMPLES"))
+        assertFalse("V5.0.4351: paper confidence telemetry must not drop ML rows", exec.contains("paperLiveWeight4351") && exec.contains("return@launch"))
+    }
+
 }

@@ -3018,6 +3018,15 @@ class Executor(
                 val topHold  = ts.safety.topHolderPct.takeIf { it >= 0 } ?: (ts.topHolderPct ?: 0.0)
                 val rsiSnap  = ts.meta.rsi
                 val emaSnap  = ts.meta.emafanAlignment
+                val paperLiveWeight4351 = try {
+                    val scoreBand4351 = "S" + ((tradeSnap.score.toInt().coerceIn(0, 100) / 10) * 10).toString().padStart(2, '0')
+                    val lane4351 = tradeSnap.tradingMode.ifBlank { _fanoutTradingMode.ifBlank { "STANDARD" } }
+                    if (!_fanoutIsPaper) {
+                        com.lifecyclebot.engine.learning.PaperLiveConfidenceWeights.noteLiveSample(lane4351, scoreBand4351)
+                    }
+                    com.lifecyclebot.engine.learning.PaperLiveConfidenceWeights.weight(lane4351, scoreBand4351, _fanoutIsPaper)
+                } catch (_: Throwable) { if (_fanoutIsPaper) 0.40 else 1.0 }
+                try { PipelineHealthCollector.labelInc("PAPER_LIVE_CONFIDENCE_WEIGHT_4351|${if (_fanoutIsPaper) "paper" else "live"}|${(paperLiveWeight4351 * 100).toInt()}") } catch (_: Throwable) {}
                 GlobalScope.launch(AppDispatchers.sideEffect) {
                     try {
                         TradeHistoryStore.recordTradeForML(
