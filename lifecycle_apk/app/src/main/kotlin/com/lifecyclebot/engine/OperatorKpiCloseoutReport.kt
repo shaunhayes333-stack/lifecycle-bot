@@ -19,14 +19,15 @@ object OperatorKpiCloseoutReport {
         val paperLiveConfidence = try { com.lifecyclebot.engine.learning.PaperLiveConfidenceWeights.status(5).take(220) } catch (_: Throwable) { "PAPER_LIVE_CONFIDENCE_WEIGHTS_4355 unavailable" }
         val tradeRowSanity = try { com.lifecyclebot.engine.learning.TradeRowSanityCheck.status(5).take(220) } catch (_: Throwable) { "TRADE_ROW_SANITY_CHECK_4358 unavailable" }
         val terminalQuality = try { TerminalOutcomeQualityGate.status(5).take(220) } catch (_: Throwable) { "TERMINAL_OUTCOME_QUALITY_STATUS_4359 unavailable" }
+        val muxSentinel = try { LearningFanoutMuxSentinel.status().take(220) } catch (_: Throwable) { "LEARNING_FANOUT_MUX_SENTINEL_4360 unavailable" }
         val smartRegistry = try { SmartSystemRuntimeRegistry.status().take(240) } catch (_: Throwable) { "SMART_SYSTEM_RUNTIME_REGISTRY_4357 unavailable" }
-        return "OPERATOR_KPI_CLOSEOUT_REPORT_4359 volume=TradeHistoryStore live_paper_drift=LivePaperDriftSentinel realized_net_sol=LiveWalletGrowthGovernorReport runner_giveback=RunnerExitShadowLedger source_family_pf=SourceFamilyOpportunityScorecard ultimate_edge=UltimateEdgeEngine choke_relief=ChokeReliefBus sol_arb=SolanaArbAI paper_live_confidence=PaperLiveConfidenceWeights trade_row_sanity=TradeRowSanityCheck terminal_outcome_quality=TerminalOutcomeQualityGate smart_system_registry=SmartSystemRuntimeRegistry sizing_stack_warnings=SizingStackIntegritySentinel build_status=${com.lifecyclebot.BuildConfig.VERSION_NAME} growth=[$growth] runner=[$runner] source=[$source] edge=[$ultimateEdge] choke=[$chokeRelief] solArb=[$solArb] paperLiveConfidence=[$paperLiveConfidence] tradeRowSanity=[$tradeRowSanity] terminalQuality=[$terminalQuality] smartRegistry=[$smartRegistry] audit=[$audit] report_only=true no_phantom_pnl=true no_execution_authority=true"
+        return "OPERATOR_KPI_CLOSEOUT_REPORT_4360 volume=TradeHistoryStore live_paper_drift=LivePaperDriftSentinel realized_net_sol=LiveWalletGrowthGovernorReport runner_giveback=RunnerExitShadowLedger source_family_pf=SourceFamilyOpportunityScorecard ultimate_edge=UltimateEdgeEngine choke_relief=ChokeReliefBus sol_arb=SolanaArbAI paper_live_confidence=PaperLiveConfidenceWeights trade_row_sanity=TradeRowSanityCheck terminal_outcome_quality=TerminalOutcomeQualityGate learning_fanout_mux=LearningFanoutMuxSentinel smart_system_registry=SmartSystemRuntimeRegistry sizing_stack_warnings=SizingStackIntegritySentinel build_status=${com.lifecyclebot.BuildConfig.VERSION_NAME} growth=[$growth] runner=[$runner] source=[$source] edge=[$ultimateEdge] choke=[$chokeRelief] solArb=[$solArb] paperLiveConfidence=[$paperLiveConfidence] tradeRowSanity=[$tradeRowSanity] terminalQuality=[$terminalQuality] mux=[$muxSentinel] smartRegistry=[$smartRegistry] audit=[$audit] report_only=true no_phantom_pnl=true no_execution_authority=true"
     }
 
     fun emit() {
         try {
-            ForensicLogger.lifecycle("OPERATOR_KPI_CLOSEOUT_REPORT_4359", status().take(1400))
-            PipelineHealthCollector.labelInc("OPERATOR_KPI_CLOSEOUT_REPORT_4359")
+            ForensicLogger.lifecycle("OPERATOR_KPI_CLOSEOUT_REPORT_4360", status().take(1400))
+            PipelineHealthCollector.labelInc("OPERATOR_KPI_CLOSEOUT_REPORT_4360")
         } catch (_: Throwable) {}
     }
 }
