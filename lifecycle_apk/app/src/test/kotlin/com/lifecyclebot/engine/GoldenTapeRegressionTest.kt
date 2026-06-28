@@ -5546,4 +5546,13 @@ class GoldenTapeRegressionTest {
         assertTrue("V5.0.4381: operator KPI must include SSI council status", kpi.contains("ssi_council_status=SsiCouncilClosedLoopSentinel") && kpi.contains("SsiCouncilClosedLoopSentinel.status"))
     }
 
+
+    @Test
+    fun profitPressureWalletNull4384EnqueuesUrgentSellRecovery() {
+        val exec = java.io.File("src/main/kotlin/com/lifecyclebot/engine/Executor.kt").readText()
+        assertTrue("V5.0.4384: live capital-recovery wallet-null must enqueue urgent recovery instead of passive retry", exec.contains("URGENT_CAPITAL_RECOVERY_WALLET_NULL") && exec.contains("PendingSellQueue.add(ts.mint, ts.symbol ?: "?", recoveryReason)") && exec.contains("BalanceProofWaitState.markWaiting") && exec.contains("PROFIT_PRESSURE_SELL_RECOVERY_ENQUEUED_4384"))
+        assertTrue("V5.0.4384: live profit-lock wallet-null must enqueue urgent recovery instead of passive retry", exec.contains("URGENT_PROFIT_LOCK_WALLET_NULL") && exec.contains("HostWalletTokenTracker.markSellWaitingBalanceProof") && exec.contains("kind=profit_lock wallet_null pendingSell=true balanceProofWait=true"))
+        assertTrue("V5.0.4384: profit-pressure recovery must not fake-close or paper-book live exits", !exec.contains("PROFIT_LOCK_DEFERRED") || exec.contains("Enqueued urgent proof/retry"))
+    }
+
 }

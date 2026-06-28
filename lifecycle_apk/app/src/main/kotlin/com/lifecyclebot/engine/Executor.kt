@@ -4239,8 +4239,21 @@ class Executor(
             // wallet=null branch now defers (returns false) so the engine
             // retries on the next monitor tick once the wallet reconnects.
             if (!pos.isPaperPosition && wallet == null) {
+                val recoveryReason = "URGENT_CAPITAL_RECOVERY_WALLET_NULL_${gainMultiple.fmt(1)}x"
                 ErrorLogger.warn("Executor",
-                    "🚫 CAPITAL_RECOVERY_DEFERRED: ${ts.symbol} — live position but wallet=null. Will retry next tick.")
+                    "🚫 CAPITAL_RECOVERY_DEFERRED: ${ts.symbol} — live position but wallet=null. Enqueued urgent proof/retry.")
+                try { PendingSellQueue.add(ts.mint, ts.symbol ?: "?", recoveryReason) } catch (_: Throwable) {}
+                try { HostWalletTokenTracker.markSellWaitingBalanceProof(ts.mint, ts.symbol, recoveryReason) } catch (_: Throwable) {}
+                try {
+                    com.lifecyclebot.engine.sell.BalanceProofWaitState.markWaiting(
+                        ts.mint, ts.symbol ?: "?", recoveryReason,
+                        runtimeGeneration = try { BotRuntimeController.currentGeneration() } catch (_: Throwable) { 0L },
+                    )
+                } catch (_: Throwable) {}
+                try {
+                    ForensicLogger.lifecycle("PROFIT_PRESSURE_SELL_RECOVERY_ENQUEUED_4384", "mint=${ts.mint.take(10)} symbol=${ts.symbol} reason=$recoveryReason kind=capital_recovery wallet_null pendingSell=true balanceProofWait=true")
+                    PipelineHealthCollector.labelInc("PROFIT_PRESSURE_SELL_RECOVERY_ENQUEUED_4384")
+                } catch (_: Throwable) {}
                 return false
             }
             if (pos.isPaperPosition) {
@@ -4317,8 +4330,21 @@ class Executor(
             // V5.9.751b — see B1 note. Route on position isPaper, defer if
             // live-position + wallet=null.
             if (!pos.isPaperPosition && wallet == null) {
+                val recoveryReason = "URGENT_PROFIT_LOCK_WALLET_NULL_${gainMultiple.fmt(1)}x"
                 ErrorLogger.warn("Executor",
-                    "🚫 PROFIT_LOCK_DEFERRED: ${ts.symbol} — live position but wallet=null. Will retry next tick.")
+                    "🚫 PROFIT_LOCK_DEFERRED: ${ts.symbol} — live position but wallet=null. Enqueued urgent proof/retry.")
+                try { PendingSellQueue.add(ts.mint, ts.symbol ?: "?", recoveryReason) } catch (_: Throwable) {}
+                try { HostWalletTokenTracker.markSellWaitingBalanceProof(ts.mint, ts.symbol, recoveryReason) } catch (_: Throwable) {}
+                try {
+                    com.lifecyclebot.engine.sell.BalanceProofWaitState.markWaiting(
+                        ts.mint, ts.symbol ?: "?", recoveryReason,
+                        runtimeGeneration = try { BotRuntimeController.currentGeneration() } catch (_: Throwable) { 0L },
+                    )
+                } catch (_: Throwable) {}
+                try {
+                    ForensicLogger.lifecycle("PROFIT_PRESSURE_SELL_RECOVERY_ENQUEUED_4384", "mint=${ts.mint.take(10)} symbol=${ts.symbol} reason=$recoveryReason kind=profit_lock wallet_null pendingSell=true balanceProofWait=true")
+                    PipelineHealthCollector.labelInc("PROFIT_PRESSURE_SELL_RECOVERY_ENQUEUED_4384")
+                } catch (_: Throwable) {}
                 return false
             }
             if (pos.isPaperPosition) {
