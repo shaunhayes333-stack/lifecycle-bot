@@ -5,7 +5,7 @@ object OperatorEngineStatusDigest {
     fun status(): String {
         val sizing = try { LiveSizingProfile.summary().take(140) } catch (_: Throwable) { "LiveSizingProfile unavailable" }
         val keys = try { KeyValidator.snapshot().size.toString() + " keys" } catch (_: Throwable) { "KeyValidator unavailable" }
-        val tokenMeta = try { TokenMetaCache.snapshot().toString().take(140) } catch (_: Throwable) { "TokenMetaCache unavailable" }
+        val tokenMeta = "TokenMetaCache snapshot is instance-scoped"
         val endpoint = try { AutoEndpointMigrator.snapshot().size.toString() + " hosts" } catch (_: Throwable) { "AutoEndpointMigrator unavailable" }
         val memeTrace = try { MemePipelineTracer.snapshot().toString().take(140) } catch (_: Throwable) { "MemePipelineTracer unavailable" }
         val cycle = try { CycleTimingTracker.snapshot().toString().take(140) } catch (_: Throwable) { "CycleTimingTracker unavailable" }
