@@ -10677,6 +10677,9 @@ class Executor(
 
         // V5.0.4134 — UNIVERSAL LIVE-BUY DISCIPLINE VETO + DUMP REGIME KILL SWITCH.
         //
+        var disciplineRecoverySizeMultiplier4460 = 1.0
+        var disciplineRecoveryReason4460 = ""
+
         // V5.0.4133 added rug-blacklist + discipline veto at doBuy(), but at least one
         // path (MOONSHOT shadow-to-live handoff at Executor.kt:8115) calls liveBuy()
         // directly, bypassing doBuy() entirely. Since the comment above (line 8101) is
@@ -10779,12 +10782,12 @@ class Executor(
                     laneTimedOut4134   -> "LANE_TIMEOUT"
                     else               -> "SCANNER_BRIDGE_VETO"
                 }
-                try { ForensicLogger.lifecycle("DISCIPLINE_VETO_V4148", "symbol=${ts.symbol} mint=$mintShort4134 lane=$laneTag4134 reason=$reasonTag4134 pause=${pauseDefensive4134} topLane=${laneTopPerformer4148} timeout=${laneTimedOut4134} bridge=${bridgeToxic4134} path=liveBuy.enter") } catch (_: Throwable) {}
-                try { PipelineHealthCollector.labelInc("DISCIPLINE_VETO_$reasonTag4134") } catch (_: Throwable) {}
+                disciplineRecoverySizeMultiplier4460 = 0.35
+                disciplineRecoveryReason4460 = reasonTag4134
+                try { ForensicLogger.lifecycle("DISCIPLINE_RECOVERY_PROBE_4460", "symbol=${ts.symbol} mint=$mintShort4134 lane=$laneTag4134 reason=$reasonTag4134 pause=${pauseDefensive4134} topLane=${laneTopPerformer4148} timeout=${laneTimedOut4134} bridge=${bridgeToxic4134} path=liveBuy.enter sizeMult=0.35 action=continue_to_live_buy") } catch (_: Throwable) {}
+                try { PipelineHealthCollector.labelInc("DISCIPLINE_RECOVERY_PROBE_$reasonTag4134") } catch (_: Throwable) {}
                 try { PipelineHealthCollector.labelInc("BUY_TIMEOUT_NOT_STRATEGY_FAILURE") } catch (_: Throwable) {}
-                liveBuyDeferred(ts, sol, "${reasonTag4134}_RESCORE", "discipline rescore (lane=$laneTag4134 goose=${gooseVerdict4134.name} topLane=${laneTopPerformer4148})")
-                onLog("🛡 LIVE $reasonTag4134 rescore: ${ts.symbol} lane=$laneTag4134", "discipline")
-                return false
+                onLog("🛡 LIVE $reasonTag4134 recovery probe: ${ts.symbol} lane=$laneTag4134", "discipline")
             }
             if (pauseDefensive4134 && laneTopPerformer4148) {
                 try { ForensicLogger.lifecycle("TOP_LANE_BYPASS_V4148", "symbol=${ts.symbol} mint=$mintShort4134 lane=$laneTag4134 globalPause=DEFENSIVE laneIsTopPerformer=true path=liveBuy.enter") } catch (_: Throwable) {}
@@ -11201,6 +11204,11 @@ class Executor(
             ErrorLogger.info("Executor", "🩹 WR_RECOVERY_SIZE_DAMP (live): ${ts.symbol} | sol=${sol.fmt(4)} × ${"%.2f".format(wrSizeMult)} → ${damped.fmt(4)} (band=${WrRecoveryPartial.stateNow().band.name})")
             damped
         } else sol
+        if (disciplineRecoverySizeMultiplier4460 < 0.999) {
+            val beforeDisciplineSol = sol
+            sol = (sol * disciplineRecoverySizeMultiplier4460).coerceAtLeast(0.0)
+            try { ForensicLogger.lifecycle("LIVE_DISCIPLINE_RECOVERY_SIZE_APPLIED_4460", "mint=${ts.mint.take(10)} symbol=${ts.symbol} from=${beforeDisciplineSol.fmt(4)} to=${sol.fmt(4)} mult=${disciplineRecoverySizeMultiplier4460.fmt(2)} reason=$disciplineRecoveryReason4460 lane=$layerTag") } catch (_: Throwable) {}
+        }
         if (effectiveStyleSizeMultiplier < 0.999 || effectiveStyleSizeMultiplier > 1.001) {
             val beforePivotSol = sol
             sol = (sol * effectiveStyleSizeMultiplier).coerceAtLeast(0.0)
