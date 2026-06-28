@@ -751,6 +751,7 @@ object TradeHistoryStore {
             } catch (_: Throwable) {}
             return
         }
+        try { LearningRejectLabelSentinel.inspect(tradeToStore, "TradeHistoryStore.recordTrade.prePersistence") } catch (_: Throwable) {}
         synchronized(lock) {
             trades.add(tradeToStore)
             // V5.9.330: Trim in-memory list to avoid OOM. SQLite retains everything.
