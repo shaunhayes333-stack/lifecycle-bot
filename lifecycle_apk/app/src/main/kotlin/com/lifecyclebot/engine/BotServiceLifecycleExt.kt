@@ -52,6 +52,14 @@ import android.os.Looper
 import android.os.SystemClock
 import android.widget.Toast
 import com.lifecyclebot.data.TokenState
+import java.util.concurrent.ConcurrentHashMap
+import java.util.concurrent.atomic.AtomicLong
+
+private val serviceToastHandler4484 = Handler(Looper.getMainLooper())
+private val serviceToastLastAnyMs4484 = AtomicLong(0L)
+private val serviceToastLastByKey4484 = ConcurrentHashMap<String, Long>()
+private const val SERVICE_TOAST_MIN_GAP_MS_4484 = 900L
+private const val SERVICE_TOAST_DEDUPE_MS_4484 = 5_000L
 
 internal suspend fun BotService.runRegimePulse() {
     try {
@@ -316,13 +324,32 @@ internal fun BotService.armRestartAlarm(
 /**
  * Show a Toast message on the UI thread.
  * Used for immediate visual feedback on trade actions.
+ *
+ * V5.0.4484 — bounded service-toast dispatch. Runtime 4471 ANR sampler named
+ * BotServiceLifecycleExtKt.showToast$lambda$7 as the top blocking call site.
+ * Executor callbacks can fire many trade/log toasts in a burst; posting every
+ * long toast to the main looper creates UI work unrelated to trading authority.
+ * Keep operator feedback, but dedupe identical messages and rate-limit service
+ * toasts globally. Logs/forensics still carry every event.
  */
 internal fun BotService.showToast(message: String) {
-    android.os.Handler(android.os.Looper.getMainLooper()).post {
-        android.widget.Toast.makeText(
-            applicationContext,
-            message,
-            android.widget.Toast.LENGTH_LONG
-        ).show()
+    val now = SystemClock.elapsedRealtime()
+    val key = message.take(120)
+    val lastAny = serviceToastLastAnyMs4484.get()
+    val lastSame = serviceToastLastByKey4484[key] ?: 0L
+    if ((now - lastAny) < SERVICE_TOAST_MIN_GAP_MS_4484 || (now - lastSame) < SERVICE_TOAST_DEDUPE_MS_4484) {
+        try { PipelineHealthCollector.labelInc("SERVICE_TOAST_SUPPRESSED_4484") } catch (_: Throwable) {}
+        return
+    }
+    serviceToastLastAnyMs4484.set(now)
+    serviceToastLastByKey4484[key] = now
+    serviceToastHandler4484.post {
+        try {
+            Toast.makeText(
+                applicationContext,
+                message.take(160),
+                Toast.LENGTH_SHORT
+            ).show()
+        } catch (_: Throwable) {}
     }
 }

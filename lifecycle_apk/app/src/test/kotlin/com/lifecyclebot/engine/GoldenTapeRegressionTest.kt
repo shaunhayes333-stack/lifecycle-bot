@@ -6220,4 +6220,13 @@ class GoldenTapeRegressionTest {
         assertTrue("V5.0.4483: ProjectSniper must compute owner admission once per token/cycle, not duplicate shouldRun calls", src.contains("projectSniperLaneAllowedThisCycle4483") && src.contains("singleGate4483=true") && src.indexOf("shouldRunBuyLaneForCycle(ts, "PROJECT_SNIPER"") == src.lastIndexOf("shouldRunBuyLaneForCycle(ts, "PROJECT_SNIPER""))
     }
 
+
+
+    @Test
+    fun botServiceLifecycle_4484BoundsServiceToastDispatch() {
+        val src = java.io.File("src/main/kotlin/com/lifecyclebot/engine/BotServiceLifecycleExt.kt").readText()
+        assertTrue("V5.0.4484: service toasts must be globally rate-limited/deduped to prevent main-thread ANR bursts", src.contains("SERVICE_TOAST_MIN_GAP_MS_4484") && src.contains("SERVICE_TOAST_DEDUPE_MS_4484") && src.contains("SERVICE_TOAST_SUPPRESSED_4484"))
+        assertTrue("V5.0.4484: service toasts should use the shared handler and short duration, not post unlimited long toasts", src.contains("serviceToastHandler4484.post") && src.contains("Toast.LENGTH_SHORT") && !src.contains("android.widget.Toast.LENGTH_LONG"))
+    }
+
 }
