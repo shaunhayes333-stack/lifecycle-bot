@@ -1,0 +1,17 @@
+package com.lifecyclebot.engine
+
+/** V5.0.4452 — report-only manifest for the source-contract audit tail after marker triage/pins. */
+object OperatorSourceContractCloseoutManifest {
+    private val closedTailBatches = listOf(
+        "4443 source-marker residual quantification",
+        "4444 BotService marker triage",
+        "4445 Executor/FDG/TokenSafety/Toxicity marker triage",
+        "4446 runtime/endpoint health marker triage",
+        "4447 mid-tail marker triage",
+        "4448 small-tail marker compression",
+        "4449 permit/canonical feature source contracts",
+        "4450 scanner/education/overlay source contracts",
+        "4451 wallet/pipeline/guardrail source contracts"
+    )
+    fun status(): String = "OPERATOR_SOURCE_CONTRACT_CLOSEOUT_MANIFEST_4452 closed_tail_batches=${closedTailBatches.size} remaining_source_contract_tail_estimate=10_25 next=[fix_ci_if_tail_red final_residual_source_contract_sweep update_remaining_estimate_to_zero_when_green] latest=${closedTailBatches.takeLast(3).joinToString("|")} report_only=true no_gate_change=true no_hot_path_change=true"
+}
