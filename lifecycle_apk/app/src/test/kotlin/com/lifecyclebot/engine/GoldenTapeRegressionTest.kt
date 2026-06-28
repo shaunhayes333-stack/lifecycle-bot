@@ -414,7 +414,7 @@ class GoldenTapeRegressionTest {
     fun memetrader_lanes_rotate_full_surface_without_all_lane_fanout() {
         val bot = java.io.File("src/main/kotlin/com/lifecyclebot/engine/BotService.kt").readText()
         assertTrue("MEME-only should rotate ownership across the full MemeTrader surface", bot.contains("MEMETRADER_CONTRIBUTION_ROTATION") && bot.contains("fullMemeTraderRing") && bot.contains("MEMETRADER_OWNER_LANE"))
-        assertTrue("Rotation must include internal lanes that were previously idle", listOf("SHITCOIN", "MOONSHOT", "EXPRESS", "PROJECT_SNIPER", "MANIPULATED", "QUALITY", "DIP_HUNTER", "TREASURY", "BLUECHIP").all { bot.contains(it) })
+        assertTrue("Rotation must include internal lanes that were previously idle", listOf("SHITCOIN", "MOONSHOT", "EXPRESS", "PROJECT_SNIPER", "MANIPULATED", "QUALITY", "DIP_HUNTER", "TREASURY", "CASHGEN", "BLUECHIP").all { bot.contains(it) })
         assertTrue("Contribution fix must remain bounded to one owner lane, not all-lane fanout", bot.contains("val allowed = l == ownerLane") && bot.contains("return allowed"))
         assertFalse("3914 live full-ring fanout regression must stay dead", bot.contains("LIVE_FULL_RING_LANE_OBSERVE"))
     }
@@ -800,7 +800,7 @@ class GoldenTapeRegressionTest {
         assertTrue(bot.contains("PAPER_WR_DILUTION_FIX"))
         assertTrue(bot.contains("MEMETRADER_CONTRIBUTION_ROTATION"))
         assertTrue(bot.contains("val fullMemeTraderRing = listOf"))
-        assertTrue("Full MemeTrader ring must include previously idle internal lanes", listOf("SHITCOIN", "MOONSHOT", "EXPRESS", "PROJECT_SNIPER", "MANIPULATED", "QUALITY", "DIP_HUNTER", "TREASURY", "BLUECHIP").all { bot.contains(it) })
+        assertTrue("Full MemeTrader ring must include previously idle internal lanes", listOf("SHITCOIN", "MOONSHOT", "EXPRESS", "PROJECT_SNIPER", "MANIPULATED", "QUALITY", "DIP_HUNTER", "TREASURY", "CASHGEN", "BLUECHIP").all { bot.contains(it) })
         assertTrue("Owner rotation must be affinity-first and toxicity-filtered", bot.contains("affinityRanked") && bot.contains("rawOwnerPool") && bot.contains("LaneToxicityGuard.filterNonToxic(rawOwnerPool"))
         assertTrue("EXPRESS must use the same bounded lane gate and emit LANE_EVAL", bot.contains("expressLaneAllowedThisCycle") && bot.contains("lane=EXPRESS paper="))
         assertTrue(bot.contains("MEMETRADER_OWNER_LANE") && bot.contains("profitableRescue") && bot.contains("LANE_SUPPRESSED_BY_OWNER_ROTATION"))
@@ -6161,6 +6161,15 @@ class GoldenTapeRegressionTest {
         assertTrue("V5.0.4463: FDG mcap/liquidity ratio >20x must soft-shape, not hard-block", src.contains("mcap_liq_ratio_extreme_soft") && src.contains("MCAP_LIQ_RATIO_EXTREME_SIZE_REDUCTION_4463") && !src.contains("HARD_BLOCK_MCAP_LIQ_RATIO_"))
         assertTrue("V5.0.4463: FDG must report extreme mcap/liquidity soft shaping for runtime block visibility", src.contains("FDG_MCAP_LIQ_RATIO_EXTREME_SOFT_SHAPED_4463") && src.contains("extreme_thin_mcap_liq_size_reduction"))
         assertTrue("V5.0.4463: true non-exitable liquidity floor remains hard safety", src.contains("HARD_BLOCK_LIQUIDITY_BELOW_500") && src.contains("liq=\$${liveLiq.toInt()} < \$500 non-exitable dust"))
+    }
+
+
+    @Test
+    fun botService_4467CashgenMustParticipateInLiveLaneOwnerRotation() {
+        val src = java.io.File("src/main/kotlin/com/lifecyclebot/engine/BotService.kt").readText()
+        assertTrue("V5.0.4467: CASHGEN must be in the live MemeTrader owner ring, not only enabled cosmetically", src.contains("val fullMemeTraderRing = listOf") && src.contains(""TREASURY", "CASHGEN", "BLUECHIP""))
+        assertTrue("V5.0.4467: CASHGEN must share quality/depth rescue eligibility with TREASURY and BLUECHIP", src.contains("setOf("QUALITY", "TREASURY", "CASHGEN", "BLUECHIP")") && src.contains("setOf("QUALITY", "TREASURY", "CASHGEN", "BLUECHIP", "MOONSHOT", "PROJECT_SNIPER")"))
+        assertTrue("V5.0.4467: source affinity already seeds CASHGEN, so the owner ring must consume it downstream", src.contains("listOf("QUALITY", "TREASURY", "CASHGEN")") && src.contains("MEMETRADER_OWNER_LANE"))
     }
 
 }

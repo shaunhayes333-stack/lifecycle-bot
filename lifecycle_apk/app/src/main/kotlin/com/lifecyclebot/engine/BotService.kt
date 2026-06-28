@@ -9429,15 +9429,15 @@ class BotService : Service() {
             // returning to every-token/every-lane FDG storms.
             val fullMemeTraderRing = listOf(
                 "SHITCOIN", "MOONSHOT", "EXPRESS", "PROJECT_SNIPER",
-                "MANIPULATED", "QUALITY", "DIP_HUNTER", "TREASURY", "BLUECHIP"
+                "MANIPULATED", "QUALITY", "DIP_HUNTER", "TREASURY", "CASHGEN", "BLUECHIP"
             )
             val qualityEligible = qualityLaneProofOk()
             val affinityRanked = affinity.filter { it in fullMemeTraderRing }.sorted()
             val rawOwnerPool0 = (listOf(primaryLane.uppercase()) + affinityRanked + fullMemeTraderRing).distinct()
             val rawOwnerPool = rawOwnerPool0.filter { laneName ->
-                laneName !in setOf("QUALITY", "BLUECHIP", "TREASURY") || qualityEligible
-            }.ifEmpty { rawOwnerPool0.filter { it !in setOf("QUALITY", "BLUECHIP", "TREASURY") }.ifEmpty { rawOwnerPool0 } }
-            if (!qualityEligible && rawOwnerPool0.any { it in setOf("QUALITY", "BLUECHIP", "TREASURY") }) {
+                laneName !in setOf("QUALITY", "BLUECHIP", "TREASURY", "CASHGEN") || qualityEligible
+            }.ifEmpty { rawOwnerPool0.filter { it !in setOf("QUALITY", "BLUECHIP", "TREASURY", "CASHGEN") }.ifEmpty { rawOwnerPool0 } }
+            if (!qualityEligible && rawOwnerPool0.any { it in setOf("QUALITY", "BLUECHIP", "TREASURY", "CASHGEN") }) {
                 try { ForensicLogger.lifecycle("QUALITY_OWNER_PROOF_REJECTED", "symbol=${ts.symbol} mint=${ts.mint.take(10)} liq=${ts.lastLiquidityUsd.toInt()} mcap=${ts.lastMcap.toInt()} src=${ts.lastPriceSource.ifBlank { ts.source }} holder=${ts.safety.topHolderPct} primary=$primaryLane") } catch (_: Throwable) {}
             }
             val ownerPool = com.lifecyclebot.engine.LaneToxicityGuard.filterNonToxic(rawOwnerPool, scoreForToxicity).ifEmpty { rawOwnerPool }
@@ -9448,8 +9448,8 @@ class BotService : Service() {
             // operator expects to make money. In LIVE, allow bounded affinity/
             // character-confirmed quality rescue lanes in addition to the owner;
             // the actual lane must still emit BUY intent and pass FDG/executor.
-            val profitableRescue = RuntimeModeAuthority.isLive() && l in setOf("QUALITY", "TREASURY", "BLUECHIP", "MOONSHOT", "PROJECT_SNIPER") && (
-                (l in setOf("QUALITY", "TREASURY", "BLUECHIP") && qualityEligible && (affinity.contains(l) || l == primaryLane.uppercase() || scoreForToxicity >= 55 || ts.lastLiquidityUsd >= 15_000.0)) ||
+            val profitableRescue = RuntimeModeAuthority.isLive() && l in setOf("QUALITY", "TREASURY", "CASHGEN", "BLUECHIP", "MOONSHOT", "PROJECT_SNIPER") && (
+                (l in setOf("QUALITY", "TREASURY", "CASHGEN", "BLUECHIP") && qualityEligible && (affinity.contains(l) || l == primaryLane.uppercase() || scoreForToxicity >= 55 || ts.lastLiquidityUsd >= 15_000.0)) ||
                 (l == "MOONSHOT" && (affinity.contains(l) || l == primaryLane.uppercase() || scoreForToxicity >= 55 || ts.meta.momScore >= 60.0)) ||
                 (l == "PROJECT_SNIPER" && qualityEligible && affinity.contains(l))
             )
