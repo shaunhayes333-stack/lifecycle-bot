@@ -55,7 +55,13 @@ jobs:
           echo "Building AATE v${{ steps.aate_build.outputs.version_name }}"
           echo "versionCode = $((500 + AATE_BUILD_NUMBER))"
           echo "========================================"
-          ./gradlew clean assembleRelease --no-daemon --stacktrace -PbuildNumber=$AATE_BUILD_NUMBER -PaateVersionName=$AATE_VERSION_NAME
+          GRADLE_CMD="./gradlew"
+          if ! ./gradlew --version --no-daemon; then
+            echo "Gradle wrapper unavailable; falling back to system gradle"
+            GRADLE_CMD="gradle"
+            gradle --version
+          fi
+          $GRADLE_CMD clean assembleRelease --no-daemon --stacktrace -PbuildNumber=$AATE_BUILD_NUMBER -PaateVersionName=$AATE_VERSION_NAME
           echo "Built APK:"
           ls -la app/build/outputs/apk/release/
           # Rename APK to include build number
