@@ -4905,7 +4905,7 @@ class GoldenTapeRegressionTest {
         val exec = java.io.File("src/main/kotlin/com/lifecyclebot/engine/Executor.kt").readText()
         val manifest = java.io.File("src/main/kotlin/com/lifecyclebot/engine/AsiSsiAuditCloseoutManifest.kt").readText()
         val audit = readLifecycleFileFor4280s("audits/asi_ssi_audit_queue_2026-06-27.md")
-        assertTrue("V5.0.4295 A41: operator KPI closeout must cover volume, live/paper drift, realized SOL, runner giveback, source PF, sizing warnings, and build status", report.contains("OPERATOR_KPI_CLOSEOUT_REPORT_4381") && report.contains("volume=TradeHistoryStore") && report.contains("live_paper_drift=LivePaperDriftSentinel") && report.contains("realized_net_sol=LiveWalletGrowthGovernorReport") && report.contains("runner_giveback=RunnerExitShadowLedger") && report.contains("source_family_pf=SourceFamilyOpportunityScorecard") && report.contains("sizing_stack_warnings=SizingStackIntegritySentinel") && report.contains("build_status"))
+        assertTrue("V5.0.4295 A41: operator KPI closeout must cover volume, live/paper drift, realized SOL, runner giveback, source PF, sizing warnings, and build status", report.contains("OPERATOR_KPI_CLOSEOUT_REPORT_4388") && report.contains("volume=TradeHistoryStore") && report.contains("live_paper_drift=LivePaperDriftSentinel") && report.contains("realized_net_sol=LiveWalletGrowthGovernorReport") && report.contains("runner_giveback=RunnerExitShadowLedger") && report.contains("source_family_pf=SourceFamilyOpportunityScorecard") && report.contains("sizing_stack_warnings=SizingStackIntegritySentinel") && report.contains("build_status"))
         assertTrue("V5.0.4295 A41: Executor must emit operator KPI report only from side-effect terminal fanout", exec.contains("OperatorKpiCloseoutReport.emit()") && exec.contains("if (_fanoutSide == \"SELL\")"))
         assertTrue("V5.0.4295 closeout: manifest and audit queue must mark A38-A41 complete", manifest.contains("A41 operator KPI closeout report") && manifest.contains("audit_closed=true") && audit.contains("Status: implemented in V5.0.4295 as `OperatorKpiCloseoutReport`"))
         assertFalse("V5.0.4295 A41: KPI closeout must never own execution authority or fake PnL", report.contains("executeBuy(") || report.contains("requestSell(") || !report.contains("no_phantom_pnl=true") || !report.contains("no_execution_authority=true"))
@@ -5189,7 +5189,7 @@ class GoldenTapeRegressionTest {
     @Test
     fun operatorKpi4332ExposesUltimateEdgeAndChokeReliefHelpers() {
         val report = java.io.File("src/main/kotlin/com/lifecyclebot/engine/OperatorKpiCloseoutReport.kt").readText()
-        assertTrue("V5.0.4332: operator KPI report must expose UltimateEdge and ChokeRelief helper health", report.contains("OPERATOR_KPI_CLOSEOUT_REPORT_4381") && report.contains("UltimateEdgeEngine.status(6)") && report.contains("ChokeReliefBus.status()") && report.contains("ultimate_edge=UltimateEdgeEngine") && report.contains("choke_relief=ChokeReliefBus"))
+        assertTrue("V5.0.4332: operator KPI report must expose UltimateEdge and ChokeRelief helper health", report.contains("OPERATOR_KPI_CLOSEOUT_REPORT_4388") && report.contains("UltimateEdgeEngine.status(6)") && report.contains("ChokeReliefBus.status()") && report.contains("ultimate_edge=UltimateEdgeEngine") && report.contains("choke_relief=ChokeReliefBus"))
     }
 
     @Test
@@ -5563,6 +5563,17 @@ class GoldenTapeRegressionTest {
     // COLLECTIVE LEARNING", moon.indexOf("fun executePromotion")))
         assertEquals("V5.0.4386: Moonshot promotion must not duplicate promotedFrom named argument", 1, Regex("promotedFrom = fromLayer").findAll(promotionBlock).count())
         assertTrue("V5.0.4386: Moonshot promotion still preserves runner context", promotionBlock.contains("peakPnlPct = currentPnlPct") && promotionBlock.contains("tightSL.coerceAtLeast(HARD_FLOOR_STOP)"))
+    }
+
+
+    @Test
+    fun memeLaneParitySentinel4388PinsRestoreAndProbeParity() {
+        val sentinel = java.io.File("src/main/kotlin/com/lifecyclebot/engine/MemeLaneParitySentinel.kt").readText()
+        val kpi = java.io.File("src/main/kotlin/com/lifecyclebot/engine/OperatorKpiCloseoutReport.kt").readText()
+        assertTrue("V5.0.4388: lane parity sentinel must pin nine-lane restore labels", sentinel.contains("NINE_LANE_RESTORE_PARITY_4388") && sentinel.contains("MANIPULATED_RESTORED_ACTIVE_POSITION_4214") && sentinel.contains("TREASURY_RESTORED_ACTIVE_POSITION_4228"))
+        assertTrue("V5.0.4388: lane parity sentinel must pin soft recovery probes, not local pause amputations", sentinel.contains("LANE_LOCAL_PAUSES_ARE_RECOVERY_PROBES_4388") && sentinel.contains("SHITCOIN_DAILY_LOSS_RECOVERY_PROBE_4314") && sentinel.contains("TreasuryMode.PAUSED -> 0.35"))
+        assertTrue("V5.0.4388: lane parity sentinel must be report-only and KPI-wired", sentinel.contains("report_only=true") && sentinel.contains("no_execution_authority=true") && kpi.contains("meme_lane_parity=MemeLaneParitySentinel") && kpi.contains("MemeLaneParitySentinel.status"))
+        assertTrue("V5.0.4388: lane parity source audit must pass on current tree", MemeLaneParitySentinel.failed(java.io.File(".")).isEmpty())
     }
 
 }
