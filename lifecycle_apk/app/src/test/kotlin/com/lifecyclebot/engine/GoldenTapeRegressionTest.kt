@@ -5803,8 +5803,8 @@ class GoldenTapeRegressionTest {
     fun finalExecutionPermitFalseReturns_4416AreRouteVisibleWithoutChangingAuthority() {
         val source = java.io.File("src/main/kotlin/com/lifecyclebot/engine/FinalExecutionPermit.kt").readText()
         assertTrue("V5.0.4416: FEP false-return branches must emit route-visible telemetry", source.contains("recordPermitFalseReturn4416") && source.contains("FEP_FALSE_RETURN_ROUTE_VISIBLE_4416") && source.contains("PipelineHealthCollector.labelInc"))
-        assertTrue("V5.0.4416: FEP route-visible telemetry must cover runtime, finality, lane-telemetry and pending false returns", source.contains("recordPermitFalseReturn4416("RUNTIME_PAUSED")") && source.contains("recordPermitFalseReturn4416("RUNTIME_OVERLAY_DISABLED")") && source.contains("recordPermitFalseReturn4416("LANE_TELEMETRY_ONLY")") && source.contains("recordPermitFalseReturn4416("PENDING_${existing.layer}")"))
-        assertTrue("V5.0.4416: FEP behavior remains authority-preserving; telemetry records before existing false returns", source.contains("releasePrimaryAfterPermitFailure("FINALITY_${finality.logName}")") && source.contains("recordPermitFalseReturn4416("FINALITY_${finality.logName}")") && source.contains("return false"))
+        assertTrue("V5.0.4418: FEP route-visible telemetry must cover runtime, finality, lane-telemetry and pending false returns", source.contains("""recordPermitFalseReturn4416("RUNTIME_PAUSED")""") && source.contains("""recordPermitFalseReturn4416("RUNTIME_OVERLAY_DISABLED")""") && source.contains("""recordPermitFalseReturn4416("LANE_TELEMETRY_ONLY")""") && source.contains("""recordPermitFalseReturn4416("PENDING_${existing.layer}")"""))
+        assertTrue("V5.0.4418: FEP behavior remains authority-preserving; telemetry records before existing false returns", source.contains("""releasePrimaryAfterPermitFailure("FINALITY_${finality.logName}")""") && source.contains("""recordPermitFalseReturn4416("FINALITY_${finality.logName}")""") && source.contains("return false"))
     }
 
 }

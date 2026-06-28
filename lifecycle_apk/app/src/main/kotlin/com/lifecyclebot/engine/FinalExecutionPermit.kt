@@ -139,7 +139,7 @@ object FinalExecutionPermit {
             try {
                 ForensicLogger.lifecycle(
                     "FEP_FALSE_RETURN_ROUTE_VISIBLE_4416",
-                    "mint=${mint.take(10)} symbol=$symbol lane=$layer reason=$reason attemptId=$finalityAttemptId"
+                    "mint=${mint.take(10)} symbol=$symbol lane=$layer reason=$reason"
                 )
             } catch (_: Throwable) {}
         }
