@@ -35,7 +35,7 @@ object RejectTaxonomy {
             r.contains("ZERO_LIQUIDITY") || r.contains("NO_LIQUIDITY") -> Category.HARD_SAFETY
             r.contains("LOW_LIQ") || r.contains("LOW LIQ") || r.contains("LIQUIDITY") || r.startsWith("LIQ=") -> Category.LOW_LIQ_SIZE_REDUCTION
             r.contains("UNPROFITABLE") || r.contains("COST") || r.contains("SLIPPAGE") || r.contains("FEE") -> Category.COST_REJECT
-            r.contains("PENDING") || r.contains("DEFER") || r.contains("COOLDOWN") || r.contains("WAIT") -> Category.PENALTY
+            r.contains("PENDING") || r.contains("DEFER") || r.contains("COOLDOWN") || r.contains("WAIT") || r.contains("LANE_TIMEOUT") || r.contains("TIMEOUT_RESCUE") || r.contains("LIVE_PAUSE") || r.contains("SOFT_PAUSE") -> Category.PENALTY
             r.contains("RECOVERY_PROBE") || r.contains("PROBE") -> Category.RECOVERY_PROBE
             r.contains("ALREADY_OPEN") || r.contains("DUPLICATE") || r.contains("ONE-MINT") -> Category.DUPLICATE_POSITION
             r.contains("RUG") || r.contains("BANNED") || r.contains("FINALITY") || r.contains("SAFETY") || r.contains("RUNTIME_PAUSED") || r.contains("LP_UNLOCK") || blockLevel == TradeAuthorizer.BlockLevel.PERMANENT -> Category.HARD_SAFETY
@@ -51,5 +51,5 @@ object RejectTaxonomy {
         )
     }
 
-    fun status(): String = "REJECT_TAXONOMY_4423 pending=PENALTY low_liq=LOW_LIQ_SIZE_REDUCTION unprofitable=COST_REJECT hard_safety_preserved=true report_only=true no_execution_authority=true trade_authorizer_consumed_4424=true ledger_consumed_4425=true fdg_consumed_4427=true executor_preattempt_consumed_4428=true scanner_hard_reject_consumed_4429=true learning_label_sentinel_4430=true zero_liquidity_hard_safety=true"
+    fun status(): String = "REJECT_TAXONOMY_4423 pending=PENALTY low_liq=LOW_LIQ_SIZE_REDUCTION unprofitable=COST_REJECT hard_safety_preserved=true report_only=true no_execution_authority=true trade_authorizer_consumed_4424=true ledger_consumed_4425=true fdg_consumed_4427=true executor_preattempt_consumed_4428=true scanner_hard_reject_consumed_4429=true learning_label_sentinel_4430=true zero_liquidity_hard_safety=true deferred_executor_reason_expansion_4457=true"
 }

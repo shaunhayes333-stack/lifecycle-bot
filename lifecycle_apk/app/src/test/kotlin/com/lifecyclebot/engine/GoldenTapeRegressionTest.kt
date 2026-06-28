@@ -6117,4 +6117,13 @@ class GoldenTapeRegressionTest {
         assertTrue("V5.0.4456: final residual source-contract sweep must be KPI-wired and behavior-neutral", sweep.contains("report_only=true") && sweep.contains("no_gate_change=true") && kpi.contains("final_residual_sweep=OperatorFinalResidualSourceContractSweep"))
     }
 
+
+    @Test
+    fun rejectTaxonomy_4457ClassifiesExecutorDeferredTimeoutAndPauseReasons() {
+        val src = java.io.File("src/main/kotlin/com/lifecyclebot/engine/RejectTaxonomy.kt").readText()
+        assertTrue("V5.0.4457: deferred executor taxonomy must classify lane-timeout rescue as penalty, not UNKNOWN_REVIEW", src.contains("LANE_TIMEOUT") && src.contains("TIMEOUT_RESCUE") && RejectTaxonomy.classify("LANE_TIMEOUT_RESCUE", null).category == RejectTaxonomy.Category.PENALTY)
+        assertTrue("V5.0.4457: live pause deferred executor taxonomy must classify as penalty while preserving RUNTIME_PAUSED hard safety", src.contains("LIVE_PAUSE") && RejectTaxonomy.classify("LIVE_PAUSE_DEFERRED", null).category == RejectTaxonomy.Category.PENALTY && RejectTaxonomy.classify("RUNTIME_PAUSED", null).category == RejectTaxonomy.Category.HARD_SAFETY)
+        assertTrue("V5.0.4457: taxonomy status must mark deferred executor reason expansion", src.contains("deferred_executor_reason_expansion_4457=true"))
+    }
+
 }
