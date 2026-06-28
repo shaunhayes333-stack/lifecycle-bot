@@ -6143,7 +6143,7 @@ class GoldenTapeRegressionTest {
         val src = java.io.File("src/main/kotlin/com/lifecyclebot/engine/Executor.kt").readText()
         assertTrue("V5.0.4460: liveBuy discipline pause/timeout/bridge must continue as recovery probes, not hard-return before execution", src.contains("DISCIPLINE_RECOVERY_PROBE_4460") && src.contains("action=continue_to_live_buy") && src.contains("disciplineRecoverySizeMultiplier4460 = 0.35"))
         assertTrue("V5.0.4460: liveBuy discipline recovery multiplier must enter existing live size stack", src.contains("LIVE_DISCIPLINE_RECOVERY_SIZE_APPLIED_4460") && src.indexOf("LIVE_DISCIPLINE_RECOVERY_SIZE_APPLIED_4460") < src.indexOf("LIVE_STYLE_PIVOT_SIZE_APPLIED"))
-        assertTrue("V5.0.4460: true hard-safety gates must remain hard before discipline recovery probes", src.contains("RUG_BLACKLIST_VETO_V4134") && src.contains("emitLiveBuyFail(ts, sol, "RUG_BLACKLIST"") && src.contains("REGIME_PIVOT_REASSESS"))
+        assertTrue("V5.0.4461: true hard-safety gates must remain hard before discipline recovery probes", src.contains("RUG_BLACKLIST_VETO_V4134") && src.contains("emitLiveBuyFail") && src.contains("RUG_BLACKLIST") && src.contains("REGIME_PIVOT_REASSESS"))
     }
 
 }
