@@ -6673,4 +6673,14 @@ class GoldenTapeRegressionTest {
         assertTrue("V5.0.4537: sizing lifecycle must preserve component map, regime and style for mux-aware learning", bus.contains("components = components") && bus.contains("regime = regime") && bus.contains("style = style"))
     }
 
+
+
+    @Test
+    fun aate4538LifecycleEventsCarryRuntimeModeMux() {
+        val mee = java.io.File("src/main/kotlin/com/lifecyclebot/engine/MathematicalEdgeEngine.kt").readText()
+        assertTrue("V5.0.4538: MathematicalEdgeEngine EdgeEvent must carry runtime mode and build tag", mee.contains("val mode: String = try { RuntimeModeAuthority.authority().name }") && mee.contains("val build: String = com.lifecyclebot.BuildConfig.VERSION_NAME"))
+        assertTrue("V5.0.4538: lifecycle stats must bucket by mode and decision to prevent paper/live learning smear", mee.contains("byModeDecision") && mee.contains("key(e.mode, e.decision)") && mee.contains("by mode/decision"))
+        assertTrue("V5.0.4538: recent lifecycle lines must include mode before lane/source", mee.contains("mode=${'$'}{e.mode} lane=${'$'}{e.lane} src=${'$'}{e.source}"))
+    }
+
 }

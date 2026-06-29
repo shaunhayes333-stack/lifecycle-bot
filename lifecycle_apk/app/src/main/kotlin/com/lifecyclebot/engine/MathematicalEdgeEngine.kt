@@ -30,6 +30,7 @@ object MathematicalEdgeEngine {
     private val byStage = ConcurrentHashMap<String, Stat>()
     private val byLaneDecision = ConcurrentHashMap<String, Stat>()
     private val bySourceDecision = ConcurrentHashMap<String, Stat>()
+    private val byModeDecision = ConcurrentHashMap<String, Stat>()
     private val byLaneTerminal = ConcurrentHashMap<String, TerminalStat>()
     private val bySourceTerminal = ConcurrentHashMap<String, TerminalStat>()
     private val byStackReadback = ConcurrentHashMap<String, Stat>()
@@ -70,6 +71,7 @@ object MathematicalEdgeEngine {
         val componentMap: Map<String, Double> = emptyMap(),
         val style: String = "",
         val regime: String = "",
+        val mode: String = try { RuntimeModeAuthority.authority().name } catch (_: Throwable) { "UNKNOWN" },
         val build: String = com.lifecyclebot.BuildConfig.VERSION_NAME,
         val tsMs: Long = System.currentTimeMillis(),
     )
@@ -140,6 +142,7 @@ object MathematicalEdgeEngine {
             byStage.computeIfAbsent(topStageKey(e)) { Stat() }.add(e)
             byLaneDecision.computeIfAbsent(key(e.lane, e.decision)) { Stat() }.add(e)
             bySourceDecision.computeIfAbsent(key(e.source, e.decision)) { Stat() }.add(e)
+            byModeDecision.computeIfAbsent(key(e.mode, e.decision)) { Stat() }.add(e)
             if (e.kind == "TERMINAL") {
                 byLaneTerminal.computeIfAbsent(clean(e.lane).uppercase()) { TerminalStat() }.add(e)
                 bySourceTerminal.computeIfAbsent(clean(e.source).uppercase()) { TerminalStat() }.add(e)
@@ -151,7 +154,7 @@ object MathematicalEdgeEngine {
     }
 
     private fun remember(e: EdgeEvent) = synchronized(recentLock) {
-        recent.addLast("${e.kind} stage=${e.stage} lane=${e.lane} src=${e.source} dec=${e.decision} score=${fmt(e.score,1)} conf=${fmt(e.confidence,1)} liq=${fmt(e.liquidityUsd,0)} mcap=${fmt(e.marketCapUsd,0)} size=${fmt(e.finalSol,4)} pnl=${fmt(e.pnlPct,1)}%/${fmt(e.pnlSol,4)}SOL hold=${e.holdMs/60000}m peak=${fmt(e.peakGainPct,1)} reason=${e.reason.take(70)} mint=${e.mint.take(10)} build=${e.build}".take(420))
+        recent.addLast("${e.kind} stage=${e.stage} mode=${e.mode} lane=${e.lane} src=${e.source} dec=${e.decision} score=${fmt(e.score,1)} conf=${fmt(e.confidence,1)} liq=${fmt(e.liquidityUsd,0)} mcap=${fmt(e.marketCapUsd,0)} size=${fmt(e.finalSol,4)} pnl=${fmt(e.pnlPct,1)}%/${fmt(e.pnlSol,4)}SOL hold=${e.holdMs/60000}m peak=${fmt(e.peakGainPct,1)} reason=${e.reason.take(70)} mint=${e.mint.take(10)} build=${e.build}".take(420))
         while (recent.size > MAX_RECENT) recent.removeFirst()
     }
 
@@ -294,6 +297,7 @@ object MathematicalEdgeEngine {
         val stageTop = top(byStage) { "${it.key} ${it.value.tag()}" }
         val laneTop = top(byLaneDecision) { "${it.key} ${it.value.tag()}" }
         val sourceTop = top(bySourceDecision) { "${it.key} ${it.value.tag()}" }
+        val modeTop = top(byModeDecision) { "${it.key} ${it.value.tag()}" }
         val terminalLaneTop = top(byLaneTerminal) { "${it.key} ${it.value.tag()}" }
         val terminalSourceTop = top(bySourceTerminal) { "${it.key} ${it.value.tag()}" }
         val readbackTop = top(byStackReadback) { "${it.key} ${it.value.tag()}" }
@@ -314,6 +318,8 @@ object MathematicalEdgeEngine {
             appendLine("  stages: $stageTop")
             appendLine("  lane decisions: $laneTop")
             appendLine("  source decisions: $sourceTop")
+            appendLine("  mode decisions: $modeTop")
+            appendLine("  by mode/decision: $modeTop")
             appendLine("  terminal by lane: $terminalLaneTop")
             appendLine("  terminal by source: $terminalSourceTop")
             appendLine("  stack readbacks: $readbackTop")
