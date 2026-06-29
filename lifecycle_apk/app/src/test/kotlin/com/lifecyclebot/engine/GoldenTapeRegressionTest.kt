@@ -6534,4 +6534,14 @@ class GoldenTapeRegressionTest {
         assertTrue("V5.0.4526: valid live routes multiplier-stacked below core must restore AATE core buy floor", fdg.contains("live_core_size_floor_4526") && fdg.contains("com.lifecyclebot.data.BotConfig().smallBuySol") && fdg.contains("valid live route restored"))
     }
 
+
+
+    @Test
+    fun aate4527LaneLocalExecutionObeysFdgFinalSize() {
+        val bot = java.io.File("src/main/kotlin/com/lifecyclebot/engine/BotService.kt").readText()
+        assertTrue("V5.0.4527: Moonshot must not cap FDG final size back to raw suggestedSizeSol", bot.contains("val msEffectiveSize = moonshotFdgDecision?.sizeSol") && bot.contains("must not silently clamp it back to raw suggestedSizeSol"))
+        assertTrue("V5.0.4527: ShitCoin must apply executable FDG size before permit/executor", bot.contains("SHITCOIN_FDG_FINAL_SIZE_APPLIED_4527") && bot.contains("adjustedSize = shitCoinFdg.sizeSol"))
+        assertTrue("V5.0.4527: Express must not cap FDG final size back to raw Express signal size", bot.contains("val expressFinalSize = expressFdg?.sizeSol ?: expressSignal.positionSizeSol.coerceAtLeast(0.01)") && bot.contains("Do not cap restored/core FDG size back down"))
+    }
+
 }

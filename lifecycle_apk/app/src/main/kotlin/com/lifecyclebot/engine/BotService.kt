@@ -18012,6 +18012,7 @@ if (hotExitHandledSweep) {
                                 RejectionTelemetry.record("TREASURY_FDG_PROBE", treasuryFdg?.blockReason ?: "fdg_caution")
                             }
 
+
                             val authResult = TradeAuthorizer.authorize(
                                 mint = ts.mint,
                                 symbol = ts.symbol,
@@ -18835,7 +18836,12 @@ if (hotExitHandledSweep) {
                                     val legacyMoonshotSize = ((if (fdgReducedSize)
                                         (moonshotScore.suggestedSizeSol * 0.5).coerceAtLeast(cfg.smallBuySol)
                                     else moonshotScore.suggestedSizeSol) * _msCalMult).coerceAtLeast(0.01)
-                                    val msEffectiveSize = (moonshotFdgDecision?.sizeSol ?: legacyMoonshotSize).coerceIn(0.01, moonshotScore.suggestedSizeSol.coerceAtLeast(0.01))
+                                    // V5.0.4527 — if FDG exists, obey its final size exactly.
+                                    // 4526 can restore AATE core live size after old micro/probe
+                                    // semantics collapse it below core; this downstream lane cap
+                                    // must not silently clamp it back to raw suggestedSizeSol.
+                                    val msEffectiveSize = moonshotFdgDecision?.sizeSol
+                                        ?: legacyMoonshotSize.coerceIn(0.01, moonshotScore.suggestedSizeSol.coerceAtLeast(0.01))
                                     if (FinalExecutionPermit.tryAcquireExecution(
                                         mint = ts.mint,
                                         symbol = ts.symbol,
@@ -19427,6 +19433,19 @@ if (hotExitHandledSweep) {
                                 RejectionTelemetry.record("SHITCOIN_FDG_BOOTSTRAP_PROBE", scBlock)
                             }
 
+                            // V5.0.4527 — ShitCoin evaluated FDG but kept using pre-FDG
+                            // adjustedSize for permit/executor. That bypassed 4526's restored
+                            // core size and any FDG learned-size surface. Apply FDG size once
+                            // the decision is executable; paper bootstrap probe override above
+                            // remains paper-only and intentionally smaller.
+                            if (shitCoinFdg?.canExecute() == true && shitCoinFdg.sizeSol > 0.0) {
+                                val beforeFdgSize4527 = adjustedSize
+                                adjustedSize = shitCoinFdg.sizeSol
+                                if (kotlin.math.abs(beforeFdgSize4527 - adjustedSize) > 0.0001) {
+                                    try { ForensicLogger.lifecycle("SHITCOIN_FDG_FINAL_SIZE_APPLIED_4527", "symbol=${ts.symbol} mint=${ts.mint.take(10)} size=${beforeFdgSize4527.fmt(4)}->${adjustedSize.fmt(4)}") } catch (_: Throwable) {}
+                                }
+                            }
+
                             val authResult = TradeAuthorizer.authorize(
                                 mint = ts.mint,
                                 symbol = ts.symbol,
@@ -20006,7 +20025,9 @@ if (hotExitHandledSweep) {
                                 // expressSignal.positionSizeSol=0.047. That bypassed
                                 // LanePolicy, danger buckets, drawdown circuit, and PROBE_ONLY
                                 // dust sizing. From here down, use the final FDG size.
-                                val expressFinalSize = (expressFdg?.sizeSol ?: expressSignal.positionSizeSol).coerceIn(0.01, expressSignal.positionSizeSol)
+                                // V5.0.4527 — if FDG exists, obey its final size exactly.
+                                // Do not cap restored/core FDG size back down to raw Express signal size.
+                                val expressFinalSize = expressFdg?.sizeSol ?: expressSignal.positionSizeSol.coerceAtLeast(0.01)
                                 ErrorLogger.info("BotService", "💩🚂 [EXPRESS] ${ts.symbol} | RIDE | " +
                                     "${expressSignal.rideType.emoji} ${expressSignal.rideType.name} | " +
                                     "mom=${(ts.momentum ?: 0.0).fmt(1)}% | " +
