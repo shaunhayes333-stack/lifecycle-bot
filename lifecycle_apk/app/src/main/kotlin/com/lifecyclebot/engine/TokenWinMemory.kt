@@ -4,6 +4,8 @@ import android.content.Context
 import org.json.JSONArray
 import org.json.JSONObject
 import java.util.concurrent.ConcurrentHashMap
+import kotlin.math.abs
+import kotlin.math.max
 
 /**
  * TokenWinMemory
@@ -383,6 +385,22 @@ object TokenWinMemory {
         w.pnlPercent.isFinite() && w.totalPnl.isFinite() &&
             w.pnlPercent in WIN_THRESHOLD_PCT..LearningPnlSanitizer.MAX_TRAINABLE_PNL_PCT &&
             kotlin.math.abs(w.totalPnl) <= w.timesTraded.coerceAtLeast(1).toDouble() * LearningPnlSanitizer.MAX_TRAINABLE_PNL_PCT
+
+    // V5.0.4508 — persisted-memory repair. New closes now carry SOL basis through
+    // EducationSubLayerAI, but old WinningToken rows were persisted as pct-only.
+    // When entry/exit market-cap snapshots exist, use them as a second basis so
+    // fabricated +pct rows cannot survive restart and keep PatternGoldenGoose hot.
+    private fun sanePersistedWinner4508(w: WinningToken): Boolean {
+        if (!saneWinner(w)) return false
+        if (!w.peakPnl.isFinite() || !w.entryMcap.isFinite() || !w.exitMcap.isFinite()) return false
+        if (w.peakPnl + 50.0 < w.pnlPercent) return false
+        if (w.entryMcap > 0.0 && w.exitMcap > 0.0) {
+            val impliedPct = ((w.exitMcap - w.entryMcap) / w.entryMcap) * 100.0
+            val tolerance = max(50.0, abs(w.pnlPercent) * 0.35)
+            if (abs(impliedPct - w.pnlPercent) > tolerance) return false
+        }
+        return true
+    }
 
     // ═══════════════════════════════════════════════════════════════════════
     // QUERY
@@ -917,6 +935,10 @@ object TokenWinMemory {
             patterns.clear()
             creatorStats.clear()
             tokenStats.clear()
+            var persistedWinnerQuarantine4508 = 0
+            var persistedPatternQuarantine4508 = 0
+            var persistedTokenStatsQuarantine4508 = 0
+            var persistedCreatorQuarantine4508 = 0
 
             val persistent = PersistentLearning.loadTokenWinMemory()
             val prefs = c.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
@@ -946,7 +968,11 @@ object TokenWinMemory {
                     timesTraded = j.optInt("timesTraded", 1),
                     totalPnl = j.optDouble("totalPnl", j.getDouble("pnlPercent")),
                 )
-                winningTokens[w.mint] = w
+                if (sanePersistedWinner4508(w)) {
+                    winningTokens[w.mint] = w
+                } else {
+                    persistedWinnerQuarantine4508++
+                }
             }
 
             val patternsJson = JSONObject(patternsStr)
@@ -959,14 +985,19 @@ object TokenWinMemory {
                 while (valueKeys.hasNext()) {
                     val value = valueKeys.next()
                     val statsJson = typeJson.getJSONObject(value)
-                    typeMap[value] = PatternStats(
+                    val loadedStats = PatternStats(
                         wins = statsJson.getInt("wins"),
                         losses = statsJson.getInt("losses"),
                         totalPnl = statsJson.optDouble("totalPnl", 0.0),
                         avgWinPnl = statsJson.optDouble("avgWinPnl", 0.0),
                     )
+                    if (sanePatternStats(loadedStats)) {
+                        typeMap[value] = loadedStats
+                    } else {
+                        persistedPatternQuarantine4508++
+                    }
                 }
-                patterns[type] = typeMap
+                if (typeMap.isNotEmpty()) patterns[type] = typeMap
             }
 
             val creatorsJson = JSONObject(creatorsStr)
@@ -974,12 +1005,17 @@ object TokenWinMemory {
             while (creatorKeys.hasNext()) {
                 val creator = creatorKeys.next()
                 val statsJson = creatorsJson.getJSONObject(creator)
-                creatorStats[creator] = PatternStats(
+                val loadedStats = PatternStats(
                     wins = statsJson.getInt("wins"),
                     losses = statsJson.getInt("losses"),
                     totalPnl = statsJson.optDouble("totalPnl", 0.0),
                     avgWinPnl = statsJson.optDouble("avgWinPnl", 0.0),
                 )
+                if (sanePatternStats(loadedStats)) {
+                    creatorStats[creator] = loadedStats
+                } else {
+                    persistedCreatorQuarantine4508++
+                }
             }
 
             val tokenStatsJson = JSONObject(tokenStatsStr)
@@ -987,7 +1023,7 @@ object TokenWinMemory {
             while (tokenKeys.hasNext()) {
                 val mint = tokenKeys.next()
                 val statsJson = tokenStatsJson.getJSONObject(mint)
-                tokenStats[mint] = TokenStats(
+                val loadedStats = TokenStats(
                     wins = statsJson.getInt("wins"),
                     losses = statsJson.getInt("losses"),
                     totalPnl = statsJson.optDouble("totalPnl", 0.0),
@@ -995,6 +1031,11 @@ object TokenWinMemory {
                     lastPnl = statsJson.optDouble("lastPnl", 0.0),
                     lastSeen = statsJson.optLong("lastSeen", 0L),
                 )
+                if (saneTokenStats(loadedStats)) {
+                    tokenStats[mint] = loadedStats
+                } else {
+                    persistedTokenStatsQuarantine4508++
+                }
             }
 
             // Backfill tokenStats from winners if older storage had no token stats saved
@@ -1009,6 +1050,18 @@ object TokenWinMemory {
                         lastSeen = winner.timestamp,
                     )
                 }
+            }
+
+            val repaired4508 = persistedWinnerQuarantine4508 + persistedPatternQuarantine4508 + persistedTokenStatsQuarantine4508 + persistedCreatorQuarantine4508
+            if (repaired4508 > 0) {
+                try { PipelineHealthCollector.labelInc("TOKEN_WIN_MEMORY_PERSISTED_POISON_PURGED_4508") } catch (_: Throwable) {}
+                try {
+                    ForensicLogger.lifecycle(
+                        "TOKEN_WIN_MEMORY_PERSISTED_POISON_PURGED_4508",
+                        "winners=$persistedWinnerQuarantine4508 patterns=$persistedPatternQuarantine4508 tokenStats=$persistedTokenStatsQuarantine4508 creators=$persistedCreatorQuarantine4508",
+                    )
+                } catch (_: Throwable) {}
+                save()
             }
         } catch (e: Exception) {
             ErrorLogger.error("TokenWinMemory", "Load failed: ${e.message}")

@@ -6375,4 +6375,14 @@ class GoldenTapeRegressionTest {
     }
 
 
+
+
+    @Test
+    fun tokenWinMemory_4508RepairsPersistedPoisonOnLoad() {
+        val mem = java.io.File("src/main/kotlin/com/lifecyclebot/engine/TokenWinMemory.kt").readText()
+        assertTrue("V5.0.4508: persisted winners must pass market-cap-basis sanity, not only pct bounds", mem.contains("sanePersistedWinner4508") && mem.contains("impliedPct") && mem.contains("abs(impliedPct - w.pnlPercent)"))
+        assertTrue("V5.0.4508: load must quarantine bad persisted winners/patterns/tokenStats before PatternGoldenGoose can read them", mem.contains("persistedWinnerQuarantine4508") && mem.contains("persistedPatternQuarantine4508") && mem.contains("persistedTokenStatsQuarantine4508") && mem.indexOf("sanePersistedWinner4508(w)") < mem.indexOf("winningTokens[w.mint] = w"))
+        assertTrue("V5.0.4508: repaired TokenWinMemory persistence must be surfaced and saved once", mem.contains("TOKEN_WIN_MEMORY_PERSISTED_POISON_PURGED_4508") && mem.contains("save()"))
+    }
+
 }
