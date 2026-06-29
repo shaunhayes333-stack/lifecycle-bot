@@ -6623,4 +6623,16 @@ class GoldenTapeRegressionTest {
         assertTrue("V5.0.4533: patch sequence must require scanner/FDG, scorer, exit/counterfactual, authority and persistence closeout", digest.contains("4534 scanner_v3_fdg_reject_label_data_plane") && digest.contains("4535 scorer_model_feedback_fanout") && digest.contains("4536 exit_hold_counterfactual_feedback_fanout") && digest.contains("4537 advisory_authority_and_sizing_consumer_wiring") && digest.contains("4538 persistence_amnesia_and_mux_closeout"))
     }
 
+
+
+    @Test
+    fun aate4534LearningLifecycleBusReplacesOneOffPreFdgHooks() {
+        val bus = java.io.File("src/main/kotlin/com/lifecyclebot/engine/LearningLifecycleBus.kt").readText()
+        val bot = java.io.File("src/main/kotlin/com/lifecyclebot/engine/BotService.kt").readText()
+        assertTrue("V5.0.4534: lifecycle bus must define source-level candidate/reject/probe/admit helpers", bus.contains("preFdgCandidate") && bus.contains("preFdgReject") && bus.contains("preFdgProbe") && bus.contains("preFdgAdmit"))
+        assertTrue("V5.0.4534: lifecycle bus must feed MathematicalEdgeEngine and standardized PipelineHealth labels", bus.contains("MathematicalEdgeEngine.captureEntryOpportunity") && bus.contains("LEARNING_LIFECYCLE_") && bus.contains("LEARNING_LIFECYCLE_DECISION_"))
+        assertTrue("V5.0.4534: central lane-qualified pre-FDG source must use the lifecycle bus for candidate/reject/probe/admit labels", bot.contains("LearningLifecycleBus.preFdgCandidate") && bot.contains("LearningLifecycleBus.preFdgReject") && bot.contains("LearningLifecycleBus.preFdgProbe") && bot.contains("LearningLifecycleBus.preFdgAdmit"))
+        assertTrue("V5.0.4534: lifecycle bus must remain source-level/report-learning only without trade authority", bus.contains("no_trade_authority=true") && !bus.contains("executeBuy") && !bus.contains("requestSell("))
+    }
+
 }
