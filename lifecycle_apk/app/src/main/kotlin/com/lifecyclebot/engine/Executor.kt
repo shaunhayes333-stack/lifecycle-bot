@@ -2840,6 +2840,28 @@ class Executor(
         val rowLearningAdmitted4349 = try {
             com.lifecyclebot.engine.learning.TradeRowSanityCheck.inspect(tradeWithMint) == com.lifecyclebot.engine.learning.TradeRowSanityCheck.QuarantineReason.OK
         } catch (_: Throwable) { true }
+        // V5.0.4514 — CENTRAL TERMINAL POLICY FANOUT.
+        // Pending entry heads were previously fed from specific sell paths only
+        // (~live/paper sell call sites), while recordTrade() is the actual journal
+        // choke point used by all terminal close routes. Consume pending labels here
+        // after TradeOutcomeLedger + accounting + TradeRowSanityCheck acceptance so
+        // UnifiedPolicyHead / UnifiedExitPolicyHead / ForwardOutcomeModel see every
+        // valid terminal close exactly once. These recordOutcome APIs remove pending
+        // mint state, so older downstream path calls become harmless no-ops.
+        try {
+            if (tradeWithMint.side.equals("SELL", true) && ledgerAllowsClosedLearning && accountingTrainable && rowLearningAdmitted4349) {
+                val terminalSnap4514 = tradeWithMint
+                val pnlForHeads4514 = terminalSnap4514.pnlPct
+                val mintForHeads4514 = terminalSnap4514.mint.ifBlank { ts.mint }
+                GlobalScope.launch(AppDispatchers.sideEffect) {
+                    try { com.lifecyclebot.engine.ForwardOutcomeModel.recordOutcome(mintForHeads4514, pnlForHeads4514) } catch (_: Throwable) {}
+                    try { com.lifecyclebot.engine.UnifiedPolicyHead.recordOutcome(mintForHeads4514, pnlForHeads4514) } catch (_: Throwable) {}
+                    try { com.lifecyclebot.engine.UnifiedExitPolicyHead.recordOutcome(mintForHeads4514, pnlForHeads4514 > -5.0) } catch (_: Throwable) {}
+                    try { PipelineHealthCollector.labelInc("CENTRAL_TERMINAL_POLICY_FANOUT_4514") } catch (_: Throwable) {}
+                }
+            }
+        } catch (_: Throwable) {}
+
         try {
             if (tradeWithMint.side.equals("SELL", true) && ledgerAllowsClosedLearning && accountingTrainable && rowLearningAdmitted4349) {
                 LivePaperDriftSentinel.onTerminalClose(tradeWithMint)

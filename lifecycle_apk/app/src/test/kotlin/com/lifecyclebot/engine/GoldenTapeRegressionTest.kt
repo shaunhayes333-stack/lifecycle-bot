@@ -2306,7 +2306,7 @@ class GoldenTapeRegressionTest {
         val exec = java.io.File("src/main/kotlin/com/lifecyclebot/engine/Executor.kt").readText()
         assertTrue("StrategyTelemetry must expose an explicit paper/live boundary", telemetry.contains("PAPER/LIVE BOUNDARY CONTRACT") && telemetry.contains("computeLiveTerminalLeaderboard") && telemetry.contains("computePaperTerminalLeaderboard"))
         assertTrue("live terminal leaderboard must filter mode=live and exclude partials", telemetry.contains("environment = \"live\", includePartials = false") && telemetry.contains("it.mode.equals(env"))
-        assertTrue("LaneExpectancyDamper must use live terminal expectancy only", damper.contains("StrategyTelemetry.computeLiveTerminalLeaderboard()") && !damper.contains("StrategyTelemetry.computeLeaderboard()"))
+        assertTrue("LaneExpectancyDamper must use clean live terminal expectancy only", damper.contains("StrategyTelemetry.computeCleanLiveTerminalLeaderboard()") && !damper.contains("StrategyTelemetry.computeLeaderboard()"))
         assertTrue("LiveBreakEvenGuard must use live terminal leaderboard for live edge", breakEven.contains("StrategyTelemetry.computeLiveTerminalLeaderboard()"))
         assertTrue("LiveStylePivotRouter repeat-win authority must use live terminal leaderboard", router.contains("StrategyTelemetry.computeLiveTerminalLeaderboard()"))
         val maturity = java.io.File("src/main/kotlin/com/lifecyclebot/engine/LiveMaturityAuthority.kt").readText()
@@ -3849,7 +3849,7 @@ class GoldenTapeRegressionTest {
         val exec = java.io.File("src/main/kotlin/com/lifecyclebot/engine/Executor.kt").readText()
         val reporting = java.io.File("src/main/kotlin/com/lifecyclebot/engine/ReportingHub.kt").readText()
 
-        assertTrue("LiveStrategyTuner must consume live terminal StrategyTelemetry only", tuner.contains("StrategyTelemetry.computeLiveTerminalLeaderboard") && !tuner.contains("computeLeaderboard("))
+        assertTrue("LiveStrategyTuner must consume clean live terminal StrategyTelemetry only", tuner.contains("StrategyTelemetry.computeCleanLiveTerminalLeaderboard") && !tuner.contains("computeLeaderboard("))
         assertTrue("LiveStrategyTuner must be cached for hot paths", tuner.contains("CACHE_MS") && tuner.contains("cached") && tuner.contains("cacheAtMs"))
         assertTrue("LiveStrategyTuner must be soft-shape only, not a veto/zero-size authority", tuner.contains("Soft-shape only") && !tuner.contains("return false") && !tuner.contains("sizeMult = 0.0"))
         assertTrue("LiveStrategyTuner must bias proven live winners toward compounding runner patience", tuner.contains("compounding_runner") && tuner.contains("partialTriggerMult") && tuner.contains("holdMult = (1.25") && tuner.contains("tpMult = (1.16"))
@@ -3923,7 +3923,7 @@ class GoldenTapeRegressionTest {
         val sizer = java.io.File("src/main/kotlin/com/lifecyclebot/engine/SmartSizer.kt").readText()
         val reporting = java.io.File("src/main/kotlin/com/lifecyclebot/engine/ReportingHub.kt").readText()
         assertTrue("Probability facade must expose pWin/pRug/E/uncertainty/samples/soft size", prob.contains("pWin") && prob.contains("pRug") && prob.contains("expectedPnlPct") && prob.contains("uncertaintyPct") && prob.contains("sizeMult"))
-        assertTrue("Probability facade must blend ForwardOutcomeModel + UnifiedPolicyHead + live terminal lane priors", prob.contains("ForwardOutcomeModel.forecast") && prob.contains("UnifiedPolicyHead.predictWinProb") && prob.contains("StrategyTelemetry.computeLiveTerminalLeaderboard"))
+        assertTrue("Probability facade must blend ForwardOutcomeModel + UnifiedPolicyHead + clean live terminal lane priors", prob.contains("ForwardOutcomeModel.forecast") && prob.contains("UnifiedPolicyHead.predictWinProb") && prob.contains("StrategyTelemetry.computeCleanLiveTerminalLeaderboard"))
         assertTrue("Probability facade must be soft-shape only, no veto or zero sizing", prob.contains("Soft-shape only") && !prob.contains("return false") && !prob.contains("sizeMult = 0.0"))
         assertTrue("SmartSizer must consume LiveProbabilityEngine instead of raw scattered probability", sizer.contains("LiveProbabilityEngine.forecast") && sizer.contains("PROBABILITY-GATED size"))
         assertTrue("Reports must surface the unified probability edge", reporting.contains("LiveProbabilityEngine.statusLine"))
@@ -4131,7 +4131,7 @@ class GoldenTapeRegressionTest {
     fun live_gate_relaxer_uses_strategy_telemetry_counts_and_no_relax_in_dump_for_toxic_meme_lanes() {
         val relaxer = java.io.File("src/main/kotlin/com/lifecyclebot/engine/LiveLayerGateRelaxer.kt").readText()
         assertTrue("Relaxer maturity must fallback to StrategyTelemetry live-terminal counts so journal-proven lanes do not print n=0, but only via async stale cache",
-            relaxer.contains("StrategyTelemetry.computeLiveTerminalLeaderboard") &&
+            relaxer.contains("StrategyTelemetry.computeCleanLiveTerminalLeaderboard") &&
             relaxer.contains("maxOf(busCounts[k] ?: 0, m.trades)") &&
             relaxer.contains("refreshLaneCacheIfStale") && relaxer.contains("refreshInFlight") &&
             relaxer.contains("AATE-live-layer-relaxer-refresh"))
@@ -4240,8 +4240,8 @@ class GoldenTapeRegressionTest {
             relaxer.contains("V5.0.4081") && relaxer.contains("DOCTRINE_FLOOR_PCT  = 30.0") && relaxer.contains("EMERGENCY_FLOOR_PCT = 20.0"))
         assertTrue("Relaxer must enforce both floors via the named constants",
             relaxer.contains("liveWr < EMERGENCY_FLOOR_PCT") && relaxer.contains("liveWr < DOCTRINE_FLOOR_PCT"))
-        assertTrue("Relaxer must compute live WR from StrategyTelemetry",
-            relaxer.contains("computeLiveTerminalLeaderboard") && relaxer.contains("refreshLiveWrCache"))
+        assertTrue("Relaxer must compute live WR from clean StrategyTelemetry",
+            relaxer.contains("computeCleanLiveTerminalLeaderboard") && relaxer.contains("refreshLiveWrCache"))
 
         val regime = java.io.File("src/main/kotlin/com/lifecyclebot/engine/RegimeDetector.kt").readText()
         assertTrue("DUMP scoreFloorDelta must be +20 (was +15)",
@@ -6424,13 +6424,23 @@ class GoldenTapeRegressionTest {
         val telemetry = java.io.File("src/main/kotlin/com/lifecyclebot/engine/StrategyTelemetry.kt").readText()
         val relaxer = java.io.File("src/main/kotlin/com/lifecyclebot/engine/LiveLayerGateRelaxer.kt").readText()
         val report = java.io.File("src/main/kotlin/com/lifecyclebot/engine/ReportingHub.kt").readText()
-        assertTrue("V5.0.4513: StrategyTelemetry must expose clean live terminal authority", telemetry.contains("computeCleanLiveTerminalLeaderboard") && telemetry.contains("StrategyTruthLedger.clean") && telemetry.contains("source=StrategyTruthLedger"))
+        assertTrue("V5.0.4513: StrategyTelemetry must expose clean live terminal authority", telemetry.contains("computeCleanLiveTerminalLeaderboard") && telemetry.contains("StrategyTruthLedger.clean"))
         val prob = java.io.File("src/main/kotlin/com/lifecyclebot/engine/LiveProbabilityEngine.kt").readText()
         val tuner = java.io.File("src/main/kotlin/com/lifecyclebot/engine/LiveStrategyTuner.kt").readText()
         val damper = java.io.File("src/main/kotlin/com/lifecyclebot/engine/LaneExpectancyDamper.kt").readText()
         assertTrue("V5.0.4513: LiveLayerGateRelaxer WR/cache must use clean live strategy truth", relaxer.contains("computeCleanLiveTerminalLeaderboard(limit = 1_500)") && relaxer.contains("computeCleanLiveTerminalLeaderboard(limit = 2_500)") && !relaxer.contains("val leaderboard = StrategyTelemetry.computeLiveTerminalLeaderboard(limit = 2_500)"))
         assertTrue("V5.0.4513: live probability/tuner/damper must use clean live strategy truth", prob.contains("computeCleanLiveTerminalLeaderboard(limit = 1_500)") && tuner.contains("computeCleanLiveTerminalLeaderboard(limit = 1_500)") && damper.contains("computeCleanLiveTerminalLeaderboard()"))
         assertTrue("V5.0.4513: operator report must surface clean live strategy truth", report.contains("CleanLiveStrategyTruth") && report.contains("computeCleanLiveTerminalLeaderboard(750)"))
+    }
+
+
+
+    @Test
+    fun executor_4514CentralTerminalPolicyFanoutUsesClosedLearningGate() {
+        val exec = java.io.File("src/main/kotlin/com/lifecyclebot/engine/Executor.kt").readText()
+        assertTrue("V5.0.4514: terminal policy heads must be fed from recordTrade closed-learning choke point", exec.contains("CENTRAL TERMINAL POLICY FANOUT") && exec.contains("CENTRAL_TERMINAL_POLICY_FANOUT_4514"))
+        assertTrue("V5.0.4514: central fanout must remain terminal SELL + ledger/accounting/sanity gated", exec.contains("tradeWithMint.side.equals(") && exec.contains("SELL") && exec.contains("ledgerAllowsClosedLearning && accountingTrainable && rowLearningAdmitted4349"))
+        assertTrue("V5.0.4514: central fanout must feed all pending policy heads asynchronously", exec.contains("ForwardOutcomeModel.recordOutcome(mintForHeads4514, pnlForHeads4514)") && exec.contains("UnifiedPolicyHead.recordOutcome(mintForHeads4514, pnlForHeads4514)") && exec.contains("UnifiedExitPolicyHead.recordOutcome(mintForHeads4514, pnlForHeads4514 > -5.0)") && exec.contains("GlobalScope.launch(AppDispatchers.sideEffect)"))
     }
 
 }
