@@ -8304,11 +8304,14 @@ class Executor(
         val laneSizeCap = try {
             val wr = com.lifecyclebot.engine.learning.LanePolicy.rollingWr(laneTag)  // null until enough samples
             when {
-                dumpRegimeLive && laneTag.contains("CYCLIC") -> 0.10
-                dumpRegimeLive && laneTag.contains("TREASURY") -> 0.12
-                dumpRegimeLive && (laneTag.contains("MANIPULATED") || laneTag.contains("MANIP")) -> 0.12
-                dumpRegimeLive && laneTag.contains("EXPRESS") -> 0.10
-                dumpRegimeLive && laneTag.contains("SHITCOIN") -> 0.10
+                // V5.0.4528 — DUMP regime should pivot/reduce, not live-dust every
+                // lane. Keep a recovery-size cap so throughput remains trainable and
+                // profitable setups can still compound after style/router pivots.
+                dumpRegimeLive && laneTag.contains("CYCLIC") -> 0.35
+                dumpRegimeLive && laneTag.contains("TREASURY") -> 0.35
+                dumpRegimeLive && (laneTag.contains("MANIPULATED") || laneTag.contains("MANIP")) -> 0.35
+                dumpRegimeLive && laneTag.contains("EXPRESS") -> 0.35
+                dumpRegimeLive && laneTag.contains("SHITCOIN") -> 0.35
                 laneTag.contains("MANIPULATED") -> if ((wr ?: 0.0) > 0.18) 1.0 else 0.30   // spec 3: 0.25-0.35 until WR>18%
                 // V5.0.3957 — WALLET GROWTH CAP RELEASE.
                 // Runtime 3954: MOONSHOT is the largest SOL contributor (+6.5 SOL),
@@ -8334,7 +8337,7 @@ class Executor(
         // shrink to its 0.10 safety floor — that brake is intentional and
         // protects against regime-shift drawdown bleed.
         val liveFloorMult = when {
-            dumpRegimeLive -> 0.08
+            dumpRegimeLive -> 0.22  // V5.0.4528: recovery-size floor, not DUMP dust tuition
             RuntimeModeAuthority.isLive() && (laneEvMult < 0.50 || laneSizeCap < 0.50) -> 0.08
             else -> 0.30
         }
@@ -8602,7 +8605,7 @@ class Executor(
         val isHighConvictionWinner = try {
             score >= 75.0
                 && ts.lastLiquidityUsd >= 10_000.0
-                && com.lifecyclebot.engine.RegimeDetector.currentRegime() != com.lifecyclebot.engine.RegimeDetector.Regime.DUMP
+                && (com.lifecyclebot.engine.RegimeDetector.currentRegime() != com.lifecyclebot.engine.RegimeDetector.Regime.DUMP || (score >= 82.0 && ts.lastLiquidityUsd >= 25_000.0))
         } catch (_: Throwable) { false }
         val highConvBoost = if (isHighConvictionWinner) 1.50 else 1.0
 

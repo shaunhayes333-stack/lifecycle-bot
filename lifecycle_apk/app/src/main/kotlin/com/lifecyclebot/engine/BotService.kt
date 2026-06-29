@@ -9137,7 +9137,9 @@ class BotService : Service() {
             baseBlock.contains("RC pending", ignoreCase = true)
         // -1 liquidity = unknown → treat as "not a liquidity reject" (zero-score gate still applies)
         val liqOk = liquidityUsd < 0.0 || liquidityUsd >= LANE_PROBE_MIN_LIQ_USD
+        try { PipelineHealthCollector.labelInc("PREFDG_LANE_CANDIDATE_${lane.uppercase()}") } catch (_: Throwable) {}
         if (weakWait) {
+            try { PipelineHealthCollector.labelInc("PREFDG_WEAK_WAIT_${lane.uppercase()}") } catch (_: Throwable) {}
             // V5.9.1361 P0.7/mandate — TWO distinct rejects, carefully separated:
             //  (a) liquidity too thin to even exit a dust probe  → HARD BLOCK (we
             //      could not sell it; blocking is genuine safety, not a strategy kill).
@@ -9153,6 +9155,7 @@ class BotService : Service() {
                 try {
                     PipelineHealthCollector.labelInc("LANE_WAIT_OVERRIDE_BLOCKED")
                     PipelineHealthCollector.labelInc("FDG_THIN_LIQ_BUY_REJECTED")
+                    PipelineHealthCollector.labelInc("PREFDG_DROP_THIN_LIQ_${lane.uppercase()}")
                     ForensicLogger.lifecycle("LANE_WAIT_OVERRIDE_BLOCKED",
                         "lane=$lane score=${"%.0f".format(laneBase.entryScore)} conf=${"%.0f".format(laneBase.aiConfidence)} liqUsd=${"%.0f".format(liquidityUsd)} reason=thin_liq block=${baseBlock.take(50)}")
                 } catch (_: Throwable) {}
@@ -9170,6 +9173,7 @@ class BotService : Service() {
                 try {
                     PipelineHealthCollector.labelInc("LANE_WAIT_OVERRIDE_ZERO_SIGNAL_DUST_PROBE_4164")
                     PipelineHealthCollector.labelInc("FDG_ZERO_SCORE_DUST_PROBE_4164")
+                    PipelineHealthCollector.labelInc("PREFDG_ZERO_SIGNAL_${lane.uppercase()}")
                     ForensicLogger.lifecycle("LANE_WAIT_OVERRIDE_ZERO_SIGNAL_DUST_PROBE_4164",
                         "lane=$lane score=${"%.0f".format(laneBase.entryScore)} conf=${"%.0f".format(laneBase.aiConfidence)} liqUsd=${"%.0f".format(liquidityUsd)} action=probe_only_live_learning")
                 } catch (_: Throwable) {}
@@ -9177,6 +9181,7 @@ class BotService : Service() {
             // Liquidity OK but still weak → DUST-PROBE only (explicit + tiny size).
             try {
                 PipelineHealthCollector.labelInc("LANE_WAIT_OVERRIDE_DUST_PROBE")
+                PipelineHealthCollector.labelInc("PREFDG_DUST_PROBE_${lane.uppercase()}")
                 ForensicLogger.lifecycle("LANE_WAIT_OVERRIDE_DUST_PROBE",
                     "lane=$lane score=${"%.0f".format(laneBase.entryScore)} conf=${"%.0f".format(laneBase.aiConfidence)} liqUsd=${"%.0f".format(liquidityUsd)}")
             } catch (_: Throwable) {}
@@ -9190,6 +9195,7 @@ class BotService : Service() {
                 aiConfidence = laneBase.aiConfidence.coerceAtLeast(shapedConfidenceFloor4262),
             )
         }
+        try { PipelineHealthCollector.labelInc("PREFDG_BUY_QUALIFIED_${lane.uppercase()}") } catch (_: Throwable) {}
         return laneBase.copy(
             signal = "BUY",
             finalSignal = "BUY",

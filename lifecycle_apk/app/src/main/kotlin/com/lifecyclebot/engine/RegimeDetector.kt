@@ -114,13 +114,15 @@ object RegimeDetector {
      * BULL_RIPPING relaxes (more permissive — the bot is winning, let it run).
      * DUMP tightens hard (the bot is bleeding — quality only).
      */
-    // V5.0.4067 — operator recovery directive: tighten DUMP/CHOP harder.
-    // DUMP +20 (was +15), CHOP +10 (was +5) to force quality-only entries.
+    // V5.0.4528 — DUMP is no longer a blanket volume choke. Recent live reports
+    // showed healthy scanner/executor mechanics but DUMP publishing +20/+0.10,
+    // while AgenticStyleRouter already pivots DUMP/CHOP into defensive/reclaim/
+    // liquidity-depth routes. Keep DUMP cautious, but do not starve all live flow.
     fun scoreFloorDelta(): Int = when (currentRegime()) {
         Regime.BULL_RIPPING -> -10
         Regime.NORMAL       ->   0
-        Regime.CHOP         -> +10  // was +5 — CHOP is where most bleed happens
-        Regime.DUMP         -> +20  // was +15 — bleeding hard, quality only
+        Regime.CHOP         -> +10
+        Regime.DUMP         -> +10  // recovery-quality only, not +20 global starvation
         Regime.DEAD         ->   0
         Regime.BOOTSTRAP    ->   0  // V5.0.4081 — retained for binary compat; no longer emitted by detect()
     }
@@ -130,13 +132,14 @@ object RegimeDetector {
      * dampener. Conservative — in DUMP we halve, in BULL we let it ride
      * at 1.0 (sub-trader sizing already handles upside on its own).
      */
-    // V5.0.4067 — operator recovery directive: DUMP 0.10 (was 0.40),
-    // CHOP 0.35 (was 0.65). Near-minimum bets in hostile regimes.
+    // V5.0.4528 — hostile-regime recovery sizing. DUMP remains reduced, but
+    // no longer micro-sizes every live route to 0.10 before lane/style pivots can
+    // express a better tactic. Toxicity/safety gates still own true hard rejects.
     fun sizeMultiplier(): Double = when (currentRegime()) {
         Regime.BULL_RIPPING -> 1.0
         Regime.NORMAL       -> 1.0
-        Regime.CHOP         -> 0.35   // was 0.65 — most bleed happens here
-        Regime.DUMP         -> 0.10   // was 0.40 — bleeding hard, minimum bets only
+        Regime.CHOP         -> 0.35
+        Regime.DUMP         -> 0.35   // recovery trade size; not live dust tuition
         Regime.DEAD         -> 0.50   // was 0.70 — no signal, stay tiny
         Regime.BOOTSTRAP    -> 1.0    // V5.0.4078 — cold-start at full size; we MUST trade to earn samples
     }

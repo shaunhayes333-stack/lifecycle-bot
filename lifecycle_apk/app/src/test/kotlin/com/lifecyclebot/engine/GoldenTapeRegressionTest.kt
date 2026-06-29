@@ -300,7 +300,7 @@ class GoldenTapeRegressionTest {
     @Test
     fun express_execution_uses_fdg_final_size() {
         val bot = java.io.File("src/main/kotlin/com/lifecyclebot/engine/BotService.kt").readText()
-        assertTrue(bot.contains("val expressFinalSize = (expressFdg?.sizeSol ?: expressSignal.positionSizeSol)"))
+        assertTrue(bot.contains("val expressFinalSize = expressFdg?.sizeSol ?: expressSignal.positionSizeSol.coerceAtLeast(0.01)"))
         assertTrue(bot.contains("sizeSol = expressFinalSize"))
         assertTrue(bot.contains("entrySol = expressFinalSize"))
         val start = bot.indexOf("val expressFinalSize")
@@ -510,7 +510,7 @@ class GoldenTapeRegressionTest {
     fun moonshot_uses_agentic_style_and_final_effective_size() {
         val bot = java.io.File("src/main/kotlin/com/lifecyclebot/engine/BotService.kt").readText()
         assertTrue(bot.contains("AGENTIC_STYLE_APPLIED"))
-        assertTrue(bot.contains("val msEffectiveSize = (moonshotFdgDecision?.sizeSol ?: legacyMoonshotSize)"))
+        assertTrue(bot.contains("val msEffectiveSize = moonshotFdgDecision?.sizeSol"))
         assertTrue(bot.contains("entrySol = msEffectiveSize"))
         assertTrue(bot.contains("raw="))
         val start = bot.indexOf("val msEffectiveSize")
@@ -6542,6 +6542,20 @@ class GoldenTapeRegressionTest {
         assertTrue("V5.0.4527: Moonshot must not cap FDG final size back to raw suggestedSizeSol", bot.contains("val msEffectiveSize = moonshotFdgDecision?.sizeSol") && bot.contains("must not silently clamp it back to raw suggestedSizeSol"))
         assertTrue("V5.0.4527: ShitCoin must apply executable FDG size before permit/executor", bot.contains("SHITCOIN_FDG_FINAL_SIZE_APPLIED_4527") && bot.contains("adjustedSize = shitCoinFdg.sizeSol"))
         assertTrue("V5.0.4527: Express must not cap FDG final size back to raw Express signal size", bot.contains("val expressFinalSize = expressFdg?.sizeSol ?: expressSignal.positionSizeSol.coerceAtLeast(0.01)") && bot.contains("Do not cap restored/core FDG size back down"))
+    }
+
+
+
+    @Test
+    fun aate4528DumpRegimeRecoverySizeAndPreFdgCounters() {
+        val regime = java.io.File("src/main/kotlin/com/lifecyclebot/engine/RegimeDetector.kt").readText()
+        val exec = java.io.File("src/main/kotlin/com/lifecyclebot/engine/Executor.kt").readText()
+        val bot = java.io.File("src/main/kotlin/com/lifecyclebot/engine/BotService.kt").readText()
+        assertTrue("V5.0.4528: DUMP regime must be recovery-sized, not blanket 0.10 dust", regime.contains("Regime.DUMP         -> +10") && regime.contains("Regime.DUMP         -> 0.35") && regime.contains("not live dust tuition"))
+        assertTrue("V5.0.4528: DUMP live lane caps must use recovery-size shaping instead of 0.10 micro caps", exec.contains("V5.0.4528 — DUMP regime should pivot/reduce") && exec.contains("dumpRegimeLive && laneTag.contains(" + "\"SHITCOIN\"" + ") -> 0.35") && exec.contains("dumpRegimeLive && laneTag.contains(" + "\"EXPRESS\"" + ") -> 0.35"))
+        assertTrue("V5.0.4528: DUMP live relative floor must not be dust tuition", exec.contains("dumpRegimeLive -> 0.22") && exec.contains("recovery-size floor"))
+        assertTrue("V5.0.4528: high-conviction liquid setups may still size up in DUMP under stricter score/liquidity", exec.contains("score >= 82.0 && ts.lastLiquidityUsd >= 25_000.0"))
+        assertTrue("V5.0.4528: pre-FDG lane qualification/drop counters must expose laneEval→FDG collapse", bot.contains("PREFDG_LANE_CANDIDATE_") && bot.contains("PREFDG_DROP_THIN_LIQ_") && bot.contains("PREFDG_BUY_QUALIFIED_"))
     }
 
 }
