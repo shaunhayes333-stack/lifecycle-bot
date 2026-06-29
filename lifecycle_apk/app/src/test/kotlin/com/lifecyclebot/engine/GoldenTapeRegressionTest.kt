@@ -6308,7 +6308,8 @@ class GoldenTapeRegressionTest {
         val bot = java.io.File("src/main/kotlin/com/lifecyclebot/engine/BotService.kt").readText()
         assertTrue("V5.0.4501: saveAll must redirect main-thread calls before exportState serialization", lp.contains("Looper.myLooper() == Looper.getMainLooper()") && lp.contains("LEARNING_PERSIST_REDIRECTED_OFF_MAIN_4501") && lp.indexOf("Looper.myLooper() == Looper.getMainLooper()") < lp.indexOf("saveAllBlockingInternal"))
         assertTrue("V5.0.4501: periodic runtime persistence must queue async, not block the bot loop with exportState", lp.contains("fun requestSaveAllAsync") && lp.contains("LEARNING_PERSIST_ASYNC_SAVE_4501") && bot.contains("LearningPersistence.requestSaveAllAsync") && bot.contains("periodic_loop_4501"))
-        assertFalse("V5.0.4501: periodic runtime path must not call LearningPersistence.saveAll() inline", bot.contains("LearningPersistence.saveAll() } catch (_: Exception) {}"))
+        val periodicSaveBlock = bot.substring((bot.indexOf("periodic_loop_4501") - 220).coerceAtLeast(0), (bot.indexOf("periodic_loop_4501") + 220).coerceAtMost(bot.length))
+        assertFalse("V5.0.4501: periodic runtime path must not call LearningPersistence.saveAll() inline", periodicSaveBlock.contains("LearningPersistence.saveAll()"))
     }
 
 
