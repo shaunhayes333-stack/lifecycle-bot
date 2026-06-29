@@ -6521,4 +6521,17 @@ class GoldenTapeRegressionTest {
         assertTrue("V5.0.4524: pivot must change strategy route before purchase, not just reduce size", bot.contains("PRIMARY_STRATEGY_PIVOT_TO_NONTOXIC_4524") && bot.contains("finalPrimary=" + "$" + "pivotedPrimary4524") && !bot.contains("catastrophic_score_band_micro_probe_4524"))
     }
 
+
+
+    @Test
+    fun aate4526RestoresCoreLiveSizeAndRejectsDustTuition() {
+        val lane = java.io.File("src/main/kotlin/com/lifecyclebot/engine/learning/LanePolicy.kt").readText()
+        val route = java.io.File("src/main/kotlin/com/lifecyclebot/engine/learning/FdgRouteVerdict.kt").readText()
+        val fdg = java.io.File("src/main/kotlin/com/lifecyclebot/engine/FinalDecisionGate.kt").readText()
+        assertTrue("V5.0.4526: SHITCOIN/MANIPULATED must be real reduced execution lanes, not permanent paper-micro defaults", lane.contains("key.contains(" + "\"SHITCOIN\"" + ")      -> State.REDUCED_SIZE_EXECUTION") && lane.contains("key.contains(" + "\"MANIPULATED\"" + ")   -> State.REDUCED_SIZE_EXECUTION") && lane.contains("not permanent paper-micro lanes"))
+        assertTrue("V5.0.4526: live learned danger routing must escalate PAPER_MICRO to REDUCED instead of live dust", route.contains("LIVE_PAPER_MICRO_ESCALATED_TO_REDUCED_4526") && route.contains("v == Verdict.ALLOW_PAPER_MICRO") && route.contains("Verdict.ALLOW_REDUCED_SIZE"))
+        assertTrue("V5.0.4526: live FDG must reject micro/probe dust tuition and require strategy pivot", fdg.contains("LIVE_DUST_TUITION_REQUIRES_STRATEGY_PIVOT_4526") && fdg.contains("live_dust_tuition_rejected_4526") && fdg.contains("NoTradeObservationStore.recordBlock"))
+        assertTrue("V5.0.4526: valid live routes multiplier-stacked below core must restore AATE core buy floor", fdg.contains("live_core_size_floor_4526") && fdg.contains("com.lifecyclebot.data.BotConfig().smallBuySol") && fdg.contains("valid live route restored"))
+    }
+
 }

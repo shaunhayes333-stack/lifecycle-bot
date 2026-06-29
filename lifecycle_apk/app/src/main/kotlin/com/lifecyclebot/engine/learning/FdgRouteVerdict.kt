@@ -2,6 +2,7 @@ package com.lifecyclebot.engine.learning
 
 import com.lifecyclebot.engine.ErrorLogger
 import com.lifecyclebot.engine.PipelineHealthCollector
+import com.lifecyclebot.engine.RuntimeModeAuthority
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.atomic.AtomicLong
 
@@ -164,7 +165,14 @@ object FdgRouteVerdict {
         // conviction) and the LANE size-multiplier below — never zero, never
         // shadow-only. We keep the verdict executable; size shaping (not
         // route-killing) expresses the danger.
-        val vFinal = v
+        // V5.0.4526 — live mode must not inherit PAPER_MICRO semantics. If a
+        // learned danger bucket reaches this router in LIVE, route it as reduced
+        // execution so the strategy stack can still express caution without
+        // collapsing the core buy into 0.01 SOL tuition.
+        val vFinal = if (v == Verdict.ALLOW_PAPER_MICRO && try { RuntimeModeAuthority.isLive() } catch (_: Throwable) { false }) {
+            try { PipelineHealthCollector.labelInc("LIVE_PAPER_MICRO_ESCALATED_TO_REDUCED_4526") } catch (_: Throwable) {}
+            Verdict.ALLOW_REDUCED_SIZE
+        } else v
         record(vFinal, lane)
         val mult = sizeMultiplier(vFinal, lane, scoreBand)
         val proceed = vFinal.executable && mult > 0.0

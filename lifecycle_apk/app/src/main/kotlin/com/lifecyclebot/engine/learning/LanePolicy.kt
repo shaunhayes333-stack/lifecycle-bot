@@ -95,8 +95,12 @@ object LanePolicy {
         val key = lane.uppercase()
         return when {
             key.startsWith("UNKNOWN")     -> State.PAPER_MICRO_EXECUTION  // V5.9.1325: never stop trading — micro-probe unknown lanes
-            key.contains("SHITCOIN")      -> State.PAPER_MICRO_EXECUTION
-            key.contains("MANIPULATED")   -> State.PAPER_MICRO_EXECUTION
+            // V5.0.4526 — restore AATE core execution semantics. These are LIVE
+            // meme strategy lanes, not permanent paper-micro lanes. Toxic buckets
+            // should be pivoted by AgenticStyleRouter/LaneToxicityGuard/LiveStylePivotRouter,
+            // not bought the same way at dust size forever.
+            key.contains("SHITCOIN")      -> State.REDUCED_SIZE_EXECUTION
+            key.contains("MANIPULATED")   -> State.REDUCED_SIZE_EXECUTION
             key.contains("MOONSHOT")      -> State.REDUCED_SIZE_EXECUTION
             key.contains("TREASURY")      -> State.NORMAL_EXECUTION
             key.contains("QUALITY")       -> State.NORMAL_EXECUTION

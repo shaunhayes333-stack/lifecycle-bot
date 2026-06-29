@@ -4534,6 +4534,60 @@ object FinalDecisionGate {
             // Symbolic verdict is pure telemetry — never affect the decision.
         }
 
+        // V5.0.4526 — AATE core-size restoration / live dust-tuition guard.
+        // The bot's core config is a real trade-size system (smallBuySol defaults
+        // to 0.05 SOL). Several old train-first/probe paths can still collapse a
+        // LIVE buy into 0.01–0.02 SOL, which is not a strategy pivot and cannot
+        // compound the wallet. In live mode:
+        //   • micro/probe/proven-dead semantics do NOT buy the same setup at dust;
+        //     they must be handled upstream by AgenticStyleRouter/LaneToxicityGuard/
+        //     LiveStylePivotRouter or observed without paying tuition.
+        //   • ordinary multiplier stacking on a valid executable route is floored
+        //     back to the AATE core buy floor.
+        try {
+            val liveRuntime4526 = try { com.lifecyclebot.engine.RuntimeModeAuthority.isLive() } catch (_: Throwable) { !config.paperMode }
+            if (liveRuntime4526 && shouldTradeFinal && blockReasonFinal == null && finalSize > 0.0) {
+                val coreFloor4526 = maxOf(
+                    config.smallBuySol.takeIf { it.isFinite() && it > 0.0 } ?: 0.05,
+                    com.lifecyclebot.data.BotConfig().smallBuySol,
+                ).coerceIn(0.03, 0.20)
+                val dustTuitionTag4526 = tags.any { t ->
+                    val u = t.uppercase()
+                    u.contains("MICRO") || u.contains("PROBE") || u.contains("PROVEN_DEAD") || u.contains("TRAIN_FIRST")
+                }
+                if (finalSize < coreFloor4526) {
+                    val before4526 = finalSize
+                    if (dustTuitionTag4526) {
+                        shouldTradeFinal = false
+                        blockReasonFinal = "LIVE_DUST_TUITION_REQUIRES_STRATEGY_PIVOT_4526"
+                        blockLevelFinal = BlockLevel.SIZE
+                        tags.add("live_dust_tuition_rejected_4526")
+                        checks.add(GateCheck("live_core_size_floor", false, "micro/probe live dust ${before4526.format(4)} < core ${coreFloor4526.format(4)}; require strategy pivot instead of same-setup dust buy"))
+                        try {
+                            com.lifecyclebot.engine.learning.NoTradeObservationStore.recordBlock(
+                                mint = ts.mint,
+                                symbol = ts.symbol,
+                                lane = laneName,
+                                scoreBand = com.lifecyclebot.engine.LosingPatternMemory.scoreBand(candidate.entryScore.toInt()),
+                                score = candidate.entryScore.toInt(),
+                                confidence = adjustedConfidence.toInt(),
+                                entryLiqUsd = ts.lastLiquidityUsd,
+                                entryMcapUsd = ts.lastMcap,
+                                entryPrice = ts.lastPrice,
+                                source = ts.source.ifEmpty { "UNKNOWN" },
+                                blockReason = blockReasonFinal ?: "LIVE_DUST_TUITION_REQUIRES_STRATEGY_PIVOT_4526",
+                                verdictTag = "LIVE_DUST_TUITION_REJECTED_4526",
+                            )
+                        } catch (_: Throwable) {}
+                    } else {
+                        finalSize = coreFloor4526
+                        tags.add("live_core_size_floor_4526")
+                        checks.add(GateCheck("live_core_size_floor", true, "valid live route restored ${before4526.format(4)} → ${finalSize.format(4)} SOL"))
+                    }
+                }
+            }
+        } catch (_: Throwable) { /* live size contract must never break FDG */ }
+
         return rememberFdgVerdict(fdgCacheKey, FinalDecision(
             shouldTrade = shouldTradeFinal,
             mode = mode,
