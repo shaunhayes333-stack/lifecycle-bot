@@ -6647,4 +6647,17 @@ class GoldenTapeRegressionTest {
         assertTrue("V5.0.4535: scorer snapshots must carry source, mint, liquidity, market cap and current regime", bus.contains("candidate.source.name") && bus.contains("candidate.mint") && bus.contains("candidate.liquidityUsd") && bus.contains("candidate.marketCapUsd") && bus.contains("RegimeDetector.currentRegime"))
     }
 
+
+
+    @Test
+    fun aate4536ExitHoldCounterfactualSignalsUseLifecycleBus() {
+        val bus = java.io.File("src/main/kotlin/com/lifecyclebot/engine/LearningLifecycleBus.kt").readText()
+        val exec = java.io.File("src/main/kotlin/com/lifecyclebot/engine/Executor.kt").readText()
+        val mee = java.io.File("src/main/kotlin/com/lifecyclebot/engine/MathematicalEdgeEngine.kt").readText()
+        assertTrue("V5.0.4536: lifecycle bus must define standardized exit-decision and hold-defer labels", bus.contains("fun exitDecision") && bus.contains("LEARNING_LIFECYCLE_EXIT_") && bus.contains("LEARNING_LIFECYCLE_EXIT_DECISION_") && bus.contains("LEARNING_LIFECYCLE_HOLD_DEFER"))
+        assertTrue("V5.0.4536: Executor requestSell intent/defer must use lifecycle bus, not direct one-off MEE hooks", exec.contains("LearningLifecycleBus.exitDecision(" + "\"requestSell.intent\"") && exec.contains("LearningLifecycleBus.exitDecision(" + "\"requestSell.defer\"") && !exec.contains("MathematicalEdgeEngine.captureExitDecision(" + "\"requestSell.intent\""))
+        assertTrue("V5.0.4536: exit decision fanout must still reach counterfactual and exit-cost consumers through MEE", mee.contains("CounterfactualReplayEngine.policyHints") && mee.contains("ExitCostMicrobrain.exitUrgencyHint") && mee.contains("StrategyHypothesisEngine.getSizeBias"))
+        assertTrue("V5.0.4536: requestSell defer labels must preserve sibling hold/choke categories", exec.contains("DEFER_TINY_PROFIT_DUST") && exec.contains("DEFER_STYLE_MIN_HOLD") && exec.contains("DEFER_RECONCILER_HEALTHY_HOLD"))
+    }
+
 }

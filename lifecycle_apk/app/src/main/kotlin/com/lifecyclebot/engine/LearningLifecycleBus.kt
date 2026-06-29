@@ -111,6 +111,42 @@ object LearningLifecycleBus {
     }
 
 
+
+    fun exitDecision(
+        stage: String,
+        lane: String,
+        source: String,
+        mint: String,
+        symbol: String,
+        decision: String,
+        reason: String,
+        pnlPct: Double,
+        peakGainPct: Double,
+        holdMs: Long,
+        liquidityUsd: Double,
+    ) {
+        try {
+            PipelineHealthCollector.labelInc("LEARNING_LIFECYCLE_EXIT_${stage.uppercase().take(32)}")
+            PipelineHealthCollector.labelInc("LEARNING_LIFECYCLE_EXIT_DECISION_${decision.uppercase().take(40)}")
+            if (decision.startsWith("DEFER", ignoreCase = true)) PipelineHealthCollector.labelInc("LEARNING_LIFECYCLE_HOLD_DEFER")
+        } catch (_: Throwable) {}
+        try {
+            MathematicalEdgeEngine.captureExitDecision(
+                stage = stage,
+                lane = lane,
+                source = source,
+                mint = mint,
+                symbol = symbol,
+                decision = decision,
+                reason = reason,
+                pnlPct = pnlPct,
+                peakGainPct = peakGainPct,
+                holdMs = holdMs,
+                liquidityUsd = liquidityUsd,
+            )
+        } catch (_: Throwable) {}
+    }
+
     fun scorerComponents(
         scoringPath: String,
         candidate: com.lifecyclebot.v3.scanner.CandidateSnapshot,

@@ -13404,7 +13404,7 @@ class Executor(
         val edgeExitPeak4532 = try { ts.position.peakGainPct.coerceAtLeast(edgeExitPnl4532) } catch (_: Throwable) { edgeExitPnl4532 }
         val edgeExitHoldMs4532 = try { (System.currentTimeMillis() - ts.position.entryTime).coerceAtLeast(0L) } catch (_: Throwable) { 0L }
         val edgeExitLane4532 = try { ts.position.tradingMode.ifBlank { resolveExecutionLane(ts, fallback = "STANDARD") } } catch (_: Throwable) { "STANDARD" }
-        try { MathematicalEdgeEngine.captureExitDecision("requestSell.intent", edgeExitLane4532, ts.source.ifBlank { ts.lastPriceSource.ifBlank { "UNKNOWN" } }, ts.mint, ts.symbol ?: "?", "INTENT", requestReason, edgeExitPnl4532, edgeExitPeak4532, edgeExitHoldMs4532, ts.lastLiquidityUsd) } catch (_: Throwable) {}
+        try { LearningLifecycleBus.exitDecision("requestSell.intent", edgeExitLane4532, ts.source.ifBlank { ts.lastPriceSource.ifBlank { "UNKNOWN" } }, ts.mint, ts.symbol ?: "?", "INTENT", requestReason, edgeExitPnl4532, edgeExitPeak4532, edgeExitHoldMs4532, ts.lastLiquidityUsd) } catch (_: Throwable) {}
         // V5.0.3801 — PAPER source guard before any executor activity.
         // requestSell() has many upstream callers (main loop, backup sweeps,
         // stale/rug escape paths). If a paper mint already has CLOSE_REQUESTED /
@@ -13432,7 +13432,7 @@ class Executor(
                 PipelineHealthCollector.labelInc("LIVE_TINY_PROFIT_EXIT_DEFERRED")
             } catch (_: Throwable) {}
             try { SellDecisionMatrixReport.recordPreSellDefer(ts.mint, ts.symbol ?: "?", requestReason, "TINY_PROFIT_DUST") } catch (_: Throwable) {}
-            try { MathematicalEdgeEngine.captureExitDecision("requestSell.defer", edgeExitLane4532, ts.source.ifBlank { ts.lastPriceSource.ifBlank { "UNKNOWN" } }, ts.mint, ts.symbol ?: "?", "DEFER_TINY_PROFIT_DUST", requestReason, edgeExitPnl4532, edgeExitPeak4532, edgeExitHoldMs4532, ts.lastLiquidityUsd) } catch (_: Throwable) {}
+            try { LearningLifecycleBus.exitDecision("requestSell.defer", edgeExitLane4532, ts.source.ifBlank { ts.lastPriceSource.ifBlank { "UNKNOWN" } }, ts.mint, ts.symbol ?: "?", "DEFER_TINY_PROFIT_DUST", requestReason, edgeExitPnl4532, edgeExitPeak4532, edgeExitHoldMs4532, ts.lastLiquidityUsd) } catch (_: Throwable) {}
             return SellResult.FAILED_RETRYABLE
         }
 
@@ -13452,7 +13452,7 @@ class Executor(
                     PipelineHealthCollector.labelInc("LIVE_STYLE_MIN_HOLD_${holdDelay.styleHint}")
                 } catch (_: Throwable) {}
                 try { SellDecisionMatrixReport.recordPreSellDefer(ts.mint, ts.symbol ?: "?", requestReason, "STYLE_MIN_HOLD") } catch (_: Throwable) {}
-                try { MathematicalEdgeEngine.captureExitDecision("requestSell.defer", edgeExitLane4532, ts.source.ifBlank { ts.lastPriceSource.ifBlank { "UNKNOWN" } }, ts.mint, ts.symbol ?: "?", "DEFER_STYLE_MIN_HOLD", requestReason, edgeExitPnl4532, edgeExitPeak4532, edgeExitHoldMs4532, ts.lastLiquidityUsd) } catch (_: Throwable) {}
+                try { LearningLifecycleBus.exitDecision("requestSell.defer", edgeExitLane4532, ts.source.ifBlank { ts.lastPriceSource.ifBlank { "UNKNOWN" } }, ts.mint, ts.symbol ?: "?", "DEFER_STYLE_MIN_HOLD", requestReason, edgeExitPnl4532, edgeExitPeak4532, edgeExitHoldMs4532, ts.lastLiquidityUsd) } catch (_: Throwable) {}
                 return SellResult.FAILED_RETRYABLE
             }
         }
@@ -13470,7 +13470,7 @@ class Executor(
                     PipelineHealthCollector.labelInc("RECONCILER_REQUEUE_SUPPRESSED_HEALTHY_HOLD")
                 } catch (_: Throwable) {}
                 try { SellDecisionMatrixReport.recordPreSellDefer(ts.mint, ts.symbol ?: "?", requestReason, "RECONCILER_HEALTHY_HOLD") } catch (_: Throwable) {}
-                try { MathematicalEdgeEngine.captureExitDecision("requestSell.defer", edgeExitLane4532, ts.source.ifBlank { ts.lastPriceSource.ifBlank { "UNKNOWN" } }, ts.mint, ts.symbol ?: "?", "DEFER_RECONCILER_HEALTHY_HOLD", requestReason, edgeExitPnl4532, edgeExitPeak4532, edgeExitHoldMs4532, ts.lastLiquidityUsd) } catch (_: Throwable) {}
+                try { LearningLifecycleBus.exitDecision("requestSell.defer", edgeExitLane4532, ts.source.ifBlank { ts.lastPriceSource.ifBlank { "UNKNOWN" } }, ts.mint, ts.symbol ?: "?", "DEFER_RECONCILER_HEALTHY_HOLD", requestReason, edgeExitPnl4532, edgeExitPeak4532, edgeExitHoldMs4532, ts.lastLiquidityUsd) } catch (_: Throwable) {}
                 return SellResult.WAITING_BALANCE_PROOF
             }
         }
