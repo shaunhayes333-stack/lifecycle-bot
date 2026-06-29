@@ -6568,8 +6568,8 @@ class GoldenTapeRegressionTest {
         val pipe = java.io.File("src/main/kotlin/com/lifecyclebot/engine/PipelineHealthCollector.kt").readText()
         assertTrue("V5.0.4529: edge engine must be coroutine-drained off the hot path", edge.contains("GlobalScope.launch(AppDispatchers.sideEffect)") && edge.contains("ConcurrentLinkedQueue<EdgeEvent>") && edge.contains("no synchronous I/O"))
         assertTrue("V5.0.4529: edge engine must capture broad denominator/sizing/terminal data", edge.contains("captureEntryOpportunity") && edge.contains("captureSizing") && edge.contains("captureTerminal") && edge.contains("captureExitDecision"))
-        assertTrue("V5.0.4529: pre-FDG buy path must feed mathematical edge denominators", bot.contains("MathematicalEdgeEngine.captureEntryOpportunity") && bot.contains("pre_fdg_candidate") && bot.contains("pre_fdg_buy_qualified"))
-        assertTrue("V5.0.4529: Executor must feed sizing attribution and terminal SELL/PARTIAL outcomes", exec.contains("MathematicalEdgeEngine.captureSizing") && exec.contains("components = sizingStackComponents4285") && exec.contains("MathematicalEdgeEngine.captureTerminal"))
+        assertTrue("V5.0.4529/4534: pre-FDG buy path must feed mathematical edge denominators through lifecycle bus", bot.contains("LearningLifecycleBus.preFdgCandidate") && bot.contains("LearningLifecycleBus.preFdgAdmit") && edge.contains("captureEntryOpportunity"))
+        assertTrue("V5.0.4529/4537: Executor must feed sizing attribution and terminal SELL/PARTIAL outcomes through lifecycle bus", exec.contains("LearningLifecycleBus.sizingDecision") && exec.contains("components = sizingStackComponents4285") && exec.contains("MathematicalEdgeEngine.captureTerminal"))
         assertTrue("V5.0.4529: reports must expose the mathematical edge engine", pipe.contains("MathematicalEdgeEngine.formatForPipelineDump"))
     }
 
