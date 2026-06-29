@@ -200,6 +200,16 @@ object ReportingHub {
         val doctor = try { RuntimeDoctor.requestTick() } catch (_: Throwable) { null }
         val perf = try { PerformanceAnalytics.lastSnapshotOrNull() } catch (_: Throwable) { null }
         val journal = try { TradeHistoryStore.getCanonicalTotals() } catch (_: Throwable) { null }
+        // V5.0.4509 — executive money truth. Raw/canonical journal totals can
+        // include historical duplicate-terminal and recovery-inventory rows; the
+        // Trade Journal section already exposes StrategyTruthLedger.clean, but the
+        // old executive headline still printed inflated raw PnL first. When the
+        // truth ledger excludes any rows, headline Strategy Clean and demote raw
+        // canonical to an audit line so the operator sees wallet-correspondent PnL.
+        val strategyTruth4509 = safeSnapshot {
+            val raw = TradeHistoryStore.getRecentValidClosedTradesRaw(limit = 2_500, includePartials = true)
+            StrategyTruthLedger.clean(raw, 2_500)
+        }
         appendLine("Runtime: state=${rt?.state ?: "?"} active=${rt?.runtimeActive ?: "?"} paper=${rt?.paperMode ?: "?"} enabled=${rt?.enabledTraders ?: "?"}")
         appendLine("Doctor: ${doctor?.diagnosis?.faultCode ?: "?"}/${doctor?.diagnosis?.subsystem ?: "?"} confidence=${doctor?.diagnosis?.confidence?.fmt2() ?: "?"} faults=${doctor?.faults?.size ?: "?"}")
         if (pipe != null) {
@@ -218,7 +228,19 @@ object ReportingHub {
             if (topAnr != null) appendLine("ANR top: [${topAnr.value}] ${topAnr.key.take(140)}")
         }
         if (perf != null) appendLine("Perf(last analyze): n=${perf.totalTrades} WR=${perf.winRate.fmt1()}% PnL=${perf.totalPnlSol.fmt4()} SOL PF=${perf.profitFactor.fmt2()} DD=${perf.currentDrawdownPct.fmt1()}% streak=${perf.currentStreak}")
-        if (journal != null) appendLine("Journal canonical: closes=${journal.trades} W/L=${journal.wins}/${journal.losses} WR=${journal.winRatePct().fmt1()}% PnL=${journal.pnlSol.fmt4()} SOL")
+        val truthRows4509 = strategyTruth4509?.rows.orEmpty()
+        val truthAudit4509 = strategyTruth4509?.audit
+        val excluded4509 = (truthAudit4509?.deduped ?: 0) + (truthAudit4509?.recoveryExcluded ?: 0) + (truthAudit4509?.partialNotTerminal ?: 0) + (truthAudit4509?.badEntryExcluded ?: 0) + (truthAudit4509?.forensicExcluded ?: 0)
+        if (strategyTruth4509 != null && excluded4509 > 0) {
+            val sw = truthRows4509.count { isJournalWin(it) }
+            val sl = truthRows4509.count { isJournalLoss(it) }
+            val spnl = truthRows4509.sumOf { if (it.netPnlSol != 0.0) it.netPnlSol else it.pnlSol }
+            val swr = if (sw + sl > 0) sw * 100.0 / (sw + sl) else 0.0
+            appendLine("Strategy Clean headline: closes=${truthRows4509.size} W/L=$sw/$sl WR=${swr.fmt1()}% PnL=${spnl.fmt4()} SOL source=StrategyTruthLedger")
+            if (journal != null) appendLine("Raw journal audit: closes=${journal.trades} W/L=${journal.wins}/${journal.losses} WR=${journal.winRatePct().fmt1()}% PnL=${journal.pnlSol.fmt4()} SOL excluded=$excluded4509 note=not_wallet_truth")
+        } else if (journal != null) {
+            appendLine("Journal canonical: closes=${journal.trades} W/L=${journal.wins}/${journal.losses} WR=${journal.winRatePct().fmt1()}% PnL=${journal.pnlSol.fmt4()} SOL")
+        }
         appendLine("Learning: ${safe("token_win_stats") { TokenWinMemory.getStats() }} | ${safe("collective") { com.lifecyclebot.collective.CollectiveLearning.getInsightsSummary() }} | quarantined=${learningQuarantineLine()}")
         appendLine("Tuning: ${safe("pattern_auto_tuner") { PatternAutoTuner.getStatus() }}")
     }
@@ -304,7 +326,7 @@ object ReportingHub {
             appendLine("Inventory Recovery: positions=${inv.size} realised/unrealised=${inv.sumOf { if (it.netPnlSol != 0.0) it.netPnlSol else it.pnlSol }.fmt4()} SOL")
             appendLine("Excluded From Strategy: recovered=${truth.audit.recoveryExcluded} duplicateTerminal=${truth.audit.deduped} partialNotTerminal=${truth.audit.partialNotTerminal} badEntry=${truth.audit.badEntryExcluded} forensic=${truth.audit.forensicExcluded}")
         }
-        if (totals != null) appendLine("Canonical totals: closes=${totals.trades} W/L=${totals.wins}/${totals.losses} WR=${totals.winRatePct().fmt1()}% PnL=${totals.pnlSol.fmt4()} SOL")
+        if (totals != null) appendLine("Raw journal totals: closes=${totals.trades} W/L=${totals.wins}/${totals.losses} WR=${totals.winRatePct().fmt1()}% PnL=${totals.pnlSol.fmt4()} SOL note=pre_truth_ledger_audit")
         if (lifetime != null) appendLine("Lifetime persisted: sells=${lifetime.totalSells} wins=${lifetime.totalWins} losses=${lifetime.totalLosses} pnl=${lifetime.realizedPnlSol.fmt4()} SOL")
         if (stats != null) appendLine("Store stats cache: trades=${stats.totalStoredTrades} WR=${stats.winRate.fmt1()}% avgHold=${stats.avgHoldTimeMinutes.toDouble().fmt1()}m")
         appendLine("24h closes: n=${sells24.size} W/L=${sells24.count { isJournalWin(it) }}/${sells24.count { isJournalLoss(it) }} PnL=${sells24.sumOf { if (it.netPnlSol != 0.0) it.netPnlSol else it.pnlSol }.fmt4()} SOL")

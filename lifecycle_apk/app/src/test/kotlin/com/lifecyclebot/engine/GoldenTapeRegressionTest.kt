@@ -6385,4 +6385,14 @@ class GoldenTapeRegressionTest {
         assertTrue("V5.0.4508: repaired TokenWinMemory persistence must be surfaced and saved once", mem.contains("TOKEN_WIN_MEMORY_PERSISTED_POISON_PURGED_4508") && mem.contains("save()"))
     }
 
+
+
+    @Test
+    fun reportingHub_4509ExecutiveUsesStrategyCleanWhenRawJournalInflated() {
+        val report = java.io.File("src/main/kotlin/com/lifecyclebot/engine/ReportingHub.kt").readText()
+        assertTrue("V5.0.4509: executive snapshot must compute StrategyTruthLedger before printing journal money", report.contains("strategyTruth4509") && report.contains("StrategyTruthLedger.clean") && report.contains("excluded4509"))
+        assertTrue("V5.0.4509: inflated raw journal must be demoted behind Strategy Clean headline", report.contains("Strategy Clean headline") && report.contains("Raw journal audit") && report.contains("note=not_wallet_truth"))
+        assertTrue("V5.0.4509: trade journal summary must not label raw totals as canonical wallet truth", report.contains("Raw journal totals") && report.contains("note=pre_truth_ledger_audit") && !report.contains("Canonical totals: closes="))
+    }
+
 }
