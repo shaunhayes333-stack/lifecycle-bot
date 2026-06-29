@@ -6443,4 +6443,49 @@ class GoldenTapeRegressionTest {
         assertTrue("V5.0.4514: central fanout must feed all pending policy heads asynchronously", exec.contains("ForwardOutcomeModel.recordOutcome(mintForHeads4514, pnlForHeads4514)") && exec.contains("UnifiedPolicyHead.recordOutcome(mintForHeads4514, pnlForHeads4514)") && exec.contains("UnifiedExitPolicyHead.recordOutcome(mintForHeads4514, pnlForHeads4514 > -5.0)") && exec.contains("GlobalScope.launch(AppDispatchers.sideEffect)"))
     }
 
+
+
+    @Test
+    fun realizedWalletCompounding_4515UsesIntradayHighWaterAndDailyProgress() {
+        val gov = java.io.File("src/main/kotlin/com/lifecyclebot/engine/RealizedWalletCompoundingGovernor.kt").readText()
+        assertTrue("V5.0.4515: compounding governor must track Brisbane intraday wallet high-water", gov.contains("Australia/Brisbane") && gov.contains("dayHighWalletSol") && gov.contains("drawdownFromDayHighPct"))
+        assertTrue("V5.0.4515: compounding governor must expose daily 2x/5x progress", gov.contains("dayProgressX") && gov.contains("two_x_day_compound") && gov.contains("five_x_day_protect_compound"))
+        assertTrue("V5.0.4515: high-water drawdown must protect profits before more compounding", gov.contains("intraday_high_water_profit_protect") && gov.contains("intraday_high_water_cooling"))
+    }
+
+
+
+    @Test
+    fun reportingHub_4516PrimesResearchScoutFromReportOnlyBackgroundPath() {
+        val report = java.io.File("src/main/kotlin/com/lifecyclebot/engine/ReportingHub.kt").readText()
+        assertTrue("V5.0.4516: report toolkit summary must prime ResearchScout in background only", report.contains("primeResearchScoutFromRuntime4516") && report.contains("BACKGROUND_RESEARCH_SCOUT_REPORT_4516") && report.contains("AppDispatchers.sideEffect"))
+        assertTrue("V5.0.4516: report primer must enqueue bounded cached runtime tokens and run periodic sweep", report.contains("take(12)") && report.contains("ResearchScout.enqueueBackgroundRequest") && report.contains("maybeRunPeriodicBackgroundSweep"))
+        assertTrue("V5.0.4516: operator report must surface ResearchScout queue/cache status", report.contains("ResearchScout.freeSourceStatus") && report.contains("RESEARCH_SCOUT_REPORT_PRIMED_4516") && report.contains("background_only=true"))
+    }
+
+
+
+    @Test
+    fun tradeHistoryStore_4517ExposesCleanStatsSnapshotWithoutRawMutation() {
+        val store = java.io.File("src/main/kotlin/com/lifecyclebot/engine/TradeHistoryStore.kt").readText()
+        val report = java.io.File("src/main/kotlin/com/lifecyclebot/engine/ReportingHub.kt").readText()
+        assertTrue("V5.0.4517: TradeHistoryStore must expose clean StrategyTruthLedger stats snapshot", store.contains("getCleanStatsSnapshot4517") && store.contains("StrategyTruthLedger.clean") && store.contains("raw journal"))
+        assertTrue("V5.0.4517: clean stats snapshot must be read-only and preserve raw forensic rows", store.contains("rawPreserved") || report.contains("rawPreserved=true"))
+        assertTrue("V5.0.4517: journal summary must show clean stats beside raw cache", report.contains("Store clean stats 4517") && report.contains("getCleanStatsSnapshot4517") && report.contains("source=StrategyTruthLedger"))
+    }
+
+
+
+    @Test
+    fun executionRouteReliability_4518FeedsEndpointFailuresIntoSoftSizing() {
+        val mem = java.io.File("src/main/kotlin/com/lifecyclebot/engine/ExecutionRouteReliabilityMemory.kt").readText()
+        val endpoint = java.io.File("src/main/kotlin/com/lifecyclebot/engine/ExecutionEndpointHealth.kt").readText()
+        val exec = java.io.File("src/main/kotlin/com/lifecyclebot/engine/Executor.kt").readText()
+        val report = java.io.File("src/main/kotlin/com/lifecyclebot/engine/ReportingHub.kt").readText()
+        assertTrue("V5.0.4518: route reliability memory must be soft-size only", mem.contains("soft size multiplier") && mem.contains("sizeMultiplierForSource") && !mem.contains("return false"))
+        assertTrue("V5.0.4518: endpoint disables must feed route reliability memory", endpoint.contains("ExecutionRouteReliabilityMemory.recordFailure(endpoint, reason, mint)"))
+        assertTrue("V5.0.4518: executor sizing stack must include route reliability multiplier", exec.contains("ROUTE_RELIABILITY_SIZE_SHAPED_4518") && exec.contains("routeReliability4518"))
+        assertTrue("V5.0.4518: reports must surface route reliability state", report.contains("ExecutionRouteReliabilityMemory.statusLine"))
+    }
+
 }

@@ -5,6 +5,8 @@ import kotlinx.coroutines.GlobalScope
 import kotlinx.coroutines.launch
 import java.util.concurrent.atomic.AtomicBoolean
 import java.util.Locale
+import java.util.Calendar
+import java.util.TimeZone
 import kotlin.math.abs
 
 /**
@@ -25,11 +27,19 @@ object RealizedWalletCompoundingGovernor {
         val profitFactor: Double,
         val trades: Int,
         val reason: String,
+        val dayStartWalletSol: Double,
+        val dayHighWalletSol: Double,
+        val dayPnlSol: Double,
+        val dayProgressX: Double,
+        val drawdownFromDayHighPct: Double,
         val refreshedAtMs: Long,
     )
 
     private const val REFRESH_TTL_MS = 15_000L
-    @Volatile private var cached = Snapshot(1.0, 0.0, 0.0, 0.0, 0.0, 0, "bootstrap", 0L)
+    @Volatile private var cached = Snapshot(1.0, 0.0, 0.0, 0.0, 0.0, 0, "bootstrap", 0.0, 0.0, 0.0, 1.0, 0.0, 0L)
+    @Volatile private var dayKey: String = ""
+    @Volatile private var dayStartWalletSol: Double = 0.0
+    @Volatile private var dayHighWalletSol: Double = 0.0
     private val refreshInFlight = AtomicBoolean(false)
 
     fun sizeMultiplier(): Double {
@@ -40,7 +50,7 @@ object RealizedWalletCompoundingGovernor {
     fun statusLine(): String {
         refreshAsyncIfStale()
         val s = cached
-        return "RealizedWalletCompounding: mult=${s.multiplier.fmt2()} clean=${s.cleanPnlSol.fmt4()} SOL wallet=${s.walletSol.fmt4()} SOL WR=${s.wrPct.fmt1()}% PF=${s.profitFactor.fmt2()} n=${s.trades} reason=${s.reason}"
+        return "RealizedWalletCompounding: mult=${s.multiplier.fmt2()} clean=${s.cleanPnlSol.fmt4()} SOL wallet=${s.walletSol.fmt4()} SOL day=${s.dayPnlSol.fmt4()} SOL progress=${s.dayProgressX.fmt2()}x high=${s.dayHighWalletSol.fmt4()} ddHigh=${s.drawdownFromDayHighPct.fmt1()}% WR=${s.wrPct.fmt1()}% PF=${s.profitFactor.fmt2()} n=${s.trades} reason=${s.reason}"
     }
 
     private fun Double.fmt1(): String = String.format(Locale.US, "%.1f", this)
@@ -62,6 +72,23 @@ object RealizedWalletCompoundingGovernor {
         }
     }
 
+    private fun brisbaneDayStartMs(nowMs: Long): Long {
+        val tz = TimeZone.getTimeZone("Australia/Brisbane")
+        return Calendar.getInstance(tz).apply {
+            timeInMillis = nowMs
+            set(Calendar.HOUR_OF_DAY, 0)
+            set(Calendar.MINUTE, 0)
+            set(Calendar.SECOND, 0)
+            set(Calendar.MILLISECOND, 0)
+        }.timeInMillis
+    }
+
+    private fun brisbaneDayKey(nowMs: Long): String {
+        val tz = TimeZone.getTimeZone("Australia/Brisbane")
+        val c = Calendar.getInstance(tz).apply { timeInMillis = nowMs }
+        return "%04d-%02d-%02d".format(Locale.US, c.get(Calendar.YEAR), c.get(Calendar.MONTH) + 1, c.get(Calendar.DAY_OF_MONTH))
+    }
+
     private fun computeSnapshot(nowMs: Long): Snapshot {
         val raw = try { TradeHistoryStore.getRecentValidClosedTradesRaw(limit = 750, includePartials = true) } catch (_: Throwable) { emptyList() }
         val clean = try { StrategyTruthLedger.clean(raw, 750).rows } catch (_: Throwable) { emptyList() }
@@ -79,9 +106,28 @@ object RealizedWalletCompoundingGovernor {
         }
         val wr = if (wins + losses > 0) wins * 100.0 / (wins + losses) else 0.0
         val wallet = try { BotService.status.walletSol } catch (_: Throwable) { 0.0 }
+        val dayStartMs = brisbaneDayStartMs(nowMs)
+        val todayTerminal = terminal.filter { it.ts >= dayStartMs }
+        val todayPnl = todayTerminal.sumOf { it.netPnlSol.takeIf { v -> v != 0.0 } ?: it.pnlSol }
+        val key = brisbaneDayKey(nowMs)
+        if (key != dayKey) {
+            dayKey = key
+            dayStartWalletSol = (wallet - todayPnl).takeIf { it.isFinite() && it > 0.0 } ?: wallet.coerceAtLeast(0.0)
+            dayHighWalletSol = maxOf(dayStartWalletSol, wallet)
+        }
+        if (dayStartWalletSol <= 0.0 && wallet > 0.0) dayStartWalletSol = (wallet - todayPnl).takeIf { it.isFinite() && it > 0.0 } ?: wallet
+        if (wallet > dayHighWalletSol) dayHighWalletSol = wallet
+        val dayBase = dayStartWalletSol.takeIf { it.isFinite() && it > 0.0 } ?: wallet.takeIf { it.isFinite() && it > 0.0 } ?: 1.0
+        val dayProgressX = (wallet / dayBase).takeIf { it.isFinite() && it > 0.0 } ?: 1.0
+        val drawdownFromHighPct = if (dayHighWalletSol > 0.0 && wallet > 0.0) ((wallet - dayHighWalletSol) / dayHighWalletSol) * 100.0 else 0.0
         val base = wallet.takeIf { it.isFinite() && it > 0.0 } ?: 1.0
         val gainRatio = pnl / base
         val multReason = when {
+            drawdownFromHighPct <= -25.0 && todayPnl > 0.0 -> 0.55 to "intraday_high_water_profit_protect"
+            drawdownFromHighPct <= -15.0 && todayPnl > 0.0 -> 0.75 to "intraday_high_water_cooling"
+            dayProgressX >= 5.0 && wr >= 35.0 && pf >= 2.0 -> 1.45 to "five_x_day_protect_compound"
+            dayProgressX >= 3.0 && wr >= 35.0 && pf >= 1.8 -> 1.75 to "three_x_day_compound"
+            dayProgressX >= 2.0 && wr >= 32.0 && pf >= 1.5 -> 2.05 to "two_x_day_compound"
             trades < 20 -> 1.00 to "bootstrap_under_20"
             pnl <= 0.0 || wr < 20.0 || pf < 0.95 -> 0.55 to "defensive_clean_negative_or_low_wr"
             gainRatio >= 2.0 && wr >= 35.0 && pf >= 2.0 -> 2.25 to "two_x_plus_compound_unlock"
@@ -99,6 +145,11 @@ object RealizedWalletCompoundingGovernor {
             profitFactor = pf,
             trades = trades,
             reason = multReason.second,
+            dayStartWalletSol = dayStartWalletSol,
+            dayHighWalletSol = dayHighWalletSol,
+            dayPnlSol = todayPnl,
+            dayProgressX = dayProgressX,
+            drawdownFromDayHighPct = drawdownFromHighPct,
             refreshedAtMs = nowMs,
         )
     }

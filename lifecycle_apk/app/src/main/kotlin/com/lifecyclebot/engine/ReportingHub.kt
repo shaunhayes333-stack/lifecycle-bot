@@ -3,6 +3,7 @@ package com.lifecyclebot.engine
 import android.content.Context
 import com.lifecyclebot.engine.execution.ForensicReportExporter
 import com.lifecyclebot.engine.execution.PositionWalletReconciler
+import com.lifecyclebot.util.AppDispatchers
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -245,7 +246,40 @@ object ReportingHub {
         appendLine("Tuning: ${safe("pattern_auto_tuner") { PatternAutoTuner.getStatus() }}")
     }
 
+    private fun primeResearchScoutFromRuntime4516() {
+        try {
+            CoroutineScope(AppDispatchers.sideEffect).launch {
+                try {
+                    val tokens = BotService.status.tokens.values
+                        .asSequence()
+                        .filter { it.mint.isNotBlank() }
+                        .sortedByDescending { maxOf(it.lastMcap, it.lastLiquidityUsd, it.score.toDouble()) }
+                        .take(12)
+                        .toList()
+                    var queued = 0
+                    tokens.forEach { ts ->
+                        val id = ResearchScout.enqueueBackgroundRequest(
+                            mint = ts.mint,
+                            symbol = ts.symbol,
+                            reason = "runtime_report_cached_toolkit_prime_4516",
+                            sourceTag = "BACKGROUND_RESEARCH_SCOUT_REPORT_4516",
+                        )
+                        if (id.isNotBlank()) queued += 1
+                    }
+                    val swept = ResearchScout.maybeRunPeriodicBackgroundSweep(
+                        sourceTag = "BACKGROUND_RESEARCH_SCOUT_REPORT_SWEEP_4516",
+                        maxRequests = 12,
+                    )
+                    if (queued > 0 || swept > 0) {
+                        try { PipelineHealthCollector.labelInc("RESEARCH_SCOUT_REPORT_PRIMED_4516") } catch (_: Throwable) {}
+                    }
+                } catch (_: Throwable) {}
+            }
+        } catch (_: Throwable) {}
+    }
+
     private fun buildToolkitSignalSummary(): String = buildString(3 * 1024) {
+        primeResearchScoutFromRuntime4516()
         val s = safeSnapshot { PipelineHealthCollector.snapshot() }
         val labels = s?.labelCounts ?: emptyMap()
         val refreshed = labels["TOOLKIT_SIGNAL_SHEET_REFRESHED"] ?: 0L
@@ -254,6 +288,7 @@ object ReportingHub {
         appendLine("Refresh: ok=$refreshed failed=$failed")
         appendLine(InternetEdgeDesk.summaryLine())
         appendLine("InternetEdge counters: ok=${labels["INTERNET_EDGE_REFRESHED"] ?: 0L} fail=${labels["INTERNET_EDGE_REFRESH_FAILED"] ?: 0L} parse=${labels["INTERNET_EDGE_PARSE_FAILED"] ?: 0L} skip=${labels["INTERNET_EDGE_SKIPPED_LLM_UNAVAILABLE"] ?: 0L}")
+        appendLine("ResearchScout: ${safe("research_scout_free_status") { ResearchScout.freeSourceStatus() }} primed=${labels["RESEARCH_SCOUT_REPORT_PRIMED_4516"] ?: 0L} background_only=true")
         val setups = labels.entries
             .filter { it.key.startsWith("TOOLKIT_SETUP_") }
             .sortedByDescending { it.value }
@@ -288,6 +323,7 @@ object ReportingHub {
         appendLine(safe("scanner_source_brain") { ScannerSourceBrain.summary().trim() }.ifBlank { "ScannerSourceBrain: bootstrap" })
         // V5.0.4102 — ExitProviderHealth (Jupiter 503 + Pump 0x1788 circuit breakers)
         appendLine(safe("exit_provider_health") { com.lifecyclebot.engine.sell.ExitProviderHealth.summary().trim() }.ifBlank { "ExitProviderHealth: ok" })
+        appendLine(safe("execution_route_reliability") { ExecutionRouteReliabilityMemory.statusLine() })
         // V5.0.4104 — RecoveredHoldGuard
         appendLine(safe("recovered_hold_guard") { RecoveredHoldGuard.summary().trim() }.ifBlank { "RecoveredHoldGuard: idle" })
         appendLine(safe("live_probability_engine") { LiveProbabilityEngine.statusLine() })
@@ -320,6 +356,7 @@ object ReportingHub {
         val totals = safeSnapshot { TradeHistoryStore.getCanonicalTotals() }
         val lifetime = safeSnapshot { TradeHistoryStore.getLifetimeStats() }
         val stats = safeSnapshot { TradeHistoryStore.getStatsCached() }
+        val cleanStats4517 = safeSnapshot { TradeHistoryStore.getCleanStatsSnapshot4517() }
         val sells24 = safeSnapshot { TradeHistoryStore.getSells24h() } ?: emptyList()
         val allSells = safeSnapshot { TradeHistoryStore.getRecentValidClosedTradesRaw(limit = 2_500, includePartials = true) } ?: emptyList()
         val truth = safeSnapshot { StrategyTruthLedger.clean(allSells, 2_500) }
@@ -339,6 +376,7 @@ object ReportingHub {
         if (totals != null) appendLine("Raw journal totals: closes=${totals.trades} W/L=${totals.wins}/${totals.losses} WR=${totals.winRatePct().fmt1()}% PnL=${totals.pnlSol.fmt4()} SOL note=pre_truth_ledger_audit")
         if (lifetime != null) appendLine("Lifetime persisted: sells=${lifetime.totalSells} wins=${lifetime.totalWins} losses=${lifetime.totalLosses} pnl=${lifetime.realizedPnlSol.fmt4()} SOL")
         if (stats != null) appendLine("Store stats cache: trades=${stats.totalStoredTrades} WR=${stats.winRate.fmt1()}% avgHold=${stats.avgHoldTimeMinutes.toDouble().fmt1()}m")
+        if (cleanStats4517 != null) appendLine("Store clean stats 4517: trades=${cleanStats4517.totalStoredTrades} W/L=${cleanStats4517.totalWins}/${cleanStats4517.totalLosses} WR=${cleanStats4517.winRate.fmt1()}% PnL=${cleanStats4517.totalPnlSol.fmt4()} SOL PF=${cleanStats4517.profitFactor.fmt2()} source=StrategyTruthLedger rawPreserved=true")
         appendLine("24h closes: n=${sells24.size} W/L=${sells24.count { isJournalWin(it) }}/${sells24.count { isJournalLoss(it) }} PnL=${sells24.sumOf { if (it.netPnlSol != 0.0) it.netPnlSol else it.pnlSol }.fmt4()} SOL")
         val byMode = allSells.groupBy { TradeHistoryStore.normalizeTradeModeName(it.tradingMode).ifBlank { "UNKNOWN" } }
             .mapValues { (_, rows) ->

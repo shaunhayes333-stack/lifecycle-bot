@@ -1622,6 +1622,56 @@ object TradeHistoryStore {
         val scratches24h:       Int    = 0,
     )
 
+    /**
+     * V5.0.4517 — CLEAN STATS SNAPSHOT / CACHE-REBUILD SURFACE.
+     *
+     * Read-only companion to getStatsCached(): recomputes stats from
+     * StrategyTruthLedger-clean terminal SELL rows while preserving raw journal
+     * evidence. This gives reports/UI a clean cache target without deleting or
+     * mutating historical duplicate/recovered/partial forensic rows.
+     */
+    fun getCleanStatsSnapshot4517(limit: Int = 2_500): StatsSnapshot {
+        val raw = try { getRecentValidClosedTradesRaw(limit = limit, includePartials = true) } catch (_: Throwable) { emptyList() }
+        val clean = try { StrategyTruthLedger.clean(raw, limit).rows } catch (_: Throwable) { raw }
+            .filter { it.side.equals("SELL", true) }
+        val cutoff24h = System.currentTimeMillis() - 24L * 60L * 60L * 1000L
+        val clean24h = clean.filter { it.ts >= cutoff24h }
+        fun pnlSol(t: Trade): Double = t.netPnlSol.takeIf { it != 0.0 } ?: t.pnlSol
+        val wins = clean.count { pnlSol(it) > 0.0 }
+        val losses = clean.count { pnlSol(it) < 0.0 }
+        val scratches = clean.size - wins - losses
+        val wins24 = clean24h.count { pnlSol(it) > 0.0 }
+        val losses24 = clean24h.count { pnlSol(it) < 0.0 }
+        val scratches24 = clean24h.size - wins24 - losses24
+        val winPcts = clean.filter { pnlSol(it) > 0.0 }.map { it.pnlPct }
+        val lossPcts = clean.filter { pnlSol(it) < 0.0 }.map { it.pnlPct }
+        val grossWin = clean.sumOf { maxOf(0.0, pnlSol(it)) }
+        val grossLoss = kotlin.math.abs(clean.sumOf { minOf(0.0, pnlSol(it)) })
+        return StatsSnapshot(
+            trades24h = clean24h.size,
+            winRate24h = if (wins24 + losses24 > 0) ((wins24 * 100.0) / (wins24 + losses24)).toInt() else 0,
+            pnl24hSol = clean24h.sumOf { pnlSol(it) },
+            totalStoredTrades = clean.size,
+            totalTrades = clean.size,
+            winRate = if (wins + losses > 0) wins * 100.0 / (wins + losses) else 0.0,
+            avgWinPct = if (winPcts.isNotEmpty()) winPcts.average() else 0.0,
+            avgLossPct = if (lossPcts.isNotEmpty()) lossPcts.average() else 0.0,
+            profitFactor = when {
+                grossLoss > 0.0000001 -> grossWin / grossLoss
+                grossWin > 0.0 -> 9.99
+                else -> 0.0
+            },
+            totalPnlSol = clean.sumOf { pnlSol(it) },
+            avgHoldTimeMinutes = 10,
+            totalWins = wins,
+            totalLosses = losses,
+            totalScratches = scratches,
+            wins24h = wins24,
+            losses24h = losses24,
+            scratches24h = scratches24,
+        )
+    }
+
     fun getStats(): StatsSnapshot {
         val sells24h      = getSells24h()
         val wins24h       = sells24h.count { isWin(it) }

@@ -8489,6 +8489,13 @@ class Executor(
                 PipelineHealthCollector.labelInc("REALIZED_WALLET_COMPOUNDING_SHAPED_4511")
             } catch (_: Throwable) {}
         }
+        val routeReliabilitySizeMult4518 = try { ExecutionRouteReliabilityMemory.sizeMultiplierForSource(ts.source, ts.mint) } catch (_: Throwable) { 1.0 }
+        if (RuntimeModeAuthority.isLive() && routeReliabilitySizeMult4518 != 1.0) {
+            try {
+                ForensicLogger.lifecycle("ROUTE_RELIABILITY_SIZE_SHAPED_4518", "mint=${ts.mint.take(10)} symbol=${ts.symbol} source=${ts.source.take(60)} mult=${routeReliabilitySizeMult4518.fmt(2)} status=${ExecutionRouteReliabilityMemory.statusLine()}")
+                PipelineHealthCollector.labelInc("ROUTE_RELIABILITY_SIZE_SHAPED_4518")
+            } catch (_: Throwable) {}
+        }
         val sizingStackComponents4285 = linkedMapOf(
             "sizeMult" to sizeMult,
             "lab" to labMult,
@@ -8508,6 +8515,7 @@ class Executor(
             "capitalEfficiency" to capitalEfficiencySizeMult,
             "scoreBandWR4510" to scoreBandWrSizeMult4510,
             "walletCompound4511" to realizedWalletCompoundMult4511,
+            "routeReliability4518" to routeReliabilitySizeMult4518,
         )
         val multiplierProductRaw = sizingStackComponents4285.values.fold(1.0) { acc, v -> acc * v }
         try {
@@ -8548,6 +8556,7 @@ class Executor(
                     "regimeVol" to regimeVolSizeMult,
                     "scoreBandWR4510" to scoreBandWrSizeMult4510,
                     "walletCompound4511" to realizedWalletCompoundMult4511,
+                    "routeReliability4518" to routeReliabilitySizeMult4518,
                 ),
             )
         } catch (_: Throwable) {}
