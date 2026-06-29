@@ -294,6 +294,7 @@ object ReportingHub {
         appendLine(safe("strategy_hypothesis") { StrategyHypothesisEngine.formatForPipelineDump().trim() }.ifBlank { "Strategy Hypothesis Engine: no active/promoted experiments" })
         appendLine(safe("lane_exit_tuner") { com.lifecyclebot.engine.learning.LaneExitTuner.formatForPipelineDump().trim() }.ifBlank { "Lane Exit Tuner: no lane tuning snapshot" })
         appendLine(safe("live_strategy_tuner") { LiveStrategyTuner.statusLine() })
+        appendLine(safe("realized_wallet_compounding") { RealizedWalletCompoundingGovernor.statusLine() })
         appendLine("PatternAutoTuner: ${safe("pattern_auto_tuner") { PatternAutoTuner.getStatus() }}")
         safe("pattern_auto_tuner_details") {
             val adj = PatternAutoTuner.getDetailedAdjustments().entries

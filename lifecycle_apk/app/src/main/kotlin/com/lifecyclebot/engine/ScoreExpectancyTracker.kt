@@ -133,6 +133,34 @@ object ScoreExpectancyTracker {
         synchronized(w) { return w.size }
     }
 
+
+
+    data class LiveSizeShape(
+        val multiplier: Double,
+        val samples: Int,
+        val meanPnlPct: Double,
+        val reason: String,
+    )
+
+    /**
+     * V5.0.4510 — live score-band WR/PnL tuning is size-only, never a veto.
+     * shouldReject() remains paper/training-only; live uses this shaper to turn
+     * mature bleeding lane+score bands into cheap probes while preserving sample
+     * flow and hard-safety doctrine.
+     */
+    fun liveSizeShape(layer: String, score: Int): LiveSizeShape {
+        val samples = bucketSamples(layer, score)
+        val mean = bucketMean(layer, score) ?: return LiveSizeShape(1.0, samples, 0.0, "bootstrap")
+        if (samples < MIN_SAMPLES_FOR_REJECT) return LiveSizeShape(1.0, samples, mean, "under_sampled")
+        return when {
+            mean <= -60.0 -> LiveSizeShape(0.25, samples, mean, "catastrophic_score_band_probe")
+            mean <= -35.0 -> LiveSizeShape(0.35, samples, mean, "toxic_score_band_probe")
+            mean <= REJECT_MEAN_PNL_PCT -> LiveSizeShape(0.55, samples, mean, "negative_score_band_probe")
+            mean >= 35.0 && samples >= MIN_SAMPLES_FOR_REJECT -> LiveSizeShape(1.10, samples, mean, "positive_score_band_press")
+            else -> LiveSizeShape(1.0, samples, mean, "neutral")
+        }
+    }
+
     /**
      * Decide whether to reject a candidate entry for [layer]@[score].
      * Allows trade through (returns false) when:

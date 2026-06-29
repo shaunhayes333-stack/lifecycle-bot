@@ -6395,4 +6395,26 @@ class GoldenTapeRegressionTest {
         assertTrue("V5.0.4509: trade journal summary must not label raw totals as canonical wallet truth", report.contains("Raw journal totals") && report.contains("note=pre_truth_ledger_audit") && !report.contains("Canonical totals: closes="))
     }
 
+
+
+    @Test
+    fun executor_4510LiveScoreBandWrSoftShapesEntrySize() {
+        val score = java.io.File("src/main/kotlin/com/lifecyclebot/engine/ScoreExpectancyTracker.kt").readText()
+        val exec = java.io.File("src/main/kotlin/com/lifecyclebot/engine/Executor.kt").readText()
+        assertTrue("V5.0.4510: live score-band expectancy must expose size-only shape, not a live reject", score.contains("fun liveSizeShape") && score.contains("catastrophic_score_band_probe") && score.contains("positive_score_band_press"))
+        assertTrue("V5.0.4510: Executor live sizing stack must consume score-band WR/PnL multiplier", exec.contains("LIVE_EXPECTANCY_SCORE_BAND_SOFT_SHAPED_4510") && exec.contains("scoreBandWR4510") && exec.contains("ScoreExpectancyTracker.liveSizeShape"))
+        assertTrue("V5.0.4510: legacy live reject bypass remains non-blocking", score.contains("LIVE_EXPECTANCY_REJECT_BYPASSED") && score.contains("return false"))
+    }
+
+    @Test
+    fun executor_4511RealizedWalletCompoundingUsesStrategyTruthOnly() {
+        val gov = java.io.File("src/main/kotlin/com/lifecyclebot/engine/RealizedWalletCompoundingGovernor.kt").readText()
+        val exec = java.io.File("src/main/kotlin/com/lifecyclebot/engine/Executor.kt").readText()
+        val report = java.io.File("src/main/kotlin/com/lifecyclebot/engine/ReportingHub.kt").readText()
+        assertTrue("V5.0.4511: compounding governor must use StrategyTruthLedger clean rows, not raw canonical totals", gov.contains("StrategyTruthLedger.clean") && gov.contains("getRecentValidClosedTradesRaw") && !gov.contains("getCanonicalTotals"))
+        assertTrue("V5.0.4511: compounding refresh must be cached/background, not synchronous per hot-path candidate", gov.contains("REFRESH_TTL_MS") && gov.contains("GlobalScope.launch(AppDispatchers.sideEffect)") && gov.contains("cached.multiplier"))
+        assertTrue("V5.0.4511: Executor sizing stack must consume wallet-realized compounding multiplier", exec.contains("REALIZED_WALLET_COMPOUNDING_SHAPED_4511") && exec.contains("walletCompound4511") && exec.contains("RealizedWalletCompoundingGovernor.sizeMultiplier"))
+        assertTrue("V5.0.4511: operator report must surface compounding state", report.contains("RealizedWalletCompoundingGovernor.statusLine"))
+    }
+
 }

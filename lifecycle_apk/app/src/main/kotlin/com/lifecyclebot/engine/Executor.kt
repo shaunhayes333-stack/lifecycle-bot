@@ -8451,6 +8451,22 @@ class Executor(
         if (capitalEfficiencySizeMult != 1.0) {
             try { ForensicLogger.lifecycle("CAPITAL_EFFICIENCY_SIZE_SHAPED_4281", "mint=${ts.mint.take(10)} symbol=${ts.symbol} lane=$laneKeyForAgi source=${ts.source} mult=${capitalEfficiencySizeMult.fmt(3)}") } catch (_: Throwable) {}
         }
+        val scoreBandWrShape4510 = try { ScoreExpectancyTracker.liveSizeShape(laneKeyForAgi, score.toInt().coerceIn(0, 100)) } catch (_: Throwable) { ScoreExpectancyTracker.LiveSizeShape(1.0, 0, 0.0, "error") }
+        val scoreBandWrSizeMult4510 = scoreBandWrShape4510.multiplier
+        if (RuntimeModeAuthority.isLive() && scoreBandWrSizeMult4510 != 1.0) {
+            try {
+                ForensicLogger.lifecycle("LIVE_EXPECTANCY_SCORE_BAND_SOFT_SHAPED_4510", "mint=${ts.mint.take(10)} symbol=${ts.symbol} lane=$laneKeyForAgi score=${score.toInt()} samples=${scoreBandWrShape4510.samples} mean=${scoreBandWrShape4510.meanPnlPct.fmt(2)} mult=${scoreBandWrSizeMult4510.fmt(2)} reason=${scoreBandWrShape4510.reason}")
+                PipelineHealthCollector.labelInc("LIVE_EXPECTANCY_SCORE_BAND_SOFT_SHAPED_4510")
+            } catch (_: Throwable) {}
+        }
+        val realizedWalletCompoundMult4511 = try { RealizedWalletCompoundingGovernor.sizeMultiplier() } catch (_: Throwable) { 1.0 }
+        if (RuntimeModeAuthority.isLive() && realizedWalletCompoundMult4511 != 1.0) {
+            try {
+                val snap4511 = RealizedWalletCompoundingGovernor.snapshot()
+                ForensicLogger.lifecycle("REALIZED_WALLET_COMPOUNDING_SHAPED_4511", "mint=${ts.mint.take(10)} symbol=${ts.symbol} lane=$laneKeyForAgi mult=${realizedWalletCompoundMult4511.fmt(2)} clean=${snap4511.cleanPnlSol.fmt(4)} wallet=${snap4511.walletSol.fmt(4)} wr=${snap4511.wrPct.fmt(1)} pf=${snap4511.profitFactor.fmt(2)} reason=${snap4511.reason}")
+                PipelineHealthCollector.labelInc("REALIZED_WALLET_COMPOUNDING_SHAPED_4511")
+            } catch (_: Throwable) {}
+        }
         val sizingStackComponents4285 = linkedMapOf(
             "sizeMult" to sizeMult,
             "lab" to labMult,
@@ -8468,6 +8484,8 @@ class Executor(
             "metaCognition" to metaCognitionSizeMult,
             "regimeVol" to regimeVolSizeMult,
             "capitalEfficiency" to capitalEfficiencySizeMult,
+            "scoreBandWR4510" to scoreBandWrSizeMult4510,
+            "walletCompound4511" to realizedWalletCompoundMult4511,
         )
         val multiplierProductRaw = sizingStackComponents4285.values.fold(1.0) { acc, v -> acc * v }
         try {
@@ -8506,6 +8524,8 @@ class Executor(
                     "superBrain" to superBrainSizeMult,
                     "metaCog" to metaCognitionSizeMult,
                     "regimeVol" to regimeVolSizeMult,
+                    "scoreBandWR4510" to scoreBandWrSizeMult4510,
+                    "walletCompound4511" to realizedWalletCompoundMult4511,
                 ),
             )
         } catch (_: Throwable) {}
