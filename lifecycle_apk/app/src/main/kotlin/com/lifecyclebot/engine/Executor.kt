@@ -8786,6 +8786,8 @@ class Executor(
                 score = score,
                 components = sizingStackComponents4285,
                 reason = "goose=${gooseVerdict4129.name} regime=${currentRegimeForLivePolicy.name} laneCap=${laneSizeCap}",
+                regime = currentRegimeForLivePolicy.name,
+                style = laneTag,
             )
         } catch (_: Throwable) {}
 
@@ -13397,6 +13399,12 @@ class Executor(
             "EXIT_ROUTE_RETRY_${trackerStatus}_${closeState}"
         } else reason
         try { SellDecisionMatrixReport.recordIntent(ts.mint, ts.symbol ?: "?", requestReason, ts.position.isPaperPosition, ts.position.tradingMode.ifBlank { "UNKNOWN" }) } catch (_: Throwable) {}
+        val edgeExitPx4532 = try { ts.lastPrice.takeIf { it > 0.0 } ?: ts.position.entryPrice } catch (_: Throwable) { 0.0 }
+        val edgeExitPnl4532 = try { if (ts.position.entryPrice > 0.0 && edgeExitPx4532 > 0.0) ((edgeExitPx4532 - ts.position.entryPrice) / ts.position.entryPrice) * 100.0 else 0.0 } catch (_: Throwable) { 0.0 }
+        val edgeExitPeak4532 = try { ts.position.peakGainPct.coerceAtLeast(edgeExitPnl4532) } catch (_: Throwable) { edgeExitPnl4532 }
+        val edgeExitHoldMs4532 = try { (System.currentTimeMillis() - ts.position.entryTime).coerceAtLeast(0L) } catch (_: Throwable) { 0L }
+        val edgeExitLane4532 = try { ts.position.tradingMode.ifBlank { resolveExecutionLane(ts, fallback = "STANDARD") } } catch (_: Throwable) { "STANDARD" }
+        try { MathematicalEdgeEngine.captureExitDecision("requestSell.intent", edgeExitLane4532, ts.source.ifBlank { ts.lastPriceSource.ifBlank { "UNKNOWN" } }, ts.mint, ts.symbol ?: "?", "INTENT", requestReason, edgeExitPnl4532, edgeExitPeak4532, edgeExitHoldMs4532, ts.lastLiquidityUsd) } catch (_: Throwable) {}
         // V5.0.3801 — PAPER source guard before any executor activity.
         // requestSell() has many upstream callers (main loop, backup sweeps,
         // stale/rug escape paths). If a paper mint already has CLOSE_REQUESTED /
@@ -13424,6 +13432,7 @@ class Executor(
                 PipelineHealthCollector.labelInc("LIVE_TINY_PROFIT_EXIT_DEFERRED")
             } catch (_: Throwable) {}
             try { SellDecisionMatrixReport.recordPreSellDefer(ts.mint, ts.symbol ?: "?", requestReason, "TINY_PROFIT_DUST") } catch (_: Throwable) {}
+            try { MathematicalEdgeEngine.captureExitDecision("requestSell.defer", edgeExitLane4532, ts.source.ifBlank { ts.lastPriceSource.ifBlank { "UNKNOWN" } }, ts.mint, ts.symbol ?: "?", "DEFER_TINY_PROFIT_DUST", requestReason, edgeExitPnl4532, edgeExitPeak4532, edgeExitHoldMs4532, ts.lastLiquidityUsd) } catch (_: Throwable) {}
             return SellResult.FAILED_RETRYABLE
         }
 
@@ -13443,6 +13452,7 @@ class Executor(
                     PipelineHealthCollector.labelInc("LIVE_STYLE_MIN_HOLD_${holdDelay.styleHint}")
                 } catch (_: Throwable) {}
                 try { SellDecisionMatrixReport.recordPreSellDefer(ts.mint, ts.symbol ?: "?", requestReason, "STYLE_MIN_HOLD") } catch (_: Throwable) {}
+                try { MathematicalEdgeEngine.captureExitDecision("requestSell.defer", edgeExitLane4532, ts.source.ifBlank { ts.lastPriceSource.ifBlank { "UNKNOWN" } }, ts.mint, ts.symbol ?: "?", "DEFER_STYLE_MIN_HOLD", requestReason, edgeExitPnl4532, edgeExitPeak4532, edgeExitHoldMs4532, ts.lastLiquidityUsd) } catch (_: Throwable) {}
                 return SellResult.FAILED_RETRYABLE
             }
         }
@@ -13460,6 +13470,7 @@ class Executor(
                     PipelineHealthCollector.labelInc("RECONCILER_REQUEUE_SUPPRESSED_HEALTHY_HOLD")
                 } catch (_: Throwable) {}
                 try { SellDecisionMatrixReport.recordPreSellDefer(ts.mint, ts.symbol ?: "?", requestReason, "RECONCILER_HEALTHY_HOLD") } catch (_: Throwable) {}
+                try { MathematicalEdgeEngine.captureExitDecision("requestSell.defer", edgeExitLane4532, ts.source.ifBlank { ts.lastPriceSource.ifBlank { "UNKNOWN" } }, ts.mint, ts.symbol ?: "?", "DEFER_RECONCILER_HEALTHY_HOLD", requestReason, edgeExitPnl4532, edgeExitPeak4532, edgeExitHoldMs4532, ts.lastLiquidityUsd) } catch (_: Throwable) {}
                 return SellResult.WAITING_BALANCE_PROOF
             }
         }

@@ -194,8 +194,24 @@ object MathematicalEdgeEngine {
                     } catch (_: Throwable) {}
                 }
                 "SIZING" -> {
+                    val scoreInt = e.score.toInt().coerceIn(0, 100)
+                    val regimeForEdge = e.regime.ifBlank { "NORMAL" }
                     try { MultiplierAttributionLedger.recordEntry("MEE", e.lane, e.source, e.mint, e.symbol, e.baseSol, e.rawMultiplier, e.componentMap) ; readback("MultiplierAttributionLedger") } catch (_: Throwable) {}
-                    try { LiveStrategyTuner.adjustment(e.lane); LaneExpectancyDamper.sizeMultiplier(e.lane); CapitalEfficiencyBrain.sizeMultiplier(e.lane, e.source); readback("LiveStrategyTuner"); readback("LaneExpectancyDamper"); readback("CapitalEfficiencyBrain") } catch (_: Throwable) {}
+                    try {
+                        val lp = LiveProbabilityEngine.forecast(e.lane, scoreInt, e.style.ifBlank { "MEE" }, regimeForEdge, e.stage)
+                        val fwd = ForwardOutcomeModel.forecast(e.lane, scoreInt, e.style.ifBlank { "MEE" }, regimeForEdge, e.stage)
+                        ForwardOutcomeModel.stamp(e.mint, e.lane, scoreInt, e.style.ifBlank { "MEE" }, regimeForEdge, e.stage)
+                        UnifiedPolicyHead.stamp(e.mint, e.lane, UnifiedPolicyHead.Signals(
+                            mlEntryConf = (scoreInt / 100.0).coerceIn(0.0, 1.0),
+                            symGreenLight = e.clampedMultiplier.coerceIn(0.0, 1.0),
+                            evRatio = ((lp.expectedPnlPct + 50.0) / 100.0).coerceIn(0.0, 1.0),
+                            metaConviction = lp.sizeMult.coerceIn(0.0, 1.0),
+                            fwdPWin = fwd.pWin,
+                            candConf = (scoreInt / 100.0).coerceIn(0.0, 1.0),
+                        ))
+                        readback("ForwardOutcomeModel.stamp"); readback("UnifiedPolicyHead.stamp"); readback("LiveProbabilityEngine.sizing")
+                    } catch (_: Throwable) {}
+                    try { LiveStrategyTuner.adjustment(e.lane); LaneExpectancyDamper.sizeMultiplier(e.lane); CapitalEfficiencyBrain.sizeMultiplier(e.lane, e.source); StrategyHypothesisEngine.getSizeBias(e.lane, scoreInt, regimeForEdge, e.mint); StrategyHypothesisEngine.getStopBias(e.lane, scoreInt, regimeForEdge, e.mint); readback("LiveStrategyTuner"); readback("LaneExpectancyDamper"); readback("CapitalEfficiencyBrain"); readback("StrategyHypothesisEngine.sizing") } catch (_: Throwable) {}
                     if (e.score >= 75.0 && e.clampedMultiplier < 0.35) {
                         try {
                             ChokeReliefBus.launch("MEE_SIZING_ANOMALY_HYPOTHESIS_4530", e.mint) {
@@ -248,9 +264,9 @@ object MathematicalEdgeEngine {
         score = score, confidence = confidence, liquidityUsd = liquidityUsd, marketCapUsd = marketCapUsd, proposedSol = proposedSol, finalSol = finalSol, style = style, regime = regime,
     ))
 
-    fun captureSizing(stage: String, lane: String, source: String, mint: String, symbol: String, baseSol: Double, rawMultiplier: Double, clampedMultiplier: Double, finalSol: Double, walletSol: Double, liquidityUsd: Double, score: Double, components: Map<String, Double>, reason: String = "") = submit(EdgeEvent(
+    fun captureSizing(stage: String, lane: String, source: String, mint: String, symbol: String, baseSol: Double, rawMultiplier: Double, clampedMultiplier: Double, finalSol: Double, walletSol: Double, liquidityUsd: Double, score: Double, components: Map<String, Double>, reason: String = "", regime: String = "", style: String = "") = submit(EdgeEvent(
         kind = "SIZING", stage = stage, lane = lane, source = source, mint = mint, symbol = symbol, decision = "SIZING", reason = reason,
-        score = score, liquidityUsd = liquidityUsd, baseSol = baseSol, finalSol = finalSol, walletSol = walletSol, rawMultiplier = rawMultiplier, clampedMultiplier = clampedMultiplier,
+        score = score, liquidityUsd = liquidityUsd, baseSol = baseSol, finalSol = finalSol, walletSol = walletSol, rawMultiplier = rawMultiplier, clampedMultiplier = clampedMultiplier, regime = regime, style = style,
         components = components.entries.filter { kotlin.math.abs(it.value - 1.0) > 0.001 }.sortedBy { it.value }.take(12).joinToString(",") { "${it.key}=${fmt(it.value,3)}" },
         componentMap = components,
     ))
