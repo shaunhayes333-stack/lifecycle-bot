@@ -253,7 +253,7 @@ object ReportingHub {
                     val tokens = BotService.status.tokens.values
                         .asSequence()
                         .filter { it.mint.isNotBlank() }
-                        .sortedByDescending { maxOf(it.lastMcap, it.lastLiquidityUsd, it.score.toDouble()) }
+                        .sortedByDescending { maxOf(it.lastMcap, it.lastLiquidityUsd, (it.lastV3Score ?: it.entryScore.toInt()).toDouble()) }
                         .take(12)
                         .toList()
                     var queued = 0
