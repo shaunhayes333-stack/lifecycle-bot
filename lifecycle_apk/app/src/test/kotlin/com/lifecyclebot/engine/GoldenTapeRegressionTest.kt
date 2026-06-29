@@ -6325,4 +6325,18 @@ class GoldenTapeRegressionTest {
         assertTrue("V5.0.4502: report must surface forensic strategy exclusions", report.contains(forensicInterpolationFragment) && report.contains("truth.audit.forensicExcluded"))
     }
 
+
+
+    @Test
+    fun hostWalletTracker_4504DoesNotCountStaleRawGhostsAsOpen() {
+        val tracker = java.io.File("src/main/kotlin/com/lifecyclebot/engine/HostWalletTokenTracker.kt").readText()
+        val guard = java.io.File("src/main/kotlin/com/lifecyclebot/engine/RecoveredHoldGuard.kt").readText()
+        val firstSeenZeroFragment = "firstSeenWalletMs = o.optLong" + "(\"firstSeenWalletMs\", 0L)"
+        val lastSeenZeroFragment = "lastSeenWalletMs = o.optLong" + "(\"lastSeenWalletMs\", 0L)"
+        val noNowRefreshFragment = "never refresh legacy persisted rows to " + "\"now\""
+        assertTrue("V5.0.4504: persisted tracker rows must not be refreshed to now on load", tracker.contains(firstSeenZeroFragment) && tracker.contains(lastSeenZeroFragment) && tracker.contains(noNowRefreshFragment))
+        assertTrue("V5.0.4504: current no-held wallet authority must outrank stale raw positive liability", tracker.contains("current wallet authority outranks stale tx/tracker raw") && tracker.contains("WalletAuthoritySnapshot.ABSENT_CONFIRMED") && tracker.contains("WalletAuthoritySnapshot.NO_CURRENT_HELD_PROOF") && tracker.contains("return hasFreshBuyLiability(p, now)"))
+        assertTrue("V5.0.4504: recovered hold grace must be cleared for mints absent from current wallet snapshot", tracker.contains("RecoveredHoldGuard.reconcileWithHeldMints(walletMints.keys)") && guard.contains("fun reconcileWithHeldMints") && guard.contains("RECOVERED_HOLD_GHOST_GRACE_CLEARED_4504"))
+    }
+
 }

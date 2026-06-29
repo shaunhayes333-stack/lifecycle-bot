@@ -103,6 +103,21 @@ object RecoveredHoldGuard {
         return true
     }
 
+    fun reconcileWithHeldMints(heldMints: Set<String>): Int {
+        var removed = 0
+        for (mint in recoveredAt.keys.toList()) {
+            if (!heldMints.contains(mint)) {
+                recoveredAt.remove(mint)
+                removed++
+            }
+        }
+        if (removed > 0) {
+            try { PipelineHealthCollector.labelInc("RECOVERED_HOLD_GHOST_GRACE_CLEARED_4504") } catch (_: Throwable) {}
+            try { ForensicLogger.lifecycle("RECOVERED_HOLD_GHOST_GRACE_CLEARED_4504", "removed=$removed held=${heldMints.size}") } catch (_: Throwable) {}
+        }
+        return removed
+    }
+
     fun summary(): String {
         val now = System.currentTimeMillis()
         val active = recoveredAt.entries.count { (_, t) -> (now - t) < RECOVERED_HOLD_GRACE_MS }

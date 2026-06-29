@@ -256,10 +256,19 @@ object HostWalletTokenTracker {
         if (!botBought) return false
         if (isTerminalDust(p)) return false
         if (!hasLastPositiveRaw(p)) return false
+        // V5.0.4504 — current wallet authority outranks stale tx/tracker raw.
+        // A non-empty wallet snapshot that says this mint is absent/no-current-held
+        // must not remain cap/open-countable for 45 minutes just because persisted
+        // rawAmount was positive. Fresh buy liability is handled separately above.
+        when (walletAuthority[p.mint]) {
+            is WalletAuthoritySnapshot.ABSENT_CONFIRMED,
+            is WalletAuthoritySnapshot.NO_CURRENT_HELD_PROOF -> return hasFreshBuyLiability(p, now)
+            else -> {}
+        }
         val anchor = maxOf(p.balanceAuthorityObservedAtMs, p.buyTimeMs ?: 0L, p.firstSeenWalletMs, p.lastSeenWalletMs)
         // Keep current-session bot-bought rows visible through RPC outages, but do
         // not resurrect ancient orphan dust forever if no wallet proof ever returns.
-        return anchor <= 0L || (now - anchor) <= 45 * 60_000L
+        return anchor > 0L && (now - anchor) <= 45 * 60_000L
     }
 
     private fun hasLiveSellInFlightForCap(p: TrackedTokenPosition, now: Long = System.currentTimeMillis()): Boolean {
@@ -413,8 +422,11 @@ object HostWalletTokenTracker {
                     buySignature = o.optString("buySig", "").takeIf { it.isNotBlank() },
                     sellSignature = o.optString("sellSig", "").takeIf { it.isNotBlank() },
                     buyTimeMs = if (o.has("buyTimeMs")) o.optLong("buyTimeMs") else null,
-                    firstSeenWalletMs = o.optLong("firstSeenWalletMs", System.currentTimeMillis()),
-                    lastSeenWalletMs = o.optLong("lastSeenWalletMs", System.currentTimeMillis()),
+                    // V5.0.4504 — never refresh legacy persisted rows to "now" on load.
+                    // Missing timestamps mean unknown/stale, not fresh liability; wallet
+                    // snapshots will rehydrate genuinely held mints.
+                    firstSeenWalletMs = o.optLong("firstSeenWalletMs", 0L),
+                    lastSeenWalletMs = o.optLong("lastSeenWalletMs", 0L),
                     entryPriceUsd = if (o.has("entryPriceUsd")) o.optDouble("entryPriceUsd") else null,
                     entrySol = if (o.has("entrySol")) o.optDouble("entrySol") else null,
                     entryMarketCap = null,
@@ -1060,6 +1072,7 @@ object HostWalletTokenTracker {
         }
 
         purgeOrphanRecoveredRows("WALLET_SNAPSHOT")
+        try { RecoveredHoldGuard.reconcileWithHeldMints(walletMints.keys) } catch (_: Throwable) {}
         // Pass 2: zombie closure — open positions whose wallet balance is now zero.
         for (p in positions.values.toList()) {
             if (p.status !in OPEN_STATUSES) continue
