@@ -2840,6 +2840,31 @@ class Executor(
         val rowLearningAdmitted4349 = try {
             com.lifecyclebot.engine.learning.TradeRowSanityCheck.inspect(tradeWithMint) == com.lifecyclebot.engine.learning.TradeRowSanityCheck.QuarantineReason.OK
         } catch (_: Throwable) { true }
+        try {
+            if (tradeWithMint.side.equals("SELL", true) || tradeWithMint.side.equals("PARTIAL_SELL", true)) {
+                val edgePeak4529 = try { ts.position.peakGainPct } catch (_: Throwable) { tradeWithMint.pnlPct }
+                val edgeDraw4529 = try {
+                    if (ts.position.entryPrice > 0.0 && ts.position.lowestPrice > 0.0) ((ts.position.lowestPrice - ts.position.entryPrice) / ts.position.entryPrice) * 100.0 else 0.0
+                } catch (_: Throwable) { 0.0 }
+                MathematicalEdgeEngine.captureTerminal(
+                    stage = "recordTrade",
+                    lane = tradeWithMint.tradingMode.ifBlank { resolveExecutionLane(ts, fallback = "STANDARD") },
+                    source = ts.source.ifBlank { ts.lastPriceSource.ifBlank { "UNKNOWN" } },
+                    mint = tradeWithMint.mint.ifBlank { ts.mint },
+                    symbol = ts.symbol,
+                    side = tradeWithMint.side,
+                    reason = tradeWithMint.reason,
+                    pnlPct = tradeWithMint.pnlPct,
+                    pnlSol = tradeWithMint.pnlSol,
+                    sizeSol = tradeWithMint.sol,
+                    holdMs = if (tradeWithMint.entryTsMs > 0L) (tradeWithMint.ts - tradeWithMint.entryTsMs).coerceAtLeast(0L) else 0L,
+                    peakGainPct = edgePeak4529,
+                    maxDrawdownPct = edgeDraw4529,
+                    trainable = accountingTrainable && rowLearningAdmitted4349,
+                    accepted = ledgerAllowsClosedLearning,
+                )
+            }
+        } catch (_: Throwable) {}
         // V5.0.4514 — CENTRAL TERMINAL POLICY FANOUT.
         // Pending entry heads were previously fed from specific sell paths only
         // (~live/paper sell call sites), while recordTrade() is the actual journal
@@ -8742,6 +8767,25 @@ class Executor(
         val effSol = if (RuntimeModeAuthority.isLive()) {
             realisticLiveEntrySize(ts, effSolRaw, walletSol, score, identity?.source ?: ts.source, "doBuy.final")
         } else effSolRaw
+
+        try {
+            MathematicalEdgeEngine.captureSizing(
+                stage = "doBuy.final",
+                lane = laneTag,
+                source = ts.source,
+                mint = ts.mint,
+                symbol = ts.symbol,
+                baseSol = sol,
+                rawMultiplier = multiplierProductRaw,
+                clampedMultiplier = multiplierProduct,
+                finalSol = effSol,
+                walletSol = walletSol,
+                liquidityUsd = ts.lastLiquidityUsd,
+                score = score,
+                components = sizingStackComponents4285,
+                reason = "goose=${gooseVerdict4129.name} regime=${currentRegimeForLivePolicy.name} laneCap=${laneSizeCap}",
+            )
+        } catch (_: Throwable) {}
 
         // V5.9.642: spine log uses a separate val so the compiler keeps
         // its smart cast on `wallet` inside the else branch (non-null guaranteed).

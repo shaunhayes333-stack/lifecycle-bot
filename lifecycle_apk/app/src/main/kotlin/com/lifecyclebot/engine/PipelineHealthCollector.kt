@@ -1573,6 +1573,7 @@ object PipelineHealthCollector {
         }
         // V5.9.915 — Regime / LosingPattern / BrainConsensus telemetry.
         try { sb.append(RegimeDetector.formatForPipelineDump()) } catch (_: Throwable) {}
+        try { sb.append(MathematicalEdgeEngine.formatForPipelineDump()) } catch (_: Throwable) {}
         try {
             val lp = LosingPatternMemory.formatForPipelineDump()
             if (lp.isNotEmpty()) sb.append(lp)

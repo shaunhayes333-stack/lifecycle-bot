@@ -9095,6 +9095,26 @@ class BotService : Service() {
         // no purge, no slot removal; high-quality chop-source candidates can still
         // pass if their score clears the raised bar.
         val sourceForChop = try { status.tokens[mintForProbe]?.source ?: "" } catch (_: Throwable) { "" }
+        val edgeToken4529 = try { status.tokens[mintForProbe] } catch (_: Throwable) { null }
+        val edgeSymbol4529 = edgeToken4529?.symbol ?: mintForProbe.take(8)
+        val edgeMcap4529 = edgeToken4529?.lastMcap ?: -1.0
+        val edgeRegime4529 = try { com.lifecyclebot.engine.RegimeDetector.currentRegime().name } catch (_: Throwable) { "UNKNOWN" }
+        try {
+            MathematicalEdgeEngine.captureEntryOpportunity(
+                stage = "pre_fdg_candidate",
+                lane = lane,
+                source = sourceForChop,
+                mint = mintForProbe,
+                symbol = edgeSymbol4529,
+                decision = "CANDIDATE",
+                reason = base.blockReason,
+                score = base.entryScore,
+                confidence = base.aiConfidence,
+                liquidityUsd = liquidityUsd,
+                marketCapUsd = edgeMcap4529,
+                regime = edgeRegime4529,
+            )
+        } catch (_: Throwable) {}
         val chopPenalty = try {
             if (com.lifecyclebot.engine.ChopFilter.shouldRejectAsChop(
                     source = sourceForChop,
@@ -9158,6 +9178,7 @@ class BotService : Service() {
                     PipelineHealthCollector.labelInc("PREFDG_DROP_THIN_LIQ_${lane.uppercase()}")
                     ForensicLogger.lifecycle("LANE_WAIT_OVERRIDE_BLOCKED",
                         "lane=$lane score=${"%.0f".format(laneBase.entryScore)} conf=${"%.0f".format(laneBase.aiConfidence)} liqUsd=${"%.0f".format(liquidityUsd)} reason=thin_liq block=${baseBlock.take(50)}")
+                    MathematicalEdgeEngine.captureEntryOpportunity("pre_fdg_drop", lane, sourceForChop, mintForProbe, edgeSymbol4529, "DROP_THIN_LIQ", baseBlock, laneBase.entryScore, laneBase.aiConfidence, liquidityUsd, edgeMcap4529, regime = edgeRegime4529)
                 } catch (_: Throwable) {}
                 return laneBase.copy(
                     signal = "WAIT", finalSignal = "WAIT", shouldTrade = false,
@@ -9176,6 +9197,7 @@ class BotService : Service() {
                     PipelineHealthCollector.labelInc("PREFDG_ZERO_SIGNAL_${lane.uppercase()}")
                     ForensicLogger.lifecycle("LANE_WAIT_OVERRIDE_ZERO_SIGNAL_DUST_PROBE_4164",
                         "lane=$lane score=${"%.0f".format(laneBase.entryScore)} conf=${"%.0f".format(laneBase.aiConfidence)} liqUsd=${"%.0f".format(liquidityUsd)} action=probe_only_live_learning")
+                    MathematicalEdgeEngine.captureEntryOpportunity("pre_fdg_zero_signal", lane, sourceForChop, mintForProbe, edgeSymbol4529, "ZERO_SIGNAL_PROBE", baseBlock, laneBase.entryScore, laneBase.aiConfidence, liquidityUsd, edgeMcap4529, finalSol = resolveProbeSizeMult(mintForProbe, liquidityUsd), regime = edgeRegime4529)
                 } catch (_: Throwable) {}
             }
             // Liquidity OK but still weak → DUST-PROBE only (explicit + tiny size).
@@ -9184,6 +9206,7 @@ class BotService : Service() {
                 PipelineHealthCollector.labelInc("PREFDG_DUST_PROBE_${lane.uppercase()}")
                 ForensicLogger.lifecycle("LANE_WAIT_OVERRIDE_DUST_PROBE",
                     "lane=$lane score=${"%.0f".format(laneBase.entryScore)} conf=${"%.0f".format(laneBase.aiConfidence)} liqUsd=${"%.0f".format(liquidityUsd)}")
+                MathematicalEdgeEngine.captureEntryOpportunity("pre_fdg_dust_probe", lane, sourceForChop, mintForProbe, edgeSymbol4529, "DUST_PROBE", baseBlock, laneBase.entryScore, laneBase.aiConfidence, liquidityUsd, edgeMcap4529, finalSol = resolveProbeSizeMult(mintForProbe, liquidityUsd), regime = edgeRegime4529)
             } catch (_: Throwable) {}
             return laneBase.copy(
                 signal = "BUY", finalSignal = "BUY", shouldTrade = true,
@@ -9195,7 +9218,10 @@ class BotService : Service() {
                 aiConfidence = laneBase.aiConfidence.coerceAtLeast(shapedConfidenceFloor4262),
             )
         }
-        try { PipelineHealthCollector.labelInc("PREFDG_BUY_QUALIFIED_${lane.uppercase()}") } catch (_: Throwable) {}
+        try {
+            PipelineHealthCollector.labelInc("PREFDG_BUY_QUALIFIED_${lane.uppercase()}")
+            MathematicalEdgeEngine.captureEntryOpportunity("pre_fdg_buy_qualified", lane, sourceForChop, mintForProbe, edgeSymbol4529, "BUY_QUALIFIED", "", laneBase.entryScore, laneBase.aiConfidence, liquidityUsd, edgeMcap4529, regime = edgeRegime4529)
+        } catch (_: Throwable) {}
         return laneBase.copy(
             signal = "BUY",
             finalSignal = "BUY",

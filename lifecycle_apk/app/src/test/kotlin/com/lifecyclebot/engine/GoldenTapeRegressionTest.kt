@@ -4244,10 +4244,10 @@ class GoldenTapeRegressionTest {
             relaxer.contains("computeCleanLiveTerminalLeaderboard") && relaxer.contains("refreshLiveWrCache"))
 
         val regime = java.io.File("src/main/kotlin/com/lifecyclebot/engine/RegimeDetector.kt").readText()
-        assertTrue("DUMP scoreFloorDelta must be +20 (was +15)",
-            regime.contains("Regime.DUMP         -> +20"))
-        assertTrue("DUMP sizeMultiplier must be 0.10 (was 0.40)",
-            regime.contains("Regime.DUMP         -> 0.10"))
+        assertTrue("V5.0.4528: DUMP scoreFloorDelta must be recovery +10, not global starvation +20",
+            regime.contains("Regime.DUMP         -> +10"))
+        assertTrue("V5.0.4528: DUMP sizeMultiplier must be recovery 0.35, not live dust 0.10",
+            regime.contains("Regime.DUMP         -> 0.35"))
         assertTrue("CHOP scoreFloorDelta must be +10 (was +5)",
             regime.contains("Regime.CHOP         -> +10"))
         assertTrue("CHOP sizeMultiplier must be 0.35 (was 0.65)",
@@ -6556,6 +6556,21 @@ class GoldenTapeRegressionTest {
         assertTrue("V5.0.4528: DUMP live relative floor must not be dust tuition", exec.contains("dumpRegimeLive -> 0.22") && exec.contains("recovery-size floor"))
         assertTrue("V5.0.4528: high-conviction liquid setups may still size up in DUMP under stricter score/liquidity", exec.contains("score >= 82.0 && ts.lastLiquidityUsd >= 25_000.0"))
         assertTrue("V5.0.4528: pre-FDG lane qualification/drop counters must expose laneEval→FDG collapse", bot.contains("PREFDG_LANE_CANDIDATE_") && bot.contains("PREFDG_DROP_THIN_LIQ_") && bot.contains("PREFDG_BUY_QUALIFIED_"))
+    }
+
+
+
+    @Test
+    fun aate4529CoroutineMathematicalEdgeEngineCapturesBroadBuySellPath() {
+        val edge = java.io.File("src/main/kotlin/com/lifecyclebot/engine/MathematicalEdgeEngine.kt").readText()
+        val bot = java.io.File("src/main/kotlin/com/lifecyclebot/engine/BotService.kt").readText()
+        val exec = java.io.File("src/main/kotlin/com/lifecyclebot/engine/Executor.kt").readText()
+        val pipe = java.io.File("src/main/kotlin/com/lifecyclebot/engine/PipelineHealthCollector.kt").readText()
+        assertTrue("V5.0.4529: edge engine must be coroutine-drained off the hot path", edge.contains("GlobalScope.launch(AppDispatchers.sideEffect)") && edge.contains("ConcurrentLinkedQueue<EdgeEvent>") && edge.contains("no synchronous I/O"))
+        assertTrue("V5.0.4529: edge engine must capture broad denominator/sizing/terminal data", edge.contains("captureEntryOpportunity") && edge.contains("captureSizing") && edge.contains("captureTerminal") && edge.contains("captureExitDecision"))
+        assertTrue("V5.0.4529: pre-FDG buy path must feed mathematical edge denominators", bot.contains("MathematicalEdgeEngine.captureEntryOpportunity") && bot.contains("pre_fdg_candidate") && bot.contains("pre_fdg_buy_qualified"))
+        assertTrue("V5.0.4529: Executor must feed sizing attribution and terminal SELL/PARTIAL outcomes", exec.contains("MathematicalEdgeEngine.captureSizing") && exec.contains("components = sizingStackComponents4285") && exec.contains("MathematicalEdgeEngine.captureTerminal"))
+        assertTrue("V5.0.4529: reports must expose the mathematical edge engine", pipe.contains("MathematicalEdgeEngine.formatForPipelineDump"))
     }
 
 }
