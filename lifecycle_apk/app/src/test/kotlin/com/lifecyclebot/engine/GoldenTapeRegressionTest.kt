@@ -6339,4 +6339,15 @@ class GoldenTapeRegressionTest {
         assertTrue("V5.0.4504: recovered hold grace must be cleared for mints absent from current wallet snapshot", tracker.contains("RecoveredHoldGuard.reconcileWithHeldMints(walletMints.keys)") && guard.contains("fun reconcileWithHeldMints") && guard.contains("RECOVERED_HOLD_GHOST_GRACE_CLEARED_4504"))
     }
 
+
+
+    @Test
+    fun educationFirehose_4505UsesSolBasisBeforeTrainingMemoryBrains() {
+        val edu = java.io.File("src/main/kotlin/com/lifecyclebot/v3/scoring/EducationSubLayerAI.kt").readText()
+        val exec = java.io.File("src/main/kotlin/com/lifecyclebot/engine/Executor.kt").readText()
+        assertTrue("V5.0.4505: EducationSubLayerAI must carry SOL basis fields", edu.contains("val entryCostSol: Double = 0.0") && edu.contains("val pnlSol: Double = 0.0"))
+        assertTrue("V5.0.4505: education firehose must quarantine SOL-basis mismatches before TokenWinMemory/PatternMemory training", edu.contains("LearningPnlSanitizer.inspectPct") && edu.contains("EducationSubLayerAI.firehose4505") && edu.contains("EDUCATION_FIREHOSE_QUARANTINED_4505") && edu.indexOf("LearningPnlSanitizer.inspectPct") < edu.indexOf("TokenWinMemory.recordTradeOutcome"))
+        assertTrue("V5.0.4505: Executor close paths must populate education SOL basis", exec.contains("entryCostSol = ts.position.costSol") && exec.contains("entryCostSol = pos.costSol") && exec.contains("pnlSol = pnl"))
+    }
+
 }

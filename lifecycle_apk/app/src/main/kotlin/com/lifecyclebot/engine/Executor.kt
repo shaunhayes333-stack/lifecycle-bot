@@ -15689,6 +15689,8 @@ class Executor(
                     else -> "MEME"
                 },
                 lossReason = if (pnlP < -2.0) reason else "",
+                entryCostSol = ts.position.costSol,
+                pnlSol = pnl,
             )
             
             com.lifecyclebot.v3.scoring.EducationSubLayerAI.recordTradeOutcomeAcrossAllLayers(outcomeData)
@@ -18338,6 +18340,8 @@ class Executor(
                     else -> "MEME"
                 },
                 lossReason = if (pnlP < -2.0) reason else "",
+                entryCostSol = pos.costSol,
+                pnlSol = pnl,
             )
             
             com.lifecyclebot.v3.scoring.EducationSubLayerAI.recordTradeOutcomeAcrossAllLayers(outcomeData)

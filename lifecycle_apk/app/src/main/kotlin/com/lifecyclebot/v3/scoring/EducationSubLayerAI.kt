@@ -8,6 +8,7 @@ import com.lifecyclebot.engine.TokenWinMemory
 import com.lifecyclebot.engine.BehaviorLearning
 import com.lifecyclebot.engine.TimeOptimizationAI
 import com.lifecyclebot.engine.LiquidityDepthAI
+import com.lifecyclebot.engine.LearningPnlSanitizer
 import com.lifecyclebot.engine.MomentumPredictorAI
 import com.lifecyclebot.engine.WhaleTrackerAI
 import org.json.JSONObject
@@ -820,6 +821,19 @@ object EducationSubLayerAI {
      */
     fun recordTradeOutcomeAcrossAllLayers(outcome: TradeOutcomeData) {
         if (!shouldProcessOutcomeOnce(outcome)) return
+        val eduPnlVerdict4505 = try {
+            LearningPnlSanitizer.inspectPct(
+                pnlPct = outcome.pnlPct,
+                context = "EducationSubLayerAI.firehose4505/${outcome.tradingMode.take(24)}/${outcome.exitReason.take(32)}",
+                sol = outcome.entryCostSol.takeIf { it.isFinite() && it > 0.0 },
+                pnlSol = outcome.pnlSol.takeIf { it.isFinite() },
+            )
+        } catch (_: Throwable) { LearningPnlSanitizer.Verdict(true, outcome.pnlPct) }
+        if (!eduPnlVerdict4505.ok) {
+            try { com.lifecyclebot.engine.PipelineHealthCollector.labelInc("EDUCATION_FIREHOSE_QUARANTINED_4505") } catch (_: Throwable) {}
+            try { com.lifecyclebot.engine.ForensicLogger.lifecycle("EDUCATION_FIREHOSE_QUARANTINED_4505", "mint=${outcome.mint.take(10)} mode=${outcome.tradingMode} reason=${eduPnlVerdict4505.reason} pnlPct=${outcome.pnlPct} pnlSol=${outcome.pnlSol} entryCost=${outcome.entryCostSol}") } catch (_: Throwable) {}
+            return
+        }
         val startTime = System.currentTimeMillis()
         var layersUpdated = 0
         val errors = mutableListOf<String>()
@@ -1324,6 +1338,12 @@ object EducationSubLayerAI {
         val lossReason: String = "",
         // V5.9.224: shadow trades (blocked/rejected) get reduced learning weight
         val isShadowTrade: Boolean = false,
+        // V5.0.4505 — optional SOL basis for universal education-firehose quarantine.
+        // Legacy callers default to 0 and pass through pct-only validation; Executor
+        // close paths populate these so impossible wallet/journal rows cannot poison
+        // TokenWinMemory, PatternMemory, layer weights, or policy heads.
+        val entryCostSol: Double = 0.0,
+        val pnlSol: Double = 0.0,
     ) {
         // V5.9.342 — REVERT V5.9.341 isWin tweak.
         // After audit the >-0.5% threshold turned out to be inert for layer
