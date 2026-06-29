@@ -9248,12 +9248,29 @@ class BotService : Service() {
             val styleLanes = AgenticStyleRouter.lanesFor(ts, classification, laneAffinityForTradeType(classification.tradeType)).toList()
             val stylePrimary = RuntimeConfigOverlay.normalizeLane(forced ?: styleLanes.firstOrNull() ?: ts.laneAffinity.firstOrNull() ?: "SHITCOIN")
             val metricPrimary = TokenMetricStageRouter.preferredPrimaryLane(ts, stylePrimary)
+            val scoreForPivot4524 = (ts.lastV3Score ?: ts.entryScore.toInt()).coerceIn(0, 100)
+            val electedPrimary4524 = RuntimeConfigOverlay.normalizeLane(forced ?: metricPrimary)
+            val pivotedPrimary4524 = if (forced.isNullOrBlank() && LaneToxicityGuard.isNetNegativeDanger(electedPrimary4524, scoreForPivot4524)) {
+                val affinityLanes4524 = try { GlobalTradeRegistry.getLaneAffinity(ts.mint).toList() } catch (_: Throwable) { emptyList() }
+                val pivotPool4524 = (styleLanes + affinityLanes4524 + listOf("QUALITY", "DIP_HUNTER", "TREASURY", "BLUECHIP", "MOONSHOT", "PROJECT_SNIPER"))
+                    .map { RuntimeConfigOverlay.normalizeLane(it) }
+                    .filter { it.isNotBlank() && !it.equals(electedPrimary4524, ignoreCase = true) }
+                    .distinct()
+                val pivot4524 = LaneToxicityGuard.chooseNonToxicLane(ts.mint, pivotPool4524, scoreForPivot4524)?.let { RuntimeConfigOverlay.normalizeLane(it) }
+                if (!pivot4524.isNullOrBlank()) {
+                    try {
+                        ForensicLogger.lifecycle("PRIMARY_STRATEGY_PIVOT_TO_NONTOXIC_4524", "symbol=${ts.symbol} mint=${ts.mint.take(10)} from=$electedPrimary4524 to=$pivot4524 score=$scoreForPivot4524 stylePrimary=$stylePrimary metricPrimary=$metricPrimary pool=${pivotPool4524.joinToString("+").take(120)}")
+                        PipelineHealthCollector.labelInc("PRIMARY_STRATEGY_PIVOT_TO_NONTOXIC_4524_${electedPrimary4524}_TO_${pivot4524}")
+                    } catch (_: Throwable) {}
+                    pivot4524
+                } else electedPrimary4524
+            } else electedPrimary4524
             try {
                 val snap = TokenMetricStageRouter.snapshot(ts)
-                ForensicLogger.lifecycle("TOKEN_METRIC_STAGE_PRIMARY", "symbol=${ts.symbol} mint=${ts.mint.take(10)} stylePrimary=$stylePrimary metricPrimary=$metricPrimary ${snap.compact}")
+                ForensicLogger.lifecycle("TOKEN_METRIC_STAGE_PRIMARY", "symbol=${ts.symbol} mint=${ts.mint.take(10)} stylePrimary=$stylePrimary metricPrimary=$metricPrimary finalPrimary=$pivotedPrimary4524 ${snap.compact}")
                 PipelineHealthCollector.labelInc("TOKEN_METRIC_STAGE_${snap.stage.name}")
             } catch (_: Throwable) {}
-            RuntimeConfigOverlay.normalizeLane(forced ?: metricPrimary)
+            pivotedPrimary4524
         } catch (_: Throwable) { "SHITCOIN" }
     }
 

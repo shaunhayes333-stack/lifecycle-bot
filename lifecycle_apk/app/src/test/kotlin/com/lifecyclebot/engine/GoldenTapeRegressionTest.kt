@@ -6511,4 +6511,14 @@ class GoldenTapeRegressionTest {
         assertTrue("V5.0.4523: bypass must be telemetry-visible and still preserve the raw watchlist floor", fdg.contains("FDG_GOLDEN_GOOSE_WR_LIFT_BYPASS_4523") && fdg.contains("else WATCHLIST_FLOOR_RAW"))
     }
 
+
+
+    @Test
+    fun botService_4524PivotsToxicPrimaryLaneThroughAgenticStyleStack() {
+        val bot = java.io.File("src/main/kotlin/com/lifecyclebot/engine/BotService.kt").readText()
+        assertTrue("V5.0.4524: canonical primary lane must detect learned toxic elected primaries", bot.contains("scoreForPivot4524") && bot.contains("LaneToxicityGuard.isNetNegativeDanger(electedPrimary4524, scoreForPivot4524)"))
+        assertTrue("V5.0.4524: pivot pool must use style lanes, registry affinity, and quality/reclaim fallbacks", bot.contains("styleLanes + affinityLanes4524") && bot.contains("QUALITY") && bot.contains("DIP_HUNTER") && bot.contains("TREASURY"))
+        assertTrue("V5.0.4524: pivot must change strategy route before purchase, not just reduce size", bot.contains("PRIMARY_STRATEGY_PIVOT_TO_NONTOXIC_4524") && bot.contains("finalPrimary=$pivotedPrimary4524") && !bot.contains("catastrophic_score_band_micro_probe_4524"))
+    }
+
 }
