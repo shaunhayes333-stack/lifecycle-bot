@@ -6587,4 +6587,16 @@ class GoldenTapeRegressionTest {
         assertTrue("V5.0.4530: Executor terminal capture must pass entry score/regime into the math engine", exec.contains("score = (tradeWithMint.score.takeIf") && exec.contains("regime = try { com.lifecyclebot.engine.RegimeDetector.currentRegime().name"))
     }
 
+
+
+    @Test
+    fun aate4531MathematicalEdgeEngineWiresTheWholeNamedBlock() {
+        val edge = java.io.File("src/main/kotlin/com/lifecyclebot/engine/MathematicalEdgeEngine.kt").readText()
+        assertTrue("V5.0.4531: full named block must be present in the report integration line", edge.contains("UltimateEdgeEngine+CounterfactualReplayEngine+SemanticPatternGraph+AsyncStrategyLab+MultiplierAttributionLedger+ExitCostMicrobrain+CapitalEfficiencyBrain+SourceFamilyOpportunityScorecard+ScoreExpectancyTracker+ExecutionCostPredictorAI+LiveProbabilityEngine+ForwardOutcomeModel+UnifiedPolicyHead+UnifiedExitPolicyHead+StrategyHypothesisEngine+ChokeReliefBus"))
+        assertTrue("V5.0.4531: entry readback must include LiveProbabilityEngine, ForwardOutcomeModel, UnifiedPolicyHead and SemanticPatternGraph", edge.contains("LiveProbabilityEngine.forecast") && edge.contains("ForwardOutcomeModel.forecast") && edge.contains("UnifiedPolicyHead.predictWinProb") && edge.contains("SemanticPatternGraph.entryDnaBias"))
+        assertTrue("V5.0.4531: sizing fanout must feed MultiplierAttributionLedger and read live tuner/capital brains", edge.contains("MultiplierAttributionLedger.recordEntry") && edge.contains("LiveStrategyTuner.adjustment") && edge.contains("LaneExpectancyDamper.sizeMultiplier") && edge.contains("CapitalEfficiencyBrain.sizeMultiplier"))
+        assertTrue("V5.0.4531: terminal readback must include counterfactual, exit-cost, capital and hypothesis stacks without duplicate policy-head training", edge.contains("CounterfactualReplayEngine.policyHints") && edge.contains("ExitCostMicrobrain.exitUrgencyHint") && edge.contains("StrategyHypothesisEngine.getSizeBias") && !edge.contains("ForwardOutcomeModel.recordOutcome"))
+        assertTrue("V5.0.4531: pipeline dump must expose full stack status and readbacks", edge.contains("stack readbacks:") && edge.contains("stack status:") && edge.contains("byStackReadback"))
+    }
+
 }

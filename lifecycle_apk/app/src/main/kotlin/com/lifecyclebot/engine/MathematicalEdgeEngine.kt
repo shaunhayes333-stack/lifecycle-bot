@@ -32,6 +32,7 @@ object MathematicalEdgeEngine {
     private val bySourceDecision = ConcurrentHashMap<String, Stat>()
     private val byLaneTerminal = ConcurrentHashMap<String, TerminalStat>()
     private val bySourceTerminal = ConcurrentHashMap<String, TerminalStat>()
+    private val byStackReadback = ConcurrentHashMap<String, Stat>()
     private val recent = ArrayDeque<String>()
     private val recentLock = Any()
 
@@ -66,6 +67,7 @@ object MathematicalEdgeEngine {
         val trainable: Boolean = false,
         val accepted: Boolean = true,
         val components: String = "",
+        val componentMap: Map<String, Double> = emptyMap(),
         val style: String = "",
         val regime: String = "",
         val build: String = com.lifecyclebot.BuildConfig.VERSION_NAME,
@@ -153,6 +155,12 @@ object MathematicalEdgeEngine {
         while (recent.size > MAX_RECENT) recent.removeFirst()
     }
 
+    private fun rememberLine(line: String) = synchronized(recentLock) {
+        recent.addLast(line.take(420))
+        while (recent.size > MAX_RECENT) recent.removeFirst()
+    }
+
+    private fun readback(tag: String) { byStackReadback.computeIfAbsent(tag.take(80)) { Stat() }.add(EdgeEvent(kind = "READBACK", stage = tag, lane = "", source = "", mint = "", symbol = "", decision = "READBACK", reason = "")) }
 
     private fun fanoutToExistingEdgeStack(e: EdgeEvent) {
         try {
@@ -176,8 +184,18 @@ object MathematicalEdgeEngine {
                             )
                         } catch (_: Throwable) {}
                     }
+                    try {
+                        val lp = LiveProbabilityEngine.forecast(e.lane, e.score.toInt().coerceIn(0, 100), e.style.ifBlank { "U" }, e.regime.ifBlank { "NORMAL" }, e.stage, candidateConfidence = (e.confidence / 100.0).coerceIn(0.0, 1.0))
+                        val fwd = ForwardOutcomeModel.forecast(e.lane, e.score.toInt().coerceIn(0, 100), e.style.ifBlank { "U" }, e.regime.ifBlank { "NORMAL" }, e.stage)
+                        val sem = SemanticPatternGraph.entryDnaBias(setup = "${e.symbol} ${e.lane} ${e.source} score_${e.score.toInt()} ${e.reason.take(60)}", lane = e.lane, deployer = "", source = e.source, dnaKey = "mee_${e.lane}_${e.source}_${e.score.toInt()}")
+                        val uph = UnifiedPolicyHead.predictWinProb(e.lane, UnifiedPolicyHead.Signals(mlEntryConf = (e.confidence / 100.0).coerceIn(0.0,1.0), symGreenLight = sem.sizeMult.coerceIn(0.0,1.0), evRatio = ((lp.expectedPnlPct + 50.0) / 100.0).coerceIn(0.0,1.0), metaConviction = lp.sizeMult.coerceIn(0.0,1.0), fwdPWin = fwd.pWin, candConf = (e.confidence / 100.0).coerceIn(0.0,1.0)))
+                        readback("LiveProbabilityEngine"); readback("ForwardOutcomeModel"); readback("UnifiedPolicyHead"); readback("SemanticPatternGraph")
+                        if (e.score >= 70.0) rememberLine("EDGE_READBACK entry lane=${e.lane} src=${e.source} score=${e.score.toInt()} liveP=${fmt(lp.pWin,2)} exp=${fmt(lp.expectedPnlPct,1)} fwdP=${fmt(fwd.pWin,2)} uph=${fmt(uph,2)} sem=${fmt(sem.sizeMult,2)} mint=${e.mint.take(10)}")
+                    } catch (_: Throwable) {}
                 }
                 "SIZING" -> {
+                    try { MultiplierAttributionLedger.recordEntry("MEE", e.lane, e.source, e.mint, e.symbol, e.baseSol, e.rawMultiplier, e.componentMap) ; readback("MultiplierAttributionLedger") } catch (_: Throwable) {}
+                    try { LiveStrategyTuner.adjustment(e.lane); LaneExpectancyDamper.sizeMultiplier(e.lane); CapitalEfficiencyBrain.sizeMultiplier(e.lane, e.source); readback("LiveStrategyTuner"); readback("LaneExpectancyDamper"); readback("CapitalEfficiencyBrain") } catch (_: Throwable) {}
                     if (e.score >= 75.0 && e.clampedMultiplier < 0.35) {
                         try {
                             ChokeReliefBus.launch("MEE_SIZING_ANOMALY_HYPOTHESIS_4530", e.mint) {
@@ -205,6 +223,7 @@ object MathematicalEdgeEngine {
                         try { ScoreExpectancyTracker.record("MEE_SOURCE_${e.source.uppercase().take(48)}", scoreInt, e.pnlPct) } catch (_: Throwable) {}
                         if (e.regime.isNotBlank()) try { ScoreExpectancyTracker.record("MEE_REGIME_${e.regime.uppercase().take(24)}", scoreInt, e.pnlPct) } catch (_: Throwable) {}
                     }
+                    try { CounterfactualReplayEngine.policyHints(e.lane); ExitCostMicrobrain.exitUrgencyHint(e.lane, e.liquidityUsd, e.reason); CapitalEfficiencyBrain.sizeMultiplier(e.lane, e.source); StrategyHypothesisEngine.getSizeBias(e.lane, scoreInt, e.regime.ifBlank { "NORMAL" }, e.mint); readback("CounterfactualReplayEngine"); readback("ExitCostMicrobrain"); readback("CapitalEfficiencyBrain"); readback("StrategyHypothesisEngine") } catch (_: Throwable) {}
                     if ((e.peakGainPct - e.pnlPct) >= 80.0 || (e.pnlPct < -25.0 && e.score >= 70.0)) {
                         try {
                             ChokeReliefBus.launch("MEE_EXIT_ANOMALY_HYPOTHESIS_4530", e.mint) {
@@ -233,6 +252,7 @@ object MathematicalEdgeEngine {
         kind = "SIZING", stage = stage, lane = lane, source = source, mint = mint, symbol = symbol, decision = "SIZING", reason = reason,
         score = score, liquidityUsd = liquidityUsd, baseSol = baseSol, finalSol = finalSol, walletSol = walletSol, rawMultiplier = rawMultiplier, clampedMultiplier = clampedMultiplier,
         components = components.entries.filter { kotlin.math.abs(it.value - 1.0) > 0.001 }.sortedBy { it.value }.take(12).joinToString(",") { "${it.key}=${fmt(it.value,3)}" },
+        componentMap = components,
     ))
 
 
@@ -260,14 +280,28 @@ object MathematicalEdgeEngine {
         val sourceTop = top(bySourceDecision) { "${it.key} ${it.value.tag()}" }
         val terminalLaneTop = top(byLaneTerminal) { "${it.key} ${it.value.tag()}" }
         val terminalSourceTop = top(bySourceTerminal) { "${it.key} ${it.value.tag()}" }
+        val readbackTop = top(byStackReadback) { "${it.key} ${it.value.tag()}" }
+        val stackStatus = listOf(
+            try { CounterfactualReplayEngine.policyHints("ALL").take(140) } catch (_: Throwable) { "CounterfactualReplayEngine:error" },
+            try { SemanticPatternGraph.summary().take(140) } catch (_: Throwable) { "SemanticPatternGraph:error" },
+            try { ExitCostMicrobrain.status().take(140) } catch (_: Throwable) { "ExitCostMicrobrain:error" },
+            try { CapitalEfficiencyBrain.status().take(140) } catch (_: Throwable) { "CapitalEfficiencyBrain:error" },
+            try { LiveProbabilityEngine.statusLine().take(140) } catch (_: Throwable) { "LiveProbabilityEngine:error" },
+            try { ForwardOutcomeModel.formatForPipelineDump().lineSequence().firstOrNull()?.take(140) ?: "ForwardOutcomeModel:empty" } catch (_: Throwable) { "ForwardOutcomeModel:error" },
+            try { UnifiedPolicyHead.formatForPipelineDump().lineSequence().firstOrNull()?.take(140) ?: "UnifiedPolicyHead:empty" } catch (_: Throwable) { "UnifiedPolicyHead:error" },
+            try { UnifiedExitPolicyHead.formatForPipelineDump().lineSequence().firstOrNull()?.take(140) ?: "UnifiedExitPolicyHead:empty" } catch (_: Throwable) { "UnifiedExitPolicyHead:error" },
+            try { StrategyHypothesisEngine.formatForPipelineDump().lineSequence().firstOrNull()?.take(140) ?: "StrategyHypothesisEngine:empty" } catch (_: Throwable) { "StrategyHypothesisEngine:error" },
+        ).joinToString(" || ")
         return buildString {
             appendLine("\n===== Mathematical Edge Engine (V5.0.4529) =====")
-            appendLine("  queued=${queued.get()} processed=${processed.get()} dropped=${dropped.get()} coroutine=AppDispatchers.sideEffect authority=report+learning_data_only integrations=SourceFamilyOpportunityScorecard+ScoreExpectancyTracker+UltimateEdgeEngine+AsyncStrategyLab+ExecutionCostPredictorAI")
+            appendLine("  queued=${queued.get()} processed=${processed.get()} dropped=${dropped.get()} coroutine=AppDispatchers.sideEffect authority=report+learning_data_only integrations=UltimateEdgeEngine+CounterfactualReplayEngine+SemanticPatternGraph+AsyncStrategyLab+MultiplierAttributionLedger+ExitCostMicrobrain+CapitalEfficiencyBrain+SourceFamilyOpportunityScorecard+ScoreExpectancyTracker+ExecutionCostPredictorAI+LiveProbabilityEngine+ForwardOutcomeModel+UnifiedPolicyHead+UnifiedExitPolicyHead+StrategyHypothesisEngine+ChokeReliefBus")
             appendLine("  stages: $stageTop")
             appendLine("  lane decisions: $laneTop")
             appendLine("  source decisions: $sourceTop")
             appendLine("  terminal by lane: $terminalLaneTop")
             appendLine("  terminal by source: $terminalSourceTop")
+            appendLine("  stack readbacks: $readbackTop")
+            appendLine("  stack status: $stackStatus")
             appendLine("  recent:")
             recentLines.forEach { appendLine("    $it") }
         }
