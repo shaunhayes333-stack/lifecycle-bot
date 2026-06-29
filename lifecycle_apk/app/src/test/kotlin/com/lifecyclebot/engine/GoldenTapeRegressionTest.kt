@@ -6518,7 +6518,7 @@ class GoldenTapeRegressionTest {
         val bot = java.io.File("src/main/kotlin/com/lifecyclebot/engine/BotService.kt").readText()
         assertTrue("V5.0.4524: canonical primary lane must detect learned toxic elected primaries", bot.contains("scoreForPivot4524") && bot.contains("LaneToxicityGuard.isNetNegativeDanger(electedPrimary4524, scoreForPivot4524)"))
         assertTrue("V5.0.4524: pivot pool must use style lanes, registry affinity, and quality/reclaim fallbacks", bot.contains("styleLanes + affinityLanes4524") && bot.contains("QUALITY") && bot.contains("DIP_HUNTER") && bot.contains("TREASURY"))
-        assertTrue("V5.0.4524: pivot must change strategy route before purchase, not just reduce size", bot.contains("PRIMARY_STRATEGY_PIVOT_TO_NONTOXIC_4524") && bot.contains("finalPrimary=$pivotedPrimary4524") && !bot.contains("catastrophic_score_band_micro_probe_4524"))
+        assertTrue("V5.0.4524: pivot must change strategy route before purchase, not just reduce size", bot.contains("PRIMARY_STRATEGY_PIVOT_TO_NONTOXIC_4524") && bot.contains("finalPrimary=" + "$" + "pivotedPrimary4524") && !bot.contains("catastrophic_score_band_micro_probe_4524"))
     }
 
 }
