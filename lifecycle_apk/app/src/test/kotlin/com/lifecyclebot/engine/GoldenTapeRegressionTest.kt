@@ -6300,4 +6300,15 @@ class GoldenTapeRegressionTest {
         assertTrue("V5.0.4497: BUY rows must render as entries instead of fake PnL outcomes", ui.contains("val isBuyRow = entry.side.equals") && ui.contains("BUY_ENTRY") && ui.contains(sizeInterpolationFragment) && ui.contains("journal rows"))
     }
 
+
+
+    @Test
+    fun learningPersistence_4501NeverExportsHeavyBrainsOnMainThread() {
+        val lp = java.io.File("src/main/kotlin/com/lifecyclebot/engine/LearningPersistence.kt").readText()
+        val bot = java.io.File("src/main/kotlin/com/lifecyclebot/engine/BotService.kt").readText()
+        assertTrue("V5.0.4501: saveAll must redirect main-thread calls before exportState serialization", lp.contains("Looper.myLooper() == Looper.getMainLooper()") && lp.contains("LEARNING_PERSIST_REDIRECTED_OFF_MAIN_4501") && lp.indexOf("Looper.myLooper() == Looper.getMainLooper()") < lp.indexOf("saveAllBlockingInternal"))
+        assertTrue("V5.0.4501: periodic runtime persistence must queue async, not block the bot loop with exportState", lp.contains("fun requestSaveAllAsync") && lp.contains("LEARNING_PERSIST_ASYNC_SAVE_4501") && bot.contains("LearningPersistence.requestSaveAllAsync") && bot.contains("periodic_loop_4501"))
+        assertFalse("V5.0.4501: periodic runtime path must not call LearningPersistence.saveAll() inline", bot.contains("LearningPersistence.saveAll() } catch (_: Exception) {}"))
+    }
+
 }

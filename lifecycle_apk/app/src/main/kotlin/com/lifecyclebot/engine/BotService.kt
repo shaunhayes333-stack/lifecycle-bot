@@ -12969,8 +12969,10 @@ class BotService : Service() {
                     }
                 } catch (_: Exception) {}
 
-                // V5.9.439 — flush learning state to disk periodically.
-                try { com.lifecyclebot.engine.LearningPersistence.saveAll() } catch (_: Exception) {}
+                // V5.0.4501 — flush learning state asynchronously. saveAll() exports
+                // heavyweight brains (TradeLessonRecorder, RegimeTransitionAI, etc.);
+                // doing this inline inflated loop cycles and showed up in ANR traces.
+                try { com.lifecyclebot.engine.LearningPersistence.requestSaveAllAsync("periodic_loop_4501") } catch (_: Exception) {}
 
                 // V5.9.318: LIVE WALLET RECONCILE SWEEP (~every 5 min, LIVE only).
                 // ROOT CAUSE: Sub-traders (ShitCoin/Moonshot/Quality/BlueChip

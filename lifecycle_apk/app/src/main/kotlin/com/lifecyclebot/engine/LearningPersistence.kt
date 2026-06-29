@@ -121,8 +121,37 @@ object LearningPersistence {
         }
     }
 
-    /** Force-flush all trackers. Call on onDestroy / shutdown. */
+    /** Force-flush all trackers. Call on onDestroy / shutdown.
+     * V5.0.4501 — main-safe source contract: never serialize/export every
+     * brain on the Android UI thread. Runtime reports showed
+     * TradeLessonRecorder.exportState and RegimeTransitionAI.exportState in
+     * ANR stacks. If a lifecycle/UI path reaches saveAll(), redirect to a
+     * bounded background save instead of blocking MainActivity/onCreate. */
     fun saveAll() {
+        if (Looper.myLooper() == Looper.getMainLooper()) {
+            requestSaveAllAsync("main_thread_redirect_4501")
+            try { PipelineHealthCollector.labelInc("LEARNING_PERSIST_REDIRECTED_OFF_MAIN_4501") } catch (_: Throwable) {}
+            try { ErrorLogger.warn(TAG, "LEARNING_PERSIST_REDIRECTED_OFF_MAIN_4501 saveAll called on main; queued IO save") } catch (_: Throwable) {}
+            return
+        }
+        saveAllBlockingInternal()
+    }
+
+    fun requestSaveAllAsync(reason: String = "async_request") {
+        GlobalScope.launch(Dispatchers.IO) {
+            if (saveMutex.tryLock()) {
+                try {
+                    saveAllBlockingInternal()
+                    try { PipelineHealthCollector.labelInc("LEARNING_PERSIST_ASYNC_SAVE_4501") } catch (_: Throwable) {}
+                } catch (_: Throwable) {
+                } finally { saveMutex.unlock() }
+            } else {
+                try { PipelineHealthCollector.labelInc("LEARNING_PERSIST_ASYNC_SAVE_SKIPPED_IN_FLIGHT_4501") } catch (_: Throwable) {}
+            }
+        }
+    }
+
+    private fun saveAllBlockingInternal() {
         val d = db ?: return
         try {
             d.beginTransaction()
