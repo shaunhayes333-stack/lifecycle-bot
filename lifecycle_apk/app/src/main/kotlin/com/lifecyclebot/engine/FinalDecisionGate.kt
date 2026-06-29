@@ -1452,7 +1452,12 @@ object FinalDecisionGate {
             // early soft-start samples; hardening begins once n is meaningful.
             val isWeakWr = wr < 30.0 && liveN >= 40
             val isShitCoinLane = tradingModeTag == ModeSpecificGates.TradingModeTag.SHITCOIN
-            val lifted = if (isWeakWr && !isShitCoinLane) maxOf(WATCHLIST_FLOOR_RAW, 8_000.0) else WATCHLIST_FLOOR_RAW
+            val gooseVerdict4523 = try { PatternGoldenGoose.edge(ts.name, ts.symbol).verdict } catch (_: Throwable) { TokenWinMemory.Verdict.NEUTRAL }
+            val learnedWinner4523 = gooseVerdict4523 == TokenWinMemory.Verdict.GOLD || gooseVerdict4523 == TokenWinMemory.Verdict.WINNER
+            val lifted = if (isWeakWr && !isShitCoinLane && !learnedWinner4523) maxOf(WATCHLIST_FLOOR_RAW, 8_000.0) else WATCHLIST_FLOOR_RAW
+            if (isWeakWr && !isShitCoinLane && learnedWinner4523) {
+                try { PipelineHealthCollector.labelInc("FDG_GOLDEN_GOOSE_WR_LIFT_BYPASS_4523") } catch (_: Throwable) {}
+            }
             lifted
         } catch (_: Throwable) { WATCHLIST_FLOOR_RAW }
         // V5.9.696 — Per-trader execution floor override.

@@ -6501,4 +6501,14 @@ class GoldenTapeRegressionTest {
         assertTrue("V5.0.4522: reports must surface fanout pressure state", report.contains("LiveLaneFanoutPressure.snapshot"))
     }
 
+
+
+    @Test
+    fun finalDecisionGate_4523LetsGoldenGooseBypassWeakWrWatchlistLiftOnly() {
+        val fdg = java.io.File("src/main/kotlin/com/lifecyclebot/engine/FinalDecisionGate.kt").readText()
+        assertTrue("V5.0.4523: weak-WR $8k watchlist lift must consult PatternGoldenGoose", fdg.contains("PatternGoldenGoose.edge(ts.name, ts.symbol)") && fdg.contains("gooseVerdict4523"))
+        assertTrue("V5.0.4523: only GOLD/WINNER learned patterns bypass the weak-WR lift", fdg.contains("TokenWinMemory.Verdict.GOLD") && fdg.contains("TokenWinMemory.Verdict.WINNER") && fdg.contains("!learnedWinner4523"))
+        assertTrue("V5.0.4523: bypass must be telemetry-visible and still preserve the raw watchlist floor", fdg.contains("FDG_GOLDEN_GOOSE_WR_LIFT_BYPASS_4523") && fdg.contains("else WATCHLIST_FLOOR_RAW"))
+    }
+
 }
