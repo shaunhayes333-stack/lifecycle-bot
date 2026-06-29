@@ -54,7 +54,7 @@ object LiveProbabilityEngine {
                 regime.ifBlank { "NORMAL" },
                 edgePhase.ifBlank { "UNKNOWN" },
             )
-            val laneMetric = StrategyTelemetry.computeLiveTerminalLeaderboard(limit = 1_500)
+            val laneMetric = StrategyTelemetry.computeCleanLiveTerminalLeaderboard(limit = 1_500)
                 .firstOrNull { canonical(it.strategy).equals(lane, ignoreCase = true) }
 
             val laneSamples = laneMetric?.trades?.toLong() ?: 0L
@@ -129,7 +129,7 @@ object LiveProbabilityEngine {
     }
 
     fun statusLine(): String = try {
-        val rows = StrategyTelemetry.computeLiveTerminalLeaderboard(limit = 1_500)
+        val rows = StrategyTelemetry.computeCleanLiveTerminalLeaderboard(limit = 1_500)
             .filter { it.trades >= 5 }
             .take(6)
             .map { forecast(it.strategy, 50, "U", "NORMAL") }

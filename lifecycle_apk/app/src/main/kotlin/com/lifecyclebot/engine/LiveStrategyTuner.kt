@@ -83,7 +83,7 @@ object LiveStrategyTuner {
     }
 
     private fun compute(): Map<String, Adjustment> {
-        val board = try { StrategyTelemetry.computeLiveTerminalLeaderboard(limit = 1_500) } catch (_: Throwable) { return emptyMap() }
+        val board = try { StrategyTelemetry.computeCleanLiveTerminalLeaderboard(limit = 1_500) } catch (_: Throwable) { return emptyMap() }
         if (board.isEmpty()) return emptyMap()
         val out = LinkedHashMap<String, Adjustment>()
         for (m in board) {

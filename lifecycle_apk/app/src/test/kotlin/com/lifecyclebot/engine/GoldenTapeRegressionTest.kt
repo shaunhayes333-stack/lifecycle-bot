@@ -6417,4 +6417,20 @@ class GoldenTapeRegressionTest {
         assertTrue("V5.0.4511: operator report must surface compounding state", report.contains("RealizedWalletCompoundingGovernor.statusLine"))
     }
 
+
+
+    @Test
+    fun strategyTelemetry_4513CleanLiveTruthFeedsGateRelaxer() {
+        val telemetry = java.io.File("src/main/kotlin/com/lifecyclebot/engine/StrategyTelemetry.kt").readText()
+        val relaxer = java.io.File("src/main/kotlin/com/lifecyclebot/engine/LiveLayerGateRelaxer.kt").readText()
+        val report = java.io.File("src/main/kotlin/com/lifecyclebot/engine/ReportingHub.kt").readText()
+        assertTrue("V5.0.4513: StrategyTelemetry must expose clean live terminal authority", telemetry.contains("computeCleanLiveTerminalLeaderboard") && telemetry.contains("StrategyTruthLedger.clean") && telemetry.contains("source=StrategyTruthLedger"))
+        val prob = java.io.File("src/main/kotlin/com/lifecyclebot/engine/LiveProbabilityEngine.kt").readText()
+        val tuner = java.io.File("src/main/kotlin/com/lifecyclebot/engine/LiveStrategyTuner.kt").readText()
+        val damper = java.io.File("src/main/kotlin/com/lifecyclebot/engine/LaneExpectancyDamper.kt").readText()
+        assertTrue("V5.0.4513: LiveLayerGateRelaxer WR/cache must use clean live strategy truth", relaxer.contains("computeCleanLiveTerminalLeaderboard(limit = 1_500)") && relaxer.contains("computeCleanLiveTerminalLeaderboard(limit = 2_500)") && !relaxer.contains("val leaderboard = StrategyTelemetry.computeLiveTerminalLeaderboard(limit = 2_500)"))
+        assertTrue("V5.0.4513: live probability/tuner/damper must use clean live strategy truth", prob.contains("computeCleanLiveTerminalLeaderboard(limit = 1_500)") && tuner.contains("computeCleanLiveTerminalLeaderboard(limit = 1_500)") && damper.contains("computeCleanLiveTerminalLeaderboard()"))
+        assertTrue("V5.0.4513: operator report must surface clean live strategy truth", report.contains("CleanLiveStrategyTruth") && report.contains("computeCleanLiveTerminalLeaderboard(750)"))
+    }
+
 }

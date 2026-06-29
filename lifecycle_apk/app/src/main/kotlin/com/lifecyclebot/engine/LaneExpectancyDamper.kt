@@ -144,7 +144,7 @@ object LaneExpectancyDamper {
 
     private fun compute(): Map<String, Double> {
         val board = try {
-            StrategyTelemetry.computeLiveTerminalLeaderboard()
+            StrategyTelemetry.computeCleanLiveTerminalLeaderboard()
         } catch (_: Throwable) {
             return emptyMap()
         }

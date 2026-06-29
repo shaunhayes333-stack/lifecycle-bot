@@ -96,7 +96,7 @@ object LiveLayerGateRelaxer {
                 // MOONSHOT/SHITCOIN had hundreds of LIVE closes while the relaxer printed
                 // n=0/1. StrategyTelemetry is journal-backed, so only this background
                 // refresher may touch it.
-                StrategyTelemetry.computeLiveTerminalLeaderboard(limit = 1_500).forEach { m ->
+                StrategyTelemetry.computeCleanLiveTerminalLeaderboard(limit = 1_500).forEach { m ->
                     val k = canonicalLaneKey(m.strategy)
                     busCounts[k] = maxOf(busCounts[k] ?: 0, m.trades)
                     toxic[k] = m.trades >= 5 && (m.winRatePct < 35.0 || m.totalSolPnl < 0.0 || m.meanPnlPct < -3.0)
@@ -271,7 +271,7 @@ object LiveLayerGateRelaxer {
         if (now - liveWrCacheStampMs <= LIVE_WR_CACHE_TTL_MS) return cachedLiveWrPct
         liveWrCacheStampMs = now
         val wr = try {
-            val leaderboard = StrategyTelemetry.computeLiveTerminalLeaderboard(limit = 2_500)
+            val leaderboard = StrategyTelemetry.computeCleanLiveTerminalLeaderboard(limit = 2_500)
             val allLive = leaderboard.filter { it.isStatisticallyMeaningful }
             val totalTrades = allLive.sumOf { it.trades }
             cachedLiveTerminalCount = totalTrades

@@ -291,6 +291,15 @@ object ReportingHub {
         // V5.0.4104 — RecoveredHoldGuard
         appendLine(safe("recovered_hold_guard") { RecoveredHoldGuard.summary().trim() }.ifBlank { "RecoveredHoldGuard: idle" })
         appendLine(safe("live_probability_engine") { LiveProbabilityEngine.statusLine() })
+        appendLine(safe("clean_live_strategy_truth") {
+            val clean = StrategyTelemetry.computeCleanLiveTerminalLeaderboard(750)
+            val n = clean.sumOf { it.trades }
+            val w = clean.sumOf { it.wins }
+            val l = clean.sumOf { it.losses }
+            val pnl = clean.sumOf { it.totalSolPnl }
+            val wr = if (w + l > 0) w * 100.0 / (w + l) else 0.0
+            "CleanLiveStrategyTruth: lanes=${clean.size} n=$n W/L=$w/$l WR=${wr.fmt1()}% PnL=${pnl.fmt4()} SOL source=StrategyTruthLedger"
+        })
         appendLine(safe("strategy_hypothesis") { StrategyHypothesisEngine.formatForPipelineDump().trim() }.ifBlank { "Strategy Hypothesis Engine: no active/promoted experiments" })
         appendLine(safe("lane_exit_tuner") { com.lifecyclebot.engine.learning.LaneExitTuner.formatForPipelineDump().trim() }.ifBlank { "Lane Exit Tuner: no lane tuning snapshot" })
         appendLine(safe("live_strategy_tuner") { LiveStrategyTuner.statusLine() })
