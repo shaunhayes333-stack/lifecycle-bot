@@ -9886,14 +9886,30 @@ class BotService : Service() {
         // queues $0-liq tokens through the watchlist floor regardless of
         // source count). Source count doesn't redeem a dust mint — no
         // executable pool, no FDG signal, just memory + scanner cycles
-        // burned. Reject on liq+mcap alone unless user/restore attributed.
+        // burned. Reject on liq+mcap alone unless user/registry-restore attributed.
+        // V5.0.4507 — probation promotion is NOT registry restore. Operator logs
+        // still showed liq=$0 / mcap=$0 SOURCE_UPGRADE + WATCHLIST_AFFINITY spam:
+        // source=PROBATION was bundled with MEME_REGISTRY_RESTORE and bypassed
+        // the pure-zero reject. A probation candidate can promote only after it
+        // has executable liquidity; otherwise it stays cold/no-watchlist.
         run {
             // V5.9.1036 — pure-zero ALSO covers sub-cent dust (no executable
             // pool, no realistic FDG signal). liq<$1 + mcap<$10 is dust.
             val isDustLiq = liquidityUsd < 1.0 && marketCapUsd < 10.0
             val isUserAdded = source == "USER" || source.contains("USER_ADDED")
-            val isRestoredVetted = source == "MEME_REGISTRY_RESTORE" || source == "PROBATION"
-            if (isDustLiq && !isUserAdded && !isRestoredVetted) {
+            val isRegistryRestore = source == "MEME_REGISTRY_RESTORE"
+            val isProbationPromotion = source == "PROBATION"
+            if (isDustLiq && isProbationPromotion && !isUserAdded) {
+                try {
+                    ForensicLogger.lifecycle(
+                        "INTAKE_PROBATION_LIQ_ZERO_REJECT_4507",
+                        "symbol=${symbol.ifBlank { mint.take(6) }} mint=${mint.take(10)} src=$source srcN=${allSources.size} liq=${"%.4f".format(liquidityUsd)} mcap=${"%.4f".format(marketCapUsd)} no_watchlist=true",
+                    )
+                } catch (_: Throwable) {}
+                ScannerHardRejectStore.mark(mint, symbol, "PROBATION_LIQ_ZERO_REJECT_4507", source)
+                return false
+            }
+            if (isDustLiq && !isUserAdded && !isRegistryRestore) {
                 try {
                     ForensicLogger.lifecycle(
                         "INTAKE_LIQ_ZERO_REJECT",
@@ -10216,8 +10232,9 @@ class BotService : Service() {
                 // Send to probation. If it gets multi-scanner-confirmed or
                 // its price action proves out, processProbation() will
                 // promote it and the existing PROMOTED handler at line ~7039
-                // calls admitProtectedMemeIntake(source="PROBATION") which
-                // bypasses this gate (isRestoredVetted=true).
+                // calls admitProtectedMemeIntake(source="PROBATION"). V5.0.4507:
+                // that path may bypass probation routing, but it must still pass
+                // the pure-zero liquidity reject before hot watchlist hydration.
                 try {
                     val probSym = if (symbol.isBlank()) mint.take(6) else symbol
                     com.lifecyclebot.engine.ForensicLogger.lifecycle(

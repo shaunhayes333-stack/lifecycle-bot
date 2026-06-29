@@ -175,6 +175,31 @@ object LiveStrategyTuner {
         // entry size tiny, but extend hold/TP/partial patience so asymmetric
         // runners can pay for the loser distribution. LaneExpectancyDamper may
         // apply a deeper capital haircut at the executor, still non-zero.
+        // V5.0.4506 — pct/SOL contradiction guard. A lane showing huge mean%
+        // while losing net SOL (operator report: BLUECHIP EV +905%/trade but
+        // PnL -0.4397 SOL) is not a runner exemption; it is an accounting/basis
+        // contradiction or bad capital curve. Keep sampling, but only as a small
+        // recovery probe until SOL truth catches up.
+        val pctSolContradiction = n >= 8 && sol < -0.0001 && mean >= 20.0
+        if (pctSolContradiction) {
+            val solDepth = ((-sol) / 0.50).coerceIn(0.0, 1.0)
+            return Adjustment(
+                lane = lane,
+                trades = n,
+                winRatePct = wr,
+                totalSolPnl = sol,
+                pfExpectancyPp = pf,
+                meanPnlPct = mean,
+                sizeMult = (0.55 - solDepth * 0.30).coerceIn(0.25, 0.55),
+                tpMult = 1.05,
+                holdMult = 1.05,
+                maxWalletMult = 0.55,
+                liquidityImpactMult = 0.72,
+                partialTriggerMult = 1.10,
+                label = "pct_sol_contradiction_probe",
+            )
+        }
+
         val lowWrPositiveSolLottery = n >= 20 && wr < 35.0 && sol > 0.0
         if (lowWrPositiveSolLottery) {
             val wrDepth = ((35.0 - wr) / 35.0).coerceIn(0.0, 1.0)
@@ -218,7 +243,7 @@ object LiveStrategyTuner {
         // MOONSHOT n=141 wr=36% getting damped because tuner reads NET-realized
         // mean (-0.018%/trade), not gross EV (+80%/trade). Switch to WR + sample
         // gate which actually reflects the lane's profitability profile.
-        if ((n >= 30 && wr >= 40.0) || (n >= 8 && mean >= 20.0)) {
+        if ((n >= 30 && wr >= 40.0 && sol >= 0.0) || (n >= 8 && mean >= 20.0 && sol >= 0.0)) {
             return Adjustment(
                 lane = lane, trades = n, winRatePct = wr, totalSolPnl = sol,
                 pfExpectancyPp = pf, meanPnlPct = mean, sizeMult = 1.0,
@@ -238,7 +263,7 @@ object LiveStrategyTuner {
         val pfBleed = n >= 8 && sol < 0.0 && pf <= 0.0
         val wrBleed = n >= 8 && wr < 35.0 && sol <= 0.0
         val meanBleed = n >= 8 && sol <= 0.0 && mean <= -8.0
-        val toxicBleed = n >= 10 && wr <= 28.0 && sol < 0.0
+        val toxicBleed = (n >= 10 && wr <= 28.0 && sol < 0.0) || (n >= 8 && wr <= 15.0 && sol < 0.0)
         if (pfBleed || wrBleed || meanBleed || toxicBleed) {
             val wrDepth = ((35.0 - wr) / 35.0).coerceIn(0.0, 1.0)
             val pfDepth = ((-pf) / 16.0).coerceIn(0.0, 1.0)

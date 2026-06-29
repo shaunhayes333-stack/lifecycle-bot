@@ -6350,4 +6350,29 @@ class GoldenTapeRegressionTest {
         assertTrue("V5.0.4505: Executor close paths must populate education SOL basis", exec.contains("entryCostSol = ts.position.costSol") && exec.contains("entryCostSol = pos.costSol") && exec.contains("pnlSol = pnl"))
     }
 
+
+
+    @Test
+    fun liveStrategyTuner_4506UsesSolTruthForPctRunnerClaims() {
+        val tuner = java.io.File("src/main/kotlin/com/lifecyclebot/engine/LiveStrategyTuner.kt").readText()
+        assertTrue("V5.0.4506: high percentage EV with negative SOL must become a probe, not runner exemption", tuner.contains("pctSolContradiction") && tuner.contains("pct_sol_contradiction_probe") && tuner.contains("mean >= 20.0") && tuner.contains("sol < -0.0001"))
+        assertTrue("V5.0.4506: asymmetric runner exemption must require non-negative SOL truth", tuner.contains("n >= 8 && mean >= 20.0 && sol >= 0.0") && tuner.contains("n >= 30 && wr >= 40.0 && sol >= 0.0"))
+        assertTrue("V5.0.4506: severe low-WR live lanes pivot toxic at n>=8 without hard blocking", tuner.contains("n >= 8 && wr <= 15.0 && sol < 0.0") && tuner.contains("toxic_runner_pivot") && tuner.contains("sizeFloor"))
+    }
+
+
+
+    @Test
+    fun protectedMemeIntake_4507ProbationDoesNotBypassZeroLiquidityReject() {
+        val bot = java.io.File("src/main/kotlin/com/lifecyclebot/engine/BotService.kt").readText()
+        val zeroLiqBlock = bot.substring(bot.indexOf("V5.0.4507"), bot.indexOf("V5.9.1228"))
+        val registryRestoreFragment = "val isRegistryRestore = source == " + "\"MEME_REGISTRY_RESTORE\""
+        val probationPromotionFragment = "val isProbationPromotion = source == " + "\"PROBATION\""
+        val staleCombinedFragment = "source == " + "\"MEME_REGISTRY_RESTORE\"" + " || source == " + "\"PROBATION\""
+        assertTrue("V5.0.4507: probation promotion must not be treated as registry restore for pure-zero liquidity", zeroLiqBlock.contains(registryRestoreFragment) && zeroLiqBlock.contains(probationPromotionFragment) && !zeroLiqBlock.contains(staleCombinedFragment))
+        assertTrue("V5.0.4507: pure-zero probation promotions must remain cold and no-watchlist", zeroLiqBlock.contains("INTAKE_PROBATION_LIQ_ZERO_REJECT_4507") && zeroLiqBlock.contains("PROBATION_LIQ_ZERO_REJECT_4507") && zeroLiqBlock.contains("no_watchlist=true") && bot.indexOf("INTAKE_PROBATION_LIQ_ZERO_REJECT_4507") < bot.indexOf("WATCHLIST_AFFINITY"))
+        assertTrue("V5.0.4507: probation promotion may bypass probation routing only after zero-liq gate", bot.contains("that path may bypass probation routing, but it must still pass") && bot.contains("pure-zero liquidity reject before hot watchlist hydration"))
+    }
+
+
 }
