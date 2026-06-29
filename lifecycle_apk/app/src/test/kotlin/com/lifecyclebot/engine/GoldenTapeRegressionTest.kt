@@ -6660,4 +6660,17 @@ class GoldenTapeRegressionTest {
         assertTrue("V5.0.4536: requestSell defer labels must preserve sibling hold/choke categories", exec.contains("DEFER_TINY_PROFIT_DUST") && exec.contains("DEFER_STYLE_MIN_HOLD") && exec.contains("DEFER_RECONCILER_HEALTHY_HOLD"))
     }
 
+
+
+    @Test
+    fun aate4537SizingAdvisoryConsumersUseLifecycleBus() {
+        val bus = java.io.File("src/main/kotlin/com/lifecyclebot/engine/LearningLifecycleBus.kt").readText()
+        val exec = java.io.File("src/main/kotlin/com/lifecyclebot/engine/Executor.kt").readText()
+        val mee = java.io.File("src/main/kotlin/com/lifecyclebot/engine/MathematicalEdgeEngine.kt").readText()
+        assertTrue("V5.0.4537: lifecycle bus must standardize final sizing exposure and clamp labels", bus.contains("fun sizingDecision") && bus.contains("LEARNING_LIFECYCLE_SIZING_") && bus.contains("LEARNING_LIFECYCLE_SIZING_CLAMPED") && bus.contains("LEARNING_LIFECYCLE_SIZING_ZERO"))
+        assertTrue("V5.0.4537: Executor final doBuy sizing source must route through lifecycle bus", exec.contains("LearningLifecycleBus.sizingDecision(") && !exec.contains("MathematicalEdgeEngine.captureSizing("))
+        assertTrue("V5.0.4537: sizing fanout must still reach policy stamps and advisory consumers", mee.contains("ForwardOutcomeModel.stamp") && mee.contains("UnifiedPolicyHead.stamp") && mee.contains("MultiplierAttributionLedger.recordEntry") && mee.contains("StrategyHypothesisEngine.getStopBias") && mee.contains("CapitalEfficiencyBrain.sizeMultiplier"))
+        assertTrue("V5.0.4537: sizing lifecycle must preserve component map, regime and style for mux-aware learning", bus.contains("components = components") && bus.contains("regime = regime") && bus.contains("style = style"))
+    }
+
 }

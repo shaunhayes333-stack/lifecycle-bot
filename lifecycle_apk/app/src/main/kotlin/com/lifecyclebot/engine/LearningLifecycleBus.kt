@@ -112,6 +112,52 @@ object LearningLifecycleBus {
 
 
 
+
+    fun sizingDecision(
+        stage: String,
+        lane: String,
+        source: String,
+        mint: String,
+        symbol: String,
+        baseSol: Double,
+        rawMultiplier: Double,
+        clampedMultiplier: Double,
+        finalSol: Double,
+        walletSol: Double,
+        liquidityUsd: Double,
+        score: Double,
+        components: Map<String, Double>,
+        reason: String = "",
+        regime: String = "",
+        style: String = "",
+    ) {
+        try {
+            PipelineHealthCollector.labelInc("LEARNING_LIFECYCLE_SIZING_${stage.uppercase().take(32)}")
+            if (finalSol <= 0.0) PipelineHealthCollector.labelInc("LEARNING_LIFECYCLE_SIZING_ZERO")
+            if (clampedMultiplier < rawMultiplier) PipelineHealthCollector.labelInc("LEARNING_LIFECYCLE_SIZING_CLAMPED")
+        } catch (_: Throwable) {}
+        try {
+            MathematicalEdgeEngine.captureSizing(
+                stage = stage,
+                lane = lane,
+                source = source,
+                mint = mint,
+                symbol = symbol,
+                baseSol = baseSol,
+                rawMultiplier = rawMultiplier,
+                clampedMultiplier = clampedMultiplier,
+                finalSol = finalSol,
+                walletSol = walletSol,
+                liquidityUsd = liquidityUsd,
+                score = score,
+                components = components,
+                reason = reason,
+                regime = regime,
+                style = style,
+            )
+        } catch (_: Throwable) {}
+    }
+
     fun exitDecision(
         stage: String,
         lane: String,

@@ -8771,7 +8771,7 @@ class Executor(
         } else effSolRaw
 
         try {
-            MathematicalEdgeEngine.captureSizing(
+            LearningLifecycleBus.sizingDecision(
                 stage = "doBuy.final",
                 lane = laneTag,
                 source = ts.source,
