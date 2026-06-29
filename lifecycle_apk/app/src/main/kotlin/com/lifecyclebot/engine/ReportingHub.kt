@@ -302,7 +302,7 @@ object ReportingHub {
             val rawJournalPnl4496 = allSells.sumOf { if (it.netPnlSol != 0.0) it.netPnlSol else it.pnlSol }
             appendLine("Wallet Realization: liveWallet=${liveWalletSol4496.fmt4()} SOL strategyCleanPnL=${cpnl.fmt4()} SOL rawJournalPnL=${rawJournalPnl4496.fmt4()} SOL hostOpen=$hostOpen4496 note=journal_pnl_is_not_wallet_balance")
             appendLine("Inventory Recovery: positions=${inv.size} realised/unrealised=${inv.sumOf { if (it.netPnlSol != 0.0) it.netPnlSol else it.pnlSol }.fmt4()} SOL")
-            appendLine("Excluded From Strategy: recovered=${truth.audit.recoveryExcluded} duplicateTerminal=${truth.audit.deduped} partialNotTerminal=${truth.audit.partialNotTerminal} badEntry=${truth.audit.badEntryExcluded}")
+            appendLine("Excluded From Strategy: recovered=${truth.audit.recoveryExcluded} duplicateTerminal=${truth.audit.deduped} partialNotTerminal=${truth.audit.partialNotTerminal} badEntry=${truth.audit.badEntryExcluded} forensic=${truth.audit.forensicExcluded}")
         }
         if (totals != null) appendLine("Canonical totals: closes=${totals.trades} W/L=${totals.wins}/${totals.losses} WR=${totals.winRatePct().fmt1()}% PnL=${totals.pnlSol.fmt4()} SOL")
         if (lifetime != null) appendLine("Lifetime persisted: sells=${lifetime.totalSells} wins=${lifetime.totalWins} losses=${lifetime.totalLosses} pnl=${lifetime.realizedPnlSol.fmt4()} SOL")

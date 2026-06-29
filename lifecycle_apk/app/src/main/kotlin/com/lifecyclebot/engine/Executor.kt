@@ -2644,6 +2644,16 @@ class Executor(
             // the row display "mcap=n/a" instead of mislabeling exit/discovery mcap as entry mcap.
             ?: (if (trade.side.equals("BUY", true)) ts.lastMcap.takeIf { it > 0.0 } else null)
             ?: 0.0
+        val proofStateForJournal4502 = trade.proofState.ifBlank {
+            val sideU = trade.side.uppercase()
+            val isPaper = trade.mode.equals("paper", true) || ts.position.isPaperPosition
+            when {
+                isPaper -> "PAPER_SIMULATED"
+                (sideU == "SELL" || sideU == "PARTIAL_SELL") && trade.sig.isNotBlank() -> "LIVE_FINALIZED"
+                trade.sig.isNotBlank() -> "LIVE_SIG_CONFIRMED"
+                else -> "LIVE_BROADCAST"
+            }
+        }
         var tradeWithMint = trade.copy(
             mint = if (trade.mint.isBlank()) ts.mint else trade.mint,
             tradingMode = resolvedTradingMode,
@@ -2657,6 +2667,7 @@ class Executor(
             remainingQtyToken = if (entryQtyForJournal > 0.0) (entryQtyForJournal - soldQtyForJournal).coerceAtLeast(0.0) else trade.remainingQtyToken,
             entryPriceSource = trade.entryPriceSource.ifBlank { ts.position.entryPriceSource },
             entryPoolAddress = trade.entryPoolAddress.ifBlank { ts.position.entryPoolAddress },
+            proofState = proofStateForJournal4502,
         )
 
 

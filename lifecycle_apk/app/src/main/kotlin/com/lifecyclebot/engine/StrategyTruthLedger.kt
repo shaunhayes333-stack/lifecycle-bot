@@ -21,6 +21,7 @@ object StrategyTruthLedger {
         val recoveryExcluded: Int,
         val partialNotTerminal: Int,
         val badEntryExcluded: Int,
+        val forensicExcluded: Int = 0,
     )
 
     data class Result(
@@ -32,7 +33,7 @@ object StrategyTruthLedger {
         clean(rawRows, limit).rows
 
     fun clean(rawRows: List<Trade>, limit: Int = rawRows.size): Result {
-        if (rawRows.isEmpty()) return Result(emptyList(), Audit(0, 0, 0, 0, 0))
+        if (rawRows.isEmpty()) return Result(emptyList(), Audit(0, 0, 0, 0, 0, 0))
         val newestFirst = rawRows.sortedByDescending { it.ts }
         val seenTerminalKeys = LinkedHashSet<String>()
         val seenGenerationKeys = LinkedHashSet<String>()
@@ -42,6 +43,7 @@ object StrategyTruthLedger {
         var recovery = 0
         var partial = 0
         var badEntry = 0
+        var forensic = 0
 
         for (row in newestFirst) {
             if (out.size >= limit.coerceAtLeast(1)) break
@@ -68,6 +70,12 @@ object StrategyTruthLedger {
                 inc("STRATEGY_BAD_ENTRY_EXCLUDED")
                 continue
             }
+            val forensicReject = forensicRejectReason(row)
+            if (forensicReject != null) {
+                forensic++
+                inc("STRATEGY_FORENSIC_EXCLUDED_${forensicReject}")
+                continue
+            }
 
             val terminalKey = terminalKey(row)
             val generationKey = generationKey(row)
@@ -85,7 +93,7 @@ object StrategyTruthLedger {
             inc("STRATEGY_CLEAN_TERMINAL_ROWS")
             out += normalizedStrategyRow(row)
         }
-        return Result(out, Audit(out.size, deduped, recovery, partial, badEntry))
+        return Result(out, Audit(out.size, deduped, recovery, partial, badEntry, forensic))
     }
 
     fun isRecoveryInventory(t: Trade): Boolean {
@@ -115,6 +123,33 @@ object StrategyTruthLedger {
             else -> 0.0
         }
         return entrySol > 0.0 && entryPrice > 0.0 && t.mint.isNotBlank()
+    }
+
+    // V5.0.4502 — forensic money contract. Strategy truth must not count
+    // large live PnL rows unless price, SOL basis, and wallet/proof finality line
+    // up. Raw rows stay in the journal; this only prevents unaudited money from
+    // becoming strategy-clean PnL/WR and poisoning decisions.
+    private fun forensicRejectReason(t: Trade): String? {
+        val side = t.side.trim().uppercase()
+        if (side != "SELL" && side != "PARTIAL_SELL") return null
+        val mode = t.mode.trim().uppercase()
+        val live = mode == "LIVE"
+        val proof = t.proofState.trim().uppercase()
+        val basis = t.entryCostSol.takeIf { it.isFinite() && it > 0.0 } ?: return "MISSING_ENTRY_COST_BASIS"
+        val realized = when {
+            t.netPnlSol.isFinite() && t.netPnlSol != 0.0 -> t.netPnlSol
+            t.pnlSol.isFinite() -> t.pnlSol
+            else -> return "PNL_SOL_NAN"
+        }
+        val proceeds = basis + realized
+        if (!proceeds.isFinite() || proceeds < -0.000001) return "NEGATIVE_PROCEEDS"
+        val pctFromSol = (realized / basis) * 100.0
+        if (!pctFromSol.isFinite() || kotlin.math.abs(pctFromSol - t.pnlPct) > 50.0) return "PNL_SOL_PERCENT_MISMATCH"
+        if (live && proof.isBlank()) return "MISSING_LIVE_PROOF"
+        val largePnl = kotlin.math.abs(realized) >= 0.25 || kotlin.math.abs(t.pnlPct) >= 1000.0
+        val walletFinal = proof.contains("FINAL") || proof.contains("BALANCE") || proof.contains("TX_PARSE") || proof.contains("OWNER_DELTA")
+        if (live && largePnl && !walletFinal) return "LARGE_PNL_NOT_WALLET_FINAL"
+        return null
     }
 
     fun strategyLaneFor(t: Trade): String = if (isRecoveryInventory(t)) {

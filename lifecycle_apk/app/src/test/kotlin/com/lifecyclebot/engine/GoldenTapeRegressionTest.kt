@@ -6311,4 +6311,17 @@ class GoldenTapeRegressionTest {
         assertFalse("V5.0.4501: periodic runtime path must not call LearningPersistence.saveAll() inline", bot.contains("LearningPersistence.saveAll() } catch (_: Exception) {}"))
     }
 
+
+
+    @Test
+    fun strategyTruth_4502RequiresForensicMoneyProofForLargeLivePnl() {
+        val truth = java.io.File("src/main/kotlin/com/lifecyclebot/engine/StrategyTruthLedger.kt").readText()
+        val exec = java.io.File("src/main/kotlin/com/lifecyclebot/engine/Executor.kt").readText()
+        val report = java.io.File("src/main/kotlin/com/lifecyclebot/engine/ReportingHub.kt").readText()
+        assertTrue("V5.0.4502: strategy-clean PnL must exclude unaudited large live money rows", truth.contains("forensicRejectReason") && truth.contains("LARGE_PNL_NOT_WALLET_FINAL") && truth.contains("STRATEGY_FORENSIC_EXCLUDED_") && truth.contains("PNL_SOL_PERCENT_MISMATCH"))
+        assertTrue("V5.0.4502: journal rows must carry proofState from the shared Executor choke point", exec.contains("proofStateForJournal4502") && exec.contains("LIVE_FINALIZED") && exec.contains("proofState = proofStateForJournal4502"))
+        val forensicInterpolationFragment = "forensic=" + "${'$'}{"
+        assertTrue("V5.0.4502: report must surface forensic strategy exclusions", report.contains(forensicInterpolationFragment) && report.contains("truth.audit.forensicExcluded"))
+    }
+
 }
