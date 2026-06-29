@@ -6611,4 +6611,16 @@ class GoldenTapeRegressionTest {
         assertTrue("V5.0.4532: captureSizing must carry regime/style so downstream engines do not learn blind buckets", edge.contains("regime: String = " + "\"\"") && edge.contains("style: String = " + "\"\"") && exec.contains("regime = currentRegimeForLivePolicy.name") && exec.contains("style = laneTag"))
     }
 
+
+
+    @Test
+    fun aate4533FullLearningSystemAuditIsSourceContracted() {
+        val digest = java.io.File("src/main/kotlin/com/lifecyclebot/engine/OperatorFullLearningSystemAuditDigest.kt").readText()
+        assertTrue("V5.0.4533: full learning audit must declare result-only learning insufficient", digest.contains("result_only_learning_is_insufficient_for_self_improvement") && digest.contains("candidate_seen") && digest.contains("exit_defer") && digest.contains("counterfactual_missed_edge"))
+        assertTrue("V5.0.4533: audit categories must include starvation, dead advisory, amnesia, mux and counterfactual blindness", digest.contains("DATA_STARVATION") && digest.contains("DEAD_ADVISORY_NO_CONSUMER") && digest.contains("AMNESIA_NO_PERSISTENCE") && digest.contains("MUX_BLINDNESS") && digest.contains("COUNTERFACTUAL_BLINDNESS"))
+        assertTrue("V5.0.4533: underfed priority list must include policy, replay, semantic, runner and behavior learners", digest.contains("ForwardOutcomeModel") && digest.contains("UnifiedPolicyHead") && digest.contains("CounterfactualReplayEngine") && digest.contains("SemanticPatternGraph") && digest.contains("RunnerRetentionOptimizer") && digest.contains("BehaviorLearning"))
+        assertTrue("V5.0.4533: advisory priority list must include source, multiplier, route, probability and bridge engines", digest.contains("SourceFamilyOpportunityScorecard") && digest.contains("MultiplierAttributionLedger") && digest.contains("ExecutionRouteReliabilityMemory") && digest.contains("LiveProbabilityEngine") && digest.contains("MetaCognitionExecutorBridge"))
+        assertTrue("V5.0.4533: patch sequence must require scanner/FDG, scorer, exit/counterfactual, authority and persistence closeout", digest.contains("4534 scanner_v3_fdg_reject_label_data_plane") && digest.contains("4535 scorer_model_feedback_fanout") && digest.contains("4536 exit_hold_counterfactual_feedback_fanout") && digest.contains("4537 advisory_authority_and_sizing_consumer_wiring") && digest.contains("4538 persistence_amnesia_and_mux_closeout"))
+    }
+
 }
