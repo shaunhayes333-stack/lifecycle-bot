@@ -324,6 +324,7 @@ object ReportingHub {
         // V5.0.4102 — ExitProviderHealth (Jupiter 503 + Pump 0x1788 circuit breakers)
         appendLine(safe("exit_provider_health") { com.lifecyclebot.engine.sell.ExitProviderHealth.summary().trim() }.ifBlank { "ExitProviderHealth: ok" })
         appendLine(safe("execution_route_reliability") { ExecutionRouteReliabilityMemory.statusLine() })
+        appendLine(safe("live_lane_fanout_pressure") { val f = LiveLaneFanoutPressure.snapshot(); "LiveLaneFanoutPressure: active=${f.active} ratio=${f.ratio.fmt2()} WR=${f.liveWrPct.fmt1()}% n=${f.liveN} reason=${f.reason}" })
         // V5.0.4104 — RecoveredHoldGuard
         appendLine(safe("recovered_hold_guard") { RecoveredHoldGuard.summary().trim() }.ifBlank { "RecoveredHoldGuard: idle" })
         appendLine(safe("live_probability_engine") { LiveProbabilityEngine.statusLine() })

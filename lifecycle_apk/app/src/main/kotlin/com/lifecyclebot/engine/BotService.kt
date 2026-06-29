@@ -9457,11 +9457,25 @@ class BotService : Service() {
             // operator expects to make money. In LIVE, allow bounded affinity/
             // character-confirmed quality rescue lanes in addition to the owner;
             // the actual lane must still emit BUY intent and pass FDG/executor.
+            val fanoutPressure4521 = try { LiveLaneFanoutPressure.snapshot() } catch (_: Throwable) { LiveLaneFanoutPressure.Snapshot(false, 0.0, 0.0, 0, "error") }
             val profitableRescue = RuntimeModeAuthority.isLive() && l in setOf("QUALITY", "TREASURY", "CASHGEN", "BLUECHIP", "MOONSHOT", "PROJECT_SNIPER") && (
-                (l in setOf("QUALITY", "TREASURY", "CASHGEN", "BLUECHIP") && qualityEligible && (affinity.contains(l) || l == primaryLane.uppercase() || scoreForToxicity >= 55 || ts.lastLiquidityUsd >= 15_000.0)) ||
-                (l == "MOONSHOT" && (affinity.contains(l) || l == primaryLane.uppercase() || scoreForToxicity >= 55 || ts.meta.momScore >= 60.0)) ||
-                (l == "PROJECT_SNIPER" && qualityEligible && affinity.contains(l))
+                if (fanoutPressure4521.active) {
+                    // V5.0.4521 — pressure mode: keep owner rotation + explicit affinity,
+                    // but remove broad score/liquidity rescue that lets every quality-family
+                    // lane evaluate the same mint during live WR collapse. This is not lane
+                    // amputation: primary lane and affinity-proven rescue still run.
+                    (l in setOf("QUALITY", "TREASURY", "CASHGEN", "BLUECHIP") && qualityEligible && affinity.contains(l)) ||
+                        (l == "MOONSHOT" && (affinity.contains(l) || l == primaryLane.uppercase() || scoreForToxicity >= 65 || ts.meta.momScore >= 70.0)) ||
+                        (l == "PROJECT_SNIPER" && qualityEligible && affinity.contains(l))
+                } else {
+                    (l in setOf("QUALITY", "TREASURY", "CASHGEN", "BLUECHIP") && qualityEligible && (affinity.contains(l) || l == primaryLane.uppercase() || scoreForToxicity >= 55 || ts.lastLiquidityUsd >= 15_000.0)) ||
+                        (l == "MOONSHOT" && (affinity.contains(l) || l == primaryLane.uppercase() || scoreForToxicity >= 55 || ts.meta.momScore >= 60.0)) ||
+                        (l == "PROJECT_SNIPER" && qualityEligible && affinity.contains(l))
+                }
             )
+            if (fanoutPressure4521.active && l in setOf("QUALITY", "TREASURY", "CASHGEN", "BLUECHIP") && !profitableRescue) {
+                try { PipelineHealthCollector.labelInc("LIVE_FANOUT_PRESSURE_RESCUE_NARROWED_4521_$l") } catch (_: Throwable) {}
+            }
             if (l in fullMemeTraderRing) {
                 val allowed = l == ownerLane || profitableRescue
                 if (com.lifecyclebot.engine.RuntimeModeAuthority.isLive()) {
