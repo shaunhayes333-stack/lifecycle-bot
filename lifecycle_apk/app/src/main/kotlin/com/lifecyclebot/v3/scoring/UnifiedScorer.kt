@@ -383,6 +383,7 @@ class UnifiedScorer(
                     weightedComponents + metaComponent + behaviorComponent + bonus
                 }
             )
+            try { com.lifecyclebot.engine.LearningLifecycleBus.scorerComponents("CLASSIC", candidate, finalCard.components) } catch (_: Exception) {}
 
             // ═══════════════════════════════════════════════════════════════
             // V5.9.341 — SHADOW-RUN outer ring in CLASSIC mode (Phase X.1)
@@ -432,7 +433,7 @@ class UnifiedScorer(
 
         } catch (e: Exception) {
             Log.w("UnifiedScorer", "classicScore error: ${e.message}")
-            ScoreCard(allComponents)
+            ScoreCard(allComponents).also { try { com.lifecyclebot.engine.LearningLifecycleBus.scorerComponents("CLASSIC_FALLBACK", candidate, it.components) } catch (_: Exception) {} }
         }
     }
 
@@ -854,6 +855,7 @@ class UnifiedScorer(
 
             val finalCard = ScoreCard(extras)
             try { EducationSubLayerAI.recordEntryScores(candidate.mint, SyntheticComponentAccountability.annotate(finalCard.components, candidate, "MODERN"), candidate) } catch (_: Exception) {}
+            try { com.lifecyclebot.engine.LearningLifecycleBus.scorerComponents("MODERN", candidate, finalCard.components) } catch (_: Exception) {}
 
             try {
                 val totalScore = finalCard.total
@@ -880,6 +882,7 @@ class UnifiedScorer(
             Log.w("UnifiedScorer", "modernScore error: ${e.message}")
             val fallbackCard = ScoreCard(v59123CappedComponents)
             try { EducationSubLayerAI.recordEntryScores(candidate.mint, SyntheticComponentAccountability.annotate(fallbackCard.components, candidate, "MODERN_FALLBACK"), candidate) } catch (_: Exception) {}
+            try { com.lifecyclebot.engine.LearningLifecycleBus.scorerComponents("MODERN_FALLBACK", candidate, fallbackCard.components) } catch (_: Exception) {}
             fallbackCard
         }
     }
@@ -1336,6 +1339,7 @@ class UnifiedScorer(
 
             val finalCard = ScoreCard(moeComponents)
             try { EducationSubLayerAI.recordEntryScores(candidate.mint, SyntheticComponentAccountability.annotate(finalCard.components, candidate, "UNIFIED"), candidate) } catch (_: Exception) {}
+            try { com.lifecyclebot.engine.LearningLifecycleBus.scorerComponents("UNIFIED", candidate, finalCard.components) } catch (_: Exception) {}
 
             // CrossTalk publish (existing behavior — fan-out the unified score)
             try {
@@ -1362,6 +1366,7 @@ class UnifiedScorer(
             Log.w("UnifiedScorer", "unifiedScore error: ${e.message}")
             val fallbackCard = ScoreCard(allBase)
             try { EducationSubLayerAI.recordEntryScores(candidate.mint, SyntheticComponentAccountability.annotate(fallbackCard.components, candidate, "UNIFIED_FALLBACK"), candidate) } catch (_: Exception) {}
+            try { com.lifecyclebot.engine.LearningLifecycleBus.scorerComponents("UNIFIED_FALLBACK", candidate, fallbackCard.components) } catch (_: Exception) {}
             fallbackCard
         }
     }

@@ -6635,4 +6635,16 @@ class GoldenTapeRegressionTest {
         assertTrue("V5.0.4534: lifecycle bus must remain source-level/report-learning only without trade authority", bus.contains("no_trade_authority=true") && !bus.contains("executeBuy") && !bus.contains("requestSell("))
     }
 
+
+
+    @Test
+    fun aate4535UnifiedScorerFeedsLifecycleComponentSnapshots() {
+        val bus = java.io.File("src/main/kotlin/com/lifecyclebot/engine/LearningLifecycleBus.kt").readText()
+        val scorer = java.io.File("src/main/kotlin/com/lifecyclebot/v3/scoring/UnifiedScorer.kt").readText()
+        assertTrue("V5.0.4535: lifecycle bus must expose scorer component snapshots as source-level data", bus.contains("fun scorerComponents") && bus.contains("v3_scorer_components") && bus.contains("SCORER_STRONG_BUY") && bus.contains("SCORER_NEGATIVE"))
+        assertTrue("V5.0.4535: classic, modern and unified scorer paths must emit lifecycle component snapshots", scorer.contains("scorerComponents(" + "\"CLASSIC\"") && scorer.contains("scorerComponents(" + "\"MODERN\"") && scorer.contains("scorerComponents(" + "\"UNIFIED\""))
+        assertTrue("V5.0.4535: scorer fallback paths must also feed lifecycle data instead of disappearing", scorer.contains("scorerComponents(" + "\"CLASSIC_FALLBACK\"") && scorer.contains("scorerComponents(" + "\"MODERN_FALLBACK\"") && scorer.contains("scorerComponents(" + "\"UNIFIED_FALLBACK\""))
+        assertTrue("V5.0.4535: scorer snapshots must carry source, mint, liquidity, market cap and current regime", bus.contains("candidate.source.name") && bus.contains("candidate.mint") && bus.contains("candidate.liquidityUsd") && bus.contains("candidate.marketCapUsd") && bus.contains("RegimeDetector.currentRegime"))
+    }
+
 }

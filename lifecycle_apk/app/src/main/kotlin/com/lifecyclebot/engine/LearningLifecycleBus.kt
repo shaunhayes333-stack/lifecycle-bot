@@ -110,5 +110,39 @@ object LearningLifecycleBus {
         } catch (_: Throwable) {}
     }
 
+
+    fun scorerComponents(
+        scoringPath: String,
+        candidate: com.lifecyclebot.v3.scanner.CandidateSnapshot,
+        components: List<com.lifecyclebot.v3.scoring.ScoreComponent>,
+    ) {
+        val total = try { components.sumOf { it.value } } catch (_: Throwable) { 0 }
+        val topPositive = try { components.filter { it.value > 0 }.sortedByDescending { it.value }.take(4).joinToString("|") { "${it.name}:${it.value}" } } catch (_: Throwable) { "" }
+        val topNegative = try { components.filter { it.value < 0 }.sortedBy { it.value }.take(4).joinToString("|") { "${it.name}:${it.value}" } } catch (_: Throwable) { "" }
+        val fatalNames = try { components.filter { it.fatal }.joinToString("|") { it.name } } catch (_: Throwable) { "" }
+        val decision = when {
+            fatalNames.isNotBlank() -> "SCORER_FATAL"
+            total >= 55 -> "SCORER_STRONG_BUY"
+            total >= 25 -> "SCORER_POSITIVE"
+            total <= -20 -> "SCORER_NEGATIVE"
+            else -> "SCORER_NEUTRAL"
+        }
+        entry(
+            stage = "v3_scorer_components",
+            lane = "V3_SCORER",
+            source = candidate.source.name,
+            mint = candidate.mint,
+            symbol = candidate.symbol,
+            decision = decision,
+            reason = "path=$scoringPath total=$total pos=$topPositive neg=$topNegative fatal=$fatalNames components=${components.size}",
+            score = total.toDouble(),
+            confidence = ((components.count { kotlin.math.abs(it.value) >= 3 } * 100.0) / components.size.coerceAtLeast(1)).coerceIn(0.0, 100.0),
+            liquidityUsd = candidate.liquidityUsd,
+            marketCapUsd = candidate.marketCapUsd,
+            regime = try { RegimeDetector.currentRegime().name } catch (_: Throwable) { "UNKNOWN" },
+            style = scoringPath,
+        )
+    }
+
     fun status(): String = "${VERSION} signals=candidate,reject,probe,admit,sizing,fill,exit,terminal source_level=true coroutine_consumers=MathematicalEdgeEngine+ChokeReliefBus no_trade_authority=true"
 }
