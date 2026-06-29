@@ -6370,7 +6370,7 @@ class GoldenTapeRegressionTest {
         val probationPromotionFragment = "val isProbationPromotion = source == " + "\"PROBATION\""
         val staleCombinedFragment = "source == " + "\"MEME_REGISTRY_RESTORE\"" + " || source == " + "\"PROBATION\""
         assertTrue("V5.0.4507: probation promotion must not be treated as registry restore for pure-zero liquidity", zeroLiqBlock.contains(registryRestoreFragment) && zeroLiqBlock.contains(probationPromotionFragment) && !zeroLiqBlock.contains(staleCombinedFragment))
-        assertTrue("V5.0.4507: pure-zero probation promotions must remain cold and no-watchlist", zeroLiqBlock.contains("INTAKE_PROBATION_LIQ_ZERO_REJECT_4507") && zeroLiqBlock.contains("PROBATION_LIQ_ZERO_REJECT_4507") && zeroLiqBlock.contains("no_watchlist=true") && bot.indexOf("INTAKE_PROBATION_LIQ_ZERO_REJECT_4507") < bot.indexOf("WATCHLIST_AFFINITY"))
+        assertTrue("V5.0.4507: pure-zero probation promotions must remain cold and no-watchlist before hydration", zeroLiqBlock.contains("INTAKE_PROBATION_LIQ_ZERO_REJECT_4507") && zeroLiqBlock.contains("PROBATION_LIQ_ZERO_REJECT_4507") && zeroLiqBlock.contains("no_watchlist=true") && zeroLiqBlock.indexOf("INTAKE_PROBATION_LIQ_ZERO_REJECT_4507") < zeroLiqBlock.indexOf("return false"))
         assertTrue("V5.0.4507: probation promotion may bypass probation routing only after zero-liq gate", bot.contains("that path may bypass probation routing, but it must still pass") && bot.contains("pure-zero liquidity reject before hot watchlist hydration"))
     }
 
