@@ -2862,6 +2862,8 @@ class Executor(
                     maxDrawdownPct = edgeDraw4529,
                     trainable = accountingTrainable && rowLearningAdmitted4349,
                     accepted = ledgerAllowsClosedLearning,
+                    score = (tradeWithMint.score.takeIf { it > 0.0 } ?: ts.position.entryScore),
+                    regime = try { com.lifecyclebot.engine.RegimeDetector.currentRegime().name } catch (_: Throwable) { "UNKNOWN" },
                 )
             }
         } catch (_: Throwable) {}

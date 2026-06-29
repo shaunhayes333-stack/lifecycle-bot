@@ -1,5 +1,6 @@
 package com.lifecyclebot.engine
 
+import com.lifecyclebot.util.AppDispatchers
 import kotlinx.coroutines.GlobalScope
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
@@ -53,6 +54,10 @@ object MathematicalEdgeEngine {
         val walletSol: Double = -1.0,
         val rawMultiplier: Double = 1.0,
         val clampedMultiplier: Double = 1.0,
+        val quotePx: Double = 0.0,
+        val realizedPx: Double = 0.0,
+        val slippagePct: Double = 0.0,
+        val latencyMs: Long = 0L,
         val pnlPct: Double = 0.0,
         val pnlSol: Double = 0.0,
         val holdMs: Long = 0L,
@@ -138,6 +143,7 @@ object MathematicalEdgeEngine {
                 bySourceTerminal.computeIfAbsent(clean(e.source).uppercase()) { TerminalStat() }.add(e)
             }
             remember(e)
+            fanoutToExistingEdgeStack(e)
             i++
         }
     }
@@ -145,6 +151,77 @@ object MathematicalEdgeEngine {
     private fun remember(e: EdgeEvent) = synchronized(recentLock) {
         recent.addLast("${e.kind} stage=${e.stage} lane=${e.lane} src=${e.source} dec=${e.decision} score=${fmt(e.score,1)} conf=${fmt(e.confidence,1)} liq=${fmt(e.liquidityUsd,0)} mcap=${fmt(e.marketCapUsd,0)} size=${fmt(e.finalSol,4)} pnl=${fmt(e.pnlPct,1)}%/${fmt(e.pnlSol,4)}SOL hold=${e.holdMs/60000}m peak=${fmt(e.peakGainPct,1)} reason=${e.reason.take(70)} mint=${e.mint.take(10)} build=${e.build}".take(420))
         while (recent.size > MAX_RECENT) recent.removeFirst()
+    }
+
+
+    private fun fanoutToExistingEdgeStack(e: EdgeEvent) {
+        try {
+            when (e.kind) {
+                "ENTRY" -> {
+                    if (e.stage.contains("candidate", true)) {
+                        try { SourceFamilyOpportunityScorecard.recordDiscovered(e.source, hasRugOverlay = e.reason.contains("rug", true)) } catch (_: Throwable) {}
+                    }
+                    if (e.decision.contains("QUALIFIED", true) || e.decision.contains("PROBE", true) || e.decision.contains("ADMIT", true)) {
+                        try { SourceFamilyOpportunityScorecard.recordAdmitted(e.source, hasRugOverlay = e.reason.contains("rug", true)) } catch (_: Throwable) {}
+                    }
+                    if (e.score >= 60.0 || e.decision.contains("QUALIFIED", true) || e.decision.contains("DROP", true)) {
+                        try {
+                            UltimateEdgeEngine.enqueueRefresh(
+                                mint = e.mint,
+                                symbol = e.symbol,
+                                lane = e.lane,
+                                source = e.source,
+                                entryScore = e.score.toInt().coerceIn(0, 100),
+                                reason = "mee_entry ${e.stage} ${e.decision} ${e.reason}".take(220),
+                            )
+                        } catch (_: Throwable) {}
+                    }
+                }
+                "SIZING" -> {
+                    if (e.score >= 75.0 && e.clampedMultiplier < 0.35) {
+                        try {
+                            ChokeReliefBus.launch("MEE_SIZING_ANOMALY_HYPOTHESIS_4530", e.mint) {
+                                AsyncStrategyLab.submitBackgroundHypothesis(
+                                    provider = AsyncStrategyLab.Provider.LOCAL_ONLY,
+                                    lane = e.lane,
+                                    expectedMetric = "raise realized net SOL per high-score opportunity without increasing hard-safety rejects",
+                                    proposal = "MathematicalEdgeEngine observed high-score candidate score=${e.score.toInt()} lane=${e.lane} source=${e.source} compressed to multiplier=${fmt(e.clampedMultiplier,3)} finalSol=${fmt(e.finalSol,4)}. Test bounded recovery-size lift only for matching lane/source/regime when terminal expectancy is positive.",
+                                    rollbackCondition = "rollback if lane/source terminal pnlSol or win-rate deteriorates over the next 30 trainable terminal closes",
+                                    symbolicChecked = true,
+                                )
+                            }
+                        } catch (_: Throwable) {}
+                    }
+                }
+                "FILL" -> {
+                    if (e.liquidityUsd > 0.0 && e.quotePx > 0.0 && e.realizedPx > 0.0) {
+                        try { com.lifecyclebot.v3.scoring.ExecutionCostPredictorAI.learn(e.liquidityUsd, e.quotePx, e.realizedPx) } catch (_: Throwable) {}
+                    }
+                }
+                "TERMINAL" -> {
+                    val scoreInt = e.score.toInt().coerceIn(0, 100)
+                    if (scoreInt > 0) {
+                        try { ScoreExpectancyTracker.record("MEE_LANE_${e.lane.uppercase().take(32)}", scoreInt, e.pnlPct) } catch (_: Throwable) {}
+                        try { ScoreExpectancyTracker.record("MEE_SOURCE_${e.source.uppercase().take(48)}", scoreInt, e.pnlPct) } catch (_: Throwable) {}
+                        if (e.regime.isNotBlank()) try { ScoreExpectancyTracker.record("MEE_REGIME_${e.regime.uppercase().take(24)}", scoreInt, e.pnlPct) } catch (_: Throwable) {}
+                    }
+                    if ((e.peakGainPct - e.pnlPct) >= 80.0 || (e.pnlPct < -25.0 && e.score >= 70.0)) {
+                        try {
+                            ChokeReliefBus.launch("MEE_EXIT_ANOMALY_HYPOTHESIS_4530", e.mint) {
+                                AsyncStrategyLab.submitBackgroundHypothesis(
+                                    provider = AsyncStrategyLab.Provider.LOCAL_ONLY,
+                                    lane = e.lane,
+                                    expectedMetric = "improve peak-to-realized capture and reduce high-score terminal bleed",
+                                    proposal = "MathematicalEdgeEngine terminal anomaly lane=${e.lane} source=${e.source} score=${e.score.toInt()} pnl=${fmt(e.pnlPct,1)} peak=${fmt(e.peakGainPct,1)} draw=${fmt(e.maxDrawdownPct,1)} reason=${e.reason.take(120)}. Test bounded exit-bias adjustment for matching DNA only; do not override hard safety.",
+                                    rollbackCondition = "rollback if peak capture ratio or net SOL worsens over 30 trainable terminal closes in this lane/source bucket",
+                                    symbolicChecked = true,
+                                )
+                            }
+                        } catch (_: Throwable) {}
+                    }
+                }
+            }
+        } catch (_: Throwable) {}
     }
 
     fun captureEntryOpportunity(stage: String, lane: String, source: String, mint: String, symbol: String, decision: String, reason: String, score: Double, confidence: Double, liquidityUsd: Double, marketCapUsd: Double, proposedSol: Double = -1.0, finalSol: Double = -1.0, style: String = "", regime: String = "") = submit(EdgeEvent(
@@ -158,9 +235,14 @@ object MathematicalEdgeEngine {
         components = components.entries.filter { kotlin.math.abs(it.value - 1.0) > 0.001 }.sortedBy { it.value }.take(12).joinToString(",") { "${it.key}=${fmt(it.value,3)}" },
     ))
 
-    fun captureTerminal(stage: String, lane: String, source: String, mint: String, symbol: String, side: String, reason: String, pnlPct: Double, pnlSol: Double, sizeSol: Double, holdMs: Long, peakGainPct: Double, maxDrawdownPct: Double, trainable: Boolean, accepted: Boolean) = submit(EdgeEvent(
+
+    fun captureFill(stage: String, lane: String, source: String, mint: String, symbol: String, side: String, quotePx: Double, realizedPx: Double, liquidityUsd: Double, slippagePct: Double, latencyMs: Long, reason: String = "") = submit(EdgeEvent(
+        kind = "FILL", stage = stage, lane = lane, source = source, mint = mint, symbol = symbol, decision = "FILL_$side", reason = reason, liquidityUsd = liquidityUsd, quotePx = quotePx, realizedPx = realizedPx, slippagePct = slippagePct, latencyMs = latencyMs,
+    ))
+
+    fun captureTerminal(stage: String, lane: String, source: String, mint: String, symbol: String, side: String, reason: String, pnlPct: Double, pnlSol: Double, sizeSol: Double, holdMs: Long, peakGainPct: Double, maxDrawdownPct: Double, trainable: Boolean, accepted: Boolean, score: Double = -1.0, regime: String = "") = submit(EdgeEvent(
         kind = "TERMINAL", stage = stage, lane = lane, source = source, mint = mint, symbol = symbol, decision = if (accepted && trainable) "TERMINAL_TRAINABLE" else if (accepted) "TERMINAL_UNTRAINABLE" else "TERMINAL_SUPPRESSED", reason = "$side:$reason",
-        pnlPct = pnlPct, pnlSol = pnlSol, finalSol = sizeSol, holdMs = holdMs, peakGainPct = peakGainPct, maxDrawdownPct = maxDrawdownPct, trainable = trainable, accepted = accepted,
+        score = score, regime = regime, pnlPct = pnlPct, pnlSol = pnlSol, finalSol = sizeSol, holdMs = holdMs, peakGainPct = peakGainPct, maxDrawdownPct = maxDrawdownPct, trainable = trainable, accepted = accepted,
     ))
 
     fun captureExitDecision(stage: String, lane: String, source: String, mint: String, symbol: String, decision: String, reason: String, pnlPct: Double, peakGainPct: Double, holdMs: Long, liquidityUsd: Double) = submit(EdgeEvent(
@@ -180,7 +262,7 @@ object MathematicalEdgeEngine {
         val terminalSourceTop = top(bySourceTerminal) { "${it.key} ${it.value.tag()}" }
         return buildString {
             appendLine("\n===== Mathematical Edge Engine (V5.0.4529) =====")
-            appendLine("  queued=${queued.get()} processed=${processed.get()} dropped=${dropped.get()} coroutine=AppDispatchers.sideEffect authority=report+learning_data_only")
+            appendLine("  queued=${queued.get()} processed=${processed.get()} dropped=${dropped.get()} coroutine=AppDispatchers.sideEffect authority=report+learning_data_only integrations=SourceFamilyOpportunityScorecard+ScoreExpectancyTracker+UltimateEdgeEngine+AsyncStrategyLab+ExecutionCostPredictorAI")
             appendLine("  stages: $stageTop")
             appendLine("  lane decisions: $laneTop")
             appendLine("  source decisions: $sourceTop")

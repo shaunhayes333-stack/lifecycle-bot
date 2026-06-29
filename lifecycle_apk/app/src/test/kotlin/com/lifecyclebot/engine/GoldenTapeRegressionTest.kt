@@ -6573,4 +6573,18 @@ class GoldenTapeRegressionTest {
         assertTrue("V5.0.4529: reports must expose the mathematical edge engine", pipe.contains("MathematicalEdgeEngine.formatForPipelineDump"))
     }
 
+
+
+    @Test
+    fun aate4530MathematicalEdgeEngineWiresFullExistingEdgeBlock() {
+        val edge = java.io.File("src/main/kotlin/com/lifecyclebot/engine/MathematicalEdgeEngine.kt").readText()
+        val exec = java.io.File("src/main/kotlin/com/lifecyclebot/engine/Executor.kt").readText()
+        assertTrue("V5.0.4530: edge engine must import side-effect dispatcher explicitly", edge.contains("import com.lifecyclebot.util.AppDispatchers"))
+        assertTrue("V5.0.4530: entry events must feed source denominator scorecard and UltimateEdgeEngine", edge.contains("SourceFamilyOpportunityScorecard.recordDiscovered") && edge.contains("SourceFamilyOpportunityScorecard.recordAdmitted") && edge.contains("UltimateEdgeEngine.enqueueRefresh"))
+        assertTrue("V5.0.4530: terminal events must feed ScoreExpectancyTracker by lane/source/regime", edge.contains("ScoreExpectancyTracker.record") && edge.contains("MEE_LANE_") && edge.contains("MEE_SOURCE_") && edge.contains("MEE_REGIME_"))
+        assertTrue("V5.0.4530: anomaly math must propose bounded AsyncStrategyLab hypotheses through ChokeReliefBus only", edge.contains("ChokeReliefBus.launch") && edge.contains("AsyncStrategyLab.submitBackgroundHypothesis") && edge.contains("symbolicChecked = true"))
+        assertTrue("V5.0.4530: fill capture must be available and wired to ExecutionCostPredictorAI learning", edge.contains("fun captureFill") && edge.contains("ExecutionCostPredictorAI.learn"))
+        assertTrue("V5.0.4530: Executor terminal capture must pass entry score/regime into the math engine", exec.contains("score = (tradeWithMint.score.takeIf") && exec.contains("regime = try { com.lifecyclebot.engine.RegimeDetector.currentRegime().name"))
+    }
+
 }
