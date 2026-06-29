@@ -6491,14 +6491,14 @@ class GoldenTapeRegressionTest {
 
 
     @Test
-    fun liveFanoutPressure_4521NarrowsBroadProfitableRescueWithoutLaneAmputation() {
+    fun liveFanoutPressure_4522NarrowsBroadProfitableRescueWithoutLaneAmputation() {
         val pressure = java.io.File("src/main/kotlin/com/lifecyclebot/engine/LiveLaneFanoutPressure.kt").readText()
         val bot = java.io.File("src/main/kotlin/com/lifecyclebot/engine/BotService.kt").readText()
         val report = java.io.File("src/main/kotlin/com/lifecyclebot/engine/ReportingHub.kt").readText()
-        assertTrue("V5.0.4521: fanout pressure detector must use cached laneEval/intake plus live WR", pressure.contains("ratio > 8.0") && pressure.contains("wr < 30.0") && pressure.contains("TTL_MS"))
-        assertTrue("V5.0.4521: pressure mode must narrow broad score/liquidity profitable rescue, not disable lanes", bot.contains("LIVE_FANOUT_PRESSURE_RESCUE_NARROWED_4521") && bot.contains("primary lane and affinity-proven rescue still run"))
-        assertTrue("V5.0.4521: normal mode must preserve the existing profitable rescue path", bot.contains("scoreForToxicity >= 55") && bot.contains("ts.lastLiquidityUsd >= 15_000.0"))
-        assertTrue("V5.0.4521: reports must surface fanout pressure state", report.contains("LiveLaneFanoutPressure.snapshot"))
+        assertTrue("V5.0.4522: fanout pressure detector must use cached laneEval/intake plus live WR", pressure.contains("ratio > 8.0") && pressure.contains("wr < 30.0") && pressure.contains("TTL_MS"))
+        assertTrue("V5.0.4522: pressure mode must narrow broad score/liquidity profitable rescue, not disable lanes", bot.contains("LIVE_FANOUT_PRESSURE_RESCUE_NARROWED_4522") && bot.contains("primary lane and affinity-proven rescue still run"))
+        assertTrue("V5.0.4522: normal mode must preserve the existing profitable rescue path", bot.contains("scoreForToxicity >= 55") && bot.contains("ts.lastLiquidityUsd >= 15_000.0"))
+        assertTrue("V5.0.4522: reports must surface fanout pressure state", report.contains("LiveLaneFanoutPressure.snapshot"))
     }
 
 }
