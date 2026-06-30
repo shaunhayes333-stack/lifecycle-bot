@@ -8571,7 +8571,7 @@ This cannot be undone!
         val funnelLine = try {
             val tele = com.lifecyclebot.engine.MarketsTelemetry.latestThroughput
             val mqSize = com.lifecyclebot.engine.TokenMergeQueue.getPendingCount()
-            val probSize = probationEntries.size
+            val probSize = probationEntriesSize
             val bypassCount = com.lifecyclebot.engine.MarketsTelemetry.multiScannerBypasses.get()
             val insiderBuys = com.lifecyclebot.engine.InsiderCopyEngine.totalCopyBuys.get()
             val insiderExits = com.lifecyclebot.engine.InsiderCopyEngine.totalCopyExits.get()
