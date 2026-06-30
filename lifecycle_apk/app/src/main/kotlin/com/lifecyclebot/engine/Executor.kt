@@ -5927,12 +5927,26 @@ class Executor(
         val partialGrossEstimate = sellQty * actualPrice
         val partialNetEstimate = partialGrossEstimate - partialCostBasisEstimate
         val partialPctEstimate = pct(partialCostBasisEstimate, partialGrossEstimate)
-        onLog("💰 $milestoneLabel: SELL ${(sellFraction*100).toInt()}% @ ${partialPctEstimate.fmtPctPrecise()}$wrRecovTag " +
-              "(trigger: +${triggerPct.toInt()}%) | cost=${partialCostBasisEstimate.fmtSol()} gross=${partialGrossEstimate.fmtSol()} pnl=${partialNetEstimate.fmtSignedSol()}", ts.mint)
-        onNotify("💰 $milestoneLabel",
-                 "${ts.symbol}: sold ${(sellFraction*100).toInt()}% | PnL ${partialPctEstimate.fmtPctPrecise()} (${partialNetEstimate.fmtSignedSol()} SOL)",
-                 com.lifecyclebot.engine.NotificationHistory.NotifEntry.NotifType.INFO)
-        sounds?.playMilestone(gainPct)
+        // V5.0.4562 — PARTIAL FINALITY TRUTH.
+        // This block used to emit a "💰 partial sold / PnL" notification BEFORE
+        // live route selection, wallet-null guard, balance-authority check,
+        // broadcast, verification, recordTrade(), journal write and wallet delta.
+        // Operator report: open display showed +2000%, five partial-win notices
+        // fired, but wallet/journal had nothing. Pre-finality signals are not
+        // realized wins. LIVE only gets an armed signal here; sold/PnL notice
+        // fires after signature + accounting below. PAPER fires after ledger write.
+        if (pos.isPaperPosition) {
+            try { ForensicLogger.lifecycle("PAPER_PARTIAL_SIGNAL_ARMED_4562", "mint=${ts.mint.take(10)} symbol=${ts.symbol} milestone=$milestoneLabel triggerPct=$triggerPct estimatePct=${partialPctEstimate.fmtPctPrecise()}") } catch (_: Throwable) {}
+        } else {
+            onLog("🧭 Partial signal armed: $milestoneLabel ${(sellFraction*100).toInt()}% trigger=+${triggerPct.toInt()}% est=${partialPctEstimate.fmtPctPrecise()} — awaiting live route/finality", ts.mint)
+            try {
+                ForensicLogger.lifecycle(
+                    "LIVE_PARTIAL_SIGNAL_ARMED_NOT_FINAL_4562",
+                    "mint=${ts.mint.take(10)} symbol=${ts.symbol} milestone=$milestoneLabel triggerPct=$triggerPct estPct=${partialPctEstimate.fmtPctPrecise()} estNet=${partialNetEstimate.fmtSignedSol()} action=no_win_notify_until_finality"
+                )
+                PipelineHealthCollector.labelInc("LIVE_PARTIAL_SIGNAL_ARMED_NOT_FINAL_4562")
+            } catch (_: Throwable) {}
+        }
 
         // V5.9.751b — route on position isPaper, not config. Previously a
         // live position with transient wallet=null silently booked a PAPER
@@ -5995,6 +6009,10 @@ class Executor(
                 "mode=paper mint=${ts.mint.take(10)} symbol=${ts.symbol} soldPct=${(sellFraction*100).fmt(1)} cost=${partialCostBasisSol.fmtSol()} gross=${(sellQty * actualPrice).fmtSol()} pnl=${paperPnlSol.fmtSignedSol()} net=${paperPartialNetPnl.fmtSignedSol()} pct=${pct(partialCostBasisSol, sellQty * actualPrice).fmtPctPrecise()} reason=${trade.reason}") } catch (_: Throwable) {}
             onLog("PAPER PARTIAL SELL ${(sellFraction*100).toInt()}% | " +
                   "cost=${partialCostBasisSol.fmtSol()} gross=${(sellQty * actualPrice).fmtSol()} pnl=${paperPnlSol.fmtSignedSol()} (${pct(partialCostBasisSol, sellQty * actualPrice).fmtPctPrecise()})", ts.mint)
+            onNotify("💰 $milestoneLabel",
+                 "${ts.symbol}: sold ${(sellFraction*100).toInt()}% | PnL ${pct(partialCostBasisSol, sellQty * actualPrice).fmtPctPrecise()} (${paperPartialNetPnl.fmtSignedSol()} SOL net)",
+                 com.lifecyclebot.engine.NotificationHistory.NotifEntry.NotifType.INFO)
+            sounds?.playMilestone(gainPct)
         } else {
             beginMemeExecutionStack(
                 side = com.lifecyclebot.engine.execution.MemeExecutionRouteStack.Side.SELL,
@@ -6244,6 +6262,7 @@ class Executor(
                 onNotify("💰 Live Partial Sell",
                     "${ts.symbol}: sold ${(sellFraction*100).toInt()}% | PnL ${liveScore.fmtPctPrecise()} (${netPnl.fmtSignedSol()} SOL net)",
                     com.lifecyclebot.engine.NotificationHistory.NotifEntry.NotifType.INFO)
+                sounds?.playMilestone(gainPct)
                 // V5.9.743 — wire 70/30 treasury siphon onto LIVE autonomous
                 // partial-sell ladder. Use netPnl (post-fee) — same figure
                 // liveSell uses. Treasury-tagged positions deposit 100%.

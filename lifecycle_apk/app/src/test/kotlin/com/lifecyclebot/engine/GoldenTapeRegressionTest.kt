@@ -6844,4 +6844,14 @@ class GoldenTapeRegressionTest {
         assertTrue("V5.0.4561: patch must specifically protect against lane-drift duplicate closes", exec.contains("TradeOutcomeLedger") && exec.contains("keys include lane/entry identity") && exec.contains("same mint closing twice under different lane labels") && exec.contains("NOT suppress the first real row"))
     }
 
+
+
+    @Test
+    fun aate4562LivePartialWinsNotifyOnlyAfterFinality() {
+        val exec = java.io.File("src/main/kotlin/com/lifecyclebot/engine/Executor.kt").readText()
+        assertTrue("V5.0.4562: live partial trigger must be an armed signal, not a realized-win notification", exec.contains("PARTIAL FINALITY TRUTH") && exec.contains("LIVE_PARTIAL_SIGNAL_ARMED_NOT_FINAL_4562"))
+        assertTrue("V5.0.4562: pre-finality live partial path must explicitly avoid win notification until finality", exec.contains("no_win_notify_until_finality") && exec.contains("awaiting live route/finality"))
+        assertTrue("V5.0.4562: realized live partial notification must remain after signature/accounting", exec.contains("💰 Live Partial Sell") && exec.contains("sounds?.playMilestone(gainPct)"))
+    }
+
 }
