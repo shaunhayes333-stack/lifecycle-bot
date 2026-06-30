@@ -118,6 +118,18 @@ object TradeHistoryStore {
     @Volatile private var latestBuyRefreshInFlight: Boolean = false
     private const val LATEST_BUY_CACHE_MS = 5_000L
 
+
+    // V5.0.4541 — raw closed-trade snapshots showed up in ANR samples via
+    // getRecentValidClosedTradesRaw(SourceFile:9). The raw close scan is valid
+    // for reports/analytics, but it must not take the journal lock on main. Keep
+    // a short-lived cached snapshot and refresh it on TradeHistoryIO instead.
+    private const val RAW_CLOSED_CACHE_MS = 5_000L
+    @Volatile private var rawClosedTradesCache: List<Trade> = emptyList()
+    @Volatile private var rawClosedTradesCacheMs: Long = 0L
+    @Volatile private var rawClosedTradesCacheLimit: Int = 0
+    @Volatile private var rawClosedTradesCacheIncludePartials: Boolean = true
+    @Volatile private var rawClosedTradesRefreshInFlight: Boolean = false
+
     fun getStatsCached(): StatsSnapshot {
         val now = System.currentTimeMillis()
         cachedStatsSnapshot?.let { if (now - cachedStatsSnapshotMs < STATS_SNAPSHOT_CACHE_MS) return it }

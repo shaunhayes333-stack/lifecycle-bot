@@ -15806,14 +15806,14 @@ class Executor(
             
             com.lifecyclebot.v3.scoring.EducationSubLayerAI.recordTradeOutcomeAcrossAllLayers(outcomeData)
             try { com.lifecyclebot.engine.AutonomousMetaPolicy.recordOutcome(ts.mint, pnlP) } catch (_: Throwable) {}
-            try { com.lifecyclebot.engine.ForwardOutcomeModel.recordOutcome(ts.mint, pnlP) } catch (_: Throwable) {}
+            // V5.0.4542 — do NOT train ForwardOutcomeModel/UnifiedPolicyHead/
+            // UnifiedExitPolicyHead from this legacy sell-local callback. V5.0.4514
+            // centralized those heads at Executor.recordTrade after TradeRowSanityCheck
+            // and StrategyTruthLedger gates. Training here duplicates/dirty-trains the
+            // policy heads and is one reason massive module wiring did not translate
+            // into profitable authority. Keep non-policy legacy learners below.
+            try { PipelineHealthCollector.labelInc("POLICY_HEAD_DIRECT_FANOUT_SUPPRESSED_4542") } catch (_: Throwable) {}
             try { com.lifecyclebot.engine.SignalQualityTracker.recordOutcome(ts.mint, pnlP) } catch (_: Throwable) {}
-            try { com.lifecyclebot.engine.UnifiedPolicyHead.recordOutcome(ts.mint, pnlP) } catch (_: Throwable) {}
-            // V5.0.4095 — train per-lane exit brain. exitWasOptimal heuristic:
-            // exit didn't catastrophically overrun (pnl > -5%) AND wasn't a
-            // capitulation (we banked something, not zeroed). The exit brain
-            // learns when "exit now" vs "hold longer" was the right call.
-            try { com.lifecyclebot.engine.UnifiedExitPolicyHead.recordOutcome(ts.mint, pnlP > -5.0) } catch (_: Throwable) {}
             try { com.lifecyclebot.engine.LayerBrain.recordOutcomeAll(ts.mint, pnlP) } catch (_: Throwable) {}  // V5.0.4111
             try { com.lifecyclebot.engine.StrategyHypothesisEngine.recordOutcome(ts.mint, pnlP) } catch (_: Throwable) {}
             ErrorLogger.info("Executor", "🎓 HARVARD BRAIN: Recorded outcome for ${ts.symbol} | PnL=${pnlP.toInt()}% | Active layers will increase")
@@ -18457,14 +18457,14 @@ class Executor(
             
             com.lifecyclebot.v3.scoring.EducationSubLayerAI.recordTradeOutcomeAcrossAllLayers(outcomeData)
             try { com.lifecyclebot.engine.AutonomousMetaPolicy.recordOutcome(ts.mint, pnlP) } catch (_: Throwable) {}
-            try { com.lifecyclebot.engine.ForwardOutcomeModel.recordOutcome(ts.mint, pnlP) } catch (_: Throwable) {}
+            // V5.0.4542 — do NOT train ForwardOutcomeModel/UnifiedPolicyHead/
+            // UnifiedExitPolicyHead from this legacy sell-local callback. V5.0.4514
+            // centralized those heads at Executor.recordTrade after TradeRowSanityCheck
+            // and StrategyTruthLedger gates. Training here duplicates/dirty-trains the
+            // policy heads and is one reason massive module wiring did not translate
+            // into profitable authority. Keep non-policy legacy learners below.
+            try { PipelineHealthCollector.labelInc("POLICY_HEAD_DIRECT_FANOUT_SUPPRESSED_4542") } catch (_: Throwable) {}
             try { com.lifecyclebot.engine.SignalQualityTracker.recordOutcome(ts.mint, pnlP) } catch (_: Throwable) {}
-            try { com.lifecyclebot.engine.UnifiedPolicyHead.recordOutcome(ts.mint, pnlP) } catch (_: Throwable) {}
-            // V5.0.4095 — train per-lane exit brain. exitWasOptimal heuristic:
-            // exit didn't catastrophically overrun (pnl > -5%) AND wasn't a
-            // capitulation (we banked something, not zeroed). The exit brain
-            // learns when "exit now" vs "hold longer" was the right call.
-            try { com.lifecyclebot.engine.UnifiedExitPolicyHead.recordOutcome(ts.mint, pnlP > -5.0) } catch (_: Throwable) {}
             try { com.lifecyclebot.engine.LayerBrain.recordOutcomeAll(ts.mint, pnlP) } catch (_: Throwable) {}  // V5.0.4111
             try { com.lifecyclebot.engine.StrategyHypothesisEngine.recordOutcome(ts.mint, pnlP) } catch (_: Throwable) {}
             // V5.0.4132 — DISCIPLINE-PASS FEEDBACK LOOP

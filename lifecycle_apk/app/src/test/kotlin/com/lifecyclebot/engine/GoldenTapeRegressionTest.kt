@@ -6703,4 +6703,14 @@ class GoldenTapeRegressionTest {
         assertTrue("V5.0.4541: the journal lock must only be taken in the compute helper after ensureInitialized", store.contains("private fun computeRecentValidClosedTradesRaw") && store.contains("ensureInitialized()") && store.contains("synchronized(lock)"))
     }
 
+
+
+    @Test
+    fun aate4542PolicyHeadsOnlyTrainAtRecordTradeChokePoint() {
+        val exec = java.io.File("src/main/kotlin/com/lifecyclebot/engine/Executor.kt").readText()
+        assertTrue("V5.0.4542: policy heads must still train at the gated recordTrade choke point", exec.contains("ForwardOutcomeModel.recordOutcome(mintForHeads4514") && exec.contains("UnifiedPolicyHead.recordOutcome(mintForHeads4514") && exec.contains("UnifiedExitPolicyHead.recordOutcome(mintForHeads4514"))
+        assertTrue("V5.0.4542: legacy paper/live sell callbacks must suppress direct policy-head fanout", exec.contains("POLICY_HEAD_DIRECT_FANOUT_SUPPRESSED_4542") && exec.contains("do NOT train ForwardOutcomeModel/UnifiedPolicyHead"))
+        assertEquals("V5.0.4542: no direct ts.mint policy-head recordOutcome calls may survive outside recordTrade", 0, Regex("""(ForwardOutcomeModel|UnifiedPolicyHead|UnifiedExitPolicyHead)\.recordOutcome\(ts\.mint""").findAll(exec).count())
+    }
+
 }
