@@ -180,8 +180,8 @@ class GoldenTapeRegressionTest {
         // confirmed buy signature is canonical open/sell-managed while token
         // account indexing catches up.
         val source = java.io.File("src/main/kotlin/com/lifecyclebot/engine/RuntimeStateSnapshot.kt").readText()
-        assertTrue(source.contains("canonical LIVE truth includes confirmed-pending-balance"))
-        assertTrue(source.contains("maxOf(walletHeld, hostOpen, localLiveOpen, lifecyclePendingConfirmed)"))
+        assertTrue(source.contains("canonical LIVE truth is MANAGED live truth"))
+        assertTrue(source.contains("val managedLiveOpen = maxOf(localLiveOpen, hostOpen, lifecyclePendingConfirmed, lifecycleOpen)"))
         assertTrue(source.contains("val heldMints = try { HostWalletTokenTracker.getActuallyHeldMints()"))
     }
 
@@ -1081,8 +1081,8 @@ class GoldenTapeRegressionTest {
     fun live_transfer_audit_and_snapshot_do_not_report_stale_live_deadness() {
         val snapshot = java.io.File("src/main/kotlin/com/lifecyclebot/engine/RuntimeStateSnapshot.kt").readText()
         assertTrue(snapshot.contains("HostWalletTokenTracker.getActuallyHeldMints()"))
-        assertTrue(snapshot.contains("val liveOpen = maxOf(localLiveOpen, hostOpen, lifecyclePendingConfirmed)"))
-        assertTrue(snapshot.contains("confirmed buy signature with"))
+        assertTrue(snapshot.contains("val managedLiveOpen = maxOf(localLiveOpen, hostOpen, lifecyclePendingConfirmed, lifecycleOpen)"))
+        assertTrue(snapshot.contains("confirmed-pending buys remain counted"))
 
         val audit = java.io.File("src/main/kotlin/com/lifecyclebot/engine/LiveTransferAudit.kt").readText()
         assertTrue(audit.contains("execLiveBuyOk"))
@@ -1566,8 +1566,8 @@ class GoldenTapeRegressionTest {
         assertFalse("pending visibility must not depend on stale raw as cap truth", host.contains("isOpenForAccounting(it) && hasLastPositiveRaw(it)"))
         assertTrue(lifecycle.contains("CONFIRMED_PENDING_BALANCE"))
         assertFalse("liveMemeOpenCount must not require positive wallet qty only", lifecycle.contains("r.currentWalletTokenQty > DUST_UI_THRESHOLD &&\n                r.status != Status.RECONCILE_FAILED"))
-        assertTrue(snap.contains("maxOf(localLiveOpen, hostOpen, lifecyclePendingConfirmed)"))
-        assertTrue(snap.contains("maxOf(walletHeld, hostOpen, localLiveOpen, lifecyclePendingConfirmed)"))
+        assertTrue(snap.contains("val managedLiveOpen = maxOf(localLiveOpen, hostOpen, lifecyclePendingConfirmed, lifecycleOpen)"))
+        assertTrue(snap.contains("canonical LIVE truth is MANAGED live truth"))
         assertTrue(doctor.contains("RECONCILER_BLIND_CRITICAL"))
         assertTrue(doctor.contains("LIVE_BUY_CONFIRMED_NOT_VISIBLE_CRITICAL"))
     }
@@ -3717,7 +3717,7 @@ class GoldenTapeRegressionTest {
         val doctor = java.io.File("src/main/kotlin/com/lifecyclebot/engine/InvariantGuardian.kt").readText()
         val wait = java.io.File("src/main/kotlin/com/lifecyclebot/engine/sell/BalanceProofWaitState.kt").readText()
         assertTrue("FDG-approved safety-blind WATCH must soft-allow with nonzero liquidity/no hardNo", gate.contains("safetyBlindSoftAllow") && gate.contains("safetyKnownOk || safetyBlindSoftAllow") && gate.contains("Confirmed rugs and zero-liquidity still block later"))
-        assertTrue("orphan live accounting must subtract reconciler GRACE", snap.contains("positionReconSnapshot?.grace") && snap.contains("val graceAllowance = maxOf(1, reconcilerGrace)") && snap.contains("ORPHAN GRACE MUST FOLLOW THE RECONCILER"))
+        assertTrue("orphan live accounting must subtract reconciler GRACE from managed desync, not wallet extras", snap.contains("positionReconSnapshot?.grace") && snap.contains("val graceAllowance = maxOf(1, reconcilerGrace)") && snap.contains("orphanLive must mean managed-state desync") && snap.contains("managedDesync"))
         assertTrue("balance-proof waits must release close leases", wait.contains("BALANCE_PROOF_WAIT_NO_ACTIVE_CLOSE") && wait.contains("CloseLease.release"))
         assertTrue("doctor noSig fault must use actionable noSig after active proof waits", doctor.contains("val actionableNoSig = (noSig - waitStateSize).coerceAtLeast(0L)") && doctor.contains("rawNoSig=${'$'}") && doctor.contains("actionableNoSig > 0L"))
     }
