@@ -6943,4 +6943,16 @@ class GoldenTapeRegressionTest {
         assertTrue("V5.0.4573: operator digest must surface playbook state", digest.contains("CommonSenseTradePlaybook.statusLine") && digest.contains("playbook_execution_authority=Executor.liveBuy"))
     }
 
+
+
+    @Test
+    fun aate4576LiveBuyAlreadyOpenSuccessHasTerminalTrace() {
+        val executor = java.io.File("src/main/kotlin/com/lifecyclebot/engine/Executor.kt").readText()
+        assertTrue("V5.0.4576: live buy must have per-attempt terminal trace helper", executor.contains("BUY_ATTEMPT_TRACE_4576") && executor.contains("buyAttemptTrace4576") && executor.contains("TERMINAL_OK") && executor.contains("TERMINAL_FAIL"))
+        assertTrue("V5.0.4576: already-open-at-confirm success must backfill the missing BUY journal before terminal OK", executor.contains("POSITION_ALREADY_OPEN_AT_CONFIRM") && executor.contains("LIVE_BUY_JOURNAL_BACKFILLED_4576") && executor.contains("BUY_ALREADY_OPEN_AT_CONFIRM_BACKFILL_4576") && executor.contains("BUY_TERMINAL_OK:POSITION_ALREADY_OPEN_AT_CONFIRM"))
+        assertTrue("V5.0.4576: live BUY journal backfill must be idempotent by signature", executor.contains("liveBuyJournaledSigs4576") && executor.contains("LIVE_BUY_JOURNAL_DUP_SUPPRESSED_4576"))
+        assertTrue("V5.0.4576: normal position stamp path must emit the attempt trace before terminal OK", executor.contains("buyAttemptTrace4576") && executor.contains("POSITION_STAMPED") && executor.contains("LIVE_POSITION_STAMPED") && executor.contains("BUY_TERMINAL_OK:TX_CONFIRMED_PENDING_WALLET_DELTA"))
+        assertTrue("V5.0.4576: async wallet-proof BUY_OK/PENDING paths must connect back to the same attempt trace", executor.contains("WALLET_PROOF_OK") && executor.contains("WALLET_PROOF_PENDING") && executor.contains("LIVE_BUY_LANDED"))
+    }
+
 }

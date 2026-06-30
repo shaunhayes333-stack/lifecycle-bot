@@ -773,6 +773,11 @@ class Executor(
         // PositionCloseLedger itself is the close authority; this set tracks
         // whether that closeId has already been journaled/trained by recordTrade().
         private val terminalSellJournaledCloseIds4561 = java.util.concurrent.ConcurrentHashMap.newKeySet<String>()
+        // V5.0.4576 — live BUY journal idempotency by signature. A confirmed
+        // buy can be observed by the verifier/reconciler before the liveBuy
+        // thread reaches its normal recordTrade(BUY) section. The recovery path
+        // must backfill a missing BUY row, but never duplicate one for the same tx.
+        private val liveBuyJournaledSigs4576 = java.util.concurrent.ConcurrentHashMap.newKeySet<String>()
     }
     
     // Lazy init to get Jupiter API key from config
@@ -11211,15 +11216,26 @@ class Executor(
             return false
         }
         var buyTerminalRecorded = false
+        fun buyAttemptTrace4576(stage: String, detail: String = "") {
+            try {
+                ForensicLogger.lifecycle(
+                    "BUY_ATTEMPT_TRACE_4576",
+                    "attemptId=${execCtx.attemptId} mint=${ts.mint.take(10)} symbol=${ts.symbol} stage=$stage lane=$routedLaneTag lastStage=$liveBuyLastStage detail=${detail.take(180)}",
+                )
+                PipelineHealthCollector.labelInc("BUY_ATTEMPT_TRACE_4576_$stage")
+            } catch (_: Throwable) {}
+        }
         fun buyTerminalFail(reason: String) {
             if (!buyTerminalRecorded) {
                 buyTerminalRecorded = true
+                buyAttemptTrace4576("TERMINAL_FAIL", reason)
                 ExecutionAttemptLease.terminalFail(buyLease.key, "BUY", ts.mint, ts.symbol, reason, buyLeaseProcessor)
             }
         }
         fun buyTerminalOk(reason: String) {
             if (!buyTerminalRecorded) {
                 buyTerminalRecorded = true
+                buyAttemptTrace4576("TERMINAL_OK", reason)
                 ExecutionAttemptLease.terminalOk(buyLease.key, "BUY", ts.mint, ts.symbol, reason)
             }
         }
@@ -12318,21 +12334,68 @@ class Executor(
                 else rawTokenAmountToUiAmount(ts, quote!!.outAmount, solAmount = sol, priceUsd = price)
 
             if (ts.position.isOpen) {
-                // V5.0.4100 — Wave 3: treat 'position opened during confirmation
-                // wait' as a successful buy (idempotency), not a failure. The
-                // token account exists, the wallet balance reflects the buy,
-                // re-buying would double up and risk a duplicate-fill bug.
-                // Reclassify as BUY_OK_LATE_CONFIRMED so the strategy doesn't
-                // count this as a failure when training. Doctrine: do not let
-                // confirmation-wait races shrink entry size or train as loss.
+                // V5.0.4576 — SOURCE FIX, not just telemetry. This idempotent
+                // success path used to return true before the normal BUY journal /
+                // LIVE_POSITION_STAMPED section. That made real confirmed/open buys
+                // show up as ok/proofed while missing from journal-derived rows.
+                // Backfill exactly one BUY row per signature, then terminal-ok the
+                // attempt. This preserves duplicate safety while making the buy real
+                // to StrategyTruthLedger / learning / reports.
                 onLog("✅ Position opened during confirmation wait — late-confirm success (idempotent)", ts.mint)
+                val existingPos4576 = ts.position
+                val journalKey4576 = sig.ifBlank { "${ts.mint}:${existingPos4576.entryTime}:${existingPos4576.costSol}" }
+                if (liveBuyJournaledSigs4576.add(journalKey4576)) {
+                    val recoveredBuy4576 = Trade(
+                        side = "BUY",
+                        mode = "live",
+                        sol = existingPos4576.costSol.takeIf { it > 0.0 } ?: sol,
+                        price = existingPos4576.entryPrice.takeIf { it > 0.0 } ?: price,
+                        ts = existingPos4576.entryTime.takeIf { it > 0L } ?: System.currentTimeMillis(),
+                        score = existingPos4576.entryScore.takeIf { it > 0.0 } ?: score,
+                        sig = sig,
+                        tradingMode = existingPos4576.tradingMode.ifBlank { routedLaneTag.ifBlank { layerTag.ifBlank { currentMode.name } } },
+                        tradingModeEmoji = existingPos4576.tradingModeEmoji.ifBlank { layerTagEmoji.ifBlank { currentMode.emoji } },
+                        entryPriceSnapshot = existingPos4576.entryPrice.takeIf { it > 0.0 } ?: price,
+                        entryMcapUsd = existingPos4576.entryMcap.takeIf { it > 0.0 } ?: entryMarketSnapshot.marketCapUsd,
+                        entryCostSol = existingPos4576.costSol.takeIf { it > 0.0 } ?: sol,
+                        entryQtyToken = existingPos4576.qtyToken.takeIf { it > 0.0 } ?: finalQty,
+                        remainingQtyToken = existingPos4576.qtyToken.takeIf { it > 0.0 } ?: finalQty,
+                        entryPriceSource = existingPos4576.entryPriceSource.ifBlank { entryMarketSnapshot.priceSource },
+                        entryPoolAddress = existingPos4576.entryPoolAddress.ifBlank { entryMarketSnapshot.poolAddress },
+                        reason = "BUY_ALREADY_OPEN_AT_CONFIRM_BACKFILL_4576",
+                    )
+                    recordTrade(ts, recoveredBuy4576)
+                    security.recordTrade(recoveredBuy4576)
+                    liveStage("JOURNAL_WRITE_OK", "alreadyOpenAtConfirm=true signature=${sig.take(16)} lane=${recoveredBuy4576.tradingMode}")
+                    try {
+                        com.lifecyclebot.engine.PipelineHealthCollector.labelInc("LIVE_BUY_JOURNAL_BACKFILLED_4576")
+                        com.lifecyclebot.engine.PipelineHealthCollector.labelInc("LIVE_POSITION_STAMPED")
+                        com.lifecyclebot.engine.ForensicLogger.lifecycle(
+                            "LIVE_BUY_JOURNAL_BACKFILLED_4576",
+                            "attemptId=${execCtx.attemptId} symbol=${ts.symbol} mint=${ts.mint.take(10)} sig=${sig.take(16)} lane=${recoveredBuy4576.tradingMode} sol=${recoveredBuy4576.sol} reason=POSITION_ALREADY_OPEN_AT_CONFIRM"
+                        )
+                        com.lifecyclebot.engine.ForensicLogger.lifecycle(
+                            "LIVE_POSITION_STAMPED",
+                            "attemptId=${execCtx.attemptId} mint=${ts.mint.take(10)} symbol=${ts.symbol} finalSol=${recoveredBuy4576.sol.fmt(4)} route=$routerLabel signature=${sig.take(16)} reason=already_open_backfill_4576"
+                        )
+                    } catch (_: Throwable) { }
+                } else {
+                    try {
+                        com.lifecyclebot.engine.PipelineHealthCollector.labelInc("LIVE_BUY_JOURNAL_BACKFILL_DUP_SUPPRESSED_4576")
+                        com.lifecyclebot.engine.ForensicLogger.lifecycle("LIVE_BUY_JOURNAL_BACKFILL_DUP_SUPPRESSED_4576", "mint=${ts.mint.take(10)} symbol=${ts.symbol} sig=${sig.take(16)}")
+                    } catch (_: Throwable) { }
+                }
                 try {
                     com.lifecyclebot.engine.PipelineHealthCollector.labelInc("BUY_OK_LATE_CONFIRMED")
+                    com.lifecyclebot.engine.PipelineHealthCollector.labelInc("LIVE_POSITION_ALREADY_OPEN_AT_CONFIRM_4576")
                     com.lifecyclebot.engine.ForensicLogger.lifecycle(
                         "BUY_OK_LATE_CONFIRMED",
-                        "symbol=${ts.symbol} mint=${ts.mint.take(8)} reason=POSITION_ALREADY_OPEN_AT_CONFIRM"
+                        "attemptId=${execCtx.attemptId} symbol=${ts.symbol} mint=${ts.mint.take(8)} reason=POSITION_ALREADY_OPEN_AT_CONFIRM action=journal_backfilled_terminal_ok"
                     )
+                    buyAttemptTrace4576("POSITION_ALREADY_OPEN_AT_CONFIRM", "pendingVerify=${ts.position.pendingVerify} qty=${ts.position.qtyToken}")
                 } catch (_: Throwable) { }
+                liveStage("POSITION_TRACKED", "alreadyOpenAtConfirm=true signature=${sig.take(16)} pendingVerify=${ts.position.pendingVerify}")
+                buyTerminalOk("BUY_TERMINAL_OK:POSITION_ALREADY_OPEN_AT_CONFIRM")
                 return true
             }
 
@@ -12433,8 +12496,17 @@ class Executor(
                 entryPriceSource = entryMarketSnapshot.priceSource,
                 entryPoolAddress = entryMarketSnapshot.poolAddress,
             )
-            recordTrade(ts, trade)
+            val normalBuyJournalKey4576 = sig.ifBlank { "${ts.mint}:${trade.ts}:${trade.sol}" }
+            if (liveBuyJournaledSigs4576.add(normalBuyJournalKey4576)) {
+                recordTrade(ts, trade)
+            } else {
+                try {
+                    ForensicLogger.lifecycle("LIVE_BUY_JOURNAL_DUP_SUPPRESSED_4576", "mint=${ts.mint.take(10)} symbol=${ts.symbol} sig=${sig.take(16)} lane=${trade.tradingMode}")
+                    PipelineHealthCollector.labelInc("LIVE_BUY_JOURNAL_DUP_SUPPRESSED_4576")
+                } catch (_: Throwable) {}
+            }
             liveStage("JOURNAL_WRITE_OK", "signature=${sig.take(16)} lane=${trade.tradingMode}")
+            buyAttemptTrace4576("POSITION_STAMPED", "route=$routerLabel signature=${sig.take(16)} lane=${trade.tradingMode}")
             try {
                 ForensicLogger.lifecycle("LIVE_POSITION_STAMPED", "attemptId=${execCtx.attemptId} mint=${ts.mint.take(10)} symbol=${ts.symbol} positionId=${trade.positionId.ifBlank { tradeId.mint.take(10) }} finalSol=${sol.fmt(4)} route=$routerLabel signature=${sig.take(16)} policy=${livePolicySnapshot.take(220)}")
                 PipelineHealthCollector.labelInc("LIVE_POSITION_STAMPED")
@@ -12822,6 +12894,7 @@ class Executor(
                         tokenAmount = ts.position.qtyToken, sig = verifySig, traderTag = "MEME",
                     )
                     try { com.lifecyclebot.engine.ForensicLogger.lifecycle("LIVE_BUY_LANDED", "mint=${verifyMint.take(10)} symbol=$verifySymbol source=${proof.source} rawAmount=${proof.amountRaw} decimals=${proof.decimals} sig=${verifySig.take(16)}") } catch (_: Throwable) {}
+                    buyAttemptTrace4576("WALLET_PROOF_OK", "stage=$stage proof=${proof.source} qty=$qtyUi sig=${verifySig.take(16)}")
                     return true
                 }
 
@@ -12908,6 +12981,7 @@ class Executor(
                         "⚠️ Verification inconclusive — RPC errors during polls. Position remains pending balance proof; reconciler will promote only with proof.",
                         traderTag = "MEME",
                     )
+                    buyAttemptTrace4576("WALLET_PROOF_PENDING", "reason=rpc_error_inconclusive sig=${verifySig.take(16)}")
                 } else if (!sigParseConfirmedZero && (ts.position.pendingVerify || signatureManagedAtEntry)) {
                     // V5.9.265 — All ATA polls returned 0 BUT the tx-parse never
                     // explicitly returned 0 (it returned null = "tx not yet
@@ -12926,6 +13000,7 @@ class Executor(
                         "⚠️ ATA poll returned 0 but tx not yet indexed — keeping BUY_PENDING_BALANCE_PROOF; reconciler will promote only with proof once tokens index.",
                         traderTag = "MEME",
                     )
+                    buyAttemptTrace4576("WALLET_PROOF_PENDING", "reason=tx_not_indexed sig=${verifySig.take(16)}")
                 } else if (ts.position.pendingVerify || signatureManagedAtEntry) {
                     // All polls OK and all returned 0 → true phantom
                     // V5.9.495s — operator: "every buy lands as a phaeton".
