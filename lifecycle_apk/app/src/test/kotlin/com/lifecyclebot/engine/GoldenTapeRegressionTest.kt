@@ -181,6 +181,7 @@ class GoldenTapeRegressionTest {
         // account indexing catches up.
         val source = java.io.File("src/main/kotlin/com/lifecyclebot/engine/RuntimeStateSnapshot.kt").readText()
         assertTrue(source.contains("canonical LIVE truth is MANAGED live truth"))
+        assertTrue(source.contains("TokenLifecycleTracker.liveMemeOpenCount()") && source.contains("raw TokenLifecycleTracker.openCount() includes stale"))
         assertTrue(source.contains("val managedLiveOpen = maxOf(localLiveOpen, hostOpen, lifecyclePendingConfirmed, lifecycleOpen)"))
         assertTrue(source.contains("val heldMints = try { HostWalletTokenTracker.getActuallyHeldMints()"))
     }
@@ -1081,6 +1082,7 @@ class GoldenTapeRegressionTest {
     fun live_transfer_audit_and_snapshot_do_not_report_stale_live_deadness() {
         val snapshot = java.io.File("src/main/kotlin/com/lifecyclebot/engine/RuntimeStateSnapshot.kt").readText()
         assertTrue(snapshot.contains("HostWalletTokenTracker.getActuallyHeldMints()"))
+        assertTrue(snapshot.contains("TokenLifecycleTracker.liveMemeOpenCount()") && snapshot.contains("cleanup/reconcile inputs elsewhere, never live-open truth here"))
         assertTrue(snapshot.contains("val managedLiveOpen = maxOf(localLiveOpen, hostOpen, lifecyclePendingConfirmed, lifecycleOpen)"))
         assertTrue(snapshot.contains("confirmed-pending buys remain counted"))
 
@@ -1566,6 +1568,7 @@ class GoldenTapeRegressionTest {
         assertFalse("pending visibility must not depend on stale raw as cap truth", host.contains("isOpenForAccounting(it) && hasLastPositiveRaw(it)"))
         assertTrue(lifecycle.contains("CONFIRMED_PENDING_BALANCE"))
         assertFalse("liveMemeOpenCount must not require positive wallet qty only", lifecycle.contains("r.currentWalletTokenQty > DUST_UI_THRESHOLD &&\n                r.status != Status.RECONCILE_FAILED"))
+        assertTrue(snap.contains("TokenLifecycleTracker.liveMemeOpenCount()") && snap.contains("raw TokenLifecycleTracker.openCount() includes stale"))
         assertTrue(snap.contains("val managedLiveOpen = maxOf(localLiveOpen, hostOpen, lifecyclePendingConfirmed, lifecycleOpen)"))
         assertTrue(snap.contains("canonical LIVE truth is MANAGED live truth"))
         assertTrue(doctor.contains("RECONCILER_BLIND_CRITICAL"))
@@ -6684,7 +6687,7 @@ class GoldenTapeRegressionTest {
     @Test
     fun aate4541OrphanLivePositionsIgnoreUnmanagedWalletExtras() {
         val snap = java.io.File("src/main/kotlin/com/lifecyclebot/engine/RuntimeStateSnapshot.kt").readText()
-        assertTrue("V5.0.4541: live canonical open slots must use managed live truth, not raw walletHeld extras", snap.contains("val managedLiveOpen = maxOf(localLiveOpen, hostOpen, lifecyclePendingConfirmed, lifecycleOpen)") && snap.contains("canonical LIVE truth is MANAGED live truth") && snap.contains("managedLiveOpen"))
+        assertTrue("V5.0.4556: live canonical open slots must use host-backed lifecycle truth, not raw lifecycle openCount ghosts", snap.contains("TokenLifecycleTracker.liveMemeOpenCount()") && snap.contains("raw TokenLifecycleTracker.openCount() includes stale") && snap.contains("val managedLiveOpen = maxOf(localLiveOpen, hostOpen, lifecyclePendingConfirmed, lifecycleOpen)"))
         assertTrue("V5.0.4541: orphanLive must be managed-state desync, not walletHeld-liveOpen", snap.contains("orphanLive must mean managed-state desync") && snap.contains("managedDesync") && !snap.contains("((walletHeld - liveOpen) - graceAllowance)"))
         assertTrue("V5.0.4541: wallet extras are still documented as reconcile/purge work, not executable open slots", snap.contains("extra wallet mints were unmanaged inventory/dust") && snap.contains("reconciled/purged") && snap.contains("not open executable slots"))
     }
@@ -6788,6 +6791,15 @@ class GoldenTapeRegressionTest {
         assertTrue("V5.0.4553: TokenSafetyChecker must stamp MANIPULATED_ONLY_OVERLAY_4553 for live manipulation overlays", safety.contains("MANIPULATED_ONLY_OVERLAY_4553") && safety.contains("action=manipulated_lane_only"))
         assertTrue("V5.0.4553: shared pre-FDG lane gate must reject manipulated overlays from every non-MANIPULATED lane", bot.contains("manipulatedOnlyOverlayActive4553") && bot.contains("MANIPULATED_ONLY_NON_MANIPULATED_LANE_REJECTED_4553") && bot.contains("MANIPULATED_ONLY_OVERLAY_NON_MANIPULATED_LANE_4553"))
         assertTrue("V5.0.4553: manipulated-only rejection must happen before weak WAIT/dust-probe override can turn it into a live buy", bot.indexOf("MANIPULATED_ONLY_NON_MANIPULATED_LANE_REJECTED_4553") < bot.indexOf("LANE_WAIT_OVERRIDE_DUST_PROBE"))
+    }
+
+
+
+    @Test
+    fun aate4556RuntimeCanonicalOpenDoesNotCountRawLifecycleGhostRows() {
+        val snap = java.io.File("src/main/kotlin/com/lifecyclebot/engine/RuntimeStateSnapshot.kt").readText()
+        assertTrue("V5.0.4556: RuntimeStateSnapshot must not use raw TokenLifecycleTracker.openCount as canonical live-open truth", snap.contains("val lifecycleOpen = try { TokenLifecycleTracker.liveMemeOpenCount()") && !snap.contains("val lifecycleOpen = try { TokenLifecycleTracker.openCount()"))
+        assertTrue("V5.0.4556: stale lifecycle rows remain cleanup/reconcile inputs, not runtime managed slots", snap.contains("cleanup/reconcile inputs elsewhere, never live-open truth here") && snap.contains("TRACKER_OPEN_DESYNC_CRITICAL"))
     }
 
 }

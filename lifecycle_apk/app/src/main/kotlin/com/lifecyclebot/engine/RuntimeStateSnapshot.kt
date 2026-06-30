@@ -89,7 +89,14 @@ data class RuntimeStateSnapshot(
                 }
             } catch (_: Throwable) { 0 }
             val lifecyclePendingConfirmed = try { TokenLifecycleTracker.confirmedPendingCount() } catch (_: Throwable) { 0 }
-            val lifecycleOpen = try { TokenLifecycleTracker.openCount() } catch (_: Throwable) { 0 }
+            // V5.0.4556 — raw TokenLifecycleTracker.openCount() includes stale
+            // non-terminal lifecycle rows restored from disk. Runtime report 4535
+            // showed canonicalOpen=2 while hostTrackerOpen=0 and walletHeld=0,
+            // raising TRACKER_OPEN_DESYNC_CRITICAL even though those rows were not
+            // host/wallet-backed managed positions. Canonical runtime slots may
+            // only use the host-backed lifecycle bridge; raw lifecycle rows remain
+            // cleanup/reconcile inputs elsewhere, never live-open truth here.
+            val lifecycleOpen = try { TokenLifecycleTracker.liveMemeOpenCount() } catch (_: Throwable) { 0 }
             val managedLiveOpen = maxOf(localLiveOpen, hostOpen, lifecyclePendingConfirmed, lifecycleOpen)
             val liveOpen = managedLiveOpen
             // V5.0.3685 — P0: SellOnlySafeMode compares hostOpen (live tracker) vs
