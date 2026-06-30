@@ -583,6 +583,11 @@ class MainActivity : AppCompatActivity() {
         val idleVisible: List<com.lifecyclebot.data.TokenState> = emptyList(),
         val activeTotal: Int = 0,
         val idleTotal: Int = 0,
+        // V5.0.4564 — probation must be sorted/capped off Main too. Runtime
+        // report showed avgCycle=20s/max=135s with buildProbationCard/StaticLayout
+        // on the ANR stack while watchlist/probation churn was 190 rows.
+        val probationVisible: List<com.lifecyclebot.engine.GlobalTradeRegistry.ProbationEntry> = emptyList(),
+        val probationTotal: Int = 0,
         val structuralHash: Int = 0,
     )
     @Volatile private var cachedWatchlistModel: WatchlistModel = WatchlistModel()
@@ -2543,6 +2548,15 @@ for legal compliance.
                     val phase = ts.phase.lowercase()
                     if (phase in shadowPhases || ts.safety.isBlocked) idleTokens.add(ts) else activeTokens.add(ts)
                 }
+                // V5.0.4564 — pull/sort/cap probation on Dispatchers.Default, not
+                // inside renderWatchlist() on Main. Keep only the tiny hot slice.
+                val probationAll = try { com.lifecyclebot.engine.GlobalTradeRegistry.getProbationEntries() } catch (_: Throwable) { emptyList() }
+                val probationVisible4564 = probationAll
+                    .sortedWith(compareByDescending<com.lifecyclebot.engine.GlobalTradeRegistry.ProbationEntry> { it.additionalScanners.size }
+                        .thenByDescending { it.currentPrice > it.priceAtAdd && it.priceAtAdd > 0.0 }
+                        .thenByDescending { it.initialLiquidity }
+                        .thenByDescending { it.addedAt })
+                    .take(3)
                 val activeVisible = activeTokens
                     .sortedWith(compareByDescending<com.lifecyclebot.data.TokenState> { it.mint == active }
                         .thenByDescending { it.position.isOpen }
@@ -2555,11 +2569,14 @@ for legal compliance.
                     .take(IDLE_ROW_CAP)
                 val wlHash = (activeVisible.joinToString(",") { it.mint } + "|" +
                               idleVisible.joinToString(",") { it.mint } + "|" +
-                              activeTokens.size + "|" + idleTokens.size).hashCode()
+                              probationVisible4564.joinToString(",") { it.mint } + "|" +
+                              activeTokens.size + "|" + idleTokens.size + "|" + probationAll.size).hashCode()
                 WatchlistModel(
                     updatedAtMs = System.currentTimeMillis(),
                     activeVisible = activeVisible, idleVisible = idleVisible,
                     activeTotal = activeTokens.size, idleTotal = idleTokens.size,
+                    probationVisible = probationVisible4564,
+                    probationTotal = probationAll.size,
                     structuralHash = wlHash,
                 )
             } catch (_: Throwable) {
@@ -8496,11 +8513,14 @@ This cannot be undone!
         val activeTokensSize = wlModel.activeTotal
         val idleTokensSize = wlModel.idleTotal
 
-        val probationEntries = com.lifecyclebot.engine.GlobalTradeRegistry.getProbationEntries()
+        // V5.0.4564 — use the off-main probation snapshot from WatchlistModel.
+        // Do not call/sort GlobalTradeRegistry probation rows on Main.
+        val probationVisibleModel = wlModel.probationVisible
+        val probationEntriesSize = wlModel.probationTotal
 
         // Determine column visibility and scaling
         val visibleColumns = listOfNotNull(
-            if (probationEntries.isNotEmpty()) "probation" else null,
+            if (probationEntriesSize > 0) "probation" else null,
             "watchlist",  // Always show
             if (idleTokensSize > 0) "idle" else null
         )
@@ -8520,26 +8540,20 @@ This cannot be undone!
         // ═══════════════════════════════════════════════════════════════════════
         // PROBATION COLUMN (left)
         // ═══════════════════════════════════════════════════════════════════════
-        if (probationEntries.isNotEmpty()) {
+        if (probationEntriesSize > 0) {
             tvProbationHeader.visibility = android.view.View.VISIBLE
             llProbationList.visibility = android.view.View.VISIBLE
-            tvProbationHeader.text = "Probation (${probationEntries.size})"
-            // V5.9.1228 — probation lane is now real infrastructure. Rendering
-            // every probation row/Coil logo turned the offload win into a UI ANR
-            // (3195: buildProbationCard=169 samples). Show a tiny hot slice only.
+            tvProbationHeader.text = "Probation ($probationEntriesSize)"
+            // V5.0.4564 — already sorted/capped off-thread; bind only. No
+            // GlobalTradeRegistry read, sort, or wide probation iteration on Main.
             val maxProbationRows = if (columnCount >= 3) 3 else 4
-            val probationVisible = probationEntries
-                .sortedWith(compareByDescending<com.lifecyclebot.engine.GlobalTradeRegistry.ProbationEntry> { it.additionalScanners.size }
-                    .thenByDescending { it.currentPrice > it.priceAtAdd && it.priceAtAdd > 0.0 }
-                    .thenByDescending { it.initialLiquidity }
-                    .thenByDescending { it.addedAt })
-                .take(maxProbationRows)
+            val probationVisible = probationVisibleModel.take(maxProbationRows)
             for (entry in probationVisible) {
                 val probationCard = buildProbationCard(entry, scaleFactor)
                 llProbationList.addView(probationCard)
             }
-            if (probationEntries.size > probationVisible.size) {
-                llProbationList.addView(buildListFooter("showing ${probationVisible.size}/${probationEntries.size} probation — slow lane active"))
+            if (probationEntriesSize > probationVisible.size) {
+                llProbationList.addView(buildListFooter("showing ${probationVisible.size}/$probationEntriesSize probation — slow lane active"))
             }
         } else {
             tvProbationHeader.visibility = android.view.View.GONE

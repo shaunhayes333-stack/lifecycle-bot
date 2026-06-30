@@ -6866,4 +6866,14 @@ class GoldenTapeRegressionTest {
         assertTrue("V5.0.4563: meme open-position cards must explicitly say mark estimates are not wallet-realized", ui.contains("Mark estimate only — not wallet-realized until sell finality") && ui.contains("unrealized %+.4f◎"))
     }
 
+
+
+    @Test
+    fun aate4564ProbationWatchlistSortIsOffMainThread() {
+        val main = java.io.File("src/main/kotlin/com/lifecyclebot/ui/MainActivity.kt").readText()
+        assertTrue("V5.0.4564: WatchlistModel must carry probation hot slice from the background precompute", main.contains("probationVisible") && main.contains("probationTotal") && main.contains("V5.0.4564 — probation must be sorted/capped off Main"))
+        assertTrue("V5.0.4564: probation entries must be fetched/sorted in precomputeMainRenderModelAsync, not renderWatchlist", main.contains("pull/sort/cap probation on Dispatchers.Default") && main.contains("probationVisible4564"))
+        assertTrue("V5.0.4564: renderWatchlist must consume the cached probation snapshot", main.contains("use the off-main probation snapshot") && main.contains("val probationVisibleModel = wlModel.probationVisible") && main.contains("val probationEntriesSize = wlModel.probationTotal"))
+    }
+
 }
