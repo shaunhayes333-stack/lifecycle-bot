@@ -149,10 +149,25 @@ object LiveGrowthDoctrine {
         )
     }
 
+    // V5.0.4557 — contribution tuning for real dispatch lanes.
+    // growthLaneUniverse intentionally documents aliases/families (WHALE/COPY/
+    // PRESALE/etc.), but AgenticStyleRouter can only wake lanes that BotService
+    // actually dispatches. Runtime 4535 showed enabled lanes such as CASHGEN,
+    // TREASURY and BLUECHIP contributing little/none while the fallback lottery
+    // could spend its one alternate on non-dispatch aliases. Keep the universe for
+    // docs/sizing, but lane fallback itself is restricted to executable lanes and
+    // biased toward historically under-contributing families first.
+    val dispatchableContributionLanes: List<String> = listOf(
+        "CASHGEN", "TREASURY", "BLUECHIP", "DIP_HUNTER", "EXPRESS",
+        "MANIPULATED", "PROJECT_SNIPER", "QUALITY", "MOONSHOT", "SHITCOIN", "STANDARD"
+    )
+
     fun growthLaneFallback(seed: String, existing: Set<String>): String? {
-        val missing = growthLaneUniverse.filterNot { it in existing }
+        val normalizedExisting = existing.map { canonicalLane(it) }.toSet() + existing.map { it.uppercase() }.toSet()
+        val missing = dispatchableContributionLanes.filterNot { it in normalizedExisting }
         if (missing.isEmpty()) return null
-        return missing[((seed.hashCode() and 0x7fffffff) % missing.size)]
+        val rotation = try { (System.currentTimeMillis() / 30_000L).toInt() } catch (_: Throwable) { 0 }
+        return missing[((seed.hashCode() xor rotation) and 0x7fffffff) % missing.size]
     }
 
     fun growthToolFallback(seed: String, existing: Set<String>): String? {

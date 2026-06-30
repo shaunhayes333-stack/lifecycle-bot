@@ -3647,6 +3647,8 @@ class GoldenTapeRegressionTest {
             assertTrue("LiveGrowthDoctrine must enumerate trading tool $it", doctrine.contains(it))
         }
         assertTrue("AgenticStyleRouter must pull lane/tool fallbacks from LiveGrowthDoctrine", router.contains("LiveGrowthDoctrine.growthLaneFallback") && router.contains("LiveGrowthDoctrine.growthToolFallback"))
+        assertTrue("V5.0.4557: growth lane fallback must use real dispatchable contribution lanes, not alias-only lane families", doctrine.contains("dispatchableContributionLanes") && doctrine.contains("CASHGEN") && doctrine.contains("TREASURY") && doctrine.contains("BLUECHIP") && doctrine.contains("Runtime 4535 showed enabled lanes"))
+        assertTrue("V5.0.4557: AgenticStyleRouter must force a bounded dormant-lane fallback when the selected style/base has no such lane", router.contains("forceContributionFallback4557") && router.contains("growthFallbackLane4557 in LiveGrowthDoctrine.dispatchableContributionLanes"))
         assertTrue("Final live sizing authority must consume LiveGrowthDoctrine", exec.contains("LiveGrowthDoctrine.sizePolicy") && exec.contains("growthPolicy.reason") && exec.contains("doBuy.final") && exec.contains("liveBuy.final"))
         assertFalse("COPY_TRADE must not be a live hard confidence veto", fdg.contains("COPY_TRADE_LIVE_LOW_CONFIDENCE"))
         assertFalse("WHALE_FOLLOW must not be live-disabled at FDG", fdg.contains("WHALE_FOLLOW_LIVE_DISABLED"))
@@ -6800,6 +6802,16 @@ class GoldenTapeRegressionTest {
         val snap = java.io.File("src/main/kotlin/com/lifecyclebot/engine/RuntimeStateSnapshot.kt").readText()
         assertTrue("V5.0.4556: RuntimeStateSnapshot must not use raw TokenLifecycleTracker.openCount as canonical live-open truth", snap.contains("val lifecycleOpen = try { TokenLifecycleTracker.liveMemeOpenCount()") && !snap.contains("val lifecycleOpen = try { TokenLifecycleTracker.openCount()"))
         assertTrue("V5.0.4556: stale lifecycle rows remain cleanup/reconcile inputs, not runtime managed slots", snap.contains("cleanup/reconcile inputs elsewhere, never live-open truth here") && snap.contains("TRACKER_OPEN_DESYNC_CRITICAL"))
+    }
+
+
+
+    @Test
+    fun aate4557DispatchableContributionFallbackWakesDormantTraderLanes() {
+        val doctrine = java.io.File("src/main/kotlin/com/lifecyclebot/engine/LiveGrowthDoctrine.kt").readText()
+        val router = java.io.File("src/main/kotlin/com/lifecyclebot/engine/AgenticStyleRouter.kt").readText()
+        assertTrue("V5.0.4557: contribution fallback must be restricted to lanes BotService actually dispatches", doctrine.contains("dispatchableContributionLanes") && doctrine.contains("CASHGEN") && doctrine.contains("TREASURY") && doctrine.contains("BLUECHIP") && !doctrine.substringAfter("dispatchableContributionLanes").substringBefore("fun growthLaneFallback").contains("WHALE_FOLLOW"))
+        assertTrue("V5.0.4557: router must keep bounded fanout while forcing one dormant real-lane alternate when absent", router.contains("forceContributionFallback4557") && router.contains("else if (alternates.isNotEmpty())") && router.contains("out += growthFallbackLane4557"))
     }
 
 }

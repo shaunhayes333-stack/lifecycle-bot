@@ -88,10 +88,16 @@ object AgenticStyleRouter {
         val styleLaneList = (rapidPivot + style.lanes).filter { it.isNotBlank() }.distinct()
         val primary = LaneToxicityGuard.chooseNonToxicLane(mint, styleLaneList, score) ?: styleLaneList.firstOrNull()
         if (!primary.isNullOrBlank()) out += primary
-        val growthFallback = LiveGrowthDoctrine.growthLaneFallback(mint, out + base + style.lanes)?.let { listOf(it) } ?: emptyList()
+        val growthFallbackLane4557 = LiveGrowthDoctrine.growthLaneFallback(mint, out + base + style.lanes)
+        val growthFallback = growthFallbackLane4557?.let { listOf(it) } ?: emptyList()
         val alternatesRaw = (styleLaneList.drop(1) + rapidPivot + base + growthFallback).filter { it.isNotBlank() && it !in out }.distinct()
         val alternates = LaneToxicityGuard.filterNonToxic(alternatesRaw, score).ifEmpty { alternatesRaw }
-        if (alternates.isNotEmpty()) out += alternates[stablePick(mint, alternates.size)]
+        val forceContributionFallback4557 = growthFallbackLane4557 != null &&
+            growthFallbackLane4557 !in out &&
+            growthFallbackLane4557 in LiveGrowthDoctrine.dispatchableContributionLanes &&
+            (out + base + style.lanes).map { LiveGrowthDoctrine.canonicalLane(it) }.none { it == growthFallbackLane4557 }
+        if (forceContributionFallback4557) out += growthFallbackLane4557
+        else if (alternates.isNotEmpty()) out += alternates[stablePick(mint, alternates.size)]
         return out
     }
 
