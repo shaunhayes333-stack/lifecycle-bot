@@ -6554,7 +6554,7 @@ class GoldenTapeRegressionTest {
         val bot = java.io.File("src/main/kotlin/com/lifecyclebot/engine/BotService.kt").readText()
         assertTrue("V5.0.4528: DUMP regime must be recovery-sized, not blanket 0.10 dust", regime.contains("Regime.DUMP         -> +10") && regime.contains("Regime.DUMP         -> 0.35") && regime.contains("not live dust tuition"))
         assertTrue("V5.0.4528: DUMP live lane caps must use recovery-size shaping instead of 0.10 micro caps", exec.contains("V5.0.4528 — DUMP regime should pivot/reduce") && exec.contains("dumpRegimeLive && laneTag.contains(" + "\"SHITCOIN\"" + ") -> 0.35") && exec.contains("dumpRegimeLive && laneTag.contains(" + "\"EXPRESS\"" + ") -> 0.35"))
-        assertTrue("V5.0.4528: DUMP live relative floor must not be dust tuition", exec.contains("dumpRegimeLive -> 0.22") && exec.contains("recovery-size floor"))
+        assertTrue("V5.0.4568: DUMP live relative floor must be executable defensive-pivot size, not dust tuition", exec.contains("dumpRegimeLive -> 0.35") && exec.contains("executable defensive-pivot floor"))
         assertTrue("V5.0.4528: high-conviction liquid setups may still size up in DUMP under stricter score/liquidity", exec.contains("score >= 82.0 && ts.lastLiquidityUsd >= 25_000.0"))
         assertTrue("V5.0.4528: pre-FDG lane qualification/drop counters must expose laneEval→FDG collapse", bot.contains("PREFDG_LANE_CANDIDATE_") && bot.contains("PREFDG_DROP_THIN_LIQ_") && bot.contains("PREFDG_BUY_QUALIFIED_"))
     }
