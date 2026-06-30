@@ -1320,11 +1320,37 @@ object HostWalletTokenTracker {
             val pair = walletMints[p.mint]
             val held = pair?.first
             if (held != null && held > TERMINAL_DUST_UI) {
+                // V5.0.4567 — STARTUP HELD AUTHORITY REPAIR.
+                // Regression: forceStartupGhostReconcile() received a fresh wallet
+                // snapshot proving the token is held, but then asked
+                // hasCurrentWalletPositiveProof(p) BEFORE writing the HELD authority
+                // snapshot. Result: real held tokens became STALE_RECOVERY_UNPROVEN,
+                // hostOpen=0, staleUnproven≈wallet-held, and the bot stopped
+                // managing visible wallet inventory. Held wallet snapshot is current
+                // authority; persist it first, then restore open management.
+                val nowHeld4567 = System.currentTimeMillis()
+                val heldRaw4567 = runCatching {
+                    java.math.BigDecimal.valueOf(held).movePointRight(pair.second.coerceAtLeast(0)).toBigInteger()
+                }.getOrDefault(java.math.BigInteger.valueOf(DUST_RAW + 1L))
+                walletAuthority[p.mint] = WalletAuthoritySnapshot.HELD(
+                    mint = p.mint,
+                    raw = heldRaw4567.max(java.math.BigInteger.valueOf(DUST_RAW + 1L)),
+                    uiAmount = held,
+                    decimals = pair.second,
+                    source = "STARTUP_WALLET_SNAPSHOT_4567",
+                    observedAtMs = nowHeld4567,
+                )
                 // genuinely held — keep it, refresh wallet truth.
                 p.uiAmount = held
-                p.lastSeenWalletMs = System.currentTimeMillis()
-                p.lastWalletReconcileMs = System.currentTimeMillis()
-                p.status = if (hasCurrentWalletPositiveProof(p)) PositionStatus.OPEN_RESTORED else PositionStatus.STALE_RECOVERY_UNPROVEN
+                p.rawAmount = heldRaw4567.max(java.math.BigInteger.valueOf(DUST_RAW + 1L)).toString()
+                p.decimals = pair.second
+                p.lastSeenWalletMs = nowHeld4567
+                p.lastWalletReconcileMs = nowHeld4567
+                p.consecutiveZeroConfirms = 0
+                p.zeroBalanceConfirmedByTwoProviders = false
+                p.status = PositionStatus.OPEN_RESTORED
+                p.notes.add("startup wallet-held authority restored 4567")
+                try { ForensicLogger.lifecycle("STARTUP_HELD_AUTHORITY_RESTORED_4567", "mint=${p.mint.take(10)} symbol=${p.symbol ?: "?"} ui=$held decimals=${pair.second} raw=$heldRaw4567 status=${p.status.name} hostOpen=true") } catch (_: Throwable) {}
                 continue
             }
             if (hasLastPositiveRaw(p) || p.sellSignature.isNullOrBlank()) {

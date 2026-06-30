@@ -6886,4 +6886,14 @@ class GoldenTapeRegressionTest {
         assertTrue("V5.0.4566: preservation must include pending verify and positive token quantity, not just isOpen", main.contains("ts.position.pendingVerify") && main.contains("ts.position.qtyToken > 1.0"))
     }
 
+
+
+    @Test
+    fun aate4567StartupHeldWalletSnapshotRestoresOpenAuthorityBeforeStatusCheck() {
+        val tracker = java.io.File("src/main/kotlin/com/lifecyclebot/engine/HostWalletTokenTracker.kt").readText()
+        assertTrue("V5.0.4567: startup wallet-held snapshot must write HELD authority before restoring status", tracker.contains("STARTUP HELD AUTHORITY REPAIR") && tracker.contains("STARTUP_WALLET_SNAPSHOT_4567") && tracker.contains("WalletAuthoritySnapshot.HELD"))
+        assertTrue("V5.0.4567: genuinely held startup tokens must restore open management, not become stale-unproven", tracker.contains("p.status = PositionStatus.OPEN_RESTORED") && tracker.contains("STARTUP_HELD_AUTHORITY_RESTORED_4567"))
+        assertTrue("V5.0.4567: startup held restore must clear zero-confirm terminal state", tracker.contains("p.consecutiveZeroConfirms = 0") && tracker.contains("p.zeroBalanceConfirmedByTwoProviders = false"))
+    }
+
 }
