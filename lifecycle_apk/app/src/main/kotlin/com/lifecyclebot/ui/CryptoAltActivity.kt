@@ -611,6 +611,9 @@ class CryptoAltActivity : AppCompatActivity() {
     private fun buildOpenPositionsPanel() {
         val openPos    = CryptoAltTrader.getAllPositions().filter { it.closeTime == null }
         val totalRisk  = openPos.sumOf { it.sizeSol }
+        // V5.0.4563 — UI WALLET TRUTH: open-position PnL is a mark/route estimate,
+        // not realized wallet money. Only finalized SELL/PARTIAL_SELL journal rows
+        // and wallet deltas are allowed to represent banked profit.
         val totalPnl   = openPos.sumOf { it.getPnlSol() }
         val solPrice   = WalletManager.lastKnownSolPrice
 
@@ -618,9 +621,10 @@ class CryptoAltActivity : AppCompatActivity() {
 
         val headerRow = hBox().apply { layoutParams = llp(match, wrap).apply { topMargin = 4 } }
         headerRow.addView(tv("${"%.3f".format(totalRisk)}◎ at risk", 10f, muted, mono=true).apply { layoutParams = llp(0, wrap, 1f) })
-        headerRow.addView(tv("${if (totalPnl >= 0) "+" else ""}${"%.4f".format(totalPnl)}◎",
-            10f, if (totalPnl >= 0) green else red, mono=true))
+        headerRow.addView(tv("est ${if (totalPnl >= 0) "+" else ""}${"%.4f".format(totalPnl)}◎ unrealized",
+            10f, if (totalPnl >= 0) amber else red, mono=true))
         tile.addView(headerRow)
+        tile.addView(tv("Open PnL is mark/route estimate only — wallet money appears only after finalized journaled sell.", 8f, muted, mono = true).apply { setPadding(0, 2, 0, 2) })
 
         if (openPos.isEmpty()) {
             tile.addView(tv("No open positions", 11f, muted).apply { setPadding(0, 8, 0, 4) })
@@ -679,12 +683,12 @@ class CryptoAltActivity : AppCompatActivity() {
                     gravity = Gravity.END or Gravity.CENTER_VERTICAL
                     layoutParams = llp(wrap, wrap)
                 }
-                rightCol.addView(tv("${if (pnlPct >= 0) "+" else ""}${"%.1f".format(pnlPct)}%",
-                    13f, if (pnlPct >= 0) green else red, mono=true, bold=true).apply { gravity = Gravity.END })
-                rightCol.addView(tv("${if (pnlSol >= 0) "+" else ""}${"%.4f".format(pnlSol)}◎",
-                    10f, if (pnlSol >= 0) green else red, mono=true).apply { gravity = Gravity.END })
+                rightCol.addView(tv("est ${if (pnlPct >= 0) "+" else ""}${"%.1f".format(pnlPct)}%",
+                    13f, if (pnlPct >= 0) amber else red, mono=true, bold=true).apply { gravity = Gravity.END })
+                rightCol.addView(tv("unrealized ${if (pnlSol >= 0) "+" else ""}${"%.4f".format(pnlSol)}◎",
+                    10f, if (pnlSol >= 0) amber else red, mono=true).apply { gravity = Gravity.END })
                 if (solPrice > 0) {
-                    rightCol.addView(tv("≈\$${"%.2f".format(currentValueUsd)}", 9f, muted, mono=true).apply { gravity = Gravity.END })
+                    rightCol.addView(tv("mark ≈\$${"%.2f".format(currentValueUsd)}", 9f, muted, mono=true).apply { gravity = Gravity.END })
                 }
                 row.addView(rightCol)
                 tile.addView(row)
@@ -1030,11 +1034,12 @@ class CryptoAltActivity : AppCompatActivity() {
                     addView(tv("${elapsed}m", 9f, muted, mono = true))
                 })
                 left.addView(tv("Entry: ${fmtPrice(pos.entryPrice)}  ·  MCap: $mcapLabel", 9f, muted, mono = true))
+                left.addView(tv("Mark estimate only — not wallet-realized until sell finality", 8f, muted, mono = true))
                 left.addView(tv("TP:+${pos.takeProfitPct.toInt()}%  SL:${pos.stopLossPct.toInt()}%", 8f, muted, mono = true))
                 row.addView(left)
                 val right = vBox(0, 0, 0).apply { gravity = Gravity.END or Gravity.CENTER_VERTICAL; layoutParams = llp(wrap, wrap) }
-                right.addView(tv("%+.1f%%".format(gainPct), 13f, gainCol, bold = true, mono = true).apply { gravity = Gravity.END })
-                right.addView(tv("%+.4f◎".format(pnlSol),  9f,  gainCol, mono = true).apply { gravity = Gravity.END })
+                right.addView(tv("est %+.1f%%".format(gainPct), 13f, if (gainPct >= 0) amber else red, bold = true, mono = true).apply { gravity = Gravity.END })
+                right.addView(tv("unrealized %+.4f◎".format(pnlSol),  9f,  if (pnlSol >= 0) amber else red, mono = true).apply { gravity = Gravity.END })
                 row.addView(right)
                 tile.addView(row)
                 tile.addView(thinDivider())

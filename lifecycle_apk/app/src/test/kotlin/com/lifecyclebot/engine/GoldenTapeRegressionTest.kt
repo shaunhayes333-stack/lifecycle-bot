@@ -6854,4 +6854,16 @@ class GoldenTapeRegressionTest {
         assertTrue("V5.0.4562: realized live partial notification must remain after signature/accounting", exec.contains("💰 Live Partial Sell") && exec.contains("sounds?.playMilestone(gainPct)"))
     }
 
+
+
+    @Test
+    fun aate4563OpenPositionUiSeparatesUnrealizedEstimateFromWalletTruth() {
+        val ui = java.io.File("src/main/kotlin/com/lifecyclebot/ui/CryptoAltActivity.kt").readText()
+        assertTrue("V5.0.4563: open-position display must label PnL as unrealized estimate, not wallet money", ui.contains("UI WALLET TRUTH") && ui.contains("Open PnL is mark/route estimate only"))
+        val pnlPctInterpolation4563 = "est " + "$" + "{if (pnlPct >= 0)"
+        val pnlSolInterpolation4563 = "unrealized " + "$" + "{if (pnlSol >= 0)"
+        assertTrue("V5.0.4563: green open-position mark gains must not be displayed as realized profit", ui.contains(pnlPctInterpolation4563) && ui.contains(pnlSolInterpolation4563))
+        assertTrue("V5.0.4563: meme open-position cards must explicitly say mark estimates are not wallet-realized", ui.contains("Mark estimate only — not wallet-realized until sell finality") && ui.contains("unrealized %+.4f◎"))
+    }
+
 }
