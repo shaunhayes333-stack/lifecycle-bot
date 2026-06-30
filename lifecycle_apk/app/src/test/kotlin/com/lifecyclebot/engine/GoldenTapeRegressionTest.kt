@@ -4183,7 +4183,7 @@ class GoldenTapeRegressionTest {
     fun weak_dump_toxic_score_band_pivots_defensive_probe_inside_lane_not_cross_lane() {
         val router = java.io.File("src/main/kotlin/com/lifecyclebot/engine/AgenticStyleRouter.kt").readText()
         assertTrue("DEFENSIVE_PROBE must remain meme-lane-local, not jump to QUALITY/DIP/TREASURY", router.contains("V5.0.4544") && router.contains("inner-lane defensive style") && router.contains("""DEFENSIVE_PROBE("defensive_probe", setOf("SHITCOIN", "MOONSHOT", "PROJECT_SNIPER", "EXPRESS", "MANIPULATED")"""))
-        assertTrue("Router must not prepend rapid toxic-regime lane escapes for MOONSHOT|S41-60 / SHITCOIN danger", router.contains("rapidToxicRegimePivot") && router.contains("INNER-LANE PIVOT DOCTRINE") && router.contains("return emptyList()") && !router.contains("""listOf("QUALITY", "DIP_HUNTER", "TREASURY", "BLUECHIP")"""))
+        assertTrue("Router must not prepend rapid toxic-regime lane escapes for MOONSHOT|S41-60 / SHITCOIN danger", router.contains("rapidToxicRegimePivot") && router.contains("INNER-LANE PIVOT DOCTRINE") && router.contains("No lane prepend here") && !router.contains("""listOf("QUALITY", "DIP_HUNTER", "TREASURY", "BLUECHIP")"""))
         assertTrue("Weak toxic pivot must choose lane-local styles from laneHint", router.contains("sameLaneWeakPivotStyle") && router.contains(""""MOONSHOT" -> when (fallback)""") && router.contains(""""SHITCOIN" -> when (fallback)"""))
         assertFalse("Fast toxic pivot must remain soft route-shape, not a hard trade block", router.contains("shouldTrade = false") || router.contains("BLOCK_"))
     }
