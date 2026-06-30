@@ -403,8 +403,37 @@ class BotService : Service() {
          * localLiveOpen accounting all drop it. Idempotent and lock-safe; only ever
          * clears a LIVE (non-paper) position so a paper sim book is never touched.
          */
+        /**
+         * V5.0.4550 — LIVE_HELD_STICKY_STATUS_GUARD.
+         * A wallet-held / bot-managed LIVE mint must never be evicted from
+         * status.tokens/watchlist by source-balance, no-pair, basis-wait, or
+         * ghost cleanup paths. Only explicit terminal close/zero-balance finality
+         * may remove it. This protects RECOVERED_* rows and real live positions
+         * during basis/route/provider degradation.
+         */
+        fun liveHeldOrManagedMint(mint: String): Boolean {
+            if (mint.isBlank()) return false
+            try {
+                val ts = synchronized(status.tokens) { status.tokens[mint] }
+                val pos = ts?.position
+                if (pos != null && !pos.isPaperPosition && (pos.isOpen || pos.pendingVerify || pos.qtyToken > 0.0)) return true
+            } catch (_: Throwable) {}
+            val tracked = try { com.lifecyclebot.engine.HostWalletTokenTracker.getEntry(mint) } catch (_: Throwable) { null } ?: return false
+            return try {
+                if (tracked.zeroBalanceConfirmedByTwoProviders) return false
+                val rawPositive = try { java.math.BigInteger(tracked.rawAmount.trim().ifBlank { "0" }) > java.math.BigInteger.ONE } catch (_: Throwable) { false }
+                val uiPositive = tracked.uiAmount.isFinite() && tracked.uiAmount > 1.0
+                (tracked.status in com.lifecyclebot.engine.HostWalletTokenTracker.OPEN_STATUSES) || rawPositive || uiPositive
+            } catch (_: Throwable) { false }
+        }
+
         fun purgeGhostLivePosition(mint: String, reason: String) {
             if (mint.isBlank()) return
+            if (liveHeldOrManagedMint(mint)) {
+                try { PipelineHealthCollector.labelInc("LIVE_HELD_GHOST_PURGE_BLOCKED_4550") } catch (_: Throwable) {}
+                try { com.lifecyclebot.engine.ForensicLogger.lifecycle("LIVE_HELD_GHOST_PURGE_BLOCKED_4550", "mint=${mint.take(10)} reason=$reason action=preserve_status_watchlist") } catch (_: Throwable) {}
+                return
+            }
             try {
                 synchronized(status.tokens) {
                     val ts = status.tokens[mint] ?: return@synchronized
@@ -9702,7 +9731,11 @@ class BotService : Service() {
                     val pos = status.tokens[entry.mint]?.position
                     pos?.isOpen == true || pos?.pendingVerify == true || (pos?.qtyToken ?: 0.0) > 0.0
                 } } catch (_: Throwable) { false }
-                if (open) continue
+                if (open || liveHeldOrManagedMint(entry.mint)) {
+                    try { PipelineHealthCollector.labelInc("LIVE_HELD_SOURCE_REBALANCE_EVICT_BLOCKED_4550") } catch (_: Throwable) {}
+                    try { ForensicLogger.lifecycle("LIVE_HELD_SOURCE_REBALANCE_EVICT_BLOCKED_4550", "mint=${entry.mint.take(10)} reason=$reason action=keep_watchlist") } catch (_: Throwable) {}
+                    continue
+                }
                 // V5.0.3732 — do not fabricate zero-liquidity probation rows.
                 // Report 5.0.3730 showed fresh tokens admitted with real liq ($5k+)
                 // immediately demoted as SOURCE_BALANCE_PUMP_DOMINANCE with liq=$0
@@ -15942,6 +15975,11 @@ if (hotExitHandledSweep) {
                             try { PipelineHealthCollector.labelInc("INTAKE_NO_PAIR_HELD_HOT_FOR_HYDRATION") } catch (_: Throwable) {}
                             try { ForensicLogger.lifecycle("INTAKE_NO_PAIR_HELD_HOT_FOR_HYDRATION", "mint=${mint.take(10)} symbol=${ts.symbol} src=${ts.source} pc=$processCount ageMs=$ageMs mcap=${ts.lastMcap.toInt()} liq=${ts.lastLiquidityUsd.toInt()} action=keep_hot") } catch (_: Throwable) {}
                         } else {
+                            if (liveHeldOrManagedMint(mint)) {
+                                try { PipelineHealthCollector.labelInc("LIVE_HELD_NO_PAIR_DEMOTE_REMOVE_BLOCKED_4550") } catch (_: Throwable) {}
+                                try { ForensicLogger.lifecycle("LIVE_HELD_NO_PAIR_DEMOTE_REMOVE_BLOCKED_4550", "mint=${mint.take(10)} symbol=${ts.symbol} pc=$processCount ageMs=$ageMs action=keep_watchlist_and_registry") } catch (_: Throwable) {}
+                                return
+                            }
                             val demoted = try {
                                 com.lifecyclebot.engine.GlobalTradeRegistry.demoteWatchlistToProbation(
                                     mint = mint,

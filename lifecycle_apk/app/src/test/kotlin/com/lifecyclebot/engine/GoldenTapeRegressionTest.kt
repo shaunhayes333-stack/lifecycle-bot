@@ -6765,4 +6765,17 @@ class GoldenTapeRegressionTest {
         assertTrue("V5.0.4548: only hard safety may disable", doctrine.contains("fun allowsDisable") && doctrine.contains("kind == FailureKind.HARD_SAFETY"))
     }
 
+
+
+    @Test
+    fun aate4550LiveHeldTokensAreStickyManagedAcrossWatchlistAndRestore() {
+        val bot = java.io.File("src/main/kotlin/com/lifecyclebot/engine/BotService.kt").readText()
+        val persist = java.io.File("src/main/kotlin/com/lifecyclebot/engine/PositionPersistence.kt").readText()
+        assertTrue("V5.0.4550: BotService must expose a live held/managed sticky guard", bot.contains("LIVE_HELD_STICKY_STATUS_GUARD") && bot.contains("fun liveHeldOrManagedMint") && bot.contains("HostWalletTokenTracker.OPEN_STATUSES"))
+        assertTrue("V5.0.4550: ghost purge must not remove live-held mints", bot.contains("LIVE_HELD_GHOST_PURGE_BLOCKED_4550") && bot.indexOf("if (liveHeldOrManagedMint(mint))") < bot.indexOf("status.tokens.remove(mint)"))
+        assertTrue("V5.0.4550: source rebalance/no-pair eviction must preserve live-held mints before registry/watchlist demotion", bot.contains("LIVE_HELD_SOURCE_REBALANCE_EVICT_BLOCKED_4550") && bot.contains("LIVE_HELD_NO_PAIR_DEMOTE_REMOVE_BLOCKED_4550") && bot.indexOf("if (liveHeldOrManagedMint(mint))") < bot.indexOf("""reason = "NO_PAIR_NO_FALLBACK_AGED"""))
+        assertFalse("V5.0.4550: live restore must not skip solely because the persisted row is older than 7 days", persist.contains("STALE live position") && persist.contains("skipping restore"))
+        assertTrue("V5.0.4550: stale-aged live restore must be telemetry-preserved", persist.contains("LIVE_POSITION_RESTORE_AGE_TTL_BYPASS_4550") && persist.contains("restore anyway; sell/zero finality owns removal"))
+    }
+
 }

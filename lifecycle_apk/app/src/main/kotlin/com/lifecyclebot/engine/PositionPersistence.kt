@@ -274,8 +274,12 @@ object PositionPersistence {
                 }
             }
             if (!saved.isPaperPosition && ageHours > 24.0 * 7) {
-                ErrorLogger.warn(TAG, "⚠️ STALE live position for ${saved.symbol}: ${String.format("%.1f", ageHours)}h old — skipping restore")
-                continue
+                // V5.0.4550 — live held positions are sticky-managed until terminal
+                // sell/zero-balance finality. Age alone is not authority to drop a
+                // LIVE wallet-backed position from open positions or watchlist.
+                ErrorLogger.warn(TAG, "🔒 Preserving stale-aged LIVE position for ${saved.symbol}: ${String.format("%.1f", ageHours)}h old — restore anyway; sell/zero finality owns removal")
+                try { PipelineHealthCollector.labelInc("LIVE_POSITION_RESTORE_AGE_TTL_BYPASS_4550") } catch (_: Throwable) {}
+                try { ForensicLogger.lifecycle("LIVE_POSITION_RESTORE_AGE_TTL_BYPASS_4550", "mint=${mint.take(10)} symbol=${saved.symbol} ageH=${String.format("%.1f", ageHours)} action=restore_live_held") } catch (_: Throwable) {}
             }
             // Check if we already have this token
             val existing = existingTokens[mint]
