@@ -3710,7 +3710,7 @@ class GoldenTapeRegressionTest {
         // V5.0.4117 — AGI stack must be wired into buy sizing
         assertTrue("AGI size stack: strategyTunerSizeMult in multiplierProduct", exec.contains("strategyTunerSizeMult"))
         assertTrue("AGI size stack: uphConvictionMult in multiplierProduct", exec.contains("uphConvictionMult"))
-        assertTrue("Live floor must allow bleeders to become cheap probes", exec.contains("laneEvMult < 0.50") && exec.contains("-> 0.08"))
+        assertTrue("V5.0.4568: live floor must keep bleeders executable instead of dust-sized", exec.contains("laneEvMult < 0.50") && exec.contains("-> 0.35") && exec.contains("executable defensive-pivot floor"))
         assertTrue("LaneExpectancyDamper must press proven winners, not only shrink losers", damper.contains("WALLET GROWTH ALLOCATOR") && damper.contains("WINNER_MAX_MULT") && damper.contains("m.totalSolPnl > 0.0") && damper.contains("m.winRatePct >= 50.0"))
         assertTrue("Bleeder floor must be materially below half-size for wallet growth", damper.contains("private const val MIN_MULT = 0.18") && damper.contains("CATASTROPHIC_MIN_MULT = 0.08"))
     }
@@ -6142,7 +6142,7 @@ class GoldenTapeRegressionTest {
         val src = java.io.File("src/main/kotlin/com/lifecyclebot/engine/Executor.kt").readText()
         assertTrue("V5.0.4460: liveBuy discipline pause/timeout/bridge must continue as recovery probes, not hard-return before execution", src.contains("DISCIPLINE_RECOVERY_PROBE_4460") && src.contains("action=continue_to_live_buy") && src.contains("disciplineRecoverySizeMultiplier4460 = 0.35"))
         assertTrue("V5.0.4460: liveBuy discipline recovery multiplier must enter existing live size stack", src.contains("LIVE_DISCIPLINE_RECOVERY_SIZE_APPLIED_4460") && src.indexOf("LIVE_DISCIPLINE_RECOVERY_SIZE_APPLIED_4460") < src.indexOf("LIVE_STYLE_PIVOT_SIZE_APPLIED"))
-        assertTrue("V5.0.4461: true hard-safety gates must remain hard before discipline recovery probes", src.contains("RUG_BLACKLIST_VETO_V4134") && src.contains("emitLiveBuyFail") && src.contains("RUG_BLACKLIST") && src.contains("REGIME_PIVOT_REASSESS"))
+        assertTrue("V5.0.4461/4568: true hard-safety rug gates remain hard while DUMP toxicity pivots instead of hard-stopping", src.contains("RUG_BLACKLIST_VETO_V4134") && src.contains("emitLiveBuyFail") && src.contains("RUG_BLACKLIST") && src.contains("REGIME_INNER_LANE_PIVOT_4568"))
     }
 
 
@@ -6894,6 +6894,16 @@ class GoldenTapeRegressionTest {
         assertTrue("V5.0.4567: startup wallet-held snapshot must write HELD authority before restoring status", tracker.contains("STARTUP HELD AUTHORITY REPAIR") && tracker.contains("STARTUP_WALLET_SNAPSHOT_4567") && tracker.contains("WalletAuthoritySnapshot.HELD"))
         assertTrue("V5.0.4567: genuinely held startup tokens must restore open management, not become stale-unproven", tracker.contains("p.status = PositionStatus.OPEN_RESTORED") && tracker.contains("STARTUP_HELD_AUTHORITY_RESTORED_4567"))
         assertTrue("V5.0.4567: startup held restore must clear zero-confirm terminal state", tracker.contains("p.consecutiveZeroConfirms = 0") && tracker.contains("p.zeroBalanceConfirmedByTwoProviders = false"))
+    }
+
+
+
+    @Test
+    fun aate4568LiveProbabilityToxicLanesPivotInsteadOfHardStopOrDustSize() {
+        val exec = java.io.File("src/main/kotlin/com/lifecyclebot/engine/Executor.kt").readText()
+        assertTrue("V5.0.4568: DUMP toxic lane branch must pivot inside lane and continue, not return false", exec.contains("INNER-LANE STRATEGY PIVOT, NOT HARD STOP") && exec.contains("REGIME_INNER_LANE_PIVOT_4568") && exec.contains("action=continue_defensive_style"))
+        assertFalse("V5.0.4568: old DUMP toxic branch must not defer/rescore and return false from liveBuy", exec.contains("REGIME_PIVOT_REASSESS") && exec.contains("rescore_to_micro_or_watch"))
+        assertTrue("V5.0.4568: live learned sizing floor must remain executable and not dust-size the bleeder branch to 0.08", exec.contains("executable defensive-pivot floor") && exec.contains("RuntimeModeAuthority.isLive() && (laneEvMult < 0.50 || laneSizeCap < 0.50) -> 0.35"))
     }
 
 }

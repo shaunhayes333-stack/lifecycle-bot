@@ -8423,9 +8423,9 @@ class Executor(
         // shrink to its 0.10 safety floor — that brake is intentional and
         // protects against regime-shift drawdown bleed.
         val liveFloorMult = when {
-            dumpRegimeLive -> 0.22  // V5.0.4528: recovery-size floor, not DUMP dust tuition
-            RuntimeModeAuthority.isLive() && (laneEvMult < 0.50 || laneSizeCap < 0.50) -> 0.08
-            else -> 0.30
+            dumpRegimeLive -> 0.35  // V5.0.4568: executable defensive-pivot floor, never DUMP dust/zero tuition
+            RuntimeModeAuthority.isLive() && (laneEvMult < 0.50 || laneSizeCap < 0.50) -> 0.35
+            else -> 0.35
         }
         // V5.0.3925 — BotBrain.getRiskAdjustedSizeMultiplier wired into the
         // multiplier product. Brain learns per (phase, emaFan, source)
@@ -10915,11 +10915,19 @@ class Executor(
                 val laneWr4134 = laneMetric4134?.winRatePct ?: 100.0
                 val laneN4134 = laneMetric4134?.trades ?: 0
                 if (laneN4134 >= 12 && laneWr4134 < 25.0) {
-                    try { ForensicLogger.lifecycle("REGIME_PIVOT_MICRO_V4151", "symbol=${ts.symbol} mint=$mintShort4134 lane=$laneTag4134 regime=DUMP laneWr=${"%.1f".format(laneWr4134)} n=$laneN4134 path=liveBuy.enter action=defer_to_rescore_not_strategy_failure") } catch (_: Throwable) {}
-                    try { PipelineHealthCollector.labelInc("REGIME_PIVOT_MICRO") } catch (_: Throwable) {}
-                    try { PipelineHealthCollector.labelInc("BUY_TIMEOUT_NOT_STRATEGY_FAILURE") } catch (_: Throwable) {}
-                    liveBuyDeferred(ts, sol, "REGIME_PIVOT_REASSESS", "regime=DUMP laneWr=${"%.1f".format(laneWr4134)}% n=$laneN4134 rescore_to_micro_or_watch")
-                    return false
+                    // V5.0.4568 — INNER-LANE STRATEGY PIVOT, NOT HARD STOP.
+                    // Runtime 4548 showed LIVE_PROBABILITY_LANE_HARD_STOPPED and
+                    // BUY ok=0 while FDG/EXEC continued to churn. Operator doctrine:
+                    // toxic buckets pivot strategy before purchase; do not simply
+                    // disable the lane or buy the same setup as dust. Keep execution
+                    // alive, tag the lane-local defensive pivot, and let downstream
+                    // style/router/tactic layers tighten entry/exit without returning
+                    // false from the live-buy choke point.
+                    disciplineRecoverySizeMultiplier4460 = minOf(disciplineRecoverySizeMultiplier4460, 0.35)
+                    disciplineRecoveryReason4460 = "DUMP_INNER_LANE_DEFENSIVE_PIVOT"
+                    try { ForensicLogger.lifecycle("REGIME_INNER_LANE_PIVOT_4568", "symbol=${ts.symbol} mint=$mintShort4134 lane=$laneTag4134 regime=DUMP laneWr=${"%.1f".format(laneWr4134)} n=$laneN4134 path=liveBuy.enter action=continue_defensive_style sizeMult=0.35") } catch (_: Throwable) {}
+                    try { PipelineHealthCollector.labelInc("REGIME_INNER_LANE_PIVOT_4568") } catch (_: Throwable) {}
+                    onLog("🧭 LIVE DUMP inner-lane pivot: ${ts.symbol} lane=$laneTag4134 WR=${"%.1f".format(laneWr4134)}%", "discipline")
                 }
             } else if (regimeDump4134 && defensiveLane4149) {
                 try { ForensicLogger.lifecycle("REGIME_PIVOT_LANE_ADMIT_V4149", "symbol=${ts.symbol} mint=$mintShort4134 lane=$laneTag4134 regime=DUMP path=liveBuy.enter") } catch (_: Throwable) {}
