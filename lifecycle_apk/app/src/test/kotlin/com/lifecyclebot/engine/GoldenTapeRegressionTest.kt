@@ -4183,7 +4183,7 @@ class GoldenTapeRegressionTest {
     fun weak_dump_toxic_score_band_pivots_defensive_probe_inside_lane_not_cross_lane() {
         val router = java.io.File("src/main/kotlin/com/lifecyclebot/engine/AgenticStyleRouter.kt").readText()
         assertTrue("DEFENSIVE_PROBE must remain meme-lane-local, not jump to QUALITY/DIP/TREASURY", router.contains("V5.0.4544") && router.contains("inner-lane defensive style") && router.contains("""DEFENSIVE_PROBE("defensive_probe", setOf("SHITCOIN", "MOONSHOT", "PROJECT_SNIPER", "EXPRESS", "MANIPULATED")"""))
-        assertTrue("Router must not prepend rapid toxic-regime lane escapes for MOONSHOT|S41-60 / SHITCOIN danger", router.contains("rapidToxicRegimePivot") && router.contains("INNER-LANE PIVOT DOCTRINE") && router.contains("No lane prepend here") && !router.contains("""listOf("QUALITY", "DIP_HUNTER", "TREASURY", "BLUECHIP")"""))
+        assertTrue("Router must not prepend rapid toxic-regime lane escapes for MOONSHOT|S41-60 / SHITCOIN danger", router.contains("rapidToxicRegimePivot") && router.contains("INNER-LANE PIVOT DOCTRINE") && router.contains("return emptyList()") && !router.contains("""listOf("QUALITY", "DIP_HUNTER", "TREASURY", "BLUECHIP")"""))
         assertTrue("Weak toxic pivot must choose lane-local styles from laneHint", router.contains("sameLaneWeakPivotStyle") && router.contains(""""MOONSHOT" -> when (fallback)""") && router.contains(""""SHITCOIN" -> when (fallback)"""))
         assertFalse("Fast toxic pivot must remain soft route-shape, not a hard trade block", router.contains("shouldTrade = false") || router.contains("BLOCK_"))
     }
@@ -6715,7 +6715,7 @@ class GoldenTapeRegressionTest {
     fun aate4544AgenticStyleRouterUsesInnerLanePivotsNotLaneJumps() {
         val router = java.io.File("src/main/kotlin/com/lifecyclebot/engine/AgenticStyleRouter.kt").readText()
         assertTrue("V5.0.4544: toxic-regime pivoting must be documented as inner-lane strategy pivoting", router.contains("INNER-LANE PIVOT DOCTRINE") && router.contains("same lane, different wave/mcap/tactic/confirmation/hold profile"))
-        assertTrue("V5.0.4544: rapid toxic regime pivot must not prepend QUALITY/DIP/TREASURY/BLUECHIP lane escapes", router.contains("private fun rapidToxicRegimePivot") && router.contains("No lane prepend here") && !router.contains("""listOf("QUALITY", "DIP_HUNTER", "TREASURY", "BLUECHIP")"""))
+        assertTrue("V5.0.4544: rapid toxic regime pivot must not prepend QUALITY/DIP/TREASURY/BLUECHIP lane escapes", router.contains("private fun rapidToxicRegimePivot") && router.contains("return emptyList()") && !router.contains("""listOf("QUALITY", "DIP_HUNTER", "TREASURY", "BLUECHIP")"""))
         assertTrue("V5.0.4544: weak-regime style decisions must route through sameLaneWeakPivotStyle with laneHint", router.contains("private fun sameLaneWeakPivotStyle") && router.contains("weakChopStylePivot(it, sheet, weakChopSheet, laneHint)") && router.contains("sameLaneWeakPivotStyle(laneHint, Style.DEFENSIVE_PROBE)"))
         assertTrue("V5.0.4544: MOONSHOT and SHITCOIN must pivot strategy internally, not dump lanes", router.contains(""""MOONSHOT" -> when (fallback)""") && router.contains("Style.SMART_WALLET_COPY_FOLLOW") && router.contains(""""SHITCOIN" -> when (fallback)""") && router.contains("Style.VOLUME_IGNITION_SCALP"))
     }
