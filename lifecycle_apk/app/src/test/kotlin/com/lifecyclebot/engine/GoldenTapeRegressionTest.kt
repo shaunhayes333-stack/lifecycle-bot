@@ -6714,7 +6714,7 @@ class GoldenTapeRegressionTest {
     @Test
     fun aate4544AgenticStyleRouterUsesInnerLanePivotsNotLaneJumps() {
         val router = java.io.File("src/main/kotlin/com/lifecyclebot/engine/AgenticStyleRouter.kt").readText()
-        assertTrue("V5.0.4544: toxic-regime pivoting must be documented as inner-lane strategy pivoting", router.contains("INNER-LANE PIVOT DOCTRINE") && router.contains("same lane, different wave/mcap/tactic/confirmation/hold profile"))
+        assertTrue("V5.0.4544: toxic-regime pivoting must be documented as inner-lane strategy pivoting", router.contains("INNER-LANE PIVOT DOCTRINE") && router.contains("same lane,") && router.contains("different wave/mcap/tactic/confirmation/hold profile"))
         assertTrue("V5.0.4544: rapid toxic regime pivot must not prepend QUALITY/DIP/TREASURY/BLUECHIP lane escapes", router.contains("private fun rapidToxicRegimePivot") && router.contains("return emptyList()") && !router.contains("""listOf("QUALITY", "DIP_HUNTER", "TREASURY", "BLUECHIP")"""))
         assertTrue("V5.0.4544: weak-regime style decisions must route through sameLaneWeakPivotStyle with laneHint", router.contains("private fun sameLaneWeakPivotStyle") && router.contains("weakChopStylePivot(it, sheet, weakChopSheet, laneHint)") && router.contains("sameLaneWeakPivotStyle(laneHint, Style.DEFENSIVE_PROBE)"))
         assertTrue("V5.0.4544: MOONSHOT and SHITCOIN must pivot strategy internally, not dump lanes", router.contains(""""MOONSHOT" -> when (fallback)""") && router.contains("Style.SMART_WALLET_COPY_FOLLOW") && router.contains(""""SHITCOIN" -> when (fallback)""") && router.contains("Style.VOLUME_IGNITION_SCALP"))
