@@ -116,31 +116,33 @@ object LiveProbabilityEngine {
             val rawMult = (1.0 + probabilityEdge + pnlEdge + solEdge - rugPenalty - uncertaintyPenalty)
                 .coerceIn(0.40, 1.60)
             val mult = minOf(rawMult, lowHitRateCap).coerceIn(0.40, 1.60)
-            // V5.0.4551 — CATASTROPHIC LANE BLEED-CAP (operator audit P0).
-            // Operator V5.0.4545 dump: EXPRESS n=6 EV=-93%, MANIPULATED n=8 EV=-72%,
-            // SHITCOIN n=16 EV=-43%, BLUECHIP n=9 WR=0%. The 0.40 size floor
-            // means even catastrophic lanes keep firing at 40% size. With
-            // sufficient samples to be statistically clear they're toxic,
-            // we drive size to 0.0 (= effective hard-stop for that lane×score
-            // bucket) so the bot stops pouring SOL into proven bleeders.
-            // n>=4 with EV<-40% OR WR=0%/n>=6 OR EV<-60% → size = 0.0
-            val finalMult = run {
+            // V5.0.4572 — LIVE RAPID RE-EDUCATION, NOT PAID BOOTSTRAP TUITION.
+            // Real capital has no bootstrap grace. A few clear bad live outcomes are
+            // enough to declare the current lane bucket toxic, but the response must
+            // be lane-local tactic/style pivoting — not repeating the same shit buy,
+            // and not a learned-strategy zero-size that hides the lane from training.
+            // Keep an executable defensive floor so downstream AgenticStyleRouter /
+            // LiveStylePivotRouter can switch tactic inside the lane while telemetry
+            // exposes the toxic bucket immediately.
+            val rapidPivotToxicBucket4572 = run {
                 val laneN = laneSamples
-                val sampleClear = laneN >= 4
+                val sampleClear = laneN >= 2
+                val badTwoTradeEV = laneN >= 2 && eBase <= -20.0
                 val catastrophicEV = eBase <= -40.0
-                val zeroWrEnough = lanePWin <= 0.001 && laneN >= 6
+                val zeroWrEnough = lanePWin <= 0.001 && laneN >= 3
                 val doomEV = eBase <= -60.0
-                if (sampleClear && (catastrophicEV || zeroWrEnough || doomEV)) {
-                    try {
-                        ForensicLogger.lifecycle(
-                            "LIVE_PROBABILITY_LANE_HARD_STOPPED",
-                            "lane=$lane n=$laneN pWin=${"%.0f".format(lanePWin*100)}% E=${"%+.1f".format(eBase)}% — size→0.0 (catastrophic bleeder, no new exposure)",
-                        )
-                        PipelineHealthCollector.labelInc("LIVE_PROBABILITY_LANE_HARD_STOPPED_${lane.uppercase()}")
-                    } catch (_: Throwable) {}
-                    0.0
-                } else mult
+                sampleClear && (badTwoTradeEV || catastrophicEV || zeroWrEnough || doomEV)
             }
+            val finalMult = if (rapidPivotToxicBucket4572) {
+                try {
+                    ForensicLogger.lifecycle(
+                        "LIVE_PROBABILITY_RAPID_PIVOT_SHAPED_4572",
+                        "lane=$lane n=$laneSamples pWin=${"%.0f".format(lanePWin*100)}% E=${"%+.1f".format(eBase)}% action=lane_local_tactic_pivot sizeFloor=0.35 no_live_bootstrap_tuition=true",
+                    )
+                    PipelineHealthCollector.labelInc("LIVE_PROBABILITY_RAPID_PIVOT_SHAPED_4572_${lane.uppercase()}")
+                } catch (_: Throwable) {}
+                minOf(mult, 0.35).coerceAtLeast(0.35)
+            } else mult
 
             val src = listOfNotNull(
                 if (fwdWeight > 0.0) "fwd:${fwd.source}" else null,
@@ -158,7 +160,7 @@ object LiveProbabilityEngine {
             .filter { it.trades >= 5 }
             .take(6)
             .map { forecast(it.strategy, 50, "U", "NORMAL") }
-        if (rows.isEmpty()) "LiveProbabilityEngine: bootstrap/no mature live lanes"
+        if (rows.isEmpty()) "LiveProbabilityEngine: rapid-live/no clean terminal rows yet"
         else "LiveProbabilityEngine: " + rows.joinToString(" · ") { "${it.lane}:pWin=${"%.0f".format(it.pWin * 100)}% E=${"%+.1f".format(it.expectedPnlPct)}% size×=${"%.2f".format(it.sizeMult)} n=${it.samples}" }
     } catch (_: Throwable) { "LiveProbabilityEngine: unavailable" }
 

@@ -10916,8 +10916,9 @@ class Executor(
                 val laneN4134 = laneMetric4134?.trades ?: 0
                 if (laneN4134 >= 12 && laneWr4134 < 25.0) {
                     // V5.0.4568 — INNER-LANE STRATEGY PIVOT, NOT HARD STOP.
-                    // Runtime 4548 showed LIVE_PROBABILITY_LANE_HARD_STOPPED and
-                    // BUY ok=0 while FDG/EXEC continued to churn. Operator doctrine:
+                    // V5.0.4572 — runtime showed learned lane probability acting
+                    // like paid-bootstrap tuition / zero-size veto while FDG/EXEC
+                    // continued to churn. Operator doctrine:
                     // toxic buckets pivot strategy before purchase; do not simply
                     // disable the lane or buy the same setup as dust. Keep execution
                     // alive, tag the lane-local defensive pivot, and let downstream

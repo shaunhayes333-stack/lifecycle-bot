@@ -6917,4 +6917,15 @@ class GoldenTapeRegressionTest {
         assertTrue("V5.0.4570: live panel must not show paper-mode synthetic rows when runtime is live", main.contains("if (isPaper != isPaperMode) return"))
     }
 
+
+
+    @Test
+    fun aate4572LiveProbabilityRapidReeducationDoesNotBootstrapOrZeroSize() {
+        val src = java.io.File("src/main/kotlin/com/lifecyclebot/engine/LiveProbabilityEngine.kt").readText()
+        assertTrue("V5.0.4572: live probability must use rapid re-education instead of paid bootstrap tuition", src.contains("LIVE RAPID RE-EDUCATION, NOT PAID BOOTSTRAP TUITION") && src.contains("badTwoTradeEV") && src.contains("no_live_bootstrap_tuition=true"))
+        assertTrue("V5.0.4572: toxic live buckets must pivot inside lane with executable floor, not learned zero-size", src.contains("LIVE_PROBABILITY_RAPID_PIVOT_SHAPED_4572") && src.contains("action=lane_local_tactic_pivot") && src.contains("sizeFloor=0.35") && src.contains("coerceAtLeast(0.35)"))
+        assertFalse("V5.0.4572: old learned hard-stop telemetry must not survive", src.contains("LIVE_PROBABILITY_LANE_HARD_STOPPED") || src.contains("size→0.0"))
+        assertFalse("V5.0.4572: live probability status must not claim live bootstrap/no mature lanes", src.contains("bootstrap/no mature live lanes"))
+    }
+
 }
