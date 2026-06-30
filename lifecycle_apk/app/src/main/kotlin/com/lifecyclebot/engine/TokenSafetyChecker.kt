@@ -426,6 +426,9 @@ class TokenSafetyChecker(private val cfg: () -> BotConfig) {
             var lowLiquidityRisk = false
             var lowHolderRisk = false
             var lowLpProviderRisk = false
+            var singleHolderOwnershipRisk = false
+            var unverifiedTokenRisk = false
+            var highHolderConcentrationRisk = false
             if (risks != null) {
                 for (i in 0 until risks.length()) {
                     val risk = risks.optJSONObject(i) ?: continue
@@ -442,6 +445,9 @@ class TokenSafetyChecker(private val cfg: () -> BotConfig) {
                     if (rName.contains("low") && rName.contains("liquid")) lowLiquidityRisk = true
                     if (rName.contains("low") && rName.contains("holder")) lowHolderRisk = true
                     if (rName.contains("low") && rName.contains("lp") && rName.contains("provider")) lowLpProviderRisk = true
+                    if ((rName.contains("single") && rName.contains("holder")) || (rName.contains("holder") && rName.contains("ownership"))) singleHolderOwnershipRisk = true
+                    if (rName.contains("unverified")) unverifiedTokenRisk = true
+                    if (rName.contains("holder") && rName.contains("concentration")) highHolderConcentrationRisk = true
                     // Count DANGER-level flags (red icons in the UI)
                     if (rLevel == "danger" || rLevel == "high") redFlagCount++
                 }
@@ -462,6 +468,14 @@ class TokenSafetyChecker(private val cfg: () -> BotConfig) {
                     hard.add("LP unlocked with low liquidity/holder/provider risk — live rug overlay block")
                     ErrorLogger.error(TAG, "🚫 LIVE_RUG_OVERLAY_BLOCK_4199: $symbol LP-unlocked + low-liq/holders/providers risk flags")
                     try { ForensicLogger.lifecycle("LIVE_RUG_OVERLAY_BLOCK_4199", "mint=${mint.take(10)} symbol=$symbol redFlags=$redFlagCount lpUnlocked=$lpUnlockedRisk lowLiq=$lowLiquidityRisk lowHolders=$lowHolderRisk lowLpProviders=$lowLpProviderRisk liq=${currentLiquidityUsd.toInt()} action=hard_block_live") } catch (_: Throwable) {}
+                }
+                val manipulatedOnlyOverlay4553 = singleHolderOwnershipRisk || unverifiedTokenRisk || highHolderConcentrationRisk ||
+                    (redFlagCount >= 3 && (singleHolderOwnershipRisk || highHolderConcentrationRisk || unverifiedTokenRisk))
+                if (manipulatedOnlyOverlay4553 && !isPaperMode) {
+                    soft.add("MANIPULATED_ONLY_OVERLAY_4553 singleHolder=$singleHolderOwnershipRisk unverified=$unverifiedTokenRisk holderConcentration=$highHolderConcentrationRisk redFlags=$redFlagCount" to 55)
+                    penalty += 55
+                    ErrorLogger.error(TAG, "🚫 MANIPULATED_ONLY_OVERLAY_4553: $symbol singleHolder=$singleHolderOwnershipRisk unverified=$unverifiedTokenRisk holderConcentration=$highHolderConcentrationRisk redFlags=$redFlagCount — non-MANIPULATED lanes forbidden")
+                    try { ForensicLogger.lifecycle("MANIPULATED_ONLY_OVERLAY_4553", "mint=${mint.take(10)} symbol=$symbol singleHolder=$singleHolderOwnershipRisk unverified=$unverifiedTokenRisk holderConcentration=$highHolderConcentrationRisk redFlags=$redFlagCount action=manipulated_lane_only") } catch (_: Throwable) {}
                 }
                 if (redFlagCount >= 5) {
                     // V5.9.648 — operator override: in PAPER mode, never hard-block on

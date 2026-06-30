@@ -9092,6 +9092,33 @@ class BotService : Service() {
         return softProbeable.any { r.contains(it) }
     }
 
+
+    /**
+     * V5.0.4553 — manipulated overlay ownership.
+     * Tokens flagged by wallet/RugCheck UI as single-holder ownership,
+     * unverified, or high holder concentration are not normal SHITCOIN /
+     * MOONSHOT / EXPRESS bait. They are literal manipulation setups. Only the
+     * MANIPULATED lane may attempt them; all other lanes must reject before
+     * WAIT/dust-probe override can rescue the buy.
+     */
+    private fun manipulatedOnlyOverlayActive4553(ts: com.lifecyclebot.data.TokenState?): Boolean {
+        val safety = ts?.safety ?: return false
+        val text = buildString {
+            append(safety.summary).append(' ')
+            append(safety.nameFlag).append(' ')
+            append(safety.bundleRisk).append(' ')
+            append(safety.bundleReason).append(' ')
+            safety.hardBlockReasons.forEach { append(it).append(' ') }
+            safety.softPenalties.forEach { append(it.first).append(' ') }
+        }.lowercase()
+        if (text.contains("manipulated_only_overlay_4553")) return true
+        val singleHolder = text.contains("single holder") || text.contains("single wallet") || text.contains("holder ownership")
+        val unverified = text.contains("unverified token") || text.contains("unverified")
+        val holderConcentration = text.contains("holder concentration") || text.contains("top holders") || text.contains("top holder") || safety.topHolderPct >= 50.0
+        val trueRug = text.contains("honeypot") || text.contains("cannot_sell") || text.contains("blacklist") || text.contains("confirmed rug") || text.contains("lp unlocked with low liquidity")
+        return !trueRug && (singleHolder || unverified || holderConcentration)
+    }
+
     private fun laneQualifiedBuyDecision(
         base: com.lifecyclebot.data.CandidateDecision,
         lane: String,
@@ -9140,6 +9167,20 @@ class BotService : Service() {
                 )
             ) com.lifecyclebot.engine.ChopFilter.chopPenalty() else 0
         } catch (_: Throwable) { 0 }
+        val tsForManipulatedOnly4553 = edgeToken4529
+        val manipulatedOnlyOverlay4553 = manipulatedOnlyOverlayActive4553(tsForManipulatedOnly4553)
+        if (manipulatedOnlyOverlay4553 && !lane.equals("MANIPULATED", ignoreCase = true)) {
+            try {
+                PipelineHealthCollector.labelInc("MANIPULATED_ONLY_NON_MANIPULATED_LANE_REJECTED_4553")
+                PipelineHealthCollector.labelInc("PREFDG_DROP_MANIPULATED_ONLY_${lane.uppercase()}")
+                ForensicLogger.lifecycle("MANIPULATED_ONLY_NON_MANIPULATED_LANE_REJECTED_4553", "lane=$lane mint=${mintForProbe.take(10)} symbol=$edgeSymbol4529 topHolder=${tsForManipulatedOnly4553?.safety?.topHolderPct} reasons=${tsForManipulatedOnly4553?.safety?.softPenalties?.joinToString("|") { it.first }?.take(160)} action=reject_non_manipulated_lane")
+                LearningLifecycleBus.preFdgReject("MANIPULATED_ONLY_NON_MANIPULATED_LANE", lane, sourceForChop, mintForProbe, edgeSymbol4529, "MANIPULATED_ONLY_OVERLAY_4553", base.entryScore, base.aiConfidence, liquidityUsd, edgeMcap4529, edgeRegime4529)
+            } catch (_: Throwable) {}
+            return base.copy(
+                signal = "WAIT", finalSignal = "WAIT", shouldTrade = false,
+                blockReason = "MANIPULATED_ONLY_OVERLAY_NON_MANIPULATED_LANE_4553",
+            )
+        }
         val laneBase = if (chopPenalty > 0) {
             try {
                 PipelineHealthCollector.labelInc("CHOP_FILTER_SOFT_SHAPED_4206")

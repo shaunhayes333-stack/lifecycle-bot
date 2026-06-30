@@ -6778,4 +6778,16 @@ class GoldenTapeRegressionTest {
         assertTrue("V5.0.4550: stale-aged live restore must be telemetry-preserved", persist.contains("LIVE_POSITION_RESTORE_AGE_TTL_BYPASS_4550") && persist.contains("restore anyway; sell/zero finality owns removal"))
     }
 
+
+
+    @Test
+    fun aate4553ManipulatedRiskOverlayIsManipulatedLaneOnly() {
+        val safety = java.io.File("src/main/kotlin/com/lifecyclebot/engine/TokenSafetyChecker.kt").readText()
+        val bot = java.io.File("src/main/kotlin/com/lifecyclebot/engine/BotService.kt").readText()
+        assertTrue("V5.0.4553: risk overlay parser must detect single-holder/unverified/high-holder-concentration manipulation", safety.contains("singleHolderOwnershipRisk") && safety.contains("unverifiedTokenRisk") && safety.contains("highHolderConcentrationRisk"))
+        assertTrue("V5.0.4553: TokenSafetyChecker must stamp MANIPULATED_ONLY_OVERLAY_4553 for live manipulation overlays", safety.contains("MANIPULATED_ONLY_OVERLAY_4553") && safety.contains("action=manipulated_lane_only"))
+        assertTrue("V5.0.4553: shared pre-FDG lane gate must reject manipulated overlays from every non-MANIPULATED lane", bot.contains("manipulatedOnlyOverlayActive4553") && bot.contains("MANIPULATED_ONLY_NON_MANIPULATED_LANE_REJECTED_4553") && bot.contains("MANIPULATED_ONLY_OVERLAY_NON_MANIPULATED_LANE_4553"))
+        assertTrue("V5.0.4553: manipulated-only rejection must happen before weak WAIT/dust-probe override can turn it into a live buy", bot.indexOf("MANIPULATED_ONLY_NON_MANIPULATED_LANE_REJECTED_4553") < bot.indexOf("LANE_WAIT_OVERRIDE_DUST_PROBE"))
+    }
+
 }
