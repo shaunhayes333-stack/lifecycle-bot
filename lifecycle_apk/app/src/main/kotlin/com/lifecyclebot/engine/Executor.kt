@@ -8212,6 +8212,26 @@ class Executor(
                       quality: String = "C",
                       skipGraduated: Boolean = false) {
         val tradeId = identity ?: TradeIdentityManager.getOrCreate(ts.mint, ts.symbol, ts.source)
+        // V5.0.4578 — SOURCE FIX for live INVALID_SCORE floods. Runtime 4575
+        // showed 26/30 live BUY failures as INVALID_SCORE even though candidates
+        // had already passed intake/lane/FDG. That means a caller sentinel
+        // (-1/NaN) leaked into doBuy/liveBuy, not that the token was invalid.
+        // Normalize once at the executor spine using the TokenState entry score
+        // before advisors/sizers/liveBuy consume it. True no-score candidates get
+        // a neutral bootstrap score instead of a hard veto; downstream quality,
+        // safety, RR, route and cost gates still decide execution.
+        val execScore4578 = when {
+            score.isFinite() && score >= 0.0 -> score.coerceIn(0.0, 100.0)
+            ts.entryScore.isFinite() && ts.entryScore > 0.0 -> ts.entryScore.coerceIn(0.0, 100.0)
+            else -> 50.0
+        }
+        if (execScore4578 != score) {
+            try {
+                ForensicLogger.lifecycle("LIVE_BUY_SCORE_NORMALIZED_4578", "mint=${ts.mint.take(10)} symbol=${ts.symbol} raw=$score entryScore=${ts.entryScore} normalized=$execScore4578 action=continue_no_invalid_score_veto")
+                PipelineHealthCollector.labelInc("LIVE_BUY_SCORE_NORMALIZED_4578")
+            } catch (_: Throwable) {}
+        }
+        val score = execScore4578
 
         // V5.0.4189 — Sentience pre-trade is ADVISORY ONLY.
         // Cached LLM vetoes were able to return before any live buy, violating the
@@ -10795,6 +10815,24 @@ class Executor(
             PipelineHealthCollector.labelInc("LIVE_BUY_ENTERED")
         } catch (_: Throwable) {}
 
+        // V5.0.4578 — same source fix at the final live executor choke. A few
+        // direct lane callers bypass doBuy() and can still pass sentinel/NaN
+        // scores. Do not hard-fail a route-approved candidate for a missing
+        // caller score; normalize to TokenState.entryScore or neutral bootstrap
+        // and let safety/route/cost/strategy gates decide.
+        val rawLiveScore4578 = score
+        val score = when {
+            rawLiveScore4578.isFinite() && rawLiveScore4578 >= 0.0 -> rawLiveScore4578.coerceIn(0.0, 100.0)
+            ts.entryScore.isFinite() && ts.entryScore > 0.0 -> ts.entryScore.coerceIn(0.0, 100.0)
+            else -> 50.0
+        }
+        if (score != rawLiveScore4578) {
+            try {
+                ForensicLogger.lifecycle("LIVE_BUY_SCORE_NORMALIZED_AT_CHOKE_4578", "mint=${ts.mint.take(10)} symbol=${ts.symbol} normalized=$score entryScore=${ts.entryScore} action=continue_no_invalid_score_veto")
+                PipelineHealthCollector.labelInc("LIVE_BUY_SCORE_NORMALIZED_AT_CHOKE_4578")
+            } catch (_: Throwable) {}
+        }
+
         val execCtx = executionContext ?: ExecutionContext(
             execMode = ExecMode.LIVE,
             attemptId = attemptId.ifBlank { "live_${ts.mint.take(8)}_${System.currentTimeMillis()}" },
@@ -11503,11 +11541,13 @@ class Executor(
         }
 
         if (score < 0 || score.isNaN()) {
-            ErrorLogger.warn("Executor", "[EXECUTION/INVALID] Live buy skipped: invalid score $score for ${ts.symbol}")
-            emitLiveBuyFail(ts, sol, "INVALID_SCORE")
-            // V5.0.4187 — LEASE ORPHAN FIX (A2).
-            buyTerminalFail("BUY_TERMINAL_INVALID_SCORE")
-            return false
+            // V5.0.4578 — this should be unreachable after score normalization
+            // above. Do not resurrect INVALID_SCORE as a hard live-buy veto; keep
+            // the attempt alive and let real safety/route/cost gates decide.
+            try {
+                ForensicLogger.lifecycle("LIVE_BUY_SCORE_STILL_INVALID_AFTER_NORMALIZE_4578", "mint=${ts.mint.take(10)} symbol=${ts.symbol} score=$score action=continue_no_invalid_score_veto")
+                PipelineHealthCollector.labelInc("LIVE_BUY_SCORE_STILL_INVALID_AFTER_NORMALIZE_4578")
+            } catch (_: Throwable) {}
         }
 
         // V5.9.1550 — LIVE restore economics. Stale finality/desync can reduce

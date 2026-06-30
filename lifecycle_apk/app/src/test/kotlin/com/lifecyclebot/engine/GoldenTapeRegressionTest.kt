@@ -6955,4 +6955,14 @@ class GoldenTapeRegressionTest {
         assertTrue("V5.0.4576: async wallet-proof BUY_OK/PENDING paths must connect back to the same attempt trace", executor.contains("WALLET_PROOF_OK") && executor.contains("WALLET_PROOF_PENDING") && executor.contains("LIVE_BUY_LANDED"))
     }
 
+
+
+    @Test
+    fun aate4578LiveBuyDoesNotHardFailSentinelScores() {
+        val executor = java.io.File("src/main/kotlin/com/lifecyclebot/engine/Executor.kt").readText()
+        assertTrue("V5.0.4578: doBuy must normalize caller sentinel scores before live executor sizing/advisors", executor.contains("LIVE_BUY_SCORE_NORMALIZED_4578") && executor.contains("val execScore4578") && executor.contains("ts.entryScore.isFinite()") && executor.contains("else -> 50.0"))
+        assertTrue("V5.0.4578: direct liveBuy callers must normalize sentinel scores at the final live choke", executor.contains("LIVE_BUY_SCORE_NORMALIZED_AT_CHOKE_4578") && executor.contains("val rawLiveScore4578 = score") && executor.contains("continue_no_invalid_score_veto"))
+        assertFalse("V5.0.4578: live INVALID_SCORE must not remain the dominant sentinel-score hard veto before score normalization", executor.contains("Live buy skipped: invalid score "))
+    }
+
 }
