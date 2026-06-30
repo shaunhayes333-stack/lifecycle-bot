@@ -6811,7 +6811,7 @@ class GoldenTapeRegressionTest {
         val doctrine = java.io.File("src/main/kotlin/com/lifecyclebot/engine/LiveGrowthDoctrine.kt").readText()
         val router = java.io.File("src/main/kotlin/com/lifecyclebot/engine/AgenticStyleRouter.kt").readText()
         assertTrue("V5.0.4557: contribution fallback must be restricted to lanes BotService actually dispatches", doctrine.contains("dispatchableContributionLanes") && doctrine.contains("CASHGEN") && doctrine.contains("TREASURY") && doctrine.contains("BLUECHIP") && !doctrine.substringAfter("dispatchableContributionLanes").substringBefore("fun growthLaneFallback").contains("WHALE_FOLLOW"))
-        assertTrue("V5.0.4557: router must keep bounded fanout while forcing one dormant real-lane alternate when absent", router.contains("forceContributionFallback4557") && router.contains("else if (alternates.isNotEmpty())") && router.contains("out += growthFallbackLane4557"))
+        assertTrue("V5.0.4557: router must keep bounded fanout while forcing one dormant real-lane alternate when absent", router.contains("forceContributionFallback4557") && router.contains("else if (alternates.isNotEmpty())") && router.contains("growthFallbackLane4557?.let { out += it }"))
     }
 
 }

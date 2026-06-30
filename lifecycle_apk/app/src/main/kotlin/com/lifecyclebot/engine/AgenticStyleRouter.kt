@@ -96,7 +96,7 @@ object AgenticStyleRouter {
             growthFallbackLane4557 !in out &&
             growthFallbackLane4557 in LiveGrowthDoctrine.dispatchableContributionLanes &&
             (out + base + style.lanes).map { LiveGrowthDoctrine.canonicalLane(it) }.none { it == growthFallbackLane4557 }
-        if (forceContributionFallback4557) out += growthFallbackLane4557
+        if (forceContributionFallback4557) growthFallbackLane4557?.let { out += it }
         else if (alternates.isNotEmpty()) out += alternates[stablePick(mint, alternates.size)]
         return out
     }
