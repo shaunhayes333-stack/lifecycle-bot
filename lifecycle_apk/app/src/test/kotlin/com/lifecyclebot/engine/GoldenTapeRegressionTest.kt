@@ -6876,4 +6876,14 @@ class GoldenTapeRegressionTest {
         assertTrue("V5.0.4564: renderWatchlist must consume the cached probation snapshot", main.contains("use the off-main probation snapshot") && main.contains("val probationVisibleModel = wlModel.probationVisible") && main.contains("val probationEntriesSize = wlModel.probationTotal"))
     }
 
+
+
+    @Test
+    fun aate4566OpenManagedTokensCannotBePartitionedIntoIdleSurface() {
+        val main = java.io.File("src/main/kotlin/com/lifecyclebot/ui/MainActivity.kt").readText()
+        assertTrue("V5.0.4566: open/pending/qty-held tokens must be management obligations before scanner display classification", main.contains("OPEN POSITION SURFACE PRESERVATION") && main.contains("openOrManaged4566"))
+        assertTrue("V5.0.4566: active surface must receive open managed tokens before shadow/safety idle classification", main.contains("if (openOrManaged4566) activeTokens.add(ts)") && main.contains("else if (phase in shadowPhases || ts.safety.isBlocked) idleTokens.add(ts)"))
+        assertTrue("V5.0.4566: preservation must include pending verify and positive token quantity, not just isOpen", main.contains("ts.position.pendingVerify") && main.contains("ts.position.qtyToken > 1.0"))
+    }
+
 }

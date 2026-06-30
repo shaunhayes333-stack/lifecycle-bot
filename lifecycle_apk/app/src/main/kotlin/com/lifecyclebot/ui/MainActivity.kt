@@ -2546,7 +2546,20 @@ for legal compliance.
                 val idleTokens = ArrayList<com.lifecyclebot.data.TokenState>()
                 for (ts in tokensSnapshot) {
                     val phase = ts.phase.lowercase()
-                    if (phase in shadowPhases || ts.safety.isBlocked) idleTokens.add(ts) else activeTokens.add(ts)
+                    // V5.0.4566 — OPEN POSITION SURFACE PRESERVATION.
+                    // Regression report: dashboard showed open slots but live bot rows
+                    // disappeared from the active surface. The off-main partition was
+                    // still allowed to classify a managed/open token as idle whenever
+                    // phase landed in a shadow bucket or safety.isBlocked flipped true.
+                    // That is backwards: open/pending/qty-held positions are management
+                    // obligations first, scanner candidates second. Keep them active-
+                    // visible so exits, holds, and operator visibility do not vanish.
+                    val openOrManaged4566 = try {
+                        ts.position.isOpen || ts.position.pendingVerify || ts.position.qtyToken > 1.0
+                    } catch (_: Throwable) { false }
+                    if (openOrManaged4566) activeTokens.add(ts)
+                    else if (phase in shadowPhases || ts.safety.isBlocked) idleTokens.add(ts)
+                    else activeTokens.add(ts)
                 }
                 // V5.0.4564 — pull/sort/cap probation on Dispatchers.Default, not
                 // inside renderWatchlist() on Main. Keep only the tiny hot slice.
