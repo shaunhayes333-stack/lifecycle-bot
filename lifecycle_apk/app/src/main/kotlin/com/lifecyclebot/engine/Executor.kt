@@ -11813,13 +11813,28 @@ class Executor(
                 "pump.fun" else "universal-auto"
 
             val srcUpperForRoute = ts.source.uppercase()
-            val graduatedOrAmm = srcUpperForRoute.contains("RAYDIUM") || srcUpperForRoute.contains("GRADUATE") ||
-                srcUpperForRoute.contains("MIGRATED") || srcUpperForRoute.contains("PUMPSWAP") ||
-                srcUpperForRoute.contains("METEORA") || srcUpperForRoute.contains("ORCA")
-            val freshPumpRoute = !graduatedOrAmm && (com.lifecyclebot.network.PumpFunDirectApi.isPumpFunMint(ts.mint) ||
-                srcUpperForRoute.contains("PUMP_PORTAL") || srcUpperForRoute.contains("PUMP_FUN_NEW") || srcUpperForRoute.contains("PUMP_FUN"))
+            // V5.0.4559 — buy-route source fix. Runtime 4538 showed BUY ok=0
+            // with top intake SCANNER_DIRECT_RAYDIUM_NEW_POOL and BUY fail reason
+            // QUOTE_EXHAUSTED. The comment above says PumpPortal Lightning pool=auto
+            // routes pump.fun, PumpSwap AMM AND Raydium pools, but the old policy
+            // skipped PumpPortal for every source containing RAYDIUM and went
+            // straight to Jupiter. Fresh Raydium/new-pool routes often are not
+            // available on Jupiter yet, so that created a no-buy choke. Try
+            // PumpPortal auto first for Pump/Raydium/PumpSwap discovery routes;
+            // keep deep Orca/Meteora as Jupiter-first.
+            val deepUnsupportedAmm4559 = srcUpperForRoute.contains("METEORA") || srcUpperForRoute.contains("ORCA")
+            val pumpPortalAutoEligible4559 = !deepUnsupportedAmm4559 && (
+                com.lifecyclebot.network.PumpFunDirectApi.isPumpFunMint(ts.mint) ||
+                    srcUpperForRoute.contains("PUMP_PORTAL") ||
+                    srcUpperForRoute.contains("PUMP_FUN_NEW") ||
+                    srcUpperForRoute.contains("PUMP_FUN") ||
+                    srcUpperForRoute.contains("PUMPSWAP") ||
+                    srcUpperForRoute.contains("RAYDIUM_NEW_POOL") ||
+                    srcUpperForRoute.contains("SCANNER_DIRECT_RAYDIUM_NEW_POOL")
+            )
+            val freshPumpRoute = pumpPortalAutoEligible4559
             val pumpBuyPlan = if (!freshPumpRoute) {
-                try { ForensicLogger.lifecycle("PUMP_DIRECT_SKIPPED_ROUTE_POLICY", "mint=${ts.mint.take(10)} symbol=${ts.symbol} src=${ts.source.take(80)} reason=graduated_or_amm_use_jupiter_first") } catch (_: Throwable) {}
+                try { ForensicLogger.lifecycle("PUMP_DIRECT_SKIPPED_ROUTE_POLICY", "mint=${ts.mint.take(10)} symbol=${ts.symbol} src=${ts.source.take(80)} reason=deep_amm_use_jupiter_first pumpPortalAutoEligible4559=false") } catch (_: Throwable) {}
                 null
             } else recalcBuyPlanForProcessor(
                 ts = ts,

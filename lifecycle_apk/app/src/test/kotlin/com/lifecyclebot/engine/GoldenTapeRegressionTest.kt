@@ -3333,7 +3333,7 @@ class GoldenTapeRegressionTest {
 
         assertTrue("Pump Direct build health must be endpoint-specific", pump.contains("pump_direct_build") && pump.contains("PUMP_DIRECT_BUILD"))
         assertTrue("Pump Direct 0x1788 must disable Pump route for mint and rotate", exec.contains("PUMP_DIRECT_SIM_0X1788") && exec.contains("PUMP_DIRECT_0X1788_ROUTE_DISABLED") && exec.contains("MemeVenueRouter.markPumpRouteInvalid(ts.mint)"))
-        assertTrue("graduated/Raydium/AMM tokens must not force Pump Direct first", exec.contains("PUMP_DIRECT_SKIPPED_ROUTE_POLICY") && exec.contains("graduatedOrAmm") && exec.contains("freshPumpRoute"))
+        assertTrue("V5.0.4559: fresh Raydium/new-pool buys must try PumpPortal auto before Jupiter quote exhaustion", exec.contains("pumpPortalAutoEligible4559") && exec.contains("SCANNER_DIRECT_RAYDIUM_NEW_POOL") && exec.contains("Fresh Raydium/new-pool routes often are not") && exec.contains("deep_amm_use_jupiter_first"))
 
         assertTrue("orphan dust must not consume executor route capacity", exec.contains("ORPHAN_DUST_IGNORED") && exec.contains("qty <= 0.000001"))
         assertTrue("live buy failures must write live telemetry rows", exec.contains("LIVE_BUY_FAIL_TELEMETRY") && exec.contains("LIVE_TELEMETRY_ROW_BUY_FAIL"))
@@ -6812,6 +6812,15 @@ class GoldenTapeRegressionTest {
         val router = java.io.File("src/main/kotlin/com/lifecyclebot/engine/AgenticStyleRouter.kt").readText()
         assertTrue("V5.0.4557: contribution fallback must be restricted to lanes BotService actually dispatches", doctrine.contains("dispatchableContributionLanes") && doctrine.contains("CASHGEN") && doctrine.contains("TREASURY") && doctrine.contains("BLUECHIP") && !doctrine.substringAfter("dispatchableContributionLanes").substringBefore("fun growthLaneFallback").contains("WHALE_FOLLOW"))
         assertTrue("V5.0.4557: router must keep bounded fanout while forcing one dormant real-lane alternate when absent", router.contains("forceContributionFallback4557") && router.contains("else if (alternates.isNotEmpty())") && router.contains("growthFallbackLane4557?.let { out += it }"))
+    }
+
+
+
+    @Test
+    fun aate4559RaydiumNewPoolUsesPumpPortalAutoBeforeJupiterQuoteExhaustion() {
+        val exec = java.io.File("src/main/kotlin/com/lifecyclebot/engine/Executor.kt").readText()
+        assertTrue("V5.0.4559: Raydium new-pool discovery must not skip PumpPortal auto and go straight to Jupiter", exec.contains("pumpPortalAutoEligible4559") && exec.contains("srcUpperForRoute.contains") && exec.contains("RAYDIUM_NEW_POOL") && exec.contains("QUOTE_EXHAUSTED"))
+        assertTrue("V5.0.4559: only deep unsupported AMMs remain Jupiter-first", exec.contains("deepUnsupportedAmm4559") && exec.contains("METEORA") && exec.contains("ORCA") && exec.contains("deep_amm_use_jupiter_first"))
     }
 
 }
