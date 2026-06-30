@@ -41,9 +41,21 @@ jobs:
       - name: Compute AATE build number
         id: aate_build
         run: |
-          BUILD_NUMBER=$((GITHUB_RUN_NUMBER + 1))
-          # V5.0.4135 — Patch version derived from CI run number; AATE_VERSION
-          # now holds major.minor prefix only (see nested workflow comment).
+          RUN_BUILD_NUMBER=$((GITHUB_RUN_NUMBER + 1))
+          # V5.0.4571 — VERSION REALIGNMENT.
+          # Runtime reports read BuildConfig.VERSION_NAME, while operator patches
+          # are named in git commits (V5.0.xxxx). GITHUB_RUN_NUMBER can lag the
+          # patch stack, making the latest APK report an older build number
+          # (e.g. report 4550 while git head is 4570). Use the larger of the CI
+          # run number and the latest V5.0.xxxx commit subject so report/build/git
+          # numbers line up again without ever decreasing versionCode.
+          COMMIT_BUILD_NUMBER=$(git log -1 --pretty=%s | sed -n 's/^V5\.0\.\([0-9][0-9]*\).*/\1/p')
+          if [ -z "$COMMIT_BUILD_NUMBER" ]; then COMMIT_BUILD_NUMBER=0; fi
+          if [ "$COMMIT_BUILD_NUMBER" -gt "$RUN_BUILD_NUMBER" ]; then
+            BUILD_NUMBER="$COMMIT_BUILD_NUMBER"
+          else
+            BUILD_NUMBER="$RUN_BUILD_NUMBER"
+          fi
           BASE="$(cat AATE_VERSION)"
           VERSION_NAME="${BASE}.${BUILD_NUMBER}"
           echo "AATE_BUILD_NUMBER=$BUILD_NUMBER" >> "$GITHUB_ENV"

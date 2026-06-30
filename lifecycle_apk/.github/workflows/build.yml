@@ -30,11 +30,19 @@ jobs:
       - name: Compute AATE build number
         id: aate_build
         run: |
-          BUILD_NUMBER=$((GITHUB_RUN_NUMBER + 1))
-          # V5.0.4135 — Patch version is now derived from the CI run number so
-          # every push produces a uniquely-named APK (operator-mandated 2026-06-25
-          # after four consecutive builds shipped as v5.0.4132 because the file
-          # was static). AATE_VERSION now holds the major.minor prefix only.
+          RUN_BUILD_NUMBER=$((GITHUB_RUN_NUMBER + 1))
+          # V5.0.4571 — VERSION REALIGNMENT.
+          # Runtime reports read BuildConfig.VERSION_NAME, while operator patches
+          # are named in git commits (V5.0.xxxx). GITHUB_RUN_NUMBER can lag the
+          # patch stack, making the latest APK report an older build number.
+          # Use the larger of CI run number and latest V5.0.xxxx commit subject.
+          COMMIT_BUILD_NUMBER=$(git log -1 --pretty=%s | sed -n 's/^V5\.0\.\([0-9][0-9]*\).*/\1/p')
+          if [ -z "$COMMIT_BUILD_NUMBER" ]; then COMMIT_BUILD_NUMBER=0; fi
+          if [ "$COMMIT_BUILD_NUMBER" -gt "$RUN_BUILD_NUMBER" ]; then
+            BUILD_NUMBER="$COMMIT_BUILD_NUMBER"
+          else
+            BUILD_NUMBER="$RUN_BUILD_NUMBER"
+          fi
           BASE="$(cat AATE_VERSION)"
           VERSION_NAME="${BASE}.${BUILD_NUMBER}"
           echo "AATE_BUILD_NUMBER=$BUILD_NUMBER" >> "$GITHUB_ENV"
