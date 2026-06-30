@@ -100,9 +100,35 @@ object CommonSenseTradePlaybook {
         if (!snap.routeKnown || !routeTrustedFromStyle) return deny("SELL_ROUTE_UNKNOWN", "routeKnown=${snap.routeKnown} routeTrustedFromStyle=$routeTrustedFromStyle")
         if (!snap.tokenMapComplete) return deny("TOKEN_MAP_INCOMPLETE", "tokenMapComplete=false")
         if (!snap.safetyKnown || !snap.rugClean || !snap.holderAcceptable) return deny("SAFETY_OR_HOLDER_RISK", "safetyKnown=${snap.safetyKnown} rugClean=${snap.rugClean} holders=${snap.holderAcceptable}")
-        if (!snap.logicalBuyZone) return deny("NO_LOGICAL_BUY_ZONE", "tradeType=${snap.tradeType}")
-        if (!snap.invalidationKnown) return deny("NO_CLEAR_INVALIDATION", "tradeType=${snap.tradeType}")
-        if (!snap.riskRewardAcceptable) return deny("RISK_REWARD_POOR", "score=${snap.score} liq=${snap.liquidityUsd}")
+        fun allowShaped(reason: String, mult: Double, extra: String): Verdict {
+            val shaped = mult.coerceIn(0.35, 1.0)
+            val detail = (snap.reasons + extra).filter { it.isNotBlank() }.joinToString("|").take(240)
+            try {
+                ForensicLogger.lifecycle(
+                    "COMMON_SENSE_PREBUY_SHAPED_4575",
+                    "mint=${ts.mint.take(10)} symbol=${ts.symbol} lane=${snap.lane} style=${snap.style} reason=$reason tradeType=${snap.tradeType} conf=${snap.confidence} mult=${"%.2f".format(shaped)} detail=$detail action=trade_setup_pivot_not_block",
+                )
+                PipelineHealthCollector.labelInc("COMMON_SENSE_PREBUY_SHAPED_4575")
+                PipelineHealthCollector.labelInc("COMMON_SENSE_SHAPED_$reason")
+                PipelineHealthCollector.labelInc("COMMON_SENSE_TRADETYPE_${snap.tradeType}")
+            } catch (_: Throwable) {}
+            return Verdict(true, reason, detail, snap.tradeType, "LOW", minOf(snap.sizeMultiplier, shaped), snap)
+        }
+
+        val setupKnown = snap.tradeType != "NO_STRUCTURE"
+        val tradeableSetup = setupKnown && snap.liquidityUsd >= 500.0 && snap.routeKnown && snap.tokenMapComplete
+        if (!snap.logicalBuyZone) {
+            if (tradeableSetup || snap.score >= 58.0) return allowShaped("AMBIGUOUS_BUY_ZONE_PIVOT", 0.35, "logicalBuyZone=false tradeType=${snap.tradeType}")
+            return deny("NO_LOGICAL_BUY_ZONE", "tradeType=${snap.tradeType}")
+        }
+        if (!snap.invalidationKnown) {
+            if (tradeableSetup) return allowShaped("INFER_INVALIDATION_FROM_SETUP", 0.50, "invalidation=setup_floor_or_recent_low tradeType=${snap.tradeType}")
+            return deny("NO_CLEAR_INVALIDATION", "tradeType=${snap.tradeType}")
+        }
+        if (!snap.riskRewardAcceptable) {
+            if (tradeableSetup || snap.score >= 50.0) return allowShaped("RISK_REWARD_REDUCED_SIZE", 0.35, "score=${snap.score} liq=${snap.liquidityUsd}")
+            return deny("RISK_REWARD_POOR", "score=${snap.score} liq=${snap.liquidityUsd}")
+        }
 
         try {
             ForensicLogger.lifecycle(
@@ -149,13 +175,14 @@ object CommonSenseTradePlaybook {
         val lateChase = text.contains("OVEREXTENDED") || text.contains("VERTICAL") || text.contains("CHASE") || text.contains("FREE_FALL") || text.contains("FREEFALL")
         val breakdown = text.contains("BREAKDOWN") && !text.contains("FAILED_BREAKDOWN") && !text.contains("RECLAIM")
         val logicalBuyZone = tradeType != "NO_STRUCTURE" && !lateChase && !breakdown
-        val invalidationKnown = logicalBuyZone && (text.contains("SUPPORT") || text.contains("VWAP") || text.contains("EMA") || text.contains("RETEST") || text.contains("RANGE") || text.contains("SWEEP") || text.contains("RECLAIM") || text.contains("HIGHER_LOW") || tradeType in setOf("NEW_TOKEN_EARLY_LIFECYCLE", "MOMENTUM_SCALP"))
+        val invalidationKnown = logicalBuyZone && (text.contains("SUPPORT") || text.contains("VWAP") || text.contains("EMA") || text.contains("RETEST") || text.contains("RANGE") || text.contains("SWEEP") || text.contains("RECLAIM") || text.contains("HIGHER_LOW") || tradeType in setOf("NEW_TOKEN_EARLY_LIFECYCLE", "MOMENTUM_SCALP", "ACCUMULATION_BREAKOUT", "LIQUIDITY_DEPTH_QUALITY", "NARRATIVE_ROTATION", "WHALE_ACCUMULATION_FOLLOW"))
         val riskRewardAcceptable = when {
             !liquidityKnown || liq < 500.0 -> false
             lateChase || breakdown -> false
-            tradeType == "MOMENTUM_SCALP" -> score >= 64.0 && liq >= 1_500.0
-            tradeType == "NEW_TOKEN_EARLY_LIFECYCLE" -> score >= 58.0 && liq >= 1_500.0
-            else -> score >= 45.0 || liq >= 5_000.0
+            tradeType == "MOMENTUM_SCALP" -> score >= 58.0 && liq >= 1_500.0
+            tradeType == "NEW_TOKEN_EARLY_LIFECYCLE" -> score >= 52.0 && liq >= 1_500.0
+            tradeType in setOf("ACCUMULATION_BREAKOUT", "LIQUIDITY_DEPTH_QUALITY", "PULLBACK_BUY", "VWAP_RECLAIM", "EMA_RECLAIM", "HIGHER_LOW_CONTINUATION") -> score >= 38.0 || liq >= 1_500.0
+            else -> score >= 42.0 || liq >= 2_500.0
         }
         val reasons = mutableListOf<String>()
         if (priceKnown) reasons += "price_known" else reasons += "price_unknown"
