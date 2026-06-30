@@ -769,6 +769,10 @@ class Executor(
         // with a short timeout so we don't queue up stale signals.
         private val MEME_LIVE_BUY_MUTEX = java.util.concurrent.Semaphore(1, true)
         private const val MEME_LIVE_BUY_MUTEX_WAIT_MS = 150L
+        // V5.0.4561 — one journaled terminal SELL row per mint-close finality id.
+        // PositionCloseLedger itself is the close authority; this set tracks
+        // whether that closeId has already been journaled/trained by recordTrade().
+        private val terminalSellJournaledCloseIds4561 = java.util.concurrent.ConcurrentHashMap.newKeySet<String>()
     }
     
     // Lazy init to get Jupiter API key from config
@@ -2570,6 +2574,26 @@ class Executor(
             } catch (_: Throwable) { false }
             val isPartial = isPartialByReason || isPartialByQty
             if (isSell && !isPartial) {
+                // V5.0.4561 — mint-finality journal choke. Runtime 4540 showed
+                // the same mint closing twice under different lane labels, e.g.
+                // MANIPULATED loss followed by SHITCOIN scratch. TradeOutcomeLedger
+                // keys include lane/entry identity, so lane drift can bypass the
+                // close outcome suppressor. Live sell finality stamps
+                // PositionCloseLedger before recordTrade(), so existence alone must
+                // NOT suppress the first real row. Instead, allow exactly one
+                // terminal journal row per fresh closeId, then suppress later rows
+                // for that same mint-close finality regardless of lane/sig drift.
+                val existingCloseId4561 = try { com.lifecyclebot.engine.PositionCloseLedger.closeIdOf(ts.mint) } catch (_: Throwable) { null }
+                if (!existingCloseId4561.isNullOrBlank() && !terminalSellJournaledCloseIds4561.add(existingCloseId4561)) {
+                    try {
+                        ForensicLogger.lifecycle(
+                            "TERMINAL_SELL_DUPLICATE_SUPPRESSED_BY_CLOSE_LEDGER_4561",
+                            "mint=${ts.mint.take(10)} symbol=${ts.symbol} closeId=$existingCloseId4561 reason=${trade.reason.take(80)} lane=${trade.tradingMode.ifBlank { ts.position.tradingMode }} sig=${trade.sig.take(16)}"
+                        )
+                        PipelineHealthCollector.labelInc("TERMINAL_SELL_DUPLICATE_SUPPRESSED_BY_CLOSE_LEDGER_4561")
+                    } catch (_: Throwable) {}
+                    return
+                }
                 val env = if (ts.position.isPaperPosition) "PAPER" else "LIVE"
                 val verdict = com.lifecyclebot.engine.PositionExitArbiter.arbitrate(
                     canonicalMint = ts.mint,

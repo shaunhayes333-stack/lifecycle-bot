@@ -6834,4 +6834,14 @@ class GoldenTapeRegressionTest {
         assertFalse("V5.0.4560: stale source-amputation comment must not survive", scanner.contains("DISABLED: scanGeckoTrendingPools"))
     }
 
+
+
+    @Test
+    fun aate4561RecordTradeSuppressesTerminalSellAfterMintCloseLedgerFinality() {
+        val exec = java.io.File("src/main/kotlin/com/lifecyclebot/engine/Executor.kt").readText()
+        assertTrue("V5.0.4561: recordTrade must consult mint-keyed PositionCloseLedger before terminal SELL journaling", exec.contains("V5.0.4561 — mint-finality journal choke") && exec.contains("PositionCloseLedger.closeIdOf(ts.mint)") && exec.contains("terminalSellJournaledCloseIds4561"))
+        assertTrue("V5.0.4561: duplicate terminal SELL rows must be suppressed after the first journaled closeId, not before the real row", exec.contains("!terminalSellJournaledCloseIds4561.add(existingCloseId4561)") && exec.contains("TERMINAL_SELL_DUPLICATE_SUPPRESSED_BY_CLOSE_LEDGER_4561"))
+        assertTrue("V5.0.4561: patch must specifically protect against lane-drift duplicate closes", exec.contains("TradeOutcomeLedger") && exec.contains("keys include lane/entry identity") && exec.contains("same mint closing twice under different lane labels") && exec.contains("NOT suppress the first real row"))
+    }
+
 }
