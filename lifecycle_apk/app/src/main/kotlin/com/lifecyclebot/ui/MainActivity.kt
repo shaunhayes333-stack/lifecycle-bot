@@ -4377,8 +4377,22 @@ for legal compliance.
         // Paper trades retain a separate panel; this surface is the
         // live-vs-paper executive view of REAL trading.
         val isPaperMode = state.config.paperMode
+        fun liveOpenPanelTruth4570(mint: String): Boolean {
+            if (mint.isBlank()) return false
+            val ledgerClosed = try { com.lifecyclebot.engine.PositionCloseLedger.isClosed(mint) } catch (_: Throwable) { false }
+            if (ledgerClosed) return false
+            return try { com.lifecyclebot.engine.HostWalletTokenTracker.isCapCountable(mint) } catch (_: Throwable) { false }
+        }
+        // V5.0.4570 — REAL OPEN-POSITION PANEL TRUTH.
+        // Operator screenshot showed the panel displaying synthetic +3350% live
+        // rows while push/finality said a position sold down and journal truth did
+        // not contain that open row. The Open Positions panel is not allowed to be
+        // an old sub-trader active-map cache. In LIVE mode it must be host-wallet
+        // cap/open truth and not closed by PositionCloseLedger. Paper remains the
+        // simulator view.
         val merged = state.openPositions
             .filter { it.position.isPaperPosition == isPaperMode }
+            .filter { isPaperMode || liveOpenPanelTruth4570(it.mint) }
             .toMutableList()
         val alreadyRendered = merged.map { it.mint }.toMutableSet()
         var latestBuyByMint: Map<String, com.lifecyclebot.data.Trade>? = null
@@ -4415,6 +4429,14 @@ for legal compliance.
                    entryPrice: Double, entrySol: Double, entryTime: Long,
                    peakPct: Double, currentPrice: Double, isPaper: Boolean) {
             if (mint.isBlank() || alreadyRendered.contains(mint)) return
+            // V5.0.4570 — synthetic sub-trader rows are display fallbacks only;
+            // they may not resurrect sold/closed/unjournaled live positions.
+            if (isPaper != isPaperMode) return
+            if (!isPaper && !liveOpenPanelTruth4570(mint)) {
+                try { com.lifecyclebot.engine.PipelineHealthCollector.labelInc("OPEN_PANEL_SYNTH_STALE_SKIPPED_4570") } catch (_: Throwable) {}
+                try { com.lifecyclebot.engine.ForensicLogger.lifecycle("OPEN_PANEL_SYNTH_STALE_SKIPPED_4570", "mint=${mint.take(10)} symbol=$symbol layer=$layer reason=host_not_open_or_ledger_closed") } catch (_: Throwable) {}
+                return
+            }
             val existing = state.tokens[mint] ?: merged.firstOrNull { it.mint == mint }
             val buy = latestBuy(mint)
             val recoveredEntry = firstPositive(entryPrice, existing?.position?.entryPrice, journalEntryPrice(buy))

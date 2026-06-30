@@ -6906,4 +6906,15 @@ class GoldenTapeRegressionTest {
         assertTrue("V5.0.4568: live learned sizing floor must remain executable and not dust-size the bleeder branch to 0.08", exec.contains("executable defensive-pivot floor") && exec.contains("RuntimeModeAuthority.isLive() && (laneEvMult < 0.50 || laneSizeCap < 0.50) -> 0.35"))
     }
 
+
+
+    @Test
+    fun aate4570OpenPositionsPanelUsesHostTruthNotSyntheticLaneCache() {
+        val main = java.io.File("src/main/kotlin/com/lifecyclebot/ui/MainActivity.kt").readText()
+        assertTrue("V5.0.4570: live Open Positions panel must gate rows through HostWalletTokenTracker cap/open truth and PositionCloseLedger", main.contains("REAL OPEN-POSITION PANEL TRUTH") && main.contains("liveOpenPanelTruth4570") && main.contains("HostWalletTokenTracker.isCapCountable") && main.contains("PositionCloseLedger.isClosed"))
+        assertTrue("V5.0.4570: base state.openPositions must be filtered by live host truth in LIVE mode", main.contains(".filter { isPaperMode || liveOpenPanelTruth4570(it.mint) }"))
+        assertTrue("V5.0.4570: synthesized sub-trader rows must not resurrect sold/closed live positions", main.contains("OPEN_PANEL_SYNTH_STALE_SKIPPED_4570") && main.contains("if (!isPaper && !liveOpenPanelTruth4570(mint))"))
+        assertTrue("V5.0.4570: live panel must not show paper-mode synthetic rows when runtime is live", main.contains("if (isPaper != isPaperMode) return"))
+    }
+
 }
