@@ -1365,50 +1365,49 @@ class SolanaMarketScanner(
                     } catch (_: Throwable) { /* fail-open */ }
 
                     val birdeyeOk = com.lifecyclebot.engine.BirdeyeBudgetGate.canAffordScannerLane()
-                    // V5.0.4171 — DATA CONSERVATION: source disable + cycle stagger.
-                    //
-                    // Operator: 281 GB / 29 days. Two changes here, both with
-                    // explicit meme-trader safeguards.
-                    //
-                    // 1) DISABLED: scanGeckoTrendingPools, scanGeckoTopPoolsByVolume,
-                    //    scanMeteoraPoolsViaGecko, scanCoinGeckoTrending,
-                    //    scanCoinGeckoEstablished.
-                    //    Justification: API health sr=34% (geckoterminal), sr=87%
-                    //    (coingecko). ScannerSourceBrain shows COINGECKO_TRENDING n=4
-                    //    WR=0% (zero edge ever). GeckoTerminal sr=34% means 66% of
-                    //    calls fail and retry (pure wasted bandwidth). Removed
-                    //    entirely — DexScreener (sr=96%) + PumpFun direct provide
-                    //    complete coverage of every meme-trader-relevant source.
-                    //
-                    // 2) STAGGER: secondary sources rotate on a 4-cycle schedule
-                    //    so each fires every ~4th cycle instead of every cycle.
-                    //    The PRIMARY meme-trader sources stay every cycle and are
-                    //    NEVER staggered:
-                    //      - scanPumpFunDirect  (real-time pump.fun launches)
-                    //      - scanPumpFunActive  (active pump tokens)
-                    //      - scanPumpGraduates  (bonding-curve graduations)
-                    //      - scanPumpFunVolume  (volume on pump tokens)
-                    //      - scanFreshLaunches  (general fresh-launch firehose)
-                    //    Birdeye sources also stay every-cycle when budgetOk.
-                    //    Net: ~30% scanner-cycle data reduction, zero meme-trader
-                    //    edge loss (pump.fun launch detection unchanged).
+                    // V5.0.4560 — FULL SOLANA SOURCE BREADTH RESTORE.
+                    // Operator: "why are we so source limited for tokens? full solana network".
+                    // Runtime 4538 intake was dominated by SCANNER_DIRECT_RAYDIUM_NEW_POOL,
+                    // SCANNER_DIRECT_PUMP_FUN_NEW and tiny Dex boosted/trending counts while
+                    // CASHGEN/TREASURY/BLUECHIP needed established Solana liquidity. The old
+                    // V5.0.4171 data-conservation policy literally disabled GeckoTerminal,
+                    // Meteora and CoinGecko established feeders and staggered DexScreener so
+                    // only one DEX endpoint ran per four cycles. That preserved bandwidth but
+                    // amputated source breadth. Restore broad Solana coverage while keeping
+                    // existing per-source timeout, Gecko 28/min token bucket, Birdeye budget
+                    // gate, batch budget and BotService per-tick processing cap intact.
                     val rot = scanRotation
                     val deepScans = mutableListOf<Pair<String, suspend () -> Unit>>(
-                        // ━━━ MEME-TRADER PRIMARY (every cycle, never staggered) ━━━
+                        // Real-time launch/meme sources remain peers, not privileged owners.
                         "scanPumpFunDirect" to { scanPumpFunDirect() },
                         "scanPumpFunActive" to { scanPumpFunActive() },
                         "scanPumpGraduates" to { scanPumpGraduates() },
                         "scanFreshLaunches" to { scanFreshLaunches() },
                         "scanPumpFunVolume" to { scanPumpFunVolume() },
+                        // DexScreener public Solana surfaces every cycle. These are the
+                        // broadest no-key discovery endpoints already wired in-app; running
+                        // all of them avoids first-minute source monoculture after restarts.
+                        "scanDexBoosted" to { scanDexBoosted() },
+                        "scanDexTrending" to { scanDexTrending() },
+                        "scanDexGainers" to { scanDexGainers() },
+                        "scanTopVolumeTokens" to { scanTopVolumeTokens() },
+                        // Raydium new-pool feeder every cycle; 4559 routes fresh Raydium
+                        // candidates through PumpPortal auto before Jupiter quote fallback.
+                        "scanRaydiumNewPools" to { scanRaydiumNewPools() },
                     )
-                    // ━━━ SECONDARY (staggered 4-cycle rotation) ━━━
-                    if (rot % 4 == 0) deepScans += "scanDexBoosted" to { scanDexBoosted() }
-                    if (rot % 4 == 1) deepScans += "scanDexTrending" to { scanDexTrending() }
-                    if (rot % 4 == 2) deepScans += "scanDexGainers" to { scanDexGainers() }
-                    if (rot % 4 == 3) deepScans += "scanTopVolumeTokens" to { scanTopVolumeTokens() }
-                    // Raydium fires every 2nd cycle — important for new pools but not as critical
-                    // as PumpFun and the launch firehose covers most of its signal anyway.
-                    if (rot % 2 == 0) deepScans += "scanRaydiumNewPools" to { scanRaydiumNewPools() }
+                    // GeckoTerminal / CoinGecko full-network feeders are re-enabled but
+                    // staggered through the existing Gecko budget so they cannot wedge the
+                    // hot scanner loop or exceed free-tier limits. This wakes Orca/Meteora/
+                    // established Solana assets that Dex profile/boost endpoints miss.
+                    when (rot % 4) {
+                        0 -> deepScans += "scanGeckoTrendingPools" to { scanGeckoTrendingPools() }
+                        1 -> deepScans += "scanGeckoTopPoolsByVolume" to { scanGeckoTopPoolsByVolume() }
+                        2 -> deepScans += "scanMeteoraPoolsViaGecko" to { scanMeteoraPoolsViaGecko() }
+                        3 -> {
+                            deepScans += "scanCoinGeckoTrending" to { scanCoinGeckoTrending() }
+                            deepScans += "scanCoinGeckoEstablished" to { scanCoinGeckoEstablished() }
+                        }
+                    }
                     if (birdeyeOk) {
                         deepScans += "scanBirdeyeTrending" to { scanBirdeyeTrending() }
                         deepScans += "scanBirdeyeMemeList" to { scanBirdeyeMemeList() }
@@ -1416,6 +1415,10 @@ class SolanaMarketScanner(
                         deepScans += "scanBirdeyeNewListing" to { scanBirdeyeNewListing() }
                         deepScans += "scanBirdeyeNarratives" to { scanBirdeyeNarratives() }
                     }
+                    try {
+                        PipelineHealthCollector.labelInc("SCAN_FULL_SOLANA_SOURCE_BREADTH_4560")
+                        ForensicLogger.lifecycle("SCAN_FULL_SOLANA_SOURCE_BREADTH_4560", "sources=${deepScans.joinToString(",") { it.first }} rot=$rot birdeye=$birdeyeOk geckoBudgeted=true dexEveryCycle=true")
+                    } catch (_: Throwable) {}
                     runScanBatch(*deepScans.toTypedArray())
                 }
 

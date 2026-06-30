@@ -6823,4 +6823,15 @@ class GoldenTapeRegressionTest {
         assertTrue("V5.0.4559: only deep unsupported AMMs remain Jupiter-first", exec.contains("deepUnsupportedAmm4559") && exec.contains("METEORA") && exec.contains("ORCA") && exec.contains("deep_amm_use_jupiter_first"))
     }
 
+
+
+    @Test
+    fun aate4560FullSolanaSourceBreadthIsRestoredWithoutHotPathFetch() {
+        val scanner = java.io.File("src/main/kotlin/com/lifecyclebot/engine/SolanaMarketScanner.kt").readText()
+        assertTrue("V5.0.4560: scanner must restore full Solana source breadth", scanner.contains("FULL SOLANA SOURCE BREADTH RESTORE") && scanner.contains("SCAN_FULL_SOLANA_SOURCE_BREADTH_4560"))
+        assertTrue("V5.0.4560: DexScreener public Solana surfaces must run every cycle, not one endpoint per four cycles", scanner.contains("scanDexBoosted") && scanner.contains("scanDexTrending") && scanner.contains("scanDexGainers") && scanner.contains("scanTopVolumeTokens") && scanner.contains("DexScreener public Solana surfaces every cycle"))
+        assertTrue("V5.0.4560: Gecko/Meteora/CoinGecko full-network feeders must be re-enabled behind the existing budget", scanner.contains("scanGeckoTrendingPools") && scanner.contains("scanGeckoTopPoolsByVolume") && scanner.contains("scanMeteoraPoolsViaGecko") && scanner.contains("scanCoinGeckoEstablished") && scanner.contains("geckoBudgeted=true"))
+        assertFalse("V5.0.4560: stale source-amputation comment must not survive", scanner.contains("DISABLED: scanGeckoTrendingPools"))
+    }
+
 }
