@@ -6928,4 +6928,18 @@ class GoldenTapeRegressionTest {
         assertFalse("V5.0.4572: live probability status must not claim live bootstrap/no mature lanes", src.contains("bootstrap/no mature live lanes"))
     }
 
+
+
+    @Test
+    fun aate4573CommonSensePlaybookIsWiredThroughLiveBuyWithDataHelper() {
+        val playbook = java.io.File("src/main/kotlin/com/lifecyclebot/engine/CommonSenseTradePlaybook.kt").readText()
+        val executor = java.io.File("src/main/kotlin/com/lifecyclebot/engine/Executor.kt").readText()
+        val digest = java.io.File("src/main/kotlin/com/lifecyclebot/engine/OperatorAuxiliaryStatusDigest.kt").readText()
+        assertTrue("V5.0.4573: common-sense playbook helper must exist with cached side-effect refresh", playbook.contains("V5.0.4573_COMMON_SENSE_PLAYBOOK") && playbook.contains("AppDispatchers.sideEffect") && playbook.contains("ConcurrentHashMap") && playbook.contains("assessPreBuy"))
+        assertTrue("V5.0.4573: playbook must enforce anti-stupid entry basics", playbook.contains("PRICE_BASIS_UNKNOWN") && playbook.contains("SELL_ROUTE_UNKNOWN") && playbook.contains("NO_LOGICAL_BUY_ZONE") && playbook.contains("NO_CLEAR_INVALIDATION") && playbook.contains("RISK_REWARD_POOR"))
+        assertTrue("V5.0.4573: liveBuy must call the playbook before live spend", executor.contains("CommonSenseTradePlaybook.assessPreBuy") && executor.contains("COMMON_SENSE_PREBUY_") && executor.contains("BUY_TERMINAL_COMMON_SENSE"))
+        assertTrue("V5.0.4573: playbook confidence must feed the existing live size stack", executor.contains("commonSenseSizeMultiplier4573") && executor.contains("COMMON_SENSE_SIZE_APPLIED_4573"))
+        assertTrue("V5.0.4573: operator digest must surface playbook state", digest.contains("CommonSenseTradePlaybook.statusLine") && digest.contains("playbook_execution_authority=Executor.liveBuy"))
+    }
+
 }

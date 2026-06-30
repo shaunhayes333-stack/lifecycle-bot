@@ -11141,6 +11141,24 @@ class Executor(
         if (canonicalRoutedLane !in executableLaneSet) {
             return observeOnlyLiveEntry("OBSERVE_ONLY_CANON_LANE_UNRESOLVED", routedLaneTag, liveEntryDecision.decision)
         }
+        var commonSenseSizeMultiplier4573 = 1.0
+        run {
+            val commonSense = CommonSenseTradePlaybook.assessPreBuy(
+                ts = ts,
+                lane = routedLaneTag,
+                style = routedStyleTag,
+                score = score,
+                basisTrusted = entryMarketSnapshot.valid,
+                routeTrustedFromStyle = liveEntryDecision.routeTrusted,
+            )
+            if (!commonSense.allowed) {
+                liveStage("LIVE_BUY_ABORTED", "reason=COMMON_SENSE_PREBUY:${commonSense.reason} detail=${commonSense.detail.take(140)}")
+                emitLiveBuyFail(ts, sol, "COMMON_SENSE_PREBUY_${commonSense.reason}", commonSense.detail)
+                buyTerminalFail("BUY_TERMINAL_COMMON_SENSE:${commonSense.reason.take(48)}")
+                return false
+            }
+            commonSenseSizeMultiplier4573 = commonSense.sizeMultiplier.coerceIn(0.35, 1.0)
+        }
         var laneCapitalSizeMultiplier = 1.0
         run {
             val capitalLane = BleederMemoryRouter.canon(canonicalRoutedLane)
@@ -11412,6 +11430,12 @@ class Executor(
             val beforeCapitalSol = sol
             sol = (sol * laneCapitalSizeMultiplier).coerceAtLeast(0.0)
             try { ForensicLogger.lifecycle("LIVE_LANE_CAPITAL_SIZE_APPLIED", "mint=${ts.mint.take(10)} symbol=${ts.symbol} from=${beforeCapitalSol.fmt(4)} to=${sol.fmt(4)} mult=${laneCapitalSizeMultiplier.fmt(2)} lane=$canonicalRoutedLane") } catch (_: Throwable) {}
+        }
+        if (commonSenseSizeMultiplier4573 < 0.999) {
+            val beforeCommonSenseSol = sol
+            sol = (sol * commonSenseSizeMultiplier4573).coerceAtLeast(0.0)
+            try { ForensicLogger.lifecycle("COMMON_SENSE_SIZE_APPLIED_4573", "mint=${ts.mint.take(10)} symbol=${ts.symbol} from=${beforeCommonSenseSol.fmt(4)} to=${sol.fmt(4)} mult=${commonSenseSizeMultiplier4573.fmt(2)} lane=$canonicalRoutedLane style=$routedStyleTag") } catch (_: Throwable) {}
+            try { PipelineHealthCollector.labelInc("COMMON_SENSE_SIZE_APPLIED_4573") } catch (_: Throwable) {}
         }
 
         // V5.0.4114 — LAST-MILE ENTRY FLOOR (final guard).
