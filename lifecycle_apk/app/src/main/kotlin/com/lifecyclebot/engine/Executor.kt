@@ -11142,23 +11142,6 @@ class Executor(
             return observeOnlyLiveEntry("OBSERVE_ONLY_CANON_LANE_UNRESOLVED", routedLaneTag, liveEntryDecision.decision)
         }
         var commonSenseSizeMultiplier4573 = 1.0
-        run {
-            val commonSense = CommonSenseTradePlaybook.assessPreBuy(
-                ts = ts,
-                lane = routedLaneTag,
-                style = routedStyleTag,
-                score = score,
-                basisTrusted = entryMarketSnapshot.valid,
-                routeTrustedFromStyle = liveEntryDecision.routeTrusted,
-            )
-            if (!commonSense.allowed) {
-                liveStage("LIVE_BUY_ABORTED", "reason=COMMON_SENSE_PREBUY:${commonSense.reason} detail=${commonSense.detail.take(140)}")
-                emitLiveBuyFail(ts, sol, "COMMON_SENSE_PREBUY_${commonSense.reason}", commonSense.detail)
-                buyTerminalFail("BUY_TERMINAL_COMMON_SENSE:${commonSense.reason.take(48)}")
-                return false
-            }
-            commonSenseSizeMultiplier4573 = commonSense.sizeMultiplier.coerceIn(0.35, 1.0)
-        }
         var laneCapitalSizeMultiplier = 1.0
         run {
             val capitalLane = BleederMemoryRouter.canon(canonicalRoutedLane)
@@ -11261,6 +11244,23 @@ class Executor(
             return false
         }
         liveStage("TOKEN_MAP_OK", "route=${ts.tokenMap.routeStatus} pair=${ts.tokenMap.pairAddress.take(12)} pool=${ts.tokenMap.poolAddress.take(12)} expectedOut=${ts.tokenMap.expectedOutAmount}")
+        run {
+            val commonSense = CommonSenseTradePlaybook.assessPreBuy(
+                ts = ts,
+                lane = routedLaneTag,
+                style = routedStyleTag,
+                score = score,
+                basisTrusted = entryMarketSnapshot.valid,
+                routeTrustedFromStyle = liveEntryDecision.routeTrusted,
+            )
+            if (!commonSense.allowed) {
+                liveStage("LIVE_BUY_ABORTED", "reason=COMMON_SENSE_PREBUY:${commonSense.reason} detail=${commonSense.detail.take(140)}")
+                emitLiveBuyFail(ts, sol, "COMMON_SENSE_PREBUY_${commonSense.reason}", commonSense.detail)
+                buyTerminalFail("BUY_TERMINAL_COMMON_SENSE:${commonSense.reason.take(48)}")
+                return false
+            }
+            commonSenseSizeMultiplier4573 = commonSense.sizeMultiplier.coerceIn(0.35, 1.0)
+        }
         try { ForensicLogger.lifecycle("QUOTE_OK", "attemptId=${execCtx.attemptId} mint=${ts.mint.take(10)} symbol=${ts.symbol} stage=preplan_route_quote route=${ts.tokenMap.routeStatus} executableQuote=true") } catch (_: Throwable) {}
         try { PipelineHealthCollector.labelInc("QUOTE_OK") } catch (_: Throwable) {}
         try { ForensicLogger.lifecycle("BUY_PLAN_OK", "attemptId=${execCtx.attemptId} mint=${ts.mint.take(10)} symbol=${ts.symbol} sol=$sol processor=$buyLeaseProcessor tokenMapOk=true quoteOk=true") } catch (_: Throwable) {}

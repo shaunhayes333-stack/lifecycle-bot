@@ -1,6 +1,8 @@
 package com.lifecyclebot.engine
 
 import com.lifecyclebot.data.TokenState
+import com.lifecyclebot.util.AppDispatchers
+import kotlinx.coroutines.launch
 import java.util.Locale
 import java.util.concurrent.ConcurrentHashMap
 
@@ -105,7 +107,7 @@ object CommonSenseTradePlaybook {
         try {
             ForensicLogger.lifecycle(
                 "COMMON_SENSE_PREBUY_ALLOW_4573",
-                "mint=${ts.mint.take(10)} symbol=${ts.symbol} lane=${snap.lane} style=${snap.style} tradeType=${snap.tradeType} conf=${snap.confidence} mult=${snap.sizeMultiplier.fmt(2)} reasons=${snap.reasons.joinToString("|").take(180)}",
+                "mint=${ts.mint.take(10)} symbol=${ts.symbol} lane=${snap.lane} style=${snap.style} tradeType=${snap.tradeType} conf=${snap.confidence} mult=${"%.2f".format(snap.sizeMultiplier)} reasons=${snap.reasons.joinToString("|").take(180)}",
             )
             PipelineHealthCollector.labelInc("COMMON_SENSE_PREBUY_ALLOW_4573")
             PipelineHealthCollector.labelInc("COMMON_SENSE_TRADETYPE_${snap.tradeType}")
@@ -116,7 +118,7 @@ object CommonSenseTradePlaybook {
     fun statusLine(): String = try {
         val rows = cache.values.sortedByDescending { it.capturedAtMs }.take(8)
         if (rows.isEmpty()) "$VERSION cache=empty background_only=true"
-        else "$VERSION cache=${rows.size} " + rows.joinToString(" · ") { "${it.symbol.take(8)}:${it.lane}/${it.tradeType}/${it.confidence}×${it.sizeMultiplier.fmt(2)}" }
+        else "$VERSION cache=${rows.size} " + rows.joinToString(" · ") { "${it.symbol.take(8)}:${it.lane}/${it.tradeType}/${it.confidence}×${"%.2f".format(it.sizeMultiplier)}" }
     } catch (_: Throwable) { "$VERSION unavailable" }
 
     private fun buildSnapshot(ts: TokenState, laneRaw: String, styleRaw: String, scoreRaw: Double): Snapshot {
