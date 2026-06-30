@@ -477,7 +477,7 @@ class GoldenTapeRegressionTest {
         assertTrue("Weak CHOP/DUMP must prefer pullback/quality/defensive structures", sheet.contains("Setup.CHART_PULLBACK_RECLAIM -> if (r == RegimeDetector.Regime.DUMP) 18.0 else 10.0") && sheet.contains("Setup.LIQUIDITY_DEPTH_QUALITY -> if (r == RegimeDetector.Regime.DUMP) 18.0 else 8.0") && sheet.contains("Setup.REGIME_DEFENSIVE_PROBE -> if (r == RegimeDetector.Regime.DUMP) 14.0 else 6.0"))
         val router = java.io.File("src/main/kotlin/com/lifecyclebot/engine/AgenticStyleRouter.kt").readText()
         assertTrue("Regime pivot must remain a soft score bias and visible in toolkit reasons", sheet.contains("regimeSetupBias(it.setup, regime)") && sheet.contains("regimeBias="))
-        assertTrue("Router must remap weak-CHOP/DUMP/risk_off degen/fresh/sentiment/graduation styles before primary lane election even on fallback sheets", router.contains("weakChopStylePivot") && router.contains("isWeakRuntimeRegime") && router.contains("RegimeDetector.Regime.DUMP") && router.contains("isRiskOffSheet") && router.contains("Style.DEGEN_MICRO_SNIPE") && router.contains("Style.NARRATIVE_SOCIAL_IGNITION") && router.contains("Style.DEFENSIVE_PROBE") && router.contains("Style.DIAMOND_HANDS_RUNNER") && router.contains("Style.LIQUIDITY_DEPTH_QUALITY") && router.contains("classification.tradeType in setOf(ModeRouter.TradeType.FRESH_LAUNCH, ModeRouter.TradeType.SENTIMENT_IGNITION, ModeRouter.TradeType.GRADUATION") && router.contains("weakChopSheet && classification.tradeType == ModeRouter.TradeType.BREAKOUT_CONTINUATION"))
+        assertTrue("Router must remap weak-CHOP/DUMP/risk_off styles through same-lane pivot logic before style application", router.contains("weakChopStylePivot") && router.contains("sameLaneWeakPivotStyle") && router.contains("isWeakRuntimeRegime") && router.contains("RegimeDetector.Regime.DUMP") && router.contains("isRiskOffSheet") && router.contains("Style.DEGEN_MICRO_SNIPE") && router.contains("Style.NARRATIVE_SOCIAL_IGNITION") && router.contains("classification.tradeType in setOf(ModeRouter.TradeType.FRESH_LAUNCH, ModeRouter.TradeType.SENTIMENT_IGNITION, ModeRouter.TradeType.GRADUATION") && router.contains("weakChopSheet && classification.tradeType == ModeRouter.TradeType.BREAKOUT_CONTINUATION"))
         assertTrue("Fallback toolkit sheet must not emit degen fresh-launch style in weak runtime regime", sheet.contains("weakRegime") && sheet.contains("Setup.REGIME_DEFENSIVE_PROBE") && sheet.contains("regime=weak_runtime"))
         assertFalse("Regime toolkit pivot must not hard-block or disable lanes", sheet.contains("disableLane") || sheet.contains("shouldTrade = false") || sheet.contains("BLOCK_"))
     }
@@ -490,9 +490,9 @@ class GoldenTapeRegressionTest {
         val fdg = java.io.File("src/main/kotlin/com/lifecyclebot/engine/FinalDecisionGate.kt").readText()
 
         assertTrue("Guard must key toxicity on matured net-negative danger buckets via live-only stats", guard.contains("LosingPatternMemory.liveStats") && guard.contains("meanPnl <= -2.0"))
-        assertTrue("Guard must reroute only when alternatives exist", guard.contains("chooseNonToxicLane") && guard.contains("filterNonToxic") && guard.contains("return lanes.firstOrNull"))
-        assertTrue("Agentic style primary/alternate lane election must avoid toxic buckets when possible", router.contains("LaneToxicityGuard.chooseNonToxicLane") && router.contains("LaneToxicityGuard.filterNonToxic") && router.contains("boundedLanes(ts.mint, base + d.toolkit.laneVotes, d.style, score)"))
-        assertTrue("MemeTrader owner rotation must avoid toxic lanes when possible", bot.contains("scoreForToxicity") && bot.contains("LaneToxicityGuard.filterNonToxic(rawOwnerPool") && bot.contains("ownerPool"))
+        assertTrue("Guard must preserve lane ownership and expose re-education treatment", guard.contains("chooseNonToxicLane") && guard.contains("filterNonToxic") && guard.contains("return lanes.firstOrNull") && guard.contains("treatmentFor"))
+        assertTrue("Agentic style election must keep compatibility calls while same-lane style logic owns toxicity", router.contains("LaneToxicityGuard.chooseNonToxicLane") && router.contains("LaneToxicityGuard.filterNonToxic") && router.contains("sameLaneWeakPivotStyle"))
+        assertTrue("MemeTrader owner rotation toxicity handling must no longer imply lane amputation", bot.contains("scoreForToxicity") && bot.contains("LaneToxicityGuard.filterNonToxic(rawOwnerPool") && guard.contains("Preserve original lane ownership"))
         assertTrue("FDG train-first micro/size shaping remains the downstream fallback, not a hard strategy block", fdg.contains("TRAIN_FIRST_MICRO") && fdg.contains("LosingPatternMemory.recommendedSizeMult"))
         assertFalse("Toxicity guard must not disable lanes or hard-block trades", guard.contains("BLOCK") || guard.contains("disableLane") || guard.contains("shouldTrade = false"))
     }
@@ -801,7 +801,7 @@ class GoldenTapeRegressionTest {
         assertTrue(bot.contains("MEMETRADER_CONTRIBUTION_ROTATION"))
         assertTrue(bot.contains("val fullMemeTraderRing = listOf"))
         assertTrue("Full MemeTrader ring must include previously idle internal lanes", listOf("SHITCOIN", "MOONSHOT", "EXPRESS", "PROJECT_SNIPER", "MANIPULATED", "QUALITY", "DIP_HUNTER", "TREASURY", "CASHGEN", "BLUECHIP").all { bot.contains(it) })
-        assertTrue("Owner rotation must be affinity-first and toxicity-filtered", bot.contains("affinityRanked") && bot.contains("rawOwnerPool") && bot.contains("LaneToxicityGuard.filterNonToxic(rawOwnerPool"))
+        assertTrue("Owner rotation must be affinity-first and toxicity-treated without lane amputation", bot.contains("affinityRanked") && bot.contains("rawOwnerPool") && bot.contains("LaneToxicityGuard.filterNonToxic(rawOwnerPool"))
         assertTrue("EXPRESS must use the same bounded lane gate and emit LANE_EVAL", bot.contains("expressLaneAllowedThisCycle") && bot.contains("lane=EXPRESS paper="))
         assertTrue(bot.contains("MEMETRADER_OWNER_LANE") && bot.contains("profitableRescue") && bot.contains("LANE_SUPPRESSED_BY_OWNER_ROTATION"))
         assertFalse("MEME-only must not blanket-mute all non-meme specialist lanes", bot.contains("return memeFamily"))
@@ -2504,12 +2504,12 @@ class GoldenTapeRegressionTest {
     fun live_advisory_shape_preserves_executable_lane_without_buy_fail_choke() {
         val exec = java.io.File("src/main/kotlin/com/lifecyclebot/engine/Executor.kt").readText()
         assertTrue(
-            "ADVISORY_SHAPE must not freeze FDG-approved executable lanes; it preserves pre-pivot authority unless proof-backed quality promotion is executable",
+            "ADVISORY_SHAPE must not freeze FDG-approved executable lanes; it preserves pre-pivot lane authority while style/tactic pivots internally",
             exec.contains("action=preserve_executable_lane") &&
                 exec.contains("val prePivotExecutableLane") &&
                 exec.contains("val canonicalRoutedLane = when") &&
-                exec.contains("stylePivotAdvisory && qualityPromotionLane && pivotHasExecutionProof -> postPivotExecutableLane") &&
                 exec.contains("stylePivotAdvisory -> prePivotExecutableLane") &&
+                exec.contains("STYLE_PIVOT_INNER_LANE_EXECUTABLE") &&
                 !exec.contains("return observeOnlyLiveEntry(\"OBSERVE_ONLY_NOT_LIVE_EXECUTABLE\", liveEntryDecision.finalLane.ifBlank { originalLaneForPivot }, \"ADVISORY_SHAPE\")")
         )
         assertTrue(
@@ -2620,14 +2620,14 @@ class GoldenTapeRegressionTest {
 
 
     @Test
-    fun style_pivot_quality_promotion_can_be_executable_with_proof() {
+    fun style_pivot_inner_lane_can_be_executable_with_proof() {
         val exec = java.io.File("src/main/kotlin/com/lifecyclebot/engine/Executor.kt").readText()
         assertTrue(
-            "Style-pivot advisory must preserve throughput by routing proof-backed quality promotions to the promoted executable lane",
-            exec.contains("STYLE_PIVOT_QUALITY_PROMOTION_EXECUTABLE") &&
-                exec.contains("qualityPromotionLane") &&
+            "Style-pivot advisory must preserve throughput through lane-local executable pivots",
+            exec.contains("STYLE_PIVOT_INNER_LANE_EXECUTABLE") &&
+                exec.contains("innerLaneExecutablePivot") &&
                 exec.contains("pivotHasExecutionProof") &&
-                exec.contains("stylePivotAdvisory && qualityPromotionLane && pivotHasExecutionProof -> postPivotExecutableLane")
+                exec.contains("stylePivotAdvisory -> prePivotExecutableLane")
         )
     }
 
@@ -2660,13 +2660,13 @@ class GoldenTapeRegressionTest {
 
         assertTrue("LiveStylePivotRouter component must exist and return final lane/style/size/proof decision", router.contains("object LiveStylePivotRouter") && router.contains("finalLane") && router.contains("finalStyle") && router.contains("sizeMultiplier") && router.contains("confirmationRequirement"))
         assertFalse("Live mode must not route to defensive probes", router.contains("DEFENSIVE_PROBE") || router.contains("decision = \"PROBE\"") || router.contains("BREAK_EVEN_PROBE_ALLOWED_BELOW_COST_MODEL"))
-        assertTrue("EXPRESS bleeder must promote to learned quality, not native express/probe", router.contains("EXPRESS_BLEEDER_QUALITY_PROMOTION") && router.contains("EXPRESS_BLEEDER_AWAIT_QUALITY_PROOF"))
+        assertTrue("EXPRESS bleeder must pivot inside EXPRESS, not promote to quality", router.contains("EXPRESS_BLEEDER_INNER_LANE_PIVOT") && router.contains("EXPRESS_BLEEDER_AWAIT_QUALITY_PROOF"))
         assertTrue("Treasury/CashGen must be an active quality promotion target", router.contains("TREASURY_CASHGEN_QUALITY_PROMOTED") && breakEven.contains("\"CASHGEN\" -> setOf(\"TREASURY\")"))
-        assertTrue("CYCLIC bleeder must promote to pullback/quality only with proof", router.contains("CYCLIC_PULLBACK_RECLAIM_QUALITY_PROMOTION") && router.contains("CYCLIC_BLEEDER_QUALITY_PROMOTION") && router.contains("CYCLIC_BLEEDER_AWAIT_QUALITY_PROOF"))
-        assertTrue("WHALE/COPY cannot direct-trigger full live; only wallet recovered or quality promotion", router.contains("WHALE_COPY_QUALITY_PROMOTION_NO_DIRECT_TRIGGER") && router.contains("WALLET_RECOVERED_PROVEN_PROMOTION") && router.contains("WHALE_COPY_AWAIT_REPEAT_WIN_AND_PROOF"))
-        assertTrue("MOONSHOT S41-60 must not native-live buy; only LDQ rescue or toxic defer", router.contains("MOONSHOT_S41_60_ONLY_LDQ_QUALITY_RESCUE_V4153") && router.contains("MOONSHOT_S41_60_LIVE_TOXIC_DEFER_V4153") && router.contains("scoreBand == \"S41-60\""))
-        assertTrue("SHITCOIN live bleed must quarantine/defer, not rename itself into quality", router.contains("SHITCOIN_LIVE_BLEED_QUARANTINE") && !router.contains("SHITCOIN_LIVE_BLEED_QUALITY_PROMOTION") && router.contains("SHITCOIN_THIN_ROUTE_DEPTH"))
-        assertTrue("Fresh 1k-5k SHITCOIN depth must become live-adaptive or clean high-confidence reduced quality routing", router.contains("SHITCOIN_THIN_ROUTE_DEPTH_LIVE_ADAPTIVE_REDUCED_QUALITY") && router.contains("pivotThinDepthToQuality") && router.contains("LiveMaturityAuthority.snapshot()") && router.contains("cleanHighConfidenceBootstrap"))
+        assertTrue("CYCLIC bleeder must pivot inner tactic only with proof", router.contains("CYCLIC_PULLBACK_RECLAIM_INNER_LANE_PIVOT") && router.contains("CYCLIC_BLEEDER_INNER_LANE_PIVOT") && router.contains("CYCLIC_BLEEDER_AWAIT_QUALITY_PROOF"))
+        assertTrue("WHALE/COPY cannot direct-trigger full live; it must become lane-local confirmation", router.contains("WHALE_COPY_INNER_LANE_CONFIRMATION_NO_DIRECT_TRIGGER") && router.contains("WALLET_RECOVERED_PROVEN_PROMOTION") && router.contains("WHALE_COPY_AWAIT_REPEAT_WIN_AND_PROOF"))
+        assertTrue("MOONSHOT S41-60 must not native-live buy; only LDQ rescue or toxic defer", router.contains("MOONSHOT_S41_60_INNER_LANE_SMART_CONFIRMATION_V4545") && router.contains("MOONSHOT_S41_60_LIVE_TOXIC_DEFER_V4153") && router.contains("scoreBand == \"S41-60\""))
+        assertTrue("SHITCOIN live bleed must re-educate/depth-shape, not rename itself into quality", router.contains("SHITCOIN_LIVE_BLEED_REEDUCATE_VOLUME_IGNITION") && !router.contains("SHITCOIN_LIVE_BLEED_QUALITY_PROMOTION") && router.contains("SHITCOIN_THIN_ROUTE_DEPTH"))
+        assertTrue("Fresh 1k-5k SHITCOIN depth must become live-adaptive or clean high-confidence reduced quality routing", router.contains("SHITCOIN_THIN_ROUTE_DEPTH_LIVE_ADAPTIVE_REEDUCATE_4545") && router.contains("pivotThinDepthToQuality") && router.contains("LiveMaturityAuthority.snapshot()") && router.contains("cleanHighConfidenceBootstrap"))
         assertTrue("Low-score QUALITY and thin PRESALE/TREASURY live entries must defer at source", router.contains("QUALITY_LOW_SCORE_LIVE_DEFER") && router.contains("PRESALE_AWAIT_MIN_DEPTH_AND_PROOF") && router.contains("TREASURY_CASHGEN_AWAIT_DEPTH_SCORE_PROOF"))
         assertTrue("LiveBreakEvenGuard must use live-first terminal edge with capped paper advisory", breakEven.contains("liveTerminalEdge") && breakEven.contains("paperAdvisoryEdge") && breakEven.contains("TradeHistoryStore.getRecentValidClosedTrades") && breakEven.contains("LIQUIDITY_DEPTH_QUALITY") && breakEven.contains("PULLBACK_RECLAIM"))
         assertTrue("LiveBreakEvenGuard must calculate all-in required edge", breakEven.contains("buySlippagePct") && breakEven.contains("expectedSellSlippagePct") && breakEven.contains("priorityFeePct") && breakEven.contains("platformFeePct") && breakEven.contains("givebackBufferPct") && breakEven.contains("minProfitBufferPct"))
@@ -3147,7 +3147,7 @@ class GoldenTapeRegressionTest {
         assertTrue("Pivot router must handle STANDARD lane (was missing, starving volume)", pivotRouter.contains(""""STANDARD" ->"""))
         assertTrue("Pivot router must handle MANIPULATED lane (was missing, starving volume)", pivotRouter.contains(""""MANIPULATED" ->"""))
         assertTrue("Pivot router must handle DIP_HUNTER lane (was missing, starving volume)", pivotRouter.contains(""""DIP_HUNTER" ->"""))
-        assertTrue("STANDARD must have bleeder quality promotion path", pivotRouter.contains("STANDARD_BLEEDER_QUALITY_PROMOTION"))
+        assertTrue("STANDARD must have bleeder inner-lane pivot path", pivotRouter.contains("STANDARD_BLEEDER_INNER_LANE_PIVOT"))
         assertTrue("MANIPULATED must have volume ignition confirmation path", pivotRouter.contains("MANIPULATED_NATIVE_VOLUME_IGNITION_CONFIRMED"))
         assertTrue("DIP_HUNTER must have pullback reclaim promotion path", pivotRouter.contains("DIP_HUNTER_PULLBACK_RECLAIM_CONFIRMED"))
         // V5.0.4119 — break-even guard buffers reduced to open mid-score volume
@@ -3156,7 +3156,7 @@ class GoldenTapeRegressionTest {
         assertTrue("Break-even minProfit buffer for default lanes must be 2.0 (was 5.0)", breakEven.contains("else -> 2.0"))
         val toxicMoonNative = "MOONSHOT_" + "S55_60_" + "NATIVE_SIZE_SHAPED"
         assertTrue("MOONSHOT S41-60 live-toxic bucket must not have a native size-shaped path", !pivotRouter.contains(toxicMoonNative) && pivotRouter.contains("MOONSHOT_S41_60_LIVE_TOXIC_DEFER_V4153"))
-        assertTrue("MOONSHOT S41-60 may only rescue through independent LDQ quality proof", pivotRouter.contains("MOONSHOT_S41_60_ONLY_LDQ_QUALITY_RESCUE_V4153"))
+        assertTrue("MOONSHOT S41-60 may only rescue through independent LDQ quality proof", pivotRouter.contains("MOONSHOT_S41_60_INNER_LANE_SMART_CONFIRMATION_V4545"))
         // V5.0.4121 — LayerBrain integration for SmartMoneyDivergenceAI + HoldTimeOptimizerAI
         val smartMoney = java.io.File("src/main/kotlin/com/lifecyclebot/v3/scoring/SmartMoneyDivergenceAI.kt").readText()
         val holdTime = java.io.File("src/main/kotlin/com/lifecyclebot/v3/scoring/HoldTimeOptimizerAI.kt").readText()
@@ -3832,12 +3832,11 @@ class GoldenTapeRegressionTest {
     }
 
     @Test
-    fun strategy_bleed_cannot_promote_bad_lanes_to_live_quality() {
+    fun strategy_bleed_reeducates_lanes_instead_of_promoting_or_quarantining() {
         val router = java.io.File("src/main/kotlin/com/lifecyclebot/engine/LiveStylePivotRouter.kt").readText()
-        val executor = java.io.File("src/main/kotlin/com/lifecyclebot/engine/Executor.kt").readText()
-        assertTrue("SHITCOIN live bleed must quarantine/paper-route, not quality-promote", router.contains("SHITCOIN_LIVE_BLEED_QUARANTINE") && !router.contains("SHITCOIN_LIVE_BLEED_QUALITY_PROMOTION"))
-        assertTrue("PRESALE_SNIPE live bleed must quarantine/paper-route", router.contains("PRESALE_SNIPE_LIVE_BLEED_QUARANTINE"))
-        assertTrue("Bleeding SHITCOIN/PRESALE live lanes must not continue as size-shaped live buys", executor.contains("SHITCOIN_NEGATIVE_EV") || router.contains("SHITCOIN_LIVE_BLEED_QUARANTINE"))
+        assertTrue("SHITCOIN live bleed must re-educate inside SHITCOIN, not quality-promote", router.contains("SHITCOIN_LIVE_BLEED_REEDUCATE_VOLUME_IGNITION") && !router.contains("SHITCOIN_LIVE_BLEED_QUALITY_PROMOTION") && !router.contains("SHITCOIN_LIVE_BLEED_QUARANTINE"))
+        assertTrue("PRESALE/PROJECT sniper bleed must re-educate route proof inside original lane", router.contains("PRESALE_SNIPE_LIVE_BLEED_REEDUCATE_ROUTE_PROOF") && !router.contains("PRESALE_SNIPE_LIVE_BLEED_QUARANTINE"))
+        assertTrue("Bleeding lanes may size-shape tactically but must preserve finalLane ownership", router.contains("finalLane = lane") && router.contains("laneLocalStyleFrom"))
     }
 
 
@@ -4181,16 +4180,12 @@ class GoldenTapeRegressionTest {
 
 
     @Test
-    fun weak_dump_toxic_score_band_pivots_defensive_probe_to_quality_reclaim_lanes_fast() {
+    fun weak_dump_toxic_score_band_pivots_defensive_probe_inside_lane_not_cross_lane() {
         val router = java.io.File("src/main/kotlin/com/lifecyclebot/engine/AgenticStyleRouter.kt").readText()
-        val guard = java.io.File("src/main/kotlin/com/lifecyclebot/engine/LaneToxicityGuard.kt").readText()
-        assertTrue("DEFENSIVE_PROBE must lead with quality/reclaim lanes, not only SHITCOIN/MOONSHOT, otherwise weak-DUMP pivots still bleed",
-            router.contains("V5.0.4057") && router.contains("""DEFENSIVE_PROBE("defensive_probe", setOf("QUALITY", "DIP_HUNTER", "TREASURY", "PROJECT_SNIPER")"""))
-        assertTrue("Router must prepend rapid toxic-regime pivot lanes for MOONSHOT|S41-60 / SHITCOIN danger before lane election",
-            router.contains("rapidToxicRegimePivot") && router.contains("score in 41..60") && router.contains("""listOf("QUALITY", "DIP_HUNTER", "TREASURY", "BLUECHIP")"""))
-        assertTrue("Lane toxicity guard must not fall back to first toxic lane in weak DUMP when quality/reclaim alternatives are possible",
-            guard.contains("V5.0.4057") && guard.contains("RegimeDetector.Regime.DUMP") && guard.contains("QUALITY") && guard.contains("DIP_HUNTER"))
-        assertFalse("Fast toxic pivot must remain soft route-shape, not a hard trade block", router.contains("shouldTrade = false") || router.contains("BLOCK_") || guard.contains("return null"))
+        assertTrue("DEFENSIVE_PROBE must remain meme-lane-local, not jump to QUALITY/DIP/TREASURY", router.contains("V5.0.4544") && router.contains("inner-lane defensive style") && router.contains("""DEFENSIVE_PROBE("defensive_probe", setOf("SHITCOIN", "MOONSHOT", "PROJECT_SNIPER", "EXPRESS", "MANIPULATED")"""))
+        assertTrue("Router must not prepend rapid toxic-regime lane escapes for MOONSHOT|S41-60 / SHITCOIN danger", router.contains("rapidToxicRegimePivot") && router.contains("INNER-LANE PIVOT DOCTRINE") && router.contains("return emptyList()") && !router.contains("""listOf("QUALITY", "DIP_HUNTER", "TREASURY", "BLUECHIP")"""))
+        assertTrue("Weak toxic pivot must choose lane-local styles from laneHint", router.contains("sameLaneWeakPivotStyle") && router.contains(""""MOONSHOT" -> when (fallback)""") && router.contains(""""SHITCOIN" -> when (fallback)"""))
+        assertFalse("Fast toxic pivot must remain soft route-shape, not a hard trade block", router.contains("shouldTrade = false") || router.contains("BLOCK_"))
     }
 
 
@@ -6517,8 +6512,8 @@ class GoldenTapeRegressionTest {
     fun botService_4524PivotsToxicPrimaryLaneThroughAgenticStyleStack() {
         val bot = java.io.File("src/main/kotlin/com/lifecyclebot/engine/BotService.kt").readText()
         assertTrue("V5.0.4524: canonical primary lane must detect learned toxic elected primaries", bot.contains("scoreForPivot4524") && bot.contains("LaneToxicityGuard.isNetNegativeDanger(electedPrimary4524, scoreForPivot4524)"))
-        assertTrue("V5.0.4524: pivot pool must use style lanes, registry affinity, and quality/reclaim fallbacks", bot.contains("styleLanes + affinityLanes4524") && bot.contains("QUALITY") && bot.contains("DIP_HUNTER") && bot.contains("TREASURY"))
-        assertTrue("V5.0.4524: pivot must change strategy route before purchase, not just reduce size", bot.contains("PRIMARY_STRATEGY_PIVOT_TO_NONTOXIC_4524") && bot.contains("finalPrimary=" + "$" + "pivotedPrimary4524") && !bot.contains("catastrophic_score_band_micro_probe_4524"))
+        assertTrue("V5.0.4546: pivot pool may include style/affinity candidates but toxicity guard must preserve original ownership", bot.contains("styleLanes + affinityLanes4524") && guard.contains("Preserve original lane ownership") && guard.contains("treatmentFor"))
+        assertTrue("V5.0.4547: pivot must change inner-lane strategy before purchase, not jump lane or just reduce size", bot.contains("PRIMARY_STRATEGY_REEDUCATE_INNER_LANE_4547") && bot.contains("finalPrimary=" + "$" + "pivotedPrimary4524") && !bot.contains("catastrophic_score_band_micro_probe_4524"))
     }
 
 
@@ -6711,6 +6706,62 @@ class GoldenTapeRegressionTest {
         assertTrue("V5.0.4542: policy heads must still train at the gated recordTrade choke point", exec.contains("ForwardOutcomeModel.recordOutcome(mintForHeads4514") && exec.contains("UnifiedPolicyHead.recordOutcome(mintForHeads4514") && exec.contains("UnifiedExitPolicyHead.recordOutcome(mintForHeads4514"))
         assertTrue("V5.0.4542: legacy paper/live sell callbacks must suppress direct policy-head fanout", exec.contains("POLICY_HEAD_DIRECT_FANOUT_SUPPRESSED_4542") && exec.contains("do NOT train ForwardOutcomeModel/UnifiedPolicyHead"))
         assertEquals("V5.0.4542: no direct ts.mint policy-head recordOutcome calls may survive outside recordTrade", 0, Regex("""(ForwardOutcomeModel|UnifiedPolicyHead|UnifiedExitPolicyHead)\.recordOutcome\(ts\.mint""").findAll(exec).count())
+    }
+
+
+
+    @Test
+    fun aate4544AgenticStyleRouterUsesInnerLanePivotsNotLaneJumps() {
+        val router = java.io.File("src/main/kotlin/com/lifecyclebot/engine/AgenticStyleRouter.kt").readText()
+        assertTrue("V5.0.4544: toxic-regime pivoting must be documented as inner-lane strategy pivoting", router.contains("INNER-LANE PIVOT DOCTRINE") && router.contains("same lane, different wave/mcap/tactic/confirmation/hold profile"))
+        assertTrue("V5.0.4544: rapid toxic regime pivot must not prepend QUALITY/DIP/TREASURY/BLUECHIP lane escapes", router.contains("private fun rapidToxicRegimePivot") && router.contains("return emptyList()") && !router.contains("""listOf("QUALITY", "DIP_HUNTER", "TREASURY", "BLUECHIP")"""))
+        assertTrue("V5.0.4544: weak-regime style decisions must route through sameLaneWeakPivotStyle with laneHint", router.contains("private fun sameLaneWeakPivotStyle") && router.contains("weakChopStylePivot(it, sheet, weakChopSheet, laneHint)") && router.contains("sameLaneWeakPivotStyle(laneHint, Style.DEFENSIVE_PROBE)"))
+        assertTrue("V5.0.4544: MOONSHOT and SHITCOIN must pivot strategy internally, not dump lanes", router.contains(""""MOONSHOT" -> when (fallback)""") && router.contains("Style.SMART_WALLET_COPY_FOLLOW") && router.contains(""""SHITCOIN" -> when (fallback)""") && router.contains("Style.VOLUME_IGNITION_SCALP"))
+    }
+
+
+
+    @Test
+    fun aate4545LiveStylePivotRouterPreservesLaneOwnership() {
+        val router = java.io.File("src/main/kotlin/com/lifecyclebot/engine/LiveStylePivotRouter.kt").readText()
+        assertTrue("V5.0.4545: LiveStylePivotRouter must document inner-lane doctrine", router.contains("V5.0.4545 inner-lane doctrine") && router.contains("original lane owns the lesson"))
+        assertTrue("V5.0.4545: legacy promoteQuality must preserve finalLane=lane", router.contains("fun promoteQuality") && router.contains("finalLane = lane") && router.contains("INNER_LANE_PIVOT:"))
+        assertFalse("V5.0.4545: WATCH_PROBATION must not replace finalLane", router.contains("""finalLane = "WATCH_PROBATION"""))
+        assertFalse("V5.0.4545: SHITCOIN live bleed must re-educate, not quarantine-disable", router.contains("SHITCOIN_LIVE_BLEED_QUARANTINE"))
+        assertTrue("V5.0.4545: cross-lane quality targets must become lane-local styles", router.contains("MOONSHOT_SMART_WALLET_CONFIRMED") && router.contains("SHITCOIN_VOLUME_IGNITION_CONFIRMED") && router.contains("LANE_LOCAL_ROUTE_LIQ_HOLDER_RUG_BASIS_PROOF"))
+    }
+
+
+
+    @Test
+    fun aate4546LaneToxicityGuardReeducatesInsteadOfChoosingAlternateLane() {
+        val guard = java.io.File("src/main/kotlin/com/lifecyclebot/engine/LaneToxicityGuard.kt").readText()
+        assertTrue("V5.0.4546: toxicity guard must document inner-lane re-education", guard.contains("V5.0.4546 inner-lane re-education doctrine") && guard.contains("never chooses a different lane as an escape"))
+        assertTrue("V5.0.4546: guard must expose lane-local treatmentFor", guard.contains("enum class Treatment") && guard.contains("fun treatmentFor") && guard.contains("REEDUCATE_TACTIC") && guard.contains("REEDUCATE_CONFIRMATION"))
+        assertTrue("V5.0.4546: chooseNonToxicLane must preserve original lane order", guard.contains("return lanes.firstOrNull { it.isNotBlank() }") && guard.contains("compatibility shim only"))
+        assertTrue("V5.0.4546: filterNonToxic must not amputate toxic lanes", guard.contains("Preserve original lane ownership") && guard.contains("lanes.filter { it.isNotBlank() }.distinct()"))
+        assertFalse("V5.0.4546: guard must not prefer QUALITY/DIP/TREASURY escape lanes", guard.contains("""listOf("QUALITY", "DIP_HUNTER", "TREASURY", "BLUECHIP" )""") || guard.contains("pref.indexOf"))
+    }
+
+
+
+    @Test
+    fun aate4547BotServiceReeducatesPrimaryInsteadOfReplacingLane() {
+        val bot = java.io.File("src/main/kotlin/com/lifecyclebot/engine/BotService.kt").readText()
+        assertTrue("V5.0.4547: toxic primary must stamp re-education, not pivot to another lane", bot.contains("PRIMARY_STRATEGY_REEDUCATE_INNER_LANE_4547") && bot.contains("no_lane_jump=true") && bot.contains("electedPrimary4524"))
+        assertFalse("V5.0.4547: old non-toxic primary lane jump telemetry must be gone", bot.contains("PRIMARY_STRATEGY_PIVOT_TO_NONTOXIC_4524"))
+        assertTrue("V5.0.4547: owner rotation comments must say toxicity treatment, not filtering/amputation", bot.contains("toxicity treatment, not lane amputation"))
+        assertTrue("V5.0.4547: BotService must use LaneToxicityGuard.treatmentFor", bot.contains("LaneToxicityGuard.treatmentFor(electedPrimary4524"))
+    }
+
+
+
+    @Test
+    fun aate4548StrategyFailuresBecomeCurriculumNotLaneDisable() {
+        val doctrine = java.io.File("src/main/kotlin/com/lifecyclebot/engine/InnerLaneReeducationDoctrine.kt").readText()
+        assertTrue("V5.0.4548: doctrine marker must distinguish strategy failure from hard safety", doctrine.contains("Strategy-failure buckets must not disable/amputate a lane") && doctrine.contains("True hard safety still has authority to block"))
+        assertTrue("V5.0.4548: strategy failures must map to lane-local curriculum", doctrine.contains("FailureKind.STRATEGY_FAILURE") && doctrine.contains("Curriculum.TACTIC_SWITCH") && doctrine.contains("Curriculum.HOLD_EXIT_RETRAIN") && doctrine.contains("Curriculum.ENTRY_CONFIRMATION"))
+        assertTrue("V5.0.4548: only hard safety may disable", doctrine.contains("fun allowsDisable") && doctrine.contains("kind == FailureKind.HARD_SAFETY"))
     }
 
 }

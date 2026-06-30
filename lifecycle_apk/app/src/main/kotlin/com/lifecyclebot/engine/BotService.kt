@@ -9270,19 +9270,16 @@ class BotService : Service() {
             val scoreForPivot4524 = (ts.lastV3Score ?: ts.entryScore.toInt()).coerceIn(0, 100)
             val electedPrimary4524 = RuntimeConfigOverlay.normalizeLane(forced ?: metricPrimary)
             val pivotedPrimary4524 = if (forced.isNullOrBlank() && LaneToxicityGuard.isNetNegativeDanger(electedPrimary4524, scoreForPivot4524)) {
-                val affinityLanes4524 = try { GlobalTradeRegistry.getLaneAffinity(ts.mint).toList() } catch (_: Throwable) { emptyList() }
-                val pivotPool4524 = (styleLanes + affinityLanes4524 + listOf("QUALITY", "DIP_HUNTER", "TREASURY", "BLUECHIP", "MOONSHOT", "PROJECT_SNIPER"))
-                    .map { RuntimeConfigOverlay.normalizeLane(it) }
-                    .filter { it.isNotBlank() && !it.equals(electedPrimary4524, ignoreCase = true) }
-                    .distinct()
-                val pivot4524 = LaneToxicityGuard.chooseNonToxicLane(ts.mint, pivotPool4524, scoreForPivot4524)?.let { RuntimeConfigOverlay.normalizeLane(it) }
-                if (!pivot4524.isNullOrBlank()) {
-                    try {
-                        ForensicLogger.lifecycle("PRIMARY_STRATEGY_PIVOT_TO_NONTOXIC_4524", "symbol=${ts.symbol} mint=${ts.mint.take(10)} from=$electedPrimary4524 to=$pivot4524 score=$scoreForPivot4524 stylePrimary=$stylePrimary metricPrimary=$metricPrimary pool=${pivotPool4524.joinToString("+").take(120)}")
-                        PipelineHealthCollector.labelInc("PRIMARY_STRATEGY_PIVOT_TO_NONTOXIC_4524_${electedPrimary4524}_TO_${pivot4524}")
-                    } catch (_: Throwable) {}
-                    pivot4524
-                } else electedPrimary4524
+                // V5.0.4547 — inner-lane primary doctrine. Do not replace a toxic
+                // primary with QUALITY/DIP/TREASURY/etc. Keep the elected lane and
+                // stamp the treatment so AgenticStyleRouter/LiveStylePivotRouter can
+                // re-educate tactic/style/confirmation inside that same lane.
+                val treatment4547 = try { LaneToxicityGuard.treatmentFor(electedPrimary4524, scoreForPivot4524).name } catch (_: Throwable) { "REEDUCATE_TACTIC" }
+                try {
+                    ForensicLogger.lifecycle("PRIMARY_STRATEGY_REEDUCATE_INNER_LANE_4547", "symbol=${ts.symbol} mint=${ts.mint.take(10)} lane=$electedPrimary4524 score=$scoreForPivot4524 treatment=$treatment4547 stylePrimary=$stylePrimary metricPrimary=$metricPrimary no_lane_jump=true")
+                    PipelineHealthCollector.labelInc("PRIMARY_STRATEGY_REEDUCATE_INNER_LANE_4547_${electedPrimary4524}_${treatment4547}")
+                } catch (_: Throwable) {}
+                electedPrimary4524
             } else electedPrimary4524
             try {
                 val snap = TokenMetricStageRouter.snapshot(ts)
@@ -9470,7 +9467,7 @@ class BotService : Service() {
             // it starved the internal trader surface. Keep bounded fanout, but make
             // ownership rotate across the whole MemeTrader ring: exactly ONE owner
             // lane per token/cycle (plus STANDARD/CORE/V3 trunk above), with affinity
-            // lanes first and toxicity filtering. This raises contribution without
+            // lanes first and toxicity treatment, not lane amputation. This raises contribution without
             // returning to every-token/every-lane FDG storms.
             val fullMemeTraderRing = listOf(
                 "SHITCOIN", "MOONSHOT", "EXPRESS", "PROJECT_SNIPER",

@@ -8,10 +8,10 @@ package com.lifecyclebot.engine
  * losses=38 wins=11 meanPnl=-35.82%) yet style/router fanout keeps electing
  * that lane as primary/rescue. FDG later shrinks size, but WR keeps bleeding.
  *
- * This guard never blocks a trade and never disables a lane globally. It only
- * lets routers avoid routing NEW exposure into a toxic lane when there is an
- * alternate lane available. If no alternate exists, downstream FDG train-first
- * micro/size shaping still owns execution.
+ * V5.0.4546 inner-lane re-education doctrine: this guard never blocks a trade,
+ * never disables a lane globally, and never chooses a different lane as an escape.
+ * It classifies lane×score toxicity so the owning lane can change tactic/style/
+ * confirmation/hold/exit behavior and learn how to win internally.
  */
 object LaneToxicityGuard {
     // V5.0.4072 — use LIVE-ONLY stats for live routing authority. Paper
@@ -44,26 +44,26 @@ object LaneToxicityGuard {
         }
     } catch (_: Throwable) { false }
 
+    enum class Treatment { NORMAL, REEDUCATE_CONFIRMATION, REEDUCATE_TACTIC, REEDUCATE_EXIT, HARD_SAFETY_ONLY }
+
+    fun treatmentFor(lane: String, score: Int): Treatment = when {
+        isNetNegativeDanger(lane, score) && score <= 20 -> Treatment.REEDUCATE_CONFIRMATION
+        isNetNegativeDanger(lane, score) -> Treatment.REEDUCATE_TACTIC
+        else -> Treatment.NORMAL
+    }
+
     fun chooseNonToxicLane(mint: String, lanes: List<String>, score: Int): String? {
-        val clean = lanes.filter { it.isNotBlank() && !isNetNegativeDanger(it, score) }.distinct()
-        if (clean.isNotEmpty()) return clean[((mint.hashCode() and 0x7fffffff) % clean.size)]
-        // V5.0.4057 — pivot faster in DUMP/weak CHOP. If every offered style lane
-        // is toxic, do not blindly fall back to MOONSHOT/SHITCOIN score buckets
-        // that are already bleeding. Pick a quality/reclaim lane when available.
-        val weak = try {
-            val r = RegimeDetector.current()
-            r.regime == RegimeDetector.Regime.DUMP || (r.regime == RegimeDetector.Regime.CHOP && r.recentWrPct < 25.0)
-        } catch (_: Throwable) { false }
-        if (weak) {
-            // V5.0.4070 — prefer quality lanes harder in weak regimes. Add
-            // WALLET_RECOVERED and LIQUIDITY_DEPTH_QUALITY as preferred pivots.
-            val fallback = listOf("BLUECHIP", "QUALITY", "WALLET_RECOVERED", "LIQUIDITY_DEPTH_QUALITY", "TREASURY", "DIP_HUNTER")
-                .firstOrNull { lanes.any { offered -> offered.equals(it, ignoreCase = true) } || !isNetNegativeDanger(it, score) }
-            if (fallback != null) return fallback
-        }
+        if (lanes.isEmpty()) return null
+        // V5.0.4546 — compatibility shim only. Do NOT choose an alternate lane.
+        // Callers still named chooseNonToxicLane receive the original/first lane;
+        // toxicity is exposed through treatmentFor() so the lane can re-educate
+        // internally instead of outsourcing its lesson to QUALITY/DIP/TREASURY.
         return lanes.firstOrNull { it.isNotBlank() }
     }
 
     fun filterNonToxic(lanes: Collection<String>, score: Int): List<String> =
-        lanes.filter { it.isNotBlank() && !isNetNegativeDanger(it, score) }.distinct()
+        // V5.0.4546 — no amputating toxic lanes from offered lane families.
+        // Preserve original lane ownership; use treatmentFor() to alter tactic/style.
+        lanes.filter { it.isNotBlank() }.distinct()
+
 }

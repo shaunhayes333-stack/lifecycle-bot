@@ -6,10 +6,11 @@ import com.lifecyclebot.data.TokenState
  * V5.0.3968 — profitability-aware live style pivot router.
  *
  * No defensive probes. Live mode is for real quality winning setups. Native
- * bleeder contexts are not disabled, but they must be promoted into proven
- * winner styles (BLUECHIP / PRESALE_SNIPE / TREASURY-CASHGEN / WALLET_RECOVERED / high-confidence
- * MOONSHOT / LIQUIDITY_DEPTH_QUALITY / PULLBACK_RECLAIM) with full basis, route,
- * rug, and liquidity proof, or deferred for a better setup.
+ * bleeder contexts are not disabled and must NOT be dumped into another lane.
+ * V5.0.4545 inner-lane doctrine: the original lane owns the lesson; toxic
+ * buckets pivot tactic/style/confirmation/hold mode INSIDE the same lane, or
+ * defer for missing proof. Cross-lane promotion hides the failure instead of
+ * re-educating the lane.
  */
 object LiveStylePivotRouter {
     data class Decision(
@@ -72,13 +73,38 @@ object LiveStylePivotRouter {
             confirm = "DEFER_RECHECK_WITH_FULL_PROOF"
             reasons += reason
         }
+        fun laneLocalStyleFrom(targetStyle: String): String {
+            val t = BleederMemoryRouter.canon(targetStyle)
+            return when (lane) {
+                "MOONSHOT" -> when (t) {
+                    "LIQUIDITY_DEPTH_QUALITY", "QUALITY", "BLUECHIP", "TREASURY", "PULLBACK_RECLAIM" -> "MOONSHOT_SMART_WALLET_CONFIRMED"
+                    else -> if (t.startsWith("MOONSHOT")) targetStyle else "MOONSHOT_CONFIRMED_BREAKOUT"
+                }
+                "SHITCOIN" -> when (t) {
+                    "LIQUIDITY_DEPTH_QUALITY", "QUALITY", "BLUECHIP", "TREASURY", "PULLBACK_RECLAIM" -> "SHITCOIN_VOLUME_IGNITION_CONFIRMED"
+                    else -> if (t.startsWith("SHITCOIN")) targetStyle else "SHITCOIN_ORDER_FLOW_REEDUCATION"
+                }
+                "EXPRESS" -> if (t == "EXPRESS") targetStyle else "EXPRESS_EXHAUSTION_QUICK_FLIP"
+                "MANIPULATED" -> if (t == "MANIPULATED") targetStyle else "MANIPULATED_NARRATIVE_CONFIRMED"
+                "PROJECT_SNIPER" -> if (t == "PROJECT_SNIPER" || t == "PRESALE_SNIPE") "PROJECT_SNIPER_GRADUATION_CONFIRMED" else "PROJECT_SNIPER_ROUTE_REEDUCATION"
+                "DIP_HUNTER" -> if (t == "DIP_HUNTER") targetStyle else "DIP_HUNTER_RECLAIM_CONFIRMED"
+                "TREASURY", "CASHGEN" -> "TREASURY_CASHGEN"
+                "QUALITY" -> "QUALITY_DEPTH_CONFIRMED"
+                "BLUECHIP", "BLUE_CHIP" -> "BLUECHIP_SWING_CONFIRMED"
+                else -> if (targetStyle.isNotBlank()) targetStyle else lane
+            }
+        }
         fun promoteQuality(targetLane: String, targetStyle: String, maxMult: Double, reason: String) {
-            finalLane = targetLane
-            finalStyle = targetStyle
+            // V5.0.4545 — preserve lane ownership. This function name is legacy;
+            // it now means "promote the strategy quality inside the same lane", not
+            // route the trade to QUALITY/DIP/TREASURY/BLUECHIP.
+            val requested = targetLane.ifBlank { targetStyle }
+            finalLane = lane
+            finalStyle = laneLocalStyleFrom(targetStyle.ifBlank { requested })
             mult = minOf(mult, maxMult).coerceAtLeast(0.35)
             decision = "BUY"
-            confirm = "QUALITY_ROUTE_LIQ_HOLDER_RUG_BASIS_PROOF"
-            reasons += reason
+            confirm = "LANE_LOCAL_ROUTE_LIQ_HOLDER_RUG_BASIS_PROOF"
+            reasons += "INNER_LANE_PIVOT:${reason}:requested=$requested"
         }
         fun bestQualityLane(): String = when {
             lane == "BLUECHIP" && qualityProof -> "BLUECHIP"
@@ -176,8 +202,8 @@ object LiveStylePivotRouter {
             if (dumpFresh && !hasDumpProof) {
                 decision = "DEFER"
                 mult = 0.0
-                finalLane = "WATCH_PROBATION"
-                finalStyle = "WATCH_PROBATION"
+                finalLane = lane
+                finalStyle = "${lane}_WATCH_PROBATION_RECHECK"
                 confirm = "WATCH_PROBATION_DUMP_FRESH_RECHECK"
                 reasons += "DUMP_FRESH_LAUNCH_NO_PROOF"
                 reasons += "age=${"%.1f".format(ageMinutes)}m route=$routeTrusted liq=${liq.toInt()} exit=$exitCapacityOk mom=${ts.meta.momScore.toInt()} vol=${ts.meta.volScore.toInt()} buy=${ts.lastBuyPressurePct.toInt()} srcMult=${"%.2f".format(sourceBrainMult)}"
@@ -194,7 +220,7 @@ object LiveStylePivotRouter {
             "EXPRESS" -> {
                 if (bleeder.provenBleeder || bleeder.n50 == 0 || bleeder.wr50 < 25.0 || bleeder.ev50Pct < 0.0) {
                     val target = bestQualityLane()
-                    if (target.isNotBlank()) promoteQuality(target, target, 0.85, "EXPRESS_BLEEDER_QUALITY_PROMOTION")
+                    if (target.isNotBlank()) promoteQuality(target, target, 0.85, "EXPRESS_BLEEDER_INNER_LANE_PIVOT")
                     else defer("EXPRESS_BLEEDER_AWAIT_QUALITY_PROOF")
                 }
             }
@@ -202,15 +228,15 @@ object LiveStylePivotRouter {
                 val trendVolumeConfirms = ts.meta.momScore >= 55.0 && (ts.history.lastOrNull()?.vol ?: ts.meta.volScore) > 0.0
                 if (bleeder.provenBleeder || bleeder.wr50 < 25.0 || bleeder.ev50Pct < 0.0) {
                     val target = bestQualityLane()
-                    if (trendVolumeConfirms && highQualityProof) promoteQuality("PULLBACK_RECLAIM", "PULLBACK_RECLAIM", 0.85, "CYCLIC_PULLBACK_RECLAIM_QUALITY_PROMOTION")
-                    else if (target.isNotBlank()) promoteQuality(target, target, 0.85, "CYCLIC_BLEEDER_QUALITY_PROMOTION")
+                    if (trendVolumeConfirms && highQualityProof) promoteQuality("PULLBACK_RECLAIM", "PULLBACK_RECLAIM", 0.85, "CYCLIC_PULLBACK_RECLAIM_INNER_LANE_PIVOT")
+                    else if (target.isNotBlank()) promoteQuality(target, target, 0.85, "CYCLIC_BLEEDER_INNER_LANE_PIVOT")
                     else defer("CYCLIC_BLEEDER_AWAIT_QUALITY_PROOF")
                 }
             }
             "COPYTRADE", "WHALE_FOLLOW" -> {
                 val repeatWin = try { StrategyTelemetry.computeLiveTerminalLeaderboard().any { it.strategy == "WALLET_RECOVERED" && it.trades >= 5 && it.totalSolPnl > 0.0 && it.winRatePct >= 50.0 } } catch (_: Throwable) { false }
                 if (repeatWin && routeTrusted && holderProof && rugProof && basisTrusted) promoteQuality("WALLET_RECOVERED", "WALLET_RECOVERED", 1.0, "WALLET_RECOVERED_PROVEN_PROMOTION")
-                else if (highQualityProof) promoteQuality("LIQUIDITY_DEPTH_QUALITY", "LIQUIDITY_DEPTH_QUALITY", 0.75, "WHALE_COPY_QUALITY_PROMOTION_NO_DIRECT_TRIGGER")
+                else if (highQualityProof) promoteQuality("LIQUIDITY_DEPTH_QUALITY", "LIQUIDITY_DEPTH_QUALITY", 0.75, "WHALE_COPY_INNER_LANE_CONFIRMATION_NO_DIRECT_TRIGGER")
                 else defer("WHALE_COPY_AWAIT_REPEAT_WIN_AND_PROOF")
             }
             "SHITCOIN" -> {
@@ -222,17 +248,16 @@ object LiveStylePivotRouter {
                     // bootstrap data starvation or hard-deferred by default. If proof
                     // is clean, pivot to quality with liquidity-aware reduced size; true sub-1k/route-missing
                     // still defers.
-                    if (!pivotThinDepthToQuality("SHITCOIN_THIN_ROUTE_DEPTH_LIVE_ADAPTIVE_REDUCED_QUALITY", 0.45)) defer("SHITCOIN_THIN_ROUTE_DEPTH")
+                    if (!pivotThinDepthToQuality("SHITCOIN_THIN_ROUTE_DEPTH_LIVE_ADAPTIVE_REEDUCATE_4545", 0.45)) defer("SHITCOIN_THIN_ROUTE_DEPTH")
                 }
-                // V5.0.4016 — IF IT BLEEDS, IT QUARANTINES/PAPER-ROUTES.
-                // Bleed handling is not promotion authority. A bad SHITCOIN
-                // candidate must never be renamed into MOONSHOT/QUALITY merely
-                // because SHITCOIN is bleeding; quality lanes require their own
-                // independent admission before bleed handling runs.
+                // V5.0.4545 — if it bleeds, re-educate the lane. Do not quarantine
+                // the whole bucket and do not route it to another lane. Keep SHITCOIN
+                // ownership, change the tactic to confirmed volume/order-flow.
                 if (s.n50 >= 10 && s.netPnl50Sol <= 0.0) {
-                    finalLane = "SHITCOIN"
-                    finalStyle = "SHITCOIN"
-                    defer("SHITCOIN_LIVE_BLEED_QUARANTINE")
+                    finalLane = lane
+                    finalStyle = "SHITCOIN_REEDUCATE_VOLUME_IGNITION"
+                    mult = minOf(mult, 0.55)
+                    reasons += "SHITCOIN_LIVE_BLEED_REEDUCATE_VOLUME_IGNITION"
                 } else if (s.n50 < 10 && decision != "DEFER") {
                     mult = minOf(mult, if (liveAdaptive) 0.50 else 0.35)
                     reasons += "SHITCOIN_LIVE_ADAPTIVE_FEE_GIVEBACK_AWARE_SIZE"
@@ -248,7 +273,7 @@ object LiveStylePivotRouter {
                     // Only independent liquidity-depth quality proof may rescue it into
                     // a DIFFERENT quality lane; otherwise defer/train off executed closes.
                     if (bestQualityLane() == "LIQUIDITY_DEPTH_QUALITY" && highQualityProof) {
-                        promoteQuality("LIQUIDITY_DEPTH_QUALITY", "LIQUIDITY_DEPTH_QUALITY", 0.50, "MOONSHOT_S41_60_ONLY_LDQ_QUALITY_RESCUE_V4153")
+                        promoteQuality("LIQUIDITY_DEPTH_QUALITY", "LIQUIDITY_DEPTH_QUALITY", 0.50, "MOONSHOT_S41_60_INNER_LANE_SMART_CONFIRMATION_V4545")
                     } else {
                         defer("MOONSHOT_S41_60_LIVE_TOXIC_DEFER_V4153")
                     }
@@ -256,7 +281,7 @@ object LiveStylePivotRouter {
             }
             "QUALITY" -> {
                 if (score < 50.0) defer("QUALITY_LOW_SCORE_LIVE_DEFER")
-                else if (routeTrusted && basisTrusted && rugProof) { mult = maxOf(mult, 0.85); reasons += "QUALITY_SCORE50_PLUS_PROMOTED" }
+                else if (routeTrusted && basisTrusted && rugProof) { mult = maxOf(mult, 0.85); reasons += "QUALITY_SCORE50_PLUS_LANE_LOCAL_PROMOTED" }
             }
             // V5.0.4118 — MISSING LANE PIVOTS. Operator: "all lanes return to
             // trader and pivot correctly into the right strategies." STANDARD,
@@ -268,7 +293,7 @@ object LiveStylePivotRouter {
                 // let it trade native. If bleeder stats are poor, pivot to quality.
                 if (bleeder.provenBleeder || bleeder.weakPerformer) {
                     val target = bestQualityLane()
-                    if (target.isNotBlank()) promoteQuality(target, target, 0.85, "STANDARD_BLEEDER_QUALITY_PROMOTION")
+                    if (target.isNotBlank()) promoteQuality(target, target, 0.85, "STANDARD_BLEEDER_INNER_LANE_PIVOT")
                     else { mult = maxOf(mult, 0.65); reasons += "STANDARD_BLEEDER_SIZE_SHAPED_NATIVE" }
                 } else if (routeTrusted && basisTrusted && rugProof) {
                     mult = maxOf(mult, 1.0); reasons += "STANDARD_NATIVE_CONFIRMED"
@@ -279,7 +304,7 @@ object LiveStylePivotRouter {
                 // when proof confirms; size-shapes when bleeder, but never killed.
                 if (bleeder.provenBleeder || bleeder.wr50 < 25.0) {
                     val target = bestQualityLane()
-                    if (target.isNotBlank() && highQualityProof) promoteQuality(target, target, 0.75, "MANIPULATED_BLEEDER_QUALITY_PROMOTION")
+                    if (target.isNotBlank() && highQualityProof) promoteQuality(target, target, 0.75, "MANIPULATED_BLEEDER_INNER_LANE_PIVOT")
                     else { mult = minOf(mult, 0.55); reasons += "MANIPULATED_BLEEDER_SIZE_SHAPED_NATIVE" }
                 } else if (routeTrusted && basisTrusted && rugProof && liq >= 2_000.0) {
                     mult = maxOf(mult, 0.85); reasons += "MANIPULATED_NATIVE_VOLUME_IGNITION_CONFIRMED"
@@ -299,15 +324,15 @@ object LiveStylePivotRouter {
                     else { mult = maxOf(mult, 0.75); reasons += "DIP_HUNTER_NATIVE_CONFIRMED" }
                 }
             }
-            "BLUECHIP" -> { if (routeTrusted && basisTrusted && rugProof) { mult = maxOf(mult, 1.0); reasons += "BLUECHIP_ROUTE_PROOF_PROMOTED" } }
+            "BLUECHIP" -> { if (routeTrusted && basisTrusted && rugProof) { mult = maxOf(mult, 1.0); reasons += "BLUECHIP_ROUTE_PROOF_LANE_LOCAL_PROMOTED" } }
             "PRESALE_SNIPE", "PROJECT_SNIPER" -> {
                 val ps = BleederMemoryRouter.statsFor("PRESALE_SNIPE")
                 val presaleBleeding = ps.n20 >= 3 && (ps.wr20 <= 0.0 || ps.ev20Pct < 0.0 || ps.netPnl50Sol <= 0.0)
-                if (presaleBleeding) { finalLane = "PRESALE_SNIPE"; finalStyle = "PRESALE_SNIPE"; defer("PRESALE_SNIPE_LIVE_BLEED_QUARANTINE") }
-                else if (routeTrusted && liq >= 5_000.0 && basisTrusted && rugProof) { finalLane = "PRESALE_SNIPE"; finalStyle = "PRESALE_SNIPE"; mult = maxOf(mult, 1.0); reasons += "PRESALE_ROUTE_LIQ_PROMOTED" }
+                if (presaleBleeding) { finalLane = lane; finalStyle = laneLocalStyleFrom("PRESALE_SNIPE_REEDUCATE_ROUTE_PROOF"); mult = minOf(mult, 0.55); reasons += "PRESALE_SNIPE_LIVE_BLEED_REEDUCATE_ROUTE_PROOF" }
+                else if (routeTrusted && liq >= 5_000.0 && basisTrusted && rugProof) { finalLane = lane; finalStyle = laneLocalStyleFrom("PRESALE_SNIPE"); mult = maxOf(mult, 1.0); reasons += "PRESALE_ROUTE_LIQ_LANE_LOCAL_PROMOTED" }
                 else defer("PRESALE_AWAIT_MIN_DEPTH_AND_PROOF")
             }
-            "TREASURY", "CASHGEN" -> { if (routeTrusted && liq >= 5_000.0 && basisTrusted && rugProof && score >= 40.0) { finalLane = "TREASURY"; finalStyle = "TREASURY_CASHGEN"; mult = maxOf(mult, 1.0); reasons += "TREASURY_CASHGEN_QUALITY_PROMOTED" } else defer("TREASURY_CASHGEN_AWAIT_DEPTH_SCORE_PROOF") }
+            "TREASURY", "CASHGEN" -> { if (routeTrusted && liq >= 5_000.0 && basisTrusted && rugProof && score >= 40.0) { finalLane = lane; finalStyle = "TREASURY_CASHGEN"; mult = maxOf(mult, 1.0); reasons += "TREASURY_CASHGEN_LANE_LOCAL_PROMOTED" } else defer("TREASURY_CASHGEN_AWAIT_DEPTH_SCORE_PROOF") }
             "WALLET_RECOVERED" -> { if (!basisTrusted) defer("WALLET_RECOVERED_REQUIRES_TRUSTED_BASIS") else reasons += "WALLET_RECOVERED_TRUSTED_BASIS" }
         }
 
@@ -361,7 +386,7 @@ object LiveStylePivotRouter {
         if (!be.pass) {
             val adaptiveRelease = canLiveAdaptiveRelease(finalLane) &&
                 be.expectedEdgePct >= (be.requiredEdgePct * 0.55) &&
-                (score >= 61.0 || liq >= 5_000.0 || finalLane in setOf("WALLET_RECOVERED", "BLUECHIP", "PRESALE_SNIPE", "TREASURY", "QUALITY"))
+                (score >= 61.0 || liq >= 5_000.0 || finalStyle.contains("CONFIRMED", true) || finalStyle.contains("REEDUCATE", true))
             val bootstrapRelease = canGreenBootstrapFullQualityRelease(finalLane, be)
             if (adaptiveRelease || bootstrapRelease) {
                 // LIVE quality release: do not let a green live-bootstrap system

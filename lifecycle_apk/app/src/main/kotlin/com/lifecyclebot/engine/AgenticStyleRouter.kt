@@ -53,12 +53,10 @@ object AgenticStyleRouter {
         PULLBACK_RECLAIM("pullback_reclaim", setOf("DIP_HUNTER", "QUALITY", "TREASURY"), setOf("PULLBACK", "DIP_RECLAIM", "DEX"), 0.85, 1.05, 1.25),
         WHALE_FOLLOW("whale_follow", setOf("BLUECHIP", "QUALITY", "MOONSHOT"), setOf("WHALE", "QUALITY_DEPTH", "HOLD"), 0.90, 1.20, 1.80),
         REACCUMULATION("reaccumulation", setOf("QUALITY", "TREASURY", "MOONSHOT"), setOf("REACCUMULATION", "SWING", "TRENDING"), 0.80, 1.10, 1.50),
-        // V5.0.4057 — faster toxic-regime pivot. DEFENSIVE_PROBE is what weak
-        // DUMP/CHOP pivots choose after rejecting degen/fresh-pool styles; if it
-        // only advertises SHITCOIN/MOONSHOT, the toxicity guard can still fall back
-        // into the exact bleeding lanes. Lead with quality/reclaim lanes, keep one
-        // meme probe as fallback for throughput. Soft route-shape only, no veto.
-        DEFENSIVE_PROBE("defensive_probe", setOf("QUALITY", "DIP_HUNTER", "TREASURY", "PROJECT_SNIPER"), setOf("PROBE", "QUALITY_DEPTH", "DIP_RECLAIM", "TOXIC_GUARD"), 0.35, 0.75, 0.55),
+        // V5.0.4544 — inner-lane defensive style. Do not advertise QUALITY/DIP/
+        // TREASURY as a toxic-meme escape hatch. The lane-local caller keeps the lane
+        // owner and pivots tactic/style/confirmation inside that lane instead.
+        DEFENSIVE_PROBE("defensive_probe", setOf("SHITCOIN", "MOONSHOT", "PROJECT_SNIPER", "EXPRESS", "MANIPULATED"), setOf("PROBE", "ORDER_FLOW", "SMART_MONEY", "TOXIC_GUARD"), 0.35, 0.75, 0.55),
         LAB_EXPLORATION("lab_exploration", setOf("SHITCOIN", "MOONSHOT", "MANIPULATED", "PROJECT_SNIPER"), setOf("LAB", "HYPOTHESIS", "MEME"), 0.50, 1.00, 1.00),
     }
 
@@ -98,26 +96,14 @@ object AgenticStyleRouter {
     }
 
     private fun rapidToxicRegimePivot(style: Style, score: Int): List<String> {
-        val weak = try {
-            val r = RegimeDetector.current()
-            r.regime == RegimeDetector.Regime.DUMP || (r.regime == RegimeDetector.Regime.CHOP && r.recentWrPct < 25.0)
-        } catch (_: Throwable) { false }
-        if (!weak) return emptyList()
-        val toxicMemeScoreBand = score in 41..60 ||
-            LaneToxicityGuard.isNetNegativeDanger("MOONSHOT", score) ||
-            LaneToxicityGuard.isNetNegativeDanger("SHITCOIN", score)
-        if (!toxicMemeScoreBand) return emptyList()
-        return when (style) {
-            Style.DEFENSIVE_PROBE,
-            Style.REGIME_DEFENSIVE_PROBE,
-            Style.LAB_EXPLORATION,
-            Style.DIAMOND_HANDS_RUNNER,
-            Style.BREAKOUT_RUNNER,
-            Style.SWING_HOLD,
-            Style.MICRO_SNIPE,
-            Style.QUICK_FLIP -> listOf("QUALITY", "DIP_HUNTER", "TREASURY", "BLUECHIP")
-            else -> emptyList()
-        }
+        // V5.0.4544 — INNER-LANE PIVOT DOCTRINE.
+        // Toxic/regime adaptation must not dump a candidate into a different lane
+        // family (MOONSHOT → QUALITY/DIP/TREASURY/etc.). The lane remains the same;
+        // the strategy/tactic/style inside that lane changes via sameLaneWeakPivotStyle.
+        // Returning cross-lane alternates here made the bot look like it was "pivoting"
+        // while actually abandoning the lane-local thesis instead of asking: same lane,
+        // different wave/mcap/tactic/confirmation/hold profile.
+        return emptyList()
     }
 
     private fun boundedTools(mint: String, base: Set<String>, style: Style): Set<String> {
@@ -167,12 +153,41 @@ object AgenticStyleRouter {
             (r.regime == RegimeDetector.Regime.CHOP && r.recentWrPct < 25.0)
     } catch (_: Throwable) { false }
 
-    private fun weakChopStylePivot(style: Style, sheet: ToolkitSignalSheet.Sheet, weakRuntimeRegime: Boolean): Style {
+    private fun sameLaneWeakPivotStyle(laneHint: String, fallback: Style): Style {
+        val lane = BleederMemoryRouter.canon(laneHint)
+        return when (lane) {
+            // Same lane, different internal tactic: stop buying generic early-wave runners;
+            // require smarter confirmation/whale/copy/breakout character while preserving
+            // MOONSHOT ownership of the trade.
+            "MOONSHOT" -> when (fallback) {
+                Style.DIAMOND_HANDS_RUNNER, Style.BREAKOUT_RUNNER, Style.SWING_HOLD,
+                Style.PUMP_GRADUATION_SNIPE, Style.MICRO_SNIPE, Style.QUICK_FLIP,
+                Style.DEGEN_MICRO_SNIPE, Style.LAB_EXPLORATION -> Style.SMART_WALLET_COPY_FOLLOW
+                else -> if (fallback.lanes.contains("MOONSHOT")) fallback else Style.SMART_WALLET_COPY_FOLLOW
+            }
+            // Same SHITCOIN lane, but pivot to volume/order-flow/narrative confirmation
+            // instead of repeating blind low-score/fresh-wave buys.
+            "SHITCOIN" -> when (fallback) {
+                Style.DEGEN_MICRO_SNIPE, Style.MICRO_SNIPE, Style.QUICK_FLIP,
+                Style.LAB_EXPLORATION, Style.REGIME_DEFENSIVE_PROBE -> Style.VOLUME_IGNITION_SCALP
+                else -> if (fallback.lanes.contains("SHITCOIN")) fallback else Style.VOLUME_IGNITION_SCALP
+            }
+            "EXPRESS" -> if (fallback.lanes.contains("EXPRESS")) fallback else Style.EXHAUSTION_QUICK_FLIP
+            "MANIPULATED" -> if (fallback.lanes.contains("MANIPULATED")) fallback else Style.NARRATIVE_SOCIAL_IGNITION
+            "PROJECT_SNIPER" -> if (fallback.lanes.contains("PROJECT_SNIPER")) fallback else Style.PUMP_GRADUATION_SNIPE
+            "DIP_HUNTER" -> if (fallback.lanes.contains("DIP_HUNTER")) fallback else Style.PANIC_REVERSION_BOUNCE
+            "TREASURY", "CASHGEN" -> if (fallback.lanes.contains("TREASURY")) fallback else Style.PANIC_REVERSION_BOUNCE
+            "QUALITY" -> if (fallback.lanes.contains("QUALITY")) fallback else Style.WHALE_ACCUMULATION_HOLD
+            "BLUECHIP", "BLUE_CHIP" -> if (fallback.lanes.contains("BLUECHIP")) fallback else Style.MAINSTREAM_CRYPTO_SWING
+            else -> fallback
+        }
+    }
+
+    private fun weakChopStylePivot(style: Style, sheet: ToolkitSignalSheet.Sheet, weakRuntimeRegime: Boolean, laneHint: String = ""): Style {
         if (!weakRuntimeRegime && !isWeakChopSheet(sheet)) return style
+        val laneLocal = sameLaneWeakPivotStyle(laneHint, style)
         return when (style) {
-            // 5.0.3859 report: CHOP wr=15.7%, EXPRESS 0% WR, MOONSHOT S41-60 danger.
-            // Do not let weak-CHOP toolkit/fresh-launch style election keep routing
-            // degen scalps or MOONSHOT-first diamond runners as primary exposure.
+            // 5.0.4544: pivot the strategy INSIDE the lane, do not dump into another lane.
             Style.DEGEN_MICRO_SNIPE,
             Style.PUMP_GRADUATION_SNIPE,
             Style.VOLUME_IGNITION_SCALP,
@@ -181,11 +196,14 @@ object AgenticStyleRouter {
             Style.MEV_PROTECTED_ENTRY,
             Style.NARRATIVE_SOCIAL_IGNITION,
             Style.MICRO_SNIPE,
-            Style.QUICK_FLIP -> Style.DEFENSIVE_PROBE
+            Style.QUICK_FLIP,
             Style.DIAMOND_HANDS_RUNNER,
             Style.BREAKOUT_RUNNER,
-            Style.SWING_HOLD -> Style.LIQUIDITY_DEPTH_QUALITY
-            else -> style
+            Style.SWING_HOLD,
+            Style.LAB_EXPLORATION,
+            Style.DEFENSIVE_PROBE,
+            Style.REGIME_DEFENSIVE_PROBE -> laneLocal
+            else -> if (laneLocal.lanes.contains(BleederMemoryRouter.canon(laneHint))) laneLocal else style
         }
     }
 
@@ -202,21 +220,21 @@ object AgenticStyleRouter {
         val lowScoreBleedContext = score <= 10 && try { CatastrophicPaperBleedGuard.isActive() } catch (_: Throwable) { false }
 
         val weakChopSheet = isWeakChopSheet(sheet) || isWeakRuntimeRegime()
-        val toolkitStyle = if (sheet.confidence >= 38.0) styleForToolkit(sheet)?.let { weakChopStylePivot(it, sheet, weakChopSheet) } else null
+        val toolkitStyle = if (sheet.confidence >= 38.0) styleForToolkit(sheet)?.let { weakChopStylePivot(it, sheet, weakChopSheet, laneHint) } else null
         val style = when {
             toolkitStyle != null -> toolkitStyle
             // V5.0.3716 — do not let PULLBACK/LAB tactics route score-0 CHOP
             // candidates into DIP_HUNTER as primary during a catastrophic paper
             // WR collapse. Keep exploration alive, but via defensive meme-family
             // probes rather than specialist duplicate exposure.
-            lowScoreBleedContext -> Style.DEFENSIVE_PROBE
-            ddAgg < 0.50 && lowInfoFresh -> Style.DEFENSIVE_PROBE
+            lowScoreBleedContext -> sameLaneWeakPivotStyle(laneHint, Style.DEFENSIVE_PROBE)
+            ddAgg < 0.50 && lowInfoFresh -> sameLaneWeakPivotStyle(laneHint, Style.DEFENSIVE_PROBE)
             tactic == TacticSwitcher.Tactic.LAB_PROPOSED -> Style.LAB_EXPLORATION
             tactic == TacticSwitcher.Tactic.PULLBACK -> Style.PULLBACK_RECLAIM
             tactic == TacticSwitcher.Tactic.REACCUMULATION -> Style.REACCUMULATION
             tactic == TacticSwitcher.Tactic.BREAKOUT -> Style.BREAKOUT_RUNNER
-            weakChopSheet && classification.tradeType in setOf(ModeRouter.TradeType.FRESH_LAUNCH, ModeRouter.TradeType.SENTIMENT_IGNITION, ModeRouter.TradeType.GRADUATION) -> Style.DEFENSIVE_PROBE
-            weakChopSheet && classification.tradeType == ModeRouter.TradeType.BREAKOUT_CONTINUATION -> Style.LIQUIDITY_DEPTH_QUALITY
+            weakChopSheet && classification.tradeType in setOf(ModeRouter.TradeType.FRESH_LAUNCH, ModeRouter.TradeType.SENTIMENT_IGNITION, ModeRouter.TradeType.GRADUATION) -> sameLaneWeakPivotStyle(laneHint, Style.DEFENSIVE_PROBE)
+            weakChopSheet && classification.tradeType == ModeRouter.TradeType.BREAKOUT_CONTINUATION -> sameLaneWeakPivotStyle(laneHint, Style.BREAKOUT_RUNNER)
             classification.tradeType == ModeRouter.TradeType.FRESH_LAUNCH && ageMin <= 3.0 -> Style.MICRO_SNIPE
             classification.tradeType == ModeRouter.TradeType.FRESH_LAUNCH -> Style.QUICK_FLIP
             classification.tradeType == ModeRouter.TradeType.BREAKOUT_CONTINUATION -> Style.BREAKOUT_RUNNER
@@ -225,7 +243,7 @@ object AgenticStyleRouter {
             classification.tradeType == ModeRouter.TradeType.WHALE_ACCUMULATION -> Style.WHALE_FOLLOW
             classification.tradeType == ModeRouter.TradeType.TREND_PULLBACK -> Style.REACCUMULATION
             classification.tradeType == ModeRouter.TradeType.SENTIMENT_IGNITION -> Style.QUICK_FLIP
-            else -> if (ddAgg < 0.80) Style.DEFENSIVE_PROBE else Style.LAB_EXPLORATION
+            else -> if (ddAgg < 0.80) sameLaneWeakPivotStyle(laneHint, Style.DEFENSIVE_PROBE) else sameLaneWeakPivotStyle(laneHint, Style.LAB_EXPLORATION)
         }
         val tuneLane = laneHint.ifBlank { style.lanes.firstOrNull().orEmpty() }.ifBlank { classification.tradeType.name }
         val strategyTune = try { LiveStrategyTuner.adjustment(tuneLane) } catch (_: Throwable) { LiveStrategyTuner.adjustment("STANDARD") }

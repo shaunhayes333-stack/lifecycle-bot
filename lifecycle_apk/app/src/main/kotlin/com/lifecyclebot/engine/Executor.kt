@@ -9217,7 +9217,7 @@ class Executor(
         if (snap != null) { persistMintEntryMarketSnapshot(ts, snap, reason); return snap }
         try {
             ForensicLogger.lifecycle("ENTRY_MARKET_SNAPSHOT_MISSING_DEFERRED", "mint=${ts.mint.take(10)} symbol=${ts.symbol} reason=$reason price=${ts.lastPrice} mcap=${ts.lastMcap} liq=${ts.lastLiquidityUsd} pool=${ts.lastPricePoolAddr.ifBlank { ts.pairAddress }.take(16)} source=${ts.lastPriceSource.ifBlank { ts.source }} action=no_entry_no_fake_basis")
-            ForensicLogger.lifecycle("LIVE_ENTRY_DECISION", "mint=${ts.mint.take(10)} symbol=${ts.symbol} originalLane=UNKNOWN originalStyle=UNKNOWN finalLane=QUALITY_PROOF_DEFER finalStyle=BASIS_PROOF_WAIT score=0 scoreBand=UNKNOWN sizeSol=0 sizeMultiplier=0 expectedEdgePct=0 requiredEdgePct=999 basisTrusted=false routeTrusted=false holderProof=false rugProof=false liquidityUsd=${ts.lastLiquidityUsd.toInt()} providerProof=${ts.lastPriceSource.isNotBlank()} pivotApplied=true pivotReasons=BASIS_MISSING decision=DEFER")
+            ForensicLogger.lifecycle("LIVE_ENTRY_DECISION", "mint=${ts.mint.take(10)} symbol=${ts.symbol} originalLane=UNKNOWN originalStyle=UNKNOWN finalLane=LANE_PROOF_DEFER finalStyle=BASIS_PROOF_WAIT score=0 scoreBand=UNKNOWN sizeSol=0 sizeMultiplier=0 expectedEdgePct=0 requiredEdgePct=999 basisTrusted=false routeTrusted=false holderProof=false rugProof=false liquidityUsd=${ts.lastLiquidityUsd.toInt()} providerProof=${ts.lastPriceSource.isNotBlank()} pivotApplied=true pivotReasons=BASIS_MISSING decision=DEFER")
             PipelineHealthCollector.labelInc("ENTRY_MARKET_SNAPSHOT_MISSING_DEFERRED")
             PipelineHealthCollector.labelInc("LIVE_ENTRY_DECISION")
         } catch (_: Throwable) {}
@@ -10960,7 +10960,7 @@ class Executor(
                     "mint=${ts.mint.take(10)} symbol=${ts.symbol} layer=$layerTag reason=${advisor.second}")
             } catch (_: Throwable) {}
             try {
-                ForensicLogger.lifecycle("LIVE_ENTRY_DECISION", "mint=${ts.mint.take(10)} symbol=${ts.symbol} originalLane=${layerTag.ifBlank { "UNKNOWN" }} originalStyle=${layerTag.ifBlank { "UNKNOWN" }} finalLane=QUALITY_PROOF_DEFER finalStyle=ADVISOR_BLOCK score=${score.fmt(1)} scoreBand=${LiveStylePivotRouter.scoreBand(score)} sizeSol=${sol.fmt(4)} sizeMultiplier=0.00 expectedEdgePct=0 requiredEdgePct=999 basisTrusted=false routeTrusted=false holderProof=false rugProof=false liquidityUsd=${ts.lastLiquidityUsd.toInt()} providerProof=${ts.lastPriceSource.isNotBlank()} pivotApplied=true pivotReasons=ADVISOR_BLOCK:${advisor.second.take(48)} decision=DEFER")
+                ForensicLogger.lifecycle("LIVE_ENTRY_DECISION", "mint=${ts.mint.take(10)} symbol=${ts.symbol} originalLane=${layerTag.ifBlank { "UNKNOWN" }} originalStyle=${layerTag.ifBlank { "UNKNOWN" }} finalLane=LANE_PROOF_DEFER finalStyle=ADVISOR_BLOCK score=${score.fmt(1)} scoreBand=${LiveStylePivotRouter.scoreBand(score)} sizeSol=${sol.fmt(4)} sizeMultiplier=0.00 expectedEdgePct=0 requiredEdgePct=999 basisTrusted=false routeTrusted=false holderProof=false rugProof=false liquidityUsd=${ts.lastLiquidityUsd.toInt()} providerProof=${ts.lastPriceSource.isNotBlank()} pivotApplied=true pivotReasons=ADVISOR_BLOCK:${advisor.second.take(48)} decision=DEFER")
                 PipelineHealthCollector.labelInc("LIVE_ENTRY_DECISION")
             } catch (_: Throwable) {}
             try { PipelineHealthCollector.labelInc("LIVE_BUY_ADVISOR_BLOCK") } catch (_: Throwable) {}
@@ -11050,20 +11050,22 @@ class Executor(
             identity?.source ?: "",
         ).map { canonicalExecutableLane(it) }.firstOrNull { it in executableLaneSet }.orEmpty()
         val postPivotExecutableLane = canonicalExecutableLane(liveEntryDecision.finalLane.ifBlank { originalLaneForPivot }).takeIf { it in executableLaneSet }.orEmpty()
-        val qualityPromotionLane = postPivotExecutableLane in setOf("QUALITY", "TREASURY", "BLUECHIP", "MOONSHOT", "PROJECT_SNIPER")
         val pivotHasExecutionProof = liveEntryDecision.basisTrusted && liveEntryDecision.routeTrusted && liveEntryDecision.providerProof && liveEntryDecision.liquidityUsd > 0.0
+        val innerLaneExecutablePivot = postPivotExecutableLane.isNotBlank() && postPivotExecutableLane == prePivotExecutableLane && pivotHasExecutionProof
         val canonicalRoutedLane = when {
-            stylePivotAdvisory && qualityPromotionLane && pivotHasExecutionProof -> postPivotExecutableLane
+            // V5.0.4545 — advisory style shaping must not reroute to a different
+            // executable lane. Preserve the pre-pivot lane and let the lane-local
+            // style/tactic carry the re-education.
             stylePivotAdvisory -> prePivotExecutableLane
             else -> postPivotExecutableLane.ifBlank { prePivotExecutableLane }
         }
-        if (stylePivotAdvisory && qualityPromotionLane && pivotHasExecutionProof && canonicalRoutedLane == postPivotExecutableLane) {
+        if (stylePivotAdvisory && innerLaneExecutablePivot) {
             try {
                 ForensicLogger.lifecycle(
-                    "STYLE_PIVOT_QUALITY_PROMOTION_EXECUTABLE",
-                    "mint=${ts.mint.take(10)} symbol=${ts.symbol} from=$prePivotExecutableLane to=$postPivotExecutableLane basis=${liveEntryDecision.basisTrusted} route=${liveEntryDecision.routeTrusted} provider=${liveEntryDecision.providerProof} liq=${liveEntryDecision.liquidityUsd.toInt()} action=quality_lane_authority",
+                    "STYLE_PIVOT_INNER_LANE_EXECUTABLE",
+                    "mint=${ts.mint.take(10)} symbol=${ts.symbol} lane=$prePivotExecutableLane style=${liveEntryDecision.finalStyle} basis=${liveEntryDecision.basisTrusted} route=${liveEntryDecision.routeTrusted} provider=${liveEntryDecision.providerProof} liq=${liveEntryDecision.liquidityUsd.toInt()} action=lane_local_authority",
                 )
-                PipelineHealthCollector.labelInc("STYLE_PIVOT_QUALITY_PROMOTION_EXECUTABLE")
+                PipelineHealthCollector.labelInc("STYLE_PIVOT_INNER_LANE_EXECUTABLE")
             } catch (_: Throwable) {}
         }
         val routedLaneTag = canonicalRoutedLane.ifBlank { if (stylePivotAdvisory) originalLaneForPivot else liveEntryDecision.finalLane.ifBlank { originalLaneForPivot } }
