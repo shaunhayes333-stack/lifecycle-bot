@@ -90,7 +90,8 @@ data class RuntimeStateSnapshot(
             } catch (_: Throwable) { 0 }
             val lifecyclePendingConfirmed = try { TokenLifecycleTracker.confirmedPendingCount() } catch (_: Throwable) { 0 }
             val lifecycleOpen = try { TokenLifecycleTracker.openCount() } catch (_: Throwable) { 0 }
-            val liveOpen = maxOf(localLiveOpen, hostOpen, lifecyclePendingConfirmed)
+            val managedLiveOpen = maxOf(localLiveOpen, hostOpen, lifecyclePendingConfirmed, lifecycleOpen)
+            val liveOpen = managedLiveOpen
             // V5.0.3685 — P0: SellOnlySafeMode compares hostOpen (live tracker) vs
             // positionStoreOpen. The old statusOpen.size included paper positions, so
             // ANY paper sim made positionStoreOpen > hostOpen → permanent SELL_ONLY_SAFE_MODE.
@@ -118,11 +119,15 @@ data class RuntimeStateSnapshot(
             val canonicalOpen = if (isPaperRuntime) {
                 positionStoreOpen
             } else {
-                // V5.0.3760 — canonical LIVE truth includes confirmed-pending-balance.
-                // Wallet-held balance is physical proof; a confirmed buy signature with
-                // estimated qty is still an open, sell-managed position while wallet
-                // token indexing catches up.
-                maxOf(walletHeld, hostOpen, localLiveOpen, lifecyclePendingConfirmed)
+                // V5.0.4541 — canonical LIVE truth is MANAGED live truth.
+                // Runtime reports showed walletHeld=6 while hostOpen/liveOpen=3, which
+                // raised ORPHAN_LIVE_POSITIONS and inflated slot truth even though the
+                // extra wallet mints were unmanaged inventory/dust. Physical wallet-held
+                // proof still matters for positions that are represented by host/local/
+                // lifecycle trackers, and confirmed-pending buys remain counted; raw
+                // wallet extras without managed identity must be reconciled/purged, not
+                // treated as executable open slots.
+                managedLiveOpen
             }
             val orphanPaper = try {
                 if (isPaperRuntime) {
@@ -141,15 +146,19 @@ data class RuntimeStateSnapshot(
             val orphanLive = try {
                 if (isPaperRuntime) 0
                 else {
-                    // V5.0.3955 — ORPHAN GRACE MUST FOLLOW THE RECONCILER.
-                    // Runtime 3954 showed Recon grace=4 while RuntimeDoctor still
-                    // computed orphanLive=2 from raw walletHeld-liveOpen. Those mints
-                    // are explicitly inside the position-wallet reconciler's adoption
-                    // grace window, not mechanical orphans. Subtract the larger of the
-                    // historical one-mint buy propagation grace and the current recon
-                    // GRACE bucket before raising ORPHAN_LIVE_POSITIONS.
+                    // V5.0.4541 — orphanLive must mean managed-state desync, not raw
+                    // wallet extra inventory. If host/local/lifecycle agree on 3 managed
+                    // live positions and the wallet contains 6 token mints, the extra 3
+                    // are wallet-reconciliation work, not open executable slots. Counting
+                    // walletHeld-liveOpen here created false HIGH mechanical faults and
+                    // made the operator think volume had collapsed.
                     val graceAllowance = maxOf(1, reconcilerGrace)
-                    ((walletHeld - liveOpen) - graceAllowance).coerceAtLeast(0)
+                    val managedDesync = maxOf(
+                        (localLiveOpen - hostOpen - graceAllowance).coerceAtLeast(0),
+                        (lifecycleOpen - managedLiveOpen - graceAllowance).coerceAtLeast(0),
+                        (lifecyclePendingConfirmed - managedLiveOpen - graceAllowance).coerceAtLeast(0),
+                    )
+                    managedDesync.coerceAtLeast(0)
                 }
             } catch (_: Throwable) { 0 }
 

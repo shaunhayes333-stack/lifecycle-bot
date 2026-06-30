@@ -945,15 +945,56 @@ object TradeHistoryStore {
 
     /** Newest-first bounded RAW close rows (SELL + PARTIAL_SELL by default). */
     fun getRecentValidClosedTradesRaw(limit: Int = 1000, includePartials: Boolean = true): List<Trade> {
-        ensureInitialized()
         val cap = limit.coerceAtLeast(1)
+        val now = System.currentTimeMillis()
+        val onMain = try { Looper.myLooper() == Looper.getMainLooper() } catch (_: Throwable) { false }
+        if (onMain) {
+            val cached = rawClosedTradesCache
+            val cacheMatches = rawClosedTradesCacheLimit >= cap && rawClosedTradesCacheIncludePartials == includePartials
+            if (cached.isNotEmpty() && cacheMatches && now - rawClosedTradesCacheMs < RAW_CLOSED_CACHE_MS) return cached.take(cap)
+            scheduleRawClosedTradesRefresh(cap, includePartials)
+            try { PipelineHealthCollector.labelInc("RAW_CLOSED_TRADES_MAIN_CACHE_RETURN_4541") } catch (_: Throwable) {}
+            return if (cacheMatches) cached.take(cap) else emptyList()
+        }
+        return computeRecentValidClosedTradesRaw(cap, includePartials).also {
+            rawClosedTradesCache = it
+            rawClosedTradesCacheMs = System.currentTimeMillis()
+            rawClosedTradesCacheLimit = cap
+            rawClosedTradesCacheIncludePartials = includePartials
+        }
+    }
+
+    private fun computeRecentValidClosedTradesRaw(cap: Int, includePartials: Boolean): List<Trade> {
+        ensureInitialized()
         return synchronized(lock) {
             trades.asReversed().asSequence()
                 .map { CloseOutcomeLabelSanitizer.canonicalize(it, emit = false) }
                 .filter { if (includePartials) isJournalSellLike(it.side) else it.side.equals("SELL", true) }
                 .filter { isValidAccountingTrade(it) }
-                .take(cap)
+                .take(cap.coerceAtLeast(1))
                 .toList()
+        }
+    }
+
+    private fun scheduleRawClosedTradesRefresh(cap: Int, includePartials: Boolean) {
+        if (rawClosedTradesRefreshInFlight) return
+        rawClosedTradesRefreshInFlight = true
+        val r = Runnable {
+            try {
+                val fresh = computeRecentValidClosedTradesRaw(cap, includePartials)
+                rawClosedTradesCache = fresh
+                rawClosedTradesCacheMs = System.currentTimeMillis()
+                rawClosedTradesCacheLimit = cap
+                rawClosedTradesCacheIncludePartials = includePartials
+            } catch (_: Throwable) {
+            } finally {
+                rawClosedTradesRefreshInFlight = false
+            }
+        }
+        try {
+            ioHandler?.post(r) ?: Thread(r, "TradeRawClosedRefresh").start()
+        } catch (_: Throwable) {
+            try { Thread(r, "TradeRawClosedRefresh").start() } catch (_: Throwable) { rawClosedTradesRefreshInFlight = false }
         }
     }
 

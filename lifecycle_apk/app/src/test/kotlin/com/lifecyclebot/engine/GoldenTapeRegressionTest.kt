@@ -6683,4 +6683,24 @@ class GoldenTapeRegressionTest {
         assertTrue("V5.0.4538: recent lifecycle lines must include mode before lane/source", mee.contains("mode=${'$'}{e.mode} lane=${'$'}{e.lane} src=${'$'}{e.source}"))
     }
 
+
+
+    @Test
+    fun aate4541OrphanLivePositionsIgnoreUnmanagedWalletExtras() {
+        val snap = java.io.File("src/main/kotlin/com/lifecyclebot/engine/RuntimeStateSnapshot.kt").readText()
+        assertTrue("V5.0.4541: live canonical open slots must use managed live truth, not raw walletHeld extras", snap.contains("val managedLiveOpen = maxOf(localLiveOpen, hostOpen, lifecyclePendingConfirmed, lifecycleOpen)") && snap.contains("canonical LIVE truth is MANAGED live truth") && snap.contains("managedLiveOpen"))
+        assertTrue("V5.0.4541: orphanLive must be managed-state desync, not walletHeld-liveOpen", snap.contains("orphanLive must mean managed-state desync") && snap.contains("managedDesync") && !snap.contains("((walletHeld - liveOpen) - graceAllowance)"))
+        assertTrue("V5.0.4541: wallet extras are still documented as reconcile/purge work, not executable open slots", snap.contains("extra wallet mints were unmanaged inventory/dust") && snap.contains("reconciled/purged") && snap.contains("not open executable slots"))
+    }
+
+
+
+    @Test
+    fun aate4541RawClosedTradeSnapshotNeverLocksMainThread() {
+        val store = java.io.File("src/main/kotlin/com/lifecyclebot/engine/TradeHistoryStore.kt").readText()
+        assertTrue("V5.0.4541: raw closed trade snapshots must detect main thread and return cached data", store.contains("RAW_CLOSED_CACHE_MS") && store.contains("Looper.myLooper() == Looper.getMainLooper()") && store.contains("RAW_CLOSED_TRADES_MAIN_CACHE_RETURN_4541"))
+        assertTrue("V5.0.4541: raw closed trade refresh must run on TradeHistoryIO/background, not under main-thread journal lock", store.contains("scheduleRawClosedTradesRefresh") && store.contains("computeRecentValidClosedTradesRaw") && store.contains("ioHandler?.post(r) ?: Thread(r, " + "\"TradeRawClosedRefresh\"" + ").start()"))
+        assertTrue("V5.0.4541: the journal lock must only be taken in the compute helper after ensureInitialized", store.contains("private fun computeRecentValidClosedTradesRaw") && store.contains("ensureInitialized()") && store.contains("synchronized(lock)"))
+    }
+
 }
