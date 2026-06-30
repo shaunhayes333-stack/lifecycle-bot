@@ -218,6 +218,68 @@ object HostWalletTokenTracker {
     private const val CAP_FRESH_BUY_LIABILITY_MS = 3 * 60_000L
     private const val CAP_SELL_IN_FLIGHT_MS = 90_000L
 
+    /**
+     * V5.0.4551 — STALE_RECOVERY_UNPROVEN REVIVE.
+     *
+     * Operator audit (V5.0.4545 dump): `staleUnproven=15` while
+     * `Per-lane open positions: 0/0/0`. The bot owned 15+ tokens
+     * but had stopped managing them. Once a position flipped to
+     * STALE_RECOVERY_UNPROVEN, `hasBotBoughtPositiveLiability()`
+     * returned false (the gate requires status IN OPEN_STATUSES,
+     * which STALE_RECOVERY_UNPROVEN is not). Result:
+     * `isCapCountable()` = false → no SL/TP → token bleeds to ~zero
+     * → bot later "rediscovers" it at -96% and journals a
+     * catastrophic loss.
+     *
+     * This method scans all tracked rows. For each row in
+     * STALE_RECOVERY_UNPROVEN with provable bot-buy lineage
+     * (source=BOT_BUY, buySignature present, last positive raw > dust)
+     * AND not confirmed sold by 2 providers, force-promote to
+     * OPEN_BALANCE_PROOF_PENDING. This restores active sell-management
+     * via the existing OPEN_BALANCE_PROOF_PENDING code path.
+     *
+     * Safe / idempotent: rows missing buy lineage stay stale.
+     * Called from init() (boot scrub) and periodically via the
+     * existing reconciler tick.
+     */
+    fun reviveStaleUnprovenBotBuys(): Int {
+        val now = System.currentTimeMillis()
+        var revived = 0
+        val snapshot = positions.values.toList()
+        for (p in snapshot) {
+            if (p.status != PositionStatus.STALE_RECOVERY_UNPROVEN) continue
+            if (p.zeroBalanceConfirmedByTwoProviders) continue
+            val sigOk = !p.buySignature.isNullOrBlank()
+            val botSource = p.source == PositionSource.BOT_BUY || p.source == PositionSource.TX_PARSE
+            if (!sigOk && !botSource) continue
+            if (!hasLastPositiveRaw(p)) continue
+            // Sanity: don't revive ancient rows past the bot-bought 45-min
+            // liability window — those are genuinely lost.
+            val anchor = maxOf(p.balanceAuthorityObservedAtMs, p.buyTimeMs ?: 0L, p.firstSeenWalletMs, p.lastSeenWalletMs)
+            if (anchor > 0L && (now - anchor) > 45 * 60_000L) continue
+            p.status = PositionStatus.OPEN_BALANCE_PROOF_PENDING
+            p.notes.add("STALE_REVIVED_TO_OPEN reason=bot_buy_lineage_proven")
+            try {
+                ForensicLogger.lifecycle(
+                    "STALE_UNPROVEN_REVIVED_TO_OPEN",
+                    "mint=${p.mint.take(10)} symbol=${p.symbol ?: "?"} buySig=${p.buySignature?.take(10) ?: "?"} entrySol=${p.entrySol ?: 0.0} reason=bot_buy_lineage_proven — re-enrolling in sell-management",
+                )
+                PipelineHealthCollector.labelInc("STALE_UNPROVEN_REVIVED_TO_OPEN")
+            } catch (_: Throwable) {}
+            revived++
+        }
+        if (revived > 0) {
+            try {
+                ErrorLogger.warn(
+                    "HostWalletTokenTracker",
+                    "🔄 V5.0.4551 STALE_REVIVE: promoted $revived stale-unproven positions back to OPEN_BALANCE_PROOF_PENDING for active sell-management",
+                )
+                save()
+            } catch (_: Throwable) {}
+        }
+        return revived
+    }
+
     // V5.0.3788 — operator: orphan recovery is disabled. Wallet tokens the bot
     // never bought (no buy signature, no tracked row) must NOT be adopted into the
     // position book. Adopting them caused ledger drift, phantom open slots, and
@@ -312,6 +374,14 @@ object HostWalletTokenTracker {
 
     fun init(context: android.content.Context) {
         ctx = context.applicationContext
+        // V5.0.4551 — STALE_RECOVERY_UNPROVEN REVIVE on init. Operator audit:
+        // bot was losing track of its own open positions. Once a position
+        // flipped to STALE_RECOVERY_UNPROVEN (one failed wallet RPC read),
+        // SL/TP/sell-management was disabled and the token would silently
+        // bleed to ~zero. Periodic + boot-time scan promotes any bot-bought
+        // stale position back into OPEN_BALANCE_PROOF_PENDING so active
+        // sell-management resumes.
+        try { reviveStaleUnprovenBotBuys() } catch (_: Throwable) {}
         load()
         purgeOrphanRecoveredRows("INIT")
         ErrorLogger.info(TAG, "✅ HostWalletTokenTracker loaded | ${positions.size} mints | open=${getOpenCount()}")

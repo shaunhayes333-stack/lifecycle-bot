@@ -116,13 +116,38 @@ object LiveProbabilityEngine {
             val rawMult = (1.0 + probabilityEdge + pnlEdge + solEdge - rugPenalty - uncertaintyPenalty)
                 .coerceIn(0.40, 1.60)
             val mult = minOf(rawMult, lowHitRateCap).coerceIn(0.40, 1.60)
+            // V5.0.4551 — CATASTROPHIC LANE BLEED-CAP (operator audit P0).
+            // Operator V5.0.4545 dump: EXPRESS n=6 EV=-93%, MANIPULATED n=8 EV=-72%,
+            // SHITCOIN n=16 EV=-43%, BLUECHIP n=9 WR=0%. The 0.40 size floor
+            // means even catastrophic lanes keep firing at 40% size. With
+            // sufficient samples to be statistically clear they're toxic,
+            // we drive size to 0.0 (= effective hard-stop for that lane×score
+            // bucket) so the bot stops pouring SOL into proven bleeders.
+            // n>=4 with EV<-40% OR WR=0%/n>=6 OR EV<-60% → size = 0.0
+            val finalMult = run {
+                val laneN = laneSamples
+                val sampleClear = laneN >= 4
+                val catastrophicEV = eBase <= -40.0
+                val zeroWrEnough = lanePWin <= 0.001 && laneN >= 6
+                val doomEV = eBase <= -60.0
+                if (sampleClear && (catastrophicEV || zeroWrEnough || doomEV)) {
+                    try {
+                        ForensicLogger.lifecycle(
+                            "LIVE_PROBABILITY_LANE_HARD_STOPPED",
+                            "lane=$lane n=$laneN pWin=${"%.0f".format(lanePWin*100)}% E=${"%+.1f".format(eBase)}% — size→0.0 (catastrophic bleeder, no new exposure)",
+                        )
+                        PipelineHealthCollector.labelInc("LIVE_PROBABILITY_LANE_HARD_STOPPED_${lane.uppercase()}")
+                    } catch (_: Throwable) {}
+                    0.0
+                } else mult
+            }
 
             val src = listOfNotNull(
                 if (fwdWeight > 0.0) "fwd:${fwd.source}" else null,
                 if (laneWeight > 0.0) "lane" else null,
                 if (policyW > 0.0) "policy" else null,
             ).joinToString("+").ifBlank { "bootstrap" }
-            Edge(lane, pWin, fwd.pRug, eBase, fwd.dispersion, maxOf(fwd.samples, laneSamples), src, mult, (if (laneSol > 0.0) "netSOL=${"%+.3f".format(laneSol)} " else "") + "hitCap=${"%.2f".format(lowHitRateCap)}")
+            Edge(lane, pWin, fwd.pRug, eBase, fwd.dispersion, maxOf(fwd.samples, laneSamples), src, finalMult, (if (laneSol > 0.0) "netSOL=${"%+.3f".format(laneSol)} " else "") + "hitCap=${"%.2f".format(lowHitRateCap)}")
         } catch (_: Throwable) {
             Edge(lane, 0.5, 0.0, 0.0, 0.0, 0L, "failopen", 1.0, "")
         }

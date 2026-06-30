@@ -5537,22 +5537,38 @@ class Executor(
             // saves 2-3x on each rug while having near-zero false-positive
             // cost on legit runners (a legit runner that dips 10% in the
             // first minute on $5K liq isn't a high-conviction trade anyway).
+            //
+            // V5.0.4551 — UNIVERSAL RUG BACKSTOP. Operator V5.0.4545 audit:
+            // closes show MANIPULATED/EXPRESS hitting -96%. Extended window
+            // 60s → 10 min (most rugs occur in first 10 min of life on the
+            // book; the 60s window only caught the fastest rugs).
+            // Threshold ALSO triggers if liq has DROPPED >50% from last
+            // recorded value (= liquidity-drain rug in progress regardless
+            // of token age). Universal across all lanes.
             run earlyRug@{
                 val liqUsd = try { ts.lastLiquidityUsd } catch (_: Throwable) { 0.0 }
                 val ageMs = try { System.currentTimeMillis() - pos.entryTime } catch (_: Throwable) { Long.MAX_VALUE }
-                if (liqUsd > 0.0 && liqUsd < 5_000.0 && ageMs in 0..60_000L && worstPnl <= -10.0) {
+                val freshThinLiq = liqUsd > 0.0 && liqUsd < 5_000.0 && ageMs in 0..600_000L && worstPnl <= -10.0
+                // Liquidity-drain check: pos may persist a snapshot of entry-time liq via
+                // peakLiqUsd / entryLiquidityUsd. Conservative path: trigger on -15% PnL
+                // when current liq is < 50% of $5K threshold (i.e., < $2.5K) regardless
+                // of age — this captures lanes (MANIPULATED, EXPRESS) where rug occurs
+                // past the 60s but pool drain is the smoking gun.
+                val liqDrainRug = liqUsd > 0.0 && liqUsd < 2_500.0 && worstPnl <= -15.0
+                if (freshThinLiq || liqDrainRug) {
+                    val reason = if (freshThinLiq) "THIN_LIQ_FRESH_TOKEN" else "LIQ_DRAIN_IN_PROGRESS"
                     try {
                         ForensicLogger.lifecycle(
                             "THIN_LIQ_EARLY_RUG_BACKSTOP_10",
-                            "mint=${ts.mint.take(10)} sym=${ts.symbol} worstPnl=${worstPnl.fmt(2)} liqUsd=${liqUsd.toInt()} ageMs=$ageMs reason=thin_liq_fresh_token — cut losses early before realised slippage compounds",
+                            "mint=${ts.mint.take(10)} sym=${ts.symbol} worstPnl=${worstPnl.fmt(2)} liqUsd=${liqUsd.toInt()} ageMs=$ageMs reason=$reason — cut losses early before realised slippage compounds",
                         )
                         PipelineHealthCollector.labelInc("THIN_LIQ_EARLY_RUG_BACKSTOP_10")
                     } catch (_: Throwable) {}
                     onLog(
-                        "☠ EARLY-RUG -10% BACKSTOP: ${ts.symbol} worstPnl=${worstPnl.toInt()}% liq=\$${liqUsd.toInt()} — thin-liq fresh token, cutting NOW",
+                        "☠ EARLY-RUG BACKSTOP: ${ts.symbol} worstPnl=${worstPnl.toInt()}% liq=\$${liqUsd.toInt()} reason=$reason — cutting NOW",
                         ts.mint
                     )
-                    doSell(ts, "THIN_LIQ_EARLY_RUG_BACKSTOP_-10", wallet, walletSol)
+                    doSell(ts, "THIN_LIQ_EARLY_RUG_BACKSTOP_-${if (freshThinLiq) "10" else "15"}", wallet, walletSol)
                     return
                 }
             }

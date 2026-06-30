@@ -206,6 +206,22 @@ object LiveWalletReconciler {
         }
         // Non-empty read → wallet RPC is healthy again; reset the empty streak.
         consecutiveEmptyMaps.set(0)
+        // V5.0.4551 — STALE_RECOVERY_UNPROVEN REVIVE before reconcile.
+        // On a healthy non-empty wallet read, any stale-unproven bot-buy
+        // position is a candidate for revival. The wallet snapshot below
+        // will either confirm presence (→ OPEN_TRACKING) or absence (→
+        // CLOSED via the dust-zombie reap). Either way, having them in
+        // OPEN_BALANCE_PROOF_PENDING during this snapshot ensures they
+        // get reconciled instead of sitting silently stale.
+        try {
+            val revived = com.lifecyclebot.engine.HostWalletTokenTracker.reviveStaleUnprovenBotBuys()
+            if (revived > 0) {
+                try { com.lifecyclebot.engine.ForensicLogger.lifecycle(
+                    "RECONCILER_STALE_REVIVE",
+                    "revived=$revived reason=$reason — re-enrolling pre-reconcile",
+                ) } catch (_: Throwable) {}
+            }
+        } catch (_: Throwable) {}
         val trackedOpenBeforeSnapshot = try { com.lifecyclebot.engine.HostWalletTokenTracker.getOpenCount() } catch (_: Throwable) { 0 }
         try { com.lifecyclebot.engine.HostWalletTokenTracker.applyWalletSnapshot(balances) } catch (_: Throwable) {}
         // V5.0.3758 — diagnostics/source fix: a healthy non-empty wallet snapshot
