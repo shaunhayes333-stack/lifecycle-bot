@@ -144,11 +144,13 @@ object DailyCompoundingTracker {
         } catch (_: Throwable) { 1.0 }
     }
 
-    fun statusLine(): String = try {
-        val s = stateRef.get() ?: return "$VERSION: no snapshot yet"
-        val mult = if (s.openWalletSol > 0.0) s.lastWalletSol / s.openWalletSol else 1.0
-        val peakMult = if (s.openWalletSol > 0.0) s.peakWalletSol / s.openWalletSol else 1.0
-        val progress = progressToTarget()
-        "$VERSION open=${"%.4f".format(s.openWalletSol)} SOL last=${"%.4f".format(s.lastWalletSol)} peak=${"%.4f".format(s.peakWalletSol)} mult=${"%.2f".format(mult)}x peakMult=${"%.2f".format(peakMult)}x progress2x=${"%.0f".format(progress * 100)}% pressure=${"%.2f".format(behindTargetPressure())}"
-    } catch (_: Throwable) { "$VERSION: unavailable" }
+    fun statusLine(): String {
+        return try {
+            val s = stateRef.get() ?: return "$VERSION: no snapshot yet"
+            val mult = if (s.openWalletSol > 0.0) s.lastWalletSol / s.openWalletSol else 1.0
+            val peakMult = if (s.openWalletSol > 0.0) s.peakWalletSol / s.openWalletSol else 1.0
+            val progress = progressToTarget()
+            "$VERSION open=${"%.4f".format(s.openWalletSol)} SOL last=${"%.4f".format(s.lastWalletSol)} peak=${"%.4f".format(s.peakWalletSol)} mult=${"%.2f".format(mult)}x peakMult=${"%.2f".format(peakMult)}x progress2x=${"%.0f".format(progress * 100)}% pressure=${"%.2f".format(behindTargetPressure())}"
+        } catch (_: Throwable) { "$VERSION: unavailable" }
+    }
 }

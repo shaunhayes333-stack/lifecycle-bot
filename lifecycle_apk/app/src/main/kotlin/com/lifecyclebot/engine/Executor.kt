@@ -5625,7 +5625,7 @@ class Executor(
             // more room to breathe.
             run laneHardCap@{
                 val laneName = try {
-                    ts.position.laneAtEntry?.uppercase() ?: ""
+                    ts.position.tradingMode.uppercase()
                 } catch (_: Throwable) { "" }
                 val isCatastrophicLane = laneName == "MANIPULATED" ||
                     laneName == "SHITCOIN" ||
