@@ -120,9 +120,11 @@ object LaneAutoPauseGuard {
     fun isPaused(lane: String?): Boolean = statusFor(lane) != null
 
     /**
-     * Snapshot all trainable lane telemetry from LiveProbabilityEngine
-     * (which is already the clean-truth source) and mark toxic lanes.
-     * Cheap; safe to call once per bot-loop cycle (rate-limited to 30s).
+     * Snapshot all trainable lane telemetry from the CLEAN-TRUTH TradeHistoryStore
+     * (V5.0.4592 — direct journal read; bypasses StrategyTelemetry cache which
+     * was lagging behind live-terminal closes and letting proven-toxic lanes
+     * add 4-6 more losers before the guard latched). Cheap; safe to call once
+     * per bot-loop cycle (rate-limited to 30s).
      */
     fun evaluateLive() {
         val now = System.currentTimeMillis()
@@ -131,33 +133,61 @@ object LaneAutoPauseGuard {
         if (!lastEvalMs.compareAndSet(last, now)) return
         ensureLoaded()
         try {
-            val snapshots = LiveProbabilityEngine.laneSnapshots()
+            // V5.0.4592 — DIRECT clean-truth journal read.
+            // Operator P0: LaneAutoPauseGuard was reading via
+            // LiveProbabilityEngine.laneSnapshots -> StrategyTelemetry which
+            // filters/dedupes and can lag. Read TradeHistoryStore's
+            // getRecentCleanStrategyTerminalTrades directly so wins=0 lanes
+            // are quarantined on the very next tick after crossing n>=15.
+            val clean = try {
+                TradeHistoryStore.getRecentCleanStrategyTerminalTrades(limit = 2000)
+            } catch (_: Throwable) { emptyList() }
+            if (clean.isEmpty()) return
+
+            // Aggregate by tradingMode (lane) using the same win threshold
+            // (V5.0.4102): pnlPct >= 5% counts as a win. Scratches (0<pnl<5%)
+            // are trainable trades but not wins — matches the raw journal
+            // "By lane/mode" report the operator reads.
+            data class Agg(var sample: Int = 0, var wins: Int = 0, var pnlSum: Double = 0.0)
+            val byLane = HashMap<String, Agg>()
+            for (t in clean) {
+                if (t.side != "SELL" && t.side != "PARTIAL_SELL") continue
+                val lane = t.tradingMode.trim().uppercase()
+                if (lane.isBlank()) continue
+                val agg = byLane.getOrPut(lane) { Agg() }
+                agg.sample += 1
+                if (t.pnlPct >= 5.0) agg.wins += 1
+                agg.pnlSum += t.pnlPct
+            }
+
             var mutated = false
-            for (snap in snapshots) {
-                val lane = snap.lane.uppercase()
+            for ((lane, agg) in byLane) {
                 if (paused.containsKey(lane)) continue
-                val zeroWin = snap.sample >= ZERO_WIN_MIN_SAMPLE && snap.wins == 0
-                val toxic = snap.sample >= TOXIC_MIN_SAMPLE &&
-                    snap.wrPct < TOXIC_WR_PCT &&
-                    snap.evPct <= TOXIC_EV_PCT
+                val wrPct = if (agg.sample > 0) agg.wins.toDouble() / agg.sample.toDouble() * 100.0 else 0.0
+                val evPct = if (agg.sample > 0) agg.pnlSum / agg.sample else 0.0
+                val zeroWin = agg.sample >= ZERO_WIN_MIN_SAMPLE && agg.wins == 0
+                val toxic = agg.sample >= TOXIC_MIN_SAMPLE &&
+                    wrPct < TOXIC_WR_PCT &&
+                    evPct <= TOXIC_EV_PCT
                 if (zeroWin || toxic) {
-                    val reason = if (zeroWin) "zero_win_n${snap.sample}" else "toxic_wr${"%.0f".format(snap.wrPct)}_ev${"%.0f".format(snap.evPct)}"
+                    val reason = if (zeroWin) "zero_win_n${agg.sample}_direct_journal" else "toxic_wr${"%.0f".format(wrPct)}_ev${"%.0f".format(evPct)}_direct_journal"
                     paused[lane] = PauseState(
                         lane = lane,
                         pausedAt = now,
                         reason = reason,
-                        sample = snap.sample,
-                        wins = snap.wins,
-                        wrPct = snap.wrPct,
-                        evPct = snap.evPct,
+                        sample = agg.sample,
+                        wins = agg.wins,
+                        wrPct = wrPct,
+                        evPct = evPct,
                     )
                     mutated = true
                     try {
                         ErrorLogger.warn(
                             "LaneAutoPauseGuard",
-                            "🛑 LANE_AUTO_PAUSED lane=$lane reason=$reason n=${snap.sample} wr=${"%.1f".format(snap.wrPct)}% ev=${"%.1f".format(snap.evPct)}% — awaiting LLM Lab shadow-proof to resume",
+                            "🛑 LANE_AUTO_PAUSED lane=$lane reason=$reason n=${agg.sample} wins=${agg.wins} wr=${"%.1f".format(wrPct)}% ev=${"%.1f".format(evPct)}% — awaiting LLM Lab shadow-proof to resume",
                         )
                         PipelineHealthCollector.labelInc("LANE_AUTO_PAUSED_$lane")
+                        PipelineHealthCollector.labelInc("LANE_AUTO_PAUSED_DIRECT_JOURNAL_4592")
                     } catch (_: Throwable) {}
                 }
             }

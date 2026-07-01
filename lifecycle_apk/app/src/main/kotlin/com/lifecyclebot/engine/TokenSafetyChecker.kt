@@ -476,6 +476,24 @@ class TokenSafetyChecker(private val cfg: () -> BotConfig) {
                     penalty += 55
                     ErrorLogger.error(TAG, "🚫 MANIPULATED_ONLY_OVERLAY_4553: $symbol singleHolder=$singleHolderOwnershipRisk unverified=$unverifiedTokenRisk holderConcentration=$highHolderConcentrationRisk redFlags=$redFlagCount — non-MANIPULATED lanes forbidden")
                     try { ForensicLogger.lifecycle("MANIPULATED_ONLY_OVERLAY_4553", "mint=${mint.take(10)} symbol=$symbol singleHolder=$singleHolderOwnershipRisk unverified=$unverifiedTokenRisk holderConcentration=$highHolderConcentrationRisk redFlags=$redFlagCount action=manipulated_lane_only") } catch (_: Throwable) {}
+                    // V5.0.4592 — EARLY STAMP when MANIPULATED lane is auto-paused.
+                    // Operator P1: FDG-stage stamp in V4591 only caught 2nd hit.
+                    // Stamp ScannerHardRejectStore immediately on the first
+                    // manipulated_only detection so scanner cycles short-circuit
+                    // this mint at intake instead of running the safety +
+                    // lane fanout for every re-scan. Stamps auto-expire via
+                    // ScannerHardRejectStore TTL when MANIPULATED lane resumes.
+                    try {
+                        if (LaneAutoPauseGuard.isPaused("MANIPULATED")) {
+                            ScannerHardRejectStore.mark(
+                                mint,
+                                symbol,
+                                "MANIPULATED_ONLY_LANE_QUARANTINED_4592",
+                                "SAFETY_CHECKER_EARLY_STAMP",
+                            )
+                            PipelineHealthCollector.labelInc("MANIPULATED_ONLY_LANE_QUARANTINED_4592_EARLY_STAMP")
+                        }
+                    } catch (_: Throwable) {}
                 }
                 if (redFlagCount >= 5) {
                     // V5.9.648 — operator override: in PAPER mode, never hard-block on
