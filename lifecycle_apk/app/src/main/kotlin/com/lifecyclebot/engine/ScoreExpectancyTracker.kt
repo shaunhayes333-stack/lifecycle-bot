@@ -152,11 +152,22 @@ object ScoreExpectancyTracker {
         val samples = bucketSamples(layer, score)
         val mean = bucketMean(layer, score) ?: return LiveSizeShape(1.0, samples, 0.0, "bootstrap")
         if (samples < MIN_SAMPLES_FOR_REJECT) return LiveSizeShape(1.0, samples, mean, "under_sampled")
+        // V5.0.4599 — EV AS EDGE, not obstruction (operator directive: "realign
+        // the logic so its an edge not an obstruction"). Prior shape was
+        // asymmetric — it shrunk toxic buckets but only pressed +EV with a
+        // timid 1.10x. Now both sides are learning multipliers, so backward
+        // expectancy actually PAYS OFF when a bucket is proving out.
+        // Toxic buckets shrink harder (0.25→0.10, 0.35→0.25, 0.55→0.55).
+        // Proven +EV buckets get pressed harder (1.10→1.35, +NEW 1.60x tier).
+        // This is the fluid-gates doctrine applied to expectancy: no rigid
+        // reject, no rigid press — dampen the losers, embolden the winners.
         return when {
-            mean <= -60.0 -> LiveSizeShape(0.25, samples, mean, "catastrophic_score_band_probe")
-            mean <= -35.0 -> LiveSizeShape(0.35, samples, mean, "toxic_score_band_probe")
+            mean <= -60.0 -> LiveSizeShape(0.10, samples, mean, "catastrophic_score_band_probe_v2_4599")
+            mean <= -35.0 -> LiveSizeShape(0.25, samples, mean, "toxic_score_band_probe_v2_4599")
             mean <= REJECT_MEAN_PNL_PCT -> LiveSizeShape(0.55, samples, mean, "negative_score_band_probe")
-            mean >= 35.0 && samples >= MIN_SAMPLES_FOR_REJECT -> LiveSizeShape(1.10, samples, mean, "positive_score_band_press")
+            mean >= 50.0 && samples >= MIN_SAMPLES_FOR_REJECT -> LiveSizeShape(1.60, samples, mean, "premium_score_band_press_4599")
+            mean >= 25.0 && samples >= MIN_SAMPLES_FOR_REJECT -> LiveSizeShape(1.35, samples, mean, "positive_score_band_press_4599")
+            mean >= 10.0 && samples >= MIN_SAMPLES_FOR_REJECT -> LiveSizeShape(1.15, samples, mean, "mild_positive_score_band_press")
             else -> LiveSizeShape(1.0, samples, mean, "neutral")
         }
     }

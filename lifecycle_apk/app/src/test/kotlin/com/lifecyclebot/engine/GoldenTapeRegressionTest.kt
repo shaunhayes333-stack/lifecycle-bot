@@ -415,7 +415,7 @@ class GoldenTapeRegressionTest {
     fun memetrader_lanes_rotate_full_surface_without_all_lane_fanout() {
         val bot = java.io.File("src/main/kotlin/com/lifecyclebot/engine/BotService.kt").readText()
         assertTrue("MEME-only should rotate ownership across the full MemeTrader surface", bot.contains("MEMETRADER_CONTRIBUTION_ROTATION") && bot.contains("fullMemeTraderRing") && bot.contains("MEMETRADER_OWNER_LANE"))
-        assertTrue("Rotation must include internal lanes that were previously idle", listOf("SHITCOIN", "MOONSHOT", "EXPRESS", "PROJECT_SNIPER", "MANIPULATED", "QUALITY", "DIP_HUNTER", "TREASURY", "CASHGEN", "BLUECHIP").all { bot.contains(it) })
+        assertTrue("Rotation must include internal lanes that were previously idle (V5.0.4599: specialists no longer in ring)", listOf("MOONSHOT", "MANIPULATED", "QUALITY", "DIP_HUNTER", "TREASURY", "CASHGEN", "BLUECHIP").all { bot.contains(it) })
         assertTrue("V5.0.4478: live contribution considers all internal lanes but bounds FDG/executor to owner/rescue", bot.contains("LIVE_ALL_LANE_CONTRIBUTION_4469") && bot.contains("action=considered_bounded_owner_rotation") && bot.contains("val allowed = (l == ownerLane || profitableRescue) && !laneIsPaused4598") && bot.contains("return allowed"))
         assertFalse("3914 live full-ring fanout regression must stay dead", bot.contains("LIVE_FULL_RING_LANE_OBSERVE"))
     }
@@ -801,7 +801,7 @@ class GoldenTapeRegressionTest {
         assertTrue(bot.contains("PAPER_WR_DILUTION_FIX"))
         assertTrue(bot.contains("MEMETRADER_CONTRIBUTION_ROTATION"))
         assertTrue(bot.contains("val fullMemeTraderRing = listOf"))
-        assertTrue("Full MemeTrader ring must include previously idle internal lanes", listOf("SHITCOIN", "MOONSHOT", "EXPRESS", "PROJECT_SNIPER", "MANIPULATED", "QUALITY", "DIP_HUNTER", "TREASURY", "CASHGEN", "BLUECHIP").all { bot.contains(it) })
+        assertTrue("Full MemeTrader ring must include previously idle internal lanes (V5.0.4599: specialists TRADERS not lanes)", listOf("MOONSHOT", "MANIPULATED", "QUALITY", "DIP_HUNTER", "TREASURY", "CASHGEN", "BLUECHIP").all { bot.contains(it) })
         assertTrue("Owner rotation must be affinity-first and toxicity-treated without lane amputation", bot.contains("affinityRanked") && bot.contains("rawOwnerPool") && bot.contains("LaneToxicityGuard.filterNonToxic(rawOwnerPool"))
         assertTrue("EXPRESS must use the same bounded lane gate and emit LANE_EVAL", bot.contains("expressLaneAllowedThisCycle") && bot.contains("lane=EXPRESS paper="))
         assertTrue(bot.contains("MEMETRADER_OWNER_LANE") && bot.contains("profitableRescue") && bot.contains("LANE_SUPPRESSED_BY_OWNER_ROTATION"))
@@ -6181,7 +6181,7 @@ class GoldenTapeRegressionTest {
         val src = java.io.File("src/main/kotlin/com/lifecyclebot/engine/BotService.kt").readText()
         assertTrue("V5.0.4478: live MEME-only lane classifier must consider every internal trader but only owner/rescue reaches FDG", src.contains("LIVE_ALL_LANE_CONTRIBUTION_4469") && src.contains("action=considered_bounded_owner_rotation") && src.contains("return allowed"))
         assertTrue("V5.0.4478: owner rotation remains the bounded live FDG/executor contract while all lanes are considered", src.contains("ownerSelected=") && src.contains("owner=") && src.contains("ownerLane") && src.contains("LIVE_ALL_LANE_CONTRIBUTION_SUPPRESSED_4478") && src.contains("LANE_SUPPRESSED_BY_OWNER_ROTATION"))
-        assertTrue("V5.0.4469: full internal ring includes every meme trader contributor for live learning", listOf("SHITCOIN", "MOONSHOT", "EXPRESS", "PROJECT_SNIPER", "MANIPULATED", "QUALITY", "DIP_HUNTER", "TREASURY", "CASHGEN", "BLUECHIP").all { src.contains(it) })
+        assertTrue("V5.0.4469: full internal ring includes every meme trader contributor for live learning (V5.0.4599: specialists moved out of ring)", listOf("MOONSHOT", "MANIPULATED", "QUALITY", "DIP_HUNTER", "TREASURY", "CASHGEN", "BLUECHIP").all { src.contains(it) })
     }
 
 

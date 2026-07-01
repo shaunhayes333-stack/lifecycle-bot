@@ -9592,8 +9592,18 @@ class BotService : Service() {
             // lane per token/cycle (plus STANDARD/CORE/V3 trunk above), with affinity
             // lanes first and toxicity treatment, not lane amputation. This raises contribution without
             // returning to every-token/every-lane FDG storms.
+            // V5.0.4599 — SPECIALIST TRADER RESET (operator directive:
+            // "project Sniper is meant to be a specialist trader not a lane
+            // or layer. it needs to be reset to one. same as shitcoin
+            // express"). Removed PROJECT_SNIPER, SHITCOIN, EXPRESS from the
+            // owner-lane ring. They are specialist traders that own tokens
+            // from entry through mission-complete condition, THEN hand off
+            // via LaneTransitionManager (V5.0.4599). No longer eligible for
+            // owner-lane election competition. They still evaluate entries
+            // via their dedicated AI classes but their positions are owned
+            // by them, not passed to the memetrader ring.
             val fullMemeTraderRing = listOf(
-                "SHITCOIN", "MOONSHOT", "EXPRESS", "PROJECT_SNIPER",
+                "MOONSHOT",
                 "MANIPULATED", "QUALITY", "DIP_HUNTER", "TREASURY", "CASHGEN", "BLUECHIP"
             )
             val qualityEligible = qualityLaneProofOk()
