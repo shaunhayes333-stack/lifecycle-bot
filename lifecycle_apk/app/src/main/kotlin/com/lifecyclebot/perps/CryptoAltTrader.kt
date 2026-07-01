@@ -1858,7 +1858,60 @@ object CryptoAltTrader {
         // the old flat 3% for every trade. Range: 0.4x..2.0x base size.
         // High-conviction (score≥85, conf≥80) rides 2x; low-conviction <55/40 rides 0.4x.
         val sizeMult = fluidSizeMultiplier(signal.score, signal.confidence)
-        val sizeSol  = balance * (DEFAULT_SIZE_PCT / 100) * sizeMult * trustMult  // V5.9.198: trust-weighted sizing
+        var sizeSol  = balance * (DEFAULT_SIZE_PCT / 100) * sizeMult * trustMult  // V5.9.198: trust-weighted sizing
+
+        // V5.0.4586c — CRYPTO PARITY (operator P0): apply the same growth
+        // envelope + WR-tuned lane multiplier + Bayesian probability edge +
+        // daily-compound behind-target pressure that the meme lanes already
+        // consume. Crypto is isolated from meme learning (V5.0.4151
+        // "no meme contamination") by using distinct lane tags
+        // CRYPTO_SPOT / CRYPTO_LEV — LiveStrategyTuner / LiveProbabilityEngine
+        // / LosingPatternMemory all scope their state by lane string, so
+        // these calls only read/write crypto-lane closes.
+        run cryptoParitySizing@{
+            try {
+                val cryptoLane = if (isSpot) "CRYPTO_SPOT" else "CRYPTO_LEV"
+                val cryptoTuneMult = try {
+                    com.lifecyclebot.engine.LiveStrategyTuner.sizeMultiplier(cryptoLane)
+                } catch (_: Throwable) { 1.0 }
+                val cryptoEdge = try {
+                    com.lifecyclebot.engine.LiveProbabilityEngine.forecast(
+                        cryptoLane, signal.score.toInt(), "U", "NORMAL",
+                    ).sizeMult
+                } catch (_: Throwable) { 1.0 }
+                val cryptoBehind = try {
+                    com.lifecyclebot.engine.DailyCompoundingTracker.behindTargetPressure()
+                } catch (_: Throwable) { 1.0 }
+                val cryptoBlend = (cryptoTuneMult * cryptoEdge * cryptoBehind).coerceIn(0.0, 2.5)
+                sizeSol *= cryptoBlend
+                if (cryptoBlend <= 0.001) {
+                    ErrorLogger.warn(TAG,
+                        "🚫 CRYPTO_PARITY_ZERO_SIZE ${mktSym} lane=$cryptoLane tune=${"%.2f".format(cryptoTuneMult)} edge=${"%.2f".format(cryptoEdge)} behind=${"%.2f".format(cryptoBehind)} — LiveProbabilityEngine catastrophic bleed-cap fired, skipping")
+                    return
+                }
+                ErrorLogger.debug(TAG,
+                    "🧠 CRYPTO_PARITY_SIZING ${mktSym} lane=$cryptoLane baseMult=${"%.2f".format(sizeMult)} tune=${"%.2f".format(cryptoTuneMult)} edge=${"%.2f".format(cryptoEdge)} behind=${"%.2f".format(cryptoBehind)} blend=${"%.2f".format(cryptoBlend)}")
+            } catch (_: Throwable) {}
+        }
+
+        // V5.0.4586c — CRYPTO PARITY toxic-pattern hard block (meme's Rule 5
+        // ported to crypto). LosingPatternMemory is bucket-keyed by
+        // (tradingMode|scoreBand); the crypto lane tag is distinct from meme
+        // lane tags so this only ever hard-blocks crypto lanes that have
+        // proven-toxic buckets (sample≥30, lossRate≥90%, meanPnl≤-8%).
+        run cryptoParityToxicGate@{
+            try {
+                val cryptoLane = if (isSpot) "CRYPTO_SPOT" else "CRYPTO_LEV"
+                val toxic = com.lifecyclebot.engine.LosingPatternMemory.stats(cryptoLane, signal.score.toInt())
+                if (toxic.sample >= 30 && toxic.lossRatePct >= 90.0 && toxic.meanPnl <= -8.0) {
+                    val bucketId = try { com.lifecyclebot.engine.LosingPatternMemory.bucketKey(cryptoLane, signal.score.toInt()) } catch (_: Throwable) { "$cryptoLane|?" }
+                    ErrorLogger.warn(TAG,
+                        "🚫 CRYPTO_TOXIC_PATTERN_HARD_BLOCK ${mktSym} bucket=$bucketId n=${toxic.sample} lossRate=${"%.1f".format(toxic.lossRatePct)}% mean=${"%.1f".format(toxic.meanPnl)}% — proven-toxic, hard-blocked")
+                    try { com.lifecyclebot.engine.PipelineHealthCollector.labelInc("CRYPTO_TOXIC_PATTERN_HARD_BLOCK") } catch (_: Throwable) {}
+                    return
+                }
+            } catch (_: Throwable) {}
+        }
 
         if (sizeSol < 0.01) {
             ErrorLogger.warn(TAG, "Insufficient balance for ${mktSym} (${sizeSol} SOL)")
@@ -2678,10 +2731,25 @@ object CryptoAltTrader {
             isWinByPct -> {
                 winningTrades.incrementAndGet()
                 try { if (isPaperMode.get()) FluidLearningAI.recordAltsPaperTrade(true, pnlPctForWin) else FluidLearningAI.recordAltsLiveTrade(true) } catch (_: Exception) {}
+                // V5.0.4586c — CRYPTO PARITY: feed the shared AutoCompoundEngine
+                // so crypto wins actually reinvest into the compound pool
+                // (previously only meme wins fed it). Pool size lifts
+                // future position size ceilings across all traders.
+                try {
+                    val profitSol = pos.getPnlSol()
+                    if (profitSol > 0.0 && !isPaperMode.get()) {
+                        com.lifecyclebot.engine.AutoCompoundEngine.processWin(profitSol)
+                    }
+                } catch (_: Throwable) {}
             }
             isLossByPct -> {
                 losingTrades.incrementAndGet()
                 try { if (isPaperMode.get()) FluidLearningAI.recordAltsPaperTrade(false, pnlPctForWin) else FluidLearningAI.recordAltsLiveTrade(false) } catch (_: Exception) {}
+                // V5.0.4586c — CRYPTO PARITY: feed loss into compound engine
+                // so streak/drawdown state tracks live capital reality.
+                try {
+                    if (!isPaperMode.get()) com.lifecyclebot.engine.AutoCompoundEngine.processLoss()
+                } catch (_: Throwable) {}
             }
             else -> {
                 // Scratch: |pnlPct| < 1%. Bump local scratch counter only.
