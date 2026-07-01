@@ -6987,8 +6987,31 @@ class GoldenTapeRegressionTest {
         assertTrue("V5.0.4580: profitable runner lanes must be boosted instead of silently continuing at 1.0", damper.contains("isRunnerLane(m.strategy)") && damper.contains("out[m.strategy.trim().uppercase()] = maxOf") && !damper.contains("if (isRunnerLane(m.strategy) && (m.totalSolPnl > 0.0 || m.winRatePct >= 35.0)) continue") && damper.contains("isRunnerLane(m.strategy) && m.totalSolPnl > 0.0"))
 
         assertTrue("V5.0.4580: WR-based runner exemption must require non-negative net SOL", damper.contains("m.winRatePct >= WR_RUNNER_MIN_PCT && m.totalSolPnl >= 0.0"))
-        val fallback = doctrine.substringAfter("dispatchableContributionLanes").substringBefore("fun growthLaneFallback")
-        assertTrue("V5.0.4580: contribution fallback must prioritize BLUECHIP/MOONSHOT/QUALITY before EXPRESS/MANIPULATED/SHITCOIN", fallback.indexOf("BLUECHIP") < fallback.indexOf("EXPRESS") && fallback.indexOf("MOONSHOT") < fallback.indexOf("MANIPULATED") && fallback.indexOf("QUALITY") < fallback.indexOf("SHITCOIN"))
+        val fallback = doctrine.substringAfter("dispatchableContributionLanes").substringAfter("listOf(").substringBefore("fun growthLaneFallback")
+        val blue = fallback.indexOf("\"BLUECHIP\"")
+        val moon = fallback.indexOf("\"MOONSHOT\"")
+        val quality = fallback.indexOf("\"QUALITY\"")
+        val express = fallback.indexOf("\"EXPRESS\"")
+        val manip = fallback.indexOf("\"MANIPULATED\"")
+        val shit = fallback.indexOf("\"SHITCOIN\"")
+        assertTrue("V5.0.4580: contribution fallback must prioritize BLUECHIP/MOONSHOT/QUALITY before EXPRESS/MANIPULATED/SHITCOIN", listOf(blue, moon, quality, express, manip, shit).all { it >= 0 } && blue < express && moon < manip && quality < shit)
+    }
+
+
+
+    @Test
+    fun aate4581CryptoUniverseCanonicalLearningIsPostCommitAndIsolated() {
+        val trader = java.io.File("src/main/kotlin/com/lifecyclebot/perps/CryptoAltTrader.kt").readText()
+        val brain = java.io.File("src/main/kotlin/com/lifecyclebot/perps/crypto/brain/CryptoBrain.kt").readText()
+        val postCommit = trader.substringAfter("positions[position.id]").substringBefore("// V5.9.320")
+        val dynScan = trader.substringAfter("Dynamic token scan").substringBefore("private suspend fun runScanCycle")
+        val closeBlock = trader.substringAfter("// V5.0.4581 — CRYPTO ISOLATION WALL").substringBefore("// ── PerpsLearningBridge")
+        assertTrue("V5.0.4581: CryptoBrain.onTradeStart must fire only after a paper/live open is committed", postCommit.contains("CryptoBrain.onTradeStart()") && postCommit.contains("WalletPositionLock.recordOpen") && postCommit.contains("CryptoAlt") && postCommit.contains("finalSize"))
+        assertFalse("V5.0.4581: dynamic crypto signal generation must not fake canonical opens", dynScan.contains("CryptoBrain.onTradeStart()"))
+        assertTrue("V5.0.4581: CryptoBrain close reconciliation must never decrement canonical/open below zero", brain.contains("openTrades.get() > 0L") && brain.contains("canonicalTotal.get() > 0L") && brain.contains("recoveredTrades.incrementAndGet()"))
+        assertTrue("V5.0.4581: CryptoAlt closes must stay isolated from meme/global learners", closeBlock.contains("meme/global learners skipped") && !closeBlock.contains("MetaCognitionAI.recordTradeOutcome") && !closeBlock.contains("ShadowLearningEngine.onLiveTradeExit"))
+        val entryIso = trader.substringAfter("post-commit isolation/safety").substringBefore("// ── NarrativeFlowAI")
+        assertTrue("V5.0.4581: CryptoAlt entries must stay isolated from meme/global entry learners", entryIso.contains("meme/global entry learners skipped") && !entryIso.contains("MetaCognitionAI.recordEntryPredictions") && !entryIso.contains("ShadowLearningEngine.onTradeOpportunity"))
     }
 
 }

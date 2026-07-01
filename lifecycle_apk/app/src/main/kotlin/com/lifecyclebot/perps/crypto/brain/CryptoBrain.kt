@@ -134,9 +134,18 @@ object CryptoBrain {
         CryptoLaneExitTuner.recordClose(tier, pnlPct, pnlSol)
 
         // 6. Canonical reconciliation: the position was OPEN; un-bump and
-        //    re-bucket into its final state.
-        CryptoCanonicalLearning.openTrades.decrementAndGet()
-        CryptoCanonicalLearning.canonicalTotal.decrementAndGet()
+        //    re-bucket into its final state. V5.0.4581 hardens old restored /
+        //    pre-hook positions: never decrement below zero. CryptoAltTrader now
+        //    calls onTradeStart() only after an actual paper/live open commits,
+        //    so new positions reconcile perfectly; legacy positions settle safely.
+        if (CryptoCanonicalLearning.openTrades.get() > 0L) {
+            CryptoCanonicalLearning.openTrades.decrementAndGet()
+            if (CryptoCanonicalLearning.canonicalTotal.get() > 0L) {
+                CryptoCanonicalLearning.canonicalTotal.decrementAndGet()
+            }
+        } else {
+            CryptoCanonicalLearning.recoveredTrades.incrementAndGet()
+        }
         CryptoCanonicalLearning.recordSettled(win, trainable)
 
         CryptoBrainState.save()

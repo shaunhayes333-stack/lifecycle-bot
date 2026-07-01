@@ -751,7 +751,7 @@ object CryptoAltTrader {
                             if (sig.shouldEnter) {
                                 signals++
                                 ErrorLogger.info(TAG, "🪙💩 DynSig ShitCoin: ${tok.symbol} conf=${sig.confidence}")
-                                try { com.lifecyclebot.perps.crypto.brain.CryptoBrain.onTradeStart() } catch (_: Exception) {}
+                                // V5.0.4581: no canonical-open hook here — this is only signal generation.
                                 // V5.9.2: Convert to tradeable AltSignal
                                 // V5.9.1472 — DYNAMIC CRYPTO: open ANY non-Solana coin.
                                 // Prefer a hardcoded enum entry when one exists (keeps
@@ -802,7 +802,7 @@ object CryptoAltTrader {
                             if (sig.shouldEnter) {
                                 signals++
                                 ErrorLogger.info(TAG, "🪙🔵 DynSig BlueChip: ${tok.symbol} conf=${sig.confidence}")
-                                try { com.lifecyclebot.perps.crypto.brain.CryptoBrain.onTradeStart() } catch (_: Exception) {}
+                                // V5.0.4581: no canonical-open hook here — this is only signal generation.
                                 val enumMkt = PerpsMarket.values().find { it.symbol == tok.symbol }
                                 run {
                                     val bcDir = when {
@@ -846,7 +846,7 @@ object CryptoAltTrader {
                             if (sig.shouldRide) {
                                 signals++
                                 ErrorLogger.info(TAG, "🪙⚡ DynSig Express: ${tok.symbol}")
-                                try { com.lifecyclebot.perps.crypto.brain.CryptoBrain.onTradeStart() } catch (_: Exception) {}
+                                // V5.0.4581: no canonical-open hook here — this is only signal generation.
                             }
                         } catch (_: Exception) {}
                     }
@@ -872,7 +872,7 @@ object CryptoAltTrader {
                             if (sig.eligible) {
                                 signals++
                                 ErrorLogger.info(TAG, "🪙🌙 DynSig Moonshot: ${tok.symbol}")
-                                try { com.lifecyclebot.perps.crypto.brain.CryptoBrain.onTradeStart() } catch (_: Exception) {}
+                                // V5.0.4581: no canonical-open hook here — this is only signal generation.
                                 val enumMkt = PerpsMarket.values().find { it.symbol == tok.symbol }
                                 dynExecutableSignals.add(AltSignal(
                                     // V5.9.230: Moonshot is always LONG (looking for explosive upside)
@@ -909,7 +909,7 @@ object CryptoAltTrader {
                         if (sig.shouldEnter) {
                             signals++
                             ErrorLogger.info(TAG, "🪙🎭 DynSig Manip: ${tok.symbol}")
-                            try { com.lifecyclebot.perps.crypto.brain.CryptoBrain.onTradeStart() } catch (_: Exception) {}
+                            // V5.0.4581: no canonical-open hook here — this is only signal generation.
                         }
                     } catch (_: Exception) {}
                 }
@@ -1988,6 +1988,12 @@ object CryptoAltTrader {
         if (isSpot) spotPositions[position.id]     = position
         else        leveragePositions[position.id]  = position
         com.lifecyclebot.perps.crypto.brain.CryptoFunnel.open(true)
+        // V5.0.4581 — CRYPTO CANONICAL OPEN HOOK. The isolated CryptoBrain close
+        // path was settling trades without a matching open hook, causing canonical
+        // learning drift and preventing clean maturity/threshold adaptation. Fire
+        // only after the paper debit or live execution has actually committed.
+        try { com.lifecyclebot.perps.crypto.brain.CryptoBrain.onTradeStart() } catch (_: Throwable) {}
+        com.lifecyclebot.engine.WalletPositionLock.recordOpen("CryptoAlt", finalSize)
 
         // V5.9.320: After a successful LIVE leveraged open, look up the Flash.trade
         // position key so we can close it properly via the Flash close-position endpoint.
@@ -2049,43 +2055,11 @@ object CryptoAltTrader {
             )
         } catch (_: Exception) {}
 
-        // ── BehaviorAI tilt protection (V5.9.1442 — isolated crypto brain) ──
-        try {
-            if (com.lifecyclebot.perps.crypto.brain.CryptoBrain.isTiltProtectionActive()) {
-                ErrorLogger.warn(TAG, "🪙 CryptoBrain tilt — skip ${mktSym}")
-                return
-            }
-        } catch (_: Exception) {}
-
-        try { com.lifecyclebot.perps.crypto.brain.CryptoBrain.onTradeStart() } catch (_: Exception) {}
-        com.lifecyclebot.engine.WalletPositionLock.recordOpen("CryptoAlt", sizeSol)
-
-        // ── MetaCognitionAI — entry prediction ───────────────────────────────
-        try {
-            val metaSig = if (signal.direction == PerpsDirection.LONG)
-                MetaCognitionAI.SignalType.BULLISH else MetaCognitionAI.SignalType.BEARISH
-            MetaCognitionAI.recordEntryPredictions(
-                mint        = mktSym,
-                symbol      = mktSym,
-                predictions = mapOf(
-                    MetaCognitionAI.AILayer.AI_CROSSTALK       to Pair(metaSig, signal.confidence.toDouble()),
-                    MetaCognitionAI.AILayer.MOMENTUM_PREDICTOR to Pair(metaSig, signal.score.toDouble())
-                )
-            )
-        } catch (_: Exception) {}
-
-        // ── ShadowLearningEngine — track opportunity ─────────────────────────
-        try {
-            ShadowLearningEngine.onTradeOpportunity(
-                mint               = mktSym,
-                symbol             = mktSym,
-                currentPrice       = signal.price,
-                liveEntryScore     = signal.score,
-                liveEntryThreshold = 55,
-                liveSizeSol        = finalSize,
-                phase              = "CryptoAlt_${if (position.isSpot) "SPOT" else "LEV"}"
-            )
-        } catch (_: Exception) {}
+        // V5.0.4581 — post-commit isolation/safety. Tilt protection must not
+        // return after the position has already committed; pre-entry gates own
+        // skips. Also keep CryptoAlt entry learning out of meme/global
+        // MetaCognitionAI and ShadowLearningEngine.
+        try { ErrorLogger.debug(TAG, "🪙 ISO_LEARNING: ${mktSym} entry retained in crypto-only brains; meme/global entry learners skipped") } catch (_: Exception) {}
 
         // ── NarrativeFlowAI — record activity ────────────────────────────────
         try {
@@ -2924,21 +2898,11 @@ object CryptoAltTrader {
             )
         } catch (_: Exception) {}
 
-        // ── MetaCognitionAI ───────────────────────────────────────────────────
-        try {
-            MetaCognitionAI.recordTradeOutcome(
-                mint = mktSym, symbol = mktSym,
-                pnlPct = pnlPct, holdTimeMs = holdMs, exitReason = reason
-            )
-        } catch (_: Exception) {}
-
-        // ── ShadowLearningEngine exit ─────────────────────────────────────────
-        try {
-            ShadowLearningEngine.onLiveTradeExit(
-                mint = mktSym, exitPrice = pos.currentPrice,
-                exitReason = reason, livePnlSol = pnlSol, isWin = isWin
-            )
-        } catch (_: Exception) {}
+        // V5.0.4581 — CRYPTO ISOLATION WALL. Do not feed CryptoAlt outcomes into
+        // meme/global MetaCognitionAI or ShadowLearningEngine. Crypto uses the same
+        // tech-stack shape through CryptoBrain/PerpsLearningBridge/CanonicalBus, but
+        // learning behavior remains isolated by namespace/source/assetClass.
+        try { ErrorLogger.debug(TAG, "🪙 ISO_LEARNING: ${mktSym} close retained in crypto-only brains; meme/global learners skipped") } catch (_: Exception) {}
 
         // ── PerpsLearningBridge — cross-layer learning from alt trade ─────────
         // V5.9.395 — route into dedicated ALT lane (not PERPS). This stops
