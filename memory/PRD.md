@@ -1,7 +1,12 @@
 # AATE (Autonomous AI Trading Engine) — PRD
 
-**Last updated**: 2026-07-02
-**Build stream**: V5.0.5999+ (Native Kotlin Android, GitHub Actions CI)
+**Last updated**: 2026-07-02 (V5.0.6000)
+**Build stream**: V5.0.6000 (Native Kotlin Android, GitHub Actions CI)
+**Latest CI**: 🟢 V5.0.6000 GREEN — Raw-journal reality clamp shipped
+**Doctrine reminder from operator 2026-07-02**: *"it's NOT a sniper bot.
+Crypto holds can be 10 seconds or 10 weeks!!!"* — every fluid gate must
+respect this. Entry sizing shaping is allowed; exit-timing veto is NOT.
+
 **Version catch-up commit**: V5.0.5999 pushed 2026-07-02 to align APK tag
 with operator's counter after `docs:` commit briefly broke the CI sed
 pattern for COMMIT_BUILD_NUMBER extraction.
@@ -292,22 +297,30 @@ bleeding -0.593 SOL on EXPRESS (0/31 WR) + MANIPULATED (14.6% WR) plus
   — targets cycle time 14–36s → <10s so exits fire on time
 
 ### P0 (immediate next)
-- **Verify V5.0.4594 field impact**: EXPRESS + MANIPULATED lifetime
-  trade count should stop growing; cycle time should drop <10s;
-  catastrophic-SL log entries (`STALE_QUOTE_EMERGENCY_25PCT_BACKSTOP`)
-  should show up in operator report
+- **Verify V5.0.6000 field impact**: MANIPULATED and EXPRESS entry sizes
+  should show `LIVE_PROBABILITY_RAW_REALITY_CLAMP_6000` events, size×=0.08
+  clamp visible, wallet burn rate should drop dramatically. Watch the
+  next operator dump for confirmation.
+- **Verify V5.0.5999b wiring**: `LANE_TRANSITION_*_4599_FROM_*` events
+  should appear when positions hit +100% (MOONSHOT promotion) or +25%
+  established (CashGen bank). `TREASURY_CANDIDATE_PUBLISHED_4599` should
+  populate as established tokens flow through.
 
 ### P1
-- **RPC round-robin failover** (Helius → Triton → QuickNode) —
-  originally scoped, deferred as secondary to trade-quality bleed
-- **LaneAutoPauseGuard.evaluateLive()** — autonomous dynamic pause
-  logic still silently fails; hard-seed covers it for now
-- **PerpsTraderAI + TokenizedStockTrader parity** (deferred by operator)
+- **Cycle time creep**: max 34.7s / avg 10.6s / ANR_HINTS=2 — trending
+  toward ANR territory. Offload `StrategyTruthLedger.clean` +
+  `MainActivity.onCreate` XML inflation off main thread.
+- **`WALLET_TOKEN_READ_INDETERMINATE`**: V5.0.4595 round-robin RPC isn't
+  fully covering the `Tokenkeg` catch path. Audit `LiveWalletReconciler`
+  and `Executor` catch cascade.
+- **`BUY_REJECTED_HARD_BLOCK_ROUTE_WALLET_BALANCE_ZERO`**: 3 hits in 30
+  min — related to the RPC failover.
+- **LaneAutoPauseGuard fluid dampener**: reads sanitized ledger; consider
+  wiring raw-journal reality check into it too (currently only
+  LiveProbabilityEngine.forecast gets it).
 
 ### P2
-- MainActivity ANR fix (16 hits at onCreate:63 — actual site is
-  setContentView XML inflation; needs layout simplification, not
-  Kotlin coroutine offload)
+- MainActivity ANR fix (16 hits at onCreate:63 — XML inflation)
 - Ladder status pill / Brain Health pill / Strategy Leaderboard Tile
 - Positions backup UI export
 
@@ -315,9 +328,40 @@ bleeding -0.593 SOL on EXPRESS (0/31 WR) + MANIPULATED (14.6% WR) plus
 - Tune History UI, 24h PnL drift alert
 - TokenWinMemory phantom purge (>50,000% pnl rows)
 
+## Recent Ship Log (session 2026-07-02)
+
+- **V5.0.5999b** — Wired 4 architectural modules into live cycles:
+  1. `LaneTransitionManager` in hotExit hold-loop (every 5 ticks, ~10s):
+     +100% → MOONSHOT promotion, +25% established → CashGen bank,
+     mcap-band rotation, PROJECT_SNIPER graduation. Non-blocking; only
+     updates `ts.position.tradingMode`.
+  2. `TreasuryScannerFeed` producer at processTokenCycle → CashGen path.
+     Publishes tokens meeting mcap ≥ $1M + liq ≥ $50K. Capped @ 100 with
+     oldest-eviction.
+  3. `TreasuryBrain` folded into CashGen `adjustedSize` chain. Verdict
+     multiplier 0.15x (SKIP probe) → 1.35x (PREMIUM_SCALP).
+  4. `ScoreExpectancyTracker.liveSizeShape` folded into
+     `LiveProbabilityEngine.Edge.sizeMult`. Per-(lane, score-band) EV
+     learning now shapes the Edge sizing surface, not just Executor
+     entry.
+- **V5.0.6000** — RAW-JOURNAL REALITY CLAMP. Root cause: sanitized
+  `StrategyTruthLedger` was hiding MANIPULATED disasters as
+  "duplicateTerminal=7" pruned rows, so every downstream defender saw
+  MANIPULATED as neutral (pWin=49%, E=+0%) despite the raw journal
+  showing n=11, WR=9.1%, EV=-63%, PnL=-0.1266 SOL. Fix:
+  `LiveProbabilityEngine` now reads a 15s-cached raw-journal reality
+  snapshot per lane. When raw shows n≥5 AND WR≤15% AND meanPnl≤-40%,
+  finalMult is clamped to 0.08x. Fluid — keeps a learning probe, not a
+  veto. Applies to every lane symmetrically; releases naturally when
+  raw record recovers.
+- **Constraint**: Entry sizing only. Never affects open positions or
+  exit decisions. 10-second and 10-week holds both safe.
+
 ## Constants Not To Touch
 
 - `TICK_HARD_FLOOR_PCT = -10.0` (BotService)
 - `DOCTRINE_FLOOR_PCT = 30.0` (do NOT lower per operator V5.0.4178)
 - `TARGET_MULT_MIN = 2.0` (daily compound floor)
 - LaneAutoPauseGuard triggers: n>=15+wins=0, or n>=20+wr<20%+ev<-40%
+- V5.0.6000 raw-reality clamp trigger: n>=5, WR<=15%, meanPnl<=-40%,
+  clamp finalMult to 0.08x. Fluid — releases when raw record recovers.
