@@ -224,6 +224,7 @@ object ScannerSourceBrain {
     /** Sources known to feed established Solana mid/large-cap assets. */
     private val ESTABLISHED_FEEDERS = setOf(
         "COINGECKO_ESTABLISHED",
+        "SOLANA_BLUECHIP_WATCHLIST",  // V5.0.4589 — hard-coded blue-chip mints
         "DEX_TRENDING",
         "BIRDEYE_TRENDING",
         "BIRDEYE_MARKETS",

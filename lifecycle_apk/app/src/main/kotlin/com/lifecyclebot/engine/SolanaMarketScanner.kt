@@ -676,6 +676,7 @@ class SolanaMarketScanner(
         BIRDEYE_NEW_LISTING,  // V5.9.908 — birdeye v2 new_listing, no API key required, earliest possible signal
         COINGECKO_TRENDING,
         COINGECKO_ESTABLISHED,  // V5.0.4097 — top-mcap Solana ecosystem feeder for BLUECHIP/DIP_HUNTER/QUALITY lanes
+        SOLANA_BLUECHIP_WATCHLIST,  // V5.0.4589 — hard-coded canonical Solana blue-chip mints, resolved every deep-scan cycle (no API rate-limit dependency)
         JUPITER_NEW,
         RAYDIUM_NEW_POOL,
         NARRATIVE_SCAN,
@@ -1394,6 +1395,14 @@ class SolanaMarketScanner(
                         // Raydium new-pool feeder every cycle; 4559 routes fresh Raydium
                         // candidates through PumpPortal auto before Jupiter quote fallback.
                         "scanRaydiumNewPools" to { scanRaydiumNewPools() },
+                        // V5.0.4589 — Solana blue-chip watchlist feeder EVERY cycle
+                        // (not gated by rot%4). Feeds established assets like JUP/WIF/
+                        // BONK/JITO/PYTH/RENDER into BLUECHIP/DIP_HUNTER/QUALITY lanes
+                        // so the whole-Solana-network trader actually gets flow beyond
+                        // pump.fun new-mints. Operator P1: quality/bluechip lanes were
+                        // starving because the CoinGecko-established feed is
+                        // rate-limited and only ran every 4th cycle.
+                        "scanSolanaBlueChipWatchlist" to { scanSolanaBlueChipWatchlist() },
                     )
                     // GeckoTerminal / CoinGecko full-network feeders are re-enabled but
                     // staggered through the existing Gecko budget so they cannot wedge the
@@ -2474,6 +2483,64 @@ class SolanaMarketScanner(
             throw e
         } catch (e: Exception) {
             ErrorLogger.debug("Scanner", "scanCoinGeckoEstablished error: ${e.message}")
+        }
+    }
+
+    /**
+     * V5.0.4589 — SOLANA BLUE-CHIP WATCHLIST scanner (operator P1).
+     *
+     * Iterates the hard-coded SolanaBlueChipWatchlist and enriches each
+     * mint via DexScreener's getBestPair(). Runs every deep-scan cycle
+     * (not gated by rot%4 like scanCoinGeckoEstablished, and no external
+     * cache/rate-limit path).
+     *
+     * These tokens feed the BLUECHIP / DIP_HUNTER / QUALITY lanes so the
+     * whole-Solana-network trader actually has established asset flow
+     * instead of 100% pump.fun new-mints. Each emission is tagged
+     * source=SOLANA_BLUECHIP_WATCHLIST so ScannerSourceBrain learns its
+     * WR independently and closes the learning loop.
+     *
+     * Cost: 20 DexScreener HTTP calls per deep-scan cycle. isSeen()
+     * dedup prevents re-emission within the watchlist TTL so most cycles
+     * these are all short-circuited (SharedHttpClient cache does not
+     * fire external requests when TTL is fresh).
+     */
+    private suspend fun scanSolanaBlueChipWatchlist() {
+        try {
+            var found = 0
+            for (bc in SolanaBlueChipWatchlist.WATCHLIST) {
+                if (found >= 12) break  // cap emissions per cycle so we don't overload one intake tick
+                if (isSeen(bc.mint)) continue
+                val pair = try { withContext(Dispatchers.IO) { dex.getBestPair(bc.mint) } } catch (_: Throwable) { null } ?: continue
+                if (pair.candle.priceUsd <= 0.0) continue
+                val token = buildScannedToken(
+                    mint = bc.mint,
+                    pair = pair,
+                    source = TokenSource.SOLANA_BLUECHIP_WATCHLIST,
+                    fallbackLiquidity = 250_000.0,  // conservative floor: every mint on this list has real pools
+                ) ?: continue
+                // Blue chips override the ScoreToken minimum. If it's on the
+                // watchlist and DexScreener has a live pair with positive price,
+                // it's admissible for BLUECHIP/DIP_HUNTER/QUALITY routing.
+                if (!passesFilter(token)) continue
+                emitWithRugcheck(token)
+                found++
+                ErrorLogger.info(
+                    "Scanner",
+                    "🏦 BLUECHIP-WATCHLIST: ${token.symbol} (${bc.category.name}) | mcap=\$${(token.mcapUsd / 1_000_000).toInt()}M | liq=\$${(token.liquidityUsd / 1_000).toInt()}K | age=${token.pairCreatedHoursAgo.toInt()}h",
+                )
+            }
+            if (found > 0) {
+                onLog("🏦 BlueChip: $found Solana ecosystem assets fed to BLUECHIP/DIP_HUNTER/QUALITY")
+                try {
+                    PipelineHealthCollector.labelInc("SCAN_SOLANA_BLUECHIP_WATCHLIST_EMIT_${found}_4589")
+                    ForensicLogger.lifecycle("SCAN_SOLANA_BLUECHIP_WATCHLIST_4589", "found=$found watchlistSize=${SolanaBlueChipWatchlist.WATCHLIST.size}")
+                } catch (_: Throwable) {}
+            }
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            ErrorLogger.debug("Scanner", "scanSolanaBlueChipWatchlist error: ${e.message}")
         }
     }
 
