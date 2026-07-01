@@ -13453,6 +13453,12 @@ class BotService : Service() {
                     // (n>=15 && wins=0) OR (n>=20 && wr<20% && ev<=-40%).
                     try { LaneAutoPauseGuard.evaluateLive() } catch (_: Throwable) {}
 
+                    // V5.0.4590 — LANE SHADOW-PROOF LOOP. Cheap; internally
+                    // rate-limited to every 5min. Auto-resumes paused lanes
+                    // when the LLM Lab has proven a strategy in that asset
+                    // class (>=20 paper trades, >=30% WR, positive SOL PnL).
+                    try { LaneShadowProofLoop.evaluate() } catch (_: Throwable) {}
+
                     // ── Shared wallet: broadcast live SOL balance to all traders ──────────
                     if (freshSol > 0.0) {
                         try { com.lifecyclebot.perps.CryptoAltTrader.updateLiveBalance(freshSol) } catch (_: Exception) {}
