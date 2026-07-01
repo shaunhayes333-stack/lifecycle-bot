@@ -83,6 +83,38 @@ object LaneAutoPauseGuard {
                     )
                 }
             } catch (_: Throwable) {}
+            // V5.0.4594 — HARD SEED for proven-toxic lanes (operator P0 4593
+            // dump: wallet dropped -0.154 SOL/hr because evaluateLive path
+            // never latched pauses despite direct-journal rewrite). Seed
+            // EXPRESS (0/31 lifetime WR) and MANIPULATED (14.6% WR, -0.48 SOL
+            // cumulative) as paused-at-load so they're locked out from
+            // module init regardless of evaluateLive execution. Both
+            // buckets are already flagged in LosingPatternMemory danger set;
+            // operator can manualResume() after LLM Lab shadow proof.
+            val nowSeed4594 = System.currentTimeMillis()
+            listOf(
+                Triple("EXPRESS", "hard_seed_4594_zero_win_31_trades", -91.6),
+                Triple("MANIPULATED", "hard_seed_4594_wr14pct_ev48neg", -48.2),
+            ).forEach { (lane, reason, ev) ->
+                if (!paused.containsKey(lane)) {
+                    paused[lane] = PauseState(
+                        lane = lane,
+                        pausedAt = nowSeed4594,
+                        reason = reason,
+                        sample = 30,
+                        wins = 0,
+                        wrPct = 0.0,
+                        evPct = ev,
+                    )
+                    try {
+                        ErrorLogger.warn(
+                            "LaneAutoPauseGuard",
+                            "🔒 LANE_HARD_SEED_PAUSED_4594 lane=$lane reason=$reason — pre-paused at guard init; manualResume() to lift",
+                        )
+                    } catch (_: Throwable) {}
+                }
+            }
+            try { persistAsync() } catch (_: Throwable) {}
         }
     }
 
