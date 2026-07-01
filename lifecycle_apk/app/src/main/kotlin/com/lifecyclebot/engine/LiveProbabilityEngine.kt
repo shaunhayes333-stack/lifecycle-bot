@@ -253,7 +253,7 @@ object LiveProbabilityEngine {
                 val doomEV = eBase <= -60.0 && laneN >= 2L
                 sampleClear && (badTwoTradeEV || catastrophicEV || zeroWrEnough || doomEV)
             }
-            val finalMult = if (rapidPivotToxicBucket4572) {
+            val postPivotMult = if (rapidPivotToxicBucket4572) {
                 try {
                     ForensicLogger.lifecycle(
                         "LIVE_PROBABILITY_RAPID_PIVOT_SHAPED_4572",
@@ -264,12 +264,34 @@ object LiveProbabilityEngine {
                 minOf(mult, 0.35).coerceAtLeast(0.35)
             } else mult
 
+            // V5.0.5999 — WIRED: ScoreExpectancyTracker.liveSizeShape folded
+            // into the Edge multiplier so per-(lane,score-band) EV learning
+            // shapes both entry (Executor) AND the Edge sizing surface. Prior
+            // to this, only Executor consumed liveSizeShape; the Edge sizeMult
+            // reported to FDG/reporting/tuner did not reflect it. Doctrine =
+            // EV AS EDGE (V5.0.4599): dampen toxic buckets, embolden proven
+            // +EV buckets. Fluid — never a veto.
+            val scoreShape = try {
+                ScoreExpectancyTracker.liveSizeShape(lane, score.coerceIn(0, 100))
+            } catch (_: Throwable) { ScoreExpectancyTracker.LiveSizeShape(1.0, 0, 0.0, "error") }
+            val finalMult = (postPivotMult * scoreShape.multiplier).coerceIn(0.10, 2.20)
+            try {
+                if (scoreShape.multiplier != 1.0 && scoreShape.samples >= 3) {
+                    ForensicLogger.lifecycle(
+                        "LIVE_PROBABILITY_SIZE_SHAPE_5999",
+                        "lane=$lane score=$score bandMult=${"%.2f".format(scoreShape.multiplier)} bandN=${scoreShape.samples} bandMean=${"%+.1f".format(scoreShape.meanPnlPct)}% reason=${scoreShape.reason} finalMult=${"%.2f".format(finalMult)}",
+                    )
+                    PipelineHealthCollector.labelInc("LIVE_PROBABILITY_SIZE_SHAPE_5999_${lane.uppercase()}")
+                }
+            } catch (_: Throwable) {}
+
             val src = listOfNotNull(
                 if (fwdWeight > 0.0) "fwd:${fwd.source}" else null,
                 if (laneWeight > 0.0) "lane" else null,
                 if (policyW > 0.0) "policy" else null,
+                if (scoreShape.samples >= 3 && scoreShape.multiplier != 1.0) "band" else null,
             ).joinToString("+").ifBlank { "bootstrap" }
-            Edge(lane, pWin, fwd.pRug, eBase, fwd.dispersion, maxOf(fwd.samples, laneSamples), src, finalMult, (if (laneSol > 0.0) "netSOL=${"%+.3f".format(laneSol)} " else "") + "hitCap=${"%.2f".format(lowHitRateCap)}")
+            Edge(lane, pWin, fwd.pRug, eBase, fwd.dispersion, maxOf(fwd.samples, laneSamples), src, finalMult, (if (laneSol > 0.0) "netSOL=${"%+.3f".format(laneSol)} " else "") + "hitCap=${"%.2f".format(lowHitRateCap)} bandShape=${"%.2f".format(scoreShape.multiplier)}")
         } catch (_: Throwable) {
             Edge(lane, 0.5, 0.0, 0.0, 0.0, 0L, "failopen", 1.0, "")
         }

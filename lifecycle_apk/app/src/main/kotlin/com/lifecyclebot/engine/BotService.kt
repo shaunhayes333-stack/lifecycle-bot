@@ -1182,6 +1182,44 @@ class BotService : Service() {
                             }
                         }
 
+                        // V5.0.5999 — WIRED: LaneTransitionManager consulted
+                        // every 5 hot-exit ticks (~10s) per open position.
+                        // Operator directive 2026-07-02: "layer and trader
+                        // promotion is meant to be there for all lanes,
+                        // layers and traders." This is the universal
+                        // promotion pathway — +100% winners → MOONSHOT,
+                        // +25% established → CashGen compounding, mcap-band
+                        // rotation, PROJECT_SNIPER graduation, paused-lane
+                        // rotation. Every open position gets to be considered
+                        // for promotion/rotation without waiting on scanner
+                        // cycle time. Non-blocking — decisions are logged +
+                        // update ts.position.tradingMode; actual exit happens
+                        // through the standard exit path.
+                        if (tick % 5L == 0L) {
+                            openTokens.forEach { ts ->
+                                try {
+                                    val entry = ts.position.entryPrice
+                                    if (entry > 0.0 && ts.lastPrice > 0.0) {
+                                        val pnlPct = (ts.lastPrice - entry) / entry * 100.0
+                                        val currentLane = ts.position.tradingMode.ifBlank { "STANDARD" }
+                                        val td = LaneTransitionManager.evaluate(currentLane, ts, pnlPct)
+                                        if (td.decision != LaneTransitionManager.Decision.KEEP) {
+                                            LaneTransitionManager.logTransition(ts.mint, ts.symbol, currentLane, td)
+                                            // Apply PROMOTE/ROTATE by updating tradingMode.
+                                            // EXIT is left to the standard exit sweep (already
+                                            // running above via runManageOnly). This avoids
+                                            // double-exit racing with the exit sweep.
+                                            if ((td.decision == LaneTransitionManager.Decision.PROMOTE ||
+                                                 td.decision == LaneTransitionManager.Decision.ROTATE) &&
+                                                td.targetLane != null && td.targetLane != currentLane) {
+                                                ts.position.tradingMode = td.targetLane
+                                            }
+                                        }
+                                    }
+                                } catch (_: Throwable) { /* transition eval must never break hotExit */ }
+                            }
+                        }
+
                         // V5.9.1196 — low-cadence orphan/treasury sweep backup.
                         // runManageOnly covers strict SL / partials / profit locks
                         // every 2s. The heavier full/universal sweeps are retained
@@ -17974,6 +18012,32 @@ if (hotExitHandledSweep) {
                             priceDex = ts.lastPriceDex,
                             tokenAgeMinutes = tokenAge,
                         )
+
+                        // V5.0.5999 — WIRED: TreasuryScannerFeed producer.
+                        // Publish this token to the dedicated Treasury/CashGen
+                        // watchlist if it meets established-token criteria
+                        // (mcap ≥ $1M, liq ≥ $50K). Feed size capped @ 100
+                        // with oldest-eviction. Rejected tokens still flow
+                        // through meme lanes — this is a producer for a
+                        // curated CashGen surface, NOT a veto.
+                        // vol24h isn't carried on TokenState directly, so we
+                        // pass the min floor to satisfy the criteria check;
+                        // mcap+liq are the honest gates here.
+                        try {
+                            if (ts.lastMcap >= TreasuryScannerFeed.MIN_TREASURY_MCAP &&
+                                ts.lastLiquidityUsd >= TreasuryScannerFeed.MIN_TREASURY_LIQUIDITY) {
+                                TreasuryScannerFeed.publishCandidate(
+                                    TreasuryScannerFeed.TreasuryCandidate(
+                                        mint = ts.mint,
+                                        symbol = ts.symbol,
+                                        mcap = ts.lastMcap,
+                                        liquidityUsd = ts.lastLiquidityUsd,
+                                        vol24hUsd = TreasuryScannerFeed.MIN_TREASURY_24H_VOL,
+                                        source = ts.source.ifBlank { "processTokenCycle" },
+                                    ),
+                                )
+                            }
+                        } catch (_: Throwable) { /* producer must never break the cycle */ }
                         
                         // V4.1: Enter if Treasury says yes OR bootstrap override triggered
                         // V5.2.13: Block bootstrap override when V3 hard-rejects OR dump signals active
@@ -18141,7 +18205,30 @@ if (hotExitHandledSweep) {
                             // floored back to 0.01 SOL after multipliers.
                             val treasuryToxicBucket = _trsIsDanger || _trsExpectancyReject || _trsCalMult < 1.0
                             val treasuryMinSize = if (treasuryToxicBucket) 0.002 else 0.01
-                            val adjustedSize = (treasurySignal.positionSizeSol * bootstrapMultiplier * dangerSizeMult * _trsExpectancyMult * _trsCalMult).coerceAtLeast(treasuryMinSize)
+                            // V5.0.5999 — WIRED: TreasuryBrain scalp-setup verdict.
+                            // Purpose-built scoring layer for CashGen 3-5% scalps
+                            // (5m+15m momentum × buy pressure × liq depth × whipsaw
+                            // penalty). Fluid: verdict.sizeMultiplier ranges 0.15
+                            // (SKIP → tiny learning probe) to 1.35 (PREMIUM_SCALP).
+                            // Doctrine-clean — never a veto, always folded into
+                            // sizing as an EDGE, never a block. Operator directive:
+                            // Treasury needs its own brain, not a repurposed meme
+                            // trader.
+                            val brainVerdict = try {
+                                TreasuryBrain.evaluate(ts)
+                            } catch (_: Throwable) {
+                                TreasuryBrain.ScalpVerdict(50.0, "PROBE_SCALP", 1.0, listOf("brain_fail_open"))
+                            }
+                            if (brainVerdict.category != "STANDARD_SCALP") {
+                                try {
+                                    ForensicLogger.lifecycle(
+                                        "TREASURY_BRAIN_VERDICT_5999",
+                                        "sym=${ts.symbol} score=${brainVerdict.score.toInt()} cat=${brainVerdict.category} size×=${"%.2f".format(brainVerdict.sizeMultiplier)} reasons=${brainVerdict.reasons.joinToString(",")}",
+                                    )
+                                    PipelineHealthCollector.labelInc("TREASURY_BRAIN_VERDICT_5999_${brainVerdict.category}")
+                                } catch (_: Throwable) {}
+                            }
+                            val adjustedSize = (treasurySignal.positionSizeSol * bootstrapMultiplier * dangerSizeMult * _trsExpectancyMult * _trsCalMult * brainVerdict.sizeMultiplier).coerceAtLeast(treasuryMinSize)
                             
                             // V5.2.8 FIX: If bootstrap override forced entry, use default TP/SL values
                             // When Treasury rejects, it returns 0% TP which causes immediate exits!
