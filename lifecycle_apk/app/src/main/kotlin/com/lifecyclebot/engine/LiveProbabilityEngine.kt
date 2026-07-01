@@ -19,6 +19,57 @@ package com.lifecyclebot.engine
 object LiveProbabilityEngine {
     const val VERSION = "V5.0.4030_LIVE_PROBABILITY_ENGINE"
 
+    // V5.0.6000 — RAW-JOURNAL REALITY CHECK (operator directive: "flip the
+    // bot green"). The sanitized StrategyTruthLedger was hiding MANIPULATED's
+    // catastrophic losses as "duplicateTerminal=7" pruned rows. That fooled
+    // this engine into reporting pWin=49% E=+0.0% size×=0.87 for a lane
+    // with a REAL record of n=11 W/L=1/10 EV=-63% PnL=-0.1266 SOL. All
+    // downstream defenders (LaneAutoPauseGuard, RAPID_PIVOT_SHAPER,
+    // liveSizeShape) read from the same clean surface, so ALL of them
+    // missed the truth. This cache reads directly from the RAW journal and
+    // caches per-lane roll-ups for 15s so the sizing path can veto-clamp
+    // when a lane is catastrophically bleeding in reality regardless of
+    // what the sanitizer says.
+    data class RawLaneReality(
+        val lane: String,
+        val n: Int,
+        val wins: Int,
+        val losses: Int,
+        val wrPct: Double,
+        val meanPnlPct: Double,
+        val totalSolPnl: Double,
+    )
+
+    @Volatile private var rawLaneRealityCache: Map<String, RawLaneReality> = emptyMap()
+    @Volatile private var rawLaneRealityCacheMs: Long = 0L
+    private const val RAW_LANE_REALITY_TTL_MS = 15_000L
+
+    private fun rawLaneReality(lane: String): RawLaneReality? {
+        val now = System.currentTimeMillis()
+        val snap = rawLaneRealityCache
+        if (snap.isEmpty() || (now - rawLaneRealityCacheMs) > RAW_LANE_REALITY_TTL_MS) {
+            try {
+                val raw = TradeHistoryStore.getRecentValidClosedTradesRaw(limit = 500, includePartials = false)
+                val groups = raw.filter { it.side.equals("SELL", true) }
+                    .groupBy { canonical(it.tradingMode) }
+                val rebuilt = groups.mapValues { (ln, list) ->
+                    val wins = list.count { it.pnlPct > 0.0 }
+                    val losses = list.count { it.pnlPct < 0.0 }
+                    val n = list.size
+                    val wr = if (n > 0) wins.toDouble() / n.toDouble() * 100.0 else 0.0
+                    val mean = if (n > 0) list.sumOf { it.pnlPct } / n.toDouble() else 0.0
+                    val sol = list.sumOf { it.pnlSol }
+                    RawLaneReality(ln, n, wins, losses, wr, mean, sol)
+                }
+                rawLaneRealityCache = rebuilt
+                rawLaneRealityCacheMs = now
+            } catch (_: Throwable) {
+                // Keep the previous cache on failure.
+            }
+        }
+        return rawLaneRealityCache[lane.uppercase()]
+    }
+
     data class Edge(
         val lane: String,
         val pWin: Double,
@@ -285,13 +336,37 @@ object LiveProbabilityEngine {
                 }
             } catch (_: Throwable) {}
 
+            // V5.0.6000 — RAW-JOURNAL REALITY CLAMP. Read the RAW journal
+            // (bypasses ledger sanitization) to catch lanes that are
+            // catastrophically bleeding in reality even when the sanitized
+            // ledger shows them as neutral (see MANIPULATED example: clean
+            // says pWin=49% E=+0%, raw says n=11 WR=9.1% EV=-63%). When the
+            // raw record proves catastrophe, clamp finalMult to a tiny
+            // learning probe (0.08x) so real capital stops feeding the
+            // bleed. Fluid — keeps a probe alive so learning does not
+            // starve; not a veto. This is a *reality* backstop, distinct
+            // from the fluid pause guard which reads the same sanitized
+            // ledger.
+            val raw = try { rawLaneReality(lane) } catch (_: Throwable) { null }
+            val clampedMult = if (raw != null && raw.n >= 5 && raw.wrPct <= 15.0 && raw.meanPnlPct <= -40.0) {
+                try {
+                    ForensicLogger.lifecycle(
+                        "LIVE_PROBABILITY_RAW_REALITY_CLAMP_6000",
+                        "lane=$lane rawN=${raw.n} rawWR=${"%.1f".format(raw.wrPct)}% rawEV=${"%+.1f".format(raw.meanPnlPct)}% rawSOL=${"%+.4f".format(raw.totalSolPnl)} preClampMult=${"%.2f".format(finalMult)} clampedTo=0.08 note=sanitizer_masked_bleed_raw_journal_truth",
+                    )
+                    PipelineHealthCollector.labelInc("LIVE_PROBABILITY_RAW_REALITY_CLAMP_6000_${lane.uppercase()}")
+                } catch (_: Throwable) {}
+                minOf(finalMult, 0.08)
+            } else finalMult
+
             val src = listOfNotNull(
                 if (fwdWeight > 0.0) "fwd:${fwd.source}" else null,
                 if (laneWeight > 0.0) "lane" else null,
                 if (policyW > 0.0) "policy" else null,
                 if (scoreShape.samples >= 3 && scoreShape.multiplier != 1.0) "band" else null,
+                if (clampedMult != finalMult) "raw_reality" else null,
             ).joinToString("+").ifBlank { "bootstrap" }
-            Edge(lane, pWin, fwd.pRug, eBase, fwd.dispersion, maxOf(fwd.samples, laneSamples), src, finalMult, (if (laneSol > 0.0) "netSOL=${"%+.3f".format(laneSol)} " else "") + "hitCap=${"%.2f".format(lowHitRateCap)} bandShape=${"%.2f".format(scoreShape.multiplier)}")
+            Edge(lane, pWin, fwd.pRug, eBase, fwd.dispersion, maxOf(fwd.samples, laneSamples), src, clampedMult, (if (laneSol > 0.0) "netSOL=${"%+.3f".format(laneSol)} " else "") + "hitCap=${"%.2f".format(lowHitRateCap)} bandShape=${"%.2f".format(scoreShape.multiplier)}" + (if (raw != null && clampedMult != finalMult) " rawClamp=n${raw.n}/WR${raw.wrPct.toInt()}/EV${raw.meanPnlPct.toInt()}%" else ""))
         } catch (_: Throwable) {
             Edge(lane, 0.5, 0.0, 0.0, 0.0, 0L, "failopen", 1.0, "")
         }
