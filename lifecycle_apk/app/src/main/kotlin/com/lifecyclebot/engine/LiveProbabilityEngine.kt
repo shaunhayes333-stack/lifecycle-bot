@@ -124,14 +124,29 @@ object LiveProbabilityEngine {
             // Keep an executable defensive floor so downstream AgenticStyleRouter /
             // LiveStylePivotRouter can switch tactic inside the lane while telemetry
             // exposes the toxic bucket immediately.
+            //
+            // V5.0.4587 — UNCHOKE (operator P0 "meme trader seems pretty choked out").
+            // Original V4572 gate triggered at n≥2 with EV≤-20% which was clamping
+            // every fresh lane at size×0.35, INCLUDING healthy STANDARD (49% pWin,
+            // n=5) that just happened to have a flat mean. Now the trigger requires
+            // meaningful lane sample (n≥6) UNLESS the lane is a known-catastrophic
+            // meme lane (SHITCOIN/MANIPULATED/EXPRESS) which still trips faster.
+            // Non-catastrophic lanes with n<6 pass through with the natural math
+            // multiplier so proven-healthy lanes aren't punished for two flat trades.
+            val laneUpperForShaper4587 = lane.uppercase()
+            val isCatastrophicLaneShaper4587 =
+                laneUpperForShaper4587 == "SHITCOIN" ||
+                laneUpperForShaper4587 == "MANIPULATED" ||
+                laneUpperForShaper4587 == "EXPRESS"
             val rapidPivotToxicBucket4572 = run {
                 val laneN = laneSamples
-                val sampleClear = laneN >= 2
-                val badTwoTradeEV = laneN >= 2 && eBase <= -20.0
-                val catastrophicEV = eBase <= -40.0
-                val zeroWrEnough = lanePWin <= 0.001 && laneN >= 3
-                val doomEV = eBase <= -60.0
-                sampleClear && (badTwoTradeEV || catastrophicEV || zeroWrEnough || doomEV)
+                val minSample4587 = if (isCatastrophicLaneShaper4587) 3L else 6L
+                val sampleClear = laneN >= minSample4587
+                val badTradeEV = laneN >= minSample4587 && eBase <= -20.0
+                val catastrophicEV = laneN >= 3L && eBase <= -40.0
+                val zeroWrEnough = lanePWin <= 0.001 && laneN >= (if (isCatastrophicLaneShaper4587) 3L else 5L)
+                val doomEV = eBase <= -60.0 && laneN >= 2L
+                sampleClear && (badTradeEV || catastrophicEV || zeroWrEnough || doomEV)
             }
             val finalMult = if (rapidPivotToxicBucket4572) {
                 try {
