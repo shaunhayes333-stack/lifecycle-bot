@@ -198,6 +198,49 @@ Solana assets (JUP, WIF, SOL, BONK, etc).
 
 ## Backlog
 
+### V5.0.4599 — SPECIALIST TRADER RESET + TREASURY REVIVAL (planned, 2026-07-02)
+Per operator directive: PROJECT_SNIPER, SHITCOIN, EXPRESS are TRADERS,
+not lanes. CashGen/Treasury needs its own scanner + brain. Universal
+promotion pathway. Reject-bypass reformed into a sizing edge.
+
+**Phase A — CI unblock (V5.0.4598b, in flight):** 3 golden-tape tests
+updated for the paused-lane owner-election guard.
+
+**Phase B — Specialist trader reset:**
+  - Remove PROJECT_SNIPER + SHITCOIN + EXPRESS from `fullMemeTraderRing`
+  - Convert to `SpecialistTrader` classification (own entry, own hold,
+    own handoff). Each specialist keeps its position until mission
+    complete (graduation, TP tier, or handoff trigger)
+  - Bot cycle: specialists first (fresh launches), then lanes
+
+**Phase C — Treasury scanner + brain:**
+  - New `TreasuryScannerFeed.kt`: dedicated pipeline pulling
+    established liquid tokens (CoinGecko top-100, Birdeye trending
+    mcap>$1M, DexScreener established pools age>7d, blue-chip
+    watchlist). NOT competing with PROJECT_SNIPER for pump.fun stream.
+  - New `TreasuryBrain.kt`: scalp-setup scoring (5m/15m momentum,
+    spread tightness, no-wick-chop) purpose-built for 3-5% scalps
+  - CashGenerationAI polls its own watchlist on its own cadence
+
+**Phase D — Universal LaneTransitionManager:**
+  - Single decision brain per open position per cycle
+  - Rules from docstrings:
+    * PROJECT_SNIPER exit at graduation → mcap>$500K:BLUECHIP,
+      mcap>$100K:MOONSHOT/LUNAR, mcap>$50K:MOONSHOT/ORBITAL
+    * Any lane hits +100% → MOONSHOT promotion
+    * Any lane hits +25% established → CashGen banks + restart
+    * Mcap thresholds → STANDARD→QUALITY→BLUECHIP live rotation
+
+**Phase E — LIVE_EXPECTANCY_REJECT_BYPASSED → edge:**
+  - Don't reject on live. Use EV data as fluid size multiplier
+    through liveSizeShape:
+    EV≤-60% → 0.10x, EV≤-35% → 0.25x, EV≤-10% → 0.55x,
+    EV≥+25% → 1.35x, EV≥+50% → 1.60x
+  - Wire as authoritative multiplier alongside qualityBoost
+  - Backward EV becomes edge, not obstruction
+
+### V5.0.4598b — CI FIX for owner-lane paused-guard (in flight)
+
 ### V5.0.4596 — FLUID PAUSED-LANE DAMPENER + AGI OVERRIDE (2026-07-02)
 Field V5.0.4595 confirmed wallet +99% (0.5→1.0 SOL) but MANIPULATED still
 gained +6 trades bypassing all 3 hard gates (FDG/TokenSafety/BotService).
