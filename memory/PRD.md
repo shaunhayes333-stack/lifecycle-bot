@@ -1,7 +1,7 @@
 # AATE (Autonomous AI Trading Engine) — PRD
 
 **Last updated**: 2026-07-02
-**Build stream**: V5.0.4594+ (Native Kotlin Android, GitHub Actions CI)
+**Build stream**: V5.0.4595+ (Native Kotlin Android, GitHub Actions CI)
 
 ## Original Problem Statement
 
@@ -81,6 +81,20 @@ Solana assets (JUP, WIF, SOL, BONK, etc).
 ```
 
 ## Backlog
+
+### V5.0.4595 — OPEN VALVE + API/RPC HARDENING (2026-07-02, CI green ✅ Build #4579 + Smoke #2049)
+Field V5.0.4594 confirmed: EXPRESS/MANIPULATED frozen, wallet +21%, no
+new -99% exits. But volume was choked on winner lanes (STANDARD 66%WR,
+MOONSHOT 56%WR) via RSI hard-block and holder-cascade-blind soft
+advisor. RPC snapshot also hammering Helius first every cycle:
+- **FDG RSI relax for proven winners** — lane in {STANDARD, MOONSHOT}
+  with WR≥50% over ≥5 closes → downgrade RSI>90 hard-block to penalty
+- **Holder-cascade-blind relax for winners** with liq≥$5K — pipeline
+  gap in holder data no longer chokes profitable lanes
+- **Wallet RPC round-robin + 30s cooldown** — AtomicInteger rotates
+  starting endpoint each snapshot; ConcurrentHashMap tracks unhealthy
+  endpoints (429/500/401/403/TLS/network-throw) and skips for 30s.
+  Fail-open: if ALL endpoints in cooldown, use full unfiltered list
 
 ### V5.0.4594 — STOP-THE-BLEED SHIP (2026-07-02, CI green ✅ Build #4578 + Smoke #2048)
 Root-caused via triage subagent (10-step RCA). Field build 5.0.4593 was
