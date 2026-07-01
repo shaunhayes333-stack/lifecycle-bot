@@ -20001,6 +20001,23 @@ if (hotExitHandledSweep) {
             // Only evaluates tokens that are ALREADY pumping hard
             // V5.2 FIX: Must check if Treasury already has a position!
             // ═══════════════════════════════════════════════════════════════════
+            // V5.0.4594 — EXPRESS EARLY AUTO-PAUSE GATE (operator P0). Mirrors
+            // the MANIPULATED gate at BotService:9216 + TokenSafetyChecker:487.
+            // Prior builds only enforced the pause inside FinalDecisionGate,
+            // which meant EXPRESS still burned CPU on ShitCoinExpress.evaluate
+            // and per-token score work even when the lane was paused. Move
+            // the check to the top of the EXPRESS path so paused lanes cost
+            // us nothing.
+            if (LaneAutoPauseGuard.isPaused("EXPRESS")) {
+                try {
+                    ForensicLogger.lifecycle(
+                        "EXPRESS_LANE_PAUSED_EARLY_GATE_4594",
+                        "symbol=${ts.symbol} mint=${ts.mint.take(10)} reason=lane_auto_paused",
+                    )
+                    PipelineHealthCollector.labelInc("EXPRESS_LANE_PAUSED_EARLY_GATE_4594")
+                } catch (_: Throwable) {}
+                // skip the entire EXPRESS block for this token
+            } else {
             val expressLaneAllowedThisCycle = !ts.position.isOpen && shouldRunBuyLaneForCycle(ts, "EXPRESS", cyclePrimaryLane)
             if (expressLaneAllowedThisCycle && com.lifecyclebot.v3.scoring.ShitCoinExpress.isEnabled()) {
                 try {
@@ -20252,6 +20269,7 @@ if (hotExitHandledSweep) {
                     ErrorLogger.debug("BotService", "💩🚂 [EXPRESS] ${ts.symbol} | ERROR | ${expEx.message}")
                 }
             }
+            } // V5.0.4594 — close EXPRESS lane-paused else{} early-gate
             // ═══════════════════════════════════════════════════════════════════
             // END ShitCoin Express evaluation
             // ═══════════════════════════════════════════════════════════════════

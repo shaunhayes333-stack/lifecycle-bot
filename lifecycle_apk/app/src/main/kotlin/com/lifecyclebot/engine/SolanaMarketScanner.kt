@@ -1644,18 +1644,31 @@ class SolanaMarketScanner(
     }
 
     private suspend fun scanPumpFunDirect() {
+        // V5.0.4594 — QUALITY-FIRST INTAKE (operator P0: "quality vs
+        // quantity situation"). Reordered so market_cap DESC + reply_count
+        // DESC (best-quality candidates) fetch FIRST, and a global 75-token
+        // cap short-circuits once the budget is filled — preventing the
+        // 166-token intake floods that pushed cycle time to 36s and made
+        // exits arrive late. Prior order fetched created_timestamp first
+        // and burned the intake budget on freshest-but-lowest-quality
+        // spam. Cap chosen per operator directive (75, quality-first).
         val urls = listOf(
-            "https://frontend-api-v3.pump.fun/coins?offset=0&limit=100&sort=created_timestamp&order=DESC&includeNsfw=false",
-            "https://frontend-api-v3.pump.fun/coins?offset=100&limit=100&sort=created_timestamp&order=DESC&includeNsfw=false",
-            "https://frontend-api-v3.pump.fun/coins?offset=0&limit=100&sort=last_trade_timestamp&order=DESC&includeNsfw=false",
             "https://frontend-api-v3.pump.fun/coins?offset=0&limit=50&sort=market_cap&order=DESC&includeNsfw=false",
             "https://frontend-api-v3.pump.fun/coins?offset=0&limit=50&sort=reply_count&order=DESC&includeNsfw=false",
+            "https://frontend-api-v3.pump.fun/coins?offset=0&limit=100&sort=last_trade_timestamp&order=DESC&includeNsfw=false",
+            "https://frontend-api-v3.pump.fun/coins?offset=0&limit=100&sort=created_timestamp&order=DESC&includeNsfw=false",
+            "https://frontend-api-v3.pump.fun/coins?offset=100&limit=100&sort=created_timestamp&order=DESC&includeNsfw=false",
         )
 
-        ErrorLogger.info("Scanner", "scanPumpFunDirect: fetching from ${urls.size} pump.fun endpoints...")
+        ErrorLogger.info("Scanner", "scanPumpFunDirect: fetching from ${urls.size} pump.fun endpoints (quality-first, cap=75)...")
         var totalFound = 0
+        val globalCap = 75  // V5.0.4594 — total tokens emitted per scan pass
 
         for (url in urls) {
+            if (totalFound >= globalCap) {
+                ErrorLogger.info("Scanner", "scanPumpFunDirect: global cap $globalCap reached; skipping remaining URLs (quality-first)")
+                break
+            }
             try {
                 val body = getWithRetry(url) ?: continue
                 val coins: JSONArray = when {
@@ -1672,6 +1685,7 @@ class SolanaMarketScanner(
 
                 for (i in 0 until minOf(coins.length(), 100)) {
                     if (found >= 30) break
+                    if (totalFound >= globalCap) break  // V5.0.4594 — global cap short-circuit
 
                     val coin = coins.optJSONObject(i) ?: continue
                     val mint = coin.optString("mint", "")

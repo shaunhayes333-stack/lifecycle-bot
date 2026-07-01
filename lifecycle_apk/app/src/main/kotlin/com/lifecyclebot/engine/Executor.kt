@@ -5565,6 +5565,45 @@ class Executor(
                 ((cachedPx - pos.entryPrice) / pos.entryPrice) * 100.0
             else Double.NaN
             val candidates = listOf(livePnl, cachedPnl).filter { it.isFinite() }
+
+            // V5.0.4594 — STALE-QUOTE EMERGENCY BACKSTOP (operator P0).
+            // Root cause of -99.4% / -96.1% / -95% exits (field report
+            // 2026-07-02): BOTH the live Jupiter quote AND the cached scanner
+            // price go stale during a rug/liquidity collapse. When both
+            // reads are NaN, the existing SL / rug / -25% checks return
+            // early on `if (candidates.isEmpty()) return@run`, so NONE of
+            // them fire — the bag then bleeds until maxHold trips and the
+            // realized fill is catastrophic. This backstop fires an
+            // unconditional force-exit if:
+            //   • position has been open for > 15s (long enough for a
+            //     legit quote to have arrived at least once), AND
+            //   • BOTH live and cached prices are non-finite (no signal
+            //     for at least one full status check window).
+            // We assume the worst (rug in progress) and cut immediately.
+            // Threshold: force-exit at the -25% floor already accepted as
+            // "no scenario where holding this makes sense". Safe fallback:
+            // no assumption about price direction — just call doSell and
+            // let the executor's sell path use its own last-known-good
+            // price for slippage math.
+            if (candidates.isEmpty() && pos.isOpen && pos.entryPrice > 0.0) {
+                val holdMs = try { System.currentTimeMillis() - pos.entryTime } catch (_: Throwable) { 0L }
+                if (holdMs >= 15_000L) {
+                    try {
+                        ForensicLogger.lifecycle(
+                            "STALE_QUOTE_EMERGENCY_25PCT_BACKSTOP_4594",
+                            "mint=${ts.mint.take(10)} sym=${ts.symbol} holdMs=$holdMs entry=${pos.entryPrice} livePx=${currentPrice} cachedPx=${cachedPx} — no finite price reads >15s, force-exiting at -25% assumption",
+                        )
+                        PipelineHealthCollector.labelInc("STALE_QUOTE_EMERGENCY_25PCT_BACKSTOP")
+                    } catch (_: Throwable) {}
+                    onLog(
+                        "☠ STALE-QUOTE EMERGENCY: ${ts.symbol} hold=${holdMs / 1000}s — no price feed, cutting NOW (assumed -25%)",
+                        ts.mint,
+                    )
+                    doSell(ts, "STALE_QUOTE_EMERGENCY_25PCT_BACKSTOP", wallet, walletSol)
+                    return
+                }
+            }
+
             if (candidates.isEmpty()) return@run
             val worstPnl = candidates.min()
             val bestPnl = candidates.max()
