@@ -9633,7 +9633,28 @@ class BotService : Service() {
                 try { PipelineHealthCollector.labelInc("LIVE_FANOUT_PRESSURE_RESCUE_NARROWED_4522_$l") } catch (_: Throwable) {}
             }
             if (l in fullMemeTraderRing) {
-                val allowed = l == ownerLane || profitableRescue
+                // V5.0.4598 — RESPECT LaneAutoPauseGuard IN OWNER-LANE BYPASS.
+                // Field V5.0.4597 exposed the MANIPULATED bleed source: this
+                // owner-lane / all-lane-contribution path lets any ring lane
+                // execute when it matches ownerLane, bypassing the pause
+                // check at FDG:3238 + TokenSafetyChecker:487 + BotService:9216.
+                // The hard-seed pause on EXPRESS/MANIPULATED was never
+                // consulted here. Now: if the lane is paused, the owner-
+                // lane election is denied. Downstream fluid dampener at
+                // LiveProbabilityEngine (V5.0.4596) is the safety net if
+                // any other path still slips through, but this closes the
+                // primary bypass channel.
+                val laneIsPaused4598 = try { LaneAutoPauseGuard.isPaused(l) } catch (_: Throwable) { false }
+                val allowed = (l == ownerLane || profitableRescue) && !laneIsPaused4598
+                if (laneIsPaused4598) {
+                    try {
+                        ForensicLogger.lifecycle(
+                            "OWNER_LANE_PAUSED_DENIED_4598",
+                            "lane=$l primary=$primaryLane owner=$ownerLane symbol=${ts.symbol} mint=${ts.mint.take(10)} reason=lane_auto_paused_by_guard",
+                        )
+                        PipelineHealthCollector.labelInc("OWNER_LANE_PAUSED_DENIED_4598_$l")
+                    } catch (_: Throwable) {}
+                }
                 if (com.lifecyclebot.engine.RuntimeModeAuthority.isLive()) {
                     try {
                         ForensicLogger.lifecycle("LIVE_ALL_LANE_CONTRIBUTION_4469", "lane=$l primary=$primaryLane owner=$ownerLane ownerSelected=$allowed rescue=$profitableRescue symbol=${ts.symbol} mint=${ts.mint.take(10)} pool=${ownerPool.joinToString("+")} action=considered_bounded_owner_rotation")

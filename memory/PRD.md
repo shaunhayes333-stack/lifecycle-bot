@@ -3,7 +3,89 @@
 **Last updated**: 2026-07-02
 **Build stream**: V5.0.4596+ (Native Kotlin Android, GitHub Actions CI)
 
-## Architectural Doctrine — FLUID GATES (operator directive 2026-07-02)
+## Architectural Doctrine — DESIGN FIDELITY (operator directive 2026-07-02)
+
+> *"lanes, layers and traders are meant to internally pivot trading strategy
+> logic hold logic exit logic in a live state as the tokens metrics change.
+> especially not dumped into a paused lane. project Sniper is meant to buy
+> legit projects with a resale or fresh launches as they either come off
+> presale pump then flatten securing the profit ride or fresh tokens
+> approaching bond on pump meteora bonk etc getting in at the best point
+> before it approaches the graduation point and getting out after it
+> graduates and dies or rides it - only then pushing into the appropriate
+> lane or layer or trader ... cash gen/treasury literally is meant to make
+> the bot a free trading engine. user additional funds compounded and added
+> too constantly user withdraws initial deposit bot runs on free money
+> forever!"*
+
+### Lane / Layer / Trader Design Intent (per literal code docstrings)
+
+- **PROJECT_SNIPER** (`ProjectSniperAI.kt`): fresh-launch snipe. Enter at 15–600s
+  age, mcap $3K–$500K, liq $2K–$250K, buy pressure ≥48%, price move ≤+80%.
+  TP tiers 15%/35%/75%, moonshot 150%, SL -12%. Job = enter the graduation
+  window on Pump/Meteora/Bonk, exit at graduation success or death. **After
+  exit**, if token warrants continued hold, ownership transfers to the
+  appropriate lane (BLUECHIP if mcap>$500K, QUALITY if >$300K,
+  MOONSHOT if consolidating uptrend, etc.). NEVER should ownership rotate
+  INTO a paused lane like MANIPULATED.
+
+- **CASH GEN / TREASURY** (`CashGenerationAI.kt`): daily profit compounder.
+  Ultra-conservative scalp brain. 100+ trades/day of quick 3–5% scalps.
+  Position sizing 0.05–2.0 SOL DYNAMIC (scales with wallet), TP 3.0% live,
+  SL -5%. **This is the free-trading-engine core: user adds funds →
+  Treasury compounds them into daily cashflow → user withdraws original
+  deposit → bot runs forever on the compounded free capital**. Must run
+  concurrently with meme trader ("2nd shadow mode").
+
+- **MOONSHOT**: proven +EV lane (57.7% WR, +0.072 SOL). Diamond-hands
+  runner brain. Wide TP, trailing stop, longer hold on trending tokens.
+
+- **STANDARD**: proven +EV lane (66.7% WR when winner-bypass off, +0.078 SOL).
+  Balanced entry/exit on quality tokens.
+
+- **BLUECHIP**: established SOL blue-chip watchlist (JUP/WIF/BONK/JITO).
+  Higher liquidity thresholds, wider stops, position for extended holds.
+
+- **QUALITY**: high-quality mcap $100K–$5M tokens with strong fundamentals.
+  Longer holds, lower turnover.
+
+- **DIP_HUNTER**: reclaim/pullback plays. Enters on dip-reclaim setups.
+
+- **SHITCOIN**: memes with high momentum, tight SL.
+
+- **EXPRESS** *(currently hard-seed paused, 0/31 lifetime WR)*: 30%+ quick
+  momentum rides. Must be revived only when Lab-proven or shadow-proof
+  demonstrates positive-EV in a specific regime.
+
+- **MANIPULATED** *(currently hard-seed paused, 14.6% WR, -0.48 SOL)*:
+  detection of pump/dump manipulation. Was originally meant to trade the
+  detected manipulation intentionally, but has been net-catastrophic.
+  Must be revived only via Lab-proven strategy.
+
+### Dynamic Lane Transitions (V5.0.4598+ mission)
+
+Tokens must **transition lanes dynamically as their metrics evolve**:
+  - Mcap breaks $500K rising → PROJECT_SNIPER graduates ownership to BLUECHIP
+  - Mcap breaks $300K rising → STANDARD graduates ownership to QUALITY
+  - Mcap enters $50K–$300K trending → MOONSHOT ownership
+  - Mcap collapses / volume dies → owner lane exits, no auto-rotation
+
+Ownership rotation into PAUSED lanes (EXPRESS, MANIPULATED) is **strictly
+forbidden**. V5.0.4598 owner-lane pause check enforces this.
+
+### Design-Fidelity Audit Plan (V5.0.4599 backlog)
+
+Audit each trader's LIVE behavior vs docstring intent:
+  1. PROJECT_SNIPER: entering only 15–600s tokens? mcap window respected?
+     TP tiers hit? Ownership rotation to correct next-lane by mcap?
+  2. CashGen/Treasury: running concurrently? 100+ scalps/day target hit?
+     Compounding wallet or drained? Daily loss limit self-enforced?
+  3. MOONSHOT: diamond-hands trailing correctly? Runner detection working?
+  4. QUALITY/BLUECHIP: taking correct mcap-band tokens? Not fighting for
+     memes it shouldn't own?
+  5. All lanes: dynamic hold-logic pivoting live per token metric change?
+
+
 
 > *"All gates are meant to be in a fluid state, eventually to be removed
 > once the SUPER AGI / SSI stack takes over once they have enough learnt

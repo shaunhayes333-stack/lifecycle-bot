@@ -361,19 +361,14 @@ object GlobalTradeRegistry {
             return AddResult(false, "SCANNER_HARD_REJECT", probation = false)
         }
 
-        // V5.0.4597 — SCANNER SOURCE BRAIN INTAKE BLACKOUT. Central chokepoint
-        // so a source that has proven itself toxic (n>=30, WR<20%) gets its
-        // flood-of-tokens probabilistically skipped BEFORE they hit the
-        // watchlist. Fresh-install-safe: BOOTSTRAP + non-mature sources
-        // always pass through. A 1-in-N probe still lands so the source can
-        // self-heal on regime flip. Doctrine: soft-shape, fluid — never a
-        // hard blacklist.
-        try {
-            if (ScannerSourceBrain.shouldSkipIntake(source)) {
-                PipelineTracer.registryRejected(symbol, mint, "SCANNER_SOURCE_BRAIN_BLACKOUT_4597:$source")
-                return AddResult(false, "SCANNER_SOURCE_BRAIN_BLACKOUT_4597", probation = false)
-            }
-        } catch (_: Throwable) {}
+        // V5.0.4598 — REVERTED V5.0.4597 shouldSkipIntake intake blackout
+        // per operator directive: "we aren't meant to choke or reduce things
+        // as a bandwidth". The AGI stack already SIZE-shapes toxic sources
+        // via ScannerSourceBrain.intakeMultiplier (which multiplies the
+        // trade size DOWN to a learning probe) — that's the fluid
+        // treatment. Choking INTAKE would blind the brain to regime flips.
+        // Keeping the shouldSkipIntake helper function for future opt-in
+        // but not gating intake with it any more.
 
         // Check if already in watchlist
         val existing = watchlist[mint]
