@@ -2026,6 +2026,22 @@ for legal compliance.
         // stall class. Pure UI; no trading/scanner/FDG/exit path touched. The
         // tiles re-render from StateFlow on next tick regardless of saved state.
         try { disableSavedStateRecursive(findViewById(R.id.mainScrollView)) } catch (_: Throwable) {}
+
+        // V5.0.4591 — ANR follow-up (operator P1 Issue 3). Op dump V5.0.4589
+        // showed a 14s startup stall in X.A.getSpans (Spanned.getSpans, called
+        // during initial layout of the tile tree with dynamically-inserted
+        // TextViews). V5.9.1484 caught the mainScrollView subtree, but any
+        // children added AFTER onCreate returned (position cards, probation
+        // rows, etc.) were still saving spans. Re-run the recursion once the
+        // first draw completes via decorView so late-attached children get
+        // covered too. Cheap; runs on Main but only once.
+        try {
+            findViewById<android.view.View>(android.R.id.content)?.let { content ->
+                content.post {
+                    try { disableSavedStateRecursive(content.rootView) } catch (_: Throwable) {}
+                }
+            }
+        } catch (_: Throwable) {}
     }
 
     /**

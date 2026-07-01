@@ -9157,6 +9157,21 @@ class BotService : Service() {
             if (tsForProbe != null) MemeCrossTalkEntryBridge.shapeLaneEntry(lane, tsForProbe, confidenceFloor, isOpenPosition = false) else null
         } catch (_: Throwable) { null }
         val shapedConfidenceFloor4262 = xTalkShape4262?.confidenceFloor ?: confidenceFloor
+        // V5.0.4591 — TIGHTEN ENTRY SCORE for weak lanes (operator P1 Issue 2a).
+        // Operator: "small losers still bleeding wallet — 42 new BUYs at ~0.008 SOL
+        // × ~85% loss rate = death by a thousand cuts". Only STANDARD/MOONSHOT/
+        // BLUECHIP have positive expectancy (49-56% WR). All others need higher
+        // conviction to admit. Raise the confidence floor by +10 for weak lanes so
+        // only high-conviction picks fire. Never touches paper/sandbox.
+        val laneUpperForFloor4591 = lane.uppercase()
+        val isProvenLane4591 = laneUpperForFloor4591 == "STANDARD" ||
+            laneUpperForFloor4591 == "MOONSHOT" ||
+            laneUpperForFloor4591 == "BLUECHIP" ||
+            laneUpperForFloor4591 == "CORE" ||
+            laneUpperForFloor4591 == "V3"
+        val entryScoreTightenedFloor4591 = if (!isProvenLane4591) {
+            (shapedConfidenceFloor4262 + 10.0).coerceAtMost(90.0)
+        } else shapedConfidenceFloor4262
         val crossTalkSizeMult4262 = xTalkShape4262?.sizeMultiplier ?: 1.0
         if (xTalkShape4262 != null) {
             try {
@@ -9184,13 +9199,30 @@ class BotService : Service() {
                     source = sourceForChop,
                     phase = base.phase,
                     score = base.entryScore.toInt().coerceIn(0, 100),
-                    minScore = shapedConfidenceFloor4262.toInt().coerceIn(0, 100),
+                    minScore = entryScoreTightenedFloor4591.toInt().coerceIn(0, 100),
                 )
             ) com.lifecyclebot.engine.ChopFilter.chopPenalty() else 0
         } catch (_: Throwable) { 0 }
         val tsForManipulatedOnly4553 = edgeToken4529
         val manipulatedOnlyOverlay4553 = manipulatedOnlyOverlayActive4553(tsForManipulatedOnly4553)
         if (manipulatedOnlyOverlay4553 && !lane.equals("MANIPULATED", ignoreCase = true)) {
+            // V5.0.4591 — INTAKE-STAGE STAMP when MANIPULATED lane is auto-paused.
+            // Operator observed 31/33 FDG blocks were this reason because the token
+            // safety flagged manipulated_only, LaneAutoPauseGuard has MANIPULATED
+            // quarantined (V4588), and the router keeps re-trying non-MANIPULATED
+            // lanes. Stamp ScannerHardRejectStore so subsequent scanner cycles
+            // short-circuit at intake instead of spinning up FDG each time.
+            try {
+                if (LaneAutoPauseGuard.isPaused("MANIPULATED")) {
+                    ScannerHardRejectStore.mark(
+                        mintForProbe,
+                        edgeSymbol4529,
+                        "MANIPULATED_ONLY_LANE_QUARANTINED_4591",
+                        "MANIPULATED_LANE_AUTO_PAUSED",
+                    )
+                    PipelineHealthCollector.labelInc("MANIPULATED_ONLY_LANE_QUARANTINED_4591_STAMP")
+                }
+            } catch (_: Throwable) {}
             try {
                 PipelineHealthCollector.labelInc("MANIPULATED_ONLY_NON_MANIPULATED_LANE_REJECTED_4553")
                 PipelineHealthCollector.labelInc("PREFDG_DROP_MANIPULATED_ONLY_${lane.uppercase()}")
@@ -9293,7 +9325,7 @@ class BotService : Service() {
                 edgeQuality = if (laneBase.edgeQuality == "SKIP") "C" else laneBase.edgeQuality,
                 finalQuality = "C",
                 qualityPenalty = (resolveProbeSizeMult(mintForProbe, liquidityUsd) * crossTalkSizeMult4262).coerceIn(0.05, 1.18),
-                aiConfidence = laneBase.aiConfidence.coerceAtLeast(shapedConfidenceFloor4262),
+                aiConfidence = laneBase.aiConfidence.coerceAtLeast(entryScoreTightenedFloor4591),
             )
         }
         try {
@@ -9308,7 +9340,7 @@ class BotService : Service() {
             edgeVeto = false,
             edgeQuality = if (laneBase.edgeQuality == "SKIP") "C" else laneBase.edgeQuality,
             finalQuality = cleanQuality,
-            aiConfidence = laneBase.aiConfidence.coerceAtLeast(shapedConfidenceFloor4262),
+            aiConfidence = laneBase.aiConfidence.coerceAtLeast(entryScoreTightenedFloor4591),
         ).also {
             try {
                 ForensicLogger.lifecycle(
