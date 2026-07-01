@@ -1,7 +1,7 @@
 # AATE (Autonomous AI Trading Engine) — PRD
 
-**Last updated**: 2026-02
-**Build stream**: V5.0.4588+ (Native Kotlin Android, GitHub Actions CI)
+**Last updated**: 2026-07-02
+**Build stream**: V5.0.4594+ (Native Kotlin Android, GitHub Actions CI)
 
 ## Original Problem Statement
 
@@ -82,25 +82,50 @@ Solana assets (JUP, WIF, SOL, BONK, etc).
 
 ## Backlog
 
+### V5.0.4594 — STOP-THE-BLEED SHIP (2026-07-02, CI green ✅ Build #4578 + Smoke #2048)
+Root-caused via triage subagent (10-step RCA). Field build 5.0.4593 was
+bleeding -0.593 SOL on EXPRESS (0/31 WR) + MANIPULATED (14.6% WR) plus
+-99% catastrophic exits from stale quotes:
+- **LaneAutoPauseGuard hard-seed** — EXPRESS + MANIPULATED pre-paused at
+  init so field APK actually receives the block (was written in HEAD but
+  never tagged)
+- **LaneShadowProofLoop resume-blacklist** with operator toggle
+  (`allowLaneResume()` / `blockLaneResume()`). EXPRESS + MANIPULATED
+  cannot be auto-resumed by shadow-proof until operator opens the lane
+- **EXPRESS early-gate** in BotService (mirrors MANIPULATED at
+  TokenSafetyChecker:487 + BotService:9216) — pause now enforced BEFORE
+  ShitCoinExpress.evaluate() so paused lanes cost zero CPU
+- **Stale-quote emergency -25% backstop** in Executor.kt — when BOTH
+  live and cached prices are non-finite for >15s, force-exit. Kills the
+  -99%/-96%/-95% overruns that slipped past existing -15% / -25% SLs
+  because they returned early on empty candidates during quote outages
+- **Scanner intake cap** = 75 tokens/pass (was 166+), quality-first URL
+  reorder (market_cap DESC + reply_count DESC before created_timestamp)
+  — targets cycle time 14–36s → <10s so exits fire on time
+
 ### P0 (immediate next)
-- Confirm V5.0.4588 on-device: EXPRESS + MANIPULATED actually auto-pause?
-- MOONSHOT/STANDARD hitting 2x-2.6x entry?
+- **Verify V5.0.4594 field impact**: EXPRESS + MANIPULATED lifetime
+  trade count should stop growing; cycle time should drop <10s;
+  catastrophic-SL log entries (`STALE_QUOTE_EMERGENCY_25PCT_BACKSTOP`)
+  should show up in operator report
 
 ### P1
-- **Scanner surface expansion**: intake dominated by pump.fun new-mints; need
-  established Solana tokens too (CoinGecko trending, DEX top-liq, blue-chip
-  watchlist JUP/WIF/BONK/JITO) so QUALITY/BLUECHIP actually get fed
-- **LLM Lab shadow-proof loop**: when lane auto-paused, spin sandboxed strategy;
-  if it proves >30% WR + positive EV over 20 shadow trades, auto-resume
+- **RPC round-robin failover** (Helius → Triton → QuickNode) —
+  originally scoped, deferred as secondary to trade-quality bleed
+- **LaneAutoPauseGuard.evaluateLive()** — autonomous dynamic pause
+  logic still silently fails; hard-seed covers it for now
 - **PerpsTraderAI + TokenizedStockTrader parity** (deferred by operator)
 
 ### P2
+- MainActivity ANR fix (16 hits at onCreate:63 — actual site is
+  setContentView XML inflation; needs layout simplification, not
+  Kotlin coroutine offload)
 - Ladder status pill / Brain Health pill / Strategy Leaderboard Tile
 - Positions backup UI export
-- MainActivity ANR fix (29s startup stall observed)
 
 ### P3
 - Tune History UI, 24h PnL drift alert
+- TokenWinMemory phantom purge (>50,000% pnl rows)
 
 ## Constants Not To Touch
 
