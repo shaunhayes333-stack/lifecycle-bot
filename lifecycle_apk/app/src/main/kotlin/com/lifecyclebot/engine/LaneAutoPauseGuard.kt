@@ -142,16 +142,20 @@ object LaneAutoPauseGuard {
             val clean = try {
                 TradeHistoryStore.getRecentCleanStrategyTerminalTrades(limit = 2000)
             } catch (_: Throwable) { emptyList() }
-            if (clean.isEmpty()) return
+            if (clean.isEmpty()) {
+                try { ErrorLogger.debug("LaneAutoPauseGuard", "$VERSION evaluateLive: clean terminal trades empty (store cold)") } catch (_: Throwable) {}
+                return
+            }
 
             // Aggregate by tradingMode (lane) using the same win threshold
-            // (V5.0.4102): pnlPct >= 5% counts as a win. Scratches (0<pnl<5%)
-            // are trainable trades but not wins — matches the raw journal
-            // "By lane/mode" report the operator reads.
+            // (V5.0.4102): pnlPct >= 5% counts as a win. V5.0.4593 — dropped
+            // the side="SELL" filter because getRecentCleanStrategyTerminalTrades
+            // already returns terminal (sell/partial-sell) rows only, and the
+            // extra side check was silently dropping every row when TradeHistory
+            // used side="EXIT" or similar in some code paths.
             data class Agg(var sample: Int = 0, var wins: Int = 0, var pnlSum: Double = 0.0)
             val byLane = HashMap<String, Agg>()
             for (t in clean) {
-                if (t.side != "SELL" && t.side != "PARTIAL_SELL") continue
                 val lane = t.tradingMode.trim().uppercase()
                 if (lane.isBlank()) continue
                 val agg = byLane.getOrPut(lane) { Agg() }
@@ -159,6 +163,13 @@ object LaneAutoPauseGuard {
                 if (t.pnlPct >= 5.0) agg.wins += 1
                 agg.pnlSum += t.pnlPct
             }
+            try {
+                ErrorLogger.info(
+                    "LaneAutoPauseGuard",
+                    "$VERSION evaluateLive: clean=${clean.size} lanes=${byLane.size} paused=${paused.size} snapshot=" +
+                        byLane.entries.joinToString(" ") { (l, a) -> "$l(n=${a.sample},w=${a.wins},ev=${"%.0f".format(if (a.sample > 0) a.pnlSum / a.sample else 0.0)}%)" },
+                )
+            } catch (_: Throwable) {}
 
             var mutated = false
             for ((lane, agg) in byLane) {
