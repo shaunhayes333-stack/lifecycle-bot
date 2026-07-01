@@ -107,6 +107,11 @@ object TokenWinMemory {
     // Mint -> decisive trade history
     private val tokenStats = ConcurrentHashMap<String, TokenStats>()
 
+    private fun isShadowOrSimulatedSource(source: String?): Boolean {
+        val s = source?.trim()?.uppercase() ?: return false
+        return s.contains("SHADOW") || s.contains("SIMULATED") || s.contains("PAPER_ONLY") || s.contains("BACKTEST")
+    }
+
     // ═══════════════════════════════════════════════════════════════════════
     // INITIALIZATION
     // ═══════════════════════════════════════════════════════════════════════
@@ -139,6 +144,11 @@ object TokenWinMemory {
         phase: String,
         creatorAddress: String? = null,
     ) {
+        if (isShadowOrSimulatedSource(source)) {
+            try { SourceChokeDiagnostics4584.learningQuarantined("TOKEN_WIN_MEMORY_SHADOW_SOURCE", "mint=${mint.take(8)} symbol=$symbol source=${source.take(60)} phase=${phase.take(40)}") } catch (_: Throwable) {}
+            ErrorLogger.warn("TokenWinMemory", "TOKEN_WIN_MEMORY_SHADOW_SOURCE_QUARANTINED mint=${mint.take(8)} symbol=$symbol source=$source phase=$phase")
+            return
+        }
         val verdict = LearningPnlSanitizer.inspectPct(
             pnlPct = pnlPercent,
             context = "TokenWinMemory.recordTradeOutcome/${source.take(40)}/${phase.take(40)}",
@@ -391,6 +401,7 @@ object TokenWinMemory {
     // When entry/exit market-cap snapshots exist, use them as a second basis so
     // fabricated +pct rows cannot survive restart and keep PatternGoldenGoose hot.
     private fun sanePersistedWinner4508(w: WinningToken): Boolean {
+        if (isShadowOrSimulatedSource(w.source)) return false
         if (!saneWinner(w)) return false
         if (!w.peakPnl.isFinite() || !w.entryMcap.isFinite() || !w.exitMcap.isFinite()) return false
         if (w.peakPnl + 50.0 < w.pnlPercent) return false
@@ -991,10 +1002,12 @@ object TokenWinMemory {
                         totalPnl = statsJson.optDouble("totalPnl", 0.0),
                         avgWinPnl = statsJson.optDouble("avgWinPnl", 0.0),
                     )
-                    if (sanePatternStats(loadedStats)) {
+                    val shadowSourcePattern4584 = type.equals("source", ignoreCase = true) && isShadowOrSimulatedSource(value)
+                    if (!shadowSourcePattern4584 && sanePatternStats(loadedStats)) {
                         typeMap[value] = loadedStats
                     } else {
                         persistedPatternQuarantine4508++
+                        if (shadowSourcePattern4584) try { SourceChokeDiagnostics4584.learningQuarantined("PERSISTED_SOURCE_PATTERN_SHADOW", "type=$type value=${value.take(80)}") } catch (_: Throwable) {}
                     }
                 }
                 if (typeMap.isNotEmpty()) patterns[type] = typeMap

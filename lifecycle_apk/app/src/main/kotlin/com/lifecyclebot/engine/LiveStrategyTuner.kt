@@ -169,6 +169,12 @@ object LiveStrategyTuner {
             )
         }
 
+        // V5.0.4584 — toxic live expectancy is a tactic/style pivot first.
+        // Report 4581 still showed toxic_inner_lane_pivot as size×0.40, which
+        // reads like the rejected micro-probe doctrine. Keep the same lane owner,
+        // but label the behavior as a reclaim/liquidity/order-flow tactic pivot;
+        // sizing is only a secondary risk envelope.
+        //
         // V5.0.4579 — toxic live expectancy is NOT a command to buy the same
         // failing setup smaller and hold it longer. Runtime 4578 showed exactly
         // that failure: MANIPULATED/SHITCOIN were labelled toxic_runner_pivot
@@ -306,7 +312,7 @@ object LiveStrategyTuner {
                     (0.90 - depth * 0.22).coerceIn(0.62, 0.92)
                 else
                     (1.04 + depth * 0.20).coerceIn(1.00, 1.25),
-                label = if (toxicInnerLanePivot) "toxic_inner_lane_pivot" else "bleeder_recovery_pivot",
+                label = if (toxicInnerLanePivot) "toxic_reclaim_tactic_pivot" else "bleeder_recovery_pivot",
             )
         }
 

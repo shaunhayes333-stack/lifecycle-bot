@@ -88,6 +88,7 @@ object LearningLifecycleBus {
         try {
             PipelineHealthCollector.labelInc("LEARNING_LIFECYCLE_${stage.uppercase().take(32)}")
             if (decision.isNotBlank()) PipelineHealthCollector.labelInc("LEARNING_LIFECYCLE_DECISION_${decision.uppercase().take(40)}")
+            SourceChokeDiagnostics4584.preFdg(stage, lane, source, decision, reason)
         } catch (_: Throwable) {}
         try {
             MathematicalEdgeEngine.captureEntryOpportunity(
@@ -175,6 +176,7 @@ object LearningLifecycleBus {
             PipelineHealthCollector.labelInc("LEARNING_LIFECYCLE_EXIT_${stage.uppercase().take(32)}")
             PipelineHealthCollector.labelInc("LEARNING_LIFECYCLE_EXIT_DECISION_${decision.uppercase().take(40)}")
             if (decision.startsWith("DEFER", ignoreCase = true)) PipelineHealthCollector.labelInc("LEARNING_LIFECYCLE_HOLD_DEFER")
+            SourceChokeDiagnostics4584.stopTriggered(mint, lane, reason, pnlPct)
         } catch (_: Throwable) {}
         try {
             MathematicalEdgeEngine.captureExitDecision(

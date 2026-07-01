@@ -1409,6 +1409,7 @@ object PipelineHealthCollector {
         }
         sb.append("  Recent journal rows:  ${liveRecentRows}\n")
         sb.append("  Execution leases:     ${ExecutionAttemptLease.formatForReport()}\n")
+        try { sb.append("  ${SourceChokeDiagnostics4584.summary()}\n") } catch (_: Throwable) {}
         sb.append("\n")
         val paperJournalRows = labelCounts["PAPER_JOURNAL_ROWS"]?.get() ?: paperRecentRows.toLong()
         val paperQuarantinedRows = labelCounts["PAPER_LEARNING_ROW_QUARANTINED"]?.get() ?: 0L

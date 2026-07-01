@@ -707,6 +707,7 @@ object TradeHistoryStore {
                 }
             }
             if (prior != null) {
+                try { SourceChokeDiagnostics4584.sellJournal("duplicate_suppressed", trade.tradingMode, trade.reason) } catch (_: Throwable) {}
                 try {
                     ErrorLogger.info(
                         "TradeHistoryStore",
@@ -753,6 +754,7 @@ object TradeHistoryStore {
         // without changing accounting/PnL/lane/proof data.
         val tradeToStore = CloseOutcomeLabelSanitizer.canonicalize(enrichJournalLinkage(normalizedTrade))
         if (!isValidAccountingTrade(tradeToStore)) {
+            try { SourceChokeDiagnostics4584.sellJournal("accounting_quarantined", tradeToStore.tradingMode, tradeToStore.reason) } catch (_: Throwable) {}
             try {
                 ErrorLogger.warn(
                     "TradeHistoryStore",
@@ -796,6 +798,12 @@ object TradeHistoryStore {
                 "📓 TRADEJRNL_REC side=${tradeToStore.side} mode=${tradeToStore.mode} proof=${tradeToStore.proofState} sym=${tradeToStore.mint.take(6)} sol=${"%.3f".format(tradeToStore.sol)} pnl=${"%.3f".format(tradeToStore.pnlSol)} reason=${tradeToStore.reason} | inMem=${synchronized(lock) { trades.size }} lifetimeSells=$lifetimeSells",
             )
             PipelineHealthCollector.onTradeJournal()
+            try {
+                if (tradeToStore.side.equals("SELL", true) || tradeToStore.side.equals("PARTIAL_SELL", true)) {
+                    SourceChokeDiagnostics4584.sellJournal("journaled_${tradeToStore.side.uppercase()}", tradeToStore.tradingMode, tradeToStore.reason)
+                    SourceChokeDiagnostics4584.stopFinalized(tradeToStore.mint, tradeToStore.tradingMode, tradeToStore.reason, tradeToStore.pnlPct)
+                }
+            } catch (_: Throwable) {}
             // V5.9.670 — also record into the recent-executions ring so the
             // Pipeline Health dump can surface the last 30 trades verbatim.
             PipelineHealthCollector.recordExec(

@@ -57,6 +57,7 @@ object AgenticStyleRouter {
         // TREASURY as a toxic-meme escape hatch. The lane-local caller keeps the lane
         // owner and pivots tactic/style/confirmation inside that lane instead.
         DEFENSIVE_PROBE("defensive_probe", setOf("SHITCOIN", "MOONSHOT", "PROJECT_SNIPER", "EXPRESS", "MANIPULATED"), setOf("PROBE", "ORDER_FLOW", "SMART_MONEY", "TOXIC_GUARD"), 0.35, 0.75, 0.55),
+        TOXIC_RECLAIM_TACTIC("toxic_reclaim_tactic", setOf("SHITCOIN", "EXPRESS", "MANIPULATED", "MOONSHOT"), setOf("PULLBACK_RECLAIM", "LIQUIDITY_DEPTH", "ORDER_FLOW", "SMART_MONEY", "TOXIC_GUARD"), 0.68, 0.88, 0.70),
         LAB_EXPLORATION("lab_exploration", setOf("SHITCOIN", "MOONSHOT", "MANIPULATED", "PROJECT_SNIPER"), setOf("LAB", "HYPOTHESIS", "MEME"), 0.50, 1.00, 1.00),
     }
 
@@ -208,7 +209,8 @@ object AgenticStyleRouter {
             Style.SWING_HOLD,
             Style.LAB_EXPLORATION,
             Style.DEFENSIVE_PROBE,
-            Style.REGIME_DEFENSIVE_PROBE -> laneLocal
+            Style.REGIME_DEFENSIVE_PROBE,
+            Style.TOXIC_RECLAIM_TACTIC -> laneLocal
             else -> if (laneLocal.lanes.contains(BleederMemoryRouter.canon(laneHint))) laneLocal else style
         }
     }
@@ -256,8 +258,9 @@ object AgenticStyleRouter {
         // V5.0.4579 — toxic buckets pivot strategy inside the same lane instead
         // of buying the same failing setup smaller. Keep lane affinity, but switch
         // the style/tactic surface toward defensive/reclaim behavior before sizing.
-        val tunedBaseStyle = if (strategyTune.label == "toxic_inner_lane_pivot") sameLaneWeakPivotStyle(laneHint, Style.DEFENSIVE_PROBE) else style
-        val tunedSizeFloor = if (strategyTune.label == "toxic_inner_lane_pivot") 0.18 else 0.18
+        val toxicTacticPivot4584 = strategyTune.label == "toxic_reclaim_tactic_pivot" || strategyTune.label == "toxic_inner_lane_pivot"
+        val tunedBaseStyle = if (toxicTacticPivot4584) sameLaneWeakPivotStyle(laneHint, Style.TOXIC_RECLAIM_TACTIC) else style
+        val tunedSizeFloor = if (toxicTacticPivot4584) 0.18 else 0.18
         val tunedSize = (tunedBaseStyle.sizeMult * strategyTune.sizeMult).coerceIn(tunedSizeFloor, 1.95)
         val tunedTp = (tunedBaseStyle.tpMult * strategyTune.tpMult).coerceIn(0.65, 2.15)
         val tunedHold = (tunedBaseStyle.holdMult * strategyTune.holdMult).coerceIn(0.35, 4.00)
