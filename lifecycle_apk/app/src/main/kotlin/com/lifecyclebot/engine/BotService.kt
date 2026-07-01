@@ -13419,6 +13419,14 @@ class BotService : Service() {
                     val freshSol = walletManager.state.value.solBalance
                     status.walletSol = freshSol
 
+                    // V5.0.4586 — DAILY COMPOUND RULE 4 tracker feed. Read-only
+                    // shaper: snapshots UTC-day-open wallet balance so
+                    // LiveStrategyTuner can lift winner ceilings when we're
+                    // behind the operator's 2x/day compound floor. Fail-open.
+                    if (freshSol > 0.0) {
+                        try { DailyCompoundingTracker.update(freshSol) } catch (_: Throwable) {}
+                    }
+
                     // ── Shared wallet: broadcast live SOL balance to all traders ──────────
                     if (freshSol > 0.0) {
                         try { com.lifecyclebot.perps.CryptoAltTrader.updateLiveBalance(freshSol) } catch (_: Exception) {}

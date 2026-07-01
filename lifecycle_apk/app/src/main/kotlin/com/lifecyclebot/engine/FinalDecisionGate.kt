@@ -3224,6 +3224,40 @@ object FinalDecisionGate {
 
         var finalSize = proposedSizeSol * wrRecoveryQualityPenaltyMult  // V5.9.809/1223: soft WR-recovery/collapse probe size penalty
 
+        // V5.0.4586 — TOXIC-PATTERN HARD ADMISSION GATE (operator P0 "Rule 5").
+        // Operator directive: "Hard block worst patterns, full size for ≥35% WR,
+        // half size for no match". The existing LosingPatternMemory soft-shape
+        // (lines below) covers the graceful-shrink path down to ×0.35, plus a
+        // train-first micro-probe at 0.01 SOL. What was missing is a definitive
+        // hard block for buckets that are proven-toxic beyond any reasonable
+        // doubt (sample ≥ 30 with loss rate ≥ 90% and negative mean PnL).
+        // These patterns have been consulted ≥30 times and lost 27+ of them —
+        // continuing to fire micro-probes there is capital vandalism. Existing
+        // ≥35% WR winners already receive full/enlarged size via
+        // LiveStrategyTuner. Bootstrap-era buckets (n<30) still route through
+        // the softer learning_recovery_shaped and train_first_micro_probe
+        // paths, so scanner volume is preserved.
+        if (blockReason == null) {
+            try {
+                val toxic = LosingPatternMemory.stats(laneName, laneScoreBanded)
+                if (toxic.sample >= 30 && toxic.lossRatePct >= 90.0 && toxic.meanPnl <= -8.0) {
+                    val bucketId = try { LosingPatternMemory.bucketKey(laneName, laneScoreBanded) } catch (_: Throwable) { "$laneName|?" }
+                    blockReason = "TOXIC_PATTERN_HARD_BLOCK_${bucketId.replace('|', '_')}"
+                    blockLevel = BlockLevel.HARD
+                    checks.add(GateCheck("toxic_pattern_hard_block", false, "bucket $bucketId n=${toxic.sample} lossRate=${toxic.lossRatePct.format(1)}% mean=${toxic.meanPnl.format(1)}% — proven-toxic, hard-blocked"))
+                    tags.add("toxic_pattern_hard_block")
+                    tags.add("bucket:$bucketId")
+                    try {
+                        ErrorLogger.info(
+                            "FDG",
+                            "🚫 TOXIC_PATTERN_HARD_BLOCK ${ts.symbol} bucket=$bucketId n=${toxic.sample} lossRate=${toxic.lossRatePct.format(1)}% mean=${toxic.meanPnl.format(1)}% — Rule 5 hard-gate fired",
+                        )
+                    } catch (_: Throwable) {}
+                    try { PipelineHealthCollector.labelInc("TOXIC_PATTERN_HARD_BLOCK") } catch (_: Throwable) {}
+                }
+            } catch (_: Throwable) {}
+        }
+
         // V5.9.1136 — make learning bite without choking scanner/lane volume.
         // When canonical WR is under phase target, learned losing buckets reduce size;
         // only deep-deficit + weak evidence in a proven danger bucket blocks execution.

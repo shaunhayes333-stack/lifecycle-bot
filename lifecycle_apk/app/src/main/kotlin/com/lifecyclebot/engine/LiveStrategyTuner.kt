@@ -152,6 +152,18 @@ object LiveStrategyTuner {
             val avgWinEdge = (avgWin / 180.0).coerceIn(0.0, 1.0)
             val edge = (wrEdge * 0.18 + pfEdge * 0.26 + solEdge * 0.34 + avgWinEdge * 0.22).coerceIn(0.0, 1.0)
             val compounding = sol >= 0.20 || mean >= 45.0 || avgWin >= 120.0
+            // V5.0.4586 — DAILY COMPOUND RULE 1 (asymmetric compounding).
+            // Operator: "min daily target is 2x compound - 5x or better!!!"
+            // When the wallet is behind the 2x-per-UTC-day floor, boost the
+            // winner ceiling so proven winners can grow the book faster. Read
+            // is bounded (1.0 → 1.25) and only lifts the CEILING; it does not
+            // raise the floor, so bleeders stay damped. Never touches
+            // hard-safety; still soft-shape only.
+            val behindPress = try { DailyCompoundingTracker.behindTargetPressure() } catch (_: Throwable) { 1.0 }
+            val sizeCeiling = (1.55 * behindPress).coerceIn(1.55, 1.90)
+            val holdCeiling = (2.20 * behindPress).coerceIn(2.20, 2.65)
+            val maxWalletCeiling = (1.50 * behindPress).coerceIn(1.50, 1.80)
+            val partialCeiling = (2.60 * behindPress).coerceIn(2.60, 3.10)
             return Adjustment(
                 lane = lane,
                 trades = n,
@@ -159,12 +171,12 @@ object LiveStrategyTuner {
                 totalSolPnl = sol,
                 pfExpectancyPp = pf,
                 meanPnlPct = mean,
-                sizeMult = (1.08 + edge * 0.47).coerceIn(1.04, 1.55),
+                sizeMult = (1.08 + edge * 0.47 * behindPress).coerceIn(1.04, sizeCeiling),
                 tpMult = (1.16 + edge * 0.59).coerceIn(1.12, 1.75),
-                holdMult = (1.25 + edge * 0.95).coerceIn(1.18, 2.20),
-                maxWalletMult = (1.10 + edge * 0.40).coerceIn(1.05, 1.50),
+                holdMult = (1.25 + edge * 0.95 * behindPress).coerceIn(1.18, holdCeiling),
+                maxWalletMult = (1.10 + edge * 0.40 * behindPress).coerceIn(1.05, maxWalletCeiling),
                 liquidityImpactMult = (1.03 + edge * 0.15).coerceIn(1.00, 1.18),
-                partialTriggerMult = (1.35 + edge * 1.25).coerceIn(1.25, 2.60),
+                partialTriggerMult = (1.35 + edge * 1.25 * behindPress).coerceIn(1.25, partialCeiling),
                 label = if (compounding) "compounding_runner" else "runner_press",
             )
         }
