@@ -8834,23 +8834,44 @@ class BotService : Service() {
                                 val catastrophicConfirmed4485 = pnlPctNow <= -50.0 && execPxForTickLock != null && execVsRawDelta4485 <= 20.0
                                 val phantomRead = pnlPctNow < -50.0 && !catastrophicConfirmed4485
                                 val twoStrike = pos.lastTickFloorBreach
+                                // V5.0.4588 — CATASTROPHIC-LANE ONE-STRIKE (operator P0 task d).
+                                // Operator report: -95%/-99% closes still landing on
+                                // MANIPULATED/SHITCOIN/EXPRESS because the two-strike
+                                // requirement means the rug happens BETWEEN two ticks.
+                                // For known-catastrophic lanes, honour the -10% tick
+                                // floor on the FIRST breach — no two-strike grace. Rule
+                                // 2's -15% lane hard-SL in Executor.kt still fires as
+                                // the last-mile backstop, but this closes the gap
+                                // between ticks where rugs slip through.
+                                val laneName4588 = try { pos.tradingMode.uppercase() } catch (_: Throwable) { "" }
+                                val catastrophicLane4588 =
+                                    laneName4588 == "MANIPULATED" ||
+                                    laneName4588 == "SHITCOIN" ||
+                                    laneName4588 == "EXPRESS"
+                                val oneStrikeCatastrophic4588 = catastrophicLane4588 && !phantomRead && pnlPctNow <= TICK_HARD_FLOOR_PCT
                                 // Update the strike flag for the next tick. Confirmed catastrophic
                                 // executable-price reads bypass the old phantom dead-zone immediately.
                                 pos.lastTickFloorBreach = (pnlPctNow <= TICK_HARD_FLOOR_PCT && !phantomRead)
-                                if (pnlPctNow <= TICK_HARD_FLOOR_PCT && (catastrophicConfirmed4485 || (!phantomRead && twoStrike))) {
+                                if (pnlPctNow <= TICK_HARD_FLOOR_PCT && (catastrophicConfirmed4485 || oneStrikeCatastrophic4588 || (!phantomRead && twoStrike))) {
                                     ErrorLogger.warn("BotService",
                                         "🛑 TICK_HARD_FLOOR ${ts.symbol} ${"%.1f".format(pnlPctNow)}% " +
-                                        "≤ ${TICK_HARD_FLOOR_PCT.toInt()}% — immediate exit (peak=${"%.1f".format(peakPct)}% catastrophic=$catastrophicConfirmed4485)")
+                                        "≤ ${TICK_HARD_FLOOR_PCT.toInt()}% — immediate exit (peak=${"%.1f".format(peakPct)}% catastrophic=$catastrophicConfirmed4485 oneStrikeLane=$oneStrikeCatastrophic4588)")
                                     try {
                                         if (catastrophicConfirmed4485) {
                                             PipelineHealthCollector.labelInc("TICK_CATASTROPHIC_CONFIRMED_BYPASS_PHANTOM_4495")
                                             ForensicLogger.lifecycle("TICK_CATASTROPHIC_CONFIRMED_BYPASS_PHANTOM_4495", "mint=${ts.mint.take(10)} symbol=${ts.symbol} raw=${"%.1f".format(rawTickPnlPctNow)} exec=${"%.1f".format(execPnlPctNow)} delta=${"%.1f".format(execVsRawDelta4485)} peak=${"%.1f".format(peakPct)} action=immediate_sell")
                                         }
+                                        if (oneStrikeCatastrophic4588 && !catastrophicConfirmed4485) {
+                                            PipelineHealthCollector.labelInc("TICK_HARD_FLOOR_CATASTROPHIC_LANE_ONE_STRIKE_4588_$laneName4588")
+                                            ForensicLogger.lifecycle("TICK_HARD_FLOOR_CATASTROPHIC_LANE_ONE_STRIKE_4588", "mint=${ts.mint.take(10)} symbol=${ts.symbol} lane=$laneName4588 pnl=${"%.1f".format(pnlPctNow)}% peak=${"%.1f".format(peakPct)}% action=immediate_sell_no_two_strike_grace")
+                                        }
                                         val cfgTick = ConfigStore.load(applicationContext)
                                         val walletTick = walletManager.getWallet()
                                         val balTick = status.getEffectiveBalance(cfgTick.paperMode)
                                         executor.requestSell(ts,
-                                            if (catastrophicConfirmed4485) "TICK_CATASTROPHIC_CONFIRMED_${pnlPctNow.toInt()}PCT" else "TICK_HARD_FLOOR_${pnlPctNow.toInt()}PCT",
+                                            if (catastrophicConfirmed4485) "TICK_CATASTROPHIC_CONFIRMED_${pnlPctNow.toInt()}PCT"
+                                            else if (oneStrikeCatastrophic4588) "TICK_HARD_FLOOR_CATASTROPHIC_LANE_${laneName4588}_${pnlPctNow.toInt()}PCT_4588"
+                                            else "TICK_HARD_FLOOR_${pnlPctNow.toInt()}PCT",
                                             walletTick, balTick)
                                     } catch (_: Throwable) {}
                                 } else {
@@ -13426,6 +13447,11 @@ class BotService : Service() {
                     if (freshSol > 0.0) {
                         try { DailyCompoundingTracker.update(freshSol) } catch (_: Throwable) {}
                     }
+
+                    // V5.0.4588 — LANE AUTO-PAUSE evaluation. Cheap; internally
+                    // rate-limited to every 30s. Auto-pauses proven-toxic lanes
+                    // (n>=15 && wins=0) OR (n>=20 && wr<20% && ev<=-40%).
+                    try { LaneAutoPauseGuard.evaluateLive() } catch (_: Throwable) {}
 
                     // ── Shared wallet: broadcast live SOL balance to all traders ──────────
                     if (freshSol > 0.0) {

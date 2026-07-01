@@ -3224,6 +3224,35 @@ object FinalDecisionGate {
 
         var finalSize = proposedSizeSol * wrRecoveryQualityPenaltyMult  // V5.9.809/1223: soft WR-recovery/collapse probe size penalty
 
+        // V5.0.4588 — LANE AUTO-PAUSE HARD-BLOCK (operator P0 tasks a + b).
+        // Operator on 2026-02: 'EXPRESS needs to find the right strategy and
+        // tokens to trade! ... MANIPULATED can be paused until llm lab proves
+        // a strategy thats profitable and is introduced then unpaused'.
+        // LaneAutoPauseGuard reads LiveProbabilityEngine.laneSnapshots() and
+        // auto-pauses lanes that hit (n>=15 && wins=0) OR (n>=20 && wr<20% &&
+        // ev<=-40%). Paused lanes are quarantined from LIVE admission until
+        // an LLM Lab shadow-proof or operator manualResume(). Paper/sandbox
+        // paths are unaffected. Fail-open on exception.
+        if (blockReason == null) {
+            try {
+                val pauseState = LaneAutoPauseGuard.statusFor(laneName)
+                if (pauseState != null) {
+                    blockReason = "LANE_AUTO_PAUSED_${pauseState.lane}_${pauseState.reason}"
+                    blockLevel = BlockLevel.HARD
+                    checks.add(GateCheck("lane_auto_paused", false, "${pauseState.lane} paused n=${pauseState.sample} wr=${pauseState.wrPct.format(1)}% ev=${pauseState.evPct.format(1)}% reason=${pauseState.reason} — awaiting LLM Lab proof"))
+                    tags.add("lane_auto_paused")
+                    tags.add("pause_reason:${pauseState.reason}")
+                    try {
+                        ErrorLogger.info(
+                            "FDG",
+                            "🛑 LANE_AUTO_PAUSED_HARD_BLOCK ${ts.symbol} lane=${pauseState.lane} n=${pauseState.sample} wr=${pauseState.wrPct.format(1)}% ev=${pauseState.evPct.format(1)}%",
+                        )
+                    } catch (_: Throwable) {}
+                    try { PipelineHealthCollector.labelInc("LANE_AUTO_PAUSED_FDG_BLOCK_${pauseState.lane}") } catch (_: Throwable) {}
+                }
+            } catch (_: Throwable) {}
+        }
+
         // V5.0.4586 — TOXIC-PATTERN HARD ADMISSION GATE (operator P0 "Rule 5").
         // Operator directive: "Hard block worst patterns, full size for ≥35% WR,
         // half size for no match". The existing LosingPatternMemory soft-shape

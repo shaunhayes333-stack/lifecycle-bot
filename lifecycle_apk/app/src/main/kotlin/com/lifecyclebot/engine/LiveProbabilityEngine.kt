@@ -179,6 +179,32 @@ object LiveProbabilityEngine {
         else "LiveProbabilityEngine: " + rows.joinToString(" · ") { "${it.lane}:pWin=${"%.0f".format(it.pWin * 100)}% E=${"%+.1f".format(it.expectedPnlPct)}% size×=${"%.2f".format(it.sizeMult)} n=${it.samples}" }
     } catch (_: Throwable) { "LiveProbabilityEngine: unavailable" }
 
+    /**
+     * V5.0.4588 — expose per-lane rollup snapshots for LaneAutoPauseGuard.
+     * Reads from the same StrategyTelemetry clean-truth ledger that
+     * powers statusLine(). Each snapshot is derived from confirmed
+     * live-terminal closes only (no paper contamination).
+     */
+    data class LaneSnapshot(
+        val lane: String,
+        val sample: Int,
+        val wins: Int,
+        val wrPct: Double,
+        val evPct: Double,
+    )
+
+    fun laneSnapshots(): List<LaneSnapshot> = try {
+        StrategyTelemetry.computeCleanLiveTerminalLeaderboard(limit = 1_500).map { row ->
+            LaneSnapshot(
+                lane = row.strategy.uppercase(),
+                sample = row.trades,
+                wins = row.wins,
+                wrPct = if (row.trades > 0) row.wins.toDouble() / row.trades.toDouble() * 100.0 else 0.0,
+                evPct = row.meanPnlPct,
+            )
+        }
+    } catch (_: Throwable) { emptyList() }
+
     private fun canonical(raw: String?): String {
         val r = raw?.trim()?.takeIf { it.isNotBlank() } ?: return "STANDARD"
         return try { LiveGrowthDoctrine.canonicalLane(r) } catch (_: Throwable) { r.uppercase() }

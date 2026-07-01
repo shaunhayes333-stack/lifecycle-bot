@@ -153,17 +153,23 @@ object LiveStrategyTuner {
             val edge = (wrEdge * 0.18 + pfEdge * 0.26 + solEdge * 0.34 + avgWinEdge * 0.22).coerceIn(0.0, 1.0)
             val compounding = sol >= 0.20 || mean >= 45.0 || avgWin >= 120.0
             // V5.0.4586 — DAILY COMPOUND RULE 1 (asymmetric compounding).
-            // Operator: "min daily target is 2x compound - 5x or better!!!"
-            // When the wallet is behind the 2x-per-UTC-day floor, boost the
-            // winner ceiling so proven winners can grow the book faster. Read
-            // is bounded (1.0 → 1.25) and only lifts the CEILING; it does not
-            // raise the floor, so bleeders stay damped. Never touches
-            // hard-safety; still soft-shape only.
+            // V5.0.4588 — PROVEN-WINNER 2x-3x PRESS (operator P0 task c).
+            // Operator: 'c for sure! if lanes are 49% profitable double triple
+            // the entry size!!!'. When lane WR>=45% AND n>=5 AND positive PnL,
+            // this is a PROVEN winner — lift the size ceiling to 2.50x (was
+            // 1.90x with behind-target pressure), and lift hold/partial too so
+            // the runners we press harder also stay open longer to catch full
+            // upside. Bleeders unchanged (still shrink via loser branch).
             val behindPress = try { DailyCompoundingTracker.behindTargetPressure() } catch (_: Throwable) { 1.0 }
-            val sizeCeiling = (1.55 * behindPress).coerceIn(1.55, 1.90)
-            val holdCeiling = (2.20 * behindPress).coerceIn(2.20, 2.65)
-            val maxWalletCeiling = (1.50 * behindPress).coerceIn(1.50, 1.80)
-            val partialCeiling = (2.60 * behindPress).coerceIn(2.60, 3.10)
+            val provenWinner4588 = wr >= 45.0 && n >= 5 && sol > 0.0
+            val provenBoost4588 = if (provenWinner4588) 1.35 else 1.0  // +35% ceiling for proven winners
+            val sizeCeiling = (1.55 * behindPress * provenBoost4588).coerceIn(1.55, 2.60)
+            val holdCeiling = (2.20 * behindPress * provenBoost4588).coerceIn(2.20, 3.20)
+            val maxWalletCeiling = (1.50 * behindPress * provenBoost4588).coerceIn(1.50, 2.20)
+            val partialCeiling = (2.60 * behindPress * provenBoost4588).coerceIn(2.60, 3.80)
+            val baseSizeGain = if (provenWinner4588) 0.72 else 0.47
+            val baseHoldGain = if (provenWinner4588) 1.35 else 0.95
+            val basePartialGain = if (provenWinner4588) 1.85 else 1.25
             return Adjustment(
                 lane = lane,
                 trades = n,
@@ -171,13 +177,13 @@ object LiveStrategyTuner {
                 totalSolPnl = sol,
                 pfExpectancyPp = pf,
                 meanPnlPct = mean,
-                sizeMult = (1.08 + edge * 0.47 * behindPress).coerceIn(1.04, sizeCeiling),
+                sizeMult = (1.08 + edge * baseSizeGain * behindPress).coerceIn(1.04, sizeCeiling),
                 tpMult = (1.16 + edge * 0.59).coerceIn(1.12, 1.75),
-                holdMult = (1.25 + edge * 0.95 * behindPress).coerceIn(1.18, holdCeiling),
+                holdMult = (1.25 + edge * baseHoldGain * behindPress).coerceIn(1.18, holdCeiling),
                 maxWalletMult = (1.10 + edge * 0.40 * behindPress).coerceIn(1.05, maxWalletCeiling),
                 liquidityImpactMult = (1.03 + edge * 0.15).coerceIn(1.00, 1.18),
-                partialTriggerMult = (1.35 + edge * 1.25 * behindPress).coerceIn(1.25, partialCeiling),
-                label = if (compounding) "compounding_runner" else "runner_press",
+                partialTriggerMult = (1.35 + edge * basePartialGain * behindPress).coerceIn(1.25, partialCeiling),
+                label = if (provenWinner4588) "proven_winner_press_2x3x" else if (compounding) "compounding_runner" else "runner_press",
             )
         }
 
