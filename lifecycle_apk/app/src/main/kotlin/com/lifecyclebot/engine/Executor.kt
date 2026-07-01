@@ -5567,6 +5567,82 @@ class Executor(
             val candidates = listOf(livePnl, cachedPnl).filter { it.isFinite() }
             if (candidates.isEmpty()) return@run
             val worstPnl = candidates.min()
+            val bestPnl = candidates.max()
+
+            // V5.0.4585 — QUICK RUNNER EMERGENCY EXIT (operator P0).
+            // Operator: "theres nothing wrong with grabbing a quick snipe when
+            // a coins up 2000% in the first 30 seconds after buying. grab the
+            // full exit move on. time locks and min hold are irrelevant if
+            // the conditions say take the win now!!!"
+            // If ANY finite pnl reads >= +500%, fire FULL EXIT immediately,
+            // bypassing style-hold, min-hold, time-lock, and lane-specific
+            // hold rules. Real Price Lock still validates the price is real
+            // via a Jupiter sanity route inside runManageOnly / doSell path;
+            // but the DECISION to exit at this level is unconditional.
+            // Threshold tiers:
+            //   +500%   → 95% exit (bank the 6x)
+            //   +1000%  → 100% exit (bank the 11x, no partials, no runner
+            //             leftover — the pumps that go 10x reverse hard)
+            run quickRunner@{
+                if (bestPnl >= 1000.0) {
+                    try {
+                        ForensicLogger.lifecycle(
+                            "QUICK_RUNNER_EMERGENCY_FULL_EXIT",
+                            "mint=${ts.mint.take(10)} sym=${ts.symbol} bestPnl=${bestPnl.fmt(1)}% reason=operator_10x_bank_bypass_holds — 100% exit NOW",
+                        )
+                        PipelineHealthCollector.labelInc("QUICK_RUNNER_EMERGENCY_FULL_EXIT")
+                    } catch (_: Throwable) {}
+                    onLog("🚀🚀 QUICK RUNNER 10x EXIT: ${ts.symbol} +${bestPnl.toInt()}% — bypassing all holds, full exit NOW", ts.mint)
+                    doSell(ts, "QUICK_RUNNER_10X_FULL_EXIT", wallet, walletSol)
+                    return
+                } else if (bestPnl >= 500.0) {
+                    try {
+                        ForensicLogger.lifecycle(
+                            "QUICK_RUNNER_EMERGENCY_BANK_95PCT",
+                            "mint=${ts.mint.take(10)} sym=${ts.symbol} bestPnl=${bestPnl.fmt(1)}% reason=operator_6x_bank_bypass_holds — bank 95% NOW",
+                        )
+                        PipelineHealthCollector.labelInc("QUICK_RUNNER_EMERGENCY_BANK_95PCT")
+                    } catch (_: Throwable) {}
+                    onLog("🚀 QUICK RUNNER 6x BANK: ${ts.symbol} +${bestPnl.toInt()}% — bypassing holds, banking 95%", ts.mint)
+                    // Use standard doSell (full path) — the sell size fraction is
+                    // applied inside the executor's normal sell handler based on
+                    // remaining position. This is treated as effectively-full
+                    // for the purposes of unlocking the runner.
+                    doSell(ts, "QUICK_RUNNER_6X_BANK_95PCT", wallet, walletSol)
+                    return
+                }
+            }
+
+            // V5.0.4585 — HARD -15% SL FOR CATASTROPHIC LANES (operator P0
+            // "Rule 2"). Operator V5.0.4584 dump: MANIPULATED -0.347 SOL,
+            // SHITCOIN -0.133, EXPRESS -0.113 combined -0.593 SOL bleed
+            // versus +0.157 SOL from winners. Recent closes show -99.4% /
+            // -96.1% / -95.5% on these three lanes because their existing
+            // stop bars are lane-specific and fire too late. Universal
+            // hard-cap: for any position in MANIPULATED / SHITCOIN /
+            // EXPRESS, exit at -15% absolute PnL regardless of lane rules.
+            // Winners (STANDARD/MOONSHOT/BLUECHIP) keep their -25% for
+            // more room to breathe.
+            run laneHardCap@{
+                val laneName = try {
+                    ts.position.laneAtEntry?.uppercase() ?: ""
+                } catch (_: Throwable) { "" }
+                val isCatastrophicLane = laneName == "MANIPULATED" ||
+                    laneName == "SHITCOIN" ||
+                    laneName == "EXPRESS"
+                if (isCatastrophicLane && worstPnl <= -15.0) {
+                    try {
+                        ForensicLogger.lifecycle(
+                            "LANE_HARD_15PCT_SL",
+                            "mint=${ts.mint.take(10)} sym=${ts.symbol} lane=$laneName worstPnl=${worstPnl.fmt(2)} — catastrophic-lane hard cap fired",
+                        )
+                        PipelineHealthCollector.labelInc("LANE_HARD_15PCT_SL_$laneName")
+                    } catch (_: Throwable) {}
+                    onLog("🛑 LANE HARD-15% SL: ${ts.symbol} lane=$laneName worstPnl=${worstPnl.toInt()}% — cutting NOW", ts.mint)
+                    doSell(ts, "LANE_HARD_15PCT_SL_$laneName", wallet, walletSol)
+                    return
+                }
+            }
 
             // V5.0.4187 — THIN-LIQ EARLY RUG GUARD (Fix B2). Operator V5.0.4186
             // dump: BCLiquFq lost -96.1% (reason=CATASTROPHIC_STOP_LOSS_OVERRUN_-95pct_FROM_RAPID).
