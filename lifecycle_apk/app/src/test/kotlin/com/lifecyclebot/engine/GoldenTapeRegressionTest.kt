@@ -7065,4 +7065,23 @@ class GoldenTapeRegressionTest {
         assertTrue("V5.0.4584: AgenticStyleRouter must convert toxic tuning into a lane-local reclaim/liquidity style", router.contains("TOXIC_RECLAIM_TACTIC") && router.contains("PULLBACK_RECLAIM") && router.contains("LIQUIDITY_DEPTH") && router.contains("toxicTacticPivot4584"))
     }
 
+
+
+    @Test
+    fun aate4585CommonSenseUnknownSafetyPivotsNotLaneChokes() {
+        val playbook = java.io.File("src/main/kotlin/com/lifecyclebot/engine/CommonSenseTradePlaybook.kt").readText()
+        assertTrue("V5.0.4585: true hard safety must remain a terminal common-sense reject", playbook.contains("TRUE_HARD_SAFETY_OR_HOLDER_RISK") && playbook.contains("hardSafetyBlocked") && playbook.contains("holderHardRisk"))
+        assertTrue("V5.0.4585: provider-blind safety/holder uncertainty must shape/pivot instead of choking all lanes", playbook.contains("SAFETY_HOLDER_UNCONFIRMED_TACTIC_PIVOT") && playbook.contains("providerBlindSafety") && playbook.contains("tradeableSetup || snap.score >= 55.0"))
+        assertTrue("V5.0.4585: old SAFETY_OR_HOLDER_RISK should remain only as non-tradeable fallback, not first hard branch", playbook.indexOf("fun allowShaped") < playbook.indexOf("SAFETY_HOLDER_UNCONFIRMED_TACTIC_PIVOT") && playbook.indexOf("SAFETY_HOLDER_UNCONFIRMED_TACTIC_PIVOT") < playbook.lastIndexOf("SAFETY_OR_HOLDER_RISK"))
+    }
+
+    @Test
+    fun aate4585RealMoneyNotificationsRequireWalletFinalityAndAccounting() {
+        val exec = java.io.File("src/main/kotlin/com/lifecyclebot/engine/Executor.kt").readText()
+        assertTrue("V5.0.4585: capital/profit notifications must be deferred until live sell finality", exec.contains("CAPITAL_RECOVERY_NOTIFY_DEFERRED_UNTIL_FINALITY_4585") && exec.contains("PROFIT_LOCK_NOTIFY_DEFERRED_UNTIL_FINALITY_4585"))
+        assertTrue("V5.0.4585: capital recovered state must require verified SOL proceeds to cover original cost", exec.contains("realizedCapitalRecovery4585") && exec.contains("solBack >= pos.costSol * 0.98") && exec.contains("CAPITAL_RECOVERY_STATE_SUPPRESSED_UNREALIZED_4585"))
+        assertTrue("V5.0.4585: real-money notifications must use wallet-finalized solBack/netPnl and dedupe by sell key", exec.contains("realizedMoneyNotifiedSellKeys4585") && exec.contains("CAPITAL_RECOVERY_NOTIFY_REALIZED_4585") && exec.contains("REAL_MONEY_NOTIFY_DUP_SUPPRESSED_4585"))
+        assertFalse("V5.0.4585: pre-finality trigger path must not claim initial investment secured", exec.contains("initial investment secured"))
+    }
+
 }

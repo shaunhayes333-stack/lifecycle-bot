@@ -778,6 +778,10 @@ class Executor(
         // thread reaches its normal recordTrade(BUY) section. The recovery path
         // must backfill a missing BUY row, but never duplicate one for the same tx.
         private val liveBuyJournaledSigs4576 = java.util.concurrent.ConcurrentHashMap.newKeySet<String>()
+        // V5.0.4585 — real-money notification idempotency. Win/capital alerts
+        // must be emitted only after wallet-finalized SOL accounting, never from
+        // mark-price trigger paths, and never more than once for the same sell tx.
+        private val realizedMoneyNotifiedSellKeys4585 = java.util.concurrent.ConcurrentHashMap.newKeySet<String>()
     }
     
     // Lazy init to get Jupiter API key from config
@@ -4315,11 +4319,8 @@ class Executor(
             val sellQty = pos.qtyToken * sellFraction
             val sellSol = sellQty * actualPrice
             
-            onLog("🔒 CAPITAL RECOVERY: ${ts.symbol} @ ${gainMultiple.fmt(2)}x (threshold: ${capitalRecoveryThreshold.fmt(2)}x) — selling ${(sellFraction*100).toInt()}% to recover initial", ts.mint)
-            onNotify("🔒 Capital Recovered!",
-                "${ts.symbol} @ ${gainMultiple.fmt(1)}x — initial investment secured",
-                com.lifecyclebot.engine.NotificationHistory.NotifEntry.NotifType.INFO)
-            sounds?.playMilestone(gainPct)
+            onLog("🔒 CAPITAL RECOVERY REQUEST: ${ts.symbol} @ ${gainMultiple.fmt(2)}x (threshold: ${capitalRecoveryThreshold.fmt(2)}x) — attempting to sell ${(sellFraction*100).toInt()}% to recover initial", ts.mint)
+            try { PipelineHealthCollector.labelInc("CAPITAL_RECOVERY_NOTIFY_DEFERRED_UNTIL_FINALITY_4585") } catch (_: Throwable) {}
             
             // V5.9.751b — route on POSITION isPaper, not config. Previously
             // a live position with a transient wallet=null silently booked a
@@ -4410,11 +4411,8 @@ class Executor(
             val sellQty = pos.qtyToken * sellFraction
             val sellSol = sellQty * actualPrice
             
-            onLog("🔐 PROFIT LOCK: ${ts.symbol} @ ${gainMultiple.fmt(2)}x (threshold: ${profitLockThreshold.fmt(2)}x) — locking 50% of remaining profits", ts.mint)
-            onNotify("🔐 Profits Locked!",
-                "${ts.symbol} @ ${gainMultiple.fmt(1)}x — 50% profits secured",
-                com.lifecyclebot.engine.NotificationHistory.NotifEntry.NotifType.INFO)
-            sounds?.playMilestone(gainPct)
+            onLog("🔐 PROFIT LOCK REQUEST: ${ts.symbol} @ ${gainMultiple.fmt(2)}x (threshold: ${profitLockThreshold.fmt(2)}x) — attempting to lock 50% of remaining profits", ts.mint)
+            try { PipelineHealthCollector.labelInc("PROFIT_LOCK_NOTIFY_DEFERRED_UNTIL_FINALITY_4585") } catch (_: Throwable) {}
             
             // V5.9.751b — see B1 note. Route on position isPaper, defer if
             // live-position + wallet=null.
@@ -5150,14 +5148,25 @@ class Executor(
             val newCost = pos.costSol * (1.0 - sellFraction)
             
             val isCapitalRecovery = reason.contains("capital_recovery")
+            val realizedCapitalRecovery4585 = isCapitalRecovery && pos.costSol > 0.0 && solBack >= pos.costSol * 0.98 && netPnl >= -0.000_001
+            val realizedProfitLock4585 = !isCapitalRecovery && netPnl > 0.0 && solBack > 0.0
+            if (isCapitalRecovery && !realizedCapitalRecovery4585) {
+                try {
+                    ForensicLogger.lifecycle(
+                        "CAPITAL_RECOVERY_STATE_SUPPRESSED_UNREALIZED_4585",
+                        "mint=${ts.mint.take(10)} symbol=${ts.symbol} solBack=${solBack.fmt(6)} cost=${pos.costSol.fmt(6)} net=${netPnl.fmt(6)} reason=$reason sig=${finalSig.take(12)}",
+                    )
+                    PipelineHealthCollector.labelInc("CAPITAL_RECOVERY_STATE_SUPPRESSED_UNREALIZED_4585")
+                } catch (_: Throwable) {}
+            }
             ts.position = pos.copy(
                 qtyToken = newQty,
                 costSol = newCost,
-                capitalRecovered = if (isCapitalRecovery) true else pos.capitalRecovered,
-                capitalRecoveredSol = if (isCapitalRecovery) solBack else pos.capitalRecoveredSol,
-                profitLocked = if (!isCapitalRecovery) true else pos.profitLocked,
-                profitLockedSol = if (!isCapitalRecovery) solBack else pos.profitLockedSol,
-                isHouseMoney = true,
+                capitalRecovered = if (realizedCapitalRecovery4585) true else pos.capitalRecovered,
+                capitalRecoveredSol = if (realizedCapitalRecovery4585) solBack else pos.capitalRecoveredSol,
+                profitLocked = if (realizedProfitLock4585) true else pos.profitLocked,
+                profitLockedSol = if (realizedProfitLock4585) solBack else pos.profitLockedSol,
+                isHouseMoney = pos.isHouseMoney || realizedCapitalRecovery4585 || realizedProfitLock4585,
                 lockedProfitFloor = pos.lockedProfitFloor + solBack,
             )
             
@@ -5210,7 +5219,7 @@ class Executor(
             val solPrice = WalletManager.lastKnownSolPrice
             val gainMultiple = (solBack + pos.lockedProfitFloor) / pos.costSol
             
-            val eventType = if (isCapitalRecovery) TreasuryEventType.CAPITAL_RECOVERED 
+            val eventType = if (realizedCapitalRecovery4585) TreasuryEventType.CAPITAL_RECOVERED
                            else TreasuryEventType.PROFIT_LOCK_SELL
             TreasuryManager.recordProfitLockEvent(eventType, solBack, ts.symbol, gainMultiple, solPrice)
             
@@ -5275,9 +5284,37 @@ class Executor(
                 /* never break the live path on reconcile */
             }
             onLog("✅ LIVE $reason: ${solBack.fmt(4)} SOL | pnl ${pnlSol.fmt(4)} SOL | sig=${finalSig.take(16)}…", ts.mint)
-            onNotify("✅ Profit Locked",
-                "${ts.symbol} secured ${solBack.fmt(3)} SOL",
-                com.lifecyclebot.engine.NotificationHistory.NotifEntry.NotifType.INFO)
+            try {
+                val notifyKey4585 = "${ts.mint}:${finalSig}:${reason.take(48)}"
+                if (realizedMoneyNotifiedSellKeys4585.add(notifyKey4585)) {
+                    val realizedMultiple4585 = if (pos.costSol > 0.0) solBack / pos.costSol else 0.0
+                    when {
+                        realizedCapitalRecovery4585 -> {
+                            onNotify(
+                                "🔒 Capital Recovered!",
+                                "${ts.symbol} received ${solBack.fmt(4)} SOL (${realizedMultiple4585.fmt(2)}x real) net ${netPnl.fmt(4)} SOL",
+                                com.lifecyclebot.engine.NotificationHistory.NotifEntry.NotifType.INFO,
+                            )
+                            sounds?.playMilestone((realizedMultiple4585 - 1.0) * 100.0)
+                            PipelineHealthCollector.labelInc("CAPITAL_RECOVERY_NOTIFY_REALIZED_4585")
+                        }
+                        realizedProfitLock4585 -> {
+                            onNotify(
+                                "✅ Profit Locked",
+                                "${ts.symbol} realized ${solBack.fmt(4)} SOL net ${netPnl.fmt(4)} SOL",
+                                com.lifecyclebot.engine.NotificationHistory.NotifEntry.NotifType.INFO,
+                            )
+                            sounds?.playMilestone(pnlPct)
+                            PipelineHealthCollector.labelInc("PROFIT_LOCK_NOTIFY_REALIZED_4585")
+                        }
+                        else -> {
+                            PipelineHealthCollector.labelInc("REAL_MONEY_NOTIFY_SUPPRESSED_NOT_PROFIT_4585")
+                        }
+                    }
+                } else {
+                    PipelineHealthCollector.labelInc("REAL_MONEY_NOTIFY_DUP_SUPPRESSED_4585")
+                }
+            } catch (_: Throwable) {}
                 
         } catch (e: Exception) {
             // V5.9.474 — classified post-quote forensics for profit-lock catch

@@ -43,6 +43,9 @@ object CommonSenseTradePlaybook {
         val confidence: String,
         val sizeMultiplier: Double,
         val reasons: List<String>,
+        val hardSafetyBlocked: Boolean = false,
+        val providerBlindSafety: Boolean = false,
+        val holderHardRisk: Boolean = false,
         val capturedAtMs: Long = System.currentTimeMillis(),
     )
 
@@ -99,7 +102,6 @@ object CommonSenseTradePlaybook {
         if (!snap.liquidityKnown) return deny("LIQUIDITY_UNKNOWN", "liq=${snap.liquidityUsd}")
         if (!snap.routeKnown || !routeTrustedFromStyle) return deny("SELL_ROUTE_UNKNOWN", "routeKnown=${snap.routeKnown} routeTrustedFromStyle=$routeTrustedFromStyle")
         if (!snap.tokenMapComplete) return deny("TOKEN_MAP_INCOMPLETE", "tokenMapComplete=false")
-        if (!snap.safetyKnown || !snap.rugClean || !snap.holderAcceptable) return deny("SAFETY_OR_HOLDER_RISK", "safetyKnown=${snap.safetyKnown} rugClean=${snap.rugClean} holders=${snap.holderAcceptable}")
         fun allowShaped(reason: String, mult: Double, extra: String): Verdict {
             val shaped = mult.coerceIn(0.35, 1.0)
             val detail = (snap.reasons + extra).filter { it.isNotBlank() }.joinToString("|").take(240)
@@ -117,6 +119,25 @@ object CommonSenseTradePlaybook {
 
         val setupKnown = snap.tradeType != "NO_STRUCTURE"
         val tradeableSetup = setupKnown && snap.liquidityUsd >= 500.0 && snap.routeKnown && snap.tokenMapComplete
+        // V5.0.4585 — source choke fix. True hard safety still blocks, but
+        // provider-blind safety/holder uncertainty no longer kills almost every
+        // FDG-allowed lane after Executor starts. The 4584 report showed
+        // COMMON_SENSE_PREBUY_SAFETY_OR_HOLDER_RISK=176 alongside holder-proof
+        // blind pressure=190. Unknown/pending provider state becomes a lane-local
+        // tactic/size pivot when the setup, route, token map and liquidity exist.
+        if (snap.hardSafetyBlocked || snap.holderHardRisk) {
+            return deny("TRUE_HARD_SAFETY_OR_HOLDER_RISK", "hardSafety=${snap.hardSafetyBlocked} holderHard=${snap.holderHardRisk} safetyKnown=${snap.safetyKnown} rugClean=${snap.rugClean} holders=${snap.holderAcceptable}")
+        }
+        if (!snap.safetyKnown || !snap.rugClean || !snap.holderAcceptable) {
+            if (tradeableSetup || snap.score >= 55.0) {
+                return allowShaped(
+                    "SAFETY_HOLDER_UNCONFIRMED_TACTIC_PIVOT",
+                    0.50,
+                    "providerBlind=${snap.providerBlindSafety} safetyKnown=${snap.safetyKnown} rugClean=${snap.rugClean} holders=${snap.holderAcceptable} tradeType=${snap.tradeType}",
+                )
+            }
+            return deny("SAFETY_OR_HOLDER_RISK", "safetyKnown=${snap.safetyKnown} rugClean=${snap.rugClean} holders=${snap.holderAcceptable}")
+        }
         if (!snap.logicalBuyZone) {
             if (tradeableSetup || snap.score >= 58.0) return allowShaped("AMBIGUOUS_BUY_ZONE_PIVOT", 0.35, "logicalBuyZone=false tradeType=${snap.tradeType}")
             return deny("NO_LOGICAL_BUY_ZONE", "tradeType=${snap.tradeType}")
@@ -163,9 +184,12 @@ object CommonSenseTradePlaybook {
         val safety = ts.safety
         val rc = safety.rugcheckStatus.uppercase(Locale.US)
         val safetyKnown = ts.lastSafetyCheck > 0L || safety.checkedAt > 0L
-        val rugClean = !safety.isBlocked && safety.tier != SafetyTier.HARD_BLOCK && safety.hardBlockReasons.isEmpty() && safety.rugcheckScore != 0 && rc !in setOf("UNKNOWN", "TIMEOUT", "PENDING", "PENDING_REVIEW", "ERROR")
+        val hardSafetyBlocked = safety.isBlocked || safety.tier == SafetyTier.HARD_BLOCK || safety.hardBlockReasons.isNotEmpty()
+        val providerBlindSafety = !hardSafetyBlocked && (!safetyKnown || safety.rugcheckScore == 0 || rc in setOf("UNKNOWN", "TIMEOUT", "PENDING", "PENDING_REVIEW", "ERROR"))
+        val rugClean = !hardSafetyBlocked && !providerBlindSafety
         val topHolder = try { listOfNotNull(ts.topHolderPct, safety.topHolderPct.takeIf { it >= 0.0 }).maxOrNull() ?: -1.0 } catch (_: Throwable) { -1.0 }
-        val holderAcceptable = (topHolder < 0.0 || topHolder <= 35.0) && !safety.summary.contains("top holder", true)
+        val holderHardRisk = topHolder >= 55.0 || safety.summary.contains("holder concentration hard", true) || safety.summary.contains("holder hard", true)
+        val holderAcceptable = !holderHardRisk && (topHolder < 0.0 || topHolder <= 35.0) && !safety.summary.contains("top holder", true)
 
         val text = listOf(
             lane, style, ts.phase, ts.signal, ts.source, tokenMap.routeStatus,
@@ -189,8 +213,8 @@ object CommonSenseTradePlaybook {
         if (liquidityKnown) reasons += "liq=${liq.toInt()}" else reasons += "liq_unknown"
         if (routeKnown) reasons += "route_known" else reasons += "route_unknown"
         if (tokenMapComplete) reasons += "token_map_complete" else reasons += "token_map_incomplete"
-        if (rugClean) reasons += "rug_clean" else reasons += "rug_pending_or_risky"
-        if (holderAcceptable) reasons += "holders_ok" else reasons += "holders_risky"
+        if (rugClean) reasons += "rug_clean" else if (hardSafetyBlocked) reasons += "rug_hard_blocked" else reasons += "rug_provider_blind_or_pending"
+        if (holderAcceptable) reasons += "holders_ok" else if (holderHardRisk) reasons += "holders_hard_risk" else reasons += "holders_soft_or_unknown"
         reasons += "tradeType=$tradeType"
         val confidence = when {
             score >= 70.0 && liq >= 10_000.0 && tradeType !in setOf("MOMENTUM_SCALP", "NEW_TOKEN_EARLY_LIFECYCLE") -> "HIGH"
@@ -202,7 +226,7 @@ object CommonSenseTradePlaybook {
             "MEDIUM" -> 0.72
             else -> 0.35
         }
-        return Snapshot(ts.mint, ts.symbol, lane, style, score, priceKnown, liquidityKnown, liq, routeKnown, tokenMapComplete, safetyKnown, rugClean, holderAcceptable, logicalBuyZone, invalidationKnown, riskRewardAcceptable, tradeType, confidence, sizeMult, reasons)
+        return Snapshot(ts.mint, ts.symbol, lane, style, score, priceKnown, liquidityKnown, liq, routeKnown, tokenMapComplete, safetyKnown, rugClean, holderAcceptable, logicalBuyZone, invalidationKnown, riskRewardAcceptable, tradeType, confidence, sizeMult, reasons, hardSafetyBlocked, providerBlindSafety, holderHardRisk)
     }
 
     private fun classifyTradeType(text: String, score: Double, liq: Double): String = when {
