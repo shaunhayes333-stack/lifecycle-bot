@@ -29,6 +29,14 @@ object LaneExpectancyDamper {
     // Only act on lanes with enough closed trades to be real signal, not noise.
     private const val MIN_TRADES = 8
     private const val WINNER_MIN_TRADES = 8
+    // V5.0.4580 — rapid compounding tier. Runtime 4578 showed the bot had
+    // enough clean truth to know BLUECHIP/MOONSHOT were the current green lanes,
+    // but this allocator only exempted/ignored them because winner authority
+    // required 8 closes or runner exemption used `continue`. The daily 2x–5x
+    // doctrine requires pressing early clean live winners while the opportunity
+    // is fresh, bounded and self-healing.
+    private const val EARLY_WINNER_MIN_TRADES = 2
+    private const val EARLY_WINNER_MIN_WR_PCT = 30.0
 
     // A lane is a "bleeder" once its mean PnL% is this negative (below the -15%
     // hard-floor magnitude is deep red; -12% is a confirmed structural loss).
@@ -157,10 +165,16 @@ object LaneExpectancyDamper {
             // bleeder math entirely, forcing laneEvMult=1.0. This cascaded to
             // laneSizeCap=1.0 (Executor line 7701 checks laneEvMult>=1.0) and
             // regimeMult=1.0, meaning THREE sizing slots did nothing for a
-            // catastrophically bleeding lane. Gate the exemption: only exempt
-            // runner lanes that are actually profitable (net SOL > 0) or have
-            // decent hit rate (WR >= 35%). Bleeding runners get the damper.
-            if (isRunnerLane(m.strategy) && (m.totalSolPnl > 0.0 || m.winRatePct >= 35.0)) continue
+            // catastrophically bleeding lane. V5.0.4580 upgrades exemption into
+            // a compounding boost, but only for net-positive runners. WR without
+            // real SOL profit is not enough to receive capital.
+            if (isRunnerLane(m.strategy) && m.totalSolPnl > 0.0 && m.winRatePct >= EARLY_WINNER_MIN_WR_PCT) {
+                val earlyEdge = ((m.winRatePct - EARLY_WINNER_MIN_WR_PCT) / 45.0).coerceIn(0.0, 1.0)
+                val solEdge = (m.totalSolPnl / 0.08).coerceIn(0.0, 1.0)
+                val boost = (1.08 + earlyEdge * 0.14 + solEdge * 0.13).coerceIn(1.08, 1.35)
+                out[m.strategy.trim().uppercase()] = maxOf(out[m.strategy.trim().uppercase()] ?: 1.0, boost)
+                continue
+            }
 
             // V5.0.3956 — WALLET GROWTH ALLOCATOR.
             // Before this, live execution bypassed this organ and, even when enabled,
@@ -184,20 +198,25 @@ object LaneExpectancyDamper {
             // V5.0.4085 — WR-BASED RUNNER EXEMPTION (operator P0: MOONSHOT
             // n=141 WR=36% had gross EV +80%/trade but realized mean ≈ flat
             // due to TP cuts + slippage. The mean-only gate above never
-            // fires; switch to WR + sample-count which actually reflects
-            // the strategy's profitability profile. Exempt entirely.
-            if (m.trades >= WR_RUNNER_MIN_TRADES && m.winRatePct >= WR_RUNNER_MIN_PCT) {
+            // fires; switch to WR + sample-count, but V5.0.4580 requires real
+            // net-SOL non-negative truth before exemption. WR alone can still bleed.
+            if (m.trades >= WR_RUNNER_MIN_TRADES && m.winRatePct >= WR_RUNNER_MIN_PCT && m.totalSolPnl >= 0.0) {
                 out[m.strategy.trim().uppercase()] = 1.0
                 continue
             }
 
+            val earlyWinner = m.trades >= EARLY_WINNER_MIN_TRADES &&
+                m.totalSolPnl > 0.0 && m.winRatePct >= EARLY_WINNER_MIN_WR_PCT
             val winner = m.trades >= WINNER_MIN_TRADES &&
                 m.totalSolPnl > 0.0 && m.winRatePct >= 50.0 && m.pfExpectancyPp > 0.0
-            if (winner) {
+            if (earlyWinner || winner) {
                 val edge = (m.pfExpectancyPp / 30.0).coerceIn(0.0, 1.0)
-                val wrEdge = ((m.winRatePct - 50.0) / 35.0).coerceIn(0.0, 1.0)
-                val solEdge = (m.totalSolPnl / 1.0).coerceIn(0.0, 1.0)
-                val boost = (WINNER_START_MULT + (edge * 0.18) + (wrEdge * 0.10) + (solEdge * 0.05)).coerceIn(1.0, WINNER_MAX_MULT)
+                val wrBase = if (winner) 50.0 else EARLY_WINNER_MIN_WR_PCT
+                val wrEdge = ((m.winRatePct - wrBase) / 35.0).coerceIn(0.0, 1.0)
+                val solEdge = (m.totalSolPnl / if (winner) 1.0 else 0.08).coerceIn(0.0, 1.0)
+                val base = if (winner) WINNER_START_MULT else 1.08
+                val cap = if (winner) WINNER_MAX_MULT else 1.28
+                val boost = (base + (edge * 0.18) + (wrEdge * 0.10) + (solEdge * 0.10)).coerceIn(1.0, cap)
                 out[m.strategy.trim().uppercase()] = maxOf(out[m.strategy.trim().uppercase()] ?: 1.0, boost)
                 continue
             }

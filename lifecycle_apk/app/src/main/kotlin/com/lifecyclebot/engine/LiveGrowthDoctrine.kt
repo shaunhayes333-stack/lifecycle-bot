@@ -158,8 +158,12 @@ object LiveGrowthDoctrine {
     // docs/sizing, but lane fallback itself is restricted to executable lanes and
     // biased toward historically under-contributing families first.
     val dispatchableContributionLanes: List<String> = listOf(
-        "CASHGEN", "TREASURY", "BLUECHIP", "DIP_HUNTER", "EXPRESS",
-        "MANIPULATED", "PROJECT_SNIPER", "QUALITY", "MOONSHOT", "SHITCOIN", "STANDARD"
+        // V5.0.4580 — contribution fallback must wake capital-efficient lanes first.
+        // Runtime 4578: BLUECHIP/MOONSHOT were the only net-positive lanes while
+        // SHITCOIN/MANIPULATED/EXPRESS were bleeding. Do not rotate bleeders before
+        // the lanes currently paying the wallet.
+        "BLUECHIP", "MOONSHOT", "QUALITY", "PROJECT_SNIPER", "DIP_HUNTER",
+        "CASHGEN", "TREASURY", "STANDARD", "EXPRESS", "MANIPULATED", "SHITCOIN"
     )
 
     fun growthLaneFallback(seed: String, existing: Set<String>): String? {

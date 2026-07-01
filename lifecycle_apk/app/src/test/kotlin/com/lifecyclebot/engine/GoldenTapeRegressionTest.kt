@@ -3647,7 +3647,7 @@ class GoldenTapeRegressionTest {
             assertTrue("LiveGrowthDoctrine must enumerate trading tool $it", doctrine.contains(it))
         }
         assertTrue("AgenticStyleRouter must pull lane/tool fallbacks from LiveGrowthDoctrine", router.contains("LiveGrowthDoctrine.growthLaneFallback") && router.contains("LiveGrowthDoctrine.growthToolFallback"))
-        assertTrue("V5.0.4557: growth lane fallback must use real dispatchable contribution lanes, not alias-only lane families", doctrine.contains("dispatchableContributionLanes") && doctrine.contains("CASHGEN") && doctrine.contains("TREASURY") && doctrine.contains("BLUECHIP") && doctrine.contains("Runtime 4535 showed enabled lanes"))
+        assertTrue("V5.0.4580: growth lane fallback must use real dispatchable lanes and wake capital-efficient lanes before recent bleeders", doctrine.contains("dispatchableContributionLanes") && doctrine.contains("BLUECHIP") && doctrine.contains("MOONSHOT") && doctrine.contains("QUALITY") && doctrine.substringAfter("dispatchableContributionLanes").indexOf("BLUECHIP") < doctrine.substringAfter("dispatchableContributionLanes").indexOf("EXPRESS"))
         assertTrue("V5.0.4557: AgenticStyleRouter must force a bounded dormant-lane fallback when the selected style/base has no such lane", router.contains("forceContributionFallback4557") && router.contains("growthFallbackLane4557 in LiveGrowthDoctrine.dispatchableContributionLanes"))
         assertTrue("Final live sizing authority must consume LiveGrowthDoctrine", exec.contains("LiveGrowthDoctrine.sizePolicy") && exec.contains("growthPolicy.reason") && exec.contains("doBuy.final") && exec.contains("liveBuy.final"))
         assertFalse("COPY_TRADE must not be a live hard confidence veto", fdg.contains("COPY_TRADE_LIVE_LOW_CONFIDENCE"))
@@ -3711,7 +3711,7 @@ class GoldenTapeRegressionTest {
         assertTrue("AGI size stack: strategyTunerSizeMult in multiplierProduct", exec.contains("strategyTunerSizeMult"))
         assertTrue("AGI size stack: uphConvictionMult in multiplierProduct", exec.contains("uphConvictionMult"))
         assertTrue("V5.0.4568: live floor must keep bleeders executable instead of dust-sized", exec.contains("laneEvMult < 0.50") && exec.contains("-> 0.35") && exec.contains("executable defensive-pivot floor"))
-        assertTrue("LaneExpectancyDamper must press proven winners, not only shrink losers", damper.contains("WALLET GROWTH ALLOCATOR") && damper.contains("WINNER_MAX_MULT") && damper.contains("m.totalSolPnl > 0.0") && damper.contains("m.winRatePct >= 50.0"))
+        assertTrue("V5.0.4580: LaneExpectancyDamper must press early clean-live winners, not only shrink losers", damper.contains("WALLET GROWTH ALLOCATOR") && damper.contains("EARLY_WINNER_MIN_TRADES") && damper.contains("earlyWinner") && damper.contains("m.totalSolPnl > 0.0") && damper.contains("EARLY_WINNER_MIN_WR_PCT"))
         assertTrue("Bleeder floor must be materially below half-size for wallet growth", damper.contains("private const val MIN_MULT = 0.18") && damper.contains("CATASTROPHIC_MIN_MULT = 0.08"))
     }
 
@@ -6975,6 +6975,20 @@ class GoldenTapeRegressionTest {
         assertFalse("V5.0.4579: toxic live bleed must not keep old toxic_runner_pivot behavior", tuner.contains("label = if (toxicBleed)") && tuner.contains("toxic_runner_pivot"))
         assertTrue("V5.0.4579: toxic pivot must shorten hold and bank earlier", tuner.contains("holdMult = if (toxicInnerLanePivot)") && tuner.contains("coerceIn(0.55, 0.84)") && tuner.contains("coerceIn(0.62, 0.92)"))
         assertTrue("V5.0.4579: toxic pivot must switch style inside the lane before sizing", router.contains("tunedBaseStyle") && router.contains("strategyTune.label ==") && router.contains("toxic_inner_lane_pivot") && router.contains("sameLaneWeakPivotStyle(laneHint, Style.DEFENSIVE_PROBE)"))
+    }
+
+
+
+    @Test
+    fun aate4580CapitalAllocatorPressesEarlyLiveWinnersBeforeBleeders() {
+        val damper = java.io.File("src/main/kotlin/com/lifecyclebot/engine/LaneExpectancyDamper.kt").readText()
+        val doctrine = java.io.File("src/main/kotlin/com/lifecyclebot/engine/LiveGrowthDoctrine.kt").readText()
+        assertTrue("V5.0.4580: early live winners must get a bounded compounding boost", damper.contains("EARLY_WINNER_MIN_TRADES = 2") && damper.contains("earlyWinner") && damper.contains("coerceIn(1.0, cap)"))
+        assertTrue("V5.0.4580: profitable runner lanes must be boosted instead of silently continuing at 1.0", damper.contains("isRunnerLane(m.strategy)") && damper.contains("out[m.strategy.trim().uppercase()] = maxOf") && !damper.contains("if (isRunnerLane(m.strategy) && (m.totalSolPnl > 0.0 || m.winRatePct >= 35.0)) continue") && damper.contains("isRunnerLane(m.strategy) && m.totalSolPnl > 0.0"))
+
+        assertTrue("V5.0.4580: WR-based runner exemption must require non-negative net SOL", damper.contains("m.winRatePct >= WR_RUNNER_MIN_PCT && m.totalSolPnl >= 0.0"))
+        val fallback = doctrine.substringAfter("dispatchableContributionLanes").substringBefore("fun growthLaneFallback")
+        assertTrue("V5.0.4580: contribution fallback must prioritize BLUECHIP/MOONSHOT/QUALITY before EXPRESS/MANIPULATED/SHITCOIN", fallback.indexOf("BLUECHIP") < fallback.indexOf("EXPRESS") && fallback.indexOf("MOONSHOT") < fallback.indexOf("MANIPULATED") && fallback.indexOf("QUALITY") < fallback.indexOf("SHITCOIN"))
     }
 
 }
