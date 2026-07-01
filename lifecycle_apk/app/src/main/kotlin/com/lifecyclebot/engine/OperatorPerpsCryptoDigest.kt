@@ -8,8 +8,7 @@ object OperatorPerpsCryptoDigest {
     fun status(): String {
         val fluid = try { com.lifecyclebot.perps.crypto.brain.CryptoFluidLearning.summary().take(140) } catch (_: Throwable) { "CryptoFluidLearning unavailable" }
         val tactics = try { com.lifecyclebot.perps.crypto.brain.CryptoTacticSwitcher.summary().take(140) } catch (_: Throwable) { "CryptoTacticSwitcher unavailable" }
-        val funnel = try { com.lifecyclebot.perps.crypto.brain.CryptoFunnel.summary().replace("
-", " | ").take(520) } catch (_: Throwable) { "CryptoFunnel unavailable" }
+        val funnel = try { com.lifecyclebot.perps.crypto.brain.CryptoFunnel.summary().lines().joinToString("|").take(520) } catch (_: Throwable) { "CryptoFunnel unavailable" }
         val bridgeDiag = try { com.lifecyclebot.perps.crypto.CryptoUniverseForensics.summary().take(520) } catch (_: Throwable) { "CryptoUniverseForensics unavailable" }
         val behavior = try { com.lifecyclebot.perps.crypto.brain.CryptoBehavior.summary().take(140) } catch (_: Throwable) { "CryptoBehavior unavailable" }
         val brain = try { com.lifecyclebot.perps.crypto.brain.CryptoBrain.summary().take(140) } catch (_: Throwable) { "CryptoBrain unavailable" }
