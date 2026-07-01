@@ -1,7 +1,10 @@
 # AATE (Autonomous AI Trading Engine) — PRD
 
 **Last updated**: 2026-07-02
-**Build stream**: V5.0.4596+ (Native Kotlin Android, GitHub Actions CI)
+**Build stream**: V5.0.5999+ (Native Kotlin Android, GitHub Actions CI)
+**Version catch-up commit**: V5.0.5999 pushed 2026-07-02 to align APK tag
+with operator's counter after `docs:` commit briefly broke the CI sed
+pattern for COMMIT_BUILD_NUMBER extraction.
 
 ## Architectural Doctrine — DESIGN FIDELITY (operator directive 2026-07-02)
 
