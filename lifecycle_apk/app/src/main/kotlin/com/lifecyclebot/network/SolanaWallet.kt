@@ -73,6 +73,40 @@ class SolanaWallet(privateKeyB58: String, val rpcUrl: String) {
     private val idGen   = AtomicLong(1)
 
     companion object {
+        // V5.0.4595 — WALLET RPC ROUND-ROBIN + PER-ENDPOINT COOLDOWN
+        // (operator P0 "harden api and rpc connections").
+        // Prior behavior: walletRpcEndpointsForTokenSnapshot() returned the
+        // primary rpcUrl + FALLBACK_RPCS in fixed order every cycle. If
+        // Helius (index 0) returned 429/500, we'd retry Helius first the
+        // NEXT cycle too — hammering the same rate-limited provider and
+        // slowing the whole loop while it retries. This state adds:
+        //   1. AtomicInteger round-robin index rotates the STARTING endpoint
+        //      each cycle so load spreads across all healthy providers.
+        //   2. ConcurrentHashMap tracks unhealthy endpoints with a 30s
+        //      cooldown — an endpoint that returns 429/500/TLS-fail gets
+        //      skipped for 30s before being retried.
+        // Fail-safe: if ALL endpoints are in cooldown, fall back to the
+        // full unfiltered list so the wallet snapshot NEVER goes dark.
+        private val rpcRoundRobinIndex = java.util.concurrent.atomic.AtomicInteger(0)
+        private val rpcCooldownUntil = java.util.concurrent.ConcurrentHashMap<String, Long>()
+        private const val RPC_COOLDOWN_MS = 30_000L
+
+        internal fun markEndpointUnhealthy(endpoint: String, code: String) {
+            try {
+                rpcCooldownUntil[endpoint] = System.currentTimeMillis() + RPC_COOLDOWN_MS
+                com.lifecyclebot.engine.PipelineHealthCollector.labelInc("WALLET_RPC_ENDPOINT_COOLDOWN_4595")
+            } catch (_: Throwable) {}
+        }
+
+        internal fun applyRoundRobin(endpoints: List<String>): List<String> {
+            if (endpoints.size <= 1) return endpoints
+            val now = System.currentTimeMillis()
+            val healthy = endpoints.filter { (rpcCooldownUntil[it] ?: 0L) <= now }
+            val pool = if (healthy.isNotEmpty()) healthy else endpoints
+            val startIdx = (rpcRoundRobinIndex.getAndIncrement() % pool.size).let { if (it < 0) it + pool.size else it }
+            return pool.drop(startIdx) + pool.take(startIdx)
+        }
+
         // V5.9.999b — Dedicated daemon executor for bounded RPC wrappers.
         //
         // Why a separate pool (not ForkJoinPool.commonPool nor Dispatchers.IO):
@@ -669,6 +703,10 @@ class SolanaWallet(privateKeyB58: String, val rpcUrl: String) {
                     fastHttp.newCall(req).execute()
                 } catch (tls: Throwable) {
                     if (!isTlsTrustFailure(tls)) throw tls
+                    // V5.0.4595 — TLS-trust failure → 30s cooldown (some hosts
+                    // are permanently cert-broken on Android trust stores;
+                    // spamming them wastes cycles every snapshot).
+                    markEndpointUnhealthy(endpoint, "TLS")
                     failures.add("${endpoint.take(24)}:TLS")
                     try { com.lifecyclebot.engine.ForensicLogger.lifecycle("WALLET_RPC_TLS_REJECTED_TOKEN_SNAPSHOT", "program=${programId.take(8)} endpoint=${endpoint.take(48)} err=${tls.message?.take(80)}") } catch (_: Throwable) {}
                     continue
@@ -676,6 +714,8 @@ class SolanaWallet(privateKeyB58: String, val rpcUrl: String) {
                 val code = resp.code
                 val text = resp.body?.string() ?: "{}"
                 if (code == 429 || code >= 500 || code == 401 || code == 403) {
+                    // V5.0.4595 — mark endpoint unhealthy for 30s cooldown
+                    markEndpointUnhealthy(endpoint, "HTTP$code")
                     failures.add("${endpoint.take(24)}:HTTP$code")
                     continue
                 }
@@ -685,12 +725,16 @@ class SolanaWallet(privateKeyB58: String, val rpcUrl: String) {
                     val msg = err.optString("message", err.toString())
                     val low = msg.lowercase()
                     if (low.contains("rate") || low.contains("limit") || low.contains("unauthorized") || low.contains("forbidden") || low.contains("api key") || low.contains("invalid key")) {
+                        // V5.0.4595 — RPC-level rate-limit / auth-fail → cooldown
+                        markEndpointUnhealthy(endpoint, "RPC:${msg.take(24)}")
                         failures.add("${endpoint.take(24)}:RPC:${msg.take(36)}")
                         continue
                     }
                 }
                 return json
             } catch (e: Throwable) {
+                // V5.0.4595 — network-level throw → 30s cooldown before retry
+                markEndpointUnhealthy(endpoint, e.javaClass.simpleName)
                 failures.add("${endpoint.take(24)}:${e.javaClass.simpleName}:${e.message?.take(32) ?: "?"}")
             }
         }

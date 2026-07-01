@@ -10882,9 +10882,36 @@ class Executor(
                         // not silenced by data-pipeline gaps (rug pre-filter,
                         // momentum, brain pattern suppression, fluid floor,
                         // and intel still fire — paper isn't poisoned).
-                        if (!isPaperMode) {
+                        // V5.0.4595 — HOLDER-CASCADE-BLIND RELAX for proven-
+                        // profitable lanes (STANDARD 66%WR, MOONSHOT 56%WR).
+                        // If the token has strong liquidity (>= $5K) AND
+                        // the lane is a proven winner, don't fire the soft-
+                        // advisor. Reason: holder-concentration data is a
+                        // *supporting* signal, and strong liq already
+                        // implies healthy distribution. Blocking winner
+                        // lanes on pipeline gaps was costing 34 trades/sess.
+                        val provenWinnerHolderRelax4595 = try {
+                            val laneName4595 = when {
+                                layerTag.uppercase().contains("STANDARD") -> "STANDARD"
+                                layerTag.uppercase().contains("MOONSHOT") -> "MOONSHOT"
+                                else -> ""
+                            }
+                            if (laneName4595.isNotEmpty() && ts.lastLiquidityUsd >= 5_000.0) {
+                                val snap = com.lifecyclebot.engine.LiveProbabilityEngine.laneSnapshots().firstOrNull { it.lane == laneName4595 }
+                                snap != null && snap.sample >= 5 && snap.wrPct >= 50.0
+                            } else false
+                        } catch (_: Throwable) { false }
+                        if (!isPaperMode && !provenWinnerHolderRelax4595) {
                             val walked = holderProof?.attempted?.size ?: 0
                             softAdvisor("PROVIDER_PROOF_HOLDER_CASCADE_BLIND", "no_data walked=$walked")
+                        } else if (provenWinnerHolderRelax4595) {
+                            try {
+                                com.lifecyclebot.engine.ForensicLogger.lifecycle(
+                                    "HOLDER_CASCADE_BLIND_WINNER_BYPASS_4595",
+                                    "mint=${ts.mint.take(10)} sym=${ts.symbol} liq=${ts.lastLiquidityUsd.toInt()} tag=$layerTag — proven-winner lane bypass",
+                                )
+                                com.lifecyclebot.engine.PipelineHealthCollector.labelInc("HOLDER_CASCADE_BLIND_WINNER_BYPASS_4595")
+                            } catch (_: Throwable) {}
                         }
                     } else if (holderPct > b.learnedMaxTopHolder) {
                         softAdvisor("BRAIN_TOP_HOLDER_CEILING", "top=${holderPct}>${b.learnedMaxTopHolder}")

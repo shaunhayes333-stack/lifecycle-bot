@@ -2231,8 +2231,23 @@ object FinalDecisionGate {
         // ═══════════════════════════════════════════════════════════════════════════
         val currentRsi = ts.meta.rsi
         val rsiLenient = ModeLeniency.useLenientGates(config.paperMode)
+        // V5.0.4595 — RSI RELAX FOR PROVEN WINNERS (operator P0 "open the valve").
+        // STANDARD (66% WR, +0.078 SOL) and MOONSHOT (56% WR, +0.072 SOL) are
+        // the two profitable lanes. Hard-blocking them on RSI>90 was cutting
+        // ~7 trades/session while catastrophic-lane bleeders had already
+        // been paused. Rule: if lane is in {STANDARD, MOONSHOT} AND its
+        // live sample WR is >= 50% over >= 5 confirmed closes, downgrade
+        // the RSI>90 block to a penalty tag so the trade proceeds (with
+        // FDG downstream size shaping still applied).
+        val provenWinnerRsiBypass4595 = try {
+            val laneU = tradingModeTag?.name?.uppercase() ?: ""
+            if (laneU == "STANDARD" || laneU == "MOONSHOT") {
+                val snap = LiveProbabilityEngine.laneSnapshots().firstOrNull { it.lane == laneU }
+                snap != null && snap.sample >= 5 && snap.wrPct >= 50.0
+            } else false
+        } catch (_: Throwable) { false }
         if (blockReason == null && currentRsi > 90.0) {
-            if (!config.paperMode && !rsiLenient) {
+            if (!config.paperMode && !rsiLenient && !provenWinnerRsiBypass4595) {
                 // STRICT LIVE ONLY: Hard block RSI > 90
                 // V5.9.291: Proven-edge live uses paper behaviour (penalty + tiny size, not block)
                 blockReason = "RSI_OVERBOUGHT_${currentRsi.toInt()}"
@@ -2241,10 +2256,15 @@ object FinalDecisionGate {
                 tags.add("rsi_overbought_block")
                 ErrorLogger.warn("FDG", "🚫 RSI HARD BLOCK: ${ts.symbol} | RSI=${currentRsi.toInt()} > 90 | EXTREME OVERBOUGHT → BLOCK")
             } else {
-                // PAPER or PROVEN-EDGE LIVE: Allow with severe penalty and tiny size for learning
-                checks.add(GateCheck("rsi_overbought", true, "RSI=${currentRsi.toInt()} > 90 → LEARNING with penalty"))
-                tags.add("rsi_overbought_learn")
-                ErrorLogger.info("FDG", "🎓 RSI LEARN: ${ts.symbol} | RSI=${currentRsi.toInt()} > 90 | severe penalty for learning")
+                // PAPER, PROVEN-EDGE LIVE, or V5.0.4595 PROVEN-WINNER-LANE: Allow with severe penalty and tiny size for learning
+                checks.add(GateCheck("rsi_overbought", true, "RSI=${currentRsi.toInt()} > 90 → LEARNING with penalty (provenWinnerBypass=$provenWinnerRsiBypass4595)"))
+                tags.add(if (provenWinnerRsiBypass4595) "rsi_overbought_winner_bypass_4595" else "rsi_overbought_learn")
+                if (provenWinnerRsiBypass4595) {
+                    try { PipelineHealthCollector.labelInc("RSI_WINNER_BYPASS_4595_${tradingModeTag?.name?.uppercase() ?: "UNK"}") } catch (_: Throwable) {}
+                    ErrorLogger.info("FDG", "🟢 RSI WINNER BYPASS: ${ts.symbol} | RSI=${currentRsi.toInt()} lane=${tradingModeTag?.name} — proven >=50%WR/>=5n, allowing with penalty")
+                } else {
+                    ErrorLogger.info("FDG", "🎓 RSI LEARN: ${ts.symbol} | RSI=${currentRsi.toInt()} > 90 | severe penalty for learning")
+                }
             }
         } else if (blockReason == null && currentRsi > 85.0) {
             // RSI 85-90: Heavy penalty in both modes
