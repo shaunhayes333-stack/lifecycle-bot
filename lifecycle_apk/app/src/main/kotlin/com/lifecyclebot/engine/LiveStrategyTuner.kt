@@ -169,12 +169,14 @@ object LiveStrategyTuner {
             )
         }
 
-        // Negative live expectancy is NOT a command to churn faster. Runtime
-        // 5.0.4059 showed the bot losing from scratch/flat/fast exits while the
-        // rare winners paid 100-287% when held. Failure pivots playbook: keep
-        // entry size tiny, but extend hold/TP/partial patience so asymmetric
-        // runners can pay for the loser distribution. LaneExpectancyDamper may
-        // apply a deeper capital haircut at the executor, still non-zero.
+        // V5.0.4579 — toxic live expectancy is NOT a command to buy the same
+        // failing setup smaller and hold it longer. Runtime 4578 showed exactly
+        // that failure: MANIPULATED/SHITCOIN were labelled toxic_runner_pivot
+        // with hold×/partial×=1.90 while clean truth bled -0.187 SOL. Operator
+        // doctrine: pivot strategy inside the lane before/during purchase; sizing
+        // is secondary. Toxic lanes now move to a defensive/reclaim inner-lane
+        // pivot: stricter liquidity impact, earlier banking, shorter hold. No
+        // 0.12 micro-probe as the primary treatment.
         // V5.0.4506 — pct/SOL contradiction guard. A lane showing huge mean%
         // while losing net SOL (operator report: BLUECHIP EV +905%/trade but
         // PnL -0.4397 SOL) is not a runner exemption; it is an accounting/basis
@@ -270,7 +272,7 @@ object LiveStrategyTuner {
             val solDepth = ((-sol) / 0.50).coerceIn(0.0, 1.0)
             val meanDepth = ((-mean) / 25.0).coerceIn(0.0, 1.0)
             val depth = maxOf(wrDepth, pfDepth, solDepth, meanDepth)
-            val sizeFloor = if (toxicBleed) 0.12 else 0.35
+            val toxicInnerLanePivot = toxicBleed || (wr <= 25.0 && sol < 0.0 && mean < 0.0)
             return Adjustment(
                 lane = lane,
                 trades = n,
@@ -278,15 +280,33 @@ object LiveStrategyTuner {
                 totalSolPnl = sol,
                 pfExpectancyPp = pf,
                 meanPnlPct = mean,
-                sizeMult = (0.78 - depth * 0.66).coerceIn(sizeFloor, 0.82),
-                tpMult = (1.06 + depth * 0.34).coerceIn(1.04, 1.42),
-                holdMult = (1.18 + depth * 0.72).coerceIn(1.12, 1.90),
-                maxWalletMult = (0.90 - depth * 0.44).coerceIn(0.42, 0.96),
-                liquidityImpactMult = (0.94 - depth * 0.24).coerceIn(0.58, 0.96),
-                // Bleeders do not bank earlier anymore; they size down and wait
-                // for asymmetric runner proof. Values >1 raise learned partial rungs.
-                partialTriggerMult = (1.18 + depth * 0.72).coerceIn(1.12, 1.90),
-                label = if (toxicBleed) "toxic_runner_pivot" else "bleeder_runner_pivot",
+                sizeMult = if (toxicInnerLanePivot)
+                    (0.62 - depth * 0.22).coerceIn(0.35, 0.62)
+                else
+                    (0.78 - depth * 0.43).coerceIn(0.35, 0.82),
+                tpMult = if (toxicInnerLanePivot)
+                    (0.92 - depth * 0.12).coerceIn(0.78, 0.94)
+                else
+                    (1.04 + depth * 0.18).coerceIn(1.02, 1.22),
+                holdMult = if (toxicInnerLanePivot)
+                    (0.82 - depth * 0.22).coerceIn(0.55, 0.84)
+                else
+                    (1.02 + depth * 0.20).coerceIn(0.95, 1.24),
+                maxWalletMult = if (toxicInnerLanePivot)
+                    (0.70 - depth * 0.24).coerceIn(0.42, 0.72)
+                else
+                    (0.90 - depth * 0.36).coerceIn(0.50, 0.96),
+                liquidityImpactMult = if (toxicInnerLanePivot)
+                    (0.78 - depth * 0.20).coerceIn(0.55, 0.80)
+                else
+                    (0.94 - depth * 0.20).coerceIn(0.62, 0.96),
+                // Toxic lanes bank earlier and shorten exposure. Non-toxic bleeders
+                // may still retain mild runner patience, but never the old 1.90 toxic hold.
+                partialTriggerMult = if (toxicInnerLanePivot)
+                    (0.90 - depth * 0.22).coerceIn(0.62, 0.92)
+                else
+                    (1.04 + depth * 0.20).coerceIn(1.00, 1.25),
+                label = if (toxicInnerLanePivot) "toxic_inner_lane_pivot" else "bleeder_recovery_pivot",
             )
         }
 

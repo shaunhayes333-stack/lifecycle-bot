@@ -253,12 +253,16 @@ object AgenticStyleRouter {
         }
         val tuneLane = laneHint.ifBlank { style.lanes.firstOrNull().orEmpty() }.ifBlank { classification.tradeType.name }
         val strategyTune = try { LiveStrategyTuner.adjustment(tuneLane) } catch (_: Throwable) { LiveStrategyTuner.adjustment("STANDARD") }
-        val tunedSizeFloor = if (strategyTune.label == "toxic_probe" || strategyTune.label == "toxic_runner_pivot") 0.08 else 0.18
-        val tunedSize = (style.sizeMult * strategyTune.sizeMult).coerceIn(tunedSizeFloor, 1.95)
-        val tunedTp = (style.tpMult * strategyTune.tpMult).coerceIn(0.65, 2.15)
-        val tunedHold = (style.holdMult * strategyTune.holdMult).coerceIn(0.35, 4.00)
+        // V5.0.4579 — toxic buckets pivot strategy inside the same lane instead
+        // of buying the same failing setup smaller. Keep lane affinity, but switch
+        // the style/tactic surface toward defensive/reclaim behavior before sizing.
+        val tunedBaseStyle = if (strategyTune.label == "toxic_inner_lane_pivot") sameLaneWeakPivotStyle(laneHint, Style.DEFENSIVE_PROBE) else style
+        val tunedSizeFloor = if (strategyTune.label == "toxic_inner_lane_pivot") 0.18 else 0.18
+        val tunedSize = (tunedBaseStyle.sizeMult * strategyTune.sizeMult).coerceIn(tunedSizeFloor, 1.95)
+        val tunedTp = (tunedBaseStyle.tpMult * strategyTune.tpMult).coerceIn(0.65, 2.15)
+        val tunedHold = (tunedBaseStyle.holdMult * strategyTune.holdMult).coerceIn(0.35, 4.00)
         return Decision(
-            style = style,
+            style = tunedBaseStyle,
             tactic = tactic,
             tradeType = classification.tradeType,
             confidence = maxOf(classification.confidence, sheet.confidence),

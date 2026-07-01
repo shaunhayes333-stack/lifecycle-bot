@@ -3858,7 +3858,7 @@ class GoldenTapeRegressionTest {
         assertTrue("LiveStrategyTuner must be soft-shape only, not a veto/zero-size authority", tuner.contains("Soft-shape only") && !tuner.contains("return false") && !tuner.contains("sizeMult = 0.0"))
         assertTrue("LiveStrategyTuner must bias proven live winners toward compounding runner patience", tuner.contains("compounding_runner") && tuner.contains("partialTriggerMult") && tuner.contains("holdMult = (1.25") && tuner.contains("tpMult = (1.16"))
         assertTrue("LiveStrategyTuner must gate capital winners by hit-rate while preserving asymmetric probes", tuner.contains("hit-rate gated net-SOL doctrine") && tuner.contains("hitRateHealthy") && tuner.contains("low_wr_asymmetric_probe") && tuner.contains("avgWinEdge"))
-        assertTrue("Bleeder tuning must pivot playbook: small size, longer hold, later partials so rare runners can pay for churn losses", tuner.contains("toxic_runner_pivot") && tuner.contains("bleeder_runner_pivot") && tuner.contains("holdMult = (1.18 + depth * 0.72).coerceIn(1.12, 1.90)") && tuner.contains("partialTriggerMult = (1.18 + depth * 0.72).coerceIn(1.12, 1.90)"))
+        assertTrue("V5.0.4579: toxic bleeder tuning must pivot inner-lane strategy/timing, not buy the same setup smaller and hold longer", tuner.contains("toxic_inner_lane_pivot") && tuner.contains("bleeder_recovery_pivot") && tuner.contains("holdMult = if (toxicInnerLanePivot)") && tuner.contains("partialTriggerMult = if (toxicInnerLanePivot)") && !tuner.contains("holdMult = (1.18 + depth * 0.72).coerceIn(1.12, 1.90)"))
         assertTrue("LiveGrowthDoctrine must consume LiveStrategyTuner in the final live growth envelope", doctrine.contains("LiveStrategyTuner.adjustment") && doctrine.contains("strategyTune.compact") && doctrine.contains("tunedMaxWalletPct"))
         assertTrue("AgenticStyleRouter must expose tuned size/tp/hold multipliers", router.contains("tunedSizeMult") && router.contains("tunedTpMult") && router.contains("tunedHoldMult") && router.contains("LiveStrategyTuner.adjustment"))
         assertTrue("Executor must raise live TP/partial patience from LiveStrategyTuner", exec.contains("LIVE_STRATEGY_TUNER_TP_RAISED") && exec.contains("LiveStrategyTuner.livePartialProfitFloorPct") && exec.contains("PARTIAL_BLOCKED_BELOW_BREAKEVEN"))
@@ -3969,7 +3969,7 @@ class GoldenTapeRegressionTest {
         assertTrue("LiveProbabilityEngine must cap low hit-rate lanes below neutral even with positive SOL/PnL", prob.contains("lowHitRateCap") && prob.contains("maxOf(pWin, lanePWin) < 0.35 -> 0.68") && prob.contains("minOf(rawMult, lowHitRateCap)"))
         assertTrue("LiveStrategyTuner must require healthy live WR before winner sizing", tuner.contains("hitRateHealthy") && tuner.contains("wr >= 45.0") && tuner.contains("wr >= 35.0 && pf > 0.0"))
         assertTrue("Low-WR positive-SOL lanes must be asymmetric probes, not runner_press winners", tuner.contains("low_wr_asymmetric_probe") && tuner.contains("wr < 35.0 && sol > 0.0") && tuner.contains("sizeMult = (0.78"))
-        assertTrue("Toxic bleeders must be allowed to shrink below the old 0.25 router floor while pivoting into runner patience", tuner.contains("val sizeFloor = if (toxicBleed) 0.12 else 0.35") && tuner.contains("toxic_runner_pivot") && router.contains("strategyTune.label == \"toxic_runner_pivot\"") && router.contains("0.08"))
+        assertTrue("V5.0.4579: toxic bleeders must pivot to same-lane defensive/reclaim style instead of micro-probe runner patience", tuner.contains("toxic_inner_lane_pivot") && !tuner.contains("val sizeFloor = if (toxicBleed) 0.12 else 0.35") && router.contains("strategyTune.label == \"toxic_inner_lane_pivot\"") && router.contains("sameLaneWeakPivotStyle(laneHint, Style.DEFENSIVE_PROBE)"))
     }
 
 
@@ -6357,7 +6357,7 @@ class GoldenTapeRegressionTest {
         val tuner = java.io.File("src/main/kotlin/com/lifecyclebot/engine/LiveStrategyTuner.kt").readText()
         assertTrue("V5.0.4506: high percentage EV with negative SOL must become a probe, not runner exemption", tuner.contains("pctSolContradiction") && tuner.contains("pct_sol_contradiction_probe") && tuner.contains("mean >= 20.0") && tuner.contains("sol < -0.0001"))
         assertTrue("V5.0.4506: asymmetric runner exemption must require non-negative SOL truth", tuner.contains("n >= 8 && mean >= 20.0 && sol >= 0.0") && tuner.contains("n >= 30 && wr >= 40.0 && sol >= 0.0"))
-        assertTrue("V5.0.4506: severe low-WR live lanes pivot toxic at n>=8 without hard blocking", tuner.contains("n >= 8 && wr <= 15.0 && sol < 0.0") && tuner.contains("toxic_runner_pivot") && tuner.contains("sizeFloor"))
+        assertTrue("V5.0.4579: severe low-WR live lanes pivot toxic at n>=8 without hard blocking or runner-patience micro-probes", tuner.contains("n >= 8 && wr <= 15.0 && sol < 0.0") && tuner.contains("toxic_inner_lane_pivot") && tuner.contains("toxicInnerLanePivot"))
     }
 
 
@@ -6963,6 +6963,18 @@ class GoldenTapeRegressionTest {
         assertTrue("V5.0.4578: doBuy must normalize caller sentinel scores before live executor sizing/advisors", executor.contains("LIVE_BUY_SCORE_NORMALIZED_4578") && executor.contains("val execScore4578") && executor.contains("ts.entryScore.isFinite()") && executor.contains("else -> 50.0"))
         assertTrue("V5.0.4578: direct liveBuy callers must normalize sentinel scores at the final live choke", executor.contains("LIVE_BUY_SCORE_NORMALIZED_AT_CHOKE_4578") && executor.contains("val rawLiveScore4578 = score") && executor.contains("continue_no_invalid_score_veto"))
         assertFalse("V5.0.4578: live INVALID_SCORE must not remain the dominant sentinel-score hard veto before score normalization", executor.contains("Live buy skipped: invalid score "))
+    }
+
+
+
+    @Test
+    fun aate4579ToxicLiveBleedPivotsStrategyNotPatienceMicroProbe() {
+        val tuner = java.io.File("src/main/kotlin/com/lifecyclebot/engine/LiveStrategyTuner.kt").readText()
+        val router = java.io.File("src/main/kotlin/com/lifecyclebot/engine/AgenticStyleRouter.kt").readText()
+        assertTrue("V5.0.4579: toxic live bleed must be labelled as inner-lane pivot", tuner.contains("toxic_inner_lane_pivot"))
+        assertFalse("V5.0.4579: toxic live bleed must not keep old toxic_runner_pivot behavior", tuner.contains("label = if (toxicBleed)") && tuner.contains("toxic_runner_pivot"))
+        assertTrue("V5.0.4579: toxic pivot must shorten hold and bank earlier", tuner.contains("holdMult = if (toxicInnerLanePivot)") && tuner.contains("coerceIn(0.55, 0.84)") && tuner.contains("coerceIn(0.62, 0.92)"))
+        assertTrue("V5.0.4579: toxic pivot must switch style inside the lane before sizing", router.contains("tunedBaseStyle") && router.contains("strategyTune.label ==") && router.contains("toxic_inner_lane_pivot") && router.contains("sameLaneWeakPivotStyle(laneHint, Style.DEFENSIVE_PROBE)"))
     }
 
 }
