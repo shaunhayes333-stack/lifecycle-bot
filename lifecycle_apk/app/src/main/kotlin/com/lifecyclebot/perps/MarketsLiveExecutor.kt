@@ -1259,9 +1259,28 @@ object MarketsLiveExecutor {
         leverage: Double = 1.0,
         traderType: String = "Markets",
         flashPositionKey: String? = null,  // V5.9.320: Flash perps key for leveraged crypto closes
+        cryptoTargetMintOverride: String? = null,
+        cryptoSymbolOverride: String? = null,
     ): Pair<Boolean, String?> = withContext(Dispatchers.IO) {
+        val closeSymbol = cryptoSymbolOverride?.takeIf { it.isNotBlank() } ?: market.symbol
+        val cryptoDiagClose = traderType.equals("CryptoAlt", ignoreCase = true) || !cryptoTargetMintOverride.isNullOrBlank()
         
-        ErrorLogger.info(TAG, "CLOSE LIVE POSITION: $traderType | ${market.symbol}")
+        ErrorLogger.info(TAG, "CLOSE LIVE POSITION: $traderType | $closeSymbol")
+        if (cryptoDiagClose) {
+            try {
+                com.lifecyclebot.perps.crypto.CryptoUniverseForensics.logClosePhase(
+                    phase = "CU_CLOSE_START",
+                    symbol = closeSymbol,
+                    mint = cryptoTargetMintOverride,
+                    inputMint = null,
+                    outputMint = SOL_MINT,
+                    amountUnits = null,
+                    txSignature = null,
+                    ok = null,
+                    message = "close requested trader=$traderType market=${market.symbol}",
+                )
+            } catch (_: Throwable) {}
+        }
         
         val wallet = try {
             WalletManager.getWallet()
@@ -1284,7 +1303,7 @@ object MarketsLiveExecutor {
         //   Legacy USDC-parked positions            → Jupiter swap USDC → SOL
 
         // ── Flash leveraged close (fastest path) ──────────────────────────────
-        if (leverage > 1.0 && market.isCrypto && market.symbol in FLASH_SUPPORTED_PUBLIC) {
+        if (leverage > 1.0 && market != PerpsMarket.DYN && market.isCrypto && closeSymbol in FLASH_SUPPORTED_PUBLIC) {
             val solPrice = WalletManager.lastKnownSolPrice.takeIf { it > 0 } ?: 150.0
             val sizeUsd  = sizeSol * solPrice * leverage  // full notional
             val (flashOk, flashSig) = closeFlashPosition(
@@ -1300,10 +1319,10 @@ object MarketsLiveExecutor {
                 val feePercent = LEVERAGE_TRADING_FEE_PERCENT
                 val feeAmountSol = sizeSol * feePercent
                 collectTradingFee(wallet, feeAmountSol, market.symbol, "CLOSE")
-                ErrorLogger.info(TAG, "✅ Flash leveraged close success: ${market.symbol}")
+                ErrorLogger.info(TAG, "✅ Flash leveraged close success: ${closeSymbol}")
                 return@withContext Pair(true, flashSig)
             }
-            ErrorLogger.warn(TAG, "⚠️ Flash close failed for ${market.symbol} — falling through to Jupiter SPOT close")
+            ErrorLogger.warn(TAG, "⚠️ Flash close failed for ${closeSymbol} — falling through to Jupiter SPOT close")
             // Fall through to Jupiter close if Flash fails
         }
 
@@ -1311,18 +1330,20 @@ object MarketsLiveExecutor {
         // into the target token). On close we therefore swap USDC→SOL, not targetMint→SOL.
         // Force useTokenized=false for non-Flash SHORTs so we hit the USDC close path.
         val isShortBridge = direction == PerpsDirection.SHORT &&
-            !(leverage > 1.0 && market.isCrypto && market.symbol in FLASH_SUPPORTED_PUBLIC)
+            !(leverage > 1.0 && market != PerpsMarket.DYN && market.isCrypto && closeSymbol in FLASH_SUPPORTED_PUBLIC)
 
         val tokenizedMint = if (isShortBridge) null else TokenizedAssetRegistry.mintFor(market.symbol)
-        val cryptoMint = if (!isShortBridge && market.isCrypto) {
-            com.lifecyclebot.perps.DynamicAltTokenRegistry
-                .getTokenBySymbol(market.symbol)
-                ?.mint
-                ?.takeIf { it.isNotBlank() && !it.startsWith("cg:") }
+        val cryptoMint = if (!isShortBridge && (market.isCrypto || !cryptoTargetMintOverride.isNullOrBlank())) {
+            cryptoTargetMintOverride
+                ?.takeIf { it.isNotBlank() && !it.startsWith("cg:") && !it.startsWith("static:") }
+                ?: com.lifecyclebot.perps.DynamicAltTokenRegistry
+                    .getTokenBySymbol(closeSymbol)
+                    ?.mint
+                    ?.takeIf { it.isNotBlank() && !it.startsWith("cg:") && !it.startsWith("static:") }
         } else null
         val targetMint = tokenizedMint ?: cryptoMint
         val useTokenized = !isShortBridge && targetMint != null &&
-            (market.isStock || market.isCommodity || market.isMetal || market.isForex || market.isCrypto)
+            (market.isStock || market.isCommodity || market.isMetal || market.isForex || market.isCrypto || !cryptoTargetMintOverride.isNullOrBlank())
 
         val (inputMint, amountUnits) = try {
             val balances = wallet.getTokenAccountsWithDecimalsBounded()
@@ -1339,13 +1360,15 @@ object MarketsLiveExecutor {
             // Emit a clearer warn so the operator can distinguish RPC
             // hiccups from genuine empty wallets.
             if (balances.isEmpty()) {
-                ErrorLogger.warn(TAG, "🛟 Markets close RPC blip for ${market.symbol}: balance map EMPTY — RPC degraded, will retry next tick (NOT a real 'no balance')")
+                ErrorLogger.warn(TAG, "🛟 Markets close RPC blip for ${closeSymbol}: balance map EMPTY — RPC degraded, will retry next tick (NOT a real 'no balance')")
+                if (cryptoDiagClose) try { com.lifecyclebot.perps.crypto.CryptoUniverseForensics.logClosePhase("CU_CLOSE_BALANCE_RPC_EMPTY", closeSymbol, targetMint, null, SOL_MINT, null, null, false, "balance map empty; retry") } catch (_: Throwable) {}
                 return@withContext Pair(false, null)
             }
             if (useTokenized) {
                 val tokenData = balances[targetMint!!]
                 if (tokenData == null || tokenData.first <= 0) {
-                    ErrorLogger.warn(TAG, "No ${market.symbol} (${targetMint.take(6)}…) balance to close — non-empty map, mint genuinely absent. Skipping (token not held).")
+                    ErrorLogger.warn(TAG, "No ${closeSymbol} (${targetMint.take(6)}…) balance to close — non-empty map, mint genuinely absent. Skipping (token not held).")
+                    if (cryptoDiagClose) try { com.lifecyclebot.perps.crypto.CryptoUniverseForensics.logClosePhase("CU_CLOSE_TARGET_ABSENT", closeSymbol, targetMint, targetMint, SOL_MINT, null, null, false, "target token absent from wallet") } catch (_: Throwable) {}
                     return@withContext Pair(false, null)
                 }
                 val decimals = tokenData.second
@@ -1357,14 +1380,15 @@ object MarketsLiveExecutor {
                 // Cap USDC sell at the position's proportional value — not the whole wallet USDC.
                 val usdcData = balances[USDC_MINT]
                 if (usdcData == null || usdcData.first <= 0) {
-                    ErrorLogger.warn(TAG, "No USDC balance to close position ${market.symbol} — skipping.")
+                    ErrorLogger.warn(TAG, "No USDC balance to close position ${closeSymbol} — skipping.")
+                    if (cryptoDiagClose) try { com.lifecyclebot.perps.crypto.CryptoUniverseForensics.logClosePhase("CU_CLOSE_USDC_ABSENT", closeSymbol, USDC_MINT, USDC_MINT, SOL_MINT, null, null, false, "USDC fallback absent") } catch (_: Throwable) {}
                     return@withContext Pair(false, null)
                 }
                 val solPrice = WalletManager.lastKnownSolPrice.takeIf { it > 10.0 } ?: 85.0
                 val positionUsdcValue = sizeSol * solPrice
                 // Cap at actual USDC balance but never over-sell (protects other concurrent USDC positions)
                 val usdcToSell = minOf(positionUsdcValue, usdcData.first * 0.95)  // 5% safety margin
-                ErrorLogger.info(TAG, "  🌉 ${market.symbol}: USDC-parked close | \$${usdcToSell.fmt(2)} USDC → SOL")
+                ErrorLogger.info(TAG, "  🌉 ${closeSymbol}: USDC-parked close | \$${usdcToSell.fmt(2)} USDC → SOL")
                 Pair(USDC_MINT, (usdcToSell * 1_000_000).toLong())
             }
         } catch (e: Exception) {
@@ -1373,12 +1397,14 @@ object MarketsLiveExecutor {
         }
 
         if (amountUnits <= 0) {
-            ErrorLogger.warn(TAG, "Nothing to close for ${market.symbol}")
+            ErrorLogger.warn(TAG, "Nothing to close for ${closeSymbol}")
+            if (cryptoDiagClose) try { com.lifecyclebot.perps.crypto.CryptoUniverseForensics.logClosePhase("CU_CLOSE_ZERO_AMOUNT", closeSymbol, targetMint, inputMint, SOL_MINT, amountUnits, null, false, "resolved amount <= 0") } catch (_: Throwable) {}
             return@withContext Pair(false, null)
         }
 
         val label = if (useTokenized) TokenizedAssetRegistry.routeLabel(market.symbol) else "USDC-legacy"
-        ErrorLogger.info(TAG, "  🧾 CLOSE ${market.symbol} via $label | units=$amountUnits")
+        ErrorLogger.info(TAG, "  🧾 CLOSE ${closeSymbol} via $label | units=$amountUnits")
+        if (cryptoDiagClose) try { com.lifecyclebot.perps.crypto.CryptoUniverseForensics.logClosePhase("CU_CLOSE_INPUT_RESOLVED", closeSymbol, targetMint, inputMint, SOL_MINT, amountUnits, null, null, "label=$label") } catch (_: Throwable) {}
 
         // V5.9.105: snapshot input-mint balance BEFORE swap so we can
         // verify the burn actually happened on-chain. Prevents the sell
@@ -1398,7 +1424,8 @@ object MarketsLiveExecutor {
         if (signature != null && sellBalanceBefore > 0.0) {
             val sellOk = verifySellExecuted(wallet, inputMint, sellBalanceBefore, market.symbol)
             if (!sellOk) {
-                ErrorLogger.warn(TAG, "CLOSE FAILED VERIFY: ${market.symbol} — tx sig landed but no burn. Not recording close.")
+                ErrorLogger.warn(TAG, "CLOSE FAILED VERIFY: ${closeSymbol} — tx sig landed but no burn. Not recording close.")
+                if (cryptoDiagClose) try { com.lifecyclebot.perps.crypto.CryptoUniverseForensics.logClosePhase("CU_CLOSE_VERIFY_FAILED", closeSymbol, targetMint, inputMint, SOL_MINT, amountUnits, signature, false, "tx landed but input burn not verified") } catch (_: Throwable) {}
                 return@withContext Pair(false, null)
             }
         }
@@ -1410,6 +1437,7 @@ object MarketsLiveExecutor {
             collectTradingFee(wallet, feeAmountSol, market.symbol, "CLOSE")
             
             ErrorLogger.info(TAG, "CLOSE SUCCESS: ${signature.take(24)}...")
+            if (cryptoDiagClose) try { com.lifecyclebot.perps.crypto.CryptoUniverseForensics.logClosePhase("CU_CLOSE_OK", closeSymbol, targetMint, inputMint, SOL_MINT, amountUnits, signature, true, "target sold back to SOL") } catch (_: Throwable) {}
             // V5.9.495p — SELL forensics
             try {
                 val sellMint = inputMint
@@ -1417,19 +1445,20 @@ object MarketsLiveExecutor {
                 com.lifecyclebot.engine.LiveTradeLogStore.log(
                     tradeKey = sellKey, mint = sellMint, symbol = market.symbol, side = "SELL",
                     phase = com.lifecyclebot.engine.LiveTradeLogStore.Phase.SELL_VERIFY_SOL_RETURNED,
-                    message = "✅ ${traderType} close ${market.symbol} | tx=${signature.take(20)}…",
+                    message = "✅ ${traderType} close ${closeSymbol} | tx=${signature.take(20)}…",
                     sig = signature, solAmount = sizeSol, traderTag = "PERPS_${traderType.uppercase()}",
                 )
             } catch (_: Throwable) {}
             Pair(true, signature)
         } else {
+            if (cryptoDiagClose) try { com.lifecyclebot.perps.crypto.CryptoUniverseForensics.logClosePhase("CU_CLOSE_NO_SIGNATURE", closeSymbol, targetMint, inputMint, SOL_MINT, amountUnits, null, false, "Jupiter swap returned no signature") } catch (_: Throwable) {}
             // V5.9.495p — SELL failure forensics
             try {
                 val sellKey = com.lifecyclebot.engine.LiveTradeLogStore.keyFor(inputMint, System.currentTimeMillis())
                 com.lifecyclebot.engine.LiveTradeLogStore.log(
                     tradeKey = sellKey, mint = inputMint, symbol = market.symbol, side = "SELL",
                     phase = com.lifecyclebot.engine.LiveTradeLogStore.Phase.SELL_FAILED,
-                    message = "❌ ${traderType} close ${market.symbol} — Jupiter swap returned no sig",
+                    message = "❌ ${traderType} close ${closeSymbol} — Jupiter swap returned no sig",
                     solAmount = sizeSol, traderTag = "PERPS_${traderType.uppercase()}",
                 )
             } catch (_: Throwable) {}

@@ -7014,4 +7014,32 @@ class GoldenTapeRegressionTest {
         assertTrue("V5.0.4581: CryptoAlt entries must stay isolated from meme/global entry learners", entryIso.contains("meme/global entry learners skipped") && !entryIso.contains("MetaCognitionAI.recordEntryPredictions") && !entryIso.contains("ShadowLearningEngine.onTradeOpportunity"))
     }
 
+
+
+    @Test
+    fun aate4582CryptoUniverseCloseUsesRealDynMintSellBackToSol() {
+        val trader = java.io.File("src/main/kotlin/com/lifecyclebot/perps/CryptoAltTrader.kt").readText()
+        val markets = java.io.File("src/main/kotlin/com/lifecyclebot/perps/MarketsLiveExecutor.kt").readText()
+        val closeFn = markets.substringAfter("suspend fun closeLivePosition").substringBefore("val (inputMint, amountUnits)")
+        assertTrue("V5.0.4582: CryptoAlt close must pass the real dynamic crypto mint/symbol into live close", trader.contains("cryptoTargetMintOverride = pos.dynMint") && trader.contains("cryptoSymbolOverride = mktSym"))
+        assertTrue("V5.0.4582: Markets live close must prefer cryptoTargetMintOverride / closeSymbol over the DYN sentinel", closeFn.contains("cryptoTargetMintOverride") && closeFn.contains("val closeSymbol") && closeFn.contains("getTokenBySymbol(closeSymbol)") && closeFn.contains("market != PerpsMarket.DYN"))
+        assertTrue("V5.0.4582: overridden crypto target mint must use tokenized target close path, not USDC legacy fallback", closeFn.contains("market.isCrypto || !cryptoTargetMintOverride.isNullOrBlank()") && closeFn.contains("!cryptoTargetMintOverride.isNullOrBlank()"))
+    }
+
+
+
+    @Test
+    fun aate4582CryptoTraderLogsMemeComparableDiagnostics() {
+        val funnel = java.io.File("src/main/kotlin/com/lifecyclebot/perps/crypto/brain/CryptoFunnel.kt").readText()
+        val diag = java.io.File("src/main/kotlin/com/lifecyclebot/perps/crypto/CryptoUniverseForensics.kt").readText()
+        val digest = java.io.File("src/main/kotlin/com/lifecyclebot/engine/OperatorPerpsCryptoDigest.kt").readText()
+        val markets = java.io.File("src/main/kotlin/com/lifecyclebot/perps/MarketsLiveExecutor.kt").readText()
+        val trader = java.io.File("src/main/kotlin/com/lifecyclebot/perps/CryptoAltTrader.kt").readText()
+        assertTrue("V5.0.4582: Crypto funnel must expose opened and closed ok/fail counters", funnel.contains("opened         ok=") && funnel.contains("closed         ok=") && funnel.contains("fun close(success: Boolean)"))
+        assertTrue("V5.0.4582: Crypto universe forensics must aggregate phase/route/diagnostic reason counts", diag.contains("phaseCounts") && diag.contains("diagCounts") && diag.contains("routeCounts") && diag.contains("fun summary()"))
+        assertTrue("V5.0.4582: Crypto closes must log start/input/success/failure phases like meme sell diagnostics", markets.contains("CU_CLOSE_START") && markets.contains("CU_CLOSE_INPUT_RESOLVED") && markets.contains("CU_CLOSE_OK") && markets.contains("CU_CLOSE_NO_SIGNATURE") && markets.contains("CU_CLOSE_TARGET_ABSENT"))
+        assertTrue("V5.0.4582: CryptoAlt close must feed CryptoFunnel close counters", trader.contains("CryptoFunnel.close(closeSuccess)"))
+        assertTrue("V5.0.4582: operator crypto digest must surface bridge diagnostics with log-parity marker", digest.contains("bridgeDiag") && digest.contains("CryptoUniverseForensics.summary") && digest.contains("crypto_log_parity=true"))
+    }
+
 }

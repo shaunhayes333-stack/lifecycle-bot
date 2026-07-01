@@ -2737,12 +2737,15 @@ object CryptoAltTrader {
                         leverage         = pos.leverage,
                         traderType       = "CryptoAlt",
                         flashPositionKey = pos.flashPositionKey,  // V5.9.320: Flash key for leveraged crypto
+                        cryptoTargetMintOverride = pos.dynMint,
+                        cryptoSymbolOverride = mktSym,
                     )
                     ok
                 }
             } catch (e: Exception) {
                 ErrorLogger.warn(TAG, "🪙 Live close failed for ${mktSym}: ${e.message}")
             }
+            try { com.lifecyclebot.perps.crypto.brain.CryptoFunnel.close(closeSuccess) } catch (_: Throwable) {}
             if (!closeSuccess) {
                 ErrorLogger.warn(TAG, "🚨 LIVE CLOSE FAILED: ${mktSym} — re-inserting position for retry (was orphaned)")
                 positions[positionId] = pos

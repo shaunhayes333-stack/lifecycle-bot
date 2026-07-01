@@ -40,6 +40,8 @@ object CryptoFunnel {
     private val execGateBlock = AtomicLong(0L)
     private val opened        = AtomicLong(0L)
     private val openedFailed  = AtomicLong(0L)
+    private val closeOk       = AtomicLong(0L)
+    private val closeFail     = AtomicLong(0L)
 
     fun universe(allowed: Boolean) {
         if (allowed) universeAllow.incrementAndGet() else universeBlock.incrementAndGet()
@@ -62,6 +64,9 @@ object CryptoFunnel {
     fun open(success: Boolean) {
         if (success) opened.incrementAndGet() else openedFailed.incrementAndGet()
     }
+    fun close(success: Boolean) {
+        if (success) closeOk.incrementAndGet() else closeFail.incrementAndGet()
+    }
 
     fun summary(): String = buildString {
         appendLine("Crypto Funnel (V5.9.1447):")
@@ -71,7 +76,8 @@ object CryptoFunnel {
         appendLine("  v3-override    yes=${v3Override.get()}  veto=${v3Veto.get()}")
         appendLine("  preFdg=BUY     yes=${preFdgBuy.get()}  block=${preFdgBlock.get()}")
         appendLine("  EXEC_GATE      allow=${execGateAllow.get()}  block=${execGateBlock.get()}")
-        append    ("  opened         ok=${opened.get()}  fail=${openedFailed.get()}")
+        appendLine("  opened         ok=${opened.get()}  fail=${openedFailed.get()}")
+        append    ("  closed         ok=${closeOk.get()}  fail=${closeFail.get()}")
     }
 
     fun reset() {
@@ -82,5 +88,6 @@ object CryptoFunnel {
         preFdgBuy.set(0L); preFdgBlock.set(0L)
         execGateAllow.set(0L); execGateBlock.set(0L)
         opened.set(0L); openedFailed.set(0L)
+        closeOk.set(0L); closeFail.set(0L)
     }
 }
