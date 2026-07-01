@@ -142,11 +142,11 @@ object LiveProbabilityEngine {
                 val laneN = laneSamples
                 val minSample4587 = if (isCatastrophicLaneShaper4587) 3L else 6L
                 val sampleClear = laneN >= minSample4587
-                val badTradeEV = laneN >= minSample4587 && eBase <= -20.0
+                val badTwoTradeEV = laneN >= minSample4587 && eBase <= -20.0
                 val catastrophicEV = laneN >= 3L && eBase <= -40.0
                 val zeroWrEnough = lanePWin <= 0.001 && laneN >= (if (isCatastrophicLaneShaper4587) 3L else 5L)
                 val doomEV = eBase <= -60.0 && laneN >= 2L
-                sampleClear && (badTradeEV || catastrophicEV || zeroWrEnough || doomEV)
+                sampleClear && (badTwoTradeEV || catastrophicEV || zeroWrEnough || doomEV)
             }
             val finalMult = if (rapidPivotToxicBucket4572) {
                 try {
