@@ -78,9 +78,9 @@ object LiveProbabilityEngine {
                 val labProven = try {
                     com.lifecyclebot.engine.lab.LlmLabStore.allStrategies()
                         .any { s ->
-                            val target = s.assetClass.name.uppercase()
+                            val target = s.asset.name.uppercase()
                             (target == laneU || (target == "MEME" && laneU in setOf("SHITCOIN","MOONSHOT","EXPRESS","MANIPULATED"))) &&
-                                s.status == com.lifecyclebot.engine.lab.LabStrategyStatus.PROVEN
+                                s.status == com.lifecyclebot.engine.lab.LabStrategyStatus.PROMOTED
                         }
                 } catch (_: Throwable) { false }
                 val policyAuthoritative = try {
@@ -170,13 +170,57 @@ object LiveProbabilityEngine {
                 maxOf(pWin, lanePWin) < 0.42 -> 0.92
                 else -> 1.60
             }
+            // V5.0.4596 — QUALITY VOLUME BOOST (operator directive:
+            // "we need to increase quality volume ... entry sizes are still
+            // stupidly small"). The rigid lowHitRateCap creates a death
+            // spiral: bad trades → low lane WR → cap clamps at 0.42x →
+            // every subsequent trade is tiny → hard to recover expectancy
+            // even on genuine high-quality tokens. This quality-boost
+            // fluidly multiplies the cap using AGI-produced forward signals
+            // (composite score, ForwardOutcomeModel pWin, forward pRug)
+            // so premium tokens still get executable sizes even when the
+            // lane sample is polluted. Low-quality tokens still get tiny
+            // sizes as intended. Aligns with fluid-gates doctrine — not
+            // purely result-based, respects forward-looking AGI signals.
+            val qualityBoost = run {
+                var boost = 1.0
+                boost *= when {
+                    score >= 85 -> 1.35   // premium composite score
+                    score >= 70 -> 1.15
+                    score >= 55 -> 1.00
+                    else        -> 0.75   // low quality shrinks
+                }
+                boost *= when {
+                    fwd.pWin >= 0.60 -> 1.20   // strong forward pWin
+                    fwd.pWin >= 0.50 -> 1.05
+                    fwd.pWin >= 0.40 -> 1.00
+                    else             -> 0.90
+                }
+                boost *= when {
+                    fwd.pRug <= 0.15 -> 1.10   // clean rug forecast
+                    fwd.pRug <= 0.30 -> 1.00
+                    fwd.pRug >= 0.50 -> 0.70   // heavy rug risk shrinks
+                    else             -> 0.90
+                }
+                boost.coerceIn(0.50, 1.80)
+            }
+            val qualityAwareCap = (lowHitRateCap * qualityBoost).coerceIn(0.35, 2.00)
+            try {
+                if (qualityBoost >= 1.20 || qualityBoost <= 0.75) {
+                    ForensicLogger.lifecycle(
+                        "LIVE_PROBABILITY_QUALITY_BOOST_4596",
+                        "lane=$lane score=$score qualityBoost=${"%.2f".format(qualityBoost)} lowHitCap=${"%.2f".format(lowHitRateCap)} qualityAwareCap=${"%.2f".format(qualityAwareCap)} fwdPWin=${"%.2f".format(fwd.pWin)} fwdPRug=${"%.2f".format(fwd.pRug)}",
+                    )
+                    PipelineHealthCollector.labelInc("LIVE_PROBABILITY_QUALITY_BOOST_4596_${lane.uppercase()}")
+                }
+            } catch (_: Throwable) {}
             val pnlEdge = if (maxOf(pWin, lanePWin) >= 0.35) (eBase / 140.0).coerceIn(-0.35, 0.35) else (eBase / 220.0).coerceIn(-0.25, 0.10)
             val solEdge = if (maxOf(pWin, lanePWin) >= 0.35) (laneSol / 0.55).coerceIn(-0.30, 0.28) else (laneSol / 0.85).coerceIn(-0.25, 0.08)
             val rugPenalty = fwd.pRug.coerceIn(0.0, 0.80) * 0.75
             val uncertaintyPenalty = (fwd.dispersion / 180.0).coerceIn(0.0, 0.22)
             val rawMult = (1.0 + probabilityEdge + pnlEdge + solEdge - rugPenalty - uncertaintyPenalty)
                 .coerceIn(0.40, 1.60)
-            val mult = minOf(rawMult, lowHitRateCap).coerceIn(0.40, 1.60)
+            val mult = minOf(rawMult, qualityAwareCap).coerceIn(0.40, 1.80)
             // V5.0.4572 — LIVE RAPID RE-EDUCATION, NOT PAID BOOTSTRAP TUITION.
             // Real capital has no bootstrap grace. A few clear bad live outcomes are
             // enough to declare the current lane bucket toxic, but the response must

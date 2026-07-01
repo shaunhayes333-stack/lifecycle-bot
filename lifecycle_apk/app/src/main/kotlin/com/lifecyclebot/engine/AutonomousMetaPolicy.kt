@@ -44,7 +44,15 @@ object AutonomousMetaPolicy {
 
     // ── Tunables ─────────────────────────────────────────────────────────
     private const val TAG = "MetaPolicy"
-    private const val MIN_SAMPLES        = 12      // below this, stay neutral (bootstrap-safe)
+    // V5.0.4597 — MIN_SAMPLES LOWERED (operator directive: "self tuning
+    // from trade 1"). Previous MIN_SAMPLES=12 meant every (lane × score-band
+    // × regime) context needed 12+ closes before the AGI would even OPINE.
+    // On fresh install with ~1 trade/min across 6+ contexts, that's 60-90
+    // min of blind trading before meta-policy activates. Dropped to 5 with
+    // wide error bars — Thompson sampling naturally handles the uncertainty
+    // (early samples produce wide beta distributions that self-explore, so
+    // low n is safe here — this is Bayesian, not frequentist).
+    private const val MIN_SAMPLES        = 5       // was 12
     private const val CONVICTION_FLOOR   = 0.55    // worst damp — never starve volume
     private const val CONVICTION_CAP     = 1.45    // best lean-in
     private const val PRIOR_ALPHA        = 1.0     // Beta(1,1) uniform prior

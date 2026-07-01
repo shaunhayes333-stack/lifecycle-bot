@@ -361,6 +361,20 @@ object GlobalTradeRegistry {
             return AddResult(false, "SCANNER_HARD_REJECT", probation = false)
         }
 
+        // V5.0.4597 — SCANNER SOURCE BRAIN INTAKE BLACKOUT. Central chokepoint
+        // so a source that has proven itself toxic (n>=30, WR<20%) gets its
+        // flood-of-tokens probabilistically skipped BEFORE they hit the
+        // watchlist. Fresh-install-safe: BOOTSTRAP + non-mature sources
+        // always pass through. A 1-in-N probe still lands so the source can
+        // self-heal on regime flip. Doctrine: soft-shape, fluid — never a
+        // hard blacklist.
+        try {
+            if (ScannerSourceBrain.shouldSkipIntake(source)) {
+                PipelineTracer.registryRejected(symbol, mint, "SCANNER_SOURCE_BRAIN_BLACKOUT_4597:$source")
+                return AddResult(false, "SCANNER_SOURCE_BRAIN_BLACKOUT_4597", probation = false)
+            }
+        } catch (_: Throwable) {}
+
         // Check if already in watchlist
         val existing = watchlist[mint]
         if (existing != null) {

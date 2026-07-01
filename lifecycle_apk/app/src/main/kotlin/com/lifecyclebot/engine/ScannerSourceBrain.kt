@@ -82,6 +82,42 @@ object ScannerSourceBrain {
         ErrorLogger.info(TAG, "🧠 brain init: ${stats.size} sources tracked")
     }
 
+    /**
+     * V5.0.4597 — INTAKE BLACKOUT for provably-toxic sources (operator P0).
+     * `intakeMultiplier` only SHRINKS size, doesn't stop ingestion. Field data
+     * showed PUMP_FUN_NEW,SCANNER_DIRECT at n=282 WR=19% mult=0.63 tier=
+     * AUTHORITATIVE still feeding 130 tokens per session — the brain KNEW it
+     * was bad but had no way to stop the flood. This returns true when the
+     * source is:
+     *   • Mature (n >= 30) AND WR < 20% → skip 3-in-4 tokens
+     *   • Very mature (n >= 60) AND WR < 15% → skip 9-in-10 tokens
+     *   • Extremely toxic (n >= 100) AND WR < 12% → skip 24-in-25 tokens
+     * A probe still gets through so the source can self-heal on regime flip.
+     * Doctrine-safe: soft-shape (probabilistic skip, not veto), fail-open.
+     */
+    private val intakeSkipCounter = java.util.concurrent.atomic.AtomicLong(0L)
+    fun shouldSkipIntake(source: String): Boolean {
+        return try {
+            val key = normalise(source)
+            val s = stats[key] ?: return false
+            val n = s.samples()
+            if (n < 30) return false
+            val wr = s.winRate()
+            val skipEvery = when {
+                n >= 100 && wr < 0.12 -> 25L  // extremely toxic: 24/25 tokens skipped
+                n >= 60  && wr < 0.15 -> 10L  // very mature toxic: 9/10 skipped
+                n >= 30  && wr < 0.20 -> 4L   // mature bleeder: 3/4 skipped
+                else                  -> return false
+            }
+            val n2 = intakeSkipCounter.incrementAndGet()
+            val skip = (n2 % skipEvery) != 0L  // let 1-in-N through as probe
+            if (skip) {
+                try { PipelineHealthCollector.labelInc("SCANNER_INTAKE_BLACKOUT_4597_${key.take(30)}") } catch (_: Throwable) {}
+            }
+            skip
+        } catch (_: Throwable) { false }
+    }
+
     /** Called by Executor at journal close. Mirrors ScannerLearning.recordTrade. */
     fun recordOutcome(source: String, pnlPct: Double) {
         if (!loaded) return

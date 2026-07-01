@@ -39,11 +39,18 @@ object LosingPatternMemory {
         // and boxes the bot out of trading completely. With losses>=8 AND >=20 samples,
         // buckets need genuine statistical weight before blocking. Mature bots still get
         // meaningful danger-zone detection; bootstrap bots can keep learning.
-        val isDangerous: Boolean get() = losses >= 8 && sample >= 20 && (losses.toDouble() / sample) >= 0.75
-        // V5.0.3805 — emerging danger: don't wait for 20 closes before shrinking
-        // an obvious bootstrap bleeder. Still sample-gated enough to avoid 2-3 loss
-        // noise, still soft-shape only, and never applies to positive-mean buckets.
-        val isEmergingDanger: Boolean get() = losses >= 5 && sample in 8..19 && (losses.toDouble() / sample) >= 0.80 && meanPnl <= -4.0
+        // V5.0.4597 — EARLIER DETECTION (operator directive: "lanes failing
+        // to produce profits they need to find how too sooner. there is no
+        // excuse."). Lowered danger threshold from losses>=8+sample>=20 to
+        // losses>=5+sample>=10, and lossRate 75%→70%. On fresh install the
+        // AGI stack must be able to identify bleeder buckets within
+        // ~10 trades per bucket, not 20+. Doctrine still soft-shape — this
+        // just accelerates the sizing shrink ladder.
+        val isDangerous: Boolean get() = losses >= 5 && sample >= 10 && (losses.toDouble() / sample) >= 0.70
+        // V5.0.4597 — earlier still: 3 losses at 75%+ loss rate + negative mean
+        // triggers emerging danger (was: 5 losses / 8-19 sample / 80%). Fresh
+        // install can now shrink obvious losers by trade 4-5 instead of trade 8+.
+        val isEmergingDanger: Boolean get() = losses >= 3 && sample in 4..9 && (losses.toDouble() / sample) >= 0.75 && meanPnl <= -3.0
     }
 
     // V5.0.4072 — split live-only danger cache. Paper patterns must NOT
