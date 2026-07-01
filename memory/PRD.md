@@ -1,7 +1,41 @@
 # AATE (Autonomous AI Trading Engine) — PRD
 
 **Last updated**: 2026-07-02
-**Build stream**: V5.0.4595+ (Native Kotlin Android, GitHub Actions CI)
+**Build stream**: V5.0.4596+ (Native Kotlin Android, GitHub Actions CI)
+
+## Architectural Doctrine — FLUID GATES (operator directive 2026-07-02)
+
+> *"All gates are meant to be in a fluid state, eventually to be removed
+> once the SUPER AGI / SSI stack takes over once they have enough learnt
+> intelligence. These should not just be result-based decisions either."*
+
+Every gate/pause/dampener added to this codebase MUST:
+
+1. **Be fluid, not binary** — return a probability-weighted dampener (0.10 →
+   0.55 → 1.0), NEVER a hard `size=0` rigid block. Even paused lanes should
+   permit tiny learning probes so the AGI training loop is never blind.
+2. **Yield to AGI authority** — always consult forward-looking AGI signals
+   before applying the dampener:
+     - `UnifiedPolicyHead` per-lane authority (AUTHORITATIVE vs BOOTSTRAP)
+     - `LlmLabStore` proven strategies for the asset class
+     - `LaneShadowProofLoop` proof-bar completion
+   When the AGI has trained authority, the gate must scale itself down.
+3. **Be forward-looking, not purely reactive** — do not gate solely on
+   backward-looking WR / EV. Incorporate forecast (`ForwardOutcomeModel`),
+   regime, brain confidence, and lab-proven forward evidence.
+4. **Log rich telemetry** — every fluid-gate decision must emit a
+   `ForensicLogger.lifecycle` event so the AGI can learn WHICH gates
+   flipped, WHY, and whether the outcome validated the decision.
+5. **Have an eventual sunset** — once AGI reaches a defined maturity bar
+   (trained samples + authority + shadow-proof), the gate should be
+   removed OR set to `noop` mode automatically.
+
+**Applied in V5.0.4596**: `LiveProbabilityEngine.computeEdge` paused-lane
+backstop returns fluid mult (0.10 / 0.35 / 0.55) instead of the initially
+proposed rigid `mult=0.0`. AGI signals (`LlmLabStore.PROVEN`,
+`UnifiedPolicyHead AUTHORITATIVE`) upgrade the dampener automatically.
+
+
 
 ## Original Problem Statement
 
@@ -81,6 +115,18 @@ Solana assets (JUP, WIF, SOL, BONK, etc).
 ```
 
 ## Backlog
+
+### V5.0.4596 — FLUID PAUSED-LANE DAMPENER + AGI OVERRIDE (2026-07-02)
+Field V5.0.4595 confirmed wallet +99% (0.5→1.0 SOL) but MANIPULATED still
+gained +6 trades bypassing all 3 hard gates (FDG/TokenSafety/BotService).
+Rather than adding a 4th rigid gate, applied FLUID DAMPENER at
+LiveProbabilityEngine.computeEdge that respects AGI authority:
+- **LlmLabStore PROVEN** strategy → mult=0.35 (normal probe size)
+- **UnifiedPolicyHead AUTHORITATIVE** → mult=0.55 (trained authority)
+- **No AGI signal** → mult=0.10 (tiny learning probe — not zero!)
+- Dampener naturally fades as AGI matures — no rigid block. AGI can
+  fully override once trained. Aligns with operator's fluid-gates
+  architectural doctrine (see top of PRD).
 
 ### V5.0.4595 — OPEN VALVE + API/RPC HARDENING (2026-07-02, CI green ✅ Build #4579 + Smoke #2049)
 Field V5.0.4594 confirmed: EXPRESS/MANIPULATED frozen, wallet +21%, no

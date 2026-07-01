@@ -46,6 +46,67 @@ object LiveProbabilityEngine {
         metaConviction: Double = 0.50,
     ): Edge {
         val lane = canonical(rawLane)
+        // V5.0.4596 — FLUID PAUSED-LANE DAMPENER (operator architectural
+        // principle: "all gates are meant to be in a fluid state eventually
+        // be removed once the SUPER AGI / SSI stack take over once they
+        // have enough learnt intelligence... these should not just be
+        // result-based decisions either").
+        //
+        // Rather than a rigid mult=0.0 block, this backstop applies a
+        // *fluid dampener* that the AGI stack can override. Purpose is to
+        // stop capital hemorrhage from bypass paths while still permitting
+        // learning probes AND respecting the AGI's forward-looking
+        // authority (not just backward-looking WR).
+        //
+        // Dampener tiers:
+        //   • Base (no AGI signal): mult=0.10 → tiny learning probe still
+        //     runs so the paused lane doesn't go completely dark for the
+        //     learning loop.
+        //   • Lab strategy proven for this lane: mult=0.35 → sandbox brain
+        //     has forward-looking evidence, upgrade to normal probe size.
+        //   • UnifiedPolicyHead AUTHORITATIVE + positive fwd prediction:
+        //     mult=0.55 → per-lane brain has trained authority.
+        //
+        // As the AGI matures, the dampener fades naturally because these
+        // AGI signals mature. Eventually the LaneAutoPauseGuard hard-seed
+        // itself gets released (via operator's LaneShadowProofLoop.
+        // allowLaneResume) and this backstop becomes a no-op.
+        try {
+            if (LaneAutoPauseGuard.isPaused(lane)) {
+                val laneU = lane.uppercase()
+                // Consult AGI signals for override authority
+                val labProven = try {
+                    com.lifecyclebot.engine.lab.LlmLabStore.allStrategies()
+                        .any { s ->
+                            val target = s.assetClass.name.uppercase()
+                            (target == laneU || (target == "MEME" && laneU in setOf("SHITCOIN","MOONSHOT","EXPRESS","MANIPULATED"))) &&
+                                s.status == com.lifecyclebot.engine.lab.LabStrategyStatus.PROVEN
+                        }
+                } catch (_: Throwable) { false }
+                val policyAuthoritative = try {
+                    UnifiedPolicyHead.formatForPipelineDump()
+                        .let { dump -> dump.contains("$laneU") && dump.contains("AUTHORITATIVE") && !dump.contains("bootstrap") }
+                } catch (_: Throwable) { false }
+                val agiMult = when {
+                    policyAuthoritative -> 0.55  // per-lane brain trained + authoritative
+                    labProven          -> 0.35   // sandbox has forward-looking proof
+                    else               -> 0.10   // tiny learning probe (not zero — keeps loop fed)
+                }
+                val agiSrc = when {
+                    policyAuthoritative -> "paused+policy_authoritative"
+                    labProven          -> "paused+lab_proven"
+                    else               -> "paused+learning_probe"
+                }
+                try {
+                    ForensicLogger.lifecycle(
+                        "LIVE_PROBABILITY_LANE_PAUSED_FLUID_DAMPENED_4596",
+                        "lane=$lane mult=$agiMult src=$agiSrc labProven=$labProven policyAuthoritative=$policyAuthoritative note=fluid_not_binary_agi_can_override",
+                    )
+                    PipelineHealthCollector.labelInc("LIVE_PROBABILITY_LANE_PAUSED_FLUID_${laneU}")
+                } catch (_: Throwable) {}
+                return Edge(lane, 0.35, 0.0, 0.0, 0.0, 0L, agiSrc, agiMult, "fluid_paused_dampener_4596=$agiMult")
+            }
+        } catch (_: Throwable) {}
         return try {
             val fwd = ForwardOutcomeModel.forecast(
                 lane,
