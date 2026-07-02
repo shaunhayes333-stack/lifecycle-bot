@@ -538,6 +538,8 @@ class GoldenTapeRegressionTest {
         assertTrue(bot.contains("source-only birth affinity must be a seed"))
         assertFalse("Pump source must not birth every meme lane before style classification", bot.contains("SHITCOIN\", \"MOONSHOT\", \"MANIPULATED\", \"PROJECT_SNIPER"))
         assertFalse("Raydium source must not birth every meme lane before style classification", bot.contains("MOONSHOT\", \"SHITCOIN\", \"MANIPULATED\", \"DIP_HUNTER"))
+        assertTrue("V5.0.6016: good Pump/Raydium/source-degraded candidates must feed successful meme lanes", bot.contains("SUCCESSFUL_MEME_SOURCE_BREADTH_6016") && bot.contains("out += \"QUALITY\"") && bot.contains("out += \"MOONSHOT\"") && bot.contains("out += \"BLUECHIP\""))
+        assertFalse("V5.0.6016: generic Pump thin-liq must not source-feed MANIPULATED eval budget", bot.contains("out += \"MANIPULATED\""))
     }
 
     @Test

@@ -9867,11 +9867,30 @@ class BotService : Service() {
         if (tags.contains("DEX_BOOSTED") || tags.contains("DEX_TRENDING") || tags.contains("COINGECKO")) out += listOf("QUALITY", "TREASURY", "CASHGEN")
         if (marketCapUsd in 75_000.0..1_000_000.0) out += "QUALITY"
         if (marketCapUsd >= 1_000_000.0 || liquidityUsd >= 75_000.0) out += "BLUECHIP"
-        // V5.0.4129 — feed the manipulated lane when liquidity is thin but the
-        // source is a pump-style feed (classic manipulation signature).
-        if ((tags.contains("PUMP") || tags.contains("PORTAL")) && liquidityUsd in 1_000.0..15_000.0) {
-            out += "MANIPULATED"
+        // V5.0.6016 — meme volume recovery via successful-lane source breadth.
+        // 6014 made QUALITY/MOONSHOT/BLUECHIP the right execution budget, but
+        // Pump/Raydium births still seeded mostly degen/specialist lanes. Runtime
+        // 6014 showed quality was up but volume narrowed: direct Pump/Raydium
+        // dominated intake while DEX/smart feeds were degraded. Mid-liq/exitable
+        // Pump/Raydium candidates should feed the winning lane cluster instead of
+        // starving behind SHITCOIN/EXPRESS/PROJECT/MANIP affinity. STANDARD/CORE/V3
+        // are trunk passes elsewhere; this adds affinity only for bounded rescue.
+        val successfulMemeSourceBreadth6016 =
+            liquidityUsd >= 7_500.0 ||
+                marketCapUsd >= 25_000.0 ||
+                tags.contains("DEX") || tags.contains("RAYDIUM") || tags.contains("GECKO") || tags.contains("SMART") || tags.contains("WALLET")
+        if (successfulMemeSourceBreadth6016) {
+            out += "QUALITY"
+            out += "MOONSHOT"
+            if (liquidityUsd >= 12_000.0 || marketCapUsd >= 75_000.0 || tags.contains("SMART") || tags.contains("WALLET")) out += "BLUECHIP"
+            try {
+                PipelineHealthCollector.labelInc("SUCCESSFUL_MEME_SOURCE_BREADTH_6016")
+                ForensicLogger.lifecycle("SUCCESSFUL_MEME_SOURCE_BREADTH_6016", "src=$source tags=${tags.take(160)} liq=${liquidityUsd.toInt()} mcap=${marketCapUsd.toInt()} lanes=${out.joinToString("+")}")
+            } catch (_: Throwable) {}
         }
+        // V5.0.6016 — do NOT source-feed MANIPULATED from generic Pump thin-liq.
+        // Manipulated still has true safety/overlay routing, but it should not burn
+        // hundreds of evaluations just because Pump/Raydium volume is present.
         if (out.isEmpty()) out += listOf("SHITCOIN", "MOONSHOT")
 
         // V5.0.4149 — REGIME-AWARE INTAKE PIVOT.
