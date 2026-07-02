@@ -650,6 +650,22 @@ class BotService : Service() {
 
     private val dex    = DexscreenerApi()
     private var wakeLock: PowerManager.WakeLock? = null
+    private var wifiLock6032: android.net.wifi.WifiManager.WifiLock? = null
+
+    private fun ensureRuntimeWifiLock6032(reason: String) {
+        try {
+            val existing = wifiLock6032
+            if (existing?.isHeld == true) return
+            val wm = applicationContext.getSystemService(Context.WIFI_SERVICE) as? android.net.wifi.WifiManager ?: return
+            wifiLock6032 = wm.createWifiLock(android.net.wifi.WifiManager.WIFI_MODE_FULL_HIGH_PERF, "lifecyclebot:network:always_on_6032").also {
+                it.setReferenceCounted(false)
+                it.acquire()
+            }
+            try { ForensicLogger.lifecycle("ALWAYS_ON_WIFI_LOCK_REASSERTED_6032", "reason=$reason held=true runtime=${status.running} loop=${loopJob?.isActive == true} hotExit=${hotExitJob?.isActive == true}") } catch (_: Throwable) {}
+        } catch (t: Throwable) {
+            try { ErrorLogger.warn("BotService", "ALWAYS_ON_WIFI_LOCK_REASSERT_FAILED_6032 reason=$reason err=${t.message}") } catch (_: Throwable) {}
+        }
+    }
 
     private fun ensureRuntimeWakeLock6031(reason: String) {
         try {
@@ -669,6 +685,7 @@ class BotService : Service() {
     private fun ensureAlwaysOnRuntimeGuards6031(reason: String) {
         try { startForeground(NOTIF_ID, buildRunningNotif()) } catch (_: Throwable) {}
         ensureRuntimeWakeLock6031(reason)
+        ensureRuntimeWifiLock6032(reason)
         try { scheduleKeepAliveAlarm() } catch (_: Throwable) {}
         try { ServiceWatchdog.scheduleAlarm(applicationContext) } catch (_: Throwable) {}
         val held = try { heldPositionCountForRescue() } catch (_: Throwable) { 0 }
@@ -1350,6 +1367,7 @@ class BotService : Service() {
         createChannels()
         startForeground(NOTIF_ID, buildRunningNotif())
         ensureRuntimeWakeLock6031("onCreate_after_startForeground")
+        ensureRuntimeWifiLock6032("onCreate_after_startForeground")
 
         try {
             // Initialize error logger first so we can capture any init errors
@@ -2359,6 +2377,7 @@ class BotService : Service() {
             val held = heldPositionCountForRescue()
             if ((wasRunning || held > 0) && !manualStop) {
                 ensureRuntimeWakeLock6031("null_intent_sticky_resurrection")
+                ensureRuntimeWifiLock6032("null_intent_sticky_resurrection")
                 try { scheduleKeepAliveAlarm() } catch (_: Throwable) {}
                 try { ServiceWatchdog.scheduleAlarm(applicationContext) } catch (_: Throwable) {}
             }
@@ -2431,6 +2450,7 @@ class BotService : Service() {
                     status.running = true
                     isShuttingDown = false
                     ensureRuntimeWakeLock6031("action_start_already_running")
+                    ensureRuntimeWifiLock6032("action_start_already_running")
                     try { ensureHotExitAlive() } catch (_: Throwable) {}
                     try {
                         getSharedPreferences(RUNTIME_PREFS, Context.MODE_PRIVATE)
@@ -5782,6 +5802,7 @@ class BotService : Service() {
         userStartQueuedDuringStop = false
         // Acquire/reassert partial wake lock — keeps CPU alive during transaction confirmation and screen-off live management.
         ensureRuntimeWakeLock6031("startBot")
+        ensureRuntimeWifiLock6032("startBot")
         
         // Schedule a repeating keep-alive alarm every 60 seconds
         // This ensures the service restarts if Android kills it
@@ -7138,6 +7159,8 @@ class BotService : Service() {
         stopSelf()
         wakeLock?.let { if (it.isHeld) it.release() }
         wakeLock = null
+        try { wifiLock6032?.let { if (it.isHeld) it.release() } } catch (_: Throwable) {}
+        wifiLock6032 = null
         
         addLog("Bot stopped. All positions closed. Wallet remains connected.")
         
