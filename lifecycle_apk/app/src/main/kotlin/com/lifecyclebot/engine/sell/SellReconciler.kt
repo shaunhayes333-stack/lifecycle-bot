@@ -228,39 +228,19 @@ object SellReconciler {
     suspend fun tickOnce() {
         if (paperMode) return
         val w = wallet ?: return
-        val open = HostWalletTokenTracker.getOpenTrackedPositions()
         totalTicks++
-        totalChecked += open.size.toLong()
         lastTickAtMs = System.currentTimeMillis()
-        try {
-            ForensicLogger.lifecycle(
-                "RECONCILER_TICK",
-                "tickCount=$totalTicks openTracked=${open.size} sellJobsActive=${SellJobRegistry.activeCount()}",
-            )
-        } catch (_: Throwable) {}
 
-        // V5.9.1522 — POSITION AUTO-HEAL. Pull the wallet-truth held set and ask
-        // BotService to adopt any held mint missing from the live store. This is
-        // the cure for walletHeldMints>0 && liveOpenPositions==0 (orphan bags
-        // with no exit monitor). Cheap: getActuallyHeldMints reads the tracker map.
-        try {
-            val held = HostWalletTokenTracker.getActuallyHeldMints()
-            if (held.isNotEmpty()) onHealWalletHeld?.invoke(held)
-        } catch (_: Throwable) {}
-
-        if (open.isEmpty()) {
-            SellJobRegistry.pruneTerminal()
-            return
-        }
-
-        // One wallet read for the whole pass (cheaper than per-mint queries).
-        // V5.0.3769 — INDETERMINATE IS NOT EMPTY. The old catch returned emptyMap()
-        // on timeout/SSL/RPC failure, so reconcileOne() treated every open position
-        // as wallet balance zero, producing ZERO_CLOSE_REJECTED_POSITIVE_CACHE and
-        // retry storms while the wallet still physically held RETARD/Miaowtocracy.
-        // If wallet truth cannot be read, skip this reconciler tick entirely; live
-        // sells may still use their own owner-delta recovery path, but the reconciler
-        // must not invent zero balances.
+        // V5.0.6035 — SELF-HEAL RAW WALLET BEFORE TRACKER-HELD CHECK.
+        // Old order was circular:
+        //   open = HostWalletTokenTracker.getOpenTrackedPositions()
+        //   held = HostWalletTokenTracker.getActuallyHeldMints()
+        //   if (open.isEmpty()) return
+        // If Android/Doze dropped status/tracker state while Phantom still held bags,
+        // both tracker-derived sets were empty and this reconciler never read the raw
+        // wallet, so sells stayed blind and buy-side guards saw dirty drift. Pull one
+        // current wallet snapshot first, apply it to HostWalletTokenTracker, then run
+        // the held auto-heal that boards missing mints into BotService.status/hotExit.
         val tokensOrNull: Map<String, Pair<Double, Int>>? = withContext(Dispatchers.IO) {
             try { w.getTokenAccountsWithDecimalsBounded() } catch (e: Throwable) {
                 try { ForensicLogger.lifecycle("RECONCILER_WALLET_READ_INDETERMINATE_SKIP", "reason=${e.message?.take(140)}") } catch (_: Throwable) {}
@@ -269,6 +249,35 @@ object SellReconciler {
             }
         }
         val tokens: Map<String, Pair<Double, Int>> = tokensOrNull ?: run {
+            SellJobRegistry.pruneTerminal()
+            return
+        }
+        if (tokens.isNotEmpty()) {
+            try {
+                HostWalletTokenTracker.applyWalletSnapshot(tokens)
+                ForensicLogger.lifecycle("SELL_RECONCILER_WALLET_SNAPSHOT_APPLIED_6035", "tick=$totalTicks walletMints=${tokens.size}")
+            } catch (_: Throwable) {}
+        }
+
+        val open = HostWalletTokenTracker.getOpenTrackedPositions()
+        totalChecked += open.size.toLong()
+        try {
+            ForensicLogger.lifecycle(
+                "RECONCILER_TICK",
+                "tickCount=$totalTicks openTracked=${open.size} walletMints=${tokens.size} sellJobsActive=${SellJobRegistry.activeCount()}",
+            )
+        } catch (_: Throwable) {}
+
+        // V5.9.1522 / V5.0.6035 — POSITION AUTO-HEAL after raw-wallet adoption.
+        try {
+            val held = HostWalletTokenTracker.getActuallyHeldMints()
+            if (held.isNotEmpty()) {
+                try { ForensicLogger.lifecycle("SELL_RECONCILER_HELD_AUTOHEAL_6035", "held=${held.size} openTracked=${open.size}") } catch (_: Throwable) {}
+                onHealWalletHeld?.invoke(held)
+            }
+        } catch (_: Throwable) {}
+
+        if (open.isEmpty()) {
             SellJobRegistry.pruneTerminal()
             return
         }

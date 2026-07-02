@@ -6995,6 +6995,8 @@ class GoldenTapeRegressionTest {
         assertTrue("V5.0.6032: always-on live trading must hold network as well as CPU while service is active", bot6031.contains("ensureRuntimeWifiLock6032") && bot6031.contains("ALWAYS_ON_WIFI_LOCK_REASSERTED_6032") && bot6031.contains("lifecyclebot:network:always_on_6032") && bot6031.contains("wifiLock6032 = null") && manifest6032.contains("android.permission.ACCESS_WIFI_STATE") && manifest6032.contains("android.permission.CHANGE_WIFI_STATE"))
         val tracker6034 = java.io.File("src/main/kotlin/com/lifecyclebot/engine/HostWalletTokenTracker.kt").readText()
         assertTrue("V5.0.6034: dropped wallet tokens must recover into OPEN_TRACKING instead of being ignored", tracker6034.contains("RECOVER_ORPHAN_WALLET_TOKENS: Boolean = true") && tracker6034.contains("ORPHAN_WALLET_TOKEN_ATTACHED") && tracker6034.contains("ORPHAN_WALLET_TOKEN_MONITORED_FOR_EXIT") && tracker6034.contains("source = PositionSource.WALLET_RECONCILED"))
+        val sellRec6035 = java.io.File("src/main/kotlin/com/lifecyclebot/engine/sell/SellReconciler.kt").readText()
+        assertTrue("V5.0.6035: SellReconciler must apply raw wallet snapshot before tracker-held auto-heal", sellRec6035.contains("SELL_RECONCILER_WALLET_SNAPSHOT_APPLIED_6035") && sellRec6035.contains("HostWalletTokenTracker.applyWalletSnapshot(tokens)") && sellRec6035.indexOf("HostWalletTokenTracker.applyWalletSnapshot(tokens)") < sellRec6035.indexOf("HostWalletTokenTracker.getActuallyHeldMints()") && sellRec6035.contains("SELL_RECONCILER_HELD_AUTOHEAL_6035"))
     }
 
 
