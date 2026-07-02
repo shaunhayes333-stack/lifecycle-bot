@@ -7020,6 +7020,8 @@ class GoldenTapeRegressionTest {
         assertTrue("V5.0.6039: Open Positions panel must show top 10 held open-position rows and list the held rest instead of dropping data", main6038.contains("private val OPENPOS_ROW_CAP: Int = 10") && main6038.contains("hiddenHeld6039") && main6038.contains("+ ${'$'}hiddenCount still held/managed below top ${'$'}RENDER_CAP") && main6038.contains("heldMints6039") && main6038.contains("order high→low"))
         assertTrue("V5.0.6039: forensic/operator logs must include live tuning data", forensic6039.contains("tuning_6039") && forensic6039.contains("LiveStrategyTuner.statusLine()") && forensic6039.contains("Tuning: ${'$'}tuning6039"))
         assertTrue("V5.0.6039: CashGenerationAI 6038 compile fix must use pos.mint inside checkExitInternal", cashGen6039.contains("CashGenerationAI_exit_6038/${'$'}{pos.mint.take(8)}") && cashGen6039.contains("CashGenerationAI_secondary_6038/${'$'}{pos.mint.take(8)}") && !cashGen6039.contains("CashGenerationAI_exit_6038/${'$'}{mint.take(8)}"))
+        assertTrue("V5.0.6040: host-tracker open rows must synthesize into Open Positions so wallet-held rows cannot blank the panel", main6038.contains("OPEN_PANEL_HOST_TRACKER_SYNTH_6040") && main6038.contains("HostWalletTokenTracker.getOpenTrackedPositions()") && main6038.contains("HOST_WALLET_TRACKER_6040"))
+        assertTrue("V5.0.6040: ANR shed must keep Open Positions rendering and only skip non-open heavy rows", main6038.contains("openPosDuringShed6040") && main6038.contains("renderOpenPositions(openPosDuringShed6040)") && main6038.contains("skip=non_open_heavy_dashboard_rows"))
     }
 
 

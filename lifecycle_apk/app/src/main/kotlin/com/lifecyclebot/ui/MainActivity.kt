@@ -3663,12 +3663,19 @@ for legal compliance.
             anrHeavyRenderShedUntilMs = maxOf(anrHeavyRenderShedUntilMs, nowForRenderShed + 15_000L)
         }
         if (runtimeActiveForUi && nowForRenderShed < anrHeavyRenderShedUntilMs) {
+            // V5.0.6040 — ANR shed may skip non-critical heavy panels, but it may
+            // NOT blank Open Positions while runtime/tracker says bags are held.
+            // Render the capped/cached open panel first, then return before the
+            // lower-priority lane/watchlist/report cards.
+            val openPosDuringShed6040 = buildUnifiedOpenPositions(state)
+            cardOpenPositions.visibility = if (openPosDuringShed6040.isNotEmpty()) android.view.View.VISIBLE else android.view.View.GONE
+            if (openPosDuringShed6040.isNotEmpty()) renderOpenPositions(openPosDuringShed6040)
             if (nowForRenderShed - lastAnrHeavyRenderShedLogMs > 10_000L) {
                 lastAnrHeavyRenderShedLogMs = nowForRenderShed
                 try {
                     com.lifecyclebot.engine.ForensicLogger.lifecycle(
                         "MAIN_HEAVY_RENDER_ANR_SHED",
-                        "anrHints=$anrHintsForRenderShed shedMs=${anrHeavyRenderShedUntilMs - nowForRenderShed} runtimeActive=$runtimeActiveForUi skip=heavy_dashboard_rows",
+                        "anrHints=$anrHintsForRenderShed shedMs=${anrHeavyRenderShedUntilMs - nowForRenderShed} runtimeActive=$runtimeActiveForUi skip=non_open_heavy_dashboard_rows openRows=${openPosDuringShed6040.size}",
                     )
                     com.lifecyclebot.engine.PipelineHealthCollector.labelInc("MAIN_HEAVY_RENDER_ANR_SHED")
                 } catch (_: Throwable) {}
@@ -4622,6 +4629,52 @@ for legal compliance.
                     currentPrice = it.currentPrice, isPaper = it.isPaper)
             }
         } catch (_: Exception) {}
+
+        // V5.0.6040 — UI display must never go blank while the wallet/tracker
+        // says positions are open. Some live rows exist only in HostWalletTokenTracker
+        // after watchlist/status-token eviction or while wallet proof is pending.
+        // Synthesize basis-wait display rows directly from host tracker so the
+        // panel shows the held bag instead of disappearing.
+        try {
+            if (!isPaperMode) {
+                com.lifecyclebot.engine.HostWalletTokenTracker.getOpenTrackedPositions().forEach { hp ->
+                    if (hp.mint.isBlank() || alreadyRendered.contains(hp.mint)) return@forEach
+                    val entryPx6040 = firstPositive(hp.entryPriceUsd, hp.currentPriceUsd)
+                    val currentPx6040 = firstPositive(hp.currentPriceUsd, hp.entryPriceUsd)
+                    val costSol6040 = firstPositive(hp.entrySol, hp.currentValueSol)
+                    val qty6040 = firstPositive(hp.uiAmount, if (entryPx6040 > 0.0 && costSol6040 > 0.0) costSol6040 / entryPx6040 else 0.0)
+                    val synth6040 = TokenState(
+                        mint = hp.mint,
+                        symbol = hp.symbol ?: hp.mint.take(6),
+                        name = hp.name ?: hp.symbol ?: hp.mint.take(6),
+                    )
+                    synth6040.source = "HOST_WALLET_TRACKER_6040"
+                    synth6040.lastPrice = currentPx6040
+                    synth6040.lastPriceUpdate = System.currentTimeMillis()
+                    synth6040.position = com.lifecyclebot.data.Position(
+                        qtyToken = qty6040,
+                        entryPrice = entryPx6040,
+                        entryTime = hp.buyTimeMs ?: hp.firstSeenWalletMs.takeIf { it > 0L } ?: System.currentTimeMillis(),
+                        costSol = costSol6040,
+                        highestPrice = firstPositive(hp.highestPriceUsd, currentPx6040, entryPx6040),
+                        entryPhase = "host_tracker_display",
+                        entryScore = 0.0,
+                        isPaperPosition = false,
+                        tradingMode = "HOST_TRACKER",
+                        tradingModeEmoji = "HELD",
+                        peakGainPct = hp.maxGainPct,
+                        entryLiquidityUsd = 0.0,
+                        entryMcap = hp.entryMarketCap ?: 0.0,
+                        entryPriceSource = "HOST_WALLET_TRACKER_6040",
+                        entryPoolAddress = "HOST_WALLET_TRACKER_6040",
+                        entryDex = "HOST_WALLET_TRACKER",
+                    )
+                    merged += synth6040
+                    alreadyRendered += hp.mint
+                    try { com.lifecyclebot.engine.PipelineHealthCollector.labelInc("OPEN_PANEL_HOST_TRACKER_SYNTH_6040") } catch (_: Throwable) {}
+                }
+            }
+        } catch (_: Throwable) {}
 
         merged.forEach { recoverRenderablePricing(it) }
 
