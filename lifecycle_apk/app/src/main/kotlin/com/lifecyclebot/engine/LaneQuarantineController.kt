@@ -44,7 +44,25 @@ object LaneQuarantineController {
 
     // Operator-seeded quarantine set. LlmLab promotion releases each lane
     // autonomously when a matching PROMOTED strategy is proven.
-    private val seedQuarantine = setOf("MANIPULATED", "PROJECT_SNIPER", "DIP_HUNTER")
+    // V5.0.6003 — EXTEND to EXPRESS + SHITCOIN. Operator dump 17:22 showed
+    // both now match the exact 0%-WR-bleeder pattern that quarantined the
+    // original three: EXPRESS n=7 W/L=0/7 EV=-83%/trade, SHITCOIN n=5
+    // W/L=0/5 EV=-31%/trade. Same doctrine — pause until LLM Lab
+    // paper-proves a strategy for each, then autonomous resume.
+    private val seedQuarantine = setOf("MANIPULATED", "PROJECT_SNIPER", "DIP_HUNTER", "EXPRESS", "SHITCOIN")
+
+    // V5.0.6003 — DYNAMIC AUTO-QUARANTINE. Any lane hitting the raw-reality-
+    // clamp pattern (n≥5 closes AND WR≤15% AND EV≤-40%) is automatically
+    // added to the quarantine set at runtime, symmetrically with the raw-
+    // journal reality clamp in LiveProbabilityEngine. Fluid: releases via
+    // the same LLM Lab promotion path. Prevents future bleeders from
+    // requiring another operator directive.
+    private val dynamicQuarantine = ConcurrentHashMap.newKeySet<String>()
+    @Volatile private var lastDynamicScanMs: Long = 0L
+    private const val DYNAMIC_SCAN_TTL_MS = 20_000L
+    private const val DYN_MIN_N = 5
+    private const val DYN_MAX_WR_PCT = 15.0
+    private const val DYN_MAX_MEAN_PNL_PCT = -40.0
 
     // Runtime-released lanes (autonomous resume). Once resumed, stays resumed
     // for the process lifetime (avoids oscillation). Fresh install re-seeds
@@ -63,10 +81,58 @@ object LaneQuarantineController {
     /** True if the lane is currently blocked from taking new BUY entries. */
     fun isQuarantined(lane: String): Boolean {
         val l = lane.trim().uppercase()
-        if (l !in seedQuarantine) return false
+        // Fast path: not quarantinable if not seeded AND not dynamically added.
+        if (l !in seedQuarantine && l !in dynamicQuarantine) {
+            maybeScanForDynamicQuarantine()
+            if (l !in dynamicQuarantine) return false
+        }
         if (l in releasedLanes) return false
         maybeScanLabForAutoResume()
-        return l !in releasedLanes
+        maybeScanForDynamicQuarantine()
+        return (l in seedQuarantine || l in dynamicQuarantine) && l !in releasedLanes
+    }
+
+    /**
+     * V5.0.6003 — DYNAMIC auto-quarantine scan. Reads the raw-journal
+     * leaderboard (bypasses ledger sanitization). Any lane hitting the
+     * reality-clamp criteria (n≥5 AND WR≤15% AND meanPnl≤-40%) is
+     * automatically added to dynamicQuarantine. Same LLM Lab promotion
+     * releases it. Prevents new bleeders from requiring another operator
+     * directive.
+     */
+    private fun maybeScanForDynamicQuarantine() {
+        val now = System.currentTimeMillis()
+        if (now - lastDynamicScanMs < DYNAMIC_SCAN_TTL_MS) return
+        lastDynamicScanMs = now
+        try {
+            val raw = TradeHistoryStore.getRecentValidClosedTradesRaw(limit = 500, includePartials = false)
+            if (raw.isEmpty()) return
+            val laneStats = raw.filter { it.side.equals("SELL", true) }
+                .groupBy { it.tradingMode.trim().uppercase().ifBlank { "STANDARD" } }
+            for ((lane, trades) in laneStats) {
+                if (lane in seedQuarantine || lane in dynamicQuarantine) continue
+                if (lane == "STANDARD" || lane == "CORE" || lane == "V3_CORE") continue
+                if (lane == "MOONSHOT") continue  // MOONSHOT winning, never dynamically quarantine
+                val n = trades.size
+                if (n < DYN_MIN_N) continue
+                val wins = trades.count { it.pnlPct > 0.0 }
+                val losses = trades.count { it.pnlPct < 0.0 }
+                val wlDenom = wins + losses
+                val wrPct = if (wlDenom > 0) wins * 100.0 / wlDenom else 0.0
+                val meanPnl = if (n > 0) trades.sumOf { it.pnlPct } / n else 0.0
+                if (wrPct <= DYN_MAX_WR_PCT && meanPnl <= DYN_MAX_MEAN_PNL_PCT) {
+                    dynamicQuarantine.add(lane)
+                    try {
+                        ForensicLogger.lifecycle(
+                            "LANE_QUARANTINE_AUTO_ADDED_6003",
+                            "lane=$lane n=$n wr=${"%.1f".format(wrPct)}% meanPnl=${"%+.1f".format(meanPnl)}% note=raw_journal_reality_bleeder_auto_paused",
+                        )
+                        PipelineHealthCollector.labelInc("LANE_QUARANTINE_AUTO_ADDED_6003_$lane")
+                        ErrorLogger.info("LaneQuarantineController", "🚧 AUTO-QUARANTINE $lane (n=$n WR=${"%.1f".format(wrPct)}% mean=${"%+.1f".format(meanPnl)}%)")
+                    } catch (_: Throwable) {}
+                }
+            }
+        } catch (_: Throwable) { /* dynamic scan must never break the caller */ }
     }
 
     /** Log a blocked entry attempt (called at the buy-lane gate). */
@@ -90,7 +156,8 @@ object LaneQuarantineController {
         lastLabScanMs = now
         try {
             val strategies = try { LlmLabStore.allStrategies() } catch (_: Throwable) { emptyList() }
-            for (lane in seedQuarantine) {
+            val allQuarantined = seedQuarantine + dynamicQuarantine
+            for (lane in allQuarantined) {
                 if (lane in releasedLanes) continue
                 val tag = laneTag(lane)
                 val proofStrategy = strategies.firstOrNull { s ->
@@ -126,11 +193,13 @@ object LaneQuarantineController {
         else -> lane
     }
 
-    fun quarantineSnapshot(): Map<String, Boolean> = seedQuarantine.associateWith { it in releasedLanes }
+    fun quarantineSnapshot(): Map<String, Boolean> = (seedQuarantine + dynamicQuarantine).associateWith { it in releasedLanes }
 
     fun statusLine(): String {
-        val active = seedQuarantine.filter { it !in releasedLanes }
+        val allQuar = seedQuarantine + dynamicQuarantine
+        val active = allQuar.filter { it !in releasedLanes }
         val resumed = releasedLanes.toList().sorted()
-        return "$VERSION quarantined=${if (active.isEmpty()) "-" else active.joinToString(",")} autoResumed=${if (resumed.isEmpty()) "-" else resumed.joinToString(",")}"
+        val dyn = dynamicQuarantine.toList().sorted()
+        return "$VERSION seed=${seedQuarantine.joinToString(",")} dyn=${if (dyn.isEmpty()) "-" else dyn.joinToString(",")} active=${if (active.isEmpty()) "-" else active.joinToString(",")} resumed=${if (resumed.isEmpty()) "-" else resumed.joinToString(",")}"
     }
 }
