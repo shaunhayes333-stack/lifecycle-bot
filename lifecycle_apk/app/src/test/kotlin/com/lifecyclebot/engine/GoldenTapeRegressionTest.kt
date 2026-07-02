@@ -6443,7 +6443,11 @@ class GoldenTapeRegressionTest {
         val exec = java.io.File("src/main/kotlin/com/lifecyclebot/engine/Executor.kt").readText()
         assertTrue("V5.0.4514: terminal policy heads must be fed from recordTrade closed-learning choke point", exec.contains("CENTRAL TERMINAL POLICY FANOUT") && exec.contains("CENTRAL_TERMINAL_POLICY_FANOUT_4514"))
         assertTrue("V5.0.4514: central fanout must remain terminal SELL + ledger/accounting/sanity gated", exec.contains("tradeWithMint.side.equals(") && exec.contains("SELL") && exec.contains("ledgerAllowsClosedLearning && accountingTrainable && rowLearningAdmitted4349"))
-        assertTrue("V5.0.4514: central fanout must feed all pending policy heads asynchronously", exec.contains("ForwardOutcomeModel.recordOutcome(mintForHeads4514, pnlForHeads4514)") && exec.contains("UnifiedPolicyHead.recordOutcome(mintForHeads4514, pnlForHeads4514)") && exec.contains("UnifiedExitPolicyHead.recordOutcome(mintForHeads4514, pnlForHeads4514 > -5.0)") && exec.contains("GlobalScope.launch(AppDispatchers.sideEffect)"))
+        // V5.0.6009 — exit-brain label fix. Prior `pnlForHeads4514 > -5.0` labelled -4%
+        // losses as "optimal exits", so the brain learned to paper-hand every winner.
+        // Correct: real banked win only (>= 2%) OR managed TP/trailing exit; SL never.
+        assertTrue("V5.0.4514: central fanout must feed all pending policy heads asynchronously", exec.contains("ForwardOutcomeModel.recordOutcome(mintForHeads4514, pnlForHeads4514)") && exec.contains("UnifiedPolicyHead.recordOutcome(mintForHeads4514, pnlForHeads4514)") && exec.contains("UnifiedExitPolicyHead.recordOutcome(mintForHeads4514, exitWasOptimal)") && exec.contains("GlobalScope.launch(AppDispatchers.sideEffect)"))
+        assertTrue("V5.0.6009: exit-brain label must reject STOP_LOSS/scratch, credit TP/trailing, and gate raw pnl at real banked-win floor (>=2%)", exec.contains("UNIFIED_EXIT_POLICY_HEAD_LABEL_FIX_6009") && exec.contains("STOP_LOSS") && exec.contains("TAKE_PROFIT") && exec.contains("pnlForHeads4514 >= 2.0"))
     }
 
 
