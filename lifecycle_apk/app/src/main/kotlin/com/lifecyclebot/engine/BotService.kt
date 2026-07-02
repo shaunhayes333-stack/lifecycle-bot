@@ -9225,11 +9225,30 @@ class BotService : Service() {
         val isProvenLane4591 = laneUpperForFloor4591 == "STANDARD" ||
             laneUpperForFloor4591 == "MOONSHOT" ||
             laneUpperForFloor4591 == "BLUECHIP" ||
+            laneUpperForFloor4591 == "BLUE_CHIP" ||
+            laneUpperForFloor4591 == "QUALITY" ||
+            laneUpperForFloor4591 == "CASHGEN" ||
+            laneUpperForFloor4591 == "TREASURY" ||
             laneUpperForFloor4591 == "CORE" ||
             laneUpperForFloor4591 == "V3"
-        val entryScoreTightenedFloor4591 = if (!isProvenLane4591) {
-            (shapedConfidenceFloor4262 + 10.0).coerceAtMost(90.0)
-        } else shapedConfidenceFloor4262
+        // V5.0.6020 — fluid score scaffolding. Fixed floors were choking the exact
+        // lanes that should produce early samples. Score floors are soft at BOOTSTRAP,
+        // tighten briefly during ADVISORY calibration, then fade as the AGI/SSI policy
+        // head reaches LEARNED/AUTHORITATIVE authority.
+        val agiAuthority6020 = try { com.lifecyclebot.engine.UnifiedPolicyHead.currentAuthority(laneUpperForFloor4591) } catch (_: Throwable) { com.lifecyclebot.engine.UnifiedPolicyHead.AuthorityTier.BOOTSTRAP }
+        val structuralFloor6020 = if (!isProvenLane4591) (shapedConfidenceFloor4262 + 10.0).coerceAtMost(90.0) else shapedConfidenceFloor4262
+        val entryScoreTightenedFloor4591 = when (agiAuthority6020) {
+            com.lifecyclebot.engine.UnifiedPolicyHead.AuthorityTier.BOOTSTRAP -> (structuralFloor6020 - 18.0).coerceAtLeast(25.0)
+            com.lifecyclebot.engine.UnifiedPolicyHead.AuthorityTier.ADVISORY -> (structuralFloor6020 + 4.0).coerceAtMost(88.0)
+            com.lifecyclebot.engine.UnifiedPolicyHead.AuthorityTier.LEARNED -> (structuralFloor6020 - 12.0).coerceAtLeast(20.0)
+            com.lifecyclebot.engine.UnifiedPolicyHead.AuthorityTier.AUTHORITATIVE -> 0.0
+        }
+        if (entryScoreTightenedFloor4591 != structuralFloor6020) {
+            try {
+                PipelineHealthCollector.labelInc("FLUID_SCORE_SCAFFOLD_6020")
+                ForensicLogger.lifecycle("FLUID_SCORE_SCAFFOLD_6020", "lane=$lane auth=${agiAuthority6020.name} baseFloor=${"%.0f".format(shapedConfidenceFloor4262)} structural=${"%.0f".format(structuralFloor6020)} effective=${"%.0f".format(entryScoreTightenedFloor4591)} action=soft_start_tighten_then_delegate")
+            } catch (_: Throwable) {}
+        }
         val crossTalkSizeMult4262 = xTalkShape4262?.sizeMultiplier ?: 1.0
         if (xTalkShape4262 != null) {
             try {
@@ -9382,6 +9401,26 @@ class BotService : Service() {
                 )
             }
             val zeroSignal = laneBase.entryScore <= 0.0 && laneBase.aiConfidence <= 10.0
+            val goodLaneVolume6020 = isProvenLane4591 && !zeroSignal && liqOk &&
+                (laneBase.entryScore >= entryScoreTightenedFloor4591 || laneBase.aiConfidence >= entryScoreTightenedFloor4591)
+            if (goodLaneVolume6020) {
+                try {
+                    PipelineHealthCollector.labelInc("GOOD_LANE_WAIT_VOLUME_PIVOT_6020")
+                    PipelineHealthCollector.labelInc("PREFDG_GOOD_LANE_VOLUME_${lane.uppercase()}")
+                    ForensicLogger.lifecycle("GOOD_LANE_WAIT_VOLUME_PIVOT_6020",
+                        "lane=$lane auth=${agiAuthority6020.name} score=${"%.0f".format(laneBase.entryScore)} conf=${"%.0f".format(laneBase.aiConfidence)} floor=${"%.0f".format(entryScoreTightenedFloor4591)} liqUsd=${"%.0f".format(liquidityUsd)} action=real_buy_not_probe")
+                    LearningLifecycleBus.preFdgAdmit(lane, sourceForChop, mintForProbe, edgeSymbol4529, laneBase.entryScore, laneBase.aiConfidence, liquidityUsd, edgeMcap4529, edgeRegime4529)
+                } catch (_: Throwable) {}
+                return laneBase.copy(
+                    signal = "BUY", finalSignal = "BUY", shouldTrade = true,
+                    blockReason = "GOOD_LANE_VOLUME_PIVOT_6020",
+                    edgeVeto = false,
+                    edgeQuality = if (laneBase.edgeQuality == "SKIP") "B" else laneBase.edgeQuality,
+                    finalQuality = if (cleanQuality == "C") "B" else cleanQuality,
+                    qualityPenalty = (0.72 * crossTalkSizeMult4262).coerceIn(0.35, 1.18),
+                    aiConfidence = laneBase.aiConfidence.coerceAtLeast(entryScoreTightenedFloor4591),
+                )
+            }
             if (zeroSignal) {
                 // V5.0.4164 — zero-signal is not full live capital, but it must not park
                 // the meme trader. If liquidity is exitable, send it through the existing

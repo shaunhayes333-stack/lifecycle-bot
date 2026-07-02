@@ -46,6 +46,7 @@ object CommonSenseTradePlaybook {
         val hardSafetyBlocked: Boolean = false,
         val providerBlindSafety: Boolean = false,
         val holderHardRisk: Boolean = false,
+        val dangerousStructure: Boolean = false,
         val capturedAtMs: Long = System.currentTimeMillis(),
     )
 
@@ -119,6 +120,17 @@ object CommonSenseTradePlaybook {
 
         val setupKnown = snap.tradeType != "NO_STRUCTURE"
         val tradeableSetup = setupKnown && snap.liquidityUsd >= 500.0 && snap.routeKnown && snap.tokenMapComplete
+        // V5.0.6020 — fluid score doctrine. Score floors are scaffolding:
+        // soft while the lane is bootstrapping, tighter during advisory calibration,
+        // then fade out as UnifiedPolicyHead becomes LEARNED/AUTHORITATIVE.
+        val agiAuthority6020 = try { UnifiedPolicyHead.currentAuthority(snap.lane) } catch (_: Throwable) { UnifiedPolicyHead.AuthorityTier.BOOTSTRAP }
+        fun fluidScore6020(base: Double): Double = when (agiAuthority6020) {
+            UnifiedPolicyHead.AuthorityTier.BOOTSTRAP -> (base - 18.0).coerceAtLeast(25.0)
+            UnifiedPolicyHead.AuthorityTier.ADVISORY -> (base + 4.0).coerceAtMost(72.0)
+            UnifiedPolicyHead.AuthorityTier.LEARNED -> (base - 12.0).coerceAtLeast(20.0)
+            UnifiedPolicyHead.AuthorityTier.AUTHORITATIVE -> 0.0
+        }
+        val goodLaneVolume6020 = snap.lane in setOf("STANDARD", "MOONSHOT", "BLUECHIP", "BLUE_CHIP", "QUALITY", "CASHGEN", "TREASURY")
         // V5.0.4585 — source choke fix. True hard safety still blocks, but
         // provider-blind safety/holder uncertainty no longer kills almost every
         // FDG-allowed lane after Executor starts. The 4584 report showed
@@ -129,7 +141,7 @@ object CommonSenseTradePlaybook {
             return deny("TRUE_HARD_SAFETY_OR_HOLDER_RISK", "hardSafety=${snap.hardSafetyBlocked} holderHard=${snap.holderHardRisk} safetyKnown=${snap.safetyKnown} rugClean=${snap.rugClean} holders=${snap.holderAcceptable}")
         }
         if (!snap.safetyKnown || !snap.rugClean || !snap.holderAcceptable) {
-            if (tradeableSetup || snap.score >= 55.0) {
+            if (tradeableSetup || snap.score >= fluidScore6020(55.0)) {
                 return allowShaped(
                     "SAFETY_HOLDER_UNCONFIRMED_TACTIC_PIVOT",
                     0.50,
@@ -139,15 +151,19 @@ object CommonSenseTradePlaybook {
             return deny("SAFETY_OR_HOLDER_RISK", "safetyKnown=${snap.safetyKnown} rugClean=${snap.rugClean} holders=${snap.holderAcceptable}")
         }
         if (!snap.logicalBuyZone) {
-            if (tradeableSetup || snap.score >= 58.0) return allowShaped("AMBIGUOUS_BUY_ZONE_PIVOT", 0.35, "logicalBuyZone=false tradeType=${snap.tradeType}")
-            return deny("NO_LOGICAL_BUY_ZONE", "tradeType=${snap.tradeType}")
+            val liquidExecutable = snap.liquidityUsd >= 1_500.0 && snap.routeKnown && snap.tokenMapComplete
+            if (goodLaneVolume6020 && liquidExecutable && !snap.dangerousStructure && snap.score >= fluidScore6020(48.0)) {
+                return allowShaped("GOOD_LANE_NO_STRUCTURE_VOLUME_PIVOT_6020", 0.65, "lane=${snap.lane} agiAuth=${agiAuthority6020.name} logicalBuyZone=false tradeType=${snap.tradeType} action=lane_local_reclaim_liquidity_volume")
+            }
+            if (tradeableSetup || snap.score >= fluidScore6020(58.0)) return allowShaped("AMBIGUOUS_BUY_ZONE_PIVOT", 0.35, "logicalBuyZone=false tradeType=${snap.tradeType} agiAuth=${agiAuthority6020.name}")
+            return deny("NO_LOGICAL_BUY_ZONE", "tradeType=${snap.tradeType} agiAuth=${agiAuthority6020.name}")
         }
         if (!snap.invalidationKnown) {
             if (tradeableSetup) return allowShaped("INFER_INVALIDATION_FROM_SETUP", 0.50, "invalidation=setup_floor_or_recent_low tradeType=${snap.tradeType}")
             return deny("NO_CLEAR_INVALIDATION", "tradeType=${snap.tradeType}")
         }
         if (!snap.riskRewardAcceptable) {
-            if (tradeableSetup || snap.score >= 50.0) return allowShaped("RISK_REWARD_REDUCED_SIZE", 0.35, "score=${snap.score} liq=${snap.liquidityUsd}")
+            if (tradeableSetup || snap.score >= fluidScore6020(50.0)) return allowShaped("RISK_REWARD_REDUCED_SIZE", 0.35, "score=${snap.score} liq=${snap.liquidityUsd} agiAuth=${agiAuthority6020.name}")
             return deny("RISK_REWARD_POOR", "score=${snap.score} liq=${snap.liquidityUsd}")
         }
 
@@ -226,7 +242,7 @@ object CommonSenseTradePlaybook {
             "MEDIUM" -> 0.72
             else -> 0.35
         }
-        return Snapshot(ts.mint, ts.symbol, lane, style, score, priceKnown, liquidityKnown, liq, routeKnown, tokenMapComplete, safetyKnown, rugClean, holderAcceptable, logicalBuyZone, invalidationKnown, riskRewardAcceptable, tradeType, confidence, sizeMult, reasons, hardSafetyBlocked, providerBlindSafety, holderHardRisk)
+        return Snapshot(ts.mint, ts.symbol, lane, style, score, priceKnown, liquidityKnown, liq, routeKnown, tokenMapComplete, safetyKnown, rugClean, holderAcceptable, logicalBuyZone, invalidationKnown, riskRewardAcceptable, tradeType, confidence, sizeMult, reasons, hardSafetyBlocked, providerBlindSafety, holderHardRisk, lateChase || breakdown)
     }
 
     private fun classifyTradeType(text: String, score: Double, liq: Double): String = when {

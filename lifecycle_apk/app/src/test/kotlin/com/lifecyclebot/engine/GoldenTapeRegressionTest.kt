@@ -6959,6 +6959,9 @@ class GoldenTapeRegressionTest {
         assertTrue("V5.0.4573: liveBuy must call the playbook before live spend", executor.contains("CommonSenseTradePlaybook.assessPreBuy") && executor.contains("COMMON_SENSE_PREBUY_") && executor.contains("BUY_TERMINAL_COMMON_SENSE"))
         assertTrue("V5.0.4573: playbook confidence must feed the existing live size stack", executor.contains("commonSenseSizeMultiplier4573") && executor.contains("COMMON_SENSE_SIZE_APPLIED_4573"))
         assertTrue("V5.0.4573: operator digest must surface playbook state", digest.contains("CommonSenseTradePlaybook.statusLine") && digest.contains("playbook_execution_authority=Executor.liveBuy"))
+        val bot6020 = java.io.File("src/main/kotlin/com/lifecyclebot/engine/BotService.kt").readText()
+        assertTrue("V5.0.6020: score floors must be fluid scaffolding that soft-starts, tightens, then delegates to AGI/SSI authority", bot6020.contains("FLUID_SCORE_SCAFFOLD_6020") && bot6020.contains("UnifiedPolicyHead.currentAuthority") && bot6020.contains("AuthorityTier.BOOTSTRAP -> (structuralFloor6020 - 18.0") && bot6020.contains("AuthorityTier.AUTHORITATIVE -> 0.0"))
+        assertTrue("V5.0.6020: good meme lanes must get real volume pivots, not probe-only starvation", bot6020.contains("GOOD_LANE_WAIT_VOLUME_PIVOT_6020") && bot6020.contains("QUALITY") && bot6020.contains("CASHGEN") && bot6020.contains("TREASURY") && playbook.contains("GOOD_LANE_NO_STRUCTURE_VOLUME_PIVOT_6020") && playbook.contains("dangerousStructure"))
     }
 
 
@@ -7089,7 +7092,7 @@ class GoldenTapeRegressionTest {
     fun aate4585CommonSenseUnknownSafetyPivotsNotLaneChokes() {
         val playbook = java.io.File("src/main/kotlin/com/lifecyclebot/engine/CommonSenseTradePlaybook.kt").readText()
         assertTrue("V5.0.4585: true hard safety must remain a terminal common-sense reject", playbook.contains("TRUE_HARD_SAFETY_OR_HOLDER_RISK") && playbook.contains("hardSafetyBlocked") && playbook.contains("holderHardRisk"))
-        assertTrue("V5.0.4585: provider-blind safety/holder uncertainty must shape/pivot instead of choking all lanes", playbook.contains("SAFETY_HOLDER_UNCONFIRMED_TACTIC_PIVOT") && playbook.contains("providerBlindSafety") && playbook.contains("tradeableSetup || snap.score >= 55.0"))
+        assertTrue("V5.0.4585/6020: provider-blind safety/holder uncertainty must shape/pivot through fluid scores instead of choking all lanes", playbook.contains("SAFETY_HOLDER_UNCONFIRMED_TACTIC_PIVOT") && playbook.contains("providerBlindSafety") && playbook.contains("fluidScore6020(55.0)"))
         assertTrue("V5.0.4585: old SAFETY_OR_HOLDER_RISK should remain only as non-tradeable fallback, not first hard branch", playbook.indexOf("fun allowShaped") < playbook.indexOf("SAFETY_HOLDER_UNCONFIRMED_TACTIC_PIVOT") && playbook.indexOf("SAFETY_HOLDER_UNCONFIRMED_TACTIC_PIVOT") < playbook.lastIndexOf("SAFETY_OR_HOLDER_RISK"))
     }
 
