@@ -9440,7 +9440,14 @@ class BotService : Service() {
         // and route legit unverified memes when appropriate. Full reject
         // stays when MANIP lane is ACTIVE (route to MANIP where it belongs).
         val manipLaneQuarantined6011 = try { LaneAutoPauseGuard.isPaused("MANIPULATED") } catch (_: Throwable) { false }
-        val manipOverlayDustProbe6011 = manipulatedOnlyOverlay4553 && !lane.equals("MANIPULATED", ignoreCase = true) && manipLaneQuarantined6011
+        // V5.0.6046 — pre-FDG throughput doctrine: MANIP overlay is a safety
+        // signal, not a rug. It should ALWAYS soft-shape (dust-probe path)
+        // and let FDG do the final sanity call. Prior V5.0.6011 gated this
+        // only on MANIP-quarantined; the FDG=11 hard-rejects in the 05:58
+        // report proved the else-if branch still choked throughput when
+        // MANIP was active. Removing the quarantine condition makes the
+        // dust-probe path fire on ALL manipulated_only + non-MANIP hits.
+        val manipOverlayDustProbe6011 = manipulatedOnlyOverlay4553 && !lane.equals("MANIPULATED", ignoreCase = true)
         if (manipOverlayDustProbe6011) {
             try {
                 PipelineHealthCollector.labelInc("MANIP_OVERLAY_DUST_PROBE_FALLBACK_6011")
