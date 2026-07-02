@@ -6997,6 +6997,9 @@ class GoldenTapeRegressionTest {
         assertTrue("V5.0.6034: dropped wallet tokens must recover into OPEN_TRACKING instead of being ignored", tracker6034.contains("RECOVER_ORPHAN_WALLET_TOKENS: Boolean = true") && tracker6034.contains("ORPHAN_WALLET_TOKEN_ATTACHED") && tracker6034.contains("ORPHAN_WALLET_TOKEN_MONITORED_FOR_EXIT") && tracker6034.contains("source = PositionSource.WALLET_RECONCILED"))
         val sellRec6035 = java.io.File("src/main/kotlin/com/lifecyclebot/engine/sell/SellReconciler.kt").readText()
         assertTrue("V5.0.6035: SellReconciler must apply raw wallet snapshot before tracker-held auto-heal", sellRec6035.contains("SELL_RECONCILER_WALLET_SNAPSHOT_APPLIED_6035") && sellRec6035.contains("HostWalletTokenTracker.applyWalletSnapshot(tokens)") && sellRec6035.indexOf("HostWalletTokenTracker.applyWalletSnapshot(tokens)") < sellRec6035.indexOf("HostWalletTokenTracker.getActuallyHeldMints()") && sellRec6035.contains("SELL_RECONCILER_HELD_AUTOHEAL_6035"))
+        val reentry6036 = java.io.File("src/main/kotlin/com/lifecyclebot/engine/ReEntryLockout.kt").readText()
+        val execGate6036 = java.io.File("src/main/kotlin/com/lifecyclebot/engine/ExecutableOpenGate.kt").readText()
+        assertTrue("V5.0.6036: same-mint reentry remains hard but family-only lockouts soft-allow throughput", reentry6036.contains("data class LockDecision") && reentry6036.contains("sameMint = true") && reentry6036.contains("familyOnly = true") && execGate6036.contains("EXEC_OPEN_REENTRY_FAMILY_SOFT_ALLOW_6036") && execGate6036.contains("if (lockDecision.sameMint)") && execGate6036.contains("FDG/brain/safety can decide the trade"))
     }
 
 

@@ -882,9 +882,22 @@ object ExecutableOpenGate {
             // keeps the full lock; a DIFFERENT mint of the same family with materially
             // stronger confirmation (entryScore as the proxy here) gets a shorter floor.
             val candidateConf = (state?.entryScore ?: 0).toDouble()
-            val lockReason = ReEntryLockout.lockReasonAdaptive(mint, fam, candidateConf)
-            if (lockReason != null) {
-                return blocked("EXEC_OPEN_BLOCKED_REENTRY_LOCKOUT", lockReason, shadow = true)
+            val lockDecision = ReEntryLockout.lockDecisionAdaptive(mint, fam, candidateConf)
+            if (lockDecision != null) {
+                if (lockDecision.sameMint) {
+                    return blocked("EXEC_OPEN_BLOCKED_REENTRY_LOCKOUT", lockDecision.reason, shadow = true)
+                }
+                // V5.0.6036 — family-wide stop-loss lockouts are not hard safety. They
+                // were top EXEC_GATE blocks in the 6030 live report and amputated volume
+                // across different mints. Keep same-mint repeat-bleed protection hard;
+                // soft-allow family-only hits so FDG/brain/safety can decide the trade.
+                try {
+                    ForensicLogger.lifecycle(
+                        "EXEC_OPEN_REENTRY_FAMILY_SOFT_ALLOW_6036",
+                        "symbol=$symbol mint=${mint.take(10)} family=$fam reason=${lockDecision.reason} conf=${candidateConf.toInt()} adaptive=${lockDecision.adaptiveFamily} remaining=${lockDecision.remainingSec}s attemptId=$attemptId",
+                    )
+                    PipelineHealthCollector.labelInc("EXEC_OPEN_REENTRY_FAMILY_SOFT_ALLOW_6036")
+                } catch (_: Throwable) {}
             }
         }
 
