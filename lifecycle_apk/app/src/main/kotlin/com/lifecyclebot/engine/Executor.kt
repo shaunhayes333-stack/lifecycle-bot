@@ -2916,7 +2916,32 @@ class Executor(
                 GlobalScope.launch(AppDispatchers.sideEffect) {
                     try { com.lifecyclebot.engine.ForwardOutcomeModel.recordOutcome(mintForHeads4514, pnlForHeads4514) } catch (_: Throwable) {}
                     try { com.lifecyclebot.engine.UnifiedPolicyHead.recordOutcome(mintForHeads4514, pnlForHeads4514) } catch (_: Throwable) {}
-                    try { com.lifecyclebot.engine.UnifiedExitPolicyHead.recordOutcome(mintForHeads4514, pnlForHeads4514 > -5.0) } catch (_: Throwable) {}
+                    // V5.0.6009 — CRITICAL BUG FIX: EXIT BRAIN TRAINED BACKWARDS.
+                    // Prior label `pnlForHeads4514 > -5.0` marked ANY exit with pnl
+                    // above -5% as "optimal" — INCLUDING -4%, -3%, -2%, -1% LOSSES.
+                    // The brain learned "small losses are optimal exits" and started
+                    // paper-handing every winner. UnifiedExitPolicyHead docstring
+                    // says the label means "banked >70% of peak or dodged a dump".
+                    //
+                    // Correct label: exit was optimal iff we banked a real win.
+                    // Real win threshold = 2% net (above trade noise / slippage).
+                    // Also credit TAKE_PROFIT / TRAILING_STOP reasons which by
+                    // definition are managed profitable exits. STOP_LOSS variants
+                    // are NEVER optimal — those are the paper-handing pattern.
+                    val exitReason = terminalSnap4514.reason.uppercase()
+                    val exitWasOptimal = when {
+                        exitReason.contains("STOP_LOSS") || exitReason.contains("STRICT_SL") || exitReason.contains("STOPLOSS") -> false
+                        exitReason.contains("TAKE_PROFIT") || exitReason.contains("TRAILING_STOP") || exitReason.contains("TP_") -> true
+                        pnlForHeads4514 >= 2.0 -> true   // real banked win
+                        else -> false                     // scratches + all losses = not optimal
+                    }
+                    try { com.lifecyclebot.engine.UnifiedExitPolicyHead.recordOutcome(mintForHeads4514, exitWasOptimal) } catch (_: Throwable) {}
+                    try {
+                        com.lifecyclebot.engine.ForensicLogger.lifecycle(
+                            "UNIFIED_EXIT_POLICY_HEAD_LABEL_FIX_6009",
+                            "mint=${mintForHeads4514.take(10)} pnl=${"%.2f".format(pnlForHeads4514)}% reason=$exitReason optimal=$exitWasOptimal",
+                        )
+                    } catch (_: Throwable) {}
                     try { PipelineHealthCollector.labelInc("CENTRAL_TERMINAL_POLICY_FANOUT_4514") } catch (_: Throwable) {}
                 }
             }

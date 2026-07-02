@@ -63,6 +63,9 @@ object UnifiedPolicyHead {
     private const val BRIER_HEALTHY_MAX = 0.22
     private const val BRIER_DRIFTING_MAX = 0.27
 
+    // V5.0.6009 — model-version tag for poisoned-state reset.
+    private const val MODEL_VERSION_V6009 = 6009
+
     // Global head (warm-start source + fallback)
     private val w = DoubleArray(NF) { 0.0 }
     @Volatile private var bias = 0.0
@@ -312,6 +315,11 @@ object UnifiedPolicyHead {
 
     fun exportState(): String = try {
         JSONObject().apply {
+            // V5.0.6009 — model-version tag for poisoned-state reset. If
+            // UnifiedExitPolicyHead was training on inverted labels, other
+            // heads that received cross-training signals may also carry
+            // poisoned weights. Bump this version to force a clean retrain.
+            put("modelVersion", MODEL_VERSION_V6009)
             put("trained", trained); put("bias", bias)
             put("w", JSONArray().also { for (v in w) it.put(v) })
             put("fm", JSONArray().also { for (v in featMean) it.put(v) })
@@ -332,6 +340,19 @@ object UnifiedPolicyHead {
         try {
             if (json.isBlank() || json == "{}") return
             val o = JSONObject(json)
+            // V5.0.6009 — POISONED-STATE RESET. See UnifiedExitPolicyHead
+            // for full RCA. Any saved state without a matching modelVersion
+            // tag is discarded so the head retrains cleanly.
+            val savedVersion = o.optInt("modelVersion", 0)
+            if (savedVersion < MODEL_VERSION_V6009) {
+                try {
+                    ForensicLogger.lifecycle(
+                        "UNIFIED_POLICY_HEAD_POISONED_STATE_RESET_6009",
+                        "savedModelVersion=$savedVersion currentModelVersion=$MODEL_VERSION_V6009 note=fresh_retrain_on_fixed_labels",
+                    )
+                } catch (_: Throwable) {}
+                return
+            }
             trained = o.optLong("trained", 0L); bias = o.optDouble("bias", 0.0)
             o.optJSONArray("w")?.let { for (i in 0 until minOf(NF, it.length())) w[i] = it.optDouble(i, 0.0) }
             o.optJSONArray("fm")?.let { for (i in 0 until minOf(NF, it.length())) featMean[i] = it.optDouble(i, 0.5) }

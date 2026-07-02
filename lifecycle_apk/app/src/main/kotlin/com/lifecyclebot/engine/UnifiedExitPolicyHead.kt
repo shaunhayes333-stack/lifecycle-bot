@@ -245,6 +245,11 @@ object UnifiedExitPolicyHead {
     private const val VETO_MIN_PNL_PCT = -20.0
     private const val VETO_MIN_BIAS = 1.20
 
+    // V5.0.6009 — model-version tag for poisoned-state reset. Bump this
+    // integer any time the training label or feature layout changes so
+    // persisted weights from earlier logic are auto-discarded.
+    private const val MODEL_VERSION_V6009 = 6009
+
     enum class VetoDecision { VETO, HONOR }
 
     fun shouldVetoStopLoss(lane: String, pnlPctNow: Double, s: ExitSignals): VetoDecision {
@@ -335,6 +340,8 @@ object UnifiedExitPolicyHead {
 
     fun exportState(): String = try {
         JSONObject().apply {
+            // V5.0.6009 — model version tag for poisoned-state reset.
+            put("modelVersion", MODEL_VERSION_V6009)
             put("trained", trained); put("bias", bias)
             put("w", JSONArray().also { for (v in w) it.put(v) })
             put("fm", JSONArray().also { for (v in featMean) it.put(v) })
@@ -353,6 +360,22 @@ object UnifiedExitPolicyHead {
         try {
             if (json.isBlank() || json == "{}") return
             val o = JSONObject(json)
+            // V5.0.6009 — POISONED STATE RESET. Prior versions of Executor
+            // called recordOutcome with an inverted label (any exit with
+            // pnl > -5% labeled optimal). Weights persisted from that era
+            // are backwards-trained. Version-tagged reset: skip import if
+            // saved model version is missing or older than the fix. Fresh
+            // state retrains on correct labels from V5.0.6009 onward.
+            val savedVersion = o.optInt("modelVersion", 0)
+            if (savedVersion < MODEL_VERSION_V6009) {
+                try {
+                    ForensicLogger.lifecycle(
+                        "UNIFIED_EXIT_POLICY_HEAD_POISONED_STATE_RESET_6009",
+                        "savedModelVersion=$savedVersion currentModelVersion=$MODEL_VERSION_V6009 note=discarded_backwards_trained_weights",
+                    )
+                } catch (_: Throwable) {}
+                return
+            }
             trained = o.optLong("trained", 0L); bias = o.optDouble("bias", 0.0)
             o.optJSONArray("w")?.let { for (i in 0 until minOf(NF, it.length())) w[i] = it.optDouble(i, 0.0) }
             o.optJSONArray("fm")?.let { for (i in 0 until minOf(NF, it.length())) featMean[i] = it.optDouble(i, 0.5) }
