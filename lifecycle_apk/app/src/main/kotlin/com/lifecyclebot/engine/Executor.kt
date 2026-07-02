@@ -4415,8 +4415,41 @@ class Executor(
             } catch (_: Throwable) { true }
             if (!priceReal6028) {
                 if (tryRouteRealClaimMismatchHarvest6029("wallet_growth_harvest")) return true
+                // V5.0.6045 — STALE-RUNNER FORCE-HARVEST (operator mandate 2026-07-03:
+                // "the bot should be well ahead of its starting balance. this has to
+                //  be captured. no exceptions!").
+                // When RealPriceLock and route-real fallback BOTH fail (typically
+                // during API provider degradation — Jupiter/Birdeye/etc. timing out),
+                // a genuine +1000%+ runner with a locked trailing stop was sitting
+                // unrealized indefinitely. Doctrine: after the position has held
+                // material profit for a sustained window (>=120s since entry AND
+                // gain sustained), FORCE the harvest sell attempt regardless of
+                // price-verifier disagreement. Sell fires with a smaller fraction
+                // (25% probe) so if the route is genuinely dead the loss is capped;
+                // if the route fills, real profit lands in the wallet and next
+                // cycle's fresh price data unlocks the remaining tranche via the
+                // normal path. Peak-hold check ensures we're banking a real runner
+                // and not a momentary blip.
+                val nowMs6045 = System.currentTimeMillis()
+                val ageMs6045 = if (pos.entryTime > 0L) (nowMs6045 - pos.entryTime).coerceAtLeast(0L) else 0L
+                val peakSustained6045 = try { pos.peakGainPct >= peakGainPct * 0.85 && pos.peakGainPct >= 300.0 } catch (_: Throwable) { false }
+                val staleForceHarvest6045 = ageMs6045 >= 120_000L && peakSustained6045 &&
+                    unrealizedProfitSol6028 >= maxOf(0.02, walletSol * 0.05)
+                if (staleForceHarvest6045 && wallet != null) {
+                    val remainingFraction6045 = (100.0 - pos.partialSoldPct).coerceAtLeast(0.0) / 100.0
+                    val forceFraction6045 = 0.25.coerceAtMost(remainingFraction6045)
+                    if (forceFraction6045 > 0.0) {
+                        try {
+                            ForensicLogger.lifecycle("WALLET_GROWTH_HARVEST_STALE_FORCE_6045", "mint=${ts.mint.take(10)} symbol=${ts.symbol} gain=${gainMultiple.fmt(2)}x peakPct=${peakGainPct.toInt()} unrealized=${unrealizedProfitSol6028.fmt(4)} wallet=${walletSol.fmt(4)} ageMs=$ageMs6045 sellPct=${(forceFraction6045*100).toInt()} reason=price_verifier_disagrees_but_position_stale_material_profit")
+                            PipelineHealthCollector.labelInc("WALLET_GROWTH_HARVEST_STALE_FORCE_6045")
+                        } catch (_: Throwable) {}
+                        onLog("💰⚡ STALE-RUNNER FORCE-HARVEST: ${ts.symbol} @ ${gainMultiple.fmt(1)}x peak=${peakGainPct.toInt()}% unrealized=${unrealizedProfitSol6028.fmt(4)} SOL — probing route with ${(forceFraction6045*100).toInt()}%", ts.mint)
+                        executeProfitLockSell(ts, wallet, forceFraction6045, "stale_runner_force_${gainMultiple.fmt(1)}x", walletSol)
+                        return true
+                    }
+                }
                 try {
-                    ForensicLogger.lifecycle("WALLET_GROWTH_HARVEST_DEFERRED_PRICE_UNREAL_6028", "mint=${ts.mint.take(10)} symbol=${ts.symbol} gain=${gainMultiple.fmt(2)}x unrealized=${unrealizedProfitSol6028.fmt(4)} wallet=${walletSol.fmt(4)} reason=route_disagrees")
+                    ForensicLogger.lifecycle("WALLET_GROWTH_HARVEST_DEFERRED_PRICE_UNREAL_6028", "mint=${ts.mint.take(10)} symbol=${ts.symbol} gain=${gainMultiple.fmt(2)}x unrealized=${unrealizedProfitSol6028.fmt(4)} wallet=${walletSol.fmt(4)} reason=route_disagrees ageMs=$ageMs6045 peakSustained=$peakSustained6045")
                     PipelineHealthCollector.labelInc("WALLET_GROWTH_HARVEST_DEFERRED_PRICE_UNREAL_6028")
                 } catch (_: Throwable) {}
                 return false
