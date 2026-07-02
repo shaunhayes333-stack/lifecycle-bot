@@ -198,9 +198,14 @@ class BotService : Service() {
             // If cryptoAltsEnabled=true AND marketsTraderEnabled=true, keep crypto
             // running even when tradingMode==0. Operator intent ('explicitly
             // enabled') overrides the mode-based suppression.
-            val cryptoUniverseOn = (marketsOn ||
+            // V5.0.6015 — operator doctrine: Crypto Universe is an isolated
+            // sidecar to the successful-lane feed, not part of stocks/forex/perps.
+            // It must run with MEME when the bot is trading live so volume can come
+            // from major/alt crypto setups without reopening MARKET_STOCKS.
+            val cryptoUniverseDoctrine6015 = cfg.memeTraderEnabled
+            val cryptoUniverseOn = cryptoUniverseDoctrine6015 || ((marketsOn ||
                 (cfg.marketsTraderEnabled && cfg.cryptoAltsEnabled)) &&
-                cfg.cryptoAltsEnabled
+                cfg.cryptoAltsEnabled)
             try { com.lifecyclebot.perps.CryptoAltTrader.setEnabled(cryptoUniverseOn) } catch (_: Exception) {}
             try {
                 val cur = com.lifecyclebot.engine.EnabledTraderAuthority.snapshot().toMutableSet()
@@ -1816,9 +1821,12 @@ class BotService : Service() {
         // V5.9.1160 — Crypto Universe must honor Markets lane authority.
         // MEME-only mode must not start CryptoAlt scanner/signals/learning.
         // V5.0.3744 — operator explicit-enable escape hatch (crypto-isolated).
-        val cryptoUniverseOnAtStart = (marketsLaneOn ||
+        // V5.0.6015 — force isolated Crypto Universe sidecar with MEME runtime;
+        // this does not enable quarantined MARKETS_STOCKS / forex / perps.
+        val cryptoUniverseDoctrine6015 = cfg.memeTraderEnabled
+        val cryptoUniverseOnAtStart = cryptoUniverseDoctrine6015 || ((marketsLaneOn ||
             (marketsStartCfg.marketsTraderEnabled && marketsStartCfg.cryptoAltsEnabled)) &&
-            marketsStartCfg.cryptoAltsEnabled
+            marketsStartCfg.cryptoAltsEnabled)
         com.lifecyclebot.perps.CryptoAltTrader.setEnabled(cryptoUniverseOnAtStart)
         if (!cryptoUniverseOnAtStart) {
             try { com.lifecyclebot.perps.CryptoAltTrader.stop() } catch (_: Exception) {}
@@ -2057,9 +2065,13 @@ class BotService : Service() {
         try {
             com.lifecyclebot.perps.CryptoAltTrader.init(applicationContext)
             com.lifecyclebot.perps.CryptoAltTrader.setLiveMode(!cfg.paperMode)
-            val cryptoUniverseOn = (isMarketsLaneEnabled(cfg) ||
+            // V5.0.6015 — startup should follow the same isolated crypto-sidecar
+            // doctrine as EnabledTraderAuthority publishing: MEME can run crypto
+            // universe without enabling stocks/forex/perps/markets fanout.
+            val cryptoUniverseDoctrine6015 = cfg.memeTraderEnabled
+            val cryptoUniverseOn = cryptoUniverseDoctrine6015 || ((isMarketsLaneEnabled(cfg) ||
                 (cfg.marketsTraderEnabled && cfg.cryptoAltsEnabled)) &&
-                cfg.cryptoAltsEnabled
+                cfg.cryptoAltsEnabled)
             com.lifecyclebot.perps.CryptoAltTrader.setEnabled(cryptoUniverseOn)
             if (cryptoUniverseOn) {
                 com.lifecyclebot.perps.CryptoAltTrader.start()

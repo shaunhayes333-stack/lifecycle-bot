@@ -491,14 +491,17 @@ object CryptoAltTrader {
         // for which traders are enabled. Consult it FIRST so a mode switch is obeyed
         // immediately and atomically, closing the ConfigStore-load lag window that let
         // CryptoAlt DynScan keep firing DynSig logs during a Meme-only session.
+        var authorityAllowsCrypto6015 = false
         try {
             val authority = com.lifecyclebot.engine.EnabledTraderAuthority.snapshot()
-            if (authority.isNotEmpty() &&
-                com.lifecyclebot.engine.EnabledTraderAuthority.Trader.CRYPTO_ALT !in authority) {
+            authorityAllowsCrypto6015 = com.lifecyclebot.engine.EnabledTraderAuthority.Trader.CRYPTO_ALT in authority
+            if (authority.isNotEmpty() && !authorityAllowsCrypto6015) {
                 return "SUB_TRADER_SUPPRESSED_MEME_ONLY"
             }
         } catch (_: Throwable) { /* fall through to config check */ }
-        if (cfg != null && (cfg.tradingMode == 0 || !cfg.marketsTraderEnabled || !cfg.cryptoAltsEnabled)) {
+        // V5.0.6015 — if BotService published CRYPTO_ALT as the isolated crypto
+        // sidecar, do not let stale markets/crypto UI toggles stop the trader loop.
+        if (cfg != null && !authorityAllowsCrypto6015 && (cfg.tradingMode == 0 || !cfg.marketsTraderEnabled || !cfg.cryptoAltsEnabled)) {
             return "MEME_ONLY_MODE"
         }
         if (!isEnabled.get()) return "disabled"

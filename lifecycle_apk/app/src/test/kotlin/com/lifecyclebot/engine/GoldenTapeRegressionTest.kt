@@ -1413,11 +1413,13 @@ class GoldenTapeRegressionTest {
         assertTrue(bot.contains("cryptoSidecarOn) add(com.lifecyclebot.engine.EnabledTraderAuthority.Trader.CRYPTO_ALT)"))
         assertTrue(bot.contains("CryptoAltTrader.start"))
         assertTrue(bot.contains("CryptoAltTrader.setEnabled(cryptoUniverseOn"))
+        assertTrue("V5.0.6015: Crypto Universe must be force-enabled as isolated MEME sidecar without MARKETS_STOCKS", bot.contains("cryptoUniverseDoctrine6015 = cfg.memeTraderEnabled") && bot.contains("cryptoUniverseOn = cryptoUniverseDoctrine6015") && bot.contains("!com.lifecyclebot.engine.EnabledTraderAuthority.MARKET_LANES_QUARANTINED"))
         assertTrue("V5.0.4155: internal meme authority must include all specialist lanes except CYCLIC sidecar",
             auth.contains("internalMemeLayers") && auth.contains("set - Trader.CRYPTO_ALT - internalMemeLayers") && auth.contains("Trader.QUALITY") && auth.contains("Trader.TREASURY") && auth.contains("Trader.PROJECT_SNIPER") && !auth.substringAfter("val internalMemeLayers = setOf(").substringBefore(")").contains("Trader.CYCLIC"))
         assertTrue(auth.contains("return laneSet.size == 1 && Trader.MEME in laneSet"))
         assertTrue(crypto.contains("operatorExplicitlyEnabled"))
         assertTrue(crypto.contains("cfg.cryptoAltsEnabled && cfg.marketsTraderEnabled"))
+        assertTrue("V5.0.6015: CryptoAltTrader must honor EnabledTraderAuthority CRYPTO_ALT over stale market toggles", crypto.contains("authorityAllowsCrypto6015") && crypto.contains("Trader.CRYPTO_ALT in authority") && crypto.contains("!authorityAllowsCrypto6015 && (cfg.tradingMode == 0"))
     }
 
 
