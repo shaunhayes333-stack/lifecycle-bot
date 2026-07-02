@@ -47,6 +47,9 @@ object CommonSenseTradePlaybook {
         val providerBlindSafety: Boolean = false,
         val holderHardRisk: Boolean = false,
         val dangerousStructure: Boolean = false,
+        val brainSetup: String = "",
+        val brainConfidence: Double = 0.0,
+        val brainContext: String = "",
         val capturedAtMs: Long = System.currentTimeMillis(),
     )
 
@@ -207,11 +210,36 @@ object CommonSenseTradePlaybook {
         val holderHardRisk = topHolder >= 55.0 || safety.summary.contains("holder concentration hard", true) || safety.summary.contains("holder hard", true)
         val holderAcceptable = !holderHardRisk && (topHolder < 0.0 || topHolder <= 35.0) && !safety.summary.contains("top holder", true)
 
+        // V5.0.6021 — CommonSense was data blind: it only read lane/style/phase/source,
+        // while ToolkitSignalSheet/ResearchScout/UltimateEdge already held cached chart,
+        // setup, lane-vote and research context. Read cached/in-memory brains only; no
+        // hot-path provider/LLM/network call. snapshot() may schedule side-effect refresh.
+        val toolkit6021 = try { ToolkitSignalSheet.snapshot(ts) } catch (_: Throwable) { null }
+        val toolkitText6021 = try {
+            listOfNotNull(
+                toolkit6021?.setup?.name,
+                toolkit6021?.chartPattern,
+                toolkit6021?.entryStyle,
+                toolkit6021?.exitStyle,
+                toolkit6021?.laneVotes?.joinToString("_"),
+                toolkit6021?.toolVotes?.joinToString("_"),
+                toolkit6021?.compactReason,
+            ).joinToString(" ")
+        } catch (_: Throwable) { "" }
+        val researchText6021 = try { ResearchScout.riskHint(ts.mint).take(180) } catch (_: Throwable) { "" }
+        val edgeText6021 = try { UltimateEdgeEngine.cached(ts.mint, lane)?.compact()?.take(220) ?: "" } catch (_: Throwable) { "" }
+        try { UltimateEdgeEngine.enqueueRefresh(ts.mint, ts.symbol, lane, ts.source, score.toInt(), "common_sense_brain_context_6021") } catch (_: Throwable) {}
+        val policyAuth6021 = try { UnifiedPolicyHead.currentAuthority(lane).name } catch (_: Throwable) { "BOOTSTRAP" }
         val text = listOf(
             lane, style, ts.phase, ts.signal, ts.source, tokenMap.routeStatus,
             try { ts.meta.emafanAlignment } catch (_: Throwable) { "" },
+            toolkitText6021,
+            researchText6021,
+            edgeText6021,
+            "POLICY_$policyAuth6021",
         ).joinToString(" ").uppercase(Locale.US).replace('-', '_')
-        val tradeType = classifyTradeType(text, score, liq)
+        val brainConfidence6021 = maxOf(score, toolkit6021?.confidence ?: 0.0).coerceIn(0.0, 100.0)
+        val tradeType = classifyTradeType(text, brainConfidence6021, liq)
         val lateChase = text.contains("OVEREXTENDED") || text.contains("VERTICAL") || text.contains("CHASE") || text.contains("FREE_FALL") || text.contains("FREEFALL")
         val breakdown = text.contains("BREAKDOWN") && !text.contains("FAILED_BREAKDOWN") && !text.contains("RECLAIM")
         val logicalBuyZone = tradeType != "NO_STRUCTURE" && !lateChase && !breakdown
@@ -232,6 +260,9 @@ object CommonSenseTradePlaybook {
         if (rugClean) reasons += "rug_clean" else if (hardSafetyBlocked) reasons += "rug_hard_blocked" else reasons += "rug_provider_blind_or_pending"
         if (holderAcceptable) reasons += "holders_ok" else if (holderHardRisk) reasons += "holders_hard_risk" else reasons += "holders_soft_or_unknown"
         reasons += "tradeType=$tradeType"
+        if (toolkit6021 != null) reasons += "brainSetup=${toolkit6021.setup.name}:conf=${toolkit6021.confidence.toInt()}:chart=${toolkit6021.chartPattern.take(32)}"
+        if (researchText6021.isNotBlank()) reasons += "research=${researchText6021.take(48)}"
+        if (edgeText6021.isNotBlank()) reasons += "edge=${edgeText6021.take(48)}"
         val confidence = when {
             score >= 70.0 && liq >= 10_000.0 && tradeType !in setOf("MOMENTUM_SCALP", "NEW_TOKEN_EARLY_LIFECYCLE") -> "HIGH"
             score >= 58.0 && liq >= 1_500.0 -> "MEDIUM"
@@ -242,7 +273,7 @@ object CommonSenseTradePlaybook {
             "MEDIUM" -> 0.72
             else -> 0.35
         }
-        return Snapshot(ts.mint, ts.symbol, lane, style, score, priceKnown, liquidityKnown, liq, routeKnown, tokenMapComplete, safetyKnown, rugClean, holderAcceptable, logicalBuyZone, invalidationKnown, riskRewardAcceptable, tradeType, confidence, sizeMult, reasons, hardSafetyBlocked, providerBlindSafety, holderHardRisk, lateChase || breakdown)
+        return Snapshot(ts.mint, ts.symbol, lane, style, score, priceKnown, liquidityKnown, liq, routeKnown, tokenMapComplete, safetyKnown, rugClean, holderAcceptable, logicalBuyZone, invalidationKnown, riskRewardAcceptable, tradeType, confidence, sizeMult, reasons, hardSafetyBlocked, providerBlindSafety, holderHardRisk, lateChase || breakdown, toolkit6021?.setup?.name ?: "", toolkit6021?.confidence ?: 0.0, listOf(toolkitText6021, researchText6021, edgeText6021).filter { it.isNotBlank() }.joinToString(" | ").take(320))
     }
 
     private fun classifyTradeType(text: String, score: Double, liq: Double): String = when {

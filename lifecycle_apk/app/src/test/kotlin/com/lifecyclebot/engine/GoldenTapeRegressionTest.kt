@@ -6962,6 +6962,8 @@ class GoldenTapeRegressionTest {
         val bot6020 = java.io.File("src/main/kotlin/com/lifecyclebot/engine/BotService.kt").readText()
         assertTrue("V5.0.6020: score floors must be fluid scaffolding that soft-starts, tightens, then delegates to AGI/SSI authority", bot6020.contains("FLUID_SCORE_SCAFFOLD_6020") && bot6020.contains("UnifiedPolicyHead.currentAuthority") && bot6020.contains("AuthorityTier.BOOTSTRAP -> (structuralFloor6020 - 18.0") && bot6020.contains("AuthorityTier.AUTHORITATIVE -> 0.0"))
         assertTrue("V5.0.6020: good meme lanes must get real volume pivots, not probe-only starvation", bot6020.contains("GOOD_LANE_WAIT_VOLUME_PIVOT_6020") && bot6020.contains("QUALITY") && bot6020.contains("CASHGEN") && bot6020.contains("TREASURY") && playbook.contains("GOOD_LANE_NO_STRUCTURE_VOLUME_PIVOT_6020") && playbook.contains("dangerousStructure"))
+        assertTrue("V5.0.6021: CommonSense must read cached AGI/toolkit/research brain context before classifying structure", playbook.contains("ToolkitSignalSheet.snapshot") && playbook.contains("ResearchScout.riskHint") && playbook.contains("UltimateEdgeEngine.cached") && playbook.contains("brainSetup") && playbook.contains("brainConfidence") && playbook.contains("brainContext"))
+        assertTrue("V5.0.6021: CommonSense brain access must remain hot-path safe and async/cache-first", playbook.contains("UltimateEdgeEngine.enqueueRefresh") && playbook.contains("common_sense_brain_context_6021") && playbook.contains("hot-path provider/LLM/network call") && !playbook.contains("UltimateEdgeEngine.evaluate(ts)"))
     }
 
 
