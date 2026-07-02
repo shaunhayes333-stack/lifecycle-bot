@@ -18049,33 +18049,50 @@ if (hotExitHandledSweep) {
                         // scanner keeps feeding memes; it just ensures the
                         // established tokens have a fast path to the lanes
                         // that were designed for them.
+                        //
+                        // V5.0.6004 — SOURCE-BASED AFFINITY BOOST.
+                        // Operator dump 17:22 showed CASHGEN/TREASURY/BLUECHIP
+                        // starved despite bluechip-watchlist intake because
+                        // pumpfun API is degraded — mcap/liq don't populate
+                        // in time for the metric-based boost above. Boost by
+                        // SOURCE first, then by metrics as fallback. Bluechip
+                        // watchlist tokens go straight to the compounders even
+                        // when their liq hasn't hydrated yet.
                         try {
-                            if (ts.lastMcap >= TreasuryScannerFeed.MIN_TREASURY_MCAP &&
-                                ts.lastLiquidityUsd >= TreasuryScannerFeed.MIN_TREASURY_LIQUIDITY) {
-                                TreasuryScannerFeed.publishCandidate(
-                                    TreasuryScannerFeed.TreasuryCandidate(
-                                        mint = ts.mint,
-                                        symbol = ts.symbol,
-                                        mcap = ts.lastMcap,
-                                        liquidityUsd = ts.lastLiquidityUsd,
-                                        vol24hUsd = TreasuryScannerFeed.MIN_TREASURY_24H_VOL,
-                                        source = ts.source.ifBlank { "processTokenCycle" },
-                                    ),
-                                )
+                            val srcU = ts.source.uppercase()
+                            val bluechipSource = srcU.contains("BLUECHIP_WATCHLIST") ||
+                                srcU.contains("COINGECKO_TRENDING") ||
+                                srcU.contains("DEX_TRENDING") ||
+                                srcU.contains("DEX_BOOSTED")
+                            val establishedMetrics = ts.lastMcap >= TreasuryScannerFeed.MIN_TREASURY_MCAP &&
+                                ts.lastLiquidityUsd >= TreasuryScannerFeed.MIN_TREASURY_LIQUIDITY
+                            if (bluechipSource || establishedMetrics) {
+                                if (establishedMetrics) {
+                                    TreasuryScannerFeed.publishCandidate(
+                                        TreasuryScannerFeed.TreasuryCandidate(
+                                            mint = ts.mint,
+                                            symbol = ts.symbol,
+                                            mcap = ts.lastMcap,
+                                            liquidityUsd = ts.lastLiquidityUsd,
+                                            vol24hUsd = TreasuryScannerFeed.MIN_TREASURY_24H_VOL,
+                                            source = ts.source.ifBlank { "processTokenCycle" },
+                                        ),
+                                    )
+                                }
                                 // Affinity boost so canonicalCycleLaneFor / AgenticStyleRouter
                                 // elect CASHGEN/TREASURY/QUALITY as primary for this token.
                                 val boostedBefore = ts.laneAffinity.size
                                 ts.laneAffinity.add("CASHGEN")
                                 ts.laneAffinity.add("TREASURY")
                                 ts.laneAffinity.add("QUALITY")
-                                if (ts.lastMcap >= 500_000.0) ts.laneAffinity.add("BLUECHIP")
+                                if (ts.lastMcap >= 500_000.0 || bluechipSource) ts.laneAffinity.add("BLUECHIP")
                                 if (ts.laneAffinity.size != boostedBefore) {
                                     try {
                                         ForensicLogger.lifecycle(
-                                            "TREASURY_FEED_AFFINITY_BOOST_6002",
-                                            "symbol=${ts.symbol} mint=${ts.mint.take(10)} mcap=${ts.lastMcap.toInt()} liq=${ts.lastLiquidityUsd.toInt()} affinityAdded=CASHGEN+TREASURY+QUALITY${if (ts.lastMcap >= 500_000.0) "+BLUECHIP" else ""}",
+                                            "TREASURY_FEED_AFFINITY_BOOST_6004",
+                                            "symbol=${ts.symbol} mint=${ts.mint.take(10)} src=${ts.source} mcap=${ts.lastMcap.toInt()} liq=${ts.lastLiquidityUsd.toInt()} boostBy=${if (bluechipSource) "source" else "metrics"} affinityAdded=CASHGEN+TREASURY+QUALITY${if (ts.lastMcap >= 500_000.0 || bluechipSource) "+BLUECHIP" else ""}",
                                         )
-                                        PipelineHealthCollector.labelInc("TREASURY_FEED_AFFINITY_BOOST_6002")
+                                        PipelineHealthCollector.labelInc("TREASURY_FEED_AFFINITY_BOOST_6004_${if (bluechipSource) "SOURCE" else "METRICS"}")
                                     } catch (_: Throwable) {}
                                 }
                             }
