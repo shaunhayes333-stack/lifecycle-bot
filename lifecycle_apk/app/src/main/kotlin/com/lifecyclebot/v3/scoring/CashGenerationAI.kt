@@ -514,7 +514,14 @@ object CashGenerationAI {
         // the boundary; live demands depth. Doctrine-clean: this is the lane self-
         // selecting its OWN proper pond, not an external veto or a scanner choke —
         // the meme lanes still take these tokens. Fail-open if liquidity unknown (0).
-        val treasuryMinLiq = if (isPaperMode) 12_000.0 else 25_000.0
+        // V5.0.6008 — COLD-START OVERRIDE. During the first 30 lifetime
+        // trades (fresh install), use MOONSHOT-style permissive floor so
+        // TREASURY/CashGen can actually trade and start learning. Without
+        // this, a new user gets ZERO Treasury trades until they've accrued
+        // 30 memelane closes elsewhere — a chicken-and-egg trap. Once the
+        // AGI stack has real data, the learned V5.9.1307 floor takes over.
+        val learnedTreasuryMinLiq = if (isPaperMode) 12_000.0 else 25_000.0
+        val treasuryMinLiq = com.lifecyclebot.engine.ColdStartPriors.applyLiquidityFloor("TREASURY", learnedTreasuryMinLiq)
         if (liquidityUsd > 0.0 && liquidityUsd < treasuryMinLiq) {
             try { TreasuryCashflowMissionReport.recordRejected("treasury_liq_floor_${liquidityUsd.toInt()}_below_${treasuryMinLiq.toInt()}", mode.name, isPaperMode) } catch (_: Throwable) {}
             return TreasurySignal(
