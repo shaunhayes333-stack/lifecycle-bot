@@ -162,17 +162,40 @@ object StrategyTelemetry {
 
 
 
+    // V5.0.6001 — CLEAN LIVE LEADERBOARD CACHE (operator directive:
+    // "flip the bot green"). LiveProbabilityEngine.forecast() calls this
+    // method on every lane forecast (547 lane_evals per snapshot period
+    // → 547 sort-and-dedupe rebuilds of the raw journal). As the journal
+    // grows this dominates the bot-loop hot path — 07:17 dump showed
+    // max cycle 34s, 15:04 dump showed max cycle 114s (linear-ish
+    // growth). Cache with 10s TTL is decision-safe because probability
+    // sizing is a slow-moving edge; the raw-journal reality clamp uses
+    // its own 15s cache in LiveProbabilityEngine so the two windows
+    // stay aligned.
+    @Volatile private var cleanLiveLeaderboardCache: List<StrategyMetric> = emptyList()
+    @Volatile private var cleanLiveLeaderboardCacheMs: Long = 0L
+    @Volatile private var cleanLiveLeaderboardCacheLimit: Int = 0
+    private const val CLEAN_LIVE_LEADERBOARD_TTL_MS = 10_000L
+
     // V5.0.4513 — decision-facing clean live authority. The legacy live
     // leaderboard reads raw close snapshots and sanitizes obvious outliers, but
     // it can still include historical duplicate terminal/recovered/forensic rows
     // that StrategyTruthLedger already knows are not strategy truth. Use this for
     // gate relaxer, live WR floors, and future tuner alignment.
     fun computeCleanLiveTerminalLeaderboard(limit: Int = 2_500): List<StrategyMetric> {
+        val now = System.currentTimeMillis()
+        val cached = cleanLiveLeaderboardCache
+        // Cache hit: TTL fresh AND cached limit is >= current request (so a
+        // smaller subsequent request never triggers a rebuild).
+        if (cached.isNotEmpty() &&
+            cleanLiveLeaderboardCacheLimit >= limit &&
+            (now - cleanLiveLeaderboardCacheMs) < CLEAN_LIVE_LEADERBOARD_TTL_MS) {
+            return cached
+        }
         val raw = try { TradeHistoryStore.getRecentValidClosedTradesRaw(limit = limit, includePartials = true) } catch (_: Throwable) { emptyList() }
         val cleanRows = try { StrategyTruthLedger.clean(raw, limit).rows } catch (_: Throwable) { raw }
             .filter { it.mode.equals("live", true) && it.side.equals("SELL", true) }
-        if (cleanRows.isEmpty()) return emptyList()
-        return cleanRows
+        val result = if (cleanRows.isEmpty()) emptyList() else cleanRows
             .groupBy {
                 val rawMode = it.tradingMode.ifBlank { "STANDARD" }
                 val norm = try { TradeHistoryStore.normalizeTradeModeName(rawMode) } catch (_: Throwable) { rawMode }
@@ -205,6 +228,10 @@ object StrategyTelemetry {
                     avgLossPct = if (lossPcts.isNotEmpty()) lossPcts.sum() / lossPcts.size else 0.0,
                 )
             }
+        cleanLiveLeaderboardCache = result
+        cleanLiveLeaderboardCacheMs = now
+        cleanLiveLeaderboardCacheLimit = limit
+        return result
     }
 
     /** Decision-facing live authority: LIVE terminal SELL rows only, no partials, no paper. */
