@@ -9814,6 +9814,27 @@ class BotService : Service() {
             }
             return qualityStructure
         }
+        // V5.0.6047 — ROOT CAUSE FIX: CASHGEN/TREASURY were being gated by
+        // qualityLaneProofOk() (liq>=$15K + mcap>=$25K). That's a BLUECHIP-tier
+        // structural proof — inappropriate for CASHGEN's doctrine (scalp small
+        // tokens for 3-5% cashflow, 100+ trades/day, wallet compounder).
+        // Report 2026-07-03 06:03 showed CASHGEN with 65 lane_evals and ZERO
+        // trades — the wallet-feeder was completely dead because it couldn't
+        // clear a BLUECHIP-tier proof. CASHGEN needs its OWN permissive proof:
+        // real price, not-hard-blocked, and liquidity >= $2K (executable but
+        // small). This is the operator's explicit doctrine per PRD:
+        //   "CashGen/Treasury literally is meant to make the bot a free
+        //    trading engine ... 100+ trades/day of quick 3-5% scalps"
+        fun cashGenProofOk(): Boolean {
+            val routeProof = ts.lastPrice > 0.0 && (ts.lastPriceSource.isNotBlank() || ts.source.isNotBlank())
+            val safeEnough = try { !ts.safety.isBlocked && ts.safety.hardBlockReasons.isEmpty() } catch (_: Throwable) { false }
+            val executable = ts.lastLiquidityUsd >= 2_000.0  // scalp-executable, not BLUECHIP-tier
+            val ok = routeProof && safeEnough && executable
+            if (ok) {
+                try { PipelineHealthCollector.labelInc("CASHGEN_TREASURY_PROOF_OK_6047") } catch (_: Throwable) {}
+            }
+            return ok
+        }
         // (1) Regression guard — must remain literally these tokens.
         if (l == "STANDARD" || l == "CORE" || l == "V3") return true
         // (2) Primary normally evaluates, except catastrophic paper S0-10
@@ -9821,8 +9842,13 @@ class BotService : Service() {
         // primary from bypassing the bounded rescue cap during a sub-bootstrap
         // WR collapse while preserving meme-family training volume.
         if (l.equals(primaryLane, ignoreCase = true)) {
-            if (l in setOf("QUALITY", "BLUECHIP", "TREASURY") && !qualityLaneProofOk()) {
+            if (l in setOf("QUALITY", "BLUECHIP") && !qualityLaneProofOk()) {
                 try { ForensicLogger.lifecycle("QUALITY_PRIMARY_PROOF_REJECTED", "lane=$l symbol=${ts.symbol} mint=${ts.mint.take(10)} liq=${ts.lastLiquidityUsd.toInt()} mcap=${ts.lastMcap.toInt()} src=${ts.lastPriceSource.ifBlank { ts.source }} holder=${ts.safety.topHolderPct}") } catch (_: Throwable) {}
+                return false
+            }
+            // V5.0.6047 — TREASURY uses permissive cashGenProofOk (scalp/compounder role)
+            if (l == "TREASURY" && !cashGenProofOk()) {
+                try { ForensicLogger.lifecycle("CASHGEN_TREASURY_PRIMARY_PROOF_REJECTED_6047", "lane=$l symbol=${ts.symbol} mint=${ts.mint.take(10)} liq=${ts.lastLiquidityUsd.toInt()} mcap=${ts.lastMcap.toInt()} src=${ts.lastPriceSource.ifBlank { ts.source }}") } catch (_: Throwable) {}
                 return false
             }
             if (catastrophicPaperLowScoreSpecialistBleed(ts, l)) {
@@ -9926,13 +9952,18 @@ class BotService : Service() {
                 "MANIPULATED", "QUALITY", "DIP_HUNTER", "TREASURY", "CASHGEN", "BLUECHIP"
             )
             val qualityEligible = qualityLaneProofOk()
+            val cashGenEligible = cashGenProofOk()  // V5.0.6047 — CASHGEN/TREASURY have their own permissive proof
             val affinityRanked = affinity.filter { it in fullMemeTraderRing }.sorted()
             val rawOwnerPool0 = (listOf(primaryLane.uppercase()) + affinityRanked + fullMemeTraderRing).distinct()
             val rawOwnerPool = rawOwnerPool0.filter { laneName ->
-                laneName !in setOf("QUALITY", "BLUECHIP", "TREASURY", "CASHGEN") || qualityEligible
+                when (laneName) {
+                    "QUALITY", "BLUECHIP" -> qualityEligible
+                    "TREASURY", "CASHGEN" -> cashGenEligible  // V5.0.6047 — permissive proof for scalp/compounder lanes
+                    else -> true
+                }
             }.ifEmpty { rawOwnerPool0.filter { it !in setOf("QUALITY", "BLUECHIP", "TREASURY", "CASHGEN") }.ifEmpty { rawOwnerPool0 } }
             if (!qualityEligible && rawOwnerPool0.any { it in setOf("QUALITY", "BLUECHIP", "TREASURY", "CASHGEN") }) {
-                try { ForensicLogger.lifecycle("QUALITY_OWNER_PROOF_REJECTED", "symbol=${ts.symbol} mint=${ts.mint.take(10)} liq=${ts.lastLiquidityUsd.toInt()} mcap=${ts.lastMcap.toInt()} src=${ts.lastPriceSource.ifBlank { ts.source }} holder=${ts.safety.topHolderPct} primary=$primaryLane") } catch (_: Throwable) {}
+                try { ForensicLogger.lifecycle("QUALITY_OWNER_PROOF_REJECTED", "symbol=${ts.symbol} mint=${ts.mint.take(10)} liq=${ts.lastLiquidityUsd.toInt()} mcap=${ts.lastMcap.toInt()} src=${ts.lastPriceSource.ifBlank { ts.source }} holder=${ts.safety.topHolderPct} primary=$primaryLane cashGenEligible=$cashGenEligible") } catch (_: Throwable) {}
             }
             val ownerPool = com.lifecyclebot.engine.LaneToxicityGuard.filterNonToxic(rawOwnerPool, scoreForToxicity).ifEmpty { rawOwnerPool }
             val rot = try { (System.currentTimeMillis() / 3_000L).toInt() } catch (_: Throwable) { 0 }
@@ -9949,11 +9980,15 @@ class BotService : Service() {
                     // but remove broad score/liquidity rescue that lets every quality-family
                     // lane evaluate the same mint during live WR collapse. This is not lane
                     // amputation: primary lane and affinity-proven rescue still run.
-                    (l in setOf("QUALITY", "TREASURY", "CASHGEN", "BLUECHIP") && qualityEligible && affinity.contains(l)) ||
+                    // V5.0.6047 — CASHGEN/TREASURY use cashGenEligible (permissive scalp proof)
+                    (l in setOf("QUALITY", "BLUECHIP") && qualityEligible && affinity.contains(l)) ||
+                        (l in setOf("TREASURY", "CASHGEN") && cashGenEligible && affinity.contains(l)) ||
                         (l == "MOONSHOT" && (affinity.contains(l) || l == primaryLane.uppercase() || scoreForToxicity >= 65 || ts.meta.momScore >= 70.0)) ||
                         (l == "PROJECT_SNIPER" && qualityEligible && affinity.contains(l))
                 } else {
-                    (l in setOf("QUALITY", "TREASURY", "CASHGEN", "BLUECHIP") && qualityEligible && (affinity.contains(l) || l == primaryLane.uppercase() || scoreForToxicity >= 55 || ts.lastLiquidityUsd >= 15_000.0)) ||
+                    // V5.0.6047 — CASHGEN/TREASURY use cashGenEligible (liq>=$2K) instead of qualityEligible (liq>=$15K)
+                    (l in setOf("QUALITY", "BLUECHIP") && qualityEligible && (affinity.contains(l) || l == primaryLane.uppercase() || scoreForToxicity >= 55 || ts.lastLiquidityUsd >= 15_000.0)) ||
+                        (l in setOf("TREASURY", "CASHGEN") && cashGenEligible && (affinity.contains(l) || l == primaryLane.uppercase() || scoreForToxicity >= 45 || ts.lastLiquidityUsd >= 2_000.0)) ||
                         (l == "MOONSHOT" && (affinity.contains(l) || l == primaryLane.uppercase() || scoreForToxicity >= 55 || ts.meta.momScore >= 60.0)) ||
                         (l == "PROJECT_SNIPER" && qualityEligible && affinity.contains(l))
                 }
