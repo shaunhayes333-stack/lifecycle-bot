@@ -6989,6 +6989,7 @@ class GoldenTapeRegressionTest {
         assertTrue("V5.0.6029: unified report must trace discovery/open/route/sell/journal/wallet money truth", report6029.contains("MONEY PATH TRUTH") && report6029.contains("buildMoneyPathTruthSummary6029") && report6029.contains("open_unrealized_not_wallet_until_sell_finality") && report6029.contains("truth contract: DISCOVERY price/source -> BUY entry snapshot -> OPEN unrealized basis/route label -> SELL finality net SOL -> JOURNAL strategy truth -> WALLET balance"))
         val relaxer6031 = java.io.File("src/main/kotlin/com/lifecyclebot/engine/LiveLayerGateRelaxer.kt").readText()
         assertTrue("V5.0.6031: lane-positive live EV must bypass global WR relaxer lock while bleeder lanes stay unrelaxed", relaxer6031.contains("lanePositiveCache") && relaxer6031.contains("LANE-POSITIVE OVERRIDE") && relaxer6031.contains("if (lanePositive6031) return base") && relaxer6031.contains("BLUECHIP") && relaxer6031.contains("report 6028 shows BLUECHIP WR20") && relaxer6031.contains("QUALITY") && relaxer6031.contains("report 6028 shows QUALITY WR40"))
+        assertTrue("V5.0.6031: live runtime must not depend on screen/MainActivity staying alive", bot.contains("ensureRuntimeWakeLock6031") && bot.contains("ALWAYS_ON_WAKELOCK_REASSERTED_6031") && bot.contains("ensureAlwaysOnRuntimeGuards6031") && bot.contains("ALWAYS_ON_RUNTIME_RESCUE_6031") && bot.contains("ensureHotExitAlive()") && bot.contains("onCreate_after_startForeground") && bot.contains("action_start_already_running"))
     }
 
 

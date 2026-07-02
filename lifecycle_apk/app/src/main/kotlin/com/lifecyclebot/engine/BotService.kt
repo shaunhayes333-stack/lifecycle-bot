@@ -650,6 +650,42 @@ class BotService : Service() {
 
     private val dex    = DexscreenerApi()
     private var wakeLock: PowerManager.WakeLock? = null
+
+    private fun ensureRuntimeWakeLock6031(reason: String) {
+        try {
+            val existing = wakeLock
+            if (existing?.isHeld == true) return
+            val pm = getSystemService(Context.POWER_SERVICE) as PowerManager
+            wakeLock = pm.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "lifecyclebot:trading:always_on_6031").also {
+                it.setReferenceCounted(false)
+                it.acquire()
+            }
+            try { ForensicLogger.lifecycle("ALWAYS_ON_WAKELOCK_REASSERTED_6031", "reason=$reason held=true runtime=${status.running} loop=${loopJob?.isActive == true} hotExit=${hotExitJob?.isActive == true}") } catch (_: Throwable) {}
+        } catch (t: Throwable) {
+            try { ErrorLogger.warn("BotService", "ALWAYS_ON_WAKELOCK_REASSERT_FAILED_6031 reason=$reason err=${t.message}") } catch (_: Throwable) {}
+        }
+    }
+
+    private fun ensureAlwaysOnRuntimeGuards6031(reason: String) {
+        try { startForeground(NOTIF_ID, buildRunningNotif()) } catch (_: Throwable) {}
+        ensureRuntimeWakeLock6031(reason)
+        try { scheduleKeepAliveAlarm() } catch (_: Throwable) {}
+        try { ServiceWatchdog.scheduleAlarm(applicationContext) } catch (_: Throwable) {}
+        val held = try { heldPositionCountForRescue() } catch (_: Throwable) { 0 }
+        val shouldRun = try {
+            val rp = getSharedPreferences(RUNTIME_PREFS, Context.MODE_PRIVATE)
+            rp.getBoolean(KEY_WAS_RUNNING_BEFORE_SHUTDOWN, false) && !rp.getBoolean(KEY_MANUAL_STOP_REQUESTED, false)
+        } catch (_: Throwable) { status.running }
+        if ((status.running || shouldRun || held > 0) && hotExitJob?.isActive != true) {
+            try { ensureHotExitAlive() } catch (_: Throwable) {}
+        }
+        if ((shouldRun || held > 0) && loopJob?.isActive != true && !startInProgress && !stopInProgress) {
+            try {
+                ForensicLogger.lifecycle("ALWAYS_ON_RUNTIME_RESCUE_6031", "reason=$reason held=$held shouldRun=$shouldRun statusRunning=${status.running} loopActive=false hotExit=${hotExitJob?.isActive == true}")
+            } catch (_: Throwable) {}
+            try { scope.launch { startBot() } } catch (_: Throwable) {}
+        }
+    }
     private var networkCallback: ConnectivityManager.NetworkCallback? = null
     private var wallet: SolanaWallet? = null
 
@@ -1313,6 +1349,7 @@ class BotService : Service() {
         // throws ForegroundServiceDidNotStartInTimeException. Do it here before any slow init.
         createChannels()
         startForeground(NOTIF_ID, buildRunningNotif())
+        ensureRuntimeWakeLock6031("onCreate_after_startForeground")
 
         try {
             // Initialize error logger first so we can capture any init errors
@@ -2320,6 +2357,11 @@ class BotService : Service() {
             val manualStop = rp.getBoolean(KEY_MANUAL_STOP_REQUESTED, false)
             ErrorLogger.warn("BotService", "onStartCommand null intent (START_STICKY resurrection) wasRunning=$wasRunning manualStop=$manualStop")
             val held = heldPositionCountForRescue()
+            if ((wasRunning || held > 0) && !manualStop) {
+                ensureRuntimeWakeLock6031("null_intent_sticky_resurrection")
+                try { scheduleKeepAliveAlarm() } catch (_: Throwable) {}
+                try { ServiceWatchdog.scheduleAlarm(applicationContext) } catch (_: Throwable) {}
+            }
             if ((wasRunning || held > 0) && !manualStop && !isRuntimeActive()) {
                 try {
                     addLog("🔄 AUTO-RESURRECT: Bot restarted by OS after unexpected kill/held positions")
@@ -2341,6 +2383,7 @@ class BotService : Service() {
                 // the next snapshot can answer "did 10 START taps create 10
                 // runtime jobs or exactly 1?".
                 try { ForensicLogger.lifecycle("LIFECYCLE_START_REQUESTED", "userRequested=$userRequested forceRestart=$forceRestartConfirmed manualStop=$manualStop") } catch (_: Throwable) {}
+                if (!manualStop) ensureAlwaysOnRuntimeGuards6031("action_start_entry")
 
                 // V5.9.609 — stale keep-alive / watchdog / lifecycle alarms must
                 // not undo a user stop. Only a fresh UI/user start may clear the
@@ -2387,6 +2430,8 @@ class BotService : Service() {
                     // while status/runtime controller remained stale false.
                     status.running = true
                     isShuttingDown = false
+                    ensureRuntimeWakeLock6031("action_start_already_running")
+                    try { ensureHotExitAlive() } catch (_: Throwable) {}
                     try {
                         getSharedPreferences(RUNTIME_PREFS, Context.MODE_PRIVATE)
                             .edit()
@@ -5735,12 +5780,8 @@ class BotService : Service() {
             .putBoolean(KEY_MANUAL_STOP_REQUESTED, false)
             .apply()
         userStartQueuedDuringStop = false
-        // Acquire partial wake lock — keeps CPU alive during transaction confirmation
-        val pm = getSystemService(Context.POWER_SERVICE) as PowerManager
-        wakeLock = pm.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "lifecyclebot:trading").also {
-            it.setReferenceCounted(false)  // idempotent — safe to call acquire() multiple times
-            it.acquire()  // indefinite, released explicitly in stopBot()
-        }
+        // Acquire/reassert partial wake lock — keeps CPU alive during transaction confirmation and screen-off live management.
+        ensureRuntimeWakeLock6031("startBot")
         
         // Schedule a repeating keep-alive alarm every 60 seconds
         // This ensures the service restarts if Android kills it
