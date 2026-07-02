@@ -9629,27 +9629,28 @@ class BotService : Service() {
         } catch (_: Throwable) { emptySet() }
 
         if (memeOnly) {
-            // V5.0.6013 — specialist entry lanes are not owner-ring lanes, but
-            // they must still be allowed to EVALUATE entries when explicitly
-            // selected by character/source affinity. 4599 correctly removed
-            // SHITCOIN / EXPRESS / PROJECT_SNIPER from owner-lane election, but
-            // the 6011 runtime showed these enabled specialist traders silent
-            // (no lane eval) while fresh-launch/degen setups were present. Restore
-            // bounded entry evaluation for explicit affinity only; owner rotation,
-            // sizing, FDG, pause guards and hard safety still decide execution.
-            val specialistEntryLanes6013 = setOf("SHITCOIN", "EXPRESS", "PROJECT_SNIPER", "DIP_HUNTER", "MANIPULATED")
-            val manipOverlayEntry6013 = l == "MANIPULATED" && manipulatedOnlyOverlayActive4553(ts)
-            val specialistEntryAffinity6013 = l in specialistEntryLanes6013 && (affinity.contains(l) || manipOverlayEntry6013)
-            if (RuntimeModeAuthority.isLive() && specialistEntryAffinity6013) {
-                val paused6013 = try { LaneAutoPauseGuard.isPaused(l) } catch (_: Throwable) { false }
-                if (!paused6013) {
+            // V5.0.6014 — successful-lane feed correction. Do NOT spend the
+            // evaluator budget on MANIPULATED/SHITCOIN/EXPRESS/DIP/PROJECT just
+            // because they are enabled. The operator wants capital and attention
+            // pushed into succeeding lanes: STANDARD/CORE/V3 are already trunk
+            // passes below, while QUALITY/MOONSHOT/BLUECHIP/CRYPTO need a bounded
+            // live fast-path so owner rotation cannot starve them. This remains
+            // explicit-affinity/quality-proof gated; hard safety, FDG, sizing and
+            // pause guards still decide execution.
+            val successfulFeedLanes6014 = setOf("QUALITY", "MOONSHOT", "BLUECHIP", "CRYPTO", "MARKETS")
+            val successfulFeedAffinity6014 = l in successfulFeedLanes6014 && (affinity.contains(l) || l.equals(primaryLane, ignoreCase = true))
+            if (RuntimeModeAuthority.isLive() && successfulFeedAffinity6014) {
+                val paused6014 = try { LaneAutoPauseGuard.isPaused(l) } catch (_: Throwable) { false }
+                val qualityProofRequired6014 = l in setOf("QUALITY", "BLUECHIP")
+                val qualityProofOk6014 = !qualityProofRequired6014 || qualityLaneProofOk()
+                if (!paused6014 && qualityProofOk6014) {
                     try {
-                        ForensicLogger.lifecycle("SPECIALIST_ENTRY_EVAL_RESTORED_6013", "lane=$l primary=$primaryLane symbol=${ts.symbol} mint=${ts.mint.take(10)} affinity=${affinity.joinToString("+")} overlay=$manipOverlayEntry6013 action=allow_entry_eval_not_owner_ring")
-                        PipelineHealthCollector.labelInc("SPECIALIST_ENTRY_EVAL_RESTORED_6013_$l")
+                        ForensicLogger.lifecycle("SUCCESSFUL_LANE_FEED_RESTORED_6014", "lane=$l primary=$primaryLane symbol=${ts.symbol} mint=${ts.mint.take(10)} affinity=${affinity.joinToString("+")} action=feed_success_lane_not_manipulated")
+                        PipelineHealthCollector.labelInc("SUCCESSFUL_LANE_FEED_RESTORED_6014_$l")
                     } catch (_: Throwable) {}
                     return true
                 } else {
-                    try { PipelineHealthCollector.labelInc("SPECIALIST_ENTRY_EVAL_PAUSED_6013_$l") } catch (_: Throwable) {}
+                    try { PipelineHealthCollector.labelInc("SUCCESSFUL_LANE_FEED_DENIED_6014_$l") } catch (_: Throwable) {}
                 }
             }
             // V5.0.3934 — LIVE_RING_OWNER_COLLAPSE.
