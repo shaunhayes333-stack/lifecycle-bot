@@ -6533,10 +6533,9 @@ class Executor(
                 try {
                     GlobalScope.launch(AppDispatchers.sideEffect) {
                         try {
-                            val svc6041 = com.lifecyclebot.engine.BotService.instance
-                            val wm6041 = svc6041?.walletManager
-                            wm6041?.refreshBalance(force = true)
-                            val fresh6041 = wm6041?.state?.value?.solBalance ?: 0.0
+                            val wm6041 = com.lifecyclebot.engine.BotService.walletManager
+                            wm6041.refreshBalance(force = true)
+                            val fresh6041 = wm6041.state.value.solBalance
                             if (fresh6041 > 0.0) {
                                 com.lifecyclebot.engine.BotService.status.walletSol = fresh6041
                                 try { LiveSafetyCircuitBreaker.updateBalance(fresh6041) } catch (_: Throwable) {}
