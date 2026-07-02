@@ -1,0 +1,136 @@
+package com.lifecyclebot.engine
+
+import com.lifecyclebot.engine.lab.LabStrategyStatus
+import com.lifecyclebot.engine.lab.LlmLabStore
+import java.util.concurrent.ConcurrentHashMap
+
+/**
+ * ═══════════════════════════════════════════════════════════════════════════════
+ * 🚧 LANE QUARANTINE CONTROLLER — V5.0.6002
+ * ═══════════════════════════════════════════════════════════════════════════════
+ *
+ * Operator directive 2026-07-02:
+ *   *"the bleeders need to be paused until the llm lab these are contributes
+ *    a winning tactic and is implemented! these would be manipulated and
+ *    project sniper and dip Hunter. once the lab proves strategy they can be
+ *    reintroduced into trading Autonomously"*
+ *
+ * PURPOSE
+ * -------
+ * A tiny runtime state brain that:
+ *   1. Holds a hard-pause list of catastrophically-bleeding lanes:
+ *      MANIPULATED, PROJECT_SNIPER, DIP_HUNTER  (per operator).
+ *   2. Continuously scans LlmLabStore for a PROMOTED strategy whose
+ *      name/rationale mentions the paused lane AND meets a proof floor
+ *      (≥5 paper trades, ≥50% WR, ≥+0 SOL paper PnL). When found, the lane
+ *      is autonomously released. Fluid — no manual toggle required.
+ *   3. Emits a forensic event on quarantine + resume so the operator can
+ *      audit the ecosystem's evolution.
+ *
+ * DESIGN INTENT
+ * -------------
+ * Quarantine is scoped to BUY / entry paths only. Existing open positions
+ * ride out normally (10-second or 10-week holds unaffected). Exit paths
+ * still work. This is a fluid pause, not a lane deletion.
+ *
+ * Lab match is by tag-in-name convention: a lab strategy targeting
+ * "MANIPULATED" or "SNIPER" or "DIP_HUNTER" (case-insensitive substring in
+ * `name` OR `rationale`) with proof floor met releases the lane. LlmLabStore
+ * uses free-text names so this is the least-invasive tag.
+ * ═══════════════════════════════════════════════════════════════════════════════
+ */
+object LaneQuarantineController {
+    const val VERSION = "V5.0.6002_LANE_QUARANTINE_CONTROLLER"
+
+    // Operator-seeded quarantine set. LlmLab promotion releases each lane
+    // autonomously when a matching PROMOTED strategy is proven.
+    private val seedQuarantine = setOf("MANIPULATED", "PROJECT_SNIPER", "DIP_HUNTER")
+
+    // Runtime-released lanes (autonomous resume). Once resumed, stays resumed
+    // for the process lifetime (avoids oscillation). Fresh install re-seeds
+    // the quarantine.
+    private val releasedLanes = ConcurrentHashMap.newKeySet<String>()
+
+    // Paper proof floor for a lab strategy to justify releasing its lane.
+    private const val MIN_PAPER_TRADES_TO_RELEASE = 5
+    private const val MIN_PAPER_WR_PCT_TO_RELEASE = 50.0
+    private const val MIN_PAPER_PNL_SOL_TO_RELEASE = 0.0
+
+    // Lab-scan throttle: no need to re-check every millisecond.
+    @Volatile private var lastLabScanMs: Long = 0L
+    private const val LAB_SCAN_TTL_MS = 30_000L
+
+    /** True if the lane is currently blocked from taking new BUY entries. */
+    fun isQuarantined(lane: String): Boolean {
+        val l = lane.trim().uppercase()
+        if (l !in seedQuarantine) return false
+        if (l in releasedLanes) return false
+        maybeScanLabForAutoResume()
+        return l !in releasedLanes
+    }
+
+    /** Log a blocked entry attempt (called at the buy-lane gate). */
+    fun logBlockedEntry(lane: String, symbol: String, mint: String, primary: String) {
+        try {
+            ForensicLogger.lifecycle(
+                "LANE_QUARANTINED_BLOCKED_ENTRY_6002",
+                "lane=${lane.uppercase()} symbol=$symbol mint=${mint.take(10)} primary=$primary reason=awaiting_llm_lab_promotion",
+            )
+            PipelineHealthCollector.labelInc("LANE_QUARANTINED_BLOCKED_ENTRY_6002_${lane.uppercase()}")
+        } catch (_: Throwable) {}
+    }
+
+    /**
+     * Autonomous resume: scan LlmLabStore for a PROMOTED strategy tagged to
+     * any quarantined lane. Meet the proof floor → release that lane.
+     */
+    private fun maybeScanLabForAutoResume() {
+        val now = System.currentTimeMillis()
+        if (now - lastLabScanMs < LAB_SCAN_TTL_MS) return
+        lastLabScanMs = now
+        try {
+            val strategies = try { LlmLabStore.allStrategies() } catch (_: Throwable) { emptyList() }
+            for (lane in seedQuarantine) {
+                if (lane in releasedLanes) continue
+                val tag = laneTag(lane)
+                val proofStrategy = strategies.firstOrNull { s ->
+                    s.status == LabStrategyStatus.PROMOTED &&
+                        (s.name.contains(tag, ignoreCase = true) ||
+                         s.rationale.contains(tag, ignoreCase = true) ||
+                         s.name.contains(lane, ignoreCase = true) ||
+                         s.rationale.contains(lane, ignoreCase = true)) &&
+                        s.paperTrades >= MIN_PAPER_TRADES_TO_RELEASE &&
+                        s.winRatePct() >= MIN_PAPER_WR_PCT_TO_RELEASE &&
+                        s.paperPnlSol >= MIN_PAPER_PNL_SOL_TO_RELEASE
+                }
+                if (proofStrategy != null) {
+                    releasedLanes.add(lane)
+                    try {
+                        ForensicLogger.lifecycle(
+                            "LANE_QUARANTINE_AUTO_RESUMED_6002",
+                            "lane=$lane strategy=${proofStrategy.name} paperN=${proofStrategy.paperTrades} paperWR=${"%.1f".format(proofStrategy.winRatePct())}% paperPnl=${"%+.3f".format(proofStrategy.paperPnlSol)} SOL note=llm_lab_promoted_release",
+                        )
+                        PipelineHealthCollector.labelInc("LANE_QUARANTINE_AUTO_RESUMED_6002_$lane")
+                        ErrorLogger.info("LaneQuarantineController", "🧪 AUTO-RESUME $lane via lab strategy '${proofStrategy.name}' (paperN=${proofStrategy.paperTrades} WR=${"%.1f".format(proofStrategy.winRatePct())}%)")
+                    } catch (_: Throwable) {}
+                }
+            }
+        } catch (_: Throwable) { /* lab scan must never break the caller */ }
+    }
+
+    // Short recognisable tag by lane so the LLM naming convention has options.
+    private fun laneTag(lane: String): String = when (lane) {
+        "MANIPULATED" -> "MANIP"
+        "PROJECT_SNIPER" -> "SNIPER"
+        "DIP_HUNTER" -> "DIP"
+        else -> lane
+    }
+
+    fun quarantineSnapshot(): Map<String, Boolean> = seedQuarantine.associateWith { it in releasedLanes }
+
+    fun statusLine(): String {
+        val active = seedQuarantine.filter { it !in releasedLanes }
+        val resumed = releasedLanes.toList().sorted()
+        return "$VERSION quarantined=${if (active.isEmpty()) "-" else active.joinToString(",")} autoResumed=${if (resumed.isEmpty()) "-" else resumed.joinToString(",")}"
+    }
+}

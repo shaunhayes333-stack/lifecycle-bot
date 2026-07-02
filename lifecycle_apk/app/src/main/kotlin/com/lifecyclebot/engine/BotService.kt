@@ -9469,6 +9469,20 @@ class BotService : Service() {
     }
 
     private fun shouldRunBuyLaneForCycle(ts: com.lifecyclebot.data.TokenState, lane: String, primaryLane: String): Boolean {
+        // V5.0.6002 — LANE QUARANTINE (operator directive 2026-07-02).
+        // MANIPULATED, PROJECT_SNIPER, DIP_HUNTER are hard-paused for new
+        // BUY entries until the LLM Lab autonomously promotes a strategy
+        // that targets each lane (≥5 paper trades, ≥50% WR, ≥+0 SOL PnL,
+        // strategy name/rationale mentions the lane). Open positions in
+        // these lanes ride out untouched; exits still work. Priority:
+        // this check runs BEFORE primary-lane override so a bleeder cannot
+        // sneak in as primary.
+        try {
+            if (LaneQuarantineController.isQuarantined(lane)) {
+                LaneQuarantineController.logBlockedEntry(lane, ts.symbol, ts.mint, primaryLane)
+                return false
+            }
+        } catch (_: Throwable) { /* quarantine must never break the gate */ }
         // V5.9.1586 — restore 3501 lane behavior. Primary lane is display/default
         // metadata only; it is NOT a pre-FDG execution suppressor. Every enabled
         // lane may evaluate, and FDG receives a candidate only if that lane actually
@@ -18023,6 +18037,18 @@ if (hotExitHandledSweep) {
                         // vol24h isn't carried on TokenState directly, so we
                         // pass the min floor to satisfy the criteria check;
                         // mcap+liq are the honest gates here.
+                        //
+                        // V5.0.6002 — WIRED: TreasuryScannerFeed CONSUMER.
+                        // Established tokens (mcap ≥ $1M, liq ≥ $50K) get an
+                        // affinity boost toward CASHGEN/TREASURY/QUALITY so
+                        // the compounder lanes win the primary election on
+                        // real free-money-engine candidates. Operator directive:
+                        // "focus on quality, cashgen/treasury were ramped up
+                        // and active." This does NOT veto meme lanes for the
+                        // same token — the affinity is additive and the
+                        // scanner keeps feeding memes; it just ensures the
+                        // established tokens have a fast path to the lanes
+                        // that were designed for them.
                         try {
                             if (ts.lastMcap >= TreasuryScannerFeed.MIN_TREASURY_MCAP &&
                                 ts.lastLiquidityUsd >= TreasuryScannerFeed.MIN_TREASURY_LIQUIDITY) {
@@ -18036,6 +18062,22 @@ if (hotExitHandledSweep) {
                                         source = ts.source.ifBlank { "processTokenCycle" },
                                     ),
                                 )
+                                // Affinity boost so canonicalCycleLaneFor / AgenticStyleRouter
+                                // elect CASHGEN/TREASURY/QUALITY as primary for this token.
+                                val boostedBefore = ts.laneAffinity.size
+                                ts.laneAffinity.add("CASHGEN")
+                                ts.laneAffinity.add("TREASURY")
+                                ts.laneAffinity.add("QUALITY")
+                                if (ts.lastMcap >= 500_000.0) ts.laneAffinity.add("BLUECHIP")
+                                if (ts.laneAffinity.size != boostedBefore) {
+                                    try {
+                                        ForensicLogger.lifecycle(
+                                            "TREASURY_FEED_AFFINITY_BOOST_6002",
+                                            "symbol=${ts.symbol} mint=${ts.mint.take(10)} mcap=${ts.lastMcap.toInt()} liq=${ts.lastLiquidityUsd.toInt()} affinityAdded=CASHGEN+TREASURY+QUALITY${if (ts.lastMcap >= 500_000.0) "+BLUECHIP" else ""}",
+                                        )
+                                        PipelineHealthCollector.labelInc("TREASURY_FEED_AFFINITY_BOOST_6002")
+                                    } catch (_: Throwable) {}
+                                }
                             }
                         } catch (_: Throwable) { /* producer must never break the cycle */ }
                         
