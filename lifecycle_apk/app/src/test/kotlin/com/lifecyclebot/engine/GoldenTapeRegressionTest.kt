@@ -6968,6 +6968,10 @@ class GoldenTapeRegressionTest {
         assertTrue("V5.0.6022: Quality BlueChip and Treasury must consume bridged signal copies instead of requiring legacy shouldEnter", bot6020.contains("qualitySignal6022") && bot6020.contains("blueChipSignal6022") && bot6020.contains("treasurySignal6022") && bot6020.contains("qualitySignal.copy") && bot6020.contains("blueChipSignal.copy") && bot6020.contains("treasurySignal.copy"))
         val main6024 = java.io.File("src/main/kotlin/com/lifecyclebot/ui/MainActivity.kt").readText()
         assertTrue("V5.0.6024: main dashboard headline must use StrategyTruthLedger-clean stats, not raw journal PnL", main6024.contains("getCleanStatsSnapshot4517()") && main6024.contains("strategy-clean · raw journal preserved") && main6024.contains("ALL TRADERS headline uses StrategyTruthLedger-clean truth"))
+        val fdg6025 = java.io.File("src/main/kotlin/com/lifecyclebot/engine/FinalDecisionGate.kt").readText()
+        assertTrue("V5.0.6025: FDG score gates must consume effective lane/AGI consensus score from trade 1", fdg6025.contains("effectiveGateScore6025") && fdg6025.contains("FDG_EFFECTIVE_GATE_SCORE_6025") && fdg6025.contains("score_gates_use_consensus_from_trade1") && fdg6025.contains("UnifiedPolicyHead.currentAuthority(laneName)"))
+        assertTrue("V5.0.6025: FDG unknown-phase and live-edge gates must use effective score while logging raw/lane split", fdg6025.contains("val isHighScore = effectiveGateScore6025 >= minScore") && fdg6025.contains("val hasDecentScore = effectiveGateScore6025 >= liveMinEntryScore") && fdg6025.contains("raw=${'$'}{candidate.entryScore.toInt()} lane=${'$'}{laneConsensusScore6025.toInt()}"))
+        assertTrue("V5.0.6025: BrainConsensusGate must evaluate the effective-gate candidate, not stale raw V3 score", fdg6025.contains("fdgGateCandidate6025") && fdg6025.contains("BrainConsensusGate.evaluate(ts, fdgGateCandidate6025, modeTag)"))
     }
 
 

@@ -751,11 +751,12 @@ object FinalDecisionGate {
         proposedSizeSol: Double,
         brain: BotBrain? = null,
         tradingModeTag: ModeSpecificGates.TradingModeTag? = null,
-        // V5.9.1296 — the lane's REAL signal score (0-100) for LEARNING-CONTEXT
-        // bucketing only. Defaults to candidate.entryScore so non-lane callers are
-        // unchanged. Lane callers pass their true score (qualityScore/manipScore/
-        // confidence×100) so meta-policy / forward-model stop collapsing every
-        // specialist context into S00. Does NOT touch any entry gate.
+        // V5.0.6025 — the lane's REAL signal score (0-100) now participates in
+        // FDG gate scoring once AGI/SSI/meta-cog/current-performance consensus allows
+        // it. Pre-6025 this was learning-context only, so Toolkit/Quality/BlueChip/
+        // Treasury candidates could arrive with laneScore=60+ but candidate.entryScore
+        // still near V3-zero, then get treated as weak unknown-phase junk. Hard safety
+        // remains separate; this only fixes score/quality/behavior gates.
         laneScore: Double = candidate.entryScore,
     ): FinalDecision {
         val checks = mutableListOf<GateCheck>()
@@ -799,13 +800,38 @@ object FinalDecisionGate {
             tags.add("helius_degraded_softshape")
             checks.add(GateCheck("helius_live_finality_degraded", true, "Helius unhealthy; continue via route/wallet proof fallbacks, no FDG hard block"))
         }
-        // V5.9.1299 — single source of truth for the LEARNING-CONTEXT score.
-        // laneScore is the lane's REAL 0-100 signal (1296/1297); candidate.entryScore
-        // is the shared base V3 score (~7 for memes). All learning lookups
-        // (LosingPatternMemory danger buckets, AutonomousMetaPolicy, ForwardOutcomeModel)
-        // must key on the lane score so contexts bucket by true quality instead of
-        // collapsing into S00. Entry GATES still use candidate.entryScore (unchanged).
-        val laneScoreBanded = laneScore.coerceIn(0.0, 100.0).toInt()
+        // V5.0.6025 — single source of truth for FDG score gates.
+        // laneScore is the lane/Toolkit/brain consensus score. candidate.entryScore is
+        // often stale V3/core score. Use a bounded effective score for score/quality
+        // gates from trade #1, then hand over more authority as UnifiedPolicyHead and
+        // meta-cog earn control. Hard safety/rug/liquidity authority is untouched.
+        val rawCandidateGateScore6025 = candidate.entryScore.coerceIn(0.0, 100.0)
+        val laneConsensusScore6025 = laneScore.coerceIn(0.0, 100.0)
+        val policyAuthority6025 = try { UnifiedPolicyHead.currentAuthority(laneName) } catch (_: Throwable) { UnifiedPolicyHead.AuthorityTier.BOOTSTRAP }
+        val metaCogMult6025 = try { MetaCognitionExecutorBridge.sizeMultiplierForLane(laneName) } catch (_: Throwable) { 1.0 }
+        val cleanStats6025 = try { TradeHistoryStore.getCleanStatsSnapshot4517() } catch (_: Throwable) { null }
+        val cleanPerfSupportsFluid6025 = cleanStats6025 == null || cleanStats6025.totalTrades < 5 ||
+            cleanStats6025.totalPnlSol >= 0.0 || cleanStats6025.profitFactor >= 1.0 || cleanStats6025.winRate >= 35.0
+        val laneScoreDelta6025 = laneConsensusScore6025 - rawCandidateGateScore6025
+        val consensusGateScore6025 = when (policyAuthority6025) {
+            UnifiedPolicyHead.AuthorityTier.AUTHORITATIVE -> maxOf(rawCandidateGateScore6025, laneConsensusScore6025)
+            UnifiedPolicyHead.AuthorityTier.LEARNED -> maxOf(rawCandidateGateScore6025, laneConsensusScore6025 * 0.98)
+            UnifiedPolicyHead.AuthorityTier.ADVISORY -> if (cleanPerfSupportsFluid6025 || metaCogMult6025 >= 0.98) maxOf(rawCandidateGateScore6025, laneConsensusScore6025 * 0.94) else rawCandidateGateScore6025
+            UnifiedPolicyHead.AuthorityTier.BOOTSTRAP -> if ((cleanPerfSupportsFluid6025 || metaCogMult6025 >= 0.98) && laneScoreDelta6025 >= 8.0) maxOf(rawCandidateGateScore6025, laneConsensusScore6025 * 0.90) else rawCandidateGateScore6025
+        }.coerceIn(0.0, 100.0)
+        val effectiveGateScore6025 = consensusGateScore6025
+        if (effectiveGateScore6025 > rawCandidateGateScore6025 + 0.5) {
+            try {
+                PipelineHealthCollector.labelInc("FDG_EFFECTIVE_GATE_SCORE_6025")
+                PipelineHealthCollector.labelInc("FDG_EFFECTIVE_GATE_SCORE_${policyAuthority6025.name}")
+                ForensicLogger.lifecycle(
+                    "FDG_EFFECTIVE_GATE_SCORE_6025",
+                    "lane=$laneName candidate=${rawCandidateGateScore6025.toInt()} lane=${laneConsensusScore6025.toInt()} effective=${effectiveGateScore6025.toInt()} auth=${policyAuthority6025.name} metaCog=${"%.2f".format(metaCogMult6025)} cleanN=${cleanStats6025?.totalTrades ?: -1} cleanPnl=${"%.4f".format(cleanStats6025?.totalPnlSol ?: 0.0)} action=score_gates_use_consensus_from_trade1",
+                )
+            } catch (_: Throwable) {}
+        }
+        val fdgGateCandidate6025 = if (effectiveGateScore6025 != candidate.entryScore) candidate.copy(entryScore = effectiveGateScore6025) else candidate
+        val laneScoreBanded = effectiveGateScore6025.coerceIn(0.0, 100.0).toInt()
         val canonicalLearning = try { TradeHistoryStore.getStatsCached() } catch (_: Throwable) { null }
         val canonicalDecisive = (canonicalLearning?.totalWins ?: 0) + (canonicalLearning?.totalLosses ?: 0)
         val canonicalWr = if (canonicalDecisive > 0)
@@ -868,7 +894,7 @@ object FinalDecisionGate {
         // then drops the floor by ~25 in thin regimes (median<15) so
         // sub-traders / FDG can collect samples instead of starving.
         try {
-            val v3Score = candidate.entryScore.toInt()
+            val v3Score = effectiveGateScore6025.toInt()
             if (v3Score >= 0) com.lifecyclebot.engine.WrRecoveryPartial.recordV3Score(v3Score)
         } catch (_: Throwable) {}
 
@@ -2333,9 +2359,9 @@ object FinalDecisionGate {
                 }
 
                 val setupQuality = when {
-                    candidate.entryScore >= 90 -> "A+"
-                    candidate.entryScore >= 80 -> "A"
-                    candidate.entryScore >= 50 -> "B"
+                    effectiveGateScore6025 >= 90 -> "A+"
+                    effectiveGateScore6025 >= 80 -> "A"
+                    effectiveGateScore6025 >= 50 -> "B"
                     else -> "C"
                 }
 
@@ -2659,7 +2685,7 @@ object FinalDecisionGate {
                 (System.currentTimeMillis() - firstCandleTime) / 60_000.0
             } else 0.0
 
-            val initialScore = candidate.entryScore
+            val initialScore = effectiveGateScore6025
             val liquidity = ts.lastLiquidityUsd
             val buyPressure = ts.meta.pressScore
 
@@ -2758,7 +2784,7 @@ object FinalDecisionGate {
                 } else {
                     val minScore = lerp(20.0, 45.0, currentAdjusted.progress)
                     val minBuyPressure = lerp(35.0, 52.0, currentAdjusted.progress)
-                    val isHighScore = candidate.entryScore >= minScore
+                    val isHighScore = effectiveGateScore6025 >= minScore
                     val isHighBuyPressure = ts.meta.pressScore >= minBuyPressure
 
                     if (!isHighScore && !isHighBuyPressure) {
@@ -2768,7 +2794,7 @@ object FinalDecisionGate {
                             GateCheck(
                                 "phase_filter",
                                 false,
-                                "phase=${candidate.phase} score=${candidate.entryScore.toInt()}<${minScore.toInt()} AND buy%=${ts.meta.pressScore.toInt()}<${minBuyPressure.toInt()} [phase:${currentAdjusted.learningPhase}]"
+                                "phase=${candidate.phase} score=${effectiveGateScore6025.toInt()}<${minScore.toInt()} raw=${candidate.entryScore.toInt()} lane=${laneConsensusScore6025.toInt()} AND buy%=${ts.meta.pressScore.toInt()}<${minBuyPressure.toInt()} [phase:${currentAdjusted.learningPhase}]"
                             )
                         )
                         tags.add("phase_unknown_weak")
@@ -2777,7 +2803,7 @@ object FinalDecisionGate {
                             GateCheck(
                                 "phase_filter",
                                 true,
-                                "unknown phase OK (score=${candidate.entryScore.toInt()} OR buy%=${ts.meta.pressScore.toInt()}) [${currentAdjusted.learningPhase}]"
+                                "unknown phase OK (score=${effectiveGateScore6025.toInt()} raw=${candidate.entryScore.toInt()} lane=${laneConsensusScore6025.toInt()} OR buy%=${ts.meta.pressScore.toInt()}) [${currentAdjusted.learningPhase}]"
                             )
                         )
                     }
@@ -2821,12 +2847,12 @@ object FinalDecisionGate {
 
                 val hasStrongBuyers = ts.meta.pressScore >= liveMinBuyPressure
                 val hasGoodLiquidity = ts.lastLiquidityUsd >= liveMinLiquidity
-                val hasDecentScore = candidate.entryScore >= liveMinEntryScore
+                val hasDecentScore = effectiveGateScore6025 >= liveMinEntryScore
 
                 if (hasStrongBuyers || hasGoodLiquidity || hasDecentScore) {
                     val reason = when {
                         hasStrongBuyers -> "buy%=${ts.meta.pressScore.toInt()}>=${liveMinBuyPressure.toInt()}"
-                        hasDecentScore -> "score=${candidate.entryScore.toInt()}>=${liveMinEntryScore.toInt()}"
+                        hasDecentScore -> "score=${effectiveGateScore6025.toInt()}>=${liveMinEntryScore.toInt()} raw=${candidate.entryScore.toInt()} lane=${laneConsensusScore6025.toInt()}"
                         else -> "liq=$${ts.lastLiquidityUsd.toInt()}>=${liveMinLiquidity.toInt()}"
                     }
                     checks.add(GateCheck("edge", true, "LIVE: edge override ($reason) [${currentAdjusted.learningPhase}]"))
@@ -2835,7 +2861,7 @@ object FinalDecisionGate {
                     val missingReasons = mutableListOf<String>()
                     if (!hasStrongBuyers) missingReasons.add("buy%=${ts.meta.pressScore.toInt()}<${liveMinBuyPressure.toInt()}")
                     if (!hasGoodLiquidity) missingReasons.add("liq=$${ts.lastLiquidityUsd.toInt()}<${liveMinLiquidity.toInt()}")
-                    if (!hasDecentScore) missingReasons.add("score=${candidate.entryScore.toInt()}<${liveMinEntryScore.toInt()}")
+                    if (!hasDecentScore) missingReasons.add("score=${effectiveGateScore6025.toInt()}<${liveMinEntryScore.toInt()} raw=${candidate.entryScore.toInt()} lane=${laneConsensusScore6025.toInt()}")
 
                     blockReason = "EDGE_VETO_${candidate.edgeQuality}"
                     blockLevel = BlockLevel.EDGE
@@ -3203,7 +3229,7 @@ object FinalDecisionGate {
 
             evResult = EVCalculator.calculate(
                 ts = ts,
-                entryScore = candidate.entryScore,
+                entryScore = effectiveGateScore6025,
                 quality = candidate.finalQuality,
                 marketRegime = marketRegimeStr,
                 historicalWinRate = historicalWinRateValue
@@ -3337,7 +3363,7 @@ object FinalDecisionGate {
                     checks.add(GateCheck("learned_bucket", true, "bucket n=${bucket.sample} loss=${lossRate.toInt()}% mean=${bucket.meanPnl.format(1)}% wr=${canonicalWr.format(1)} target=${canonicalTargetWr.format(1)} mult=${learnedPressure.format(2)} size ${originalSize.format(3)}→${finalSize.format(3)}"))
                     ErrorLogger.info("FDG", "🧠 LEARNING_RECOVERY_SHAPED ${ts.symbol} lane=$laneName bucket=${LosingPatternMemory.bucketKey(laneName, laneScoreBanded)} n=${bucket.sample} loss=${lossRate.toInt()}% mean=${bucket.meanPnl.format(1)}% wr=${canonicalWr.format(1)}/${canonicalTargetWr.format(1)} size×${learnedPressure.format(2)}")
                 }
-                val weakEvidence = candidate.setupQuality !in listOf("A+", "A", "B") && candidate.aiConfidence < 35.0 && candidate.entryScore < 25.0
+                val weakEvidence = candidate.setupQuality !in listOf("A+", "A", "B") && candidate.aiConfidence < 35.0 && effectiveGateScore6025 < 25.0
                 if (blockReason == null && bucket.isDangerous && deepLearningDeficit && weakEvidence) {
                     // V5.9.1321 — Train-First Learning Policy correction (Base44 directive).
                     // TRAINABILITY ≠ EXECUTABILITY. Danger buckets ROUTE to training;
@@ -3376,7 +3402,7 @@ object FinalDecisionGate {
                                 symbol = ts.symbol,
                                 lane = laneName,
                                 scoreBand = scoreBand,
-                                score = candidate.entryScore.toInt(),
+                                score = effectiveGateScore6025.toInt(),
                                 confidence = candidate.aiConfidence.toInt(),
                                 entryLiqUsd = ts.lastLiquidityUsd,
                                 entryMcapUsd = ts.lastMcap,
@@ -4220,7 +4246,7 @@ object FinalDecisionGate {
         try {
             if (shouldTrade && blockReason == null) {
                 val modeTag = tradingModeTag?.name ?: "STANDARD"
-                val report = BrainConsensusGate.evaluate(ts, candidate, modeTag)
+                val report = BrainConsensusGate.evaluate(ts, fdgGateCandidate6025, modeTag)
                 BrainConsensusGate.recordOutcome(report.verdict)
                 tags.add("bcg:${report.verdict.name}")
                 when (report.verdict) {
@@ -4303,7 +4329,7 @@ object FinalDecisionGate {
                             val scoreBand2 = try {
                                 com.lifecyclebot.engine.LosingPatternMemory.bucketKey(
                                     laneForRouting2,
-                                    candidate.entryScore.toInt()
+                                    effectiveGateScore6025.toInt()
                                 ).substringAfter('|', "")
                             } catch (_: Throwable) { "" }
                             val routed2 = com.lifecyclebot.engine.learning.FdgRouteVerdict.routeLearnedDangerBucket(
@@ -4330,7 +4356,7 @@ object FinalDecisionGate {
                                         symbol = ts.symbol,
                                         lane = laneForRouting2,
                                         scoreBand = scoreBand2,
-                                        score = candidate.entryScore.toInt(),
+                                        score = effectiveGateScore6025.toInt(),
                                         confidence = adjustedConfidence.toInt(),
                                         entryLiqUsd = ts.lastLiquidityUsd,
                                         entryMcapUsd = ts.lastMcap,
@@ -4386,7 +4412,7 @@ object FinalDecisionGate {
                             val beforeS = finalSize
                             finalSize = (finalSize * starve).coerceAtLeast(0.001)
                             tags.add("starve:${"%.2f".format(starve)}")
-                            checks.add(GateCheck("catastrophic_starve", true, "proven-dead ctx ×${"%.2f".format(starve)} size ${beforeS.format(3)}→${finalSize.format(3)} ctx=$mpLane/S${candidate.entryScore.toInt()}/$mpRegime"))
+                            checks.add(GateCheck("catastrophic_starve", true, "proven-dead ctx ×${"%.2f".format(starve)} size ${beforeS.format(3)}→${finalSize.format(3)} ctx=$mpLane/S${effectiveGateScore6025.toInt()}/$mpRegime"))
                         }
 
                         // V5.9.1261 — FORWARD OUTCOME MODEL (counterfactual planning).
@@ -4413,7 +4439,7 @@ object FinalDecisionGate {
                             val beforePd = finalSize
                             finalSize = (finalSize * 0.15).coerceAtLeast(0.01)
                             tags.add("proven_dead_size_shaped")
-                            checks.add(GateCheck("proven_dead_shape", true, "dual-brain weak ctx=$mpLane/S${candidate.entryScore.toInt()}/$mpRegime → small learn-size ${beforePd.format(3)}→${finalSize.format(3)} fwd[pWin=${(fwd.pWin*100).toInt()}% E=${"%+.1f".format(fwd.expectedPnl)}% n=${fwd.samples}]"))
+                            checks.add(GateCheck("proven_dead_shape", true, "dual-brain weak ctx=$mpLane/S${effectiveGateScore6025.toInt()}/$mpRegime → small learn-size ${beforePd.format(3)}→${finalSize.format(3)} fwd[pWin=${(fwd.pWin*100).toInt()}% E=${"%+.1f".format(fwd.expectedPnl)}% n=${fwd.samples}]"))
                         }
                         if (fwd.convictionNudge != 1.0 && fwd.source != "bootstrap") {
                             val before = finalSize
@@ -4471,7 +4497,7 @@ object FinalDecisionGate {
                         // trades control vs variant by mint, measures real PnL per arm, and
                         // promotes winners / retires losers with a Welch t-stat. Bounded
                         // soft nudge [0.85,1.20]; never touches the -15% hard floor. Stamped.
-                        val hypoBias = StrategyHypothesisEngine.getSizeBias(mpLane, candidate.entryScore.toInt(), mpRegime, ts.mint)
+                        val hypoBias = StrategyHypothesisEngine.getSizeBias(mpLane, effectiveGateScore6025.toInt(), mpRegime, ts.mint)
                         if (hypoBias != 1.0) {
                             val before = finalSize
                             finalSize = (finalSize * hypoBias).coerceAtLeast(0.01)
@@ -4502,7 +4528,7 @@ object FinalDecisionGate {
         // NOT hard-veto. Only State.INVALID_UNTRADEABLE zeroes size (unsafe data), which is
         // already in the original veto whitelist. Winners (NORMAL=1.00) are untouched.
         try {
-            val lpScoreBand = com.lifecyclebot.engine.LosingPatternMemory.scoreBand(candidate.entryScore.toInt())
+            val lpScoreBand = com.lifecyclebot.engine.LosingPatternMemory.scoreBand(effectiveGateScore6025.toInt())
             val lpState = com.lifecyclebot.engine.learning.LanePolicy.effectiveState(laneName, lpScoreBand)
             val lpWeight = com.lifecyclebot.engine.learning.LanePolicy.effectiveExecutionWeight(laneName, lpScoreBand)
             // NORMAL_EXECUTION (weight 1.0) is a no-op; only damp when policy says so.
@@ -4651,8 +4677,8 @@ object FinalDecisionGate {
                                 mint = ts.mint,
                                 symbol = ts.symbol,
                                 lane = laneName,
-                                scoreBand = com.lifecyclebot.engine.LosingPatternMemory.scoreBand(candidate.entryScore.toInt()),
-                                score = candidate.entryScore.toInt(),
+                                scoreBand = com.lifecyclebot.engine.LosingPatternMemory.scoreBand(effectiveGateScore6025.toInt()),
+                                score = effectiveGateScore6025.toInt(),
                                 confidence = adjustedConfidence.toInt(),
                                 entryLiqUsd = ts.lastLiquidityUsd,
                                 entryMcapUsd = ts.lastMcap,
