@@ -29,6 +29,14 @@ object TokenWinMemory {
     private const val WIN_THRESHOLD_PCT = 0.5
     private const val LOSS_THRESHOLD_PCT = -2.0
 
+    // V5.0.6011 — PHANTOM PNL CEILING (Issue: TokenWinMemory Phantom Purge).
+    // Previous ceiling used LearningPnlSanitizer.MAX_TRAINABLE_PNL_PCT (100_000%),
+    // which technically allows real moonshots but also stored fabricated
+    // >50,000% phantom rows that were poisoning pattern recognition. In practice
+    // no legitimate exit on this scanner has cleared 50k% — those are basis-switch
+    // / phantom bonding-curve reads. Hard ceiling at 50,000% for stored winners.
+    private const val PHANTOM_PNL_PCT_HARD_CEILING_6011 = 50_000.0
+
     private var ctx: Context? = null
 
     // ═══════════════════════════════════════════════════════════════════════
@@ -393,7 +401,7 @@ object TokenWinMemory {
 
     private fun saneWinner(w: WinningToken): Boolean =
         w.pnlPercent.isFinite() && w.totalPnl.isFinite() &&
-            w.pnlPercent in WIN_THRESHOLD_PCT..LearningPnlSanitizer.MAX_TRAINABLE_PNL_PCT &&
+            w.pnlPercent in WIN_THRESHOLD_PCT..PHANTOM_PNL_PCT_HARD_CEILING_6011 &&
             kotlin.math.abs(w.totalPnl) <= w.timesTraded.coerceAtLeast(1).toDouble() * LearningPnlSanitizer.MAX_TRAINABLE_PNL_PCT
 
     // V5.0.4508 — persisted-memory repair. New closes now carry SOL basis through

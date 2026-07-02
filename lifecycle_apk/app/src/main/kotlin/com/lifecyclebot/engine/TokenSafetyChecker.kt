@@ -469,8 +469,20 @@ class TokenSafetyChecker(private val cfg: () -> BotConfig) {
                     ErrorLogger.error(TAG, "🚫 LIVE_RUG_OVERLAY_BLOCK_4199: $symbol LP-unlocked + low-liq/holders/providers risk flags")
                     try { ForensicLogger.lifecycle("LIVE_RUG_OVERLAY_BLOCK_4199", "mint=${mint.take(10)} symbol=$symbol redFlags=$redFlagCount lpUnlocked=$lpUnlockedRisk lowLiq=$lowLiquidityRisk lowHolders=$lowHolderRisk lowLpProviders=$lowLpProviderRisk liq=${currentLiquidityUsd.toInt()} action=hard_block_live") } catch (_: Throwable) {}
                 }
-                val manipulatedOnlyOverlay4553 = singleHolderOwnershipRisk || unverifiedTokenRisk || highHolderConcentrationRisk ||
-                    (redFlagCount >= 3 && (singleHolderOwnershipRisk || highHolderConcentrationRisk || unverifiedTokenRisk))
+                // V5.0.6011 — TIGHTEN MANIPULATED_ONLY OVERLAY (Issue 3 RCA):
+                // Prior condition fired on ANY single flag — including "unverified"
+                // alone, which is true for nearly every fresh pump.fun launch. With
+                // the MANIPULATED lane quarantined (V5.0.4588), this dead-ended
+                // 27+ legitimate meme candidates per cycle because non-MANIP lanes
+                // were forbidden while MANIP itself refused to trade. Correct:
+                // require ≥2 manipulation signals OR (any 1 + redFlagCount≥3) so
+                // truly manipulated tokens still get the overlay but ordinary
+                // unverified memes route through STANDARD/MOONSHOT etc.
+                val manipulationSignalCount = (if (singleHolderOwnershipRisk) 1 else 0) +
+                    (if (unverifiedTokenRisk) 1 else 0) +
+                    (if (highHolderConcentrationRisk) 1 else 0)
+                val manipulatedOnlyOverlay4553 = manipulationSignalCount >= 2 ||
+                    (redFlagCount >= 3 && manipulationSignalCount >= 1)
                 if (manipulatedOnlyOverlay4553 && !isPaperMode) {
                     soft.add("MANIPULATED_ONLY_OVERLAY_4553 singleHolder=$singleHolderOwnershipRisk unverified=$unverifiedTokenRisk holderConcentration=$highHolderConcentrationRisk redFlags=$redFlagCount" to 55)
                     penalty += 55

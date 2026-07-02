@@ -9243,7 +9243,24 @@ class BotService : Service() {
         } catch (_: Throwable) { 0 }
         val tsForManipulatedOnly4553 = edgeToken4529
         val manipulatedOnlyOverlay4553 = manipulatedOnlyOverlayActive4553(tsForManipulatedOnly4553)
-        if (manipulatedOnlyOverlay4553 && !lane.equals("MANIPULATED", ignoreCase = true)) {
+        // V5.0.6011 — MANIP lane quarantine dust-probe fallback (Issue 3 RCA):
+        // Prior hard reject dead-ended 27+ tokens/cycle when MANIP was paused
+        // AND overlay fired (since MANIP lane refuses them AND all others get
+        // blocked here). Correct: when MANIP is auto-paused, downgrade this
+        // block to a HEAVY-SIZE-DAMPENER path (dust probe via qualityPenalty)
+        // instead of full rejection, so the bot can still gather learning data
+        // and route legit unverified memes when appropriate. Full reject
+        // stays when MANIP lane is ACTIVE (route to MANIP where it belongs).
+        val manipLaneQuarantined6011 = try { LaneAutoPauseGuard.isPaused("MANIPULATED") } catch (_: Throwable) { false }
+        val manipOverlayDustProbe6011 = manipulatedOnlyOverlay4553 && !lane.equals("MANIPULATED", ignoreCase = true) && manipLaneQuarantined6011
+        if (manipOverlayDustProbe6011) {
+            try {
+                PipelineHealthCollector.labelInc("MANIP_OVERLAY_DUST_PROBE_FALLBACK_6011")
+                ForensicLogger.lifecycle("MANIP_OVERLAY_DUST_PROBE_FALLBACK_6011", "lane=$lane mint=${mintForProbe.take(10)} symbol=$edgeSymbol4529 action=dust_probe_instead_of_reject reason=manip_lane_quarantined")
+            } catch (_: Throwable) {}
+            // Fall through — downstream sizing stack applies heavy penalty via
+            // laneQualityPenalty6011 below (score reduced so only dust-size fires).
+        } else if (manipulatedOnlyOverlay4553 && !lane.equals("MANIPULATED", ignoreCase = true)) {
             // V5.0.4591 — INTAKE-STAGE STAMP when MANIPULATED lane is auto-paused.
             // Operator observed 31/33 FDG blocks were this reason because the token
             // safety flagged manipulated_only, LaneAutoPauseGuard has MANIPULATED
@@ -9272,13 +9289,24 @@ class BotService : Service() {
                 blockReason = "MANIPULATED_ONLY_OVERLAY_NON_MANIPULATED_LANE_4553",
             )
         }
-        val laneBase = if (chopPenalty > 0) {
+        val laneBase0 = if (chopPenalty > 0) {
             try {
                 PipelineHealthCollector.labelInc("CHOP_FILTER_SOFT_SHAPED_4206")
                 ForensicLogger.lifecycle("CHOP_FILTER_SOFT_SHAPED_4206", "lane=$lane source=$sourceForChop phase=${base.phase} score=${base.entryScore.toInt()} penalty=$chopPenalty action=fdg_score_penalty")
             } catch (_: Throwable) {}
             base.copy(entryScore = (base.entryScore - chopPenalty).coerceAtLeast(0.0))
         } else base
+        // V5.0.6011 — MANIP overlay dust-probe penalty (Issue 3 RCA):
+        // When MANIP lane is quarantined and overlay fires, the candidate falls
+        // through above instead of hard reject. Apply a heavy entryScore penalty
+        // (-40) so downstream sizing shrinks to dust-probe rather than full size.
+        val laneBase = if (manipOverlayDustProbe6011) {
+            try {
+                PipelineHealthCollector.labelInc("MANIP_OVERLAY_DUST_PROBE_SCORE_PENALTY_6011")
+                ForensicLogger.lifecycle("MANIP_OVERLAY_DUST_PROBE_SCORE_PENALTY_6011", "lane=$lane mint=${mintForProbe.take(10)} priorScore=${laneBase0.entryScore.toInt()} penalty=40 action=shrink_to_dust_probe")
+            } catch (_: Throwable) {}
+            laneBase0.copy(entryScore = (laneBase0.entryScore - 40.0).coerceAtLeast(0.0))
+        } else laneBase0
         // V5.9.1296 — NOTE: we deliberately do NOT overwrite entryScore here.
         // entryScore feeds two FDG entry gates (unknown-phase conviction @ ~2331
         // and the LIVE edge override @ ~2394); inflating it would loosen entry and
