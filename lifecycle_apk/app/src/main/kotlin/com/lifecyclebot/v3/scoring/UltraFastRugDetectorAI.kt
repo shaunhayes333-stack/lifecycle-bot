@@ -196,7 +196,7 @@ object UltraFastRugDetectorAI {
         val timeSinceUpdate = now - pos.lastUpdateTime
         
         // Calculate changes
-        val priceChangePct = (currentPrice - pos.entryPrice) / pos.entryPrice * 100
+        val priceChangePct = com.lifecyclebot.engine.OpenPnlSanity.inspect(pos.entryPrice, currentPrice, context = "UltraFastRugDetectorAI_6038", emit = true).takeIf { it.ok }?.pnlPct ?: 0.0
         val priceChangeFromLast = (currentPrice - pos.lastPrice) / pos.lastPrice * 100
         val liqChangePct = (currentLiquidity - pos.entryLiquidity) / pos.entryLiquidity * 100
         val liqChangeFromLast = if (pos.lastLiquidity > 0) {

@@ -382,7 +382,7 @@ object AdvancedExitManager {
                 "Invalid price input — hold until trustworthy price")
         }
 
-        val pnlPct       = (currentPrice - entryPrice) / entryPrice * 100.0
+        val pnlPct       = com.lifecyclebot.engine.OpenPnlSanity.inspect(entryPrice, currentPrice, context = "AdvancedExitManager_6038", emit = true).takeIf { it.ok }?.pnlPct ?: 0.0
         val targets      = calculateExitTargets(profile, entryScore, currentMomentum, volatility, marketRegime)
         val timePressure = calculateTimePressure(holdMinutes, targets.timeExitMinutes, pnlPct)
 

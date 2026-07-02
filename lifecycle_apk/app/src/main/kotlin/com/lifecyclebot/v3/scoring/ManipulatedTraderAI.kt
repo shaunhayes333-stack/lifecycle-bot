@@ -507,7 +507,7 @@ object ManipulatedTraderAI {
         val pos = activePositions[mint] ?: return ManipExitSignal.HOLD
 
         val pnlPct = if (pos.entryPrice > 0) {
-            (currentPrice - pos.entryPrice) / pos.entryPrice * 100.0
+            com.lifecyclebot.engine.OpenPnlSanity.inspect(pos.entryPrice, currentPrice, context = "ManipulatedTraderAI_6038/${mint.take(8)}", emit = true).takeIf { it.ok }?.pnlPct ?: 0.0
         } else 0.0
 
         val holdMinutes = (System.currentTimeMillis() - pos.entryTime) / 60_000.0

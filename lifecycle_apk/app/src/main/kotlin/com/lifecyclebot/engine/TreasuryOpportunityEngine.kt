@@ -363,7 +363,7 @@ object TreasuryOpportunityEngine {
             if (!dep.isActive) return
 
             val pnlPct = if (dep.entryPrice > 0.0) {
-                ((currentPrice - dep.entryPrice) / dep.entryPrice) * 100.0
+                OpenPnlSanity.inspect(dep.entryPrice, currentPrice, context = "TreasuryOpportunityEngine_6038", emit = true).takeIf { it.ok }?.pnlPct ?: 0.0
             } else {
                 0.0
             }

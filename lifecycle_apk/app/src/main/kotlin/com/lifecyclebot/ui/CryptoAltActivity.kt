@@ -15,6 +15,7 @@ import androidx.swiperefreshlayout.widget.SwipeRefreshLayout
 import coil.load
 import coil.transform.CircleCropTransformation
 import com.lifecyclebot.R
+import com.lifecyclebot.engine.OpenPnlSanity
 import com.lifecyclebot.engine.RunTracker30D
 import com.lifecyclebot.engine.UniversalBridgeEngine
 import com.lifecyclebot.engine.ShadowLearningEngine
@@ -498,7 +499,7 @@ class CryptoAltActivity : AppCompatActivity() {
     }
 
     private fun uiGainPct4479(entryPrice: Double, currentPrice: Double): Double =
-        if (entryPrice > 0.0 && currentPrice > 0.0) (currentPrice - entryPrice) / entryPrice * 100.0 else 0.0
+        if (entryPrice > 0.0 && currentPrice > 0.0) OpenPnlSanity.inspect(entryPrice, currentPrice, context = "CryptoAltActivity.uiGainPct4479_6038", emit = false).takeIf { it.ok }?.pnlPct ?: 0.0 else 0.0
 
     private fun buildFullDashboard() {
         llContent.removeAllViews()

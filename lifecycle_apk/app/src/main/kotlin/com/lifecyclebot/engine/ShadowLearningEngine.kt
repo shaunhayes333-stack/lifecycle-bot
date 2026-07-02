@@ -371,7 +371,7 @@ object ShadowLearningEngine {
             val trades = shadowTrades[variant.id] ?: return@forEach
             
             trades.filter { it.mint == mint && it.isOpen }.forEach { trade ->
-                val pnlPct = ((currentPrice - trade.entryPrice) / trade.entryPrice) * 100
+                val pnlPct = OpenPnlSanity.inspect(trade.entryPrice, currentPrice, context = "ShadowLearningEngine.update_6038/${trade.mint.take(8)}", emit = true).takeIf { it.ok }?.pnlPct ?: 0.0
                 
                 // Adjusted stop loss
                 val adjustedStopLoss = liveStopLossPct * variant.stopLossMultiplier
@@ -483,12 +483,12 @@ object ShadowLearningEngine {
         // Track high/low
         if (currentPrice > shadow.highestPrice) {
             shadow.highestPrice = currentPrice
-            val peakPnl = ((currentPrice - shadow.entryPrice) / shadow.entryPrice) * 100
+            val peakPnl = OpenPnlSanity.inspect(shadow.entryPrice, currentPrice, context = "ShadowLearningEngine.peak_6038/${shadow.mint.take(8)}", emit = true).takeIf { it.ok }?.pnlPct ?: 0.0
             shadow.peakPnlPct = peakPnl
         }
         if (currentPrice < shadow.lowestPrice) {
             shadow.lowestPrice = currentPrice
-            val troughPnl = ((currentPrice - shadow.entryPrice) / shadow.entryPrice) * 100
+            val troughPnl = OpenPnlSanity.inspect(shadow.entryPrice, currentPrice, context = "ShadowLearningEngine.trough_6038/${shadow.mint.take(8)}", emit = true).takeIf { it.ok }?.pnlPct ?: 0.0
             shadow.troughPnlPct = troughPnl
         }
         

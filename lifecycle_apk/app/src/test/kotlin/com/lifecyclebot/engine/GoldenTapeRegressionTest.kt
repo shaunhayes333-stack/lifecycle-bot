@@ -7007,6 +7007,14 @@ class GoldenTapeRegressionTest {
         assertTrue("V5.0.6037: one canonical pricing truth for money path; no route-pending side-channel downgrade", priceTruth6037.contains("data class PricingTruth") && priceTruth6037.contains("fun pricingTruth") && report6037.contains("OpenPnlSanity.pricingTruth") && report6037.contains("route=canonical_mark_source") && !report6037.contains("route_pending_untrusted_6037") && !report6037.contains("pending_outlier_not_counted"))
         assertTrue("V5.0.6037: Money Path sell finality must use event counters, not stale labels", pipe6037.contains("fun execLiveSellFailCount()") && pipe6037.contains("fun execLiveSellPendingFinalityCount()") && report6037.contains("PipelineHealthCollector_event_counters_6037") && report6037.contains("PipelineHealthCollector.execLiveSellOkCount()") && report6037.contains("PipelineHealthCollector.execLiveSellPendingFinalityCount()"))
         assertTrue("V5.0.6037: Forensic summary must show effective reconciler truth across position/sell/live-wallet reconcilers", forensic6037.contains("Recon: effective=") && forensic6037.contains("SellReconciler.totalChecked") && forensic6037.contains("LiveWalletReconciler.totalChecked()"))
+        val bot6038 = java.io.File("src/main/kotlin/com/lifecyclebot/engine/BotService.kt").readText()
+        val exec6038 = java.io.File("src/main/kotlin/com/lifecyclebot/engine/Executor.kt").readText()
+        val main6038 = java.io.File("src/main/kotlin/com/lifecyclebot/ui/MainActivity.kt").readText()
+        val mode6038 = java.io.File("src/main/kotlin/com/lifecyclebot/engine/ModeSpecificExits.kt").readText()
+        val precision6038 = java.io.File("src/main/kotlin/com/lifecyclebot/engine/PrecisionExitLogic.kt").readText()
+        val cryptoAltUi6038 = java.io.File("src/main/kotlin/com/lifecyclebot/ui/CryptoAltActivity.kt").readText()
+        assertTrue("V5.0.6038: source pricing/PnL hot paths must use OpenPnlSanity, not local raw formulas", bot6038.contains("BotService.startup_sweep_6038") && bot6038.contains("BotService.fallback_hard_floor_6038") && exec6038.contains("Executor.active_hard_floor_6038") && exec6038.contains("Executor.close_ledger_stamp_6038") && mode6038.contains("ModeSpecificExits.evaluate_6038") && precision6038.contains("PrecisionExitLogic.evaluate_6038"))
+        assertTrue("V5.0.6038: MainActivity lifecycle open-position displays must route PnL through mainUiPnlPct6038/OpenPnlSanity", main6038.contains("fun mainUiPnlPct6038") && main6038.contains("OpenPnlSanity.inspect(entryPrice, px") && main6038.contains("moonshot_row_6038") && main6038.contains("quality_position_6038") && main6038.contains("treasury_position_6038") && main6038.contains("sniper_mission_6038") && main6038.contains("bluechip_position_6038") && main6038.contains("express_ride_6038") && main6038.contains("manipulated_position_6038") && cryptoAltUi6038.contains("CryptoAltActivity.uiGainPct4479_6038"))
     }
 
 

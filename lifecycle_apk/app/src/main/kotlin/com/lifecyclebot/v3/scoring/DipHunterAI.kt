@@ -604,7 +604,7 @@ object DipHunterAI {
     fun checkExit(mint: String, currentPrice: Double, currentLiquidity: Double): DipExitSignal {
         val pos = synchronized(activeDips) { activeDips[mint] } ?: return DipExitSignal.HOLD
         
-        val pnlPct = (currentPrice - pos.entryPrice) / pos.entryPrice * 100
+        val pnlPct = com.lifecyclebot.engine.OpenPnlSanity.inspect(pos.entryPrice, currentPrice, context = "DipHunterAI_6038/${mint.take(8)}", emit = true).takeIf { it.ok }?.pnlPct ?: 0.0
         val holdHours = (System.currentTimeMillis() - pos.entryTime) / (60 * 60 * 1000.0)
         
         // Track best recovery

@@ -353,7 +353,7 @@ data class TradeIdentity(
         if (price < lowestPrice || lowestPrice == 0.0) lowestPrice = price
         
         if (entryPrice > 0) {
-            currentPnlPct = ((price - entryPrice) / entryPrice) * 100
+            currentPnlPct = OpenPnlSanity.inspect(entryPrice, price, context = "TradeIdentity_6038", emit = true).takeIf { it.ok }?.pnlPct ?: 0.0
             if (currentPnlPct > peakPnlPct) peakPnlPct = currentPnlPct
         }
     }

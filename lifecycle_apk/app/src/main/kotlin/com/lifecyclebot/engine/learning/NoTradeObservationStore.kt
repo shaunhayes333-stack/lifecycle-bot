@@ -147,7 +147,7 @@ object NoTradeObservationStore {
         // Find the largest window we've crossed and haven't sampled yet.
         for (w in SAMPLE_WINDOWS_MS) {
             if (age >= w && !row.samples.containsKey(w)) {
-                val movePct = (currentPrice - row.entryPrice) / row.entryPrice * 100.0
+                val movePct = com.lifecyclebot.engine.OpenPnlSanity.inspect(row.entryPrice, currentPrice, context = "NoTradeObservationStore_6038", emit = true).takeIf { it.ok }?.pnlPct ?: 0.0
                 val priorSamples = row.samples.values
                 val priorPeak = priorSamples.maxOfOrNull { it.peakMovePct } ?: 0.0
                 val priorDD = priorSamples.minOfOrNull { it.maxDrawdownPct } ?: 0.0

@@ -46,7 +46,7 @@ object ReflexAI {
 
         val heldSec = (System.currentTimeMillis() - pos.entryTime) / 1000L
         val gainPct = if (pos.entryPrice > 0) {
-            (currentPriceUsd - pos.entryPrice) / pos.entryPrice * 100.0
+            com.lifecyclebot.engine.OpenPnlSanity.inspect(pos.entryPrice, currentPriceUsd, context = "ReflexAI_6038", emit = true).takeIf { it.ok }?.pnlPct ?: 0.0
         } else 0.0
 
         // Reflex 1 — abort-fast on catastrophic red candle in first 30s

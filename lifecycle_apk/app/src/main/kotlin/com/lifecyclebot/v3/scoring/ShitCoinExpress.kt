@@ -745,7 +745,7 @@ object ShitCoinExpress {
     fun checkExit(mint: String, currentPrice: Double, currentMomentum: Double): ExitSignal {
         val ride = synchronized(activeRides) { activeRides[mint] } ?: return ExitSignal.HOLD
 
-        val pnlPct = (currentPrice - ride.entryPrice) / ride.entryPrice * 100
+        val pnlPct = com.lifecyclebot.engine.OpenPnlSanity.inspect(ride.entryPrice, currentPrice, context = "ShitCoinExpress_6038/${ride.symbol}/${mint.take(8)}", emit = true).takeIf { it.ok }?.pnlPct ?: 0.0
         val holdMinutes = (System.currentTimeMillis() - ride.entryTime) / 60_000
 
         // V5.9.696 — Unconditional hard floor (Express). Flash rugs can hit before

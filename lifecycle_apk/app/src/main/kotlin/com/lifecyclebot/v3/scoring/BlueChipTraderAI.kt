@@ -537,7 +537,7 @@ object BlueChipTraderAI {
         if (pos == null) return ExitSignal.HOLD
         pos.lastSeenPrice = currentPrice  // V5.9.392 — unified UI live P&L
 
-        val pnlPct = (currentPrice - pos.entryPrice) / pos.entryPrice * 100
+        val pnlPct = com.lifecyclebot.engine.OpenPnlSanity.inspect(pos.entryPrice, currentPrice, context = "BlueChipTraderAI_6038/${mint.take(8)}", emit = true).takeIf { it.ok }?.pnlPct ?: 0.0
         val holdMinutes = (System.currentTimeMillis() - pos.entryTime) / 60000
 
         // V5.9.166: Track peak + high-water for laddered profit-lock.

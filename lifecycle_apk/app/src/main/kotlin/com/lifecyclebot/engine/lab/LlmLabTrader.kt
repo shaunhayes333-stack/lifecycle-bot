@@ -91,7 +91,7 @@ object LlmLabTrader {
             return
         }
 
-        val pnlPct = (currentPrice - pos.entryPrice) / pos.entryPrice * 100.0
+        val pnlPct = com.lifecyclebot.engine.OpenPnlSanity.inspect(pos.entryPrice, currentPrice, context = "LlmLabTrader_6038", emit = true).takeIf { it.ok }?.pnlPct ?: 0.0
         val holdMin = (System.currentTimeMillis() - pos.entryTime) / 60_000L
 
         // Track peak and update last-seen using the real (validated) tick.

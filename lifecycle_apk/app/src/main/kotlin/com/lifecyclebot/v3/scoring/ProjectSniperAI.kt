@@ -589,7 +589,7 @@ object ProjectSniperAI {
             mission.highestPrice = currentPrice
         }
         
-        val pnlPct = ((currentPrice - mission.entryPrice) / mission.entryPrice * 100)
+        val pnlPct = com.lifecyclebot.engine.OpenPnlSanity.inspect(mission.entryPrice, currentPrice, context = "ProjectSniperAI_6038/${mint.take(8)}", emit = true).takeIf { it.ok }?.pnlPct ?: 0.0
         val drawdownFromHigh = ((mission.highestPrice - currentPrice) / mission.highestPrice * 100)
         
         // ═══════════════════════════════════════════════════════════════════

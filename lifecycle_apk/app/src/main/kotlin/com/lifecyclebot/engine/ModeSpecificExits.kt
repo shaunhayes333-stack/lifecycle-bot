@@ -108,7 +108,8 @@ object ModeSpecificExits {
             val pos = ts.position
             if (pos.isOpen) {
                 val heldMin = (System.currentTimeMillis() - pos.entryTime) / 60_000.0
-                val pnlPct = if (pos.entryPrice > 0) ((ts.ref - pos.entryPrice) / pos.entryPrice) * 100.0 else 0.0
+                val pnlVerdict6038 = OpenPnlSanity.pricingTruth(ts, "ModeSpecificExits.evaluate_6038/${ts.symbol}/${ts.mint.take(8)}", emit = true)
+        val pnlPct = if (pnlVerdict6038.trusted) pnlVerdict6038.pnlPct else 0.0
                 val toleranceMin = com.lifecyclebot.v3.scoring.FluidLearningAI.getFlatTradeToleranceMin()
                 val bandPct = com.lifecyclebot.v3.scoring.FluidLearningAI.getFlatTradeBandPct()
                 val capMin = com.lifecyclebot.v3.scoring.FluidLearningAI.getFlatTradeMaxHoldMin()

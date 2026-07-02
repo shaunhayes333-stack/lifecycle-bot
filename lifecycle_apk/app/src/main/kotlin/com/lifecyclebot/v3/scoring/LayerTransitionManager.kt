@@ -444,7 +444,7 @@ object LayerTransitionManager {
         }
 
         val pnlPct = if (state.entryPrice > 0) {
-            (currentPrice - state.entryPrice) / state.entryPrice * 100.0
+            com.lifecyclebot.engine.OpenPnlSanity.inspect(state.entryPrice, currentPrice, context = "LayerTransitionManager_6038", emit = true).takeIf { it.ok }?.pnlPct ?: 0.0
         } else {
             0.0
         }

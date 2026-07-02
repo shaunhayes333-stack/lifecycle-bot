@@ -250,7 +250,7 @@ object TrailingStopManager {
     ): String {
         return try {
             val dropFromHigh = ((highPriceUsd - currentPriceUsd) / highPriceUsd * 100).toInt()
-            val pnlPct = ((currentPriceUsd - entryPriceUsd) / entryPriceUsd * 100).toInt()
+            val pnlPct = (OpenPnlSanity.inspect(entryPriceUsd, currentPriceUsd, context = "TrailingStopManager_6038", emit = true).takeIf { it.ok }?.pnlPct ?: 0.0).toInt()
             
             if (pnlPct >= 0) {
                 "Trailing stop hit at +${pnlPct}% gain (dropped ${dropFromHigh}% from high)"

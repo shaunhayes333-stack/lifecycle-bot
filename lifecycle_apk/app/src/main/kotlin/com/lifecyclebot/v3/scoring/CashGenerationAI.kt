@@ -1260,10 +1260,11 @@ object CashGenerationAI {
                 val signal = checkExitInternal(pos, currentPrice)
                 if (signal != ExitSignal.HOLD) {
                     exits.add(mint to signal)
+                    val cashGenLogPnl6038 = cashGenCanonicalPnl6038(pos.entryPrice, currentPrice, "CashGenerationAI_log_6038/${mint.take(8)}")
                     ErrorLogger.info(
                         TAG,
                         "💰 TREASURY EXIT SIGNAL: ${pos.symbol} | $signal | " +
-                            "price=$currentPrice entry=${pos.entryPrice} pnl=${((currentPrice - pos.entryPrice) / pos.entryPrice * 100).toInt()}%",
+                            "price=$currentPrice entry=${pos.entryPrice} pnl=${cashGenLogPnl6038.toInt()}%",
                     )
                 }
             }
@@ -1273,7 +1274,7 @@ object CashGenerationAI {
     }
 
     private fun checkExitInternal(pos: TreasuryPosition, currentPrice: Double): ExitSignal {
-        val pnlPct = (currentPrice - pos.entryPrice) / pos.entryPrice * 100
+        val pnlPct = com.lifecyclebot.engine.OpenPnlSanity.inspect(pos.entryPrice, currentPrice, context = "CashGenerationAI_exit_6038/${mint.take(8)}", emit = true).takeIf { it.ok }?.pnlPct ?: 0.0
         val holdMinutes = (System.currentTimeMillis() - pos.entryTime) / 60_000
 
         if (currentPrice > pos.highWaterMark) {
@@ -1321,6 +1322,9 @@ object CashGenerationAI {
         return ExitSignal.HOLD
     }
 
+    private fun cashGenCanonicalPnl6038(entryPrice: Double, currentPrice: Double, context: String): Double =
+        try { com.lifecyclebot.engine.OpenPnlSanity.inspect(entryPrice, currentPrice, context = context, emit = true).takeIf { it.ok }?.pnlPct ?: 0.0 } catch (_: Throwable) { 0.0 }
+
     fun checkExit(mint: String, currentPrice: Double): ExitSignal {
         updatePrice(mint, currentPrice)
 
@@ -1356,7 +1360,7 @@ object CashGenerationAI {
             return ExitSignal.HOLD
         }
 
-        val pnlPct = (currentPrice - pos.entryPrice) / pos.entryPrice * 100
+        val pnlPct = com.lifecyclebot.engine.OpenPnlSanity.inspect(pos.entryPrice, currentPrice, context = "CashGenerationAI_secondary_6038/${mint.take(8)}", emit = true).takeIf { it.ok }?.pnlPct ?: 0.0
         val holdMinutes = (System.currentTimeMillis() - pos.entryTime) / 60_000
         val isAboveTarget = currentPrice >= pos.targetPrice
 

@@ -372,7 +372,7 @@ object ShadowLearningEngine {
         
         when (trade.type) {
             ShadowType.SHADOW_LONG -> {
-                val pnlPct = ((currentPrice - trade.entryPrice) / trade.entryPrice) * 100
+                val pnlPct = com.lifecyclebot.engine.OpenPnlSanity.inspect(trade.entryPrice, currentPrice, context = "V3ShadowLearningEngine_update_6038/${trade.mint.take(8)}", emit = true).takeIf { it.ok }?.pnlPct ?: 0.0
                 
                 // Exit conditions for shadow long
                 val shouldExit = when {
@@ -432,7 +432,7 @@ object ShadowLearningEngine {
             
             ShadowType.SHADOW_AVOID -> {
                 // For avoids, we track what would have happened
-                val wouldHavePnl = ((currentPrice - trade.entryPrice) / trade.entryPrice) * 100
+                val wouldHavePnl = com.lifecyclebot.engine.OpenPnlSanity.inspect(trade.entryPrice, currentPrice, context = "V3ShadowLearningEngine_counterfactual_6038/${trade.mint.take(8)}", emit = true).takeIf { it.ok }?.pnlPct ?: 0.0
                 
                 val shouldClose = when {
                     holdTimeMins >= 30 -> true  // Check after 30 mins

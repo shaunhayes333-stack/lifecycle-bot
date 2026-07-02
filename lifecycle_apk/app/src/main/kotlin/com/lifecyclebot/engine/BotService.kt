@@ -4511,7 +4511,9 @@ class BotService : Service() {
                         if (pos.qtyToken <= 0.0 || pos.entryPrice <= 0.0) continue
                         val price = resolveLivePrice(ts)
                         if (price <= 0.0) continue
-                        val pnlPct = ((price - pos.entryPrice) / pos.entryPrice) * 100.0
+                        val pnlVerdict6038 = OpenPnlSanity.inspectPosition(pos, price, "BotService.startup_sweep_6038/${ts.symbol}/${ts.mint.take(8)}", emit = true)
+                        if (!pnlVerdict6038.ok) continue
+                        val pnlPct = pnlVerdict6038.pnlPct
                         // V5.9.989 — sweep threshold aligned to operator-mandated -15%
                         // hard floor. Pre-V5.9.989: on cold-start, recovered positions
                         // sitting between -15% and -20% were NOT swept here (the only
@@ -24093,7 +24095,8 @@ if (hotExitHandledSweep) {
             // Prior to this, no code path anywhere in the bot emitted
             // PHASE.EXIT so operator dumps perpetually showed EXIT=0
             // even when many positions were being evaluated for exit.
-            val _pnl = ((price - ts.position.entryPrice) / ts.position.entryPrice) * 100.0
+            val _pnlVerdict6038 = OpenPnlSanity.inspectPosition(ts.position, price, "BotService.fallback_exit_phase_6038/${ts.symbol}/${ts.mint.take(8)}", emit = true)
+            val _pnl = if (_pnlVerdict6038.ok) _pnlVerdict6038.pnlPct else 0.0
             try {
                 ForensicLogger.phase(
                     ForensicLogger.PHASE.EXIT_GATE,
@@ -24168,7 +24171,9 @@ if (hotExitHandledSweep) {
             // If neither sub-trader has this mint registered (e.g. state
             // wasn't rehydrated after restart), still fire the canonical
             // -20% meme hard-floor to stop catastrophic bleed.
-            val pnlPct = ((price - ts.position.entryPrice) / ts.position.entryPrice) * 100.0
+            val pnlVerdict6038 = OpenPnlSanity.inspectPosition(ts.position, price, "BotService.fallback_hard_floor_6038/${ts.symbol}/${ts.mint.take(8)}", emit = true)
+            if (!pnlVerdict6038.ok) return
+            val pnlPct = pnlVerdict6038.pnlPct
             if (pnlPct <= -20.0) {
                 val nowMs = System.currentTimeMillis()
                 val ageMs = (nowMs - ts.position.entryTime).coerceAtLeast(0L)

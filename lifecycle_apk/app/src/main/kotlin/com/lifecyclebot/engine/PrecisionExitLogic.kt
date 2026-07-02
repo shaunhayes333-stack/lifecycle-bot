@@ -60,7 +60,7 @@ object PrecisionExitLogic {
         stopLossPct: Double = DEFAULT_STOP_LOSS_PCT,
     ): ExitSignal {
         
-        val pnlPct = if (entryPrice > 0) ((currentPrice - entryPrice) / entryPrice) * 100 else 0.0
+        val pnlPct = OpenPnlSanity.inspect(entryPrice, currentPrice, context = "PrecisionExitLogic.evaluate_6038", emit = true).takeIf { it.ok }?.pnlPct ?: 0.0
         
         // ════════════════════════════════════════════════════════════════
         // V5.2 FIX: MINIMUM HOLD TIME - Calculate early for all checks
@@ -312,7 +312,7 @@ object PrecisionExitLogic {
             return ExitSignal(true, "FAST_RUG", Urgency.CRITICAL, ">8% drop in <10s")
         }
         
-        val pnlPct = if (entryPrice > 0) ((currentPrice - entryPrice) / entryPrice) * 100 else 0.0
+        val pnlPct = OpenPnlSanity.inspect(entryPrice, currentPrice, context = "PrecisionExitLogic.secondary_6038", emit = true).takeIf { it.ok }?.pnlPct ?: 0.0
         
         // ════════════════════════════════════════════════════════════════
         // V5.2.11 FIX: HOLD TIME PROTECTION IN QUICK CHECK

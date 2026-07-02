@@ -30,6 +30,7 @@ import com.github.mikephil.charting.data.*
 import com.lifecyclebot.R
 import com.lifecyclebot.data.*
 import com.lifecyclebot.engine.SafetyTier
+import com.lifecyclebot.engine.OpenPnlSanity
 import com.lifecyclebot.engine.WalletConnectionState
 import com.lifecyclebot.engine.WalletManager
 import kotlinx.coroutines.Dispatchers
@@ -4120,7 +4121,7 @@ for legal compliance.
                     // V5.9.302: dead-feed guard — ref=0 must NOT count as -100%
                     val currentPrice = mainUiCurrentPrice(pos.mint, pos.lastSeenPrice)
                     if (currentPrice != null && pos.entryPrice > 0) {
-                        val pnlPct = ((currentPrice - pos.entryPrice) / pos.entryPrice * 100)
+                        val pnlPct = mainUiPnlPct6038(pos.entryPrice, currentPrice, "moonshot_total_6038/${pos.mint.take(8)}")
                         totalPnl += pos.entrySol * (pnlPct / 100)
                     }
                 }
@@ -4301,7 +4302,7 @@ for legal compliance.
         // Show top-up count on active position
         if (ts?.position?.isOpen == true && ts.position.topUpCount > 0) {
             val gainPct = if (ts.position.entryPrice > 0)
-                (ts.ref - ts.position.entryPrice) / ts.position.entryPrice * 100.0 else 0.0
+                mainUiPnlPct6038(ts.position.entryPrice, ts.ref, "topup_status_6038/${ts.mint.take(8)}") else 0.0
             val topUpBadge = "TOP-UP×${ts.position.topUpCount}  avg entry ${ts.position.entryPrice.fmtRef()}"
             tvBotStatus.setTextIfChanged("${tvBotStatus.text}  $topUpBadge")
         }
@@ -5283,6 +5284,11 @@ for legal compliance.
             ?: good(try { com.lifecyclebot.engine.HostWalletTokenTracker.getEntry(mint)?.currentPriceUsd } catch (_: Throwable) { null })
     }
 
+    private fun mainUiPnlPct6038(entryPrice: Double, currentPrice: Double?, context: String): Double {
+        val px = currentPrice?.takeIf { it.isFinite() && it > 0.0 } ?: return 0.0
+        return try { OpenPnlSanity.inspect(entryPrice, px, context = "MainActivity.$context", emit = false).takeIf { it.ok }?.pnlPct ?: 0.0 } catch (_: Throwable) { 0.0 }
+    }
+
     private fun mainUiPriceFresh(mint: String, maxAgeMs: Long = 90_000L): Boolean {
         val ts = try { com.lifecyclebot.engine.BotService.status.tokens[mint] } catch (_: Throwable) { null }
         val ageOk = ts?.lastPriceUpdate?.let { it > 0L && System.currentTimeMillis() - it <= maxAgeMs } == true
@@ -5329,7 +5335,7 @@ for legal compliance.
             // Tier 2: CashGenerationAI tracked price — fed from BotService scanner loop
             // No entryPrice-as-current fallback: missing live price shows pricing wait.
             val currentPrice = mainUiCurrentPrice(pos.mint, com.lifecyclebot.v3.scoring.CashGenerationAI.getTrackedPrice(pos.mint), pos.currentPrice)
-            val gainPct = if (currentPrice != null && pos.entryPrice > 0.0) (currentPrice - pos.entryPrice) / pos.entryPrice * 100.0 else 0.0
+            val gainPct = if (currentPrice != null && pos.entryPrice > 0.0) mainUiPnlPct6038(pos.entryPrice, currentPrice, "treasury_position_6038/${pos.mint.take(8)}") else 0.0
             val now = System.currentTimeMillis()
             val lastTick = com.lifecyclebot.v3.scoring.CashGenerationAI.getLastPriceUpdateMs(pos.mint) ?: 0L
             val scannerHasMint = mainUiCurrentPrice(pos.mint) != null
@@ -5472,7 +5478,7 @@ for legal compliance.
             // V5.9.302: dead-feed guard — ref=0 must NOT count as -100%
             val currentPrice = mainUiCurrentPrice(pos.mint, pos.lastSeenPrice)
             val hasPrice = currentPrice != null && pos.entryPrice > 0.0
-            val gainPct = if (hasPrice) (currentPrice!! - pos.entryPrice) / pos.entryPrice * 100 else 0.0
+            val gainPct = if (hasPrice) mainUiPnlPct6038(pos.entryPrice, currentPrice, "bluechip_position_6038/${pos.mint.take(8)}") else 0.0
             val gainCol = if (!hasPrice) muted else if (gainPct >= 0) green else red
             val pnlSol = if (hasPrice) pos.entrySol * gainPct / 100.0 else 0.0
             childrenUnrealizedSum += pnlSol
@@ -5597,7 +5603,7 @@ for legal compliance.
             val currentPrice = mainUiCurrentPrice(pos.mint, tsRef, pos.lastSeenPrice)
             val hasFresh = currentPrice != null && ((tsRef > 0.0) ||
                 (lastTick > 0L && (now - lastTick) < 60_000L))
-            val gainPct = if (currentPrice != null && pos.entryPrice > 0) (currentPrice - pos.entryPrice) / pos.entryPrice * 100 else 0.0
+            val gainPct = if (currentPrice != null && pos.entryPrice > 0) mainUiPnlPct6038(pos.entryPrice, currentPrice, "quality_position_6038/${pos.mint.take(8)}") else 0.0
             val gainCol = when {
                 !hasFresh    -> muted             // stale → grey, no false-zero green
                 gainPct >= 0 -> green
@@ -5878,7 +5884,7 @@ for legal compliance.
             if (ride.entryPrice <= 0 || ride.entrySol <= 0 || ride.mint.isBlank()) return@forEach
             val currentPrice = mainUiCurrentPrice(ride.mint)
             val hasPrice = currentPrice != null && ride.entryPrice > 0.0
-            val gainPct = if (hasPrice) (currentPrice!! - ride.entryPrice) / ride.entryPrice * 100 else 0.0
+            val gainPct = if (hasPrice) mainUiPnlPct6038(ride.entryPrice, currentPrice, "express_ride_6038/${ride.mint.take(8)}") else 0.0
             val gainCol = if (!hasPrice) muted else if (gainPct >= 0) green else red
             val pnlSol = if (hasPrice) ride.entrySol * gainPct / 100.0 else 0.0
             childrenUnrealizedSum += pnlSol
@@ -6021,7 +6027,7 @@ for legal compliance.
             // V5.9.302: dead-feed guard — ref=0 must NOT count as -100%
             val currentPrice = mainUiCurrentPrice(pos.mint, pos.highWaterMark)
             val hasPrice = currentPrice != null && pos.entryPrice > 0.0
-            val gainPct = if (hasPrice) (currentPrice!! - pos.entryPrice) / pos.entryPrice * 100 else 0.0
+            val gainPct = if (hasPrice) mainUiPnlPct6038(pos.entryPrice, currentPrice, "manipulated_position_6038/${pos.mint.take(8)}") else 0.0
             val gainCol = if (!hasPrice) muted else if (gainPct >= 0) green else red
             val pnlSol = if (hasPrice) pos.entrySol * gainPct / 100.0 else 0.0
             childrenUnrealizedSum += pnlSol
@@ -6163,7 +6169,7 @@ for legal compliance.
             // the engine hasn't closed it. Show ~0% instead while RUG_SAFETY_NET fires.
             val currentPrice = mainUiCurrentPrice(pos.mint, pos.lastSeenPrice)
 
-            val pnlPct = if (currentPrice != null && pos.entryPrice > 0) ((currentPrice - pos.entryPrice) / pos.entryPrice * 100) else 0.0
+            val pnlPct = if (currentPrice != null && pos.entryPrice > 0) mainUiPnlPct6038(pos.entryPrice, currentPrice, "moonshot_row_6038/${pos.mint.take(8)}") else 0.0
             val holdMins = (System.currentTimeMillis() - pos.entryTime) / 60000
 
             val row = LinearLayout(this).apply {
@@ -6436,7 +6442,7 @@ for legal compliance.
             for (mission in missions) {
                 // V5.9.302: dead-feed guard — ref=0 must NOT count as -100%
                 val currentPrice = mainUiCurrentPrice(mission.mint)
-                val pnlPct = if (currentPrice != null && mission.entryPrice > 0.0) ((currentPrice - mission.entryPrice) / mission.entryPrice * 100) else 0.0
+                val pnlPct = if (currentPrice != null && mission.entryPrice > 0.0) mainUiPnlPct6038(mission.entryPrice, currentPrice, "sniper_mission_6038/${mission.mint.take(8)}") else 0.0
                 val holdTimeSecs = (System.currentTimeMillis() - mission.entryTime) / 1000
 
                 val row = LinearLayout(this).apply {

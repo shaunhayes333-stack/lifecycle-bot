@@ -1123,7 +1123,9 @@ class Executor(
             val entryPrice = ts.position.entryPrice
             if (currentPrice <= 0.0 || entryPrice <= 0.0) return@forEach
 
-            val pnlPct = ((currentPrice - entryPrice) / entryPrice) * 100.0
+            val pnlVerdict6038 = OpenPnlSanity.inspectPosition(ts.position, currentPrice, "Executor.active_hard_floor_6038/${ts.symbol}/${ts.mint.take(8)}", emit = true)
+            if (!pnlVerdict6038.ok) return@forEach
+            val pnlPct = pnlVerdict6038.pnlPct
             if (pnlPct <= -33.0 && !RuggedContracts.isBlacklisted(ts.mint)) {
                 ErrorLogger.warn("Executor", "🚨 RUG/STOP LOSS: ${ts.symbol} at ${pnlPct.toInt()}%")
                 markForRecoveryScan(ts, pnlPct, "hard_floor")
@@ -5469,9 +5471,8 @@ class Executor(
         settleBypass: Boolean = false,
     ): Boolean {
         if (!ts.position.isOpen || currentPrice <= 0.0) return false
-        val pnlPct = if (ts.position.entryPrice > 0)
-            ((currentPrice - ts.position.entryPrice) / ts.position.entryPrice) * 100
-        else 0.0
+        val pnlVerdict6038 = OpenPnlSanity.inspectPosition(ts.position, currentPrice, "Executor.trySweepTakeProfitExit_6038/${ts.symbol}/${ts.mint.take(8)}", emit = true)
+        val pnlPct = if (pnlVerdict6038.ok) pnlVerdict6038.pnlPct else 0.0
         val tpPct = when {
             // V5.0.4125 — style-adjusted TP takes PRIORITY over lane-specific TPs.
             ts.position.entryTakeProfitPct > 0.0 ->
@@ -5566,8 +5567,8 @@ class Executor(
                 // is a zombie squatting a slot — recycle it far sooner so the
                 // firehose of candidates can enter. Tighter, paper-only, flat-PnL-
                 // gated, runner-bypass still applies. Directly serves volume.
-                val nowPnlFast = if (ts.position.entryPrice > 0.0 && currentPrice > 0.0)
-                    ((currentPrice - ts.position.entryPrice) / ts.position.entryPrice) * 100.0 else 0.0
+                val nowPnlFastVerdict6038 = OpenPnlSanity.inspectPosition(ts.position, currentPrice, "Executor.dead_feed_fast_6038/${ts.symbol}/${ts.mint.take(8)}", emit = true)
+                val nowPnlFast = if (nowPnlFastVerdict6038.ok) nowPnlFastVerdict6038.pnlPct else 0.0
                 val fastDeadFeed = isPaperRT() &&
                     feedAgeMs != null && feedAgeMs >= 3L * 60_000L &&      // feed silent ≥3min
                     heldMin >= 4.0 &&                 // held ≥4min (well past 90s settle-in)
@@ -5578,8 +5579,8 @@ class Executor(
                 if (fastDeadFeed || (feedAgeMs != null && feedAgeMs >= FEED_DEAD_MS && heldMin >= MIN_HELD_MIN)) {
                     // RUNNER BYPASS — don't evict a position that ran and is
                     // still near its peak (mirrors maybeAct runner-bypass).
-                    val curPnl = if (ts.position.entryPrice > 0.0 && currentPrice > 0.0)
-                        ((currentPrice - ts.position.entryPrice) / ts.position.entryPrice) * 100.0 else 0.0
+                    val curPnlVerdict6038 = OpenPnlSanity.inspectPosition(ts.position, currentPrice, "Executor.dead_feed_runner_6038/${ts.symbol}/${ts.mint.take(8)}", emit = true)
+                    val curPnl = if (curPnlVerdict6038.ok) curPnlVerdict6038.pnlPct else 0.0
                     val peak = ts.position.peakGainPct
                     val runnerIntact = peak >= 20.0 && curPnl >= peak * 0.70
                     // Paper settle-in: brand-new paper entries are born at the
@@ -5654,13 +5655,11 @@ class Executor(
         run {
             val pos = ts.position
             if (!pos.isOpen || pos.entryPrice <= 0.0) return@run
-            val livePnl = if (currentPrice > 0.0)
-                ((currentPrice - pos.entryPrice) / pos.entryPrice) * 100.0
-            else Double.NaN
+            val livePnlVerdict6038 = if (currentPrice > 0.0) OpenPnlSanity.inspectPosition(pos, currentPrice, "Executor.quote_outage_live_6038/${ts.symbol}/${ts.mint.take(8)}", emit = true) else OpenPnlSanity.Verdict(false, reason = "NO_LIVE_PRICE")
+            val livePnl = if (livePnlVerdict6038.ok) livePnlVerdict6038.pnlPct else Double.NaN
             val cachedPx = ts.lastPrice
-            val cachedPnl = if (cachedPx > 0.0)
-                ((cachedPx - pos.entryPrice) / pos.entryPrice) * 100.0
-            else Double.NaN
+            val cachedPnlVerdict6038 = if (cachedPx > 0.0) OpenPnlSanity.inspectPosition(pos, cachedPx, "Executor.quote_outage_cached_6038/${ts.symbol}/${ts.mint.take(8)}", emit = true) else OpenPnlSanity.Verdict(false, reason = "NO_CACHED_PRICE")
+            val cachedPnl = if (cachedPnlVerdict6038.ok) cachedPnlVerdict6038.pnlPct else Double.NaN
             val candidates = listOf(livePnl, cachedPnl).filter { it.isFinite() }
 
             // V5.0.4594 — STALE-QUOTE EMERGENCY BACKSTOP (operator P0).
@@ -5894,9 +5893,8 @@ class Executor(
                 (fluidStopNegative + predictedSlip).coerceAtMost(-3.0)
             } else fluidStopNegative
             val hardFloor = slipAdjustedStop.coerceIn(-50.0, -3.0)
-            val pnlPctNow = if (pos.entryPrice > 0)
-                ((currentPrice - pos.entryPrice) / pos.entryPrice) * 100
-            else 0.0
+            val pnlPctNowVerdict6038 = OpenPnlSanity.inspectPosition(pos, currentPrice, "Executor.dynamic_stop_6038/${ts.symbol}/${ts.mint.take(8)}", emit = true)
+            val pnlPctNow = if (pnlPctNowVerdict6038.ok) pnlPctNowVerdict6038.pnlPct else 0.0
             if (currentPrice > 0.0 && pnlPctNow <= hardFloor) {
                 // V5.0.6006 — AGI STOP-LOSS VETO AUTHORITY. Once a lane's
                 // UnifiedExitPolicyHead reaches LEARNED tier with a healthy
@@ -5955,7 +5953,8 @@ class Executor(
                 val cachedAgeMs = (System.currentTimeMillis() - ts.lastPriceUpdate).coerceAtLeast(0L)
                 val posAgeMs = (System.currentTimeMillis() - pos.entryTime).coerceAtLeast(0L)
                 if (cachedPx > 0.0) {
-                    val cachedPnl = ((cachedPx - pos.entryPrice) / pos.entryPrice) * 100.0
+                    val cachedPnlVerdict6038 = OpenPnlSanity.inspectPosition(pos, cachedPx, "Executor.strict_sl_cached_6038/${ts.symbol}/${ts.mint.take(8)}", emit = true)
+                    val cachedPnl = if (cachedPnlVerdict6038.ok) cachedPnlVerdict6038.pnlPct else 0.0
                     if (cachedPnl <= hardFloor) {
                         try { ForensicLogger.lifecycle("STRICT_SL_CACHED_PRICE_BACKSTOP", "mint=${ts.mint.take(10)} sym=${ts.symbol} cachedPx=${cachedPx} entry=${pos.entryPrice} cachedPnl=${cachedPnl.fmt(2)} hardFloor=${hardFloor.fmt(2)} cachedAgeMs=$cachedAgeMs") } catch (_: Throwable) {}
                         onLog("🛑 STRICT SL (cached): ${ts.symbol} cachedPnl=${cachedPnl.toInt()}% ≤ ${hardFloor.toInt()}% — live feed dark, force-exit on cache", ts.mint)
@@ -6056,9 +6055,8 @@ class Executor(
         // instead of dynamic laddering.
         if (ts.position.isOpen && checkPartialSell(ts, wallet, walletSol)) return
         if (ts.position.isOpen) {
-            val pnlPct = if (ts.position.entryPrice > 0)
-                ((currentPrice - ts.position.entryPrice) / ts.position.entryPrice) * 100
-            else 0.0
+            val pnlVerdict6038 = OpenPnlSanity.inspectPosition(ts.position, currentPrice, "Executor.manage_only_6038/${ts.symbol}/${ts.mint.take(8)}", emit = true)
+            val pnlPct = if (pnlVerdict6038.ok) pnlVerdict6038.pnlPct else 0.0
 
             // V5.9.684 / V5.0.4200 — learned take-profit is now shared with
             // the settle-bypass path above so scanner-missed winners can bank
@@ -9379,7 +9377,7 @@ class Executor(
             val currentPrice = getActualPrice(ts)
             if (currentPrice <= 0) continue
             
-            val pnlPct = ((currentPrice - shadow.entryPrice) / shadow.entryPrice) * 100
+            val pnlPct = OpenPnlSanity.inspect(shadow.entryPrice, currentPrice, context = "Executor.shadow_position_6038/${shadow.mint.take(8)}", emit = true).takeIf { it.ok }?.pnlPct ?: 0.0
             val holdTimeMin = (System.currentTimeMillis() - shadow.entryTime) / 60000
             
             val shouldExit = when {
@@ -14198,9 +14196,8 @@ class Executor(
         val isPaper = ts.position.isPaperPosition
         normalizePositionScaleIfNeeded(ts)
         val currentPrice = getActualPrice(ts)
-        val pnlPct = if (ts.position.entryPrice > 0) {
-            ((currentPrice - ts.position.entryPrice) / ts.position.entryPrice) * 100
-        } else 0.0
+        val pnlVerdict6038 = OpenPnlSanity.inspectPosition(ts.position, currentPrice, "Executor.partial_ladder_6038/${ts.symbol}/${ts.mint.take(8)}", emit = true)
+        val pnlPct = if (pnlVerdict6038.ok) pnlVerdict6038.pnlPct else 0.0
 
         // V5.9.1515 — P0 FIX 3: NEVER partial-ladder a deeply red position.
         // Operator audit: snapshot showed partial_10/20/30pct sells firing at
@@ -15328,7 +15325,7 @@ class Executor(
         // the sell-lock try-block, the instant the registry close fires. Metadata only —
         // never touches qtyToken, balances, or P&L.
         try {
-            val pnlPctForLedger = try { ((price - pos.entryPrice) / pos.entryPrice * 100.0).toInt() } catch (_: Throwable) { 0 }
+            val pnlPctForLedger = try { OpenPnlSanity.inspectPosition(pos, price, "Executor.close_ledger_stamp_6038/${ts.symbol}/${ts.mint.take(8)}", emit = true).takeIf { it.ok }?.pnlPct?.toInt() ?: 0 } catch (_: Throwable) { 0 }
             val cid = com.lifecyclebot.engine.PositionCloseLedger.markClosed(tradeId.mint, reason, pnlPctForLedger)
             PaperPositionCloseAuthority.markClosed("PAPER", tradeId.mint, ts.symbol, reason, cid)
             ForensicLogger.lifecycle("POSITION_CLOSE_LEDGER_STAMPED", "mint=${tradeId.mint.take(10)} closeId=$cid reason=$reason")
