@@ -6966,6 +6966,8 @@ class GoldenTapeRegressionTest {
         assertTrue("V5.0.6021: CommonSense brain access must remain hot-path safe and async/cache-first", playbook.contains("UltimateEdgeEngine.enqueueRefresh") && playbook.contains("common_sense_brain_context_6021") && playbook.contains("hot-path provider/LLM/network call") && !playbook.contains("UltimateEdgeEngine.evaluate(ts)"))
         assertTrue("V5.0.6022: Toolkit good-lane setups must bridge pre-FDG lane starvation into real FDG candidates", bot6020.contains("ToolkitGoodLaneBridge6022") && bot6020.contains("TOOLKIT_GOOD_LANE_BRIDGE_6022") && bot6020.contains("TOOLKIT_BRIDGE_${'$'}{laneKey}") && bot6020.contains("action=send_to_fdg"))
         assertTrue("V5.0.6022: Quality BlueChip and Treasury must consume bridged signal copies instead of requiring legacy shouldEnter", bot6020.contains("qualitySignal6022") && bot6020.contains("blueChipSignal6022") && bot6020.contains("treasurySignal6022") && bot6020.contains("qualitySignal.copy") && bot6020.contains("blueChipSignal.copy") && bot6020.contains("treasurySignal.copy"))
+        val main6024 = java.io.File("src/main/kotlin/com/lifecyclebot/ui/MainActivity.kt").readText()
+        assertTrue("V5.0.6024: main dashboard headline must use StrategyTruthLedger-clean stats, not raw journal PnL", main6024.contains("getCleanStatsSnapshot4517()") && main6024.contains("strategy-clean · raw journal preserved") && main6024.contains("ALL TRADERS headline uses StrategyTruthLedger-clean truth"))
     }
 
 

@@ -3340,7 +3340,13 @@ for legal compliance.
             // Stats are calculated from ALL stored trades, not just 24h.
             // Data persists across app restarts and is never auto-cleared.
             // ═══════════════════════════════════════════════════════════════════
-            val persistedStats = com.lifecyclebot.engine.TradeHistoryStore.getStatsCached() // V5.9.706
+            // V5.0.6024 — headline/UI stats must use StrategyTruthLedger-clean
+            // terminal SELL rows, not raw forensic journal rows. Raw rows remain
+            // preserved in Journal/Operational Report for audit, but the main
+            // dashboard should not paint recovered/duplicate/partial forensic rows
+            // as live strategy PnL.
+            val rawPersistedStats6024 = com.lifecyclebot.engine.TradeHistoryStore.getStatsCached() // raw audit fallback
+            val persistedStats = try { com.lifecyclebot.engine.TradeHistoryStore.getCleanStatsSnapshot4517() } catch (_: Throwable) { rawPersistedStats6024 }
             // V5.9.355 — Pull meme WR + W/L/S from RunTracker30D so the hero
             // tile matches the 30-Day Proof card byte-for-byte. User report:
             // "the meme coin 30 day is at 26% the livereadiness is drawing
@@ -7206,9 +7212,10 @@ for legal compliance.
         tv30DayDrawdown.text = "N/A"
         tv30DayDrawdown.setTextColor(muted)
 
-        // V5.9.1117 — Journal is the scoreboard source of truth. 30D must match
-        // Journal/main stat card exactly; RunTracker remains balance/timeline only.
-        val journalStats = com.lifecyclebot.engine.TradeHistoryStore.getStatsCached()
+        // V5.0.6024 — 30D proof scoreboard matches the strategy-clean headline.
+        // Raw journal remains in Journal/forensics; proof-run scoreboard excludes
+        // duplicate/recovered/partial non-terminal rows via StrategyTruthLedger.
+        val journalStats = try { com.lifecyclebot.engine.TradeHistoryStore.getCleanStatsSnapshot4517() } catch (_: Throwable) { com.lifecyclebot.engine.TradeHistoryStore.getStatsCached() }
         tv30DayTrades.text = journalStats.totalStoredTrades.toString()
 
         // W/L/S
@@ -8022,13 +8029,18 @@ This cannot be undone!
             // the scoreboard can never diverge or carry stale post-reset counts.
             // Per-trader vars above are kept ONLY as a fallback if the journal
             // read throws (defensive); canonical path is authoritative.
+            // V5.0.6024 — ALL TRADERS headline uses StrategyTruthLedger-clean truth.
+            // getCanonicalTotals() is raw journal/audit truth and can include recovered
+            // inventory, duplicate terminal fanout and partial non-terminal rows; that
+            // belongs in Journal/forensics, not the red/green home-card strategy score.
+            val cleanStats6024 = try { com.lifecyclebot.engine.TradeHistoryStore.getCleanStatsSnapshot4517() } catch (_: Throwable) { null }
             val canon = try { com.lifecyclebot.engine.TradeHistoryStore.getCanonicalTotals() } catch (_: Throwable) { null }
-            val totalTrades = canon?.trades ?: (memeTrades + altsTrades + perpsTrades)
-            val totalWins   = canon?.wins   ?: (memeWins + altsWins + perpsWins)
-            val totalLoss   = canon?.losses ?: (memeLosses + altsLosses + perpsLosses)
+            val totalTrades = cleanStats6024?.totalStoredTrades ?: canon?.trades ?: (memeTrades + altsTrades + perpsTrades)
+            val totalWins   = cleanStats6024?.totalWins ?: canon?.wins   ?: (memeWins + altsWins + perpsWins)
+            val totalLoss   = cleanStats6024?.totalLosses ?: canon?.losses ?: (memeLosses + altsLosses + perpsLosses)
             val totalDecisive = totalWins + totalLoss
-            val blendedWR = if (totalDecisive > 0) totalWins * 100.0 / totalDecisive else 0.0
-            val totalPnl  = canon?.pnlSol ?: (memePnl + altsPnl + perpsPnl)
+            val blendedWR = cleanStats6024?.winRate ?: if (totalDecisive > 0) totalWins * 100.0 / totalDecisive else 0.0
+            val totalPnl  = cleanStats6024?.totalPnlSol ?: canon?.pnlSol ?: (memePnl + altsPnl + perpsPnl)
 
             val wrLabel = if (totalDecisive > 0) "${blendedWR.toInt()}% WR" else "--% WR"
             val pnlSign = if (totalPnl >= 0) "+" else ""
@@ -8039,21 +8051,27 @@ This cannot be undone!
             // as the total above, so the breakdown always sums to the headline
             // count (was RunTracker30D buckets, a separate counter that drifts).
             val perAssetLine = try {
-                val bd = com.lifecyclebot.engine.TradeHistoryStore.getAssetBreakdown()
-                fun fmt(label: String, key: String): String {
-                    val a = bd[key]
-                    val dec = (a?.wins ?: 0) + (a?.losses ?: 0)
-                    return if (dec == 0) "$label —" else "$label ${dec}t/${a!!.winRate.toInt()}%"
+                if (cleanStats6024 != null) {
+                    val raw = canon
+                    val excluded = ((raw?.trades ?: 0) - cleanStats6024.totalStoredTrades).coerceAtLeast(0)
+                    "strategy-clean · raw journal preserved${if (excluded > 0) " · excluded=${excluded}" else ""}"
+                } else {
+                    val bd = com.lifecyclebot.engine.TradeHistoryStore.getAssetBreakdown()
+                    fun fmt(label: String, key: String): String {
+                        val a = bd[key]
+                        val dec = (a?.wins ?: 0) + (a?.losses ?: 0)
+                        return if (dec == 0) "$label —" else "$label ${dec}t/${a!!.winRate.toInt()}%"
+                    }
+                    listOf(
+                        fmt("M",  "MEME"),
+                        fmt("A",  "ALT"),
+                        fmt("P",  "PERP"),
+                        fmt("S",  "STOCK"),
+                        fmt("FX", "FOREX"),
+                        fmt("MT", "METAL"),
+                        fmt("CD", "COMMODITY"),
+                    ).joinToString(" · ")
                 }
-                listOf(
-                    fmt("M",  "MEME"),
-                    fmt("A",  "ALT"),
-                    fmt("P",  "PERP"),
-                    fmt("S",  "STOCK"),
-                    fmt("FX", "FOREX"),
-                    fmt("MT", "METAL"),
-                    fmt("CD", "COMMODITY"),
-                ).joinToString(" · ")
             } catch (_: Exception) { "" }
             val finalText = if (perAssetLine.isNotEmpty()) {
                 "ALL TRADERS · $totalTrades trades · $wrLabel · $pnlSign${String.format("%.4f", totalPnl)} SOL\n$perAssetLine"
