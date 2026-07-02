@@ -214,6 +214,70 @@ object UnifiedExitPolicyHead {
     }
 
     /**
+     * V5.0.6006 — DIRECT STOP-LOSS VETO AUTHORITY.
+     *
+     * Operator directive: *"anywhere where the agi/ssi/intelligence/tuning
+     * stack is making the correct decisions and controls that's the point
+     * of aate"*.
+     *
+     * Once a lane's exit brain has proven itself (LEARNED tier or higher
+     * with a healthy Brier <= 0.15), it earns the authority to VETO
+     * lane-specific stop-loss triggers when it strongly believes holding
+     * is right. This addresses the paper-hands pattern seen across
+     * BLUECHIP/QUALITY/STANDARD where the STRICT_SL rule was cutting real
+     * assets at -5% during normal volatility while MOONSHOT held through
+     * and printed.
+     *
+     * Guard rails (any failure = no veto, honor the SL):
+     *   • Lane authority must be >= LEARNED (>= 15 outcomes)
+     *   • Brier must be <= VETO_BRIER_MAX (0.15) — proven calibration
+     *   • Current pnlPct must be > VETO_MIN_PNL_PCT (-20%) — never veto
+     *     catastrophic drops or rug patterns
+     *   • Current exitBias must be >= VETO_MIN_BIAS (1.20) — brain must
+     *     STRONGLY signal "hold longer", not just neutral
+     *   • Quarantined lanes (via LaneQuarantineController) can never veto
+     *
+     * Returns:
+     *   • VetoDecision.VETO — SL should be skipped, position held
+     *   • VetoDecision.HONOR — normal SL fires
+     */
+    private const val VETO_BRIER_MAX = 0.15
+    private const val VETO_MIN_PNL_PCT = -20.0
+    private const val VETO_MIN_BIAS = 1.20
+
+    enum class VetoDecision { VETO, HONOR }
+
+    fun shouldVetoStopLoss(lane: String, pnlPctNow: Double, s: ExitSignals): VetoDecision {
+        return try {
+            val laneKey = normalizeLane(lane)
+            // Quarantined lane? Never veto.
+            val quarantined = try { LaneQuarantineController.isQuarantined(laneKey) } catch (_: Throwable) { false }
+            if (quarantined) return VetoDecision.HONOR
+            // Guard: don't veto catastrophic drops or rug patterns.
+            if (pnlPctNow <= VETO_MIN_PNL_PCT) return VetoDecision.HONOR
+            // Guard: lane must have proven authority.
+            val auth = currentAuthority(laneKey)
+            if (auth != AuthorityTier.LEARNED && auth != AuthorityTier.AUTHORITATIVE) return VetoDecision.HONOR
+            // Guard: brain must be calibrated tight enough.
+            val h = laneHeads[laneKey] ?: return VetoDecision.HONOR
+            val brier = if (h.brierN >= 10L) h.brierSum / h.brierN else 1.0
+            if (brier > VETO_BRIER_MAX) return VetoDecision.HONOR
+            // Guard: bias must strongly favor holding.
+            val bias = exitBias(laneKey, s)
+            if (bias < VETO_MIN_BIAS) return VetoDecision.HONOR
+            // All guards passed — VETO the SL.
+            try {
+                ForensicLogger.lifecycle(
+                    "UNIFIED_EXIT_POLICY_HEAD_STOP_LOSS_VETO_6006",
+                    "lane=$laneKey pnlPct=${"%.1f".format(pnlPctNow)}% auth=${auth.name} brier=${"%.3f".format(brier)} exitBias=${"%.2f".format(bias)} note=agi_authority_hold",
+                )
+                PipelineHealthCollector.labelInc("UNIFIED_EXIT_POLICY_HEAD_STOP_LOSS_VETO_6006_$laneKey")
+            } catch (_: Throwable) {}
+            VetoDecision.VETO
+        } catch (_: Throwable) { VetoDecision.HONOR }
+    }
+
+    /**
      * Train on settled outcome. exitWasOptimal=true means the actual exit
      * was the right call (good fill, banked profits, dodged a dump).
      * Heuristic for "right call" set by caller — typically pnlAtExit

@@ -5801,6 +5801,34 @@ class Executor(
                 ((currentPrice - pos.entryPrice) / pos.entryPrice) * 100
             else 0.0
             if (currentPrice > 0.0 && pnlPctNow <= hardFloor) {
+                // V5.0.6006 — AGI STOP-LOSS VETO AUTHORITY. Once a lane's
+                // UnifiedExitPolicyHead reaches LEARNED tier with a healthy
+                // Brier (<= 0.15) AND strongly signals "hold longer"
+                // (exitBias >= 1.20) AND pnlPct is not catastrophic (> -20%),
+                // the AGI can VETO this SL trigger and let the position ride.
+                // Guard rails inside shouldVetoStopLoss prevent runaway
+                // losses: quarantined lanes can never veto, catastrophic
+                // drops (<= -20%) always honor the SL, and every failure
+                // path defaults to HONOR (safe).
+                val agiLane = when {
+                    pos.isShitCoinPosition -> "SHITCOIN"
+                    pos.isBlueChipPosition -> "BLUECHIP"
+                    pos.isTreasuryPosition -> "TREASURY"
+                    else -> pos.tradingMode.trim().uppercase().ifBlank { "STANDARD" }
+                }
+                val exitSignals = try { unifiedExitSignalsFor(ts, pnlPctNow, pos.peakGainPct) } catch (_: Throwable) { null }
+                val veto = if (exitSignals != null) {
+                    try { com.lifecyclebot.engine.UnifiedExitPolicyHead.shouldVetoStopLoss(agiLane, pnlPctNow, exitSignals) }
+                    catch (_: Throwable) { com.lifecyclebot.engine.UnifiedExitPolicyHead.VetoDecision.HONOR }
+                } else com.lifecyclebot.engine.UnifiedExitPolicyHead.VetoDecision.HONOR
+                if (veto == com.lifecyclebot.engine.UnifiedExitPolicyHead.VetoDecision.VETO) {
+                    onLog("🧠 AGI VETO SL: ${ts.symbol} pnl=${pnlPctNow.toInt()}% floor=${hardFloor.toInt()}% lane=$agiLane — exit brain says hold", ts.mint)
+                    // Skip the SL for this tick; runtime will re-evaluate on
+                    // the next hot-exit pass. If the brain's confidence drops
+                    // or price falls to catastrophic territory, next pass
+                    // will honor.
+                    return
+                }
                 onLog("🛑 STRICT SL: ${ts.symbol} pnl=${pnlPctNow.toInt()}% ≤ ${hardFloor.toInt()}% (trader=${
                     when {
                         pos.isShitCoinPosition -> "SHITCOIN"
