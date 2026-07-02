@@ -37,11 +37,41 @@ object UnifiedExitPolicyHead {
     private const val MULT_CAP       = 1.40  // extend hold (let it run)
     private const val MULT_FLOOR_AUTH = 0.55
     private const val MULT_CAP_AUTH   = 1.65
-    private const val AUTHORITY_ADVISORY      = 40L
-    private const val AUTHORITY_LEARNED       = 100L
-    private const val AUTHORITY_AUTHORITATIVE = 250L
+    // V5.0.6005 — LOWER AUTHORITY THRESHOLDS (operator directive:
+    // "it needs to be authoritative, anywhere where the agi/ssi/
+    // intelligence/tuning stack is making the correct decisions and
+    // controls that's the point of aate"). Previous thresholds
+    // (ADVISORY=40, LEARNED=100, AUTHORITATIVE=250) meant the exit
+    // brain effectively NEVER reached authoritative — MANIPULATED at
+    // n=1 after weeks of trading. New thresholds give the AGI real
+    // command authority once it has proven signal, matching the fluid
+    // doctrine: as trades stream in, the intelligence stack takes
+    // over exit timing across lanes and self-tunes to compounding.
+    // Brier calibration guard-rail remains — brains that go noisy
+    // are auto-demoted, so aggressive promotion is still safe.
+    private const val AUTHORITY_ADVISORY      = 5L
+    private const val AUTHORITY_LEARNED       = 15L
+    private const val AUTHORITY_AUTHORITATIVE = 30L
     private const val BRIER_HEALTHY_MAX = 0.22
     private const val BRIER_DRIFTING_MAX = 0.27
+
+    // V5.0.6005 — MOONSHOT PATTERN PROPAGATION. MOONSHOT wins because it
+    // HOLDS (7 wins + 17 scratches + 5 losses = diamond hands pays out).
+    // Other lanes dump too early (SHITCOIN_TIME_EXIT, EXPRESS_STOP_LOSS,
+    // BLUECHIP STRICT_SL_-5, QUALITY panic-sell). This prior seeds the
+    // per-lane exit brain with a "hold longer" bias for the compounder
+    // lanes so cold-start behaviour mirrors MOONSHOT's proven pattern.
+    // Runtime learning still updates the bias; this only shifts the
+    // starting point. Negative bias -> p starts low -> exitBias > 1.0 ->
+    // extend hold.
+    private val COLD_START_HOLD_LONGER_BIAS = mapOf(
+        "QUALITY"    to -0.35,
+        "BLUECHIP"   to -0.30,
+        "STANDARD"   to -0.25,
+        "CASHGEN"    to -0.20,
+        "TREASURY"   to -0.20,
+        "MOONSHOT"   to -0.40,  // keep MOONSHOT's winning stance explicit
+    )
 
     private val w = DoubleArray(NF) { 0.0 }
     @Volatile private var bias = 0.0
@@ -97,7 +127,24 @@ object UnifiedExitPolicyHead {
     private fun getOrCreateLaneHead(lane: String): LaneExitHead {
         return laneHeads.computeIfAbsent(lane) {
             LaneExitHead().also { h ->
-                for (i in 0 until NF) { h.w[i] = w[i]; h.featMean[i] = featMean[i] }; h.bias = bias
+                for (i in 0 until NF) { h.w[i] = w[i]; h.featMean[i] = featMean[i] }
+                // V5.0.6005 — seed per-lane bias to mirror MOONSHOT's proven
+                // "hold longer" pattern for the compounder lanes. Runtime
+                // recordOutcome() will move the bias toward the empirical
+                // truth for each lane, but cold-start behaviour now favours
+                // holding profitable positions instead of paper-handing
+                // them. Non-listed lanes fall through to the global bias
+                // (typically ~0.0, neutral).
+                val seed = COLD_START_HOLD_LONGER_BIAS[lane]
+                h.bias = seed ?: bias
+                if (seed != null) {
+                    try {
+                        ForensicLogger.lifecycle(
+                            "UNIFIED_EXIT_POLICY_HEAD_COLD_START_HOLD_BIAS_6005",
+                            "lane=$lane seedBias=${"%.3f".format(seed)} note=moonshot_pattern_propagation",
+                        )
+                    } catch (_: Throwable) {}
+                }
             }
         }
     }

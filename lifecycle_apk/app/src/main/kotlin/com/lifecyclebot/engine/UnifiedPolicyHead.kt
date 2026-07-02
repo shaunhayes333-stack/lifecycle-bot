@@ -48,9 +48,15 @@ object UnifiedPolicyHead {
     //   • ADVISORY at 20 (was 40)  — signals start contributing
     //   • LEARNED at 60 (was 100)   — signals get authority weighting
     //   • AUTHORITATIVE at 150 (was 250) — full authority
-    private const val AUTHORITY_ADVISORY      = 20L
-    private const val AUTHORITY_LEARNED       = 60L
-    private const val AUTHORITY_AUTHORITATIVE = 150L
+    // V5.0.6005 — LOWER AUTHORITY THRESHOLDS. Same rationale as
+    // UnifiedExitPolicyHead: current thresholds meant global brain hit
+    // trained=25 after weeks with authority=ADVISORY still. Operator
+    // directive: the AGI stack MUST take command decisions across all
+    // lanes and self-tune to compounding. Brier calibration guard-rail
+    // still auto-demotes noisy brains, so aggressive promotion is safe.
+    private const val AUTHORITY_ADVISORY      = 3L
+    private const val AUTHORITY_LEARNED       = 10L
+    private const val AUTHORITY_AUTHORITATIVE = 25L
     // V5.0.4094 — calibration thresholds. Brier score (mean squared err of
     // pWin vs outcome) below this is "well-calibrated"; above is "drifting".
     // Random guessing scores ~0.25; a calibrated head should be below 0.22.
