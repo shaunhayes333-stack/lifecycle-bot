@@ -4227,7 +4227,13 @@ object FinalDecisionGate {
                 val priorSize6026 = finalSize
                 finalSize = (finalSize * fdgBrainChain6026.sizeMultiplier).coerceAtLeast(0.01)
                 tags.add("fdg_brain_conflict_sized")
-                checks.add(GateCheck("fdg_brain_size", true, "conflicted chain size ${priorSize6026.format(3)}→${finalSize.format(3)}"))
+                checks.add(GateCheck("fdg_brain_size", true, "conflicted chain size ${priorSize6026.format(3)}→${finalSize.format(3)} target=${fdgBrainChain6026.targetMode}"))
+            } else if (blockReason == null && fdgBrainChain6026.verdict == FdgBrainChain.Verdict.ALIGNED && kotlin.math.abs(fdgBrainChain6026.compoundingMultiplier - 1.0) > 0.01) {
+                val priorSize6027 = finalSize
+                finalSize = (finalSize * fdgBrainChain6026.compoundingMultiplier).coerceAtLeast(0.01)
+                tags.add("fdg_brain_target:${fdgBrainChain6026.targetMode}")
+                checks.add(GateCheck("fdg_brain_compounding", true, "${fdgBrainChain6026.targetMode} compound ${priorSize6027.format(3)}→${finalSize.format(3)} mult=${fdgBrainChain6026.compoundingMultiplier.format(2)}"))
+                try { PipelineHealthCollector.labelInc("FDG_BRAIN_COMPOUNDING_TARGET_6027_${fdgBrainChain6026.targetMode}") } catch (_: Throwable) {}
             }
         }
 

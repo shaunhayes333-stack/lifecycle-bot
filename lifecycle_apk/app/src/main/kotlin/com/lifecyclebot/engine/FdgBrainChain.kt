@@ -24,9 +24,11 @@ object FdgBrainChain {
         val reasons: List<String>,
         val softenSoftBlocks: Boolean,
         val sizeMultiplier: Double,
+        val compoundingMultiplier: Double,
+        val targetMode: String,
     ) {
         val compact: String
-            get() = "verdict=$verdict agree=$agreeVotes disagree=$disagreeVotes score=${"%.2f".format(score)} soften=$softenSoftBlocks size×${"%.2f".format(sizeMultiplier)} reasons=${reasons.joinToString("|").take(220)}"
+            get() = "verdict=$verdict target=$targetMode agree=$agreeVotes disagree=$disagreeVotes score=${"%.2f".format(score)} soften=$softenSoftBlocks size×${"%.2f".format(sizeMultiplier)} compound×${"%.2f".format(compoundingMultiplier)} reasons=${reasons.joinToString("|").take(220)}"
     }
 
     fun evaluate(
@@ -95,12 +97,29 @@ object FdgBrainChain {
             else -> Verdict.CONFLICTED
         }
         val soften = antiChokeSoftening || (verdict == Verdict.ALIGNED && disagreeVotes <= 2)
-        val size = when (verdict) {
+        val targetMode = when {
+            verdict == Verdict.BLOCKING -> "PROTECT"
+            verdict == Verdict.CONFLICTED -> "LEARN_SMALL"
+            cleanPositive && laneSig >= 55.0 && policyAuthority in setOf(UnifiedPolicyHead.AuthorityTier.LEARNED, UnifiedPolicyHead.AuthorityTier.AUTHORITATIVE) -> "COMPOUND"
+            cleanPositive && laneSig >= 45.0 -> "QUALITY_VOLUME"
+            antiChokeSoftening -> "VOLUME_RECOVERY"
+            else -> "NORMAL"
+        }
+        val compounding = when (targetMode) {
+            "COMPOUND" -> if (profitFactor >= 1.15 || cleanPnlSol > 0.0 || cleanWinRate >= 50.0) 1.14 else 1.08
+            "QUALITY_VOLUME" -> 1.07
+            "VOLUME_RECOVERY" -> 1.04
+            "LEARN_SMALL" -> 0.92
+            "PROTECT" -> 0.70
+            else -> 1.0
+        }
+        val baseSize = when (verdict) {
             Verdict.ALIGNED -> if (commonSenseBlocked) 0.72 else 1.0
             Verdict.CONFLICTED -> 0.55
             Verdict.BLOCKING -> 0.35
         }
-        return Report(verdict, agreeVotes, disagreeVotes, score, agree + disagree, soften, size)
+        val size = (baseSize * compounding).coerceIn(0.25, 1.18)
+        return Report(verdict, agreeVotes, disagreeVotes, score, agree + disagree, soften, size, compounding, targetMode)
     }
 
     fun statusLine(report: Report?): String = report?.compact ?: "fdg_brain_chain=unavailable"

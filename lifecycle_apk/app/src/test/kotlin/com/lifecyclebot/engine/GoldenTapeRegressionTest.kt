@@ -6977,6 +6977,7 @@ class GoldenTapeRegressionTest {
         assertTrue("V5.0.6026: FDG must have an explicit brain-chain agreeability layer", fdgBrain6026.contains("object FdgBrainChain") && fdgBrain6026.contains("enum class Verdict { ALIGNED, CONFLICTED, BLOCKING }") && fdgBrain6026.contains("common_sense") && fdgBrain6026.contains("antichoke_softening"))
         assertTrue("V5.0.6026: FDG must soften non-hard blockers when the brain chain aligns", fdg6025.contains("FdgBrainChain.evaluate") && fdg6025.contains("FDG_BRAIN_CHAIN_6026") && fdg6025.contains("FDG_BRAIN_SOFTENED_BLOCK_6026") && fdg6025.contains("softBlockReason6026") && fdg6025.contains("blockLevel != BlockLevel.HARD"))
         assertTrue("V5.0.6026: CommonSense prebuy must become chain-shaped caution, not blind executor obstruction", exec6026.contains("COMMON_SENSE_PREBUY_SOFTENED_6026") && exec6026.contains("commonSenseHard6026") && exec6026.contains("FdgBrainChain.evaluate") && exec6026.contains("FDG_BRAIN_COMMON_SENSE_SOFTEN_6026"))
+        assertTrue("V5.0.6027: FDG brain chain must drive sizing/compounding targets, not only blocker reconciliation", fdgBrain6026.contains("compoundingMultiplier") && fdgBrain6026.contains("targetMode") && fdgBrain6026.contains("COMPOUND") && fdgBrain6026.contains("QUALITY_VOLUME") && fdg6025.contains("FDG_BRAIN_COMPOUNDING_TARGET_6027") && fdg6025.contains("fdg_brain_compounding"))
     }
 
 
