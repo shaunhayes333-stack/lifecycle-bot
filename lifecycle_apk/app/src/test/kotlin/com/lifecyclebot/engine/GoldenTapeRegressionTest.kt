@@ -3272,7 +3272,7 @@ class GoldenTapeRegressionTest {
         val collective = java.io.File("src/main/kotlin/com/lifecyclebot/ui/CollectiveBrainActivity.kt").readText()
 
         assertTrue("PipelineHealthCollector must expose lightweight atomic ANR getters", phc.contains("fun anrHintCountNow(): Int = anrHintCount.get()") && phc.contains("fun maxFrameGapMsNow(): Long = maxFrameGapMs.get()"))
-        assertTrue("MainActivity must shed row-heavy rendering during catastrophic ANR storms", main.contains("MAIN_HEAVY_RENDER_ANR_SHED") && main.contains("anrHintCountNow()") && main.contains("anrHintsForRenderShed >= 100") && main.contains("skip=heavy_dashboard_rows"))
+        assertTrue("MainActivity must shed row-heavy rendering during catastrophic ANR storms", main.contains("MAIN_HEAVY_RENDER_ANR_SHED") && main.contains("anrHintCountNow()") && main.contains("anrHintsForRenderShed >= 100") && (main.contains("skip=heavy_dashboard_rows") || main.contains("skip=non_open_heavy_dashboard_rows")))
         assertFalse("Dashboard render path must not create unmanaged MainScope jobs", main.contains("MainScope().launch"))
         assertFalse("ANR shed must not call PipelineHealthCollector.snapshot() from updateUi", main.contains("PipelineHealthCollector.snapshot().anrHints"))
         assertTrue("CollectiveBrain polling must start on IO and use cached trade stats", collective.contains("lifecycleScope.launch(Dispatchers.IO)") && collective.contains("TradeHistoryStore.getStatsCached()"))
@@ -7022,6 +7022,8 @@ class GoldenTapeRegressionTest {
         assertTrue("V5.0.6039: CashGenerationAI 6038 compile fix must use pos.mint inside checkExitInternal", cashGen6039.contains("CashGenerationAI_exit_6038/${'$'}{pos.mint.take(8)}") && cashGen6039.contains("CashGenerationAI_secondary_6038/${'$'}{pos.mint.take(8)}") && !cashGen6039.contains("CashGenerationAI_exit_6038/${'$'}{mint.take(8)}"))
         assertTrue("V5.0.6040: host-tracker open rows must synthesize into Open Positions so wallet-held rows cannot blank the panel", main6038.contains("OPEN_PANEL_HOST_TRACKER_SYNTH_6040") && main6038.contains("HostWalletTokenTracker.getOpenTrackedPositions()") && main6038.contains("HOST_WALLET_TRACKER_6040"))
         assertTrue("V5.0.6040: ANR shed must keep Open Positions rendering and only skip non-open heavy rows", main6038.contains("openPosDuringShed6040") && main6038.contains("renderOpenPositions(openPosDuringShed6040)") && main6038.contains("skip=non_open_heavy_dashboard_rows"))
+        assertTrue("V5.0.6041: partial sells are realized wallet movements and must credit/refresh wallet surfaces", executor.contains("PARTIAL_SELL_WALLET_CREDITED_6041") && executor.contains("LIVE_PARTIAL_WALLET_REFRESH_FORCED_6041") && executor.contains("refreshBalance(force = true)"))
+        assertTrue("V5.0.6041: PARTIAL_SELL must feed movement win/report/run surfaces without waiting for terminal close", executor.contains("PARTIAL_SELL_MOVEMENT_FANOUT_6041") && executor.contains("trade.side.equals(" + "\"PARTIAL_SELL\"" + ", true)") && executor.contains("RunTracker30D.recordTrade(symbol = _fanoutSymbol"))
     }
 
 

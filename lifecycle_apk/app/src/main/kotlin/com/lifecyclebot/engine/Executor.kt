@@ -3285,7 +3285,7 @@ class Executor(
         // bot loop thread. Snapshots captured BEFORE launch so coroutine has
         // stable values and there is no race on ts / trade / position fields.
         // ═══════════════════════════════════════════════════════════════════
-        if ((trade.side == "SELL" && ledgerAllowsClosedLearning) || (trade.side == "BUY")) {
+        if (((trade.side.equals("SELL", true) || trade.side.equals("PARTIAL_SELL", true)) && ledgerAllowsClosedLearning && accountingTrainable && rowLearningAdmitted4349) || trade.side.equals("BUY", true)) {
             val _fanoutSide       = trade.side
             val _fanoutPnlPct     = trade.pnlPct ?: 0.0
             val _fanoutMint       = ts.mint
@@ -3319,9 +3319,10 @@ class Executor(
                             build = _fanoutBuildTag,
                         )
                         LiveWalletGrowthGovernorReport.record(trade, _fanoutIsPaper)
-                        if (_fanoutSide == "SELL") { LiveWalletGrowthGovernorReport.maybeEmit(); OperatorKpiCloseoutReport.emit() }
-                        if (_fanoutSide == "BUY") SourceFamilyOpportunityScorecard.recordOpened(_fanoutSource)
-                        if (_fanoutSide == "SELL") { SourceFamilyOpportunityScorecard.recordClosed(_fanoutSource, trade); SourceFamilyOpportunityScorecard.maybeReport() }
+                        val _fanoutIsSellMovement6041 = _fanoutSide.equals("SELL", true) || _fanoutSide.equals("PARTIAL_SELL", true)
+                        if (_fanoutIsSellMovement6041) { LiveWalletGrowthGovernorReport.maybeEmit(); OperatorKpiCloseoutReport.emit() }
+                        if (_fanoutSide.equals("BUY", true)) SourceFamilyOpportunityScorecard.recordOpened(_fanoutSource)
+                        if (_fanoutIsSellMovement6041) { SourceFamilyOpportunityScorecard.recordClosed(_fanoutSource, trade); SourceFamilyOpportunityScorecard.maybeReport() }
                     } catch (_: Throwable) {}
                     // ── ToxicModeCircuitBreaker ───────────────────────────────
                     if (_fanoutSide == "SELL" && _fanoutPnlPct < 0) {
@@ -3334,6 +3335,39 @@ class Executor(
                                 symbol = _fanoutSymbol
                             )
                         } catch (_: Exception) {}
+                    }
+                    if (_fanoutSide.equals("PARTIAL_SELL", true)) {
+                        val holdTimeMs = if (_fanoutEntryTime > 0) System.currentTimeMillis() - _fanoutEntryTime else 0L
+                        val _fluidTm = _fanoutTradingMode
+                        val _behAsset = when (_fluidTm) {
+                            "SHITCOIN", "SHITCOIN_EXPRESS", "SHITCOINEXPRESS" -> "SHITCOIN"
+                            "EXPRESS"                                         -> "EXPRESS"
+                            "CYCLIC"                                          -> "CYCLIC"
+                            "QUALITY"                                         -> "QUALITY"
+                            "BLUECHIP", "BLUE_CHIP"                           -> "BLUECHIP"
+                            "MOONSHOT"                                        -> "MOONSHOT"
+                            "TREASURY", "CASHGEN"                             -> "TREASURY"
+                            "PRESALE_SNIPE", "PROJECT_SNIPER"                 -> "PRESALE_SNIPE"
+                            "MANIPULATED"                                     -> "MANIPULATED"
+                            "DIP_HUNTER"                                      -> "DIP_HUNTER"
+                            else                                              -> "MEME"
+                        }
+                        if (_fanoutPnlPct < 0) {
+                            try { ToxicModeCircuitBreaker.recordLoss(_fanoutTradingMode.takeIf { isMeaningfulLaneName(it) } ?: "STANDARD", _fanoutPnlPct, _fanoutMint, _fanoutSymbol) } catch (_: Exception) {}
+                        }
+                        try { com.lifecyclebot.v3.scoring.BehaviorAI.recordTradeForAsset(pnlPct = _fanoutPnlPct, reason = _fanoutReason, mint = _fanoutMint, isPaperMode = _fanoutIsPaper, assetClass = _behAsset) } catch (_: Exception) {}
+                        if (_behAsset == "MEME" && _fanoutReason != "DEAD_TOKEN_NO_PRICE_EXIT") {
+                            try { com.lifecyclebot.engine.TradingCopilot.recordTradeForAsset(pnlPct = _fanoutPnlPct, isPaper = _fanoutIsPaper, assetClass = "MEME") } catch (_: Exception) {}
+                        }
+                        if (_fanoutIsRun) {
+                            try {
+                                val holdTimeSec = if (_fanoutEntryTime > 0) (System.currentTimeMillis() - _fanoutEntryTime) / 1000 else 0L
+                                val mode = _fanoutTradingMode.takeIf { isMeaningfulLaneName(it) } ?: "STANDARD"
+                                RunTracker30D.recordTrade(symbol = _fanoutSymbol, mint = _fanoutMint, entryPrice = _fanoutEntryPrice, exitPrice = _fanoutExitPrice, sizeSol = _fanoutSol, pnlPct = _fanoutPnlPct, holdTimeSec = holdTimeSec, mode = mode, score = _fanoutRunScore, confidence = _fanoutConfidence, decision = _fanoutReason.ifBlank { "PARTIAL_SELL" })
+                                EmergentGuardrails.recordTradeExecution()
+                            } catch (e: Exception) { ErrorLogger.debug("Executor", "RunTracker30D partial record error: ${e.message}") }
+                        }
+                        try { PipelineHealthCollector.labelInc("PARTIAL_SELL_MOVEMENT_FANOUT_6041") } catch (_: Throwable) {}
                     }
                     if (_fanoutSide == "SELL") {
                         try { CapitalEfficiencyBrain.recordTerminalTrade(trade, _fanoutTradingMode, _fanoutSource) } catch (_: Throwable) {}
@@ -6288,7 +6322,7 @@ class Executor(
             // position fully closed. Operator spec: 'treasury accumulates 30%
             // of all memetrader profit'.
             // Treasury-tagged positions deposit 100% (cash-gen scalp pattern).
-            if (paperPnlSol > 0.0) {
+            val paperPartialTreasuryShare6041 = if (paperPnlSol > 0.0) {
                 try {
                     if (pos.isTreasuryPosition || pos.tradingMode == "TREASURY") {
                         com.lifecyclebot.engine.TreasuryManager.contributeFullyFromTreasuryScalp(
@@ -6299,8 +6333,17 @@ class Executor(
                     }
                 } catch (e: Exception) {
                     ErrorLogger.debug("Executor", "Treasury split error (checkPartial paper): ${e.message}")
+                    0.0
                 }
-            }
+            } else 0.0
+            // V5.0.6041 — partial sells are real wallet movements, not only
+            // journal annotations. Autonomous paper ladder previously recorded
+            // PARTIAL_SELL but never credited the paper wallet, unlike manual
+            // partials/full sells/profit locks. Credit principal+P&L less any
+            // treasury share so balance, trade count, and journal move together.
+            onPaperBalanceChange?.invoke((sellQty * actualPrice) - paperPartialTreasuryShare6041)
+            try { ForensicLogger.lifecycle("PARTIAL_SELL_WALLET_CREDITED_6041", "mode=paper mint=${ts.mint.take(10)} symbol=${ts.symbol} gross=${(sellQty * actualPrice).fmtSol()} treasury=${paperPartialTreasuryShare6041.fmtSol()} delta=${((sellQty * actualPrice) - paperPartialTreasuryShare6041).fmtSol()} reason=${trade.reason}") } catch (_: Throwable) {}
+            try { PipelineHealthCollector.labelInc("PARTIAL_SELL_WALLET_CREDITED_6041") } catch (_: Throwable) {}
             try { ForensicLogger.lifecycle("PARTIAL_SELL_ACCOUNTING",
                 "mode=paper mint=${ts.mint.take(10)} symbol=${ts.symbol} soldPct=${(sellFraction*100).fmt(1)} cost=${partialCostBasisSol.fmtSol()} gross=${(sellQty * actualPrice).fmtSol()} pnl=${paperPnlSol.fmtSignedSol()} net=${paperPartialNetPnl.fmtSignedSol()} pct=${pct(partialCostBasisSol, sellQty * actualPrice).fmtPctPrecise()} reason=${trade.reason}") } catch (_: Throwable) {}
             onLog("PAPER PARTIAL SELL ${(sellFraction*100).toInt()}% | " +
@@ -6483,6 +6526,26 @@ class Executor(
                 recordTrade(ts, liveTrade); security.recordTrade(liveTrade)
                 SmartSizer.recordTrade(netPnl > 0, isPaperMode = false)
                 LiveSafetyCircuitBreaker.recordTradeResult(netPnl)  // V5.9.105 session drawdown halt
+                // V5.0.6041 — a finalized live partial is landed SOL movement.
+                // Do not fake-credit local SOL; force the wallet manager to pull
+                // on-chain balance immediately so the dashboard/sizers see the
+                // recovered capital/profit instead of waiting for the next slow poll.
+                try {
+                    GlobalScope.launch(AppDispatchers.sideEffect) {
+                        try {
+                            val svc6041 = com.lifecyclebot.engine.BotService.instance
+                            val wm6041 = svc6041?.walletManager
+                            wm6041?.refreshBalance(force = true)
+                            val fresh6041 = wm6041?.state?.value?.solBalance ?: 0.0
+                            if (fresh6041 > 0.0) {
+                                com.lifecyclebot.engine.BotService.status.walletSol = fresh6041
+                                try { LiveSafetyCircuitBreaker.updateBalance(fresh6041) } catch (_: Throwable) {}
+                            }
+                            try { ForensicLogger.lifecycle("LIVE_PARTIAL_WALLET_REFRESH_FORCED_6041", "mint=${ts.mint.take(10)} symbol=${ts.symbol} sig=${sig.take(16)} fresh=${fresh6041.fmtSol()} net=${netPnl.fmtSignedSol()} reason=${liveTrade.reason}") } catch (_: Throwable) {}
+                            try { PipelineHealthCollector.labelInc("LIVE_PARTIAL_WALLET_REFRESH_FORCED_6041") } catch (_: Throwable) {}
+                        } catch (_: Throwable) {}
+                    }
+                } catch (_: Throwable) {}
                 // V5.9.109: FAIRNESS — partial sell #1 pays same 0.5% fee
                 // (of the portion sold) to both wallets as full sells do.
                 try {
