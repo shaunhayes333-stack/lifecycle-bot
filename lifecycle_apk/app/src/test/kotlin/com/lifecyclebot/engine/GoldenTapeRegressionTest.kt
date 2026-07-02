@@ -6394,8 +6394,8 @@ class GoldenTapeRegressionTest {
     fun reportingHub_4509ExecutiveUsesStrategyCleanWhenRawJournalInflated() {
         val report = java.io.File("src/main/kotlin/com/lifecyclebot/engine/ReportingHub.kt").readText()
         assertTrue("V5.0.4509: executive snapshot must compute StrategyTruthLedger before printing journal money", report.contains("strategyTruth4509") && report.contains("StrategyTruthLedger.clean") && report.contains("excluded4509"))
-        assertTrue("V5.0.4509: inflated raw journal must be demoted behind Strategy Clean headline", report.contains("Strategy Clean headline") && report.contains("Raw journal audit") && report.contains("note=not_wallet_truth"))
-        assertTrue("V5.0.4509: trade journal summary must not label raw totals as canonical wallet truth", report.contains("Raw journal totals") && report.contains("note=pre_truth_ledger_audit") && !report.contains("Canonical totals: closes="))
+        assertTrue("V5.0.6012: inflated raw journal must be demoted behind Strategy Clean headline", report.contains("Strategy Clean headline") && report.contains("Raw journal audit") && report.contains("note=raw_not_strategy_truth"))
+        assertTrue("V5.0.6012: trade journal summary must not label raw totals or partial rows as canonical strategy closes", report.contains("Raw journal totals") && report.contains("note=pre_truth_ledger_audit_not_strategy_closes") && report.contains("24h raw sell rows") && !report.contains("Canonical totals: closes=") && !report.contains("Journal canonical:"))
     }
 
 
