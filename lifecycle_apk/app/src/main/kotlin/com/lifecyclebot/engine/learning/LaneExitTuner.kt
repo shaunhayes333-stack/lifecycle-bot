@@ -32,9 +32,16 @@ object LaneExitTuner {
     private const val SL_MAX = 1.30
     private const val STEP   = 0.04
 
+    // V5.0.6044 — LOWERED FROM 20 TO 8 (operator throughput doctrine).
+    // Report 2026-07-03 showed BLUECHIP n=9, MOONSHOT n=17, SHITCOIN n=7 all
+    // stuck at neutral tpMult=1.00/slMult=1.00 because they hadn't crossed
+    // the old n>=20 threshold. Bot was accumulating losses at these lanes'
+    // hardcoded defaults with no closed-loop tuning kicking in. Lower the
+    // sample floor so tuning engages earlier — still bootstrap-safe (needs
+    // n>=8 real closes, not noise), but stops the bleed while lanes learn.
     private const val WINDOW       = 60
-    private const val MIN_SAMPLE   = 20
-    private const val RECALC_EVERY = 10
+    private const val MIN_SAMPLE   = 8
+    private const val RECALC_EVERY = 5
 
     private data class Outcome(
         val pnlPct: Double,

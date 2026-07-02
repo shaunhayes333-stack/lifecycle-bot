@@ -10716,7 +10716,26 @@ class Executor(
         ts.position.isBlueChipPosition = (normalizeExecutionLane(layerTag) == "BLUECHIP")
         
         ts.position.blueChipTakeProfit = takeProfitPct
-        ts.position.blueChipStopLoss = stopLossPct
+        // V5.0.6044 — BLUECHIP HARD SL CLAMP (bleed-stop, operator ask).
+        // Report 2026-07-03 05:16 showed BLUECHIP n=7 W/L=0/4 WR=0% EV=-15.68%/trade
+        // PnL=-0.303 SOL — the WORST bleeder in the wallet. Root cause: BLUECHIP
+        // positions were opened with the caller's stopLossPct (often 15-20%) and
+        // then rode down to -80%+ catastrophes before firing (e.g. 13QUwwFK -77.9%,
+        // DZMYSwA1 -89.1%). Doctrine: BLUECHIP = "safe" high-mcap accum swing,
+        // not a moonshot; a -8% stop is the tightest sane floor for this role.
+        // The Fluid learn-your-stop-loss governor can still WIDEN via slMult, but
+        // never past this doctrinal floor for BLUECHIP. AGI keeps veto authority.
+        val blueChipSlClamp6044 = if (normalizeExecutionLane(layerTag) == "BLUECHIP" && stopLossPct > 8.0) {
+            try {
+                com.lifecyclebot.engine.PipelineHealthCollector.labelInc("BLUECHIP_HARD_SL_CLAMP_6044")
+                com.lifecyclebot.engine.ForensicLogger.lifecycle(
+                    "BLUECHIP_HARD_SL_CLAMP_6044",
+                    "mint=${ts.mint.take(10)} symbol=${ts.symbol} incoming=${"%.1f".format(stopLossPct)}% clamped=8.0% reason=bluechip_doctrine_bleed_stop",
+                )
+            } catch (_: Throwable) {}
+            8.0
+        } else stopLossPct
+        ts.position.blueChipStopLoss = blueChipSlClamp6044
         
         try {
             kotlinx.coroutines.GlobalScope.launch(AppDispatchers.sideEffect) {
@@ -10953,6 +10972,21 @@ class Executor(
     }
 
     private fun consultEntryAdvisors(ts: TokenState, score: Double, layerTag: String, isPaperMode: Boolean = false): Pair<Boolean, String> {
+        // ═══════════════════════════════════════════════════════════════════════
+        // V5.0.6044 — PRE-FDG THROUGHPUT DOCTRINE (operator mandate 2026-07-03):
+        //   "FDG is meant to be a final safety sanity gate. Trade flows in and
+        //    out must align for trade throughput unless explicitly blocked (rugs)."
+        //
+        // Rule: this function MUST return (true, ...) except when there is an
+        // *explicit hard rug* (HardRugPreFilter HARD_FAIL). All other signal
+        // concerns — provider blindness, momentum avoid, brain floors, holder
+        // ceilings, entry-intel avoid, fluid floors — MUST fire via softAdvisor()
+        // ONLY (score penalty / telemetry log). They must NEVER return false.
+        //
+        // Downstream gates (EXEC_GATE reentry lockout, LiveSafetyCircuitBreaker,
+        // FDG final sanity) handle real safety; pre-FDG advisors just SHAPE.
+        // Adding a new pre-FDG hard-reject here is a doctrine violation.
+        // ═══════════════════════════════════════════════════════════════════════
         return try {
             val mint = ts.mint
             fun softAdvisor(label: String, detail: String = "") {

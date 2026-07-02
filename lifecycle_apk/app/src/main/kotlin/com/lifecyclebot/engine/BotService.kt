@@ -9363,11 +9363,34 @@ class BotService : Service() {
         // head reaches LEARNED/AUTHORITATIVE authority.
         val agiAuthority6020 = try { com.lifecyclebot.engine.UnifiedPolicyHead.currentAuthority(laneUpperForFloor4591) } catch (_: Throwable) { com.lifecyclebot.engine.UnifiedPolicyHead.AuthorityTier.BOOTSTRAP }
         val structuralFloor6020 = if (!isProvenLane4591) (shapedConfidenceFloor4262 + 10.0).coerceAtMost(90.0) else shapedConfidenceFloor4262
-        val entryScoreTightenedFloor4591 = when (agiAuthority6020) {
+        val entryScoreTightenedFloor4591Base = when (agiAuthority6020) {
             com.lifecyclebot.engine.UnifiedPolicyHead.AuthorityTier.BOOTSTRAP -> (structuralFloor6020 - 18.0).coerceAtLeast(25.0)
             com.lifecyclebot.engine.UnifiedPolicyHead.AuthorityTier.ADVISORY -> (structuralFloor6020 + 4.0).coerceAtMost(88.0)
             com.lifecyclebot.engine.UnifiedPolicyHead.AuthorityTier.LEARNED -> (structuralFloor6020 - 12.0).coerceAtLeast(20.0)
             com.lifecyclebot.engine.UnifiedPolicyHead.AuthorityTier.AUTHORITATIVE -> 0.0
+        }
+        // V5.0.6044 — QUALITY WR-based auto-raise + MOONSHOT volume relief.
+        // Report 2026-07-03 05:16 showed QUALITY n=22 WR=31.6% EV=-6.52%/trade
+        // (mid-tier bleeder) and MOONSHOT n=1 only (dormant proven-EV lane).
+        // Auto-raise QUALITY floor +10 while clean WR<40% AND sample>=5
+        // (bootstrap-safe, releases when WR recovers >=40%). Lower MOONSHOT
+        // floor -5 to drive volume. Applied AFTER the AGI authority delegation
+        // so the AGI still has final say via the AUTHORITATIVE tier (which
+        // returns floor=0 and lets the AGI head decide).
+        val qualityWrRaise6044 = try {
+            if (laneUpperForFloor4591 == "QUALITY") {
+                val cleanSnap = com.lifecyclebot.engine.LiveProbabilityEngine.laneSnapshots().firstOrNull { it.lane == "QUALITY" }
+                if (cleanSnap != null && cleanSnap.sample >= 5 && cleanSnap.wrPct < 40.0) 10.0 else 0.0
+            } else 0.0
+        } catch (_: Throwable) { 0.0 }
+        val moonshotVolumeRelief6044 = if (laneUpperForFloor4591 == "MOONSHOT" &&
+            agiAuthority6020 != com.lifecyclebot.engine.UnifiedPolicyHead.AuthorityTier.AUTHORITATIVE) -5.0 else 0.0
+        val entryScoreTightenedFloor4591 = (entryScoreTightenedFloor4591Base + qualityWrRaise6044 + moonshotVolumeRelief6044).coerceIn(0.0, 95.0)
+        if (qualityWrRaise6044 > 0.0 || moonshotVolumeRelief6044 != 0.0) {
+            try {
+                PipelineHealthCollector.labelInc("LANE_QUALITY_MOONSHOT_FLOOR_TUNE_6044")
+                ForensicLogger.lifecycle("LANE_QUALITY_MOONSHOT_FLOOR_TUNE_6044", "lane=$lane qualityRaise=${"%.1f".format(qualityWrRaise6044)} moonshotRelief=${"%.1f".format(moonshotVolumeRelief6044)} base=${"%.1f".format(entryScoreTightenedFloor4591Base)} tuned=${"%.1f".format(entryScoreTightenedFloor4591)}")
+            } catch (_: Throwable) {}
         }
         if (entryScoreTightenedFloor4591 != structuralFloor6020) {
             try {
