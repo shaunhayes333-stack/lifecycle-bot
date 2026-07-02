@@ -11095,7 +11095,30 @@ class Executor(
                                 snap != null && snap.sample >= 5 && snap.wrPct >= 50.0
                             } else false
                         } catch (_: Throwable) { false }
-                        if (!isPaperMode && !provenWinnerHolderRelax4595) {
+                        // V5.0.6042 — API_LAYER_DEGRADED holder-cascade fail-open.
+                        // Operator report 2026-07-03 05:16 showed 21x
+                        // PROVIDER_PROOF_HOLDER_CASCADE_BLIND advisor blocks
+                        // dominating the funnel when Doctor state=DEGRADED
+                        // subsystem=api/providers. Holder-proof data is a
+                        // *supporting* signal — when the providers themselves
+                        // are down (not the token being manipulated), blocking
+                        // every buy is a false-positive choke that starves the
+                        // memetrader/crypto lane of volume. Fail-open when:
+                        //   (a) Doctor state = DEGRADED api/providers, AND
+                        //   (b) liquidity >= $5K (real pool, not a rug shell)
+                        // Safety fallback: other gates (LP-lock hard block,
+                        // RUGCHECK_FLOOR, PATTERN_SUPPRESSED, EXEC_GATE
+                        // reentry-lockout) still enforce live-trade safety.
+                        val apiDegradedHolderBypass6042 = try {
+                            if (isPaperMode) false
+                            else if (ts.lastLiquidityUsd < 5_000.0) false
+                            else {
+                                val diag = com.lifecyclebot.engine.RuntimeDoctor.currentDiagnosis()
+                                diag != null && diag.subsystem == "api/providers" &&
+                                    (diag.state == "DEGRADED" || diag.faultCode == "DEGRADED")
+                            }
+                        } catch (_: Throwable) { false }
+                        if (!isPaperMode && !provenWinnerHolderRelax4595 && !apiDegradedHolderBypass6042) {
                             val walked = holderProof?.attempted?.size ?: 0
                             softAdvisor("PROVIDER_PROOF_HOLDER_CASCADE_BLIND", "no_data walked=$walked")
                         } else if (provenWinnerHolderRelax4595) {
@@ -11105,6 +11128,14 @@ class Executor(
                                     "mint=${ts.mint.take(10)} sym=${ts.symbol} liq=${ts.lastLiquidityUsd.toInt()} tag=$layerTag — proven-winner lane bypass",
                                 )
                                 com.lifecyclebot.engine.PipelineHealthCollector.labelInc("HOLDER_CASCADE_BLIND_WINNER_BYPASS_4595")
+                            } catch (_: Throwable) {}
+                        } else if (apiDegradedHolderBypass6042) {
+                            try {
+                                com.lifecyclebot.engine.ForensicLogger.lifecycle(
+                                    "HOLDER_CASCADE_BLIND_API_DEGRADED_BYPASS_6042",
+                                    "mint=${ts.mint.take(10)} sym=${ts.symbol} liq=${ts.lastLiquidityUsd.toInt()} tag=$layerTag — api providers degraded, holder proof fail-open (liq gate + downstream safety still enforced)",
+                                )
+                                com.lifecyclebot.engine.PipelineHealthCollector.labelInc("HOLDER_CASCADE_BLIND_API_DEGRADED_BYPASS_6042")
                             } catch (_: Throwable) {}
                         }
                     } else if (holderPct > b.learnedMaxTopHolder) {
