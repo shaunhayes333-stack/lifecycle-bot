@@ -181,12 +181,13 @@ object ReportingHub {
         // category, but shrink the global envelope and summarize raw/error rows.
         addBoundedSection("EXECUTIVE SNAPSHOT", 1_700) { buildExecutiveSnapshot() }
         addBoundedSection("TOOLKIT SIGNAL SHEET", 1_700) { buildToolkitSignalSummary() }
+        addBoundedSection("MONEY PATH TRUTH", 1_800) { buildMoneyPathTruthSummary6029() }
         addBoundedSection("PIPELINE HEALTH — CORE", 5_800) { compactPipelineDump(PipelineHealthCollector.dumpText()) }
         addBoundedSection("LEARNING + TUNING STATE", 3_900) { buildLearningTuningSummary() }
         addBoundedSection("TRADE JOURNAL SUMMARY", 3_000) { buildJournalSummary() }
         addBoundedSection("FORENSIC SUMMARY", 1_500) { buildForensicSummary() }
         addBoundedSection("ERROR LOGS — RECENT", 1_600) { ErrorLogger.exportToCompactTable(limit = 24) }
-        out.appendLine("Report envelope: PASTE_SAFE_V4487 chars=${out.length}/$budget sections=7 errorLimit=24")
+        out.appendLine("Report envelope: PASTE_SAFE_V4487 chars=${out.length}/$budget sections=8 errorLimit=24")
 
         val text = out.toString().trimEnd()
         return if (text.length <= budget) text else text.take(budget - 180) + "\n\n[REPORT_TRUNCATED_UNEXPECTED hardCap=$budget chars — paste-safe budgets failed; reduce section budgets]"
@@ -194,6 +195,40 @@ object ReportingHub {
 
 
     private const val MAX_UNIFIED_REPORT_CHARS = 24_000
+
+    private fun buildMoneyPathTruthSummary6029(): String = buildString(2 * 1024) {
+        val pipe = safeSnapshot { PipelineHealthCollector.snapshot() }
+        val wallet = try { BotService.status.walletSol } catch (_: Throwable) { 0.0 }
+        val open = try { BotService.status.openPositions.toList() } catch (_: Throwable) { emptyList() }
+        var trustedOpenPnl = 0.0
+        var trustedOpenCount = 0
+        val top = open.asSequence().map { ts ->
+            val p = ts.position
+            val verdict = try { OpenPnlSanity.inspect(ts, "ReportingHub.money_path_6029/${ts.symbol}/${ts.mint.take(8)}", emit = false) } catch (_: Throwable) { OpenPnlSanity.Verdict(false, reason = "INSPECT_THROW") }
+            val pnlPct = if (verdict.ok) verdict.pnlPct else 0.0
+            val pnlSol = if (verdict.ok) p.costSol * pnlPct / 100.0 else 0.0
+            if (verdict.ok && !p.isPaperPosition && pnlSol > 0.0) { trustedOpenPnl += pnlSol; trustedOpenCount += 1 }
+            val route = try { RealPriceLock.lastRouteTruth(ts.mint) } catch (_: Throwable) { null }
+            val routeTxt = when {
+                route != null -> "route=${route.impliedRatio.fmt1()}x/${if (route.ok) "ok" else "claim_mismatch"}"
+                pnlPct >= 500.0 -> "route=pending"
+                else -> "route=normal_band"
+            }
+            val basisTxt = if (verdict.ok) "basis=trusted" else "basis=${verdict.reason.ifBlank { "untrusted" }}"
+            Triple(pnlPct, pnlSol, "${ts.symbol.ifBlank { ts.mint.take(6) }} lane=${p.tradingMode.ifBlank { "?" }} ${basisTxt} ${routeTxt} open=${p.costSol.fmt4()} pnl=${pnlPct.fmt1()}%/${pnlSol.fmt4()} SOL")
+        }.sortedByDescending { it.first }.take(5).toList()
+        appendLine("wallet=${wallet.fmt4()} SOL hostOpen=${open.count { !it.position.isPaperPosition }} trustedOpen=${trustedOpenPnl.fmt4()} SOL runners=$trustedOpenCount note=open_unrealized_not_wallet_until_sell_finality")
+        if (pipe != null) {
+            fun label(k: String): Long = pipe.labelCounts[k] ?: 0L
+            appendLine("harvest: walletGrowth=${label("WALLET_GROWTH_HARVEST_TRIGGERED_6028")} routeReal=${label("ROUTE_REAL_CLAIM_MISMATCH_HARVEST_6029")} priceUnreal=${label("WALLET_GROWTH_HARVEST_DEFERRED_PRICE_UNREAL_6028") + label("ULTRA_RUNNER_BANK_DEFERRED_PRICE_UNREAL")} walletNull=${label("WALLET_GROWTH_HARVEST_DEFERRED_WALLET_NULL_6028")}")
+            appendLine("sell finality: liveSellOk=${label("LIVE_SELL_OK")} pending=${label("LIVE_SELL_PENDING") + label("SELL_FINALITY_PENDING_RETRY_NO_PROCEEDS")} fail=${label("LIVE_SELL_FAIL")}")
+        }
+        if (top.isEmpty()) appendLine("top opens: none") else {
+            appendLine("top opens:")
+            top.forEach { appendLine("  ${it.third}") }
+        }
+        appendLine("truth contract: DISCOVERY price/source -> BUY entry snapshot -> OPEN unrealized basis/route label -> SELL finality net SOL -> JOURNAL strategy truth -> WALLET balance")
+    }
 
     private fun buildExecutiveSnapshot(): String = buildString(3 * 1024) {
         val rt = safeSnapshot { BotRuntimeController.snapshot() }

@@ -6985,6 +6985,10 @@ class GoldenTapeRegressionTest {
         assertTrue("V5.0.6029: route-real profit must be harvestable even when UI claim is overstated", realPriceLock6029.contains("routeImpliedGainMultiple") && exec6026.contains("ROUTE_REAL_CLAIM_MISMATCH_HARVEST_6029") && exec6026.contains("ui_claim_overstated_but_route_profit_real") && exec6026.contains("route_real_harvest_"))
         val mainUi6029 = java.io.File("src/main/kotlin/com/lifecyclebot/ui/MainActivity.kt").readText()
         assertTrue("V5.0.6029: open-position UI must label unrealized route truth instead of implying wallet-real money", mainUi6029.contains("lastRouteTruth") && mainUi6029.contains("UNREALIZED · route pending") && mainUi6029.contains("claim-mismatch") && mainUi6029.contains("ROUTE ~"))
+        val report6029 = java.io.File("src/main/kotlin/com/lifecyclebot/engine/ReportingHub.kt").readText()
+        assertTrue("V5.0.6029: unified report must trace discovery/open/route/sell/journal/wallet money truth", report6029.contains("MONEY PATH TRUTH") && report6029.contains("buildMoneyPathTruthSummary6029") && report6029.contains("open_unrealized_not_wallet_until_sell_finality") && report6029.contains("truth contract: DISCOVERY price/source -> BUY entry snapshot -> OPEN unrealized basis/route label -> SELL finality net SOL -> JOURNAL strategy truth -> WALLET balance"))
+        val relaxer6031 = java.io.File("src/main/kotlin/com/lifecyclebot/engine/LiveLayerGateRelaxer.kt").readText()
+        assertTrue("V5.0.6031: lane-positive live EV must bypass global WR relaxer lock while bleeder lanes stay unrelaxed", relaxer6031.contains("lanePositiveCache") && relaxer6031.contains("LANE-POSITIVE OVERRIDE") && relaxer6031.contains("if (lanePositive6031) return base") && relaxer6031.contains("BLUECHIP") && relaxer6031.contains("report 6028 shows BLUECHIP WR20") && relaxer6031.contains("QUALITY") && relaxer6031.contains("report 6028 shows QUALITY WR40"))
     }
 
 

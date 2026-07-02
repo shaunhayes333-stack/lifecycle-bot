@@ -57,13 +57,13 @@ object LiveLayerGateRelaxer {
     /** Per-lane STARVED (cold-start) multiplier when `cfg.paperMode == false`.
      *  1.0 = no relaxation. Fades to 1.00 as the lane matures. */
     private val perLaneMultiplier = mutableMapOf(
-        "BLUECHIP"   to 0.85,
+        "BLUECHIP"   to 1.00, // V5.0.6031: report 6028 shows BLUECHIP WR20 EV-14.46 PnL-0.6858; no live relax until recovery
         "SHITCOIN"   to 0.85,
         "EXPRESS"    to 0.85,
         "MANIP"      to 0.90,
-        "MOONSHOT"   to 0.85,
+        "MOONSHOT"   to 0.85, // V5.0.6031: positive-EV MOONSHOT may bypass global WR lock via lanePositiveCache
         "TREASURY"   to 0.95,
-        "QUALITY"    to 0.95,
+        "QUALITY"    to 1.00, // V5.0.6031: report 6028 shows QUALITY WR40 but EV-23.97; fix exits before relaxing entries
         "MEME"       to 1.00,
         "CRYPTO"     to 0.90,
         "MARKETS"    to 0.90,
@@ -74,6 +74,7 @@ object LiveLayerGateRelaxer {
     // the main thread and steal trading loop cycles.
     @Volatile private var laneLiveCountCache: Map<String, Int> = emptyMap()
     @Volatile private var laneToxicCache: Map<String, Boolean> = emptyMap()
+    @Volatile private var lanePositiveCache: Map<String, Boolean> = emptyMap()
     @Volatile private var laneCacheStampMs: Long = 0L
     private const val LANE_CACHE_TTL_MS = 30_000L
     private val refreshInFlight = java.util.concurrent.atomic.AtomicBoolean(false)
@@ -92,6 +93,7 @@ object LiveLayerGateRelaxer {
                     .eachCount()
                     .toMutableMap()
                 val toxic = mutableMapOf<String, Boolean>()
+                val positive = mutableMapOf<String, Boolean>()
                 // V5.0.4051 mux fix retained, but offloaded: reports/journal proved
                 // MOONSHOT/SHITCOIN had hundreds of LIVE closes while the relaxer printed
                 // n=0/1. StrategyTelemetry is journal-backed, so only this background
@@ -100,9 +102,11 @@ object LiveLayerGateRelaxer {
                     val k = canonicalLaneKey(m.strategy)
                     busCounts[k] = maxOf(busCounts[k] ?: 0, m.trades)
                     toxic[k] = m.trades >= 5 && (m.winRatePct < 35.0 || m.totalSolPnl < 0.0 || m.meanPnlPct < -3.0)
+                    positive[k] = m.trades >= 8 && m.winRatePct >= 45.0 && m.totalSolPnl >= 0.0 && m.meanPnlPct > 0.0
                 }
                 laneLiveCountCache = busCounts
                 laneToxicCache = toxic
+                lanePositiveCache = positive
                 laneCacheStampMs = System.currentTimeMillis()
             } catch (_: Throwable) {
                 laneCacheStampMs = System.currentTimeMillis()
@@ -138,6 +142,16 @@ object LiveLayerGateRelaxer {
         return laneToxicCache[lane] ?: true
     }
 
+    private fun lanePositiveOverride(traderTag: String): Boolean {
+        refreshLaneCacheIfStale()
+        val lane = canonicalLaneKey(traderTag)
+        return lanePositiveCache[lane] == true && laneToxicCache[lane] != true
+    }
+
+    private fun relaxedBaseForLane(traderTag: String): Double {
+        return perLaneMultiplier[canonicalLaneKey(traderTag)] ?: perLaneMultiplier[traderTag.uppercase()] ?: 1.0
+    }
+
     /** EFFECTIVE multiplier after the maturity fade and WR-gate. */
     private fun effectiveMultiplier(traderTag: String): Double {
         if (!enabled) return 1.0
@@ -156,12 +170,14 @@ object LiveLayerGateRelaxer {
         // reduced size instead of disabling the relaxer after 3-5 bootstrap
         // losses. Once enough live terminal closes exist, WR floors harden.
         val applyGlobalWrFloor = liveTerminalN >= GLOBAL_SOFT_START_LIVE_CLOSES
-        if (applyGlobalWrFloor && liveWr < EMERGENCY_FLOOR_PCT) return 1.0
-        if (applyGlobalWrFloor && liveWr < DOCTRINE_FLOOR_PCT)  return 1.0
-        if (dumpRegimeNoRelax(traderTag)) return 1.0
-        val base = perLaneMultiplier[canonicalLaneKey(traderTag)] ?: perLaneMultiplier[traderTag.uppercase()] ?: 1.0
+        val lanePositive6031 = lanePositiveOverride(traderTag)
+        if (applyGlobalWrFloor && liveWr < EMERGENCY_FLOOR_PCT && !lanePositive6031) return 1.0
+        if (applyGlobalWrFloor && liveWr < DOCTRINE_FLOOR_PCT && !lanePositive6031)  return 1.0
+        if (dumpRegimeNoRelax(traderTag) && !lanePositive6031) return 1.0
+        val base = relaxedBaseForLane(traderTag)
         if (base >= 1.0) return 1.0  // never relaxed → nothing to fade
         val liveN = liveCountForLane(traderTag)
+        if (lanePositive6031) return base // earned positive-EV lane keeps throughput; bad global WR must not choke it
         return when {
             liveN < WARM_MIN   -> base   // cold start → full relax
             liveN >= WARM_FULL -> 1.0    // matured → earned floor
@@ -200,7 +216,7 @@ object LiveLayerGateRelaxer {
         // Apply the configured per-lane multiplier with the maturity fade only.
         if (verdict == com.lifecyclebot.engine.TokenWinMemory.Verdict.GOLD ||
             verdict == com.lifecyclebot.engine.TokenWinMemory.Verdict.WINNER) {
-            val base = perLaneMultiplier[canonicalLaneKey(traderTag)] ?: perLaneMultiplier[traderTag.uppercase()] ?: 1.0
+            val base = relaxedBaseForLane(traderTag)
             if (base >= 1.0) return 1.0
             val liveN = liveCountForLane(traderTag)
             return when {
@@ -234,7 +250,11 @@ object LiveLayerGateRelaxer {
         val liveWr = refreshLiveWrCache()
         val liveTerminalN = cachedLiveTerminalCount
         if (liveTerminalN >= GLOBAL_SOFT_START_LIVE_CLOSES && liveWr < DOCTRINE_FLOOR_PCT) {
-            return "🔒 GATE RELAXER: DISABLED (live WR=${"%.1f".format(liveWr)}% < ${DOCTRINE_FLOOR_PCT.toInt()}% floor, n=$liveTerminalN)"
+            val positiveParts = perLaneMultiplier.keys
+                .filter { lanePositiveOverride(it) && relaxedBaseForLane(it) < 1.0 }
+                .joinToString(" · ") { "$it ×${"%.2f".format(relaxedBaseForLane(it))}(positive_EV n=${liveCountForLane(it)})" }
+            if (positiveParts.isBlank()) return "🔒 GATE RELAXER: DISABLED (live WR=${"%.1f".format(liveWr)}% < ${DOCTRINE_FLOOR_PCT.toInt()}% floor, n=$liveTerminalN)"
+            return "🔓 GATE RELAXER: LANE-POSITIVE OVERRIDE $positiveParts globalWR=${"%.1f".format(liveWr)}% n=$liveTerminalN"
         }
         val parts = perLaneMultiplier.keys
             .map { it to effectiveMultiplier(it) }
