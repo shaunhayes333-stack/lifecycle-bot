@@ -9198,6 +9198,66 @@ class BotService : Service() {
         return !trueRug && (singleHolder || unverified || holderConcentration)
     }
 
+    private data class ToolkitGoodLaneBridge6022(
+        val lane: String,
+        val score: Int,
+        val sizeSol: Double,
+        val tpPct: Double,
+        val slPct: Double,
+        val reason: String,
+    )
+
+    private fun toolkitGoodLaneBridge6022(ts: com.lifecyclebot.data.TokenState, lane: String, blockedReason: String = ""): ToolkitGoodLaneBridge6022? {
+        return try {
+            val laneKey = lane.uppercase().replace('-', '_').replace(' ', '_')
+            if (laneKey !in setOf("QUALITY", "BLUECHIP", "BLUE_CHIP", "TREASURY", "CASHGEN", "MOONSHOT", "STANDARD")) return null
+            if (ts.safety.isBlocked || ts.safety.tier == com.lifecyclebot.engine.SafetyTier.HARD_BLOCK || ts.safety.hardBlockReasons.isNotEmpty()) return null
+            val liq = ts.lastLiquidityUsd.takeIf { it.isFinite() } ?: 0.0
+            if (liq < 1_500.0) return null
+            val sheet = try { ToolkitSignalSheet.snapshot(ts) } catch (_: Throwable) { return null }
+            val setup = sheet.setup.name
+            val setupGood = setup in setOf(
+                "LIQUIDITY_DEPTH_QUALITY", "DIAMOND_HANDS_RUNNER", "CHART_BREAKOUT",
+                "CHART_PULLBACK_RECLAIM", "SMART_WALLET_COPY_FOLLOW", "MAINSTREAM_CRYPTO_SWING",
+                "NARRATIVE_SOCIAL_IGNITION", "VOLUME_IGNITION_SCALP"
+            )
+            val laneVoted = sheet.laneVotes.any { it.equals(laneKey, true) || (laneKey == "BLUE_CHIP" && it.equals("BLUECHIP", true)) }
+            val chartGood = sheet.chartPattern.contains("accumulation", true) || sheet.chartPattern.contains("breakout", true) ||
+                sheet.chartPattern.contains("runner", true) || sheet.chartPattern.contains("pullback", true) ||
+                sheet.chartPattern.contains("smart_wallet", true) || sheet.chartPattern.contains("quality", true)
+            if (!setupGood && !laneVoted && !chartGood) return null
+            val conf = sheet.confidence.coerceIn(0.0, 100.0)
+            val score = maxOf(conf.toInt(), (ts.lastV3Score ?: ts.entryScore.toInt()).coerceIn(0, 100), 42).coerceIn(25, 88)
+            val sizeBase = when (laneKey) {
+                "QUALITY" -> 0.020
+                "BLUECHIP", "BLUE_CHIP" -> 0.018
+                "TREASURY", "CASHGEN" -> 0.014
+                "MOONSHOT" -> 0.018
+                else -> 0.016
+            }
+            val size = (sizeBase * sheet.sizeMult.coerceIn(0.65, 1.25)).coerceIn(0.010, 0.040)
+            val tp = when (laneKey) {
+                "QUALITY" -> 18.0
+                "BLUECHIP", "BLUE_CHIP" -> 14.0
+                "TREASURY", "CASHGEN" -> 5.0
+                "MOONSHOT" -> 28.0
+                else -> 12.0
+            } * sheet.tpMult.coerceIn(0.75, 1.35)
+            val sl = when (laneKey) {
+                "TREASURY", "CASHGEN" -> -4.0
+                "BLUECHIP", "BLUE_CHIP" -> -6.0
+                else -> -8.0
+            }
+            val reason = "TOOLKIT_GOOD_LANE_BRIDGE_6022 setup=$setup chart=${sheet.chartPattern.take(40)} conf=${conf.toInt()} votes=${sheet.laneVotes.joinToString("/").take(60)} blocked=${blockedReason.take(80)}"
+            try {
+                PipelineHealthCollector.labelInc("TOOLKIT_GOOD_LANE_BRIDGE_6022")
+                PipelineHealthCollector.labelInc("TOOLKIT_BRIDGE_${laneKey}")
+                ForensicLogger.lifecycle("TOOLKIT_GOOD_LANE_BRIDGE_6022", "mint=${ts.mint.take(10)} symbol=${ts.symbol} lane=$laneKey score=$score size=${"%.3f".format(size)} $reason action=send_to_fdg")
+            } catch (_: Throwable) {}
+            ToolkitGoodLaneBridge6022(laneKey, score, size, tp, sl, reason)
+        } catch (_: Throwable) { null }
+    }
+
     private fun laneQualifiedBuyDecision(
         base: com.lifecyclebot.data.CandidateDecision,
         lane: String,
@@ -18156,6 +18216,16 @@ if (hotExitHandledSweep) {
                             priceDex = ts.lastPriceDex,
                             tokenAgeMinutes = tokenAge,
                         )
+                        val treasuryBridge6022 = if (!treasurySignal.shouldEnter) toolkitGoodLaneBridge6022(ts, "TREASURY", treasurySignal.reason) else null
+                        val treasurySignal6022 = if (treasuryBridge6022 != null) treasurySignal.copy(
+                            shouldEnter = true,
+                            positionSizeSol = treasuryBridge6022.sizeSol,
+                            takeProfitPct = treasuryBridge6022.tpPct,
+                            stopLossPct = treasuryBridge6022.slPct,
+                            confidence = maxOf(treasurySignal.confidence, treasuryBridge6022.score),
+                            reason = treasuryBridge6022.reason,
+                            entryScore = maxOf(treasurySignal.entryScore, treasuryBridge6022.score),
+                        ) else treasurySignal
 
                         // V5.0.5999 — WIRED: TreasuryScannerFeed producer.
                         // Publish this token to the dedicated Treasury/CashGen
@@ -18257,9 +18327,9 @@ if (hotExitHandledSweep) {
                         } catch (_: Exception) { false }
                         val dumpBlocks = hasDumpSignal && !dumpBootstrapBypass
                         // V5.9: Terminal V3 rejects are globally binding — Treasury cannot override them.
-                        // Previously v3HardReject only gated forceBootstrapEntry, not treasurySignal.shouldEnter.
+                        // Previously v3HardReject only gated forceBootstrapEntry, not treasurySignal6022.shouldEnter.
                         // TOO_OLD / INELIGIBLE / ZERO_LIQUIDITY rejections from V3|ELIGIBILITY must block all layers.
-                        var shouldEnter = !v3HardReject && !dumpBlocks && (treasurySignal.shouldEnter || (com.lifecyclebot.engine.RuntimeModeAuthority.isPaper() && forceBootstrapEntry))
+                        var shouldEnter = !v3HardReject && !dumpBlocks && (treasurySignal6022.shouldEnter || (com.lifecyclebot.engine.RuntimeModeAuthority.isPaper() && forceBootstrapEntry))
                         var treasuryBlockedReason: String? = null
 
                         // V5.9.1091 — Treasury is only ONE lane. Its private skip
@@ -18278,9 +18348,9 @@ if (hotExitHandledSweep) {
                         // V5.0.4021 — bootstrap score gate is paper-only. Live adapts
                         // from trade 1 via live feedback and deterministic proof.
                         if (shouldEnter && com.lifecyclebot.engine.RuntimeModeAuthority.isPaper() && !FreeRangeMode.isWideOpen() &&
-                            com.lifecyclebot.v3.scoring.FluidLearningAI.shouldBlockBootstrapTrade(treasurySignal.confidence)) {
-                            treasuryBlockedReason = "PAPER_BOOTSTRAP_BLOCKED_score_${treasurySignal.confidence}"
-                            ErrorLogger.debug("BotService", "💰 [TREASURY] ${ts.symbol} | PAPER_BOOTSTRAP_BLOCKED | score=${treasurySignal.confidence} | ${com.lifecyclebot.v3.scoring.FluidLearningAI.getBootstrapStatus()} — yielding to other lanes")
+                            com.lifecyclebot.v3.scoring.FluidLearningAI.shouldBlockBootstrapTrade(treasurySignal6022.confidence)) {
+                            treasuryBlockedReason = "PAPER_BOOTSTRAP_BLOCKED_score_${treasurySignal6022.confidence}"
+                            ErrorLogger.debug("BotService", "💰 [TREASURY] ${ts.symbol} | PAPER_BOOTSTRAP_BLOCKED | score=${treasurySignal6022.confidence} | ${com.lifecyclebot.v3.scoring.FluidLearningAI.getBootstrapStatus()} — yielding to other lanes")
                             shouldEnter = false
                         }
 
@@ -18348,9 +18418,9 @@ if (hotExitHandledSweep) {
                             // so each bleeder costs ~1/3 while the outcome is still
                             // recorded. Bootstrap-band danger never qualifies (sample<20).
                             // Computed here (depends only on rawSignalScore +
-                            // treasurySignal.confidence, both in scope); the later
+                            // treasurySignal6022.confidence, both in scope); the later
                             // telemetry block reuses these same vals.
-                            val _trsScore = rawSignalScore.coerceAtLeast(treasurySignal.confidence).coerceIn(0, 100)
+                            val _trsScore = rawSignalScore.coerceAtLeast(treasurySignal6022.confidence).coerceIn(0, 100)
                             val _trsIsDanger = try {
                                 com.lifecyclebot.engine.LosingPatternMemory.isDangerZone("TREASURY", _trsScore)
                             } catch (_: Throwable) { false }
@@ -18417,12 +18487,12 @@ if (hotExitHandledSweep) {
                                     PipelineHealthCollector.labelInc("TREASURY_BRAIN_VERDICT_5999_${brainVerdict.category}")
                                 } catch (_: Throwable) {}
                             }
-                            val adjustedSize = (treasurySignal.positionSizeSol * bootstrapMultiplier * dangerSizeMult * _trsExpectancyMult * _trsCalMult * brainVerdict.sizeMultiplier).coerceAtLeast(treasuryMinSize)
+                            val adjustedSize = (treasurySignal6022.positionSizeSol * bootstrapMultiplier * dangerSizeMult * _trsExpectancyMult * _trsCalMult * brainVerdict.sizeMultiplier).coerceAtLeast(treasuryMinSize)
                             
                             // V5.2.8 FIX: If bootstrap override forced entry, use default TP/SL values
                             // When Treasury rejects, it returns 0% TP which causes immediate exits!
-                            val effectiveTpPct = if (treasurySignal.takeProfitPct <= 0.0) 4.0 else treasurySignal.takeProfitPct
-                            val effectiveSlPct = if (treasurySignal.stopLossPct >= 0.0) -4.0 else treasurySignal.stopLossPct
+                            val effectiveTpPct = if (treasurySignal6022.takeProfitPct <= 0.0) 4.0 else treasurySignal6022.takeProfitPct
+                            val effectiveSlPct = if (treasurySignal6022.stopLossPct >= 0.0) -4.0 else treasurySignal6022.stopLossPct
                             
                             // ═══════════════════════════════════════════════════════════════════
                             // V5.0: TRADE AUTHORIZER - MUST pass before ANY execution
@@ -18453,8 +18523,8 @@ if (hotExitHandledSweep) {
                             val treasuryFdg = try {
                                 FinalDecisionGate.evaluate(
                                     ts = ts,
-                                    candidate = laneQualifiedBuyDecision(decision, "TREASURY", confidenceFloor = treasurySignal.confidence.toDouble(), liquidityUsd = ts.lastLiquidityUsd, mintForProbe = ts.mint),
-                                    laneScore = treasurySignal.confidence.toDouble(),
+                                    candidate = laneQualifiedBuyDecision(decision, "TREASURY", confidenceFloor = treasurySignal6022.confidence.toDouble(), liquidityUsd = ts.lastLiquidityUsd, mintForProbe = ts.mint),
+                                    laneScore = treasurySignal6022.confidence.toDouble(),
                                     config = cfg,
                                     proposedSizeSol = adjustedSize,
                                     brain = executor.brain,
@@ -18491,8 +18561,8 @@ if (hotExitHandledSweep) {
                                 mint = ts.mint,
                                 symbol = ts.symbol,
                                 score = treasuryScore,  // V5.2: Use Treasury's score
-                                confidence = treasurySignal.confidence.toDouble(),  // V5.2: Use Treasury's confidence
-                                quality = if (treasurySignal.confidence >= 70) "B" else "C",  // V5.2: Derive quality from confidence
+                                confidence = treasurySignal6022.confidence.toDouble(),  // V5.2: Use Treasury's confidence
+                                quality = if (treasurySignal6022.confidence >= 70) "B" else "C",  // V5.2: Derive quality from confidence
                                 isPaperMode = cfg.paperMode,
                                 requestedBook = TradeAuthorizer.ExecutionBook.TREASURY,
                                 rugcheckScore = ts.safety.rugcheckScore.takeIf { it >= 0 } ?: 100,
@@ -18545,9 +18615,9 @@ if (hotExitHandledSweep) {
                                 
                                 ErrorLogger.info("BotService", "💰 [TREASURY] ${ts.symbol} | ENTER$bootstrapTag | " +
                                     "size=${adjustedSize.fmt(3)} SOL (${(bootstrapMultiplier*100).toInt()}%) | " +
-                                    "TP=${treasurySignal.takeProfitPct}% | " +
+                                    "TP=${treasurySignal6022.takeProfitPct}% | " +
                                     "treasuryEntry=$treasuryEntryPrice | " +
-                                    "mode=${treasurySignal.mode}")
+                                    "mode=${treasurySignal6022.mode}")
                                 
                                 // V5.7.8: In LIVE mode, verify actual wallet can fund the trade
                                 val canFundLive = if (!cfg.paperMode) {
@@ -18607,7 +18677,7 @@ if (hotExitHandledSweep) {
                                     positionSol = adjustedSize,
                                     takeProfitPct = effectiveTpPct,   // V5.2.8: Use effective (non-zero) TP
                                     stopLossPct = effectiveSlPct,     // V5.2.8: Use effective SL
-                                    entryScore = treasurySignal.entryScore,  // V5.9.436
+                                    entryScore = treasurySignal6022.entryScore,  // V5.9.436
                                 )
                                 
                                 // V5.6.8 FIX: Notify V3 exposure guards of new position
@@ -18724,26 +18794,35 @@ if (hotExitHandledSweep) {
                             v3Score = v3Score,
                             isMeme = false,
                         )
+                        val qualityBridge6022 = if (!qualitySignal.shouldEnter) toolkitGoodLaneBridge6022(ts, "QUALITY", qualitySignal.reason) else null
+                        val qualitySignal6022 = if (qualityBridge6022 != null) qualitySignal.copy(
+                            shouldEnter = true,
+                            positionSizeSol = qualityBridge6022.sizeSol,
+                            takeProfitPct = qualityBridge6022.tpPct,
+                            stopLossPct = qualityBridge6022.slPct,
+                            reason = qualityBridge6022.reason,
+                            qualityScore = maxOf(qualitySignal.qualityScore, qualityBridge6022.score),
+                        ) else qualitySignal
                         
                         // V5.2.12: Log Quality evaluations for debugging
-                        if (qualitySignal.shouldEnter) {
-                            ErrorLogger.info("BotService", "⭐ [QUALITY EVAL] ${ts.symbol} | SHOULD_ENTER | score=${qualitySignal.qualityScore}")
+                        if (qualitySignal6022.shouldEnter) {
+                            ErrorLogger.info("BotService", "⭐ [QUALITY EVAL] ${ts.symbol} | SHOULD_ENTER | score=${qualitySignal6022.qualityScore}")
                         } else {
                             // V5.9.116: Promote from debug → throttled info so user
                             // actually sees WHY Quality never fires.
                             logLayerSkip("⭐ QUALITY", ts.symbol, ts.mint,
-                                "${qualitySignal.reason} | mcap=\$${ts.lastMcap.toInt()} liq=\$${ts.lastLiquidityUsd.toInt()} age=${qualityTokenAgeMinutes.toInt()}min")
+                                "${qualitySignal6022.reason} | mcap=\$${ts.lastMcap.toInt()} liq=\$${ts.lastLiquidityUsd.toInt()} age=${qualityTokenAgeMinutes.toInt()}min")
                         }
                         
-                        if (qualitySignal.shouldEnter) {
+                        if (qualitySignal6022.shouldEnter) {
                             // V5.9.688 — FDG gate for Quality path
                             val qualityFdg = try {
                                 FinalDecisionGate.evaluate(
                                     ts = ts,
-                                    candidate = laneQualifiedBuyDecision(decision, "QUALITY", confidenceFloor = qualitySignal.qualityScore.toDouble(), liquidityUsd = ts.lastLiquidityUsd, mintForProbe = ts.mint),
-                                    laneScore = qualitySignal.qualityScore.toDouble(),
+                                    candidate = laneQualifiedBuyDecision(decision, "QUALITY", confidenceFloor = qualitySignal6022.qualityScore.toDouble(), liquidityUsd = ts.lastLiquidityUsd, mintForProbe = ts.mint),
+                                    laneScore = qualitySignal6022.qualityScore.toDouble(),
                                     config = cfg,
-                                    proposedSizeSol = qualitySignal.positionSizeSol,
+                                    proposedSizeSol = qualitySignal6022.positionSizeSol,
                                     brain = executor.brain,
                                     tradingModeTag = try { ModeSpecificGates.fromTradingMode("QUALITY") } catch (_: Exception) { null },
                                 )
@@ -18776,7 +18855,7 @@ if (hotExitHandledSweep) {
                                 mint = ts.mint,
                                 symbol = ts.symbol,
                                 layer = "QUALITY",
-                                sizeSol = qualitySignal.positionSizeSol,
+                                sizeSol = qualitySignal6022.positionSizeSol,
                                 paperMode = cfg.paperMode,
                                 rugScore = ts.safety.rugcheckScore,
                                 liquidityUsd = ts.lastLiquidityUsd,
@@ -18787,23 +18866,23 @@ if (hotExitHandledSweep) {
                             if (canExecute) {
                                 ErrorLogger.info("BotService", "⭐ [QUALITY] ${ts.symbol} | ENTER | " +
                                     "mcap=\$${(ts.lastMcap/1000).toInt()}K | " +
-                                    "score=${qualitySignal.qualityScore} | " +
-                                    "size=${qualitySignal.positionSizeSol.fmt(3)} SOL")
+                                    "score=${qualitySignal6022.qualityScore} | " +
+                                    "size=${qualitySignal6022.positionSizeSol.fmt(3)} SOL")
                                 
                                 // V5.9.189: Use QualityTraderAI's own fluid TP (15-50%)
                                 // NOT 4-8% overrides — those make losses > wins structurally
                                 // Risk:reward must be at least 2:1 (TP >= 2x SL)
-                                val qualityTp = qualitySignal.takeProfitPct.coerceAtLeast(
-                                    kotlin.math.abs(qualitySignal.stopLossPct) * 2.0  // V5.0.4219: TP floor must use absolute loss distance
+                                val qualityTp = qualitySignal6022.takeProfitPct.coerceAtLeast(
+                                    kotlin.math.abs(qualitySignal6022.stopLossPct) * 2.0  // V5.0.4219: TP floor must use absolute loss distance
                                 )
 
                                 // Execute Quality buy (reuse BlueChip executor pattern)
                                 val qualityOpened = executor.blueChipBuy(
                                     ts = ts,
-                                    sizeSol = qualitySignal.positionSizeSol,
+                                    sizeSol = qualitySignal6022.positionSizeSol,
                                     walletSol = effectiveBalance,
                                     takeProfitPct = qualityTp,
-                                    stopLossPct = qualitySignal.stopLossPct,
+                                    stopLossPct = qualitySignal6022.stopLossPct,
                                     wallet = wallet,
                                     isPaper = com.lifecyclebot.engine.RuntimeModeAuthority.isPaper(),  // V5.9.1563 — runtime authority, not stale cfg
                                     // V5.9.386 — tag the BUY trade as QUALITY in the
@@ -18836,12 +18915,12 @@ if (hotExitHandledSweep) {
                                         mint = ts.mint,
                                         symbol = ts.symbol,
                                         entryPrice = ts.ref,
-                                        entrySol = qualitySignal.positionSizeSol,
+                                        entrySol = qualitySignal6022.positionSizeSol,
                                         entryTime = System.currentTimeMillis(),
                                         entryMcap = ts.lastMcap,
                                         takeProfitPct = qualityTp,
-                                        stopLossPct = qualitySignal.stopLossPct,
-                                        entryScore = qualitySignal.qualityScore,  // V5.9.436
+                                        stopLossPct = qualitySignal6022.stopLossPct,
+                                        entryScore = qualitySignal6022.qualityScore,  // V5.9.436
                                     )
                                 )
                                 
@@ -18910,23 +18989,33 @@ if (hotExitHandledSweep) {
                             momentum = ts.momentum ?: 0.0,
                             volatility = ts.volatility ?: 0.0
                         )
+                        val blueChipBridge6022 = if (!blueChipSignal.shouldEnter) toolkitGoodLaneBridge6022(ts, "BLUE_CHIP", blueChipSignal.reason) else null
+                        val blueChipSignal6022 = if (blueChipBridge6022 != null) blueChipSignal.copy(
+                            shouldEnter = true,
+                            positionSizeSol = blueChipBridge6022.sizeSol,
+                            takeProfitPct = blueChipBridge6022.tpPct,
+                            stopLossPct = blueChipBridge6022.slPct,
+                            confidence = maxOf(blueChipSignal.confidence, blueChipBridge6022.score),
+                            reason = blueChipBridge6022.reason,
+                            entryScore = maxOf(blueChipSignal.entryScore, blueChipBridge6022.score),
+                        ) else blueChipSignal
                         
                         // V5.2.12: Log BlueChip evaluations for debugging
-                        if (blueChipSignal.shouldEnter) {
-                            ErrorLogger.info("BotService", "🔵 [BLUECHIP EVAL] ${ts.symbol} | SHOULD_ENTER | confidence=${blueChipSignal.confidence}")
+                        if (blueChipSignal6022.shouldEnter) {
+                            ErrorLogger.info("BotService", "🔵 [BLUECHIP EVAL] ${ts.symbol} | SHOULD_ENTER | confidence=${blueChipSignal6022.confidence}")
                         } else {
-                            ErrorLogger.debug("BotService", "🔵 [BLUECHIP EVAL] ${ts.symbol} | SKIP | ${blueChipSignal.reason} | mcap=$${(ts.lastMcap/1_000_000).toInt()}M liq=$${ts.lastLiquidityUsd.toInt()}")
+                            ErrorLogger.debug("BotService", "🔵 [BLUECHIP EVAL] ${ts.symbol} | SKIP | ${blueChipSignal6022.reason} | mcap=$${(ts.lastMcap/1_000_000).toInt()}M liq=$${ts.lastLiquidityUsd.toInt()}")
                         }
                         
-                        if (blueChipSignal.shouldEnter) {
+                        if (blueChipSignal6022.shouldEnter) {
                             // V5.9.688 — FDG gate for BlueChip path
                             val blueChipFdg = try {
                                 FinalDecisionGate.evaluate(
                                     ts = ts,
-                                    candidate = laneQualifiedBuyDecision(decision, "BLUE_CHIP", confidenceFloor = blueChipSignal.confidence.toDouble(), liquidityUsd = ts.lastLiquidityUsd, mintForProbe = ts.mint),
-                                    laneScore = blueChipSignal.confidence.toDouble(),
+                                    candidate = laneQualifiedBuyDecision(decision, "BLUE_CHIP", confidenceFloor = blueChipSignal6022.confidence.toDouble(), liquidityUsd = ts.lastLiquidityUsd, mintForProbe = ts.mint),
+                                    laneScore = blueChipSignal6022.confidence.toDouble(),
                                     config = cfg,
-                                    proposedSizeSol = blueChipSignal.positionSizeSol,
+                                    proposedSizeSol = blueChipSignal6022.positionSizeSol,
                                     brain = executor.brain,
                                     tradingModeTag = try { ModeSpecificGates.fromTradingMode("BLUE_CHIP") } catch (_: Exception) { null },
                                 )
@@ -18960,7 +19049,7 @@ if (hotExitHandledSweep) {
                                 mint = ts.mint,
                                 symbol = ts.symbol,
                                 layer = "BLUE_CHIP",
-                                sizeSol = blueChipSignal.positionSizeSol,
+                                sizeSol = blueChipSignal6022.positionSizeSol,
                                 paperMode = cfg.paperMode,
                                 rugScore = ts.safety.rugcheckScore,
                                 liquidityUsd = ts.lastLiquidityUsd,
@@ -18978,16 +19067,16 @@ if (hotExitHandledSweep) {
 
                                 ErrorLogger.info("BotService", "🔵 [BLUE CHIP] ${ts.symbol} | ENTER | " +
                                     "mcap=\$${(ts.lastMcap/1_000_000).fmt(2)}M | " +
-                                    "size=${blueChipSignal.positionSizeSol.fmt(3)} SOL | " +
+                                    "size=${blueChipSignal6022.positionSizeSol.fmt(3)} SOL | " +
                                     "TP=$blueChipTp% (conf=$v3Confidence)")
 
                                 // Execute Blue Chip buy
                                 val blueChipOpened = executor.blueChipBuy(
                                     ts = ts,
-                                    sizeSol = blueChipSignal.positionSizeSol,
+                                    sizeSol = blueChipSignal6022.positionSizeSol,
                                     walletSol = effectiveBalance,
                                     takeProfitPct = blueChipTp,
-                                    stopLossPct = blueChipSignal.stopLossPct,
+                                    stopLossPct = blueChipSignal6022.stopLossPct,
                                     wallet = wallet,
                                     isPaper = com.lifecyclebot.engine.RuntimeModeAuthority.isPaper(),  // V5.9.1563 — runtime authority, not stale cfg
                                     // V5.9.1148 — FinalExecutionPermit above already passed
@@ -19012,14 +19101,14 @@ if (hotExitHandledSweep) {
                                         mint = ts.mint,
                                         symbol = ts.symbol,
                                         entryPrice = ts.ref.takeIf { it > 0 } ?: ts.lastPrice.takeIf { it > 0 } ?: ts.position.entryPrice,
-                                        entrySol = blueChipSignal.positionSizeSol,
+                                        entrySol = blueChipSignal6022.positionSizeSol,
                                         entryTime = System.currentTimeMillis(),
                                         marketCapUsd = ts.lastMcap,
                                         liquidityUsd = ts.lastLiquidityUsd,
                                         isPaper = com.lifecyclebot.engine.RuntimeModeAuthority.isPaper(),  // V5.9.1563 — runtime authority, not stale cfg
                                         takeProfitPct = blueChipTp,
-                                        stopLossPct = blueChipSignal.stopLossPct,
-                                        entryScore = blueChipSignal.entryScore,  // V5.9.436
+                                        stopLossPct = blueChipSignal6022.stopLossPct,
+                                        entryScore = blueChipSignal6022.entryScore,  // V5.9.436
                                     )
                                 )
                                 
@@ -19039,7 +19128,7 @@ if (hotExitHandledSweep) {
                                 FinalExecutionPermit.releaseExecution(ts.mint)
                                 
                                 addLog("🔵 BLUE CHIP BUY: ${ts.symbol} | \$${(ts.lastMcap/1_000_000).fmt(1)}M mcap | " +
-                                    "${blueChipSignal.positionSizeSol.fmt(3)} SOL | " +
+                                    "${blueChipSignal6022.positionSizeSol.fmt(3)} SOL | " +
                                     "${if (cfg.paperMode) "PAPER" else "LIVE"}", ts.mint)
                             } else {
                                 ErrorLogger.debug("BotService", "🔵 [BLUE CHIP] ${ts.symbol} | EXECUTION_BLOCKED | another layer executing")
