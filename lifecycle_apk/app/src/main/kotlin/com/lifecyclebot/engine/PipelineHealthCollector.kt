@@ -155,6 +155,8 @@ object PipelineHealthCollector {
     fun execLiveAttemptCount(): Long = execLiveAttempt.get()
     fun execLiveBuyOkCount(): Long = execLiveBuyOk.get()
     fun execLiveSellOkCount(): Long = execLiveSellOk.get()
+    fun execLiveSellFailCount(): Long = execLiveSellFail.get()
+    fun execLiveSellPendingFinalityCount(): Long = execLiveSellPendingFinality.get()
     private val execLiveSellOk   = AtomicLong(0L)
     private val execLiveSellFail = AtomicLong(0L)
     private val execLiveSellPendingFinality = AtomicLong(0L)

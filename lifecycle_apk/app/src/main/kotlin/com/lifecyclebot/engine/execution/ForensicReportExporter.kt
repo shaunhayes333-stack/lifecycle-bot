@@ -89,9 +89,13 @@ object ForensicReportExporter {
     /** Plain-text fallback summary for the in-app diagnostics row. */
     fun textSummary(): String {
         val recon = PositionWalletReconciler.snapshot()
+        val sellChecked6037 = try { com.lifecyclebot.engine.sell.SellReconciler.totalChecked } catch (_: Throwable) { 0L }
+        val sellTicks6037 = try { com.lifecyclebot.engine.sell.SellReconciler.totalTicks } catch (_: Throwable) { 0L }
+        val liveWalletChecked6037 = try { com.lifecyclebot.engine.sell.LiveWalletReconciler.totalChecked().toLong() } catch (_: Throwable) { 0L }
+        val effectiveRecon6037 = maxOf(recon.totalChecked.toLong(), sellChecked6037, liveWalletChecked6037)
         val tracker = try { HostWalletTokenTracker.getStats() } catch (_: Throwable) { "n/a" }
         val groups = try { LiveTradeLogStore.groupedByTrade().size } catch (_: Throwable) { 0 }
-        return "Recon: total=${recon.totalChecked} healthy=${recon.healthy} " +
+        return "Recon: effective=$effectiveRecon6037 position=${recon.totalChecked} sell=$sellChecked6037 liveWallet=$liveWalletChecked6037 ticks=$sellTicks6037 healthy=${recon.healthy} " +
                "phantoms=${recon.phantoms} noMint=${recon.noMint} grace=${recon.grace} | " +
                "Tracker: $tracker | TradeLog groups: $groups"
     }

@@ -23,6 +23,15 @@ object OpenPnlSanity {
         val reason: String = "",
     )
 
+    data class PricingTruth(
+        val markPrice: Double,
+        val pnlPct: Double,
+        val pnlSol: Double,
+        val trusted: Boolean,
+        val reason: String,
+        val source: String,
+    )
+
     fun inspect(
         entryPrice: Double,
         currentPrice: Double,
@@ -86,6 +95,18 @@ object OpenPnlSanity {
             context = context,
             emit = emit,
         )
+
+    /** V5.0.6037 — canonical open pricing truth for reports/UI/journal-facing displays.
+     *  All open-position surfaces must consume this result instead of recomputing
+     *  PnL with local formulas or downgrading route state independently. */
+    fun pricingTruth(ts: TokenState, context: String = "", emit: Boolean = true): PricingTruth {
+        val mark = ts.ref
+        val verdict = inspect(ts, context = context.ifBlank { "pricing_truth/${ts.symbol}/${ts.mint.take(8)}" }, emit = emit)
+        val pnlPct = if (verdict.ok) verdict.pnlPct else 0.0
+        val pnlSol = if (verdict.ok) ts.position.costSol * pnlPct / 100.0 else 0.0
+        val src = ts.lastPriceSource.ifBlank { "UNKNOWN" }
+        return PricingTruth(mark, pnlPct, pnlSol, verdict.ok, verdict.reason, src)
+    }
 
     private fun reject(reason: String, entry: Double, current: Double, context: String, emit: Boolean): Verdict {
         if (emit) {

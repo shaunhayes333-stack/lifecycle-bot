@@ -232,10 +232,9 @@ object SellReconciler {
         lastTickAtMs = System.currentTimeMillis()
 
         // V5.0.6035 — SELF-HEAL RAW WALLET BEFORE TRACKER-HELD CHECK.
-        // Old order was circular:
-        //   open = HostWalletTokenTracker.getOpenTrackedPositions()
-        //   held = HostWalletTokenTracker.getActuallyHeldMints()
-        //   if (open.isEmpty()) return
+        // INDETERMINATE IS NOT EMPTY: wallet-read failures still skip zero-close.
+        // Old order was circular: tracker-open check + tracker-held check ran before
+        // raw wallet adoption, then open.isEmpty() returned before any wallet read.
         // If Android/Doze dropped status/tracker state while Phantom still held bags,
         // both tracker-derived sets were empty and this reconciler never read the raw
         // wallet, so sells stayed blind and buy-side guards saw dirty drift. Pull one

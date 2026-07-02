@@ -204,24 +204,27 @@ object ReportingHub {
         var trustedOpenCount = 0
         val top = open.asSequence().map { ts ->
             val p = ts.position
-            val verdict = try { OpenPnlSanity.inspect(ts, "ReportingHub.money_path_6029/${ts.symbol}/${ts.mint.take(8)}", emit = false) } catch (_: Throwable) { OpenPnlSanity.Verdict(false, reason = "INSPECT_THROW") }
-            val pnlPct = if (verdict.ok) verdict.pnlPct else 0.0
-            val pnlSol = if (verdict.ok) p.costSol * pnlPct / 100.0 else 0.0
-            if (verdict.ok && !p.isPaperPosition && pnlSol > 0.0) { trustedOpenPnl += pnlSol; trustedOpenCount += 1 }
+            // V5.0.6037: no local price/PnL math here; consume canonical pricing truth below.
+            val truth6037 = try { OpenPnlSanity.pricingTruth(ts, "ReportingHub.money_path_6037/${ts.symbol}/${ts.mint.take(8)}", emit = false) } catch (_: Throwable) { OpenPnlSanity.PricingTruth(ts.ref, 0.0, 0.0, false, "PRICING_TRUTH_THROW", ts.lastPriceSource.ifBlank { "UNKNOWN" }) }
             val route = try { RealPriceLock.lastRouteTruth(ts.mint) } catch (_: Throwable) { null }
+            val pnlPct = truth6037.pnlPct
+            val pnlSol = truth6037.pnlSol
+            if (truth6037.trusted && !p.isPaperPosition && pnlSol > 0.0) { trustedOpenPnl += pnlSol; trustedOpenCount += 1 }
             val routeTxt = when {
                 route != null -> "route=${route.impliedRatio.fmt1()}x/${if (route.ok) "ok" else "claim_mismatch"}"
-                pnlPct >= 500.0 -> "route=pending"
-                else -> "route=normal_band"
+                else -> "route=canonical_mark_source:${truth6037.source}"
             }
-            val basisTxt = if (verdict.ok) "basis=trusted" else "basis=${verdict.reason.ifBlank { "untrusted" }}"
-            Triple(pnlPct, pnlSol, "${ts.symbol.ifBlank { ts.mint.take(6) }} lane=${p.tradingMode.ifBlank { "?" }} ${basisTxt} ${routeTxt} open=${p.costSol.fmt4()} pnl=${pnlPct.fmt1()}%/${pnlSol.fmt4()} SOL")
+            val basisTxt = if (truth6037.trusted) "basis=trusted" else "basis=${truth6037.reason.ifBlank { "untrusted" }}"
+            Triple(pnlPct, pnlSol, "${ts.symbol.ifBlank { ts.mint.take(6) }} lane=${p.tradingMode.ifBlank { "?" }} ${basisTxt} ${routeTxt} open=${p.costSol.fmt4()} mark=${truth6037.markPrice} pnl=${pnlPct.fmt1()}%/${pnlSol.fmt4()} SOL")
         }.sortedByDescending { it.first }.take(5).toList()
         appendLine("wallet=${wallet.fmt4()} SOL hostOpen=${open.count { !it.position.isPaperPosition }} trustedOpen=${trustedOpenPnl.fmt4()} SOL runners=$trustedOpenCount note=open_unrealized_not_wallet_until_sell_finality")
         if (pipe != null) {
             fun label(k: String): Long = pipe.labelCounts[k] ?: 0L
             appendLine("harvest: walletGrowth=${label("WALLET_GROWTH_HARVEST_TRIGGERED_6028")} routeReal=${label("ROUTE_REAL_CLAIM_MISMATCH_HARVEST_6029")} priceUnreal=${label("WALLET_GROWTH_HARVEST_DEFERRED_PRICE_UNREAL_6028") + label("ULTRA_RUNNER_BANK_DEFERRED_PRICE_UNREAL")} walletNull=${label("WALLET_GROWTH_HARVEST_DEFERRED_WALLET_NULL_6028")}")
-            appendLine("sell finality: liveSellOk=${label("LIVE_SELL_OK")} pending=${label("LIVE_SELL_PENDING") + label("SELL_FINALITY_PENDING_RETRY_NO_PROCEEDS")} fail=${label("LIVE_SELL_FAIL")}")
+            val liveSellOk6037 = try { PipelineHealthCollector.execLiveSellOkCount() } catch (_: Throwable) { label("LIVE_SELL_OK") + label("EXEC/LIVE_SELL_OK") + label("LIFECYCLE/SELL_FINALIZED") }
+            val liveSellPending6037 = try { PipelineHealthCollector.execLiveSellPendingFinalityCount() } catch (_: Throwable) { label("LIVE_SELL_PENDING") + label("SELL_FINALITY_PENDING_RETRY") + label("SELL_FINALITY_PENDING_RETRY_NO_PROCEEDS") }
+            val liveSellFail6037 = try { PipelineHealthCollector.execLiveSellFailCount() } catch (_: Throwable) { label("LIVE_SELL_FAIL") + label("EXEC/LIVE_SELL_FAIL") }
+            appendLine("sell finality: liveSellOk=$liveSellOk6037 pending=$liveSellPending6037 fail=$liveSellFail6037 source=PipelineHealthCollector_event_counters_6037")
         }
         if (top.isEmpty()) appendLine("top opens: none") else {
             appendLine("top opens:")
