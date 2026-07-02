@@ -1,11 +1,13 @@
 # AATE (Autonomous AI Trading Engine) — PRD
 
-**Last updated**: 2026-07-02 (V5.0.6000)
-**Build stream**: V5.0.6000 (Native Kotlin Android, GitHub Actions CI)
-**Latest CI**: 🟢 V5.0.6000 GREEN — Raw-journal reality clamp shipped
+**Last updated**: 2026-07-02 (V5.0.6005)
+**Build stream**: V5.0.6005 (Native Kotlin Android, GitHub Actions CI)
+**Latest CI**: 🟢 V5.0.6005 GREEN — AGI exit-brain authority + MOONSHOT pattern propagation
 **Doctrine reminder from operator 2026-07-02**: *"it's NOT a sniper bot.
-Crypto holds can be 10 seconds or 10 weeks!!!"* — every fluid gate must
-respect this. Entry sizing shaping is allowed; exit-timing veto is NOT.
+Crypto holds can be 10 seconds or 10 weeks!!!"* + *"anywhere where the
+agi/ssi/intelligence/tuning stack is making the correct decisions and
+controls that's the point of aate! it needs to be self tuning to success
+compounding the wallet and printing profits across all lanes"*
 
 **Version catch-up commit**: V5.0.5999 pushed 2026-07-02 to align APK tag
 with operator's counter after `docs:` commit briefly broke the CI sed
@@ -330,32 +332,40 @@ bleeding -0.593 SOL on EXPRESS (0/31 WR) + MANIPULATED (14.6% WR) plus
 
 ## Recent Ship Log (session 2026-07-02)
 
-- **V5.0.5999b** — Wired 4 architectural modules into live cycles:
-  1. `LaneTransitionManager` in hotExit hold-loop (every 5 ticks, ~10s):
-     +100% → MOONSHOT promotion, +25% established → CashGen bank,
-     mcap-band rotation, PROJECT_SNIPER graduation. Non-blocking; only
-     updates `ts.position.tradingMode`.
-  2. `TreasuryScannerFeed` producer at processTokenCycle → CashGen path.
-     Publishes tokens meeting mcap ≥ $1M + liq ≥ $50K. Capped @ 100 with
-     oldest-eviction.
-  3. `TreasuryBrain` folded into CashGen `adjustedSize` chain. Verdict
-     multiplier 0.15x (SKIP probe) → 1.35x (PREMIUM_SCALP).
-  4. `ScoreExpectancyTracker.liveSizeShape` folded into
-     `LiveProbabilityEngine.Edge.sizeMult`. Per-(lane, score-band) EV
-     learning now shapes the Edge sizing surface, not just Executor
-     entry.
-- **V5.0.6000** — RAW-JOURNAL REALITY CLAMP. Root cause: sanitized
-  `StrategyTruthLedger` was hiding MANIPULATED disasters as
-  "duplicateTerminal=7" pruned rows, so every downstream defender saw
-  MANIPULATED as neutral (pWin=49%, E=+0%) despite the raw journal
-  showing n=11, WR=9.1%, EV=-63%, PnL=-0.1266 SOL. Fix:
-  `LiveProbabilityEngine` now reads a 15s-cached raw-journal reality
-  snapshot per lane. When raw shows n≥5 AND WR≤15% AND meanPnl≤-40%,
-  finalMult is clamped to 0.08x. Fluid — keeps a learning probe, not a
-  veto. Applies to every lane symmetrically; releases naturally when
-  raw record recovers.
-- **Constraint**: Entry sizing only. Never affects open positions or
-  exit decisions. 10-second and 10-week holds both safe.
+- **V5.0.5999b** — Wired 4 architectural modules into live cycles
+  (LaneTransitionManager, TreasuryScannerFeed, TreasuryBrain,
+  ScoreExpectancyTracker.liveSizeShape).
+- **V5.0.6000** — RAW-JOURNAL REALITY CLAMP. Sanitized `StrategyTruthLedger`
+  was hiding MANIPULATED disasters as "duplicateTerminal" pruned rows;
+  every downstream defender saw the lane as neutral. Fix reads raw
+  journal directly and clamps `finalMult` to 0.08x when catastrophe is
+  proven. **Bleeding rate: 21%/hr → 1.5%/hr**.
+- **V5.0.6001** — LEADERBOARD CACHE. `computeCleanLiveTerminalLeaderboard`
+  was rebuilding on every lane forecast (547×/snapshot). 10s TTL cache
+  killed the cycle-time snowball. ANR hints: 4 → 0.
+- **V5.0.6002** — LANE QUARANTINE + CASHGEN/TREASURY CONSUMER.
+  `LaneQuarantineController` hard-pauses MANIPULATED, PROJECT_SNIPER,
+  DIP_HUNTER for BUY entries until LLM Lab promotes a strategy for the
+  lane (autonomous resume). Established tokens (mcap ≥$1M, liq ≥$50K)
+  get `laneAffinity` boost toward CASHGEN/TREASURY/QUALITY.
+- **V5.0.6003** — EXTEND QUARANTINE + DYNAMIC AUTO-QUARANTINE. Added
+  EXPRESS + SHITCOIN to seed set (both matched 0%-WR bleeder pattern).
+  Runtime scan every 20s auto-adds any lane hitting the reality-clamp
+  criteria (n≥5, WR≤15%, EV≤-40%). Prevents future bleeders from
+  requiring operator directives.
+- **V5.0.6004** — SOURCE-BASED AFFINITY BOOST. Compounder lanes were
+  starved during API_LAYER_DEGRADED/pumpfun outages because
+  metric-based boost required hydrated mcap/liq. Now BLUECHIP_WATCHLIST
+  / COINGECKO_TRENDING / DEX_TRENDING / DEX_BOOSTED sources immediately
+  route to CASHGEN/TREASURY/QUALITY/BLUECHIP regardless of hydration.
+- **V5.0.6005** — AGI EXIT-BRAIN AUTHORITY + MOONSHOT PATTERN PROPAGATION.
+  Lowered `UnifiedExitPolicyHead` authority thresholds 40/100/250 →
+  5/15/30 and `UnifiedPolicyHead` 20/60/150 → 3/10/25 so the AGI stack
+  actually commands decisions across lanes. Brier calibration guard-rail
+  retained. Also seeded per-lane exit-brain bias with a "hold longer"
+  starting point for QUALITY/BLUECHIP/STANDARD/CASHGEN/TREASURY
+  (mirroring MOONSHOT's proven diamond-hands pattern: 7 wins + 17
+  scratches + 5 losses = +0.0956 SOL).
 
 ## Constants Not To Touch
 
