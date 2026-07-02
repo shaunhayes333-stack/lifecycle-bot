@@ -44,19 +44,24 @@ object LiveSizingProfile {
     // observed in the journal. We now (a) raise the absolute floors and
     // (b) clamp every live buy at the broadcast site so multipliers cannot
     // drop below the floor.
-    const val MIN_ENTRY_SOL: Double = 0.040     // was 0.025
-    const val DEFAULT_ENTRY_SOL: Double = 0.060 // was 0.040
-    const val STRONG_ENTRY_SOL: Double = 0.110  // was 0.070
-    const val ALPHA_ENTRY_SOL: Double = 0.180   // was 0.120
+    // V5.0.6018 — compound floor upgrade. Operator report: most live trades were
+    // still dollar-sized under a sub-1 SOL wallet, which makes 2x-5x daily
+    // compounding mathematically impossible even with great winners. Raise the
+    // live absolute floors and wallet-percent caps; hard safety, liquidity caps,
+    // wallet reserve and sell finality remain authoritative.
+    const val MIN_ENTRY_SOL: Double = 0.060     // was 0.040
+    const val DEFAULT_ENTRY_SOL: Double = 0.080 // was 0.060
+    const val STRONG_ENTRY_SOL: Double = 0.130  // was 0.110
+    const val ALPHA_ENTRY_SOL: Double = 0.200   // was 0.180
 
     // ── Wallet-percent sizing tiers ──
-    const val BASE_WALLET_PCT: Double = 0.030      // was 0.020 (3.0%)
-    const val STRONG_WALLET_PCT: Double = 0.060    // was 0.040 (6.0%)
-    const val ALPHA_WALLET_PCT: Double = 0.100     // was 0.075 (10.0%)
-    const val MAX_INITIAL_WALLET_PCT: Double = 0.120 // was 0.100
-    const val MAX_TOTAL_TOKEN_WALLET_PCT: Double = 0.220 // was 0.180
-    const val MAX_DEPLOYED_WALLET_PCT: Double = 0.700 // was 0.600
-    const val GAS_RESERVE_SOL: Double = 0.030      // was 0.075 (let small wallets enforce floor too)
+    const val BASE_WALLET_PCT: Double = 0.050      // was 0.030 (5.0%)
+    const val STRONG_WALLET_PCT: Double = 0.080    // was 0.060 (8.0%)
+    const val ALPHA_WALLET_PCT: Double = 0.120     // was 0.100 (12.0%)
+    const val MAX_INITIAL_WALLET_PCT: Double = 0.180 // was 0.120
+    const val MAX_TOTAL_TOKEN_WALLET_PCT: Double = 0.280 // was 0.220
+    const val MAX_DEPLOYED_WALLET_PCT: Double = 0.760 // was 0.700
+    const val GAS_RESERVE_SOL: Double = 0.025      // was 0.030 (small-wallet compounding without draining to zero)
 
     enum class Conviction { BASE, STRONG, ALPHA }
 
@@ -250,10 +255,10 @@ object LiveSizingProfile {
 
     // ─────────────────────────────────────────────────────────────────
     // Per-lane sizing overrides (Wave 2 / 4099)
-    //   MOONSHOT          : initial 2.0% / strong 3.5% / alpha 6.0% / max-total 16%
-    //   STANDARD          : minEntry 0.025, score-band sizing
-    //   WALLET_RECOVERED  : minEntry 0.040, alpha 0.150, proof-state-aware
-    //   BLUECHIP/QUALITY  : medium-conviction sizing (default tiers retained)
+    //   MOONSHOT          : initial 5.0% / strong 8.0% / alpha 12.0% / max-initial 18%
+    //   STANDARD          : initial 4.5% / strong 7.0% / alpha 11.0% / max-initial 16%
+    //   WALLET_RECOVERED  : minEntry 0.080, alpha 0.280, proof-state-aware
+    //   BLUECHIP/QUALITY  : compound-sized, no dollar trades
     // Exposed via laneCompoundFloor(); applyCompoundFloor() falls back to
     // the global tiers when the lane is unknown so siblings stay safe.
     // ─────────────────────────────────────────────────────────────────
@@ -275,16 +280,16 @@ object LiveSizingProfile {
         // strongSol, alphaSol, maxInitialWalletPct)
         val (lP, dS) = when (L) {
             "MOONSHOT", "SHITCOIN" -> Triple(
-                listOf(0.030, 0.055, 0.090), listOf(0.040, 0.060, 0.110, 0.170), 0.110
+                listOf(0.050, 0.080, 0.120), listOf(0.060, 0.080, 0.130, 0.200), 0.180
             ) to "moonshot"
             "STANDARD" -> Triple(
-                listOf(0.030, 0.055, 0.085), listOf(0.040, 0.055, 0.090, 0.150), 0.100
+                listOf(0.045, 0.070, 0.110), listOf(0.060, 0.075, 0.120, 0.180), 0.160
             ) to "standard"
             "WALLET_RECOVERED" -> Triple(
-                listOf(0.040, 0.080, 0.130), listOf(0.060, 0.110, 0.170, 0.220), 0.130
+                listOf(0.060, 0.100, 0.150), listOf(0.080, 0.130, 0.200, 0.280), 0.200
             ) to "wallet_recovered"
             "BLUECHIP", "DIP_HUNTER", "QUALITY" -> Triple(
-                listOf(0.035, 0.065, 0.100), listOf(0.045, 0.060, 0.110, 0.170), 0.110
+                listOf(0.050, 0.080, 0.120), listOf(0.060, 0.080, 0.130, 0.200), 0.180
             ) to "established"
             else -> Triple(
                 listOf(BASE_WALLET_PCT, STRONG_WALLET_PCT, ALPHA_WALLET_PCT),
@@ -330,7 +335,8 @@ object LiveSizingProfile {
      *    capped by walletSol × MAX_INITIAL_WALLET_PCT and (wallet - reserve).
      *
      * This guarantees that on a wallet ≥ 0.10 SOL the bot CAN NEVER enter
-     * with less than ~0.04 SOL ($5.60 at $140 SOL). Operator mandate:
+     * with less than the live compound floor when spendable balance supports it.
+     * Operator mandate:
      * "if it catching huge wins it needs to make big wins".
      */
     fun lastMileEntryFloor(baseSol: Double, walletSol: Double, isPaperMode: Boolean): Double {

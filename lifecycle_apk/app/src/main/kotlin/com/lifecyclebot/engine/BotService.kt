@@ -3386,10 +3386,18 @@ class BotService : Service() {
             val reqConf = (req.confidence ?: ts.lastV3Confidence ?: 0).coerceIn(0, 100)
             v3ZeroSignalProbe = reqScore <= 0 && reqConf <= 10
             execSol = if (v3ZeroSignalProbe) {
-                val probeSol = req.sizeSol.coerceAtMost(0.003).coerceAtLeast(0.001)
+                // V5.0.6018 — no more live dollar probes. A V3 zero-signal that is
+                // still allowed to execute must respect the live compounding floor;
+                // otherwise big winners cannot move a sub-1 SOL wallet. True bad
+                // candidates are handled by upstream hard safety/stage gates.
+                val probeSol = com.lifecyclebot.engine.LiveSizingProfile.lastMileEntryFloor(
+                    req.sizeSol.coerceAtLeast(0.001),
+                    walletSol,
+                    isPaperMode = false,
+                )
                 try {
-                    PipelineHealthCollector.labelInc("V3_ZERO_SIGNAL_DUST_PROBE_4164")
-                    ForensicLogger.lifecycle("V3_ZERO_SIGNAL_DUST_PROBE_4164", "mint=${ts.mint.take(10)} symbol=${ts.symbol} score=$reqScore conf=$reqConf band=${req.band ?: "UNKNOWN"} requested=${"%.4f".format(req.sizeSol)} exec=${"%.4f".format(probeSol)} action=probe_only_live_learning")
+                    PipelineHealthCollector.labelInc("V3_ZERO_SIGNAL_COMPOUND_FLOOR_6018")
+                    ForensicLogger.lifecycle("V3_ZERO_SIGNAL_COMPOUND_FLOOR_6018", "mint=${ts.mint.take(10)} symbol=${ts.symbol} score=$reqScore conf=$reqConf band=${req.band ?: "UNKNOWN"} requested=${"%.4f".format(req.sizeSol)} exec=${"%.4f".format(probeSol)} action=compound_floor_live_learning")
                 } catch (_: Throwable) {}
                 probeSol
             } else req.sizeSol
@@ -21880,12 +21888,19 @@ if (hotExitHandledSweep) {
                         // ═════════════════════════════════════════════════════
                         if (v3ControlsExecution) {
                             if (fdgDecision.canExecute() && fdgDecision.sizeSol > 0.0) {
-                                val probeSize = (fdgDecision.sizeSol * 0.5).coerceAtLeast(0.003)
+                                val rawProbeSize = (fdgDecision.sizeSol * 0.5).coerceAtLeast(0.003)
+                                val probeSize = if (!cfg.paperMode) {
+                                    com.lifecyclebot.engine.LiveSizingProfile.lastMileEntryFloor(
+                                        rawProbeSize,
+                                        effectiveBalance,
+                                        isPaperMode = false,
+                                    )
+                                } else rawProbeSize
                                 useV3Decision = true
                                 v3SizeSol = probeSize
-                                v3Thesis = "V3-WATCH-PROBE score=${result.score} conf=${result.confidence} (FDG=green, V3 shrunk 0.5×)"
-                                ErrorLogger.info("BotService", "⚡ V3 WATCH→PROBE: ${identity.symbol} | size=${probeSize.fmt(4)} SOL (FDG approved, V3 shrink 0.5×)")
-                                addLog("⚡ V3 WATCH→PROBE: ${identity.symbol} | score=${result.score} | ${probeSize.fmt(4)} SOL (0.5× FDG)", mint)
+                                v3Thesis = "V3-WATCH-COMPOUND-FLOOR score=${result.score} conf=${result.confidence} (FDG=green, V3 shrunk then floor-aware)"
+                                ErrorLogger.info("BotService", "⚡ V3 WATCH→COMPOUND: ${identity.symbol} | size=${probeSize.fmt(4)} SOL raw=${rawProbeSize.fmt(4)} (FDG approved)")
+                                addLog("⚡ V3 WATCH→COMPOUND: ${identity.symbol} | score=${result.score} | ${probeSize.fmt(4)} SOL", mint)
                             } else {
                                 addLog("⚡ V3 WATCH: ${identity.symbol} | score=${result.score} | FDG also declined (no trade)", mint)
                                 useV3Decision = false

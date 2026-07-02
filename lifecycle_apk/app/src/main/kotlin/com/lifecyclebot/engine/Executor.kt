@@ -9148,8 +9148,17 @@ class Executor(
                     if (!WalletPositionLock.canOpen("Meme", liveSol, walletSol)) {
                         val laneCapPenalty = LiveRestoreExecutionPolicy.fromRuntimeDrift(ts.lastLiquidityUsd).combine(LiveRestoreExecutionPolicy.fromLaneCap(ts.lastLiquidityUsd))
                         if (laneCapPenalty.reason != "NONE" && RuntimeModeAuthority.isLive()) {
-                            liveSol = (effSol * laneCapPenalty.sizeMultiplier).coerceIn(0.01, 0.025)
-                            try { ForensicLogger.lifecycle("LIVE_RESTORE_LANE_CAP_SOFT_ALLOW", "symbol=${ts.symbol} mint=${ts.mint.take(10)} from=${effSol.fmt(4)} to=${liveSol.fmt(4)} penalty=${laneCapPenalty.reason}") } catch (_: Throwable) {}
+                            // V5.0.6018 — this path ran AFTER doBuy.final sizing and
+                            // collapsed live buys back to 0.01-0.025 SOL, bypassing the
+                            // compounding floor. Keep the soft penalty, but re-apply the
+                            // last-mile floor and never increase beyond effSol.
+                            val shapedSol6018 = effSol * laneCapPenalty.sizeMultiplier
+                            liveSol = com.lifecyclebot.engine.LiveSizingProfile.lastMileEntryFloor(
+                                shapedSol6018,
+                                walletSol,
+                                isPaperMode = false,
+                            ).coerceAtMost(effSol)
+                            try { ForensicLogger.lifecycle("LIVE_RESTORE_LANE_CAP_COMPOUND_FLOOR_6018", "symbol=${ts.symbol} mint=${ts.mint.take(10)} from=${effSol.fmt(4)} shaped=${shapedSol6018.fmt(4)} to=${liveSol.fmt(4)} penalty=${laneCapPenalty.reason}") } catch (_: Throwable) {}
                         } else {
                             onLog("🔒 Exposure cap: ${ts.symbol} blocked (wallet ${WalletPositionLock.getExposurePct(walletSol).toInt()}% deployed)", tradeId.mint)
                             livePreAttemptHardReject(ts, effSol, "LIVE_BUY_REJECTED_HARD_BLOCK_EXPOSURE_CAP", "walletExposurePct=${WalletPositionLock.getExposurePct(walletSol).toInt()}")
