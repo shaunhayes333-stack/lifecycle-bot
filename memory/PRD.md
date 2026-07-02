@@ -1,8 +1,8 @@
 # AATE (Autonomous AI Trading Engine) — PRD
 
-**Last updated**: 2026-07-02 (V5.0.6005)
-**Build stream**: V5.0.6005 (Native Kotlin Android, GitHub Actions CI)
-**Latest CI**: 🟢 V5.0.6005 GREEN — AGI exit-brain authority + MOONSHOT pattern propagation
+**Last updated**: 2026-07-02 (V5.0.6011)
+**Build stream**: V5.0.6011 (Native Kotlin Android, GitHub Actions CI)
+**Latest CI**: 🟢 V5.0.6011 GREEN — P1 TRIAGE: MANIP overlay tightening + dust-probe route + phantom purge
 **Doctrine reminder from operator 2026-07-02**: *"it's NOT a sniper bot.
 Crypto holds can be 10 seconds or 10 weeks!!!"* + *"anywhere where the
 agi/ssi/intelligence/tuning stack is making the correct decisions and

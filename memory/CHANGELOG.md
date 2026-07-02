@@ -3,6 +3,62 @@
 Progressive change log. Newer entries on top. PRD.md holds the static problem
 statement + architecture; this file is the working log of fixes & decisions.
 
+## 2026-07-02 — V5.0.6011 🟢 CI GREEN — P1 TRIAGE BUNDLE
+
+**Three P1 fixes bundled after RCA (issues 2 & 3 from handoff + TokenWinMemory phantom purge).**
+
+1. **TokenSafetyChecker: MANIPULATED_ONLY overlay tightened** — prior condition
+   fired on ANY single risk flag (singleHolder OR unverified OR holderConc),
+   which caught nearly every fresh pump.fun launch because 'unverified' is
+   universal on new launches. With MANIPULATED lane V5.0.4588-quarantined,
+   ~27 legit candidates died per cycle. Now requires >=2 signals OR
+   (any 1 + redFlagCount>=3).
+
+2. **BotService: MANIP overlay dust-probe fallback** — new label
+   `MANIP_OVERLAY_DUST_PROBE_FALLBACK_6011` + `MANIP_OVERLAY_DUST_PROBE_SCORE_PENALTY_6011`.
+   When MANIP lane is auto-paused AND overlay fires on a non-MANIP lane, do NOT
+   hard reject. Fall through with heavy `entryScore -= 40` penalty so downstream
+   sizing shrinks trade to a dust probe. Enables learning-data collection and
+   routes legit unverified memes through STANDARD/MOONSHOT. Full-reject path
+   preserved when MANIP lane is NOT quarantined (token routes to MANIP where
+   it belongs).
+
+3. **TokenWinMemory: PHANTOM_PNL_PCT_HARD_CEILING_6011 = 50_000.0** — prior
+   ceiling used LearningPnlSanitizer.MAX_TRAINABLE_PNL_PCT (100_000%). No
+   legit exit on this scanner has cleared 50k% — those were basis-switch /
+   bonding-curve phantom prints poisoning pattern recognition. Load-time
+   `saneWinner()` now purges >50k% winners on next boot.
+
+## 2026-07-02 — V5.0.6010 🟢 CI GREEN — GOLDEN TAPE TEST ALIGNED
+
+V5.0.6009 CI failed on `executor_4514CentralTerminalPolicyFanoutUsesClosedLearningGate`
+because the golden-tape test still asserted the OLD (buggy) label
+`pnlForHeads4514 > -5.0`. Updated regression to lock in the V5.0.6009 correct label:
+  - STOP_LOSS/STRICT_SL/STOPLOSS  -> exitWasOptimal = false (never optimal)
+  - TAKE_PROFIT/TRAILING_STOP     -> true  (managed profitable exits)
+  - pnlForHeads4514 >= 2.0        -> true  (real banked win floor)
+  - everything else               -> false (scratches + all losses)
+
+Also added forward-guard: test now asserts `UNIFIED_EXIT_POLICY_HEAD_LABEL_FIX_6009`
+marker so any regression back to the -5.0 threshold immediately fails CI.
+
+## P2 BACKLOG AUDIT — ALL ITEMS ALREADY IMPLEMENTED
+
+Handoff summary listed several P2 items, but audit against MainActivity/layout XML
++ engine confirms they're all live:
+
+| P2 Item | Status | Where |
+|---|---|---|
+| Brain Health pill | ✅ Wired | `MainActivity.kt:2899` (tvBrainHealthPill), V5.9.14 |
+| Ladder / TIER status pill | ✅ Wired | `MainActivity.kt:2940` (tvLadderPill), V5.9.462+ |
+| Guards status strip | ✅ Wired | `MainActivity.kt:2999` (tvGuardsStrip), V5.9.471 |
+| Strategy Leaderboard tile | ✅ Wired | `MainActivity.kt:3079` (tvStrategyLeaderboard) |
+| LLM Lab strategy → auto-resume quarantined lanes | ✅ Wired | `LaneQuarantineController.maybeScanLabForAutoResume()`, V5.0.6002 |
+
+No further P2 UI work required until user identifies new gaps.
+
+
+
 
 ═══════════════════════════════════════════════════════════════════════════════
 
