@@ -11550,12 +11550,51 @@ class Executor(
                 routeTrustedFromStyle = liveEntryDecision.routeTrusted,
             )
             if (!commonSense.allowed) {
-                liveStage("LIVE_BUY_ABORTED", "reason=COMMON_SENSE_PREBUY:${commonSense.reason} detail=${commonSense.detail.take(140)}")
-                emitLiveBuyFail(ts, sol, "COMMON_SENSE_PREBUY_${commonSense.reason}", commonSense.detail)
-                buyTerminalFail("BUY_TERMINAL_COMMON_SENSE:${commonSense.reason.take(48)}")
-                return false
+                // V5.0.6026 — CommonSense is part of the FDG brain chain, not a
+                // blind executor-side obstructor. True hard safety/route/proof
+                // remains hard, but a non-hard mechanical objection (e.g. logical
+                // zone ambiguity) can be softened to a small caution trade when the
+                // rest of the chain agrees and AntiChoke/current performance support
+                // throughput. This preserves the common-sense mechanic as sizing
+                // pressure instead of a hidden post-FDG hard veto.
+                val commonSenseHard6026 = commonSense.snapshot.hardSafetyBlocked ||
+                    commonSense.snapshot.holderHardRisk ||
+                    commonSense.reason in setOf("TRUE_HARD_SAFETY_OR_HOLDER_RISK", "PRICE_BASIS_UNKNOWN", "SELL_ROUTE_UNKNOWN", "TOKEN_MAP_INCOMPLETE", "LIQUIDITY_UNKNOWN")
+                val commonSenseBrain6026 = try {
+                    val clean = try { TradeHistoryStore.getCleanStatsSnapshot4517() } catch (_: Throwable) { null }
+                    FdgBrainChain.evaluate(
+                        lane = routedLaneTag,
+                        candidateScore = score,
+                        laneScore = score,
+                        policyAuthority = try { UnifiedPolicyHead.currentAuthority(routedLaneTag) } catch (_: Throwable) { UnifiedPolicyHead.AuthorityTier.BOOTSTRAP },
+                        metaCogMult = try { MetaCognitionExecutorBridge.sizeMultiplierForLane(routedLaneTag) } catch (_: Throwable) { 1.0 },
+                        orthogonalAgreement = null,
+                        orthogonalComposite = null,
+                        cleanTrades = clean?.totalTrades ?: 0,
+                        cleanWinRate = clean?.winRate ?: 0.0,
+                        cleanPnlSol = clean?.totalPnlSol ?: 0.0,
+                        profitFactor = clean?.profitFactor ?: 0.0,
+                        commonSenseBlocked = true,
+                        commonSenseReason = commonSense.reason,
+                        antiChokeSoftening = try { AntiChokeManager.isSoftening() } catch (_: Throwable) { false },
+                    )
+                } catch (_: Throwable) { null }
+                if (!commonSenseHard6026 && commonSenseBrain6026?.softenSoftBlocks == true) {
+                    commonSenseSizeMultiplier4573 = minOf(0.65, commonSenseBrain6026.sizeMultiplier).coerceIn(0.25, 0.75)
+                    try {
+                        ForensicLogger.lifecycle("COMMON_SENSE_PREBUY_SOFTENED_6026", "mint=${ts.mint.take(10)} symbol=${ts.symbol} lane=$routedLaneTag reason=${commonSense.reason} sizeMult=${"%.2f".format(commonSenseSizeMultiplier4573)} ${commonSenseBrain6026.compact}")
+                        PipelineHealthCollector.labelInc("COMMON_SENSE_PREBUY_SOFTENED_6026")
+                        PipelineHealthCollector.labelInc("FDG_BRAIN_COMMON_SENSE_SOFTEN_6026")
+                    } catch (_: Throwable) {}
+                } else {
+                    liveStage("LIVE_BUY_ABORTED", "reason=COMMON_SENSE_PREBUY:${commonSense.reason} detail=${commonSense.detail.take(140)} chain=${commonSenseBrain6026?.verdict ?: "NA"} hard=$commonSenseHard6026")
+                    emitLiveBuyFail(ts, sol, "COMMON_SENSE_PREBUY_${commonSense.reason}", commonSense.detail)
+                    buyTerminalFail("BUY_TERMINAL_COMMON_SENSE:${commonSense.reason.take(48)}")
+                    return false
+                }
+            } else {
+                commonSenseSizeMultiplier4573 = commonSense.sizeMultiplier.coerceIn(0.35, 1.0)
             }
-            commonSenseSizeMultiplier4573 = commonSense.sizeMultiplier.coerceIn(0.35, 1.0)
         }
         try { ForensicLogger.lifecycle("QUOTE_OK", "attemptId=${execCtx.attemptId} mint=${ts.mint.take(10)} symbol=${ts.symbol} stage=preplan_route_quote route=${ts.tokenMap.routeStatus} executableQuote=true") } catch (_: Throwable) {}
         try { PipelineHealthCollector.labelInc("QUOTE_OK") } catch (_: Throwable) {}

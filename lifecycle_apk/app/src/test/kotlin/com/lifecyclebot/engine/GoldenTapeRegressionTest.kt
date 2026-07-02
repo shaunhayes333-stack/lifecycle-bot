@@ -6972,6 +6972,11 @@ class GoldenTapeRegressionTest {
         assertTrue("V5.0.6025: FDG score gates must consume effective lane/AGI consensus score from trade 1", fdg6025.contains("effectiveGateScore6025") && fdg6025.contains("FDG_EFFECTIVE_GATE_SCORE_6025") && fdg6025.contains("score_gates_use_consensus_from_trade1") && fdg6025.contains("UnifiedPolicyHead.currentAuthority(laneName)"))
         assertTrue("V5.0.6025: FDG unknown-phase and live-edge gates must use effective score while logging raw/lane split", fdg6025.contains("val isHighScore = effectiveGateScore6025 >= minScore") && fdg6025.contains("val hasDecentScore = effectiveGateScore6025 >= liveMinEntryScore") && fdg6025.contains("raw=${'$'}{candidate.entryScore.toInt()} lane=${'$'}{laneConsensusScore6025.toInt()}"))
         assertTrue("V5.0.6025: BrainConsensusGate must evaluate the effective-gate candidate, not stale raw V3 score", fdg6025.contains("fdgGateCandidate6025") && fdg6025.contains("BrainConsensusGate.evaluate(ts, fdgGateCandidate6025, modeTag)"))
+        val fdgBrain6026 = java.io.File("src/main/kotlin/com/lifecyclebot/engine/FdgBrainChain.kt").readText()
+        val exec6026 = java.io.File("src/main/kotlin/com/lifecyclebot/engine/Executor.kt").readText()
+        assertTrue("V5.0.6026: FDG must have an explicit brain-chain agreeability layer", fdgBrain6026.contains("object FdgBrainChain") && fdgBrain6026.contains("enum class Verdict { ALIGNED, CONFLICTED, BLOCKING }") && fdgBrain6026.contains("common_sense") && fdgBrain6026.contains("antichoke_softening"))
+        assertTrue("V5.0.6026: FDG must soften non-hard blockers when the brain chain aligns", fdg6025.contains("FdgBrainChain.evaluate") && fdg6025.contains("FDG_BRAIN_CHAIN_6026") && fdg6025.contains("FDG_BRAIN_SOFTENED_BLOCK_6026") && fdg6025.contains("softBlockReason6026") && fdg6025.contains("blockLevel != BlockLevel.HARD"))
+        assertTrue("V5.0.6026: CommonSense prebuy must become chain-shaped caution, not blind executor obstruction", exec6026.contains("COMMON_SENSE_PREBUY_SOFTENED_6026") && exec6026.contains("commonSenseHard6026") && exec6026.contains("FdgBrainChain.evaluate") && exec6026.contains("FDG_BRAIN_COMMON_SENSE_SOFTEN_6026"))
     }
 
 

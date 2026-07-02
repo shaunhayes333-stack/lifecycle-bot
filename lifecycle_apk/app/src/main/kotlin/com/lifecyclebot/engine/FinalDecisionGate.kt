@@ -3004,6 +3004,8 @@ object FinalDecisionGate {
         }
 
         var orthogonalBonus = 0
+        var fdgOrthogonalAgreement6026: Double? = null
+        var fdgOrthogonalComposite6026: Double? = null
         if (blockReason == null) {
             try {
                 val unifiedNarrative = try {
@@ -3037,6 +3039,8 @@ object FinalDecisionGate {
 
                 val compositeScore = orthogonalAssessment.compositeScore
                 val agreementRatio = orthogonalAssessment.agreementRatio
+                fdgOrthogonalAgreement6026 = agreementRatio
+                fdgOrthogonalComposite6026 = compositeScore
 
                 orthogonalBonus = when {
                     agreementRatio >= 0.8 && compositeScore > 20 -> 5
@@ -4174,6 +4178,57 @@ object FinalDecisionGate {
         if (totalSoftPenalty > 0 && blockReason == null) {
             checks.add(GateCheck("bootstrap_penalty", true, "Total soft penalty: -${totalSoftPenalty}pts (applied to confidence eval)"))
             tags.add("bootstrap_penalized")
+        }
+
+        val antiChokeSoftening6026 = try { AntiChokeManager.isSoftening() } catch (_: Throwable) { false } || adaptiveRelaxationActive
+        val fdgBrainChain6026 = try {
+            FdgBrainChain.evaluate(
+                lane = laneName,
+                candidateScore = rawCandidateGateScore6025,
+                laneScore = laneConsensusScore6025,
+                policyAuthority = policyAuthority6025,
+                metaCogMult = metaCogMult6025,
+                orthogonalAgreement = fdgOrthogonalAgreement6026,
+                orthogonalComposite = fdgOrthogonalComposite6026,
+                cleanTrades = cleanStats6025?.totalTrades ?: 0,
+                cleanWinRate = cleanStats6025?.winRate ?: 0.0,
+                cleanPnlSol = cleanStats6025?.totalPnlSol ?: 0.0,
+                profitFactor = cleanStats6025?.profitFactor ?: 0.0,
+                commonSenseBlocked = false,
+                commonSenseReason = null,
+                antiChokeSoftening = antiChokeSoftening6026,
+            )
+        } catch (_: Throwable) { null }
+        if (fdgBrainChain6026 != null) {
+            tags.add("fdg_brain:${fdgBrainChain6026.verdict.name}")
+            checks.add(GateCheck("fdg_brain_chain", true, fdgBrainChain6026.compact))
+            try {
+                PipelineHealthCollector.labelInc("FDG_BRAIN_CHAIN_6026_${fdgBrainChain6026.verdict.name}")
+                if (fdgBrainChain6026.softenSoftBlocks) PipelineHealthCollector.labelInc("FDG_BRAIN_CHAIN_SOFTEN_6026")
+                ForensicLogger.lifecycle("FDG_BRAIN_CHAIN_6026", "mint=${ts.mint.take(10)} symbol=${ts.symbol} lane=$laneName ${fdgBrainChain6026.compact}")
+            } catch (_: Throwable) {}
+            val softBlockReason6026 = blockReason != null && blockReason != "PROBE_ONLY" &&
+                blockLevel != BlockLevel.HARD &&
+                !(blockReason ?: "").contains("HARD", ignoreCase = true) &&
+                !(blockReason ?: "").contains("RUG", ignoreCase = true) &&
+                !(blockReason ?: "").contains("TOKEN_MAP", ignoreCase = true) &&
+                !(blockReason ?: "").contains("ROUTE", ignoreCase = true)
+            if (softBlockReason6026 && fdgBrainChain6026.softenSoftBlocks) {
+                val priorBlock6026 = blockReason ?: "soft_block"
+                val priorSize6026 = finalSize
+                blockReason = null
+                blockLevel = null
+                finalSize = (finalSize * fdgBrainChain6026.sizeMultiplier).coerceAtLeast(0.01)
+                tags.add("fdg_brain_softened_block")
+                tags.add("softened:${priorBlock6026.take(32)}")
+                checks.add(GateCheck("fdg_brain_soften", true, "softened $priorBlock6026 via agreeability chain; size ${priorSize6026.format(3)}→${finalSize.format(3)}"))
+                try { PipelineHealthCollector.labelInc("FDG_BRAIN_SOFTENED_BLOCK_6026") } catch (_: Throwable) {}
+            } else if (blockReason == null && fdgBrainChain6026.verdict == FdgBrainChain.Verdict.CONFLICTED) {
+                val priorSize6026 = finalSize
+                finalSize = (finalSize * fdgBrainChain6026.sizeMultiplier).coerceAtLeast(0.01)
+                tags.add("fdg_brain_conflict_sized")
+                checks.add(GateCheck("fdg_brain_size", true, "conflicted chain size ${priorSize6026.format(3)}→${finalSize.format(3)}"))
+            }
         }
 
         // V5.9.1486 — PROBE_ONLY IS AN APPROVED DUST BUY, NOT A BLOCK (matches the
