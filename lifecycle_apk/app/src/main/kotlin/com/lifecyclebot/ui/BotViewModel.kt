@@ -56,6 +56,47 @@ class BotViewModel(app: Application) : AndroidViewModel(app) {
     private val walletManager = com.lifecyclebot.engine.WalletManager.getInstance(ctx)
 
     init {
+        // V5.0.6007 — IMMEDIATE SYNCHRONOUS SNAPSHOT on ViewModel creation.
+        // Operator directive: "if i navigate away from the bot its dropping
+        // held positions!!! the main ui screen data keeps getting dropped
+        // in the background."
+        //
+        // Root cause: when Android destroys+recreates MainActivity under
+        // memory pressure (nav-away, low-memory reclaim, etc.), a new
+        // BotViewModel is instantiated. _ui starts as MutableStateFlow(
+        // UiState()) — EMPTY. The old pollLoop() ran suspend
+        // buildUiStateSnapshot() which does IO reads (ConfigStore.load)
+        // taking 500-2500ms. During that window the UI painted an empty
+        // positions list — held positions "disappeared" until the first
+        // snapshot completed.
+        //
+        // Fix: read the surviving BotService.status singleton
+        // (ConcurrentHashMap of open positions + tokens) synchronously
+        // right now. BotService is a foreground service so it stays alive
+        // through Activity teardown; its state is the source of truth.
+        // This paints the correct positions IMMEDIATELY on the first
+        // UI frame, no 2.5s empty flash.
+        try {
+            val status = BotService.status
+            val openSnap = try { status.openPositions.toList() } catch (_: Throwable) { emptyList() }
+            val tokenSnap: Map<String, TokenState> = try {
+                status.tokens.entries.associate { it.key to it.value }
+            } catch (_: Throwable) { emptyMap() }
+            if (openSnap.isNotEmpty() || tokenSnap.isNotEmpty()) {
+                _ui.value = _ui.value.copy(
+                    openPositions = openSnap,
+                    tokens = tokenSnap,
+                    running = try { BotService.isRuntimeActive() } catch (_: Throwable) { false },
+                )
+                try {
+                    com.lifecyclebot.engine.ForensicLogger.lifecycle(
+                        "BOT_VIEWMODEL_IMMEDIATE_HYDRATE_6007",
+                        "openPositions=${openSnap.size} tokens=${tokenSnap.size} note=survived_activity_recreation",
+                    )
+                } catch (_: Throwable) {}
+            }
+        } catch (_: Throwable) { /* immediate hydrate must never break init */ }
+
         // V5.9.1047 — operator V5.9.1046 dump showed BotViewModel.pollLoop
         // hitting 1059ms on Main inflating a VectorDrawable (stack trace
         // shows VectorDrawable.nCreateFullPath under pollLoop). pollLoop
@@ -261,6 +302,26 @@ class BotViewModel(app: Application) : AndroidViewModel(app) {
     }
     
     fun forceRefresh() {
+        // V5.0.6007 — SYNCHRONOUS IMMEDIATE HYDRATE before the async
+        // full-snapshot builds. On onResume from another Activity /
+        // background return, the UI must show correct positions on the
+        // NEXT frame, not 500-2500ms later when buildUiStateSnapshot
+        // completes.
+        try {
+            val status = BotService.status
+            val openSnap = try { status.openPositions.toList() } catch (_: Throwable) { emptyList() }
+            val tokenSnap: Map<String, TokenState> = try {
+                status.tokens.entries.associate { it.key to it.value }
+            } catch (_: Throwable) { emptyMap() }
+            if (openSnap.isNotEmpty() || tokenSnap.isNotEmpty()) {
+                _ui.value = _ui.value.copy(
+                    openPositions = openSnap,
+                    tokens = tokenSnap,
+                    running = try { BotService.isRuntimeActive() } catch (_: Throwable) { _ui.value.running },
+                )
+            }
+        } catch (_: Throwable) { /* immediate hydrate must never break forceRefresh */ }
+
         viewModelScope.launch(kotlinx.coroutines.Dispatchers.Default) {
             try {
                 // V5.9.1166 — rebuild from live BotService truth, not a stale
