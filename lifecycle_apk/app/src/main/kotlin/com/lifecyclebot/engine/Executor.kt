@@ -4277,6 +4277,28 @@ class Executor(
         // when the position is ACTUALLY a runner right now, not historically.
         val peakGainPct = try { pos.peakGainPct.coerceAtLeast(gainPct) } catch (_: Throwable) { gainPct }
         val currentValueAboveBasis4130 = currentValue >= pos.costSol * 1.5
+        fun tryRouteRealClaimMismatchHarvest6029(label: String): Boolean {
+            val w = wallet ?: return false
+            val routeMultiple = try { RealPriceLock.routeImpliedGainMultiple(ts) } catch (_: Throwable) { null } ?: return false
+            val routeValueSol = pos.costSol * routeMultiple
+            val routeProfitSol = (routeValueSol - pos.costSol).coerceAtLeast(0.0)
+            if (routeMultiple < 3.0) return false
+            if (routeProfitSol < maxOf(0.02, walletSol * 0.08, pos.costSol * 1.5)) return false
+            val remainingFraction6029 = (100.0 - pos.partialSoldPct).coerceAtLeast(0.0) / 100.0
+            val sellFraction6029 = when {
+                routeProfitSol >= walletSol.coerceAtLeast(0.01) -> 0.60
+                routeProfitSol >= walletSol.coerceAtLeast(0.01) * 0.50 -> 0.45
+                else -> 0.30
+            }.coerceAtMost(remainingFraction6029)
+            if (sellFraction6029 <= 0.0) return false
+            try {
+                ForensicLogger.lifecycle("ROUTE_REAL_CLAIM_MISMATCH_HARVEST_6029", "mint=${ts.mint.take(10)} symbol=${ts.symbol} label=$label claimed=${gainMultiple.fmt(2)}x route=${routeMultiple.fmt(2)}x routeProfit=${routeProfitSol.fmt(4)} wallet=${walletSol.fmt(4)} sellPct=${(sellFraction6029*100).toInt()} reason=ui_claim_overstated_but_route_profit_real")
+                PipelineHealthCollector.labelInc("ROUTE_REAL_CLAIM_MISMATCH_HARVEST_6029")
+            } catch (_: Throwable) {}
+            onLog("💰 ROUTE-REAL HARVEST: ${ts.symbol} UI=${gainMultiple.fmt(1)}x route=${routeMultiple.fmt(1)}x profit≈${routeProfitSol.fmt(4)} SOL — selling ${(sellFraction6029*100).toInt()}% NOW", ts.mint)
+            executeProfitLockSell(ts, w, sellFraction6029, "route_real_harvest_${routeMultiple.fmt(1)}x", walletSol)
+            return true
+        }
         val ultraRunnerLiveBank = !pos.isPaperPosition &&
             (gainMultiple >= 50.0 || peakGainPct >= 5_000.0) &&
             currentValueAboveBasis4130
@@ -4302,6 +4324,7 @@ class Executor(
                 )
             } catch (_: Throwable) { true }  // never block on verifier failure
             if (!priceReal) {
+                if (tryRouteRealClaimMismatchHarvest6029("ultra_runner_bank")) return true
                 try {
                     ForensicLogger.lifecycle(
                         "ULTRA_RUNNER_BANK_DEFERRED_PRICE_UNREAL",
@@ -4355,6 +4378,7 @@ class Executor(
                 RealPriceLock.verifyUltraRunnerBank(ts, gainMultiple, currentValue, pos.costSol)
             } catch (_: Throwable) { true }
             if (!priceReal6028) {
+                if (tryRouteRealClaimMismatchHarvest6029("wallet_growth_harvest")) return true
                 try {
                     ForensicLogger.lifecycle("WALLET_GROWTH_HARVEST_DEFERRED_PRICE_UNREAL_6028", "mint=${ts.mint.take(10)} symbol=${ts.symbol} gain=${gainMultiple.fmt(2)}x unrealized=${unrealizedProfitSol6028.fmt(4)} wallet=${walletSol.fmt(4)} reason=route_disagrees")
                     PipelineHealthCollector.labelInc("WALLET_GROWTH_HARVEST_DEFERRED_PRICE_UNREAL_6028")

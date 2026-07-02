@@ -64,7 +64,15 @@ object RealPriceLock {
     private const val CACHE_TTL_MS = 3_000L
 
     private data class CacheEntry(val verifiedAtMs: Long, val ok: Boolean, val reason: String)
+    data class RouteTruth(val verifiedAtMs: Long, val impliedRatio: Double, val ok: Boolean, val context: String)
     private val cache = ConcurrentHashMap<String, CacheEntry>()
+    private val routeTruthByMint = ConcurrentHashMap<String, RouteTruth>()
+
+    fun lastRouteTruth(mint: String, maxAgeMs: Long = 30_000L): RouteTruth? {
+        if (mint.isBlank()) return null
+        val t = routeTruthByMint[mint] ?: return null
+        return if (System.currentTimeMillis() - t.verifiedAtMs <= maxAgeMs) t else null
+    }
 
     /**
      * Verify a RAPID TAKE_PROFIT_DELEGATE trigger.
@@ -118,6 +126,35 @@ object RealPriceLock {
         return ok
     }
 
+    fun routeImpliedGainMultiple(ts: TokenState): Double? {
+        return try {
+            val pos = ts.position
+            val qty = pos.qtyToken
+            if (qty <= 0.0 || pos.costSol <= 0.0 || ts.mint.isBlank()) return null
+            val probeQty = (qty * 0.01).coerceAtLeast(1.0)
+            val decimals = pickDecimals(qty)
+            val amountRaw = (probeQty * decimals).toLong().coerceAtLeast(1L)
+            val ctx = try { BotService.instance?.applicationContext } catch (_: Throwable) { null }
+            val cfg = try { if (ctx != null) ConfigStore.load(ctx) else null } catch (_: Throwable) { null }
+            val apiKey = cfg?.jupiterApiKey ?: ""
+            val jupiter = try { JupiterApi(apiKey) } catch (_: Throwable) { return null }
+            val quote = try {
+                jupiter.getQuote(
+                    inputMint = ts.mint,
+                    outputMint = JupiterApi.SOL_MINT,
+                    amountRaw = amountRaw,
+                    slippageBps = 500,
+                )
+            } catch (_: Throwable) { return null }
+            val solOut = quote.outAmount.toDouble() / 1_000_000_000.0
+            if (solOut <= 0.0 || !solOut.isFinite()) return null
+            val impliedFullSol = solOut * 100.0
+            (impliedFullSol / pos.costSol).takeIf { it.isFinite() && it > 0.0 }?.also {
+                try { routeTruthByMint[ts.mint] = RouteTruth(System.currentTimeMillis(), it, ok = true, context = "ROUTE_IMPLIED") } catch (_: Throwable) {}
+            }
+        } catch (_: Throwable) { null }
+    }
+
     private fun runJupiterCheck(
         ts: TokenState,
         claimedRatio: Double,
@@ -167,6 +204,7 @@ object RealPriceLock {
         if (pos.costSol <= 0.0) return softTrue(ts, contextLabel, "COST_BASIS_ZERO")
         val impliedRatio = implFullSol / pos.costSol
         val ratioOfClaim = if (claimedRatio > 0.0) impliedRatio / claimedRatio else 0.0
+        try { routeTruthByMint[ts.mint] = RouteTruth(System.currentTimeMillis(), impliedRatio, ok = ratioOfClaim >= MIN_JUP_VS_CLAIM_RATIO, context = contextLabel) } catch (_: Throwable) {}
         val ok = ratioOfClaim >= MIN_JUP_VS_CLAIM_RATIO
         if (!ok) {
             try {

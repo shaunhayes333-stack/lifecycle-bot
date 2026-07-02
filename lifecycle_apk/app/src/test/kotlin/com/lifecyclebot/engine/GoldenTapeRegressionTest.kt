@@ -6981,6 +6981,10 @@ class GoldenTapeRegressionTest {
         val walletComp6028 = java.io.File("src/main/kotlin/com/lifecyclebot/engine/RealizedWalletCompoundingGovernor.kt").readText()
         assertTrue("V5.0.6028: compounding governor must include trusted open live equity pressure without faking journal PnL", walletComp6028.contains("trustedOpenLiveEquity") && walletComp6028.contains("OpenPnlSanity.inspect") && walletComp6028.contains("trusted_open_equity_compound_pressure_6028") && walletComp6028.contains("openTrusted"))
         assertTrue("V5.0.6028: live runners with wallet-material unrealized profit must harvest SOL through sell finality", exec6026.contains("WALLET_GROWTH_HARVEST_TRIGGERED_6028") && exec6026.contains("land_runner_profit_in_wallet") && exec6026.contains("executeProfitLockSell(ts, wallet, sellFraction6028") && exec6026.contains("WALLET_GROWTH_HARVEST_DEFERRED_PRICE_UNREAL_6028"))
+        val realPriceLock6029 = java.io.File("src/main/kotlin/com/lifecyclebot/engine/RealPriceLock.kt").readText()
+        assertTrue("V5.0.6029: route-real profit must be harvestable even when UI claim is overstated", realPriceLock6029.contains("routeImpliedGainMultiple") && exec6026.contains("ROUTE_REAL_CLAIM_MISMATCH_HARVEST_6029") && exec6026.contains("ui_claim_overstated_but_route_profit_real") && exec6026.contains("route_real_harvest_"))
+        val mainUi6029 = java.io.File("src/main/kotlin/com/lifecyclebot/ui/MainActivity.kt").readText()
+        assertTrue("V5.0.6029: open-position UI must label unrealized route truth instead of implying wallet-real money", mainUi6029.contains("lastRouteTruth") && mainUi6029.contains("UNREALIZED · route pending") && mainUi6029.contains("claim-mismatch") && mainUi6029.contains("ROUTE ~"))
     }
 
 

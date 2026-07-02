@@ -4873,6 +4873,14 @@ for legal compliance.
             val tokenAmount = pos.qtyToken
             val currentValue = pos.costSol + pnlSol  // Current value in SOL
             val valueUsd = currentValue * solPrice
+            val routeTruth6030 = try { com.lifecyclebot.engine.RealPriceLock.lastRouteTruth(ts.mint) } catch (_: Throwable) { null }
+            val routeTruthText6030 = when {
+                !basisTrusted -> "basis wait"
+                pos.isPaperPosition -> "PAPER unrealized"
+                routeTruth6030 != null -> "UNREALIZED · ROUTE ~${"%.1f".format(routeTruth6030.impliedRatio)}x${if (routeTruth6030.ok) " ok" else " claim-mismatch"}"
+                gainPct >= 500.0 -> "UNREALIZED · route pending"
+                else -> "UNREALIZED"
+            }
             renderedMints.add(ts.mint)
 
             // V5.9.1493 — STATIC-CONTENT HASH. Everything that does NOT change on
@@ -4896,7 +4904,7 @@ for legal compliance.
                 cached.pnlPctTv.setTextColor(gainCol)
                 cached.pnlSolTv.text = if (basisTrusted) "%+.4f◎".format(pnlSol) else "—"
                 cached.pnlSolTv.setTextColor(gainCol)
-                cached.usdTv.text = if (basisTrusted && solPrice > 0) "≈\$%.2f".format(valueUsd) else "≈\$—"
+                cached.usdTv.text = if (basisTrusted && solPrice > 0) "≈\$%.2f · %s".format(valueUsd, routeTruthText6030) else "≈\$— · basis wait"
                 cached.barView.setBackgroundColor(gainCol)
                 // live trail + lock (mirror the build-path math). Never mutate peak/lock off untrusted basis.
                 if (!basisTrusted) {
@@ -5085,7 +5093,7 @@ for legal compliance.
             })
             // Current value in USD — only show if we have real price data
             right.addView(TextView(this).apply {
-                text = if (basisTrusted && solPrice > 0) "≈\$%.2f".format(valueUsd) else "≈\$—"
+                text = if (basisTrusted && solPrice > 0) "≈\$%.2f · %s".format(valueUsd, routeTruthText6030) else "≈\$— · basis wait"
                 textSize = resources.getDimension(R.dimen.trade_sub_text) / resources.displayMetrics.scaledDensity
                 setTextColor(muted)
                 typeface = android.graphics.Typeface.MONOSPACE
