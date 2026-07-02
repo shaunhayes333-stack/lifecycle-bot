@@ -285,7 +285,12 @@ object HostWalletTokenTracker {
     // position book. Adopting them caused ledger drift, phantom open slots, and
     // endless no-finality sell loops on tokens the bot has no entry/exit basis for.
     // Flip to true only to re-enable wallet-orphan adoption.
-    @Volatile var RECOVER_ORPHAN_WALLET_TOKENS: Boolean = false
+    // V5.0.6034 — live dropped-token recovery. Screen/Doze/runtime drops can leave real
+    // wallet-held bags outside status.tokens/trader active maps. Wallet truth must be
+    // recoverable into OPEN_TRACKING so SellReconciler → BotService auto-heal boards them
+    // for hold/exit management. Unknown-basis recovered rows remain WALLET_RECONCILED and
+    // are basis-locked downstream, so they do not contaminate trainable strategy PnL.
+    @Volatile var RECOVER_ORPHAN_WALLET_TOKENS: Boolean = true
 
     private fun currentHeldSnapshot(p: TrackedTokenPosition, now: Long = System.currentTimeMillis()): WalletAuthoritySnapshot.HELD? {
         val snap = walletAuthority[p.mint] as? WalletAuthoritySnapshot.HELD ?: return null

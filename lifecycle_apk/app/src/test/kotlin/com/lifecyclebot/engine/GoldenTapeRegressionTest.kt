@@ -1999,9 +1999,9 @@ class GoldenTapeRegressionTest {
 
 
     @Test
-    fun orphan_wallet_token_recovery_is_disabled_and_purged() {
+    fun dropped_wallet_token_recovery_is_enabled_but_guarded() {
         val tracker = java.io.File("src/main/kotlin/com/lifecyclebot/engine/HostWalletTokenTracker.kt").readText()
-        assertTrue(tracker.contains("RECOVER_ORPHAN_WALLET_TOKENS: Boolean = false"))
+        assertTrue("V5.0.6034: wallet-held dropped tokens must be recoverable into tracker for exit management", tracker.contains("RECOVER_ORPHAN_WALLET_TOKENS: Boolean = true") && tracker.contains("V5.0.6034") && tracker.contains("Unknown-basis recovered rows remain WALLET_RECONCILED") && tracker.contains("ORPHAN_WALLET_TOKEN_ATTACHED"))
         assertTrue(tracker.contains("if (!RECOVER_ORPHAN_WALLET_TOKENS) {"))
         assertTrue(tracker.contains("ORPHAN_WALLET_TOKEN_IGNORED"))
         assertTrue(tracker.contains("fun purgeOrphanRecoveredRows"))
@@ -2009,11 +2009,11 @@ class GoldenTapeRegressionTest {
         assertTrue(tracker.contains("purgeOrphanRecoveredRows(\"INIT\")"))
         assertTrue(tracker.contains("purgeOrphanRecoveredRows(\"WALLET_SNAPSHOT\")"))
 
-        // The orphan-adoption row builder must be unreachable while the flag is off:
-        // the ignore-guard `continue` must appear before the recovered TrackedTokenPosition.
+        // The legacy ignore branch remains as an emergency flag-off guard, but the default
+        // is now recovery-on so dropped wallet-held bags become monitored OPEN_TRACKING rows.
         val guardIdx = tracker.indexOf("ORPHAN_WALLET_TOKEN_IGNORED")
         val adoptIdx = tracker.indexOf("symbol = \"RECOVERED_")
-        assertTrue("orphan ignore guard must precede orphan adoption builder", guardIdx in 1 until adoptIdx)
+        assertTrue("legacy orphan ignore guard must remain before recovery builder for emergency flag-off safety", guardIdx in 1 until adoptIdx)
     }
 
 
@@ -6993,6 +6993,8 @@ class GoldenTapeRegressionTest {
         assertTrue("V5.0.6031: live runtime must not depend on screen/MainActivity staying alive", bot6031.contains("ensureRuntimeWakeLock6031") && bot6031.contains("ALWAYS_ON_WAKELOCK_REASSERTED_6031") && bot6031.contains("ensureAlwaysOnRuntimeGuards6031") && bot6031.contains("ALWAYS_ON_RUNTIME_RESCUE_6031") && bot6031.contains("ensureHotExitAlive()") && bot6031.contains("onCreate_after_startForeground") && bot6031.contains("action_start_already_running"))
         val manifest6032 = java.io.File("src/main/AndroidManifest.xml").readText()
         assertTrue("V5.0.6032: always-on live trading must hold network as well as CPU while service is active", bot6031.contains("ensureRuntimeWifiLock6032") && bot6031.contains("ALWAYS_ON_WIFI_LOCK_REASSERTED_6032") && bot6031.contains("lifecyclebot:network:always_on_6032") && bot6031.contains("wifiLock6032 = null") && manifest6032.contains("android.permission.ACCESS_WIFI_STATE") && manifest6032.contains("android.permission.CHANGE_WIFI_STATE"))
+        val tracker6034 = java.io.File("src/main/kotlin/com/lifecyclebot/engine/HostWalletTokenTracker.kt").readText()
+        assertTrue("V5.0.6034: dropped wallet tokens must recover into OPEN_TRACKING instead of being ignored", tracker6034.contains("RECOVER_ORPHAN_WALLET_TOKENS: Boolean = true") && tracker6034.contains("ORPHAN_WALLET_TOKEN_ATTACHED") && tracker6034.contains("ORPHAN_WALLET_TOKEN_MONITORED_FOR_EXIT") && tracker6034.contains("source = PositionSource.WALLET_RECONCILED"))
     }
 
 
