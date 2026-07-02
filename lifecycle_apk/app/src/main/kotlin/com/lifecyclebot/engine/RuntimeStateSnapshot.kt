@@ -43,6 +43,7 @@ data class RuntimeStateSnapshot(
     val topBlockReasons: Map<String, Long>,
     val activeMitigations: List<String> = emptyList(),
     val staleBuyPendingBalanceProof: Int = 0,
+    val openAwaitingWalletProof: Int = 0,
     val timestampMs: Long = System.currentTimeMillis(),
 ) {
     data class ApiSummary(val successRatePct: Int, val failures: Int, val avgLatencyMs: Int, val lastError: String)
@@ -178,6 +179,7 @@ data class RuntimeStateSnapshot(
             } catch (_: Throwable) { 0 }
 
             val staleBuyPendingProof = try { HostWalletTokenTracker.countStaleBuyPendingBalanceProof(90_000L) } catch (_: Throwable) { 0 }
+            val openAwaitingWalletProof = try { HostWalletTokenTracker.getOpenAwaitingWalletProofCount(90_000L) } catch (_: Throwable) { 0 }
 
             val api = ApiHealthMonitor.snapshot().mapValues { (_, s) ->
                 ApiSummary(
@@ -248,6 +250,7 @@ data class RuntimeStateSnapshot(
                 topBlockReasons = pipe.blockReasonCounts.entries.sortedByDescending { it.value }.take(10).associate { it.key to it.value },
                 activeMitigations = RuntimeConfigOverlay.activeCommands().map { "${it.kind}:${it.target}:${it.value}" },
                 staleBuyPendingBalanceProof = staleBuyPendingProof,
+                openAwaitingWalletProof = openAwaitingWalletProof,
             )
         }
     }

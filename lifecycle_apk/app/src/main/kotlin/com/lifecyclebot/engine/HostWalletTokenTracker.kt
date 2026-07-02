@@ -1315,6 +1315,30 @@ object HostWalletTokenTracker {
     fun getPendingConfirmedCount(): Int = positions.values.count { it.status == PositionStatus.CONFIRMED_PENDING_BALANCE }
     fun getPendingOrOpenCount(): Int = positions.values.count { isOpenForAccounting(it) || it.status == PositionStatus.BUY_PENDING || it.status == PositionStatus.CONFIRMED_PENDING_BALANCE }
 
+    /**
+     * V5.0.6019 — open positions that are legitimately awaiting wallet-token proof.
+     * These are cap-countable for sell management, but should NOT be treated as
+     * ledger drift or force live sizing down to the drift cap while the proof grace
+     * window is active. This includes fresh buy liability and recently revived
+     * OPEN_BALANCE_PROOF_PENDING rows; stale/unproven rows outside grace remain
+     * diagnostic only and do not receive this allowance.
+     */
+    fun getOpenAwaitingWalletProofCount(maxAgeMs: Long = 90_000L): Int {
+        val now = System.currentTimeMillis()
+        return positions.values.count { p ->
+            if (!isOpenForAccounting(p)) return@count false
+            if (hasCurrentWalletPositiveProof(p, now)) return@count false
+            if (hasLiveSellInFlightForCap(p, now)) return@count false
+            val anchor = maxOf(p.balanceAuthorityObservedAtMs, p.buyTimeMs ?: 0L, p.firstSeenWalletMs, p.lastSeenWalletMs)
+            val inGrace = anchor > 0L && (now - anchor) <= maxAgeMs
+            inGrace && (
+                hasFreshBuyLiability(p, now) ||
+                    p.status == PositionStatus.OPEN_BALANCE_PROOF_PENDING ||
+                    p.status == PositionStatus.CONFIRMED_PENDING_BALANCE ||
+                    p.status == PositionStatus.BUY_PENDING
+            )
+        }
+    }
 
     /** V5.0.3757 — health: live BUY_PENDING_BALANCE_PROOF may not age forever. */
     fun countStaleBuyPendingBalanceProof(maxAgeMs: Long = 90_000L): Int {

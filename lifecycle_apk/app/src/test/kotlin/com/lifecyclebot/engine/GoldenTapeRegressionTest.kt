@@ -3531,7 +3531,7 @@ class GoldenTapeRegressionTest {
         val persistent4201 = java.io.File("src/main/kotlin/com/lifecyclebot/engine/PersistentLearning.kt").readText()
         assertTrue("V5.0.4201: EntryIntelligence must consume holdTimeMinutes as learned duration buckets", entryIntel4201.contains("holdTimeBucket(holdTimeMinutes)") && entryIntel4201.contains("holdTimeWinRates") && entryIntel4201.contains("HoldProfile:") && entryIntel4201.contains("holdProfileNudge"))
         assertTrue("V5.0.4201: EntryIntelligence hold-time buckets must persist through PersistentLearning", entryIntel4201.contains("holdTimeWinRates = weights.holdTimeWinRates") && persistent4201.contains("holdTimeBuckets") && persistent4201.contains("holdTimeTradeCount"))
-        assertTrue("V5.0.4202: live ledger drift cap must use effective reconciler truth, not PositionWalletReconciler alone", exec.contains("effectiveChecked = maxOf(positionChecked, sellChecked, liveWalletChecked)") && exec.contains("LiveWalletReconciler.totalChecked()") && exec.contains("SellReconciler.totalChecked") && exec.contains("LIVE_LEDGER_DRIFT_CAP_BYPASS_RESOLVING_4202"))
+        assertTrue("V5.0.4202/6019: live ledger drift cap must use effective reconciler truth and wallet-proof grace, not PositionWalletReconciler alone", exec.contains("effectiveChecked = maxOf(positionChecked, sellChecked, liveWalletChecked)") && exec.contains("LiveWalletReconciler.totalChecked()") && exec.contains("SellReconciler.totalChecked") && exec.contains("getOpenAwaitingWalletProofCount") && exec.contains("proofGrace6019") && exec.contains("LIVE_LEDGER_DRIFT_CAP_BYPASS_RESOLVING_4202"))
         assertTrue("V5.0.4202: benign one-mint drift with active sell resolution must not dust-cap live growth", exec.contains("benignSingleDriftResolving") && exec.contains("activeSellResolution") && exec.contains("action=size_normal"))
         val edge4204 = java.io.File("src/main/kotlin/com/lifecyclebot/engine/EdgeLearning.kt").readText()
         assertTrue("V5.0.4204/A10: EdgeLearning must consume exitPrice for outcome-basis validation", edge4204.contains("val priceDerivedPnl") && edge4204.contains("exitPrice/PnL contradiction") && edge4204.contains("validatedPnl"))
@@ -7102,4 +7102,14 @@ class GoldenTapeRegressionTest {
         assertFalse("V5.0.4585: pre-finality trigger path must not claim initial investment secured", exec.contains("initial investment secured"))
     }
 
+
+    @Test
+    fun aate6019WalletProofGraceAndProductiveFanoutAreNotFaults() {
+        val runtimeSnap6019 = java.io.File("src/main/kotlin/com/lifecyclebot/engine/RuntimeStateSnapshot.kt").readText()
+        val guardian6019 = java.io.File("src/main/kotlin/com/lifecyclebot/engine/InvariantGuardian.kt").readText()
+        val host6019 = java.io.File("src/main/kotlin/com/lifecyclebot/engine/HostWalletTokenTracker.kt").readText()
+        val exec6019 = java.io.File("src/main/kotlin/com/lifecyclebot/engine/Executor.kt").readText()
+        assertTrue(runtimeSnap6019.contains("openAwaitingWalletProof") && guardian6019.contains("walletProofAllowance6019") && guardian6019.contains("effectiveLedgerDrift6019") && host6019.contains("getOpenAwaitingWalletProofCount") && exec6019.contains("proofGrace6019"))
+        assertTrue(guardian6019.contains("productiveFanout6019") && guardian6019.contains("laneRatio > 18.0") && guardian6019.contains("laneRatio > 12.0 && !productiveFanout6019"))
+    }
 }

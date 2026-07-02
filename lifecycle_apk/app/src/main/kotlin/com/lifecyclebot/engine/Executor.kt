@@ -2446,7 +2446,8 @@ class Executor(
             val effectiveChecked = maxOf(positionChecked, sellChecked, liveWalletChecked)
             val canonical = try { com.lifecyclebot.engine.HostWalletTokenTracker.getOpenCount() } catch (_: Throwable) { 0 }
             val walletHeld = try { com.lifecyclebot.engine.HostWalletTokenTracker.getActuallyHeldCount() } catch (_: Throwable) { 0 }
-            val driftCount = (canonical - walletHeld).coerceAtLeast(0)
+            val proofGrace6019 = try { com.lifecyclebot.engine.HostWalletTokenTracker.getOpenAwaitingWalletProofCount(90_000L) } catch (_: Throwable) { 0 }
+            val driftCount = (canonical - walletHeld - proofGrace6019).coerceAtLeast(0)
             val activeSellResolution = try {
                 com.lifecyclebot.engine.sell.CloseLease.activeBlockingLeaseCount() +
                     com.lifecyclebot.engine.sell.SellJobRegistry.activeCount()

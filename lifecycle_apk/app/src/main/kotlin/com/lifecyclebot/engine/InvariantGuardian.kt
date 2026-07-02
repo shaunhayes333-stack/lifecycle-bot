@@ -36,13 +36,17 @@ object InvariantGuardian {
         // V5.9.1518 — PATCH ITEM 1/7: ledger drift. Canonical open count exceeding
         // wallet-held mints means we are tracking positions the wallet no longer
         // holds (phantom / CLOSED-but-held) — a P0 authority fault.
+        val walletProofAllowance6019 = if (s.mode == "LIVE") s.openAwaitingWalletProof.coerceAtLeast(0) else 0
+        val effectiveLedgerDrift6019 = if (s.mode == "LIVE") {
+            (s.canonicalOpenPositions - s.walletHeldMints - walletProofAllowance6019).coerceAtLeast(0)
+        } else 0
         if (s.mode == "LIVE" && s.canonicalOpenPositions > 0 && s.walletHeldMints == 0) {
-            // V5.0.3760: canonical>0/walletHeld=0 is not automatically a phantom;
-            // it is valid during CONFIRMED_PENDING_BALANCE. Fault only if the same
+            // V5.0.3760 / V5.0.6019: canonical>0/walletHeld=0 is not automatically
+            // a phantom; it is valid during wallet-proof grace. Fault only if the same
             // canonical truth is invisible to host/live accounting below.
-        } else if (s.mode == "LIVE" && (s.canonicalOpenPositions - s.walletHeldMints) > 0) {
+        } else if (s.mode == "LIVE" && effectiveLedgerDrift6019 > 0) {
             out += Fault(FaultCode.LEDGER_DRIFT, "CRITICAL",
-                "canonicalOpen=${s.canonicalOpenPositions} > walletHeld=${s.walletHeldMints} (drift=${s.canonicalOpenPositions - s.walletHeldMints})")
+                "canonicalOpen=${s.canonicalOpenPositions} > walletHeld=${s.walletHeldMints} proofGrace=$walletProofAllowance6019 (drift=$effectiveLedgerDrift6019)")
         }
         // PATCH ITEM 1/7: reconciler stalled — LIVE wallet reconciler only.
         // V5.9.1564 — In PAPER mode canonicalOpen is the simulator book, so
@@ -104,7 +108,14 @@ object InvariantGuardian {
         // live wallet drift. They are surfaced separately as paperOpenPositions.
         if (s.liveOpenPositions != s.hostTrackerOpenCount && s.mode == "LIVE") out += Fault(FaultCode.HOST_TRACKER_DESYNC, "HIGH", "liveStore=${s.liveOpenPositions} hostLive=${s.hostTrackerOpenCount} paper=${s.paperOpenPositions} walletHeld=${s.walletHeldMints}")
         val laneRatio = if (s.intake > 0) s.laneEval.toDouble() / s.intake else 0.0
-        if (s.intake > 0 && laneRatio > 12.0) out += Fault(FaultCode.LANE_FANOUT_EXPLOSION, "HIGH", "laneEval/intake=${"%.2f".format(laneRatio)}")
+        // V5.0.6019 — source/lane breadth restore can legitimately push laneEval/intake
+        // around the enabled-lane count while FDG/EXEC are flowing. Treat that as
+        // productive exploration, not a mechanical fault. Only warn at the old 12×
+        // threshold when the fanout is unproductive, or at an extreme 18× regardless.
+        val productiveFanout6019 = s.fdg > 0L && s.exec > 0L && s.exec >= (s.intake / 2L).coerceAtLeast(1L)
+        if (s.intake > 0 && (laneRatio > 18.0 || (laneRatio > 12.0 && !productiveFanout6019))) {
+            out += Fault(FaultCode.LANE_FANOUT_EXPLOSION, "HIGH", "laneEval/intake=${"%.2f".format(laneRatio)} productive=$productiveFanout6019")
+        }
         // V5.0.3858 — FDG forensic rows are not FDG evaluations. A single
         // approved probe can emit path=…, verdict=…, and FDG_ALLOW rows, which
         // made phaseCounts[FDG]/intake report a fake fanout explosion. Diagnose
