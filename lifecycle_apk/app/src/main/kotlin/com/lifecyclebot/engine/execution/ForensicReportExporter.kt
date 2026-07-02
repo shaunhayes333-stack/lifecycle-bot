@@ -95,9 +95,10 @@ object ForensicReportExporter {
         val effectiveRecon6037 = maxOf(recon.totalChecked.toLong(), sellChecked6037, liveWalletChecked6037)
         val tracker = try { HostWalletTokenTracker.getStats() } catch (_: Throwable) { "n/a" }
         val groups = try { LiveTradeLogStore.groupedByTrade().size } catch (_: Throwable) { 0 }
+        val tuning6039 = try { com.lifecyclebot.engine.LiveStrategyTuner.statusLine() } catch (_: Throwable) { "LiveStrategyTuner: unavailable" }
         return "Recon: effective=$effectiveRecon6037 position=${recon.totalChecked} sell=$sellChecked6037 liveWallet=$liveWalletChecked6037 ticks=$sellTicks6037 healthy=${recon.healthy} " +
                "phantoms=${recon.phantoms} noMint=${recon.noMint} grace=${recon.grace} | " +
-               "Tracker: $tracker | TradeLog groups: $groups"
+               "Tracker: $tracker | TradeLog groups: $groups | Tuning: $tuning6039"
     }
 
     // ─── internals ────────────────────────────────────────────────────────────
@@ -120,6 +121,11 @@ object ForensicReportExporter {
             put("latest_snapshot_ts", doctor?.snapshot?.timestampMs ?: 0L)
             put("active_mitigations", doctor?.snapshot?.activeMitigations?.joinToString(",") ?: "")
             put("quality_only_policy", com.lifecyclebot.engine.RuntimeConfigOverlay.qualityOnlySummary())
+        })
+        root.put("tuning_6039", JSONObject().apply {
+            put("live_strategy_tuner", try { com.lifecyclebot.engine.LiveStrategyTuner.statusLine() } catch (_: Throwable) { "unavailable" })
+            put("live_partial_profit_floor_pct", try { com.lifecyclebot.engine.LiveStrategyTuner.livePartialProfitFloorPct() } catch (_: Throwable) { 0.0 })
+            put("note", "operator log must include tuning data; source for size/tp/hold/partial multipliers")
         })
         root.put("runtime", JSONObject().apply {
             put("generation", runtime.runtimeGeneration)

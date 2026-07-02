@@ -609,7 +609,7 @@ class MainActivity : AppCompatActivity() {
     // Row caps live here as single source of truth (was inline magic numbers).
     private val WATCHLIST_ROW_CAP: Int = 6
     private val IDLE_ROW_CAP: Int = 3
-    private val OPENPOS_ROW_CAP: Int = 4
+    private val OPENPOS_ROW_CAP: Int = 10
     private var lastRuntimeBarForensicMs: Long = 0L
     @Volatile private var forceNextForegroundRender: Boolean = false
     @Volatile private var mainUiActive: Boolean = false
@@ -4858,6 +4858,7 @@ for legal compliance.
             }.thenByDescending { it.position.entryTime }
         )
         val capped = if (sortedByGain.size > RENDER_CAP) sortedByGain.take(RENDER_CAP) else sortedByGain
+        val hiddenHeld6039 = if (sortedByGain.size > RENDER_CAP) sortedByGain.drop(RENDER_CAP) else emptyList()
         val hiddenCount = positions.size - capped.size
         // V5.9.1493 — track which mints we render this pass so we can evict
         // sold positions from the cache afterwards.
@@ -5227,16 +5228,21 @@ for legal compliance.
         // positions (operator: "use it until sold"). Bounds memory at the live
         // open-position count.
         run {
-            val stale = openPosCardCache.keys.filter { it !in renderedMints }
+            val heldMints6039 = positions.map { it.mint }.toHashSet()
+            val stale = openPosCardCache.keys.filter { it !in heldMints6039 }
             stale.forEach { openPosCardCache.remove(it) }
         }
-        // V5.9.802 — hidden-cards note when the cap was applied. Plain
-        // textview at bottom of llOpenPositions so the operator can SEE
-        // that N positions exist but aren't rendered (still being managed
-        // by the engine). Cap kicks in only when positions.size > 25.
+        // V5.0.6039 — hidden-held note when the cap is applied. The panel
+        // must show exactly the top 10 held rows by gain high→low, and must
+        // explicitly list the rest as still held/managed in the same order.
         if (hiddenCount > 0) {
+            val hiddenSummary6039 = hiddenHeld6039.take(12).joinToString(" · ") { h ->
+                val v = try { com.lifecyclebot.engine.OpenPnlSanity.inspect(h, "MainActivity.hiddenHeld6039/${h.symbol}/${h.mint.take(8)}", emit = false) } catch (_: Throwable) { com.lifecyclebot.engine.OpenPnlSanity.Verdict(false, reason = "INSPECT_THROW") }
+                val pct = if (v.ok) "%+.1f%%".format(v.pnlPct) else "basis wait"
+                "${h.symbol.ifBlank { h.mint.take(6) }} $pct"
+            }
             llOpenPositions.addView(TextView(this).apply {
-                text = "+ $hiddenCount more position${if (hiddenCount == 1) "" else "s"} hidden — showing top $RENDER_CAP movers high→low, all still managed"
+                text = "+ $hiddenCount still held/managed below top $RENDER_CAP — order high→low: $hiddenSummary6039${if (hiddenCount > 12) " …" else ""}"
                 textSize = 11f
                 setTextColor(0xFFFBBF24.toInt())  // amber so it stands out
                 setPadding(0, 12, 0, 4)
