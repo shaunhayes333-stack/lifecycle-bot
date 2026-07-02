@@ -9629,6 +9629,29 @@ class BotService : Service() {
         } catch (_: Throwable) { emptySet() }
 
         if (memeOnly) {
+            // V5.0.6013 — specialist entry lanes are not owner-ring lanes, but
+            // they must still be allowed to EVALUATE entries when explicitly
+            // selected by character/source affinity. 4599 correctly removed
+            // SHITCOIN / EXPRESS / PROJECT_SNIPER from owner-lane election, but
+            // the 6011 runtime showed these enabled specialist traders silent
+            // (no lane eval) while fresh-launch/degen setups were present. Restore
+            // bounded entry evaluation for explicit affinity only; owner rotation,
+            // sizing, FDG, pause guards and hard safety still decide execution.
+            val specialistEntryLanes6013 = setOf("SHITCOIN", "EXPRESS", "PROJECT_SNIPER", "DIP_HUNTER", "MANIPULATED")
+            val manipOverlayEntry6013 = l == "MANIPULATED" && manipulatedOnlyOverlayActive4553(ts)
+            val specialistEntryAffinity6013 = l in specialistEntryLanes6013 && (affinity.contains(l) || manipOverlayEntry6013)
+            if (RuntimeModeAuthority.isLive() && specialistEntryAffinity6013) {
+                val paused6013 = try { LaneAutoPauseGuard.isPaused(l) } catch (_: Throwable) { false }
+                if (!paused6013) {
+                    try {
+                        ForensicLogger.lifecycle("SPECIALIST_ENTRY_EVAL_RESTORED_6013", "lane=$l primary=$primaryLane symbol=${ts.symbol} mint=${ts.mint.take(10)} affinity=${affinity.joinToString("+")} overlay=$manipOverlayEntry6013 action=allow_entry_eval_not_owner_ring")
+                        PipelineHealthCollector.labelInc("SPECIALIST_ENTRY_EVAL_RESTORED_6013_$l")
+                    } catch (_: Throwable) {}
+                    return true
+                } else {
+                    try { PipelineHealthCollector.labelInc("SPECIALIST_ENTRY_EVAL_PAUSED_6013_$l") } catch (_: Throwable) {}
+                }
+            }
             // V5.0.3934 — LIVE_RING_OWNER_COLLAPSE.
             // 3914's LIVE_FULL_RING_OBSERVATION returned true for every internal
             // meme/toolkit lane before owner rotation. Runtime 3933 proved that was

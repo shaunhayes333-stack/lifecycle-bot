@@ -417,6 +417,7 @@ class GoldenTapeRegressionTest {
         assertTrue("MEME-only should rotate ownership across the full MemeTrader surface", bot.contains("MEMETRADER_CONTRIBUTION_ROTATION") && bot.contains("fullMemeTraderRing") && bot.contains("MEMETRADER_OWNER_LANE"))
         assertTrue("Rotation must include internal lanes that were previously idle (V5.0.4599: specialists no longer in ring)", listOf("MOONSHOT", "MANIPULATED", "QUALITY", "DIP_HUNTER", "TREASURY", "CASHGEN", "BLUECHIP").all { bot.contains(it) })
         assertTrue("V5.0.4478: live contribution considers all internal lanes but bounds FDG/executor to owner/rescue", bot.contains("LIVE_ALL_LANE_CONTRIBUTION_4469") && bot.contains("action=considered_bounded_owner_rotation") && bot.contains("val allowed = (l == ownerLane || profitableRescue) && !laneIsPaused4598") && bot.contains("return allowed"))
+        assertTrue("V5.0.6013: specialist entry traders removed from owner ring must still evaluate explicit affinity entries", bot.contains("SPECIALIST_ENTRY_EVAL_RESTORED_6013") && bot.contains("specialistEntryLanes6013") && bot.contains("SHITCOIN") && bot.contains("EXPRESS") && bot.contains("PROJECT_SNIPER") && bot.contains("affinity.contains(l) || manipOverlayEntry6013"))
         assertFalse("3914 live full-ring fanout regression must stay dead", bot.contains("LIVE_FULL_RING_LANE_OBSERVE"))
     }
 
@@ -3445,6 +3446,7 @@ class GoldenTapeRegressionTest {
         val pipe = java.io.File("src/main/kotlin/com/lifecyclebot/engine/PipelineHealthCollector.kt").readText()
         assertTrue("V5.0.4478: live MemeTrader must consider all internal trader lanes while preserving bounded owner telemetry", bot.contains("LIVE_RING_OWNER_COLLAPSE") && bot.contains("LIVE_ALL_LANE_CONTRIBUTION_4469") && bot.contains("MEMETRADER_OWNER_LANE") && bot.contains("val allowed = (l == ownerLane || profitableRescue) && !laneIsPaused4598"))
         assertTrue("V5.0.4598: paused lanes cannot receive owner-lane election (closes MANIPULATED bypass)", bot.contains("OWNER_LANE_PAUSED_DENIED_4598") && bot.contains("LaneAutoPauseGuard.isPaused(l)"))
+        assertTrue("V5.0.6013: specialist entry restore must respect the same pause guard and not revive all-lane fanout", bot.contains("SPECIALIST_ENTRY_EVAL_PAUSED_6013") && bot.contains("specialistEntryAffinity6013") && !bot.contains("LIVE_FULL_RING_LANE_OBSERVE"))
         assertFalse("live full-ring observe must not return true before owner rotation", bot.contains("LIVE_FULL_RING_LANE_OBSERVE") || bot.contains("fullRingObserve"))
         assertTrue("V5.0.4474: runtime report must expose live all-lane contribution policy and owner context", pipe.contains("MEME_RING=liveAllLaneContribution") && pipe.contains("LIVE_ALL_LANE_CONTRIBUTION_4469") && pipe.contains("LIVE_RING_OWNER_COLLAPSE") && pipe.contains("MEMETRADER_OWNER_LANE"))
         assertTrue("runtime report must expose pre-attempt live buy suppressions", pipe.contains("Pre-attempt suppressions") && pipe.contains("LIVE_BUY_PREATTEMPT_PROVIDER_PROOF_BLIND") && pipe.contains("STALE_AUTH_LOCK_PRUNED"))
