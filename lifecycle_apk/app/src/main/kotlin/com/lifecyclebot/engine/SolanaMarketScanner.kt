@@ -1095,7 +1095,16 @@ class SolanaMarketScanner(
         // calls to protect API rate limits; the protected PumpPortal WS firehose
         // is a separate path and untouched.
         val overlayCap = try { RuntimeConfigOverlay.scannerConcurrencyCap() } catch (_: Throwable) { 0 }
-        val permits = (if (overlayCap > 8) overlayCap else 8).coerceIn(8, 12)
+        // V5.0.6017 — source-breadth fairness. The batch contains 16-20 scanner
+        // sources, but the old 8-12 permit cap plus 8s batch wall let early noisy
+        // Pump/Raydium calls occupy permits while later Dex/Gecko/CoinGecko/Birdeye
+        // sources were cancelled before they could admit candidates. Start the full
+        // source set immediately (still bounded by SharedHttpClient, Gecko bucket,
+        // BirdeyeBudgetGate and per-source timeouts) so all scanner sources get a
+        // real chance every cycle. This fixes source collapse without hard-blocking
+        // Pump/Raydium or adding hot-path LLM/API work.
+        val requestedPermits6017 = if (overlayCap > 0) overlayCap else scans.size
+        val permits = requestedPermits6017.coerceIn(12, 24).coerceAtLeast(scans.size.coerceAtMost(24))
         val gate = kotlinx.coroutines.sync.Semaphore(permits)
         // V5.9.1497 — ADAPTIVE DEPRIORITIZATION (spec §2): a source that has timed
         // out SOURCE_DEPRIORITIZE_AFTER+ consecutive cycles is skipped on a rotating
@@ -1124,8 +1133,19 @@ class SolanaMarketScanner(
         // and lets the loop continue — a hung source degrades priority (streak++ via
         // its own per-source timeout) instead of stalling loop exit. No cycle >30s.
         val batchStart = System.currentTimeMillis()
+        val balancedActive6017 = active.sortedWith(compareBy<Pair<String, suspend () -> Unit>> {
+            // Rotate broad-network/non-Pump sources ahead of the noisy launch feeds so
+            // a cycle never spends its first permits only on Pump/Raydium.
+            val n = it.first.uppercase()
+            when {
+                n.contains("DEX") || n.contains("GECKO") || n.contains("BIRDEYE") || n.contains("BLUECHIP") || n.contains("TOPVOLUME") || n.contains("NARRATIVE") -> 0
+                n.contains("RAYDIUM") || n.contains("METEORA") -> 1
+                n.contains("PUMP") || n.contains("FRESH") -> 2
+                else -> 1
+            }
+        }.thenBy { it.first })
         val finished = kotlinx.coroutines.withTimeoutOrNull(SCAN_BATCH_BUDGET_MS) {
-            active.map { (name, block) ->
+            balancedActive6017.map { (name, block) ->
                 async(Dispatchers.IO) {
                     gate.acquire()
                     try { runScan(name, block) } finally { gate.release() }
@@ -1139,7 +1159,7 @@ class SolanaMarketScanner(
             try {
                 ForensicLogger.lifecycle(
                     "SCANNER_BATCH_BUDGET_EXCEEDED",
-                    "durMs=$durMs budget=$SCAN_BATCH_BUDGET_MS sources=${active.size} (slow sources cancelled, priority degraded)",
+                    "durMs=$durMs budget=$SCAN_BATCH_BUDGET_MS sources=${balancedActive6017.size} permits=$permits (slow sources cancelled, priority degraded)",
                 )
             } catch (_: Throwable) {}
         }
