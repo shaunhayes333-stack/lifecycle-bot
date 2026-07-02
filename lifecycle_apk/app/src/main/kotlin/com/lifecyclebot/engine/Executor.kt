@@ -4331,6 +4331,53 @@ class Executor(
             }
         }
         
+        // V5.0.6028 — WALLET-GROWTH RUNNER HARVEST.
+        // A screenshot +6779% runner does not matter unless SOL lands back in the
+        // wallet. The old path waited for trophy ultra thresholds / trailing locks
+        // while the compounding governor only saw closed negative truth, so live
+        // buys stayed tiny and monster open PnL sat unrealized. If a live runner's
+        // trusted current profit is already material versus wallet size, bank a
+        // tranche now through the same executeProfitLockSell finality path.
+        val unrealizedProfitSol6028 = (currentValue - pos.costSol).takeIf { it.isFinite() }?.coerceAtLeast(0.0) ?: 0.0
+        val walletGrowthHarvest6028 = !pos.isPaperPosition &&
+            gainMultiple >= 3.0 &&
+            unrealizedProfitSol6028 >= maxOf(0.02, walletSol * 0.10, pos.costSol * 2.0) &&
+            currentValueAboveBasis4130
+        if (walletGrowthHarvest6028) {
+            if (wallet == null) {
+                val recoveryReason = "URGENT_WALLET_GROWTH_HARVEST_WALLET_NULL_${gainMultiple.fmt(1)}x"
+                try { PendingSellQueue.add(ts.mint, ts.symbol ?: "?", recoveryReason) } catch (_: Throwable) {}
+                try { HostWalletTokenTracker.markSellWaitingBalanceProof(ts.mint, ts.symbol, recoveryReason) } catch (_: Throwable) {}
+                try { PipelineHealthCollector.labelInc("WALLET_GROWTH_HARVEST_DEFERRED_WALLET_NULL_6028") } catch (_: Throwable) {}
+                return false
+            }
+            val priceReal6028 = try {
+                RealPriceLock.verifyUltraRunnerBank(ts, gainMultiple, currentValue, pos.costSol)
+            } catch (_: Throwable) { true }
+            if (!priceReal6028) {
+                try {
+                    ForensicLogger.lifecycle("WALLET_GROWTH_HARVEST_DEFERRED_PRICE_UNREAL_6028", "mint=${ts.mint.take(10)} symbol=${ts.symbol} gain=${gainMultiple.fmt(2)}x unrealized=${unrealizedProfitSol6028.fmt(4)} wallet=${walletSol.fmt(4)} reason=route_disagrees")
+                    PipelineHealthCollector.labelInc("WALLET_GROWTH_HARVEST_DEFERRED_PRICE_UNREAL_6028")
+                } catch (_: Throwable) {}
+                return false
+            }
+            val remainingFraction6028 = (100.0 - pos.partialSoldPct).coerceAtLeast(0.0) / 100.0
+            val sellFraction6028 = when {
+                unrealizedProfitSol6028 >= walletSol.coerceAtLeast(0.01) * 1.0 -> 0.65
+                unrealizedProfitSol6028 >= walletSol.coerceAtLeast(0.01) * 0.50 -> 0.50
+                else -> 0.35
+            }.coerceAtMost(remainingFraction6028)
+            if (sellFraction6028 > 0.0) {
+                try {
+                    ForensicLogger.lifecycle("WALLET_GROWTH_HARVEST_TRIGGERED_6028", "mint=${ts.mint.take(10)} symbol=${ts.symbol} gain=${gainMultiple.fmt(2)}x unrealized=${unrealizedProfitSol6028.fmt(4)} wallet=${walletSol.fmt(4)} sellPct=${(sellFraction6028*100).toInt()} reason=land_runner_profit_in_wallet")
+                    PipelineHealthCollector.labelInc("WALLET_GROWTH_HARVEST_TRIGGERED_6028")
+                } catch (_: Throwable) {}
+                onLog("💰 WALLET GROWTH HARVEST: ${ts.symbol} @ ${gainMultiple.fmt(1)}x unrealized=${unrealizedProfitSol6028.fmt(4)} SOL — selling ${(sellFraction6028*100).toInt()}% NOW", ts.mint)
+                executeProfitLockSell(ts, wallet, sellFraction6028, "wallet_growth_harvest_${gainMultiple.fmt(1)}x", walletSol)
+                return true
+            }
+        }
+
         if (!pos.capitalRecovered && gainMultiple >= capitalRecoveryThreshold) {
             // V5.0.3686 — accounting/source fix: capital recovery sizing is
             // target-recovery / expected net value, clamped to remaining position.

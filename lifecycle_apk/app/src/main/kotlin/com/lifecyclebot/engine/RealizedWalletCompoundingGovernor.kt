@@ -32,11 +32,14 @@ object RealizedWalletCompoundingGovernor {
         val dayPnlSol: Double,
         val dayProgressX: Double,
         val drawdownFromDayHighPct: Double,
+        val trustedOpenUnrealizedSol: Double = 0.0,
+        val trustedOpenRunnerCount: Int = 0,
+        val equityPressureX: Double = 1.0,
         val refreshedAtMs: Long,
     )
 
     private const val REFRESH_TTL_MS = 15_000L
-    @Volatile private var cached = Snapshot(1.0, 0.0, 0.0, 0.0, 0.0, 0, "bootstrap", 0.0, 0.0, 0.0, 1.0, 0.0, 0L)
+    @Volatile private var cached = Snapshot(1.0, 0.0, 0.0, 0.0, 0.0, 0, "bootstrap", 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0, 1.0, 0L)
     @Volatile private var dayKey: String = ""
     @Volatile private var dayStartWalletSol: Double = 0.0
     @Volatile private var dayHighWalletSol: Double = 0.0
@@ -50,7 +53,7 @@ object RealizedWalletCompoundingGovernor {
     fun statusLine(): String {
         refreshAsyncIfStale()
         val s = cached
-        return "RealizedWalletCompounding: mult=${s.multiplier.fmt2()} clean=${s.cleanPnlSol.fmt4()} SOL wallet=${s.walletSol.fmt4()} SOL day=${s.dayPnlSol.fmt4()} SOL progress=${s.dayProgressX.fmt2()}x high=${s.dayHighWalletSol.fmt4()} ddHigh=${s.drawdownFromDayHighPct.fmt1()}% WR=${s.wrPct.fmt1()}% PF=${s.profitFactor.fmt2()} n=${s.trades} reason=${s.reason}"
+        return "RealizedWalletCompounding: mult=${s.multiplier.fmt2()} clean=${s.cleanPnlSol.fmt4()} SOL wallet=${s.walletSol.fmt4()} SOL openTrusted=${s.trustedOpenUnrealizedSol.fmt4()} SOL runners=${s.trustedOpenRunnerCount} equityPressure=${s.equityPressureX.fmt2()}x day=${s.dayPnlSol.fmt4()} SOL progress=${s.dayProgressX.fmt2()}x high=${s.dayHighWalletSol.fmt4()} ddHigh=${s.drawdownFromDayHighPct.fmt1()}% WR=${s.wrPct.fmt1()}% PF=${s.profitFactor.fmt2()} n=${s.trades} reason=${s.reason}"
     }
 
     private fun Double.fmt1(): String = String.format(Locale.US, "%.1f", this)
@@ -89,6 +92,31 @@ object RealizedWalletCompoundingGovernor {
         return "%04d-%02d-%02d".format(Locale.US, c.get(Calendar.YEAR), c.get(Calendar.MONTH) + 1, c.get(Calendar.DAY_OF_MONTH))
     }
 
+    private data class TrustedOpenEquity(val pnlSol: Double, val runners: Int, val maxPnlPct: Double)
+
+    private fun trustedOpenLiveEquity(): TrustedOpenEquity {
+        return try {
+            val rows = try { BotService.status.tokens.values.toList() } catch (_: Throwable) { emptyList() }
+            var pnlSol = 0.0
+            var runners = 0
+            var maxPct = 0.0
+            rows.forEach { ts ->
+                val p = ts.position
+                if (!p.isOpen || p.isPaperPosition || p.costSol <= 0.0 || p.qtyToken <= 0.0) return@forEach
+                val verdict = try { OpenPnlSanity.inspect(ts, context = "RealizedWalletCompoundingGovernor.open_equity_6028", emit = false) } catch (_: Throwable) { OpenPnlSanity.Verdict(false, reason = "INSPECT_THROW") }
+                if (!verdict.ok || verdict.pnlPct <= 0.0) return@forEach
+                val currentPrice = ts.ref.takeIf { it.isFinite() && it > 0.0 } ?: return@forEach
+                val currentValueSol = (p.qtyToken * currentPrice).takeIf { it.isFinite() && it > 0.0 } ?: return@forEach
+                val openPnlSol = (currentValueSol - p.costSol).coerceAtLeast(0.0)
+                if (openPnlSol <= 0.0) return@forEach
+                pnlSol += openPnlSol
+                runners += 1
+                maxPct = maxOf(maxPct, verdict.pnlPct)
+            }
+            TrustedOpenEquity(pnlSol, runners, maxPct)
+        } catch (_: Throwable) { TrustedOpenEquity(0.0, 0, 0.0) }
+    }
+
     private fun computeSnapshot(nowMs: Long): Snapshot {
         val raw = try { TradeHistoryStore.getRecentValidClosedTradesRaw(limit = 750, includePartials = true) } catch (_: Throwable) { emptyList() }
         val clean = try { StrategyTruthLedger.clean(raw, 750).rows } catch (_: Throwable) { emptyList() }
@@ -106,6 +134,9 @@ object RealizedWalletCompoundingGovernor {
         }
         val wr = if (wins + losses > 0) wins * 100.0 / (wins + losses) else 0.0
         val wallet = try { BotService.status.walletSol } catch (_: Throwable) { 0.0 }
+        val openEquity6028 = trustedOpenLiveEquity()
+        val equityBase6028 = wallet.takeIf { it.isFinite() && it > 0.0 } ?: 1.0
+        val equityPressureX6028 = ((wallet + openEquity6028.pnlSol) / equityBase6028).takeIf { it.isFinite() && it > 0.0 } ?: 1.0
         val dayStartMs = brisbaneDayStartMs(nowMs)
         val todayTerminal = terminal.filter { it.ts >= dayStartMs }
         val todayPnl = todayTerminal.sumOf { it.netPnlSol.takeIf { v -> v != 0.0 } ?: it.pnlSol }
@@ -122,9 +153,13 @@ object RealizedWalletCompoundingGovernor {
         val drawdownFromHighPct = if (dayHighWalletSol > 0.0 && wallet > 0.0) ((wallet - dayHighWalletSol) / dayHighWalletSol) * 100.0 else 0.0
         val base = wallet.takeIf { it.isFinite() && it > 0.0 } ?: 1.0
         val gainRatio = pnl / base
+        val openRunnerPressure6028 = openEquity6028.runners > 0 && openEquity6028.pnlSol >= maxOf(0.02, wallet * 0.10) && equityPressureX6028 >= 1.10
         val multReason = when {
             drawdownFromHighPct <= -25.0 && todayPnl > 0.0 -> 0.55 to "intraday_high_water_profit_protect"
             drawdownFromHighPct <= -15.0 && todayPnl > 0.0 -> 0.75 to "intraday_high_water_cooling"
+            equityPressureX6028 >= 2.0 && openRunnerPressure6028 -> 1.65 to "trusted_open_equity_two_x_pressure_6028"
+            equityPressureX6028 >= 1.5 && openRunnerPressure6028 -> 1.35 to "trusted_open_equity_compound_pressure_6028"
+            equityPressureX6028 >= 1.15 && openRunnerPressure6028 -> 1.15 to "trusted_open_runner_pressure_6028"
             dayProgressX >= 5.0 && wr >= 35.0 && pf >= 2.0 -> 1.45 to "five_x_day_protect_compound"
             dayProgressX >= 3.0 && wr >= 35.0 && pf >= 1.8 -> 1.75 to "three_x_day_compound"
             dayProgressX >= 2.0 && wr >= 32.0 && pf >= 1.5 -> 2.05 to "two_x_day_compound"
@@ -150,6 +185,9 @@ object RealizedWalletCompoundingGovernor {
             dayPnlSol = todayPnl,
             dayProgressX = dayProgressX,
             drawdownFromDayHighPct = drawdownFromHighPct,
+            trustedOpenUnrealizedSol = openEquity6028.pnlSol,
+            trustedOpenRunnerCount = openEquity6028.runners,
+            equityPressureX = equityPressureX6028,
             refreshedAtMs = nowMs,
         )
     }

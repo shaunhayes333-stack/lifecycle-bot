@@ -6978,6 +6978,9 @@ class GoldenTapeRegressionTest {
         assertTrue("V5.0.6026: FDG must soften non-hard blockers when the brain chain aligns", fdg6025.contains("FdgBrainChain.evaluate") && fdg6025.contains("FDG_BRAIN_CHAIN_6026") && fdg6025.contains("FDG_BRAIN_SOFTENED_BLOCK_6026") && fdg6025.contains("softBlockReason6026") && fdg6025.contains("blockLevel != BlockLevel.HARD"))
         assertTrue("V5.0.6026: CommonSense prebuy must become chain-shaped caution, not blind executor obstruction", exec6026.contains("COMMON_SENSE_PREBUY_SOFTENED_6026") && exec6026.contains("commonSenseHard6026") && exec6026.contains("FdgBrainChain.evaluate") && exec6026.contains("FDG_BRAIN_COMMON_SENSE_SOFTEN_6026"))
         assertTrue("V5.0.6027: FDG brain chain must drive sizing/compounding targets, not only blocker reconciliation", fdgBrain6026.contains("compoundingMultiplier") && fdgBrain6026.contains("targetMode") && fdgBrain6026.contains("COMPOUND") && fdgBrain6026.contains("QUALITY_VOLUME") && fdg6025.contains("FDG_BRAIN_COMPOUNDING_TARGET_6027") && fdg6025.contains("fdg_brain_compounding"))
+        val walletComp6028 = java.io.File("src/main/kotlin/com/lifecyclebot/engine/RealizedWalletCompoundingGovernor.kt").readText()
+        assertTrue("V5.0.6028: compounding governor must include trusted open live equity pressure without faking journal PnL", walletComp6028.contains("trustedOpenLiveEquity") && walletComp6028.contains("OpenPnlSanity.inspect") && walletComp6028.contains("trusted_open_equity_compound_pressure_6028") && walletComp6028.contains("openTrusted"))
+        assertTrue("V5.0.6028: live runners with wallet-material unrealized profit must harvest SOL through sell finality", exec6026.contains("WALLET_GROWTH_HARVEST_TRIGGERED_6028") && exec6026.contains("land_runner_profit_in_wallet") && exec6026.contains("executeProfitLockSell(ts, wallet, sellFraction6028") && exec6026.contains("WALLET_GROWTH_HARVEST_DEFERRED_PRICE_UNREAL_6028"))
     }
 
 
