@@ -77,6 +77,14 @@ object LaneExpectancyDamper {
     // pfExpectancyPp (a proxy) came out slightly negative.
     private const val HEALTHY_MEAN_PCT = 5.0
 
+    // V5.0.6059 — WR SUPPLEMENT. The clean leaderboard deduplicates fat-
+    // tail winners (e.g. QUALITY_PROMOTE_MOONSHOT +103.7%) out of the
+    // aggregate mean, which can force a proven-winner lane's clean mean
+    // below HEALTHY_MEAN_PCT. WR is a base-rate signal that survives
+    // deduplication: >=45% WR with a meaningful sample = winner.
+    private const val HEALTHY_WR_PCT = 45.0
+    private const val HEALTHY_WR_MIN_TRADES = 15
+
     // Worst-case mean PnL% that maps to MIN_MULT. Between BLEEDER_MEAN_PCT and
     // this, the haircut scales linearly.
     private const val FLOOR_MEAN_PCT = -30.0
