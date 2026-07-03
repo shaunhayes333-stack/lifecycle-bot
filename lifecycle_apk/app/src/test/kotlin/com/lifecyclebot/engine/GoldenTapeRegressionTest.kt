@@ -7193,4 +7193,19 @@ class GoldenTapeRegressionTest {
         assertTrue("V5.0.6070: general one-provider-zero-in-flight branch must also require 2-read corroboration, not act on the first read", host6070.contains("ONE_PROVIDER_ZERO_CORROBORATION_PENDING_6070") && host6070.contains("markNoCurrentHeldProof(p, \"ONE_PROVIDER_ZERO_IN_FLIGHT\")"))
         assertTrue("V5.0.6070: corroboration counter must increment before the demotion branch fires, matching the ABSENT_MINT/SELL_VERIFYING 2-read ladder already used elsewhere in this file", host6070.contains("p.consecutiveZeroConfirms += 1") && host6070.contains("p.consecutiveZeroConfirms >= 2"))
     }
+
+
+    @Test
+    fun aate6077SsiAgiTunesFromTradeOneNoBootstrapActuatorCliffs() {
+        val meta = java.io.File("src/main/kotlin/com/lifecyclebot/engine/AutonomousMetaPolicy.kt").readText()
+        val tuner = java.io.File("src/main/kotlin/com/lifecyclebot/engine/LiveStrategyTuner.kt").readText()
+        val bridge = java.io.File("src/main/kotlin/com/lifecyclebot/engine/MetaCognitionExecutorBridge.kt").readText()
+        val uph = java.io.File("src/main/kotlin/com/lifecyclebot/engine/UnifiedPolicyHead.kt").readText()
+        val prob = java.io.File("src/main/kotlin/com/lifecyclebot/engine/LiveProbabilityEngine.kt").readText()
+        assertTrue("V5.0.6077: AutonomousMetaPolicy must shape from the first settled context instead of returning neutral until MIN_SAMPLES", meta.contains("if (arm.samples <= 0) return 1.0") && meta.contains("TRADE1_RAMP_FLOOR") && meta.contains("trade1Ramp6077") && !meta.contains("if (arm.samples < MIN_SAMPLES) return 1.0"))
+        assertTrue("V5.0.6077: LiveStrategyTuner must admit n=1..4 lanes through bounded trade-1 ramp instead of skipping all lanes under five closes", tuner.contains("if (m.trades <= 0) continue") && tuner.contains("if (n in 1 until MIN_TUNE_TRADES)") && tuner.contains("trade1_positive_ramp_6077") && tuner.contains("trade1_risk_ramp_6077") && !tuner.contains("if (m.trades < MIN_TUNE_TRADES) continue"))
+        assertTrue("V5.0.6077: MetaCognition executor bridge must remove the 30-trade neutral cliff and ramp early trust multipliers", bridge.contains("if (analyzed6077 <= 0) return 1.0") && bridge.contains("trade1Ramp6077") && !bridge.contains("getTotalTradesAnalyzed() < 30) return 1.0"))
+        assertTrue("V5.0.6077: UnifiedPolicyHead and LiveProbabilityEngine must blend bootstrap policy signals from first training sample, not zero-weight bootstrap", uph.contains("trainedForRamp6077") && uph.contains("trade1Ramp6077") && prob.contains("policySamples6077") && !prob.contains("policyW = if (UnifiedPolicyHead.formatForPipelineDump()"))
+    }
+
 }

@@ -64,7 +64,7 @@ object LiveStrategyTuner {
             .filter { !it.isNeutral }
             .sortedWith(compareBy<Adjustment> { it.label }.thenBy { it.lane })
         if (tuned.isEmpty()) {
-            "LiveStrategyTuner: neutral (live-terminal only; no lane ≥$MIN_TUNE_TRADES actionable closes)"
+            "LiveStrategyTuner: neutral (no actionable live-terminal closes yet; V5.0.6077 trade-1 ramp active once n≥1)"
         } else {
             "LiveStrategyTuner: " + tuned.joinToString(" · ") {
                 "${it.lane}:${it.label} n=${it.trades} WR=${"%.0f".format(it.winRatePct)}% PnL=${"%+.3f".format(it.totalSolPnl)} size×=${"%.2f".format(it.sizeMult)} tp×=${"%.2f".format(it.tpMult)} hold×=${"%.2f".format(it.holdMult)} partial×=${"%.2f".format(it.partialTriggerMult)}"
@@ -87,7 +87,7 @@ object LiveStrategyTuner {
         if (board.isEmpty()) return emptyMap()
         val out = LinkedHashMap<String, Adjustment>()
         for (m in board) {
-            if (m.trades < MIN_TUNE_TRADES) continue
+            if (m.trades <= 0) continue
             val lane = canonical(m.strategy)
             val adj = buildAdjustment(lane, m)
             out[lane] = adj
@@ -146,6 +146,43 @@ object LiveStrategyTuner {
         // cannot be called a capital winner from outliers alone. It may keep tiny
         // asymmetric probes/runner patience; it may not receive >1× entry size.
         val avgWin = m.avgWinPct.coerceAtLeast(0.0)
+        // V5.0.6077 — TRADE-1 LANE TUNING. compute() now admits lanes from the
+        // first terminal close instead of skipping n<5 entirely. For n=1..4,
+        // apply a bounded ramp: green early evidence gently presses/patiences the
+        // lane; red early evidence gently risk-shapes it. Mature bleeder/toxic
+        // pivots below still require their existing larger samples. This answers
+        // the operator's doctrine: SSI/AGI tunes from trade 1 in paper/live,
+        // without turning a single close into a hard choke.
+        if (n in 1 until MIN_TUNE_TRADES) {
+            val ramp6077 = (n.toDouble() / MIN_TUNE_TRADES.toDouble()).coerceIn(0.20, 0.80)
+            val green6077 = sol > 0.0 || mean > 0.0 || wr >= 50.0
+            val red6077 = sol < 0.0 || mean < 0.0 || wr <= 35.0
+            val size = when {
+                green6077 -> 1.0 + 0.18 * ramp6077
+                red6077 -> 1.0 - 0.18 * ramp6077
+                else -> 1.0
+            }.coerceIn(0.86, 1.14)
+            val hold = when {
+                green6077 -> 1.0 + 0.25 * ramp6077
+                red6077 -> 1.0 - 0.22 * ramp6077
+                else -> 1.0
+            }.coerceIn(0.84, 1.20)
+            val partial = when {
+                green6077 -> 1.0 + 0.30 * ramp6077
+                red6077 -> 1.0 - 0.18 * ramp6077
+                else -> 1.0
+            }.coerceIn(0.86, 1.24)
+            return Adjustment(
+                lane = lane, trades = n, winRatePct = wr, totalSolPnl = sol,
+                pfExpectancyPp = pf, meanPnlPct = mean, sizeMult = size,
+                tpMult = if (green6077) (1.0 + 0.12 * ramp6077).coerceIn(1.0, 1.10) else 1.0,
+                holdMult = hold,
+                maxWalletMult = size.coerceIn(0.86, 1.08),
+                liquidityImpactMult = if (red6077) (1.0 - 0.12 * ramp6077).coerceIn(0.90, 1.0) else 1.0,
+                partialTriggerMult = partial,
+                label = if (green6077) "trade1_positive_ramp_6077" else if (red6077) "trade1_risk_ramp_6077" else "trade1_neutral_ramp_6077",
+            )
+        }
         val asymmetric = avgWin >= 50.0 || mean >= 20.0 || pf >= 8.0
         val hitRateHealthy = wr >= 45.0 || (wr >= 35.0 && pf > 0.0 && sol > 0.0)
         val winner = n >= MIN_WINNER_TRADES && sol > 0.0 && hitRateHealthy &&
@@ -237,7 +274,7 @@ object LiveStrategyTuner {
         // a lane that is NET-POSITIVE in real SOL with a real sample must
         // NEVER be sized below 1.0 by this tuner — dampeners are per-lane
         // and a lane paying for itself is not a bleeder.
-        if (n >= 5 && sol > 0.0) {
+        if (n >= 1 && sol > 0.0) {
             return Adjustment(
                 lane = lane, trades = n, winRatePct = wr, totalSolPnl = sol,
                 pfExpectancyPp = pf, meanPnlPct = mean,

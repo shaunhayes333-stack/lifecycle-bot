@@ -205,7 +205,13 @@ object LiveProbabilityEngine {
                 candConf = candidateConfidence.coerceIn(0.0, 1.0),
             )
             val policyP = UnifiedPolicyHead.predictWinProb(signals).coerceIn(0.0, 1.0)
-            val policyW = if (UnifiedPolicyHead.formatForPipelineDump().contains("bootstrap")) 0.0 else 0.20
+            // V5.0.6077 — trade-1 policy blending. Previous code set policyW=0
+            // whenever the dump contained "bootstrap", so the AGI head could train
+            // but could not affect live/paper probability until it crossed an
+            // arbitrary authority label. Blend from the first trained sample with
+            // a small ramp; sample 0 remains neutral/fail-open.
+            val policySamples6077 = UnifiedPolicyHead.trainedCount().coerceAtLeast(0L)
+            val policyW = if (policySamples6077 <= 0L) 0.0 else (0.20 * (policySamples6077.toDouble() / 10.0).coerceIn(0.25, 1.0))
             val pWin = ((pBase * (1.0 - policyW)) + (policyP * policyW)).coerceIn(0.02, 0.98)
 
             val probabilityEdge = (pWin - 0.50) * 1.55

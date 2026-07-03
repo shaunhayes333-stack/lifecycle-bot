@@ -34,8 +34,9 @@ import kotlin.math.exp
  *     the original FDG path). It returns a conviction multiplier in [floor, cap]
  *     — it can damp a bad context toward a floor but never to zero, and can lean
  *     into a proven context up to a cap. Volume is never starved.
- *   • BOOTSTRAP-SAFE: while a context has < MIN_SAMPLES, conviction = 1.0
- *     (neutral) so the bot keeps gathering sample volume per the doctrine.
+ *   • TRADE-1 TUNING: sample 0 is neutral, but once a context has even one
+ *     settled outcome the posterior shapes with a small ramp instead of waiting
+ *     behind an arbitrary sample cliff. Volume is still protected by soft floors.
  *   • Persisted (exportState/importState) so the learned surface survives
  *     restarts — amnesia-class bug prevention.
  *   • Fail-open everywhere: any error → neutral conviction 1.0.
@@ -45,14 +46,13 @@ object AutonomousMetaPolicy {
     // ── Tunables ─────────────────────────────────────────────────────────
     private const val TAG = "MetaPolicy"
     // V5.0.4597 — MIN_SAMPLES LOWERED (operator directive: "self tuning
-    // from trade 1"). Previous MIN_SAMPLES=12 meant every (lane × score-band
-    // × regime) context needed 12+ closes before the AGI would even OPINE.
-    // On fresh install with ~1 trade/min across 6+ contexts, that's 60-90
-    // min of blind trading before meta-policy activates. Dropped to 5 with
-    // wide error bars — Thompson sampling naturally handles the uncertainty
-    // (early samples produce wide beta distributions that self-explore, so
-    // low n is safe here — this is Bayesian, not frequentist).
-    private const val MIN_SAMPLES        = 5       // was 12
+    // from trade 1"). V5.0.6077 removes the remaining actuator cliff: sample
+    // 0 is neutral, but samples 1..4 now shape with a ramped Bayesian posterior
+    // instead of returning pure 1.0 until five closes. This preserves soft-shape
+    // safety while making SSI/AGI tune from the first settled trade in both
+    // paper and live.
+    private const val MIN_SAMPLES        = 5       // ramp target, not activation cliff
+    private const val TRADE1_RAMP_FLOOR  = 0.25    // one sample gets 25% authority, then ramps to 100%
     private const val CONVICTION_FLOOR   = 0.55    // worst damp — never starve volume
     private const val CONVICTION_CAP     = 1.45    // best lean-in
     private const val PRIOR_ALPHA        = 1.0     // Beta(1,1) uniform prior
@@ -117,19 +117,22 @@ object AutonomousMetaPolicy {
 
     /**
      * Thompson-sample the context posterior and return a CONVICTION MULTIPLIER.
-     * 1.0 = neutral (bootstrap or unknown). >1 = lean in. <1 = damp (never 0).
+     * 1.0 = neutral only at sample 0/unknown. >1 = lean in. <1 = damp (never 0).
      * Captures the decision so the outcome can be credited to the same context.
      */
     fun conviction(lane: String, score: Int, regime: String): Double {
         return try {
             val key = contextKey(lane, score, regime)
             val arm = arms.getOrPut(key) { Arm() }
-            if (arm.samples < MIN_SAMPLES) return 1.0  // bootstrap-safe neutral
-            // Thompson sample from Beta(alpha, beta)
+            if (arm.samples <= 0) return 1.0  // no evidence yet; after trade 1 we tune
+            // Thompson sample from Beta(alpha, beta). V5.0.6077: samples 1..4 are
+            // no longer actuator-dead; they shape with a ramp so the SSI/AGI stack
+            // tunes from trade 1 without over-trusting a single noisy close.
             val sample = sampleBeta(arm.alpha, arm.beta)
+            val trade1Ramp6077 = (arm.samples.toDouble() / MIN_SAMPLES.toDouble()).coerceIn(TRADE1_RAMP_FLOOR, 1.0)
             // Map the sampled win-prob to a conviction multiplier around a 0.5 hinge.
             // sample 0.5 → 1.0 ; sample 0.8 → lean in ; sample 0.2 → damp.
-            val raw = 1.0 + (sample - 0.5) * 1.8
+            val raw = 1.0 + (sample - 0.5) * 1.8 * trade1Ramp6077
             raw.coerceIn(CONVICTION_FLOOR, CONVICTION_CAP)
         } catch (_: Throwable) { 1.0 }
     }

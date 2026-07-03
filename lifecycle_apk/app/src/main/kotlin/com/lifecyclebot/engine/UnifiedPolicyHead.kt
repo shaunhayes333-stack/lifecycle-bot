@@ -212,10 +212,14 @@ object UnifiedPolicyHead {
             val laneKey = normalizeLane(lane)
             val h = laneHeads[laneKey]
             val auth = currentAuthority(laneKey)
-            if (auth == AuthorityTier.BOOTSTRAP) return 1.0
-            val p = if (h != null && h.trained >= 8L) rawProbLane(h, s.toArray()) else rawProbGlobal(s.toArray())
+            val trainedForRamp6077 = h?.trained ?: trained
+            if (trainedForRamp6077 <= 0L && auth == AuthorityTier.BOOTSTRAP) return 1.0
+            val p = if (h != null && h.trained >= 1L) rawProbLane(h, s.toArray()) else rawProbGlobal(s.toArray())
             advisoryUsageCount.incrementAndGet()
-            (1.0 + (p - 0.5) * 1.6).coerceIn(MULT_FLOOR, MULT_CAP)
+            val trade1Ramp6077 = if (auth == AuthorityTier.BOOTSTRAP)
+                (trainedForRamp6077.toDouble() / AUTHORITY_ADVISORY.toDouble()).coerceIn(0.25, 1.0)
+            else 1.0
+            (1.0 + (p - 0.5) * 1.6 * trade1Ramp6077).coerceIn(MULT_FLOOR, MULT_CAP)
         } catch (_: Throwable) { 1.0 }
     }
 
