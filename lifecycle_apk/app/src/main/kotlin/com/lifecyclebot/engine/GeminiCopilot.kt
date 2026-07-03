@@ -32,6 +32,9 @@ object GeminiCopilot {
         "https://api.cerebras.ai/v1/chat/completions"
     private const val OPENAI_URL =
         "https://api.openai.com/v1/chat/completions"
+    // V5.0.6073 — Mistral free tier (~1B tokens/month Experiment tier).
+    private const val MISTRAL_URL =
+        "https://api.mistral.ai/v1/chat/completions"
 
     private const val DEFAULT_GEMINI_MODEL = "gemini-2.5-flash"
     private const val DEFAULT_EMERGENT_MODEL = "gemini/gemini-2.5-flash"
@@ -39,6 +42,7 @@ object GeminiCopilot {
     private const val DEFAULT_GROQ_MODEL = "openai/gpt-oss-20b"
     private const val DEFAULT_CEREBRAS_MODEL = "openai/gpt-oss-120b"
     private const val DEFAULT_OPENAI_MODEL = "gpt-4o-mini"
+    private const val DEFAULT_MISTRAL_MODEL = "mistral-small-latest"
 
     private const val CACHE_TTL_MS = 3L * 60_000L
     private const val MIN_CALL_INTERVAL_MS = 1250L
@@ -51,6 +55,7 @@ object GeminiCopilot {
     @Volatile private var groqApiKey: String = ""
     @Volatile private var cerebrasApiKey: String = ""
     @Volatile private var openAiApiKey: String = ""
+    @Volatile private var mistralApiKey: String = ""
 
     @Volatile private var geminiModel: String = DEFAULT_GEMINI_MODEL
     @Volatile private var emergentModel: String = DEFAULT_EMERGENT_MODEL
@@ -58,6 +63,7 @@ object GeminiCopilot {
     @Volatile private var groqModel: String = DEFAULT_GROQ_MODEL
     @Volatile private var cerebrasModel: String = DEFAULT_CEREBRAS_MODEL
     @Volatile private var openAiModel: String = DEFAULT_OPENAI_MODEL
+    @Volatile private var mistralModel: String = DEFAULT_MISTRAL_MODEL
 
     @Volatile private var openRouterReferer: String = ""
     @Volatile private var openRouterTitle: String = "AATE"
@@ -116,6 +122,7 @@ object GeminiCopilot {
         groqApiKey: String = this.groqApiKey,
         cerebrasApiKey: String = this.cerebrasApiKey,
         openAiApiKey: String = this.openAiApiKey,
+        mistralApiKey: String = this.mistralApiKey,
         geminiModel: String = this.geminiModel,
         emergentModel: String = this.emergentModel,
         openRouterModel: String = this.openRouterModel,
@@ -130,6 +137,7 @@ object GeminiCopilot {
         this.groqApiKey = groqApiKey.trim()
         this.cerebrasApiKey = cerebrasApiKey.trim()
         this.openAiApiKey = openAiApiKey.trim()
+        this.mistralApiKey = mistralApiKey.trim()
 
         if (geminiModel.isNotBlank()) this.geminiModel = geminiModel.trim()
         if (emergentModel.isNotBlank()) this.emergentModel = emergentModel.trim()
@@ -1318,6 +1326,19 @@ Not one sentence unless the moment truly calls for it.
                     apiKey = cerebrasApiKey,
                     model = cerebrasModel,
                     url = CEREBRAS_URL
+                )
+            )
+        }
+
+        // V5.0.6073 — Mistral joins the council (biggest free tier: ~1B tok/mo).
+        if (mistralApiKey.isNotBlank()) {
+            providers.add(
+                ProviderSpec(
+                    name = "mistral",
+                    kind = ProviderKind.OPENAI_COMPAT,
+                    apiKey = mistralApiKey,
+                    model = mistralModel,
+                    url = MISTRAL_URL
                 )
             )
         }

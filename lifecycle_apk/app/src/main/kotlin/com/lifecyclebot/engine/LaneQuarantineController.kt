@@ -178,6 +178,10 @@ object LaneQuarantineController {
                 }
                 if (proofStrategy != null) {
                     releasedLanes.add(lane)
+                    // V5.0.6073 — a lab-proven strategy lifts BOTH pause systems:
+                    // the quarantine set here AND LaneAutoPauseGuard's hard seeds,
+                    // so "introduced in live/paper" is actually end-to-end true.
+                    try { LaneAutoPauseGuard.manualResume(lane, "llm_lab_promotion_${proofStrategy.name.take(24)}") } catch (_: Throwable) {}
                     try {
                         ForensicLogger.lifecycle(
                             "LANE_QUARANTINE_AUTO_RESUMED_6002",

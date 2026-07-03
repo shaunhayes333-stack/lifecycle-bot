@@ -1595,6 +1595,7 @@ class BotService : Service() {
                     openRouterApiKey = cfg.openRouterApiKey,
                     groqApiKey       = cfg.groqApiKey,
                     cerebrasApiKey   = cfg.cerebrasApiKey,
+                    mistralApiKey    = cfg.mistralApiKey,
                 )
                 ErrorLogger.info(
                     "BotService",
@@ -1613,6 +1614,11 @@ class BotService : Service() {
         // tight clamps (±0.06 traits, ±0.08 symbolic per cycle).
         try {
             SentienceOrchestrator.start(applicationContext)
+            // V5.0.6073 — SSI PILOT: the LLM council flies the plane between
+            // control-tower checkpoints. Fuses sentience symbolic state, lane
+            // truth, meta-cognition and lab summary into a bounded directive
+            // (size bias, lane focus/avoid, exit patience) every 5 minutes.
+            try { SsiPilotCouncil.start() } catch (_: Throwable) {}
             ErrorLogger.info("BotService", "🌌 SentienceOrchestrator started")
         } catch (e: Exception) {
             ErrorLogger.debug("BotService", "SentienceOrchestrator start error: ${e.message}")
@@ -1937,6 +1943,11 @@ class BotService : Service() {
                     com.lifecyclebot.engine.EnabledTraderAuthority.Trader.PROJECT_SNIPER,
                 ).apply {
                     if (cryptoSidecarOn) add(com.lifecyclebot.engine.EnabledTraderAuthority.Trader.CRYPTO_ALT)
+                    // V5.0.6073 — SHADOW ALWAYS-ON (operator: "ensure the shadow
+                    // trading module is running at all times as designed as a
+                    // constant learning tool"). Shadow paper runs behind BOTH
+                    // paper and live modes, in meme-only mode too.
+                    add(com.lifecyclebot.engine.EnabledTraderAuthority.Trader.SHADOW_PAPER)
                     // V5.0.4155 — all internal MEME lanes stay active, but CYCLIC is
                     // intentionally excluded from live authority per operator. It is a
                     // sidecar compound ring, not part of the current all-lanes meme pass.
@@ -1968,9 +1979,8 @@ class BotService : Service() {
                 // V5.0.4155 — CYCLIC remains excluded; all other enabled traders/lanes
                 // are allowed to work. Avoid stale persisted cyclic toggle re-entering
                 // runtime authority and choking the meme executor.
-                if (cfg.shadowPaperEnabled && !memeOnlyUiMode) {
-                    s += com.lifecyclebot.engine.EnabledTraderAuthority.Trader.SHADOW_PAPER
-                }
+                // V5.0.6073 — SHADOW ALWAYS-ON: no toggle, no mode gate.
+                s += com.lifecyclebot.engine.EnabledTraderAuthority.Trader.SHADOW_PAPER
                 // Project Sniper requires explicit opt-in AND non-meme-only mode.
                 if (!memeOnlyUiMode && cfg.v3EngineEnabled) {
                     // Note: ProjectSniperAI has its own .isEnabled() — we only
@@ -14639,7 +14649,9 @@ if (hotExitHandledSweep) {
             }
             // This runs during LIVE mode to learn from background paper trades
             // ═══════════════════════════════════════════════════════════════════
-            if (cfg.shadowPaperEnabled && !cfg.paperMode) {
+            // V5.0.6073 — SHADOW ALWAYS-ON: runs behind BOTH paper and live
+            // modes (was live-only + toggle-gated). Constant learning state.
+            run {
                 try {
                     // Pass current token states so shadow positions can get price updates
                     val tokenStatesCopy = synchronized(status.tokens) {

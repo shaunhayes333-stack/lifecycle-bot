@@ -8514,7 +8514,9 @@ class Executor(
         // refuses to write paper Position mutations when authority=LIVE
         // and shadowPaperEnabled is off.
         if (isLiveRT()) {
-            val shadowEnabled = try { cfg().shadowPaperEnabled } catch (_: Throwable) { false }
+            // V5.0.6073 — shadow paper is always-on doctrine; paper mutations in
+            // live mode are the shadow book by design.
+            val shadowEnabled = true
             if (!shadowEnabled) {
                 try {
                     ForensicLogger.lifecycle(
@@ -9263,6 +9265,14 @@ class Executor(
             } catch (_: Throwable) {}
         }
         val regimeVolShape = try { RegimeVolatilityExecutorBridge.sizeShape(ts) } catch (_: Throwable) { RegimeVolatilityExecutorBridge.Shape(1.0, "error") }
+        // V5.0.6073 — SSI PILOT hand on the sizing stack (bounded, fail-open).
+        val ssiPilotSizeMult = try { SsiPilotCouncil.sizeMultiplierForLane(laneKeyForAgi) } catch (_: Throwable) { 1.0 }
+        if (ssiPilotSizeMult != 1.0) {
+            try {
+                ForensicLogger.lifecycle("SSI_PILOT_SIZE_SHAPED_6073", "mint=${ts.mint.take(10)} symbol=${ts.symbol} lane=$laneKeyForAgi mult=${ssiPilotSizeMult.fmt(3)} note=${SsiPilotCouncil.pilotNote().take(80)}")
+                PipelineHealthCollector.labelInc("SSI_PILOT_SIZE_SHAPED_6073")
+            } catch (_: Throwable) {}
+        }
         val regimeVolSizeMult = regimeVolShape.multiplier
         if (regimeVolSizeMult != 1.0) {
             try {
@@ -9354,6 +9364,7 @@ class Executor(
                     "shadow" to shadowVariantSizeMult,
                     "superBrain" to superBrainSizeMult,
                     "metaCog" to metaCognitionSizeMult,
+                    "ssiPilot" to ssiPilotSizeMult,
                     "regimeVol" to regimeVolSizeMult,
                     "scoreBandWR4510" to scoreBandWrSizeMult4510,
                     "walletCompound4511" to realizedWalletCompoundMult4511,
@@ -9727,9 +9738,8 @@ class Executor(
                         } catch (_: Throwable) {}
                     }
                     
-                    if (cfg().shadowPaperEnabled) {
-                        runShadowPaperBuy(ts, effSol, score, quality, "parallel", safeWallet, walletSol)
-                    }
+                    // V5.0.6073 — SHADOW ALWAYS-ON: no toggle gate.
+                    runShadowPaperBuy(ts, effSol, score, quality, "parallel", safeWallet, walletSol)
                 }
             }
         }
@@ -9816,8 +9826,7 @@ class Executor(
     }
     
     fun checkShadowPositions(tokenStates: Map<String, TokenState>) {
-        if (!cfg().shadowPaperEnabled || isPaperRT()) return
-        
+        // V5.0.6073 — SHADOW ALWAYS-ON: gate removed (was toggle + live-only).
         val toRemove = mutableListOf<String>()
         val stopLossPct = cfg().stopLossPct
         val takeProfitPct = 50.0

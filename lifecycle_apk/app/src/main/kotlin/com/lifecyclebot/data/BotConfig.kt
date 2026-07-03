@@ -110,6 +110,7 @@ data class BotConfig(
     val jupiterApiKey: String = DefaultKeys.JUPITER,
     val openRouterApiKey: String = DefaultKeys.OPENROUTER,
     val cerebrasApiKey: String   = DefaultKeys.CEREBRAS,
+    val mistralApiKey: String    = DefaultKeys.MISTRAL,   // V5.0.6073 — Mistral council key (operator-hardcoded default)
     val geminiEnabled: Boolean = true,     // Enable Gemini AI Co-pilot (narrative analysis, exit advice, trade reasoning)
     val autoAddNewTokens: Boolean = true, // ENABLED - auto-add new Pump.fun launches to watchlist
     // multi-position trading
@@ -359,6 +360,7 @@ object ConfigStore {
             // V5.9.915 — operator-hardcoded fallback LLM keys
             putString("openrouter_api_key",  cfg.openRouterApiKey)
             putString("cerebras_api_key",    cfg.cerebrasApiKey)
+            putString("mistral_api_key",     cfg.mistralApiKey)
             putString("turso_db_url",        TursoDefaults.validOrDefaultUrl(cfg.tursoDbUrl))
             putString("turso_auth_token",    TursoDefaults.validOrDefaultToken(cfg.tursoAuthToken))
             apply()
@@ -604,6 +606,9 @@ object ConfigStore {
             },
             cerebrasApiKey              = s.getString("cerebras_api_key", "").let {
                 if (it.isNullOrBlank()) DefaultKeys.CEREBRAS else it
+            },
+            mistralApiKey               = s.getString("mistral_api_key", "").let {
+                if (it.isNullOrBlank()) DefaultKeys.MISTRAL else it
             },
             tursoDbUrl                  = TursoDefaults.validOrDefaultUrl(s.getString("turso_db_url", "")),
             tursoAuthToken              = TursoDefaults.validOrDefaultToken(s.getString("turso_auth_token", "")),
