@@ -1255,23 +1255,54 @@ object HostWalletTokenTracker {
                 p.lastSeenWalletMs > 0L &&
                 (now - p.lastSeenWalletMs) >= MANUAL_SWAP_GRACE_MS
             ) {
-                // No sell signature means no sell finality. A single provider zero
-                // cannot authorize a sell retry or keep a slot hostage.
-                markNoCurrentHeldProof(p, "SINGLE_PROVIDER_ZERO_NO_SELL_SIG")
+                // V5.0.6070 — CORROBORATION BEFORE DEMOTION. Operator report showed
+                // hostOpen=0 while 5 trusted-route LIVE positions ($TANIMAL/GIKO/FiH/
+                // 67/MEMEPOOL) sat open with real committed capital and real P&L —
+                // during a session where Helius was 429-rate-limited and Birdeye sr=21%.
+                // This branch was calling markNoCurrentHeldProof() on the FIRST single-
+                // provider zero/indeterminate read, with zero corroboration — unlike the
+                // sibling ABSENT_MINT (line ~1188) and SELL_VERIFYING (line ~1246)
+                // branches in this same function, which both require 2 consecutive
+                // zero reads before acting. A single flaky/rate-limited RPC zero read
+                // was enough to demote a still-held position out of OPEN_STATUSES,
+                // stripping BOTH dashboard visibility (buildUnifiedOpenPositions'
+                // liveOpenPanelTruth4570 gate reads isCapCountable) AND active SL/TP
+                // management (isCapCountable also gates the exit loop) — real capital
+                // going dark to risk management on one bad network read. Require the
+                // same 2-read corroboration ladder already used elsewhere in this file.
+                p.consecutiveZeroConfirms += 1
                 p.lastWalletReconcileMs = now
-                p.notes.add("manual/external zero candidate has no current held proof; not open/sell-managed")
-                emitForensic(LiveTradeLogStore.Phase.WARNING, p.mint, p.symbol, null,
-                    "STALE_RECOVERY_UNPROVEN ${p.symbol ?: p.mint.take(6)} — one-provider zero/no sell sig; not open")
-                try {
-                    com.lifecyclebot.engine.ForensicLogger.lifecycle(
-                        "STALE_RECOVERY_UNPROVEN",
-                        "mint=${p.mint.take(10)} symbol=${p.symbol ?: ""} reason=single_provider_zero_no_sell_sig open=false sellManaged=false",
-                    )
-                } catch (_: Throwable) {}
+                if (p.consecutiveZeroConfirms < 2) {
+                    p.notes.add("manual/external zero candidate pending corroboration ${p.consecutiveZeroConfirms}/2 — holding open")
+                    try { ForensicLogger.lifecycle("SINGLE_PROVIDER_ZERO_CORROBORATION_PENDING_6070", "mint=${p.mint.take(10)} symbol=${p.symbol ?: ""} confirms=${p.consecutiveZeroConfirms}/2 action=hold_open_no_demote") } catch (_: Throwable) {}
+                } else {
+                    // Two independent zero reads with no sell signature cannot
+                    // authorize a sell retry or keep a slot hostage.
+                    markNoCurrentHeldProof(p, "SINGLE_PROVIDER_ZERO_NO_SELL_SIG")
+                    p.notes.add("manual/external zero candidate has no current held proof; not open/sell-managed")
+                    emitForensic(LiveTradeLogStore.Phase.WARNING, p.mint, p.symbol, null,
+                        "STALE_RECOVERY_UNPROVEN ${p.symbol ?: p.mint.take(6)} — one-provider zero/no sell sig; not open")
+                    try {
+                        com.lifecyclebot.engine.ForensicLogger.lifecycle(
+                            "STALE_RECOVERY_UNPROVEN",
+                            "mint=${p.mint.take(10)} symbol=${p.symbol ?: ""} reason=two_provider_zero_no_sell_sig open=false sellManaged=false",
+                        )
+                    } catch (_: Throwable) {}
+                }
             } else {
-                markNoCurrentHeldProof(p, "ONE_PROVIDER_ZERO_IN_FLIGHT")
-                emitForensic(LiveTradeLogStore.Phase.POSITION_COUNT_RECONCILED, p.mint, p.symbol, null,
-                    "Tracker one-provider wallet=0 but no finality — STALE_RECOVERY_UNPROVEN")
+                // V5.0.6070 — same corroboration requirement for the general
+                // in-flight/edge branch (active sell attempt, or not yet past the
+                // MANUAL_SWAP_GRACE_MS absence window). See rationale above.
+                p.consecutiveZeroConfirms += 1
+                p.lastWalletReconcileMs = now
+                if (p.consecutiveZeroConfirms < 2) {
+                    p.notes.add("one-provider zero pending corroboration ${p.consecutiveZeroConfirms}/2 — holding open")
+                    try { ForensicLogger.lifecycle("ONE_PROVIDER_ZERO_CORROBORATION_PENDING_6070", "mint=${p.mint.take(10)} symbol=${p.symbol ?: ""} confirms=${p.consecutiveZeroConfirms}/2 action=hold_open_no_demote") } catch (_: Throwable) {}
+                } else {
+                    markNoCurrentHeldProof(p, "ONE_PROVIDER_ZERO_IN_FLIGHT")
+                    emitForensic(LiveTradeLogStore.Phase.POSITION_COUNT_RECONCILED, p.mint, p.symbol, null,
+                        "Tracker two-provider wallet=0 but no finality — STALE_RECOVERY_UNPROVEN")
+                }
             }
         }
 

@@ -7185,4 +7185,12 @@ class GoldenTapeRegressionTest {
         assertTrue(runtimeSnap6019.contains("openAwaitingWalletProof") && guardian6019.contains("walletProofAllowance6019") && guardian6019.contains("effectiveLedgerDrift6019") && host6019.contains("getOpenAwaitingWalletProofCount") && exec6019.contains("proofGrace6019"))
         assertTrue(guardian6019.contains("productiveFanout6019") && guardian6019.contains("laneRatio > 18.0") && guardian6019.contains("laneRatio > 12.0 && !productiveFanout6019"))
     }
+
+    @Test
+    fun aate6070SingleProviderZeroRequiresTwoReadCorroborationBeforeDemotion() {
+        val host6070 = java.io.File("src/main/kotlin/com/lifecyclebot/engine/HostWalletTokenTracker.kt").readText()
+        assertTrue("V5.0.6070: single-provider zero/no-sell-sig branch must require 2 consecutive reads before demoting a still-held position out of OPEN_STATUSES", host6070.contains("SINGLE_PROVIDER_ZERO_CORROBORATION_PENDING_6070") && host6070.contains("if (p.consecutiveZeroConfirms < 2)") && host6070.contains("markNoCurrentHeldProof(p, \"SINGLE_PROVIDER_ZERO_NO_SELL_SIG\")"))
+        assertTrue("V5.0.6070: general one-provider-zero-in-flight branch must also require 2-read corroboration, not act on the first read", host6070.contains("ONE_PROVIDER_ZERO_CORROBORATION_PENDING_6070") && host6070.contains("markNoCurrentHeldProof(p, \"ONE_PROVIDER_ZERO_IN_FLIGHT\")"))
+        assertTrue("V5.0.6070: corroboration counter must increment before the demotion branch fires, matching the ABSENT_MINT/SELL_VERIFYING 2-read ladder already used elsewhere in this file", host6070.contains("p.consecutiveZeroConfirms += 1") && host6070.contains("p.consecutiveZeroConfirms >= 2"))
+    }
 }
