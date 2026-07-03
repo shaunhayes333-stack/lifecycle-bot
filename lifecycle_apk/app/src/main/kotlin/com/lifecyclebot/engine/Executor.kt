@@ -6189,6 +6189,41 @@ class Executor(
         val posAgeMs = System.currentTimeMillis() - ts.position.entryTime
         val SETTLE_IN_MS = 45_000L
         if (posAgeMs < SETTLE_IN_MS) {
+            // V5.0.6063 — SETTLE-IN NO LONGER SHIELDS EXTREME RUNNERS.
+            // Operator screenshot: ERMINE peaked +1183% and rocketnigg
+            // peaked +1077% both INSIDE the 45s settle window; the give-
+            // back lock and MFE-ratcheted floor never ran because they
+            // sat outside the settle-bypass and settle returned early.
+            // Positions bled to -53.9% and -87.5% respectively before
+            // the window expired. Fix: run PeakDrawdownLock's MFE floor
+            // + give-back lock BEFORE checkProfitLock inside settle so
+            // any position that ever peaked >= +35% cannot be dragged
+            // back into red on a rug snap while the bot is 'settling'.
+            val curPnlPct: Double = try {
+                val ep = ts.position.entryPrice
+                if (ep > 0.0 && currentPrice > 0.0) (currentPrice / ep - 1.0) * 100.0 else 0.0
+            } catch (_: Throwable) { 0.0 }
+            val peakPnlPct: Double = try { ts.position.peakGainPct.coerceAtLeast(curPnlPct) } catch (_: Throwable) { curPnlPct }
+            if (PeakDrawdownLock.shouldFloorLock(peakPnlPct, curPnlPct)) {
+                try {
+                    ForensicLogger.lifecycle("SETTLE_MFE_FLOOR_FIRED_6063",
+                        "mint=${ts.mint.take(10)} symbol=${ts.symbol} peakPct=${peakPnlPct.toInt()} curPct=${curPnlPct.toInt()} ageMs=$posAgeMs reason=peak_gave_back_below_mfe_floor_inside_settle")
+                    PipelineHealthCollector.labelInc("SETTLE_MFE_FLOOR_FIRED_6063")
+                } catch (_: Throwable) {}
+                onLog("🔒 SETTLE_MFE_FLOOR ${ts.symbol}: peak=${peakPnlPct.toInt()}% cur=${curPnlPct.toInt()}% — floor fired inside settle window", ts.mint)
+                requestSell(ts, "SETTLE_MFE_FLOOR_PEAK_${peakPnlPct.toInt()}pct", wallet, walletSol)
+                return
+            }
+            if (PeakDrawdownLock.shouldLock(peakPnlPct, curPnlPct)) {
+                try {
+                    ForensicLogger.lifecycle("SETTLE_PEAK_DRAWDOWN_FIRED_6063",
+                        "mint=${ts.mint.take(10)} symbol=${ts.symbol} peakPct=${peakPnlPct.toInt()} curPct=${curPnlPct.toInt()} ageMs=$posAgeMs reason=give_back_lock_fired_inside_settle")
+                    PipelineHealthCollector.labelInc("SETTLE_PEAK_DRAWDOWN_FIRED_6063")
+                } catch (_: Throwable) {}
+                onLog("🔒 SETTLE_PEAK_DRAWDOWN ${ts.symbol}: peak=${peakPnlPct.toInt()}% cur=${curPnlPct.toInt()}% — give-back lock fired inside settle window", ts.mint)
+                requestSell(ts, "SETTLE_PEAK_DRAWDOWN_PEAK_${peakPnlPct.toInt()}pct", wallet, walletSol)
+                return
+            }
             if (checkProfitLock(ts, wallet, walletSol)) return
             if (trySweepTakeProfitExit(ts, currentPrice, wallet, walletSol, settleBypass = true)) return
             return  // silent grace for softer fluid path — strict SL and take-win already ran
