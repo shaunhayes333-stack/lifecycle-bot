@@ -169,7 +169,23 @@ object LaneAutoPauseGuard {
     }
 
     /** True if the lane is currently auto-paused. */
-    fun isPaused(lane: String?): Boolean = statusFor(lane) != null
+    // V5.0.6069 — PAPER MODE = LEARN EVERYTHING. Operator directive: "make
+    // sure every thing is readable in paper mode only. all lanes all traders
+    // all trading g styles the cyclic trader everything." When the bot is in
+    // paper mode, ignore all lane pauses so the AI accumulates learning data
+    // across the entire doctrine surface without wasting real SOL. Live mode
+    // still respects pauses — this only affects paper simulator loop.
+    fun isPaused(lane: String?): Boolean {
+        // Paper mode override: never blocked in paper so learning can span every
+        // lane, style, and tactic surface — fastest brain rebuild after a wipe.
+        if (com.lifecyclebot.engine.GlobalTradeRegistry.isPaperMode) return false
+        return statusFor(lane) != null
+    }
+
+    /** Live-only check that bypasses the paper override. Used by internal
+     *  bookkeeping (evaluateLive() short-circuits) so the guard still tracks
+     *  paused state and can auto-resume once real live data reproves the lane. */
+    fun isPausedLive(lane: String?): Boolean = statusFor(lane) != null
 
     /**
      * Snapshot all trainable lane telemetry from the CLEAN-TRUTH TradeHistoryStore

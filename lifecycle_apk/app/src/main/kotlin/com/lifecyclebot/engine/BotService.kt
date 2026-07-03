@@ -245,6 +245,10 @@ class BotService : Service() {
          * Safe at startup AND in the watchdog. Used in both places below.
          */
         fun isMarketsLaneEnabled(cfg: com.lifecyclebot.data.BotConfig): Boolean {
+            // V5.0.6069 — PAPER MODE = LEARN EVERYTHING. In paper mode, enable
+            // Markets lane universally (all trading modes) so the learning stack
+            // gets samples across every lane surface. Kill switch still respected.
+            if (cfg.paperMode && !MARKET_TRADER_KILL_SWITCH) return true
             return !MARKET_TRADER_KILL_SWITCH &&
                    cfg.marketsTraderEnabled &&
                    (cfg.tradingMode == 1 || cfg.tradingMode == 2)
@@ -6272,7 +6276,12 @@ class BotService : Service() {
                 com.lifecyclebot.engine.EnabledTraderAuthority.Trader.CYCLIC
             )
             val liveThreshold = 5000.0
+            // V5.0.6069 — PAPER MODE = LEARN EVERYTHING. Force-enable cyclic
+            // ring in paper regardless of user's cyclic toggle. Operator wants
+            // every surface accumulating learning samples in paper.
+            val cyclicPaperOverride6069 = isPaperRuntime
             val allowTick = when {
+                cyclicPaperOverride6069 -> true  // V5.0.6069 — paper always runs cyclic for learning
                 isPaperRuntime -> cyclicEnabled
                 // V5.0.3959 — CYCLIC bankroll gate. CYCLIC is a separate
                 // compounding ring and must NOT engage the live wallet until the

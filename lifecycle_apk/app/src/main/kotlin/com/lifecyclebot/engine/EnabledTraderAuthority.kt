@@ -99,7 +99,16 @@ object EnabledTraderAuthority {
         } catch (_: Throwable) {}
     }
 
-    fun isEnabled(t: Trader): Boolean = t in enabled.get()
+    fun isEnabled(t: Trader): Boolean {
+        // V5.0.6069 — PAPER MODE = LEARN EVERYTHING. In paper mode, every
+        // trader (MEME/SHITCOIN/MOONSHOT/EXPRESS/QUALITY/TREASURY/CASHGEN/
+        // BLUECHIP/MANIPULATED/DIP_HUNTER/PROJECT_SNIPER/CYCLIC/MARKETS/
+        // CRYPTO_ALT/STOCK) is unconditionally enabled so the AI accumulates
+        // learning samples on every surface. Live mode still respects the
+        // user's configured trader set.
+        if (com.lifecyclebot.engine.GlobalTradeRegistry.isPaperMode) return true
+        return t in enabled.get()
+    }
     fun snapshot(): Set<Trader> = enabled.get()
     fun snapshotStr(): String = enabled.get().joinToString(",") { it.name }
 
