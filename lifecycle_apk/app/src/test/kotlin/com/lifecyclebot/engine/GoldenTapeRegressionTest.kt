@@ -7032,6 +7032,9 @@ class GoldenTapeRegressionTest {
         assertTrue("V5.0.6040/6078: ANR shed must keep Open Positions rendering from the cached off-main model and only skip non-open heavy rows", main6038.contains("openModelDuringShed6078") && main6038.contains("renderOpenPositions(openPosDuringShed6040, preSorted6078 = true)") && main6038.contains("skip=non_open_heavy_dashboard_rows"))
         assertTrue("V5.0.6041: partial sells are realized wallet movements and must credit/refresh wallet surfaces", executor.contains("PARTIAL_SELL_WALLET_CREDITED_6041") && executor.contains("LIVE_PARTIAL_WALLET_REFRESH_FORCED_6041") && executor.contains("refreshBalance(force = true)"))
         assertTrue("V5.0.6041: PARTIAL_SELL must feed movement win/report/run surfaces without waiting for terminal close", executor.contains("PARTIAL_SELL_MOVEMENT_FANOUT_6041") && executor.contains("trade.side.equals(" + "\"PARTIAL_SELL\"" + ", true)") && executor.contains("RunTracker30D.recordTrade(symbol = _fanoutSymbol"))
+        val strategyTelemetry6079 = java.io.File("src/main/kotlin/com/lifecyclebot/engine/StrategyTelemetry.kt").readText()
+        val liveStrategyTuner6079 = java.io.File("src/main/kotlin/com/lifecyclebot/engine/LiveStrategyTuner.kt").readText()
+        assertTrue("V5.0.6079: paper mode must compound/learn from clean paper terminal rows while live mode remains clean-live isolated", strategyTelemetry6079.contains("computeCleanPaperTerminalLeaderboard") && liveStrategyTuner6079.contains("RuntimeModeAuthority.isPaper()") && liveStrategyTuner6079.contains("computeCleanPaperTerminalLeaderboard") && liveStrategyTuner6079.contains("computeCleanLiveTerminalLeaderboard"))
     }
 
 

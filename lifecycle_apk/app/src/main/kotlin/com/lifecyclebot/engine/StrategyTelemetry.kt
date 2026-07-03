@@ -238,6 +238,49 @@ object StrategyTelemetry {
     fun computeLiveTerminalLeaderboard(limit: Int = 2_500): List<StrategyMetric> =
         computeLeaderboard(environment = "live", includePartials = false, limit = limit)
 
+    // V5.0.6079 — decision-facing PAPER authority for paper mode only.
+    // Paper must compound and learn while the operator is testing. This mirrors
+    // clean-live StrategyTruthLedger hygiene, but keeps the environment boundary
+    // explicit so paper evidence never authorizes LIVE sizing.
+    fun computeCleanPaperTerminalLeaderboard(limit: Int = 2_500): List<StrategyMetric> {
+        val raw = try { TradeHistoryStore.getRecentValidClosedTradesRaw(limit = limit, includePartials = true) } catch (_: Throwable) { emptyList() }
+        val cleanRows = try { StrategyTruthLedger.clean(raw, limit).rows } catch (_: Throwable) { raw }
+            .filter { it.mode.equals("paper", true) && it.side.equals("SELL", true) }
+        return if (cleanRows.isEmpty()) emptyList() else cleanRows
+            .groupBy {
+                val rawMode = it.tradingMode.ifBlank { "STANDARD" }
+                val norm = try { TradeHistoryStore.normalizeTradeModeName(rawMode) } catch (_: Throwable) { rawMode }
+                if (norm.isBlank()) "STANDARD" else norm
+            }
+            .map { (strategy, trades) ->
+                fun rowPnlSol(t: Trade): Double = t.netPnlSol.takeIf { it != 0.0 } ?: t.pnlSol
+                fun sanePct(p: Double): Double = LearningPnlSanitizer.inspectPct(p, "StrategyTelemetry.cleanPaper.sanePct", emit = false).takeIf { it.ok }?.pnlPct ?: 0.0
+                val wins = trades.count { rowPnlSol(it) > 0.0 }
+                val losses = trades.count { rowPnlSol(it) < 0.0 }
+                val scratches = trades.size - wins - losses
+                val sumPnlPct = trades.sumOf { sanePct(it.pnlPct) }
+                val meanPnlPct = if (trades.isNotEmpty()) sumPnlPct / trades.size else 0.0
+                val wlDenom = wins + losses
+                val wr = if (wlDenom > 0) wins * 100.0 / wlDenom else 0.0
+                val totalSol = trades.sumOf { rowPnlSol(it) }
+                val winPcts = trades.asSequence().map { sanePct(it.pnlPct) }.filter { it >= 0.5 }.toList()
+                val lossPcts = trades.asSequence().map { sanePct(it.pnlPct) }.filter { it <= -2.0 }.toList()
+                StrategyMetric(
+                    strategy = strategy,
+                    trades = trades.size,
+                    wins = wins,
+                    losses = losses,
+                    scratches = scratches,
+                    sumPnlPct = sumPnlPct,
+                    meanPnlPct = meanPnlPct,
+                    winRatePct = wr,
+                    totalSolPnl = totalSol,
+                    avgWinPct = if (winPcts.isNotEmpty()) winPcts.sum() / winPcts.size else 0.0,
+                    avgLossPct = if (lossPcts.isNotEmpty()) lossPcts.sum() / lossPcts.size else 0.0,
+                )
+            }
+    }
+
     /** Paper-only report/audit view. Paper may propose hypotheses, not live authority. */
     fun computePaperTerminalLeaderboard(limit: Int = 2_500): List<StrategyMetric> =
         computeLeaderboard(environment = "paper", includePartials = false, limit = limit)

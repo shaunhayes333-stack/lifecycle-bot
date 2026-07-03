@@ -64,7 +64,8 @@ object LiveStrategyTuner {
             .filter { !it.isNeutral }
             .sortedWith(compareBy<Adjustment> { it.label }.thenBy { it.lane })
         if (tuned.isEmpty()) {
-            "LiveStrategyTuner: neutral (no actionable live-terminal closes yet; V5.0.6077 trade-1 ramp active once n≥1)"
+            val env6079 = try { if (RuntimeModeAuthority.isPaper()) "paper" else "live" } catch (_: Throwable) { "live" }
+            "LiveStrategyTuner: neutral (no actionable ${env6079}-terminal closes yet; V5.0.6079 paper/live trade-1 ramp active once n≥1)"
         } else {
             "LiveStrategyTuner: " + tuned.joinToString(" · ") {
                 "${it.lane}:${it.label} n=${it.trades} WR=${"%.0f".format(it.winRatePct)}% PnL=${"%+.3f".format(it.totalSolPnl)} size×=${"%.2f".format(it.sizeMult)} tp×=${"%.2f".format(it.tpMult)} hold×=${"%.2f".format(it.holdMult)} partial×=${"%.2f".format(it.partialTriggerMult)}"
@@ -83,7 +84,11 @@ object LiveStrategyTuner {
     }
 
     private fun compute(): Map<String, Adjustment> {
-        val board = try { StrategyTelemetry.computeCleanLiveTerminalLeaderboard(limit = 1_500) } catch (_: Throwable) { return emptyMap() }
+        val paperRuntime6079 = try { RuntimeModeAuthority.isPaper() } catch (_: Throwable) { false }
+        val board = try {
+            if (paperRuntime6079) StrategyTelemetry.computeCleanPaperTerminalLeaderboard(limit = 1_500)
+            else StrategyTelemetry.computeCleanLiveTerminalLeaderboard(limit = 1_500)
+        } catch (_: Throwable) { return emptyMap() }
         if (board.isEmpty()) return emptyMap()
         val out = LinkedHashMap<String, Adjustment>()
         for (m in board) {
