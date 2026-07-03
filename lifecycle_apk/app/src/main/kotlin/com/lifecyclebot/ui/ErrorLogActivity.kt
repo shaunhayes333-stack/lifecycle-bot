@@ -188,10 +188,11 @@ class ErrorLogActivity : AppCompatActivity() {
             forceFresh = true,
         ) { report, error ->
             if (isFinishing || isDestroyed) return@buildTextAsync
-            val exportText = report?.text ?: "AATE report export degraded: ${error?.message ?: "unknown"}
-
-" +
-                try { com.lifecyclebot.engine.PipelineHealthCollector.dumpText().take(24_000) } catch (_: Throwable) { "No fallback report available." }
+            val exportText = report?.text ?: buildString {
+                appendLine("AATE report export degraded: ${error?.message ?: "unknown"}")
+                appendLine()
+                append(try { com.lifecyclebot.engine.PipelineHealthCollector.dumpText().take(24_000) } catch (_: Throwable) { "No fallback report available." })
+            }
 
             // V5.0.6078 — copy button must always produce an observable result.
             // Copy to clipboard after ReportingHub returns; if the full hub build
