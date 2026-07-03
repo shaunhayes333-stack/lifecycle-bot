@@ -86,6 +86,11 @@ class WalletManager private constructor(private val ctx: Context) {
         // to 133s while paid Helius was 429'd. Added 5 more free/no-auth
         // public RPCs so the fallback chain has multiple layers to survive
         // any single-provider quota exhaustion.
+        // V5.0.6065 — API REDUNDANCY EXPLOSION. Operator directive: "there
+        // should never be a downgraded api issue." Added 5 more free/no-auth
+        // Solana RPC endpoints so a single-provider 429 becomes invisible.
+        // Total fallback layers: 12 -> 17. All new endpoints are keyless and
+        // documented as public (BlastAPI, BlockPI, OmniaTech, Jito, BlockEden).
         val FALLBACK_RPCS: List<String> get() = listOf(
             "https://mainnet.helius-rpc.com/?api-key=${com.lifecyclebot.data.DefaultKeys.HELIUS}",  // PAID Helius (primary)
             "https://mainnet.helius-rpc.com/?api-key=hive-pattern-learn",  // legacy free Helius
@@ -99,6 +104,12 @@ class WalletManager private constructor(private val ctx: Context) {
             "https://solana-mainnet.g.alchemy.com/v2/demo",     // Alchemy demo
             "https://mainnet.rpcpool.com",                      // RPC Pool
             "https://solana-mainnet.rpc.extrnode.com",          // Extrnode
+            // V5.0.6065 — additional keyless public RPCs (no signup required)
+            "https://solana-mainnet.public.blastapi.io",        // BlastAPI public (V5.0.6065 add)
+            "https://solana.blockpi.network/v1/rpc/public",     // BlockPI public (V5.0.6065 add)
+            "https://endpoints.omniatech.io/v1/sol/mainnet/public", // OmniaTech public (V5.0.6065 add)
+            "https://mainnet.rpc.jito.wtf",                     // Jito public RPC (V5.0.6065 add)
+            "https://api.blockeden.xyz/solana/67nCBdZQSH9z3YqDDjdm", // BlockEden shared demo (V5.0.6065 add)
         )
         
 

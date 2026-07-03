@@ -299,13 +299,26 @@ object PriceAggregator {
                 // Pyth only covers ~200 blue-chips and shouldn't gate coverage for
                 // the long tail. Pyth is demoted to a late oracle-sanity source.
                 // User feedback: "pyth is only the first. its not the voice of truth"
+                // V5.0.6065 — API REDUNDANCY EXPLOSION. Interleaved 6 new keyless
+                // sources (Jupiter Lite, Raydium v3, GeckoTerminal, DIA, CoinPaprika,
+                // CoinCap) so a Birdeye/CoinGecko 429 no longer starves the pipeline.
+                // Priority: Solana-native DEX aggregators FIRST (best coverage of
+                // the meme long tail), CEX tickers next, then aggregators, then
+                // oracle sanity checks last. All 15 crypto sources are attempted
+                // in this order until one returns a positive price.
                 DataSource.BINANCE,
                 DataSource.JUPITER,
+                DataSource.JUPITER_LITE,        // V5.0.6065 — keyless jup public
                 DataSource.DEXSCREENER,
+                DataSource.RAYDIUM_V3,          // V5.0.6065 — native #1 Solana DEX
                 DataSource.BIRDEYE,
+                DataSource.GECKO_TERMINAL,      // V5.0.6065 — keyless GeckoTerminal
                 DataSource.COINBASE,
                 DataSource.COINGECKO,
                 DataSource.KRAKEN,
+                DataSource.DIA_DATA,            // V5.0.6065 — keyless DIA aggregator
+                DataSource.COINPAPRIKA,         // V5.0.6065 — keyless CMC alternative
+                DataSource.COINCAP,             // V5.0.6065 — keyless CoinCap v2
                 DataSource.PYTH,           // late: oracle sanity for majors only
                 DataSource.SWITCHBOARD     // last resort
             )
@@ -361,6 +374,10 @@ object PriceAggregator {
         PYTH, SWITCHBOARD, CHAINLINK,
         // Crypto
         JUPITER, BIRDEYE, DEXSCREENER, COINGECKO, COINMARKETCAP, BINANCE, COINBASE, KRAKEN,
+        // V5.0.6065 — API REDUNDANCY EXPLOSION. New keyless crypto sources so
+        // the bot never becomes a hostage of Birdeye/CoinGecko rate limits.
+        // All six are documented public/no-key endpoints.
+        GECKO_TERMINAL, DIA_DATA, JUPITER_LITE, RAYDIUM_V3, COINPAPRIKA, COINCAP,
         // Stocks
         YAHOO_V7, YAHOO_V8, STOOQ, CNBC, GOOGLE_FINANCE, FINNHUB, ALPHA_VANTAGE, 
         TWELVE_DATA, IEX, POLYGON, FMP, TIINGO, MARKETSTACK,
@@ -379,6 +396,13 @@ object PriceAggregator {
             DataSource.KRAKEN -> fetchKraken(symbol)
             DataSource.BIRDEYE -> fetchBirdeye(symbol)
             DataSource.DEXSCREENER -> fetchDexScreener(symbol)
+            // V5.0.6065 — new keyless sources
+            DataSource.GECKO_TERMINAL -> fetchGeckoTerminal(symbol)
+            DataSource.DIA_DATA -> fetchDiaData(symbol)
+            DataSource.JUPITER_LITE -> fetchJupiterLite(symbol)
+            DataSource.RAYDIUM_V3 -> fetchRaydiumV3(symbol)
+            DataSource.COINPAPRIKA -> fetchCoinPaprika(symbol)
+            DataSource.COINCAP -> fetchCoinCap(symbol)
             DataSource.YAHOO_V7 -> fetchYahooV7(symbol)
             DataSource.YAHOO_V8 -> fetchYahooV8(symbol)
             DataSource.STOOQ -> fetchStooq(symbol)
@@ -636,6 +660,210 @@ object PriceAggregator {
                 PriceResult(price, calcChange(symbol, price), "DEXSCREENER")
             } else null
         } catch (e: Exception) { null }
+    }
+
+    // ═══════════════════════════════════════════════════════════════════════════
+    // V5.0.6065 — API REDUNDANCY EXPLOSION: 6 KEYLESS CRYPTO PRICE SOURCES
+    // ═══════════════════════════════════════════════════════════════════════════
+    // Operator directive: "there should never be a downgraded api issue."
+    // Each fetcher is a strict best-effort — returns null on any error so the
+    // aggregator's fall-through can try the next source. None require API keys.
+    // ═══════════════════════════════════════════════════════════════════════════
+
+    /** V5.0.6065 — GeckoTerminal keyless DEX aggregator (10 rpm free tier).
+     *  Covers 100+ Solana DEXs including Raydium, Orca, Jupiter, Meteora.
+     *  Endpoint: api.geckoterminal.com/api/v2/networks/solana/tokens/{address}
+     */
+    private suspend fun fetchGeckoTerminal(symbol: String): PriceResult? = withContext(Dispatchers.IO) {
+        try {
+            val mint = resolveSolanaMint(symbol) ?: return@withContext null
+            val url = "https://api.geckoterminal.com/api/v2/networks/solana/tokens/$mint"
+            val request = Request.Builder()
+                .url(url)
+                .header("Accept", "application/json;version=20230302")
+                .header("User-Agent", "Mozilla/5.0")
+                .build()
+            client.newCall(request).execute().use { resp ->
+                if (!resp.isSuccessful) return@withContext null
+                val body = resp.body?.string() ?: return@withContext null
+                val json = JSONObject(body)
+                val attrs = json.optJSONObject("data")?.optJSONObject("attributes")
+                    ?: return@withContext null
+                val price = attrs.optString("price_usd", "0").toDoubleOrNull() ?: 0.0
+                val ch = attrs.optJSONObject("price_change_percentage")
+                val change24 = ch?.optString("h24", "0")?.toDoubleOrNull() ?: 0.0
+                if (price > 0) {
+                    ErrorLogger.debug(TAG, "🦎 GeckoTerminal: $symbol = \$${"%.6f".format(price)}")
+                    PriceResult(price, change24, "GECKO_TERMINAL")
+                } else null
+            }
+        } catch (_: Exception) { null }
+    }
+
+    /** V5.0.6065 — DIA Data keyless aggregator (no signup, no key).
+     *  Aggregates 100+ exchanges/DEXs. Fetch by Solana mint address.
+     *  Endpoint: api.diadata.org/v1/assetQuotation/Solana/{address}
+     */
+    private suspend fun fetchDiaData(symbol: String): PriceResult? = withContext(Dispatchers.IO) {
+        try {
+            val mint = resolveSolanaMint(symbol) ?: return@withContext null
+            val url = "https://api.diadata.org/v1/assetQuotation/Solana/$mint"
+            val request = Request.Builder().url(url).header("User-Agent", "Mozilla/5.0").build()
+            client.newCall(request).execute().use { resp ->
+                if (!resp.isSuccessful) return@withContext null
+                val body = resp.body?.string() ?: return@withContext null
+                val json = JSONObject(body)
+                val price = json.optDouble("Price", 0.0)
+                val change24 = json.optDouble("PriceYesterday", 0.0).let { y ->
+                    if (y > 0.0 && price > 0.0) (price - y) / y * 100.0 else 0.0
+                }
+                if (price > 0) {
+                    ErrorLogger.debug(TAG, "🌍 DIA: $symbol = \$${"%.6f".format(price)}")
+                    PriceResult(price, change24, "DIA_DATA")
+                } else null
+            }
+        } catch (_: Exception) { null }
+    }
+
+    /** V5.0.6065 — Jupiter Lite public price endpoint (keyless).
+     *  Endpoint: lite-api.jup.ag/price/v2?ids={mint}
+     *  Note: paid tiers use the branded path; lite-api is the community mirror.
+     */
+    private suspend fun fetchJupiterLite(symbol: String): PriceResult? = withContext(Dispatchers.IO) {
+        try {
+            val mint = resolveSolanaMint(symbol) ?: return@withContext null
+            val url = "https://lite-api.jup.ag/price/v2?ids=$mint"
+            val request = Request.Builder().url(url).header("User-Agent", "Mozilla/5.0").build()
+            client.newCall(request).execute().use { resp ->
+                if (!resp.isSuccessful) return@withContext null
+                val body = resp.body?.string() ?: return@withContext null
+                val json = JSONObject(body)
+                val data = json.optJSONObject("data") ?: return@withContext null
+                val obj = data.optJSONObject(mint) ?: return@withContext null
+                val price = obj.optString("price", "0").toDoubleOrNull() ?: 0.0
+                if (price > 0) {
+                    ErrorLogger.debug(TAG, "🌀 JupiterLite: $symbol = \$${"%.6f".format(price)}")
+                    PriceResult(price, calcChange(symbol, price), "JUPITER_LITE")
+                } else null
+            }
+        } catch (_: Exception) { null }
+    }
+
+    /** V5.0.6065 — Raydium v3 keyless mint price endpoint.
+     *  Endpoint: api-v3.raydium.io/mint/price?mints={mint}
+     *  Native #1 Solana DEX — best long-tail coverage for freshly minted memes.
+     */
+    private suspend fun fetchRaydiumV3(symbol: String): PriceResult? = withContext(Dispatchers.IO) {
+        try {
+            val mint = resolveSolanaMint(symbol) ?: return@withContext null
+            val url = "https://api-v3.raydium.io/mint/price?mints=$mint"
+            val request = Request.Builder().url(url).header("User-Agent", "Mozilla/5.0").build()
+            client.newCall(request).execute().use { resp ->
+                if (!resp.isSuccessful) return@withContext null
+                val body = resp.body?.string() ?: return@withContext null
+                val json = JSONObject(body)
+                val data = json.optJSONObject("data") ?: return@withContext null
+                val price = data.optString(mint, "0").toDoubleOrNull() ?: 0.0
+                if (price > 0) {
+                    ErrorLogger.debug(TAG, "☀️ RaydiumV3: $symbol = \$${"%.6f".format(price)}")
+                    PriceResult(price, calcChange(symbol, price), "RAYDIUM_V3")
+                } else null
+            }
+        } catch (_: Exception) { null }
+    }
+
+    /** V5.0.6065 — CoinPaprika keyless global ticker (unlimited free tier).
+     *  Endpoint: api.coinpaprika.com/v1/tickers/{id}  (id like "sol-solana")
+     *  Best for symbol-based blue-chip prices when CoinGecko is 429'd.
+     */
+    private suspend fun fetchCoinPaprika(symbol: String): PriceResult? = withContext(Dispatchers.IO) {
+        try {
+            val id = coinPaprikaId(symbol) ?: return@withContext null
+            val url = "https://api.coinpaprika.com/v1/tickers/$id"
+            val request = Request.Builder().url(url).header("User-Agent", "Mozilla/5.0").build()
+            client.newCall(request).execute().use { resp ->
+                if (!resp.isSuccessful) return@withContext null
+                val body = resp.body?.string() ?: return@withContext null
+                val json = JSONObject(body)
+                val quotes = json.optJSONObject("quotes")?.optJSONObject("USD")
+                    ?: return@withContext null
+                val price = quotes.optDouble("price", 0.0)
+                val change24 = quotes.optDouble("percent_change_24h", 0.0)
+                if (price > 0) {
+                    ErrorLogger.debug(TAG, "🌶️ CoinPaprika: $symbol = \$${"%.6f".format(price)}")
+                    PriceResult(price, change24, "COINPAPRIKA")
+                } else null
+            }
+        } catch (_: Exception) { null }
+    }
+
+    /** V5.0.6065 — CoinCap v2 keyless public API (no signup).
+     *  Endpoint: api.coincap.io/v2/assets/{id}   (id like "solana", "bitcoin")
+     *  Redundant CEX aggregator for blue-chip symbols.
+     */
+    private suspend fun fetchCoinCap(symbol: String): PriceResult? = withContext(Dispatchers.IO) {
+        try {
+            val id = coinCapId(symbol) ?: return@withContext null
+            val url = "https://api.coincap.io/v2/assets/$id"
+            val request = Request.Builder().url(url).header("User-Agent", "Mozilla/5.0").build()
+            client.newCall(request).execute().use { resp ->
+                if (!resp.isSuccessful) return@withContext null
+                val body = resp.body?.string() ?: return@withContext null
+                val json = JSONObject(body)
+                val data = json.optJSONObject("data") ?: return@withContext null
+                val price = data.optString("priceUsd", "0").toDoubleOrNull() ?: 0.0
+                val change24 = data.optString("changePercent24Hr", "0").toDoubleOrNull() ?: 0.0
+                if (price > 0) {
+                    ErrorLogger.debug(TAG, "🧢 CoinCap: $symbol = \$${"%.6f".format(price)}")
+                    PriceResult(price, change24, "COINCAP")
+                } else null
+            }
+        } catch (_: Exception) { null }
+    }
+
+    /** V5.0.6065 — CoinPaprika symbol -> id mapping (partial, blue chips only). */
+    private fun coinPaprikaId(symbol: String): String? = when (symbol.uppercase()) {
+        "SOL" -> "sol-solana"
+        "BTC" -> "btc-bitcoin"
+        "ETH" -> "eth-ethereum"
+        "BNB" -> "bnb-binance-coin"
+        "XRP" -> "xrp-xrp"
+        "ADA" -> "ada-cardano"
+        "DOGE" -> "doge-dogecoin"
+        "AVAX" -> "avax-avalanche"
+        "MATIC", "POL" -> "matic-polygon"
+        "DOT" -> "dot-polkadot"
+        "LINK" -> "link-chainlink"
+        "TRX" -> "trx-tron"
+        "LTC" -> "ltc-litecoin"
+        "SHIB" -> "shib-shiba-inu"
+        "BONK" -> "bonk-bonk"
+        "WIF" -> "wif-dogwifhat"
+        "JUP" -> "jup-jupiter"
+        "PYTH" -> "pyth-pyth-network"
+        else -> null
+    }
+
+    /** V5.0.6065 — CoinCap symbol -> id mapping (partial, blue chips only). */
+    private fun coinCapId(symbol: String): String? = when (symbol.uppercase()) {
+        "SOL" -> "solana"
+        "BTC" -> "bitcoin"
+        "ETH" -> "ethereum"
+        "BNB" -> "binance-coin"
+        "XRP" -> "xrp"
+        "ADA" -> "cardano"
+        "DOGE" -> "dogecoin"
+        "AVAX" -> "avalanche"
+        "MATIC", "POL" -> "polygon"
+        "DOT" -> "polkadot"
+        "LINK" -> "chainlink"
+        "TRX" -> "tron"
+        "LTC" -> "litecoin"
+        "SHIB" -> "shiba-inu"
+        "BONK" -> "bonk1"
+        "JUP" -> "jupiter-ag"
+        "PYTH" -> "pyth-network"
+        else -> null
     }
 
     /**
