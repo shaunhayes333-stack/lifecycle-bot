@@ -184,13 +184,43 @@ object WalletReconciler {
         ).also {
             synchronized(status.tokens) { status.tokens[mint] = it }
         }
+        // V5.0.6076 — METADATA REUNIFICATION (operator P0: "recovered positions
+        // show up with invalid entry prices and end up in WALLET_RECOVERED
+        // lane"). The durable PositionPersistence store is now the PRIMARY
+        // source for orphan recovery; the zero-basis wallet-scan stub is the
+        // FALLBACK only. If a saved row exists for this mint, restore the
+        // ORIGINAL entry price, cost basis, lane, score and timestamps.
+        val saved6076 = try { PositionPersistence.loadPositions()[mint] } catch (_: Throwable) { null }
+        val now = System.currentTimeMillis()
+        if (saved6076 != null && saved6076.entryPrice > 0.0 && saved6076.costSol > 0.0 && !saved6076.isPaperPosition) {
+            ts.position = Position(
+                qtyToken = uiAmount,
+                entryPrice = saved6076.entryPrice,
+                entryTime = saved6076.entryTime.takeIf { it > 0L } ?: now,
+                costSol = saved6076.costSol,
+                highestPrice = maxOf(saved6076.highestPrice, saved6076.entryPrice),
+                lowestPrice = saved6076.lowestPrice.takeIf { it > 0.0 } ?: saved6076.entryPrice,
+                entryPhase = saved6076.entryPhase.ifBlank { "RESTORED" },
+                entryScore = saved6076.entryScore,
+                isPaperPosition = false,
+                tradingMode = saved6076.tradingMode.ifBlank { "STANDARD" },
+                tradingModeEmoji = saved6076.tradingModeEmoji.ifBlank { "💾" },
+                pendingVerify = false,
+            )
+            try {
+                ForensicLogger.lifecycle(
+                    "ORPHAN_RECOVERY_METADATA_REUNIFIED_6076",
+                    "mint=${mint.take(10)} symbol=${ts.symbol} lane=${saved6076.tradingMode} entry=${saved6076.entryPrice} cost=${saved6076.costSol} — original lane/basis restored, not WALLET_RECOVERED",
+                )
+                PipelineHealthCollector.labelInc("ORPHAN_RECOVERY_METADATA_REUNIFIED_6076")
+            } catch (_: Throwable) {}
+        } else {
         // Use last known price if available, else 0 (lastPrice will be filled
         // by the regular price feed loop next tick and PnL will reflect from
         // there). Entry price is unknown — operator spec says "mark unknown"
         // by leaving entryPrice=0; this keeps PnL math safe (we treat 0 entry
         // as "do not compute %" in checkProfitLock / strict SL).
         val recoveredEntry = if (ts.lastPrice > 0.0) ts.lastPrice else 0.0
-        val now = System.currentTimeMillis()
         ts.position = Position(
             qtyToken = uiAmount,
             entryPrice = recoveredEntry,
@@ -205,6 +235,7 @@ object WalletReconciler {
             tradingModeEmoji = "🔄",
             pendingVerify = false,
         )
+        }
         knownMints.add(mint)
         // V5.0.4104 — Wave D: 15-min recovered-hold-grace per operator spec.
         // Suppresses non-emergency sells while the bot gathers price proof
