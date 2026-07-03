@@ -270,7 +270,54 @@ object StrategyHypothesisEngine {
     }
 
     // ── Persistence ──────────────────────────────────────────────────────
-    fun attachContext(context: Context) { try { appContext = context.applicationContext; load(context) } catch (_: Throwable) {} }
+    fun attachContext(context: Context) { try { appContext = context.applicationContext; load(context); seedControlArmsFromHistory() } catch (_: Throwable) {} }
+
+    /**
+     * V5.0.6057 — COLD-START SEED (operator P1).
+     * The A/B engine ran for 5 hypotheses with ctrl=0 var=0 in the
+     * V5.0.6053 runtime because MIN_ARM=12 gates the first evaluation
+     * and live trades trickle in one at a time. Seed each active
+     * hypothesis's CONTROL arm from historical closed trades so the
+     * engine has an immediate baseline; variant arms still fill only
+     * from real live A/B assignments. Bounded to 200 recent closes so
+     * cold-start is fast and doesn't dominate later live signal.
+     * Safe to call multiple times — only seeds contexts that are
+     * empty (control.n == 0).
+     */
+    fun seedControlArmsFromHistory() {
+        try {
+            val recent = try {
+                TradeHistoryStore.getRecentValidClosedTrades(limit = 200, includePartials = false)
+            } catch (_: Throwable) { emptyList() }
+            if (recent.isEmpty()) return
+            var seeded = 0
+            for (t in recent) {
+                if (!t.side.equals("SELL", true)) continue
+                val lane = t.tradingMode.trim().uppercase().ifBlank { "STANDARD" }
+                val scoreInt = t.score.toInt().coerceIn(0, 100)
+                // Best-effort regime: historical trades don't carry regime,
+                // so bucket into NORMAL. When the same context sees a real
+                // live trade in a specific regime, that regime's ctx will
+                // spawn fresh — this seed only warms the mainline baseline.
+                val ctx = ctxKey(lane, scoreInt, "NORMAL")
+                if (suppressVariantForContext(lane, scoreInt, "NORMAL")) continue
+                val h = active.getOrPut(ctx) { spawn(ctx) }
+                // Only seed if this control arm is genuinely cold.
+                if (h.control.n >= MIN_ARM.toLong()) continue
+                h.control.update(t.pnlPct.coerceIn(-95.0, 1000.0))
+                seeded += 1
+            }
+            if (seeded > 0) {
+                try {
+                    com.lifecyclebot.engine.ForensicLogger.lifecycle(
+                        "HYPOTHESIS_ENGINE_COLD_START_SEEDED_6057",
+                        "closes=$seeded contexts=${active.size} note=control_arms_warmed_from_trade_history"
+                    )
+                    PipelineHealthCollector.labelInc("HYPOTHESIS_ENGINE_COLD_START_SEEDED_6057")
+                } catch (_: Throwable) {}
+            }
+        } catch (_: Throwable) { /* seed must never break attach */ }
+    }
 
     fun exportState(): String = try {
         JSONObject().apply {
