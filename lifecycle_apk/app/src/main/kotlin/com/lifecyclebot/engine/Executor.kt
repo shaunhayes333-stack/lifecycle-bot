@@ -9206,8 +9206,29 @@ class Executor(
             "MOONSHOT", "STANDARD" -> 1.40
             else -> 0.50
         }
-        val multiplierProduct = (multiplierProductRaw * laneBiasMult * slipDownsizeMult * highConvBoost)
-            .coerceIn(0.25, 1.60)
+        val multiplierProduct = run {
+            val product = multiplierProductRaw * laneBiasMult * slipDownsizeMult * highConvBoost
+            // V5.0.6055 — P0.b: POSITIVE-EV LANE FLOOR.
+            // Operator P0: "flick the memetrader green the right way!!!"
+            // Runtime V5.0.6053 showed a proven positive-EV lane (MOONSHOT
+            // meanPnl=+14.93%, WR=53.8%) collapsing to the 0.25 hard floor
+            // because 19 upstream multipliers stacked (LaneEv×0.18,
+            // Regime×0.35, LiveStrategyTuner×0.54, etc). A profitable
+            // lane sized at 25% cannot compound. Lift the floor to 0.50
+            // for lanes whose live-terminal leaderboard mean is healthy
+            // (>= +5% per trade) OR whose LaneExpectancyDamper mult is
+            // already >= 1.0 (proven-winner tier). Losing/unknown lanes
+            // keep the existing 0.25 floor; MAX cap unchanged.
+            val posEvFloor = try {
+                val healthy = if (laneEvMult >= 1.0) true else {
+                    val board = StrategyTelemetry.computeLiveTerminalLeaderboard()
+                    val m = board.firstOrNull { it.strategy.equals(laneTag, true) }
+                    m != null && m.meanPnlPct >= 5.0 && m.trades >= 8
+                }
+                if (healthy) 0.50 else 0.25
+            } catch (_: Throwable) { 0.25 }
+            product.coerceIn(posEvFloor, 1.60)
+        }
         if (RuntimeModeAuthority.isLive() && (laneEvMult != 1.0 || laneSizeCap < 1.0 || strategyTunerSizeMult != 1.0 || uphConvictionMult != 1.0)) {
             try { ForensicLogger.lifecycle("LIVE_WALLET_GROWTH_ALLOCATOR", "mint=${ts.mint.take(10)} symbol=${ts.symbol} lane=$laneTag laneEvMult=$laneEvMult laneCap=$laneSizeCap regimeMult=$regimeMult brainMult=$brainSizeMult stratTuner=$strategyTunerSizeMult sourceBrain=$sourceBrainSizeMult uph=$uphConvictionMult product=$multiplierProduct floor=$liveFloorMult") } catch (_: Throwable) {}
         }
