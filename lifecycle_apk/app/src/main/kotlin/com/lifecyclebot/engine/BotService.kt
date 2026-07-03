@@ -10138,13 +10138,27 @@ class BotService : Service() {
                         // CASHGEN, CYCLIC — even though those lanes ARE being
                         // routed. Widen to the full doctrine surface so the
                         // report reflects the actual lane fanout.
-                        if (l in setOf(
-                            "QUALITY", "MOONSHOT", "SHITCOIN", "MEME", "EXPRESS",
+                        // V5.0.4489 core invariant (preserved for GoldenTapeRegressionTest
+                        // botService_4489QualityMoonshotAndCoreVisibilityCannotDisappear):
+                        // QUALITY and MOONSHOT MUST retain a live read-floor when owner
+                        // rotation suppresses FDG. Do not remove this literal setOf.
+                        val qualityMoonshotFloor4489 = setOf("QUALITY", "MOONSHOT")
+                        // V5.0.6070 — WIDEN LANE_EVAL VISIBILITY. Operator: "its
+                        // meant to be standard, v3, core, shit coin, bluechip,
+                        // quality, moonshot, shit coin express, sniper, manipulated
+                        // and the cyclic trader." Extend the read-floor to the full
+                        // doctrine surface so the pipeline counters no longer show 0
+                        // for SHITCOIN/EXPRESS/MANIPULATED/PROJECT_SNIPER/etc even
+                        // though those lanes ARE being routed. The QUALITY/MOONSHOT
+                        // pair above remains a hard invariant.
+                        val widenedLaneReadFloor4489 = qualityMoonshotFloor4489 + setOf(
+                            "SHITCOIN", "MEME", "EXPRESS",
                             "SHITCOIN_EXPRESS", "PROJECT_SNIPER", "SNIPER",
                             "MANIPULATED", "DIP_HUNTER", "BLUECHIP", "BLUE_CHIP",
                             "TREASURY", "CASHGEN", "STANDARD", "CYCLIC", "MARKETS",
                             "CRYPTO_ALT", "STOCK"
-                        )) {
+                        )
+                        if (l in widenedLaneReadFloor4489) {
                             try {
                                 ForensicLogger.phase(
                                     ForensicLogger.PHASE.LANE_EVAL,

@@ -676,6 +676,13 @@ class Executor(
         // CASHGEN_STOP_LOSS and STALE_LIVE_PRICE_RUG_ESCAPE fire simultaneously
         // for the same paper position. Both see isOpen=true before either closes it.
         private val paperSellLocks = ConcurrentHashMap<String, java.util.concurrent.atomic.AtomicBoolean>()
+        // V5.0.6071 — paperSellLock TTL. If a sell path crashes/exceptions
+        // between acquire and release (e.g. dead price oracle throws inside
+        // paperSell), the AtomicBoolean stays `true` forever and every future
+        // sell for that mint returns ALREADY_CLOSED. Record acquire timestamp
+        // so orphaned locks older than the TTL can be reclaimed on retry.
+        private val paperSellLockAcquiredMs = ConcurrentHashMap<String, Long>()
+        private const val PAPER_SELL_LOCK_STALE_MS = 60_000L  // 1 min TTL
         // V5.9.1022 — POST-SELL COOLDOWN. Operator V5.9.1021 snapshot showed
         // same mint (4vRgJ7) recorded TWO SELL trades within 118 ms:
         //   21:47:37.057  SELL  RAPID_CATASTROPHE_STOP  sol=0.275 pnl=-0.056
@@ -700,14 +707,32 @@ class Executor(
             if (lastDoneMs != null && (System.currentTimeMillis() - lastDoneMs) < PAPER_SELL_COOLDOWN_MS) {
                 return false
             }
-            return paperSellLocks.getOrPut(mint) { java.util.concurrent.atomic.AtomicBoolean(false) }
+            // V5.0.6071 — reclaim orphaned locks. If a lock has been held for
+            // longer than PAPER_SELL_LOCK_STALE_MS without a corresponding
+            // release, the prior sell path crashed. Force-release so retry
+            // can succeed.
+            val acquiredMs = paperSellLockAcquiredMs[mint]
+            if (acquiredMs != null && (System.currentTimeMillis() - acquiredMs) > PAPER_SELL_LOCK_STALE_MS) {
+                try {
+                    com.lifecyclebot.engine.ForensicLogger.lifecycle(
+                        "PAPER_SELL_LOCK_STALE_RECLAIMED_6071",
+                        "mint=${mint.take(10)} ageMs=${System.currentTimeMillis() - acquiredMs} action=force_release"
+                    )
+                } catch (_: Throwable) {}
+                paperSellLocks.remove(mint)
+                paperSellLockAcquiredMs.remove(mint)
+            }
+            val acquired = paperSellLocks.getOrPut(mint) { java.util.concurrent.atomic.AtomicBoolean(false) }
                 .compareAndSet(false, true)
+            if (acquired) paperSellLockAcquiredMs[mint] = System.currentTimeMillis()
+            return acquired
         }
         fun releasePaperSellLock(mint: String) {
             // Record completion timestamp BEFORE removing the lock so the
             // cooldown gate sees it on the very next acquire attempt.
             lastPaperSellCompletedMs[mint] = System.currentTimeMillis()
             paperSellLocks.remove(mint)
+            paperSellLockAcquiredMs.remove(mint)
         }
         /** V5.9.720: force-clear ALL paper sell locks — called on bot stop so shutdown
          *  close can never be blocked by a stale lock from a crashed sell path.
@@ -715,6 +740,7 @@ class Executor(
          *  the same mints immediately. */
         fun clearAllPaperSellLocks() {
             paperSellLocks.clear()
+            paperSellLockAcquiredMs.clear()
             lastPaperSellCompletedMs.clear()
         }
         // V5.7.3: Dual wallet fee system

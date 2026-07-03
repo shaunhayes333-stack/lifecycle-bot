@@ -31,6 +31,11 @@ object PaperPositionCloseAuthority {
     private val states = ConcurrentHashMap<String, CloseState>()
     private const val ALREADY_PENDING_LOG_MS = 30_000L
     private const val FAILED_RETRY_TTL_MS = 20_000L
+    // V5.0.6071 — TTL for stuck CLOSE_REQUESTED / CLOSING states. If a paper
+    // sell stamps these but never reaches CLOSED (crash, exception, dead
+    // price feed, orphaned lock), the mint was blocked forever. 2 min = long
+    // enough to let normal sells finish; short enough to unstick fast.
+    private const val STUCK_CLOSE_TTL_MS = 120_000L
 
     private fun normMode(mode: String): String = mode.trim().uppercase().ifBlank { "PAPER" }
     private fun key(mode: String, mint: String): String = "${normMode(mode)}|$mint"
@@ -55,6 +60,27 @@ object PaperPositionCloseAuthority {
         if (st != null) {
             if (st.state == State.FAILED || st.state == State.REJECTED) {
                 if (now - st.updatedAtMs >= FAILED_RETRY_TTL_MS) return Guard(false, st.state, "retryable_after_failed", st.closeId)
+            }
+            // V5.0.6071 — STUCK-STATE TTL. Operator: paper mode was accumulating
+            // 50+ positions because CLOSE_REQUESTED and CLOSING had NO TTL.
+            // A partial-sell that stamped markCloseRequested/markClosing but
+            // then the actual sell path failed silently (crashed lock release,
+            // dead price oracle, exception mid-sell) left the mint blocked
+            // forever from any future sell attempt. Add a 2-minute TTL: if
+            // the mint has been stuck in CLOSE_REQUESTED/CLOSING for longer
+            // than that without a terminal CLOSED stamp, allow the next sell
+            // to proceed as a retry. Terminal CLOSED remains an absolute
+            // block — we never re-sell a truly closed mint.
+            if ((st.state == State.CLOSE_REQUESTED || st.state == State.CLOSING) &&
+                now - st.updatedAtMs >= STUCK_CLOSE_TTL_MS
+            ) {
+                try {
+                    com.lifecyclebot.engine.ForensicLogger.lifecycle(
+                        "PAPER_CLOSE_STUCK_TTL_RETRY_6071",
+                        "mint=${mint.take(10)} symbol=$symbol prior=${st.state} ageMs=${now - st.updatedAtMs} reason=$reason action=allow_retry"
+                    )
+                } catch (_: Throwable) {}
+                return Guard(false, st.state, "retryable_after_stuck_${st.state.name.lowercase()}", st.closeId)
             }
             if (st.state == State.CLOSE_REQUESTED || st.state == State.CLOSING || st.state == State.CLOSED) {
                 maybeLogAlreadyPending(st, reason, now)
