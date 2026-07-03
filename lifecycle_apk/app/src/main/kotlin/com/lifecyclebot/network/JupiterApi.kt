@@ -838,9 +838,25 @@ class JupiterApi(private val apiKey: String = "") {
 
         val req = reqBuilder.build()
 
+        // V5.0.6053 — API CASCADE FAIL-FAST DOCTRINE.
+        // Operator report: 133s cycle stalls due to Birdeye 401 → Jupiter
+        // Quote 4xx → Helius 429 cascades. Root cause here: the retry
+        // loop ran three attempts with 1.5s+3s sleeps AND a 20s read
+        // timeout each — worst case ~65s inside jupiter_quote alone.
+        // Cut to two attempts, 300ms sleep, and bail immediately if
+        // ApiBackoff has already locked jupiter_quote out. jupiter_send
+        // and dexscreener_pair_poll remain fully available for exit price
+        // routing while quote is silent.
+        val quoteLockedOut: Boolean = try {
+            com.lifecyclebot.engine.ApiBackoff.isLockedOut("jupiter_quote")
+        } catch (_: Throwable) { false }
+        if (quoteLockedOut) {
+            throw RuntimeException("Jupiter GET skipped: jupiter_quote in backoff lockout")
+        }
+
         var lastErr: RuntimeException = RuntimeException("Jupiter GET failed")
-        for (attempt in 0..2) {
-            if (attempt > 0) Thread.sleep(1500L * attempt)
+        for (attempt in 0..1) {
+            if (attempt > 0) Thread.sleep(300L * attempt.toLong())
             try {
                 com.lifecyclebot.engine.HealthAwareHttp.execute(http, req, host = "jupiter_quote").use { resp ->
                     val code = resp.code
