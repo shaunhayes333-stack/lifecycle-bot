@@ -93,6 +93,8 @@ class WalletManager private constructor(private val ctx: Context) {
         // documented as public (BlastAPI, BlockPI, OmniaTech, Jito, BlockEden).
         val FALLBACK_RPCS: List<String> get() = listOf(
             "https://mainnet.helius-rpc.com/?api-key=${com.lifecyclebot.data.DefaultKeys.HELIUS}",  // PAID Helius (primary)
+            // V5.0.6074 — operator's own Alchemy key (300M CU/mo free) as #2 layer.
+            "https://solana-mainnet.g.alchemy.com/v2/${com.lifecyclebot.data.DefaultKeys.ALCHEMY}",
             "https://mainnet.helius-rpc.com/?api-key=hive-pattern-learn",  // legacy free Helius
             "https://api.mainnet-beta.solana.com",              // Official Solana Foundation (stable but rate-limited)
             "https://rpc.ankr.com/solana",                      // Ankr public

@@ -38,6 +38,9 @@ internal object DefaultKeys {
     // V5.0.6073 — Mistral free-tier council key (operator-provided).
     private const val MISTRAL_X    = "84f7dad6dfe081c9f6fcfbd7e6e1c581f8d6d7e6dadc83f9f4d0e98bdde6ead6"
     private const val MISTRAL_M    = 0xB3
+    // V5.0.6074 — Alchemy Solana RPC key (operator-provided).
+    private const val ALCHEMY_X    = "8a90808586a2bf9d80b39e82a19ea4aab08188ffaf"
+    private const val ALCHEMY_M    = 0xC7
 
     val HELIUS:     String by lazy { dec(HELIUS_X, HELIUS_M) }
     val BIRDEYE:    String by lazy { dec(BIRDEYE_X, BIRDEYE_M) }
@@ -46,6 +49,7 @@ internal object DefaultKeys {
     val OPENROUTER: String by lazy { dec(OPENROUTER_X, OPENROUTER_M) }
     val CEREBRAS:   String by lazy { dec(CEREBRAS_X, CEREBRAS_M) }
     val MISTRAL:    String by lazy { dec(MISTRAL_X, MISTRAL_M) }
+    val ALCHEMY:    String by lazy { dec(ALCHEMY_X, ALCHEMY_M) }
 
     private fun dec(hex: String, mask: Int): String {
         val out = ByteArray(hex.length / 2)

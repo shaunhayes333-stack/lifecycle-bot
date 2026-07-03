@@ -4576,7 +4576,8 @@ class Executor(
                 if (pos.isPaperPosition) {
                     executeProfitLockSellPaperOrLive(ts, wallet, sellFraction, "ultra_runner_bank_${gainMultiple.fmt(1)}x", walletSol, pos, actualPrice, gainMultiple, gainPct)
                 } else {
-                    executeProfitLockSell(ts, wallet!!, sellFraction, "ultra_runner_bank_${gainMultiple.fmt(1)}x", walletSol)
+                    @Suppress("NAME_SHADOWING") val wallet = wallet ?: return false
+                    executeProfitLockSell(ts, wallet, sellFraction, "ultra_runner_bank_${gainMultiple.fmt(1)}x", walletSol)
                 }
                 return true
             }
@@ -4664,7 +4665,8 @@ class Executor(
                 if (pos.isPaperPosition) {
                     executeProfitLockSellPaperOrLive(ts, wallet, sellFraction6028, "wallet_growth_harvest_${gainMultiple.fmt(1)}x", walletSol, pos, actualPrice, gainMultiple, gainPct)
                 } else {
-                    executeProfitLockSell(ts, wallet!!, sellFraction6028, "wallet_growth_harvest_${gainMultiple.fmt(1)}x", walletSol)
+                    @Suppress("NAME_SHADOWING") val wallet = wallet ?: return false
+                    executeProfitLockSell(ts, wallet, sellFraction6028, "wallet_growth_harvest_${gainMultiple.fmt(1)}x", walletSol)
                 }
                 return true
             }
