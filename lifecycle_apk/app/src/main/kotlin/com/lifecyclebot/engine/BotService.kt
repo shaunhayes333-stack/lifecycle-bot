@@ -10128,7 +10128,23 @@ class BotService : Service() {
                         try { ForensicLogger.lifecycle("MEMETRADER_OWNER_LANE", "lane=$l primary=$primaryLane owner=$ownerLane rescue=$profitableRescue symbol=${ts.symbol} mint=${ts.mint.take(10)} pool=${ownerPool.joinToString("+")}") } catch (_: Throwable) {}
                     } else {
                         try { ForensicLogger.lifecycle("LANE_SUPPRESSED_BY_OWNER_ROTATION", "lane=$l primary=$primaryLane owner=$ownerLane symbol=${ts.symbol} mint=${ts.mint.take(10)} reason=bounded_live_all_lane_contribution_no_fdg") } catch (_: Throwable) {}
-                        if (l in setOf("QUALITY", "MOONSHOT")) {
+                        // V5.0.6070 — WIDEN LANE_EVAL VISIBILITY. Operator: "its
+                        // meant to be standard, v3, core, shit coin, bluechip,
+                        // quality, moonshot, shit coin express, sniper, manipulated
+                        // and the cyclic trader." Prior code only emitted the
+                        // shadow LANE_EVAL beacon for QUALITY/MOONSHOT, so the
+                        // pipeline counters showed 0 for SHITCOIN, EXPRESS,
+                        // MANIPULATED, PROJECT_SNIPER, DIP_HUNTER, TREASURY,
+                        // CASHGEN, CYCLIC — even though those lanes ARE being
+                        // routed. Widen to the full doctrine surface so the
+                        // report reflects the actual lane fanout.
+                        if (l in setOf(
+                            "QUALITY", "MOONSHOT", "SHITCOIN", "MEME", "EXPRESS",
+                            "SHITCOIN_EXPRESS", "PROJECT_SNIPER", "SNIPER",
+                            "MANIPULATED", "DIP_HUNTER", "BLUECHIP", "BLUE_CHIP",
+                            "TREASURY", "CASHGEN", "STANDARD", "CYCLIC", "MARKETS",
+                            "CRYPTO_ALT", "STOCK"
+                        )) {
                             try {
                                 ForensicLogger.phase(
                                     ForensicLogger.PHASE.LANE_EVAL,
