@@ -3,6 +3,47 @@
 Progressive change log. Newer entries on top. PRD.md holds the static problem
 statement + architecture; this file is the working log of fixes & decisions.
 
+## 2026-07-03 — V5.0.6063 → 6064 🔴 CRITICAL: SETTLE-EXIT + PROTECTIVE PARTIAL + PHANTOM HEAL
+
+Operator screenshots — two catastrophic profit-locker failures across two
+runtime cycles:
+
+1. ERMINE peaked +1183% (lock band advertised +1172%) then bled to -53.9%
+   INSIDE the 45s settle window. rocketnigg peaked +1077% then -87.5%
+   same window. Root cause: PeakDrawdownLock's give-back lock and MFE
+   floor were downstream of the settle-return in manage_only, so ONLY
+   checkProfitLock + trySweepTakeProfitExit ever bypassed settle. Fixed
+   in V5.0.6063 by running PeakDrawdownLock.shouldFloorLock and
+   shouldLock BEFORE checkProfitLock inside settle — any position that
+   ever peaked >= +35% now cannot bleed back through its MFE floor.
+   New forensic labels: SETTLE_MFE_FLOOR_FIRED_6063,
+   SETTLE_PEAK_DRAWDOWN_FIRED_6063 (confirmed firing in V5.0.6063
+   runtime snapshot).
+
+2. RUNNER peaked +3358% ($59 unrealized) with UI tag 'route pending';
+   Jupiter/pump-direct sell stalled under provider degradation
+   (helius_rpc sr=14%, birdeye sr=49%) while meme rug-snapped. Fill
+   landed at dust → -87.3%. V5.0.6064 addresses this two ways:
+   - **PROTECTIVE PEAK PARTIAL**: the MOMENT peakGainPct first crosses
+     +500%, fire an immediate 25% partial via executeProfitLockSell.
+     Only runs on positions that haven't already partialled — normal
+     laddered rides untouched. Locks a slice of SOL before any Jupiter
+     stall. Forensic: PROTECTIVE_PEAK_PARTIAL_FIRED_6064.
+   - **PHANTOM QTY HEAL**: when PHANTOM_MULTIPLE_GUARD fires
+     (rawGainMultiple > 5x price move), qtyToken had a decimals-
+     corrupted value from rehydrate. Now we heal it in place:
+     qtyToken := (costSol * priceMoveMultiple) / actualPrice. Future
+     ticks compute the correct multiple natively — no more repeated
+     clamp on every tick. Forensic: PHANTOM_QTY_HEALED_6064.
+
+Also this session: V5.0.6060 REVERT of the disastrous V5.0.6058 9pm
+Sydney daily fee flush (drained bucket in one shot per operator
+report). Threshold flipped 1.0 SOL → 0.0001 SOL so tryFlush drains
+every scan cycle — effective live per-trade fee transfer, bucket kept
+only as a per-cycle safety net.
+
+
+
 ## 2026-07-03 — V5.0.6054 → 6058 🟢 AGI/SSI ANTI-SUFFOCATION + DAILY FEE FLUSH
 
 Operator directives (post V5.0.6053 runtime report):
