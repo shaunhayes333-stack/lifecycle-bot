@@ -96,14 +96,24 @@ object RealizedWalletCompoundingGovernor {
 
     private fun trustedOpenLiveEquity(): TrustedOpenEquity {
         return try {
+            val paperModeNow6072 = try { com.lifecyclebot.engine.GlobalTradeRegistry.isPaperMode } catch (_: Throwable) { false }
             val rows = try { BotService.status.tokens.values.toList() } catch (_: Throwable) { emptyList() }
             var pnlSol = 0.0
             var runners = 0
             var maxPct = 0.0
             rows.forEach { ts ->
                 val p = ts.position
-                if (!p.isOpen || p.isPaperPosition || p.costSol <= 0.0 || p.qtyToken <= 0.0) return@forEach
-                val verdict = try { OpenPnlSanity.inspect(ts, context = "RealizedWalletCompoundingGovernor.open_equity_6028", emit = false) } catch (_: Throwable) { OpenPnlSanity.Verdict(false, reason = "INSPECT_THROW") }
+                // V5.0.6072 — PAPER WALLET COMPOUNDING PARITY. Operator: paper wallet
+                // must have the same compounding targets as live so learning maturity
+                // transfers cleanly. Previously paper positions were excluded from the
+                // trusted-open-equity total, which meant runner-pressure compounding
+                // tiers (trusted_open_equity_two_x_pressure_6028, etc.) never fired in
+                // paper. Result: paper had two +100%+ runners simultaneously but the
+                // sizing governor still read equityPressureX=1.00. Now in paper mode
+                // we count paper positions; in live mode we keep counting live only.
+                val includeForMode = if (paperModeNow6072) p.isPaperPosition else !p.isPaperPosition
+                if (!p.isOpen || !includeForMode || p.costSol <= 0.0 || p.qtyToken <= 0.0) return@forEach
+                val verdict = try { OpenPnlSanity.inspect(ts, context = "RealizedWalletCompoundingGovernor.open_equity_6072", emit = false) } catch (_: Throwable) { OpenPnlSanity.Verdict(false, reason = "INSPECT_THROW") }
                 if (!verdict.ok || verdict.pnlPct <= 0.0) return@forEach
                 val currentPrice = ts.ref.takeIf { it.isFinite() && it > 0.0 } ?: return@forEach
                 val currentValueSol = (p.qtyToken * currentPrice).takeIf { it.isFinite() && it > 0.0 } ?: return@forEach
@@ -133,7 +143,19 @@ object RealizedWalletCompoundingGovernor {
             else -> grossWin / grossLoss
         }
         val wr = if (wins + losses > 0) wins * 100.0 / (wins + losses) else 0.0
-        val wallet = try { BotService.status.walletSol } catch (_: Throwable) { 0.0 }
+        val wallet = try {
+            // V5.0.6072 — PAPER WALLET COMPOUNDING PARITY. In paper mode read
+            // the simulated paper wallet, not the on-chain SOL balance. Paper
+            // and live must use symmetric wallet math or the compounding tier
+            // thresholds trigger on the wrong base.
+            val paperMode6072 = com.lifecyclebot.engine.GlobalTradeRegistry.isPaperMode
+            if (paperMode6072) {
+                BotService.status.paperWalletSol.takeIf { it.isFinite() && it > 0.0 }
+                    ?: BotService.status.walletSol
+            } else {
+                BotService.status.walletSol
+            }
+        } catch (_: Throwable) { 0.0 }
         val openEquity6028 = trustedOpenLiveEquity()
         val equityBase6028 = wallet.takeIf { it.isFinite() && it > 0.0 } ?: 1.0
         val equityPressureX6028 = ((wallet + openEquity6028.pnlSol) / equityBase6028).takeIf { it.isFinite() && it > 0.0 } ?: 1.0

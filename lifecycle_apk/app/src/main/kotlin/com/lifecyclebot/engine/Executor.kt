@@ -4465,10 +4465,12 @@ class Executor(
         // rugsnap case only.
         run {
             val peakPct6064 = try { pos.peakGainPct.coerceAtLeast(gainPct) } catch (_: Throwable) { gainPct }
-            val protectiveArm = !pos.isPaperPosition &&
-                peakPct6064 >= 500.0 &&
+            // V5.0.6072 — PAPER PARITY. Was `!pos.isPaperPosition && ...`; paper
+            // now fires the same protective peak partial so paper trades log a
+            // "banked at +peak%" outcome for learning parity with live.
+            val protectiveArm = peakPct6064 >= 500.0 &&
                 pos.partialSoldPct <= 0.01 &&
-                wallet != null
+                (pos.isPaperPosition || wallet != null)
             if (protectiveArm) {
                 val remainingFraction6064 = (100.0 - pos.partialSoldPct).coerceAtLeast(0.0) / 100.0
                 val sellFraction6064 = 0.25.coerceAtMost(remainingFraction6064)
@@ -4476,12 +4478,12 @@ class Executor(
                     try {
                         ForensicLogger.lifecycle(
                             "PROTECTIVE_PEAK_PARTIAL_FIRED_6064",
-                            "mint=${ts.mint.take(10)} symbol=${ts.symbol} peakPct=${peakPct6064.toInt()} curPct=${gainPct.toInt()} gain=${gainMultiple.fmt(2)}x sellPct=25 reason=lock_first_slice_of_extreme_runner_before_route_stall",
+                            "mint=${ts.mint.take(10)} symbol=${ts.symbol} peakPct=${peakPct6064.toInt()} curPct=${gainPct.toInt()} gain=${gainMultiple.fmt(2)}x sellPct=25 paper=${pos.isPaperPosition} reason=lock_first_slice_of_extreme_runner_before_route_stall",
                         )
                         PipelineHealthCollector.labelInc("PROTECTIVE_PEAK_PARTIAL_FIRED_6064")
                     } catch (_: Throwable) {}
-                    onLog("💰⚡ PROTECTIVE PEAK PARTIAL: ${ts.symbol} peak=${peakPct6064.toInt()}% — banking 25% NOW before Jupiter route stall", ts.mint)
-                    executeProfitLockSell(ts, wallet!!, sellFraction6064, "protective_peak_partial_${peakPct6064.toInt()}pct", walletSol)
+                    onLog("💰⚡ PROTECTIVE PEAK PARTIAL: ${ts.symbol} peak=${peakPct6064.toInt()}% — banking 25% NOW before route stall", ts.mint)
+                    executeProfitLockSellPaperOrLive(ts, wallet, sellFraction6064, "protective_peak_partial_${peakPct6064.toInt()}pct", walletSol, pos, actualPrice, gainMultiple, gainPct)
                     return true
                 }
             }
@@ -4526,26 +4528,21 @@ class Executor(
             executeProfitLockSell(ts, w, sellFraction6029, "route_real_harvest_${routeMultiple.fmt(1)}x", walletSol)
             return true
         }
-        val ultraRunnerLiveBank = !pos.isPaperPosition &&
-            (gainMultiple >= 50.0 || peakGainPct >= 5_000.0) &&
+        // V5.0.6072 — PAPER PARITY. Was `!pos.isPaperPosition && ...`; paper
+        // now also fires ultra-runner bank so 50x/100x paper monsters record
+        // the exit outcome for learning symmetry.
+        val ultraRunnerLiveBank = (gainMultiple >= 50.0 || peakGainPct >= 5_000.0) &&
             currentValueAboveBasis4130
         if (ultraRunnerLiveBank) {
-            if (wallet == null) {
+            if (!pos.isPaperPosition && wallet == null) {
                 ErrorLogger.warn("Executor", "🚫 ULTRA_RUNNER_BANK_DEFERRED: ${ts.symbol} @ ${gainMultiple.fmt(1)}x peak=${peakGainPct.toInt()}% — wallet=null")
                 try { ForensicLogger.lifecycle("ULTRA_RUNNER_BANK_DEFERRED", "mint=${ts.mint.take(10)} symbol=${ts.symbol} gain=${gainMultiple.fmt(2)}x peakPct=${peakGainPct.toInt()} reason=wallet_null") } catch (_: Throwable) {}
                 return false
             }
             // V5.0.4182 — REAL PRICE LOCK on ULTRA_RUNNER_BANK trigger.
-            // Operator V5.0.4181 dump: piss banked at gain=67x while the
-            // realized sell only returned 19.4% PnL — meaning the runner
-            // signal was driven by a phantom price that didn't survive the
-            // actual Jupiter route. Meme moonshots CAN do 100x+; the issue
-            // is verifying that the high gainMultiple is REAL before banking.
-            // Force a Jupiter route quote refresh — if the route confirms a
-            // current value ≥ costSol × 1.5 within tolerance, the gain is
-            // genuine and we bank. If route disagrees, defer one cycle so
-            // the freshened price gets into the next decision pass.
-            val priceReal = try {
+            // Live-only price verifier; paper has no on-chain route to verify,
+            // so paper always passes the price-real check (V5.0.6072).
+            val priceReal = if (pos.isPaperPosition) true else try {
                 com.lifecyclebot.engine.RealPriceLock.verifyUltraRunnerBank(
                     ts, gainMultiple, currentValue, pos.costSol,
                 )
@@ -4571,12 +4568,12 @@ class Executor(
                 try {
                     ForensicLogger.lifecycle(
                         "ULTRA_RUNNER_BANK_TRIGGERED",
-                        "mint=${ts.mint.take(10)} symbol=${ts.symbol} gain=${gainMultiple.fmt(2)}x peakPct=${peakGainPct.toInt()} sellPct=${(sellFraction*100).toInt()} reason=live_mega_mfe_bank",
+                        "mint=${ts.mint.take(10)} symbol=${ts.symbol} gain=${gainMultiple.fmt(2)}x peakPct=${peakGainPct.toInt()} sellPct=${(sellFraction*100).toInt()} paper=${pos.isPaperPosition} reason=mega_mfe_bank",
                     )
                     PipelineHealthCollector.labelInc("ULTRA_RUNNER_BANK_TRIGGERED")
                 } catch (_: Throwable) {}
                 onLog("🚀💰 ULTRA RUNNER BANK: ${ts.symbol} @ ${gainMultiple.fmt(1)}x peak=${peakGainPct.toInt()}% — selling ${(sellFraction*100).toInt()}% NOW", ts.mint)
-                executeProfitLockSell(ts, wallet, sellFraction, "ultra_runner_bank_${gainMultiple.fmt(1)}x", walletSol)
+                executeProfitLockSellPaperOrLive(ts, wallet, sellFraction, "ultra_runner_bank_${gainMultiple.fmt(1)}x", walletSol, pos, actualPrice, gainMultiple, gainPct)
                 return true
             }
         }
@@ -4588,20 +4585,23 @@ class Executor(
         // buys stayed tiny and monster open PnL sat unrealized. If a live runner's
         // trusted current profit is already material versus wallet size, bank a
         // tranche now through the same executeProfitLockSell finality path.
+        // V5.0.6072 — PAPER PARITY. Paper positions now also fire so paper's
+        // huge unrealized runners land banked SOL into the (simulated) wallet
+        // for symmetric compounding learning.
         val unrealizedProfitSol6028 = (currentValue - pos.costSol).takeIf { it.isFinite() }?.coerceAtLeast(0.0) ?: 0.0
-        val walletGrowthHarvest6028 = !pos.isPaperPosition &&
-            gainMultiple >= 3.0 &&
+        val walletGrowthHarvest6028 = gainMultiple >= 3.0 &&
             unrealizedProfitSol6028 >= maxOf(0.02, walletSol * 0.10, pos.costSol * 2.0) &&
             currentValueAboveBasis4130
         if (walletGrowthHarvest6028) {
-            if (wallet == null) {
+            if (!pos.isPaperPosition && wallet == null) {
                 val recoveryReason = "URGENT_WALLET_GROWTH_HARVEST_WALLET_NULL_${gainMultiple.fmt(1)}x"
                 try { PendingSellQueue.add(ts.mint, ts.symbol ?: "?", recoveryReason) } catch (_: Throwable) {}
                 try { HostWalletTokenTracker.markSellWaitingBalanceProof(ts.mint, ts.symbol, recoveryReason) } catch (_: Throwable) {}
                 try { PipelineHealthCollector.labelInc("WALLET_GROWTH_HARVEST_DEFERRED_WALLET_NULL_6028") } catch (_: Throwable) {}
                 return false
             }
-            val priceReal6028 = try {
+            // Paper skips the Jupiter route verification (no on-chain route to check).
+            val priceReal6028 = if (pos.isPaperPosition) true else try {
                 RealPriceLock.verifyUltraRunnerBank(ts, gainMultiple, currentValue, pos.costSol)
             } catch (_: Throwable) { true }
             if (!priceReal6028) {
@@ -4657,7 +4657,7 @@ class Executor(
                     PipelineHealthCollector.labelInc("WALLET_GROWTH_HARVEST_TRIGGERED_6028")
                 } catch (_: Throwable) {}
                 onLog("💰 WALLET GROWTH HARVEST: ${ts.symbol} @ ${gainMultiple.fmt(1)}x unrealized=${unrealizedProfitSol6028.fmt(4)} SOL — selling ${(sellFraction6028*100).toInt()}% NOW", ts.mint)
-                executeProfitLockSell(ts, wallet, sellFraction6028, "wallet_growth_harvest_${gainMultiple.fmt(1)}x", walletSol)
+                executeProfitLockSellPaperOrLive(ts, wallet, sellFraction6028, "wallet_growth_harvest_${gainMultiple.fmt(1)}x", walletSol, pos, actualPrice, gainMultiple, gainPct)
                 return true
             }
         }
@@ -4847,6 +4847,89 @@ class Executor(
         
         return false
     }
+
+    /**
+     * V5.0.6072 — PAPER-OR-LIVE PROFIT LOCK ENTRY POINT.
+     *
+     * The three big runner-harvest paths (PROTECTIVE_PEAK_PARTIAL_6064,
+     * ULTRA_RUNNER_LIVE_BANK, WALLET_GROWTH_HARVEST_6028) historically fired
+     * live-only via `executeProfitLockSell(...)`, so paper positions with
+     * genuine +100%/+500% runners never had their partial-bank exit rows
+     * recorded. The AI's learning stack (FluidLearningAI, UnifiedPolicyHead,
+     * StrategyTruthLedger) then never saw a "banked at +Nx%" outcome for
+     * paper trades — a huge blind spot given the operator's directive that
+     * paper and live must learn symmetrically.
+     *
+     * This helper routes to `executeProfitLockSell` for live positions
+     * (unchanged), and mirrors the same paper-branch bookkeeping used by
+     * the capital_recovery / profit_lock paths for paper positions (partial
+     * qty/cost update, canonical PARTIAL_SELL trade row into recordTrade,
+     * TreasuryManager profit-lock event, onPaperBalanceChange invoke, log).
+     */
+    private fun executeProfitLockSellPaperOrLive(
+        ts: TokenState,
+        wallet: SolanaWallet?,
+        sellFraction: Double,
+        reason: String,
+        walletSol: Double,
+        pos: Position,
+        actualPrice: Double,
+        gainMultiple: Double,
+        gainPct: Double,
+    ) {
+        if (!pos.isPaperPosition) {
+            if (wallet == null) return
+            executeProfitLockSell(ts, wallet, sellFraction, reason, walletSol)
+            return
+        }
+        // Paper branch — mirror the capital_recovery / profit_lock paper accounting.
+        val sellQty = pos.qtyToken * sellFraction
+        val sellSol = sellQty * actualPrice
+        val newQty = pos.qtyToken - sellQty
+        val newCost = pos.costSol * (1.0 - sellFraction)
+        val pnlSol = sellSol - pos.costSol * sellFraction
+        ts.position = pos.copy(
+            qtyToken = newQty,
+            costSol = newCost,
+            partialSoldPct = (pos.partialSoldPct + sellFraction * 100.0).coerceAtMost(100.0),
+            lockedProfitFloor = pos.lockedProfitFloor + sellSol.coerceAtLeast(0.0),
+        )
+        val paperCostBasis = pos.costSol * sellFraction
+        val paperFee = paperCostBasis * MEME_TRADING_FEE_PERCENT
+        val paperNetPnl = pnlSol - paperFee
+        val paperLegPct = pct(paperCostBasis, sellSol)
+        val tradeRow = Trade(
+            "PARTIAL_SELL", "paper", paperCostBasis, actualPrice,
+            System.currentTimeMillis(), reason,
+            pnlSol, paperLegPct,
+            feeSol = paperFee, netPnlSol = paperNetPnl,
+        )
+        recordTrade(ts, tradeRow)
+        security.recordTrade(tradeRow)
+        onPaperBalanceChange?.invoke(sellSol)
+        val solPrice = WalletManager.lastKnownSolPrice
+        try {
+            TreasuryManager.recordProfitLockEvent(
+                TreasuryEventType.PROFIT_LOCK_SELL,
+                sellSol,
+                ts.symbol,
+                gainMultiple,
+                solPrice,
+            )
+        } catch (_: Throwable) {}
+        if (pnlSol > 0) {
+            try { TreasuryManager.lockRealizedProfit(pnlSol, solPrice) } catch (_: Throwable) {}
+        }
+        try {
+            ForensicLogger.lifecycle(
+                "PAPER_PROFIT_LOCK_PARITY_FIRED_6072",
+                "mint=${ts.mint.take(10)} symbol=${ts.symbol} reason=$reason gain=${gainMultiple.fmt(2)}x sellPct=${(sellFraction*100).toInt()} sellSol=${sellSol.fmt(4)} pnlSol=${pnlSol.fmt(4)}",
+            )
+            PipelineHealthCollector.labelInc("PAPER_PROFIT_LOCK_PARITY_FIRED_6072")
+        } catch (_: Throwable) {}
+        onLog("📄💰 PAPER PARITY LOCK: ${ts.symbol} @ ${gainMultiple.fmt(1)}x — banked ${sellSol.fmt(4)} SOL (${(sellFraction*100).toInt()}%) reason=$reason", ts.mint)
+    }
+
     
     private fun executeProfitLockSell(
         ts: TokenState,
