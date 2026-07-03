@@ -169,7 +169,8 @@ object SsiPilotCouncil {
         } catch (_: Throwable) {}
         try { append("PAUSED=${LaneAutoPauseGuard.pausedLanes().joinToString(",").ifEmpty { "-" }}\n") } catch (_: Throwable) {}
         try { append("QUARANTINE=${LaneQuarantineController.statusLine().take(200)}\n") } catch (_: Throwable) {}
-        try { append("LAB=${com.lifecyclebot.engine.lab.LlmLabEngine.statusLine().take(200)}\n") } catch (_: Throwable) {}
+        try { append("LAB=${com.lifecyclebot.engine.lab.LlmLabEngine.statusLine().take(300)}\n") } catch (_: Throwable) {}
+        try { append("RESULTS6078=${com.lifecyclebot.engine.lab.LlmLabEngine.externalOutcomeSummary6078().take(240)}\n") } catch (_: Throwable) {}
         try { append("METACOG trades_analyzed=${com.lifecyclebot.v3.scoring.MetaCognitionAI.getTotalTradesAnalyzed()}\n") } catch (_: Throwable) {}
         try { append("WALLET sol=${"%.4f".format(if (paper) BotService.status.paperWalletSol else BotService.status.walletSol)}\n") } catch (_: Throwable) {}
     }

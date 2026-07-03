@@ -3013,6 +3013,43 @@ class Executor(
         } catch (_: Throwable) { true }
         try {
             if (tradeWithMint.side.equals("SELL", true) || tradeWithMint.side.equals("PARTIAL_SELL", true)) {
+                val resultMint6078 = tradeWithMint.mint.ifBlank { ts.mint }
+                val resultLane6078 = tradeWithMint.tradingMode.ifBlank { resolveExecutionLane(ts, fallback = "STANDARD") }
+                val resultStyle6078 = listOf(tradeWithMint.tradingModeEmoji, tradeWithMint.reason)
+                    .filter { it.isNotBlank() }
+                    .joinToString(" ")
+                    .ifBlank { "result_style_unknown" }
+                val resultPnlPct6078 = tradeWithMint.pnlPct
+                val resultPnlSol6078 = tradeWithMint.netPnlSol.takeIf { it != 0.0 } ?: tradeWithMint.pnlSol
+                val resultTrainable6078 = accountingTrainable && rowLearningAdmitted4349
+                val resultAccepted6078 = ledgerAllowsClosedLearning
+                val resultIsPaper6078 = tradeWithMint.mode.equals("paper", true) || ts.position.isPaperPosition
+                // V5.0.6078 — ALL-RESULT OBSERVABILITY FANOUT. Policy heads still
+                // train only on accepted/sane rows below, but LLM/SSI/meta-cog context
+                // must see every sell-like result with accepted/trainable flags so
+                // nothing disappears from the intelligence stack.
+                GlobalScope.launch(AppDispatchers.sideEffect) {
+                    try {
+                        com.lifecyclebot.engine.lab.LlmLabEngine.recordExternalOutcome6078(
+                            lane = resultLane6078,
+                            style = resultStyle6078,
+                            pnlPct = resultPnlPct6078,
+                            pnlSol = resultPnlSol6078,
+                            trainable = resultTrainable6078,
+                            accepted = resultAccepted6078,
+                            paper = resultIsPaper6078,
+                        )
+                    } catch (_: Throwable) {}
+                    try {
+                        if (!resultAccepted6078 || !resultTrainable6078) {
+                            com.lifecyclebot.engine.ForensicLogger.lifecycle(
+                                "ALL_RESULT_CONTEXT_OBSERVED_6078",
+                                "mint=${resultMint6078.take(10)} lane=$resultLane6078 style=${resultStyle6078.take(80)} side=${tradeWithMint.side} pnl=${"%.2f".format(resultPnlPct6078)}% accepted=$resultAccepted6078 trainable=$resultTrainable6078 paper=$resultIsPaper6078",
+                            )
+                        }
+                        com.lifecyclebot.engine.PipelineHealthCollector.labelInc("ALL_RESULT_CONTEXT_OBSERVED_6078")
+                    } catch (_: Throwable) {}
+                }
                 val edgePeak4529 = try { ts.position.peakGainPct } catch (_: Throwable) { tradeWithMint.pnlPct }
                 val edgeDraw4529 = try {
                     if (ts.position.entryPrice > 0.0 && ts.position.lowestPrice > 0.0) ((ts.position.lowestPrice - ts.position.entryPrice) / ts.position.entryPrice) * 100.0 else 0.0
@@ -13365,8 +13402,14 @@ class Executor(
                 entryMcap    = entryMarketSnapshot.marketCapUsd,
                 isPaperPosition = false,
                 // V5.9.386 — sub-trader tag carries through live buy too.
+                // V5.0.6078 — preserve the full AgenticStyleRouter style surface
+                // (120+ doctrine styles) in the display/journal emoji slot instead
+                // of collapsing every row back to a generic lane emoji.
                 tradingMode  = routedLaneTag.ifBlank { if (layerTag.isNotBlank()) layerTag else currentMode.name },
-                tradingModeEmoji = if (layerTagEmoji.isNotBlank()) layerTagEmoji else currentMode.emoji,
+                tradingModeEmoji = listOf(
+                    routedStyleTag.ifBlank { layerTag },
+                    if (layerTagEmoji.isNotBlank()) layerTagEmoji else currentMode.emoji,
+                ).filter { it.isNotBlank() }.joinToString("|"),
                 entryPolicySnapshot = livePolicySnapshot,
                 // V5.9.602 — ALL live buys, including Pump-first, remain
                 // pending until tx/wallet verification proves token arrival.

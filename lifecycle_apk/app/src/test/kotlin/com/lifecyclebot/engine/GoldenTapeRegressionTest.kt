@@ -7208,4 +7208,21 @@ class GoldenTapeRegressionTest {
         assertTrue("V5.0.6077: UnifiedPolicyHead and LiveProbabilityEngine must blend bootstrap policy signals from first training sample, not zero-weight bootstrap", uph.contains("trainedForRamp6077") && uph.contains("trade1Ramp6077") && prob.contains("policySamples6077") && !prob.contains("policyW = if (UnifiedPolicyHead.formatForPipelineDump()"))
     }
 
+
+
+    @Test
+    fun aate6078UiJournalReadinessCopyAndResultLearningTruth() {
+        val store = java.io.File("src/main/kotlin/com/lifecyclebot/engine/TradeHistoryStore.kt").readText()
+        val main = java.io.File("src/main/kotlin/com/lifecyclebot/ui/MainActivity.kt").readText()
+        val err = java.io.File("src/main/kotlin/com/lifecyclebot/ui/ErrorLogActivity.kt").readText()
+        val exec = java.io.File("src/main/kotlin/com/lifecyclebot/engine/Executor.kt").readText()
+        val lab = java.io.File("src/main/kotlin/com/lifecyclebot/engine/lab/LlmLabEngine.kt").readText()
+        val ssi = java.io.File("src/main/kotlin/com/lifecyclebot/engine/SsiPilotCouncil.kt").readText()
+        assertTrue("V5.0.6078: UI/readiness stats must use StrategyTruthLedger-clean truth and no-data must not fake 50% WR", store.contains("return try { getCleanStatsSnapshot4517() }") && store.contains("val winRate:            Double = 0.0") && store.contains("val avgHoldTimeMinutes: Int    = 0") && !store.contains("else 50.0"))
+        assertTrue("V5.0.6078: Open Positions contract must preserve top ten held rows and footer-held remainder ordered by gain", main.contains("OpenPositionsModel6078") && main.contains("cachedOpenPositionsModel6078") && main.contains("precomputeTotalUpnl6078") && main.contains("preSorted6078 = true") && main.contains("val RENDER_CAP = OPENPOS_ROW_CAP"))
+        assertTrue("V5.0.6078: Runtime report export button must always copy an observable unified-report fallback", err.contains("UNIFIED_REPORT_EXPORT_CLICK_6078") && err.contains("Unified report copied") && err.contains("PipelineHealthCollector.dumpText().take(24_000)"))
+        assertTrue("V5.0.6078: all sell-like results must feed LLM/SSI context with accepted/trainable flags while policy heads remain clean-gated", exec.contains("ALL_RESULT_CONTEXT_OBSERVED_6078") && exec.contains("recordExternalOutcome6078") && lab.contains("externalOutcomeSummary6078") && ssi.contains("RESULTS6078"))
+        assertTrue("V5.0.6078: live positions must preserve AgenticStyleRouter style surface instead of collapsing to generic lane emoji", exec.contains("preserve the full AgenticStyleRouter style surface") && exec.contains("tradingModeEmoji = listOf") && exec.contains("routedStyleTag.ifBlank"))
+    }
+
 }

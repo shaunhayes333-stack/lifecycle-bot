@@ -592,6 +592,15 @@ class MainActivity : AppCompatActivity() {
         val structuralHash: Int = 0,
     )
     @Volatile private var cachedWatchlistModel: WatchlistModel = WatchlistModel()
+    private data class OpenPositionsModel6078(
+        val updatedAtMs: Long = 0L,
+        val allSorted: List<com.lifecyclebot.data.TokenState> = emptyList(),
+        val totalExposureSol: Double = 0.0,
+        val totalUnrealizedSol: Double = 0.0,
+        val laneHeldExtra: Int = 0,
+        val structuralHash: Int = 0,
+    )
+    @Volatile private var cachedOpenPositionsModel6078: OpenPositionsModel6078 = OpenPositionsModel6078()
     private val mainModelRefreshInFlight = java.util.concurrent.atomic.AtomicBoolean(false)
 
     // V5.9.1474 — hard global repaint gate. While the bot is running, the live
@@ -2612,8 +2621,36 @@ for legal compliance.
             } catch (_: Throwable) {
                 cachedWatchlistModel
             }
+            val opResult: OpenPositionsModel6078 = try {
+                // V5.0.6078 — source fix: build/sort/cap/exposure for Open Positions
+                // off Main as part of the same immutable dashboard model. updateUi()
+                // must never call buildUnifiedOpenPositions() synchronously while the
+                // bot is running; that was the header/list mismatch + ANR source.
+                val allOpen = buildUnifiedOpenPositions(state)
+                val totalExposure = allOpen.sumOf { it.position.costSol }
+                val totalUpnl = allOpen.sumOf { token ->
+                    val pos = token.position
+                    val verdict = com.lifecyclebot.engine.OpenPnlSanity.inspect(token, "MainActivity.precomputeTotalUpnl6078/${token.symbol}/${token.mint.take(8)}", emit = false)
+                    if (verdict.ok) pos.costSol * verdict.pnlPct / 100.0 else 0.0
+                }
+                val h = (allOpen.joinToString("|") { t ->
+                    val p = t.position
+                    "${t.mint}:${p.costSol}:${p.qtyToken}:${p.isPaperPosition}:${p.pendingVerify}"
+                } + ":${allOpen.size}:${totalExposure}:${totalUpnl}").hashCode()
+                OpenPositionsModel6078(
+                    updatedAtMs = System.currentTimeMillis(),
+                    allSorted = allOpen,
+                    totalExposureSol = totalExposure,
+                    totalUnrealizedSol = totalUpnl,
+                    laneHeldExtra = countLaneHeldPositions(allOpen),
+                    structuralHash = h,
+                )
+            } catch (_: Throwable) {
+                cachedOpenPositionsModel6078
+            }
             withContext(kotlinx.coroutines.Dispatchers.Main) {
                 cachedWatchlistModel = wlResult
+                cachedOpenPositionsModel6078 = opResult
                 mainModelRefreshInFlight.set(false)
             }
         }
@@ -3564,17 +3601,11 @@ for legal compliance.
             try { com.lifecyclebot.engine.HostWalletTokenTracker.reapZeroBalanceGhosts() } catch (_: Exception) {}
             val lifecycleOpen = try { com.lifecyclebot.engine.TokenLifecycleTracker.liveMemeOpenCount() } catch (_: Exception) { 0 }
             val hostOpen = try { com.lifecyclebot.engine.HostWalletTokenTracker.getOpenCount() } catch (_: Exception) { 0 }
-            // V5.9.797 — operator audit (build-2734 screenshot): top tile showed
-            // "7 Open" while the actual Open Positions list rendered 10 cards.
-            // Source-of-truth divergence: the list uses buildUnifiedOpenPositions(state)
-            // which pulls from a wider source (incl. EXPRESS / sub-trader positions
-            // that aren't in state.openPositions OR the trader-AI active maps),
-            // but this tile was computing its own union. We now read the SAME
-            // unified list size so what you see in the tile always equals what
-            // the card below renders.
-            val unifiedListSize = try {
-                buildUnifiedOpenPositions(state).size
-            } catch (_: Throwable) { 0 }
+            // V5.9.797 / V5.0.6078 — header/list source unification. The Open
+            // Positions card now binds cachedOpenPositionsModel6078, built off Main.
+            // This tile must read the SAME cached model count, not recompute the
+            // unified list synchronously and not drift from the rendered rows.
+            val unifiedListSize = try { cachedOpenPositionsModel6078.allSorted.size } catch (_: Throwable) { 0 }
             // V5.9.1509 — WALLET-TRUTH OPEN COUNT (operator hard rule: "unless the
             // bot has the position currently held it shouldn't acknowledge a
             // position is open"). The old maxOf() unioned AI-side active maps
@@ -3687,9 +3718,15 @@ for legal compliance.
             // NOT blank Open Positions while runtime/tracker says bags are held.
             // Render the capped/cached open panel first, then return before the
             // lower-priority lane/watchlist/report cards.
-            val openPosDuringShed6040 = buildUnifiedOpenPositions(state)
+            val openModelDuringShed6078 = cachedOpenPositionsModel6078
+            val openPosDuringShed6040 = openModelDuringShed6078.allSorted
             cardOpenPositions.visibility = if (openPosDuringShed6040.isNotEmpty()) android.view.View.VISIBLE else android.view.View.GONE
-            if (openPosDuringShed6040.isNotEmpty()) renderOpenPositions(openPosDuringShed6040)
+            if (openPosDuringShed6040.isNotEmpty()) {
+                tvTotalExposure.setTextIfChanged(openModelDuringShed6078.totalExposureSol.fastFixed(3) + "◎ at risk")
+                tvTotalUnrealisedPnl.setTextIfChanged(openModelDuringShed6078.totalUnrealizedSol.fastSigned(4) + "◎")
+                tvTotalUnrealisedPnl.setTextColor(if (openModelDuringShed6078.totalUnrealizedSol >= 0) green else red)
+                renderOpenPositions(openPosDuringShed6040, preSorted6078 = true)
+            }
             if (nowForRenderShed - lastAnrHeavyRenderShedLogMs > 10_000L) {
                 lastAnrHeavyRenderShedLogMs = nowForRenderShed
                 try {
@@ -3713,30 +3750,17 @@ for legal compliance.
         // identical across the whole card. Deduplication: if a mint is
         // already in state.openPositions it's NOT synthesized a second
         // time, even if a sub-trader also holds it.
-        val openPos = buildUnifiedOpenPositions(state)
+        val openModel6078 = cachedOpenPositionsModel6078
+        val openPos = openModel6078.allSorted
         cardOpenPositions.visibility = if (openPos.isNotEmpty()) android.view.View.VISIBLE else android.view.View.GONE
         if (openPos.isNotEmpty()) {
-            val totalExposure = openPos.sumOf { it.position.costSol }
-            val totalUpnl = openPos.sumOf { ts ->
-                val pos = ts.position
-                val verdict = com.lifecyclebot.engine.OpenPnlSanity.inspect(ts, "MainActivity.totalUpnl/${ts.symbol}/${ts.mint.take(8)}", emit = false)
-                if (verdict.ok) pos.costSol * verdict.pnlPct / 100.0 else 0.0
-            }
-            tvTotalExposure.setTextIfChanged(totalExposure.fastFixed(3) + "◎ at risk")
-            tvTotalUnrealisedPnl.setTextIfChanged(totalUpnl.fastSigned(4) + "◎")
-            tvTotalUnrealisedPnl.setTextColor(if (totalUpnl >= 0) green else red)
-            // V5.9.1435 — REMOVE the redundant outer 20s render gate. The header
-            // totals above are set unconditionally, but this gate could block the
-            // ROW render for up to 20s after app-open while the bot is running
-            // (runtimeActiveForUi && lastOpenPosRenderMs==0 && elapsed<20s →
-            // openRenderAllowed=false). Result = "X◎ at risk" header with an EMPTY
-            // list below (operator screenshots 00:22). renderOpenPositions() already
-            // owns full ANR protection via its STRUCTURAL-hash throttle (mint/size/
-            // qty/paper/gainBand), which excludes 1Hz price drift, so calling it
-            // every tick is safe and is the single source of truth. Always render so
-            // header and list can never diverge. (doctrine: fix at structural source,
-            // never gate the most important card on a timer.)
-            renderOpenPositions(openPos)
+            tvTotalExposure.setTextIfChanged(openModel6078.totalExposureSol.fastFixed(3) + "◎ at risk")
+            tvTotalUnrealisedPnl.setTextIfChanged(openModel6078.totalUnrealizedSol.fastSigned(4) + "◎")
+            tvTotalUnrealisedPnl.setTextColor(if (openModel6078.totalUnrealizedSol >= 0) green else red)
+            // V5.0.6078 — header totals and row list now bind the same off-main
+            // OpenPositionsModel. No synchronous buildUnifiedOpenPositions() on Main,
+            // and no divergent header/list source during ANR shed.
+            renderOpenPositions(openPos, preSorted6078 = true)
         }
 
         // ── V4.0: Treasury positions panel ─────────────────────────────────
@@ -4698,8 +4722,9 @@ for legal compliance.
 
         merged.forEach { recoverRenderablePricing(it) }
 
-        // V5.9.810 — sort by current unrealized gain % descending so the
-        // strongest movers stay at the top of the Open Positions card.
+        // V5.9.810 / V5.0.6078 — sort by current unrealized gain % descending
+        // (best positive movers through deepest negative losers) so the main UI
+        // shows the top 10 held rows while footer preserves still-held remainder.
         // Falls back to entryTime when entryPrice/ref aren't set yet
         // (a fresh open with no tick yet) so newly-opened positions
         // still appear before stale ones at 0%/0%.
@@ -4764,7 +4789,7 @@ for legal compliance.
     // Insertion-ordered so we can cheaply diff against the desired sort order.
     private val openPosCardCache = LinkedHashMap<String, OpenPosCard>(48)
 
-    private fun renderOpenPositions(positions: List<TokenState>) {
+    private fun renderOpenPositions(positions: List<TokenState>, preSorted6078: Boolean = false) {
         // V5.9.749 — STRUCTURAL-only hash. Excludes ts.ref (live price) on
         // purpose: price drift from the 1Hz tick loop must NOT trigger a
         // full card rebuild — that was the dominant ANR blocker (92.8%
@@ -4909,10 +4934,11 @@ for legal compliance.
         // [16] buildTokenCard + [15] renderOpenPositions. The
         // V5.9.749 hash-+-2s-interval dedupe stopped most cardless
         // tick rebuilds but did NOT cap the per-rebuild card count.
-        // V5.9.1234 — operator requirement: Open Positions must show the
-        // top ten currently held movers, highest-to-lowest. Keep the cap at
-        // 10 during runtime so the panel remains useful without returning to
-        // the old unbounded ANR-causing rebuilds.
+        // V5.9.1234 / V5.0.6078 — operator requirement: Open Positions must
+        // show exactly the top ten currently held rows when ≥10 exist, ordered
+        // from strongest positive gain down toward negative gain. Rows beyond
+        // 10 stay held/managed and are surfaced in the footer instead of being
+        // silently lost.
         val RENDER_CAP = OPENPOS_ROW_CAP
         // V5.9.810 — sort by current unrealized gain % descending. When
         // we have to cap, the strongest movers always stay visible and
@@ -4924,7 +4950,7 @@ for legal compliance.
         // small (<=~40), NOT the 500-token map. The watchlist 500-item TimSort is the
         // offloaded one. Per-tick rebuild is already prevented by the structural-band
         // hash above; this sort is cheap and must match the exact passed source.
-        val sortedByGain = positions.sortedWith(
+        val sortedByGain = if (preSorted6078) positions else positions.sortedWith(
             compareByDescending<com.lifecyclebot.data.TokenState> { ts ->
                 val verdict = com.lifecyclebot.engine.OpenPnlSanity.inspect(ts, "MainActivity.renderSort/${ts.symbol}/${ts.mint.take(8)}", emit = false)
                 if (verdict.ok) verdict.pnlPct else Double.NEGATIVE_INFINITY

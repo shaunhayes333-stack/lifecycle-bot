@@ -181,18 +181,25 @@ class ErrorLogActivity : AppCompatActivity() {
         // SQLite log table and stringifies every entry — was running on
         // Main (top-3 ANR site in V5.9.1040 snapshot). Move to a background
         // thread; show the AlertDialog only after the text is ready.
-        Toast.makeText(this, "Preparing logs…", Toast.LENGTH_SHORT).show()
+        Toast.makeText(this, "Preparing unified report…", Toast.LENGTH_SHORT).show()
+        try { com.lifecyclebot.engine.ForensicLogger.lifecycle("UNIFIED_REPORT_EXPORT_CLICK_6078", "source=error_log") } catch (_: Throwable) {}
         com.lifecyclebot.engine.ReportingHub.buildTextAsync(
             com.lifecyclebot.engine.ReportingHub.Kind.UNIFIED_HEALTH,
             forceFresh = true,
         ) { report, error ->
             if (isFinishing || isDestroyed) return@buildTextAsync
-            val exportText = report?.text ?: "Error exporting report: ${error?.message ?: "unknown"}"
+            val exportText = report?.text ?: "AATE report export degraded: ${error?.message ?: "unknown"}
 
-            // Copy to clipboard only after the unified report was built by ReportingHub off-main.
+" +
+                try { com.lifecyclebot.engine.PipelineHealthCollector.dumpText().take(24_000) } catch (_: Throwable) { "No fallback report available." }
+
+            // V5.0.6078 — copy button must always produce an observable result.
+            // Copy to clipboard after ReportingHub returns; if the full hub build
+            // failed/timed out, copy the bounded fallback above and toast the user.
             val clipboard = getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
             clipboard.setPrimaryClip(ClipData.newPlainText("AATE Unified Report", exportText))
-            try { com.lifecyclebot.engine.ForensicLogger.lifecycle("UNIFIED_REPORT_EXPORT_COPIED", "chars=${exportText.length} hub=true source=error_log") } catch (_: Throwable) {}
+            Toast.makeText(this, "Unified report copied (${exportText.length} chars)", Toast.LENGTH_LONG).show()
+            try { com.lifecyclebot.engine.ForensicLogger.lifecycle("UNIFIED_REPORT_EXPORT_COPIED_6078", "chars=${exportText.length} hub=${report != null} err=${error?.javaClass?.simpleName ?: "none"} source=error_log") } catch (_: Throwable) {}
 
             // Also offer to share. Do not render the blob in any TextView/Dialog.
             val shareIntent = Intent().apply {

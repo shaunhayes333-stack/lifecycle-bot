@@ -1650,8 +1650,11 @@ object TradeHistoryStore {
 
     fun getLifetimeStats(): LifetimeSnapshot {
         val decisive = lifetimeWins + lifetimeLosses
-        val winRate  = if (decisive > 0) lifetimeWins * 100.0 / decisive else 50.0
-        val avgWin   = if (lifetimeWins > 0) lifetimeWinPnlSum / lifetimeWins else 10.0
+        // V5.0.6078 — JOURNAL SOURCE-OF-TRUTH: no-data is 0%, not a fake
+        // 50% WR / +10% avg win bootstrap. UI/readiness/reporting must never
+        // display optimistic defaults that do not tie to StrategyTruthLedger.
+        val winRate  = if (decisive > 0) lifetimeWins * 100.0 / decisive else 0.0
+        val avgWin   = if (lifetimeWins > 0) lifetimeWinPnlSum / lifetimeWins else 0.0
         return LifetimeSnapshot(
             totalSells     = lifetimeSells,
             totalWins      = lifetimeWins,
@@ -1669,12 +1672,12 @@ object TradeHistoryStore {
         val pnl24hSol:          Double,
         val totalStoredTrades:  Int,
         val totalTrades:        Int    = 0,
-        val winRate:            Double = 50.0,
-        val avgWinPct:          Double = 10.0,
-        val avgLossPct:         Double = -5.0,
-        val profitFactor:       Double = 1.0,
+        val winRate:            Double = 0.0,
+        val avgWinPct:          Double = 0.0,
+        val avgLossPct:         Double = 0.0,
+        val profitFactor:       Double = 0.0,
         val totalPnlSol:        Double = 0.0,
-        val avgHoldTimeMinutes: Int    = 10,
+        val avgHoldTimeMinutes: Int    = 0,
         val totalWins:          Int    = 0,
         val totalLosses:        Int    = 0,
         val totalScratches:     Int    = 0,
@@ -1723,7 +1726,9 @@ object TradeHistoryStore {
                 else -> 0.0
             },
             totalPnlSol = clean.sumOf { pnlSol(it) },
-            avgHoldTimeMinutes = 10,
+            avgHoldTimeMinutes = if (clean.isNotEmpty()) {
+                clean.mapNotNull { t -> if (t.entryTsMs > 0L && t.ts > t.entryTsMs) ((t.ts - t.entryTsMs) / 60_000L).toInt() else null }.takeIf { it.isNotEmpty() }?.average()?.toInt() ?: 0
+            } else 0,
             totalWins = wins,
             totalLosses = losses,
             totalScratches = scratches,
@@ -1734,6 +1739,14 @@ object TradeHistoryStore {
     }
 
     fun getStats(): StatsSnapshot {
+        // V5.0.6078 — UI/readiness/journal counters source-of-truth repair.
+        // The legacy lifetime snapshot used raw counters and fake bootstrap defaults
+        // (50% WR, +10% avg win). Public stats must now mirror StrategyTruthLedger-
+        // clean terminal SELL rows; raw forensic rows remain available through raw APIs.
+        return try { getCleanStatsSnapshot4517() } catch (_: Throwable) { getLegacyStats6078() }
+    }
+
+    private fun getLegacyStats6078(): StatsSnapshot {
         val sells24h      = getSells24h()
         val wins24h       = sells24h.count { isWin(it) }
         val losses24h     = sells24h.count { isLoss(it) }
@@ -1754,15 +1767,15 @@ object TradeHistoryStore {
         val allSells       = synchronized(lock) { trades.filter { isJournalSellLike(it.side) && isValidAccountingTrade(it) } }
 
         val lifetimeWR    = if (totalCompleted > 0)
-            totalWins * 100.0 / totalCompleted.toDouble() else 50.0
+            totalWins * 100.0 / totalCompleted.toDouble() else 0.0
 
         val winRate24h    = if (decisive24h > 0)
             ((wins24h.toDouble() * 100.0) / decisive24h).toInt() else 0
 
         val winningTrades = allSells.filter { isWin(it) }
         val losingTrades  = allSells.filter { isLoss(it) }
-        val avgWinPct     = if (winningTrades.isNotEmpty()) winningTrades.map { it.pnlPct }.average() else 10.0
-        val avgLossPct    = if (losingTrades.isNotEmpty())  losingTrades.map  { it.pnlPct }.average() else -5.0
+        val avgWinPct     = if (winningTrades.isNotEmpty()) winningTrades.map { it.pnlPct }.average() else 0.0
+        val avgLossPct    = if (losingTrades.isNotEmpty())  losingTrades.map  { it.pnlPct }.average() else 0.0
         val profitFactor  = when {
             losingTrades.isNotEmpty() && avgLossPct < 0.0 && winningTrades.isNotEmpty() ->
                 (avgWinPct * totalWins) / (Math.abs(avgLossPct) * totalLosses)
@@ -1782,7 +1795,9 @@ object TradeHistoryStore {
             avgLossPct         = avgLossPct,
             profitFactor       = profitFactor,
             totalPnlSol        = totalPnlSol,
-            avgHoldTimeMinutes = 10,
+            avgHoldTimeMinutes = if (allSells.isNotEmpty()) {
+                allSells.mapNotNull { t -> if (t.entryTsMs > 0L && t.ts > t.entryTsMs) ((t.ts - t.entryTsMs) / 60_000L).toInt() else null }.takeIf { it.isNotEmpty() }?.average()?.toInt() ?: 0
+            } else 0,
             totalWins          = totalWins,
             totalLosses        = totalLosses,
             totalScratches     = totalScratches,

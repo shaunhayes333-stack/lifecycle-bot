@@ -8,6 +8,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.GlobalScope
 import kotlinx.coroutines.launch
 import org.json.JSONObject
+import java.util.concurrent.ConcurrentLinkedDeque
 import java.util.concurrent.atomic.AtomicLong
 import kotlin.math.max
 
@@ -54,6 +55,45 @@ object LlmLabEngine {
     private val firstStartMs     = AtomicLong(0)
     private val autoPivotSeededAt = java.util.concurrent.ConcurrentHashMap<String, Long>()
     @Volatile private var ctxRef: Context? = null
+    private data class ExternalOutcome6078(
+        val lane: String,
+        val style: String,
+        val pnlPct: Double,
+        val pnlSol: Double,
+        val trainable: Boolean,
+        val accepted: Boolean,
+        val paper: Boolean,
+        val atMs: Long,
+    )
+    private val externalOutcomes6078 = ConcurrentLinkedDeque<ExternalOutcome6078>()
+
+    fun recordExternalOutcome6078(
+        lane: String,
+        style: String,
+        pnlPct: Double,
+        pnlSol: Double,
+        trainable: Boolean,
+        accepted: Boolean,
+        paper: Boolean,
+    ) {
+        externalOutcomes6078.addFirst(ExternalOutcome6078(lane.take(32), style.take(64), pnlPct, pnlSol, trainable, accepted, paper, System.currentTimeMillis()))
+        while (externalOutcomes6078.size > 240) externalOutcomes6078.pollLast()
+    }
+
+    fun externalOutcomeSummary6078(): String = try {
+        val rows = externalOutcomes6078.toList()
+        if (rows.isEmpty()) "externalResults=0"
+        else {
+            val acc = rows.count { it.accepted }
+            val train = rows.count { it.trainable }
+            val wr = rows.count { it.pnlPct > 0.0 } * 100.0 / rows.size
+            val byLane = rows.groupBy { it.lane.ifBlank { "UNKNOWN" } }.entries
+                .sortedByDescending { it.value.size }
+                .take(4)
+                .joinToString(",") { e -> "${e.key}:${e.value.size}/${"%+.1f".format(e.value.sumOf { it.pnlPct } / e.value.size)}%" }
+            "externalResults=${rows.size} accepted=$acc trainable=$train WR=${"%.0f".format(wr)}% lanes=[$byLane]"
+        }
+    } catch (_: Throwable) { "externalResults=unavailable" }
 
     // ────────────────────────────────────────────────────────────────────────
     // Lifecycle
@@ -530,5 +570,5 @@ Reply with just the JSON object, nothing else.
         ))
     }
 
-    fun statusLine(): String = LlmLabStore.summary()
+    fun statusLine(): String = LlmLabStore.summary() + " | " + externalOutcomeSummary6078()
 }
