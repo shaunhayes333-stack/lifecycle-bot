@@ -4398,13 +4398,69 @@ class Executor(
                 try { com.lifecyclebot.engine.ErrorLogger.warn("Executor",
                     "🚫 PHANTOM_MULTIPLE_GUARD ${ts.symbol}: raw=${rawGainMultiple} >> priceMove=${priceMoveMultiple} " +
                     "(entry=${pos.entryPrice} live=${actualPrice}) — using price-move, basis likely corrupt") } catch (_: Throwable) {}
+                // V5.0.6064 — C: HEAL corrupted qtyToken persistently instead of
+                // just clamping every tick. When priceMove is a trusted number
+                // and rawGainMultiple is 5x+ off, qtyToken carries a decimals-
+                // mismatched value from position rehydrate. Rebuild it from
+                // the honest identity: qty = (costSol * priceMoveMultiple) /
+                // actualPrice. This makes future ticks compute the correct
+                // multiple without needing the guard, and unblocks profit-lock
+                // sizing that reads pos.qtyToken * actualPrice.
+                if (!pos.isPaperPosition && pos.costSol > 0.0 && actualPrice > 0.0 &&
+                    priceMoveMultiple.isFinite() && priceMoveMultiple > 0.0) {
+                    val healedQty = (pos.costSol * priceMoveMultiple) / actualPrice
+                    if (healedQty.isFinite() && healedQty > 0.0) {
+                        try {
+                            ts.position = pos.copy(qtyToken = healedQty)
+                            ForensicLogger.lifecycle(
+                                "PHANTOM_QTY_HEALED_6064",
+                                "mint=${ts.mint.take(10)} symbol=${ts.symbol} oldQty=${pos.qtyToken} newQty=$healedQty priceMove=$priceMoveMultiple entry=${pos.entryPrice} live=$actualPrice",
+                            )
+                            PipelineHealthCollector.labelInc("PHANTOM_QTY_HEALED_6064")
+                        } catch (_: Throwable) {}
+                    }
+                }
                 priceMoveMultiple.coerceAtMost(100.0)
             }
             else -> rawGainMultiple.coerceAtMost(100.0)
         }
         val currentValue = pos.costSol * gainMultiple
         val gainPct = (gainMultiple - 1.0) * 100.0
-        
+
+        // V5.0.6064 — A: PROTECTIVE PEAK PARTIAL for extreme runners.
+        // Operator screenshot V5.0.6063: RUNNER peaked +3358% then crashed to
+        // -87.3% with 'route pending' next to UNREALIZED — Jupiter/pump-direct
+        // routing stalled while the meme rug-snapped and the full-position
+        // sell landed at dust. Fire an IMMEDIATE 25% protective partial the
+        // moment peak first crosses +500%. Locks in some SOL even if the
+        // main runner-bank Jupiter route stalls under provider degradation.
+        // Only fires ONCE per position (partialSoldPct == 0.0), so a normal
+        // laddered ride is untouched — this is a safety valve for the fast
+        // rugsnap case only.
+        run {
+            val peakPct6064 = try { pos.peakGainPct.coerceAtLeast(gainPct) } catch (_: Throwable) { gainPct }
+            val protectiveArm = !pos.isPaperPosition &&
+                peakPct6064 >= 500.0 &&
+                pos.partialSoldPct <= 0.01 &&
+                wallet != null
+            if (protectiveArm) {
+                val remainingFraction6064 = (100.0 - pos.partialSoldPct).coerceAtLeast(0.0) / 100.0
+                val sellFraction6064 = 0.25.coerceAtMost(remainingFraction6064)
+                if (sellFraction6064 > 0.0) {
+                    try {
+                        ForensicLogger.lifecycle(
+                            "PROTECTIVE_PEAK_PARTIAL_FIRED_6064",
+                            "mint=${ts.mint.take(10)} symbol=${ts.symbol} peakPct=${peakPct6064.toInt()} curPct=${gainPct.toInt()} gain=${gainMultiple.fmt(2)}x sellPct=25 reason=lock_first_slice_of_extreme_runner_before_route_stall",
+                        )
+                        PipelineHealthCollector.labelInc("PROTECTIVE_PEAK_PARTIAL_FIRED_6064")
+                    } catch (_: Throwable) {}
+                    onLog("💰⚡ PROTECTIVE PEAK PARTIAL: ${ts.symbol} peak=${peakPct6064.toInt()}% — banking 25% NOW before Jupiter route stall", ts.mint)
+                    executeProfitLockSell(ts, wallet!!, sellFraction6064, "protective_peak_partial_${peakPct6064.toInt()}pct", walletSol)
+                    return true
+                }
+            }
+        }
+
         val (capitalRecoveryThreshold, profitLockThreshold) = calculateProfitLockThresholds(ts)
 
         // V5.0.3896 — ULTRA-RUNNER PANIC BANK.
