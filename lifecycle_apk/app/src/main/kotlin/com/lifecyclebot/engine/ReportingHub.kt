@@ -179,22 +179,27 @@ object ReportingHub {
         // Operator reports were still too large for chat: downstream channels chopped
         // the tail even though each section had its own local budget. Keep every major
         // category, but shrink the global envelope and summarize raw/error rows.
-        addBoundedSection("EXECUTIVE SNAPSHOT", 1_700) { buildExecutiveSnapshot() }
-        addBoundedSection("TOOLKIT SIGNAL SHEET", 1_700) { buildToolkitSignalSummary() }
-        addBoundedSection("MONEY PATH TRUTH", 1_800) { buildMoneyPathTruthSummary6029() }
-        addBoundedSection("PIPELINE HEALTH — CORE", 5_800) { compactPipelineDump(PipelineHealthCollector.dumpText()) }
-        addBoundedSection("LEARNING + TUNING STATE", 3_900) { buildLearningTuningSummary() }
-        addBoundedSection("TRADE JOURNAL SUMMARY", 3_000) { buildJournalSummary() }
-        addBoundedSection("FORENSIC SUMMARY", 1_500) { buildForensicSummary() }
-        addBoundedSection("ERROR LOGS — RECENT", 1_600) { ErrorLogger.exportToCompactTable(limit = 24) }
-        out.appendLine("Report envelope: PASTE_SAFE_V4487 chars=${out.length}/$budget sections=8 errorLimit=24")
+        // V5.0.6048 — REPORT EXPANDED (operator ask 2026-07-03: 'expand the
+        // runtime report for as much data and context as you can handle. grab
+        // as much data as you think will help'). Budgets bumped ~5x per
+        // section, envelope raised to 100_000. Still readable — larger fonts
+        // still line-based.
+        addBoundedSection("EXECUTIVE SNAPSHOT", 8_000) { buildExecutiveSnapshot() }
+        addBoundedSection("TOOLKIT SIGNAL SHEET", 8_000) { buildToolkitSignalSummary() }
+        addBoundedSection("MONEY PATH TRUTH", 9_000) { buildMoneyPathTruthSummary6029() }
+        addBoundedSection("PIPELINE HEALTH — CORE", 25_000) { compactPipelineDump(PipelineHealthCollector.dumpText()) }
+        addBoundedSection("LEARNING + TUNING STATE", 18_000) { buildLearningTuningSummary() }
+        addBoundedSection("TRADE JOURNAL SUMMARY", 12_000) { buildJournalSummary() }
+        addBoundedSection("FORENSIC SUMMARY", 8_000) { buildForensicSummary() }
+        addBoundedSection("ERROR LOGS — RECENT", 8_000) { ErrorLogger.exportToCompactTable(limit = 80) }
+        out.appendLine("Report envelope: PASTE_SAFE_V6048 chars=${out.length}/$budget sections=8 errorLimit=80")
 
         val text = out.toString().trimEnd()
         return if (text.length <= budget) text else text.take(budget - 180) + "\n\n[REPORT_TRUNCATED_UNEXPECTED hardCap=$budget chars — paste-safe budgets failed; reduce section budgets]"
     }
 
 
-    private const val MAX_UNIFIED_REPORT_CHARS = 24_000
+    private const val MAX_UNIFIED_REPORT_CHARS = 100_000
 
     private fun buildMoneyPathTruthSummary6029(): String = buildString(2 * 1024) {
         val pipe = safeSnapshot { PipelineHealthCollector.snapshot() }

@@ -61,8 +61,14 @@ object LaneQuarantineController {
     @Volatile private var lastDynamicScanMs: Long = 0L
     private const val DYNAMIC_SCAN_TTL_MS = 20_000L
     private const val DYN_MIN_N = 5
+    // V5.0.6048 — TIGHTENED DYNAMIC QUARANTINE THRESHOLDS (operator ask 2026-07-03).
+    // Report showed BLUECHIP n=12 W/L/S=1/6/5 WR=14.3% EV=-16.91%/trade PnL=-0.49 SOL
+    // bleeding badly but escaping quarantine because meanPnl was only -16.91%
+    // (didn't hit prior -40% floor). Real doctrine: bleeder is bleeder — if
+    // WR<=15% AND meanPnl<=-8% AND n>=5, auto-halt. Lane auto-releases when
+    // WR recovers to 30% (existing RELEASE_MIN_WR_PCT logic, safe hysteresis).
     private const val DYN_MAX_WR_PCT = 15.0
-    private const val DYN_MAX_MEAN_PNL_PCT = -40.0
+    private const val DYN_MAX_MEAN_PNL_PCT = -8.0
 
     // Runtime-released lanes (autonomous resume). Once resumed, stays resumed
     // for the process lifetime (avoids oscillation). Fresh install re-seeds
