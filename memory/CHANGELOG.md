@@ -3,6 +3,73 @@
 Progressive change log. Newer entries on top. PRD.md holds the static problem
 statement + architecture; this file is the working log of fixes & decisions.
 
+## 2026-07-03 — V5.0.6042 → 6049 🟢 CI GREEN — FLIP-LANES-GREEN + THROUGHPUT DOCTRINE
+
+Operator ask: "flip all lanes green in-role", "FDG is meant to be a final safety
+sanity gate — trade flows must align for throughput unless explicitly blocked
+(rugs)", "the bot should be well ahead of its starting balance — this has to be
+captured, no exceptions", "cash gen needs to be allowed to trade FFS", "stop
+patching, fix things", "expand the runtime report".
+
+**V5.0.6042** — Fixed base44 compile error: `svc?.walletManager` → `BotService.walletManager` (companion object access).
+
+**V5.0.6043 — UNCHOKE:** `PROVIDER_PROOF_HOLDER_CASCADE_BLIND` dominated the funnel
+(21 hits) when Doctor state=DEGRADED subsystem=api/providers. New bypass
+`apiDegradedHolderBypass6042`: when providers are down AND liq≥$5K, holder-proof
+cascade fails open. Downstream gates (LP-lock, RUGCHECK_FLOOR, EXEC_GATE
+reentry-lockout, LiveSafetyCircuitBreaker) still enforce trade safety.
+**Result on next report**: PROVIDER_PROOF_HOLDER_CASCADE_BLIND dropped 21 → 7.
+
+**V5.0.6044 — FLIP-LANES-GREEN + PRE-FDG THROUGHPUT DOCTRINE** (4 bundled):
+- Pre-FDG throughput doctrine header on `consultEntryAdvisors`: this function
+  MUST return (true, ...) except for RUG_PREFILTER_HARD_FAIL. All other signal
+  concerns MUST fire via `softAdvisor()` only. Downstream gates handle real
+  safety. Codifies existing behavior so future edits don't regress.
+- BLUECHIP -8% hard SL clamp at position open (was riding to -80%+ catastrophes).
+- QUALITY WR-based auto-raise: entry floor +10 while clean-truth WR<40% AND
+  sample≥5. Releases automatically when WR recovers to ≥40%.
+- MOONSHOT volume relief -5 (unless AGI AUTHORITATIVE) to drive proven-EV lane.
+- LaneExitTuner MIN_SAMPLE 20→8, RECALC 10→5 — unlocks closed-loop tuning for
+  BLUECHIP (n=9), MOONSHOT (n=17), SHITCOIN (n=7) which were stuck at neutral.
+- **Result on next report**: FDG 22→68 (3× throughput), BUY ok 14→28 (2× volume),
+  MOONSHOT PnL +0.0054 SOL (positive!), BLUECHIP auto-sized to 40% by tuner.
+
+**V5.0.6045 — STALE-RUNNER FORCE-HARVEST:** Operator screenshot showed BOB at
++1797% locked +1786% sitting UNREALIZED indefinitely. Root: existing WALLET_GROWTH_HARVEST
+requires either RealPriceLock.verifyUltraRunnerBank OR route-real fallback;
+when Jupiter providers degraded, BOTH fail and runners are trapped.
+New fallback: when both proof paths fail AND position age≥120s AND peak
+sustained (currentPeak ≥85% of historical, historical≥300%) AND profit≥5%
+of wallet, force a 25% probe-sell. If route fills, real profit lands and
+next cycle unlocks remaining tranche.
+
+**V5.0.6046 — MANIP overlay always dust-probe:** Removed the "MANIP-lane-quarantined"
+gate on the dust-probe fallback (V5.0.6011). MANIP overlay is a safety signal,
+not a rug — should always soft-shape via dust-probe, never hard-reject.
+Eliminates the FDG=11 hard-rejects observed at 05:58.
+
+**V5.0.6047 — ROOT CAUSE FIX: CASHGEN/TREASURY had wrong (BLUECHIP-tier) proof gate.**
+Report showed CASHGEN 65 lane_evals with ZERO trades. Root: gated by
+`qualityLaneProofOk()` which required liq≥$15K + mcap≥$25K (BLUECHIP-tier).
+CashGen doctrine is scalping SMALL tokens for 3-5% cashflow — 100+ trades/day
+wallet compounder. New `cashGenProofOk()`: route+safety+liq≥$2K (scalp-executable).
+Wired into 3 gates: primary-lane block, owner-pool filter, profitable-rescue.
+
+**V5.0.6048 — EXPANDED REPORT + BLUECHIP AUTO-HALT** (2 bundled):
+- `ReportingHub.MAX_UNIFIED_REPORT_CHARS`: 24_000 → 100_000 (~4×). Per-section
+  budgets ×5. Error log limit 24 → 80 rows. Envelope tag PASTE_SAFE_V4487 →
+  PASTE_SAFE_V6048. Full operator context now captured; no more base44 trimming
+  cost.
+- LaneQuarantineController `DYN_MAX_MEAN_PNL_PCT`: -40.0 → -8.0. BLUECHIP was
+  n=12 WR=14.3% EV=-16.91% — hit WR floor but escaped quarantine because EV
+  was 'only' -16.91%. New threshold auto-halts bleeders. Existing 30% WR
+  hysteresis for auto-release preserved.
+
+**V5.0.6049 — golden-tape test alignment** for V5.0.6048 envelope changes (3
+assertions updated: MAX_UNIFIED_REPORT_CHARS, PASTE_SAFE_V6048, limit=80).
+
+
+
 ## 2026-07-02 — V5.0.6011 🟢 CI GREEN — P1 TRIAGE BUNDLE
 
 **Three P1 fixes bundled after RCA (issues 2 & 3 from handoff + TokenWinMemory phantom purge).**
