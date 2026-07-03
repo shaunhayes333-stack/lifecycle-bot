@@ -1604,7 +1604,15 @@ class GoldenTapeRegressionTest {
         val bot = java.io.File("src/main/kotlin/com/lifecyclebot/engine/BotService.kt").readText()
         val accumulator = java.io.File("src/main/kotlin/com/lifecyclebot/engine/FeeAccumulator.kt").readText()
         assertTrue("meme fee helper must accrue to FeeAccumulator, not send every micro fee", exec.contains("FeeAccumulator.accrue") && exec.contains("FEE ACCUMULATOR"))
-        assertTrue("fee accumulator must hold until the intended 1 SOL total onboard threshold", accumulator.contains("DEFAULT_FLUSH_THRESHOLD_SOL = 1.0") && accumulator.contains("val totalPending") && accumulator.contains("totalPending < flushThresholdSol") && accumulator.contains("every destination bucket is flushed/distributed"))
+        // V5.0.6060 — operator directive: revert daily batching, transfer fees per-cycle live.
+        // FeeAccumulator still exists as a per-cycle safety net (transient send failures fall
+        // into FeeRetryQueue) but the threshold is now sub-cent so tryFlush() drains every
+        // scan cycle rather than holding to 1 SOL. Golden tape must assert the LIVE behaviour.
+        assertTrue("fee accumulator must be configured for live per-cycle transfer (V5.0.6060 revert)",
+            accumulator.contains("DEFAULT_FLUSH_THRESHOLD_SOL = 0.0001") &&
+            accumulator.contains("val totalPending") &&
+            accumulator.contains("totalPending < flushThresholdSol") &&
+            accumulator.contains("LIVE PER-CYCLE TRANSFER"))
         assertTrue("markets/perps fee collection must use the same pooled accumulator", markets.contains("CORE FEE POOL ALIGNMENT") && markets.contains("FeeAccumulator.accrue") && markets.contains("MARKETS_FEE_ACCUMULATED"))
         val marketsFeeFn = markets.substring(markets.indexOf("private suspend fun collectTradingFee"), markets.indexOf("totalFeesCollectedSol", markets.indexOf("private suspend fun collectTradingFee")))
         assertFalse("markets/perps fee collection must not send micro-fee transfers directly", marketsFeeFn.contains("wallet.sendSol"))
