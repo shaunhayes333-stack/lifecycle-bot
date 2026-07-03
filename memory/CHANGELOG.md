@@ -3,6 +3,36 @@
 Progressive change log. Newer entries on top. PRD.md holds the static problem
 statement + architecture; this file is the working log of fixes & decisions.
 
+## 2026-07-03 — V5.0.6052 / 6053 🟢 ROUTE-LOCK DOCTRINE + API CASCADE FAIL-FAST
+
+Operator mandates (session end V5.0.6051):
+1. *"the tokens are meant to come in a leave via the same route!!!
+   the whole route unknown is bullshit!!!"* — ANSEM incident: entered via
+   DEXSCREENER_PAIR_POLL, ticked via a crashed alt source at -82%, forced
+   a real on-chain stop-loss.
+2. *"133s cycle stalls"* — Birdeye 401 → Jupiter Quote 4xx → Helius 429
+   cascade eating minutes per cycle.
+
+**V5.0.6052 — ROUTE-LOCK DOCTRINE** (Models.kt +15, Executor.kt +51):
+LIVE positions read exit-critical prices via `Executor.getActualPrice()`,
+which now enforces route-lock: an off-route tick (ts.lastPriceSource !=
+pos.entryPriceSource) never returns the alt-source price. Instead we
+return the last on-route tick if <60s old, else fall back to
+pos.entryPrice (neutral 0% PnL). New transient fields on Position:
+`lastRoutePrice`, `lastRoutePriceTs`, `routeLockRejects`. New logs
+🔒 ROUTE_LOCK_REJECT / ROUTE_LOCK_STALE (rate-limited 1-in-20). Paper
+positions unchanged — rebase logic still applies.
+
+**V5.0.6053 — API CASCADE FAIL-FAST** (JupiterApi.kt +18/-2): the
+jupiter_quote GET retry loop went from 3 attempts × (20s read + 1.5s×n
+sleep) worst-case ~65s down to 2 attempts × (20s + 0.3s×n) worst-case
+~40s, PLUS a pre-loop `ApiBackoff.isLockedOut("jupiter_quote")` short-
+circuit that returns immediately when the host is already known-down.
+Callers naturally fall through to DexScreener + jupiter_send routes
+(unaffected).
+
+
+
 ## 2026-07-03 — V5.0.6042 → 6049 🟢 CI GREEN — FLIP-LANES-GREEN + THROUGHPUT DOCTRINE
 
 Operator ask: "flip all lanes green in-role", "FDG is meant to be a final safety

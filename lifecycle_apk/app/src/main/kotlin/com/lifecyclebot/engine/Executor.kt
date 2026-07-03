@@ -57,6 +57,35 @@ data class MintEntryMarketSnapshot(
 // route lull us into ignoring real moves.
 private const val ROUTE_LOCK_MAX_STALENESS_MS: Long = 60_000L
 
+// V5.0.6054 — REAL PRICE SOURCES for route-lock enforcement.
+// Anything NOT in this set is treated as symbolic/recovery basis (e.g.
+// LIVE_PROOF_COST_BASIS, RESTORED_LIVE_BASIS_UNKNOWN, SYNTH_COST_DIV_QTY,
+// WALLET_REHYDRATE_BASIS_UNKNOWN, UNKNOWN). Symbolic sources can never
+// match a live tick source, so route-lock would freeze the position
+// forever. Bypass it and self-heal on the first real on-route tick.
+private val REAL_PRICE_SOURCES: Set<String> = setOf(
+    "DEXSCREENER_WS",
+    "DEXSCREENER_PAIR_POLL",
+    "DEXSCREENER_POLL",
+    "PUMP_FUN_BC_SYNTHETIC",
+    "PUMP_FUN_FRONTEND_API",
+    "PUMP_PORTAL_WS",
+    "BIRDEYE",
+    "BIRDEYE_OVERVIEW",
+    "BIRDEYE_PRICE_FALLBACK",
+    "PAIR_FALLBACK",
+    "TOKEN_META_CACHE",
+    "ORACLE_FALLBACK",
+    "ORACLE_ZOMBIE_REFRESH",
+    "DANGER_ZONE_FRESH",
+    "JUPITER_QUOTE",
+    "JUPITER_PRICE",
+    "GECKO_TERMINAL",
+)
+
+private fun isRealPriceSource(source: String): Boolean =
+    source.uppercase() in REAL_PRICE_SOURCES
+
 /**
  * FIX #3: Rugged contracts blacklist - stores by mint address (not ticker)
  * Persists across restarts. No rebuy after -33% loss.
@@ -973,6 +1002,7 @@ class Executor(
 
         // ═══════════════════════════════════════════════════════════════
         // V5.0.6052 — ROUTE-LOCK DOCTRINE (operator mandate)
+        // V5.0.6054 — SYNTHETIC-SOURCE BYPASS + SELF-HEAL
         // ═══════════════════════════════════════════════════════════════
         // For LIVE positions: reads must respect entryPriceSource. When
         // the tick arriving in ts.lastPriceSource does NOT match the
@@ -981,11 +1011,21 @@ class Executor(
         // If no fresh on-route tick, return entryPrice so exit gates see
         // a neutral 0% PnL rather than a phantom drop from an alt source.
         //
+        // 6054: if entryPriceSource is a SYMBOLIC/RECOVERY label (e.g.
+        // LIVE_PROOF_COST_BASIS, RESTORED_LIVE_BASIS_UNKNOWN,
+        // WALLET_REHYDRATE_BASIS_UNKNOWN, SYNTH_COST_DIV_QTY, UNKNOWN),
+        // it can never match any real tick source — the position had no
+        // authoritative entry route to lock to. Skip route-lock entirely
+        // and let the position ride live ticks. The FIRST real on-route
+        // tick self-heals entryPriceSource to that real source, so from
+        // then on route-lock protects normally.
+        //
         // Paper positions and positions with blank entry source are
         // unaffected — they fall through to the existing rebase logic.
         if (livePrice != null && pos.isOpen && !pos.isPaperPosition &&
             pos.entryPriceSource.isNotBlank() &&
-            ts.lastPriceSource.isNotBlank()) {
+            ts.lastPriceSource.isNotBlank() &&
+            isRealPriceSource(pos.entryPriceSource)) {
             if (pos.entryPriceSource == ts.lastPriceSource) {
                 // On-route tick — cache as the live source of truth for
                 // future off-route reads.
@@ -1014,6 +1054,24 @@ class Executor(
                 // No fresh cache AND no entryPrice → nothing safe to return.
                 // Fall through; upstream fallbacks will handle it.
             }
+        } else if (livePrice != null && pos.isOpen && !pos.isPaperPosition &&
+                   ts.lastPriceSource.isNotBlank() &&
+                   !isRealPriceSource(pos.entryPriceSource) &&
+                   isRealPriceSource(ts.lastPriceSource)) {
+            // V5.0.6054 — SELF-HEAL. Position was stamped with a symbolic
+            // basis (LIVE_PROOF_COST_BASIS / RESTORED / WALLET_REHYDRATE / etc)
+            // that no live tick will ever match. First real on-route tick
+            // upgrades the position to that source so route-lock can start
+            // working normally.
+            val old = pos.entryPriceSource
+            ts.position = pos.copy(
+                entryPriceSource = ts.lastPriceSource,
+                lastRoutePrice = livePrice,
+                lastRoutePriceTs = System.currentTimeMillis(),
+            )
+            ErrorLogger.warn("Executor",
+                "🩹 ROUTE_LOCK_SELF_HEAL ${ts.symbol}: entryPriceSource $old → ${ts.lastPriceSource} " +
+                "(first real tick, price=$livePrice)")
         }
 
         // Detect source-basis switch on an open position.

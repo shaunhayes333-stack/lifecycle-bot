@@ -1,8 +1,8 @@
 # AATE (Autonomous AI Trading Engine) — PRD
 
-**Last updated**: 2026-07-03 (V5.0.6049)
-**Build stream**: V5.0.6049 (Native Kotlin Android, GitHub Actions CI)
-**Latest CI**: 🟢 V5.0.6049 GREEN — golden tape aligned with expanded report
+**Last updated**: 2026-07-03 (V5.0.6053)
+**Build stream**: V5.0.6053 (Native Kotlin Android, GitHub Actions CI)
+**Latest CI**: 🟢 V5.0.6052 GREEN (build 4641). 6053 in-progress at time of write.
 **Doctrine reminder from operator 2026-07-02**: *"it's NOT a sniper bot.
 Crypto holds can be 10 seconds or 10 weeks!!!"* + *"anywhere where the
 agi/ssi/intelligence/tuning stack is making the correct decisions and
