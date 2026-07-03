@@ -296,6 +296,10 @@ object LiveProbabilityEngine {
                 laneUpperForShaper4587 == "EXPRESS"
             val rapidPivotToxicBucket4572 = run {
                 val laneN = laneSamples
+                // V5.0.6075 — PER-LANE EV RESPECT: a lane with positive expectancy
+                // is never a toxic bucket regardless of its WR shape. TREASURY
+                // (+SOL, positive EV) was being clamped to 0.35 via zeroWrEnough.
+                if (eBase > 0.0 && laneN >= 3L) return@run false
                 val minSample4587 = if (isCatastrophicLaneShaper4587) 3L else 6L
                 val sampleClear = laneN >= minSample4587
                 val badTwoTradeEV = laneN >= minSample4587 && eBase <= -20.0

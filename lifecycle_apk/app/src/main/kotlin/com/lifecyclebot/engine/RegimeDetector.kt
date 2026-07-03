@@ -167,6 +167,10 @@ object RegimeDetector {
             val board = StrategyTelemetry.computeCleanLiveTerminalLeaderboard(limit = 1_500)
             val m = board.firstOrNull { it.strategy.equals(lane, true) }
             if (m == null) return base
+            // V5.0.6075 — DUMP/CHOP dampening is PER-LANE: a lane that is
+            // individually net-positive in SOL is not in drawdown and gets
+            // the full 1.0 (global regime mult does not apply to it at all).
+            if (m.trades >= 5 && m.totalSolPnl > 0.0) return 1.0
             val provenWinner = m.trades >= 8 &&
                 (m.winRatePct >= 35.0 || m.meanPnlPct >= 20.0 ||
                     m.avgWinPct >= 50.0 || m.totalSolPnl > 0.0)

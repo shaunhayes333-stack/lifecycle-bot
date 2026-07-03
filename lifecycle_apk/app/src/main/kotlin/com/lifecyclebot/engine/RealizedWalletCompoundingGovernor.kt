@@ -50,6 +50,26 @@ object RealizedWalletCompoundingGovernor {
         return cached.multiplier
     }
 
+    /**
+     * V5.0.6075 — PER-LANE DEFENSIVE EXEMPTION. The global defensive
+     * multiplier (defensive_clean_negative_or_low_wr 0.55, cautious 0.75)
+     * is driven by BLENDED wallet stats and was suppressing individually
+     * net-positive lanes (operator P0: TREASURY +SOL clamped). Compounding
+     * boosts (>=1.0) still apply globally; defensive squeezes (<1.0) are
+     * lifted back to 1.0 for lanes that are net-positive on a real sample.
+     */
+    fun sizeMultiplierForLane(lane: String?): Double {
+        val g = sizeMultiplier()
+        if (g >= 1.0) return g
+        return try {
+            val adj = LiveStrategyTuner.adjustment(lane)
+            if (adj.trades >= 5 && adj.totalSolPnl > 0.0) {
+                try { PipelineHealthCollector.labelInc("WALLET_COMPOUND_DEFENSIVE_LANE_EXEMPT_6075") } catch (_: Throwable) {}
+                1.0
+            } else g
+        } catch (_: Throwable) { g }
+    }
+
     fun statusLine(): String {
         refreshAsyncIfStale()
         val s = cached

@@ -9294,7 +9294,8 @@ class Executor(
                 PipelineHealthCollector.labelInc("LIVE_EXPECTANCY_SCORE_BAND_SOFT_SHAPED_4510")
             } catch (_: Throwable) {}
         }
-        val realizedWalletCompoundMult4511 = try { RealizedWalletCompoundingGovernor.sizeMultiplier() } catch (_: Throwable) { 1.0 }
+        // V5.0.6075 — per-lane defensive exemption (net-positive lanes not squeezed).
+        val realizedWalletCompoundMult4511 = try { RealizedWalletCompoundingGovernor.sizeMultiplierForLane(laneKeyForAgi) } catch (_: Throwable) { 1.0 }
         if (RuntimeModeAuthority.isLive() && realizedWalletCompoundMult4511 != 1.0) {
             try {
                 val snap4511 = RealizedWalletCompoundingGovernor.snapshot()

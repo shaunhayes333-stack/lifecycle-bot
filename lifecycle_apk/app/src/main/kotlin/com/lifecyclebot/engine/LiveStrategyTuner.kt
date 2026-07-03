@@ -231,6 +231,24 @@ object LiveStrategyTuner {
             )
         }
 
+        // V5.0.6075 — NET-POSITIVE LANE PROTECTION (operator P0: profitable
+        // lanes like TREASURY +SOL were still being clamped by the lottery/
+        // bleeder branches below because low WR dragged them in. Doctrine:
+        // a lane that is NET-POSITIVE in real SOL with a real sample must
+        // NEVER be sized below 1.0 by this tuner — dampeners are per-lane
+        // and a lane paying for itself is not a bleeder.
+        if (n >= 5 && sol > 0.0) {
+            return Adjustment(
+                lane = lane, trades = n, winRatePct = wr, totalSolPnl = sol,
+                pfExpectancyPp = pf, meanPnlPct = mean,
+                sizeMult = 1.0,
+                tpMult = (1.05 + (avgWin / 250.0).coerceIn(0.0, 0.40)).coerceIn(1.00, 1.45),
+                holdMult = 1.10, maxWalletMult = 1.0,
+                liquidityImpactMult = 1.0, partialTriggerMult = 1.15,
+                label = "net_positive_lane_floor_6075",
+            )
+        }
+
         val lowWrPositiveSolLottery = n >= 20 && wr < 35.0 && sol > 0.0
         if (lowWrPositiveSolLottery) {
             val wrDepth = ((35.0 - wr) / 35.0).coerceIn(0.0, 1.0)
