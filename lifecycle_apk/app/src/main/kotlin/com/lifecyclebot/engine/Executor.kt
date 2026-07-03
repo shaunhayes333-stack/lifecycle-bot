@@ -4573,7 +4573,11 @@ class Executor(
                     PipelineHealthCollector.labelInc("ULTRA_RUNNER_BANK_TRIGGERED")
                 } catch (_: Throwable) {}
                 onLog("🚀💰 ULTRA RUNNER BANK: ${ts.symbol} @ ${gainMultiple.fmt(1)}x peak=${peakGainPct.toInt()}% — selling ${(sellFraction*100).toInt()}% NOW", ts.mint)
-                executeProfitLockSellPaperOrLive(ts, wallet, sellFraction, "ultra_runner_bank_${gainMultiple.fmt(1)}x", walletSol, pos, actualPrice, gainMultiple, gainPct)
+                if (pos.isPaperPosition) {
+                    executeProfitLockSellPaperOrLive(ts, wallet, sellFraction, "ultra_runner_bank_${gainMultiple.fmt(1)}x", walletSol, pos, actualPrice, gainMultiple, gainPct)
+                } else {
+                    executeProfitLockSell(ts, wallet!!, sellFraction, "ultra_runner_bank_${gainMultiple.fmt(1)}x", walletSol)
+                }
                 return true
             }
         }
@@ -4657,7 +4661,11 @@ class Executor(
                     PipelineHealthCollector.labelInc("WALLET_GROWTH_HARVEST_TRIGGERED_6028")
                 } catch (_: Throwable) {}
                 onLog("💰 WALLET GROWTH HARVEST: ${ts.symbol} @ ${gainMultiple.fmt(1)}x unrealized=${unrealizedProfitSol6028.fmt(4)} SOL — selling ${(sellFraction6028*100).toInt()}% NOW", ts.mint)
-                executeProfitLockSellPaperOrLive(ts, wallet, sellFraction6028, "wallet_growth_harvest_${gainMultiple.fmt(1)}x", walletSol, pos, actualPrice, gainMultiple, gainPct)
+                if (pos.isPaperPosition) {
+                    executeProfitLockSellPaperOrLive(ts, wallet, sellFraction6028, "wallet_growth_harvest_${gainMultiple.fmt(1)}x", walletSol, pos, actualPrice, gainMultiple, gainPct)
+                } else {
+                    executeProfitLockSell(ts, wallet!!, sellFraction6028, "wallet_growth_harvest_${gainMultiple.fmt(1)}x", walletSol)
+                }
                 return true
             }
         }

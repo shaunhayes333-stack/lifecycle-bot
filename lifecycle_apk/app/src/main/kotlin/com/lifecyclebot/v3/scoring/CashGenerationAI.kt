@@ -520,7 +520,14 @@ object CashGenerationAI {
         // this, a new user gets ZERO Treasury trades until they've accrued
         // 30 memelane closes elsewhere — a chicken-and-egg trap. Once the
         // AGI stack has real data, the learned V5.9.1307 floor takes over.
-        val learnedTreasuryMinLiq = if (isPaperMode) 12_000.0 else 25_000.0
+        // V5.0.6072 — MONEY PRINTER UNCHOKE. The lane election (cashGenProofOk,
+        // V5.0.6047) admits tokens with liq ≥ $2K to Treasury eval, but this
+        // floor then hard-rejected everything under $12K/$25K — nearly the
+        // entire meme firehose died at treasury_liq_floor and the operator saw
+        // "cash generator/treasury isn't running". Align the doctrines: keep a
+        // real anti-rug depth floor but open the scalp pond ($5K paper / $10K
+        // live). Score threshold + anti-FOMO clamp + FDG remain unchanged.
+        val learnedTreasuryMinLiq = if (isPaperMode) 5_000.0 else 10_000.0
         val treasuryMinLiq = com.lifecyclebot.engine.ColdStartPriors.applyLiquidityFloor("TREASURY", learnedTreasuryMinLiq)
         if (liquidityUsd > 0.0 && liquidityUsd < treasuryMinLiq) {
             try { TreasuryCashflowMissionReport.recordRejected("treasury_liq_floor_${liquidityUsd.toInt()}_below_${treasuryMinLiq.toInt()}", mode.name, isPaperMode) } catch (_: Throwable) {}

@@ -115,6 +115,12 @@ object LaneAutoPauseGuard {
                 // Operator can manualResume() any of them if desired.
                 Triple("PRESALE_SNIPE", "hard_seed_6067_zero_win_10_trades_ev_-21pct", -21.03),
                 Triple("QUALITY", "hard_seed_6067_zero_win_10_trades_ev_-32pct", -32.61),
+                // V5.0.6072 — BLUECHIP emergency pause (operator report: 0 wins
+                // in 7 trades — just under ZERO_WIN_MIN_SAMPLE=8 so the guard
+                // mathematically could not latch). Paper still learns BLUECHIP
+                // (isPaused() paper bypass); live entries blocked until
+                // manualResume() after a shadow proof.
+                Triple("BLUECHIP", "hard_seed_6072_zero_win_7_trades", -15.0),
             ).forEach { (lane, reason, ev) ->
                 if (!paused.containsKey(lane)) {
                     paused[lane] = PauseState(
@@ -162,10 +168,20 @@ object LaneAutoPauseGuard {
      * exception. Returns null if lane is not paused; returns the pause
      * state if it is.
      */
+    /** V5.0.6072 — LANE CANON MERGE. PROJECT_SNIPER and PRESALE_SNIPE are the
+     *  same lane written under two keys (ModeRouter fires PRESALE_SNIPE,
+     *  EnabledTraderAuthority enables PROJECT_SNIPER). Split stats meant each
+     *  key saw half the sample and quarantines latched twice as slow. All
+     *  guard reads/aggregation collapse to PRESALE_SNIPE. */
+    private fun canonLane(l: String): String {
+        val u = l.uppercase()
+        return if (u == "PROJECT_SNIPER" || u.contains("PRESALE")) "PRESALE_SNIPE" else u
+    }
+
     fun statusFor(lane: String?): PauseState? {
         if (lane.isNullOrBlank()) return null
         ensureLoaded()
-        return paused[lane.uppercase()]
+        return paused[canonLane(lane)]
     }
 
     /** True if the lane is currently auto-paused. */
@@ -224,7 +240,7 @@ object LaneAutoPauseGuard {
             data class Agg(var sample: Int = 0, var wins: Int = 0, var pnlSum: Double = 0.0)
             val byLane = HashMap<String, Agg>()
             for (t in clean) {
-                val lane = t.tradingMode.trim().uppercase()
+                val lane = canonLane(t.tradingMode.trim())
                 if (lane.isBlank()) continue
                 val agg = byLane.getOrPut(lane) { Agg() }
                 agg.sample += 1
@@ -277,7 +293,7 @@ object LaneAutoPauseGuard {
     /** Manual resume — for LLM Lab success or operator override. */
     fun manualResume(lane: String, note: String = "manual") {
         ensureLoaded()
-        val removed = paused.remove(lane.uppercase())
+        val removed = paused.remove(canonLane(lane))
         if (removed != null) {
             try {
                 ErrorLogger.info(

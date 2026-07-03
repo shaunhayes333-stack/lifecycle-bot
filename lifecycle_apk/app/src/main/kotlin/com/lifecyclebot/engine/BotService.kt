@@ -10073,7 +10073,14 @@ class BotService : Service() {
             // character-confirmed quality rescue lanes in addition to the owner;
             // the actual lane must still emit BUY intent and pass FDG/executor.
             val fanoutPressure4522 = try { LiveLaneFanoutPressure.snapshot() } catch (_: Throwable) { LiveLaneFanoutPressure.Snapshot(false, 0.0, 0.0, 0, "error") }
-            val profitableRescue = RuntimeModeAuthority.isLive() && l in setOf("QUALITY", "TREASURY", "CASHGEN", "BLUECHIP", "MOONSHOT", "PROJECT_SNIPER") && (
+            // V5.0.6072 — CASHGEN/TREASURY rescue extended to PAPER. The rescue
+            // path was live-only, so in paper the money-printer lanes only ran
+            // when they won the 1-of-7 owner rotation — starving the compounder
+            // learning surface. Quality-family rescue stays live-only (paper WR
+            // dilution guard); TREASURY/CASHGEN rescue is bounded by
+            // cashGenEligible + affinity/score/liq conditions below.
+            val rescueModeAllowed6072 = RuntimeModeAuthority.isLive() || l in setOf("TREASURY", "CASHGEN")
+            val profitableRescue = rescueModeAllowed6072 && l in setOf("QUALITY", "TREASURY", "CASHGEN", "BLUECHIP", "MOONSHOT", "PROJECT_SNIPER") && (
                 if (fanoutPressure4522.active) {
                     // V5.0.4522 — pressure mode: keep owner rotation + explicit affinity,
                     // but remove broad score/liquidity rescue that lets every quality-family
@@ -15665,7 +15672,10 @@ if (hotExitHandledSweep) {
         }
     }
     fun supervisorNoteCycleElapsedForThrottle(cycleMs: Long) {
-        if (cycleMs > 30_000L) supervisorArmEmergencyThrottle("max_cycle_ms", "cycleMs=$cycleMs")
+        // V5.0.6072 — throttle arms at 15s (was 30s). Operator report showed
+        // avgCycle=9552ms max=77422ms; waiting for 6× the 5s cycle budget
+        // before cooling let wedged-IO bursts compound for multiple cycles.
+        if (cycleMs > 15_000L) supervisorArmEmergencyThrottle("max_cycle_ms", "cycleMs=$cycleMs")
     }
     @Suppress("unused") private val SUPERVISOR_MAX_LIVE_WORKERS: Int = 32
 
@@ -21003,11 +21013,32 @@ if (hotExitHandledSweep) {
                         val _sniperIsDanger = try {
                             com.lifecyclebot.engine.LosingPatternMemory.isDangerZone("PRESALE_SNIPE", _sniperScore)
                         } catch (_: Throwable) { false }
-                        if (_sniperIsDanger) {
-                            ErrorLogger.info("BotService",
-                                "🏷️ [SNIPER] ${ts.symbol} | DANGER_ZONE_TELEMETRY (not blocked) | score=$_sniperScore | LosingPatternMemory flagged (PRESALE_SNIPE|S${(_sniperScore/10)*10}-${(_sniperScore/10)*10+10})")
+                        // V5.0.6072 — RE-ARMED DANGER-ZONE BLOCK (operator: "stop
+                        // buying garbage"). V5.9.1068 downgraded this to telemetry
+                        // and the S0-10 PRESALE_SNIPE band then bled -22.3%/loop
+                        // while the bot logged "DANGER_ZONE (not blocked)" and
+                        // bought anyway. New doctrine:
+                        //   LIVE:  block when score<30 OR the band is a proven
+                        //          danger zone. Garbage never touches real SOL.
+                        //   PAPER: block only when the band is ALREADY proven
+                        //          toxic AND score<30 — sufficient samples exist,
+                        //          more losses add zero information. Unproven
+                        //          bands keep learning (6069 doctrine preserved).
+                        val _sniperIsPaper6072 = try { com.lifecyclebot.engine.RuntimeModeAuthority.isPaper() } catch (_: Throwable) { cfg.paperMode }
+                        val _sniperBlocked6072 = if (_sniperIsPaper6072) {
+                            _sniperIsDanger && _sniperScore < 30
+                        } else {
+                            _sniperScore < 30 || _sniperIsDanger
                         }
-                        if (assessment.shouldEngage) {
+                        if (_sniperBlocked6072) {
+                            ErrorLogger.info("BotService",
+                                "🛑 [SNIPER] ${ts.symbol} | DANGER_ZONE_BLOCKED_6072 | score=$_sniperScore paper=$_sniperIsPaper6072 danger=$_sniperIsDanger | band=PRESALE_SNIPE|S${(_sniperScore/10)*10}-${(_sniperScore/10)*10+10}")
+                            try { PipelineHealthCollector.labelInc("PRESALE_SNIPE_DANGER_BLOCKED_6072") } catch (_: Throwable) {}
+                        } else if (_sniperIsDanger) {
+                            ErrorLogger.info("BotService",
+                                "🏷️ [SNIPER] ${ts.symbol} | DANGER_ZONE_TELEMETRY (score=$_sniperScore ≥30, allowed) | LosingPatternMemory flagged (PRESALE_SNIPE|S${(_sniperScore/10)*10}-${(_sniperScore/10)*10+10})")
+                        }
+                        if (assessment.shouldEngage && !_sniperBlocked6072) {
                             // Authorize with TradeAuthorizer
                             val authResult = TradeAuthorizer.authorize(
                                 mint = ts.mint,
