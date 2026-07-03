@@ -4,6 +4,8 @@ import android.content.Context
 import android.content.SharedPreferences
 import com.lifecyclebot.network.SolanaWallet
 import org.json.JSONObject
+import java.util.Calendar
+import java.util.TimeZone
 
 /**
  * V5.0.3920 — FEE ACCUMULATOR (operator request: "on the micro fee sizes
@@ -33,6 +35,14 @@ object FeeAccumulator {
 
     private const val PREFS_NAME = "fee_accumulator"
     private const val KEY_BUCKETS = "pending_buckets"
+    // V5.0.6058 — daily scheduled flush (operator: 9pm AEST daily).
+    // Uses Australia/Sydney zone so DST is handled automatically
+    // (AEST=UTC+10 winter, AEDT=UTC+11 summer). Stamps yyyyDDD of the
+    // local calendar day we last flushed so we fire exactly once per
+    // local day even if tryFlush() is called every scan cycle.
+    private const val KEY_LAST_SCHEDULED_FLUSH_YYYYDDD = "last_scheduled_flush_yyyyddd"
+    private const val SCHEDULED_FLUSH_TZ_ID = "Australia/Sydney"
+    private const val SCHEDULED_FLUSH_HOUR_LOCAL = 21   // 9pm local (AEST/AEDT)
 
     /** Default flush threshold for TOTAL pending fees across all destination wallets. */
     private const val DEFAULT_FLUSH_THRESHOLD_SOL = 1.0
@@ -92,7 +102,18 @@ object FeeAccumulator {
 
         val keys = buckets.keys().asSequence().toList()
         val totalPending = keys.sumOf { buckets.optDouble(it, 0.0).coerceAtLeast(0.0) }
-        if (totalPending < flushThresholdSol) return 0.0
+        // V5.0.6058 — DAILY SCHEDULED FLUSH (operator directive: 9pm
+        // AEST daily). Bypass the 1.0-SOL threshold if we're at/after
+        // 9pm local Sydney time and we haven't already flushed today.
+        // Fees accumulate up-to daily instead of trickling as tiny
+        // per-trade sends but never linger longer than a day.
+        val scheduledFire = scheduledFlushDue(p)
+        if (totalPending < flushThresholdSol && !scheduledFire) return 0.0
+        if (scheduledFire) {
+            ErrorLogger.warn("FeeAccumulator",
+                "⏰ SCHEDULED_DAILY_FLUSH firing — 9pm ${SCHEDULED_FLUSH_TZ_ID} rollover, " +
+                "totalPending=${totalPending.fmt(5)} SOL (threshold=${flushThresholdSol} SOL bypassed)")
+        }
 
         for (dest in keys) {
             val accrued = buckets.optDouble(dest, 0.0)
@@ -129,7 +150,35 @@ object FeeAccumulator {
             }
         }
         if (changed) p.edit().putString(KEY_BUCKETS, buckets.toString()).apply()
+        // V5.0.6058 — stamp today's local yyyyDDD (Sydney) after a
+        // scheduled fire so the same day cannot re-fire on next scan.
+        if (scheduledFire) {
+            try { p.edit().putInt(KEY_LAST_SCHEDULED_FLUSH_YYYYDDD, currentSydneyYyyyDdd()).apply() } catch (_: Throwable) {}
+        }
         return totalSent
+    }
+
+    /**
+     * V5.0.6058 — Returns true if we've crossed 9pm Sydney local time
+     * TODAY and haven't yet flushed for today. yyyyDDD stamp prevents
+     * double-firing when tryFlush() is called every scan cycle.
+     */
+    private fun scheduledFlushDue(p: SharedPreferences): Boolean {
+        return try {
+            val cal = Calendar.getInstance(TimeZone.getTimeZone(SCHEDULED_FLUSH_TZ_ID))
+            val hour = cal.get(Calendar.HOUR_OF_DAY)
+            if (hour < SCHEDULED_FLUSH_HOUR_LOCAL) return false
+            val todayKey = cal.get(Calendar.YEAR) * 1000 + cal.get(Calendar.DAY_OF_YEAR)
+            val lastKey = p.getInt(KEY_LAST_SCHEDULED_FLUSH_YYYYDDD, 0)
+            todayKey != lastKey
+        } catch (_: Throwable) { false }
+    }
+
+    private fun currentSydneyYyyyDdd(): Int {
+        return try {
+            val cal = Calendar.getInstance(TimeZone.getTimeZone(SCHEDULED_FLUSH_TZ_ID))
+            cal.get(Calendar.YEAR) * 1000 + cal.get(Calendar.DAY_OF_YEAR)
+        } catch (_: Throwable) { 0 }
     }
 
     /** Operator diagnostics. Returns "dest=balance|dest=balance" snapshot. */
