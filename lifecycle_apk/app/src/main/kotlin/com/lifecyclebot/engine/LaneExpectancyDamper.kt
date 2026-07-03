@@ -256,12 +256,25 @@ object LaneExpectancyDamper {
             // regardless of what the pf-edge proxy says — the mean is ground
             // truth EV per trade. Skip pf-bleeder detection when mean is
             // meaningfully positive so proven winners can compound.
+            //
+            // V5.0.6059 — WR SUPPLEMENT (operator report V5.0.6058).
+            // The V5.0.6055 mean threshold reads the CLEAN leaderboard
+            // which dedupes + removes recovered/partial rows. That can
+            // strip a lane's fat-tail winner (e.g. QUALITY_PROMOTE_MOONSHOT
+            // +103.7%) from the aggregate and drop the clean mean below
+            // +5% even though the underlying lane is winning. WR is a
+            // structurally-different signal that survives deduplication:
+            // any lane with WR >= 45% over a meaningful sample is a
+            // proven winner by base-rate alone. Skip pf-bleeder
+            // detection when EITHER signal fires.
             val healthyMean = m.meanPnlPct >= HEALTHY_MEAN_PCT
+            val healthyWr = m.trades >= HEALTHY_WR_MIN_TRADES && m.winRatePct >= HEALTHY_WR_PCT
+            val healthyLane = healthyMean || healthyWr
             // pf-edge bleeder: real net loss over a meaningful sample AND the
             // per-trade expectancy edge is non-positive. The net-SOL gate prevents
             // flagging a high-variance lane that is actually net-positive.
             val pfEdge = m.pfExpectancyPp
-            val pfBleeder = !healthyMean && m.totalSolPnl < 0.0 && pfEdge <= 0.0
+            val pfBleeder = !healthyLane && m.totalSolPnl < 0.0 && pfEdge <= 0.0
             if (!meanBleeder && !pfBleeder) continue
 
             // V5.0.6055 — MODERATE-CATASTROPHIC tier. Between the normal
