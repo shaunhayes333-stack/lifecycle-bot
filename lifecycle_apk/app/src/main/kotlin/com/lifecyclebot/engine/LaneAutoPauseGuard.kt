@@ -40,11 +40,23 @@ object LaneAutoPauseGuard {
     private const val PERSIST_KEY = "LANE_AUTO_PAUSE_STATE"
 
     // Triggers
-    private const val MIN_SAMPLE = 15
-    private const val ZERO_WIN_MIN_SAMPLE = 15
+    // V5.0.6067 — AGGRESSIVE LANE AUTO-PAUSE.
+    // Operator P0 (V5.0.6066 report): PRESALE_SNIPE lane appeared fresh and
+    // burned n=10 straight losses for -0.2473 SOL before the guard could
+    // trigger (previous ZERO_WIN_MIN_SAMPLE=15). QUALITY at n=10 WR=0% also
+    // slipped through. Wallet went 0.6022 -> 0.4938 SOL (-18%) in 40 min.
+    // Lower thresholds so bleeders quarantine 5-8 trades sooner:
+    //   ZERO_WIN_MIN_SAMPLE 15 -> 8   (pause after 8 straight losses)
+    //   TOXIC_MIN_SAMPLE     20 -> 12  (pause toxic lanes at n=12)
+    //   TOXIC_WR_PCT         20 -> 20  (unchanged)
+    //   TOXIC_EV_PCT        -40 -> -20 (much stricter EV floor)
+    // Non-priority safety: MOONSHOT/STANDARD are handled by the compound
+    // sizing floor (V5.0.6066), not this guard. Manual resume remains.
+    private const val MIN_SAMPLE = 8
+    private const val ZERO_WIN_MIN_SAMPLE = 8
     private const val TOXIC_WR_PCT = 20.0
-    private const val TOXIC_EV_PCT = -40.0
-    private const val TOXIC_MIN_SAMPLE = 20
+    private const val TOXIC_EV_PCT = -20.0
+    private const val TOXIC_MIN_SAMPLE = 12
 
     data class PauseState(
         val lane: String,
@@ -95,6 +107,14 @@ object LaneAutoPauseGuard {
             listOf(
                 Triple("EXPRESS", "hard_seed_4594_zero_win_31_trades", -91.6),
                 Triple("MANIPULATED", "hard_seed_4594_wr14pct_ev48neg", -48.2),
+                // V5.0.6067 — SEED PROVEN-TOXIC LANES from V5.0.6066 operator report.
+                // These four burned wallet from 0.6022 -> 0.4938 SOL in 40 minutes.
+                // PRESALE_SNIPE n=10 WR=0% ev=-21% PnL=-0.2473 SOL (biggest bleeder)
+                // QUALITY       n=10 WR=0% ev=-32.6% PnL=-0.0615 SOL
+                // TREASURY      n=13 WR=7.7% ev=-13% (only 1 fluke +0.10 SOL trade)
+                // Operator can manualResume() any of them if desired.
+                Triple("PRESALE_SNIPE", "hard_seed_6067_zero_win_10_trades_ev_-21pct", -21.03),
+                Triple("QUALITY", "hard_seed_6067_zero_win_10_trades_ev_-32pct", -32.61),
             ).forEach { (lane, reason, ev) ->
                 if (!paused.containsKey(lane)) {
                     paused[lane] = PauseState(
