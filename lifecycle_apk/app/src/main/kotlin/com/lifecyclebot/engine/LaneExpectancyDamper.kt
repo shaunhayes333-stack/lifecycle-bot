@@ -60,6 +60,23 @@ object LaneExpectancyDamper {
     private const val CATASTROPHIC_MIN_TRADES = 20    // … AND this many closes.
     private const val CATASTROPHIC_MIN_MULT = 0.08    // deeper probe floor
 
+    // V5.0.6055 — MODERATE-CATASTROPHIC tier. Fills the gap between the
+    // normal BLEEDER floor (0.18) and CATASTROPHIC (0.08). Targets lanes
+    // that are clearly sustained losers but not full incinerators — e.g.
+    // QUALITY n=40 WR=27.8% mean=-12.06% totalSol=-0.135 SOL from the
+    // V5.0.6053 runtime report. Shrinks faster than the vanilla bleeder
+    // haircut while still holding a probe alive for self-healing.
+    private const val MODERATE_CATASTROPHIC_MEAN_PCT   = -8.0
+    private const val MODERATE_CATASTROPHIC_WR_PCT     = 30.0
+    private const val MODERATE_CATASTROPHIC_MIN_TRADES = 25
+    private const val MODERATE_CATASTROPHIC_MIN_MULT   = 0.15
+
+    // V5.0.6055 — HEALTHY-MEAN threshold above which a lane is NEVER
+    // treated as a pf-edge bleeder. A lane averaging ≥+5% per trade is
+    // a genuine positive-EV lane; do not damp it just because
+    // pfExpectancyPp (a proxy) came out slightly negative.
+    private const val HEALTHY_MEAN_PCT = 5.0
+
     // Worst-case mean PnL% that maps to MIN_MULT. Between BLEEDER_MEAN_PCT and
     // this, the haircut scales linearly.
     private const val FLOOR_MEAN_PCT = -30.0
@@ -231,19 +248,44 @@ object LaneExpectancyDamper {
             // qualifies a lane as a bleeder; both stay fully self-healing (recompute
             // every call) and size-only (never a veto, per doctrine #86).
             val meanBleeder = m.meanPnlPct < BLEEDER_MEAN_PCT
+            // V5.0.6055 — HEALTHY-MEAN GUARD (operator report V5.0.6054).
+            // MOONSHOT n=42 WR=53.8% meanPnl=+14.93% totalSol=-0.0197 was
+            // getting damped to ×0.18 because pfExpectancyPp was slightly
+            // negative from micro net-SOL loss over compounded small trades.
+            // A lane with a HEALTHY positive per-trade mean is not a bleeder
+            // regardless of what the pf-edge proxy says — the mean is ground
+            // truth EV per trade. Skip pf-bleeder detection when mean is
+            // meaningfully positive so proven winners can compound.
+            val healthyMean = m.meanPnlPct >= HEALTHY_MEAN_PCT
             // pf-edge bleeder: real net loss over a meaningful sample AND the
             // per-trade expectancy edge is non-positive. The net-SOL gate prevents
             // flagging a high-variance lane that is actually net-positive.
             val pfEdge = m.pfExpectancyPp
-            val pfBleeder = m.totalSolPnl < 0.0 && pfEdge <= 0.0
+            val pfBleeder = !healthyMean && m.totalSolPnl < 0.0 && pfEdge <= 0.0
             if (!meanBleeder && !pfBleeder) continue
 
+            // V5.0.6055 — MODERATE-CATASTROPHIC tier. Between the normal
+            // BLEEDER floor (0.18) and the CATASTROPHIC floor (0.08) there
+            // was no rung for lanes that are clearly bleeding but haven't
+            // reached the deepest tier yet (e.g. QUALITY n=40 WR=27.8%
+            // mean=-12.06% totalSol=-0.135 SOL — a confirmed sustained
+            // loser but not "capital incinerator" catastrophic). Give it a
+            // deeper haircut than the normal floor so QUALITY-shaped
+            // tumors shrink faster while still keeping a learning probe.
+            val moderateCatastrophic = m.trades >= MODERATE_CATASTROPHIC_MIN_TRADES &&
+                m.meanPnlPct <= MODERATE_CATASTROPHIC_MEAN_PCT &&
+                m.winRatePct <= MODERATE_CATASTROPHIC_WR_PCT &&
+                m.totalSolPnl < 0.0
             // Is this a PROVEN catastrophe (deep -EV + near-zero WR + big sample)?
             val catastrophic = m.trades >= CATASTROPHIC_MIN_TRADES &&
                 m.meanPnlPct <= CATASTROPHIC_MEAN_PCT &&
                 m.winRatePct <= CATASTROPHIC_WR_PCT
             // Floor depends on tier: catastrophic lanes may be cut deeper (still a probe).
-            val floorMult = if (catastrophic) CATASTROPHIC_MIN_MULT else MIN_MULT
+            val floorMult = when {
+                catastrophic          -> CATASTROPHIC_MIN_MULT
+                moderateCatastrophic  -> MODERATE_CATASTROPHIC_MIN_MULT
+                else                  -> MIN_MULT
+            }
 
             // Haircut depth. For a mean-bleeder use the existing linear mean map.
             // For a pf-edge-only bleeder (positive/near-zero mean but losing money),
