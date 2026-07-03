@@ -126,7 +126,12 @@ object LiveStrategyTuner {
         // the toxicBleed logic. A 22% WR lane bleeding -0.69 SOL must NOT be
         // exempt from bleeder penalties.
         // Gate: only exempt if the lane is actually profitable or has decent WR.
-        if (isRunnerLane && n >= 30 && (wr >= 35.0 || sol > 0.0 || mean >= 20.0)) {
+        // V5.0.6068 — LOWER n>=30 -> n>=15 so proven runner lanes hit the
+        // exempt sooner. MOONSHOT (n=43 WR=21% EV=+974%) still didn't qualify
+        // because it needs `wr >= 35 || sol > 0 || mean >= 20`. That gate is
+        // fine — the toxic-bleed miscategorization is fixed in the deeper
+        // exempt clause (V5.0.6068 asymRunner6068 above).
+        if (isRunnerLane && n >= 15 && (wr >= 35.0 || sol > 0.0 || mean >= 20.0)) {
             return Adjustment(
                 lane = lane, trades = n, winRatePct = wr, totalSolPnl = sol,
                 pfExpectancyPp = pf, meanPnlPct = mean, sizeMult = 1.0,
@@ -269,13 +274,30 @@ object LiveStrategyTuner {
         // MOONSHOT n=141 wr=36% getting damped because tuner reads NET-realized
         // mean (-0.018%/trade), not gross EV (+80%/trade). Switch to WR + sample
         // gate which actually reflects the lane's profitability profile.
-        if ((n >= 30 && wr >= 40.0 && sol >= 0.0) || (n >= 8 && mean >= 20.0 && sol >= 0.0)) {
+        // V5.0.6068 — INVERTED-SCORING FIX (operator: "why the good lanes are
+        // dampened instead of expanded. there has to be multiple inverted
+        // scores still. find all"). Report V5.0.6066 showed the exact death
+        // spiral: MOONSHOT n=43 WR=21.4% EV=+974.82%/trade got size×=0.40
+        // "toxic_reclaim_tactic_pivot" because this exempt required
+        // `sol >= 0.0`. A high-EV asymmetric lane whose net-SOL is TEMPORARILY
+        // negative (because the next big winner hasn't landed) is EXACTLY the
+        // pattern we should protect, not punish. Punishing it shrinks the next
+        // winner, keeping SOL red, which shrinks it more — pure inversion.
+        // Fix: exempt on mean>=20% OR asymmetric runner profile regardless of
+        // temporary net-SOL colour. Bleeder branch below still fires only when
+        // BOTH sol<0 AND mean<=-8% AND wr<35% — i.e. genuine bleeder, not
+        // asymmetric variance.
+        val asymRunner6068 = n >= 8 && (mean >= 20.0 || m.avgWinPct >= 50.0 || pf >= 4.0)
+        if ((n >= 30 && wr >= 40.0 && sol >= 0.0) ||
+            (n >= 8 && mean >= 20.0 && sol >= 0.0) ||
+            asymRunner6068  // V5.0.6068 — mean>=20% or big-tail signature exempts regardless of net SOL
+        ) {
             return Adjustment(
                 lane = lane, trades = n, winRatePct = wr, totalSolPnl = sol,
                 pfExpectancyPp = pf, meanPnlPct = mean, sizeMult = 1.0,
                 tpMult = 1.20, holdMult = 1.40, maxWalletMult = 1.0,
                 liquidityImpactMult = 1.0, partialTriggerMult = 1.30,
-                label = "asymmetric_runner_exempt",
+                label = if (asymRunner6068 && sol < 0.0) "asymmetric_runner_exempt_6068_net_sol_variance" else "asymmetric_runner_exempt",
             )
         }
         // V5.0.4178 — L5 STRATEGY PIVOT ACCELERATION (operator directive).

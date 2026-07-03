@@ -4377,19 +4377,61 @@ class BotService : Service() {
             // Off the main thread (RPC). Runs in LIVE and PAPER (paper passes an
             // empty map → all internal ghosts collapse, which is correct since a
             // fresh paper start holds nothing).
+            //
+            // V5.0.6068 — TWO-READ CONSENSUS + API-HEALTH GATE (operator P0:
+            // "I can have 14 live positions running g install an update it drops
+            // them all"). The single-read gate above was insufficient when
+            // Helius returns partial snapshots during cold-start 429 storms.
+            // A partial read + `forceStartupGhostReconcile` = real positions
+            // erroneously closed as ghosts. Two new safeguards:
+            //   1. API-health gate: refuse to reconcile if Helius/RPC is
+            //      visibly degraded (<30% success rate).
+            //   2. Two-read consensus: run the wallet scan twice with a 5s
+            //      gap between reads. Only reconcile mints that appear
+            //      MISSING in BOTH reads. Any position present in either
+            //      read is preserved.
             try {
                 scope.launch(kotlinx.coroutines.Dispatchers.IO) {
                     try {
                         val cfgGhost = try { ConfigStore.load(applicationContext) } catch (_: Throwable) { null }
                         val paperGhost = cfgGhost?.paperMode ?: true
-                        val snap: Map<String, Pair<Double, Int>> = if (paperGhost) {
+                        // V5.0.6068 — API-health gate. If Helius is 429ing, do NOT reconcile.
+                        val heliusHealthy = try { com.lifecyclebot.engine.ApiHealthMonitor.successRate("helius_rpc") >= 0.30 } catch (_: Throwable) { false }
+                        if (!paperGhost && !heliusHealthy) {
+                            addLog("🛡 Startup reconcile DEFERRED — Helius RPC degraded (V5.0.6068 guard)")
+                            ForensicLogger.lifecycle("STARTUP_GHOST_RECONCILE_DEFERRED_6068", "reason=helius_unhealthy_would_erase_real_positions")
+                            try { PipelineHealthCollector.labelInc("STARTUP_GHOST_RECONCILE_DEFERRED_6068") } catch (_: Throwable) {}
+                            return@launch
+                        }
+                        val snap1: Map<String, Pair<Double, Int>> = if (paperGhost) {
                             emptyMap()
                         } else {
                             try { wallet?.getTokenAccountsWithDecimalsBounded() ?: emptyMap() } catch (_: Throwable) { emptyMap() }
                         }
-                        // LIVE safety: if the wallet read failed (empty map) we must
-                        // NOT wipe real holdings. Only reconcile when we have a
-                        // trustworthy snapshot, OR we are in paper (intentional wipe).
+                        // V5.0.6068 — TWO-READ CONSENSUS for live mode. Single wallet
+                        // read on cold-start can be partial due to RPC 429 or timeout.
+                        // Wait 5s and read again. Only close mints missing from BOTH.
+                        val snap: Map<String, Pair<Double, Int>> = if (paperGhost) {
+                            snap1
+                        } else {
+                            kotlinx.coroutines.delay(5_000L)
+                            val snap2: Map<String, Pair<Double, Int>> = try { wallet?.getTokenAccountsWithDecimalsBounded() ?: emptyMap() } catch (_: Throwable) { emptyMap() }
+                            if (snap1.isEmpty() && snap2.isEmpty()) {
+                                addLog("🛡 Startup reconcile DEFERRED — both wallet reads empty (V5.0.6068)")
+                                ForensicLogger.lifecycle("STARTUP_GHOST_RECONCILE_DEFERRED_6068", "reason=both_reads_empty_would_erase_real_positions snap1=${snap1.size} snap2=${snap2.size}")
+                                try { PipelineHealthCollector.labelInc("STARTUP_GHOST_RECONCILE_DEFERRED_6068") } catch (_: Throwable) {}
+                                return@launch
+                            }
+                            // Merge UNION of both reads. A mint present in EITHER read is
+                            // preserved. Only mints missing from BOTH are subject to close.
+                            val merged = HashMap<String, Pair<Double, Int>>()
+                            merged.putAll(snap1)
+                            for ((k, v) in snap2) if (!merged.containsKey(k)) merged[k] = v
+                            ForensicLogger.lifecycle("STARTUP_GHOST_RECONCILE_TWO_READ_UNION_6068", "snap1=${snap1.size} snap2=${snap2.size} merged=${merged.size}")
+                            merged
+                        }
+                        // LIVE safety: if the merged snapshot is empty (both reads failed)
+                        // we must NOT wipe real holdings.
                         if (paperGhost || snap.isNotEmpty()) {
                             val closed = com.lifecyclebot.engine.HostWalletTokenTracker.forceStartupGhostReconcile(snap)
                             if (closed > 0) addLog("🧹 Startup reconcile: closed $closed ghost position(s) → wallet-truth")
@@ -4500,7 +4542,38 @@ class BotService : Service() {
         // ═══════════════════════════════════════════════════════════════════
         scope.launch {
             try {
-                kotlinx.coroutines.delay(5_000L)  // let bot loop + orchestrator fully wire up
+                // V5.0.6068 — LONGER GRACE + API-HEALTH GATE (operator P0:
+                // "updating g the bot forced held positions to drop"). The old
+                // 5s grace was too short — on cold-start Helius is often 429
+                // and DexScreener fresh-hits return stale/incorrect prices,
+                // which the sweep read as -15% and force-closed HEALTHY
+                // positions during the install-over window. Two changes:
+                //   1. Grace bumped 5s -> 90s so oracles have time to warm and
+                //      RPC 429-storms settle down.
+                //   2. Gate the sweep on API health — if the primary price
+                //      surfaces (Helius/Birdeye/CoinGecko) are visibly
+                //      degraded, DO NOT sweep. Wait for the next attempt when
+                //      prices are trustworthy.
+                kotlinx.coroutines.delay(90_000L)  // 90s grace (was 5s)
+                // V5.0.6068 — API-health gate. Consult ApiHealthMonitor for
+                // provider health. If any critical price provider is <30%
+                // success rate (rate-limited or down), skip the sweep for
+                // this cycle. Aggressive threshold on purpose: better to keep
+                // a stuck position than to force-close a HEALTHY one on
+                // bad-oracle data.
+                val healthyOracles = try {
+                    val dex = com.lifecyclebot.engine.ApiHealthMonitor.successRate("dexscreener")
+                    val hel = com.lifecyclebot.engine.ApiHealthMonitor.successRate("helius_rpc")
+                    val bird = com.lifecyclebot.engine.ApiHealthMonitor.successRate("birdeye")
+                    // Need DexScreener healthy AND at least one of Helius/Birdeye
+                    dex >= 0.60 && (hel >= 0.30 || bird >= 0.30)
+                } catch (_: Throwable) { false }  // fail-closed: don't sweep on doubt
+                if (!healthyOracles) {
+                    addLog("🛡 Startup sweep DEFERRED — API oracles cold or degraded (V5.0.6068 guard)")
+                    ErrorLogger.warn("BotService", "🛡 STARTUP_SWEEP_DEFERRED_6068 reason=api_oracles_unhealthy — refusing to force-close positions on unreliable price data")
+                    try { PipelineHealthCollector.labelInc("STARTUP_SWEEP_DEFERRED_6068") } catch (_: Throwable) {}
+                    return@launch
+                }
                 val effectiveBalance = status.getEffectiveBalance(cfg.paperMode)
                 val sweepWallet = null as com.lifecyclebot.network.SolanaWallet?  // live wallet not wired until below; paper doesn't need it
                 val snapshot = synchronized(status.tokens) { status.tokens.values.toList() }
@@ -4520,9 +4593,26 @@ class BotService : Service() {
                         // sweep above -20% was the global watchdog loop, which doesn't
                         // run until the bot fully boots — leaving a window where a
                         // -17% position survived restart un-stopped).
+                        // V5.0.6068 — SECOND-PRICE CONFIRMATION. Before firing the
+                        // sweep, re-read the price after 3s. A single-reading
+                        // -15% could be a wick, a stale cache entry, or a bad
+                        // provider fallback. Require BOTH reads to agree
+                        // within 10% of the -15% threshold.
                         if (pnlPct <= -15.0) {
+                            kotlinx.coroutines.delay(3_000L)
+                            val price2 = resolveLivePrice(ts)
+                            val pnl2 = if (price2 > 0.0) {
+                                val v = OpenPnlSanity.inspectPosition(pos, price2, "BotService.startup_sweep_confirm_6068/${ts.symbol}/${ts.mint.take(8)}", emit = false)
+                                if (v.ok) v.pnlPct else 0.0
+                            } else 0.0
+                            if (pnl2 > -13.0) {
+                                ErrorLogger.warn("BotService",
+                                    "🛡 [STARTUP_SWEEP_ABORTED_6068] ${ts.symbol} | first=${pnlPct.toInt()}% confirm=${pnl2.toInt()}% — likely stale oracle, skipping force-close")
+                                try { PipelineHealthCollector.labelInc("STARTUP_SWEEP_ABORTED_STALE_ORACLE_6068") } catch (_: Throwable) {}
+                                continue
+                            }
                             ErrorLogger.warn("BotService",
-                                "🛑 [STARTUP_SWEEP_HARD_FLOOR] ${ts.symbol} | ${pnlPct.toInt()}% — closing stale underwater position")
+                                "🛑 [STARTUP_SWEEP_HARD_FLOOR] ${ts.symbol} | ${pnlPct.toInt()}% (confirm=${pnl2.toInt()}%) — closing stale underwater position")
                             addLog("🛑 STARTUP SWEEP: ${ts.symbol} ${pnlPct.toInt()}% — forced exit")
                             executor.requestSell(
                                 ts = ts,

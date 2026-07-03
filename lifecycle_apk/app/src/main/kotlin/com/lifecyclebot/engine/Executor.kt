@@ -8944,7 +8944,7 @@ class Executor(
             val m = board.firstOrNull { it.strategy.equals(laneTagForRegime, true) }
             m != null && m.totalSolPnl > 0.0
         } catch (_: Throwable) { true }
-        val regimeMult = if (isRunnerLaneForRegime && runnerLaneProfitable) 1.0 else try { com.lifecyclebot.engine.RegimeDetector.sizeMultiplier() } catch (_: Throwable) { 1.0 }
+        val regimeMult = if (isRunnerLaneForRegime && runnerLaneProfitable) 1.0 else try { com.lifecyclebot.engine.RegimeDetector.laneAwareSizeMultiplier(laneTagForRegime) } catch (_: Throwable) { 1.0 }
         // V5.0.4130 — PATTERN GOLDEN GOOSE BYPASSES DUMP-REGIME BRAKE.
         // RegimeDetector.sizeMultiplier() returns 0.10 in DUMP regime, crushing
         // entries to 10% of base. Operator: "make winners get real size." GOLD

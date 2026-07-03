@@ -144,6 +144,42 @@ object RegimeDetector {
         Regime.BOOTSTRAP    -> 1.0    // V5.0.4078 — cold-start at full size; we MUST trade to earn samples
     }
 
+    // V5.0.6068 — LANE-AWARE REGIME SIZING (operator: "why the good lanes are
+    // dampened instead of expanded. there has to be multiple inverted scores
+    // still. find all"). The global sizeMultiplier() applies the DUMP/CHOP
+    // dampener UNIFORMLY to every lane — proven winners AND bleeders alike.
+    // That's an inversion: a lane earning +974% EV/trade should NOT be sized
+    // at 35% just because the aggregate market is in DUMP. Aggregate DUMP is
+    // exactly what proven-winner lanes are supposed to profit FROM (they
+    // survived the last dump).
+    //
+    // laneAwareSizeMultiplier(): use this from the entry-size stack. If the
+    // lane is a proven winner (WR>=35% or mean>=20% or positive SOL with
+    // enough samples), the regime dampener is neutralized to 0.80 (still a
+    // mild caution but not a 65% cut). Bleeders and unknown lanes get the
+    // full regime dampener as before. Priority lanes (MOONSHOT/STANDARD/
+    // SHITCOIN) with any sample history get at least 0.70.
+    fun laneAwareSizeMultiplier(rawLane: String?): Double {
+        val base = sizeMultiplier()
+        if (base >= 1.0) return base  // BULL/NORMAL/BOOTSTRAP: nothing to soften
+        val lane = rawLane?.trim()?.uppercase()?.takeIf { it.isNotBlank() } ?: return base
+        return try {
+            val board = StrategyTelemetry.computeCleanLiveTerminalLeaderboard(limit = 1_500)
+            val m = board.firstOrNull { it.strategy.equals(lane, true) }
+            if (m == null) return base
+            val provenWinner = m.trades >= 8 &&
+                (m.winRatePct >= 35.0 || m.meanPnlPct >= 20.0 ||
+                    m.avgWinPct >= 50.0 || m.totalSolPnl > 0.0)
+            if (provenWinner) {
+                // Neutralize DUMP/CHOP dampener for proven winners.
+                base.coerceAtLeast(0.80)
+            } else if (lane in setOf("MOONSHOT", "STANDARD", "SHITCOIN") && m.trades >= 5) {
+                // Priority-lane floor even when unproven — enough to compound.
+                base.coerceAtLeast(0.70)
+            } else base
+        } catch (_: Throwable) { base }
+    }
+
     fun formatForPipelineDump(): String {
         val s = current()
         val ageSec = ((System.currentTimeMillis() - s.computedAtMs) / 1000L).coerceAtLeast(0)

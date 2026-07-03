@@ -3375,7 +3375,19 @@ for legal compliance.
             // shown when you open the Trade Journal screen.
             val trades24h = persistedStats.trades24h
             val topBarTradeCount = persistedStats.totalStoredTrades
-            tvStats24hTrades.setTextIfChanged("$topBarTradeCount")
+            // V5.0.6068 — UI STICKINESS: prevent tiles from flashing "0" during
+            // initial load or transient store misses (operator P0: "all blank",
+            // "main ui isnt locking the data display"). Only display the count
+            // when it is a real, positive value. If the store returns 0 while
+            // the app is still warming up, keep whatever value was previously
+            // displayed instead of replacing with "0".
+            if (topBarTradeCount > 0) {
+                tvStats24hTrades.setTextIfChanged("$topBarTradeCount")
+            } else {
+                // Only overwrite with 0 if we currently show nothing meaningful.
+                val cur = tvStats24hTrades.text?.toString()?.trim() ?: ""
+                if (cur.isEmpty() || cur == "—" || cur == "-") tvStats24hTrades.setTextIfChanged("—")
+            }
 
             // Win rate: Use RunTracker30D meme-trader-specific WR.
             // V5.9.649 — fix data pollution where MEME tab showed e.g. "20%"
@@ -3400,7 +3412,15 @@ for legal compliance.
             val journalWr = persistedStats.winRate.toInt()
             val winRate = if (persistedStats.totalTrades >= 1) journalWr else 0
 
-            tvStatsWinRate.setTextIfChanged("$winRate%")
+            // V5.0.6068 — UI STICKINESS: don't overwrite an already-displayed
+            // WR with "0%" when the store transiently returns 0 trades. Keep
+            // the last shown value until we have a real read.
+            if (persistedStats.totalTrades >= 1) {
+                tvStatsWinRate.setTextIfChanged("$winRate%")
+            } else {
+                val cur = tvStatsWinRate.text?.toString()?.trim() ?: ""
+                if (cur.isEmpty() || cur == "—%" || cur == "-%") tvStatsWinRate.setTextIfChanged("—%")
+            }
             tvStatsWinRate.setTextColor(when {
                 winRate >= 60 -> green
                 winRate >= 40 -> amber
