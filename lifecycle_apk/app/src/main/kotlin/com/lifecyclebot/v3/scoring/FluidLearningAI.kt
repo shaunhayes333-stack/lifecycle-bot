@@ -1263,7 +1263,7 @@ object FluidLearningAI {
     // V5.1: SLIGHTLY LOWERED to allow more trading during bootstrap
     // ═══════════════════════════════════════════════════════════════════════════
     
-    private const val TREASURY_CONF_BOOTSTRAP = 22   // V5.9.266: moderate (was 18 at V5.9.263)
+    private const val TREASURY_CONF_BOOTSTRAP = 12   // V5.0.6050: 22 -> 12 (operator ask). CashGen is the wallet compounder — needs volume. Prior 22 floor let only 1 of 27 evals through per session. 12 matches SHITCOIN/MOONSHOT bootstrap tier.
     private const val TREASURY_CONF_MATURE = 45      // Raise as we learn (normal progression)
     
     private const val TREASURY_LIQ_BOOTSTRAP = 2000.0    // V5.9.266: moderate (was 1500 at V5.9.263)

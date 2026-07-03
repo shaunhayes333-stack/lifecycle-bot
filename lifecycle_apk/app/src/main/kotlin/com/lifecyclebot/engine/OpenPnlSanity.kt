@@ -85,16 +85,34 @@ object OpenPnlSanity {
         )
     }
 
-    fun inspectPosition(pos: Position, currentPrice: Double, context: String = "", emit: Boolean = true): Verdict =
-        inspect(
-            entryPrice = pos.entryPrice,
+    fun inspectPosition(pos: Position, currentPrice: Double, context: String = "", emit: Boolean = true): Verdict {
+        // V5.0.6050 — ENTRY_PRICE_INVALID auto-heal (operator ask 2026-07-03).
+        // Report V5.0.6049 showed repeating OPEN_PNL_BASIS_REJECTED reason=
+        // ENTRY_PRICE_INVALID because some positions have entryPrice=0 despite
+        // having valid costSol + qtyToken (persistence race or force-load). If
+        // we can reconstruct entryPrice = costSol / qtyToken (in SOL-per-token
+        // terms), we heal the basis and let inspect() proceed. The reconstructed
+        // basis is marked priceBasisRescaled=true so downstream trust guards
+        // treat it as authoritative for the sanity check but not for banked-win
+        // verification (RealPriceLock still gates real harvests).
+        val healedEntryPrice = if (pos.entryPrice.isFinite() && pos.entryPrice > 0.0) pos.entryPrice
+        else if (pos.costSol > 0.0 && pos.qtyToken > 1.0 && currentPrice > 0.0) {
+            val reconstructed = pos.costSol / pos.qtyToken
+            if (reconstructed.isFinite() && reconstructed > 0.0) {
+                try { PipelineHealthCollector.labelInc("ENTRY_PRICE_HEALED_FROM_COST_QTY_6050") } catch (_: Throwable) {}
+                reconstructed
+            } else pos.entryPrice
+        } else pos.entryPrice
+        return inspect(
+            entryPrice = healedEntryPrice,
             currentPrice = currentPrice,
             entrySource = pos.entryPriceSource,
             entryPool = pos.entryPoolAddress,
-            priceBasisRescaled = pos.priceBasisRescaled,
+            priceBasisRescaled = pos.priceBasisRescaled || (healedEntryPrice != pos.entryPrice),
             context = context,
             emit = emit,
         )
+    }
 
     /** V5.0.6037 — canonical open pricing truth for reports/UI/journal-facing displays.
      *  All open-position surfaces must consume this result instead of recomputing
