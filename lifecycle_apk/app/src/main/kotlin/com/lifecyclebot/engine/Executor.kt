@@ -51,6 +51,12 @@ data class MintEntryMarketSnapshot(
         priceSource.isNotBlank()
 }
 
+// V5.0.6052 — ROUTE-LOCK DOCTRINE: max staleness for a cached on-route
+// tick before we prefer entryPrice over the cache. 60s is generous enough
+// to bridge Helius/Birdeye backoff windows without letting a truly-dead
+// route lull us into ignoring real moves.
+private const val ROUTE_LOCK_MAX_STALENESS_MS: Long = 60_000L
+
 /**
  * FIX #3: Rugged contracts blacklist - stores by mint address (not ticker)
  * Persists across restarts. No rebuy after -33% loss.
@@ -964,6 +970,51 @@ class Executor(
 
         val livePrice = ts.lastPrice.takeIf { it > 0 && it.isFinite() }
         val pos = ts.position
+
+        // ═══════════════════════════════════════════════════════════════
+        // V5.0.6052 — ROUTE-LOCK DOCTRINE (operator mandate)
+        // ═══════════════════════════════════════════════════════════════
+        // For LIVE positions: reads must respect entryPriceSource. When
+        // the tick arriving in ts.lastPriceSource does NOT match the
+        // route the position was bought on, the price is advisory only.
+        // Prefer the most recent on-route tick (cached on the position).
+        // If no fresh on-route tick, return entryPrice so exit gates see
+        // a neutral 0% PnL rather than a phantom drop from an alt source.
+        //
+        // Paper positions and positions with blank entry source are
+        // unaffected — they fall through to the existing rebase logic.
+        if (livePrice != null && pos.isOpen && !pos.isPaperPosition &&
+            pos.entryPriceSource.isNotBlank() &&
+            ts.lastPriceSource.isNotBlank()) {
+            if (pos.entryPriceSource == ts.lastPriceSource) {
+                // On-route tick — cache as the live source of truth for
+                // future off-route reads.
+                pos.lastRoutePrice = livePrice
+                pos.lastRoutePriceTs = System.currentTimeMillis()
+            } else {
+                pos.routeLockRejects += 1
+                val onRouteAgeMs = System.currentTimeMillis() - pos.lastRoutePriceTs
+                if (pos.lastRoutePrice > 0.0 && onRouteAgeMs < ROUTE_LOCK_MAX_STALENESS_MS) {
+                    if (pos.routeLockRejects % 20L == 1L) {
+                        ErrorLogger.warn("Executor",
+                            "🔒 ROUTE_LOCK_REJECT ${ts.symbol}: tick source ${ts.lastPriceSource} " +
+                            "!= entry ${pos.entryPriceSource} — using cached on-route price " +
+                            "${pos.lastRoutePrice} (age=${onRouteAgeMs}ms rejects=${pos.routeLockRejects})")
+                    }
+                    return pos.lastRoutePrice
+                } else if (pos.entryPrice > 0.0) {
+                    if (pos.routeLockRejects % 20L == 1L) {
+                        ErrorLogger.warn("Executor",
+                            "🔒 ROUTE_LOCK_STALE ${ts.symbol}: tick source ${ts.lastPriceSource} " +
+                            "!= entry ${pos.entryPriceSource}, no fresh on-route price " +
+                            "(age=${onRouteAgeMs}ms) — returning entryPrice ${pos.entryPrice}")
+                    }
+                    return pos.entryPrice
+                }
+                // No fresh cache AND no entryPrice → nothing safe to return.
+                // Fall through; upstream fallbacks will handle it.
+            }
+        }
 
         // Detect source-basis switch on an open position.
         // Three conditions must ALL hold:

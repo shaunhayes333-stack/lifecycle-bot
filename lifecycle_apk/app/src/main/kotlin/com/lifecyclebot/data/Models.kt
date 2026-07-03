@@ -73,6 +73,21 @@ data class Position(
     val entrySupplyAssumed: Double = 0.0, // supply used for synthetic price (1B for PumpFun BC); 0 if real on-chain quote
     var priceBasisRescaled: Boolean = false,  // true after one-time rebase fires
     var priceBasisRescaleFactor: Double = 1.0, // multiplicative factor applied to entryPrice/highestPrice
+    // ═══════════════════════════════════════════════════════════════════
+    // V5.0.6052 — ROUTE-LOCK DOCTRINE
+    // Operator mandate: "the tokens are meant to come in a leave via the
+    // same route!!! the whole route unknown is bullshit!!!"
+    // At buy finality, entryPriceSource is stamped. From that point on,
+    // ONLY ticks whose ts.lastPriceSource matches entryPriceSource are
+    // treated as authoritative for exit-critical decisions (SL/TP/PnL).
+    // Off-route ticks are advisory-only. lastRoutePrice caches the most
+    // recent on-route tick so cross-source contamination (ANSEM: entered
+    // via DEXSCREENER_PAIR_POLL, ticked via a crashed alt-source at
+    // -82%) cannot fire a phantom stop-loss.
+    // ═══════════════════════════════════════════════════════════════════
+    var lastRoutePrice: Double = 0.0,        // last on-route price tick
+    var lastRoutePriceTs: Long = 0L,         // wallclock of last on-route tick
+    var routeLockRejects: Long = 0L,         // # of off-route reads filtered
     // V5.9.1564 — two-strike state for tick-time HARD_FLOOR (prevents single-tick
     // basis-switch phantom reads from cutting real winners). Set true when a tick
     // sees pnl <= TICK_HARD_FLOOR_PCT for the FIRST time; the next tick (if also
