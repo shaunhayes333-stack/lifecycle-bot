@@ -1168,7 +1168,7 @@ object FluidLearningAI {
     // SCORE THRESHOLDS (Used by V3 Scoring, CashGenerationAI)
     // ═══════════════════════════════════════════════════════════════════════════
     
-    private const val SCORE_BOOTSTRAP = 15     // V5.9.266: moderate (was 12 at V5.9.263)
+    private const val SCORE_BOOTSTRAP = 10     // V5.0.6051: 15 -> 10 (operator ask: 'fix all entry gates'). Report showed only 24 buys in 1651s across 47 CASHGEN + 42 TREASURY + 51 MOONSHOT evals. Score gate was strangling volume even after V5.0.6047 owner-proof fix. Lower bootstrap floor + fluid learn still raises to 40 as WR improves.
     private const val SCORE_MATURE = 40  // V5.9.184: raised to target 50%+ WR in mature phase
     
     fun getMinScoreThreshold(): Int = lerp(SCORE_BOOTSTRAP.toDouble(), SCORE_MATURE.toDouble()).toInt()
@@ -1275,7 +1275,7 @@ object FluidLearningAI {
     private const val TREASURY_BUY_PRESSURE_BOOTSTRAP = 25.0  // V5.9.266: moderate (was 20 at V5.9.263)
     private const val TREASURY_BUY_PRESSURE_MATURE = 50.0     // Raise as we learn
     
-    private const val TREASURY_SCORE_BOOTSTRAP = 11    // V5.9.266: moderate (was 9 at V5.9.263)
+    private const val TREASURY_SCORE_BOOTSTRAP = 6    // V5.0.6051: 11 -> 6 (operator ask: 'fix all entry gates'). CashGen/Treasury are wallet-compounder scalps — need to fire aggressively at bootstrap. Fluid learn still raises to 25 as we prove WR.
     private const val TREASURY_SCORE_MATURE = 25       // V5.9.442: 32→25 — user reported CashGen/Treasury rarely firing
     
     fun getTreasuryConfidenceThreshold(): Int = lerp(TREASURY_CONF_BOOTSTRAP.toDouble(), TREASURY_CONF_MATURE.toDouble()).toInt()

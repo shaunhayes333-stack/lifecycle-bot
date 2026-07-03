@@ -81,14 +81,24 @@ class WalletManager private constructor(private val ctx: Context) {
         // blip never silently downgrades broadcast to the rate-limited free tier
         // (root cause of stuck sells). Falls back to the legacy free key only if
         // the paid key somehow fails to decode.
+        // V5.0.6051 — expanded free public RPC fallback fleet. Operator report
+        // 2026-07-03 showed HELIUS_RATE_LIMIT_429 ("max usage") + cycle stalls
+        // to 133s while paid Helius was 429'd. Added 5 more free/no-auth
+        // public RPCs so the fallback chain has multiple layers to survive
+        // any single-provider quota exhaustion.
         val FALLBACK_RPCS: List<String> get() = listOf(
-            "https://mainnet.helius-rpc.com/?api-key=${com.lifecyclebot.data.DefaultKeys.HELIUS}",  // PAID Helius
-            "https://mainnet.helius-rpc.com/?api-key=hive-pattern-learn",  // legacy free fallback
-            "https://api.mainnet-beta.solana.com",              // Official Solana (rate limited but stable)
-            "https://rpc.ankr.com/solana",                      // Ankr (reliable)
+            "https://mainnet.helius-rpc.com/?api-key=${com.lifecyclebot.data.DefaultKeys.HELIUS}",  // PAID Helius (primary)
+            "https://mainnet.helius-rpc.com/?api-key=hive-pattern-learn",  // legacy free Helius
+            "https://api.mainnet-beta.solana.com",              // Official Solana Foundation (stable but rate-limited)
+            "https://rpc.ankr.com/solana",                      // Ankr public
+            "https://solana-rpc.publicnode.com",                // PublicNode (V5.0.6051 add)
+            "https://solana.drpc.org",                          // dRPC public (V5.0.6051 add)
+            "https://api.mainnet.rpcpool.com",                  // RPC Pool alt path (V5.0.6051 add)
+            "https://solana-mainnet.core.chainstack.com/1",     // Chainstack public (V5.0.6051 add)
+            "https://free.rpcpool.com",                         // RPC Pool free (V5.0.6051 add)
             "https://solana-mainnet.g.alchemy.com/v2/demo",     // Alchemy demo
             "https://mainnet.rpcpool.com",                      // RPC Pool
-            "https://solana-mainnet.rpc.extrnode.com",          // Extrnode  
+            "https://solana-mainnet.rpc.extrnode.com",          // Extrnode
         )
         
 
