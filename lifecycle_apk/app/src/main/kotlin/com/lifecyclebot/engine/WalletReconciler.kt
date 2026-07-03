@@ -245,7 +245,7 @@ object WalletReconciler {
             tradeKey = "RECONCILE_${mint.take(16)}",
             mint = mint, symbol = ts.symbol, side = "BUY",
             phase = LiveTradeLogStore.Phase.OPEN_POSITION_RECOVERED_FROM_WALLET,
-            message = "🆘 Recovered orphan: ${ts.symbol} qty=$uiAmount mint=${mint.take(16)}… entry=${if (recoveredEntry > 0) recoveredEntry else "unknown"}",
+            message = "🆘 Recovered orphan: ${ts.symbol} qty=$uiAmount mint=${mint.take(16)}… entry=${if (ts.position.entryPrice > 0) ts.position.entryPrice else "unknown"} lane=${ts.position.tradingMode}",
             tokenAmount = uiAmount,
         )
         ErrorLogger.warn(
