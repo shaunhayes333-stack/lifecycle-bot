@@ -3,6 +3,51 @@
 Progressive change log. Newer entries on top. PRD.md holds the static problem
 statement + architecture; this file is the working log of fixes & decisions.
 
+## 2026-07-03 — V5.0.6054 → 6058 🟢 AGI/SSI ANTI-SUFFOCATION + DAILY FEE FLUSH
+
+Operator directives (post V5.0.6053 runtime report):
+1. Route-lock is firing but over-blocking legitimate ticks when
+   entryPriceSource is a symbolic label like LIVE_PROOF_COST_BASIS.
+2. "flick the memetrader green the right way!!! quality fix up and
+   downstream. no new chokes no new butterflies!!!"
+3. "set it to do a daily flush at 9pm Australian Eastern standard time"
+
+**V5.0.6054 — ROUTE-LOCK REFINEMENT**: SYNTHETIC-SOURCE BYPASS +
+SELF-HEAL. Positions whose entryPriceSource is a recovery label
+(LIVE_PROOF_COST_BASIS, RESTORED_LIVE_BASIS_UNKNOWN,
+WALLET_REHYDRATE_BASIS_UNKNOWN, SYNTH_COST_DIV_QTY, UNKNOWN) skip
+route-lock entirely. Real whitelisted sources (DEXSCREENER_WS/PAIR_POLL,
+BIRDEYE*, PUMP_FUN*, ORACLE_*, etc) still enforce. First real on-route
+tick self-heals entryPriceSource in place. New log: 🩹 ROUTE_LOCK_SELF_HEAL.
+
+**V5.0.6055 — LaneExpectancyDamper P0.a**: HEALTHY-MEAN GUARD +
+MODERATE-CATASTROPHIC tier. MOONSHOT was being damped ×0.18 despite
+meanPnl=+14.93% because the pf-edge proxy came out slightly negative.
+Guard: skip pf-bleeder detection when meanPnlPct >= +5%. New tier
+between BLEEDER (0.18) and CATASTROPHIC (0.08): MODERATE_CATASTROPHIC
+(0.15 floor) fires at n>=25, mean<=-8%, WR<=30%, totalSol<0 — targets
+QUALITY-shape tumors.
+
+**V5.0.6056 — Executor P0.b**: POSITIVE-EV LANE FLOOR. Final coerceIn
+lifts from 0.25 → 0.50 for lanes with meanPnl >= +5% & n >= 8, OR
+LaneExpectancyDamper mult >= 1.0. Losing lanes keep 0.25 floor.
+Prevents proven winners from stacking to the hard floor when 19
+upstream multipliers compound.
+
+**V5.0.6057 — StrategyHypothesisEngine P1**: COLD-START SEED. On
+attachContext, warm control arms of active hypotheses from up to 200
+recent closed trades (bucketed lane|scoreBand|NORMAL). Fires forensic
+HYPOTHESIS_ENGINE_COLD_START_SEEDED_6057 on non-zero seed. Variants
+still fill only from real live A/B assignments. Unblocks the A/B
+engine (had ctrl=0 var=0 across 5 active hypotheses).
+
+**V5.0.6058 — FeeAccumulator DAILY FLUSH**: 9pm Australia/Sydney
+(DST-aware). Bypasses the 1.0 SOL threshold once per local day —
+0.351 SOL was stuck accruing at 35% of threshold. yyyy*1000+DAY_OF_YEAR
+stamp guards against double-fire. New log: ⏰ SCHEDULED_DAILY_FLUSH.
+
+
+
 ## 2026-07-03 — V5.0.6052 / 6053 🟢 ROUTE-LOCK DOCTRINE + API CASCADE FAIL-FAST
 
 Operator mandates (session end V5.0.6051):
