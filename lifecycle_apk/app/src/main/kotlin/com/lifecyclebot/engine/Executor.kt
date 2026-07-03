@@ -9310,13 +9310,30 @@ class Executor(
             // (>= +5% per trade) OR whose LaneExpectancyDamper mult is
             // already >= 1.0 (proven-winner tier). Losing/unknown lanes
             // keep the existing 0.25 floor; MAX cap unchanged.
+            // V5.0.6066 — PRIORITY-LANE COMPOUND FLOOR (operator directive:
+            // "flip it green and compounding"). Report 5.0.6065 confirms
+            // MOONSHOT/STANDARD are the ONLY positive-EV lanes:
+            //   MOONSHOT  n=33  WR=20.8%  EV=+974.82%/trade
+            //   STANDARD  n=9   WR=22.2%  EV=+10.36%/trade   PnL=+0.0024 SOL
+            // Yet the compound stack (LiveStrategyTuner×0.40, LiveProbability×0.64,
+            // Regime DUMP×0.35, LaneBias×1.40 = ~0.125 product) still let the
+            // best lane trade at the 0.25 dust floor. A +82% winner netted
+            // only 0.0023 SOL. Priority lanes now floor at 0.45 (still below
+            // healthy=0.50, but ~2× the old 0.25) so winners actually compound.
+            // Non-priority / bleeding lanes untouched. Hard risk backstops
+            // (-15% SL, FDG, rug blacklist, per-lane caps) all unaffected.
             val posEvFloor = try {
                 val healthy = if (laneEvMult >= 1.0) true else {
                     val board = StrategyTelemetry.computeLiveTerminalLeaderboard()
                     val m = board.firstOrNull { it.strategy.equals(laneTag, true) }
                     m != null && m.meanPnlPct >= 5.0 && m.trades >= 8
                 }
-                if (healthy) 0.50 else 0.25
+                val isPriorityLane6066 = laneTag.uppercase() in setOf("MOONSHOT", "STANDARD")
+                when {
+                    healthy -> 0.50
+                    isPriorityLane6066 -> 0.45  // V5.0.6066 priority-lane floor
+                    else -> 0.25
+                }
             } catch (_: Throwable) { 0.25 }
             product.coerceIn(posEvFloor, 1.60)
         }
