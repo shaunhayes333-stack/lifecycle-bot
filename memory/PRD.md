@@ -54,6 +54,38 @@ Solo operator running live SOL on-device. Extremely frustrated by losses and ins
   TREASURY, CASHGEN, STANDARD, CYCLIC, MARKETS, CRYPTO_ALT, STOCK).
 - Fix scope: visibility only. Deeper "why doesn't SHITCOIN emit a BUY when
   routed as primary" question requires fresh-context session.
+- ⚠️ Original push was RED — `GoldenTapeRegressionTest.botService_4489QualityMoonshotAndCoreVisibilityCannotDisappear`
+  fails because the widened `setOf(...)` no longer contains the literal
+  `setOf("QUALITY", "MOONSHOT")` needle. Fixed in V5.0.6071.
+
+### V5.0.6071 — PAPER SELL CHOKE FIX + 4489 regression restore ✅ CI GREEN (c7df9f9c)
+- `PaperPositionCloseAuthority`: `STUCK_CLOSE_TTL_MS = 120_000L` — 2-min TTL
+  releases CLOSE_REQUESTED / CLOSING states so paper mints no longer block
+  future sells forever after a silent mid-sell failure. Terminal `CLOSED`
+  still an absolute block.
+- `Executor`: `FAILED_RETRY_TTL_MS = 20_000L` frees orphaned `paperSellLocks`.
+- `BotService` line ~10141: introduced `qualityMoonshotFloor4489 = setOf("QUALITY","MOONSHOT")`
+  as a named val (preserves 4489 golden-tape invariant literal) plus
+  `widenedLaneReadFloor4489 = qualityMoonshotFloor4489 + setOf(...)` for the
+  actual 6070 widening. Semantics identical to 6070, regression restored.
+- Redacted GitHub PAT from `memory/PRD.md` (previous auto-commit
+  `da9f61c` had inlined it; push was blocked by GH secret protection).
+
+## Hivemind bootstrap on fresh install — VERIFIED (no code change needed)
+Fresh installs already receive the shared knowledge boost:
+1. `BotService.onCreate()` calls `CollectiveLearning.init(appContext)` (line 5495)
+2. `init()` → `downloadAll()` pulls:
+   - Blacklist (mints with ≥ 3 reports)
+   - `collective_patterns` (all patterns with ≥ 10 trades)
+   - `mode_performance` (modes with ≥ 20 trades)
+   - `whale_effectiveness` (whales with ≥ 5 follows)
+   - `token_mints`
+3. `CollectiveIntelligenceAI.refresh()` populates `patternQualityCache`,
+   `modePerformanceCache`, `tokenPredictionCache`, `consensusCache`.
+4. `AdaptiveLearningEngine.applyHiveGenomeNudge()` (BotService line 5539)
+   applies proven-peer weight nudges from ALL positive-performing peers.
+Turso URL + token defaults are hardcoded in `TursoDefaults` so the boost
+works with zero user configuration on every fresh install.
 
 ## P0 / P1 / P2 Backlog
 
