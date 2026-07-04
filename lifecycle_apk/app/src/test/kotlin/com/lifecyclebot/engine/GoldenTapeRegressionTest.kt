@@ -7141,6 +7141,11 @@ class GoldenTapeRegressionTest {
         assertTrue("V5.0.6108: CryptoAlt final execution must consume shared LanePolicy retraining pause", crypto6108.contains("CRYPTO_LANE_RETRAINING_PAUSED_6108") && crypto6108.contains("LanePolicy.effectiveState(cryptoLane6108") && crypto6108.contains("NoTradeObservationStore.recordBlock"))
         assertTrue("V5.0.6108: CryptoAlt final size must consume Lab + UnifiedPolicyHead + StrategyHypothesis before opening", crypto6108.contains("LabPromotedFeed.entryNudge") && crypto6108.contains("UnifiedPolicyHead.stamp") && crypto6108.contains("StrategyHypothesisEngine.getSizeBias") && crypto6108.contains("CRYPTO_AGI_LAB_SIZE_SHAPED_6108"))
         assertTrue("V5.0.6108: LLM Lab universe must include CryptoAlt candidate pool, not only already-open crypto positions", bot6107.contains("DynamicAltTokenRegistry") && bot6107.contains("feed the LLM Lab the Crypto Universe candidate pool") && bot6107.contains("LabAssetClass.ALT"))
+        val executor6109 = java.io.File("src/main/kotlin/com/lifecyclebot/engine/Executor.kt").readText()
+        assertTrue("V5.0.6109: multiplier cascade must use geometric mean for dampers, not pure product fold that collapses to dust", executor6109.contains("CASCADE_GEOMEAN_6109") && executor6109.contains("damperGeomean6109") && executor6109.contains("boosterProduct6109") && !executor6109.contains("sizingStackComponents4285.values.fold(1.0) { acc, v -> acc * v }"))
+        assertTrue("V5.0.6109: wallet-anchored compound floor must prevent sub-3% wallet positions on priority lanes", executor6109.contains("WALLET_ANCHORED_COMPOUND_FLOOR_6109") && executor6109.contains("minWalletPct6109") && executor6109.contains("isPriority6109"))
+        assertTrue("V5.0.6109: winner pressing must boost size when day is already profitable", executor6109.contains("winnerPress6109") && executor6109.contains("dayPnlSol > 0.0") && executor6109.contains("RealizedWalletCompoundingGovernor.snapshot()"))
+        assertTrue("V5.0.6109: AGI ceiling must allow higher amplitude when AGI/SSI stack is active", executor6109.contains("agiCeiling6090") && executor6109.contains("3.00") && executor6109.contains("2.50"))
     }
 
 

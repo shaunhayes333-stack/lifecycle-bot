@@ -9524,7 +9524,27 @@ class Executor(
             "walletCompound4511" to realizedWalletCompoundMult4511,
             "routeReliability4518" to routeReliabilitySizeMult4518,
         )
-        val multiplierProductRaw = sizingStackComponents4285.values.fold(1.0) { acc, v -> acc * v }
+        // V5.0.6109 — CASCADE COLLAPSE FIX. The old pure-product fold of 19+
+        // multipliers is a DUST GENERATOR: 0.8^19 = 0.014 (98.6% reduction).
+        // Even with floors at 0.25-0.50, a 0.05 SOL base × 0.50 floor = 0.025 SOL
+        // per trade — you cannot compound $100 to $1M with $2 trades.
+        // FIX: split multipliers into DAMPERS (<1.0) and BOOSTERS (>=1.0).
+        // Dampers use GEOMETRIC MEAN so they can't collapse the stack.
+        // Boosters use PRODUCT so they stack aggressively.
+        // Result: 10 dampers at 0.8 → 0.8 (not 0.107); 9 boosters at 1.2 → 5.16.
+        // The AGI/SSI/Lab multipliers now actually move the needle.
+        val cascadeComponents6109 = sizingStackComponents4285.values.toList()
+        val dampers6109 = cascadeComponents6109.filter { it < 1.0 && it > 0.0 }
+        val boosters6109 = cascadeComponents6109.filter { it >= 1.0 }
+        val damperGeomean6109 = if (dampers6109.isNotEmpty()) {
+            kotlin.math.exp(dampers6109.map { kotlin.math.log(it) }.average())
+        } else 1.0
+        val boosterProduct6109 = boosters6109.fold(1.0) { acc, v -> acc * v }
+        val multiplierProductRaw = (damperGeomean6109 * boosterProduct6109).also {
+            if (RuntimeModeAuthority.isLive() || RuntimeModeAuthority.isPaper()) {
+                try { ForensicLogger.lifecycle("CASCADE_GEOMEAN_6109", "mint=${ts.mint.take(10)} symbol=${ts.symbol} lane=$laneKeyForAgi dampers=${dampers6109.size} geomean=${damperGeomean6109.fmt(3)} boosters=${boosters6109.size} product=${boosterProduct6109.fmt(3)} final=${it.fmt(3)} old_fold=${cascadeComponents6109.fold(1.0) { a, v -> a * v }.fmt(4)}") } catch (_: Throwable) {}
+            }
+        }
         try {
             SizingStackIntegritySentinel.inspect(
                 mode = if (RuntimeModeAuthority.isPaper()) "paper" else "live",
@@ -9670,9 +9690,35 @@ class Executor(
                 ssiPilotSizeMult, regimeVolSizeMult, capitalEfficiencySizeMult,
             ).any { kotlin.math.abs(it - 1.0) >= 0.03 }
             val agiCeiling6090 = if (agiAuthorityActive6090) {
-                if (RuntimeModeAuthority.isPaper()) 2.50 else 2.00
-            } else 1.60
-            product.coerceIn(posEvFloor, agiCeiling6090)
+                if (RuntimeModeAuthority.isPaper()) 3.00 else 2.50
+            } else 1.80
+            // V5.0.6109 — WALLET-ANCHORED COMPOUND FLOOR.
+            // The multiplier cascade must not produce a size below 3% of
+            // spendable wallet for priority lanes, or 2% for others. This
+            // is the minimum viable compounding size — below this, wins
+            // are dust artifacts that can't grow the wallet 2x-5x/day.
+            val walletSpendable6109 = walletSol.takeIf { it > 0.0 } ?: try {
+                if (RuntimeModeAuthority.isPaper()) FluidLearning.getSimulatedBalance() else 0.0
+            } catch (_: Throwable) { 0.0 }
+            val isPriority6109 = laneTag.uppercase() in setOf("MOONSHOT", "STANDARD", "CRYPTO_SPOT", "CRYPTO_LEV")
+            val walletAnchorFloor6109 = if (walletSpendable6109 > 0.0 && sol > 0.0) {
+                val minWalletPct6109 = if (isPriority6109) 0.03 else 0.02
+                val anchoredMult6109 = (walletSpendable6109 * minWalletPct6109) / sol
+                anchoredMult6109.coerceAtMost(posEvFloor.coerceAtLeast(0.50))
+            } else posEvFloor
+            val effectiveFloor6109 = maxOf(posEvFloor, walletAnchorFloor6109)
+            // V5.0.6109 — WINNER PRESSING. If the day is already profitable
+            // or the lane is on a win streak, press harder. This is the
+            // compounding accelerator: wins → bigger size → bigger wins.
+            val compoundSnap6109 = try { RealizedWalletCompoundingGovernor.snapshot() } catch (_: Throwable) { null }
+            val winnerPress6109 = if (compoundSnap6109 != null && compoundSnap6109.dayPnlSol > 0.0) {
+                // Already profitable today → press harder (up to +50%)
+                val progressX = compoundSnap6109.dayProgressX.coerceIn(0.0, 5.0)
+                (1.0 + (progressX * 0.10)).coerceIn(1.0, 1.50)
+            } else 1.0
+            val pressedProduct6109 = product * winnerPress6109
+            try { PipelineHealthCollector.labelInc("WALLET_ANCHORED_COMPOUND_FLOOR_6109") } catch (_: Throwable) {}
+            pressedProduct6109.coerceIn(effectiveFloor6109, agiCeiling6090)
         }
         if (RuntimeModeAuthority.isLive() && (laneEvMult != 1.0 || laneSizeCap < 1.0 || strategyTunerSizeMult != 1.0 || uphConvictionMult != 1.0)) {
             try { ForensicLogger.lifecycle("LIVE_WALLET_GROWTH_ALLOCATOR", "mint=${ts.mint.take(10)} symbol=${ts.symbol} lane=$laneTag laneEvMult=$laneEvMult laneCap=$laneSizeCap regimeMult=$regimeMult brainMult=$brainSizeMult stratTuner=$strategyTunerSizeMult sourceBrain=$sourceBrainSizeMult uph=$uphConvictionMult product=$multiplierProduct floor=$liveFloorMult") } catch (_: Throwable) {}
