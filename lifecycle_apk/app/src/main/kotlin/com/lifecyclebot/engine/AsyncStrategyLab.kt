@@ -140,16 +140,17 @@ object AsyncStrategyLab {
 
     /**
      * V5.0.4245 — reviewed proposal apply layer.
-     * Only symbolic-checked, background-only, lane-matched hypotheses may add a
-     * tiny size multiplier. Unreviewed provider/GEPA proposals remain stored for
-     * human/validator review and return neutral 1.0.
+     * V5.0.6090 — reviewed hypotheses are now real strategy authority, not a tiny
+     * toy nudge. Unreviewed provider/GEPA proposals remain stored; symbolic-checked
+     * background hypotheses can materially shape size while preserving non-zero sizing
+     * and hot-path cache-only reads.
      */
     fun reviewedSizeBias(lane: String, score: Int, regime: String): Double {
         // V5.0.4251 — hot path O(1): StrategyHypothesisEngine calls this from
         // FDG/Executor sizing, so never synchronize or scan proposal history here.
         return try {
             val laneKey = lane.uppercase().take(24)
-            (reviewedBiasByLane[laneKey] ?: reviewedBiasByLane["ALL"] ?: 1.0).coerceIn(0.92, 1.08)
+            (reviewedBiasByLane[laneKey] ?: reviewedBiasByLane["ALL"] ?: 1.0).coerceIn(0.60, 1.55)
         } catch (_: Throwable) { 1.0 }
     }
 
@@ -214,12 +215,12 @@ object AsyncStrategyLab {
                 hs.takeLast(4).forEach { h ->
                     val text = (h.expectedMetric + " " + h.proposal).uppercase()
                     bias *= when {
-                        text.contains("SIZE_DOWN") || text.contains("RISK_DOWN") || text.contains("DRAWDOWN") -> 0.97
-                        text.contains("SIZE_UP") || text.contains("COMPOUND") || text.contains("RUNNER_CAPTURE") -> 1.03
+                        text.contains("SIZE_DOWN") || text.contains("RISK_DOWN") || text.contains("DRAWDOWN") || text.contains("AVOID") -> 0.80
+                        text.contains("SIZE_UP") || text.contains("COMPOUND") || text.contains("RUNNER_CAPTURE") || text.contains("PRESS") || text.contains("FOCUS") -> 1.25
                         else -> 1.0
                     }
                 }
-                reviewedBiasByLane[lane] = bias.coerceIn(0.92, 1.08)
+                reviewedBiasByLane[lane] = bias.coerceIn(0.60, 1.55)
             }
         } catch (_: Throwable) {}
     }
@@ -227,7 +228,7 @@ object AsyncStrategyLab {
     fun formatForPipelineDump(): String = synchronized(accepted) {
         if (accepted.isEmpty()) "AsyncStrategyLab: no accepted background hypotheses"
         else buildString {
-            appendLine("AsyncStrategyLab: accepted=${accepted.size} background_only=true")
+            appendLine("AsyncStrategyLab: accepted=${accepted.size} background_only=true actuated_authority_6090=true bias_range=0.60..1.55")
             accepted.takeLast(5).forEach { h ->
                 appendLine("- ${h.provider.name} ${h.lane}: ${h.expectedMetric} :: ${h.proposal.take(120)} rollback=${h.rollbackCondition.take(80)} symbolic=${h.symbolicChecked}")
             }

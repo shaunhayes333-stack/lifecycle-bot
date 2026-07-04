@@ -9503,7 +9503,20 @@ class Executor(
                     else -> 0.25
                 }
             } catch (_: Throwable) { 0.25 }
-            product.coerceIn(posEvFloor, 1.60)
+            // V5.0.6090 — REINS-OFF AI STRATEGY AUTHORITY.
+            // When the AGI/SSI/LLM/sentience stack is already expressed through
+            // cached multipliers, let it control strategy with real amplitude.
+            // Still bounded and still downstream of hard route/liquidity/wallet/rug
+            // safety; no learned zero sizing, no synchronous LLM/API hot-path call.
+            val agiAuthorityActive6090 = listOf(
+                strategyTunerSizeMult, sourceBrainSizeMult, uphConvictionMult,
+                hypothesisSizeMult, superBrainSizeMult, metaCognitionSizeMult,
+                ssiPilotSizeMult, regimeVolSizeMult, capitalEfficiencySizeMult,
+            ).any { kotlin.math.abs(it - 1.0) >= 0.03 }
+            val agiCeiling6090 = if (agiAuthorityActive6090) {
+                if (RuntimeModeAuthority.isPaper()) 2.50 else 2.00
+            } else 1.60
+            product.coerceIn(posEvFloor, agiCeiling6090)
         }
         if (RuntimeModeAuthority.isLive() && (laneEvMult != 1.0 || laneSizeCap < 1.0 || strategyTunerSizeMult != 1.0 || uphConvictionMult != 1.0)) {
             try { ForensicLogger.lifecycle("LIVE_WALLET_GROWTH_ALLOCATOR", "mint=${ts.mint.take(10)} symbol=${ts.symbol} lane=$laneTag laneEvMult=$laneEvMult laneCap=$laneSizeCap regimeMult=$regimeMult brainMult=$brainSizeMult stratTuner=$strategyTunerSizeMult sourceBrain=$sourceBrainSizeMult uph=$uphConvictionMult product=$multiplierProduct floor=$liveFloorMult") } catch (_: Throwable) {}

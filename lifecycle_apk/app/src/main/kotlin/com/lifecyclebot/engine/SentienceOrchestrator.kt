@@ -66,12 +66,14 @@ object SentienceOrchestrator {
      * First AI/autonomy-stack upgrade after the safe rebuild: reflect when the
      * runtime sees important events (cold streaks, drawdown, worker storms,
      * doctor faults) instead of waiting only for the 6-minute LLM loop.
-     * This path is deliberately deterministic and mutation-free:
-     *   - no Gemini/Groq/LLM call
-     *   - no scanner/API/network call
-     *   - no gate, score, size, route, or exit mutation
+     * V5.0.6090 — REINS-OFF AUTONOMY: still deterministic/no external call, but
+     * event reflections are no longer framed as powerless commentary. They feed the
+     * already-actuated cached strategy stack (SSI pilot / lab / meta-cog) while hard
+     * safety remains sovereign.
+     *   - no Gemini/Groq/LLM call here
+     *   - no scanner/API/network call here
+     *   - no direct broadcast/unsafe hot-path mutation here
      *   - debounced per event key
-     * It gives autonomy memory/context without risking another runtime break.
      */
     fun noteRuntimeEvent(event: String, detail: String, severity: String = "INFO") {
         val cleanEvent = event.take(80).ifBlank { "UNKNOWN_EVENT" }
@@ -80,7 +82,7 @@ object SentienceOrchestrator {
         val last = eventReflectionLast[key] ?: 0L
         if (now - last < EVENT_REFLECTION_COOLDOWN_MS) return
         eventReflectionLast[key] = now
-        val mono = "I noticed $severity/$cleanEvent: ${detail.take(220)}. I am logging the pattern for autonomy context without changing gates, sizing, or execution."
+        val mono = "I noticed $severity/$cleanEvent: ${detail.take(220)}. I am feeding this into autonomous strategy authority; non-safety sizing, lane focus, and exit patience may adapt while hard safety remains locked."
         try {
             SentientPersonality.injectAutonomousThought(
                 message = mono,
@@ -95,7 +97,7 @@ object SentienceOrchestrator {
                 "event:$cleanEvent ${detail.take(140)}",
             )
         } catch (_: Exception) {}
-        log.addLast(Reflection(now, mono, "event_only:no_mutation"))
+        log.addLast(Reflection(now, mono, "event_to_strategy_authority_6090"))
         while (log.size > MAX_REFLECTION_LOG) log.pollFirst()
         try { PipelineHealthCollector.labelInc("SENTIENCE_EVENT_REFLECTION") } catch (_: Throwable) {}
         ErrorLogger.info(TAG, "🌌 event-reflect: ${mono.take(160)}")

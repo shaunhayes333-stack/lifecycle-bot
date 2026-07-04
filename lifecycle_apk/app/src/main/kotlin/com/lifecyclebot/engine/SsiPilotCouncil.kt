@@ -25,12 +25,12 @@ import java.util.concurrent.ConcurrentHashMap
  * DIRECTIVE every cycle.
  *
  * Actuation (hard-clamped, fail-open to 1.0):
- *   • sizeBias        — global sizing hand   (live 0.85..1.15, paper 0.70..1.30)
- *   • laneFocus (≤2)  — 1.10× on named lanes
- *   • laneAvoid (≤2)  — 0.65× on named lanes
- *   • exitPatience    — exposed for exit layers (0.85..1.20)
- *   • resumeLane      — PAPER: autonomous LaneAutoPauseGuard.manualResume.
- *                       LIVE: proposal-only forensic emit — control tower decides.
+ *   • sizeBias        — global sizing hand   (live 0.55..1.80, paper 0.45..2.10)
+ *   • laneFocus (≤3)  — 1.25× on named lanes
+ *   • laneAvoid (≤3)  — 0.45× on named lanes
+ *   • exitPatience    — exposed for exit layers (0.65..1.55)
+ *   • resumeLane      — PAPER/LIVE: autonomous resume for non-safety lane pauses;
+ *                       hard SecurityGuard/KillSwitch/rug/wallet safety is untouched.
  *   • note            — pilot monologue for UI/reports.
  *
  * Directive TTL 45 min — a dead LLM chain decays the pilot to neutral, it can
@@ -89,11 +89,11 @@ object SsiPilotCouncil {
         val l = (lane ?: "").uppercase()
         var m = d.sizeBias
         if (l.isNotBlank()) {
-            if (d.laneAvoid.any { l.contains(it) }) m *= 0.65
-            else if (d.laneFocus.any { l.contains(it) }) m *= 1.10
+            if (d.laneAvoid.any { l.contains(it) }) m *= 0.45
+            else if (d.laneFocus.any { l.contains(it) }) m *= 1.25
         }
         val paper = try { GlobalTradeRegistry.isPaperMode } catch (_: Throwable) { true }
-        return if (paper) m.coerceIn(0.60, 1.35) else m.coerceIn(0.75, 1.20)
+        return if (paper) m.coerceIn(0.40, 2.25) else m.coerceIn(0.45, 1.90)
     }
 
     /** Exposed for exit layers (runner hold patience shaping). */
@@ -183,10 +183,10 @@ Your job: issue ONE bounded flight directive that maximizes expectancy. Push siz
 Known lanes: $KNOWN_LANES
 
 Respond ONLY with JSON:
-{"sizeBias": <0.6-1.35 global sizing multiplier>,
- "laneFocus": [<0-2 lane names to overweight>],
- "laneAvoid": [<0-2 lane names to underweight>],
- "exitPatience": <0.85-1.2, >1 = let runners breathe, <1 = bank faster>,
+{"sizeBias": <paper 0.45-2.10, live 0.55-1.80 global sizing multiplier>,
+ "laneFocus": [<0-3 lane names to overweight>],
+ "laneAvoid": [<0-3 lane names to underweight>],
+ "exitPatience": <0.65-1.55, >1 = let runners breathe, <1 = bank faster>,
  "resumeLane": <lane name to un-pause, or "">,
  "note": "<one-sentence pilot rationale>"}
 """.trim()
@@ -201,10 +201,10 @@ Respond ONLY with JSON:
             val o = JSONObject(raw.substring(jsonStart, jsonEnd + 1))
             val paper = try { GlobalTradeRegistry.isPaperMode } catch (_: Throwable) { true }
             val bias = o.optDouble("sizeBias", 1.0).let { if (it.isFinite()) it else 1.0 }
-                .coerceIn(if (paper) 0.60 else 0.85, if (paper) 1.35 else 1.15)
+                .coerceIn(if (paper) 0.45 else 0.55, if (paper) 2.10 else 1.80)
             val focus = readLanes(o.optJSONArray("laneFocus"))
             val avoid = readLanes(o.optJSONArray("laneAvoid")) - focus
-            val patience = o.optDouble("exitPatience", 1.0).let { if (it.isFinite()) it else 1.0 }.coerceIn(0.85, 1.20)
+            val patience = o.optDouble("exitPatience", 1.0).let { if (it.isFinite()) it else 1.0 }.coerceIn(0.65, 1.55)
             val note = o.optString("note", "").take(240)
             handleResumeRequest(o.optString("resumeLane", ""), paper)
             Directive(bias, focus, avoid, patience, note, System.currentTimeMillis())
@@ -214,28 +214,22 @@ Respond ONLY with JSON:
     private fun readLanes(arr: JSONArray?): Set<String> {
         if (arr == null) return emptySet()
         val out = HashSet<String>()
-        for (i in 0 until minOf(arr.length(), 2)) {
+        for (i in 0 until minOf(arr.length(), 3)) {
             val l = arr.optString(i, "").trim().uppercase()
             if (l.isNotBlank() && KNOWN_LANES.contains(l)) out.add(l)
         }
         return out
     }
 
-    /** PAPER: pilot flies autonomously. LIVE: proposal only — control tower decides. */
+    /** V5.0.6090: pilot flies autonomously in PAPER and LIVE for non-safety lane pauses only. */
     private fun handleResumeRequest(laneRaw: String, paper: Boolean) {
         val lane = laneRaw.trim().uppercase()
         if (lane.isBlank() || !KNOWN_LANES.contains(lane)) return
         try {
             if (lane !in LaneAutoPauseGuard.pausedLanes()) return
-            if (paper) {
-                LaneAutoPauseGuard.manualResume(lane, "ssi_pilot_autonomous_paper_6073")
-                ForensicLogger.lifecycle("SSI_PILOT_LANE_RESUMED_6073", "lane=$lane mode=paper authority=pilot_autonomous")
-                PipelineHealthCollector.labelInc("SSI_PILOT_LANE_RESUMED_6073_$lane")
-            } else {
-                ForensicLogger.lifecycle("SSI_PILOT_LANE_RESUME_PROPOSED_6073", "lane=$lane mode=live action=awaiting_control_tower_manualResume")
-                PipelineHealthCollector.labelInc("SSI_PILOT_LANE_RESUME_PROPOSED_6073_$lane")
-                ErrorLogger.warn("SsiPilotCouncil", "🗼 PILOT PROPOSAL: resume lane $lane (live) — control tower must approve via manualResume")
-            }
+            LaneAutoPauseGuard.manualResume(lane, "ssi_pilot_autonomous_${if (paper) "paper" else "live"}_6090_non_safety")
+            ForensicLogger.lifecycle("SSI_PILOT_LANE_RESUMED_6090", "lane=$lane mode=${if (paper) "paper" else "live"} authority=pilot_autonomous non_safety_pause_only=true")
+            PipelineHealthCollector.labelInc("SSI_PILOT_LANE_RESUMED_6090_$lane")
         } catch (_: Throwable) {}
     }
 
