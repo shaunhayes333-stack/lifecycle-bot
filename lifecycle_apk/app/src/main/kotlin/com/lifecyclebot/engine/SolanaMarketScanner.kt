@@ -1104,7 +1104,12 @@ class SolanaMarketScanner(
         // real chance every cycle. This fixes source collapse without hard-blocking
         // Pump/Raydium or adding hot-path LLM/API work.
         val requestedPermits6017 = if (overlayCap > 0) overlayCap else scans.size
-        val permits = requestedPermits6017.coerceIn(12, 24).coerceAtLeast(scans.size.coerceAtMost(24))
+        // V5.0.6103 — make runtime scanner caps real. The old expression
+        // coerced permits back up to scans.size, so RuntimeDoctor/overlay caps
+        // could not actually relieve live-loop pressure. No source is disabled;
+        // excess sources queue behind the semaphore inside the existing 8s batch
+        // budget, while PumpPortal WS remains on its separate firehose path.
+        val permits = if (overlayCap > 0) requestedPermits6017.coerceIn(4, 24) else requestedPermits6017.coerceIn(12, 24)
         val gate = kotlinx.coroutines.sync.Semaphore(permits)
         // V5.9.1497 — ADAPTIVE DEPRIORITIZATION (spec §2): a source that has timed
         // out SOURCE_DEPRIORITIZE_AFTER+ consecutive cycles is skipped on a rotating
@@ -1117,14 +1122,33 @@ class SolanaMarketScanner(
         // exactly like "Pump=0 / Dex=0" and let PumpPortal WS dominate by default.
         // Per source-balanced doctrine, timeout history may be telemetry, not an intake
         // veto. Run every source every cycle; per-source withTimeout still caps damage.
-        val active = scans.toList().also { all ->
+        val coreSource6103 = setOf(
+            "scanPumpFunDirect", "scanPumpFunActive", "scanPumpGraduates", "scanFreshLaunches", "scanPumpFunVolume",
+            "scanDexBoosted", "scanDexTrending", "scanDexGainers", "scanRaydiumNewPools"
+        )
+        val rotation6103 = scanRotation.coerceAtLeast(0)
+        val active = scans.toList().filter { (name, _) ->
+            val streak = sourceTimeoutStreak[name] ?: 0
+            val core = name in coreSource6103
+            val shouldRotateSkip = !core && streak >= SOURCE_DEPRIORITIZE_AFTER && (rotation6103 % SOURCE_SKIP_EVERY) != 0
+            if (shouldRotateSkip) {
+                try {
+                    ForensicLogger.lifecycle(
+                        "SCANNER_OPTIONAL_SOURCE_ROTATED_SKIP_6103",
+                        "name=$name streak=$streak rotation=$rotation6103 every=$SOURCE_SKIP_EVERY reason=preserve_live_loop_under_provider_degradation"
+                    )
+                    PipelineHealthCollector.labelInc("SCANNER_OPTIONAL_SOURCE_ROTATED_SKIP_6103")
+                } catch (_: Throwable) {}
+            }
+            !shouldRotateSkip
+        }.also { activeList ->
             try {
                 val bad = sourceTimeoutStreak.entries
                     .filter { it.value >= SOURCE_DEPRIORITIZE_AFTER }
                     .joinToString(",") { "${it.key}:${it.value}" }
                 if (bad.isNotBlank()) ForensicLogger.lifecycle(
                     "SCANNER_SOURCE_TIMEOUT_HISTORY",
-                    "attemptingAllSources=true timedOut=$bad total=${all.size}"
+                    "optionalRotateSkip=true timedOut=$bad active=${activeList.size} total=${scans.size} coreAlways=${coreSource6103.size}"
                 )
             } catch (_: Throwable) {}
         }

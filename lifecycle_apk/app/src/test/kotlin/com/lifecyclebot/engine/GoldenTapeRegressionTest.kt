@@ -7115,6 +7115,9 @@ class GoldenTapeRegressionTest {
         val recoveredHold6102 = java.io.File("src/main/kotlin/com/lifecyclebot/engine/RecoveredHoldGuard.kt").readText()
         assertTrue("V5.0.6102: known-basis wallet recoveries keep grace but zero-basis recovered orphans must queue scratch cleanup", walletReconciler6102.contains("savedKnownBasis6102") && walletReconciler6102.contains("recoveredKnownBasis6102") && walletReconciler6102.contains("""PendingSellQueue.add(mint, ts.symbol, "WALLET_RECOVERED_ZERO_BASIS_CLEANUP_6102")""") && walletReconciler6102.contains("WALLET_RECOVERED_ZERO_BASIS_CLEANUP_QUEUED_6102"))
         assertTrue("V5.0.6102: recovered zero-basis cleanup must punch through stale recovered-hold grace", recoveredHold6102.contains("WALLET_RECOVERED_ZERO_BASIS_CLEANUP") && recoveredHold6102.contains("isEmergencyExitOverride"))
+        val scanner6103 = java.io.File("src/main/kotlin/com/lifecyclebot/engine/SolanaMarketScanner.kt").readText()
+        assertTrue("V5.0.6103: runtime scanner concurrency cap must actually lower semaphore permits instead of coercing back to source count", scanner6103.contains("make runtime scanner caps real") && scanner6103.contains("if (overlayCap > 0) requestedPermits6017.coerceIn(4, 24) else requestedPermits6017.coerceIn(12, 24)") && !scanner6103.contains("coerceAtLeast(scans.size.coerceAtMost(24))"))
+        assertTrue("V5.0.6103: repeated-timeout optional scanner sources rotate-skip while Pump/Dex/Raydium core sources remain every cycle", scanner6103.contains("coreSource6103") && scanner6103.contains("SCANNER_OPTIONAL_SOURCE_ROTATED_SKIP_6103") && scanner6103.contains("optionalRotateSkip=true") && scanner6103.contains("scanPumpFunDirect") && scanner6103.contains("scanDexTrending") && scanner6103.contains("scanRaydiumNewPools"))
     }
 
 
