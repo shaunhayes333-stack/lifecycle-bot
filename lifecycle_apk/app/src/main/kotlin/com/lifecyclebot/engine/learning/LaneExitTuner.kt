@@ -94,7 +94,7 @@ object LaneExitTuner {
         val now = System.currentTimeMillis()
         if (now - replayBiasAtMs < 60_000L && replayBiasByLane.isNotEmpty()) return
         if (!replayBiasInFlight.compareAndSet(false, true)) return
-        kotlinx.coroutines.GlobalScope.launch(com.lifecyclebot.engine.AppDispatchers.sideEffect) {
+        kotlinx.coroutines.GlobalScope.launch(com.lifecyclebot.util.AppDispatchers.sideEffect) {
             try {
                 val best = com.lifecyclebot.engine.LaneStrategyEvaluator.bestPerLane()
                 replayBiasByLane = best.mapNotNull { (lane, r) ->
