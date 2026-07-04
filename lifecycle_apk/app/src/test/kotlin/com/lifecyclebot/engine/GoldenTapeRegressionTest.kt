@@ -6432,7 +6432,7 @@ class GoldenTapeRegressionTest {
         val gov = java.io.File("src/main/kotlin/com/lifecyclebot/engine/RealizedWalletCompoundingGovernor.kt").readText()
         val exec = java.io.File("src/main/kotlin/com/lifecyclebot/engine/Executor.kt").readText()
         val report = java.io.File("src/main/kotlin/com/lifecyclebot/engine/ReportingHub.kt").readText()
-        assertTrue("V5.0.4511: compounding governor must use StrategyTruthLedger clean rows, not raw canonical totals", gov.contains("StrategyTruthLedger.clean") && gov.contains("getRecentValidClosedTradesRaw") && !gov.contains("getCanonicalTotals"))
+        assertTrue("V5.0.6081: compounding governor must use mode-local realized money rows, not raw canonical totals or blended terminal-only StrategyTruth rows", gov.contains("getRecentValidClosedTradesRaw") && gov.contains("RuntimeModeAuthority.isPaper()") && gov.contains("mode6081") && gov.contains("PARTIAL_SELL") && gov.contains("RealizedWalletCompounding.moneyRows6081") && !gov.contains("getCanonicalTotals"))
         assertTrue("V5.0.4511: compounding refresh must be cached/background, not synchronous per hot-path candidate", gov.contains("REFRESH_TTL_MS") && gov.contains("GlobalScope.launch(AppDispatchers.sideEffect)") && gov.contains("cached.multiplier"))
         assertTrue("V5.0.4511: Executor sizing stack must consume wallet-realized compounding multiplier", exec.contains("REALIZED_WALLET_COMPOUNDING_SHAPED_4511") && exec.contains("walletCompound4511") && exec.contains("RealizedWalletCompoundingGovernor.sizeMultiplier"))
         assertTrue("V5.0.4511: operator report must surface compounding state", report.contains("RealizedWalletCompoundingGovernor.statusLine"))
