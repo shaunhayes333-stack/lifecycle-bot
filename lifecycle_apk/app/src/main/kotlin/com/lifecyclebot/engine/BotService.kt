@@ -11495,13 +11495,28 @@ class BotService : Service() {
                     regime = regime,
                 ))
             }
-            fun pushTick(symbol: String, mint: String, asset: com.lifecyclebot.engine.lab.LabAssetClass, price: Double) {
+            fun pushTick(symbol: String, mint: String, asset: com.lifecyclebot.engine.lab.LabAssetClass, price: Double, score: Int = 50) {
                 if (price <= 0.0 || symbol.isBlank()) return
                 list.add(com.lifecyclebot.engine.lab.LlmLabEngine.LabUniverseTick(
                     symbol = symbol, mint = mint, asset = asset,
-                    price = price, score = 50, regime = regime,
+                    price = price, score = score.coerceIn(0, 100), regime = regime,
                 ))
             }
+            try {
+                // V5.0.6108 — feed the LLM Lab the Crypto Universe candidate pool,
+                // not just already-open CryptoAlt positions. Otherwise Lab can only
+                // manage crypto after entry and cannot invent/reintroduce crypto entry
+                // strategies for the 2x-5x paper/live compounding loop.
+                com.lifecyclebot.perps.DynamicAltTokenRegistry
+                    .getAllTokens(com.lifecyclebot.perps.DynamicAltTokenRegistry.SortMode.QUALITY)
+                    .asSequence()
+                    .take(180)
+                    .forEach { tok ->
+                        val px = tok.price.takeIf { it > 0.0 } ?: return@forEach
+                        val score6108 = (50.0 + tok.priceChange24h.coerceIn(-20.0, 20.0) * 1.5 + kotlin.math.log10(tok.volume24h.coerceAtLeast(1.0)).coerceIn(0.0, 8.0) * 2.0).toInt().coerceIn(20, 95)
+                        pushTick(tok.symbol, tok.mint.ifBlank { tok.symbol }, com.lifecyclebot.engine.lab.LabAssetClass.ALT, px, score6108)
+                    }
+            } catch (_: Throwable) {}
             try {
                 com.lifecyclebot.perps.CryptoAltTrader.getOpenPositions().forEach { p ->
                     pushTick(p.marketSymbol, p.marketSymbol, com.lifecyclebot.engine.lab.LabAssetClass.ALT, p.currentPrice)

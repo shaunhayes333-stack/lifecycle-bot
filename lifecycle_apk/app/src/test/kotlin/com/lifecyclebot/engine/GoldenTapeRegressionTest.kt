@@ -7137,6 +7137,10 @@ class GoldenTapeRegressionTest {
         assertTrue("V5.0.6107: LLM Lab must use economic compounding-size strategies and lane reintroduction", lab6107.contains("economicLabSizingSol") && lab6107.contains("sizingSol      number 1.0..20.0") && lab6107.contains("LAB_POLICY_REINTRODUCTION_6107") && labStore6107.contains("MIN_PAPER_PNL_SOL_FOR_PROMOTION = 1.0") && !lab6107.contains("sizingSol = 0.05"))
         assertTrue("V5.0.6107: FdgRouteVerdict must route retraining to train-only/no-open, not executable micro", route6107.contains("LanePolicy.State.RETRAINING             -> Verdict.ROUTE_TRAIN_ONLY") && route6107.contains("LanePolicy.State.PAPER_MICRO_EXECUTION  -> Verdict.ROUTE_TRAIN_ONLY") && !route6107.contains("LanePolicy.State.RETRAINING             -> Verdict.ALLOW_PAPER_MICRO"))
         assertTrue("V5.0.6107: paper treasury back-fund floor must match compounding-size paper entries", bot6107.contains("cfg.paperSimulatedBalance * 0.20") && bot6107.contains("compounding-size entries after 6106 economic sizing"))
+        val crypto6108 = java.io.File("src/main/kotlin/com/lifecyclebot/perps/CryptoAltTrader.kt").readText()
+        assertTrue("V5.0.6108: CryptoAlt final execution must consume shared LanePolicy retraining pause", crypto6108.contains("CRYPTO_LANE_RETRAINING_PAUSED_6108") && crypto6108.contains("LanePolicy.effectiveState(cryptoLane6108") && crypto6108.contains("NoTradeObservationStore.recordBlock"))
+        assertTrue("V5.0.6108: CryptoAlt final size must consume Lab + UnifiedPolicyHead + StrategyHypothesis before opening", crypto6108.contains("LabPromotedFeed.entryNudge") && crypto6108.contains("UnifiedPolicyHead.stamp") && crypto6108.contains("StrategyHypothesisEngine.getSizeBias") && crypto6108.contains("CRYPTO_AGI_LAB_SIZE_SHAPED_6108"))
+        assertTrue("V5.0.6108: LLM Lab universe must include CryptoAlt candidate pool, not only already-open crypto positions", bot6107.contains("DynamicAltTokenRegistry") && bot6107.contains("feed the LLM Lab the Crypto Universe candidate pool") && bot6107.contains("LabAssetClass.ALT"))
     }
 
 

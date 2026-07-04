@@ -1975,19 +1975,70 @@ object CryptoAltTrader {
         // compounding/winner pressure already included above to express up to
         // 45% of available mode-local balance. Total portfolio risk cap remains
         // 80%, wallet lock still applies live, and route proof still gates real buys.
-        val finalSize = (sizeSol * hiveSizeMult).coerceIn(0.01, balance * 0.45)
+        val cryptoLane6108 = if (isSpot) "CRYPTO_SPOT" else "CRYPTO_LEV"
+        val cryptoAssetKey6108 = cryptoAssetKey(signal, isSpot)
+        val cryptoScoreBand6108 = try { com.lifecyclebot.engine.LosingPatternMemory.scoreBand(signal.score) } catch (_: Throwable) { "S41-60" }
+        try {
+            val lpState6108 = com.lifecyclebot.engine.learning.LanePolicy.effectiveState(cryptoLane6108, cryptoScoreBand6108)
+            val retraining6108 = lpState6108 == com.lifecyclebot.engine.learning.LanePolicy.State.RETRAINING ||
+                lpState6108 == com.lifecyclebot.engine.learning.LanePolicy.State.TRAIN_ONLY_NO_OPEN ||
+                lpState6108 == com.lifecyclebot.engine.learning.LanePolicy.State.SHADOW_TRACK_ONLY ||
+                lpState6108 == com.lifecyclebot.engine.learning.LanePolicy.State.PAPER_MICRO_EXECUTION
+            if (retraining6108) {
+                try {
+                    com.lifecyclebot.engine.learning.NoTradeObservationStore.recordBlock(
+                        mint = cryptoAssetKey6108,
+                        symbol = mktSym,
+                        lane = cryptoLane6108,
+                        scoreBand = cryptoScoreBand6108,
+                        score = signal.score,
+                        confidence = signal.confidence,
+                        entryLiqUsd = altLiqMcapHint(mktSym).first,
+                        entryMcapUsd = altLiqMcapHint(mktSym).second,
+                        entryPrice = signal.price,
+                        source = "CRYPTO_UNIVERSE",
+                        blockReason = "CRYPTO_LANE_RETRAINING_PAUSED_6108_${lpState6108.name}",
+                        verdictTag = lpState6108.name,
+                    )
+                } catch (_: Throwable) {}
+                com.lifecyclebot.engine.learning.LanePolicy.noteRetrainingSample(cryptoLane6108, cryptoScoreBand6108)
+                ErrorLogger.info(TAG, "🧪 CRYPTO_LANE_RETRAINING_PAUSED_6108 $mktSym lane=$cryptoLane6108 band=$cryptoScoreBand6108 state=${lpState6108.name}")
+                return
+            }
+        } catch (_: Throwable) {}
+
+        val labNudge6108 = try { com.lifecyclebot.engine.lab.LabPromotedFeed.entryNudge(com.lifecyclebot.engine.lab.LabAssetClass.ALT, signal.score) } catch (_: Throwable) { null }
+        val labSizeMult6108 = labNudge6108?.sizeMultiplier ?: 1.0
+        val uphMult6108 = try {
+            val uphSignals6108 = com.lifecyclebot.engine.UnifiedPolicyHead.Signals(
+                mlEntryConf = signal.confidence / 100.0,
+                symGreenLight = if (signal.score >= 50) 1.0 else 0.35,
+                evRatio = ((signal.score - 40.0) / 60.0).coerceIn(0.0, 1.0),
+                metaConviction = ((signal.confidence - 40.0) / 60.0).coerceIn(0.0, 1.0),
+                fwdPWin = (signal.score / 100.0).coerceIn(0.0, 1.0),
+                candConf = (signal.confidence / 100.0).coerceIn(0.0, 1.0),
+            )
+            com.lifecyclebot.engine.UnifiedPolicyHead.stamp(cryptoAssetKey6108, cryptoLane6108, uphSignals6108)
+            com.lifecyclebot.engine.UnifiedPolicyHead.authoritativeConviction(cryptoLane6108, uphSignals6108)
+                ?: com.lifecyclebot.engine.UnifiedPolicyHead.conviction(cryptoLane6108, uphSignals6108)
+        } catch (_: Throwable) { 1.0 }
+        val hypoMult6108 = try { com.lifecyclebot.engine.StrategyHypothesisEngine.getSizeBias(cryptoLane6108, signal.score, "CRYPTO", cryptoAssetKey6108) } catch (_: Throwable) { 1.0 }
+        var finalSize = (sizeSol * hiveSizeMult * labSizeMult6108 * uphMult6108 * hypoMult6108).coerceIn(0.01, balance * 0.45)
         try {
             com.lifecyclebot.engine.PipelineHealthCollector.labelInc("CRYPTO_UNIVERSE_MEME_PARITY_SIZE_6095")
-            ErrorLogger.info(TAG, "🪙 CRYPTO_UNIVERSE_MEME_PARITY_SIZE_6095 ${mktSym} base=${"%.4f".format(sizeSol)} hive=${"%.2f".format(hiveSizeMult)} final=${"%.4f".format(finalSize)} bal=${"%.4f".format(balance)} toxic=${"%.2f".format(cryptoToxicSizeMult6095)}")
+            ErrorLogger.info(TAG, "🪙 CRYPTO_UNIVERSE_MEME_PARITY_SIZE_6095 ${mktSym} base=${"%.4f".format(sizeSol)} hive=${"%.2f".format(hiveSizeMult)} lab=${"%.2f".format(labSizeMult6108)} uph=${"%.2f".format(uphMult6108)} hypo=${"%.2f".format(hypoMult6108)} final=${"%.4f".format(finalSize)} bal=${"%.4f".format(balance)} toxic=${"%.2f".format(cryptoToxicSizeMult6095)}")
+            com.lifecyclebot.engine.PipelineHealthCollector.labelInc("CRYPTO_AGI_LAB_SIZE_SHAPED_6108")
         } catch (_: Throwable) {}
-        val finalTp   = ((tpPct * tpMult) + hiveTpAdj).coerceAtLeast(1.5)
+        var finalTp   = ((tpPct * tpMult) + hiveTpAdj).coerceAtLeast(1.5)
+        if (labNudge6108 != null) finalTp = maxOf(finalTp, labNudge6108.takeProfitPct)
         // V5.9.432 — SL floor raised from 1.5% → 4% for SPOT, 3% → 6% for
         // LEVERAGE (via DEFAULT_SL_SPOT/LEV below-clamp). Prior 1.5% floor
         // produced the "SL-2%" user screenshot where any normal alt wobble
         // tripped the stop before the trade had room to develop. 4% gives
         // breathing room, trail + partial ladder handle upside.
         val slFloor = if (isSpot) 4.0 else 6.0
-        val finalSl   = (slPctBase * slMult).coerceIn(slFloor, 15.0)
+        var finalSl   = (slPctBase * slMult).coerceIn(slFloor, 15.0)
+        if (labNudge6108 != null) finalSl = minOf(finalSl, kotlin.math.abs(labNudge6108.stopLossPct).coerceIn(slFloor, 15.0))
 
         val (tp, sl) = when (signal.direction) {
             PerpsDirection.LONG  -> signal.price * (1 + finalTp / 100) to signal.price * (1 - finalSl / 100)
