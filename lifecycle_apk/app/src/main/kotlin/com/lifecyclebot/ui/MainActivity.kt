@@ -5122,10 +5122,15 @@ for legal compliance.
             val currentValue = pos.costSol + pnlSol  // Current value in SOL
             val valueUsd = currentValue * solPrice
             val routeTruth6030 = try { com.lifecyclebot.engine.RealPriceLock.lastRouteTruth(ts.mint) } catch (_: Throwable) { null }
+            val entryRoute6100 = listOf(pos.entryPriceSource, pos.entryPoolAddress, ts.lastPricePoolAddr, ts.pairAddress, ts.source, ts.tokenMap.routeStatus)
+                .firstOrNull { it.isNotBlank() && !it.equals("UNKNOWN", ignoreCase = true) }
+                ?.take(28)
+                ?: ""
             val routeTruthText6030 = when {
                 !basisTrusted -> "basis wait"
                 pos.isPaperPosition -> "PAPER unrealized"
                 routeTruth6030 != null -> "UNREALIZED · ROUTE ~${"%.1f".format(routeTruth6030.impliedRatio)}x${if (routeTruth6030.ok) " ok" else " claim-mismatch"}"
+                gainPct >= 500.0 && entryRoute6100.isNotBlank() -> "UNREALIZED · entry route ${entryRoute6100}"
                 gainPct >= 500.0 -> "UNREALIZED · route pending"
                 else -> "UNREALIZED"
             }

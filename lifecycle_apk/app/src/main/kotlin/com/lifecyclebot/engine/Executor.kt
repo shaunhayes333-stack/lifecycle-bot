@@ -4659,6 +4659,31 @@ class Executor(
             executeProfitLockSell(ts, w, sellFraction6029, "route_real_harvest_${routeMultiple.fmt(1)}x", walletSol)
             return true
         }
+
+        fun tryPersistedEntryRouteHarvest6099(label: String): Boolean {
+            val w = wallet ?: return false
+            val priority6099 = sellRoutePriorityFromBuyRoute6099(ts)
+            if (priority6099 == SellRoutePriority6099.UNKNOWN_BUY_ROUTE) return false
+            val routeMetaPresent6099 = pos.entryPriceSource.isNotBlank() || pos.entryPoolAddress.isNotBlank() || ts.lastPricePoolAddr.isNotBlank() || ts.pairAddress.isNotBlank() || ts.tokenMap.poolAddress.isNotBlank() || ts.tokenMap.pairAddress.isNotBlank()
+            if (!routeMetaPresent6099) return false
+            val routeProfit6099 = (currentValue - pos.costSol).takeIf { it.isFinite() }?.coerceAtLeast(0.0) ?: return false
+            if (gainMultiple < 3.0) return false
+            if (routeProfit6099 < maxOf(0.02, walletSol * 0.05, pos.costSol * 1.5)) return false
+            val remainingFraction6099 = (100.0 - pos.partialSoldPct).coerceAtLeast(0.0) / 100.0
+            val sellFraction6099 = when {
+                gainMultiple >= 50.0 || peakGainPct >= 5_000.0 -> 0.35
+                gainMultiple >= 10.0 || peakGainPct >= 1_000.0 -> 0.30
+                else -> 0.25
+            }.coerceAtMost(remainingFraction6099)
+            if (sellFraction6099 <= 0.0) return false
+            try {
+                ForensicLogger.lifecycle("PERSISTED_ENTRY_ROUTE_HARVEST_6099", "mint=${ts.mint.take(10)} symbol=${ts.symbol} label=$label gain=${gainMultiple.fmt(2)}x peakPct=${peakGainPct.toInt()} profit=${routeProfit6099.fmt(4)} wallet=${walletSol.fmt(4)} priority=$priority6099 entrySource=${pos.entryPriceSource} entryPool=${pos.entryPoolAddress.take(16)} sellPct=${(sellFraction6099*100).toInt()} reason=realpricelock_missing_or_disagrees_but_buy_route_known")
+                PipelineHealthCollector.labelInc("PERSISTED_ENTRY_ROUTE_HARVEST_6099")
+            } catch (_: Throwable) {}
+            onLog("💰🧭 ENTRY-ROUTE HARVEST: ${ts.symbol} @ ${gainMultiple.fmt(1)}x route=$priority6099 — selling ${(sellFraction6099*100).toInt()}% NOW via buy-route priority", ts.mint)
+            executeProfitLockSell(ts, w, sellFraction6099, "entry_route_harvest_${gainMultiple.fmt(1)}x", walletSol)
+            return true
+        }
         // V5.0.6072 — PAPER PARITY. Was `!pos.isPaperPosition && ...`; paper
         // now also fires ultra-runner bank so 50x/100x paper monsters record
         // the exit outcome for learning symmetry.
@@ -4680,6 +4705,7 @@ class Executor(
             } catch (_: Throwable) { true }  // never block on verifier failure
             if (!priceReal) {
                 if (tryRouteRealClaimMismatchHarvest6029("ultra_runner_bank")) return true
+                if (tryPersistedEntryRouteHarvest6099("ultra_runner_bank")) return true
                 try {
                     ForensicLogger.lifecycle(
                         "ULTRA_RUNNER_BANK_DEFERRED_PRICE_UNREAL",
@@ -4742,6 +4768,7 @@ class Executor(
             } catch (_: Throwable) { true }
             if (!priceReal6028) {
                 if (tryRouteRealClaimMismatchHarvest6029("wallet_growth_harvest")) return true
+                if (tryPersistedEntryRouteHarvest6099("wallet_growth_harvest")) return true
                 // V5.0.6045 — STALE-RUNNER FORCE-HARVEST (operator mandate 2026-07-03:
                 // "the bot should be well ahead of its starting balance. this has to
                 //  be captured. no exceptions!").
