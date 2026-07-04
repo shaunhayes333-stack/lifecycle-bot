@@ -7111,6 +7111,10 @@ class GoldenTapeRegressionTest {
         val emptyBlockReason6101 = "blockReason = " + "\"" + "\""
         val badGoodLaneBlockReason6101 = "blockReason = " + "\"" + "GOOD_LANE_VOLUME_PIVOT_6020" + "\""
         assertTrue("V5.0.6101: GOOD_LANE_VOLUME_PIVOT is a positive BUY pivot and must not be emitted as blockReason", botService6101.contains("GOOD_LANE_VOLUME_PIVOT_6020") && botService6101.contains("positive BUY pivot") && botService6101.contains(emptyBlockReason6101) && !botService6101.contains(badGoodLaneBlockReason6101))
+        val walletReconciler6102 = java.io.File("src/main/kotlin/com/lifecyclebot/engine/WalletReconciler.kt").readText()
+        val recoveredHold6102 = java.io.File("src/main/kotlin/com/lifecyclebot/engine/RecoveredHoldGuard.kt").readText()
+        assertTrue("V5.0.6102: known-basis wallet recoveries keep grace but zero-basis recovered orphans must queue scratch cleanup", walletReconciler6102.contains("savedKnownBasis6102") && walletReconciler6102.contains("recoveredKnownBasis6102") && walletReconciler6102.contains("""PendingSellQueue.add(mint, ts.symbol, "WALLET_RECOVERED_ZERO_BASIS_CLEANUP_6102")""") && walletReconciler6102.contains("WALLET_RECOVERED_ZERO_BASIS_CLEANUP_QUEUED_6102"))
+        assertTrue("V5.0.6102: recovered zero-basis cleanup must punch through stale recovered-hold grace", recoveredHold6102.contains("WALLET_RECOVERED_ZERO_BASIS_CLEANUP") && recoveredHold6102.contains("isEmergencyExitOverride"))
     }
 
 

@@ -91,7 +91,8 @@ object RecoveredHoldGuard {
                r.contains("RAPID_CATASTROPHE") ||
                r.contains("WALLET_DRAIN") ||
                r.contains("SHUTDOWN") ||
-               r.contains("HARD_FLOOR")
+               r.contains("HARD_FLOOR") ||
+               r.contains("WALLET_RECOVERED_ZERO_BASIS_CLEANUP")
     }
 
     /** Single-call gate consulted by sell paths. Returns true if the sell
