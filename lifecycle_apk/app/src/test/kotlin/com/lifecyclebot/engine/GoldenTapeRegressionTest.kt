@@ -7074,6 +7074,11 @@ class GoldenTapeRegressionTest {
         val tuningUi6093 = java.io.File("src/main/kotlin/com/lifecyclebot/ui/TuningActivity.kt").readText()
         assertTrue("V5.0.6093: Lane Strategy Replay must actuate bounded LaneExitTuner TP/SL bias, not remain UI-only", laneExitTuner6093.contains("ReplayBias") && laneExitTuner6093.contains("LaneStrategyEvaluator.bestPerLane()") && laneExitTuner6093.contains("LANE_STRATEGY_REPLAY_BIAS_REFRESH_6093") && laneExitTuner6093.contains("LaneStrategyReplay bias 6093") && laneExitTuner6093.contains("refreshReplayBiasAsync") && laneExitTuner6093.contains("getTpMult") && laneExitTuner6093.contains("getSlMult"))
         assertTrue("V5.0.6093: tuning UI must stop claiming replay is read-only/no lanes when warmup contributors exist", tuningUi6093.contains("Lane Strategy Replay now feeds bounded LaneExitTuner TP/SL bias") && tuningUi6093.contains("warming: below statistical threshold, but lanes/traders are contributing") && tuningUi6093.contains("rawBoard.take(12)"))
+        val fdgRoute6094 = java.io.File("src/main/kotlin/com/lifecyclebot/engine/learning/FdgRouteVerdict.kt").readText()
+        assertTrue("V5.0.6094: live paper-micro bleeder buckets must be paper-only, not escalated to live reduced-size", fdgRoute6094.contains("BLOCK_LIVE_BLEEDER_PAPER_ONLY") && fdgRoute6094.contains("LIVE_BLEEDER_PAPER_ONLY_BLOCK_6094") && fdgRoute6094.contains("RuntimeModeAuthority.isLive()") && !fdgRoute6094.contains("LIVE_PAPER_MICRO_ESCALATED_TO_REDUCED_4526"))
+        assertTrue("V5.0.6094: lane quarantine blocks live entries but paper keeps quarantined lanes sampling", botService6087.contains("PAPER_LANE_QUARANTINE_STILL_SAMPLING_6094") && botService6087.contains("RuntimeModeAuthority.isPaper()") && botService6087.contains("paper_enabled_live_quarantined") && botService6087.contains("LaneQuarantineController.logBlockedEntry"))
+        val lanePolicy6094 = java.io.File("src/main/kotlin/com/lifecyclebot/engine/learning/LanePolicy.kt").readText()
+        assertTrue("V5.0.6094: new lanes must be explicit first-class LanePolicy citizens", lanePolicy6094.contains("DIAMOND") && lanePolicy6094.contains("INSIDER") && lanePolicy6094.contains("SHARK") && lanePolicy6094.contains("new lanes are first-class policy citizens"))
     }
 
 

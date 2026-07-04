@@ -23,6 +23,7 @@ object FdgRouteVerdict {
         BLOCK_INVALID_DATA    ("BLOCK_INVALID_DATA"),
         BLOCK_HARD_SAFETY     ("BLOCK_HARD_SAFETY"),
         BLOCK_MODE_AUTHORITY  ("BLOCK_MODE_AUTHORITY"),
+        BLOCK_LIVE_BLEEDER_PAPER_ONLY("BLOCK_LIVE_BLEEDER_PAPER_ONLY"),
         BLOCK_DUPLICATE       ("BLOCK_DUPLICATE"),
         BLOCK_OPERATOR_DISABLED("BLOCK_OPERATOR_DISABLED");
 
@@ -165,13 +166,17 @@ object FdgRouteVerdict {
         // conviction) and the LANE size-multiplier below — never zero, never
         // shadow-only. We keep the verdict executable; size shaping (not
         // route-killing) expresses the danger.
-        // V5.0.4526 — live mode must not inherit PAPER_MICRO semantics. If a
-        // learned danger bucket reaches this router in LIVE, route it as reduced
-        // execution so the strategy stack can still express caution without
-        // collapsing the core buy into 0.01 SOL tuition.
+        // V5.0.6094 — LIVE BLEEDER PAPER-ONLY AUTHORITY.
+        // Operator directive 2026-07-04: paper must keep every valid lane/layer/
+        // trader sampling, including new lanes, but LIVE must not pay tuition for
+        // a lane/bucket the policy has demoted to PAPER_MICRO. Those lanes remain
+        // trainable in paper / NoTradeObservation streams and resume live only
+        // after LaneQuarantineController / LLM Lab / policy promotion proves a
+        // successful strategy. This deliberately reverses the old 4526 escalation
+        // that turned PAPER_MICRO into live reduced-size buys.
         val vFinal = if (v == Verdict.ALLOW_PAPER_MICRO && try { RuntimeModeAuthority.isLive() } catch (_: Throwable) { false }) {
-            try { PipelineHealthCollector.labelInc("LIVE_PAPER_MICRO_ESCALATED_TO_REDUCED_4526") } catch (_: Throwable) {}
-            Verdict.ALLOW_REDUCED_SIZE
+            try { PipelineHealthCollector.labelInc("LIVE_BLEEDER_PAPER_ONLY_BLOCK_6094") } catch (_: Throwable) {}
+            Verdict.BLOCK_LIVE_BLEEDER_PAPER_ONLY
         } else v
         record(vFinal, lane)
         val mult = sizeMultiplier(vFinal, lane, scoreBand)
@@ -197,6 +202,7 @@ object FdgRouteVerdict {
         Verdict.BLOCK_INVALID_DATA   -> "BLOCKED_INVALID_DATA"
         Verdict.BLOCK_HARD_SAFETY    -> "BLOCKED_HARD_SAFETY"
         Verdict.BLOCK_MODE_AUTHORITY -> "BLOCKED_MODE_AUTHORITY"
+        Verdict.BLOCK_LIVE_BLEEDER_PAPER_ONLY -> "LIVE_BLEEDER_PAPER_ONLY"
         Verdict.BLOCK_DUPLICATE      -> "BLOCKED_DUPLICATE"
         Verdict.BLOCK_OPERATOR_DISABLED -> "BLOCKED_OPERATOR_DISABLED"
     }

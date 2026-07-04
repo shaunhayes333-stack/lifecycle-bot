@@ -9828,8 +9828,19 @@ class BotService : Service() {
         // sneak in as primary.
         try {
             if (LaneQuarantineController.isQuarantined(lane)) {
-                LaneQuarantineController.logBlockedEntry(lane, ts.symbol, ts.mint, primaryLane)
-                return false
+                val paperRuntime6094 = try { RuntimeModeAuthority.isPaper() } catch (_: Throwable) { false }
+                if (paperRuntime6094) {
+                    try {
+                        PipelineHealthCollector.labelInc("PAPER_LANE_QUARANTINE_STILL_SAMPLING_6094_${lane.uppercase()}")
+                        ForensicLogger.lifecycle(
+                            "PAPER_LANE_QUARANTINE_STILL_SAMPLING_6094",
+                            "lane=$lane symbol=${ts.symbol} mint=${ts.mint.take(10)} primary=$primaryLane reason=paper_enabled_live_quarantined",
+                        )
+                    } catch (_: Throwable) {}
+                } else {
+                    LaneQuarantineController.logBlockedEntry(lane, ts.symbol, ts.mint, primaryLane)
+                    return false
+                }
             }
         } catch (_: Throwable) { /* quarantine must never break the gate */ }
         // V5.9.1586 — restore 3501 lane behavior. Primary lane is display/default

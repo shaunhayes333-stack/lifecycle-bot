@@ -107,6 +107,12 @@ object LanePolicy {
             key.contains("BLUECHIP")      -> State.NORMAL_EXECUTION
             key.contains("WHALE")         -> State.REDUCED_SIZE_EXECUTION
             key.contains("PRESALE")       -> State.PAPER_MICRO_EXECUTION
+            // V5.0.6094 — new lanes are first-class policy citizens, not anonymous
+            // fall-throughs. Paper samples them normally; live authority is still
+            // controlled by FDG route verdict/quarantine and lab-proof release.
+            key.contains("DIAMOND")       -> State.REDUCED_SIZE_EXECUTION
+            key.contains("INSIDER")       -> State.REDUCED_SIZE_EXECUTION
+            key.contains("SHARK")         -> State.REDUCED_SIZE_EXECUTION
             key.contains("COPY")          -> State.REDUCED_SIZE_EXECUTION
             else                          -> State.REDUCED_SIZE_EXECUTION
         }
