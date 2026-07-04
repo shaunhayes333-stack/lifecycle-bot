@@ -4698,6 +4698,50 @@ for legal compliance.
         }
 
         try {
+            // V5.0.6106 — CryptoAlt / Crypto Universe open positions must be visible
+            // on the main Open Positions surface too, not only inside the separate
+            // CryptoAltActivity. These are non-meme markets, so do NOT use the
+            // meme upsert() helper that requires token mcap/liquidity/pool basis.
+            val cryptoPaper = try { !com.lifecyclebot.perps.CryptoAltTrader.isLiveMode() } catch (_: Throwable) { true }
+            if (cryptoPaper == isPaperMode) {
+                com.lifecyclebot.perps.CryptoAltTrader.getOpenPositions().forEach { cp ->
+                    val mint6106 = (cp.dynMint ?: cp.id).ifBlank { "CRYPTO_ALT_${cp.marketSymbol}" }
+                    if (!alreadyRendered.contains(mint6106)) {
+                        val synth = TokenState(mint = mint6106, symbol = cp.marketSymbol)
+                        val layer6106 = if (cp.isSpot) "CRYPTO_SPOT" else "CRYPTO_LEV"
+                        val recoveredEntry = cp.entryPrice.takeIf { it.isFinite() && it > 0.0 } ?: 0.0
+                        val recoveredCurrent = cp.currentPrice.takeIf { it.isFinite() && it > 0.0 } ?: recoveredEntry
+                        if (recoveredEntry > 0.0 && recoveredCurrent > 0.0 && cp.sizeSol > 0.0) {
+                            val qty6106 = cp.sizeSol / recoveredEntry
+                            synth.position = com.lifecyclebot.data.Position(
+                                qtyToken = qty6106,
+                                entryPrice = recoveredEntry,
+                                entryTime = cp.openTime,
+                                costSol = cp.sizeSol,
+                                highestPrice = if (cp.highestPnlPct > 0.0) recoveredEntry * (1.0 + cp.highestPnlPct / 100.0 / kotlin.math.max(1.0, cp.leverage)) else recoveredCurrent,
+                                entryPhase = "crypto_alt_trader_6106",
+                                entryScore = cp.aiScore.toDouble(),
+                                isPaperPosition = isPaperMode,
+                                tradingMode = layer6106,
+                                tradingModeEmoji = if (cp.isSpot) "CRYPTO" else "CRYPTOx${cp.leverage.toInt()}",
+                                peakGainPct = cp.highestPnlPct,
+                                entryLiquidityUsd = 1.0,
+                                entryMcap = 1.0,
+                                entryPriceSource = "CRYPTO_ALT_TRADER_6106",
+                                entryPoolAddress = cp.id,
+                                entryDex = if (cp.isSpot) "SPOT" else "LEVERAGE",
+                            )
+                            synth.lastPrice = recoveredCurrent
+                            synth.lastPriceUpdate = System.currentTimeMillis()
+                            merged += synth
+                            alreadyRendered += mint6106
+                        }
+                    }
+                }
+            }
+        } catch (_: Exception) {}
+
+        try {
             // V5.9.495z17 — operator: "open positions panel is supposed to
             // show all held positions on the meme trader in paper and live
             // mode". `getActivePositions()` only returns the *current* mode's

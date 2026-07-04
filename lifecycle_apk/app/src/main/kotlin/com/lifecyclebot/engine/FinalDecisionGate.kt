@@ -1626,9 +1626,10 @@ object FinalDecisionGate {
                 // downstream confidence / narrative / momentum gates compute
                 // the right paper size naturally, and low-liq tokens typically
                 // also fail the LOW_CONFIDENCE threshold which already routes
-                // them into the V5.0.3676 paper dust-probe path
-                // (paper_low_conf_dust_probe tag). We add a forensic tag here
-                // so the operator can see WHY a particular paper buy is small.
+                // them into the V5.0.6106 paper economic-dampening path
+                // (paper_low_conf_economic_dampen_6106 tag). We add a forensic
+                // tag here so the operator can see WHY a particular paper buy
+                // is shaped without collapsing into a toy ticket.
                 checks.add(
                     GateCheck(
                         "liq_exec_floor",
@@ -3142,10 +3143,16 @@ object FinalDecisionGate {
                 // mechanical route/liquidity/safety block exists elsewhere. This is
                 // required for the live 2x–5x daily-wallet-growth doctrine: uncertainty
                 // should gather samples at tiny size, not starve the live edge.
+                // V5.0.6106 — paper is not a toy micro-probe sandbox. It is the
+                // economic training set for live sizing. Low confidence still
+                // dampens paper, but does not collapse it into dust tickets.
                 val dustMult = when {
-                    adjustedConfidence < 5  -> if (mode == TradeMode.PAPER) 0.20 else 0.12
-                    adjustedConfidence < 12 -> if (mode == TradeMode.PAPER) 0.30 else 0.18
-                    else                    -> if (mode == TradeMode.PAPER) 0.45 else 0.30
+                    mode == TradeMode.PAPER && adjustedConfidence < 5  -> 0.65
+                    mode == TradeMode.PAPER && adjustedConfidence < 12 -> 0.75
+                    mode == TradeMode.PAPER                            -> 0.85
+                    adjustedConfidence < 5  -> 0.12
+                    adjustedConfidence < 12 -> 0.18
+                    else                    -> 0.30
                 }
                 sizeMultiplier *= dustMult
                 checks.add(
@@ -3155,7 +3162,7 @@ object FinalDecisionGate {
                         "${if (mode == TradeMode.PAPER) "PAPER" else "LIVE"} LOW-CONF ADAPTIVE_SIZE: conf=${adjustedConfidence.toInt()}% < ${confidenceThreshold.toInt()}% → size×${dustMult.format(2)} (no hard block)"
                     )
                 )
-                tags.add(if (mode == TradeMode.PAPER) "paper_low_conf_dust_probe" else "live_low_conf_adaptive_size")
+                tags.add(if (mode == TradeMode.PAPER) "paper_low_conf_economic_dampen_6106" else "live_low_conf_adaptive_size")
                 tags.add("adaptive_conf:${confidenceThreshold.toInt()}")
                 if (isBootstrap) tags.add("paper_bootstrap_phase")
                 ErrorLogger.info("FDG", "🔬 ${if (mode == TradeMode.PAPER) "PAPER" else "LIVE"} LOW-CONF ADAPTIVE_SIZE: ${ts.symbol} | conf=${adjustedConfidence.toInt()}% < ${confidenceThreshold.toInt()}% → size×${dustMult.format(2)}")
@@ -3306,16 +3313,12 @@ object FinalDecisionGate {
         // V5.0.4586 — TOXIC-PATTERN HARD ADMISSION GATE (operator P0 "Rule 5").
         // Operator directive: "Hard block worst patterns, full size for ≥35% WR,
         // half size for no match". The existing LosingPatternMemory soft-shape
-        // (lines below) covers the graceful-shrink path down to ×0.35, plus a
-        // train-first micro-probe at 0.01 SOL. What was missing is a definitive
-        // hard block for buckets that are proven-toxic beyond any reasonable
-        // doubt (sample ≥ 30 with loss rate ≥ 90% and negative mean PnL).
-        // These patterns have been consulted ≥30 times and lost 27+ of them —
-        // continuing to fire micro-probes there is capital vandalism. Existing
-        // ≥35% WR winners already receive full/enlarged size via
-        // LiveStrategyTuner. Bootstrap-era buckets (n<30) still route through
-        // the softer learning_recovery_shaped and train_first_micro_probe
-        // paths, so scanner volume is preserved.
+        // V5.0.6106 update: learned-toxic buckets no longer pay for paper/live
+        // micro probes. They route to NoTradeObservation-backed retraining pause
+        // until LLM Lab / LanePolicy proves a reintroduction strategy. Existing
+        // high-WR winners still receive full/enlarged size via LiveStrategyTuner;
+        // bootstrap buckets preserve scanner volume through observation/evidence,
+        // not toxic toy-ticket execution.
         if (blockReason == null) {
             try {
                 val toxic = LosingPatternMemory.stats(laneName, laneScoreBanded)
@@ -3386,19 +3389,21 @@ object FinalDecisionGate {
                         tags.add("route:${routed.verdict.tag}")
                         checks.add(GateCheck("learned_bucket_evidence", true, "${routed.routeReasonForLog} | size ${originalSize2.format(3)}→${finalSize.format(3)}"))
                     } else {
-                        // V5.9.1325 — TRAIN-FIRST INVARIANT.
-                        // Operator: "FDG is final authority. never stop trading.
-                        // 1000+ quality trades/day. learn the right way."
-                        // Even when the verdict says non-executable, demote to
-                        // a micro paper probe (size 0.01) instead of blocking.
-                        // Hard-safety failures are blocked by other gates above.
+                        // V5.0.6106 — train-first must not mean pay-for-toxic paper
+                        // micro-buys. A bucket routed non-executable is paused from
+                        // paper/live execution until LLM Lab / LanePolicy proves a
+                        // reintroduction strategy. We still record NoTradeObservation
+                        // so the learner sees the candidate without poisoning journal
+                        // PnL or teaching tiny-ticket economics.
                         val originalSize2 = finalSize
-                        finalSize = 0.01
+                        blockReason = "LANE_RETRAINING_PAUSED_${laneName}_${routed.verdict.tag}"
+                        blockLevel = BlockLevel.HARD
+                        finalSize = 0.0
                         tags.add("learning_evidence_required")
                         tags.add("route:${routed.verdict.tag}")
-                        tags.add("train_first_micro_probe")
-                        checks.add(GateCheck("learned_bucket_evidence", true, "${routed.routeReasonForLog} | TRAIN_FIRST_MICRO ${originalSize2.format(3)}→${finalSize.format(3)}"))
-                        // V5.9.1322 — Build B: record this as a NoTradeObservation
+                        tags.add("lane_retraining_paused_6106")
+                        checks.add(GateCheck("learned_bucket_evidence", false, "${routed.routeReasonForLog} | LANE_RETRAINING_PAUSED ${originalSize2.format(3)}→0.000 awaiting_llm_lab_reintroduction"))
+                        // V5.9.1322 / V5.0.6106 — record this as a NoTradeObservation
                         // so SHADOW_TRACK / TRAIN_ONLY routes still feed the model.
                         try {
                             com.lifecyclebot.engine.learning.NoTradeObservationStore.recordBlock(
@@ -4400,17 +4405,18 @@ object FinalDecisionGate {
                             )
                             com.lifecyclebot.engine.learning.LanePolicy.noteRetrainingSample(laneForRouting2, scoreBand2)
                             if (!routed2.proceedToOpen) {
-                                // V5.9.1325 — TRAIN-FIRST INVARIANT (BCG path).
-                                // Operator: V3/FDG is final authority; never stop
-                                // trading. BCG SOFT_BLOCK with learned danger is
-                                // statistical, not safety — demote to micro paper
-                                // probe (size 0.01) instead of vetoing the trade.
+                                // V5.0.6106 — BCG sibling of learned-danger routing:
+                                // pause toxic paper/live execution instead of paying
+                                // for 0.01 micro probes; retain NoTradeObservation for
+                                // LLM Lab / LanePolicy reintroduction evidence.
                                 val originalSize3 = finalSize
-                                finalSize = 0.01
-                                tags.add("bcg_train_first_micro_probe")
+                                blockReason = "LANE_RETRAINING_PAUSED_${laneForRouting2}_${routed2.verdict.tag}"
+                                blockLevel = BlockLevel.HARD
+                                finalSize = 0.0
+                                tags.add("bcg_lane_retraining_paused_6106")
                                 tags.add("route:${routed2.verdict.tag}")
-                                checks.add(GateCheck("brain_consensus_micro", true, "${routed2.routeReasonForLog} | TRAIN_FIRST_MICRO ${originalSize3.format(3)}→${finalSize.format(3)}"))
-                                // V5.9.1322 — Build B: record as NoTradeObservation.
+                                checks.add(GateCheck("brain_consensus_micro", false, "${routed2.routeReasonForLog} | LANE_RETRAINING_PAUSED ${originalSize3.format(3)}→0.000 awaiting_llm_lab_reintroduction"))
+                                // V5.9.1322 / V5.0.6106 — record as NoTradeObservation.
                                 try {
                                     com.lifecyclebot.engine.learning.NoTradeObservationStore.recordBlock(
                                         mint = ts.mint,

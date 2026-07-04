@@ -495,7 +495,7 @@ class GoldenTapeRegressionTest {
         assertTrue("Guard must preserve lane ownership and expose re-education treatment", guard.contains("chooseNonToxicLane") && guard.contains("filterNonToxic") && guard.contains("return lanes.firstOrNull") && guard.contains("treatmentFor"))
         assertTrue("Agentic style election must keep compatibility calls while same-lane style logic owns toxicity", router.contains("LaneToxicityGuard.chooseNonToxicLane") && router.contains("LaneToxicityGuard.filterNonToxic") && router.contains("sameLaneWeakPivotStyle"))
         assertTrue("MemeTrader owner rotation toxicity handling must no longer imply lane amputation", bot.contains("scoreForToxicity") && bot.contains("LaneToxicityGuard.filterNonToxic(rawOwnerPool") && guard.contains("Preserve original lane ownership"))
-        assertTrue("FDG train-first micro/size shaping remains the downstream fallback, not a hard strategy block", fdg.contains("TRAIN_FIRST_MICRO") && fdg.contains("LosingPatternMemory.recommendedSizeMult"))
+        assertTrue("FDG losing learned buckets use LanePolicy/no-trade retraining instead of paid micro probes", fdg.contains("lane_retraining_paused_6106") && fdg.contains("LosingPatternMemory.recommendedSizeMult") && fdg.contains("NoTradeObservationStore.recordBlock") && !fdg.contains("TRAIN_FIRST_MICRO"))
         assertFalse("Toxicity guard must not disable lanes or hard-block trades", guard.contains("BLOCK") || guard.contains("disableLane") || guard.contains("shouldTrade = false"))
     }
 
@@ -7121,6 +7121,12 @@ class GoldenTapeRegressionTest {
         val executor6104 = java.io.File("src/main/kotlin/com/lifecyclebot/engine/Executor.kt").readText()
         assertTrue("V5.0.6104: normal live buys must honor non-micro compound floor even when config allows explicit micro probes", executor6104.contains("explicitLiveMicroProbe6104") && executor6104.contains("minNonMicroLiveBuySol = liveCfg.minLiveBuySol.coerceAtLeast(com.lifecyclebot.engine.LiveSizingProfile.MIN_ENTRY_SOL)") && executor6104.contains("liveCfg.allowLiveMicroProbe && explicitLiveMicroProbe6104"))
         assertTrue("V5.0.6104: pending-proof risk must not double-shrink after realistic live size authority", executor6104.contains("LIVE_PENDING_PROOF_REALISTIC_SIZE_FLOOR_PRESERVED_6104") && executor6104.contains("pending-proof risk is already applied once") && !executor6104.contains("val realisticSolRaw = if (livePendingProofPenalty) baseRealisticSol * 0.35 else baseRealisticSol"))
+        val paperSanity6106 = java.io.File("src/main/kotlin/com/lifecyclebot/engine/PaperLearningSanity.kt").readText()
+        val fdg6106 = java.io.File("src/main/kotlin/com/lifecyclebot/engine/FinalDecisionGate.kt").readText()
+        val mainUi6106 = java.io.File("src/main/kotlin/com/lifecyclebot/ui/MainActivity.kt").readText()
+        assertTrue("V5.0.6106: paper learning must train on economic compounding-size tickets, not 1% toy buys", paperSanity6106.contains("paperSimulatedBalance * 0.05") && paperSanity6106.contains("paperSimulatedBalance * 0.20") && paperSanity6106.contains("economic paper training floor"))
+        assertTrue("V5.0.6106: losing learned buckets pause/retrain instead of paying for micro paper probes", fdg6106.contains("lane_retraining_paused_6106") && fdg6106.contains("bcg_lane_retraining_paused_6106") && fdg6106.contains("paper_low_conf_economic_dampen_6106") && !fdg6106.contains("train_first_micro_probe") && !fdg6106.contains("bcg_train_first_micro_probe"))
+        assertTrue("V5.0.6106: CryptoAlt open positions are synthesized into the main UI Open Positions model", mainUi6106.contains("CRYPTO_ALT_TRADER_6106") && mainUi6106.contains("CryptoAltTrader.getOpenPositions()") && mainUi6106.contains("CRYPTO_SPOT") && mainUi6106.contains("CRYPTO_LEV"))
     }
 
 

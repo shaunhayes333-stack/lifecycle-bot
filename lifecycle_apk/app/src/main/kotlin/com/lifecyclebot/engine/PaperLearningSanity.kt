@@ -11,17 +11,20 @@ object PaperLearningSanity {
     fun configuredMinTradeSol(): Double {
         val cfg = loadCfg()
         val legacyMin = cfg.smallBuySol.takeIf { it.isFinite() && it > 0.0 } ?: BotConfig().smallBuySol
-        // V5.0.3873 — same live-transfer floor as Executor.paperBuy().
-        return maxOf(legacyMin, (cfg.paperSimulatedBalance * 0.01).coerceIn(0.05, 0.15))
+        // V5.0.6106 — economic paper training floor. 1% paper buys (11.76 →
+        // 0.1176 SOL) trained wins/losses on toy tickets and translated into
+        // live dust-sizing. Paper must model sustainable compounding economics:
+        // default floor is 5% of the simulated wallet, bounded for throughput.
+        return maxOf(legacyMin, (cfg.paperSimulatedBalance * 0.05).coerceIn(0.25, 1.0))
     }
 
     fun configuredMaxTradeSol(): Double {
         val cfg = loadCfg()
         val min = configuredMinTradeSol()
         val legacyMax = maxOf(min, cfg.maxPositionSol.takeIf { it.isFinite() && it > 0.0 } ?: BotConfig().maxPositionSol)
-        // V5.0.3873 — same live-transfer cap as Executor.paperBuy(). Do not
-        // quarantine valid larger paper rows just because legacy maxPositionSol is 0.15.
-        return maxOf(legacyMax, (cfg.paperSimulatedBalance * 0.10).coerceIn(legacyMax, 2.0))
+        // V5.0.6106 — same economic paper cap as Executor.paperBuy(). Allow
+        // winners to matter without fantasy-wallet poisoning.
+        return maxOf(legacyMax, (cfg.paperSimulatedBalance * 0.20).coerceIn(legacyMax, 3.0))
     }
 
     fun inspect(t: Trade): Verdict {

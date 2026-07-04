@@ -15789,13 +15789,10 @@ class Executor(
         return try {
             val c = cfg()
             val legacyMax = maxOf(c.smallBuySol, c.maxPositionSol).takeIf { it.isFinite() && it > 0.0 } ?: 0.15
-            // V5.0.3873 — ALL PAPER ENTRIES must train at live-transfer size, not
-            // legacy micro-probe size. SmartSizer can compute realistic paper sizes,
-            // but this final executor clamp used to crush every normal paper lane
-            // back to maxPositionSol (default 0.15 SOL). That makes paper PnL/impact
-            // too small to teach live sizing. Use 10% of configured paper bankroll as
-            // the universal paper-learning cap, bounded to a sane 2 SOL ceiling.
-            maxOf(legacyMax, (c.paperSimulatedBalance * 0.10).coerceIn(legacyMax, 2.0))
+            // V5.0.6106 — ALL PAPER ENTRIES must train at economic transfer size,
+            // not toy size. Use 20% of configured paper bankroll as the universal
+            // paper-learning cap, bounded to prevent fantasy-wallet rows.
+            maxOf(legacyMax, (c.paperSimulatedBalance * 0.20).coerceIn(legacyMax, 3.0))
         } catch (_: Throwable) { 1.0 }
     }
 
@@ -15803,10 +15800,10 @@ class Executor(
         return try {
             val c = cfg()
             val legacyMin = c.smallBuySol.takeIf { it.isFinite() && it > 0.0 } ?: 0.05
-            // V5.0.3873 — live-transfer floor. A 0.01/0.03 SOL paper row is useful
-            // for route smoke, but not for learned live sizing. Default paper bankroll
-            // 11.76 SOL => min ≈0.1176 SOL, still small enough for high throughput.
-            maxOf(legacyMin, (c.paperSimulatedBalance * 0.01).coerceIn(0.05, 0.15))
+            // V5.0.6106 — economic paper floor. Default paper bankroll 11.76 SOL
+            // now floors normal paper buys near 0.588 SOL instead of 0.1176, so
+            // wins/losses train meaningful compounding economics.
+            maxOf(legacyMin, (c.paperSimulatedBalance * 0.05).coerceIn(0.25, 1.0))
         } catch (_: Throwable) { 0.10 }
     }
 
