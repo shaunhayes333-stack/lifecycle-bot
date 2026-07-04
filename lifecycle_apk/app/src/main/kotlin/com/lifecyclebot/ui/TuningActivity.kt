@@ -111,31 +111,33 @@ class TuningActivity : Activity() {
         rootColumn.removeAllViews()
 
         addText(
-            "Read-only tuning signals (already computed by the brains). " +
-                "Use these to decide what to change — nothing is auto-applied here.",
+            "Tuning signals computed by the brains. V5.0.6093: Lane Strategy Replay now feeds bounded LaneExitTuner TP/SL bias; this screen remains a display, not a manual apply button.",
             Color.GRAY, small = true,
         )
 
         // ── 1. PER-LANE EXPECTANCY ─────────────────────────────────────
         addHeader("📊 1. Per-Lane Expectancy (≥5 trades)")
         try {
-            val board = com.lifecyclebot.engine.StrategyTelemetry.computeLeaderboard()
-                .filter { it.isStatisticallyMeaningful }
+            val rawBoard = com.lifecyclebot.engine.StrategyTelemetry.computeLeaderboard()
                 .sortedByDescending { it.meanPnlPct }
-            if (board.isEmpty()) {
-                addText("(no lane has ≥5 settled trades yet)", Color.GRAY)
+            val board = rawBoard.filter { it.isStatisticallyMeaningful }
+            val displayBoard = if (board.isEmpty()) rawBoard.take(12) else board
+            if (displayBoard.isEmpty()) {
+                addText("(no settled lane/trader rows yet)", Color.GRAY)
             } else {
-                for (m in board) {
+                if (board.isEmpty()) addText("(warming: below statistical threshold, but lanes/traders are contributing)", Color.GRAY, small = true)
+                for (m in displayBoard) {
                     // Profitable mean = green, bleeding = red, flat = amber.
                     val color = when {
                         m.meanPnlPct > 1.0 -> "#10B981"
                         m.meanPnlPct < -1.0 -> "#EF4444"
                         else -> "#F59E0B"
                     }
+                    val warmTag = if (!m.isStatisticallyMeaningful) " warm" else ""
                     val line = "${m.strategy}: WR=${"%.0f".format(m.winRatePct)}% " +
                         "μ=${"%+.1f".format(m.meanPnlPct)}% " +
                         "net=${"%+.3f".format(m.totalSolPnl)}◎ " +
-                        "(n=${m.trades} W${m.wins}/L${m.losses}/s${m.scratches})"
+                        "(n=${m.trades} W${m.wins}/L${m.losses}/s${m.scratches}$warmTag)"
                     addKv(line, color)
                 }
             }

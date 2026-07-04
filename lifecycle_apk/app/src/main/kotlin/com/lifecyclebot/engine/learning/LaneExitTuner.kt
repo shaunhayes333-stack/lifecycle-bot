@@ -1,7 +1,9 @@
 package com.lifecyclebot.engine.learning
 
+import kotlinx.coroutines.launch
 import org.json.JSONObject
 import java.util.concurrent.ConcurrentHashMap
+import java.util.concurrent.atomic.AtomicBoolean
 
 /**
  * V5.9.1379 — LANE EXIT TUNER (closed-loop exit-ladder auto-tuning).
@@ -58,7 +60,18 @@ object LaneExitTuner {
         @Volatile var slMult = 1.0
     }
 
+    data class ReplayBias(
+        val profile: String,
+        val tpMult: Double,
+        val slMult: Double,
+        val netSol: Double,
+        val n: Int,
+    )
+
     private val lanes = ConcurrentHashMap<String, LaneState>()
+    @Volatile private var replayBiasByLane: Map<String, ReplayBias> = emptyMap()
+    @Volatile private var replayBiasAtMs: Long = 0L
+    private val replayBiasInFlight = AtomicBoolean(false)
 
     private fun canon(lane: String): String {
         val u = lane.uppercase()
@@ -76,6 +89,39 @@ object LaneExitTuner {
             else                                            -> "STANDARD"
         }
     }
+
+    private fun refreshReplayBiasAsync(reason: String = "close") {
+        val now = System.currentTimeMillis()
+        if (now - replayBiasAtMs < 60_000L && replayBiasByLane.isNotEmpty()) return
+        if (!replayBiasInFlight.compareAndSet(false, true)) return
+        kotlinx.coroutines.GlobalScope.launch(com.lifecyclebot.engine.AppDispatchers.sideEffect) {
+            try {
+                val best = com.lifecyclebot.engine.LaneStrategyEvaluator.bestPerLane()
+                replayBiasByLane = best.mapNotNull { (lane, r) ->
+                    val b = when (r.profile) {
+                        "TIGHT_STOP_-5" -> ReplayBias(r.profile, tpMult = 0.92, slMult = 0.70, netSol = r.netSol, n = r.n)
+                        "FLOOR_-15_LETRUN" -> ReplayBias(r.profile, tpMult = 1.10, slMult = 1.00, netSol = r.netSol, n = r.n)
+                        "FLOOR_-15_TRAIL25" -> ReplayBias(r.profile, tpMult = 1.16, slMult = 1.08, netSol = r.netSol, n = r.n)
+                        "EARLY_TP_+30" -> ReplayBias(r.profile, tpMult = 0.78, slMult = 0.85, netSol = r.netSol, n = r.n)
+                        "NO_TRADE" -> ReplayBias(r.profile, tpMult = 0.72, slMult = 0.70, netSol = r.netSol, n = r.n)
+                        else -> null
+                    }
+                    if (b != null) canon(lane) to b else null
+                }.toMap()
+                replayBiasAtMs = System.currentTimeMillis()
+                try {
+                    com.lifecyclebot.engine.ForensicLogger.lifecycle(
+                        "LANE_STRATEGY_REPLAY_BIAS_REFRESH_6093",
+                        "reason=$reason lanes=${replayBiasByLane.entries.joinToString(";") { "${it.key}:${it.value.profile}:n=${it.value.n}:net=${"%.3f".format(it.value.netSol)}" }.take(400)}",
+                    )
+                } catch (_: Throwable) {}
+            } catch (_: Throwable) {
+            } finally {
+                replayBiasInFlight.set(false)
+            }
+        }
+    }
+
 
     private val STOP_REASONS = listOf(
         "STOP_LOSS", "HARD_FLOOR", "DISTRIBUTION_STOP", "V8_DISTRIBUTION",
@@ -108,6 +154,7 @@ object LaneExitTuner {
                     st.sinceRecalc = 0
                     recompute(st)
                 }
+                refreshReplayBiasAsync("recordClose")
             }
         } catch (_: Throwable) { }
     }
@@ -192,11 +239,15 @@ object LaneExitTuner {
     }
 
     fun getTpMult(lane: String): Double = try {
-        lanes[canon(lane)]?.tpMult ?: 1.0
+        refreshReplayBiasAsync("getTpMult")
+        val key = canon(lane)
+        (lanes[key]?.tpMult ?: 1.0) * (replayBiasByLane[key]?.tpMult ?: 1.0)
     } catch (_: Throwable) { 1.0 }
 
     fun getSlMult(lane: String): Double = try {
-        lanes[canon(lane)]?.slMult ?: 1.0
+        refreshReplayBiasAsync("getSlMult")
+        val key = canon(lane)
+        (lanes[key]?.slMult ?: 1.0) * (replayBiasByLane[key]?.slMult ?: 1.0)
     } catch (_: Throwable) { 1.0 }
 
     fun formatForPipelineDump(): String {
