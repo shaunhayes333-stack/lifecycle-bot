@@ -7035,6 +7035,8 @@ class GoldenTapeRegressionTest {
         val strategyTelemetry6079 = java.io.File("src/main/kotlin/com/lifecyclebot/engine/StrategyTelemetry.kt").readText()
         val liveStrategyTuner6079 = java.io.File("src/main/kotlin/com/lifecyclebot/engine/LiveStrategyTuner.kt").readText()
         assertTrue("V5.0.6079: paper mode must compound/learn from clean paper terminal rows while live mode remains clean-live isolated", strategyTelemetry6079.contains("computeCleanPaperTerminalLeaderboard") && liveStrategyTuner6079.contains("RuntimeModeAuthority.isPaper()") && liveStrategyTuner6079.contains("computeCleanPaperTerminalLeaderboard") && liveStrategyTuner6079.contains("computeCleanLiveTerminalLeaderboard"))
+        val bot6080 = java.io.File("src/main/kotlin/com/lifecyclebot/engine/BotService.kt").readText()
+        assertTrue("V5.0.6080: runner/give-back exits must bypass paper settle-in so warmup cannot let peaks collapse", bot6080.contains("DRAWDOWN_FROM_PEAK_SETTLE_BYPASS_6080") && bot6080.indexOf("DRAWDOWN_FROM_PEAK_SETTLE_BYPASS_6080") < bot6080.indexOf("isInPaperSettleIn(ts, cfg.paperMode)"))
     }
 
 

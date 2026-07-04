@@ -12646,38 +12646,30 @@ class BotService : Service() {
             return true
         }
 
-        // Settle-in only gates the SOFTER paths below (give-back / adaptive).
-        // The two unconditional safety bands above have already run.
+        // V5.0.6080 — RUNNER LOCK MUST PRECEDE SETTLE-IN.
+        // Runtime 6069 showed winners like $TANIMAL peak +272% → now +16% while
+        // PAPER warmup/stale protection was still holding. Settle-in exists to
+        // ignore entry noise; it must never suppress banking a runner that already
+        // printed a large peak and breached its give-back/peak-lock boundary.
+        if (giveBackTrigger) {
+            ErrorLogger.warn(
+                "BotService",
+                "🚨 DRAWDOWN_FROM_PEAK_SETTLE_BYPASS_6080: ${ts.symbol} pnl=${pnlPct.toInt()}% peak=${peakGainPct.toInt()}% drawdown=${drawdownFromPeak.toInt()}pts"
+            )
+            addLog("📉 DRAWDOWN STOP: ${ts.symbol} ${pnlPct.toInt()}% (peak +${peakGainPct.toInt()}% → -${drawdownFromPeak.toInt()}pts give-back)")
+            try { PipelineHealthCollector.labelInc("DRAWDOWN_FROM_PEAK_SETTLE_BYPASS_6080") } catch (_: Throwable) {}
+            try { ForensicLogger.lifecycle("DRAWDOWN_FROM_PEAK_SETTLE_BYPASS_6080", "mint=${ts.mint.take(10)} symbol=${ts.symbol} pnl=${pnlPct.toInt()} peak=${peakGainPct.toInt()} drawdown=${drawdownFromPeak.toInt()} action=runner_lock_before_settle") } catch (_: Throwable) {}
+            executor.requestSell(ts, "RAPID_DRAWDOWN_FROM_PEAK_SETTLE_BYPASS_6080", wallet, effectiveBalance)
+            TradeStateMachine.startCooldown(ts.mint)
+            return true
+        }
+
+        // Settle-in only gates the SOFTER adaptive paths below. It cannot bypass
+        // hard safety above or runner/give-back banking above.
         if (isInPaperSettleIn(ts, cfg.paperMode)) {
             return false
         }
-        return when {
-            pnlPct <= catastropheThreshold -> {
-                ErrorLogger.warn("BotService", "🚨 RAPID STOP (CATASTROPHE): ${ts.symbol} at ${pnlPct.toInt()}%")
-                addLog("🛑 RAPID CATASTROPHE STOP: ${ts.symbol} ${pnlPct.toInt()}% | EXIT")
-                executor.requestSell(ts, "RAPID_CATASTROPHE_STOP", wallet, effectiveBalance)
-                TradeStateMachine.startCatastropheCooldown(ts.mint, pnlPct)
-                true
-            }
-            giveBackTrigger -> {
-                ErrorLogger.warn(
-                    "BotService",
-                    "🚨 DRAWDOWN_FROM_PEAK: ${ts.symbol} pnl=${pnlPct.toInt()}% peak=${peakGainPct.toInt()}% drawdown=${drawdownFromPeak.toInt()}pts"
-                )
-                addLog("📉 DRAWDOWN STOP: ${ts.symbol} ${pnlPct.toInt()}% (peak +${peakGainPct.toInt()}% → -${drawdownFromPeak.toInt()}pts give-back)")
-                executor.requestSell(ts, "RAPID_DRAWDOWN_FROM_PEAK_STOP", wallet, effectiveBalance)
-                TradeStateMachine.startCooldown(ts.mint)
-                true
-            }
-            pnlPct <= -HARD_FLOOR_STOP_PCT_CONST -> {
-                ErrorLogger.warn("BotService", "🚨 RAPID STOP (HARD_FLOOR): ${ts.symbol} at ${pnlPct.toInt()}% (peak=${peakGainPct.toInt()}%)")
-                addLog("🛑 RAPID HARD_FLOOR STOP: ${ts.symbol} ${pnlPct.toInt()}% | EXIT")
-                executor.requestSell(ts, "RAPID_HARD_FLOOR_STOP", wallet, effectiveBalance)
-                TradeStateMachine.startCooldown(ts.mint)
-                true
-            }
-            else -> false
-        }
+        return false
     }
 
     private fun checkBotLoopOrphan(myJob: kotlinx.coroutines.Job?, loopCount: Int): Boolean {
